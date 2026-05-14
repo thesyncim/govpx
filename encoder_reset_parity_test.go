@@ -139,6 +139,62 @@ func TestEncoderResetCBRBytesMatchColdStart(t *testing.T) {
 	}
 }
 
+func TestEncoderResetAfterRuntimeTemporalMatchesColdStartState(t *testing.T) {
+	const (
+		W, H, FPS, KBPS, F = 64, 64, 30, 700, 6
+	)
+	temporal := TemporalScalabilityConfig{
+		Enabled:                true,
+		Mode:                   TemporalLayeringTwoLayers,
+		LayerTargetBitrateKbps: [MaxTemporalLayers]int{420, KBPS},
+	}
+	mkOpts := func() EncoderOptions {
+		return EncoderOptions{
+			Width: W, Height: H, FPS: FPS,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   KBPS,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			Deadline:            DeadlineRealtime,
+			CpuUsed:             -3,
+			KeyFrameInterval:    FPS,
+			BufferSizeMs:        600,
+			BufferInitialSizeMs: 400,
+			BufferOptimalSizeMs: 500,
+			Threads:             1,
+		}
+	}
+	coldOpts := mkOpts()
+	coldOpts.TemporalScalability = temporal
+	encA, err := NewVP8Encoder(coldOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer encA.Close()
+	encB, err := NewVP8Encoder(mkOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer encB.Close()
+	if err := encB.SetTemporalScalability(temporal); err != nil {
+		t.Fatalf("SetTemporalScalability: %v", err)
+	}
+
+	pkt := make([]byte, W*H*6)
+	for i := range F {
+		img := resetParityFrame(W, H, i)
+		if _, err := encB.EncodeInto(pkt, img, uint64(i), 1, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	encB.Reset()
+
+	if diffs := encoderStateDiffs(encA, encB); len(diffs) > 0 {
+		t.Errorf("Reset() did not restore temporal cold-start state (%d diff(s)):\n%s",
+			len(diffs), strings.Join(diffs, "\n"))
+	}
+}
+
 func resetParityFrame(width, height, idx int) Image {
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1

@@ -382,9 +382,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 			"--temporal-periodicity=2",
 			"--temporal-layer-ids=0,1",
 		})
-		// Reset reaches the temporal cold-start keyframe exactly; later
-		// layer-context packets keep the existing temporal drift visible.
-		assertSegmentByteParity(t, "post-reset-temporal-svc", govpxFrames, libvpxFrames, 1)
+		assertSegmentByteParity(t, "post-reset-temporal-svc", govpxFrames, libvpxFrames, 0)
 	})
 
 	t.Run("reset-after-lookahead4-auto-alt-ref-matches-cold-start", func(t *testing.T) {

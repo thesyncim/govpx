@@ -124,6 +124,9 @@ func (e *VP8Encoder) Reset() {
 	e.interCoefTokenCountsValid = false
 	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, encoderMacroblockRows(e.opts.Height), encoderMacroblockCount(e.opts.Width, e.opts.Height))
 	e.interCoefTokenRecordsValid = false
+	e.interRDCoeffCacheSlots = [2]interRDCoeffCacheState{}
+	e.interRDCoeffCacheWinner = 0
+	e.interRDCoeffCacheScratchTarget = nil
 	e.partScratch.Reset()
 	e.loopInfo = vp8common.LoopFilterInfo{}
 	e.loopInfoAlt = vp8common.LoopFilterInfo{}
@@ -197,6 +200,7 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.buffersSet = false
 	e.temporal.codingState = [MaxTemporalLayers]temporalLayerCodingState{}
 	e.temporal.codingValid = [MaxTemporalLayers]bool{}
+	e.initializeTemporalLayerCodingStates()
 	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
