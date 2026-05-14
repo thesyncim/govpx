@@ -404,11 +404,8 @@ func libvpxSectionMaxQFactor(sectionIntra, sectionCoded float64) float64 {
 // gf_group_error_left and gf_group_bits themselves so the allocator
 // stays a pure function.
 func libvpxAssignStdFrameBits(modifiedErr float64, gfGroupErrorLeft float64, gfGroupBits int64, maxBitsPerFrame int, minFrameBandwidth int, framesSinceGolden int, framesTillGFUpdateDue int, altExtraBits int) int {
-	if gfGroupBits <= 0 {
-		return 0
-	}
 	errFraction := 0.0
-	if gfGroupErrorLeft > 0 {
+	if gfGroupErrorLeft > 0 && gfGroupBits > 0 {
 		errFraction = modifiedErr / gfGroupErrorLeft
 	}
 	target := int(float64(gfGroupBits) * errFraction)
@@ -418,7 +415,7 @@ func libvpxAssignStdFrameBits(modifiedErr float64, gfGroupErrorLeft float64, gfG
 		if maxBitsPerFrame > 0 && target > maxBitsPerFrame {
 			target = maxBitsPerFrame
 		}
-		if int64(target) > gfGroupBits {
+		if gfGroupBits > 0 && int64(target) > gfGroupBits {
 			target = int(gfGroupBits)
 		}
 	}

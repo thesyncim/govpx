@@ -37,12 +37,19 @@ type twoPassState struct {
 	kfGroupValid         bool
 	gfGroupValid         bool
 	// gfRefreshTarget is the per-frame target libvpx's
-	// define_gf_group sets for the GF/refresh frame at the start of
-	// the GF section. govpx surfaces it via the next frameTargetBits
-	// call when framesSinceGolden==0, mirroring libvpx's behaviour of
-	// emitting `cpi->per_frame_bandwidth = gf_bits` as the per-frame
-	// target for the first frame of the GF section.
+	// define_gf_group sets for the visible GF/refresh frame at the
+	// start of the GF section. Keyframe-started ARF groups have no
+	// visible GF target in define_gf_group, so this stores the hidden
+	// ARF target there as a harmless fallback; altRefTarget remains the
+	// authoritative hidden-frame target.
 	gfRefreshTarget int
+	// altRefTarget mirrors libvpx's `cpi->twopass.gf_bits`, the hidden
+	// ARF target consumed by encode_frame_to_data_rate when
+	// refresh_alt_ref_frame is set in pass 2. On non-key ARF sections
+	// this is distinct from gfRefreshTarget: define_gf_group computes
+	// the hidden ARF target in loop slot 0, then a visible GF target in
+	// loop slot 1.
+	altRefTarget int
 	// currentFrameIsGFRefresh marks the in-flight frame as a GF/KF
 	// refresh frame so finishFrame can mirror libvpx's
 	// update_golden_frame_stats behaviour: KF/GF refresh resets
@@ -229,10 +236,10 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 }
 
 func (t *twoPassState) altRefFrameTargetBits(defaultTargetBits int) int {
-	if !t.enabled() || t.gfRefreshTarget <= 0 {
+	if !t.enabled() || t.altRefTarget <= 0 {
 		return 0
 	}
-	return t.gfRefreshTarget
+	return t.altRefTarget
 }
 
 func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, defaultTargetBits int, altRefInterval int, useAltRef bool) int {
@@ -292,9 +299,14 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 	}
 	if !keyFrame {
 		if gfBoundary && t.gfGroupValid {
-			// libvpx vp8_second_pass: at the GF boundary (no ARF case)
-			// the per-frame target IS gf_bits — assign_std_frame_bits
-			// is NOT called for the GF refresh frame itself.
+			// libvpx vp8_second_pass: at a non-key ARF boundary,
+			// define_gf_group computes both the hidden ARF target and
+			// the visible GF target. It then calls assign_std_frame_bits
+			// only to drain the residual GF budget/error, restoring the
+			// boosted visible GF target afterward.
+			if useAltRef {
+				_ = t.assignStdFrameBits(modErr, sectionMax)
+			}
 			target = int64(t.gfRefreshTarget)
 		} else if t.gfGroupValid {
 			target = t.assignStdFrameBits(modErr, sectionMax)

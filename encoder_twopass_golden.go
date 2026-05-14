@@ -1,6 +1,8 @@
 package govpx
 
 func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef bool) {
+	t.gfRefreshTarget = 0
+	t.altRefTarget = 0
 	if !t.kfGroupValid || frame >= uint64(len(t.stats)) {
 		t.gfGroupValid = false
 		return
@@ -98,17 +100,17 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 	}
 	// libvpx GF/ARF-bits allocation. When an ARF is pending, the first
 	// allocation loop entry computes twopass.gf_bits for the hidden ARF
-	// with the larger ARF boost formula. Otherwise the normal GF formula
-	// is used: Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100, capped at
-	// baseline_gf_interval*150 with a floor of 125, then halved while
-	// >1000. allocation_chunks = baseline_gf_interval*100 + (Boost-100).
-	// gfu_boost is computed
-	// by walking the prediction-quality decay across the GF interval
-	// (libvpx vp8/encoder/firstpass.c lines 1639-1706); govpx ports
-	// the same walk in computeGFUBoost so the boost matches libvpx
-	// frame-for-frame (within rounding). The Q used to look up
-	// GFQ_ADJUSTMENT is libvpx's `last_q[INTER_FRAME]`, which is 0
-	// before any inter frame has been encoded — for short clips with
+	// with the larger ARF boost formula. On non-key ARF groups the loop
+	// runs a second entry for the visible GF target. Otherwise the normal
+	// GF formula is used: Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100,
+	// capped at baseline_gf_interval*150 with a floor of 125, then halved
+	// while >1000. allocation_chunks = baseline_gf_interval*100 +
+	// (Boost-100). gfu_boost is computed by walking the prediction-quality
+	// decay across the GF interval (libvpx vp8/encoder/firstpass.c lines
+	// 1639-1706); govpx ports the same walk in computeGFUBoost so the
+	// boost matches libvpx frame-for-frame (within rounding). The Q used
+	// to look up GFQ_ADJUSTMENT is libvpx's `last_q[INTER_FRAME]`, which
+	// is 0 before any inter frame has been encoded — for short clips with
 	// a single KF that means Q=0 and GFQ_ADJUSTMENT=80.
 	gfuBoost := computeGFUBoost(t.stats, frame, gfInterval, keyFrameAtBoundary, t.gfIntraErrMin)
 	q := max(t.lastInterQ, 0)
@@ -116,38 +118,6 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 		q = len(libvpxGFBoostQAdjustment) - 1
 	}
 	gfqAdjustment := libvpxGFBoostQAdjustment[q]
-	boost := int64(gfuBoost*gfqAdjustment) / 100
-	allocationChunks := int64(0)
-	if useAltRef {
-		boost = int64(gfuBoost*3*gfqAdjustment) / (2 * 100)
-		boost += int64(gfInterval * 50)
-		if cap := int64(gfInterval+1) * 200; boost > cap {
-			boost = cap
-		}
-		if boost < 125 {
-			boost = 125
-		}
-		allocationChunks = int64(gfInterval+1)*100 + boost
-	} else {
-		if cap := int64(gfInterval) * 150; boost > cap {
-			boost = cap
-		}
-		if boost < 125 {
-			boost = 125
-		}
-		allocationChunks = int64(gfInterval)*100 + (boost - 100)
-	}
-	for boost > 1000 {
-		boost /= 2
-		allocationChunks /= 2
-		if allocationChunks <= 0 {
-			break
-		}
-	}
-	if allocationChunks <= 0 {
-		allocationChunks = 1
-	}
-	gfBits := max(boost*gfGroupBits/allocationChunks, 0)
 	// libvpx alt branch (lines 2017-2046): if mod_frame_err < group
 	// avg, use a smaller alt_gf_bits computed from the frame's own
 	// error scaled by interval; if mod_frame_err >= group avg, ensure
@@ -179,29 +149,73 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 		lastIterIdx = int(frame)
 	}
 	modFrameErr := t.modifiedError(t.stats[lastIterIdx])
-	if modFrameErr*float64(gfInterval) < gfGroupErr {
-		altGFGroupBits := float64(preGFKFGroupBits) *
-			(modFrameErr * float64(gfInterval)) /
-			preGFKFErrorLeft
-		altGFBits := int64(float64(boost) * (altGFGroupBits / float64(allocationChunks)))
-		if gfBits > altGFBits {
-			gfBits = altGFBits
+
+	allocateGFBits := func(arf bool) (int64, int64) {
+		boost := int64(gfuBoost*gfqAdjustment) / 100
+		allocationChunks := int64(0)
+		if arf {
+			boost = int64(gfuBoost*3*gfqAdjustment) / (2 * 100)
+			boost += int64(gfInterval * 50)
+			if cap := int64(gfInterval+1) * 200; boost > cap {
+				boost = cap
+			}
+			if boost < 125 {
+				boost = 125
+			}
+			allocationChunks = int64(gfInterval+1)*100 + boost
+		} else {
+			if cap := int64(gfInterval) * 150; boost > cap {
+				boost = cap
+			}
+			if boost < 125 {
+				boost = 125
+			}
+			allocationChunks = int64(gfInterval)*100 + (boost - 100)
 		}
-	} else {
-		altGFBits := int64(float64(preGFKFGroupBits) * modFrameErr / preGFKFErrorLeft)
-		if altGFBits > gfBits {
-			gfBits = altGFBits
+		for boost > 1000 {
+			boost /= 2
+			allocationChunks /= 2
+			if allocationChunks <= 0 {
+				break
+			}
 		}
+		if allocationChunks <= 0 {
+			allocationChunks = 1
+		}
+		gfBits := max(boost*gfGroupBits/allocationChunks, 0)
+		if modFrameErr*float64(gfInterval) < gfGroupErr {
+			altGFGroupBits := float64(preGFKFGroupBits) *
+				(modFrameErr * float64(gfInterval)) /
+				preGFKFErrorLeft
+			altGFBits := int64(float64(boost) * (altGFGroupBits / float64(allocationChunks)))
+			if gfBits > altGFBits {
+				gfBits = altGFBits
+			}
+		} else {
+			altGFBits := int64(float64(preGFKFGroupBits) * modFrameErr / preGFKFErrorLeft)
+			if altGFBits > gfBits {
+				gfBits = altGFBits
+			}
+		}
+		if gfBits < 0 {
+			gfBits = 0
+		}
+		return gfBits, gfBits + int64(t.minFrameBandwidth)
 	}
-	if gfBits < 0 {
-		gfBits = 0
-	}
-	if gfBits > gfGroupBits {
-		gfBits = gfGroupBits
+
+	gfBits, gfTarget := allocateGFBits(false)
+	arfTarget := int64(0)
+	if useAltRef {
+		arfBits, target := allocateGFBits(true)
+		gfBits = arfBits
+		arfTarget = target
+		if keyFrameAtBoundary {
+			gfTarget = target
+		}
 	}
 	// libvpx: gf_group_bits -= (gf_bits - min_frame_bandwidth)
 	// (line 2090). Mirror that drain.
-	gfGroupBits -= gfBits - int64(t.minFrameBandwidth)
+	gfGroupBits -= gfBits
 	if gfGroupBits < 0 {
 		gfGroupBits = 0
 	}
@@ -243,7 +257,8 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 	t.framesTillGFUpdate = gfInterval
 	t.gfGroupValid = true
 	t.altExtraBits = int(altExtraPer)
-	t.gfRefreshTarget = int(gfBits + int64(t.minFrameBandwidth))
+	t.gfRefreshTarget = int(gfTarget)
+	t.altRefTarget = int(arfTarget)
 	// libvpx onyx_if.c update_golden_frame_stats: frames_since_golden
 	// is zeroed at every GF refresh (including KF, which always
 	// refreshes golden). The post-encode finishFrame increment then
@@ -349,24 +364,24 @@ func computeGFUBoost(stats []FirstPassFrameStats, frame uint64, gfInterval int, 
 // allocator for std P frames inside a GF group. Drains gfGroupBits and
 // gfGroupErrorLeft per call.
 func (t *twoPassState) assignStdFrameBits(modErr float64, maxBits int64) int64 {
-	if !t.gfGroupValid || t.gfGroupErrorLeft <= 0 || t.gfGroupBits <= 0 {
+	if !t.gfGroupValid {
 		return int64(t.minFrameBandwidth)
 	}
-	errFraction := modErr / t.gfGroupErrorLeft
-	target := max(int64(float64(t.gfGroupBits)*errFraction), 0)
-	if maxBits > 0 && target > maxBits {
-		target = maxBits
-	}
-	if target > t.gfGroupBits {
-		target = t.gfGroupBits
+	target := int64(0)
+	if t.gfGroupErrorLeft > 0 && t.gfGroupBits > 0 {
+		errFraction := modErr / t.gfGroupErrorLeft
+		target = max(int64(float64(t.gfGroupBits)*errFraction), 0)
+		if maxBits > 0 && target > maxBits {
+			target = maxBits
+		}
+		if target > t.gfGroupBits {
+			target = t.gfGroupBits
+		}
 	}
 	// Drain (libvpx: gf_group_error_left -= modified_err;
-	// gf_group_bits -= target_frame_size). We update gf_group_bits in
-	// finishFrame (after the actual frame size is known) using the
-	// here-computed target as the libvpx-equivalent
-	// `target_frame_size`. Keep the err drain here so the per-frame
-	// ratio at the next call uses the right denominator even before
-	// finishFrame runs.
+	// gf_group_bits -= target_frame_size). Even when gf_group_bits is
+	// already empty, libvpx still drains the error denominator and then
+	// adds min_frame_bandwidth to the returned target.
 	t.gfGroupErrorLeft -= modErr
 	if t.gfGroupErrorLeft < 0 {
 		t.gfGroupErrorLeft = 0

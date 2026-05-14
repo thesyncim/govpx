@@ -123,11 +123,11 @@ func TestLibvpxAssignStdFrameBitsAltExtraOnOddFrames(t *testing.T) {
 	}
 }
 
-// TestLibvpxAssignStdFrameBitsReturnsZeroOnEmptyGroup pins the libvpx
-// `if (gf_group_bits <= 0) return 0` guard.
-func TestLibvpxAssignStdFrameBitsReturnsZeroOnEmptyGroup(t *testing.T) {
-	if got := libvpxAssignStdFrameBits(20.0, 100.0, 0, 1500, 500, 0, 0, 0); got != 0 {
-		t.Fatalf("assign_std_frame_bits with gf_group_bits=0 = %d, want 0", got)
+// TestLibvpxAssignStdFrameBitsEmptyGroupUsesMinOnly pins the libvpx
+// `target_frame_size=0; target_frame_size += min_frame_bandwidth` path.
+func TestLibvpxAssignStdFrameBitsEmptyGroupUsesMinOnly(t *testing.T) {
+	if got := libvpxAssignStdFrameBits(20.0, 100.0, 0, 1500, 500, 0, 0, 0); got != 500 {
+		t.Fatalf("assign_std_frame_bits with gf_group_bits=0 = %d, want 500", got)
 	}
 }
 
