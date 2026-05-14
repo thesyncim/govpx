@@ -46,6 +46,16 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 		t.Fatalf("GF CBR boost error = %v, want ErrInvalidConfig", err)
 	}
 
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, UndershootPct: 101})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("undershoot pct error = %v, want ErrInvalidConfig", err)
+	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, OvershootPct: 101})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("overshoot pct error = %v, want ErrInvalidConfig", err)
+	}
+
 	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ScreenContentMode: 3})
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("screen content mode error = %v, want ErrInvalidConfig", err)

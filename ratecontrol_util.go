@@ -181,7 +181,8 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 	if rateControlModeUsesCQLevel(cfg.Mode) && (cqLevel < cfg.MinQuantizer || cqLevel > cfg.MaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
-	if min(cfg.UndershootPct, cfg.OvershootPct) < 0 {
+	if cfg.UndershootPct < 0 || cfg.UndershootPct > maxRateControlUndershootPct ||
+		cfg.OvershootPct < 0 || cfg.OvershootPct > maxRateControlOvershootPct {
 		return ErrInvalidConfig
 	}
 	if cfg.BufferSizeMs <= 0 || min(cfg.BufferInitialSizeMs, cfg.BufferOptimalSizeMs) < 0 {

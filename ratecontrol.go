@@ -50,6 +50,7 @@ type RateControlConfig struct {
 	CQLevel int
 
 	// UndershootPct and OvershootPct cap libvpx-style rate adjustment.
+	// Valid range is [0, 100]; zero selects the libvpx default.
 	UndershootPct int
 	OvershootPct  int
 
@@ -317,6 +318,8 @@ const (
 	// CBR fixture; see the panning-30f-80kbps drop scoreboard.
 	defaultRateControlUndershootPct = 100
 	defaultRateControlOvershootPct  = 100
+	maxRateControlUndershootPct     = 100
+	maxRateControlOvershootPct      = 100
 	defaultCQLevel                  = 10
 	libvpxDefaultBufferSizeMs       = 6000
 	libvpxDefaultBufferInitialMs    = 4000

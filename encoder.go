@@ -226,7 +226,7 @@ type EncoderOptions struct {
 	// default.
 	UndershootPct int
 	// OvershootPct caps libvpx-style upward rate adjustment as a percentage of
-	// the target frame size; valid range is [0, 1000]. Zero uses the libvpx
+	// the target frame size; valid range is [0, 100]. Zero uses the libvpx
 	// default.
 	OvershootPct int
 

@@ -270,6 +270,10 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.TargetBitrateKbps <= 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidBitrate
 	}
+	if opts.UndershootPct < 0 || opts.UndershootPct > maxRateControlUndershootPct ||
+		opts.OvershootPct < 0 || opts.OvershootPct > maxRateControlOvershootPct {
+		return EncoderOptions{}, timingState{}, ErrInvalidConfig
+	}
 	if opts.MaxIntraBitratePct < 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}

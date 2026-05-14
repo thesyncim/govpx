@@ -112,6 +112,36 @@ func TestSetRateControlValidation(t *testing.T) {
 	if !errors.Is(err, ErrInvalidQuantizer) {
 		t.Fatalf("error = %v, want ErrInvalidQuantizer", err)
 	}
+
+	err = e.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       101,
+		OvershootPct:        100,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("undershoot error = %v, want ErrInvalidConfig", err)
+	}
+
+	err = e.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        101,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("overshoot error = %v, want ErrInvalidConfig", err)
+	}
 }
 
 func TestSetRateControlCQLevelAffectsNextEncode(t *testing.T) {
