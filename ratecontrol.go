@@ -216,8 +216,9 @@ type rateControlState struct {
 	decimationCount     int
 	dropFramesWaterMark int
 
-	framesSinceKeyframe   int
-	currentTemporalLayers int
+	framesSinceKeyframe    int
+	currentTemporalLayers  int
+	currentTemporalLayerID int
 	// currentLayerPerFrameBandwidth mirrors libvpx's cpu->per_frame_bandwidth
 	// after vp8_new_framerate(cpi, lc->framerate) when TS is active: it is
 	// the current layer's `target_bandwidth / framerate`. It feeds the
@@ -544,6 +545,7 @@ type rateControlFrameContext struct {
 	firstFrame         bool
 	forcedKeyFrame     bool
 	temporalLayerCount int
+	temporalLayerID    int
 	// layerPerFrameBandwidth mirrors libvpx's cpi->per_frame_bandwidth after
 	// vp8_new_framerate(cpi, lc->framerate) when TS is active. For non-TS or
 	// when zero, callers fall back to rc.bitsPerFrame / baseTargetBits.
@@ -557,6 +559,7 @@ type rateControlFrameContext struct {
 func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) {
 	rc.currentTemporalLayers = ctx.temporalLayerCount
 	if ctx.temporalLayerCount > 1 {
+		rc.currentTemporalLayerID = ctx.temporalLayerID
 		if ctx.layerPerFrameBandwidth > 0 {
 			rc.currentLayerPerFrameBandwidth = ctx.layerPerFrameBandwidth
 		} else if baseTargetBits > 0 {
@@ -566,6 +569,7 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 		}
 		rc.currentLayerOutputFrameRate = ctx.layerOutputFrameRate
 	} else {
+		rc.currentTemporalLayerID = 0
 		rc.currentLayerPerFrameBandwidth = 0
 		rc.currentLayerOutputFrameRate = 0
 	}
@@ -619,7 +623,7 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 		targetBits = rc.applyOnePassPFrameOverspendRecovery(targetBits, perFrameBandwidth)
 		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 	}
-	if rc.mode == RateControlCQ {
+	if rc.cqFloorActive() {
 		if rc.currentQuantizer < rc.cqLevel {
 			rc.currentQuantizer = rc.cqLevel
 		}
@@ -630,6 +634,7 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 
 func (rc *rateControlState) beginOnePassAltRefRefreshFrameWithTargetAndContext(baseTargetBits int, ctx rateControlFrameContext) {
 	rc.currentTemporalLayers = ctx.temporalLayerCount
+	rc.currentTemporalLayerID = ctx.temporalLayerID
 	rc.currentLayerPerFrameBandwidth = 0
 	rc.currentLayerOutputFrameRate = 0
 	targetBits := rc.frameTargetBits

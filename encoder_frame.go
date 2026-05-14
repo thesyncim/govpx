@@ -237,6 +237,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount:     temporalFrame.LayerCount,
+			temporalLayerID:        temporalFrame.LayerID,
 			layerPerFrameBandwidth: temporalFrame.LayerFrameTargetBits,
 			layerOutputFrameRate:   e.temporal.temporalLayerOutputFrameRateInt(temporalFrame.LayerID, e.timing),
 			timing:                 e.timing,
@@ -261,6 +262,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			firstFrame:             e.frameCount == 0,
 			forcedKeyFrame:         forcedKeyFrame,
 			temporalLayerCount:     temporalFrame.LayerCount,
+			temporalLayerID:        temporalFrame.LayerID,
 			layerPerFrameBandwidth: layerPerFrameBandwidth,
 			layerOutputFrameRate:   layerOutputFrameRate,
 			timing:                 e.timing,
@@ -503,6 +505,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			}
 			e.rc.beginFrameWithTargetAndContext(true, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
 				temporalLayerCount:     temporalFrame.LayerCount,
+				temporalLayerID:        temporalFrame.LayerID,
 				layerPerFrameBandwidth: layerPerFrameBandwidthRecode,
 				timing:                 e.timing,
 			})

@@ -3240,6 +3240,33 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		},
 	})
 
+	for _, tc := range []struct {
+		name    string
+		mode    RateControlMode
+		cqLevel int
+	}{
+		{name: "two-layer-vbr", mode: RateControlVBR},
+		{name: "two-layer-cq20", mode: RateControlCQ, cqLevel: 20},
+		{name: "two-layer-q20", mode: RateControlQ, cqLevel: 20},
+	} {
+		rcMode := tc.mode
+		cqLevel := tc.cqLevel
+		cases = append(cases, temporalCase{
+			name:   tc.name,
+			fx:     panning64,
+			frames: 12,
+			opts: func() EncoderOptions {
+				opts := temporalOpts(panning64, 0, TemporalLayeringTwoLayers)
+				opts.RateControlMode = rcMode
+				opts.CQLevel = cqLevel
+				return opts
+			}(),
+			flags:     twoLayerFlags(12),
+			script:    twoLayerScript(12),
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		})
+	}
+
 	fiveLayerCPUScript := runtimeTemporalLayerIDScript(18, TemporalLayeringFiveLayers)
 	appendRuntimeControl(fiveLayerCPUScript, 6, "cpu:-3")
 	appendRuntimeControl(fiveLayerCPUScript, 12, "cpu:0")

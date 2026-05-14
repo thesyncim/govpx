@@ -45,7 +45,7 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, gfOrArf)
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(keyFrame, goldenFrame, altRefFrame)
 	rc.currentQuantizer, rc.currentZbinOverQuant = libvpxRegulatedQuantizerWithZbinAltRef(keyFrame, goldenFrame, altRefFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
-	if rc.mode == RateControlCQ && !keyFrame && !gfOrArf {
+	if rc.cqFloorActive() && !keyFrame && !gfOrArf {
 		// libvpx vp8/encoder/onyx_if.c lines 3727-3739: for one-pass
 		// CQ (USAGE_CONSTRAINED_QUALITY) on the ni_frames<=150 branch,
 		// active_best_quality stays at cpi->best_quality for KF/GF/ARF
@@ -122,21 +122,21 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 			if rc.framesSinceKeyframe > 1 && rc.avgFrameQuantizer < q {
 				q = rc.avgFrameQuantizer
 			}
-			if rc.mode == RateControlCQ && q < rc.cqLevel {
+			if rc.cqFloorActive() && q < rc.cqLevel {
 				q = rc.cqLevel
 			}
 			q = clampQuantizerValue(q, 0, vp8MaxQIndex)
 			activeBest = libvpxGoldenFrameHighMotionMinQ[q]
 		default:
 			activeBest = libvpxInterMinQ[q]
-			if rc.mode == RateControlCQ && activeBest < rc.cqLevel {
+			if rc.cqFloorActive() && activeBest < rc.cqLevel {
 				activeBest = rc.cqLevel
 			}
 		}
 		if rc.mode == RateControlCBR {
 			activeBest = rc.libvpxCBRFullBufferActiveBest(activeBest)
 		}
-	} else if rc.mode == RateControlCQ {
+	} else if rc.cqFloorActive() {
 		if !keyFrame && !gfOrArf && activeBest < rc.cqLevel {
 			activeBest = rc.cqLevel
 		}
@@ -164,7 +164,7 @@ func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
 		activeWorst = override
 	}
 	if rc.mode != RateControlCBR || rc.normalInterFrames <= 150 || rc.bufferOptimalBits <= 0 {
-		if rc.mode == RateControlCQ && activeWorst < rc.cqLevel {
+		if rc.cqFloorActive() && activeWorst < rc.cqLevel {
 			activeWorst = rc.cqLevel
 		}
 		return activeWorst
