@@ -45,7 +45,7 @@ fmtcheck:
 
 verify: ci
 
-verify-production: ci oracle-test
+verify-production: ci oracle-test scoreboard
 
 verify-decoder-parity: ci decoder-oracle-test
 
