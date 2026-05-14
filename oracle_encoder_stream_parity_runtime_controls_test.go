@@ -4130,14 +4130,13 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 	appendRuntimeControl(fiveLayerCPUScript, 6, "cpu:-3")
 	appendRuntimeControl(fiveLayerCPUScript, 12, "cpu:0")
 	cases = append(cases, temporalCase{
-		name:       "five-layer-cpu-used-roundtrip",
-		fx:         panning64,
-		frames:     18,
-		opts:       temporalOpts(panning64, 0, TemporalLayeringFiveLayers),
-		flags:      temporalScalabilityReconfigureFlags(18, TemporalLayeringFiveLayers, 0),
-		script:     fiveLayerCPUScript,
-		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringFiveLayers, targetKbps),
-		matchLimit: 8,
+		name:      "five-layer-cpu-used-roundtrip",
+		fx:        panning64,
+		frames:    18,
+		opts:      temporalOpts(panning64, 0, TemporalLayeringFiveLayers),
+		flags:     temporalScalabilityReconfigureFlags(18, TemporalLayeringFiveLayers, 0),
+		script:    fiveLayerCPUScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringFiveLayers, targetKbps),
 		apply: map[int]func(*testing.T, *VP8Encoder){
 			6: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()

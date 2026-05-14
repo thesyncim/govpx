@@ -453,23 +453,13 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, cpuUsed)
 	e.runtimePinnedCPUUsed = e.opts.Deadline == DeadlineRealtime && cpuUsed < 0
 	// libvpx routes VP8E_SET_CPUUSED through vp8_change_config, whose tail
-	// assigns cpi->Speed = oxcf.cpu_used and resets realtime auto-speed timing.
-	// This matters when switching from a pinned realtime speed (negative
-	// cpu_used) back to auto-speed: the next vp8_auto_select_speed starts from
-	// the new config value with a cold timing window.
+	// assigns cpi->Speed = oxcf.cpu_used. It does not reset the accumulated
+	// picker threshold multipliers or realtime timing windows; the next frame's
+	// vp8_initialize_rd_consts re-derives the baseline thresholds from the new
+	// speed and keeps applying the live rd_thresh_mult[] state.
 	e.autoSpeed = e.opts.CpuUsed
-	e.avgPickModeTime = 0
-	e.avgEncodeTime = 0
-	e.autoSpeedFrameStartNS = 0
-	e.resetInterRDThresholdMultipliers()
-	if e.opts.Deadline == DeadlineRealtime && e.opts.CpuUsed >= 0 {
-		// vp8_set_speed_features runs inside vp8_change_config. In realtime
-		// mode its continuous-speed branch clears mb.error_bins when the
-		// configured speed is nonnegative (RT(speed) > 6), before the next
-		// frame's auto-selected speed consumes the histogram.
-		e.interModeErrorBins = [1024]uint32{}
-		e.interModeSpeedErrorBins = [1024]uint32{}
-	}
+	e.interRDThreshBaselineGen++
+	e.interRDFrameRefSearchOrderValid = false
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
