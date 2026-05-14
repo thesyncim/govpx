@@ -101,6 +101,48 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, flags, apply)
 		assertSegmentByteParity(t, "copyref-bytestream", got, want, 0)
 	})
+
+	t.Run("copy-reference-probes-under-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "active:checker+copyref:last+copyref:golden"
+		script[2] = "roi:border1+copyref:golden"
+		script[4] = "noise:3+copyref:last"
+		script[6] = "noise:0+active:off+roi:off+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				activeMapApply("checker")(t, e)
+				copyReferenceProbeApply("frame1", ReferenceLast, ReferenceGolden)(t, e)
+			},
+			2: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				roiMapApply("border1")(t, e)
+				copyReferenceProbeApply("frame2", ReferenceGolden)(t, e)
+			},
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				copyReferenceProbeApply("frame4", ReferenceLast)(t, e)
+			},
+			6: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden, ReferenceAltRef)(t, e)
+			},
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-runtime-controls.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-runtime-controls", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-runtime-controls", got, want, 1)
+	})
 }
 
 type copyReferenceChecksum struct {

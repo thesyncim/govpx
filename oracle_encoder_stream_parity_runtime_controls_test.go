@@ -1984,6 +1984,38 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 				},
 			},
 		},
+		{
+			name:       "three-layer-enable-disable-only",
+			fx:         panning64,
+			frames:     12,
+			opts:       baseOpts(panning64, 0),
+			flags:      temporalScalabilityWindowFlags(12, TemporalLayeringThreeLayers, 2, 8),
+			script:     temporalScalabilityWindowScript(12, TemporalLayeringThreeLayers, 2, 8, runtimeTemporalControlToken(TemporalLayeringThreeLayers, targetKbps)),
+			matchLimit: 3,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: runtimeTemporalApply(TemporalLayeringThreeLayers, targetKbps, "three-layer"),
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
+				},
+			},
+		},
+		{
+			name:       "two-layer-with-sync-enable-disable-only",
+			fx:         panning64,
+			frames:     12,
+			opts:       baseOpts(panning64, 0),
+			flags:      temporalScalabilityWindowFlags(12, TemporalLayeringTwoLayersWithSync, 2, 8),
+			script:     temporalScalabilityWindowScript(12, TemporalLayeringTwoLayersWithSync, 2, 8, runtimeTemporalControlToken(TemporalLayeringTwoLayersWithSync, targetKbps)),
+			matchLimit: 3,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: runtimeTemporalApply(TemporalLayeringTwoLayersWithSync, targetKbps, "two-layer-with-sync"),
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
+				},
+			},
+		},
 	}
 
 	for _, cpuUsed := range []int{0, -3, -8} {
@@ -2023,6 +2055,38 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 				},
 			},
 		})
+	}
+
+	{
+		frames := 18
+		cases = append(cases,
+			temporalCase{
+				name:       "two-layer-to-five-layer-transition",
+				fx:         panning64,
+				frames:     frames,
+				opts:       temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+				flags:      temporalScalabilityModeSwitchFlags(frames, TemporalLayeringTwoLayers, TemporalLayeringFiveLayers, 8),
+				script:     temporalScalabilityModeSwitchScript(frames, TemporalLayeringTwoLayers, TemporalLayeringFiveLayers, 8, targetKbps),
+				extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+				matchLimit: 8,
+				apply: map[int]func(*testing.T, *VP8Encoder){
+					8: runtimeTemporalApply(TemporalLayeringFiveLayers, targetKbps, "five-layer"),
+				},
+			},
+			temporalCase{
+				name:       "five-layer-to-two-layer-transition",
+				fx:         panning64,
+				frames:     frames,
+				opts:       temporalOpts(panning64, 0, TemporalLayeringFiveLayers),
+				flags:      temporalScalabilityModeSwitchFlags(frames, TemporalLayeringFiveLayers, TemporalLayeringTwoLayers, 10),
+				script:     temporalScalabilityModeSwitchScript(frames, TemporalLayeringFiveLayers, TemporalLayeringTwoLayers, 10, targetKbps),
+				extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringFiveLayers, targetKbps),
+				matchLimit: 8,
+				apply: map[int]func(*testing.T, *VP8Encoder){
+					10: runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer"),
+				},
+			},
+		)
 	}
 
 	twoLayerScript := func(frames int) []string {
@@ -2494,6 +2558,50 @@ func temporalScalabilityTwoToThreeScript(frames int) []string {
 		token := "tlid:" + strconv.Itoa(layerID)
 		if frame == 6 {
 			token = "tslayers:3+tsperiodicity:4+tsbitrates:280/420/700+tsdecimators:4/2/1+tsids:0/2/1/2+" + token
+		}
+		script[frame] = token
+	}
+	return script
+}
+
+func temporalScalabilityModeSwitchFlags(frames int, from TemporalLayeringMode, to TemporalLayeringMode, switchFrame int) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	fromPattern, ok := temporalLayeringPattern(from)
+	if !ok {
+		panic("missing source temporal pattern")
+	}
+	toPattern, ok := temporalLayeringPattern(to)
+	if !ok {
+		panic("missing destination temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		if frame < switchFrame {
+			flags[frame] = temporalPatternFlag(fromPattern, uint64(frame), from)
+			continue
+		}
+		flags[frame] = temporalPatternFlag(toPattern, uint64(frame-switchFrame), to)
+	}
+	return flags
+}
+
+func temporalScalabilityModeSwitchScript(frames int, from TemporalLayeringMode, to TemporalLayeringMode, switchFrame int, targetKbps int) []string {
+	script := runtimeControlScript(frames, nil)
+	fromPattern, ok := temporalLayeringPattern(from)
+	if !ok {
+		panic("missing source temporal pattern")
+	}
+	toPattern, ok := temporalLayeringPattern(to)
+	if !ok {
+		panic("missing destination temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		if frame < switchFrame {
+			script[frame] = "tlid:" + strconv.Itoa(temporalPatternLayerID(fromPattern, uint64(frame)))
+			continue
+		}
+		token := "tlid:" + strconv.Itoa(temporalPatternLayerID(toPattern, uint64(frame-switchFrame)))
+		if frame == switchFrame {
+			token = runtimeTemporalControlToken(to, targetKbps) + "+" + token
 		}
 		script[frame] = token
 	}

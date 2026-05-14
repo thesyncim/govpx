@@ -457,6 +457,20 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 			matchLimit: 2,
 		},
 		{
+			name: "temporal-three-layer-drop-low-bitrate-tight-buffer",
+			opts: func() EncoderOptions {
+				opts := baseLowDropOpts()
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringThreeLayers, lowBitrate)
+				return opts
+			}(),
+			flags:     temporalScalabilityReconfigureFlags(frames, TemporalLayeringThreeLayers, 0),
+			script:    runtimeTemporalLayerIDScript(frames, TemporalLayeringThreeLayers),
+			extraArgs: append(baseDropArgs(lowBitrate), runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, lowBitrate)...),
+			// Three-layer cadence combines the same drop-pressure gap as
+			// the two-layer case with a longer layer-context schedule.
+			matchLimit: 2,
+		},
+		{
 			name: "invisible-drop-low-bitrate-tight-buffer",
 			opts: baseLowDropOpts(),
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
@@ -466,6 +480,21 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 			extraArgs: baseDropArgs(lowBitrate),
 			// The stream matches through the initial keyframe; invisible
 			// packets shift the later actual-drop cadence by one packet.
+			matchLimit: 1,
+		},
+		{
+			name: "invisible-altref-drop-low-bitrate-tight-buffer-long",
+			opts: baseLowDropOpts(),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				2:  EncodeInvisibleFrame,
+				5:  EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
+				11: EncodeInvisibleFrame,
+				14: EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
+			}),
+			extraArgs: baseDropArgs(lowBitrate),
+			// Long hidden-frame cadence currently diverges after the
+			// opening keyframe; keep it in the drop matrix so future fixes
+			// have a concrete regression target.
 			matchLimit: 1,
 		},
 		{

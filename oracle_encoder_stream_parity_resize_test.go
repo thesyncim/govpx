@@ -487,6 +487,9 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 		name          string
 		controlScript string
 		apply         func(*testing.T, *VP8Encoder)
+		flags         []EncodeFlags
+		script        []string
+		globalApply   map[int]func(*testing.T, *VP8Encoder)
 		mutate        func(*EncoderOptions)
 		extraArgs     []string
 		limit         int
@@ -630,6 +633,33 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 				roiMapApply("border1")(t, e)
 			},
 		},
+		{
+			name:        "temporal-two-layer-enable",
+			flags:       temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringTwoLayers, framesPerSeg, framesPerSeg*2),
+			script:      temporalScalabilityWindowScript(framesPerSeg*2, TemporalLayeringTwoLayers, framesPerSeg, framesPerSeg*2, "resize:32x32+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, targetKbps)),
+			globalApply: map[int]func(*testing.T, *VP8Encoder){framesPerSeg: runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer")},
+			limit:       framesPerSeg + 1,
+		},
+		{
+			name:  "temporal-two-layer-disable-after-resize",
+			flags: temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringTwoLayers, 0, framesPerSeg),
+			script: func() []string {
+				script := runtimeTemporalDisableScript(framesPerSeg*2, TemporalLayeringTwoLayers, framesPerSeg, targetKbps)
+				script[framesPerSeg] = "resize:32x32+" + runtimeTemporalOffControlToken(targetKbps)
+				return script
+			}(),
+			globalApply: map[int]func(*testing.T, *VP8Encoder){
+				framesPerSeg: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
+				},
+			},
+			mutate: func(opts *EncoderOptions) {
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, targetKbps)
+			},
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+			limit:     framesPerSeg + 1,
+		},
 	}
 
 	for _, tc := range cases {
@@ -652,16 +682,24 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 				tc.mutate(&opts)
 			}
 			sources := append(append([]Image(nil), seg1...), seg2...)
-			script := make([]string, len(sources))
-			for i := range script {
-				script[i] = "-"
+			script := append([]string(nil), tc.script...)
+			if script == nil {
+				script = make([]string, len(sources))
+				for i := range script {
+					script[i] = "-"
+				}
+				script[framesPerSeg] = "resize:32x32+" + tc.controlScript
 			}
-			script[framesPerSeg] = "resize:32x32+" + tc.controlScript
 			extraArgs := append([]string(nil), tc.extraArgs...)
 			extraArgs = append(extraArgs, "--control-script="+strings.Join(script, ","))
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-control-"+tc.name, opts, opts.TargetBitrateKbps, sources, nil, extraArgs)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-control-"+tc.name, opts, opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
 
-			govpxFrames := encodeWithMidStreamResizeAndControl(t, opts, 32, 32, seg1, seg2, tc.apply)
+			var govpxFrames [][]byte
+			if tc.globalApply != nil || tc.flags != nil {
+				govpxFrames = encodeWithMidStreamResizeGlobalControls(t, opts, 32, 32, seg1, seg2, tc.flags, tc.globalApply)
+			} else {
+				govpxFrames = encodeWithMidStreamResizeAndControl(t, opts, 32, 32, seg1, seg2, tc.apply)
+			}
 			assertSegmentByteParity(t, "runtime-resize-control-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
