@@ -1816,7 +1816,7 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx,
-			miRow, miCol, subsize, 2*bs)
+			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
 	}
 }
 
@@ -1924,6 +1924,12 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		inter.ref = savedRef
 		return root
 	}
+	if e.vp9InterPreferTexturedSplit(inter, miRow, miCol, root) &&
+		splitSize >= common.Block8x8 {
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		inter.ref = savedRef
+		return splitSize
+	}
 
 	bsl := int(common.BWidthLog2Lookup[root])
 	bs := (1 << uint(bsl)) / 4
@@ -1975,6 +1981,21 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	inter.ref = savedRef
 	return bestSize
+}
+
+func (e *VP9Encoder) vp9InterPreferTexturedSplit(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) bool {
+	if bsize <= common.Block8x8 {
+		return false
+	}
+	sse, activity, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize)
+	if !ok || sse == 0 {
+		return false
+	}
+	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
+		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
+	return sse > pixels*512 && activity > pixels*128
 }
 
 func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
@@ -2277,6 +2298,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				cur.Skip = 0
 			}
 		}
+		if !segmentSkip {
+			if hasResidue {
+				cur.Skip = 0
+			} else {
+				cur.Skip = 1
+			}
+		}
 		isInter := cur.RefFrame[0] > vp9dec.IntraFrame
 		interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols,
 			tile, miRows, miRow, miCol, bsize)
@@ -2347,7 +2375,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		})
 		if kind == vp9ModeTreeInterSource && inter != nil {
 			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-			if !hasResidue {
+			if cur.Skip != 0 {
 				vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
 				e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 				return
@@ -2950,6 +2978,9 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
 		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
 	if !ok {
+		return maxTx
+	}
+	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
 		return maxTx
 	}
 	// The realtime oracle keeps smooth changed inter blocks below 32x32, while

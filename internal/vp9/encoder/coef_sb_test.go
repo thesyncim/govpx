@@ -290,6 +290,130 @@ func TestWriteCoefSbIntraScanPick(t *testing.T) {
 	}
 }
 
+func TestWriteCoefSbDenseInterTx8LeavesRoundTrip(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+
+	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+	vp9dec.SetupBlockPlanes(&planes, 1, 1)
+	planes[0].AboveContext = make([]uint8, 16)
+	planes[0].LeftContext = make([]uint8, 16)
+	planes[1].AboveContext = make([]uint8, 8)
+	planes[1].LeftContext = make([]uint8, 8)
+	planes[2].AboveContext = make([]uint8, 8)
+	planes[2].LeftContext = make([]uint8, 8)
+
+	dq := int16(16)
+	scan8, _ := scanForTxSize(common.Tx8x8)
+	yCoeffs := make([]int16, 64)
+	yCoeffs[scan8[1]] = dq
+	zero4 := make([]int16, 16)
+	mi := &vp9dec.NeighborMi{
+		SbType: common.Block8x8,
+		Mode:   common.NearestMv,
+		TxSize: common.Tx8x8,
+		RefFrame: [2]int8{
+			vp9dec.LastFrame,
+			vp9dec.NoRefFrame,
+		},
+	}
+
+	buf := make([]byte, 4096)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	for miRow := 0; miRow < 8; miRow++ {
+		for miCol := 0; miCol < 8; miCol++ {
+			aboveOffsets := [vp9dec.MaxMbPlane]int{miCol * 2, miCol, miCol}
+			leftOffsets := [vp9dec.MaxMbPlane]int{miRow * 2, miRow, miRow}
+			if err := WriteCoefSb(&bw, WriteCoefSbArgs{
+				BSize:        common.Block8x8,
+				MiTxSize:     common.Tx8x8,
+				IsInter:      1,
+				Mi:           mi,
+				Planes:       &planes,
+				AboveOffsets: aboveOffsets,
+				LeftOffsets:  leftOffsets,
+				PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+					{dq, dq}, {dq, dq}, {dq, dq},
+				},
+				Fc: &fc,
+				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
+					if plane == 0 {
+						return yCoeffs
+					}
+					return zero4
+				},
+			}); err != nil {
+				t.Fatalf("WriteCoefSb leaf (%d,%d): %v", miRow, miCol, err)
+			}
+		}
+	}
+	size, err := bw.Stop()
+	if err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	for plane := range vp9dec.MaxMbPlane {
+		for i := range planes[plane].AboveContext {
+			planes[plane].AboveContext[i] = 0
+		}
+		for i := range planes[plane].LeftContext {
+			planes[plane].LeftContext[i] = 0
+		}
+	}
+
+	var r bitstream.Reader
+	if err := r.Init(buf[:size]); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	for miRow := 0; miRow < 8; miRow++ {
+		for miCol := 0; miCol < 8; miCol++ {
+			aboveOffsets := [vp9dec.MaxMbPlane]int{miCol * 2, miCol, miCol}
+			leftOffsets := [vp9dec.MaxMbPlane]int{miRow * 2, miRow, miRow}
+			for plane := range vp9dec.MaxMbPlane {
+				pd := &planes[plane]
+				planeType := 0
+				txSize := common.Tx8x8
+				dequant := [2]int16{dq, dq}
+				if plane > 0 {
+					planeType = 1
+					txSize = common.Tx4x4
+				}
+				step := 1 << uint(txSize)
+				aboveCtx := pd.AboveContext[aboveOffsets[plane] : aboveOffsets[plane]+step]
+				leftCtx := pd.LeftContext[leftOffsets[plane] : leftOffsets[plane]+step]
+				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
+				scan, neighbors := scanForTxSize(txSize)
+				coeffs := make([]int16, vp9dec.MaxEobForTxSize(txSize))
+				eob := vp9dec.DecodeCoefs(&r, txSize, planeType, 1, dequant,
+					initCtx, scan, neighbors, &fc, coeffs)
+				if plane == 0 {
+					if eob != 2 {
+						t.Fatalf("Y leaf (%d,%d) eob=%d, want 2", miRow, miCol, eob)
+					}
+					if coeffs[scan8[1]] != dq {
+						t.Fatalf("Y leaf (%d,%d) coeff=%d, want %d",
+							miRow, miCol, coeffs[scan8[1]], dq)
+					}
+				} else if eob != 0 {
+					t.Fatalf("UV plane %d leaf (%d,%d) eob=%d, want 0",
+						plane, miRow, miCol, eob)
+				}
+				hasResidue := uint8(0)
+				if eob > 0 {
+					hasResidue = 1
+				}
+				for i := range step {
+					aboveCtx[i] = hasResidue
+					leftCtx[i] = hasResidue
+				}
+			}
+		}
+	}
+	if r.HasError() {
+		t.Fatal("reader reported a dense Tx8 coefficient stream error")
+	}
+}
+
 // TestWriteCoefSbBlock8x8WithResidue: 8x8 Y has one tx block with a
 // single DC=1 coefficient; the rest are zero. Verifies the walker
 // emits the right wire fragment per block and the above/left

@@ -5954,7 +5954,7 @@ func writeVP9InterResidueSbForTest(bw *bitstream.Writer, miRows, miCols, miRow, 
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(aboveSegCtx, leftSegCtx,
-			miRow, miCol, subsize, 2*bs)
+			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
 	}
 	return nil
 }
@@ -6468,7 +6468,7 @@ func writeVP9InterSkipSbForTest(bw *bitstream.Writer, miRows, miCols, miRow, miC
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(aboveSegCtx, leftSegCtx,
-			miRow, miCol, subsize, 2*bs)
+			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
 	}
 }
 

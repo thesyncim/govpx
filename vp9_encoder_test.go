@@ -3108,8 +3108,11 @@ func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 	if got.Skip != 0 {
 		t.Fatal("top-left block skip=1, want active residual")
 	}
-	if got.TxSize != common.Tx32x32 {
-		t.Fatalf("top-left TxSize = %d, want Tx32x32 from RD scoring", got.TxSize)
+	if got.SbType != common.Block8x8 {
+		t.Fatalf("top-left SbType = %d, want oracle-style Block8x8", got.SbType)
+	}
+	if got.TxSize != common.Tx8x8 {
+		t.Fatalf("top-left TxSize = %d, want oracle-style Tx8x8", got.TxSize)
 	}
 }
 
