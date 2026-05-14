@@ -744,6 +744,40 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "token-partitions-runtime-roundtrip-threads2",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.Threads = 2
+				return opts
+			}(),
+			extraArgs: []string{"--threads=2"},
+			script: runtimeControlScript(frames, map[int]string{
+				2: "token:1",
+				4: "token:2",
+				6: "token:3",
+				9: "token:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(1)", e.SetTokenPartitions(1))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(2)", e.SetTokenPartitions(2))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(3)", e.SetTokenPartitions(3))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(0)", e.SetTokenPartitions(0))
+				},
+			},
+		},
+		{
 			name: "token-partitions-er3-runtime-roundtrip",
 			fx:   panning64,
 			opts: func() EncoderOptions {
