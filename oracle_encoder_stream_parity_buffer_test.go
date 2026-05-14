@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -377,6 +378,163 @@ func TestOracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
 			}
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, tc.name, opts, tc.targetKbps, caseSources, nil, extraArgs)
 			assertSegmentByteParity(t, tc.name, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
+func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame control-cross byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		frames     = 30
+		width      = 64
+		height     = 64
+		lowBitrate = 50
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+
+	baseLowDropOpts := func() EncoderOptions {
+		return EncoderOptions{
+			Width:               width,
+			Height:              height,
+			FPS:                 fps,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   lowBitrate,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			KeyFrameInterval:    999,
+			Deadline:            DeadlineRealtime,
+			CpuUsed:             -3,
+			Tuning:              TunePSNR,
+			BufferSizeMs:        200,
+			BufferInitialSizeMs: 100,
+			BufferOptimalSizeMs: 150,
+			DropFrameAllowed:    true,
+			DropFrameWaterMark:  60,
+		}
+	}
+	baseDropArgs := func(targetKbps int) []string {
+		return []string{
+			"--target-bitrate=" + strconv.Itoa(targetKbps),
+			"--buf-sz=200",
+			"--buf-initial-sz=100",
+			"--buf-optimal-sz=150",
+			"--drop-frame=60",
+		}
+	}
+
+	type dropCross struct {
+		name       string
+		opts       EncoderOptions
+		flags      []EncodeFlags
+		script     []string
+		apply      map[int]func(*testing.T, *VP8Encoder)
+		extraArgs  []string
+		matchLimit int
+	}
+
+	cases := []dropCross{
+		{
+			name: "temporal-two-layer-drop-low-bitrate-tight-buffer",
+			opts: func() EncoderOptions {
+				opts := baseLowDropOpts()
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, lowBitrate)
+				return opts
+			}(),
+			flags:     temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 0),
+			script:    runtimeTemporalLayerIDScript(frames, TemporalLayeringTwoLayers),
+			extraArgs: append(baseDropArgs(lowBitrate), runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, lowBitrate)...),
+			// Govpx currently drops far more temporal-layer packets than
+			// libvpx under tight-buffer pressure; keep the matching prefix
+			// strict and log the remaining packet-count gap.
+			matchLimit: 2,
+		},
+		{
+			name: "invisible-drop-low-bitrate-tight-buffer",
+			opts: baseLowDropOpts(),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				2: EncodeInvisibleFrame,
+				5: EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
+			}),
+			extraArgs: baseDropArgs(lowBitrate),
+			// The stream matches through the initial keyframe; invisible
+			// packets shift the later actual-drop cadence by one packet.
+			matchLimit: 1,
+		},
+		{
+			name: "runtime-drop-enable-disable-low-bitrate",
+			opts: EncoderOptions{
+				Width:             width,
+				Height:            height,
+				FPS:               fps,
+				RateControlMode:   RateControlCBR,
+				TargetBitrateKbps: 700,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				KeyFrameInterval:  999,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           -3,
+				Tuning:            TunePSNR,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1:  "bitrate:50+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:200+bufinit:100+bufopt:150+drop:60",
+				22: "bitrate:700+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000+drop:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(drop on)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   lowBitrate,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        200,
+						BufferInitialSizeMs: 100,
+						BufferOptimalSizeMs: 150,
+						DropFrameAllowed:    true,
+						DropFrameWaterMark:  60,
+					}))
+				},
+				22: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(drop off)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   700,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+			},
+			// Drop-enable parity is strict through frame 21. The
+			// drop-disable transition resets the libvpx rate-control state
+			// differently and starts drifting on the first post-disable packet.
+			matchLimit: 22,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, tc.opts, sources, tc.flags, tc.apply)
+			extraArgs := append([]string(nil), tc.extraArgs...)
+			if tc.script != nil {
+				extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
+			}
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "actual-drop-cross-"+tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
+			assertSegmentByteParity(t, "actual-drop-cross-"+tc.name, govpxFrames, libvpxFrames, tc.matchLimit)
 		})
 	}
 }
