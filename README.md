@@ -3,19 +3,19 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 support and full VP9 Profile 0 support for raw VPx payloads.
+Pure-Go VP8 and full VP9 Profile 0 support for raw VPx payloads.
 
-govpx is for Go programs that need VP8 or full VP9 Profile 0 support without
+govpx is for Go programs that need VP8 or VP9 Profile 0 support without
 cgo and without a libvpx runtime dependency. It produces and consumes raw VP8
 frame payloads and raw VP9 Profile 0 packets for RTP/WebRTC-compatible
 transport.
 
-VP9 scope is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
-superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
-non-4:2:0 chroma variants are out of scope. RTP/WebRTC payload compatibility is
-in scope for both VP8 and VP9. Valid non-Profile-0 VP9 packets return
-`ErrVP9NotImplemented`. Validation uses pinned libvpx v1.16.0 only as an
-oracle; VP9 oracle coverage is Profile 0 only.
+VP9 support is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
+superframes. Profiles 1-3, alpha, high-bit-depth/deep-color, and non-4:2:0
+chroma variants are out of scope. RTP/WebRTC payload compatibility is in scope
+for both VP8 and VP9. Valid non-Profile-0 VP9 packets return
+`ErrVP9NotImplemented`. Validation uses pinned libvpx v1.16.0 as an oracle;
+VP9 oracle coverage is Profile 0 only.
 
 ## Install
 
@@ -99,7 +99,7 @@ Profile 0 packets and valid Profile 0 superframes only.
 | --- | --- |
 | Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, frame dropping, buffer model, min/max quantizers, max intra bitrate |
 | Realtime controls | Error resilience, temporal scalability, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
-| Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, multi-threaded row encode |
+| Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless`, multi-threaded row encode |
 
 Lookahead and auto-alt-ref can make `EncodeInto` return `ErrFrameNotReady`
 while frames are queued. Call `FlushInto` at end of stream until it

@@ -429,6 +429,22 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.TargetBitrateKbps = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Quantizer = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Quantizer = 256 }, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) {
+			o.Lossless = true
+			o.Quantizer = 1
+		}, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) {
+			o.Lossless = true
+			o.Segmentation.Enabled = true
+			o.Segmentation.AltQEnabled[0] = true
+			o.Segmentation.AltQ[0] = 1
+		}, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) {
+			o.Lossless = true
+			o.Segmentation.Enabled = true
+			o.Segmentation.AltLFEnabled[0] = true
+			o.Segmentation.AltLF[0] = 1
+		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.MaxKeyframeInterval = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.FPS = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TimebaseNum = 1 }, ErrInvalidConfig}, // missing Den
@@ -714,6 +730,112 @@ func TestVP9EncoderExplicitQuantizerOverridesDefault(t *testing.T) {
 	if h.Quant.BaseQindex != 1 {
 		t.Fatalf("BaseQindex = %d, want explicit qindex 1", h.Quant.BaseQindex)
 	}
+}
+
+func TestVP9EncoderLosslessKeyframeRoundTripExact(t *testing.T) {
+	const width, height = 32, 32
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		Lossless: true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	img := newVP9CheckerYCbCrForTest(width, height, 16, 240, 32, 224)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode lossless keyframe: %v", err)
+	}
+
+	var br vp9dec.BitReader
+	br.Init(packet)
+	h, err := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if h.Quant.BaseQindex != 0 || !h.Quant.Lossless {
+		t.Fatalf("quantization = %+v, want lossless qindex 0", h.Quant)
+	}
+	if h.Loopfilter.FilterLevel != 0 {
+		t.Fatalf("loop filter level = %d, want 0 for lossless", h.Loopfilter.FilterLevel)
+	}
+	uncSize := br.BytesRead()
+	compEnd := uncSize + int(h.FirstPartitionSize)
+	if compEnd > len(packet) {
+		t.Fatalf("compressed header end %d past packet len %d", compEnd, len(packet))
+	}
+	var cr bitstream.Reader
+	if err := cr.Init(packet[uncSize:compEnd]); err != nil {
+		t.Fatalf("compressed reader Init: %v", err)
+	}
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	out := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless:     h.Quant.Lossless,
+		IntraOnly:    true,
+		KeyFrame:     true,
+		InterpFilter: vp9dec.InterpEighttap,
+	})
+	if out.TxMode != common.Only4x4 {
+		t.Fatalf("TxMode = %d, want Only4x4 for lossless", out.TxMode)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode lossless keyframe: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after lossless keyframe")
+	}
+	assertVP9ImageMatchesYCbCr(t, "lossless keyframe", frame, img)
+}
+
+func TestVP9EncoderLosslessInterRoundTripExact(t *testing.T) {
+	const width, height = 32, 32
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		Lossless: true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode lossless keyframe: %v", err)
+	}
+	interSrc := newVP9CheckerYCbCrForTest(width, height, 16, 240, 32, 224)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode lossless inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode lossless keyframe: %v", err)
+	}
+	keyFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after lossless keyframe")
+	}
+	assertVP9ImageMatchesYCbCr(t, "lossless keyframe", keyFrame, keySrc)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode lossless inter: %v", err)
+	}
+	interFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after lossless inter frame")
+	}
+	assertVP9ImageMatchesYCbCr(t, "lossless inter frame", interFrame, interSrc)
 }
 
 func TestVP9EncoderStaticSegmentationSignalsHeaderAndMap(t *testing.T) {
@@ -3533,6 +3655,38 @@ func vp9VisibleImageEqual(a, b Image) bool {
 	return planeEqual(a.Y, a.YStride, b.Y, b.YStride, a.Width, a.Height) &&
 		planeEqual(a.U, a.UStride, b.U, b.UStride, uvWidth, uvHeight) &&
 		planeEqual(a.V, a.VStride, b.V, b.VStride, uvWidth, uvHeight)
+}
+
+func assertVP9ImageMatchesYCbCr(t *testing.T, name string, got Image, want *image.YCbCr) {
+	t.Helper()
+	wantImage := vp9ImageFromYCbCrForTest(want)
+	if got.Width != wantImage.Width || got.Height != wantImage.Height {
+		t.Fatalf("%s dimensions = %dx%d, want %dx%d",
+			name, got.Width, got.Height, wantImage.Width, wantImage.Height)
+	}
+	checkPlane := func(label string, gotPlane []byte, gotStride int,
+		wantPlane []byte, wantStride, width, height int,
+	) {
+		t.Helper()
+		for y := range height {
+			gotRow := gotPlane[y*gotStride:]
+			wantRow := wantPlane[y*wantStride:]
+			for x := range width {
+				if gotRow[x] != wantRow[x] {
+					t.Fatalf("%s %s[%d,%d] = %d, want %d",
+						name, label, y, x, gotRow[x], wantRow[x])
+				}
+			}
+		}
+	}
+	checkPlane("Y", got.Y, got.YStride, wantImage.Y, wantImage.YStride,
+		wantImage.Width, wantImage.Height)
+	uvWidth := (wantImage.Width + 1) >> 1
+	uvHeight := (wantImage.Height + 1) >> 1
+	checkPlane("U", got.U, got.UStride, wantImage.U, wantImage.UStride,
+		uvWidth, uvHeight)
+	checkPlane("V", got.V, got.VStride, wantImage.V, wantImage.VStride,
+		uvWidth, uvHeight)
 }
 
 func assertVP9VisibleChromaContrast(t *testing.T, got Image, width, height int, minDelta byte) {

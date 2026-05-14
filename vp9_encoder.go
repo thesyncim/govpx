@@ -54,6 +54,10 @@ type VP9EncoderOptions struct {
 	// packet path default pinned to the VP9 realtime CQ oracle.
 	Quantizer int
 
+	// Lossless enables VP9 profile 0 lossless coding. It forces base qindex 0,
+	// 4x4 transforms, WHT reconstruction, and disables the loop filter.
+	Lossless bool
+
 	// MaxKeyframeInterval bounds the gap between key frames. Zero
 	// uses libvpx's default (kf_max_dist=128).
 	MaxKeyframeInterval int
@@ -218,6 +222,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.Quantizer > 255 {
 		return ErrInvalidQuantizer
 	}
+	if opts.Lossless && opts.Quantizer != 0 {
+		return ErrInvalidQuantizer
+	}
 	if opts.FPS < 0 {
 		return ErrInvalidConfig
 	}
@@ -231,6 +238,11 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	}
 	if err := validateVP9SegmentationOptions(opts.Segmentation); err != nil {
 		return err
+	}
+	if opts.Lossless {
+		if err := validateVP9LosslessSegmentationOptions(opts.Segmentation); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -255,6 +267,33 @@ func validateVP9SegmentationOptions(seg VP9SegmentationOptions) error {
 		if seg.RefFrameEnabled[i] &&
 			(seg.RefFrame[i] < vp9dec.IntraFrame || seg.RefFrame[i] > vp9dec.AltrefFrame) {
 			return ErrInvalidConfig
+		}
+	}
+	return nil
+}
+
+func validateVP9LosslessSegmentationOptions(seg VP9SegmentationOptions) error {
+	if !seg.Enabled {
+		return nil
+	}
+	for i := range vp9dec.MaxSegments {
+		if seg.AltQEnabled[i] {
+			qindex := int(seg.AltQ[i])
+			if qindex < 0 {
+				qindex = 0
+			}
+			if qindex != 0 {
+				return ErrInvalidQuantizer
+			}
+		}
+		if seg.AltLFEnabled[i] {
+			filterLevel := int(seg.AltLF[i])
+			if filterLevel < 0 {
+				filterLevel = 0
+			}
+			if filterLevel != 0 {
+				return ErrInvalidConfig
+			}
 		}
 	}
 	return nil
@@ -475,8 +514,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	header.Quant.BaseQindex = int16(qindex)
+	header.Quant.Lossless = qindex == 0 &&
+		header.Quant.YDcDeltaQ == 0 &&
+		header.Quant.UvDcDeltaQ == 0 &&
+		header.Quant.UvAcDeltaQ == 0
 	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
-	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey, resetLoopfilterDeltas)
+	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey,
+		resetLoopfilterDeltas, header.Quant.Lossless)
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
@@ -499,11 +543,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly)
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 
-	txMode := vp9EncoderFrameTxMode(isKey, header.IntraOnly)
+	txMode := vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
 	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block64x64,
 		Mode:   common.DcPred,
-		TxSize: common.Tx32x32,
+		TxSize: common.TxModeToBiggestTxSize[txMode],
 		Skip:   1,
 		RefFrame: [2]int8{
 			vp9dec.IntraFrame,
@@ -530,15 +574,17 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	}, dq)
 	if isKey {
 		keyState = &vp9KeyframeEncodeState{
-			img: img,
-			hdr: &header,
-			dq:  dq,
+			img:      img,
+			hdr:      &header,
+			dq:       dq,
+			lossless: header.Quant.Lossless,
 		}
 	} else if intraOnly {
 		keyState = &vp9KeyframeEncodeState{
-			img: img,
-			hdr: &header,
-			dq:  dq,
+			img:      img,
+			hdr:      &header,
+			dq:       dq,
+			lossless: header.Quant.Lossless,
 		}
 	} else {
 		compoundAllowed = vp9dec.CompoundReferenceAllowed(refSignBias)
@@ -556,6 +602,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 			compoundAllowed: compoundAllowed,
 			refSignBias:     refSignBias,
 			compoundRefs:    compoundRefs,
+			lossless:        header.Quant.Lossless,
 		}
 	}
 	e.resetVP9EncoderAboveEntropyContexts()
@@ -575,7 +622,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		keyState, interState)
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
-		Lossless:             false,
+		Lossless:             header.Quant.Lossless,
 		TxMode:               txMode,
 		IntraOnly:            isKey || header.IntraOnly,
 		InterpFilter:         header.InterpFilter,
@@ -1038,7 +1085,10 @@ func txModeForMi(mi vp9dec.NeighborMi) common.TxMode {
 	return common.Only4x4
 }
 
-func vp9EncoderFrameTxMode(isKey, intraOnly bool) common.TxMode {
+func vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) common.TxMode {
+	if lossless {
+		return common.Only4x4
+	}
 	if isKey || intraOnly {
 		return common.Allow32x32
 	}
@@ -1071,9 +1121,13 @@ func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
 	return uint8(level)
 }
 
-func vp9EncoderLoopFilterParams(qindex int, isKey, resetDeltas bool) vp9dec.LoopfilterParams {
+func vp9EncoderLoopFilterParams(qindex int, isKey, resetDeltas, lossless bool) vp9dec.LoopfilterParams {
+	level := vp9EncoderLoopFilterLevel(qindex, isKey)
+	if lossless {
+		level = 0
+	}
 	return vp9dec.LoopfilterParams{
-		FilterLevel:         vp9EncoderLoopFilterLevel(qindex, isKey),
+		FilterLevel:         level,
 		ModeRefDeltaEnabled: true,
 		ModeRefDeltaUpdate:  resetDeltas,
 		RefDeltas:           [vp9dec.MaxRefLfDeltas]int8{1, 0, -1, -1},
@@ -1496,10 +1550,11 @@ const (
 )
 
 type vp9KeyframeEncodeState struct {
-	img    *image.YCbCr
-	hdr    *vp9dec.UncompressedHeader
-	dq     *vp9dec.DequantTables
-	counts *encoder.FrameCounts
+	img      *image.YCbCr
+	hdr      *vp9dec.UncompressedHeader
+	dq       *vp9dec.DequantTables
+	lossless bool
+	counts   *encoder.FrameCounts
 }
 
 type vp9InterEncodeState struct {
@@ -1513,6 +1568,7 @@ type vp9InterEncodeState struct {
 	compoundAllowed bool
 	refSignBias     [vp9dec.MaxRefFrames]uint8
 	compoundRefs    vp9dec.CompoundFrameRefs
+	lossless        bool
 	counts          *encoder.FrameCounts
 }
 
@@ -2154,7 +2210,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				BSize:        reconBsize,
 				MiTxSize:     cur.TxSize,
 				IsInter:      vp9BoolInt(isInter),
-				Lossless:     false,
+				Lossless:     inter.lossless,
 				Mi:           &cur,
 				Planes:       &e.planes,
 				AboveOffsets: aboveOffsets,
@@ -2219,7 +2275,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			BSize:        reconBsize,
 			MiTxSize:     cur.TxSize,
 			IsInter:      0,
-			Lossless:     false,
+			Lossless:     key.lossless,
 			Mi:           &cur,
 			Planes:       &e.planes,
 			AboveOffsets: aboveOffsets,
@@ -2622,14 +2678,16 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 		bsize, mi.TxSize)
-	if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
-		miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {
-		mi.Mode = intra.mode
-		mi.Mv = [2]vp9dec.MV{}
-		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
-		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
-		return intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
-			miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
+	if !inter.lossless {
+		if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
+			miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {
+			mi.Mode = intra.mode
+			mi.Mv = [2]vp9dec.MV{}
+			mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+			mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
+			return intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
+				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
+		}
 	}
 	hasResidue := false
 	segID := vp9EncoderMiSegmentID(mi)
@@ -3178,9 +3236,10 @@ func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,
 		Height: uint32(e.opts.Height),
 	}
 	keyLike := vp9KeyframeEncodeState{
-		img: inter.img,
-		hdr: &hdr,
-		dq:  inter.dq,
+		img:      inter.img,
+		hdr:      &hdr,
+		dq:       inter.dq,
+		lossless: inter.lossless,
 	}
 	sg := common.SizeGroupLookup[bsize]
 	var yModeCosts [common.IntraModes]int
@@ -3278,9 +3337,10 @@ func (e *VP9Encoder) prepareVP9InterIntraBlockResidue(inter *vp9InterEncodeState
 		Height: uint32(e.opts.Height),
 	}
 	keyLike := vp9KeyframeEncodeState{
-		img: inter.img,
-		hdr: &hdr,
-		dq:  inter.dq,
+		img:      inter.img,
+		hdr:      &hdr,
+		dq:       inter.dq,
+		lossless: inter.lossless,
 	}
 	return e.prepareVP9KeyframeBlockResidue(&keyLike, tile, miRows, miCols,
 		miRow, miCol, bsize, mi, uvMode)
@@ -3954,6 +4014,9 @@ func (e *VP9Encoder) vp9CompoundPredictionStatsLimited(inter *vp9InterEncodeStat
 }
 
 func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
+	if e.opts.Lossless {
+		return 0
+	}
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
 		qindex = vp9DefaultBaseQIndex
@@ -4323,14 +4386,15 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
 		return false
 	}
 	txType := common.DctDct
-	if plane == 0 && txSize != common.Tx32x32 {
+	if plane == 0 && txSize != common.Tx32x32 && !key.lossless {
 		txType = common.IntraModeToTxType[mode]
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false
 	}
-	return e.quantizeVP9TxResidual(dst, stride, txSize, txType, dequant, out)
+	return e.quantizeVP9TxResidual(dst, stride, txSize, txType, dequant, out,
+		key.lossless)
 }
 
 func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
@@ -4346,7 +4410,8 @@ func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false
 	}
-	return e.quantizeVP9TxResidual(dst, stride, txSize, common.DctDct, dequant, out)
+	return e.quantizeVP9TxResidual(dst, stride, txSize, common.DctDct, dequant, out,
+		inter.lossless)
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
@@ -4376,10 +4441,14 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 
 func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 	txSize common.TxSize, txType common.TxType, dequant [2]int16, out []int16,
+	lossless bool,
 ) bool {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
 		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
+		return false
+	}
+	if lossless && txSize != common.Tx4x4 {
 		return false
 	}
 	if txSize == common.Tx32x32 && txType != common.DctDct {
@@ -4389,22 +4458,31 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 		e.txCoeffScratch[i] = 0
 		e.dqCoeffScratch[i] = 0
 	}
-	switch txSize {
-	case common.Tx4x4:
-		encoder.ForwardHT4x4Into(e.residueScratch[:], 4, txType,
+	if lossless {
+		txType = common.DctDct
+		encoder.ForwardWHT4x4Into(e.residueScratch[:], 4,
 			e.txCoeffScratch[:maxEob])
-	case common.Tx8x8:
-		encoder.ForwardHT8x8Into(e.residueScratch[:], 8, txType,
-			e.txCoeffScratch[:maxEob])
-	case common.Tx16x16:
-		encoder.ForwardHT16x16Into(e.residueScratch[:], 16, txType,
-			e.txCoeffScratch[:maxEob])
-	case common.Tx32x32:
-		encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
-	default:
-		return false
+	} else {
+		switch txSize {
+		case common.Tx4x4:
+			encoder.ForwardHT4x4Into(e.residueScratch[:], 4, txType,
+				e.txCoeffScratch[:maxEob])
+		case common.Tx8x8:
+			encoder.ForwardHT8x8Into(e.residueScratch[:], 8, txType,
+				e.txCoeffScratch[:maxEob])
+		case common.Tx16x16:
+			encoder.ForwardHT16x16Into(e.residueScratch[:], 16, txType,
+				e.txCoeffScratch[:maxEob])
+		case common.Tx32x32:
+			encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
+		default:
+			return false
+		}
 	}
 	scan := common.ScanOrders[txSize][txType].Scan
+	if lossless {
+		scan = common.DefaultScanOrders[txSize].Scan
+	}
 	eob := 0
 	if txSize == common.Tx32x32 {
 		eob = encoder.QuantizeFP32x32(e.txCoeffScratch[:maxEob], dequant,
@@ -4418,7 +4496,7 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 	}
 	copy(out[:maxEob], e.dqCoeffScratch[:maxEob])
 	vp9dec.InverseTransformBlock(out[:maxEob],
-		dst, stride, txSize, txType, eob, false)
+		dst, stride, txSize, txType, eob, lossless)
 	return true
 }
 

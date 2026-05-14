@@ -97,6 +97,65 @@ func ForwardDCT4x4Into(input []int16, stride int, output []int16) {
 	}
 }
 
+// ForwardWHT4x4Into mirrors libvpx v1.16.0 vp9_fwht4x4_c. VP9 lossless
+// mode uses this reversible 4x4 Walsh-Hadamard transform instead of the
+// normal DCT path.
+func ForwardWHT4x4Into(input []int16, stride int, output []int16) {
+	var tmp [16]int
+
+	for i := 0; i < 4; i++ {
+		a1 := int(input[0*stride+i])
+		b1 := int(input[1*stride+i])
+		c1 := int(input[2*stride+i])
+		d1 := int(input[3*stride+i])
+
+		a1 += b1
+		d1 -= c1
+		e1 := (a1 - d1) >> 1
+		b1 = e1 - b1
+		c1 = e1 - c1
+		a1 -= c1
+		d1 += b1
+
+		tmp[0*4+i] = a1
+		tmp[1*4+i] = c1
+		tmp[2*4+i] = d1
+		tmp[3*4+i] = b1
+	}
+
+	n := len(output)
+	if n > 16 {
+		n = 16
+	}
+	for i := range n {
+		output[i] = 0
+	}
+	if len(output) < 16 {
+		return
+	}
+
+	for i := 0; i < 4; i++ {
+		base := i * 4
+		a1 := tmp[base+0]
+		b1 := tmp[base+1]
+		c1 := tmp[base+2]
+		d1 := tmp[base+3]
+
+		a1 += b1
+		d1 -= c1
+		e1 := (a1 - d1) >> 1
+		b1 = e1 - b1
+		c1 = e1 - c1
+		a1 -= c1
+		d1 += b1
+
+		output[base+0] = int16(a1 << 2)
+		output[base+1] = int16(c1 << 2)
+		output[base+2] = int16(d1 << 2)
+		output[base+3] = int16(b1 << 2)
+	}
+}
+
 // ForwardDCT8x8 mirrors libvpx v1.16.0 vpx_fdct8x8_c. Input is an 8x8
 // residual block with caller-provided stride; output is raster-order
 // transform coefficients.

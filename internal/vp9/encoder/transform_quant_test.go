@@ -23,6 +23,40 @@ func TestForwardDCT4x4ConstantKeepsOnlyDC(t *testing.T) {
 	}
 }
 
+func TestForwardWHT4x4MatchesLibvpxSentinels(t *testing.T) {
+	var constant [16]int16
+	for i := range constant {
+		constant[i] = 10
+	}
+	var got [16]int16
+	ForwardWHT4x4Into(constant[:], 4, got[:])
+	if got[0] != 160 {
+		t.Fatalf("constant WHT DC = %d, want 160; coeffs=%v", got[0], got)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] != 0 {
+			t.Fatalf("constant WHT AC[%d] = %d, want 0; coeffs=%v", i, got[i], got)
+		}
+	}
+
+	input := [16]int16{
+		0, 1, 2, 3,
+		4, 5, 6, 7,
+		8, 9, 10, 11,
+		12, 13, 14, 15,
+	}
+	want := [16]int16{
+		120, -16, 0, -8,
+		-64, 0, 0, 0,
+		0, 0, 0, 0,
+		-32, 0, 0, 0,
+	}
+	ForwardWHT4x4Into(input[:], 4, got[:])
+	if got != want {
+		t.Fatalf("ramp WHT mismatch\ngot  %v\nwant %v", got, want)
+	}
+}
+
 func TestForwardDCT8x8ConstantKeepsOnlyDC(t *testing.T) {
 	var input [64]int16
 	for i := range input {
