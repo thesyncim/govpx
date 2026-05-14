@@ -284,6 +284,7 @@ type rateControlState struct {
 	lastBoost              int
 	currentGFInterval      int
 	framesTillGFUpdateDue  int
+	onePassAutoGold        bool
 	framesSinceGolden      int
 	keyFrameCount          int
 	keyFrameFrequency      int

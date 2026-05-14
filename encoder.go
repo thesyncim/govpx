@@ -1068,6 +1068,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// refresh.
 	if e.rc.mode != RateControlCBR && len(normalized.TwoPassStats) == 0 {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+		e.rc.onePassAutoGold = true
 	}
 	e.cyclicRefreshConfigured = normalized.ErrorResilient ||
 		(e.rc.mode == RateControlCBR && len(normalized.TwoPassStats) == 0)

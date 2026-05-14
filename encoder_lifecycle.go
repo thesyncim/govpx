@@ -161,6 +161,7 @@ func (e *VP8Encoder) Reset() {
 	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, e.opts.TwoPassMinPct)
 	if e.rc.mode != RateControlCBR && len(e.opts.TwoPassStats) == 0 {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+		e.rc.onePassAutoGold = true
 	}
 	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
 		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)

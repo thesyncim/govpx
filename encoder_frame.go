@@ -125,12 +125,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	goldenCBROpportunity := e.goldenFrameCBROpportunity(keyFrame, temporalReferenceControl, flags)
 	goldenCBRRefresh := goldenCBROpportunity && e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
-	// libvpx auto_gold one-pass non-CBR refresh decision: VBR/CQ
-	// triggers GF refresh when frames_till_gf_update_due==0 and
-	// pct_intra<15 || gf_frame_usage>=5. govpx funnels it through the
-	// same goldenCBRRefresh local so the existing CBR-shaped code path
-	// (rc bookkeeping, header copy, and post-encode GF accounting)
-	// applies uniformly.
+	// libvpx auto_gold one-pass refresh decision: streams that were
+	// created with the non-CBR one-pass auto-golden path trigger GF
+	// refresh when frames_till_gf_update_due==0 and pct_intra<15 ||
+	// gf_frame_usage>=5. govpx funnels it through the same
+	// goldenCBRRefresh local so the existing CBR-shaped code path (rc
+	// bookkeeping, header copy, and post-encode GF accounting) applies
+	// uniformly.
 	if !goldenCBRRefresh && e.shouldRefreshGoldenFrameOnePassNonCBR(keyFrame, temporalReferenceControl, flags, rows, cols) {
 		goldenCBRRefresh = true
 	}

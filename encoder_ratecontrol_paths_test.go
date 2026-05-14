@@ -412,6 +412,132 @@ func TestEncodeIntoOnePassVBRRefreshesGoldenOnLibvpxIntervals(t *testing.T) {
 	}
 }
 
+func TestOnePassAutoGoldenPreservesStartupModeAcrossRuntimeReconfigure(t *testing.T) {
+	newEncoder := func(t *testing.T, mode RateControlMode) *VP8Encoder {
+		t.Helper()
+		e, err := NewVP8Encoder(EncoderOptions{
+			Width:             32,
+			Height:            32,
+			FPS:               30,
+			RateControlMode:   mode,
+			TargetBitrateKbps: 700,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			CQLevel:           20,
+			Deadline:          DeadlineRealtime,
+			CpuUsed:           0,
+			KeyFrameInterval:  999,
+		})
+		if err != nil {
+			t.Fatalf("NewVP8Encoder returned error: %v", err)
+		}
+		return e
+	}
+	forceOpportunity := func(e *VP8Encoder) (int, int) {
+		rows := encoderMacroblockRows(e.opts.Height)
+		cols := encoderMacroblockCols(e.opts.Width)
+		e.rc.framesTillGFUpdateDue = 0
+		e.rc.thisFramePercentIntra = 10
+		e.rc.recentRefFrameUsageIntra = rows * cols / 4
+		e.rc.recentRefFrameUsageLast = rows * cols
+		e.rc.gfActiveCount = rows * cols
+		return rows, cols
+	}
+
+	cbrStart := newEncoder(t, RateControlCBR)
+	if err := cbrStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlQ,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             20,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(Q) from CBR returned error: %v", err)
+	}
+	rows, cols := forceOpportunity(cbrStart)
+	if cbrStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("CBR-start runtime Q auto-golden refresh = true, want false")
+	}
+
+	cqStart := newEncoder(t, RateControlCQ)
+	if err := cqStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlQ,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             20,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(Q) from CQ returned error: %v", err)
+	}
+	rows, cols = forceOpportunity(cqStart)
+	if !cqStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("CQ-start runtime Q auto-golden refresh = false, want true")
+	}
+
+	qStart := newEncoder(t, RateControlQ)
+	rows, cols = forceOpportunity(qStart)
+	if !qStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("Q-start auto-golden refresh = false, want true")
+	}
+}
+
+func TestOnePassAutoGoldenDisabledForTwoPassStartup(t *testing.T) {
+	sources := []Image{
+		encoderValidationPanningFrame(32, 32, 0),
+		encoderValidationPanningFrame(32, 32, 1),
+		encoderValidationPanningFrame(32, 32, 2),
+	}
+	stats := collectRuntimeControlFirstPassStats(t, EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		KeyFrameInterval:  999,
+	}, sources)
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		TwoPassStats:      stats,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		KeyFrameInterval:  999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	e.rc.framesTillGFUpdateDue = 0
+	e.rc.thisFramePercentIntra = 10
+	e.rc.recentRefFrameUsageIntra = rows * cols / 4
+	e.rc.recentRefFrameUsageLast = rows * cols
+	e.rc.gfActiveCount = rows * cols
+
+	if e.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("two-pass startup auto-golden refresh = true, want false")
+	}
+}
+
 func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

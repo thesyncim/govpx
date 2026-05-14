@@ -364,10 +364,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			opts: baseOpts(panning32),
 			// The static matrix covers CBR/CQ/Q as construction-time
 			// choices; this row pins the runtime vpx_codec_enc_config_set
-			// path between all three modes. CBR->CQ and the first Q
-			// packets are now byte-identical; the late Q packet drift is
-			// still logged as the remaining mode-switch gap.
-			matchLimit: 10,
+			// path between all three modes.
 			script: runtimeControlScript(frames, map[int]string{
 				3: "endusage:cq+cq:30+minq:4+maxq:56+bitrate:700+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
 				7: "endusage:q+cq:20+minq:4+maxq:56+bitrate:700+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",

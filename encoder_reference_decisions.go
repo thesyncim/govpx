@@ -403,13 +403,15 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 //	}
 //
 // govpx routes CBR through `shouldRefreshGoldenFrameCBR`; this method
-// covers VBR and CQ. Returns true when libvpx would force a GF
-// refresh on this frame.
+// covers the one-pass auto-golden path seeded at compressor creation.
+// Returns true when libvpx would force a GF refresh on this frame.
 func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
 	if keyFrame ||
 		temporalActive ||
 		e.opts.ErrorResilient ||
 		e.rc.mode == RateControlCBR ||
+		e.twoPass.enabled() ||
+		!e.rc.onePassAutoGold ||
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
 		return false
 	}
