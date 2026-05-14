@@ -349,6 +349,8 @@ func TestOracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
 		// the cold-segment resize matrix above.
 		{name: "64x64-to-32x32-realtime-cpu0-cbr", w1: 64, h1: 64, w2: 32, h2: 32, deadline: DeadlineRealtime, cpuUsed: 0, rcMode: RateControlCBR},
 		{name: "64x64-to-32x32-realtime-cpu-3-cbr", w1: 64, h1: 64, w2: 32, h2: 32, deadline: DeadlineRealtime, cpuUsed: -3, rcMode: RateControlCBR},
+		{name: "64x64-to-32x32-realtime-cpu0-vbr", w1: 64, h1: 64, w2: 32, h2: 32, deadline: DeadlineRealtime, cpuUsed: 0, rcMode: RateControlVBR},
+		{name: "64x64-to-32x32-realtime-cpu-3-vbr", w1: 64, h1: 64, w2: 32, h2: 32, deadline: DeadlineRealtime, cpuUsed: -3, rcMode: RateControlVBR},
 		{name: "65x33-to-33x17-realtime-cpu0-cbr", w1: 65, h1: 33, w2: 33, h2: 17, deadline: DeadlineRealtime, cpuUsed: 0, rcMode: RateControlCBR},
 		{name: "96x96-to-64x64-good-cpu0-vbr", w1: 96, h1: 96, w2: 64, h2: 64, deadline: DeadlineGoodQuality, cpuUsed: 0, rcMode: RateControlVBR},
 	}
