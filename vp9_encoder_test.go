@@ -2512,6 +2512,41 @@ func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
+	const width, height = 128, 128
+	const x0, y0 = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	for x := 0; x < 64; x++ {
+		e.reconY[(y0-1)*e.reconFrame.YStride+x0+x] = byte(48 + x*2)
+	}
+	for y := 0; y < 64; y++ {
+		e.reconY[(y0+y)*e.reconFrame.YStride+x0-1] = byte(32 + y*3)
+	}
+	for y := 0; y < 64; y++ {
+		row := img.Y[(y0+y)*img.YStride:]
+		for x := 0; x < 64; x++ {
+			if y < 32 && x < 32 {
+				row[x0+x] = e.reconY[(y0-1)*e.reconFrame.YStride+x0+x]
+			} else {
+				row[x0+x] = e.reconY[(y0+y)*e.reconFrame.YStride+x0-1]
+			}
+		}
+	}
+
+	hdr := vp9dec.UncompressedHeader{Width: width, Height: height}
+	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	mi := vp9dec.NeighborMi{SbType: common.Block64x64, TxSize: common.Tx32x32}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 16, MiColStart: 0, MiColEnd: 16}
+	got := e.pickVP9KeyframeMode(key, tile, 16, 16, 8, 8, common.Block64x64, &mi)
+	if got != common.HPred {
+		t.Fatalf("mode = %d, want HPred from full-block score", got)
+	}
+}
+
 func TestVP9EncoderKeyframePicksHorizontalModeForTx16(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 16})
 	img := newVP9HorizontalBandsForTest(32, 16, 128, 128)
@@ -2581,7 +2616,7 @@ func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
+func TestVP9EncoderKeyframeSignalsTx16DirectionalMode(t *testing.T) {
 	const width, height = 128, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	img := newVP9HorizontalBandsForTest(width, height, 128, 128)
@@ -2607,8 +2642,8 @@ func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
 	if got.TxSize != common.Tx16x16 {
 		t.Fatalf("second block tx size = %d, want Tx16x16", got.TxSize)
 	}
-	if got.Mode != common.HPred {
-		t.Fatalf("second block mode = %d, want HPred", got.Mode)
+	if got.Mode != common.TmPred {
+		t.Fatalf("second block mode = %d, want TmPred", got.Mode)
 	}
 }
 

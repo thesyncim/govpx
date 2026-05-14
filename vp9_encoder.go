@@ -1911,21 +1911,62 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	if key == nil || mi == nil {
 		return common.DcPred
 	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	yModeProbs := vp9dec.GetYModeProbs(mi, above, left, 0)
+	var yModeCosts [common.IntraModes]int
+	encoder.VP9CostTokens(yModeCosts[:], yModeProbs, common.IntraModeTree[:])
+	qindex := e.vp9EncoderModeDecisionQIndex()
+
 	bestMode := common.DcPred
-	bestScore, ok := e.scoreVP9KeyframeTxPrediction(key, &e.planes[0], bestMode,
-		0, mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+	bestScore, ok := e.scoreVP9KeyframeMode(key, bestMode,
+		yModeCosts[bestMode], qindex, tile, miRows, miCols, miRow, miCol,
+		bsize, mi)
 	if !ok {
 		return bestMode
 	}
 	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
-		score, ok := e.scoreVP9KeyframeTxPrediction(key, &e.planes[0], mode,
-			0, mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+		score, ok := e.scoreVP9KeyframeMode(key, mode, yModeCosts[mode],
+			qindex, tile, miRows, miCols, miRow, miCol, bsize, mi)
 		if ok && score < bestScore {
 			bestScore = score
 			bestMode = mode
 		}
 	}
 	return bestMode
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeMode(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, rate, qindex int, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
+) (uint64, bool) {
+	if mi == nil {
+		return 0, false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, false
+	}
+	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	step := 1 << uint(mi.TxSize)
+	var distortion uint64
+	for rr := 0; rr < max4x4H; rr += step {
+		for cc := 0; cc < max4x4W; cc += step {
+			score, ok := e.scoreVP9KeyframeTxPrediction(key, pd, mode, 0,
+				mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc)
+			if !ok {
+				return 0, false
+			}
+			distortion += score
+		}
+	}
+	return vp9ModeDecisionScore(distortion, rate, qindex), true
 }
 
 func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
@@ -3568,7 +3609,11 @@ func (e *VP9Encoder) vp9MiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi {
 	if r < 0 || c < 0 || r >= miRows || c >= miCols {
 		return nil
 	}
-	return &e.miGrid[r*miCols+c]
+	off := r*miCols + c
+	if off < 0 || off >= len(e.miGrid) {
+		return nil
+	}
+	return &e.miGrid[off]
 }
 
 func (e *VP9Encoder) fillVP9MiGrid(miRows, miCols, r, c int, bsize common.BlockSize, mi vp9dec.NeighborMi) {
