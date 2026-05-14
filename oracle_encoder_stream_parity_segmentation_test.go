@@ -494,13 +494,14 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	cases := []struct {
-		name             string
-		pattern          string
-		limit            int
-		cpuUsed          int
-		noiseSensitivity int
-		threads          int
-		extraArgs        []string
+		name              string
+		pattern           string
+		limit             int
+		cpuUsed           int
+		noiseSensitivity  int
+		screenContentMode int
+		threads           int
+		extraArgs         []string
 	}{
 		{name: "all", pattern: "all", limit: 0},
 		{name: "checker", pattern: "checker", limit: 0},
@@ -530,6 +531,10 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 		{name: "right-off-noise5", pattern: "right-off", noiseSensitivity: 5, limit: 0, extraArgs: []string{"--noise-sensitivity=5"}},
 		{name: "right-off-noise6", pattern: "right-off", noiseSensitivity: 6, limit: 0, extraArgs: []string{"--noise-sensitivity=6"}},
 		{name: "right-off-noise3-cpu-3", pattern: "right-off", cpuUsed: -3, noiseSensitivity: 3, limit: 0, extraArgs: []string{"--noise-sensitivity=3"}},
+		// Checker-active denoiser already has post-keyframe drift; screen
+		// content mode 2 keeps that compound path visible in the matrix.
+		{name: "checker-noise3-screen-content2", pattern: "checker", noiseSensitivity: 3, screenContentMode: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--screen-content-mode=2"}},
+		{name: "right-off-noise3-screen-content2", pattern: "right-off", noiseSensitivity: 3, screenContentMode: 2, limit: 0, extraArgs: []string{"--noise-sensitivity=3", "--screen-content-mode=2"}},
 		{name: "border-off-noise1", pattern: "border-off", noiseSensitivity: 1, limit: 1, extraArgs: []string{"--noise-sensitivity=1"}},
 		{name: "border-off-noise2", pattern: "border-off", noiseSensitivity: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=2"}},
 		{name: "border-off-noise3", pattern: "border-off", noiseSensitivity: 3, limit: 1, extraArgs: []string{"--noise-sensitivity=3"}},
@@ -548,6 +553,7 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 				caseOpts.CpuUsed = tc.cpuUsed
 			}
 			caseOpts.NoiseSensitivity = tc.noiseSensitivity
+			caseOpts.ScreenContentMode = tc.screenContentMode
 			caseOpts.Threads = tc.threads
 			apply := map[int]func(*testing.T, *VP8Encoder){
 				0: func(t *testing.T, e *VP8Encoder) {
