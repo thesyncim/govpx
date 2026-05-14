@@ -610,6 +610,33 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	assertVP9FilledFrame(t, frame, 96, 80, 201, 44, 19)
 }
 
+func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 0, 0, 0)
+	interSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.IntraFrame ||
+		got.Mode != common.DcPred || got.Skip != 1 {
+		t.Fatalf("top-left inter-frame intra = ref %d mode %d skip %d, want IntraFrame/DcPred skip=1",
+			got.RefFrame[0], got.Mode, got.Skip)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after inter-frame intra")
+	}
+	assertVP9FilledFrame(t, frame, width, height, 128, 128, 128)
+}
+
 func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
 	keySrc := newVP9YCbCrForTest(32, 32, 128, 128, 128)
