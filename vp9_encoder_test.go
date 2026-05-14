@@ -454,6 +454,7 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) {
 			o.Segmentation.Enabled = true
 			o.Segmentation.RefFrameEnabled[0] = true
+			o.Segmentation.RefFrame[0] = VP9RefFrameIntra - 1
 		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
 			o.Segmentation.Enabled = true
@@ -842,6 +843,49 @@ func TestVP9EncoderStaticRefFrameSegmentForcesGoldenReference(t *testing.T) {
 				i, mi.RefFrame)
 		}
 	}
+}
+
+func TestVP9EncoderStaticRefFrameSegmentForcesIntraBlock(t *testing.T) {
+	const width, height = 64, 64
+	const segID = 5
+
+	opts := VP9EncoderOptions{Width: width, Height: height}
+	opts.Segmentation.Enabled = true
+	opts.Segmentation.UpdateMap = true
+	opts.Segmentation.SegmentID = segID
+	opts.Segmentation.RefFrameEnabled[segID] = true
+	opts.Segmentation.RefFrame[segID] = VP9RefFrameIntra
+
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	assertVP9StaticRefFrameSegmentationHeaderForTest(t, keyHeader.Seg, segID,
+		VP9RefFrameIntra)
+
+	inter, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	assertVP9DecoderSegmentIDForTest(t, d, segID)
+	for i, mi := range d.miGrid {
+		if mi.RefFrame != [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame} {
+			t.Fatalf("miGrid[%d].RefFrame = %v, want forced INTRA",
+				i, mi.RefFrame)
+		}
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after forced-intra inter frame")
+	}
+	assertVP9VisibleYContrast(t, frame, width, height, 40)
+	assertVP9VisibleChromaContrast(t, frame, width, height, 40)
 }
 
 func TestVP9EncoderStaticRefFrameSegmentRejectsDisabledReference(t *testing.T) {

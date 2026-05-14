@@ -89,7 +89,8 @@ type VP9SegmentationOptions struct {
 	// SkipEnabled configures SEG_LVL_SKIP per segment.
 	SkipEnabled [VP9MaxSegments]bool
 	// RefFrameEnabled / RefFrame configure SEG_LVL_REF_FRAME per segment.
-	// RefFrame values must be LastFrame, GoldenFrame, or AltrefFrame.
+	// RefFrame values must be VP9RefFrameIntra, VP9RefFrameLast,
+	// VP9RefFrameGolden, or VP9RefFrameAltRef.
 	RefFrameEnabled [VP9MaxSegments]bool
 	RefFrame        [VP9MaxSegments]int8
 }
@@ -100,9 +101,18 @@ type VP9SegmentationOptions struct {
 // Deprecated: Encode and EncodeInto no longer return this error.
 var ErrVP9EncoderNotImplemented = errors.New("govpx: VP9 encoder path unavailable")
 
-// VP9MaxSegments is the number of segment IDs available in a VP9 profile 0
-// frame.
-const VP9MaxSegments = vp9dec.MaxSegments
+const (
+	// VP9MaxSegments is the number of segment IDs available in a VP9 profile 0
+	// frame.
+	VP9MaxSegments = vp9dec.MaxSegments
+
+	// VP9RefFrame* are the public values accepted by
+	// VP9SegmentationOptions.RefFrame.
+	VP9RefFrameIntra  int8 = vp9dec.IntraFrame
+	VP9RefFrameLast   int8 = vp9dec.LastFrame
+	VP9RefFrameGolden int8 = vp9dec.GoldenFrame
+	VP9RefFrameAltRef int8 = vp9dec.AltrefFrame
+)
 
 // VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
 type VP9Encoder struct {
@@ -243,7 +253,7 @@ func validateVP9SegmentationOptions(seg VP9SegmentationOptions) error {
 			return ErrInvalidConfig
 		}
 		if seg.RefFrameEnabled[i] &&
-			(seg.RefFrame[i] < vp9dec.LastFrame || seg.RefFrame[i] > vp9dec.AltrefFrame) {
+			(seg.RefFrame[i] < vp9dec.IntraFrame || seg.RefFrame[i] > vp9dec.AltrefFrame) {
 			return ErrInvalidConfig
 		}
 	}
@@ -768,6 +778,9 @@ func (e *VP9Encoder) validateVP9InterSegmentationReferences(flags EncodeFlags) e
 			continue
 		}
 		refFrame := seg.RefFrame[i]
+		if refFrame == vp9dec.IntraFrame {
+			continue
+		}
 		if mask&(1<<uint(refFrame)) == 0 {
 			return ErrInvalidConfig
 		}
@@ -2030,7 +2043,27 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		segID := vp9EncoderMiSegmentID(&cur)
 		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 		forcedRefFrame, forcedRef := vp9EncoderForcedSegmentRefFrame(seg, segID)
-		if segmentSkip {
+		forcedIntra := forcedRef && forcedRefFrame == vp9dec.IntraFrame
+		if forcedIntra {
+			cur.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+			cur.InterpFilter = uint8(vp9dec.SwitchableFilters)
+			if intra, ok := e.pickVP9ForcedInterIntraMode(inter, tile, miRows, miCols,
+				miRow, miCol, reconBsize, cur.TxSize); ok {
+				cur.Mode = intra.mode
+				uvMode = intra.uvMode
+			}
+			if kind == vp9ModeTreeInterSource && inter != nil {
+				intraResidue := e.prepareVP9InterIntraBlockResidue(inter, tile,
+					miRows, miCols, miRow, miCol, reconBsize, &cur, uvMode)
+				if !segmentSkip && intraResidue {
+					hasResidue = true
+					cur.Skip = 0
+				}
+			}
+			if segmentSkip {
+				cur.Skip = 1
+			}
+		} else if segmentSkip {
 			if kind == vp9ModeTreeInterSource && inter != nil {
 				e.prepareVP9InterSkipPrediction(inter, miRows, miCols,
 					miRow, miCol, reconBsize, &cur, forcedRefFrame, forcedRef)
@@ -2234,7 +2267,7 @@ func vp9EncoderForcedSegmentRefFrame(seg *vp9dec.SegmentationParams, segID int) 
 		return 0, false
 	}
 	ref := int8(vp9dec.GetSegData(seg, segID, vp9dec.SegLvlRefFrame))
-	if ref < vp9dec.LastFrame || ref > vp9dec.AltrefFrame {
+	if ref < vp9dec.IntraFrame || ref > vp9dec.AltrefFrame {
 		return 0, false
 	}
 	return ref, true
@@ -3087,7 +3120,15 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, txSize common.TxSize, interScore uint64,
 ) (vp9InterIntraDecision, bool) {
-	if inter == nil || bsize < common.Block8x8 {
+	if inter == nil {
+		return vp9InterIntraDecision{}, false
+	}
+	decision, ok := e.pickVP9InterIntraModeCore(inter, tile, miRows, miCols,
+		miRow, miCol, bsize, txSize,
+		func(above, left *vp9dec.NeighborMi) int {
+			return vp9IntraInterRateCost(&inter.selectFc, above, left, 0)
+		})
+	if !ok {
 		return vp9InterIntraDecision{}, false
 	}
 	var left *vp9dec.NeighborMi
@@ -3098,6 +3139,39 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	interAdjusted := interScore + vp9ModeDecisionRateScore(
 		vp9IntraInterRateCost(&inter.selectFc, above, left, 1), qindex)
+	if decision.score >= interAdjusted {
+		return vp9InterIntraDecision{}, false
+	}
+	return decision, true
+}
+
+func (e *VP9Encoder) pickVP9ForcedInterIntraMode(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, txSize common.TxSize,
+) (vp9InterIntraDecision, bool) {
+	return e.pickVP9InterIntraModeCore(inter, tile, miRows, miCols,
+		miRow, miCol, bsize, txSize,
+		func(*vp9dec.NeighborMi, *vp9dec.NeighborMi) int { return 0 })
+}
+
+func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, txSize common.TxSize,
+	intraInterRate func(above, left *vp9dec.NeighborMi) int,
+) (vp9InterIntraDecision, bool) {
+	if inter == nil || bsize < common.Block8x8 {
+		return vp9InterIntraDecision{}, false
+	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	qindex := e.vp9EncoderModeDecisionQIndex()
+	rateBase := 0
+	if intraInterRate != nil {
+		rateBase = intraInterRate(above, left)
+	}
 
 	hdr := vp9dec.UncompressedHeader{
 		Width:  uint32(e.opts.Width),
@@ -3112,7 +3186,6 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	var yModeCosts [common.IntraModes]int
 	encoder.VP9CostTokens(yModeCosts[:], inter.selectFc.YModeProb[sg][:],
 		common.IntraModeTree[:])
-	intraInterRate := vp9IntraInterRateCost(&inter.selectFc, above, left, 0)
 
 	bestSet := false
 	var best vp9InterIntraDecision
@@ -3127,7 +3200,7 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 		if !ok {
 			return
 		}
-		rate := intraInterRate + yModeCosts[mode] + uvRate
+		rate := rateBase + yModeCosts[mode] + uvRate
 		cand := vp9InterIntraDecision{
 			mode:   mode,
 			uvMode: uvMode,
@@ -3145,10 +3218,7 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
 		tryMode(mode)
 	}
-	if !bestSet || best.score >= interAdjusted {
-		return vp9InterIntraDecision{}, false
-	}
-	return best, true
+	return best, bestSet
 }
 
 func (e *VP9Encoder) pickVP9InterIntraUvMode(key *vp9KeyframeEncodeState,
