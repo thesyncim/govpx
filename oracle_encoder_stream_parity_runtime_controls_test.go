@@ -1686,6 +1686,23 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name:  "active-map-no-upd-last-no-ref-gf-arf",
+			fx:    panning64,
+			opts:  baseOpts(panning64),
+			flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker",
+				8: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("checker"),
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
 			name: "active-map-checker-toggle-noise3-threads2",
 			fx:   panning64,
 			opts: func() EncoderOptions {
@@ -1772,6 +1789,26 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name:  "rtc-external-no-ref-all-no-upd-entropy",
+			fx:    panning64,
+			opts:  baseOpts(panning64),
+			flags: repeatFlag(frames-1, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef|EncodeNoUpdateEntropy),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "rtc:1",
+				8: "rtc:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+				},
+			},
+		},
+		{
 			name: "active-map-roi-runtime-cross",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
@@ -1788,6 +1825,23 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				8: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name:  "roi-border-no-upd-entropy-no-upd-all",
+			fx:    segmented64,
+			opts:  baseOpts(segmented64),
+			flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:border1",
+				8: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("border1"),
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
 					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
 				},
 			},
