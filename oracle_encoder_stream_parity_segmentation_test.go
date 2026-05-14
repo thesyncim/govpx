@@ -510,10 +510,30 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 		{name: "left-off-cpu-3", pattern: "left-off", cpuUsed: -3, limit: 0},
 		{name: "right-off-cpu-3", pattern: "right-off", cpuUsed: -3, limit: 0},
 		{name: "border-off-cpu-3", pattern: "border-off", cpuUsed: -3, limit: 0},
+		{name: "checker-noise1", pattern: "checker", noiseSensitivity: 1, limit: 1, extraArgs: []string{"--noise-sensitivity=1"}},
+		{name: "checker-noise2", pattern: "checker", noiseSensitivity: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=2"}},
 		{name: "checker-noise3", pattern: "checker", noiseSensitivity: 3, limit: 1, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "checker-noise4", pattern: "checker", noiseSensitivity: 4, limit: 1, extraArgs: []string{"--noise-sensitivity=4"}},
+		{name: "checker-noise5", pattern: "checker", noiseSensitivity: 5, limit: 1, extraArgs: []string{"--noise-sensitivity=5"}},
+		{name: "checker-noise6", pattern: "checker", noiseSensitivity: 6, limit: 1, extraArgs: []string{"--noise-sensitivity=6"}},
+		{name: "left-off-noise1", pattern: "left-off", noiseSensitivity: 1, limit: 2, extraArgs: []string{"--noise-sensitivity=1"}},
+		{name: "left-off-noise2", pattern: "left-off", noiseSensitivity: 2, limit: 2, extraArgs: []string{"--noise-sensitivity=2"}},
 		{name: "left-off-noise3", pattern: "left-off", noiseSensitivity: 3, limit: 2, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "left-off-noise4", pattern: "left-off", noiseSensitivity: 4, limit: 2, extraArgs: []string{"--noise-sensitivity=4"}},
+		{name: "left-off-noise5", pattern: "left-off", noiseSensitivity: 5, limit: 2, extraArgs: []string{"--noise-sensitivity=5"}},
+		{name: "left-off-noise6", pattern: "left-off", noiseSensitivity: 6, limit: 2, extraArgs: []string{"--noise-sensitivity=6"}},
+		{name: "right-off-noise1", pattern: "right-off", noiseSensitivity: 1, limit: 0, extraArgs: []string{"--noise-sensitivity=1"}},
+		{name: "right-off-noise2", pattern: "right-off", noiseSensitivity: 2, limit: 0, extraArgs: []string{"--noise-sensitivity=2"}},
 		{name: "right-off-noise3", pattern: "right-off", noiseSensitivity: 3, limit: 0, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "right-off-noise4", pattern: "right-off", noiseSensitivity: 4, limit: 0, extraArgs: []string{"--noise-sensitivity=4"}},
+		{name: "right-off-noise5", pattern: "right-off", noiseSensitivity: 5, limit: 0, extraArgs: []string{"--noise-sensitivity=5"}},
+		{name: "right-off-noise6", pattern: "right-off", noiseSensitivity: 6, limit: 0, extraArgs: []string{"--noise-sensitivity=6"}},
+		{name: "border-off-noise1", pattern: "border-off", noiseSensitivity: 1, limit: 1, extraArgs: []string{"--noise-sensitivity=1"}},
+		{name: "border-off-noise2", pattern: "border-off", noiseSensitivity: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=2"}},
 		{name: "border-off-noise3", pattern: "border-off", noiseSensitivity: 3, limit: 1, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "border-off-noise4", pattern: "border-off", noiseSensitivity: 4, limit: 1, extraArgs: []string{"--noise-sensitivity=4"}},
+		{name: "border-off-noise5", pattern: "border-off", noiseSensitivity: 5, limit: 1, extraArgs: []string{"--noise-sensitivity=5"}},
+		{name: "border-off-noise6", pattern: "border-off", noiseSensitivity: 6, limit: 1, extraArgs: []string{"--noise-sensitivity=6"}},
 		{name: "checker-noise3-threads2", pattern: "checker", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
 		{name: "left-off-noise3-threads2", pattern: "left-off", noiseSensitivity: 3, threads: 2, limit: 2, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
 		{name: "right-off-noise3-threads2", pattern: "right-off", noiseSensitivity: 3, threads: 2, limit: 0, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
@@ -581,26 +601,37 @@ func TestOracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	cases := []struct {
-		pattern string
-		limit   int
+		name             string
+		pattern          string
+		limit            int
+		noiseSensitivity int
+		extraArgs        []string
 	}{
-		{pattern: "checker"},
-		{pattern: "left-off"},
-		{pattern: "right-off"},
-		{pattern: "border-off"},
+		{name: "checker", pattern: "checker"},
+		{name: "left-off", pattern: "left-off"},
+		{name: "right-off", pattern: "right-off"},
+		{name: "border-off", pattern: "border-off"},
+		{name: "checker-noise3", pattern: "checker", noiseSensitivity: 3, limit: 1, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "left-off-noise3", pattern: "left-off", noiseSensitivity: 3, limit: 2, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "right-off-noise3", pattern: "right-off", noiseSensitivity: 3, limit: 7, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "border-off-noise3", pattern: "border-off", noiseSensitivity: 3, limit: 1, extraArgs: []string{"--noise-sensitivity=3"}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.pattern, func(t *testing.T) {
-			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, map[int]func(*testing.T, *VP8Encoder){
+		t.Run(tc.name, func(t *testing.T) {
+			caseOpts := opts
+			caseOpts.NoiseSensitivity = tc.noiseSensitivity
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, caseOpts, sources, nil, map[int]func(*testing.T, *VP8Encoder){
 				0: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetActiveMap("+tc.pattern+")", e.SetActiveMap(activeMapPattern(tc.pattern, rows, cols), rows, cols))
 				},
 			})
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "active-map-odd-"+tc.pattern, opts, targetKbps, sources, nil, []string{
+			extraArgs := []string{
 				"--active-map=" + tc.pattern,
-			})
-			assertSegmentByteParity(t, "active-map-odd-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
+			}
+			extraArgs = append(extraArgs, tc.extraArgs...)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "active-map-odd-"+tc.name, caseOpts, targetKbps, sources, nil, extraArgs)
+			assertSegmentByteParity(t, "active-map-odd-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
 }
