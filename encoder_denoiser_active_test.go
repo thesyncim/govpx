@@ -307,6 +307,54 @@ func TestSetActiveMapInactiveInterMacroblocksAreSkippedZeroMVLast(t *testing.T) 
 	assertMacroblockDifferent(t, "neighboring active-map MB", decoded[0], decoded[1], 0, 1)
 }
 
+func TestSetActiveMapWithROIPreservesInactiveSegmentIDs(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	first := testImage(32, 32)
+	second := testImage(32, 32)
+	fillImage(first, 60, 90, 170)
+	fillImage(second, 200, 90, 170)
+	keyPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(keyPacket, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+
+	rows := encoderMacroblockRows(32)
+	cols := encoderMacroblockCols(32)
+	activeMap := make([]byte, rows*cols)
+	for i := range activeMap {
+		activeMap[i] = 1
+	}
+	inactiveRow, inactiveCol := 1, 0
+	inactiveIndex := inactiveRow*cols + inactiveCol
+	activeMap[inactiveIndex] = 0
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap returned error: %v", err)
+	}
+	roi := &ROIMap{
+		Enabled:   true,
+		Rows:      rows,
+		Cols:      cols,
+		SegmentID: make([]uint8, rows*cols),
+	}
+	roi.SegmentID[inactiveIndex] = 1
+	roi.DeltaQuantizer[1] = -10
+	if err := e.SetROIMap(roi); err != nil {
+		t.Fatalf("SetROIMap returned error: %v", err)
+	}
+
+	interPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(interPacket, second, 1, 1, 0); err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	mode := e.interFrameModes[inactiveIndex]
+	if mode.RefFrame != vp8common.LastFrame || mode.Mode != vp8common.ZeroMV || !mode.MBSkipCoeff {
+		t.Fatalf("inactive ROI MB mode = %+v, want skipped LAST/ZEROMV", mode)
+	}
+	if mode.SegmentID != 1 {
+		t.Fatalf("inactive ROI MB SegmentID = %d, want preserved ROI segment 1", mode.SegmentID)
+	}
+}
+
 func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 32)
 	first := testImage(32, 32)

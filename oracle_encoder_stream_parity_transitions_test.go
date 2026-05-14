@@ -212,6 +212,36 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "post-reset-roi-map", govpxFrames, libvpxFrames, 0)
 	})
 
+	t.Run("reset-after-twopass-warmup-matches-cold-second-pass", func(t *testing.T) {
+		vpxenc := findVpxenc(t)
+		const frames = 8
+		warm := make([]Image, 4)
+		for i := range warm {
+			warm[i] = encoderValidationSegmentedFrame(64, 64, i)
+		}
+		afterReset := make([]Image, frames)
+		for i := range afterReset {
+			afterReset[i] = encoderValidationSegmentedFrame(64, 64, i+len(warm))
+		}
+		twoPassOpts := EncoderOptions{
+			Width:             64,
+			Height:            64,
+			FPS:               fps,
+			RateControlMode:   RateControlVBR,
+			TargetBitrateKbps: targetKbps,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			KeyFrameInterval:  60,
+			Deadline:          DeadlineGoodQuality,
+			CpuUsed:           0,
+		}
+		govpxOpts := twoPassOpts
+		govpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, twoPassOpts, afterReset)
+		govpxFrames := encodePostResetWithGovpx(t, govpxOpts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "reset-after-twopass-warmup", twoPassOpts, targetKbps, afterReset)
+		assertSegmentByteParity(t, "post-reset-twopass-warmup", govpxFrames, libvpxFrames, 0)
+	})
+
 	t.Run("reset-after-set-reference-matches-cold-start", func(t *testing.T) {
 		warm := makePanningSources(64, 64, 6, 0)
 		afterReset := makePanningSources(64, 64, 8, 6)

@@ -1474,9 +1474,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "active-map-roi-runtime-cross",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// The first active+ROI inter packet exposes an isolated
-			// segmentation-map/header byte drift, then the stream recovers.
-			matchLimit: 1,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "active:checker+roi:border1",
 				8: "active:off+roi:off",
@@ -1495,13 +1492,103 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "active-map-before-roi-runtime-order",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker",
+				2: "roi:border1",
+				8: "active:off+roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("checker"),
+				2: roiMapApply("border1"),
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "roi-before-active-map-runtime-order",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:border1",
+				2: "active:checker",
+				8: "active:off+roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("border1"),
+				2: activeMapApply("checker"),
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "active-roi-disable-roi-first-order",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			// The ROI-off frame and later active-off frame are strict; the
+			// following frame keeps the remaining teardown-state gap logged.
+			matchLimit: 11,
+			script: runtimeControlScript(frames, map[int]string{
+				1:  "active:checker+roi:border1",
+				8:  "roi:off",
+				10: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+				10: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-roi-disable-active-first-order",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			script: runtimeControlScript(frames, map[int]string{
+				1:  "active:checker+roi:border1",
+				8:  "active:off",
+				10: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+				10: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
 			name: "roi-pattern-switch-under-active-map",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// Active-map + ROI enable is already pinned above. This row
-			// keeps ROI pattern replacement and teardown covered while the
-			// active map remains installed.
-			matchLimit: 1,
+			// Pattern replacement is now strict; teardown after multiple
+			// active+ROI map updates still leaves a one-frame byte drift.
+			matchLimit: 11,
 			script: runtimeControlScript(frames, map[int]string{
 				1:  "active:checker+roi:checker",
 				4:  "roi:left1",
@@ -1580,7 +1667,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			matchLimit: 1,
+			// Strict through the RTC round-trip; disabling active+ROI after
+			// the RTC transition still leaves a teardown drift.
+			matchLimit: 10,
 			script: runtimeControlScript(frames, map[int]string{
 				1:  "active:checker+roi:border1",
 				4:  "rtc:1",
@@ -1668,10 +1757,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			// The keyframe matches; the first mid-stream active+ROI
-			// inter packet exposes a combined segmentation-map/header drift,
-			// and the later RTC toggle keeps that control surface visible.
-			matchLimit: 1,
+			// Strict while active+ROI is enabled; teardown under sticky RTC
+			// shares the remaining RTC+ROI disable gap.
+			matchLimit: 8,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "active:checker+roi:border1",
 				4: "rtc:1",

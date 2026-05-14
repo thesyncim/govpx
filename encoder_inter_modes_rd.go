@@ -253,7 +253,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				modeReadyForDenoise = true
 				mode.SegmentID = segmentID
 				if inactiveMB {
-					mode.SegmentID = 0
+					if !e.roi.enabled {
+						mode.SegmentID = 0
+					}
 					mode.MBSkipCoeff = true
 					score = maxInt()
 					yrd = maxInt()

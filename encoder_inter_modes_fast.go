@@ -258,7 +258,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 		mode.SegmentID = segmentID
 		if inactiveMB {
-			mode.SegmentID = 0
+			if !e.roi.enabled {
+				mode.SegmentID = 0
+			}
 			mode.MBSkipCoeff = true
 			rate := e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, bestRefMV, libvpxFastNewMVBitCostWeight)
 			if traceEnabled {
