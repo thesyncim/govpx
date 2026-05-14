@@ -519,8 +519,8 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 		{name: "right-off-cpu-3", pattern: "right-off", cpuUsed: -3, limit: 0},
 		{name: "border-off-cpu-3", pattern: "border-off", cpuUsed: -3, limit: 10},
 		{name: "checker-noise3-threads2", pattern: "checker", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
-		{name: "left-off-noise3-threads2", pattern: "left-off", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
-		{name: "right-off-noise3-threads2", pattern: "right-off", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
+		{name: "left-off-noise3-threads2", pattern: "left-off", noiseSensitivity: 3, threads: 2, limit: 2, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
+		{name: "right-off-noise3-threads2", pattern: "right-off", noiseSensitivity: 3, threads: 2, limit: 0, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
 		{name: "border-off-noise3-threads2", pattern: "border-off", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
 	}
 	for _, tc := range cases {

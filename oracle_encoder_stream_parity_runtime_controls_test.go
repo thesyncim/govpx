@@ -88,6 +88,37 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "bitrate-bounds-runtime-in-range",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "bitrate:600+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
+				7: "bitrate:900",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(bounded bitrate)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   600,
+						MinBitrateKbps:      500,
+						MaxBitrateKbps:      900,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetBitrateKbps(900)", e.SetBitrateKbps(900))
+				},
+			},
+		},
+		{
 			name: "buffer-only-two-step",
 			fx:   panning64,
 			opts: baseOpts(panning64),
