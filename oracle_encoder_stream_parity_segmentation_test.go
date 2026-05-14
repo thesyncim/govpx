@@ -633,27 +633,41 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 	}
 
 	cases := []struct {
-		pattern string
-		limit   int
+		name                     string
+		pattern                  string
+		limit                    int
+		tokenPartitions          int
+		threads                  int
+		errorResilient           bool
+		errorResilientPartitions bool
+		extraArgs                []string
 	}{
-		{pattern: "checker", limit: 0},
-		{pattern: "left1", limit: 0},
-		{pattern: "border1", limit: 0},
-		{pattern: "off", limit: 0},
+		{name: "checker", pattern: "checker", limit: 0},
+		{name: "left1", pattern: "left1", limit: 0},
+		{name: "border1", pattern: "border1", limit: 0},
+		{name: "off", pattern: "off", limit: 0},
+		{name: "checker-token-parts4", pattern: "checker", tokenPartitions: 2, extraArgs: []string{"--token-parts=2"}},
+		{name: "left1-threads2", pattern: "left1", threads: 2, extraArgs: []string{"--threads=2"}},
+		{name: "border1-er3-token-parts4", pattern: "border1", tokenPartitions: 2, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.pattern, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			apply := map[int]func(*testing.T, *VP8Encoder){
 				0: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetROIMap("+tc.pattern+")", e.SetROIMap(roiMapPattern(width, height, tc.pattern)))
 				},
 			}
-			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.pattern+"-64x64", opts, targetKbps, sources, nil, []string{
-				"--roi-map=" + tc.pattern,
-			})
-			assertSegmentByteParity(t, "roi-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
+			caseOpts := opts
+			caseOpts.TokenPartitions = tc.tokenPartitions
+			caseOpts.Threads = tc.threads
+			caseOpts.ErrorResilient = tc.errorResilient
+			caseOpts.ErrorResilientPartitions = tc.errorResilientPartitions
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, caseOpts, sources, nil, apply)
+			extraArgs := []string{"--roi-map=" + tc.pattern}
+			extraArgs = append(extraArgs, tc.extraArgs...)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.name+"-64x64", caseOpts, targetKbps, sources, nil, extraArgs)
+			assertSegmentByteParity(t, "roi-map-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
 }
