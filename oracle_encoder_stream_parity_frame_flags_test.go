@@ -351,6 +351,7 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 		forceFrames     map[int]bool
 		mutate          func(*EncoderOptions)
 		buildFlags      func(int, map[int]bool) []EncodeFlags
+		apiFlags        func([]EncodeFlags) []EncodeFlags
 		setup           func(*testing.T, *VP8Encoder)
 		extraArgs       []string
 		matchLimit      int
@@ -427,6 +428,51 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			},
 			extraArgs: []string{"--kf-disabled"},
 		},
+		{
+			name:        "no-update-entropy-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			buildFlags: func(frames int, forceFrames map[int]bool) []EncodeFlags {
+				flags := repeatFlag(frames-1, EncodeNoUpdateEntropy)
+				for frame := range forceFrames {
+					if frame >= 0 && frame < len(flags) {
+						flags[frame] |= EncodeForceKeyFrame
+					}
+				}
+				return flags
+			},
+			apiFlags: forceKeyAPIEncodeFlags,
+		},
+		{
+			name:        "no-update-last-no-ref-gf-arf-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			buildFlags: func(frames int, forceFrames map[int]bool) []EncodeFlags {
+				flags := repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+				for frame := range forceFrames {
+					if frame >= 0 && frame < len(flags) {
+						flags[frame] |= EncodeForceKeyFrame
+					}
+				}
+				return flags
+			},
+			apiFlags: forceKeyAPIEncodeFlags,
+		},
+		{
+			name:        "force-golden-altref-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			buildFlags: func(frames int, forceFrames map[int]bool) []EncodeFlags {
+				flags := make([]EncodeFlags, frames)
+				for frame := range forceFrames {
+					if frame >= 0 && frame < len(flags) {
+						flags[frame] = EncodeForceKeyFrame | EncodeForceGoldenFrame | EncodeForceAltRefFrame
+					}
+				}
+				return flags
+			},
+			apiFlags: forceKeyAPIEncodeFlags,
+		},
 	}
 
 	for _, tc := range cases {
@@ -461,7 +507,11 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 				}
 			}
 
-			govpxFrames := encodeFramesWithGovpxForceKeyScheduleAndSetup(t, opts, sources, tc.forceFrames, tc.setup)
+			apiFlags := make([]EncodeFlags, len(flags))
+			if tc.apiFlags != nil {
+				apiFlags = tc.apiFlags(flags)
+			}
+			govpxFrames := encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t, opts, sources, tc.forceFrames, apiFlags, tc.setup)
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-"+tc.name, opts, opts.TargetBitrateKbps, sources, flags, tc.extraArgs)
 			assertSegmentByteParity(t, "force-key-api", govpxFrames, libvpxFrames, tc.matchLimit)
 		})
@@ -478,12 +528,25 @@ func forceKeyTemporalTwoLayerFlags(frames int, forceFrames map[int]bool) []Encod
 	return flags
 }
 
+func forceKeyAPIEncodeFlags(flags []EncodeFlags) []EncodeFlags {
+	out := make([]EncodeFlags, len(flags))
+	for i, flag := range flags {
+		out[i] = flag &^ EncodeForceKeyFrame
+	}
+	return out
+}
+
 func encodeFramesWithGovpxForceKeySchedule(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool) [][]byte {
 	t.Helper()
 	return encodeFramesWithGovpxForceKeyScheduleAndSetup(t, opts, sources, forceFrames, nil)
 }
 
 func encodeFramesWithGovpxForceKeyScheduleAndSetup(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, setup func(*testing.T, *VP8Encoder)) [][]byte {
+	t.Helper()
+	return encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t, opts, sources, forceFrames, nil, setup)
+}
+
+func encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, flags []EncodeFlags, setup func(*testing.T, *VP8Encoder)) [][]byte {
 	t.Helper()
 	enc, err := NewVP8Encoder(opts)
 	if err != nil {
@@ -499,7 +562,11 @@ func encodeFramesWithGovpxForceKeyScheduleAndSetup(t *testing.T, opts EncoderOpt
 		if forceFrames[i] {
 			enc.ForceKeyFrame()
 		}
-		result, err := enc.EncodeInto(buf, src, uint64(i), 1, 0)
+		var frameFlags EncodeFlags
+		if i < len(flags) {
+			frameFlags = flags[i]
+		}
+		result, err := enc.EncodeInto(buf, src, uint64(i), 1, frameFlags)
 		if errors.Is(err, ErrFrameNotReady) {
 			continue
 		}
