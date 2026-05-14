@@ -2429,6 +2429,125 @@ func TestVP9EncoderSetRealtimeTargetUpdatesQuantizerBounds(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderCBRDropBufferUnderrunReturnsDropped(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  1,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		DropFrameAllowed:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	dst := make([]byte, 65536)
+	key, err := e.EncodeIntoWithResult(src, dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	if !key.KeyFrame || key.Dropped || len(key.Data) == 0 {
+		t.Fatalf("key result = key:%t dropped:%t data:%d, want encoded keyframe",
+			key.KeyFrame, key.Dropped, len(key.Data))
+	}
+
+	e.rc.bufferLevelBits = -1
+	drainedBuffer := e.rc.bufferLevelBits
+	inter, err := e.EncodeIntoWithResult(src, dst)
+	if err != nil {
+		t.Fatalf("inter EncodeIntoWithResult: %v", err)
+	}
+	if !inter.Dropped || inter.KeyFrame || len(inter.Data) != 0 || inter.SizeBytes != 0 {
+		t.Fatalf("inter result = key:%t dropped:%t size:%d data:%d, want dropped inter",
+			inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
+	}
+	if inter.TargetBitrateKbps != 1 || inter.FrameTargetBits != e.rc.bitsPerFrame {
+		t.Fatalf("inter rate = kbps:%d target:%d, want 1/%d",
+			inter.TargetBitrateKbps, inter.FrameTargetBits, e.rc.bitsPerFrame)
+	}
+	if inter.BufferLevelBits != drainedBuffer+e.rc.bitsPerFrame {
+		t.Fatalf("buffer after drop = %d, want %d",
+			inter.BufferLevelBits, drainedBuffer+e.rc.bitsPerFrame)
+	}
+}
+
+func TestVP9EncoderCBRDropDoesNotDropKeyOrInvisibleFrame(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  1,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		DropFrameAllowed:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	dst := make([]byte, 65536)
+
+	e.rc.bufferLevelBits = -1
+	key, err := e.EncodeIntoWithResult(src, dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	if !key.KeyFrame || key.Dropped || len(key.Data) == 0 {
+		t.Fatalf("key result = key:%t dropped:%t data:%d, want encoded keyframe",
+			key.KeyFrame, key.Dropped, len(key.Data))
+	}
+
+	e.rc.bufferLevelBits = -1
+	hidden, err := e.EncodeIntoWithFlagsResult(src, dst, EncodeInvisibleFrame)
+	if err != nil {
+		t.Fatalf("hidden EncodeIntoWithFlagsResult: %v", err)
+	}
+	if hidden.Dropped || hidden.KeyFrame || hidden.ShowFrame || len(hidden.Data) == 0 {
+		t.Fatalf("hidden result = key:%t show:%t dropped:%t data:%d, want encoded hidden inter",
+			hidden.KeyFrame, hidden.ShowFrame, hidden.Dropped, len(hidden.Data))
+	}
+}
+
+func TestVP9EncoderSetRealtimeTargetFrameDropMode(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		DropFrameAllowed:   true,
+		DropFrameWaterMark: 75,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 600}); err != nil {
+		t.Fatalf("bitrate SetRealtimeTarget: %v", err)
+	}
+	if !e.rc.dropFrameAllowed || !e.opts.DropFrameAllowed {
+		t.Fatal("bitrate-only SetRealtimeTarget disabled frame dropping")
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropDisabled}); err != nil {
+		t.Fatalf("disable FrameDrop: %v", err)
+	}
+	if e.rc.dropFrameAllowed || e.opts.DropFrameAllowed {
+		t.Fatal("FrameDrop disabled did not clear VP9 drop toggle")
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropEnabled}); err != nil {
+		t.Fatalf("enable FrameDrop: %v", err)
+	}
+	if !e.rc.dropFrameAllowed || !e.opts.DropFrameAllowed ||
+		e.rc.dropFramesWaterMark != 75 {
+		t.Fatalf("drop state = allowed:%t opts:%t mark:%d, want true/true/75",
+			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark)
+	}
+}
+
 func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -3902,6 +4021,43 @@ func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("EncodeInto inter residue steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderCBRDropSteadyStateAlloc(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              256,
+		Height:             192,
+		FPS:                30,
+		TargetBitrateKbps:  1,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		DropFrameAllowed:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	img := newVP9YCbCrForTest(256, 192, 128, 128, 128)
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeIntoWithResult: %v", err)
+	}
+
+	var result VP9EncodeResult
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.rc.bufferLevelBits = -1
+		result, err = e.EncodeIntoWithResult(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("drop EncodeIntoWithResult: %v", err)
+	}
+	if !result.Dropped || len(result.Data) != 0 {
+		t.Fatalf("drop result = dropped:%t data:%d, want dropped empty output",
+			result.Dropped, len(result.Data))
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 CBR drop steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 

@@ -60,8 +60,32 @@ type VP9EncoderOptions struct {
 	Threads int
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
-	// configuration. The current packet path does not run rate control.
+	// configuration. When RateControlModeSet is false, the packet path keeps
+	// the existing public-Q mode and only stores this value as metadata.
 	TargetBitrateKbps int
+
+	// RateControlModeSet enables VP9 rate-control bookkeeping. It is explicit
+	// because RateControlVBR is the zero value while the historical VP9 default
+	// is libvpx VPX_Q-style public-Q mode. The first supported VP9 mode is
+	// RateControlCBR; it tracks a CBR buffer and can drop visible inter frames
+	// when DropFrameAllowed is enabled. It does not change VP9 Q selection.
+	RateControlModeSet bool
+	// RateControlMode selects the VP9 rate-control mode when
+	// RateControlModeSet is true. Only RateControlCBR is currently supported.
+	RateControlMode RateControlMode
+	// BufferSizeMs, BufferInitialSizeMs, and BufferOptimalSizeMs configure the
+	// VP9 CBR virtual buffer. Zero values use libvpx defaults.
+	BufferSizeMs        int
+	BufferInitialSizeMs int
+	BufferOptimalSizeMs int
+	// DropFrameAllowed enables VP9 CBR buffer-underrun frame dropping. It only
+	// takes effect when RateControlModeSet is true and RateControlMode is
+	// RateControlCBR.
+	DropFrameAllowed bool
+	// DropFrameWaterMark is retained for VP9 runtime/API parity with VP8. It
+	// is validated and stored, but the current VP9 drop path only uses the
+	// exact buffer-underrun branch.
+	DropFrameWaterMark int
 
 	// Quantizer selects a fixed VP9 base qindex in [1, 255]. Zero uses the
 	// public MinQuantizer / MaxQuantizer / CQLevel controls below. It is a
@@ -131,7 +155,9 @@ type VP9SegmentationOptions struct {
 }
 
 // VP9EncodeResult is returned by EncodeIntoWithResult and
-// EncodeIntoWithFlagsResult. Data aliases the caller-owned output buffer.
+// EncodeIntoWithFlagsResult. Data aliases the caller-owned output buffer. When
+// rate control drops a frame, Dropped is true and Data is empty while
+// rate-control and temporal metadata remain populated.
 type VP9EncodeResult struct {
 	Data []byte
 
@@ -139,10 +165,16 @@ type VP9EncodeResult struct {
 	IntraOnly bool
 	ShowFrame bool
 	Droppable bool
+	// Dropped reports that VP9 CBR rate control intentionally emitted no
+	// packet. Data is empty when Dropped is true.
+	Dropped bool
 
 	Quantizer         int
 	InternalQuantizer int
 	SizeBytes         int
+	TargetBitrateKbps int
+	FrameTargetBits   int
+	BufferLevelBits   int
 	RefreshFrameFlags uint8
 
 	TemporalLayerID    int
@@ -193,6 +225,7 @@ type VP9Encoder struct {
 	opts     VP9EncoderOptions
 	closed   bool
 	temporal temporalState
+	rc       vp9RateControlState
 
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
@@ -280,8 +313,12 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := temporal.configure(opts.TemporalScalability, opts.TargetBitrateKbps); err != nil {
 		return nil, err
 	}
+	var rc vp9RateControlState
+	if err := rc.applyOptions(opts, vp9TimingStateFromOptions(opts)); err != nil {
+		return nil, err
+	}
 	opts.TemporalScalability = temporal.config
-	e := &VP9Encoder{opts: opts, temporal: temporal}
+	e := &VP9Encoder{opts: opts, temporal: temporal, rc: rc}
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	return e, nil
@@ -296,6 +333,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	}
 	if opts.TargetBitrateKbps < 0 || opts.Quantizer < 0 || opts.MaxKeyframeInterval < 0 {
 		return ErrInvalidConfig
+	}
+	if err := validateVP9RateControlOptions(opts); err != nil {
+		return err
 	}
 	if opts.Quantizer > 255 {
 		return ErrInvalidQuantizer
@@ -482,7 +522,9 @@ func (e *VP9Encoder) ForceKeyFrame() {
 // EncodeIntoWithFlags with no flags.
 //
 // Returns the number of bytes written into dst. Caller sizes dst; leave room
-// for up to 64 KiB to match libvpx's first-partition header bound.
+// for up to 64 KiB to match libvpx's first-partition header bound. When VP9
+// CBR rate control drops a frame this returns 0, nil; use
+// EncodeIntoWithResult to distinguish a dropped frame from other empty output.
 func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	return e.EncodeIntoWithFlags(img, dst, 0)
 }
@@ -585,6 +627,24 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	}
 	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
 		return VP9EncodeResult{}, ErrInvalidConfig
+	}
+	e.rc.beginFrame()
+	if !isKey && !intraOnly && flags&EncodeInvisibleFrame == 0 &&
+		e.rc.shouldDropInterFrame() {
+		e.rc.postDropFrame()
+		e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
+		e.frameIndex++
+		return VP9EncodeResult{
+			Dropped:            true,
+			ShowFrame:          true,
+			TargetBitrateKbps:  e.rc.targetBitrateKbps,
+			FrameTargetBits:    e.rc.frameTargetBits,
+			BufferLevelBits:    e.rc.bufferLevelBits,
+			TemporalLayerID:    temporalFrame.LayerID,
+			TemporalLayerCount: temporalFrame.LayerCount,
+			TemporalLayerSync:  temporalFrame.LayerSync,
+			TL0PICIDX:          temporalFrame.TL0PICIDX,
+		}, nil
 	}
 	if isKey || (intraOnly && flags&EncodeNoUpdateEntropy == 0) {
 		vp9dec.ResetFrameContext(&e.fc)
@@ -805,6 +865,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header, flags)
 	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
+	e.rc.postEncodeFrame(n, header.ShowFrame)
 	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
 		encodedSizeBits(n), e.vp9TemporalBufferConfig())
@@ -821,6 +882,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		Quantizer:          vp9QIndexToPublicQuantizer(qindex),
 		InternalQuantizer:  qindex,
 		SizeBytes:          n,
+		TargetBitrateKbps:  e.vp9ResultTargetBitrateKbps(),
+		FrameTargetBits:    e.rc.frameTargetBits,
+		BufferLevelBits:    e.rc.bufferLevelBits,
 		RefreshFrameFlags:  header.RefreshFrameFlags,
 		TemporalLayerID:    temporalFrame.LayerID,
 		TemporalLayerCount: temporalFrame.LayerCount,
@@ -850,11 +914,15 @@ func vp9TemporalReferenceRefresh(refreshFlags uint8) temporalReferenceRefresh {
 }
 
 func (e *VP9Encoder) vp9TimingState() timingState {
-	fps := e.opts.FPS
-	if e.opts.TimebaseNum > 0 && e.opts.TimebaseDen > 0 {
+	return vp9TimingStateFromOptions(e.opts)
+}
+
+func vp9TimingStateFromOptions(opts VP9EncoderOptions) timingState {
+	fps := opts.FPS
+	if opts.TimebaseNum > 0 && opts.TimebaseDen > 0 {
 		return timingState{
-			timebaseNum:   e.opts.TimebaseNum,
-			timebaseDen:   e.opts.TimebaseDen,
+			timebaseNum:   opts.TimebaseNum,
+			timebaseDen:   opts.TimebaseDen,
 			frameDuration: 1,
 		}
 	}
@@ -870,6 +938,13 @@ func (e *VP9Encoder) vp9TemporalBufferConfig() temporalBufferConfig {
 		bufferInitialSizeMs: libvpxDefaultBufferInitialMs,
 		bufferSizeMs:        libvpxDefaultBufferSizeMs,
 	}
+}
+
+func (e *VP9Encoder) vp9ResultTargetBitrateKbps() int {
+	if e.rc.enabled {
+		return e.rc.targetBitrateKbps
+	}
+	return e.opts.TargetBitrateKbps
 }
 
 func vp9InterReferenceMask(flags EncodeFlags) uint8 {

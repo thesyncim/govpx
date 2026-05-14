@@ -7,10 +7,10 @@ import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 //
 // VP9 currently consumes BitrateKbps as a target hint, FPS as the caller
 // timebase, MinQuantizer / MaxQuantizer as public VP9 Q-mode bounds, and
-// Width / Height as a caller-driven coded-size change. A changed size
-// invalidates every VP9 reference slot and forces the next encoded packet to
-// be a keyframe at the new dimensions. VP8-only realtime frame-drop fields on
-// RealtimeTarget are rejected when explicitly set.
+// Width / Height as a caller-driven coded-size change. When the encoder was
+// created with VP9 CBR rate control enabled, FrameDrop updates the VP9 CBR
+// drop toggle. A changed size invalidates every VP9 reference slot and forces
+// the next encoded packet to be a keyframe at the new dimensions.
 func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -28,7 +28,9 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		target.MaxQuantizer > maxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	if target.FrameDrop != RealtimeFrameDropUnchanged || target.AllowFrameDrop {
+	frameDropRequested := target.FrameDrop != RealtimeFrameDropUnchanged ||
+		target.AllowFrameDrop
+	if frameDropRequested && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
 		return ErrInvalidConfig
 	}
 	if target.Width > 0 || target.Height > 0 {
@@ -61,6 +63,32 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			return err
 		}
 	}
+	nextTiming := e.vp9TimingState()
+	if target.FPS > 0 {
+		nextTiming = timingState{timebaseNum: 1, timebaseDen: target.FPS, frameDuration: 1}
+	}
+	nextRC := e.rc
+	if nextRC.enabled {
+		nextBitrateKbps := nextRC.targetBitrateKbps
+		if target.BitrateKbps > 0 {
+			nextBitrateKbps = target.BitrateKbps
+		}
+		if target.BitrateKbps > 0 || target.FPS > 0 {
+			if err := nextRC.setBitrateKbps(nextBitrateKbps, nextTiming); err != nil {
+				return err
+			}
+		}
+		switch target.FrameDrop {
+		case RealtimeFrameDropEnabled:
+			nextRC.setFrameDropAllowed(true, e.opts.DropFrameWaterMark)
+		case RealtimeFrameDropDisabled:
+			nextRC.setFrameDropAllowed(false, e.opts.DropFrameWaterMark)
+		case RealtimeFrameDropUnchanged:
+			if target.AllowFrameDrop {
+				nextRC.setFrameDropAllowed(true, e.opts.DropFrameWaterMark)
+			}
+		}
+	}
 
 	if target.Width > 0 &&
 		(target.Width != e.opts.Width || target.Height != e.opts.Height) {
@@ -81,9 +109,34 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			e.opts.TemporalScalability = e.temporal.config
 		}
 	}
+	if nextRC.enabled {
+		e.rc = nextRC
+		e.opts.DropFrameAllowed = e.rc.dropFrameAllowed
+		if e.rc.dropFrameAllowed && e.opts.DropFrameWaterMark <= 0 {
+			e.opts.DropFrameWaterMark = int(e.rc.dropFramesWaterMark)
+		}
+	}
 	if target.MinQuantizer != 0 || target.MaxQuantizer != 0 {
 		e.opts.MinQuantizer = nextMinQuantizer
 		e.opts.MaxQuantizer = nextMaxQuantizer
+	}
+	return nil
+}
+
+// SetFrameDropAllowed enables or disables VP9 CBR buffer-underrun frame
+// dropping without changing bitrate. The encoder must have been created with
+// VP9 CBR rate control enabled.
+func (e *VP9Encoder) SetFrameDropAllowed(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if !e.rc.enabled || e.opts.RateControlMode != RateControlCBR {
+		return ErrInvalidConfig
+	}
+	e.rc.setFrameDropAllowed(enabled, e.opts.DropFrameWaterMark)
+	e.opts.DropFrameAllowed = enabled
+	if enabled && e.opts.DropFrameWaterMark <= 0 {
+		e.opts.DropFrameWaterMark = int(e.rc.dropFramesWaterMark)
 	}
 	return nil
 }
