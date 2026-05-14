@@ -2689,6 +2689,45 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
 		},
 		{
+			name: "set-last-under-two-layer-temporal",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, targetKbps)
+				return opts
+			}(),
+			flags: temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 0),
+			script: func() []string {
+				script := runtimeTemporalLayerIDScript(frames, TemporalLayeringTwoLayers)
+				appendRuntimeControl(script, 4, "setref:last:panning:12")
+				return script
+			}(),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceLast, 12, "last"),
+			},
+			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+			matchLimit: 4,
+		},
+		{
+			name: "set-altref-under-two-layer-temporal",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, targetKbps)
+				return opts
+			}(),
+			flags: temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 0),
+			script: func() []string {
+				script := runtimeTemporalLayerIDScript(frames, TemporalLayeringTwoLayers)
+				appendRuntimeControl(script, 4, "setref:altref:panning:12")
+				return script
+			}(),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceAltRef, 12, "altref"),
+			},
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		},
+		{
 			name: "set-last-under-active-roi",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
@@ -2756,6 +2795,70 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
 				},
 			},
+		},
+		{
+			name: "set-altref-under-rtc-external",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				5: EncodeNoReferenceLast | EncodeNoReferenceGolden,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "rtc:1",
+				4: "setref:altref:panning:12",
+				7: "rtc:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				4: setReferencePanningApply(ReferenceAltRef, 12, "altref"),
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+				},
+			},
+		},
+		{
+			name: "set-last-under-three-layer-temporal",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringThreeLayers, targetKbps)
+				return opts
+			}(),
+			flags: temporalScalabilityReconfigureFlags(frames, TemporalLayeringThreeLayers, 0),
+			script: func() []string {
+				script := runtimeTemporalLayerIDScript(frames, TemporalLayeringThreeLayers)
+				appendRuntimeControl(script, 4, "setref:last:panning:12")
+				return script
+			}(),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceLast, 12, "last"),
+			},
+			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
+			matchLimit: 4,
+		},
+		{
+			name: "set-golden-under-three-layer-temporal",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringThreeLayers, targetKbps)
+				return opts
+			}(),
+			flags: temporalScalabilityReconfigureFlags(frames, TemporalLayeringThreeLayers, 0),
+			script: func() []string {
+				script := runtimeTemporalLayerIDScript(frames, TemporalLayeringThreeLayers)
+				appendRuntimeControl(script, 4, "setref:golden:panning:12")
+				return script
+			}(),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),
+			},
+			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
+			matchLimit: 4,
 		},
 		{
 			name: "set-altref-under-three-layer-temporal",
