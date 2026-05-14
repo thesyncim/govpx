@@ -151,8 +151,10 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		// ---- Remaining built-in temporal patterns. ----
 		{name: "mode4-3layer-no-inter-pred-cpu0", fx: panning64, layeringMode: 4, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 0},
 		{name: "mode4-3layer-no-inter-pred-cpu-3", fx: panning64, layeringMode: 4, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3},
+		{name: "mode4-3layer-no-inter-pred-cpu-8", fx: panning64, layeringMode: 4, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 8},
 		{name: "mode6-3layer-default-cpu0", fx: panning64, layeringMode: 6, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 0},
 		{name: "mode6-3layer-default-cpu-3", fx: panning64, layeringMode: 6, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode6-3layer-default-cpu-8", fx: panning64, layeringMode: 6, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 8},
 		// Mode 7 exposes a known 5-layer reference-cadence gap after the
 		// first output packet in non-base layer streams. Keep the row in
 		// the oracle matrix so all later drift stays logged.
@@ -161,11 +163,19 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		{name: "mode7-5layer-cpu-8", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 8, limit: 1},
 		{name: "mode8-2layer-sync-cpu0", fx: panning64, layeringMode: 8, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 0},
 		{name: "mode8-2layer-sync-cpu-3", fx: panning64, layeringMode: 8, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3},
+		{name: "mode8-2layer-sync-cpu-8", fx: panning64, layeringMode: 8, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 8},
+		{name: "mode9-3layer-sync-cpu0", fx: panning64, layeringMode: 9, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 0},
 		{name: "mode12-3layer-no-sync-cpu0", fx: panning64, layeringMode: 12, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 0},
 		{name: "mode9-3layer-sync-cpu-3", fx: panning64, layeringMode: 9, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode9-3layer-sync-cpu-8", fx: panning64, layeringMode: 9, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 8},
+		{name: "mode10-3layer-altref-sync-cpu0", fx: panning64, layeringMode: 10, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 0},
 		{name: "mode10-3layer-altref-sync-cpu-3", fx: panning64, layeringMode: 10, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode10-3layer-altref-sync-cpu-8", fx: panning64, layeringMode: 10, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 8},
+		{name: "mode11-3layer-one-reference-cpu0", fx: panning64, layeringMode: 11, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 0},
 		{name: "mode11-3layer-one-reference-cpu-3", fx: panning64, layeringMode: 11, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode11-3layer-one-reference-cpu-8", fx: panning64, layeringMode: 11, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 8},
 		{name: "mode12-3layer-no-sync-cpu-3", fx: panning64, layeringMode: 12, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode12-3layer-no-sync-cpu-8", fx: panning64, layeringMode: 12, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 8},
 
 		// ---- ErrorResilient cross (mode 5 = the standard WebRTC SVC pattern). ----
 		// mode 5 + ER and mode 2 + ER are fully byte-identical.

@@ -204,13 +204,11 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 //	  : refresh_golden_frame  ? &cpi->lfc_g
 //	  : &cpi->lfc_n
 //
-// Temporal multilayer realtime encodes use libvpx's temporal refresh path
-// before RD setup. In that path, non-golden frames score against the live
-// frame context, while realtime auto-speed golden-refresh frames score against
-// the normal-frame snapshot. Runtime VP8E_SET_CPUUSED calls that pin realtime
-// speed keep the single-layer lfc_g choice for golden refreshes. Non-realtime
-// temporal frames still follow vp8_initialize_rd_consts directly, selecting
-// lfc_a/lfc_g/lfc_n from the refresh flags.
+// Temporal multilayer realtime encodes restore per-layer rate-control state
+// before RD setup, but vp8_initialize_rd_consts still selects lfc_a/lfc_g/lfc_n
+// directly from the current frame's refresh flags. That means default and
+// LAST-refresh temporal frames score against lfc_n, not the live frame context
+// left by the previously encoded higher layer.
 //
 // Returns nil before the first commitKeyFrameEntropy seeds the snapshots
 // (which on a keyframe-led clip is impossible to hit on an inter frame), or
@@ -219,29 +217,6 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8tables.CoefficientProbs {
 	if !e.coefProbsSnapshotsValid {
 		return nil
-	}
-	if e.libvpxTemporalLayerCount() > 1 {
-		if e.opts.Deadline != DeadlineRealtime {
-			switch {
-			case refreshAltRef:
-				return &e.coefProbsAltRef
-			case refreshGolden:
-				return &e.coefProbsGolden
-			default:
-				return &e.coefProbsLast
-			}
-		}
-		switch {
-		case refreshAltRef:
-			return &e.coefProbsAltRef
-		case refreshGolden:
-			if e.runtimePinnedCPUUsed && e.opts.Deadline == DeadlineRealtime && e.opts.CpuUsed < 0 {
-				return &e.coefProbsGolden
-			}
-			return &e.coefProbsLast
-		default:
-			return &e.coefProbs
-		}
 	}
 	switch {
 	case refreshAltRef:
