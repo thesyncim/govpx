@@ -113,6 +113,7 @@ returns no more data.
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
+| Pack or inspect VP8 RTP payload bodies | `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `PackVP9SuperframeInto`, `PackVP9Superframe` |
 | Pack or inspect VP9 RTP payload bodies | `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
 | Drain delayed encoder output | `FlushInto` |
@@ -127,10 +128,9 @@ returns no more data.
 ## RTP/WebRTC Compatibility
 
 govpx's RTP/WebRTC contract is codec-payload compatibility for VP8 and VP9
-Profile 0. VP8 encoder output is directly usable by RTP/WebRTC packetizers, and
-VP9 exposes payload-descriptor helpers for RFC 9628 RTP payload bodies. RTP
-headers, sequencing, fragmentation/reassembly policy, SRTP, SDP, and signaling
-remain caller-owned.
+Profile 0. VP8 and VP9 expose payload-descriptor helpers for RFC 7741 and RFC
+9628 RTP payload bodies. RTP headers, sequencing, fragmentation/reassembly
+policy, SRTP, SDP, and signaling remain caller-owned.
 
 For WebRTC senders, start with realtime CBR, error resilience, frame
 dropping, and RTC external rate control:

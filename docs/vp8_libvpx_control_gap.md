@@ -325,9 +325,10 @@ output.
 Status: missing as a streaming decode mode. Priority: low.
 
 libvpx's decoder can be initialized with `VPX_CODEC_USE_INPUT_FRAGMENTS`.
-govpx expects complete VP8 frame payloads; RTP/WebRTC packetization and
-reassembly are caller-owned. A built-in fragment accumulator is optional and
-not required for codec-payload decode.
+govpx expects complete VP8 frame payloads; RTP/WebRTC packet sequencing,
+fragmentation policy, and reassembly are caller-owned. VP8 RTP
+payload-descriptor packing/parsing lives in the core API and a built-in
+fragment accumulator is optional, not required for codec-payload decode.
 
 ## Probably Skip
 

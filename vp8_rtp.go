@@ -1,0 +1,317 @@
+package govpx
+
+const (
+	vp8RTPFlagExtendedControl = 0x80
+	vp8RTPFlagNonReference    = 0x20
+	vp8RTPFlagStartPartition  = 0x10
+
+	vp8RTPFlagPictureID = 0x80
+	vp8RTPFlagTL0PICIDX = 0x40
+	vp8RTPFlagTemporal  = 0x20
+	vp8RTPFlagKeyIndex  = 0x10
+)
+
+// VP8RTPPayloadDescriptor describes the VP8 RTP payload descriptor from RFC
+// 7741. It is the bytes after the RTP header and before the raw VP8 payload.
+type VP8RTPPayloadDescriptor struct {
+	NonReferenceFrame bool
+	StartOfPartition  bool
+	PartitionID       uint8
+
+	PictureIDPresent bool
+	PictureID        uint16
+	PictureID15Bit   bool
+
+	TL0PICIDXPresent bool
+	TL0PICIDX        uint8
+
+	TemporalIDPresent bool
+	TemporalID        uint8
+	LayerSync         bool
+
+	KeyIndexPresent bool
+	KeyIndex        uint8
+}
+
+// Size returns the number of bytes needed to marshal d, excluding the raw VP8
+// payload bytes.
+func (d VP8RTPPayloadDescriptor) Size() (int, error) {
+	if err := d.validate(); err != nil {
+		return 0, err
+	}
+	size := 1
+	if d.hasExtensions() {
+		size++
+		if d.PictureIDPresent {
+			if d.PictureID15Bit {
+				size += 2
+			} else {
+				size++
+			}
+		}
+		if d.TL0PICIDXPresent {
+			size++
+		}
+		if d.TemporalIDPresent || d.KeyIndexPresent {
+			size++
+		}
+	}
+	return size, nil
+}
+
+// MarshalInto writes d into dst and returns the descriptor length. If dst is
+// too small, it returns the required descriptor length and [ErrBufferTooSmall].
+func (d VP8RTPPayloadDescriptor) MarshalInto(dst []byte) (int, error) {
+	need, err := d.Size()
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, ErrBufferTooSmall
+	}
+
+	var first byte
+	if d.hasExtensions() {
+		first |= vp8RTPFlagExtendedControl
+	}
+	if d.NonReferenceFrame {
+		first |= vp8RTPFlagNonReference
+	}
+	if d.StartOfPartition {
+		first |= vp8RTPFlagStartPartition
+	}
+	first |= d.PartitionID
+	dst[0] = first
+
+	off := 1
+	if d.hasExtensions() {
+		var ext byte
+		if d.PictureIDPresent {
+			ext |= vp8RTPFlagPictureID
+		}
+		if d.TL0PICIDXPresent {
+			ext |= vp8RTPFlagTL0PICIDX
+		}
+		if d.TemporalIDPresent {
+			ext |= vp8RTPFlagTemporal
+		}
+		if d.KeyIndexPresent {
+			ext |= vp8RTPFlagKeyIndex
+		}
+		dst[off] = ext
+		off++
+
+		if d.PictureIDPresent {
+			if d.PictureID15Bit {
+				dst[off] = 0x80 | byte(d.PictureID>>8)
+				dst[off+1] = byte(d.PictureID)
+				off += 2
+			} else {
+				dst[off] = byte(d.PictureID)
+				off++
+			}
+		}
+		if d.TL0PICIDXPresent {
+			dst[off] = d.TL0PICIDX
+			off++
+		}
+		if d.TemporalIDPresent || d.KeyIndexPresent {
+			var tk byte
+			if d.TemporalIDPresent {
+				tk |= d.TemporalID << 6
+			}
+			if d.LayerSync {
+				tk |= 0x20
+			}
+			if d.KeyIndexPresent {
+				tk |= d.KeyIndex
+			}
+			dst[off] = tk
+			off++
+		}
+	}
+	return need, nil
+}
+
+// Marshal returns d as a newly allocated VP8 RTP payload descriptor.
+func (d VP8RTPPayloadDescriptor) Marshal() ([]byte, error) {
+	need, err := d.Size()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, need)
+	_, err = d.MarshalInto(out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ParseVP8RTPPayloadDescriptor parses the VP8 RTP payload descriptor at the
+// front of packet and returns the descriptor plus the remaining raw VP8
+// payload bytes.
+func ParseVP8RTPPayloadDescriptor(packet []byte) (VP8RTPPayloadDescriptor, []byte, error) {
+	if len(packet) == 0 {
+		return VP8RTPPayloadDescriptor{}, nil, ErrInvalidData
+	}
+	first := packet[0]
+	d := VP8RTPPayloadDescriptor{
+		NonReferenceFrame: first&vp8RTPFlagNonReference != 0,
+		StartOfPartition:  first&vp8RTPFlagStartPartition != 0,
+		PartitionID:       first & 0x07,
+	}
+	off := 1
+	if first&vp8RTPFlagExtendedControl == 0 {
+		return d, packet[off:], nil
+	}
+	if off >= len(packet) {
+		return VP8RTPPayloadDescriptor{}, nil, ErrInvalidData
+	}
+	ext := packet[off]
+	off++
+	d.PictureIDPresent = ext&vp8RTPFlagPictureID != 0
+	d.TL0PICIDXPresent = ext&vp8RTPFlagTL0PICIDX != 0
+	d.TemporalIDPresent = ext&vp8RTPFlagTemporal != 0
+	d.KeyIndexPresent = ext&vp8RTPFlagKeyIndex != 0
+	if d.TL0PICIDXPresent && !d.TemporalIDPresent {
+		return VP8RTPPayloadDescriptor{}, nil, ErrInvalidData
+	}
+	if d.PictureIDPresent {
+		if off >= len(packet) {
+			return VP8RTPPayloadDescriptor{}, nil, ErrInvalidData
+		}
+		pid := packet[off]
+		off++
+		if pid&0x80 != 0 {
+			if off >= len(packet) {
+				return VP8RTPPayloadDescriptor{}, nil, ErrInvalidData
+			}
+			d.PictureID15Bit = true
+			d.PictureID = uint16(pid&0x7f)<<8 | uint16(packet[off])
+			off++
+		} else {
+			d.PictureID = uint16(pid)
+		}
+	}
+	if d.TL0PICIDXPresent {
+		if off >= len(packet) {
+			return VP8RTPPayloadDescriptor{}, nil, ErrInvalidData
+		}
+		d.TL0PICIDX = packet[off]
+		off++
+	}
+	if d.TemporalIDPresent || d.KeyIndexPresent {
+		if off >= len(packet) {
+			return VP8RTPPayloadDescriptor{}, nil, ErrInvalidData
+		}
+		tk := packet[off]
+		off++
+		if d.TemporalIDPresent {
+			d.TemporalID = tk >> 6
+		}
+		d.LayerSync = tk&0x20 != 0
+		if d.KeyIndexPresent {
+			d.KeyIndex = tk & 0x1f
+		}
+	}
+	return d, packet[off:], nil
+}
+
+// VP8RTPPayloadSize returns the number of bytes needed to pack desc and the
+// raw VP8 payload into one RTP payload body.
+func VP8RTPPayloadSize(desc VP8RTPPayloadDescriptor, payload []byte) (int, error) {
+	if len(payload) == 0 {
+		return 0, ErrInvalidConfig
+	}
+	descSize, err := desc.Size()
+	if err != nil {
+		return 0, err
+	}
+	maxInt := int(^uint(0) >> 1)
+	if len(payload) > maxInt-descSize {
+		return 0, ErrInvalidConfig
+	}
+	return descSize + len(payload), nil
+}
+
+// PackVP8RTPPayloadInto writes desc followed by payload into dst and returns
+// the RTP payload length. It does not write an RTP header.
+func PackVP8RTPPayloadInto(dst []byte, desc VP8RTPPayloadDescriptor, payload []byte) (int, error) {
+	need, err := VP8RTPPayloadSize(desc, payload)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, ErrBufferTooSmall
+	}
+	n, err := desc.MarshalInto(dst)
+	if err != nil {
+		return 0, err
+	}
+	copy(dst[n:], payload)
+	return need, nil
+}
+
+// PackVP8RTPPayload returns desc followed by payload as one RTP payload body.
+// It does not include an RTP header.
+func PackVP8RTPPayload(desc VP8RTPPayloadDescriptor, payload []byte) ([]byte, error) {
+	need, err := VP8RTPPayloadSize(desc, payload)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, need)
+	_, err = PackVP8RTPPayloadInto(out, desc, payload)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (d VP8RTPPayloadDescriptor) hasExtensions() bool {
+	return d.PictureIDPresent || d.TL0PICIDXPresent ||
+		d.TemporalIDPresent || d.KeyIndexPresent
+}
+
+func (d VP8RTPPayloadDescriptor) validate() error {
+	if d.PartitionID > 7 {
+		return ErrInvalidConfig
+	}
+	if d.PictureID15Bit && !d.PictureIDPresent {
+		return ErrInvalidConfig
+	}
+	if d.PictureIDPresent {
+		if d.PictureID15Bit {
+			if d.PictureID > 0x7fff {
+				return ErrInvalidConfig
+			}
+		} else if d.PictureID > 0x7f {
+			return ErrInvalidConfig
+		}
+	} else if d.PictureID != 0 {
+		return ErrInvalidConfig
+	}
+	if d.TL0PICIDXPresent && !d.TemporalIDPresent {
+		return ErrInvalidConfig
+	}
+	if !d.TL0PICIDXPresent && d.TL0PICIDX != 0 {
+		return ErrInvalidConfig
+	}
+	if d.TemporalIDPresent {
+		if d.TemporalID > 3 {
+			return ErrInvalidConfig
+		}
+	} else if d.TemporalID != 0 {
+		return ErrInvalidConfig
+	}
+	if d.LayerSync && !d.TemporalIDPresent && !d.KeyIndexPresent {
+		return ErrInvalidConfig
+	}
+	if d.KeyIndexPresent {
+		if d.KeyIndex > 31 {
+			return ErrInvalidConfig
+		}
+	} else if d.KeyIndex != 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}

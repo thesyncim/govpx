@@ -2,8 +2,8 @@
 //
 // It produces and consumes raw VP8 frame payloads and raw VP9 packets; VP9
 // packets may be superframes. RTP/WebRTC payload compatibility is in scope for
-// both VP8 and VP9. VP9 RTP payload-descriptor helpers are provided; RTP
-// headers, SRTP, SDP, signaling, and transport policy stay caller-owned.
+// both VP8 and VP9. VP8 and VP9 RTP payload-descriptor helpers are provided;
+// RTP headers, SRTP, SDP, signaling, and transport policy stay caller-owned.
 //
 // VP9 scope is full profile 0 support only: 8-bit 4:2:0 raw packets and valid
 // superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and

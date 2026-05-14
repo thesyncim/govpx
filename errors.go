@@ -3,7 +3,8 @@ package govpx
 import "errors"
 
 var (
-	// ErrInvalidData reports malformed or unsupported VP8 bitstream data.
+	// ErrInvalidData reports malformed or unsupported VP8 bitstream or RTP
+	// payload data.
 	ErrInvalidData = errors.New("govpx: invalid VP8 data")
 	// ErrUnsupportedFeature is reserved for future use to report a valid
 	// VP8 feature that govpx does not implement. No public API path
