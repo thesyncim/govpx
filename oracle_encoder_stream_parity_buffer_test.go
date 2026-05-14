@@ -593,6 +593,12 @@ func TestOracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
 		bufferOptimalSizeMs int
 		dropFrameAllowed    bool
 		dropFrameWaterMark  int
+		tokenPartitions     int
+		threads             int
+		errorResilient      bool
+		errorResilientParts bool
+		screenContentMode   int
+		sharpness           int
 		extraArgs           []string
 	}{
 		{
@@ -626,30 +632,68 @@ func TestOracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
 			dropFrameWaterMark:  50,
 			extraArgs:           []string{"--buf-sz=200", "--buf-initial-sz=100", "--buf-optimal-sz=150", "--drop-frame=50"},
 		},
+		{
+			name:            "token-parts4-mid-bitrate",
+			targetKbps:      700,
+			tokenPartitions: 2,
+			extraArgs:       []string{"--token-parts=2"},
+		},
+		{
+			name:       "threads2-mid-bitrate",
+			targetKbps: 700,
+			threads:    2,
+			extraArgs:  []string{"--threads=2"},
+		},
+		{
+			name:                "er3-token-parts4-mid-bitrate",
+			targetKbps:          700,
+			tokenPartitions:     2,
+			errorResilient:      true,
+			errorResilientParts: true,
+			extraArgs:           []string{"--error-resilient=3", "--token-parts=2"},
+		},
+		{
+			name:              "screen-content2-mid-bitrate",
+			targetKbps:        700,
+			screenContentMode: 2,
+			extraArgs:         []string{"--screen-content-mode=2"},
+		},
+		{
+			name:       "sharpness4-mid-bitrate",
+			targetKbps: 700,
+			sharpness:  4,
+			extraArgs:  []string{"--sharpness=4"},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := EncoderOptions{
-				Width:                  width,
-				Height:                 height,
-				FPS:                    fps,
-				RateControlMode:        RateControlCBR,
-				TargetBitrateKbps:      tc.targetKbps,
-				MinQuantizer:           4,
-				MaxQuantizer:           56,
-				KeyFrameInterval:       999,
-				Deadline:               DeadlineRealtime,
-				CpuUsed:                -3,
-				Tuning:                 TunePSNR,
-				UndershootPct:          tc.undershootPct,
-				OvershootPct:           tc.overshootPct,
-				BufferSizeMs:           tc.bufferSizeMs,
-				BufferInitialSizeMs:    tc.bufferInitialSizeMs,
-				BufferOptimalSizeMs:    tc.bufferOptimalSizeMs,
-				DropFrameAllowed:       tc.dropFrameAllowed,
-				DropFrameWaterMark:     tc.dropFrameWaterMark,
-				RTCExternalRateControl: true,
+				Width:                    width,
+				Height:                   height,
+				FPS:                      fps,
+				RateControlMode:          RateControlCBR,
+				TargetBitrateKbps:        tc.targetKbps,
+				MinQuantizer:             4,
+				MaxQuantizer:             56,
+				KeyFrameInterval:         999,
+				Deadline:                 DeadlineRealtime,
+				CpuUsed:                  -3,
+				Tuning:                   TunePSNR,
+				UndershootPct:            tc.undershootPct,
+				OvershootPct:             tc.overshootPct,
+				BufferSizeMs:             tc.bufferSizeMs,
+				BufferInitialSizeMs:      tc.bufferInitialSizeMs,
+				BufferOptimalSizeMs:      tc.bufferOptimalSizeMs,
+				DropFrameAllowed:         tc.dropFrameAllowed,
+				DropFrameWaterMark:       tc.dropFrameWaterMark,
+				RTCExternalRateControl:   true,
+				TokenPartitions:          tc.tokenPartitions,
+				Threads:                  tc.threads,
+				ErrorResilient:           tc.errorResilient,
+				ErrorResilientPartitions: tc.errorResilientParts,
+				ScreenContentMode:        tc.screenContentMode,
+				Sharpness:                tc.sharpness,
 			}
 			extraArgs := []string{"--end-usage=cbr", "--rtc-external=1"}
 			extraArgs = append(extraArgs, tc.extraArgs...)
