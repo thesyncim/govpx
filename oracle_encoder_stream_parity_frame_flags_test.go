@@ -349,6 +349,8 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 		frames          int
 		lookaheadFrames int
 		forceFrames     map[int]bool
+		mutate          func(*EncoderOptions)
+		buildFlags      func(int, map[int]bool) []EncodeFlags
 		setup           func(*testing.T, *VP8Encoder)
 		extraArgs       []string
 		matchLimit      int
@@ -386,6 +388,45 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			setup:       roiMapApply("border1"),
 			extraArgs:   []string{"--roi-map=border1"},
 		},
+		{
+			name:        "temporal-two-layer-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			mutate: func(opts *EncoderOptions) {
+				opts.TemporalScalability = TemporalScalabilityConfig{
+					Enabled:                true,
+					Mode:                   TemporalLayeringTwoLayers,
+					LayerTargetBitrateKbps: [MaxTemporalLayers]int{420, targetKbps},
+				}
+			},
+			buildFlags: forceKeyTemporalTwoLayerFlags,
+			extraArgs: []string{
+				"--temporal-layers=2",
+				"--temporal-bitrates=420,700",
+				"--temporal-decimators=2,1",
+				"--temporal-periodicity=2",
+				"--temporal-layer-ids=0,1",
+			},
+		},
+		{
+			name:        "drop-frame-enabled-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			mutate: func(opts *EncoderOptions) {
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 60
+			},
+			extraArgs: []string{"--drop-frame=60"},
+		},
+		{
+			name:        "keyframes-disabled-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			mutate: func(opts *EncoderOptions) {
+				opts.KeyFrameInterval = 0
+			},
+			extraArgs: []string{"--kf-disabled"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -408,16 +449,33 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 				Tuning:            TunePSNR,
 				LookaheadFrames:   tc.lookaheadFrames,
 			}
+			if tc.mutate != nil {
+				tc.mutate(&opts)
+			}
 			flags := make([]EncodeFlags, tc.frames)
-			for frame := range tc.forceFrames {
-				flags[frame] = EncodeForceKeyFrame
+			if tc.buildFlags != nil {
+				flags = tc.buildFlags(tc.frames, tc.forceFrames)
+			} else {
+				for frame := range tc.forceFrames {
+					flags[frame] = EncodeForceKeyFrame
+				}
 			}
 
 			govpxFrames := encodeFramesWithGovpxForceKeyScheduleAndSetup(t, opts, sources, tc.forceFrames, tc.setup)
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-"+tc.name, opts, targetKbps, sources, flags, tc.extraArgs)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-"+tc.name, opts, opts.TargetBitrateKbps, sources, flags, tc.extraArgs)
 			assertSegmentByteParity(t, "force-key-api", govpxFrames, libvpxFrames, tc.matchLimit)
 		})
 	}
+}
+
+func forceKeyTemporalTwoLayerFlags(frames int, forceFrames map[int]bool) []EncodeFlags {
+	flags := temporalTwoLayerFlags(frames)
+	for frame := range forceFrames {
+		if frame >= 0 && frame < len(flags) {
+			flags[frame] |= EncodeForceKeyFrame
+		}
+	}
+	return flags
 }
 
 func encodeFramesWithGovpxForceKeySchedule(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool) [][]byte {
