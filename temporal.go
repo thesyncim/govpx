@@ -295,7 +295,9 @@ func (t *temporalState) refreshBitrate(totalBitrateKbps int) error {
 		}
 		return nil
 	}
-	cfg, _, err := normalizeTemporalBitrates(t.config, t.pattern.Layers, totalBitrateKbps)
+	cfg := t.config
+	cfg.LayerTargetBitrateKbps = [MaxTemporalLayers]int{}
+	cfg, _, err := normalizeTemporalBitrates(cfg, t.pattern.Layers, totalBitrateKbps)
 	if err != nil {
 		return err
 	}

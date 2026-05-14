@@ -2846,6 +2846,11 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		opts.TemporalScalability = runtimeTemporalConfig(mode, targetKbps)
 		return opts
 	}
+	autoTemporalOpts := func(fx fixture, cpuUsed int, mode TemporalLayeringMode) EncoderOptions {
+		opts := baseOpts(fx, cpuUsed)
+		opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: mode}
+		return opts
+	}
 
 	type temporalCase struct {
 		name       string
@@ -3125,6 +3130,124 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 			8: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetFrameDropAllowed(false)", e.SetFrameDropAllowed(false))
+			},
+		},
+	})
+
+	bitrateScript := twoLayerScript(12)
+	appendRuntimeControl(bitrateScript, 4, "bitrate:400+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, 400))
+	appendRuntimeControl(bitrateScript, 8, "bitrate:900+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, 900))
+	cases = append(cases, temporalCase{
+		name:       "two-layer-bitrate-reconfigure-low-high",
+		fx:         panning64,
+		frames:     12,
+		opts:       autoTemporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:      twoLayerFlags(12),
+		script:     bitrateScript,
+		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		matchLimit: 5,
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetBitrateKbps(400)", e.SetBitrateKbps(400))
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetBitrateKbps(900)", e.SetBitrateKbps(900))
+			},
+		},
+	})
+
+	realtimeScript := twoLayerScript(12)
+	appendRuntimeControl(realtimeScript, 4, "fps:24+bitrate:500+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, 500))
+	appendRuntimeControl(realtimeScript, 8, "fps:30+bitrate:700+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, targetKbps))
+	cases = append(cases, temporalCase{
+		name:      "two-layer-realtime-target-fps-bitrate-reconfigure",
+		fx:        panning64,
+		frames:    12,
+		opts:      autoTemporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    realtimeScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRealtimeTarget(fps24-bitrate500)", e.SetRealtimeTarget(RealtimeTarget{FPS: 24, BitrateKbps: 500}))
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRealtimeTarget(fps30-bitrate700)", e.SetRealtimeTarget(RealtimeTarget{FPS: 30, BitrateKbps: targetKbps}))
+			},
+		},
+	})
+
+	tokenERScript := twoLayerScript(12)
+	cases = append(cases, temporalCase{
+		name:   "two-layer-token8-er3",
+		fx:     panning64,
+		frames: 12,
+		opts: func() EncoderOptions {
+			opts := temporalOpts(panning64, 0, TemporalLayeringTwoLayers)
+			opts.ErrorResilient = true
+			opts.ErrorResilientPartitions = true
+			opts.TokenPartitions = 3
+			return opts
+		}(),
+		flags:     twoLayerFlags(12),
+		script:    tokenERScript,
+		extraArgs: append(runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps), "--error-resilient=3"),
+	})
+
+	screenStaticScript := twoLayerScript(12)
+	cases = append(cases, temporalCase{
+		name:   "two-layer-screen2-static500",
+		fx:     panning64,
+		frames: 12,
+		opts: func() EncoderOptions {
+			opts := temporalOpts(panning64, 0, TemporalLayeringTwoLayers)
+			opts.ScreenContentMode = 2
+			opts.StaticThreshold = 500
+			return opts
+		}(),
+		flags:     twoLayerFlags(12),
+		script:    screenStaticScript,
+		extraArgs: append(runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps), "--screen-content-mode=2", "--static-thresh=500"),
+	})
+
+	noiseScript := twoLayerScript(12)
+	cases = append(cases, temporalCase{
+		name:   "two-layer-noise3",
+		fx:     panning64,
+		frames: 12,
+		opts: func() EncoderOptions {
+			opts := temporalOpts(panning64, 0, TemporalLayeringTwoLayers)
+			opts.NoiseSensitivity = 3
+			return opts
+		}(),
+		flags:     twoLayerFlags(12),
+		script:    noiseScript,
+		extraArgs: append(runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps), "--noise-sensitivity=3"),
+	})
+
+	rtcScript := twoLayerScript(12)
+	appendRuntimeControl(rtcScript, 4, "rtc:1")
+	appendRuntimeControl(rtcScript, 8, "rtc:0")
+	cases = append(cases, temporalCase{
+		name:      "two-layer-rtc-external-toggle",
+		fx:        panning64,
+		frames:    12,
+		opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    rtcScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
 			},
 		},
 	})

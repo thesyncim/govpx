@@ -293,6 +293,12 @@ func TestTemporalScalabilityDerivesLibvpxVP8RTCBitrates(t *testing.T) {
 	if got := two.opts.TemporalScalability.LayerTargetBitrateKbps; got[0] != 600 || got[1] != 1000 {
 		t.Fatalf("two-layer bitrates = %v, want 600/1000", got)
 	}
+	if err := two.SetBitrateKbps(800); err != nil {
+		t.Fatalf("two-layer SetBitrateKbps returned error: %v", err)
+	}
+	if got := two.opts.TemporalScalability.LayerTargetBitrateKbps; got[0] != 480 || got[1] != 800 {
+		t.Fatalf("two-layer updated bitrates = %v, want 480/800", got)
+	}
 
 	three, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
