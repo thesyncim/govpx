@@ -42,6 +42,7 @@ type vp9OracleFrameSummary struct {
 	TargetBitrateKbps    int     `json:"target_bitrate_kbps"`
 	FrameTargetBits      int     `json:"frame_target_bits"`
 	BufferLevelBits      int     `json:"buffer_level_bits"`
+	BufferOptimalBits    int     `json:"buffer_optimal_bits"`
 	ActiveBestQ          int     `json:"active_best_q"`
 	ActiveWorstQ         int     `json:"active_worst_q"`
 	RateCorrectionFactor float64 `json:"rate_correction_factor"`

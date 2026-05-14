@@ -623,6 +623,189 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleRuntimeDropToggleByteParityScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-drop byte-parity scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 24
+	type runtimeDropCase struct {
+		name      string
+		opts      VP9EncoderOptions
+		before    func(*testing.T, *VP9Encoder, int)
+		extraArgs []string
+		wantDrop  bool
+	}
+	dropOpts := func(targetKbps int) VP9EncoderOptions {
+		opts := vp9OracleCBROptions(width, height, targetKbps)
+		opts.BufferSizeMs = 400
+		opts.BufferInitialSizeMs = 300
+		opts.BufferOptimalSizeMs = 350
+		opts.DropFrameWaterMark = 60
+		return opts
+	}
+	cases := []runtimeDropCase{
+		{
+			name: "drop-frame-toggle",
+			opts: dropOpts(120),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRealtimeTarget drop enabled",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							FrameDrop: RealtimeFrameDropEnabled,
+						}))
+				case 14:
+					mustVP9Runtime(t, "SetRealtimeTarget drop disabled",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							FrameDrop: RealtimeFrameDropDisabled,
+						}))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(120, 400, 300, 350, 0),
+				"--drop-frame-schedule=3:60,14:0"),
+			wantDrop: true,
+		},
+		{
+			name: "fixed-q-drop-frame-toggle",
+			opts: func() VP9EncoderOptions {
+				opts := dropOpts(140)
+				opts.MinQuantizer = 20
+				opts.MaxQuantizer = 20
+				return opts
+			}(),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 2:
+					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop enabled",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							FrameDrop: RealtimeFrameDropEnabled,
+						}))
+				case 14:
+					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop disabled",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							FrameDrop: RealtimeFrameDropDisabled,
+						}))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(140, 400, 300, 350, 0),
+				"--min-q=20", "--max-q=20",
+				"--drop-frame-schedule=2:60,14:0"),
+			wantDrop: true,
+		},
+		{
+			name: "fixed-q-window-under-drop-pressure",
+			opts: func() VP9EncoderOptions {
+				opts := dropOpts(140)
+				opts.DropFrameAllowed = true
+				return opts
+			}(),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 4:
+					mustVP9Runtime(t, "SetRealtimeTarget fixed q under drop",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							MinQuantizer: 20,
+							MaxQuantizer: 20,
+						}))
+				case 14:
+					mustVP9Runtime(t, "SetRealtimeTarget q band restore after drop",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							MinQuantizer: 4,
+							MaxQuantizer: 56,
+						}))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(140, 400, 300, 350, 60),
+				"--min-q-schedule=4:20,14:4",
+				"--max-q-schedule=4:20,14:56"),
+			wantDrop: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			govpxRows, govpxPackets, libvpxRows, libvpxPackets :=
+				captureVP9StreamParityPacketRowsWithHooks(t, tc.opts,
+					sources, nil, tc.extraArgs,
+					func(enc *VP9Encoder, frame int) {
+						tc.before(t, enc, frame)
+					})
+			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			matches, packetMatches, dropMatches, firstMismatch :=
+				countVP9ByteParityMatchesWithDrops(t, govpxRows, govpxPackets,
+					libvpxRows, libvpxPackets)
+			govpxDrops := vp9DroppedFrameIndices(govpxRows)
+			libvpxDrops := vp9DroppedFrameIndices(libvpxRows)
+			t.Logf("VP9 runtime-drop byte-parity scoreboard %s: rows=%d matches=%d packet_matches=%d drop_matches=%d first_mismatch=%d govpx_drops=%v libvpx_drops=%v transition=%s",
+				tc.name, len(govpxRows), matches, packetMatches, dropMatches,
+				firstMismatch, govpxDrops, libvpxDrops, stats)
+			t.Logf("VP9 runtime-drop byte-parity rows %s:\n%s", tc.name,
+				formatVP9DropAwareStreamParityRows(t, govpxRows, govpxPackets,
+					libvpxRows, libvpxPackets))
+			if tc.wantDrop && (len(govpxDrops) == 0 || len(libvpxDrops) == 0) {
+				t.Fatalf("drop fixture %s did not drop on both sides: govpx=%v libvpx=%v",
+					tc.name, govpxDrops, libvpxDrops)
+			}
+			if os.Getenv("GOVPX_VP9_RUNTIME_DROP_BYTE_STRICT") == "1" &&
+				(matches != len(govpxRows) || stats.hasMismatch()) {
+				t.Fatalf("strict VP9 runtime-drop mismatch %s: matches=%d/%d stats=%s",
+					tc.name, matches, len(govpxRows), stats)
+			}
+		})
+	}
+}
+
+func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 temporal byte-parity scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames, targetKbps = 64, 64, 16, 700
+	cases := []struct {
+		name string
+		mode TemporalLayeringMode
+	}{
+		{name: "two-layer", mode: TemporalLayeringTwoLayers},
+		{name: "three-layer-default", mode: TemporalLayeringThreeLayers},
+		{name: "three-layer-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern, ok := temporalLayeringPattern(tc.mode)
+			if !ok {
+				t.Fatalf("temporalLayeringPattern(%d) failed", tc.mode)
+			}
+			opts := vp9OracleCBROptions(width, height, targetKbps)
+			opts.TemporalScalability = vp9OracleTemporalConfig(tc.mode,
+				targetKbps)
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			flags := vp9OracleTemporalPatternFlags(pattern, frames)
+			extraArgs := append(vp9OracleCBRArgs(targetKbps, 600, 400, 500, 0),
+				vp9OracleTemporalArgs(t, tc.mode, targetKbps)...)
+			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
+				opts, sources, flags, extraArgs)
+			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+				libvpxPackets)
+			t.Logf("VP9 temporal byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d",
+				tc.name, matches, len(govpxPackets), firstMismatch)
+			t.Logf("VP9 temporal byte-parity rows %s:\n%s", tc.name,
+				formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+			if os.Getenv("GOVPX_VP9_TEMPORAL_BYTE_STRICT") == "1" &&
+				matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 temporal byte parity %s: matches=%d/%d",
+					tc.name, matches, len(govpxPackets))
+			}
+		})
+	}
+}
+
 func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 lookahead flush byte-parity scoreboard")
@@ -713,6 +896,42 @@ func countVP9ByteParityMatches(govpxPackets, libvpxPackets [][]byte) (matches in
 		}
 	}
 	return matches, firstMismatch
+}
+
+func countVP9ByteParityMatchesWithDrops(t *testing.T,
+	govpxRows []vp9RateScoreboardRow, govpxPackets [][]byte,
+	libvpxRows []vp9RateScoreboardRow, libvpxPackets [][]byte,
+) (matches int, packetMatches int, dropMatches int, firstMismatch int) {
+	t.Helper()
+	if len(govpxRows) != len(libvpxRows) ||
+		len(govpxPackets) != len(govpxRows) ||
+		len(libvpxPackets) != len(libvpxRows) {
+		t.Fatalf("VP9 drop-aware parity row/packet count mismatch: govpx_rows=%d govpx_packets=%d libvpx_rows=%d libvpx_packets=%d",
+			len(govpxRows), len(govpxPackets), len(libvpxRows),
+			len(libvpxPackets))
+	}
+	firstMismatch = -1
+	for i := range govpxRows {
+		gDrop := govpxRows[i].Dropped
+		lDrop := libvpxRows[i].Dropped
+		switch {
+		case gDrop && lDrop:
+			matches++
+			dropMatches++
+		case gDrop || lDrop:
+			if firstMismatch < 0 {
+				firstMismatch = i
+			}
+		case len(govpxPackets[i]) != 0 && bytes.Equal(govpxPackets[i], libvpxPackets[i]):
+			matches++
+			packetMatches++
+		default:
+			if firstMismatch < 0 {
+				firstMismatch = i
+			}
+		}
+	}
+	return matches, packetMatches, dropMatches, firstMismatch
 }
 
 func captureVP9LookaheadPacketsWithFlushesForOracleTest(t *testing.T,
@@ -940,6 +1159,160 @@ func captureVP9StreamParityPacketsWithHooks(t *testing.T, opts VP9EncoderOptions
 	return govpxPackets, libvpxPackets
 }
 
+func captureVP9StreamParityPacketRowsWithHooks(t *testing.T,
+	opts VP9EncoderOptions, sources []*image.YCbCr, flags []EncodeFlags,
+	extraArgs []string, beforeFrame func(*VP9Encoder, int),
+) ([]vp9RateScoreboardRow, [][]byte, []vp9RateScoreboardRow, [][]byte) {
+	t.Helper()
+	govpxRows, govpxPackets := captureGovpxVP9StreamParityPacketRowsWithHooks(t,
+		opts, sources, flags, beforeFrame)
+	libvpxRows, libvpxPackets := captureLibvpxVP9StreamParityPacketRows(t,
+		sources, flags, extraArgs)
+	return govpxRows, govpxPackets, libvpxRows, libvpxPackets
+}
+
+func captureGovpxVP9StreamParityPacketRowsWithHooks(t *testing.T,
+	opts VP9EncoderOptions, sources []*image.YCbCr, flags []EncodeFlags,
+	beforeFrame func(*VP9Encoder, int),
+) ([]vp9RateScoreboardRow, [][]byte) {
+	t.Helper()
+	if len(sources) == 0 {
+		t.Fatal("empty VP9 stream parity source")
+	}
+	if len(flags) > len(sources) {
+		t.Fatalf("VP9 stream parity flag count = %d, want <= %d",
+			len(flags), len(sources))
+	}
+	width := sources[0].Rect.Dx()
+	height := sources[0].Rect.Dy()
+	for i, src := range sources {
+		if src.Rect.Dx() != width || src.Rect.Dy() != height {
+			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
+				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
+		}
+	}
+	opts.Width = width
+	opts.Height = height
+	enc, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	var trace bytes.Buffer
+	enc.SetVP9OracleTraceWriter(&trace)
+	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
+	packets := make([][]byte, len(sources))
+	for i, src := range sources {
+		if beforeFrame != nil {
+			beforeFrame(enc, i)
+		}
+		var f EncodeFlags
+		if i < len(flags) {
+			f = flags[i]
+		}
+		if f&EncodeInvisibleFrame != 0 {
+			t.Fatalf("frame %d uses EncodeInvisibleFrame, which has no VP9 libvpx flag bit", i)
+		}
+		result, err := enc.EncodeIntoWithFlagsResult(src, dst, f)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithFlagsResult frame %d: %v", i, err)
+		}
+		if result.Dropped {
+			continue
+		}
+		packets[i] = append([]byte(nil), result.Data...)
+	}
+	rows := parseVP9RateScoreboardRows(t, trace.Bytes())
+	if len(rows) != len(sources) {
+		t.Fatalf("govpx VP9 trace rows = %d, want %d", len(rows), len(sources))
+	}
+	for i := range rows {
+		if rows[i].Dropped {
+			continue
+		}
+		if len(packets[i]) == 0 {
+			t.Fatalf("govpx VP9 row %d was not dropped but has no packet", i)
+		}
+		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+	}
+	return rows, packets
+}
+
+func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
+	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
+) ([]vp9RateScoreboardRow, [][]byte) {
+	t.Helper()
+	if len(sources) == 0 {
+		t.Fatal("empty VP9 libvpx stream parity source")
+	}
+	if len(flags) > len(sources) {
+		t.Fatalf("VP9 libvpx stream parity flag count = %d, want <= %d",
+			len(flags), len(sources))
+	}
+	width := sources[0].Rect.Dx()
+	height := sources[0].Rect.Dy()
+	for i, src := range sources {
+		if src.Rect.Dx() != width || src.Rect.Dy() != height {
+			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
+				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
+		}
+	}
+	libvpxFlags := make([]uint32, len(flags))
+	for i, f := range flags {
+		libvpxFlags[i] = vp9FrameFlagsForLibvpx(f)
+	}
+	var raw []byte
+	for _, src := range sources {
+		raw = appendVP9YCbCrI420(raw, src)
+	}
+	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
+		height, len(sources), libvpxFlags, extraArgs...)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9-frameflags trace failed: %v\n%s", err, diag)
+	}
+	rows := parseVP9RateScoreboardRows(t, trace)
+	if len(rows) != len(sources) {
+		t.Fatalf("libvpx VP9 trace rows = %d, want %d", len(rows), len(sources))
+	}
+	packets := make([][]byte, len(rows))
+	wantPackets := 0
+	for i := range rows {
+		if !rows[i].Dropped {
+			wantPackets++
+		}
+	}
+	gotPackets, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if gotPackets != wantPackets {
+		t.Fatalf("libvpx VP9 IVF packets = %d, want %d", gotPackets, wantPackets)
+	}
+	if wantPackets == 0 {
+		return rows, packets
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	for i := range rows {
+		if rows[i].Dropped {
+			continue
+		}
+		var frame testutil.IVFFrame
+		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+		}
+		packets[i] = append([]byte(nil), frame.Data...)
+		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+	}
+	return rows, packets
+}
+
 func formatVP9StreamParityRows(t *testing.T, govpxPackets, libvpxPackets [][]byte) string {
 	t.Helper()
 	var b bytes.Buffer
@@ -953,6 +1326,37 @@ func formatVP9StreamParityRows(t *testing.T, govpxPackets, libvpxPackets [][]byt
 			govpxHeader.Quant.BaseQindex, libvpxHeader.Quant.BaseQindex,
 			govpxHeader.RefreshFrameFlags, libvpxHeader.RefreshFrameFlags,
 			govpxHeader.FirstPartitionSize, libvpxHeader.FirstPartitionSize)
+	}
+	return b.String()
+}
+
+func formatVP9DropAwareStreamParityRows(t *testing.T,
+	govpxRows []vp9RateScoreboardRow, govpxPackets [][]byte,
+	libvpxRows []vp9RateScoreboardRow, libvpxPackets [][]byte,
+) string {
+	t.Helper()
+	var b bytes.Buffer
+	fmt.Fprintln(&b, "frame,row_match,packet_match,govpx_drop,libvpx_drop,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_target,libvpx_target,govpx_buffer,libvpx_buffer,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part")
+	for i := range govpxRows {
+		g := govpxRows[i]
+		l := libvpxRows[i]
+		packetMatch := false
+		if g.Dropped && l.Dropped {
+			packetMatch = true
+		} else if !g.Dropped && !l.Dropped {
+			packetMatch = bytes.Equal(govpxPackets[i], libvpxPackets[i])
+		}
+		rowMatch := g.Dropped == l.Dropped &&
+			g.BaseQIndex == l.BaseQIndex &&
+			g.FrameTargetBits == l.FrameTargetBits &&
+			g.BufferLevelBits == l.BufferLevelBits &&
+			g.RefreshFrameFlags == l.RefreshFrameFlags
+		fmt.Fprintf(&b, "%d,%t,%t,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%#x,%d,%d\n",
+			g.FrameIndex, rowMatch, packetMatch, g.Dropped, l.Dropped,
+			len(govpxPackets[i]), len(libvpxPackets[i]), g.BaseQIndex,
+			l.BaseQIndex, g.FrameTargetBits, l.FrameTargetBits,
+			g.BufferLevelBits, l.BufferLevelBits, g.RefreshFrameFlags,
+			l.RefreshFrameFlags, g.FirstPartitionSize, l.FirstPartitionSize)
 	}
 	return b.String()
 }

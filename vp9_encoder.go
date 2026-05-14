@@ -690,6 +690,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 					TargetBitrateKbps:  e.rc.targetBitrateKbps,
 					FrameTargetBits:    e.rc.frameTargetBits,
 					BufferLevelBits:    e.rc.bufferLevelBits,
+					BufferOptimalBits:  e.rc.bufferOptimalBits,
 				})
 			}
 			e.frameIndex++
@@ -1014,6 +1015,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 			TargetBitrateKbps:    result.TargetBitrateKbps,
 			FrameTargetBits:      result.FrameTargetBits,
 			BufferLevelBits:      result.BufferLevelBits,
+			BufferOptimalBits:    e.rc.bufferOptimalBits,
 			ActiveBestQ:          activeBestQ,
 			ActiveWorstQ:         activeWorstQ,
 			RateCorrectionFactor: rateCorrectionFactor,

@@ -2608,6 +2608,43 @@ func TestVP9EncoderCBRSelectsLibvpxQuantizers(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderCBRFrameTargetUsesPerFrameBandwidth(t *testing.T) {
+	const width, height = 64, 64
+	for _, targetKbps := range [...]int{700, 140} {
+		e, err := NewVP9Encoder(VP9EncoderOptions{
+			Width:               width,
+			Height:              height,
+			FPS:                 30,
+			TargetBitrateKbps:   targetKbps,
+			RateControlModeSet:  true,
+			RateControlMode:     RateControlCBR,
+			BufferSizeMs:        600,
+			BufferInitialSizeMs: 400,
+			BufferOptimalSizeMs: 500,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			MaxKeyframeInterval: 128,
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Encoder target %d: %v", targetKbps, err)
+		}
+		dst := make([]byte, 65536)
+		wantTarget := targetKbps * 1000 / 30
+		for i := 0; i < 3; i++ {
+			src := newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
+			result, err := e.EncodeIntoWithResult(src, dst)
+			if err != nil {
+				t.Fatalf("EncodeIntoWithResult target %d frame %d: %v",
+					targetKbps, i, err)
+			}
+			if result.FrameTargetBits != wantTarget {
+				t.Fatalf("target %d frame %d target bits = %d, want %d",
+					targetKbps, i, result.FrameTargetBits, wantTarget)
+			}
+		}
+	}
+}
+
 func TestVP9EncoderCBRDropDoesNotDropKeyOrInvisibleFrame(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{

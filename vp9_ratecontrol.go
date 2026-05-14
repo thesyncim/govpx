@@ -133,7 +133,7 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	bitsPerFrame := computeBitsPerFrame(targetBits, timing)
+	bitsPerFrame := computeVP9BitsPerFrame(targetBits, timing)
 	if bitsPerFrame <= 0 {
 		return ErrInvalidBitrate
 	}
@@ -160,6 +160,24 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	rc.bufferOptimalBits = bufferOptimalBits
 	rc.clampBuffer()
 	return nil
+}
+
+func computeVP9BitsPerFrame(targetBandwidthBits int, timing timingState) int {
+	if targetBandwidthBits <= 0 || timing.timebaseNum <= 0 ||
+		timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
+		return 0
+	}
+	num := int64(targetBandwidthBits) * int64(timing.timebaseNum) *
+		int64(timing.frameDuration)
+	den := int64(timing.timebaseDen)
+	if den <= 0 {
+		return 0
+	}
+	v := num / den
+	if v > int64(maxInt()) {
+		return 0
+	}
+	return int(v)
 }
 
 func (rc *vp9RateControlState) setBufferModel(sizeMs, initialMs, optimalMs int) error {

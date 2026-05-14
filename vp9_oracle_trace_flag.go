@@ -36,6 +36,7 @@ type vp9OracleFrameSummary struct {
 	TargetBitrateKbps    int
 	FrameTargetBits      int
 	BufferLevelBits      int
+	BufferOptimalBits    int
 	ActiveBestQ          int
 	ActiveWorstQ         int
 	RateCorrectionFactor float64

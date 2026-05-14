@@ -1090,6 +1090,7 @@ type vp9OracleTransitionStats struct {
 	FirstPartitionMismatches int
 	TargetMismatches         int
 	BufferMismatches         int
+	BufferOptimalMismatches  int
 	RefreshMismatches        int
 	HeaderMismatches         int
 	ModeHeaderMismatches     int
@@ -1100,6 +1101,7 @@ type vp9OracleTransitionStats struct {
 	MaxQDrift                int
 	MaxSizeDeltaPct          float64
 	MaxBufferDeltaPct        float64
+	MaxBufferOptimalDeltaPct float64
 }
 
 func (s vp9OracleTransitionStats) hasMismatch() bool {
@@ -1108,21 +1110,22 @@ func (s vp9OracleTransitionStats) hasMismatch() bool {
 		s.QMismatches != 0 || s.PublicQMismatches != 0 ||
 		s.SizeMismatches != 0 || s.FirstPartitionMismatches != 0 ||
 		s.TargetMismatches != 0 || s.BufferMismatches != 0 ||
-		s.RefreshMismatches != 0 || s.HeaderMismatches != 0 ||
-		s.ModeHeaderMismatches != 0 || s.LoopFilterMismatches != 0 ||
-		s.TileMismatches != 0 || s.TemporalMismatches != 0 ||
-		s.TL0Mismatches != 0
+		s.BufferOptimalMismatches != 0 || s.RefreshMismatches != 0 ||
+		s.HeaderMismatches != 0 || s.ModeHeaderMismatches != 0 ||
+		s.LoopFilterMismatches != 0 || s.TileMismatches != 0 ||
+		s.TemporalMismatches != 0 || s.TL0Mismatches != 0
 }
 
 func (s vp9OracleTransitionStats) String() string {
-	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d q=%d public_q=%d size=%d first_part=%d target=%d buffer=%d refresh=%d header=%d mode_header=%d lf=%d tile=%d temporal=%d tl0=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f",
+	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d q=%d public_q=%d size=%d first_part=%d target=%d buffer=%d buffer_opt=%d refresh=%d header=%d mode_header=%d lf=%d tile=%d temporal=%d tl0=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f max_buffer_opt_delta_pct=%.2f",
 		s.Rows, s.FlagMismatches, s.DropMismatches, s.KeyMismatches,
 		s.ShowMismatches, s.QMismatches, s.PublicQMismatches,
 		s.SizeMismatches, s.FirstPartitionMismatches, s.TargetMismatches,
-		s.BufferMismatches, s.RefreshMismatches, s.HeaderMismatches,
-		s.ModeHeaderMismatches, s.LoopFilterMismatches, s.TileMismatches,
-		s.TemporalMismatches, s.TL0Mismatches, s.MaxQDrift,
-		s.MaxSizeDeltaPct, s.MaxBufferDeltaPct)
+		s.BufferMismatches, s.BufferOptimalMismatches, s.RefreshMismatches,
+		s.HeaderMismatches, s.ModeHeaderMismatches, s.LoopFilterMismatches,
+		s.TileMismatches, s.TemporalMismatches, s.TL0Mismatches,
+		s.MaxQDrift, s.MaxSizeDeltaPct, s.MaxBufferDeltaPct,
+		s.MaxBufferOptimalDeltaPct)
 }
 
 func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9RateScoreboardRow) vp9OracleTransitionStats {
@@ -1192,6 +1195,12 @@ func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9Rat
 			stats.BufferMismatches++
 			if delta := pctDelta(g.BufferLevelBits, l.BufferLevelBits); delta > stats.MaxBufferDeltaPct {
 				stats.MaxBufferDeltaPct = delta
+			}
+		}
+		if g.BufferOptimalBits != l.BufferOptimalBits {
+			stats.BufferOptimalMismatches++
+			if delta := pctDelta(g.BufferOptimalBits, l.BufferOptimalBits); delta > stats.MaxBufferOptimalDeltaPct {
+				stats.MaxBufferOptimalDeltaPct = delta
 			}
 		}
 		if g.RefreshFrameFlags != l.RefreshFrameFlags {

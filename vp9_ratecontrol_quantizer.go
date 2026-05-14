@@ -12,9 +12,6 @@ const (
 	vp9MinBPBFactor   = 0.005
 	vp9MaxBPBFactor   = 50.0
 
-	vp9DefaultUndershootPct = 25
-	vp9DefaultOvershootPct  = 25
-
 	vp9RateFactorInterNormal = 0
 	vp9RateFactorInterHigh   = 1
 	vp9RateFactorGFARFLow    = 2
@@ -27,62 +24,18 @@ func vp9MacroblockCount(miRows, miCols int) int {
 	return ((miRows + 1) >> 1) * ((miCols + 1) >> 1)
 }
 
-func (rc *vp9RateControlState) keyFrameTargetBits(frameIndex int) int {
-	if frameIndex == 0 {
-		return rc.clampFrameTarget(rc.bufferInitialBits >> 1)
-	}
-	kfBoost := 32
-	framerate := rc.frameRate()
-	boostFromRate := int(math.Round(2*framerate - 16))
-	if boostFromRate > kfBoost {
-		kfBoost = boostFromRate
-	}
-	if framerate > 0 && float64(rc.framesSinceKey) < framerate/2 {
-		kfBoost = int(math.Round(float64(kfBoost) * float64(rc.framesSinceKey) / (framerate / 2)))
-	}
-	return rc.clampFrameTarget(int(((int64(16+kfBoost) * int64(rc.bitsPerFrame)) >> 4)))
+func (rc *vp9RateControlState) keyFrameTargetBits(_ int) int {
+	return rc.perFrameBandwidthTargetBits()
 }
 
 func (rc *vp9RateControlState) interFrameTargetBits() int {
-	target := int64(rc.bitsPerFrame)
-	diff := int64(rc.bufferOptimalBits - rc.bufferLevelBits)
-	onePctBits := int64(1 + rc.bufferOptimalBits/100)
-	if diff > 0 {
-		pctLow := int(diff / onePctBits)
-		if pctLow > vp9DefaultUndershootPct {
-			pctLow = vp9DefaultUndershootPct
-		}
-		target -= (target * int64(pctLow)) / 200
-	} else if diff < 0 {
-		pctHigh := int((-diff) / onePctBits)
-		if pctHigh > vp9DefaultOvershootPct {
-			pctHigh = vp9DefaultOvershootPct
-		}
-		target += (target * int64(pctHigh)) / 200
-	}
-	if target > int64(maxInt()) {
-		target = int64(maxInt())
-	}
-	minTarget := rc.bitsPerFrame >> 4
-	if minTarget < vp9FrameOverhead {
-		minTarget = vp9FrameOverhead
-	}
-	if int(target) < minTarget {
-		return minTarget
-	}
-	return int(target)
+	return rc.perFrameBandwidthTargetBits()
 }
 
-func (rc *vp9RateControlState) frameRate() float64 {
-	if rc.frameRateNum <= 0 || rc.frameRateDen <= 0 {
-		return 30
-	}
-	return float64(rc.frameRateNum) / float64(rc.frameRateDen)
-}
-
-func (rc *vp9RateControlState) clampFrameTarget(target int) int {
-	if target < 0 {
-		return 0
+func (rc *vp9RateControlState) perFrameBandwidthTargetBits() int {
+	target := rc.bitsPerFrame
+	if target < vp9FrameOverhead {
+		return vp9FrameOverhead
 	}
 	return target
 }
