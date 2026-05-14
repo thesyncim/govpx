@@ -2028,6 +2028,48 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "rtc-external-disable-sticky-force-keyframe",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TargetBitrateKbps = 400
+				opts.BufferSizeMs = 200
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 150
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 50
+				return opts
+			}(),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			extraArgs: []string{
+				"--target-bitrate=400",
+				"--buf-sz=200",
+				"--buf-initial-sz=100",
+				"--buf-optimal-sz=150",
+				"--drop-frame=50",
+			},
+			// The accepted false call stays sticky. The following forced
+			// keyframe has an RTC header drift, then the stream rejoins.
+			matchLimit: 6,
+			matchFrom:  7,
+			script: runtimeControlScript(frames, map[int]string{
+				2: "rtc:1",
+				5: "rtc:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				5: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+				},
+			},
+		},
+		{
 			name:  "rtc-external-no-ref-all-no-upd-entropy",
 			fx:    panning64,
 			opts:  baseOpts(panning64),
