@@ -134,6 +134,31 @@ func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
 }
 
+func TestVP9EncoderVpxdecOracleMatchesCompoundInterFrame(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	low := newVP9CompoundAverageYCbCrForTest(width, height, -32)
+	mid := newVP9CompoundAverageYCbCrForTest(width, height, 0)
+	high := newVP9CompoundAverageYCbCrForTest(width, height, 32)
+	key, err := e.Encode(low)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	alt, err := e.EncodeWithFlags(high,
+		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+	if err != nil {
+		t.Fatalf("Encode alt refresh: %v", err)
+	}
+	inter, err := e.Encode(mid)
+	if err != nil {
+		t.Fatalf("Encode compound inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, alt, inter)
+}
+
 func TestVP9EncoderVpxdecOracleMatchesNoUpdateLastInterFrame(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

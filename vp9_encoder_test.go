@@ -100,6 +100,42 @@ func newVP9MotionYCbCrForTest(width, height int) *image.YCbCr {
 	return img
 }
 
+func newVP9CompoundAverageYCbCrForTest(width, height, delta int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			base := 96 + (x*5+y*7+(x*y)%19)%64
+			row[x] = byte(base + delta)
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			baseCb := 104 + (x*3+y*5)%32
+			baseCr := 112 + (x*7+y*2)%32
+			cb[x] = byte(baseCb + delta/2)
+			cr[x] = byte(baseCr + delta/2)
+		}
+	}
+	return img
+}
+
+func assertVP9InterMotionBlockForTest(t *testing.T, name string,
+	mi vp9dec.NeighborMi, want vp9dec.MV,
+) {
+	t.Helper()
+	if mi.Mode != common.NearestMv && mi.Mode != common.NearMv && mi.Mode != common.NewMv {
+		t.Fatalf("%s block mode = %d, want an inter motion mode", name, mi.Mode)
+	}
+	if mi.Mv[0] != want {
+		t.Fatalf("%s block MV = %+v, want %+v", name, mi.Mv[0], want)
+	}
+}
+
 func shiftedVP9ReferenceYCbCrForTest(ref Image, dx, dy int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
 	shiftPlane := func(dst []byte, dstStride int, src []byte, srcStride, width, height, planeDx, planeDy int) {
@@ -637,6 +673,57 @@ func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
 	assertVP9FilledFrame(t, frame, width, height, 128, 128, 128)
 }
 
+func TestVP9EncoderInterPicksCompoundZeroMv(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	low := newVP9CompoundAverageYCbCrForTest(width, height, -32)
+	mid := newVP9CompoundAverageYCbCrForTest(width, height, 0)
+	high := newVP9CompoundAverageYCbCrForTest(width, height, 32)
+	key, err := e.Encode(low)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	alt, err := e.EncodeWithFlags(high,
+		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+	if err != nil {
+		t.Fatalf("Encode alt refresh: %v", err)
+	}
+	inter, err := e.Encode(mid)
+	if err != nil {
+		t.Fatalf("Encode compound inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	for i, packet := range [][]byte{key, alt, inter} {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet %d: %v", i, err)
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatalf("NextFrame returned !ok after packet %d", i)
+		}
+	}
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after compound inter frame")
+	}
+	got := d.miGrid[0]
+	if got.RefFrame[1] <= vp9dec.IntraFrame {
+		t.Fatalf("top-left ref pair = %v, want compound", got.RefFrame)
+	}
+	if got.Mode != common.ZeroMv {
+		t.Fatalf("top-left compound mode = %d, want ZeroMv", got.Mode)
+	}
+	if got.Mv != ([2]vp9dec.MV{}) {
+		t.Fatalf("top-left compound MV = %+v, want zero MVs", got.Mv)
+	}
+	if got.RefFrame != [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame} &&
+		got.RefFrame != [2]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame} {
+		t.Fatalf("top-left ref pair = %v, want LAST/ALTREF or GOLDEN/ALTREF", got.RefFrame)
+	}
+}
+
 func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
 	keySrc := newVP9YCbCrForTest(32, 32, 128, 128, 128)
@@ -790,14 +877,8 @@ func TestVP9EncoderInterPicksVert64x64ForHorizontalMixedMotion(t *testing.T) {
 		t.Fatalf("top blocks = %d/%d, want Block32x64/Block32x64",
 			left.SbType, right.SbType)
 	}
-	if left.Mode != common.NewMv || left.Mv[0] != (vp9dec.MV{Col: 64}) {
-		t.Fatalf("left block = mode %d mv %+v, want NewMv {Col:64}",
-			left.Mode, left.Mv[0])
-	}
-	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -64}) {
-		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-64}",
-			right.Mode, right.Mv[0])
-	}
+	assertVP9InterMotionBlockForTest(t, "left", left, vp9dec.MV{Col: 64})
+	assertVP9InterMotionBlockForTest(t, "right", right, vp9dec.MV{Col: -64})
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after vertical-partition inter frame")
 	}
@@ -827,14 +908,8 @@ func TestVP9EncoderInterPicksVert32x32ForHorizontalMixedMotion(t *testing.T) {
 		t.Fatalf("top blocks = %d/%d, want Block16x32/Block16x32",
 			left.SbType, right.SbType)
 	}
-	if left.Mode != common.NewMv || left.Mv[0] != (vp9dec.MV{Col: 64}) {
-		t.Fatalf("left block = mode %d mv %+v, want NewMv {Col:64}",
-			left.Mode, left.Mv[0])
-	}
-	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -64}) {
-		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-64}",
-			right.Mode, right.Mv[0])
-	}
+	assertVP9InterMotionBlockForTest(t, "left", left, vp9dec.MV{Col: 64})
+	assertVP9InterMotionBlockForTest(t, "right", right, vp9dec.MV{Col: -64})
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after 32x32 vertical-partition inter frame")
 	}
@@ -864,14 +939,8 @@ func TestVP9EncoderInterPicksVert16x16ForHorizontalMixedMotion(t *testing.T) {
 		t.Fatalf("top blocks = %d/%d, want Block8x16/Block8x16",
 			left.SbType, right.SbType)
 	}
-	if left.Mode != common.NewMv || left.Mv[0] != (vp9dec.MV{Col: 32}) {
-		t.Fatalf("left block = mode %d mv %+v, want NewMv {Col:32}",
-			left.Mode, left.Mv[0])
-	}
-	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -31}) {
-		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-31}",
-			right.Mode, right.Mv[0])
-	}
+	assertVP9InterMotionBlockForTest(t, "left", left, vp9dec.MV{Col: 32})
+	assertVP9InterMotionBlockForTest(t, "right", right, vp9dec.MV{Col: -32})
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after 16x16 vertical-partition inter frame")
 	}
@@ -901,14 +970,8 @@ func TestVP9EncoderInterPicksHorz64x64ForVerticalMixedMotion(t *testing.T) {
 		t.Fatalf("left blocks = %d/%d, want Block64x32/Block64x32",
 			top.SbType, bottom.SbType)
 	}
-	if top.Mode != common.NewMv || top.Mv[0] != (vp9dec.MV{Row: 64}) {
-		t.Fatalf("top block = mode %d mv %+v, want NewMv {Row:64}",
-			top.Mode, top.Mv[0])
-	}
-	if bottom.Mode != common.NewMv || bottom.Mv[0] != (vp9dec.MV{Row: -64}) {
-		t.Fatalf("bottom block = mode %d mv %+v, want NewMv {Row:-64}",
-			bottom.Mode, bottom.Mv[0])
-	}
+	assertVP9InterMotionBlockForTest(t, "top", top, vp9dec.MV{Row: 64})
+	assertVP9InterMotionBlockForTest(t, "bottom", bottom, vp9dec.MV{Row: -64})
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after horizontal-partition inter frame")
 	}
@@ -953,22 +1016,10 @@ func TestVP9EncoderInterSplits64x64ForQuadrantMotion(t *testing.T) {
 				block.name, block.mi.SbType)
 		}
 	}
-	if topLeft.Mode != common.NewMv || topLeft.Mv[0] != (vp9dec.MV{Col: 64}) {
-		t.Fatalf("top-left block = mode %d mv %+v, want NewMv {Col:64}",
-			topLeft.Mode, topLeft.Mv[0])
-	}
-	if topRight.Mode != common.NewMv || topRight.Mv[0] != (vp9dec.MV{Col: -64}) {
-		t.Fatalf("top-right block = mode %d mv %+v, want NewMv {Col:-64}",
-			topRight.Mode, topRight.Mv[0])
-	}
-	if bottomLeft.Mode != common.NewMv || bottomLeft.Mv[0] != (vp9dec.MV{Row: 64}) {
-		t.Fatalf("bottom-left block = mode %d mv %+v, want NewMv {Row:64}",
-			bottomLeft.Mode, bottomLeft.Mv[0])
-	}
-	if bottomRight.Mode != common.NewMv || bottomRight.Mv[0] != (vp9dec.MV{Row: -64}) {
-		t.Fatalf("bottom-right block = mode %d mv %+v, want NewMv {Row:-64}",
-			bottomRight.Mode, bottomRight.Mv[0])
-	}
+	assertVP9InterMotionBlockForTest(t, "top-left", topLeft, vp9dec.MV{Col: 64})
+	assertVP9InterMotionBlockForTest(t, "top-right", topRight, vp9dec.MV{Col: -64})
+	assertVP9InterMotionBlockForTest(t, "bottom-left", bottomLeft, vp9dec.MV{Row: 64})
+	assertVP9InterMotionBlockForTest(t, "bottom-right", bottomRight, vp9dec.MV{Row: -64})
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after split-partition inter frame")
 	}
@@ -1645,8 +1696,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if interHeader.InterRef.RefIndex != [3]uint8{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
 		t.Errorf("RefIndex = %v, want LAST/GOLDEN/ALTREF slots 0/1/2", interHeader.InterRef.RefIndex)
 	}
-	if interHeader.InterRef.SignBias != [3]uint8{0, 0, 0} {
-		t.Errorf("SignBias = %v, want [0 0 0]", interHeader.InterRef.SignBias)
+	if interHeader.InterRef.SignBias != [3]uint8{0, 0, 1} {
+		t.Errorf("SignBias = %v, want [0 0 1]", interHeader.InterRef.SignBias)
 	}
 	if !interHeader.AllowHighPrecisionMv {
 		t.Error("AllowHighPrecisionMv = false, want true")
@@ -1675,7 +1726,7 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 		KeyFrame:             false,
 		InterpFilter:         interHeader.InterpFilter,
 		AllowHighPrecisionMv: interHeader.AllowHighPrecisionMv,
-		CompoundRefAllowed:   false,
+		CompoundRefAllowed:   true,
 	})
 	if cr.HasError() {
 		t.Fatal("compressed header reader reported over-read")
@@ -1683,8 +1734,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if out.TxMode != common.TxModeSelect {
 		t.Errorf("TxMode = %d, want TxModeSelect", out.TxMode)
 	}
-	if out.ReferenceMode != vp9dec.SingleReference {
-		t.Errorf("ReferenceMode = %d, want SingleReference", out.ReferenceMode)
+	if out.ReferenceMode != vp9dec.ReferenceModeSelect {
+		t.Errorf("ReferenceMode = %d, want ReferenceModeSelect", out.ReferenceMode)
 	}
 	if compEnd >= len(inter) {
 		t.Fatal("inter frame has no tile payload")
