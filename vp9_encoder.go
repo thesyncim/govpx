@@ -1183,34 +1183,49 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	inter *vp9InterEncodeState,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
-	if kind != vp9ModeTreeInterSource || inter == nil ||
-		root != common.Block64x64 || target != common.Block64x64 {
+	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
 		return target
 	}
-	if e.shouldSplitVP9Inter64x64(inter, tile, miRows, miCols, miRow, miCol) {
-		return common.Block32x32
+	if child, ok := vp9SquareSplitChild(root); ok &&
+		e.shouldSplitVP9InterSquare(inter, tile, miRows, miCols, miRow, miCol, root, child) {
+		return child
 	}
 	return target
 }
 
-func (e *VP9Encoder) shouldSplitVP9Inter64x64(inter *vp9InterEncodeState,
+func vp9SquareSplitChild(root common.BlockSize) (common.BlockSize, bool) {
+	switch root {
+	case common.Block64x64:
+		return common.Block32x32, true
+	case common.Block32x32:
+		return common.Block16x16, true
+	case common.Block16x16:
+		return common.Block8x8, true
+	default:
+		return common.BlockInvalid, false
+	}
+}
+
+func (e *VP9Encoder) shouldSplitVP9InterSquare(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	root, child common.BlockSize,
 ) bool {
 	full, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow, miCol, common.Block64x64)
+		miRow, miCol, root)
 	if !ok {
 		return false
 	}
 
+	stepMi := int(common.Num8x8BlocksWideLookup[child])
 	var splitScore uint64
-	for rowOff := 0; rowOff <= 4; rowOff += 4 {
-		for colOff := 0; colOff <= 4; colOff += 4 {
-			child, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-				miRow+rowOff, miCol+colOff, common.Block32x32)
+	for rowOff := 0; rowOff <= stepMi; rowOff += stepMi {
+		for colOff := 0; colOff <= stepMi; colOff += stepMi {
+			decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+				miRow+rowOff, miCol+colOff, child)
 			if !ok {
 				return false
 			}
-			splitScore += child.score
+			splitScore += decision.score
 		}
 	}
 

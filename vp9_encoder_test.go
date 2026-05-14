@@ -684,6 +684,104 @@ func TestVP9EncoderInterSplits64x64ForMixedMotion(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterSplits32x32ForMixedMotion(t *testing.T) {
+	const (
+		width  = 32
+		height = 32
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := splitShiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, -8)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	left := d.miGrid[0]
+	right := d.miGrid[2]
+	if left.SbType != common.Block16x16 || right.SbType != common.Block16x16 {
+		t.Fatalf("top blocks = %d/%d, want Block16x16/Block16x16",
+			left.SbType, right.SbType)
+	}
+	if left.Mode != common.NewMv || left.Mv[0] != (vp9dec.MV{Col: 64}) {
+		t.Fatalf("left block = mode %d mv %+v, want NewMv {Col:64}",
+			left.Mode, left.Mv[0])
+	}
+	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -64}) {
+		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-64}",
+			right.Mode, right.Mv[0])
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after 32x32 split-motion inter frame")
+	}
+}
+
+func TestVP9EncoderInterSplits16x16ForMixedMotion(t *testing.T) {
+	const (
+		width  = 16
+		height = 16
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := splitShiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 4, -4)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	left := d.miGrid[0]
+	right := d.miGrid[1]
+	if left.SbType != common.Block8x8 || right.SbType != common.Block8x8 {
+		t.Fatalf("top blocks = %d/%d, want Block8x8/Block8x8",
+			left.SbType, right.SbType)
+	}
+	if left.Mode != common.NewMv || left.Mv[0] != (vp9dec.MV{Col: 32}) {
+		t.Fatalf("left block = mode %d mv %+v, want NewMv {Col:32}",
+			left.Mode, left.Mv[0])
+	}
+	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -32}) {
+		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-32}",
+			right.Mode, right.Mv[0])
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after 16x16 split-motion inter frame")
+	}
+}
+
 func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
 	const (
 		width  = 128
