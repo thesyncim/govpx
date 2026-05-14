@@ -64,9 +64,8 @@ type VP9EncoderOptions struct {
 
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
-	// This supports AltQ, AltLF, and forced-skip segment features;
-	// reference-frame segment features are not exposed by this packet
-	// encoder path.
+	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
+	// segment features.
 	Segmentation VP9SegmentationOptions
 }
 
@@ -89,6 +88,10 @@ type VP9SegmentationOptions struct {
 	AltLF        [VP9MaxSegments]int16
 	// SkipEnabled configures SEG_LVL_SKIP per segment.
 	SkipEnabled [VP9MaxSegments]bool
+	// RefFrameEnabled / RefFrame configure SEG_LVL_REF_FRAME per segment.
+	// RefFrame values must be LastFrame, GoldenFrame, or AltrefFrame.
+	RefFrameEnabled [VP9MaxSegments]bool
+	RefFrame        [VP9MaxSegments]int8
 }
 
 // ErrVP9EncoderNotImplemented is retained for callers that already branch on
@@ -239,6 +242,10 @@ func validateVP9SegmentationOptions(seg VP9SegmentationOptions) error {
 		if seg.AltLFEnabled[i] && (seg.AltLF[i] < -63 || seg.AltLF[i] > 63) {
 			return ErrInvalidConfig
 		}
+		if seg.RefFrameEnabled[i] &&
+			(seg.RefFrame[i] < vp9dec.LastFrame || seg.RefFrame[i] > vp9dec.AltrefFrame) {
+			return ErrInvalidConfig
+		}
 	}
 	return nil
 }
@@ -272,6 +279,11 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams() vp9dec.SegmentationParams {
 		}
 		if cfg.SkipEnabled[i] {
 			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlSkip)
+			seg.UpdateData = true
+		}
+		if cfg.RefFrameEnabled[i] {
+			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlRefFrame)
+			seg.FeatureData[i][vp9dec.SegLvlRefFrame] = int16(cfg.RefFrame[i])
 			seg.UpdateData = true
 		}
 	}
@@ -408,6 +420,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	}
 	if !isKey && !intraOnly && !e.hasVP9UsableInterReference(flags) {
 		isKey = true
+	}
+	if !isKey && !intraOnly {
+		if err := e.validateVP9InterSegmentationReferences(flags); err != nil {
+			return 0, err
+		}
 	}
 	if isKey && flags&vp9NoUpdateRefFlags != 0 {
 		return 0, ErrInvalidConfig
@@ -738,6 +755,28 @@ func (e *VP9Encoder) hasVP9UsableInterReference(flags EncodeFlags) bool {
 		}
 	}
 	return false
+}
+
+func (e *VP9Encoder) validateVP9InterSegmentationReferences(flags EncodeFlags) error {
+	seg := e.opts.Segmentation
+	if !seg.Enabled {
+		return nil
+	}
+	mask := vp9InterReferenceMask(flags)
+	for i := range VP9MaxSegments {
+		if !seg.RefFrameEnabled[i] {
+			continue
+		}
+		refFrame := seg.RefFrame[i]
+		if mask&(1<<uint(refFrame)) == 0 {
+			return ErrInvalidConfig
+		}
+		slot, ok := vp9EncoderReferenceSlot(refFrame)
+		if !ok || !e.refFrames[slot].valid {
+			return ErrInvalidConfig
+		}
+	}
+	return nil
 }
 
 func (e *VP9Encoder) vp9RefDims(slot uint8) (uint32, uint32) {
@@ -1990,13 +2029,16 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		uvMode := common.DcPred
 		segID := vp9EncoderMiSegmentID(&cur)
 		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
+		forcedRefFrame, forcedRef := vp9EncoderForcedSegmentRefFrame(seg, segID)
 		if segmentSkip {
+			if kind == vp9ModeTreeInterSource && inter != nil {
+				e.prepareVP9InterSkipPrediction(inter, miRows, miCols,
+					miRow, miCol, reconBsize, &cur, forcedRefFrame, forcedRef)
+			}
 			cur.Skip = 1
-			cur.Mode = common.ZeroMv
-			cur.Mv = [2]vp9dec.MV{}
 		} else if kind == vp9ModeTreeInterSource && inter != nil {
 			uvMode, hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
-				miRow, miCol, reconBsize, tile, &cur)
+				miRow, miCol, reconBsize, tile, &cur, forcedRefFrame, forcedRef)
 			if hasResidue {
 				cur.Skip = 0
 			}
@@ -2185,6 +2227,17 @@ func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams) (u
 		return 0, 0
 	}
 	return segID, segID
+}
+
+func vp9EncoderForcedSegmentRefFrame(seg *vp9dec.SegmentationParams, segID int) (int8, bool) {
+	if !vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlRefFrame) {
+		return 0, false
+	}
+	ref := int8(vp9dec.GetSegData(seg, segID, vp9dec.SegLvlRefFrame))
+	if ref < vp9dec.LastFrame || ref > vp9dec.AltrefFrame {
+		return 0, false
+	}
+	return ref, true
 }
 
 func vp9EncoderMiSegmentID(mi *vp9dec.NeighborMi) int {
@@ -2527,9 +2580,10 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
+	forcedRefFrame int8, forcedRef bool,
 ) (common.PredictionMode, bool) {
 	interDecision, ok := e.prepareVP9InterPredictionBlock(inter, miRows, miCols,
-		miRow, miCol, bsize, tile, mi)
+		miRow, miCol, bsize, tile, mi, forcedRefFrame, forcedRef)
 	if !ok {
 		return common.DcPred, false
 	}
@@ -2582,6 +2636,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
+	forcedRefFrame int8, forcedRef bool,
 ) (vp9InterModeDecision, bool) {
 	if mi == nil {
 		return vp9InterModeDecision{}, false
@@ -2591,7 +2646,24 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	mi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	mi.InterpFilter = uint8(vp9dec.InterpEighttap)
 	var picked vp9InterModeDecision
-	if decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+	if forcedRef {
+		refSlot, ok := e.vp9InterReferenceSlot(inter, forcedRefFrame)
+		if !ok {
+			return vp9InterModeDecision{}, false
+		}
+		inter.ref = &e.refFrames[refSlot]
+		mi.RefFrame = [2]int8{forcedRefFrame, vp9dec.NoRefFrame}
+		if decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
+			miRow, miCol, bsize, forcedRefFrame, 0); ok {
+			picked = decision
+			picked.refFrame = forcedRefFrame
+			picked.secondRefFrame = vp9dec.NoRefFrame
+			picked.refSlot = refSlot
+			mi.Mode = decision.mode
+			mi.Mv = decision.mv
+			mi.InterpFilter = uint8(decision.interpFilter)
+		}
+	} else if decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, bsize); ok {
 		picked = decision
 		mi.Mode = decision.mode
@@ -2609,6 +2681,33 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		return vp9InterModeDecision{}, false
 	}
 	return picked, true
+}
+
+func (e *VP9Encoder) prepareVP9InterSkipPrediction(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+	forcedRefFrame int8, forcedRef bool,
+) bool {
+	if inter == nil || mi == nil {
+		return false
+	}
+	refFrame := mi.RefFrame[0]
+	if forcedRef {
+		refFrame = forcedRefFrame
+	}
+	refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
+	if !ok && !forcedRef {
+		refFrame, refSlot, ok = e.firstVP9InterReference(inter)
+	}
+	if !ok {
+		return false
+	}
+	mi.Mode = common.ZeroMv
+	mi.Mv = [2]vp9dec.MV{}
+	mi.RefFrame = [2]int8{refFrame, vp9dec.NoRefFrame}
+	mi.InterpFilter = uint8(vp9dec.InterpEighttap)
+	inter.ref = &e.refFrames[refSlot]
+	return e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi)
 }
 
 func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,

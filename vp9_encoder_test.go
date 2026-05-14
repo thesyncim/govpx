@@ -451,6 +451,15 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 			o.Segmentation.AltLFEnabled[0] = true
 			o.Segmentation.AltLF[0] = 64
 		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.Segmentation.Enabled = true
+			o.Segmentation.RefFrameEnabled[0] = true
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.Segmentation.Enabled = true
+			o.Segmentation.RefFrameEnabled[0] = true
+			o.Segmentation.RefFrame[0] = vp9dec.AltrefFrame + 1
+		}, ErrInvalidConfig},
 	}
 	for i, c := range cases {
 		opts := base
@@ -785,6 +794,78 @@ func TestVP9EncoderStaticSkipSegmentForcesSkippedInterBlocks(t *testing.T) {
 			t.Fatalf("miGrid[%d] inter mode/mv = %v/%v, want ZeroMv/zero",
 				i, mi.Mode, mi.Mv)
 		}
+	}
+}
+
+func TestVP9EncoderStaticRefFrameSegmentForcesGoldenReference(t *testing.T) {
+	const width, height = 64, 64
+	const segID = 4
+
+	opts := VP9EncoderOptions{Width: width, Height: height}
+	opts.Segmentation.Enabled = true
+	opts.Segmentation.UpdateMap = true
+	opts.Segmentation.SegmentID = segID
+	opts.Segmentation.RefFrameEnabled[segID] = true
+	opts.Segmentation.RefFrame[segID] = vp9dec.GoldenFrame
+
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	assertVP9StaticRefFrameSegmentationHeaderForTest(t, keyHeader.Seg, segID,
+		vp9dec.GoldenFrame)
+
+	inter, err := e.Encode(newVP9MotionYCbCrForTest(width, height))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	var br vp9dec.BitReader
+	br.Init(inter)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	assertVP9StaticRefFrameSegmentationHeaderForTest(t, interHeader.Seg, segID,
+		vp9dec.GoldenFrame)
+
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	assertVP9DecoderSegmentIDForTest(t, d, segID)
+	for i, mi := range d.miGrid {
+		if mi.RefFrame != [2]int8{vp9dec.GoldenFrame, vp9dec.NoRefFrame} {
+			t.Fatalf("miGrid[%d].RefFrame = %v, want forced GOLDEN",
+				i, mi.RefFrame)
+		}
+	}
+}
+
+func TestVP9EncoderStaticRefFrameSegmentRejectsDisabledReference(t *testing.T) {
+	const width, height = 64, 64
+	const segID = 1
+
+	opts := VP9EncoderOptions{Width: width, Height: height}
+	opts.Segmentation.Enabled = true
+	opts.Segmentation.UpdateMap = true
+	opts.Segmentation.SegmentID = segID
+	opts.Segmentation.RefFrameEnabled[segID] = true
+	opts.Segmentation.RefFrame[segID] = vp9dec.GoldenFrame
+
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if _, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128)); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	_, err = e.EncodeWithFlags(newVP9MotionYCbCrForTest(width, height),
+		EncodeNoReferenceGolden)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("EncodeWithFlags disabled forced reference error = %v, want ErrInvalidConfig", err)
 	}
 }
 
@@ -3504,6 +3585,31 @@ func assertVP9StaticSkipSegmentationHeaderForTest(t *testing.T,
 	wantMask := uint32(1 << uint(vp9dec.SegLvlSkip))
 	if got := seg.FeatureMask[segID]; got != wantMask {
 		t.Fatalf("FeatureMask[%d] = %#x, want Skip", segID, got)
+	}
+	for i := range vp9dec.MaxSegments {
+		if i == segID {
+			continue
+		}
+		if seg.FeatureMask[i] != 0 {
+			t.Fatalf("FeatureMask[%d] = %#x, want 0", i, seg.FeatureMask[i])
+		}
+	}
+}
+
+func assertVP9StaticRefFrameSegmentationHeaderForTest(t *testing.T,
+	seg vp9dec.SegmentationParams, segID int, refFrame int8,
+) {
+	t.Helper()
+	if !seg.Enabled || !seg.UpdateMap || !seg.UpdateData {
+		t.Fatalf("segmentation flags = enabled:%v updateMap:%v updateData:%v, want all true",
+			seg.Enabled, seg.UpdateMap, seg.UpdateData)
+	}
+	wantMask := uint32(1 << uint(vp9dec.SegLvlRefFrame))
+	if got := seg.FeatureMask[segID]; got != wantMask {
+		t.Fatalf("FeatureMask[%d] = %#x, want RefFrame", segID, got)
+	}
+	if got := int8(seg.FeatureData[segID][vp9dec.SegLvlRefFrame]); got != refFrame {
+		t.Fatalf("RefFrame[%d] = %d, want %d", segID, got, refFrame)
 	}
 	for i := range vp9dec.MaxSegments {
 		if i == segID {
