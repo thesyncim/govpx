@@ -1753,6 +1753,249 @@ func TestOracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testi
 	}
 }
 
+func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime temporal-control byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+	)
+
+	type fixture struct {
+		name   string
+		w, h   int
+		source func(w, h, i int) Image
+	}
+	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
+	segmented64 := fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}
+
+	baseOpts := func(fx fixture, cpuUsed int) EncoderOptions {
+		return EncoderOptions{
+			Width:             fx.w,
+			Height:            fx.h,
+			FPS:               fps,
+			RateControlMode:   RateControlCBR,
+			TargetBitrateKbps: targetKbps,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			KeyFrameInterval:  999,
+			Deadline:          DeadlineRealtime,
+			CpuUsed:           cpuUsed,
+			Tuning:            TunePSNR,
+		}
+	}
+	temporalOpts := func(fx fixture, cpuUsed int, mode TemporalLayeringMode) EncoderOptions {
+		opts := baseOpts(fx, cpuUsed)
+		opts.TemporalScalability = runtimeTemporalConfig(mode, targetKbps)
+		return opts
+	}
+
+	type temporalCase struct {
+		name       string
+		fx         fixture
+		frames     int
+		opts       EncoderOptions
+		flags      []EncodeFlags
+		script     []string
+		apply      map[int]func(*testing.T, *VP8Encoder)
+		extraArgs  []string
+		matchLimit int
+	}
+
+	twoLayerEnableScript := temporalScalabilityWindowScript(12, TemporalLayeringTwoLayers, 2, 12, runtimeTemporalControlToken(TemporalLayeringTwoLayers, targetKbps))
+	twoLayerDisableScript := runtimeTemporalDisableScript(12, TemporalLayeringTwoLayers, 6, targetKbps)
+
+	cases := []temporalCase{
+		{
+			name:   "two-layer-enable-only",
+			fx:     panning64,
+			frames: 12,
+			opts:   baseOpts(panning64, 0),
+			flags:  temporalScalabilityWindowFlags(12, TemporalLayeringTwoLayers, 2, 12),
+			script: twoLayerEnableScript,
+			// The enable keyframe matches; the first inter-layer packet
+			// after enabling exposes the existing temporal context drift.
+			matchLimit: 3,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer"),
+			},
+		},
+		{
+			name:      "two-layer-disable-only",
+			fx:        panning64,
+			frames:    12,
+			opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+			flags:     temporalScalabilityWindowFlags(12, TemporalLayeringTwoLayers, 0, 6),
+			script:    twoLayerDisableScript,
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+			// The pure temporal stream matches until the disable packet.
+			matchLimit: 6,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
+				},
+			},
+		},
+	}
+
+	for _, cpuUsed := range []int{0, -3, -8} {
+		frames := 18
+		mode := TemporalLayeringFiveLayers
+		script := temporalScalabilityWindowScript(frames, mode, 2, frames, runtimeTemporalControlToken(mode, targetKbps))
+		cases = append(cases, temporalCase{
+			name:       "five-layer-enable-only-cpu" + strconv.Itoa(cpuUsed),
+			fx:         panning64,
+			frames:     frames,
+			opts:       baseOpts(panning64, cpuUsed),
+			flags:      temporalScalabilityWindowFlags(frames, mode, 2, frames),
+			script:     script,
+			matchLimit: 3,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: runtimeTemporalApply(mode, targetKbps, "five-layer"),
+			},
+		})
+	}
+
+	{
+		frames := 18
+		mode := TemporalLayeringFiveLayers
+		cases = append(cases, temporalCase{
+			name:       "five-layer-disable-only-cpu-3",
+			fx:         panning64,
+			frames:     frames,
+			opts:       temporalOpts(panning64, -3, mode),
+			flags:      temporalScalabilityWindowFlags(frames, mode, 0, 10),
+			script:     runtimeTemporalDisableScript(frames, mode, 10, targetKbps),
+			extraArgs:  runtimeTemporalExtraArgs(mode, targetKbps),
+			matchLimit: 8,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				10: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
+				},
+			},
+		})
+	}
+
+	twoLayerScript := func(frames int) []string {
+		return runtimeTemporalLayerIDScript(frames, TemporalLayeringTwoLayers)
+	}
+	twoLayerFlags := func(frames int) []EncodeFlags {
+		return temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 0)
+	}
+
+	dropScript := twoLayerScript(12)
+	appendRuntimeControl(dropScript, 4, "drop:60")
+	appendRuntimeControl(dropScript, 8, "drop:0")
+	cases = append(cases, temporalCase{
+		name:      "two-layer-frame-drop-toggle",
+		fx:        panning64,
+		frames:    12,
+		opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    dropScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetFrameDropAllowed(true)", e.SetFrameDropAllowed(true))
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetFrameDropAllowed(false)", e.SetFrameDropAllowed(false))
+			},
+		},
+	})
+
+	activeScript := twoLayerScript(12)
+	appendRuntimeControl(activeScript, 2, "active:checker")
+	appendRuntimeControl(activeScript, 8, "active:off")
+	cases = append(cases, temporalCase{
+		name:      "two-layer-active-map-checker-toggle",
+		fx:        panning64,
+		frames:    12,
+		opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    activeScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		// Active-map setup matches for both base and first enhancement
+		// layer packets; later temporal-layer context diverges.
+		matchLimit: 4,
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			2: activeMapApply("checker"),
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+			},
+		},
+	})
+
+	roiScript := twoLayerScript(12)
+	appendRuntimeControl(roiScript, 2, "roi:border1")
+	appendRuntimeControl(roiScript, 8, "roi:off")
+	cases = append(cases, temporalCase{
+		name:       "two-layer-roi-border-toggle",
+		fx:         segmented64,
+		frames:     12,
+		opts:       temporalOpts(segmented64, 0, TemporalLayeringTwoLayers),
+		flags:      twoLayerFlags(12),
+		script:     roiScript,
+		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		matchLimit: 2,
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			2: roiMapApply("border1"),
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+			},
+		},
+	})
+
+	activeROIScript := twoLayerScript(12)
+	appendRuntimeControl(activeROIScript, 2, "active:checker+roi:border1")
+	appendRuntimeControl(activeROIScript, 8, "active:off+roi:off")
+	cases = append(cases, temporalCase{
+		name:       "two-layer-active-roi-toggle",
+		fx:         segmented64,
+		frames:     12,
+		opts:       temporalOpts(segmented64, 0, TemporalLayeringTwoLayers),
+		flags:      twoLayerFlags(12),
+		script:     activeROIScript,
+		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		matchLimit: 2,
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			2: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				activeMapApply("checker")(t, e)
+				roiMapApply("border1")(t, e)
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+			},
+		},
+	})
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]Image, tc.frames)
+			for i := range sources {
+				sources[i] = tc.fx.source(tc.fx.w, tc.fx.h, i)
+			}
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, tc.opts, sources, tc.flags, tc.apply)
+			extraArgs := append([]string(nil), tc.extraArgs...)
+			extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "runtime-temporal-"+tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
+			assertSegmentByteParity(t, "runtime-temporal-"+tc.name, govpxFrames, libvpxFrames, tc.matchLimit)
+		})
+	}
+}
+
 func runtimeControlScript(frames int, updates map[int]string) []string {
 	script := make([]string, frames)
 	for i := range script {
@@ -1825,6 +2068,110 @@ func runtimeRateControlModeTransitionMatchLimit(from, to RateControlMode, forceK
 		return switchFrame
 	}
 	return 0
+}
+
+func runtimeTemporalConfig(mode TemporalLayeringMode, targetKbps int) TemporalScalabilityConfig {
+	return TemporalScalabilityConfig{
+		Enabled:                true,
+		Mode:                   mode,
+		LayerTargetBitrateKbps: runtimeTemporalBitrates(mode, targetKbps),
+	}
+}
+
+func runtimeTemporalBitrates(mode TemporalLayeringMode, targetKbps int) [MaxTemporalLayers]int {
+	switch mode {
+	case TemporalLayeringTwoLayers, TemporalLayeringTwoLayersThreeFrame, TemporalLayeringTwoLayersWithSync:
+		return [MaxTemporalLayers]int{targetKbps * 3 / 5, targetKbps}
+	case TemporalLayeringFiveLayers:
+		return [MaxTemporalLayers]int{targetKbps / 7, targetKbps * 11 / 35, targetKbps * 18 / 35, targetKbps * 26 / 35, targetKbps}
+	default:
+		return [MaxTemporalLayers]int{targetKbps * 2 / 5, targetKbps * 3 / 5, targetKbps}
+	}
+}
+
+func runtimeTemporalApply(mode TemporalLayeringMode, targetKbps int, name string) func(*testing.T, *VP8Encoder) {
+	return func(t *testing.T, e *VP8Encoder) {
+		t.Helper()
+		mustRuntime(t, "SetTemporalScalability("+name+")", e.SetTemporalScalability(runtimeTemporalConfig(mode, targetKbps)))
+	}
+}
+
+func runtimeTemporalControlToken(mode TemporalLayeringMode, targetKbps int) string {
+	pattern, ok := temporalLayeringPattern(mode)
+	if !ok {
+		panic("missing temporal pattern")
+	}
+	bitrates := runtimeTemporalBitrates(mode, targetKbps)
+	return "tslayers:" + strconv.Itoa(pattern.Layers) +
+		"+tsperiodicity:" + strconv.Itoa(pattern.Periodicity) +
+		"+tsbitrates:" + joinRuntimeInts(bitrates[:pattern.Layers], "/") +
+		"+tsdecimators:" + joinRuntimeInts(pattern.RateDecimator[:pattern.Layers], "/") +
+		"+tsids:" + joinRuntimeInts(pattern.LayerID[:pattern.Periodicity], "/")
+}
+
+func runtimeTemporalOffControlToken(targetKbps int) string {
+	return "tslayers:1+tsperiodicity:1+tsbitrates:" + strconv.Itoa(targetKbps) + "+tsdecimators:1+tsids:0"
+}
+
+func runtimeTemporalExtraArgs(mode TemporalLayeringMode, targetKbps int) []string {
+	pattern, ok := temporalLayeringPattern(mode)
+	if !ok {
+		panic("missing temporal pattern")
+	}
+	bitrates := runtimeTemporalBitrates(mode, targetKbps)
+	return []string{
+		"--temporal-layers=" + strconv.Itoa(pattern.Layers),
+		"--temporal-bitrates=" + joinRuntimeInts(bitrates[:pattern.Layers], ","),
+		"--temporal-decimators=" + joinRuntimeInts(pattern.RateDecimator[:pattern.Layers], ","),
+		"--temporal-periodicity=" + strconv.Itoa(pattern.Periodicity),
+		"--temporal-layer-ids=" + joinRuntimeInts(pattern.LayerID[:pattern.Periodicity], ","),
+	}
+}
+
+func runtimeTemporalLayerIDScript(frames int, mode TemporalLayeringMode) []string {
+	script := runtimeControlScript(frames, nil)
+	pattern, ok := temporalLayeringPattern(mode)
+	if !ok {
+		panic("missing temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		script[frame] = "tlid:" + strconv.Itoa(temporalPatternLayerID(pattern, uint64(frame)))
+	}
+	return script
+}
+
+func runtimeTemporalDisableScript(frames int, mode TemporalLayeringMode, disableFrame int, targetKbps int) []string {
+	script := runtimeControlScript(frames, nil)
+	pattern, ok := temporalLayeringPattern(mode)
+	if !ok {
+		panic("missing temporal pattern")
+	}
+	for frame := 0; frame < frames && frame < disableFrame; frame++ {
+		script[frame] = "tlid:" + strconv.Itoa(temporalPatternLayerID(pattern, uint64(frame)))
+	}
+	if disableFrame >= 0 && disableFrame < frames {
+		script[disableFrame] = runtimeTemporalOffControlToken(targetKbps)
+	}
+	return script
+}
+
+func appendRuntimeControl(script []string, frame int, token string) {
+	if frame < 0 || frame >= len(script) {
+		return
+	}
+	if script[frame] == "" || script[frame] == "-" {
+		script[frame] = token
+		return
+	}
+	script[frame] += "+" + token
+}
+
+func joinRuntimeInts(values []int, sep string) string {
+	parts := make([]string, len(values))
+	for i, value := range values {
+		parts[i] = strconv.Itoa(value)
+	}
+	return strings.Join(parts, sep)
 }
 
 func temporalTwoLayerFlags(frames int) []EncodeFlags {
