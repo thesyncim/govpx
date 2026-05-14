@@ -505,11 +505,30 @@ func TestOnePassAutoGoldenPreservesStartupModeAcrossRuntimeReconfigure(t *testin
 	if !cqStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
 		t.Fatalf("CQ-start runtime CBR auto-golden refresh = false, want true")
 	}
+	if got := cqStart.libvpxKeyFrameSetupGFInterval(rows, cols); got != 1 {
+		t.Fatalf("CQ-start runtime CBR post-key GF interval = %d, want next-inter refresh", got)
+	}
 
 	qStart := newEncoder(t, RateControlQ)
 	rows, cols = forceOpportunity(qStart)
 	if !qStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
 		t.Fatalf("Q-start auto-golden refresh = false, want true")
+	}
+	if err := qStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CBR) from Q returned error: %v", err)
+	}
+	if got := qStart.libvpxKeyFrameSetupGFInterval(rows, cols); got != 1 {
+		t.Fatalf("Q-start runtime CBR post-key GF interval = %d, want next-inter refresh", got)
 	}
 }
 

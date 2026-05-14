@@ -495,6 +495,9 @@ func (e *VP8Encoder) libvpxMaxGFInterval() int {
 // DEFAULT_GF_INTERVAL when libvpx's section runs longer.
 func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
 	if e.opts.Deadline == DeadlineRealtime && e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
+		if e.rc.onePassAutoGold {
+			return 1
+		}
 		return e.goldenFrameCBRInterval(rows, cols)
 	}
 	if e.twoPass.enabled() && e.twoPass.gfGroupValid && e.twoPass.framesTillGFUpdate > 0 {

@@ -4468,7 +4468,6 @@ func runtimeRateControlModeTransitionMatchLimit(from, to RateControlMode, forceK
 			if from == RateControlCQ {
 				return switchFrame
 			}
-			return switchFrame + 1
 		}
 		return 0
 	}
