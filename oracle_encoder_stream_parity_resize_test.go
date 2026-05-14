@@ -548,6 +548,14 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			},
 		},
 		{
+			name:          "frame-drop-toggle",
+			controlScript: "drop:60",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetFrameDropAllowed(true)", e.SetFrameDropAllowed(true))
+			},
+		},
+		{
 			name:          "active-checker-noise3-threads2",
 			controlScript: "active:checker",
 			apply:         activeMapApply("checker"),
@@ -659,6 +667,14 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			},
 		},
 		{
+			name:          "q-mode",
+			controlScript: runtimeRateControlModeControlToken(RateControlQ, targetKbps),
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRateControl(Q)", e.SetRateControl(runtimeRateControlModeConfig(RateControlQ, targetKbps)))
+			},
+		},
+		{
 			name:          "sharpness7-screen2-static500",
 			controlScript: "sharpness:7+screen:2+static:500",
 			apply: func(t *testing.T, e *VP8Encoder) {
@@ -666,6 +682,15 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 				mustRuntime(t, "SetSharpness(7)", e.SetSharpness(7))
 				mustRuntime(t, "SetScreenContentMode(2)", e.SetScreenContentMode(2))
 				mustRuntime(t, "SetStaticThreshold(500)", e.SetStaticThreshold(500))
+			},
+		},
+		{
+			name:          "max-intra-gf-boost",
+			controlScript: "maxintra:500+gfboost:500",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetMaxIntraBitratePct(500)", e.SetMaxIntraBitratePct(500))
+				mustRuntime(t, "SetGFCBRBoostPct(500)", e.SetGFCBRBoostPct(500))
 			},
 		},
 		{
