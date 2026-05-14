@@ -2643,6 +2643,64 @@ func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSetTemporalScalabilityUpdatesResultSequence(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		TargetBitrateKbps: 300,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    TemporalLayeringTwoLayers,
+	}); err != nil {
+		t.Fatalf("SetTemporalScalability: %v", err)
+	}
+	if got := e.opts.TemporalScalability.LayerTargetBitrateKbps; got[0] != 180 || got[1] != 300 {
+		t.Fatalf("derived VP9 temporal bitrates = %v, want [180 300 ...]", got)
+	}
+
+	dst := make([]byte, 65536)
+	for i, wantLayer := range []int{0, 1} {
+		result, err := e.EncodeIntoWithResult(
+			newVP9YCbCrForTest(width, height, byte(90+i*20), 128, 128), dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", i, err)
+		}
+		if result.TemporalLayerID != wantLayer || result.TemporalLayerCount != 2 {
+			t.Fatalf("frame %d temporal = id:%d count:%d, want %d/2",
+				i, result.TemporalLayerID, result.TemporalLayerCount, wantLayer)
+		}
+	}
+
+	if err := e.SetTemporalLayerID(1); err != nil {
+		t.Fatalf("SetTemporalLayerID: %v", err)
+	}
+	result, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 140, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult override: %v", err)
+	}
+	if result.TemporalLayerID != 1 {
+		t.Fatalf("override temporal layer = %d, want 1", result.TemporalLayerID)
+	}
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); err != nil {
+		t.Fatalf("disable SetTemporalScalability: %v", err)
+	}
+	result, err = e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 160, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult disabled: %v", err)
+	}
+	if result.TemporalLayerID != 0 || result.TemporalLayerCount != 1 {
+		t.Fatalf("disabled temporal = id:%d count:%d, want 0/1",
+			result.TemporalLayerID, result.TemporalLayerCount)
+	}
+}
+
 func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	if err := e.Close(); err != nil {
@@ -2651,9 +2709,21 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRealtimeTarget after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetTemporalScalability after Close err = %v, want ErrClosed", err)
+	}
+	if err := e.SetTemporalLayerID(0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetTemporalLayerID after Close err = %v, want ErrClosed", err)
+	}
 	var nilEnc *VP9Encoder
 	if err := nilEnc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRealtimeTarget on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetTemporalScalability on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetTemporalLayerID(0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetTemporalLayerID on nil encoder err = %v, want ErrClosed", err)
 	}
 }
 

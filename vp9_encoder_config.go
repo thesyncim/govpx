@@ -141,6 +141,33 @@ func (e *VP9Encoder) SetFrameDropAllowed(enabled bool) error {
 	return nil
 }
 
+// SetTemporalScalability replaces the active VP9 temporal-only scheduling
+// configuration. Set TemporalScalabilityConfig.Enabled = false to disable
+// temporal layering. The per-layer bitrate vector must be cumulative across
+// layers and end at the encoder's TargetBitrateKbps.
+func (e *VP9Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	nextTemporal := temporalState{}
+	if err := nextTemporal.configure(cfg, e.opts.TargetBitrateKbps); err != nil {
+		return err
+	}
+	e.temporal = nextTemporal
+	e.opts.TemporalScalability = nextTemporal.config
+	return nil
+}
+
+// SetTemporalLayerID overrides the temporal layer assigned by the configured
+// VP9 temporal scheduling pattern. The override remains active until changed
+// or until SetTemporalScalability replaces the pattern.
+func (e *VP9Encoder) SetTemporalLayerID(layerID int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	return e.temporal.setLayerID(layerID)
+}
+
 func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	e.opts.Width = width
 	e.opts.Height = height
