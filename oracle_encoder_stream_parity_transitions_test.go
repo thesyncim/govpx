@@ -820,6 +820,132 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-arnr", arnrGovpxFrames, arnrLibvpxFrames, 1)
 }
 
+func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass control-cross byte-parity gate")
+	}
+	vpxenc := findVpxenc(t)
+	vpxencOracle := findVpxencOracle(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 12
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationSegmentedFrame(64, 64, i)
+	}
+	baseOpts := EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               fps,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	}
+
+	cases := []struct {
+		name       string
+		opts       EncoderOptions
+		matchLimit int
+	}{
+		{
+			name: "token-parts4",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.TokenPartitions = 2
+				return opts
+			}(),
+		},
+		{
+			name: "token-parts8",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.TokenPartitions = 3
+				return opts
+			}(),
+		},
+		{
+			name: "er1-token-parts4",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.ErrorResilient = true
+				opts.TokenPartitions = 2
+				return opts
+			}(),
+			matchLimit: 2,
+		},
+		{
+			name: "er3-token-parts8",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.ErrorResilient = true
+				opts.ErrorResilientPartitions = true
+				opts.TokenPartitions = 3
+				return opts
+			}(),
+			matchLimit: 2,
+		},
+		{
+			name: "threads2-token-parts8",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.Threads = 2
+				opts.TokenPartitions = 3
+				return opts
+			}(),
+		},
+		{
+			name: "tune-ssim",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.Tuning = TuneSSIM
+				return opts
+			}(),
+			// Two-pass SSIM changes keyframe partition decisions on this
+			// fixture, matching the existing panning two-pass SSIM gap.
+			matchLimit: -1,
+		},
+		{
+			name: "screen-content2-static-thresh500",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.ScreenContentMode = 2
+				opts.StaticThreshold = 500
+				return opts
+			}(),
+		},
+		{
+			name: "sharpness4-noise3",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.Sharpness = 4
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			// Denoiser two-pass still has a post-keyframe drift on this
+			// fixture; pin the keyframe and keep the control cross logged.
+			matchLimit: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			govpxOpts := tc.opts
+			govpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, tc.opts, sources)
+			govpxFrames := encodeFramesWithGovpx(t, govpxOpts, sources)
+			libvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-segmented-"+tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources)
+			assertSegmentByteParity(t, "twopass-segmented-"+tc.name, govpxFrames, libvpxFrames, tc.matchLimit)
+		})
+	}
+}
+
 func makePanningSources(w, h, count, offset int) []Image {
 	sources := make([]Image, count)
 	for i := range sources {
