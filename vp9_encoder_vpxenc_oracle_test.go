@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"testing"
@@ -291,6 +292,42 @@ func TestVP9EncoderVpxencOracleMaxKeyframeIntervalByteParity(t *testing.T) {
 	}, []string{"--kf-max-dist=2"})
 }
 
+func TestVP9EncoderVpxencFrameFlagsForceKeyFrameByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+	}
+	flags := []EncodeFlags{0, EncodeForceKeyFrame}
+	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
+func TestVP9EncoderVpxencFrameFlagsNoReferenceGoldenAltRefByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 160, 128, 128),
+	}
+	flags := []EncodeFlags{0, EncodeNoReferenceGolden | EncodeNoReferenceAltRef}
+	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
+func TestVP9EncoderVpxencFrameFlagsNoUpdateEntropyByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 160, 128, 128),
+	}
+	flags := []EncodeFlags{0, EncodeNoUpdateEntropy}
+	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 	t.Helper()
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{}, nil)
@@ -447,6 +484,147 @@ func assertVP9VpxencFrameSequenceByteParityWithOptions(t *testing.T,
 		}
 		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got, libvpxFrame.Data)
 	}
+}
+
+func requireVP9VpxencFrameFlagsOracle(t *testing.T) {
+	t.Helper()
+	if _, err := coracle.VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, coracle.ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+}
+
+func assertVP9VpxencFrameFlagsByteParityWithOptions(t *testing.T,
+	frames []*image.YCbCr, flags []EncodeFlags, opts VP9EncoderOptions,
+	extraArgs []string,
+) {
+	t.Helper()
+	if len(frames) == 0 {
+		t.Fatal("empty VP9 frame-flags oracle sequence")
+	}
+	if len(flags) > len(frames) {
+		t.Fatalf("frame flag count = %d, want <= %d", len(flags), len(frames))
+	}
+	width := frames[0].Rect.Dx()
+	height := frames[0].Rect.Dy()
+	for i, frame := range frames {
+		if frame.Rect.Dx() != width || frame.Rect.Dy() != height {
+			t.Fatalf("frame %d dimension mismatch: got %dx%d want %dx%d",
+				i, frame.Rect.Dx(), frame.Rect.Dy(), width, height)
+		}
+	}
+
+	opts.Width = width
+	opts.Height = height
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
+	govpxPackets := make([][]byte, len(frames))
+	for i, frame := range frames {
+		var encodeFlags EncodeFlags
+		if i < len(flags) {
+			encodeFlags = flags[i]
+		}
+		if encodeFlags&EncodeInvisibleFrame != 0 {
+			t.Fatalf("frame %d uses EncodeInvisibleFrame, which has no libvpx frame-flag bit", i)
+		}
+		result, err := e.EncodeIntoWithFlagsResult(frame, dst, encodeFlags)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithFlagsResult frame %d: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeIntoWithFlagsResult frame %d unexpectedly dropped", i)
+		}
+		govpxPackets[i] = append([]byte(nil), result.Data...)
+	}
+
+	libvpxFlags := make([]uint32, len(flags))
+	for i, encodeFlags := range flags {
+		libvpxFlags[i] = vp9FrameFlagsForLibvpx(encodeFlags)
+	}
+	var raw []byte
+	for _, frame := range frames {
+		raw = appendVP9YCbCrI420(raw, frame)
+	}
+	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width, height,
+		len(frames), libvpxFlags, extraArgs...)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
+	}
+	count, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if count != len(frames) {
+		t.Fatalf("IVF frame count = %d, want %d", count, len(frames))
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	for i, got := range govpxPackets {
+		var libvpxFrame testutil.IVFFrame
+		libvpxFrame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+		}
+		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got, libvpxFrame.Data)
+	}
+}
+
+func vp9FrameFlagsForLibvpx(f EncodeFlags) uint32 {
+	const (
+		libvpxForceKF      = 1 << 0
+		libvpxNoRefLast    = 1 << 16
+		libvpxNoRefGF      = 1 << 17
+		libvpxNoUpdLast    = 1 << 18
+		libvpxForceGF      = 1 << 19
+		libvpxNoUpdEntropy = 1 << 20
+		libvpxNoRefARF     = 1 << 21
+		libvpxNoUpdGF      = 1 << 22
+		libvpxNoUpdARF     = 1 << 23
+		libvpxForceARF     = 1 << 24
+	)
+	var out uint32
+	if f&EncodeForceKeyFrame != 0 {
+		out |= libvpxForceKF
+	}
+	if f&EncodeNoReferenceLast != 0 {
+		out |= libvpxNoRefLast
+	}
+	if f&EncodeNoReferenceGolden != 0 {
+		out |= libvpxNoRefGF
+	}
+	if f&EncodeNoUpdateLast != 0 {
+		out |= libvpxNoUpdLast
+	}
+	if f&EncodeForceGoldenFrame != 0 {
+		out |= libvpxForceGF
+	}
+	if f&EncodeNoUpdateEntropy != 0 {
+		out |= libvpxNoUpdEntropy
+	}
+	if f&EncodeNoReferenceAltRef != 0 {
+		out |= libvpxNoRefARF
+	}
+	if f&EncodeNoUpdateGolden != 0 {
+		out |= libvpxNoUpdGF
+	}
+	if f&EncodeNoUpdateAltRef != 0 {
+		out |= libvpxNoUpdARF
+	}
+	if f&EncodeForceAltRefFrame != 0 {
+		out |= libvpxForceARF
+	}
+	return out
 }
 
 func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKey, libvpxInter []byte) {

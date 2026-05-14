@@ -633,6 +633,23 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		e.rc.shouldDropInterFrame() {
 		e.rc.postDropFrame()
 		e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
+		if vp9OracleTraceBuild {
+			e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
+				Row:                "vp9_frame",
+				FrameIndex:         e.frameIndex,
+				Flags:              uint32(flags),
+				Dropped:            true,
+				DropReason:         "buffer_underrun",
+				ShowFrame:          true,
+				TemporalLayerID:    temporalFrame.LayerID,
+				TemporalLayerCount: temporalFrame.LayerCount,
+				TemporalLayerSync:  temporalFrame.LayerSync,
+				TL0PICIDX:          temporalFrame.TL0PICIDX,
+				TargetBitrateKbps:  e.rc.targetBitrateKbps,
+				FrameTargetBits:    e.rc.frameTargetBits,
+				BufferLevelBits:    e.rc.bufferLevelBits,
+			})
+		}
 		e.frameIndex++
 		return VP9EncodeResult{
 			Dropped:            true,
@@ -894,6 +911,41 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	if result.TemporalLayerCount == 0 {
 		result.TemporalLayerCount = 1
 	}
+	if vp9OracleTraceBuild {
+		e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
+			Row:                 "vp9_frame",
+			FrameIndex:          e.frameIndex - 1,
+			Flags:               uint32(flags),
+			KeyFrame:            isKey,
+			IntraOnly:           intraOnly,
+			ShowFrame:           header.ShowFrame,
+			Droppable:           result.Droppable,
+			BaseQIndex:          int(header.Quant.BaseQindex),
+			PublicQuantizer:     result.Quantizer,
+			SizeBytes:           n,
+			FirstPartitionSize:  int(header.FirstPartitionSize),
+			RefreshFrameFlags:   header.RefreshFrameFlags,
+			RefreshFrameContext: header.RefreshFrameContext,
+			ErrorResilient:      header.ErrorResilientMode,
+			FrameParallel:       header.FrameParallelDecoding,
+			FrameContextIdx:     header.FrameContextIdx,
+			TxMode:              int(txMode),
+			InterpFilter:        int(header.InterpFilter),
+			ReferenceMode:       int(referenceMode),
+			CompoundAllowed:     compoundAllowed,
+			ReferenceMask:       vp9InterReferenceMask(flags),
+			LoopFilterLevel:     int(header.Loopfilter.FilterLevel),
+			TemporalLayerID:     result.TemporalLayerID,
+			TemporalLayerCount:  result.TemporalLayerCount,
+			TemporalLayerSync:   result.TemporalLayerSync,
+			TL0PICIDX:           result.TL0PICIDX,
+			TargetBitrateKbps:   result.TargetBitrateKbps,
+			FrameTargetBits:     result.FrameTargetBits,
+			BufferLevelBits:     result.BufferLevelBits,
+			TileLog2Cols:        int(header.Tile.Log2TileCols),
+			TileLog2Rows:        int(header.Tile.Log2TileRows),
+		})
+	}
 	return result, nil
 }
 
@@ -903,7 +955,10 @@ const (
 	vp9AltRefSlot    = 2
 )
 
-const vp9NoUpdateRefFlags = EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
+const (
+	vp9NoUpdateRefFlags        = EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
+	vp9ExternalRefreshCtlFlags = vp9NoUpdateRefFlags | EncodeForceGoldenFrame | EncodeForceAltRefFrame
+)
 
 func vp9TemporalReferenceRefresh(refreshFlags uint8) temporalReferenceRefresh {
 	return temporalReferenceRefresh{
@@ -962,15 +1017,18 @@ func vp9InterReferenceMask(flags EncodeFlags) uint8 {
 }
 
 func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
-	var refresh uint8
-	if flags&EncodeNoUpdateLast == 0 {
-		refresh |= 1 << vp9LastRefSlot
+	if flags&vp9ExternalRefreshCtlFlags == 0 {
+		return 1 << vp9LastRefSlot
 	}
-	if flags&(EncodeForceGoldenFrame|EncodeNoUpdateGolden) == EncodeForceGoldenFrame {
-		refresh |= 1 << vp9GoldenRefSlot
+	refresh := uint8(0x07)
+	if flags&EncodeNoUpdateLast != 0 {
+		refresh &^= 1 << vp9LastRefSlot
 	}
-	if flags&(EncodeForceAltRefFrame|EncodeNoUpdateAltRef) == EncodeForceAltRefFrame {
-		refresh |= 1 << vp9AltRefSlot
+	if flags&EncodeNoUpdateGolden != 0 {
+		refresh &^= 1 << vp9GoldenRefSlot
+	}
+	if flags&EncodeNoUpdateAltRef != 0 {
+		refresh &^= 1 << vp9AltRefSlot
 	}
 	return refresh
 }
@@ -5314,6 +5372,9 @@ func alignToSb(miCols int) int {
 func (e *VP9Encoder) Close() error {
 	if e == nil {
 		return ErrClosed
+	}
+	if vp9OracleTraceBuild {
+		e.resetVP9OracleTraceState()
 	}
 	e.closed = true
 	return nil

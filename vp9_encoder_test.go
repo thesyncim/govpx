@@ -2569,7 +2569,8 @@ func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
 	}
 	wantLayer := []int{0, 1, 0, 1}
 	wantTL0 := []uint8{0, 0, 1, 1}
-	wantRefresh := []uint8{0xff, 0, 1, 0}
+	wantRefresh := []uint8{0xff, 0x02, 0x01, 0x02}
+	wantSync := []bool{false, true, false, false}
 	var prevHeader *vp9dec.UncompressedHeader
 	for i := range wantLayer {
 		src := newVP9YCbCrForTest(width, height, byte(80+i*20), 128, 128)
@@ -2590,7 +2591,7 @@ func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
 		if got := result.TL0PICIDX; got != wantTL0[i] {
 			t.Fatalf("frame %d TL0PICIDX = %d, want %d", i, got, wantTL0[i])
 		}
-		if got, want := result.TemporalLayerSync, i%2 == 1; got != want {
+		if got, want := result.TemporalLayerSync, wantSync[i]; got != want {
 			t.Fatalf("frame %d temporal sync = %t, want %t", i, got, want)
 		}
 		var br vp9dec.BitReader
@@ -2759,14 +2760,19 @@ func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 	if h.InterRef.RefIndex != [3]uint8{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
 		t.Fatalf("RefIndex = %v, want LAST/GOLDEN/ALTREF slots 0/1/2", h.InterRef.RefIndex)
 	}
-	if h.RefreshFrameFlags != 0 {
-		t.Fatalf("RefreshFrameFlags = %#x, want 0", h.RefreshFrameFlags)
+	if h.RefreshFrameFlags != 0x06 {
+		t.Fatalf("RefreshFrameFlags = %#x, want GOLDEN|ALTREF", h.RefreshFrameFlags)
 	}
 	if !e.refFrames[0].valid {
 		t.Fatal("LAST ref became invalid after no-update-LAST")
 	}
 	if got := e.refFrames[0].img.Y[0]; got != keySrc.Y[0] {
 		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keySrc.Y[0])
+	}
+	for _, slot := range []int{vp9GoldenRefSlot, vp9AltRefSlot} {
+		if got := e.refFrames[slot].img.Y[0]; got == keySrc.Y[0] {
+			t.Fatalf("ref slot %d Y[0] still has keyframe value %d", slot, got)
+		}
 	}
 }
 
@@ -2820,14 +2826,17 @@ func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T)
 	if err != nil {
 		t.Fatalf("PeekVP9StreamInfo: %v", err)
 	}
-	if info.RefreshFrameFlags != 0x02 {
-		t.Fatalf("RefreshFrameFlags = %#x, want GOLDEN only", info.RefreshFrameFlags)
+	if info.RefreshFrameFlags != 0x06 {
+		t.Fatalf("RefreshFrameFlags = %#x, want GOLDEN|ALTREF", info.RefreshFrameFlags)
 	}
 	if got := e.refFrames[vp9LastRefSlot].img.Y[0]; got != keySrc.Y[0] {
 		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keySrc.Y[0])
 	}
 	if got := e.refFrames[vp9GoldenRefSlot].img.Y[0]; got == keySrc.Y[0] {
 		t.Fatalf("GOLDEN ref Y[0] still has keyframe value %d", got)
+	}
+	if got := e.refFrames[vp9AltRefSlot].img.Y[0]; got == keySrc.Y[0] {
+		t.Fatalf("ALTREF ref Y[0] still has keyframe value %d", got)
 	}
 }
 

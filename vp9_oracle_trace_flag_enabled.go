@@ -1,0 +1,106 @@
+//go:build govpx_oracle_trace
+
+package govpx
+
+import (
+	"encoding/json"
+	"io"
+	"sync"
+)
+
+const vp9OracleTraceBuild = true
+
+type vp9OracleFrameSummary struct {
+	Row                 string `json:"row"`
+	FrameIndex          int    `json:"frame_index"`
+	Flags               uint32 `json:"flags"`
+	Dropped             bool   `json:"dropped,omitempty"`
+	DropReason          string `json:"drop_reason,omitempty"`
+	KeyFrame            bool   `json:"key_frame"`
+	IntraOnly           bool   `json:"intra_only"`
+	ShowFrame           bool   `json:"show_frame"`
+	Droppable           bool   `json:"droppable"`
+	BaseQIndex          int    `json:"base_qindex"`
+	PublicQuantizer     int    `json:"public_quantizer"`
+	SizeBytes           int    `json:"size_bytes"`
+	FirstPartitionSize  int    `json:"first_partition_size"`
+	RefreshFrameFlags   uint8  `json:"refresh_frame_flags"`
+	RefreshFrameContext bool   `json:"refresh_frame_context"`
+	ErrorResilient      bool   `json:"error_resilient"`
+	FrameParallel       bool   `json:"frame_parallel"`
+	FrameContextIdx     uint8  `json:"frame_context_idx"`
+	TxMode              int    `json:"tx_mode"`
+	InterpFilter        int    `json:"interp_filter"`
+	ReferenceMode       int    `json:"reference_mode"`
+	CompoundAllowed     bool   `json:"compound_allowed"`
+	ReferenceMask       uint8  `json:"reference_mask"`
+	LoopFilterLevel     int    `json:"loop_filter_level"`
+	TemporalLayerID     int    `json:"temporal_layer_id"`
+	TemporalLayerCount  int    `json:"temporal_layer_count"`
+	TemporalLayerSync   bool   `json:"temporal_layer_sync"`
+	TL0PICIDX           uint8  `json:"tl0_pic_idx"`
+	TargetBitrateKbps   int    `json:"target_bitrate_kbps"`
+	FrameTargetBits     int    `json:"frame_target_bits"`
+	BufferLevelBits     int    `json:"buffer_level_bits"`
+	TileLog2Cols        int    `json:"tile_log2_cols"`
+	TileLog2Rows        int    `json:"tile_log2_rows"`
+}
+
+type vp9OracleTraceState struct {
+	writer io.Writer
+}
+
+var vp9OracleTraceStates sync.Map
+
+// SetVP9OracleTraceWriter enables VP9 encoder oracle trace emission. It is
+// available only in govpx_oracle_trace builds.
+func (e *VP9Encoder) SetVP9OracleTraceWriter(w io.Writer) {
+	if e == nil {
+		return
+	}
+	if w == nil {
+		vp9OracleTraceStates.Delete(e)
+		return
+	}
+	state := e.vp9OracleTraceStateCreate()
+	state.writer = w
+}
+
+func (e *VP9Encoder) vp9OracleTraceState() *vp9OracleTraceState {
+	if e == nil {
+		return nil
+	}
+	if state, ok := vp9OracleTraceStates.Load(e); ok {
+		return state.(*vp9OracleTraceState)
+	}
+	return nil
+}
+
+func (e *VP9Encoder) vp9OracleTraceStateCreate() *vp9OracleTraceState {
+	if state, ok := vp9OracleTraceStates.Load(e); ok {
+		return state.(*vp9OracleTraceState)
+	}
+	state := &vp9OracleTraceState{}
+	actual, _ := vp9OracleTraceStates.LoadOrStore(e, state)
+	return actual.(*vp9OracleTraceState)
+}
+
+func (e *VP9Encoder) resetVP9OracleTraceState() {
+	vp9OracleTraceStates.Delete(e)
+}
+
+func (e *VP9Encoder) emitVP9OracleFrameTrace(row vp9OracleFrameSummary) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.writer == nil {
+		return
+	}
+	if row.Row == "" {
+		row.Row = "vp9_frame"
+	}
+	encoded, err := json.Marshal(row)
+	if err != nil {
+		return
+	}
+	_, _ = state.writer.Write(encoded)
+	_, _ = state.writer.Write([]byte{'\n'})
+}

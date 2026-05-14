@@ -1,6 +1,7 @@
 package coracle
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -49,6 +50,46 @@ func TestVpxencVP9EncodeI420ProducesProfile0IVF(t *testing.T) {
 	}
 	if count != frames {
 		t.Fatalf("IVF frame count = %d, want %d", count, frames)
+	}
+}
+
+func TestVpxencVP9FrameFlagsEncodeI420RejectsInvalidInputBeforePathLookup(t *testing.T) {
+	if _, _, err := VpxencVP9FrameFlagsEncodeI420(nil, 16, 16, 1, nil); err == nil {
+		t.Fatalf("VpxencVP9FrameFlagsEncodeI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+		t.Fatalf("VpxencVP9FrameFlagsEncodeI420 looked up helper before validating input")
+	}
+	if _, _, err := VpxencVP9FrameFlagsEncodeI420(make([]byte, 384), 16, 16, 1, []uint32{0, 0}); err == nil {
+		t.Fatalf("VpxencVP9FrameFlagsEncodeI420 accepted too many frame flags")
+	}
+}
+
+func TestVpxencVP9FrameFlagsEncodeI420MatchesVpxencWithoutFlags(t *testing.T) {
+	if _, err := VpxencVP9Path(); err != nil {
+		if errors.Is(err, ErrVpxencVP9NotBuilt) {
+			t.Skip("vpxenc-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+		}
+		t.Fatalf("VpxencVP9Path: %v", err)
+	}
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 2
+	raw := makeGeneratedVP9I420(width, height, frames)
+	want, diag, err := VpxencVP9EncodeI420(raw, width, height, frames)
+	if err != nil {
+		t.Fatalf("VpxencVP9EncodeI420 failed: %v\n%s", err, diag)
+	}
+	got, diag, err := VpxencVP9FrameFlagsEncodeI420(raw, width, height, frames, nil)
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsEncodeI420 failed: %v\n%s", err, diag)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("frame-flags IVF diverged from vpxenc without flags\ngot  % x\nwant % x", got, want)
 	}
 }
 
