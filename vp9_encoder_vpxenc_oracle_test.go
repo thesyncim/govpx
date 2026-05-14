@@ -230,6 +230,67 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	src := newVP9YCbCrForTest(width, height, 80, 128, 128)
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	govpxPacket, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode govpx keyframe: %v", err)
+	}
+
+	raw := appendVP9YCbCrI420(nil, src)
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	libvpxFrame, _, err := testutil.NextIVFFrame(ivf, offset, 0)
+	if err != nil {
+		t.Fatalf("NextIVFFrame: %v", err)
+	}
+
+	govpxGrid := decodeVP9MiGridForOracleTest(t, govpxPacket)
+	libvpxGrid := decodeVP9MiGridForOracleTest(t, libvpxFrame.Data)
+	if len(govpxGrid) != len(libvpxGrid) {
+		t.Fatalf("mi grid length: govpx=%d libvpx=%d", len(govpxGrid), len(libvpxGrid))
+	}
+	modeMatches := 0
+	blockMatches := 0
+	skipMatches := 0
+	for i := range govpxGrid {
+		if govpxGrid[i].Mode == libvpxGrid[i].Mode {
+			modeMatches++
+		}
+		if govpxGrid[i].SbType == libvpxGrid[i].SbType {
+			blockMatches++
+		}
+		if govpxGrid[i].Skip == libvpxGrid[i].Skip {
+			skipMatches++
+		}
+	}
+	t.Logf("VP9 flat 64x64 keyframe mode scoreboard: modes=%d/%d blocks=%d/%d skips=%d/%d govpx_bytes=%d libvpx_bytes=%d",
+		modeMatches, len(govpxGrid), blockMatches, len(govpxGrid),
+		skipMatches, len(govpxGrid), len(govpxPacket), len(libvpxFrame.Data))
+	if blockMatches != len(govpxGrid) || skipMatches != len(govpxGrid) {
+		t.Fatalf("flat keyframe block/skip regression: block_matches=%d/%d skip_matches=%d/%d",
+			blockMatches, len(govpxGrid), skipMatches, len(govpxGrid))
+	}
+	if os.Getenv("GOVPX_VP9_KEYFRAME_MODE_STRICT") == "1" &&
+		modeMatches != len(govpxGrid) {
+		t.Fatalf("strict VP9 keyframe mode parity matched %d/%d modes",
+			modeMatches, len(govpxGrid))
+	}
+}
+
 func TestVP9EncoderVpxencOracleCheckerKeyframeByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
@@ -610,6 +671,20 @@ func assertVP9VpxencFrameSequenceByteParityWithOptions(t *testing.T,
 		}
 		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got, libvpxFrame.Data)
 	}
+}
+
+func decodeVP9MiGridForOracleTest(t *testing.T, packet []byte) []vp9dec.NeighborMi {
+	t.Helper()
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode VP9 packet: %v", err)
+	}
+	grid := make([]vp9dec.NeighborMi, len(d.miGrid))
+	copy(grid, d.miGrid)
+	return grid
 }
 
 func requireVP9VpxencFrameFlagsOracle(t *testing.T) {
