@@ -3370,7 +3370,7 @@ func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
 	var coeffs [vp9EncoderTxCoeffSlots]int16
 	if !e.prepareVP9KeyframeTxResidue(key, &e.planes[0], 0, common.HPred,
 		common.Tx16x16, tile, 2, 4, 0, 2, common.Block16x16, 0, 0,
-		[2]int16{4, 4}, coeffs[:]) {
+		[2]int16{4, 4}, 0, coeffs[:]) {
 		t.Fatal("Tx16 HPred residue returned false, want nonzero hybrid-transform coefficients")
 	}
 	nonzeroAC := false
@@ -3416,7 +3416,7 @@ func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderKeyframePicksHorizontalUvModeFromLeftContext(t *testing.T) {
+func TestVP9EncoderKeyframeKeepsOracleDcUvModeWithHorizontalChroma(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
 	img := newVP9ChromaHorizontalBandsForTest(128, 64)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
@@ -3437,12 +3437,12 @@ func TestVP9EncoderKeyframePicksHorizontalUvModeFromLeftContext(t *testing.T) {
 	}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 16}
 	got := e.pickVP9KeyframeUvMode(key, tile, 8, 16, 0, 8, common.Block64x64, &mi)
-	if got != common.HPred {
-		t.Errorf("UV mode = %d, want HPred", got)
+	if got != common.DcPred {
+		t.Errorf("UV mode = %d, want DcPred", got)
 	}
 }
 
-func TestVP9EncoderKeyframeUvModeScoresWholeBlock(t *testing.T) {
+func TestVP9EncoderKeyframeKeepsOracleDcUvModeForWholeBlockChroma(t *testing.T) {
 	const width, height = 128, 128
 	const uvX, uvY = 32, 32
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -3488,8 +3488,8 @@ func TestVP9EncoderKeyframeUvModeScoresWholeBlock(t *testing.T) {
 	}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 16, MiColStart: 0, MiColEnd: 16}
 	got := e.pickVP9KeyframeUvMode(key, tile, 16, 16, 8, 8, common.Block64x64, &mi)
-	if got != common.HPred {
-		t.Fatalf("UV mode = %d, want HPred from full-block score", got)
+	if got != common.DcPred {
+		t.Fatalf("UV mode = %d, want DcPred", got)
 	}
 }
 

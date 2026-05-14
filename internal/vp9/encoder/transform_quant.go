@@ -1,6 +1,10 @@
 package encoder
 
-import "github.com/thesyncim/govpx/internal/vp9/common"
+import (
+	"math/bits"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+)
 
 const (
 	fdctDctConstBits     = 14
@@ -1182,6 +1186,155 @@ func fdctBoolInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+// QuantizeB mirrors libvpx v1.16.0 vpx_quantize_b_c for 4x4/8x8/16x16
+// transforms. qindex is the segment-adjusted quantizer index; dequant is the
+// per-plane [DC, AC] dequant pair.
+func QuantizeB(coeff []int16, qindex int, dequant [2]int16, scan []int16, dqcoeff []int16) int {
+	n := min(len(coeff), min(len(scan), len(dqcoeff)))
+	for i := range n {
+		dqcoeff[i] = 0
+	}
+	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
+		return 0
+	}
+
+	params := vp9QuantizeBParams(qindex, dequant)
+	nonZeroCount := n
+	for i := n - 1; i >= 0; i-- {
+		rc := int(scan[i])
+		slot := vp9CoeffQuantSlot(rc)
+		c := int(coeff[rc])
+		if c < params.zbin[slot] && c > -params.zbin[slot] {
+			nonZeroCount--
+			continue
+		}
+		break
+	}
+
+	eob := -1
+	for i := 0; i < nonZeroCount; i++ {
+		rc := int(scan[i])
+		slot := vp9CoeffQuantSlot(rc)
+		c := int(coeff[rc])
+		absCoeff := c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		if absCoeff < params.zbin[slot] {
+			continue
+		}
+		tmp := clampInt16(absCoeff + params.round[slot])
+		q := ((((tmp * params.quant[slot]) >> 16) + tmp) *
+			params.quantShift[slot]) >> 16
+		if c < 0 {
+			q = -q
+		}
+		dqcoeff[rc] = int16(q * int(dequant[slot]))
+		if q != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+// QuantizeB32x32 mirrors libvpx v1.16.0 vpx_quantize_b_32x32_c.
+func QuantizeB32x32(coeff []int16, qindex int, dequant [2]int16, scan []int16, dqcoeff []int16) int {
+	const nCoeffs = 32 * 32
+	n := min(nCoeffs, min(len(coeff), min(len(scan), len(dqcoeff))))
+	for i := range n {
+		dqcoeff[i] = 0
+	}
+	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
+		return 0
+	}
+
+	params := vp9QuantizeBParams(qindex, dequant)
+	zbin := [2]int{
+		vp9RoundPowerOfTwo(params.zbin[0], 1),
+		vp9RoundPowerOfTwo(params.zbin[1], 1),
+	}
+	eob := -1
+	for scanIdx := 0; scanIdx < n; scanIdx++ {
+		rc := int(scan[scanIdx])
+		slot := vp9CoeffQuantSlot(rc)
+		c := int(coeff[rc])
+		if c < zbin[slot] && c > -zbin[slot] {
+			continue
+		}
+		absCoeff := c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		absCoeff = clampInt16(absCoeff + vp9RoundPowerOfTwo(params.round[slot], 1))
+		q := ((((absCoeff * params.quant[slot]) >> 16) + absCoeff) *
+			params.quantShift[slot]) >> 15
+		if c < 0 {
+			q = -q
+		}
+		dqcoeff[rc] = int16(q * int(dequant[slot]) / 2)
+		if q != 0 {
+			eob = scanIdx
+		}
+	}
+	return eob + 1
+}
+
+type vp9QuantizeParams struct {
+	zbin       [2]int
+	round      [2]int
+	quant      [2]int
+	quantShift [2]int
+}
+
+func vp9QuantizeBParams(qindex int, dequant [2]int16) vp9QuantizeParams {
+	qroundingFactor := 48
+	if qindex == 0 {
+		qroundingFactor = 64
+	}
+	qzbinFactor := vp9QzbinFactor(qindex)
+	var params vp9QuantizeParams
+	for i := range 2 {
+		dq := int(dequant[i])
+		params.zbin[i] = vp9RoundPowerOfTwo(qzbinFactor*dq, 7)
+		params.round[i] = (qroundingFactor * dq) >> 7
+		params.quant[i], params.quantShift[i] = vp9InvertQuant(dq)
+	}
+	return params
+}
+
+func vp9QzbinFactor(qindex int) int {
+	if qindex == 0 {
+		return 64
+	}
+	if int(common.DcQuant(qindex, 0, common.Bits8)) < 148 {
+		return 84
+	}
+	return 80
+}
+
+func vp9InvertQuant(d int) (quant, shift int) {
+	if d <= 0 {
+		return 0, 0
+	}
+	l := bits.Len(uint(d)) - 1
+	m := 1 + (1 << uint(16+l) / d)
+	return int(int16(m - (1 << 16))), 1 << uint(16-l)
+}
+
+func vp9CoeffQuantSlot(rc int) int {
+	if rc == 0 {
+		return 0
+	}
+	return 1
+}
+
+func vp9RoundPowerOfTwo(v, n int) int {
+	if n <= 0 {
+		return v
+	}
+	return (v + (1 << uint(n-1))) >> uint(n)
 }
 
 // QuantizeFP mirrors libvpx's vp9_quantize_fp_c for non-32x32 transforms.

@@ -2533,31 +2533,9 @@ func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) common.PredictionMode {
-	if key == nil || mi == nil {
-		return common.DcPred
-	}
-	uvProbs := tables.KfUvModeProb[mi.Mode]
-	var uvModeCosts [common.IntraModes]int
-	encoder.VP9CostTokens(uvModeCosts[:], uvProbs[:], common.IntraModeTree[:])
-	qindex := e.vp9EncoderModeDecisionQIndex()
-
-	bestMode := common.DcPred
-	bestScore, ok := e.scoreVP9KeyframeUvPrediction(key, bestMode,
-		uvModeCosts[bestMode], qindex, tile, miRows, miCols, miRow, miCol,
-		bsize, mi)
-	if !ok {
-		return bestMode
-	}
-	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
-		score, ok := e.scoreVP9KeyframeUvPrediction(key, mode,
-			uvModeCosts[mode], qindex, tile, miRows, miCols, miRow, miCol,
-			bsize, mi)
-		if ok && score < bestScore {
-			bestScore = score
-			bestMode = mode
-		}
-	}
-	return bestMode
+	// The realtime libvpx path used by the VP9 oracle keeps keyframe UV on
+	// DC_PRED while only searching the luma intra mode.
+	return common.DcPred
 }
 
 func (e *VP9Encoder) scoreVP9KeyframeUvPrediction(key *vp9KeyframeEncodeState,
@@ -2705,8 +2683,11 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				}
 				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
 				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
+					int(key.hdr.Quant.BaseQindex))
 				if e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
-					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant, coeffs) {
+					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
+					dequant, qindex, coeffs) {
 					hasResidue = true
 				}
 				blockIdx += blockStep
@@ -4363,7 +4344,8 @@ func (e *VP9Encoder) clearVP9PlaneBlockCoeffs(plane int, bsize common.BlockSize)
 func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
 	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16, out []int16,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	qindex int, out []int16,
 ) bool {
 	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, plane, mode,
 		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4)
@@ -4378,8 +4360,8 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false
 	}
-	return e.quantizeVP9TxResidual(dst, stride, txSize, txType, dequant, out,
-		key.lossless)
+	return e.quantizeVP9TxResidual(dst, stride, txSize, txType, dequant, qindex,
+		out, key.lossless, false)
 }
 
 func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
@@ -4395,8 +4377,8 @@ func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false
 	}
-	return e.quantizeVP9TxResidual(dst, stride, txSize, common.DctDct, dequant, out,
-		inter.lossless)
+	return e.quantizeVP9TxResidual(dst, stride, txSize, common.DctDct, dequant, 0,
+		out, inter.lossless, true)
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
@@ -4425,8 +4407,8 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 }
 
 func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
-	txSize common.TxSize, txType common.TxType, dequant [2]int16, out []int16,
-	lossless bool,
+	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
+	out []int16, lossless bool, useFastQuant bool,
 ) bool {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
@@ -4470,11 +4452,21 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 	}
 	eob := 0
 	if txSize == common.Tx32x32 {
-		eob = encoder.QuantizeFP32x32(e.txCoeffScratch[:maxEob], dequant,
-			scan, e.dqCoeffScratch[:maxEob])
+		if !useFastQuant {
+			eob = encoder.QuantizeB32x32(e.txCoeffScratch[:maxEob], qindex, dequant,
+				scan, e.dqCoeffScratch[:maxEob])
+		} else {
+			eob = encoder.QuantizeFP32x32(e.txCoeffScratch[:maxEob], dequant,
+				scan, e.dqCoeffScratch[:maxEob])
+		}
 	} else {
-		eob = encoder.QuantizeFP(e.txCoeffScratch[:maxEob], dequant,
-			scan, e.dqCoeffScratch[:maxEob])
+		if !useFastQuant {
+			eob = encoder.QuantizeB(e.txCoeffScratch[:maxEob], qindex, dequant,
+				scan, e.dqCoeffScratch[:maxEob])
+		} else {
+			eob = encoder.QuantizeFP(e.txCoeffScratch[:maxEob], dequant,
+				scan, e.dqCoeffScratch[:maxEob])
+		}
 	}
 	if eob == 0 {
 		return false

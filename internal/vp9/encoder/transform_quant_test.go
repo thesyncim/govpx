@@ -171,6 +171,79 @@ func TestForwardHTHybridTransformsProduceDirectionalCoefficients(t *testing.T) {
 	}
 }
 
+func TestForwardHT16x16AdstDctConstantMatchesLibvpx(t *testing.T) {
+	var input [256]int16
+	for i := range input {
+		input[i] = -127
+	}
+	var got [256]int16
+	ForwardHT16x16Into(input[:], 16, common.AdstDct, got[:])
+	wantNonZero := map[int]int16{
+		0:   -14640,
+		16:  -4899,
+		32:  -2953,
+		48:  -2127,
+		64:  -1686,
+		80:  -1392,
+		96:  -1211,
+		112: -1063,
+		128: -973,
+		144: -894,
+		160: -837,
+		176: -792,
+		192: -758,
+		208: -747,
+		224: -724,
+		240: -713,
+	}
+	for i, gotCoeff := range got {
+		wantCoeff := wantNonZero[i]
+		if gotCoeff != wantCoeff {
+			t.Fatalf("coeff[%d] = %d, want %d; coeffs=%v", i, gotCoeff, wantCoeff, got)
+		}
+	}
+}
+
+func TestQuantizeB16x16AdstDctConstantMatchesLibvpx(t *testing.T) {
+	var input [256]int16
+	for i := range input {
+		input[i] = -127
+	}
+	var coeff [256]int16
+	ForwardHT16x16Into(input[:], 16, common.AdstDct, coeff[:])
+
+	scan := common.ScanOrders[common.Tx16x16][common.AdstDct].Scan
+	var got [256]int16
+	eob := QuantizeB(coeff[:], 37, [2]int16{38, 44}, scan, got[:])
+	if eob != 159 {
+		t.Fatalf("eob = %d, want 159; dqcoeff=%v", eob, got)
+	}
+	wantNonZero := map[int]int16{
+		0:   -14630,
+		16:  -4884,
+		32:  -2948,
+		48:  -2112,
+		64:  -1672,
+		80:  -1408,
+		96:  -1188,
+		112: -1056,
+		128: -968,
+		144: -880,
+		160: -836,
+		176: -792,
+		192: -748,
+		208: -748,
+		224: -704,
+		240: -704,
+	}
+	for i, gotCoeff := range got {
+		wantCoeff := wantNonZero[i]
+		if gotCoeff != wantCoeff {
+			t.Fatalf("dqcoeff[%d] = %d, want %d; dqcoeff=%v", i, gotCoeff, wantCoeff, got)
+		}
+	}
+}
+
 func TestQuantizeFP4x4EmitsDequantizedCoefficients(t *testing.T) {
 	scan := common.DefaultScanOrders[common.Tx4x4].Scan
 	var coeff [16]int16
