@@ -210,7 +210,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 }
 
 func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
-	if opts.Width <= 0 || opts.Height <= 0 {
+	if !validVP9Dimension(opts.Width) || !validVP9Dimension(opts.Height) {
 		return ErrInvalidConfig
 	}
 	if opts.Threads < 0 {

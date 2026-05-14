@@ -84,15 +84,18 @@ type RateControlConfig struct {
 // before any mutation, and a validation failure leaves the encoder
 // fully usable at its previous configuration.
 //
-// Mirrors libvpx's `vpx_codec_enc_config_set` for the fields a WebRTC
-// sender typically updates per BWE step.
+// Mirrors libvpx's `vpx_codec_enc_config_set` for the fields a WebRTC sender
+// typically updates per BWE step. VP9 consumes BitrateKbps / FPS / Width /
+// Height through VP9Encoder.SetRealtimeTarget; frame-drop and public quantizer
+// controls are VP8-only until VP9 rate control lands.
 type RealtimeTarget struct {
 	// BitrateKbps changes the total target bitrate when non-zero.
-	// Equivalent to [VP8Encoder.SetBitrateKbps].
+	// Equivalent to [VP8Encoder.SetBitrateKbps]. VP9 stores it as a
+	// target hint until VP9 rate control lands.
 	BitrateKbps int
 	// FPS changes the timebase to 1/FPS when non-zero. The realtime
-	// adaptive-Speed timing window is reset so the auto-speed selector
-	// recomputes from cold start against the new frame budget.
+	// adaptive-Speed timing window is reset on VP8 so the auto-speed
+	// selector recomputes from cold start against the new frame budget.
 	FPS int
 
 	// Width and Height drive caller-driven runtime resolution change
@@ -109,11 +112,11 @@ type RealtimeTarget struct {
 	// directly. The decoder also handles key-frame resolution change;
 	// see [DecoderOptions.RejectResolutionChange].
 	//
-	// Resize is refused with [ErrInvalidConfig] when the lookahead
+	// VP8 resize is refused with [ErrInvalidConfig] when the lookahead
 	// queue is non-empty or a hidden alt-ref input is staged; drain the
 	// encoder with [VP8Encoder.FlushInto] before resizing in those
 	// modes. Invalid dimensions (zero, negative, or larger than the
-	// VP8 maximum) are likewise refused without mutating encoder
+	// codec maximum) are likewise refused without mutating encoder
 	// state.
 	Width  int
 	Height int

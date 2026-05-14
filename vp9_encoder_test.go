@@ -425,6 +425,8 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		want   error
 	}
 	cases := []bad{
+		{func(o *VP9EncoderOptions) { o.Width = maxVP9Dimension + 1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.Height = maxVP9Dimension + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Threads = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TargetBitrateKbps = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Quantizer = -1 }, ErrInvalidConfig},
@@ -2173,6 +2175,149 @@ func TestVP9EncoderEncodeIntoWithFlagsForceKeyFrameOneShot(t *testing.T) {
 	}
 	if e.IsKeyFrameNext() {
 		t.Fatal("EncodeForceKeyFrame acted sticky; next frame should be inter")
+	}
+}
+
+func TestVP9EncoderSetRealtimeTargetUpdatesHints(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		TargetBitrateKbps: 900,
+	})
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{
+		BitrateKbps: 1500,
+		FPS:         60,
+	}); err != nil {
+		t.Fatalf("SetRealtimeTarget: %v", err)
+	}
+	if e.opts.TargetBitrateKbps != 1500 ||
+		e.opts.FPS != 60 ||
+		e.opts.TimebaseNum != 1 ||
+		e.opts.TimebaseDen != 60 {
+		t.Fatalf("opts after target = %+v, want bitrate 1500 and 1/60 timebase",
+			e.opts)
+	}
+}
+
+func TestVP9EncoderSetRealtimeTargetResizeForcesKeyFrame(t *testing.T) {
+	const (
+		w1 = 64
+		h1 = 64
+		w2 = 96
+		h2 = 80
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: w1, Height: h1})
+	if _, err := e.Encode(newVP9YCbCrForTest(w1, h1, 72, 128, 128)); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(newVP9YCbCrForTest(w1, h1, 92, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	if h, _ := parseVP9EncoderHeaderForTest(t, inter); h.FrameType != common.InterFrame {
+		t.Fatalf("pre-resize frame type = %d, want inter", h.FrameType)
+	}
+	if !e.refValid[vp9LastRefSlot] || !e.refFrames[vp9LastRefSlot].valid {
+		t.Fatal("LAST reference not valid before resize")
+	}
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize: %v", err)
+	}
+	if e.opts.Width != w2 || e.opts.Height != h2 {
+		t.Fatalf("dims after resize = %dx%d, want %dx%d",
+			e.opts.Width, e.opts.Height, w2, h2)
+	}
+	if !e.IsKeyFrameNext() || !e.forceKeyFrame {
+		t.Fatal("resize did not force the next VP9 frame to keyframe")
+	}
+	for slot := range e.refValid {
+		if e.refValid[slot] || e.refFrames[slot].valid {
+			t.Fatalf("reference slot %d still valid after resize", slot)
+		}
+	}
+	if _, err := e.Encode(newVP9YCbCrForTest(w1, h1, 100, 128, 128)); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("old-size Encode after resize err = %v, want ErrInvalidConfig", err)
+	}
+
+	resized, err := e.Encode(newVP9YCbCrForTest(w2, h2, 111, 123, 211))
+	if err != nil {
+		t.Fatalf("Encode resized keyframe: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, resized)
+	if h.FrameType != common.KeyFrame || h.Width != w2 || h.Height != h2 {
+		t.Fatalf("resized header = type:%d %dx%d, want key %dx%d",
+			h.FrameType, h.Width, h.Height, w2, h2)
+	}
+	if e.forceKeyFrame {
+		t.Fatal("forceKeyFrame still set after resized keyframe")
+	}
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(resized); err != nil {
+		t.Fatalf("Decode resized keyframe: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after resized keyframe")
+	}
+	assertVP9FilledFrame(t, frame, w2, h2, 111, 123, 211)
+}
+
+func TestVP9EncoderSetRealtimeTargetValidationNoMutation(t *testing.T) {
+	const width, height = 64, 64
+	cases := []struct {
+		name   string
+		target RealtimeTarget
+		want   error
+	}{
+		{"negative bitrate", RealtimeTarget{BitrateKbps: -1}, ErrInvalidConfig},
+		{"one dimension", RealtimeTarget{Width: 96}, ErrInvalidConfig},
+		{"too wide", RealtimeTarget{Width: maxVP9Dimension + 1, Height: 64}, ErrInvalidConfig},
+		{"explicit frame drop", RealtimeTarget{FrameDrop: RealtimeFrameDropEnabled}, ErrInvalidConfig},
+		{"quantizer control", RealtimeTarget{MinQuantizer: 4}, ErrInvalidQuantizer},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+			if err := e.SetRealtimeTarget(tc.target); !errors.Is(err, tc.want) {
+				t.Fatalf("SetRealtimeTarget error = %v, want %v", err, tc.want)
+			}
+			if e.opts.Width != width || e.opts.Height != height ||
+				e.forceKeyFrame || e.opts.TargetBitrateKbps != 0 {
+				t.Fatalf("encoder mutated after reject: opts=%+v forceKeyFrame=%t",
+					e.opts, e.forceKeyFrame)
+			}
+			packet, err := e.Encode(newVP9YCbCrForTest(width, height, 80, 128, 128))
+			if err != nil {
+				t.Fatalf("Encode after rejected target: %v", err)
+			}
+			info, err := PeekVP9StreamInfo(packet)
+			if err != nil {
+				t.Fatalf("PeekVP9StreamInfo: %v", err)
+			}
+			if !info.KeyFrame || info.Width != width || info.Height != height {
+				t.Fatalf("info after rejected target = %+v, want original keyframe", info)
+			}
+		})
+	}
+}
+
+func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetRealtimeTarget after Close err = %v, want ErrClosed", err)
+	}
+	var nilEnc *VP9Encoder
+	if err := nilEnc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetRealtimeTarget on nil encoder err = %v, want ErrClosed", err)
 	}
 }
 

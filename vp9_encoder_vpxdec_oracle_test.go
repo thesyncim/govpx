@@ -397,6 +397,38 @@ func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, show)
 }
 
+func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const (
+		w1 = 64
+		h1 = 64
+		w2 = 96
+		h2 = 80
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: w1, Height: h1})
+	key, err := e.Encode(newVP9YCbCrForTest(w1, h1, 72, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(newVP9YCbCrForTest(w1, h1, 92, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize: %v", err)
+	}
+	resized, err := e.Encode(newVP9YCbCrForTest(w2, h2, 111, 123, 211))
+	if err != nil {
+		t.Fatalf("Encode resized keyframe: %v", err)
+	}
+
+	out, err := coracle.VpxdecVP9Decode(vp9IVFForTest(w1, h1, key, inter, resized))
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 rejected runtime resize stream: %v\n%s", err, out)
+	}
+}
+
 func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

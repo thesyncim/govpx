@@ -37,5 +37,6 @@ func (c Codec) String() string {
 
 const (
 	maxVP8Dimension = 16383
+	maxVP9Dimension = 65536
 	maxQuantizer    = 63
 )
