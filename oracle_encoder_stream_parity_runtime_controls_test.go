@@ -313,10 +313,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "rate-control-full-config-maxintra-gfboost",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// SetRateControl's MaxIntraBitratePct path matches on the
-			// forced keyframe. Returning the full CBR config and forcing a
-			// golden frame exposes the existing GF-boost runtime drift.
-			matchLimit: 7,
 			flags: []EncodeFlags{
 				0, 0, 0,
 				EncodeForceKeyFrame,

@@ -144,6 +144,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		}
 	}
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
+	onePassAltRefRefresh := false
+	if !keyFrame && !temporalReferenceControl && !e.twoPass.enabled() && externalRefreshFlagsPending(flags) {
+		_, _, onePassAltRefRefresh = libvpxExternalRefreshMask(flags)
+	}
 	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size sets
 	// frames_till_gf_update_due=baseline_gf_interval (== gf_interval_onepass_cbr)
 	// and current_gf_interval before update_golden_frame_stats accumulates
@@ -252,14 +256,19 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			layerPerFrameBandwidth = e.temporal.temporalLayerFrameTargetBits(temporalFrame.LayerID, e.timing)
 			layerOutputFrameRate = e.temporal.temporalLayerOutputFrameRateInt(temporalFrame.LayerID, e.timing)
 		}
-		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
+		frameCtx := rateControlFrameContext{
 			firstFrame:             e.frameCount == 0,
 			forcedKeyFrame:         forcedKeyFrame,
 			temporalLayerCount:     temporalFrame.LayerCount,
 			layerPerFrameBandwidth: layerPerFrameBandwidth,
 			layerOutputFrameRate:   layerOutputFrameRate,
 			timing:                 e.timing,
-		})
+		}
+		if onePassAltRefRefresh {
+			e.rc.beginOnePassAltRefRefreshFrameWithTargetAndContext(e.rc.decimationBoostedBitsPerFrame(), frameCtx)
+		} else {
+			e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), frameCtx)
+		}
 	}
 	twoPassTargetBits := e.twoPass.frameTargetBits(e.frameCount, keyFrame, e.rc.frameTargetBits)
 	if twoPassTargetBits > 0 {

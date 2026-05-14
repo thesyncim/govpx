@@ -543,6 +543,36 @@ func TestRateControlOverspendRecoveryClampsAtMinFrameTarget(t *testing.T) {
 	}
 }
 
+func TestOnePassAltRefRefreshUsesStaleTargetWithoutOverspendDrain(t *testing.T) {
+	rc := rateControlState{
+		mode:                   RateControlCBR,
+		bitsPerFrame:           23333,
+		frameTargetBits:        18769,
+		bufferLevelBits:        400000,
+		bufferOptimalBits:      3500000,
+		undershootPct:          100,
+		overshootPct:           100,
+		kfOverspendBits:        10419,
+		kfBitrateAdjustment:    400,
+		gfOverspendBits:        1099,
+		nonGFBitrateAdjustment: 156,
+		interFrameTarget:       18769,
+	}
+
+	rc.beginOnePassAltRefRefreshFrameWithTargetAndContext(rc.bitsPerFrame, rateControlFrameContext{})
+
+	if rc.frameTargetBits != 10511 {
+		t.Fatalf("frameTargetBits = %d, want stale target shaped by buffer to 10511", rc.frameTargetBits)
+	}
+	if rc.kfOverspendBits != 10419 || rc.gfOverspendBits != 1099 {
+		t.Fatalf("overspend bits = kf:%d gf:%d, want unchanged 10419/1099",
+			rc.kfOverspendBits, rc.gfOverspendBits)
+	}
+	if rc.interFrameTarget != 18769 {
+		t.Fatalf("interFrameTarget = %d, want stale 18769", rc.interFrameTarget)
+	}
+}
+
 // TestRateControlGoldenFrameTargetBitsMatchesLibvpx pins the libvpx
 // boost-weighted GF section split from calc_pframe_target_size. With
 // boost=400, frames_till_gf_update_due=7 (frames_in_section=8) and

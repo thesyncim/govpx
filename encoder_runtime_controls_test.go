@@ -513,6 +513,7 @@ func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
 	e := newTestEncoder(t)
 	e.rc.decimationFactor = 2
 	e.rc.decimationCount = 1
+	e.rc.frameTargetBits = 12345
 	e.rc.avgFrameQuantizer = 43
 	e.rc.normalInterQuantizerTotal = 129
 	e.rc.normalInterFrames = 3
@@ -543,6 +544,9 @@ func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
 
 	if e.rc.decimationFactor != 2 || e.rc.decimationCount != 1 {
 		t.Fatalf("decimation state = factor:%d count:%d, want 2/1", e.rc.decimationFactor, e.rc.decimationCount)
+	}
+	if e.rc.frameTargetBits != 12345 {
+		t.Fatalf("frameTargetBits = %d, want libvpx preserved stale target 12345", e.rc.frameTargetBits)
 	}
 	if e.rc.avgFrameQuantizer != 43 || e.rc.normalInterQuantizerTotal != 129 || e.rc.normalInterFrames != 3 || e.rc.normalInterAvgQuantizer != 43 {
 		t.Fatalf("quantizer history = avg:%d total:%d frames:%d normal:%d, want 43/129/3/43",

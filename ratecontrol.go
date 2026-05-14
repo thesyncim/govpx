@@ -480,7 +480,9 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	if initializing && rc.bufferLevelBits == 0 {
 		rc.bufferLevelBits = rc.bufferInitialBits
 	}
-	rc.frameTargetBits = rc.bitsPerFrame
+	if initializing {
+		rc.frameTargetBits = rc.bitsPerFrame
+	}
 	rc.clampBuffer()
 	rc.clampQuantizer()
 	return nil
@@ -618,6 +620,27 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 			rc.currentQuantizer = rc.cqLevel
 		}
 	}
+	rc.frameTargetBits = targetBits
+	rc.clampQuantizer()
+}
+
+func (rc *rateControlState) beginOnePassAltRefRefreshFrameWithTargetAndContext(baseTargetBits int, ctx rateControlFrameContext) {
+	rc.currentTemporalLayers = ctx.temporalLayerCount
+	rc.currentLayerPerFrameBandwidth = 0
+	rc.currentLayerOutputFrameRate = 0
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = baseTargetBits
+	}
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	// libvpx's one-pass calc_pframe_target_size has a special
+	// refresh_alt_ref_frame branch with no body. It skips normal p-frame
+	// target setup, KF/GF overspend drains, and inter_frame_target refresh;
+	// the stale this_frame_target then flows into the one-pass buffer
+	// adjustment below.
+	targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 	rc.frameTargetBits = targetBits
 	rc.clampQuantizer()
 }
