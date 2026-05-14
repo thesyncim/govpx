@@ -534,6 +534,14 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 		Deadline:          DeadlineGoodQuality,
 		CpuUsed:           0,
 	}
+	encodeTwoPass := func(name string, caseOpts EncoderOptions, caseSources []Image) ([][]byte, [][]byte) {
+		t.Helper()
+		govpxOpts := caseOpts
+		govpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, caseOpts, caseSources)
+		govpxFrames := encodeFramesWithGovpx(t, govpxOpts, caseSources)
+		libvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, name, caseOpts, caseOpts.TargetBitrateKbps, caseSources)
+		return govpxFrames, libvpxFrames
+	}
 
 	govpxOpts := opts
 	govpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, opts, sources)
@@ -600,6 +608,22 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	segmentedGovpxFrames := encodeFramesWithGovpx(t, segmentedGovpxOpts, segmentedSources)
 	segmentedLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-segmented64", segmentedOpts, segmentedOpts.TargetBitrateKbps, segmentedSources)
 	assertSegmentByteParity(t, "twopass-e2e-segmented64", segmentedGovpxFrames, segmentedLibvpxFrames, 0)
+
+	segmentedDropOpts := segmentedOpts
+	segmentedDropOpts.DropFrameAllowed = true
+	segmentedDropOpts.DropFrameWaterMark = 60
+	segmentedDropGovpxFrames, segmentedDropLibvpxFrames := encodeTwoPass("twopass-e2e-segmented64-drop-frame60", segmentedDropOpts, segmentedSources)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-drop-frame60", segmentedDropGovpxFrames, segmentedDropLibvpxFrames, 0)
+
+	segmentedMaxIntraOpts := segmentedOpts
+	segmentedMaxIntraOpts.MaxIntraBitratePct = 500
+	segmentedMaxIntraGovpxFrames, segmentedMaxIntraLibvpxFrames := encodeTwoPass("twopass-e2e-segmented64-max-intra-rate500", segmentedMaxIntraOpts, segmentedSources)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-max-intra-rate500", segmentedMaxIntraGovpxFrames, segmentedMaxIntraLibvpxFrames, 0)
+
+	segmentedGFBoostOpts := segmentedOpts
+	segmentedGFBoostOpts.GFCBRBoostPct = 500
+	segmentedGFBoostGovpxFrames, segmentedGFBoostLibvpxFrames := encodeTwoPass("twopass-e2e-segmented64-gf-cbr-boost500", segmentedGFBoostOpts, segmentedSources)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-gf-cbr-boost500", segmentedGFBoostGovpxFrames, segmentedGFBoostLibvpxFrames, 0)
 
 	segmentedSectionOpts := segmentedOpts
 	segmentedSectionOpts.TwoPassVBRBiasPct = 80
@@ -996,6 +1020,19 @@ func libvpxTwoPassControlArgs(opts EncoderOptions) []string {
 	}
 	if opts.StaticThreshold > 0 {
 		args = append(args, "--static-thresh="+strconv.Itoa(opts.StaticThreshold))
+	}
+	if opts.DropFrameAllowed {
+		watermark := opts.DropFrameWaterMark
+		if watermark <= 0 {
+			watermark = defaultDropFramesWaterMark
+		}
+		args = append(args, "--drop-frame="+strconv.Itoa(min(watermark, 100)))
+	}
+	if opts.MaxIntraBitratePct > 0 {
+		args = append(args, "--max-intra-rate="+strconv.Itoa(opts.MaxIntraBitratePct))
+	}
+	if opts.GFCBRBoostPct > 0 {
+		args = append(args, "--gf-cbr-boost="+strconv.Itoa(opts.GFCBRBoostPct))
 	}
 	if opts.ARNRMaxFrames > 0 {
 		args = append(args, "--arnr-maxframes="+strconv.Itoa(opts.ARNRMaxFrames))
