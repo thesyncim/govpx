@@ -4313,14 +4313,13 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 	appendRuntimeControl(roiScript, 2, "roi:border1")
 	appendRuntimeControl(roiScript, 8, "roi:off")
 	cases = append(cases, temporalCase{
-		name:       "two-layer-roi-border-toggle",
-		fx:         segmented64,
-		frames:     12,
-		opts:       temporalOpts(segmented64, 0, TemporalLayeringTwoLayers),
-		flags:      twoLayerFlags(12),
-		script:     roiScript,
-		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-		matchLimit: 2,
+		name:      "two-layer-roi-border-toggle",
+		fx:        segmented64,
+		frames:    12,
+		opts:      temporalOpts(segmented64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    roiScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
 		apply: map[int]func(*testing.T, *VP8Encoder){
 			2: roiMapApply("border1"),
 			8: func(t *testing.T, e *VP8Encoder) {
@@ -4334,14 +4333,13 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 	appendRuntimeControl(activeROIScript, 2, "active:checker+roi:border1")
 	appendRuntimeControl(activeROIScript, 8, "active:off+roi:off")
 	cases = append(cases, temporalCase{
-		name:       "two-layer-active-roi-toggle",
-		fx:         segmented64,
-		frames:     12,
-		opts:       temporalOpts(segmented64, 0, TemporalLayeringTwoLayers),
-		flags:      twoLayerFlags(12),
-		script:     activeROIScript,
-		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-		matchLimit: 2,
+		name:      "two-layer-active-roi-toggle",
+		fx:        segmented64,
+		frames:    12,
+		opts:      temporalOpts(segmented64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    activeROIScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
 		apply: map[int]func(*testing.T, *VP8Encoder){
 			2: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
