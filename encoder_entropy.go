@@ -11,26 +11,15 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
 	}
-	// Mirror libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame: after
-	// vp8_default_coef_probs resets cm->fc, cpi->lfc_a/lfc_g/lfc_n are all
-	// seeded from cm->fc — that is, from the *default* probabilities, BEFORE
-	// the keyframe encode pass adapts cm->fc via vp8_update_coef_probs. The
-	// end-of-frame `lfc_X = cm->fc` assignments overwrite each slot only when
-	// the corresponding refresh_X flag is set; on a keyframe all three flags
-	// are set, so lfc_a/lfc_g/lfc_n end up holding the *post-adaptation*
-	// keyframe fc — but in practice short clips' adaptation barely moves the
-	// table, and the slots that DO move differ block-by-block between libvpx
-	// and govpx (govpx's keyframe intra-mode picker still has BPred residual
-	// divergences pinned in earlier rounds). Seeding the snapshots from
-	// e.coefProbs (the post-keyframe-adaptation table) is what libvpx does;
-	// the lingering keyframe-adaptation gap is tracked separately. The
-	// important property here is that the RD picker on later golden/altref
-	// refresh frames reads from this seed instead of from e.coefProbs, which
-	// keeps following inter-frame adaptations from polluting the
-	// long-reference RD scoring.
+	// Mirror libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame and the
+	// end-of-frame lfc_X saves in onyx_if.c: setup seeds lfc_a/lfc_g/lfc_n
+	// from the default coef probs before the keyframe encode adapts cm->fc.
+	// The final save only refreshes the LAST entropy context on a keyframe
+	// (`cm->refresh_last_frame = 1`); GOLDEN and ALTREF remain at the default
+	// seed until a later visible frame actually refreshes those references.
 	e.coefProbsLast = e.coefProbs
-	e.coefProbsGolden = e.coefProbs
-	e.coefProbsAltRef = e.coefProbs
+	e.coefProbsGolden = vp8tables.DefaultCoefProbs
+	e.coefProbsAltRef = vp8tables.DefaultCoefProbs
 	e.coefProbsSnapshotsValid = true
 	e.updateRefFrameProbsFromKeyFrame()
 	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame

@@ -464,10 +464,9 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 //     refs.YAbove[16:20] for the bottom-right sub-block, replacing libvpx's
 //     in-place predictor copy.
 //
-// libvpx applies RDCOST once at MB level (rdopt.c rd_pick_intra4x4mby_modes);
-// applying it per-block compounds the +128 rounding bias 16x. bestRD lets
-// the caller short-circuit when the running cost already exceeds the best
-// macroblock RD found so far.
+// libvpx picks each 4x4 block by per-block RDCOST, accumulates those chosen
+// per-block RD values for the best_rd bailout, and returns the final MB-level
+// RDCOST only if the per-block sum stays below best_rd.
 func predictBestBPredLumaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, bestRD int, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) ([16]vp8common.BPredictionMode, int, int, bool) {
 	return predictBestBPredLumaModeRDWithRDConstants(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, above, left, aboveTok, leftTok, quant, pred, scratch, bestRD, coefProbs, fastQuant, 0, 0)
 }
@@ -506,6 +505,7 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 	}
 	totalRate := 0
 	totalDist := 0
+	totalBlockRD := int64(0)
 	for block := range 16 {
 		bestMode := vp8common.BDCPred
 		bestEOB := 0
@@ -557,7 +557,11 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 		tokenLeft[(block&0x0c)>>2] = hasCoeffs
 		totalRate += bestRate
 		totalDist += bestDist
-		if bestRD > 0 && libvpxRDCost(rdMult, rdDiv, totalRate, totalDist) >= bestRD {
+		// libvpx rd_pick_intra4x4mby_modes accumulates the already-rounded
+		// RD of each selected 4x4 block and compares that sum to best_rd.
+		// It does not compare RDCOST(sum(rate), sum(distortion)).
+		totalBlockRD += int64(bestCost)
+		if bestRD > 0 && totalBlockRD >= int64(bestRD) {
 			return [16]vp8common.BPredictionMode{}, 0, 0, false
 		}
 	}

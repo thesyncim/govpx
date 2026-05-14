@@ -1056,6 +1056,15 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 	if e.coefProbs != attempt.FrameCoefProbs {
 		t.Fatalf("committed coefficient probabilities do not match accepted key attempt")
 	}
+	if e.coefProbsLast != attempt.FrameCoefProbs {
+		t.Fatalf("keyframe LAST entropy snapshot does not match accepted key attempt")
+	}
+	if e.coefProbsGolden != vp8tables.DefaultCoefProbs {
+		t.Fatalf("keyframe GOLDEN entropy snapshot changed, want default")
+	}
+	if e.coefProbsAltRef != vp8tables.DefaultCoefProbs {
+		t.Fatalf("keyframe ALTREF entropy snapshot changed, want default")
+	}
 	if e.modeProbs == wantModeProbs {
 		t.Fatalf("committed keyframe mode probabilities still match pre-commit sentinel")
 	}
