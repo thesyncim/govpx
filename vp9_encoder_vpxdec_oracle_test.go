@@ -82,6 +82,20 @@ func TestVP9EncoderVpxdecOracleMatchesChromaDirectionalKeyframe(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, packet)
 }
 
+func TestVP9EncoderVpxdecOracleMatchesTx16DirectionalKeyframe(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 128, 16
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9HorizontalBandsForTest(width, height, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, packet)
+}
+
 func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

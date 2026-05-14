@@ -1658,10 +1658,7 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) common.PredictionMode {
-	// VP9 Tx32 is DCT-only, so all intra predictors can reuse the
-	// current transform path. Smaller tx sizes need forward hybrid
-	// ADST kernels before non-DC mode picking can safely expand there.
-	if key == nil || mi == nil || mi.TxSize != common.Tx32x32 {
+	if key == nil || mi == nil {
 		return common.DcPred
 	}
 	bestMode := common.DcPred
@@ -2061,10 +2058,8 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	}
 
 	tryMode(common.DcPred)
-	if txSize == common.Tx32x32 {
-		for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
-			tryMode(mode)
-		}
+	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
+		tryMode(mode)
 	}
 	if !bestSet || best.score >= interAdjusted {
 		return vp9InterIntraDecision{}, false
@@ -2805,8 +2800,11 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 	txSize common.TxSize, txType common.TxType, dequant [2]int16, out []int16,
 ) bool {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	if txType != common.DctDct || maxEob > vp9EncoderTxCoeffSlots ||
+	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
 		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
+		return false
+	}
+	if txSize == common.Tx32x32 && txType != common.DctDct {
 		return false
 	}
 	for i := range e.txCoeffScratch[:maxEob] {
@@ -2815,17 +2813,20 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 	}
 	switch txSize {
 	case common.Tx4x4:
-		encoder.ForwardDCT4x4Into(e.residueScratch[:], 4, e.txCoeffScratch[:maxEob])
+		encoder.ForwardHT4x4Into(e.residueScratch[:], 4, txType,
+			e.txCoeffScratch[:maxEob])
 	case common.Tx8x8:
-		encoder.ForwardDCT8x8Into(e.residueScratch[:], 8, e.txCoeffScratch[:maxEob])
+		encoder.ForwardHT8x8Into(e.residueScratch[:], 8, txType,
+			e.txCoeffScratch[:maxEob])
 	case common.Tx16x16:
-		encoder.ForwardDCT16x16Into(e.residueScratch[:], 16, e.txCoeffScratch[:maxEob])
+		encoder.ForwardHT16x16Into(e.residueScratch[:], 16, txType,
+			e.txCoeffScratch[:maxEob])
 	case common.Tx32x32:
 		encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
 	default:
 		return false
 	}
-	scan := common.DefaultScanOrders[txSize].Scan
+	scan := common.ScanOrders[txSize][txType].Scan
 	eob := 0
 	if txSize == common.Tx32x32 {
 		eob = encoder.QuantizeFP32x32(e.txCoeffScratch[:maxEob], dequant,

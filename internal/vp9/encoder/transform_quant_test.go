@@ -83,6 +83,60 @@ func TestForwardDCTCospiConstantsMatchLibvpx(t *testing.T) {
 	}
 }
 
+func TestForwardHTDctDctMatchesForwardDCT(t *testing.T) {
+	var in4 [16]int16
+	for i := range in4 {
+		in4[i] = int16((i*17)%41 - 20)
+	}
+	var got4, want4 [16]int16
+	ForwardHT4x4Into(in4[:], 4, common.DctDct, got4[:])
+	ForwardDCT4x4(in4[:], 4, &want4)
+	if got4 != want4 {
+		t.Fatalf("4x4 DCT_DCT mismatch\ngot  %v\nwant %v", got4, want4)
+	}
+
+	var in8 [64]int16
+	for i := range in8 {
+		in8[i] = int16((i*13)%73 - 36)
+	}
+	var got8, want8 [64]int16
+	ForwardHT8x8Into(in8[:], 8, common.DctDct, got8[:])
+	ForwardDCT8x8(in8[:], 8, &want8)
+	if got8 != want8 {
+		t.Fatalf("8x8 DCT_DCT mismatch\ngot  %v\nwant %v", got8, want8)
+	}
+
+	var in16 [256]int16
+	for i := range in16 {
+		in16[i] = int16((i*11)%97 - 48)
+	}
+	var got16, want16 [256]int16
+	ForwardHT16x16Into(in16[:], 16, common.DctDct, got16[:])
+	ForwardDCT16x16(in16[:], 16, &want16)
+	if got16 != want16 {
+		t.Fatalf("16x16 DCT_DCT mismatch")
+	}
+}
+
+func TestForwardHTHybridTransformsProduceDirectionalCoefficients(t *testing.T) {
+	var in [256]int16
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 16; x++ {
+			in[y*16+x] = int16((x * (y + 3)) - 60)
+		}
+	}
+	var dct, adstDct, dctAdst [256]int16
+	ForwardHT16x16Into(in[:], 16, common.DctDct, dct[:])
+	ForwardHT16x16Into(in[:], 16, common.AdstDct, adstDct[:])
+	ForwardHT16x16Into(in[:], 16, common.DctAdst, dctAdst[:])
+	if adstDct == dct || dctAdst == dct || adstDct == dctAdst {
+		t.Fatalf("hybrid transforms collapsed to identical coefficient sets")
+	}
+	if adstDct[1] == 0 && adstDct[2] == 0 && dctAdst[1] == 0 && dctAdst[2] == 0 {
+		t.Fatalf("hybrid transforms produced no early directional coefficients")
+	}
+}
+
 func TestQuantizeFP4x4EmitsDequantizedCoefficients(t *testing.T) {
 	scan := common.DefaultScanOrders[common.Tx4x4].Scan
 	var coeff [16]int16

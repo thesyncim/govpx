@@ -1864,6 +1864,106 @@ func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderKeyframePicksHorizontalModeForTx16(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 16})
+	img := newVP9HorizontalBandsForTest(32, 16, 128, 128)
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(32, 16)
+	for y := range 16 {
+		copy(e.reconY[y*e.reconFrame.YStride:y*e.reconFrame.YStride+16],
+			img.Y[y*img.YStride:y*img.YStride+16])
+	}
+
+	hdr := vp9dec.UncompressedHeader{Width: 32, Height: 16}
+	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	mi := vp9dec.NeighborMi{SbType: common.Block16x16, TxSize: common.Tx16x16}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 2, MiColStart: 0, MiColEnd: 4}
+	got := e.pickVP9KeyframeMode(key, tile, 2, 4, 0, 2, common.Block16x16, &mi)
+	if got != common.HPred {
+		t.Errorf("mode = %d, want HPred", got)
+	}
+}
+
+func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 16})
+	img := image.NewYCbCr(image.Rect(0, 0, 32, 16), image.YCbCrSubsampleRatio420)
+	for y := range 16 {
+		row := img.Y[y*img.YStride:]
+		base := byte(24 + y*9)
+		for x := range 32 {
+			v := int(base)
+			if x >= 16 {
+				v += (x - 15) * ((y % 3) + 1)
+			}
+			row[x] = byte(min(v, 255))
+		}
+	}
+	for i := range img.Cb {
+		img.Cb[i] = 128
+	}
+	for i := range img.Cr {
+		img.Cr[i] = 128
+	}
+
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(32, 16)
+	for y := range 16 {
+		copy(e.reconY[y*e.reconFrame.YStride:y*e.reconFrame.YStride+16],
+			img.Y[y*img.YStride:y*img.YStride+16])
+	}
+
+	hdr := vp9dec.UncompressedHeader{Width: 32, Height: 16}
+	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 2, MiColStart: 0, MiColEnd: 4}
+	var coeffs [vp9EncoderTxCoeffSlots]int16
+	if !e.prepareVP9KeyframeTxResidue(key, &e.planes[0], 0, common.HPred,
+		common.Tx16x16, tile, 2, 4, 0, 2, common.Block16x16, 0, 0,
+		[2]int16{4, 4}, coeffs[:]) {
+		t.Fatal("Tx16 HPred residue returned false, want nonzero hybrid-transform coefficients")
+	}
+	nonzeroAC := false
+	for i, c := range coeffs[:vp9dec.MaxEobForTxSize(common.Tx16x16)] {
+		if i != 0 && c != 0 {
+			nonzeroAC = true
+			break
+		}
+	}
+	if !nonzeroAC {
+		t.Fatal("Tx16 HPred residue produced no AC coefficients")
+	}
+}
+
+func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
+	const width, height = 128, 16
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9HorizontalBandsForTest(width, height, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if len(d.miGrid) <= 8 {
+		t.Fatalf("decoder MI grid len = %d, want second SB-row block", len(d.miGrid))
+	}
+	got := d.miGrid[8]
+	if got.SbType != common.Block32x16 {
+		t.Fatalf("second block size = %d, want Block32x16", got.SbType)
+	}
+	if got.TxSize != common.Tx16x16 {
+		t.Fatalf("second block tx size = %d, want Tx16x16", got.TxSize)
+	}
+	if got.Mode != common.HPred {
+		t.Fatalf("second block mode = %d, want HPred", got.Mode)
+	}
+}
+
 func TestVP9EncoderKeyframePicksHorizontalUvModeFromLeftContext(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
 	img := newVP9ChromaHorizontalBandsForTest(128, 64)

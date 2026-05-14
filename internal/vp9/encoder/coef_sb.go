@@ -19,9 +19,9 @@ import (
 // WriteCoefBlock, and the above + left bytes are stamped with the
 // (eob > 0) flag so the next neighbor read sees the right state.
 //
-// Scan order picking is currently DCT_DCT-only — the inter path uses
-// default scan unconditionally; the intra-only scan picker (row /
-// col / default for tx_size < 32x32 keyed by Y_MODE) lands separately.
+// Scan order picking mirrors libvpx's get_scan: inter blocks, chroma planes,
+// and lossless frames use the default scan; intra luma blocks select the
+// DCT/ADST scan from the current Y mode.
 
 // WriteCoefSbArgs bundles the inputs WriteCoefSb consults across the
 // three planes of one leaf block.
