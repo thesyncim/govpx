@@ -658,6 +658,51 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			limit:       framesPerSeg + 1,
 		},
 		{
+			name:        "temporal-three-layer-enable",
+			flags:       temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringThreeLayers, framesPerSeg, framesPerSeg*2),
+			script:      temporalScalabilityWindowScript(framesPerSeg*2, TemporalLayeringThreeLayers, framesPerSeg, framesPerSeg*2, "resize:32x32+"+runtimeTemporalControlToken(TemporalLayeringThreeLayers, targetKbps)),
+			globalApply: map[int]func(*testing.T, *VP8Encoder){framesPerSeg: runtimeTemporalApply(TemporalLayeringThreeLayers, targetKbps, "three-layer")},
+			limit:       framesPerSeg + 1,
+		},
+		{
+			name:  "temporal-two-layer-active-checker-enable",
+			flags: temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringTwoLayers, framesPerSeg, framesPerSeg*2),
+			script: temporalScalabilityWindowScript(
+				framesPerSeg*2,
+				TemporalLayeringTwoLayers,
+				framesPerSeg,
+				framesPerSeg*2,
+				"resize:32x32+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, targetKbps)+"+active:checker",
+			),
+			globalApply: map[int]func(*testing.T, *VP8Encoder){
+				framesPerSeg: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer")(t, e)
+					activeMapApply("checker")(t, e)
+				},
+			},
+			limit: framesPerSeg + 1,
+		},
+		{
+			name:  "temporal-two-layer-roi-border-enable",
+			flags: temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringTwoLayers, framesPerSeg, framesPerSeg*2),
+			script: temporalScalabilityWindowScript(
+				framesPerSeg*2,
+				TemporalLayeringTwoLayers,
+				framesPerSeg,
+				framesPerSeg*2,
+				"resize:32x32+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, targetKbps)+"+roi:border1",
+			),
+			globalApply: map[int]func(*testing.T, *VP8Encoder){
+				framesPerSeg: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+			},
+			limit: framesPerSeg + 1,
+		},
+		{
 			name:  "temporal-two-layer-disable-after-resize",
 			flags: temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringTwoLayers, 0, framesPerSeg),
 			script: func() []string {
@@ -675,7 +720,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, targetKbps)
 			},
 			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-			limit:     framesPerSeg + 1,
 		},
 	}
 
