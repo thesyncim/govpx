@@ -386,6 +386,92 @@ func TestOracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityRuntimeResizePostFrameCrosses(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize post-frame byte-parity gate")
+	}
+	frameFlagsDriver := findVpxencFrameFlags(t)
+
+	const (
+		fps          = 30
+		targetKbps   = 700
+		framesPerSeg = 4
+		w1           = 64
+		h1           = 64
+		w2           = 32
+		h2           = 32
+	)
+	seg1 := makePanningSources(w1, h1, framesPerSeg, 0)
+	seg2 := makePanningSources(w2, h2, framesPerSeg, framesPerSeg)
+	sources := append(append([]Image(nil), seg1...), seg2...)
+	baseOpts := EncoderOptions{
+		Width:             w1,
+		Height:            h1,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+	}
+
+	cases := []struct {
+		name     string
+		flags    []EncodeFlags
+		controls map[int]string
+		apply    map[int]func(*testing.T, *VP8Encoder)
+		limit    int
+	}{
+		{
+			name:  "force-keyframe-after-resize",
+			flags: indexedResizeFlags(len(sources), map[int]EncodeFlags{framesPerSeg + 1: EncodeForceKeyFrame}),
+		},
+		{
+			name:  "invisible-inter-after-resize",
+			flags: indexedResizeFlags(len(sources), map[int]EncodeFlags{framesPerSeg + 1: EncodeInvisibleFrame}),
+		},
+		{
+			name: "invisible-force-altref-after-resize",
+			flags: indexedResizeFlags(len(sources), map[int]EncodeFlags{
+				framesPerSeg + 1: EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
+			}),
+		},
+		{
+			name:  "set-reference-last-after-resize",
+			flags: indexedResizeFlags(len(sources), map[int]EncodeFlags{framesPerSeg + 1: EncodeNoReferenceGolden | EncodeNoReferenceAltRef}),
+			controls: map[int]string{
+				framesPerSeg + 1: "setref:last:panning:12",
+			},
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				framesPerSeg + 1: setReferencePanningApply(ReferenceLast, 12, "last"),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			updates := map[int]string{
+				framesPerSeg: fmt.Sprintf("resize:%dx%d", w2, h2),
+			}
+			for frame, update := range tc.controls {
+				if frame == framesPerSeg {
+					updates[frame] += "+" + update
+					continue
+				}
+				updates[frame] = update
+			}
+			script := runtimeControlScript(len(sources), updates)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-post-"+tc.name, baseOpts, targetKbps, sources, tc.flags, []string{
+				"--control-script=" + strings.Join(script, ","),
+			})
+			govpxFrames := encodeWithMidStreamResizeGlobalControls(t, baseOpts, w2, h2, seg1, seg2, tc.flags, tc.apply)
+			assertSegmentByteParity(t, "runtime-resize-post-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
 func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize control byte-parity gate")
@@ -599,6 +685,75 @@ func encodeWithMidStreamResizeAndControl(t *testing.T, initOpts EncoderOptions,
 	return append(append([][]byte(nil), out1...), out2...)
 }
 
+func encodeWithMidStreamResizeGlobalControls(t *testing.T, initOpts EncoderOptions,
+	w2, h2 int, seg1, seg2 []Image, flags []EncodeFlags, apply map[int]func(*testing.T, *VP8Encoder)) [][]byte {
+	t.Helper()
+	enc, err := NewVP8Encoder(initOpts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder seg1 (%dx%d): %v", initOpts.Width, initOpts.Height, err)
+	}
+	defer enc.Close()
+	buf := make([]byte, max(initOpts.Width*initOpts.Height, w2*h2)*6+4096)
+	out := make([][]byte, 0, len(seg1)+len(seg2))
+	encodeOne := func(global int, src Image) {
+		t.Helper()
+		if fn := apply[global]; fn != nil {
+			fn(t, enc)
+		}
+		var f EncodeFlags
+		if global < len(flags) {
+			f = flags[global]
+		}
+		result, err := enc.EncodeInto(buf, src, uint64(global), 1, f)
+		if errors.Is(err, ErrFrameNotReady) {
+			return
+		}
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d: %v", global, err)
+		}
+		if result.Dropped {
+			t.Fatalf("frame %d unexpectedly dropped", global)
+		}
+		out = append(out, append([]byte(nil), result.Data...))
+	}
+	for i, src := range seg1 {
+		encodeOne(i, src)
+	}
+	for {
+		r, err := enc.FlushInto(buf)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("seg1 FlushInto: %v", err)
+		}
+		if r.Dropped {
+			t.Fatalf("seg1 flush packet unexpectedly dropped")
+		}
+		out = append(out, append([]byte(nil), r.Data...))
+	}
+	if err := enc.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
+		t.Fatalf("SetRealtimeTarget(%dx%d): %v", w2, h2, err)
+	}
+	for i, src := range seg2 {
+		encodeOne(len(seg1)+i, src)
+	}
+	for {
+		r, err := enc.FlushInto(buf)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("seg2 FlushInto: %v", err)
+		}
+		if r.Dropped {
+			t.Fatalf("seg2 flush packet unexpectedly dropped")
+		}
+		out = append(out, append([]byte(nil), r.Data...))
+	}
+	return out
+}
+
 func encodeWithMidStreamResizeAndControlSplit(t *testing.T, initOpts EncoderOptions,
 	w2, h2 int, seg1, seg2 []Image, afterResize func(*testing.T, *VP8Encoder)) ([][]byte, [][]byte) {
 	t.Helper()
@@ -678,6 +833,16 @@ func encodeWithMidStreamResizeAndControlSplit(t *testing.T, initOpts EncoderOpti
 		out2 = append(out2, append([]byte(nil), r.Data...))
 	}
 	return out1, out2
+}
+
+func indexedResizeFlags(frames int, updates map[int]EncodeFlags) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	for frame, flag := range updates {
+		if frame >= 0 && frame < frames {
+			flags[frame] = flag
+		}
+	}
+	return flags
 }
 
 // assertSegmentByteParity compares per-frame VP8 payloads between two
