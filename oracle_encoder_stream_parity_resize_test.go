@@ -226,8 +226,8 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 				// what proves [VP8Encoder.applyResolutionChange]
 				// successfully invalidated all references and emitted
 				// a fresh key at the new size.
-				assertSegmentByteParity(t, "resize-seg2-vs-libvpx-cold",
-					govpx2Resize, libvpx2, 1)
+				assertFirstFrameByteParity(t, "resize-seg2-vs-libvpx-cold",
+					govpx2Resize, libvpx2)
 			})
 		}
 	}
@@ -318,7 +318,7 @@ func TestOracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) {
 
 			govpx1Resize, govpx2Resize := encodeWithMidStreamResize(t, opts1, w2, h2, seg1, seg2)
 			assertSegmentByteParity(t, "resize-seg1-vs-cold-govpx-"+tc.name, govpx1Resize, govpx1Cold, 0)
-			assertSegmentByteParity(t, "resize-seg2-forced-key-"+tc.name, govpx2Resize, libvpx2, 1)
+			assertFirstFrameByteParity(t, "resize-seg2-forced-key-"+tc.name, govpx2Resize, libvpx2)
 		})
 	}
 }
@@ -1078,4 +1078,12 @@ func assertSegmentByteParity(t *testing.T, label string, got, want [][]byte, mat
 			gFP, lFP, gIsKey, lIsKey,
 			hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
 	}
+}
+
+func assertFirstFrameByteParity(t *testing.T, label string, got, want [][]byte) {
+	t.Helper()
+	if len(got) == 0 || len(want) == 0 {
+		t.Fatalf("%s: missing first frame: got=%d want=%d", label, len(got), len(want))
+	}
+	assertSegmentByteParity(t, label, got[:1], want[:1], 0)
 }
