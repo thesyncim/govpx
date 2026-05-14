@@ -103,6 +103,34 @@ func TestPass2VBRSectionLimitClampsTarget(t *testing.T) {
 	}
 }
 
+func TestPass2GFSectionComplexityStartsAfterCurrentFrame(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 8)
+	stats[0] = FirstPassFrameStats{
+		IntraError: 100,
+		CodedError: 10000,
+		Count:      1,
+	}
+	for i := 1; i < len(stats); i++ {
+		stats[i] = FirstPassFrameStats{
+			IntraError: 10000,
+			CodedError: 100,
+			PcntInter:  1,
+			Count:      1,
+		}
+	}
+
+	var ts twoPassState
+	ts.configure(stats, 1000, 100, 0, 0)
+	_ = ts.frameTargetBits(0, true, 1000)
+
+	if got := ts.sectionMaxQFactor; got != 0.8 {
+		t.Fatalf("sectionMaxQFactor = %.6f, want 0.8 from post-current GF section", got)
+	}
+	if got := ts.sectionIntraRating; got != 100 {
+		t.Fatalf("sectionIntraRating = %d, want 100 from post-current GF section", got)
+	}
+}
+
 // TestPass2ARFPendingTriggersFromHighMotionSection pins the libvpx
 // vp8/encoder/firstpass.c `define_gf_group` / `select_arf_period`
 // ARF-pending decision. A synthetic stats sequence with a stable

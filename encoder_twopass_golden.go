@@ -38,17 +38,22 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	// frames [frame .. frame+gfInterval-1] and subtracting the first
 	// frame's modErr when at a KF boundary.
 	var gfGroupErr float64
-	var gfSectionIntra, gfSectionCoded float64
 	end := min(frame+uint64(gfInterval), uint64(len(t.stats)))
 	for i := frame; i < end; i++ {
 		gfGroupErr += t.modifiedError(t.stats[i])
-		// Accumulate raw intra/coded for libvpx's section_max_qfactor
-		// (define_gf_group line 2144), which estimate_max_q reads when
-		// the GF section is the active section_max_qfactor source.
+	}
+	// libvpx define_gf_group snapshots start_pos after the current frame's
+	// stats have already been consumed by vp8_second_pass. The section
+	// complexity update therefore walks the following GF span, not the
+	// current GF/KF frame itself.
+	var gfSectionIntra, gfSectionCoded float64
+	sectionStart := frame + 1
+	sectionEnd := min(sectionStart+uint64(gfInterval), uint64(len(t.stats)))
+	for i := sectionStart; i < sectionEnd; i++ {
 		gfSectionIntra += t.stats[i].IntraError
 		gfSectionCoded += t.stats[i].CodedError
 	}
-	if gfInterval > 0 {
+	if sectionEnd > sectionStart {
 		t.sectionMaxQFactor = libvpxSectionMaxQFactor(gfSectionIntra, gfSectionCoded)
 		// Mirror libvpx define_gf_group line 2138: GF section also
 		// resets section_intra_rating from this group's avg
