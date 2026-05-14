@@ -171,6 +171,47 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigChangeResendsROIMapAndData(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 16)
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      1,
+		Cols:      2,
+		SegmentID: []uint8{1, 0},
+	}
+	roi.DeltaQuantizer[1] = -10
+	roi.StaticThreshold[1] = 900
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap returned error: %v", err)
+	}
+
+	dst := make([]byte, 16384)
+	source := segmentedQuantizationTestImage()
+	if _, err := e.EncodeInto(dst, source, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	retained, err := e.EncodeInto(dst, source, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("retained inter EncodeInto returned error: %v", err)
+	}
+	retainedState := packetState(t, retained.Data)
+	if !retainedState.Segmentation.Enabled || retainedState.Segmentation.UpdateMap || retainedState.Segmentation.UpdateData {
+		t.Fatalf("retained segmentation = %+v, want enabled without map/data update", retainedState.Segmentation)
+	}
+
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity returned error: %v", err)
+	}
+	updated, err := e.EncodeInto(dst, source, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("config-change inter EncodeInto returned error: %v", err)
+	}
+	updatedState := packetState(t, updated.Data)
+	if !updatedState.Segmentation.Enabled || !updatedState.Segmentation.UpdateMap || !updatedState.Segmentation.UpdateData {
+		t.Fatalf("config-change segmentation = %+v, want ROI map/data update", updatedState.Segmentation)
+	}
+}
+
 func TestROIMapStaticThresholdFallsBackToGlobalThreshold(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	e.opts.StaticThreshold = 123

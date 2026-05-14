@@ -666,7 +666,7 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 			"--copy-ref-log=" + logPath,
 		})
 		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
-		assertSegmentByteParity(t, "copyref-runtime-controls", got, want, 4)
+		assertSegmentByteParity(t, "copyref-runtime-controls", got, want, 0)
 	})
 }
 

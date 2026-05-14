@@ -115,8 +115,16 @@ func (e *VP8Encoder) forceLFDeltaUpdates() bool {
 // control. With lookahead enabled that input can be encoded several calls
 // later, so the force bit is carried by the lookahead entry rather than by
 // the next packet emitted from the queue.
+//
+// The same vp8_change_config path re-runs setup_features. If ROI
+// segmentation is currently enabled, libvpx marks both the segmentation map
+// and feature data for update on that next frame.
 func (e *VP8Encoder) forceNextLFDeltaUpdate() {
 	e.pendingLFDeltaUpdate = true
+	if e.roi.enabled {
+		e.roi.updateMap = true
+		e.roi.updateData = true
+	}
 }
 
 func (e *VP8Encoder) consumePendingLFDeltaUpdate() bool {
