@@ -6560,29 +6560,10 @@ func vp9ShowExistingFramePacketForTest(slot uint8) []byte {
 }
 
 func vp9SuperframePacketForTest(frames ...[]byte) []byte {
-	maxSize := 0
-	total := 0
-	for _, frame := range frames {
-		maxSize = max(maxSize, len(frame))
-		total += len(frame)
+	packet, err := PackVP9Superframe(frames...)
+	if err != nil {
+		panic(err)
 	}
-	sizeBytes := 1
-	for maxSize >= 1<<(8*sizeBytes) && sizeBytes < 4 {
-		sizeBytes++
-	}
-	marker := byte(0xc0 | byte((sizeBytes-1)<<3) | byte(len(frames)-1))
-	packet := make([]byte, 0, total+2+sizeBytes*len(frames))
-	for _, frame := range frames {
-		packet = append(packet, frame...)
-	}
-	packet = append(packet, marker)
-	for _, frame := range frames {
-		size := len(frame)
-		for i := 0; i < sizeBytes; i++ {
-			packet = append(packet, byte(size>>(8*i)))
-		}
-	}
-	packet = append(packet, marker)
 	return packet
 }
 

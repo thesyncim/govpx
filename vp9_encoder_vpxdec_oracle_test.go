@@ -308,6 +308,32 @@ func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, hidden, show)
 }
 
+func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 32, 128, 128)
+	interSrc := newVP9YCbCrForTest(width, height, 144, 96, 224)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	packet, err := PackVP9Superframe(key, inter)
+	if err != nil {
+		t.Fatalf("PackVP9Superframe: %v", err)
+	}
+
+	_, diag, err := coracle.VpxdecVP9DecodeI420(vp9IVFForTest(width, height, packet))
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 rejected packed superframe: %v\n%s", err, diag)
+	}
+}
+
 func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

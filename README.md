@@ -111,6 +111,7 @@ returns no more data.
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
+| Pack VP9 superframes | `PackVP9SuperframeInto`, `PackVP9Superframe` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
