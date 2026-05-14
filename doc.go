@@ -67,8 +67,8 @@
 //	}
 //
 // Lookahead, auto-alt-ref, and two-pass encoders may withhold output and
-// return [ErrFrameNotReady]; call [VP8Encoder.FlushInto] at end of stream
-// to drain queued frames.
+// return [ErrFrameNotReady]; call [VP8Encoder.FlushInto] or
+// [VP9Encoder.FlushIntoWithResult] at end of stream to drain queued frames.
 //
 // # Errors and zero values
 //

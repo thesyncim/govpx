@@ -37,6 +37,9 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		if !validVP9Dimension(target.Width) || !validVP9Dimension(target.Height) {
 			return ErrInvalidConfig
 		}
+		if e.vp9LookaheadSize() != 0 {
+			return ErrFrameNotReady
+		}
 	}
 	nextMinQuantizer, nextMaxQuantizer, _ := vp9NormalizedPublicQuantizers(e.opts)
 	if target.MinQuantizer != 0 {
@@ -178,6 +181,9 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	e.opts.Width = width
 	e.opts.Height = height
 	e.rc.setFrameSize(width, height)
+	if e.vp9LookaheadEnabled() {
+		e.initVP9Lookahead(width, height, e.opts.LookaheadFrames)
+	}
 	e.forceKeyFrame = true
 	e.resetVP9EncoderFrameContexts()
 	e.prevFrameMvsValid = false

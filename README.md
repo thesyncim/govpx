@@ -117,7 +117,7 @@ returns no more data.
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
-| Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 stores bitrate as a fixed-quantizer hint) |
+| Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |
 | Toggle VP8 frame dropping only | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
 | Runtime rate-control replacement | `SetRateControl` |
 | Two-pass encode | `CollectFirstPassStats`, `govpx.FinalizeFirstPassStats`, `SetTwoPassStats` |
@@ -169,9 +169,9 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   refresh flows.
 - Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero value
   of `RealtimeTarget.FrameDrop` leaves VP8 frame dropping unchanged, so
-  bitrate-only BWE updates do not accidentally disable dropping. VP9 accepts
-  bitrate/FPS/size updates; explicit frame-drop and public quantizer runtime
-  controls remain VP8-only until VP9 rate control lands.
+  bitrate-only BWE updates do not accidentally disable dropping. VP9 explicit
+  CBR accepts bitrate/FPS/size, frame-drop, and public quantizer runtime
+  updates.
 - Drive caller-driven runtime resolution change through
   `SetRealtimeTarget` by setting a new `Width` / `Height` pair:
   size-dependent buffers are resized in place (capacity is reused), the

@@ -121,6 +121,19 @@ type VP9EncoderOptions struct {
 	// EncodeIntoWithResult / EncodeIntoWithFlagsResult.
 	TemporalScalability TemporalScalabilityConfig
 
+	// LookaheadFrames enables buffered VP9 source scheduling. Zero preserves
+	// immediate encoding. Positive values are valid in [1, 25] and make
+	// EncodeIntoWithResult return ErrFrameNotReady until enough future frames
+	// have been queued; drain with FlushIntoWithResult at end of stream.
+	// The current VP9 lookahead path is limited to public-Q mode without
+	// temporal scalability or automatic alt-ref generation.
+	LookaheadFrames int
+	// AutoAltRef requests automatic generated alternate-reference frames. VP9
+	// currently rejects this option instead of silently approximating libvpx
+	// scheduling; source-backed ALTREF refresh remains available through
+	// EncodeForceAltRefFrame.
+	AutoAltRef bool
+
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
@@ -301,6 +314,11 @@ type VP9Encoder struct {
 	lfRefDeltas    [vp9dec.MaxRefLfDeltas]int8
 	lfModeDeltas   [vp9dec.MaxModeLfDeltas]int8
 
+	lookahead      []vp9LookaheadEntry
+	lookaheadRead  uint8
+	lookaheadWrite uint8
+	lookaheadCount uint8
+
 	vp9ModeDecisionQIndex    uint8
 	vp9ModeDecisionQIndexSet bool
 }
@@ -323,6 +341,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	}
 	opts.TemporalScalability = temporal.config
 	e := &VP9Encoder{opts: opts, temporal: temporal, rc: rc}
+	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	return e, nil
@@ -338,8 +357,19 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.TargetBitrateKbps < 0 || opts.Quantizer < 0 || opts.MaxKeyframeInterval < 0 {
 		return ErrInvalidConfig
 	}
+	if opts.LookaheadFrames < 0 || opts.LookaheadFrames > vp9MaxLookaheadFrames {
+		return ErrInvalidConfig
+	}
+	if opts.AutoAltRef {
+		return ErrInvalidConfig
+	}
 	if err := validateVP9RateControlOptions(opts); err != nil {
 		return err
+	}
+	if opts.LookaheadFrames > 0 {
+		if opts.RateControlModeSet || opts.TemporalScalability.Enabled {
+			return ErrInvalidConfig
+		}
 	}
 	if opts.Quantizer > 255 {
 		return ErrInvalidQuantizer
@@ -563,6 +593,9 @@ func (e *VP9Encoder) EncodeIntoWithResult(img *image.YCbCr, dst []byte) (VP9Enco
 func (e *VP9Encoder) EncodeIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
 	if e == nil || e.closed {
 		return VP9EncodeResult{}, ErrClosed
+	}
+	if e.vp9LookaheadEnabled() {
+		return e.encodeVP9LookaheadIntoWithFlagsResult(img, dst, flags)
 	}
 	callerFlags := flags
 	temporalFrame := e.temporal.nextFrame(e.vp9TimingState())

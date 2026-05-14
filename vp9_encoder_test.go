@@ -482,6 +482,23 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 			o.Segmentation.AltLF[0] = 1
 		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.MaxKeyframeInterval = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.LookaheadFrames = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.LookaheadFrames = vp9MaxLookaheadFrames + 1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.LookaheadFrames = 2
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlCBR
+			o.TargetBitrateKbps = 300
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.LookaheadFrames = 2
+			o.TargetBitrateKbps = 300
+			o.TemporalScalability = TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    TemporalLayeringTwoLayers,
+			}
+		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.FPS = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TimebaseNum = 1 }, ErrInvalidConfig}, // missing Den
 		{func(o *VP9EncoderOptions) { o.TimebaseDen = 1 }, ErrInvalidConfig}, // missing Num
@@ -533,6 +550,88 @@ func TestNewVP9EncoderAcceptsMinimalOptions(t *testing.T) {
 	}
 	if got := e.Codec(); got != CodecVP9 {
 		t.Errorf("Codec() = %v, want CodecVP9", got)
+	}
+}
+
+func TestVP9EncoderLookaheadDelaysAndFlushes(t *testing.T) {
+	const width, height = 64, 64
+	firstSrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	secondSrc := newVP9YCbCrForTest(width, height, 160, 128, 128)
+
+	delayed, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 2,
+	})
+	if err != nil {
+		t.Fatalf("delayed NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	if _, err := delayed.EncodeIntoWithResult(firstSrc, dst); !errors.Is(err, ErrFrameNotReady) {
+		t.Fatalf("first lookahead encode err = %v, want ErrFrameNotReady", err)
+	}
+	if !equalVP9YCbCrForTest(&delayed.lookahead[0].img, firstSrc, width, height) {
+		t.Fatal("lookahead copied first source incorrectly")
+	}
+	gotFirst, err := delayed.EncodeIntoWithFlagsResult(secondSrc, dst,
+		EncodeNoUpdateLast|EncodeForceAltRefFrame)
+	if err != nil {
+		t.Fatalf("second lookahead encode: %v", err)
+	}
+	if !gotFirst.KeyFrame || len(gotFirst.Data) == 0 {
+		t.Fatalf("second call result = key:%t bytes:%d, want delayed first key packet",
+			gotFirst.KeyFrame, len(gotFirst.Data))
+	}
+	gotSecond, err := delayed.FlushIntoWithResult(dst)
+	if err != nil {
+		t.Fatalf("FlushIntoWithResult: %v", err)
+	}
+	if gotSecond.KeyFrame || len(gotSecond.Data) == 0 ||
+		gotSecond.RefreshFrameFlags&(1<<vp9AltRefSlot) == 0 ||
+		gotSecond.RefreshFrameFlags&(1<<vp9LastRefSlot) != 0 {
+		t.Fatalf("flushed packet = key:%t bytes:%d refresh:%#x, want queued alt-ref inter",
+			gotSecond.KeyFrame, len(gotSecond.Data), gotSecond.RefreshFrameFlags)
+	}
+	if n, err := delayed.FlushInto(dst); !errors.Is(err, ErrFrameNotReady) || n != 0 {
+		t.Fatalf("empty FlushInto = n:%d err:%v, want 0/ErrFrameNotReady", n, err)
+	}
+}
+
+func equalVP9YCbCrForTest(a *image.YCbCr, b *image.YCbCr, width int, height int) bool {
+	for y := 0; y < height; y++ {
+		if !bytes.Equal(a.Y[y*a.YStride:][:width], b.Y[y*b.YStride:][:width]) {
+			return false
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := 0; y < uvHeight; y++ {
+		if !bytes.Equal(a.Cb[y*a.CStride:][:uvWidth], b.Cb[y*b.CStride:][:uvWidth]) ||
+			!bytes.Equal(a.Cr[y*a.CStride:][:uvWidth], b.Cr[y*b.CStride:][:uvWidth]) {
+			return false
+		}
+	}
+	return true
+}
+
+func TestVP9EncoderLookaheadQueuedFrameBlocksResize(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 2,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 96, 128, 128), dst); !errors.Is(err, ErrFrameNotReady) {
+		t.Fatalf("lookahead fill err = %v, want ErrFrameNotReady", err)
+	}
+	err = e.SetRealtimeTarget(RealtimeTarget{Width: 96, Height: 64})
+	if !errors.Is(err, ErrFrameNotReady) {
+		t.Fatalf("queued resize err = %v, want ErrFrameNotReady", err)
 	}
 }
 
