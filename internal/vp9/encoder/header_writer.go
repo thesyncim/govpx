@@ -20,7 +20,18 @@ import (
 // reached after option validation so out-of-range values can't
 // occur in the encoder pipeline.
 func WriteKeyframeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader) int {
-	return writeUncompressedHeader(w, h /*keyframe=*/, true)
+	return WriteKeyframeUncompressedHeaderWithLoopfilterPrev(w, h, nil, nil)
+}
+
+// WriteKeyframeUncompressedHeaderWithLoopfilterPrev writes a keyframe
+// uncompressed header while comparing loopfilter deltas against caller-provided
+// previous-frame snapshots.
+func WriteKeyframeUncompressedHeaderWithLoopfilterPrev(w *BitWriter,
+	h *vp9dec.UncompressedHeader,
+	prevRef *[vp9dec.MaxRefLfDeltas]int8,
+	prevMode *[vp9dec.MaxModeLfDeltas]int8,
+) int {
+	return writeUncompressedHeader(w, h /*keyframe=*/, true, prevRef, prevMode)
 }
 
 // WriteIntraOnlyUncompressedHeader writes the uncompressed-header
@@ -30,15 +41,26 @@ func WriteKeyframeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader)
 // per-profile bitdepth/colorspace bits on profile > 0 (profile-0
 // defaults to 8-bit 4:2:0).
 func WriteIntraOnlyUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader) int {
+	return WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev(w, h, nil, nil)
+}
+
+// WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev writes an intra-only
+// non-key frame header while comparing loopfilter deltas against
+// caller-provided previous-frame snapshots.
+func WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev(w *BitWriter,
+	h *vp9dec.UncompressedHeader,
+	prevRef *[vp9dec.MaxRefLfDeltas]int8,
+	prevMode *[vp9dec.MaxModeLfDeltas]int8,
+) int {
 	if h.IntraOnly {
-		return writeUncompressedHeader(w, h, false)
+		return writeUncompressedHeader(w, h, false, prevRef, prevMode)
 	}
 	// Caller should have set IntraOnly; tolerate it being unset by
 	// emitting the header verbatim — the parser will set IntraOnly
 	// from the wire bit anyway.
 	tmp := *h
 	tmp.IntraOnly = true
-	return writeUncompressedHeader(w, &tmp, false)
+	return writeUncompressedHeader(w, &tmp, false, prevRef, prevMode)
 }
 
 // WriteInterUncompressedHeader writes the uncompressed-header
@@ -54,13 +76,25 @@ func WriteIntraOnlyUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader
 func WriteInterUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader,
 	refDims func(slot uint8) (uint32, uint32),
 ) int {
+	return WriteInterUncompressedHeaderWithLoopfilterPrev(w, h, refDims, nil, nil)
+}
+
+// WriteInterUncompressedHeaderWithLoopfilterPrev writes an inter-frame
+// uncompressed header while comparing loopfilter deltas against
+// caller-provided previous-frame snapshots.
+func WriteInterUncompressedHeaderWithLoopfilterPrev(w *BitWriter,
+	h *vp9dec.UncompressedHeader,
+	refDims func(slot uint8) (uint32, uint32),
+	prevRef *[vp9dec.MaxRefLfDeltas]int8,
+	prevMode *[vp9dec.MaxModeLfDeltas]int8,
+) int {
 	if h.IntraOnly {
 		// Caller misuse; clear the flag.
 		tmp := *h
 		tmp.IntraOnly = false
-		return writeUncompressedHeaderInter(w, &tmp, refDims)
+		return writeUncompressedHeaderInter(w, &tmp, refDims, prevRef, prevMode)
 	}
-	return writeUncompressedHeaderInter(w, h, refDims)
+	return writeUncompressedHeaderInter(w, h, refDims, prevRef, prevMode)
 }
 
 // WriteShowExistingFrameHeader writes a VP9 show_existing_frame packet
@@ -79,6 +113,8 @@ func WriteShowExistingFrameHeader(w *BitWriter, profile common.BitstreamProfile,
 // the inter (non-intra-only) sub-branch.
 func writeUncompressedHeaderInter(w *BitWriter, h *vp9dec.UncompressedHeader,
 	refDims func(slot uint8) (uint32, uint32),
+	prevRef *[vp9dec.MaxRefLfDeltas]int8,
+	prevMode *[vp9dec.MaxModeLfDeltas]int8,
 ) int {
 	writeFrameMarker(w)
 	writeProfile(w, h.Profile)
@@ -110,7 +146,7 @@ func writeUncompressedHeaderInter(w *BitWriter, h *vp9dec.UncompressedHeader,
 	}
 	w.WriteLiteral(uint32(h.FrameContextIdx), 2)
 
-	encodeLoopfilter(w, &h.Loopfilter)
+	encodeLoopfilterWithPrev(w, &h.Loopfilter, prevRef, prevMode)
 	encodeQuantization(w, &h.Quant)
 	encodeSegmentation(w, &h.Seg)
 	miCols := int((h.Width + 7) >> 3)
@@ -178,7 +214,11 @@ func writeInterpFilter(w *BitWriter, f vp9dec.InterpFilter) {
 	w.WriteLiteral(lit, 2)
 }
 
-func writeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader, keyframe bool) int {
+func writeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader,
+	keyframe bool,
+	prevRef *[vp9dec.MaxRefLfDeltas]int8,
+	prevMode *[vp9dec.MaxModeLfDeltas]int8,
+) int {
 	writeFrameMarker(w)
 	writeProfile(w, h.Profile)
 	w.WriteBit(0) // show_existing_frame = 0
@@ -218,7 +258,7 @@ func writeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader, keyfram
 	}
 	w.WriteLiteral(uint32(h.FrameContextIdx), 2)
 
-	encodeLoopfilter(w, &h.Loopfilter)
+	encodeLoopfilterWithPrev(w, &h.Loopfilter, prevRef, prevMode)
 	encodeQuantization(w, &h.Quant)
 	encodeSegmentation(w, &h.Seg)
 	miCols := int((h.Width + 7) >> 3)
@@ -296,9 +336,22 @@ func writeFrameSize(w *BitWriter, h *vp9dec.UncompressedHeader) {
 // last_mode_deltas before default deltas are compared, so zero-valued slots
 // emit changed=0 rather than a redundant signed zero.
 func encodeLoopfilter(w *BitWriter, lf *vp9dec.LoopfilterParams) {
-	var prevRef [vp9dec.MaxRefLfDeltas]int8
-	var prevMode [vp9dec.MaxModeLfDeltas]int8
-	EncodeLoopfilterWithPrev(w, lf, &prevRef, &prevMode)
+	encodeLoopfilterWithPrev(w, lf, nil, nil)
+}
+
+func encodeLoopfilterWithPrev(w *BitWriter, lf *vp9dec.LoopfilterParams,
+	prevRef *[vp9dec.MaxRefLfDeltas]int8,
+	prevMode *[vp9dec.MaxModeLfDeltas]int8,
+) {
+	var zeroRef [vp9dec.MaxRefLfDeltas]int8
+	var zeroMode [vp9dec.MaxModeLfDeltas]int8
+	if prevRef == nil {
+		prevRef = &zeroRef
+	}
+	if prevMode == nil {
+		prevMode = &zeroMode
+	}
+	EncodeLoopfilterWithPrev(w, lf, prevRef, prevMode)
 }
 
 // EncodeLoopfilterWithPrev mirrors libvpx's encode_loopfilter

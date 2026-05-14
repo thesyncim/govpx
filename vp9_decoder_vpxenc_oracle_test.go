@@ -50,6 +50,31 @@ func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
 	}
 }
 
+func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	frame := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	raw := appendVP9YCbCrI420(nil, frame)
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	first, _, err := testutil.NextIVFFrame(ivf, offset, 0)
+	if err != nil {
+		t.Fatalf("NextIVFFrame: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, first.Data)
+	if got := int(h.Quant.BaseQindex); got != vp9DefaultBaseQIndex {
+		t.Fatalf("vpxenc-vp9 BaseQindex = %d, want pinned default %d",
+			got, vp9DefaultBaseQIndex)
+	}
+}
+
 func requireVP9VpxencOracle(t *testing.T) {
 	t.Helper()
 	if _, err := coracle.VpxencVP9Path(); err != nil {

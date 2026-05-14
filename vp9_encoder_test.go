@@ -657,6 +657,37 @@ func TestVP9EncoderACKeyframeUsesCountsDrivenCompressedHeader(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderDefaultQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if got := int(h.Quant.BaseQindex); got != vp9DefaultBaseQIndex {
+		t.Fatalf("BaseQindex = %d, want pinned default %d",
+			got, vp9DefaultBaseQIndex)
+	}
+}
+
+func TestVP9EncoderExplicitQuantizerOverridesDefault(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:     64,
+		Height:    64,
+		Quantizer: 1,
+	})
+	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Quant.BaseQindex != 1 {
+		t.Fatalf("BaseQindex = %d, want explicit qindex 1", h.Quant.BaseQindex)
+	}
+}
+
 func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, Quantizer: 128})
 	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
@@ -2884,7 +2915,11 @@ func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 
 func TestVP9EncoderAllocatingWrapperGrowsForLargePacket(t *testing.T) {
 	const width, height = 512, 512
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:     width,
+		Height:    height,
+		Quantizer: 1,
+	})
 	img := newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224)
 	packet, err := e.Encode(img)
 	if err != nil {

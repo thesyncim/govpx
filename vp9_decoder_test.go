@@ -398,7 +398,7 @@ func TestVP9DecoderDecodeIntoCopiesVisibleFrame(t *testing.T) {
 	}
 	if info.Width != 96 || info.Height != 96 ||
 		!info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
-		info.Quantizer != 1 || info.RefreshFrameFlags != 0xff || info.PTS != 42 {
+		info.Quantizer != vp9DefaultBaseQIndex || info.RefreshFrameFlags != 0xff || info.PTS != 42 {
 		t.Fatalf("DecodeIntoWithPTS info = %+v, want visible keyframe metadata", info)
 	}
 	assertVP9NeutralFrame(t, dst, 96, 96)
@@ -438,7 +438,7 @@ func TestVP9DecoderDecodeIntoInterFrameCopiesDestination(t *testing.T) {
 	}
 	if info.Width != 96 || info.Height != 96 ||
 		info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
-		info.Quantizer != 1 || info.RefreshFrameFlags != 1 {
+		info.Quantizer != vp9DefaultBaseQIndex || info.RefreshFrameFlags != 1 {
 		t.Fatalf("DecodeInto inter info = %+v, want visible inter metadata", info)
 	}
 	assertVP9NeutralFrame(t, dst, 96, 96)
@@ -542,7 +542,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 	}
 	if info.Width != 96 || info.Height != 96 ||
 		!info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
-		info.Quantizer != 1 || info.RefreshFrameFlags != 0xff || info.PTS != 100 {
+		info.Quantizer != vp9DefaultBaseQIndex || info.RefreshFrameFlags != 0xff || info.PTS != 100 {
 		t.Fatalf("key LastFrameInfo = %+v, want visible keyframe metadata", info)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -558,7 +558,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 	}
 	if info.Width != 96 || info.Height != 96 ||
 		info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
-		info.Quantizer != 1 || info.RefreshFrameFlags != 1 || info.PTS != 200 {
+		info.Quantizer != vp9DefaultBaseQIndex || info.RefreshFrameFlags != 1 || info.PTS != 200 {
 		t.Fatalf("inter LastFrameInfo = %+v, want visible inter metadata", info)
 	}
 

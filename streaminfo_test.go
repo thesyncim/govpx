@@ -94,8 +94,9 @@ func TestPeekVP9StreamInfoKeyFrame(t *testing.T) {
 	if info.RefreshFrameFlags != 0xff {
 		t.Fatalf("RefreshFrameFlags = %#x, want 0xff", info.RefreshFrameFlags)
 	}
-	if info.Quantizer != 1 {
-		t.Fatalf("Quantizer = %d, want default qindex 1", info.Quantizer)
+	if info.Quantizer != vp9DefaultBaseQIndex {
+		t.Fatalf("Quantizer = %d, want default qindex %d",
+			info.Quantizer, vp9DefaultBaseQIndex)
 	}
 	if info.FirstPartitionSize == 0 {
 		t.Fatal("FirstPartitionSize = 0, want non-zero")

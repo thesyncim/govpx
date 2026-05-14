@@ -17,6 +17,10 @@ const (
 	vp9EncoderTxCoeffSlots    = 1024
 	vp9EncoderBlockCoeffSlots = 256 * vp9EncoderTxCoeffSlots
 	vp9MinEncodeIntoBuffer    = 64
+	// vp9DefaultBaseQIndex pins the packet-path default to the first-frame
+	// base_qindex emitted by pinned libvpx vpxenc-vp9 with the repo's realtime
+	// CQ oracle knobs (--end-usage=q --cq-level=32 --min-q=4 --max-q=56).
+	vp9DefaultBaseQIndex = 37
 )
 
 // VP9EncoderOptions configures a VP9 profile 0 encoder.
@@ -45,8 +49,8 @@ type VP9EncoderOptions struct {
 	// configuration. The current packet path does not run rate control.
 	TargetBitrateKbps int
 
-	// Quantizer selects a fixed VP9 base qindex in [0, 255]. Zero uses the
-	// packet path default.
+	// Quantizer selects a fixed VP9 base qindex in [1, 255]. Zero uses the
+	// packet path default pinned to the VP9 realtime CQ oracle.
 	Quantizer int
 
 	// MaxKeyframeInterval bounds the gap between key frames. Zero
@@ -135,6 +139,8 @@ type VP9Encoder struct {
 	dqCoeffScratch [1024]int16
 	frameCounts    encoder.FrameCounts
 	lfi            vp9dec.LoopFilterInfoN
+	lfRefDeltas    [vp9dec.MaxRefLfDeltas]int8
+	lfModeDeltas   [vp9dec.MaxModeLfDeltas]int8
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -344,18 +350,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		},
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
-	// BaseQindex=1 dodges the lossless inference libvpx makes when
-	// base_qindex + every delta_q are all zero. Lossless mode forces
-	// tx_mode=ONLY_4X4 on the decoder side and skips the tx_mode
-	// literal in the compressed header; staying out of lossless keeps
-	// the wire layout consistent with the rest of the zero-residue path.
-	qindex := e.opts.Quantizer
-	if qindex == 0 {
-		qindex = 1
-	}
+	qindex := e.vp9EncoderModeDecisionQIndex()
 	header.Quant.BaseQindex = int16(qindex)
-	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey,
-		isKey || intraOnly || e.opts.ErrorResilient)
+	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
+	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey, resetLoopfilterDeltas)
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
@@ -478,12 +476,16 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	var headerBW encoder.BitWriter
 	headerBW.Init(dst)
 	var uncSize int
+	prevLfRef, prevLfMode := e.vp9EncoderLoopFilterPrevDeltas(resetLoopfilterDeltas)
 	if header.FrameType == common.KeyFrame {
-		uncSize = encoder.WriteKeyframeUncompressedHeader(&headerBW, &header)
+		uncSize = encoder.WriteKeyframeUncompressedHeaderWithLoopfilterPrev(
+			&headerBW, &header, &prevLfRef, &prevLfMode)
 	} else if header.IntraOnly {
-		uncSize = encoder.WriteIntraOnlyUncompressedHeader(&headerBW, &header)
+		uncSize = encoder.WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev(
+			&headerBW, &header, &prevLfRef, &prevLfMode)
 	} else {
-		uncSize = encoder.WriteInterUncompressedHeader(&headerBW, &header, e.vp9RefDims)
+		uncSize = encoder.WriteInterUncompressedHeaderWithLoopfilterPrev(
+			&headerBW, &header, e.vp9RefDims, &prevLfRef, &prevLfMode)
 	}
 	if uncSize+compSize >= len(dst) {
 		return uncSize, encoder.ErrPackBufferFull
@@ -511,6 +513,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	}
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header)
+	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
 	e.frameIndex++
 	if isKey {
 		e.forceKeyFrame = false
@@ -922,6 +925,31 @@ func vp9EncoderLoopFilterParams(qindex int, isKey, resetDeltas bool) vp9dec.Loop
 		RefDeltas:           [vp9dec.MaxRefLfDeltas]int8{1, 0, -1, -1},
 		ModeDeltas:          [vp9dec.MaxModeLfDeltas]int8{0, 0},
 	}
+}
+
+func (e *VP9Encoder) vp9EncoderLoopFilterPrevDeltas(reset bool) (
+	[vp9dec.MaxRefLfDeltas]int8,
+	[vp9dec.MaxModeLfDeltas]int8,
+) {
+	if reset {
+		return [vp9dec.MaxRefLfDeltas]int8{},
+			[vp9dec.MaxModeLfDeltas]int8{}
+	}
+	return e.lfRefDeltas, e.lfModeDeltas
+}
+
+func (e *VP9Encoder) commitVP9EncoderLoopFilterDeltas(
+	lf *vp9dec.LoopfilterParams, reset bool,
+) {
+	if reset {
+		e.lfRefDeltas = [vp9dec.MaxRefLfDeltas]int8{}
+		e.lfModeDeltas = [vp9dec.MaxModeLfDeltas]int8{}
+	}
+	if lf == nil || !lf.ModeRefDeltaEnabled || !lf.ModeRefDeltaUpdate {
+		return
+	}
+	e.lfRefDeltas = lf.RefDeltas
+	e.lfModeDeltas = lf.ModeDeltas
 }
 
 func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
@@ -2924,7 +2952,7 @@ func (e *VP9Encoder) vp9CompoundPredictionSAD(inter *vp9InterEncodeState,
 func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
-		qindex = 1
+		qindex = vp9DefaultBaseQIndex
 	}
 	return qindex
 }
