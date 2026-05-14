@@ -2961,17 +2961,30 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 		forcedRefFrame, forcedRef := vp9EncoderForcedSegmentRefFrame(seg, segID)
 		forcedIntra := forcedRef && forcedRefFrame == vp9dec.IntraFrame
-		if !forcedIntra && kind == vp9ModeTreeInterSource && inter != nil &&
-			inter.refMask == 0 {
+		noUsableInterRefs := kind == vp9ModeTreeInterSource && inter != nil &&
+			inter.refMask == 0
+		if !forcedIntra && noUsableInterRefs {
 			forcedIntra = true
 		}
 		if forcedIntra {
 			cur.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 			cur.InterpFilter = uint8(vp9dec.SwitchableFilters)
-			if intra, ok := e.pickVP9ForcedInterIntraMode(inter, tile, miRows, miCols,
-				miRow, miCol, reconBsize, cur.TxSize); ok {
+			var intra vp9InterIntraDecision
+			var ok bool
+			if noUsableInterRefs {
+				intra, ok = e.pickVP9NoReferenceIntraMode(inter, tile,
+					miRows, miCols, miRow, miCol, reconBsize, cur.TxSize,
+					cur.SegmentID)
+			} else {
+				intra, ok = e.pickVP9ForcedInterIntraMode(inter, tile,
+					miRows, miCols, miRow, miCol, reconBsize, cur.TxSize)
+			}
+			if ok {
 				cur.Mode = intra.mode
 				uvMode = intra.uvMode
+				if intra.txSize < common.TxSizes {
+					cur.TxSize = intra.txSize
+				}
 			}
 			if kind == vp9ModeTreeInterSource && inter != nil {
 				intraResidue := e.prepareVP9InterIntraBlockResidue(inter, tile,
@@ -4323,6 +4336,7 @@ func vp9TxSizeRateCost(probs []uint8, txSize, maxTxSize common.TxSize) int {
 type vp9InterIntraDecision struct {
 	mode   common.PredictionMode
 	uvMode common.PredictionMode
+	txSize common.TxSize
 	rate   int
 	score  uint64
 }
@@ -4384,6 +4398,213 @@ func (e *VP9Encoder) pickVP9ForcedInterIntraMode(inter *vp9InterEncodeState,
 		func(*vp9dec.NeighborMi, *vp9dec.NeighborMi) int { return 0 })
 }
 
+var vp9NoReferenceIntraModes = [...]common.PredictionMode{
+	common.DcPred,
+	common.VPred,
+	common.HPred,
+	common.TmPred,
+}
+
+func vp9NoReferenceIntraModeCount(bsize common.BlockSize) int {
+	// Mirrors the realtime VP9 intra_y_mode_bsize_mask used when inter refs
+	// are disabled: non-screen content only keeps DC for blocks above 16x16.
+	if bsize > common.Block16x16 {
+		return 1
+	}
+	return 3
+}
+
+func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, maxTx common.TxSize, segmentID uint8,
+) (vp9InterIntraDecision, bool) {
+	if inter == nil || bsize < common.Block8x8 {
+		return vp9InterIntraDecision{}, false
+	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+
+	hdr := vp9dec.UncompressedHeader{
+		Width:  uint32(e.opts.Width),
+		Height: uint32(e.opts.Height),
+	}
+	keyLike := vp9KeyframeEncodeState{
+		img:      inter.img,
+		hdr:      &hdr,
+		dq:       inter.dq,
+		lossless: inter.lossless,
+	}
+
+	sg := common.SizeGroupLookup[bsize]
+	var yModeCosts [common.IntraModes]int
+	encoder.VP9CostTokens(yModeCosts[:], inter.selectFc.YModeProb[sg][:],
+		common.IntraModeTree[:])
+	qindex := e.vp9EncoderModeDecisionQIndex()
+	rateBase := vp9IntraInterRateCost(&inter.selectFc, above, left, 0)
+	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
+	modeCount := vp9NoReferenceIntraModeCount(bsize)
+
+	bestSet := false
+	var best vp9InterIntraDecision
+	for i := 0; i < modeCount; i++ {
+		mode := vp9NoReferenceIntraModes[i]
+		txSize, txOK := e.pickVP9NoReferenceIntraTxSize(&keyLike, tile,
+			miRows, miCols, miRow, miCol, bsize, maxTx, mode)
+		if !txOK {
+			continue
+		}
+		mi := vp9dec.NeighborMi{
+			SbType:    bsize,
+			SegmentID: segmentID,
+			TxSize:    txSize,
+		}
+		distortion, coeffRate, skippable, scoreOK := e.scoreVP9KeyframeModeTransformRD(
+			&keyLike, mode, tile, miRows, miCols, miRow, miCol, bsize, &mi)
+		if !scoreOK {
+			continue
+		}
+		rate := rateBase + yModeCosts[mode]
+		if skippable {
+			rate += encoder.VP9CostBit(skipProb, 1)
+		} else {
+			rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
+		}
+		cand := vp9InterIntraDecision{
+			mode:   mode,
+			uvMode: mode,
+			txSize: txSize,
+			rate:   rate,
+			score:  vp9ModeDecisionScore(distortion, rate, qindex),
+		}
+		if !bestSet || cand.score < best.score ||
+			(cand.score == best.score && cand.rate < best.rate) {
+			best = cand
+			bestSet = true
+		}
+	}
+	return best, bestSet
+}
+
+func (e *VP9Encoder) pickVP9NoReferenceIntraTxSize(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, maxTx common.TxSize, mode common.PredictionMode,
+) (common.TxSize, bool) {
+	maxTx = clampVP9TxSizeForBlock(maxTx, bsize)
+	if maxTx > common.Tx16x16 {
+		maxTx = common.Tx16x16
+	}
+	if maxTx <= common.Tx4x4 {
+		return maxTx, true
+	}
+	predTx := common.MaxTxsizeLookup[bsize]
+	sse, variance, ok := e.vp9NoReferenceIntraResidualStats(key, mode, predTx,
+		tile, miRows, miCols, miRow, miCol, bsize)
+	if !ok {
+		return maxTx, false
+	}
+	if sse > variance<<2 {
+		return maxTx, true
+	}
+	return common.Tx8x8, true
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStats(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) (sse uint64, variance uint64, ok bool) {
+	if key == nil || key.hdr == nil || key.img == nil || int(mode) >= common.IntraModes {
+		return 0, 0, false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, 0, false
+	}
+	planeData, stride := e.vp9EncoderReconPlane(0)
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if len(planeData) == 0 || stride <= 0 || len(src) == 0 || srcStride <= 0 {
+		return 0, 0, false
+	}
+	rows := len(planeData) / stride
+	baseX := miCol * common.MiSize
+	baseY := miRow * common.MiSize
+	if baseX >= stride || baseY >= rows {
+		return 0, 0, false
+	}
+	restoreW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	restoreH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if baseX+restoreW > stride {
+		restoreW = stride - baseX
+	}
+	if baseY+restoreH > rows {
+		restoreH = rows - baseY
+	}
+	if restoreW <= 0 || restoreH <= 0 || restoreW*restoreH > len(e.blockScratch) {
+		return 0, 0, false
+	}
+	saved := e.blockScratch[:restoreW*restoreH]
+	for y := 0; y < restoreH; y++ {
+		copy(saved[y*restoreW:(y+1)*restoreW],
+			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	}
+
+	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	step := 1 << uint(txSize)
+	bs := 4 << uint(txSize)
+	var sum int64
+	var count uint64
+	predOK := true
+residualLoop:
+	for rr := 0; rr < max4x4H; rr += step {
+		for cc := 0; cc < max4x4W; cc += step {
+			dst, dstStride, x0, y0, ok := e.predictVP9KeyframeTx(
+				key.hdr, pd, 0, mode, txSize, tile, miRows, miCols,
+				miRow, miCol, bsize, rr, cc)
+			if !ok {
+				predOK = false
+				break residualLoop
+			}
+			copyW := bs
+			copyH := bs
+			if x0 >= srcW || y0 >= srcH {
+				continue
+			}
+			if x0+copyW > srcW {
+				copyW = srcW - x0
+			}
+			if y0+copyH > srcH {
+				copyH = srcH - y0
+			}
+			for y := 0; y < copyH; y++ {
+				srcRow := src[(y0+y)*srcStride+x0:]
+				dstRow := dst[y*dstStride:]
+				for x := 0; x < copyW; x++ {
+					diff := int(srcRow[x]) - int(dstRow[x])
+					sse += uint64(diff * diff)
+					sum += int64(diff)
+					count++
+				}
+			}
+		}
+	}
+	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	if !predOK {
+		return 0, 0, false
+	}
+	if count == 0 {
+		return 0, 0, false
+	}
+	meanSquare := uint64((sum * sum) / int64(count))
+	if sse >= meanSquare {
+		return sse, sse - meanSquare, true
+	}
+	return sse, meanSquare - sse, true
+}
+
 func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, txSize common.TxSize,
@@ -4435,6 +4656,7 @@ func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,
 		cand := vp9InterIntraDecision{
 			mode:   mode,
 			uvMode: uvMode,
+			txSize: txSize,
 			rate:   rate,
 			score:  vp9ModeDecisionScore(yDist+uvDist, rate, qindex),
 		}

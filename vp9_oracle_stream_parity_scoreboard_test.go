@@ -344,7 +344,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			flags: vp9OracleRepeatInterFlag(frames,
 				EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
-			exactPrefix: 1,
+			exactPrefix: 3,
 		},
 		{
 			name:   "tile-columns-ref-refresh",
