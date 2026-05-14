@@ -329,13 +329,15 @@ func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
 		{name: "big-er1-2partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=1", "--token-parts=1"}},
 		{name: "big-er1-4partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=1", "--token-parts=2"}},
 		{name: "big-er1-8partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=1", "--token-parts=3"}},
-		// er3 + 8-partitions at 320x180 cpu-3: first 3 frames byte-match,
-		// frame 3+ diverges by a small first-partition delta. The
-		// fixture's larger MB grid (20x12 = 240 MBs split across 8
-		// token partitions) exposes the same per-partition entropy
-		// drift pinned in the existing er3 + token-parts splitmv/96x96
-		// matrix. Pin frames 0..2; trailing frames stay under the
-		// broader er3-multi-partition gap.
+		// er3 + token partitions at 256x144 is strict across all partition
+		// counts, narrowing the ER3/token gap to larger MB grids.
+		{name: "big-er3-2partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
+		{name: "big-er3-4partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
+		{name: "big-er3-8partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
+		// At 320x180 cpu-3, the larger MB grid exposes the ER3 token
+		// entropy drift even at 2 partitions. Pin frames 0..2 for both
+		// 2- and 8-partition rows and keep the trailing drift logged.
+		{name: "big-er3-2partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), limit: 3, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
 		{name: "big-er3-8partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), limit: 3, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
 		{name: "big-er1-4partitions-640x480-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(640, 480), errorResilient: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=1", "--token-parts=2"}},
 		// er3 + 2-partitions at 640x480 cpu8: frames 0..4 byte-match,
