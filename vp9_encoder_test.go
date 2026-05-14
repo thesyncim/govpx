@@ -2898,7 +2898,7 @@ func TestVP9BlockSADNoLimitMatchesScalar(t *testing.T) {
 	}
 }
 
-func TestVP9BlockSADSSEMatchesScalar(t *testing.T) {
+func TestVP9BlockSSEMatchesScalar(t *testing.T) {
 	const stride = 80
 	src := make([]byte, stride*80)
 	ref := make([]byte, stride*80)
@@ -2907,26 +2907,38 @@ func TestVP9BlockSADSSEMatchesScalar(t *testing.T) {
 		ref[i] = byte((i*23 + 19) & 0xff)
 	}
 
-	gotSAD, gotSSE := vp9BlockSADSSE(src, stride, ref, stride,
-		3, 5, 7, 11, 32, 16, ^uint64(0))
-	var wantSAD, wantSSE uint64
+	got := vp9BlockSSE(src, stride, ref, stride, 3, 5, 7, 11, 32, 16)
+	var want uint64
 	for y := 0; y < 16; y++ {
 		srcRow := src[(5+y)*stride+3:]
 		refRow := ref[(11+y)*stride+7:]
 		for x := 0; x < 32; x++ {
 			diff := int(srcRow[x]) - int(refRow[x])
-			if diff < 0 {
-				wantSAD += uint64(-diff)
-			} else {
-				wantSAD += uint64(diff)
-			}
-			wantSSE += uint64(diff * diff)
+			want += uint64(diff * diff)
 		}
 	}
-	if gotSAD != wantSAD || gotSSE != wantSSE {
-		t.Fatalf("SAD/SSE = %d/%d, want %d/%d",
-			gotSAD, gotSSE, wantSAD, wantSSE)
+	if got != want {
+		t.Fatalf("SSE = %d, want %d", got, want)
 	}
+}
+
+var vp9BlockSSEBenchmarkSink uint64
+
+func BenchmarkVP9BlockSSE64x64(b *testing.B) {
+	const stride = 96
+	src := make([]byte, stride*96)
+	ref := make([]byte, stride*96)
+	for i := range src {
+		src[i] = byte((i*13 + i/5) & 0xff)
+		ref[i] = byte((i*23 + 19) & 0xff)
+	}
+
+	b.ReportAllocs()
+	var sum uint64
+	for b.Loop() {
+		sum += vp9BlockSSE(src, stride, ref, stride, 3, 5, 7, 11, 64, 64)
+	}
+	vp9BlockSSEBenchmarkSink = sum
 }
 
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
