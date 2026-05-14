@@ -358,6 +358,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	if traceEnabled {
 		e.emitOracleLastRefWindow(&e.lastRef.Img)
 	}
+	e.resetInterRDCoeffCache()
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
@@ -450,6 +451,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if traceEnabled {
 		e.emitOracleLastRefWindow(&e.lastRef.Img)
 	}
+	e.resetInterRDCoeffCache()
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)

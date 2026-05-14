@@ -697,9 +697,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "cpu-used-runtime-roundtrip",
 			fx:   panning32,
 			opts: baseOpts(panning32),
-			// The switch to cpu-used=-3 is byte-identical; returning to
-			// cpu-used=0 still exposes a post-speed-reset drift.
-			matchLimit: 8,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "cpu:-3",
 				8: "cpu:0",
@@ -719,10 +716,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "cpu-used-runtime-roundtrip-force-kf-at-return",
 			fx:   panning32,
 			opts: baseOpts(panning32),
-			// Forcing a keyframe on the return to cpu-used=0 makes the
-			// transition packet exact; the following inter packet still
-			// carries the same speed-reset drift as the non-forced row.
-			matchLimit: 9,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				8: EncodeForceKeyFrame,
 			}),

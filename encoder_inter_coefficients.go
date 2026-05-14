@@ -100,6 +100,13 @@ func (c *interRDCoeffCacheState) reset() {
 	c.valid = false
 }
 
+func (e *VP8Encoder) resetInterRDCoeffCache() {
+	e.interRDCoeffCacheSlots[0].reset()
+	e.interRDCoeffCacheSlots[1].reset()
+	e.interRDCoeffCacheWinner = 0
+	e.interRDCoeffCacheScratchTarget = nil
+}
+
 // consumeInterRDCoeffCache returns the winner cache slot if it is valid.
 // Returns nil when the cache is empty so the caller does not need to perform
 // parity checks before falling back to the full coefficient build. Parity
