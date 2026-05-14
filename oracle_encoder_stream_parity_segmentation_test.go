@@ -739,6 +739,7 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 		limit                    int
 		tokenPartitions          int
 		threads                  int
+		noiseSensitivity         int
 		errorResilient           bool
 		errorResilientPartitions bool
 		extraArgs                []string
@@ -749,6 +750,8 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 		{name: "off", pattern: "off", limit: 0},
 		{name: "checker-token-parts4", pattern: "checker", tokenPartitions: 2, extraArgs: []string{"--token-parts=2"}},
 		{name: "left1-threads2", pattern: "left1", threads: 2, extraArgs: []string{"--threads=2"}},
+		{name: "checker-noise3", pattern: "checker", noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "border1-noise6", pattern: "border1", noiseSensitivity: 6, extraArgs: []string{"--noise-sensitivity=6"}},
 		{name: "border1-er3-token-parts4", pattern: "border1", tokenPartitions: 2, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
 	}
 	for _, tc := range cases {
@@ -762,6 +765,7 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 			caseOpts := opts
 			caseOpts.TokenPartitions = tc.tokenPartitions
 			caseOpts.Threads = tc.threads
+			caseOpts.NoiseSensitivity = tc.noiseSensitivity
 			caseOpts.ErrorResilient = tc.errorResilient
 			caseOpts.ErrorResilientPartitions = tc.errorResilientPartitions
 			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, caseOpts, sources, nil, apply)
