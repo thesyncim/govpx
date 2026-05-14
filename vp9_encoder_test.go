@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"image"
@@ -2767,6 +2768,65 @@ func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("EncodeInto inter residue steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderAllocatingWrapperGrowsForLargePacket(t *testing.T) {
+	const width, height = 512, 512
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode large keyframe: %v", err)
+	}
+	if len(packet) <= 65536 {
+		t.Fatalf("large keyframe packet size = %d, want > 65536 to cover allocating growth", len(packet))
+	}
+	info, err := PeekVP9StreamInfo(packet)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo large keyframe: %v", err)
+	}
+	if !info.KeyFrame || info.Width != width || info.Height != height {
+		t.Fatalf("large keyframe info = %+v, want %dx%d keyframe", info, width, height)
+	}
+}
+
+func TestVP9EncoderBufferFullInterRetryPreservesFrameContext(t *testing.T) {
+	const width, height = 64, 64
+	keySrc := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	interSrc := newVP9MotionYCbCrForTest(width, height)
+
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if _, err := e.EncodeInto(interSrc, make([]byte, 512)); !errors.Is(err, vp9enc.ErrPackBufferFull) &&
+		!errors.Is(err, vp9enc.ErrTileBufferFull) {
+		t.Fatalf("short inter EncodeInto error = %v, want VP9 buffer-full error", err)
+	}
+	got, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("retry Encode inter: %v", err)
+	}
+
+	fresh, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if _, err := fresh.Encode(keySrc); err != nil {
+		t.Fatalf("fresh Encode keyframe: %v", err)
+	}
+	want, err := fresh.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("fresh Encode inter: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("inter retry changed packet after buffer-full failure: got %x want %x", got, want)
+	}
+}
+
+func TestVP9EncoderEncodeIntoRejectsTinyBuffer(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	if _, err := e.EncodeInto(img, make([]byte, vp9MinEncodeIntoBuffer-1)); !errors.Is(err, ErrBufferTooSmall) {
+		t.Fatalf("tiny EncodeInto error = %v, want ErrBufferTooSmall", err)
 	}
 }
 

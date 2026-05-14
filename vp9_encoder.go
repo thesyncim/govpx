@@ -16,6 +16,7 @@ import (
 const (
 	vp9EncoderTxCoeffSlots    = 1024
 	vp9EncoderBlockCoeffSlots = 256 * vp9EncoderTxCoeffSlots
+	vp9MinEncodeIntoBuffer    = 64
 )
 
 // VP9EncoderOptions configures a VP9 profile 0 encoder.
@@ -264,7 +265,7 @@ func (e *VP9Encoder) EncodeIntraOnlyFrameInto(img *image.YCbCr, dst []byte, flag
 	return e.encodeVP9FrameIntoWithFlags(img, dst, flags, true)
 }
 
-func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool) (int, error) {
+func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool) (n int, err error) {
 	if e == nil || e.closed {
 		return 0, ErrClosed
 	}
@@ -283,7 +284,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	if err := e.validateVP9EncoderSource(img); err != nil {
 		return 0, err
 	}
-	if len(dst) == 0 {
+	if len(dst) < vp9MinEncodeIntoBuffer {
 		return 0, ErrBufferTooSmall
 	}
 
@@ -316,7 +317,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	frameContextSeed := e.fc
 	restoreFrameContext := e.opts.ErrorResilient || flags&EncodeNoUpdateEntropy != 0
 	defer func() {
-		if restoreFrameContext {
+		if err != nil || restoreFrameContext {
 			e.fc = frameContextSeed
 		}
 	}()
@@ -496,7 +497,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	if err != nil {
 		return tileStart, err
 	}
-	n := tileStart + tileSize
+	n = tileStart + tileSize
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header)
 	e.frameIndex++
@@ -1199,6 +1200,9 @@ func (e *VP9Encoder) writeVP9FrameTiles(output []byte, miRows, miCols int,
 				partitionProbs, seg, baseMi, txMode, kind, key, inter)
 			size, err := bw.Stop()
 			if err != nil {
+				if errors.Is(err, bitstream.ErrBufferOverflow) {
+					return totalSize, encoder.ErrTileBufferFull
+				}
 				return totalSize, err
 			}
 			if !isLast {
@@ -3491,9 +3495,7 @@ func (e *VP9Encoder) fillVP9MiGrid(miRows, miCols, r, c int, bsize common.BlockS
 	}
 }
 
-// Encode is the alloc-returning wrapper around EncodeInto. Sizes dst at 64 KB
-// upfront so EncodeInto can never overflow the compressed-header staging
-// buffer.
+// Encode is the alloc-returning wrapper around EncodeInto.
 func (e *VP9Encoder) Encode(img *image.YCbCr) ([]byte, error) {
 	return e.EncodeWithFlags(img, 0)
 }
@@ -3503,14 +3505,7 @@ func (e *VP9Encoder) EncodeWithFlags(img *image.YCbCr, flags EncodeFlags) ([]byt
 	if e == nil || e.closed {
 		return nil, ErrClosed
 	}
-	dst := make([]byte, 65536)
-	n, err := e.EncodeIntoWithFlags(img, dst, flags)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, n)
-	copy(out, dst[:n])
-	return out, nil
+	return e.encodeVP9Allocating(img, flags, false)
 }
 
 // EncodeIntraOnlyFrame is the allocating wrapper around
@@ -3519,14 +3514,73 @@ func (e *VP9Encoder) EncodeIntraOnlyFrame(img *image.YCbCr, flags EncodeFlags) (
 	if e == nil || e.closed {
 		return nil, ErrClosed
 	}
-	dst := make([]byte, 65536)
-	n, err := e.EncodeIntraOnlyFrameInto(img, dst, flags)
+	return e.encodeVP9Allocating(img, flags, true)
+}
+
+func (e *VP9Encoder) encodeVP9Allocating(img *image.YCbCr, flags EncodeFlags, intraOnly bool) ([]byte, error) {
+	size, err := vp9AllocatingEncodeBufferSize(e.opts.Width, e.opts.Height)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, n)
-	copy(out, dst[:n])
-	return out, nil
+	for {
+		dst := make([]byte, size)
+		var n int
+		if intraOnly {
+			n, err = e.EncodeIntraOnlyFrameInto(img, dst, flags)
+		} else {
+			n, err = e.EncodeIntoWithFlags(img, dst, flags)
+		}
+		if err == nil {
+			out := make([]byte, n)
+			copy(out, dst[:n])
+			return out, nil
+		}
+		if !vp9EncodeOutputBufferFull(err) {
+			return nil, err
+		}
+		maxInt := int(^uint(0) >> 1)
+		if size > maxInt/2 {
+			return nil, err
+		}
+		size *= 2
+	}
+}
+
+func vp9AllocatingEncodeBufferSize(width, height int) (int, error) {
+	if width <= 0 || height <= 0 {
+		return 0, ErrInvalidConfig
+	}
+	maxInt := int(^uint(0) >> 1)
+	if width > maxInt/height {
+		return 0, ErrInvalidConfig
+	}
+	y := width * height
+	uvWidth := (width + 1) / 2
+	uvHeight := (height + 1) / 2
+	if uvWidth > maxInt/uvHeight {
+		return 0, ErrInvalidConfig
+	}
+	uv := uvWidth * uvHeight
+	if uv > (maxInt-y)/2 {
+		return 0, ErrInvalidConfig
+	}
+	raw420 := y + 2*uv
+	const headerSlack = 4096
+	if raw420 > (maxInt-headerSlack)/4 {
+		return 0, ErrInvalidConfig
+	}
+	size := headerSlack + raw420*4
+	if size < 65536 {
+		size = 65536
+	}
+	return size, nil
+}
+
+func vp9EncodeOutputBufferFull(err error) bool {
+	return errors.Is(err, ErrBufferTooSmall) ||
+		errors.Is(err, encoder.ErrPackBufferFull) ||
+		errors.Is(err, encoder.ErrTileBufferFull) ||
+		errors.Is(err, bitstream.ErrBufferOverflow)
 }
 
 // EncodeShowExistingFrameInto writes a VP9 show_existing_frame packet for an
