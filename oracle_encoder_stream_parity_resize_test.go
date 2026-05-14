@@ -431,7 +431,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 		{
 			name:          "rtc-external",
 			controlScript: "rtc:1",
-			limit:         framesPerSeg,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))

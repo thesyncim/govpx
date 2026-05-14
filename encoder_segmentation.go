@@ -22,6 +22,10 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizer(refreshGolden b
 	if !e.cyclicRefreshModeEnabled(refreshGolden) {
 		return vp8enc.SegmentationConfig{}
 	}
+	return e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(q)
+}
+
+func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizerUnchecked(q int) vp8enc.SegmentationConfig {
 	cfg := vp8enc.SegmentationConfig{
 		Enabled:    true,
 		UpdateMap:  true,

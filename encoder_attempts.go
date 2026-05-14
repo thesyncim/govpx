@@ -91,6 +91,14 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		// refresh exception in the inter-frame encode path. Keyframes keep
 		// the cyclic-refresh segmentation header when cyclic refresh is on.
 		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(false, cyclicRefreshQ)
+		if !segmentation.Enabled && e.rtcExternalPreserveSegmentation {
+			// Runtime VP8E_SET_RTC_EXTERNAL_RATECTRL preserves an already
+			// enabled cyclic-refresh header on the next keyframe (for
+			// example after a resize), including update-map/update-data
+			// bits. Keyframes assign every macroblock to segment 0, so this
+			// keeps the packet header shape without changing reconstruction.
+			segmentation = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(cyclicRefreshQ)
+		}
 	}
 	var err error
 	projectedRate := 0
