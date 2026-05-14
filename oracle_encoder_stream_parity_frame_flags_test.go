@@ -132,6 +132,7 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 	panning32 := fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}
 	panning48 := fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
+	panningOdd := fixture{name: "panning-65x33", w: 65, h: 33, source: encoderValidationPanningFrame}
 
 	cases := []struct {
 		name                     string
@@ -240,6 +241,9 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "no-upd-entropy-no-upd-all-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
 		{name: "no-upd-all-er2-token8-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 3, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
 		{name: "no-upd-entropy-no-upd-all-er3-token8-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
+		{name: "no-upd-entropy-no-upd-all-er3-token8-realtime-cpu0-65x33", deadline: DeadlineRealtime, cpuUsed: 0, fx: panningOdd, tokenParts: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
+		{name: "invisible-no-ref-all-odd-dims-realtime-cpu-3-65x33", deadline: DeadlineRealtime, cpuUsed: -3, fx: panningOdd, flags: repeatFlag(frames-1, EncodeInvisibleFrame|EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
+		{name: "force-gf-arf-token4-odd-dims-realtime-cpu0-65x33", deadline: DeadlineRealtime, cpuUsed: 0, fx: panningOdd, limit: 5, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: []EncodeFlags{0, 0, EncodeForceGoldenFrame, 0, EncodeForceAltRefFrame}},
 
 		// Force-KF + no-update-GF/ARF (the layer-0 "I-frame anchor"
 		// pattern used by 3-layer SVC mode 4 in libvpx's example).

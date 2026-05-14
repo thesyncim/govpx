@@ -291,6 +291,78 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "realtime-target-same-size-bwe-update",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "resize:64x64+bitrate:500+fps:24+minq:8+maxq:48",
+				7: "resize:64x64+bitrate:700+fps:30+minq:4+maxq:56",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(same-size-bwe-low)", e.SetRealtimeTarget(RealtimeTarget{Width: 64, Height: 64, BitrateKbps: 500, FPS: 24, MinQuantizer: 8, MaxQuantizer: 48}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(same-size-bwe-default)", e.SetRealtimeTarget(RealtimeTarget{Width: 64, Height: 64, BitrateKbps: 700, FPS: 30, MinQuantizer: 4, MaxQuantizer: 56}))
+				},
+			},
+		},
+		{
+			name: "rate-control-full-config-maxintra-gfboost",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			// SetRateControl's MaxIntraBitratePct path matches on the
+			// forced keyframe. Returning the full CBR config and forcing a
+			// golden frame exposes the existing GF-boost runtime drift.
+			matchLimit: 7,
+			flags: []EncodeFlags{
+				0, 0, 0,
+				EncodeForceKeyFrame,
+				0, 0, 0,
+				EncodeForceGoldenFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "endusage:cbr+bitrate:500+minq:8+maxq:48+undershoot:20+overshoot:80+bufsz:800+bufinit:400+bufopt:600+maxintra:100+gfboost:50",
+				7: "endusage:cbr+bitrate:700+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000+maxintra:0+gfboost:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(full-low)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   500,
+						MinQuantizer:        8,
+						MaxQuantizer:        48,
+						UndershootPct:       20,
+						OvershootPct:        80,
+						BufferSizeMs:        800,
+						BufferInitialSizeMs: 400,
+						BufferOptimalSizeMs: 600,
+						MaxIntraBitratePct:  100,
+						GFCBRBoostPct:       50,
+					}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(full-default)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+						MaxIntraBitratePct:  0,
+						GFCBRBoostPct:       0,
+					}))
+				},
+			},
+		},
+		{
 			name: "rate-control-mode-cbr-cq-q-transition",
 			fx:   panning32,
 			opts: baseOpts(panning32),
