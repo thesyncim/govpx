@@ -1243,6 +1243,97 @@ func TestVP9EncoderInterPicksVert64x64ForHorizontalMixedMotion(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterPartitionScoringRestoresFrameState(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := splitShiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, -8)
+
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	e.resetVP9EncoderCodingState(width, height)
+	origMi := append([]vp9dec.NeighborMi(nil), e.miGrid...)
+	origY := append([]byte(nil), e.reconY[:e.reconFrame.YStride*height]...)
+	origU := append([]byte(nil), e.reconU[:e.reconFrame.UStride*(height/2)]...)
+	origV := append([]byte(nil), e.reconV[:e.reconFrame.VStride*(height/2)]...)
+
+	inter := &vp9InterEncodeState{
+		img:           interSrc,
+		refMask:       1 << uint(vp9dec.LastFrame),
+		allowHP:       true,
+		selectFc:      fc,
+		referenceMode: vp9dec.SingleReference,
+	}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8}
+	got := e.pickVP9InterPartitionBlockSize(inter, tile, &fc.PartitionProb,
+		8, 8, 0, 0, common.Block64x64)
+	if got != common.Block32x64 {
+		t.Fatalf("partition size = %d, want Block32x64", got)
+	}
+	for i := range origMi {
+		if e.miGrid[i] != origMi[i] {
+			t.Fatalf("miGrid[%d] = %+v, want restored %+v", i, e.miGrid[i], origMi[i])
+		}
+	}
+	if !bytes.Equal(e.reconY[:len(origY)], origY) ||
+		!bytes.Equal(e.reconU[:len(origU)], origU) ||
+		!bytes.Equal(e.reconV[:len(origV)], origV) {
+		t.Fatal("partition scoring leaked temporary reconstruction into frame state")
+	}
+}
+
+func TestVP9EncoderInterPartitionScoringUsesPriorChildContext(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	e.resetVP9EncoderCodingState(width, height)
+	inter := &vp9InterEncodeState{
+		img:           interSrc,
+		refMask:       1 << uint(vp9dec.LastFrame),
+		allowHP:       true,
+		selectFc:      fc,
+		referenceMode: vp9dec.SingleReference,
+	}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8}
+	first, ok := e.pickVP9InterReferenceMode(inter, tile, 8, 8,
+		0, 0, common.Block32x64)
+	if !ok {
+		t.Fatal("first child inter mode returned !ok")
+	}
+	withoutContext, ok := e.pickVP9InterReferenceMode(inter, tile, 8, 8,
+		0, 4, common.Block32x64)
+	if !ok {
+		t.Fatal("second child without context returned !ok")
+	}
+	e.fillVP9MiGrid(8, 8, 0, 0, common.Block32x64,
+		vp9InterModeDecisionMi(common.Block32x64, first))
+	withContext, ok := e.pickVP9InterReferenceMode(inter, tile, 8, 8,
+		0, 4, common.Block32x64)
+	if !ok {
+		t.Fatal("second child with context returned !ok")
+	}
+	if withoutContext.mode == common.NearestMv {
+		t.Fatalf("second child without context unexpectedly chose NearestMv")
+	}
+	if withContext.mode != common.NearestMv {
+		t.Fatalf("second child with context mode = %d, want NearestMv", withContext.mode)
+	}
+	if withContext.score >= withoutContext.score {
+		t.Fatalf("contextual score = %d, want lower than uncached score %d",
+			withContext.score, withoutContext.score)
+	}
+}
+
 func TestVP9EncoderInterPicksVert32x32ForHorizontalMixedMotion(t *testing.T) {
 	const (
 		width  = 32

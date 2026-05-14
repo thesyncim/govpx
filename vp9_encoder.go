@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	vp9EncoderTxCoeffSlots    = 1024
-	vp9EncoderBlockCoeffSlots = 256 * vp9EncoderTxCoeffSlots
-	vp9MinEncodeIntoBuffer    = 64
+	vp9EncoderTxCoeffSlots      = 1024
+	vp9EncoderBlockCoeffSlots   = 256 * vp9EncoderTxCoeffSlots
+	vp9MinEncodeIntoBuffer      = 64
+	vp9MaxPartitionReconScratch = 64*64 + 2*32*32
 	// vp9DefaultBaseQIndex pins the packet-path default to the first-frame
 	// base_qindex emitted by pinned libvpx vpxenc-vp9 with the repo's realtime
 	// CQ oracle knobs (--end-usage=q --cq-level=32 --min-q=4 --max-q=56).
@@ -109,9 +110,10 @@ type VP9Encoder struct {
 	// planes carries coefficient entropy contexts for source-backed frames.
 	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 
-	intraScratch vp9dec.IntraPredictorScratch
-	modeScratch  [1024]byte
-	blockScratch [64 * 64]byte
+	intraScratch          vp9dec.IntraPredictorScratch
+	modeScratch           [1024]byte
+	blockScratch          [64 * 64]byte
+	partitionReconScratch []byte
 	// interPredictScratch is passed through the decoder-shared inter
 	// predictor so odd luma MVs can use the same chroma/subpel extension
 	// path as the real decoder without per-block allocations after warmup.
@@ -138,6 +140,7 @@ type VP9Encoder struct {
 	residueScratch [1024]int16
 	txCoeffScratch [1024]int16
 	dqCoeffScratch [1024]int16
+	dqScratch      vp9dec.DequantTables
 	frameCounts    encoder.FrameCounts
 	lfi            vp9dec.LoopFilterInfoN
 	lfRefDeltas    [vp9dec.MaxRefLfDeltas]int8
@@ -394,7 +397,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
 	var seg vp9dec.SegmentationParams // disabled — no map / no data update
-	var dq vp9dec.DequantTables
+	dq := &e.dqScratch
 	var keyState *vp9KeyframeEncodeState
 	var interState *vp9InterEncodeState
 	compoundAllowed := false
@@ -404,18 +407,18 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
 		BaseQindex: int(header.Quant.BaseQindex),
 		BitDepth:   vp9dec.Bits8,
-	}, &dq)
+	}, dq)
 	if isKey {
 		keyState = &vp9KeyframeEncodeState{
 			img: img,
 			hdr: &header,
-			dq:  &dq,
+			dq:  dq,
 		}
 	} else if intraOnly {
 		keyState = &vp9KeyframeEncodeState{
 			img: img,
 			hdr: &header,
-			dq:  &dq,
+			dq:  dq,
 		}
 	} else {
 		compoundAllowed = vp9dec.CompoundReferenceAllowed(refSignBias)
@@ -424,7 +427,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		}
 		interState = &vp9InterEncodeState{
 			img:             img,
-			dq:              &dq,
+			dq:              dq,
 			ref:             &e.refFrames[0],
 			refMask:         vp9InterReferenceMask(flags),
 			allowHP:         header.AllowHighPrecisionMv,
@@ -720,6 +723,11 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 		for i := range e.miGrid {
 			e.miGrid[i] = vp9dec.NeighborMi{}
 		}
+	}
+	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratch {
+		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
+	} else {
+		e.partitionReconScratch = e.partitionReconScratch[:vp9MaxPartitionReconScratch]
 	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
@@ -1553,12 +1561,21 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if !ok {
 		return root
 	}
-	full, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow, miCol, root)
+	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, root)
 	if !ok {
 		return root
 	}
+	savedRef := inter.ref
+	full, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+		miRow, miCol, root)
+	if !ok {
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		inter.ref = savedRef
+		return root
+	}
 	if full.sad == 0 {
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		inter.ref = savedRef
 		return root
 	}
 
@@ -1609,6 +1626,8 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 			}
 		}
 	}
+	e.restoreVP9PartitionReconSnapshot(reconSnap)
+	inter.ref = savedRef
 	return bestSize
 }
 
@@ -1616,16 +1635,29 @@ func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	child common.BlockSize, rowOff, colOff int,
 ) (uint64, bool) {
+	childRows := int(common.Num8x8BlocksHighLookup[child])
+	childCols := int(common.Num8x8BlocksWideLookup[child])
+	var saved [64]vp9dec.NeighborMi
+	rows, cols, ok := e.snapshotVP9MiRect(miRows, miCols, miRow, miCol,
+		childRows+rowOff, childCols+colOff, saved[:])
+	if !ok {
+		return 0, false
+	}
 	first, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, child)
 	if !ok {
+		e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 		return 0, false
 	}
+	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, child,
+		vp9InterModeDecisionMi(child, first))
 	second, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow+rowOff, miCol+colOff, child)
 	if !ok {
+		e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 		return 0, false
 	}
+	e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 	return first.score + second.score, true
 }
 
@@ -1634,18 +1666,151 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 	child common.BlockSize,
 ) (uint64, bool) {
 	stepMi := int(common.Num8x8BlocksWideLookup[child])
+	var saved [64]vp9dec.NeighborMi
+	rows, cols, ok := e.snapshotVP9MiRect(miRows, miCols, miRow, miCol,
+		stepMi*2, stepMi*2, saved[:])
+	if !ok {
+		return 0, false
+	}
 	var splitScore uint64
 	for rowOff := 0; rowOff <= stepMi; rowOff += stepMi {
 		for colOff := 0; colOff <= stepMi; colOff += stepMi {
 			decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 				miRow+rowOff, miCol+colOff, child)
 			if !ok {
+				e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 				return 0, false
 			}
+			e.fillVP9MiGrid(miRows, miCols, miRow+rowOff, miCol+colOff, child,
+				vp9InterModeDecisionMi(child, decision))
 			splitScore += decision.score
 		}
 	}
+	e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 	return splitScore, true
+}
+
+func vp9InterModeDecisionMi(bsize common.BlockSize, decision vp9InterModeDecision) vp9dec.NeighborMi {
+	return vp9dec.NeighborMi{
+		SbType:       bsize,
+		Mode:         decision.mode,
+		RefFrame:     [2]int8{decision.refFrame, decision.secondRefFrame},
+		Mv:           decision.mv,
+		InterpFilter: uint8(decision.interpFilter),
+	}
+}
+
+func (e *VP9Encoder) snapshotVP9MiRect(miRows, miCols, miRow, miCol, rows, cols int,
+	out []vp9dec.NeighborMi,
+) (int, int, bool) {
+	if rows <= 0 || cols <= 0 || miRow < 0 || miCol < 0 ||
+		miRow >= miRows || miCol >= miCols {
+		return 0, 0, false
+	}
+	rows = min(rows, miRows-miRow)
+	cols = min(cols, miCols-miCol)
+	if rows*cols > len(out) {
+		return 0, 0, false
+	}
+	for r := 0; r < rows; r++ {
+		copy(out[r*cols:(r+1)*cols],
+			e.miGrid[(miRow+r)*miCols+miCol:(miRow+r)*miCols+miCol+cols])
+	}
+	return rows, cols, true
+}
+
+func (e *VP9Encoder) restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols int,
+	saved []vp9dec.NeighborMi,
+) {
+	if rows <= 0 || cols <= 0 || rows*cols > len(saved) {
+		return
+	}
+	for r := 0; r < rows && miRow+r < miRows; r++ {
+		copy(e.miGrid[(miRow+r)*miCols+miCol:(miRow+r)*miCols+miCol+cols],
+			saved[r*cols:(r+1)*cols])
+	}
+}
+
+type vp9PartitionReconPlaneSnapshot struct {
+	x, y, w, h int
+	off        int
+}
+
+type vp9PartitionReconSnapshot struct {
+	planes [vp9dec.MaxMbPlane]vp9PartitionReconPlaneSnapshot
+}
+
+func (e *VP9Encoder) saveVP9PartitionReconSnapshot(miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9PartitionReconSnapshot, bool) {
+	var snap vp9PartitionReconSnapshot
+	total := 0
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		data, stride := e.vp9EncoderReconPlane(plane)
+		if len(data) == 0 || stride <= 0 {
+			return snap, false
+		}
+		rows := len(data) / stride
+		x := (miCol * common.MiSize) >> pd.SubsamplingX
+		y := (miRow * common.MiSize) >> pd.SubsamplingY
+		w := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		h := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		if x >= stride || y >= rows {
+			return snap, false
+		}
+		if x+w > stride {
+			w = stride - x
+		}
+		if y+h > rows {
+			h = rows - y
+		}
+		if w <= 0 || h <= 0 {
+			return snap, false
+		}
+		snap.planes[plane] = vp9PartitionReconPlaneSnapshot{
+			x: x, y: y, w: w, h: h, off: total,
+		}
+		total += w * h
+	}
+	if cap(e.partitionReconScratch) < total {
+		e.partitionReconScratch = make([]byte, total)
+	} else {
+		e.partitionReconScratch = e.partitionReconScratch[:total]
+	}
+	for plane := range vp9dec.MaxMbPlane {
+		p := snap.planes[plane]
+		if p.w == 0 || p.h == 0 {
+			continue
+		}
+		data, stride := e.vp9EncoderReconPlane(plane)
+		for y := 0; y < p.h; y++ {
+			copy(e.partitionReconScratch[p.off+y*p.w:p.off+(y+1)*p.w],
+				data[(p.y+y)*stride+p.x:(p.y+y)*stride+p.x+p.w])
+		}
+	}
+	return snap, true
+}
+
+func (e *VP9Encoder) restoreVP9PartitionReconSnapshot(snap vp9PartitionReconSnapshot) {
+	for plane := range vp9dec.MaxMbPlane {
+		p := snap.planes[plane]
+		if p.w == 0 || p.h == 0 {
+			continue
+		}
+		data, stride := e.vp9EncoderReconPlane(plane)
+		if len(data) == 0 || stride <= 0 {
+			continue
+		}
+		for y := 0; y < p.h; y++ {
+			copy(data[(p.y+y)*stride+p.x:(p.y+y)*stride+p.x+p.w],
+				e.partitionReconScratch[p.off+y*p.w:p.off+(y+1)*p.w])
+		}
+	}
 }
 
 func vp9PartitionRateCost(
