@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -865,10 +867,13 @@ func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
 			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
 			flags := vp9OracleTemporalPatternFlags(pattern, frames)
+			expected := buildExpectedTemporalPattern(pattern, frames)
+			extraArgs := append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				vp9OracleTemporalArgs(t, tc.mode, 700)...)
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
-				sources, flags, vp9OracleCBRArgs(700, 600, 400, 500, 0))
-			vp9ApplyExpectedTemporalMetadata(libvpxRows,
-				buildExpectedTemporalPattern(pattern, frames), pattern.Layers)
+				sources, flags, extraArgs)
+			assertVP9TemporalMetadataRows(t, libvpxRows, expected,
+				pattern.Layers)
 
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
 			t.Logf("VP9 temporal flag-pattern scoreboard %s: %s", tc.name, stats)
@@ -920,11 +925,13 @@ func TestVP9OracleTemporalPatternMatrixScoreboard(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
 			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
 			flags := vp9OracleTemporalPatternFlags(pattern, frames)
+			expected := buildExpectedTemporalPattern(pattern, frames)
+			extraArgs := append(vp9OracleCBRArgs(targetKbps, 600, 400, 500, 0),
+				vp9OracleTemporalArgs(t, tc.mode, targetKbps)...)
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
-				sources, flags,
-				vp9OracleCBRArgs(targetKbps, 600, 400, 500, 0))
-			vp9ApplyExpectedTemporalMetadata(libvpxRows,
-				buildExpectedTemporalPattern(pattern, frames), pattern.Layers)
+				sources, flags, extraArgs)
+			assertVP9TemporalMetadataRows(t, libvpxRows, expected,
+				pattern.Layers)
 
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
 			t.Logf("VP9 temporal pattern matrix scoreboard %s: %s",
@@ -989,6 +996,66 @@ func vp9OracleTemporalConfig(mode TemporalLayeringMode, targetKbps int) Temporal
 		}
 	}
 	return cfg
+}
+
+func vp9OracleTemporalArgs(t *testing.T, mode TemporalLayeringMode, targetKbps int) []string {
+	t.Helper()
+	pattern, ok := temporalLayeringPattern(mode)
+	if !ok {
+		t.Fatalf("temporalLayeringPattern(%d) failed", mode)
+	}
+	cfg := vp9OracleTemporalConfig(mode, targetKbps)
+	cfg, _, err := normalizeTemporalBitrates(cfg, pattern.Layers, targetKbps)
+	if err != nil {
+		t.Fatalf("normalizeTemporalBitrates(%d): %v", mode, err)
+	}
+	bitrates := make([]int, pattern.Layers)
+	decimators := make([]int, pattern.Layers)
+	for i := 0; i < pattern.Layers; i++ {
+		bitrates[i] = cfg.LayerTargetBitrateKbps[i]
+		decimators[i] = pattern.RateDecimator[i]
+	}
+	layerIDs := make([]int, pattern.Periodicity)
+	for i := 0; i < pattern.Periodicity; i++ {
+		layerIDs[i] = pattern.LayerID[i]
+	}
+	return []string{
+		"--temporal-layers=" + strconv.Itoa(pattern.Layers),
+		"--temporal-bitrates=" + vp9OracleIntCSV(bitrates),
+		"--temporal-decimators=" + vp9OracleIntCSV(decimators),
+		"--temporal-periodicity=" + strconv.Itoa(pattern.Periodicity),
+		"--temporal-layer-ids=" + vp9OracleIntCSV(layerIDs),
+	}
+}
+
+func vp9OracleIntCSV(values []int) string {
+	var b strings.Builder
+	for i, v := range values {
+		if i != 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Itoa(v))
+	}
+	return b.String()
+}
+
+func assertVP9TemporalMetadataRows(t *testing.T, rows []vp9RateScoreboardRow, expected []expectedTemporalRow, layers int) {
+	t.Helper()
+	if len(rows) != len(expected) {
+		t.Fatalf("temporal metadata rows = %d, want %d", len(rows), len(expected))
+	}
+	for i := range rows {
+		if rows[i].TemporalLayerID != expected[i].layerID ||
+			rows[i].TemporalLayerCount != layers ||
+			rows[i].TL0PICIDX != uint8(expected[i].tl0picidx) ||
+			rows[i].TemporalLayerSync != expected[i].layerSync {
+			t.Fatalf("temporal metadata row %d = tid:%d layers:%d tl0:%d sync:%t, want tid:%d layers:%d tl0:%d sync:%t",
+				i, rows[i].TemporalLayerID, rows[i].TemporalLayerCount,
+				rows[i].TL0PICIDX, rows[i].TemporalLayerSync,
+				expected[i].layerID, layers, expected[i].tl0picidx,
+				expected[i].layerSync)
+		}
+	}
 }
 
 type vp9OracleTransitionStats struct {
@@ -1265,18 +1332,6 @@ func vp9OracleTemporalPatternFlags(pattern temporalPattern, frames int) []Encode
 		flags[i] = f
 	}
 	return flags
-}
-
-func vp9ApplyExpectedTemporalMetadata(rows []vp9RateScoreboardRow, expected []expectedTemporalRow, layers int) {
-	for i := range rows {
-		if i >= len(expected) {
-			return
-		}
-		rows[i].TemporalLayerID = expected[i].layerID
-		rows[i].TemporalLayerCount = layers
-		rows[i].TemporalLayerSync = expected[i].layerSync
-		rows[i].TL0PICIDX = uint8(expected[i].tl0picidx)
-	}
 }
 
 func vp9OracleRefRefreshTransitions(frames int) []EncodeFlags {

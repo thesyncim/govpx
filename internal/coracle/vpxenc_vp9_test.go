@@ -127,6 +127,41 @@ func TestVpxencVP9FrameFlagsTraceI420EmitsRows(t *testing.T) {
 	}
 }
 
+func TestVpxencVP9FrameFlagsTraceI420EmitsTemporalMetadata(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 4
+	raw := makeGeneratedVP9I420(width, height, frames)
+	_, trace, diag, err := VpxencVP9FrameFlagsTraceI420(raw, width, height,
+		frames, nil,
+		"--end-usage=cbr",
+		"--target-bitrate=300",
+		"--temporal-layers=2",
+		"--temporal-bitrates=180,300",
+		"--temporal-decimators=2,1",
+		"--temporal-periodicity=2",
+		"--temporal-layer-ids=0,1")
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
+	}
+	for _, want := range [][]byte{
+		[]byte(`"temporal_layer_id":0`),
+		[]byte(`"temporal_layer_id":1`),
+		[]byte(`"temporal_layer_count":2`),
+		[]byte(`"tl0_pic_idx"`),
+		[]byte(`"temporal_layer_sync"`),
+	} {
+		if !bytes.Contains(trace, want) {
+			t.Fatalf("temporal trace missing %s:\n%s", want, trace)
+		}
+	}
+}
+
 func makeGeneratedVP9I420(width int, height int, frames int) []byte {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1

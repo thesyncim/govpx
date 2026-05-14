@@ -42,6 +42,8 @@ func resolveVpxencVP9FrameFlags() {
 // per-frame flag helper and returns an IVF stream. frameFlags are libvpx
 // vpx_codec_encode flags indexed by input frame; missing entries default to
 // zero. Defaults match VpxencVP9EncodeI420 unless extraArgs override them.
+// extraArgs may also pass VP9 oracle knobs such as temporal ts_* config for
+// scoreboard tests.
 func VpxencVP9FrameFlagsEncodeI420(raw []byte, width int, height int, frames int, frameFlags []uint32, extraArgs ...string) (ivf []byte, diag []byte, err error) {
 	ivf, _, diag, err = runVpxencVP9FrameFlagsI420(raw, width, height, frames,
 		frameFlags, false, extraArgs...)

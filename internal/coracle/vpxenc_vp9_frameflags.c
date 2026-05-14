@@ -192,6 +192,99 @@ static int *parse_int_schedule(const char *csv, int frames, const char *flag) {
   return out;
 }
 
+static void parse_int_csv_exact(const char *csv, int *out, int expected,
+                                const char *flag) {
+  if (!csv) {
+    fprintf(stderr, "%s expects %d comma-separated integers\n", flag, expected);
+    exit(EXIT_FAILURE);
+  }
+  if (expected <= 0) die_msg("invalid exact csv count");
+  int count = 0;
+  const char *start = csv;
+  for (;;) {
+    if (count >= expected) {
+      fprintf(stderr, "%s has too many entries\n", flag);
+      exit(EXIT_FAILURE);
+    }
+    const char *end = strchr(start, ',');
+    size_t len = end ? (size_t)(end - start) : strlen(start);
+    char buf[32];
+    if (len == 0 || len >= sizeof(buf)) {
+      fprintf(stderr, "invalid %s token length\n", flag);
+      exit(EXIT_FAILURE);
+    }
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+    out[count++] = parse_int(buf, flag);
+    if (!end) break;
+    start = end + 1;
+  }
+  if (count != expected) {
+    fprintf(stderr, "%s expects exactly %d comma-separated integers, got %d\n",
+            flag, expected, count);
+    exit(EXIT_FAILURE);
+  }
+}
+
+static void vp9_temporal_metadata_for_frame(
+    const vpx_codec_enc_cfg_t *cfg, int frame_idx, unsigned int frame_flags,
+    int temporal_layers, int temporal_periodicity, int key_frame,
+    int ref_layer[3], int *tl0_pic_idx, int *tl0_valid,
+    int *out_layer_id, int *out_layer_count, int *out_tl0_pic_idx,
+    int *out_layer_sync) {
+  *out_layer_id = 0;
+  *out_layer_count = 1;
+  *out_tl0_pic_idx = 0;
+  *out_layer_sync = 0;
+  if (temporal_layers <= 0 || temporal_periodicity <= 0) return;
+
+  int layer_id =
+      (int)cfg->ts_layer_id[frame_idx % temporal_periodicity];
+  int cur_tl0 = *tl0_pic_idx;
+  if (layer_id == 0) {
+    cur_tl0 = *tl0_valid ? *tl0_pic_idx + 1 : 0;
+  }
+
+  int layer_sync = 0;
+  if (layer_id > 0) {
+    layer_sync = 1;
+    if ((frame_flags & VP8_EFLAG_NO_REF_LAST) == 0 &&
+        ref_layer[0] >= layer_id) {
+      layer_sync = 0;
+    }
+    if (layer_sync && (frame_flags & VP8_EFLAG_NO_REF_GF) == 0 &&
+        ref_layer[1] >= layer_id) {
+      layer_sync = 0;
+    }
+    if (layer_sync && (frame_flags & VP8_EFLAG_NO_REF_ARF) == 0 &&
+        ref_layer[2] >= layer_id) {
+      layer_sync = 0;
+    }
+  }
+
+  int refresh_last = key_frame || ((frame_flags & VP8_EFLAG_NO_UPD_LAST) == 0);
+  int refresh_golden = key_frame || ((frame_flags & VP8_EFLAG_NO_UPD_GF) == 0);
+  int refresh_altref = key_frame || ((frame_flags & VP8_EFLAG_NO_UPD_ARF) == 0);
+  if (key_frame) {
+    ref_layer[0] = 0;
+    ref_layer[1] = 0;
+    ref_layer[2] = 0;
+  } else {
+    if (refresh_last) ref_layer[0] = layer_id;
+    if (refresh_golden) ref_layer[1] = layer_id;
+    if (refresh_altref) ref_layer[2] = layer_id;
+  }
+  if (layer_id == 0) {
+    *tl0_pic_idx = cur_tl0 & 0xff;
+    *tl0_valid = 1;
+  }
+
+  *out_layer_id = layer_id;
+  *out_layer_count = temporal_layers;
+  *out_tl0_pic_idx = cur_tl0 & 0xff;
+  *out_layer_sync = layer_sync;
+}
+
 int main(int argc, char **argv) {
   const char *infile_path = NULL;
   const char *outfile_path = NULL;
@@ -202,6 +295,9 @@ int main(int argc, char **argv) {
   const char *max_q_schedule_csv = NULL;
   const char *drop_frame_schedule_csv = NULL;
   const char *fps_schedule_csv = NULL;
+  const char *temporal_bitrates_csv = NULL;
+  const char *temporal_decimators_csv = NULL;
+  const char *temporal_layer_ids_csv = NULL;
   int width = 0, height = 0, frames = 0;
   int fps_num = 30, fps_den = 1;
   int target_kbps = 700;
@@ -221,6 +317,8 @@ int main(int argc, char **argv) {
   int tile_columns = 0;
   int tile_rows = 0;
   int lossless = 0;
+  int temporal_layers = 0;
+  int temporal_periodicity = 0;
   enum vpx_rc_mode end_usage = VPX_Q;
 
   for (int i = 1; i < argc; ++i) {
@@ -296,6 +394,16 @@ int main(int argc, char **argv) {
       drop_frame_schedule_csv = v;
     } else if ((v = flag_value(a, "--fps-schedule"))) {
       fps_schedule_csv = v;
+    } else if ((v = flag_value(a, "--temporal-layers"))) {
+      temporal_layers = parse_int(v, "--temporal-layers");
+    } else if ((v = flag_value(a, "--temporal-bitrates"))) {
+      temporal_bitrates_csv = v;
+    } else if ((v = flag_value(a, "--temporal-decimators"))) {
+      temporal_decimators_csv = v;
+    } else if ((v = flag_value(a, "--temporal-periodicity"))) {
+      temporal_periodicity = parse_int(v, "--temporal-periodicity");
+    } else if ((v = flag_value(a, "--temporal-layer-ids"))) {
+      temporal_layer_ids_csv = v;
     } else if (strcmp(a, "--disable-warning-prompt") == 0) {
     } else {
       fprintf(stderr, "unknown argument: %s\n", a);
@@ -347,6 +455,42 @@ int main(int argc, char **argv) {
   cfg.rc_dropframe_thresh = (unsigned)drop_frame_water_mark;
   cfg.kf_min_dist = (unsigned)kf_min_dist;
   cfg.kf_max_dist = (unsigned)kf_max_dist;
+  if (temporal_layers > 0) {
+    if (temporal_layers > VPX_TS_MAX_LAYERS) {
+      die_msg("--temporal-layers exceeds VPX_TS_MAX_LAYERS");
+    }
+    if (temporal_periodicity <= 0 ||
+        temporal_periodicity > VPX_TS_MAX_PERIODICITY) {
+      die_msg("--temporal-periodicity out of range");
+    }
+    if (!temporal_bitrates_csv || !temporal_decimators_csv ||
+        !temporal_layer_ids_csv) {
+      die_msg("temporal config requires bitrates, decimators, and layer IDs");
+    }
+    int bitrates[VPX_TS_MAX_LAYERS] = {0};
+    int decimators[VPX_TS_MAX_LAYERS] = {0};
+    int layer_ids[VPX_TS_MAX_PERIODICITY] = {0};
+    parse_int_csv_exact(temporal_bitrates_csv, bitrates, temporal_layers,
+                        "--temporal-bitrates");
+    parse_int_csv_exact(temporal_decimators_csv, decimators, temporal_layers,
+                        "--temporal-decimators");
+    parse_int_csv_exact(temporal_layer_ids_csv, layer_ids,
+                        temporal_periodicity, "--temporal-layer-ids");
+    cfg.ts_number_layers = (unsigned int)temporal_layers;
+    cfg.ts_periodicity = (unsigned int)temporal_periodicity;
+    for (int i = 0; i < temporal_layers; ++i) {
+      if (bitrates[i] <= 0) die_msg("--temporal-bitrates must be positive");
+      if (decimators[i] <= 0) die_msg("--temporal-decimators must be positive");
+      cfg.ts_target_bitrate[i] = (unsigned int)bitrates[i];
+      cfg.ts_rate_decimator[i] = (unsigned int)decimators[i];
+    }
+    for (int i = 0; i < temporal_periodicity; ++i) {
+      if (layer_ids[i] < 0 || layer_ids[i] >= temporal_layers) {
+        die_msg("--temporal-layer-ids entry out of range");
+      }
+      cfg.ts_layer_id[i] = (unsigned int)layer_ids[i];
+    }
+  }
 
   vpx_codec_ctx_t ctx;
   if (vpx_codec_enc_init(&ctx, iface, &cfg, 0)) {
@@ -412,6 +556,9 @@ int main(int argc, char **argv) {
   int64_t buffer_level_bits = (int64_t)target_kbps * buffer_initial_ms;
   int64_t buffer_optimal_bits = (int64_t)target_kbps * buffer_optimal_ms;
   int total_emitted = 0;
+  int temporal_ref_layer[3] = {0, 0, 0};
+  int temporal_tl0_pic_idx = 0;
+  int temporal_tl0_valid = 0;
   for (int frame_idx = 0; frame_idx <= frames; ++frame_idx) {
     int have_input = frame_idx < frames;
     vpx_image_t *input_img = NULL;
@@ -509,6 +656,17 @@ int main(int argc, char **argv) {
         if (vpx_codec_control(&ctx, VP8E_GET_LAST_QUANTIZER, &qindex)) {
           die_codec_msg(&ctx, "VP8E_GET_LAST_QUANTIZER");
         }
+        int temporal_layer_id = 0;
+        int temporal_layer_count = 1;
+        int temporal_tl0 = 0;
+        int temporal_sync = 0;
+        vp9_temporal_metadata_for_frame(
+            &cfg, frame_idx, frame_flags, temporal_layers,
+            temporal_periodicity,
+            (pkt->data.frame.flags & VPX_FRAME_IS_KEY) != 0,
+            temporal_ref_layer, &temporal_tl0_pic_idx,
+            &temporal_tl0_valid, &temporal_layer_id,
+            &temporal_layer_count, &temporal_tl0, &temporal_sync);
         fprintf(trace,
                 "{\"row\":\"vp9_frame\",\"frame_index\":%d,"
                 "\"flags\":%u,\"dropped\":false,"
@@ -520,19 +678,28 @@ int main(int argc, char **argv) {
                 "\"buffer_optimal_bits\":%lld,"
                 "\"recode_allowed\":false,"
                 "\"recode_loop_count\":0,"
-                "\"temporal_layer_id\":0,"
-                "\"temporal_layer_count\":1,"
-                "\"temporal_layer_sync\":false}\n",
+                "\"temporal_layer_id\":%d,"
+                "\"temporal_layer_count\":%d,"
+                "\"tl0_pic_idx\":%d,"
+                "\"temporal_layer_sync\":%s}\n",
                 frame_idx, frame_flags,
                 (pkt->data.frame.flags & VPX_FRAME_IS_KEY) ? "true" : "false",
                 show_frame ? "true" : "false", qindex, pkt->data.frame.sz,
                 pkt->data.frame.sz * 8, target_kbps, bits_per_frame,
-                (long long)buffer_level_bits, (long long)buffer_optimal_bits);
+                (long long)buffer_level_bits, (long long)buffer_optimal_bits,
+                temporal_layer_id, temporal_layer_count, temporal_tl0,
+                temporal_sync ? "true" : "false");
       }
     }
     if (trace && have_input && !emitted_this_input && lag_in_frames == 0) {
       buffer_level_bits += bits_per_frame;
       if (buffer_level_bits > buffer_size_bits) buffer_level_bits = buffer_size_bits;
+      int temporal_layer_id = 0;
+      int temporal_layer_count = temporal_layers > 0 ? temporal_layers : 1;
+      if (temporal_layers > 0 && temporal_periodicity > 0) {
+        temporal_layer_id =
+            (int)cfg.ts_layer_id[frame_idx % temporal_periodicity];
+      }
       fprintf(trace,
               "{\"row\":\"vp9_frame\",\"frame_index\":%d,"
               "\"flags\":%u,\"dropped\":true,"
@@ -545,11 +712,13 @@ int main(int argc, char **argv) {
               "\"buffer_optimal_bits\":%lld,"
               "\"recode_allowed\":false,"
               "\"recode_loop_count\":0,"
-              "\"temporal_layer_id\":0,"
-              "\"temporal_layer_count\":1,"
+              "\"temporal_layer_id\":%d,"
+              "\"temporal_layer_count\":%d,"
+              "\"tl0_pic_idx\":0,"
               "\"temporal_layer_sync\":false}\n",
               frame_idx, frame_flags, target_kbps, bits_per_frame,
-              (long long)buffer_level_bits, (long long)buffer_optimal_bits);
+              (long long)buffer_level_bits, (long long)buffer_optimal_bits,
+              temporal_layer_id, temporal_layer_count);
     }
   }
 
