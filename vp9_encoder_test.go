@@ -1587,14 +1587,74 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if cr.HasError() {
 		t.Fatal("compressed header reader reported over-read")
 	}
-	if out.TxMode != common.Allow32x32 {
-		t.Errorf("TxMode = %d, want Allow32x32", out.TxMode)
+	if out.TxMode != common.TxModeSelect {
+		t.Errorf("TxMode = %d, want TxModeSelect", out.TxMode)
 	}
 	if out.ReferenceMode != vp9dec.SingleReference {
 		t.Errorf("ReferenceMode = %d, want SingleReference", out.ReferenceMode)
 	}
 	if compEnd >= len(inter) {
 		t.Fatal("inter frame has no tile payload")
+	}
+}
+
+func TestVP9EncoderInterSelectsTx16ForActiveResidual(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(key)
+	keyHeader, err := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader keyframe: %v", err)
+	}
+	var interBR vp9dec.BitReader
+	interBR.Init(inter)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&interBR, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	uncSize := interBR.BytesRead()
+	compEnd := uncSize + int(interHeader.FirstPartitionSize)
+	if compEnd > len(inter) {
+		t.Fatalf("compressed header end %d past frame %d", compEnd, len(inter))
+	}
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	var cr bitstream.Reader
+	if err := cr.Init(inter[uncSize:compEnd]); err != nil {
+		t.Fatalf("compressed reader Init: %v", err)
+	}
+	out := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless:             false,
+		IntraOnly:            false,
+		KeyFrame:             false,
+		InterpFilter:         vp9dec.InterpEighttap,
+		AllowHighPrecisionMv: false,
+		CompoundRefAllowed:   false,
+	})
+	if out.TxMode != common.TxModeSelect {
+		t.Fatalf("TxMode = %d, want TxModeSelect", out.TxMode)
+	}
+
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	got := d.miGrid[0]
+	if got.Skip != 0 {
+		t.Fatal("top-left block skip=1, want active residual")
+	}
+	if got.TxSize != common.Tx16x16 {
+		t.Fatalf("top-left TxSize = %d, want Tx16x16", got.TxSize)
 	}
 }
 
