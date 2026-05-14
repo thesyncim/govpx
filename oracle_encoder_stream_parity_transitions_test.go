@@ -515,6 +515,33 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	// row pins the packet-writer side of second-pass VBR.
 	assertSegmentByteParity(t, "twopass-e2e-token-parts2", tokenGovpxFrames, tokenLibvpxFrames, 3)
 
+	erTokenOpts := panningOpts
+	erTokenOpts.ErrorResilient = true
+	erTokenOpts.ErrorResilientPartitions = true
+	erTokenOpts.TokenPartitions = 3
+	erTokenGovpxOpts := erTokenOpts
+	erTokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, erTokenOpts, panningSources)
+	erTokenGovpxFrames := encodeFramesWithGovpx(t, erTokenGovpxOpts, panningSources)
+	erTokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-er3-token-parts3", erTokenOpts, erTokenOpts.TargetBitrateKbps, panningSources)
+	assertSegmentByteParity(t, "twopass-e2e-er3-token-parts3", erTokenGovpxFrames, erTokenLibvpxFrames, 3)
+
+	sharpNoiseOpts := panningOpts
+	sharpNoiseOpts.Sharpness = 4
+	sharpNoiseOpts.NoiseSensitivity = 3
+	sharpNoiseGovpxOpts := sharpNoiseOpts
+	sharpNoiseGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, sharpNoiseOpts, panningSources)
+	sharpNoiseGovpxFrames := encodeFramesWithGovpx(t, sharpNoiseGovpxOpts, panningSources)
+	sharpNoiseLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-sharpness4-noise3", sharpNoiseOpts, sharpNoiseOpts.TargetBitrateKbps, panningSources)
+	assertSegmentByteParity(t, "twopass-e2e-sharpness4-noise3", sharpNoiseGovpxFrames, sharpNoiseLibvpxFrames, 1)
+
+	speedOpts := panningOpts
+	speedOpts.CpuUsed = -3
+	speedGovpxOpts := speedOpts
+	speedGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, speedOpts, panningSources)
+	speedGovpxFrames := encodeFramesWithGovpx(t, speedGovpxOpts, panningSources)
+	speedLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-cpu-3", speedOpts, speedOpts.TargetBitrateKbps, panningSources)
+	assertSegmentByteParity(t, "twopass-e2e-cpu-3", speedGovpxFrames, speedLibvpxFrames, 3)
+
 	ssimOpts := panningOpts
 	ssimOpts.Tuning = TuneSSIM
 	ssimGovpxOpts := ssimOpts
@@ -796,6 +823,13 @@ func libvpxTwoPassControlArgs(opts EncoderOptions) []string {
 	var args []string
 	if opts.LookaheadFrames > 0 {
 		args = append(args, "--lag-in-frames="+strconv.Itoa(opts.LookaheadFrames))
+	}
+	if opts.ErrorResilient {
+		value := "1"
+		if opts.ErrorResilientPartitions {
+			value = "3"
+		}
+		args = append(args, "--error-resilient="+value)
 	}
 	if opts.AutoAltRef {
 		args = append(args, "--auto-alt-ref=1")
