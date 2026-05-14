@@ -637,6 +637,67 @@ func TestSetTemporalScalabilitySeedsNewLayerFilterLevelFromColdContext(t *testin
 	}
 }
 
+func TestSetTemporalScalabilityOffRestoresBaseLayerCodingState(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	fullBitsPerFrame := e.rc.bitsPerFrame
+	fullBufferInitialBits := e.rc.bufferInitialBits
+	fullBufferOptimalBits := e.rc.bufferOptimalBits
+	fullMaximumBufferBits := e.rc.maximumBufferBits
+	fullBufferSizeBits := e.rc.bufferSizeBits
+	e.temporal.codingState[0] = temporalLayerCodingState{
+		FilterLevel:              7,
+		BufferLevelBits:          123,
+		BufferInitialBits:        111,
+		BufferOptimalBits:        222,
+		MaximumBufferBits:        333,
+		BitsPerFrame:             444,
+		TotalActualBits:          555,
+		RateCorrectionFactor:     1.25,
+		KeyFrameCorrectionFactor: 1.5,
+		GoldenCorrectionFactor:   1.75,
+		ActiveBestQuantizer:      9,
+		AvgFrameQuantizer:        44,
+		LastQuantizer:            45,
+		LastInterQuantizer:       46,
+		CurrentZbinOverQuant:     11,
+		ForceMaxQuantizer:        true,
+		LastFramePercentIntra:    12,
+		InterFrameTarget:         345,
+	}
+	e.temporal.codingValid[0] = true
+	e.loopFilterLevel = 2
+	e.rc.bufferLevelBits = 999
+	e.rc.rateCorrectionFactor = 9
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); err != nil {
+		t.Fatalf("SetTemporalScalability(off) returned error: %v", err)
+	}
+	if e.temporal.enabled {
+		t.Fatalf("temporal enabled after disabling")
+	}
+	if got := e.loopFilterLevel; got != 7 {
+		t.Fatalf("loop filter after disabling = %d, want restored base-layer 7", got)
+	}
+	if got := e.rc.rateCorrectionFactor; got != 1.25 {
+		t.Fatalf("rate correction after disabling = %v, want restored base-layer 1.25", got)
+	}
+	if got := e.rc.activeBestQuantizer; got != 9 {
+		t.Fatalf("active best after disabling = %d, want restored base-layer 9", got)
+	}
+	if got := e.rc.bufferLevelBits; got != fullBufferInitialBits {
+		t.Fatalf("buffer level after disabling = %d, want full-stream initial %d", got, fullBufferInitialBits)
+	}
+	if e.rc.bitsPerFrame != fullBitsPerFrame ||
+		e.rc.bufferInitialBits != fullBufferInitialBits ||
+		e.rc.bufferOptimalBits != fullBufferOptimalBits ||
+		e.rc.maximumBufferBits != fullMaximumBufferBits ||
+		e.rc.bufferSizeBits != fullBufferSizeBits {
+		t.Fatalf("full-stream rate geometry was not preserved after disabling")
+	}
+	if e.rc.currentTemporalLayers != 1 || e.rc.currentTemporalLayerID != 0 || e.currentTemporalLayer != 0 {
+		t.Fatalf("current temporal state after disabling = layers:%d layer:%d encoder:%d, want 1/0/0", e.rc.currentTemporalLayers, e.rc.currentTemporalLayerID, e.currentTemporalLayer)
+	}
+}
+
 func TestSetTemporalLayerIDOverridesNextFrames(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	src := testImage(16, 16)

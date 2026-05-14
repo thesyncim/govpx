@@ -860,7 +860,10 @@ func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
 	if !e.temporal.codingValid[meta.LayerID] {
 		return
 	}
-	state := e.temporal.codingState[meta.LayerID]
+	e.applyTemporalLayerCodingState(e.temporal.codingState[meta.LayerID])
+}
+
+func (e *VP8Encoder) applyTemporalLayerCodingState(state temporalLayerCodingState) {
 	e.loopFilterLevel = state.FilterLevel
 	e.rc.bufferLevelBits = state.BufferLevelBits
 	if state.BufferInitialBits > 0 {
@@ -896,6 +899,29 @@ func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
 	e.rc.recentRefFrameUsageLast = state.RecentRefFrameUsageLast
 	e.rc.recentRefFrameUsageGolden = state.RecentRefFrameUsageGolden
 	e.rc.recentRefFrameUsageAltRef = state.RecentRefFrameUsageAltRef
+}
+
+func (e *VP8Encoder) restoreBaseLayerCodingStateAfterTemporalDisable(prev temporalState) {
+	if !prev.codingValid[0] {
+		return
+	}
+	bitsPerFrame := e.rc.bitsPerFrame
+	bufferSizeBits := e.rc.bufferSizeBits
+	bufferInitialBits := e.rc.bufferInitialBits
+	bufferOptimalBits := e.rc.bufferOptimalBits
+	maximumBufferBits := e.rc.maximumBufferBits
+	e.applyTemporalLayerCodingState(prev.codingState[0])
+	e.rc.bitsPerFrame = bitsPerFrame
+	e.rc.bufferSizeBits = bufferSizeBits
+	e.rc.bufferInitialBits = bufferInitialBits
+	e.rc.bufferOptimalBits = bufferOptimalBits
+	e.rc.maximumBufferBits = maximumBufferBits
+	e.rc.bufferLevelBits = bufferInitialBits
+	e.rc.currentTemporalLayers = 1
+	e.rc.currentTemporalLayerID = 0
+	e.rc.currentLayerPerFrameBandwidth = 0
+	e.rc.currentLayerOutputFrameRate = 0
+	e.currentTemporalLayer = 0
 }
 
 // saveTemporalLayerCodingState captures the per-layer state that needs to

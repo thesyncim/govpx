@@ -375,7 +375,8 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	wasTemporal := e.temporal.enabled
+	prevTemporal := e.temporal
+	wasTemporal := prevTemporal.enabled
 	filterLevel := e.loopFilterLevel
 	nextTemporal := temporalState{}
 	if err := nextTemporal.configure(cfg, e.rc.targetBitrateKbps); err != nil {
@@ -386,6 +387,9 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	e.initializeTemporalLayerCodingStates()
 	if !wasTemporal && e.temporal.enabled {
 		e.temporal.codingState[0].FilterLevel = filterLevel
+	}
+	if wasTemporal && !e.temporal.enabled {
+		e.restoreBaseLayerCodingStateAfterTemporalDisable(prevTemporal)
 	}
 	e.forceNextLFDeltaUpdate()
 	return nil

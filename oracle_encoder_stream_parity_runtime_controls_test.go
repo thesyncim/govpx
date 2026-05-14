@@ -939,10 +939,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			opts:   baseOpts(panning64),
 			flags:  temporalScalabilityEnableDisableFlags(frames),
 			script: temporalScalabilityEnableDisableScript(frames),
-			// The enable transition keyframe matches. Subsequent layer
-			// packets still expose temporal layer-context drift, and the
-			// disable transition logs the recovery surface.
-			matchLimit: 3,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -1055,12 +1051,11 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
-			name:       "temporal-scalability-five-layer-enable-disable",
-			fx:         panning64,
-			opts:       baseOpts(panning64),
-			flags:      temporalScalabilityWindowFlags(frames, TemporalLayeringFiveLayers, 2, 8),
-			script:     temporalScalabilityWindowScript(frames, TemporalLayeringFiveLayers, 2, 8, "tslayers:5+tsperiodicity:16+tsbitrates:100/220/360/520/700+tsdecimators:16/8/4/2/1+tsids:0/4/3/4/2/4/3/4/1/4/3/4/2/4/3/4"),
-			matchLimit: 3,
+			name:   "temporal-scalability-five-layer-enable-disable",
+			fx:     panning64,
+			opts:   baseOpts(panning64),
+			flags:  temporalScalabilityWindowFlags(frames, TemporalLayeringFiveLayers, 2, 8),
+			script: temporalScalabilityWindowScript(frames, TemporalLayeringFiveLayers, 2, 8, "tslayers:5+tsperiodicity:16+tsbitrates:100/220/360/520/700+tsdecimators:16/8/4/2/1+tsids:0/4/3/4/2/4/3/4/1/4/3/4/2/4/3/4"),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -1077,12 +1072,11 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
-			name:       "temporal-scalability-mode12-enable-disable",
-			fx:         panning64,
-			opts:       baseOpts(panning64),
-			flags:      temporalScalabilityWindowFlags(frames, TemporalLayeringThreeLayersNoSync, 2, 8),
-			script:     temporalScalabilityWindowScript(frames, TemporalLayeringThreeLayersNoSync, 2, 8, "tslayers:3+tsperiodicity:4+tsbitrates:280/420/700+tsdecimators:4/2/1+tsids:0/2/1/2"),
-			matchLimit: 3,
+			name:   "temporal-scalability-mode12-enable-disable",
+			fx:     panning64,
+			opts:   baseOpts(panning64),
+			flags:  temporalScalabilityWindowFlags(frames, TemporalLayeringThreeLayersNoSync, 2, 8),
+			script: temporalScalabilityWindowScript(frames, TemporalLayeringThreeLayersNoSync, 2, 8, "tslayers:3+tsperiodicity:4+tsbitrates:280/420/700+tsdecimators:4/2/1+tsids:0/2/1/2"),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -3883,9 +3877,6 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 			opts:   baseOpts(panning64, 0),
 			flags:  temporalScalabilityWindowFlags(12, TemporalLayeringTwoLayers, 2, 12),
 			script: twoLayerEnableScript,
-			// The enable keyframe matches; the first inter-layer packet
-			// after enabling exposes the existing temporal context drift.
-			matchLimit: 3,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer"),
 			},
@@ -3898,8 +3889,6 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 			flags:     temporalScalabilityWindowFlags(12, TemporalLayeringTwoLayers, 0, 6),
 			script:    twoLayerDisableScript,
 			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-			// The pure temporal stream matches until the disable packet.
-			matchLimit: 6,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				6: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -3908,13 +3897,12 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 			},
 		},
 		{
-			name:       "three-layer-enable-disable-only",
-			fx:         panning64,
-			frames:     12,
-			opts:       baseOpts(panning64, 0),
-			flags:      temporalScalabilityWindowFlags(12, TemporalLayeringThreeLayers, 2, 8),
-			script:     temporalScalabilityWindowScript(12, TemporalLayeringThreeLayers, 2, 8, runtimeTemporalControlToken(TemporalLayeringThreeLayers, targetKbps)),
-			matchLimit: 3,
+			name:   "three-layer-enable-disable-only",
+			fx:     panning64,
+			frames: 12,
+			opts:   baseOpts(panning64, 0),
+			flags:  temporalScalabilityWindowFlags(12, TemporalLayeringThreeLayers, 2, 8),
+			script: temporalScalabilityWindowScript(12, TemporalLayeringThreeLayers, 2, 8, runtimeTemporalControlToken(TemporalLayeringThreeLayers, targetKbps)),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: runtimeTemporalApply(TemporalLayeringThreeLayers, targetKbps, "three-layer"),
 				8: func(t *testing.T, e *VP8Encoder) {
@@ -3924,13 +3912,12 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 			},
 		},
 		{
-			name:       "two-layer-with-sync-enable-disable-only",
-			fx:         panning64,
-			frames:     12,
-			opts:       baseOpts(panning64, 0),
-			flags:      temporalScalabilityWindowFlags(12, TemporalLayeringTwoLayersWithSync, 2, 8),
-			script:     temporalScalabilityWindowScript(12, TemporalLayeringTwoLayersWithSync, 2, 8, runtimeTemporalControlToken(TemporalLayeringTwoLayersWithSync, targetKbps)),
-			matchLimit: 3,
+			name:   "two-layer-with-sync-enable-disable-only",
+			fx:     panning64,
+			frames: 12,
+			opts:   baseOpts(panning64, 0),
+			flags:  temporalScalabilityWindowFlags(12, TemporalLayeringTwoLayersWithSync, 2, 8),
+			script: temporalScalabilityWindowScript(12, TemporalLayeringTwoLayersWithSync, 2, 8, runtimeTemporalControlToken(TemporalLayeringTwoLayersWithSync, targetKbps)),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: runtimeTemporalApply(TemporalLayeringTwoLayersWithSync, targetKbps, "two-layer-with-sync"),
 				8: func(t *testing.T, e *VP8Encoder) {
@@ -3953,13 +3940,12 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		modeName := tc.name
 		mode := tc.mode
 		cases = append(cases, temporalCase{
-			name:       modeName,
-			fx:         panning64,
-			frames:     12,
-			opts:       baseOpts(panning64, 0),
-			flags:      temporalScalabilityWindowFlags(12, mode, 2, 8),
-			script:     temporalScalabilityWindowScript(12, mode, 2, 8, runtimeTemporalControlToken(mode, targetKbps)),
-			matchLimit: 3,
+			name:   modeName,
+			fx:     panning64,
+			frames: 12,
+			opts:   baseOpts(panning64, 0),
+			flags:  temporalScalabilityWindowFlags(12, mode, 2, 8),
+			script: temporalScalabilityWindowScript(12, mode, 2, 8, runtimeTemporalControlToken(mode, targetKbps)),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: runtimeTemporalApply(mode, targetKbps, modeName),
 				8: func(t *testing.T, e *VP8Encoder) {
@@ -3975,13 +3961,12 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		mode := TemporalLayeringFiveLayers
 		script := temporalScalabilityWindowScript(frames, mode, 2, frames, runtimeTemporalControlToken(mode, targetKbps))
 		cases = append(cases, temporalCase{
-			name:       "five-layer-enable-only-cpu" + strconv.Itoa(cpuUsed),
-			fx:         panning64,
-			frames:     frames,
-			opts:       baseOpts(panning64, cpuUsed),
-			flags:      temporalScalabilityWindowFlags(frames, mode, 2, frames),
-			script:     script,
-			matchLimit: 3,
+			name:   "five-layer-enable-only-cpu" + strconv.Itoa(cpuUsed),
+			fx:     panning64,
+			frames: frames,
+			opts:   baseOpts(panning64, cpuUsed),
+			flags:  temporalScalabilityWindowFlags(frames, mode, 2, frames),
+			script: script,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				2: runtimeTemporalApply(mode, targetKbps, "five-layer"),
 			},
@@ -3992,14 +3977,13 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		frames := 18
 		mode := TemporalLayeringFiveLayers
 		cases = append(cases, temporalCase{
-			name:       "five-layer-disable-only-cpu-3",
-			fx:         panning64,
-			frames:     frames,
-			opts:       temporalOpts(panning64, -3, mode),
-			flags:      temporalScalabilityWindowFlags(frames, mode, 0, 10),
-			script:     runtimeTemporalDisableScript(frames, mode, 10, targetKbps),
-			extraArgs:  runtimeTemporalExtraArgs(mode, targetKbps),
-			matchLimit: 8,
+			name:      "five-layer-disable-only-cpu-3",
+			fx:        panning64,
+			frames:    frames,
+			opts:      temporalOpts(panning64, -3, mode),
+			flags:     temporalScalabilityWindowFlags(frames, mode, 0, 10),
+			script:    runtimeTemporalDisableScript(frames, mode, 10, targetKbps),
+			extraArgs: runtimeTemporalExtraArgs(mode, targetKbps),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				10: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -4013,27 +3997,25 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		frames := 18
 		cases = append(cases,
 			temporalCase{
-				name:       "two-layer-to-five-layer-transition",
-				fx:         panning64,
-				frames:     frames,
-				opts:       temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
-				flags:      temporalScalabilityModeSwitchFlags(frames, TemporalLayeringTwoLayers, TemporalLayeringFiveLayers, 8),
-				script:     temporalScalabilityModeSwitchScript(frames, TemporalLayeringTwoLayers, TemporalLayeringFiveLayers, 8, targetKbps),
-				extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-				matchLimit: 8,
+				name:      "two-layer-to-five-layer-transition",
+				fx:        panning64,
+				frames:    frames,
+				opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+				flags:     temporalScalabilityModeSwitchFlags(frames, TemporalLayeringTwoLayers, TemporalLayeringFiveLayers, 8),
+				script:    temporalScalabilityModeSwitchScript(frames, TemporalLayeringTwoLayers, TemporalLayeringFiveLayers, 8, targetKbps),
+				extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
 				apply: map[int]func(*testing.T, *VP8Encoder){
 					8: runtimeTemporalApply(TemporalLayeringFiveLayers, targetKbps, "five-layer"),
 				},
 			},
 			temporalCase{
-				name:       "five-layer-to-two-layer-transition",
-				fx:         panning64,
-				frames:     frames,
-				opts:       temporalOpts(panning64, 0, TemporalLayeringFiveLayers),
-				flags:      temporalScalabilityModeSwitchFlags(frames, TemporalLayeringFiveLayers, TemporalLayeringTwoLayers, 10),
-				script:     temporalScalabilityModeSwitchScript(frames, TemporalLayeringFiveLayers, TemporalLayeringTwoLayers, 10, targetKbps),
-				extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringFiveLayers, targetKbps),
-				matchLimit: 8,
+				name:      "five-layer-to-two-layer-transition",
+				fx:        panning64,
+				frames:    frames,
+				opts:      temporalOpts(panning64, 0, TemporalLayeringFiveLayers),
+				flags:     temporalScalabilityModeSwitchFlags(frames, TemporalLayeringFiveLayers, TemporalLayeringTwoLayers, 10),
+				script:    temporalScalabilityModeSwitchScript(frames, TemporalLayeringFiveLayers, TemporalLayeringTwoLayers, 10, targetKbps),
+				extraArgs: runtimeTemporalExtraArgs(TemporalLayeringFiveLayers, targetKbps),
 				apply: map[int]func(*testing.T, *VP8Encoder){
 					10: runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer"),
 				},
@@ -4052,14 +4034,13 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 	appendRuntimeControl(twoLayerCPUScript, 4, "cpu:-3")
 	appendRuntimeControl(twoLayerCPUScript, 8, "cpu:0")
 	cases = append(cases, temporalCase{
-		name:       "two-layer-cpu-used-roundtrip",
-		fx:         panning64,
-		frames:     12,
-		opts:       temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
-		flags:      twoLayerFlags(12),
-		script:     twoLayerCPUScript,
-		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-		matchLimit: 8,
+		name:      "two-layer-cpu-used-roundtrip",
+		fx:        panning64,
+		frames:    12,
+		opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    twoLayerCPUScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
 		apply: map[int]func(*testing.T, *VP8Encoder){
 			4: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
