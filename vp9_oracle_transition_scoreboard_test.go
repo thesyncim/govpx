@@ -28,12 +28,36 @@ func TestVP9OracleFrameFlagTransitionScoreboard(t *testing.T) {
 			flags: vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame),
 		},
 		{
+			name:  "force-kf-frame1",
+			flags: vp9OracleFlagAt(frames, 1, EncodeForceKeyFrame),
+		},
+		{
+			name:  "force-kf-every-frame",
+			flags: vp9OracleRepeatAllFramesFlag(frames, EncodeForceKeyFrame),
+		},
+		{
 			name:  "repeat-no-update-last",
 			flags: vp9OracleRepeatInterFlag(frames, EncodeNoUpdateLast),
 		},
 		{
+			name:  "repeat-no-update-golden",
+			flags: vp9OracleRepeatInterFlag(frames, EncodeNoUpdateGolden),
+		},
+		{
+			name:  "repeat-no-update-altref",
+			flags: vp9OracleRepeatInterFlag(frames, EncodeNoUpdateAltRef),
+		},
+		{
 			name:  "repeat-no-update-golden-altref",
 			flags: vp9OracleRepeatInterFlag(frames, EncodeNoUpdateGolden|EncodeNoUpdateAltRef),
+		},
+		{
+			name:  "repeat-no-reference-golden",
+			flags: vp9OracleRepeatInterFlag(frames, EncodeNoReferenceGolden),
+		},
+		{
+			name:  "repeat-no-reference-altref",
+			flags: vp9OracleRepeatInterFlag(frames, EncodeNoReferenceAltRef),
 		},
 		{
 			name:  "repeat-no-reference-golden-altref",
@@ -81,33 +105,7 @@ func TestVP9OracleRuntimeControlTransitionScoreboard(t *testing.T) {
 	sources := newVP9OracleTransitionSources(width, height, frames)
 	rows := captureVP9RateScoreboardRowsWithHooks(t, opts, sources, nil,
 		func(enc *VP9Encoder, frame int) {
-			switch frame {
-			case 2:
-				if err := enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}); err != nil {
-					t.Fatalf("SetRealtimeTarget bitrate at frame %d: %v", frame, err)
-				}
-			case 4:
-				if err := enc.SetRealtimeTarget(RealtimeTarget{
-					MinQuantizer: 20,
-					MaxQuantizer: 20,
-				}); err != nil {
-					t.Fatalf("SetRealtimeTarget quantizers at frame %d: %v", frame, err)
-				}
-			case 5:
-				if err := enc.SetRealtimeTarget(RealtimeTarget{FPS: 15}); err != nil {
-					t.Fatalf("SetRealtimeTarget fps at frame %d: %v", frame, err)
-				}
-			case 6:
-				if err := enc.SetRealtimeTarget(RealtimeTarget{
-					FrameDrop: RealtimeFrameDropDisabled,
-				}); err != nil {
-					t.Fatalf("SetRealtimeTarget disable drop at frame %d: %v", frame, err)
-				}
-			case 8:
-				if err := enc.SetFrameDropAllowed(true); err != nil {
-					t.Fatalf("SetFrameDropAllowed at frame %d: %v", frame, err)
-				}
-			}
+			vp9ApplyRuntimeControlTransition(t, enc, frame)
 		})
 
 	if len(rows) != frames {
@@ -133,6 +131,40 @@ func TestVP9OracleRuntimeControlTransitionScoreboard(t *testing.T) {
 	}
 	t.Logf("VP9 runtime control transition rows:\n%s",
 		formatVP9SingleRateScoreboardRows(rows))
+}
+
+func TestVP9OracleRuntimeControlTransitionParityScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-control transition parity scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 10
+	opts := vp9OracleCBROptions(width, height, 900)
+	opts.DropFrameAllowed = true
+	opts.DropFrameWaterMark = 60
+	sources := newVP9OracleTransitionSources(width, height, frames)
+	govpxRows := captureVP9RateScoreboardRowsWithHooks(t, opts, sources, nil,
+		func(enc *VP9Encoder, frame int) {
+			vp9ApplyRuntimeControlTransition(t, enc, frame)
+		})
+	extraArgs := append(vp9OracleCBRArgs(900, 600, 400, 500, 60),
+		"--target-bitrate-schedule=2:300",
+		"--min-q-schedule=4:20",
+		"--max-q-schedule=4:20",
+		"--fps-schedule=5:15",
+		"--drop-frame-schedule=6:0,8:60")
+	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+		sources, nil, extraArgs)
+
+	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+	t.Logf("VP9 runtime-control transition parity scoreboard: %s", stats)
+	t.Logf("VP9 runtime-control transition parity rows:\n%s",
+		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+	if os.Getenv("GOVPX_VP9_RUNTIME_TRANSITION_STRICT") == "1" &&
+		stats.hasMismatch() {
+		t.Fatalf("strict VP9 runtime-control transition mismatch: %s", stats)
+	}
 }
 
 func TestVP9OracleTemporalControlTransitionScoreboard(t *testing.T) {
@@ -184,6 +216,52 @@ func TestVP9OracleTemporalControlTransitionScoreboard(t *testing.T) {
 		formatVP9SingleRateScoreboardRows(rows))
 }
 
+func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 temporal flag-pattern scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 12
+	cases := []struct {
+		name string
+		mode TemporalLayeringMode
+	}{
+		{name: "two-layer", mode: TemporalLayeringTwoLayers},
+		{name: "three-layer", mode: TemporalLayeringThreeLayers},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern, ok := temporalLayeringPattern(tc.mode)
+			if !ok {
+				t.Fatalf("temporalLayeringPattern(%d) failed", tc.mode)
+			}
+			opts := vp9OracleCBROptions(width, height, 700)
+			opts.TemporalScalability = TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    tc.mode,
+			}
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
+			flags := vp9OracleTemporalPatternFlags(pattern, frames)
+			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+				sources, flags, vp9OracleCBRArgs(700, 600, 400, 500, 0))
+			vp9ApplyExpectedTemporalMetadata(libvpxRows,
+				buildExpectedTemporalPattern(pattern, frames), pattern.Layers)
+
+			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			t.Logf("VP9 temporal flag-pattern scoreboard %s: %s", tc.name, stats)
+			t.Logf("VP9 temporal flag-pattern rows %s:\n%s",
+				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+			if os.Getenv("GOVPX_VP9_TEMPORAL_PATTERN_STRICT") == "1" &&
+				stats.hasMismatch() {
+				t.Fatalf("strict VP9 temporal flag-pattern mismatch %s: %s",
+					tc.name, stats)
+			}
+		})
+	}
+}
+
 func TestVP9OracleInvisibleFrameVisibilityScoreboard(t *testing.T) {
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
@@ -222,36 +300,50 @@ func TestVP9OracleInvisibleFrameVisibilityScoreboard(t *testing.T) {
 }
 
 type vp9OracleTransitionStats struct {
-	Rows               int
-	FlagMismatches     int
-	DropMismatches     int
-	KeyMismatches      int
-	ShowMismatches     int
-	QMismatches        int
-	SizeMismatches     int
-	TargetMismatches   int
-	BufferMismatches   int
-	RefreshMismatches  int
-	TemporalMismatches int
-	MaxQDrift          int
-	MaxSizeDeltaPct    float64
-	MaxBufferDeltaPct  float64
+	Rows                     int
+	FlagMismatches           int
+	DropMismatches           int
+	KeyMismatches            int
+	ShowMismatches           int
+	QMismatches              int
+	PublicQMismatches        int
+	SizeMismatches           int
+	FirstPartitionMismatches int
+	TargetMismatches         int
+	BufferMismatches         int
+	RefreshMismatches        int
+	HeaderMismatches         int
+	ModeHeaderMismatches     int
+	LoopFilterMismatches     int
+	TileMismatches           int
+	TemporalMismatches       int
+	TL0Mismatches            int
+	MaxQDrift                int
+	MaxSizeDeltaPct          float64
+	MaxBufferDeltaPct        float64
 }
 
 func (s vp9OracleTransitionStats) hasMismatch() bool {
 	return s.FlagMismatches != 0 || s.DropMismatches != 0 ||
 		s.KeyMismatches != 0 || s.ShowMismatches != 0 ||
-		s.QMismatches != 0 || s.SizeMismatches != 0 ||
+		s.QMismatches != 0 || s.PublicQMismatches != 0 ||
+		s.SizeMismatches != 0 || s.FirstPartitionMismatches != 0 ||
 		s.TargetMismatches != 0 || s.BufferMismatches != 0 ||
-		s.RefreshMismatches != 0 || s.TemporalMismatches != 0
+		s.RefreshMismatches != 0 || s.HeaderMismatches != 0 ||
+		s.ModeHeaderMismatches != 0 || s.LoopFilterMismatches != 0 ||
+		s.TileMismatches != 0 || s.TemporalMismatches != 0 ||
+		s.TL0Mismatches != 0
 }
 
 func (s vp9OracleTransitionStats) String() string {
-	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d q=%d size=%d target=%d buffer=%d refresh=%d temporal=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f",
+	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d q=%d public_q=%d size=%d first_part=%d target=%d buffer=%d refresh=%d header=%d mode_header=%d lf=%d tile=%d temporal=%d tl0=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f",
 		s.Rows, s.FlagMismatches, s.DropMismatches, s.KeyMismatches,
-		s.ShowMismatches, s.QMismatches, s.SizeMismatches, s.TargetMismatches,
-		s.BufferMismatches, s.RefreshMismatches, s.TemporalMismatches,
-		s.MaxQDrift, s.MaxSizeDeltaPct, s.MaxBufferDeltaPct)
+		s.ShowMismatches, s.QMismatches, s.PublicQMismatches,
+		s.SizeMismatches, s.FirstPartitionMismatches, s.TargetMismatches,
+		s.BufferMismatches, s.RefreshMismatches, s.HeaderMismatches,
+		s.ModeHeaderMismatches, s.LoopFilterMismatches, s.TileMismatches,
+		s.TemporalMismatches, s.TL0Mismatches, s.MaxQDrift,
+		s.MaxSizeDeltaPct, s.MaxBufferDeltaPct)
 }
 
 func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9RateScoreboardRow) vp9OracleTransitionStats {
@@ -300,11 +392,18 @@ func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9Rat
 				stats.MaxQDrift = drift
 			}
 		}
+		if !g.Dropped && !l.Dropped && g.PublicQuantizer != l.PublicQuantizer {
+			stats.PublicQMismatches++
+		}
 		if g.SizeBits != l.SizeBits {
 			stats.SizeMismatches++
 			if delta := pctDelta(g.SizeBits, l.SizeBits); delta > stats.MaxSizeDeltaPct {
 				stats.MaxSizeDeltaPct = delta
 			}
+		}
+		if !g.Dropped && !l.Dropped &&
+			g.FirstPartitionSize != l.FirstPartitionSize {
+			stats.FirstPartitionMismatches++
 		}
 		if g.TargetBitrateKbps != l.TargetBitrateKbps ||
 			g.FrameTargetBits != l.FrameTargetBits {
@@ -319,10 +418,37 @@ func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9Rat
 		if g.RefreshFrameFlags != l.RefreshFrameFlags {
 			stats.RefreshMismatches++
 		}
+		if !g.Dropped && !l.Dropped &&
+			(g.RefreshFrameContext != l.RefreshFrameContext ||
+				g.ErrorResilient != l.ErrorResilient ||
+				g.FrameParallel != l.FrameParallel ||
+				g.FrameContextIdx != l.FrameContextIdx) {
+			stats.HeaderMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			(g.TxMode != l.TxMode ||
+				g.InterpFilter != l.InterpFilter ||
+				g.ReferenceMode != l.ReferenceMode ||
+				g.CompoundAllowed != l.CompoundAllowed ||
+				g.ReferenceMask != l.ReferenceMask) {
+			stats.ModeHeaderMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			g.LoopFilterLevel != l.LoopFilterLevel {
+			stats.LoopFilterMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			(g.TileLog2Cols != l.TileLog2Cols ||
+				g.TileLog2Rows != l.TileLog2Rows) {
+			stats.TileMismatches++
+		}
 		if g.TemporalLayerID != l.TemporalLayerID ||
 			g.TemporalLayerCount != l.TemporalLayerCount ||
 			g.TemporalLayerSync != l.TemporalLayerSync {
 			stats.TemporalMismatches++
+		}
+		if g.TL0PICIDX != l.TL0PICIDX {
+			stats.TL0Mismatches++
 		}
 	}
 	return stats
@@ -380,6 +506,73 @@ func vp9OracleRepeatInterFlag(frames int, flag EncodeFlags) []EncodeFlags {
 	return flags
 }
 
+func vp9OracleRepeatAllFramesFlag(frames int, flag EncodeFlags) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	for i := range flags {
+		flags[i] = flag
+	}
+	return flags
+}
+
+func vp9ApplyRuntimeControlTransition(t *testing.T, enc *VP9Encoder, frame int) {
+	t.Helper()
+	switch frame {
+	case 2:
+		if err := enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}); err != nil {
+			t.Fatalf("SetRealtimeTarget bitrate at frame %d: %v", frame, err)
+		}
+	case 4:
+		if err := enc.SetRealtimeTarget(RealtimeTarget{
+			MinQuantizer: 20,
+			MaxQuantizer: 20,
+		}); err != nil {
+			t.Fatalf("SetRealtimeTarget quantizers at frame %d: %v", frame, err)
+		}
+	case 5:
+		if err := enc.SetRealtimeTarget(RealtimeTarget{FPS: 15}); err != nil {
+			t.Fatalf("SetRealtimeTarget fps at frame %d: %v", frame, err)
+		}
+	case 6:
+		if err := enc.SetRealtimeTarget(RealtimeTarget{
+			FrameDrop: RealtimeFrameDropDisabled,
+		}); err != nil {
+			t.Fatalf("SetRealtimeTarget disable drop at frame %d: %v", frame, err)
+		}
+	case 8:
+		if err := enc.SetFrameDropAllowed(true); err != nil {
+			t.Fatalf("SetFrameDropAllowed at frame %d: %v", frame, err)
+		}
+	}
+}
+
+func vp9OracleTemporalPatternFlags(pattern temporalPattern, frames int) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	for i := range flags {
+		flagIndex := i % pattern.FlagPeriodicity
+		f := pattern.Flags[flagIndex]
+		if i > 0 && flagIndex == 0 {
+			f &^= EncodeForceKeyFrame
+		}
+		if i == 0 {
+			f &^= vp9NoUpdateRefFlags
+		}
+		flags[i] = f
+	}
+	return flags
+}
+
+func vp9ApplyExpectedTemporalMetadata(rows []vp9RateScoreboardRow, expected []expectedTemporalRow, layers int) {
+	for i := range rows {
+		if i >= len(expected) {
+			return
+		}
+		rows[i].TemporalLayerID = expected[i].layerID
+		rows[i].TemporalLayerCount = layers
+		rows[i].TemporalLayerSync = expected[i].layerSync
+		rows[i].TL0PICIDX = uint8(expected[i].tl0picidx)
+	}
+}
+
 func vp9OracleRefRefreshTransitions(frames int) []EncodeFlags {
 	flags := make([]EncodeFlags, frames)
 	if frames > 2 {
@@ -408,13 +601,17 @@ func vp9OracleAlternatingReferenceControls(frames int) []EncodeFlags {
 
 func formatVP9SingleRateScoreboardRows(rows []vp9RateScoreboardRow) string {
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,q,bits,target,frame_target,buffer,refresh,tid,tlayers,tsync")
+	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
 	for _, row := range rows {
-		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%#x,%d,%d,%t\n",
+		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%t,%d,%d,%d,%#x,%d,%d,%d,%d,%d,%t\n",
 			row.FrameIndex, row.Flags, row.Dropped, row.DropReason, row.KeyFrame,
-			row.ShowFrame, row.BaseQIndex, row.SizeBits, row.TargetBitrateKbps,
+			row.ShowFrame, row.BaseQIndex, row.PublicQuantizer, row.SizeBytes,
+			row.SizeBits, row.FirstPartitionSize, row.TargetBitrateKbps,
 			row.FrameTargetBits, row.BufferLevelBits, row.RefreshFrameFlags,
-			row.TemporalLayerID, row.TemporalLayerCount, row.TemporalLayerSync)
+			row.RefreshFrameContext, row.TxMode, row.InterpFilter,
+			row.ReferenceMode, row.ReferenceMask, row.LoopFilterLevel,
+			row.TileLog2Cols, row.TemporalLayerID, row.TemporalLayerCount,
+			row.TL0PICIDX, row.TemporalLayerSync)
 	}
 	return b.String()
 }

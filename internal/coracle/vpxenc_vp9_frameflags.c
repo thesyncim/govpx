@@ -152,11 +152,56 @@ static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
   return out;
 }
 
+static int *parse_int_schedule(const char *csv, int frames, const char *flag) {
+  if (!csv) return NULL;
+  if (frames <= 0) die_msg("invalid schedule frame count");
+  int *out = (int *)malloc((size_t)frames * sizeof(*out));
+  if (!out) die_msg("malloc int schedule");
+  for (int i = 0; i < frames; ++i) out[i] = -1;
+
+  const char *start = csv;
+  while (*start) {
+    const char *end = strchr(start, ',');
+    size_t len = end ? (size_t)(end - start) : strlen(start);
+    char buf[64];
+    if (len == 0 || len >= sizeof(buf)) {
+      fprintf(stderr, "invalid %s token length\n", flag);
+      exit(EXIT_FAILURE);
+    }
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+
+    char *colon = strchr(buf, ':');
+    if (!colon) {
+      fprintf(stderr, "invalid %s token, want frame:value: %s\n", flag, buf);
+      exit(EXIT_FAILURE);
+    }
+    *colon = '\0';
+    int frame = parse_int(buf, flag);
+    int value = parse_int(colon + 1, flag);
+    if (frame < 0 || frame >= frames) {
+      fprintf(stderr, "%s frame index out of range: %d for %d frames\n", flag,
+              frame, frames);
+      exit(EXIT_FAILURE);
+    }
+    out[frame] = value;
+
+    if (!end) break;
+    start = end + 1;
+  }
+  return out;
+}
+
 int main(int argc, char **argv) {
   const char *infile_path = NULL;
   const char *outfile_path = NULL;
   const char *trace_path = NULL;
   const char *frame_flags_csv = NULL;
+  const char *target_bitrate_schedule_csv = NULL;
+  const char *min_q_schedule_csv = NULL;
+  const char *max_q_schedule_csv = NULL;
+  const char *drop_frame_schedule_csv = NULL;
+  const char *fps_schedule_csv = NULL;
   int width = 0, height = 0, frames = 0;
   int fps_num = 30, fps_den = 1;
   int target_kbps = 700;
@@ -241,6 +286,16 @@ int main(int argc, char **argv) {
       end_usage = parse_end_usage(v);
     } else if ((v = flag_value(a, "--frame-flags"))) {
       frame_flags_csv = v;
+    } else if ((v = flag_value(a, "--target-bitrate-schedule"))) {
+      target_bitrate_schedule_csv = v;
+    } else if ((v = flag_value(a, "--min-q-schedule"))) {
+      min_q_schedule_csv = v;
+    } else if ((v = flag_value(a, "--max-q-schedule"))) {
+      max_q_schedule_csv = v;
+    } else if ((v = flag_value(a, "--drop-frame-schedule"))) {
+      drop_frame_schedule_csv = v;
+    } else if ((v = flag_value(a, "--fps-schedule"))) {
+      fps_schedule_csv = v;
     } else if (strcmp(a, "--disable-warning-prompt") == 0) {
     } else {
       fprintf(stderr, "unknown argument: %s\n", a);
@@ -256,6 +311,18 @@ int main(int argc, char **argv) {
   int frame_flag_count = 0;
   unsigned int *per_frame_flags =
       parse_frame_flags(frame_flags_csv, &frame_flag_count);
+  int *target_bitrate_schedule =
+      parse_int_schedule(target_bitrate_schedule_csv, frames,
+                         "--target-bitrate-schedule");
+  int *min_q_schedule =
+      parse_int_schedule(min_q_schedule_csv, frames, "--min-q-schedule");
+  int *max_q_schedule =
+      parse_int_schedule(max_q_schedule_csv, frames, "--max-q-schedule");
+  int *drop_frame_schedule =
+      parse_int_schedule(drop_frame_schedule_csv, frames,
+                         "--drop-frame-schedule");
+  int *fps_schedule =
+      parse_int_schedule(fps_schedule_csv, frames, "--fps-schedule");
 
   vpx_codec_iface_t *iface = vpx_codec_vp9_cx();
   vpx_codec_enc_cfg_t cfg;
@@ -349,6 +416,42 @@ int main(int argc, char **argv) {
     int have_input = frame_idx < frames;
     vpx_image_t *input_img = NULL;
     if (have_input) {
+      int config_changed = 0;
+      if (target_bitrate_schedule &&
+          target_bitrate_schedule[frame_idx] >= 0) {
+        target_kbps = target_bitrate_schedule[frame_idx];
+        cfg.rc_target_bitrate = (unsigned)target_kbps;
+        config_changed = 1;
+      }
+      if (min_q_schedule && min_q_schedule[frame_idx] >= 0) {
+        min_q = min_q_schedule[frame_idx];
+        cfg.rc_min_quantizer = (unsigned)min_q;
+        config_changed = 1;
+      }
+      if (max_q_schedule && max_q_schedule[frame_idx] >= 0) {
+        max_q = max_q_schedule[frame_idx];
+        cfg.rc_max_quantizer = (unsigned)max_q;
+        config_changed = 1;
+      }
+      if (drop_frame_schedule && drop_frame_schedule[frame_idx] >= 0) {
+        drop_frame_water_mark = drop_frame_schedule[frame_idx];
+        cfg.rc_dropframe_thresh = (unsigned)drop_frame_water_mark;
+        config_changed = 1;
+      }
+      if (fps_schedule && fps_schedule[frame_idx] > 0) {
+        fps_num = fps_schedule[frame_idx];
+        config_changed = 1;
+      }
+      if (min_q > max_q) die_msg("runtime min-q exceeds max-q");
+      if (config_changed && vpx_codec_enc_config_set(&ctx, &cfg)) {
+        die_codec_msg(&ctx, "vpx_codec_enc_config_set");
+      }
+      frame_duration = (fps_den * 1000) / fps_num;
+      if (frame_duration <= 0) frame_duration = 1;
+      bits_per_frame = (target_kbps * 1000 * fps_den) / fps_num;
+      buffer_size_bits = (int64_t)target_kbps * buffer_size_ms;
+      buffer_optimal_bits = (int64_t)target_kbps * buffer_optimal_ms;
+
       if (fread(plane_buf, 1, frame_size, in) != frame_size) {
         fprintf(stderr, "short read from %s at frame %d\n", infile_path,
                 frame_idx);
@@ -457,6 +560,11 @@ int main(int argc, char **argv) {
   if (vpx_codec_destroy(&ctx)) die_codec_msg(&ctx, "vpx_codec_destroy");
   vpx_img_free(&img);
   free(per_frame_flags);
+  free(target_bitrate_schedule);
+  free(min_q_schedule);
+  free(max_q_schedule);
+  free(drop_frame_schedule);
+  free(fps_schedule);
   if (total_emitted == 0) die_msg("no frames emitted by encoder");
   return 0;
 }

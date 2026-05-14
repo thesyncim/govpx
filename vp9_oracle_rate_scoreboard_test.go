@@ -14,6 +14,8 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
@@ -184,23 +186,43 @@ func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
 }
 
 type vp9RateScoreboardRow struct {
-	FrameIndex         int
-	Flags              uint32
-	Dropped            bool
-	DropReason         string
-	KeyFrame           bool
-	ShowFrame          bool
-	BaseQIndex         int
-	SizeBits           int
-	TargetBitrateKbps  int
-	FrameTargetBits    int
-	BufferLevelBits    int
-	RefreshFrameFlags  uint8
-	TemporalLayerID    int
-	TemporalLayerCount int
-	TemporalLayerSync  bool
-	RecodeAllowed      bool
-	RecodeLoopCount    int
+	FrameIndex           int
+	Flags                uint32
+	Dropped              bool
+	DropReason           string
+	KeyFrame             bool
+	ShowFrame            bool
+	BaseQIndex           int
+	PublicQuantizer      int
+	SizeBytes            int
+	SizeBits             int
+	FirstPartitionSize   int
+	TargetBitrateKbps    int
+	FrameTargetBits      int
+	BufferLevelBits      int
+	BufferOptimalBits    int
+	RefreshFrameFlags    uint8
+	RefreshFrameContext  bool
+	ErrorResilient       bool
+	FrameParallel        bool
+	FrameContextIdx      int
+	TxMode               int
+	InterpFilter         int
+	ReferenceMode        int
+	CompoundAllowed      bool
+	ReferenceMask        uint8
+	LoopFilterLevel      int
+	TemporalLayerID      int
+	TemporalLayerCount   int
+	TemporalLayerSync    bool
+	TL0PICIDX            uint8
+	RecodeAllowed        bool
+	RecodeLoopCount      int
+	ActiveBestQ          int
+	ActiveWorstQ         int
+	RateCorrectionFactor float64
+	TileLog2Cols         int
+	TileLog2Rows         int
 }
 
 func captureVP9RateScoreboardRows(t *testing.T, opts VP9EncoderOptions,
@@ -271,8 +293,7 @@ func captureLibvpxVP9RateScoreboardRows(t *testing.T, width int, height int,
 		if err != nil {
 			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
 		}
-		header, _ := parseVP9EncoderHeaderForTest(t, frame.Data)
-		rows[i].RefreshFrameFlags = header.RefreshFrameFlags
+		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], frame.Data)
 	}
 	return rows
 }
@@ -283,25 +304,44 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 	scan := bufio.NewScanner(bytes.NewReader(trace))
 	for scan.Scan() {
 		var raw struct {
-			Row                string `json:"row"`
-			FrameIndex         int    `json:"frame_index"`
-			Flags              uint32 `json:"flags"`
-			Dropped            bool   `json:"dropped"`
-			DropReason         string `json:"drop_reason"`
-			KeyFrame           bool   `json:"key_frame"`
-			ShowFrame          bool   `json:"show_frame"`
-			BaseQIndex         int    `json:"base_qindex"`
-			SizeBytes          int    `json:"size_bytes"`
-			SizeBits           int    `json:"size_bits"`
-			TargetBitrateKbps  int    `json:"target_bitrate_kbps"`
-			FrameTargetBits    int    `json:"frame_target_bits"`
-			BufferLevelBits    int    `json:"buffer_level_bits"`
-			RefreshFrameFlags  uint8  `json:"refresh_frame_flags"`
-			TemporalLayerID    int    `json:"temporal_layer_id"`
-			TemporalLayerCount int    `json:"temporal_layer_count"`
-			TemporalLayerSync  bool   `json:"temporal_layer_sync"`
-			RecodeAllowed      bool   `json:"recode_allowed"`
-			RecodeLoopCount    int    `json:"recode_loop_count"`
+			Row                  string  `json:"row"`
+			FrameIndex           int     `json:"frame_index"`
+			Flags                uint32  `json:"flags"`
+			Dropped              bool    `json:"dropped"`
+			DropReason           string  `json:"drop_reason"`
+			KeyFrame             bool    `json:"key_frame"`
+			ShowFrame            bool    `json:"show_frame"`
+			BaseQIndex           int     `json:"base_qindex"`
+			PublicQuantizer      int     `json:"public_quantizer"`
+			SizeBytes            int     `json:"size_bytes"`
+			SizeBits             int     `json:"size_bits"`
+			FirstPartitionSize   int     `json:"first_partition_size"`
+			TargetBitrateKbps    int     `json:"target_bitrate_kbps"`
+			FrameTargetBits      int     `json:"frame_target_bits"`
+			BufferLevelBits      int     `json:"buffer_level_bits"`
+			BufferOptimalBits    int     `json:"buffer_optimal_bits"`
+			RefreshFrameFlags    uint8   `json:"refresh_frame_flags"`
+			RefreshFrameContext  bool    `json:"refresh_frame_context"`
+			ErrorResilient       bool    `json:"error_resilient"`
+			FrameParallel        bool    `json:"frame_parallel"`
+			FrameContextIdx      int     `json:"frame_context_idx"`
+			TxMode               int     `json:"tx_mode"`
+			InterpFilter         int     `json:"interp_filter"`
+			ReferenceMode        int     `json:"reference_mode"`
+			CompoundAllowed      bool    `json:"compound_allowed"`
+			ReferenceMask        uint8   `json:"reference_mask"`
+			LoopFilterLevel      int     `json:"loop_filter_level"`
+			TemporalLayerID      int     `json:"temporal_layer_id"`
+			TemporalLayerCount   int     `json:"temporal_layer_count"`
+			TemporalLayerSync    bool    `json:"temporal_layer_sync"`
+			TL0PICIDX            uint8   `json:"tl0_pic_idx"`
+			RecodeAllowed        bool    `json:"recode_allowed"`
+			RecodeLoopCount      int     `json:"recode_loop_count"`
+			ActiveBestQ          int     `json:"active_best_q"`
+			ActiveWorstQ         int     `json:"active_worst_q"`
+			RateCorrectionFactor float64 `json:"rate_correction_factor"`
+			TileLog2Cols         int     `json:"tile_log2_cols"`
+			TileLog2Rows         int     `json:"tile_log2_rows"`
 		}
 		if err := json.Unmarshal(scan.Bytes(), &raw); err != nil {
 			t.Fatalf("VP9 rate trace row is not valid JSON: %v\n%s", err, scan.Bytes())
@@ -314,23 +354,43 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 			sizeBits = raw.SizeBytes * 8
 		}
 		rows = append(rows, vp9RateScoreboardRow{
-			FrameIndex:         raw.FrameIndex,
-			Flags:              raw.Flags,
-			Dropped:            raw.Dropped,
-			DropReason:         raw.DropReason,
-			KeyFrame:           raw.KeyFrame,
-			ShowFrame:          raw.ShowFrame,
-			BaseQIndex:         raw.BaseQIndex,
-			SizeBits:           sizeBits,
-			TargetBitrateKbps:  raw.TargetBitrateKbps,
-			FrameTargetBits:    raw.FrameTargetBits,
-			BufferLevelBits:    raw.BufferLevelBits,
-			RefreshFrameFlags:  raw.RefreshFrameFlags,
-			TemporalLayerID:    raw.TemporalLayerID,
-			TemporalLayerCount: raw.TemporalLayerCount,
-			TemporalLayerSync:  raw.TemporalLayerSync,
-			RecodeAllowed:      raw.RecodeAllowed,
-			RecodeLoopCount:    raw.RecodeLoopCount,
+			FrameIndex:           raw.FrameIndex,
+			Flags:                raw.Flags,
+			Dropped:              raw.Dropped,
+			DropReason:           raw.DropReason,
+			KeyFrame:             raw.KeyFrame,
+			ShowFrame:            raw.ShowFrame,
+			BaseQIndex:           raw.BaseQIndex,
+			PublicQuantizer:      raw.PublicQuantizer,
+			SizeBytes:            raw.SizeBytes,
+			SizeBits:             sizeBits,
+			FirstPartitionSize:   raw.FirstPartitionSize,
+			TargetBitrateKbps:    raw.TargetBitrateKbps,
+			FrameTargetBits:      raw.FrameTargetBits,
+			BufferLevelBits:      raw.BufferLevelBits,
+			BufferOptimalBits:    raw.BufferOptimalBits,
+			RefreshFrameFlags:    raw.RefreshFrameFlags,
+			RefreshFrameContext:  raw.RefreshFrameContext,
+			ErrorResilient:       raw.ErrorResilient,
+			FrameParallel:        raw.FrameParallel,
+			FrameContextIdx:      raw.FrameContextIdx,
+			TxMode:               raw.TxMode,
+			InterpFilter:         raw.InterpFilter,
+			ReferenceMode:        raw.ReferenceMode,
+			CompoundAllowed:      raw.CompoundAllowed,
+			ReferenceMask:        raw.ReferenceMask,
+			LoopFilterLevel:      raw.LoopFilterLevel,
+			TemporalLayerID:      raw.TemporalLayerID,
+			TemporalLayerCount:   raw.TemporalLayerCount,
+			TemporalLayerSync:    raw.TemporalLayerSync,
+			TL0PICIDX:            raw.TL0PICIDX,
+			RecodeAllowed:        raw.RecodeAllowed,
+			RecodeLoopCount:      raw.RecodeLoopCount,
+			ActiveBestQ:          raw.ActiveBestQ,
+			ActiveWorstQ:         raw.ActiveWorstQ,
+			RateCorrectionFactor: raw.RateCorrectionFactor,
+			TileLog2Cols:         raw.TileLog2Cols,
+			TileLog2Rows:         raw.TileLog2Rows,
 		})
 	}
 	if err := scan.Err(); err != nil {
@@ -342,6 +402,52 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 	return rows
 }
 
+func enrichVP9RateScoreboardRowFromPacket(t *testing.T, row *vp9RateScoreboardRow, packet []byte) {
+	t.Helper()
+	header, _ := parseVP9EncoderHeaderForTest(t, packet)
+	comp, _, _ := readVP9CompressedHeaderForOracleTest(t, packet, header)
+	row.KeyFrame = header.FrameType == common.KeyFrame
+	row.ShowFrame = header.ShowFrame
+	row.BaseQIndex = int(header.Quant.BaseQindex)
+	row.PublicQuantizer = vp9QIndexToPublicQuantizer(int(header.Quant.BaseQindex))
+	row.SizeBytes = len(packet)
+	row.SizeBits = len(packet) * 8
+	row.FirstPartitionSize = int(header.FirstPartitionSize)
+	row.RefreshFrameFlags = header.RefreshFrameFlags
+	row.RefreshFrameContext = header.RefreshFrameContext
+	row.ErrorResilient = header.ErrorResilientMode
+	row.FrameParallel = header.FrameParallelDecoding
+	row.FrameContextIdx = int(header.FrameContextIdx)
+	row.TxMode = int(comp.TxMode)
+	row.InterpFilter = int(header.InterpFilter)
+	row.ReferenceMode = int(comp.ReferenceMode)
+	row.CompoundAllowed = header.FrameType != common.KeyFrame && !header.IntraOnly &&
+		vp9dec.CompoundReferenceAllowed(vp9FrameRefSignBias(&header))
+	row.ReferenceMask = vp9ReferenceMaskFromLibvpxFrameFlags(row.Flags)
+	row.LoopFilterLevel = int(header.Loopfilter.FilterLevel)
+	row.TileLog2Cols = int(header.Tile.Log2TileCols)
+	row.TileLog2Rows = int(header.Tile.Log2TileRows)
+}
+
+func vp9ReferenceMaskFromLibvpxFrameFlags(flags uint32) uint8 {
+	const (
+		libvpxNoRefLast = 1 << 16
+		libvpxNoRefGF   = 1 << 17
+		libvpxNoRefARF  = 1 << 21
+	)
+	var mask uint8
+	if flags&libvpxNoRefLast == 0 {
+		mask |= 1 << uint(vp9dec.LastFrame)
+	}
+	if flags&libvpxNoRefGF == 0 {
+		mask |= 1 << uint(vp9dec.GoldenFrame)
+	}
+	if flags&libvpxNoRefARF == 0 {
+		mask |= 1 << uint(vp9dec.AltrefFrame)
+	}
+	return mask
+}
+
 func pctDelta(got int, want int) float64 {
 	den := math.Max(1, math.Abs(float64(want)))
 	return math.Abs(float64(got-want)) * 100 / den
@@ -349,18 +455,25 @@ func pctDelta(got int, want int) float64 {
 
 func formatVP9RateScoreboardRows(govpxRows, libvpxRows []vp9RateScoreboardRow) string {
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,govpx_flags,libvpx_flags,govpx_drop,libvpx_drop,govpx_key,libvpx_key,govpx_show,libvpx_show,govpx_q,libvpx_q,govpx_bits,libvpx_bits,govpx_target,libvpx_target,govpx_frame_target,libvpx_frame_target,govpx_buffer,libvpx_buffer,govpx_refresh,libvpx_refresh,govpx_tid,libvpx_tid,govpx_tlayers,libvpx_tlayers")
+	fmt.Fprintln(&b, "frame,govpx_flags,libvpx_flags,govpx_drop,libvpx_drop,govpx_key,libvpx_key,govpx_show,libvpx_show,govpx_q,libvpx_q,govpx_public_q,libvpx_public_q,govpx_bytes,libvpx_bytes,govpx_bits,libvpx_bits,govpx_first_part,libvpx_first_part,govpx_target,libvpx_target,govpx_frame_target,libvpx_frame_target,govpx_buffer,libvpx_buffer,govpx_refresh,libvpx_refresh,govpx_refresh_ctx,libvpx_refresh_ctx,govpx_tx,libvpx_tx,govpx_filter,libvpx_filter,govpx_refmode,libvpx_refmode,govpx_refmask,libvpx_refmask,govpx_lf,libvpx_lf,govpx_tile_cols,libvpx_tile_cols,govpx_tid,libvpx_tid,govpx_tlayers,libvpx_tlayers,govpx_tl0,libvpx_tl0,govpx_tsync,libvpx_tsync")
 	for i := range govpxRows {
 		g := govpxRows[i]
 		l := libvpxRows[i]
-		fmt.Fprintf(&b, "%d,%#x,%#x,%t,%t,%t,%t,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d\n",
+		fmt.Fprintf(&b, "%d,%#x,%#x,%t,%t,%t,%t,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%#x,%t,%t,%d,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%t,%t\n",
 			g.FrameIndex, g.Flags, l.Flags, g.Dropped, l.Dropped, g.KeyFrame,
 			l.KeyFrame, g.ShowFrame, l.ShowFrame, g.BaseQIndex, l.BaseQIndex,
-			g.SizeBits, l.SizeBits, g.TargetBitrateKbps, l.TargetBitrateKbps,
-			g.FrameTargetBits, l.FrameTargetBits, g.BufferLevelBits,
-			l.BufferLevelBits, g.RefreshFrameFlags, l.RefreshFrameFlags,
-			g.TemporalLayerID, l.TemporalLayerID, g.TemporalLayerCount,
-			l.TemporalLayerCount)
+			g.PublicQuantizer, l.PublicQuantizer, g.SizeBytes, l.SizeBytes,
+			g.SizeBits, l.SizeBits, g.FirstPartitionSize, l.FirstPartitionSize,
+			g.TargetBitrateKbps, l.TargetBitrateKbps, g.FrameTargetBits,
+			l.FrameTargetBits, g.BufferLevelBits, l.BufferLevelBits,
+			g.RefreshFrameFlags, l.RefreshFrameFlags, g.RefreshFrameContext,
+			l.RefreshFrameContext, g.TxMode, l.TxMode, g.InterpFilter,
+			l.InterpFilter, g.ReferenceMode, l.ReferenceMode, g.ReferenceMask,
+			l.ReferenceMask, g.LoopFilterLevel, l.LoopFilterLevel,
+			g.TileLog2Cols, l.TileLog2Cols, g.TemporalLayerID,
+			l.TemporalLayerID, g.TemporalLayerCount, l.TemporalLayerCount,
+			g.TL0PICIDX, l.TL0PICIDX, g.TemporalLayerSync,
+			l.TemporalLayerSync)
 	}
 	return b.String()
 }

@@ -1141,11 +1141,15 @@ func readVP9CompressedHeaderForOracleTest(t *testing.T, packet []byte,
 	}
 	var fc vp9dec.FrameContext
 	vp9dec.ResetFrameContext(&fc)
+	compoundAllowed := header.FrameType != common.KeyFrame && !header.IntraOnly &&
+		vp9dec.CompoundReferenceAllowed(vp9FrameRefSignBias(&header))
 	comp := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
-		Lossless:     header.Quant.Lossless,
-		IntraOnly:    header.FrameType == common.KeyFrame || header.IntraOnly,
-		KeyFrame:     header.FrameType == common.KeyFrame,
-		InterpFilter: header.InterpFilter,
+		Lossless:             header.Quant.Lossless,
+		IntraOnly:            header.FrameType == common.KeyFrame || header.IntraOnly,
+		KeyFrame:             header.FrameType == common.KeyFrame,
+		InterpFilter:         header.InterpFilter,
+		AllowHighPrecisionMv: header.AllowHighPrecisionMv,
+		CompoundRefAllowed:   compoundAllowed,
 	})
 	return comp, fc, uncSize
 }
