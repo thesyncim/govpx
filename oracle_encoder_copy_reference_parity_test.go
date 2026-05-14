@@ -376,6 +376,32 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertSegmentByteParity(t, "copyref-resize-bytestream", got, want, 0)
 	})
 
+	t.Run("copy-reference-probes-under-auto-alt-ref-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		opts.LookaheadFrames = 4
+		opts.AutoAltRef = true
+		sources := makePanningSources(opts.Width, opts.Height, 10, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[4] = "copyref:last+copyref:golden+copyref:altref"
+		script[7] = "copyref:last+copyref:altref"
+		script[9] = "copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			4: copyReferenceProbeApply("frame4", ReferenceLast, ReferenceGolden, ReferenceAltRef),
+			7: copyReferenceProbeApply("frame7", ReferenceLast, ReferenceAltRef),
+			9: copyReferenceProbeApply("frame9", ReferenceLast, ReferenceGolden, ReferenceAltRef),
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-auto-alt-ref.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-auto-alt-ref-bytestream", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+			"--lag-in-frames=4",
+			"--auto-alt-ref=1",
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-auto-alt-ref-bytestream", got, want, 0)
+	})
+
 	t.Run("copy-reference-probes-under-active-roi-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(64, 64)
 		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
