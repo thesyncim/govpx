@@ -81,6 +81,10 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	segmentation := vp8enc.SegmentationConfig{}
 	roiSegmentation := e.roiSegmentationConfig()
 	if roiSegmentation.Enabled {
+		// libvpx setup_features() runs on every keyframe and reasserts the
+		// segmentation update bits while ROI segmentation remains enabled.
+		roiSegmentation.UpdateMap = true
+		roiSegmentation.UpdateData = true
 		segmentation = roiSegmentation
 	} else if staticSegmentationAllowed {
 		// libvpx applies the screen-content-mode=2 golden-refresh cyclic

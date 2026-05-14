@@ -1377,10 +1377,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "roi-map-border-force-keyframe-toggle",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// Re-forcing a keyframe while ROI is active still has a small
-			// first-partition drift; keep the strict pre-force prefix and
-			// log the rest of the ROI/keyframe transition.
-			matchLimit: 4,
 			flags: []EncodeFlags{
 				0, 0, 0, 0,
 				EncodeForceKeyFrame,

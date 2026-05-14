@@ -146,10 +146,22 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 		t.Fatalf("inter ROI segment IDs = %d/%d, want 1/0", d.modes[0].SegmentID, d.modes[1].SegmentID)
 	}
 
+	forced, err := e.EncodeInto(dst, second, 2, 1, EncodeForceKeyFrame)
+	if err != nil {
+		t.Fatalf("forced keyframe EncodeInto returned error: %v", err)
+	}
+	if !forced.KeyFrame {
+		t.Fatalf("forced KeyFrame = false, want keyframe")
+	}
+	forcedState := packetState(t, forced.Data)
+	if !forcedState.Segmentation.Enabled || !forcedState.Segmentation.UpdateMap || !forcedState.Segmentation.UpdateData {
+		t.Fatalf("forced keyframe segmentation = %+v, want ROI map/data update", forcedState.Segmentation)
+	}
+
 	if err := e.SetROIMap(&roi); err != nil {
 		t.Fatalf("SetROIMap refresh returned error: %v", err)
 	}
-	third, err := e.EncodeInto(dst, second, 2, 1, 0)
+	third, err := e.EncodeInto(dst, second, 3, 1, 0)
 	if err != nil {
 		t.Fatalf("third EncodeInto returned error: %v", err)
 	}
