@@ -269,6 +269,67 @@ func libvpxExternalRefreshMask(flags EncodeFlags) (refreshLast bool, refreshGold
 	return refreshLast, refreshGolden, refreshAltRef
 }
 
+func (e *VP8Encoder) armExternalRefreshMask(flags EncodeFlags) {
+	if e == nil || !externalRefreshFlagsPending(flags) {
+		return
+	}
+	e.carriedExternalRefreshLast, e.carriedExternalRefreshGolden, e.carriedExternalRefreshAltRef = libvpxExternalRefreshMask(flags)
+	e.carriedExternalRefresh = true
+}
+
+func (e *VP8Encoder) currentExternalRefreshMask() (refreshLast bool, refreshGolden bool, refreshAltRef bool, ok bool) {
+	if e == nil || !e.carriedExternalRefresh {
+		return false, false, false, false
+	}
+	return e.carriedExternalRefreshLast, e.carriedExternalRefreshGolden, e.carriedExternalRefreshAltRef, true
+}
+
+func (e *VP8Encoder) clearExternalRefreshMaskAfterPacket() {
+	if e == nil {
+		return
+	}
+	e.carriedExternalRefresh = false
+	e.carriedExternalRefreshLast = false
+	e.carriedExternalRefreshGolden = false
+	e.carriedExternalRefreshAltRef = false
+}
+
+func externalReferenceFlagsPending(flags EncodeFlags) bool {
+	return flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) != 0
+}
+
+func libvpxExternalReferenceMask(flags EncodeFlags) (last bool, golden bool, alt bool) {
+	last = flags&EncodeNoReferenceLast == 0
+	golden = flags&EncodeNoReferenceGolden == 0
+	alt = flags&EncodeNoReferenceAltRef == 0
+	return last, golden, alt
+}
+
+func (e *VP8Encoder) armExternalReferenceMask(flags EncodeFlags) {
+	if e == nil || !externalReferenceFlagsPending(flags) {
+		return
+	}
+	e.carriedExternalReferenceLast, e.carriedExternalReferenceGolden, e.carriedExternalReferenceAltRef = libvpxExternalReferenceMask(flags)
+	e.carriedExternalReference = true
+}
+
+func (e *VP8Encoder) currentExternalReferenceMask() (last bool, golden bool, alt bool, ok bool) {
+	if e == nil || !e.carriedExternalReference {
+		return false, false, false, false
+	}
+	return e.carriedExternalReferenceLast, e.carriedExternalReferenceGolden, e.carriedExternalReferenceAltRef, true
+}
+
+func (e *VP8Encoder) clearExternalReferenceMaskAfterPacket() {
+	if e == nil {
+		return
+	}
+	e.carriedExternalReference = false
+	e.carriedExternalReferenceLast = false
+	e.carriedExternalReferenceGolden = false
+	e.carriedExternalReferenceAltRef = false
+}
+
 func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRefresh bool, flags EncodeFlags) bool {
 	if errorResilient || !goldenCBRRefresh {
 		return false
@@ -302,6 +363,9 @@ func (e *VP8Encoder) anyInterReferenceAvailable(flags EncodeFlags) bool {
 }
 
 func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, golden bool, alt bool) {
+	if last, golden, alt, ok := e.currentExternalReferenceMask(); ok {
+		return last, golden, alt
+	}
 	last = flags&EncodeNoReferenceLast == 0
 	golden = flags&EncodeNoReferenceGolden == 0
 	alt = flags&EncodeNoReferenceAltRef == 0
@@ -311,7 +375,7 @@ func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, g
 	// gold_is_alt alias filters from update_reference_frames. Temporal-SVC
 	// layer flags rely on that: a post-keyframe L1 frame may intentionally
 	// allow LAST and GOLDEN even though both buffers still alias the keyframe.
-	if flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) != 0 {
+	if externalReferenceFlagsPending(flags) {
 		return last, golden, alt
 	}
 	// Reference-alias deduplication: when two reference buffers hold
@@ -339,35 +403,47 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	if !e.anyInterReferenceAvailable(flags) {
-		return true
+	if e.opts.KeyFrameInterval <= 0 {
+		return false
 	}
-	if e.opts.KeyFrameInterval > 0 && e.frameCount%uint64(e.opts.KeyFrameInterval) == 0 {
-		return true
+	if e.opts.AdaptiveKeyFrames {
+		keyFrameFrequency := e.keyFrameFrequency
+		if keyFrameFrequency <= 0 {
+			return false
+		}
+		framesSinceKey := e.rc.framesSinceKeyframe + 1
+		return framesSinceKey%keyFrameFrequency == 0
 	}
-	return false
+	return e.rc.framesSinceKeyframe+1 >= e.opts.KeyFrameInterval
 }
 
 func (e *VP8Encoder) forceKeyFrameRequested(flags EncodeFlags) bool {
 	if e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	return !e.anyInterReferenceAvailable(flags)
+	return false
 }
 
-func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
+func (e *VP8Encoder) goldenFrameCBROpportunity(keyFrame bool, temporalActive bool, flags EncodeFlags) bool {
 	if keyFrame ||
 		temporalActive ||
 		e.opts.ErrorResilient ||
 		e.rc.mode != RateControlCBR ||
+		e.rc.onePassAutoGold ||
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
+		return false
+	}
+	return e.rc.framesTillGFUpdateDue == 0
+}
+
+func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
+	if !e.goldenFrameCBROpportunity(keyFrame, temporalActive, flags) {
 		return false
 	}
 	if required := rows * cols; required <= 0 || e.lastInterZeroMVCount <= required/2 {
 		return false
 	}
-	interval := e.goldenFrameCBRInterval(rows, cols)
-	return interval > 0 && e.rc.framesSinceKeyframe > 0 && e.rc.framesSinceKeyframe%interval == 0
+	return e.goldenFrameCBRInterval(rows, cols) > 0
 }
 
 // shouldRefreshGoldenFrameOnePassNonCBR ports the libvpx auto_gold
@@ -389,13 +465,14 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 //	}
 //
 // govpx routes CBR through `shouldRefreshGoldenFrameCBR`; this method
-// covers VBR and CQ. Returns true when libvpx would force a GF
-// refresh on this frame.
+// covers the one-pass auto-golden path seeded at compressor creation.
+// Returns true when libvpx would force a GF refresh on this frame.
 func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
 	if keyFrame ||
 		temporalActive ||
 		e.opts.ErrorResilient ||
-		e.rc.mode == RateControlCBR ||
+		e.twoPass.enabled() ||
+		!e.rc.onePassAutoGold ||
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
 		return false
 	}
@@ -419,7 +496,7 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, tempor
 
 func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 	interval := 10
-	if refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols); refreshCount > 0 {
+	if refreshCount := e.cyclicRefreshMaxMBsPerFrame(rows, cols); refreshCount > 0 {
 		interval = (2 * rows * cols) / refreshCount
 	}
 	return min(max(interval, 6), 40)
@@ -476,6 +553,9 @@ func (e *VP8Encoder) libvpxMaxGFInterval() int {
 // DEFAULT_GF_INTERVAL when libvpx's section runs longer.
 func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
 	if e.opts.Deadline == DeadlineRealtime && e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
+		if e.rc.onePassAutoGold {
+			return 1
+		}
 		return e.goldenFrameCBRInterval(rows, cols)
 	}
 	if e.twoPass.enabled() && e.twoPass.gfGroupValid && e.twoPass.framesTillGFUpdate > 0 {

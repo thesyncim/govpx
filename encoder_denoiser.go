@@ -335,13 +335,16 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 	return denoiserFilterBlock
 }
 
-// denoiserPickmodeMVBias returns the libvpx pickmode_mv_bias multiplier for
-// the configured noise sensitivity, or 100 (no bias) when the denoiser is
-// off. Used by the fast-mode RD path to scale ZEROMV-LAST scores when the
-// denoiser is in YUV-aggressive mode.
+// denoiserPickmodeMVBias returns the libvpx pickmode_mv_bias multiplier from
+// the allocated denoiser state, or 100 (no bias) when the denoiser is off.
+// Runtime nonzero noise-sensitivity controls leave libvpx's active denoiser
+// parameters sticky, so this must not be recalculated from oxcf every frame.
 func (e *VP8Encoder) denoiserPickmodeMVBias() int {
 	if e.opts.NoiseSensitivity <= 0 {
 		return 100
+	}
+	if e.denoiser.allocated && e.denoiser.mode != denoiserOff {
+		return e.denoiser.params.pickmodeMVBias
 	}
 	_, params := denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
 	return params.pickmodeMVBias
@@ -418,6 +421,20 @@ func newDenoiserMacroblockDecision() denoiserMacroblockDecision {
 		zeroMVReferenceFrame: vp8common.IntraFrame,
 		bestSSE:              maxUint32,
 		zeroMVSSE:            maxUint32,
+	}
+}
+
+// Inactive active-map MBs still enter libvpx's denoiser as skipped inter
+// candidates, so the denoiser must see the zero-MV reference rather than a
+// no-filter intra sentinel.
+func (d *denoiserMacroblockDecision) recordInactiveInterCandidate(ref vp8common.MVReferenceFrame, mode vp8common.MBPredictionMode, mv vp8enc.MotionVector) {
+	d.bestReferenceFrame = ref
+	d.bestMode = mode
+	d.bestMV = mv
+	d.bestSSE = 0
+	if mode == vp8common.ZeroMV {
+		d.zeroMVReferenceFrame = ref
+		d.zeroMVSSE = 0
 	}
 }
 
@@ -613,22 +630,20 @@ func (e *VP8Encoder) applyDenoiserSpatialLoopFilter(filtered vp8enc.SourceImage,
 	applyFilterCol := false
 	applyFilterRow := false
 	if col > 0 {
-		leftState := e.denoiser.state[index-1]
-		applyFilterCol = !(currentState == leftState && currentState != denoiserStateFilterNonZero)
+		left := e.denoiser.state[index-1]
+		applyFilterCol = !(currentState == left && currentState != denoiserStateFilterNonZero)
 	}
 	if row > 0 {
-		aboveState := e.denoiser.state[index-cols]
-		applyFilterRow = !(currentState == aboveState && currentState != denoiserStateFilterNonZero)
+		above := e.denoiser.state[index-cols]
+		applyFilterRow = !(currentState == above && currentState != denoiserStateFilterNonZero)
 	}
 	if !applyFilterCol && !applyFilterRow {
 		return false
 	}
 
-	var lfi vp8common.LoopFilterInfo
-	vp8common.InitLoopFilterInfo(&lfi, int(e.opts.Sharpness))
-	hev := lfi.HEVThresh[lfi.HEVThreshLUT[vp8common.InterFrame][filterLevel]]
-	mblim := lfi.MBLimit[filterLevel]
-	lim := lfi.Limit[filterLevel]
+	hev := e.loopInfo.HEVThresh[e.loopInfo.HEVThreshLUT[vp8common.InterFrame][filterLevel]]
+	mblim := e.loopInfo.MBLimit[filterLevel]
+	lim := e.loopInfo.Limit[filterLevel]
 	y := avg.Img.Y
 	stride := avg.Img.YStride
 	if applyFilterCol {

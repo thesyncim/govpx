@@ -198,6 +198,57 @@ func TestSelectInterFrameSplitMotionLabelLevelTrials(t *testing.T) {
 	}
 }
 
+func TestSelectInterFrameSplitMotionSkipsOutOfRangeInheritedLabelMV(t *testing.T) {
+	const w, h = 64, 64
+	src := testImage(w, h)
+	fillImage(src, 0, 128, 128)
+	ref := testVP8Frame(t, w, h, 0, 128, 128)
+	for row := range h {
+		for col := range w {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*17 + col*29 + row*col*3 + 11) & 255)
+		}
+	}
+	ref.ExtendBorders()
+
+	invalidAbove := vp8enc.MotionVector{Row: 142, Col: -352}
+	if interFrameUMVFullPixelInRange(invalidAbove, 3, 3, 4, 4) {
+		t.Fatalf("test MV unexpectedly in UMV range: %+v", invalidAbove)
+	}
+	var pred [16]byte
+	if !predictSplitMotionBlock4x4(&ref.Img, 3, 3, 3, invalidAbove, &pred) {
+		t.Fatalf("predictSplitMotionBlock4x4 returned false")
+	}
+	baseY := 3 * 16
+	baseX := 3*16 + 12
+	for row := range 4 {
+		copy(src.Y[(baseY+row)*src.YStride+baseX:], pred[row*4:row*4+4])
+	}
+
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 3,
+	}
+	mode.BlockMV[2] = vp8enc.MotionVector{Row: 8, Col: 16}
+	above := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 3,
+	}
+	above.BlockMV[15] = invalidAbove
+
+	mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(
+		sourceImageFromPublic(src), &ref.Img, 3, 3,
+		&mode, 3, 4, 4,
+		vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, false,
+		testInterSearchQIndex, nil, &above, defaultInterAnalysisSearchConfig(),
+		&vp8tables.DefaultMVContext, 1<<30, nil, nil, nil,
+	)
+	if bMode == vp8common.Above4x4 || mv == invalidAbove {
+		t.Fatalf("selected out-of-range inherited ABOVE label: mode=%v mv=%+v", bMode, mv)
+	}
+}
+
 // TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch covers libvpx
 // rd_check_segment's NEW4X4 gate:
 //

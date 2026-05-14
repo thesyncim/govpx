@@ -523,6 +523,96 @@ func TestSplitBlockSADClampsPartialSourceSubpel(t *testing.T) {
 	}
 }
 
+func TestSplitBlockSubpixelVarianceClampsPartialSource(t *testing.T) {
+	src := testImage(72, 40)
+	fillImage(src, 0, 90, 170)
+	for row := range src.Height {
+		for col := range src.Width {
+			src.Y[row*src.YStride+col] = byte((7 + row*17 + col*13 + row*col*5) & 0xff)
+		}
+	}
+	ref := testVP8Frame(t, 72, 40, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((23 + row*19 + col*11 + row*col*3) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+
+	mbRow, mbCol, block := 2, 4, 5
+	width, height := 8, 8
+	quarterRow, quarterCol := 1, 1
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	refBaseY := baseY + (quarterRow >> 2)
+	refBaseX := baseX + (quarterCol >> 2)
+	xOffset := (quarterCol & 3) << 1
+	yOffset := (quarterRow & 3) << 1
+
+	var srcScratch [16 * 16]byte
+	gatherClampedLumaBlock(sourceImageFromPublic(src), baseY, baseX, width, height, srcScratch[:], 16)
+	var refScratch [(8 + 1) * (8 + 1)]byte
+	gatherVisibleClampedRefBlock(&ref.Img, refBaseY, refBaseX, width+1, height+1, refScratch[:], width+1)
+	want, _ := dsp.SubpelVariance8x8(refScratch[:], width+1, xOffset, yOffset, srcScratch[:], 16)
+
+	got, ok := splitBlockSubpixelVarianceForQuarterMV(sourceImageFromPublic(src), &ref.Img, mbRow, mbCol, block, width, height, quarterRow, quarterCol)
+	if !ok {
+		t.Fatalf("splitBlockSubpixelVarianceForQuarterMV returned ok=false")
+	}
+	if got != want {
+		t.Fatalf("partial-source split subpel variance = %d, want %d", got, want)
+	}
+}
+
+func TestPredictSplitMotionBlock4x4UsesCodedClamp(t *testing.T) {
+	ref := testVP8Frame(t, 5, 5, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = 200
+		}
+		ref.Img.Y[row*ref.Img.YStride+4] = byte(40 + row)
+	}
+	ref.ExtendBorders()
+
+	var out [16]byte
+	if !predictSplitMotionBlock4x4(&ref.Img, 0, 0, 1, vp8enc.MotionVector{}, &out) {
+		t.Fatalf("predictSplitMotionBlock4x4 returned false")
+	}
+	for row := range 4 {
+		for col := range 4 {
+			want := byte(200)
+			if col == 0 {
+				want = byte(40 + row)
+			}
+			if got := out[row*4+col]; got != want {
+				t.Fatalf("fullpel coded-clamp out[%d,%d] = %d, want %d", row, col, got, want)
+			}
+		}
+	}
+}
+
+func TestPredictSplitMotionSubpixelBlock4x4UsesCodedClamp(t *testing.T) {
+	ref := testVP8Frame(t, 5, 5, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte(10 + row*7 + col*3)
+		}
+		ref.Img.Y[row*ref.Img.YStride+4] = byte(90 + row)
+	}
+	ref.ExtendBorders()
+
+	var got [16]byte
+	if !predictSplitMotionBlock4x4(&ref.Img, 0, 0, 1, vp8enc.MotionVector{Col: 2}, &got) {
+		t.Fatalf("predictSplitMotionBlock4x4 returned false")
+	}
+	var want [16]byte
+	start := ref.Img.YOrigin - 2*ref.Img.YStride + 2
+	dsp.SixTapPredict4x4(ref.Img.YFull[start:], ref.Img.YStride, 2, 0, want[:], 4)
+	if got != want {
+		t.Fatalf("subpel coded-clamp predictor mismatch\ngot  %v\nwant %v", got, want)
+	}
+}
+
 func TestMacroblockSubpixelVarianceMatchesBilinearPredictor(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 0, 90, 170)

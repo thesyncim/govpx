@@ -74,6 +74,8 @@ func TestOracleEncoderStreamByteParityTiming(t *testing.T) {
 		// axes the base matrix already pins at fps=30.
 		threads         int
 		tokenPartitions int
+		lookaheadFrames int
+		autoAltRef      bool
 		cqLevel         int
 		extraArgs       []string
 	}{
@@ -149,6 +151,11 @@ func TestOracleEncoderStreamByteParityTiming(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x64-timebase-1-25", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, timebaseNum: 1, timebaseDen: 25},
 		{name: "realtime-cbr-cpu-3-64x64-timebase-1-90", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, timebaseNum: 1, timebaseDen: 90},
 		{name: "realtime-cbr-cpu-3-64x64-timebase-1-120", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, timebaseNum: 1, timebaseDen: 120},
+
+		// ----- Timing + lookahead/ARF. ARF scheduling is PTS-sensitive, so
+		// cross both simple FPS and explicit timebase with usable lag.
+		{name: "realtime-cbr-cpu-3-64x64-fps24-lookahead4-auto-alt-ref", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, fpsOverride: 24, lookaheadFrames: 4, autoAltRef: true},
+		{name: "realtime-cbr-cpu-3-64x64-timebase-1001-30000-lookahead4-auto-alt-ref", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, timebaseNum: 1001, timebaseDen: 30000, lookaheadFrames: 4, autoAltRef: true},
 
 		// ----- Cross-product: FPS + cpu_used + threads. The base
 		// matrix only covers threads=2 at fps=30; these rows pin
@@ -264,6 +271,8 @@ func TestOracleEncoderStreamByteParityTiming(t *testing.T) {
 				CpuUsed:           tc.cpuUsed,
 				TokenPartitions:   tc.tokenPartitions,
 				Threads:           tc.threads,
+				LookaheadFrames:   tc.lookaheadFrames,
+				AutoAltRef:        tc.autoAltRef,
 			}
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)

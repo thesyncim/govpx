@@ -305,11 +305,21 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	block := int(vp8tables.MBSplitOffset[ctx.mode.Partition&3][ctx.subset&15])
 	leftMV := analysisSplitLeftMV(ctx.mode, ctx.left, block)
 	aboveMV := analysisSplitAboveMV(ctx.mode, ctx.above, block)
-	bestMV := leftMV
-	bestMode := vp8common.Left4x4
-	bestRD, bestAbove, bestLeft, bestHasContexts := ctx.candidateRD(block, bestMV, splitSubMotionLabelRate(bestMode))
+	mbRows := (ctx.src.Height + 15) >> 4
+	mbCols := (ctx.src.Width + 15) >> 4
+	bestMV := vp8enc.MotionVector{}
+	bestMode := vp8common.Zero4x4
+	bestRD := maxInt()
+	var bestAbove [4]uint8
+	var bestLeft [4]uint8
+	bestHasContexts := false
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
+		// rd_check_segment applies the same UMV trap to inherited
+		// LEFT/ABOVE/ZERO labels as it does to searched NEW labels.
+		if !interFrameUMVFullPixelInRange(mv, ctx.mbRow, ctx.mbCol, mbRows, mbCols) {
+			return
+		}
 		rate := splitSubMotionLabelRate(candidateMode)
 		rd, nextAbove, nextLeft, hasContexts := ctx.candidateRD(block, mv, rate)
 		if rd < bestRD {
@@ -322,6 +332,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		}
 	}
 
+	tryCandidate(vp8common.Left4x4, leftMV)
 	if aboveMV != leftMV {
 		tryCandidate(vp8common.Above4x4, aboveMV)
 	}
@@ -489,19 +500,16 @@ func predictSplitMotionBlock4x4(ref *vp8common.Image, mbRow int, mbCol int, bloc
 	if xOffset|yOffset != 0 {
 		return predictSplitMotionSubpixelBlock4x4(ref, refBaseY, refBaseX, xOffset, yOffset, out)
 	}
+	// This predictor feeds the SPLITMV label-RD scorer. libvpx scores these
+	// 4x4 labels against the coded-edge samples; final reconstruction still
+	// goes through the decoder predictor path.
 	if uint(refBaseY) <= uint(ref.CodedHeight-4) && uint(refBaseX) <= uint(ref.CodedWidth-4) {
 		for row := range 4 {
 			copy(out[row*4:row*4+4], ref.Y[(refBaseY+row)*ref.YStride+refBaseX:])
 		}
 		return true
 	}
-	for row := range 4 {
-		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
-		for col := range 4 {
-			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
-			out[row*4+col] = ref.Y[refY*ref.YStride+refX]
-		}
-	}
+	gatherCodedClampedRefBlock(ref, refBaseY, refBaseX, 4, 4, out[:], 4)
 	return true
 }
 
@@ -518,6 +526,12 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 	if start < 0 || start+8*ref.YStride+9 > len(ref.YFull) {
 		return false
 	}
+	if refBaseY-2 < 0 || refBaseX-2 < 0 || refBaseY+7 > ref.CodedHeight || refBaseX+7 > ref.CodedWidth {
+		var scratch [(4 + 5) * (4 + 5)]byte
+		gatherCodedClampedRefBlock(ref, refBaseY-2, refBaseX-2, 4+5, 4+5, scratch[:], 4+5)
+		dsp.SixTapPredict4x4(scratch[:], 4+5, xOffset, yOffset, out[:], 4)
+		return true
+	}
 	dsp.SixTapPredict4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, out[:], 4)
 	return true
 }
@@ -526,11 +540,7 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 // ref into dst at dstStride, clamping each source coordinate to the visible
 // extent (ref.Width / ref.Height). This mirrors libvpx's effective state on
 // the bordered Y buffer post vp8_yv12_extend_frame_borders without requiring
-// a full-plane overwrite of the live reconstruction (which would force the
-// decoder side to mirror the change and regresses previously-passing
-// odd-axis fixtures). Only the SPLITMV picker WALK uses this; the actual
-// reconstruction predict path stays on the coded-clamped read shared with
-// the decoder so encoder/decoder consistency is preserved.
+// a full-plane overwrite of the live reconstruction.
 func gatherVisibleClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
 	visibleH := refVisibleClampDim(ref.Height, ref.CodedHeight)
 	visibleW := refVisibleClampDim(ref.Width, ref.CodedWidth)
@@ -540,6 +550,21 @@ func gatherVisibleClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, wi
 		srcRow := refY * ref.YStride
 		for col := range width {
 			refX := clampEncodeCoord(baseX+col, visibleW)
+			dst[dstRow+col] = ref.Y[srcRow+refX]
+		}
+	}
+}
+
+// gatherCodedClampedRefBlock copies a block from the coded extent. A few
+// libvpx SPLITMV scoring paths still read the coded-edge sample instead of
+// the visible-edge sample on odd-sized frames.
+func gatherCodedClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
+	for row := range height {
+		refY := clampEncodeCoord(baseY+row, ref.CodedHeight)
+		dstRow := row * dstStride
+		srcRow := refY * ref.YStride
+		for col := range width {
+			refX := clampEncodeCoord(baseX+col, ref.CodedWidth)
 			dst[dstRow+col] = ref.Y[srcRow+refX]
 		}
 	}
@@ -790,7 +815,27 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 	// (block_type=3) and rd_inter4x4_uv reports rate_uv/distortion_uv via
 	// 8 4x4 chroma blocks (block_type=2).
 	decision := interSplitMVRDDecision{Mode: mode}
-	stats := buildPredictedMacroblockCoefficientsRD(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, splitInterModeZbinBoost, true, false, fastQuant, optimize, &decision.Coeffs)
+	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:           coefProbs,
+		src:                 src,
+		mbRow:               mbRow,
+		mbCol:               mbCol,
+		pred:                pred,
+		aboveTok:            aboveTok,
+		leftTok:             leftTok,
+		quant:               quant,
+		qIndex:              qIndex,
+		zbinOverQuant:       zbinOverQuant,
+		zbinModeBoost:       splitInterModeZbinBoost,
+		is4x4:               true,
+		splitPartitionValid: true,
+		splitPartition:      mode.Partition,
+		intra:               false,
+		fastQuant:           fastQuant,
+		optimize:            optimize,
+		collectStats:        true,
+		coeffs:              &decision.Coeffs,
+	})
 	decision.YRate = stats.rateY
 	decision.YDist = stats.distortionY
 	decision.UVRate = stats.rateUV
@@ -816,6 +861,38 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 	decision.RD = rdModeScoreWithZbin(qIndex, zbinOverQuant, decision.TotalRate, totalDist)
 	decision.YRD = rdModeScoreWithZbin(qIndex, zbinOverQuant, decision.YRate, decision.YDist)
 	return decision, true
+}
+
+func splitMotionPartitionLumaDistortionFromSums(labelErrors [16]int, partition uint8) int {
+	if partition >= vp8tables.NumMBSplits {
+		total := 0
+		for _, err := range labelErrors {
+			total += err
+		}
+		return total >> 2
+	}
+	total := 0
+	labelCount := int(vp8tables.MBSplitCount[partition&3])
+	for subset := range labelCount {
+		total += labelErrors[subset&15] >> 2
+	}
+	return total
+}
+
+func splitMotionPartitionLumaDistortionFromBlocks(blockErrors [16]int, partition uint8) int {
+	var labelErrors [16]int
+	if partition >= vp8tables.NumMBSplits {
+		total := 0
+		for _, err := range blockErrors {
+			total += err
+		}
+		return total >> 2
+	}
+	for block, err := range blockErrors {
+		subset := int(vp8tables.MBSplits[partition&3][block&15])
+		labelErrors[subset&15] += err
+	}
+	return splitMotionPartitionLumaDistortionFromSums(labelErrors, partition)
 }
 
 func splitMotionPartitionBlockSize(partition int) (int, int) {

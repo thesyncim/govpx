@@ -29,22 +29,23 @@ type interResidualRDAccounting struct {
 }
 
 type interResidualRDContext struct {
-	src        vp8enc.SourceImage
-	ref        *vp8common.Image
-	mbRow      int
-	mbCol      int
-	mode       *vp8enc.InterFrameMacroblockMode
-	above      *vp8enc.InterFrameMacroblockMode
-	left       *vp8enc.InterFrameMacroblockMode
-	aboveLeft  *vp8enc.InterFrameMacroblockMode
-	aboveTok   *vp8enc.TokenContextPlanes
-	leftTok    *vp8enc.TokenContextPlanes
-	quant      *vp8enc.MacroblockQuant
-	qIndex     int
-	segmentID  uint8
-	refRate    int
-	modeCounts vp8enc.InterModeCounts
-	bestRefMV  vp8enc.MotionVector
+	src                    vp8enc.SourceImage
+	ref                    *vp8common.Image
+	mbRow                  int
+	mbCol                  int
+	mode                   *vp8enc.InterFrameMacroblockMode
+	above                  *vp8enc.InterFrameMacroblockMode
+	left                   *vp8enc.InterFrameMacroblockMode
+	aboveLeft              *vp8enc.InterFrameMacroblockMode
+	aboveTok               *vp8enc.TokenContextPlanes
+	leftTok                *vp8enc.TokenContextPlanes
+	quant                  *vp8enc.MacroblockQuant
+	qIndex                 int
+	segmentID              uint8
+	refRate                int
+	modeCounts             vp8enc.InterModeCounts
+	bestRefMV              vp8enc.MotionVector
+	suppressStaticBreakout bool
 }
 
 func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (interResidualRDAccounting, bool) {
@@ -97,21 +98,23 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	modeRate := e.interMotionModeRateWithReferenceRateAndModeContext(ctx.mode, ctx.left, ctx.above, ctx.refRate, ctx.modeCounts, ctx.bestRefMV, libvpxRDNewMVBitCostWeight)
 	refCost := e.interInterReferenceRate(ctx.refRate)
 	otherCost := e.interMacroblockSkipRate(false)
-	if breakout, predictionDist := staticInterRDEncodeBreakoutDistortion(ctx.src, &e.analysis.Img, ctx.mbRow, ctx.mbCol, ctx.quant, e.interStaticThresholdForSegment(ctx.segmentID)); breakout {
-		rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, 500, predictionDist)
-		if e.activityMapValid {
-			rd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, 500, predictionDist)
+	if !ctx.suppressStaticBreakout {
+		if breakout, predictionDist := staticInterRDEncodeBreakoutDistortion(ctx.src, &e.analysis.Img, ctx.mbRow, ctx.mbCol, ctx.quant, e.interStaticThresholdForSegment(ctx.segmentID)); breakout {
+			rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, 500, predictionDist)
+			if e.activityMapValid {
+				rd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, 500, predictionDist)
+			}
+			return interResidualRDAccounting{
+				rd:          rd,
+				yrd:         rd,
+				rate2:       500,
+				distortion2: predictionDist,
+				otherCost:   otherCost,
+				refCost:     refCost,
+				rdLoopSkip:  true,
+				mbSkipCoeff: true,
+			}, true
 		}
-		return interResidualRDAccounting{
-			rd:          rd,
-			yrd:         rd,
-			rate2:       500,
-			distortion2: predictionDist,
-			otherCost:   otherCost,
-			refCost:     refCost,
-			rdLoopSkip:  true,
-			mbSkipCoeff: true,
-		}, true
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
@@ -123,24 +126,26 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	// winning candidate's DCTs accessible to the accepted-mode coefficient
 	// build without re-running predict + residual gather + FDCT.
 	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
-		coefProbs:     e.pickerCoefProbs(),
-		src:           ctx.src,
-		mbRow:         ctx.mbRow,
-		mbCol:         ctx.mbCol,
-		pred:          &e.analysis.Img,
-		aboveTok:      ctx.aboveTok,
-		leftTok:       ctx.leftTok,
-		quant:         ctx.quant,
-		qIndex:        ctx.qIndex,
-		zbinOverQuant: zbinOverQuant,
-		zbinModeBoost: interZbinModeBoost(ctx.mode),
-		is4x4:         is4x4,
-		intra:         false,
-		fastQuant:     e.libvpxUseFastQuantForPick(),
-		optimize:      false,
-		collectStats:  true,
-		coeffs:        &coeffs,
-		cacheOut:      e.interRDCoeffCacheScratchTarget,
+		coefProbs:           e.pickerCoefProbs(),
+		src:                 ctx.src,
+		mbRow:               ctx.mbRow,
+		mbCol:               ctx.mbCol,
+		pred:                &e.analysis.Img,
+		aboveTok:            ctx.aboveTok,
+		leftTok:             ctx.leftTok,
+		quant:               ctx.quant,
+		qIndex:              ctx.qIndex,
+		zbinOverQuant:       zbinOverQuant,
+		zbinModeBoost:       interZbinModeBoost(ctx.mode),
+		is4x4:               is4x4,
+		splitPartitionValid: ctx.mode.Mode == vp8common.SplitMV,
+		splitPartition:      ctx.mode.Partition,
+		intra:               false,
+		fastQuant:           e.libvpxUseFastQuantForPick(),
+		optimize:            false,
+		collectStats:        true,
+		coeffs:              &coeffs,
+		cacheOut:            e.interRDCoeffCacheScratchTarget,
 	})
 	rateUV := stats.rateUV
 	rate2 := modeRate + otherCost + stats.rateY + rateUV
@@ -197,7 +202,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 	}
 	var modeRate int
 	if ctx != nil {
-		modeRate = e.interMotionModeRateWithReferenceRateAndModeContext(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, libvpxFastNewMVBitCostWeight)
+		modeRate = e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, libvpxFastNewMVBitCostWeight)
 	} else {
 		modeRate = e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	}

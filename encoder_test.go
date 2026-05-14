@@ -46,6 +46,16 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 		t.Fatalf("GF CBR boost error = %v, want ErrInvalidConfig", err)
 	}
 
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, UndershootPct: 101})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("undershoot pct error = %v, want ErrInvalidConfig", err)
+	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, OvershootPct: 101})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("overshoot pct error = %v, want ErrInvalidConfig", err)
+	}
+
 	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ScreenContentMode: 3})
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("screen content mode error = %v, want ErrInvalidConfig", err)
@@ -236,6 +246,66 @@ func TestSetRealtimeTargetSameFPSKeepsAutospeedTiming(t *testing.T) {
 	}
 }
 
+func TestSetCPUUsedPreservesRuntimePickerState(t *testing.T) {
+	e := newTestEncoder(t)
+	e.autoSpeed = 9
+	e.avgPickModeTime = 1000
+	e.avgEncodeTime = 2000
+	e.autoSpeedFrameStartNS = 3000
+	e.interRDThreshMult[0] = 192
+	e.interRDThreshTouched[0] = true
+	e.interModeErrorBins[20] = 2
+	e.interModeSpeedErrorBins[20] = 3
+	beforeGen := e.interRDThreshBaselineGen
+
+	if err := e.SetCPUUsed(-3); err != nil {
+		t.Fatalf("SetCPUUsed(-3) returned error: %v", err)
+	}
+	if e.autoSpeed != -3 {
+		t.Fatalf("autoSpeed after SetCPUUsed(-3) = %d, want -3", e.autoSpeed)
+	}
+	if e.avgPickModeTime != 1000 || e.avgEncodeTime != 2000 || e.autoSpeedFrameStartNS != 3000 {
+		t.Fatalf("auto-speed timers after SetCPUUsed(-3) = pick:%d encode:%d start:%d, want preserved",
+			e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+	if e.interRDThreshMult[0] != 192 || !e.interRDThreshTouched[0] || e.interRDThreshBaselineGen == beforeGen {
+		t.Fatalf("inter RD thresholds after SetCPUUsed(-3) = mult:%d touched:%t gen:%d, want preserved state and invalidated baseline gen past %d",
+			e.interRDThreshMult[0], e.interRDThreshTouched[0], e.interRDThreshBaselineGen, beforeGen)
+	}
+	if e.interModeErrorBins[20] != 2 || e.interModeSpeedErrorBins[20] != 3 {
+		t.Fatalf("speed error bins after SetCPUUsed(-3) = current:%d previous:%d, want preserved",
+			e.interModeErrorBins[20], e.interModeSpeedErrorBins[20])
+	}
+
+	e.autoSpeed = 3
+	e.avgPickModeTime = 1000
+	e.avgEncodeTime = 2000
+	e.autoSpeedFrameStartNS = 3000
+	e.interRDThreshMult[0] = 192
+	e.interRDThreshTouched[0] = true
+	e.interModeErrorBins[20] = 2
+	e.interModeSpeedErrorBins[20] = 3
+	beforeGen = e.interRDThreshBaselineGen
+	if err := e.SetCPUUsed(0); err != nil {
+		t.Fatalf("SetCPUUsed(0) returned error: %v", err)
+	}
+	if e.autoSpeed != 0 {
+		t.Fatalf("autoSpeed after SetCPUUsed(0) = %d, want 0", e.autoSpeed)
+	}
+	if e.avgPickModeTime != 1000 || e.avgEncodeTime != 2000 || e.autoSpeedFrameStartNS != 3000 {
+		t.Fatalf("auto-speed timers after SetCPUUsed(0) = pick:%d encode:%d start:%d, want preserved",
+			e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+	if e.interRDThreshMult[0] != 192 || !e.interRDThreshTouched[0] || e.interRDThreshBaselineGen == beforeGen {
+		t.Fatalf("inter RD thresholds after SetCPUUsed(0) = mult:%d touched:%t gen:%d, want preserved state and invalidated baseline gen past %d",
+			e.interRDThreshMult[0], e.interRDThreshTouched[0], e.interRDThreshBaselineGen, beforeGen)
+	}
+	if e.interModeErrorBins[20] != 2 || e.interModeSpeedErrorBins[20] != 3 {
+		t.Fatalf("speed error bins after SetCPUUsed(0) = current:%d previous:%d, want preserved",
+			e.interModeErrorBins[20], e.interModeSpeedErrorBins[20])
+	}
+}
+
 func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
 	e := newSizedTestEncoder(t, 1280, 720)
 	e.opts.CpuUsed = 8
@@ -262,6 +332,65 @@ func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
 	e.libvpxAutoSelectSpeed()
 	if e.autoSpeed != 16 {
 		t.Fatalf("cpu-used=16 autospeed = %d, want pinned aggressive band 16", e.autoSpeed)
+	}
+}
+
+func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
+	e := newSizedTestEncoder(t, 1280, 720)
+	e.opts.CpuUsed = 8
+	e.libvpxAutoSelectSpeed()
+
+	budget := e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
+		t.Fatalf("key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
+			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
+	}
+	e.libvpxAutoSelectSpeed()
+	if e.autoSpeed != 5 {
+		t.Fatalf("post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)
+	}
+
+	e = newSizedTestEncoder(t, 854, 480)
+	e.opts.CpuUsed = 8
+	e.libvpxAutoSelectSpeed()
+	budget = e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 0 {
+		t.Fatalf("mid-size key autospeed encode timer = %d, want libvpx keyframe skip", e.avgEncodeTime)
+	}
+
+	e = newSizedTestEncoder(t, 1024, 576)
+	e.opts.CpuUsed = 8
+	e.libvpxAutoSelectSpeed()
+	budget = e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
+		t.Fatalf("1024x576 cpu8 key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
+			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
+	}
+
+	e = newSizedTestEncoder(t, 800, 600)
+	e.opts.CpuUsed = 8
+	e.libvpxAutoSelectSpeed()
+	budget = e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 0 {
+		t.Fatalf("svga cpu8 key autospeed encode timer = %d, want libvpx keyframe skip", e.avgEncodeTime)
+	}
+
+	e = newSizedTestEncoder(t, 800, 600)
+	e.opts.CpuUsed = 4
+	e.libvpxAutoSelectSpeed()
+	budget = e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 0 {
+		t.Fatalf("svga cpu4 key autospeed encode timer = %d, want libvpx keyframe skip", e.avgEncodeTime)
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(true, false)
 	// libvpx vp8/encoder/onyx_if.c encode_frame_to_data_rate snapshots the
 	// coding context once before entering the recode do-loop. Each rejected
@@ -23,7 +23,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if traceEnabled {
 			e.incrementOracleTraceRecodeLoop()
 		}
-		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed, cyclicRefreshQ)
+		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, flags, invisible, staticSegmentationAllowed, cyclicRefreshQ)
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
 		}
@@ -72,7 +72,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 	}
 }
 
-func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool, cyclicRefreshQ int) (keyFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, invisible bool, staticSegmentationAllowed bool, cyclicRefreshQ int) (keyFrameEncodeAttempt, error) {
 	e.phaseCountAttempt(true)
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return keyFrameEncodeAttempt{}, ErrInvalidConfig
@@ -81,12 +81,27 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	segmentation := vp8enc.SegmentationConfig{}
 	roiSegmentation := e.roiSegmentationConfig()
 	if roiSegmentation.Enabled {
+		// libvpx setup_features() runs on every keyframe and reasserts the
+		// segmentation update bits while ROI segmentation remains enabled.
+		roiSegmentation.UpdateMap = true
+		roiSegmentation.UpdateData = true
 		segmentation = roiSegmentation
 	} else if staticSegmentationAllowed {
 		// libvpx applies the screen-content-mode=2 golden-refresh cyclic
 		// refresh exception in the inter-frame encode path. Keyframes keep
 		// the cyclic-refresh segmentation header when cyclic refresh is on.
 		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(false, cyclicRefreshQ)
+		if !segmentation.Enabled && e.rtcExternalPreserveSegmentation {
+			// Runtime VP8E_SET_RTC_EXTERNAL_RATECTRL preserves an already
+			// enabled cyclic-refresh header on the next keyframe, including
+			// the old feature-data deltas. Keyframes assign every macroblock
+			// to segment 0, so this keeps the packet header shape without
+			// changing reconstruction.
+			segmentation = e.rtcExternalPreservedSegmentation
+			if !segmentation.Enabled {
+				segmentation = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(cyclicRefreshQ)
+			}
+		}
 	}
 	var err error
 	projectedRate := 0
@@ -114,6 +129,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
+	segmentation = segmentationConfigForLoopFilterLevel(segmentation, lfLevel)
 	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
 	phase = e.phaseStart()
 	err = e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required)
@@ -139,7 +155,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefLFDeltas:           lfHeader.RefDeltas,
 		ModeLFDeltas:          lfHeader.ModeDeltas,
 		Segmentation:          segmentation,
-		RefreshEntropyProbs:   !e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
+		RefreshEntropyProbs:   e.keyFrameRefreshEntropyProbs(flags),
 		IndependentContexts:   e.opts.ErrorResilientPartitions,
 		// libvpx initializes pc->mb_no_coeff_skip = 1 for every frame
 		// (alloccommon.c), so the keyframe header always carries the
@@ -162,7 +178,14 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	projectedBits, coefSavings, refFrameSavings := e.projectedFrameSizeBitsFromRateWithSavings(true, required, projectedRate, false, false)
-	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
+	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled, SegmentationConfig: segmentation}, nil
+}
+
+func (e *VP8Encoder) keyFrameRefreshEntropyProbs(flags EncodeFlags) bool {
+	if e.opts.ErrorResilientPartitions {
+		return true
+	}
+	return flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
 }
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
@@ -430,13 +453,20 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// bit); mirror that mask so the inter-frame refresh header bits and
 	// the downstream rdopt token-cost / mode-cost branches see the same
 	// state as libvpx.
-	if temporalActive {
+	if refreshLast, refreshGolden, refreshAltRef, ok := e.currentExternalRefreshMask(); ok {
+		cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = refreshLast, refreshGolden, refreshAltRef
+	} else if temporalActive {
 		// The temporal SVC layer manager passes the per-layer scoreboard
-		// in flags, with NO_UPD_* meaning "do not refresh this buffer".
-		// Treat each axis independently so the scoreboard contract holds.
-		cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
-		cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
-		cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
+		// in flags. libvpx only rewrites the refresh mask when NO_UPD_*
+		// or FORCE_* flags are present; NO_REF_* alone still uses the
+		// normal LAST-only inter-frame default.
+		if externalRefreshFlagsPending(flags) {
+			cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = libvpxExternalRefreshMask(flags)
+		} else {
+			cfg.RefreshLast = true
+			cfg.RefreshGolden = goldenCBRRefresh
+			cfg.RefreshAltRef = false
+		}
 	} else if externalRefreshFlagsPending(flags) {
 		cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = libvpxExternalRefreshMask(flags)
 	} else {
@@ -496,14 +526,14 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// Mirror libvpx update_rd_ref_frame_probs: bias the previous-frame
 	// reference-frame probabilities for *this* frame's RD scoring based on
 	// the upcoming refresh policy. The base values are restored on every
-	// return so commitInterFrameAttempt's updateRefFrameProbsFromAttempt
-	// recomputes them from this frame's mb_ref_frame counts (the equivalent
-	// of vp8_convert_rfct_to_prob at packet write time).
+	// return so the accepted packet path recomputes them from this frame's
+	// mb_ref_frame counts (the equivalent of vp8_convert_rfct_to_prob at
+	// packet write time).
 	if !rdRefProbsPreconfigured {
 		previousRefProbIntra := e.refProbIntra
 		previousRefProbLast := e.refProbLast
 		previousRefProbGolden := e.refProbGolden
-		if e.refProbUseDefaultOnNextInterRD {
+		if e.shouldResetRDRefFrameProbsToDefaultInterRD() {
 			e.resetRefFrameProbsToDefaultInterRD()
 		}
 		if !e.opts.TemporalScalability.Enabled {
@@ -519,14 +549,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	projectedRate := 0
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
 	// Mirror libvpx vp8/encoder/rdopt.c vp8_initialize_rd_consts: the RD
-	// picker's per-frame fill_token_costs reads from cpi->lfc_a, cpi->lfc_g,
-	// or cpi->lfc_n depending on which reference the current frame refreshes —
-	// NOT from cm->fc.coef_probs (which is what govpx's e.coefProbs mirrors).
-	// Frames that refresh golden/altref score against a colder snapshot
-	// (e.g. lfc_g, last touched at the previous keyframe) which raises every
-	// candidate's rate, lifts bestScore over rd_threshes[SPLITMV], and lets
-	// SPLITMV evaluate. Without this swap, govpx's RD scores run ~0.5x of
-	// libvpx's on golden-refresh frames and SPLITMV's gate spuriously fires.
+	// picker's per-frame fill_token_costs reads from the frame-context table
+	// selected by the current refresh policy. Single-layer encodes choose
+	// lfc_a/lfc_g/lfc_n directly; temporal multilayer encodes follow the
+	// temporal refresh path's effective context selection.
 	//
 	// We stash the picker-side snapshot on e.rdPickerCoefProbs so the picker
 	// helpers (selectInterFrameModeDecision et al.) read from it; the
@@ -566,12 +592,17 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	loopFilterSource := source
 	if e.opts.NoiseSensitivity > 0 && e.denoiser.allocated {
 		e.denoiser.runningAvg[denoiserAvgIntra].ExtendBorders()
-		loopFilterSource = sourceImageFromVP8(&e.denoiser.runningAvg[denoiserAvgIntra].Img)
+		loopFilterSource = codedSourceImageFromVP8(&e.denoiser.runningAvg[denoiserAvgIntra].Img)
 	}
 	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(loopFilterSource, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
 	e.phaseEnd(encoderPhaseLoopFilterPick, phase)
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
+	}
+	if roiSegmentation.Enabled {
+		segmentation = segmentationConfigForLoopFilterLevelPreserveAltLF(segmentation, cfg.LoopFilterLevel)
+	} else {
+		segmentation = segmentationConfigForLoopFilterLevel(segmentation, cfg.LoopFilterLevel)
 	}
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
 	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
@@ -594,6 +625,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if segmentation.Enabled {
 		updateInterFrameSegmentationTreeProbs(&segmentation, e.interFrameModes[:required])
 		cfg.Segmentation = segmentation
+	} else if e.rtcExternalPreserveSegmentation {
+		cfg.Segmentation = vp8enc.SegmentationConfig{Enabled: true}
 	}
 	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
 	packet := vp8enc.InterFramePacket{
@@ -635,6 +668,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		coefSavings = packetResult.CoefSavingsBits
 		projectedBits, refFrameSavings = e.projectedFrameSizeBitsFromRateWithKnownCoefSavings(false, required, projectedRate, coefSavings, cfg.RefreshGolden, cfg.RefreshAltRef)
 	}
+	cfg.MVUpdate = packetResult.FrameMVUpdate
+	cfg.MVUpdateCount = packetResult.FrameMVUpdateCount
 	// libvpx vp8/encoder/encodeframe.c:946 sets
 	// cpi->projected_frame_size = totalrate >> 8 *before*
 	// vp8_drop_encodedframe_overshoot consumes it

@@ -180,18 +180,18 @@ func TestSplitMVDecisionRDUsesTransformDomainRate(t *testing.T) {
 	}
 }
 
-// TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError asserts the
+// TestSplitMVDecisionRDDistortionMatchesPerLabelTransformError asserts the
 // distortion stored on interSplitMVRDDecision matches a libvpx-faithful
-// per-4x4-block forward-DCT + quantize + (coeff - dqcoeff)^2 sum,
+// per-split-label forward-DCT + quantize + (coeff - dqcoeff)^2 sum,
 // independently recomputed from the SPLITMV predictor. This pins the
-// SPLITMV RD score to vp8_encode_inter_mb_segment's
+// SPLITMV RD score to rd_check_segment's repeated vp8_encode_inter_mb_segment
+// calls:
 //
-//	distortion = vp8_block_error(coeff, dqcoeff) summed across 4x4 blocks,
-//	then >> 2 (matching libvpx's vp8_encode_inter_mb_segment / 4)
+//	distortion += vp8_encode_inter_mb_segment(label) / 4
 //
 // instead of any pixel-domain SAD/SSE proxy. Chroma follows the same
 // transform-domain accounting via the rd_inter4x4_uv path.
-func TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError(t *testing.T) {
+func TestSplitMVDecisionRDDistortionMatchesPerLabelTransformError(t *testing.T) {
 	src, ref, pred, quant, qIndex := splitMVDecisionRDFixture(t)
 	decision, ok := selectInterFrameSplitMotionDecisionRD(
 		src, ref, vp8common.LastFrame,
@@ -207,20 +207,33 @@ func TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError(t *testing.T) 
 	}
 	// pred now holds the committed SPLITMV predictor. Re-run the same
 	// per-4x4-block forward-DCT + quantize + transform-error sum the
-	// SPLITMV RD path uses, independently, and compare to the returned
-	// distortion. We feed the second pass a fresh MacroblockCoefficients
-	// so it cannot reuse anything from the first pass.
+	// SPLITMV RD path uses, independently, with the split partition's
+	// per-label /4 rounding. We feed the second pass a fresh
+	// MacroblockCoefficients so it cannot reuse anything from the first
+	// pass.
 	var coeffs vp8enc.MacroblockCoefficients
-	stats := buildPredictedMacroblockCoefficientsRD(
-		&vp8tables.DefaultCoefProbs, src, 0, 0, &pred.Img,
-		nil, nil, &quant, qIndex, 0, splitInterModeZbinBoost,
-		true, false, false, true, &coeffs,
-	)
+	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:           &vp8tables.DefaultCoefProbs,
+		src:                 src,
+		mbRow:               0,
+		mbCol:               0,
+		pred:                &pred.Img,
+		quant:               &quant,
+		qIndex:              qIndex,
+		zbinModeBoost:       splitInterModeZbinBoost,
+		is4x4:               true,
+		splitPartitionValid: true,
+		splitPartition:      decision.Mode.Partition,
+		fastQuant:           false,
+		optimize:            true,
+		collectStats:        true,
+		coeffs:              &coeffs,
+	})
 	if stats.distortionY != decision.YDist {
-		t.Fatalf("YDist = %d, want per-block transform-error sum %d", decision.YDist, stats.distortionY)
+		t.Fatalf("YDist = %d, want per-label transform-error sum %d", decision.YDist, stats.distortionY)
 	}
 	if stats.distortionUV != decision.UVDist {
-		t.Fatalf("UVDist = %d, want per-block transform-error sum %d", decision.UVDist, stats.distortionUV)
+		t.Fatalf("UVDist = %d, want transform-error sum %d", decision.UVDist, stats.distortionUV)
 	}
 	if stats.rateY != decision.YRate {
 		t.Fatalf("YRate = %d, want per-block cost_coeffs sum %d", decision.YRate, stats.rateY)
@@ -234,6 +247,25 @@ func TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError(t *testing.T) 
 	// SPLITMV from ZEROMV.
 	if decision.YDist <= 0 {
 		t.Fatalf("YDist = %d, want strictly positive on non-zero residual fixture", decision.YDist)
+	}
+}
+
+func TestSplitMotionPartitionLumaDistortionRoundsPerLabel(t *testing.T) {
+	var blockErrors [16]int
+	for subset := range int(vp8tables.MBSplitCount[2]) {
+		block := int(vp8tables.MBSplitOffset[2][subset])
+		blockErrors[block] = 3
+	}
+	got := splitMotionPartitionLumaDistortionFromBlocks(blockErrors, 2)
+	total := 0
+	for _, err := range blockErrors {
+		total += err
+	}
+	if singleShift := total >> 2; singleShift != 3 {
+		t.Fatalf("test fixture single-shift distortion = %d, want 3", singleShift)
+	}
+	if got != 0 {
+		t.Fatalf("split distortion = %d, want per-label truncation to 0", got)
 	}
 }
 

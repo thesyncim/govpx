@@ -4,27 +4,38 @@ import "math"
 
 func (e *VP8Encoder) pass2MaybeArmAltRefPending(currentFrame uint64, currentPTS uint64, keyFrame bool) {
 	_ = keyFrame
+	interval, pending := e.pass2AltRefPendingPlan(currentFrame)
+	e.pass2ArmAltRefPending(currentPTS, interval, pending)
+}
+
+func (e *VP8Encoder) pass2AltRefPendingPlan(currentFrame uint64) (int, bool) {
 	if !e.twoPass.enabled() {
-		return
+		return 0, false
 	}
 	if !e.opts.AutoAltRef || e.opts.ErrorResilient || e.opts.LookaheadFrames <= 1 {
-		return
+		return 0, false
 	}
 	if e.sourceAltRefPending || e.sourceAltRefActive {
-		return
+		return 0, false
 	}
 	if e.framesTillAltRefFrame > 0 {
-		return
+		return 0, false
+	}
+	if e.twoPass.gfGroupValid && e.twoPass.framesTillGFUpdate > 0 {
+		return 0, false
 	}
 	framesToKey := e.twoPass.framesToKey(currentFrame, e.opts.KeyFrameInterval)
 	if framesToKey <= 0 {
-		return
+		return 0, false
 	}
 	maxGFInterval := e.opts.KeyFrameInterval
 	if maxGFInterval <= 0 || maxGFInterval > e.opts.LookaheadFrames-1 {
 		maxGFInterval = e.opts.LookaheadFrames - 1
 	}
-	interval, pending := e.twoPass.pass2DetectARFPending(currentFrame, framesToKey, true, maxGFInterval)
+	return e.twoPass.pass2DetectARFPending(currentFrame, framesToKey, true, maxGFInterval)
+}
+
+func (e *VP8Encoder) pass2ArmAltRefPending(currentPTS uint64, interval int, pending bool) {
 	if !pending {
 		return
 	}

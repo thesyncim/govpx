@@ -88,6 +88,7 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) 
 
 func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testing.T) {
 	e := VP8Encoder{}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 20
 
@@ -126,8 +127,15 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 
 	e.rc.mode = RateControlVBR
 	e.opts.StaticThreshold = 1
-	if cfg := e.cyclicRefreshSegmentationConfig(false); cfg.Enabled {
-		t.Fatalf("VBR static-threshold cyclic segmentation = %+v, want disabled", cfg)
+	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
+		t.Fatalf("CBR-born runtime VBR cyclic segmentation disabled, want sticky libvpx enablement")
+	}
+
+	vbrBorn := VP8Encoder{}
+	vbrBorn.rc.mode = RateControlCBR
+	vbrBorn.rc.currentQuantizer = 20
+	if cfg := vbrBorn.cyclicRefreshSegmentationConfig(false); cfg.Enabled {
+		t.Fatalf("VBR-born runtime CBR cyclic segmentation = %+v, want disabled", cfg)
 	}
 
 	e.rc.mode = RateControlCBR
@@ -252,6 +260,65 @@ func TestEncodeIntoScreenContentMode2KeepsKeyFrameCyclicSegmentation(t *testing.
 	keyState := packetState(t, key.Data)
 	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
 		t.Fatalf("screen-content mode 2 key segmentation = %+v, want map/data update", keyState.Segmentation)
+	}
+}
+
+func TestOvershootDropCommitsCyclicRefreshState(t *testing.T) {
+	const (
+		width      = 256
+		height     = 144
+		fps        = 30
+		targetKbps = 700
+	)
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		ScreenContentMode: 2,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	packet := make([]byte, 1<<20)
+	key, err := e.EncodeInto(packet, encoderValidationPanningFrame(width, height, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if key.Dropped || !key.KeyFrame {
+		t.Fatalf("key result = dropped:%t key:%t, want emitted keyframe", key.Dropped, key.KeyFrame)
+	}
+
+	beforeIndex := e.cyclicRefreshIndex
+	dropped, err := e.EncodeInto(packet, encoderValidationPanningFrame(width, height, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("drop EncodeInto returned error: %v", err)
+	}
+	if !dropped.Dropped {
+		t.Fatalf("frame 1 dropped = false, want screen-content overshoot drop")
+	}
+	if e.cyclicRefreshIndex == beforeIndex {
+		t.Fatalf("cyclicRefreshIndex after overshoot drop = %d, want committed advance", e.cyclicRefreshIndex)
+	}
+
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	nonZero := false
+	for _, v := range e.cyclicRefreshMap[:rows*cols] {
+		if v != 0 {
+			nonZero = true
+			break
+		}
+	}
+	if !nonZero {
+		t.Fatalf("cyclicRefreshMap stayed all zero after overshoot drop")
 	}
 }
 
@@ -475,7 +542,8 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 	}
 
 	var prevRefreshed []int
-	for frame := range 3 {
+	nonEmptyRefreshes := 0
+	for frame := range 4 {
 		src := publicImageFromVP8(&e.lastRef.Img)
 		inter, err := e.EncodeInto(packet, src, uint64(frame+1), 1, 0)
 		if err != nil {
@@ -493,7 +561,7 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 		if len(refreshed) == 0 {
 			t.Fatalf("inter %d refreshed set empty, want cyclic refresh activity", frame)
 		}
-		if frame > 0 && len(refreshed) == len(prevRefreshed) {
+		if nonEmptyRefreshes > 0 && len(refreshed) == len(prevRefreshed) {
 			same := true
 			for i := range refreshed {
 				if refreshed[i] != prevRefreshed[i] {
@@ -506,9 +574,13 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 			}
 		}
 		prevRefreshed = append(prevRefreshed[:0], refreshed...)
+		nonEmptyRefreshes++
 		if _, ok := d.NextFrame(); !ok {
 			t.Fatalf("inter %d NextFrame returned no frame", frame)
 		}
+	}
+	if nonEmptyRefreshes < 2 {
+		t.Fatalf("non-empty refresh frames = %d, want at least 2 to verify rotation", nonEmptyRefreshes)
 	}
 }
 
@@ -564,6 +636,32 @@ func TestEncodeIntoCyclicRefreshIndexPreservedAcrossKeyFrames(t *testing.T) {
 	}
 	if e.cyclicRefreshIndex != beforeKey {
 		t.Fatalf("cyclicRefreshIndex after key frame = %d, want libvpx-preserved %d", e.cyclicRefreshIndex, beforeKey)
+	}
+}
+
+func TestCommitKeyFrameCyclicRefreshMapPreservesRollingMap(t *testing.T) {
+	e := &VP8Encoder{
+		cyclicRefreshMap:        []int8{0, -1, 1, 0},
+		cyclicRefreshAttemptMap: []int8{1, 0, -1, 1},
+	}
+	modes := []vp8enc.KeyFrameMacroblockMode{
+		{SegmentID: 0},
+		{SegmentID: 1},
+		{SegmentID: 0},
+		{SegmentID: 0},
+	}
+
+	e.commitKeyFrameCyclicRefreshMap(2, 2, modes, true)
+
+	wantMap := []int8{0, -1, 1, 0}
+	wantAttempt := []int8{1, 0, -1, 1}
+	for i := range wantMap {
+		if e.cyclicRefreshMap[i] != wantMap[i] {
+			t.Fatalf("cyclicRefreshMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshMap[i], wantMap[i], e.cyclicRefreshMap)
+		}
+		if e.cyclicRefreshAttemptMap[i] != wantAttempt[i] {
+			t.Fatalf("cyclicRefreshAttemptMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshAttemptMap[i], wantAttempt[i], e.cyclicRefreshAttemptMap)
+		}
 	}
 }
 

@@ -28,13 +28,11 @@ func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
 	wantLayerID := []int{0, 1, 0, 1}
 	wantTL0 := []uint8{0, 0, 1, 1}
 	wantLayerSync := []bool{false, true, false, false}
-	// Frame[0] is the initial key frame so its target is
-	// starting_buffer_level/2 = effective_kbps * 1000 * initial_buffer_ms / 2 / 1000.
-	// libvpx's raw-target-rate cap (16*16*8*3*30/1000 = 184 kbps) clips
-	// the configured 1200 kbps, so the KF target lands at
-	// 184_000 * 400ms / 2 = 36_800 bits (the user-facing kbps is still
-	// 1200 — only the internal effective rate is clamped).
-	wantTargetBits := []int{36800, 32000, 48000, 32000}
+	// Frame[0] is the initial key frame, so temporal mode uses the base
+	// layer's starting buffer / 2: 720 kbps * 400 ms / 2 = 144000 bits.
+	// The following inter targets include libvpx-style per-layer buffer
+	// adjustment after the key-frame drain.
+	wantTargetBits := []int{144000, 29920, 46560, 32000}
 	wantLayerBitrate := []int{720, 480, 720, 480}
 	wantCumulativeBitrate := []int{720, 1200, 720, 1200}
 	for i := range results {
@@ -139,6 +137,58 @@ func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
 	}
 }
 
+func TestTemporalFiveLayerNoRefOnlyUsesDefaultLastRefresh(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               64,
+		Height:              64,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        2,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             0,
+		KeyFrameInterval:    3000,
+		StaticThreshold:     1,
+		MaxIntraBitratePct:  1000,
+		UndershootPct:       50,
+		OvershootPct:        50,
+		BufferSizeMs:        1000,
+		BufferInitialSizeMs: 600,
+		BufferOptimalSizeMs: 600,
+		TokenPartitions:     int(vp8common.TwoPartition),
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled:                true,
+			Mode:                   TemporalLayeringFiveLayers,
+			LayerTargetBitrateKbps: [MaxTemporalLayers]int{100, 220, 360, 520, 700},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	var frame8 EncodeResult
+	for frame := 0; frame <= 8; frame++ {
+		result, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, frame), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", frame, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeInto %d dropped, want emitted temporal frame", frame)
+		}
+		if frame == 8 {
+			frame8 = result
+		}
+	}
+	if frame8.KeyFrame || frame8.TemporalLayerID != 1 {
+		t.Fatalf("frame 8 temporal = key:%t layer:%d, want inter layer 1", frame8.KeyFrame, frame8.TemporalLayerID)
+	}
+	state := packetState(t, frame8.Data)
+	if !state.Refresh.RefreshLast || state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef {
+		t.Fatalf("frame 8 refresh = %+v, want LAST-only default refresh", state.Refresh)
+	}
+}
+
 func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	src := testImage(16, 16)
@@ -153,7 +203,7 @@ func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
 	layer0Buffer := temporalTestBufferAfterFrame(288000, 48000, 432000, keyBits)
 	layer1Buffer := temporalTestBufferAfterFrame(480000, 40000, 720000, keyBits)
 
-	e.rc.bufferLevelBits = -1
+	e.temporal.codingState[1].BufferLevelBits = -1
 	dropped, err := e.EncodeInto(dst, src, 1, 1, 0)
 	if err != nil {
 		t.Fatalf("dropped EncodeInto returned error: %v", err)
@@ -208,8 +258,8 @@ func TestEncodeIntoInvisibleTemporalFrameUsesLibvpxLayerOverheadAccounting(t *te
 		t.Fatalf("result = key:%t layer:%d, want invisible base keyframe", result.KeyFrame, result.TemporalLayerID)
 	}
 	bits := encodedSizeBits(result.SizeBytes)
-	wantLayer0Buffer := 288000 - bits
-	wantLayer1Buffer := temporalTestBufferAfterFrame(480000, 40000, 720000, bits)
+	wantLayer0Buffer := temporalTestBufferAfterFrame(288000, e.temporal.accounting[0].FrameBandwidthBits, e.temporal.accounting[0].MaximumBufferBits, bits)
+	wantLayer1Buffer := temporalTestBufferAfterFrame(480000, e.temporal.accounting[1].FrameBandwidthBits, e.temporal.accounting[1].MaximumBufferBits, bits)
 
 	if result.TemporalLayerBufferLevelBits != wantLayer0Buffer || e.temporal.accounting[0].BufferLevelBits != wantLayer0Buffer {
 		t.Fatalf("layer0 invisible buffer = result:%d accounting:%d, want %d", result.TemporalLayerBufferLevelBits, e.temporal.accounting[0].BufferLevelBits, wantLayer0Buffer)
@@ -384,6 +434,28 @@ func TestEncodeIntoRefreshesEntropyUnlessDisabled(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoForcedKeyHonorsNoUpdateEntropy(t *testing.T) {
+	e := newEntropyRefreshTestEncoder(t, false)
+	dst := make([]byte, 8192)
+
+	for i := range 3 {
+		src := rateControlTestFrame(16, 16, i)
+		if _, err := e.EncodeInto(dst, src, uint64(i), 1, 0); err != nil {
+			t.Fatalf("warm frame %d EncodeInto returned error: %v", i, err)
+		}
+	}
+	forced, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 3), 3, 1, EncodeForceKeyFrame|EncodeNoUpdateEntropy)
+	if err != nil {
+		t.Fatalf("forced key EncodeInto returned error: %v", err)
+	}
+	if !forced.KeyFrame {
+		t.Fatalf("forced KeyFrame = false, want true")
+	}
+	if packetState(t, forced.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("forced key refresh entropy = true, want libvpx no-update flag honored")
+	}
+}
+
 func TestEncodeIntoErrorResilientUsesTransientEntropyUpdates(t *testing.T) {
 	e := newEntropyRefreshTestEncoder(t, true)
 	src := testImage(16, 16)
@@ -548,6 +620,115 @@ func TestSetTemporalScalabilityControlsNextFrames(t *testing.T) {
 	}
 	if enhancement.KeyFrame || enhancement.TemporalLayerID != 1 || enhancement.TL0PICIDX != 0 || !enhancement.TemporalLayerSync {
 		t.Fatalf("second temporal result = key:%t id:%d tl0:%d sync:%t, want inter/1/0/sync", enhancement.KeyFrame, enhancement.TemporalLayerID, enhancement.TL0PICIDX, enhancement.TemporalLayerSync)
+	}
+}
+
+func TestSetTemporalScalabilitySeedsNewLayerFilterLevelFromColdContext(t *testing.T) {
+	e := newTestEncoder(t)
+	e.loopFilterLevel = 9
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}); err != nil {
+		t.Fatalf("SetTemporalScalability returned error: %v", err)
+	}
+	if got := e.temporal.codingState[0].FilterLevel; got != 9 {
+		t.Fatalf("base-layer filter seed = %d, want inherited single-layer seed 9", got)
+	}
+	if got := e.temporal.codingState[1].FilterLevel; got != 0 {
+		t.Fatalf("new enhancement-layer filter seed = %d, want cold layer-context seed 0", got)
+	}
+}
+
+func TestSetTemporalScalabilityOffRestoresBaseLayerCodingState(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	fullBitsPerFrame := e.rc.bitsPerFrame
+	fullBufferInitialBits := e.rc.bufferInitialBits
+	fullBufferOptimalBits := e.rc.bufferOptimalBits
+	fullMaximumBufferBits := e.rc.maximumBufferBits
+	fullBufferSizeBits := e.rc.bufferSizeBits
+	e.temporal.codingState[0] = temporalLayerCodingState{
+		FilterLevel:              7,
+		BufferLevelBits:          123,
+		BufferInitialBits:        111,
+		BufferOptimalBits:        222,
+		MaximumBufferBits:        333,
+		BitsPerFrame:             444,
+		TotalActualBits:          555,
+		RateCorrectionFactor:     1.25,
+		KeyFrameCorrectionFactor: 1.5,
+		GoldenCorrectionFactor:   1.75,
+		ActiveBestQuantizer:      9,
+		AvgFrameQuantizer:        44,
+		LastQuantizer:            45,
+		LastInterQuantizer:       46,
+		CurrentZbinOverQuant:     11,
+		ForceMaxQuantizer:        true,
+		LastFramePercentIntra:    12,
+		InterFrameTarget:         345,
+	}
+	e.temporal.codingValid[0] = true
+	e.loopFilterLevel = 2
+	e.rc.bufferLevelBits = 999
+	e.rc.rateCorrectionFactor = 9
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); err != nil {
+		t.Fatalf("SetTemporalScalability(off) returned error: %v", err)
+	}
+	if e.temporal.enabled {
+		t.Fatalf("temporal enabled after disabling")
+	}
+	if got := e.loopFilterLevel; got != 7 {
+		t.Fatalf("loop filter after disabling = %d, want restored base-layer 7", got)
+	}
+	if got := e.rc.rateCorrectionFactor; got != 1.25 {
+		t.Fatalf("rate correction after disabling = %v, want restored base-layer 1.25", got)
+	}
+	if got := e.rc.activeBestQuantizer; got != 9 {
+		t.Fatalf("active best after disabling = %d, want restored base-layer 9", got)
+	}
+	if got := e.rc.bufferLevelBits; got != fullBufferInitialBits {
+		t.Fatalf("buffer level after disabling = %d, want full-stream initial %d", got, fullBufferInitialBits)
+	}
+	if e.rc.bitsPerFrame != fullBitsPerFrame ||
+		e.rc.bufferInitialBits != fullBufferInitialBits ||
+		e.rc.bufferOptimalBits != fullBufferOptimalBits ||
+		e.rc.maximumBufferBits != fullMaximumBufferBits ||
+		e.rc.bufferSizeBits != fullBufferSizeBits {
+		t.Fatalf("full-stream rate geometry was not preserved after disabling")
+	}
+	if e.rc.currentTemporalLayers != 1 || e.rc.currentTemporalLayerID != 0 || e.currentTemporalLayer != 0 {
+		t.Fatalf("current temporal state after disabling = layers:%d layer:%d encoder:%d, want 1/0/0", e.rc.currentTemporalLayers, e.rc.currentTemporalLayerID, e.currentTemporalLayer)
+	}
+}
+
+func TestSetBitrateKbpsRefreshesTemporalLayerCodingGeometry(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	e.temporal.codingState[0].BufferLevelBits = 111
+	e.temporal.codingState[1].BufferLevelBits = 222
+	if err := e.SetBitrateKbps(900); err != nil {
+		t.Fatalf("SetBitrateKbps returned error: %v", err)
+	}
+	if got := e.temporal.config.LayerTargetBitrateKbps; got[0] != 540 || got[1] != 900 {
+		t.Fatalf("temporal bitrates after SetBitrateKbps = %v, want 540/900", got)
+	}
+	wantL0Initial := 540 * e.rc.bufferInitialSizeMs
+	wantL1Initial := 900 * e.rc.bufferInitialSizeMs
+	if got := e.temporal.codingState[0].BufferInitialBits; got != wantL0Initial {
+		t.Fatalf("layer 0 initial buffer = %d, want %d", got, wantL0Initial)
+	}
+	if got := e.temporal.codingState[1].BufferInitialBits; got != wantL1Initial {
+		t.Fatalf("layer 1 initial buffer = %d, want %d", got, wantL1Initial)
+	}
+	if got := e.temporal.codingState[0].BufferLevelBits; got != 111 {
+		t.Fatalf("layer 0 live buffer = %d, want preserved 111", got)
+	}
+	if got := e.temporal.codingState[1].BufferLevelBits; got != 222 {
+		t.Fatalf("layer 1 live buffer = %d, want preserved 222", got)
+	}
+	wantL0BitsPerFrame := computeLayerBitsPerFrame(540*1000, e.timing, e.temporal.pattern.RateDecimator[0], 1)
+	wantL1BitsPerFrame := computeLayerBitsPerFrame(900*1000, e.timing, e.temporal.pattern.RateDecimator[1], 1)
+	if got := e.temporal.codingState[0].BitsPerFrame; got != wantL0BitsPerFrame {
+		t.Fatalf("layer 0 bits per frame = %d, want %d", got, wantL0BitsPerFrame)
+	}
+	if got := e.temporal.codingState[1].BitsPerFrame; got != wantL1BitsPerFrame {
+		t.Fatalf("layer 1 bits per frame = %d, want %d", got, wantL1BitsPerFrame)
 	}
 }
 
@@ -722,7 +903,7 @@ func TestEncodeIntoNoReferenceLastOrGoldenCanUseAltRef(t *testing.T) {
 	assertImagesEqual(t, "altref interframe", altFrame, decoded[2])
 }
 
-func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {
+func TestEncodeIntoNoReferencesStaysInterFrame(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
 	second := testImage(16, 16)
@@ -737,12 +918,12 @@ func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second EncodeInto returned error: %v", err)
 	}
-	if !result.KeyFrame {
-		t.Fatalf("KeyFrame = false, want keyframe when all references are disallowed")
+	if result.KeyFrame {
+		t.Fatalf("KeyFrame = true, want libvpx-compatible inter frame with intra macroblocks when all references are disallowed")
 	}
 }
 
-func TestEncodeIntoAdaptiveKeyFramesDetectsSceneCut(t *testing.T) {
+func TestEncodeIntoAdaptiveKeyFramesFollowsLibvpxRealtimeSpeedGate(t *testing.T) {
 	e := newAdaptiveSceneCutTestEncoder(t, true)
 	first := testImage(32, 32)
 	second := testImage(32, 32)
@@ -757,15 +938,15 @@ func TestEncodeIntoAdaptiveKeyFramesDetectsSceneCut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second EncodeInto returned error: %v", err)
 	}
-	if !result.KeyFrame || !result.SceneCut {
-		t.Fatalf("adaptive result = key:%t sceneCut:%t, want scene-cut keyframe", result.KeyFrame, result.SceneCut)
+	if result.KeyFrame || result.SceneCut {
+		t.Fatalf("adaptive result = key:%t sceneCut:%t, want libvpx realtime-speed interframe", result.KeyFrame, result.SceneCut)
 	}
 	info, err := PeekVP8StreamInfo(result.Data)
 	if err != nil {
 		t.Fatalf("PeekVP8StreamInfo returned error: %v", err)
 	}
-	if !info.KeyFrame {
-		t.Fatalf("packet KeyFrame = false, want keyframe packet")
+	if info.KeyFrame {
+		t.Fatalf("packet KeyFrame = true, want interframe packet")
 	}
 	if oracleTraceBuild && e.oracleTraceMBBufferLenForTest() != 0 {
 		t.Fatalf("discarded inter-attempt MB trace rows = %d, want 0", e.oracleTraceMBBufferLenForTest())

@@ -23,11 +23,14 @@ func TestCyclicRefreshSegmentationEmitsAggressiveDenoiseAltLF(t *testing.T) {
 			ErrorResilient:   true,
 		},
 	}
+	e.cyclicRefreshConfigured = true
 	// Drive the aggressive-denoise gate: Q below qp_thresh (80) and
 	// frames_since_key > 2*consec_zerolast (2*15 = 30).
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 50
 	e.rc.framesSinceKeyframe = 60
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
 
 	if !e.aggressiveDenoiseSegmentationActive() {
 		t.Fatalf("aggressiveDenoiseSegmentationActive=false, want true (Q=%d framesSinceKey=%d)", e.rc.currentQuantizer, e.rc.framesSinceKeyframe)
@@ -60,6 +63,7 @@ func TestCyclicRefreshSegmentationFallsBackToAltQOutsideAggressiveBranch(t *test
 	t.Parallel()
 
 	e := &VP8Encoder{opts: EncoderOptions{ErrorResilient: true}}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 100
 
@@ -169,6 +173,57 @@ func TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData(t *testing.T) {
 	disabled := loopFilterSegmentationHeader(vp8enc.SegmentationConfig{})
 	if disabled.Enabled || disabled != (vp8dec.SegmentationHeader{}) {
 		t.Fatalf("disabled translation = %+v, want zero header", disabled)
+	}
+}
+
+func TestSegmentationConfigForLoopFilterLevelDropsOnlyZeroBaseNonPositiveAltLF(t *testing.T) {
+	t.Parallel()
+
+	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][1] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][1] = -3
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][2] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][2] = 4
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][3] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][3] = -2
+
+	got := segmentationConfigForLoopFilterLevel(cfg, 0)
+	if got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != 0 {
+		t.Fatalf("negative zero-level ALT_LF = enabled:%t data:%d, want stripped", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	}
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 4 {
+		t.Fatalf("positive zero-level ALT_LF = enabled:%t data:%d, want retained +4", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
+	}
+
+	got = segmentationConfigForLoopFilterLevel(cfg, 3)
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -3 {
+		t.Fatalf("positive-base ALT_LF = enabled:%t data:%d, want retained -3", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	}
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][3] || got.FeatureData[vp8common.MBLvlAltLF][3] != -2 {
+		t.Fatalf("nonzero effective ALT_LF = enabled:%t data:%d, want retained -2", got.FeatureEnabled[vp8common.MBLvlAltLF][3], got.FeatureData[vp8common.MBLvlAltLF][3])
+	}
+
+	cfg.AbsDelta = true
+	got = segmentationConfigForLoopFilterLevel(cfg, 0)
+	if got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != 0 {
+		t.Fatalf("negative absolute ALT_LF = enabled:%t data:%d, want stripped", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	}
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 4 {
+		t.Fatalf("positive absolute ALT_LF = enabled:%t data:%d, want retained +4", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
+	}
+}
+
+func TestSegmentationConfigForLoopFilterLevelPreservesROINegativeAltLF(t *testing.T) {
+	t.Parallel()
+
+	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][1] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][1] = -3
+
+	got := segmentationConfigForLoopFilterLevelPreserveAltLF(cfg, 0)
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -3 {
+		t.Fatalf("ROI negative zero-level ALT_LF = enabled:%t data:%d, want retained -3",
+			got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
 	}
 }
 

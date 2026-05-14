@@ -365,6 +365,31 @@ func (p *rowWorkerPool) reset(mbRows int) {
 	}
 }
 
+func (p *rowWorkerPool) resetForEncoderReset() {
+	if p == nil {
+		return
+	}
+	for i := range p.workers {
+		p.workers[i] = rowEncoderState{}
+	}
+	for i := range p.rowProgress {
+		p.rowProgress[i].value.Store(0)
+	}
+	p.dotArtifactBudget.Store(0)
+	p.encoder = nil
+	p.job = rowWorkerJobInterFrame
+	p.keyArgs = threadedKeyRowsArgs{}
+	p.args = threadedInterRowsArgs{}
+	p.lfTrial = lfTrialArgs{}
+	p.workerCount = 0
+	p.required = 0
+	p.abort.Store(0)
+	p.doneCount.Store(0)
+	for i := range p.workerErrors {
+		p.workerErrors[i] = nil
+	}
+}
+
 // publishRowColumn updates the wave-front counter for row r so that
 // row r+1's worker can advance. Mirrors libvpx's
 // vpx_atomic_store_release(current_mb_col, mb_col - 1) at every

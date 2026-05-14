@@ -5,6 +5,7 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -124,6 +125,38 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 	}
 	if uvDist != gotUVDist {
 		t.Fatalf("UV distortion = %d, want fresh transform-RD distortion %d", uvDist, gotUVDist)
+	}
+}
+
+func TestWholeBlockYTransformRDQuantizesY1DCBeforeSkipping(t *testing.T) {
+	src := testImage(31, 17)
+	// This bottom-right odd-size macroblock mirrors the frame-11 V_PRED
+	// residual that exposed libvpx's Y_NO_DC behavior: Y1 DC is quantized
+	// first, then skipped for token cost and distortion because Y2 carries it.
+	sourceRow := [...]byte{219, 38, 88, 35, 46, 57, 68, 79, 90, 165, 215, 162, 173, 184, 195}
+	for i, v := range sourceRow {
+		src.Y[16*src.YStride+16+i] = v
+	}
+
+	pred := testVP8Frame(t, 31, 17, 0, 90, 170)
+	predRow := [...]byte{212, 223, 81, 91, 39, 50, 60, 71, 83, 94, 208, 220, 167, 177, 189, 187}
+	for row := range 16 {
+		copy(pred.Img.Y[(16+row)*pred.Img.YStride+16:], predRow[:])
+	}
+
+	quant := testRegularMacroblockQuant(t, 4)
+	above := vp8enc.TokenContextPlanes{Y1: [4]uint8{0, 0, 0, 1}}
+	left := vp8enc.TokenContextPlanes{Y1: [4]uint8{1, 0, 0, 0}}
+	_, gotDist, gotY2EOB, gotY2Q := wholeBlockYTransformRD(sourceImageFromPublic(src), &pred.Img, 1, 1, 0, &above, &left, &quant, &vp8tables.DefaultCoefProbs, false)
+	if gotDist != 68 {
+		t.Fatalf("wholeBlockYTransformRD distortion = %d, want 68 with Y1 DC quantized before skip", gotDist)
+	}
+	if gotY2EOB != 7 {
+		t.Fatalf("Y2 EOB = %d, want 7", gotY2EOB)
+	}
+	wantY2Q := [16]int16{-36, -84, -86, -86}
+	if gotY2Q != wantY2Q {
+		t.Fatalf("Y2 qcoeff = %v, want %v", gotY2Q, wantY2Q)
 	}
 }
 

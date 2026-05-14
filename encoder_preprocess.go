@@ -5,9 +5,11 @@ import (
 )
 
 type encodeSourceMetadata struct {
-	lookaheadDepth int
-	arnrFiltered   bool
-	denoised       bool
+	lookaheadDepth     int
+	forceLFDeltaUpdate bool
+	internalInvisible  bool
+	arnrFiltered       bool
+	denoised           bool
 }
 
 func (e *VP8Encoder) initPreprocessFrames(width int, height int) error {
@@ -51,7 +53,8 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 	// byte-identity (the gate was originally landed in commit 0af0a25 as
 	// "Gate VP8 ARNR temporal filter on hidden alt-ref source" but was lost
 	// in a subsequent merge of d2c00ed; this restores it).
-	hiddenAltRefFrame := flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
+	hiddenAltRefFrame := meta.internalInvisible &&
+		flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
 	if hiddenAltRefFrame && e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
 		if e.applyARNRFilter(src, flags) {
 			// The filtered output lives in `arnrScratch`, govpx's analogue
@@ -73,12 +76,16 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 	}
 	if e.opts.NoiseSensitivity > 0 {
 		// Allocate the libvpx-style running average buffers and per-MB
-		// state map on first inter frame; the actual filter runs per-MB
-		// after mode decision in buildReconstructingInterFrameCoefficients.
+		// state map on first inter frame. libvpx seeds the denoiser mode
+		// only when these buffers are allocated; later nonzero runtime
+		// noise-sensitivity controls update oxcf but leave the active
+		// denoiser parameters sticky.
+		configure := !e.denoiser.allocated || e.denoiser.width != e.opts.Width || e.denoiser.height != e.opts.Height
 		_ = e.denoiser.ensureAllocated(e.opts.Width, e.opts.Height)
-		mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
-		e.denoiser.mode = mode
-		_, e.denoiser.params = denoiserSetParameters(mode)
+		if configure {
+			mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
+			e.denoiser.mode, e.denoiser.params = denoiserSetParameters(mode)
+		}
 		meta.denoised = true
 	}
 	return src, meta

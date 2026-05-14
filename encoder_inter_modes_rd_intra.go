@@ -6,7 +6,19 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, staleY2Snapshot, bool) {
+type interIntraModeRDResult struct {
+	mode         vp8enc.InterFrameMacroblockMode
+	score        int
+	yrd          int
+	rate         int
+	rateY        int
+	rateUV       int
+	distortion   int
+	distortionUV int
+	staleY2      staleY2Snapshot
+}
+
+func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (interIntraModeRDResult, bool) {
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	if e.activityMapValid {
 		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, mbRow, mbCol)
@@ -28,7 +40,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	if mbMode == vp8common.BPred {
 		bModes, bRate, bDist, ok := predictBestBPredLumaModeRDWithRDConstants(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, fastQuant, rdMult, rdDiv)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
+			return interIntraModeRDResult{}, false
 		}
 		yRate := bRate + e.interIntraYModeRate(vp8common.BPred)
 		// Mirror libvpx vp8/encoder/rdopt.c rd_pick_intra4x4mby_modes lines
@@ -46,11 +58,11 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 			yrd = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, yRate, bDist)
 		}
 		if bestRD > 0 && yrd >= bestRD {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
+			return interIntraModeRDResult{}, false
 		}
 		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
+			return interIntraModeRDResult{}, false
 		}
 		rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
@@ -58,19 +70,28 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 			score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		}
 		distortion := bDist + uvDist
-		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, yrd, rate, distortion, staleY2Snapshot{}, true
+		return interIntraModeRDResult{
+			mode:         vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes},
+			score:        score,
+			yrd:          yrd,
+			rate:         rate,
+			rateY:        bRate,
+			rateUV:       uvRate,
+			distortion:   distortion,
+			distortionUV: uvDist,
+		}, true
 	}
 	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
+		return interIntraModeRDResult{}, false
 	}
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
+		return interIntraModeRDResult{}, false
 	}
 	yRate, yDist, y2EOB, y2QCoeff := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, zbinOverQuant, aboveTok, leftTok, quant, pickerProbs, fastQuant)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
 	if !ok {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
+		return interIntraModeRDResult{}, false
 	}
 	modeRate := e.interIntraYModeRate(mbMode)
 	rate := yRate + uvRate + modeRate + e.interIntraMacroblockModeRate()
@@ -85,5 +106,15 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	if oracleTraceBuild {
 		staleY2 = makeOracleStaleY2Snapshot(uint8(y2EOB), y2QCoeff)
 	}
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, yrd, rate, distortion, staleY2, true
+	return interIntraModeRDResult{
+		mode:         vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode},
+		score:        score,
+		yrd:          yrd,
+		rate:         rate,
+		rateY:        yRate,
+		rateUV:       uvRate,
+		distortion:   distortion,
+		distortionUV: uvDist,
+		staleY2:      staleY2,
+	}, true
 }

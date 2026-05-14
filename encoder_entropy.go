@@ -8,38 +8,17 @@ import (
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
+	e.resetMotionVectorCostTablesFromModeProbs()
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
 	}
-	// Mirror libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame: after
-	// vp8_default_coef_probs resets cm->fc, cpi->lfc_a/lfc_g/lfc_n are all
-	// seeded from cm->fc — that is, from the *default* probabilities, BEFORE
-	// the keyframe encode pass adapts cm->fc via vp8_update_coef_probs. The
-	// end-of-frame `lfc_X = cm->fc` assignments overwrite each slot only when
-	// the corresponding refresh_X flag is set; on a keyframe all three flags
-	// are set, so lfc_a/lfc_g/lfc_n end up holding the *post-adaptation*
-	// keyframe fc — but in practice short clips' adaptation barely moves the
-	// table, and the slots that DO move differ block-by-block between libvpx
-	// and govpx (govpx's keyframe intra-mode picker still has BPred residual
-	// divergences pinned in earlier rounds). Seeding the snapshots from
-	// e.coefProbs (the post-keyframe-adaptation table) is what libvpx does;
-	// the lingering keyframe-adaptation gap is tracked separately. The
-	// important property here is that the RD picker on later golden/altref
-	// refresh frames reads from this seed instead of from e.coefProbs, which
-	// keeps following inter-frame adaptations from polluting the
-	// long-reference RD scoring.
+	// Mirror libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame and the
+	// end-of-frame lfc_X saves in onyx_if.c: setup seeds lfc_a/lfc_g/lfc_n
+	// from the default coef probs before the keyframe encode adapts cm->fc.
+	// The final save only refreshes the LAST entropy context on a keyframe
+	// (`cm->refresh_last_frame = 1`); GOLDEN and ALTREF remain at the default
+	// seed until a later visible frame actually refreshes those references.
 	e.coefProbsLast = e.coefProbs
-	// Seed lfc_g/lfc_a with the *default* coefficient table rather than the
-	// keyframe-adapted e.coefProbs: govpx's keyframe intra-mode picks still
-	// diverge from libvpx in pinned BPred residual cases (see
-	// docs/vp8_encoder_parity.md), so the post-keyframe adaptation is
-	// noticeably stronger in govpx than in libvpx for affected clips. Using
-	// the unadapted default as the long-reference snapshot is the
-	// closest-to-libvpx proxy until the upstream BPred residual gap closes —
-	// libvpx's lfc_g is an "almost default" table for short clips where the
-	// keyframe is the only thing seeding it, so the SPLITMV-gate parity
-	// reasoning is the same regardless of whether we use the precise
-	// libvpx-side adapted value or the default seed.
 	e.coefProbsGolden = vp8tables.DefaultCoefProbs
 	e.coefProbsAltRef = vp8tables.DefaultCoefProbs
 	e.coefProbsSnapshotsValid = true
@@ -67,7 +46,7 @@ func (e *VP8Encoder) updateRefFrameProbsFromKeyFrame() {
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.commitInterFrameEntropy(attempt)
 	e.commitInterFrameSkipFalseProb(attempt)
-	e.updateRefFrameProbsFromAttempt(attempt)
+	e.updateRefFrameProbsFromPackedAttempt()
 	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
 	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
 	// next frame's send_update bit reflects whether anything actually
@@ -110,12 +89,9 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.forceMaxQuantizer = false
 }
 
-// updateRefFrameProbsFromAttempt mirrors libvpx vp8_convert_rfct_to_prob:
-// ref-frame probs for the next frame's RD scoring are derived from observed
-// mode counts after normal single-layer inter frames, and after all
-// multi-layer inter frames. Single-layer GF/ARF refresh frames deliberately
-// keep the previous probabilities and let update_rd_ref_frame_probs apply the
-// refresh adjustments on the next frame.
+// updateRefFrameProbsFromAttempt mirrors the gated vp8_convert_rfct_to_prob
+// call at the end of libvpx vp8_encode_frame. This path feeds recode/drop
+// decisions before packet packing; single-layer GF/ARF refresh frames skip it.
 func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAttempt) {
 	if e.refProbUseDefaultOnNextInterRD {
 		e.resetRefFrameProbsToDefaultInterRD()
@@ -124,6 +100,63 @@ func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAtte
 	if !libvpxShouldConvertRefCountsToProb(e.libvpxTemporalLayerCount(), attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef) {
 		return
 	}
+	e.convertRefFrameCountsToProbs()
+}
+
+func (e *VP8Encoder) updateRDRefFrameProbsForDroppedFrame(refreshAltRef bool) {
+	if e.shouldResetRDRefFrameProbsToDefaultInterRD() {
+		e.resetRefFrameProbsToDefaultInterRD()
+	}
+	e.refProbUseDefaultOnNextInterRD = false
+	if !e.opts.TemporalScalability.Enabled {
+		e.applyLibvpxRdRefFrameProbRefreshAdjustments(refreshAltRef)
+	}
+}
+
+func (e *VP8Encoder) shouldResetRDRefFrameProbsToDefaultInterRD() bool {
+	if e.refProbUseDefaultOnNextInterRD {
+		return true
+	}
+	if !e.opts.TemporalScalability.Enabled {
+		return false
+	}
+	for _, count := range e.temporalLayerRefUsage {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *VP8Encoder) snapshotDroppedFrameCoefProbs(refreshLast bool, refreshGolden bool, refreshAltRef bool) {
+	if !e.coefProbsSnapshotsValid {
+		e.coefProbsLast = e.coefProbs
+		e.coefProbsGolden = e.coefProbs
+		e.coefProbsAltRef = e.coefProbs
+		e.coefProbsSnapshotsValid = true
+	}
+	if refreshAltRef {
+		e.coefProbsAltRef = e.coefProbs
+	}
+	if refreshGolden {
+		e.coefProbsGolden = e.coefProbs
+	}
+	if refreshLast {
+		e.coefProbsLast = e.coefProbs
+	}
+}
+
+// updateRefFrameProbsFromPackedAttempt mirrors libvpx bitstream.c
+// pack_inter_mode_mvs, which unconditionally calls vp8_convert_rfct_to_prob
+// immediately before writing the inter-mode header. The converted values stay
+// live after packet write and seed the next frame's update_rd_ref_frame_probs,
+// including after single-layer GF/ARF refresh packets.
+func (e *VP8Encoder) updateRefFrameProbsFromPackedAttempt() {
+	e.refProbUseDefaultOnNextInterRD = false
+	e.convertRefFrameCountsToProbs()
+}
+
+func (e *VP8Encoder) convertRefFrameCountsToProbs() {
 	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes)
 	probIntra, probLast, probGolden, ok := refFrameProbsFromUsage(intra, last, golden, alt)
 	if !ok {
@@ -184,25 +217,20 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 	return &e.coefProbs
 }
 
-// rdPickerCoefProbs returns the snapshot the inter-frame RD picker should
-// feed into fill_token_costs (the rate side of every coefficientBlockTokenRate
-// call inside the picker), mirroring libvpx vp8/encoder/rdopt.c
-// vp8_initialize_rd_consts:
+// rdPickerCoefProbs returns the coefficient-prob table the inter-frame RD
+// picker should feed into fill_token_costs (the rate side of every
+// coefficientBlockTokenRate call inside the picker), mirroring libvpx
+// vp8/encoder/rdopt.c vp8_initialize_rd_consts for single-layer encodes:
 //
 //	l = refresh_alt_ref_frame ? &cpi->lfc_a
 //	  : refresh_golden_frame  ? &cpi->lfc_g
 //	  : &cpi->lfc_n
 //
-// `lfc_n` was last refreshed by the previous frame (so e.coefProbs already
-// reflects that context — leaving picker probs == e.coefProbs is fine for
-// the no-refresh-boost branch). For golden/altref-refresh frames the picker
-// has to run against a "colder" snapshot (the keyframe-vintage adapted fc),
-// because every intervening inter frame's last-refresh-only updates skipped
-// lfc_g/lfc_a. Without this swap, govpx's RD scoring on golden/altref
-// boost frames runs against e.coefProbs (the heavily-adapted fc) and the
-// resulting low rates spuriously trip rd_threshes[SPLITMV] off, letting
-// NEARESTMV win modes that libvpx reaches via SPLITMV. See
-// parity-close-r3-h-rd-scale.
+// Temporal multilayer realtime encodes restore per-layer rate-control state
+// before RD setup, but vp8_initialize_rd_consts still selects lfc_a/lfc_g/lfc_n
+// directly from the current frame's refresh flags. That means default and
+// LAST-refresh temporal frames score against lfc_n, not the live frame context
+// left by the previously encoded higher layer.
 //
 // Returns nil before the first commitKeyFrameEntropy seeds the snapshots
 // (which on a keyframe-led clip is impossible to hit on an inter frame), or
@@ -218,15 +246,12 @@ func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8ta
 	case refreshGolden:
 		return &e.coefProbsGolden
 	default:
-		// LAST snapshot mirrors e.coefProbs already (commitInterFrameEntropy
-		// updates them in lockstep when refresh_last_frame=1). Returning nil
-		// to fall back to e.coefProbs is equivalent and avoids a redundant
-		// pointer indirection on the picker hot path.
-		return nil
+		return &e.coefProbsLast
 	}
 }
 
 func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
+	e.updateMotionVectorCostTablesFromInterAttempt(attempt)
 	// Mirror libvpx onyx_if.c encode_frame_to_data_rate
 	// `if (refresh_entropy_probs == 0) cm->fc = cm->lfc;` rollback: when the
 	// bitstream did NOT carry a refresh, e.coefProbs already reflects the
@@ -322,13 +347,8 @@ func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bo
 	// `update_alt_ref_frame_stats` is the only path that asserts
 	// `cpi->source_alt_ref_active = 1`; when play_alternate (AutoAltRef) is
 	// disabled libvpx routes refresh_alt_ref_frame=1 through
-	// `update_golden_frame_stats` instead, which clears source_alt_ref_active
-	// unless an ARF schedule is pending. Without the AutoAltRef gate, a user
-	// passing VP8_EFLAG_NO_UPD_LAST (which libvpx maps to
-	// refresh_alt_ref_frame=1, refresh_golden_frame=1 via the
-	// vp8_update_reference upd-mask) would incorrectly mark
-	// source_alt_ref_active in govpx and shift the prob_gf_coded picker
-	// adjustment to the auto-ARF branch on the next frame.
+	// `update_golden_frame_stats`, whose non-GF branch explicitly skips the
+	// plain-inter counter update while refresh_alt_ref_frame is set.
 	if refreshAltRef && e.opts.AutoAltRef {
 		e.framesSinceGolden = 0
 		e.sourceAltRefActive = true
@@ -345,6 +365,9 @@ func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bo
 		if !e.sourceAltRefPending {
 			e.sourceAltRefActive = false
 		}
+		return
+	}
+	if refreshAltRef {
 		return
 	}
 	if e.framesSinceGolden < int(^uint(0)>>1) {

@@ -52,7 +52,7 @@ const (
 type EncodeFlags uint32
 
 const (
-	// EncodeForceKeyFrame forces the next encoded packet to be a key frame.
+	// EncodeForceKeyFrame forces this input frame to be encoded as a key frame.
 	EncodeForceKeyFrame EncodeFlags = 1 << iota
 
 	// EncodeInvisibleFrame encodes a hidden frame that updates references but
@@ -226,7 +226,7 @@ type EncoderOptions struct {
 	// default.
 	UndershootPct int
 	// OvershootPct caps libvpx-style upward rate adjustment as a percentage of
-	// the target frame size; valid range is [0, 1000]. Zero uses the libvpx
+	// the target frame size; valid range is [0, 100]. Zero uses the libvpx
 	// default.
 	OvershootPct int
 
@@ -279,11 +279,11 @@ type EncoderOptions struct {
 	// alt-ref sign bias on the matching deferred show frame. Mirrors
 	// libvpx's oxcf.play_alternate.
 	AutoAltRef bool
-	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
-	// source/reference error shift is detected, the frame is promoted to a
-	// keyframe before rate control and mode decision run; non-realtime
-	// one-pass encodes also mirror libvpx's post-inter auto-key recode when
-	// the committed inter-mode map crosses the intra-percentage thresholds.
+	// AdaptiveKeyFrames enables libvpx-compatible one-pass auto-key recode.
+	// Eligible visible inter frames are first encoded as inter frames; when
+	// the committed inter-mode map crosses libvpx's intra-percentage
+	// thresholds, the encoder discards that packet and recodes the same
+	// source as a scene-cut keyframe.
 	AdaptiveKeyFrames bool
 
 	// ErrorResilient writes frames that reset inter-frame entropy adaptation.
@@ -445,6 +445,11 @@ type VP8Encoder struct {
 	closed        bool
 	forceKeyFrame bool
 	frameCount    uint64
+	// keyFrameFrequency mirrors cpi->key_frame_frequency. libvpx seeds it
+	// from oxcf.key_freq during compressor creation and does not rewrite it
+	// on runtime vpx_codec_enc_config_set updates; adaptive auto-key forcing
+	// must therefore not read the live EncoderOptions.KeyFrameInterval.
+	keyFrameFrequency int
 
 	lastQuantizerPublic   int
 	lastQuantizerInternal int
@@ -462,6 +467,11 @@ type VP8Encoder struct {
 	avgPickModeTime       int // microseconds (libvpx cpi->avg_pick_mode_time, signed int per onyx_int.h)
 	avgEncodeTime         int // microseconds (libvpx cpi->avg_encode_time, signed int per onyx_int.h)
 	autoSpeedFrameStartNS int64
+	// Runtime VP8E_SET_CPUUSED follows a slightly different temporal RD
+	// frame-context path from cold-start cpu_used config when it pins
+	// realtime speed. Track that control call so temporal GF refresh scoring
+	// can mirror libvpx without changing cold-start pinned-speed streams.
+	runtimePinnedCPUUsed bool
 
 	// libvpx vp8/encoder/onyx_if.c forced-key bookkeeping. this_key_frame_forced
 	// is set when the encoder is producing a key frame whose timing was
@@ -480,13 +490,18 @@ type VP8Encoder struct {
 	// restoreCodingContext when an attempt is rejected.
 	savedContext savedCodingContext
 
-	cyclicRefreshIndex      int
-	cyclicRefreshMap        []int8
-	cyclicRefreshAttemptMap []int8
-	skinMap                 []uint8
-	consecZeroLast          []uint8
-	lastInterZeroMVCount    int
-	lastInterSkipCount      int
+	cyclicRefreshIndex               int
+	cyclicRefreshConfigured          bool
+	cyclicRefreshMap                 []int8
+	cyclicRefreshAttemptMap          []int8
+	segmentationHeaderEnabled        bool
+	lastSegmentationConfig           vp8enc.SegmentationConfig
+	rtcExternalPreserveSegmentation  bool
+	rtcExternalPreservedSegmentation vp8enc.SegmentationConfig
+	skinMap                          []uint8
+	consecZeroLast                   []uint8
+	lastInterZeroMVCount             int
+	lastInterSkipCount               int
 
 	// libvpx active-map: when enabled, MBs flagged 0 skip mode decision in
 	// inter frames and code as ZEROMV-LAST with skip=1 (see pickinter.c
@@ -518,6 +533,23 @@ type VP8Encoder struct {
 	// flag is cleared after the next non-dropped frame commits.
 	forceMaxQuantizer bool
 
+	// carriedExternalRefresh mirrors libvpx refresh-mask state across dropped
+	// frames. VP8E_SET_FRAME_FLAGS updates common.refresh_* before drop checks;
+	// dropped frames clear ext_refresh_frame_flags_pending but do not restore
+	// the default LAST-only refresh mask, so the next source frame inherits it.
+	carriedExternalRefresh       bool
+	carriedExternalRefreshLast   bool
+	carriedExternalRefreshGolden bool
+	carriedExternalRefreshAltRef bool
+
+	// carriedExternalReference mirrors ref_frame_flags across dropped frames.
+	// VP8E_SET_FRAME_FLAGS updates cpi->ref_frame_flags before drop checks,
+	// and dropped frames do not restore the previous reference mask.
+	carriedExternalReference       bool
+	carriedExternalReferenceLast   bool
+	carriedExternalReferenceGolden bool
+	carriedExternalReferenceAltRef bool
+
 	// framePredictionError mirrors libvpx's cpi->mb.prediction_error for
 	// the current inter encode attempt. The overshoot-drop gate reads it
 	// before the caller updates lastPredErrorMB, matching onyx_if.c.
@@ -545,6 +577,7 @@ type VP8Encoder struct {
 	refProbLast                    uint8
 	refProbGolden                  uint8
 	refProbUseDefaultOnNextInterRD bool
+	temporalLayerRefUsage          [vp8common.MaxRefFrames]int
 	// libvpx update_rd_ref_frame_probs (onyx_if.c) adjusts the reference-frame
 	// probabilities used by the *current* frame's RD scoring based on the
 	// upcoming refresh policy. It tracks frames_since_golden and
@@ -573,6 +606,7 @@ type VP8Encoder struct {
 	autoAltRefStashPTS      uint64
 	autoAltRefStashDuration uint64
 	autoAltRefStashFlags    EncodeFlags
+	autoAltRefStashForceLF  bool
 	// currentSourcePTS mirrors libvpx onyx_if.c's per-frame
 	// `cpi->source` PTS so isSrcFrameAltRef can detect the deferred
 	// show frame after a hidden ARF.
@@ -768,6 +802,8 @@ type VP8Encoder struct {
 	lfDeltasSignaledOnce     bool
 	lastSignaledRefLFDeltas  [vp8common.MaxRefLFDeltas]int8
 	lastSignaledModeLFDeltas [vp8common.MaxModeLFDeltas]int8
+	pendingLFDeltaUpdate     bool
+	currentLFDeltaUpdate     bool
 	coefProbs                vp8tables.CoefficientProbs
 	// coefProbsLast/Golden/AltRef mirror libvpx vp8/encoder/onyx.h cpi->lfc_n,
 	// cpi->lfc_g, cpi->lfc_a: per-reference snapshots of cm->fc.coef_probs
@@ -968,6 +1004,7 @@ type keyFrameEncodeAttempt struct {
 	ModeLFDeltas        [vp8common.MaxModeLFDeltas]int8
 	RefreshEntropyProbs bool
 	SegmentationEnabled bool
+	SegmentationConfig  vp8enc.SegmentationConfig
 }
 
 type interFrameEncodeAttempt struct {
@@ -1048,6 +1085,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// libvpx.
 	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
 	e.rc.autoKeyFrames = normalized.AdaptiveKeyFrames
+	e.keyFrameFrequency = normalized.KeyFrameInterval
 	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =
 	// av_per_frame_bandwidth * two_pass_vbrmin_section / 100; mirror
 	// that so calc_pframe_target_size's min_frame_target floor and
@@ -1059,7 +1097,10 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// refresh.
 	if e.rc.mode != RateControlCBR && len(normalized.TwoPassStats) == 0 {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+		e.rc.onePassAutoGold = true
 	}
+	e.cyclicRefreshConfigured = normalized.ErrorResilient ||
+		(e.rc.mode == RateControlCBR && len(normalized.TwoPassStats) == 0)
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {
@@ -1074,6 +1115,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		return nil, err
 	}
 	e.opts.TemporalScalability = e.temporal.config
+	e.initializeTemporalLayerCodingStates()
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	if err := e.ensureRowWorkerPool(normalized.Width, normalized.Height); err != nil {

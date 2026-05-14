@@ -23,10 +23,15 @@ func (e *VP8Encoder) Reset() {
 	// Encoder-level scalars / flags.
 	e.forceKeyFrame = false
 	e.frameCount = 0
+	e.keyFrameFrequency = e.opts.KeyFrameInterval
 	e.lastQuantizerPublic = 0
 	e.lastQuantizerInternal = 0
 	e.lastQuantizerValid = false
 	e.cyclicRefreshIndex = 0
+	e.segmentationHeaderEnabled = false
+	e.lastSegmentationConfig = vp8enc.SegmentationConfig{}
+	e.rtcExternalPreserveSegmentation = false
+	e.rtcExternalPreservedSegmentation = vp8enc.SegmentationConfig{}
 	e.lookaheadRead = 0
 	e.lookaheadWrite = 0
 	e.lookaheadCount = 0
@@ -36,9 +41,12 @@ func (e *VP8Encoder) Reset() {
 	clearCyclicRefreshMap(e.cyclicRefreshMap)
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
 	clearUint8Map(e.skinMap)
+	clearUint8Map(e.activeMap)
 	clearUint8Map(e.consecZeroLast)
 	clearUint8Map(e.consecZeroLastMVBias)
 	clearBoolMap(e.dotArtifactChecked)
+	e.activeMapEnabled = false
+	e.roi.reset()
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false
@@ -74,6 +82,8 @@ func (e *VP8Encoder) Reset() {
 	e.altRefSourceValid = false
 	e.altRefSourcePTS = 0
 	e.framesTillAltRefFrame = 0
+	e.clearExternalRefreshMaskAfterPacket()
+	e.clearExternalReferenceMaskAfterPacket()
 	e.autoAltRefStashValid = false
 	e.autoAltRefStashPTS = 0
 	e.autoAltRefStashDuration = 0
@@ -116,6 +126,9 @@ func (e *VP8Encoder) Reset() {
 	e.interCoefTokenCountsValid = false
 	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, encoderMacroblockRows(e.opts.Height), encoderMacroblockCount(e.opts.Width, e.opts.Height))
 	e.interCoefTokenRecordsValid = false
+	e.interRDCoeffCacheSlots = [2]interRDCoeffCacheState{}
+	e.interRDCoeffCacheWinner = 0
+	e.interRDCoeffCacheScratchTarget = nil
 	e.partScratch.Reset()
 	e.loopInfo = vp8common.LoopFilterInfo{}
 	e.loopInfoAlt = vp8common.LoopFilterInfo{}
@@ -123,6 +136,10 @@ func (e *VP8Encoder) Reset() {
 	e.lfDeltasSignaledOnce = false
 	e.lastSignaledRefLFDeltas = [vp8common.MaxRefLFDeltas]int8{}
 	e.lastSignaledModeLFDeltas = [vp8common.MaxModeLFDeltas]int8{}
+	e.pendingLFDeltaUpdate = false
+	e.currentLFDeltaUpdate = false
+	e.autoAltRefStashForceLF = false
+	e.temporalLayerRefUsage = [vp8common.MaxRefFrames]int{}
 	e.coefProbsLast = vp8tables.CoefficientProbs{}
 	e.coefProbsGolden = vp8tables.CoefficientProbs{}
 	e.coefProbsAltRef = vp8tables.CoefficientProbs{}
@@ -155,7 +172,10 @@ func (e *VP8Encoder) Reset() {
 	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, e.opts.TwoPassMinPct)
 	if e.rc.mode != RateControlCBR && len(e.opts.TwoPassStats) == 0 {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+		e.rc.onePassAutoGold = true
 	}
+	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
+		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {
@@ -183,6 +203,7 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.buffersSet = false
 	e.temporal.codingState = [MaxTemporalLayers]temporalLayerCodingState{}
 	e.temporal.codingValid = [MaxTemporalLayers]bool{}
+	e.initializeTemporalLayerCodingStates()
 	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
@@ -211,6 +232,7 @@ func (e *VP8Encoder) Reset() {
 	e.loopFilterPickLevel = 0
 	e.loopFilterPickBest = false
 	e.loopFilterSegmentLF = [vp8common.MaxMBSegments]int8{}
+	e.rowWorkers.resetForEncoderReset()
 }
 
 // Close releases encoder state and shuts down any row-worker pool. After
@@ -260,6 +282,10 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	}
 	if opts.TargetBitrateKbps <= 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidBitrate
+	}
+	if opts.UndershootPct < 0 || opts.UndershootPct > maxRateControlUndershootPct ||
+		opts.OvershootPct < 0 || opts.OvershootPct > maxRateControlOvershootPct {
+		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
 	if opts.MaxIntraBitratePct < 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig

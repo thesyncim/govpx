@@ -25,6 +25,9 @@ func TestSetROIMapValidationAndDisable(t *testing.T) {
 	if !e.roi.enabled || e.roi.rows != 1 || e.roi.cols != 2 {
 		t.Fatalf("roi state = %+v, want enabled 1x2", e.roi)
 	}
+	if !e.roi.suppressCyclicRefresh {
+		t.Fatalf("ROI did not suppress cyclic refresh")
+	}
 	if got, want := e.roi.deltaQuantizer[1], int8(-libvpxPublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("roi delta q[1] = %d, want %d", got, want)
 	}
@@ -60,11 +63,21 @@ func TestSetROIMapValidationAndDisable(t *testing.T) {
 	if e.roi.enabled {
 		t.Fatalf("zero-effect ROI left enabled")
 	}
+	if !e.roi.suppressCyclicRefresh || e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("zero-effect ROI disable restored cyclic refresh")
+	}
 	if err := e.SetROIMap(nil); err != nil {
 		t.Fatalf("SetROIMap(nil) returned error: %v", err)
 	}
 	if e.roi.enabled {
 		t.Fatalf("nil ROI left enabled")
+	}
+	if !e.roi.suppressCyclicRefresh || e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("nil ROI disable restored cyclic refresh")
+	}
+	e.Reset()
+	if e.roi.suppressCyclicRefresh || !e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("Reset roi suppress=%t cyclic=%t, want suppress=false cyclic=true", e.roi.suppressCyclicRefresh, e.cyclicRefreshModeEnabled(false))
 	}
 }
 
@@ -77,7 +90,7 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 		SegmentID: []uint8{1, 0},
 	}
 	roi.DeltaQuantizer[1] = -10
-	roi.DeltaLoopFilter[1] = -3
+	roi.DeltaLoopFilter[1] = 3
 	if err := e.SetROIMap(&roi); err != nil {
 		t.Fatalf("SetROIMap returned error: %v", err)
 	}
@@ -94,8 +107,8 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 	if got, want := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][1], int8(-libvpxPublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("key ROI alt-q[1] = %d, want %d", got, want)
 	}
-	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltLF][1]; got != -3 {
-		t.Fatalf("key ROI alt-lf[1] = %d, want -3", got)
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltLF][1]; got != 3 {
+		t.Fatalf("key ROI alt-lf[1] = %d, want 3", got)
 	}
 
 	d, err := NewVP8Decoder(DecoderOptions{})
@@ -123,14 +136,79 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 		t.Fatalf("inter KeyFrame = true, want inter frame")
 	}
 	interState := packetState(t, inter.Data)
-	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
-		t.Fatalf("inter segmentation = %+v, want ROI map/data update", interState.Segmentation)
+	if !interState.Segmentation.Enabled || interState.Segmentation.UpdateMap || interState.Segmentation.UpdateData {
+		t.Fatalf("inter segmentation = %+v, want ROI enabled with retained map/data", interState.Segmentation)
 	}
 	if err := d.Decode(inter.Data); err != nil {
 		t.Fatalf("inter Decode returned error: %v", err)
 	}
 	if d.modes[0].SegmentID != 1 || d.modes[1].SegmentID != 0 {
 		t.Fatalf("inter ROI segment IDs = %d/%d, want 1/0", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	}
+
+	forced, err := e.EncodeInto(dst, second, 2, 1, EncodeForceKeyFrame)
+	if err != nil {
+		t.Fatalf("forced keyframe EncodeInto returned error: %v", err)
+	}
+	if !forced.KeyFrame {
+		t.Fatalf("forced KeyFrame = false, want keyframe")
+	}
+	forcedState := packetState(t, forced.Data)
+	if !forcedState.Segmentation.Enabled || !forcedState.Segmentation.UpdateMap || !forcedState.Segmentation.UpdateData {
+		t.Fatalf("forced keyframe segmentation = %+v, want ROI map/data update", forcedState.Segmentation)
+	}
+
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap refresh returned error: %v", err)
+	}
+	third, err := e.EncodeInto(dst, second, 3, 1, 0)
+	if err != nil {
+		t.Fatalf("third EncodeInto returned error: %v", err)
+	}
+	thirdState := packetState(t, third.Data)
+	if !thirdState.Segmentation.Enabled || !thirdState.Segmentation.UpdateMap || !thirdState.Segmentation.UpdateData {
+		t.Fatalf("third segmentation = %+v, want refreshed ROI map/data update", thirdState.Segmentation)
+	}
+}
+
+func TestRuntimeConfigChangeResendsROIMapAndData(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 16)
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      1,
+		Cols:      2,
+		SegmentID: []uint8{1, 0},
+	}
+	roi.DeltaQuantizer[1] = -10
+	roi.StaticThreshold[1] = 900
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap returned error: %v", err)
+	}
+
+	dst := make([]byte, 16384)
+	source := segmentedQuantizationTestImage()
+	if _, err := e.EncodeInto(dst, source, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	retained, err := e.EncodeInto(dst, source, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("retained inter EncodeInto returned error: %v", err)
+	}
+	retainedState := packetState(t, retained.Data)
+	if !retainedState.Segmentation.Enabled || retainedState.Segmentation.UpdateMap || retainedState.Segmentation.UpdateData {
+		t.Fatalf("retained segmentation = %+v, want enabled without map/data update", retainedState.Segmentation)
+	}
+
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity returned error: %v", err)
+	}
+	updated, err := e.EncodeInto(dst, source, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("config-change inter EncodeInto returned error: %v", err)
+	}
+	updatedState := packetState(t, updated.Data)
+	if !updatedState.Segmentation.Enabled || !updatedState.Segmentation.UpdateMap || !updatedState.Segmentation.UpdateData {
+		t.Fatalf("config-change segmentation = %+v, want ROI map/data update", updatedState.Segmentation)
 	}
 }
 

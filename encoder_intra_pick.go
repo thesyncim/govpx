@@ -45,7 +45,7 @@ func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 // than all ten intra4x4 modes. The chroma mode is picked once independently
 // (matching libvpx's pick_intra_mbuv_mode call before the Y loop).
 func predictBestKeyFrameIntraModeFast(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, fastQuant bool) (vp8enc.KeyFrameMacroblockMode, int, bool) {
-	bestUVMode, bestUVRate, ok := pickFastIntraChromaMode(src, mbRow, mbCol, pred, scratch)
+	bestUVMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, pred, scratch)
 	if !ok {
 		return vp8enc.KeyFrameMacroblockMode{}, 0, false
 	}
@@ -59,7 +59,9 @@ func predictBestKeyFrameIntraModeFast(src vp8enc.SourceImage, qIndex int, mbRow 
 	}
 
 	whole := vp8enc.KeyFrameMacroblockMode{YMode: bestYMode, UVMode: bestUVMode}
-	wholeRate := bestYRate + bestUVRate
+	// vp8_pick_intra_mode calls pick_intra_mbuv_mode for the accepted UV
+	// mode, but returns only the Y-mode/B_PRED rate through *rate.
+	wholeRate := bestYRate
 
 	bModes, bRate, bRD, ok := pickFastBPredLumaModeKF(src, qIndex, mbRow, mbCol, above, left, quant, pred, scratch, fastQuant)
 	if !ok {
@@ -72,7 +74,7 @@ func predictBestKeyFrameIntraModeFast(src vp8enc.SourceImage, qIndex int, mbRow 
 		return whole, wholeRate, true
 	}
 	if bRD < bestY16RD {
-		return vp8enc.KeyFrameMacroblockMode{YMode: vp8common.BPred, UVMode: bestUVMode, BModes: bModes}, bRate + bestUVRate + intraYModeRate(true, vp8common.BPred), true
+		return vp8enc.KeyFrameMacroblockMode{YMode: vp8common.BPred, UVMode: bestUVMode, BModes: bModes}, bRate + intraYModeRate(true, vp8common.BPred), true
 	}
 	// BPred lost: walk back the analysis frame to whole-block prediction.
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: bestYMode, UVMode: bestUVMode}
@@ -110,8 +112,8 @@ func pickFastWholeBlockIntraYMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 // pickFastIntraChromaMode iterates wholeBlockIntraUVModeCandidates and scores
 // each by pure SSE — libvpx's pick_intra_mbuv_mode (pickinter.c) intentionally
 // drops the rate term and picks by pred_error alone (no RDCOST). The returned
-// rate is intraUVModeRate(picked), used by the caller for projected-rate
-// reporting only; it does not influence the chroma decision.
+// rate mirrors intraUVModeRate(picked) for callers that need it, but libvpx's
+// fast keyframe picker does not include that UV rate in its returned MB rate.
 func pickFastIntraChromaMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, int, bool) {
 	bestMode := vp8common.DCPred
 	bestSSE := 0
@@ -312,11 +314,15 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 	for block := range 16 {
 		copy(dct[:], dcts[block*16:block*16+16])
 		y2Input[block] = dct[0]
-		dct[0] = 0
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(yAbove[a] + yLeft[l])
-		eob := quantizeDecisionBlock(fastQuant, &dct, &quant.Y1DC, zbinOverQuant, &qcoeff, &dqcoeff)
+		// libvpx quantizes the Y1 DC coefficient before Y_NO_DC token
+		// costing. The DC token itself is skipped because Y2 carries it,
+		// but the quantized DC still affects zbin zero-run and EOB state.
+		eob := quantizeDecisionBlock(fastQuant, &dct, &quant.Y1, zbinOverQuant, &qcoeff, &dqcoeff)
+		dct[0] = 0
+		dqcoeff[0] = 0
 		rate += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &qcoeff, eob)
 		mbblockError += transformBlockError(&dct, &dqcoeff)
 		hasCoeffs := uint8(0)
@@ -458,10 +464,9 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 //     refs.YAbove[16:20] for the bottom-right sub-block, replacing libvpx's
 //     in-place predictor copy.
 //
-// libvpx applies RDCOST once at MB level (rdopt.c rd_pick_intra4x4mby_modes);
-// applying it per-block compounds the +128 rounding bias 16x. bestRD lets
-// the caller short-circuit when the running cost already exceeds the best
-// macroblock RD found so far.
+// libvpx picks each 4x4 block by per-block RDCOST, accumulates those chosen
+// per-block RD values for the best_rd bailout, and returns the final MB-level
+// RDCOST only if the per-block sum stays below best_rd.
 func predictBestBPredLumaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, bestRD int, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) ([16]vp8common.BPredictionMode, int, int, bool) {
 	return predictBestBPredLumaModeRDWithRDConstants(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, above, left, aboveTok, leftTok, quant, pred, scratch, bestRD, coefProbs, fastQuant, 0, 0)
 }
@@ -500,6 +505,7 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 	}
 	totalRate := 0
 	totalDist := 0
+	totalBlockRD := int64(0)
 	for block := range 16 {
 		bestMode := vp8common.BDCPred
 		bestEOB := 0
@@ -551,7 +557,11 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 		tokenLeft[(block&0x0c)>>2] = hasCoeffs
 		totalRate += bestRate
 		totalDist += bestDist
-		if bestRD > 0 && libvpxRDCost(rdMult, rdDiv, totalRate, totalDist) >= bestRD {
+		// libvpx rd_pick_intra4x4mby_modes accumulates the already-rounded
+		// RD of each selected 4x4 block and compares that sum to best_rd.
+		// It does not compare RDCOST(sum(rate), sum(distortion)).
+		totalBlockRD += int64(bestCost)
+		if bestRD > 0 && totalBlockRD >= int64(bestRD) {
 			return [16]vp8common.BPredictionMode{}, 0, 0, false
 		}
 	}

@@ -329,18 +329,15 @@ func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
 		{name: "big-er1-2partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=1", "--token-parts=1"}},
 		{name: "big-er1-4partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=1", "--token-parts=2"}},
 		{name: "big-er1-8partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=1", "--token-parts=3"}},
-		// er3 + 8-partitions at 320x180 cpu-3: first 3 frames byte-match,
-		// frame 3+ diverges by a small first-partition delta. The
-		// fixture's larger MB grid (20x12 = 240 MBs split across 8
-		// token partitions) exposes the same per-partition entropy
-		// drift pinned in the existing er3 + token-parts splitmv/96x96
-		// matrix. Pin frames 0..2; trailing frames stay under the
-		// broader er3-multi-partition gap.
-		{name: "big-er3-8partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), limit: 3, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
+		// er3 + token partitions at 256x144 is strict across all partition
+		// counts, narrowing the ER3/token gap to larger MB grids.
+		{name: "big-er3-2partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
+		{name: "big-er3-4partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
+		{name: "big-er3-8partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
+		{name: "big-er3-2partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
+		{name: "big-er3-4partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
+		{name: "big-er3-8partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
 		{name: "big-er1-4partitions-640x480-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(640, 480), errorResilient: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=1", "--token-parts=2"}},
-		// er3 + 2-partitions at 640x480 cpu8: frames 0..4 byte-match,
-		// frame 5+ diverges. Same er3-multi-partition gap surfacing at
-		// the VGA fixture. Pin frames 0..4.
 		{name: "big-er3-2partitions-640x480-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(640, 480), limit: 5, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
 
 		// ----- Big-fixture Buffer patterns (override buf-sz/init/optimal) -----
@@ -601,7 +598,7 @@ func TestOracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 }
 
 // TestOracleEncoderStreamByteParityComboThreadsTokens pins the strict
-// byte-parity gate at the cross product of Threads ∈ {2, 4} and
+// byte-parity gate at the cross product of Threads ∈ {2, 4, 8} and
 // TokenPartitions ∈ {1, 2, 3} on panning-128x128 and splitmv-96x96.
 //
 // The base matrix pins Threads alone or TokenPartitions alone at
@@ -649,6 +646,7 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 		// exercises more of the picker).
 		{name: "threads2-tokens2-panning128-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, threads: 2, tokenPartitions: 2, extraArgs: []string{"--threads=2", "--token-parts=2"}},
 		{name: "threads4-tokens3-panning128-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, threads: 4, tokenPartitions: 3, extraArgs: []string{"--threads=4", "--token-parts=3"}},
+		{name: "threads8-tokens3-panning128-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, threads: 8, tokenPartitions: 3, extraArgs: []string{"--threads=8", "--token-parts=3"}},
 
 		// splitmv-96x96 cross product. 6 combos.
 		{name: "threads2-tokens1-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 2, tokenPartitions: 1, extraArgs: []string{"--threads=2", "--token-parts=1"}},
@@ -656,6 +654,7 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 		{name: "threads2-tokens3-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 2, tokenPartitions: 3, extraArgs: []string{"--threads=2", "--token-parts=3"}},
 		{name: "threads4-tokens2-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 4, tokenPartitions: 2, extraArgs: []string{"--threads=4", "--token-parts=2"}},
 		{name: "threads4-tokens3-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 4, tokenPartitions: 3, extraArgs: []string{"--threads=4", "--token-parts=3"}},
+		{name: "threads8-tokens3-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 8, tokenPartitions: 3, extraArgs: []string{"--threads=8", "--token-parts=3"}},
 		{name: "threads2-tokens3-splitmv96-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv96, threads: 2, tokenPartitions: 3, extraArgs: []string{"--threads=2", "--token-parts=3"}},
 	}
 
@@ -724,6 +723,67 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 					gFP, lFP, gIsKey, lIsKey,
 					hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
 			}
+		})
+	}
+}
+
+func TestOracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
+	}
+	vpxencOracle := findVpxencOracle(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 8
+		width      = 64
+		height     = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+
+	cases := []struct {
+		name                     string
+		errorResilient           bool
+		errorResilientPartitions bool
+		tokenPartitions          int
+		extraArgs                []string
+	}{
+		{name: "threads0-explicit-threads1", extraArgs: []string{"--threads=1"}},
+		{name: "er1-token0-threads0", errorResilient: true, extraArgs: []string{"--threads=1", "--error-resilient=1", "--token-parts=0"}},
+		{name: "er2-token0-threads0", errorResilientPartitions: true, extraArgs: []string{"--threads=1", "--error-resilient=2", "--token-parts=0"}},
+		{name: "er3-token0-threads0", errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--threads=1", "--error-resilient=3", "--token-parts=0"}},
+		{name: "er1-token8-threads0", errorResilient: true, tokenPartitions: 3, extraArgs: []string{"--threads=1", "--error-resilient=1", "--token-parts=3"}},
+		{name: "er2-token8-threads0", errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--threads=1", "--error-resilient=2", "--token-parts=3"}},
+		{name: "er3-token8-threads0", errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--threads=1", "--error-resilient=3", "--token-parts=3"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:                    width,
+				Height:                   height,
+				FPS:                      fps,
+				RateControlMode:          RateControlCBR,
+				TargetBitrateKbps:        targetKbps,
+				MinQuantizer:             4,
+				MaxQuantizer:             56,
+				KeyFrameInterval:         999,
+				Deadline:                 DeadlineRealtime,
+				CpuUsed:                  -3,
+				Tuning:                   TunePSNR,
+				ErrorResilient:           tc.errorResilient,
+				ErrorResilientPartitions: tc.errorResilientPartitions,
+				TokenPartitions:          tc.tokenPartitions,
+				Threads:                  0,
+			}
+
+			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "thread0-er-token-"+tc.name, opts, targetKbps, sources, libvpxEndUsageArgs(tc.extraArgs))
+			assertSegmentByteParity(t, "thread0-er-token-"+tc.name, govpxFrames, libvpxFrames, 0)
 		})
 	}
 }

@@ -22,6 +22,10 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizer(refreshGolden b
 	if !e.cyclicRefreshModeEnabled(refreshGolden) {
 		return vp8enc.SegmentationConfig{}
 	}
+	return e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(q)
+}
+
+func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizerUnchecked(q int) vp8enc.SegmentationConfig {
 	cfg := vp8enc.SegmentationConfig{
 		Enabled:    true,
 		UpdateMap:  true,
@@ -41,6 +45,15 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizer(refreshGolden b
 		cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = delta
 	}
 	return cfg
+}
+
+func (e *VP8Encoder) rememberSegmentationConfig(cfg vp8enc.SegmentationConfig) {
+	e.segmentationHeaderEnabled = cfg.Enabled
+	if cfg.Enabled {
+		e.lastSegmentationConfig = cfg
+		return
+	}
+	e.lastSegmentationConfig = vp8enc.SegmentationConfig{}
 }
 
 // aggressiveDenoiseAltLFDelta mirrors libvpx's lf_adjustment = -40 in the
@@ -79,6 +92,34 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 	return header
 }
 
+// libvpx omits non-positive ALT_LF data from the packet-facing decoder state
+// only when the chosen base loop-filter level is zero. Segmentation remains
+// enabled, and a positive ALT_LF value is still emitted because it raises that
+// segment above the zero base level.
+func segmentationConfigForLoopFilterLevel(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
+	return segmentationConfigForLoopFilterLevelWithPolicy(cfg, level, true)
+}
+
+func segmentationConfigForLoopFilterLevelPreserveAltLF(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
+	return segmentationConfigForLoopFilterLevelWithPolicy(cfg, level, false)
+}
+
+func segmentationConfigForLoopFilterLevelWithPolicy(cfg vp8enc.SegmentationConfig, level uint8, stripNonPositiveAltLF bool) vp8enc.SegmentationConfig {
+	if !cfg.Enabled || level > 0 {
+		return cfg
+	}
+	if !stripNonPositiveAltLF {
+		return cfg
+	}
+	for segment := range vp8common.MaxMBSegments {
+		if cfg.FeatureEnabled[vp8common.MBLvlAltLF][segment] && cfg.FeatureData[vp8common.MBLvlAltLF][segment] <= 0 {
+			cfg.FeatureEnabled[vp8common.MBLvlAltLF][segment] = false
+			cfg.FeatureData[vp8common.MBLvlAltLF][segment] = 0
+		}
+	}
+	return cfg
+}
+
 func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 	if e.opts.RTCExternalRateControl {
 		return false
@@ -93,23 +134,19 @@ func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 		// max-Q clamp.
 		return false
 	}
-	// libvpx vp8/encoder/onyx_if.c (around line 1980) gates the static
-	// `cpi->cyclic_refresh_mode_enabled` config on:
+	if e.roi.suppressCyclicRefresh {
+		return false
+	}
+	// libvpx vp8/encoder/onyx_if.c gates the static
+	// `cpi->cyclic_refresh_mode_enabled` config at compressor creation on:
 	//
 	//   error_resilient_mode || (end_usage == USAGE_STREAM_FROM_SERVER &&
 	//                            cpi->oxcf.Mode <= MODE_BESTQUALITY)
 	//
-	// Mode <= MODE_BESTQUALITY (==2) covers the three one-pass deadlines
-	// (REALTIME=0, GOODQUALITY=1, BESTQUALITY=2). Two-pass second-pass
-	// runs at MODE_SECONDPASS (4) / MODE_SECONDPASS_BEST (5), which fall
-	// through. govpx's twoPass.enabled() flag mirrors the second-pass
-	// gate (first-pass collection is a separate code path), so excluding
-	// it here keeps cyclic refresh off on two-pass CBR runs the way
-	// libvpx does. error_resilient still wins regardless of pass count.
-	if e.opts.ErrorResilient {
-		return true
-	}
-	return e.rc.mode == RateControlCBR && !e.twoPass.enabled()
+	// Runtime vpx_codec_enc_config_set does not recompute that flag, so a
+	// CBR-born encoder keeps cyclic refresh after switching to VBR/CQ/Q,
+	// while a VBR-born encoder does not gain it after switching to CBR.
+	return e.cyclicRefreshConfigured
 }
 
 // aggressiveDenoiseSegmentationActive matches libvpx's branch in
@@ -122,14 +159,13 @@ func (e *VP8Encoder) aggressiveDenoiseSegmentationActive() bool {
 }
 
 func (e *VP8Encoder) aggressiveDenoiseSegmentationActiveForQuantizer(q int) bool {
-	if e.opts.NoiseSensitivity < 3 {
+	if e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
 		return false
 	}
-	mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
-	if mode != denoiserOnYUVAggressive {
+	if e.denoiser.mode != denoiserOnYUVAggressive {
 		return false
 	}
-	_, params := denoiserSetParameters(mode)
+	params := e.denoiser.params
 	if q >= params.qpThresh {
 		return false
 	}
@@ -301,6 +337,13 @@ func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, mode
 		nextIndex += count
 	}
 	e.cyclicRefreshIndex = nextIndex
+}
+
+func (e *VP8Encoder) commitKeyFrameCyclicRefreshMap(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode, segmentationEnabled bool) {
+	// Key frames do not feed back into libvpx's cyclic_refresh_map. The
+	// keyframe cyclic_background_refresh call clears the packet segment map,
+	// but encodeframe.c updates cyclic_refresh_map only after inter MBs.
+	// Leave both the committed map and scratch attempt map untouched.
 }
 
 func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMode, refreshMap []int8) {

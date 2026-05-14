@@ -114,7 +114,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 			if next < vp8MaxQIndex {
 				recode.zbinOverQuant = 0
 			}
-			if rc.mode == RateControlCQ && next < recode.qLow {
+			if rc.cqFloorActive() && next < recode.qLow {
 				recode.qLow = next
 			}
 		}
@@ -212,7 +212,7 @@ func (rc *rateControlState) shouldRecodeFrameSize(actualBits int, undershootLimi
 	if (actualBits > overshootLimit && q < recode.qHigh) || (actualBits < undershootLimit && q > recode.qLow) {
 		return true
 	}
-	if rc.mode != RateControlCQ {
+	if !rc.cqFloorActive() {
 		return false
 	}
 	targetBits := rc.frameTargetBits
@@ -283,7 +283,7 @@ func (rc *rateControlState) minimumFrameBandwidthBits() int {
 }
 
 func (rc *rateControlState) clampedFrameQuantizerValue(q int) int {
-	if rc.mode == RateControlCQ {
+	if rc.cqFloorActive() {
 		return rc.clampedCQQuantizerValue(q)
 	}
 	return rc.clampedQuantizerValue(q)

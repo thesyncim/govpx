@@ -144,16 +144,11 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "odd-rt-cpu0-17x49", deadline: DeadlineRealtime, cpuUsed: 0, fx: mk(17, 49)},
 		{name: "odd-rt-cpu-3-17x49", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(17, 49)},
 		{name: "odd-rt-cpu4-17x49", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(17, 49)},
-		// BestQuality fits the <=64x64 runtime budget on these.
-		// 17x17 byte-matches for 14 frames then diverges at frame 14 —
-		// same RD-late-frame BestQuality cluster the base matrix
-		// already pins on other small fixtures. 31x17 / 17x31 diverge
-		// at frame 1 because BestQuality's splitmv exploration on the
-		// padded-edge MB column behaves differently from libvpx; the
-		// keyframe path stays identical.
-		{name: "odd-best-cpu0-17x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 17), limit: 14},
-		{name: "odd-best-cpu0-31x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(31, 17), limit: 1},
-		{name: "odd-best-cpu0-17x31", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 31), limit: 1},
+		// BestQuality fits the <=64x64 runtime budget on these and now
+		// byte-matches the full 16-frame sequence across odd coded edges.
+		{name: "odd-best-cpu0-17x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 17)},
+		{name: "odd-best-cpu0-31x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(31, 17)},
+		{name: "odd-best-cpu0-17x31", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 31)},
 		{name: "odd-good-cpu4-49x17", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(49, 17)},
 		{name: "odd-good-cpu4-17x49", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(17, 49)},
 
@@ -165,13 +160,13 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid169-rt-cpu4-854x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu8-854x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu4-1024x576", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1024, 576)},
-		// 1024x576 cpu8 stays byte-pinned. At 1280x720 the production
-		// speed-4 trajectory has a small first-inter decision gap; keep the
-		// keyframe prefix pinned here and gate production byte ratio with the
-		// 60-frame uninstrumented-vpxenc bench test.
+		// 1024x576 and 1280x720/cpu8 are byte-pinned across the full
+		// sequence. 1280x720/cpu4 straddles libvpx's wall-clock-sensitive
+		// keyframe autospeed sample, so keep the keyframe pinned and log
+		// whichever inter-frame speed branch the oracle took on this host.
 		{name: "mid169-rt-cpu8-1024x576", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1024, 576)},
 		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720), limit: 1},
-		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720), limit: 1},
+		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720)},
 
 		// (5) Mid-range 4:3. Up to VGA we can afford cpu_used=0; SVGA
 		// stays at the fast band.
@@ -182,9 +177,9 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid43-rt-cpu4-640x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu4-800x600", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(800, 600)},
-		// 800x600 cpu8: same wall-clock-sensitive positive-cpu realtime
-		// family as the larger fixtures above.
-		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600)},
+		// 800x600 cpu8 still straddles libvpx's wall-clock-sensitive
+		// auto-speed boundary; keep the keyframe pinned and log inter drift.
+		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600), limit: 1},
 
 		// (6) Square. Up to 400x400 we can run cpu_used=0; the picker
 		// path matters more than the sheer pixel count here.

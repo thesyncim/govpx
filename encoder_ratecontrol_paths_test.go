@@ -107,11 +107,21 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	for frame := 1; frame <= 11; frame++ {
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	refreshFrame := e.rc.framesTillGFUpdateDue + 1
+	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
+	const lastBoostSentinel = 149
+	e.rc.lastBoost = lastBoostSentinel
+	for frame := 1; frame <= refreshFrame; frame++ {
 		wantRC := e.rc
+		if frame == refreshFrame {
+			wantRC.framesTillGFUpdateDue = cbrInterval
+			wantRC.currentGFInterval = cbrInterval
+		}
 		wantRC.beginFrame(false)
 		wantTarget := wantRC.frameTargetBits
-		if frame == 11 {
+		if frame == refreshFrame {
 			wantTarget = boostedFrameTargetBits(wantTarget, e.rc.gfCBRBoostPct)
 		}
 		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
@@ -119,7 +129,7 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
 		}
 		state := packetState(t, inter.Data)
-		if frame < 11 {
+		if frame < refreshFrame {
 			if state.Refresh.RefreshGolden {
 				t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
 			}
@@ -133,6 +143,9 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 		}
 		if inter.FrameTargetBits != wantTarget {
 			t.Fatalf("inter %d target = %d, want boosted libvpx CBR target %d", frame, inter.FrameTargetBits, wantTarget)
+		}
+		if e.rc.lastBoost != lastBoostSentinel {
+			t.Fatalf("inter %d lastBoost = %d, want fixed-CBR GF refresh to preserve %d", frame, e.rc.lastBoost, lastBoostSentinel)
 		}
 	}
 }
@@ -159,24 +172,32 @@ func TestEncodeIntoDefaultCBRRefreshesGoldenOnLibvpxInterval(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	for frame := 1; frame <= 11; frame++ {
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	refreshFrame := e.rc.framesTillGFUpdateDue + 1
+	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
+	for frame := 1; frame <= refreshFrame; frame++ {
 		wantRC := e.rc
+		if frame == refreshFrame {
+			wantRC.framesTillGFUpdateDue = cbrInterval
+			wantRC.currentGFInterval = cbrInterval
+		}
 		wantRC.beginFrame(false)
 		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
 		if err != nil {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
 		}
 		state := packetState(t, inter.Data)
-		if frame < 11 && state.Refresh.RefreshGolden {
+		if frame < refreshFrame && state.Refresh.RefreshGolden {
 			t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
 		}
-		if frame < 11 && state.Refresh.CopyBufferToAltRef != 0 {
+		if frame < refreshFrame && state.Refresh.CopyBufferToAltRef != 0 {
 			t.Fatalf("inter %d copy-to-alt = %d, want none before GF refresh", frame, state.Refresh.CopyBufferToAltRef)
 		}
-		if frame == 11 && !state.Refresh.RefreshGolden {
+		if frame == refreshFrame && !state.Refresh.RefreshGolden {
 			t.Fatalf("inter %d refresh golden = false, want default libvpx CBR GF refresh", frame)
 		}
-		if frame == 11 && state.Refresh.CopyBufferToAltRef != 2 {
+		if frame == refreshFrame && state.Refresh.CopyBufferToAltRef != 2 {
 			t.Fatalf("inter %d copy-to-alt = %d, want libvpx old-GF-to-ARF copy", frame, state.Refresh.CopyBufferToAltRef)
 		}
 		if inter.FrameTargetBits != wantRC.frameTargetBits {
@@ -396,6 +417,221 @@ func TestEncodeIntoOnePassVBRRefreshesGoldenOnLibvpxIntervals(t *testing.T) {
 	}
 }
 
+func TestOnePassAutoGoldenPreservesStartupModeAcrossRuntimeReconfigure(t *testing.T) {
+	newEncoder := func(t *testing.T, mode RateControlMode) *VP8Encoder {
+		t.Helper()
+		e, err := NewVP8Encoder(EncoderOptions{
+			Width:             32,
+			Height:            32,
+			FPS:               30,
+			RateControlMode:   mode,
+			TargetBitrateKbps: 700,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			CQLevel:           20,
+			Deadline:          DeadlineRealtime,
+			CpuUsed:           0,
+			KeyFrameInterval:  999,
+		})
+		if err != nil {
+			t.Fatalf("NewVP8Encoder returned error: %v", err)
+		}
+		return e
+	}
+	forceOpportunity := func(e *VP8Encoder) (int, int) {
+		rows := encoderMacroblockRows(e.opts.Height)
+		cols := encoderMacroblockCols(e.opts.Width)
+		e.rc.framesTillGFUpdateDue = 0
+		e.rc.thisFramePercentIntra = 10
+		e.rc.recentRefFrameUsageIntra = rows * cols / 4
+		e.rc.recentRefFrameUsageLast = rows * cols
+		e.rc.gfActiveCount = rows * cols
+		return rows, cols
+	}
+
+	cbrStart := newEncoder(t, RateControlCBR)
+	if err := cbrStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlQ,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             20,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(Q) from CBR returned error: %v", err)
+	}
+	rows, cols := forceOpportunity(cbrStart)
+	if cbrStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("CBR-start runtime Q auto-golden refresh = true, want false")
+	}
+
+	cqStart := newEncoder(t, RateControlCQ)
+	if err := cqStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlQ,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             20,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(Q) from CQ returned error: %v", err)
+	}
+	rows, cols = forceOpportunity(cqStart)
+	if !cqStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("CQ-start runtime Q auto-golden refresh = false, want true")
+	}
+	if err := cqStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CBR) from CQ returned error: %v", err)
+	}
+	rows, cols = forceOpportunity(cqStart)
+	if !cqStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("CQ-start runtime CBR auto-golden refresh = false, want true")
+	}
+	if got := cqStart.libvpxKeyFrameSetupGFInterval(rows, cols); got != 1 {
+		t.Fatalf("CQ-start runtime CBR post-key GF interval = %d, want next-inter refresh", got)
+	}
+
+	qStart := newEncoder(t, RateControlQ)
+	rows, cols = forceOpportunity(qStart)
+	if !qStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("Q-start auto-golden refresh = false, want true")
+	}
+	if err := qStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CBR) from Q returned error: %v", err)
+	}
+	if got := qStart.libvpxKeyFrameSetupGFInterval(rows, cols); got != 1 {
+		t.Fatalf("Q-start runtime CBR post-key GF interval = %d, want next-inter refresh", got)
+	}
+}
+
+func TestOnePassAutoGoldenDisabledForTwoPassStartup(t *testing.T) {
+	sources := []Image{
+		encoderValidationPanningFrame(32, 32, 0),
+		encoderValidationPanningFrame(32, 32, 1),
+		encoderValidationPanningFrame(32, 32, 2),
+	}
+	stats := collectRuntimeControlFirstPassStats(t, EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		KeyFrameInterval:  999,
+	}, sources)
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		TwoPassStats:      stats,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		KeyFrameInterval:  999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	e.rc.framesTillGFUpdateDue = 0
+	e.rc.thisFramePercentIntra = 10
+	e.rc.recentRefFrameUsageIntra = rows * cols / 4
+	e.rc.recentRefFrameUsageLast = rows * cols
+	e.rc.gfActiveCount = rows * cols
+
+	if e.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("two-pass startup auto-golden refresh = true, want false")
+	}
+}
+
+func TestSetTwoPassStatsBeforeFrameZeroSwitchesStartupMode(t *testing.T) {
+	sources := []Image{
+		encoderValidationPanningFrame(32, 32, 0),
+		encoderValidationPanningFrame(32, 32, 1),
+		encoderValidationPanningFrame(32, 32, 2),
+	}
+	opts := EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		KeyFrameInterval:  999,
+	}
+	stats := collectRuntimeControlFirstPassStats(t, opts, sources)
+
+	onePass, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder one-pass returned error: %v", err)
+	}
+	defer onePass.Close()
+	if !onePass.rc.onePassAutoGold || onePass.rc.framesTillGFUpdateDue != libvpxDefaultGFInterval {
+		t.Fatalf("one-pass seed = auto_gold:%t due:%d, want true/%d",
+			onePass.rc.onePassAutoGold, onePass.rc.framesTillGFUpdateDue, libvpxDefaultGFInterval)
+	}
+	if err := onePass.SetTwoPassStats(stats); err != nil {
+		t.Fatalf("SetTwoPassStats(enable) returned error: %v", err)
+	}
+	if onePass.rc.onePassAutoGold || onePass.rc.framesTillGFUpdateDue != 0 {
+		t.Fatalf("two-pass seed = auto_gold:%t due:%d, want false/0",
+			onePass.rc.onePassAutoGold, onePass.rc.framesTillGFUpdateDue)
+	}
+
+	twoPassOpts := opts
+	twoPassOpts.TwoPassStats = stats
+	twoPass, err := NewVP8Encoder(twoPassOpts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder two-pass returned error: %v", err)
+	}
+	defer twoPass.Close()
+	if err := twoPass.SetTwoPassStats(nil); err != nil {
+		t.Fatalf("SetTwoPassStats(disable) returned error: %v", err)
+	}
+	if !twoPass.rc.onePassAutoGold || twoPass.rc.framesTillGFUpdateDue != libvpxDefaultGFInterval {
+		t.Fatalf("disabled two-pass seed = auto_gold:%t due:%d, want true/%d",
+			twoPass.rc.onePassAutoGold, twoPass.rc.framesTillGFUpdateDue, libvpxDefaultGFInterval)
+	}
+}
+
 func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,
@@ -415,7 +651,7 @@ func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	}
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
-	e.rc.framesSinceKeyframe = e.goldenFrameCBRInterval(rows, cols)
+	e.rc.framesTillGFUpdateDue = 0
 
 	e.lastInterZeroMVCount = rows * cols / 2
 	if e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
@@ -424,6 +660,32 @@ func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	e.lastInterZeroMVCount = rows*cols/2 + 1
 	if !e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
 		t.Fatalf("shouldRefreshGoldenFrameCBR = false, want true with LAST/ZEROMV majority")
+	}
+}
+
+func TestGFCBROpportunityUsesLibvpxCountdown(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		KeyFrameInterval:  999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	interval := e.goldenFrameCBRInterval(rows, cols)
+	e.rc.framesSinceKeyframe = interval - 1
+	e.rc.framesTillGFUpdateDue = 0
+	e.lastInterZeroMVCount = rows*cols/2 + 1
+	if !e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
+		t.Fatalf("shouldRefreshGoldenFrameCBR = false, want countdown-driven GF opportunity")
 	}
 }
 
@@ -776,7 +1038,7 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 
 	rows := encoderMacroblockRows(32)
 	cols := encoderMacroblockCols(32)
-	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, false, false, e.rc.currentQuantizer)
+	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, 0, false, false, e.rc.currentQuantizer)
 	if err != nil {
 		t.Fatalf("encodeKeyFrameAttempt returned error: %v", err)
 	}
@@ -793,6 +1055,15 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 	e.commitKeyFrameEntropy(attempt)
 	if e.coefProbs != attempt.FrameCoefProbs {
 		t.Fatalf("committed coefficient probabilities do not match accepted key attempt")
+	}
+	if e.coefProbsLast != attempt.FrameCoefProbs {
+		t.Fatalf("keyframe LAST entropy snapshot does not match accepted key attempt")
+	}
+	if e.coefProbsGolden != vp8tables.DefaultCoefProbs {
+		t.Fatalf("keyframe GOLDEN entropy snapshot changed, want default")
+	}
+	if e.coefProbsAltRef != vp8tables.DefaultCoefProbs {
+		t.Fatalf("keyframe ALTREF entropy snapshot changed, want default")
 	}
 	if e.modeProbs == wantModeProbs {
 		t.Fatalf("committed keyframe mode probabilities still match pre-commit sentinel")
@@ -883,5 +1154,100 @@ func TestCommitInterFrameEntropyRefreshesInterIntraModeProbs(t *testing.T) {
 	e.commitInterFrameEntropy(attempt)
 	if e.modeProbs != original {
 		t.Fatalf("mode probs changed on no-refresh commit: got %+v want %+v", e.modeProbs, original)
+	}
+}
+
+func TestCommitInterFrameEntropyUpdatesMVCostTablesWithoutEntropyRefresh(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	vp8dec.ResetModeProbs(&e.modeProbs)
+	base := e.modeProbs.MV
+	staleCosts := base
+	staleCosts[1][0] = 254
+	e.mvCostTables.Build(&staleCosts)
+	e.mvCostProbs = staleCosts
+	e.mvCostTablesValid = true
+
+	frameMVProbs := base
+	frameMVProbs[0][0] = 1
+	frameMVProbs[1][0] = 2
+	attempt := interFrameEncodeAttempt{
+		Config:           vp8enc.InterFrameStateConfig{RefreshEntropyProbs: false},
+		FrameCoefProbs:   e.coefProbs,
+		FrameYModeProbs:  e.modeProbs.YMode,
+		FrameUVModeProbs: e.modeProbs.UVMode,
+		FrameMVProbs:     frameMVProbs,
+	}
+	attempt.Config.MVUpdate[0][0] = true
+	attempt.Config.MVUpdateCount = 1
+
+	e.commitInterFrameEntropy(attempt)
+
+	if e.modeProbs.MV != base {
+		t.Fatalf("mode MV probs changed on no-refresh commit: got %v want %v", e.modeProbs.MV, base)
+	}
+	wantCosts := staleCosts
+	wantCosts[0] = frameMVProbs[0]
+	if e.mvCostProbs != wantCosts {
+		t.Fatalf("MV cost probs = %v, want mixed stale/update table %v", e.mvCostProbs, wantCosts)
+	}
+	mv := vp8enc.MotionVector{Row: 32, Col: 32}
+	got := e.currentMotionVectorCostTables().BitCost(mv, vp8enc.MotionVector{}, 128)
+	want := vp8enc.MotionVectorBitCost(mv, vp8enc.MotionVector{}, &wantCosts, 128)
+	if got != want {
+		t.Fatalf("MV cost table cost = %d, want %d", got, want)
+	}
+}
+
+func TestRDPickerCoefProbsSelectsLibvpxFrameContext(t *testing.T) {
+	e := &VP8Encoder{}
+	if got := e.rdPickerCoefProbs(false, false); got != nil {
+		t.Fatalf("rdPickerCoefProbs before snapshot seed = %p, want nil", got)
+	}
+
+	e.coefProbsSnapshotsValid = true
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbsLast {
+		t.Fatalf("single-layer default context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("single-layer golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
+	if got := e.rdPickerCoefProbs(false, true); got != &e.coefProbsAltRef {
+		t.Fatalf("single-layer altref context = %p, want coefProbsAltRef %p", got, &e.coefProbsAltRef)
+	}
+
+	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringOneLayer}
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbsLast {
+		t.Fatalf("one-layer temporal default context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("one-layer temporal golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
+
+	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbsLast {
+		t.Fatalf("non-realtime temporal multilayer default context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("non-realtime temporal multilayer golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
+	if got := e.rdPickerCoefProbs(false, true); got != &e.coefProbsAltRef {
+		t.Fatalf("temporal multilayer altref context = %p, want coefProbsAltRef %p", got, &e.coefProbsAltRef)
+	}
+
+	e.opts.Deadline = DeadlineRealtime
+	e.opts.CpuUsed = 0
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbsLast {
+		t.Fatalf("realtime temporal multilayer default context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("realtime temporal multilayer golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
+	e.opts.CpuUsed = -3
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("cold pinned realtime temporal golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
+	e.runtimePinnedCPUUsed = true
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("runtime pinned realtime temporal golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
 	}
 }

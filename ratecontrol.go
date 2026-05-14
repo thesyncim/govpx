@@ -50,6 +50,7 @@ type RateControlConfig struct {
 	CQLevel int
 
 	// UndershootPct and OvershootPct cap libvpx-style rate adjustment.
+	// Valid range is [0, 100]; zero selects the libvpx default.
 	UndershootPct int
 	OvershootPct  int
 
@@ -219,8 +220,9 @@ type rateControlState struct {
 	decimationCount     int
 	dropFramesWaterMark int
 
-	framesSinceKeyframe   int
-	currentTemporalLayers int
+	framesSinceKeyframe    int
+	currentTemporalLayers  int
+	currentTemporalLayerID int
 	// currentLayerPerFrameBandwidth mirrors libvpx's cpu->per_frame_bandwidth
 	// after vp8_new_framerate(cpi, lc->framerate) when TS is active: it is
 	// the current layer's `target_bandwidth / framerate`. It feeds the
@@ -229,11 +231,15 @@ type rateControlState struct {
 	// layer-specific overhead rather than the encoder-wide one. Zero in
 	// non-TS encodes; callers fall back to rc.bitsPerFrame.
 	currentLayerPerFrameBandwidth int
-	rollingActualBits             int
-	rollingTargetBits             int
-	longRollingActualBits         int
-	longRollingTargetBits         int
-	totalActualBits               int64
+	// currentLayerOutputFrameRate mirrors (int)cpi->output_framerate after
+	// temporal vp8_new_framerate. estimate_keyframe_frequency reads that
+	// layer framerate when spreading TS key-frame overspend.
+	currentLayerOutputFrameRate int
+	rollingActualBits           int
+	rollingTargetBits           int
+	longRollingActualBits       int
+	longRollingTargetBits       int
+	totalActualBits             int64
 
 	maxIntraBitratePct int
 	gfCBRBoostPct      int
@@ -258,6 +264,7 @@ type rateControlState struct {
 	keyFrameCorrectionFactor float64
 	goldenCorrectionFactor   float64
 	currentZbinOverQuant     int
+	activeBestQuantizer      int
 	activeWorstQChanged      bool
 
 	// pass2ActiveWorstQOverride mirrors libvpx's
@@ -284,6 +291,7 @@ type rateControlState struct {
 	lastBoost              int
 	currentGFInterval      int
 	framesTillGFUpdateDue  int
+	onePassAutoGold        bool
 	framesSinceGolden      int
 	keyFrameCount          int
 	keyFrameFrequency      int
@@ -316,6 +324,8 @@ const (
 	// CBR fixture; see the panning-30f-80kbps drop scoreboard.
 	defaultRateControlUndershootPct = 100
 	defaultRateControlOvershootPct  = 100
+	maxRateControlUndershootPct     = 100
+	maxRateControlOvershootPct      = 100
 	defaultCQLevel                  = 10
 	libvpxDefaultBufferSizeMs       = 6000
 	libvpxDefaultBufferInitialMs    = 4000
@@ -353,6 +363,7 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if err := validateRateControlConfig(cfg); err != nil {
 		return err
 	}
+	initializing := rc.targetBitrateKbps == 0
 	rc.mode = cfg.Mode
 	rc.minBitrateKbps = cfg.MinBitrateKbps
 	rc.maxBitrateKbps = cfg.MaxBitrateKbps
@@ -391,18 +402,23 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if !rc.dropFrameAllowed {
 		rc.dropFramesWaterMark = 0
 	}
-	rc.decimationFactor = 0
-	rc.decimationCount = 0
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
-	rc.avgFrameQuantizer = rc.maxQuantizer
-	rc.normalInterQuantizerTotal = 0
-	rc.normalInterFrames = 0
-	rc.normalInterAvgQuantizer = rc.maxQuantizer
-	rc.rateCorrectionFactor = 1.0
-	rc.keyFrameCorrectionFactor = 1.0
-	rc.goldenCorrectionFactor = 1.0
-	rc.totalActualBits = 0
+	if initializing {
+		rc.decimationFactor = 0
+		rc.decimationCount = 0
+		rc.avgFrameQuantizer = rc.maxQuantizer
+		rc.normalInterQuantizerTotal = 0
+		rc.normalInterFrames = 0
+		rc.normalInterAvgQuantizer = rc.maxQuantizer
+		rc.rateCorrectionFactor = 1.0
+		rc.keyFrameCorrectionFactor = 1.0
+		rc.goldenCorrectionFactor = 1.0
+		rc.activeBestQuantizer = rc.minQuantizer
+		rc.totalActualBits = 0
+	} else {
+		rc.activeBestQuantizer = clampQuantizerValue(rc.activeBestQuantizer, rc.minQuantizer, rc.maxQuantizer)
+	}
 	rc.outputFrameRate = int(outputFrameRate(timing))
 	if rc.keyFrameCount == 0 && rc.priorKeyFrameDistance == ([keyFrameContextSize]int{}) {
 		// libvpx vp8_create_compressor seeds key_frame_count=1 and every
@@ -417,7 +433,9 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
 		return err
 	}
-	rc.resetRollingBitAverages()
+	if initializing {
+		rc.resetRollingBitAverages()
+	}
 	if rc.mode == RateControlCQ {
 		rc.currentQuantizer = rc.cqLevel
 		rc.lastQuantizer = rc.cqLevel
@@ -475,7 +493,9 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	if initializing && rc.bufferLevelBits == 0 {
 		rc.bufferLevelBits = rc.bufferInitialBits
 	}
-	rc.frameTargetBits = rc.bitsPerFrame
+	if initializing {
+		rc.frameTargetBits = rc.bitsPerFrame
+	}
 	rc.clampBuffer()
 	rc.clampQuantizer()
 	return nil
@@ -533,16 +553,21 @@ type rateControlFrameContext struct {
 	firstFrame         bool
 	forcedKeyFrame     bool
 	temporalLayerCount int
+	temporalLayerID    int
 	// layerPerFrameBandwidth mirrors libvpx's cpi->per_frame_bandwidth after
 	// vp8_new_framerate(cpi, lc->framerate) when TS is active. For non-TS or
 	// when zero, callers fall back to rc.bitsPerFrame / baseTargetBits.
 	layerPerFrameBandwidth int
-	timing                 timingState
+	// layerOutputFrameRate mirrors (int)cpi->output_framerate after
+	// vp8_new_framerate(cpi, lc->framerate) when TS is active.
+	layerOutputFrameRate int
+	timing               timingState
 }
 
 func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) {
 	rc.currentTemporalLayers = ctx.temporalLayerCount
 	if ctx.temporalLayerCount > 1 {
+		rc.currentTemporalLayerID = ctx.temporalLayerID
 		if ctx.layerPerFrameBandwidth > 0 {
 			rc.currentLayerPerFrameBandwidth = ctx.layerPerFrameBandwidth
 		} else if baseTargetBits > 0 {
@@ -550,8 +575,11 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 		} else {
 			rc.currentLayerPerFrameBandwidth = 0
 		}
+		rc.currentLayerOutputFrameRate = ctx.layerOutputFrameRate
 	} else {
+		rc.currentTemporalLayerID = 0
 		rc.currentLayerPerFrameBandwidth = 0
+		rc.currentLayerOutputFrameRate = 0
 	}
 	targetBits := baseTargetBits
 	if targetBits <= 0 {
@@ -575,6 +603,14 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 		}
 	}
 	if !keyFrame {
+		if rc.bufferOptimalBits > 0 {
+			// calc_pframe_target_size resets active_best_quality to
+			// best_quality for one-pass buffered inter frames before the
+			// Q regulator runs. Forced key frames can carry a higher
+			// active-best from a previous CQ segment, but the first
+			// following inter frame starts fresh.
+			rc.activeBestQuantizer = rc.minQuantizer
+		}
 		// libvpx's calc_pframe_target_size always runs the
 		// kf_overspend_bits / gf_overspend_bits drain; only
 		// cpi->per_frame_bandwidth is swapped to the per-layer
@@ -601,15 +637,35 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 			}
 		}
 		targetBits = rc.applyOnePassPFrameOverspendRecovery(targetBits, perFrameBandwidth)
-		if ctx.temporalLayerCount <= 1 {
-			targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
-		}
+		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 	}
-	if rc.mode == RateControlCQ {
+	if rc.cqFloorActive() {
 		if rc.currentQuantizer < rc.cqLevel {
 			rc.currentQuantizer = rc.cqLevel
 		}
 	}
+	rc.frameTargetBits = targetBits
+	rc.clampQuantizer()
+}
+
+func (rc *rateControlState) beginOnePassAltRefRefreshFrameWithTargetAndContext(baseTargetBits int, ctx rateControlFrameContext) {
+	rc.currentTemporalLayers = ctx.temporalLayerCount
+	rc.currentTemporalLayerID = ctx.temporalLayerID
+	rc.currentLayerPerFrameBandwidth = 0
+	rc.currentLayerOutputFrameRate = 0
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = baseTargetBits
+	}
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	// libvpx's one-pass calc_pframe_target_size has a special
+	// refresh_alt_ref_frame branch with no body. It skips normal p-frame
+	// target setup, KF/GF overspend drains, and inter_frame_target refresh;
+	// the stale this_frame_target then flows into the one-pass buffer
+	// adjustment below.
+	targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 	rc.frameTargetBits = targetBits
 	rc.clampQuantizer()
 }
@@ -722,8 +778,13 @@ func (rc *rateControlState) laterKeyFrameTargetBits(baseTargetBits int, ctx rate
 		boost = min(max(initialBoost, libvpxKeyFrameBoostForFrameRate(ctx.timing)), maxKeyBoost)
 	}
 	boost = boost * libvpxKeyFrameBoostQAdjustment[q] / 100
-	if halfFrameRate := libvpxHalfFrameRate(ctx.timing); halfFrameRate > 0 && float64(rc.framesSinceKeyframe) < halfFrameRate {
-		boost = int(float64(boost) * float64(rc.framesSinceKeyframe) / halfFrameRate)
+	// Libvpx increments frames_since_key at the end of every visible frame,
+	// including the previous key frame. govpx's rolling counter excludes the
+	// key frame itself, so add one when mirroring calc_iframe_target_size's
+	// short-interval dampening.
+	framesSinceKey := rc.framesSinceKeyframe + 1
+	if halfFrameRate := libvpxHalfFrameRate(ctx.timing); halfFrameRate > 0 && float64(framesSinceKey) < halfFrameRate {
+		boost = int(float64(boost) * float64(framesSinceKey) / halfFrameRate)
 	}
 	if boost < minKeyBoost {
 		boost = minKeyBoost

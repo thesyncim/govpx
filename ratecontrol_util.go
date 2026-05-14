@@ -7,6 +7,13 @@ func (rc *rateControlState) applyPass2CBRBufferAdjustment(targetBits int, keyFra
 	return rc.bufferAdjustedFrameTargetBits(targetBits)
 }
 
+func (rc *rateControlState) cqFloorActive() bool {
+	// libvpx's temporal SVC path applies the constrained-quality floor to
+	// the base temporal layer, while enhancement layers follow the VBR/Q
+	// regulator path. Single-layer CQ keeps the usual floor on every inter.
+	return rc.mode == RateControlCQ && (rc.currentTemporalLayers <= 1 || rc.currentTemporalLayerID == 0)
+}
+
 // applyCQFloor ports the libvpx vp8/encoder/firstpass.c estimate_max_q
 // CQ floor (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`)
 // applied AFTER the second-pass Q regulation. govpx's selectQuantizer
@@ -17,7 +24,7 @@ func (rc *rateControlState) applyPass2CBRBufferAdjustment(targetBits int, keyFra
 // cqLevel. Mirrors libvpx's `if (Q < cpi->cq_target_quality) Q =
 // cpi->cq_target_quality` clamp.
 func (rc *rateControlState) applyCQFloor() {
-	if rc.mode != RateControlCQ {
+	if !rc.cqFloorActive() {
 		return
 	}
 	if rc.currentQuantizer < rc.cqLevel {
@@ -181,7 +188,8 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 	if rateControlModeUsesCQLevel(cfg.Mode) && (cqLevel < cfg.MinQuantizer || cqLevel > cfg.MaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
-	if min(cfg.UndershootPct, cfg.OvershootPct) < 0 {
+	if cfg.UndershootPct < 0 || cfg.UndershootPct > maxRateControlUndershootPct ||
+		cfg.OvershootPct < 0 || cfg.OvershootPct > maxRateControlOvershootPct {
 		return ErrInvalidConfig
 	}
 	if cfg.BufferSizeMs <= 0 || min(cfg.BufferInitialSizeMs, cfg.BufferOptimalSizeMs) < 0 {

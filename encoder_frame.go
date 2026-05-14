@@ -43,7 +43,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		}
 		return result, err
 	}
-	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
+	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{
+		forceLFDeltaUpdate: e.consumePendingLFDeltaUpdate(),
+	})
 }
 
 // FlushInto drains queued frames at end of stream and emits the next
@@ -71,7 +73,10 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	if !ok {
 		return EncodeResult{}, ErrFrameNotReady
 	}
-	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
+	meta := encodeSourceMetadata{
+		lookaheadDepth:     e.lookaheadSize(),
+		forceLFDeltaUpdate: entry.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
+	}
 	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	if err == nil {
@@ -82,6 +87,10 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 
 func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags, meta encodeSourceMetadata) (EncodeResult, error) {
 	e.currentSourcePTS = pts
+	e.currentLFDeltaUpdate = meta.forceLFDeltaUpdate
+	defer func() {
+		e.currentLFDeltaUpdate = false
+	}()
 	// libvpx vp8/encoder/encodeframe.c:685-691 -- vp8_auto_select_speed runs
 	// once at the top of vp8_encode_frame for realtime+positive-cpu_used,
 	// evolving cpi->Speed from the prior frame's encode timer.
@@ -91,6 +100,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if err := validateEncodeFlags(flags); err != nil {
 		return EncodeResult{}, err
 	}
+	e.armExternalRefreshMask(flags)
+	e.armExternalReferenceMask(flags)
 	e.currentTemporalLayer = 0
 	if temporalFrame.Enabled {
 		e.currentTemporalLayer = temporalFrame.LayerID
@@ -122,24 +133,34 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		sceneCutKeyFrame = true
 		twoPassSceneCut = true
 	}
-	if !keyFrame && e.shouldEncodeSceneCutKeyFrame(source, flags, temporalFrame.Enabled, rows, cols) {
-		keyFrame = true
-		sceneCutKeyFrame = true
-	}
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
-	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
-	// libvpx auto_gold one-pass non-CBR refresh decision: VBR/CQ
-	// triggers GF refresh when frames_till_gf_update_due==0 and
-	// pct_intra<15 || gf_frame_usage>=5. govpx funnels it through the
-	// same goldenCBRRefresh local so the existing CBR-shaped code path
-	// (rc bookkeeping, header copy, and post-encode GF accounting)
-	// applies uniformly.
+	goldenCBROpportunity := e.goldenFrameCBROpportunity(keyFrame, temporalReferenceControl, flags)
+	goldenCBRRefresh := goldenCBROpportunity && e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
+	// libvpx auto_gold one-pass refresh decision: streams that were
+	// created with the non-CBR one-pass auto-golden path trigger GF
+	// refresh when frames_till_gf_update_due==0 and pct_intra<15 ||
+	// gf_frame_usage>=5. govpx funnels it through the same
+	// goldenCBRRefresh local so the existing CBR-shaped code path (rc
+	// bookkeeping, header copy, and post-encode GF accounting) applies
+	// uniformly.
 	if !goldenCBRRefresh && e.shouldRefreshGoldenFrameOnePassNonCBR(keyFrame, temporalReferenceControl, flags, rows, cols) {
 		goldenCBRRefresh = true
 	}
-	invisible := flags&EncodeInvisibleFrame != 0
-	hiddenAltRefFrame := flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
-	sourceIsAltRef := !temporalFrame.Enabled && !invisible && e.isSrcFrameAltRef(pts)
+	if !goldenCBRRefresh &&
+		!keyFrame &&
+		!temporalReferenceControl &&
+		e.twoPass.enabled() &&
+		!e.opts.ErrorResilient &&
+		e.twoPass.framesTillGFUpdate == 0 &&
+		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) == 0 {
+		goldenCBRRefresh = true
+	}
+	packetInvisible := flags&EncodeInvisibleFrame != 0
+	internalInvisible := packetInvisible && meta.internalInvisible
+	internalShowFrame := !internalInvisible
+	hiddenAltRefFrame := internalInvisible &&
+		flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
+	sourceIsAltRef := !temporalFrame.Enabled && internalShowFrame && e.isSrcFrameAltRef(pts)
 	finishSourceAltRef := func() {
 		if sourceIsAltRef {
 			e.altRefSourceValid = false
@@ -147,6 +168,18 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		}
 	}
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
+	externalRefreshLast, externalRefreshGolden, externalRefreshAltRef, externalRefreshActive := e.currentExternalRefreshMask()
+	if externalRefreshActive && (externalRefreshGolden || externalRefreshAltRef) {
+		boostedReferenceFrame = true
+	}
+	onePassAltRefRefresh := false
+	if !keyFrame && !temporalReferenceControl && !e.twoPass.enabled() {
+		if externalRefreshActive {
+			onePassAltRefRefresh = externalRefreshAltRef
+		} else if externalRefreshFlagsPending(flags) {
+			_, _, onePassAltRefRefresh = libvpxExternalRefreshMask(flags)
+		}
+	}
 	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size sets
 	// frames_till_gf_update_due=baseline_gf_interval (== gf_interval_onepass_cbr)
 	// and current_gf_interval before update_golden_frame_stats accumulates
@@ -158,17 +191,28 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// +/- branch with this frame's boost instead of the prior GF's.
 	gfBaselineInterval := e.rc.framesTillGFUpdateDue
 	gfMaxInterval := e.rc.framesTillGFUpdateDue
-	if goldenCBRRefresh {
-		if e.rc.mode == RateControlCBR {
-			gfInterval := e.goldenFrameCBRInterval(rows, cols)
-			e.rc.framesTillGFUpdateDue = gfInterval
-			e.rc.currentGFInterval = gfInterval
+	if goldenCBROpportunity && e.rc.mode == RateControlCBR {
+		gfInterval := e.goldenFrameCBRInterval(rows, cols)
+		e.rc.framesTillGFUpdateDue = gfInterval
+		e.rc.currentGFInterval = gfInterval
+		if goldenCBRRefresh {
 			gfBaselineInterval = gfInterval
 			gfMaxInterval = gfInterval
+		}
+	} else if goldenCBRRefresh {
+		if e.rc.mode == RateControlCBR && !e.rc.onePassAutoGold {
+			gfBaselineInterval = e.rc.framesTillGFUpdateDue
+			gfMaxInterval = e.rc.framesTillGFUpdateDue
 		} else {
 			gfBaselineInterval = libvpxDefaultGFInterval
 			gfMaxInterval = e.libvpxMaxGFInterval()
 		}
+	}
+	droppedFrameRefreshMask := func() (refreshLast bool, refreshGolden bool, refreshAltRef bool) {
+		if externalRefreshActive {
+			return externalRefreshLast, externalRefreshGolden, externalRefreshAltRef
+		}
+		return true, false, false
 	}
 	// libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer adjusts
 	// cpi->decimation_factor from the post-encode buffer level of the
@@ -195,8 +239,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// this gap is what fixes post_drop_q_max_drift on the 30f tight-buffer
 	// CBR fixture (govpx Q ran 8-10 indices below libvpx because
 	// kf_overspend was draining on every dropped frame too).
-	if !invisible && e.rc.checkDropBuffer(keyFrame) {
+	if e.rc.checkDropBuffer(keyFrame) {
+		e.updateRDRefFrameProbsForDroppedFrame(externalRefreshAltRef)
 		e.rc.postDecimationDropFrame()
+		e.propagateTemporalLayerDroppedCodingState(temporalFrame)
+		e.saveTemporalLayerCodingState(temporalFrame)
 		e.twoPass.finishFrame(0)
 		e.forceKeyFrame = false
 		// libvpx's decimation drop does NOT set force_maxqp: only the
@@ -223,18 +270,26 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if oracleTraceBuild {
 			e.emitOracleDroppedFrameTrace("decimation")
 		}
+		e.snapshotDroppedFrameCoefProbs(droppedFrameRefreshMask())
 		e.frameCount++
 		finishSourceAltRef()
 		return droppedResult, nil
 	}
 	if temporalFrame.Enabled && !keyFrame {
-		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
+		layerFrameTargetBits := temporalFrame.LayerFrameTargetBits
+		if temporalFrame.LayerID == 0 {
+			layerFrameTargetBits = e.rc.decimationBoostedBitsPerFrame()
+		}
+		e.rc.beginFrameWithTargetAndContext(false, layerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount:     temporalFrame.LayerCount,
-			layerPerFrameBandwidth: temporalFrame.LayerFrameTargetBits,
+			temporalLayerID:        temporalFrame.LayerID,
+			layerPerFrameBandwidth: layerFrameTargetBits,
+			layerOutputFrameRate:   e.temporal.temporalLayerOutputFrameRateInt(temporalFrame.LayerID, e.timing),
 			timing:                 e.timing,
 		})
 	} else {
 		layerPerFrameBandwidth := 0
+		layerOutputFrameRate := 0
 		if temporalFrame.Enabled {
 			// libvpx vp8_restore_layer_context + vp8_new_framerate run
 			// before calc_iframe_target_size on keyframes too; the
@@ -246,16 +301,30 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// 6147-bit phantom overspend that the post-KF p-frame
 			// drain (now active in TS) tries to recover.
 			layerPerFrameBandwidth = e.temporal.temporalLayerFrameTargetBits(temporalFrame.LayerID, e.timing)
+			layerOutputFrameRate = e.temporal.temporalLayerOutputFrameRateInt(temporalFrame.LayerID, e.timing)
 		}
-		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
+		frameCtx := rateControlFrameContext{
 			firstFrame:             e.frameCount == 0,
 			forcedKeyFrame:         forcedKeyFrame,
 			temporalLayerCount:     temporalFrame.LayerCount,
+			temporalLayerID:        temporalFrame.LayerID,
 			layerPerFrameBandwidth: layerPerFrameBandwidth,
+			layerOutputFrameRate:   layerOutputFrameRate,
 			timing:                 e.timing,
-		})
+		}
+		if onePassAltRefRefresh {
+			e.rc.beginOnePassAltRefRefreshFrameWithTargetAndContext(e.rc.decimationBoostedBitsPerFrame(), frameCtx)
+		} else {
+			e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), frameCtx)
+		}
 	}
-	twoPassTargetBits := e.twoPass.frameTargetBits(e.frameCount, keyFrame, e.rc.frameTargetBits)
+	pass2AltRefInterval, pass2AltRefPending := e.pass2AltRefPendingPlan(e.frameCount)
+	twoPassTargetBits := 0
+	if hiddenAltRefFrame {
+		twoPassTargetBits = e.twoPass.altRefFrameTargetBits(e.rc.frameTargetBits)
+	} else {
+		twoPassTargetBits = e.twoPass.frameTargetBitsWithAltRef(e.frameCount, keyFrame, e.rc.frameTargetBits, pass2AltRefInterval, pass2AltRefPending)
+	}
 	if twoPassTargetBits > 0 {
 		e.rc.frameTargetBits = twoPassTargetBits
 		// libvpx vp8/encoder/firstpass.c Pass2Encode re-clamps the per-frame
@@ -279,34 +348,39 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// when second-pass stats indicate the upcoming GF section is high
 	// motion / high-quality predicted, arm a hidden alt-ref so the
 	// auto-ARF driver can emit it at the predicted offset.
-	e.pass2MaybeArmAltRefPending(e.frameCount, pts, keyFrame)
+	e.pass2ArmAltRefPending(pts, pass2AltRefInterval, pass2AltRefPending)
 	if goldenCBRRefresh {
-		// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size: when the
-		// GF refresh fires, calc_gf_params runs FIRST (auto_adjust_gold_quantizer=1
-		// is the default) and updates cpi->last_boost AND
-		// cpi->frames_till_gf_update_due. Then the GF target formula
-		// consumes those just-computed values. Mirror that order here so
-		// the non-CBR boost path below sees the new boost / interval.
-		gfOut := calcGFParams(gfParamsInput{
-			Q:                     e.rc.lastInterQuantizer,
-			RecentRefIntra:        e.rc.recentRefFrameUsageIntra,
-			RecentRefLast:         e.rc.recentRefFrameUsageLast,
-			RecentRefGolden:       e.rc.recentRefFrameUsageGolden,
-			RecentRefAltRef:       e.rc.recentRefFrameUsageAltRef,
-			GFActiveCount:         e.rc.gfActiveCount,
-			Macroblocks:           required,
-			ThisFramePercentIntra: e.rc.thisFramePercentIntra,
-			BaselineGFInterval:    gfBaselineInterval,
-			MaxGFInterval:         gfMaxInterval,
-			RealtimeNoRecode:      e.opts.Deadline == DeadlineRealtime,
-		})
-		e.rc.lastBoost = gfOut.Boost
-		if e.rc.mode == RateControlCBR {
-			// One-pass CBR: libvpx multiplies this_frame_target by
-			// (100 + gf_cbr_boost_pct) / 100 (vp8/encoder/ratectrl.c
-			// gf_update_onepass_cbr branch).
+		if e.rc.mode == RateControlCBR && !e.rc.onePassAutoGold {
+			// One-pass fixed-GF CBR takes libvpx's gf_update_onepass_cbr
+			// branch: it refreshes the configured interval and multiplies
+			// this_frame_target by (100 + gf_cbr_boost_pct) / 100, but it
+			// does not run calc_gf_params or update last_boost.
+			gfInterval := e.goldenFrameCBRInterval(rows, cols)
+			e.rc.framesTillGFUpdateDue = gfInterval
+			e.rc.currentGFInterval = gfInterval
 			e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 		} else {
+			// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size: when
+			// the auto-GF refresh fires, calc_gf_params runs FIRST
+			// (auto_adjust_gold_quantizer=1 is the default) and updates
+			// cpi->last_boost AND cpi->frames_till_gf_update_due. Then the
+			// GF target formula consumes those just-computed values. Mirror
+			// that order here so the non-CBR boost path below sees the new
+			// boost / interval.
+			gfOut := calcGFParams(gfParamsInput{
+				Q:                     e.rc.lastInterQuantizer,
+				RecentRefIntra:        e.rc.recentRefFrameUsageIntra,
+				RecentRefLast:         e.rc.recentRefFrameUsageLast,
+				RecentRefGolden:       e.rc.recentRefFrameUsageGolden,
+				RecentRefAltRef:       e.rc.recentRefFrameUsageAltRef,
+				GFActiveCount:         e.rc.gfActiveCount,
+				Macroblocks:           required,
+				ThisFramePercentIntra: e.rc.thisFramePercentIntra,
+				BaselineGFInterval:    gfBaselineInterval,
+				MaxGFInterval:         gfMaxInterval,
+				RealtimeNoRecode:      e.opts.Deadline == DeadlineRealtime,
+			})
+			e.rc.lastBoost = gfOut.Boost
 			// One-pass VBR/CQ: libvpx splits the upcoming GF section
 			// across (frames_till_gf_update_due+1) frames, weighting the
 			// GF by `last_boost`. See libvpxGoldenFrameTargetBits for the
@@ -322,13 +396,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			if boosted > 0 {
 				e.rc.frameTargetBits = boosted
 			}
+			// Propagate the just-computed GF interval into rc state so the
+			// next non-GF frame's small +/- branch sees the right value.
+			// Mirrors libvpx's calc_gf_params tail.
+			e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
+			e.rc.currentGFInterval = gfOut.FramesTillUpdate
 		}
-		// Propagate the just-computed GF interval into rc state so the
-		// next non-GF frame's small +/- branch sees the right value.
-		// Mirrors libvpx's calc_gf_params tail (cpi->frames_till_gf_update_due
-		// = baseline_gf_interval; cpi->current_gf_interval = ...).
-		e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
-		e.rc.currentGFInterval = gfOut.FramesTillUpdate
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 	// libvpx vp8/encoder/ratectrl.c vp8_regulate_q forces Q to
@@ -377,8 +450,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// to mirror libvpx's vp8_check_drop_buffer ordering. The buffer-underrun
 	// drop below stays here because libvpx checks it INSIDE
 	// calc_pframe_target_size (i.e. after the kf_overspend drain).
-	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
+	if !keyFrame && e.rc.shouldDropInterFrame() {
+		e.updateRDRefFrameProbsForDroppedFrame(externalRefreshAltRef)
 		e.rc.postDropFrame()
+		e.propagateTemporalLayerDroppedCodingState(temporalFrame)
+		e.saveTemporalLayerCodingState(temporalFrame)
 		e.twoPass.finishFrame(0)
 		result.Dropped = true
 		result.BufferLevelBits = e.rc.bufferLevelBits
@@ -404,6 +480,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if oracleTraceBuild {
 			e.emitOracleDroppedFrameTrace("buffer_underrun")
 		}
+		e.snapshotDroppedFrameCoefProbs(droppedFrameRefreshMask())
 		e.frameCount++
 		finishSourceAltRef()
 		return result, nil
@@ -444,7 +521,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// keyframe on screen-content mode 2). PickerProjectedSizeBytes is
 		// always populated by encodeInterFrameAttempt so the gate evaluates
 		// even when the recode loop is disabled at realtime.
-		if !invisible && e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.PickerProjectedSizeBytes, required, false) {
+		if e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.PickerProjectedSizeBytes, required, false) {
+			// The overshoot decision runs after vp8_encode_frame has walked
+			// MBs and converted their reference counts. Libvpx discards the
+			// packet and reference refresh, but the converted ref-frame
+			// probabilities remain live for the next frame's picker rates.
+			e.updateRefFrameProbsFromAttempt(attempt)
 			e.finishAutoSpeedTiming(false)
 			e.twoPass.finishFrame(0)
 			result.Dropped = true
@@ -452,22 +534,28 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.BufferLevelBits = e.rc.bufferLevelBits
 			result.FrameTargetBits = e.rc.frameTargetBits
 			e.forceKeyFrame = false
+			if attempt.CyclicRefresh {
+				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+			}
+			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
+			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
+			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
 			// libvpx: cpi->frames_since_key++ on overshoot drop; mirror
 			// it so the next-keyframe distance heuristic stays aligned.
 			e.rc.framesSinceKeyframe++
+			e.saveTemporalLayerCodingState(temporalFrame)
 			e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
 			if oracleTraceBuild {
 				e.emitOracleDroppedFrameTrace("overshoot")
 			}
+			e.snapshotDroppedFrameCoefProbs(droppedFrameRefreshMask())
 			e.frameCount++
 			finishSourceAltRef()
 			return result, nil
 		}
-		if !invisible {
-			e.lastPredErrorMB = e.currentPredictionErrorMB(required)
-		}
-		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, invisible); recodeKeyFrame {
+		e.lastPredErrorMB = e.currentPredictionErrorMB(required)
+		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, internalInvisible); recodeKeyFrame {
 			keyFrame = true
 			sceneCutKeyFrame = true
 			e.rc.thisFramePercentIntra = thisFramePercentIntra
@@ -482,6 +570,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			}
 			e.rc.beginFrameWithTargetAndContext(true, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
 				temporalLayerCount:     temporalFrame.LayerCount,
+				temporalLayerID:        temporalFrame.LayerID,
 				layerPerFrameBandwidth: layerPerFrameBandwidthRecode,
 				timing:                 e.timing,
 			})
@@ -513,8 +602,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		} else {
 			finalQuantizer := e.rc.currentQuantizer
 			e.commitInterFrameAttempt(attempt)
+			if attempt.Config.Segmentation.Enabled {
+				e.roi.clearUpdateFlags()
+			}
+			e.rememberSegmentationConfig(attempt.Config.Segmentation)
 			e.loopFilterLevel = attempt.Config.LoopFilterLevel
-			e.saveTemporalLayerCodingState(temporalFrame)
 			result.Data = dst[:attempt.Size]
 			result.SizeBytes = attempt.Size
 			e.setEncodeResultQuantizer(&result, finalQuantizer)
@@ -526,7 +618,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				goldenFrame:           attempt.Config.RefreshGolden,
 				altRefFrame:           attempt.Config.RefreshAltRef,
 				macroblocks:           required,
-				showFrame:             !invisible,
+				showFrame:             internalShowFrame,
 				skipPostPackOverspend: e.twoPass.enabled(),
 				alwaysUpdateFactor:    e.opts.RTCExternalRateControl,
 				errorResilient:        e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
@@ -554,6 +646,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
 			// counts accumulate (skipping the immediate post-GF frame).
 			intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
+			e.temporalLayerRefUsage = [vp8common.MaxRefFrames]int{intra, last, golden, alt}
 			if attempt.Config.RefreshGolden {
 				e.rc.resetRecentRefFrameUsage(required)
 			} else {
@@ -567,7 +660,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// Keep that ordering here: lastFramePercentIntra captures the
 			// just-encoded frame's value for the next frame's heuristic.
 			e.lastFramePercentIntra = e.rc.thisFramePercentIntra
-			e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
+			e.saveTemporalLayerCodingState(temporalFrame)
+			e.propagateTemporalLayerCodingState(temporalFrame, encodedSizeBits(attempt.Size))
+			e.temporal.finishFrame(temporalFrame, false, internalShowFrame, temporalReferenceRefresh{
 				Last:   attempt.Config.RefreshLast,
 				Golden: attempt.Config.RefreshGolden,
 				AltRef: attempt.Config.RefreshAltRef,
@@ -593,6 +688,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				})
 				e.flushOracleMBTraceBuffer()
 			}
+			e.clearExternalRefreshMaskAfterPacket()
+			e.clearExternalReferenceMaskAfterPacket()
 			// libvpx onyx_if.c end-of-encode: record ambient_err if the next
 			// frame will be a forced KF so the forced-KF recode branch has a
 			// baseline to compare against.
@@ -632,13 +729,17 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// observes baseline_gf_interval=DEFAULT_GF_INTERVAL=7 at first-keyframe
 	// time while realtime CBR observes the cyclic-refresh gf_interval.
 	e.rc.framesTillGFUpdateDue = e.libvpxKeyFrameSetupGFInterval(rows, cols)
-	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
+	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, packetInvisible, staticSegmentationAllowed)
 	if err != nil {
 		e.cancelAutoSpeedTiming()
 		return EncodeResult{}, err
 	}
 	finalQuantizer := e.rc.currentQuantizer
 	e.commitKeyFrameEntropy(keyAttempt)
+	if keyAttempt.SegmentationEnabled {
+		e.roi.clearUpdateFlags()
+	}
+	e.rememberSegmentationConfig(keyAttempt.SegmentationConfig)
 	// Mirror libvpx onyx_if.c key-frame branch: zero frames_since_golden,
 	// drop source_alt_ref_active when no ARF schedule is pending, and
 	// decrement frames_till_alt_ref_frame. Carried out by
@@ -654,7 +755,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// (cyclic refresh is already keyframe-reset).
 	e.forceMaxQuantizer = false
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
-	e.saveTemporalLayerCodingState(temporalFrame)
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
 	e.setEncodeResultQuantizer(&result, finalQuantizer)
@@ -664,7 +764,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.rc.postEncodeFrameWithPacketContext(keyAttempt.Size, rateControlPostEncodeContext{
 		keyFrame:              true,
 		macroblocks:           required,
-		showFrame:             !invisible,
+		showFrame:             internalShowFrame,
 		skipPostPackOverspend: e.twoPass.enabled(),
 		alwaysUpdateFactor:    e.opts.RTCExternalRateControl,
 		errorResilient:        e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
@@ -676,11 +776,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
-	// libvpx vp8/encoder/onyx_if.c does NOT reset cyclic_refresh_mode_index
-	// on key frames — only on init/resize (see lines 1213/1870 vs the
-	// frame_type != KEY_FRAME gate around the loop at line 534). The
-	// persistent index is preserved so the first inter frame after each
-	// keyframe continues the rolling refresh from where it left off.
+	// libvpx does not advance cyclic_refresh_mode_index or rewrite
+	// cyclic_refresh_map on key frames: cyclic_background_refresh only
+	// clears the segmentation map for the keyframe packet, and
+	// encodeframe.c updates cyclic_refresh_map only in the inter path.
+	// Preserve both rolling structures so the next inter frame attempts the
+	// same refresh candidates.
+	e.commitKeyFrameCyclicRefreshMap(rows, cols, e.keyFrameModes[:required], keyAttempt.SegmentationEnabled)
 	clearUint8Map(e.consecZeroLast)
 	clearUint8Map(e.consecZeroLastMVBias)
 	clearBoolMap(e.dotArtifactChecked)
@@ -702,7 +804,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.lastFramePercentIntra = 100
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
-	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
+	e.temporalLayerRefUsage = [vp8common.MaxRefFrames]int{}
+	e.saveTemporalLayerCodingState(temporalFrame)
+	e.propagateTemporalLayerCodingState(temporalFrame, encodedSizeBits(keyAttempt.Size))
+	e.temporal.finishFrame(temporalFrame, true, internalShowFrame, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	if oracleTraceBuild {
 		e.emitOracleFrameTrace(oracleTraceFrameSummary{
@@ -722,6 +827,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		})
 		e.flushOracleMBTraceBuffer()
 	}
+	e.clearExternalRefreshMaskAfterPacket()
+	e.clearExternalReferenceMaskAfterPacket()
 	// libvpx onyx_if.c, end-of-encode: clear this_key_frame_forced after the
 	// frame has been committed; the next forced KF will set it again. Update
 	// the next_key_frame_forced bookkeeping for the following frame's
@@ -796,13 +903,30 @@ func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
 	if !e.temporal.codingValid[meta.LayerID] {
 		return
 	}
-	state := e.temporal.codingState[meta.LayerID]
+	e.applyTemporalLayerCodingState(e.temporal.codingState[meta.LayerID])
+}
+
+func (e *VP8Encoder) applyTemporalLayerCodingState(state temporalLayerCodingState) {
 	e.loopFilterLevel = state.FilterLevel
 	e.rc.bufferLevelBits = state.BufferLevelBits
+	if state.BufferInitialBits > 0 {
+		e.rc.bufferInitialBits = state.BufferInitialBits
+	}
+	if state.BufferOptimalBits > 0 {
+		e.rc.bufferOptimalBits = state.BufferOptimalBits
+	}
+	if state.MaximumBufferBits > 0 {
+		e.rc.maximumBufferBits = state.MaximumBufferBits
+		e.rc.bufferSizeBits = state.MaximumBufferBits
+	}
+	if state.BitsPerFrame > 0 {
+		e.rc.bitsPerFrame = state.BitsPerFrame
+	}
 	e.rc.totalActualBits = state.TotalActualBits
 	e.rc.rateCorrectionFactor = state.RateCorrectionFactor
 	e.rc.keyFrameCorrectionFactor = state.KeyFrameCorrectionFactor
 	e.rc.goldenCorrectionFactor = state.GoldenCorrectionFactor
+	e.rc.activeBestQuantizer = state.ActiveBestQuantizer
 	e.rc.avgFrameQuantizer = state.AvgFrameQuantizer
 	e.rc.normalInterAvgQuantizer = state.NormalInterAvgQuantizer
 	e.rc.normalInterFrames = state.NormalInterFrames
@@ -818,6 +942,33 @@ func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
 	e.rc.recentRefFrameUsageLast = state.RecentRefFrameUsageLast
 	e.rc.recentRefFrameUsageGolden = state.RecentRefFrameUsageGolden
 	e.rc.recentRefFrameUsageAltRef = state.RecentRefFrameUsageAltRef
+	e.temporalLayerRefUsage[0] = state.MBRefFrameUsageIntra
+	e.temporalLayerRefUsage[1] = state.MBRefFrameUsageLast
+	e.temporalLayerRefUsage[2] = state.MBRefFrameUsageGolden
+	e.temporalLayerRefUsage[3] = state.MBRefFrameUsageAltRef
+}
+
+func (e *VP8Encoder) restoreBaseLayerCodingStateAfterTemporalDisable(prev temporalState) {
+	if !prev.codingValid[0] {
+		return
+	}
+	bitsPerFrame := e.rc.bitsPerFrame
+	bufferSizeBits := e.rc.bufferSizeBits
+	bufferInitialBits := e.rc.bufferInitialBits
+	bufferOptimalBits := e.rc.bufferOptimalBits
+	maximumBufferBits := e.rc.maximumBufferBits
+	e.applyTemporalLayerCodingState(prev.codingState[0])
+	e.rc.bitsPerFrame = bitsPerFrame
+	e.rc.bufferSizeBits = bufferSizeBits
+	e.rc.bufferInitialBits = bufferInitialBits
+	e.rc.bufferOptimalBits = bufferOptimalBits
+	e.rc.maximumBufferBits = maximumBufferBits
+	e.rc.bufferLevelBits = bufferInitialBits
+	e.rc.currentTemporalLayers = 1
+	e.rc.currentTemporalLayerID = 0
+	e.rc.currentLayerPerFrameBandwidth = 0
+	e.rc.currentLayerOutputFrameRate = 0
+	e.currentTemporalLayer = 0
 }
 
 // saveTemporalLayerCodingState captures the per-layer state that needs to
@@ -836,10 +987,15 @@ func (e *VP8Encoder) saveTemporalLayerCodingState(meta temporalFrame) {
 	e.temporal.codingState[meta.LayerID] = temporalLayerCodingState{
 		FilterLevel:                  e.loopFilterLevel,
 		BufferLevelBits:              e.rc.bufferLevelBits,
+		BufferInitialBits:            e.rc.bufferInitialBits,
+		BufferOptimalBits:            e.rc.bufferOptimalBits,
+		MaximumBufferBits:            e.rc.maximumBufferBits,
+		BitsPerFrame:                 e.rc.bitsPerFrame,
 		TotalActualBits:              e.rc.totalActualBits,
 		RateCorrectionFactor:         e.rc.rateCorrectionFactor,
 		KeyFrameCorrectionFactor:     e.rc.keyFrameCorrectionFactor,
 		GoldenCorrectionFactor:       e.rc.goldenCorrectionFactor,
+		ActiveBestQuantizer:          e.rc.activeBestQuantizer,
 		AvgFrameQuantizer:            e.rc.avgFrameQuantizer,
 		NormalInterAvgQuantizer:      e.rc.normalInterAvgQuantizer,
 		NormalInterFrames:            e.rc.normalInterFrames,
@@ -855,6 +1011,113 @@ func (e *VP8Encoder) saveTemporalLayerCodingState(meta temporalFrame) {
 		RecentRefFrameUsageLast:      e.rc.recentRefFrameUsageLast,
 		RecentRefFrameUsageGolden:    e.rc.recentRefFrameUsageGolden,
 		RecentRefFrameUsageAltRef:    e.rc.recentRefFrameUsageAltRef,
+		MBRefFrameUsageIntra:         e.temporalLayerRefUsage[0],
+		MBRefFrameUsageLast:          e.temporalLayerRefUsage[1],
+		MBRefFrameUsageGolden:        e.temporalLayerRefUsage[2],
+		MBRefFrameUsageAltRef:        e.temporalLayerRefUsage[3],
 	}
 	e.temporal.codingValid[meta.LayerID] = true
+}
+
+func (e *VP8Encoder) initializeTemporalLayerCodingStates() {
+	if e == nil || !e.temporal.enabled {
+		return
+	}
+	for layer := 0; layer < e.temporal.pattern.Layers && layer < MaxTemporalLayers; layer++ {
+		e.temporal.codingState[layer] = e.initialTemporalLayerCodingState(layer)
+		e.temporal.codingValid[layer] = true
+	}
+}
+
+func (e *VP8Encoder) refreshTemporalLayerCodingGeometry() {
+	if e == nil || !e.temporal.enabled {
+		return
+	}
+	for layer := 0; layer < e.temporal.pattern.Layers && layer < MaxTemporalLayers; layer++ {
+		targetKbps := e.temporal.config.LayerTargetBitrateKbps[layer]
+		state := &e.temporal.codingState[layer]
+		state.BufferInitialBits = temporalLayerBufferBits(targetKbps, e.rc.bufferInitialSizeMs)
+		state.BufferOptimalBits = temporalLayerBufferBits(targetKbps, e.rc.bufferOptimalSizeMs)
+		state.MaximumBufferBits = temporalLayerBufferBits(targetKbps, e.rc.bufferSizeMs)
+		targetBits, ok := checkedMul(targetKbps, 1000)
+		if !ok {
+			targetBits = maxInt()
+		}
+		state.BitsPerFrame = computeLayerBitsPerFrame(targetBits, e.timing, e.temporal.pattern.RateDecimator[layer], 1)
+	}
+}
+
+func (e *VP8Encoder) initialTemporalLayerCodingState(layer int) temporalLayerCodingState {
+	targetKbps := e.temporal.config.LayerTargetBitrateKbps[layer]
+	initialBits := temporalLayerBufferBits(targetKbps, e.rc.bufferInitialSizeMs)
+	optimalBits := temporalLayerBufferBits(targetKbps, e.rc.bufferOptimalSizeMs)
+	maximumBits := temporalLayerBufferBits(targetKbps, e.rc.bufferSizeMs)
+	targetBits, ok := checkedMul(targetKbps, 1000)
+	if !ok {
+		targetBits = maxInt()
+	}
+	bitsPerFrame := computeLayerBitsPerFrame(targetBits, e.timing, e.temporal.pattern.RateDecimator[layer], 1)
+	return temporalLayerCodingState{
+		FilterLevel:                  0,
+		BufferLevelBits:              initialBits,
+		BufferInitialBits:            initialBits,
+		BufferOptimalBits:            optimalBits,
+		MaximumBufferBits:            maximumBits,
+		BitsPerFrame:                 bitsPerFrame,
+		RateCorrectionFactor:         1.0,
+		KeyFrameCorrectionFactor:     1.0,
+		GoldenCorrectionFactor:       1.0,
+		ActiveBestQuantizer:          e.rc.minQuantizer,
+		AvgFrameQuantizer:            e.rc.maxQuantizer,
+		NormalInterAvgQuantizer:      0,
+		LastQuantizer:                e.rc.lastQuantizer,
+		LastInterQuantizer:           e.rc.lastInterQuantizer,
+		FramesSinceLastDropOvershoot: e.rc.framesSinceLastDropOvershoot,
+		LastFramePercentIntra:        e.lastFramePercentIntra,
+		RecentRefFrameUsageIntra:     e.rc.recentRefFrameUsageIntra,
+		RecentRefFrameUsageLast:      e.rc.recentRefFrameUsageLast,
+		RecentRefFrameUsageGolden:    e.rc.recentRefFrameUsageGolden,
+		RecentRefFrameUsageAltRef:    e.rc.recentRefFrameUsageAltRef,
+	}
+}
+
+func (e *VP8Encoder) propagateTemporalLayerCodingState(meta temporalFrame, encodedBits int) {
+	if !meta.Enabled || encodedBits < 0 {
+		return
+	}
+	for layer := meta.LayerID + 1; layer < meta.LayerCount && layer < MaxTemporalLayers; layer++ {
+		if !e.temporal.codingValid[layer] {
+			continue
+		}
+		state := &e.temporal.codingState[layer]
+		state.BufferLevelBits = saturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
+		state.BufferLevelBits = saturatingSub(state.BufferLevelBits, encodedBits)
+		if state.BufferLevelBits > state.MaximumBufferBits {
+			state.BufferLevelBits = state.MaximumBufferBits
+		}
+		if encodedBits > 0 {
+			const maxInt64 = int64(^uint64(0) >> 1)
+			if state.TotalActualBits > maxInt64-int64(encodedBits) {
+				state.TotalActualBits = maxInt64
+			} else {
+				state.TotalActualBits += int64(encodedBits)
+			}
+		}
+	}
+}
+
+func (e *VP8Encoder) propagateTemporalLayerDroppedCodingState(meta temporalFrame) {
+	if !meta.Enabled {
+		return
+	}
+	for layer := meta.LayerID + 1; layer < meta.LayerCount && layer < MaxTemporalLayers; layer++ {
+		if !e.temporal.codingValid[layer] {
+			continue
+		}
+		state := &e.temporal.codingState[layer]
+		state.BufferLevelBits = saturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
+		if state.BufferLevelBits > state.MaximumBufferBits {
+			state.BufferLevelBits = state.MaximumBufferBits
+		}
+	}
 }

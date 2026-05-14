@@ -17,24 +17,26 @@ type predictedMacroblockRDStats struct {
 }
 
 type predictedMacroblockCoefficientArgs struct {
-	coefProbs     *vp8tables.CoefficientProbs
-	src           vp8enc.SourceImage
-	mbRow         int
-	mbCol         int
-	pred          *vp8common.Image
-	aboveTok      *vp8enc.TokenContextPlanes
-	leftTok       *vp8enc.TokenContextPlanes
-	quant         *vp8enc.MacroblockQuant
-	qIndex        int
-	zbinOverQuant int
-	zbinModeBoost int
-	is4x4         bool
-	intra         bool
-	fastQuant     bool
-	optimize      bool
-	collectOracle bool
-	collectStats  bool
-	coeffs        *vp8enc.MacroblockCoefficients
+	coefProbs           *vp8tables.CoefficientProbs
+	src                 vp8enc.SourceImage
+	mbRow               int
+	mbCol               int
+	pred                *vp8common.Image
+	aboveTok            *vp8enc.TokenContextPlanes
+	leftTok             *vp8enc.TokenContextPlanes
+	quant               *vp8enc.MacroblockQuant
+	qIndex              int
+	zbinOverQuant       int
+	zbinModeBoost       int
+	is4x4               bool
+	splitPartitionValid bool
+	splitPartition      uint8
+	intra               bool
+	fastQuant           bool
+	optimize            bool
+	collectOracle       bool
+	collectStats        bool
+	coeffs              *vp8enc.MacroblockCoefficients
 	// cacheOut, when non-nil, requests the picker → accepted-path
 	// post-FDCT DCT cache to be populated. After the batched FDCT runs,
 	// the function copies yDcts / uvDcts into the cache and marks it
@@ -96,6 +98,13 @@ func (c *interRDCoeffCacheState) reset() {
 		return
 	}
 	c.valid = false
+}
+
+func (e *VP8Encoder) resetInterRDCoeffCache() {
+	e.interRDCoeffCacheSlots[0].reset()
+	e.interRDCoeffCacheSlots[1].reset()
+	e.interRDCoeffCacheWinner = 0
+	e.interRDCoeffCacheScratchTarget = nil
 }
 
 // consumeInterRDCoeffCache returns the winner cache slot if it is valid.
@@ -207,6 +216,8 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	zbinOverQuant := args.zbinOverQuant
 	zbinModeBoost := args.zbinModeBoost
 	is4x4 := args.is4x4
+	splitPartitionValid := is4x4 && args.splitPartitionValid && args.splitPartition < vp8tables.NumMBSplits
+	splitPartition := args.splitPartition
 	intra := args.intra
 	fastQuant := args.fastQuant
 	optimize := args.optimize
@@ -216,6 +227,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	var y2Input [16]int16
 	var y2Coeff [16]int16
 	var dq [16]int16
+	var splitYDist [16]int
 	var yAbove [4]uint8
 	var yLeft [4]uint8
 	var uvAbove [4]uint8
@@ -302,7 +314,12 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			coeffs.SetBlockEOB(block, eob)
 			if collectStats {
 				stats.rateY += coefficientBlockTokenRate(coefProbs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob)
-				stats.distortionY += transformBlockError(dct, dqY)
+				blockDist := transformBlockError(dct, dqY)
+				stats.distortionY += blockDist
+				if splitPartitionValid {
+					subset := int(vp8tables.MBSplits[splitPartition&3][block&15])
+					splitYDist[subset&15] += blockDist
+				}
 				if eob > skipDC {
 					stats.tteob++
 				}
@@ -333,7 +350,12 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				coeffs.SetBlockEOB(block, eob)
 				if collectStats {
 					stats.rateY += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
-					stats.distortionY += transformBlockError(dct, &dq)
+					blockDist := transformBlockError(dct, &dq)
+					stats.distortionY += blockDist
+					if splitPartitionValid {
+						subset := int(vp8tables.MBSplits[splitPartition&3][block&15])
+						splitYDist[subset&15] += blockDist
+					}
 					if eob > 0 {
 						stats.tteob++
 					}
@@ -399,7 +421,11 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		coeffs.QCoeff[24] = [16]int16{}
 		coeffs.SetBlockEOB(24, 0)
 		if collectStats {
-			stats.distortionY >>= 2
+			if splitPartitionValid {
+				stats.distortionY = splitMotionPartitionLumaDistortionFromSums(splitYDist, splitPartition)
+			} else {
+				stats.distortionY >>= 2
+			}
 		}
 		// Direct helper callers do not carry the RD picker's mutable Y2
 		// block state. Populate a local trace-only snapshot here; the

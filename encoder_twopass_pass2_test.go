@@ -103,6 +103,34 @@ func TestPass2VBRSectionLimitClampsTarget(t *testing.T) {
 	}
 }
 
+func TestPass2GFSectionComplexityStartsAfterCurrentFrame(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 8)
+	stats[0] = FirstPassFrameStats{
+		IntraError: 100,
+		CodedError: 10000,
+		Count:      1,
+	}
+	for i := 1; i < len(stats); i++ {
+		stats[i] = FirstPassFrameStats{
+			IntraError: 10000,
+			CodedError: 100,
+			PcntInter:  1,
+			Count:      1,
+		}
+	}
+
+	var ts twoPassState
+	ts.configure(stats, 1000, 100, 0, 0)
+	_ = ts.frameTargetBits(0, true, 1000)
+
+	if got := ts.sectionMaxQFactor; got != 0.8 {
+		t.Fatalf("sectionMaxQFactor = %.6f, want 0.8 from post-current GF section", got)
+	}
+	if got := ts.sectionIntraRating; got != 100 {
+		t.Fatalf("sectionIntraRating = %d, want 100 from post-current GF section", got)
+	}
+}
+
 // TestPass2ARFPendingTriggersFromHighMotionSection pins the libvpx
 // vp8/encoder/firstpass.c `define_gf_group` / `select_arf_period`
 // ARF-pending decision. A synthetic stats sequence with a stable
@@ -155,5 +183,86 @@ func TestPass2ARFPendingTriggersFromHighMotionSection(t *testing.T) {
 	}
 	if !enc.altRefSourceValid {
 		t.Fatalf("altRefSourceValid = false, scheduleAltRefSource must record the future PTS")
+	}
+}
+
+// TestPass2ARFGFGroupUsesDetectedIntervalForHiddenTarget pins the pass-2
+// ARF allocation path: define_gf_group must use the detected ARF interval,
+// not the whole remaining KF group, and the hidden ARF must read the boosted
+// twopass.gf_bits target rather than consuming a standard P-frame target.
+func TestPass2ARFGFGroupUsesDetectedIntervalForHiddenTarget(t *testing.T) {
+	const sectionLen = 16
+	const defaultTarget = 700 * 1000 / 30
+	stats := make([]FirstPassFrameStats, sectionLen)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:    20000,
+			CodedError:    200,
+			PcntInter:     0.95,
+			PcntMotion:    0.4,
+			PcntSecondRef: 0.0,
+			PcntNeutral:   0.0,
+			MVrAbs:        5,
+			MVcAbs:        5,
+			Count:         1,
+		}
+	}
+	var ts twoPassState
+	ts.configure(stats, defaultTarget, 50, 0, 400)
+	ts.configureFrameDims(64, 64)
+
+	interval, pending := ts.pass2DetectARFPending(0, sectionLen, true, 7)
+	if !pending {
+		t.Fatalf("pass2DetectARFPending returned pending=false")
+	}
+	if interval != 7 {
+		t.Fatalf("ARF interval = %d, want 7 for lookahead-limited section", interval)
+	}
+	keyTarget := ts.frameTargetBitsWithAltRef(0, true, defaultTarget, interval, true)
+	if keyTarget <= 0 {
+		t.Fatalf("key target = %d, want positive", keyTarget)
+	}
+	if ts.framesTillGFUpdate != interval {
+		t.Fatalf("framesTillGFUpdate after ARF define = %d, want interval %d", ts.framesTillGFUpdate, interval)
+	}
+	hiddenTarget := ts.altRefFrameTargetBits(defaultTarget)
+	if hiddenTarget != ts.gfRefreshTarget {
+		t.Fatalf("hidden target = %d, gfRefreshTarget = %d, want same stored ARF target", hiddenTarget, ts.gfRefreshTarget)
+	}
+	if hiddenTarget <= defaultTarget {
+		t.Fatalf("hidden ARF target = %d, want boosted above default %d", hiddenTarget, defaultTarget)
+	}
+	ts.finishFrame(keyTarget)
+	if ts.framesTillGFUpdate != interval-1 {
+		t.Fatalf("framesTillGFUpdate after key finish = %d, want %d", ts.framesTillGFUpdate, interval-1)
+	}
+}
+
+func TestPass2AltRefPlanOnlyAtGFBoundary(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 16)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError: 20000,
+			CodedError: 200,
+			PcntInter:  0.95,
+			PcntMotion: 0.4,
+			Count:      1,
+		}
+	}
+	var ts twoPassState
+	ts.configure(stats, 700*1000/30, 50, 0, 400)
+	enc := &VP8Encoder{
+		opts: EncoderOptions{
+			AutoAltRef:       true,
+			LookaheadFrames:  8,
+			KeyFrameInterval: 60,
+		},
+		twoPass: ts,
+	}
+	enc.twoPass.gfGroupValid = true
+	enc.twoPass.framesTillGFUpdate = 3
+
+	if interval, pending := enc.pass2AltRefPendingPlan(8); pending || interval != 0 {
+		t.Fatalf("mid-section ARF plan = interval:%d pending:%t, want no plan", interval, pending)
 	}
 }

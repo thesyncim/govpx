@@ -202,6 +202,38 @@ func TestRateControlKeyFrameOverspendSeedsGoldenRecoveryAdjustment(t *testing.T)
 	}
 }
 
+func TestRateControlTemporalKeyFrameOverspendUsesLayerFrameRate(t *testing.T) {
+	rc := rateControlState{
+		mode:                          RateControlCBR,
+		minQuantizer:                  4,
+		maxQuantizer:                  56,
+		currentQuantizer:              30,
+		bitsPerFrame:                  23333,
+		currentTemporalLayers:         3,
+		currentLayerPerFrameBandwidth: 18666,
+		currentLayerOutputFrameRate:   7,
+		bufferLevelBits:               500,
+		maximumBufferBits:             5000,
+		outputFrameRate:               30,
+		keyFrameCount:                 1,
+	}
+	rc.postEncodeFrameWithPacketContext(3685, rateControlPostEncodeContext{
+		keyFrame:    true,
+		macroblocks: 1,
+		showFrame:   true,
+	})
+	const overspend = 3685*8 - 18666
+	if rc.kfOverspendBits != overspend {
+		t.Fatalf("temporal kfOverspendBits = %d, want %d", rc.kfOverspendBits, overspend)
+	}
+	if got, want := rc.kfBitrateAdjustment, overspend/(1+7*2); got != want {
+		t.Fatalf("temporal kfBitrateAdjustment = %d, want layer-rate drain %d", got, want)
+	}
+	if rc.outputFrameRate != 30 {
+		t.Fatalf("outputFrameRate after temporal overspend = %d, want restored 30", rc.outputFrameRate)
+	}
+}
+
 // TestRateControlUndersizeKeyFrameSkipsOverspend pins the libvpx guard:
 // when projected_frame_size <= per_frame_bandwidth, neither
 // kf_overspend_bits nor gf_overspend_bits accumulate.
@@ -508,6 +540,36 @@ func TestRateControlOverspendRecoveryClampsAtMinFrameTarget(t *testing.T) {
 	}
 	if rc.frameTargetBits != 250 {
 		t.Fatalf("frameTargetBits = %d, want min_frame_target 250", rc.frameTargetBits)
+	}
+}
+
+func TestOnePassAltRefRefreshUsesStaleTargetWithoutOverspendDrain(t *testing.T) {
+	rc := rateControlState{
+		mode:                   RateControlCBR,
+		bitsPerFrame:           23333,
+		frameTargetBits:        18769,
+		bufferLevelBits:        400000,
+		bufferOptimalBits:      3500000,
+		undershootPct:          100,
+		overshootPct:           100,
+		kfOverspendBits:        10419,
+		kfBitrateAdjustment:    400,
+		gfOverspendBits:        1099,
+		nonGFBitrateAdjustment: 156,
+		interFrameTarget:       18769,
+	}
+
+	rc.beginOnePassAltRefRefreshFrameWithTargetAndContext(rc.bitsPerFrame, rateControlFrameContext{})
+
+	if rc.frameTargetBits != 10511 {
+		t.Fatalf("frameTargetBits = %d, want stale target shaped by buffer to 10511", rc.frameTargetBits)
+	}
+	if rc.kfOverspendBits != 10419 || rc.gfOverspendBits != 1099 {
+		t.Fatalf("overspend bits = kf:%d gf:%d, want unchanged 10419/1099",
+			rc.kfOverspendBits, rc.gfOverspendBits)
+	}
+	if rc.interFrameTarget != 18769 {
+		t.Fatalf("interFrameTarget = %d, want stale 18769", rc.interFrameTarget)
 	}
 }
 

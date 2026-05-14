@@ -8,10 +8,11 @@ import (
 const maxLookaheadFrames = 25
 
 type lookaheadEntry struct {
-	frame    vp8common.FrameBuffer
-	pts      uint64
-	duration uint64
-	flags    EncodeFlags
+	frame              vp8common.FrameBuffer
+	pts                uint64
+	duration           uint64
+	flags              EncodeFlags
+	forceLFDeltaUpdate bool
 }
 
 func (e *VP8Encoder) initLookahead(width int, height int, depth int) error {
@@ -19,8 +20,17 @@ func (e *VP8Encoder) initLookahead(width int, height int, depth int) error {
 		return nil
 	}
 	e.lookahead = make([]lookaheadEntry, depth+1)
+	return e.resizeLookaheadFrames(width, height)
+}
+
+func (e *VP8Encoder) resizeLookaheadFrames(width int, height int) error {
 	for i := range e.lookahead {
 		if err := e.lookahead[i].frame.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
+	}
+	if e.autoAltRefStashFrame.Img.YStride != 0 {
+		if err := e.autoAltRefStashFrame.Resize(width, height, 32, 32); err != nil {
 			return ErrInvalidConfig
 		}
 	}
@@ -42,8 +52,16 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 	if err := validateEncodeFlags(flags); err != nil {
 		return EncodeResult{}, err
 	}
-	if err := e.pushLookahead(sourceImageFromImage(src), pts, duration, flags); err != nil {
+	pushFlags := flags
+	consumeForceKey := e.forceKeyFrame
+	if consumeForceKey {
+		pushFlags |= EncodeForceKeyFrame
+	}
+	if err := e.pushLookahead(sourceImageFromImage(src), pts, duration, pushFlags); err != nil {
 		return EncodeResult{}, err
+	}
+	if consumeForceKey {
+		e.forceKeyFrame = false
 	}
 	if e.lookaheadSize() < e.opts.LookaheadFrames {
 		return EncodeResult{}, ErrFrameNotReady
@@ -52,10 +70,21 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 	if !ok {
 		return EncodeResult{}, ErrFrameNotReady
 	}
-	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
+	meta := encodeSourceMetadata{
+		lookaheadDepth:     e.lookaheadSize(),
+		forceLFDeltaUpdate: entry.forceLFDeltaUpdate,
+	}
 	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	return result, err
+}
+
+func (e *VP8Encoder) consumeForceKeyFrameForInput(flags EncodeFlags) EncodeFlags {
+	if e.forceKeyFrame {
+		e.forceKeyFrame = false
+		flags |= EncodeForceKeyFrame
+	}
+	return flags
 }
 
 // pushLookahead enqueues a source frame into the lookahead queue. It mirrors
@@ -69,6 +98,10 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 // driven partial copies follow libvpx's row-major mb_cols layout, with each
 // active run copied as a 16-pixel-tall rectangle.
 func (e *VP8Encoder) pushLookahead(src vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags) error {
+	return e.pushLookaheadWithForce(src, pts, duration, flags, e.consumePendingLFDeltaUpdate())
+}
+
+func (e *VP8Encoder) pushLookaheadWithForce(src vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags, forceLFDeltaUpdate bool) error {
 	if !e.lookaheadEnabled() {
 		return ErrInvalidConfig
 	}
@@ -91,6 +124,7 @@ func (e *VP8Encoder) pushLookahead(src vp8enc.SourceImage, pts uint64, duration 
 		entry.duration = 1
 	}
 	entry.flags = flags
+	entry.forceLFDeltaUpdate = forceLFDeltaUpdate
 	e.lookaheadWrite++
 	if e.lookaheadWrite >= len(e.lookahead) {
 		e.lookaheadWrite = 0
@@ -174,7 +208,7 @@ func (e *VP8Encoder) clearPoppedLookahead(entry *lookaheadEntry) {
 	if entry == nil {
 		return
 	}
-	entry.pts, entry.duration, entry.flags = 0, 0, 0
+	entry.pts, entry.duration, entry.flags, entry.forceLFDeltaUpdate = 0, 0, 0, false
 }
 
 // lookaheadFutureEntry mirrors libvpx vp8_lookahead_peek with PEEK_FORWARD,

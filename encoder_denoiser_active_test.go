@@ -307,6 +307,54 @@ func TestSetActiveMapInactiveInterMacroblocksAreSkippedZeroMVLast(t *testing.T) 
 	assertMacroblockDifferent(t, "neighboring active-map MB", decoded[0], decoded[1], 0, 1)
 }
 
+func TestSetActiveMapWithROIPreservesInactiveSegmentIDs(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	first := testImage(32, 32)
+	second := testImage(32, 32)
+	fillImage(first, 60, 90, 170)
+	fillImage(second, 200, 90, 170)
+	keyPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(keyPacket, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+
+	rows := encoderMacroblockRows(32)
+	cols := encoderMacroblockCols(32)
+	activeMap := make([]byte, rows*cols)
+	for i := range activeMap {
+		activeMap[i] = 1
+	}
+	inactiveRow, inactiveCol := 1, 0
+	inactiveIndex := inactiveRow*cols + inactiveCol
+	activeMap[inactiveIndex] = 0
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap returned error: %v", err)
+	}
+	roi := &ROIMap{
+		Enabled:   true,
+		Rows:      rows,
+		Cols:      cols,
+		SegmentID: make([]uint8, rows*cols),
+	}
+	roi.SegmentID[inactiveIndex] = 1
+	roi.DeltaQuantizer[1] = -10
+	if err := e.SetROIMap(roi); err != nil {
+		t.Fatalf("SetROIMap returned error: %v", err)
+	}
+
+	interPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(interPacket, second, 1, 1, 0); err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	mode := e.interFrameModes[inactiveIndex]
+	if mode.RefFrame != vp8common.LastFrame || mode.Mode != vp8common.ZeroMV || !mode.MBSkipCoeff {
+		t.Fatalf("inactive ROI MB mode = %+v, want skipped LAST/ZEROMV", mode)
+	}
+	if mode.SegmentID != 1 {
+		t.Fatalf("inactive ROI MB SegmentID = %d, want preserved ROI segment 1", mode.SegmentID)
+	}
+}
+
 func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 32)
 	first := testImage(32, 32)
@@ -345,10 +393,13 @@ func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 
 func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testing.T) {
 	e := VP8Encoder{}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	// Aggressive denoise (mode 3) brings consec_zerolast=15 and qp_thresh=80.
 	// Pick Q below qp_thresh and frames_since_key past 2*consec_zerolast=30.
 	e.opts.NoiseSensitivity = 3
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
 	e.rc.currentQuantizer = 40
 	e.rc.framesSinceKeyframe = 100
 	cfg := e.cyclicRefreshSegmentationConfig(false)
@@ -389,6 +440,7 @@ func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testi
 
 func TestCyclicRefreshSegmentationConfigDisabledUnderForceMaxQuantizer(t *testing.T) {
 	e := VP8Encoder{}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 30
 	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
@@ -581,6 +633,50 @@ func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
 	}
 }
 
+func TestDenoiserInactiveActiveMapMacroblocksUseZeroMVLastDecision(t *testing.T) {
+	const width, height = 32, 32
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	src := testImage(width, height)
+	fillImage(src, 96, 128, 128)
+
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		KeyFrameInterval:  999,
+		NoiseSensitivity:  3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 32*1024)
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	inactive := make([]uint8, rows*cols)
+	if err := e.SetActiveMap(inactive, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap returned error: %v", err)
+	}
+	if _, err := e.EncodeInto(dst, src, 1, 1, 0); err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if len(e.denoiser.state) < rows*cols {
+		t.Fatalf("denoiser state len = %d, want at least %d", len(e.denoiser.state), rows*cols)
+	}
+	for i, state := range e.denoiser.state[:rows*cols] {
+		if state != denoiserStateFilterZeroMV {
+			t.Fatalf("inactive MB %d denoiser state = %d, want zero-MV filter state", i, state)
+		}
+	}
+}
+
 func TestDenoiserModeMappingMatchesLibvpx(t *testing.T) {
 	cases := []struct {
 		level    int
@@ -689,6 +785,77 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 	e.opts.NoiseSensitivity = 3
 	if got := e.denoiserPickmodeMVBias(); got != 75 {
 		t.Fatalf("aggressive bias = %d, want 75", got)
+	}
+}
+
+func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	src := sourceImageFromImage(testImage(32, 32))
+
+	if err := e.SetNoiseSensitivity(1); err != nil {
+		t.Fatalf("SetNoiseSensitivity(1): %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYOnly {
+		t.Fatalf("initial mode = %d, want Y-only", e.denoiser.mode)
+	}
+	if got := e.denoiserPickmodeMVBias(); got != 100 {
+		t.Fatalf("Y-only pickmode bias = %d, want 100", got)
+	}
+
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity(3): %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYOnly {
+		t.Fatalf("mode after 1->3 = %d, want sticky Y-only", e.denoiser.mode)
+	}
+	if got := e.denoiserPickmodeMVBias(); got != 100 {
+		t.Fatalf("pickmode bias after sticky 1->3 = %d, want 100", got)
+	}
+
+	if err := e.SetNoiseSensitivity(0); err != nil {
+		t.Fatalf("SetNoiseSensitivity(0): %v", err)
+	}
+	if e.denoiser.allocated {
+		t.Fatalf("denoiser still allocated after disable")
+	}
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity(3) after disable: %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYUVAggressive {
+		t.Fatalf("mode after disable->3 = %d, want aggressive", e.denoiser.mode)
+	}
+	if got := e.denoiserPickmodeMVBias(); got != 75 {
+		t.Fatalf("pickmode bias after disable->3 = %d, want 75", got)
+	}
+
+	if err := e.SetNoiseSensitivity(6); err != nil {
+		t.Fatalf("SetNoiseSensitivity(6): %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYUVAggressive {
+		t.Fatalf("mode after 3->6 = %d, want sticky aggressive", e.denoiser.mode)
+	}
+}
+
+func TestAggressiveDenoiseSegmentationUsesAllocatedDenoiserMode(t *testing.T) {
+	e := &VP8Encoder{
+		opts: EncoderOptions{NoiseSensitivity: 3},
+	}
+	e.rc.currentQuantizer = 50
+	e.rc.framesSinceKeyframe = 60
+
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(1))
+	if e.aggressiveDenoiseSegmentationActive() {
+		t.Fatalf("aggressive denoise segmentation active with sticky Y-only mode")
+	}
+
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(3))
+	if !e.aggressiveDenoiseSegmentationActive() {
+		t.Fatalf("aggressive denoise segmentation inactive with allocated aggressive mode")
 	}
 }
 

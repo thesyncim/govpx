@@ -93,6 +93,9 @@ func (e *VP8Encoder) computeLFDeltaUpdateBit(frameType vp8common.FrameType, delt
 	if e.forceLFDeltaUpdates() {
 		return true
 	}
+	if e.currentLFDeltaUpdate {
+		return true
+	}
 	if frameType == vp8common.KeyFrame {
 		return true
 	}
@@ -104,6 +107,30 @@ func (e *VP8Encoder) computeLFDeltaUpdateBit(frameType vp8common.FrameType, delt
 
 func (e *VP8Encoder) forceLFDeltaUpdates() bool {
 	return e.opts.ErrorResilient || e.opts.ErrorResilientPartitions
+}
+
+// forceNextLFDeltaUpdate mirrors libvpx vp8_change_config, which routes
+// runtime encoder config updates through set_default_lf_deltas and leaves
+// xd->mode_ref_lf_delta_update set for the input frame receiving that
+// control. With lookahead enabled that input can be encoded several calls
+// later, so the force bit is carried by the lookahead entry rather than by
+// the next packet emitted from the queue.
+//
+// The same vp8_change_config path re-runs setup_features. If ROI
+// segmentation is currently enabled, libvpx marks both the segmentation map
+// and feature data for update on that next frame.
+func (e *VP8Encoder) forceNextLFDeltaUpdate() {
+	e.pendingLFDeltaUpdate = true
+	if e.roi.enabled {
+		e.roi.updateMap = true
+		e.roi.updateData = true
+	}
+}
+
+func (e *VP8Encoder) consumePendingLFDeltaUpdate() bool {
+	force := e.pendingLFDeltaUpdate
+	e.pendingLFDeltaUpdate = false
+	return force
 }
 
 // updateLastSignaledLFDeltas commits the per-frame loop-filter delta

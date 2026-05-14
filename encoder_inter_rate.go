@@ -16,34 +16,54 @@ func interMotionModeVectorCostWithNewMVWeight(mode *vp8enc.InterFrameMacroblockM
 }
 
 func interMotionModeVectorCostWithNewMVWeightAndSignBias(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, mvProbs *[2][vp8tables.MVPCount]uint8, newMVWeight int, signBias [vp8common.MaxRefFrames]bool) int {
+	return interMotionModeVectorCostWithNewMVWeightAndSignBiasAndCosts(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, mvProbs, nil, newMVWeight, signBias)
+}
+
+func interMotionModeVectorCostWithNewMVWeightAndSignBiasAndCosts(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, newMVWeight int, signBias [vp8common.MaxRefFrames]bool) int {
 	if mode == nil || mode.RefFrame == vp8common.IntraFrame {
 		return 0
 	}
-	if mvProbs == nil {
+	if mvProbs == nil && mvCosts == nil {
 		return maxInt() / 4
 	}
 	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, mode.RefFrame, mbRow, mbCol, mbRows, mbCols, signBias)
 	if mode.Mode == vp8common.SplitMV {
+		if mvCosts != nil {
+			return splitMotionModeVectorCostWithCostTables(mode, left, above, best, mvCosts)
+		}
 		return splitMotionModeVectorCost(mode, left, above, best, mvProbs)
 	}
 	if mode.Mode != vp8common.NewMV {
 		return 0
 	}
+	if mvCosts != nil {
+		return interNewMVVectorCostWithCostTables(mode.MV, best, mvCosts, newMVWeight)
+	}
 	return interNewMVVectorCost(mode.MV, best, mvProbs, newMVWeight)
 }
 
 func interMotionModeVectorCostWithBestRefMV(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, newMVWeight int) int {
+	return interMotionModeVectorCostWithBestRefMVAndCosts(mode, left, above, bestRefMV, mvProbs, nil, newMVWeight)
+}
+
+func interMotionModeVectorCostWithBestRefMVAndCosts(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, newMVWeight int) int {
 	if mode == nil || mode.RefFrame == vp8common.IntraFrame {
 		return 0
 	}
-	if mvProbs == nil {
+	if mvProbs == nil && mvCosts == nil {
 		return maxInt() / 4
 	}
 	if mode.Mode == vp8common.SplitMV {
+		if mvCosts != nil {
+			return splitMotionModeVectorCostWithCostTables(mode, left, above, bestRefMV, mvCosts)
+		}
 		return splitMotionModeVectorCost(mode, left, above, bestRefMV, mvProbs)
 	}
 	if mode.Mode != vp8common.NewMV {
 		return 0
+	}
+	if mvCosts != nil {
+		return interNewMVVectorCostWithCostTables(mode.MV, bestRefMV, mvCosts, newMVWeight)
 	}
 	return interNewMVVectorCost(mode.MV, bestRefMV, mvProbs, newMVWeight)
 }
@@ -115,10 +135,14 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndNewMVWeight(mode *vp
 	signBias := e.interFrameSignBias()
 	return e.interInterReferenceRate(refRate) +
 		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame, signBias)) +
-		interMotionModeVectorCostWithNewMVWeightAndSignBias(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV, newMVWeight, signBias)
+		interMotionModeVectorCostWithNewMVWeightAndSignBiasAndCosts(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV, e.currentMotionVectorCostTables(), newMVWeight, signBias)
 }
 
 func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndModeContext(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, refRate int, modeCounts vp8enc.InterModeCounts, bestRefMV vp8enc.MotionVector, newMVWeight int) int {
+	return e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode, left, above, refRate, modeCounts, bestRefMV, e.currentMotionVectorCostTables(), newMVWeight)
+}
+
+func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, refRate int, modeCounts vp8enc.InterModeCounts, bestRefMV vp8enc.MotionVector, mvCosts *vp8enc.MotionVectorCostTables, newMVWeight int) int {
 	if mode == nil {
 		return 1 << 30
 	}
@@ -127,7 +151,7 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndModeContext(mode *vp
 	}
 	return e.interInterReferenceRate(refRate) +
 		interPredictionModeRate(mode.Mode, modeCounts) +
-		interMotionModeVectorCostWithBestRefMV(mode, left, above, bestRefMV, &e.modeProbs.MV, newMVWeight)
+		interMotionModeVectorCostWithBestRefMVAndCosts(mode, left, above, bestRefMV, &e.modeProbs.MV, mvCosts, newMVWeight)
 }
 
 // interReferenceFrameRate ports libvpx vp8_calc_ref_frame_costs (bitstream.c):
@@ -259,6 +283,33 @@ func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8e
 	return cost
 }
 
+func splitMotionModeVectorCostWithCostTables(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, best vp8enc.MotionVector, mvCosts *vp8enc.MotionVectorCostTables) int {
+	if mode.Partition >= vp8tables.NumMBSplits {
+		return 1 << 30
+	}
+	if mvCosts == nil {
+		return maxInt() / 4
+	}
+	cost := mbSplitPartitionRate(mode.Partition)
+	partitions := int(vp8tables.MBSplitCount[mode.Partition&3])
+	for subset := range partitions {
+		block := int(vp8tables.MBSplitOffset[mode.Partition&3][subset&15])
+		leftMV := analysisSplitLeftMV(mode, left, block)
+		aboveMV := analysisSplitAboveMV(mode, above, block)
+		target := mode.BlockMV[block&15]
+		bMode := mode.BModes[block&15]
+		if !splitSubMotionLabelMatchesMV(bMode, target, leftMV, aboveMV) {
+			return maxInt() / 4
+		}
+		cost += splitSubMotionLabelRate(bMode)
+		if bMode == vp8common.New4x4 {
+			delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
+			cost += splitMotionVectorCostWithCostTables(delta, mvCosts)
+		}
+	}
+	return cost
+}
+
 var libvpxDefaultSubMVRefProbs = [3]uint8{180, 162, 25}
 
 func splitSubMotionLabelRate(mode vp8common.BPredictionMode) int {
@@ -335,11 +386,25 @@ func interNewMVVectorCost(mv vp8enc.MotionVector, best vp8enc.MotionVector, mvPr
 	return vp8enc.MotionVectorBitCost(mv, best, mvProbs, weight)
 }
 
+func interNewMVVectorCostWithCostTables(mv vp8enc.MotionVector, best vp8enc.MotionVector, mvCosts *vp8enc.MotionVectorCostTables, weight int) int {
+	if mvCosts == nil {
+		return maxInt() / 4
+	}
+	return mvCosts.BitCost(mv, best, weight)
+}
+
 func splitMotionVectorCost(mv vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8) int {
 	if mvProbs == nil {
 		return maxInt() / 4
 	}
 	return vp8enc.MotionVectorBitCost(mv, vp8enc.MotionVector{}, mvProbs, 102)
+}
+
+func splitMotionVectorCostWithCostTables(mv vp8enc.MotionVector, mvCosts *vp8enc.MotionVectorCostTables) int {
+	if mvCosts == nil {
+		return maxInt() / 4
+	}
+	return mvCosts.BitCost(mv, vp8enc.MotionVector{}, 102)
 }
 
 func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
@@ -777,7 +842,9 @@ func splitBlockSubpixelVarianceBlock(ref *vp8common.Image, refBaseY int, refBase
 	case width == 4 && height == 4:
 		if useScratch {
 			var scratch [(4 + 1) * (4 + 1)]byte
-			gatherVisibleClampedRefBlock(ref, refBaseY, refBaseX, 4+1, 4+1, scratch[:], 4+1)
+			// libvpx's 4x4 bilinear variance reads the coded-edge sample here;
+			// using the visible edge changes the tie-breaker on odd-size SPLITMV.
+			gatherCodedClampedRefBlock(ref, refBaseY, refBaseX, 4+1, 4+1, scratch[:], 4+1)
 			variance, sse := dsp.SubpelVariance4x4(scratch[:], 4+1, xOffset, yOffset, srcBlock, srcStride)
 			return variance, sse, true
 		}
