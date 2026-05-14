@@ -333,6 +333,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		header.InterRef.SignBias = [3]uint8{0, 0, 0}
 	}
 	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly)
+	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 
 	txMode := vp9EncoderFrameTxMode(isKey, header.IntraOnly)
 	baseMi := vp9dec.NeighborMi{
@@ -370,6 +371,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 			dq:       &dq,
 			ref:      &e.refFrames[0],
 			refMask:  vp9InterReferenceMask(flags),
+			allowHP:  header.AllowHighPrecisionMv,
 			selectFc: e.fc,
 		}
 	}
@@ -390,15 +392,16 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		keyState, interState)
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
-		Lossless:           false,
-		TxMode:             txMode,
-		IntraOnly:          isKey || header.IntraOnly,
-		InterpFilter:       header.InterpFilter,
-		ReferenceMode:      vp9dec.SingleReference,
-		CompoundRefAllowed: false,
-		CoefStepsize:       4,
-		Probs:              &e.fc,
-		Counts:             counts,
+		Lossless:             false,
+		TxMode:               txMode,
+		IntraOnly:            isKey || header.IntraOnly,
+		InterpFilter:         header.InterpFilter,
+		ReferenceMode:        vp9dec.SingleReference,
+		CompoundRefAllowed:   false,
+		AllowHighPrecisionMv: header.AllowHighPrecisionMv,
+		CoefStepsize:         4,
+		Probs:                &e.fc,
+		Counts:               counts,
 	})
 	if err != nil {
 		return 0, err
@@ -810,6 +813,10 @@ func vp9EncoderFrameInterpFilter(isKey, intraOnly bool) vp9dec.InterpFilter {
 	return vp9dec.InterpSwitchable
 }
 
+func vp9EncoderFrameAllowHighPrecisionMv(isKey, intraOnly bool) bool {
+	return !isKey && !intraOnly
+}
+
 func vp9ModeTreeInterpFilter(kind vp9ModeTreeKind) vp9dec.InterpFilter {
 	if kind == vp9ModeTreeInterSource || kind == vp9ModeTreeInterSkip {
 		return vp9dec.InterpSwitchable
@@ -1133,6 +1140,7 @@ type vp9InterEncodeState struct {
 	dq       *vp9dec.DequantTables
 	ref      *vp9ReferenceFrame
 	refMask  uint8
+	allowHP  bool
 	selectFc vp9dec.FrameContext
 	counts   *encoder.FrameCounts
 }
@@ -1505,7 +1513,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			countVP9SwitchableInterp(counts, above, left, cur.InterpFilter)
 		}
 		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
-			miRow, miCol, bsize, &cur)
+			miRow, miCol, bsize, &cur, inter != nil && inter.allowHP)
 		if cur.Mode == common.NewMv {
 			countVP9NewMv(counts, cur.Mv[0], bestRefMv[0])
 		}
@@ -1525,6 +1533,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			InterModeCtx: interModeCtx,
 			Mv:           cur.Mv,
 			BestRefMv:    bestRefMv,
+			AllowHP:      inter != nil && inter.allowHP,
 		})
 		if kind == vp9ModeTreeInterSource && inter != nil {
 			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
@@ -2060,7 +2069,8 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		filter vp9dec.InterpFilter, sad uint64,
 	) {
 		rate := refRate +
-			vp9InterModeRateCost(&inter.selectFc, interModeCtx, mode, mv, refMv) +
+			vp9InterModeRateCost(&inter.selectFc, interModeCtx, mode,
+				mv, refMv, inter.allowHP) +
 			vp9SwitchableInterpRateCost(&inter.selectFc, switchableCtx, filter)
 		cand := vp9InterModeDecision{
 			mode:         mode,
@@ -2085,7 +2095,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 
 	for _, mode := range [...]common.PredictionMode{common.NearestMv, common.NearMv} {
 		mv, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-			miRow, miCol, bsize, mode, refFrame)
+			miRow, miCol, bsize, mode, refFrame, inter.allowHP)
 		if !ok {
 			continue
 		}
@@ -2112,7 +2122,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	if mv, sad, ok := e.pickVP9InterMv(inter, miRows, miCols,
 		miRow, miCol, bsize, refFrame); ok {
 		refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-			miRow, miCol, bsize, common.NewMv, refFrame)
+			miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP)
 		if !vp9MvHasSubpel(mv) {
 			for _, filter := range vp9SwitchableInterpFilterOrder {
 				consider(common.NewMv, mv, refMv, filter, sad)
@@ -2211,7 +2221,7 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 	}
 	mv := vp9dec.MV{Row: int16(bestDy * 8), Col: int16(bestDx * 8)}
 	vp9ClampMvRef(&mv, miRows, miCols, miRow, miCol, bsize)
-	vp9dec.LowerMvPrecision(&mv, false)
+	vp9dec.LowerMvPrecision(&mv, inter.allowHP)
 	mv, bestScore = e.refineVP9InterSubpelMv(inter, miRows, miCols,
 		miRow, miCol, bsize, refFrame, mv, bestScore)
 	if mv == (vp9dec.MV{}) {
@@ -2224,7 +2234,11 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	refFrame int8, best vp9dec.MV, bestScore uint64,
 ) (vp9dec.MV, uint64) {
-	for step := int16(4); step >= 2; step >>= 1 {
+	minStep := int16(2)
+	if inter != nil && inter.allowHP {
+		minStep = 1
+	}
+	for step := int16(4); step >= minStep; step >>= 1 {
 		improved := true
 		for improved {
 			improved = false
@@ -2233,7 +2247,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 				for col := center.Col - step; col <= center.Col+step; col += step {
 					cand := vp9dec.MV{Row: row, Col: col}
 					vp9ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
-					vp9dec.LowerMvPrecision(&cand, false)
+					vp9dec.LowerMvPrecision(&cand, inter != nil && inter.allowHP)
 					if cand == best {
 						continue
 					}
@@ -2322,7 +2336,7 @@ func vp9ModeDecisionRateScore(rate, qindex int) uint64 {
 }
 
 func vp9InterModeRateCost(fc *vp9dec.FrameContext, ctx int,
-	mode common.PredictionMode, mv, refMv vp9dec.MV,
+	mode common.PredictionMode, mv, refMv vp9dec.MV, allowHP bool,
 ) int {
 	if fc == nil || ctx < 0 || ctx >= len(fc.InterModeProbs) {
 		return 0
@@ -2343,7 +2357,7 @@ func vp9InterModeRateCost(fc *vp9dec.FrameContext, ctx int,
 		cost = encoder.VP9CostBit(probs[0], 1) +
 			encoder.VP9CostBit(probs[1], 1) +
 			encoder.VP9CostBit(probs[2], 1) +
-			encoder.MvCost(mv, refMv, &fc.Nmvc, false)
+			encoder.MvCost(mv, refMv, &fc.Nmvc, allowHP)
 	default:
 		return 0
 	}
@@ -2439,14 +2453,14 @@ func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,
 
 func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mi *vp9dec.NeighborMi,
+	mi *vp9dec.NeighborMi, allowHP bool,
 ) [2]vp9dec.MV {
 	var best [2]vp9dec.MV
 	if mi == nil || mi.Mode == common.ZeroMv || mi.RefFrame[0] <= vp9dec.IntraFrame {
 		return best
 	}
 	if cand, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-		miRow, miCol, bsize, mi.Mode, mi.RefFrame[0]); ok {
+		miRow, miCol, bsize, mi.Mode, mi.RefFrame[0], allowHP); ok {
 		best[0] = cand
 	}
 	return best
@@ -2454,7 +2468,7 @@ func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,
 
 func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mode common.PredictionMode, refFrame int8,
+	mode common.PredictionMode, refFrame int8, allowHP bool,
 ) (vp9dec.MV, bool) {
 	if mode == common.ZeroMv || refFrame <= vp9dec.IntraFrame {
 		return vp9dec.MV{}, false
@@ -2477,7 +2491,7 @@ func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
 		return vp9dec.MV{}, false
 	}
 	mv := vp9InterModeMvCandidate(refList, refCount, mode)
-	vp9dec.LowerMvPrecision(&mv, false)
+	vp9dec.LowerMvPrecision(&mv, allowHP)
 	return mv, true
 }
 
@@ -2510,7 +2524,8 @@ func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
 				vp9AltRefSlot,
 			},
 		},
-		InterpFilter: vp9dec.InterpSwitchable,
+		AllowHighPrecisionMv: true,
+		InterpFilter:         vp9dec.InterpSwitchable,
 	}
 	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
 	e.interPredictScratch = predictor.interPredictScratch

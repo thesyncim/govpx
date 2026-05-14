@@ -841,8 +841,8 @@ func TestVP9EncoderInterPicksVert16x16ForHorizontalMixedMotion(t *testing.T) {
 		t.Fatalf("left block = mode %d mv %+v, want NewMv {Col:32}",
 			left.Mode, left.Mv[0])
 	}
-	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -32}) {
-		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-32}",
+	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -31}) {
+		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-31}",
 			right.Mode, right.Mv[0])
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -1026,6 +1026,51 @@ func TestVP9EncoderInterPicksQuarterPelMv(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after quarter-pel inter frame")
+	}
+}
+
+func TestVP9EncoderInterPicksEighthPelMv(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	want := vp9dec.MV{Col: 57}
+	interSrc := predictedVP9ReferenceYCbCrForTest(t, e.refFrames[0].img, want)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(key)
+	keyHeader, err := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader keyframe: %v", err)
+	}
+	var interBR vp9dec.BitReader
+	interBR.Init(inter)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&interBR, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	if !interHeader.AllowHighPrecisionMv {
+		t.Fatal("AllowHighPrecisionMv = false, want true")
+	}
+
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	if got := d.miGrid[0]; got.Mode != common.NewMv || got.Mv[0] != want {
+		t.Fatalf("top-left inter = mode %d mv %+v, want NewMv %+v",
+			got.Mode, got.Mv[0], want)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after eighth-pel inter frame")
 	}
 }
 
@@ -1473,9 +1518,9 @@ func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
 	vp9dec.ResetFrameContext(&fc)
 
 	zeroRate := vp9InterModeRateCost(&fc, 0, common.ZeroMv,
-		vp9dec.MV{}, vp9dec.MV{})
+		vp9dec.MV{}, vp9dec.MV{}, false)
 	newRate := vp9InterModeRateCost(&fc, 0, common.NewMv,
-		vp9dec.MV{Col: 64}, vp9dec.MV{})
+		vp9dec.MV{Col: 64}, vp9dec.MV{}, false)
 	if newRate <= zeroRate {
 		t.Fatalf("NEWMV rate = %d, want greater than ZEROMV rate %d",
 			newRate, zeroRate)
@@ -1576,8 +1621,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if interHeader.InterRef.SignBias != [3]uint8{0, 0, 0} {
 		t.Errorf("SignBias = %v, want [0 0 0]", interHeader.InterRef.SignBias)
 	}
-	if interHeader.AllowHighPrecisionMv {
-		t.Error("AllowHighPrecisionMv = true, want false")
+	if !interHeader.AllowHighPrecisionMv {
+		t.Error("AllowHighPrecisionMv = false, want true")
 	}
 	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
 		t.Errorf("InterpFilter = %d, want Switchable", interHeader.InterpFilter)
@@ -1602,7 +1647,7 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 		IntraOnly:            false,
 		KeyFrame:             false,
 		InterpFilter:         interHeader.InterpFilter,
-		AllowHighPrecisionMv: false,
+		AllowHighPrecisionMv: interHeader.AllowHighPrecisionMv,
 		CompoundRefAllowed:   false,
 	})
 	if cr.HasError() {
@@ -1662,7 +1707,7 @@ func TestVP9EncoderInterSelectsTx16ForActiveResidual(t *testing.T) {
 		IntraOnly:            false,
 		KeyFrame:             false,
 		InterpFilter:         interHeader.InterpFilter,
-		AllowHighPrecisionMv: false,
+		AllowHighPrecisionMv: interHeader.AllowHighPrecisionMv,
 		CompoundRefAllowed:   false,
 	})
 	if out.TxMode != common.TxModeSelect {
