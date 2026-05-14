@@ -314,32 +314,37 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// auto-ARF driver can emit it at the predicted offset.
 	e.pass2MaybeArmAltRefPending(e.frameCount, pts, keyFrame)
 	if goldenCBRRefresh {
-		// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size: when the
-		// GF refresh fires, calc_gf_params runs FIRST (auto_adjust_gold_quantizer=1
-		// is the default) and updates cpi->last_boost AND
-		// cpi->frames_till_gf_update_due. Then the GF target formula
-		// consumes those just-computed values. Mirror that order here so
-		// the non-CBR boost path below sees the new boost / interval.
-		gfOut := calcGFParams(gfParamsInput{
-			Q:                     e.rc.lastInterQuantizer,
-			RecentRefIntra:        e.rc.recentRefFrameUsageIntra,
-			RecentRefLast:         e.rc.recentRefFrameUsageLast,
-			RecentRefGolden:       e.rc.recentRefFrameUsageGolden,
-			RecentRefAltRef:       e.rc.recentRefFrameUsageAltRef,
-			GFActiveCount:         e.rc.gfActiveCount,
-			Macroblocks:           required,
-			ThisFramePercentIntra: e.rc.thisFramePercentIntra,
-			BaselineGFInterval:    gfBaselineInterval,
-			MaxGFInterval:         gfMaxInterval,
-			RealtimeNoRecode:      e.opts.Deadline == DeadlineRealtime,
-		})
-		e.rc.lastBoost = gfOut.Boost
 		if e.rc.mode == RateControlCBR && !e.rc.onePassAutoGold {
-			// One-pass CBR: libvpx multiplies this_frame_target by
-			// (100 + gf_cbr_boost_pct) / 100 (vp8/encoder/ratectrl.c
-			// gf_update_onepass_cbr branch).
+			// One-pass fixed-GF CBR takes libvpx's gf_update_onepass_cbr
+			// branch: it refreshes the configured interval and multiplies
+			// this_frame_target by (100 + gf_cbr_boost_pct) / 100, but it
+			// does not run calc_gf_params or update last_boost.
+			gfInterval := e.goldenFrameCBRInterval(rows, cols)
+			e.rc.framesTillGFUpdateDue = gfInterval
+			e.rc.currentGFInterval = gfInterval
 			e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 		} else {
+			// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size: when
+			// the auto-GF refresh fires, calc_gf_params runs FIRST
+			// (auto_adjust_gold_quantizer=1 is the default) and updates
+			// cpi->last_boost AND cpi->frames_till_gf_update_due. Then the
+			// GF target formula consumes those just-computed values. Mirror
+			// that order here so the non-CBR boost path below sees the new
+			// boost / interval.
+			gfOut := calcGFParams(gfParamsInput{
+				Q:                     e.rc.lastInterQuantizer,
+				RecentRefIntra:        e.rc.recentRefFrameUsageIntra,
+				RecentRefLast:         e.rc.recentRefFrameUsageLast,
+				RecentRefGolden:       e.rc.recentRefFrameUsageGolden,
+				RecentRefAltRef:       e.rc.recentRefFrameUsageAltRef,
+				GFActiveCount:         e.rc.gfActiveCount,
+				Macroblocks:           required,
+				ThisFramePercentIntra: e.rc.thisFramePercentIntra,
+				BaselineGFInterval:    gfBaselineInterval,
+				MaxGFInterval:         gfMaxInterval,
+				RealtimeNoRecode:      e.opts.Deadline == DeadlineRealtime,
+			})
+			e.rc.lastBoost = gfOut.Boost
 			// One-pass VBR/CQ: libvpx splits the upcoming GF section
 			// across (frames_till_gf_update_due+1) frames, weighting the
 			// GF by `last_boost`. See libvpxGoldenFrameTargetBits for the
@@ -355,13 +360,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			if boosted > 0 {
 				e.rc.frameTargetBits = boosted
 			}
+			// Propagate the just-computed GF interval into rc state so the
+			// next non-GF frame's small +/- branch sees the right value.
+			// Mirrors libvpx's calc_gf_params tail.
+			e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
+			e.rc.currentGFInterval = gfOut.FramesTillUpdate
 		}
-		// Propagate the just-computed GF interval into rc state so the
-		// next non-GF frame's small +/- branch sees the right value.
-		// Mirrors libvpx's calc_gf_params tail (cpi->frames_till_gf_update_due
-		// = baseline_gf_interval; cpi->current_gf_interval = ...).
-		e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
-		e.rc.currentGFInterval = gfOut.FramesTillUpdate
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 	// libvpx vp8/encoder/ratectrl.c vp8_regulate_q forces Q to

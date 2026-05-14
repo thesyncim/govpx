@@ -111,6 +111,8 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 	cols := encoderMacroblockCols(e.opts.Width)
 	refreshFrame := e.rc.framesTillGFUpdateDue + 1
 	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
+	const lastBoostSentinel = 149
+	e.rc.lastBoost = lastBoostSentinel
 	for frame := 1; frame <= refreshFrame; frame++ {
 		wantRC := e.rc
 		if frame == refreshFrame {
@@ -141,6 +143,9 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 		}
 		if inter.FrameTargetBits != wantTarget {
 			t.Fatalf("inter %d target = %d, want boosted libvpx CBR target %d", frame, inter.FrameTargetBits, wantTarget)
+		}
+		if e.rc.lastBoost != lastBoostSentinel {
+			t.Fatalf("inter %d lastBoost = %d, want fixed-CBR GF refresh to preserve %d", frame, e.rc.lastBoost, lastBoostSentinel)
 		}
 	}
 }

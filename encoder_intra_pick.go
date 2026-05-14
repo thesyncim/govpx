@@ -45,7 +45,7 @@ func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 // than all ten intra4x4 modes. The chroma mode is picked once independently
 // (matching libvpx's pick_intra_mbuv_mode call before the Y loop).
 func predictBestKeyFrameIntraModeFast(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, fastQuant bool) (vp8enc.KeyFrameMacroblockMode, int, bool) {
-	bestUVMode, bestUVRate, ok := pickFastIntraChromaMode(src, mbRow, mbCol, pred, scratch)
+	bestUVMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, pred, scratch)
 	if !ok {
 		return vp8enc.KeyFrameMacroblockMode{}, 0, false
 	}
@@ -59,7 +59,9 @@ func predictBestKeyFrameIntraModeFast(src vp8enc.SourceImage, qIndex int, mbRow 
 	}
 
 	whole := vp8enc.KeyFrameMacroblockMode{YMode: bestYMode, UVMode: bestUVMode}
-	wholeRate := bestYRate + bestUVRate
+	// vp8_pick_intra_mode calls pick_intra_mbuv_mode for the accepted UV
+	// mode, but returns only the Y-mode/B_PRED rate through *rate.
+	wholeRate := bestYRate
 
 	bModes, bRate, bRD, ok := pickFastBPredLumaModeKF(src, qIndex, mbRow, mbCol, above, left, quant, pred, scratch, fastQuant)
 	if !ok {
@@ -72,7 +74,7 @@ func predictBestKeyFrameIntraModeFast(src vp8enc.SourceImage, qIndex int, mbRow 
 		return whole, wholeRate, true
 	}
 	if bRD < bestY16RD {
-		return vp8enc.KeyFrameMacroblockMode{YMode: vp8common.BPred, UVMode: bestUVMode, BModes: bModes}, bRate + bestUVRate + intraYModeRate(true, vp8common.BPred), true
+		return vp8enc.KeyFrameMacroblockMode{YMode: vp8common.BPred, UVMode: bestUVMode, BModes: bModes}, bRate + intraYModeRate(true, vp8common.BPred), true
 	}
 	// BPred lost: walk back the analysis frame to whole-block prediction.
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: bestYMode, UVMode: bestUVMode}
@@ -110,8 +112,8 @@ func pickFastWholeBlockIntraYMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 // pickFastIntraChromaMode iterates wholeBlockIntraUVModeCandidates and scores
 // each by pure SSE — libvpx's pick_intra_mbuv_mode (pickinter.c) intentionally
 // drops the rate term and picks by pred_error alone (no RDCOST). The returned
-// rate is intraUVModeRate(picked), used by the caller for projected-rate
-// reporting only; it does not influence the chroma decision.
+// rate mirrors intraUVModeRate(picked) for callers that need it, but libvpx's
+// fast keyframe picker does not include that UV rate in its returned MB rate.
 func pickFastIntraChromaMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, int, bool) {
 	bestMode := vp8common.DCPred
 	bestSSE := 0

@@ -260,10 +260,34 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 					if denoiseActive && !e.denoiserReferenceTooOld(ref.Frame) {
 						denoiseDecision.recordInactiveInterCandidate(ref.Frame, mode.Mode, mode.MV)
 					}
-					score = maxInt()
-					yrd = maxInt()
-					rate = e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), modeMVs.counts, bestRefMV, libvpxRDNewMVBitCostWeight)
-					distortion = 0
+					rdCtx := interResidualRDContext{
+						src:                    src,
+						ref:                    ref.Img,
+						mbRow:                  mbRow,
+						mbCol:                  mbCol,
+						mode:                   &mode,
+						above:                  above,
+						left:                   left,
+						aboveLeft:              aboveLeft,
+						aboveTok:               aboveTok,
+						leftTok:                leftTok,
+						quant:                  quant,
+						qIndex:                 qIndex,
+						segmentID:              segmentID,
+						refRate:                e.interReferenceFrameRateForReference(ref),
+						modeCounts:             modeMVs.counts,
+						bestRefMV:              bestRefMV,
+						suppressStaticBreakout: true,
+					}
+					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(&rdCtx)
+					ok = acctOK
+					score = acct.rd
+					yrd = acct.yrd
+					rate = acct.rate2
+					rateY = acct.rateY
+					rateUV = acct.rateUV
+					distortion = acct.distortion2
+					distortionUV = acct.distortionUV
 					mbSkipCoeff = true
 					rdLoopSkip = true
 				} else {
