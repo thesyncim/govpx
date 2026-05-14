@@ -306,6 +306,33 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "frame-drop-realtime-target-explicit-toggle",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TargetBitrateKbps = 300
+				opts.BufferSizeMs = 500
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 300
+				return opts
+			}(),
+			extraArgs: []string{"--target-bitrate=300", "--buf-sz=500", "--buf-initial-sz=100", "--buf-optimal-sz=300"},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "drop:60",
+				8: "drop:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(FrameDropEnabled)", e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropEnabled}))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(FrameDropDisabled)", e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropDisabled}))
+				},
+			},
+		},
+		{
 			name: "frame-drop-watermark-clamp-runtime",
 			fx:   panning64,
 			opts: func() EncoderOptions {
@@ -575,6 +602,31 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "deadline-best-quality-force-keyframe-roundtrip",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			flags: []EncodeFlags{
+				0, 0, 0, 0,
+				EncodeForceKeyFrame,
+				0, 0, 0, 0,
+				EncodeForceKeyFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				2: "deadline:best",
+				7: "deadline:rt",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetDeadline(best)", e.SetDeadline(DeadlineBestQuality))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetDeadline(rt)", e.SetDeadline(DeadlineRealtime))
+				},
+			},
+		},
+		{
 			name: "keyframe-interval-only-two-step",
 			fx:   panning32,
 			opts: baseOpts(panning32),
@@ -701,6 +753,38 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				4: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetTokenPartitions(2)", e.SetTokenPartitions(2))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(3)", e.SetTokenPartitions(3))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(0)", e.SetTokenPartitions(0))
+				},
+			},
+		},
+		{
+			name: "token-partitions-force-keyframe-cycle",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: []EncodeFlags{
+				0, 0,
+				EncodeForceKeyFrame,
+				0, 0, 0,
+				EncodeForceKeyFrame,
+				0, 0,
+				EncodeForceKeyFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				2: "token:1",
+				6: "token:3",
+				9: "token:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(1)", e.SetTokenPartitions(1))
 				},
 				6: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
