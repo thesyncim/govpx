@@ -121,6 +121,31 @@ func shiftedVP9ReferenceYCbCrForTest(ref Image, dx, dy int) *image.YCbCr {
 	return img
 }
 
+func splitShiftedVP9ReferenceYCbCrForTest(ref Image, leftDx, rightDx int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
+	shiftPlane := func(dst []byte, dstStride int, src []byte, srcStride, width, height, planeLeftDx, planeRightDx int) {
+		splitX := width / 2
+		for y := range height {
+			dstRow := dst[y*dstStride:]
+			srcRow := src[y*srcStride:]
+			for x := range width {
+				dx := planeLeftDx
+				if x >= splitX {
+					dx = planeRightDx
+				}
+				sx := clampVP9IntForTest(x+dx, 0, width-1)
+				dstRow[x] = srcRow[sx]
+			}
+		}
+	}
+	shiftPlane(img.Y, img.YStride, ref.Y, ref.YStride, ref.Width, ref.Height, leftDx, rightDx)
+	uvWidth := (ref.Width + 1) >> 1
+	uvHeight := (ref.Height + 1) >> 1
+	shiftPlane(img.Cb, img.CStride, ref.U, ref.UStride, uvWidth, uvHeight, leftDx>>1, rightDx>>1)
+	shiftPlane(img.Cr, img.CStride, ref.V, ref.VStride, uvWidth, uvHeight, leftDx>>1, rightDx>>1)
+	return img
+}
+
 func predictedVP9ReferenceYCbCrForTest(t *testing.T, ref Image, mv vp9dec.MV) *image.YCbCr {
 	t.Helper()
 	var d VP9Decoder
@@ -607,6 +632,55 @@ func TestVP9EncoderInterPicksNewMvFor16x8Block(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after 16x8 NEWMV inter frame")
+	}
+}
+
+func TestVP9EncoderInterSplits64x64ForMixedMotion(t *testing.T) {
+	const (
+		width  = 64
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := splitShiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, -8)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	left := d.miGrid[0]
+	right := d.miGrid[4]
+	if left.SbType != common.Block32x32 || right.SbType != common.Block32x32 {
+		t.Fatalf("top blocks = %d/%d, want Block32x32/Block32x32",
+			left.SbType, right.SbType)
+	}
+	if left.Mode != common.NewMv || left.Mv[0] != (vp9dec.MV{Col: 64}) {
+		t.Fatalf("left block = mode %d mv %+v, want NewMv {Col:64}",
+			left.Mode, left.Mv[0])
+	}
+	if right.Mode != common.NewMv || right.Mv[0] != (vp9dec.MV{Col: -64}) {
+		t.Fatalf("right block = mode %d mv %+v, want NewMv {Col:-64}",
+			right.Mode, right.Mv[0])
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after split-motion inter frame")
 	}
 }
 

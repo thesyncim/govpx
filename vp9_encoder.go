@@ -1096,7 +1096,8 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	}
 	bsl := int(common.BWidthLog2Lookup[bsize])
 	bs := (1 << uint(bsl)) / 4
-	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, bsize)
+	target := e.pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol,
+		bsize, tile, kind, inter)
 	partition := common.PartitionLookup[bsl][target]
 	if counts := vp9EncodeCountsForState(key, inter); counts != nil {
 		ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
@@ -1175,6 +1176,46 @@ func vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol int, root common.Blo
 		}
 	}
 	return common.Block4x4
+}
+
+func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
+	root common.BlockSize, tile vp9dec.TileBounds, kind vp9ModeTreeKind,
+	inter *vp9InterEncodeState,
+) common.BlockSize {
+	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
+	if kind != vp9ModeTreeInterSource || inter == nil ||
+		root != common.Block64x64 || target != common.Block64x64 {
+		return target
+	}
+	if e.shouldSplitVP9Inter64x64(inter, tile, miRows, miCols, miRow, miCol) {
+		return common.Block32x32
+	}
+	return target
+}
+
+func (e *VP9Encoder) shouldSplitVP9Inter64x64(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+) bool {
+	full, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+		miRow, miCol, common.Block64x64)
+	if !ok {
+		return false
+	}
+
+	var splitScore uint64
+	for rowOff := 0; rowOff <= 4; rowOff += 4 {
+		for colOff := 0; colOff <= 4; colOff += 4 {
+			child, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+				miRow+rowOff, miCol+colOff, common.Block32x32)
+			if !ok {
+				return false
+			}
+			splitScore += child.score
+		}
+	}
+
+	partitionPenalty := uint64(4 << encoder.VP9ProbCostShift)
+	return splitScore+partitionPenalty < full.score
 }
 
 func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
