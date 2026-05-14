@@ -728,6 +728,67 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
+	}
+	vpxencOracle := findVpxencOracle(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 8
+		width      = 64
+		height     = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+
+	cases := []struct {
+		name                     string
+		errorResilient           bool
+		errorResilientPartitions bool
+		tokenPartitions          int
+		extraArgs                []string
+	}{
+		{name: "threads0-explicit-threads1", extraArgs: []string{"--threads=1"}},
+		{name: "er1-token0-threads0", errorResilient: true, extraArgs: []string{"--threads=1", "--error-resilient=1", "--token-parts=0"}},
+		{name: "er2-token0-threads0", errorResilientPartitions: true, extraArgs: []string{"--threads=1", "--error-resilient=2", "--token-parts=0"}},
+		{name: "er3-token0-threads0", errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--threads=1", "--error-resilient=3", "--token-parts=0"}},
+		{name: "er1-token8-threads0", errorResilient: true, tokenPartitions: 3, extraArgs: []string{"--threads=1", "--error-resilient=1", "--token-parts=3"}},
+		{name: "er2-token8-threads0", errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--threads=1", "--error-resilient=2", "--token-parts=3"}},
+		{name: "er3-token8-threads0", errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--threads=1", "--error-resilient=3", "--token-parts=3"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:                    width,
+				Height:                   height,
+				FPS:                      fps,
+				RateControlMode:          RateControlCBR,
+				TargetBitrateKbps:        targetKbps,
+				MinQuantizer:             4,
+				MaxQuantizer:             56,
+				KeyFrameInterval:         999,
+				Deadline:                 DeadlineRealtime,
+				CpuUsed:                  -3,
+				Tuning:                   TunePSNR,
+				ErrorResilient:           tc.errorResilient,
+				ErrorResilientPartitions: tc.errorResilientPartitions,
+				TokenPartitions:          tc.tokenPartitions,
+				Threads:                  0,
+			}
+
+			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "thread0-er-token-"+tc.name, opts, targetKbps, sources, libvpxEndUsageArgs(tc.extraArgs))
+			assertSegmentByteParity(t, "thread0-er-token-"+tc.name, govpxFrames, libvpxFrames, 0)
+		})
+	}
+}
+
 // TestOracleEncoderStreamByteParityComboDropDenoiser pins the strict
 // byte-parity gate at the cross product of DropFrameWaterMark ∈
 // {1, 30, 60, 90} and NoiseSensitivity ∈ {1, 3, 6} on panning-64x64.
