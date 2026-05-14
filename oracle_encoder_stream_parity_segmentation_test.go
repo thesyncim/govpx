@@ -748,6 +748,10 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 		tokenPartitions          int
 		threads                  int
 		noiseSensitivity         int
+		screenContentMode        int
+		sharpness                int
+		tuning                   Tuning
+		tuningSet                bool
 		errorResilient           bool
 		errorResilientPartitions bool
 		extraArgs                []string
@@ -760,6 +764,10 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 		{name: "left1-threads2", pattern: "left1", threads: 2, extraArgs: []string{"--threads=2"}},
 		{name: "checker-noise3", pattern: "checker", noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
 		{name: "border1-noise6", pattern: "border1", noiseSensitivity: 6, extraArgs: []string{"--noise-sensitivity=6"}},
+		{name: "checker-screen-content2", pattern: "checker", screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
+		{name: "border1-sharpness4", pattern: "border1", sharpness: 4, extraArgs: []string{"--sharpness=4"}},
+		{name: "left1-tune-ssim", pattern: "left1", tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
+		{name: "border1-screen-content2-sharpness4", pattern: "border1", screenContentMode: 2, sharpness: 4, extraArgs: []string{"--screen-content-mode=2", "--sharpness=4"}},
 		{name: "border1-er3-token-parts4", pattern: "border1", tokenPartitions: 2, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
 	}
 	for _, tc := range cases {
@@ -774,6 +782,11 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 			caseOpts.TokenPartitions = tc.tokenPartitions
 			caseOpts.Threads = tc.threads
 			caseOpts.NoiseSensitivity = tc.noiseSensitivity
+			caseOpts.ScreenContentMode = tc.screenContentMode
+			caseOpts.Sharpness = tc.sharpness
+			if tc.tuningSet {
+				caseOpts.Tuning = tc.tuning
+			}
 			caseOpts.ErrorResilient = tc.errorResilient
 			caseOpts.ErrorResilientPartitions = tc.errorResilientPartitions
 			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, caseOpts, sources, nil, apply)
