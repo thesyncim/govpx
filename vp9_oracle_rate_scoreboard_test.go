@@ -75,6 +75,10 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 		if g.RefreshFrameFlags == l.RefreshFrameFlags {
 			refreshMatches++
 		}
+		if g.RecodeAllowed || l.RecodeAllowed || g.RecodeLoopCount != 0 || l.RecodeLoopCount != 0 {
+			t.Fatalf("row %d recode: govpx allowed=%t loops=%d libvpx allowed=%t loops=%d, want one-pass VP9 no-recode",
+				i, g.RecodeAllowed, g.RecodeLoopCount, l.RecodeAllowed, l.RecodeLoopCount)
+		}
 		qDriftMax = math.Max(qDriftMax, math.Abs(float64(g.BaseQIndex-l.BaseQIndex)))
 		sizePctMax = math.Max(sizePctMax, pctDelta(g.SizeBits, l.SizeBits))
 		bufferPctMax = math.Max(bufferPctMax, pctDelta(g.BufferLevelBits, l.BufferLevelBits))
@@ -105,6 +109,8 @@ type vp9RateScoreboardRow struct {
 	RefreshFrameFlags uint8
 	TemporalLayerID   int
 	TemporalLayerSync bool
+	RecodeAllowed     bool
+	RecodeLoopCount   int
 }
 
 func captureVP9RateScoreboardRows(t *testing.T, opts VP9EncoderOptions,
@@ -187,6 +193,8 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 			RefreshFrameFlags uint8  `json:"refresh_frame_flags"`
 			TemporalLayerID   int    `json:"temporal_layer_id"`
 			TemporalLayerSync bool   `json:"temporal_layer_sync"`
+			RecodeAllowed     bool   `json:"recode_allowed"`
+			RecodeLoopCount   int    `json:"recode_loop_count"`
 		}
 		if err := json.Unmarshal(scan.Bytes(), &raw); err != nil {
 			t.Fatalf("VP9 rate trace row is not valid JSON: %v\n%s", err, scan.Bytes())
@@ -207,6 +215,8 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 			RefreshFrameFlags: raw.RefreshFrameFlags,
 			TemporalLayerID:   raw.TemporalLayerID,
 			TemporalLayerSync: raw.TemporalLayerSync,
+			RecodeAllowed:     raw.RecodeAllowed,
+			RecodeLoopCount:   raw.RecodeLoopCount,
 		})
 	}
 	if err := scan.Err(); err != nil {

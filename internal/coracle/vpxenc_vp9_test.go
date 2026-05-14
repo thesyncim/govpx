@@ -119,6 +119,7 @@ func TestVpxencVP9FrameFlagsTraceI420EmitsRows(t *testing.T) {
 		[]byte(`"base_qindex"`),
 		[]byte(`"size_bits"`),
 		[]byte(`"buffer_level_bits"`),
+		[]byte(`"recode_loop_count":0`),
 	} {
 		if !bytes.Contains(trace, want) {
 			t.Fatalf("trace missing %s:\n%s", want, trace)

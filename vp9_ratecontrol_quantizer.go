@@ -97,6 +97,24 @@ func (rc *vp9RateControlState) cbrQuantizer(intraOnly bool, refreshFlags uint8, 
 	return rc.adjustCBRQuantizer(q, refreshFlags)
 }
 
+func (rc *vp9RateControlState) cbrQuantizerWithBounds(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int) (q int, activeBest int, activeWorst int, correctionFactor float64) {
+	if !rc.enabled || rc.mode != RateControlCBR || macroblocks <= 0 {
+		best := int(rc.bestQuality)
+		return best, best, int(rc.worstQuality), 1
+	}
+	activeBest, activeWorst = rc.cbrActiveQuantizerBounds(intraOnly, refreshFlags, frameIndex)
+	correctionFactor = rc.rateCorrectionFactor(intraOnly, refreshFlags)
+	q = vp9RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
+		activeBest, activeWorst, correctionFactor)
+	return rc.adjustCBRQuantizer(q, refreshFlags), activeBest, activeWorst, correctionFactor
+}
+
+func (rc *vp9RateControlState) onePassRecodeAllowed() bool {
+	// libvpx VP9 forces DISALLOW_RECODE for pass 0, which is the realtime
+	// helper path used by the current byte-parity oracle.
+	return false
+}
+
 func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshFlags uint8, frameIndex int) (int, int) {
 	best := int(rc.bestQuality)
 	worst := int(rc.worstQuality)

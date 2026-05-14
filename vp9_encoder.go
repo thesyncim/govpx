@@ -937,38 +937,45 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		result.TemporalLayerCount = 1
 	}
 	if vp9OracleTraceBuild {
+		activeBestQ, activeWorstQ, rateCorrectionFactor, recodeAllowed,
+			recodeLoopCount := e.vp9OracleRateSelectionTrace()
 		e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
-			Row:                 "vp9_frame",
-			FrameIndex:          e.frameIndex - 1,
-			Flags:               uint32(flags),
-			KeyFrame:            isKey,
-			IntraOnly:           intraOnly,
-			ShowFrame:           header.ShowFrame,
-			Droppable:           result.Droppable,
-			BaseQIndex:          int(header.Quant.BaseQindex),
-			PublicQuantizer:     result.Quantizer,
-			SizeBytes:           n,
-			FirstPartitionSize:  int(header.FirstPartitionSize),
-			RefreshFrameFlags:   header.RefreshFrameFlags,
-			RefreshFrameContext: header.RefreshFrameContext,
-			ErrorResilient:      header.ErrorResilientMode,
-			FrameParallel:       header.FrameParallelDecoding,
-			FrameContextIdx:     header.FrameContextIdx,
-			TxMode:              int(txMode),
-			InterpFilter:        int(header.InterpFilter),
-			ReferenceMode:       int(referenceMode),
-			CompoundAllowed:     compoundAllowed,
-			ReferenceMask:       vp9InterReferenceMask(flags),
-			LoopFilterLevel:     int(header.Loopfilter.FilterLevel),
-			TemporalLayerID:     result.TemporalLayerID,
-			TemporalLayerCount:  result.TemporalLayerCount,
-			TemporalLayerSync:   result.TemporalLayerSync,
-			TL0PICIDX:           result.TL0PICIDX,
-			TargetBitrateKbps:   result.TargetBitrateKbps,
-			FrameTargetBits:     result.FrameTargetBits,
-			BufferLevelBits:     result.BufferLevelBits,
-			TileLog2Cols:        int(header.Tile.Log2TileCols),
-			TileLog2Rows:        int(header.Tile.Log2TileRows),
+			Row:                  "vp9_frame",
+			FrameIndex:           e.frameIndex - 1,
+			Flags:                uint32(flags),
+			KeyFrame:             isKey,
+			IntraOnly:            intraOnly,
+			ShowFrame:            header.ShowFrame,
+			Droppable:            result.Droppable,
+			BaseQIndex:           int(header.Quant.BaseQindex),
+			PublicQuantizer:      result.Quantizer,
+			SizeBytes:            n,
+			FirstPartitionSize:   int(header.FirstPartitionSize),
+			RefreshFrameFlags:    header.RefreshFrameFlags,
+			RefreshFrameContext:  header.RefreshFrameContext,
+			ErrorResilient:       header.ErrorResilientMode,
+			FrameParallel:        header.FrameParallelDecoding,
+			FrameContextIdx:      header.FrameContextIdx,
+			TxMode:               int(txMode),
+			InterpFilter:         int(header.InterpFilter),
+			ReferenceMode:        int(referenceMode),
+			CompoundAllowed:      compoundAllowed,
+			ReferenceMask:        vp9InterReferenceMask(flags),
+			LoopFilterLevel:      int(header.Loopfilter.FilterLevel),
+			TemporalLayerID:      result.TemporalLayerID,
+			TemporalLayerCount:   result.TemporalLayerCount,
+			TemporalLayerSync:    result.TemporalLayerSync,
+			TL0PICIDX:            result.TL0PICIDX,
+			TargetBitrateKbps:    result.TargetBitrateKbps,
+			FrameTargetBits:      result.FrameTargetBits,
+			BufferLevelBits:      result.BufferLevelBits,
+			ActiveBestQ:          activeBestQ,
+			ActiveWorstQ:         activeWorstQ,
+			RateCorrectionFactor: rateCorrectionFactor,
+			RecodeAllowed:        recodeAllowed,
+			RecodeLoopCount:      recodeLoopCount,
+			TileLog2Cols:         int(header.Tile.Log2TileCols),
+			TileLog2Rows:         int(header.Tile.Log2TileRows),
 		})
 	}
 	return result, nil
@@ -4498,6 +4505,9 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 }
 
 func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, macroblocks int) int {
+	if vp9OracleTraceBuild {
+		e.resetVP9OracleRateSelectionTrace()
+	}
 	if e.opts.Lossless {
 		return 0
 	}
@@ -4507,6 +4517,17 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 			refreshFlags := uint8(0xff)
 			if !isKey {
 				refreshFlags = vp9InterRefreshFrameFlags(flags)
+			}
+			if vp9OracleTraceBuild {
+				var activeBest int
+				var activeWorst int
+				var correctionFactor float64
+				qindex, activeBest, activeWorst, correctionFactor =
+					e.rc.cbrQuantizerWithBounds(isKey || intraOnly,
+						refreshFlags, e.frameIndex, macroblocks)
+				e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
+					correctionFactor, e.rc.onePassRecodeAllowed(), 0)
+				return qindex
 			}
 			qindex = e.rc.cbrQuantizer(isKey || intraOnly, refreshFlags,
 				e.frameIndex, macroblocks)

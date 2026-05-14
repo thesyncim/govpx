@@ -415,6 +415,8 @@ int main(int argc, char **argv) {
                 "\"frame_target_bits\":%d,"
                 "\"buffer_level_bits\":%lld,"
                 "\"buffer_optimal_bits\":%lld,"
+                "\"recode_allowed\":false,"
+                "\"recode_loop_count\":0,"
                 "\"temporal_layer_id\":0,"
                 "\"temporal_layer_count\":1,"
                 "\"temporal_layer_sync\":false}\n",
@@ -438,6 +440,8 @@ int main(int argc, char **argv) {
               "\"frame_target_bits\":%d,"
               "\"buffer_level_bits\":%lld,"
               "\"buffer_optimal_bits\":%lld,"
+              "\"recode_allowed\":false,"
+              "\"recode_loop_count\":0,"
               "\"temporal_layer_id\":0,"
               "\"temporal_layer_count\":1,"
               "\"temporal_layer_sync\":false}\n",
