@@ -1150,17 +1150,24 @@ func TestRDPickerCoefProbsSelectsLibvpxFrameContext(t *testing.T) {
 	}
 
 	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}
-	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbs {
-		t.Fatalf("temporal multilayer default context = %p, want live coefProbs %p", got, &e.coefProbs)
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbsLast {
+		t.Fatalf("non-realtime temporal multilayer default context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
 	}
-	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsLast {
-		t.Fatalf("temporal multilayer golden context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("non-realtime temporal multilayer golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
 	}
 	if got := e.rdPickerCoefProbs(false, true); got != &e.coefProbsAltRef {
 		t.Fatalf("temporal multilayer altref context = %p, want coefProbsAltRef %p", got, &e.coefProbsAltRef)
 	}
 
 	e.opts.Deadline = DeadlineRealtime
+	e.opts.CpuUsed = 0
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbs {
+		t.Fatalf("realtime temporal multilayer default context = %p, want live coefProbs %p", got, &e.coefProbs)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsLast {
+		t.Fatalf("realtime temporal multilayer golden context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
 	e.opts.CpuUsed = -3
 	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsLast {
 		t.Fatalf("cold pinned realtime temporal golden context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
