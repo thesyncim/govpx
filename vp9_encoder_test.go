@@ -1705,6 +1705,103 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testi
 	}
 }
 
+func TestVP9EncoderEncodeIntoWithFlagsInvisibleKeyFrameUpdatesReferences(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	src := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	hidden, err := e.EncodeWithFlags(src, EncodeInvisibleFrame)
+	if err != nil {
+		t.Fatalf("Encode hidden keyframe: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, hidden)
+	if h.FrameType != common.KeyFrame || h.ShowFrame {
+		t.Fatalf("hidden key header frame_type=%d show=%t, want key/show=false",
+			h.FrameType, h.ShowFrame)
+	}
+
+	visible, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode visible inter after hidden keyframe: %v", err)
+	}
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(hidden); err != nil {
+		t.Fatalf("Decode hidden keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame returned visible output after hidden keyframe")
+	}
+	if info, ok := d.LastFrameInfo(); !ok || !info.KeyFrame || info.ShowFrame {
+		t.Fatalf("LastFrameInfo after hidden keyframe = %+v ok=%t, want hidden keyframe",
+			info, ok)
+	}
+	if err := d.Decode(visible); err != nil {
+		t.Fatalf("Decode visible inter: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible inter")
+	}
+	assertVP9FilledFrame(t, frame, width, height, 91, 143, 37)
+}
+
+func TestVP9EncoderEncodeIntoWithFlagsInvisibleAltRefRefresh(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	altSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	hidden, err := e.EncodeWithFlags(altSrc,
+		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|
+			EncodeNoUpdateGolden|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+	if err != nil {
+		t.Fatalf("Encode hidden altref refresh: %v", err)
+	}
+	visible, err := e.EncodeWithFlags(altSrc,
+		EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("Encode visible altref-only inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(hidden); err != nil {
+		t.Fatalf("Decode hidden altref refresh: %v", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame returned visible output after hidden altref refresh")
+	}
+	if info, ok := d.LastFrameInfo(); !ok || info.ShowFrame ||
+		info.RefreshFrameFlags != 1<<vp9AltRefSlot {
+		t.Fatalf("LastFrameInfo after hidden altref = %+v ok=%t, want hidden ALTREF refresh",
+			info, ok)
+	}
+	if err := d.Decode(visible); err != nil {
+		t.Fatalf("Decode visible altref-only inter: %v", err)
+	}
+	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.AltrefFrame {
+		t.Fatalf("visible inter ref = %v, want ALTREF", got.RefFrame)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible altref-only inter")
+	}
+	assertVP9FilledFrame(t, frame, width, height, 188, 96, 224)
+}
+
 func TestVP9EncoderEncodeIntoWithFlagsNoUpdateEntropyRestoresFrameContext(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -1751,7 +1848,6 @@ func TestVP9EncoderEncodeIntoWithFlagsRejectsUnsupportedFlags(t *testing.T) {
 	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
 	dst := make([]byte, 65536)
 	for _, flags := range []EncodeFlags{
-		EncodeInvisibleFrame,
 		EncodeNoUpdateLast,
 		EncodeForceGoldenFrame | EncodeNoUpdateGolden,
 		EncodeForceAltRefFrame | EncodeNoUpdateAltRef,

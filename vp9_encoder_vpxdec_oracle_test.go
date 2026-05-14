@@ -223,6 +223,50 @@ func TestVP9EncoderVpxdecOracleMatchesGoldenOnlyInter(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, goldenRefresh, inter)
 }
 
+func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	src := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	hidden, err := e.EncodeWithFlags(src, EncodeInvisibleFrame)
+	if err != nil {
+		t.Fatalf("Encode hidden keyframe: %v", err)
+	}
+	inter, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode visible inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, hidden, inter)
+}
+
+func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	altSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	hidden, err := e.EncodeWithFlags(altSrc,
+		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|
+			EncodeNoUpdateGolden|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+	if err != nil {
+		t.Fatalf("Encode hidden ALTREF refresh: %v", err)
+	}
+	inter, err := e.EncodeWithFlags(altSrc,
+		EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("Encode visible ALTREF-only inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, hidden, inter)
+}
+
 func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

@@ -241,9 +241,9 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 
 // EncodeIntoWithFlags packs the next profile 0 frame into dst while applying
 // the VP9-compatible subset of EncodeFlags: EncodeForceKeyFrame,
+// EncodeInvisibleFrame,
 // EncodeNoReference{Last,Golden,AltRef}, EncodeNoUpdate{Last,Golden,AltRef},
 // EncodeNoUpdateEntropy, EncodeForceGoldenFrame, and EncodeForceAltRefFrame.
-// Invisible frames are not implemented by the current profile 0 packet path.
 //
 // The current packet path emits source-backed keyframes and visible
 // single-reference LAST / GOLDEN / ALTREF inter frames with fixed-size DCT_DCT
@@ -295,7 +295,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 
 	header := vp9dec.UncompressedHeader{
 		Profile:               common.Profile0,
-		ShowFrame:             true,
+		ShowFrame:             flags&EncodeInvisibleFrame == 0,
 		ErrorResilientMode:    e.opts.ErrorResilient,
 		Width:                 width,
 		Height:                height,
@@ -561,9 +561,6 @@ func vp9EncoderReferenceSlot(refFrame int8) (int, bool) {
 func validateVP9EncodeFlags(flags EncodeFlags) error {
 	if err := validateEncodeFlags(flags); err != nil {
 		return err
-	}
-	if flags&EncodeInvisibleFrame != 0 {
-		return ErrInvalidConfig
 	}
 	return nil
 }
