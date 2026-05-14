@@ -211,6 +211,66 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertSegmentByteParity(t, "copyref-bytestream", got, want, 0)
 	})
 
+	t.Run("copy-reference-probes-under-active-map-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "active:checker+copyref:last+copyref:golden"
+		script[4] = "copyref:last+copyref:altref"
+		script[6] = "active:off+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				activeMapApply("checker")(t, e)
+				copyReferenceProbeApply("frame1", ReferenceLast, ReferenceGolden)(t, e)
+			},
+			4: copyReferenceProbeApply("frame4", ReferenceLast, ReferenceAltRef),
+			6: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden, ReferenceAltRef)(t, e)
+			},
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-active-map.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-active-map-bytestream", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-active-map-bytestream", got, want, 0)
+	})
+
+	t.Run("copy-reference-probes-under-roi-map-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "roi:border1+copyref:golden"
+		script[4] = "copyref:last+copyref:golden"
+		script[6] = "roi:off+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				roiMapApply("border1")(t, e)
+				copyReferenceProbeApply("frame1", ReferenceGolden)(t, e)
+			},
+			4: copyReferenceProbeApply("frame4", ReferenceLast, ReferenceGolden),
+			6: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden, ReferenceAltRef)(t, e)
+			},
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-roi-map.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-roi-map-bytestream", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-roi-map-bytestream", got, want, 0)
+	})
+
 	t.Run("copy-reference-probes-under-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(64, 64)
 		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
