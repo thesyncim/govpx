@@ -118,6 +118,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
+	segmentation = segmentationConfigForLoopFilterLevel(segmentation, lfLevel)
 	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
 	phase = e.phaseStart()
 	err = e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required)
@@ -584,6 +585,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
+	segmentation = segmentationConfigForLoopFilterLevel(segmentation, cfg.LoopFilterLevel)
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
 	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
 	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled

@@ -395,11 +395,10 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 	}
 
 	cases := []struct {
-		name       string
-		roi        func() *ROIMap
-		extraArgs  []string
-		limit      int
-		assertFrom int
+		name      string
+		roi       func() *ROIMap
+		extraArgs []string
+		limit     int
 	}{
 		{
 			name: "simple-delta-lf",
@@ -432,8 +431,7 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 				roi.StaticThreshold = [4]int{}
 				return roi
 			},
-			extraArgs:  []string{"--roi-map=checker", "--roi-dq=0,-10,0,0", "--roi-dlf=0,-3,0,0", "--roi-static=0,0,0,0"},
-			assertFrom: 1,
+			extraArgs: []string{"--roi-map=checker", "--roi-dq=0,-10,0,0", "--roi-dlf=0,-3,0,0", "--roi-static=0,0,0,0"},
 		},
 		{
 			name: "quadrants-default",
@@ -456,10 +454,6 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 				},
 			})
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.name+"-32x32", opts, targetKbps, sources, nil, tc.extraArgs)
-			if tc.assertFrom > 0 {
-				assertSegmentByteParityFrom(t, "roi-map-"+tc.name, govpxFrames, libvpxFrames, tc.assertFrom)
-				return
-			}
 			assertSegmentByteParity(t, "roi-map-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
@@ -639,12 +633,11 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 	}
 
 	cases := []struct {
-		pattern    string
-		limit      int
-		assertFrom int
+		pattern string
+		limit   int
 	}{
-		{pattern: "checker", assertFrom: 1},
-		{pattern: "left1", assertFrom: 1},
+		{pattern: "checker", limit: 0},
+		{pattern: "left1", limit: 0},
 		{pattern: "border1", limit: 0},
 		{pattern: "off", limit: 0},
 	}
@@ -660,10 +653,6 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.pattern+"-64x64", opts, targetKbps, sources, nil, []string{
 				"--roi-map=" + tc.pattern,
 			})
-			if tc.assertFrom > 0 {
-				assertSegmentByteParityFrom(t, "roi-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.assertFrom)
-				return
-			}
 			assertSegmentByteParity(t, "roi-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}

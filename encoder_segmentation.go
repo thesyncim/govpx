@@ -79,6 +79,20 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 	return header
 }
 
+// libvpx copies segment ALT_LF data into the packet-facing decoder state only
+// after choosing a positive base loop-filter level. At level 0, segmentation
+// remains enabled but ALT_LF features are absent from the header.
+func segmentationConfigForLoopFilterLevel(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
+	if !cfg.Enabled || level > 0 {
+		return cfg
+	}
+	for segment := range vp8common.MaxMBSegments {
+		cfg.FeatureEnabled[vp8common.MBLvlAltLF][segment] = false
+		cfg.FeatureData[vp8common.MBLvlAltLF][segment] = 0
+	}
+	return cfg
+}
+
 func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 	if e.opts.RTCExternalRateControl {
 		return false
