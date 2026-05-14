@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
@@ -138,6 +139,95 @@ func TestVP9EncoderVpxencOracleMidgrayKeyframeByteParity(t *testing.T) {
 	const width, height = 16, 16
 	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
 	assertVP9VpxencKeyframeByteParity(t, src)
+}
+
+func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height, frames = 64, 64, 4
+	sources := make([]*image.YCbCr, frames)
+	for i := range sources {
+		sources[i] = newVP9YCbCrForTest(width, height, byte(80+i*24), 128, 128)
+	}
+
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 2,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	govpxPackets := make([][]byte, 0, frames)
+	for i, src := range sources {
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+		govpxPackets = append(govpxPackets, append([]byte(nil), result.Data...))
+	}
+	for {
+		result, err := e.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		govpxPackets = append(govpxPackets, append([]byte(nil), result.Data...))
+	}
+	if len(govpxPackets) != frames {
+		t.Fatalf("govpx lookahead packets = %d, want %d", len(govpxPackets), frames)
+	}
+
+	var raw []byte
+	for _, src := range sources {
+		raw = appendVP9YCbCrI420(raw, src)
+	}
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, frames,
+		"--lag-in-frames=2", "--auto-alt-ref=0")
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+	}
+	count, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if count != frames {
+		t.Fatalf("libvpx lookahead packets = %d, want %d", count, frames)
+	}
+
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	matches := 0
+	for i, got := range govpxPackets {
+		var libvpxFrame testutil.IVFFrame
+		libvpxFrame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+		}
+		if bytes.Equal(got, libvpxFrame.Data) {
+			matches++
+			continue
+		}
+		gotHeader, _ := parseVP9EncoderHeaderForTest(t, got)
+		wantHeader, _ := parseVP9EncoderHeaderForTest(t, libvpxFrame.Data)
+		t.Logf("lookahead row %d drift: govpx bytes=%d q=%d refresh=%#x first_partition=%d libvpx bytes=%d q=%d refresh=%#x first_partition=%d",
+			i, len(got), gotHeader.Quant.BaseQindex, gotHeader.RefreshFrameFlags,
+			gotHeader.FirstPartitionSize, len(libvpxFrame.Data),
+			wantHeader.Quant.BaseQindex, wantHeader.RefreshFrameFlags,
+			wantHeader.FirstPartitionSize)
+	}
+	t.Logf("VP9 lookahead no-alt-ref oracle: byte_matches=%d/%d", matches, frames)
+	if os.Getenv("GOVPX_VP9_LOOKAHEAD_STRICT") == "1" && matches != frames {
+		t.Fatalf("strict VP9 lookahead byte parity matched %d/%d packets", matches, frames)
+	}
 }
 
 func TestVP9EncoderVpxencOracleCheckerKeyframeByteParity(t *testing.T) {
