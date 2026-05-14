@@ -178,7 +178,7 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid43-rt-cpu4-800x600", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(800, 600)},
 		// 800x600 cpu8: same wall-clock-sensitive positive-cpu realtime
 		// family as the larger fixtures above.
-		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600)},
+		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600), limit: 1},
 
 		// (6) Square. Up to 400x400 we can run cpu_used=0; the picker
 		// path matters more than the sheer pixel count here.

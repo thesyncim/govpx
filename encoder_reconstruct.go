@@ -523,6 +523,14 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				e.applyDenoiserToInterMacroblock(coeffSource, coeffSource, rows, cols, row, col, &decision)
 				mbSource = coeffSource
 			}
+			if denoiseActive && decision.useIntra && !e.interAnalysisUsesRDModeDecision() && decision.intraMode.Mode <= vp8common.BPred {
+				// The fast libvpx picker repeats pick_intra_mbuv_mode after
+				// temporal denoising, so the accepted intra MB's chroma mode
+				// is chosen against the source that will feed coefficients.
+				if uvMode, _, ok := pickFastIntraChromaMode(mbSource, row, col, &e.analysis.Img, &e.reconstructScratch); ok {
+					decision.intraMode.UVMode = uvMode
+				}
+			}
 			projectedRate := decision.projectedRate
 			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)

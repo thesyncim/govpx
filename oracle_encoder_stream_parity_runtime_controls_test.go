@@ -1183,10 +1183,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs: []string{"--noise-sensitivity=3"},
-			// Static-threshold toggles with an already-active denoiser match
-			// through the first static inter packets, then drift in the
-			// denoiser/static segmentation interaction.
-			matchLimit: 4,
 			script: runtimeControlScript(frames, map[int]string{
 				2: "static:500",
 				6: "static:0",
@@ -1235,10 +1231,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs: []string{"--noise-sensitivity=3"},
-			// Screen-content mode 2 follows the same active-denoiser
-			// transition gap as static-threshold: keep the prefix strict
-			// while logging the remaining drift.
-			matchLimit: 4,
 			script: runtimeControlScript(frames, map[int]string{
 				2: "screen:2",
 				8: "screen:0",
@@ -2628,8 +2620,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				opts.Threads = 2
 				return opts
 			}(),
-			extraArgs:  []string{"--noise-sensitivity=3", "--threads=2"},
-			matchLimit: 4,
+			extraArgs: []string{"--noise-sensitivity=3", "--threads=2"},
 			script: runtimeControlScript(frames, map[int]string{
 				1: "roi:border1",
 				7: "roi:off",
@@ -2651,11 +2642,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs: []string{"--noise-sensitivity=3"},
-			// Checker ROI + denoiser is strict through the early inter
-			// packets, drifts just before teardown, then rejoins when the
-			// forced keyframe clears ROI segmentation.
-			matchLimit: 4,
-			matchFrom:  6,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				6: EncodeForceKeyFrame,
 			}),

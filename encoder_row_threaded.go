@@ -421,6 +421,11 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		e.applyDenoiserToInterMacroblock(args.coeffSource, args.coeffSource, args.rows, args.cols, row, col, &decision)
 		mbSource = args.coeffSource
 	}
+	if args.denoiseActive && decision.useIntra && !e.interAnalysisUsesRDModeDecision() && decision.intraMode.Mode <= vp8common.BPred {
+		if uvMode, _, ok := pickFastIntraChromaMode(mbSource, row, col, &e.analysis.Img, &e.reconstructScratch); ok {
+			decision.intraMode.UVMode = uvMode
+		}
+	}
 
 	segmentQIndex := encoderSegmentQIndex(args.qIndex, args.segmentation, segmentID)
 	quant := &args.quants[segmentID&3]
