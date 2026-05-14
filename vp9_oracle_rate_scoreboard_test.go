@@ -183,6 +183,21 @@ func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
 		t.Fatalf("strict VP9 drop indices: govpx=%v libvpx=%v",
 			govpxDrops, libvpxDrops)
 	}
+	if os.Getenv("GOVPX_VP9_RATE_DROP_STRICT") == "1" {
+		keySizeDelta := govpxRows[0].SizeBytes - libvpxRows[0].SizeBytes
+		if keySizeDelta < 0 {
+			keySizeDelta = -keySizeDelta
+		}
+		keyFirstPartDelta := govpxRows[0].FirstPartitionSize -
+			libvpxRows[0].FirstPartitionSize
+		if keyFirstPartDelta < 0 {
+			keyFirstPartDelta = -keyFirstPartDelta
+		}
+		if keySizeDelta > 1 || keyFirstPartDelta > 1 {
+			t.Fatalf("strict VP9 drop key partition drift: size_delta=%d first_part_delta=%d",
+				keySizeDelta, keyFirstPartDelta)
+		}
+	}
 }
 
 type vp9RateScoreboardRow struct {

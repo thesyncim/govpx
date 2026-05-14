@@ -2157,7 +2157,7 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	bsl := int(common.BWidthLog2Lookup[bsize])
 	bs := (1 << uint(bsl)) / 4
 	target := e.pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol,
-		bsize, tile, partitionProbs, kind, inter)
+		bsize, tile, partitionProbs, kind, key, inter)
 	partition := common.PartitionLookup[bsl][target]
 	if counts := vp9EncodeCountsForState(key, inter); counts != nil {
 		ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
@@ -2247,10 +2247,14 @@ func vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol int, root common.Blo
 func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	root common.BlockSize, tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	kind vp9ModeTreeKind, inter *vp9InterEncodeState,
+	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	if kind == vp9ModeTreeKeyframeSource {
+		if varianceSize, ok := e.pickVP9KeyframeVariancePartitionBlockSize(key,
+			miRows, miCols, miRow, miCol, root); ok {
+			return varianceSize
+		}
 		return vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	}
 	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
@@ -2280,6 +2284,83 @@ func vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	return common.Block4x4
 }
 
+func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) (common.BlockSize, bool) {
+	if !e.vp9CBRKeyframeVariancePartitionEnabled(key) {
+		return common.BlockInvalid, false
+	}
+	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
+	if !ok || splitSize < common.Block8x8 {
+		return common.BlockInvalid, false
+	}
+	blockMiW := int(common.Num8x8BlocksWideLookup[bsize])
+	blockMiH := int(common.Num8x8BlocksHighLookup[bsize])
+	if miCol+blockMiW > miCols || miRow+blockMiH > miRows {
+		return common.BlockInvalid, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || srcStride <= 0 {
+		return common.BlockInvalid, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) {
+		return common.BlockInvalid, false
+	}
+	threshold := vp9KeyframeVariancePartitionThreshold(key.dq.Y[0][1], bsize)
+	variance := vp9BlockSourceVariance128(src, srcStride, x0, y0, blockW, blockH)
+	if bsize > common.Block32x32 || variance > threshold<<4 {
+		return splitSize, true
+	}
+	if variance < threshold {
+		return common.BlockInvalid, false
+	}
+	halfW := blockW >> 1
+	halfH := blockH >> 1
+	if miRow+(blockMiH>>1) < miRows {
+		left := vp9BlockSourceVariance128(src, srcStride, x0, y0, halfW, blockH)
+		right := vp9BlockSourceVariance128(src, srcStride,
+			x0+halfW, y0, halfW, blockH)
+		if left < threshold && right < threshold {
+			return vertSize, true
+		}
+	}
+	if miCol+(blockMiW>>1) < miCols {
+		top := vp9BlockSourceVariance128(src, srcStride, x0, y0, blockW, halfH)
+		bottom := vp9BlockSourceVariance128(src, srcStride,
+			x0, y0+halfH, blockW, halfH)
+		if top < threshold && bottom < threshold {
+			return horzSize, true
+		}
+	}
+	return splitSize, true
+}
+
+func (e *VP9Encoder) vp9CBRKeyframeVariancePartitionEnabled(key *vp9KeyframeEncodeState) bool {
+	return key != nil && key.dq != nil && key.hdr != nil &&
+		key.hdr.FrameType == common.KeyFrame && !key.lossless &&
+		e.rc.enabled && e.rc.mode == RateControlCBR && e.rc.dropFrameAllowed &&
+		!e.vp9FixedPublicQuantizer()
+}
+
+func vp9KeyframeVariancePartitionThreshold(yAcDequant int16, bsize common.BlockSize) uint64 {
+	if yAcDequant <= 0 {
+		return 0
+	}
+	base := uint64(yAcDequant) * 20
+	switch bsize {
+	case common.Block64x64:
+		return base
+	case common.Block32x32, common.Block16x16:
+		return base >> 2
+	default:
+		return base << 2
+	}
+}
+
 func vp9SquareInterPartitionSizes(root common.BlockSize) (common.BlockSize, common.BlockSize, common.BlockSize, bool) {
 	switch root {
 	case common.Block64x64, common.Block32x32, common.Block16x16:
@@ -2300,6 +2381,10 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(root)
 	if !ok {
 		return root
+	}
+	if varianceSize, ok := e.pickVP9CBRVariancePartitionBlockSize(inter,
+		miRows, miCols, miRow, miCol, root); ok {
+		return varianceSize
 	}
 	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, root)
 	if !ok {
@@ -2433,6 +2518,155 @@ func (e *VP9Encoder) vp9InterPreferTexturedSplit(inter *vp9InterEncodeState,
 	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
 		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
 	return sse > pixels*512 && activity > pixels*128
+}
+
+func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) (common.BlockSize, bool) {
+	if !e.vp9CBRVariancePartitionEnabled(inter) {
+		return common.BlockInvalid, false
+	}
+	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
+	if !ok || splitSize < common.Block8x8 {
+		return common.BlockInvalid, false
+	}
+	blockMiW := int(common.Num8x8BlocksWideLookup[bsize])
+	blockMiH := int(common.Num8x8BlocksHighLookup[bsize])
+	if miCol+blockMiW > miCols || miRow+blockMiH > miRows {
+		return common.BlockInvalid, false
+	}
+	refSlot, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame)
+	if !ok {
+		return common.BlockInvalid, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	ref, refStride, refW, refH := vp9ReferenceVisiblePlane(&e.refFrames[refSlot], 0)
+	if len(src) == 0 || len(ref) == 0 || srcStride <= 0 || refStride <= 0 {
+		return common.BlockInvalid, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+		!vp9VisibleBlockFits(x0, y0, blockW, blockH, refW, refH) {
+		return common.BlockInvalid, false
+	}
+	if bsize == common.Block64x64 {
+		sad := vp9BlockSAD(src, srcStride, ref, refStride,
+			x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+		sadThreshold := vp9CBRVariancePartitionSADThreshold(inter.dq.Y[0][1],
+			srcW, srcH)
+		if sad < sadThreshold {
+			return common.BlockInvalid, false
+		}
+	}
+	threshold := vp9CBRVariancePartitionThreshold(inter.dq.Y[0][1],
+		srcW, srcH, bsize, e.rc.avgFrameQIndexInter)
+	variance := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+		x0, y0, x0, y0, blockW, blockH)
+	if variance < threshold {
+		return common.BlockInvalid, false
+	}
+	halfW := blockW >> 1
+	halfH := blockH >> 1
+	if miRow+(blockMiH>>1) < miRows {
+		left := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+			x0, y0, x0, y0, halfW, blockH)
+		right := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+			x0+halfW, y0, x0+halfW, y0, halfW, blockH)
+		if left < threshold && right < threshold {
+			return vertSize, true
+		}
+	}
+	if miCol+(blockMiW>>1) < miCols {
+		top := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+			x0, y0, x0, y0, blockW, halfH)
+		bottom := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+			x0, y0+halfH, x0, y0+halfH, blockW, halfH)
+		if top < threshold && bottom < threshold {
+			return horzSize, true
+		}
+	}
+	return splitSize, true
+}
+
+func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) bool {
+	if inter == nil || inter.dq == nil || inter.lossless ||
+		!e.rc.enabled || e.rc.mode != RateControlCBR || !e.rc.dropFrameAllowed {
+		return false
+	}
+	return !e.vp9FixedPublicQuantizer()
+}
+
+func (e *VP9Encoder) vp9FixedPublicQuantizer() bool {
+	if e.opts.Quantizer != 0 {
+		return true
+	}
+	minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
+	return minQ == maxQ && minQ > 0
+}
+
+func vp9CBRVariancePartitionThreshold(yAcDequant int16, width, height int,
+	bsize common.BlockSize, avgInterQ uint8,
+) uint64 {
+	if yAcDequant <= 0 {
+		return 0
+	}
+	base := uint64(yAcDequant)
+	if width <= 640 && height <= 480 {
+		base = (5 * base) >> 2
+	}
+	switch {
+	case width <= 352 && height <= 288:
+		switch bsize {
+		case common.Block64x64:
+			return base >> 3
+		case common.Block32x32:
+			return base >> 1
+		case common.Block16x16:
+			threshold := base << 3
+			if avgInterQ > 220 {
+				return threshold << 2
+			}
+			if avgInterQ > 200 {
+				return threshold << 1
+			}
+			return threshold
+		}
+	case width < 1280 && height < 720:
+		if bsize == common.Block32x32 {
+			return (5 * base) >> 2
+		}
+	case width < 1920 && height < 1080:
+		if bsize == common.Block32x32 {
+			return base << 1
+		}
+	default:
+		if bsize == common.Block32x32 {
+			return (5 * base) >> 1
+		}
+	}
+	if bsize == common.Block16x16 {
+		return base << 8
+	}
+	return base
+}
+
+func vp9CBRVariancePartitionSADThreshold(yAcDequant int16, width, height int) uint64 {
+	if width <= 352 && height <= 288 {
+		return 10
+	}
+	threshold := int(yAcDequant) << 1
+	if threshold < 1000 {
+		threshold = 1000
+	}
+	return uint64(threshold)
+}
+
+func vp9VisibleBlockFits(x0, y0, blockW, blockH, width, height int) bool {
+	return x0 >= 0 && y0 >= 0 && blockW > 0 && blockH > 0 &&
+		x0+blockW <= width && y0+blockH <= height
 }
 
 func vp9RealtimeVariancePartitionThreshold64(yAcDequant int16, width, height int) uint64 {
@@ -5315,6 +5549,28 @@ func vp9BlockDiffVariance(src []byte, srcStride int, ref []byte, refStride int,
 		refRow := ref[(refY+y)*refStride+refX:]
 		for x := range w {
 			diff := int64(int(srcRow[x]) - int(refRow[x]))
+			sum += diff
+			sse += uint64(diff * diff)
+		}
+	}
+	n := int64(w * h)
+	if n <= 0 {
+		return 0
+	}
+	meanSquares := uint64((sum * sum) / n)
+	if sse <= meanSquares {
+		return 0
+	}
+	return sse - meanSquares
+}
+
+func vp9BlockSourceVariance128(src []byte, srcStride int, srcX, srcY, w, h int) uint64 {
+	var sum int64
+	var sse uint64
+	for y := range h {
+		srcRow := src[(srcY+y)*srcStride+srcX:]
+		for x := range w {
+			diff := int64(srcRow[x]) - 128
 			sum += diff
 			sse += uint64(diff * diff)
 		}

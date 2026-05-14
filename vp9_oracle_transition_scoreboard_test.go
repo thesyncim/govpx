@@ -97,6 +97,52 @@ func TestVP9OracleFrameFlagTransitionScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleFrameFlagReferenceUpdateMatrixScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 reference/update matrix scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 6
+	opts := vp9OracleCBROptions(width, height, 650)
+	extraArgs := vp9OracleCBRArgs(650, 600, 400, 500, 0)
+	cases := []struct {
+		name string
+		flag EncodeFlags
+	}{
+		{name: "no-update-last", flag: EncodeNoUpdateLast},
+		{name: "no-update-golden", flag: EncodeNoUpdateGolden},
+		{name: "no-update-altref", flag: EncodeNoUpdateAltRef},
+		{name: "no-update-last-golden", flag: EncodeNoUpdateLast | EncodeNoUpdateGolden},
+		{name: "no-reference-last", flag: EncodeNoReferenceLast},
+		{name: "no-reference-golden", flag: EncodeNoReferenceGolden},
+		{name: "no-reference-altref", flag: EncodeNoReferenceAltRef},
+		{name: "no-reference-golden-altref", flag: EncodeNoReferenceGolden | EncodeNoReferenceAltRef},
+		{name: "force-golden-no-update-last", flag: EncodeForceGoldenFrame | EncodeNoUpdateLast},
+		{name: "force-altref-no-update-golden", flag: EncodeForceAltRefFrame | EncodeNoUpdateGolden},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			flags := vp9OracleRepeatInterFlag(frames, tc.flag)
+			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, flags)
+			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+				sources, flags, extraArgs)
+			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			t.Logf("VP9 reference/update matrix scoreboard %s: %s",
+				tc.name, stats)
+			t.Logf("VP9 reference/update matrix rows %s:\n%s",
+				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+			if os.Getenv("GOVPX_VP9_FLAG_MATRIX_STRICT") == "1" &&
+				stats.hasMismatch() {
+				t.Fatalf("strict VP9 reference/update matrix mismatch %s: %s",
+					tc.name, stats)
+			}
+		})
+	}
+}
+
 func TestVP9OracleRuntimeControlTransitionScoreboard(t *testing.T) {
 	const width, height, frames = 64, 64, 10
 	opts := vp9OracleCBROptions(width, height, 900)
@@ -131,6 +177,65 @@ func TestVP9OracleRuntimeControlTransitionScoreboard(t *testing.T) {
 	}
 	t.Logf("VP9 runtime control transition rows:\n%s",
 		formatVP9SingleRateScoreboardRows(rows))
+}
+
+func TestVP9OracleRuntimeControlBitrateQuantizerScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime bitrate/Q scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 8
+	opts := vp9OracleCBROptions(width, height, 800)
+	sources := newVP9OracleTransitionSources(width, height, frames)
+	govpxRows := captureVP9RateScoreboardRowsWithHooks(t, opts, sources, nil,
+		func(enc *VP9Encoder, frame int) {
+			switch frame {
+			case 2:
+				if err := enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}); err != nil {
+					t.Fatalf("SetRealtimeTarget bitrate at frame %d: %v", frame, err)
+				}
+			case 4:
+				if err := enc.SetRealtimeTarget(RealtimeTarget{
+					MinQuantizer: 20,
+					MaxQuantizer: 20,
+				}); err != nil {
+					t.Fatalf("SetRealtimeTarget quantizers at frame %d: %v", frame, err)
+				}
+			}
+		})
+	extraArgs := append(vp9OracleCBRArgs(800, 600, 400, 500, 0),
+		"--target-bitrate-schedule=2:300",
+		"--min-q-schedule=4:20",
+		"--max-q-schedule=4:20")
+	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+		sources, nil, extraArgs)
+
+	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+	t.Logf("VP9 runtime bitrate/Q scoreboard: %s", stats)
+	t.Logf("VP9 runtime bitrate/Q rows:\n%s",
+		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+	if govpxRows[2].TargetBitrateKbps != 300 ||
+		libvpxRows[2].TargetBitrateKbps != 300 {
+		t.Fatalf("frame 2 target bitrate: govpx=%d libvpx=%d, want 300/300",
+			govpxRows[2].TargetBitrateKbps, libvpxRows[2].TargetBitrateKbps)
+	}
+	wantQ := vp9PublicQuantizerToQIndex(20)
+	for frame := 4; frame < frames; frame++ {
+		if govpxRows[frame].Dropped || libvpxRows[frame].Dropped {
+			continue
+		}
+		if govpxRows[frame].BaseQIndex != wantQ ||
+			libvpxRows[frame].BaseQIndex != wantQ {
+			t.Fatalf("frame %d base qindex: govpx=%d libvpx=%d, want %d",
+				frame, govpxRows[frame].BaseQIndex,
+				libvpxRows[frame].BaseQIndex, wantQ)
+		}
+	}
+	if os.Getenv("GOVPX_VP9_RUNTIME_CONTROL_STRICT") == "1" &&
+		stats.hasMismatch() {
+		t.Fatalf("strict VP9 runtime bitrate/Q mismatch: %s", stats)
+	}
 }
 
 func TestVP9OracleRuntimeControlTransitionParityScoreboard(t *testing.T) {
