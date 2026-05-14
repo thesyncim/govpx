@@ -96,6 +96,44 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "post-reset-tune-ssim", govpxFrames, libvpxFrames, 0)
 	})
 
+	t.Run("reset-after-denoiser-threads-token-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.NoiseSensitivity = 3
+		opts.Threads = 2
+		opts.TokenPartitions = 2
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-denoiser-threads-token", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--noise-sensitivity=3", "--threads=2", "--token-parts=2"})
+		// Denoiser + threaded token partitions matches the cold-start
+		// keyframe and first inter packet, then exposes the same threaded
+		// denoiser packet-writer drift seen by the larger nondefault row.
+		assertSegmentByteParity(t, "post-reset-denoiser-threads-token", govpxFrames, libvpxFrames, 2)
+	})
+
+	t.Run("reset-after-denoiser-ssim-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.NoiseSensitivity = 3
+		opts.Tuning = TuneSSIM
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-denoiser-ssim", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--noise-sensitivity=3", "--tune=ssim"})
+		assertSegmentByteParity(t, "post-reset-denoiser-ssim", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("reset-after-threads-token-ssim-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.Threads = 2
+		opts.TokenPartitions = 2
+		opts.Tuning = TuneSSIM
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-threads-token-ssim", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--threads=2", "--token-parts=2", "--tune=ssim"})
+		assertSegmentByteParity(t, "post-reset-threads-token-ssim", govpxFrames, libvpxFrames, 0)
+	})
+
 	t.Run("reset-after-runtime-vbr-good-cpu-mutations-matches-cold-start", func(t *testing.T) {
 		warm := makePanningSources(64, 64, 6, 0)
 		afterReset := makePanningSources(64, 64, 8, 6)
