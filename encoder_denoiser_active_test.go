@@ -631,6 +631,50 @@ func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
 	}
 }
 
+func TestDenoiserInactiveActiveMapMacroblocksUseZeroMVLastDecision(t *testing.T) {
+	const width, height = 32, 32
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	src := testImage(width, height)
+	fillImage(src, 96, 128, 128)
+
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		KeyFrameInterval:  999,
+		NoiseSensitivity:  3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 32*1024)
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	inactive := make([]uint8, rows*cols)
+	if err := e.SetActiveMap(inactive, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap returned error: %v", err)
+	}
+	if _, err := e.EncodeInto(dst, src, 1, 1, 0); err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if len(e.denoiser.state) < rows*cols {
+		t.Fatalf("denoiser state len = %d, want at least %d", len(e.denoiser.state), rows*cols)
+	}
+	for i, state := range e.denoiser.state[:rows*cols] {
+		if state != denoiserStateFilterZeroMV {
+			t.Fatalf("inactive MB %d denoiser state = %d, want zero-MV filter state", i, state)
+		}
+	}
+}
+
 func TestDenoiserModeMappingMatchesLibvpx(t *testing.T) {
 	cases := []struct {
 		level    int

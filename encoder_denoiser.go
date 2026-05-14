@@ -421,6 +421,20 @@ func newDenoiserMacroblockDecision() denoiserMacroblockDecision {
 	}
 }
 
+// Inactive active-map MBs still enter libvpx's denoiser as skipped inter
+// candidates, so the denoiser must see the zero-MV reference rather than a
+// no-filter intra sentinel.
+func (d *denoiserMacroblockDecision) recordInactiveInterCandidate(ref vp8common.MVReferenceFrame, mode vp8common.MBPredictionMode, mv vp8enc.MotionVector) {
+	d.bestReferenceFrame = ref
+	d.bestMode = mode
+	d.bestMV = mv
+	d.bestSSE = 0
+	if mode == vp8common.ZeroMV {
+		d.zeroMVReferenceFrame = ref
+		d.zeroMVSSE = 0
+	}
+}
+
 func (e *VP8Encoder) denoiserReferenceTooOld(ref vp8common.MVReferenceFrame) bool {
 	if ref == vp8common.LastFrame || ref <= vp8common.IntraFrame || ref >= vp8common.MaxRefFrames {
 		return false

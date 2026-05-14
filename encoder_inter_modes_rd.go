@@ -257,6 +257,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 						mode.SegmentID = 0
 					}
 					mode.MBSkipCoeff = true
+					if denoiseActive && !e.denoiserReferenceTooOld(ref.Frame) {
+						denoiseDecision.recordInactiveInterCandidate(ref.Frame, mode.Mode, mode.MV)
+					}
 					score = maxInt()
 					yrd = maxInt()
 					rate = e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), modeMVs.counts, bestRefMV, libvpxRDNewMVBitCostWeight)

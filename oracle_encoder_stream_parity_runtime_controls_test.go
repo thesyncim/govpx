@@ -1324,10 +1324,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "noise-sensitivity-3-disable-after-inter",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// Direct mode-3 enable still diverges after the first denoised
-			// inter packet, but this pins the common on/off teardown path
-			// separately from the 1->3->6 escalation row above.
-			matchLimit: 2,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "noise:3",
 				7: "noise:0",
@@ -1923,10 +1919,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs: []string{"--noise-sensitivity=3", "--threads=2"},
-			// The keyframe matches; denoiser/threaded active-map inter
-			// packets still drift and are kept logged as a cross-control
-			// gap.
-			matchLimit: 1,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "active:checker",
 				6: "active:off",
@@ -1948,10 +1940,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs: []string{"--noise-sensitivity=3"},
-			// Active-map + denoiser diverges while enabled, but forcing a
-			// keyframe when clearing the active map rejoins byte parity.
-			matchLimit: 1,
-			matchFrom:  6,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				6: EncodeForceKeyFrame,
 			}),
@@ -1976,11 +1964,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs: []string{"--noise-sensitivity=3"},
-			// Left-off active-map + denoiser keeps the first two packets
-			// aligned. Forcing a keyframe while clearing the active map
-			// rejoins byte parity.
-			matchLimit: 2,
-			matchFrom:  6,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				6: EncodeForceKeyFrame,
 			}),
@@ -2029,10 +2012,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs: []string{"--noise-sensitivity=3"},
-			// Border-off follows the checker denoiser drift pattern, and
-			// the forced keyframe clear rejoins byte parity.
-			matchLimit: 1,
-			matchFrom:  6,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				6: EncodeForceKeyFrame,
 			}),
@@ -2635,7 +2614,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				return opts
 			}(),
 			extraArgs:  []string{"--noise-sensitivity=3", "--threads=2"},
-			matchLimit: 1,
+			matchLimit: 4,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "roi:border1",
 				7: "roi:off",

@@ -262,6 +262,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				mode.SegmentID = 0
 			}
 			mode.MBSkipCoeff = true
+			if denoiseActive && !e.denoiserReferenceTooOld(ref.Frame) {
+				denoiseDecision.recordInactiveInterCandidate(ref.Frame, mode.Mode, mode.MV)
+			}
 			rate := e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, bestRefMV, libvpxFastNewMVBitCostWeight)
 			if traceEnabled {
 				e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScore, bestSSE, true, true, maxInt(), rate, 0, 0, &mode, improvedStart)

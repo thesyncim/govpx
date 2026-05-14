@@ -589,7 +589,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 				opts.Threads = 2
 			},
 			extraArgs: []string{"--noise-sensitivity=3", "--threads=2"},
-			limit:     framesPerSeg + 1,
 		},
 		{
 			name:          "denoiser-disable-after-resize",
@@ -602,7 +601,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 				opts.NoiseSensitivity = 3
 			},
 			extraArgs: []string{"--noise-sensitivity=3"},
-			limit:     framesPerSeg + 1,
 		},
 		{
 			name:          "roi-border1-er2-token4",
