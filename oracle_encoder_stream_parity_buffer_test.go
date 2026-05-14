@@ -453,10 +453,6 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 			flags:     temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 0),
 			script:    runtimeTemporalLayerIDScript(frames, TemporalLayeringTwoLayers),
 			extraArgs: append(baseDropArgs(lowBitrate), runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, lowBitrate)...),
-			// Govpx currently drops far more temporal-layer packets than
-			// libvpx under tight-buffer pressure; keep the matching prefix
-			// strict and log the remaining packet-count gap.
-			matchLimit: 2,
 		},
 		{
 			name: "temporal-three-layer-drop-low-bitrate-tight-buffer",
@@ -468,9 +464,6 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 			flags:     temporalScalabilityReconfigureFlags(frames, TemporalLayeringThreeLayers, 0),
 			script:    runtimeTemporalLayerIDScript(frames, TemporalLayeringThreeLayers),
 			extraArgs: append(baseDropArgs(lowBitrate), runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, lowBitrate)...),
-			// Three-layer cadence combines the same drop-pressure gap as
-			// the two-layer case with a longer layer-context schedule.
-			matchLimit: 2,
 		},
 		{
 			name: "invisible-drop-low-bitrate-tight-buffer",
@@ -480,9 +473,6 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 				5: EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
 			}),
 			extraArgs: baseDropArgs(lowBitrate),
-			// The stream matches through the initial keyframe; invisible
-			// packets shift the later actual-drop cadence by one packet.
-			matchLimit: 1,
 		},
 		{
 			name: "invisible-altref-drop-low-bitrate-tight-buffer-long",
@@ -494,10 +484,6 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 				14: EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
 			}),
 			extraArgs: baseDropArgs(lowBitrate),
-			// Long hidden-frame cadence currently diverges after the
-			// opening keyframe; keep it in the drop matrix so future fixes
-			// have a concrete regression target.
-			matchLimit: 1,
 		},
 		{
 			name: "runtime-drop-enable-disable-low-bitrate",
