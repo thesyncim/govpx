@@ -271,6 +271,85 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertSegmentByteParity(t, "copyref-roi-map-bytestream", got, want, 0)
 	})
 
+	t.Run("copy-reference-probes-under-denoiser-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		opts.NoiseSensitivity = 3
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "copyref:last+copyref:golden"
+		script[4] = "copyref:last+copyref:altref"
+		script[6] = "copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: copyReferenceProbeApply("frame1", ReferenceLast, ReferenceGolden),
+			4: copyReferenceProbeApply("frame4", ReferenceLast, ReferenceAltRef),
+			6: copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden, ReferenceAltRef),
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-denoiser.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-denoiser-bytestream", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+			"--noise-sensitivity=3",
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-denoiser-bytestream", got, want, 0)
+	})
+
+	t.Run("copy-reference-probes-under-temporal-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, opts.TargetBitrateKbps)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		flags := temporalTwoLayerFlags(len(sources))
+		script := emptyCopyReferenceScript(len(sources))
+		script[2] = "copyref:last+copyref:golden"
+		script[5] = "copyref:last+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			2: copyReferenceProbeApply("frame2", ReferenceLast, ReferenceGolden),
+			5: copyReferenceProbeApply("frame5", ReferenceLast, ReferenceAltRef),
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-temporal.log")
+
+		extraArgs := append(runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, opts.TargetBitrateKbps),
+			"--control-script="+strings.Join(script, ","),
+			"--copy-ref-log="+logPath,
+		)
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-temporal-bytestream", opts, opts.TargetBitrateKbps, sources, flags, extraArgs)
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, flags, apply)
+		assertSegmentByteParity(t, "copyref-temporal-bytestream", got, want, 0)
+	})
+
+	t.Run("copy-reference-probes-after-resize-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := make([]Image, 8)
+		for i := range sources {
+			if i < 3 {
+				sources[i] = encoderValidationPanningFrame(64, 64, i)
+			} else {
+				sources[i] = encoderValidationPanningFrame(32, 32, i)
+			}
+		}
+		script := emptyCopyReferenceScript(len(sources))
+		script[3] = "resize:32x32"
+		script[4] = "copyref:last+copyref:golden+copyref:altref"
+		script[6] = "copyref:last+copyref:golden"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			3: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRealtimeTarget(32x32)", e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 32}))
+			},
+			4: copyReferenceProbeApply("frame4", ReferenceLast, ReferenceGolden, ReferenceAltRef),
+			6: copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden),
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-resize.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-resize-bytestream", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-resize-bytestream", got, want, 0)
+	})
+
 	t.Run("copy-reference-probes-under-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(64, 64)
 		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
