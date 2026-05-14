@@ -955,6 +955,29 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "noise-sensitivity-3-disable-after-inter",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			// Direct mode-3 enable still diverges after the first denoised
+			// inter packet, but this pins the common on/off teardown path
+			// separately from the 1->3->6 escalation row above.
+			matchLimit: 2,
+			script: runtimeControlScript(frames, map[int]string{
+				1: "noise:3",
+				7: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
 			name: "cq-level-transition",
 			fx:   panning32,
 			opts: func() EncoderOptions {
@@ -1301,6 +1324,35 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "roi-pattern-switch-under-active-map",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			// Active-map + ROI enable is already pinned above. This row
+			// keeps ROI pattern replacement and teardown covered while the
+			// active map remains installed.
+			matchLimit: 1,
+			script: runtimeControlScript(frames, map[int]string{
+				1:  "active:checker+roi:checker",
+				4:  "roi:left1",
+				7:  "roi:border1",
+				10: "roi:off+active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("checker")(t, e)
+				},
+				4: roiMapApply("left1"),
+				7: roiMapApply("border1"),
+				10: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
 			name: "rtc-external-active-map-runtime-cross",
 			fx:   panning64,
 			opts: func() EncoderOptions {
@@ -1334,6 +1386,54 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				8: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-roi-rtc-disable-order-cross",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.TargetBitrateKbps = 400
+				opts.BufferSizeMs = 200
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 150
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 50
+				return opts
+			}(),
+			extraArgs: []string{
+				"--target-bitrate=400",
+				"--buf-sz=200",
+				"--buf-initial-sz=100",
+				"--buf-optimal-sz=150",
+				"--drop-frame=50",
+			},
+			matchLimit: 1,
+			script: runtimeControlScript(frames, map[int]string{
+				1:  "active:checker+roi:border1",
+				4:  "rtc:1",
+				7:  "rtc:0",
+				10: "active:off+roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+				},
+				10: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
 				},
 			},
 		},
@@ -1465,6 +1565,29 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			}),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: setReferencePanningApply(ReferenceLast, 8, "last"),
+			},
+		},
+		{
+			name: "roi-noise3-threads2-runtime-cross",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.NoiseSensitivity = 3
+				opts.Threads = 2
+				return opts
+			}(),
+			extraArgs:  []string{"--noise-sensitivity=3", "--threads=2"},
+			matchLimit: 1,
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:border1",
+				7: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("border1"),
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
 			},
 		},
 		{

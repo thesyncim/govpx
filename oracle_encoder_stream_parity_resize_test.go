@@ -555,6 +555,19 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			limit:     framesPerSeg + 1,
 		},
 		{
+			name:          "denoiser-disable-after-resize",
+			controlScript: "noise:0",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+			},
+			mutate: func(opts *EncoderOptions) {
+				opts.NoiseSensitivity = 3
+			},
+			extraArgs: []string{"--noise-sensitivity=3"},
+			limit:     framesPerSeg + 1,
+		},
+		{
 			name:          "roi-border1-er2-token4",
 			controlScript: "roi:border1",
 			apply:         roiMapApply("border1"),
