@@ -715,6 +715,51 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "cpu-used-runtime-roundtrip-force-kf-at-return",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			// Forcing a keyframe on the return to cpu-used=0 makes the
+			// transition packet exact; the following inter packet still
+			// carries the same speed-reset drift as the non-forced row.
+			matchLimit: 9,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				8: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "cpu:-3",
+				8: "cpu:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCPUUsed(-3)", e.SetCPUUsed(-3))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCPUUsed(0)", e.SetCPUUsed(0))
+				},
+			},
+		},
+		{
+			name: "cpu-used-runtime-minus8-roundtrip",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "cpu:-8",
+				8: "cpu:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCPUUsed(-8)", e.SetCPUUsed(-8))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCPUUsed(0)", e.SetCPUUsed(0))
+				},
+			},
+		},
+		{
 			name: "token-partitions-runtime-roundtrip",
 			fx:   panning64,
 			opts: baseOpts(panning64),
@@ -1282,6 +1327,53 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			// inter packet, but this pins the common on/off teardown path
 			// separately from the 1->3->6 escalation row above.
 			matchLimit: 2,
+			script: runtimeControlScript(frames, map[int]string{
+				1: "noise:3",
+				7: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
+			name: "noise-sensitivity-3-disable-after-force-keyframe",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				7: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "noise:3",
+				7: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
+			name: "noise-sensitivity-3-disable-threads2-token4",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.Threads = 2
+				opts.TokenPartitions = 2
+				return opts
+			}(),
+			extraArgs: []string{"--threads=2"},
 			script: runtimeControlScript(frames, map[int]string{
 				1: "noise:3",
 				7: "noise:0",
