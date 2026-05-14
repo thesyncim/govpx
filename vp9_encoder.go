@@ -874,6 +874,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		keyState, interState)
 	if reducedTxMode := vp9EncoderFrameTxModeFromCounts(txMode,
 		header.Quant.Lossless, counts); reducedTxMode != txMode {
+		if (isKey || header.IntraOnly) && reducedTxMode < common.Allow16x16 {
+			reducedTxMode = common.Allow16x16
+		}
 		txMode = reducedTxMode
 		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,

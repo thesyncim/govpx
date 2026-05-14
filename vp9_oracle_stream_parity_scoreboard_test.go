@@ -130,7 +130,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			frames:      8,
 			opts:        vp9OracleCBROptions(64, 64, 700),
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
-			exactPrefix: 0,
+			exactPrefix: 1,
 		},
 		{
 			name:    "tile-columns-from-threads",

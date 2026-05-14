@@ -513,6 +513,34 @@ func TestVP9EncoderVpxencOraclePublicQuantizerBandKeyframeByteParity(t *testing.
 	})
 }
 
+func TestVP9EncoderVpxencOracleCBRKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	src := newVP9PanningYCbCrForRateTest(width, height, 0)
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   700,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 128,
+	}, []string{
+		"--end-usage=cbr",
+		"--target-bitrate=700",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--drop-frame=0",
+	})
+}
+
 func TestVP9EncoderVpxencOracleLosslessKeyframeByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
