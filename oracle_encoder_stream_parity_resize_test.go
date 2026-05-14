@@ -401,6 +401,8 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 		name          string
 		controlScript string
 		apply         func(*testing.T, *VP8Encoder)
+		mutate        func(*EncoderOptions)
+		extraArgs     []string
 		limit         int
 	}{
 		{
@@ -436,6 +438,45 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			},
 		},
 		{
+			name:          "drop-frame-low-buffer",
+			controlScript: "bitrate:300+bufsz:500+bufinit:100+bufopt:300+drop:60",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRateControl(drop-low-buffer)", e.SetRateControl(RateControlConfig{
+					Mode:                RateControlCBR,
+					TargetBitrateKbps:   300,
+					MinQuantizer:        4,
+					MaxQuantizer:        56,
+					BufferSizeMs:        500,
+					BufferInitialSizeMs: 100,
+					BufferOptimalSizeMs: 300,
+					DropFrameAllowed:    true,
+					DropFrameWaterMark:  60,
+				}))
+			},
+		},
+		{
+			name:          "active-checker-noise3-threads2",
+			controlScript: "active:checker",
+			apply:         activeMapApply("checker"),
+			mutate: func(opts *EncoderOptions) {
+				opts.NoiseSensitivity = 3
+				opts.Threads = 2
+			},
+			extraArgs: []string{"--noise-sensitivity=3", "--threads=2"},
+			limit:     framesPerSeg + 1,
+		},
+		{
+			name:          "roi-border1-er2-token4",
+			controlScript: "roi:border1",
+			apply:         roiMapApply("border1"),
+			mutate: func(opts *EncoderOptions) {
+				opts.ErrorResilientPartitions = true
+				opts.TokenPartitions = 2
+			},
+			extraArgs: []string{"--error-resilient=2", "--token-parts=2"},
+		},
+		{
 			name:          "active-checker-roi-border1",
 			controlScript: "active:checker+roi:border1",
 			apply: func(t *testing.T, e *VP8Encoder) {
@@ -462,15 +503,18 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 				Deadline:          DeadlineRealtime,
 				CpuUsed:           0,
 			}
+			if tc.mutate != nil {
+				tc.mutate(&opts)
+			}
 			sources := append(append([]Image(nil), seg1...), seg2...)
 			script := make([]string, len(sources))
 			for i := range script {
 				script[i] = "-"
 			}
 			script[framesPerSeg] = "resize:32x32+" + tc.controlScript
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-control-"+tc.name, opts, targetKbps, sources, nil, []string{
-				"--control-script=" + strings.Join(script, ","),
-			})
+			extraArgs := append([]string(nil), tc.extraArgs...)
+			extraArgs = append(extraArgs, "--control-script="+strings.Join(script, ","))
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-control-"+tc.name, opts, opts.TargetBitrateKbps, sources, nil, extraArgs)
 
 			govpxFrames := encodeWithMidStreamResizeAndControl(t, opts, 32, 32, seg1, seg2, tc.apply)
 			assertSegmentByteParity(t, "runtime-resize-control-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
