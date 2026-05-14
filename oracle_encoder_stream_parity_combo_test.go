@@ -601,7 +601,7 @@ func TestOracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 }
 
 // TestOracleEncoderStreamByteParityComboThreadsTokens pins the strict
-// byte-parity gate at the cross product of Threads ∈ {2, 4} and
+// byte-parity gate at the cross product of Threads ∈ {2, 4, 8} and
 // TokenPartitions ∈ {1, 2, 3} on panning-128x128 and splitmv-96x96.
 //
 // The base matrix pins Threads alone or TokenPartitions alone at
@@ -649,6 +649,7 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 		// exercises more of the picker).
 		{name: "threads2-tokens2-panning128-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, threads: 2, tokenPartitions: 2, extraArgs: []string{"--threads=2", "--token-parts=2"}},
 		{name: "threads4-tokens3-panning128-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, threads: 4, tokenPartitions: 3, extraArgs: []string{"--threads=4", "--token-parts=3"}},
+		{name: "threads8-tokens3-panning128-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, threads: 8, tokenPartitions: 3, extraArgs: []string{"--threads=8", "--token-parts=3"}},
 
 		// splitmv-96x96 cross product. 6 combos.
 		{name: "threads2-tokens1-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 2, tokenPartitions: 1, extraArgs: []string{"--threads=2", "--token-parts=1"}},
@@ -656,6 +657,7 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 		{name: "threads2-tokens3-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 2, tokenPartitions: 3, extraArgs: []string{"--threads=2", "--token-parts=3"}},
 		{name: "threads4-tokens2-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 4, tokenPartitions: 2, extraArgs: []string{"--threads=4", "--token-parts=2"}},
 		{name: "threads4-tokens3-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 4, tokenPartitions: 3, extraArgs: []string{"--threads=4", "--token-parts=3"}},
+		{name: "threads8-tokens3-splitmv96-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv96, threads: 8, tokenPartitions: 3, extraArgs: []string{"--threads=8", "--token-parts=3"}},
 		{name: "threads2-tokens3-splitmv96-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv96, threads: 2, tokenPartitions: 3, extraArgs: []string{"--threads=2", "--token-parts=3"}},
 	}
 
