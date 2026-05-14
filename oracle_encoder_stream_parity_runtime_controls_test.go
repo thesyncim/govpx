@@ -980,10 +980,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
-			name:       "keyframe-disabled-runtime-toggle",
-			fx:         panning32,
-			opts:       baseOpts(panning32),
-			matchLimit: 8,
+			name: "keyframe-disabled-runtime-toggle",
+			fx:   panning32,
+			opts: baseOpts(panning32),
 			script: runtimeControlScript(frames, map[int]string{
 				3: "kfdisabled:1+kfmin:0+kfmax:120",
 				8: "kfdisabled:0+kfmin:0+kfmax:4",

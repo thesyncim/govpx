@@ -445,6 +445,11 @@ type VP8Encoder struct {
 	closed        bool
 	forceKeyFrame bool
 	frameCount    uint64
+	// keyFrameFrequency mirrors cpi->key_frame_frequency. libvpx seeds it
+	// from oxcf.key_freq during compressor creation and does not rewrite it
+	// on runtime vpx_codec_enc_config_set updates; adaptive auto-key forcing
+	// must therefore not read the live EncoderOptions.KeyFrameInterval.
+	keyFrameFrequency int
 
 	lastQuantizerPublic   int
 	lastQuantizerInternal int
@@ -1048,6 +1053,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// libvpx.
 	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
 	e.rc.autoKeyFrames = normalized.AdaptiveKeyFrames
+	e.keyFrameFrequency = normalized.KeyFrameInterval
 	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =
 	// av_per_frame_bandwidth * two_pass_vbrmin_section / 100; mirror
 	// that so calc_pframe_target_size's min_frame_target floor and

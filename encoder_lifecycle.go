@@ -23,6 +23,7 @@ func (e *VP8Encoder) Reset() {
 	// Encoder-level scalars / flags.
 	e.forceKeyFrame = false
 	e.frameCount = 0
+	e.keyFrameFrequency = e.opts.KeyFrameInterval
 	e.lastQuantizerPublic = 0
 	e.lastQuantizerInternal = 0
 	e.lastQuantizerValid = false

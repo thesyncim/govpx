@@ -656,6 +656,51 @@ func TestEncoderRuntimeControlValidation(t *testing.T) {
 	}
 }
 
+func TestAdaptiveKeyFrameCadenceUsesInitialFrequency(t *testing.T) {
+	tests := []struct {
+		name string
+		e    VP8Encoder
+		want bool
+	}{
+		{
+			name: "adaptive initial frequency due",
+			e: VP8Encoder{
+				opts:              EncoderOptions{KeyFrameInterval: 4, AdaptiveKeyFrames: true},
+				keyFrameFrequency: 4,
+				frameCount:        4,
+				rc:                rateControlState{framesSinceKeyframe: 3},
+			},
+			want: true,
+		},
+		{
+			name: "adaptive ignores runtime interval shrink",
+			e: VP8Encoder{
+				opts:              EncoderOptions{KeyFrameInterval: 4, AdaptiveKeyFrames: true},
+				keyFrameFrequency: 999,
+				frameCount:        8,
+				rc:                rateControlState{framesSinceKeyframe: 7},
+			},
+			want: false,
+		},
+		{
+			name: "fixed interval still uses live interval",
+			e: VP8Encoder{
+				opts:       EncoderOptions{KeyFrameInterval: 4},
+				frameCount: 8,
+			},
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.e.shouldEncodeKeyFrame(0); got != tc.want {
+				t.Fatalf("shouldEncodeKeyFrame = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestForceKeyFrameIsConsumedByNextEncodeAttempt(t *testing.T) {
 	e := newTestEncoder(t)
 	e.frameCount = 7
