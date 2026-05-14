@@ -35,6 +35,13 @@ func (e *VP8Encoder) Reset() {
 	e.lookaheadRead = 0
 	e.lookaheadWrite = 0
 	e.lookaheadCount = 0
+	e.clearPendingLookaheadReferenceSets()
+	e.clearLatestLookaheadReferenceSets()
+	e.nextReferenceSetSeq = 0
+	for i := range e.lookahead {
+		clearQueuedReferenceSets(e.lookahead[i].setReferences)
+		e.lookahead[i].setReferences = e.lookahead[i].setReferences[:0]
+	}
 	e.arnrLastReady = false
 	e.denoiser.reset()
 	e.firstPassCount = 0

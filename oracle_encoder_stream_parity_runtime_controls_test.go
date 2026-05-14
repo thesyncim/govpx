@@ -46,8 +46,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 		script      []string
 		apply       map[int]func(*testing.T, *VP8Encoder)
 		extraArgs   []string
-		matchLimit  int
-		matchFrom   int
 	}
 
 	baseOpts := func(fx fixture) EncoderOptions {
@@ -2963,10 +2961,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				libvpxFlags = tc.libvpxFlags
 			}
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, libvpxFlags, extraArgs)
-			assertSegmentByteParity(t, "runtime-controls", govpxFrames, libvpxFrames, tc.matchLimit)
-			if tc.matchFrom > 0 {
-				assertSegmentByteParityFrom(t, "runtime-controls-from", govpxFrames, libvpxFrames, tc.matchFrom)
-			}
+			assertSegmentByteParity(t, "runtime-controls", govpxFrames, libvpxFrames, 0)
 		})
 	}
 }
@@ -3107,15 +3102,13 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 	}
 
 	type referenceCase struct {
-		name       string
-		fx         fixture
-		opts       EncoderOptions
-		flags      []EncodeFlags
-		script     []string
-		apply      map[int]func(*testing.T, *VP8Encoder)
-		extraArgs  []string
-		matchLimit int
-		matchFrom  int
+		name      string
+		fx        fixture
+		opts      EncoderOptions
+		flags     []EncodeFlags
+		script    []string
+		apply     map[int]func(*testing.T, *VP8Encoder)
+		extraArgs []string
 	}
 
 	cases := []referenceCase{
@@ -3337,11 +3330,6 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 				opts.AutoAltRef = true
 				return opts
 			}(),
-			// With lag=4, applying control before input frame 4 exposes the
-			// queued-frame reference replacement gap until a later keyframe
-			// rejoins the stream.
-			matchLimit: 1,
-			matchFrom:  6,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				1: EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
 				6: EncodeForceKeyFrame,
@@ -3363,8 +3351,6 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 				opts.AutoAltRef = true
 				return opts
 			}(),
-			matchLimit: 1,
-			matchFrom:  6,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				1: EncodeNoReferenceLast | EncodeNoReferenceAltRef,
 				6: EncodeForceKeyFrame,
@@ -3386,8 +3372,6 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 				opts.AutoAltRef = true
 				return opts
 			}(),
-			matchLimit: 1,
-			matchFrom:  6,
 			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
 				1: EncodeNoReferenceLast | EncodeNoReferenceGolden,
 				6: EncodeForceKeyFrame,
@@ -3530,10 +3514,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			extraArgs := append([]string(nil), tc.extraArgs...)
 			extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "runtime-reference-"+tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
-			assertSegmentByteParity(t, "runtime-reference-"+tc.name, govpxFrames, libvpxFrames, tc.matchLimit)
-			if tc.matchFrom > 0 {
-				assertSegmentByteParityFrom(t, "runtime-reference-"+tc.name+"-from", govpxFrames, libvpxFrames, tc.matchFrom)
-			}
+			assertSegmentByteParity(t, "runtime-reference-"+tc.name, govpxFrames, libvpxFrames, 0)
 		})
 	}
 }

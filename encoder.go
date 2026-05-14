@@ -725,9 +725,12 @@ type VP8Encoder struct {
 	referenceFrameNumbers [vp8common.MaxRefFrames]uint64
 	// Mirrors libvpx gold_is_last / alt_is_last / gold_is_alt. These flags
 	// prune duplicate reference candidates after refreshes make buffers alias.
-	goldenRefAliasesLast bool
-	altRefAliasesLast    bool
-	goldenRefAliasesAlt  bool
+	goldenRefAliasesLast          bool
+	altRefAliasesLast             bool
+	goldenRefAliasesAlt           bool
+	pendingLookaheadSetReferences []queuedReferenceSet
+	latestLookaheadSetReferences  []queuedReferenceSet
+	nextReferenceSetSeq           uint64
 
 	loopFilterPick vp8common.FrameBuffer
 	loopFilterBest vp8common.FrameBuffer

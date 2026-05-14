@@ -266,6 +266,9 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 			forceLFDeltaUpdate: peeked.forceLFDeltaUpdate,
 			internalInvisible:  true,
 		}
+		e.applyQueuedReferenceSets(peeked.setReferences)
+		clearQueuedReferenceSets(peeked.setReferences)
+		peeked.setReferences = peeked.setReferences[:0]
 		result, err := e.encodeSourceInto(dst, hiddenSource, hiddenPTS, hiddenDuration, autoAltRefHiddenFlags, meta)
 		if err != nil {
 			return EncodeResult{}, true, err
@@ -309,6 +312,7 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		lookaheadDepth:     e.lookaheadSize(),
 		forceLFDeltaUpdate: entry.forceLFDeltaUpdate,
 	}
+	e.applyQueuedReferenceSets(entry.setReferences)
 	result, err := e.encodeSourceInto(dst, visibleSource, visiblePTS, visibleDuration, visibleFlags, meta)
 	e.clearPoppedLookahead(entry)
 	if err != nil {
@@ -350,6 +354,9 @@ func (e *VP8Encoder) autoAltRefMaybeEmitHiddenOnFlush(dst []byte) (EncodeResult,
 		forceLFDeltaUpdate: peeked.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
 		internalInvisible:  true,
 	}
+	e.applyQueuedReferenceSets(peeked.setReferences)
+	clearQueuedReferenceSets(peeked.setReferences)
+	peeked.setReferences = peeked.setReferences[:0]
 	result, err := e.encodeSourceInto(dst, hiddenSource, hiddenPTS, hiddenDuration, autoAltRefHiddenFlags, meta)
 	if err != nil {
 		return EncodeResult{}, true, err
