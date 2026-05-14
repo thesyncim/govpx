@@ -1680,6 +1680,158 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime reference-control byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 900
+		frames     = 10
+	)
+
+	type fixture struct {
+		name   string
+		w, h   int
+		source func(w, h, i int) Image
+	}
+	panning32 := fixture{name: "panning-32x32", w: 32, h: 32, source: encoderValidationPanningFrame}
+	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
+
+	baseOpts := func(fx fixture) EncoderOptions {
+		return EncoderOptions{
+			Width:             fx.w,
+			Height:            fx.h,
+			FPS:               fps,
+			RateControlMode:   RateControlCBR,
+			TargetBitrateKbps: targetKbps,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			KeyFrameInterval:  999,
+			Deadline:          DeadlineRealtime,
+			CpuUsed:           0,
+			Tuning:            TunePSNR,
+		}
+	}
+
+	type referenceCase struct {
+		name       string
+		fx         fixture
+		opts       EncoderOptions
+		flags      []EncodeFlags
+		script     []string
+		apply      map[int]func(*testing.T, *VP8Encoder)
+		extraArgs  []string
+		matchLimit int
+	}
+
+	cases := []referenceCase{
+		{
+			name: "set-golden-after-force-golden-only",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				2: EncodeForceGoldenFrame | EncodeNoUpdateLast | EncodeNoUpdateAltRef,
+				3: EncodeNoReferenceLast | EncodeNoReferenceAltRef,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "setref:golden:panning:9",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: setReferencePanningApply(ReferenceGolden, 9, "golden"),
+			},
+		},
+		{
+			name: "set-altref-after-force-altref-only",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				2: EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
+				3: EncodeNoReferenceLast | EncodeNoReferenceGolden,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "setref:altref:panning:10",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: setReferencePanningApply(ReferenceAltRef, 10, "altref"),
+			},
+		},
+		{
+			name: "set-altref-after-hidden-altref-refresh",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				2: EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden,
+				3: EncodeNoReferenceLast | EncodeNoReferenceGolden,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "setref:altref:panning:11",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: setReferencePanningApply(ReferenceAltRef, 11, "altref"),
+			},
+		},
+		{
+			name: "set-golden-under-two-layer-temporal",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, targetKbps)
+				return opts
+			}(),
+			flags: temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 0),
+			script: func() []string {
+				script := runtimeTemporalLayerIDScript(frames, TemporalLayeringTwoLayers)
+				appendRuntimeControl(script, 4, "setref:golden:panning:12")
+				return script
+			}(),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),
+			},
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		},
+		{
+			name: "set-altref-after-runtime-resize",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				5: EncodeNoReferenceLast | EncodeNoReferenceGolden,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "resize:32x32",
+				5: "setref:altref:panning:13",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(32x32)", e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 32}))
+				},
+				5: setReferencePanningApply(ReferenceAltRef, 13, "altref"),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]Image, frames)
+			for i := range sources {
+				w, h := tc.fx.w, tc.fx.h
+				if tc.name == "set-altref-after-runtime-resize" && i >= 4 {
+					w, h = 32, 32
+				}
+				sources[i] = tc.fx.source(w, h, i)
+			}
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, tc.opts, sources, tc.flags, tc.apply)
+			extraArgs := append([]string(nil), tc.extraArgs...)
+			extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "runtime-reference-"+tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
+			assertSegmentByteParity(t, "runtime-reference-"+tc.name, govpxFrames, libvpxFrames, tc.matchLimit)
+		})
+	}
+}
+
 func TestOracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode-transition byte-parity gate")
