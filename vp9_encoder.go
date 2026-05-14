@@ -22,6 +22,9 @@ const (
 	// base_qindex emitted by pinned libvpx vpxenc-vp9 with the repo's realtime
 	// CQ oracle knobs (--end-usage=q --cq-level=32 --min-q=4 --max-q=56).
 	vp9DefaultBaseQIndex = 37
+	// The same oracle ramps default inter frames to max-q in the no-rate-control
+	// packet path after the keyframe.
+	vp9DefaultInterBaseQIndex = 128
 )
 
 // VP9EncoderOptions configures a VP9 profile 0 encoder.
@@ -177,7 +180,8 @@ type VP9Encoder struct {
 	reconU     []byte
 	reconV     []byte
 
-	refFrames [common.RefFrames]vp9ReferenceFrame
+	refFrames   [common.RefFrames]vp9ReferenceFrame
+	refSignBias [common.RefFrames]uint8
 
 	prevFrameMvs      []vp9MvRef
 	prevFrameMvRows   int
@@ -512,7 +516,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		},
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
-	qindex := e.vp9EncoderModeDecisionQIndex()
+	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly)
 	header.Quant.BaseQindex = int16(qindex)
 	header.Quant.Lossless = qindex == 0 &&
 		header.Quant.YDcDeltaQ == 0 &&
@@ -540,7 +544,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		}
 		header.InterRef.SignBias = e.vp9InterRefSignBias(flags)
 	}
-	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly)
+	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly,
+		header.Quant.Lossless)
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 
 	txMode := vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
@@ -605,6 +610,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 			compoundAllowed: compoundAllowed,
 			refSignBias:     refSignBias,
 			compoundRefs:    compoundRefs,
+			interpFilter:    header.InterpFilter,
 			lossless:        header.Quant.Lossless,
 		}
 	}
@@ -694,7 +700,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		}
 	}
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
-	e.refreshVP9EncoderRefs(&header)
+	e.refreshVP9EncoderRefs(&header, flags)
 	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
 	e.frameIndex++
 	if isKey {
@@ -740,6 +746,17 @@ func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 }
 
 func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
+	if e.opts.Lossless {
+		return e.vp9LegacyInterRefSignBias(flags)
+	}
+	return [3]uint8{
+		e.refSignBias[vp9LastRefSlot],
+		e.refSignBias[vp9GoldenRefSlot],
+		e.refSignBias[vp9AltRefSlot],
+	}
+}
+
+func (e *VP9Encoder) vp9LegacyInterRefSignBias(flags EncodeFlags) [3]uint8 {
 	var bias [3]uint8
 	mask := vp9InterReferenceMask(flags)
 	altUsable := mask&(1<<uint(vp9dec.AltrefFrame)) != 0 &&
@@ -858,19 +875,30 @@ func (e *VP9Encoder) vp9RefDims(slot uint8) (uint32, uint32) {
 	return uint32(e.opts.Width), uint32(e.opts.Height)
 }
 
-func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader) {
-	flags := header.RefreshFrameFlags
+func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, flags EncodeFlags) {
+	refreshFlags := header.RefreshFrameFlags
 	for slot := range e.refValid {
-		if flags&(1<<uint(slot)) == 0 {
+		if refreshFlags&(1<<uint(slot)) == 0 {
 			continue
 		}
 		e.refWidth[slot] = header.Width
 		e.refHeight[slot] = header.Height
 		e.refValid[slot] = true
+		e.refSignBias[slot] = vp9EncoderRefreshRefSignBias(slot, header, flags)
 		if e.reconFrame.Width != 0 && e.reconFrame.Height != 0 {
 			e.refFrames[slot].store(e.reconFrame)
 		}
 	}
+}
+
+func vp9EncoderRefreshRefSignBias(slot int, header *vp9dec.UncompressedHeader, flags EncodeFlags) uint8 {
+	if header == nil || header.FrameType == common.KeyFrame || header.IntraOnly {
+		return 0
+	}
+	if slot == vp9AltRefSlot && flags&EncodeForceAltRefFrame != 0 {
+		return 1
+	}
+	return 0
 }
 
 func (e *VP9Encoder) refreshVP9EncoderMvRefs(isKey bool, miRows, miCols int) {
@@ -1131,11 +1159,11 @@ func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 	return common.Only4x4
 }
 
-func vp9EncoderFrameInterpFilter(isKey, intraOnly bool) vp9dec.InterpFilter {
-	if isKey || intraOnly {
-		return vp9dec.InterpEighttap
+func vp9EncoderFrameInterpFilter(isKey, intraOnly, lossless bool) vp9dec.InterpFilter {
+	if !isKey && !intraOnly && lossless {
+		return vp9dec.InterpSwitchable
 	}
-	return vp9dec.InterpSwitchable
+	return vp9dec.InterpEighttap
 }
 
 func vp9EncoderFrameAllowHighPrecisionMv(isKey, intraOnly bool) bool {
@@ -1219,8 +1247,11 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
 	return d.applyVP9LoopFilter(hdr)
 }
 
-func vp9ModeTreeInterpFilter(kind vp9ModeTreeKind) vp9dec.InterpFilter {
+func vp9ModeTreeInterpFilter(kind vp9ModeTreeKind, inter *vp9InterEncodeState) vp9dec.InterpFilter {
 	if kind == vp9ModeTreeInterSource || kind == vp9ModeTreeInterSkip {
+		if inter != nil {
+			return inter.interpFilter
+		}
 		return vp9dec.InterpSwitchable
 	}
 	return vp9dec.InterpEighttap
@@ -1230,6 +1261,44 @@ var vp9SwitchableInterpFilterOrder = [...]vp9dec.InterpFilter{
 	vp9dec.InterpEighttap,
 	vp9dec.InterpEighttapSmooth,
 	vp9dec.InterpEighttapSharp,
+}
+
+var (
+	vp9EighttapInterpFilterOrder = [...]vp9dec.InterpFilter{vp9dec.InterpEighttap}
+	vp9SmoothInterpFilterOrder   = [...]vp9dec.InterpFilter{vp9dec.InterpEighttapSmooth}
+	vp9SharpInterpFilterOrder    = [...]vp9dec.InterpFilter{vp9dec.InterpEighttapSharp}
+	vp9BilinearInterpFilterOrder = [...]vp9dec.InterpFilter{vp9dec.InterpBilinear}
+)
+
+func vp9InterFrameInterpFilter(inter *vp9InterEncodeState) vp9dec.InterpFilter {
+	if inter == nil {
+		return vp9dec.InterpSwitchable
+	}
+	return inter.interpFilter
+}
+
+func vp9InterInterpFilterCandidates(inter *vp9InterEncodeState) []vp9dec.InterpFilter {
+	switch vp9InterFrameInterpFilter(inter) {
+	case vp9dec.InterpSwitchable:
+		return vp9SwitchableInterpFilterOrder[:]
+	case vp9dec.InterpEighttapSmooth:
+		return vp9SmoothInterpFilterOrder[:]
+	case vp9dec.InterpEighttapSharp:
+		return vp9SharpInterpFilterOrder[:]
+	case vp9dec.InterpBilinear:
+		return vp9BilinearInterpFilterOrder[:]
+	default:
+		return vp9EighttapInterpFilterOrder[:]
+	}
+}
+
+func vp9InterInterpFilterRateCost(inter *vp9InterEncodeState, fc *vp9dec.FrameContext,
+	ctx int, filter vp9dec.InterpFilter,
+) int {
+	if vp9InterFrameInterpFilter(inter) != vp9dec.InterpSwitchable {
+		return 0
+	}
+	return vp9SwitchableInterpRateCost(fc, ctx, filter)
 }
 
 func vp9MvHasSubpel(mv vp9dec.MV) bool {
@@ -1620,6 +1689,7 @@ type vp9InterEncodeState struct {
 	compoundAllowed bool
 	refSignBias     [vp9dec.MaxRefFrames]uint8
 	compoundRefs    vp9dec.CompoundFrameRefs
+	interpFilter    vp9dec.InterpFilter
 	lossless        bool
 	counts          *encoder.FrameCounts
 }
@@ -2217,7 +2287,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			countVP9TxSize(counts, txCtx, maxTxSize, cur.TxSize)
 		}
 		countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
-		frameInterpFilter := vp9ModeTreeInterpFilter(kind)
+		frameInterpFilter := vp9ModeTreeInterpFilter(kind, inter)
 		countVP9Skip(counts, seg, segID, above, left, cur.Skip)
 		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
 			miRow, miCol, bsize, &cur, inter != nil && inter.allowHP,
@@ -3555,7 +3625,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 		rate := refRate +
 			vp9InterModeRateCostN(&inter.selectFc, interModeCtx, mode,
 				mv, refMv, 2, inter.allowHP) +
-			vp9SwitchableInterpRateCost(&inter.selectFc, switchableCtx, filter)
+			vp9InterInterpFilterRateCost(inter, &inter.selectFc, switchableCtx, filter)
 		cand := vp9InterModeDecision{
 			refFrame:       refFrame[0],
 			secondRefFrame: refFrame[1],
@@ -3628,18 +3698,19 @@ func (e *VP9Encoder) evalVP9CompoundMode(inter *vp9InterEncodeState,
 	consider func(common.PredictionMode, [2]vp9dec.MV, [2]vp9dec.MV,
 		vp9dec.InterpFilter, uint64),
 ) {
+	filters := vp9InterInterpFilterCandidates(inter)
 	if !vp9AnyMvHasSubpel(mv) {
 		distortion, ok := e.vp9CompoundPredictionDistortion(inter, miRows, miCols,
 			miRow, miCol, bsize, mode, refFrame, refSlot, mv,
-			vp9dec.InterpEighttap)
+			filters[0])
 		if ok {
-			for _, filter := range vp9SwitchableInterpFilterOrder {
+			for _, filter := range filters {
 				consider(mode, mv, refMv, filter, distortion)
 			}
 		}
 		return
 	}
-	for _, filter := range vp9SwitchableInterpFilterOrder {
+	for _, filter := range filters {
 		distortion, ok := e.vp9CompoundPredictionDistortion(inter, miRows, miCols,
 			miRow, miCol, bsize, mode, refFrame, refSlot, mv, filter)
 		if ok {
@@ -3690,7 +3761,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		rate := refRate +
 			vp9InterModeRateCost(&inter.selectFc, interModeCtx, mode,
 				mv, refMv, inter.allowHP) +
-			vp9SwitchableInterpRateCost(&inter.selectFc, switchableCtx, filter)
+			vp9InterInterpFilterRateCost(inter, &inter.selectFc, switchableCtx, filter)
 		cand := vp9InterModeDecision{
 			mode:         mode,
 			mv:           [2]vp9dec.MV{mv},
@@ -3708,7 +3779,8 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 
 	zeroDistortion := vp9BlockSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH)
-	for _, filter := range vp9SwitchableInterpFilterOrder {
+	filters := vp9InterInterpFilterCandidates(inter)
+	for _, filter := range filters {
 		consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
 			zeroDistortion)
 	}
@@ -3722,16 +3794,16 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		}
 		if !vp9MvHasSubpel(mv) {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
-				miRow, miCol, bsize, mode, refFrame, mv, vp9dec.InterpEighttap,
+				miRow, miCol, bsize, mode, refFrame, mv, filters[0],
 			)
 			if ok {
-				for _, filter := range vp9SwitchableInterpFilterOrder {
+				for _, filter := range filters {
 					consider(mode, mv, mv, filter, distortion)
 				}
 			}
 			continue
 		}
-		for _, filter := range vp9SwitchableInterpFilterOrder {
+		for _, filter := range filters {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
 				miRow, miCol, bsize, mode, refFrame, mv, filter)
 			if ok {
@@ -3748,14 +3820,14 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		if !vp9MvHasSubpel(mv) {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
 				miRow, miCol, bsize, common.NewMv, refFrame, mv,
-				vp9dec.InterpEighttap)
+				filters[0])
 			if ok {
-				for _, filter := range vp9SwitchableInterpFilterOrder {
+				for _, filter := range filters {
 					consider(common.NewMv, mv, refMv, filter, distortion)
 				}
 			}
 		} else {
-			for _, filter := range vp9SwitchableInterpFilterOrder {
+			for _, filter := range filters {
 				distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
 					miRow, miCol, bsize, common.NewMv, refFrame, mv, filter,
 				)
@@ -4015,12 +4087,19 @@ func (e *VP9Encoder) vp9CompoundPredictionDistortion(inter *vp9InterEncodeState,
 }
 
 func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
+	return e.vp9EncoderFrameQIndex(true, false)
+}
+
+func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool) int {
 	if e.opts.Lossless {
 		return 0
 	}
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
 		qindex = vp9DefaultBaseQIndex
+		if !isKey && !intraOnly {
+			qindex = vp9DefaultInterBaseQIndex
+		}
 	}
 	return qindex
 }
@@ -4348,7 +4427,7 @@ func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
 			},
 		},
 		AllowHighPrecisionMv: true,
-		InterpFilter:         vp9dec.InterpSwitchable,
+		InterpFilter:         vp9InterFrameInterpFilter(inter),
 	}
 	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
 	e.interPredictScratch = predictor.interPredictScratch

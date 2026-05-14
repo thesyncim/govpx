@@ -154,6 +154,14 @@ func TestVP9EncoderVpxencOracleChecker64KeyframeByteParity(t *testing.T) {
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
+func TestVP9EncoderVpxencOracleIdenticalInterByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	assertVP9VpxencTwoFrameByteParity(t, src, src)
+}
+
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 	t.Helper()
 	width := src.Rect.Dx()
@@ -194,6 +202,77 @@ func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 			libvpxGrid, libvpxTx,
 			govpxPacket, libvpxFrame.Data)
 	}
+}
+
+func assertVP9VpxencTwoFrameByteParity(t *testing.T, first, second *image.YCbCr) {
+	t.Helper()
+	width := first.Rect.Dx()
+	height := first.Rect.Dy()
+	if second.Rect.Dx() != width || second.Rect.Dy() != height {
+		t.Fatalf("dimension mismatch: first=%dx%d second=%dx%d",
+			width, height, second.Rect.Dx(), second.Rect.Dy())
+	}
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	govpxKey, err := e.Encode(first)
+	if err != nil {
+		t.Fatalf("Encode govpx keyframe: %v", err)
+	}
+	govpxInter, err := e.Encode(second)
+	if err != nil {
+		t.Fatalf("Encode govpx inter frame: %v", err)
+	}
+
+	raw := appendVP9YCbCrI420(nil, first)
+	raw = appendVP9YCbCrI420(raw, second)
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 2)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	libvpxKey, next, err := testutil.NextIVFFrame(ivf, offset, 0)
+	if err != nil {
+		t.Fatalf("NextIVFFrame[0]: %v", err)
+	}
+	libvpxInter, _, err := testutil.NextIVFFrame(ivf, next, 1)
+	if err != nil {
+		t.Fatalf("NextIVFFrame[1]: %v", err)
+	}
+
+	assertVP9PacketByteParity(t, "keyframe", govpxKey, libvpxKey.Data)
+	assertVP9PacketByteParity(t, "inter", govpxInter, libvpxInter.Data)
+}
+
+func assertVP9PacketByteParity(t *testing.T, label string, got, want []byte) {
+	t.Helper()
+	if bytes.Equal(got, want) {
+		return
+	}
+	gotHeader, gotTileStart := parseVP9EncoderHeaderForTest(t, got)
+	wantHeader, wantTileStart := parseVP9EncoderHeaderForTest(t, want)
+	t.Fatalf("%s packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x\nvpxenc header=%+v tileStart=%d tile=% x\ngovpx packet=% x\nvpxenc packet=% x",
+		label, firstVP9PacketDiffForTest(got, want),
+		gotHeader, gotTileStart, got[gotTileStart:],
+		wantHeader, wantTileStart, want[wantTileStart:],
+		got, want)
+}
+
+func firstVP9PacketDiffForTest(a, b []byte) int {
+	n := min(len(a), len(b))
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	if len(a) != len(b) {
+		return n
+	}
+	return -1
 }
 
 type vp9OracleTxCoeffs struct {

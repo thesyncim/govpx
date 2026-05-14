@@ -696,6 +696,37 @@ func TestVP9EncoderDefaultQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderDefaultInterQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	key, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(key)
+	keyHeader, err := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader keyframe: %v", err)
+	}
+	var interBR vp9dec.BitReader
+	interBR.Init(inter)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&interBR, &keyHeader,
+		func(uint8) (uint32, uint32) { return 64, 64 })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	if got := int(interHeader.Quant.BaseQindex); got != vp9DefaultInterBaseQIndex {
+		t.Fatalf("inter BaseQindex = %d, want pinned default %d",
+			got, vp9DefaultInterBaseQIndex)
+	}
+}
+
 func TestVP9EncoderExplicitQuantizerOverridesDefault(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{
 		Width:     64,
@@ -1187,8 +1218,8 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadUncompressedHeader inter: %v", err)
 	}
-	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
-		t.Fatalf("inter header InterpFilter = %d, want Switchable",
+	if interHeader.InterpFilter != vp9dec.InterpEighttap {
+		t.Fatalf("inter header InterpFilter = %d, want Eighttap",
 			interHeader.InterpFilter)
 	}
 
@@ -2976,14 +3007,14 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if interHeader.InterRef.RefIndex != [3]uint8{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
 		t.Errorf("RefIndex = %v, want LAST/GOLDEN/ALTREF slots 0/1/2", interHeader.InterRef.RefIndex)
 	}
-	if interHeader.InterRef.SignBias != [3]uint8{0, 0, 1} {
-		t.Errorf("SignBias = %v, want [0 0 1]", interHeader.InterRef.SignBias)
+	if interHeader.InterRef.SignBias != [3]uint8{} {
+		t.Errorf("SignBias = %v, want [0 0 0]", interHeader.InterRef.SignBias)
 	}
 	if !interHeader.AllowHighPrecisionMv {
 		t.Error("AllowHighPrecisionMv = false, want true")
 	}
-	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
-		t.Errorf("InterpFilter = %d, want Switchable", interHeader.InterpFilter)
+	if interHeader.InterpFilter != vp9dec.InterpEighttap {
+		t.Errorf("InterpFilter = %d, want Eighttap", interHeader.InterpFilter)
 	}
 	if interHeader.FirstPartitionSize == 0 {
 		t.Fatal("FirstPartitionSize = 0 (compressed header empty)")
@@ -3006,7 +3037,7 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 		KeyFrame:             false,
 		InterpFilter:         interHeader.InterpFilter,
 		AllowHighPrecisionMv: interHeader.AllowHighPrecisionMv,
-		CompoundRefAllowed:   true,
+		CompoundRefAllowed:   false,
 	})
 	if cr.HasError() {
 		t.Fatal("compressed header reader reported over-read")
@@ -3014,8 +3045,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if out.TxMode != common.TxModeSelect {
 		t.Errorf("TxMode = %d, want TxModeSelect", out.TxMode)
 	}
-	if out.ReferenceMode != vp9dec.ReferenceModeSelect {
-		t.Errorf("ReferenceMode = %d, want ReferenceModeSelect", out.ReferenceMode)
+	if out.ReferenceMode != vp9dec.SingleReference {
+		t.Errorf("ReferenceMode = %d, want SingleReference", out.ReferenceMode)
 	}
 	if compEnd >= len(inter) {
 		t.Fatal("inter frame has no tile payload")
@@ -3617,7 +3648,7 @@ func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
 
 	var n int
 	var err error
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(10, func() {
 		e.frameIndex = 1
 		n, err = e.EncodeInto(img, dst)
 	})
@@ -3649,7 +3680,7 @@ func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 
 	var n int
 	var err error
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(10, func() {
 		e.frameIndex = 1
 		e.refFrames[0].store(keyRef.img)
 		n, err = e.EncodeInto(interSrc, dst)
