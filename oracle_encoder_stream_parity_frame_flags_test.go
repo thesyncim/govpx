@@ -349,6 +349,7 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 		frames          int
 		lookaheadFrames int
 		forceFrames     map[int]bool
+		setup           func(*testing.T, *VP8Encoder)
 		extraArgs       []string
 		matchLimit      int
 	}{
@@ -370,6 +371,20 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			lookaheadFrames: 4,
 			forceFrames:     map[int]bool{4: true, 9: true},
 			extraArgs:       []string{"--lag-in-frames=4"},
+		},
+		{
+			name:        "active-map-checker-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			setup:       activeMapApply("checker"),
+			extraArgs:   []string{"--active-map=checker"},
+		},
+		{
+			name:        "roi-map-border-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			setup:       roiMapApply("border1"),
+			extraArgs:   []string{"--roi-map=border1"},
 		},
 	}
 
@@ -398,7 +413,7 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 				flags[frame] = EncodeForceKeyFrame
 			}
 
-			govpxFrames := encodeFramesWithGovpxForceKeySchedule(t, opts, sources, tc.forceFrames)
+			govpxFrames := encodeFramesWithGovpxForceKeyScheduleAndSetup(t, opts, sources, tc.forceFrames, tc.setup)
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-"+tc.name, opts, targetKbps, sources, flags, tc.extraArgs)
 			assertSegmentByteParity(t, "force-key-api", govpxFrames, libvpxFrames, tc.matchLimit)
 		})
@@ -407,11 +422,19 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 
 func encodeFramesWithGovpxForceKeySchedule(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool) [][]byte {
 	t.Helper()
+	return encodeFramesWithGovpxForceKeyScheduleAndSetup(t, opts, sources, forceFrames, nil)
+}
+
+func encodeFramesWithGovpxForceKeyScheduleAndSetup(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, setup func(*testing.T, *VP8Encoder)) [][]byte {
+	t.Helper()
 	enc, err := NewVP8Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP8Encoder: %v", err)
 	}
 	defer enc.Close()
+	if setup != nil {
+		setup(t, enc)
+	}
 	buf := make([]byte, opts.Width*opts.Height*4+4096)
 	out := make([][]byte, 0, len(sources))
 	for i, src := range sources {
