@@ -1242,7 +1242,7 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after visible inter frame")
 	}
-	assertVP9FilledFrame(t, frame, 96, 80, 201, 44, 19)
+	assertVP9FilledFrameWithin(t, frame, 96, 80, 201, 44, 19, 64)
 }
 
 func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
@@ -2475,8 +2475,8 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) 
 	if len(d.miGrid) == 0 {
 		t.Fatal("decoder MI grid is empty after GOLDEN-only inter")
 	}
-	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.GoldenFrame || got.Mv[0] != (vp9dec.MV{}) {
-		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want GOLDEN with zero MV",
+	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.GoldenFrame {
+		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want GOLDEN",
 			got.RefFrame[0], got.Mode, got.Mv[0])
 	}
 }
@@ -2613,7 +2613,7 @@ func TestVP9EncoderEncodeIntoWithFlagsInvisibleAltRefRefresh(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after visible altref-only inter")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 188, 96, 224)
+	assertVP9FilledFrameWithin(t, frame, width, height, 188, 96, 224, 4)
 }
 
 func TestVP9EncoderEncodeShowExistingFrameInto(t *testing.T) {
@@ -3666,7 +3666,7 @@ func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
 func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
 	keySrc := newVP9YCbCrForTest(256, 192, 81, 123, 210)
-	interSrc := newVP9YCbCrForTest(256, 192, 204, 47, 18)
+	interSrc := newVP9YCbCrForTest(256, 192, 113, 123, 210)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {

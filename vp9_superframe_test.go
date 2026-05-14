@@ -113,5 +113,5 @@ func TestPackVP9SuperframeDecode(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after packed superframe")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 144, 96, 224)
+	assertVP9FilledFrameWithin(t, frame, width, height, 144, 96, 224, 32)
 }

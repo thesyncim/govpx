@@ -2949,10 +2949,15 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	sse, activity, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize)
 	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
 		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
-	// Smooth or low-energy residuals are strongly biased toward max-tx and
-	// are common on already-quantized references, so keep them on the cheap
-	// path and reserve transform scoring for textured blocks.
-	if !ok || sse <= pixels*512 || activity <= pixels*16 {
+	if !ok {
+		return maxTx
+	}
+	// The realtime oracle keeps smooth changed inter blocks below 32x32, while
+	// still allowing textured residuals to use the scored Tx32 path below.
+	if sse <= pixels*512 || activity <= pixels*16 {
+		if maxTx > common.Tx16x16 {
+			return common.Tx16x16
+		}
 		return maxTx
 	}
 	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, bsize)
@@ -3311,6 +3316,10 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	if inter == nil {
 		return vp9InterIntraDecision{}, false
 	}
+	if interScore < 1<<60 &&
+		!e.vp9InterIntraResidualLooksSceneCut(inter, miRow, miCol, bsize) {
+		return vp9InterIntraDecision{}, false
+	}
 	decision, ok := e.pickVP9InterIntraModeCore(inter, tile, miRows, miCols,
 		miRow, miCol, bsize, txSize,
 		func(above, left *vp9dec.NeighborMi) int {
@@ -3331,6 +3340,21 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 		return vp9InterIntraDecision{}, false
 	}
 	return decision, true
+}
+
+func (e *VP9Encoder) vp9InterIntraResidualLooksSceneCut(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) bool {
+	if bsize >= common.BlockSizes {
+		return false
+	}
+	sse, _, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize)
+	if !ok {
+		return false
+	}
+	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
+		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
+	return sse >= pixels*64*64
 }
 
 func (e *VP9Encoder) pickVP9ForcedInterIntraMode(inter *vp9InterEncodeState,

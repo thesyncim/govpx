@@ -3496,6 +3496,24 @@ func assertVP9FilledFrame(t *testing.T, got Image, width, height int,
 	assertVP9PlaneFilled(t, "V", got.V, got.VStride, uvWidth, uvHeight, vValue)
 }
 
+func assertVP9FilledFrameWithin(t *testing.T, got Image, width, height int,
+	yValue, uValue, vValue, tolerance byte,
+) {
+	t.Helper()
+	if got.Width != width || got.Height != height {
+		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
+			got.Width, got.Height, width, height)
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	assertVP9PlaneFilledWithin(t, "Y", got.Y, got.YStride, width, height,
+		yValue, tolerance)
+	assertVP9PlaneFilledWithin(t, "U", got.U, got.UStride, uvWidth, uvHeight,
+		uValue, tolerance)
+	assertVP9PlaneFilledWithin(t, "V", got.V, got.VStride, uvWidth, uvHeight,
+		vValue, tolerance)
+}
+
 func assertVP9PlaneFilled(t *testing.T, name string, plane []byte,
 	stride, width, height int, want byte,
 ) {
@@ -3512,6 +3530,28 @@ func assertVP9PlaneFilled(t *testing.T, name string, plane []byte,
 			if got := plane[row*stride+col]; got != want {
 				t.Fatalf("%s[%d,%d] = %d, want %d",
 					name, row, col, got, want)
+			}
+		}
+	}
+}
+
+func assertVP9PlaneFilledWithin(t *testing.T, name string, plane []byte,
+	stride, width, height int, want, tolerance byte,
+) {
+	t.Helper()
+	if stride < width {
+		t.Fatalf("%s stride = %d, want at least %d", name, stride, width)
+	}
+	if len(plane) < planeLen(stride, height, width) {
+		t.Fatalf("%s plane len = %d, want at least %d",
+			name, len(plane), planeLen(stride, height, width))
+	}
+	for row := range height {
+		for col := range width {
+			got := plane[row*stride+col]
+			if vp9AbsInt(int(got)-int(want)) > int(tolerance) {
+				t.Fatalf("%s[%d,%d] = %d, want %d +/- %d",
+					name, row, col, got, want, tolerance)
 			}
 		}
 	}

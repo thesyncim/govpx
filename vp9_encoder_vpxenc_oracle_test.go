@@ -162,6 +162,15 @@ func TestVP9EncoderVpxencOracleIdenticalInterByteParity(t *testing.T) {
 	assertVP9VpxencTwoFrameByteParity(t, src, src)
 }
 
+func TestVP9EncoderVpxencOracleChangedConstantInterByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	assertVP9VpxencTwoFrameByteParity(t, first, second)
+}
+
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 	t.Helper()
 	width := src.Rect.Dx()
@@ -245,7 +254,27 @@ func assertVP9VpxencTwoFrameByteParity(t *testing.T, first, second *image.YCbCr)
 	}
 
 	assertVP9PacketByteParity(t, "keyframe", govpxKey, libvpxKey.Data)
-	assertVP9PacketByteParity(t, "inter", govpxInter, libvpxInter.Data)
+	assertVP9InterPacketByteParity(t, govpxKey, govpxInter, libvpxKey.Data,
+		libvpxInter.Data)
+}
+
+func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKey, libvpxInter []byte) {
+	t.Helper()
+	if bytes.Equal(govpxInter, libvpxInter) {
+		return
+	}
+	gotHeader, gotTileStart := parseVP9EncoderHeaderForTest(t, govpxInter)
+	wantHeader, wantTileStart := parseVP9EncoderHeaderForTest(t, libvpxInter)
+	govpxGrid := decodeVP9TwoFrameInterMiGridForOracleTest(t, govpxKey, govpxInter)
+	libvpxGrid := decodeVP9TwoFrameInterMiGridForOracleTest(t, libvpxKey, libvpxInter)
+	govpxFirst, govpxLast := firstLastVP9MiForOracleTest(govpxGrid)
+	libvpxFirst, libvpxLast := firstLastVP9MiForOracleTest(libvpxGrid)
+	t.Fatalf("inter packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x mi0=%+v miLast=%+v\nvpxenc header=%+v tileStart=%d tile=% x mi0=%+v miLast=%+v\ngovpx packet=% x\nvpxenc packet=% x",
+		firstVP9PacketDiffForTest(govpxInter, libvpxInter),
+		gotHeader, gotTileStart, govpxInter[gotTileStart:], govpxFirst, govpxLast,
+		wantHeader, wantTileStart, libvpxInter[wantTileStart:], libvpxFirst,
+		libvpxLast,
+		govpxInter, libvpxInter)
 }
 
 func assertVP9PacketByteParity(t *testing.T, label string, got, want []byte) {
@@ -495,6 +524,33 @@ func decodeVP9PacketMiGridForOracleTest(t *testing.T, packet []byte) []vp9dec.Ne
 	out := make([]vp9dec.NeighborMi, len(d.miGrid))
 	copy(out, d.miGrid)
 	return out
+}
+
+func decodeVP9TwoFrameInterMiGridForOracleTest(t *testing.T, key, inter []byte) []vp9dec.NeighborMi {
+	t.Helper()
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode key packet: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after key packet")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter packet: %v", err)
+	}
+	out := make([]vp9dec.NeighborMi, len(d.miGrid))
+	copy(out, d.miGrid)
+	return out
+}
+
+func firstLastVP9MiForOracleTest(grid []vp9dec.NeighborMi) (vp9dec.NeighborMi, vp9dec.NeighborMi) {
+	if len(grid) == 0 {
+		return vp9dec.NeighborMi{}, vp9dec.NeighborMi{}
+	}
+	return grid[0], grid[len(grid)-1]
 }
 
 func readVP9CompressedHeaderForOracleTest(t *testing.T, packet []byte,
