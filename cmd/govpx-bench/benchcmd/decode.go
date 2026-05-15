@@ -46,7 +46,13 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	var memBefore runtime.MemStats
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
+	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
+	if err != nil {
+		return decodeBenchReport{}, err
+	}
+	defer stopCPUProfile()
 	decodedFrames, latencies, err := decodeBenchmarkPackets(dec, packets, latencies)
+	stopCPUProfile()
 	runtime.ReadMemStats(&memAfter)
 	if err != nil {
 		return decodeBenchReport{}, err

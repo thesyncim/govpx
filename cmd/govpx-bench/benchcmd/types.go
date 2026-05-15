@@ -18,6 +18,7 @@ type benchConfig struct {
 	Threads      int
 	CpuUsed      int
 	PhaseTiming  bool
+	CPUProfile   string
 	LibvpxVpxenc string
 	LibvpxOracle string
 	LibvpxArgs   []string

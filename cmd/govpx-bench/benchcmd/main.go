@@ -20,20 +20,6 @@ func Main() {
 		resolveLibvpxDefaults(&cfg, opts.buildLibvpx)
 	}
 
-	if opts.cpuProfile != "" {
-		f, err := os.Create(opts.cpuProfile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "govpx-bench: create cpu profile: %v\n", err)
-			os.Exit(2)
-		}
-		defer f.Close()
-		if err := pprof.StartCPUProfile(f); err != nil {
-			fmt.Fprintf(os.Stderr, "govpx-bench: start cpu profile: %v\n", err)
-			os.Exit(2)
-		}
-		defer pprof.StopCPUProfile()
-	}
-
 	var report any
 	var err error
 	if plotMode {
