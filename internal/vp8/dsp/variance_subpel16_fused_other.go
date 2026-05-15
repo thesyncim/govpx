@@ -16,3 +16,7 @@ func subpelVariance16x16Vertical(_ []byte, _ int, _ int, _ []byte, _ int) (int, 
 func subpelVariance16x16Bilinear(_ []byte, _ int, _ int, _ int, _ []byte, _ int) (int, int, bool) {
 	return 0, 0, false
 }
+
+func subpelVariance16x16PtrFast(src *byte, srcStride int, xOffset int, yOffset int, ref *byte, refStride int) (int, int) {
+	return subpelVariance16x16PtrFastFallback(src, srcStride, xOffset, yOffset, ref, refStride)
+}

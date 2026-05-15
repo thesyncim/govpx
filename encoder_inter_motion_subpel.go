@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"unsafe"
+
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -252,8 +254,9 @@ func (b interFrameSubpelSearchBounds) contains(row int, col int) bool {
 // checks). R15-B precomputes the source row pointer + ref limit
 // thresholds once and folds them into a tight inline test.
 type subpelSearchCtx struct {
-	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX:]
+	srcRowPtr  *byte // = &src.Y[baseY*src.YStride+baseX]
 	refYFull   []byte
+	refYFullP  *byte
 	srcYStride int
 	refYStride int
 	refYOrigin int
@@ -286,8 +289,9 @@ func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int,
 		baseX:      baseX,
 	}
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		ctx.srcRowPtr = src.Y[baseY*src.YStride+baseX:]
+		ctx.srcRowPtr = (*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(src.Y)), baseY*src.YStride+baseX))
 		ctx.srcYStride = src.YStride
+		ctx.refYFullP = unsafe.SliceData(ctx.refYFull)
 		return ctx, true
 	}
 	for row := range 16 {
@@ -299,6 +303,7 @@ func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int,
 	}
 	ctx.srcYStride = 16
 	ctx.srcPartial = true
+	ctx.refYFullP = unsafe.SliceData(ctx.refYFull)
 	return ctx, true
 }
 
@@ -324,9 +329,10 @@ func (c *subpelSearchCtx) subpelVarianceForQuarterMV(row int, col int) (int, int
 	yOffset := (row & 3) << 1
 	srcRowPtr := c.srcRowPtr
 	if c.srcPartial {
-		srcRowPtr = c.srcScratch[:]
+		srcRowPtr = unsafe.SliceData(c.srcScratch[:])
 	}
-	variance, sse := dsp.SubpelVariance16x16(c.refYFull[start:], c.refYStride, xOffset, yOffset, srcRowPtr, c.srcYStride)
+	refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), start))
+	variance, sse := dsp.SubpelVariance16x16PtrFast(refPtr, c.refYStride, xOffset, yOffset, srcRowPtr, c.srcYStride)
 	return variance, sse, true
 }
 

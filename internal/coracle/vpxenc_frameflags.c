@@ -506,6 +506,42 @@ static vpx_ref_frame_type_t parse_ref_frame_type(const char *value) {
   return VP8_LAST_FRAME;
 }
 
+static int vp8_reference_storage_dimension(int v) {
+  return (v + 15) & ~15;
+}
+
+static void pad_plane_visible_to_storage(uint8_t *plane, int stride, int width,
+                                         int height, int storage_width,
+                                         int storage_height) {
+  if (!plane || width <= 0 || height <= 0) return;
+  for (int y = 0; y < height; ++y) {
+    uint8_t *row = plane + (ptrdiff_t)y * stride;
+    uint8_t last = row[width - 1];
+    for (int x = width; x < storage_width; ++x) row[x] = last;
+  }
+  uint8_t *last_row = plane + (ptrdiff_t)(height - 1) * stride;
+  for (int y = height; y < storage_height; ++y) {
+    memcpy(plane + (ptrdiff_t)y * stride, last_row, (size_t)storage_width);
+  }
+}
+
+static void pad_reference_image_visible_to_storage(vpx_image_t *img, int width,
+                                                   int height) {
+  int storage_width = vp8_reference_storage_dimension(width);
+  int storage_height = vp8_reference_storage_dimension(height);
+  pad_plane_visible_to_storage(img->planes[VPX_PLANE_Y],
+                               img->stride[VPX_PLANE_Y], width, height,
+                               storage_width, storage_height);
+  pad_plane_visible_to_storage(img->planes[VPX_PLANE_U],
+                               img->stride[VPX_PLANE_U], (width + 1) >> 1,
+                               (height + 1) >> 1, storage_width >> 1,
+                               storage_height >> 1);
+  pad_plane_visible_to_storage(img->planes[VPX_PLANE_V],
+                               img->stride[VPX_PLANE_V], (width + 1) >> 1,
+                               (height + 1) >> 1, storage_width >> 1,
+                               storage_height >> 1);
+}
+
 #define GOVPX_ADLER_MOD 65521u
 static unsigned int plane_adler32(const uint8_t *plane, int width, int height,
                                   int stride) {
@@ -527,8 +563,10 @@ static void apply_copy_reference_token(vpx_codec_ctx_t *ctx, int width,
                                        const char *ref_name, FILE *log) {
   if (!log) die_msg("copyref token requires --copy-ref-log");
   vpx_image_t ref_img;
-  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)width,
-                     (unsigned)height, 1)) {
+  int storage_width = vp8_reference_storage_dimension(width);
+  int storage_height = vp8_reference_storage_dimension(height);
+  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)storage_width,
+                     (unsigned)storage_height, 1)) {
     die_msg("vpx_img_alloc copyref failed");
   }
   vpx_ref_frame_t ref;
@@ -576,11 +614,14 @@ static void apply_set_reference_token(vpx_codec_ctx_t *ctx, int width,
   int index = parse_int(index_text, "setref index");
 
   vpx_image_t ref_img;
-  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)width,
-                     (unsigned)height, 1)) {
+  int storage_width = vp8_reference_storage_dimension(width);
+  int storage_height = vp8_reference_storage_dimension(height);
+  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)storage_width,
+                     (unsigned)storage_height, 1)) {
     die_msg("vpx_img_alloc setref failed");
   }
   fill_panning_image(&ref_img, width, height, index);
+  pad_reference_image_visible_to_storage(&ref_img, width, height);
   vpx_ref_frame_t ref;
   ref.frame_type = parse_ref_frame_type(ref_name);
   ref.img = ref_img;

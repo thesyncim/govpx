@@ -368,6 +368,11 @@ func TestSubpelVarianceFullPipelineSIMDMatchesScalar(t *testing.T) {
 				t.Fatalf("xOff=%d yOff=%d: SubpelVariance16x16 = (%d,%d), want (%d,%d)",
 					xOff, yOff, gotVar, gotSSE, wantVar, wantSSE)
 			}
+			gotPtrVar, gotPtrSSE := SubpelVariance16x16PtrFast(&src[0], w, xOff, yOff, &ref[0], w)
+			if gotPtrVar != wantVar || gotPtrSSE != wantSSE {
+				t.Fatalf("xOff=%d yOff=%d: SubpelVariance16x16PtrFast = (%d,%d), want (%d,%d)",
+					xOff, yOff, gotPtrVar, gotPtrSSE, wantVar, wantSSE)
+			}
 		}
 	}
 }
