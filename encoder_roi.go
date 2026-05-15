@@ -5,21 +5,23 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-// ROIMap configures libvpx-style per-macroblock region-of-interest segments.
-// SegmentID is a row-major rows*cols map of 16x16 macroblocks; each value must
-// be in [0, 3]. DeltaQuantizer uses libvpx public quantizer deltas in [-63, 63]
-// and is translated to VP8 qindex deltas internally. DeltaLoopFilter uses raw
-// VP8 loop-filter deltas in [-63, 63]. StaticThreshold sets per-segment
-// encode-breakout thresholds for inter frames.
+// ROIMap configures libvpx-style region-of-interest segments. SegmentID is a
+// row-major rows*cols map with codec-specific cell size: VP8 uses 16x16
+// macroblocks and VP9 uses 8x8 MI cells. Each value must be in [0, 3] for this
+// public type. DeltaQuantizer uses libvpx public quantizer deltas in [-63, 63]
+// and is translated to codec qindex deltas internally. DeltaLoopFilter uses raw
+// loop-filter deltas in [-63, 63]. StaticThreshold sets VP8 per-segment
+// encode-breakout thresholds for inter frames; VP9 rejects non-zero
+// StaticThreshold values.
 type ROIMap struct {
 	// Enabled turns the ROI map on. A nil *ROIMap, Enabled=false, nil
 	// SegmentID, or an all-zero delta/threshold configuration disables ROI.
 	Enabled bool
-	// Rows is the number of macroblock rows in SegmentID.
+	// Rows is the number of codec ROI rows in SegmentID.
 	Rows int
-	// Cols is the number of macroblock columns in SegmentID.
+	// Cols is the number of codec ROI columns in SegmentID.
 	Cols int
-	// SegmentID contains one segment id per macroblock in row-major order.
+	// SegmentID contains one segment id per codec ROI cell in row-major order.
 	SegmentID []uint8
 	// DeltaQuantizer contains per-segment public quantizer deltas.
 	DeltaQuantizer [vp8common.MaxMBSegments]int

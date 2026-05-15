@@ -193,6 +193,34 @@ func TestVpxencVP9FrameFlagsTraceI420AcceptsARNRControls(t *testing.T) {
 	}
 }
 
+func TestVpxencVP9FrameFlagsTraceI420AcceptsROIRuntimeControls(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 4
+	raw := makeGeneratedVP9I420(width, height, frames)
+	ivf, trace, diag, err := VpxencVP9FrameFlagsTraceI420(raw, width, height,
+		frames, nil,
+		"--control-script=-,roi:border1,roicustom:checker:0/-10/0/0/0/0/0/0:0/-3/0/0/0/0/0/0:0/0/0/0/0/0/0/0:-1/-1/-1/-1/-1/-1/-1/-1,roi:off")
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420 ROI controls failed: %v\n%s", err, diag)
+	}
+	count, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if count != frames {
+		t.Fatalf("IVF frame count = %d, want %d", count, frames)
+	}
+	if got := bytes.Count(trace, []byte("\n")); got != frames {
+		t.Fatalf("trace rows = %d, want %d\n%s", got, frames, trace)
+	}
+}
+
 func TestVpxencVP9FrameFlagsTraceI420AppliesBufferSchedules(t *testing.T) {
 	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
 		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {

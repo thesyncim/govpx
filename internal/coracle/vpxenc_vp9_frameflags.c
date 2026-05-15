@@ -379,6 +379,190 @@ static void apply_vp9_active_map(vpx_codec_ctx_t *ctx, int width, int height,
   free(active.active_map);
 }
 
+static int parse_slash_ints(const char *spec, int *out, int max_count,
+                            const char *flag) {
+  int count = 0;
+  const char *start = spec;
+  if (!spec || max_count <= 0) {
+    fprintf(stderr, "%s expects slash-separated integers\n", flag);
+    exit(EXIT_FAILURE);
+  }
+  for (;;) {
+    if (count >= max_count) {
+      fprintf(stderr, "%s has too many entries\n", flag);
+      exit(EXIT_FAILURE);
+    }
+    const char *end = strchr(start, '/');
+    size_t len = end ? (size_t)(end - start) : strlen(start);
+    char buf[32];
+    if (len == 0 || len >= sizeof(buf)) {
+      fprintf(stderr, "invalid %s token length\n", flag);
+      exit(EXIT_FAILURE);
+    }
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+    out[count++] = parse_int(buf, flag);
+    if (!end) break;
+    start = end + 1;
+  }
+  return count;
+}
+
+static void parse_slash_ints_exact8(const char *spec, int out[8],
+                                    const char *flag) {
+  int count = parse_slash_ints(spec, out, 8, flag);
+  if (count != 8) {
+    fprintf(stderr, "%s expects exactly 8 slash-separated integers, got %d\n",
+            flag, count);
+    exit(EXIT_FAILURE);
+  }
+}
+
+static unsigned char *alloc_vp9_roi_map_pattern(const char *pattern, int rows,
+                                                int cols) {
+  size_t count = (size_t)rows * (size_t)cols;
+  unsigned char *map = (unsigned char *)malloc(count);
+  if (!map) die_msg("malloc roi map");
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      unsigned char v;
+      if (strcmp(pattern, "checker") == 0) {
+        v = (unsigned char)((r + c) & 1);
+      } else if (strcmp(pattern, "left1") == 0) {
+        v = c < (cols + 1) / 2 ? 1 : 0;
+      } else if (strcmp(pattern, "quadrants") == 0) {
+        v = (unsigned char)((r >= rows / 2 ? 2 : 0) +
+                            (c >= cols / 2 ? 1 : 0));
+      } else if (strcmp(pattern, "border1") == 0) {
+        v = (r == 0 || c == 0 || r == rows - 1 || c == cols - 1) ? 1 : 0;
+      } else {
+        fprintf(stderr, "invalid roi-map pattern: %s\n", pattern);
+        exit(EXIT_FAILURE);
+      }
+      map[(size_t)r * (size_t)cols + (size_t)c] = v;
+    }
+  }
+  return map;
+}
+
+static void default_vp9_roi_params(const char *pattern, int delta_q[8],
+                                   int delta_lf[8], int skip[8],
+                                   int ref_frame[8]) {
+  for (int i = 0; i < 8; ++i) {
+    delta_q[i] = 0;
+    delta_lf[i] = 0;
+    skip[i] = 0;
+    ref_frame[i] = -1;
+  }
+  if (strcmp(pattern, "checker") == 0 || strcmp(pattern, "left1") == 0) {
+    delta_q[1] = -10;
+    delta_lf[1] = -3;
+  } else if (strcmp(pattern, "quadrants") == 0) {
+    delta_q[1] = -8;
+    delta_q[2] = 8;
+    delta_lf[3] = 4;
+  } else if (strcmp(pattern, "border1") == 0) {
+    delta_q[1] = -6;
+  } else if (strcmp(pattern, "off") == 0) {
+    return;
+  } else {
+    fprintf(stderr, "invalid roi-map pattern: %s\n", pattern);
+    exit(EXIT_FAILURE);
+  }
+}
+
+static void apply_vp9_roi_map(vpx_codec_ctx_t *ctx, int width, int height,
+                              const char *pattern, const int delta_q[8],
+                              const int delta_lf[8], const int skip[8],
+                              const int ref_frame[8]) {
+  int rows = (height + 7) >> 3;
+  int cols = (width + 7) >> 3;
+  if (rows <= 0 || cols <= 0) die_msg("invalid roi-map dimensions");
+  vpx_roi_map_t roi;
+  memset(&roi, 0, sizeof(roi));
+  roi.enabled = strcmp(pattern, "off") != 0;
+  roi.rows = (unsigned int)rows;
+  roi.cols = (unsigned int)cols;
+  if (roi.enabled) roi.roi_map = alloc_vp9_roi_map_pattern(pattern, rows, cols);
+  for (int i = 0; i < 8; ++i) {
+    roi.delta_q[i] = delta_q[i];
+    roi.delta_lf[i] = delta_lf[i];
+    roi.skip[i] = skip[i];
+    roi.ref_frame[i] = ref_frame[i];
+  }
+  if (vpx_codec_control(ctx, VP9E_SET_ROI_MAP, &roi)) {
+    die_codec_msg(ctx, "VP9E_SET_ROI_MAP");
+  }
+  free(roi.roi_map);
+}
+
+static void apply_vp9_roi_token(vpx_codec_ctx_t *ctx, int width, int height,
+                                const char *pattern) {
+  int delta_q[8];
+  int delta_lf[8];
+  int skip[8];
+  int ref_frame[8];
+  default_vp9_roi_params(pattern, delta_q, delta_lf, skip, ref_frame);
+  apply_vp9_roi_map(ctx, width, height, pattern, delta_q, delta_lf, skip,
+                    ref_frame);
+}
+
+static void apply_vp9_roi_custom_token(vpx_codec_ctx_t *ctx, int width,
+                                       int height, const char *spec) {
+  char buf[768];
+  size_t len = strlen(spec);
+  if (len >= sizeof(buf)) {
+    fprintf(stderr, "roicustom token too long: %s\n", spec);
+    exit(EXIT_FAILURE);
+  }
+  memcpy(buf, spec, len + 1);
+
+  char *pattern = buf;
+  char *dq_text = strchr(pattern, ':');
+  if (!dq_text) {
+    fprintf(stderr, "roicustom expects pattern:dq8:dlf8:skip8:ref8: %s\n",
+            spec);
+    exit(EXIT_FAILURE);
+  }
+  *dq_text++ = '\0';
+  char *dlf_text = strchr(dq_text, ':');
+  if (!dlf_text) {
+    fprintf(stderr, "roicustom expects pattern:dq8:dlf8:skip8:ref8: %s\n",
+            spec);
+    exit(EXIT_FAILURE);
+  }
+  *dlf_text++ = '\0';
+  char *skip_text = strchr(dlf_text, ':');
+  if (!skip_text) {
+    fprintf(stderr, "roicustom expects pattern:dq8:dlf8:skip8:ref8: %s\n",
+            spec);
+    exit(EXIT_FAILURE);
+  }
+  *skip_text++ = '\0';
+  char *ref_text = strchr(skip_text, ':');
+  if (!ref_text) {
+    fprintf(stderr, "roicustom expects pattern:dq8:dlf8:skip8:ref8: %s\n",
+            spec);
+    exit(EXIT_FAILURE);
+  }
+  *ref_text++ = '\0';
+  if (strchr(ref_text, ':')) {
+    fprintf(stderr, "roicustom has too many fields: %s\n", spec);
+    exit(EXIT_FAILURE);
+  }
+
+  int delta_q[8];
+  int delta_lf[8];
+  int skip[8];
+  int ref_frame[8];
+  parse_slash_ints_exact8(dq_text, delta_q, "roicustom dq");
+  parse_slash_ints_exact8(dlf_text, delta_lf, "roicustom dlf");
+  parse_slash_ints_exact8(skip_text, skip, "roicustom skip");
+  parse_slash_ints_exact8(ref_text, ref_frame, "roicustom ref");
+  apply_vp9_roi_map(ctx, width, height, pattern, delta_q, delta_lf, skip,
+                    ref_frame);
+}
+
 struct vp9_runtime_control_context {
   vpx_codec_ctx_t *ctx;
   vpx_codec_enc_cfg_t *cfg;
@@ -464,6 +648,15 @@ static void apply_vp9_runtime_control_token(
     flush_vp9_runtime_config(ctx);
     apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,
                          token + strlen("active:"));
+  } else if (starts_with(token, "roi:")) {
+    flush_vp9_runtime_config(ctx);
+    apply_vp9_roi_token(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,
+                        token + strlen("roi:"));
+  } else if (starts_with(token, "roicustom:")) {
+    flush_vp9_runtime_config(ctx);
+    apply_vp9_roi_custom_token(ctx->ctx, (int)ctx->cfg->g_w,
+                               (int)ctx->cfg->g_h,
+                               token + strlen("roicustom:"));
   } else if (starts_with(token, "autoaltref:")) {
     if (vpx_codec_control(ctx->ctx, VP8E_SET_ENABLEAUTOALTREF,
                           (unsigned)control_value_int(token, "autoaltref:"))) {

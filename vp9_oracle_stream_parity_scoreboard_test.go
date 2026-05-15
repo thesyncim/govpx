@@ -1205,6 +1205,22 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 				"--buf-initial-sz-schedule=3:300,7:400",
 				"--buf-optimal-sz-schedule=3:350,7:500"),
 		},
+		{
+			name: "roi-border-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					mustVP9Runtime(t, "SetROIMap border1",
+						enc.SetROIMap(vp9OracleROIMap(width, height, "border1")))
+				case 7:
+					mustVP9Runtime(t, "SetROIMap nil", enc.SetROIMap(nil))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,roi:border1,-,-,-,-,-,roi:off,-,-"),
+		},
 	}
 
 	for _, tc := range cases {
@@ -2335,6 +2351,56 @@ func countVP9HiddenRows(rows []vp9RateScoreboardRow) int {
 		}
 	}
 	return count
+}
+
+func vp9OracleROIMap(width int, height int, pattern string) *ROIMap {
+	rows := (height + 7) >> 3
+	cols := (width + 7) >> 3
+	roi := &ROIMap{
+		Enabled:   true,
+		Rows:      rows,
+		Cols:      cols,
+		SegmentID: make([]uint8, rows*cols),
+	}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			idx := row*cols + col
+			switch pattern {
+			case "checker":
+				roi.SegmentID[idx] = uint8((row + col) & 1)
+			case "left1":
+				if col < (cols+1)/2 {
+					roi.SegmentID[idx] = 1
+				}
+			case "quadrants":
+				roi.SegmentID[idx] = uint8(0)
+				if row >= rows/2 {
+					roi.SegmentID[idx] += 2
+				}
+				if col >= cols/2 {
+					roi.SegmentID[idx]++
+				}
+			case "border1":
+				if row == 0 || col == 0 || row == rows-1 || col == cols-1 {
+					roi.SegmentID[idx] = 1
+				}
+			default:
+				panic("unknown VP9 ROI pattern")
+			}
+		}
+	}
+	switch pattern {
+	case "checker", "left1":
+		roi.DeltaQuantizer[1] = -10
+		roi.DeltaLoopFilter[1] = -3
+	case "quadrants":
+		roi.DeltaQuantizer[1] = -8
+		roi.DeltaQuantizer[2] = 8
+		roi.DeltaLoopFilter[3] = 4
+	case "border1":
+		roi.DeltaQuantizer[1] = -6
+	}
+	return roi
 }
 
 func countVP9AltRefRefreshRows(rows []vp9RateScoreboardRow) int {

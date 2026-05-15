@@ -411,6 +411,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	e.activeMapEnabled = false
 	e.activeMapMiRows = 0
 	e.activeMapMiCols = 0
+	e.roi.disable()
 	e.forceKeyFrame = true
 	e.resetVP9EncoderFrameContexts()
 	e.prevFrameMvsValid = false

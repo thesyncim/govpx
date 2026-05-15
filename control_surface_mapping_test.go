@@ -175,6 +175,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetRateControl":              {kind: "libvpx-config", helperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "bufsz:", "bufinit:", "bufopt:", "drop:", "cq:"}},
 		"SetRateControlBuffer":        {kind: "libvpx-config", helperTokens: []string{"bufsz:", "bufinit:", "bufopt:"}},
 		"SetRealtimeTarget":           {kind: "libvpx-config", helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
+		"SetROIMap":                   {kind: "libvpx-control", helperTokens: []string{"roi:", "roicustom:"}},
 		"SetTemporalLayerID":          {kind: "libvpx-control", helperTokens: []string{"tlid:"}},
 		"SetTemporalScalability":      {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
 		"SetTwoPassStats":             {kind: "libvpx-two-pass"},

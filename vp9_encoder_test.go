@@ -3809,12 +3809,27 @@ func TestVP9EncoderSetActiveMapDisabledByRuntimeResize(t *testing.T) {
 	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
 		t.Fatalf("SetActiveMap: %v", err)
 	}
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      (64 + 7) >> 3,
+		Cols:      (64 + 7) >> 3,
+		SegmentID: make([]uint8, ((64+7)>>3)*((64+7)>>3)),
+	}
+	roi.SegmentID[0] = 1
+	roi.DeltaQuantizer[1] = -10
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap: %v", err)
+	}
 	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 96, Height: 80}); err != nil {
 		t.Fatalf("SetRealtimeTarget resize: %v", err)
 	}
 	if e.activeMapEnabled || e.activeMapMiRows != 0 || e.activeMapMiCols != 0 {
 		t.Fatalf("active map after resize = enabled:%t mi:%dx%d, want disabled",
 			e.activeMapEnabled, e.activeMapMiRows, e.activeMapMiCols)
+	}
+	if e.roi.enabled || e.roi.rows != 0 || e.roi.cols != 0 {
+		t.Fatalf("ROI map after resize = enabled:%t dims:%dx%d, want disabled",
+			e.roi.enabled, e.roi.rows, e.roi.cols)
 	}
 }
 
@@ -4050,6 +4065,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetActiveMap([]uint8{1}, 1, 1); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetActiveMap after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetROIMap(&ROIMap{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetROIMap after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer after Close err = %v, want ErrClosed", err)
 	}
@@ -4080,6 +4098,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetActiveMap([]uint8{1}, 1, 1); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetActiveMap on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetROIMap(&ROIMap{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetROIMap on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer on nil encoder err = %v, want ErrClosed", err)

@@ -310,6 +310,7 @@ type VP9Encoder struct {
 	activeMapMiRows  int
 	activeMapMiCols  int
 	activeMapEnabled bool
+	roi              vp9ROIMapState
 
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
@@ -593,6 +594,13 @@ func validateVP9LosslessSegmentationOptions(seg VP9SegmentationOptions) error {
 }
 
 func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex int) vp9dec.SegmentationParams {
+	if e.roi.enabled && !intraFrame {
+		seg := e.roi.segmentationParams()
+		if e.activeMapEnabled {
+			vp9EnableActiveMapSegmentation(&seg)
+		}
+		return seg
+	}
 	if e.cyclicAQ.enabled && e.cyclicAQ.apply && !intraFrame {
 		seg := e.cyclicAQ.segmentationParams(baseQIndex)
 		if e.activeMapEnabled {
@@ -2499,8 +2507,8 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 			target = edgeSize
 		}
 	}
-	if kind != vp9ModeTreeKeyframeSource && e.activeMapEnabled {
-		if activeMapSize, ok := e.pickVP9ActiveMapPartitionBlockSize(
+	if vp9ModeTreeUsesInterSegmentMap(kind) && e.vp9DynamicSegmentMapActive() {
+		if activeMapSize, ok := e.pickVP9SegmentMapPartitionBlockSize(
 			miRows, miCols, miRow, miCol, root); ok {
 			return activeMapSize
 		}
@@ -2512,10 +2520,10 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		miRows, miCols, miRow, miCol, root)
 }
 
-func (e *VP9Encoder) pickVP9ActiveMapPartitionBlockSize(miRows, miCols, miRow, miCol int,
+func (e *VP9Encoder) pickVP9SegmentMapPartitionBlockSize(miRows, miCols, miRow, miCol int,
 	root common.BlockSize,
 ) (common.BlockSize, bool) {
-	if e == nil || !e.activeMapEnabled || root <= common.Block16x16 {
+	if e == nil || !e.vp9DynamicSegmentMapActive() || root <= common.Block8x8 {
 		return common.BlockInvalid, false
 	}
 	splitSize := common.SubsizeLookup[common.PartitionSplit][root]
@@ -2532,10 +2540,11 @@ func (e *VP9Encoder) pickVP9ActiveMapPartitionBlockSize(miRows, miCols, miRow, m
 	if miRow >= endRow || miCol >= endCol {
 		return common.BlockInvalid, false
 	}
-	inactive := e.vp9ActiveMapInactive(miRow, miCol)
+	staticSegID := e.vp9StaticSegmentIDForMap()
+	segID := e.vp9PartitionSegmentID(miRow, miCol, staticSegID)
 	for row := miRow; row < endRow; row++ {
 		for col := miCol; col < endCol; col++ {
-			if e.vp9ActiveMapInactive(row, col) != inactive {
+			if e.vp9PartitionSegmentID(row, col, staticSegID) != segID {
 				return splitSize, true
 			}
 		}
@@ -3234,7 +3243,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	cur := baseMi
 	cur.SbType = bsize
 	cur.TxSize = clampVP9TxSizeForBlock(cur.TxSize, bsize)
-	cur.SegmentID, cur.SegIDPredicted = e.vp9EncoderBlockSegmentID(seg, miRow, miCol)
+	cur.SegmentID, cur.SegIDPredicted = e.vp9EncoderBlockSegmentID(
+		seg, miRow, miCol, vp9ModeTreeUsesInterSegmentMap(kind))
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -3482,26 +3492,70 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 }
 
-func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams, miRow int, miCol int) (uint8, uint8) {
+func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams, miRow int, miCol int,
+	useDynamicMap bool,
+) (uint8, uint8) {
 	if seg == nil || !seg.Enabled || !seg.UpdateMap {
 		return 0, 0
+	}
+	if useDynamicMap {
+		segID, ok := e.vp9DynamicSegmentID(miRow, miCol)
+		if ok {
+			return segID, segID
+		}
+	}
+	segID := e.vp9StaticSegmentIDForMap()
+	return segID, segID
+}
+
+func vp9ModeTreeUsesInterSegmentMap(kind vp9ModeTreeKind) bool {
+	return kind == vp9ModeTreeInterSkip || kind == vp9ModeTreeInterSource
+}
+
+func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
+	return e != nil && (e.roi.enabled ||
+		(e.cyclicAQ.enabled && e.cyclicAQ.apply) ||
+		e.activeMapEnabled)
+}
+
+func (e *VP9Encoder) vp9StaticSegmentIDForMap() uint8 {
+	if e == nil || e.opts.Segmentation.SegmentID >= vp9dec.MaxSegments {
+		return 0
+	}
+	return e.opts.Segmentation.SegmentID
+}
+
+func (e *VP9Encoder) vp9PartitionSegmentID(miRow int, miCol int, staticSegID uint8) uint8 {
+	segID, ok := e.vp9DynamicSegmentID(miRow, miCol)
+	if ok {
+		return segID
+	}
+	return staticSegID
+}
+
+func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int) (uint8, bool) {
+	if e == nil {
+		return 0, false
+	}
+	if segID, ok := e.roi.segmentIDAt(miRow, miCol); ok {
+		if segID == vp9ActiveMapSegmentActive &&
+			e.vp9ActiveMapInactive(miRow, miCol) {
+			return vp9ActiveMapSegmentInactive, true
+		}
+		return segID, true
 	}
 	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
 		segID := e.cyclicAQ.segmentID(miRow, miCol)
 		if segID == vp9ActiveMapSegmentActive &&
 			e.vp9ActiveMapInactive(miRow, miCol) {
-			segID = vp9ActiveMapSegmentInactive
+			return vp9ActiveMapSegmentInactive, true
 		}
-		return segID, segID
+		return segID, true
 	}
 	if e.vp9ActiveMapInactive(miRow, miCol) {
-		return vp9ActiveMapSegmentInactive, vp9ActiveMapSegmentInactive
+		return vp9ActiveMapSegmentInactive, true
 	}
-	segID := e.opts.Segmentation.SegmentID
-	if segID >= vp9dec.MaxSegments {
-		return 0, 0
-	}
-	return segID, segID
+	return 0, false
 }
 
 func (e *VP9Encoder) vp9ActiveMapInactive(miRow int, miCol int) bool {
