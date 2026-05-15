@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_decoder.h"
+#include "vpx/vpx_image.h"
 
 typedef struct {
 	uint32_t state[4];
@@ -294,11 +296,274 @@ static int emit_frame_json(unsigned int frame_index, int keyframe, int show_fram
 	return 0;
 }
 
-static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cfg_t *postproc) {
+static int starts_with(const char *s, const char *prefix) {
+	return strncmp(s, prefix, strlen(prefix)) == 0;
+}
+
+static int parse_int_arg(const char *value, const char *name, int *out) {
+	char *end = NULL;
+	long parsed;
+	errno = 0;
+	parsed = strtol(value, &end, 10);
+	if (errno != 0 || end == value || *end != '\0' || parsed < INT32_MIN || parsed > INT32_MAX) {
+		fprintf(stderr, "invalid %s: %s\n", name, value);
+		return -1;
+	}
+	*out = (int)parsed;
+	return 0;
+}
+
+static vpx_ref_frame_type_t parse_ref_frame_type(const char *value) {
+	if (strcmp(value, "last") == 0) return VP8_LAST_FRAME;
+	if (strcmp(value, "golden") == 0) return VP8_GOLD_FRAME;
+	if (strcmp(value, "altref") == 0) return VP8_ALTR_FRAME;
+	fprintf(stderr, "invalid reference frame: %s\n", value);
+	return VP8_LAST_FRAME;
+}
+
+static int vp8_reference_storage_dimension(int v) {
+	return (v + 15) & ~15;
+}
+
+static void pad_plane_visible_to_storage(uint8_t *plane, int stride, int width,
+                                         int height, int storage_width,
+                                         int storage_height) {
+	if (!plane || width <= 0 || height <= 0) return;
+	for (int y = 0; y < height; ++y) {
+		uint8_t *row = plane + (ptrdiff_t)y * stride;
+		uint8_t last = row[width - 1];
+		for (int x = width; x < storage_width; ++x) row[x] = last;
+	}
+	uint8_t *last_row = plane + (ptrdiff_t)(height - 1) * stride;
+	for (int y = height; y < storage_height; ++y) {
+		memcpy(plane + (ptrdiff_t)y * stride, last_row, (size_t)storage_width);
+	}
+}
+
+static void pad_reference_image_visible_to_storage(vpx_image_t *img, int width,
+                                                   int height) {
+	int storage_width = vp8_reference_storage_dimension(width);
+	int storage_height = vp8_reference_storage_dimension(height);
+	pad_plane_visible_to_storage(img->planes[VPX_PLANE_Y],
+	                             img->stride[VPX_PLANE_Y], width, height,
+	                             storage_width, storage_height);
+	pad_plane_visible_to_storage(img->planes[VPX_PLANE_U],
+	                             img->stride[VPX_PLANE_U], (width + 1) >> 1,
+	                             (height + 1) >> 1, storage_width >> 1,
+	                             storage_height >> 1);
+	pad_plane_visible_to_storage(img->planes[VPX_PLANE_V],
+	                             img->stride[VPX_PLANE_V], (width + 1) >> 1,
+	                             (height + 1) >> 1, storage_width >> 1,
+	                             storage_height >> 1);
+}
+
+static void fill_panning_image(vpx_image_t *img, int width, int height,
+                               int index) {
+	int xoff = index * 2;
+	int yoff = index;
+	for (int y = 0; y < height; ++y) {
+		for (int x = 0; x < width; ++x) {
+			int src_x = x + xoff;
+			int src_y = y + yoff;
+			img->planes[VPX_PLANE_Y][(ptrdiff_t)y * img->stride[VPX_PLANE_Y] + x] =
+			    (uint8_t)(32 + ((src_y * 7 + src_x * 11 +
+			                     (src_x / 8) * (src_y / 8) * 13) &
+			                    191));
+		}
+	}
+	int uv_w = (width + 1) >> 1;
+	int uv_h = (height + 1) >> 1;
+	for (int y = 0; y < uv_h; ++y) {
+		for (int x = 0; x < uv_w; ++x) {
+			int src_x = x + xoff / 2;
+			int src_y = y + yoff / 2;
+			img->planes[VPX_PLANE_U][(ptrdiff_t)y * img->stride[VPX_PLANE_U] + x] =
+			    (uint8_t)(96 + ((src_x * 5 + src_y * 3) & 63));
+			img->planes[VPX_PLANE_V][(ptrdiff_t)y * img->stride[VPX_PLANE_V] + x] =
+			    (uint8_t)(144 + ((src_x * 2 + src_y * 7) & 63));
+		}
+	}
+}
+
+static char *decoder_control_entry_for_frame(const char *script, unsigned int frame_index) {
+	const char *start;
+	const char *p;
+	unsigned int current = 0;
+	char *entry;
+	size_t len;
+
+	if (script == NULL || script[0] == '\0') {
+		return NULL;
+	}
+	start = script;
+	for (p = script; ; ++p) {
+		if (*p == ',' || *p == '\0') {
+			if (current == frame_index) {
+				len = (size_t)(p - start);
+				entry = (char *)malloc(len + 1);
+				if (entry == NULL) {
+					fprintf(stderr, "malloc decoder control entry failed\n");
+					return NULL;
+				}
+				memcpy(entry, start, len);
+				entry[len] = '\0';
+				return entry;
+			}
+			if (*p == '\0') {
+				return NULL;
+			}
+			current++;
+			start = p + 1;
+		}
+	}
+}
+
+static int decoder_copy_reference(vpx_codec_ctx_t *codec, const char *ref_name,
+                                  int width, int height) {
+	vpx_image_t ref_img;
+	vpx_ref_frame_t ref;
+	int storage_width = vp8_reference_storage_dimension(width);
+	int storage_height = vp8_reference_storage_dimension(height);
+
+	if (width <= 0 || height <= 0) {
+		fprintf(stderr, "copyref requires an initialized decoder size\n");
+		return -1;
+	}
+	if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)storage_width,
+	                   (unsigned)storage_height, 1)) {
+		fprintf(stderr, "vpx_img_alloc copyref failed\n");
+		return -1;
+	}
+	ref.frame_type = parse_ref_frame_type(ref_name);
+	ref.img = ref_img;
+	if (vpx_codec_control(codec, VP8_COPY_REFERENCE, &ref) != VPX_CODEC_OK) {
+		fprintf(stderr, "VP8_COPY_REFERENCE failed: %s\n", vpx_codec_error(codec));
+		vpx_img_free(&ref_img);
+		return -1;
+	}
+	vpx_img_free(&ref_img);
+	return 0;
+}
+
+static int decoder_set_reference(vpx_codec_ctx_t *codec, const char *spec,
+                                 int width, int height) {
+	char buf[128];
+	char *ref_name;
+	char *kind;
+	char *index_text;
+	int index;
+	vpx_image_t ref_img;
+	vpx_ref_frame_t ref;
+	int storage_width;
+	int storage_height;
+	size_t len;
+
+	if (width <= 0 || height <= 0) {
+		fprintf(stderr, "setref requires an initialized decoder size\n");
+		return -1;
+	}
+	len = strlen(spec);
+	if (len >= sizeof(buf)) {
+		fprintf(stderr, "setref token too long: %s\n", spec);
+		return -1;
+	}
+	memcpy(buf, spec, len + 1);
+	ref_name = buf;
+	kind = strchr(ref_name, ':');
+	if (!kind) {
+		fprintf(stderr, "setref expects ref:pattern:index: %s\n", spec);
+		return -1;
+	}
+	*kind++ = '\0';
+	index_text = strchr(kind, ':');
+	if (!index_text) {
+		fprintf(stderr, "setref expects ref:pattern:index: %s\n", spec);
+		return -1;
+	}
+	*index_text++ = '\0';
+	if (strcmp(kind, "panning") != 0) {
+		fprintf(stderr, "unsupported setref pattern: %s\n", kind);
+		return -1;
+	}
+	if (parse_int_arg(index_text, "setref index", &index) != 0) {
+		return -1;
+	}
+
+	storage_width = vp8_reference_storage_dimension(width);
+	storage_height = vp8_reference_storage_dimension(height);
+	if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)storage_width,
+	                   (unsigned)storage_height, 1)) {
+		fprintf(stderr, "vpx_img_alloc setref failed\n");
+		return -1;
+	}
+	fill_panning_image(&ref_img, width, height, index);
+	pad_reference_image_visible_to_storage(&ref_img, width, height);
+	ref.frame_type = parse_ref_frame_type(ref_name);
+	ref.img = ref_img;
+	if (vpx_codec_control(codec, VP8_SET_REFERENCE, &ref) != VPX_CODEC_OK) {
+		fprintf(stderr, "VP8_SET_REFERENCE failed: %s\n", vpx_codec_error(codec));
+		vpx_img_free(&ref_img);
+		return -1;
+	}
+	vpx_img_free(&ref_img);
+	return 0;
+}
+
+static int apply_decoder_control_entry(vpx_codec_ctx_t *codec, const char *entry,
+                                       int width, int height) {
+	char *buf;
+	char *token;
+	char *next;
+	size_t len;
+
+	if (entry == NULL || entry[0] == '\0' || strcmp(entry, "-") == 0) {
+		return 0;
+	}
+	len = strlen(entry);
+	buf = (char *)malloc(len + 1);
+	if (buf == NULL) {
+		fprintf(stderr, "malloc decoder control buffer failed\n");
+		return -1;
+	}
+	memcpy(buf, entry, len + 1);
+	token = buf;
+	while (token != NULL) {
+		next = strchr(token, '+');
+		if (next != NULL) {
+			*next++ = '\0';
+		}
+		if (token[0] != '\0' && strcmp(token, "-") != 0) {
+			if (starts_with(token, "setref:")) {
+				if (decoder_set_reference(codec, token + strlen("setref:"), width, height) != 0) {
+					free(buf);
+					return -1;
+				}
+			} else if (starts_with(token, "copyref:")) {
+				if (decoder_copy_reference(codec, token + strlen("copyref:"), width, height) != 0) {
+					free(buf);
+					return -1;
+				}
+			} else {
+				fprintf(stderr, "unknown decoder control token: %s\n", token);
+				free(buf);
+				return -1;
+			}
+		}
+		token = next;
+	}
+	free(buf);
+	return 0;
+}
+
+static int decode_ivf_with_controls(const char *path, vpx_codec_flags_t flags, vp8_postproc_cfg_t *postproc,
+                                    const char *control_script, unsigned int threads) {
 	unsigned char *data = NULL;
 	size_t len = 0;
 	size_t offset = 32;
 	unsigned int output_index = 0;
+	unsigned int input_index = 0;
+	int current_width = 0;
+	int current_height = 0;
 	vpx_codec_ctx_t codec;
 	vpx_codec_dec_cfg_t cfg;
 
@@ -313,6 +578,7 @@ static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cf
 
 	memset(&codec, 0, sizeof(codec));
 	memset(&cfg, 0, sizeof(cfg));
+	cfg.threads = threads;
 	if (vpx_codec_dec_init(&codec, vpx_codec_vp8_dx(), &cfg, flags) != VPX_CODEC_OK) {
 		fprintf(stderr, "vpx_codec_dec_init failed: %s\n", vpx_codec_error(&codec));
 		free(data);
@@ -353,6 +619,18 @@ static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cf
 		keyframe = frame_size > 0 && ((frame[0] & 1) == 0);
 		show_frame = frame_size > 0 && ((frame[0] & 0x10) != 0);
 
+		if (control_script != NULL) {
+			char *entry = decoder_control_entry_for_frame(control_script, input_index);
+			if (entry != NULL) {
+				if (apply_decoder_control_entry(&codec, entry, current_width, current_height) != 0) {
+					free(entry);
+					vpx_codec_destroy(&codec);
+					free(data);
+					return 1;
+				}
+				free(entry);
+			}
+		}
 		if (vpx_codec_decode(&codec, frame, frame_size, NULL, 0) != VPX_CODEC_OK) {
 			fprintf(stderr, "vpx_codec_decode failed: %s\n", vpx_codec_error(&codec));
 			vpx_codec_destroy(&codec);
@@ -365,13 +643,20 @@ static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cf
 				free(data);
 				return 1;
 			}
+			current_width = (int)img->d_w;
+			current_height = (int)img->d_h;
 			output_index++;
 		}
+		input_index++;
 	}
 
 	vpx_codec_destroy(&codec);
 	free(data);
 	return 0;
+}
+
+static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cfg_t *postproc) {
+	return decode_ivf_with_controls(path, flags, postproc, NULL, 0);
 }
 
 // monotonic_ns returns CLOCK_MONOTONIC in nanoseconds. Used by the
@@ -532,6 +817,8 @@ static int decode_ivf_bench(const char *path) {
 
 static void usage(const char *argv0) {
 	fprintf(stderr, "usage: %s decode|decode-bench|decode-postproc|decode-postproc-noise|decode-postproc-all-noise|decode-error-concealment input.ivf\n", argv0);
+	fprintf(stderr, "       %s decode-controls|decode-postproc-controls|decode-error-concealment-controls script input.ivf\n", argv0);
+	fprintf(stderr, "       %s decode-threaded-controls threads script input.ivf\n", argv0);
 }
 
 int main(int argc, char **argv) {
@@ -560,6 +847,23 @@ int main(int argc, char **argv) {
 	}
 	if (argc == 3 && strcmp(argv[1], "decode-error-concealment") == 0) {
 		return decode_ivf(argv[2], VPX_CODEC_USE_ERROR_CONCEALMENT, NULL);
+	}
+	if (argc == 4 && strcmp(argv[1], "decode-controls") == 0) {
+		return decode_ivf_with_controls(argv[3], 0, NULL, argv[2], 0);
+	}
+	if (argc == 4 && strcmp(argv[1], "decode-postproc-controls") == 0) {
+		vp8_postproc_cfg_t postproc = { VP8_DEBLOCK | VP8_DEMACROBLOCK | VP8_MFQE, 4, 0 };
+		return decode_ivf_with_controls(argv[3], VPX_CODEC_USE_POSTPROC, &postproc, argv[2], 0);
+	}
+	if (argc == 4 && strcmp(argv[1], "decode-error-concealment-controls") == 0) {
+		return decode_ivf_with_controls(argv[3], VPX_CODEC_USE_ERROR_CONCEALMENT, NULL, argv[2], 0);
+	}
+	if (argc == 5 && strcmp(argv[1], "decode-threaded-controls") == 0) {
+		int threads = 0;
+		if (parse_int_arg(argv[2], "threads", &threads) != 0 || threads < 0) {
+			return 2;
+		}
+		return decode_ivf_with_controls(argv[4], 0, NULL, argv[3], (unsigned int)threads);
 	}
 	usage(argv[0]);
 	return 2;

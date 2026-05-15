@@ -166,7 +166,7 @@ decoder-oracle-test: oracle-tools fetch-vp8-test-data
 	GOVPX_TEST_DATA_MIN="$(VP8_DECODER_IVF_MIN)" \
 	GOVPX_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_INVALID_TEST_DATA_MIN="$(VP8_INVALID_IVF_MIN)" \
-	$(GO) test . -run 'TestOracle(Libvpx(ExtendedDecodeModesAvailable|ErrorConcealment.*|KeyFrameResolutionChange|PostProcess.*)|ExternalIVFTestData(MatchesLibvpx|DecodeIntoMatchesLibvpx)|ExternalInvalidIVFTestDataRejectedLikeLibvpx|GeneratedLibvpxCorpusMatchesLibvpx)$$' -count=1 -timeout 10m
+	$(GO) test . -run 'TestOracle(Libvpx(ExtendedDecodeModesAvailable|DecoderReferenceControls|ErrorConcealment.*|KeyFrameResolutionChange|PostProcess.*)|ExternalIVFTestData(MatchesLibvpx|DecodeIntoMatchesLibvpx)|ExternalInvalidIVFTestDataRejectedLikeLibvpx|GeneratedLibvpxCorpusMatchesLibvpx)$$' -count=1 -timeout 10m
 
 oracle-tools: $(ORACLE)
 	internal/coracle/build_vpxenc.sh >/dev/null

@@ -21,6 +21,9 @@ muxing, and no libvpx C API clone.
 - Bit-exact output is still required where deterministic paths make it the
   right proof, especially packet validity, frame headers, reference
   refresh/copy/sign-bias bits, decoder MD5s, and low-level entropy writers.
+- Scoreboard baselines are regression gates and diagnostic coverage, not closed
+  byte-parity proofs. A green scoreboard means a measured gap stayed within its
+  pinned baseline; byte-parity claims need explicit strict oracle tests.
 - This is still pre-release encoder work: internal helper signatures should
   follow the current parity model directly. Do not carry legacy compatibility
   wrappers for older internal call shapes.
