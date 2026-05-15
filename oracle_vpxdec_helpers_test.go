@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -109,6 +111,25 @@ func runLibvpxChecksumOracleMode(t *testing.T, oracle string, mode string, ivf [
 	return runLibvpxChecksumOracleFileMode(t, oracle, mode, path)
 }
 
+func runLibvpxChecksumOracleControlScript(t *testing.T, oracle string, mode string, script []string, ivf []byte) []testutil.FrameChecksum {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "govpx-"+mode+".ivf")
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	return runLibvpxChecksumOracleControlScriptFile(t, oracle, mode, script, path)
+}
+
+func runLibvpxChecksumOracleThreadedControlScript(t *testing.T, oracle string, threads int, script []string, ivf []byte) []testutil.FrameChecksum {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "govpx-decode-threaded-controls.ivf")
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	args := []string{"decode-threaded-controls", strconv.Itoa(threads), strings.Join(script, ","), path}
+	return runLibvpxChecksumOracleArgs(t, oracle, args)
+}
+
 func runLibvpxChecksumOracleModeExpectError(t *testing.T, oracle string, mode string, ivf []byte) error {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "govpx-"+mode+".ivf")
@@ -125,7 +146,17 @@ func runLibvpxChecksumOracleFile(t *testing.T, oracle string, path string) []tes
 
 func runLibvpxChecksumOracleFileMode(t *testing.T, oracle string, mode string, path string) []testutil.FrameChecksum {
 	t.Helper()
-	cmd := exec.Command(oracle, mode, path)
+	return runLibvpxChecksumOracleArgs(t, oracle, []string{mode, path})
+}
+
+func runLibvpxChecksumOracleControlScriptFile(t *testing.T, oracle string, mode string, script []string, path string) []testutil.FrameChecksum {
+	t.Helper()
+	return runLibvpxChecksumOracleArgs(t, oracle, []string{mode, strings.Join(script, ","), path})
+}
+
+func runLibvpxChecksumOracleArgs(t *testing.T, oracle string, args []string) []testutil.FrameChecksum {
+	t.Helper()
+	cmd := exec.Command(oracle, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("libvpx oracle failed: %v\n%s", err, out)
@@ -175,6 +206,11 @@ func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 
 func decodeIVFChecksumsWithOptions(t *testing.T, ivf []byte, opts DecoderOptions) []testutil.FrameChecksum {
 	t.Helper()
+	return decodeIVFChecksumsWithControlScript(t, ivf, opts, nil)
+}
+
+func decodeIVFChecksumsWithControlScript(t *testing.T, ivf []byte, opts DecoderOptions, apply map[int]func(*testing.T, *VP8Decoder)) []testutil.FrameChecksum {
+	t.Helper()
 	if _, err := testutil.ParseIVFHeader(ivf); err != nil {
 		t.Fatalf("ParseIVFHeader returned error: %v", err)
 	}
@@ -186,6 +222,7 @@ func decodeIVFChecksumsWithOptions(t *testing.T, ivf []byte, opts DecoderOptions
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
+	defer d.Close()
 
 	var frames []testutil.FrameChecksum
 	outputIndex := 0
@@ -193,6 +230,9 @@ func decodeIVFChecksumsWithOptions(t *testing.T, ivf []byte, opts DecoderOptions
 		frame, next, err := testutil.NextIVFFrame(ivf, offset, inputIndex)
 		if err != nil {
 			t.Fatalf("NextIVFFrame[%d] returned error: %v", inputIndex, err)
+		}
+		if fn := apply[inputIndex]; fn != nil {
+			fn(t, d)
 		}
 		if err := d.Decode(frame.Data); err != nil {
 			t.Fatalf("Decode frame %d returned error: %v", inputIndex, err)

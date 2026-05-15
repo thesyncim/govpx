@@ -36,13 +36,13 @@
     "rt-cpu8-256x256-bench-noise": {
       "diff_pp": {
         "zeromv": 0,
-        "nearestmv": 0,
-        "nearmv": 0,
-        "newmv": 0,
+        "nearestmv": -2.0089285714285694,
+        "nearmv": 3.069196428571429,
+        "newmv": -1.0602678571428572,
         "intra": 0
       },
-      "l1_pp": 0,
-      "eob_sum_ratio": 1
+      "l1_pp": 6.138392857142856,
+      "eob_sum_ratio": 0.9080777691511387
     },
     "rt-cpu8-256x256-panning": {
       "diff_pp": {

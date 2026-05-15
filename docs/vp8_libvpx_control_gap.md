@@ -109,8 +109,8 @@ Implementation notes:
 
 ### Reference Set/Copy
 
-Status: covered. Priority: high for recovery/oracle/debug users, medium for
-normal encode/decode.
+Status: covered for encoder and decoder. Priority: high for
+recovery/oracle/debug users, medium for normal encode/decode.
 
 libvpx controls:
 
@@ -151,6 +151,10 @@ Implemented notes:
   modes, source alt-ref lifecycle, and denoiser reference averages.
 - Decoder set-reference requires an initialized decoder size and extends
   borders after copying visible samples.
+- Decoder runtime control parity is guarded by
+  `TestOracleLibvpxDecoderReferenceControls`, which drives libvpx
+  `VP8_SET_REFERENCE` / `VP8_COPY_REFERENCE` across LAST/GOLDEN/ALTREF,
+  postprocess, error concealment, threaded decode, and resolution change.
 
 ### `VP8E_SET_TUNING`
 

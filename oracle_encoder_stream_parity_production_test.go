@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -121,6 +122,84 @@ func TestOracleEncoderStreamByteParityProductionShortRuns(t *testing.T) {
 			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, opts, tc.bitrate, sources, extraArgs)
 			assertSegmentByteParity(t, "production-short-run-"+tc.name, govpxFrames, libvpxFrames, 0)
 		})
+	}
+}
+
+func TestOracleEncoderProductionRuntimeTransitions720p(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run production runtime-transition oracle")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		width   = 1280
+		height  = 720
+		fps     = 30
+		bitrate = 8000
+		frames  = 30
+	)
+	opts, extraArgs := productionParityOptions(width, height, fps, bitrate, DeadlineRealtime, -8, "realtime-nodrop")
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, 0)
+	}
+	script := runtimeControlScript(frames, map[int]string{
+		8:  "bitrate:6000+fps:24+minq:4+maxq:52+drop:60",
+		16: "bitrate:9000+fps:30+minq:2+maxq:56+drop:0",
+		24: "bitrate:7000+fps:30+minq:8+maxq:48+drop:60",
+	})
+	flags := make([]EncodeFlags, frames)
+	flags[8] = EncodeForceKeyFrame
+	flags[16] = EncodeForceKeyFrame
+	flags[24] = EncodeForceKeyFrame
+	apply := map[int]func(*testing.T, *VP8Encoder){
+		8: func(t *testing.T, e *VP8Encoder) {
+			t.Helper()
+			mustRuntime(t, "SetRealtimeTarget(6000/24/q4-52/drop)", e.SetRealtimeTarget(RealtimeTarget{
+				BitrateKbps: 6000, FPS: 24, MinQuantizer: 4, MaxQuantizer: 52, FrameDrop: RealtimeFrameDropEnabled,
+			}))
+		},
+		16: func(t *testing.T, e *VP8Encoder) {
+			t.Helper()
+			mustRuntime(t, "SetRealtimeTarget(9000/30/q2-56/nodrop)", e.SetRealtimeTarget(RealtimeTarget{
+				BitrateKbps: 9000, FPS: 30, MinQuantizer: 2, MaxQuantizer: 56, FrameDrop: RealtimeFrameDropDisabled,
+			}))
+		},
+		24: func(t *testing.T, e *VP8Encoder) {
+			t.Helper()
+			mustRuntime(t, "SetRealtimeTarget(7000/30/q8-48/drop)", e.SetRealtimeTarget(RealtimeTarget{
+				BitrateKbps: 7000, FPS: 30, MinQuantizer: 8, MaxQuantizer: 48, FrameDrop: RealtimeFrameDropEnabled,
+			}))
+		},
+	}
+
+	govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, flags, apply)
+	extraArgs = append(extraArgs, "--control-script="+strings.Join(script, ","))
+	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "production-runtime-transitions-720p", opts, bitrate, sources, flags, extraArgs)
+	assertProductionTransitionPacketShape(t, "production-runtime-transitions-720p", govpxFrames, libvpxFrames)
+}
+
+func assertProductionTransitionPacketShape(t *testing.T, label string, got, want [][]byte) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s frame count = %d, want %d from libvpx", label, len(got), len(want))
+	}
+	if len(got) == 0 {
+		t.Fatalf("%s produced no packets", label)
+	}
+	for i := range got {
+		gotInfo, err := PeekVP8StreamInfo(got[i])
+		if err != nil {
+			t.Fatalf("%s govpx frame %d PeekVP8StreamInfo: %v", label, i, err)
+		}
+		wantInfo, err := PeekVP8StreamInfo(want[i])
+		if err != nil {
+			t.Fatalf("%s libvpx frame %d PeekVP8StreamInfo: %v", label, i, err)
+		}
+		if gotInfo.KeyFrame != wantInfo.KeyFrame || gotInfo.ShowFrame != wantInfo.ShowFrame {
+			t.Fatalf("%s frame %d shape mismatch: govpx key/show=%t/%t libvpx key/show=%t/%t",
+				label, i, gotInfo.KeyFrame, gotInfo.ShowFrame, wantInfo.KeyFrame, wantInfo.ShowFrame)
+		}
 	}
 }
 
