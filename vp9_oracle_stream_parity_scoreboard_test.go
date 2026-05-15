@@ -117,6 +117,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		exactPrefix int
 		exactFrames []int
 		strictBytes bool
+		tileJobs    int
 	}
 	cases := []streamCase{
 		{
@@ -205,6 +206,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			},
 			exactPrefix: 2,
 			strictBytes: true,
+			tileJobs:    4,
 		},
 		{
 			name:    "fixed-q-rt-cpu4-constant",
@@ -395,7 +397,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			fixture:     stepped64,
 			frames:      6,
 			flags:       vp9OracleRepeatInterFlag(6, vp9NoUpdateRefFlags),
-			exactPrefix: 2,
+			exactPrefix: 5,
 		},
 		{
 			name:        "no-reference-all",
@@ -449,7 +451,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			opts: VP9EncoderOptions{
 				NoiseSensitivity: 3,
 			},
-			extraArgs: []string{"--noise-sensitivity=3"},
+			extraArgs:   []string{"--noise-sensitivity=3"},
+			exactPrefix: 1,
 		},
 		{
 			name:    "vbr-rate-constant",
@@ -793,8 +796,18 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				sources[i] = tc.fixture.source(tc.fixture.width,
 					tc.fixture.height, i)
 			}
-			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
-				tc.opts, sources, tc.flags, tc.extraArgs)
+			var beforeFrame func(*VP9Encoder, int)
+			var afterFrame func(*VP9Encoder, int)
+			if tc.tileJobs > 0 {
+				beforeFrame = func(enc *VP9Encoder, frame int) {
+					resetVP9OracleThreadedTileJobsForTest(enc)
+				}
+				afterFrame = func(enc *VP9Encoder, frame int) {
+					assertVP9OracleThreadedTileWriterUsed(t, enc, frame, tc.tileJobs)
+				}
+			}
+			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
+				tc.opts, sources, tc.flags, tc.extraArgs, beforeFrame, afterFrame)
 			matches := 0
 			firstMismatch := -1
 			for i := range govpxPackets {
@@ -1098,7 +1111,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 		{
 			name:        "repeat-no-update-all",
 			flags:       vp9OracleRepeatInterFlag(frames, vp9NoUpdateRefFlags),
-			exactPrefix: 2,
+			exactPrefix: 5,
 		},
 		{
 			name: "repeat-no-reference-golden-altref",
@@ -1123,7 +1136,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 		{
 			name:        "force-ref-refresh-transitions",
 			flags:       vp9OracleRefRefreshTransitions(frames),
-			exactPrefix: 1,
+			exactPrefix: 3,
 		},
 		{
 			name:        "alternating-reference-controls",
@@ -1203,7 +1216,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			opts:        vp9OracleCBROptions(64, 64, 700),
 			flags:       vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame),
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
-			exactPrefix: 1,
+			exactPrefix: 4,
 		},
 		{
 			name:   "error-resilient-no-update-entropy",
@@ -2851,6 +2864,15 @@ func captureVP9StreamParityPacketsWithHooks(t *testing.T, opts VP9EncoderOptions
 	beforeFrame func(*VP9Encoder, int),
 ) ([][]byte, [][]byte) {
 	t.Helper()
+	return captureVP9StreamParityPacketsWithFrameHooks(t, opts, sources,
+		flags, extraArgs, beforeFrame, nil)
+}
+
+func captureVP9StreamParityPacketsWithFrameHooks(t *testing.T, opts VP9EncoderOptions,
+	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
+	beforeFrame func(*VP9Encoder, int), afterFrame func(*VP9Encoder, int),
+) ([][]byte, [][]byte) {
+	t.Helper()
 	if len(sources) == 0 {
 		t.Fatal("empty VP9 stream parity source")
 	}
@@ -2897,6 +2919,9 @@ func captureVP9StreamParityPacketsWithHooks(t *testing.T, opts VP9EncoderOptions
 		if result.Dropped {
 			t.Fatalf("EncodeIntoWithFlagsResult frame %d unexpectedly dropped", i)
 		}
+		if afterFrame != nil {
+			afterFrame(enc, i)
+		}
 		govpxPackets[i] = append([]byte(nil), result.Data...)
 	}
 
@@ -2934,6 +2959,52 @@ func captureVP9StreamParityPacketsWithHooks(t *testing.T, opts VP9EncoderOptions
 		libvpxPackets[i] = append([]byte(nil), frame.Data...)
 	}
 	return govpxPackets, libvpxPackets
+}
+
+func resetVP9OracleThreadedTileJobsForTest(enc *VP9Encoder) {
+	if enc == nil || enc.vp9TilePool == nil {
+		return
+	}
+	for i := range enc.vp9TilePool.encodeJobs {
+		enc.vp9TilePool.encodeJobs[i].size = 0
+		enc.vp9TilePool.encodeJobs[i].err = nil
+	}
+}
+
+func assertVP9OracleThreadedTileWriterUsed(t *testing.T, enc *VP9Encoder,
+	frame int, wantJobs int,
+) {
+	t.Helper()
+	if enc == nil {
+		t.Fatalf("frame %d: nil VP9 encoder while checking threaded tile writer", frame)
+	}
+	pool := enc.vp9TilePool
+	if pool == nil {
+		t.Fatalf("frame %d: VP9 threaded tile worker pool was not initialized", frame)
+	}
+	if got := pool.workerCount; got != wantJobs {
+		t.Fatalf("frame %d: VP9 threaded tile worker count = %d, want %d",
+			frame, got, wantJobs)
+	}
+	if pool.jobKind != vp9TileWorkerJobEncode {
+		t.Fatalf("frame %d: VP9 tile worker job kind = %d, want encode",
+			frame, pool.jobKind)
+	}
+	if len(pool.encodeJobs) < wantJobs {
+		t.Fatalf("frame %d: VP9 threaded tile jobs = %d, want at least %d",
+			frame, len(pool.encodeJobs), wantJobs)
+	}
+	for i := 0; i < wantJobs; i++ {
+		job := &pool.encodeJobs[i]
+		if job.err != nil {
+			t.Fatalf("frame %d: VP9 threaded tile job %d error = %v",
+				frame, i, job.err)
+		}
+		if job.size <= 0 {
+			t.Fatalf("frame %d: VP9 threaded tile job %d wrote %d bytes; threaded tile path was not exercised",
+				frame, i, job.size)
+		}
+	}
 }
 
 func captureVP9StreamParityPacketRowsWithHooks(t *testing.T,
