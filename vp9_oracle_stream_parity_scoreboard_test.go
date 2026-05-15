@@ -1974,6 +1974,66 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name: "active-map-checker-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					activeMap, rows, cols := vp9OracleActiveMap(width,
+						height, "checker")
+					mustVP9Runtime(t, "SetActiveMap checker",
+						enc.SetActiveMap(activeMap, rows, cols))
+				case 7:
+					mustVP9Runtime(t, "SetActiveMap nil",
+						enc.SetActiveMap(nil, 0, 0))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,active:checker,-,-,-,-,-,active:off,-,-"),
+			exactPrefix: 1,
+		},
+		{
+			name: "roi-border-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					mustVP9Runtime(t, "SetROIMap border1",
+						enc.SetROIMap(vp9OracleROIMap(width, height, "border1")))
+				case 7:
+					mustVP9Runtime(t, "SetROIMap nil", enc.SetROIMap(nil))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,roi:border1,-,-,-,-,-,roi:off,-,-"),
+			exactPrefix: 1,
+		},
+		{
+			name: "active-roi-combined-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					activeMap, rows, cols := vp9OracleActiveMap(width,
+						height, "checker")
+					mustVP9Runtime(t, "SetActiveMap checker",
+						enc.SetActiveMap(activeMap, rows, cols))
+					mustVP9Runtime(t, "SetROIMap border1",
+						enc.SetROIMap(vp9OracleROIMap(width, height, "border1")))
+				case 7:
+					mustVP9Runtime(t, "SetActiveMap nil",
+						enc.SetActiveMap(nil, 0, 0))
+					mustVP9Runtime(t, "SetROIMap nil", enc.SetROIMap(nil))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,active:checker+roi:border1,-,-,-,-,-,active:off+roi:off,-,-"),
+			exactPrefix: 1,
+		},
+		{
 			name: "set-cq-level-cq-mode-window",
 			opts: VP9EncoderOptions{
 				RateControlModeSet:  true,
@@ -3109,6 +3169,40 @@ func vp9OracleROIMap(width int, height int, pattern string) *ROIMap {
 		roi.DeltaQuantizer[1] = -6
 	}
 	return roi
+}
+
+func vp9OracleActiveMap(width int, height int, pattern string) ([]uint8, int, int) {
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			idx := row*cols + col
+			switch pattern {
+			case "all":
+				activeMap[idx] = 1
+			case "checker":
+				if (row+col)&1 == 0 {
+					activeMap[idx] = 1
+				}
+			case "left-off":
+				if col != 0 {
+					activeMap[idx] = 1
+				}
+			case "right-off":
+				if col != cols-1 {
+					activeMap[idx] = 1
+				}
+			case "border-off":
+				if row != 0 && col != 0 && row != rows-1 && col != cols-1 {
+					activeMap[idx] = 1
+				}
+			default:
+				panic("unknown VP9 active-map pattern")
+			}
+		}
+	}
+	return activeMap, rows, cols
 }
 
 func countVP9AltRefRefreshRows(rows []vp9RateScoreboardRow) int {
