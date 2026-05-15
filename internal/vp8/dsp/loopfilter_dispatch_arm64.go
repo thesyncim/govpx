@@ -209,18 +209,22 @@ func scatterH8x8PairARM64(u []byte, v []byte, stride int, tmp *[8 * 16]byte, fir
 // vertical-edge fallback. Lanes 8..15 are inactive on writeback.
 func gatherV8x8ARM64(tmp *[8 * 16]byte, s []byte, stride int) {
 	dst := tmp[:]
-	for i := range 8 {
-		row := s[i*stride : i*stride+8]
-		w := binary.LittleEndian.Uint64(row)
-		dst[0*16+i] = byte(w)
-		dst[1*16+i] = byte(w >> 8)
-		dst[2*16+i] = byte(w >> 16)
-		dst[3*16+i] = byte(w >> 24)
-		dst[4*16+i] = byte(w >> 32)
-		dst[5*16+i] = byte(w >> 40)
-		dst[6*16+i] = byte(w >> 48)
-		dst[7*16+i] = byte(w >> 56)
-	}
+	r0 := binary.LittleEndian.Uint64(s[0*stride : 0*stride+8])
+	r1 := binary.LittleEndian.Uint64(s[1*stride : 1*stride+8])
+	r2 := binary.LittleEndian.Uint64(s[2*stride : 2*stride+8])
+	r3 := binary.LittleEndian.Uint64(s[3*stride : 3*stride+8])
+	r4 := binary.LittleEndian.Uint64(s[4*stride : 4*stride+8])
+	r5 := binary.LittleEndian.Uint64(s[5*stride : 5*stride+8])
+	r6 := binary.LittleEndian.Uint64(s[6*stride : 6*stride+8])
+	r7 := binary.LittleEndian.Uint64(s[7*stride : 7*stride+8])
+	binary.LittleEndian.PutUint64(dst[0*16:0*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 0))
+	binary.LittleEndian.PutUint64(dst[1*16:1*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 8))
+	binary.LittleEndian.PutUint64(dst[2*16:2*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 16))
+	binary.LittleEndian.PutUint64(dst[3*16:3*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 24))
+	binary.LittleEndian.PutUint64(dst[4*16:4*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 32))
+	binary.LittleEndian.PutUint64(dst[5*16:5*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 40))
+	binary.LittleEndian.PutUint64(dst[6*16:6*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 48))
+	binary.LittleEndian.PutUint64(dst[7*16:7*16+8], packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7, 56))
 }
 
 // scatterV8x8ARM64 writes the modified rows [first..first+nrows-1] of
@@ -238,26 +242,49 @@ func scatterV8x8ARM64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows 
 
 func gatherV8x8PairARM64(tmp *[8 * 16]byte, u []byte, v []byte, stride int) {
 	dst := tmp[:]
-	for i := range 8 {
-		uw := binary.LittleEndian.Uint64(u[i*stride : i*stride+8])
-		vw := binary.LittleEndian.Uint64(v[i*stride : i*stride+8])
-		dst[0*16+i] = byte(uw)
-		dst[1*16+i] = byte(uw >> 8)
-		dst[2*16+i] = byte(uw >> 16)
-		dst[3*16+i] = byte(uw >> 24)
-		dst[4*16+i] = byte(uw >> 32)
-		dst[5*16+i] = byte(uw >> 40)
-		dst[6*16+i] = byte(uw >> 48)
-		dst[7*16+i] = byte(uw >> 56)
-		dst[0*16+8+i] = byte(vw)
-		dst[1*16+8+i] = byte(vw >> 8)
-		dst[2*16+8+i] = byte(vw >> 16)
-		dst[3*16+8+i] = byte(vw >> 24)
-		dst[4*16+8+i] = byte(vw >> 32)
-		dst[5*16+8+i] = byte(vw >> 40)
-		dst[6*16+8+i] = byte(vw >> 48)
-		dst[7*16+8+i] = byte(vw >> 56)
-	}
+	u0 := binary.LittleEndian.Uint64(u[0*stride : 0*stride+8])
+	u1 := binary.LittleEndian.Uint64(u[1*stride : 1*stride+8])
+	u2 := binary.LittleEndian.Uint64(u[2*stride : 2*stride+8])
+	u3 := binary.LittleEndian.Uint64(u[3*stride : 3*stride+8])
+	u4 := binary.LittleEndian.Uint64(u[4*stride : 4*stride+8])
+	u5 := binary.LittleEndian.Uint64(u[5*stride : 5*stride+8])
+	u6 := binary.LittleEndian.Uint64(u[6*stride : 6*stride+8])
+	u7 := binary.LittleEndian.Uint64(u[7*stride : 7*stride+8])
+	v0 := binary.LittleEndian.Uint64(v[0*stride : 0*stride+8])
+	v1 := binary.LittleEndian.Uint64(v[1*stride : 1*stride+8])
+	v2 := binary.LittleEndian.Uint64(v[2*stride : 2*stride+8])
+	v3 := binary.LittleEndian.Uint64(v[3*stride : 3*stride+8])
+	v4 := binary.LittleEndian.Uint64(v[4*stride : 4*stride+8])
+	v5 := binary.LittleEndian.Uint64(v[5*stride : 5*stride+8])
+	v6 := binary.LittleEndian.Uint64(v[6*stride : 6*stride+8])
+	v7 := binary.LittleEndian.Uint64(v[7*stride : 7*stride+8])
+	binary.LittleEndian.PutUint64(dst[0*16:0*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 0))
+	binary.LittleEndian.PutUint64(dst[0*16+8:0*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 0))
+	binary.LittleEndian.PutUint64(dst[1*16:1*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 8))
+	binary.LittleEndian.PutUint64(dst[1*16+8:1*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 8))
+	binary.LittleEndian.PutUint64(dst[2*16:2*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 16))
+	binary.LittleEndian.PutUint64(dst[2*16+8:2*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 16))
+	binary.LittleEndian.PutUint64(dst[3*16:3*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 24))
+	binary.LittleEndian.PutUint64(dst[3*16+8:3*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 24))
+	binary.LittleEndian.PutUint64(dst[4*16:4*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 32))
+	binary.LittleEndian.PutUint64(dst[4*16+8:4*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 32))
+	binary.LittleEndian.PutUint64(dst[5*16:5*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 40))
+	binary.LittleEndian.PutUint64(dst[5*16+8:5*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 40))
+	binary.LittleEndian.PutUint64(dst[6*16:6*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 48))
+	binary.LittleEndian.PutUint64(dst[6*16+8:6*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 48))
+	binary.LittleEndian.PutUint64(dst[7*16:7*16+8], packColumn8ARM64(u0, u1, u2, u3, u4, u5, u6, u7, 56))
+	binary.LittleEndian.PutUint64(dst[7*16+8:7*16+16], packColumn8ARM64(v0, v1, v2, v3, v4, v5, v6, v7, 56))
+}
+
+func packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7 uint64, shift uint) uint64 {
+	return uint64(byte(r0>>shift)) |
+		uint64(byte(r1>>shift))<<8 |
+		uint64(byte(r2>>shift))<<16 |
+		uint64(byte(r3>>shift))<<24 |
+		uint64(byte(r4>>shift))<<32 |
+		uint64(byte(r5>>shift))<<40 |
+		uint64(byte(r6>>shift))<<48 |
+		uint64(byte(r7>>shift))<<56
 }
 
 func scatterV8x8PairARM64(u []byte, v []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
