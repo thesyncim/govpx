@@ -5103,6 +5103,53 @@ func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderRuntimeResizeRebuildsTileWorkerPool(t *testing.T) {
+	const smallWidth, smallHeight = 64, 64
+	const wideWidth, wideHeight = 1280, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   smallWidth,
+		Height:  smallHeight,
+		Threads: 4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if _, err := e.Encode(newVP9YCbCrForTest(smallWidth, smallHeight, 82, 123, 211)); err != nil {
+		t.Fatalf("small Encode: %v", err)
+	}
+	if e.vp9TilePool != nil {
+		t.Fatalf("small threaded pool = %d workers, want nil before multi-tile resize",
+			e.vp9TilePool.workerCount)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{
+		Width:  wideWidth,
+		Height: wideHeight,
+	}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize: %v", err)
+	}
+	packet, err := e.Encode(newVP9YCbCrForTest(wideWidth, wideHeight, 91, 143, 37))
+	if err != nil {
+		t.Fatalf("wide Encode: %v", err)
+	}
+	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Tile.Log2TileCols != 2 {
+		t.Fatalf("Log2TileCols after resize = %d, want 2 for Threads=4",
+			h.Tile.Log2TileCols)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("VP9 tile worker pool was not rebuilt after resize")
+	}
+	if got, want := e.vp9TilePool.workerCount, 4; got != want {
+		t.Fatalf("resized VP9 tile worker count = %d, want %d", got, want)
+	}
+	for i := range e.vp9TilePool.encodeJobs {
+		if e.vp9TilePool.encodeJobs[i].size == 0 {
+			t.Fatalf("resized VP9 tile worker job %d wrote zero bytes", i)
+		}
+	}
+	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
+}
+
 func TestVP9TileWorkerPoolOutputSizeCache(t *testing.T) {
 	pool := &vp9TileWorkerPool{
 		outputs: make([][]byte, 4),

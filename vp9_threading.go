@@ -108,17 +108,38 @@ func (e *VP9Encoder) initVP9TileWorkerPool() {
 	if tileCols <= 1 {
 		return
 	}
-	pool := newVP9TileWorkerPool(tileCols)
+	pool := e.ensureVP9TileWorkerPool(tileCols)
 	if pool == nil {
 		return
 	}
 	if size, err := vp9AllocatingEncodeBufferSize(e.opts.Width, e.opts.Height); err == nil {
 		pool.ensureOutputSize(size)
 	}
+}
+
+func (e *VP9Encoder) ensureVP9TileWorkerPool(tileCols int) *vp9TileWorkerPool {
+	if e == nil || e.opts.Threads <= 1 || tileCols <= 1 {
+		return nil
+	}
+	if pool := e.vp9TilePool; pool != nil && pool.workerCount == tileCols {
+		return pool
+	}
+	if e.vp9TilePool != nil {
+		e.vp9TilePool.shutdownPool()
+	}
+	pool := newVP9TileWorkerPool(tileCols)
+	if pool == nil {
+		e.vp9TilePool = nil
+		e.vp9CountWorkers = nil
+		e.vp9CountCounts = nil
+		e.vp9CountJobs = nil
+		return nil
+	}
 	e.vp9TilePool = pool
 	e.vp9CountWorkers = pool.workers
 	e.vp9CountCounts = pool.countCounts
 	e.vp9CountJobs = pool.countJobs
+	return pool
 }
 
 func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
@@ -312,8 +333,8 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	kind vp9ModeTreeKind, seed vp9CountTileSeed, dstCounts *encoder.FrameCounts,
 ) bool {
-	pool := e.vp9TilePool
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	pool := e.ensureVP9TileWorkerPool(tileCols)
 	if pool == nil || pool.workerCount != tileCols || dstCounts == nil {
 		return false
 	}
@@ -355,7 +376,7 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 	if !e.writeVP9FrameTilesThreadedEnabled(tileRows, tileCols) {
 		return 0, nil, false
 	}
-	pool := e.vp9TilePool
+	pool := e.ensureVP9TileWorkerPool(tileCols)
 	if pool == nil || pool.workerCount != tileCols {
 		return 0, nil, false
 	}
