@@ -691,8 +691,7 @@ func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool, refres
 		rc.lastQInter = q
 		rc.avgFrameQIndexInter = uint8((3*int(rc.avgFrameQIndexInter) + qindex + 2) >> 2)
 	}
-	if !intraOnly && refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0 &&
-		(qindex < int(rc.lastBoostedQIndex) || rc.lastBoostedQIndex == 0) {
+	if !intraOnly && refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0 {
 		rc.lastBoostedQIndex = q
 	}
 	if showFrame {

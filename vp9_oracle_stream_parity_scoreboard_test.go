@@ -982,7 +982,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 	cases := []threadedCase{
 		{
 			name:   "fixed-q",
-			frames: 3,
+			frames: 4,
 			opts: VP9EncoderOptions{
 				Threads:      4,
 				MinQuantizer: 20,
@@ -1040,7 +1040,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 		},
 		{
 			name:   "q",
-			frames: 3,
+			frames: 4,
 			opts: VP9EncoderOptions{
 				Threads:             4,
 				RateControlModeSet:  true,
@@ -1063,7 +1063,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 		},
 		{
 			name:   "error-resilient",
-			frames: 3,
+			frames: 4,
 			opts: VP9EncoderOptions{
 				Threads:        4,
 				ErrorResilient: true,

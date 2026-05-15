@@ -988,6 +988,14 @@ func TestVP9RateControlVBRGoldenUsesGFARFCorrectionFactor(t *testing.T) {
 	}
 }
 
+func TestVP9RateControlBoostedRefreshUpdatesLastBoostedQIndex(t *testing.T) {
+	rc := vp9RateControlState{lastBoostedQIndex: 40}
+	rc.updateQHistory(80, false, 1<<vp9GoldenRefSlot, true)
+	if got := rc.lastBoostedQIndex; got != 80 {
+		t.Fatalf("last boosted q after golden refresh = %d, want 80", got)
+	}
+}
+
 func TestVP9EncoderOnePassVBRGoldenRefreshCadence(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
