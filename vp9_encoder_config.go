@@ -313,6 +313,21 @@ func (e *VP9Encoder) SetCPUUsed(cpuUsed int) error {
 	return nil
 }
 
+// SetTuning changes the VP9 visual quality model used for subsequent frames.
+// Valid values are [TunePSNR] and [TuneSSIM]. The current encoder stores the
+// VP9 tuning control for libvpx-compatible runtime configuration; the default
+// TunePSNR path has no extra per-frame work.
+func (e *VP9Encoder) SetTuning(tuning Tuning) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if tuning < TunePSNR || tuning > TuneSSIM {
+		return ErrInvalidConfig
+	}
+	e.opts.Tuning = tuning
+	return nil
+}
+
 // SetFrameDropAllowed enables or disables VP9 CBR buffer-underrun frame
 // dropping without changing bitrate. The encoder must have been created with
 // VP9 CBR rate control enabled.

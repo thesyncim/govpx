@@ -80,6 +80,10 @@ type VP9EncoderOptions struct {
 	// CpuUsed selects the libvpx VP9 speed preset in [-9, 9]. VP9 maps this to
 	// abs(cpu-used) internally; the sign is preserved for control parity.
 	CpuUsed int8
+	// Tuning selects the VP9 visual quality model. TunePSNR is the default;
+	// TuneSSIM is accepted for libvpx control-surface parity and future SSIM
+	// mode-decision work.
+	Tuning Tuning
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
 	// configuration. When RateControlModeSet is false, the packet path keeps
@@ -463,6 +467,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.ARNRMaxFrames < 0 || opts.ARNRMaxFrames > maxARNRFrames ||
 		opts.ARNRStrength < 0 || opts.ARNRStrength > 6 ||
 		opts.ARNRType < 0 || opts.ARNRType > 3 {
+		return ErrInvalidConfig
+	}
+	if opts.Tuning < TunePSNR || opts.Tuning > TuneSSIM {
 		return ErrInvalidConfig
 	}
 	if err := validateVP9TwoPassOptions(opts); err != nil {

@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "vpx/vp8.h"
 #include "vpx/vp8cx.h"
 #include "vpx/vpx_codec.h"
 #include "vpx/vpx_encoder.h"
@@ -119,6 +120,13 @@ static int parse_deadline(const char *value) {
   if (strcmp(value, "best") == 0) return (int)VPX_DL_BEST_QUALITY;
   if (strcmp(value, "rt") == 0) return (int)VPX_DL_REALTIME;
   fprintf(stderr, "invalid --deadline: %s\n", value);
+  exit(EXIT_FAILURE);
+}
+
+static int parse_tune(const char *value) {
+  if (strcmp(value, "psnr") == 0) return VP8_TUNE_PSNR;
+  if (strcmp(value, "ssim") == 0) return VP8_TUNE_SSIM;
+  fprintf(stderr, "invalid --tune: %s\n", value);
   exit(EXIT_FAILURE);
 }
 
@@ -331,6 +339,136 @@ static void parse_resize_token(const char *spec, int *width, int *height) {
   }
   *width = w;
   *height = h;
+}
+
+static void fill_panning_image(vpx_image_t *img, int width, int height,
+                               int index) {
+  int xoff = index * 2;
+  int yoff = index;
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      int src_x = x + xoff;
+      int src_y = y + yoff;
+      img->planes[VPX_PLANE_Y][(ptrdiff_t)y * img->stride[VPX_PLANE_Y] + x] =
+          (uint8_t)(32 + ((src_y * 7 + src_x * 11 +
+                           (src_x / 8) * (src_y / 8) * 13) &
+                          191));
+    }
+  }
+  int uv_w = (width + 1) >> 1;
+  int uv_h = (height + 1) >> 1;
+  for (int y = 0; y < uv_h; ++y) {
+    for (int x = 0; x < uv_w; ++x) {
+      int src_x = x + xoff / 2;
+      int src_y = y + yoff / 2;
+      img->planes[VPX_PLANE_U][(ptrdiff_t)y * img->stride[VPX_PLANE_U] + x] =
+          (uint8_t)(96 + ((src_x * 5 + src_y * 3) & 63));
+      img->planes[VPX_PLANE_V][(ptrdiff_t)y * img->stride[VPX_PLANE_V] + x] =
+          (uint8_t)(144 + ((src_x * 2 + src_y * 7) & 63));
+    }
+  }
+}
+
+static vpx_ref_frame_type_t parse_ref_frame_type(const char *value) {
+  if (strcmp(value, "last") == 0) return VP8_LAST_FRAME;
+  if (strcmp(value, "golden") == 0) return VP8_GOLD_FRAME;
+  if (strcmp(value, "altref") == 0) return VP8_ALTR_FRAME;
+  fprintf(stderr, "invalid reference frame: %s\n", value);
+  exit(EXIT_FAILURE);
+}
+
+#define GOVPX_ADLER_MOD 65521u
+static unsigned int plane_adler32(const uint8_t *plane, int width, int height,
+                                  int stride) {
+  unsigned int a = 1;
+  unsigned int b = 0;
+  if (!plane || width <= 0 || height <= 0 || stride <= 0) return 0;
+  for (int y = 0; y < height; ++y) {
+    const uint8_t *row = plane + (ptrdiff_t)y * stride;
+    for (int x = 0; x < width; ++x) {
+      a = (a + row[x]) % GOVPX_ADLER_MOD;
+      b = (b + a) % GOVPX_ADLER_MOD;
+    }
+  }
+  return (b << 16) | a;
+}
+
+static void apply_vp9_copy_reference_token(vpx_codec_ctx_t *ctx, int width,
+                                           int height, int frame_idx,
+                                           const char *ref_name, FILE *log) {
+  if (!log) die_msg("copyref token requires --copy-ref-log");
+  vpx_image_t ref_img;
+  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)width,
+                     (unsigned)height, 1)) {
+    die_msg("vpx_img_alloc copyref failed");
+  }
+  vpx_ref_frame_t ref;
+  ref.frame_type = parse_ref_frame_type(ref_name);
+  ref.img = ref_img;
+  if (vpx_codec_control(ctx, VP8_COPY_REFERENCE, &ref)) {
+    die_codec_msg(ctx, "VP8_COPY_REFERENCE");
+  }
+  int uv_w = (width + 1) >> 1;
+  int uv_h = (height + 1) >> 1;
+  unsigned int y_adler =
+      plane_adler32(ref_img.planes[VPX_PLANE_Y], width, height,
+                    ref_img.stride[VPX_PLANE_Y]);
+  unsigned int u_adler =
+      plane_adler32(ref_img.planes[VPX_PLANE_U], uv_w, uv_h,
+                    ref_img.stride[VPX_PLANE_U]);
+  unsigned int v_adler =
+      plane_adler32(ref_img.planes[VPX_PLANE_V], uv_w, uv_h,
+                    ref_img.stride[VPX_PLANE_V]);
+  if (fprintf(log,
+              "frame=%d ref=%s y_adler32=%u u_adler32=%u v_adler32=%u\n",
+              frame_idx, ref_name, y_adler, u_adler, v_adler) < 0) {
+    die_msg("write copy-ref log failed");
+  }
+  vpx_img_free(&ref_img);
+}
+
+static void apply_vp9_set_reference_token(vpx_codec_ctx_t *ctx, int width,
+                                          int height, const char *spec) {
+  char buf[128];
+  size_t len = strlen(spec);
+  if (len >= sizeof(buf)) {
+    fprintf(stderr, "setref token too long: %s\n", spec);
+    exit(EXIT_FAILURE);
+  }
+  memcpy(buf, spec, len + 1);
+
+  char *ref_name = buf;
+  char *kind = strchr(ref_name, ':');
+  if (!kind) {
+    fprintf(stderr, "setref expects ref:pattern:index: %s\n", spec);
+    exit(EXIT_FAILURE);
+  }
+  *kind++ = '\0';
+  char *index_text = strchr(kind, ':');
+  if (!index_text) {
+    fprintf(stderr, "setref expects ref:pattern:index: %s\n", spec);
+    exit(EXIT_FAILURE);
+  }
+  *index_text++ = '\0';
+  if (strcmp(kind, "panning") != 0) {
+    fprintf(stderr, "unsupported setref pattern: %s\n", kind);
+    exit(EXIT_FAILURE);
+  }
+  int index = parse_int(index_text, "setref index");
+
+  vpx_image_t ref_img;
+  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)width,
+                     (unsigned)height, 1)) {
+    die_msg("vpx_img_alloc setref failed");
+  }
+  fill_panning_image(&ref_img, width, height, index);
+  vpx_ref_frame_t ref;
+  ref.frame_type = parse_ref_frame_type(ref_name);
+  ref.img = ref_img;
+  if (vpx_codec_control(ctx, VP8_SET_REFERENCE, &ref)) {
+    die_codec_msg(ctx, "VP8_SET_REFERENCE");
+  }
+  vpx_img_free(&ref_img);
 }
 
 static unsigned char *alloc_vp9_active_map_pattern(const char *pattern,
@@ -576,6 +714,8 @@ struct vp9_runtime_control_context {
   int *min_q;
   int *max_q;
   int *cq_level;
+  int frame_idx;
+  FILE *copy_ref_log;
   int config_changed;
 };
 
@@ -638,11 +778,21 @@ static void apply_vp9_runtime_control_token(
                           control_value_int(token, "cpu:"))) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_CPUUSED");
     }
+  } else if (starts_with(token, "tune:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_TUNING,
+                          parse_tune(token + strlen("tune:")))) {
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_TUNING");
+    }
   } else if (starts_with(token, "cq:")) {
     *ctx->cq_level = control_value_int(token, "cq:");
     if (vpx_codec_control(ctx->ctx, VP8E_SET_CQ_LEVEL,
                           (unsigned)*ctx->cq_level)) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_CQ_LEVEL");
+    }
+  } else if (starts_with(token, "noise:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_NOISE_SENSITIVITY,
+                          (unsigned)control_value_int(token, "noise:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_NOISE_SENSITIVITY");
     }
   } else if (starts_with(token, "active:")) {
     flush_vp9_runtime_config(ctx);
@@ -657,6 +807,17 @@ static void apply_vp9_runtime_control_token(
     apply_vp9_roi_custom_token(ctx->ctx, (int)ctx->cfg->g_w,
                                (int)ctx->cfg->g_h,
                                token + strlen("roicustom:"));
+  } else if (starts_with(token, "setref:")) {
+    flush_vp9_runtime_config(ctx);
+    apply_vp9_set_reference_token(ctx->ctx, (int)ctx->cfg->g_w,
+                                  (int)ctx->cfg->g_h,
+                                  token + strlen("setref:"));
+  } else if (starts_with(token, "copyref:")) {
+    flush_vp9_runtime_config(ctx);
+    apply_vp9_copy_reference_token(ctx->ctx, (int)ctx->cfg->g_w,
+                                   (int)ctx->cfg->g_h, ctx->frame_idx,
+                                   token + strlen("copyref:"),
+                                   ctx->copy_ref_log);
   } else if (starts_with(token, "autoaltref:")) {
     if (vpx_codec_control(ctx->ctx, VP8E_SET_ENABLEAUTOALTREF,
                           (unsigned)control_value_int(token, "autoaltref:"))) {
@@ -698,7 +859,7 @@ static void apply_vp9_runtime_controls(
     int *target_kbps, int *fps_num, int *buffer_size_ms,
     int *buffer_initial_ms, int *buffer_optimal_ms,
     int *drop_frame_water_mark, int *min_q, int *max_q, int *cq_level,
-    const char *entry) {
+    int frame_idx, FILE *copy_ref_log, const char *entry) {
   if (!entry || !*entry || strcmp(entry, "-") == 0) return;
   char buf[1024];
   size_t len = strlen(entry);
@@ -710,7 +871,7 @@ static void apply_vp9_runtime_controls(
   struct vp9_runtime_control_context ctx = {
       codec_ctx, cfg, deadline, target_kbps, fps_num, buffer_size_ms,
       buffer_initial_ms, buffer_optimal_ms, drop_frame_water_mark, min_q,
-      max_q, cq_level, 0};
+      max_q, cq_level, frame_idx, copy_ref_log, 0};
   char *start = buf;
   for (;;) {
     char *end = strchr(start, '+');
@@ -817,6 +978,7 @@ int main(int argc, char **argv) {
   const char *temporal_layer_ids_csv = NULL;
   const char *invisible_frames_csv = NULL;
   const char *control_script_csv = NULL;
+  const char *copy_ref_log_path = NULL;
   int width = 0, height = 0, frames = 0;
   int fps_num = 30, fps_den = 1;
   int target_kbps = 700;
@@ -828,6 +990,8 @@ int main(int argc, char **argv) {
   int kf_min_dist = 0, kf_max_dist = 128;
   int deadline = (int)VPX_DL_REALTIME;
   int cpu_used = 8;
+  int tune = VP8_TUNE_PSNR;
+  int noise_sensitivity = 0;
   int error_resilient = 0;
   int lag_in_frames = 0;
   int auto_alt_ref = 0;
@@ -886,6 +1050,10 @@ int main(int argc, char **argv) {
       deadline = parse_deadline(v);
     } else if ((v = flag_value(a, "--cpu-used"))) {
       cpu_used = parse_int(v, "--cpu-used");
+    } else if ((v = flag_value(a, "--tune"))) {
+      tune = parse_tune(v);
+    } else if ((v = flag_value(a, "--noise-sensitivity"))) {
+      noise_sensitivity = parse_int(v, "--noise-sensitivity");
     } else if ((v = flag_value(a, "--error-resilient"))) {
       error_resilient = parse_int(v, "--error-resilient");
     } else if ((v = flag_value(a, "--lag-in-frames"))) {
@@ -945,6 +1113,8 @@ int main(int argc, char **argv) {
       invisible_frames_csv = v;
     } else if ((v = flag_value(a, "--control-script"))) {
       control_script_csv = v;
+    } else if ((v = flag_value(a, "--copy-ref-log"))) {
+      copy_ref_log_path = v;
     } else if (strcmp(a, "--disable-warning-prompt") == 0) {
     } else {
       fprintf(stderr, "unknown argument: %s\n", a);
@@ -1055,6 +1225,11 @@ int main(int argc, char **argv) {
   }
   if (vpx_codec_control(&ctx, VP8E_SET_CPUUSED, cpu_used))
     die_codec_msg(&ctx, "VP8E_SET_CPUUSED");
+  if (vpx_codec_control(&ctx, VP8E_SET_TUNING, tune))
+    die_codec_msg(&ctx, "VP8E_SET_TUNING");
+  if (vpx_codec_control(&ctx, VP9E_SET_NOISE_SENSITIVITY,
+                        (unsigned)noise_sensitivity))
+    die_codec_msg(&ctx, "VP9E_SET_NOISE_SENSITIVITY");
   if (vpx_codec_control(&ctx, VP8E_SET_ENABLEAUTOALTREF,
                         (unsigned)auto_alt_ref))
     die_codec_msg(&ctx, "VP8E_SET_ENABLEAUTOALTREF");
@@ -1106,6 +1281,15 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
   }
+  FILE *copy_ref_log = NULL;
+  if (copy_ref_log_path) {
+    copy_ref_log = fopen(copy_ref_log_path, "wb");
+    if (!copy_ref_log) {
+      fprintf(stderr, "open %s for copy-ref log: %s\n", copy_ref_log_path,
+              strerror(errno));
+      exit(EXIT_FAILURE);
+    }
+  }
   write_ivf_file_header(out, width, height, 1, 1000, frames);
 
   int img_width = width;
@@ -1140,7 +1324,8 @@ int main(int argc, char **argv) {
         apply_vp9_runtime_controls(
             &ctx, &cfg, &deadline, &target_kbps, &fps_num, &buffer_size_ms,
             &buffer_initial_ms, &buffer_optimal_ms, &drop_frame_water_mark,
-            &min_q, &max_q, &cq_level, control_script[frame_idx]);
+            &min_q, &max_q, &cq_level, frame_idx, copy_ref_log,
+            control_script[frame_idx]);
       }
       if (target_bitrate_schedule &&
           target_bitrate_schedule[frame_idx] >= 0) {
@@ -1371,6 +1556,7 @@ int main(int argc, char **argv) {
   fclose(in);
   fclose(out);
   if (trace) fclose(trace);
+  if (copy_ref_log) fclose(copy_ref_log);
   if (vpx_codec_destroy(&ctx)) die_codec_msg(&ctx, "vpx_codec_destroy");
   vpx_img_free(&img);
   free(per_frame_flags);

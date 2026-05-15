@@ -166,6 +166,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"FlushIntoWithResult":         {kind: "vp9-lookahead-api"},
 		"ForceKeyFrame":               {kind: "frame-flag-api"},
 		"IsKeyFrameNext":              {kind: "metadata-api"},
+		"CopyReferenceFrame":          {kind: "libvpx-control", helperTokens: []string{"copyref:"}},
 		"SetActiveMap":                {kind: "libvpx-control", helperTokens: []string{"active:"}},
 		"SetBitrateKbps":              {kind: "libvpx-config", helperTokens: []string{"bitrate:"}},
 		"SetCPUUsed":                  {kind: "libvpx-control", helperTokens: []string{"cpu:"}},
@@ -175,9 +176,11 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetRateControl":              {kind: "libvpx-config", helperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "bufsz:", "bufinit:", "bufopt:", "drop:", "cq:"}},
 		"SetRateControlBuffer":        {kind: "libvpx-config", helperTokens: []string{"bufsz:", "bufinit:", "bufopt:"}},
 		"SetRealtimeTarget":           {kind: "libvpx-config", helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
+		"SetReferenceFrame":           {kind: "libvpx-control", helperTokens: []string{"setref:"}},
 		"SetROIMap":                   {kind: "libvpx-control", helperTokens: []string{"roi:", "roicustom:"}},
 		"SetTemporalLayerID":          {kind: "libvpx-control", helperTokens: []string{"tlid:"}},
 		"SetTemporalScalability":      {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
+		"SetTuning":                   {kind: "libvpx-control", helperTokens: []string{"tune:"}},
 		"SetTwoPassStats":             {kind: "libvpx-two-pass"},
 	}
 	if _, ok := methods["SetVP9OracleTraceWriter"]; ok {
@@ -220,6 +223,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"Threads":             {kind: "libvpx-config", helperTokens: []string{"threads:", "--threads"}},
 		"TimebaseDen":         {kind: "libvpx-config-timebase"},
 		"TimebaseNum":         {kind: "libvpx-config-timebase"},
+		"Tuning":              {kind: "libvpx-control", helperTokens: []string{"tune:", "--tune"}},
 		"TwoPassMaxPct":       {kind: "libvpx-two-pass"},
 		"TwoPassMinPct":       {kind: "libvpx-two-pass"},
 		"TwoPassStats":        {kind: "libvpx-two-pass"},

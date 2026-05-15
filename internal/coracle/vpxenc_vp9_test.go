@@ -3,6 +3,8 @@ package coracle
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -218,6 +220,51 @@ func TestVpxencVP9FrameFlagsTraceI420AcceptsROIRuntimeControls(t *testing.T) {
 	}
 	if got := bytes.Count(trace, []byte("\n")); got != frames {
 		t.Fatalf("trace rows = %d, want %d\n%s", got, frames, trace)
+	}
+}
+
+func TestVpxencVP9FrameFlagsTraceI420AcceptsReferenceAndTuningControls(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 4
+	raw := makeGeneratedVP9I420(width, height, frames)
+	logPath := filepath.Join(t.TempDir(), "copyref.log")
+	ivf, trace, diag, err := VpxencVP9FrameFlagsTraceI420(raw, width, height,
+		frames, nil,
+		"--tune=ssim",
+		"--noise-sensitivity=1",
+		"--copy-ref-log="+logPath,
+		"--control-script=-,copyref:last,tune:psnr+setref:last:panning:3+copyref:last,tune:ssim+noise:0+copyref:last")
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420 reference/tuning controls failed: %v\n%s", err, diag)
+	}
+	count, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if count != frames {
+		t.Fatalf("IVF frame count = %d, want %d", count, frames)
+	}
+	if got := bytes.Count(trace, []byte("\n")); got != frames {
+		t.Fatalf("trace rows = %d, want %d\n%s", got, frames, trace)
+	}
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile copyref log: %v", err)
+	}
+	for _, want := range [][]byte{
+		[]byte("frame=1 ref=last"),
+		[]byte("frame=2 ref=last"),
+		[]byte("frame=3 ref=last"),
+	} {
+		if !bytes.Contains(logData, want) {
+			t.Fatalf("copyref log missing %s:\n%s", want, logData)
+		}
 	}
 }
 
