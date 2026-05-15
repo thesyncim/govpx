@@ -22,23 +22,53 @@ const (
 	defaultVP9ExternalTestDataDir       = "internal/coracle/build/test-data/vp9"
 	defaultVP9IVFTestDataMinimum        = 7
 	defaultVP9InvalidIVFTestDataMinimum = 17
-	defaultVP9Profile0WebMTestMinimum   = 12
+	defaultVP9Profile0WebMTestMinimum   = 42
 	defaultVP9ProfileWebMTestMinimum    = 11
 )
 
 var defaultVP9Profile0WebMTestNames = map[string]struct{}{
 	"vp90-2-00-quantizer-00.webm":                 {},
+	"vp90-2-00-quantizer-16.webm":                 {},
 	"vp90-2-00-quantizer-32.webm":                 {},
+	"vp90-2-00-quantizer-48.webm":                 {},
 	"vp90-2-00-quantizer-63.webm":                 {},
 	"vp90-2-01-sharpness-1.webm":                  {},
+	"vp90-2-01-sharpness-2.webm":                  {},
+	"vp90-2-01-sharpness-3.webm":                  {},
+	"vp90-2-01-sharpness-4.webm":                  {},
+	"vp90-2-01-sharpness-5.webm":                  {},
+	"vp90-2-01-sharpness-6.webm":                  {},
 	"vp90-2-01-sharpness-7.webm":                  {},
 	"vp90-2-02-size-08x08.webm":                   {},
+	"vp90-2-02-size-08x10.webm":                   {},
+	"vp90-2-02-size-10x08.webm":                   {},
 	"vp90-2-02-size-16x16.webm":                   {},
+	"vp90-2-02-size-16x18.webm":                   {},
+	"vp90-2-02-size-18x16.webm":                   {},
 	"vp90-2-02-size-32x32.webm":                   {},
+	"vp90-2-02-size-32x34.webm":                   {},
+	"vp90-2-02-size-34x32.webm":                   {},
 	"vp90-2-02-size-64x64.webm":                   {},
+	"vp90-2-02-size-64x66.webm":                   {},
+	"vp90-2-02-size-66x64.webm":                   {},
+	"vp90-2-02-size-130x132.webm":                 {},
+	"vp90-2-02-size-132x130.webm":                 {},
+	"vp90-2-02-size-180x180.webm":                 {},
+	"vp90-2-03-deltaq.webm":                       {},
+	"vp90-2-06-bilinear.webm":                     {},
+	"vp90-2-07-frame_parallel.webm":               {},
+	"vp90-2-08-tile_1x4.webm":                     {},
+	"vp90-2-08-tile_1x8.webm":                     {},
 	"vp90-2-08-tile_1x2_frame_parallel.webm":      {},
+	"vp90-2-09-aq2.webm":                          {},
+	"vp90-2-09-lf_deltas.webm":                    {},
+	"vp90-2-10-show-existing-frame.webm":          {},
+	"vp90-2-11-size-351x287.webm":                 {},
 	"vp90-2-14-resize-10frames-fp-tiles-1-2.webm": {},
 	"vp90-2-14-resize-10frames-fp-tiles-1-4.webm": {},
+	"vp90-2-15-segkey.webm":                       {},
+	"vp90-2-16-intra-only.webm":                   {},
+	"vp90-2-19-skip.webm":                         {},
 }
 
 func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
