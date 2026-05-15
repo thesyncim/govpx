@@ -489,7 +489,11 @@ func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast [
 	}
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
-	useSkin8x8 := src.Width*src.Height <= skinDetectionMaxSmallFrame
+	if src.Width*src.Height > skinDetectionMaxSmallFrame {
+		computeSkinMap16x16(src, rows, cols, uvWidth, uvHeight, consecZeroLast, skinMap[:count])
+		smoothSkinMap(rows, cols, skinMap[:count])
+		return
+	}
 	for row := range rows {
 		for col := range cols {
 			index := row*cols + col
@@ -497,15 +501,7 @@ func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast [
 			if len(consecZeroLast) > index {
 				consecutive = int(consecZeroLast[index])
 			}
-			var skin bool
-			if useSkin8x8 {
-				skin = computeSkin8x8Block(src, uvWidth, uvHeight, row, col, consecutive)
-			} else {
-				y := average2x2Clamped(src.Y, src.YStride, src.Width, src.Height, row*16+7, col*16+7)
-				u := average2x2Clamped(src.U, src.UStride, uvWidth, uvHeight, row*8+3, col*8+3)
-				v := average2x2Clamped(src.V, src.VStride, uvWidth, uvHeight, row*8+3, col*8+3)
-				skin = computeSkinBlock(y, u, v, consecutive, 0)
-			}
+			skin := computeSkin8x8Block(src, uvWidth, uvHeight, row, col, consecutive)
 			if skin {
 				skinMap[index] = 1
 			} else {
@@ -514,6 +510,49 @@ func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast [
 		}
 	}
 	smoothSkinMap(rows, cols, skinMap[:count])
+}
+
+func computeSkinMap16x16(src vp8enc.SourceImage, rows int, cols int, uvWidth int, uvHeight int, consecZeroLast []uint8, skinMap []uint8) {
+	for row := range rows {
+		yRow := row*16 + 7
+		uvRow := row*8 + 3
+		for col := range cols {
+			index := row*cols + col
+			consecutive := 0
+			if len(consecZeroLast) > index {
+				consecutive = int(consecZeroLast[index])
+			}
+			skin := false
+			if consecutive <= 60 {
+				yCol := col*16 + 7
+				y, ok := average2x2InBounds(src.Y, src.YStride, src.Width, src.Height, yRow, yCol)
+				if !ok {
+					y = average2x2Clamped(src.Y, src.YStride, src.Width, src.Height, yRow, yCol)
+				}
+				if y >= skinYLow && y <= skinYHigh {
+					uvCol := col*8 + 3
+					u, ok := average2x2InBounds(src.U, src.UStride, uvWidth, uvHeight, uvRow, uvCol)
+					if !ok {
+						u = average2x2Clamped(src.U, src.UStride, uvWidth, uvHeight, uvRow, uvCol)
+					}
+					v, ok := average2x2InBounds(src.V, src.VStride, uvWidth, uvHeight, uvRow, uvCol)
+					if !ok {
+						v = average2x2Clamped(src.V, src.VStride, uvWidth, uvHeight, uvRow, uvCol)
+					}
+					motion := 1
+					if consecutive > 25 {
+						motion = 0
+					}
+					skin = skinPixel(y, u, v, motion)
+				}
+			}
+			if skin {
+				skinMap[index] = 1
+			} else {
+				skinMap[index] = 0
+			}
+		}
+	}
 }
 
 // computeSkin8x8Block mirrors libvpx vp8_compute_skin_block in SKIN_8X8 mode:
@@ -545,6 +584,17 @@ func computeSkin8x8Block(src vp8enc.SourceImage, uvWidth int, uvHeight int, mbRo
 		}
 	}
 	return false
+}
+
+func average2x2InBounds(plane []byte, stride int, width int, height int, y int, x int) (int, bool) {
+	if uint(y) < uint(height-1) && uint(x) < uint(width-1) {
+		off := y*stride + x
+		if uint(off+stride+1) < uint(len(plane)) {
+			sum := int(plane[off]) + int(plane[off+1]) + int(plane[off+stride]) + int(plane[off+stride+1])
+			return (sum + 2) >> 2, true
+		}
+	}
+	return 0, false
 }
 
 func average2x2Clamped(plane []byte, stride int, width int, height int, y int, x int) int {
