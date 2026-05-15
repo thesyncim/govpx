@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"math/bits"
 	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
@@ -246,7 +247,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
 			rng = split
 
-			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			shift := uint(bits.LeadingZeros8(uint8(rng)))
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
@@ -280,7 +281,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 				low += split
 				rng -= split
 
-				shift := uint(tables.BoolNorm[byte(rng)] & 7)
+				shift := uint(bits.LeadingZeros8(uint8(rng)))
 				rng <<= shift
 				count += int(shift)
 				if count >= 0 {
@@ -310,7 +311,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			split := uint32(1 + (((rng - 1) * uint32(p[1])) >> 8))
 			rng = split
 
-			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			shift := uint(bits.LeadingZeros8(uint8(rng)))
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
@@ -363,7 +364,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 				rng -= split
 			}
 
-			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			shift := uint(bits.LeadingZeros8(uint8(rng)))
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
@@ -409,7 +410,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 				rng -= split
 			}
 
-			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			shift := uint(bits.LeadingZeros8(uint8(rng)))
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
@@ -548,7 +549,7 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 				rng -= split
 			}
 
-			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			shift := uint(bits.LeadingZeros8(uint8(rng)))
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
@@ -591,7 +592,7 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 					rng -= split
 				}
 
-				shift := uint(tables.BoolNorm[byte(rng)] & 7)
+				shift := uint(bits.LeadingZeros8(uint8(rng)))
 				rng <<= shift
 				count += int(shift)
 				if count >= 0 {
@@ -669,7 +670,7 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 				rng -= split
 			}
 
-			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			shift := uint(bits.LeadingZeros8(uint8(rng)))
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
