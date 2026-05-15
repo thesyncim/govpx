@@ -548,9 +548,12 @@ func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 		fmt.Sprintf("--buf-optimal-sz=%d", parity.BufferOptimalSizeMs),
 		fmt.Sprintf("--undershoot-pct=%d", parity.UndershootPct),
 		fmt.Sprintf("--overshoot-pct=%d", parity.OvershootPct),
+		fmt.Sprintf("--drop-frame=%d", parity.DropFrameWaterMark),
+		fmt.Sprintf("--max-intra-rate=%d", parity.MaxIntraBitratePct),
+		fmt.Sprintf("--noise-sensitivity=%d", parity.NoiseSensitivity),
+		fmt.Sprintf("--static-thresh=%d", parity.StaticThreshold),
 		fmt.Sprintf("--threads=%d", parity.Threads),
 		fmt.Sprintf("--timebase=1/%d", cfg.FPS),
-		"--noise-sensitivity=0",
 		"--rt",
 		fmt.Sprintf("--cpu-used=%d", parity.CpuUsed),
 	}
@@ -612,22 +615,39 @@ func TestParseIVFFrameInfoClassifiesAllKeyframes(t *testing.T) {
 }
 
 func TestParityForMatchesEncoderDefaults(t *testing.T) {
-	// Sanity check that benchConfig.FPS feeds the kf interval and that
-	// the parity defaults match the values the bench encoder uses. The
+	// Sanity check that realtime parity defaults mirror the public WebRTC
+	// example rather than the simpler validation-only CBR preset. The
 	// CLI default for -threads is 1, so the equivalent benchConfig
 	// passed in here mirrors that explicitly.
 	got := parityFor(benchConfig{FPS: 24, Threads: 1, CpuUsed: 8})
-	if got.KeyFrameInterval != 24 {
-		t.Fatalf("KeyFrameInterval = %d, want 24", got.KeyFrameInterval)
+	if got.KeyFrameInterval != 3000 {
+		t.Fatalf("KeyFrameInterval = %d, want 3000", got.KeyFrameInterval)
 	}
-	if got.MinQuantizer != 4 || got.MaxQuantizer != 56 {
-		t.Fatalf("quantizer range = [%d,%d], want [4,56]", got.MinQuantizer, got.MaxQuantizer)
+	if got.MinQuantizer != 2 || got.MaxQuantizer != 56 {
+		t.Fatalf("quantizer range = [%d,%d], want [2,56]", got.MinQuantizer, got.MaxQuantizer)
 	}
-	if got.BufferSizeMs != 600 || got.BufferInitialSizeMs != 400 || got.BufferOptimalSizeMs != 500 {
-		t.Fatalf("buffer model = sz:%d init:%d opt:%d, want 600/400/500", got.BufferSizeMs, got.BufferInitialSizeMs, got.BufferOptimalSizeMs)
+	if got.BufferSizeMs != 1000 || got.BufferInitialSizeMs != 500 || got.BufferOptimalSizeMs != 600 {
+		t.Fatalf("buffer model = sz:%d init:%d opt:%d, want 1000/500/600", got.BufferSizeMs, got.BufferInitialSizeMs, got.BufferOptimalSizeMs)
+	}
+	if !got.DropFrameAllowed || got.DropFrameWaterMark != 30 {
+		t.Fatalf("drop frame = enabled:%t watermark:%d, want enabled/30", got.DropFrameAllowed, got.DropFrameWaterMark)
+	}
+	if got.MaxIntraBitratePct != 720 || got.NoiseSensitivity != 4 || got.StaticThreshold != 1 {
+		t.Fatalf("webrtc knobs = max-intra:%d noise:%d static:%d, want 720/4/1",
+			got.MaxIntraBitratePct, got.NoiseSensitivity, got.StaticThreshold)
 	}
 	if got.CpuUsed != 8 || got.Threads != 1 {
 		t.Fatalf("cpu/threads = %d/%d, want 8/1", got.CpuUsed, got.Threads)
+	}
+	good := parityFor(benchConfig{Mode: "good", FPS: 24, Threads: 1, CpuUsed: 8})
+	if good.KeyFrameInterval != 24 ||
+		good.MinQuantizer != 4 ||
+		good.BufferSizeMs != 600 ||
+		good.DropFrameAllowed ||
+		good.MaxIntraBitratePct != 0 ||
+		good.NoiseSensitivity != 0 ||
+		good.StaticThreshold != 0 {
+		t.Fatalf("good-mode parity = %+v, want validation CBR defaults", good)
 	}
 
 	// -threads=0 propagates as 0 to libvpx (its native "auto" sentinel)
@@ -675,6 +695,15 @@ func TestBenchmarkEncoderOptionsMatchLibvpxParityConfig(t *testing.T) {
 	if opts.UndershootPct != parity.UndershootPct || opts.OvershootPct != parity.OvershootPct {
 		t.Fatalf("rate-control percentages = under:%d over:%d, want parity %d/%d",
 			opts.UndershootPct, opts.OvershootPct, parity.UndershootPct, parity.OvershootPct)
+	}
+	if opts.MaxIntraBitratePct != parity.MaxIntraBitratePct ||
+		opts.DropFrameAllowed != parity.DropFrameAllowed ||
+		opts.DropFrameWaterMark != parity.DropFrameWaterMark ||
+		opts.NoiseSensitivity != parity.NoiseSensitivity ||
+		opts.StaticThreshold != parity.StaticThreshold {
+		t.Fatalf("realtime knobs = max-intra:%d drop:%t/%d noise:%d static:%d, want parity %+v",
+			opts.MaxIntraBitratePct, opts.DropFrameAllowed, opts.DropFrameWaterMark,
+			opts.NoiseSensitivity, opts.StaticThreshold, parity)
 	}
 	if opts.Threads != parity.Threads || opts.CpuUsed != parity.CpuUsed {
 		t.Fatalf("cpu/threads = %d/%d, want parity %d/%d",

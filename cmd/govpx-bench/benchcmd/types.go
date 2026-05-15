@@ -159,7 +159,8 @@ type benchConfigSummary struct {
 // govpx and libvpx for the comparison to be apples-to-apples. Both
 // newBenchmarkEncoder and runLibvpxBenchmark consume this so the two encoders
 // see the same problem (CBR, same buffer sizes, same q-range, same kf
-// cadence, single-pass, matched thread count, zero lag).
+// cadence, realtime drop/intra/noise knobs when enabled, single-pass, matched
+// thread count, zero lag).
 type encoderParity struct {
 	MinQuantizer        int
 	MaxQuantizer        int
@@ -169,6 +170,11 @@ type encoderParity struct {
 	BufferOptimalSizeMs int
 	UndershootPct       int
 	OvershootPct        int
+	MaxIntraBitratePct  int
+	DropFrameAllowed    bool
+	DropFrameWaterMark  int
+	NoiseSensitivity    int
+	StaticThreshold     int
 	Threads             int
 	TokenPartitions     int
 	CpuUsed             int
