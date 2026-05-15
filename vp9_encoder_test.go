@@ -3923,6 +3923,74 @@ func TestVP9EncoderActiveMapInterBlocksUseSkipSegment(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderActiveMapUnchangedInactiveBlocksStayBaseSegment(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for i := range activeMap {
+		activeMap[i] = 1
+	}
+	activeMap[0] = 0
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode unchanged inter: %v", err)
+	}
+	var br vp9dec.BitReader
+	br.Init(interPacket)
+	header, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	if !header.Seg.Enabled || !header.Seg.UpdateMap || !header.Seg.UpdateData ||
+		!header.Seg.TemporalUpdate {
+		t.Fatalf("active-map header = enabled:%t updateMap:%t updateData:%t temporal:%t, want all true",
+			header.Seg.Enabled, header.Seg.UpdateMap, header.Seg.UpdateData,
+			header.Seg.TemporalUpdate)
+	}
+
+	miCols := (width + 7) >> 3
+	for _, rc := range [][2]int{{0, 0}, {0, 1}, {1, 0}, {1, 1}} {
+		mi := e.miGrid[rc[0]*miCols+rc[1]]
+		if mi.SegmentID != vp9ActiveMapSegmentActive || mi.SegIDPredicted != 1 ||
+			mi.Skip != 1 {
+			t.Fatalf("unchanged inactive mi[%d,%d] = seg:%d pred:%d skip:%d, want base predicted skip",
+				rc[0], rc[1], mi.SegmentID, mi.SegIDPredicted, mi.Skip)
+		}
+	}
+
+	steadyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode steady inter: %v", err)
+	}
+	br = vp9dec.BitReader{}
+	br.Init(steadyPacket)
+	steadyHeader, err := vp9dec.ReadUncompressedHeader(&br, &header,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader steady inter: %v", err)
+	}
+	if !steadyHeader.Seg.Enabled || steadyHeader.Seg.UpdateMap ||
+		steadyHeader.Seg.UpdateData {
+		t.Fatalf("steady active-map header = enabled:%t updateMap:%t updateData:%t, want enabled with no updates",
+			steadyHeader.Seg.Enabled, steadyHeader.Seg.UpdateMap,
+			steadyHeader.Seg.UpdateData)
+	}
+}
+
 func TestVP9EncoderSetActiveMapDisabledByRuntimeResize(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	if err != nil {

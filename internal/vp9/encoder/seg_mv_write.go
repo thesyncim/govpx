@@ -22,6 +22,29 @@ func WriteSegmentId(bw *bitstream.Writer, seg *vp9dec.SegmentationParams, segID 
 	writeTreeBits(bw, common.SegmentTree[:], seg.TreeProbs[:], segID, 3)
 }
 
+// WriteInterSegmentId emits the inter-frame segment id path. When temporal
+// segment-map prediction is enabled it first writes the predicted flag and only
+// falls through to the segment tree for non-predicted blocks.
+func WriteInterSegmentId(bw *bitstream.Writer, seg *vp9dec.SegmentationParams,
+	segID int, predicted uint8, above, left *vp9dec.NeighborMi,
+) {
+	if !seg.Enabled || !seg.UpdateMap {
+		return
+	}
+	if seg.TemporalUpdate {
+		ctx := vp9dec.GetPredContextSegId(above, left)
+		bit := uint32(0)
+		if predicted != 0 {
+			bit = 1
+		}
+		bw.Write(bit, uint32(seg.PredProbs[ctx]))
+		if bit != 0 {
+			return
+		}
+	}
+	writeTreeBits(bw, common.SegmentTree[:], seg.TreeProbs[:], segID, 3)
+}
+
 // WriteMv mirrors libvpx's vp9_encode_mv — emits the joint plus
 // per-axis component deltas needed to reconstruct (mv - ref) at the
 // decoder. `allowHp` mirrors the frame-level allow-high-precision

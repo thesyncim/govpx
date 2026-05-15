@@ -2009,7 +2009,8 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 			},
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,active:checker,-,-,-,-,-,active:off,-,-"),
-			exactPrefix: 1,
+			exactPrefix: 4,
+			exactFrames: []int{8, 9},
 		},
 		{
 			name: "roi-border-toggle",

@@ -64,6 +64,94 @@ func TestWriteSegmentIdNoopWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestWriteInterSegmentIdTemporalPredictedRoundTrip(t *testing.T) {
+	seg := vp9dec.SegmentationParams{
+		Enabled:        true,
+		UpdateMap:      true,
+		TemporalUpdate: true,
+	}
+	for i := range seg.PredProbs {
+		seg.PredProbs[i] = 128
+	}
+	last := []uint8{7, 7, 7, 7}
+	cur := make([]uint8, 4)
+	var gotPredicted uint8
+	maps := vp9dec.InterSegmentMaps{
+		IntraSegmentMaps: vp9dec.IntraSegmentMaps{
+			CurrentFrameSegMap: cur,
+			LastFrameSegMap:    last,
+			MiCols:             4,
+		},
+		SegIDPredictedOut: &gotPredicted,
+	}
+
+	buf := make([]byte, 32)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	WriteInterSegmentId(&bw, &seg, 7, 1, nil, nil)
+	size, err := bw.Stop()
+	if err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	var r bitstream.Reader
+	if err := r.Init(buf[:size]); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	got := vp9dec.ReadInterSegmentId(&r, &seg, &maps, 0, 4, 1, nil, nil)
+	if got != 7 {
+		t.Fatalf("segment id = %d, want 7", got)
+	}
+	if gotPredicted != 1 {
+		t.Fatalf("predicted flag = %d, want 1", gotPredicted)
+	}
+}
+
+func TestWriteInterSegmentIdTemporalExplicitRoundTrip(t *testing.T) {
+	seg := vp9dec.SegmentationParams{
+		Enabled:        true,
+		UpdateMap:      true,
+		TemporalUpdate: true,
+	}
+	for i := range seg.PredProbs {
+		seg.PredProbs[i] = 128
+	}
+	for i := range seg.TreeProbs {
+		seg.TreeProbs[i] = 128
+	}
+	cur := make([]uint8, 4)
+	var gotPredicted uint8
+	maps := vp9dec.InterSegmentMaps{
+		IntraSegmentMaps: vp9dec.IntraSegmentMaps{
+			CurrentFrameSegMap: cur,
+			LastFrameSegMap:    []uint8{0, 0, 0, 0},
+			MiCols:             4,
+		},
+		SegIDPredictedOut: &gotPredicted,
+	}
+
+	buf := make([]byte, 32)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	WriteInterSegmentId(&bw, &seg, 3, 0, nil, nil)
+	size, err := bw.Stop()
+	if err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	var r bitstream.Reader
+	if err := r.Init(buf[:size]); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	got := vp9dec.ReadInterSegmentId(&r, &seg, &maps, 0, 4, 1, nil, nil)
+	if got != 3 {
+		t.Fatalf("segment id = %d, want 3", got)
+	}
+	if gotPredicted != 0 {
+		t.Fatalf("predicted flag = %d, want 0", gotPredicted)
+	}
+}
+
 // TestWriteMvRoundTripIdentity emits (mv == ref) which produces a
 // MV_JOINT_ZERO with no component deltas; the decoder reads back
 // (mv == ref).

@@ -242,9 +242,11 @@ func (e *VP9Encoder) SetCQLevel(level int) error {
 }
 
 // SetActiveMap installs a VP9 per-16x16 activity map. Cells equal to 0 mark
-// inactive macroblocks; on inter frames, inactive 8x8 mode blocks are assigned
-// VP9's active-map skip segment and code as ZEROMV-LAST with skip=1. Pass a nil
-// map to disable. Key frames ignore the active map.
+// inactive macroblocks; on inter frames, inactive 8x8 mode blocks code as
+// ZEROMV-LAST with skip=1. Blocks that already match LAST may remain in the
+// base segment to preserve VP9 temporal segment-map parity, while changed
+// inactive blocks use VP9's active-map skip segment. Pass a nil map to disable.
+// Key frames ignore the active map.
 //
 // rows and cols must equal the encoder's 16x16 macroblock dimensions;
 // len(activeMap) must be at least rows*cols.
@@ -456,6 +458,12 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	e.prevFrameMvsValid = false
 	e.prevFrameMvRows = 0
 	e.prevFrameMvCols = 0
+	e.prevSegmentMapValid = false
+	e.prevSegmentMapRows = 0
+	e.prevSegmentMapCols = 0
+	e.prevSegmentation = vp9dec.SegmentationParams{}
+	e.prevSegmentationValid = false
+	e.prevFrameActiveMapEnabled = false
 	for slot := range e.refValid {
 		e.refValid[slot] = false
 		e.refWidth[slot] = 0

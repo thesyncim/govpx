@@ -73,14 +73,15 @@ type WriteInterBlockArgs struct {
 //     single MV at block level for >=8x8 NEWMV.
 func WriteInterBlock(bw *bitstream.Writer, a WriteInterBlockArgs) {
 	bsize := a.Mi.SbType
-	segID := int(a.Mi.SegIDPredicted)
+	segID := int(a.Mi.SegmentID)
 	skip := int(a.Mi.Skip)
 	isInter := 0
 	if a.Mi.RefFrame[0] > vp9dec.IntraFrame {
 		isInter = 1
 	}
 
-	WriteSegmentId(bw, a.Seg, segID)
+	WriteInterSegmentId(bw, a.Seg, segID, a.Mi.SegIDPredicted,
+		a.AboveMi, a.LeftMi)
 	WriteSkip(bw, WriteSkipArgs{
 		Seg:       a.Seg,
 		SegID:     segID,
