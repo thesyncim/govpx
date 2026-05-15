@@ -2423,11 +2423,28 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		}
 		return vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	}
+	if kind == vp9ModeTreeInterSource && inter != nil &&
+		vp9InterKeepRootForOneMiEdge(miRows, miCols, miRow, miCol, root) {
+		target = root
+	}
 	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
 		return target
 	}
 	return e.pickVP9InterPartitionBlockSize(inter, tile, partitionProbs,
 		miRows, miCols, miRow, miCol, root)
+}
+
+func vp9InterKeepRootForOneMiEdge(miRows, miCols, miRow, miCol int,
+	root common.BlockSize,
+) bool {
+	if root != common.Block64x64 {
+		return false
+	}
+	maxW := int(common.Num8x8BlocksWideLookup[root])
+	maxH := int(common.Num8x8BlocksHighLookup[root])
+	availW := min(miCols-miCol, maxW)
+	availH := min(miRows-miRow, maxH)
+	return availW >= maxW-1 && availH >= maxH-1
 }
 
 func vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol int,
@@ -2440,6 +2457,9 @@ func vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	}
 	if maxH > 4 {
 		maxH = 4
+	}
+	if maxW >= 3 && maxH >= 3 {
+		return common.Block32x32
 	}
 	for _, bsize := range vp9StubBlockSizeOrder {
 		if int(common.Num8x8BlocksWideLookup[bsize]) <= maxW &&

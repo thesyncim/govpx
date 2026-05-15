@@ -4524,6 +4524,68 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderKeyframeThreeMiEdgeUsesBlock32x32(t *testing.T) {
+	const width, height = 320, 180
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	})
+	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	grid := decodeVP9PacketMiGridForOracleTest(t, packet)
+	miRows := (height + 7) >> 3
+	miCols := (width + 7) >> 3
+	if got, want := len(grid), miRows*miCols; got != want {
+		t.Fatalf("decoded mi grid len = %d, want %d", got, want)
+	}
+	for miCol := 0; miCol < miCols; miCol += 4 {
+		mi := grid[20*miCols+miCol]
+		if mi.SbType != common.Block32x32 || mi.TxSize != common.Tx16x16 ||
+			mi.Mode != common.DcPred || mi.Skip != 1 {
+			t.Fatalf("bottom 3-mi edge leaf at col %d = %+v, want Block32x32/Tx16/DcPred/skip",
+				miCol, mi)
+		}
+	}
+}
+
+func TestVP9EncoderInterOneMiEdgeKeepsBlock64x64(t *testing.T) {
+	const width, height = 320, 180
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	})
+	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	keyPacket, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode inter frame: %v", err)
+	}
+	grid := decodeVP9TwoFrameInterMiGridForOracleTest(t, keyPacket, packet)
+	miRows := (height + 7) >> 3
+	miCols := (width + 7) >> 3
+	if got, want := len(grid), miRows*miCols; got != want {
+		t.Fatalf("decoded mi grid len = %d, want %d", got, want)
+	}
+	for miCol := 0; miCol < miCols; miCol += 8 {
+		mi := grid[16*miCols+miCol]
+		if mi.SbType != common.Block64x64 || mi.Mode != common.ZeroMv ||
+			mi.Skip != 1 || mi.RefFrame[0] != vp9dec.LastFrame {
+			t.Fatalf("bottom one-mi-clipped inter root at col %d = %+v, want Block64x64/ZeroMv/LAST/skip",
+				miCol, mi)
+		}
+	}
+}
+
 func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
 	img := newVP9HorizontalBandsForTest(128, 64, 128, 128)

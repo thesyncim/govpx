@@ -132,9 +132,9 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			// Keep this non-exact until the 320x180 tile-body drift is closed;
-			// it catches the current medium-frame gap in the same matrix.
-			exactPrefix: 0,
+			// The 320x180 keyframe is byte-identical; following inter frames
+			// still expose compressed-header/tile-body drift.
+			exactPrefix: 1,
 		},
 		{
 			name:    "fixed-q-constant-640",
