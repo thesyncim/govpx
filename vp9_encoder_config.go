@@ -155,6 +155,136 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	return nil
 }
 
+// SetBitrateKbps changes the VP9 explicit rate-control target bitrate, in
+// kbps. The encoder must have been created with VP9 rate control enabled, or
+// enabled later through [VP9Encoder.SetRateControl]. Temporal-layer bitrates
+// rescale proportionally when they were auto-derived from the total target.
+func (e *VP9Encoder) SetBitrateKbps(kbps int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if !e.rc.enabled {
+		return ErrInvalidConfig
+	}
+	nextRC := e.rc
+	if err := nextRC.setBitrateKbps(kbps, e.vp9TimingState()); err != nil {
+		return err
+	}
+	nextTemporal := e.temporal
+	if err := nextTemporal.refreshBitrate(nextRC.targetBitrateKbps); err != nil {
+		return err
+	}
+	e.rc = nextRC
+	e.temporal = nextTemporal
+	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
+	e.opts.TemporalScalability = nextTemporal.config
+	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame,
+		e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct,
+		e.opts.TwoPassMaxPct, e.opts.Height)
+	return nil
+}
+
+// SetRateControl replaces the VP9 runtime-updatable rate-control
+// configuration in a single atomic update. VP9 accepts Mode, TargetBitrateKbps,
+// public quantizer bounds, CQLevel, CBR buffer geometry, and CBR frame-drop
+// fields. VP8-only RateControlConfig fields are rejected until VP9 has matching
+// modeled behavior.
+func (e *VP9Encoder) SetRateControl(cfg RateControlConfig) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	nextOpts, err := vp9RateControlOptionsFromConfig(e.opts, cfg)
+	if err != nil {
+		return err
+	}
+	nextTemporal := e.temporal
+	if err := nextTemporal.refreshBitrate(cfg.TargetBitrateKbps); err != nil {
+		return err
+	}
+	var nextRC vp9RateControlState
+	if err := nextRC.applyOptions(nextOpts, e.vp9TimingState()); err != nil {
+		return err
+	}
+	var nextTwoPass vp9TwoPassState
+	nextTwoPass.configure(nextOpts.TwoPassStats, nextRC.bitsPerFrame,
+		nextOpts.TwoPassVBRBiasPct, nextOpts.TwoPassMinPct,
+		nextOpts.TwoPassMaxPct, nextOpts.Height)
+	nextOpts.TemporalScalability = nextTemporal.config
+	e.opts = nextOpts
+	e.rc = nextRC
+	e.temporal = nextTemporal
+	e.twoPass = nextTwoPass
+	return nil
+}
+
+// SetCQLevel changes the VP9 public 0..63 CQ/Q level used by public-Q,
+// RateControlCQ, and RateControlQ selection. Passing zero restores VP9's
+// normalized default for the current public quantizer range.
+func (e *VP9Encoder) SetCQLevel(level int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	nextOpts := e.opts
+	nextOpts.CQLevel = level
+	if err := validateVP9EncoderOptions(nextOpts); err != nil {
+		return err
+	}
+	nextRC := e.rc
+	if nextRC.enabled {
+		nextRC.setQuantizerBoundsFromOptions(nextOpts)
+	}
+	e.opts = nextOpts
+	e.rc = nextRC
+	return nil
+}
+
+// SetActiveMap installs a VP9 per-16x16 activity map. Cells equal to 0 mark
+// inactive macroblocks; on inter frames, inactive 8x8 mode blocks are assigned
+// VP9's active-map skip segment and code as ZEROMV-LAST with skip=1. Pass a nil
+// map to disable. Key frames ignore the active map.
+//
+// rows and cols must equal the encoder's 16x16 macroblock dimensions;
+// len(activeMap) must be at least rows*cols.
+func (e *VP9Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if activeMap == nil {
+		e.activeMapEnabled = false
+		return nil
+	}
+	expectedRows := encoderMacroblockRows(e.opts.Height)
+	expectedCols := encoderMacroblockCols(e.opts.Width)
+	if rows != expectedRows || cols != expectedCols {
+		return ErrInvalidConfig
+	}
+	if len(activeMap) < rows*cols {
+		return ErrInvalidConfig
+	}
+	miRows := (e.opts.Height + 7) >> 3
+	miCols := (e.opts.Width + 7) >> 3
+	miCount := miRows * miCols
+	if len(e.activeMap) < miCount {
+		e.activeMap = make([]uint8, miCount)
+	}
+	e.activeMap = e.activeMap[:miCount]
+	for miRow := 0; miRow < miRows; miRow++ {
+		srcRow := (miRow >> 1) * cols
+		dstRow := miRow * miCols
+		for miCol := 0; miCol < miCols; miCol++ {
+			segID := vp9ActiveMapSegmentActive
+			if activeMap[srcRow+(miCol>>1)] == 0 {
+				segID = vp9ActiveMapSegmentInactive
+			}
+			e.activeMap[dstRow+miCol] = segID
+		}
+	}
+	e.activeMapMiRows = miRows
+	e.activeMapMiCols = miCols
+	e.activeMapEnabled = true
+	return nil
+}
+
 // SetDeadline changes the VP9 speed/quality operating mode used for subsequent
 // frames. It mirrors libvpx's best/good/realtime deadline selector while keeping
 // the current VP9 cpu-used value.
@@ -278,6 +408,9 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 		e.initVP9Lookahead(width, height, e.opts.LookaheadFrames)
 	}
 	e.cyclicAQ.configure(e.opts.AQMode == VP9AQCyclicRefresh, width, height)
+	e.activeMapEnabled = false
+	e.activeMapMiRows = 0
+	e.activeMapMiCols = 0
 	e.forceKeyFrame = true
 	e.resetVP9EncoderFrameContexts()
 	e.prevFrameMvsValid = false

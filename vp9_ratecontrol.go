@@ -91,6 +91,54 @@ func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
 	return nil
 }
 
+func validateVP9RateControlConfig(cfg RateControlConfig) error {
+	if !validRateControlMode(cfg.Mode) {
+		return ErrInvalidConfig
+	}
+	if cfg.TargetBitrateKbps <= 0 {
+		return ErrInvalidBitrate
+	}
+	if cfg.MinBitrateKbps != 0 || cfg.MaxBitrateKbps != 0 ||
+		cfg.UndershootPct != 0 || cfg.OvershootPct != 0 ||
+		cfg.MaxIntraBitratePct != 0 || cfg.GFCBRBoostPct != 0 {
+		return ErrInvalidConfig
+	}
+	if cfg.BufferSizeMs < 0 || cfg.BufferInitialSizeMs < 0 ||
+		cfg.BufferOptimalSizeMs < 0 || cfg.DropFrameWaterMark < 0 {
+		return ErrInvalidConfig
+	}
+	if cfg.Mode != RateControlCBR &&
+		(cfg.DropFrameAllowed || cfg.DropFrameWaterMark != 0) {
+		return ErrInvalidConfig
+	}
+	return validateVP9PublicQuantizerOptions(VP9EncoderOptions{
+		MinQuantizer: cfg.MinQuantizer,
+		MaxQuantizer: cfg.MaxQuantizer,
+		CQLevel:      cfg.CQLevel,
+	})
+}
+
+func vp9RateControlOptionsFromConfig(opts VP9EncoderOptions, cfg RateControlConfig) (VP9EncoderOptions, error) {
+	if err := validateVP9RateControlConfig(cfg); err != nil {
+		return VP9EncoderOptions{}, err
+	}
+	opts.RateControlModeSet = true
+	opts.RateControlMode = cfg.Mode
+	opts.TargetBitrateKbps = cfg.TargetBitrateKbps
+	opts.MinQuantizer = cfg.MinQuantizer
+	opts.MaxQuantizer = cfg.MaxQuantizer
+	opts.CQLevel = cfg.CQLevel
+	opts.BufferSizeMs = cfg.BufferSizeMs
+	opts.BufferInitialSizeMs = cfg.BufferInitialSizeMs
+	opts.BufferOptimalSizeMs = cfg.BufferOptimalSizeMs
+	opts.DropFrameAllowed = cfg.DropFrameAllowed
+	opts.DropFrameWaterMark = cfg.DropFrameWaterMark
+	if err := validateVP9EncoderOptions(opts); err != nil {
+		return VP9EncoderOptions{}, err
+	}
+	return opts, nil
+}
+
 func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timingState) error {
 	*rc = vp9RateControlState{}
 	if !opts.RateControlModeSet {

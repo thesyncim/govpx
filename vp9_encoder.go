@@ -292,6 +292,11 @@ const (
 	VP9RefFrameAltRef int8 = vp9dec.AltrefFrame
 )
 
+const (
+	vp9ActiveMapSegmentActive   uint8 = 0
+	vp9ActiveMapSegmentInactive uint8 = 7
+)
+
 // VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
 type VP9Encoder struct {
 	opts     VP9EncoderOptions
@@ -300,6 +305,11 @@ type VP9Encoder struct {
 	rc       vp9RateControlState
 	twoPass  vp9TwoPassState
 	cyclicAQ vp9CyclicRefreshState
+
+	activeMap        []uint8
+	activeMapMiRows  int
+	activeMapMiCols  int
+	activeMapEnabled bool
 
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
@@ -584,10 +594,23 @@ func validateVP9LosslessSegmentationOptions(seg VP9SegmentationOptions) error {
 
 func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex int) vp9dec.SegmentationParams {
 	if e.cyclicAQ.enabled && e.cyclicAQ.apply && !intraFrame {
-		return e.cyclicAQ.segmentationParams(baseQIndex)
+		seg := e.cyclicAQ.segmentationParams(baseQIndex)
+		if e.activeMapEnabled {
+			vp9EnableActiveMapSegmentation(&seg)
+		}
+		return seg
 	}
 	cfg := e.opts.Segmentation
 	if !cfg.Enabled {
+		if e.activeMapEnabled && !intraFrame {
+			seg := vp9dec.SegmentationParams{
+				Enabled:   true,
+				UpdateMap: true,
+			}
+			initVP9SegmentationProbDefaults(&seg)
+			vp9EnableActiveMapSegmentation(&seg)
+			return seg
+		}
 		return vp9dec.SegmentationParams{}
 	}
 	seg := vp9dec.SegmentationParams{
@@ -595,12 +618,7 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		UpdateMap: cfg.UpdateMap,
 		AbsDelta:  cfg.AbsDelta,
 	}
-	for i := range vp9dec.SegTreeProbs {
-		seg.TreeProbs[i] = vp9dec.MaxProb
-	}
-	for i := range vp9dec.PredictionProbs {
-		seg.PredProbs[i] = vp9dec.MaxProb
-	}
+	initVP9SegmentationProbDefaults(&seg)
 	for i := range vp9dec.MaxSegments {
 		if cfg.AltQEnabled[i] {
 			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltQ)
@@ -622,7 +640,37 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 			seg.UpdateData = true
 		}
 	}
+	if e.activeMapEnabled && !intraFrame {
+		vp9EnableActiveMapSegmentation(&seg)
+	}
 	return seg
+}
+
+func initVP9SegmentationProbDefaults(seg *vp9dec.SegmentationParams) {
+	if seg == nil {
+		return
+	}
+	for i := range vp9dec.SegTreeProbs {
+		seg.TreeProbs[i] = vp9dec.MaxProb
+	}
+	for i := range vp9dec.PredictionProbs {
+		seg.PredProbs[i] = vp9dec.MaxProb
+	}
+}
+
+func vp9EnableActiveMapSegmentation(seg *vp9dec.SegmentationParams) {
+	if seg == nil {
+		return
+	}
+	seg.Enabled = true
+	seg.UpdateMap = true
+	seg.UpdateData = true
+	seg.FeatureMask[vp9ActiveMapSegmentInactive] |=
+		1 << uint(vp9dec.SegLvlSkip)
+	seg.FeatureMask[vp9ActiveMapSegmentInactive] |=
+		1 << uint(vp9dec.SegLvlAltLf)
+	seg.FeatureData[vp9ActiveMapSegmentInactive][vp9dec.SegLvlAltLf] =
+		-vp9dec.MaxLoopFilter
 }
 
 func (e *VP9Encoder) validateVP9EncoderSource(img *image.YCbCr) error {
@@ -2451,11 +2499,48 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 			target = edgeSize
 		}
 	}
+	if kind != vp9ModeTreeKeyframeSource && e.activeMapEnabled {
+		if activeMapSize, ok := e.pickVP9ActiveMapPartitionBlockSize(
+			miRows, miCols, miRow, miCol, root); ok {
+			return activeMapSize
+		}
+	}
 	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
 		return target
 	}
 	return e.pickVP9InterPartitionBlockSize(inter, tile, partitionProbs,
 		miRows, miCols, miRow, miCol, root)
+}
+
+func (e *VP9Encoder) pickVP9ActiveMapPartitionBlockSize(miRows, miCols, miRow, miCol int,
+	root common.BlockSize,
+) (common.BlockSize, bool) {
+	if e == nil || !e.activeMapEnabled || root <= common.Block16x16 {
+		return common.BlockInvalid, false
+	}
+	splitSize := common.SubsizeLookup[common.PartitionSplit][root]
+	if splitSize < common.Block8x8 {
+		return common.BlockInvalid, false
+	}
+	blockMiW := int(common.Num8x8BlocksWideLookup[root])
+	blockMiH := int(common.Num8x8BlocksHighLookup[root])
+	if blockMiW <= 1 && blockMiH <= 1 {
+		return common.BlockInvalid, false
+	}
+	endRow := min(miRows, miRow+blockMiH)
+	endCol := min(miCols, miCol+blockMiW)
+	if miRow >= endRow || miCol >= endCol {
+		return common.BlockInvalid, false
+	}
+	inactive := e.vp9ActiveMapInactive(miRow, miCol)
+	for row := miRow; row < endRow; row++ {
+		for col := miCol; col < endCol; col++ {
+			if e.vp9ActiveMapInactive(row, col) != inactive {
+				return splitSize, true
+			}
+		}
+	}
+	return common.BlockInvalid, false
 }
 
 func vp9InterEdgeBlockSizeForRegion(miRows, miCols, miRow, miCol int,
@@ -3403,13 +3488,31 @@ func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams, mi
 	}
 	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
 		segID := e.cyclicAQ.segmentID(miRow, miCol)
+		if segID == vp9ActiveMapSegmentActive &&
+			e.vp9ActiveMapInactive(miRow, miCol) {
+			segID = vp9ActiveMapSegmentInactive
+		}
 		return segID, segID
+	}
+	if e.vp9ActiveMapInactive(miRow, miCol) {
+		return vp9ActiveMapSegmentInactive, vp9ActiveMapSegmentInactive
 	}
 	segID := e.opts.Segmentation.SegmentID
 	if segID >= vp9dec.MaxSegments {
 		return 0, 0
 	}
 	return segID, segID
+}
+
+func (e *VP9Encoder) vp9ActiveMapInactive(miRow int, miCol int) bool {
+	if e == nil || !e.activeMapEnabled || miRow < 0 || miCol < 0 ||
+		miRow >= e.activeMapMiRows || miCol >= e.activeMapMiCols ||
+		e.activeMapMiCols <= 0 {
+		return false
+	}
+	idx := miRow*e.activeMapMiCols + miCol
+	return idx >= 0 && idx < len(e.activeMap) &&
+		e.activeMap[idx] == vp9ActiveMapSegmentInactive
 }
 
 func vp9EncoderForcedSegmentRefFrame(seg *vp9dec.SegmentationParams, segID int) (int8, bool) {

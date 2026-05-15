@@ -333,6 +333,52 @@ static void parse_resize_token(const char *spec, int *width, int *height) {
   *height = h;
 }
 
+static unsigned char *alloc_vp9_active_map_pattern(const char *pattern,
+                                                   int rows, int cols) {
+  size_t count = (size_t)rows * (size_t)cols;
+  unsigned char *map = (unsigned char *)malloc(count);
+  if (!map) die_msg("malloc active map");
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      unsigned char v;
+      if (strcmp(pattern, "all") == 0) {
+        v = 1;
+      } else if (strcmp(pattern, "checker") == 0) {
+        v = ((r + c) & 1) ? 0 : 1;
+      } else if (strcmp(pattern, "left-off") == 0) {
+        v = c == 0 ? 0 : 1;
+      } else if (strcmp(pattern, "right-off") == 0) {
+        v = c == cols - 1 ? 0 : 1;
+      } else if (strcmp(pattern, "border-off") == 0) {
+        v = (r == 0 || c == 0 || r == rows - 1 || c == cols - 1) ? 0 : 1;
+      } else {
+        fprintf(stderr, "invalid active-map pattern: %s\n", pattern);
+        exit(EXIT_FAILURE);
+      }
+      map[(size_t)r * (size_t)cols + (size_t)c] = v;
+    }
+  }
+  return map;
+}
+
+static void apply_vp9_active_map(vpx_codec_ctx_t *ctx, int width, int height,
+                                 const char *pattern) {
+  int rows = (height + 15) >> 4;
+  int cols = (width + 15) >> 4;
+  if (rows <= 0 || cols <= 0) die_msg("invalid active-map dimensions");
+  vpx_active_map_t active;
+  active.rows = (unsigned int)rows;
+  active.cols = (unsigned int)cols;
+  active.active_map = NULL;
+  if (strcmp(pattern, "off") != 0) {
+    active.active_map = alloc_vp9_active_map_pattern(pattern, rows, cols);
+  }
+  if (vpx_codec_control(ctx, VP8E_SET_ACTIVEMAP, &active)) {
+    die_codec_msg(ctx, "VP8E_SET_ACTIVEMAP");
+  }
+  free(active.active_map);
+}
+
 struct vp9_runtime_control_context {
   vpx_codec_ctx_t *ctx;
   vpx_codec_enc_cfg_t *cfg;
@@ -348,6 +394,14 @@ struct vp9_runtime_control_context {
   int *cq_level;
   int config_changed;
 };
+
+static void flush_vp9_runtime_config(
+    struct vp9_runtime_control_context *ctx) {
+  if (ctx->config_changed && vpx_codec_enc_config_set(ctx->ctx, ctx->cfg)) {
+    die_codec_msg(ctx->ctx, "runtime vpx_codec_enc_config_set");
+  }
+  ctx->config_changed = 0;
+}
 
 static void apply_vp9_runtime_control_token(
     struct vp9_runtime_control_context *ctx, const char *token) {
@@ -406,6 +460,10 @@ static void apply_vp9_runtime_control_token(
                           (unsigned)*ctx->cq_level)) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_CQ_LEVEL");
     }
+  } else if (starts_with(token, "active:")) {
+    flush_vp9_runtime_config(ctx);
+    apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,
+                         token + strlen("active:"));
   } else if (starts_with(token, "autoaltref:")) {
     if (vpx_codec_control(ctx->ctx, VP8E_SET_ENABLEAUTOALTREF,
                           (unsigned)control_value_int(token, "autoaltref:"))) {
@@ -468,9 +526,7 @@ static void apply_vp9_runtime_controls(
     if (!end) break;
     start = end + 1;
   }
-  if (ctx.config_changed && vpx_codec_enc_config_set(codec_ctx, cfg)) {
-    die_codec_msg(codec_ctx, "runtime vpx_codec_enc_config_set");
-  }
+  flush_vp9_runtime_config(&ctx);
 }
 
 static uint8_t vp9_packet_first_byte_with_show_frame(uint8_t first,

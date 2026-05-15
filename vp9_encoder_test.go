@@ -3464,6 +3464,360 @@ func TestVP9EncoderSetRealtimeTargetFrameDropMode(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSetBitrateKbpsUpdatesRateControl(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               64,
+		Height:              64,
+		FPS:                 30,
+		TargetBitrateKbps:   300,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    TemporalLayeringTwoLayers,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	e.rc.bufferLevelBits = maxInt()
+	if err := e.SetBitrateKbps(900); err != nil {
+		t.Fatalf("SetBitrateKbps: %v", err)
+	}
+	if e.opts.TargetBitrateKbps != 900 || e.rc.targetBitrateKbps != 900 ||
+		e.rc.targetBandwidthBits != 900000 || e.rc.bitsPerFrame != 30000 {
+		t.Fatalf("bitrate state = opts:%d rc:%d bandwidth:%d bpf:%d, want 900/900/900000/30000",
+			e.opts.TargetBitrateKbps, e.rc.targetBitrateKbps,
+			e.rc.targetBandwidthBits, e.rc.bitsPerFrame)
+	}
+	if e.rc.bufferSizeBits != 540000 || e.rc.bufferInitialBits != 360000 ||
+		e.rc.bufferOptimalBits != 450000 || e.rc.bufferLevelBits != 540000 {
+		t.Fatalf("buffer bits = size:%d initial:%d optimal:%d level:%d, want 540000/360000/450000/540000",
+			e.rc.bufferSizeBits, e.rc.bufferInitialBits,
+			e.rc.bufferOptimalBits, e.rc.bufferLevelBits)
+	}
+	if got := e.opts.TemporalScalability.LayerTargetBitrateKbps; got[0] != 540 || got[1] != 900 {
+		t.Fatalf("temporal bitrates after SetBitrateKbps = %v, want [540 900 ...]", got)
+	}
+
+	oldRC := e.rc
+	oldOpts := e.opts
+	oldTemporal := e.temporal
+	oldTwoPass := e.twoPass
+	if err := e.SetBitrateKbps(0); !errors.Is(err, ErrInvalidBitrate) {
+		t.Fatalf("invalid SetBitrateKbps err = %v, want ErrInvalidBitrate", err)
+	}
+	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) ||
+		e.temporal != oldTemporal || !reflect.DeepEqual(e.twoPass, oldTwoPass) {
+		t.Fatal("invalid SetBitrateKbps mutated encoder state")
+	}
+
+	publicQ, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder public-Q: %v", err)
+	}
+	if err := publicQ.SetBitrateKbps(900); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("public-Q SetBitrateKbps err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestVP9EncoderSetCQLevelUpdatesPublicQAndRateControl(t *testing.T) {
+	publicQ, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder public-Q: %v", err)
+	}
+	beforeQ := publicQ.vp9EncoderPublicQModeQIndex(false, false, 0)
+	if err := publicQ.SetCQLevel(20); err != nil {
+		t.Fatalf("public-Q SetCQLevel: %v", err)
+	}
+	afterQ := publicQ.vp9EncoderPublicQModeQIndex(false, false, 0)
+	if publicQ.opts.CQLevel != 20 || afterQ == beforeQ {
+		t.Fatalf("public-Q CQ update = opts:%d q:%d before:%d, want changed level 20",
+			publicQ.opts.CQLevel, afterQ, beforeQ)
+	}
+
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		TargetBitrateKbps:  700,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlQ,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		CQLevel:            20,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder RC-Q: %v", err)
+	}
+	if err := e.SetCQLevel(24); err != nil {
+		t.Fatalf("RC-Q SetCQLevel: %v", err)
+	}
+	if e.opts.CQLevel != 24 ||
+		e.rc.cqLevel != uint8(vp9PublicQuantizerToQIndex(24)) {
+		t.Fatalf("RC-Q CQ update = opts:%d rc:%d, want 24/%d",
+			e.opts.CQLevel, e.rc.cqLevel, vp9PublicQuantizerToQIndex(24))
+	}
+
+	oldRC := e.rc
+	oldOpts := e.opts
+	if err := e.SetCQLevel(3); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("below-min SetCQLevel err = %v, want ErrInvalidQuantizer", err)
+	}
+	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) {
+		t.Fatal("invalid SetCQLevel mutated encoder state")
+	}
+	if err := e.SetCQLevel(0); err != nil {
+		t.Fatalf("reset SetCQLevel: %v", err)
+	}
+	if e.opts.CQLevel != 0 ||
+		e.rc.cqLevel != uint8(vp9PublicQuantizerToQIndex(vp9DefaultCQLevel)) {
+		t.Fatalf("reset CQ state = opts:%d rc:%d, want 0/%d",
+			e.opts.CQLevel, e.rc.cqLevel,
+			vp9PublicQuantizerToQIndex(vp9DefaultCQLevel))
+	}
+}
+
+func TestVP9EncoderSetRateControlSwitchesModeAtomically(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlCQ,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             20,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CQ): %v", err)
+	}
+	if !e.opts.RateControlModeSet || e.opts.RateControlMode != RateControlCQ ||
+		!e.rc.enabled || e.rc.mode != RateControlCQ ||
+		e.opts.TargetBitrateKbps != 700 || e.rc.bitsPerFrame != 23333 ||
+		e.rc.cqLevel != uint8(vp9PublicQuantizerToQIndex(20)) {
+		t.Fatalf("CQ rate control state = opts:%+v rc:%+v, want enabled CQ 700kbps cq20",
+			e.opts, e.rc)
+	}
+	dst := make([]byte, 65536)
+	result, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(64, 64, 96, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult after SetRateControl: %v", err)
+	}
+	if result.TargetBitrateKbps != 700 || result.Dropped || len(result.Data) == 0 {
+		t.Fatalf("post-SetRateControl result = kbps:%d dropped:%t bytes:%d, want 700 encoded",
+			result.TargetBitrateKbps, result.Dropped, len(result.Data))
+	}
+
+	oldRC := e.rc
+	oldOpts := e.opts
+	oldTwoPass := e.twoPass
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlVBR,
+		TargetBitrateKbps: 700,
+		DropFrameAllowed:  true,
+	}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid drop SetRateControl err = %v, want ErrInvalidConfig", err)
+	}
+	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) ||
+		!reflect.DeepEqual(e.twoPass, oldTwoPass) {
+		t.Fatal("invalid SetRateControl mutated encoder state")
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinBitrateKbps:    100,
+	}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("unsupported field SetRateControl err = %v, want ErrInvalidConfig", err)
+	}
+	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) ||
+		!reflect.DeepEqual(e.twoPass, oldTwoPass) {
+		t.Fatal("unsupported-field SetRateControl mutated encoder state")
+	}
+}
+
+func TestVP9EncoderSetRateControlRebuildsTwoPassPlan(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 200)
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlVBR,
+		TargetBitrateKbps: 600,
+	}); err != nil {
+		t.Fatalf("SetRateControl two-pass VBR: %v", err)
+	}
+	if !e.twoPass.enabled() || e.twoPass.bitsLeft != 40000 ||
+		e.twoPass.frameIndex != 0 || e.rc.bitsPerFrame != 20000 {
+		t.Fatalf("two-pass state after SetRateControl = enabled:%t bitsLeft:%d frame:%d bpf:%d, want true/40000/0/20000",
+			e.twoPass.enabled(), e.twoPass.bitsLeft, e.twoPass.frameIndex,
+			e.rc.bitsPerFrame)
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlCBR,
+		TargetBitrateKbps: 600,
+	}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetRateControl CBR with existing two-pass stats err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestVP9EncoderSetActiveMapValidationAndCopy(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for i := range activeMap {
+		activeMap[i] = 1
+	}
+	activeMap[0] = 0
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	if !e.activeMapEnabled || e.activeMapMiRows != 8 || e.activeMapMiCols != 8 {
+		t.Fatalf("active-map state = enabled:%t mi:%dx%d, want true 8x8",
+			e.activeMapEnabled, e.activeMapMiRows, e.activeMapMiCols)
+	}
+	for _, idx := range []int{0, 1, 8, 9} {
+		if e.activeMap[idx] != vp9ActiveMapSegmentInactive {
+			t.Fatalf("expanded inactive map[%d] = %d, want %d",
+				idx, e.activeMap[idx], vp9ActiveMapSegmentInactive)
+		}
+	}
+	if e.activeMap[2] != vp9ActiveMapSegmentActive {
+		t.Fatalf("expanded active map[2] = %d, want %d",
+			e.activeMap[2], vp9ActiveMapSegmentActive)
+	}
+	activeMap[0] = 1
+	if e.activeMap[0] != vp9ActiveMapSegmentInactive {
+		t.Fatal("SetActiveMap kept caller slice instead of copying")
+	}
+
+	oldMap := append([]uint8(nil), e.activeMap...)
+	oldRows, oldCols := e.activeMapMiRows, e.activeMapMiCols
+	if err := e.SetActiveMap(activeMap, rows+1, cols); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("bad rows SetActiveMap err = %v, want ErrInvalidConfig", err)
+	}
+	if !e.activeMapEnabled || e.activeMapMiRows != oldRows ||
+		e.activeMapMiCols != oldCols || !bytes.Equal(e.activeMap, oldMap) {
+		t.Fatal("invalid SetActiveMap mutated encoder state")
+	}
+	if err := e.SetActiveMap(activeMap[:len(activeMap)-1], rows, cols); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("short map SetActiveMap err = %v, want ErrInvalidConfig", err)
+	}
+	if !e.activeMapEnabled || !bytes.Equal(e.activeMap, oldMap) {
+		t.Fatal("short SetActiveMap mutated encoder state")
+	}
+	if err := e.SetActiveMap(nil, 0, 0); err != nil {
+		t.Fatalf("disable SetActiveMap: %v", err)
+	}
+	if e.activeMapEnabled {
+		t.Fatal("SetActiveMap(nil) did not disable active map")
+	}
+}
+
+func TestVP9EncoderActiveMapInterBlocksUseSkipSegment(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 64, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for i := range activeMap {
+		activeMap[i] = 1
+	}
+	activeMap[0] = 0
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 180, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	var br vp9dec.BitReader
+	br.Init(interPacket)
+	header, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	if !header.Seg.Enabled || !header.Seg.UpdateMap || !header.Seg.UpdateData {
+		t.Fatalf("active-map segmentation header = enabled:%t updateMap:%t updateData:%t, want all true",
+			header.Seg.Enabled, header.Seg.UpdateMap, header.Seg.UpdateData)
+	}
+	if !vp9dec.SegFeatureActive(&header.Seg, int(vp9ActiveMapSegmentInactive), vp9dec.SegLvlSkip) {
+		t.Fatalf("inactive segment %d missing SEG_LVL_SKIP", vp9ActiveMapSegmentInactive)
+	}
+	if got := header.Seg.FeatureData[vp9ActiveMapSegmentInactive][vp9dec.SegLvlAltLf]; got != -vp9dec.MaxLoopFilter {
+		t.Fatalf("inactive segment alt-lf = %d, want %d",
+			got, -vp9dec.MaxLoopFilter)
+	}
+
+	miCols := (width + 7) >> 3
+	for _, rc := range [][2]int{{0, 0}, {0, 1}, {1, 0}, {1, 1}} {
+		mi := e.miGrid[rc[0]*miCols+rc[1]]
+		if mi.SegmentID != vp9ActiveMapSegmentInactive || mi.Skip != 1 ||
+			mi.Mode != common.ZeroMv ||
+			mi.RefFrame != [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame} {
+			t.Fatalf("inactive mi[%d,%d] = seg:%d skip:%d mode:%d refs:%v, want inactive skip LAST/ZEROMV",
+				rc[0], rc[1], mi.SegmentID, mi.Skip, mi.Mode, mi.RefFrame)
+		}
+	}
+	if got := e.miGrid[2].SegmentID; got != vp9ActiveMapSegmentActive {
+		t.Fatalf("active mi[0,2] segment = %d, want %d",
+			got, vp9ActiveMapSegmentActive)
+	}
+}
+
+func TestVP9EncoderSetActiveMapDisabledByRuntimeResize(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	rows := encoderMacroblockRows(64)
+	cols := encoderMacroblockCols(64)
+	activeMap := make([]uint8, rows*cols)
+	for i := range activeMap {
+		activeMap[i] = 1
+	}
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 96, Height: 80}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize: %v", err)
+	}
+	if e.activeMapEnabled || e.activeMapMiRows != 0 || e.activeMapMiCols != 0 {
+		t.Fatalf("active map after resize = enabled:%t mi:%dx%d, want disabled",
+			e.activeMapEnabled, e.activeMapMiRows, e.activeMapMiCols)
+	}
+}
+
 func TestVP9EncoderSetRateControlBufferUpdatesBufferModel(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:               64,
@@ -3684,6 +4038,18 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetCPUUsed(8); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetCPUUsed after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetBitrateKbps(900); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetBitrateKbps after Close err = %v, want ErrClosed", err)
+	}
+	if err := e.SetCQLevel(20); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetCQLevel after Close err = %v, want ErrClosed", err)
+	}
+	if err := e.SetRateControl(RateControlConfig{Mode: RateControlVBR, TargetBitrateKbps: 900}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetRateControl after Close err = %v, want ErrClosed", err)
+	}
+	if err := e.SetActiveMap([]uint8{1}, 1, 1); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetActiveMap after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer after Close err = %v, want ErrClosed", err)
 	}
@@ -3702,6 +4068,18 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetCPUUsed(8); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetCPUUsed on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetBitrateKbps(900); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetBitrateKbps on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetCQLevel(20); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetCQLevel on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetRateControl(RateControlConfig{Mode: RateControlVBR, TargetBitrateKbps: 900}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetRateControl on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetActiveMap([]uint8{1}, 1, 1); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetActiveMap on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer on nil encoder err = %v, want ErrClosed", err)
