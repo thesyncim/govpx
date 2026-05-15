@@ -161,6 +161,16 @@ func subpelVariance(src []byte, srcStride int, xOffset int, yOffset int, ref []b
 		sum, sse := varianceBlock(src, srcStride, ref, refStride, width, height)
 		return sse - sum*sum/(width*height), sse
 	}
+	if width == 16 && height == 16 && (xOffset == 0 || yOffset == 0) {
+		var filtered [16 * 16]byte
+		if xOffset == 0 {
+			bilinearFilter16x16Vertical(src, srcStride, filtered[:], 16, tables.BilinearFilters[yOffset])
+		} else {
+			bilinearFilter16x16Horizontal(src, srcStride, filtered[:], 16, tables.BilinearFilters[xOffset])
+		}
+		sum, sse := varianceBlock16x16(filtered[:], 16, ref, refStride)
+		return sse - (sum * sum >> 8), sse
+	}
 	var firstPass [17 * 16]uint16
 	var filtered [16 * 16]byte
 
