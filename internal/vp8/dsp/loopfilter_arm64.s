@@ -322,28 +322,21 @@ TEXT ·loopFilterEdgeV16NEON(SB), NOSPLIT, $0-19
 	WORD	$0x8b080149                 // add	x9, x10, x8
 	WORD	$0x8b08012a                 // add	x10, x9, x8
 	WORD	$0xfd400132                 // ldr	d18, [x9]
-	WORD	$0xfd400153                 // ldr	d19, [x10]
+	WORD	$0x4d408543                 // ld1.d	{ v3 }[1], [x10]
 	WORD	$0x8b080149                 // add	x9, x10, x8
 	WORD	$0x8b08012a                 // add	x10, x9, x8
-	WORD	$0xfd400134                 // ldr	d20, [x9]
-	WORD	$0xfd400155                 // ldr	d21, [x10]
+	WORD	$0x4d408525                 // ld1.d	{ v5 }[1], [x9]
+	WORD	$0x4d408544                 // ld1.d	{ v4 }[1], [x10]
 	WORD	$0x8b080149                 // add	x9, x10, x8
 	WORD	$0x8b08012a                 // add	x10, x9, x8
-	WORD	$0xfd400136                 // ldr	d22, [x9]
-	WORD	$0xfd400157                 // ldr	d23, [x10]
+	WORD	$0x4d408526                 // ld1.d	{ v6 }[1], [x9]
+	WORD	$0x4d408547                 // ld1.d	{ v7 }[1], [x10]
 	WORD	$0x8b080149                 // add	x9, x10, x8
 	WORD	$0x8b08012a                 // add	x10, x9, x8
-	WORD	$0xfd400138                 // ldr	d24, [x9]
-	WORD	$0xfd400159                 // ldr	d25, [x10]
-	WORD	$0xfc68695a                 // ldr	d26, [x10, x8]
-	WORD	$0x6e180663                 // mov.d	v3[1], v19[0]
-	WORD	$0x6e180685                 // mov.d	v5[1], v20[0]
-	WORD	$0x6e1806a4                 // mov.d	v4[1], v21[0]
-	WORD	$0x6e1806c6                 // mov.d	v6[1], v22[0]
-	WORD	$0x6e1806e7                 // mov.d	v7[1], v23[0]
-	WORD	$0x6e180710                 // mov.d	v16[1], v24[0]
-	WORD	$0x6e180731                 // mov.d	v17[1], v25[0]
-	WORD	$0x6e180752                 // mov.d	v18[1], v26[0]
+	WORD	$0x4d408530                 // ld1.d	{ v16 }[1], [x9]
+	WORD	$0x4d408551                 // ld1.d	{ v17 }[1], [x10]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x4d408532                 // ld1.d	{ v18 }[1], [x9]
 	WORD	$0x4e872873                 // trn1.4s	v19, v3, v7
 	WORD	$0x4e876863                 // trn2.4s	v3, v3, v7
 	WORD	$0x4e9028a7                 // trn1.4s	v7, v5, v16
