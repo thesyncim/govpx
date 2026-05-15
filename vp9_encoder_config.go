@@ -172,6 +172,26 @@ func (e *VP9Encoder) SetRateControlBuffer(sizeMs, initialMs, optimalMs int) erro
 	return nil
 }
 
+// SetTwoPassStats replaces the finalized VP9 first-pass stats used for
+// second-pass VBR/CQ planning. Pass the slice produced by
+// [FinalizeVP9FirstPassStats] after collecting per-frame records with
+// [VP9Encoder.CollectFirstPassStats]. Passing nil or an empty slice disables
+// VP9 second-pass planning on subsequent EncodeInto calls.
+func (e *VP9Encoder) SetTwoPassStats(stats []VP9FirstPassFrameStats) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if len(stats) > 0 && (!e.rc.enabled ||
+		(e.opts.RateControlMode != RateControlVBR &&
+			e.opts.RateControlMode != RateControlCQ)) {
+		return ErrInvalidConfig
+	}
+	e.opts.TwoPassStats = stats
+	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct,
+		e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct, e.opts.Height)
+	return nil
+}
+
 // SetTemporalScalability replaces the active VP9 temporal-only scheduling
 // configuration. Set TemporalScalabilityConfig.Enabled = false to disable
 // temporal layering. The per-layer bitrate vector must be cumulative across

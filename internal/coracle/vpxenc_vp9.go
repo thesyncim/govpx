@@ -182,6 +182,90 @@ func VpxencVP9FirstPassStatsI420(raw []byte, width int, height int, frames int, 
 	return stats, diag, nil
 }
 
+// VpxencVP9TwoPassEncodeI420 runs the pinned VP9 vpxenc tool through pass 1
+// and pass 2 with a shared first-pass stats file, returning the pass-2 IVF
+// stream. Defaults match VpxencVP9FirstPassStatsI420; extra args are appended
+// before the input path for both passes so callers can set the same public
+// controls on each run.
+func VpxencVP9TwoPassEncodeI420(raw []byte, width int, height int, frames int, extraArgs ...string) (ivf []byte, diag []byte, err error) {
+	frameSize, err := vpxencVP9I420FrameSize(width, height)
+	if err != nil {
+		return nil, nil, err
+	}
+	if frames <= 0 {
+		return nil, nil, fmt.Errorf("coracle: VP9 vpxenc two-pass frame count %d must be positive", frames)
+	}
+	want, err := checkedVP9I420Mul(frameSize, frames)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(raw) != want {
+		return nil, nil, fmt.Errorf("coracle: VP9 vpxenc two-pass raw I420 size = %d, want %d for %dx%d x %d frames",
+			len(raw), want, width, height, frames)
+	}
+
+	bin, err := VpxencVP9Path()
+	if err != nil {
+		return nil, nil, err
+	}
+	dir, err := os.MkdirTemp("", "govpx-vpxenc-vp9-twopass-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer os.RemoveAll(dir)
+
+	inPath := filepath.Join(dir, "input.i420")
+	fpfPath := filepath.Join(dir, "firstpass.fpf")
+	pass1Path := filepath.Join(dir, "pass1.ivf")
+	pass2Path := filepath.Join(dir, "pass2.ivf")
+	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
+		return nil, nil, err
+	}
+
+	baseArgs := []string{
+		"--codec=vp9",
+		"--ivf",
+		"--quiet",
+		"--good",
+		"--cpu-used=4",
+		"--passes=2",
+		"--fpf=" + fpfPath,
+		"--end-usage=vbr",
+		"--target-bitrate=700",
+		"--min-q=4",
+		"--max-q=56",
+		"--i420",
+		"--width=" + strconv.Itoa(width),
+		"--height=" + strconv.Itoa(height),
+		"--fps=30/1",
+		"--limit=" + strconv.Itoa(frames),
+	}
+	pass1Args := append([]string{}, baseArgs...)
+	pass1Args = append(pass1Args, "--pass=1", "--output="+pass1Path)
+	pass1Args = append(pass1Args, extraArgs...)
+	pass1Args = append(pass1Args, inPath)
+	pass1Diag, err := exec.Command(bin, pass1Args...).CombinedOutput()
+	diag = append(diag, pass1Diag...)
+	if err != nil {
+		return nil, diag, err
+	}
+
+	pass2Args := append([]string{}, baseArgs...)
+	pass2Args = append(pass2Args, "--pass=2", "--output="+pass2Path)
+	pass2Args = append(pass2Args, extraArgs...)
+	pass2Args = append(pass2Args, inPath)
+	pass2Diag, err := exec.Command(bin, pass2Args...).CombinedOutput()
+	diag = append(diag, pass2Diag...)
+	if err != nil {
+		return nil, diag, err
+	}
+	ivf, err = os.ReadFile(pass2Path)
+	if err != nil {
+		return nil, diag, err
+	}
+	return ivf, diag, nil
+}
+
 func vpxencVP9I420FrameSize(width int, height int) (int, error) {
 	if width <= 0 || height <= 0 {
 		return 0, fmt.Errorf("coracle: invalid VP9 vpxenc dimensions %dx%d", width, height)

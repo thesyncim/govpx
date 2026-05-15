@@ -394,6 +394,86 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 	}
 }
 
+func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 two-pass byte-parity scoreboard")
+	}
+	requireVP9VpxencOracle(t)
+
+	const width, height, frames = 64, 64, 6
+	sources := make([]*image.YCbCr, frames)
+	statsEnc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:  width,
+		Height: height,
+		FPS:    30,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(firstpass): %v", err)
+	}
+	stats := make([]VP9FirstPassFrameStats, frames)
+	var raw []byte
+	for frame := range frames {
+		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		sources[frame] = src
+		raw = appendVP9YCbCrI420(raw, src)
+		stats[frame], err = statsEnc.CollectFirstPassStats(src,
+			uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("CollectFirstPassStats[%d]: %v", frame, err)
+		}
+	}
+
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  700,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       FinalizeVP9FirstPassStats(stats),
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(secondpass): %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	govpxPackets := make([][]byte, frames)
+	for frame, src := range sources {
+		result, err := enc.EncodeIntoWithResult(src, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		if result.TwoPassFrameTargetBits <= 0 {
+			t.Fatalf("frame %d two-pass target = %d, want positive",
+				frame, result.TwoPassFrameTargetBits)
+		}
+		govpxPackets[frame] = append([]byte(nil), result.Data...)
+	}
+
+	ivf, diag, err := coracle.VpxencVP9TwoPassEncodeI420(raw, width,
+		height, frames,
+		"--target-bitrate=700",
+		"--min-q=4",
+		"--max-q=56",
+		"--disable-warning-prompt")
+	if err != nil {
+		t.Fatalf("VpxencVP9TwoPassEncodeI420 failed: %v\n%s", err, diag)
+	}
+	libvpxPackets := vp9PacketsFromIVFForOracleTest(t, ivf, frames)
+	matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+		libvpxPackets)
+	t.Logf("VP9 two-pass byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
+		matches, frames, firstMismatch)
+	t.Logf("VP9 two-pass byte-parity rows:\n%s",
+		formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+	if os.Getenv("GOVPX_VP9_TWOPASS_BYTE_STRICT") == "1" &&
+		matches != frames {
+		t.Fatalf("strict VP9 two-pass byte parity: matches=%d/%d",
+			matches, frames)
+	}
+}
+
 func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 frame-flag byte-parity matrix")
@@ -1727,6 +1807,31 @@ func captureVP9VpxencPacketsForOracleTest(t *testing.T,
 		t.Fatalf("IVF frame count = %d, want %d", count, len(sources))
 	}
 	packets := make([][]byte, len(sources))
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	for i := range packets {
+		var frame testutil.IVFFrame
+		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+		}
+		packets[i] = append([]byte(nil), frame.Data...)
+	}
+	return packets
+}
+
+func vp9PacketsFromIVFForOracleTest(t *testing.T, ivf []byte, wantPackets int) [][]byte {
+	t.Helper()
+	count, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if count != wantPackets {
+		t.Fatalf("IVF frame count = %d, want %d", count, wantPackets)
+	}
+	packets := make([][]byte, wantPackets)
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
 	if err != nil {
 		t.Fatalf("FirstIVFFrameOffset: %v", err)

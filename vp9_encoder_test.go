@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"image"
+	"reflect"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -537,6 +538,24 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 			o.TargetBitrateKbps = 300
 			o.DropFrameAllowed = true
 		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.TwoPassStats = finalizedVP9TwoPassTestStats(100, 200)
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlCBR
+			o.TargetBitrateKbps = 300
+			o.TwoPassStats = finalizedVP9TwoPassTestStats(100, 200)
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlQ
+			o.TargetBitrateKbps = 300
+			o.TwoPassStats = finalizedVP9TwoPassTestStats(100, 200)
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.TwoPassVBRBiasPct = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.TwoPassMinPct = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.TwoPassMaxPct = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
 			o.LookaheadFrames = 2
 			o.RateControlModeSet = true
@@ -3396,7 +3415,7 @@ func TestVP9EncoderSetRateControlBufferUpdatesBufferModel(t *testing.T) {
 	if err := e.SetRateControlBuffer(0, 100, 150); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("invalid SetRateControlBuffer err = %v, want ErrInvalidConfig", err)
 	}
-	if e.rc != oldRC || e.opts != oldOpts {
+	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) {
 		t.Fatal("invalid SetRateControlBuffer mutated encoder state")
 	}
 }

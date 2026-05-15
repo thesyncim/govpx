@@ -163,6 +163,20 @@ type VP9EncoderOptions struct {
 	// realtime CBR cyclic-refresh segmentation; zero leaves AQ disabled.
 	AQMode VP9AQMode
 
+	// TwoPassStats enables VP9 second-pass VBR/CQ rate planning when non-empty.
+	// Pass a slice produced by [FinalizeVP9FirstPassStats] after collecting
+	// per-frame rows with [VP9Encoder.CollectFirstPassStats].
+	TwoPassStats []VP9FirstPassFrameStats
+	// TwoPassVBRBiasPct controls VP9 second-pass VBR bias when stats are
+	// present. Zero uses libvpx's default bias.
+	TwoPassVBRBiasPct int
+	// TwoPassMinPct sets the VP9 second-pass minimum section bitrate
+	// percentage. Zero leaves the minimum disabled.
+	TwoPassMinPct int
+	// TwoPassMaxPct sets the VP9 second-pass maximum section bitrate
+	// percentage. Zero uses libvpx's VP9 default.
+	TwoPassMaxPct int
+
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
@@ -218,6 +232,12 @@ type VP9EncodeResult struct {
 	FrameTargetBits   int
 	BufferLevelBits   int
 	RefreshFrameFlags uint8
+	// FirstPassStats is the VP9 first-pass row consumed for this visible
+	// second-pass frame. It is zero when second-pass planning is disabled.
+	FirstPassStats VP9FirstPassFrameStats
+	// TwoPassFrameTargetBits reports the VP9 second-pass frame target when
+	// TwoPassStats drives the frame. It is zero when one-pass targeting is used.
+	TwoPassFrameTargetBits int
 
 	TemporalLayerID    int
 	TemporalLayerCount int
@@ -268,6 +288,7 @@ type VP9Encoder struct {
 	closed   bool
 	temporal temporalState
 	rc       vp9RateControlState
+	twoPass  vp9TwoPassState
 	cyclicAQ vp9CyclicRefreshState
 
 	// frameIndex tracks the frame number for the key-frame cadence
@@ -357,6 +378,7 @@ type VP9Encoder struct {
 
 	vp9ModeDecisionQIndex    uint8
 	vp9ModeDecisionQIndexSet bool
+	vp9TwoPassFrameTarget    int
 
 	vp9FirstPassCount uint64
 	vp9FirstPassLast  image.YCbCr
@@ -384,6 +406,9 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	}
 	opts.TemporalScalability = temporal.config
 	e := &VP9Encoder{opts: opts, temporal: temporal, rc: rc}
+	e.twoPass.configure(opts.TwoPassStats, rc.bitsPerFrame,
+		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,
+		opts.Height)
 	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
 	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
@@ -408,6 +433,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		opts.ARNRStrength < 0 || opts.ARNRStrength > 6 ||
 		opts.ARNRType < 0 || opts.ARNRType > 3 {
 		return ErrInvalidConfig
+	}
+	if err := validateVP9TwoPassOptions(opts); err != nil {
+		return err
 	}
 	if err := validateVP9RateControlOptions(opts); err != nil {
 		return err
@@ -752,11 +780,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	e.rc.beginFrame(isKey || intraOnly, e.frameIndex)
 	showFrame := flags&EncodeInvisibleFrame == 0
 	e.rc.preEncodeFrame(showFrame)
+	e.vp9TwoPassFrameTarget = 0
 	if !isKey && !intraOnly && showFrame {
 		dropReason, dropFrame := e.rc.testDropInterFrame()
 		if dropFrame {
 			e.rc.postDropFrame()
 			e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
+			firstPassStats := e.twoPass.statsForFrame()
+			e.twoPass.finishFrame()
 			if vp9OracleTraceBuild {
 				e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
 					Row:                "vp9_frame",
@@ -784,6 +815,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 				TargetBitrateKbps:  e.rc.targetBitrateKbps,
 				FrameTargetBits:    e.rc.frameTargetBits,
 				BufferLevelBits:    e.rc.bufferLevelBits,
+				FirstPassStats:     firstPassStats,
 				TemporalLayerID:    temporalFrame.LayerID,
 				TemporalLayerCount: temporalFrame.LayerCount,
 				TemporalLayerSync:  temporalFrame.LayerSync,
@@ -1029,6 +1061,12 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		return VP9EncodeResult{}, err
 	}
 	n := tileStart + tileSize
+	var firstPassStats VP9FirstPassFrameStats
+	twoPassTargetBits := 0
+	if header.ShowFrame {
+		firstPassStats = e.twoPass.statsForFrame()
+		twoPassTargetBits = e.vp9TwoPassFrameTarget
+	}
 	if header.RefreshFrameFlags != 0 {
 		if !e.applyVP9EncoderLoopFilter(&header, &seg) {
 			return VP9EncodeResult{}, ErrInvalidVP9Data
@@ -1040,6 +1078,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	e.commitVP9EncoderFrameContext(&header, frameContextIdx)
 	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
 		header.RefreshFrameFlags, macroblocks)
+	if header.ShowFrame {
+		e.twoPass.finishFrame()
+	}
 	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
 		encodedSizeBits(n), e.vp9TemporalBufferConfig())
@@ -1048,22 +1089,24 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		e.forceKeyFrame = false
 	}
 	result = VP9EncodeResult{
-		Data:               dst[:n],
-		KeyFrame:           isKey,
-		IntraOnly:          intraOnly,
-		ShowFrame:          header.ShowFrame,
-		Droppable:          !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
-		Quantizer:          vp9QIndexToPublicQuantizer(qindex),
-		InternalQuantizer:  qindex,
-		SizeBytes:          n,
-		TargetBitrateKbps:  e.vp9ResultTargetBitrateKbps(),
-		FrameTargetBits:    e.rc.frameTargetBits,
-		BufferLevelBits:    e.rc.bufferLevelBits,
-		RefreshFrameFlags:  header.RefreshFrameFlags,
-		TemporalLayerID:    temporalFrame.LayerID,
-		TemporalLayerCount: temporalFrame.LayerCount,
-		TemporalLayerSync:  temporalFrame.LayerSync,
-		TL0PICIDX:          temporalFrame.TL0PICIDX,
+		Data:                   dst[:n],
+		KeyFrame:               isKey,
+		IntraOnly:              intraOnly,
+		ShowFrame:              header.ShowFrame,
+		Droppable:              !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
+		Quantizer:              vp9QIndexToPublicQuantizer(qindex),
+		InternalQuantizer:      qindex,
+		SizeBytes:              n,
+		TargetBitrateKbps:      e.vp9ResultTargetBitrateKbps(),
+		FrameTargetBits:        e.rc.frameTargetBits,
+		BufferLevelBits:        e.rc.bufferLevelBits,
+		RefreshFrameFlags:      header.RefreshFrameFlags,
+		FirstPassStats:         firstPassStats,
+		TwoPassFrameTargetBits: twoPassTargetBits,
+		TemporalLayerID:        temporalFrame.LayerID,
+		TemporalLayerCount:     temporalFrame.LayerCount,
+		TemporalLayerSync:      temporalFrame.LayerSync,
+		TL0PICIDX:              temporalFrame.TL0PICIDX,
 	}
 	if result.TemporalLayerCount == 0 {
 		result.TemporalLayerCount = 1
@@ -5537,7 +5580,8 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 				var activeBest int
 				var activeWorst int
 				var correctionFactor float64
-				e.rc.setOnePassVBRFrameTarget(isKey || intraOnly, refreshFlags)
+				e.prepareVP9SecondPassFrameTarget(isKey || intraOnly,
+					refreshFlags)
 				qindex, activeBest, activeWorst, correctionFactor =
 					e.rc.vbrQuantizerWithBounds(isKey || intraOnly,
 						refreshFlags, e.frameIndex, macroblocks)
@@ -5545,7 +5589,8 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 					correctionFactor, e.rc.onePassRecodeAllowed(), 0)
 				return qindex
 			} else {
-				e.rc.setOnePassVBRFrameTarget(isKey || intraOnly, refreshFlags)
+				e.prepareVP9SecondPassFrameTarget(isKey || intraOnly,
+					refreshFlags)
 				qindex = e.rc.vbrQuantizer(isKey || intraOnly, refreshFlags,
 					e.frameIndex, macroblocks)
 			}
