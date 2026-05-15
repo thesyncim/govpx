@@ -275,6 +275,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 						modeCounts:             modeMVs.counts,
 						bestRefMV:              bestRefMV,
 						suppressStaticBreakout: true,
+						denoiseActive:          denoiseActive,
 					}
 					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(&rdCtx)
 					ok = acctOK
@@ -289,22 +290,23 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 					rdLoopSkip = true
 				} else {
 					rdCtx := interResidualRDContext{
-						src:        src,
-						ref:        ref.Img,
-						mbRow:      mbRow,
-						mbCol:      mbCol,
-						mode:       &mode,
-						above:      above,
-						left:       left,
-						aboveLeft:  aboveLeft,
-						aboveTok:   aboveTok,
-						leftTok:    leftTok,
-						quant:      quant,
-						qIndex:     qIndex,
-						segmentID:  segmentID,
-						refRate:    e.interReferenceFrameRateForReference(ref),
-						modeCounts: modeMVs.counts,
-						bestRefMV:  bestRefMV,
+						src:           src,
+						ref:           ref.Img,
+						mbRow:         mbRow,
+						mbCol:         mbCol,
+						mode:          &mode,
+						above:         above,
+						left:          left,
+						aboveLeft:     aboveLeft,
+						aboveTok:      aboveTok,
+						leftTok:       leftTok,
+						quant:         quant,
+						qIndex:        qIndex,
+						segmentID:     segmentID,
+						refRate:       e.interReferenceFrameRateForReference(ref),
+						modeCounts:    modeMVs.counts,
+						bestRefMV:     bestRefMV,
+						denoiseActive: denoiseActive,
 					}
 					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(&rdCtx)
 					ok = acctOK

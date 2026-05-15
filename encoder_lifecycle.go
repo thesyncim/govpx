@@ -35,6 +35,13 @@ func (e *VP8Encoder) Reset() {
 	e.lookaheadRead = 0
 	e.lookaheadWrite = 0
 	e.lookaheadCount = 0
+	e.clearPendingLookaheadReferenceSets()
+	e.clearLatestLookaheadReferenceSets()
+	e.nextReferenceSetSeq = 0
+	for i := range e.lookahead {
+		clearQueuedReferenceSets(e.lookahead[i].setReferences)
+		e.lookahead[i].setReferences = e.lookahead[i].setReferences[:0]
+	}
 	e.arnrLastReady = false
 	e.denoiser.reset()
 	e.firstPassCount = 0
@@ -50,6 +57,7 @@ func (e *VP8Encoder) Reset() {
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false
+	e.lastCodedFrameType = vp8common.KeyFrame
 	e.clearAltRefSchedule()
 	e.resetGoldenFrameStats()
 	// Zero the inter-RD threshold-cache generation BEFORE
@@ -205,6 +213,8 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.codingValid = [MaxTemporalLayers]bool{}
 	e.initializeTemporalLayerCodingStates()
 	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
+	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
+	e.twoPass.configureErrorResilient(e.opts.ErrorResilient || e.opts.ErrorResilientPartitions)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)

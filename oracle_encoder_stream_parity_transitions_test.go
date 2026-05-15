@@ -165,11 +165,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 			"--buf-initial-sz=4000",
 			"--buf-optimal-sz=5000",
 		})
-		// Reset clears warm state and reaches the retained VBR/good/cpu
-		// cold-start keyframe exactly. The following VBR inter frames still
-		// carry the existing good-quality post-key drift, so pin the strict
-		// prefix and keep the transition gap visible in logs.
-		assertSegmentByteParity(t, "post-reset-runtime-vbr-good-cpu", govpxFrames, libvpxFrames, 1)
+		assertSegmentByteParity(t, "post-reset-runtime-vbr-good-cpu", govpxFrames, libvpxFrames, 0)
 	})
 
 	t.Run("reset-after-runtime-cq-arnr-mutations-matches-cold-start", func(t *testing.T) {
@@ -624,20 +620,17 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	govpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, opts, sources)
 	govpxFrames := encodeFramesWithGovpx(t, govpxOpts, sources)
 	libvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-ramp", opts, targetKbps, sources)
-	// The first keyframe has a known one-byte first-partition drift in the
-	// two-pass startup header. The following inter frames byte-match and are
-	// the transition coverage this row is meant to pin.
-	assertSegmentByteParityFrom(t, "twopass-e2e", govpxFrames, libvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e", govpxFrames, libvpxFrames, 0)
 
 	setterGovpxFrames := encodeFramesWithGovpxTwoPassStatsSetter(t, opts, govpxOpts.TwoPassStats, sources, false)
 	assertSegmentByteParity(t, "twopass-e2e-setter-vs-options", setterGovpxFrames, govpxFrames, 0)
-	assertSegmentByteParityFrom(t, "twopass-e2e-setter", setterGovpxFrames, libvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-setter", setterGovpxFrames, libvpxFrames, 0)
 
 	disabledGovpxFrames := encodeFramesWithGovpxTwoPassStatsSetter(t, govpxOpts, nil, sources, true)
 	onePassGovpxFrames := encodeFramesWithGovpx(t, opts, sources)
 	disabledLibvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "twopass-e2e-disabled-before-frame0", opts, targetKbps, sources, []string{"--end-usage=vbr"})
 	assertSegmentByteParity(t, "twopass-e2e-disabled-vs-one-pass-govpx", disabledGovpxFrames, onePassGovpxFrames, 0)
-	assertSegmentByteParityFrom(t, "twopass-e2e-disabled-before-frame0", disabledGovpxFrames, disabledLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-disabled-before-frame0", disabledGovpxFrames, disabledLibvpxFrames, 0)
 
 	sectionOpts := opts
 	sectionOpts.TwoPassVBRBiasPct = 80
@@ -647,7 +640,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	sectionGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, sectionOpts, sources)
 	sectionGovpxFrames := encodeFramesWithGovpx(t, sectionGovpxOpts, sources)
 	sectionLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-ramp-sections", sectionOpts, targetKbps, sources)
-	assertSegmentByteParityFrom(t, "twopass-e2e-sections", sectionGovpxFrames, sectionLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-sections", sectionGovpxFrames, sectionLibvpxFrames, 0)
 
 	panningSources := makePanningSources(64, 64, frames, 0)
 	panningOpts := opts
@@ -658,9 +651,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	panningGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, panningOpts, panningSources)
 	panningGovpxFrames := encodeFramesWithGovpx(t, panningGovpxOpts, panningSources)
 	panningLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-panning64", panningOpts, panningOpts.TargetBitrateKbps, panningSources)
-	// The panning fixture matches through the keyframe and first two
-	// inter frames, then exposes a second-pass content-shape drift.
-	assertSegmentByteParity(t, "twopass-e2e-panning64", panningGovpxFrames, panningLibvpxFrames, 3)
+	assertSegmentByteParity(t, "twopass-e2e-panning64", panningGovpxFrames, panningLibvpxFrames, 0)
 
 	kf4Opts := opts
 	kf4Opts.KeyFrameInterval = 4
@@ -668,9 +659,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	kf4GovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, kf4Opts, sources)
 	kf4GovpxFrames := encodeFramesWithGovpx(t, kf4GovpxOpts, sources)
 	kf4LibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-kf4", kf4Opts, targetKbps, sources)
-	// Short GOP two-pass exposes a periodic keyframe/header drift; keep the
-	// row in the matrix so the cadence-specific gap is logged.
-	assertSegmentByteParity(t, "twopass-e2e-kf4", kf4GovpxFrames, kf4LibvpxFrames, -1)
+	assertSegmentByteParity(t, "twopass-e2e-kf4", kf4GovpxFrames, kf4LibvpxFrames, 0)
 
 	segmentedSources := make([]Image, frames)
 	for i := range segmentedSources {
@@ -711,13 +700,9 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	segmentedSectionGovpxFrames := encodeFramesWithGovpx(t, segmentedSectionGovpxOpts, segmentedSources)
 	segmentedSectionSetterFrames := encodeFramesWithGovpxTwoPassStatsSetter(t, segmentedSectionOpts, segmentedSectionGovpxOpts.TwoPassStats, segmentedSources, false)
 	segmentedSectionLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-segmented64-sections", segmentedSectionOpts, segmentedSectionOpts.TargetBitrateKbps, segmentedSources)
-	// Nondefault second-pass section limits now have an explicit
-	// bytestream row on a fixture whose default two-pass stream is strict.
-	// The keyframe still matches, and setter-vs-options is exact, but the
-	// post-key allocation path diverges from the reference stream.
-	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections", segmentedSectionGovpxFrames, segmentedSectionLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections", segmentedSectionGovpxFrames, segmentedSectionLibvpxFrames, 0)
 	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections-setter-vs-options", segmentedSectionSetterFrames, segmentedSectionGovpxFrames, 0)
-	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections-setter", segmentedSectionSetterFrames, segmentedSectionLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections-setter", segmentedSectionSetterFrames, segmentedSectionLibvpxFrames, 0)
 
 	tokenOpts := panningOpts
 	tokenOpts.TokenPartitions = 2
@@ -725,9 +710,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	tokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, tokenOpts, panningSources)
 	tokenGovpxFrames := encodeFramesWithGovpx(t, tokenGovpxOpts, panningSources)
 	tokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-token-parts2", tokenOpts, tokenOpts.TargetBitrateKbps, panningSources)
-	// Token partitions should not change the two-pass allocation path; this
-	// row pins the packet-writer side of second-pass VBR.
-	assertSegmentByteParity(t, "twopass-e2e-token-parts2", tokenGovpxFrames, tokenLibvpxFrames, 3)
+	assertSegmentByteParity(t, "twopass-e2e-token-parts2", tokenGovpxFrames, tokenLibvpxFrames, 0)
 
 	erTokenOpts := panningOpts
 	erTokenOpts.ErrorResilient = true
@@ -737,7 +720,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	erTokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, erTokenOpts, panningSources)
 	erTokenGovpxFrames := encodeFramesWithGovpx(t, erTokenGovpxOpts, panningSources)
 	erTokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-er3-token-parts3", erTokenOpts, erTokenOpts.TargetBitrateKbps, panningSources)
-	assertSegmentByteParity(t, "twopass-e2e-er3-token-parts3", erTokenGovpxFrames, erTokenLibvpxFrames, 3)
+	assertSegmentByteParity(t, "twopass-e2e-er3-token-parts3", erTokenGovpxFrames, erTokenLibvpxFrames, 0)
 
 	threadTokenOpts := panningOpts
 	threadTokenOpts.Threads = 2
@@ -746,7 +729,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	threadTokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, threadTokenOpts, panningSources)
 	threadTokenGovpxFrames := encodeFramesWithGovpx(t, threadTokenGovpxOpts, panningSources)
 	threadTokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-threads2-token-parts3-panning64", threadTokenOpts, threadTokenOpts.TargetBitrateKbps, panningSources)
-	assertSegmentByteParity(t, "twopass-e2e-threads2-token-parts3-panning64", threadTokenGovpxFrames, threadTokenLibvpxFrames, 3)
+	assertSegmentByteParity(t, "twopass-e2e-threads2-token-parts3-panning64", threadTokenGovpxFrames, threadTokenLibvpxFrames, 0)
 
 	erThreadTokenOpts := panningOpts
 	erThreadTokenOpts.ErrorResilient = true
@@ -757,7 +740,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	erThreadTokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, erThreadTokenOpts, panningSources)
 	erThreadTokenGovpxFrames := encodeFramesWithGovpx(t, erThreadTokenGovpxOpts, panningSources)
 	erThreadTokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-er3-threads2-token-parts3", erThreadTokenOpts, erThreadTokenOpts.TargetBitrateKbps, panningSources)
-	assertSegmentByteParity(t, "twopass-e2e-er3-threads2-token-parts3", erThreadTokenGovpxFrames, erThreadTokenLibvpxFrames, 3)
+	assertSegmentByteParity(t, "twopass-e2e-er3-threads2-token-parts3", erThreadTokenGovpxFrames, erThreadTokenLibvpxFrames, 0)
 
 	screenStaticOpts := panningOpts
 	screenStaticOpts.ScreenContentMode = 2
@@ -766,7 +749,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	screenStaticGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, screenStaticOpts, panningSources)
 	screenStaticGovpxFrames := encodeFramesWithGovpx(t, screenStaticGovpxOpts, panningSources)
 	screenStaticLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-screen-content2-static-thresh500", screenStaticOpts, screenStaticOpts.TargetBitrateKbps, panningSources)
-	assertSegmentByteParity(t, "twopass-e2e-screen-content2-static-thresh500", screenStaticGovpxFrames, screenStaticLibvpxFrames, 3)
+	assertSegmentByteParity(t, "twopass-e2e-screen-content2-static-thresh500", screenStaticGovpxFrames, screenStaticLibvpxFrames, 0)
 
 	sharpNoiseOpts := panningOpts
 	sharpNoiseOpts.Sharpness = 4
@@ -775,7 +758,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	sharpNoiseGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, sharpNoiseOpts, panningSources)
 	sharpNoiseGovpxFrames := encodeFramesWithGovpx(t, sharpNoiseGovpxOpts, panningSources)
 	sharpNoiseLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-sharpness4-noise3", sharpNoiseOpts, sharpNoiseOpts.TargetBitrateKbps, panningSources)
-	assertSegmentByteParity(t, "twopass-e2e-sharpness4-noise3", sharpNoiseGovpxFrames, sharpNoiseLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-sharpness4-noise3", sharpNoiseGovpxFrames, sharpNoiseLibvpxFrames, 0)
 
 	speedOpts := panningOpts
 	speedOpts.CpuUsed = -3
@@ -783,7 +766,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	speedGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, speedOpts, panningSources)
 	speedGovpxFrames := encodeFramesWithGovpx(t, speedGovpxOpts, panningSources)
 	speedLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-cpu-3", speedOpts, speedOpts.TargetBitrateKbps, panningSources)
-	assertSegmentByteParity(t, "twopass-e2e-cpu-3", speedGovpxFrames, speedLibvpxFrames, 3)
+	assertSegmentByteParity(t, "twopass-e2e-cpu-3", speedGovpxFrames, speedLibvpxFrames, 0)
 
 	ssimOpts := panningOpts
 	ssimOpts.Tuning = TuneSSIM
@@ -791,9 +774,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	ssimGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, ssimOpts, panningSources)
 	ssimGovpxFrames := encodeFramesWithGovpx(t, ssimGovpxOpts, panningSources)
 	ssimLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-tune-ssim", ssimOpts, ssimOpts.TargetBitrateKbps, panningSources)
-	// Two-pass SSIM changes the activity-map/partition decision surface from
-	// the keyframe onward. Keep the row in the matrix to log that control.
-	assertSegmentByteParity(t, "twopass-e2e-tune-ssim", ssimGovpxFrames, ssimLibvpxFrames, -1)
+	assertSegmentByteParity(t, "twopass-e2e-tune-ssim", ssimGovpxFrames, ssimLibvpxFrames, 0)
 
 	arnrSources := makePanningSources(64, 64, 16, 0)
 	altRefOpts := panningOpts
@@ -803,10 +784,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	altRefGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, altRefOpts, arnrSources)
 	altRefGovpxFrames := encodeFramesWithGovpx(t, altRefGovpxOpts, arnrSources)
 	altRefLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-auto-alt-ref-no-arnr", altRefOpts, altRefOpts.TargetBitrateKbps, arnrSources)
-	// Hidden-ARF scheduling diverges after the opening keyframe even without
-	// explicit ARNR filtering; the ARNR row below adds filtering on top of
-	// the same gap.
-	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-no-arnr", altRefGovpxFrames, altRefLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-no-arnr", altRefGovpxFrames, altRefLibvpxFrames, 0)
 
 	arnrOpts := panningOpts
 	arnrOpts.LookaheadFrames = 8
@@ -818,10 +796,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	arnrGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, arnrOpts, arnrSources)
 	arnrGovpxFrames := encodeFramesWithGovpx(t, arnrGovpxOpts, arnrSources)
 	arnrLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-auto-alt-ref-arnr", arnrOpts, arnrOpts.TargetBitrateKbps, arnrSources)
-	// ARNR/hidden-ARF byte parity is an open gap, but keeping this in the
-	// two-pass stream matrix catches frame-count and packet-shape regressions
-	// while asserting the common keyframe and logging the later divergence.
-	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-arnr", arnrGovpxFrames, arnrLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-arnr", arnrGovpxFrames, arnrLibvpxFrames, 0)
 }
 
 func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.T) {
@@ -883,7 +858,6 @@ func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.
 				opts.TokenPartitions = 2
 				return opts
 			}(),
-			matchLimit: 2,
 		},
 		{
 			name: "er3-token-parts8",
@@ -894,7 +868,6 @@ func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.
 				opts.TokenPartitions = 3
 				return opts
 			}(),
-			matchLimit: 2,
 		},
 		{
 			name: "threads2-token-parts8",
@@ -912,9 +885,6 @@ func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.
 				opts.Tuning = TuneSSIM
 				return opts
 			}(),
-			// Two-pass SSIM changes keyframe partition decisions on this
-			// fixture, matching the existing panning two-pass SSIM gap.
-			matchLimit: -1,
 		},
 		{
 			name: "screen-content2-static-thresh500",

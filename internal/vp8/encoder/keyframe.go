@@ -210,19 +210,17 @@ func WriteCoefficientKeyFrameWithProbabilityBaseScratchAndCounts(dst []byte, wid
 	if !ok {
 		return 0, tables.CoefficientProbs{}, ErrInvalidPacketConfig
 	}
-	// Mirror libvpx alloccommon.c init: pc->mb_no_coeff_skip defaults to 1
-	// for every frame, so the keyframe header always emits the
-	// mb_no_coeff_skip bit + 8-bit prob_skip_false literal. ProbSkipFalse
-	// defaults to 255 (no MB actually skipped) which matches libvpx when
-	// every MB carries at least one non-zero coefficient.
-	if cfg.MBNoCoeffSkip && cfg.ProbSkipFalse == 0 {
-		cfg.ProbSkipFalse = 255
-	}
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
 	required := rows * cols
 	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
 		return 0, tables.CoefficientProbs{}, ErrModeBufferTooSmall
+	}
+	if cfg.MBNoCoeffSkip {
+		DeriveKeyFrameModeSkipFlags(rows, cols, modes, coeffs)
+	}
+	if cfg.MBNoCoeffSkip && cfg.ProbSkipFalse == 0 {
+		cfg.ProbSkipFalse = keyFrameModeSkipFalseProbability(rows, cols, modes)
 	}
 	var (
 		frameCoefProbs tables.CoefficientProbs
@@ -299,4 +297,18 @@ func WriteCoefficientKeyFrameWithProbabilityBaseScratchAndCounts(dst []byte, wid
 		return 0, tables.CoefficientProbs{}, err
 	}
 	return n, frameCoefProbs, nil
+}
+
+func keyFrameModeSkipFalseProbability(rows int, cols int, modes []KeyFrameMacroblockMode) uint8 {
+	required := rows * cols
+	if rows <= 0 || cols <= 0 || required <= 0 || len(modes) < required {
+		return 128
+	}
+	skipFalseCount := 0
+	for i := range required {
+		if !modes[i].MBSkipCoeff {
+			skipFalseCount++
+		}
+	}
+	return uint8(min(max(skipFalseCount*256/required, 1), 255))
 }

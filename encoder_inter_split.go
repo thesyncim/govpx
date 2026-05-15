@@ -102,6 +102,7 @@ type splitMotionShapeContext struct {
 	compressor        int
 	seeds             *splitMotionSearchSeeds
 	mvProbs           *[2][vp8tables.MVPCount]uint8
+	mvCosts           *vp8enc.MotionVectorCostTables
 	mvthresh          int
 	labelRD           *splitMotionLabelRDEvaluator
 	quant             *vp8enc.MacroblockQuant
@@ -163,6 +164,7 @@ func (ctx *splitMotionShapeContext) selectShape() splitMotionShapeResult {
 		above:              ctx.above,
 		search:             ctx.search,
 		mvProbs:            ctx.mvProbs,
+		mvCosts:            ctx.mvCosts,
 		labelMVThresh:      labelMVThresh,
 		labelRD:            ctx.labelRD,
 		quant:              ctx.quant,
@@ -288,6 +290,7 @@ type splitMotionSubsetContext struct {
 	above         *vp8enc.InterFrameMacroblockMode
 	search        interAnalysisSearchConfig
 	mvProbs       *[2][vp8tables.MVPCount]uint8
+	mvCosts       *vp8enc.MotionVectorCostTables
 	labelMVThresh int
 	labelRD       *splitMotionLabelRDEvaluator
 	quant         *vp8enc.MacroblockQuant
@@ -356,13 +359,17 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	if errorPerBit <= 0 {
 		errorPerBit = libvpxErrorPerBit(ctx.qIndex)
 	}
-	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBit(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs)
-	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBit(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.search, ctx.mvProbs); ok {
+	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBitAndCostTables(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs, ctx.mvCosts)
+	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBitAndCostTables(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.search, ctx.mvProbs, ctx.mvCosts); ok {
 		newMV = refinedMV
 	}
 	newRate := splitSubMotionLabelRate(vp8common.New4x4)
 	delta := vp8enc.MotionVector{Row: int16(int(newMV.Row) - int(ctx.bestRefMV.Row)), Col: int16(int(newMV.Col) - int(ctx.bestRefMV.Col))}
-	newRate += splitMotionVectorCost(delta, ctx.mvProbs)
+	if ctx.mvCosts != nil {
+		newRate += splitMotionVectorCostWithCostTables(delta, ctx.mvCosts)
+	} else {
+		newRate += splitMotionVectorCost(delta, ctx.mvProbs)
+	}
 	newRD, nextAbove, nextLeft, hasContexts := ctx.candidateRD(block, newMV, newRate)
 	if newRD < bestRD {
 		bestRD = newRD

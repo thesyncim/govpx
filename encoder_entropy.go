@@ -1,11 +1,13 @@
 package govpx
 
 import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
+	e.lastCodedFrameType = vp8common.KeyFrame
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.resetMotionVectorCostTablesFromModeProbs()
@@ -13,14 +15,19 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 		e.coefProbs = attempt.FrameCoefProbs
 	}
 	// Mirror libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame and the
-	// end-of-frame lfc_X saves in onyx_if.c: setup seeds lfc_a/lfc_g/lfc_n
-	// from the default coef probs before the keyframe encode adapts cm->fc.
-	// The final save only refreshes the LAST entropy context on a keyframe
-	// (`cm->refresh_last_frame = 1`); GOLDEN and ALTREF remain at the default
-	// seed until a later visible frame actually refreshes those references.
+	// end-of-frame lfc_X saves in onyx_if.c. Keyframes start with LAST/GOLDEN/
+	// ALTREF refresh bits asserted, then update_golden_frame_stats clears only
+	// refresh_golden_frame in non-error-resilient mode before the lfc_X snapshot
+	// block runs. The resulting non-ER keyframe snapshots are:
+	// lfc_n=current cm->fc, lfc_a=current cm->fc, lfc_g=default seed. In ER mode
+	// update_golden_frame_stats is skipped, so lfc_g is also refreshed.
 	e.coefProbsLast = e.coefProbs
-	e.coefProbsGolden = vp8tables.DefaultCoefProbs
-	e.coefProbsAltRef = vp8tables.DefaultCoefProbs
+	if e.opts.ErrorResilient || e.opts.ErrorResilientPartitions {
+		e.coefProbsGolden = e.coefProbs
+	} else {
+		e.coefProbsGolden = vp8tables.DefaultCoefProbs
+	}
+	e.coefProbsAltRef = e.coefProbs
 	e.coefProbsSnapshotsValid = true
 	e.updateRefFrameProbsFromKeyFrame()
 	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
@@ -43,7 +50,8 @@ func (e *VP8Encoder) updateRefFrameProbsFromKeyFrame() {
 	}
 }
 
-func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
+func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt, showFrame bool) {
+	e.lastCodedFrameType = vp8common.InterFrame
 	e.commitInterFrameEntropy(attempt)
 	e.commitInterFrameSkipFalseProb(attempt)
 	e.updateRefFrameProbsFromPackedAttempt()
@@ -82,7 +90,12 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	// the denoised running_avg[INTRA] into LAST/GOLDEN/ALTREF running_avg
 	// buffers per the frame's refresh/copy policy.
 	e.copyDenoiserAvgForRefresh(attempt.Config)
-	e.rememberLastFrameInterModes(interFrameStateConfigSignBias(attempt.Config))
+	// libvpx onyx_if.c saves this frame's MVs for next-frame prediction only
+	// when cm->show_frame is true; invisible alt-ref frames must not seed the
+	// visible frame that follows them.
+	if showFrame {
+		e.rememberLastFrameInterModes(interFrameStateConfigSignBias(attempt.Config))
+	}
 	// Once an inter frame has been encoded under the post-drop max-Q gate,
 	// clear it; libvpx leaves force_maxqp set only until the next frame
 	// consumes it.

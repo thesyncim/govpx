@@ -67,6 +67,22 @@ func TestEstimateInterResidualRDScoreUsesLibvpxStaticBreakoutRate(t *testing.T) 
 	if acct.rate2 != 500 || acct.distortion2 != 0 || acct.rd != score {
 		t.Fatalf("static breakout accounting rate/dist/rd = %d/%d/%d, want 500/0/%d", acct.rate2, acct.distortion2, acct.rd, score)
 	}
+
+	rdCtx := interResidualRDContext{
+		src:           sourceImageFromPublic(src),
+		ref:           &ref.Img,
+		mbRow:         0,
+		mbCol:         0,
+		mode:          &mode,
+		quant:         &quant,
+		qIndex:        20,
+		segmentID:     0,
+		denoiseActive: true,
+	}
+	acct, ok = e.estimateInterResidualRDAccountingWithModeContext(&rdCtx)
+	if !ok || !acct.rdLoopSkip || !acct.mbSkipCoeff {
+		t.Fatalf("denoiser static breakout accounting ok=%t rdLoopSkip=%t mbSkipCoeff=%t, want true/true/true", ok, acct.rdLoopSkip, acct.mbSkipCoeff)
+	}
 }
 
 func TestEstimateInterResidualRDAccountingUsesTransformDomainDistortion(t *testing.T) {

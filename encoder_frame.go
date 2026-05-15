@@ -77,6 +77,7 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 		lookaheadDepth:     e.lookaheadSize(),
 		forceLFDeltaUpdate: entry.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
 	}
+	e.applyQueuedReferenceSets(entry.setReferences)
 	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	if err == nil {
@@ -318,6 +319,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), frameCtx)
 		}
 	}
+	if e.twoPass.enabled() {
+		e.twoPass.configureGFIntervals(e.libvpxStaticSceneMaxGFInterval(), e.libvpxMaxGFInterval())
+	}
 	pass2AltRefInterval, pass2AltRefPending := e.pass2AltRefPendingPlan(e.frameCount)
 	twoPassTargetBits := 0
 	if hiddenAltRefFrame {
@@ -402,6 +406,22 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
 			e.rc.currentGFInterval = gfOut.FramesTillUpdate
 		}
+	}
+	// In pass 2, the GF-boundary decision is made inside vp8_second_pass
+	// while computing this frame's target. That happens after the earlier
+	// one-pass refresh checks, so mirror the post-target decision here for
+	// the packet refresh bits and boosted-reference gates without rerunning
+	// the one-pass GF target calculation above.
+	if !goldenCBRRefresh &&
+		!keyFrame &&
+		!temporalReferenceControl &&
+		!externalRefreshActive &&
+		!externalRefreshFlagsPending(flags) &&
+		e.twoPass.enabled() &&
+		e.twoPass.currentFrameIsGFRefresh &&
+		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) == 0 {
+		goldenCBRRefresh = true
+		boostedReferenceFrame = boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 	// libvpx vp8/encoder/ratectrl.c vp8_regulate_q forces Q to
@@ -601,7 +621,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.InternalQuantizer = e.rc.currentQuantizer
 		} else {
 			finalQuantizer := e.rc.currentQuantizer
-			e.commitInterFrameAttempt(attempt)
+			e.commitInterFrameAttempt(attempt, internalShowFrame)
 			if attempt.Config.Segmentation.Enabled {
 				e.roi.clearUpdateFlags()
 			}
@@ -625,7 +645,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				autoAltRef:            e.opts.AutoAltRef,
 			})
 			if hiddenAltRefFrame {
-				e.twoPass.chargeAltRefFrameBits(encodedSizeBits(attempt.Size))
+				e.twoPass.chargeAltRefFrameBitsWithProjection(encodedSizeBits(attempt.Size), attempt.ProjectedSizeBits)
 			} else {
 				e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
 			}
@@ -812,7 +832,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if oracleTraceBuild {
 		e.emitOracleFrameTrace(oracleTraceFrameSummary{
 			FrameType:            vp8common.KeyFrame,
-			BaseQIndex:           e.rc.currentQuantizer,
+			BaseQIndex:           finalQuantizer,
 			LoopFilter:           int(keyAttempt.LoopFilterLevel),
 			SharpnessLevel:       int(keyAttempt.SharpnessLevel),
 			RefLFDeltas:          keyAttempt.RefLFDeltas,

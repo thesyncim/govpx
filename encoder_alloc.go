@@ -30,6 +30,8 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 	if e.autoAltRefStashValid {
 		return ErrInvalidConfig
 	}
+	e.clearPendingLookaheadReferenceSets()
+	e.clearLatestLookaheadReferenceSets()
 	// Roll back to a pre-mutation snapshot if anything below fails, so
 	// the encoder remains usable at the previous dimensions.
 	prevWidth := e.opts.Width
@@ -69,6 +71,7 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 	e.altRefAliasesLast = false
 	e.goldenRefAliasesAlt = false
 	e.lastFrameInterModesValid = false
+	e.lastCodedFrameType = vp8common.KeyFrame
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 

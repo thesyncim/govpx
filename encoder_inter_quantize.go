@@ -32,6 +32,10 @@ func interZbinModeBoost(mode *vp8enc.InterFrameMacroblockMode) int {
 }
 
 func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, 0, qcoeff, dqcoeff)
+}
+
+func quantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if coeff == nil || quant == nil || qcoeff == nil || dqcoeff == nil {
 		return 0
 	}
@@ -57,7 +61,7 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 		x := (z ^ sign) - sign
 		zbin := int(quant.Zbin[rc])
 		zbin += int(quant.ZbinBoost[zeroRun&15])
-		zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost)) >> 7
+		zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
 		if x < zbin {
 			qcoeff[rc] = 0
 			dqcoeff[rc] = 0
@@ -82,42 +86,54 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 }
 
 func quantizeOptimizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeOptimizedBlockWithRDZbin(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, zbinOverQuant, intra, coeff, quant, qcoeff, dqcoeff)
+	return quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, zbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, dqcoeff)
 }
 
 func quantizeOptimizedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	eob := quantizeBlockWithZbin(coeff, quant, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
-	eob = optimizeQuantizedBlock(coefProbs, qIndex, blockType, ctx, skipDC, rdZbinOverQuant, intra, coeff, quant, qcoeff, eob)
+	return quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, rdZbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, dqcoeff)
+}
+
+func quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, rdZbinOverQuant int, rdMult int, rdDiv int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	eob := quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, actZbinAdj, qcoeff, dqcoeff)
+	eob = optimizeQuantizedBlockWithRDConstants(coefProbs, qIndex, blockType, ctx, skipDC, rdZbinOverQuant, rdMult, rdDiv, intra, coeff, quant, qcoeff, eob)
 	dequantizeQuantizedBlock(quant, qcoeff, dqcoeff)
 	return eob
 }
 
 func quantizeEncodedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
+	return quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, zbinOverQuant, 0, 0, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
 }
 
 // quantizeEncodedBlockWithRDZbin keeps libvpx's Y2 split explicit: Y2 zbin
 // thresholding uses zbin_over_quant/2, while the trellis optimizer scores with
 // mb->rdmult computed from the full frame-level zbin_over_quant.
 func quantizeEncodedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, rdZbinOverQuant, 0, 0, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
+}
+
+func quantizeEncodedBlockWithRDZbinAndActivity(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, rdZbinOverQuant int, rdMult int, rdDiv int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if fastQuant {
 		return vp8enc.FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
 	}
 	if optimize {
-		eob := quantizeOptimizedBlockWithRDZbin(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, rdZbinOverQuant, intra, coeff, quant, qcoeff, dqcoeff)
+		eob := quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, actZbinAdj, rdZbinOverQuant, rdMult, rdDiv, intra, coeff, quant, qcoeff, dqcoeff)
 		if blockType == 1 && skipDC == 0 {
 			eob = resetLibvpxSmallSecondOrderCoefficients(quant, qcoeff, dqcoeff, eob)
 		}
 		return eob
 	}
-	return quantizeBlockWithZbin(coeff, quant, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
+	return quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, actZbinAdj, qcoeff, dqcoeff)
 }
 
 func quantizeDecisionBlock(fastQuant bool, coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return quantizeDecisionBlockWithActivity(fastQuant, coeff, quant, zbinOverQuant, 0, qcoeff, dqcoeff)
+}
+
+func quantizeDecisionBlockWithActivity(fastQuant bool, coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, actZbinAdj int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if fastQuant {
 		return vp8enc.FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
 	}
-	return quantizeBlockWithZbin(coeff, quant, zbinOverQuant, 0, qcoeff, dqcoeff)
+	return quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, 0, actZbinAdj, qcoeff, dqcoeff)
 }
 
 func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) {
@@ -136,6 +152,10 @@ func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoe
 // subtree elision, and applies the path that minimizes the libvpx RDCOST. Tied
 // RDCOSTs use the libvpx RDTRUNC tie-break.
 func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, eob int) int {
+	return optimizeQuantizedBlockWithRDConstants(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, eob)
+}
+
+func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, rdMult int, rdDiv int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, eob int) int {
 	if coeff == nil || quant == nil || qcoeff == nil || eob <= skipDC {
 		return eob
 	}
@@ -153,7 +173,9 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 		eob = 16
 	}
 
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	if rdMult <= 0 || rdDiv <= 0 {
+		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	}
 	rdMult *= blockPlaneRDMultiplier(blockType)
 	if intra {
 		rdMult = (rdMult * 9) >> 4

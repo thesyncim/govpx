@@ -78,13 +78,15 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	// gating so the assign_std_frame_bits caller observes
 	// frames_since_golden=0 for the first inter frame after a GF
 	// refresh (libvpx-parity).
-	if t.framesTillGFUpdate > 0 {
-		t.framesTillGFUpdate--
-	}
-	if t.currentFrameIsGFRefresh {
-		t.framesSinceGolden = 0
-	} else {
-		t.framesSinceGolden++
+	if !t.errorResilient {
+		if t.framesTillGFUpdate > 0 {
+			t.framesTillGFUpdate--
+		}
+		if t.currentFrameIsGFRefresh {
+			t.framesSinceGolden = 0
+		} else {
+			t.framesSinceGolden++
+		}
 	}
 	if t.framesToKeyRemaining > 0 {
 		t.framesToKeyRemaining--
@@ -94,12 +96,30 @@ func (t *twoPassState) finishFrame(actualBits int) {
 }
 
 func (t *twoPassState) chargeAltRefFrameBits(actualBits int) {
+	t.chargeAltRefFrameBitsWithProjection(actualBits, actualBits)
+}
+
+func (t *twoPassState) chargeAltRefFrameBitsWithProjection(actualBits int, projectedBits int) {
 	if !t.enabled() {
 		return
 	}
 	t.bitsLeft -= int64(actualBits)
 	if t.bitsLeft < 0 {
 		t.bitsLeft = 0
+	}
+	// libvpx encode_frame_to_data_rate treats hidden ARFs as GF/ARF refresh
+	// frames for GF-group residual accounting:
+	//
+	//   twopass.gf_group_bits += this_frame_target - projected_frame_size
+	//
+	// The actual byte size still debits twopass.bits_left in Pass2Encode, but
+	// the section allocator uses projected_frame_size to put ARF underspend back
+	// into the visible frames that follow.
+	if t.gfGroupValid && t.altRefTarget > 0 {
+		t.gfGroupBits += int64(t.altRefTarget - projectedBits)
+		if t.gfGroupBits < 0 {
+			t.gfGroupBits = 0
+		}
 	}
 }
 
@@ -150,6 +170,39 @@ func libvpxEstimateMaxQ(numMBs int, sectionTargetBandwidth int, overheadBits int
 		}
 	}
 	return maxqMaxLimit
+}
+
+// libvpxEstimateModeMVCost ports vp8/encoder/firstpass.c
+// estimate_modemvcost. The returned value is normalized to the same
+// bits*512 scale consumed by libvpxEstimateMaxQ:
+//
+//	av_pct_inter = fpstats->pcnt_inter / fpstats->count
+//	av_pct_motion = fpstats->pcnt_motion / fpstats->count
+//	mv_cost = ((int)(new_mv_count / count) * 8) << 9
+//	mode_cost = int(weighted mode entropy * MBs) * 512
+func libvpxEstimateModeMVCost(stats FirstPassFrameStats, numMBs int) int {
+	if numMBs <= 0 || stats.Count <= 0 {
+		return 0
+	}
+	avPctInter := stats.PcntInter / stats.Count
+	avPctMotion := stats.PcntMotion / stats.Count
+	avIntra := 1.0 - avPctInter
+	zzCost := libvpxBitCost(avPctInter - avPctMotion)
+	motionCost := libvpxBitCost(avPctMotion)
+	intraCost := libvpxBitCost(avIntra)
+	mvCost := (int(stats.NewMVCount/stats.Count) * 8) << 9
+	modeEntropy := ((avPctInter - avPctMotion) * zzCost) +
+		(avPctMotion * motionCost) +
+		(avIntra * intraCost)
+	modeCost := int64(modeEntropy*float64(numMBs)) * 512
+	return mvCost + int(modeCost)
+}
+
+func libvpxBitCost(prob float64) float64 {
+	if prob > 0.000122 {
+		return -math.Log(prob) / math.Log(2.0)
+	}
+	return 13.0
 }
 
 // libvpxEstimateQ ports the libvpx vp8/encoder/firstpass.c
@@ -404,11 +457,8 @@ func libvpxSectionMaxQFactor(sectionIntra, sectionCoded float64) float64 {
 // gf_group_error_left and gf_group_bits themselves so the allocator
 // stays a pure function.
 func libvpxAssignStdFrameBits(modifiedErr float64, gfGroupErrorLeft float64, gfGroupBits int64, maxBitsPerFrame int, minFrameBandwidth int, framesSinceGolden int, framesTillGFUpdateDue int, altExtraBits int) int {
-	if gfGroupBits <= 0 {
-		return 0
-	}
 	errFraction := 0.0
-	if gfGroupErrorLeft > 0 {
+	if gfGroupErrorLeft > 0 && gfGroupBits > 0 {
 		errFraction = modifiedErr / gfGroupErrorLeft
 	}
 	target := int(float64(gfGroupBits) * errFraction)
@@ -418,7 +468,7 @@ func libvpxAssignStdFrameBits(modifiedErr float64, gfGroupErrorLeft float64, gfG
 		if maxBitsPerFrame > 0 && target > maxBitsPerFrame {
 			target = maxBitsPerFrame
 		}
-		if int64(target) > gfGroupBits {
+		if gfGroupBits > 0 && int64(target) > gfGroupBits {
 			target = int(gfGroupBits)
 		}
 	}

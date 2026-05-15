@@ -238,6 +238,60 @@ func TestPass2ARFGFGroupUsesDetectedIntervalForHiddenTarget(t *testing.T) {
 	}
 }
 
+func TestPass2NonKeyARFBoundarySeparatesHiddenAndVisibleTargets(t *testing.T) {
+	const sectionLen = 16
+	const defaultTarget = 700 * 1000 / 30
+	stats := make([]FirstPassFrameStats, sectionLen)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:    20000,
+			CodedError:    200,
+			PcntInter:     0.95,
+			PcntMotion:    0.4,
+			PcntSecondRef: 0.0,
+			PcntNeutral:   0.0,
+			MVrAbs:        5,
+			MVcAbs:        5,
+			Count:         1,
+		}
+	}
+	var seeded twoPassState
+	seeded.configure(stats, defaultTarget, 50, 0, 400)
+	seeded.configureFrameDims(64, 64)
+	keyTarget := seeded.frameTargetBitsWithAltRef(0, true, defaultTarget, 0, false)
+	if keyTarget <= 0 {
+		t.Fatalf("key target = %d, want positive", keyTarget)
+	}
+	seeded.finishFrame(keyTarget)
+	seeded.framesTillGFUpdate = 0
+	seeded.gfGroupValid = false
+
+	control := seeded
+	control.defineGFGroup(1, 7, true)
+	if control.altRefTarget <= 0 {
+		t.Fatalf("hidden ARF target = %d, want positive", control.altRefTarget)
+	}
+	if control.gfRefreshTarget <= 0 {
+		t.Fatalf("visible GF target = %d, want positive", control.gfRefreshTarget)
+	}
+	bitsBeforeStdDrain := control.gfGroupBits
+	errBeforeStdDrain := control.gfGroupErrorLeft
+
+	visibleTarget := seeded.frameTargetBitsWithAltRef(1, false, defaultTarget, 7, true)
+	if visibleTarget != control.gfRefreshTarget {
+		t.Fatalf("visible target = %d, want restored GF target %d", visibleTarget, control.gfRefreshTarget)
+	}
+	if seeded.altRefTarget != control.altRefTarget {
+		t.Fatalf("hidden ARF target = %d, want %d", seeded.altRefTarget, control.altRefTarget)
+	}
+	if bitsBeforeStdDrain > 0 && seeded.gfGroupBits >= bitsBeforeStdDrain {
+		t.Fatalf("gfGroupBits after std drain = %d, before = %d; want drained", seeded.gfGroupBits, bitsBeforeStdDrain)
+	}
+	if seeded.gfGroupErrorLeft >= errBeforeStdDrain {
+		t.Fatalf("gfGroupErrorLeft after std drain = %.2f, before = %.2f; want drained", seeded.gfGroupErrorLeft, errBeforeStdDrain)
+	}
+}
+
 func TestPass2AltRefPlanOnlyAtGFBoundary(t *testing.T) {
 	stats := make([]FirstPassFrameStats, 16)
 	for i := range stats {
@@ -264,5 +318,52 @@ func TestPass2AltRefPlanOnlyAtGFBoundary(t *testing.T) {
 
 	if interval, pending := enc.pass2AltRefPendingPlan(8); pending || interval != 0 {
 		t.Fatalf("mid-section ARF plan = interval:%d pending:%t, want no plan", interval, pending)
+	}
+}
+
+func TestTwoPassGFBoundaryRefreshHeaderAfterTargetSelection(t *testing.T) {
+	const (
+		width      = 32
+		height     = 32
+		fps        = 30
+		targetKbps = 400
+		frames     = 8
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = firstPassOracleRampFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  4,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           0,
+	}
+	opts.TwoPassStats = captureGovpxFirstPassStats(t, opts, sources)
+	enc, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	buf := make([]byte, width*height*4+4096)
+	var packets [][]byte
+	for i := 0; i < 3; i++ {
+		result, err := enc.EncodeInto(buf, sources[i], uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("frame %d dropped, want packet", i)
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	state := packetState(t, packets[2])
+	if !state.Refresh.RefreshLast || !state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef || state.Refresh.CopyBufferToAltRef != 2 {
+		t.Fatalf("frame 2 refresh = %+v, want LAST+GOLDEN refresh with old golden copied to alt-ref", state.Refresh)
 	}
 }

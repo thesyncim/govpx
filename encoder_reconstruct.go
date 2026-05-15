@@ -229,6 +229,17 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				return 0, ErrInvalidConfig
 			}
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
+			zbinOverQuant := 0
+			modeZbinOverQuant := zbinOverQuant
+			actZbinAdj := 0
+			rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+			if e.activityMapValid {
+				modeZbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+				if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+					actZbinAdj = adjustment
+				}
+				rdMult = e.tunedRDMultiplier(rdMult, row, col)
+			}
 			var above *vp8enc.KeyFrameMacroblockMode
 			var left *vp8enc.KeyFrameMacroblockMode
 			if row > 0 {
@@ -252,9 +263,9 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			// flips and a 1-byte first-partition drift on
 			// good-quality-cbr-cpu2.
 			if e.libvpxUseFastIntraPick() {
-				mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(src, segmentQIndex, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeFastWithRDConstants(src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 			} else {
-				mode, projectedRate, ok = predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 			}
 			if !ok {
 				return 0, ErrInvalidConfig
@@ -264,11 +275,17 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if modes[index].YMode == vp8common.BPred {
-				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID&3], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
+				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID&3], segmentQIndex, zbinOverQuant, actZbinAdj, rdMult, rdDiv, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
+				modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
+				e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
-				vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, true, &coeffs[index])
+				if modes[index].MBSkipCoeff {
+					vp8enc.ResetTokenContextPlanes(&aboveTok[col], &leftTok, true)
+				} else {
+					vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, true, &coeffs[index])
+				}
 				if traceEnabled {
 					e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
 				}
@@ -288,6 +305,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				leftTok:       &leftTok,
 				quant:         &quants[segmentID&3],
 				qIndex:        segmentQIndex,
+				zbinOverQuant: zbinOverQuant,
+				actZbinAdj:    actZbinAdj,
+				rdMult:        rdMult,
+				rdDiv:         rdDiv,
 				is4x4:         is4x4,
 				intra:         true,
 				fastQuant:     e.libvpxUseFastQuant(),
@@ -295,11 +316,17 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				collectOracle: traceEnabled,
 				coeffs:        &coeffs[index],
 			})
+			modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
+			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
-			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
-				return 0, ErrInvalidConfig
+			if modes[index].MBSkipCoeff {
+				vp8enc.ResetTokenContextPlanes(&aboveTok[col], &leftTok, is4x4)
+			} else {
+				if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+					return 0, ErrInvalidConfig
+				}
+				vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, is4x4, &coeffs[index])
 			}
-			vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, is4x4, &coeffs[index])
 			if traceEnabled {
 				e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
 			}
@@ -544,10 +571,15 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if modes[index].Mode == vp8common.BPred {
 					zbinOverQuant := e.rc.currentZbinOverQuant
+					actZbinAdj := 0
+					rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
 					if e.activityMapValid {
-						zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+						if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+							actZbinAdj = adjustment
+						}
+						rdMult = e.tunedRDMultiplier(rdMult, row, col)
 					}
-					if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
+					if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, zbinOverQuant, actZbinAdj, rdMult, rdDiv, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
 					if oracleTraceBuild {
@@ -569,8 +601,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					e.emitOracleInterPredictorTrace(row, col, &e.analysis.Img)
 				}
 			}
+			staticBreakout := false
+			if !denoiseActive {
+				staticBreakout = staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
+			}
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
-				(modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
+				(modes[index].MBSkipCoeff || staticBreakout)
 			if breakoutSkip {
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
@@ -590,8 +626,13 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					cacheIn = nil
 				}
 				zbinOverQuant := e.rc.currentZbinOverQuant
+				actZbinAdj := 0
+				rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
 				if e.activityMapValid {
-					zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+					if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+						actZbinAdj = adjustment
+					}
+					rdMult = e.tunedRDMultiplier(rdMult, row, col)
 				}
 				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 					coefProbs:     e.pickerCoefProbs(),
@@ -605,6 +646,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					qIndex:        segmentQIndex,
 					zbinOverQuant: zbinOverQuant,
 					zbinModeBoost: interZbinModeBoost(&modes[index]),
+					actZbinAdj:    actZbinAdj,
+					rdMult:        rdMult,
+					rdDiv:         rdDiv,
 					is4x4:         is4x4,
 					intra:         modes[index].RefFrame == vp8common.IntraFrame,
 					fastQuant:     e.libvpxUseFastQuant(),

@@ -13,6 +13,13 @@ type lookaheadEntry struct {
 	duration           uint64
 	flags              EncodeFlags
 	forceLFDeltaUpdate bool
+	setReferences      []queuedReferenceSet
+}
+
+type queuedReferenceSet struct {
+	ref ReferenceFrame
+	img Image
+	seq uint64
 }
 
 func (e *VP8Encoder) initLookahead(width int, height int, depth int) error {
@@ -74,6 +81,7 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 		lookaheadDepth:     e.lookaheadSize(),
 		forceLFDeltaUpdate: entry.forceLFDeltaUpdate,
 	}
+	e.applyQueuedReferenceSets(entry.setReferences)
 	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	return result, err
@@ -125,6 +133,8 @@ func (e *VP8Encoder) pushLookaheadWithForce(src vp8enc.SourceImage, pts uint64, 
 	}
 	entry.flags = flags
 	entry.forceLFDeltaUpdate = forceLFDeltaUpdate
+	entry.setReferences = appendLookaheadReferenceSets(entry.setReferences[:0], e.pendingLookaheadSetReferences)
+	e.clearPendingLookaheadReferenceSets()
 	e.lookaheadWrite++
 	if e.lookaheadWrite >= len(e.lookahead) {
 		e.lookaheadWrite = 0
@@ -209,6 +219,8 @@ func (e *VP8Encoder) clearPoppedLookahead(entry *lookaheadEntry) {
 		return
 	}
 	entry.pts, entry.duration, entry.flags, entry.forceLFDeltaUpdate = 0, 0, 0, false
+	clearQueuedReferenceSets(entry.setReferences)
+	entry.setReferences = entry.setReferences[:0]
 }
 
 // lookaheadFutureEntry mirrors libvpx vp8_lookahead_peek with PEEK_FORWARD,

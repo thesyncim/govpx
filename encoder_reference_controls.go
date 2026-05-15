@@ -19,6 +19,15 @@ func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	if _, ok := e.referenceFrameBuffer(ref); !ok || !src.validForEncode(e.opts.Width, e.opts.Height) {
 		return ErrInvalidConfig
 	}
+	if e.deferReferenceSetToLookaheadEntry() {
+		e.queueLookaheadReferenceSet(ref, src)
+		return nil
+	}
+	e.setReferenceFrameNow(ref, src)
+	return nil
+}
+
+func (e *VP8Encoder) setReferenceFrameNow(ref ReferenceFrame, src Image) {
 	refs := e.referenceAliasGroup(ref)
 	for _, aliasedRef := range refs {
 		fb, _ := e.referenceFrameBuffer(aliasedRef)
@@ -26,7 +35,6 @@ func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 		padFrameVisibleToCoded(&fb.Img)
 		fb.ExtendBorders()
 	}
-	return nil
 }
 
 // CopyReferenceFrame copies ref into dst. ref must be ReferenceLast,
@@ -47,8 +55,144 @@ func (e *VP8Encoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 	if !ok || !dst.validForEncode(e.opts.Width, e.opts.Height) {
 		return ErrInvalidConfig
 	}
+	if latest, ok := e.latestLookaheadReferenceSet(ref); ok {
+		copyPublicToPublicImage(dst, latest)
+		return nil
+	}
 	copyVP8ImageToPublic(dst, &fb.Img)
 	return nil
+}
+
+func (e *VP8Encoder) deferReferenceSetToLookaheadEntry() bool {
+	return e.lookaheadEnabled() && (e.lookaheadSize() > 0 || e.autoAltRefStashValid)
+}
+
+func (e *VP8Encoder) queueLookaheadReferenceSet(ref ReferenceFrame, src Image) {
+	e.nextReferenceSetSeq++
+	set := queuedReferenceSet{
+		ref: ref,
+		img: clonePublicImage(src),
+		seq: e.nextReferenceSetSeq,
+	}
+	e.pendingLookaheadSetReferences = upsertQueuedReferenceSet(e.pendingLookaheadSetReferences, set)
+	e.latestLookaheadSetReferences = upsertQueuedReferenceSet(e.latestLookaheadSetReferences, set)
+}
+
+func (e *VP8Encoder) applyQueuedReferenceSets(sets []queuedReferenceSet) {
+	for _, set := range sets {
+		e.setReferenceFrameNow(set.ref, set.img)
+		e.clearLatestLookaheadReferenceSet(set)
+	}
+}
+
+func (e *VP8Encoder) latestLookaheadReferenceSet(ref ReferenceFrame) (Image, bool) {
+	for i := len(e.latestLookaheadSetReferences) - 1; i >= 0; i-- {
+		if e.latestLookaheadSetReferences[i].ref == ref {
+			return e.latestLookaheadSetReferences[i].img, true
+		}
+	}
+	return Image{}, false
+}
+
+func appendLookaheadReferenceSets(dst []queuedReferenceSet, src []queuedReferenceSet) []queuedReferenceSet {
+	for _, set := range src {
+		dst = append(dst, queuedReferenceSet{
+			ref: set.ref,
+			img: clonePublicImage(set.img),
+			seq: set.seq,
+		})
+	}
+	return dst
+}
+
+func upsertQueuedReferenceSet(dst []queuedReferenceSet, set queuedReferenceSet) []queuedReferenceSet {
+	for i := range dst {
+		if dst[i].ref == set.ref {
+			clearQueuedReferenceSet(&dst[i])
+			dst[i] = set
+			return dst
+		}
+	}
+	return append(dst, set)
+}
+
+func (e *VP8Encoder) clearPendingLookaheadReferenceSets() {
+	clearQueuedReferenceSets(e.pendingLookaheadSetReferences)
+	e.pendingLookaheadSetReferences = e.pendingLookaheadSetReferences[:0]
+}
+
+func (e *VP8Encoder) clearLatestLookaheadReferenceSets() {
+	clearQueuedReferenceSets(e.latestLookaheadSetReferences)
+	e.latestLookaheadSetReferences = e.latestLookaheadSetReferences[:0]
+}
+
+func (e *VP8Encoder) clearLatestLookaheadReferenceFrame(ref ReferenceFrame) {
+	for i := 0; i < len(e.latestLookaheadSetReferences); {
+		if e.latestLookaheadSetReferences[i].ref != ref {
+			i++
+			continue
+		}
+		clearQueuedReferenceSet(&e.latestLookaheadSetReferences[i])
+		copy(e.latestLookaheadSetReferences[i:], e.latestLookaheadSetReferences[i+1:])
+		last := len(e.latestLookaheadSetReferences) - 1
+		clearQueuedReferenceSet(&e.latestLookaheadSetReferences[last])
+		e.latestLookaheadSetReferences = e.latestLookaheadSetReferences[:last]
+	}
+}
+
+func (e *VP8Encoder) clearLatestLookaheadReferenceSet(applied queuedReferenceSet) {
+	for i := range e.latestLookaheadSetReferences {
+		set := &e.latestLookaheadSetReferences[i]
+		if set.ref != applied.ref || set.seq != applied.seq {
+			continue
+		}
+		clearQueuedReferenceSet(set)
+		copy(e.latestLookaheadSetReferences[i:], e.latestLookaheadSetReferences[i+1:])
+		last := len(e.latestLookaheadSetReferences) - 1
+		clearQueuedReferenceSet(&e.latestLookaheadSetReferences[last])
+		e.latestLookaheadSetReferences = e.latestLookaheadSetReferences[:last]
+		return
+	}
+}
+
+func clearQueuedReferenceSets(sets []queuedReferenceSet) {
+	for i := range sets {
+		clearQueuedReferenceSet(&sets[i])
+	}
+}
+
+func clearQueuedReferenceSet(set *queuedReferenceSet) {
+	if set == nil {
+		return
+	}
+	set.ref = 0
+	set.img = Image{}
+	set.seq = 0
+}
+
+func clonePublicImage(src Image) Image {
+	dst := Image{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       make([]byte, len(src.Y)),
+		U:       make([]byte, len(src.U)),
+		V:       make([]byte, len(src.V)),
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}
+	copy(dst.Y, src.Y)
+	copy(dst.U, src.U)
+	copy(dst.V, src.V)
+	return dst
+}
+
+func copyPublicToPublicImage(dst *Image, src Image) {
+	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 }
 
 // referenceFrameBuffer maps the public reference selector to the encoder-owned

@@ -115,32 +115,39 @@ func (s *interFrameMotionSearchStats) recordSubpelEarlyBreak() {
 }
 
 type fullPelMotionSearch struct {
-	ctx       fullPelSearchCtx
-	bounds    interFrameFullPixelBounds
-	mvProbs   *[2][vp8tables.MVPCount]uint8
-	qIndex    int
-	refRow8   int
-	refCol8   int
-	bestRefMV vp8enc.MotionVector
-	stats     *interFrameMotionSearchStats
+	ctx         fullPelSearchCtx
+	bounds      interFrameFullPixelBounds
+	mvProbs     *[2][vp8tables.MVPCount]uint8
+	mvCosts     *vp8enc.MotionVectorCostTables
+	qIndex      int
+	errorPerBit int
+	refRow8     int
+	refCol8     int
+	bestRefMV   vp8enc.MotionVector
+	stats       *interFrameMotionSearchStats
 }
 
-func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, mvProbs *[2][vp8tables.MVPCount]uint8, stats *interFrameMotionSearchStats) fullPelMotionSearch {
+func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, errorPerBit int, stats *interFrameMotionSearchStats) fullPelMotionSearch {
+	if errorPerBit <= 0 {
+		errorPerBit = libvpxErrorPerBit(qIndex)
+	}
 	return fullPelMotionSearch{
-		ctx:       newFullPelSearchCtx(src, ref, mbRow, mbCol),
-		bounds:    bounds,
-		mvProbs:   mvProbs,
-		qIndex:    qIndex,
-		refRow8:   int(bestRefMV.Row) >> 3,
-		refCol8:   int(bestRefMV.Col) >> 3,
-		bestRefMV: bestRefMV,
-		stats:     stats,
+		ctx:         newFullPelSearchCtx(src, ref, mbRow, mbCol),
+		bounds:      bounds,
+		mvProbs:     mvProbs,
+		mvCosts:     mvCosts,
+		qIndex:      qIndex,
+		errorPerBit: errorPerBit,
+		refRow8:     int(bestRefMV.Row) >> 3,
+		refCol8:     int(bestRefMV.Col) >> 3,
+		bestRefMV:   bestRefMV,
+		stats:       stats,
 	}
 }
 
 func (s *fullPelMotionSearch) cost(mv vp8enc.MotionVector) int {
 	s.stats.recordFullPelSAD(1, false)
-	return interMotionFullPixelSearchReturnCost(s.ctx.src, s.ctx.ref, s.ctx.mbRow, s.ctx.mbCol, mv, s.bestRefMV, s.qIndex, s.mvProbs)
+	return interMotionFullPixelSearchReturnCostWithErrorPerBitAndCostTables(s.ctx.src, s.ctx.ref, s.ctx.mbRow, s.ctx.mbCol, mv, s.bestRefMV, s.errorPerBit, s.mvProbs, s.mvCosts)
 }
 
 func (s *fullPelMotionSearch) walkCost(mv vp8enc.MotionVector, limit int) int {

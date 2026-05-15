@@ -11,9 +11,8 @@ import (
 //
 //   - assert(!cm->copy_buffer_to_arf) when cm->refresh_alt_ref_frame is
 //     set (hidden ARF frames are populating the ARF buffer themselves).
-//   - copy_buffer_to_arf and copy_buffer_to_gf are left at the
-//     per-frame zero default for the deferred show-frame after a
-//     hidden ARF (is_src_frame_alt_ref=1).
+//   - source-alt-ref overlay frames are not suppressed; libvpx still copies
+//     old GOLDEN to ALTREF when the overlay refreshes GOLDEN.
 func TestSuppressInterFrameCopyBuffersOnAltRefEdgesClearsCopyBuffer(t *testing.T) {
 	t.Run("hidden ARF clears CopyBufferToAltRef", func(t *testing.T) {
 		cfg := vp8enc.InterFrameStateConfig{
@@ -27,17 +26,17 @@ func TestSuppressInterFrameCopyBuffersOnAltRefEdgesClearsCopyBuffer(t *testing.T
 		}
 	})
 
-	t.Run("deferred show-frame after hidden ARF clears both copy fields", func(t *testing.T) {
+	t.Run("deferred show-frame after hidden ARF preserves copy fields", func(t *testing.T) {
 		cfg := vp8enc.InterFrameStateConfig{
 			CopyBufferToAltRef: 2,
 			CopyBufferToGolden: 1,
 		}
 		suppressInterFrameCopyBuffersOnAltRefEdges(&cfg, true)
-		if cfg.CopyBufferToAltRef != 0 {
-			t.Fatalf("CopyBufferToAltRef = %d, want 0 for is_src_frame_alt_ref show-frame", cfg.CopyBufferToAltRef)
+		if cfg.CopyBufferToAltRef != 2 {
+			t.Fatalf("CopyBufferToAltRef = %d, want 2 preserved for is_src_frame_alt_ref show-frame", cfg.CopyBufferToAltRef)
 		}
-		if cfg.CopyBufferToGolden != 0 {
-			t.Fatalf("CopyBufferToGolden = %d, want 0 for is_src_frame_alt_ref show-frame", cfg.CopyBufferToGolden)
+		if cfg.CopyBufferToGolden != 1 {
+			t.Fatalf("CopyBufferToGolden = %d, want 1 preserved for is_src_frame_alt_ref show-frame", cfg.CopyBufferToGolden)
 		}
 	})
 
@@ -95,11 +94,11 @@ func TestEncodeInterFrameAttemptSuppressesAltRefCopyBufferOnHiddenARF(t *testing
 	}
 }
 
-// TestEncodeInterFrameAttemptClearsCopyBuffersOnDeferredShowFrame verifies
+// TestEncodeInterFrameAttemptPreservesAltRefCopyOnDeferredShowFrame verifies
 // that when the current source matches the previously scheduled alt-ref
-// source (libvpx is_src_frame_alt_ref=1), both copy-buffer fields are
-// suppressed even when a CBR golden refresh would otherwise populate them.
-func TestEncodeInterFrameAttemptClearsCopyBuffersOnDeferredShowFrame(t *testing.T) {
+// source (libvpx is_src_frame_alt_ref=1), a CBR golden refresh still copies
+// the old GOLDEN buffer to ALTREF before refreshing GOLDEN.
+func TestEncodeInterFrameAttemptPreservesAltRefCopyOnDeferredShowFrame(t *testing.T) {
 	e := newTestEncoder(t)
 	e.opts.ErrorResilient = false
 
@@ -119,16 +118,15 @@ func TestEncodeInterFrameAttemptClearsCopyBuffersOnDeferredShowFrame(t *testing.
 	required := rows * cols
 
 	// Drive a CBR golden refresh on the deferred show frame so that the
-	// pre-existing CopyBufferToAltRef=2 path would normally fire. The
-	// is_src_frame_alt_ref edge case must override it.
+	// pre-existing CopyBufferToAltRef=2 path fires just like libvpx.
 	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, 0, false, true, false, false, e.rc.currentQuantizer, true, false)
 	if err != nil {
 		t.Fatalf("encodeInterFrameAttempt(deferred show) returned error: %v", err)
 	}
-	if attempt.Config.CopyBufferToAltRef != 0 {
-		t.Fatalf("CopyBufferToAltRef = %d, want 0 on is_src_frame_alt_ref deferred show frame", attempt.Config.CopyBufferToAltRef)
+	if attempt.Config.CopyBufferToAltRef != 2 {
+		t.Fatalf("CopyBufferToAltRef = %d, want 2 on is_src_frame_alt_ref deferred show frame", attempt.Config.CopyBufferToAltRef)
 	}
 	if attempt.Config.CopyBufferToGolden != 0 {
-		t.Fatalf("CopyBufferToGolden = %d, want 0 on is_src_frame_alt_ref deferred show frame", attempt.Config.CopyBufferToGolden)
+		t.Fatalf("CopyBufferToGolden = %d, want 0 because the frame refreshes GOLDEN directly", attempt.Config.CopyBufferToGolden)
 	}
 }

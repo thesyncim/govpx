@@ -19,6 +19,7 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.goldenRefAliasesLast = true
 	e.altRefAliasesLast = true
 	e.goldenRefAliasesAlt = true
+	e.clearLatestLookaheadReferenceSets()
 	e.updateKeyFrameReferenceFrameNumbers()
 }
 
@@ -47,14 +48,17 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 	if cfg.RefreshLast && refFrame != vp8common.LastFrame {
 		copyFrameImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceLast)
 	}
 	if cfg.RefreshGolden && refFrame != vp8common.GoldenFrame {
 		copyFrameImage(&e.goldenRef.Img, &e.current.Img)
 		e.goldenRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	}
 	if cfg.RefreshAltRef && refFrame != vp8common.AltRefFrame {
 		copyFrameImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	}
 	e.updateInterReferenceAliases(cfg)
 	e.updateInterReferenceFrameNumbers(cfg)
@@ -67,14 +71,17 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 	if cfg.RefreshLast {
 		copyFrameImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceLast)
 	}
 	if cfg.RefreshGolden {
 		copyFrameImage(&e.goldenRef.Img, &e.current.Img)
 		e.goldenRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	}
 	if cfg.RefreshAltRef {
 		copyFrameImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	}
 	e.updateInterReferenceAliases(cfg)
 	e.updateInterReferenceFrameNumbers(cfg)
@@ -103,17 +110,21 @@ func (e *VP8Encoder) copyInterFrameReferences(cfg vp8enc.InterFrameStateConfig) 
 	case 1:
 		copyFrameImage(&e.altRef.Img, &e.lastRef.Img)
 		e.altRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	case 2:
 		copyFrameImage(&e.altRef.Img, &e.goldenRef.Img)
 		e.altRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	}
 	switch cfg.CopyBufferToGolden {
 	case 1:
 		copyFrameImage(&e.goldenRef.Img, &e.lastRef.Img)
 		e.goldenRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	case 2:
 		copyFrameImage(&e.goldenRef.Img, &e.altRef.Img)
 		e.goldenRef.ExtendBorders()
+		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	}
 }
 

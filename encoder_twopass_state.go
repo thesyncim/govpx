@@ -11,6 +11,11 @@ type twoPassState struct {
 	maxPct            int
 	minFrameBandwidth int
 	lastKeySeen       uint64
+	// errorResilient mirrors any non-zero libvpx error_resilient_mode bit.
+	// In pass 2, libvpx treats this as a special case that disables normal
+	// GF-group renewal and keeps assigning ordinary frames from the residual
+	// keyframe group.
+	errorResilient bool
 	// libvpx vp8/encoder/firstpass.c kf_group / gf_group accounting.
 	// kfGroupBits is the bit budget remaining within the current
 	// keyframe-bounded group (set by find_next_key_frame, drained as
@@ -26,23 +31,32 @@ type twoPassState struct {
 	// legacy bits_left fallback (which we still use when the group
 	// state was not initialized — e.g. the very first call before KF
 	// processing has run).
-	kfGroupBitsRemaining int64
-	kfGroupErrorLeft     float64
-	gfGroupBits          int64
-	gfGroupErrorLeft     float64
-	framesToKeyRemaining int
-	framesTillGFUpdate   int
-	framesSinceGolden    int
-	altExtraBits         int
-	kfGroupValid         bool
-	gfGroupValid         bool
+	kfGroupBitsRemaining     int64
+	kfGroupErrorLeft         float64
+	gfGroupBits              int64
+	gfGroupErrorLeft         float64
+	framesToKeyRemaining     int
+	framesTillGFUpdate       int
+	framesSinceGolden        int
+	altExtraBits             int
+	staticSceneMaxGFInterval int
+	maxGFInterval            int
+	kfGroupValid             bool
+	gfGroupValid             bool
 	// gfRefreshTarget is the per-frame target libvpx's
-	// define_gf_group sets for the GF/refresh frame at the start of
-	// the GF section. govpx surfaces it via the next frameTargetBits
-	// call when framesSinceGolden==0, mirroring libvpx's behaviour of
-	// emitting `cpi->per_frame_bandwidth = gf_bits` as the per-frame
-	// target for the first frame of the GF section.
+	// define_gf_group sets for the visible GF/refresh frame at the
+	// start of the GF section. Keyframe-started ARF groups have no
+	// visible GF target in define_gf_group, so this stores the hidden
+	// ARF target there as a harmless fallback; altRefTarget remains the
+	// authoritative hidden-frame target.
 	gfRefreshTarget int
+	// altRefTarget mirrors libvpx's `cpi->twopass.gf_bits`, the hidden
+	// ARF target consumed by encode_frame_to_data_rate when
+	// refresh_alt_ref_frame is set in pass 2. On non-key ARF sections
+	// this is distinct from gfRefreshTarget: define_gf_group computes
+	// the hidden ARF target in loop slot 0, then a visible GF target in
+	// loop slot 1.
+	altRefTarget int
 	// currentFrameIsGFRefresh marks the in-flight frame as a GF/KF
 	// refresh frame so finishFrame can mirror libvpx's
 	// update_golden_frame_stats behaviour: KF/GF refresh resets
@@ -75,6 +89,11 @@ type twoPassState struct {
 	// numMBs caches `(width/16) * (height/16)` so estimate_max_q does
 	// not have to recompute it per frame. Set by configureFrameDims.
 	numMBs int
+	// bestQuality / worstQuality mirror libvpx's best_quality and
+	// worst_quality q-index bounds, pushed from the encoder's rate control
+	// config after the public 0..63 quantizer range has been translated.
+	bestQuality  int
+	worstQuality int
 	// pass2ActiveWorstQ mirrors libvpx's `cpi->active_worst_quality`
 	// after vp8_second_pass runs estimate_max_q (frame 0) or the
 	// damped update branch (the early-portion-of-clip damped path).
@@ -117,7 +136,7 @@ type twoPassState struct {
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
-	*t = twoPassState{}
+	*t = twoPassState{worstQuality: vp8MaxQIndex}
 	if len(stats) == 0 || bitsPerFrame <= 0 {
 		return
 	}
@@ -125,7 +144,6 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	if len(t.stats) == 0 {
 		return
 	}
-	t.bitsLeft = int64(bitsPerFrame) * int64(len(t.stats))
 	t.vbrBiasPct = biasPct
 	if t.vbrBiasPct <= 0 {
 		t.vbrBiasPct = 50
@@ -139,6 +157,14 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	// leave the knobs at zero match libvpx's bookkeeping.
 	t.minPct = max(minPct, 0)
 	t.minFrameBandwidth = vbrMinFrameBandwidthBits(bitsPerFrame, t.minPct)
+	// libvpx vp8_init_second_pass seeds twopass.bits_left from the total
+	// target bits minus the whole two_pass_vbrmin_section reserve. Pass2Encode
+	// then credits one min_frame_bandwidth back after each visible frame.
+	totalBits := int64(bitsPerFrame) * int64(len(t.stats))
+	t.bitsLeft = totalBits - int64(t.minFrameBandwidth)*int64(len(t.stats))
+	if t.bitsLeft < 0 {
+		t.bitsLeft = 0
+	}
 	t.maxPct = maxPct
 	if t.maxPct <= 0 {
 		t.maxPct = 400
@@ -161,6 +187,18 @@ func (t *twoPassState) enabled() bool {
 	return len(t.stats) > 0
 }
 
+func (t *twoPassState) configureQuantizerBounds(bestQuality int, worstQuality int) {
+	t.bestQuality = clampQuantizerValue(bestQuality, 0, vp8MaxQIndex)
+	t.worstQuality = clampQuantizerValue(worstQuality, 0, vp8MaxQIndex)
+	if t.worstQuality < t.bestQuality {
+		t.worstQuality = t.bestQuality
+	}
+}
+
+func (t *twoPassState) configureErrorResilient(errorResilient bool) {
+	t.errorResilient = errorResilient
+}
+
 // configureFrameDims pushes the encoder's configured frame size into
 // the two-pass state. Used by `kfBitsTarget` for the size-dependent
 // kf_boost adjustment and by `defineGFGroup` to derive
@@ -175,6 +213,11 @@ func (t *twoPassState) configureFrameDims(width int, height int) {
 		t.numMBs = mbCols * mbRows
 		t.gfIntraErrMin = float64(gfMBIntraMin * t.numMBs)
 	}
+}
+
+func (t *twoPassState) configureGFIntervals(staticSceneMax int, maxGF int) {
+	t.staticSceneMaxGFInterval = staticSceneMax
+	t.maxGFInterval = maxGF
 }
 
 func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {
@@ -229,10 +272,10 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 }
 
 func (t *twoPassState) altRefFrameTargetBits(defaultTargetBits int) int {
-	if !t.enabled() || t.gfRefreshTarget <= 0 {
+	if !t.enabled() || t.altRefTarget <= 0 {
 		return 0
 	}
-	return t.gfRefreshTarget
+	return t.altRefTarget
 }
 
 func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, defaultTargetBits int, altRefInterval int, useAltRef bool) int {
@@ -269,8 +312,14 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 		// that follow. Per_frame_bandwidth for the KF stays at kf_bits
 		// (libvpx does not overwrite it because the inner GF loop's
 		// per_frame_bandwidth assignment is gated on frame_type !=
-		// KEY_FRAME).
-		t.defineGFGroup(frame, altRefInterval, useAltRef)
+		// KEY_FRAME). Error-resilient pass 2 is a libvpx special case:
+		// it skips define_gf_group and uses the residual KF group as
+		// the ordinary-frame assignment pool.
+		if t.errorResilient {
+			t.seedErrorResilientGFGroup()
+		} else {
+			t.defineGFGroup(frame, altRefInterval, useAltRef)
+		}
 		// libvpx vp8/encoder/firstpass.c vp8_second_pass lines 2328-2363:
 		// on the very first frame of pass 2, estimate_max_q computes a
 		// `tmp_q` and assigns it to cpi->active_worst_quality. This caps
@@ -285,6 +334,12 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 		if frame == 0 {
 			t.seedPass2ActiveWorstQ(defaultTargetBits)
 		}
+	} else if t.errorResilient {
+		// libvpx firstpass.c vp8_second_pass special-cases any
+		// non-zero error_resilient_mode: ordinary frames skip
+		// define_gf_group and force frames_till_gf_update_due back
+		// to twopass.frames_to_key before assign_std_frame_bits.
+		t.framesTillGFUpdate = max(t.framesToKeyRemaining, 1)
 	} else if t.framesTillGFUpdate == 0 {
 		t.defineGFGroup(frame, altRefInterval, useAltRef)
 		gfBoundary = true
@@ -292,9 +347,14 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 	}
 	if !keyFrame {
 		if gfBoundary && t.gfGroupValid {
-			// libvpx vp8_second_pass: at the GF boundary (no ARF case)
-			// the per-frame target IS gf_bits — assign_std_frame_bits
-			// is NOT called for the GF refresh frame itself.
+			// libvpx vp8_second_pass: at a non-key ARF boundary,
+			// define_gf_group computes both the hidden ARF target and
+			// the visible GF target. It then calls assign_std_frame_bits
+			// only to drain the residual GF budget/error, restoring the
+			// boosted visible GF target afterward.
+			if useAltRef {
+				_ = t.assignStdFrameBits(modErr, sectionMax)
+			}
 			target = int64(t.gfRefreshTarget)
 		} else if t.gfGroupValid {
 			target = t.assignStdFrameBits(modErr, sectionMax)
@@ -400,6 +460,23 @@ func (t *twoPassState) prepareKFGroup(frame uint64) {
 	t.gfGroupErrorLeft = 0
 	t.gfGroupValid = false
 	t.framesTillGFUpdate = 0
+}
+
+// seedErrorResilientGFGroup mirrors the error_resilient_mode branch in
+// libvpx vp8/encoder/firstpass.c vp8_second_pass immediately after
+// find_next_key_frame: use the residual KF group as the GF group, set the
+// interval to frames_to_key, and do not arm alt-ref.
+func (t *twoPassState) seedErrorResilientGFGroup() {
+	if !t.kfGroupValid {
+		t.gfGroupValid = false
+		return
+	}
+	t.gfGroupBits = t.kfGroupBitsRemaining
+	t.gfGroupErrorLeft = t.kfGroupErrorLeft
+	t.gfGroupValid = true
+	t.gfRefreshTarget = 0
+	t.altRefTarget = 0
+	t.framesTillGFUpdate = max(t.framesToKeyRemaining, 1)
 }
 
 // kfBitsTarget computes libvpx's kf_bits — the per-frame target for
@@ -592,14 +669,13 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	if sectionMQF <= 0 {
 		sectionMQF = 1.0
 	}
-	// libvpx hands estimate_max_q (best_quality, worst_quality) as the
-	// search bounds. govpx callers translate the public min/max
-	// quantizer into qindex space via libvpxPublicQuantizerToQIndex
-	// before configuring the rate controller; we treat the entire
-	// [0, vp8MaxQIndex] range as the bound here so the ported function
-	// can evaluate the full ladder. The encoder will subsequently
-	// clamp the regulator output to the user min/max anyway.
-	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), 0, errPerMB, 1.0, estCorrection, sectionMQF, 0, vp8MaxQIndex), 0), vp8MaxQIndex)
+	// libvpx feeds estimate_max_q with an overhead estimate for coding
+	// modes/MVs, then searches within (best_quality, worst_quality).
+	// The overhead term is normalized in bits*512 and decays with Q
+	// inside libvpxEstimateMaxQ, matching firstpass.c
+	// estimate_modemvcost / estimate_max_q.
+	overheadBits := libvpxEstimateModeMVCost(t.totalStats, t.numMBs)
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, t.bestQuality, t.worstQuality), 0), vp8MaxQIndex)
 	t.pass2ActiveWorstQ = tmpQ
 	t.pass2ActiveWorstQValid = true
 }

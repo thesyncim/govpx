@@ -8,9 +8,9 @@ import (
 )
 
 // arnrTestEncoder builds an encoder pre-wired for direct applyARNRFilter
-// invocation. It enables a lookahead queue large enough to hold the
-// requested forward frames and seeds the queue/back buffer with the
-// supplied frames.
+// invocation. Tests queue the ARNR window explicitly so the lookahead layout
+// matches libvpx's vp8_temporal_filter_prepare_c: backward frames, center
+// frame at `distance`, then forward frames.
 func arnrTestEncoder(t *testing.T, width int, height int, maxFrames int, strength int, arnrType int, back []byte, forward [][]byte) *VP8Encoder {
 	t.Helper()
 	opts := EncoderOptions{
@@ -18,7 +18,7 @@ func arnrTestEncoder(t *testing.T, width int, height int, maxFrames int, strengt
 		Height:            height,
 		FPS:               30,
 		TargetBitrateKbps: 800,
-		LookaheadFrames:   max(1, len(forward)),
+		LookaheadFrames:   max(1, len(forward)+2),
 		ARNRMaxFrames:     maxFrames,
 		ARNRStrength:      strength,
 		ARNRType:          arnrType,
@@ -27,16 +27,31 @@ func arnrTestEncoder(t *testing.T, width int, height int, maxFrames int, strengt
 	if err != nil {
 		t.Fatalf("NewVP8Encoder failed: %v", err)
 	}
+	return e
+}
+
+func applyARNRFilterForTest(t *testing.T, e *VP8Encoder, center []byte, back []byte, forward [][]byte) bool {
+	t.Helper()
 	if back != nil {
-		copySourceToFrameBuffer(&e.arnrLastSource, syntheticSource(width, height, back))
-		e.arnrLastReady = true
+		if err := e.pushLookahead(syntheticSource(e.opts.Width, e.opts.Height, back), 0, 1, 0); err != nil {
+			t.Fatalf("pushLookahead[back]: %v", err)
+		}
+	}
+	distance := 0
+	if back != nil {
+		distance = 1
+	}
+	if err := e.pushLookahead(syntheticSource(e.opts.Width, e.opts.Height, center), uint64(distance), 1, 0); err != nil {
+		t.Fatalf("pushLookahead[center]: %v", err)
 	}
 	for i, plane := range forward {
-		if err := e.pushLookahead(syntheticSource(width, height, plane), uint64(i+1), 1, 0); err != nil {
+		if err := e.pushLookahead(syntheticSource(e.opts.Width, e.opts.Height, plane), uint64(distance+i+1), 1, 0); err != nil {
 			t.Fatalf("pushLookahead[%d]: %v", i, err)
 		}
 	}
-	return e
+	cp := make([]byte, len(center))
+	copy(cp, center)
+	return e.applyARNRFilter(syntheticSource(e.opts.Width, e.opts.Height, cp), 0, distance)
 }
 
 // syntheticSource returns a SourceImage holding the given Y plane plus a
@@ -94,8 +109,11 @@ func TestARNRZeroStrengthIsIdentityOnIdenticalFrames(t *testing.T) {
 		copy(c, plane)
 		return c
 	}
-	e := arnrTestEncoder(t, w, h, 3, 0, 3, cp(), [][]byte{cp(), cp()})
-	if !e.applyARNRFilter(syntheticSource(w, h, cp()), 0) {
+	back := cp()
+	forward := [][]byte{cp(), cp()}
+	center := cp()
+	e := arnrTestEncoder(t, w, h, 3, 0, 3, back, forward)
+	if !applyARNRFilterForTest(t, e, center, back, forward) {
 		t.Fatalf("applyARNRFilter returned false; expected filtering to run")
 	}
 	got := e.arnrScratch.Img.Y
@@ -149,9 +167,7 @@ func TestARNRChangesPixelsOnSyntheticMotionClip(t *testing.T) {
 	// of 3 already collapses the weight to 0, which would make the
 	// filter idempotent on this clip).
 	e := arnrTestEncoder(t, w, h, 3, 3, 3, back, [][]byte{fwd})
-	cp := make([]byte, len(center))
-	copy(cp, center)
-	if !e.applyARNRFilter(syntheticSource(w, h, cp), 0) {
+	if !applyARNRFilterForTest(t, e, center, back, [][]byte{fwd}) {
 		t.Fatalf("applyARNRFilter returned false")
 	}
 	got := e.arnrScratch.Img.Y
@@ -192,9 +208,7 @@ func TestARNRSubpelDeterministicAdler32(t *testing.T) {
 		}
 	}
 	e := arnrTestEncoder(t, w, h, 3, 3, 3, back, [][]byte{fwd})
-	cp := make([]byte, len(center))
-	copy(cp, center)
-	if !e.applyARNRFilter(syntheticSource(w, h, cp), 0) {
+	if !applyARNRFilterForTest(t, e, center, back, [][]byte{fwd}) {
 		t.Fatalf("applyARNRFilter returned false")
 	}
 	// Hash only the visible region to avoid relying on border bytes.
@@ -280,9 +294,7 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 	fwd := noisy(clean(12), 3)
 
 	e := arnrTestEncoder(t, w, h, 3, 3, 3, back, [][]byte{fwd})
-	cp := make([]byte, len(center))
-	copy(cp, center)
-	if !e.applyARNRFilter(syntheticSource(w, h, cp), 0) {
+	if !applyARNRFilterForTest(t, e, center, back, [][]byte{fwd}) {
 		t.Fatalf("applyARNRFilter returned false")
 	}
 	got := e.arnrScratch.Img.Y
@@ -410,9 +422,7 @@ func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
 
 	// Run ARNR (subpel path).
 	e := arnrTestEncoder(t, w, h, 3, 3, 3, back, [][]byte{fwd})
-	cp := make([]byte, len(center))
-	copy(cp, center)
-	if !e.applyARNRFilter(syntheticSource(w, h, cp), 0) {
+	if !applyARNRFilterForTest(t, e, center, back, [][]byte{fwd}) {
 		t.Fatalf("applyARNRFilter returned false")
 	}
 	subpelOut := e.arnrScratch.Img.Y
@@ -447,7 +457,8 @@ func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
 // arnrIntegerOnlyReference reproduces the pre-subpel ARNR luma output for
 // the same (back, center, fwd, strength, type=3, maxFrames=3) setup the
 // production encoder runs. The hex search is identical (it operates at
-// integer-pel resolution) but predictors are gathered at the integer MV
+// integer-pel resolution and starts each reference search at zero like
+// libvpx) but predictors are gathered at the integer MV
 // rather than passed through the sixtap subpel filter, so the output
 // reflects what ARNR produced before subpel refinement landed.
 func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, strength int, arnrType int) []byte {
@@ -461,6 +472,15 @@ func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, 
 	copy(cp, center)
 	src := syntheticSource(w, h, cp)
 	copySourceToFrameBuffer(&e.arnrScratch, src)
+	if err := e.pushLookahead(syntheticSource(w, h, back), 0, 1, 0); err != nil {
+		t.Fatalf("pushLookahead[back]: %v", err)
+	}
+	if err := e.pushLookahead(src, 1, 1, 0); err != nil {
+		t.Fatalf("pushLookahead[center]: %v", err)
+	}
+	if err := e.pushLookahead(syntheticSource(w, h, fwd), 2, 1, 0); err != nil {
+		t.Fatalf("pushLookahead[fwd]: %v", err)
+	}
 
 	mbCols := (w + 15) >> 4
 	mbRows := (h + 15) >> 4
@@ -474,14 +494,11 @@ func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, 
 		uStride: e.arnrScratch.Img.UStride,
 		vStride: e.arnrScratch.Img.VStride,
 	}
-	refs := []arnrFrameView{
-		arnrViewFromImage(&e.arnrLastSource.Img),
-		arnrViewFromSource(src),
-		arnrViewFromImage(&e.lookahead[0].frame.Img),
+	refs, centerIdx, ok := e.arnrFilterRefs(1, 1, 1)
+	if !ok {
+		t.Fatalf("arnrFilterRefs returned false")
 	}
-	const centerIdx = 1
 
-	mvHistory := make([]arnrMV, len(refs)*mbRows*mbCols)
 	var accumulator [384]uint32
 	var count [384]uint32
 	for mbRow := range mbRows {
@@ -494,17 +511,12 @@ func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, 
 			}
 			var srcY [256]byte
 			gatherBlock(srcY[:], 16, dst.y, dst.yStride, mbX, mbY, dst.width, dst.height, 16)
-			mbHistory := mbRow*mbCols + mbCol
 			for fi, ref := range refs {
 				var filterWeight, mvX, mvY int
 				if fi == centerIdx {
 					filterWeight = 2
 				} else {
-					seed := arnrMV{}
-					if fi > 0 {
-						seed = mvHistory[(fi-1)*mbRows*mbCols+mbHistory]
-					}
-					err, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, seed.x, seed.y)
+					err, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, 0, 0)
 					mvX, mvY = sx, sy
 					switch {
 					case err < arnrThreshLow:
@@ -515,7 +527,6 @@ func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, 
 						filterWeight = 0
 					}
 				}
-				mvHistory[fi*mbRows*mbCols+mbHistory] = arnrMV{x: mvX, y: mvY}
 				if filterWeight == 0 {
 					continue
 				}

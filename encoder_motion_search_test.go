@@ -486,6 +486,8 @@ func TestFullPixelFinalRefineKeepsBetterReturnCost(t *testing.T) {
 		0,
 		interFrameFullPixelBounds{rowMin: -4, rowMax: 4, colMin: -4, colMax: 4},
 		nil,
+		nil,
+		0,
 		&interFrameMotionSearchStats{},
 	)
 	center := vp8enc.MotionVector{}

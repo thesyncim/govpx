@@ -22,10 +22,9 @@ const maxARNRFrames = 15
 // THRESH_LOW=10000 / THRESH_HIGH=20000.
 //
 // The full-pixel motion search uses libvpx's hex search (vp8_hex_search) with
-// the prior frame's per-MB MV as the seed; the first reference frame in the
-// window seeds at (0,0). Subpel refinement walks libvpx's 1/2-, 1/4- and
-// 1/8-pel diamond around the integer-pel MV using 16x16 sixtap-filtered SAD
-// and adopts the lowest-SAD position. The synthesized predictor uses the
+// a zero MV seed for each reference frame. Subpel refinement walks libvpx's
+// 1/2-, 1/4- and 1/8-pel diamond around the integer-pel MV using 16x16
+// sixtap-filtered SAD and adopts the lowest-SAD position. The synthesized predictor uses the
 // 6-tap sixtap filter on luma and chroma (chroma's MV is the halved subpel
 // MV per libvpx's `mv_offset = (1<<3 - 1) & mvR/mvC` dispatch).
 //
@@ -39,27 +38,13 @@ const maxARNRFrames = 15
 // Everything else (per-pixel weighting, accumulator/count normalization with
 // (acc + count/2)/count, separate luma/chroma blocks, and the 384-element
 // per-MB scratch layout) follows libvpx exactly.
-func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlags) bool {
+func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlags, distance int) bool {
 	maxFrames := min(e.opts.ARNRMaxFrames, maxARNRFrames)
 	if maxFrames <= 1 {
 		return false
 	}
-	arnrType := e.opts.ARNRType
-	backward := 0
-	forward := 0
-	switch arnrType {
-	case 1:
-		if e.arnrLastReady {
-			backward = 1
-		}
-	case 2:
-		forward = min(e.lookaheadSize(), maxFrames-1)
-	case 3:
-		if e.arnrLastReady {
-			backward = 1
-		}
-		forward = min(e.lookaheadSize(), maxFrames-1-backward)
-	default:
+	backward, forward, ok := e.arnrFilterWindow(distance, maxFrames)
+	if !ok {
 		return false
 	}
 	if backward+forward == 0 {
@@ -73,9 +58,74 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlag
 	// Whether the chroma planes participate matches the legacy gating
 	// (invisible alt-ref or strong filter strength). Luma always runs.
 	doChroma := flags&EncodeInvisibleFrame != 0 || e.opts.ARNRStrength > 4
-	e.iterateTemporalFilter(center, strength, backward > 0, forward, doChroma)
+	refs, centerIdx, ok := e.arnrFilterRefs(distance, backward, forward)
+	if !ok {
+		return false
+	}
+	e.iterateTemporalFilter(center, strength, refs, centerIdx, doChroma)
 	e.arnrScratch.ExtendBorders()
 	return true
+}
+
+func (e *VP8Encoder) arnrFilterWindow(distance int, maxFrames int) (int, int, bool) {
+	if distance < 0 || maxFrames <= 0 {
+		return 0, 0, false
+	}
+	numFramesBackward := distance
+	numFramesForward := e.lookaheadSize() - (numFramesBackward + 1)
+	if numFramesForward < 0 {
+		return 0, 0, false
+	}
+	framesBackward := 0
+	framesForward := 0
+	switch e.opts.ARNRType {
+	case 1:
+		framesBackward = numFramesBackward
+		if framesBackward >= maxFrames {
+			framesBackward = maxFrames - 1
+		}
+	case 2:
+		framesForward = numFramesForward
+		if framesForward >= maxFrames {
+			framesForward = maxFrames - 1
+		}
+	case 3:
+		framesForward = numFramesForward
+		framesBackward = numFramesBackward
+		if framesForward > framesBackward {
+			framesForward = framesBackward
+		}
+		if framesBackward > framesForward {
+			framesBackward = framesForward
+		}
+		if framesForward > (maxFrames-1)/2 {
+			framesForward = (maxFrames - 1) / 2
+		}
+		if framesBackward > maxFrames/2 {
+			framesBackward = maxFrames / 2
+		}
+	default:
+		return 0, 0, false
+	}
+	return framesBackward, framesForward, true
+}
+
+func (e *VP8Encoder) arnrFilterRefs(distance int, backward int, forward int) ([]arnrFrameView, int, bool) {
+	framesToBlur := backward + forward + 1
+	if framesToBlur <= 0 || framesToBlur > maxARNRFrames {
+		return nil, 0, false
+	}
+	refs := make([]arnrFrameView, framesToBlur)
+	startFrame := distance + forward
+	for frame := range framesToBlur {
+		whichBuffer := startFrame - frame
+		entry := e.peekLookahead(whichBuffer, true)
+		if entry == nil {
+			return nil, 0, false
+		}
+		refs[framesToBlur-1-frame] = arnrViewFromImage(&entry.frame.Img)
+	}
+	return refs, backward, true
 }
 
 // arnrFrameView is the minimal frame description vp8_temporal_filter_iterate_c
@@ -121,7 +171,7 @@ func arnrViewFromSource(src vp8enc.SourceImage) arnrFrameView {
 // 16x16 luma macroblock (with colocated 8x8 chroma blocks) in the alt-ref
 // frame, picks per-frame filter weights by SAD-based error, and accumulates
 // libvpx's per-pixel weighted average across the included frames.
-func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength int, useBack bool, forward int, doChroma bool) {
+func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength int, refs []arnrFrameView, centerIdx int, doChroma bool) {
 	mbCols := (center.Width + 15) >> 4
 	mbRows := (center.Height + 15) >> 4
 	// Bitwise OR is zero iff both are zero (mbCols/mbRows are non-
@@ -130,26 +180,8 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 		return
 	}
 
-	// Collect the references that participate. The center is always
-	// included with filter_weight=2 (libvpx's alt_ref_index path). Frames
-	// that fail to qualify are skipped per-MB inside processARNRMacroblock.
-	// 1 backward + 1 center + maxARNRFrames forward fits the libvpx
-	// ARNR cap of 15 reference frames; pinning the buffer on the stack
-	// avoids the per-call heap allocation the slice header used to pay
-	// for.
-	var refsBuf [2 + maxARNRFrames]arnrFrameView
-	refs := refsBuf[: 0 : 2+maxARNRFrames]
-	if useBack {
-		refs = append(refs, arnrViewFromImage(&e.arnrLastSource.Img))
-	}
-	centerIdx := len(refs)
-	refs = append(refs, arnrViewFromSource(center))
-	for i := range forward {
-		entry := e.lookaheadFutureEntry(i)
-		if entry == nil {
-			continue
-		}
-		refs = append(refs, arnrViewFromImage(&entry.frame.Img))
+	if uint(centerIdx) >= uint(len(refs)) {
+		return
 	}
 
 	dst := arnrFrameView{
@@ -168,38 +200,19 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 	var accumulator [384]uint32
 	var count [384]uint32
 
-	// Per-(reference, MB) MV history. The hex search for reference frame
-	// fi at macroblock (mbRow, mbCol) is seeded with the MV chosen at the
-	// same (mbRow, mbCol) for reference frame fi-1; the first reference
-	// in the window seeds at (0,0). This mirrors libvpx's
-	// motion_filter_buffer behavior of carrying the prior frame's MV into
-	// the next per-frame search.
-	mvHistory := make([]arnrMV, len(refs)*mbRows*mbCols)
-
 	for mbRow := range mbRows {
 		mbY := mbRow << 4
 		for mbCol := range mbCols {
 			mbX := mbCol << 4
-			processARNRMacroblock(&dst, refs, centerIdx, mbRow, mbCol, mbRows, mbCols, mbX, mbY, strength, doChroma, accumulator[:], count[:], mvHistory)
+			processARNRMacroblock(&dst, refs, centerIdx, mbRow, mbCol, mbRows, mbCols, mbX, mbY, strength, doChroma, accumulator[:], count[:])
 		}
 	}
-}
-
-// arnrMV is the integer-pixel motion vector recorded per (reference, MB)
-// during the temporal filter sweep. The hex search for the next reference
-// uses the prior reference's MV at the same (mbRow, mbCol) as its seed.
-type arnrMV struct {
-	x int
-	y int
 }
 
 // processARNRMacroblock corresponds to the inner mb_col loop body in
 // vp8_temporal_filter_iterate_c: zero accumulators, search/weight every
 // reference, then normalize accumulator/count back into the output frame.
-// The mvHistory slice carries the integer-pel MV chosen by each prior
-// reference at this (mbRow, mbCol), so the hex search for the next
-// reference can seed at the prior MV.
-func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32, mvHistory []arnrMV) {
+func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32) {
 	// Caller passes 384-element arrays for both accumulator and count.
 	// Pin both to len 384 with full cap so subsequent sub-slice exprs
 	// (accumulator[:256], accumulator[256:320], accumulator[320:384]
@@ -230,7 +243,6 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 		gatherBlock(srcV[:], 8, dst.v, dst.vStride, mbUVX, mbUVY, uvW, uvH, 8)
 	}
 
-	mbHistory := mbRow*mbCols + mbCol
 	for fi, ref := range refs {
 		// Choose per-frame filter weight. The center frame always uses
 		// libvpx's filter_weight=2; adjacent frames are graded by the
@@ -245,19 +257,7 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 		if fi == centerIdx {
 			filterWeight = 2
 		} else {
-			// Seed the hex search at the prior reference's MV for
-			// this MB, falling back to (0,0) for the first
-			// reference in the window. libvpx's
-			// vp8_temporal_filter_find_matching_mb_c forwards
-			// best_ref_mv1 = 0 to vp8_hex_search; we extend that
-			// to chain successive references through the same MB
-			// so a panning sequence's MV propagates instead of
-			// being lost.
-			seed := arnrMV{}
-			if fi > 0 {
-				seed = mvHistory[(fi-1)*mbRows*mbCols+mbHistory]
-			}
-			_, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, seed.x, seed.y)
+			_, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, 0, 0)
 			fullX, fullY = sx, sy
 			// Subpixel refinement around the full-pel MV using the
 			// 6-tap sixtap predictor and 16x16 SAD; mirrors
@@ -278,13 +278,6 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 				filterWeight = 0
 			}
 		}
-		// Persist the integer-pel search outcome so the next reference's
-		// search at this MB can seed from it. Center frames carry their
-		// (0,0) implicit MV forward. Storing the full-pel MV (rather
-		// than the subpel-refined MV) keeps the seed legal for the next
-		// hex search, which itself works in integer-pel units before
-		// subpel refinement runs.
-		mvHistory[fi*mbRows*mbCols+mbHistory] = arnrMV{x: fullX, y: fullY}
 		if filterWeight == 0 {
 			continue
 		}
@@ -392,9 +385,8 @@ const (
 // NULL mvsadcost, i.e. pure 16x16 SAD) to locate the matching predictor
 // block in an adjacent frame. It returns the best 16x16 SAD plus the
 // integer-pixel MV (relative to the colocated position). The search is
-// seeded at (seedX, seedY); callers thread the prior reference's MV at
-// the same MB through this argument so a panning sequence propagates the
-// search start instead of restarting at (0,0) every frame.
+// seeded at (seedX, seedY). ARNR passes (0,0), matching
+// vp8_temporal_filter_find_matching_mb_c.
 func arnrFindMatchingMB(src []byte, srcStride int, ref arnrFrameView, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY int, seedX, seedY int) (int, int, int) {
 	// Compute the libvpx-shaped MV bounds in pixel units. These permit
 	// the predictor to overhang the visible region by 5 pixels on each

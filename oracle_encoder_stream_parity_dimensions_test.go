@@ -34,9 +34,7 @@ import (
 //
 // Each case encodes 16 frames of the smooth panning fixture through
 // govpx and the patched libvpx vpxenc oracle under matching options
-// and asserts byte-identical VP8 packets. Cases that diverge are
-// pinned with `limit:` so the per-frame log lines surface the gap
-// without regressing the strict gate.
+// and asserts byte-identical VP8 packets.
 //
 // Runtime budget: BestQuality is limited to fixtures <= 64x64;
 // large mid-range / wide-strip fixtures only run at cpu_used in
@@ -72,12 +70,6 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		deadline Deadline
 		cpuUsed  int
 		fx       fixture
-		// limit caps how many leading frames must byte-match. 0 means
-		// require the full `frames` budget; a positive value pins the
-		// known-good prefix when later frames diverge; -1 disables the
-		// strict gate entirely (per-frame status logs make any drift
-		// visible).
-		limit int
 	}{
 		// (1) Very small / sub-MB-aligned across cpu_used. The base
 		// matrix pins 16x16 at most cpu_used values, but 16x32 and
@@ -160,12 +152,10 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid169-rt-cpu4-854x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu8-854x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu4-1024x576", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1024, 576)},
-		// 1024x576 and 1280x720/cpu8 are byte-pinned across the full
-		// sequence. 1280x720/cpu4 straddles libvpx's wall-clock-sensitive
-		// keyframe autospeed sample, so keep the keyframe pinned and log
-		// whichever inter-frame speed branch the oracle took on this host.
+		// 1024x576 and both 1280x720 realtime cases are byte-pinned
+		// across the full sequence.
 		{name: "mid169-rt-cpu8-1024x576", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1024, 576)},
-		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720), limit: 1},
+		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720)},
 		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720)},
 
 		// (5) Mid-range 4:3. Up to VGA we can afford cpu_used=0; SVGA
@@ -177,9 +167,7 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid43-rt-cpu4-640x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu4-800x600", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(800, 600)},
-		// 800x600 cpu8 still straddles libvpx's wall-clock-sensitive
-		// auto-speed boundary; keep the keyframe pinned and log inter drift.
-		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600), limit: 1},
+		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600)},
 
 		// (6) Square. Up to 400x400 we can run cpu_used=0; the picker
 		// path matters more than the sheer pixel count here.
@@ -234,20 +222,9 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, opts, targetKbps, sources, extraArgs)
 
 			if len(govpxFrames) != len(libvpxFrames) {
-				if tc.limit < 0 {
-					t.Logf("frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
-					return
-				}
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
 			}
 
-			limit := len(govpxFrames)
-			switch {
-			case tc.limit < 0:
-				limit = 0
-			case tc.limit > 0 && tc.limit < limit:
-				limit = tc.limit
-			}
 			for i := 0; i < len(govpxFrames); i++ {
 				gHash := sha256.Sum256(govpxFrames[i])
 				lHash := sha256.Sum256(libvpxFrames[i])
@@ -262,13 +239,8 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}
-				if i >= limit {
-					t.Logf("frame %d byte mismatch (not asserted, limit=%d): govpx_len=%d libvpx_len=%d first_diff=%d non_tag_diff=%d govpx_first_part=%d libvpx_first_part=%d",
-						i, limit, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff, firstNonTagDiff, gFP, lFP)
-					continue
-				}
-				t.Errorf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d govpx_keyframe=%t libvpx_keyframe=%t govpx_sha=%s libvpx_sha=%s",
-					i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff,
+				t.Errorf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d non_tag_diff=%d govpx_first_part=%d libvpx_first_part=%d govpx_keyframe=%t libvpx_keyframe=%t govpx_sha=%s libvpx_sha=%s",
+					i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff, firstNonTagDiff,
 					gFP, lFP, gIsKey, lIsKey,
 					hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
 			}

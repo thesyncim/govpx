@@ -59,6 +59,10 @@ func buildKeyFrameCoefficientTokenCounts(rows int, cols int, modes []KeyFrameMac
 			if !validKeyFrameMacroblockMode(mode) {
 				return ErrInvalidPacketConfig
 			}
+			if mode.MBSkipCoeff {
+				resetTokenContext(&above[col], &left, mode.YMode == common.BPred)
+				continue
+			}
 			if err := countCoefficientMacroblockTokens(mode.YMode == common.BPred, &above[col], &left, &coeffs[index], counts); err != nil {
 				return err
 			}

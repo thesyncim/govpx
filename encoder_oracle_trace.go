@@ -145,6 +145,9 @@ type oracleTraceDroppedFrameRow struct {
 //	this_frame_target     -> cpi->this_frame_target (bits)
 //	kf_overspend_bits     -> cpi->kf_overspend_bits
 //	gf_overspend_bits     -> cpi->gf_overspend_bits
+//	cpi_speed             -> cpi->Speed after per-frame realtime auto-select
+//	avg_encode_time       -> cpi->avg_encode_time before this frame's timer commit
+//	avg_pick_mode_time    -> cpi->avg_pick_mode_time before this frame's timer commit
 //
 // Fields without a govpx equivalent yet are emitted as zero/sentinel; the
 // parity doc tracks the residuals.
@@ -161,6 +164,9 @@ type oracleTraceRateRow struct {
 	ThisFrameTarget    int    `json:"this_frame_target"`
 	KFOverspendBits    int    `json:"kf_overspend_bits"`
 	GFOverspendBits    int    `json:"gf_overspend_bits"`
+	CPISpeed           int    `json:"cpi_speed"`
+	AvgEncodeTime      int    `json:"avg_encode_time"`
+	AvgPickModeTime    int    `json:"avg_pick_mode_time"`
 	// Entropy-savings breakdown matching libvpx vp8_estimate_entropy_savings:
 	// coef_savings_bits is the coefficient-prob update savings
 	// (default_coef_context_savings or independent_coef_context_savings),
@@ -538,6 +544,9 @@ type oracleTraceRateSummary struct {
 	ThisFrameTargetBits    int
 	KFOverspendBits        int
 	GFOverspendBits        int
+	CPISpeed               int
+	AvgEncodeTime          int
+	AvgPickModeTime        int
 	// ZbinOverQuant mirrors libvpx's `cpi->mb.zbin_over_quant` at the
 	// emission point. Fed from `e.rc.currentZbinOverQuant` which the
 	// recode loop commits for the GF/ARF boost branch and the regular
@@ -571,6 +580,9 @@ func (e *VP8Encoder) emitOracleRateTrace(summary oracleTraceRateSummary) {
 		ThisFrameTarget:     summary.ThisFrameTargetBits,
 		KFOverspendBits:     summary.KFOverspendBits,
 		GFOverspendBits:     summary.GFOverspendBits,
+		CPISpeed:            summary.CPISpeed,
+		AvgEncodeTime:       summary.AvgEncodeTime,
+		AvgPickModeTime:     summary.AvgPickModeTime,
 		ZbinOverQuant:       summary.ZbinOverQuant,
 		CoefSavingsBits:     summary.CoefSavingsBits,
 		RefFrameSavingsBits: summary.RefFrameSavingsBits,
@@ -681,6 +693,9 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		ThisFrameTargetBits:    e.rc.frameTargetBits,
 		KFOverspendBits:        e.rc.kfOverspendBits,
 		GFOverspendBits:        e.rc.gfOverspendBits,
+		CPISpeed:               e.libvpxCPUUsed(),
+		AvgEncodeTime:          e.avgEncodeTime,
+		AvgPickModeTime:        e.avgPickModeTime,
 		ZbinOverQuant:          e.rc.currentZbinOverQuant,
 		CoefSavingsBits:        coefSavings,
 		RefFrameSavingsBits:    refFrameSavings,

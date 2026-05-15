@@ -46,6 +46,7 @@ type interResidualRDContext struct {
 	modeCounts             vp8enc.InterModeCounts
 	bestRefMV              vp8enc.MotionVector
 	suppressStaticBreakout bool
+	denoiseActive          bool
 }
 
 func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (interResidualRDAccounting, bool) {
@@ -178,7 +179,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		distortionUV: stats.distortionUV,
 		otherCost:    otherCost,
 		refCost:      refCost,
-		mbSkipCoeff:  mbSkipCoeff,
+		mbSkipCoeff:  mbSkipCoeff && !ctx.denoiseActive,
 		staleY2:      staleY2,
 	}, true
 }

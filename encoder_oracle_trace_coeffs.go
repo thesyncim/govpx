@@ -43,7 +43,7 @@ func recordOracleStaleY2(coeffs *vp8enc.MacroblockCoefficients, eob uint8, qcoef
 	coeffs.OracleStaleY2Set = true
 }
 
-func libvpxY1DCWouldQuantizeNonzero(dct0 int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, fastQuant bool) uint8 {
+func libvpxY1DCWouldQuantizeNonzero(dct0 int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, fastQuant bool) uint8 {
 	if quant == nil {
 		return 0
 	}
@@ -62,7 +62,7 @@ func libvpxY1DCWouldQuantizeNonzero(dct0 int16, quant *vp8enc.BlockQuant, zbinOv
 	}
 	zbin := int(quant.Zbin[0])
 	zbin += int(quant.ZbinBoost[0])
-	zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost)) >> 7
+	zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
 	if x < zbin {
 		return 0
 	}

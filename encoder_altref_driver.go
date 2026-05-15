@@ -4,16 +4,15 @@ package govpx
 const autoAltRefDefaultSectionInterval = 7
 
 // autoAltRefHiddenFlags is the libvpx hidden alt-ref encode flag combination:
-// refresh_alt_ref_frame=1, show_frame=0, no LAST/GOLDEN refresh, and no entropy
-// update so the deferred show frame can still drive entropy. See
+// refresh_alt_ref_frame=1, show_frame=0, and no LAST/GOLDEN refresh. See
 // vp8/encoder/onyx_if.c vp8_get_compressed_data: the auto-ARF branch sets
 // cm->refresh_alt_ref_frame=1, cm->refresh_golden_frame=0,
-// cm->refresh_last_frame=0, cm->show_frame=0.
+// cm->refresh_last_frame=0, cm->show_frame=0, and leaves
+// refresh_entropy_probs untouched.
 const autoAltRefHiddenFlags = EncodeForceAltRefFrame |
 	EncodeInvisibleFrame |
 	EncodeNoUpdateLast |
-	EncodeNoUpdateGolden |
-	EncodeNoUpdateEntropy
+	EncodeNoUpdateGolden
 
 // autoAltRefDriverEnabled mirrors libvpx's `cpi->oxcf.play_alternate &&
 // !cpi->oxcf.error_resilient_mode && cpi->oxcf.lag_in_frames` guard. The driver
@@ -264,9 +263,13 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		}
 		meta := encodeSourceMetadata{
 			lookaheadDepth:     e.lookaheadSize(),
+			arnrDistance:       offset,
 			forceLFDeltaUpdate: peeked.forceLFDeltaUpdate,
 			internalInvisible:  true,
 		}
+		e.applyQueuedReferenceSets(peeked.setReferences)
+		clearQueuedReferenceSets(peeked.setReferences)
+		peeked.setReferences = peeked.setReferences[:0]
 		result, err := e.encodeSourceInto(dst, hiddenSource, hiddenPTS, hiddenDuration, autoAltRefHiddenFlags, meta)
 		if err != nil {
 			return EncodeResult{}, true, err
@@ -310,6 +313,7 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		lookaheadDepth:     e.lookaheadSize(),
 		forceLFDeltaUpdate: entry.forceLFDeltaUpdate,
 	}
+	e.applyQueuedReferenceSets(entry.setReferences)
 	result, err := e.encodeSourceInto(dst, visibleSource, visiblePTS, visibleDuration, visibleFlags, meta)
 	e.clearPoppedLookahead(entry)
 	if err != nil {
@@ -348,9 +352,13 @@ func (e *VP8Encoder) autoAltRefMaybeEmitHiddenOnFlush(dst []byte) (EncodeResult,
 	e.altRefSourceValid = true
 	meta := encodeSourceMetadata{
 		lookaheadDepth:     e.lookaheadSize(),
+		arnrDistance:       offset,
 		forceLFDeltaUpdate: peeked.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
 		internalInvisible:  true,
 	}
+	e.applyQueuedReferenceSets(peeked.setReferences)
+	clearQueuedReferenceSets(peeked.setReferences)
+	peeked.setReferences = peeked.setReferences[:0]
 	result, err := e.encodeSourceInto(dst, hiddenSource, hiddenPTS, hiddenDuration, autoAltRefHiddenFlags, meta)
 	if err != nil {
 		return EncodeResult{}, true, err

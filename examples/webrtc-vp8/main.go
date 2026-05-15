@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -21,10 +22,20 @@ import (
 )
 
 const (
-	frameWidth  = 320
-	frameHeight = 240
-	framerate   = 30
+	defaultFrameWidth  = 320
+	defaultFrameHeight = 240
+	defaultFramerate   = 30
+	defaultBitrateKbps = 600
+	rtpClockHz         = 90000
 )
+
+type demoConfig struct {
+	Addr        string
+	Width       int
+	Height      int
+	FPS         int
+	BitrateKbps int
+}
 
 const indexHTML = `<!doctype html>
 <html lang="en">
@@ -66,7 +77,21 @@ start().catch(e => document.getElementById("status").textContent = "error: " + e
 
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
+	width := flag.Int("width", defaultFrameWidth, "encoded video width")
+	height := flag.Int("height", defaultFrameHeight, "encoded video height")
+	fps := flag.Int("fps", defaultFramerate, "encoded frame rate")
+	bitrate := flag.Int("bitrate", defaultBitrateKbps, "target bitrate in kbps")
 	flag.Parse()
+	if *width <= 0 || *height <= 0 || *fps <= 0 || *bitrate <= 0 {
+		log.Fatal("width, height, fps, and bitrate must be positive")
+	}
+	cfg := demoConfig{
+		Addr:        *addr,
+		Width:       *width,
+		Height:      *height,
+		FPS:         *fps,
+		BitrateKbps: *bitrate,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -77,15 +102,17 @@ func main() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, indexHTML)
 	})
-	mux.HandleFunc("/offer", handleOffer)
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
 
-	log.Printf("listening on http://localhost%s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	log.Printf("listening on http://localhost%s (%dx%d @ %dfps, %dkbps)", cfg.Addr, cfg.Width, cfg.Height, cfg.FPS, cfg.BitrateKbps)
+	if err := http.ListenAndServe(cfg.Addr, mux); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func handleOffer(w http.ResponseWriter, r *http.Request) {
+func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 	var offer webrtc.SessionDescription
 	if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -153,7 +180,7 @@ func handleOffer(w http.ResponseWriter, r *http.Request) {
 	// Read RTCP feedback (PLI/FIR) from the sender; on receipt, force a keyframe.
 	go drainRTCP(ctx, sender, &forceKey)
 
-	go runEncoder(ctx, track, &forceKey)
+	go runEncoder(ctx, track, &forceKey, cfg)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pc.LocalDescription())
@@ -178,24 +205,30 @@ func drainRTCP(ctx context.Context, sender *webrtc.RTPSender, forceKey *atomic.B
 	}
 }
 
-func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, forceKey *atomic.Bool) {
+func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, forceKey *atomic.Bool, cfg demoConfig) {
+	maxIntraPct := webrtcMaxIntraTargetPct(600, cfg.FPS)
 	enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
-		Width:                  frameWidth,
-		Height:                 frameHeight,
-		FPS:                    framerate,
-		RateControlMode:        govpx.RateControlCBR,
-		TargetBitrateKbps:      600,
-		MinQuantizer:           4,
-		MaxQuantizer:           56,
-		BufferSizeMs:           600,
-		BufferInitialSizeMs:    400,
-		BufferOptimalSizeMs:    500,
-		DropFrameAllowed:       true,
-		DropFrameWaterMark:     60,
-		KeyFrameInterval:       framerate * 2,
-		Deadline:               govpx.DeadlineRealtime,
-		ErrorResilient:         true,
-		RTCExternalRateControl: true,
+		Width:               cfg.Width,
+		Height:              cfg.Height,
+		FPS:                 cfg.FPS,
+		Threads:             webrtcVP8ThreadCount(cfg.Width, cfg.Height),
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   cfg.BitrateKbps,
+		MinQuantizer:        2,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        15,
+		BufferSizeMs:        1000,
+		BufferInitialSizeMs: 500,
+		BufferOptimalSizeMs: 600,
+		DropFrameAllowed:    true,
+		DropFrameWaterMark:  30,
+		MaxIntraBitratePct:  maxIntraPct,
+		KeyFrameInterval:    3000,
+		Deadline:            govpx.DeadlineRealtime,
+		CpuUsed:             webrtcVP8CPUUsed(cfg.Width, cfg.Height),
+		NoiseSensitivity:    4,
+		StaticThreshold:     1,
 	})
 	if err != nil {
 		log.Printf("NewVP8Encoder: %v", err)
@@ -203,16 +236,21 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, force
 	}
 	defer enc.Close()
 
-	img := newImage(frameWidth, frameHeight)
-	packet := make([]byte, 256*1024)
-	interval := time.Second / framerate
-	duration := uint64(90000 / framerate)
+	img := newImage(cfg.Width, cfg.Height)
+	packet := make([]byte, outputBufferSize(cfg.Width, cfg.Height))
+	interval := time.Second / time.Duration(cfg.FPS)
+	duration := uint64(rtpClockHz / cfg.FPS)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	var pts uint64
 	var t int
+	windowStart := time.Now()
+	var windowBytes int
+	var windowFrames int
+	var windowDrops int
+	var lastQ int
 	for {
 		select {
 		case <-ctx.Done():
@@ -235,8 +273,14 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, force
 		}
 		pts += duration
 		if result.Dropped {
+			windowDrops++
+			logEncoderWindow(cfg, &windowStart, &windowBytes, &windowFrames, &windowDrops, lastQ)
 			continue
 		}
+		windowBytes += result.SizeBytes
+		windowFrames++
+		lastQ = result.Quantizer
+		logEncoderWindow(cfg, &windowStart, &windowBytes, &windowFrames, &windowDrops, lastQ)
 		if err := track.WriteSample(media.Sample{
 			Data:     result.Data,
 			Duration: interval,
@@ -247,6 +291,62 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, force
 			return
 		}
 	}
+}
+
+func webrtcVP8CPUUsed(width int, height int) int {
+	// Mirrors libwebrtc's non-ARM default complexity: speed 4 below CIF,
+	// speed 6 at CIF and above.
+	if width*height < 352*288 {
+		return -4
+	}
+	return -6
+}
+
+func webrtcVP8ThreadCount(width int, height int) int {
+	// Mirrors libwebrtc's desktop VP8 thread selection for one stream.
+	cpus := runtime.NumCPU()
+	pixels := width * height
+	switch {
+	case pixels >= 1920*1080 && cpus > 8:
+		return 8
+	case pixels > 1280*960 && cpus >= 6:
+		return 3
+	case pixels > 640*480 && cpus >= 6:
+		return 3
+	case pixels > 640*480 && cpus >= 3:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func webrtcMaxIntraTargetPct(optimalBufferMs int, fps int) int {
+	target := optimalBufferMs * fps / 20
+	if target < 300 {
+		return 300
+	}
+	return target
+}
+
+func outputBufferSize(width int, height int) int {
+	n := width*height*3/2 + 4096
+	if n < 256*1024 {
+		return 256 * 1024
+	}
+	return n
+}
+
+func logEncoderWindow(cfg demoConfig, start *time.Time, bytes *int, frames *int, drops *int, q int) {
+	elapsed := time.Since(*start)
+	if elapsed < time.Second {
+		return
+	}
+	kbps := float64(*bytes*8) / elapsed.Seconds() / 1000
+	log.Printf("encoded %.0f kbps target=%d kbps frames=%d drops=%d q=%d", kbps, cfg.BitrateKbps, *frames, *drops, q)
+	*start = time.Now()
+	*bytes = 0
+	*frames = 0
+	*drops = 0
 }
 
 func newImage(w, h int) govpx.Image {

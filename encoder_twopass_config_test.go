@@ -50,8 +50,8 @@ func TestTwoPassConfigureConsumesTerminalTotalStats(t *testing.T) {
 	if got := len(ts.stats); got != 2 {
 		t.Fatalf("two-pass frame stats length = %d, want terminal total excluded", got)
 	}
-	if ts.bitsLeft != 2000 {
-		t.Fatalf("bitsLeft = %d, want two real frames only", ts.bitsLeft)
+	if ts.bitsLeft != 1980 {
+		t.Fatalf("bitsLeft = %d, want two real frames minus min-frame reserve", ts.bitsLeft)
 	}
 	want := libvpxCalculateModifiedErr(100, 1000, 2, 50) +
 		libvpxCalculateModifiedErr(900, 1000, 2, 50)
