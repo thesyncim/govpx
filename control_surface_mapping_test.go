@@ -75,6 +75,98 @@ func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 	assertPublicMethodMappings(t, "VP8Decoder", methods, want)
 }
 
+func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
+	methods := exportedMethodSet(t, (*VP9Encoder)(nil))
+	want := map[string]controlParityMapping{
+		"Close":                       {kind: "lifecycle"},
+		"Codec":                       {kind: "metadata-api"},
+		"CollectFirstPassStats":       {kind: "libvpx-first-pass-oracle"},
+		"Encode":                      {kind: "allocating-encode-api"},
+		"EncodeIntraOnlyFrame":        {kind: "allocating-frame-flag-api"},
+		"EncodeIntraOnlyFrameInto":    {kind: "frame-flag-api"},
+		"EncodeInto":                  {kind: "encode-api"},
+		"EncodeIntoWithFlags":         {kind: "frame-flag-api"},
+		"EncodeIntoWithFlagsResult":   {kind: "frame-flag-api"},
+		"EncodeIntoWithResult":        {kind: "encode-api"},
+		"EncodeShowExistingFrame":     {kind: "allocating-vp9-show-existing-api"},
+		"EncodeShowExistingFrameInto": {kind: "vp9-show-existing-api"},
+		"EncodeWithFlags":             {kind: "allocating-frame-flag-api"},
+		"FlushInto":                   {kind: "vp9-lookahead-api"},
+		"FlushIntoWithResult":         {kind: "vp9-lookahead-api"},
+		"ForceKeyFrame":               {kind: "frame-flag-api"},
+		"IsKeyFrameNext":              {kind: "metadata-api"},
+		"SetFrameDropAllowed":         {kind: "libvpx-config", helperTokens: []string{"drop:"}},
+		"SetRateControlBuffer":        {kind: "libvpx-config", helperTokens: []string{"bufsz:", "bufinit:", "bufopt:"}},
+		"SetRealtimeTarget":           {kind: "libvpx-config", helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
+		"SetTemporalLayerID":          {kind: "libvpx-control", helperTokens: []string{"tlid:"}},
+		"SetTemporalScalability":      {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
+		"SetTwoPassStats":             {kind: "libvpx-two-pass"},
+	}
+	if _, ok := methods["SetVP9OracleTraceWriter"]; ok {
+		want["SetVP9OracleTraceWriter"] = controlParityMapping{kind: "oracle-trace"}
+	}
+	assertPublicMethodMappings(t, "VP9Encoder", methods, want)
+	assertFrameFlagsDriverTokens(t, want)
+}
+
+func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
+	fields := exportedFieldSet(t, VP9EncoderOptions{})
+	want := map[string]controlParityMapping{
+		"AQMode":              {kind: "libvpx-vp9-aq-mode-scoreboard"},
+		"ARNRMaxFrames":       {kind: "libvpx-control", helperTokens: []string{"arnrmax:", "--arnr-maxframes"}},
+		"ARNRStrength":        {kind: "libvpx-control", helperTokens: []string{"arnrstrength:", "--arnr-strength"}},
+		"ARNRType":            {kind: "libvpx-control", helperTokens: []string{"arnrtype:", "--arnr-type"}},
+		"AutoAltRef":          {kind: "libvpx-control", helperTokens: []string{"autoaltref:", "--auto-alt-ref"}},
+		"BufferInitialSizeMs": {kind: "libvpx-config", helperTokens: []string{"bufinit:", "--buf-initial-sz"}},
+		"BufferOptimalSizeMs": {kind: "libvpx-config", helperTokens: []string{"bufopt:", "--buf-optimal-sz"}},
+		"BufferSizeMs":        {kind: "libvpx-config", helperTokens: []string{"bufsz:", "--buf-sz"}},
+		"CQLevel":             {kind: "libvpx-control", helperTokens: []string{"cq:", "--cq-level"}},
+		"DropFrameAllowed":    {kind: "libvpx-config", helperTokens: []string{"drop:"}},
+		"DropFrameWaterMark":  {kind: "libvpx-config", helperTokens: []string{"drop:"}},
+		"ErrorResilient":      {kind: "libvpx-config", helperTokens: []string{"error:", "--error-resilient"}},
+		"FPS":                 {kind: "libvpx-config", helperTokens: []string{"fps:"}},
+		"Height":              {kind: "libvpx-config-dimensions"},
+		"LookaheadFrames":     {kind: "vp9-lookahead-api"},
+		"Lossless":            {kind: "libvpx-vp9-lossless-gap"},
+		"MaxKeyframeInterval": {kind: "libvpx-config", helperTokens: []string{"kfmax:", "--kf-max-dist"}},
+		"MaxQuantizer":        {kind: "libvpx-config", helperTokens: []string{"maxq:", "--max-q"}},
+		"MinQuantizer":        {kind: "libvpx-config", helperTokens: []string{"minq:", "--min-q"}},
+		"Quantizer":           {kind: "local-low-level-qindex"},
+		"RateControlMode":     {kind: "libvpx-config", helperTokens: []string{"endusage:", "--end-usage"}},
+		"RateControlModeSet":  {kind: "local-default-selector"},
+		"Segmentation":        {kind: "vp9-segmentation-header-api"},
+		"TargetBitrateKbps":   {kind: "libvpx-config", helperTokens: []string{"bitrate:", "--target-bitrate"}},
+		"TemporalScalability": {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
+		"Threads":             {kind: "libvpx-config", helperTokens: []string{"threads:", "--threads"}},
+		"TimebaseDen":         {kind: "libvpx-config-timebase"},
+		"TimebaseNum":         {kind: "libvpx-config-timebase"},
+		"TwoPassMaxPct":       {kind: "libvpx-two-pass"},
+		"TwoPassMinPct":       {kind: "libvpx-two-pass"},
+		"TwoPassStats":        {kind: "libvpx-two-pass"},
+		"TwoPassVBRBiasPct":   {kind: "libvpx-two-pass"},
+		"Width":               {kind: "libvpx-config-dimensions"},
+	}
+	assertPublicFieldMappings(t, "VP9EncoderOptions", fields, want)
+	assertFrameFlagsDriverTokens(t, want)
+}
+
+func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
+	methods := exportedMethodSet(t, (*VP9Decoder)(nil))
+	want := map[string]controlParityMapping{
+		"Close":             {kind: "lifecycle"},
+		"Codec":             {kind: "metadata-api"},
+		"Decode":            {kind: "libvpx-decode-oracle"},
+		"DecodeInto":        {kind: "libvpx-decode-oracle"},
+		"DecodeIntoWithPTS": {kind: "local-pts-wrapper"},
+		"DecodeWithPTS":     {kind: "local-pts-wrapper"},
+		"LastFrameInfo":     {kind: "metadata-api"},
+		"LastFrameSize":     {kind: "metadata-api"},
+		"NextFrame":         {kind: "decode-api"},
+		"Reset":             {kind: "lifecycle"},
+	}
+	assertPublicMethodMappings(t, "VP9Decoder", methods, want)
+}
+
 type controlParityMapping struct {
 	kind         string
 	helperTokens []string
@@ -96,6 +188,25 @@ func exportedMethodSet(t *testing.T, sample any) map[string]struct{} {
 	return out
 }
 
+func exportedFieldSet(t *testing.T, sample any) map[string]struct{} {
+	t.Helper()
+	typ := reflect.TypeOf(sample)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		t.Fatalf("sample type = %s, want struct", typ)
+	}
+	out := make(map[string]struct{}, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath == "" {
+			out[field.Name] = struct{}{}
+		}
+	}
+	return out
+}
+
 func assertPublicMethodMappings(t *testing.T, typeName string, got map[string]struct{}, want map[string]controlParityMapping) {
 	t.Helper()
 	for method := range got {
@@ -109,6 +220,23 @@ func assertPublicMethodMappings(t *testing.T, typeName string, got map[string]st
 		}
 		if mapping.kind == "" {
 			t.Fatalf("%s.%s has empty parity mapping kind", typeName, method)
+		}
+	}
+}
+
+func assertPublicFieldMappings(t *testing.T, typeName string, got map[string]struct{}, want map[string]controlParityMapping) {
+	t.Helper()
+	for field := range got {
+		if _, ok := want[field]; !ok {
+			t.Fatalf("%s.%s has no parity/control mapping entry", typeName, field)
+		}
+	}
+	for field, mapping := range want {
+		if _, ok := got[field]; !ok {
+			t.Fatalf("%s.%s mapping kind %q has no public field", typeName, field, mapping.kind)
+		}
+		if mapping.kind == "" {
+			t.Fatalf("%s.%s has empty parity mapping kind", typeName, field)
 		}
 	}
 }
