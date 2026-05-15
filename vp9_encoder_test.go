@@ -4938,6 +4938,17 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 	if got, want := len(e.vp9CountWorkers), 4; got != want {
 		t.Fatalf("VP9 count workers = %d, want %d", got, want)
 	}
+	if e.vp9TilePool == nil {
+		t.Fatal("VP9 tile worker pool was not initialized")
+	}
+	if got, want := e.vp9TilePool.workerCount, 4; got != want {
+		t.Fatalf("VP9 tile worker count = %d, want %d", got, want)
+	}
+	for i := range e.vp9TilePool.encodeJobs {
+		if e.vp9TilePool.encodeJobs[i].size == 0 {
+			t.Fatalf("VP9 tile worker job %d wrote zero bytes", i)
+		}
+	}
 	if len(e.vp9CountWorkers[0].miGrid) == 0 || len(e.miGrid) == 0 {
 		t.Fatal("VP9 threaded count worker miGrid was not initialized")
 	}
@@ -4991,6 +5002,39 @@ func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
 			t.Fatalf("threaded VP9 packet %d differs across runs: %d/%d bytes",
 				frame, nA, nB)
 		}
+	}
+}
+
+func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
+	const width, height = 1024, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	frames := [4]*image.YCbCr{}
+	for i := range frames {
+		frames[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+	}
+	dst := make([]byte, 1<<20)
+	for i := range frames {
+		if _, err := e.EncodeInto(frames[i], dst); err != nil {
+			t.Fatalf("warm EncodeInto[%d]: %v", i, err)
+		}
+	}
+	idx := 0
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		frame := frames[idx&3]
+		idx++
+		if _, err := e.EncodeInto(frame, dst); err != nil {
+			t.Fatalf("EncodeInto threaded alloc run: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("threaded tile EncodeInto steady-state allocs = %f, want 0", allocs)
 	}
 }
 

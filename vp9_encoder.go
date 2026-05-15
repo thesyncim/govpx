@@ -68,7 +68,9 @@ type VP9EncoderOptions struct {
 	// Threads is a tile-column hint for VP9 profile 0 encode. Zero or 1
 	// choose the minimum legal tile columns for the frame; larger values choose
 	// enough columns for decoder/transport parallelism, clamped to VP9 limits.
-	// Encoding is currently serial. Negative values return ErrInvalidConfig.
+	// Multi-column tile bodies are encoded by a persistent worker pool; the
+	// Threads <= 1 path does not allocate or touch that pool. Negative values
+	// return ErrInvalidConfig.
 	Threads int
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
@@ -365,6 +367,7 @@ type VP9Encoder struct {
 	vp9CountWorkers  []VP9Encoder
 	vp9CountCounts   []encoder.FrameCounts
 	vp9CountJobs     []vp9CountTileJob
+	vp9TilePool      *vp9TileWorkerPool
 	lfi              vp9dec.LoopFilterInfoN
 	lfRefDeltas      [vp9dec.MaxRefLfDeltas]int8
 	lfModeDeltas     [vp9dec.MaxModeLfDeltas]int8
@@ -417,6 +420,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
+	e.initVP9TileWorkerPool()
 	return e, nil
 }
 
@@ -2155,6 +2159,12 @@ func (e *VP9Encoder) writeVP9FrameTiles(output []byte, miRows, miCols int,
 ) (int, error) {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	if e.writeVP9FrameTilesThreadedEnabled(tileRows, tileCols) {
+		if totalSize, err, ok := e.writeVP9FrameTilesThreaded(output, miRows, miCols,
+			tileInfo, partitionProbs, seg, baseMi, txMode, kind, key, inter); ok {
+			return totalSize, err
+		}
+	}
 	totalSize := 0
 	nTiles := tileRows * tileCols
 	for tileRow := range tileRows {
@@ -6659,6 +6669,10 @@ func (e *VP9Encoder) Close() error {
 	}
 	if vp9OracleTraceBuild {
 		e.resetVP9OracleTraceState()
+	}
+	if e.vp9TilePool != nil {
+		e.vp9TilePool.shutdownPool()
+		e.vp9TilePool = nil
 	}
 	e.closed = true
 	return nil
