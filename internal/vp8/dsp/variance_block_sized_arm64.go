@@ -2,7 +2,11 @@
 
 package dsp
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
+)
 
 // ARMv8 NEON ports of the libvpx v1.16.0 vpx_dsp/arm/variance_neon.c
 // variance kernels for the smaller (non-16x16) block sizes used by the
@@ -24,7 +28,13 @@ import "unsafe"
 func varianceBlock16xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
 
 //go:noescape
+func varianceBlock16xNDotProd(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
+
+//go:noescape
 func varianceBlock8xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
+
+//go:noescape
+func varianceBlock8xNDotProd(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
 
 //go:noescape
 func varianceBlock4xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
@@ -33,7 +43,13 @@ func varianceBlock4xNNEON(src *byte, srcStride int, ref *byte, refStride int, he
 func sseBlock16xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sseOut *uint32)
 
 //go:noescape
+func sseBlock16xNDotProd(src *byte, srcStride int, ref *byte, refStride int, height int, sseOut *uint32)
+
+//go:noescape
 func sseBlock8xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sseOut *uint32)
+
+//go:noescape
+func sseBlock8xNDotProd(src *byte, srcStride int, ref *byte, refStride int, height int, sseOut *uint32)
 
 // varianceBlockSized fans out per-width to the matching NEON kernel.
 // Slice bases go via unsafe.SliceData so the dispatch stays free of
@@ -46,9 +62,17 @@ func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, wi
 	refPtr := unsafe.SliceData(ref)
 	switch width {
 	case 16:
-		varianceBlock16xNNEON(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
+		if cpu.HasARM64DotProd {
+			varianceBlock16xNDotProd(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
+		} else {
+			varianceBlock16xNNEON(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
+		}
 	case 8:
-		varianceBlock8xNNEON(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
+		if cpu.HasARM64DotProd {
+			varianceBlock8xNDotProd(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
+		} else {
+			varianceBlock8xNNEON(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
+		}
 	case 4:
 		varianceBlock4xNNEON(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
 	default:
@@ -59,12 +83,20 @@ func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, wi
 
 func sse8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
 	var sse uint32
-	sseBlock8xNNEON(src, srcStride, ref, refStride, 8, &sse)
+	if cpu.HasARM64DotProd {
+		sseBlock8xNDotProd(src, srcStride, ref, refStride, 8, &sse)
+	} else {
+		sseBlock8xNNEON(src, srcStride, ref, refStride, 8, &sse)
+	}
 	return int(sse)
 }
 
 func SSE16xNPtrFast(src *byte, srcStride int, ref *byte, refStride int, height int) int {
 	var sse uint32
-	sseBlock16xNNEON(src, srcStride, ref, refStride, height, &sse)
+	if cpu.HasARM64DotProd {
+		sseBlock16xNDotProd(src, srcStride, ref, refStride, height, &sse)
+	} else {
+		sseBlock16xNNEON(src, srcStride, ref, refStride, height, &sse)
+	}
 	return int(sse)
 }
