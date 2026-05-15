@@ -92,16 +92,26 @@ func VpxdecVP9Decode(ivf []byte) ([]byte, error) {
 // vpxdec and returns the concatenated visible-frame I420 bytes. diag
 // contains combined vpxdec stdout/stderr for failure messages.
 func VpxdecVP9DecodeI420(ivf []byte) (raw []byte, diag []byte, err error) {
+	return vpxdecVP9DecodeI420(ivf, "govpx-vp9-*.ivf")
+}
+
+// VpxdecVP9DecodeWebMI420 decodes a WebM-wrapped VP9 stream through libvpx
+// vpxdec and returns the concatenated visible-frame I420 bytes.
+func VpxdecVP9DecodeWebMI420(webm []byte) (raw []byte, diag []byte, err error) {
+	return vpxdecVP9DecodeI420(webm, "govpx-vp9-*.webm")
+}
+
+func vpxdecVP9DecodeI420(input []byte, tempPattern string) (raw []byte, diag []byte, err error) {
 	bin, err := VpxdecVP9Path()
 	if err != nil {
 		return nil, nil, err
 	}
-	in, err := os.CreateTemp("", "govpx-vp9-*.ivf")
+	in, err := os.CreateTemp("", tempPattern)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer os.Remove(in.Name())
-	if _, err := in.Write(ivf); err != nil {
+	if _, err := in.Write(input); err != nil {
 		in.Close()
 		return nil, nil, err
 	}

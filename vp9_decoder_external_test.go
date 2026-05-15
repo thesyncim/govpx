@@ -22,8 +22,24 @@ const (
 	defaultVP9ExternalTestDataDir       = "internal/coracle/build/test-data/vp9"
 	defaultVP9IVFTestDataMinimum        = 7
 	defaultVP9InvalidIVFTestDataMinimum = 17
+	defaultVP9Profile0WebMTestMinimum   = 12
 	defaultVP9ProfileWebMTestMinimum    = 11
 )
+
+var defaultVP9Profile0WebMTestNames = map[string]struct{}{
+	"vp90-2-00-quantizer-00.webm":                 {},
+	"vp90-2-00-quantizer-32.webm":                 {},
+	"vp90-2-00-quantizer-63.webm":                 {},
+	"vp90-2-01-sharpness-1.webm":                  {},
+	"vp90-2-01-sharpness-7.webm":                  {},
+	"vp90-2-02-size-08x08.webm":                   {},
+	"vp90-2-02-size-16x16.webm":                   {},
+	"vp90-2-02-size-32x32.webm":                   {},
+	"vp90-2-02-size-64x64.webm":                   {},
+	"vp90-2-08-tile_1x2_frame_parallel.webm":      {},
+	"vp90-2-14-resize-10frames-fp-tiles-1-2.webm": {},
+	"vp90-2-14-resize-10frames-fp-tiles-1-4.webm": {},
+}
 
 func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
 	root, ok := externalVP9IVFTestDataRoot(t)
@@ -57,6 +73,46 @@ func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
 			}
 			if !bytes.Equal(got, want) {
 				t.Fatalf("I420 mismatch for official VP90 IVF %s\nlibvpx=%s\ngovpx=%s",
+					filepath.Base(path),
+					testutil.MD5Hex(md5.Sum(want)),
+					testutil.MD5Hex(md5.Sum(got)))
+			}
+		})
+	}
+}
+
+func TestVP9DecoderOfficialProfile0WebMTestDataMatchesLibvpx(t *testing.T) {
+	root, ok := externalVP9Profile0WebMTestDataRoot(t)
+	if !ok {
+		return
+	}
+	requireVP9VpxdecOracle(t)
+	paths := findVP9Profile0WebMTestData(t, root)
+	if len(paths) == 0 {
+		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
+			externalVP9Profile0WebMTestMinimum(t, root) > 0 {
+			t.Fatalf("no official VP9 Profile 0 WebM files found under %s", root)
+		}
+		t.Skipf("no official VP9 Profile 0 WebM files found under %s", root)
+	}
+	assertExternalVP9Profile0WebMTestDataMinimum(t, root, paths)
+
+	for _, path := range paths {
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			webm, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			want, diag, err := coracle.VpxdecVP9DecodeWebMI420(webm)
+			if err != nil {
+				t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+			}
+			got, err := decodeVP9WebMVisibleI420(webm)
+			if err != nil {
+				t.Fatalf("Decode VP9 Profile 0 WebM returned error: %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("I420 mismatch for official VP9 Profile 0 WebM %s\nlibvpx=%s\ngovpx=%s",
 					filepath.Base(path),
 					testutil.MD5Hex(md5.Sum(want)),
 					testutil.MD5Hex(md5.Sum(got)))
@@ -183,6 +239,29 @@ func externalVP9InvalidIVFTestDataRoot(t *testing.T) (string, bool) {
 	return "", false
 }
 
+func externalVP9Profile0WebMTestDataRoot(t *testing.T) (string, bool) {
+	t.Helper()
+	root := os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH")
+	if root != "" {
+		return root, true
+	}
+	root = os.Getenv("GOVPX_VP9_TEST_DATA_PATH")
+	if root != "" {
+		return root, true
+	}
+	if externalVP9DefaultTestDataExists() {
+		return defaultVP9ExternalTestDataDir, true
+	}
+	profile0Minimum, _ := externalVP9IVFMinimumFromEnv(t,
+		"GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN")
+	if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
+		profile0Minimum > 0 {
+		t.Fatalf("VP9 Profile 0 WebM test data is required but neither GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", defaultVP9ExternalTestDataDir)
+	}
+	t.Skipf("set GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH to official VP9 Profile 0 WebM data or run make fetch-vp9-test-data to populate %s", defaultVP9ExternalTestDataDir)
+	return "", false
+}
+
 func externalVP9ProfileWebMTestDataRoot(t *testing.T) (string, bool) {
 	t.Helper()
 	root := os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_PATH")
@@ -246,6 +325,51 @@ func findVP9IVFTestData(t *testing.T, root string, invalid bool) []string {
 		if accept(path) {
 			paths = append(paths, path)
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	sort.Strings(paths)
+	if limit > 0 && len(paths) > limit {
+		return paths[:limit]
+	}
+	return paths
+}
+
+func findVP9Profile0WebMTestData(t *testing.T, root string) []string {
+	t.Helper()
+	limit := externalVP9Profile0WebMTestLimit(t)
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("stat %s: %v", root, err)
+	}
+	accept := func(path string) bool {
+		name := filepath.Base(path)
+		if !strings.EqualFold(filepath.Ext(name), ".webm") {
+			return false
+		}
+		_, ok := defaultVP9Profile0WebMTestNames[name]
+		return ok
+	}
+	var paths []string
+	if info.Mode().IsRegular() {
+		if accept(root) {
+			paths = append(paths, root)
+		}
+		return paths
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a regular file or directory", root)
+	}
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !accept(path) {
+			return nil
+		}
+		paths = append(paths, path)
 		return nil
 	})
 	if err != nil {
@@ -323,6 +447,19 @@ func externalVP9IVFTestLimit(t *testing.T, invalid bool) int {
 	return limit
 }
 
+func externalVP9Profile0WebMTestLimit(t *testing.T) int {
+	t.Helper()
+	raw := os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_LIMIT")
+	if raw == "" {
+		return 0
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 0 {
+		t.Fatalf("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
+	}
+	return limit
+}
+
 func externalVP9ProfileWebMTestLimit(t *testing.T) int {
 	t.Helper()
 	raw := os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_LIMIT")
@@ -353,6 +490,12 @@ func externalVP9InvalidIVFTestMinimum(t *testing.T, root string) int {
 	t.Helper()
 	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_INVALID_TEST_DATA_MIN",
 		defaultVP9InvalidIVFTestDataMinimum)
+}
+
+func externalVP9Profile0WebMTestMinimum(t *testing.T, root string) int {
+	t.Helper()
+	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN",
+		defaultVP9Profile0WebMTestMinimum)
 }
 
 func externalVP9ProfileWebMTestMinimum(t *testing.T, root string) int {
@@ -408,6 +551,18 @@ func assertExternalVP9InvalidIVFTestDataMinimum(t *testing.T, root string, paths
 			source = "GOVPX_VP9_INVALID_TEST_DATA_MIN"
 		}
 		t.Fatalf("invalid VP90 IVF test data count = %d, want at least %d from %s", len(paths), minimum, source)
+	}
+}
+
+func assertExternalVP9Profile0WebMTestDataMinimum(t *testing.T, root string, paths []string) {
+	t.Helper()
+	minimum := externalVP9Profile0WebMTestMinimum(t, root)
+	if minimum > 0 && len(paths) < minimum {
+		source := "default VP9 Profile 0 WebM corpus floor"
+		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN") != "" {
+			source = "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN"
+		}
+		t.Fatalf("VP9 Profile 0 WebM test data count = %d, want at least %d from %s", len(paths), minimum, source)
 	}
 }
 
@@ -474,6 +629,30 @@ func decodeVP9IVFVisibleI420(ivf []byte) ([]byte, error) {
 			out = appendVP9I420(out, img)
 		}
 		offset = next
+	}
+	return out, nil
+}
+
+func decodeVP9WebMVisibleI420(webm []byte) ([]byte, error) {
+	packets, err := extractVP9WebMPackets(webm)
+	if err != nil {
+		return nil, err
+	}
+	if len(packets) == 0 {
+		return nil, ErrInvalidVP9Data
+	}
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var out []byte
+	for _, packet := range packets {
+		if err := d.Decode(packet); err != nil {
+			return nil, err
+		}
+		if img, ok := d.NextFrame(); ok {
+			out = appendVP9I420(out, img)
+		}
 	}
 	return out, nil
 }

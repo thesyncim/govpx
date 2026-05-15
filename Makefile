@@ -33,10 +33,24 @@ VP8_DECODER_IVF_MIN ?= 58
 VP8_INVALID_IVF_MIN ?= 2
 VP9_DECODER_IVF_MIN ?= 7
 VP9_INVALID_IVF_MIN ?= 17
+VP9_DECODER_PROFILE0_WEBM_MIN ?= 12
 VP9_DECODER_PROFILE_WEBM_MIN ?= 11
 VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
+VP9_DECODER_PROFILE0_WEBM_FILES ?= \
+	vp90-2-00-quantizer-00.webm \
+	vp90-2-00-quantizer-32.webm \
+	vp90-2-00-quantizer-63.webm \
+	vp90-2-01-sharpness-1.webm \
+	vp90-2-01-sharpness-7.webm \
+	vp90-2-02-size-08x08.webm \
+	vp90-2-02-size-16x16.webm \
+	vp90-2-02-size-32x32.webm \
+	vp90-2-02-size-64x64.webm \
+	vp90-2-08-tile_1x2_frame_parallel.webm \
+	vp90-2-14-resize-10frames-fp-tiles-1-2.webm \
+	vp90-2-14-resize-10frames-fp-tiles-1-4.webm
 
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
@@ -129,6 +143,7 @@ oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_VP9_TEST_DATA_REQUIRED=1 \
 	GOVPX_VP9_TEST_DATA_MIN="$(VP9_DECODER_IVF_MIN)" \
 	GOVPX_VP9_TEST_DATA_STRICT=1 \
+	GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN="$(VP9_DECODER_PROFILE0_WEBM_MIN)" \
 	GOVPX_VP9_PROFILE_TEST_DATA_MIN="$(VP9_DECODER_PROFILE_WEBM_MIN)" \
 	GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_VP9_INVALID_TEST_DATA_MIN="$(VP9_INVALID_IVF_MIN)" \
@@ -136,7 +151,7 @@ oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_REQUIRED=1 \
 	GOVPX_ENCODER_TEST_DATA_MIN="$(VP8_ENCODER_SOURCE_MIN)" \
 	GOVPX_ENCODER_TEST_DATA_FRAMES="$(VP8_ENCODER_SOURCE_FRAMES)" \
-	$(GO) test . -run 'Test(Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches|VP9DecoderOfficial)' -count=1 -timeout 10m
+	$(GO) test . -run 'Test(Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches|VP9DecoderOfficial|VP9DecoderThreadingOfficial)' -count=1 -timeout 10m
 
 SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleSplitMVDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare|TestOracleChromaSubpelScoreboard|TestOracleImprovedMVScoreboard|TestOracleCBRDropFrameScoreboard|TestOracleCandidateRateScoreboard|TestOracleInterModeDistributionScoreboard|TestOracleTemporalSVCParity
 BYTE_PARITY_TESTS := TestOracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)
@@ -199,10 +214,11 @@ decoder-oracle-test: oracle-tools vp9-vpxdec-tools fetch-vp8-test-data fetch-vp9
 	GOVPX_VP9_TEST_DATA_REQUIRED=1 \
 	GOVPX_VP9_TEST_DATA_MIN="$(VP9_DECODER_IVF_MIN)" \
 	GOVPX_VP9_TEST_DATA_STRICT=1 \
+	GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN="$(VP9_DECODER_PROFILE0_WEBM_MIN)" \
 	GOVPX_VP9_PROFILE_TEST_DATA_MIN="$(VP9_DECODER_PROFILE_WEBM_MIN)" \
 	GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_VP9_INVALID_TEST_DATA_MIN="$(VP9_INVALID_IVF_MIN)" \
-	$(GO) test . -run 'Test(Oracle(Libvpx(ExtendedDecodeModesAvailable|DecoderReferenceControls|ErrorConcealment.*|KeyFrameResolutionChange|PostProcess.*)|ExternalIVFTestData(MatchesLibvpx|DecodeIntoMatchesLibvpx)|ExternalInvalidIVFTestDataRejectedLikeLibvpx|GeneratedLibvpxCorpusMatchesLibvpx)|VP9Decoder(VpxdecOracleMatches.*|Official.*))$$' -count=1 -timeout 10m
+	$(GO) test . -run 'Test(Oracle(Libvpx(ExtendedDecodeModesAvailable|DecoderReferenceControls|ErrorConcealment.*|KeyFrameResolutionChange|PostProcess.*)|ExternalIVFTestData(MatchesLibvpx|DecodeIntoMatchesLibvpx)|ExternalInvalidIVFTestDataRejectedLikeLibvpx|GeneratedLibvpxCorpusMatchesLibvpx)|VP9Decoder(VpxdecOracleMatches.*|Official.*|ThreadingOfficial.*))$$' -count=1 -timeout 10m
 
 oracle-tools: $(ORACLE)
 	internal/coracle/build_vpxenc.sh >/dev/null
@@ -239,6 +255,13 @@ fetch-vp8-test-data: $(ORACLE)
 fetch-vp9-test-data: $(ORACLE)
 	mkdir -p "$(VP9_TEST_DATA_DIR)"
 	$(AWK) '/LIBVPX_TEST_DATA-\$$\(CONFIG_VP9_DECODER\)/ && ($$NF ~ /^(invalid-)?vp9[0-3].*\.ivf$$/ || $$NF ~ /^vp9[1-3].*\.webm$$/) {print $$NF}' "$(LIBVPX_TEST_DATA_MK)" | sort | while read f; do \
+		if [ ! -s "$(VP9_TEST_DATA_DIR)/$$f" ]; then \
+			printf 'fetch %s\n' "$$f"; \
+			$(CURL) -fsSL --retry 3 -o "$(VP9_TEST_DATA_DIR)/$$f.tmp" "$(LIBVPX_TEST_DATA_BASE)/$$f"; \
+			mv "$(VP9_TEST_DATA_DIR)/$$f.tmp" "$(VP9_TEST_DATA_DIR)/$$f"; \
+		fi; \
+	done
+	for f in $(VP9_DECODER_PROFILE0_WEBM_FILES); do \
 		if [ ! -s "$(VP9_TEST_DATA_DIR)/$$f" ]; then \
 			printf 'fetch %s\n' "$$f"; \
 			$(CURL) -fsSL --retry 3 -o "$(VP9_TEST_DATA_DIR)/$$f.tmp" "$(LIBVPX_TEST_DATA_BASE)/$$f"; \

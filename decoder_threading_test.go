@@ -226,6 +226,146 @@ func TestDecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 	}
 }
 
+// TestVP9DecoderThreadingOfficialIVFMatchesSerial extends the VP9 decoder
+// conformance lane to the threaded loop-filter path. It compares govpx serial
+// decode against Threads=2/4 on every default official VP90 IVF vector.
+func TestVP9DecoderThreadingOfficialIVFMatchesSerial(t *testing.T) {
+	root, ok := externalVP9IVFTestDataRoot(t)
+	if !ok {
+		return
+	}
+	paths := findVP9IVFTestData(t, root, false)
+	if len(paths) == 0 {
+		t.Fatalf("no VP90 IVF files found under %s", root)
+	}
+	assertExternalVP9IVFTestDataMinimum(t, root, paths)
+
+	for _, path := range paths {
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			ivf, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			frames, err := vp9IVFFramesForThreadingParity(ivf)
+			if err != nil {
+				t.Fatalf("collect frames: %v", err)
+			}
+			if len(frames) == 0 {
+				t.Skipf("no frames in %s", filepath.Base(path))
+			}
+			assertVP9ThreadedDecodeMatchesSerial(t, frames, len(frames))
+		})
+	}
+}
+
+// TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial mirrors the IVF
+// threading gate for the curated official VP9 Profile 0 WebM corpus.
+func TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial(t *testing.T) {
+	root, ok := externalVP9Profile0WebMTestDataRoot(t)
+	if !ok {
+		return
+	}
+	paths := findVP9Profile0WebMTestData(t, root)
+	if len(paths) == 0 {
+		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
+			externalVP9Profile0WebMTestMinimum(t, root) > 0 {
+			t.Fatalf("no official VP9 Profile 0 WebM files found under %s", root)
+		}
+		t.Skipf("no official VP9 Profile 0 WebM files found under %s", root)
+	}
+	assertExternalVP9Profile0WebMTestDataMinimum(t, root, paths)
+
+	for _, path := range paths {
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			webm, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			packets, err := extractVP9WebMPackets(webm)
+			if err != nil {
+				t.Fatalf("extract VP9 WebM packets: %v", err)
+			}
+			if len(packets) == 0 {
+				t.Skipf("no VP9 packets in %s", filepath.Base(path))
+			}
+			assertVP9ThreadedDecodeMatchesSerial(t, packets, len(packets))
+		})
+	}
+}
+
+func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want int) {
+	t.Helper()
+	serial, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("serial NewVP9Decoder: %v", err)
+	}
+	serialFrames := decodeVP9Planes(t, serial, packets, want)
+	if err := serial.Close(); err != nil {
+		t.Fatalf("serial Close: %v", err)
+	}
+
+	for _, threads := range []int{2, 4} {
+		threaded, err := NewVP9Decoder(VP9DecoderOptions{Threads: threads})
+		if err != nil {
+			t.Fatalf("threaded NewVP9Decoder(threads=%d): %v", threads, err)
+		}
+		threadedFrames := decodeVP9Planes(t, threaded, packets, want)
+		if err := threaded.Close(); err != nil {
+			t.Fatalf("threaded Close(threads=%d): %v", threads, err)
+		}
+		if len(serialFrames) != len(threadedFrames) {
+			t.Fatalf("frame count mismatch: serial=%d threaded=%d threads=%d",
+				len(serialFrames), len(threadedFrames), threads)
+		}
+		for i := range serialFrames {
+			if !sameCapturedFramePlanes(serialFrames[i], threadedFrames[i]) {
+				t.Fatalf("VP9 frame %d planes diverge with threads=%d", i, threads)
+			}
+		}
+	}
+}
+
+func decodeVP9Planes(t testing.TB, d *VP9Decoder, packets [][]byte, want int) []capturedFramePlanes {
+	t.Helper()
+	out := make([]capturedFramePlanes, 0, want)
+	for i, packet := range packets {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("VP9 Decode[%d]: %v", i, err)
+		}
+		img, ok := d.NextFrame()
+		if !ok {
+			continue
+		}
+		out = append(out, captureDecodedPlanes(img))
+	}
+	return out
+}
+
+func sameCapturedFramePlanes(a capturedFramePlanes, b capturedFramePlanes) bool {
+	return a.width == b.width &&
+		a.height == b.height &&
+		bytes.Equal(a.y, b.y) &&
+		bytes.Equal(a.u, b.u) &&
+		bytes.Equal(a.v, b.v)
+}
+
+func vp9IVFFramesForThreadingParity(ivf []byte) ([][]byte, error) {
+	if !vp9ExternalIVFHeaderLooksValid(ivf) {
+		return nil, testutil.ErrInvalidIVF
+	}
+	offset := testutil.IVFFileHeaderSize
+	var frames [][]byte
+	for offset < len(ivf) {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, len(frames))
+		if err != nil {
+			return nil, err
+		}
+		frames = append(frames, frame.Data)
+		offset = next
+	}
+	return frames, nil
+}
+
 func ivfFramesForThreadingParity(ivf []byte) ([][]byte, error) {
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
 	if err != nil {
