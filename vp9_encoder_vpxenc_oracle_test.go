@@ -471,6 +471,14 @@ func TestVP9EncoderVpxencOracleChecker64KeyframeByteParity(t *testing.T) {
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
+func TestVP9EncoderVpxencOracleChecker320KeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 320, 180
+	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	assertVP9VpxencKeyframeByteParity(t, src)
+}
+
 func TestVP9EncoderVpxencOracleFixedQuantizerKeyframeByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 

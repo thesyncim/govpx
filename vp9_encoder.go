@@ -4317,21 +4317,8 @@ scoreLoop:
 			distortion += score
 			txX := baseX + cc*4
 			txY := baseY + rr*4
-			copyW := bs
-			copyH := bs
-			if txX >= srcW || txY >= srcH {
-				continue
-			}
-			if txX+copyW > srcW {
-				copyW = srcW - txX
-			}
-			if txY+copyH > srcH {
-				copyH = srcH - txY
-			}
-			for y := 0; y < copyH; y++ {
-				copy(planeData[(txY+y)*stride+txX:(txY+y)*stride+txX+copyW],
-					src[(txY+y)*srcStride+txX:(txY+y)*srcStride+txX+copyW])
-			}
+			vp9CopySourceRectClamped(planeData, stride, src, srcStride,
+				srcW, srcH, txX, txY, bs, bs)
 		}
 	}
 	restoreRecon()
@@ -4447,15 +4434,8 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 	if len(src) == 0 || srcStride <= 0 {
 		return 0, false
 	}
-	var score uint64
-	for y := 0; y < bs && y0+y < srcH; y++ {
-		srcRow := src[(y0+y)*srcStride:]
-		predRow := pred[y*bs:]
-		for x := 0; x < bs && x0+x < srcW; x++ {
-			diff := int(srcRow[x0+x]) - int(predRow[x])
-			score += uint64(diff * diff)
-		}
-	}
+	score := vp9PredictionSSEClamped(src, srcStride, srcW, srcH,
+		pred, bs, x0, y0, bs)
 	return score, true
 }
 
@@ -6744,18 +6724,35 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 	dst []byte, dstStride, x0, y0 int, txSize common.TxSize,
 ) bool {
 	bs := 4 << uint(txSize)
-	if bs*bs > len(e.residueScratch) {
+	if bs*bs > len(e.residueScratch) || len(src) == 0 || srcStride <= 0 ||
+		srcW <= 0 || srcH <= 0 {
 		return false
 	}
 	for i := range e.residueScratch[:bs*bs] {
 		e.residueScratch[i] = 0
 	}
 	hasDiff := false
-	for y := 0; y < bs && y0+y < srcH; y++ {
-		srcRow := src[(y0+y)*srcStride:]
+	if x0 >= 0 && y0 >= 0 && x0+bs <= srcW && y0+bs <= srcH {
+		for y := range bs {
+			srcRow := src[(y0+y)*srcStride+x0:]
+			dstRow := dst[y*dstStride:]
+			for x := range bs {
+				diff := int(srcRow[x]) - int(dstRow[x])
+				e.residueScratch[y*bs+x] = int16(diff)
+				if diff != 0 {
+					hasDiff = true
+				}
+			}
+		}
+		return hasDiff
+	}
+	for y := range bs {
+		sy := vp9ClampSourceCoord(y0+y, srcH)
+		srcRow := src[sy*srcStride:]
 		dstRow := dst[y*dstStride:]
-		for x := 0; x < bs && x0+x < srcW; x++ {
-			diff := int(srcRow[x0+x]) - int(dstRow[x])
+		for x := range bs {
+			sx := vp9ClampSourceCoord(x0+x, srcW)
+			diff := int(srcRow[sx]) - int(dstRow[x])
 			e.residueScratch[y*bs+x] = int16(diff)
 			if diff != 0 {
 				hasDiff = true
@@ -6763,6 +6760,86 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 		}
 	}
 	return hasDiff
+}
+
+func vp9ClampSourceCoord(v, limit int) int {
+	if v < 0 {
+		return 0
+	}
+	if v >= limit {
+		return limit - 1
+	}
+	return v
+}
+
+func vp9CopySourceRectClamped(dst []byte, dstStride int, src []byte,
+	srcStride, srcW, srcH int, x0, y0, w, h int,
+) {
+	if len(dst) == 0 || dstStride <= 0 || len(src) == 0 ||
+		srcStride <= 0 || srcW <= 0 || srcH <= 0 || w <= 0 || h <= 0 {
+		return
+	}
+	dstRows := len(dst) / dstStride
+	if x0 < 0 || y0 < 0 || x0 >= dstStride || y0 >= dstRows {
+		return
+	}
+	if x0+w > dstStride {
+		w = dstStride - x0
+	}
+	if y0+h > dstRows {
+		h = dstRows - y0
+	}
+	if w <= 0 || h <= 0 {
+		return
+	}
+	if x0+w <= srcW && y0+h <= srcH {
+		for y := range h {
+			copy(dst[(y0+y)*dstStride+x0:(y0+y)*dstStride+x0+w],
+				src[(y0+y)*srcStride+x0:(y0+y)*srcStride+x0+w])
+		}
+		return
+	}
+	for y := range h {
+		sy := vp9ClampSourceCoord(y0+y, srcH)
+		dstRow := dst[(y0+y)*dstStride+x0:]
+		srcRow := src[sy*srcStride:]
+		for x := range w {
+			sx := vp9ClampSourceCoord(x0+x, srcW)
+			dstRow[x] = srcRow[sx]
+		}
+	}
+}
+
+func vp9PredictionSSEClamped(src []byte, srcStride, srcW, srcH int,
+	pred []byte, predStride, x0, y0, bs int,
+) uint64 {
+	if len(src) == 0 || srcStride <= 0 || srcW <= 0 || srcH <= 0 ||
+		len(pred) == 0 || predStride <= 0 || bs <= 0 {
+		return 0
+	}
+	var score uint64
+	if x0 >= 0 && y0 >= 0 && x0+bs <= srcW && y0+bs <= srcH {
+		for y := range bs {
+			srcRow := src[(y0+y)*srcStride+x0:]
+			predRow := pred[y*predStride:]
+			for x := range bs {
+				diff := int(srcRow[x]) - int(predRow[x])
+				score += uint64(diff * diff)
+			}
+		}
+		return score
+	}
+	for y := range bs {
+		sy := vp9ClampSourceCoord(y0+y, srcH)
+		srcRow := src[sy*srcStride:]
+		predRow := pred[y*predStride:]
+		for x := range bs {
+			sx := vp9ClampSourceCoord(x0+x, srcW)
+			diff := int(srcRow[sx]) - int(predRow[x])
+			score += uint64(diff * diff)
+		}
+	}
+	return score
 }
 
 func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
