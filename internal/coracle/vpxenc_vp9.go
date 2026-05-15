@@ -110,6 +110,78 @@ func VpxencVP9EncodeI420(raw []byte, width int, height int, frames int, extraArg
 	return ivf, diag, nil
 }
 
+// VpxencVP9FirstPassStatsI420 runs the pinned VP9 vpxenc tool in first-pass
+// mode and returns the raw FIRSTPASS_STATS file. Defaults target the VOD
+// good-quality path; extra args are appended before the input path so callers
+// can override individual vpxenc knobs.
+func VpxencVP9FirstPassStatsI420(raw []byte, width int, height int, frames int, extraArgs ...string) (stats []byte, diag []byte, err error) {
+	frameSize, err := vpxencVP9I420FrameSize(width, height)
+	if err != nil {
+		return nil, nil, err
+	}
+	if frames <= 0 {
+		return nil, nil, fmt.Errorf("coracle: VP9 vpxenc first-pass frame count %d must be positive", frames)
+	}
+	want, err := checkedVP9I420Mul(frameSize, frames)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(raw) != want {
+		return nil, nil, fmt.Errorf("coracle: VP9 vpxenc first-pass raw I420 size = %d, want %d for %dx%d x %d frames",
+			len(raw), want, width, height, frames)
+	}
+
+	bin, err := VpxencVP9Path()
+	if err != nil {
+		return nil, nil, err
+	}
+	dir, err := os.MkdirTemp("", "govpx-vpxenc-vp9-firstpass-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer os.RemoveAll(dir)
+
+	inPath := filepath.Join(dir, "input.i420")
+	outPath := filepath.Join(dir, "output.ivf")
+	fpfPath := filepath.Join(dir, "firstpass.fpf")
+	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
+		return nil, nil, err
+	}
+
+	args := []string{
+		"--codec=vp9",
+		"--ivf",
+		"--quiet",
+		"--good",
+		"--cpu-used=4",
+		"--passes=2",
+		"--pass=1",
+		"--fpf=" + fpfPath,
+		"--end-usage=vbr",
+		"--target-bitrate=700",
+		"--min-q=4",
+		"--max-q=56",
+		"--i420",
+		"--width=" + strconv.Itoa(width),
+		"--height=" + strconv.Itoa(height),
+		"--fps=30/1",
+		"--limit=" + strconv.Itoa(frames),
+		"--output=" + outPath,
+	}
+	args = append(args, extraArgs...)
+	args = append(args, inPath)
+	cmd := exec.Command(bin, args...)
+	diag, err = cmd.CombinedOutput()
+	if err != nil {
+		return nil, diag, err
+	}
+	stats, err = os.ReadFile(fpfPath)
+	if err != nil {
+		return nil, diag, err
+	}
+	return stats, diag, nil
+}
+
 func vpxencVP9I420FrameSize(width int, height int) (int, error) {
 	if width <= 0 || height <= 0 {
 		return 0, fmt.Errorf("coracle: invalid VP9 vpxenc dimensions %dx%d", width, height)

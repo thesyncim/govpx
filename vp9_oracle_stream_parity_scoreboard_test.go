@@ -49,6 +49,18 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		height: 64,
 		source: newVP9PanningYCbCrForRateTest,
 	}
+	panning320 := streamFixture{
+		name:   "panning-320x180",
+		width:  320,
+		height: 180,
+		source: newVP9PanningYCbCrForRateTest,
+	}
+	panning720 := streamFixture{
+		name:   "panning-1280x720",
+		width:  1280,
+		height: 720,
+		source: newVP9PanningYCbCrForRateTest,
+	}
 	tiled1024 := streamFixture{
 		name:   "panning-1024x64",
 		width:  1024,
@@ -134,6 +146,103 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			exactPrefix: 1,
 		},
 		{
+			name:    "vbr-rate-panning",
+			fixture: panning320,
+			frames:  8,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=vbr",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+			},
+			exactPrefix: 0,
+		},
+		{
+			name:    "cq-rate-panning",
+			fixture: panning320,
+			frames:  8,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=cq",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 0,
+		},
+		{
+			name:    "q-rate-panning",
+			fixture: panning320,
+			frames:  8,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=q",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 0,
+		},
+		{
+			name:    "cbr-cyclic-aq-panning",
+			fixture: panning320,
+			frames:  8,
+			opts: func() VP9EncoderOptions {
+				opts := vp9OracleCBROptions(320, 180, 700)
+				opts.AQMode = VP9AQCyclicRefresh
+				return opts
+			}(),
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--aq-mode=3"),
+			exactPrefix: 0,
+		},
+		{
+			name:    "vbr-rate-panning-720p",
+			fixture: panning720,
+			frames:  3,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=vbr",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+			},
+			exactPrefix: 0,
+		},
+		{
 			name:    "tile-columns-from-threads",
 			fixture: tiled1024,
 			frames:  4,
@@ -177,10 +286,22 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 						frame, tc.name)
 				}
 			}
+			newModeByteCase := tc.name == "vbr-rate-panning" ||
+				tc.name == "cq-rate-panning" ||
+				tc.name == "q-rate-panning" ||
+				tc.name == "cbr-cyclic-aq-panning" ||
+				tc.name == "vbr-rate-panning-720p"
 			if os.Getenv("GOVPX_VP9_STREAM_MATRIX_STRICT") == "1" &&
+				!newModeByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 stream byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
+			}
+			if os.Getenv("GOVPX_VP9_NEW_MODE_BYTE_STRICT") == "1" &&
+				newModeByteCase &&
+				matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 new-mode byte parity %s/%s: matches=%d/%d",
+					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
 		})
 	}
@@ -1033,6 +1154,108 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 		(len(govpxPackets) != len(libvpxPackets) || matches != len(govpxPackets)) {
 		t.Fatalf("strict VP9 auto-alt-ref byte parity: matches=%d/%d libvpx_packets=%d",
 			matches, len(govpxPackets), len(libvpxPackets))
+	}
+}
+
+func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 auto-alt-ref ARNR byte-parity matrix")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	type autoAltRefCase struct {
+		name      string
+		width     int
+		height    int
+		frames    int
+		lag       int
+		targetKbs int
+		source    func(width, height, frame int) *image.YCbCr
+		arnrType  int
+	}
+	cases := []autoAltRefCase{
+		{
+			name:      "stepped-64x64-centered",
+			width:     64,
+			height:    64,
+			frames:    16,
+			lag:       4,
+			targetKbs: 300,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height,
+					uint8(96+frame*8), 128, 128)
+			},
+			arnrType: 3,
+		},
+		{
+			name:      "panning-320x180-backward",
+			width:     320,
+			height:    180,
+			frames:    12,
+			lag:       4,
+			targetKbs: 900,
+			source:    newVP9PanningYCbCrForRateTest,
+			arnrType:  1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]*image.YCbCr, tc.frames)
+			for i := range sources {
+				sources[i] = tc.source(tc.width, tc.height, i)
+			}
+			govpxRows, govpxPackets := captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t,
+				VP9EncoderOptions{
+					LookaheadFrames: tc.lag,
+					AutoAltRef:      true,
+					ARNRMaxFrames:   7,
+					ARNRStrength:    3,
+					ARNRType:        tc.arnrType,
+				}, sources)
+			libvpxRows, libvpxPackets := captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t,
+				sources,
+				"--deadline=good",
+				"--cpu-used=4",
+				"--end-usage=vbr",
+				"--target-bitrate="+fmt.Sprintf("%d", tc.targetKbs),
+				fmt.Sprintf("--lag-in-frames=%d", tc.lag),
+				"--auto-alt-ref=1",
+				"--arnr-maxframes=7",
+				"--arnr-strength=3",
+				fmt.Sprintf("--arnr-type=%d", tc.arnrType))
+			limit := len(govpxPackets)
+			if len(libvpxPackets) < limit {
+				limit = len(libvpxPackets)
+			}
+			matches := 0
+			firstMismatch := -1
+			for i := 0; i < limit; i++ {
+				if bytes.Equal(govpxPackets[i], libvpxPackets[i]) {
+					matches++
+					continue
+				}
+				if firstMismatch < 0 {
+					firstMismatch = i
+				}
+			}
+			t.Logf("VP9 auto-alt-ref ARNR byte-parity matrix %s: govpx_packets=%d libvpx_packets=%d compare=%d matches=%d first_mismatch=%d govpx_hidden=%d libvpx_hidden=%d",
+				tc.name, len(govpxPackets), len(libvpxPackets), limit, matches,
+				firstMismatch, countVP9HiddenRows(govpxRows),
+				countVP9HiddenRows(libvpxRows))
+			t.Logf("VP9 auto-alt-ref ARNR rows %s:\n%s", tc.name,
+				formatVP9AutoAltRefVisibilityRows(govpxRows, libvpxRows))
+			if countVP9HiddenRows(govpxRows) == 0 {
+				t.Fatalf("govpx emitted no hidden auto-alt-ref packet for %s",
+					tc.name)
+			}
+			if os.Getenv("GOVPX_VP9_AUTO_ALT_REF_ARNR_BYTE_STRICT") == "1" &&
+				(len(govpxPackets) != len(libvpxPackets) ||
+					matches != len(govpxPackets)) {
+				t.Fatalf("strict VP9 auto-alt-ref ARNR byte parity %s: matches=%d/%d libvpx_packets=%d",
+					tc.name, matches, len(govpxPackets), len(libvpxPackets))
+			}
+		})
 	}
 }
 

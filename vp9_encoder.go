@@ -357,6 +357,10 @@ type VP9Encoder struct {
 
 	vp9ModeDecisionQIndex    uint8
 	vp9ModeDecisionQIndexSet bool
+
+	vp9FirstPassCount uint64
+	vp9FirstPassLast  image.YCbCr
+	vp9FirstPassGF    image.YCbCr
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
