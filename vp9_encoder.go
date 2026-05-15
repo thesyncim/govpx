@@ -89,9 +89,9 @@ type VP9EncoderOptions struct {
 	// TuneSSIM is accepted for libvpx control-surface parity and future SSIM
 	// mode-decision work.
 	Tuning Tuning
-	// NoiseSensitivity selects VP9 luma temporal denoising. Zero disables the
-	// denoiser. Valid values are [0, 6]; 1 is low strength, 2 is medium, and
-	// 3..6 use the high-strength VP9 temporal denoiser path.
+	// NoiseSensitivity selects VP9 luma/chroma temporal denoising. Zero
+	// disables the denoiser. Valid values are [0, 6]; 1 is low strength, 2 is
+	// medium, and 3..6 use the high-strength VP9 temporal denoiser path.
 	NoiseSensitivity int8
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode

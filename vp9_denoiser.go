@@ -236,10 +236,50 @@ func (e *VP9Encoder) applyVP9DenoiserToInterBlock(inter *vp9InterEncodeState,
 		increase, bsize, motionMagnitude) == vp9DenoiserFilterBlock {
 		copyVP9LumaBlock(src.Y[srcOff:], src.YStride,
 			avg.Y[avgOff:], avg.YStride, blockW, blockH)
+		applyVP9DenoiserToInterChromaBlock(src, avg, mc,
+			x0, y0, blockW, blockH, bsize, increase, motionMagnitude)
 		return
 	}
 	copyVP9LumaBlock(avg.Y[avgOff:], avg.YStride,
 		src.Y[srcOff:], src.YStride, blockW, blockH)
+}
+
+func applyVP9DenoiserToInterChromaBlock(
+	src *image.YCbCr, avg *image.YCbCr, mc *image.YCbCr,
+	x0, y0, blockW, blockH int, bsize common.BlockSize,
+	increase bool, motionMagnitude int,
+) {
+	uvX := x0 >> 1
+	uvY := y0 >> 1
+	uvW := blockW >> 1
+	uvH := blockH >> 1
+	if uvW <= 0 || uvH <= 0 {
+		return
+	}
+	uvNumPelsLog2 := vp9DenoiserNumPelsLog2(bsize) - 2
+	srcOff := uvY*src.CStride + uvX
+	avgOff := uvY*avg.CStride + uvX
+	mcOff := uvY*mc.CStride + uvX
+	uFilter := vp9DenoiserFilterPlane(src.Cb[srcOff:], src.CStride,
+		mc.Cb[mcOff:], mc.CStride,
+		avg.Cb[avgOff:], avg.CStride,
+		uvW, uvH, uvNumPelsLog2, increase, motionMagnitude)
+	vFilter := vp9DenoiserFilterPlane(src.Cr[srcOff:], src.CStride,
+		mc.Cr[mcOff:], mc.CStride,
+		avg.Cr[avgOff:], avg.CStride,
+		uvW, uvH, uvNumPelsLog2, increase, motionMagnitude)
+	if uFilter == vp9DenoiserFilterBlock &&
+		vFilter == vp9DenoiserFilterBlock {
+		copyVP9PlaneBlock(src.Cb[srcOff:], src.CStride,
+			avg.Cb[avgOff:], avg.CStride, uvW, uvH)
+		copyVP9PlaneBlock(src.Cr[srcOff:], src.CStride,
+			avg.Cr[avgOff:], avg.CStride, uvW, uvH)
+		return
+	}
+	copyVP9PlaneBlock(avg.Cb[avgOff:], avg.CStride,
+		src.Cb[srcOff:], src.CStride, uvW, uvH)
+	copyVP9PlaneBlock(avg.Cr[avgOff:], avg.CStride,
+		src.Cr[srcOff:], src.CStride, uvW, uvH)
 }
 
 func (e *VP9Encoder) vp9DenoiserZeroLastSSE(x0, y0, blockW, blockH int) (uint64, bool) {
@@ -335,6 +375,15 @@ func vp9DenoiserFilter(sig []byte, sigStride int, mcAvg []byte, mcAvgStride int,
 ) uint8 {
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) << 2
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) << 2
+	return vp9DenoiserFilterPlane(sig, sigStride, mcAvg, mcAvgStride,
+		avg, avgStride, blockW, blockH, vp9DenoiserNumPelsLog2(bsize),
+		increase, motionMagnitude)
+}
+
+func vp9DenoiserFilterPlane(sig []byte, sigStride int, mcAvg []byte, mcAvgStride int,
+	avg []byte, avgStride int, blockW, blockH, numPelsLog2 int,
+	increase bool, motionMagnitude int,
+) uint8 {
 	adj := [3]int{3, 4, 6}
 	shiftInc := 1
 	if motionMagnitude <= vp9DenoiserMotionMagnitudeThreshold {
@@ -377,13 +426,13 @@ func vp9DenoiserFilter(sig []byte, sigStride int, mcAvg []byte, mcAvgStride int,
 			}
 		}
 	}
-	strongThresh := vp9DenoiserTotalAdjStrongThresh(bsize, increase)
+	strongThresh := vp9DenoiserTotalAdjStrongThreshForPixels(numPelsLog2, increase)
 	if vp9AbsInt(totalAdj) <= strongThresh {
 		return vp9DenoiserFilterBlock
 	}
 
 	delta := ((vp9AbsInt(totalAdj) - strongThresh) >>
-		uint(vp9DenoiserNumPelsLog2(bsize))) + 1
+		uint(numPelsLog2)) + 1
 	if delta >= 4 {
 		return vp9DenoiserCopyBlock
 	}
@@ -404,7 +453,7 @@ func vp9DenoiserFilter(sig []byte, sigStride int, mcAvg []byte, mcAvgStride int,
 			}
 		}
 	}
-	if vp9AbsInt(totalAdj) <= vp9DenoiserTotalAdjWeakThresh(bsize, increase) {
+	if vp9AbsInt(totalAdj) <= vp9DenoiserTotalAdjWeakThreshForPixels(numPelsLog2, increase) {
 		return vp9DenoiserFilterBlock
 	}
 	return vp9DenoiserCopyBlock
@@ -441,14 +490,24 @@ func vp9DenoiserSSEDiffThresh(bsize common.BlockSize, increase bool, motionMagni
 }
 
 func vp9DenoiserTotalAdjStrongThresh(bsize common.BlockSize, increase bool) int {
+	return vp9DenoiserTotalAdjStrongThreshForPixels(
+		vp9DenoiserNumPelsLog2(bsize), increase)
+}
+
+func vp9DenoiserTotalAdjStrongThreshForPixels(numPelsLog2 int, increase bool) int {
 	if increase {
-		return (1 << uint(vp9DenoiserNumPelsLog2(bsize))) * 3
+		return (1 << uint(numPelsLog2)) * 3
 	}
-	return (1 << uint(vp9DenoiserNumPelsLog2(bsize))) * 2
+	return (1 << uint(numPelsLog2)) * 2
 }
 
 func vp9DenoiserTotalAdjWeakThresh(bsize common.BlockSize, increase bool) int {
-	return vp9DenoiserTotalAdjStrongThresh(bsize, increase)
+	return vp9DenoiserTotalAdjWeakThreshForPixels(
+		vp9DenoiserNumPelsLog2(bsize), increase)
+}
+
+func vp9DenoiserTotalAdjWeakThreshForPixels(numPelsLog2 int, increase bool) int {
+	return vp9DenoiserTotalAdjStrongThreshForPixels(numPelsLog2, increase)
 }
 
 func vp9DenoiserNumPelsLog2(bsize common.BlockSize) int {
@@ -456,6 +515,10 @@ func vp9DenoiserNumPelsLog2(bsize common.BlockSize) int {
 }
 
 func copyVP9LumaBlock(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
+	copyVP9PlaneBlock(dst, dstStride, src, srcStride, width, height)
+}
+
+func copyVP9PlaneBlock(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
 	for y := range height {
 		copy(dst[y*dstStride:][:width], src[y*srcStride:][:width])
 	}

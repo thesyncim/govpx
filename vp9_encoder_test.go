@@ -765,8 +765,8 @@ func TestVP9EncoderNoiseSensitivityDenoisesInterLuma(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 100, 128, 128)
-	interSrc := newVP9YCbCrForTest(width, height, 102, 128, 128)
+	keySrc := newVP9YCbCrForTest(width, height, 100, 96, 160)
+	interSrc := newVP9YCbCrForTest(width, height, 102, 98, 158)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
@@ -786,6 +786,49 @@ func TestVP9EncoderNoiseSensitivityDenoisesInterLuma(t *testing.T) {
 	}
 	if got := e.denoiser.source.Y[0]; got != 100 {
 		t.Fatalf("denoised encoder source Y[0] = %d, want 100", got)
+	}
+}
+
+func TestVP9EncoderNoiseSensitivityDenoisesInterChroma(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		NoiseSensitivity: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(width, height, 100, 96, 160)
+	interSrc := newVP9YCbCrForTest(width, height, 102, 98, 158)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("key EncodeInto: %v", err)
+	}
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("inter EncodeInto: %v", err)
+	}
+	if !e.denoiser.active() {
+		t.Fatal("denoiser inactive after noise-sensitive encode")
+	}
+	if got := interSrc.Cb[0]; got != 98 {
+		t.Fatalf("caller source was mutated: Cb[0]=%d, want 98", got)
+	}
+	if got := interSrc.Cr[0]; got != 158 {
+		t.Fatalf("caller source was mutated: Cr[0]=%d, want 158", got)
+	}
+	if got := e.denoiser.runningAvg[vp9DenoiserAvgLast].Cb[0]; got != 96 {
+		t.Fatalf("denoised LAST running average Cb[0] = %d, want 96", got)
+	}
+	if got := e.denoiser.runningAvg[vp9DenoiserAvgLast].Cr[0]; got != 160 {
+		t.Fatalf("denoised LAST running average Cr[0] = %d, want 160", got)
+	}
+	if got := e.denoiser.source.Cb[0]; got != 96 {
+		t.Fatalf("denoised encoder source Cb[0] = %d, want 96", got)
+	}
+	if got := e.denoiser.source.Cr[0]; got != 160 {
+		t.Fatalf("denoised encoder source Cr[0] = %d, want 160", got)
 	}
 }
 
@@ -6311,8 +6354,8 @@ func TestVP9EncoderDenoiserInterSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 100, 128, 128)
-	interSrc := newVP9YCbCrForTest(width, height, 102, 128, 128)
+	keySrc := newVP9YCbCrForTest(width, height, 100, 96, 160)
+	interSrc := newVP9YCbCrForTest(width, height, 102, 98, 158)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
