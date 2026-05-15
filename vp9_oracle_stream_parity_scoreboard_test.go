@@ -34,6 +34,30 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			return newVP9YCbCrForTest(width, height, 128, 128, 128)
 		},
 	}
+	constant320 := streamFixture{
+		name:   "constant-320x180",
+		width:  320,
+		height: 180,
+		source: func(width, height, frame int) *image.YCbCr {
+			return newVP9YCbCrForTest(width, height, 128, 128, 128)
+		},
+	}
+	constant640 := streamFixture{
+		name:   "constant-640x480",
+		width:  640,
+		height: 480,
+		source: func(width, height, frame int) *image.YCbCr {
+			return newVP9YCbCrForTest(width, height, 128, 128, 128)
+		},
+	}
+	constant720 := streamFixture{
+		name:   "constant-1280x720",
+		width:  1280,
+		height: 720,
+		source: func(width, height, frame int) *image.YCbCr {
+			return newVP9YCbCrForTest(width, height, 128, 128, 128)
+		},
+	}
 	stepped64 := streamFixture{
 		name:   "stepped-64x64",
 		width:  64,
@@ -93,6 +117,68 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 6,
+		},
+		{
+			name:    "fixed-q-constant-320",
+			fixture: constant320,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			// Keep this non-exact until the 320x180 tile-body drift is closed;
+			// it catches the current medium-frame gap in the same matrix.
+			exactPrefix: 0,
+		},
+		{
+			name:    "fixed-q-constant-640",
+			fixture: constant640,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			// The 640x480 keyframe is byte-identical; the following inter frame
+			// still exposes compressed-header/tile-body drift.
+			exactPrefix: 1,
+		},
+		{
+			name:    "fixed-q-constant-720p",
+			fixture: constant720,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 2,
+		},
+		{
+			name:    "error-resilient-constant-720p",
+			fixture: constant720,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				ErrorResilient: true,
+			},
+			extraArgs:   []string{"--error-resilient=1"},
+			exactPrefix: 2,
 		},
 		{
 			name:    "error-resilient-constant",
@@ -282,8 +368,9 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
-					t.Fatalf("frame %d should be inside exact prefix for %s",
-						frame, tc.name)
+					assertVP9PacketByteParity(t,
+						fmt.Sprintf("%s frame %d", tc.name, frame),
+						govpxPackets[frame], libvpxPackets[frame])
 				}
 			}
 			newModeByteCase := tc.name == "vbr-rate-panning" ||
@@ -2021,17 +2108,23 @@ func captureLibvpxVP9VariablePacketRows(t *testing.T,
 func formatVP9StreamParityRows(t *testing.T, govpxPackets, libvpxPackets [][]byte) string {
 	t.Helper()
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part")
+	fmt.Fprintln(&b, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part,govpx_unc,libvpx_unc,govpx_tile_start,libvpx_tile_start")
 	for i := range govpxPackets {
-		govpxHeader, _ := parseVP9EncoderHeaderForTest(t, govpxPackets[i])
-		libvpxHeader, _ := parseVP9EncoderHeaderForTest(t, libvpxPackets[i])
-		fmt.Fprintf(&b, "%d,%t,%d,%d,%d,%d,%d,%#x,%#x,%d,%d\n",
+		govpxHeader, govpxTileStart := parseVP9EncoderHeaderForTest(t,
+			govpxPackets[i])
+		libvpxHeader, libvpxTileStart := parseVP9EncoderHeaderForTest(t,
+			libvpxPackets[i])
+		govpxUncompressed := govpxTileStart - int(govpxHeader.FirstPartitionSize)
+		libvpxUncompressed := libvpxTileStart - int(libvpxHeader.FirstPartitionSize)
+		fmt.Fprintf(&b, "%d,%t,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d\n",
 			i, bytes.Equal(govpxPackets[i], libvpxPackets[i]),
 			firstVP9PacketDiffForTest(govpxPackets[i], libvpxPackets[i]),
 			len(govpxPackets[i]), len(libvpxPackets[i]),
 			govpxHeader.Quant.BaseQindex, libvpxHeader.Quant.BaseQindex,
 			govpxHeader.RefreshFrameFlags, libvpxHeader.RefreshFrameFlags,
-			govpxHeader.FirstPartitionSize, libvpxHeader.FirstPartitionSize)
+			govpxHeader.FirstPartitionSize, libvpxHeader.FirstPartitionSize,
+			govpxUncompressed, libvpxUncompressed, govpxTileStart,
+			libvpxTileStart)
 	}
 	return b.String()
 }
