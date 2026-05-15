@@ -20,9 +20,10 @@ import (
 // [ErrVP9NotImplemented] when their headers are otherwise valid.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count. 0 and 1 use the serial path.
-	// Values >= 2 enable the persistent VP9 loop-filter plane worker pool;
-	// the tile/mode parse remains serial so entropy and mode contexts keep
-	// libvpx ordering.
+	// Values >= 2 enable persistent VP9 tile-mode and loop-filter worker pools.
+	// Tile-mode workers are used only for frame-parallel, multi-tile frames with
+	// one tile row, so entropy-count adaptation and row dependencies remain in
+	// libvpx order.
 	Threads int
 
 	// MaxWidth and MaxHeight cap the accepted frame dimensions.
@@ -153,6 +154,7 @@ type VP9Decoder struct {
 	height int
 
 	vp9LoopFilterPool *vp9DecoderLoopFilterPool
+	vp9TilePool       *vp9DecoderTileWorkerPool
 }
 
 type vp9ReferenceFrame struct {
@@ -208,6 +210,7 @@ func NewVP9Decoder(opts VP9DecoderOptions) (*VP9Decoder, error) {
 	vp9dec.LoopFilterInit(&d.lfi, 0)
 	if opts.Threads > 1 {
 		d.vp9LoopFilterPool = newVP9DecoderLoopFilterPool(opts.Threads)
+		d.vp9TilePool = newVP9DecoderTileWorkerPool(opts.Threads)
 	}
 	return d, nil
 }
@@ -872,6 +875,10 @@ func (d *VP9Decoder) Close() error {
 	if d.vp9LoopFilterPool != nil {
 		d.vp9LoopFilterPool.shutdown()
 		d.vp9LoopFilterPool = nil
+	}
+	if d.vp9TilePool != nil {
+		d.vp9TilePool.shutdown()
+		d.vp9TilePool = nil
 	}
 	d.closed = true
 	return nil

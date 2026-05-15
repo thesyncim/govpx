@@ -32,16 +32,26 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 		d.segMap[i] = 0
 	}
 
+	partitionProbs := &tables.KfPartitionProbs
+	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
+	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
+	if d.vp9DecoderTileThreadingEnabled(hdr, tileRows, tileCols) {
+		if err := d.parseVP9IntraModeTilesThreaded(tileData, *hdr, comp,
+			miRows, miCols, partitionProbs); err != nil {
+			return err
+		}
+		if hdr.Seg.Enabled {
+			d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
+		}
+		return nil
+	}
+	nTiles := tileRows * tileCols
+	offset := 0
 	maps := vp9dec.IntraSegmentMaps{
 		CurrentFrameSegMap: d.segMap,
 		LastFrameSegMap:    d.lastSegMap,
 		MiCols:             miCols,
 	}
-	partitionProbs := &tables.KfPartitionProbs
-	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
-	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
-	nTiles := tileRows * tileCols
-	offset := 0
 
 	for tileRow := range tileRows {
 		for tileCol := range tileCols {
@@ -132,6 +142,21 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 		d.segMap[i] = 0
 	}
 
+	partitionProbs := &d.fc.PartitionProb
+	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
+	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
+	if d.vp9DecoderTileThreadingEnabled(hdr, tileRows, tileCols) {
+		if err := d.parseVP9InterModeTilesThreaded(tileData, *hdr, comp,
+			miRows, miCols, partitionProbs); err != nil {
+			return err
+		}
+		if hdr.Seg.Enabled {
+			d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
+		}
+		return nil
+	}
+	nTiles := tileRows * tileCols
+	offset := 0
 	maps := vp9dec.InterSegmentMaps{
 		IntraSegmentMaps: vp9dec.IntraSegmentMaps{
 			CurrentFrameSegMap: d.segMap,
@@ -139,11 +164,6 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 			MiCols:             miCols,
 		},
 	}
-	partitionProbs := &d.fc.PartitionProb
-	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
-	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
-	nTiles := tileRows * tileCols
-	offset := 0
 
 	for tileRow := range tileRows {
 		for tileCol := range tileCols {

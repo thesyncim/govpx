@@ -293,6 +293,82 @@ func TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderThreadingUsesTileModeWorkers(t *testing.T) {
+	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 2)
+	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 2)
+
+	serial, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("serial NewVP9Decoder: %v", err)
+	}
+	if serial.vp9TilePool != nil {
+		t.Fatalf("serial decoder initialized VP9 tile worker pool")
+	}
+	if err := serial.Decode(key); err != nil {
+		t.Fatalf("serial Decode key: %v", err)
+	}
+	if err := serial.Decode(inter); err != nil {
+		t.Fatalf("serial Decode inter: %v", err)
+	}
+
+	threaded, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
+	if err != nil {
+		t.Fatalf("threaded NewVP9Decoder: %v", err)
+	}
+	if threaded.vp9TilePool == nil {
+		t.Fatalf("threaded decoder did not initialize VP9 tile worker pool")
+	}
+	if err := threaded.Decode(key); err != nil {
+		t.Fatalf("threaded Decode key: %v", err)
+	}
+	if got := threaded.vp9TilePool.lastTileJobs; got != 4 {
+		t.Fatalf("key threaded tile jobs = %d, want 4", got)
+	}
+	if got := threaded.vp9TilePool.lastTileJobKind; got != vp9DecoderTileJobIntra {
+		t.Fatalf("key threaded tile job kind = %d, want intra", got)
+	}
+	if err := threaded.Decode(inter); err != nil {
+		t.Fatalf("threaded Decode inter: %v", err)
+	}
+	if got := threaded.vp9TilePool.lastTileJobs; got != 4 {
+		t.Fatalf("inter threaded tile jobs = %d, want 4", got)
+	}
+	if got := threaded.vp9TilePool.lastTileJobKind; got != vp9DecoderTileJobInter {
+		t.Fatalf("inter threaded tile job kind = %d, want inter", got)
+	}
+	if err := threaded.Close(); err != nil {
+		t.Fatalf("threaded Close: %v", err)
+	}
+}
+
+func TestVP9DecoderThreadedTileParseSteadyStateAlloc(t *testing.T) {
+	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 2)
+	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 2)
+	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode key: %v", err)
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode inter: %v", err)
+	}
+
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("threaded VP9 tile parse steady state: got %v allocs/op, want 0", allocs)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want int) {
 	t.Helper()
 	serial, err := NewVP9Decoder(VP9DecoderOptions{})
