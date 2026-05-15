@@ -46,6 +46,21 @@ func TestBitWriterClearsZeroBitsOnReuse(t *testing.T) {
 	}
 }
 
+func TestBitWriterClearsPaddingBitsOnReuse(t *testing.T) {
+	buf := []byte{0xff, 0xff}
+	var w BitWriter
+	w.Init(buf)
+	w.WriteLiteral(0b10110111, 8)
+	w.WriteLiteral(0b10, 2)
+	if buf[0] != 0xb7 || buf[1] != 0x80 {
+		t.Fatalf("buf after partial rewrite = %#x %#x, want 0xb7 0x80",
+			buf[0], buf[1])
+	}
+	if got := w.BitsWritten(); got != 10 {
+		t.Fatalf("BitsWritten = %d, want 10", got)
+	}
+}
+
 // TestBitWriterSignedLiteral: writes magnitude then sign bit, matching
 // libvpx's vpx_wb_write_signed_literal.
 func TestBitWriterSignedLiteral(t *testing.T) {

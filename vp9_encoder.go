@@ -31,6 +31,17 @@ const (
 	vp9RDDivBits              = 7
 )
 
+// VP9AQMode selects VP9 adaptive quantization behavior.
+type VP9AQMode int8
+
+const (
+	// VP9AQNone disables VP9 adaptive quantization.
+	VP9AQNone VP9AQMode = 0
+	// VP9AQCyclicRefresh enables VP9 cyclic-refresh AQ. This mirrors
+	// libvpx VP9 aq-mode=3 and is currently limited to explicit CBR.
+	VP9AQCyclicRefresh VP9AQMode = 3
+)
+
 func vp9CoefUpdateModeForFrame(isKey bool) encoder.CoefUpdateMode {
 	if isKey {
 		return encoder.CoefUpdateTwoLoop
@@ -70,9 +81,11 @@ type VP9EncoderOptions struct {
 	// is libvpx VPX_Q-style public-Q mode. The first supported VP9 mode is
 	// RateControlCBR; it drives one-pass CBR qindex selection, tracks a CBR
 	// buffer, and can drop visible inter frames when DropFrameAllowed is enabled.
+	// RateControlVBR, RateControlCQ, and RateControlQ are accepted explicitly
+	// and use the VP9 public quantizer path while preserving bitrate metadata.
 	RateControlModeSet bool
 	// RateControlMode selects the VP9 rate-control mode when
-	// RateControlModeSet is true. Only RateControlCBR is currently supported.
+	// RateControlModeSet is true.
 	RateControlMode RateControlMode
 	// BufferSizeMs, BufferInitialSizeMs, and BufferOptimalSizeMs configure the
 	// VP9 CBR virtual buffer. Zero values use libvpx defaults.
@@ -134,6 +147,10 @@ type VP9EncoderOptions struct {
 	// scheduling; source-backed ALTREF refresh remains available through
 	// EncodeForceAltRefFrame.
 	AutoAltRef bool
+
+	// AQMode selects VP9 adaptive quantization. VP9AQCyclicRefresh enables
+	// realtime CBR cyclic-refresh segmentation; zero leaves AQ disabled.
+	AQMode VP9AQMode
 
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
@@ -240,6 +257,7 @@ type VP9Encoder struct {
 	closed   bool
 	temporal temporalState
 	rc       vp9RateControlState
+	cyclicAQ vp9CyclicRefreshState
 
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
@@ -343,6 +361,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	opts.TemporalScalability = temporal.config
 	e := &VP9Encoder{opts: opts, temporal: temporal, rc: rc}
 	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
+	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	return e, nil
@@ -365,6 +384,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if err := validateVP9RateControlOptions(opts); err != nil {
+		return err
+	}
+	if err := validateVP9AQOptions(opts); err != nil {
 		return err
 	}
 	if opts.LookaheadFrames > 0 {
@@ -399,6 +421,24 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		if err := validateVP9LosslessSegmentationOptions(opts.Segmentation); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateVP9AQOptions(opts VP9EncoderOptions) error {
+	switch opts.AQMode {
+	case VP9AQNone:
+		return nil
+	case VP9AQCyclicRefresh:
+	default:
+		return ErrInvalidConfig
+	}
+	if !opts.RateControlModeSet || opts.RateControlMode != RateControlCBR {
+		return ErrInvalidConfig
+	}
+	if opts.LookaheadFrames > 0 || opts.TemporalScalability.Enabled ||
+		opts.Lossless || opts.Segmentation.Enabled {
+		return ErrInvalidConfig
 	}
 	return nil
 }
@@ -455,7 +495,10 @@ func validateVP9LosslessSegmentationOptions(seg VP9SegmentationOptions) error {
 	return nil
 }
 
-func (e *VP9Encoder) vp9EncoderSegmentationParams() vp9dec.SegmentationParams {
+func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex int) vp9dec.SegmentationParams {
+	if e.cyclicAQ.enabled && e.cyclicAQ.apply && !intraFrame {
+		return e.cyclicAQ.segmentationParams(baseQIndex)
+	}
 	cfg := e.opts.Segmentation
 	if !cfg.Enabled {
 		return vp9dec.SegmentationParams{}
@@ -813,7 +856,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
-	seg := e.vp9EncoderSegmentationParams()
+	e.cyclicAQ.prepareFrame(!isKey && !intraOnly && showFrame, miRows, miCols)
+	seg := e.vp9EncoderSegmentationParams(isKey || intraOnly,
+		int(header.Quant.BaseQindex))
 	header.Seg = seg
 	dq := &e.dqScratch
 	var keyState *vp9KeyframeEncodeState
@@ -2950,7 +2995,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	cur := baseMi
 	cur.SbType = bsize
 	cur.TxSize = clampVP9TxSizeForBlock(cur.TxSize, bsize)
-	cur.SegmentID, cur.SegIDPredicted = e.vp9EncoderBlockSegmentID(seg)
+	cur.SegmentID, cur.SegIDPredicted = e.vp9EncoderBlockSegmentID(seg, miRow, miCol)
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -3198,9 +3243,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 }
 
-func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams) (uint8, uint8) {
+func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams, miRow int, miCol int) (uint8, uint8) {
 	if seg == nil || !seg.Enabled || !seg.UpdateMap {
 		return 0, 0
+	}
+	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
+		segID := e.cyclicAQ.segmentID(miRow, miCol)
+		return segID, segID
 	}
 	segID := e.opts.Segmentation.SegmentID
 	if segID >= vp9dec.MaxSegments {
@@ -5437,6 +5486,13 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 				e.frameIndex, macroblocks)
 		} else {
 			qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly, flags)
+			if vp9OracleTraceBuild {
+				minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
+				e.recordVP9OracleRateSelectionTrace(
+					vp9PublicQuantizerToQIndex(minQ),
+					vp9PublicQuantizerToQIndex(maxQ),
+					1, false, 0)
+			}
 		}
 	}
 	return qindex

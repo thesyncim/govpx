@@ -66,11 +66,15 @@ func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
 		}
 		return nil
 	}
-	if opts.RateControlMode != RateControlCBR {
+	if !validRateControlMode(opts.RateControlMode) {
 		return ErrInvalidConfig
 	}
 	if opts.TargetBitrateKbps <= 0 {
 		return ErrInvalidBitrate
+	}
+	if opts.RateControlMode != RateControlCBR &&
+		(opts.DropFrameAllowed || opts.DropFrameWaterMark != 0) {
+		return ErrInvalidConfig
 	}
 	return nil
 }
@@ -80,7 +84,7 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 	if !opts.RateControlModeSet {
 		return nil
 	}
-	if opts.RateControlMode != RateControlCBR {
+	if !validRateControlMode(opts.RateControlMode) {
 		return ErrInvalidConfig
 	}
 	bufferSize := opts.BufferSizeMs
@@ -111,8 +115,10 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 	rc.bufferSizeMs = bufferSize
 	rc.bufferInitialSizeMs = bufferInitial
 	rc.bufferOptimalSizeMs = bufferOptimal
-	rc.dropFrameAllowed = opts.DropFrameAllowed
-	rc.dropFramesWaterMark = uint8(waterMark)
+	if opts.RateControlMode == RateControlCBR {
+		rc.dropFrameAllowed = opts.DropFrameAllowed
+		rc.dropFramesWaterMark = uint8(waterMark)
+	}
 	rc.setFrameSize(opts.Width, opts.Height)
 	rc.initQuantizerStateFromOptions(opts)
 	if err := rc.setBitrateKbps(opts.TargetBitrateKbps, timing); err != nil {
@@ -267,7 +273,7 @@ func (rc *vp9RateControlState) shouldDropInterFrame() bool {
 }
 
 func (rc *vp9RateControlState) preEncodeFrame(showFrame bool) {
-	if !rc.enabled || !showFrame {
+	if !rc.enabled || rc.mode != RateControlCBR || !showFrame {
 		return
 	}
 	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
@@ -330,6 +336,9 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	encodedBits := encodedSizeBits(sizeBytes)
 	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks)
 	rc.updateQHistory(qindex, intraOnly, refreshFlags, showFrame)
+	if rc.mode != RateControlCBR {
+		return
+	}
 	rc.bufferLevelBits = vp9PostEncodeBufferLevel(rc.bufferLevelBits,
 		rc.bufferSizeBits, encodedBits)
 }

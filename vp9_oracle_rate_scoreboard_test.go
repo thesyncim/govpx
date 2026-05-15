@@ -143,6 +143,80 @@ func TestVP9OracleQHistogramScoreboard(t *testing.T) {
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--min-q=20", "--max-q=20"),
 		},
+		{
+			name: "cbr-cyclic-aq",
+			opts: func() VP9EncoderOptions {
+				opts := vp9OracleCBROptions(width, height, 700)
+				opts.AQMode = VP9AQCyclicRefresh
+				return opts
+			}(),
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--aq-mode=3"),
+		},
+		{
+			name: "vbr-panning",
+			opts: VP9EncoderOptions{
+				Width:               width,
+				Height:              height,
+				FPS:                 30,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=vbr",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+			},
+		},
+		{
+			name: "cq-panning",
+			opts: VP9EncoderOptions{
+				Width:               width,
+				Height:              height,
+				FPS:                 30,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=cq",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+		},
+		{
+			name: "q-panning",
+			opts: VP9EncoderOptions{
+				Width:               width,
+				Height:              height,
+				FPS:                 30,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=q",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -5,10 +5,10 @@ import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 // SetRealtimeTarget applies a sparse WebRTC-style runtime target update to the
 // VP9 profile 0 encoder.
 //
-// VP9 consumes BitrateKbps and FPS in explicit CBR mode, MinQuantizer /
-// MaxQuantizer as public VP9 Q bounds, and Width / Height as a caller-driven
-// coded-size change. When the encoder was created with VP9 CBR rate control
-// enabled, FrameDrop updates the VP9 CBR drop toggle. A changed size
+// VP9 consumes BitrateKbps and FPS when explicit VP9 rate control is enabled,
+// MinQuantizer / MaxQuantizer as public VP9 Q bounds, and Width / Height as a
+// caller-driven coded-size change. When the encoder was created with VP9 CBR
+// rate control enabled, FrameDrop updates the VP9 CBR drop toggle. A changed size
 // invalidates every VP9 reference slot and forces the next encoded packet to be
 // a keyframe at the new dimensions.
 func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
@@ -206,6 +206,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	if e.vp9LookaheadEnabled() {
 		e.initVP9Lookahead(width, height, e.opts.LookaheadFrames)
 	}
+	e.cyclicAQ.configure(e.opts.AQMode == VP9AQCyclicRefresh, width, height)
 	e.forceKeyFrame = true
 	e.resetVP9EncoderFrameContexts()
 	e.prevFrameMvsValid = false

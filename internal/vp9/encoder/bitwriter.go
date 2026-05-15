@@ -31,11 +31,15 @@ func (w *BitWriter) Init(buf []byte) {
 func (w *BitWriter) WriteBit(v uint32) {
 	off := w.bitPos
 	w.bitPos++
+	idx := off >> 3
+	if off&7 == 0 {
+		w.buf[idx] = 0
+	}
 	mask := byte(1 << (7 - uint(off&7)))
 	if int(v&1) != 0 {
-		w.buf[off>>3] |= mask
+		w.buf[idx] |= mask
 	} else {
-		w.buf[off>>3] &^= mask
+		w.buf[idx] &^= mask
 	}
 }
 

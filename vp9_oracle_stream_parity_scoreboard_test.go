@@ -123,7 +123,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			fixture:     stepped64,
 			frames:      6,
 			flags:       vp9OracleRepeatInterFlag(6, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			exactPrefix: 1,
+			exactPrefix: 6,
 		},
 		{
 			name:        "cbr-rate-panning",
@@ -239,7 +239,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 			name: "repeat-no-reference-all",
 			flags: vp9OracleRepeatInterFlag(frames,
 				EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			exactPrefix: 1,
+			exactPrefix: 6,
 		},
 		{
 			name:        "repeat-no-update-entropy",

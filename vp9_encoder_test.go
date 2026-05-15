@@ -485,6 +485,43 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = vp9MaxLookaheadFrames + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.AQMode = VP9AQMode(99) }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.AQMode = VP9AQCyclicRefresh }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.AQMode = VP9AQCyclicRefresh
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlVBR
+			o.TargetBitrateKbps = 300
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.AQMode = VP9AQCyclicRefresh
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlCBR
+			o.TargetBitrateKbps = 300
+			o.Lossless = true
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.AQMode = VP9AQCyclicRefresh
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlCBR
+			o.TargetBitrateKbps = 300
+			o.Segmentation.Enabled = true
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlMode(99)
+			o.TargetBitrateKbps = 300
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlVBR
+		}, ErrInvalidBitrate},
+		{func(o *VP9EncoderOptions) {
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlVBR
+			o.TargetBitrateKbps = 300
+			o.DropFrameAllowed = true
+		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
 			o.LookaheadFrames = 2
 			o.RateControlModeSet = true
@@ -550,6 +587,190 @@ func TestNewVP9EncoderAcceptsMinimalOptions(t *testing.T) {
 	}
 	if got := e.Codec(); got != CodecVP9 {
 		t.Errorf("Codec() = %v, want CodecVP9", got)
+	}
+}
+
+func TestVP9EncoderExplicitRateControlModesEncode(t *testing.T) {
+	const width, height = 64, 64
+	const targetKbps = 300
+	const wantFrameTargetBits = targetKbps * 1000 / 30
+	cases := []struct {
+		name    string
+		mode    RateControlMode
+		cqLevel int
+	}{
+		{name: "vbr", mode: RateControlVBR},
+		{name: "cq", mode: RateControlCQ, cqLevel: 20},
+		{name: "q", mode: RateControlQ, cqLevel: 20},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, err := NewVP9Encoder(VP9EncoderOptions{
+				Width:              width,
+				Height:             height,
+				FPS:                30,
+				TargetBitrateKbps:  targetKbps,
+				RateControlModeSet: true,
+				RateControlMode:    tc.mode,
+				CQLevel:            tc.cqLevel,
+			})
+			if err != nil {
+				t.Fatalf("NewVP9Encoder: %v", err)
+			}
+			if !e.rc.enabled || e.rc.mode != tc.mode {
+				t.Fatalf("rate control state = enabled:%t mode:%d, want true/%d",
+					e.rc.enabled, e.rc.mode, tc.mode)
+			}
+			if e.rc.dropFrameAllowed || e.rc.dropFramesWaterMark != 0 {
+				t.Fatalf("non-CBR drop state = allowed:%t watermark:%d, want disabled",
+					e.rc.dropFrameAllowed, e.rc.dropFramesWaterMark)
+			}
+
+			dst := make([]byte, 65536)
+			dec, err := NewVP9Decoder(VP9DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP9Decoder: %v", err)
+			}
+			for frame := 0; frame < 2; frame++ {
+				src := newVP9YCbCrForTest(width, height,
+					uint8(96+frame*20), 128, 128)
+				result, err := e.EncodeIntoWithResult(src, dst)
+				if err != nil {
+					t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+				}
+				if result.Dropped || len(result.Data) == 0 {
+					t.Fatalf("frame %d result = dropped:%t bytes:%d, want packet",
+						frame, result.Dropped, len(result.Data))
+				}
+				if result.TargetBitrateKbps != targetKbps ||
+					result.FrameTargetBits != wantFrameTargetBits {
+					t.Fatalf("frame %d rate = kbps:%d target:%d, want %d/%d",
+						frame, result.TargetBitrateKbps, result.FrameTargetBits,
+						targetKbps, wantFrameTargetBits)
+				}
+				if frame == 0 && !result.KeyFrame {
+					t.Fatal("first explicit rate-control packet is not a keyframe")
+				}
+				if frame == 1 && result.KeyFrame {
+					t.Fatal("second explicit rate-control packet unexpectedly keyframed")
+				}
+				if err := dec.Decode(result.Data); err != nil {
+					t.Fatalf("Decode frame %d: %v", frame, err)
+				}
+				if _, ok := dec.NextFrame(); !ok {
+					t.Fatalf("NextFrame frame %d returned !ok", frame)
+				}
+			}
+		})
+	}
+}
+
+func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		AQMode:             VP9AQCyclicRefresh,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if !e.cyclicAQ.enabled || len(e.cyclicAQ.segMap) != 64 {
+		t.Fatalf("cyclic AQ state = enabled:%t map:%d, want true/64",
+			e.cyclicAQ.enabled, len(e.cyclicAQ.segMap))
+	}
+
+	dst := make([]byte, 65536)
+	key, err := e.EncodeInto(newVP9YCbCrForTest(width, height, 96, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	keyPacket := append([]byte(nil), dst[:key]...)
+	inter, err := e.EncodeInto(newVP9YCbCrForTest(width, height, 116, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	interPacket := append([]byte(nil), dst[:inter]...)
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(keyPacket)
+	keyHeader, err := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader key: %v", err)
+	}
+	if keyHeader.Seg.Enabled {
+		t.Fatal("keyframe segmentation enabled, want cyclic refresh to start on inter frames")
+	}
+
+	var interBR vp9dec.BitReader
+	interBR.Init(interPacket)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&interBR, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	seg := interHeader.Seg
+	if !seg.Enabled || !seg.UpdateMap || !seg.UpdateData || seg.AbsDelta {
+		t.Fatalf("inter segmentation flags = enabled:%t updateMap:%t updateData:%t absDelta:%t, want true/true/true/false",
+			seg.Enabled, seg.UpdateMap, seg.UpdateData, seg.AbsDelta)
+	}
+	if !vp9dec.SegFeatureActive(&seg, vp9CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ) {
+		t.Fatalf("cyclic segment %d missing AltQ feature", vp9CyclicRefreshSegmentBoost1)
+	}
+	if delta := vp9dec.GetSegData(&seg, vp9CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ); delta >= 0 {
+		t.Fatalf("cyclic segment AltQ delta = %d, want negative boost", delta)
+	}
+	boosted := 0
+	for _, mi := range e.miGrid {
+		if mi.SegmentID == vp9CyclicRefreshSegmentBoost1 {
+			boosted++
+		}
+	}
+	if boosted == 0 {
+		t.Fatal("cyclic refresh AQ encoded no boosted segment blocks")
+	}
+
+	dec, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := dec.Decode(keyPacket); err != nil {
+		t.Fatalf("Decode key: %v", err)
+	}
+	if _, ok := dec.NextFrame(); !ok {
+		t.Fatal("NextFrame key returned !ok")
+	}
+	if err := dec.Decode(interPacket); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	if _, ok := dec.NextFrame(); !ok {
+		t.Fatal("NextFrame inter returned !ok")
+	}
+}
+
+func TestVP9EncoderSetRealtimeTargetUpdatesExplicitVBR(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 600, FPS: 60}); err != nil {
+		t.Fatalf("SetRealtimeTarget: %v", err)
+	}
+	if e.opts.TargetBitrateKbps != 600 || e.rc.targetBitrateKbps != 600 ||
+		e.rc.bitsPerFrame != 10000 {
+		t.Fatalf("rate state after target = opts:%d rc:%d bits:%d, want 600/600/10000",
+			e.opts.TargetBitrateKbps, e.rc.targetBitrateKbps, e.rc.bitsPerFrame)
 	}
 }
 
@@ -4468,6 +4689,49 @@ func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("EncodeInto inter residue steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderCyclicRefreshAQInterSteadyStateAlloc(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              128,
+		Height:             128,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		AQMode:             VP9AQCyclicRefresh,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(128, 128, 81, 123, 210)
+	interSrc := newVP9YCbCrForTest(128, 128, 113, 123, 210)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm cyclic inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto cyclic inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto cyclic inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 cyclic AQ inter steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 
