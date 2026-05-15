@@ -958,6 +958,36 @@ func TestVP9DecoderAppliesLoopFilterKeyframe(t *testing.T) {
 	assertVP9PlaneFilled(t, "V", filtered.V, filtered.VStride, 32, 32, 128)
 }
 
+func TestVP9DecoderThreadedLoopFilterMatchesSerial(t *testing.T) {
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	inter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 32)
+
+	cases := []struct {
+		name    string
+		packets [][]byte
+	}{
+		{
+			name: "keyframe",
+			packets: [][]byte{
+				vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32),
+			},
+		},
+		{
+			name:    "inter-motion",
+			packets: [][]byte{key, inter},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+				VP9DecoderOptions{}, tc.packets...)
+			threaded := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+				VP9DecoderOptions{Threads: 3}, tc.packets...)
+			assertVP9ImagesEqual(t, serial, threaded)
+		})
+	}
+}
+
 // TestVP9DecoderRejectsMissingResidueTokens proves skip=0 blocks now
 // reach the coefficient reader. The packet stops after mode-info,
 // which was enough for the old mode-only parser but is not a complete
@@ -1066,6 +1096,34 @@ func TestVP9DecoderLoopFilteredKeyframeSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("loop-filtered keyframe steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderThreadedLoopFilteredKeyframeSteadyStateAlloc(t *testing.T) {
+	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 3})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if d.vp9LoopFilterPool == nil {
+		t.Fatal("threaded VP9 decoder did not initialize loop-filter pool")
+	}
+	if got, want := d.vp9LoopFilterPool.helperCount, int8(2); got != want {
+		t.Fatalf("VP9 loop-filter helper count = %d, want %d", got, want)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("warm Decode threaded loop-filtered keyframe err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
+		err = d.Decode(packet)
+	})
+	if err != nil {
+		t.Fatalf("Decode threaded loop-filtered keyframe err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("threaded loop-filtered keyframe steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 
@@ -3431,10 +3489,19 @@ func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
 
 func vp9DecodeLastVisibleFrameForTest(t *testing.T, packets ...[]byte) Image {
 	t.Helper()
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	return vp9DecodeLastVisibleFrameWithOptionsForTest(t, VP9DecoderOptions{},
+		packets...)
+}
+
+func vp9DecodeLastVisibleFrameWithOptionsForTest(t *testing.T,
+	opts VP9DecoderOptions, packets ...[]byte,
+) Image {
+	t.Helper()
+	d, err := NewVP9Decoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
+	defer d.Close()
 	var last Image
 	ok := false
 	for i, packet := range packets {
@@ -3450,6 +3517,41 @@ func vp9DecodeLastVisibleFrameForTest(t *testing.T, packets ...[]byte) Image {
 		t.Fatal("packet sequence did not publish a visible frame")
 	}
 	return last
+}
+
+func assertVP9ImagesEqual(t *testing.T, want, got Image) {
+	t.Helper()
+	if got.Width != want.Width || got.Height != want.Height {
+		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
+			got.Width, got.Height, want.Width, want.Height)
+	}
+	if !vp9VisiblePlanesEqual(want.Y, want.YStride, got.Y, got.YStride,
+		want.Width, want.Height) {
+		t.Fatal("Y plane differs")
+	}
+	uvWidth := (want.Width + 1) >> 1
+	uvHeight := (want.Height + 1) >> 1
+	if !vp9VisiblePlanesEqual(want.U, want.UStride, got.U, got.UStride,
+		uvWidth, uvHeight) {
+		t.Fatal("U plane differs")
+	}
+	if !vp9VisiblePlanesEqual(want.V, want.VStride, got.V, got.VStride,
+		uvWidth, uvHeight) {
+		t.Fatal("V plane differs")
+	}
+}
+
+func vp9VisiblePlanesEqual(a []byte, aStride int, b []byte, bStride int,
+	width, height int,
+) bool {
+	for row := range height {
+		aStart := row * aStride
+		bStart := row * bStride
+		if !bytes.Equal(a[aStart:aStart+width], b[bStart:bStart+width]) {
+			return false
+		}
+	}
+	return true
 }
 
 func appendVP9YForTest(out []byte, img Image) []byte {

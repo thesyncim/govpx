@@ -19,8 +19,10 @@ import (
 // are intentionally outside the package scope and return
 // [ErrVP9NotImplemented] when their headers are otherwise valid.
 type VP9DecoderOptions struct {
-	// Threads selects the decoder worker count. 0 and 1 use the serial path;
-	// higher values are currently accepted and run the same profile 0 path.
+	// Threads selects the decoder worker count. 0 and 1 use the serial path.
+	// Values >= 2 enable the persistent VP9 loop-filter plane worker pool;
+	// the tile/mode parse remains serial so entropy and mode contexts keep
+	// libvpx ordering.
 	Threads int
 
 	// MaxWidth and MaxHeight cap the accepted frame dimensions.
@@ -149,6 +151,8 @@ type VP9Decoder struct {
 	// They stay zero until the first successful frame parse.
 	width  int
 	height int
+
+	vp9LoopFilterPool *vp9DecoderLoopFilterPool
 }
 
 type vp9ReferenceFrame struct {
@@ -202,6 +206,9 @@ func NewVP9Decoder(opts VP9DecoderOptions) (*VP9Decoder, error) {
 	d.resetVP9FrameContexts()
 	d.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&d.lfi, 0)
+	if opts.Threads > 1 {
+		d.vp9LoopFilterPool = newVP9DecoderLoopFilterPool(opts.Threads)
+	}
 	return d, nil
 }
 
@@ -862,6 +869,10 @@ func (d *VP9Decoder) Close() error {
 		return ErrClosed
 	}
 	d.Reset()
+	if d.vp9LoopFilterPool != nil {
+		d.vp9LoopFilterPool.shutdown()
+		d.vp9LoopFilterPool = nil
+	}
 	d.closed = true
 	return nil
 }

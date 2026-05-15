@@ -789,7 +789,8 @@ func (e *VP9Encoder) ForceKeyFrame() {
 // CBR rate control drops a frame this returns 0, nil; use
 // EncodeIntoWithResult to distinguish a dropped frame from other empty output.
 func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
-	return e.EncodeIntoWithFlags(img, dst, 0)
+	result, err := e.EncodeIntoWithFlagsResult(img, dst, 0)
+	return len(result.Data), err
 }
 
 // EncodeIntoWithFlags packs the next profile 0 frame into dst while applying
@@ -1925,7 +1926,9 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
 		frameVOrigin: layout.uvOrigin,
 		lastFrame:    e.reconFrame,
 	}
-	return d.applyVP9LoopFilter(hdr)
+	miRows := int((hdr.Height + 7) >> 3)
+	miCols := int((hdr.Width + 7) >> 3)
+	return d.applyVP9LoopFilterSerial(miRows, miCols)
 }
 
 func vp9ModeTreeInterpFilter(kind vp9ModeTreeKind, inter *vp9InterEncodeState) vp9dec.InterpFilter {

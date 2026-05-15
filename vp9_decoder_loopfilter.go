@@ -88,6 +88,13 @@ func (d *VP9Decoder) applyVP9LoopFilter(hdr *vp9dec.UncompressedHeader) bool {
 	}
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
+	if d.vp9LoopFilterPool != nil {
+		return d.applyVP9LoopFilterThreaded(miRows, miCols)
+	}
+	return d.applyVP9LoopFilterSerial(miRows, miCols)
+}
+
+func (d *VP9Decoder) applyVP9LoopFilterSerial(miRows, miCols int) bool {
 	for miRow := 0; miRow < miRows; miRow += common.MiBlockSize {
 		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
 			var lfm vp9LoopFilterMask
@@ -96,6 +103,24 @@ func (d *VP9Decoder) applyVP9LoopFilter(hdr *vp9dec.UncompressedHeader) bool {
 			}
 			vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol, &lfm)
 			if !d.vp9FilterLoopBlock(miRows, miRow, miCol, &lfm) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (d *VP9Decoder) applyVP9LoopFilterPlane(miRows, miCols int,
+	plane vp9LoopFilterPlane,
+) bool {
+	for miRow := 0; miRow < miRows; miRow += common.MiBlockSize {
+		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
+			var lfm vp9LoopFilterMask
+			if !d.vp9SetupLoopFilterMask(miRows, miCols, miRow, miCol, &lfm) {
+				return false
+			}
+			vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol, &lfm)
+			if !d.vp9FilterLoopBlockPlane(miRows, miRow, miCol, plane, &lfm) {
 				return false
 			}
 		}
@@ -451,6 +476,24 @@ func (d *VP9Decoder) vp9FilterLoopBlock(miRows, miRow, miCol int,
 	}
 	return d.vp9FilterLoopBlockPlaneSS11(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
 		miRows, miRow, miCol, lfm)
+}
+
+func (d *VP9Decoder) vp9FilterLoopBlockPlane(miRows, miRow, miCol int,
+	plane vp9LoopFilterPlane, lfm *vp9LoopFilterMask,
+) bool {
+	switch plane {
+	case vp9LoopFilterPlaneY:
+		return d.vp9FilterLoopBlockPlaneSS00(d.frameYFull, d.frameYOrigin,
+			d.lastFrame.YStride, miRows, miRow, miCol, lfm)
+	case vp9LoopFilterPlaneU:
+		return d.vp9FilterLoopBlockPlaneSS11(d.frameUFull, d.frameUOrigin,
+			d.lastFrame.UStride, miRows, miRow, miCol, lfm)
+	case vp9LoopFilterPlaneV:
+		return d.vp9FilterLoopBlockPlaneSS11(d.frameVFull, d.frameVOrigin,
+			d.lastFrame.VStride, miRows, miRow, miCol, lfm)
+	default:
+		return false
+	}
 }
 
 func (d *VP9Decoder) vp9FilterLoopBlockPlaneSS00(plane []byte, origin, stride int,
