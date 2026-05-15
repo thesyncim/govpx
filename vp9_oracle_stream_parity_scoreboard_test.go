@@ -1707,6 +1707,24 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 				"--control-script=-,roi:border1,-,-,-,-,-,roi:off,-,-"),
 			exactPrefix: 1,
 		},
+		{
+			name: "noise-sensitivity-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					mustVP9Runtime(t, "SetNoiseSensitivity 3",
+						enc.SetNoiseSensitivity(3))
+				case 7:
+					mustVP9Runtime(t, "SetNoiseSensitivity 0",
+						enc.SetNoiseSensitivity(0))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,noise:3,-,-,-,-,-,noise:0,-,-"),
+			exactPrefix: 1,
+		},
 	}
 
 	for _, tc := range cases {
@@ -2032,6 +2050,25 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,active:checker+roi:border1,-,-,-,-,-,active:off+roi:off,-,-"),
 			exactPrefix: 1,
+		},
+		{
+			name: "noise-sensitivity-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					mustVP9Runtime(t, "SetNoiseSensitivity 3",
+						enc.SetNoiseSensitivity(3))
+				case 7:
+					mustVP9Runtime(t, "SetNoiseSensitivity 0",
+						enc.SetNoiseSensitivity(0))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,noise:3,-,-,-,-,-,noise:0,-,-"),
+			exactPrefix: 4,
+			exactFrames: []int{7, 8, 9},
 		},
 		{
 			name: "set-cq-level-cq-mode-window",
