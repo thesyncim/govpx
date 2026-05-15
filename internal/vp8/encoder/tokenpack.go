@@ -1,6 +1,10 @@
 package encoder
 
-import "github.com/thesyncim/govpx/internal/vp8/tables"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp8/tables"
+)
 
 // Coefficient token packing follows libvpx v1.16.0 vp8_pack_tokens: encode the
 // token tree, optional category bits, then the sign bit while keeping bool-coder
@@ -46,16 +50,14 @@ type CoefficientTokenRecord uint32
 
 const (
 	coefficientTokenRecordTokenShift              = 0
-	coefficientTokenRecordBlockTypeShift          = 4
-	coefficientTokenRecordBandShift               = 6
-	coefficientTokenRecordContextShift            = 9
+	coefficientTokenRecordProbIndexShift          = 4
 	coefficientTokenRecordMagnitudeShift          = 11
 	coefficientTokenRecordSignShift               = 23
 	coefficientTokenRecordSkipEOBNodeShift        = 24
 	coefficientTokenRecordTokenMask        uint32 = 0x0f
-	coefficientTokenRecordTwoBitMask       uint32 = 0x03
-	coefficientTokenRecordBandMask         uint32 = 0x07
+	coefficientTokenRecordProbIndexMask    uint32 = 0x7f
 	coefficientTokenRecordMagMask          uint32 = 0x0fff
+	coefficientProbRowSize                        = tables.EntropyNodes
 )
 
 type InterCoefficientTokenRecords struct {
@@ -145,9 +147,8 @@ func MarkInterCoefficientTokenRecordRowEnd(records *InterCoefficientTokenRecords
 // otherwise emits.
 func (records *InterCoefficientTokenRecords) appendTokenUnchecked(blockType int, band int, ctx int, token int, magnitude int, sign uint8, skipEOBNode bool) {
 	value := uint32(token) << coefficientTokenRecordTokenShift
-	value |= uint32(blockType) << coefficientTokenRecordBlockTypeShift
-	value |= uint32(band) << coefficientTokenRecordBandShift
-	value |= uint32(ctx) << coefficientTokenRecordContextShift
+	probIndex := ((blockType*tables.CoefBands)+band)*tables.PrevCoefContexts + ctx
+	value |= uint32(probIndex) << coefficientTokenRecordProbIndexShift
 	value |= uint32(magnitude) << coefficientTokenRecordMagnitudeShift
 	value |= uint32(sign) << coefficientTokenRecordSignShift
 	if skipEOBNode {
@@ -229,23 +230,17 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	count := w.count
 	pos := w.pos
 	buf := w.buf
+	probBase := unsafe.Pointer(probs)
 
 	// Records are validated at the producer (countBlockCoefficientTokensAndRecords)
 	// before being packed by appendTokenUnchecked. By the time we reach this
 	// writer, every field is guaranteed to be in range, so the per-record
 	// OOR check below is dead weight in the hot loop.
-	for _, record := range records {
-		raw := uint32(record)
+	for i := 0; i < len(records); i++ {
+		raw := uint32(records[i])
 		token := int(raw & coefficientTokenRecordTokenMask)
-		blockType := int((raw >> coefficientTokenRecordBlockTypeShift) & coefficientTokenRecordTwoBitMask)
-		band := int((raw >> coefficientTokenRecordBandShift) & coefficientTokenRecordBandMask)
-		ctx := int((raw >> coefficientTokenRecordContextShift) & coefficientTokenRecordTwoBitMask)
-
-		// blockType and band were packed via the 2-bit/3-bit masks above,
-		// so their values are bounded by [0,3] and [0,7]. AND-masking with
-		// the corresponding power-of-two limits lets BlockTypes(=4) and
-		// CoefBands(=8) bounds checks elide on the (*probs) load.
-		p := &(*probs)[blockType&3][band&7][ctx]
+		probIndex := (raw >> coefficientTokenRecordProbIndexShift) & coefficientTokenRecordProbIndexMask
+		p := (*[tables.EntropyNodes]uint8)(unsafe.Add(probBase, uintptr(probIndex)*coefficientProbRowSize))
 
 		if token == tables.DCTEOBToken {
 			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
