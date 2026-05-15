@@ -162,12 +162,32 @@ func subpelVariance(src []byte, srcStride int, xOffset int, yOffset int, ref []b
 		return sse - sum*sum/(width*height), sse
 	}
 	if width == 16 && height == 16 && (xOffset == 0 || yOffset == 0) {
-		var filtered [16 * 16]byte
 		if xOffset == 0 {
+			if sum, sse, ok := subpelVariance16x16Vertical(src, srcStride, yOffset, ref, refStride); ok {
+				return sse - (sum * sum >> 8), sse
+			}
+			var filtered [16 * 16]byte
 			bilinearFilter16x16Vertical(src, srcStride, filtered[:], 16, tables.BilinearFilters[yOffset])
+			sum, sse := varianceBlock16x16(filtered[:], 16, ref, refStride)
+			return sse - (sum * sum >> 8), sse
 		} else {
+			if sum, sse, ok := subpelVariance16x16Horizontal(src, srcStride, xOffset, ref, refStride); ok {
+				return sse - (sum * sum >> 8), sse
+			}
+			var filtered [16 * 16]byte
 			bilinearFilter16x16Horizontal(src, srcStride, filtered[:], 16, tables.BilinearFilters[xOffset])
+			sum, sse := varianceBlock16x16(filtered[:], 16, ref, refStride)
+			return sse - (sum * sum >> 8), sse
 		}
+	}
+	if width == 16 && height == 16 {
+		if sum, sse, ok := subpelVariance16x16Bilinear(src, srcStride, xOffset, yOffset, ref, refStride); ok {
+			return sse - (sum * sum >> 8), sse
+		}
+		var firstPass [17 * 16]byte
+		var filtered [16 * 16]byte
+		bilinearFilter16x16Horizontal(src, srcStride, firstPass[:], height+1, tables.BilinearFilters[xOffset])
+		bilinearFilter16x16Vertical(firstPass[:], width, filtered[:], height, tables.BilinearFilters[yOffset])
 		sum, sse := varianceBlock16x16(filtered[:], 16, ref, refStride)
 		return sse - (sum * sum >> 8), sse
 	}
