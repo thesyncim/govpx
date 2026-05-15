@@ -96,7 +96,7 @@ const (
 )
 
 func (e *VP9Encoder) initVP9TileWorkerPool() {
-	if e == nil || e.opts.Threads <= 1 {
+	if e == nil || e.opts.Threads <= 1 || e.opts.NoiseSensitivity > 0 {
 		return
 	}
 	miCols := (e.opts.Width + 7) >> 3
@@ -140,6 +140,19 @@ func (e *VP9Encoder) ensureVP9TileWorkerPool(tileJobs int) *vp9TileWorkerPool {
 	e.vp9CountCounts = pool.countCounts
 	e.vp9CountJobs = pool.countJobs
 	return pool
+}
+
+func (e *VP9Encoder) closeVP9TileWorkerPool() {
+	if e == nil {
+		return
+	}
+	if e.vp9TilePool != nil {
+		e.vp9TilePool.shutdownPool()
+	}
+	e.vp9TilePool = nil
+	e.vp9CountWorkers = nil
+	e.vp9CountCounts = nil
+	e.vp9CountJobs = nil
 }
 
 func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
@@ -335,7 +348,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 ) bool {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
-	if tileRows != 1 {
+	if tileRows != 1 || e.opts.NoiseSensitivity > 0 {
 		return false
 	}
 	pool := e.ensureVP9TileWorkerPool(tileCols)
@@ -369,7 +382,8 @@ func (e *VP9Encoder) writeVP9FrameTilesThreadedEnabled(tileRows, tileCols int) b
 	// Tile rows depend on reconstructed pixels and above entropy contexts from
 	// the previous row, so this pool only dispatches independent columns in the
 	// default single-row tile layout.
-	return e != nil && e.opts.Threads > 1 && tileRows == 1 && tileCols > 1
+	return e != nil && e.opts.Threads > 1 && e.opts.NoiseSensitivity == 0 &&
+		tileRows == 1 && tileCols > 1
 }
 
 func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols int,

@@ -331,6 +331,26 @@ func (e *VP9Encoder) SetTuning(tuning Tuning) error {
 	return nil
 }
 
+// SetNoiseSensitivity changes the VP9 luma temporal denoiser level used for
+// subsequent frames. Valid values are [0, 6]. Zero disables the denoiser;
+// non-zero values allocate or resize denoiser buffers on the next encode.
+func (e *VP9Encoder) SetNoiseSensitivity(level int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if level < 0 || level > 6 {
+		return ErrInvalidConfig
+	}
+	e.opts.NoiseSensitivity = int8(level)
+	e.denoiser.setSensitivity(int8(level))
+	if level == 0 {
+		e.denoiser.disable()
+	} else {
+		e.closeVP9TileWorkerPool()
+	}
+	return nil
+}
+
 // SetFrameDropAllowed enables or disables VP9 CBR buffer-underrun frame
 // dropping without changing bitrate. The encoder must have been created with
 // VP9 CBR rate control enabled.
@@ -426,6 +446,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 		e.initVP9Lookahead(width, height, e.opts.LookaheadFrames)
 	}
 	e.cyclicAQ.configure(e.opts.AQMode == VP9AQCyclicRefresh, width, height)
+	e.denoiser.disable()
 	e.activeMapEnabled = false
 	e.activeMapMiRows = 0
 	e.activeMapMiCols = 0

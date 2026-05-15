@@ -67,6 +67,15 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				uint8(96+frame*8), 128, 128)
 		},
 	}
+	softNoise64 := streamFixture{
+		name:   "soft-noise-64x64",
+		width:  64,
+		height: 64,
+		source: func(width, height, frame int) *image.YCbCr {
+			return newVP9YCbCrForTest(width, height,
+				uint8(100+(frame&1)*2), 128, 128)
+		},
+	}
 	panning64 := streamFixture{
 		name:   "panning-64x64",
 		width:  64,
@@ -398,6 +407,25 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			opts:        vp9OracleCBROptions(64, 64, 700),
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
 			exactPrefix: 1,
+		},
+		{
+			name:    "noise-sensitivity-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				NoiseSensitivity: 3,
+			},
+			extraArgs:   []string{"--noise-sensitivity=3"},
+			strictBytes: true,
+		},
+		{
+			name:    "noise-sensitivity-soft",
+			fixture: softNoise64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				NoiseSensitivity: 3,
+			},
+			extraArgs: []string{"--noise-sensitivity=3"},
 		},
 		{
 			name:    "vbr-rate-constant",
@@ -799,9 +827,12 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				tc.name == "fixed-q-rt-cpu-neg3-constant" ||
 				tc.name == "fixed-q-good-cpu4-constant" ||
 				tc.name == "fixed-q-best-cpu5-constant"
+			denoiserByteCase := tc.name == "noise-sensitivity-constant" ||
+				tc.name == "noise-sensitivity-soft"
 			if os.Getenv("GOVPX_VP9_STREAM_MATRIX_STRICT") == "1" &&
 				!newModeByteCase &&
 				!speedByteCase &&
+				!denoiserByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 stream byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
@@ -816,6 +847,12 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				speedByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 speed byte parity %s/%s: matches=%d/%d",
+					tc.name, tc.fixture.name, matches, len(govpxPackets))
+			}
+			if os.Getenv("GOVPX_VP9_DENOISER_BYTE_STRICT") == "1" &&
+				denoiserByteCase &&
+				matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 denoiser byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
 		})

@@ -89,6 +89,10 @@ type VP9EncoderOptions struct {
 	// TuneSSIM is accepted for libvpx control-surface parity and future SSIM
 	// mode-decision work.
 	Tuning Tuning
+	// NoiseSensitivity selects VP9 luma temporal denoising. Zero disables the
+	// denoiser. Valid values are [0, 6]; 1 is low strength, 2 is medium, and
+	// 3..6 use the high-strength VP9 temporal denoiser path.
+	NoiseSensitivity int8
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
 	// configuration. When RateControlModeSet is false, the packet path keeps
@@ -320,6 +324,7 @@ type VP9Encoder struct {
 	activeMapMiCols  int
 	activeMapEnabled bool
 	roi              vp9ROIMapState
+	denoiser         vp9DenoiserState
 
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
@@ -478,6 +483,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if opts.Tuning < TunePSNR || opts.Tuning > TuneSSIM {
+		return ErrInvalidConfig
+	}
+	if opts.NoiseSensitivity < 0 || opts.NoiseSensitivity > 6 {
 		return ErrInvalidConfig
 	}
 	if err := validateVP9TwoPassOptions(opts); err != nil {
@@ -859,6 +867,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	if len(dst) < vp9MinEncodeIntoBuffer {
 		return VP9EncodeResult{}, ErrBufferTooSmall
 	}
+	img = e.prepareVP9DenoiserSource(img)
 
 	width := uint32(e.opts.Width)
 	height := uint32(e.opts.Height)
@@ -1099,9 +1108,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		partitionProbs = e.fc.PartitionProb
 	}
 
+	denoiserCountState := e.saveVP9DenoiserForCounts(interState)
 	counts := e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey, header.IntraOnly,
 		keyState, interState)
+	e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	if reducedTxMode := vp9EncoderFrameTxModeFromCounts(txMode,
 		header.Quant.Lossless, counts); reducedTxMode != txMode {
 		if (isKey || header.IntraOnly) && reducedTxMode < common.Allow16x16 {
@@ -1109,9 +1120,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		}
 		txMode = reducedTxMode
 		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
+		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
 			header.IntraOnly, keyState, interState)
+		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	}
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
@@ -1185,6 +1198,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	}
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(header, flags)
+	e.finishVP9DenoiserFrame(header, img)
 	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
 	e.commitVP9EncoderFrameContext(header, frameContextIdx)
 	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
@@ -1749,7 +1763,8 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 ) {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
-	if e.opts.Threads > 1 && tileRows == 1 && tileCols > 1 {
+	if e.opts.Threads > 1 && e.opts.NoiseSensitivity == 0 &&
+		tileRows == 1 && tileCols > 1 {
 		seed := vp9CountTileSeedForState(key, inter)
 		if e.collectVP9FrameTileCountsThreaded(width, height, miRows, miCols,
 			tileInfo, partitionProbs, seg, baseMi, txMode, kind, seed) {
@@ -4245,6 +4260,8 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
 		}
 	}
+	e.applyVP9DenoiserToInterBlock(inter, miRows, miCols, miRow, miCol,
+		bsize, interDecision)
 	hasResidue := false
 	segID := vp9EncoderMiSegmentID(mi)
 	for plane := range vp9dec.MaxMbPlane {

@@ -500,6 +500,8 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.ARNRStrength = 7 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.ARNRType = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.ARNRType = 4 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = 7 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
 			o.AutoAltRef = true
@@ -720,6 +722,70 @@ func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 	}
 	if e.opts.Deadline != beforeDeadline || e.opts.CpuUsed != beforeCPU {
 		t.Fatal("invalid VP9 speed controls mutated encoder")
+	}
+}
+
+func TestVP9EncoderSetNoiseSensitivity(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity(3): %v", err)
+	}
+	if e.opts.NoiseSensitivity != 3 {
+		t.Fatalf("NoiseSensitivity = %d, want 3", e.opts.NoiseSensitivity)
+	}
+	if e.denoiser.sensitivity != 3 || e.denoiser.level != vp9DenoiserHigh {
+		t.Fatalf("denoiser sensitivity/level = %d/%d, want 3/high",
+			e.denoiser.sensitivity, e.denoiser.level)
+	}
+	if err := e.SetNoiseSensitivity(7); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetNoiseSensitivity invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.NoiseSensitivity != 3 {
+		t.Fatal("invalid SetNoiseSensitivity mutated encoder")
+	}
+	if err := e.SetNoiseSensitivity(0); err != nil {
+		t.Fatalf("SetNoiseSensitivity(0): %v", err)
+	}
+	if e.opts.NoiseSensitivity != 0 || e.denoiser.sensitivity != 0 {
+		t.Fatalf("disabled noise sensitivity = opts:%d state:%d, want 0/0",
+			e.opts.NoiseSensitivity, e.denoiser.sensitivity)
+	}
+}
+
+func TestVP9EncoderNoiseSensitivityDenoisesInterLuma(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		NoiseSensitivity: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(width, height, 100, 128, 128)
+	interSrc := newVP9YCbCrForTest(width, height, 102, 128, 128)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("key EncodeInto: %v", err)
+	}
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("inter EncodeInto: %v", err)
+	}
+	if !e.denoiser.active() {
+		t.Fatal("denoiser inactive after noise-sensitive encode")
+	}
+	if got := interSrc.Y[0]; got != 102 {
+		t.Fatalf("caller source was mutated: Y[0]=%d, want 102", got)
+	}
+	if got := e.denoiser.runningAvg[vp9DenoiserAvgLast].Y[0]; got != 100 {
+		t.Fatalf("denoised LAST running average Y[0] = %d, want 100", got)
+	}
+	if got := e.denoiser.source.Y[0]; got != 100 {
+		t.Fatalf("denoised encoder source Y[0] = %d, want 100", got)
 	}
 }
 
@@ -5474,6 +5540,61 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 	assertVP9FilledFrameWithin(t, frame, width, height, 82, 123, 211, 1)
 }
 
+func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
+	const width, height = 1280, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		Threads:          4,
+		NoiseSensitivity: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.vp9TilePool != nil {
+		t.Fatal("denoiser initialized VP9 tile worker pool")
+	}
+	img := newVP9YCbCrForTest(width, height, 82, 123, 211)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Tile.Log2TileCols != 2 {
+		t.Fatalf("Log2TileCols = %d, want 2 for Threads=4",
+			h.Tile.Log2TileCols)
+	}
+	if e.vp9TilePool != nil {
+		t.Fatal("denoiser encode created VP9 tile worker pool")
+	}
+	if len(e.vp9CountWorkers) != 0 {
+		t.Fatalf("denoiser count workers = %d, want 0", len(e.vp9CountWorkers))
+	}
+}
+
+func TestVP9EncoderSetNoiseSensitivityClosesTilePool(t *testing.T) {
+	const width, height = 1280, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("VP9 tile worker pool was not initialized")
+	}
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity: %v", err)
+	}
+	if e.vp9TilePool != nil || len(e.vp9CountWorkers) != 0 ||
+		len(e.vp9CountCounts) != 0 || len(e.vp9CountJobs) != 0 {
+		t.Fatal("SetNoiseSensitivity left VP9 tile worker state installed")
+	}
+}
+
 func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
 	const width, height = 1024, 64
 	opts := VP9EncoderOptions{
@@ -6164,6 +6285,53 @@ func TestVP9EncoderROIMapInterSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("VP9 ROI inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderDenoiserInterSteadyStateAlloc(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		NoiseSensitivity: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(width, height, 100, 128, 128)
+	interSrc := newVP9YCbCrForTest(width, height, 102, 128, 128)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	keyAvg := *image.NewYCbCr(image.Rect(0, 0, width, height),
+		image.YCbCrSubsampleRatio420)
+	copyVP9LookaheadImage(&keyAvg, &e.denoiser.runningAvg[vp9DenoiserAvgLast],
+		width, height)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm denoiser inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgLast],
+			&keyAvg, width, height)
+		e.denoiser.reset = false
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto denoiser inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto denoiser inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 denoiser inter steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 
