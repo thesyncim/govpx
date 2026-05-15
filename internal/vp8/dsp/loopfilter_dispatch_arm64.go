@@ -262,6 +262,44 @@ func gatherV8x8PairARM64(tmp *[8 * 16]byte, u []byte, v []byte, stride int) {
 
 func scatterV8x8PairARM64(u []byte, v []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
 	src := tmp[:]
+	if first == 2 && nrows == 4 {
+		for i := range 8 {
+			urow := u[i*stride:]
+			vrow := v[i*stride:]
+			uw := uint32(src[2*16+i]) |
+				uint32(src[3*16+i])<<8 |
+				uint32(src[4*16+i])<<16 |
+				uint32(src[5*16+i])<<24
+			vw := uint32(src[2*16+8+i]) |
+				uint32(src[3*16+8+i])<<8 |
+				uint32(src[4*16+8+i])<<16 |
+				uint32(src[5*16+8+i])<<24
+			binary.LittleEndian.PutUint32(urow[2:6], uw)
+			binary.LittleEndian.PutUint32(vrow[2:6], vw)
+		}
+		return
+	}
+	if first == 1 && nrows == 6 {
+		for i := range 8 {
+			urow := u[i*stride:]
+			vrow := v[i*stride:]
+			uw0 := uint32(src[1*16+i]) |
+				uint32(src[2*16+i])<<8 |
+				uint32(src[3*16+i])<<16 |
+				uint32(src[4*16+i])<<24
+			vw0 := uint32(src[1*16+8+i]) |
+				uint32(src[2*16+8+i])<<8 |
+				uint32(src[3*16+8+i])<<16 |
+				uint32(src[4*16+8+i])<<24
+			uw1 := uint16(src[5*16+i]) | uint16(src[6*16+i])<<8
+			vw1 := uint16(src[5*16+8+i]) | uint16(src[6*16+8+i])<<8
+			binary.LittleEndian.PutUint32(urow[1:5], uw0)
+			binary.LittleEndian.PutUint32(vrow[1:5], vw0)
+			binary.LittleEndian.PutUint16(urow[5:7], uw1)
+			binary.LittleEndian.PutUint16(vrow[5:7], vw1)
+		}
+		return
+	}
 	for i := range 8 {
 		urow := u[i*stride : i*stride+8]
 		vrow := v[i*stride : i*stride+8]
