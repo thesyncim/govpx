@@ -107,6 +107,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		extraArgs   []string
 		exactPrefix int
 		exactFrames []int
+		strictBytes bool
 	}
 	cases := []streamCase{
 		{
@@ -140,6 +141,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-constant-640",
@@ -156,6 +158,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 2,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-constant-720p",
@@ -172,6 +175,26 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 2,
+			strictBytes: true,
+		},
+		{
+			name:    "fixed-q-threaded-constant-720p",
+			fixture: constant720,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 2,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-rt-cpu4-constant",
@@ -322,6 +345,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			},
 			extraArgs:   []string{"--error-resilient=1"},
 			exactPrefix: 2,
+			strictBytes: true,
 		},
 		{
 			name:    "error-resilient-constant",
@@ -365,6 +389,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			frames:      6,
 			flags:       vp9OracleRepeatInterFlag(6, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
 			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "cbr-rate-panning",
@@ -393,6 +418,49 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=56",
 			},
 			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
+			name:    "vbr-rate-constant-320",
+			fixture: constant320,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=vbr",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+			},
+			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
+			name:    "vbr-rate-constant-720p",
+			fixture: constant720,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=vbr",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+			},
+			exactPrefix: 2,
+			strictBytes: true,
 		},
 		{
 			name:    "cq-rate-constant",
@@ -415,6 +483,53 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--cq-level=20",
 			},
 			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
+			name:    "cq-rate-constant-320",
+			fixture: constant320,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=cq",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
+			name:    "cq-rate-constant-720p",
+			fixture: constant720,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=cq",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 2,
+			strictBytes: true,
 		},
 		{
 			name:    "q-rate-constant",
@@ -437,6 +552,53 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--cq-level=20",
 			},
 			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
+			name:    "q-rate-constant-320",
+			fixture: constant320,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=q",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
+			name:    "q-rate-constant-720p",
+			fixture: constant720,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlQ,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=q",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 2,
+			strictBytes: true,
 		},
 		{
 			name:    "vbr-rate-panning",
@@ -611,12 +773,22 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 						govpxPackets[frame], libvpxPackets[frame])
 				}
 			}
+			if tc.strictBytes && matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 pinned byte parity %s/%s: matches=%d/%d",
+					tc.name, tc.fixture.name, matches, len(govpxPackets))
+			}
 			newModeByteCase := tc.name == "vbr-rate-panning" ||
 				tc.name == "vbr-rate-constant" ||
+				tc.name == "vbr-rate-constant-320" ||
+				tc.name == "vbr-rate-constant-720p" ||
 				tc.name == "cq-rate-panning" ||
 				tc.name == "cq-rate-constant" ||
+				tc.name == "cq-rate-constant-320" ||
+				tc.name == "cq-rate-constant-720p" ||
 				tc.name == "q-rate-panning" ||
 				tc.name == "q-rate-constant" ||
+				tc.name == "q-rate-constant-320" ||
+				tc.name == "q-rate-constant-720p" ||
 				tc.name == "cbr-cyclic-aq-panning" ||
 				tc.name == "cbr-cyclic-aq-constant" ||
 				tc.name == "vbr-rate-panning-720p"

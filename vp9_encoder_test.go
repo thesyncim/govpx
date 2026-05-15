@@ -6061,6 +6061,112 @@ func TestVP9EncoderCyclicRefreshAQInterSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderActiveMapInterSteadyStateAlloc(t *testing.T) {
+	const width, height = 128, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for row := range rows {
+		for col := range cols {
+			activeMap[row*cols+col] = 1
+			if (row+col)&1 == 0 {
+				activeMap[row*cols+col] = 0
+			}
+		}
+	}
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(width, height, 81, 123, 210)
+	interSrc := newVP9YCbCrForTest(width, height, 113, 123, 210)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm active-map inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto active-map inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto active-map inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 active-map inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderROIMapInterSteadyStateAlloc(t *testing.T) {
+	const width, height = 128, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	miRows := (height + 7) >> 3
+	miCols := (width + 7) >> 3
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      miRows,
+		Cols:      miCols,
+		SegmentID: make([]uint8, miRows*miCols),
+	}
+	for row := range miRows {
+		for col := range miCols {
+			if row == col || row+col == miCols-1 {
+				roi.SegmentID[row*miCols+col] = 1
+			}
+		}
+	}
+	roi.DeltaQuantizer[1] = -4
+	roi.DeltaLoopFilter[1] = 3
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(width, height, 81, 123, 210)
+	interSrc := newVP9YCbCrForTest(width, height, 113, 123, 210)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm ROI inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto ROI inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto ROI inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 ROI inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 func TestVP9EncoderAutoAltRefLookaheadSteadyStateAlloc(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
