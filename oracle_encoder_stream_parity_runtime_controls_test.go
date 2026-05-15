@@ -3082,6 +3082,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 		source func(w, h, i int) Image
 	}
 	panning32 := fixture{name: "panning-32x32", w: 32, h: 32, source: encoderValidationPanningFrame}
+	panningOdd := fixture{name: "panning-33x17", w: 33, h: 17, source: encoderValidationPanningFrame}
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
 	segmented64 := fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}
 
@@ -3253,6 +3254,32 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			},
 		},
 		{
+			name: "set-golden-under-active-roi-odd-dims",
+			fx:   panningOdd,
+			opts: baseOpts(panningOdd),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				5: EncodeNoReferenceLast | EncodeNoReferenceAltRef,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker+roi:border1",
+				4: "setref:golden:panning:12",
+				7: "active:off+roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
 			name: "set-last-under-rtc-external",
 			fx:   panning64,
 			opts: baseOpts(panning64),
@@ -3267,6 +3294,30 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
 				},
 				4: setReferencePanningApply(ReferenceLast, 12, "last"),
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+				},
+			},
+		},
+		{
+			name: "set-altref-under-rtc-external-odd-dims",
+			fx:   panningOdd,
+			opts: baseOpts(panningOdd),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				5: EncodeNoReferenceLast | EncodeNoReferenceGolden,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "rtc:1",
+				4: "setref:altref:panning:12",
+				7: "rtc:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				4: setReferencePanningApply(ReferenceAltRef, 12, "altref"),
 				7: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
@@ -3320,6 +3371,27 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
 				},
 			},
+		},
+		{
+			name: "set-last-under-lookahead-auto-altref-odd-dims",
+			fx:   panningOdd,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panningOdd)
+				opts.LookaheadFrames = 4
+				opts.AutoAltRef = true
+				return opts
+			}(),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				1: EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "setref:last:panning:12",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceLast, 12, "last"),
+			},
+			extraArgs: []string{"--lag-in-frames=4", "--auto-alt-ref=1"},
 		},
 		{
 			name: "set-last-under-lookahead-auto-altref",
