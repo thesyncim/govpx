@@ -1,11 +1,15 @@
 package govpx
 
-import "image"
+import (
+	"image"
+	"math"
+)
 
 const (
-	vp9FirstPassIntraPenalty     = 256
-	vp9FirstPassNewMVModePenalty = 256
+	vp9FirstPassIntraPenalty     = 1024
+	vp9FirstPassNewMVModePenalty = 32
 	vp9FirstPassSearchRange      = 4
+	vp9FirstPassDarkThresh       = 64
 )
 
 // VP9FirstPassFrameStats mirrors libvpx VP9 FIRSTPASS_STATS for one analyzed
@@ -155,6 +159,8 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 	intraLowCount := 0
 	intraHighCount := 0
 	intraSmoothCount := 0
+	intraFactor := 0.0
+	brightnessFactor := 0.0
 	var motion vp9FirstPassMotionAccumulator
 
 	for mbRow := range mbRows {
@@ -167,6 +173,18 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 				continue
 			}
 			intraRaw := vp9BlockSourceVariance128(src, srcStride, x, y, w, h)
+			logIntra := math.Log(float64(intraRaw) + 1.0)
+			if logIntra < 10.0 {
+				intraFactor += 1.0 + ((10.0 - logIntra) * 0.05)
+			} else {
+				intraFactor += 1.0
+			}
+			if src[y*srcStride+x] < vp9FirstPassDarkThresh && logIntra < 9.0 {
+				brightnessFactor += 1.0 +
+					0.01*float64(vp9FirstPassDarkThresh-src[y*srcStride+x])
+			} else {
+				brightnessFactor += 1.0
+			}
 			intra := intraRaw + vp9FirstPassIntraPenalty
 			intraError += intra
 			thisErr := intra
@@ -218,11 +236,12 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 	}
 
 	mbsF := float64(mbs)
+	minErr := 200 * math.Sqrt(mbsF)
 	stats := VP9FirstPassFrameStats{
 		Frame:            e.vp9FirstPassCount,
-		IntraError:       float64(intraError >> 8),
-		CodedError:       float64(codedError >> 8),
-		SRCodedError:     float64(srCodedError >> 8),
+		IntraError:       (float64(intraError>>8) + minErr) / mbsF,
+		CodedError:       (float64(codedError>>8) + minErr) / mbsF,
+		SRCodedError:     (float64(srCodedError>>8) + minErr) / mbsF,
 		PcntInter:        float64(interCount) / mbsF,
 		PcntSecondRef:    float64(secondRefCount) / mbsF,
 		PcntNeutral:      float64(neutralCount) / mbsF,
@@ -235,7 +254,7 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 		Count:            1,
 		SpatialLayerID:   0,
 	}
-	stats.Weight = vp9FirstPassSimpleWeightLuma(src, srcStride, width, height)
+	stats.Weight = (intraFactor / mbsF) * (brightnessFactor / mbsF)
 	if stats.Weight < 0.1 {
 		stats.Weight = 0.1
 	}
@@ -344,11 +363,13 @@ func (a *vp9FirstPassMotionAccumulator) finish(stats *VP9FirstPassFrameStats, bl
 	stats.MVrAbs = float64(a.sumRowAbs) / count
 	stats.MVc = float64(a.sumCol) / count
 	stats.MVcAbs = float64(a.sumColAbs) / count
-	stats.MVrv = (float64(a.sumRowSq) - (stats.MVr * stats.MVr / count)) / count
-	stats.MVcv = (float64(a.sumColSq) - (stats.MVc * stats.MVc / count)) / count
+	sumRow := float64(a.sumRow)
+	sumCol := float64(a.sumCol)
+	stats.MVrv = (float64(a.sumRowSq) - ((sumRow * sumRow) / count)) / count
+	stats.MVcv = (float64(a.sumColSq) - ((sumCol * sumCol) / count)) / count
 	stats.MVInOutCount = float64(a.sumIn) / float64(a.count*2)
 	stats.PcntMotion = float64(a.count) / float64(blocks)
-	stats.NewMVCount = float64(a.newCount)
+	stats.NewMVCount = float64(a.newCount) / float64(blocks)
 }
 
 func vp9FirstPassMotionSearch(src []byte, srcStride int, ref []byte, refStride int,
@@ -375,27 +396,6 @@ func vp9FirstPassMotionSearch(src []byte, srcStride int, ref []byte, refStride i
 		}
 	}
 	return best, bestRowQ3, bestColQ3
-}
-
-func vp9FirstPassSimpleWeightLuma(src []byte, stride int, width int, height int) float64 {
-	if width <= 0 || height <= 0 {
-		return 0
-	}
-	const block = 16
-	blocks := 0
-	sum := uint64(0)
-	for y := 0; y < height; y += block {
-		h := min(block, height-y)
-		for x := 0; x < width; x += block {
-			w := min(block, width-x)
-			sum += vp9BlockSourceVariance128(src, stride, x, y, w, h)
-			blocks++
-		}
-	}
-	if blocks == 0 {
-		return 0
-	}
-	return float64(sum) / float64(blocks*256)
 }
 
 func ensureVP9FirstPassImage(img *image.YCbCr, width int, height int) {
