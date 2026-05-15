@@ -372,6 +372,48 @@ func BenchmarkWriteCoefficientTokenGrid(b *testing.B) {
 	}
 }
 
+func BenchmarkWritePreparedCoefficientTokenRecords(b *testing.B) {
+	const (
+		rows = 4
+		cols = 4
+	)
+	modes := make([]InterFrameMacroblockMode, rows*cols)
+	coeffs := make([]MacroblockCoefficients, rows*cols)
+	for i := range modes {
+		modes[i] = InterFrameMacroblockMode{Mode: common.ZeroMV}
+		coeffs[i].QCoeff[0][1] = int16((i % 4) + 1)
+		coeffs[i].QCoeff[1][0] = int16(-((i % 3) + 1))
+		coeffs[i].QCoeff[16][0] = int16((i % 5) + 1)
+		coeffs[i].QCoeff[24][0] = int16(-((i % 2) + 1))
+		setAllMacroblockEOBs(&coeffs[i], false)
+	}
+	var counts InterCoefficientTokenCounts
+	var records InterCoefficientTokenRecords
+	ResetInterCoefficientTokenCounts(&counts)
+	ResetInterCoefficientTokenRecords(&records, rows, rows*cols)
+	above := make([]TokenContextPlanes, cols)
+	for row := range rows {
+		MarkInterCoefficientTokenRecordRowStart(&records, row)
+		left := TokenContextPlanes{}
+		for col := range cols {
+			index := row*cols + col
+			if err := AccumulateInterMacroblockTokenCountsAndRecords(&counts, &records, interModeUses4x4Tokens(modes[index].Mode), &above[col], &left, &coeffs[index]); err != nil {
+				b.Fatalf("AccumulateInterMacroblockTokenCountsAndRecords returned error: %v", err)
+			}
+		}
+		MarkInterCoefficientTokenRecordRowEnd(&records, row)
+	}
+	buf := make([]byte, 8192)
+	var w BoolWriter
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		w.Init(buf)
+		_ = writePreparedCoefficientTokenRecords(&w, &tables.DefaultCoefProbs, records.Records)
+		w.Finish()
+	}
+}
+
 func setAllMacroblockEOBs(coeffs *MacroblockCoefficients, is4x4 bool) {
 	if !is4x4 {
 		coeffs.SetBlockEOB(24, BlockCoeffEOB(&coeffs.QCoeff[24], 0))
