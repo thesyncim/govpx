@@ -111,7 +111,7 @@ oracle-test: oracle-tools fetch-test-data
 	$(GO) test . -run 'TestOracle' -count=1 -timeout 10m
 
 SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleSplitMVDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare|TestOracleChromaSubpelScoreboard|TestOracleImprovedMVScoreboard|TestOracleCBRDropFrameScoreboard|TestOracleCandidateRateScoreboard|TestOracleInterModeDistributionScoreboard|TestOracleTemporalSVCParity
-BYTE_PARITY_TESTS := TestOracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity)
+BYTE_PARITY_TESTS := TestOracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)
 
 byte-parity: oracle-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
