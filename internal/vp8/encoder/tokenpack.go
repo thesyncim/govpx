@@ -202,6 +202,97 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		// the corresponding power-of-two limits lets BlockTypes(=4) and
 		// CoefBands(=8) bounds checks elide on the (*probs) load.
 		p := &(*probs)[blockType&3][band&7][ctx]
+
+		if token == tables.DCTEOBToken {
+			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
+			rng = split
+
+			shift := int(tables.BoolNorm[byte(rng)])
+			rng <<= uint(shift)
+			count += shift
+			if count >= 0 {
+				offset := shift - count
+				if ((low << uint(offset-1)) & 0x80000000) != 0 {
+					w.pos = pos
+					w.propagateCarry()
+					if w.err != nil {
+						return storeBlockTokenPack(w, low, rng, count, pos)
+					}
+				}
+				if pos >= len(buf) {
+					w.err = ErrBufferTooSmall
+					return storeBlockTokenPack(w, low, rng, count, pos)
+				}
+				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				pos++
+				shift = count
+				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				count -= 8
+			}
+			low <<= uint(shift)
+			continue
+		}
+
+		if token == tables.ZeroToken {
+			if raw&(1<<coefficientTokenRecordSkipEOBNodeShift) == 0 {
+				split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
+				low += split
+				rng -= split
+
+				shift := int(tables.BoolNorm[byte(rng)])
+				rng <<= uint(shift)
+				count += shift
+				if count >= 0 {
+					offset := shift - count
+					if ((low << uint(offset-1)) & 0x80000000) != 0 {
+						w.pos = pos
+						w.propagateCarry()
+						if w.err != nil {
+							return storeBlockTokenPack(w, low, rng, count, pos)
+						}
+					}
+					if pos >= len(buf) {
+						w.err = ErrBufferTooSmall
+						return storeBlockTokenPack(w, low, rng, count, pos)
+					}
+					buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+					pos++
+					shift = count
+					low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+					count -= 8
+				}
+				low <<= uint(shift)
+			}
+
+			split := uint32(1 + (((rng - 1) * uint32(p[1])) >> 8))
+			rng = split
+
+			shift := int(tables.BoolNorm[byte(rng)])
+			rng <<= uint(shift)
+			count += shift
+			if count >= 0 {
+				offset := shift - count
+				if ((low << uint(offset-1)) & 0x80000000) != 0 {
+					w.pos = pos
+					w.propagateCarry()
+					if w.err != nil {
+						return storeBlockTokenPack(w, low, rng, count, pos)
+					}
+				}
+				if pos >= len(buf) {
+					w.err = ErrBufferTooSmall
+					return storeBlockTokenPack(w, low, rng, count, pos)
+				}
+				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				pos++
+				shift = count
+				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				count -= 8
+			}
+			low <<= uint(shift)
+			continue
+		}
+
 		// Take a pointer instead of copying the 15-byte path struct on each
 		// record; the table never moves so the indirection has no aliasing
 		// concern in this hot per-token loop.
@@ -251,10 +342,6 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 				count -= 8
 			}
 			low <<= uint(shift)
-		}
-
-		if token == tables.ZeroToken || token == tables.DCTEOBToken {
-			continue
 		}
 
 		// magnitude is guaranteed in (0, DCTMaxValue] by the producer
