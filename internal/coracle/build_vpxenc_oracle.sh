@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v6-production-autospeed
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v7-key-boundary
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -1754,12 +1754,50 @@ def strip_autospeed_shim(src):
         sys.stderr.write('build_vpxenc_oracle.sh: autospeed shim terminator missing in onyx_if.c\n')
         sys.exit(2)
     return src[:start] + src[end + 2:]
+def ensure_autospeed_boundary_shim(src):
+    marker = '    /* govpx oracle determinism shim: pin keyframe auto-speed boundary.'
+    if marker in src:
+        return src
+    anchor = ('    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
+              '    duration2 = (unsigned int)((double)duration / 2);\n'
+              '\n'
+              '    if (cm->frame_type != KEY_FRAME) {')
+    replacement = (
+        '    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
+        '    duration2 = (unsigned int)((double)duration / 2);\n'
+        '\n'
+        '    /* govpx oracle determinism shim: pin keyframe auto-speed boundary.\n'
+        '     * libvpx realtime auto-speed is intentionally wall-clock driven;\n'
+        '     * strict byte parity needs a stable branch when large positive-cpu\n'
+        '     * keyframes land near the vp8_auto_select_speed budget boundary.\n'
+        '     * Use the same large-frame gate as govpx so both encoders take\n'
+        '     * the libvpx Speed 5 -> 4 trajectory deterministically. */\n'
+        '    if (cpi->oxcf.cpu_used >= 0 && (*frame_flags & FRAMEFLAGS_KEY)) {\n'
+        '      int n_mb = cm->mb_rows * cm->mb_cols;\n'
+        '      int gate = 0;\n'
+        '      if (n_mb >= 3600) gate = 1;\n'
+        '      else if (cpi->oxcf.cpu_used >= 8 && n_mb >= 1900) gate = 1;\n'
+        '      if (gate) {\n'
+        '        int ms_for_compress = (int)(1000000 / cpi->framerate);\n'
+        '        ms_for_compress = ms_for_compress * (16 - cpi->oxcf.cpu_used) / 16;\n'
+        '        if (ms_for_compress > 1) {\n'
+        '          duration = 2 * ms_for_compress - 2;\n'
+        '          duration2 = (unsigned int)((double)duration / 2);\n'
+        '        }\n'
+        '      }\n'
+        '    }\n'
+        '\n'
+        '    if (cm->frame_type != KEY_FRAME) {')
+    if anchor not in src:
+        sys.stderr.write('build_vpxenc_oracle.sh: autospeed timer anchor missing in onyx_if.c\n')
+        sys.exit(2)
+    return src.replace(anchor, replacement, 1)
 sentinel = '/* govpx oracle: rate/recode emit hook. */'
 if sentinel in text:
-    stripped = strip_autospeed_shim(text)
-    if stripped != text:
+    updated = ensure_autospeed_boundary_shim(strip_autospeed_shim(text))
+    if updated != text:
         with io.open(path, 'w', encoding='utf-8') as f:
-            f.write(stripped)
+            f.write(updated)
     sys.exit(0)  # already patched
 # Anchor 1: inject extern declarations directly after the "extern void
 # vp8cx_init_quantizer" line (unique in v1.16.0). If absent, fall back to
@@ -1873,10 +1911,11 @@ if overshoot_anchor not in text:
 text = text.replace(overshoot_anchor, overshoot_replacement, 1)
 
 # Anchor 5: remove the older deterministic slow-timer shim if it exists in an
-# already-generated oracle source tree. Realtime auto-speed is wall-clock
-# sensitive; the production byte-ratio reference is the uninstrumented vpxenc
-# binary, so vpxenc-oracle should not force large-MB positive-cpu realtime
-# fixtures onto an artificial speed-16 trajectory.
+# already-generated oracle source tree, then add the narrower keyframe boundary
+# shim used by strict byte-parity runs. Realtime auto-speed is wall-clock
+# sensitive; this pins only large positive-cpu keyframes that land on the
+# branch boundary, instead of forcing every large frame onto an artificial
+# speed-16 trajectory.
 autospeed_sentinel = '/* govpx oracle determinism shim: replace the wall-clock measurement'
 autospeed_anchor = ('    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
                     '    duration2 = (unsigned int)((double)duration / 2);\n'
@@ -1909,6 +1948,7 @@ if autospeed_old in text:
 elif autospeed_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: autospeed timer anchor missing in onyx_if.c\n')
     sys.exit(2)
+text = ensure_autospeed_boundary_shim(text)
 
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)

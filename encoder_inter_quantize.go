@@ -59,12 +59,12 @@ func quantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *vp8enc.BlockQuant
 		// Branchless |z| via sign mask: sign is -1 when z<0, 0 otherwise.
 		sign := z >> mvKernelSignShift
 		x := (z ^ sign) - sign
-			zbin := int(quant.Zbin[rc])
-			zbin += int(quant.ZbinBoost[zeroRun&15])
-			zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
-			if x < zbin {
-				qcoeff[rc] = 0
-				dqcoeff[rc] = 0
+		zbin := int(quant.Zbin[rc])
+		zbin += int(quant.ZbinBoost[zeroRun&15])
+		zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+		if x < zbin {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
 			zeroRun = min(zeroRun+1, 15)
 			continue
 		}

@@ -205,7 +205,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		// vp8_encode_intra16x16mbuv -> vp8_optimize_mbuv). Without this
 		// gate the BestQuality keyframe Y reconstruction byte-diverges
 		// from libvpx on B_PRED MBs (see r9-4 SplitMV-quadrant fixture).
-			eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 		coeffs.SetBlockEOB(block, eob)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
@@ -226,7 +226,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		var staleY2DQ [16]int16
 		intra := mode.RefFrame == vp8common.IntraFrame
 		vp8enc.ForwardWalsh4x4(staleY2Input[:], 4, &staleY2Coeff)
-			staleEOB := min(max(quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
+		staleEOB := min(max(quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
 		recordOracleStaleY2(coeffs, uint8(staleEOB), staleY2Q)
 	}
 
@@ -259,7 +259,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		copy(dct[:], uvDcts[block*16:block*16+16])
 		a, l := macroblockCoefficientUVContextIndex(16 + block)
 		ctx := int(uvAbove[a] + uvLeft[l])
-			eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
@@ -272,7 +272,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		copy(dct[:], uvDcts[(4+block)*16:(4+block)*16+16])
 		a, l = macroblockCoefficientUVContextIndex(20 + block)
 		ctx = int(uvAbove[a] + uvLeft[l])
-			eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
 		hasCoeffs = 0
 		if eob > 0 {

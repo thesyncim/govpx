@@ -25,13 +25,13 @@ type predictedMacroblockCoefficientArgs struct {
 	aboveTok            *vp8enc.TokenContextPlanes
 	leftTok             *vp8enc.TokenContextPlanes
 	quant               *vp8enc.MacroblockQuant
-		qIndex              int
-		zbinOverQuant       int
-		zbinModeBoost       int
-		actZbinAdj          int
-		rdMult              int
-		rdDiv               int
-		is4x4               bool
+	qIndex              int
+	zbinOverQuant       int
+	zbinModeBoost       int
+	actZbinAdj          int
+	rdMult              int
+	rdDiv               int
+	is4x4               bool
 	splitPartitionValid bool
 	splitPartition      uint8
 	intra               bool
@@ -302,7 +302,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				// the encode path actually exercises has the proper DC at
 				// slot 0, which govpx mirrors in quant.Y1.
 				if collectOracle {
-						recordOracleY1DCEOB1(coeffs, block, libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, fastQuant))
+					recordOracleY1DCEOB1(coeffs, block, libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, fastQuant))
 				}
 				dct[0] = 0
 			}
@@ -384,7 +384,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				// the encode path actually exercises has the proper DC at
 				// slot 0, which govpx mirrors in quant.Y1.
 				if collectOracle {
-						recordOracleY1DCEOB1(coeffs, block, libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, fastQuant))
+					recordOracleY1DCEOB1(coeffs, block, libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, fastQuant))
 				}
 				a := block & 3
 				l := (block & 0x0c) >> 2
@@ -392,7 +392,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				if needTokenContext {
 					ctx = int(yAbove[a] + yLeft[l])
 				}
-					eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+				eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 				coeffs.QCoeff[block][0] = 0
 				dq[0] = 0
 				dct[0] = 0
@@ -417,7 +417,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	}
 	if !is4x4 {
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-			eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
+		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
 		coeffs.SetBlockEOB(24, eob)
 		if collectStats {
 			stats.rateY += coefficientBlockTokenRate(coefProbs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
@@ -445,7 +445,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			var staleY2Q [16]int16
 			var staleY2DQ [16]int16
 			vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
-				staleEOB := min(max(quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
+			staleEOB := min(max(quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
 			recordOracleStaleY2(coeffs, uint8(staleEOB), staleY2Q)
 		}
 	}
@@ -477,9 +477,9 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		args.cacheOut.intra = intra
 		args.cacheOut.fastQuant = fastQuant
 		args.cacheOut.qIndex = qIndex
-			args.cacheOut.zbinOverQuant = zbinOverQuant
-			args.cacheOut.zbinModeBoost = zbinModeBoost
-			args.cacheOut.actZbinAdj = actZbinAdj
+		args.cacheOut.zbinOverQuant = zbinOverQuant
+		args.cacheOut.zbinModeBoost = zbinModeBoost
+		args.cacheOut.actZbinAdj = actZbinAdj
 		args.cacheOut.mbRow = mbRow
 		args.cacheOut.mbCol = mbCol
 		args.cacheOut.valid = true
@@ -550,7 +550,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		if needTokenContext {
 			ctx = int(uvAbove[a] + uvLeft[l])
 		}
-			eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
 		if collectStats {
 			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
@@ -572,7 +572,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		if needTokenContext {
 			ctx = int(uvAbove[a] + uvLeft[l])
 		}
-			eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
 		if collectStats {
 			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)

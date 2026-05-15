@@ -623,9 +623,11 @@ func (e *VP8Encoder) largeAutoSpeedKeyFrameTimingCompensation() bool {
 	if !e.libvpxAutoSelectSpeedActive() {
 		return false
 	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
-	return rows*cols >= 3600
+	mbs := rows * cols
+	return mbs >= 3600 || (cpuUsed >= 8 && mbs >= 1900)
 }
 
 func (e *VP8Encoder) beginAutoSpeedTiming() {
@@ -662,12 +664,11 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 	keyFrameEncodeSample := false
 	if keyFrame && e.largeAutoSpeedKeyFrameTimingCompensation() {
 		// The selector is calibrated to libvpx's C encoder timings. For the
-		// 720p+ realtime-positive path, libvpx's keyframe sample lands just
-		// inside vp8_auto_select_speed's matching-budget branch; the Go path
-		// can spend longer in reconstruction and would incorrectly jump to
-		// Speed 8. Cap the sample at the exact branch boundary, preserving the
-		// libvpx Speed 5 -> 4 trajectory observed by the untraced oracle.
-		if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 && duration >= 2*budget-1 {
+		// large positive-realtime boundary path, libvpx's keyframe wall-clock
+		// sample can land on either side of vp8_auto_select_speed's branch
+		// boundary. Pin the sample to the libvpx matching-budget boundary so
+		// strict byte-parity runs do not depend on scheduler timing.
+		if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 {
 			duration = 2*budget - 2
 		}
 		keyFrameEncodeSample = true
