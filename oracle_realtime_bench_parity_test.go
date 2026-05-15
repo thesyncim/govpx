@@ -36,7 +36,10 @@ func TestOracleBenchWorkloadProductionGaps(t *testing.T) {
 		maxSSIMGap      float64
 	}{
 		{
-			name:            "govpx-bench-rt-720p-cpu8-2mbps",
+			// Positive realtime cpu-used is libvpx's wall-clock adaptive
+			// speed budget. Pin Speed 4 so this oracle compares matching
+			// encoder decisions instead of implementation timing.
+			name:            "govpx-bench-rt-720p-speed4-2mbps",
 			width:           1280,
 			height:          720,
 			frames:          30,
@@ -44,7 +47,7 @@ func TestOracleBenchWorkloadProductionGaps(t *testing.T) {
 			targetKbps:      2000,
 			deadline:        DeadlineRealtime,
 			deadlineArg:     "--rt",
-			cpuUsed:         8,
+			cpuUsed:         -4,
 			maxByteRatioGap: 0.04,
 			maxPSNRGap:      0.20,
 			maxSSIMGap:      0.003,
