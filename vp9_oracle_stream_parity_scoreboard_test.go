@@ -973,6 +973,63 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 	}
 }
 
+func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 auto-alt-ref visibility scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames, lag = 64, 64, 16, 4
+	sources := makeVP9SteppedOracleSources(width, height, frames)
+	govpxRows, govpxPackets := captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t,
+		VP9EncoderOptions{LookaheadFrames: lag, AutoAltRef: true}, sources)
+	libvpxRows, libvpxPackets := captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t,
+		sources,
+		"--deadline=good",
+		"--cpu-used=4",
+		"--end-usage=vbr",
+		"--target-bitrate=300",
+		fmt.Sprintf("--lag-in-frames=%d", lag),
+		"--auto-alt-ref=1",
+		"--arnr-maxframes=7",
+		"--arnr-strength=3",
+		"--arnr-type=3")
+	govpxHidden := countVP9HiddenRows(govpxRows)
+	libvpxHidden := countVP9HiddenRows(libvpxRows)
+	limit := len(govpxPackets)
+	if len(libvpxPackets) < limit {
+		limit = len(libvpxPackets)
+	}
+	matches := 0
+	firstMismatch := -1
+	for i := 0; i < limit; i++ {
+		if bytes.Equal(govpxPackets[i], libvpxPackets[i]) {
+			matches++
+			continue
+		}
+		if firstMismatch < 0 {
+			firstMismatch = i
+		}
+	}
+	t.Logf("VP9 auto-alt-ref visibility scoreboard: govpx_packets=%d libvpx_packets=%d compare=%d matches=%d first_mismatch=%d govpx_hidden=%d libvpx_hidden=%d govpx_altref_refresh=%d libvpx_altref_refresh=%d",
+		len(govpxPackets), len(libvpxPackets), limit, matches, firstMismatch,
+		govpxHidden, libvpxHidden, countVP9AltRefRefreshRows(govpxRows),
+		countVP9AltRefRefreshRows(libvpxRows))
+	t.Logf("VP9 auto-alt-ref visibility rows:\n%s",
+		formatVP9AutoAltRefVisibilityRows(govpxRows, libvpxRows))
+	if govpxHidden == 0 {
+		t.Fatal("govpx emitted no hidden auto-alt-ref packet")
+	}
+	if libvpxHidden == 0 {
+		t.Log("libvpx emitted no hidden auto-alt-ref packet for this one-pass scoreboard fixture")
+	}
+	if os.Getenv("GOVPX_VP9_AUTO_ALT_REF_STRICT") == "1" &&
+		(len(govpxPackets) != len(libvpxPackets) || matches != len(govpxPackets)) {
+		t.Fatalf("strict VP9 auto-alt-ref byte parity: matches=%d/%d libvpx_packets=%d",
+			matches, len(govpxPackets), len(libvpxPackets))
+	}
+}
+
 func makeVP9SteppedOracleSources(width, height, frames int) []*image.YCbCr {
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
@@ -1113,6 +1170,205 @@ func drainVP9LookaheadFlushForOracleTest(t *testing.T, enc *VP9Encoder, dst []by
 		packets = append(packets, append([]byte(nil), result.Data...))
 	}
 	return packets
+}
+
+func captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
+	opts VP9EncoderOptions, sources []*image.YCbCr,
+) ([]vp9RateScoreboardRow, [][]byte) {
+	t.Helper()
+	if len(sources) == 0 {
+		t.Fatal("empty VP9 auto-alt-ref source")
+	}
+	opts.Width = sources[0].Rect.Dx()
+	opts.Height = sources[0].Rect.Dy()
+	enc, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	var trace bytes.Buffer
+	enc.SetVP9OracleTraceWriter(&trace)
+	dstSize, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
+	packets := make([][]byte, 0, len(sources)+1)
+	for i, src := range sources {
+		result, err := enc.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeIntoWithResult frame %d unexpectedly dropped", i)
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	for {
+		result, err := enc.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		if result.Dropped {
+			t.Fatal("FlushIntoWithResult unexpectedly dropped")
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	rows := parseVP9RateScoreboardRows(t, trace.Bytes())
+	if len(rows) != len(packets) {
+		t.Fatalf("govpx auto-alt-ref trace rows = %d, packets = %d",
+			len(rows), len(packets))
+	}
+	for i := range rows {
+		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+	}
+	return rows, packets
+}
+
+func captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
+	sources []*image.YCbCr, extraArgs ...string,
+) ([]vp9RateScoreboardRow, [][]byte) {
+	t.Helper()
+	if len(sources) == 0 {
+		t.Fatal("empty VP9 libvpx auto-alt-ref source")
+	}
+	width := sources[0].Rect.Dx()
+	height := sources[0].Rect.Dy()
+	var raw []byte
+	for i, src := range sources {
+		if src.Rect.Dx() != width || src.Rect.Dy() != height {
+			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
+				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
+		}
+		raw = appendVP9YCbCrI420(raw, src)
+	}
+	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
+		height, len(sources), nil, extraArgs...)
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
+	}
+	rows := parseVP9RateScoreboardRows(t, trace)
+	wantPackets := 0
+	for _, row := range rows {
+		if !row.Dropped {
+			wantPackets++
+		}
+	}
+	gotPackets, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if gotPackets != wantPackets {
+		t.Fatalf("libvpx auto-alt-ref IVF packets = %d, want %d",
+			gotPackets, wantPackets)
+	}
+	packets := make([][]byte, len(rows))
+	if wantPackets == 0 {
+		return rows, packets
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	packetIndex := 0
+	for i := range rows {
+		if rows[i].Dropped {
+			continue
+		}
+		var frame testutil.IVFFrame
+		frame, offset, err = testutil.NextIVFFrame(ivf, offset, packetIndex)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", packetIndex, err)
+		}
+		packets[i] = append([]byte(nil), frame.Data...)
+		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		packetIndex++
+	}
+	return rows, packets
+}
+
+func countVP9HiddenRows(rows []vp9RateScoreboardRow) int {
+	count := 0
+	for _, row := range rows {
+		if !row.Dropped && !row.ShowFrame {
+			count++
+		}
+	}
+	return count
+}
+
+func countVP9AltRefRefreshRows(rows []vp9RateScoreboardRow) int {
+	count := 0
+	for _, row := range rows {
+		if !row.Dropped && !row.KeyFrame &&
+			row.RefreshFrameFlags&(1<<vp9AltRefSlot) != 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func formatVP9AutoAltRefVisibilityRows(govpxRows, libvpxRows []vp9RateScoreboardRow) string {
+	var b bytes.Buffer
+	fmt.Fprintln(&b, "packet,govpx_frame,libvpx_frame,govpx_show,libvpx_show,govpx_key,libvpx_key,govpx_refresh,libvpx_refresh,govpx_q,libvpx_q,govpx_bytes,libvpx_bytes,govpx_first_part,libvpx_first_part")
+	limit := len(govpxRows)
+	if len(libvpxRows) > limit {
+		limit = len(libvpxRows)
+	}
+	for i := 0; i < limit; i++ {
+		g, gok := vp9ScoreboardRowAt(govpxRows, i)
+		l, lok := vp9ScoreboardRowAt(libvpxRows, i)
+		fmt.Fprintf(&b, "%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+			i,
+			vp9OptionalInt(gok, g.FrameIndex),
+			vp9OptionalInt(lok, l.FrameIndex),
+			vp9OptionalBool(gok, g.ShowFrame),
+			vp9OptionalBool(lok, l.ShowFrame),
+			vp9OptionalBool(gok, g.KeyFrame),
+			vp9OptionalBool(lok, l.KeyFrame),
+			vp9OptionalHex(gok, g.RefreshFrameFlags),
+			vp9OptionalHex(lok, l.RefreshFrameFlags),
+			vp9OptionalInt(gok, g.BaseQIndex),
+			vp9OptionalInt(lok, l.BaseQIndex),
+			vp9OptionalInt(gok, g.SizeBytes),
+			vp9OptionalInt(lok, l.SizeBytes),
+			vp9OptionalInt(gok, g.FirstPartitionSize),
+			vp9OptionalInt(lok, l.FirstPartitionSize))
+	}
+	return b.String()
+}
+
+func vp9ScoreboardRowAt(rows []vp9RateScoreboardRow, i int) (vp9RateScoreboardRow, bool) {
+	if i < 0 || i >= len(rows) {
+		return vp9RateScoreboardRow{}, false
+	}
+	return rows[i], true
+}
+
+func vp9OptionalInt(ok bool, v int) string {
+	if !ok {
+		return "-"
+	}
+	return fmt.Sprintf("%d", v)
+}
+
+func vp9OptionalBool(ok bool, v bool) string {
+	if !ok {
+		return "-"
+	}
+	return fmt.Sprintf("%t", v)
+}
+
+func vp9OptionalHex(ok bool, v uint8) string {
+	if !ok {
+		return "-"
+	}
+	return fmt.Sprintf("%#x", v)
 }
 
 func vp9OracleFlushIndexSet(indexes []int) map[int]bool {

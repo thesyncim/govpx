@@ -140,12 +140,13 @@ type VP9EncoderOptions struct {
 	// EncodeIntoWithResult return ErrFrameNotReady until enough future frames
 	// have been queued; drain with FlushIntoWithResult at end of stream.
 	// The current VP9 lookahead path is limited to public-Q mode without
-	// temporal scalability or automatic alt-ref generation.
+	// temporal scalability. AutoAltRef uses this queue to emit a generated
+	// hidden ALTREF packet from a future source.
 	LookaheadFrames int
 	// AutoAltRef requests automatic generated alternate-reference frames. VP9
-	// currently rejects this option instead of silently approximating libvpx
-	// scheduling; source-backed ALTREF refresh remains available through
-	// EncodeForceAltRefFrame.
+	// requires LookaheadFrames > 1 and currently supports one future-source
+	// hidden ALTREF bootstrap per stream; source-backed ALTREF refresh remains
+	// available through EncodeForceAltRefFrame.
 	AutoAltRef bool
 
 	// AQMode selects VP9 adaptive quantization. VP9AQCyclicRefresh enables
@@ -338,6 +339,10 @@ type VP9Encoder struct {
 	lookaheadWrite uint8
 	lookaheadCount uint8
 
+	autoAltRefPending    vp9LookaheadEntry
+	autoAltRefPendingSet bool
+	autoAltRefEmitted    bool
+
 	vp9ModeDecisionQIndex    uint8
 	vp9ModeDecisionQIndexSet bool
 }
@@ -380,13 +385,13 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.LookaheadFrames < 0 || opts.LookaheadFrames > vp9MaxLookaheadFrames {
 		return ErrInvalidConfig
 	}
-	if opts.AutoAltRef {
-		return ErrInvalidConfig
-	}
 	if err := validateVP9RateControlOptions(opts); err != nil {
 		return err
 	}
 	if err := validateVP9AQOptions(opts); err != nil {
+		return err
+	}
+	if err := validateVP9AutoAltRefOptions(opts); err != nil {
 		return err
 	}
 	if opts.LookaheadFrames > 0 {
@@ -421,6 +426,16 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		if err := validateVP9LosslessSegmentationOptions(opts.Segmentation); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateVP9AutoAltRefOptions(opts VP9EncoderOptions) error {
+	if !opts.AutoAltRef {
+		return nil
+	}
+	if opts.LookaheadFrames <= 1 || opts.ErrorResilient {
+		return ErrInvalidConfig
 	}
 	return nil
 }

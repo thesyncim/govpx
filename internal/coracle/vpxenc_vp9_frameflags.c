@@ -582,6 +582,9 @@ int main(int argc, char **argv) {
   int error_resilient = 0;
   int lag_in_frames = 0;
   int auto_alt_ref = 0;
+  int arnr_maxframes = 0, arnr_maxframes_set = 0;
+  int arnr_strength = 0, arnr_strength_set = 0;
+  int arnr_type = 0, arnr_type_set = 0;
   int aq_mode = 0;
   int row_mt = 0;
   int tile_columns = 0;
@@ -640,6 +643,15 @@ int main(int argc, char **argv) {
       lag_in_frames = parse_int(v, "--lag-in-frames");
     } else if ((v = flag_value(a, "--auto-alt-ref"))) {
       auto_alt_ref = parse_int(v, "--auto-alt-ref");
+    } else if ((v = flag_value(a, "--arnr-maxframes"))) {
+      arnr_maxframes = parse_int(v, "--arnr-maxframes");
+      arnr_maxframes_set = 1;
+    } else if ((v = flag_value(a, "--arnr-strength"))) {
+      arnr_strength = parse_int(v, "--arnr-strength");
+      arnr_strength_set = 1;
+    } else if ((v = flag_value(a, "--arnr-type"))) {
+      arnr_type = parse_int(v, "--arnr-type");
+      arnr_type_set = 1;
     } else if ((v = flag_value(a, "--aq-mode"))) {
       aq_mode = parse_int(v, "--aq-mode");
     } else if ((v = flag_value(a, "--row-mt"))) {
@@ -797,6 +809,17 @@ int main(int argc, char **argv) {
   if (vpx_codec_control(&ctx, VP8E_SET_ENABLEAUTOALTREF,
                         (unsigned)auto_alt_ref))
     die_codec_msg(&ctx, "VP8E_SET_ENABLEAUTOALTREF");
+  if (arnr_maxframes_set &&
+      vpx_codec_control(&ctx, VP8E_SET_ARNR_MAXFRAMES,
+                        (unsigned)arnr_maxframes))
+    die_codec_msg(&ctx, "VP8E_SET_ARNR_MAXFRAMES");
+  if (arnr_strength_set &&
+      vpx_codec_control(&ctx, VP8E_SET_ARNR_STRENGTH,
+                        (unsigned)arnr_strength))
+    die_codec_msg(&ctx, "VP8E_SET_ARNR_STRENGTH");
+  if (arnr_type_set &&
+      vpx_codec_control(&ctx, VP8E_SET_ARNR_TYPE, (unsigned)arnr_type))
+    die_codec_msg(&ctx, "VP8E_SET_ARNR_TYPE");
   if (vpx_codec_control(&ctx, VP8E_SET_CQ_LEVEL, (unsigned)cq_level))
     die_codec_msg(&ctx, "VP8E_SET_CQ_LEVEL");
   if (vpx_codec_control(&ctx, VP9E_SET_AQ_MODE, (unsigned)aq_mode))

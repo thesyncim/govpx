@@ -485,6 +485,15 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = vp9MaxLookaheadFrames + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.AutoAltRef = true
+			o.LookaheadFrames = 1
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.AutoAltRef = true
+			o.LookaheadFrames = 2
+			o.ErrorResilient = true
+		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AQMode = VP9AQMode(99) }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AQMode = VP9AQCyclicRefresh }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
@@ -523,6 +532,13 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 			o.DropFrameAllowed = true
 		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
+			o.LookaheadFrames = 2
+			o.RateControlModeSet = true
+			o.RateControlMode = RateControlCBR
+			o.TargetBitrateKbps = 300
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.AutoAltRef = true
 			o.LookaheadFrames = 2
 			o.RateControlModeSet = true
 			o.RateControlMode = RateControlCBR
@@ -815,6 +831,111 @@ func TestVP9EncoderLookaheadDelaysAndFlushes(t *testing.T) {
 	}
 	if n, err := delayed.FlushInto(dst); !errors.Is(err, ErrFrameNotReady) || n != 0 {
 		t.Fatalf("empty FlushInto = n:%d err:%v, want 0/ErrFrameNotReady", n, err)
+	}
+}
+
+func TestVP9EncoderAutoAltRefLookaheadEmitsHiddenAltRef(t *testing.T) {
+	const width, height = 64, 64
+	const frames = 6
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 4,
+		AutoAltRef:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	dst := make([]byte, 65536)
+	results := make([]VP9EncodeResult, 0, frames+1)
+	packets := make([][]byte, 0, frames+1)
+	for frame := range frames {
+		src := newVP9YCbCrForTest(width, height, uint8(80+frame*17), 128, 128)
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		results = append(results, result)
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	for {
+		result, err := e.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		results = append(results, result)
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	if got, want := len(results), frames+1; got != want {
+		t.Fatalf("auto-alt-ref packets = %d, want %d", got, want)
+	}
+
+	hiddenIndex := -1
+	for i := range results {
+		if !results[i].ShowFrame {
+			if hiddenIndex >= 0 {
+				t.Fatalf("multiple hidden packets: first=%d second=%d", hiddenIndex, i)
+			}
+			hiddenIndex = i
+		}
+	}
+	if hiddenIndex < 0 {
+		t.Fatal("auto-alt-ref emitted no hidden packet")
+	}
+	hidden := results[hiddenIndex]
+	if hidden.KeyFrame || hidden.Dropped || len(hidden.Data) == 0 ||
+		hidden.RefreshFrameFlags != 1<<vp9AltRefSlot {
+		t.Fatalf("hidden packet = key:%t dropped:%t bytes:%d refresh:%#x, want inter ALTREF refresh",
+			hidden.KeyFrame, hidden.Dropped, len(hidden.Data), hidden.RefreshFrameFlags)
+	}
+	if hiddenIndex == 0 || !results[0].KeyFrame {
+		t.Fatalf("hidden index/key ordering = index:%d firstKey:%t, want hidden after first key",
+			hiddenIndex, results[0].KeyFrame)
+	}
+	for i := range results {
+		if i == hiddenIndex {
+			continue
+		}
+		if !results[i].ShowFrame || results[i].Dropped || len(results[i].Data) == 0 {
+			t.Fatalf("visible packet %d = show:%t dropped:%t bytes:%d",
+				i, results[i].ShowFrame, results[i].Dropped, len(results[i].Data))
+		}
+	}
+
+	dec, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	visible := 0
+	for i, packet := range packets {
+		if err := dec.Decode(packet); err != nil {
+			t.Fatalf("Decode packet %d: %v", i, err)
+		}
+		if i == hiddenIndex {
+			if _, ok := dec.NextFrame(); ok {
+				t.Fatal("NextFrame returned visible output after hidden ALTREF")
+			}
+			if info, ok := dec.LastFrameInfo(); !ok || info.ShowFrame ||
+				info.RefreshFrameFlags != 1<<vp9AltRefSlot {
+				t.Fatalf("LastFrameInfo after hidden = %+v ok=%t, want hidden ALTREF refresh",
+					info, ok)
+			}
+			continue
+		}
+		if _, ok := dec.NextFrame(); !ok {
+			t.Fatalf("NextFrame packet %d returned !ok", i)
+		}
+		visible++
+	}
+	if visible != frames {
+		t.Fatalf("visible decoded frames = %d, want %d", visible, frames)
 	}
 }
 
@@ -4732,6 +4853,60 @@ func TestVP9EncoderCyclicRefreshAQInterSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("VP9 cyclic AQ inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderAutoAltRefLookaheadSteadyStateAlloc(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 4,
+		AutoAltRef:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	sources := [8]*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 80, 128, 128),
+		newVP9YCbCrForTest(width, height, 96, 128, 128),
+		newVP9YCbCrForTest(width, height, 112, 128, 128),
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 144, 128, 128),
+		newVP9YCbCrForTest(width, height, 160, 128, 128),
+		newVP9YCbCrForTest(width, height, 176, 128, 128),
+		newVP9YCbCrForTest(width, height, 192, 128, 128),
+	}
+	dst := make([]byte, 65536)
+	for i := 0; i < 5; i++ {
+		_, err := e.EncodeIntoWithResult(sources[i], dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("warm EncodeIntoWithResult frame %d: %v", i, err)
+		}
+	}
+	if !e.autoAltRefPendingSet || !e.autoAltRefEmitted {
+		t.Fatalf("auto-alt-ref warm state = pending:%t emitted:%t, want true/true",
+			e.autoAltRefPendingSet, e.autoAltRefEmitted)
+	}
+
+	idx := 5
+	var result VP9EncodeResult
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		result, err = e.EncodeIntoWithResult(sources[idx&7], dst)
+		idx++
+	})
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult auto-alt-ref steady state: %v", err)
+	}
+	if result.Dropped || !result.ShowFrame || len(result.Data) == 0 {
+		t.Fatalf("auto-alt-ref steady packet = dropped:%t show:%t bytes:%d, want visible packet",
+			result.Dropped, result.ShowFrame, len(result.Data))
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 auto-alt-ref lookahead steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 

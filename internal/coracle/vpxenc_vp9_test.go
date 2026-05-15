@@ -162,6 +162,37 @@ func TestVpxencVP9FrameFlagsTraceI420EmitsTemporalMetadata(t *testing.T) {
 	}
 }
 
+func TestVpxencVP9FrameFlagsTraceI420AcceptsARNRControls(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 12
+	raw := makeGeneratedVP9I420(width, height, frames)
+	ivf, trace, diag, err := VpxencVP9FrameFlagsTraceI420(raw, width, height,
+		frames, nil,
+		"--deadline=good",
+		"--lag-in-frames=8",
+		"--auto-alt-ref=1",
+		"--arnr-maxframes=7",
+		"--arnr-strength=3",
+		"--arnr-type=3",
+		"--end-usage=vbr",
+		"--target-bitrate=300")
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
+	}
+	if len(ivf) == 0 {
+		t.Fatal("VpxencVP9FrameFlagsTraceI420 returned empty IVF")
+	}
+	if !bytes.Contains(trace, []byte(`"row":"vp9_frame"`)) {
+		t.Fatalf("ARNR trace missing VP9 frame rows:\n%s", trace)
+	}
+}
+
 func TestVpxencVP9FrameFlagsTraceI420AppliesBufferSchedules(t *testing.T) {
 	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
 		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
