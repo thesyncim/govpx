@@ -134,6 +134,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-constant-320",
@@ -284,6 +285,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-rt-cpu8-explicit-constant",
@@ -304,6 +306,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-good-cpu4-constant",
@@ -365,6 +368,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			},
 			extraArgs:   []string{"--error-resilient=1"},
 			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:    "max-keyframe-interval-2",
@@ -375,6 +379,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			},
 			extraArgs:   []string{"--kf-max-dist=2"},
 			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:    "force-key-frame1",
@@ -399,6 +404,25 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			flags:       vp9OracleRepeatInterFlag(6, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
 			exactPrefix: 6,
 			strictBytes: true,
+		},
+		{
+			name:        "no-reference-all-panning",
+			fixture:     panning64,
+			frames:      6,
+			flags:       vp9OracleRepeatInterFlag(6, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			exactPrefix: 0,
+		},
+		{
+			name:        "fixed-q-no-reference-all-panning-320",
+			fixture:     panning320,
+			frames:      4,
+			flags:       vp9OracleRepeatInterFlag(4, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			extraArgs:   []string{"--min-q=20", "--max-q=20"},
+			exactPrefix: 0,
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
 		},
 		{
 			name:        "cbr-rate-panning",
@@ -805,6 +829,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				t.Fatalf("strict VP9 pinned byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
+			panningByteCase := tc.name == "no-reference-all-panning" ||
+				tc.name == "fixed-q-no-reference-all-panning-320"
 			newModeByteCase := tc.name == "vbr-rate-panning" ||
 				tc.name == "vbr-rate-constant" ||
 				tc.name == "vbr-rate-constant-320" ||
@@ -830,6 +856,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			denoiserByteCase := tc.name == "noise-sensitivity-constant" ||
 				tc.name == "noise-sensitivity-soft"
 			if os.Getenv("GOVPX_VP9_STREAM_MATRIX_STRICT") == "1" &&
+				!panningByteCase &&
 				!newModeByteCase &&
 				!speedByteCase &&
 				!denoiserByteCase &&
@@ -853,6 +880,12 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				denoiserByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 denoiser byte parity %s/%s: matches=%d/%d",
+					tc.name, tc.fixture.name, matches, len(govpxPackets))
+			}
+			if os.Getenv("GOVPX_VP9_PANNING_BYTE_STRICT") == "1" &&
+				panningByteCase &&
+				matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 panning byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
 		})
@@ -1491,6 +1524,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 		extraArgs   []string
 		exactPrefix int
 		exactFrames []int
+		strictBytes bool
 	}
 	baseOpts := func(targetKbps int) VP9EncoderOptions {
 		return vp9OracleCBROptions(width, height, targetKbps)
@@ -1603,6 +1637,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				"--buf-initial-sz-schedule=3:300,7:400",
 				"--buf-optimal-sz-schedule=3:350,7:500"),
 			exactPrefix: frames,
+			strictBytes: true,
 		},
 		{
 			name: "cpu-used-two-step-fixed-q",
@@ -1626,6 +1661,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				"--control-script=-,-,-,cpu:4,-,-,-,cpu:5,-,-",
 			},
 			exactPrefix: frames,
+			strictBytes: true,
 		},
 		{
 			name: "cpu-used-minus3-roundtrip-fixed-q",
@@ -1673,6 +1709,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				"--control-script=-,-,-,cpu:-8,-,-,-,cpu:8,-,-",
 			},
 			exactPrefix: frames,
+			strictBytes: true,
 		},
 		{
 			name: "deadline-good-roundtrip-fixed-q",
@@ -1782,6 +1819,10 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				assertVP9PacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
+			}
+			if tc.strictBytes && matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 pinned runtime-control constant byte parity %s: matches=%d/%d",
+					tc.name, matches, len(govpxPackets))
 			}
 			if os.Getenv("GOVPX_VP9_RUNTIME_CONSTANT_BYTE_STRICT") == "1" &&
 				matches != len(govpxPackets) {

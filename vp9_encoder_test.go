@@ -1049,8 +1049,21 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 	if !vp9dec.SegFeatureActive(&seg, vp9CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ) {
 		t.Fatalf("cyclic segment %d missing AltQ feature", vp9CyclicRefreshSegmentBoost1)
 	}
-	if delta := vp9dec.GetSegData(&seg, vp9CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ); delta >= 0 {
-		t.Fatalf("cyclic segment AltQ delta = %d, want negative boost", delta)
+	delta1 := vp9dec.GetSegData(&seg, vp9CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ)
+	if delta1 >= 0 {
+		t.Fatalf("cyclic segment AltQ delta = %d, want negative boost", delta1)
+	}
+	if !vp9dec.SegFeatureActive(&seg, vp9CyclicRefreshSegmentBoost2, vp9dec.SegLvlAltQ) {
+		t.Fatalf("cyclic segment %d missing AltQ feature", vp9CyclicRefreshSegmentBoost2)
+	}
+	delta2 := vp9dec.GetSegData(&seg, vp9CyclicRefreshSegmentBoost2, vp9dec.SegLvlAltQ)
+	if delta2 >= delta1 {
+		t.Fatalf("cyclic segment deltas = %d/%d, want segment 2 stronger",
+			delta1, delta2)
+	}
+	if seg.TreeProbs[3] != 1 {
+		t.Fatalf("cyclic segment tree prob[3] = %d, want 1 for all segment-1 map",
+			seg.TreeProbs[3])
 	}
 	boosted := 0
 	for _, mi := range e.miGrid {
