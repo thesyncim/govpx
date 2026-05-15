@@ -155,6 +155,23 @@ type benchConfigSummary struct {
 	Deadline string `json:"deadline"`
 }
 
+type suiteReport struct {
+	Name          string            `json:"name"`
+	Runs          int               `json:"runs"`
+	Selector      string            `json:"selector"`
+	LibvpxVpxenc  string            `json:"libvpx_vpxenc,omitempty"`
+	PhaseTiming   bool              `json:"phase_timing,omitempty"`
+	QualitySkip   bool              `json:"quality_skipped,omitempty"`
+	Cases         []suiteCaseReport `json:"cases"`
+	GeomeanNSGap  float64           `json:"geomean_ns_frame_gap"`
+	GeomeanFPSGap float64           `json:"geomean_encode_fps_gap"`
+}
+
+type suiteCaseReport struct {
+	Name   string      `json:"name"`
+	Report benchReport `json:"report"`
+}
+
 // encoderParity captures the rate-control knobs that have to match between
 // govpx and libvpx for the comparison to be apples-to-apples. Both
 // newBenchmarkEncoder and runLibvpxBenchmark consume this so the two encoders

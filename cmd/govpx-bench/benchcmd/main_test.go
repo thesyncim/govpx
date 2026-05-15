@@ -279,7 +279,7 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 			cfg := benchConfig{}
 			opts := defaultBenchCLIOptions()
 			registerBenchFlags(fs, &cfg, &opts)
-			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-phase-timing", "-auto-libvpx=false"}); err != nil {
+			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-phase-timing", "-suite=quick", "-suite-runs=2", "-auto-libvpx=false"}); err != nil {
 				t.Fatalf("Parse returned error: %v", err)
 			}
 			if !cfg.SkipQuality || !cfg.PhaseTiming {
@@ -288,10 +288,76 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 || cfg.CpuUsed != -4 {
 				t.Fatalf("parsed config = %dx%d frames=%d cpu=%d, want 32x24 frames=7 cpu=-4", cfg.Width, cfg.Height, cfg.Frames, cfg.CpuUsed)
 			}
-			if opts.format != "json" || opts.autoCompare {
-				t.Fatalf("opts = %+v, want format=json autoCompare=false", opts)
+			if opts.format != "json" || opts.suite != "quick" || opts.suiteRuns != 2 || opts.autoCompare {
+				t.Fatalf("opts = %+v, want format=json suite=quick suiteRuns=2 autoCompare=false", opts)
 			}
 		})
+	}
+}
+
+func TestEncodeSuiteCases(t *testing.T) {
+	cases, err := encodeSuiteCases("quick")
+	if err != nil {
+		t.Fatalf("encodeSuiteCases quick returned error: %v", err)
+	}
+	if len(cases) != 2 || cases[0].name != "rt-720p-2m-30f" || cases[1].mode != "good" {
+		t.Fatalf("quick suite cases = %+v, want realtime 720p and good 1080p", cases)
+	}
+	if _, err := encodeSuiteCases("unknown"); err == nil {
+		t.Fatalf("encodeSuiteCases accepted unknown suite")
+	}
+}
+
+func TestRunEncodeSuiteRequiresLibvpxReference(t *testing.T) {
+	if _, err := runEncodeSuite(benchConfig{}, "quick", 1); err == nil {
+		t.Fatalf("runEncodeSuite without vpxenc returned nil error")
+	}
+}
+
+func TestFormatSuiteReportTable(t *testing.T) {
+	report := benchReport{
+		Mode:              "realtime",
+		Width:             1280,
+		Height:            720,
+		Frames:            30,
+		FPS:               30,
+		TargetBitrateKbps: 2000,
+		OutputBitrateKbps: 2460,
+		NSPerFrame:        8_000_000,
+		EncodeFPS:         125,
+		PSNR:              28.5,
+		SSIM:              0.93,
+		DroppedFrames:     4,
+		EncodedFrames:     26,
+		Reference: &referenceReport{
+			NSPerFrame:        4_000_000,
+			EncodeFPS:         250,
+			OutputBitrateKbps: 2448,
+			PSNR:              28.6,
+			SSIM:              0.934,
+			EncodedFrames:     26,
+		},
+		Comparison: &comparisonReport{
+			NSPerFrameRatio:         2,
+			EncodeFPSRatio:          0.5,
+			BitrateRatioVsReference: 1.0049,
+			PSNRDeltaDB:             -0.1,
+			SSIMDelta:               -0.004,
+		},
+	}
+	text := formatSuiteReport(suiteReport{
+		Name:          "quick",
+		Runs:          1,
+		Selector:      "median govpx ns/frame",
+		GeomeanNSGap:  2,
+		GeomeanFPSGap: 0.5,
+		Cases:         []suiteCaseReport{{Name: "rt-720p-2m-30f", Report: report}},
+	})
+	if !strings.Contains(text, "govpx-bench  suite  quick") ||
+		!strings.Contains(text, "rt-720p-2m-30f") ||
+		!strings.Contains(text, "2.00x") ||
+		!strings.Contains(text, "4/4") {
+		t.Fatalf("suite report missing expected table data:\n%s", text)
 	}
 }
 
