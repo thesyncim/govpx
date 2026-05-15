@@ -250,6 +250,13 @@ func denoiserFilterYScalar(mcRunningAvg []byte, mcStride int, runningAvg []byte,
 // denoiserFilterUV ports vp8_denoiser_filter_uv_c (denoising.c). 8x8 block
 // version for the chroma planes.
 func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {
+	if decision, ok := denoiserFilterUVSIMD(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising); ok {
+		return decision
+	}
+	return denoiserFilterUVScalar(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising)
+}
+
+func denoiserFilterUVScalar(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {
 	adj := [3]int{3, 4, 6}
 	shiftInc1 := 0
 	shiftInc2 := 1

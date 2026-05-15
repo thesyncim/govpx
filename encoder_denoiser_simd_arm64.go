@@ -13,6 +13,9 @@ import "unsafe"
 //go:noescape
 func denoiserFilterYFirstPassNEON(mc *byte, mcStride int, avg *byte, avgStride int, sig *byte, sigStride int, level1Adjustment uint64, level1Threshold uint64, sumOut *int32)
 
+//go:noescape
+func denoiserFilterUVFirstPassNEON(mc *byte, mcStride int, avg *byte, avgStride int, sig *byte, sigStride int, level1Adjustment uint64, level1Threshold uint64, sumOut *int32)
+
 func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) (int, bool) {
 	shiftInc := uint64(0)
 	if increaseDenoising && motionMagnitude <= denoiserMotionMagnitudeThresh {
@@ -36,4 +39,54 @@ func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg 
 		&sum,
 	)
 	return int(sum), true
+}
+
+func denoiserFilterUVSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) (int, bool) {
+	sumBlock := 0
+	for r := range 8 {
+		row := sig[r*sigStride:]
+		for c := range 8 {
+			sumBlock += int(row[c])
+		}
+	}
+	raw := sumBlock - 128*8*8
+	rawMask := raw >> mvKernelSignShift
+	if (raw^rawMask)-rawMask < denoiserSumDiffFromAvgThreshUV {
+		return denoiserCopyBlock, true
+	}
+
+	shiftInc := uint64(0)
+	if increaseDenoising && motionMagnitude <= denoiserMotionMagnitudeThrUV {
+		shiftInc = 1
+	}
+	level1Adjustment := uint64(3)
+	if motionMagnitude <= denoiserMotionMagnitudeThrUV {
+		level1Adjustment = 4 + shiftInc
+	}
+	level1Threshold := 4 + shiftInc
+	var sum int32
+	denoiserFilterUVFirstPassNEON(
+		unsafe.SliceData(mcRunningAvg),
+		mcStride,
+		unsafe.SliceData(runningAvg),
+		avgStride,
+		unsafe.SliceData(sig),
+		sigStride,
+		level1Adjustment,
+		level1Threshold,
+		&sum,
+	)
+	sumDiff := int(sum)
+	thresh := denoiserSumDiffThresholdUV
+	if increaseDenoising {
+		thresh = denoiserSumDiffThresholdHighUV
+	}
+	absMask := sumDiff >> mvKernelSignShift
+	if (sumDiff^absMask)-absMask > thresh {
+		return 0, false
+	}
+	for r := range 8 {
+		copy(sig[r*sigStride:r*sigStride+8], runningAvg[r*avgStride:r*avgStride+8])
+	}
+	return denoiserFilterBlock, true
 }
