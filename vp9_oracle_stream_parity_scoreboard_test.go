@@ -91,6 +91,12 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		height: 64,
 		source: newVP9PanningYCbCrForRateTest,
 	}
+	tiledRows64 := streamFixture{
+		name:   "panning-64x128",
+		width:  64,
+		height: 128,
+		source: newVP9PanningYCbCrForRateTest,
+	}
 
 	type streamCase struct {
 		name        string
@@ -551,6 +557,17 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				return opts
 			}(),
 			extraArgs:   []string{"--tile-columns=2"},
+			exactPrefix: 0,
+		},
+		{
+			name:    "tile-rows-from-option",
+			fixture: tiledRows64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Threads:      2,
+				Log2TileRows: 1,
+			},
+			extraArgs:   []string{"--tile-rows=1"},
 			exactPrefix: 0,
 		},
 	}

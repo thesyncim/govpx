@@ -100,7 +100,7 @@ func (e *VP9Encoder) initVP9TileWorkerPool() {
 		return
 	}
 	miCols := (e.opts.Width + 7) >> 3
-	tileInfo := vp9EncoderTileInfo(miCols, e.opts.Threads)
+	tileInfo := vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
 	if tileInfo.Log2TileRows != 0 {
 		return
 	}
@@ -117,17 +117,17 @@ func (e *VP9Encoder) initVP9TileWorkerPool() {
 	}
 }
 
-func (e *VP9Encoder) ensureVP9TileWorkerPool(tileCols int) *vp9TileWorkerPool {
-	if e == nil || e.opts.Threads <= 1 || tileCols <= 1 {
+func (e *VP9Encoder) ensureVP9TileWorkerPool(tileJobs int) *vp9TileWorkerPool {
+	if e == nil || e.opts.Threads <= 1 || tileJobs <= 1 {
 		return nil
 	}
-	if pool := e.vp9TilePool; pool != nil && pool.workerCount == tileCols {
+	if pool := e.vp9TilePool; pool != nil && pool.workerCount == tileJobs {
 		return pool
 	}
 	if e.vp9TilePool != nil {
 		e.vp9TilePool.shutdownPool()
 	}
-	pool := newVP9TileWorkerPool(tileCols)
+	pool := newVP9TileWorkerPool(tileJobs)
 	if pool == nil {
 		e.vp9TilePool = nil
 		e.vp9CountWorkers = nil
@@ -333,7 +333,11 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	kind vp9ModeTreeKind, seed vp9CountTileSeed, dstCounts *encoder.FrameCounts,
 ) bool {
+	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	if tileRows != 1 {
+		return false
+	}
 	pool := e.ensureVP9TileWorkerPool(tileCols)
 	if pool == nil || pool.workerCount != tileCols || dstCounts == nil {
 		return false
@@ -362,6 +366,9 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 }
 
 func (e *VP9Encoder) writeVP9FrameTilesThreadedEnabled(tileRows, tileCols int) bool {
+	// Tile rows depend on reconstructed pixels and above entropy contexts from
+	// the previous row, so this pool only dispatches independent columns in the
+	// default single-row tile layout.
 	return e != nil && e.opts.Threads > 1 && tileRows == 1 && tileCols > 1
 }
 

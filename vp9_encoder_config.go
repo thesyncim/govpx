@@ -60,6 +60,9 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		if !validVP9Dimension(target.Width) || !validVP9Dimension(target.Height) {
 			return ErrInvalidConfig
 		}
+		if err := validateVP9TileRowOptions(target.Width, target.Height, e.opts.Log2TileRows); err != nil {
+			return err
+		}
 		if e.vp9LookaheadSize() != 0 {
 			return ErrFrameNotReady
 		}

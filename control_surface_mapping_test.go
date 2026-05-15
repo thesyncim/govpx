@@ -187,7 +187,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		want["SetVP9OracleTraceWriter"] = controlParityMapping{kind: "oracle-trace"}
 	}
 	assertPublicMethodMappings(t, "VP9Encoder", methods, want)
-	assertFrameFlagsDriverTokens(t, want)
+	assertVP9FrameFlagsDriverTokens(t, want)
 }
 
 func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
@@ -209,6 +209,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"ErrorResilient":      {kind: "libvpx-config", helperTokens: []string{"error:", "--error-resilient"}},
 		"FPS":                 {kind: "libvpx-config", helperTokens: []string{"fps:"}},
 		"Height":              {kind: "libvpx-config-dimensions"},
+		"Log2TileRows":        {kind: "libvpx-config", helperTokens: []string{"--tile-rows"}},
 		"LookaheadFrames":     {kind: "vp9-lookahead-api"},
 		"Lossless":            {kind: "libvpx-vp9-lossless-gap"},
 		"MaxKeyframeInterval": {kind: "libvpx-config", helperTokens: []string{"kfmax:", "--kf-max-dist"}},
@@ -220,7 +221,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"Segmentation":        {kind: "vp9-segmentation-header-api"},
 		"TargetBitrateKbps":   {kind: "libvpx-config", helperTokens: []string{"bitrate:", "--target-bitrate"}},
 		"TemporalScalability": {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
-		"Threads":             {kind: "libvpx-config", helperTokens: []string{"threads:", "--threads"}},
+		"Threads":             {kind: "libvpx-config", helperTokens: []string{"--tile-columns"}},
 		"TimebaseDen":         {kind: "libvpx-config-timebase"},
 		"TimebaseNum":         {kind: "libvpx-config-timebase"},
 		"Tuning":              {kind: "libvpx-control", helperTokens: []string{"tune:", "--tune"}},
@@ -231,7 +232,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"Width":               {kind: "libvpx-config-dimensions"},
 	}
 	assertOptionFieldMappings(t, "VP9EncoderOptions", fields, want)
-	assertFrameFlagsDriverTokens(t, want)
+	assertVP9FrameFlagsDriverTokens(t, want)
 }
 
 func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
@@ -327,15 +328,36 @@ func assertOptionFieldMappings(t *testing.T, typeName string, got map[string]str
 
 func assertFrameFlagsDriverTokens(t *testing.T, mappings map[string]controlParityMapping) {
 	t.Helper()
-	data, err := os.ReadFile("internal/coracle/vpxenc_frameflags.c")
-	if err != nil {
-		t.Fatalf("read vpxenc_frameflags.c: %v", err)
+	assertFrameFlagsDriverTokensInFile(t, mappings, "internal/coracle/vpxenc_frameflags.c")
+}
+
+func assertVP9FrameFlagsDriverTokens(t *testing.T, mappings map[string]controlParityMapping) {
+	t.Helper()
+	assertFrameFlagsDriverTokensInFiles(t, mappings,
+		"internal/coracle/vpxenc_frameflags.c",
+		"internal/coracle/vpxenc_vp9_frameflags.c")
+}
+
+func assertFrameFlagsDriverTokensInFile(t *testing.T, mappings map[string]controlParityMapping, filename string) {
+	t.Helper()
+	assertFrameFlagsDriverTokensInFiles(t, mappings, filename)
+}
+
+func assertFrameFlagsDriverTokensInFiles(t *testing.T, mappings map[string]controlParityMapping, filenames ...string) {
+	t.Helper()
+	var source string
+	for _, filename := range filenames {
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			t.Fatalf("read %s: %v", filename, err)
+		}
+		source += "\n" + string(data)
 	}
-	source := string(data)
+	label := strings.Join(filenames, ", ")
 	for method, mapping := range mappings {
 		for _, token := range mapping.helperTokens {
 			if !strings.Contains(source, `"`+token) {
-				t.Fatalf("%s maps to frameflags token %q, but internal/coracle/vpxenc_frameflags.c does not contain it", method, token)
+				t.Fatalf("%s maps to frameflags token %q, but %s does not contain it", method, token, label)
 			}
 		}
 	}

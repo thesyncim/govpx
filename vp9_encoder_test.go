@@ -434,6 +434,12 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.Width = maxVP9Dimension + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Height = maxVP9Dimension + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Threads = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.Log2TileRows = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.Log2TileRows = 3 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.Height = 64
+			o.Log2TileRows = 1
+		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Deadline = Deadline(-1) }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.CpuUsed = -10 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.CpuUsed = 10 }, ErrInvalidConfig},
@@ -5502,6 +5508,175 @@ func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderLog2TileRowsRowOnlyMatchesSerial(t *testing.T) {
+	const width, height = 64, 128
+	serial, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		Threads:      1,
+		Log2TileRows: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(serial): %v", err)
+	}
+	threaded, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		Threads:      2,
+		Log2TileRows: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(threaded): %v", err)
+	}
+
+	dstSerial := make([]byte, 1<<20)
+	dstThreaded := make([]byte, 1<<20)
+	for frame := range 3 {
+		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		nSerial, err := serial.EncodeInto(src, dstSerial)
+		if err != nil {
+			t.Fatalf("serial EncodeInto[%d]: %v", frame, err)
+		}
+		nThreaded, err := threaded.EncodeInto(src, dstThreaded)
+		if err != nil {
+			t.Fatalf("threaded EncodeInto[%d]: %v", frame, err)
+		}
+		if !bytes.Equal(dstSerial[:nSerial], dstThreaded[:nThreaded]) {
+			t.Fatalf("tile-row threaded packet %d differs from serial: %d/%d bytes",
+				frame, nThreaded, nSerial)
+		}
+		if frame == 0 {
+			d, err := NewVP9Decoder(VP9DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP9Decoder: %v", err)
+			}
+			if err := d.Decode(dstSerial[:nSerial]); err != nil {
+				t.Fatalf("Decode serial tile-row keyframe: %v", err)
+			}
+			if _, ok := d.NextFrame(); !ok {
+				t.Fatal("NextFrame returned !ok after serial tile-row keyframe")
+			}
+		}
+	}
+	if threaded.vp9TilePool != nil {
+		t.Fatalf("row-only tile configuration initialized unsafe pool with %d workers",
+			threaded.vp9TilePool.workerCount)
+	}
+}
+
+func TestVP9EncoderLog2TileRowsWithTileColumnsMatchesSerial(t *testing.T) {
+	const width, height = 4104, 128
+	serial, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		Threads:      1,
+		Log2TileRows: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(serial): %v", err)
+	}
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		Threads:      2,
+		Log2TileRows: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	src := newVP9YCbCrForTest(width, height, 82, 123, 211)
+	wantPacket, err := serial.Encode(src)
+	if err != nil {
+		t.Fatalf("serial Encode: %v", err)
+	}
+	packet, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !bytes.Equal(packet, wantPacket) {
+		t.Fatalf("tile-row packet differs from serial: %d/%d bytes first_diff=%d",
+			len(packet), len(wantPacket), firstVP9PacketDiffForTest(packet, wantPacket))
+	}
+
+	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Tile.Log2TileRows != 1 {
+		t.Fatalf("Log2TileRows = %d, want 1", h.Tile.Log2TileRows)
+	}
+	if h.Tile.Log2TileCols != 1 {
+		t.Fatalf("Log2TileCols = %d, want 1 for minimum wide-frame tiling",
+			h.Tile.Log2TileCols)
+	}
+	if e.vp9TilePool != nil {
+		t.Fatalf("tile-row configuration initialized unsafe pool with %d workers",
+			e.vp9TilePool.workerCount)
+	}
+	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after tile-row threaded keyframe")
+	}
+	assertVP9FilledFrameWithin(t, frame, width, height, 82, 123, 211, 1)
+}
+
+func TestVP9EncoderLog2TileRowsSerialMultiColumnDecodes(t *testing.T) {
+	const width, height = 4104, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		Threads:      1,
+		Log2TileRows: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 82, 123, 211))
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Tile.Log2TileRows != 1 || h.Tile.Log2TileCols == 0 {
+		t.Fatalf("tile grid = rows:%d cols:%d, want row tiles and multi-column minimum",
+			h.Tile.Log2TileRows, h.Tile.Log2TileCols)
+	}
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode serial tile grid: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after serial tile-grid keyframe")
+	}
+}
+
+func TestVP9EncoderLog2TileRowsResizeValidation(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        64,
+		Height:       128,
+		Threads:      2,
+		Log2TileRows: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 64, Height: 64}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetRealtimeTarget invalid tile rows error = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.Width != 64 || e.opts.Height != 128 {
+		t.Fatalf("encoder dimensions changed after rejected resize: %dx%d",
+			e.opts.Width, e.opts.Height)
+	}
+}
+
 func TestVP9EncoderRuntimeResizeRebuildsTileWorkerPool(t *testing.T) {
 	const smallWidth, smallHeight = 64, 64
 	const wideWidth, wideHeight = 1280, 64
@@ -5622,6 +5797,40 @@ func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("threaded tile EncodeInto steady-state allocs = %f, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderTileRowsSteadyStateAlloc(t *testing.T) {
+	const width, height = 1024, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		Threads:      2,
+		Log2TileRows: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	frames := [4]*image.YCbCr{}
+	for i := range frames {
+		frames[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+	}
+	dst := make([]byte, 1<<20)
+	for i := range frames {
+		if _, err := e.EncodeInto(frames[i], dst); err != nil {
+			t.Fatalf("warm EncodeInto[%d]: %v", i, err)
+		}
+	}
+	idx := 0
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		frame := frames[idx&3]
+		idx++
+		if _, err := e.EncodeInto(frame, dst); err != nil {
+			t.Fatalf("EncodeInto tile-row alloc run: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("tile-row EncodeInto steady-state allocs = %f, want 0", allocs)
 	}
 }
 

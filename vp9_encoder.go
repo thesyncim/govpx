@@ -68,10 +68,15 @@ type VP9EncoderOptions struct {
 	// Threads is a tile-column hint for VP9 profile 0 encode. Zero or 1
 	// choose the minimum legal tile columns for the frame; larger values choose
 	// enough columns for decoder/transport parallelism, clamped to VP9 limits.
-	// Multi-column tile bodies are encoded by a persistent worker pool; the
-	// Threads <= 1 path does not allocate or touch that pool. Negative values
-	// return ErrInvalidConfig.
+	// Multi-column, single-row tile bodies are encoded by a persistent worker
+	// pool; the Threads <= 1 path does not allocate or touch that pool.
+	// Negative values return ErrInvalidConfig.
 	Threads int
+	// Log2TileRows selects the VP9 tile-row count as 1<<Log2TileRows. Valid
+	// values are 0..2; zero keeps the default single tile row. Tile rows are
+	// emitted in scan order because reconstructed pixels and above entropy
+	// contexts carry across row boundaries.
+	Log2TileRows int8
 
 	// Deadline selects the VP9 speed/quality operating mode. The zero-value
 	// options keep govpx's historical VP9 oracle default of realtime cpu-used 8;
@@ -416,9 +421,9 @@ type VP9Encoder struct {
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
-// Width and Height must be positive; Threads / Quantizer /
+// Width and Height must be positive; Threads / Log2TileRows / Quantizer /
 // TargetBitrateKbps / MinQuantizer / MaxQuantizer / CQLevel /
-// MaxKeyframeInterval must be non-negative.
+// MaxKeyframeInterval must be within their documented ranges.
 func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := normalizeVP9SpeedOptions(&opts); err != nil {
 		return nil, err
@@ -456,6 +461,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	}
 	if opts.Threads < 0 {
 		return ErrInvalidConfig
+	}
+	if err := validateVP9TileRowOptions(opts.Width, opts.Height, opts.Log2TileRows); err != nil {
+		return err
 	}
 	if opts.TargetBitrateKbps < 0 || opts.Quantizer < 0 ||
 		opts.MaxKeyframeInterval < 0 {
@@ -516,6 +524,25 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		if err := validateVP9LosslessSegmentationOptions(opts.Segmentation); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateVP9TileRowOptions(width, height int, log2TileRows int8) error {
+	if log2TileRows < 0 || log2TileRows > 2 {
+		return ErrInvalidConfig
+	}
+	if log2TileRows == 0 {
+		return nil
+	}
+	if !validVP9Dimension(width) || !validVP9Dimension(height) {
+		return ErrInvalidConfig
+	}
+	tileRows := 1 << uint(log2TileRows)
+	miRows := (height + 7) >> 3
+	sbRows := (miRows + (1 << common.MiBlockSizeLog2) - 1) >> common.MiBlockSizeLog2
+	if tileRows > sbRows {
+		return ErrInvalidConfig
 	}
 	return nil
 }
@@ -925,7 +952,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 			ColorRange: common.CRStudioRange,
 		},
 	}
-	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
+	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
 	macroblocks := vp9MacroblockCount(miRows, miCols)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
 	if e.rc.enabled {
@@ -1410,7 +1437,7 @@ func (e *VP9Encoder) vp9LegacyInterRefSignBias(flags EncodeFlags) [3]uint8 {
 	return bias
 }
 
-func vp9EncoderTileInfo(miCols, threads int) vp9dec.TileInfo {
+func vp9EncoderTileInfo(miCols, threads int, log2TileRows int8) vp9dec.TileInfo {
 	minLog2, maxLog2 := vp9dec.TileNBits(miCols)
 	log2Cols := minLog2
 	if threads > 1 {
@@ -1419,7 +1446,7 @@ func vp9EncoderTileInfo(miCols, threads int) vp9dec.TileInfo {
 	log2Cols = min(log2Cols, maxLog2)
 	return vp9dec.TileInfo{
 		Log2TileCols: log2Cols,
-		Log2TileRows: 0,
+		Log2TileRows: int(log2TileRows),
 	}
 }
 
