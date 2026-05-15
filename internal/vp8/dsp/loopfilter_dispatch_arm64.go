@@ -93,10 +93,9 @@ func loopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, 
 
 func loopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
 	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
-		var tmp [8 * 16]byte
-		gatherV8x8PairARM64(&tmp, u, v, stride)
-		loopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
-		scatterV8x8PairARM64(u, v, stride, &tmp, 2, 4)
+		baseU := unsafe.Pointer(unsafe.SliceData(u))
+		baseV := unsafe.Pointer(unsafe.SliceData(v))
+		loopFilterEdgeV8x8PairNEON((*byte)(unsafe.Add(baseU, 4)), (*byte)(unsafe.Add(baseV, 4)), stride, blimit, limit, thresh)
 		return
 	}
 	loopFilterVerticalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
