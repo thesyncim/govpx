@@ -120,6 +120,18 @@ func runLibvpxChecksumOracleControlScript(t *testing.T, oracle string, mode stri
 	return runLibvpxChecksumOracleControlScriptFile(t, oracle, mode, script, path)
 }
 
+func runLibvpxChecksumOracleControlScriptWithCopyLog(t *testing.T, oracle string, mode string, script []string, ivf []byte) ([]testutil.FrameChecksum, []testutil.FrameChecksum) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "govpx-"+mode+".ivf")
+	copyLogPath := filepath.Join(dir, "copy-reference.jsonl")
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	frames := runLibvpxChecksumOracleArgs(t, oracle, []string{mode, strings.Join(script, ","), copyLogPath, path})
+	return frames, readLibvpxCopyReferenceLog(t, copyLogPath)
+}
+
 func runLibvpxChecksumOracleThreadedControlScript(t *testing.T, oracle string, threads int, script []string, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "govpx-decode-threaded-controls.ivf")
@@ -128,6 +140,19 @@ func runLibvpxChecksumOracleThreadedControlScript(t *testing.T, oracle string, t
 	}
 	args := []string{"decode-threaded-controls", strconv.Itoa(threads), strings.Join(script, ","), path}
 	return runLibvpxChecksumOracleArgs(t, oracle, args)
+}
+
+func runLibvpxChecksumOracleThreadedControlScriptWithCopyLog(t *testing.T, oracle string, threads int, script []string, ivf []byte) ([]testutil.FrameChecksum, []testutil.FrameChecksum) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "govpx-decode-threaded-controls.ivf")
+	copyLogPath := filepath.Join(dir, "copy-reference.jsonl")
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	args := []string{"decode-threaded-controls-copylog", strconv.Itoa(threads), strings.Join(script, ","), copyLogPath, path}
+	frames := runLibvpxChecksumOracleArgs(t, oracle, args)
+	return frames, readLibvpxCopyReferenceLog(t, copyLogPath)
 }
 
 func runLibvpxChecksumOracleModeExpectError(t *testing.T, oracle string, mode string, ivf []byte) error {
@@ -167,6 +192,22 @@ func runLibvpxChecksumOracleArgs(t *testing.T, oracle string, args []string) []t
 			t.Fatalf("libvpx oracle produced invalid output:\n%s", out)
 		}
 		t.Fatalf("ParseFrameChecksumJSONLines returned error: %v", err)
+	}
+	return frames
+}
+
+func readLibvpxCopyReferenceLog(t *testing.T, path string) []testutil.FrameChecksum {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read copy-reference log %s: %v", path, err)
+	}
+	frames, err := testutil.ParseFrameChecksumJSONLines(data)
+	if err != nil {
+		if errors.Is(err, testutil.ErrInvalidOracleOutput) {
+			t.Fatalf("libvpx copy-reference log produced invalid output:\n%s", data)
+		}
+		t.Fatalf("ParseFrameChecksumJSONLines copy-reference log returned error: %v", err)
 	}
 	return frames
 }

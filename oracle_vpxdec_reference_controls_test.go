@@ -4,6 +4,8 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 func TestOracleLibvpxDecoderReferenceControls(t *testing.T) {
@@ -27,11 +29,13 @@ func TestOracleLibvpxDecoderReferenceControls(t *testing.T) {
 			packets, controlFrame := decoderReferenceControlPackets(t, 16, 16, rc.ref)
 			ivf := makeIVF(16, 16, 30, 1, packets)
 			script := decoderReferenceControlScript(len(packets), controlFrame, rc.refArg, 7)
-			apply := decoderReferenceControlApply(controlFrame, rc.ref, 7, rc.name)
+			var govpxCopies []testutil.FrameChecksum
+			apply := decoderReferenceControlApply(controlFrame, rc.ref, 7, rc.name, &govpxCopies)
 
-			want := runLibvpxChecksumOracleControlScript(t, oracle, "decode-controls", script, ivf)
+			want, libvpxCopies := runLibvpxChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-controls-copylog", script, ivf)
 			got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{}, apply)
 			assertFrameChecksumsEqual(t, "decoder reference controls "+rc.name, got, want)
+			assertFrameChecksumsEqual(t, "decoder copy-reference controls "+rc.name, govpxCopies, libvpxCopies)
 		})
 	}
 
@@ -39,33 +43,39 @@ func TestOracleLibvpxDecoderReferenceControls(t *testing.T) {
 		packets, controlFrame := decoderReferenceControlPackets(t, 16, 16, ReferenceLast)
 		ivf := makeIVF(16, 16, 30, 1, packets)
 		script := decoderReferenceControlScript(len(packets), controlFrame, "last", 8)
-		apply := decoderReferenceControlApply(controlFrame, ReferenceLast, 8, "last")
+		var govpxCopies []testutil.FrameChecksum
+		apply := decoderReferenceControlApply(controlFrame, ReferenceLast, 8, "last", &govpxCopies)
 
-		want := runLibvpxChecksumOracleControlScript(t, oracle, "decode-postproc-controls", script, ivf)
+		want, libvpxCopies := runLibvpxChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-postproc-controls-copylog", script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{PostProcess: true}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls postprocess", got, want)
+		assertFrameChecksumsEqual(t, "decoder copy-reference controls postprocess", govpxCopies, libvpxCopies)
 	})
 
 	t.Run("error-concealment", func(t *testing.T) {
 		packets, controlFrame := decoderReferenceControlPackets(t, 16, 16, ReferenceGolden)
 		ivf := makeIVF(16, 16, 30, 1, packets)
 		script := decoderReferenceControlScript(len(packets), controlFrame, "golden", 9)
-		apply := decoderReferenceControlApply(controlFrame, ReferenceGolden, 9, "golden")
+		var govpxCopies []testutil.FrameChecksum
+		apply := decoderReferenceControlApply(controlFrame, ReferenceGolden, 9, "golden", &govpxCopies)
 
-		want := runLibvpxChecksumOracleControlScript(t, oracle, "decode-error-concealment-controls", script, ivf)
+		want, libvpxCopies := runLibvpxChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-error-concealment-controls-copylog", script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{ErrorConcealment: true}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls error concealment", got, want)
+		assertFrameChecksumsEqual(t, "decoder copy-reference controls error concealment", govpxCopies, libvpxCopies)
 	})
 
 	t.Run("threaded", func(t *testing.T) {
 		packets, controlFrame := decoderReferenceControlPackets(t, 16, 32, ReferenceAltRef)
 		ivf := makeIVF(16, 32, 30, 1, packets)
 		script := decoderReferenceControlScript(len(packets), controlFrame, "altref", 10)
-		apply := decoderReferenceControlApply(controlFrame, ReferenceAltRef, 10, "altref")
+		var govpxCopies []testutil.FrameChecksum
+		apply := decoderReferenceControlApply(controlFrame, ReferenceAltRef, 10, "altref", &govpxCopies)
 
-		want := runLibvpxChecksumOracleThreadedControlScript(t, oracle, 2, script, ivf)
+		want, libvpxCopies := runLibvpxChecksumOracleThreadedControlScriptWithCopyLog(t, oracle, 2, script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{Threads: 2}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls threaded", got, want)
+		assertFrameChecksumsEqual(t, "decoder copy-reference controls threaded", govpxCopies, libvpxCopies)
 	})
 
 	t.Run("resolution-change", func(t *testing.T) {
@@ -77,14 +87,16 @@ func TestOracleLibvpxDecoderReferenceControls(t *testing.T) {
 			control16:                  "copyref:last+setref:last:panning:11+copyref:last",
 			len(packets16) + control32: "copyref:last+setref:last:panning:12+copyref:last",
 		})
+		var govpxCopies []testutil.FrameChecksum
 		apply := map[int]func(*testing.T, *VP8Decoder){
-			control16:                  decoderReferenceControlAction(ReferenceLast, 11, "last"),
-			len(packets16) + control32: decoderReferenceControlAction(ReferenceLast, 12, "last"),
+			control16:                  decoderReferenceControlAction(control16, ReferenceLast, 11, "last", &govpxCopies),
+			len(packets16) + control32: decoderReferenceControlAction(len(packets16)+control32, ReferenceLast, 12, "last", &govpxCopies),
 		}
 
-		want := runLibvpxChecksumOracleControlScript(t, oracle, "decode-controls", script, ivf)
+		want, libvpxCopies := runLibvpxChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-controls-copylog", script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls resolution change", got, want)
+		assertFrameChecksumsEqual(t, "decoder copy-reference controls resolution change", govpxCopies, libvpxCopies)
 	})
 }
 
@@ -107,19 +119,20 @@ func decoderRuntimeControlScript(frames int, updates map[int]string) []string {
 	return script
 }
 
-func decoderReferenceControlApply(frame int, ref ReferenceFrame, index int, name string) map[int]func(*testing.T, *VP8Decoder) {
+func decoderReferenceControlApply(frame int, ref ReferenceFrame, index int, name string, copies *[]testutil.FrameChecksum) map[int]func(*testing.T, *VP8Decoder) {
 	return map[int]func(*testing.T, *VP8Decoder){
-		frame: decoderReferenceControlAction(ref, index, name),
+		frame: decoderReferenceControlAction(frame, ref, index, name, copies),
 	}
 }
 
-func decoderReferenceControlAction(ref ReferenceFrame, index int, name string) func(*testing.T, *VP8Decoder) {
+func decoderReferenceControlAction(frame int, ref ReferenceFrame, index int, name string, copies *[]testutil.FrameChecksum) func(*testing.T, *VP8Decoder) {
 	return func(t *testing.T, d *VP8Decoder) {
 		t.Helper()
 		before := newTestImage(d.frameWidth, d.frameHeight)
 		if err := d.CopyReferenceFrame(ref, &before); err != nil {
 			t.Fatalf("CopyReferenceFrame(%s) before set returned error: %v", name, err)
 		}
+		*copies = append(*copies, checksumFrame(frame, false, false, before))
 		src := encoderValidationPanningFrame(d.frameWidth, d.frameHeight, index)
 		if err := d.SetReferenceFrame(ref, src); err != nil {
 			t.Fatalf("SetReferenceFrame(%s) returned error: %v", name, err)
@@ -129,6 +142,7 @@ func decoderReferenceControlAction(ref ReferenceFrame, index int, name string) f
 			t.Fatalf("CopyReferenceFrame(%s) after set returned error: %v", name, err)
 		}
 		assertImagesEqual(t, "copied decoder reference "+name, src, after)
+		*copies = append(*copies, checksumFrame(frame, false, false, after))
 	}
 }
 
