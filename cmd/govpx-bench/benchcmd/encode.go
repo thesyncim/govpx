@@ -58,6 +58,11 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	}
 	enc.Reset()
 	phaseStats.Reset()
+	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
+	if err != nil {
+		return benchReport{}, err
+	}
+	defer stopCPUProfile()
 	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
 	encodeMallocs := uint64(0)
 	for i, frame := range frames {
@@ -101,6 +106,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 			interCount++
 		}
 	}
+	stopCPUProfile()
 	psnr := 0.0
 	ssim := 0.0
 	qualityFrames := 0

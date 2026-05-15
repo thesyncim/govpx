@@ -22,7 +22,6 @@ type benchCLIOptions struct {
 	buildLibvpx bool
 	suite       string
 	suiteRuns   int
-	cpuProfile  string
 	memProfile  string
 	ffmpeg      string
 	plotPath    string
@@ -62,7 +61,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.StringVar(&opts.plotPath, "plot", "", "write a reproducible govpx-vs-libvpx VMAF SVG comparison plot using ffmpeg")
 	fs.StringVar(&opts.plotCSV, "plot-csv", "", "optional CSV path for -plot per-frame VMAF metrics; defaults beside the SVG")
 	fs.StringVar(&opts.plotJSON, "plot-json", "", "optional JSON path for -plot VMAF summary data; defaults beside the SVG")
-	fs.StringVar(&opts.cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
+	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
 	fs.StringVar(&opts.memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
 }
 

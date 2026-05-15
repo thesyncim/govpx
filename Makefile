@@ -24,6 +24,7 @@ VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
 VP9_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp9
 VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
 PGO_PROFILE := cmd/govpx-bench/default.pgo
+PGO_FINGERPRINT := cmd/govpx-bench/default.pgo.sources.sha256
 
 # The pinned libvpx manifest currently lists 62 non-invalid vp80*.ivf names;
 # four segmentation fixtures carry I420 IVF FourCCs, so the VP8 decoder
@@ -40,11 +41,11 @@ VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test byte-parity decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity oracle-test byte-parity decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
-ci: fmtcheck test test-purego
+ci: fmtcheck pgo-check test test-purego
 
 fmtcheck:
 	files="$$($(GOFMT) -l $$($(GIT) ls-files '*.go'))"; \
@@ -87,6 +88,25 @@ pgo-refresh:
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) tool pprof -proto .pgo/encode.pgo .pgo/quality.pgo > "$(PGO_PROFILE).tmp"
 	mv "$(PGO_PROFILE).tmp" "$(PGO_PROFILE)"
 	rm -rf .pgo
+	$(MAKE) pgo-update-fingerprint
+
+pgo-update-fingerprint:
+	scripts/pgo-fingerprint.sh > "$(PGO_FINGERPRINT).tmp"
+	mv "$(PGO_FINGERPRINT).tmp" "$(PGO_FINGERPRINT)"
+
+pgo-check:
+	test -s "$(PGO_PROFILE)"
+	test -s "$(PGO_FINGERPRINT)"
+	actual="$$(scripts/pgo-fingerprint.sh)"; \
+	expected="$$(cat "$(PGO_FINGERPRINT)")"; \
+	if [ "$$actual" != "$$expected" ]; then \
+		printf '%s\n' "PGO profile is out of sync with VP8 benchmark hot-path sources."; \
+		printf '%s\n' "Run: make pgo-refresh"; \
+		printf 'expected %s\nactual   %s\n' "$$expected" "$$actual"; \
+		exit 1; \
+	fi
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -pgo="$(PGO_PROFILE)" -o /tmp/govpx-bench-pgo-check ./cmd/govpx-bench
+	rm -f /tmp/govpx-bench-pgo-check
 
 oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \

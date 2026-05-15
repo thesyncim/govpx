@@ -113,9 +113,11 @@ func loopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, 
 func loopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
 	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
 		var tmp [8 * 16]byte
-		gatherV8x8PairAMD64(&tmp, u, v, stride)
+		baseU := unsafe.SliceData(u)
+		baseV := unsafe.SliceData(v)
+		gatherV8x8PairAMD64SSE2(&tmp, baseU, baseV, stride)
 		loopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
-		scatterV8x8PairAMD64(u, v, stride, &tmp, 2, 4)
+		scatterV8x8PairAMD64SSE2(baseU, baseV, stride, &tmp)
 		return
 	}
 	loopFilterVerticalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
@@ -171,9 +173,11 @@ func mbLoopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit
 func mbLoopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
 	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
 		var tmp [8 * 16]byte
-		gatherV8x8PairAMD64(&tmp, u, v, stride)
+		baseU := unsafe.SliceData(u)
+		baseV := unsafe.SliceData(v)
+		gatherV8x8PairAMD64SSE2(&tmp, baseU, baseV, stride)
 		mbLoopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
-		scatterV8x8PairAMD64(u, v, stride, &tmp, 1, 6)
+		scatterV8x8PairAMD64SSE2(baseU, baseV, stride, &tmp)
 		return
 	}
 	mbLoopFilterVerticalEdgeDispatch(u, stride, blimit, limit, thresh, 1)

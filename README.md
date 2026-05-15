@@ -252,7 +252,9 @@ your workload.
 
 `cmd/govpx-bench/default.pgo` is checked in intentionally so `go build`'s
 default `-pgo=auto` picks it up for the benchmark command. Refresh it
-after material hot-path changes:
+after material hot-path changes. `make ci` runs `make pgo-check`, which
+fails when VP8 benchmark hot-path sources changed without refreshing the
+checked-in profile and source fingerprint:
 
 ```sh
 make pgo-refresh
