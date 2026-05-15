@@ -354,16 +354,20 @@ type VP9Encoder struct {
 	prevFrameMvCols   int
 	prevFrameMvsValid bool
 
-	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
-	coefScratch    [1024]int16
-	residueScratch [1024]int16
-	txCoeffScratch [1024]int16
-	dqCoeffScratch [1024]int16
-	dqScratch      vp9dec.DequantTables
-	frameCounts    encoder.FrameCounts
-	lfi            vp9dec.LoopFilterInfoN
-	lfRefDeltas    [vp9dec.MaxRefLfDeltas]int8
-	lfModeDeltas   [vp9dec.MaxModeLfDeltas]int8
+	blockCoeffs      [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
+	coefScratch      [1024]int16
+	residueScratch   [1024]int16
+	txCoeffScratch   [1024]int16
+	dqCoeffScratch   [1024]int16
+	dqScratch        vp9dec.DequantTables
+	frameCounts      encoder.FrameCounts
+	vp9HeaderScratch vp9dec.UncompressedHeader
+	vp9CountWorkers  []VP9Encoder
+	vp9CountCounts   []encoder.FrameCounts
+	vp9CountJobs     []vp9CountTileJob
+	lfi              vp9dec.LoopFilterInfoN
+	lfRefDeltas      [vp9dec.MaxRefLfDeltas]int8
+	lfModeDeltas     [vp9dec.MaxModeLfDeltas]int8
 
 	lookahead      []vp9LookaheadEntry
 	lookaheadRead  uint8
@@ -825,7 +829,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	}
 	e.prepareVP9EncoderOutputFrame(int(width), int(height))
 
-	header := vp9dec.UncompressedHeader{
+	header := &e.vp9HeaderScratch
+	*header = vp9dec.UncompressedHeader{
 		Profile:               common.Profile0,
 		ShowFrame:             showFrame,
 		ErrorResilientMode:    e.opts.ErrorResilient,
@@ -883,7 +888,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	shouldRestoreFrameContexts := isKey || intraOnly || e.opts.ErrorResilient || restoreFrameContext
 	var frameContextsSeed [common.FrameContexts]vp9dec.FrameContext
 	var frameContextSeed vp9dec.FrameContext
-	frameContextIdx := e.prepareVP9EncoderFrameContext(&header)
+	frameContextIdx := e.prepareVP9EncoderFrameContext(header)
 	if shouldRestoreFrameContexts {
 		frameContextsSeed = e.frameContexts
 		frameContextSeed = e.fc
@@ -936,7 +941,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	var interState *vp9InterEncodeState
 	compoundAllowed := false
 	referenceMode := vp9dec.SingleReference
-	refSignBias := vp9FrameRefSignBias(&header)
+	refSignBias := vp9FrameRefSignBias(header)
 	compoundRefs := vp9dec.SetupCompoundReferenceMode(refSignBias)
 	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
 		BaseQindex: int(header.Quant.BaseQindex),
@@ -945,14 +950,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	if isKey {
 		keyState = &vp9KeyframeEncodeState{
 			img:      img,
-			hdr:      &header,
+			hdr:      header,
 			dq:       dq,
 			lossless: header.Quant.Lossless,
 		}
 	} else if intraOnly {
 		keyState = &vp9KeyframeEncodeState{
 			img:      img,
-			hdr:      &header,
+			hdr:      header,
 			dq:       dq,
 			lossless: header.Quant.Lossless,
 		}
@@ -1034,13 +1039,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	prevLfRef, prevLfMode := e.vp9EncoderLoopFilterPrevDeltas(resetLoopfilterDeltas)
 	if header.FrameType == common.KeyFrame {
 		uncSize = encoder.WriteKeyframeUncompressedHeaderWithLoopfilterPrev(
-			&headerBW, &header, &prevLfRef, &prevLfMode)
+			&headerBW, header, &prevLfRef, &prevLfMode)
 	} else if header.IntraOnly {
 		uncSize = encoder.WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev(
-			&headerBW, &header, &prevLfRef, &prevLfMode)
+			&headerBW, header, &prevLfRef, &prevLfMode)
 	} else {
 		uncSize = encoder.WriteInterUncompressedHeaderWithLoopfilterPrev(
-			&headerBW, &header, e.vp9RefDims, &prevLfRef, &prevLfMode)
+			&headerBW, header, e.vp9RefDims, &prevLfRef, &prevLfMode)
 	}
 	if uncSize+compSize >= len(dst) {
 		return VP9EncodeResult{}, encoder.ErrPackBufferFull
@@ -1068,14 +1073,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		twoPassTargetBits = e.vp9TwoPassFrameTarget
 	}
 	if header.RefreshFrameFlags != 0 {
-		if !e.applyVP9EncoderLoopFilter(&header, &seg) {
+		if !e.applyVP9EncoderLoopFilter(header, &seg) {
 			return VP9EncodeResult{}, ErrInvalidVP9Data
 		}
 	}
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
-	e.refreshVP9EncoderRefs(&header, flags)
+	e.refreshVP9EncoderRefs(header, flags)
 	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
-	e.commitVP9EncoderFrameContext(&header, frameContextIdx)
+	e.commitVP9EncoderFrameContext(header, frameContextIdx)
 	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
 		header.RefreshFrameFlags, macroblocks)
 	if header.ShowFrame {
@@ -1623,14 +1628,14 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	} else if intraOnly {
 		kind = vp9ModeTreeKeyframe
 	}
-	e.collectVP9FrameTileCounts(miRows, miCols, tileInfo,
+	e.collectVP9FrameTileCounts(width, height, miRows, miCols, tileInfo,
 		partitionProbs, seg, baseMi, txMode, kind, countKey, countInter)
 
 	e.resetVP9EncoderCodingState(width, height)
 	return counts
 }
 
-func (e *VP9Encoder) collectVP9FrameTileCounts(miRows, miCols int,
+func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int,
 	tileInfo vp9dec.TileInfo,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
@@ -1638,6 +1643,13 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(miRows, miCols int,
 ) {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	if e.opts.Threads > 1 && tileRows == 1 && tileCols > 1 {
+		seed := vp9CountTileSeedForState(key, inter)
+		if e.collectVP9FrameTileCountsThreaded(width, height, miRows, miCols,
+			tileInfo, partitionProbs, seg, baseMi, txMode, kind, seed) {
+			return
+		}
+	}
 	for tileRow := range tileRows {
 		for tileCol := range tileCols {
 			var bw bitstream.Writer

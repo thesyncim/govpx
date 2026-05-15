@@ -4840,6 +4840,15 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 		t.Fatalf("Log2TileCols = %d, want 2 for Threads=4",
 			h.Tile.Log2TileCols)
 	}
+	if got, want := len(e.vp9CountWorkers), 4; got != want {
+		t.Fatalf("VP9 count workers = %d, want %d", got, want)
+	}
+	if len(e.vp9CountWorkers[0].miGrid) == 0 || len(e.miGrid) == 0 {
+		t.Fatal("VP9 threaded count worker miGrid was not initialized")
+	}
+	if &e.vp9CountWorkers[0].miGrid[0] == &e.miGrid[0] {
+		t.Fatal("VP9 threaded count worker aliases encoder miGrid")
+	}
 	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -4854,6 +4863,40 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after threaded-tile keyframe")
 	}
 	assertVP9FilledFrameWithin(t, frame, width, height, 82, 123, 211, 1)
+}
+
+func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
+	const width, height = 1024, 64
+	opts := VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+	}
+	a, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(a): %v", err)
+	}
+	b, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(b): %v", err)
+	}
+	dstA := make([]byte, 1<<20)
+	dstB := make([]byte, 1<<20)
+	for frame := range 2 {
+		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		nA, err := a.EncodeInto(src, dstA)
+		if err != nil {
+			t.Fatalf("a EncodeInto[%d]: %v", frame, err)
+		}
+		nB, err := b.EncodeInto(src, dstB)
+		if err != nil {
+			t.Fatalf("b EncodeInto[%d]: %v", frame, err)
+		}
+		if !bytes.Equal(dstA[:nA], dstB[:nB]) {
+			t.Fatalf("threaded VP9 packet %d differs across runs: %d/%d bytes",
+				frame, nA, nB)
+		}
+	}
 }
 
 // TestVP9EncoderIVFRoundTrip wraps the encoded keyframe in an IVF
