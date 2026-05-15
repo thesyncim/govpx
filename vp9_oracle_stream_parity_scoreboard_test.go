@@ -973,38 +973,116 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 	requireVP9VpxencFrameFlagsOracle(t)
 
 	const width, height, frames = 1280, 720, 2
-	sources := make([]*image.YCbCr, frames)
-	for i := range sources {
-		sources[i] = newVP9YCbCrForTest(width, height, 128, 128, 128)
+	type threadedCase struct {
+		name string
+		opts VP9EncoderOptions
+		args []string
 	}
-	govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
-		VP9EncoderOptions{
-			Threads:      4,
-			MinQuantizer: 20,
-			MaxQuantizer: 20,
+	cases := []threadedCase{
+		{
+			name: "fixed-q",
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
 		},
-		sources, nil,
-		[]string{
-			"--tile-columns=2",
-			"--cq-level=20",
-			"--min-q=20",
-			"--max-q=20",
-			"--disable-warning-prompt",
+		{
+			name: "vbr",
+			opts: VP9EncoderOptions{
+				Threads:             4,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--end-usage=vbr",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--disable-warning-prompt",
+			},
 		},
-		func(enc *VP9Encoder, frame int) {
-			resetVP9OracleThreadedTileJobsForTest(enc)
+		{
+			name: "cq",
+			opts: VP9EncoderOptions{
+				Threads:             4,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--end-usage=cq",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+				"--disable-warning-prompt",
+			},
 		},
-		func(enc *VP9Encoder, frame int) {
-			assertVP9OracleThreadedTileWriterUsed(t, enc, frame, 4)
+		{
+			name: "q",
+			opts: VP9EncoderOptions{
+				Threads:             4,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlQ,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--end-usage=q",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+				"--disable-warning-prompt",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]*image.YCbCr, frames)
+			for i := range sources {
+				sources[i] = newVP9YCbCrForTest(width, height, 128, 128, 128)
+			}
+			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
+				tc.opts, sources, nil, tc.args,
+				func(enc *VP9Encoder, frame int) {
+					resetVP9OracleThreadedTileJobsForTest(enc)
+				},
+				func(enc *VP9Encoder, frame int) {
+					assertVP9OracleThreadedTileWriterUsed(t, enc, frame, 4)
+				})
+			if len(govpxPackets) != len(libvpxPackets) {
+				t.Fatalf("threaded 720p %s packet count: govpx=%d libvpx=%d",
+					tc.name, len(govpxPackets), len(libvpxPackets))
+			}
+			for frame := range govpxPackets {
+				assertVP9PacketByteParity(t,
+					fmt.Sprintf("threaded 720p %s frame %d", tc.name, frame),
+					govpxPackets[frame], libvpxPackets[frame])
+			}
 		})
-	if len(govpxPackets) != len(libvpxPackets) {
-		t.Fatalf("threaded 720p packet count: govpx=%d libvpx=%d",
-			len(govpxPackets), len(libvpxPackets))
-	}
-	for frame := range govpxPackets {
-		assertVP9PacketByteParity(t,
-			fmt.Sprintf("threaded 720p frame %d", frame),
-			govpxPackets[frame], libvpxPackets[frame])
 	}
 }
 
@@ -2538,8 +2616,7 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 						frame, tc.name)
 				}
 			}
-			if os.Getenv("GOVPX_VP9_LOOKAHEAD_FLUSH_STRICT") == "1" &&
-				matches != len(govpxPackets) {
+			if matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 lookahead flush byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
 			}
