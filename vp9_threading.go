@@ -77,6 +77,7 @@ type vp9TileWorkerPool struct {
 	countCounts []encoder.FrameCounts
 	encodeJobs  []vp9EncodeTileJob
 	outputs     [][]byte
+	outputSize  int
 
 	start     []chan struct{}
 	shutdown  chan struct{}
@@ -147,6 +148,9 @@ func (p *vp9TileWorkerPool) ensureOutputSize(size int) {
 	if p == nil || size <= 0 {
 		return
 	}
+	if p.outputSize == size {
+		return
+	}
 	for i := range p.outputs {
 		if cap(p.outputs[i]) < size {
 			p.outputs[i] = make([]byte, size)
@@ -154,6 +158,7 @@ func (p *vp9TileWorkerPool) ensureOutputSize(size int) {
 			p.outputs[i] = p.outputs[i][:size]
 		}
 	}
+	p.outputSize = size
 }
 
 func (p *vp9TileWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {

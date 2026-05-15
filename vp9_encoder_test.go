@@ -5005,6 +5005,49 @@ func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+func TestVP9TileWorkerPoolOutputSizeCache(t *testing.T) {
+	pool := &vp9TileWorkerPool{
+		outputs: make([][]byte, 4),
+	}
+	pool.ensureOutputSize(256)
+	if got, want := pool.outputSize, 256; got != want {
+		t.Fatalf("outputSize = %d, want %d", got, want)
+	}
+	first := make([]*byte, len(pool.outputs))
+	for i := range pool.outputs {
+		if len(pool.outputs[i]) != 256 {
+			t.Fatalf("output %d len = %d, want 256", i, len(pool.outputs[i]))
+		}
+		first[i] = &pool.outputs[i][0]
+	}
+	pool.ensureOutputSize(256)
+	for i := range pool.outputs {
+		if &pool.outputs[i][0] != first[i] {
+			t.Fatalf("output %d changed on cached ensure", i)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		pool.ensureOutputSize(256)
+	})
+	if allocs != 0 {
+		t.Fatalf("cached ensureOutputSize allocs = %f, want 0", allocs)
+	}
+
+	pool.ensureOutputSize(128)
+	if got, want := pool.outputSize, 128; got != want {
+		t.Fatalf("shrunk outputSize = %d, want %d", got, want)
+	}
+	for i := range pool.outputs {
+		if len(pool.outputs[i]) != 128 {
+			t.Fatalf("shrunk output %d len = %d, want 128", i, len(pool.outputs[i]))
+		}
+		if &pool.outputs[i][0] != first[i] {
+			t.Fatalf("output %d reallocated while shrinking", i)
+		}
+	}
+}
+
 func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
 	const width, height = 1024, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
