@@ -147,7 +147,13 @@ func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow 
 
 func (s *fullPelMotionSearch) cost(mv vp8enc.MotionVector) int {
 	s.stats.recordFullPelSAD(1, false)
-	return interMotionFullPixelSearchReturnCostWithErrorPerBitAndCostTables(s.ctx.src, s.ctx.ref, s.ctx.mbRow, s.ctx.mbCol, mv, s.bestRefMV, s.errorPerBit, s.mvProbs, s.mvCosts)
+	row := int(mv.Row) >> 3
+	col := int(mv.Col) >> 3
+	variance, ok := s.ctx.fullPelVarianceFull(row, col)
+	if !ok {
+		variance, _ = macroblockLumaMotionVarianceSSE(s.ctx.src, s.ctx.ref, s.ctx.mbRow, s.ctx.mbCol, mv)
+	}
+	return variance + interMotionSearchErrorVectorCostWithErrorPerBitAndCostTables(mv, s.bestRefMV, s.errorPerBit, s.mvProbs, s.mvCosts)
 }
 
 func (s *fullPelMotionSearch) walkCost(mv vp8enc.MotionVector, limit int) int {

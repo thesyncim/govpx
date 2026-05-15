@@ -105,6 +105,20 @@ func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
 	return c.fullPelCostLimitedSlow(col*interFrameMVFullPixelStep, row*interFrameMVFullPixelStep, refBaseY, refBaseX, maxInt())
 }
 
+func (c *fullPelSearchCtx) fullPelVarianceFull(row int, col int) (int, bool) {
+	refBaseY := c.baseY + row
+	refBaseX := c.baseX + col
+	if c.refYFullP == nil ||
+		uint(refBaseY+c.refYBorder) > c.refRowH ||
+		uint(refBaseX+c.refYBorder) > c.refRowW {
+		return 0, false
+	}
+	refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))
+	srcPtr, srcStride := c.sourceSADPtr()
+	sum, sse := dsp.VarianceBlock16x16PtrFast(srcPtr, srcStride, refPtr, c.refYStride)
+	return sse - ((sum * sum) >> 8), true
+}
+
 func (c *fullPelSearchCtx) fullPelSADFull4(row0 int, col0 int, row1 int, col1 int, row2 int, col2 int, row3 int, col3 int, out *[4]uint32) bool {
 	refBaseY0 := c.baseY + row0
 	refBaseX0 := c.baseX + col0
