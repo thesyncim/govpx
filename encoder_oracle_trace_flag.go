@@ -122,6 +122,6 @@ func recordOracleY1DCEOB1(*vp8enc.MacroblockCoefficients, int, uint8) {}
 
 func recordOracleStaleY2(*vp8enc.MacroblockCoefficients, uint8, [16]int16) {}
 
-func libvpxY1DCWouldQuantizeNonzero(int16, *vp8enc.BlockQuant, int, int, bool) uint8 {
+func libvpxY1DCWouldQuantizeNonzero(int16, *vp8enc.BlockQuant, int, int, int, bool) uint8 {
 	return 0
 }

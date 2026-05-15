@@ -114,8 +114,9 @@ returns no more data.
 
 ## WebRTC profile
 
-For WebRTC senders, start with realtime CBR, error resilience, frame
-dropping, and RTC external rate control:
+For WebRTC senders, start with the same one-stream VP8/libvpx profile
+used by libwebrtc: realtime CBR, no lookahead, frame dropping, adaptive
+denoising, a small realtime buffer, and a capped keyframe target:
 
 ```go
 enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
@@ -124,16 +125,21 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
     FPS:                    30,
     RateControlMode:        govpx.RateControlCBR,
     TargetBitrateKbps:      2500,
-    MinQuantizer:           4,
+    MinQuantizer:           2,
     MaxQuantizer:           56,
-    BufferSizeMs:           600,
-    BufferInitialSizeMs:    400,
-    BufferOptimalSizeMs:    500,
+    UndershootPct:          100,
+    OvershootPct:           15,
+    BufferSizeMs:           1000,
+    BufferInitialSizeMs:    500,
+    BufferOptimalSizeMs:    600,
     DropFrameAllowed:       true,
-    DropFrameWaterMark:     60,
+    DropFrameWaterMark:     30,
+    MaxIntraBitratePct:     900, // max(300, 600*30/20)
+    KeyFrameInterval:       3000,
     Deadline:               govpx.DeadlineRealtime,
-    ErrorResilient:         true,
-    RTCExternalRateControl: true,
+    CpuUsed:                -6,
+    NoiseSensitivity:       4,
+    StaticThreshold:        1,
 })
 ```
 

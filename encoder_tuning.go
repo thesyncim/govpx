@@ -28,8 +28,8 @@ const vp8ActivityAvgAltFixed uint32 = 100000
 //
 //   - vp8cx_initialize_me_consts initializes the activity probe's quant
 //     tables from cm->base_qindex (no segment offsets), then
-//     init_encode_frame_mb_context runs vp8_setup_intra_recon to seed the
-//     new-frame reconstruction buffer with 127 above and 129 to the left.
+//     init_encode_frame_mb_context runs vp8_setup_intra_recon to seed only the
+//     new-frame reconstruction buffer's 127 top border and 129 left border.
 //   - Per MB, mb_activity_measure() returns vp8_encode_intra(), which
 //     predicts (DC_PRED 16x16 on top-row or left-column MBs; B_DC_PRED 4x4
 //     on the (0,0) corner and on interior MBs), then returns the
@@ -40,12 +40,10 @@ const vp8ActivityAvgAltFixed uint32 = 100000
 //   - calc_av_activity() then overwrites cpi->activity_avg with the fixed
 //     value 100000, regardless of the per-MB sum.
 //
-// We reproduce the same walk: copy source into e.analysis (which doubles as
-// the activity probe's reconstruction buffer at this point — the inter
-// pickers that read e.analysis later have not run yet for this frame), and
-// per MB predict from analysis-buffer neighbors, accumulate src-vs-pred
-// SSE for the activity value, and quantize+IDCT-encode the residue back
-// into the analysis buffer so the next MB's neighbors track libvpx's
+// We reproduce the same walk: seed e.analysis as the activity probe's
+// reconstruction buffer, predict from analysis-buffer neighbors, accumulate
+// src-vs-pred SSE for the activity value, and quantize+IDCT-encode the residue
+// back into the analysis buffer so the next MB's neighbors track libvpx's
 // reconstruction. The TunePSNR path skips the whole pass.
 func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, cols int) error {
 	if e.opts.Tuning != TuneSSIM {
@@ -72,24 +70,58 @@ func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	_ = vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, vp8enc.SegmentationConfig{}, &quants)
 
-	// Seed the reconstruction buffer with the source plane so the in-MB
-	// edge samples (which BuildIntraPredictorRefs reads before any MB has
-	// been processed) match libvpx's vp8_setup_intra_recon seed once the
-	// 127/129 borders are accounted for by the available-neighbor gating.
-	// e.analysis is unused by frame encode at this point.
-	copySourceToFrameBuffer(&e.analysis, src)
+	// libvpx's build_activity_map uses cm->new_fb_idx after
+	// vp8_setup_intra_recon. That setup writes only the synthetic top and
+	// left predictor borders; the activity probe itself fills the coded
+	// pixels as it walks the frame.
+	setupIntraReconImage(&e.analysis.Img)
 
 	for row := range rows {
 		for col := range cols {
 			index := row*cols + col
 			e.activityMap[index] = e.ssimActivityMeasure(src, row, col, qIndex, &quants[0])
 		}
+		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
+	// encodeframe.c calls init_encode_frame_mb_context again after
+	// build_activity_map; mirror the second vp8_setup_intra_recon while
+	// preserving the activity probe's reconstructed interior.
+	setupIntraReconImage(&e.analysis.Img)
 	// libvpx's calc_av_activity sets activity_avg = 100000 unconditionally
 	// when ALT_ACT_MEASURE is enabled, regardless of the per-MB sum.
 	e.activityAvg = vp8ActivityAvgAltFixed
 	e.activityMapValid = true
 	return nil
+}
+
+func setupIntraReconImage(img *vp8common.Image) {
+	if img == nil {
+		return
+	}
+	setupIntraReconPlane(img.YFull, img.YOrigin, img.YStride, img.CodedWidth, img.CodedHeight)
+	uvWidth := (img.CodedWidth + 1) >> 1
+	uvHeight := (img.CodedHeight + 1) >> 1
+	setupIntraReconPlane(img.UFull, img.UOrigin, img.UStride, uvWidth, uvHeight)
+	setupIntraReconPlane(img.VFull, img.VOrigin, img.VStride, uvWidth, uvHeight)
+}
+
+func setupIntraReconPlane(full []byte, origin int, stride int, width int, height int) {
+	if len(full) == 0 || origin <= 0 || stride <= 0 || width <= 0 || height <= 0 {
+		return
+	}
+	top := origin - 1 - stride
+	if top >= 0 {
+		n := min(width+5, len(full)-top)
+		for i := range n {
+			full[top+i] = 127
+		}
+	}
+	for row := range height {
+		index := origin + row*stride - 1
+		if uint(index) < uint(len(full)) {
+			full[index] = 129
+		}
+	}
 }
 
 // ssimActivityMeasure mirrors libvpx's vp8_encode_intra return value for one

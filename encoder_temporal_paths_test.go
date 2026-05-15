@@ -1112,6 +1112,9 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 	// (calc_pframe_target_size clears source_alt_ref_pending on every
 	// one-pass frame, so ARF only ever schedules in two-pass mode); on that
 	// hidden frame both ARNR and the spatial denoiser report having run.
+	// Use backward ARNR here: at the hidden ARF point this fixture has
+	// adjacent prior lookahead frames available, while forward/centered
+	// ARNR may legitimately prepare a center-only window and skip filtering.
 	stats := make([]FirstPassFrameStats, 32)
 	for i := range stats {
 		stats[i] = FirstPassFrameStats{
@@ -1140,7 +1143,7 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 		AutoAltRef:        true,
 		ARNRMaxFrames:     3,
 		ARNRStrength:      6,
-		ARNRType:          2,
+		ARNRType:          1,
 		NoiseSensitivity:  2,
 		TwoPassStats:      FinalizeFirstPassStats(stats),
 	})

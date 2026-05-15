@@ -1062,8 +1062,8 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 	if e.coefProbsGolden != vp8tables.DefaultCoefProbs {
 		t.Fatalf("keyframe GOLDEN entropy snapshot changed, want default")
 	}
-	if e.coefProbsAltRef != vp8tables.DefaultCoefProbs {
-		t.Fatalf("keyframe ALTREF entropy snapshot changed, want default")
+	if e.coefProbsAltRef != attempt.FrameCoefProbs {
+		t.Fatalf("keyframe ALTREF entropy snapshot does not match accepted key attempt")
 	}
 	if e.modeProbs == wantModeProbs {
 		t.Fatalf("committed keyframe mode probabilities still match pre-commit sentinel")
@@ -1091,7 +1091,7 @@ func TestEncodeInterFrameAttemptDefersSkipFalseCommit(t *testing.T) {
 		t.Fatalf("inter attempt probSkipFalse = %d, want pre-attempt sentinel 91 before commit", e.probSkipFalse)
 	}
 
-	e.commitInterFrameAttempt(attempt)
+	e.commitInterFrameAttempt(attempt, true)
 	if e.probSkipFalse != attempt.Config.ProbSkipFalse {
 		t.Fatalf("committed probSkipFalse = %d, want accepted attempt probability %d", e.probSkipFalse, attempt.Config.ProbSkipFalse)
 	}

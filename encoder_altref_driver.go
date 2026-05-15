@@ -263,6 +263,7 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		}
 		meta := encodeSourceMetadata{
 			lookaheadDepth:     e.lookaheadSize(),
+			arnrDistance:       offset,
 			forceLFDeltaUpdate: peeked.forceLFDeltaUpdate,
 			internalInvisible:  true,
 		}
@@ -351,6 +352,7 @@ func (e *VP8Encoder) autoAltRefMaybeEmitHiddenOnFlush(dst []byte) (EncodeResult,
 	e.altRefSourceValid = true
 	meta := encodeSourceMetadata{
 		lookaheadDepth:     e.lookaheadSize(),
+		arnrDistance:       offset,
 		forceLFDeltaUpdate: peeked.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
 		internalInvisible:  true,
 	}

@@ -249,6 +249,17 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		return 0, ErrInvalidConfig
 	}
 	segmentQIndex := encoderSegmentQIndex(args.qIndex, args.segmentation, segmentID)
+	zbinOverQuant := 0
+	modeZbinOverQuant := zbinOverQuant
+	actZbinAdj := 0
+	rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+	if e.activityMapValid {
+		modeZbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+		if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+			actZbinAdj = adjustment
+		}
+		rdMult = e.tunedRDMultiplier(rdMult, row, col)
+	}
 	var above *vp8enc.KeyFrameMacroblockMode
 	var left *vp8enc.KeyFrameMacroblockMode
 	if row > 0 {
@@ -264,9 +275,9 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	// uses the speed-feature default (regular when improved_quant==1).
 	// Match that here with libvpxUseFastQuant.
 	if e.libvpxUseFastIntraPick() {
-		mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(args.src, segmentQIndex, row, col, above, left, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
+		mode, projectedRate, ok = predictBestKeyFrameIntraModeFastWithRDConstants(args.src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 	} else {
-		mode, projectedRate, ok = predictBestKeyFrameIntraMode(args.src, segmentQIndex, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
+		mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(args.src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 	}
 	if !ok {
 		return 0, ErrInvalidConfig
@@ -275,7 +286,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	args.modes[index] = mode
 	convertKeyFrameMode(&args.modes[index], &e.reconstructModes[index])
 	if args.modes[index].YMode == vp8common.BPred {
-		if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
+		if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], segmentQIndex, zbinOverQuant, actZbinAdj, rdMult, rdDiv, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 			return 0, ErrInvalidConfig
 		}
 		args.modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&args.modes[index], &args.coeffs[index])
@@ -300,6 +311,10 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		leftTok:       &rs.leftTok,
 		quant:         &args.quants[segmentID&3],
 		qIndex:        segmentQIndex,
+		zbinOverQuant: zbinOverQuant,
+		actZbinAdj:    actZbinAdj,
+		rdMult:        rdMult,
+		rdDiv:         rdDiv,
 		is4x4:         is4x4,
 		intra:         true,
 		fastQuant:     e.libvpxUseFastQuant(),
@@ -454,10 +469,15 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		convertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
 		if args.modes[index].Mode == vp8common.BPred {
 			zbinOverQuant := e.rc.currentZbinOverQuant
+			actZbinAdj := 0
+			rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
 			if e.activityMapValid {
-				zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+				if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+					actZbinAdj = adjustment
+				}
+				rdMult = e.tunedRDMultiplier(rdMult, row, col)
 			}
-			if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
+			if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, zbinOverQuant, actZbinAdj, rdMult, rdDiv, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 				return 0, 0, ErrInvalidConfig
 			}
 		} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -473,8 +493,12 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		}
 	}
 
+	staticBreakout := false
+	if !args.denoiseActive {
+		staticBreakout = staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
+	}
 	breakoutSkip := args.modes[index].RefFrame != vp8common.IntraFrame &&
-		(args.modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
+		(args.modes[index].MBSkipCoeff || staticBreakout)
 	if breakoutSkip {
 		clearMacroblockCoefficients(&args.coeffs[index])
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {
@@ -494,8 +518,13 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			cacheIn = nil
 		}
 		zbinOverQuant := e.rc.currentZbinOverQuant
+		actZbinAdj := 0
+		rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
 		if e.activityMapValid {
-			zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+			if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+				actZbinAdj = adjustment
+			}
+			rdMult = e.tunedRDMultiplier(rdMult, row, col)
 		}
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 			coefProbs:     e.pickerCoefProbs(),
@@ -509,6 +538,9 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			qIndex:        segmentQIndex,
 			zbinOverQuant: zbinOverQuant,
 			zbinModeBoost: interZbinModeBoost(&args.modes[index]),
+			actZbinAdj:    actZbinAdj,
+			rdMult:        rdMult,
+			rdDiv:         rdDiv,
 			is4x4:         is4x4,
 			intra:         args.modes[index].RefFrame == vp8common.IntraFrame,
 			fastQuant:     e.libvpxUseFastQuant(),

@@ -670,6 +670,7 @@ type VP8Encoder struct {
 	lastFrameInterModes      []vp8enc.InterFrameMacroblockMode
 	lastFrameInterModeBias   []bool
 	lastFrameInterModesValid bool
+	lastCodedFrameType       vp8common.FrameType
 	keyFrameCoeffs           []vp8enc.MacroblockCoefficients
 	tokenAbove               []vp8enc.TokenContextPlanes
 	// reconstructAboveTok is a per-frame scratch buffer reused by the
@@ -1120,6 +1121,8 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	e.opts.TemporalScalability = e.temporal.config
 	e.initializeTemporalLayerCodingStates()
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
+	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
+	e.twoPass.configureErrorResilient(normalized.ErrorResilient || normalized.ErrorResilientPartitions)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	if err := e.ensureRowWorkerPool(normalized.Width, normalized.Height); err != nil {
 		return nil, err

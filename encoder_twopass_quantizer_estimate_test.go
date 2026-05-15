@@ -48,6 +48,25 @@ func TestLibvpxEstimateMaxQHonoursMinLimitAsFloor(t *testing.T) {
 	}
 }
 
+func TestLibvpxEstimateModeMVCostMatchesLibvpxFormula(t *testing.T) {
+	stats := FirstPassFrameStats{
+		PcntInter:  1.6,
+		PcntMotion: 0.4,
+		NewMVCount: 3,
+		Count:      2,
+	}
+	got := libvpxEstimateModeMVCost(stats, 10)
+	if got != 10752 {
+		t.Fatalf("estimate_modemvcost = %d, want 10752", got)
+	}
+}
+
+func TestLibvpxBitCostUsesThirteenBitFloor(t *testing.T) {
+	if got := libvpxBitCost(0.0001); got != 13.0 {
+		t.Fatalf("bitcost floor = %v, want 13", got)
+	}
+}
+
 // TestLibvpxGetPredictionDecayRateMatchesLibvpxFormula pins the libvpx
 // vp8/encoder/firstpass.c get_prediction_decay_rate computation.
 // With pcnt_inter=0.9, pcnt_motion=0.2, mvr_abs=10, mvc_abs=10:

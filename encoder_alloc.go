@@ -71,6 +71,7 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 	e.altRefAliasesLast = false
 	e.goldenRefAliasesAlt = false
 	e.lastFrameInterModesValid = false
+	e.lastCodedFrameType = vp8common.KeyFrame
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 

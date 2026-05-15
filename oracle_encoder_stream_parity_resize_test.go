@@ -279,7 +279,6 @@ func TestOracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) {
 				opts.Tuning = TuneSSIM
 			},
 			extraArgs: []string{"--noise-sensitivity=3", "--threads=2", "--token-parts=2", "--tune=ssim"},
-			coldLimit: 2,
 		},
 		{
 			name: "screen-static-sharpness",
@@ -730,14 +729,12 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			flags:       temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringTwoLayers, framesPerSeg, framesPerSeg*2),
 			script:      temporalScalabilityWindowScript(framesPerSeg*2, TemporalLayeringTwoLayers, framesPerSeg, framesPerSeg*2, "resize:32x32+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, targetKbps)),
 			globalApply: map[int]func(*testing.T, *VP8Encoder){framesPerSeg: runtimeTemporalApply(TemporalLayeringTwoLayers, targetKbps, "two-layer")},
-			limit:       framesPerSeg + 1,
 		},
 		{
 			name:        "temporal-three-layer-enable",
 			flags:       temporalScalabilityWindowFlags(framesPerSeg*2, TemporalLayeringThreeLayers, framesPerSeg, framesPerSeg*2),
 			script:      temporalScalabilityWindowScript(framesPerSeg*2, TemporalLayeringThreeLayers, framesPerSeg, framesPerSeg*2, "resize:32x32+"+runtimeTemporalControlToken(TemporalLayeringThreeLayers, targetKbps)),
 			globalApply: map[int]func(*testing.T, *VP8Encoder){framesPerSeg: runtimeTemporalApply(TemporalLayeringThreeLayers, targetKbps, "three-layer")},
-			limit:       framesPerSeg + 1,
 		},
 		{
 			name:  "temporal-two-layer-active-checker-enable",
@@ -774,7 +771,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 					roiMapApply("border1")(t, e)
 				},
 			},
-			limit: framesPerSeg + 1,
 		},
 		{
 			name:  "temporal-two-layer-disable-after-resize",

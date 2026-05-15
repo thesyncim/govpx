@@ -621,7 +621,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.InternalQuantizer = e.rc.currentQuantizer
 		} else {
 			finalQuantizer := e.rc.currentQuantizer
-			e.commitInterFrameAttempt(attempt)
+			e.commitInterFrameAttempt(attempt, internalShowFrame)
 			if attempt.Config.Segmentation.Enabled {
 				e.roi.clearUpdateFlags()
 			}
@@ -645,7 +645,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				autoAltRef:            e.opts.AutoAltRef,
 			})
 			if hiddenAltRefFrame {
-				e.twoPass.chargeAltRefFrameBits(encodedSizeBits(attempt.Size))
+				e.twoPass.chargeAltRefFrameBitsWithProjection(encodedSizeBits(attempt.Size), attempt.ProjectedSizeBits)
 			} else {
 				e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
 			}

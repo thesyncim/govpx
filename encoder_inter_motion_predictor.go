@@ -49,13 +49,23 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	slots[0].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above, signBias)
 	slots[1].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left, signBias)
 	slots[2].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft, signBias)
-	if e.lastFrameInterModesValid && len(e.lastFrameInterModes) >= mbRows*mbCols && mbRows > 0 && mbCols > 0 {
+	lastModesAvailable := e.lastFrameInterModesValid && len(e.lastFrameInterModes) >= mbRows*mbCols
+	includeLastSlots := (lastModesAvailable || e.lastCodedFrameType != vp8common.KeyFrame) && mbRows > 0 && mbCols > 0
+	if includeLastSlots {
 		slotCount = 8
-		slots[3].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
-		slots[4].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
-		slots[5].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
-		slots[6].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
-		slots[7].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+		if lastModesAvailable {
+			slots[3].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
+			slots[4].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
+			slots[5].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
+			slots[6].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
+			slots[7].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+		} else {
+			slots[3].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
+			slots[4].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
+			slots[5].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
+			slots[6].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
+			slots[7].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+		}
 	}
 	biasImprovedInterFrameMVSlots(&slots, slotCount, refFrame, signBias, mbRow, mbCol, mbRows, mbCols)
 	order := improvedInterFrameMVSlotOrder(slots, slotCount)
@@ -134,6 +144,14 @@ func (slot *improvedInterFrameMVSlot) fillLast(src vp8enc.SourceImage, img *vp8c
 		return
 	}
 	slot.mv = mode.MV
+	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+}
+
+func (slot *improvedInterFrameMVSlot) fillLastIntraSentinel(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
+	*slot = improvedInterFrameMVSlot{sad: maxInt()}
+	if uint(refMbRow) >= uint(mbRows) || uint(refMbCol) >= uint(mbCols) {
+		return
+	}
 	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 }
 

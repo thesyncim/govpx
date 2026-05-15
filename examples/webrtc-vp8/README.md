@@ -23,6 +23,9 @@ warm and cool tones.
 Flags:
 
 - `-addr` — listen address (default `:8080`).
+- `-width` / `-height` — encoded dimensions (default `320x240`).
+- `-fps` — encoded frame rate (default `30`).
+- `-bitrate` — target bitrate in kbps (default `600`).
 
 ## How it works
 
@@ -41,10 +44,12 @@ Flags:
   (PLI/FIR/etc.) flips an atomic that asks the encoder to emit a keyframe on
   the next frame.
 
-The encoder uses a realtime CBR profile with frame dropping, error resilience,
-and the VP8 RTC external-rate-control mode enabled. A 2-second keyframe
-interval is still configured, so a fresh page may take up to ~2 seconds to show
-its first frame.
+The encoder uses the current libwebrtc VP8/libvpx realtime profile for a
+single VP8 stream: one-pass CBR, no lookahead, 1000/500/600 ms rate-control
+buffer, 15% overshoot cap, 30% frame-drop threshold, static threshold 1,
+adaptive denoising, browser-style CPU speed and thread selection, and a
+3000-frame maximum keyframe interval. The demo still forces an initial keyframe
+and responds to RTCP feedback by forcing another one.
 
 ## What this proves
 

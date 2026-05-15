@@ -352,6 +352,21 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 		t.Fatalf("post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)
 	}
 
+	e = newSizedTestEncoder(t, 1280, 720)
+	e.opts.CpuUsed = 4
+	e.libvpxAutoSelectSpeed()
+	budget = e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
+		t.Fatalf("cpu4 720p key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
+			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
+	}
+	e.libvpxAutoSelectSpeed()
+	if e.autoSpeed != 5 {
+		t.Fatalf("cpu4 720p post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)
+	}
+
 	e = newSizedTestEncoder(t, 854, 480)
 	e.opts.CpuUsed = 8
 	e.libvpxAutoSelectSpeed()
@@ -359,7 +374,7 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
 	e.finishAutoSpeedTiming(true)
 	if e.avgEncodeTime != 0 {
-		t.Fatalf("mid-size key autospeed encode timer = %d, want libvpx keyframe skip", e.avgEncodeTime)
+		t.Fatalf("mid-size key autospeed encode timer = %d, want skipped encode sample", e.avgEncodeTime)
 	}
 
 	e = newSizedTestEncoder(t, 1024, 576)
@@ -368,9 +383,9 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 	budget = e.autoSpeedCompressionBudgetUS()
 	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
 	e.finishAutoSpeedTiming(true)
-	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
-		t.Fatalf("1024x576 cpu8 key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
+	if e.avgEncodeTime != 0 || e.avgPickModeTime < 4*budget {
+		t.Fatalf("1024x576 cpu8 key autospeed timers = encode:%d pick:%d, want skipped encode sample and large pick sample",
+			e.avgEncodeTime, e.avgPickModeTime)
 	}
 
 	e = newSizedTestEncoder(t, 800, 600)
@@ -379,9 +394,9 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 	budget = e.autoSpeedCompressionBudgetUS()
 	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
 	e.finishAutoSpeedTiming(true)
-	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
-		t.Fatalf("svga cpu8 key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
+	if e.avgEncodeTime != 0 || e.avgPickModeTime < 4*budget {
+		t.Fatalf("svga cpu8 key autospeed timers = encode:%d pick:%d, want skipped encode sample and large pick sample",
+			e.avgEncodeTime, e.avgPickModeTime)
 	}
 
 	e = newSizedTestEncoder(t, 800, 600)
@@ -391,7 +406,7 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
 	e.finishAutoSpeedTiming(true)
 	if e.avgEncodeTime != 0 {
-		t.Fatalf("svga cpu4 key autospeed encode timer = %d, want libvpx keyframe skip", e.avgEncodeTime)
+		t.Fatalf("svga cpu4 key autospeed encode timer = %d, want skipped encode sample", e.avgEncodeTime)
 	}
 }
 

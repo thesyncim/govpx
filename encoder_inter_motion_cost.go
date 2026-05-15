@@ -185,8 +185,12 @@ func refFullPelYSlice(ref *vp8common.Image, refBaseY int, refBaseX int, width in
 }
 
 func interMotionFullPixelSearchReturnCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
+	return interMotionFullPixelSearchReturnCostWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, mv, bestRefMV, libvpxErrorPerBit(qIndex), mvProbs, nil)
+}
+
+func interMotionFullPixelSearchReturnCostWithErrorPerBitAndCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) int {
 	variance, _ := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
-	return variance + interMotionSearchErrorVectorCost(mv, bestRefMV, qIndex, mvProbs)
+	return variance + interMotionSearchErrorVectorCostWithErrorPerBitAndCostTables(mv, bestRefMV, errorPerBit, mvProbs, mvCosts)
 }
 
 // interMotionSearchVectorCost charges full-pel MV bits against bestRefMV like
@@ -213,11 +217,18 @@ func interMotionSearchErrorVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.M
 // refinement. errorPerBit ≤ 0 falls back to the libvpx default so any
 // caller missing the plumbing still matches the PSNR baseline.
 func interMotionSearchErrorVectorCostWithErrorPerBit(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
-	if mvProbs == nil {
+	return interMotionSearchErrorVectorCostWithErrorPerBitAndCostTables(mv, bestRefMV, errorPerBit, mvProbs, nil)
+}
+
+func interMotionSearchErrorVectorCostWithErrorPerBitAndCostTables(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) int {
+	if mvProbs == nil && mvCosts == nil {
 		return 0
 	}
 	if errorPerBit <= 0 {
 		errorPerBit = 1
+	}
+	if mvCosts != nil {
+		return mvCosts.ErrorCostFromEighthDeltas(int(mv.Row), int(mv.Col), int(bestRefMV.Row), int(bestRefMV.Col), errorPerBit)
 	}
 	return vp8enc.MotionVectorErrorCost(mv, bestRefMV, mvProbs, errorPerBit)
 }
@@ -239,11 +250,18 @@ func interMotionSubpelCandidateVectorCost(mv vp8enc.MotionVector, bestRefMV vp8e
 // x->rdmult and x->errorperbit per MB). errorPerBit ≤ 0 floors to 1, matching
 // libvpx's `errorperbit += (errorperbit == 0)` post-clamp.
 func interMotionSubpelCandidateVectorCostWithErrorPerBit(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
-	if mvProbs == nil {
+	return interMotionSubpelCandidateVectorCostWithErrorPerBitAndCostTables(mv, bestRefMV, errorPerBit, mvProbs, nil)
+}
+
+func interMotionSubpelCandidateVectorCostWithErrorPerBitAndCostTables(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) int {
+	if mvProbs == nil && mvCosts == nil {
 		return 0
 	}
 	if errorPerBit <= 0 {
 		errorPerBit = 1
+	}
+	if mvCosts != nil {
+		return mvCosts.SubpelSearchCostFromQuarterDeltas(int(mv.Row)>>1, int(mv.Col)>>1, int(bestRefMV.Row)>>1, int(bestRefMV.Col)>>1, errorPerBit)
 	}
 	return vp8enc.MotionVectorSubpelSearchCost(mv, bestRefMV, mvProbs, errorPerBit)
 }

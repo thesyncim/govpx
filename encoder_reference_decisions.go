@@ -341,22 +341,17 @@ func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRe
 }
 
 // suppressInterFrameCopyBuffersOnAltRefEdges enforces libvpx
-// onyx_if.c update_reference_frames invariants for the ARF edge cases:
-// hidden ARF frames assert `!cm->copy_buffer_to_arf` (the ARF buffer
-// is populated by the frame itself), and the deferred show frame
-// after a hidden ARF (is_src_frame_alt_ref) leaves both
-// copy_buffer_to_arf and copy_buffer_to_gf at their zero default
-// because the references are already correctly populated.
-func suppressInterFrameCopyBuffersOnAltRefEdges(cfg *vp8enc.InterFrameStateConfig, isSrcFrameAltRef bool) {
+// onyx_if.c update_reference_frames invariants for hidden ARF frames:
+// refresh_alt_ref_frame asserts `!cm->copy_buffer_to_arf` because the
+// ARF buffer is populated by the frame itself. Deferred source-alt-ref
+// overlay frames do not get this suppression; libvpx still copies the old
+// GOLDEN buffer to ALTREF when they refresh GOLDEN.
+func suppressInterFrameCopyBuffersOnAltRefEdges(cfg *vp8enc.InterFrameStateConfig, _ bool) {
 	if cfg == nil {
 		return
 	}
 	if cfg.RefreshAltRef {
 		cfg.CopyBufferToAltRef = 0
-	}
-	if isSrcFrameAltRef {
-		cfg.CopyBufferToAltRef = 0
-		cfg.CopyBufferToGolden = 0
 	}
 }
 

@@ -623,11 +623,9 @@ func (e *VP8Encoder) largeAutoSpeedKeyFrameTimingCompensation() bool {
 	if !e.libvpxAutoSelectSpeedActive() {
 		return false
 	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
-	mbs := rows * cols
-	return mbs >= 3600 || (cpuUsed >= 8 && mbs >= 1900)
+	return rows*cols >= 3600
 }
 
 func (e *VP8Encoder) beginAutoSpeedTiming() {
@@ -648,8 +646,9 @@ func (e *VP8Encoder) cancelAutoSpeedTiming() {
 }
 
 // finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of frame
-// encode in realtime, IIR-update avg_encode_time (inter frames only) and
-// avg_pick_mode_time (duration2 = duration/2 by libvpx convention).
+// encode in realtime, IIR-update avg_encode_time (inter frames, plus the
+// 720p+ positive-realtime keyframe branch below) and avg_pick_mode_time
+// (duration2 = duration/2 by libvpx convention).
 func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 	if e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
 		return
@@ -662,11 +661,12 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 	duration := int(durationNS / 1000)
 	keyFrameEncodeSample := false
 	if keyFrame && e.largeAutoSpeedKeyFrameTimingCompensation() {
-		// The selector is calibrated to libvpx's C encoder timings. On large
-		// keyframes govpx can spend longer in Go-side reconstruction while
-		// libvpx still stays just inside the next-frame budget, so cap the
-		// effective keyframe sample at the branch boundary used by
-		// vp8_auto_select_speed before feeding the next-frame selector.
+		// The selector is calibrated to libvpx's C encoder timings. For the
+		// 720p+ realtime-positive path, libvpx's keyframe sample lands just
+		// inside vp8_auto_select_speed's matching-budget branch; the Go path
+		// can spend longer in reconstruction and would incorrectly jump to
+		// Speed 8. Cap the sample at the exact branch boundary, preserving the
+		// libvpx Speed 5 -> 4 trajectory observed by the untraced oracle.
 		if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 && duration >= 2*budget-1 {
 			duration = 2*budget - 2
 		}
@@ -805,6 +805,8 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	}
 	e.opts.TwoPassStats = stats
 	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
+	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
+	e.twoPass.configureErrorResilient(e.opts.ErrorResilient || e.opts.ErrorResilientPartitions)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	if e.frameCount == 0 {
 		e.rc.onePassAutoGold = false

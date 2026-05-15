@@ -59,6 +59,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	coefProbs := e.pickerCoefProbs()
+	mvCosts := e.currentMotionVectorCostTables()
 
 	errorPerBit := 0
 	if e.activityMapValid {
@@ -93,6 +94,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 			compressor:        compressor,
 			seeds:             &splitSeeds,
 			mvProbs:           &e.modeProbs.MV,
+			mvCosts:           mvCosts,
 			mvthresh:          ctx.mvthresh,
 			labelRD:           &labelRD,
 			quant:             ctx.quant,
