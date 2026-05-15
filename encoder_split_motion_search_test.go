@@ -339,7 +339,7 @@ func TestSplitMotionSearchSeedsFrom8x8UsesLibvpxBlocks(t *testing.T) {
 	if seeds.mv != want {
 		t.Fatalf("seeds = %+v, want %+v", seeds.mv, want)
 	}
-	if seeds.step8x16 != [2]int{5, 5} || seeds.step16x8 != [2]int{7, 7} {
+	if seeds.step8x16 != [2]int8{5, 5} || seeds.step16x8 != [2]int8{7, 7} {
 		t.Fatalf("seed steps 8x16=%v 16x8=%v, want [5 5] and [7 7]", seeds.step8x16, seeds.step16x8)
 	}
 }

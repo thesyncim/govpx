@@ -6,9 +6,9 @@ import (
 )
 
 type interAnalysisReference struct {
-	Frame      vp8common.MVReferenceFrame
 	Img        *vp8common.Image
 	RefRate    int
+	Frame      vp8common.MVReferenceFrame
 	RefRateSet bool
 }
 

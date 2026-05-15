@@ -91,7 +91,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	loopCtx.mvCosts = e.currentMotionVectorCostTables()
 	activeSignBiasSlot := 0
 	bestRefMV := vp8enc.MotionVector{}
-	if baseRefIndex := refSearchOrder[1]; uint(baseRefIndex) < uint(len(refs)) {
+	if baseRefIndex := int(refSearchOrder[1]); uint(baseRefIndex) < uint(len(refs)) {
 		activeSignBiasSlot = interModeSignBiasSlotForReference(refs[baseRefIndex].Frame, loopCtx.signBias)
 		bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot&1]
 		loopCtx.bestRefMV = bestRefMV
@@ -151,7 +151,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				bestDistortion = distortion
 				bestSSE = sse
 				bestModeIndex = modeIndex
-				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate, predictionError: distortion}
+				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: int32(rate), predictionError: int32(distortion)}
 			} else {
 				e.raiseInterRDThreshold(modeIndex)
 			}
@@ -162,9 +162,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		// 1..3 by construction here): the helper does the same lookup but
 		// the loop touches it on every iteration so inlining avoids the
 		// extra bounds checks against searchOrder/refs.
-		// refSearchOrder is [4]int and refSlot ∈ [0,3]; AND-mask with 3
+		// refSearchOrder is [4]int8 and refSlot is in [0,3]; AND-mask with 3
 		// elides the bounds check.
-		refIndex := refSearchOrder[refSlot&3]
+		refIndex := int(refSearchOrder[refSlot&3])
 		// Single uint range check folds the (refIndex < 0) and
 		// (refIndex >= len) guards.
 		if uint(refIndex) >= uint(len(refs)) {
@@ -274,7 +274,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				ref:             ref,
 				interMode:       mode,
 				intraMode:       vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred},
-				projectedRate:   rate,
+				projectedRate:   int32(rate),
 				improvedMVStart: improvedStart,
 				predictionError: 0,
 			}
@@ -309,7 +309,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			bestSSE = sse
 			bestModeIndex = modeIndex
 			mode.MBSkipCoeff = breakoutSkip
-			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: rate, improvedMVStart: improvedStart, predictionError: distortion}
+			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: int32(rate), improvedMVStart: improvedStart, predictionError: int32(distortion)}
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}

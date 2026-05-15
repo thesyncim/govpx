@@ -7,9 +7,9 @@ import (
 )
 
 type interFrameNstepSearchResult struct {
-	mv    vp8enc.MotionVector
 	cost  int
-	num00 int
+	mv    vp8enc.MotionVector
+	num00 uint8
 }
 
 type interFrameMotionSearchStats struct {
@@ -115,16 +115,16 @@ func (s *interFrameMotionSearchStats) recordSubpelEarlyBreak() {
 }
 
 type fullPelMotionSearch struct {
-	ctx         fullPelSearchCtx
-	bounds      interFrameFullPixelBounds
 	mvProbs     *[2][vp8tables.MVPCount]uint8
 	mvCosts     *vp8enc.MotionVectorCostTables
+	stats       *interFrameMotionSearchStats
+	ctx         fullPelSearchCtx
+	bounds      interFrameFullPixelBounds
 	qIndex      int
 	errorPerBit int
 	refRow8     int
 	refCol8     int
 	bestRefMV   vp8enc.MotionVector
-	stats       *interFrameMotionSearchStats
 }
 
 func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, errorPerBit int, stats *interFrameMotionSearchStats) fullPelMotionSearch {
@@ -169,26 +169,27 @@ func (s *fullPelMotionSearch) diamond(center vp8enc.MotionVector, centerWalkCost
 }
 
 func (s *fullPelMotionSearch) steppedDiamond(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig, sites []vp8enc.MotionVector, sitesPerStep int) (vp8enc.MotionVector, int) {
-	stepParam := min(max(search.fullPixelSearchParam, 0), interFrameMaxMVSearchSteps-1)
+	stepParam := min(max(int(search.fullPixelSearchParam), 0), interFrameMaxMVSearchSteps-1)
 
 	result := s.searchSites(center, centerWalkCost, sites, sitesPerStep, stepParam)
 	best := result.mv
 	bestCost := result.cost
-	n := result.num00
+	n := int(result.num00)
 	num00 := 0
 	doRefine := search.fullPixelFinalRefine
-	if n > search.fullPixelFurtherSteps {
+	furtherSteps := int(search.fullPixelFurtherSteps)
+	if n > furtherSteps {
 		doRefine = false
 	}
-	for n < search.fullPixelFurtherSteps {
+	for n < furtherSteps {
 		n++
 		if num00 > 0 {
 			num00--
 			continue
 		}
 		candidate := s.searchSites(center, centerWalkCost, sites, sitesPerStep, stepParam+n)
-		num00 = candidate.num00
-		if search.fullPixelFinalRefine && num00 > search.fullPixelFurtherSteps-n {
+		num00 = int(candidate.num00)
+		if search.fullPixelFinalRefine && num00 > furtherSteps-n {
 			doRefine = false
 		}
 		if candidate.cost < bestCost {
@@ -323,7 +324,7 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 		}
 	}
 	best := vp8enc.MotionVector{Row: int16(bestRow * interFrameMVFullPixelStep), Col: int16(bestCol * interFrameMVFullPixelStep)}
-	return interFrameNstepSearchResult{mv: best, cost: s.cost(best), num00: num00}
+	return interFrameNstepSearchResult{cost: s.cost(best), mv: best, num00: uint8(num00)}
 }
 
 func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int) (vp8enc.MotionVector, int) {

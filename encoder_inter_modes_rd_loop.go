@@ -26,7 +26,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		if modeMVs != nil {
 			state = *modeMVs
 		} else {
-			state = e.interModeMVSlots([]interAnalysisReference{ref}, [4]int{-1, 0, -1, -1}, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+			state = e.interModeMVSlots([]interAnalysisReference{ref}, [4]int8{-1, 0, -1, -1}, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		}
 		slot := interModeSignBiasSlotForReference(ref.Frame, signBias)
 		// slot is 0 or 1 by construction; AND-mask with 1 elides BC on

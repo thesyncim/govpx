@@ -7,22 +7,45 @@ import (
 
 type interFrameSearchStart struct {
 	mv           vp8enc.MotionVector
-	sr           int
-	nearSADIndex int
-	ok           bool
+	sr           int8
+	nearSADIndex int8
+	flags        uint8
+}
+
+const interFrameSearchStartOK uint8 = 1 << 0
+
+func newInterFrameSearchStart(mv vp8enc.MotionVector, sr int, nearSADIndex int) interFrameSearchStart {
+	return interFrameSearchStart{
+		mv:           mv,
+		sr:           int8(sr),
+		nearSADIndex: int8(nearSADIndex),
+		flags:        interFrameSearchStartOK,
+	}
+}
+
+func (start interFrameSearchStart) ok() bool {
+	return start.flags&interFrameSearchStartOK != 0
+}
+
+func (start interFrameSearchStart) searchRange() int {
+	return int(start.sr)
+}
+
+func (start interFrameSearchStart) nearSADIndexInt() int {
+	return int(start.nearSADIndex)
 }
 
 func (search interAnalysisSearchConfig) adjustedForImprovedMVStart(start interFrameSearchStart) interAnalysisSearchConfig {
-	if !start.ok {
+	if !start.ok() {
 		return search
 	}
-	stepParam := start.sr + search.fullPixelSpeedAdjust
-	if stepParam > search.fullPixelSearchParam {
+	stepParam := start.searchRange() + int(search.fullPixelSpeedAdjust)
+	if stepParam > int(search.fullPixelSearchParam) {
 		if stepParam >= interFrameMaxMVSearchSteps {
 			stepParam = interFrameMaxMVSearchSteps - 1
 		}
-		search.fullPixelSearchParam = stepParam
-		search.fullPixelFurtherSteps = libvpxInterFrameFurtherSteps(search.fullPixelSpeed, stepParam)
+		search.fullPixelSearchParam = int8(stepParam)
+		search.fullPixelFurtherSteps = int8(libvpxInterFrameFurtherSteps(int(search.fullPixelSpeed), stepParam))
 	}
 	return search
 }
@@ -80,11 +103,11 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 			if rank < 3 {
 				sr = 3
 			}
-			return interFrameSearchStart{mv: slot.mv, sr: sr, nearSADIndex: order[rank&7], ok: true}
+			return newInterFrameSearchStart(slot.mv, sr, order[rank&7])
 		}
 	}
 	mv := improvedInterFrameMVMedian(slots, slotCount)
-	return interFrameSearchStart{mv: mv, sr: 0, nearSADIndex: -1, ok: true}
+	return newInterFrameSearchStart(mv, 0, -1)
 }
 
 func (slot *improvedInterFrameMVSlot) fillCurrent(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {

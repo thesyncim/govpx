@@ -11,19 +11,16 @@ import (
 // to DC-predicted keyframe macroblocks against a neutral predictor.
 
 type SourceImage struct {
-	Width  int
-	Height int
-
+	Y        []byte
+	U        []byte
+	V        []byte
+	Width    int
+	Height   int
 	UVWidth  int
 	UVHeight int
-
-	Y []byte
-	U []byte
-	V []byte
-
-	YStride int
-	UStride int
-	VStride int
+	YStride  int
+	UStride  int
+	VStride  int
 }
 
 func BuildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {

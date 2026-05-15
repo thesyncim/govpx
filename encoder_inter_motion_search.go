@@ -75,32 +75,32 @@ func selectRDInterFrameMotionVectorWithSearchStartAndStats(src vp8enc.SourceImag
 }
 
 type interFrameMotionVectorSearch struct {
-	src       vp8enc.SourceImage
-	ref       *vp8common.Image
-	mbRow     int
-	mbCol     int
-	mbRows    int
-	mbCols    int
-	bestRefMV vp8enc.MotionVector
-	qIndex    int
+	mvCosts *vp8enc.MotionVectorCostTables
+	ref     *vp8common.Image
+	stats   *interFrameMotionSearchStats
+	mvProbs *[2][vp8tables.MVPCount]uint8
+	src     vp8enc.SourceImage
+	mbRow   int
+	mbCol   int
+	mbRows  int
+	mbCols  int
+	qIndex  int
 	// errorPerBit, when non-zero, overrides libvpxErrorPerBit(qIndex) for
 	// the sub-pel refinement. Populated by per-MB picker dispatches that
 	// apply libvpx's vp8_activity_masking errorperbit adjustment when
 	// TuneSSIM is active; otherwise zero (default keeps the libvpx
 	// qIndex-only baseline that drives the PSNR-tuned path).
 	errorPerBit int
-	search      interAnalysisSearchConfig
 	start       interFrameSearchStart
-	mvProbs     *[2][vp8tables.MVPCount]uint8
-	mvCosts     *vp8enc.MotionVectorCostTables
-	stats       *interFrameMotionSearchStats
+	bestRefMV   vp8enc.MotionVector
+	search      interAnalysisSearchConfig
 }
 
 type interFrameMotionVectorSearchResult struct {
-	mv        vp8enc.MotionVector
 	cost      int
-	variance  int
-	sse       int
+	variance  int32
+	sse       int32
+	mv        vp8enc.MotionVector
 	haveError bool
 }
 
@@ -168,7 +168,7 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsAndStats(src vp
 
 func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTablesAndStats(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, stats *interFrameMotionSearchStats) (vp8enc.MotionVector, int) {
 	searchStart := bestRefMV
-	if start.ok && search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
+	if start.ok() && search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
 		searchStart = start.mv
 		search = search.adjustedForImprovedMVStart(start)
 	}

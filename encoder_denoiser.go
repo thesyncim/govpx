@@ -405,12 +405,12 @@ func (d *denoiserState) reset() {
 }
 
 type denoiserMacroblockDecision struct {
+	bestSSE              uint32
+	zeroMVSSE            uint32
+	bestMV               vp8enc.MotionVector
 	bestReferenceFrame   vp8common.MVReferenceFrame
 	bestMode             vp8common.MBPredictionMode
-	bestMV               vp8enc.MotionVector
-	bestSSE              uint32
 	zeroMVReferenceFrame vp8common.MVReferenceFrame
-	zeroMVSSE            uint32
 	useSkinGate          bool
 }
 

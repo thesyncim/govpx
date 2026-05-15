@@ -592,8 +592,8 @@ func fillSplitMotionResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, bl
 type splitMotionSearchSeeds struct {
 	valid    bool
 	mv       [4]vp8enc.MotionVector
-	step8x16 [2]int
-	step16x8 [2]int
+	step8x16 [2]int8
+	step16x8 [2]int8
 }
 
 func splitMotionSearchSeedsFrom8x8(mode *vp8enc.InterFrameMacroblockMode) splitMotionSearchSeeds {
@@ -669,11 +669,11 @@ func splitMotionSubsetSearchStepParam(partition int, subset int, compressorSpeed
 		switch partition {
 		case 0:
 			if uint(subset) < uint(len(seeds.step16x8)) {
-				return seeds.step16x8[subset]
+				return int(seeds.step16x8[subset])
 			}
 		case 1:
 			if uint(subset) < uint(len(seeds.step8x16)) {
-				return seeds.step8x16[subset]
+				return int(seeds.step8x16[subset])
 			}
 		}
 	}
@@ -702,7 +702,7 @@ func splitMotionSeedDistance(a vp8enc.MotionVector, b vp8enc.MotionVector) int {
 	return row >> 3
 }
 
-func libvpxSplitMVStepParamFromSeedDistance(sr int) int {
+func libvpxSplitMVStepParamFromSeedDistance(sr int) int8 {
 	if sr > interFrameMaxFirstStep {
 		sr = interFrameMaxFirstStep
 	} else if sr < 1 {
@@ -712,7 +712,7 @@ func libvpxSplitMVStepParamFromSeedDistance(sr int) int {
 	for sr >>= 1; sr > 0; sr >>= 1 {
 		step++
 	}
-	return interFrameMaxMVSearchSteps - 1 - step
+	return int8(interFrameMaxMVSearchSteps - 1 - step)
 }
 
 func splitSubMotionLabelSearchCost(mode vp8common.BPredictionMode, qIndex int) int {

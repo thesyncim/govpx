@@ -560,7 +560,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					decision.intraMode.UVMode = uvMode
 				}
 			}
-			projectedRate := decision.projectedRate
+			projectedRate := int(decision.projectedRate)
 			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			quant := &quants[segmentID&3]

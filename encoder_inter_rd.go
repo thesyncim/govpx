@@ -29,22 +29,22 @@ type interResidualRDAccounting struct {
 }
 
 type interResidualRDContext struct {
-	src                    vp8enc.SourceImage
+	aboveTok               *vp8enc.TokenContextPlanes
+	quant                  *vp8enc.MacroblockQuant
+	leftTok                *vp8enc.TokenContextPlanes
 	ref                    *vp8common.Image
-	mbRow                  int
-	mbCol                  int
 	mode                   *vp8enc.InterFrameMacroblockMode
 	above                  *vp8enc.InterFrameMacroblockMode
 	left                   *vp8enc.InterFrameMacroblockMode
 	aboveLeft              *vp8enc.InterFrameMacroblockMode
-	aboveTok               *vp8enc.TokenContextPlanes
-	leftTok                *vp8enc.TokenContextPlanes
-	quant                  *vp8enc.MacroblockQuant
+	src                    vp8enc.SourceImage
+	mbCol                  int
+	mbRow                  int
 	qIndex                 int
-	segmentID              uint8
 	refRate                int
-	modeCounts             vp8enc.InterModeCounts
 	bestRefMV              vp8enc.MotionVector
+	modeCounts             vp8enc.InterModeCounts
+	segmentID              uint8
 	suppressStaticBreakout bool
 	denoiseActive          bool
 }
@@ -264,18 +264,22 @@ func macroblockLumaMotionVarianceSSECached(src vp8enc.SourceImage, ref *vp8commo
 	if ctx == nil {
 		return macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
 	}
-	entry := &ctx.variance[fastInterVarianceCacheIndex(ref, mv)]
-	if entry.set && entry.ref == ref && entry.mv == mv {
-		return entry.variance, entry.sse
+	index := fastInterVarianceCacheIndex(ref, mv)
+	entry := &ctx.variance[index]
+	if ctx.varianceSet&(uint16(1)<<uint(index)) != 0 && entry.ref == ref && entry.mv == mv {
+		return int(entry.variance), int(entry.sse)
 	}
 	variance, sse := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
-	*entry = fastInterVarianceCacheEntry{set: true, ref: ref, mv: mv, variance: variance, sse: sse}
+	*entry = fastInterVarianceCacheEntry{ref: ref, mv: mv, variance: int32(variance), sse: int32(sse)}
+	ctx.varianceSet |= uint16(1) << uint(index)
 	return variance, sse
 }
 
-func (ctx *fastInterModeLoopContext) storeVariance(ref *vp8common.Image, mv vp8enc.MotionVector, variance int, sse int) {
-	entry := &ctx.variance[fastInterVarianceCacheIndex(ref, mv)]
-	*entry = fastInterVarianceCacheEntry{set: true, ref: ref, mv: mv, variance: variance, sse: sse}
+func (ctx *fastInterModeLoopContext) storeVariance(ref *vp8common.Image, mv vp8enc.MotionVector, variance int32, sse int32) {
+	index := fastInterVarianceCacheIndex(ref, mv)
+	entry := &ctx.variance[index]
+	*entry = fastInterVarianceCacheEntry{ref: ref, mv: mv, variance: variance, sse: sse}
+	ctx.varianceSet |= uint16(1) << uint(index)
 }
 
 func fastInterVarianceCacheIndex(ref *vp8common.Image, mv vp8enc.MotionVector) int {

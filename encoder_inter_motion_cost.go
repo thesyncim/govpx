@@ -23,24 +23,24 @@ func interMotionSplitBlockSearchCost(src vp8enc.SourceImage, ref *vp8common.Imag
 // plane (`base_pre + d->offset + row*stride + col`), so legal UMV edge
 // candidates stay on the same SIMD path as interior candidates.
 type fullPelSearchCtx struct {
-	src        vp8enc.SourceImage
 	ref        *vp8common.Image
-	mbRow      int
-	mbCol      int
+	refYFullP  *byte
+	srcRowPtrP *byte
+	srcRowPtr  []byte
+	src        vp8enc.SourceImage
 	baseY      int
 	baseX      int
-	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX : ]
-	srcRowPtrP *byte  // = unsafe.SliceData(srcRowPtr) - hot SAD bypass
+	mbCol      int
 	srcYStride int
-	srcFull    bool
-	srcScratch [16 * 16]byte
-	srcClamped bool
-	refYFullP  *byte
+	mbRow      int
 	refYStride int
 	refYOrigin int
 	refYBorder int
 	refRowH    uint // = uint(ref.CodedHeight + 2*ref.YBorder - 16)
 	refRowW    uint // = uint(ref.CodedWidth + 2*ref.YBorder - 16)
+	srcScratch [16 * 16]byte
+	srcFull    bool
+	srcClamped bool
 }
 
 func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) fullPelSearchCtx {

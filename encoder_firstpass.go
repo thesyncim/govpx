@@ -576,7 +576,7 @@ func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 }
 
 func (s *fullPelMotionSearch) firstPassNstep(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
-	stepParam := search.fullPixelSearchParam
+	stepParam := int(search.fullPixelSearchParam)
 	if stepParam < 0 {
 		stepParam = 0
 	} else if stepParam >= interFrameMaxMVSearchSteps {
@@ -586,16 +586,17 @@ func (s *fullPelMotionSearch) firstPassNstep(center vp8enc.MotionVector, centerW
 	result := s.firstPassSearchSites(center, centerWalkCost, stepParam)
 	best := result.mv
 	bestCost := result.cost
-	n := result.num00
+	n := int(result.num00)
 	num00 := 0
-	for n < search.fullPixelFurtherSteps {
+	furtherSteps := int(search.fullPixelFurtherSteps)
+	for n < furtherSteps {
 		n++
 		if num00 > 0 {
 			num00--
 			continue
 		}
 		candidate := s.firstPassSearchSites(center, centerWalkCost, stepParam+n)
-		num00 = candidate.num00
+		num00 = int(candidate.num00)
 		if candidate.cost < bestCost {
 			best = candidate.mv
 			bestCost = candidate.cost

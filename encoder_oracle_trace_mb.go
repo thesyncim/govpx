@@ -132,12 +132,12 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		MBRate:         mbRate,
 		AggregatedRate: aggregatedRate,
 	}
-	if improvedStart.ok {
+	if improvedStart.ok() {
 		row.ImprovedMVStart = true
-		row.ImprovedMVNearSADIndex = improvedStart.nearSADIndex
+		row.ImprovedMVNearSADIndex = improvedStart.nearSADIndexInt()
 		row.ImprovedMVRow = improvedStart.mv.Row
 		row.ImprovedMVCol = improvedStart.mv.Col
-		row.ImprovedMVSR = improvedStart.sr
+		row.ImprovedMVSR = improvedStart.searchRange()
 	}
 	if mode.Mode == vp8common.SplitMV {
 		partition := int(mode.Partition)

@@ -5,8 +5,8 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-func interReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]int {
-	order := [4]int{-1, -1, -1, -1}
+func interReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]int8 {
+	order := [4]int8{-1, -1, -1, -1}
 	searchSlot := 1
 	// Hoist the min(refCount, len(refs)) bound out of the loop condition.
 	refLimit := min(refCount, len(refs))
@@ -17,15 +17,15 @@ func interReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]i
 		switch refs[refIndex].Frame {
 		case vp8common.LastFrame, vp8common.GoldenFrame, vp8common.AltRefFrame:
 			// searchSlot is in [1,4) by the loop condition above; AND-mask
-			// with 3 elides the bounds check on the [4]int order array.
-			order[searchSlot&3] = refIndex
+			// with 3 elides the bounds check on the [4]int8 order array.
+			order[searchSlot&3] = int8(refIndex)
 			searchSlot++
 		}
 	}
 	return order
 }
 
-func interReferenceBySearchSlot(refs []interAnalysisReference, searchOrder [4]int, refSlot int) (interAnalysisReference, int, bool) {
+func interReferenceBySearchSlot(refs []interAnalysisReference, searchOrder [4]int8, refSlot int) (interAnalysisReference, int, bool) {
 	// uint(refSlot-1) folds (refSlot <= 0) and (refSlot >= len) into one
 	// branch: refSlot=0 → -1 wraps to huge, refSlot=len → len-1 >= len-1
 	// (false on the upper bound for the original test); use len-1 as
@@ -33,7 +33,7 @@ func interReferenceBySearchSlot(refs []interAnalysisReference, searchOrder [4]in
 	if uint(refSlot-1) >= uint(len(searchOrder)-1) {
 		return interAnalysisReference{}, 0, false
 	}
-	refIndex := searchOrder[refSlot]
+	refIndex := int(searchOrder[refSlot])
 	if uint(refIndex) >= uint(len(refs)) || refs[refIndex].Img == nil {
 		return interAnalysisReference{}, 0, false
 	}
@@ -63,7 +63,7 @@ func interModeSignBiasSlotForReference(refFrame vp8common.MVReferenceFrame, sign
 }
 
 func (e *VP8Encoder) interModeMVSlots(
-	refs []interAnalysisReference, refSearchOrder [4]int,
+	refs []interAnalysisReference, refSearchOrder [4]int8,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	mbRow int, mbCol int, mbRows int, mbCols int,
 ) interModeMVSlots {

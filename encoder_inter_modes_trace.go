@@ -64,10 +64,10 @@ func (e *VP8Encoder) emitFastPickerInterCandidateTrace(mbRow int, mbCol int, mod
 		ModeTrace:       *mode,
 		HasModeTrace:    true,
 
-		ImprovedMVStart:        improvedStart.ok,
-		ImprovedMVNearSADIndex: improvedStart.nearSADIndex,
+		ImprovedMVStart:        improvedStart.ok(),
+		ImprovedMVNearSADIndex: improvedStart.nearSADIndexInt(),
 		ImprovedMVRow:          improvedStart.mv.Row,
 		ImprovedMVCol:          improvedStart.mv.Col,
-		ImprovedMVSR:           improvedStart.sr,
+		ImprovedMVSR:           improvedStart.searchRange(),
 	})
 }

@@ -6,14 +6,14 @@ package common
 // - vp8/common/onyx.h
 // - vp8/common/onyxc_int.h
 
-type FrameType int
+type FrameType uint8
 
 const (
 	KeyFrame FrameType = iota
 	InterFrame
 )
 
-type MBPredictionMode int
+type MBPredictionMode uint8
 
 const (
 	DCPred MBPredictionMode = iota
@@ -29,7 +29,7 @@ const (
 	MBModeCount
 )
 
-type MBLvlFeature int
+type MBLvlFeature uint8
 
 const (
 	MBLvlAltQ MBLvlFeature = iota
@@ -37,7 +37,7 @@ const (
 	MBLvlMax
 )
 
-type BPredictionMode int
+type BPredictionMode uint8
 
 const (
 	BDCPred BPredictionMode = iota
@@ -57,7 +57,7 @@ const (
 	BModeCount
 )
 
-type MVReferenceFrame int
+type MVReferenceFrame uint8
 
 const (
 	IntraFrame MVReferenceFrame = iota
@@ -67,7 +67,7 @@ const (
 	MaxRefFrames
 )
 
-type TokenPartition int
+type TokenPartition uint8
 
 const (
 	OnePartition TokenPartition = iota
@@ -76,14 +76,14 @@ const (
 	EightPartition
 )
 
-type ClampType int
+type ClampType uint8
 
 const (
 	ReconClampRequired ClampType = iota
 	ReconClampNotRequired
 )
 
-type SubMVRef int
+type SubMVRef uint8
 
 const (
 	SubMVRefNormal SubMVRef = iota
@@ -94,7 +94,7 @@ const (
 	SubMVRefCount
 )
 
-type EndUsage int
+type EndUsage uint8
 
 const (
 	UsageLocalFilePlayback EndUsage = iota
@@ -103,7 +103,7 @@ const (
 	UsageConstantQuality
 )
 
-type EncoderMode int
+type EncoderMode uint8
 
 const (
 	ModeRealtime EncoderMode = iota
@@ -114,7 +114,7 @@ const (
 	ModeSecondPassBest
 )
 
-type FrameTypeFlags int
+type FrameTypeFlags uint8
 
 const (
 	FrameFlagsKey FrameTypeFlags = 1 << iota

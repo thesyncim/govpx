@@ -567,7 +567,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		if err := rs.updateThreadedInterFrameTokenContextAndCount(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index]); err != nil {
 			return 0, 0, err
 		}
-		return decision.projectedRate, int64(decision.predictionError), nil
+		return int(decision.projectedRate), int64(decision.predictionError), nil
 	}
 	if args.modes[index].RefFrame == vp8common.IntraFrame {
 		if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
@@ -579,7 +579,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	if err := rs.updateThreadedInterFrameTokenContextAndCount(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index]); err != nil {
 		return 0, 0, err
 	}
-	return decision.projectedRate, int64(decision.predictionError), nil
+	return int(decision.projectedRate), int64(decision.predictionError), nil
 }
 
 func (rs *rowEncoderState) updateThreadedInterFrameTokenContextAndCount(above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) error {

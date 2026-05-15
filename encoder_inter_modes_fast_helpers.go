@@ -8,23 +8,23 @@ import (
 )
 
 type fastInterModeLoopContext struct {
-	modeMVs   interModeMVSlots
-	signBias  [vp8common.MaxRefFrames]bool
-	bestRefMV vp8enc.MotionVector
-	search    interAnalysisSearchConfig
-	searchSet bool
-	mvCosts   *vp8enc.MotionVectorCostTables
-	variance  [fastInterVarianceCacheSize]fastInterVarianceCacheEntry
+	mvCosts     *vp8enc.MotionVectorCostTables
+	variance    [fastInterVarianceCacheSize]fastInterVarianceCacheEntry
+	modeMVs     interModeMVSlots
+	bestRefMV   vp8enc.MotionVector
+	varianceSet uint16
+	search      interAnalysisSearchConfig
+	signBias    [vp8common.MaxRefFrames]bool
+	searchSet   bool
 }
 
 const fastInterVarianceCacheSize = 16
 
 type fastInterVarianceCacheEntry struct {
-	set      bool
 	ref      *vp8common.Image
 	mv       vp8enc.MotionVector
-	variance int
-	sse      int
+	variance int32
+	sse      int32
 }
 
 func (ctx *fastInterModeLoopContext) searchConfig(e *VP8Encoder) interAnalysisSearchConfig {

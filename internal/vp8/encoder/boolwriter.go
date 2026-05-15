@@ -12,12 +12,12 @@ import (
 var ErrBufferTooSmall = errors.New("govpx: VP8 encoder buffer too small")
 
 type BoolWriter struct {
-	low   uint32
-	rng   uint32
+	err   error
+	buf   []byte
 	count int
 	pos   int
-	buf   []byte
-	err   error
+	low   uint32
+	rng   uint32
 }
 
 func (w *BoolWriter) Init(dst []byte) {

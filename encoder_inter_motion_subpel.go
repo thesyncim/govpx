@@ -8,13 +8,14 @@ import (
 )
 
 type interFrameSubpixelSearch struct {
-	src       vp8enc.SourceImage
-	ref       *vp8common.Image
-	mbRow     int
-	mbCol     int
-	best      vp8enc.MotionVector
-	bestRefMV vp8enc.MotionVector
-	qIndex    int
+	ref     *vp8common.Image
+	mvProbs *[2][vp8tables.MVPCount]uint8
+	mvCosts *vp8enc.MotionVectorCostTables
+	stats   *interFrameMotionSearchStats
+	src     vp8enc.SourceImage
+	mbRow   int
+	mbCol   int
+	qIndex  int
 	// errorPerBit, when non-zero, overrides the libvpx-default
 	// libvpxErrorPerBit(qIndex) used to scale motion-vector rate into the
 	// fractional-search cost. TuneSSIM's per-MB vp8_activity_masking call in
@@ -24,10 +25,9 @@ type interFrameSubpixelSearch struct {
 	// ssim parity gap that remained after the activity probe matched libvpx
 	// byte-for-byte.
 	errorPerBit int
+	best        vp8enc.MotionVector
+	bestRefMV   vp8enc.MotionVector
 	search      interAnalysisSearchConfig
-	mvProbs     *[2][vp8tables.MVPCount]uint8
-	mvCosts     *vp8enc.MotionVectorCostTables
-	stats       *interFrameMotionSearchStats
 }
 
 // effectiveErrorPerBit returns the caller-supplied per-MB errorperbit when
@@ -45,12 +45,21 @@ func (s *interFrameSubpixelSearch) effectiveErrorPerBit() int {
 
 type subpelCandidateEval struct {
 	cost     int
-	variance int
-	sse      int
+	variance int32
+	sse      int32
 	ok       bool
 }
 
-func (s *interFrameSubpixelSearch) refine() (vp8enc.MotionVector, int, int, int, bool) {
+func makeSubpelCandidateEval(cost int, variance int, sse int) subpelCandidateEval {
+	return subpelCandidateEval{
+		cost:     cost,
+		variance: int32(variance),
+		sse:      int32(sse),
+		ok:       true,
+	}
+}
+
+func (s *interFrameSubpixelSearch) refine() (vp8enc.MotionVector, int, int32, int32, bool) {
 	switch s.search.fractionalSearch {
 	case interAnalysisFractionalSearchStep:
 		return s.step(true)
@@ -63,7 +72,7 @@ func (s *interFrameSubpixelSearch) refine() (vp8enc.MotionVector, int, int, int,
 	}
 }
 
-func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int, int, int, bool) {
+func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int, int32, int32, bool) {
 	if int(s.best.Row)&7 != 0 || int(s.best.Col)&7 != 0 {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
@@ -122,12 +131,7 @@ func (s *interFrameSubpixelSearch) stepCandidateEval(subCtx *subpelSearchCtx, ro
 		return subpelCandidateEval{cost: maxInt()}
 	}
 	s.stats.recordSubpelVariance()
-	return subpelCandidateEval{
-		cost:     dist + s.centerMotionCost(row, col, errorPerBit),
-		variance: dist,
-		sse:      sse,
-		ok:       true,
-	}
+	return makeSubpelCandidateEval(dist+s.centerMotionCost(row, col, errorPerBit), dist, sse)
 }
 
 func (s *interFrameSubpixelSearch) candidateEval(subCtx *subpelSearchCtx, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
@@ -138,12 +142,7 @@ func (s *interFrameSubpixelSearch) candidateEval(subCtx *subpelSearchCtx, row in
 		return subpelCandidateEval{cost: maxInt()}
 	}
 	s.stats.recordSubpelVariance()
-	return subpelCandidateEval{
-		cost:     dist + s.motionCost(row, col, refRow4, refCol4, errorPerBit),
-		variance: dist,
-		sse:      sse,
-		ok:       true,
-	}
+	return makeSubpelCandidateEval(dist+s.motionCost(row, col, refRow4, refCol4, errorPerBit), dist, sse)
 }
 
 func (s *interFrameSubpixelSearch) centerEval(subCtx *subpelSearchCtx, row int, col int, errorPerBit int) subpelCandidateEval {
@@ -154,12 +153,7 @@ func (s *interFrameSubpixelSearch) centerEval(subCtx *subpelSearchCtx, row int, 
 		return subpelCandidateEval{cost: maxInt()}
 	}
 	s.stats.recordSubpelVariance()
-	return subpelCandidateEval{
-		cost:     dist + s.centerMotionCost(row, col, errorPerBit),
-		variance: dist,
-		sse:      sse,
-		ok:       true,
-	}
+	return makeSubpelCandidateEval(dist+s.centerMotionCost(row, col, errorPerBit), dist, sse)
 }
 
 func (s *interFrameSubpixelSearch) motionCost(row int, col int, refRow4 int, refCol4 int, errorPerBit int) int {
@@ -243,10 +237,8 @@ func (b interFrameSubpelSearchBounds) contains(row int, col int) bool {
 // thresholds once and folds them into a tight inline test.
 type subpelSearchCtx struct {
 	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX:]
-	srcYStride int
-	srcScratch [16 * 16]byte
-	srcPartial bool
 	refYFull   []byte
+	srcYStride int
 	refYStride int
 	refYOrigin int
 	refYBorder int
@@ -254,6 +246,8 @@ type subpelSearchCtx struct {
 	refCodedW  int
 	baseY      int
 	baseX      int
+	srcScratch [16 * 16]byte
+	srcPartial bool
 }
 
 func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (subpelSearchCtx, bool) {
@@ -325,7 +319,7 @@ func (c *subpelSearchCtx) subpelVarianceForQuarterMV(row int, col int) (int, int
 // to bestRefMV: candidate MVs farther from bestRefMV than MAX_FULL_PEL_VAL
 // (in 1/8-pel) get rejected with INT_MAX and the cost is charged against the
 // ref-MV, not (0,0).
-func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, int, bool) {
+func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int32, int32, bool) {
 	if int(s.best.Row)&7 != 0 || int(s.best.Col)&7 != 0 {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}

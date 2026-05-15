@@ -7,9 +7,9 @@ import "github.com/thesyncim/govpx/internal/vp8/tables"
 // state in locals across the tree walk.
 
 type coefficientExtraBitEncoding struct {
-	len     uint8
 	baseVal int16
 	probs   [11]uint8
+	len     uint8
 }
 
 var coefficientExtraBitEncodings = buildCoefficientExtraBitEncodings()
