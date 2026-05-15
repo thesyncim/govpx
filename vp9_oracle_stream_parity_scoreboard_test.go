@@ -982,7 +982,13 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 	const width, height, frames, lag = 64, 64, 16, 4
 	sources := makeVP9SteppedOracleSources(width, height, frames)
 	govpxRows, govpxPackets := captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t,
-		VP9EncoderOptions{LookaheadFrames: lag, AutoAltRef: true}, sources)
+		VP9EncoderOptions{
+			LookaheadFrames: lag,
+			AutoAltRef:      true,
+			ARNRMaxFrames:   7,
+			ARNRStrength:    3,
+			ARNRType:        3,
+		}, sources)
 	libvpxRows, libvpxPackets := captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t,
 		sources,
 		"--deadline=good",

@@ -148,6 +148,16 @@ type VP9EncoderOptions struct {
 	// hidden ALTREF bootstrap per stream; source-backed ALTREF refresh remains
 	// available through EncodeForceAltRefFrame.
 	AutoAltRef bool
+	// ARNRMaxFrames is the VP9 auto-alt-ref noise reduction temporal window in
+	// frames. Values in [2, 15] enable ARNR filtering when AutoAltRef emits a
+	// hidden ALTREF; zero or one leaves the hidden source unfiltered.
+	ARNRMaxFrames int
+	// ARNRStrength is the VP9 auto-alt-ref noise reduction filter strength in
+	// [0, 6].
+	ARNRStrength int
+	// ARNRType selects VP9 auto-alt-ref filter direction: 1=backward,
+	// 2=forward, 3=centered. Zero uses libvpx's default centered type.
+	ARNRType int
 
 	// AQMode selects VP9 adaptive quantization. VP9AQCyclicRefresh enables
 	// realtime CBR cyclic-refresh segmentation; zero leaves AQ disabled.
@@ -342,6 +352,8 @@ type VP9Encoder struct {
 	autoAltRefPending    vp9LookaheadEntry
 	autoAltRefPendingSet bool
 	autoAltRefEmitted    bool
+	vp9ARNRScratch       image.YCbCr
+	vp9ARNRRefs          [maxARNRFrames]arnrFrameView
 
 	vp9ModeDecisionQIndex    uint8
 	vp9ModeDecisionQIndexSet bool
@@ -352,6 +364,9 @@ type VP9Encoder struct {
 // TargetBitrateKbps / MinQuantizer / MaxQuantizer / CQLevel /
 // MaxKeyframeInterval must be non-negative.
 func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
+	if opts.ARNRType == 0 {
+		opts.ARNRType = 3
+	}
 	if err := validateVP9EncoderOptions(opts); err != nil {
 		return nil, err
 	}
@@ -383,6 +398,11 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if opts.LookaheadFrames < 0 || opts.LookaheadFrames > vp9MaxLookaheadFrames {
+		return ErrInvalidConfig
+	}
+	if opts.ARNRMaxFrames < 0 || opts.ARNRMaxFrames > maxARNRFrames ||
+		opts.ARNRStrength < 0 || opts.ARNRStrength > 6 ||
+		opts.ARNRType < 0 || opts.ARNRType > 3 {
 		return ErrInvalidConfig
 	}
 	if err := validateVP9RateControlOptions(opts); err != nil {

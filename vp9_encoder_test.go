@@ -484,6 +484,12 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.MaxKeyframeInterval = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = vp9MaxLookaheadFrames + 1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ARNRMaxFrames = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ARNRMaxFrames = maxARNRFrames + 1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ARNRStrength = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ARNRStrength = 7 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ARNRType = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ARNRType = 4 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
 			o.AutoAltRef = true
@@ -1065,6 +1071,79 @@ func TestVP9EncoderAutoAltRefLookaheadEmitsHiddenAltRef(t *testing.T) {
 	}
 	if visible != frames {
 		t.Fatalf("visible decoded frames = %d, want %d", visible, frames)
+	}
+}
+
+func TestVP9EncoderAutoAltRefARNRFiltersHiddenSource(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 4,
+		AutoAltRef:      true,
+		ARNRMaxFrames:   5,
+		ARNRStrength:    6,
+		ARNRType:        1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	for i := 0; i < 4; i++ {
+		src := newVP9YCbCrForTest(width, height, uint8(100+i*4), 128, 128)
+		if err := e.pushVP9Lookahead(src, 0); err != nil {
+			t.Fatalf("pushVP9Lookahead %d: %v", i, err)
+		}
+	}
+	future, ok := e.newestVP9LookaheadEntry()
+	if !ok {
+		t.Fatal("newestVP9LookaheadEntry returned !ok")
+	}
+	before := append([]byte(nil), future.img.Y...)
+	if !e.applyVP9ARNRFilter(future) {
+		t.Fatal("applyVP9ARNRFilter returned false")
+	}
+	if bytes.Equal(e.vp9ARNRScratch.Y, future.img.Y) {
+		t.Fatal("ARNR scratch luma matches unfiltered future source")
+	}
+	if !bytes.Equal(before, future.img.Y) {
+		t.Fatal("ARNR mutated queued future source")
+	}
+}
+
+func TestVP9EncoderAutoAltRefARNRSteadyStateAlloc(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 4,
+		AutoAltRef:      true,
+		ARNRMaxFrames:   5,
+		ARNRStrength:    6,
+		ARNRType:        1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	for i := 0; i < 4; i++ {
+		src := newVP9YCbCrForTest(width, height, uint8(100+i*4), 128, 128)
+		if err := e.pushVP9Lookahead(src, 0); err != nil {
+			t.Fatalf("pushVP9Lookahead %d: %v", i, err)
+		}
+	}
+	future, ok := e.newestVP9LookaheadEntry()
+	if !ok {
+		t.Fatal("newestVP9LookaheadEntry returned !ok")
+	}
+	if !e.applyVP9ARNRFilter(future) {
+		t.Fatal("warm applyVP9ARNRFilter returned false")
+	}
+	allocs := testing.AllocsPerRun(10, func() {
+		if !e.applyVP9ARNRFilter(future) {
+			t.Fatal("applyVP9ARNRFilter returned false")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("VP9 ARNR steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 

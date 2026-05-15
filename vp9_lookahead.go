@@ -18,6 +18,7 @@ func (e *VP9Encoder) initVP9Lookahead(width int, height int, depth int) {
 		e.lookaheadWrite = 0
 		e.lookaheadCount = 0
 		e.autoAltRefPending = vp9LookaheadEntry{}
+		e.vp9ARNRScratch = image.YCbCr{}
 		return
 	}
 	e.lookahead = make([]vp9LookaheadEntry, depth+1)
@@ -27,6 +28,11 @@ func (e *VP9Encoder) initVP9Lookahead(width int, height int, depth int) {
 	}
 	if e.opts.AutoAltRef {
 		e.autoAltRefPending.img = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
+	}
+	if e.opts.AutoAltRef && e.opts.ARNRMaxFrames > 1 {
+		e.vp9ARNRScratch = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
+	} else {
+		e.vp9ARNRScratch = image.YCbCr{}
 	}
 	e.lookaheadRead = 0
 	e.lookaheadWrite = 0
@@ -149,7 +155,8 @@ func (e *VP9Encoder) maybeEncodeVP9AutoAltRefInto(dst []byte) (VP9EncodeResult, 
 	if !ok {
 		return VP9EncodeResult{}, false, nil
 	}
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(&future.img, dst,
+	hiddenSrc := e.vp9AutoAltRefSourceImage(future)
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(hiddenSrc, dst,
 		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|
 			EncodeNoUpdateGolden,
 		false, temporalFrame{LayerCount: 1})
