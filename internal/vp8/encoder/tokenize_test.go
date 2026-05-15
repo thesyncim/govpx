@@ -322,6 +322,31 @@ func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	}
 }
 
+func TestResetInterCoefficientTokenRecordsUsesInlineRowStarts(t *testing.T) {
+	const rows = maxCoefficientTokenRecordRowStarts - 1
+
+	var records InterCoefficientTokenRecords
+	ResetInterCoefficientTokenRecords(&records, rows, 0)
+	rowStarts := records.rowStarts()
+	if len(rowStarts) != rows+1 {
+		t.Fatalf("row starts len = %d, want %d", len(rowStarts), rows+1)
+	}
+	if &rowStarts[0] != &records.rowStartsInline[0] {
+		t.Fatalf("row starts did not use inline storage")
+	}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		var fresh InterCoefficientTokenRecords
+		ResetInterCoefficientTokenRecords(&fresh, rows, 0)
+		if len(fresh.rowStarts()) != rows+1 {
+			panic("bad row starts length")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func BenchmarkBlockCoeffEOBHighCoefficient(b *testing.B) {
 	var coeff [16]int16
 	coeff[tables.DefaultZigZag1D[15]] = 1
@@ -411,6 +436,45 @@ func BenchmarkWritePreparedCoefficientTokenRecords(b *testing.B) {
 		w.Init(buf)
 		_ = writePreparedCoefficientTokenRecords(&w, &tables.DefaultCoefProbs, records.Records)
 		w.Finish()
+	}
+}
+
+func BenchmarkAccumulateInterMacroblockTokenCountsAndRecords(b *testing.B) {
+	const (
+		rows = 4
+		cols = 4
+	)
+	modes := make([]InterFrameMacroblockMode, rows*cols)
+	coeffs := make([]MacroblockCoefficients, rows*cols)
+	for i := range modes {
+		modes[i] = InterFrameMacroblockMode{Mode: common.ZeroMV}
+		coeffs[i].QCoeff[0][1] = int16((i % 4) + 1)
+		coeffs[i].QCoeff[1][0] = int16(-((i % 3) + 1))
+		coeffs[i].QCoeff[16][0] = int16((i % 5) + 1)
+		coeffs[i].QCoeff[24][0] = int16(-((i % 2) + 1))
+		setAllMacroblockEOBs(&coeffs[i], false)
+	}
+	above := make([]TokenContextPlanes, cols)
+	var counts InterCoefficientTokenCounts
+	var records InterCoefficientTokenRecords
+	ResetInterCoefficientTokenRecords(&records, rows, rows*cols)
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		ResetInterCoefficientTokenCounts(&counts)
+		ResetInterCoefficientTokenRecords(&records, rows, rows*cols)
+		clear(above)
+		for row := range rows {
+			MarkInterCoefficientTokenRecordRowStart(&records, row)
+			left := TokenContextPlanes{}
+			for col := range cols {
+				index := row*cols + col
+				if err := AccumulateInterMacroblockTokenCountsAndRecords(&counts, &records, interModeUses4x4Tokens(modes[index].Mode), &above[col], &left, &coeffs[index]); err != nil {
+					b.Fatalf("AccumulateInterMacroblockTokenCountsAndRecords returned error: %v", err)
+				}
+			}
+			MarkInterCoefficientTokenRecordRowEnd(&records, row)
+		}
 	}
 }
 

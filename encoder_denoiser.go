@@ -385,7 +385,13 @@ func (d *denoiserState) ensureAllocated(width int, height int) error {
 	}
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
-	d.state = make([]uint8, rows*cols)
+	stateLen := rows * cols
+	if cap(d.state) < stateLen {
+		d.state = make([]uint8, stateLen)
+	} else {
+		d.state = d.state[:stateLen]
+		clear(d.state)
+	}
 	d.allocated = true
 	d.width = width
 	d.height = height

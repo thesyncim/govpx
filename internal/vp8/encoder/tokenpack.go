@@ -33,6 +33,12 @@ func buildCoefficientExtraBitEncodings() [tables.MaxEntropyTokens]coefficientExt
 //   - 4x4-token:  Y1 16*16 + UV 8*16
 const MaxCoefficientTokenRecordsPerMacroblock = 384
 
+// VP8 stores coded width/height in 14 bits, so the maximum macroblock row
+// count is ceil(16383/16)=1024. Keep row offsets inline: this avoids a small
+// setup heap object for every encoder while leaving the large token stream in
+// reusable, pointer-free heap storage.
+const maxCoefficientTokenRecordRowStarts = 1025
+
 // CoefficientTokenRecord is a compact, probability-independent coefficient
 // token prepared during accepted-MB reconstruction and later emitted after
 // coefficient probability updates are finalized.
@@ -53,9 +59,18 @@ const (
 )
 
 type InterCoefficientTokenRecords struct {
-	Records   []CoefficientTokenRecord
-	RowStarts []int
-	Rows      int
+	Records       []CoefficientTokenRecord
+	rowStartsHeap []uint32
+	Rows          int
+
+	rowStartsInline [maxCoefficientTokenRecordRowStarts]uint32
+}
+
+func (records *InterCoefficientTokenRecords) rowStarts() []uint32 {
+	if records.Rows+1 <= len(records.rowStartsInline) {
+		return records.rowStartsInline[:records.Rows+1]
+	}
+	return records.rowStartsHeap[:records.Rows+1]
 }
 
 func ResetInterCoefficientTokenRecords(records *InterCoefficientTokenRecords, rows int, macroblocks int) {
@@ -69,11 +84,15 @@ func ResetInterCoefficientTokenRecords(records *InterCoefficientTokenRecords, ro
 		macroblocks = 0
 	}
 	records.Rows = rows
-	if cap(records.RowStarts) < rows+1 {
-		records.RowStarts = make([]int, rows+1)
+	rowStarts := rows + 1
+	if rowStarts <= len(records.rowStartsInline) {
+		clear(records.rowStartsInline[:rowStarts])
+		records.rowStartsHeap = nil
+	} else if cap(records.rowStartsHeap) < rowStarts {
+		records.rowStartsHeap = make([]uint32, rowStarts)
 	} else {
-		records.RowStarts = records.RowStarts[:rows+1]
-		clear(records.RowStarts)
+		records.rowStartsHeap = records.rowStartsHeap[:rowStarts]
+		clear(records.rowStartsHeap)
 	}
 	capacity := macroblocks * MaxCoefficientTokenRecordsPerMacroblock
 	if cap(records.Records) < capacity {
@@ -84,24 +103,32 @@ func ResetInterCoefficientTokenRecords(records *InterCoefficientTokenRecords, ro
 }
 
 func MarkInterCoefficientTokenRecordRowStart(records *InterCoefficientTokenRecords, row int) {
-	if records == nil || uint(row) >= uint(len(records.RowStarts)-1) {
+	if records == nil {
 		return
 	}
-	records.RowStarts[row] = len(records.Records)
+	rowStarts := records.rowStarts()
+	if uint(row) >= uint(len(rowStarts)-1) {
+		return
+	}
+	rowStarts[row] = uint32(len(records.Records))
 }
 
 func MarkInterCoefficientTokenRecordRowEnd(records *InterCoefficientTokenRecords, row int) {
-	if records == nil || uint(row) >= uint(len(records.RowStarts)-1) {
+	if records == nil {
 		return
 	}
-	records.RowStarts[row+1] = len(records.Records)
+	rowStarts := records.rowStarts()
+	if uint(row) >= uint(len(rowStarts)-1) {
+		return
+	}
+	rowStarts[row+1] = uint32(len(records.Records))
 }
 
-// appendTokenUnchecked is the hot-path entry that packs+appends a
-// coefficient token without re-validating the inputs. Callers (e.g.
-// countBlockCoefficientTokensAndRecords) validate at function entry,
-// so the per-coefficient cost of re-validating showed up as ~10% extra
-// time in the entropy walk under pprof.
+// appendTokenUnchecked is the hot-path entry that packs+stores a coefficient
+// token without re-validating the inputs. Callers (e.g.
+// countBlockCoefficientTokensAndRecords) validate at function entry, and
+// ResetInterCoefficientTokenRecords preallocates the exact worst-case stream
+// capacity for the accepted-MB walk.
 //
 // Records MUST be non-nil; the variant with the nil-tolerant entry is
 // appendTokenIfNotNil. Hoisting the nil check out of the per-coefficient
@@ -117,18 +144,24 @@ func (records *InterCoefficientTokenRecords) appendTokenUnchecked(blockType int,
 	if skipEOBNode {
 		value |= 1 << coefficientTokenRecordSkipEOBNodeShift
 	}
-	records.Records = append(records.Records, CoefficientTokenRecord(value))
+	index := len(records.Records)
+	records.Records = records.Records[:index+1]
+	records.Records[index] = CoefficientTokenRecord(value)
 }
 
 func validPreparedCoefficientTokenRows(records *InterCoefficientTokenRecords, rows int) bool {
-	if records == nil || rows < 0 || records.Rows != rows || len(records.RowStarts) < rows+1 {
+	if records == nil || rows < 0 || records.Rows != rows {
 		return false
 	}
-	if records.RowStarts[0] != 0 || records.RowStarts[rows] != len(records.Records) {
+	rowStarts := records.rowStarts()
+	if len(rowStarts) < rows+1 {
+		return false
+	}
+	if rowStarts[0] != 0 || int(rowStarts[rows]) != len(records.Records) {
 		return false
 	}
 	for row := range rows {
-		start, end := records.RowStarts[row], records.RowStarts[row+1]
+		start, end := int(rowStarts[row]), int(rowStarts[row+1])
 		if start < 0 || start > end || end > len(records.Records) {
 			return false
 		}
@@ -143,8 +176,9 @@ func writePreparedInterCoefficientTokenGrid(w *BoolWriter, rows int, records *In
 	if !validPreparedCoefficientTokenRows(records, rows) {
 		return ErrModeBufferTooSmall
 	}
+	rowStarts := records.rowStarts()
 	for row := range rows {
-		start, end := records.RowStarts[row], records.RowStarts[row+1]
+		start, end := int(rowStarts[row]), int(rowStarts[row+1])
 		if err := writePreparedCoefficientTokenRecords(w, probs, records.Records[start:end]); err != nil {
 			return err
 		}
@@ -162,9 +196,10 @@ func writePreparedInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, p
 	if !validPreparedCoefficientTokenRows(records, rows) {
 		return ErrModeBufferTooSmall
 	}
+	rowStarts := records.rowStarts()
 	for row := range rows {
 		w := &writers[row&(partitions-1)]
-		start, end := records.RowStarts[row], records.RowStarts[row+1]
+		start, end := int(rowStarts[row]), int(rowStarts[row+1])
 		if err := writePreparedCoefficientTokenRecords(w, probs, records.Records[start:end]); err != nil {
 			return err
 		}

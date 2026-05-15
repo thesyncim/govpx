@@ -354,21 +354,23 @@ var libvpxSADPerBit4LUT = [vp8common.QIndexRange]int{
 	18, 18, 19, 19, 19, 20, 20, 20,
 }
 
-var libvpxFullPelMVSADComponentCost16 = buildLibvpxFullPelMVSADComponentCost16()
+var libvpxFullPelMVSADComponentCost16 [vp8common.QIndexRange][256]int
 
-func buildLibvpxFullPelMVSADComponentCost16() [vp8common.QIndexRange][256]int {
-	var out [vp8common.QIndexRange][256]int
-	for q := range out {
+func init() {
+	initLibvpxFullPelMVSADComponentCost16()
+}
+
+func initLibvpxFullPelMVSADComponentCost16() {
+	for q := range libvpxFullPelMVSADComponentCost16 {
 		sadPerBit := libvpxSADPerBit16LUT[q]
-		for i := range out[q] {
+		for i := range libvpxFullPelMVSADComponentCost16[q] {
 			cost := 300
 			if i > 0 {
 				cost = int(256 * (2 * (math.Log2(float64(8*i)) + 0.6)))
 			}
-			out[q][i] = cost * sadPerBit
+			libvpxFullPelMVSADComponentCost16[q][i] = cost * sadPerBit
 		}
 	}
-	return out
 }
 
 func libvpxFullPelMVSADCost16FromDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, qIndex int) int {
