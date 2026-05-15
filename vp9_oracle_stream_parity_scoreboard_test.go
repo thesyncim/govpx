@@ -132,9 +132,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			// The 320x180 keyframe is byte-identical; following inter frames
-			// still expose compressed-header/tile-body drift.
-			exactPrefix: 1,
+			exactPrefix: 4,
 		},
 		{
 			name:    "fixed-q-constant-640",
@@ -150,9 +148,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			// The 640x480 keyframe is byte-identical; the following inter frame
-			// still exposes compressed-header/tile-body drift.
-			exactPrefix: 1,
+			exactPrefix: 2,
 		},
 		{
 			name:    "fixed-q-constant-720p",

@@ -2423,9 +2423,11 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		}
 		return vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	}
-	if kind == vp9ModeTreeInterSource && inter != nil &&
-		vp9InterKeepRootForOneMiEdge(miRows, miCols, miRow, miCol, root) {
-		target = root
+	if kind == vp9ModeTreeInterSource && inter != nil {
+		if edgeSize, ok := vp9InterEdgeBlockSizeForRegion(miRows, miCols,
+			miRow, miCol, root); ok {
+			target = edgeSize
+		}
 	}
 	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
 		return target
@@ -2434,17 +2436,23 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		miRows, miCols, miRow, miCol, root)
 }
 
-func vp9InterKeepRootForOneMiEdge(miRows, miCols, miRow, miCol int,
+func vp9InterEdgeBlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	root common.BlockSize,
-) bool {
+) (common.BlockSize, bool) {
 	if root != common.Block64x64 {
-		return false
+		return common.BlockInvalid, false
 	}
 	maxW := int(common.Num8x8BlocksWideLookup[root])
 	maxH := int(common.Num8x8BlocksHighLookup[root])
 	availW := min(miCols-miCol, maxW)
 	availH := min(miRows-miRow, maxH)
-	return availW >= maxW-1 && availH >= maxH-1
+	if availW >= maxW-1 && availH >= maxH-1 {
+		return root, true
+	}
+	if (availW < maxW || availH < maxH) && availW >= 4 && availH >= 4 {
+		return common.Block32x32, true
+	}
+	return common.BlockInvalid, false
 }
 
 func vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol int,
@@ -5179,8 +5187,9 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	if x0+blockW > srcW || y0+blockH > srcH ||
-		x0+blockW > refW || y0+blockH > refH {
+	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+		srcW, srcH, refW, refH)
+	if !ok {
 		return vp9InterModeDecision{}, false
 	}
 
@@ -5228,7 +5237,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	}
 
 	zeroDistortion := vp9BlockSSE(src, srcStride, ref, refStride,
-		x0, y0, x0, y0, blockW, blockH)
+		x0, y0, x0, y0, scoreW, scoreH)
 	filters := vp9InterInterpFilterCandidates(inter)
 	for _, filter := range filters {
 		consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
@@ -5291,6 +5300,20 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		return vp9InterModeDecision{}, false
 	}
 	return best, true
+}
+
+func vp9VisibleInterScoreBlock(x0, y0, blockW, blockH int,
+	srcW, srcH, refW, refH int,
+) (int, int, bool) {
+	if x0 < 0 || y0 < 0 || blockW <= 0 || blockH <= 0 ||
+		x0 >= srcW || y0 >= srcH || x0 >= refW || y0 >= refH {
+		return 0, 0, false
+	}
+	scoreW := min(blockW, srcW-x0)
+	scoreW = min(scoreW, refW-x0)
+	scoreH := min(blockH, srcH-y0)
+	scoreH = min(scoreH, refH-y0)
+	return scoreW, scoreH, scoreW > 0 && scoreH > 0
 }
 
 func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
@@ -5477,8 +5500,9 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	dstRows := len(dst) / dstStride
-	if x0+blockW > srcW || y0+blockH > srcH ||
-		x0+blockW > dstStride || y0+blockH > dstRows {
+	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+		srcW, srcH, dstStride, dstRows)
+	if !ok {
 		return 0, false
 	}
 	mi := vp9dec.NeighborMi{
@@ -5495,7 +5519,7 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 		return 0, false
 	}
 	return vp9BlockSAD(src, srcStride, dst, dstStride,
-		x0, y0, x0, y0, blockW, blockH, limit), true
+		x0, y0, x0, y0, scoreW, scoreH, limit), true
 }
 
 func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
@@ -5513,8 +5537,9 @@ func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	dstRows := len(dst) / dstStride
-	if x0+blockW > srcW || y0+blockH > srcH ||
-		x0+blockW > dstStride || y0+blockH > dstRows {
+	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+		srcW, srcH, dstStride, dstRows)
+	if !ok {
 		return 0, false
 	}
 	mi := vp9dec.NeighborMi{
@@ -5531,7 +5556,7 @@ func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
 		return 0, false
 	}
 	return vp9BlockSSE(src, srcStride, dst, dstStride,
-		x0, y0, x0, y0, blockW, blockH), true
+		x0, y0, x0, y0, scoreW, scoreH), true
 }
 
 func (e *VP9Encoder) vp9CompoundPredictionDistortion(inter *vp9InterEncodeState,
