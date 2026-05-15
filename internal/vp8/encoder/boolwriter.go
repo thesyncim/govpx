@@ -2,6 +2,7 @@ package encoder
 
 import (
 	"errors"
+	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -11,13 +12,23 @@ import (
 
 var ErrBufferTooSmall = errors.New("govpx: VP8 encoder buffer too small")
 
+const boolWriterErrBufferTooSmall uint8 = 1
+
+func boolWriterLoadByte(buf []byte, pos int) byte {
+	return *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(buf)), uintptr(pos)))
+}
+
+func boolWriterStoreByte(buf []byte, pos int, value byte) {
+	*(*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(buf)), uintptr(pos))) = value
+}
+
 type BoolWriter struct {
-	low   uint32
-	rng   uint32
+	buf   []byte
 	count int
 	pos   int
-	buf   []byte
-	err   error
+	low   uint32
+	rng   uint32
+	err   uint8
 }
 
 func (w *BoolWriter) Init(dst []byte) {
@@ -26,34 +37,58 @@ func (w *BoolWriter) Init(dst []byte) {
 	w.count = -24
 	w.pos = 0
 	w.buf = dst
-	w.err = nil
+	w.err = 0
 }
 
 // WriteBit encodes a single bit at the fixed probability of 128.
 // It is exactly equivalent to WriteBool(bit, 128).
+//
+//go:nosplit
 func (w *BoolWriter) WriteBit(bit uint8) {
-	if w.err != nil {
+	if w.err != 0 {
 		return
 	}
 
-	split := (w.rng + 1) >> 1
-	// Branchless conditional select keyed on bit: mask is all-ones when
-	// bit is set, zero otherwise, so the add and the rng-split fold-in
-	// vanish on the bit==0 path without a jump.
-	mask := -uint32(bit & 1)
-	low := w.low + (split & mask)
-	rng := split + ((w.rng - 2*split) & mask)
+	rng := w.rng
+	split := (rng + 1) >> 1
+	low := w.low
+	if bit&1 == 0 {
+		rng = split
+	} else {
+		low += split
+		rng -= split
+	}
 
-	shift := int(tables.BoolNorm[byte(rng)])
-	rng <<= uint(shift)
-	count := w.count + shift
+	shift := uint(tables.BoolNorm[byte(rng)] & 7)
+	rng <<= shift
+	count := w.count + int(shift)
 
 	if count >= 0 {
-		w.writeBoolFlush(low, rng, count, shift)
+		offset := int(shift) - count
+		if ((low << uint(offset-1)) & 0x80000000) != 0 {
+			w.propagateCarry()
+			if w.err != 0 {
+				return
+			}
+		}
+		if w.pos >= len(w.buf) {
+			w.err = boolWriterErrBufferTooSmall
+			return
+		}
+
+		boolWriterStoreByte(w.buf, w.pos, byte((low>>uint(24-offset))&0xff))
+		w.pos++
+		tailShift := uint(count)
+		low = (low << uint(offset)) & 0xffffff
+		count -= 8
+		low <<= tailShift
+		w.low = low
+		w.rng = rng
+		w.count = count
 		return
 	}
 
-	low <<= uint(shift)
+	low <<= shift
 	w.low = low
 	w.rng = rng
 	w.count = count
@@ -62,54 +97,53 @@ func (w *BoolWriter) WriteBit(bit uint8) {
 // WriteBool encodes a single bit with the given (8-bit) probability.
 // This is the encoder hot path: it is invoked tens of times per
 // macroblock.
+//
+//go:nosplit
 func (w *BoolWriter) WriteBool(bit uint8, probability uint8) {
-	if w.err != nil {
+	if w.err != 0 {
 		return
 	}
 
-	split := uint32(1 + (((w.rng - 1) * uint32(probability)) >> 8))
-	// Branchless conditional select keyed on bit: mask is all-ones when
-	// the bit is set, zero otherwise. The `bit==0` arm keeps rng=split
-	// and low unchanged; the `bit==1` arm folds in (w.rng - split) -
-	// split = w.rng - 2*split.
-	mask := -uint32(bit & 1)
-	low := w.low + (split & mask)
-	rng := split + ((w.rng - 2*split) & mask)
+	rng := w.rng
+	split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
+	low := w.low
+	if bit&1 == 0 {
+		rng = split
+	} else {
+		low += split
+		rng -= split
+	}
 
-	shift := int(tables.BoolNorm[byte(rng)])
-	rng <<= uint(shift)
-	count := w.count + shift
+	shift := uint(tables.BoolNorm[byte(rng)] & 7)
+	rng <<= shift
+	count := w.count + int(shift)
 
 	if count >= 0 {
-		w.writeBoolFlush(low, rng, count, shift)
-		return
-	}
-
-	low <<= uint(shift)
-	w.low = low
-	w.rng = rng
-	w.count = count
-}
-
-func (w *BoolWriter) writeBoolFlush(low uint32, rng uint32, count int, shift int) {
-	offset := shift - count
-	if ((low << uint(offset-1)) & 0x80000000) != 0 {
-		w.propagateCarry()
-		if w.err != nil {
+		offset := int(shift) - count
+		if ((low << uint(offset-1)) & 0x80000000) != 0 {
+			w.propagateCarry()
+			if w.err != 0 {
+				return
+			}
+		}
+		if w.pos >= len(w.buf) {
+			w.err = boolWriterErrBufferTooSmall
 			return
 		}
-	}
-	if w.pos >= len(w.buf) {
-		w.err = ErrBufferTooSmall
+
+		boolWriterStoreByte(w.buf, w.pos, byte((low>>uint(24-offset))&0xff))
+		w.pos++
+		tailShift := uint(count)
+		low = (low << uint(offset)) & 0xffffff
+		count -= 8
+		low <<= tailShift
+		w.low = low
+		w.rng = rng
+		w.count = count
 		return
 	}
 
-	w.buf[w.pos] = byte((low >> uint(24-offset)) & 0xff)
-	w.pos++
-	shift = count
-	low = uint32((uint64(low) << uint(offset)) & 0xffffff)
-	count -= 8
-	low <<= uint(shift)
+	low <<= shift
 	w.low = low
 	w.rng = rng
 	w.count = count
@@ -125,8 +159,10 @@ func (w *BoolWriter) writeBoolFlush(low uint32, rng uint32, count int, shift int
 // call. The carry / byte-emit case is identical to WriteBit but reuses
 // the in-register accumulator instead of round-tripping through the
 // BoolWriter struct on each iteration.
+//
+//go:nosplit
 func (w *BoolWriter) WriteLiteral(value uint32, bits int) {
-	if bits <= 0 || w.err != nil {
+	if bits <= 0 || w.err != 0 {
 		return
 	}
 
@@ -138,42 +174,44 @@ func (w *BoolWriter) WriteLiteral(value uint32, bits int) {
 
 	for bit := bits - 1; bit >= 0; bit-- {
 		split := (rng + 1) >> 1
-		// Branchless interval selection keyed on the literal bit.
-		mask := -((value >> uint(bit)) & 1)
-		low += split & mask
-		rng = split + ((rng - 2*split) & mask)
+		if (value>>uint(bit))&1 == 0 {
+			rng = split
+		} else {
+			low += split
+			rng -= split
+		}
 
-		shift := int(tables.BoolNorm[byte(rng)])
-		rng <<= uint(shift)
-		count += shift
+		shift := uint(tables.BoolNorm[byte(rng)] & 7)
+		rng <<= shift
+		count += int(shift)
 
 		if count < 0 {
-			low <<= uint(shift)
+			low <<= shift
 			continue
 		}
 
-		offset := shift - count
+		offset := int(shift) - count
 		if ((low << uint(offset-1)) & 0x80000000) != 0 {
 			// Spill the byte cursor back so propagateCarry sees the
 			// up-to-date pos, then reload.
 			w.pos = pos
 			w.propagateCarry()
-			if w.err != nil {
+			if w.err != 0 {
 				return
 			}
 		}
 		if pos >= len(buf) {
-			w.err = ErrBufferTooSmall
+			w.err = boolWriterErrBufferTooSmall
 			w.pos = pos
 			return
 		}
-		buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+		boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 		pos++
-		shift = count
-		low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+		tailShift := uint(count)
+		low = (low << uint(offset)) & 0xffffff
 		count -= 8
 
-		low <<= uint(shift)
+		low <<= tailShift
 	}
 
 	w.low = low
@@ -199,18 +237,22 @@ func (w *BoolWriter) Bytes() []byte {
 }
 
 func (w *BoolWriter) Err() error {
-	return w.err
+	if w.err == 0 {
+		return nil
+	}
+	return ErrBufferTooSmall
 }
 
+//go:nosplit
 func (w *BoolWriter) propagateCarry() {
 	x := w.pos - 1
-	for x >= 0 && w.buf[x] == 0xff {
-		w.buf[x] = 0
+	for x >= 0 && boolWriterLoadByte(w.buf, x) == 0xff {
+		boolWriterStoreByte(w.buf, x, 0)
 		x--
 	}
 	if x < 0 {
-		w.err = ErrBufferTooSmall
+		w.err = boolWriterErrBufferTooSmall
 		return
 	}
-	w.buf[x]++
+	boolWriterStoreByte(w.buf, x, boolWriterLoadByte(w.buf, x)+1)
 }

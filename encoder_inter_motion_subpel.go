@@ -8,13 +8,14 @@ import (
 )
 
 type interFrameSubpixelSearch struct {
-	src       vp8enc.SourceImage
-	ref       *vp8common.Image
-	mbRow     int
-	mbCol     int
-	best      vp8enc.MotionVector
-	bestRefMV vp8enc.MotionVector
-	qIndex    int
+	ref     *vp8common.Image
+	mvProbs *[2][vp8tables.MVPCount]uint8
+	mvCosts *vp8enc.MotionVectorCostTables
+	stats   *interFrameMotionSearchStats
+	src     vp8enc.SourceImage
+	mbRow   int
+	mbCol   int
+	qIndex  int
 	// errorPerBit, when non-zero, overrides the libvpx-default
 	// libvpxErrorPerBit(qIndex) used to scale motion-vector rate into the
 	// fractional-search cost. TuneSSIM's per-MB vp8_activity_masking call in
@@ -24,10 +25,9 @@ type interFrameSubpixelSearch struct {
 	// ssim parity gap that remained after the activity probe matched libvpx
 	// byte-for-byte.
 	errorPerBit int
+	best        vp8enc.MotionVector
+	bestRefMV   vp8enc.MotionVector
 	search      interAnalysisSearchConfig
-	mvProbs     *[2][vp8tables.MVPCount]uint8
-	mvCosts     *vp8enc.MotionVectorCostTables
-	stats       *interFrameMotionSearchStats
 }
 
 // effectiveErrorPerBit returns the caller-supplied per-MB errorperbit when
@@ -45,12 +45,21 @@ func (s *interFrameSubpixelSearch) effectiveErrorPerBit() int {
 
 type subpelCandidateEval struct {
 	cost     int
-	variance int
-	sse      int
+	variance int32
+	sse      int32
 	ok       bool
 }
 
-func (s *interFrameSubpixelSearch) refine() (vp8enc.MotionVector, int, int, int, bool) {
+func makeSubpelCandidateEval(cost int, variance int, sse int) subpelCandidateEval {
+	return subpelCandidateEval{
+		cost:     cost,
+		variance: int32(variance),
+		sse:      int32(sse),
+		ok:       true,
+	}
+}
+
+func (s *interFrameSubpixelSearch) refine() (vp8enc.MotionVector, int, int32, int32, bool) {
 	switch s.search.fractionalSearch {
 	case interAnalysisFractionalSearchStep:
 		return s.step(true)
@@ -63,7 +72,7 @@ func (s *interFrameSubpixelSearch) refine() (vp8enc.MotionVector, int, int, int,
 	}
 }
 
-func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int, int, int, bool) {
+func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int, int32, int32, bool) {
 	if int(s.best.Row)&7 != 0 || int(s.best.Col)&7 != 0 {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
@@ -122,12 +131,7 @@ func (s *interFrameSubpixelSearch) stepCandidateEval(subCtx *subpelSearchCtx, ro
 		return subpelCandidateEval{cost: maxInt()}
 	}
 	s.stats.recordSubpelVariance()
-	return subpelCandidateEval{
-		cost:     dist + s.centerMotionCost(row, col, errorPerBit),
-		variance: dist,
-		sse:      sse,
-		ok:       true,
-	}
+	return makeSubpelCandidateEval(dist+s.centerMotionCost(row, col, errorPerBit), dist, sse)
 }
 
 func (s *interFrameSubpixelSearch) candidateEval(subCtx *subpelSearchCtx, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
@@ -138,12 +142,15 @@ func (s *interFrameSubpixelSearch) candidateEval(subCtx *subpelSearchCtx, row in
 		return subpelCandidateEval{cost: maxInt()}
 	}
 	s.stats.recordSubpelVariance()
-	return subpelCandidateEval{
-		cost:     dist + s.motionCost(row, col, refRow4, refCol4, errorPerBit),
-		variance: dist,
-		sse:      sse,
-		ok:       true,
+	return makeSubpelCandidateEval(dist+s.motionCost(row, col, refRow4, refCol4, errorPerBit), dist, sse)
+}
+
+func (s *interFrameSubpixelSearch) candidateEvalNoStats(subCtx *subpelSearchCtx, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
+	dist, sse, ok := subCtx.subpelVarianceForQuarterMV(row, col)
+	if !ok {
+		return subpelCandidateEval{cost: maxInt()}
 	}
+	return makeSubpelCandidateEval(dist+s.motionCost(row, col, refRow4, refCol4, errorPerBit), dist, sse)
 }
 
 func (s *interFrameSubpixelSearch) centerEval(subCtx *subpelSearchCtx, row int, col int, errorPerBit int) subpelCandidateEval {
@@ -154,12 +161,15 @@ func (s *interFrameSubpixelSearch) centerEval(subCtx *subpelSearchCtx, row int, 
 		return subpelCandidateEval{cost: maxInt()}
 	}
 	s.stats.recordSubpelVariance()
-	return subpelCandidateEval{
-		cost:     dist + s.centerMotionCost(row, col, errorPerBit),
-		variance: dist,
-		sse:      sse,
-		ok:       true,
+	return makeSubpelCandidateEval(dist+s.centerMotionCost(row, col, errorPerBit), dist, sse)
+}
+
+func (s *interFrameSubpixelSearch) centerEvalNoStats(subCtx *subpelSearchCtx, row int, col int, errorPerBit int) subpelCandidateEval {
+	dist, sse, ok := subCtx.subpelVarianceForQuarterMV(row, col)
+	if !ok {
+		return subpelCandidateEval{cost: maxInt()}
 	}
+	return makeSubpelCandidateEval(dist+s.centerMotionCost(row, col, errorPerBit), dist, sse)
 }
 
 func (s *interFrameSubpixelSearch) motionCost(row int, col int, refRow4 int, refCol4 int, errorPerBit int) int {
@@ -243,10 +253,8 @@ func (b interFrameSubpelSearchBounds) contains(row int, col int) bool {
 // thresholds once and folds them into a tight inline test.
 type subpelSearchCtx struct {
 	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX:]
-	srcYStride int
-	srcScratch [16 * 16]byte
-	srcPartial bool
 	refYFull   []byte
+	srcYStride int
 	refYStride int
 	refYOrigin int
 	refYBorder int
@@ -254,6 +262,8 @@ type subpelSearchCtx struct {
 	refCodedW  int
 	baseY      int
 	baseX      int
+	srcScratch [16 * 16]byte
+	srcPartial bool
 }
 
 func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (subpelSearchCtx, bool) {
@@ -320,12 +330,85 @@ func (c *subpelSearchCtx) subpelVarianceForQuarterMV(row int, col int) (int, int
 	return variance, sse, true
 }
 
+type subpelEvalCache struct {
+	rows [64]int
+	cols [64]int
+	eval [64]subpelCandidateEval
+	used uint64
+}
+
+func subpelEvalCacheIndex(row int, col int) uint {
+	return uint((row*33)^col) & 63
+}
+
+func (c *subpelEvalCache) get(row int, col int) (subpelCandidateEval, bool) {
+	index := subpelEvalCacheIndex(row, col)
+	for range 64 {
+		bit := uint64(1) << index
+		if c.used&bit == 0 {
+			return subpelCandidateEval{}, false
+		}
+		if c.rows[index] == row && c.cols[index] == col {
+			return c.eval[index], true
+		}
+		index = (index + 1) & 63
+	}
+	return subpelCandidateEval{}, false
+}
+
+func (c *subpelEvalCache) put(row int, col int, eval subpelCandidateEval) {
+	index := subpelEvalCacheIndex(row, col)
+	for range 64 {
+		bit := uint64(1) << index
+		if c.used&bit == 0 || c.rows[index] == row && c.cols[index] == col {
+			c.used |= bit
+			c.rows[index] = row
+			c.cols[index] = col
+			c.eval[index] = eval
+			return
+		}
+		index = (index + 1) & 63
+	}
+}
+
+func (s *interFrameSubpixelSearch) cachedCandidateEval(cache *subpelEvalCache, subCtx *subpelSearchCtx, bounds interFrameSubpelSearchBounds, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
+	if eval, ok := cache.get(row, col); ok {
+		s.stats.recordSubpelCandidate()
+		s.stats.recordSubpelCacheHit()
+		return eval
+	}
+	eval := subpelCandidateEval{cost: maxInt()}
+	if !bounds.contains(row, col) {
+		s.stats.recordSubpelCandidate()
+		s.stats.recordSubpelBoundsReject()
+	} else {
+		eval = s.candidateEval(subCtx, row, col, refRow4, refCol4, errorPerBit)
+	}
+	cache.put(row, col, eval)
+	return eval
+}
+
+func (s *interFrameSubpixelSearch) cachedCandidateEvalNoStats(cache *subpelEvalCache, subCtx *subpelSearchCtx, bounds interFrameSubpelSearchBounds, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
+	if eval, ok := cache.get(row, col); ok {
+		return eval
+	}
+	eval := subpelCandidateEval{cost: maxInt()}
+	if bounds.contains(row, col) {
+		eval = s.candidateEvalNoStats(subCtx, row, col, refRow4, refCol4, errorPerBit)
+	}
+	cache.put(row, col, eval)
+	return eval
+}
+
 // iterative performs the libvpx half- then
 // quarter-pel refinement (vp8_find_best_sub_pixel_step_iteratively) anchored
 // to bestRefMV: candidate MVs farther from bestRefMV than MAX_FULL_PEL_VAL
 // (in 1/8-pel) get rejected with INT_MAX and the cost is charged against the
 // ref-MV, not (0,0).
-func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, int, bool) {
+func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int32, int32, bool) {
+	if s.stats == nil {
+		return s.iterativeNoStats()
+	}
 	if int(s.best.Row)&7 != 0 || int(s.best.Col)&7 != 0 {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
@@ -346,43 +429,17 @@ func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, i
 	errorPerBit := s.effectiveErrorPerBit()
 	refRow4 := int(s.bestRefMV.Row) >> 1
 	refCol4 := int(s.bestRefMV.Col) >> 1
-	var cachedRows [48]int
-	var cachedCols [48]int
-	var cachedEval [48]subpelCandidateEval
-	cachedCount := 0
-	cand := func(r, c int) subpelCandidateEval {
-		for i := range cachedCount {
-			if cachedRows[i] == r && cachedCols[i] == c {
-				s.stats.recordSubpelCandidate()
-				s.stats.recordSubpelCacheHit()
-				return cachedEval[i]
-			}
-		}
-		eval := subpelCandidateEval{cost: maxInt()}
-		if !bounds.contains(r, c) {
-			s.stats.recordSubpelCandidate()
-			s.stats.recordSubpelBoundsReject()
-		} else {
-			eval = s.candidateEval(&subCtx, r, c, refRow4, refCol4, errorPerBit)
-		}
-		if cachedCount < len(cachedRows) {
-			cachedRows[cachedCount] = r
-			cachedCols[cachedCount] = c
-			cachedEval[cachedCount] = eval
-			cachedCount++
-		}
-		return eval
-	}
+	var cache subpelEvalCache
 	bestEval := s.centerEval(&subCtx, br, bc, errorPerBit)
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
 
 	for range 3 {
-		leftEval := cand(tr, tc-2)
-		rightEval := cand(tr, tc+2)
-		upEval := cand(tr-2, tc)
-		downEval := cand(tr+2, tc)
+		leftEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr, tc-2, refRow4, refCol4, errorPerBit)
+		rightEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr, tc+2, refRow4, refCol4, errorPerBit)
+		upEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr-2, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr+2, tc, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-2)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+2)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-2, tc)
@@ -396,7 +453,7 @@ func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, i
 		if leftEval.cost >= rightEval.cost {
 			diagCol = tc + 2
 		}
-		diagEval := cand(diagRow, diagCol)
+		diagEval := s.cachedCandidateEval(&cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -408,10 +465,10 @@ func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, i
 	}
 
 	for range 3 {
-		leftEval := cand(tr, tc-1)
-		rightEval := cand(tr, tc+1)
-		upEval := cand(tr-1, tc)
-		downEval := cand(tr+1, tc)
+		leftEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr, tc-1, refRow4, refCol4, errorPerBit)
+		rightEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr, tc+1, refRow4, refCol4, errorPerBit)
+		upEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr-1, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.cachedCandidateEval(&cache, &subCtx, bounds, tr+1, tc, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-1)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+1)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-1, tc)
@@ -425,11 +482,98 @@ func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, i
 		if leftEval.cost >= rightEval.cost {
 			diagCol = tc + 1
 		}
-		diagEval := cand(diagRow, diagCol)
+		diagEval := s.cachedCandidateEval(&cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
 
 		if tr == br && tc == bc {
 			s.stats.recordSubpelEarlyBreak()
+			break
+		}
+		tr = br
+		tc = bc
+	}
+
+	finalMV := vp8enc.MotionVector{Row: int16(br * 2), Col: int16(bc * 2)}
+	if !interFrameSubpixelMotionVectorInRange(finalMV, s.bestRefMV) {
+		return vp8enc.MotionVector{}, 0, 0, 0, false
+	}
+	return finalMV, bestEval.cost, bestEval.variance, bestEval.sse, true
+}
+
+func (s *interFrameSubpixelSearch) iterativeNoStats() (vp8enc.MotionVector, int, int32, int32, bool) {
+	if int(s.best.Row)&7 != 0 || int(s.best.Col)&7 != 0 {
+		return vp8enc.MotionVector{}, 0, 0, 0, false
+	}
+	br := (int(s.best.Row) >> 3) * 4
+	bc := (int(s.best.Col) >> 3) * 4
+	tr := br
+	tc := bc
+	subCtx, subCtxOK := newSubpelSearchCtx(s.src, s.ref, s.mbRow, s.mbCol)
+	if !subCtxOK {
+		return vp8enc.MotionVector{}, 0, 0, 0, false
+	}
+	mbRows := (s.src.Height + 15) >> 4
+	mbCols := (s.src.Width + 15) >> 4
+	bounds := interFrameSubpelSearchBoundsFor(s.bestRefMV, s.mbRow, s.mbCol, mbRows, mbCols)
+	errorPerBit := s.effectiveErrorPerBit()
+	refRow4 := int(s.bestRefMV.Row) >> 1
+	refCol4 := int(s.bestRefMV.Col) >> 1
+	var cache subpelEvalCache
+	bestEval := s.centerEvalNoStats(&subCtx, br, bc, errorPerBit)
+	if !bestEval.ok {
+		return vp8enc.MotionVector{}, 0, 0, 0, false
+	}
+
+	for range 3 {
+		leftEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc-2, refRow4, refCol4, errorPerBit)
+		rightEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc+2, refRow4, refCol4, errorPerBit)
+		upEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr-2, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr+2, tc, refRow4, refCol4, errorPerBit)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-2)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+2)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-2, tc)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, downEval, tr+2, tc)
+
+		diagRow := tr - 2
+		if upEval.cost >= downEval.cost {
+			diagRow = tr + 2
+		}
+		diagCol := tc - 2
+		if leftEval.cost >= rightEval.cost {
+			diagCol = tc + 2
+		}
+		diagEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
+
+		if tr == br && tc == bc {
+			break
+		}
+		tr = br
+		tc = bc
+	}
+
+	for range 3 {
+		leftEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc-1, refRow4, refCol4, errorPerBit)
+		rightEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc+1, refRow4, refCol4, errorPerBit)
+		upEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr-1, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr+1, tc, refRow4, refCol4, errorPerBit)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-1)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+1)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-1, tc)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, downEval, tr+1, tc)
+
+		diagRow := tr - 1
+		if upEval.cost >= downEval.cost {
+			diagRow = tr + 1
+		}
+		diagCol := tc - 1
+		if leftEval.cost >= rightEval.cost {
+			diagCol = tc + 1
+		}
+		diagEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
+		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
+
+		if tr == br && tc == bc {
 			break
 		}
 		tr = br

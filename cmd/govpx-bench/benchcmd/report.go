@@ -120,6 +120,82 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 	}
 }
 
+func formatSuiteReport(r suiteReport) string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "govpx-bench  suite  %s  runs=%d  selector=%s\n", r.Name, r.Runs, r.Selector)
+	if r.LibvpxVpxenc != "" {
+		fmt.Fprintf(&b, "libvpx       %s\n", r.LibvpxVpxenc)
+	}
+	if r.GeomeanNSGap > 0 {
+		fmt.Fprintf(&b, "geomean      ns/frame=%s  encode_fps=%s\n",
+			formatRatio(r.GeomeanNSGap, "x"), formatRatio(r.GeomeanFPSGap, "x"))
+	}
+	fmt.Fprintln(&b)
+
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "case\tmode\tsize\tframes\ttarget\tgovpx\tlibvpx\tgap\tfps\trate\tPSNR\tSSIM\tdrop")
+	fmt.Fprintln(tw, "----\t----\t----\t------\t------\t-----\t------\t---\t---\t----\t----\t----\t----")
+	for _, c := range r.Cases {
+		rep := c.Report
+		ref := rep.Reference
+		cmp := rep.Comparison
+		if ref == nil || cmp == nil {
+			continue
+		}
+		psnr := "skip"
+		ssim := "skip"
+		if !rep.QualitySkipped && !ref.QualitySkipped {
+			psnr = fmt.Sprintf("%+.2f", cmp.PSNRDeltaDB)
+			ssim = fmt.Sprintf("%+.5f", cmp.SSIMDelta)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%dx%d\t%d\t%d\t%s\t%s\t%s\t%s/%s\t%s\t%s\t%s\t%d/%d\n",
+			c.Name,
+			rep.Mode,
+			rep.Width,
+			rep.Height,
+			rep.Frames,
+			rep.TargetBitrateKbps,
+			formatDuration(rep.NSPerFrame),
+			formatDuration(ref.NSPerFrame),
+			formatRatio(cmp.NSPerFrameRatio, "x"),
+			formatFloat(rep.EncodeFPS, 1),
+			formatFloat(ref.EncodeFPS, 1),
+			formatRatio(cmp.BitrateRatioVsReference, "x"),
+			psnr,
+			ssim,
+			rep.DroppedFrames,
+			rep.Frames-ref.EncodedFrames)
+	}
+	tw.Flush()
+
+	if r.PhaseTiming {
+		fmt.Fprintln(&b, "\ngovpx phase/frame")
+		tw = tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "case\tinter_recon\tkey_recon\tlf_pick\tlf_apply\tpacket")
+		fmt.Fprintln(tw, "----\t-----------\t---------\t-------\t--------\t------")
+		for _, c := range r.Cases {
+			rep := c.Report
+			if rep.PhaseNS == nil {
+				continue
+			}
+			frames := int64(rep.Frames)
+			if frames <= 0 {
+				frames = 1
+			}
+			stats := rep.PhaseNS
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				c.Name,
+				formatDuration(stats.InterReconstructNS/frames),
+				formatDuration(stats.KeyReconstructNS/frames),
+				formatDuration(stats.LoopFilterPickNS/frames),
+				formatDuration(stats.LoopFilterApplyNS/frames),
+				formatDuration(stats.PacketWriteNS/frames))
+		}
+		tw.Flush()
+	}
+	return b.String()
+}
+
 func formatDecodeReport(r decodeBenchReport) string {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "govpx-bench  decode  %s  %dx%d @%dfps  frames=%d  input=%s\n\n",

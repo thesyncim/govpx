@@ -101,7 +101,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
 			cfg := e.interAnalysisSearchConfig()
-			if cfg.fullPixelSearch != tt.fullPixel || cfg.fullPixelSearchParam != tt.stepParam || cfg.fullPixelFurtherSteps != tt.further || cfg.improvedMVPrediction != tt.improved || cfg.fractionalSearch != tt.fractional {
+			if cfg.fullPixelSearch != tt.fullPixel || int(cfg.fullPixelSearchParam) != tt.stepParam || int(cfg.fullPixelFurtherSteps) != tt.further || cfg.improvedMVPrediction != tt.improved || cfg.fractionalSearch != tt.fractional {
 				t.Fatalf("config = {%d %d %d %t %d}, want {%d %d %d %t %d}", cfg.fullPixelSearch, cfg.fullPixelSearchParam, cfg.fullPixelFurtherSteps, cfg.improvedMVPrediction, cfg.fractionalSearch, tt.fullPixel, tt.stepParam, tt.further, tt.improved, tt.fractional)
 			}
 		})

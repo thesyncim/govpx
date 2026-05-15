@@ -123,6 +123,23 @@ func denoiserModeForSensitivity(level int) int {
 // average into runningAvg when filtering succeeds. Caller must ensure the
 // slices cover the 16x16 macroblock at their respective strides.
 func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {
+	if sumDiff, ok := denoiserFilterYFirstPassSIMD(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising); ok {
+		thresh := denoiserSumDiffThreshold
+		if increaseDenoising {
+			thresh = denoiserSumDiffThresholdHigh
+		}
+		absMask := sumDiff >> mvKernelSignShift
+		if (sumDiff^absMask)-absMask <= thresh {
+			for r := range 16 {
+				copy(sig[r*sigStride:r*sigStride+16], runningAvg[r*avgStride:r*avgStride+16])
+			}
+			return denoiserFilterBlock
+		}
+	}
+	return denoiserFilterYScalar(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising)
+}
+
+func denoiserFilterYScalar(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {
 	adj := [3]int{3, 4, 6}
 	shiftInc1 := 0
 	shiftInc2 := 1
@@ -233,6 +250,13 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 // denoiserFilterUV ports vp8_denoiser_filter_uv_c (denoising.c). 8x8 block
 // version for the chroma planes.
 func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {
+	if decision, ok := denoiserFilterUVSIMD(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising); ok {
+		return decision
+	}
+	return denoiserFilterUVScalar(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising)
+}
+
+func denoiserFilterUVScalar(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {
 	adj := [3]int{3, 4, 6}
 	shiftInc1 := 0
 	shiftInc2 := 1
@@ -385,7 +409,13 @@ func (d *denoiserState) ensureAllocated(width int, height int) error {
 	}
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
-	d.state = make([]uint8, rows*cols)
+	stateLen := rows * cols
+	if cap(d.state) < stateLen {
+		d.state = make([]uint8, stateLen)
+	} else {
+		d.state = d.state[:stateLen]
+		clear(d.state)
+	}
 	d.allocated = true
 	d.width = width
 	d.height = height
@@ -405,12 +435,12 @@ func (d *denoiserState) reset() {
 }
 
 type denoiserMacroblockDecision struct {
+	bestSSE              uint32
+	zeroMVSSE            uint32
+	bestMV               vp8enc.MotionVector
 	bestReferenceFrame   vp8common.MVReferenceFrame
 	bestMode             vp8common.MBPredictionMode
-	bestMV               vp8enc.MotionVector
-	bestSSE              uint32
 	zeroMVReferenceFrame vp8common.MVReferenceFrame
-	zeroMVSSE            uint32
 	useSkinGate          bool
 }
 

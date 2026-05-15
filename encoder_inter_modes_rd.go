@@ -166,7 +166,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				bestYRD = yrd
 				bestDistortion = distortion
 				bestModeIndex = modeIndex
-				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate, predictionError: distortion}
+				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: int32(rate), predictionError: int32(distortion)}
 				if mode.Mode == vp8common.BPred {
 					best.staleY2 = lastStaleY2
 				}
@@ -385,11 +385,11 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				ModeTrace:       mode,
 				HasModeTrace:    true,
 
-				ImprovedMVStart:        improvedStart.ok,
-				ImprovedMVNearSADIndex: improvedStart.nearSADIndex,
+				ImprovedMVStart:        improvedStart.ok(),
+				ImprovedMVNearSADIndex: improvedStart.nearSADIndexInt(),
 				ImprovedMVRow:          improvedStart.mv.Row,
 				ImprovedMVCol:          improvedStart.mv.Col,
-				ImprovedMVSR:           improvedStart.sr,
+				ImprovedMVSR:           improvedStart.searchRange(),
 			})
 		}
 		if becameBest {
@@ -400,7 +400,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			bestDistortion = distortion
 			bestModeIndex = modeIndex
 			mode.MBSkipCoeff = mbSkipCoeff || mode.MBSkipCoeff
-			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: rate, improvedMVStart: improvedStart, predictionError: distortion}
+			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: int32(rate), improvedMVStart: improvedStart, predictionError: int32(distortion)}
 			if mode.Mode == vp8common.SplitMV {
 				best.staleY2 = lastStaleY2
 			}
@@ -428,7 +428,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	if bestModeIndex >= 0 {
 		e.lowerBestInterRDThreshold(bestModeIndex)
 	}
-	best.predictionError = bestDistortion
+	best.predictionError = int32(bestDistortion)
 	if denoiseActive {
 		if denoiseDecision.bestReferenceFrame == vp8common.IntraFrame {
 			if best.useIntra {

@@ -560,7 +560,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					decision.intraMode.UVMode = uvMode
 				}
 			}
-			projectedRate := decision.projectedRate
+			projectedRate := int(decision.projectedRate)
 			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			quant := &quants[segmentID&3]
@@ -687,7 +687,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// memset plus the per-MB [16]MotionVector BlockMV fill that the
 			// compiler cannot prove dead.
 			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
-			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
+			if !modes[index].MBSkipCoeff {
+				convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
+			}
 			if cyclicRefreshFallback && e.interAnalysisUsesRDModeDecision() && modes[index].RefFrame != vp8common.IntraFrame {
 				projectedRate = e.acceptedInterFrameRDProjectedRate(&modes[index], above, left, aboveLeft, &aboveTok[col], &leftTok, &coeffs[index], decision.ref, row, col, rows, cols, is4x4)
 			}
@@ -713,7 +715,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
-			} else {
+			} else if !modes[index].MBSkipCoeff {
 				if !addInterResidualToAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}

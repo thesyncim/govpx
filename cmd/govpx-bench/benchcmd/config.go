@@ -20,6 +20,8 @@ type benchCLIOptions struct {
 	format      string
 	autoCompare bool
 	buildLibvpx bool
+	suite       string
+	suiteRuns   int
 	cpuProfile  string
 	memProfile  string
 	ffmpeg      string
@@ -45,6 +47,8 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	fs.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
 	fs.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
+	fs.StringVar(&opts.suite, "suite", "", "run an encode comparison matrix instead of one case: quick or vp8")
+	fs.IntVar(&opts.suiteRuns, "suite-runs", 1, "number of repeats per suite case; selects median govpx ns/frame")
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip quality decode/PSNR/SSIM computation")
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
@@ -147,9 +151,9 @@ func isExecutable(path string) bool {
 }
 
 func parityFor(cfg benchConfig) encoderParity {
-	kf := cfg.FPS
-	if kf <= 0 {
-		kf = 30
+	fps := cfg.FPS
+	if fps <= 0 {
+		fps = 30
 	}
 	threads := cfg.Threads
 	if threads < 0 {
@@ -159,10 +163,10 @@ func parityFor(cfg benchConfig) encoderParity {
 	for partitions := 1; partitions < threads && tokenPartitions < 3; partitions <<= 1 {
 		tokenPartitions++
 	}
-	return encoderParity{
+	p := encoderParity{
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
-		KeyFrameInterval:    kf,
+		KeyFrameInterval:    fps,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
@@ -172,6 +176,26 @@ func parityFor(cfg benchConfig) encoderParity {
 		TokenPartitions:     tokenPartitions,
 		CpuUsed:             cfg.CpuUsed,
 	}
+	if cfg.Mode == "" || cfg.Mode == "realtime" {
+		p.MinQuantizer = 2
+		p.KeyFrameInterval = 3000
+		p.BufferSizeMs = 1000
+		p.BufferInitialSizeMs = 500
+		p.BufferOptimalSizeMs = 600
+		p.MaxIntraBitratePct = webrtcMaxIntraTargetPct(600, fps)
+		p.DropFrameAllowed = true
+		p.DropFrameWaterMark = 30
+		p.NoiseSensitivity = 4
+		p.StaticThreshold = 1
+	}
+	return p
+}
+
+func webrtcMaxIntraTargetPct(maxIntraTarget int, fps int) int {
+	if fps <= 0 {
+		fps = 30
+	}
+	return max(300, maxIntraTarget*fps/20)
 }
 
 func benchmarkEncoderOptions(cfg benchConfig, deadline govpx.Deadline) govpx.EncoderOptions {
@@ -192,6 +216,11 @@ func benchmarkEncoderOptions(cfg benchConfig, deadline govpx.Deadline) govpx.Enc
 		BufferOptimalSizeMs: p.BufferOptimalSizeMs,
 		UndershootPct:       p.UndershootPct,
 		OvershootPct:        p.OvershootPct,
+		MaxIntraBitratePct:  p.MaxIntraBitratePct,
+		DropFrameAllowed:    p.DropFrameAllowed,
+		DropFrameWaterMark:  p.DropFrameWaterMark,
+		NoiseSensitivity:    p.NoiseSensitivity,
+		StaticThreshold:     p.StaticThreshold,
 		Threads:             p.Threads,
 		TokenPartitions:     p.TokenPartitions,
 	}

@@ -2,7 +2,11 @@
 
 package dsp
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
+)
 
 // ARMv8 NEON port of the libvpx v1.16.0 vpx_dsp/arm/variance_neon.c
 // 16x16 variance block. Computes (sum, sse) where:
@@ -18,13 +22,22 @@ import "unsafe"
 //go:noescape
 func varianceBlock16x16NEON(src *byte, srcStride int, ref *byte, refStride int, sumOut *int32, sseOut *uint32)
 
+//go:noescape
+func varianceBlock16x16DotProd(src *byte, srcStride int, ref *byte, refStride int, sumOut *int32, sseOut *uint32)
+
 func varianceBlock16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
 	var sum int32
 	var sse uint32
 	// unsafe.SliceData skips the runtime.panicBounds + stack frame the
 	// compiler emits for &src[0] / &ref[0]. Hot motion-search callers
 	// pass non-empty slices shaped to cover the 16x16 read window.
-	varianceBlock16x16NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride, &sum, &sse)
+	srcPtr := unsafe.SliceData(src)
+	refPtr := unsafe.SliceData(ref)
+	if cpu.HasARM64DotProd {
+		varianceBlock16x16DotProd(srcPtr, srcStride, refPtr, refStride, &sum, &sse)
+	} else {
+		varianceBlock16x16NEON(srcPtr, srcStride, refPtr, refStride, &sum, &sse)
+	}
 	return int(sum), int(sse)
 }
 
@@ -35,12 +48,20 @@ func varianceBlock16x16(src []byte, srcStride int, ref []byte, refStride int) (i
 func VarianceBlock16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) (int, int) {
 	var sum int32
 	var sse uint32
-	varianceBlock16x16NEON(src, srcStride, ref, refStride, &sum, &sse)
+	if cpu.HasARM64DotProd {
+		varianceBlock16x16DotProd(src, srcStride, ref, refStride, &sum, &sse)
+	} else {
+		varianceBlock16x16NEON(src, srcStride, ref, refStride, &sum, &sse)
+	}
 	return int(sum), int(sse)
 }
 
 func sse16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
 	var sse uint32
-	sseBlock16xNNEON(src, srcStride, ref, refStride, 16, &sse)
+	if cpu.HasARM64DotProd {
+		sseBlock16xNDotProd(src, srcStride, ref, refStride, 16, &sse)
+	} else {
+		sseBlock16xNNEON(src, srcStride, ref, refStride, 16, &sse)
+	}
 	return int(sse)
 }

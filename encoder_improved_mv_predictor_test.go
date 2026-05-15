@@ -115,7 +115,7 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingCurrentFrame(t *test
 				tc.row, tc.col, mbRows, mbCols,
 				above, left, aboveLeft, search,
 			)
-			if !start.ok {
+			if !start.ok() {
 				t.Fatalf("expected predictor to return a start, got not-ok")
 			}
 			if tc.want.fallback {
@@ -123,8 +123,8 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingCurrentFrame(t *test
 				// last-frame data is disabled (no lastFrameInterModesValid),
 				// so the predictor falls back to the median MV. With all
 				// slots zero the median must be {0,0} and sr must be 0.
-				if start.sr != 0 {
-					t.Fatalf("fallback sr = %d, want 0", start.sr)
+				if start.searchRange() != 0 {
+					t.Fatalf("fallback sr = %d, want 0", start.searchRange())
 				}
 				if start.mv != (vp8enc.MotionVector{}) {
 					t.Fatalf("fallback mv = %+v, want zero", start.mv)
@@ -135,8 +135,8 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingCurrentFrame(t *test
 			if start.mv != wantMV {
 				t.Fatalf("mv = %+v, want %+v from mode index %d", start.mv, wantMV, tc.want.mvIndex)
 			}
-			if start.sr != tc.want.sr {
-				t.Fatalf("sr = %d, want %d", start.sr, tc.want.sr)
+			if start.searchRange() != tc.want.sr {
+				t.Fatalf("sr = %d, want %d", start.searchRange(), tc.want.sr)
 			}
 		})
 	}
@@ -204,7 +204,7 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingLastFrame(t *testing
 					row, col, mbRows, mbCols,
 					nil, nil, nil, search,
 				)
-				if !start.ok {
+				if !start.ok() {
 					t.Fatalf("predictor returned not-ok at (%d,%d)", row, col)
 				}
 				if start.mv != targetMV {
@@ -215,8 +215,8 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingLastFrame(t *testing
 				// MB pixel data). With all current-frame neighbors absent
 				// (slots 0..2 sentinel = INT_MAX) the lf-current slot ranks 0
 				// in SAD order, so libvpx's "i < 3 -> sr = 3" branch fires.
-				if start.sr != 3 {
-					t.Fatalf("sr = %d at (%d,%d), want 3 (top-3 SAD match)", start.sr, row, col)
+				if start.searchRange() != 3 {
+					t.Fatalf("sr = %d at (%d,%d), want 3 (top-3 SAD match)", start.searchRange(), row, col)
 				}
 			})
 		}
@@ -260,11 +260,11 @@ func TestImprovedInterFrameSearchStartIgnoresStaleMVOnIntraNeighbor(t *testing.T
 		1, 1, mbRows, mbCols,
 		&above, &left, &aboveLeft, search,
 	)
-	if !start.ok {
+	if !start.ok() {
 		t.Fatalf("predictor returned not-ok")
 	}
-	if start.sr != 0 {
-		t.Fatalf("sr = %d, want 0 (median fallback when no neighbor matches)", start.sr)
+	if start.searchRange() != 0 {
+		t.Fatalf("sr = %d, want 0 (median fallback when no neighbor matches)", start.searchRange())
 	}
 	if start.mv != (vp8enc.MotionVector{}) {
 		t.Fatalf("median fallback mv = %+v, want zero (libvpx zeros intra slots before median)", start.mv)
@@ -333,16 +333,16 @@ func TestImprovedInterFrameSearchStartIntraSlotsAffectSADRank(t *testing.T) {
 		&above, &left, &aboveLeft,
 		interAnalysisSearchConfig{improvedMVPrediction: true},
 	)
-	if !start.ok {
+	if !start.ok() {
 		t.Fatalf("predictor returned not-ok")
 	}
 	if start.mv != left.MV {
 		t.Fatalf("mv = %+v, want current-frame left MV %+v", start.mv, left.MV)
 	}
-	if start.nearSADIndex != 1 {
-		t.Fatalf("near_sadidx = %d, want current-frame left slot 1", start.nearSADIndex)
+	if start.nearSADIndexInt() != 1 {
+		t.Fatalf("near_sadidx = %d, want current-frame left slot 1", start.nearSADIndexInt())
 	}
-	if start.sr != 2 {
-		t.Fatalf("sr = %d, want 2 because lower-SAD intra slots keep their SAD rank", start.sr)
+	if start.searchRange() != 2 {
+		t.Fatalf("sr = %d, want 2 because lower-SAD intra slots keep their SAD rank", start.searchRange())
 	}
 }

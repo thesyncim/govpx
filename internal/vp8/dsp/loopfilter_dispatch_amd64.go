@@ -76,9 +76,10 @@ func loopFilterHorizontalEdgesYDispatch(s []byte, stride int, blimit, limit, thr
 func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 15*stride+8 {
 		var tmp [8 * 16]byte
-		gatherV16x8AMD64(&tmp, s, stride)
+		base := unsafe.SliceData(s)
+		gatherV16x8AMD64SSE2(&tmp, base, stride)
 		loopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
-		scatterV16x8AMD64(s, stride, &tmp, 2, 4)
+		scatterV16x8AMD64SSE2(base, stride, &tmp)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -139,9 +140,10 @@ func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thr
 func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 15*stride+8 {
 		var tmp [8 * 16]byte
-		gatherV16x8AMD64(&tmp, s, stride)
+		base := unsafe.SliceData(s)
+		gatherV16x8AMD64SSE2(&tmp, base, stride)
 		mbLoopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
-		scatterV16x8AMD64(s, stride, &tmp, 1, 6)
+		scatterV16x8AMD64SSE2(base, stride, &tmp)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -218,37 +220,6 @@ func gatherV16x4AMD64(tmp *[4 * 16]byte, s []byte, stride int) {
 		dst[1*16+i] = row[1]
 		dst[2*16+i] = row[2]
 		dst[3*16+i] = row[3]
-	}
-}
-
-// gatherV16x8AMD64 reads 16 rows of 8 bytes each from s (row stride =
-// stride) and packs them into tmp such that tmp[r*16+i] = s[i*stride+r].
-// Same shape as gatherV16x8 in the arm64 dispatch.
-func gatherV16x8AMD64(tmp *[8 * 16]byte, s []byte, stride int) {
-	dst := tmp[:]
-	for i := range 16 {
-		row := s[i*stride : i*stride+8]
-		w := binary.LittleEndian.Uint64(row)
-		dst[0*16+i] = byte(w)
-		dst[1*16+i] = byte(w >> 8)
-		dst[2*16+i] = byte(w >> 16)
-		dst[3*16+i] = byte(w >> 24)
-		dst[4*16+i] = byte(w >> 32)
-		dst[5*16+i] = byte(w >> 40)
-		dst[6*16+i] = byte(w >> 48)
-		dst[7*16+i] = byte(w >> 56)
-	}
-}
-
-// scatterV16x8AMD64 writes the modified rows [first..first+nrows-1] of
-// tmp back to the corresponding column positions in s.
-func scatterV16x8AMD64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
-	src := tmp[:]
-	for i := range 16 {
-		row := s[i*stride : i*stride+8]
-		for r := range nrows {
-			row[first+r] = src[(first+r)*16+i]
-		}
 	}
 }
 

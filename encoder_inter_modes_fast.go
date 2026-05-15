@@ -5,6 +5,15 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
+type fastInterRefSlot struct {
+	img      *vp8common.Image
+	frame    vp8common.MVReferenceFrame
+	rate     int
+	refIndex int
+	biasSlot int
+	ok       bool
+}
+
 // selectFastInterFrameModeDecision mirrors libvpx vp8/encoder/pickinter.c
 // vp8_pick_inter_mode (the non-RD fast picker used by good-cpu>=4 and
 // realtime). The fast picker scores each mode_index candidate by
@@ -64,6 +73,567 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	quant *vp8enc.MacroblockQuant,
 	sourceAltRefZeroMVOnly bool,
 ) (interFrameModeDecision, bool) {
+	if oracleTraceBuild && e.oracleTraceEnabled() {
+		return e.selectFastInterFrameModeDecisionCold(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, above, left, aboveLeft, quant, sourceAltRefZeroMVOnly)
+	}
+	if e.opts.NoiseSensitivity > 0 {
+		return e.selectFastInterFrameModeDecisionDenoise(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, above, left, aboveLeft, quant, sourceAltRefZeroMVOnly)
+	}
+	return e.selectFastInterFrameModeDecisionHot(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, above, left, aboveLeft, quant, sourceAltRefZeroMVOnly)
+}
+
+func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
+	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int,
+	qIndex int, segmentID uint8,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	quant *vp8enc.MacroblockQuant,
+	sourceAltRefZeroMVOnly bool,
+) (interFrameModeDecision, bool) {
+	if !e.interRDFrameActive {
+		e.beginInterRDModeDecisionMacroblock()
+	}
+	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	bestSet := false
+	bestScore := maxInt()
+	bestDistortion := maxInt()
+	bestSSE := maxInt()
+	bestModeIndex := -1
+	bestUseIntra := false
+	bestRefIndex := -1
+	var bestInterMode vp8enc.InterFrameMacroblockMode
+	var bestIntraMode vp8enc.InterFrameMacroblockMode
+	var bestImprovedStart interFrameSearchStart
+	bestProjectedRate := 0
+	bestPredictionError := 0
+
+	var loopCtx fastInterModeLoopContext
+	if !e.interRDFrameRefSearchOrderValid {
+		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
+		e.interRDFrameRefSearchOrderValid = true
+	}
+	refSearchOrder := e.interRDFrameRefSearchOrder
+	loopCtx.modeMVs = e.interModeMVSlots(refs, refSearchOrder, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+	loopCtx.signBias = e.interFrameSignBias()
+	loopCtx.mvCosts = e.currentMotionVectorCostTables()
+
+	var refSlots [4]fastInterRefSlot
+	for slot := 1; slot < len(refSlots); slot++ {
+		refIndex := int(refSearchOrder[slot])
+		if uint(refIndex) >= uint(len(refs)) {
+			continue
+		}
+		ref := &refs[refIndex]
+		if ref.Img == nil {
+			continue
+		}
+		refSlots[slot] = fastInterRefSlot{
+			img:      ref.Img,
+			frame:    ref.Frame,
+			rate:     e.interReferenceFrameRateForReference(*ref),
+			refIndex: refIndex,
+			biasSlot: interModeSignBiasSlotForReference(ref.Frame, loopCtx.signBias) & 1,
+			ok:       true,
+		}
+	}
+	if refSlots[1].ok {
+		loopCtx.bestRefMV = loopCtx.modeMVs.best[refSlots[1].biasSlot]
+	}
+
+	rdActive := e.interRDFrameActive
+	modeOrder := &libvpxFastInterModeOrder
+	refOrder := &libvpxFastRefFrameOrder
+	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
+
+	for modeIndex := 0; modeIndex < len(libvpxFastInterModeOrder); modeIndex++ {
+		threshold := thresholds[modeIndex]
+		if threshold == libvpxInterModeThresholdDisabled {
+			continue
+		}
+		if bestSet && bestScore <= threshold {
+			continue
+		}
+
+		mbMode := modeOrder[modeIndex]
+		refSlot := refOrder[modeIndex]
+		if refSlot == 0 {
+			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
+				continue
+			}
+			if rdActive {
+				e.interModeTestHitCounts[modeIndex]++
+			}
+			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
+				continue
+			}
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant)
+			if !ok {
+				e.raiseInterRDThreshold(modeIndex)
+				continue
+			}
+			if !bestSet || score < bestScore {
+				mode.SegmentID = segmentID
+				e.lowerInterRDThresholdForImprovement(modeIndex)
+				bestSet = true
+				bestScore = score
+				bestDistortion = distortion
+				bestSSE = sse
+				bestModeIndex = modeIndex
+				bestUseIntra = true
+				bestIntraMode = mode
+				bestProjectedRate = rate
+				bestPredictionError = distortion
+			} else {
+				e.raiseInterRDThreshold(modeIndex)
+			}
+			continue
+		}
+
+		rs := refSlots[refSlot&3]
+		if !rs.ok {
+			continue
+		}
+		if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
+			continue
+		}
+		if rdActive {
+			e.interModeTestHitCounts[modeIndex]++
+		}
+		if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, rs.frame, mbMode) {
+			continue
+		}
+		if mbMode == vp8common.SplitMV {
+			e.raiseInterRDThreshold(modeIndex)
+			continue
+		}
+
+		biasSlot := rs.biasSlot
+		bestRefMV := loopCtx.modeMVs.best[biasSlot]
+		loopCtx.bestRefMV = bestRefMV
+		mv := vp8enc.MotionVector{}
+		improvedStart := interFrameSearchStart{}
+		switch mbMode {
+		case vp8common.ZeroMV:
+		case vp8common.NearestMV:
+			mv = loopCtx.modeMVs.nearest[biasSlot]
+			if mv.IsZero() {
+				continue
+			}
+		case vp8common.NearMV:
+			mv = loopCtx.modeMVs.near[biasSlot]
+			if mv.IsZero() {
+				continue
+			}
+		case vp8common.NewMV:
+			search := loopCtx.searchConfig(e)
+			start := e.improvedInterFrameSearchStart(src, rs.frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			improvedStart = start
+			mvCosts := loopCtx.mvCosts
+			if mvCosts == nil {
+				mvCosts = e.currentMotionVectorCostTables()
+			}
+			var motionStats interFrameMotionSearchStats
+			var stats *interFrameMotionSearchStats
+			if e.opts.PhaseStats != nil && !e.threadedRowsActive {
+				motionStats.phase = e.opts.PhaseStats
+				stats = &motionStats
+			}
+			result := interFrameMotionVectorSearch{
+				src:         src,
+				ref:         rs.img,
+				mbRow:       mbRow,
+				mbCol:       mbCol,
+				mbRows:      mbRows,
+				mbCols:      mbCols,
+				bestRefMV:   bestRefMV,
+				qIndex:      qIndex,
+				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
+				search:      search,
+				start:       start,
+				mvProbs:     &e.modeProbs.MV,
+				mvCosts:     mvCosts,
+				stats:       stats,
+			}.selectFast()
+			mv = clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
+			if result.haveError && mv == result.mv {
+				loopCtx.storeVariance(rs.img, mv, result.variance, result.sse)
+			}
+			if mv.IsZero() {
+				continue
+			}
+		default:
+			continue
+		}
+		if !interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
+			continue
+		}
+		if inactiveMB {
+			mode := vp8enc.InterFrameMacroblockMode{RefFrame: rs.frame, Mode: mbMode, MV: mv, SegmentID: segmentID, MBSkipCoeff: true}
+			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, rs.rate, loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, libvpxFastNewMVBitCostWeight)
+			e.lowerInterRDThresholdForImprovement(modeIndex)
+			bestSet = true
+			bestDistortion = 0
+			bestModeIndex = modeIndex
+			bestUseIntra = false
+			bestRefIndex = rs.refIndex
+			bestInterMode = mode
+			bestImprovedStart = improvedStart
+			bestProjectedRate = rate
+			bestPredictionError = 0
+			break
+		}
+		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreHot(src, rs.img, mbRow, mbCol, mbRows, mbCols, rs.frame, mbMode, mv, segmentID, above, left, aboveLeft, qIndex, rs.rate, quant, &loopCtx)
+		if !ok {
+			continue
+		}
+		if breakoutSkip || !bestSet || score < bestScore {
+			e.lowerInterRDThresholdForImprovement(modeIndex)
+			bestSet = true
+			bestScore = score
+			bestDistortion = distortion
+			bestSSE = sse
+			bestModeIndex = modeIndex
+			bestUseIntra = false
+			bestRefIndex = rs.refIndex
+			bestInterMode = vp8enc.InterFrameMacroblockMode{RefFrame: rs.frame, Mode: mbMode, MV: mv, SegmentID: segmentID, MBSkipCoeff: breakoutSkip}
+			bestImprovedStart = improvedStart
+			bestProjectedRate = rate
+			bestPredictionError = distortion
+		} else {
+			e.raiseInterRDThreshold(modeIndex)
+		}
+		if breakoutSkip {
+			break
+		}
+	}
+	if !bestSet {
+		return interFrameModeDecision{}, false
+	}
+	if bestModeIndex >= 0 {
+		e.lowerBestInterFastThreshold(bestModeIndex)
+	}
+	e.recordFastInterModeErrorBin(bestDistortion)
+
+	best := interFrameModeDecision{
+		useIntra:        bestUseIntra,
+		interMode:       bestInterMode,
+		intraMode:       bestIntraMode,
+		projectedRate:   int32(bestProjectedRate),
+		improvedMVStart: bestImprovedStart,
+		predictionError: int32(bestPredictionError),
+	}
+	if !best.useIntra {
+		if bestRefIndex >= 0 && bestRefIndex < len(refs) {
+			best.ref = refs[bestRefIndex]
+		}
+		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
+	} else if best.intraMode.Mode <= vp8common.BPred {
+		uvMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, &e.analysis.Img, &e.reconstructScratch)
+		if ok {
+			best.intraMode.UVMode = uvMode
+		}
+	}
+	return best, true
+}
+
+func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
+	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int,
+	qIndex int, segmentID uint8,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	quant *vp8enc.MacroblockQuant,
+	sourceAltRefZeroMVOnly bool,
+) (interFrameModeDecision, bool) {
+	if !e.interRDFrameActive {
+		e.beginInterRDModeDecisionMacroblock()
+	}
+	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	bestSet := false
+	bestScore := maxInt()
+	bestDistortion := maxInt()
+	bestSSE := maxInt()
+	bestModeIndex := -1
+	bestUseIntra := false
+	bestRefIndex := -1
+	var bestInterMode vp8enc.InterFrameMacroblockMode
+	var bestIntraMode vp8enc.InterFrameMacroblockMode
+	var bestImprovedStart interFrameSearchStart
+	bestProjectedRate := 0
+	bestPredictionError := 0
+	denoiseDecision := newDenoiserMacroblockDecision()
+	denoiseDecision.useSkinGate = true
+
+	var loopCtx fastInterModeLoopContext
+	if !e.interRDFrameRefSearchOrderValid {
+		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
+		e.interRDFrameRefSearchOrderValid = true
+	}
+	refSearchOrder := e.interRDFrameRefSearchOrder
+	loopCtx.modeMVs = e.interModeMVSlots(refs, refSearchOrder, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+	loopCtx.signBias = e.interFrameSignBias()
+	loopCtx.mvCosts = e.currentMotionVectorCostTables()
+
+	var refSlots [4]fastInterRefSlot
+	var denoiseRefOK [4]bool
+	for slot := 1; slot < len(refSlots); slot++ {
+		refIndex := int(refSearchOrder[slot])
+		if uint(refIndex) >= uint(len(refs)) {
+			continue
+		}
+		ref := &refs[refIndex]
+		if ref.Img == nil {
+			continue
+		}
+		refSlots[slot] = fastInterRefSlot{
+			img:      ref.Img,
+			frame:    ref.Frame,
+			rate:     e.interReferenceFrameRateForReference(*ref),
+			refIndex: refIndex,
+			biasSlot: interModeSignBiasSlotForReference(ref.Frame, loopCtx.signBias) & 1,
+			ok:       true,
+		}
+		denoiseRefOK[slot] = !e.denoiserReferenceTooOld(ref.Frame)
+	}
+	if refSlots[1].ok {
+		loopCtx.bestRefMV = loopCtx.modeMVs.best[refSlots[1].biasSlot]
+	}
+
+	rdActive := e.interRDFrameActive
+	modeOrder := &libvpxFastInterModeOrder
+	refOrder := &libvpxFastRefFrameOrder
+	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
+
+	for modeIndex := 0; modeIndex < len(libvpxFastInterModeOrder); modeIndex++ {
+		threshold := thresholds[modeIndex]
+		if threshold == libvpxInterModeThresholdDisabled {
+			continue
+		}
+		if bestSet && bestScore <= threshold {
+			continue
+		}
+
+		mbMode := modeOrder[modeIndex]
+		refSlot := refOrder[modeIndex]
+		if refSlot == 0 {
+			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
+				continue
+			}
+			if rdActive {
+				e.interModeTestHitCounts[modeIndex]++
+			}
+			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
+				continue
+			}
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant)
+			if !ok {
+				e.raiseInterRDThreshold(modeIndex)
+				continue
+			}
+			if !bestSet || score < bestScore {
+				mode.SegmentID = segmentID
+				e.lowerInterRDThresholdForImprovement(modeIndex)
+				bestSet = true
+				bestScore = score
+				bestDistortion = distortion
+				bestSSE = sse
+				bestModeIndex = modeIndex
+				bestUseIntra = true
+				bestIntraMode = mode
+				bestProjectedRate = rate
+				bestPredictionError = distortion
+			} else {
+				e.raiseInterRDThreshold(modeIndex)
+			}
+			continue
+		}
+
+		slot := refSlot & 3
+		rs := refSlots[slot]
+		if !rs.ok {
+			continue
+		}
+		if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
+			continue
+		}
+		if rdActive {
+			e.interModeTestHitCounts[modeIndex]++
+		}
+		if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, rs.frame, mbMode) {
+			continue
+		}
+		if mbMode == vp8common.SplitMV {
+			e.raiseInterRDThreshold(modeIndex)
+			continue
+		}
+
+		biasSlot := rs.biasSlot
+		bestRefMV := loopCtx.modeMVs.best[biasSlot]
+		loopCtx.bestRefMV = bestRefMV
+		mv := vp8enc.MotionVector{}
+		improvedStart := interFrameSearchStart{}
+		switch mbMode {
+		case vp8common.ZeroMV:
+		case vp8common.NearestMV:
+			mv = loopCtx.modeMVs.nearest[biasSlot]
+			if mv.IsZero() {
+				continue
+			}
+		case vp8common.NearMV:
+			mv = loopCtx.modeMVs.near[biasSlot]
+			if mv.IsZero() {
+				continue
+			}
+		case vp8common.NewMV:
+			search := loopCtx.searchConfig(e)
+			start := e.improvedInterFrameSearchStart(src, rs.frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			improvedStart = start
+			mvCosts := loopCtx.mvCosts
+			if mvCosts == nil {
+				mvCosts = e.currentMotionVectorCostTables()
+			}
+			var motionStats interFrameMotionSearchStats
+			var stats *interFrameMotionSearchStats
+			if e.opts.PhaseStats != nil && !e.threadedRowsActive {
+				motionStats.phase = e.opts.PhaseStats
+				stats = &motionStats
+			}
+			result := interFrameMotionVectorSearch{
+				src:         src,
+				ref:         rs.img,
+				mbRow:       mbRow,
+				mbCol:       mbCol,
+				mbRows:      mbRows,
+				mbCols:      mbCols,
+				bestRefMV:   bestRefMV,
+				qIndex:      qIndex,
+				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
+				search:      search,
+				start:       start,
+				mvProbs:     &e.modeProbs.MV,
+				mvCosts:     mvCosts,
+				stats:       stats,
+			}.selectFast()
+			mv = clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
+			if result.haveError && mv == result.mv {
+				loopCtx.storeVariance(rs.img, mv, result.variance, result.sse)
+			}
+			if mv.IsZero() {
+				continue
+			}
+		default:
+			continue
+		}
+		if !interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
+			continue
+		}
+		if inactiveMB {
+			mode := vp8enc.InterFrameMacroblockMode{RefFrame: rs.frame, Mode: mbMode, MV: mv, SegmentID: segmentID, MBSkipCoeff: true}
+			if denoiseRefOK[slot] {
+				denoiseDecision.recordInactiveInterCandidate(rs.frame, mode.Mode, mode.MV)
+			}
+			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, rs.rate, loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, libvpxFastNewMVBitCostWeight)
+			e.lowerInterRDThresholdForImprovement(modeIndex)
+			bestSet = true
+			bestDistortion = 0
+			bestModeIndex = modeIndex
+			bestUseIntra = false
+			bestRefIndex = rs.refIndex
+			bestInterMode = mode
+			bestImprovedStart = improvedStart
+			bestProjectedRate = rate
+			bestPredictionError = 0
+			break
+		}
+		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreHot(src, rs.img, mbRow, mbCol, mbRows, mbCols, rs.frame, mbMode, mv, segmentID, above, left, aboveLeft, qIndex, rs.rate, quant, &loopCtx)
+		if !ok {
+			continue
+		}
+		if denoiseRefOK[slot] {
+			candidateSSE := uint32(sse)
+			if mbMode == vp8common.ZeroMV && candidateSSE < denoiseDecision.zeroMVSSE {
+				denoiseDecision.zeroMVSSE = candidateSSE
+				denoiseDecision.zeroMVReferenceFrame = rs.frame
+			}
+			if mbMode == vp8common.NewMV && candidateSSE < denoiseDecision.bestSSE {
+				denoiseDecision.bestSSE = candidateSSE
+				denoiseDecision.bestMode = vp8common.NewMV
+				denoiseDecision.bestMV = mv
+				denoiseDecision.bestReferenceFrame = rs.frame
+			}
+		}
+		if breakoutSkip || !bestSet || score < bestScore {
+			e.lowerInterRDThresholdForImprovement(modeIndex)
+			bestSet = true
+			bestScore = score
+			bestDistortion = distortion
+			bestSSE = sse
+			bestModeIndex = modeIndex
+			bestUseIntra = false
+			bestRefIndex = rs.refIndex
+			bestInterMode = vp8enc.InterFrameMacroblockMode{RefFrame: rs.frame, Mode: mbMode, MV: mv, SegmentID: segmentID, MBSkipCoeff: breakoutSkip}
+			bestImprovedStart = improvedStart
+			bestProjectedRate = rate
+			bestPredictionError = distortion
+		} else {
+			e.raiseInterRDThreshold(modeIndex)
+		}
+		if breakoutSkip {
+			break
+		}
+	}
+	if !bestSet {
+		return interFrameModeDecision{}, false
+	}
+	if bestModeIndex >= 0 {
+		e.lowerBestInterFastThreshold(bestModeIndex)
+	}
+	e.recordFastInterModeErrorBin(bestDistortion)
+
+	best := interFrameModeDecision{
+		useIntra:        bestUseIntra,
+		interMode:       bestInterMode,
+		intraMode:       bestIntraMode,
+		projectedRate:   int32(bestProjectedRate),
+		improvedMVStart: bestImprovedStart,
+		predictionError: int32(bestPredictionError),
+	}
+	if !best.useIntra {
+		if bestRefIndex >= 0 && bestRefIndex < len(refs) {
+			best.ref = refs[bestRefIndex]
+		}
+		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
+	} else if best.intraMode.Mode <= vp8common.BPred {
+		uvMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, &e.analysis.Img, &e.reconstructScratch)
+		if ok {
+			best.intraMode.UVMode = uvMode
+		}
+	}
+	if denoiseDecision.bestReferenceFrame == vp8common.IntraFrame {
+		if best.useIntra {
+			denoiseDecision.bestReferenceFrame = vp8common.IntraFrame
+			denoiseDecision.bestMode = best.intraMode.Mode
+			denoiseDecision.bestMV = best.intraMode.MV
+		} else {
+			denoiseDecision.bestReferenceFrame = best.interMode.RefFrame
+			denoiseDecision.bestMode = best.interMode.Mode
+			denoiseDecision.bestMV = best.interMode.MV
+		}
+		if bestSSE >= 0 {
+			denoiseDecision.bestSSE = uint32(bestSSE)
+		}
+	}
+	best.denoise = denoiseDecision
+	return best, true
+}
+
+func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
+	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int,
+	qIndex int, segmentID uint8,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	quant *vp8enc.MacroblockQuant,
+	sourceAltRefZeroMVOnly bool,
+) (interFrameModeDecision, bool) {
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
@@ -91,7 +661,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	loopCtx.mvCosts = e.currentMotionVectorCostTables()
 	activeSignBiasSlot := 0
 	bestRefMV := vp8enc.MotionVector{}
-	if baseRefIndex := refSearchOrder[1]; uint(baseRefIndex) < uint(len(refs)) {
+	if baseRefIndex := int(refSearchOrder[1]); uint(baseRefIndex) < uint(len(refs)) {
 		activeSignBiasSlot = interModeSignBiasSlotForReference(refs[baseRefIndex].Frame, loopCtx.signBias)
 		bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot&1]
 		loopCtx.bestRefMV = bestRefMV
@@ -151,7 +721,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				bestDistortion = distortion
 				bestSSE = sse
 				bestModeIndex = modeIndex
-				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate, predictionError: distortion}
+				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: int32(rate), predictionError: int32(distortion)}
 			} else {
 				e.raiseInterRDThreshold(modeIndex)
 			}
@@ -162,9 +732,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		// 1..3 by construction here): the helper does the same lookup but
 		// the loop touches it on every iteration so inlining avoids the
 		// extra bounds checks against searchOrder/refs.
-		// refSearchOrder is [4]int and refSlot ∈ [0,3]; AND-mask with 3
+		// refSearchOrder is [4]int8 and refSlot is in [0,3]; AND-mask with 3
 		// elides the bounds check.
-		refIndex := refSearchOrder[refSlot&3]
+		refIndex := int(refSearchOrder[refSlot&3])
 		// Single uint range check folds the (refIndex < 0) and
 		// (refIndex >= len) guards.
 		if uint(refIndex) >= uint(len(refs)) {
@@ -274,7 +844,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				ref:             ref,
 				interMode:       mode,
 				intraMode:       vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred},
-				projectedRate:   rate,
+				projectedRate:   int32(rate),
 				improvedMVStart: improvedStart,
 				predictionError: 0,
 			}
@@ -309,7 +879,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			bestSSE = sse
 			bestModeIndex = modeIndex
 			mode.MBSkipCoeff = breakoutSkip
-			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: rate, improvedMVStart: improvedStart, predictionError: distortion}
+			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: int32(rate), improvedMVStart: improvedStart, predictionError: int32(distortion)}
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}

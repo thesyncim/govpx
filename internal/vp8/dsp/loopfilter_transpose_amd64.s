@@ -1,0 +1,231 @@
+//go:build amd64 && !purego
+
+// SSE2 byte-transpose helpers for VP8 luma vertical loop filters.
+// The vertical dispatch transposes a 16-row by 8-column edge window into
+// the horizontal 8-row by 16-column layout consumed by the libvpx LF
+// kernels, then transposes the full 8 columns back. The horizontal inner
+// LF mutates columns 2..5 and the MB LF mutates columns 1..6; the untouched
+// outer columns are byte-identical in tmp, so scattering all 8 columns is
+// semantically identical and avoids scalar partial-write loops.
+
+#include "textflag.h"
+
+// gatherV16x8AMD64SSE2 ABI ($0-24):
+//   tmp+0(FP)    *[128]byte
+//   src+8(FP)    *byte, points at row 0 / p3 column
+//   stride+16(FP) int
+TEXT ·gatherV16x8AMD64SSE2(SB), NOSPLIT, $0-24
+	MOVQ	tmp+0(FP), DI
+	MOVQ	src+8(FP), AX
+	MOVQ	stride+16(FP), BX
+
+	// Rows 0..7.
+	MOVQ	AX, R8
+	MOVQ	(R8), X0
+	ADDQ	BX, R8
+	MOVQ	(R8), X1
+	ADDQ	BX, R8
+	MOVQ	(R8), X2
+	ADDQ	BX, R8
+	MOVQ	(R8), X3
+	ADDQ	BX, R8
+	MOVQ	(R8), X4
+	ADDQ	BX, R8
+	MOVQ	(R8), X5
+	ADDQ	BX, R8
+	MOVQ	(R8), X6
+	ADDQ	BX, R8
+	MOVQ	(R8), X7
+	ADDQ	BX, R8
+
+	PUNPCKLBW X1, X0
+	PUNPCKLBW X3, X2
+	PUNPCKLBW X5, X4
+	PUNPCKLBW X7, X6
+
+	MOVO	X0, X8
+	PUNPCKLWL X2, X0
+	PUNPCKHWL X2, X8
+	MOVO	X4, X9
+	PUNPCKLWL X6, X4
+	PUNPCKHWL X6, X9
+
+	MOVO	X0, X10
+	PUNPCKLLQ X4, X0
+	PUNPCKHLQ X4, X10
+	MOVO	X8, X11
+	PUNPCKLLQ X9, X8
+	PUNPCKHLQ X9, X11
+
+	MOVQ	X0, 0(DI)
+	PSRLDQ	$8, X0
+	MOVQ	X0, 16(DI)
+	MOVQ	X10, 32(DI)
+	PSRLDQ	$8, X10
+	MOVQ	X10, 48(DI)
+	MOVQ	X8, 64(DI)
+	PSRLDQ	$8, X8
+	MOVQ	X8, 80(DI)
+	MOVQ	X11, 96(DI)
+	PSRLDQ	$8, X11
+	MOVQ	X11, 112(DI)
+
+	// Rows 8..15.
+	MOVQ	(R8), X0
+	ADDQ	BX, R8
+	MOVQ	(R8), X1
+	ADDQ	BX, R8
+	MOVQ	(R8), X2
+	ADDQ	BX, R8
+	MOVQ	(R8), X3
+	ADDQ	BX, R8
+	MOVQ	(R8), X4
+	ADDQ	BX, R8
+	MOVQ	(R8), X5
+	ADDQ	BX, R8
+	MOVQ	(R8), X6
+	ADDQ	BX, R8
+	MOVQ	(R8), X7
+
+	PUNPCKLBW X1, X0
+	PUNPCKLBW X3, X2
+	PUNPCKLBW X5, X4
+	PUNPCKLBW X7, X6
+
+	MOVO	X0, X8
+	PUNPCKLWL X2, X0
+	PUNPCKHWL X2, X8
+	MOVO	X4, X9
+	PUNPCKLWL X6, X4
+	PUNPCKHWL X6, X9
+
+	MOVO	X0, X10
+	PUNPCKLLQ X4, X0
+	PUNPCKHLQ X4, X10
+	MOVO	X8, X11
+	PUNPCKLLQ X9, X8
+	PUNPCKHLQ X9, X11
+
+	MOVQ	X0, 8(DI)
+	PSRLDQ	$8, X0
+	MOVQ	X0, 24(DI)
+	MOVQ	X10, 40(DI)
+	PSRLDQ	$8, X10
+	MOVQ	X10, 56(DI)
+	MOVQ	X8, 72(DI)
+	PSRLDQ	$8, X8
+	MOVQ	X8, 88(DI)
+	MOVQ	X11, 104(DI)
+	PSRLDQ	$8, X11
+	MOVQ	X11, 120(DI)
+	RET
+
+// scatterV16x8AMD64SSE2 ABI ($0-24):
+//   dst+0(FP)    *byte, points at row 0 / p3 column
+//   stride+8(FP) int
+//   tmp+16(FP)   *[128]byte
+TEXT ·scatterV16x8AMD64SSE2(SB), NOSPLIT, $0-24
+	MOVQ	dst+0(FP), AX
+	MOVQ	stride+8(FP), BX
+	MOVQ	tmp+16(FP), DI
+
+	// Rows 0..7 from tmp low qwords.
+	MOVQ	0(DI), X0
+	MOVQ	16(DI), X1
+	MOVQ	32(DI), X2
+	MOVQ	48(DI), X3
+	MOVQ	64(DI), X4
+	MOVQ	80(DI), X5
+	MOVQ	96(DI), X6
+	MOVQ	112(DI), X7
+
+	PUNPCKLBW X1, X0
+	PUNPCKLBW X3, X2
+	PUNPCKLBW X5, X4
+	PUNPCKLBW X7, X6
+
+	MOVO	X0, X8
+	PUNPCKLWL X2, X0
+	PUNPCKHWL X2, X8
+	MOVO	X4, X9
+	PUNPCKLWL X6, X4
+	PUNPCKHWL X6, X9
+
+	MOVO	X0, X10
+	PUNPCKLLQ X4, X0
+	PUNPCKHLQ X4, X10
+	MOVO	X8, X11
+	PUNPCKLLQ X9, X8
+	PUNPCKHLQ X9, X11
+
+	MOVQ	AX, R8
+	MOVQ	X0, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X0
+	MOVQ	X0, (R8)
+	ADDQ	BX, R8
+	MOVQ	X10, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X10
+	MOVQ	X10, (R8)
+	ADDQ	BX, R8
+	MOVQ	X8, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X8
+	MOVQ	X8, (R8)
+	ADDQ	BX, R8
+	MOVQ	X11, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X11
+	MOVQ	X11, (R8)
+	ADDQ	BX, R8
+
+	// Rows 8..15 from tmp high qwords.
+	MOVQ	8(DI), X0
+	MOVQ	24(DI), X1
+	MOVQ	40(DI), X2
+	MOVQ	56(DI), X3
+	MOVQ	72(DI), X4
+	MOVQ	88(DI), X5
+	MOVQ	104(DI), X6
+	MOVQ	120(DI), X7
+
+	PUNPCKLBW X1, X0
+	PUNPCKLBW X3, X2
+	PUNPCKLBW X5, X4
+	PUNPCKLBW X7, X6
+
+	MOVO	X0, X8
+	PUNPCKLWL X2, X0
+	PUNPCKHWL X2, X8
+	MOVO	X4, X9
+	PUNPCKLWL X6, X4
+	PUNPCKHWL X6, X9
+
+	MOVO	X0, X10
+	PUNPCKLLQ X4, X0
+	PUNPCKHLQ X4, X10
+	MOVO	X8, X11
+	PUNPCKLLQ X9, X8
+	PUNPCKHLQ X9, X11
+
+	MOVQ	X0, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X0
+	MOVQ	X0, (R8)
+	ADDQ	BX, R8
+	MOVQ	X10, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X10
+	MOVQ	X10, (R8)
+	ADDQ	BX, R8
+	MOVQ	X8, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X8
+	MOVQ	X8, (R8)
+	ADDQ	BX, R8
+	MOVQ	X11, (R8)
+	ADDQ	BX, R8
+	PSRLDQ	$8, X11
+	MOVQ	X11, (R8)
+	RET

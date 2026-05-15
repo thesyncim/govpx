@@ -9,15 +9,15 @@ import (
 // packing.
 
 type InterFrameMacroblockMode struct {
+	BlockMV     [16]MotionVector
+	MV          MotionVector
+	BModes      [16]common.BPredictionMode
 	SegmentID   uint8
 	MBSkipCoeff bool
 	RefFrame    common.MVReferenceFrame
 	Mode        common.MBPredictionMode
 	UVMode      common.MBPredictionMode
-	BModes      [16]common.BPredictionMode
-	MV          MotionVector
 	Partition   uint8
-	BlockMV     [16]MotionVector
 }
 
 // InterFramePacket owns the packet-writer inputs for a fully reconstructed

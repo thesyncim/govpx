@@ -11,53 +11,42 @@ import (
 // buffers. Width and Height are visible dimensions; CodedWidth and CodedHeight
 // cover the macroblock-padded reconstruction area.
 type Image struct {
-	Width  int
-	Height int
-
+	Y           []byte
+	U           []byte
+	V           []byte
+	YFull       []byte
+	UFull       []byte
+	VFull       []byte
+	Width       int
+	Height      int
 	CodedWidth  int
 	CodedHeight int
-
-	Y []byte
-	U []byte
-	V []byte
-
-	YFull []byte
-	UFull []byte
-	VFull []byte
-
-	YStride int
-	UStride int
-	VStride int
-
-	YOrigin int
-	UOrigin int
-	VOrigin int
-
-	YBorder  int
-	UVBorder int
+	YStride     int
+	UStride     int
+	VStride     int
+	YOrigin     int
+	UOrigin     int
+	VOrigin     int
+	YBorder     int
+	UVBorder    int
 }
 
 // FrameBuffer owns one bordered VP8 frame. Allocation happens in NewFrameBuffer
 // or Resize; per-frame reuse and border extension do not allocate.
 type FrameBuffer struct {
-	Img Image
-
-	buf []byte
-
+	buf       []byte
+	Img       Image
 	yPlaneOff int
 	uPlaneOff int
 	vPlaneOff int
-
-	yOff int
-	uOff int
-	vOff int
-
-	yRows int
-	uRows int
-	vRows int
-
-	border int
-	align  int
+	yOff      int
+	uOff      int
+	vOff      int
+	yRows     int
+	uRows     int
+	vRows     int
+	border    int
+	align     int
 }
 
 func NewFrameBuffer(width int, height int, border int, align int) (*FrameBuffer, error) {

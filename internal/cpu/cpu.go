@@ -11,3 +11,7 @@ package cpu
 // XSAVE-enabled for YMM state. On non-amd64 builds this is always
 // false (the per-arch init below sets it).
 var HasAVX2 bool
+
+// HasARM64DotProd is true iff the host arm64 CPU advertises the ASIMD
+// dot-product extension. On non-arm64 builds this is always false.
+var HasARM64DotProd bool

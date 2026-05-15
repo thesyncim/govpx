@@ -2,7 +2,11 @@
 
 package dsp
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
+)
 
 // libvpx v1.16.0 vpx_dsp/arm/sad_neon.c-style dispatch wrappers.
 //
@@ -14,6 +18,9 @@ import "unsafe"
 // the underlying NEON kernels.
 
 func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	if cpu.HasARM64DotProd {
+		return int(sadBlock16x16DotProd(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
+	}
 	return int(sadBlock16x16NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
@@ -27,6 +34,9 @@ func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 // The whole-MB SAD result fits in [0, 16*16*255 = 65280] so the int32
 // kernel return is always exact (no saturation possible).
 func SAD16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	if cpu.HasARM64DotProd {
+		return int(sadBlock16x16DotProd(src, srcStride, ref, refStride))
+	}
 	return int(sadBlock16x16NEON(src, srcStride, ref, refStride))
 }
 
@@ -43,6 +53,10 @@ func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, li
 // source 16x16 block against four in-bounds 16x16 reference blocks and write
 // four SADs in candidate order.
 func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32) {
+	if cpu.HasARM64DotProd {
+		sadBlock16x16x4DotProd(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
+		return
+	}
 	sadBlock16x16x4NEON(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
 }
 
@@ -64,6 +78,9 @@ func sadLimitClamp32(limit int) int32 {
 }
 
 func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	if cpu.HasARM64DotProd {
+		return int(sadBlock16x8DotProd(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
+	}
 	return int(sadBlock16x8NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 

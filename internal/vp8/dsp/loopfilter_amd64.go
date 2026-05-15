@@ -27,6 +27,16 @@ func loopFilterEdgeH16AVX2(src *byte, pitch int, blimit, limit, thresh byte)
 //go:noescape
 func mbLoopFilterEdgeH16AVX2(src *byte, pitch int, blimit, limit, thresh byte)
 
+// SSE2 16x8 byte transpose helpers used by luma vertical-edge filters.
+// They replace the Go gather/scatter byte loops around the shared
+// horizontal LF kernels.
+//
+//go:noescape
+func gatherV16x8AMD64SSE2(tmp *[8 * 16]byte, src *byte, stride int)
+
+//go:noescape
+func scatterV16x8AMD64SSE2(dst *byte, stride int, tmp *[8 * 16]byte)
+
 // loopFilterSimpleEdgeH16SSE2 mirrors libvpx
 // vp8_loop_filter_simple_horizontal_edge_sse2 (vp8/common/x86/loopfilter_sse2.asm).
 // Caller passes a pointer at the p1 row of an 8-row by 16-column window;

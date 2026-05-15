@@ -323,7 +323,7 @@ func ffmpegLibvpxPlotArgs(cfg benchConfig, sourcePath string, outPath string, de
 		deadline = "good"
 	}
 	bufferKbits := max(1, cfg.BitrateKbps*parity.BufferSizeMs/1000)
-	return []string{
+	args := []string{
 		"-nostdin",
 		"-hide_banner",
 		"-loglevel", "error",
@@ -348,13 +348,20 @@ func ffmpegLibvpxPlotArgs(cfg benchConfig, sourcePath string, outPath string, de
 		"-keyint_min", strconv.Itoa(parity.KeyFrameInterval),
 		"-lag-in-frames", "0",
 		"-auto-alt-ref", "0",
-		"-noise-sensitivity", "0",
+		"-noise-sensitivity", strconv.Itoa(parity.NoiseSensitivity),
 		"-undershoot-pct", strconv.Itoa(parity.UndershootPct),
 		"-overshoot-pct", strconv.Itoa(parity.OvershootPct),
+		"-drop-threshold", strconv.Itoa(parity.DropFrameWaterMark),
 		"-threads", strconv.Itoa(parity.Threads),
-		"-f", "ivf",
-		outPath,
 	}
+	if parity.MaxIntraBitratePct > 0 {
+		args = append(args, "-max-intra-rate", strconv.Itoa(parity.MaxIntraBitratePct))
+	}
+	if parity.StaticThreshold > 0 {
+		args = append(args, "-static-thresh", strconv.Itoa(parity.StaticThreshold))
+	}
+	args = append(args, "-f", "ivf", outPath)
+	return args
 }
 
 func summarizePlotEncode(path string, sizes []int, cfg benchConfig, totalNS int64) plotEncodeResult {

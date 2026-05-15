@@ -48,10 +48,10 @@ func selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPe
 }
 
 type splitFullPixelSearchResult struct {
-	mv         vp8enc.MotionVector
 	walkCost   int
 	returnCost int
-	num00      int
+	mv         vp8enc.MotionVector
+	num00      uint8
 }
 
 func nstepInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8, bounds interFrameFullPixelBounds, stepParam int) (vp8enc.MotionVector, int) {
@@ -68,7 +68,7 @@ func nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(
 	result := diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, block, width, height, center, centerWalkCost, centerReturnCost, bestRefMV, qIndex, errorPerBit, mvProbs, mvCosts, bounds, stepParam)
 	best := result.mv
 	bestCost := result.returnCost
-	n := result.num00
+	n := int(result.num00)
 	num00 := 0
 	for n < furtherSteps {
 		n++
@@ -77,7 +77,7 @@ func nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(
 			continue
 		}
 		candidate := diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, block, width, height, center, centerWalkCost, centerReturnCost, bestRefMV, qIndex, errorPerBit, mvProbs, mvCosts, bounds, stepParam+n)
-		num00 = candidate.num00
+		num00 = int(candidate.num00)
 		if candidate.returnCost < bestCost {
 			best = candidate.mv
 			bestCost = candidate.returnCost
@@ -145,7 +145,7 @@ func diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCost
 		}
 	}
 	_ = qIndex
-	return splitFullPixelSearchResult{mv: best, walkCost: bestWalkCost, returnCost: returnCost, num00: num00}
+	return splitFullPixelSearchResult{mv: best, walkCost: bestWalkCost, returnCost: returnCost, num00: uint8(num00)}
 }
 
 func splitMotionFullSearchFallbackNeeded(returnCost int, width int, height int) bool {

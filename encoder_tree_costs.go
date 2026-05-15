@@ -76,16 +76,14 @@ func buildTreeTokenPath(tree []int16, token int) treeTokenPath {
 	return out
 }
 
-// buildTreeTokenPaths fills out[token] with the precomputed path for each
+// fillTreeTokenPaths fills out[token] with the precomputed path for each
 // reachable token in [0, slots). Unreachable slots are left invalid; callers
 // must validate path.valid before consuming entries. This permits sparse
 // token-id ranges (e.g. SubMVRefTree, whose tokens are 10..13).
-func buildTreeTokenPaths(tree []int16, slots int) []treeTokenPath {
-	out := make([]treeTokenPath, slots)
-	for i := range slots {
+func fillTreeTokenPaths(tree []int16, out []treeTokenPath) {
+	for i := range out {
 		out[i] = buildTreeTokenPath(tree, i)
 	}
-	return out
 }
 
 var (
@@ -93,14 +91,24 @@ var (
 	// entropy tokens (including DCTEOBToken=11). SubMVRefTree's leaves
 	// are token IDs 10..13 (Left4x4..New4x4) so the slot count must
 	// cover the highest reachable token.
-	keyFrameYModeTokenPaths = buildTreeTokenPaths(vp8tables.KeyFrameYModeTree[:], 5)
-	yModeTokenPaths         = buildTreeTokenPaths(vp8tables.YModeTree[:], 5)
-	uvModeTokenPaths        = buildTreeTokenPaths(vp8tables.UVModeTree[:], 4)
-	bModeTokenPaths         = buildTreeTokenPaths(vp8tables.BModeTree[:], 10)
-	coefTokenPaths          = buildTreeTokenPaths(vp8tables.CoefTree[:], vp8tables.MaxEntropyTokens)
-	mbSplitTokenPaths       = buildTreeTokenPaths(vp8tables.MBSplitTree[:], 4)
-	subMVRefTokenPaths      = buildTreeTokenPaths(vp8tables.SubMVRefTree[:], 14)
+	keyFrameYModeTokenPaths [5]treeTokenPath
+	yModeTokenPaths         [5]treeTokenPath
+	uvModeTokenPaths        [4]treeTokenPath
+	bModeTokenPaths         [10]treeTokenPath
+	coefTokenPaths          [vp8tables.MaxEntropyTokens]treeTokenPath
+	mbSplitTokenPaths       [4]treeTokenPath
+	subMVRefTokenPaths      [14]treeTokenPath
 )
+
+func init() {
+	fillTreeTokenPaths(vp8tables.KeyFrameYModeTree[:], keyFrameYModeTokenPaths[:])
+	fillTreeTokenPaths(vp8tables.YModeTree[:], yModeTokenPaths[:])
+	fillTreeTokenPaths(vp8tables.UVModeTree[:], uvModeTokenPaths[:])
+	fillTreeTokenPaths(vp8tables.BModeTree[:], bModeTokenPaths[:])
+	fillTreeTokenPaths(vp8tables.CoefTree[:], coefTokenPaths[:])
+	fillTreeTokenPaths(vp8tables.MBSplitTree[:], mbSplitTokenPaths[:])
+	fillTreeTokenPaths(vp8tables.SubMVRefTree[:], subMVRefTokenPaths[:])
+}
 
 // Tree base pointers used by lookupTreeTokenPaths to dispatch by tree
 // identity. Comparing slice data pointers avoids the cost of length-based
@@ -128,19 +136,19 @@ func lookupTreeTokenPaths(tree []int16) []treeTokenPath {
 	base := unsafe.SliceData(tree)
 	switch base {
 	case coefTreeBase:
-		return coefTokenPaths
+		return coefTokenPaths[:]
 	case keyFrameYModeTreeBase:
-		return keyFrameYModeTokenPaths
+		return keyFrameYModeTokenPaths[:]
 	case yModeTreeBase:
-		return yModeTokenPaths
+		return yModeTokenPaths[:]
 	case uvModeTreeBase:
-		return uvModeTokenPaths
+		return uvModeTokenPaths[:]
 	case bModeTreeBase:
-		return bModeTokenPaths
+		return bModeTokenPaths[:]
 	case mbSplitTreeBase:
-		return mbSplitTokenPaths
+		return mbSplitTokenPaths[:]
 	case subMVRefTreeBase:
-		return subMVRefTokenPaths
+		return subMVRefTokenPaths[:]
 	}
 	return nil
 }

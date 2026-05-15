@@ -164,11 +164,11 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 
 // libvpxParityFlags returns the vpxenc flags that mirror govpx's
 // EncoderOptions for a fair benchmark: same CBR target and buffer model,
-// same q-range and keyframe cadence, single-pass, matched thread count, no lag,
-// noise sensitivity off, deadline matched. The deadlineFlag is "--rt" or
-// "--good" depending on benchConfig.Mode.
+// same q-range and keyframe cadence, realtime drop/intra/noise/static knobs
+// when enabled, single-pass, matched thread count, no lag, deadline matched.
+// The deadlineFlag is "--rt" or "--good" depending on benchConfig.Mode.
 func libvpxParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []string {
-	return []string{
+	flags := []string{
 		"--passes=1",
 		"--lag-in-frames=0",
 		"--end-usage=cbr",
@@ -185,10 +185,22 @@ func libvpxParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []
 		fmt.Sprintf("--threads=%d", p.Threads),
 		fmt.Sprintf("--token-parts=%d", p.TokenPartitions),
 		fmt.Sprintf("--timebase=1/%d", cfg.FPS),
-		"--noise-sensitivity=0",
+		fmt.Sprintf("--noise-sensitivity=%d", p.NoiseSensitivity),
 		deadlineFlag,
 		fmt.Sprintf("--cpu-used=%d", p.CpuUsed),
 	}
+	if p.DropFrameAllowed {
+		flags = append(flags, fmt.Sprintf("--drop-frame=%d", p.DropFrameWaterMark))
+	} else {
+		flags = append(flags, "--drop-frame=0")
+	}
+	if p.MaxIntraBitratePct > 0 {
+		flags = append(flags, fmt.Sprintf("--max-intra-rate=%d", p.MaxIntraBitratePct))
+	}
+	if p.StaticThreshold > 0 {
+		flags = append(flags, fmt.Sprintf("--static-thresh=%d", p.StaticThreshold))
+	}
+	return flags
 }
 
 type vpxencProgress struct {

@@ -40,11 +40,11 @@ const (
 
 type interAnalysisSearchConfig struct {
 	fullPixelSearch       interAnalysisFullPixelSearchMethod
-	fullPixelSearchParam  int
-	fullPixelFurtherSteps int
+	fullPixelSearchParam  int8
+	fullPixelFurtherSteps int8
 	fullPixelFinalRefine  bool
-	fullPixelSpeed        int
-	fullPixelSpeedAdjust  int
+	fullPixelSpeed        int8
+	fullPixelSpeedAdjust  int8
 	improvedMVPrediction  bool
 	fractionalSearch      interAnalysisFractionalSearchMethod
 }
@@ -68,19 +68,19 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	cfg := defaultInterAnalysisSearchConfig()
 	speed := e.libvpxCPUUsed()
 	cfg.fullPixelSearch = interAnalysisFullPixelSearchNstep
-	cfg.fullPixelSearchParam = libvpxInterFrameSearchParamForFeatureSpeed(e.opts.Deadline, speed)
+	cfg.fullPixelSearchParam = int8(libvpxInterFrameSearchParamForFeatureSpeed(e.opts.Deadline, speed))
 	cfg.fullPixelFinalRefine = e.interAnalysisUsesRDModeDecision()
-	cfg.fullPixelSpeed = speed
-	cfg.fullPixelSpeedAdjust = libvpxInterFrameSpeedAdjust(speed)
+	cfg.fullPixelSpeed = int8(speed)
+	cfg.fullPixelSpeedAdjust = int8(libvpxInterFrameSpeedAdjust(speed))
 	furtherStepsSpeed := speed
 	if e.interAnalysisUsesRDModeDecision() {
-		cfg.fullPixelSearchParam = libvpxInterFrameFirstStepForFeatureSpeed(e.opts.Deadline, speed)
+		cfg.fullPixelSearchParam = int8(libvpxInterFrameFirstStepForFeatureSpeed(e.opts.Deadline, speed))
 		cfg.fullPixelSpeedAdjust = 0
 		if e.opts.Deadline == DeadlineBestQuality {
 			furtherStepsSpeed = 0
 		}
 	}
-	cfg.fullPixelFurtherSteps = libvpxInterFrameFurtherSteps(furtherStepsSpeed, cfg.fullPixelSearchParam)
+	cfg.fullPixelFurtherSteps = int8(libvpxInterFrameFurtherSteps(furtherStepsSpeed, int(cfg.fullPixelSearchParam)))
 	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPredictionForFeatureSpeed(e.opts.Deadline, speed)
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg

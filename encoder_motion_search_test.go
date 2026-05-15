@@ -530,7 +530,7 @@ func TestSelectInterFrameFullPixelMotionVectorUsesImprovedStartAndBestRefMVCost(
 	}
 
 	bestRefMV := vp8enc.MotionVector{}
-	start := interFrameSearchStart{mv: vp8enc.MotionVector{Row: 32}, sr: 3, ok: true}
+	start := newInterFrameSearchStart(vp8enc.MotionVector{Row: 32}, 3, -1)
 	cfg := interAnalysisSearchConfig{
 		fullPixelSearch:       interAnalysisFullPixelSearchNstep,
 		fullPixelSearchParam:  interFrameMaxMVSearchSteps - 1,
@@ -586,19 +586,19 @@ func TestImprovedInterFrameSearchStartUsesLibvpxSADOrderAndStepRange(t *testing.
 	}
 
 	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, &above, &left, &aboveLeft, search)
-	if !start.ok || start.mv != left.MV || start.sr != 3 {
+	if !start.ok() || start.mv != left.MV || start.searchRange() != 3 {
 		t.Fatalf("improved search start = %+v, want left MV %+v with sr 3", start, left.MV)
 	}
-	if start.nearSADIndex != 1 {
-		t.Fatalf("near_sadidx = %d, want current-frame left slot 1", start.nearSADIndex)
+	if start.nearSADIndexInt() != 1 {
+		t.Fatalf("near_sadidx = %d, want current-frame left slot 1", start.nearSADIndexInt())
 	}
 	adjusted := search.adjustedForImprovedMVStart(start)
-	if adjusted.fullPixelSearchParam != 5 || adjusted.fullPixelFurtherSteps != 2 {
+	if int(adjusted.fullPixelSearchParam) != 5 || int(adjusted.fullPixelFurtherSteps) != 2 {
 		t.Fatalf("adjusted search = step %d further %d, want step 5 further 2", adjusted.fullPixelSearchParam, adjusted.fullPixelFurtherSteps)
 	}
 
 	search.improvedMVPrediction = false
-	if disabled := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, &above, &left, &aboveLeft, search); disabled.ok {
+	if disabled := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, &above, &left, &aboveLeft, search); disabled.ok() {
 		t.Fatalf("disabled improved search start = %+v, want not set", disabled)
 	}
 }
@@ -627,11 +627,11 @@ func TestImprovedInterFrameSearchStartReadsPreviousInterFrameModes(t *testing.T)
 	search := interAnalysisSearchConfig{improvedMVPrediction: true}
 
 	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, nil, nil, nil, search)
-	if !start.ok || start.mv != e.lastFrameInterModes[1*4+1].MV || start.sr != 3 {
+	if !start.ok() || start.mv != e.lastFrameInterModes[1*4+1].MV || start.searchRange() != 3 {
 		t.Fatalf("previous-frame search start = %+v, want %+v with sr 3", start, e.lastFrameInterModes[1*4+1].MV)
 	}
-	if start.nearSADIndex != 3 {
-		t.Fatalf("near_sadidx = %d, want previous-frame current-MB slot 3", start.nearSADIndex)
+	if start.nearSADIndexInt() != 3 {
+		t.Fatalf("near_sadidx = %d, want previous-frame current-MB slot 3", start.nearSADIndexInt())
 	}
 }
 
@@ -645,7 +645,7 @@ func TestImprovedInterFrameSearchStartBiasesCurrentSlots(t *testing.T) {
 	aboveLeft := above
 
 	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, 2, 2, &above, &left, &aboveLeft, interAnalysisSearchConfig{improvedMVPrediction: true})
-	if !start.ok || start.sr != 0 || start.mv != (vp8enc.MotionVector{Col: -16}) {
+	if !start.ok() || start.searchRange() != 0 || start.mv != (vp8enc.MotionVector{Col: -16}) {
 		t.Fatalf("sign-biased current-frame start = %+v, want median col -16 with sr 0", start)
 	}
 }
@@ -674,7 +674,7 @@ func TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots(t *testing.T) {
 	}
 
 	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, mbRows, mbCols, nil, nil, nil, interAnalysisSearchConfig{improvedMVPrediction: true})
-	if !start.ok || start.sr != 0 || start.mv != (vp8enc.MotionVector{Col: -16}) {
+	if !start.ok() || start.searchRange() != 0 || start.mv != (vp8enc.MotionVector{Col: -16}) {
 		t.Fatalf("sign-biased previous-frame start = %+v, want median col -16 with sr 0", start)
 	}
 }

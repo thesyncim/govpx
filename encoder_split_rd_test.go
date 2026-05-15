@@ -632,7 +632,7 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 	// Target=LAST: target sign-bias matches the LAST-ref neighbours, so the
 	// predicted MV is taken verbatim from the first neighbour-ranked LAST slot.
 	startLast := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
-	if !startLast.ok {
+	if !startLast.ok() {
 		t.Fatalf("LAST predictor returned ok=false")
 	}
 	if startLast.mv != (vp8enc.MotionVector{Col: 24}) {
@@ -645,14 +645,14 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 	// through to the median-of-flipped-MVs fallback with sr=0 — the libvpx
 	// "sr=0 lets caller pick search range" branch.
 	startAltRef := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
-	if !startAltRef.ok {
+	if !startAltRef.ok() {
 		t.Fatalf("ALTREF predictor returned ok=false")
 	}
 	if startAltRef.mv != (vp8enc.MotionVector{Col: -24}) {
 		t.Fatalf("ALTREF predictor MV = %+v, want {Col: -24} (sign flipped because sign_bias[ALTREF] != sign_bias[LAST])", startAltRef.mv)
 	}
-	if startAltRef.sr != 0 {
-		t.Fatalf("ALTREF predictor sr = %d, want 0 (median fallback when no neighbour matches target ref)", startAltRef.sr)
+	if startAltRef.searchRange() != 0 {
+		t.Fatalf("ALTREF predictor sr = %d, want 0 (median fallback when no neighbour matches target ref)", startAltRef.searchRange())
 	}
 
 	// Symmetry check: a neighbour table populated with ALTREF refs collapses
@@ -666,11 +666,11 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 		bias[i] = true
 	}
 	startAltRef2 := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
-	if !startAltRef2.ok || startAltRef2.mv != (vp8enc.MotionVector{Col: 24}) {
+	if !startAltRef2.ok() || startAltRef2.mv != (vp8enc.MotionVector{Col: 24}) {
 		t.Fatalf("ALTREF predictor with ALTREF neighbours = %+v, want {Col: 24} (matching sign_bias must not flip)", startAltRef2.mv)
 	}
 	startLast2 := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
-	if !startLast2.ok || startLast2.mv != (vp8enc.MotionVector{Col: -24}) {
+	if !startLast2.ok() || startLast2.mv != (vp8enc.MotionVector{Col: -24}) {
 		t.Fatalf("LAST predictor with ALTREF neighbours = %+v, want {Col: -24} (sign flipped because sign_bias[LAST] != sign_bias[ALTREF])", startLast2.mv)
 	}
 }

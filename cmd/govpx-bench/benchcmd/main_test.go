@@ -279,7 +279,7 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 			cfg := benchConfig{}
 			opts := defaultBenchCLIOptions()
 			registerBenchFlags(fs, &cfg, &opts)
-			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-phase-timing", "-auto-libvpx=false"}); err != nil {
+			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-phase-timing", "-suite=quick", "-suite-runs=2", "-auto-libvpx=false"}); err != nil {
 				t.Fatalf("Parse returned error: %v", err)
 			}
 			if !cfg.SkipQuality || !cfg.PhaseTiming {
@@ -288,10 +288,76 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 || cfg.CpuUsed != -4 {
 				t.Fatalf("parsed config = %dx%d frames=%d cpu=%d, want 32x24 frames=7 cpu=-4", cfg.Width, cfg.Height, cfg.Frames, cfg.CpuUsed)
 			}
-			if opts.format != "json" || opts.autoCompare {
-				t.Fatalf("opts = %+v, want format=json autoCompare=false", opts)
+			if opts.format != "json" || opts.suite != "quick" || opts.suiteRuns != 2 || opts.autoCompare {
+				t.Fatalf("opts = %+v, want format=json suite=quick suiteRuns=2 autoCompare=false", opts)
 			}
 		})
+	}
+}
+
+func TestEncodeSuiteCases(t *testing.T) {
+	cases, err := encodeSuiteCases("quick")
+	if err != nil {
+		t.Fatalf("encodeSuiteCases quick returned error: %v", err)
+	}
+	if len(cases) != 2 || cases[0].name != "rt-720p-2m-30f" || cases[1].mode != "good" {
+		t.Fatalf("quick suite cases = %+v, want realtime 720p and good 1080p", cases)
+	}
+	if _, err := encodeSuiteCases("unknown"); err == nil {
+		t.Fatalf("encodeSuiteCases accepted unknown suite")
+	}
+}
+
+func TestRunEncodeSuiteRequiresLibvpxReference(t *testing.T) {
+	if _, err := runEncodeSuite(benchConfig{}, "quick", 1); err == nil {
+		t.Fatalf("runEncodeSuite without vpxenc returned nil error")
+	}
+}
+
+func TestFormatSuiteReportTable(t *testing.T) {
+	report := benchReport{
+		Mode:              "realtime",
+		Width:             1280,
+		Height:            720,
+		Frames:            30,
+		FPS:               30,
+		TargetBitrateKbps: 2000,
+		OutputBitrateKbps: 2460,
+		NSPerFrame:        8_000_000,
+		EncodeFPS:         125,
+		PSNR:              28.5,
+		SSIM:              0.93,
+		DroppedFrames:     4,
+		EncodedFrames:     26,
+		Reference: &referenceReport{
+			NSPerFrame:        4_000_000,
+			EncodeFPS:         250,
+			OutputBitrateKbps: 2448,
+			PSNR:              28.6,
+			SSIM:              0.934,
+			EncodedFrames:     26,
+		},
+		Comparison: &comparisonReport{
+			NSPerFrameRatio:         2,
+			EncodeFPSRatio:          0.5,
+			BitrateRatioVsReference: 1.0049,
+			PSNRDeltaDB:             -0.1,
+			SSIMDelta:               -0.004,
+		},
+	}
+	text := formatSuiteReport(suiteReport{
+		Name:          "quick",
+		Runs:          1,
+		Selector:      "median govpx ns/frame",
+		GeomeanNSGap:  2,
+		GeomeanFPSGap: 0.5,
+		Cases:         []suiteCaseReport{{Name: "rt-720p-2m-30f", Report: report}},
+	})
+	if !strings.Contains(text, "govpx-bench  suite  quick") ||
+		!strings.Contains(text, "rt-720p-2m-30f") ||
+		!strings.Contains(text, "2.00x") ||
+		!strings.Contains(text, "4/4") {
+		t.Fatalf("suite report missing expected table data:\n%s", text)
 	}
 }
 
@@ -548,9 +614,12 @@ func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 		fmt.Sprintf("--buf-optimal-sz=%d", parity.BufferOptimalSizeMs),
 		fmt.Sprintf("--undershoot-pct=%d", parity.UndershootPct),
 		fmt.Sprintf("--overshoot-pct=%d", parity.OvershootPct),
+		fmt.Sprintf("--drop-frame=%d", parity.DropFrameWaterMark),
+		fmt.Sprintf("--max-intra-rate=%d", parity.MaxIntraBitratePct),
+		fmt.Sprintf("--noise-sensitivity=%d", parity.NoiseSensitivity),
+		fmt.Sprintf("--static-thresh=%d", parity.StaticThreshold),
 		fmt.Sprintf("--threads=%d", parity.Threads),
 		fmt.Sprintf("--timebase=1/%d", cfg.FPS),
-		"--noise-sensitivity=0",
 		"--rt",
 		fmt.Sprintf("--cpu-used=%d", parity.CpuUsed),
 	}
@@ -612,22 +681,39 @@ func TestParseIVFFrameInfoClassifiesAllKeyframes(t *testing.T) {
 }
 
 func TestParityForMatchesEncoderDefaults(t *testing.T) {
-	// Sanity check that benchConfig.FPS feeds the kf interval and that
-	// the parity defaults match the values the bench encoder uses. The
+	// Sanity check that realtime parity defaults mirror the public WebRTC
+	// example rather than the simpler validation-only CBR preset. The
 	// CLI default for -threads is 1, so the equivalent benchConfig
 	// passed in here mirrors that explicitly.
 	got := parityFor(benchConfig{FPS: 24, Threads: 1, CpuUsed: 8})
-	if got.KeyFrameInterval != 24 {
-		t.Fatalf("KeyFrameInterval = %d, want 24", got.KeyFrameInterval)
+	if got.KeyFrameInterval != 3000 {
+		t.Fatalf("KeyFrameInterval = %d, want 3000", got.KeyFrameInterval)
 	}
-	if got.MinQuantizer != 4 || got.MaxQuantizer != 56 {
-		t.Fatalf("quantizer range = [%d,%d], want [4,56]", got.MinQuantizer, got.MaxQuantizer)
+	if got.MinQuantizer != 2 || got.MaxQuantizer != 56 {
+		t.Fatalf("quantizer range = [%d,%d], want [2,56]", got.MinQuantizer, got.MaxQuantizer)
 	}
-	if got.BufferSizeMs != 600 || got.BufferInitialSizeMs != 400 || got.BufferOptimalSizeMs != 500 {
-		t.Fatalf("buffer model = sz:%d init:%d opt:%d, want 600/400/500", got.BufferSizeMs, got.BufferInitialSizeMs, got.BufferOptimalSizeMs)
+	if got.BufferSizeMs != 1000 || got.BufferInitialSizeMs != 500 || got.BufferOptimalSizeMs != 600 {
+		t.Fatalf("buffer model = sz:%d init:%d opt:%d, want 1000/500/600", got.BufferSizeMs, got.BufferInitialSizeMs, got.BufferOptimalSizeMs)
+	}
+	if !got.DropFrameAllowed || got.DropFrameWaterMark != 30 {
+		t.Fatalf("drop frame = enabled:%t watermark:%d, want enabled/30", got.DropFrameAllowed, got.DropFrameWaterMark)
+	}
+	if got.MaxIntraBitratePct != 720 || got.NoiseSensitivity != 4 || got.StaticThreshold != 1 {
+		t.Fatalf("webrtc knobs = max-intra:%d noise:%d static:%d, want 720/4/1",
+			got.MaxIntraBitratePct, got.NoiseSensitivity, got.StaticThreshold)
 	}
 	if got.CpuUsed != 8 || got.Threads != 1 {
 		t.Fatalf("cpu/threads = %d/%d, want 8/1", got.CpuUsed, got.Threads)
+	}
+	good := parityFor(benchConfig{Mode: "good", FPS: 24, Threads: 1, CpuUsed: 8})
+	if good.KeyFrameInterval != 24 ||
+		good.MinQuantizer != 4 ||
+		good.BufferSizeMs != 600 ||
+		good.DropFrameAllowed ||
+		good.MaxIntraBitratePct != 0 ||
+		good.NoiseSensitivity != 0 ||
+		good.StaticThreshold != 0 {
+		t.Fatalf("good-mode parity = %+v, want validation CBR defaults", good)
 	}
 
 	// -threads=0 propagates as 0 to libvpx (its native "auto" sentinel)
@@ -675,6 +761,15 @@ func TestBenchmarkEncoderOptionsMatchLibvpxParityConfig(t *testing.T) {
 	if opts.UndershootPct != parity.UndershootPct || opts.OvershootPct != parity.OvershootPct {
 		t.Fatalf("rate-control percentages = under:%d over:%d, want parity %d/%d",
 			opts.UndershootPct, opts.OvershootPct, parity.UndershootPct, parity.OvershootPct)
+	}
+	if opts.MaxIntraBitratePct != parity.MaxIntraBitratePct ||
+		opts.DropFrameAllowed != parity.DropFrameAllowed ||
+		opts.DropFrameWaterMark != parity.DropFrameWaterMark ||
+		opts.NoiseSensitivity != parity.NoiseSensitivity ||
+		opts.StaticThreshold != parity.StaticThreshold {
+		t.Fatalf("realtime knobs = max-intra:%d drop:%t/%d noise:%d static:%d, want parity %+v",
+			opts.MaxIntraBitratePct, opts.DropFrameAllowed, opts.DropFrameWaterMark,
+			opts.NoiseSensitivity, opts.StaticThreshold, parity)
 	}
 	if opts.Threads != parity.Threads || opts.CpuUsed != parity.CpuUsed {
 		t.Fatalf("cpu/threads = %d/%d, want parity %d/%d",

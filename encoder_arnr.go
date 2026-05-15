@@ -687,13 +687,20 @@ func arnrPredictChroma8x8(dst []byte, dstStride int, plane []byte, planeStride i
 //
 // and accumulates count/accumulator for downstream normalization.
 func applyTemporalFilter(src []byte, srcStride int, pred []byte, predStride int, strength int, filterWeight int, accumulator []uint32, count []uint32) {
-	rounding := 0
-	if strength > 0 {
-		rounding = 1 << (strength - 1)
-	}
 	blockSize := 16
 	if len(accumulator) == 64 {
 		blockSize = 8
+	}
+	if applyTemporalFilterSIMD(src, srcStride, pred, predStride, blockSize, strength, filterWeight, accumulator, count) {
+		return
+	}
+	applyTemporalFilterScalar(src, srcStride, pred, predStride, blockSize, strength, filterWeight, accumulator, count)
+}
+
+func applyTemporalFilterScalar(src []byte, srcStride int, pred []byte, predStride int, blockSize int, strength int, filterWeight int, accumulator []uint32, count []uint32) {
+	rounding := 0
+	if strength > 0 {
+		rounding = 1 << (strength - 1)
 	}
 	k := 0
 	for j := 0; j < blockSize; j++ {

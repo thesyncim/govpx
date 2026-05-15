@@ -712,7 +712,7 @@ type VP8Encoder struct {
 	interRDFrameBaseQIndex     int
 	// Per-frame search-order (refs are constant per frame) so the
 	// per-MB picker doesn't recompute it in every loop body.
-	interRDFrameRefSearchOrder      [4]int
+	interRDFrameRefSearchOrder      [4]int8
 	interRDFrameRefSearchOrderValid bool
 
 	current   vp8common.FrameBuffer

@@ -316,7 +316,7 @@ func TestSplitMVSubsearchThresholdUsesReferenceSearchSlot(t *testing.T) {
 func TestLibvpxSplitMVStepParamFromSeedDistance(t *testing.T) {
 	tests := []struct {
 		sr   int
-		want int
+		want int8
 	}{
 		{sr: 0, want: 7},
 		{sr: 1, want: 7},
@@ -340,7 +340,7 @@ func TestInterReferenceSearchOrderCompactsEnabledReferences(t *testing.T) {
 		{Frame: vp8common.AltRefFrame, Img: &vp8common.Image{}},
 	}
 	order := interReferenceSearchOrder(refs[:], len(refs))
-	if order != [4]int{-1, 0, 1, -1} {
+	if order != [4]int8{-1, 0, 1, -1} {
 		t.Fatalf("reference search order = %v, want compacted GOLDEN/ALT in slots 1/2", order)
 	}
 

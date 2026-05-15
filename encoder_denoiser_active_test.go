@@ -940,6 +940,23 @@ func TestDenoiserAvgForRefreshHonorsCopyBufferControls(t *testing.T) {
 	assertCodedBordersExtended(t, alt)
 }
 
+func TestDenoiserEnsureAllocatedReusesStateAfterReset(t *testing.T) {
+	var d denoiserState
+	if err := d.ensureAllocated(64, 64); err != nil {
+		t.Fatalf("ensureAllocated returned error: %v", err)
+	}
+	d.reset()
+	allocs := testing.AllocsPerRun(20, func() {
+		if err := d.ensureAllocated(64, 64); err != nil {
+			panic(err)
+		}
+		d.reset()
+	})
+	if allocs != 0 {
+		t.Fatalf("ensureAllocated after reset allocs = %f, want 0", allocs)
+	}
+}
+
 func sameVP8Planes(a *vp8common.Image, b *vp8common.Image) bool {
 	return bytes.Equal(a.Y, b.Y) && bytes.Equal(a.U, b.U) && bytes.Equal(a.V, b.V)
 }
