@@ -212,6 +212,22 @@ static int full_md5_hex(const vpx_image_t *img, char out[33]) {
 	return 0;
 }
 
+static int visible_full_md5_hex(const vpx_image_t *img, unsigned int width, unsigned int height, char out[33]) {
+	md5_ctx ctx;
+	unsigned char sum[16];
+	unsigned int uv_width = (width + 1) >> 1;
+	unsigned int uv_height = (height + 1) >> 1;
+	md5_init(&ctx);
+	if (update_plane(&ctx, img->planes[VPX_PLANE_Y], img->stride[VPX_PLANE_Y], width, height) != 0 ||
+	    update_plane(&ctx, img->planes[VPX_PLANE_U], img->stride[VPX_PLANE_U], uv_width, uv_height) != 0 ||
+	    update_plane(&ctx, img->planes[VPX_PLANE_V], img->stride[VPX_PLANE_V], uv_width, uv_height) != 0) {
+		return -1;
+	}
+	md5_final(&ctx, sum);
+	hex_encode(sum, out);
+	return 0;
+}
+
 static int read_file(const char *path, unsigned char **out_data, size_t *out_len) {
 	FILE *f = fopen(path, "rb");
 	long length;
@@ -419,7 +435,8 @@ static char *decoder_control_entry_for_frame(const char *script, unsigned int fr
 }
 
 static int decoder_copy_reference(vpx_codec_ctx_t *codec, const char *ref_name,
-                                  int width, int height) {
+                                  int width, int height, unsigned int frame_index,
+                                  FILE *copy_ref_log) {
 	vpx_image_t ref_img;
 	vpx_ref_frame_t ref;
 	int storage_width = vp8_reference_storage_dimension(width);
@@ -440,6 +457,38 @@ static int decoder_copy_reference(vpx_codec_ctx_t *codec, const char *ref_name,
 		fprintf(stderr, "VP8_COPY_REFERENCE failed: %s\n", vpx_codec_error(codec));
 		vpx_img_free(&ref_img);
 		return -1;
+	}
+	if (copy_ref_log != NULL) {
+		char y_md5[33];
+		char u_md5[33];
+		char v_md5[33];
+		char all_md5[33];
+		unsigned int uv_width = ((unsigned int)width + 1) >> 1;
+		unsigned int uv_height = ((unsigned int)height + 1) >> 1;
+		if (plane_md5_hex(ref_img.planes[VPX_PLANE_Y], ref_img.stride[VPX_PLANE_Y], (unsigned int)width, (unsigned int)height, y_md5) != 0 ||
+		    plane_md5_hex(ref_img.planes[VPX_PLANE_U], ref_img.stride[VPX_PLANE_U], uv_width, uv_height, u_md5) != 0 ||
+		    plane_md5_hex(ref_img.planes[VPX_PLANE_V], ref_img.stride[VPX_PLANE_V], uv_width, uv_height, v_md5) != 0 ||
+		    visible_full_md5_hex(&ref_img, (unsigned int)width, (unsigned int)height, all_md5) != 0) {
+			fprintf(stderr, "unsupported copy-reference image stride\n");
+			vpx_img_free(&ref_img);
+			return -1;
+		}
+		if (fprintf(copy_ref_log,
+		            "{\"frame\":%u,\"ref\":\"%s\",\"width\":%d,\"height\":%d,"
+		            "\"keyframe\":false,\"show_frame\":false,"
+		            "\"y_md5\":\"%s\",\"u_md5\":\"%s\",\"v_md5\":\"%s\",\"full_md5\":\"%s\"}\n",
+		            frame_index,
+		            ref_name,
+		            width,
+		            height,
+		            y_md5,
+		            u_md5,
+		            v_md5,
+		            all_md5) < 0) {
+			fprintf(stderr, "write copy-reference log failed\n");
+			vpx_img_free(&ref_img);
+			return -1;
+		}
 	}
 	vpx_img_free(&ref_img);
 	return 0;
@@ -510,7 +559,8 @@ static int decoder_set_reference(vpx_codec_ctx_t *codec, const char *spec,
 }
 
 static int apply_decoder_control_entry(vpx_codec_ctx_t *codec, const char *entry,
-                                       int width, int height) {
+                                       int width, int height, unsigned int frame_index,
+                                       FILE *copy_ref_log) {
 	char *buf;
 	char *token;
 	char *next;
@@ -539,7 +589,7 @@ static int apply_decoder_control_entry(vpx_codec_ctx_t *codec, const char *entry
 					return -1;
 				}
 			} else if (starts_with(token, "copyref:")) {
-				if (decoder_copy_reference(codec, token + strlen("copyref:"), width, height) != 0) {
+				if (decoder_copy_reference(codec, token + strlen("copyref:"), width, height, frame_index, copy_ref_log) != 0) {
 					free(buf);
 					return -1;
 				}
@@ -556,7 +606,8 @@ static int apply_decoder_control_entry(vpx_codec_ctx_t *codec, const char *entry
 }
 
 static int decode_ivf_with_controls(const char *path, vpx_codec_flags_t flags, vp8_postproc_cfg_t *postproc,
-                                    const char *control_script, unsigned int threads) {
+                                    const char *control_script, unsigned int threads,
+                                    FILE *copy_ref_log) {
 	unsigned char *data = NULL;
 	size_t len = 0;
 	size_t offset = 32;
@@ -622,7 +673,7 @@ static int decode_ivf_with_controls(const char *path, vpx_codec_flags_t flags, v
 		if (control_script != NULL) {
 			char *entry = decoder_control_entry_for_frame(control_script, input_index);
 			if (entry != NULL) {
-				if (apply_decoder_control_entry(&codec, entry, current_width, current_height) != 0) {
+				if (apply_decoder_control_entry(&codec, entry, current_width, current_height, input_index, copy_ref_log) != 0) {
 					free(entry);
 					vpx_codec_destroy(&codec);
 					free(data);
@@ -656,7 +707,7 @@ static int decode_ivf_with_controls(const char *path, vpx_codec_flags_t flags, v
 }
 
 static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cfg_t *postproc) {
-	return decode_ivf_with_controls(path, flags, postproc, NULL, 0);
+	return decode_ivf_with_controls(path, flags, postproc, NULL, 0, NULL);
 }
 
 // monotonic_ns returns CLOCK_MONOTONIC in nanoseconds. Used by the
@@ -818,7 +869,28 @@ static int decode_ivf_bench(const char *path) {
 static void usage(const char *argv0) {
 	fprintf(stderr, "usage: %s decode|decode-bench|decode-postproc|decode-postproc-noise|decode-postproc-all-noise|decode-error-concealment input.ivf\n", argv0);
 	fprintf(stderr, "       %s decode-controls|decode-postproc-controls|decode-error-concealment-controls script input.ivf\n", argv0);
+	fprintf(stderr, "       %s decode-controls-copylog|decode-postproc-controls-copylog|decode-error-concealment-controls-copylog script copylog input.ivf\n", argv0);
 	fprintf(stderr, "       %s decode-threaded-controls threads script input.ivf\n", argv0);
+	fprintf(stderr, "       %s decode-threaded-controls-copylog threads script copylog input.ivf\n", argv0);
+}
+
+static int decode_ivf_with_copy_log_file(const char *path, vpx_codec_flags_t flags,
+                                         vp8_postproc_cfg_t *postproc,
+                                         const char *control_script,
+                                         unsigned int threads,
+                                         const char *copy_log_path) {
+	FILE *copy_ref_log = fopen(copy_log_path, "w");
+	int result;
+	if (copy_ref_log == NULL) {
+		fprintf(stderr, "open copy log %s: %s\n", copy_log_path, strerror(errno));
+		return 1;
+	}
+	result = decode_ivf_with_controls(path, flags, postproc, control_script, threads, copy_ref_log);
+	if (fclose(copy_ref_log) != 0) {
+		fprintf(stderr, "close copy log %s: %s\n", copy_log_path, strerror(errno));
+		return 1;
+	}
+	return result;
 }
 
 int main(int argc, char **argv) {
@@ -849,21 +921,38 @@ int main(int argc, char **argv) {
 		return decode_ivf(argv[2], VPX_CODEC_USE_ERROR_CONCEALMENT, NULL);
 	}
 	if (argc == 4 && strcmp(argv[1], "decode-controls") == 0) {
-		return decode_ivf_with_controls(argv[3], 0, NULL, argv[2], 0);
+		return decode_ivf_with_controls(argv[3], 0, NULL, argv[2], 0, NULL);
 	}
 	if (argc == 4 && strcmp(argv[1], "decode-postproc-controls") == 0) {
 		vp8_postproc_cfg_t postproc = { VP8_DEBLOCK | VP8_DEMACROBLOCK | VP8_MFQE, 4, 0 };
-		return decode_ivf_with_controls(argv[3], VPX_CODEC_USE_POSTPROC, &postproc, argv[2], 0);
+		return decode_ivf_with_controls(argv[3], VPX_CODEC_USE_POSTPROC, &postproc, argv[2], 0, NULL);
 	}
 	if (argc == 4 && strcmp(argv[1], "decode-error-concealment-controls") == 0) {
-		return decode_ivf_with_controls(argv[3], VPX_CODEC_USE_ERROR_CONCEALMENT, NULL, argv[2], 0);
+		return decode_ivf_with_controls(argv[3], VPX_CODEC_USE_ERROR_CONCEALMENT, NULL, argv[2], 0, NULL);
+	}
+	if (argc == 5 && strcmp(argv[1], "decode-controls-copylog") == 0) {
+		return decode_ivf_with_copy_log_file(argv[4], 0, NULL, argv[2], 0, argv[3]);
+	}
+	if (argc == 5 && strcmp(argv[1], "decode-postproc-controls-copylog") == 0) {
+		vp8_postproc_cfg_t postproc = { VP8_DEBLOCK | VP8_DEMACROBLOCK | VP8_MFQE, 4, 0 };
+		return decode_ivf_with_copy_log_file(argv[4], VPX_CODEC_USE_POSTPROC, &postproc, argv[2], 0, argv[3]);
+	}
+	if (argc == 5 && strcmp(argv[1], "decode-error-concealment-controls-copylog") == 0) {
+		return decode_ivf_with_copy_log_file(argv[4], VPX_CODEC_USE_ERROR_CONCEALMENT, NULL, argv[2], 0, argv[3]);
 	}
 	if (argc == 5 && strcmp(argv[1], "decode-threaded-controls") == 0) {
 		int threads = 0;
 		if (parse_int_arg(argv[2], "threads", &threads) != 0 || threads < 0) {
 			return 2;
 		}
-		return decode_ivf_with_controls(argv[4], 0, NULL, argv[3], (unsigned int)threads);
+		return decode_ivf_with_controls(argv[4], 0, NULL, argv[3], (unsigned int)threads, NULL);
+	}
+	if (argc == 6 && strcmp(argv[1], "decode-threaded-controls-copylog") == 0) {
+		int threads = 0;
+		if (parse_int_arg(argv[2], "threads", &threads) != 0 || threads < 0) {
+			return 2;
+		}
+		return decode_ivf_with_copy_log_file(argv[5], 0, NULL, argv[3], (unsigned int)threads, argv[4]);
 	}
 	usage(argv[0]);
 	return 2;
