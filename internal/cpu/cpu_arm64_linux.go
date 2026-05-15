@@ -15,26 +15,30 @@ const (
 )
 
 func init() {
-	HasARM64DotProd = linuxAuxvHasASIMDDP() || linuxCPUInfoHasASIMDDP()
+	if has, ok := linuxAuxvHasASIMDDP(); ok {
+		HasARM64DotProd = has
+		return
+	}
+	HasARM64DotProd = linuxCPUInfoHasASIMDDP()
 }
 
-func linuxAuxvHasASIMDDP() bool {
+func linuxAuxvHasASIMDDP() (has bool, ok bool) {
 	auxv, err := os.ReadFile("/proc/self/auxv")
 	if err != nil {
-		return false
+		return false, false
 	}
 	for len(auxv) >= 16 {
 		tag := binary.LittleEndian.Uint64(auxv[0:8])
 		val := binary.LittleEndian.Uint64(auxv[8:16])
 		if tag == linuxATNull {
-			return false
+			return false, false
 		}
 		if tag == linuxATHwcap {
-			return val&linuxHwcapASIMDDP != 0
+			return val&linuxHwcapASIMDDP != 0, true
 		}
 		auxv = auxv[16:]
 	}
-	return false
+	return false, false
 }
 
 func linuxCPUInfoHasASIMDDP() bool {
