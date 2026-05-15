@@ -228,6 +228,70 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			exactPrefix: 1,
 		},
 		{
+			name:    "vbr-rate-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=vbr",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+			},
+			exactPrefix: 4,
+		},
+		{
+			name:    "cq-rate-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=cq",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 4,
+		},
+		{
+			name:    "q-rate-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			extraArgs: []string{
+				"--end-usage=q",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+			},
+			exactPrefix: 4,
+		},
+		{
 			name:    "vbr-rate-panning",
 			fixture: panning320,
 			frames:  8,
@@ -370,8 +434,11 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				}
 			}
 			newModeByteCase := tc.name == "vbr-rate-panning" ||
+				tc.name == "vbr-rate-constant" ||
 				tc.name == "cq-rate-panning" ||
+				tc.name == "cq-rate-constant" ||
 				tc.name == "q-rate-panning" ||
+				tc.name == "q-rate-constant" ||
 				tc.name == "cbr-cyclic-aq-panning" ||
 				tc.name == "vbr-rate-panning-720p"
 			if os.Getenv("GOVPX_VP9_STREAM_MATRIX_STRICT") == "1" &&
