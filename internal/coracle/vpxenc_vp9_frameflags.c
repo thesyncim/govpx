@@ -711,6 +711,8 @@ struct vp9_runtime_control_context {
   int *buffer_initial_ms;
   int *buffer_optimal_ms;
   int *drop_frame_water_mark;
+  int *undershoot_pct;
+  int *overshoot_pct;
   int *min_q;
   int *max_q;
   int *cq_level;
@@ -755,6 +757,14 @@ static void apply_vp9_runtime_control_token(
   } else if (starts_with(token, "drop:")) {
     *ctx->drop_frame_water_mark = control_value_int(token, "drop:");
     ctx->cfg->rc_dropframe_thresh = (unsigned)*ctx->drop_frame_water_mark;
+    ctx->config_changed = 1;
+  } else if (starts_with(token, "undershoot:")) {
+    *ctx->undershoot_pct = control_value_int(token, "undershoot:");
+    ctx->cfg->rc_undershoot_pct = (unsigned)*ctx->undershoot_pct;
+    ctx->config_changed = 1;
+  } else if (starts_with(token, "overshoot:")) {
+    *ctx->overshoot_pct = control_value_int(token, "overshoot:");
+    ctx->cfg->rc_overshoot_pct = (unsigned)*ctx->overshoot_pct;
     ctx->config_changed = 1;
   } else if (starts_with(token, "bufsz:")) {
     *ctx->buffer_size_ms = control_value_int(token, "bufsz:");
@@ -858,8 +868,9 @@ static void apply_vp9_runtime_controls(
     vpx_codec_ctx_t *codec_ctx, vpx_codec_enc_cfg_t *cfg, int *deadline,
     int *target_kbps, int *fps_num, int *buffer_size_ms,
     int *buffer_initial_ms, int *buffer_optimal_ms,
-    int *drop_frame_water_mark, int *min_q, int *max_q, int *cq_level,
-    int frame_idx, FILE *copy_ref_log, const char *entry) {
+    int *drop_frame_water_mark, int *undershoot_pct, int *overshoot_pct,
+    int *min_q, int *max_q, int *cq_level, int frame_idx,
+    FILE *copy_ref_log, const char *entry) {
   if (!entry || !*entry || strcmp(entry, "-") == 0) return;
   char buf[1024];
   size_t len = strlen(entry);
@@ -870,8 +881,9 @@ static void apply_vp9_runtime_controls(
   memcpy(buf, entry, len + 1);
   struct vp9_runtime_control_context ctx = {
       codec_ctx, cfg, deadline, target_kbps, fps_num, buffer_size_ms,
-      buffer_initial_ms, buffer_optimal_ms, drop_frame_water_mark, min_q,
-      max_q, cq_level, frame_idx, copy_ref_log, 0};
+      buffer_initial_ms, buffer_optimal_ms, drop_frame_water_mark,
+      undershoot_pct, overshoot_pct, min_q, max_q, cq_level, frame_idx,
+      copy_ref_log, 0};
   char *start = buf;
   for (;;) {
     char *end = strchr(start, '+');
@@ -986,6 +998,8 @@ int main(int argc, char **argv) {
   int buffer_initial_ms = 4000;
   int buffer_optimal_ms = 5000;
   int drop_frame_water_mark = 0;
+  int undershoot_pct = -1;
+  int overshoot_pct = -1;
   int min_q = 4, max_q = 56, cq_level = 32;
   int kf_min_dist = 0, kf_max_dist = 128;
   int deadline = (int)VPX_DL_REALTIME;
@@ -1036,6 +1050,10 @@ int main(int argc, char **argv) {
       buffer_optimal_ms = parse_int(v, "--buf-optimal-sz");
     } else if ((v = flag_value(a, "--drop-frame"))) {
       drop_frame_water_mark = parse_int(v, "--drop-frame");
+    } else if ((v = flag_value(a, "--undershoot-pct"))) {
+      undershoot_pct = parse_int(v, "--undershoot-pct");
+    } else if ((v = flag_value(a, "--overshoot-pct"))) {
+      overshoot_pct = parse_int(v, "--overshoot-pct");
     } else if ((v = flag_value(a, "--min-q"))) {
       min_q = parse_int(v, "--min-q");
     } else if ((v = flag_value(a, "--max-q"))) {
@@ -1180,6 +1198,12 @@ int main(int argc, char **argv) {
   cfg.rc_buf_initial_sz = (unsigned)buffer_initial_ms;
   cfg.rc_buf_optimal_sz = (unsigned)buffer_optimal_ms;
   cfg.rc_dropframe_thresh = (unsigned)drop_frame_water_mark;
+  if (undershoot_pct >= 0) {
+    cfg.rc_undershoot_pct = (unsigned)undershoot_pct;
+  }
+  if (overshoot_pct >= 0) {
+    cfg.rc_overshoot_pct = (unsigned)overshoot_pct;
+  }
   cfg.kf_min_dist = (unsigned)kf_min_dist;
   cfg.kf_max_dist = (unsigned)kf_max_dist;
   if (temporal_layers > 0) {
@@ -1324,8 +1348,8 @@ int main(int argc, char **argv) {
         apply_vp9_runtime_controls(
             &ctx, &cfg, &deadline, &target_kbps, &fps_num, &buffer_size_ms,
             &buffer_initial_ms, &buffer_optimal_ms, &drop_frame_water_mark,
-            &min_q, &max_q, &cq_level, frame_idx, copy_ref_log,
-            control_script[frame_idx]);
+            &undershoot_pct, &overshoot_pct, &min_q, &max_q, &cq_level,
+            frame_idx, copy_ref_log, control_script[frame_idx]);
       }
       if (target_bitrate_schedule &&
           target_bitrate_schedule[frame_idx] >= 0) {

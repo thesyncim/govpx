@@ -285,9 +285,12 @@ func TestVpxencVP9FrameFlagsTraceI420AppliesBufferSchedules(t *testing.T) {
 		"--buf-sz=600",
 		"--buf-initial-sz=400",
 		"--buf-optimal-sz=500",
+		"--undershoot-pct=100",
+		"--overshoot-pct=100",
 		"--buf-sz-schedule=1:200",
 		"--buf-initial-sz-schedule=1:100",
-		"--buf-optimal-sz-schedule=1:150")
+		"--buf-optimal-sz-schedule=1:150",
+		"--control-script=-,undershoot:80+overshoot:90,-")
 	if err != nil {
 		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
 	}
