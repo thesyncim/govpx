@@ -129,6 +129,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 
 	pool.mergeThreadedInterFrameState(e, workerCount, required)
 	pool.mergeThreadedInterFrameCoefCounts(e, workerCount)
+	pool.mergeThreadedInterFrameCoefRecords(e, workerCount, args.rows, args.cols, required)
 	totalRate := 0
 	totalPredictionError := int64(0)
 	for workerIndex := range workerCount {
@@ -362,6 +363,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rowRate := 0
 	rowPredictionError := int64(0)
+	vp8enc.MarkInterCoefficientTokenRecordRowStart(&rs.interCoefTokenRecords, row)
 	for col := range args.cols {
 		if col > 0 && (col-1)%pool.syncRange == 0 {
 			pool.publishRowColumn(row, col-1)
@@ -379,6 +381,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 		rowPredictionError += predictionError
 	}
 	rs.totalPredictionError += rowPredictionError
+	vp8enc.MarkInterCoefficientTokenRecordRowEnd(&rs.interCoefTokenRecords, row)
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
 	pool.publishRowColumn(row, args.cols+pool.syncRange)
 	return rowRate, nil
@@ -587,7 +590,7 @@ func (rs *rowEncoderState) updateThreadedInterFrameTokenContextAndCount(above *v
 		vp8enc.ResetTokenContextPlanes(above, left, is4x4)
 		return nil
 	}
-	return vp8enc.AccumulateInterMacroblockTokenCountsAndRecords(&rs.interCoefTokenCounts, nil, is4x4, above, left, coeffs)
+	return vp8enc.AccumulateInterMacroblockTokenCountsAndRecords(&rs.interCoefTokenCounts, &rs.interCoefTokenRecords, is4x4, above, left, coeffs)
 }
 
 func (p *rowWorkerPool) mergeThreadedKeyFrameCoefCounts(e *VP8Encoder, workerCount int) {
@@ -643,6 +646,39 @@ func (p *rowWorkerPool) mergeThreadedInterFrameCoefCounts(e *VP8Encoder, workerC
 	}
 	e.interCoefTokenCountsValid = true
 	e.interCoefTokenRecordsValid = false
+}
+
+func (p *rowWorkerPool) mergeThreadedInterFrameCoefRecords(e *VP8Encoder, workerCount int, rows int, cols int, required int) {
+	if p == nil || e == nil || workerCount <= 0 || rows < 0 || cols < 0 || required < 0 {
+		return
+	}
+	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, rows, required)
+	for row := range rows {
+		vp8enc.MarkInterCoefficientTokenRecordRowStart(&e.interCoefTokenRecords, row)
+		workerIndex := row % workerCount
+		if uint(workerIndex) >= uint(len(p.workers)) {
+			e.interCoefTokenRecordsValid = false
+			return
+		}
+		workerRecords := &p.workers[workerIndex].interCoefTokenRecords
+		if workerRecords.Rows != rows {
+			e.interCoefTokenRecordsValid = false
+			return
+		}
+		rowStarts := workerRecords.RowStartsForMerge()
+		if len(rowStarts) < rows+1 {
+			e.interCoefTokenRecordsValid = false
+			return
+		}
+		start, end := int(rowStarts[row]), int(rowStarts[row+1])
+		if start < 0 || start > end || end > len(workerRecords.Records) {
+			e.interCoefTokenRecordsValid = false
+			return
+		}
+		e.interCoefTokenRecords.Records = append(e.interCoefTokenRecords.Records, workerRecords.Records[start:end]...)
+		vp8enc.MarkInterCoefficientTokenRecordRowEnd(&e.interCoefTokenRecords, row)
+	}
+	e.interCoefTokenRecordsValid = true
 }
 
 func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount int, required int) {

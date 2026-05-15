@@ -61,6 +61,7 @@ type rowEncoderState struct {
 
 	keyFrameCoefTokenCounts vp8enc.InterCoefficientTokenCounts
 	interCoefTokenCounts    vp8enc.InterCoefficientTokenCounts
+	interCoefTokenRecords   vp8enc.InterCoefficientTokenRecords
 
 	totalRate            int
 	totalPredictionError int64
@@ -78,6 +79,7 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int, preserveInterModeT
 	rs.totalPredictionError = 0
 	vp8enc.ResetInterCoefficientTokenCounts(&rs.keyFrameCoefTokenCounts)
 	vp8enc.ResetInterCoefficientTokenCounts(&rs.interCoefTokenCounts)
+	vp8enc.ResetInterCoefficientTokenRecords(&rs.interCoefTokenRecords, 0, 0)
 	if e == nil {
 		return
 	}
@@ -304,6 +306,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	}
 	worker := &p.workers[workerIndex]
 	worker.reset(p.encoder, p.required, workerIndex > 0)
+	vp8enc.ResetInterCoefficientTokenRecords(&worker.interCoefTokenRecords, p.args.rows, threadedWorkerMacroblockCount(workerIndex, workerCount, p.args.rows, p.args.cols))
 	worker.enc.threadedHelperRowsActive = workerIndex > 0
 	defer worker.finish()
 	var err error
@@ -320,6 +323,14 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 		worker.totalRate = addProjectedMacroblockRate(worker.totalRate, rate)
 	}
 	p.workerErrors[workerIndex] = err
+}
+
+func threadedWorkerMacroblockCount(workerIndex int, workerCount int, rows int, cols int) int {
+	if workerIndex < 0 || workerCount <= 0 || rows <= 0 || cols <= 0 || workerIndex >= rows {
+		return 0
+	}
+	workerRows := 1 + (rows-1-workerIndex)/workerCount
+	return workerRows * cols
 }
 
 func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {

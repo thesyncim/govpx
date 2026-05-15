@@ -73,6 +73,15 @@ func (records *InterCoefficientTokenRecords) rowStarts() []uint32 {
 	return records.rowStartsHeap[:records.Rows+1]
 }
 
+// RowStartsForMerge exposes the row-offset table to the encoder's threaded
+// row merger. The returned slice is valid until the records object is reset.
+func (records *InterCoefficientTokenRecords) RowStartsForMerge() []uint32 {
+	if records == nil {
+		return nil
+	}
+	return records.rowStarts()
+}
+
 func ResetInterCoefficientTokenRecords(records *InterCoefficientTokenRecords, rows int, macroblocks int) {
 	if records == nil {
 		return
