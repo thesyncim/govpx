@@ -176,8 +176,8 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	if w == nil || probs == nil {
 		return ErrInvalidPacketConfig
 	}
-	if w.err != nil {
-		return w.err
+	if w.err != 0 {
+		return w.Err()
 	}
 
 	low := w.low
@@ -207,29 +207,31 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
 			rng = split
 
-			shift := int(tables.BoolNorm[byte(rng)])
-			rng <<= uint(shift)
-			count += shift
+			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			rng <<= shift
+			count += int(shift)
 			if count >= 0 {
-				offset := shift - count
+				offset := int(shift) - count
 				if ((low << uint(offset-1)) & 0x80000000) != 0 {
 					w.pos = pos
 					w.propagateCarry()
-					if w.err != nil {
+					if w.err != 0 {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
 				}
 				if pos >= len(buf) {
-					w.err = ErrBufferTooSmall
+					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 				pos++
-				shift = count
-				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				tailShift := uint(count)
+				low = (low << uint(offset)) & 0xffffff
 				count -= 8
+				low <<= tailShift
+			} else {
+				low <<= shift
 			}
-			low <<= uint(shift)
 			continue
 		}
 
@@ -239,57 +241,61 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 				low += split
 				rng -= split
 
-				shift := int(tables.BoolNorm[byte(rng)])
-				rng <<= uint(shift)
-				count += shift
+				shift := uint(tables.BoolNorm[byte(rng)] & 7)
+				rng <<= shift
+				count += int(shift)
 				if count >= 0 {
-					offset := shift - count
+					offset := int(shift) - count
 					if ((low << uint(offset-1)) & 0x80000000) != 0 {
 						w.pos = pos
 						w.propagateCarry()
-						if w.err != nil {
+						if w.err != 0 {
 							return storeBlockTokenPack(w, low, rng, count, pos)
 						}
 					}
 					if pos >= len(buf) {
-						w.err = ErrBufferTooSmall
+						w.err = boolWriterErrBufferTooSmall
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
-					buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+					boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 					pos++
-					shift = count
-					low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+					tailShift := uint(count)
+					low = (low << uint(offset)) & 0xffffff
 					count -= 8
+					low <<= tailShift
+				} else {
+					low <<= shift
 				}
-				low <<= uint(shift)
 			}
 
 			split := uint32(1 + (((rng - 1) * uint32(p[1])) >> 8))
 			rng = split
 
-			shift := int(tables.BoolNorm[byte(rng)])
-			rng <<= uint(shift)
-			count += shift
+			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			rng <<= shift
+			count += int(shift)
 			if count >= 0 {
-				offset := shift - count
+				offset := int(shift) - count
 				if ((low << uint(offset-1)) & 0x80000000) != 0 {
 					w.pos = pos
 					w.propagateCarry()
-					if w.err != nil {
+					if w.err != 0 {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
 				}
 				if pos >= len(buf) {
-					w.err = ErrBufferTooSmall
+					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 				pos++
-				shift = count
-				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				tailShift := uint(count)
+				low = (low << uint(offset)) & 0xffffff
 				count -= 8
+				low <<= tailShift
+			} else {
+				low <<= shift
 			}
-			low <<= uint(shift)
 			continue
 		}
 
@@ -311,37 +317,38 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			bit := pathBits[i]
 			probability := p[pathNodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			// Branchless interval selection: mask is all-ones when bit
-			// is set, zero otherwise. The bit==0 arm keeps rng = split
-			// and low unchanged; the bit==1 arm folds in
-			// (old_rng - split) - split = rng - 2*split.
-			mask := -uint32(bit & 1)
-			low += split & mask
-			rng = split + ((rng - 2*split) & mask)
+			if bit == 0 {
+				rng = split
+			} else {
+				low += split
+				rng -= split
+			}
 
-			shift := int(tables.BoolNorm[byte(rng)])
-			rng <<= uint(shift)
-			count += shift
+			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			rng <<= shift
+			count += int(shift)
 			if count >= 0 {
-				offset := shift - count
+				offset := int(shift) - count
 				if ((low << uint(offset-1)) & 0x80000000) != 0 {
 					w.pos = pos
 					w.propagateCarry()
-					if w.err != nil {
+					if w.err != 0 {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
 				}
 				if pos >= len(buf) {
-					w.err = ErrBufferTooSmall
+					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 				pos++
-				shift = count
-				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				tailShift := uint(count)
+				low = (low << uint(offset)) & 0xffffff
 				count -= 8
+				low <<= tailShift
+			} else {
+				low <<= shift
 			}
-			low <<= uint(shift)
 		}
 
 		// magnitude is guaranteed in (0, DCTMaxValue] by the producer
@@ -356,51 +363,52 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			bit := uint8((offset >> uint(shiftIndex)) & 1)
 			probability := extra.probs[i]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			// Branchless interval selection: mask is all-ones when bit
-			// is set, zero otherwise. The bit==0 arm keeps rng = split
-			// and low unchanged; the bit==1 arm folds in
-			// (old_rng - split) - split = rng - 2*split.
-			mask := -uint32(bit & 1)
-			low += split & mask
-			rng = split + ((rng - 2*split) & mask)
+			if bit == 0 {
+				rng = split
+			} else {
+				low += split
+				rng -= split
+			}
 
-			shift := int(tables.BoolNorm[byte(rng)])
-			rng <<= uint(shift)
-			count += shift
+			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			rng <<= shift
+			count += int(shift)
 			if count >= 0 {
-				offset := shift - count
+				offset := int(shift) - count
 				if ((low << uint(offset-1)) & 0x80000000) != 0 {
 					w.pos = pos
 					w.propagateCarry()
-					if w.err != nil {
+					if w.err != 0 {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
 				}
 				if pos >= len(buf) {
-					w.err = ErrBufferTooSmall
+					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 				pos++
-				shift = count
-				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				tailShift := uint(count)
+				low = (low << uint(offset)) & 0xffffff
 				count -= 8
+				low <<= tailShift
+			} else {
+				low <<= shift
 			}
-			low <<= uint(shift)
 		}
 
-		// Branchless sign-bit interval selection mirroring the inner
-		// tree-edge loop: mask is all-ones when the sign bit is set so
-		// the bit==1 arm folds in (rng - split) - split = rng - 2*split.
 		split := (rng + 1) >> 1
-		mask := -uint32((raw >> coefficientTokenRecordSignShift) & 1)
-		low += split & mask
-		rng = split + ((rng - 2*split) & mask)
+		if (raw>>coefficientTokenRecordSignShift)&1 == 0 {
+			rng = split
+		} else {
+			low += split
+			rng -= split
+		}
 		rng <<= 1
 		if (low & 0x80000000) != 0 {
 			w.pos = pos
 			w.propagateCarry()
-			if w.err != nil {
+			if w.err != 0 {
 				return storeBlockTokenPack(w, low, rng, count, pos)
 			}
 		}
@@ -409,10 +417,10 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		if count == 0 {
 			count = -8
 			if pos >= len(buf) {
-				w.err = ErrBufferTooSmall
+				w.err = boolWriterErrBufferTooSmall
 				return storeBlockTokenPack(w, low, rng, count, pos)
 			}
-			buf[pos] = byte(low >> 24)
+			boolWriterStoreByte(buf, pos, byte(low>>24))
 			pos++
 			low &= 0xffffff
 		}
@@ -422,8 +430,8 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 }
 
 func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
-	if w.err != nil {
-		return w.err
+	if w.err != 0 {
+		return w.Err()
 	}
 	if eob <= skipDC {
 		w.WriteBool(0, (*probs)[blockType&3][skipDC&7][ctx][0])
@@ -494,37 +502,38 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			bit := pathBits[i]
 			probability := p[pathNodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			// Branchless interval selection: mask is all-ones when bit
-			// is set, zero otherwise. The bit==0 arm keeps rng = split
-			// and low unchanged; the bit==1 arm folds in
-			// (old_rng - split) - split = rng - 2*split.
-			mask := -uint32(bit & 1)
-			low += split & mask
-			rng = split + ((rng - 2*split) & mask)
+			if bit == 0 {
+				rng = split
+			} else {
+				low += split
+				rng -= split
+			}
 
-			shift := int(tables.BoolNorm[byte(rng)])
-			rng <<= uint(shift)
-			count += shift
+			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			rng <<= shift
+			count += int(shift)
 			if count >= 0 {
-				offset := shift - count
+				offset := int(shift) - count
 				if ((low << uint(offset-1)) & 0x80000000) != 0 {
 					w.pos = pos
 					w.propagateCarry()
-					if w.err != nil {
+					if w.err != 0 {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
 				}
 				if pos >= len(buf) {
-					w.err = ErrBufferTooSmall
+					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 				pos++
-				shift = count
-				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				tailShift := uint(count)
+				low = (low << uint(offset)) & 0xffffff
 				count -= 8
+				low <<= tailShift
+			} else {
+				low <<= shift
 			}
-			low <<= uint(shift)
 		}
 
 		if token != tables.ZeroToken {
@@ -536,48 +545,52 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 				bit := uint8((offset >> uint(shiftIndex)) & 1)
 				probability := extra.probs[i]
 				split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-				// Branchless interval selection.
-				mask := -uint32(bit & 1)
-				low += split & mask
-				rng = split + ((rng - 2*split) & mask)
+				if bit == 0 {
+					rng = split
+				} else {
+					low += split
+					rng -= split
+				}
 
-				shift := int(tables.BoolNorm[byte(rng)])
-				rng <<= uint(shift)
-				count += shift
+				shift := uint(tables.BoolNorm[byte(rng)] & 7)
+				rng <<= shift
+				count += int(shift)
 				if count >= 0 {
-					offset := shift - count
+					offset := int(shift) - count
 					if ((low << uint(offset-1)) & 0x80000000) != 0 {
 						w.pos = pos
 						w.propagateCarry()
-						if w.err != nil {
+						if w.err != 0 {
 							return storeBlockTokenPack(w, low, rng, count, pos)
 						}
 					}
 					if pos >= len(buf) {
-						w.err = ErrBufferTooSmall
+						w.err = boolWriterErrBufferTooSmall
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
-					buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+					boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 					pos++
-					shift = count
-					low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+					tailShift := uint(count)
+					low = (low << uint(offset)) & 0xffffff
 					count -= 8
+					low <<= tailShift
+				} else {
+					low <<= shift
 				}
-				low <<= uint(shift)
 			}
 
 			split := (rng + 1) >> 1
-			// Branchless sign-bit encoding. The sign bit is uniformly
-			// distributed, so the branch would frequently mispredict;
-			// folding it into mask arithmetic costs the same on either path.
-			signMask := -uint32(sign & 1)
-			low += split & signMask
-			rng = split + ((rng - 2*split) & signMask)
+			if sign == 0 {
+				rng = split
+			} else {
+				low += split
+				rng -= split
+			}
 			rng <<= 1
 			if (low & 0x80000000) != 0 {
 				w.pos = pos
 				w.propagateCarry()
-				if w.err != nil {
+				if w.err != 0 {
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
 			}
@@ -586,10 +599,10 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			if count == 0 {
 				count = -8
 				if pos >= len(buf) {
-					w.err = ErrBufferTooSmall
+					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				buf[pos] = byte(low >> 24)
+				boolWriterStoreByte(buf, pos, byte(low>>24))
 				pos++
 				low &= 0xffffff
 			}
@@ -610,37 +623,38 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			bit := path.bits[i]
 			probability := p[path.nodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			// Branchless interval selection: mask is all-ones when bit
-			// is set, zero otherwise. The bit==0 arm keeps rng = split
-			// and low unchanged; the bit==1 arm folds in
-			// (old_rng - split) - split = rng - 2*split.
-			mask := -uint32(bit & 1)
-			low += split & mask
-			rng = split + ((rng - 2*split) & mask)
+			if bit == 0 {
+				rng = split
+			} else {
+				low += split
+				rng -= split
+			}
 
-			shift := int(tables.BoolNorm[byte(rng)])
-			rng <<= uint(shift)
-			count += shift
+			shift := uint(tables.BoolNorm[byte(rng)] & 7)
+			rng <<= shift
+			count += int(shift)
 			if count >= 0 {
-				offset := shift - count
+				offset := int(shift) - count
 				if ((low << uint(offset-1)) & 0x80000000) != 0 {
 					w.pos = pos
 					w.propagateCarry()
-					if w.err != nil {
+					if w.err != 0 {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
 				}
 				if pos >= len(buf) {
-					w.err = ErrBufferTooSmall
+					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
 				pos++
-				shift = count
-				low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+				tailShift := uint(count)
+				low = (low << uint(offset)) & 0xffffff
 				count -= 8
+				low <<= tailShift
+			} else {
+				low <<= shift
 			}
-			low <<= uint(shift)
 		}
 	}
 
@@ -652,5 +666,5 @@ func storeBlockTokenPack(w *BoolWriter, low uint32, rng uint32, count int, pos i
 	w.rng = rng
 	w.count = count
 	w.pos = pos
-	return w.err
+	return w.Err()
 }

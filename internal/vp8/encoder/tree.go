@@ -1,5 +1,7 @@
 package encoder
 
+import "github.com/thesyncim/govpx/internal/vp8/tables"
+
 // Ported from libvpx v1.16.0 vp8/common/treecoder.h token representation and
 // vp8/encoder/bitstream.c tree token writers.
 
@@ -25,28 +27,77 @@ func WriteTreeToken(w *BoolWriter, tree []int16, probs []uint8, token TreeToken)
 	probsLen := len(probs)
 	treeLen := len(tree)
 	tokenLen := int(token.Len)
-	if probsLen == 0 || treeLen < 2 || tokenLen == 0 || tokenLen > 32 {
+	if probsLen == 0 || treeLen < 2 || tokenLen == 0 || tokenLen > 32 || w.err != 0 {
 		return false
 	}
+	low := w.low
+	rng := w.rng
+	count := w.count
+	pos := w.pos
+	buf := w.buf
+
 	node := int16(0)
 	value := token.Value
 	for bitIndex := tokenLen - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
 		nodeIdx := int(node)
 		if uint(probIndex) >= uint(probsLen) || nodeIdx+1 >= treeLen {
+			w.low = low
+			w.rng = rng
+			w.count = count
+			w.pos = pos
 			return false
 		}
 		bit := uint8((value >> uint(bitIndex)) & 1)
-		w.WriteBool(bit, probs[probIndex])
-		next := tree[nodeIdx+int(bit)]
-		if next <= 0 {
-			if w.err != nil {
+		split := uint32(1 + (((rng - 1) * uint32(probs[probIndex])) >> 8))
+		if bit == 0 {
+			rng = split
+		} else {
+			low += split
+			rng -= split
+		}
+
+		shift := uint(tables.BoolNorm[byte(rng)] & 7)
+		rng <<= shift
+		count += int(shift)
+		if count >= 0 {
+			offset := int(shift) - count
+			if ((low << uint(offset-1)) & 0x80000000) != 0 {
+				w.pos = pos
+				w.propagateCarry()
+				if w.err != 0 {
+					return false
+				}
+			}
+			if pos >= len(buf) {
+				w.err = boolWriterErrBufferTooSmall
+				w.pos = pos
 				return false
 			}
+			boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
+			pos++
+			tailShift := uint(count)
+			low = (low << uint(offset)) & 0xffffff
+			count -= 8
+			low <<= tailShift
+		} else {
+			low <<= shift
+		}
+
+		next := tree[nodeIdx+int(bit)]
+		if next <= 0 {
+			w.low = low
+			w.rng = rng
+			w.count = count
+			w.pos = pos
 			return bitIndex == 0
 		}
 		node = next
 	}
+	w.low = low
+	w.rng = rng
+	w.count = count
+	w.pos = pos
 	return false
 }
 
