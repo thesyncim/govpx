@@ -7,10 +7,12 @@ import (
 )
 
 const (
-	vp9BPerMBNormBits = 9
-	vp9FrameOverhead  = 200
-	vp9MinBPBFactor   = 0.005
-	vp9MaxBPBFactor   = 50.0
+	vp9BPerMBNormBits   = 9
+	vp9FrameOverhead    = 200
+	vp9MinBPBFactor     = 0.005
+	vp9MaxBPBFactor     = 50.0
+	vp9MaxMBRateBits    = 250
+	vp9MaxRate1080PBits = 4000000
 
 	vp9RateFactorInterNormal = 0
 	vp9RateFactorInterHigh   = 1
@@ -18,6 +20,14 @@ const (
 	vp9RateFactorGFARFStd    = 3
 	vp9RateFactorKFStd       = 4
 	vp9RateFactorLevels      = 5
+
+	vp9MinGFInterval              = 4
+	vp9MaxGFInterval              = 16
+	vp9FixedGFInterval            = 8
+	vp9DefaultAFRatioOnePassVBR   = 10
+	vp9DefaultActiveWorstInterPct = 150
+	vp9DefaultActiveWorstGFPct    = 100
+	vp9DefaultVBRMaxSectionPct    = 2000
 )
 
 func vp9MacroblockCount(miRows, miCols int) int {
@@ -25,6 +35,9 @@ func vp9MacroblockCount(miRows, miCols int) int {
 }
 
 func (rc *vp9RateControlState) keyFrameTargetBits(_ int) int {
+	if rc.mode != RateControlCBR {
+		return rc.onePassVBRKeyFrameTargetBits()
+	}
 	return rc.perFrameBandwidthTargetBits()
 }
 
@@ -34,6 +47,76 @@ func (rc *vp9RateControlState) interFrameTargetBits() int {
 
 func (rc *vp9RateControlState) perFrameBandwidthTargetBits() int {
 	target := rc.bitsPerFrame
+	if target < vp9FrameOverhead {
+		return vp9FrameOverhead
+	}
+	return target
+}
+
+func (rc *vp9RateControlState) setOnePassVBRFrameTarget(intraOnly bool, refreshFlags uint8) {
+	if !rc.enabled || rc.mode == RateControlCBR {
+		return
+	}
+	if intraOnly {
+		rc.frameTargetBits = rc.onePassVBRKeyFrameTargetBits()
+		return
+	}
+	rc.frameTargetBits = rc.onePassVBRInterFrameTargetBits(refreshFlags)
+}
+
+func (rc *vp9RateControlState) onePassVBRKeyFrameTargetBits() int {
+	target := int64(rc.bitsPerFrame) * 25
+	if target > int64(maxInt()) {
+		target = int64(maxInt())
+	}
+	return rc.clampIFrameTargetBits(int(target))
+}
+
+func (rc *vp9RateControlState) onePassVBRInterFrameTargetBits(refreshFlags uint8) int {
+	if !vp9BoostedInterRefresh(refreshFlags) {
+		return rc.perFrameBandwidthTargetBits()
+	}
+	interval := int(rc.baselineGFInterval)
+	if interval <= 0 {
+		interval = (vp9MinGFInterval + vp9MaxGFInterval) >> 1
+	}
+	afRatio := int(rc.afRatioOnePassVBR)
+	if afRatio <= 0 {
+		afRatio = vp9DefaultAFRatioOnePassVBR
+	}
+	den := interval + afRatio - 1
+	if den <= 0 {
+		return rc.clampPFrameTargetBits(rc.bitsPerFrame)
+	}
+	target := int64(rc.bitsPerFrame) * int64(interval) * int64(afRatio)
+	target /= int64(den)
+	if target > int64(maxInt()) {
+		target = int64(maxInt())
+	}
+	return rc.clampPFrameTargetBits(int(target))
+}
+
+func (rc *vp9RateControlState) clampPFrameTargetBits(target int) int {
+	minTarget := rc.minFrameBandwidth
+	if minTarget < vp9FrameOverhead {
+		minTarget = vp9FrameOverhead
+	}
+	if rc.bitsPerFrame > 0 && rc.bitsPerFrame>>5 > minTarget {
+		minTarget = rc.bitsPerFrame >> 5
+	}
+	if target < minTarget {
+		target = minTarget
+	}
+	if rc.maxFrameBandwidth > 0 && target > rc.maxFrameBandwidth {
+		target = rc.maxFrameBandwidth
+	}
+	return target
+}
+
+func (rc *vp9RateControlState) clampIFrameTargetBits(target int) int {
+	if rc.maxFrameBandwidth > 0 && target > rc.maxFrameBandwidth {
+		return rc.maxFrameBandwidth
+	}
 	if target < vp9FrameOverhead {
 		return vp9FrameOverhead
 	}
@@ -60,6 +143,28 @@ func (rc *vp9RateControlState) cbrQuantizerWithBounds(intraOnly bool, refreshFla
 	q = vp9RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
 		activeBest, activeWorst, correctionFactor)
 	return rc.adjustCBRQuantizer(q, refreshFlags), activeBest, activeWorst, correctionFactor
+}
+
+func (rc *vp9RateControlState) vbrQuantizer(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int) int {
+	q, _, _, _ := rc.vbrQuantizerWithBounds(intraOnly, refreshFlags,
+		frameIndex, macroblocks)
+	return q
+}
+
+func (rc *vp9RateControlState) vbrQuantizerWithBounds(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int) (q int, activeBest int, activeWorst int, correctionFactor float64) {
+	if !rc.enabled || rc.mode == RateControlCBR || macroblocks <= 0 {
+		best := int(rc.bestQuality)
+		return best, best, int(rc.worstQuality), 1
+	}
+	activeBest, activeWorst = rc.vbrActiveQuantizerBounds(intraOnly,
+		refreshFlags, frameIndex)
+	correctionFactor = rc.rateCorrectionFactor(intraOnly, refreshFlags)
+	if rc.mode == RateControlQ {
+		return activeBest, activeBest, activeWorst, correctionFactor
+	}
+	q = vp9RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
+		activeBest, activeWorst, correctionFactor)
+	return q, activeBest, activeWorst, correctionFactor
 }
 
 func (rc *vp9RateControlState) onePassRecodeAllowed() bool {
@@ -107,6 +212,162 @@ func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshF
 		activeWorst = activeBest
 	}
 	return activeBest, activeWorst
+}
+
+func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshFlags uint8, frameIndex int) (int, int) {
+	best := int(rc.bestQuality)
+	worst := int(rc.worstQuality)
+	activeWorst := rc.vbrActiveWorstQuantizer(intraOnly, refreshFlags,
+		frameIndex)
+	if activeWorst < best {
+		activeWorst = best
+	}
+	if activeWorst > worst {
+		activeWorst = worst
+	}
+	cqLevel := rc.activeCQLevelOnePass()
+	activeBest := best
+	if intraOnly {
+		if rc.mode == RateControlQ {
+			activeBest = cqLevel + vp9ComputeQDelta(best, worst, cqLevel,
+				1, 4)
+			if activeBest < best {
+				activeBest = best
+			}
+		} else {
+			activeBest = vp9KFActiveQuality(int(rc.avgFrameQIndexKey))
+			if int64(rc.codedWidth)*int64(rc.codedHeight) <= 352*288 {
+				activeBest += vp9ComputeQDelta(best, worst,
+					activeBest, 75, 100)
+			}
+		}
+	} else if vp9BoostedInterRefresh(refreshFlags) {
+		qBasis := int(rc.avgFrameQIndexKey)
+		if rc.framesSinceKey > 1 {
+			qBasis = min(int(rc.avgFrameQIndexInter), activeWorst)
+		}
+		switch rc.mode {
+		case RateControlCQ:
+			if qBasis < cqLevel {
+				qBasis = cqLevel
+			}
+			activeBest = (vp9GFActiveQuality(qBasis) * 15) >> 4
+		case RateControlQ:
+			num := 1
+			den := 2
+			if refreshFlags&(1<<vp9AltRefSlot) != 0 {
+				num = 2
+				den = 5
+			}
+			activeBest = cqLevel + vp9ComputeQDelta(best, worst,
+				cqLevel, num, den)
+			if activeBest < best {
+				activeBest = best
+			}
+		default:
+			activeBest = vp9GFActiveQuality(qBasis)
+		}
+	} else if rc.mode == RateControlQ {
+		num, den := vp9PublicQModeInterRate(frameIndex)
+		activeBest = cqLevel + vp9ComputeQDelta(best, worst, cqLevel,
+			num, den)
+		if activeBest < best {
+			activeBest = best
+		}
+	} else {
+		if frameIndex > 1 {
+			activeBest = vp9InterMINQ(min(int(rc.avgFrameQIndexInter),
+				activeWorst))
+		} else {
+			activeBest = vp9InterMINQ(int(rc.avgFrameQIndexKey))
+		}
+		if rc.mode == RateControlCQ && activeBest < cqLevel {
+			activeBest = cqLevel
+		}
+	}
+
+	if activeBest < best {
+		activeBest = best
+	}
+	if activeBest > worst {
+		activeBest = worst
+	}
+	if activeWorst < activeBest {
+		activeWorst = activeBest
+	}
+	if intraOnly && frameIndex != 0 {
+		activeWorst += vp9ComputeQDeltaByRate(best, worst, intraOnly,
+			activeWorst, 2, 1)
+		if activeWorst < activeBest {
+			activeWorst = activeBest
+		}
+	} else if !intraOnly && vp9BoostedInterRefresh(refreshFlags) {
+		activeWorst += vp9ComputeQDeltaByRate(best, worst, intraOnly,
+			activeWorst, 7, 4)
+		if activeWorst < activeBest {
+			activeWorst = activeBest
+		}
+	}
+	if activeWorst > worst {
+		activeWorst = worst
+	}
+	return activeBest, activeWorst
+}
+
+func (rc *vp9RateControlState) vbrActiveWorstQuantizer(intraOnly bool, refreshFlags uint8, frameIndex int) int {
+	worst := int(rc.worstQuality)
+	if intraOnly {
+		if frameIndex == 0 {
+			return worst
+		}
+		return min(int(rc.lastQKey)<<1, worst)
+	}
+	if vp9BoostedInterRefresh(refreshFlags) {
+		if frameIndex == 1 {
+			return min((int(rc.lastQKey)*5)>>2, worst)
+		}
+		return min(int(rc.lastQInter)*int(rc.facActiveWorstGF)/100, worst)
+	}
+	if frameIndex == 1 {
+		return min(int(rc.lastQKey)<<1, worst)
+	}
+	return min(int(rc.avgFrameQIndexInter)*int(rc.facActiveWorstInter)/100,
+		worst)
+}
+
+func (rc *vp9RateControlState) activeCQLevelOnePass() int {
+	level := int(rc.cqLevel)
+	if rc.mode == RateControlCQ && rc.totalTargetBits > 0 {
+		adjusted := (int64(level) * rc.totalActualBits * 10) /
+			rc.totalTargetBits
+		if adjusted < int64(level) {
+			level = int(adjusted)
+		}
+	}
+	return level
+}
+
+func (rc *vp9RateControlState) onePassVBRGoldenRefreshDue() bool {
+	return rc.enabled && rc.mode != RateControlCBR && rc.framesTillGF == 0
+}
+
+func (rc *vp9RateControlState) postOnePassVBRRefresh(refreshFlags uint8) {
+	if !rc.enabled || rc.mode == RateControlCBR {
+		return
+	}
+	if refreshFlags&(1<<vp9GoldenRefSlot) != 0 && rc.framesTillGF == 0 {
+		interval := rc.baselineGFInterval
+		if interval == 0 {
+			interval = (vp9MinGFInterval + vp9MaxGFInterval) >> 1
+		}
+		rc.framesTillGF = interval
+	}
+	if refreshFlags&(1<<vp9GoldenRefSlot) != 0 ||
+		refreshFlags&(1<<vp9AltRefSlot) == 0 {
+		if rc.framesTillGF > 0 {
+			rc.framesTillGF--
+		}
+	}
 }
 
 func (rc *vp9RateControlState) cbrActiveWorstQuantizer(intraOnly bool, frameIndex int) int {
@@ -231,10 +492,20 @@ func vp9RTCMINQ(qindex int) int {
 	return vp9MinQIndex(qindex, 0.00000271, -0.00113, 0.70)
 }
 
+func vp9InterMINQ(qindex int) int {
+	return vp9MinQIndex(qindex, 0.00000271, -0.00113, 0.70)
+}
+
 func vp9KFActiveQuality(qindex int) int {
 	return vp9ActiveQuality(qindex, 2000, 300, 4800,
 		0.000001, -0.0004, 0.150,
 		0.0000021, -0.00125, 0.45)
+}
+
+func vp9GFActiveQuality(qindex int) int {
+	return vp9ActiveQuality(qindex, 2000, 400, 2000,
+		0.0000015, -0.0009, 0.30,
+		0.0000021, -0.00125, 0.55)
 }
 
 func vp9ActiveQuality(qindex int, boost int, low int, high int, lowX3 float64, lowX2 float64, lowX1 float64, highX3 float64, highX2 float64, highX1 float64) int {
@@ -276,23 +547,41 @@ func vp9MinQIndex(qindex int, x3 float64, x2 float64, x1 float64) int {
 	return 255
 }
 
-func (rc *vp9RateControlState) rateCorrectionFactor(intraOnly bool, refreshFlags uint8) float64 {
-	level := vp9RateFactorInterNormal
-	if intraOnly {
-		level = vp9RateFactorKFStd
-	} else if refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0 {
-		level = vp9RateFactorInterNormal
+func vp9ComputeQDeltaByRate(best, worst int, intraOnly bool, qindex int, ratioNum int, ratioDen int) int {
+	if ratioNum <= 0 || ratioDen <= 0 {
+		return 0
 	}
+	qindex = min(max(qindex, best), worst)
+	baseBitsPerMB := vp9RCBitsPerMB(intraOnly, qindex, 1)
+	targetBitsPerMB := (int64(baseBitsPerMB) * int64(ratioNum)) /
+		int64(ratioDen)
+	targetIndex := worst
+	for i := best; i < worst; i++ {
+		if int64(vp9RCBitsPerMB(intraOnly, i, 1)) <= targetBitsPerMB {
+			targetIndex = i
+			break
+		}
+	}
+	return targetIndex - qindex
+}
+
+func (rc *vp9RateControlState) rateFactorLevel(intraOnly bool, refreshFlags uint8) int {
+	if intraOnly {
+		return vp9RateFactorKFStd
+	}
+	if vp9BoostedInterRefresh(refreshFlags) && rc.mode != RateControlCBR {
+		return vp9RateFactorGFARFStd
+	}
+	return vp9RateFactorInterNormal
+}
+
+func (rc *vp9RateControlState) rateCorrectionFactor(intraOnly bool, refreshFlags uint8) float64 {
+	level := rc.rateFactorLevel(intraOnly, refreshFlags)
 	return normalizedVP9RateCorrectionFactor(rc.rateCorrectionFactors[level])
 }
 
 func (rc *vp9RateControlState) setRateCorrectionFactor(intraOnly bool, refreshFlags uint8, factor float64) {
-	level := vp9RateFactorInterNormal
-	if intraOnly {
-		level = vp9RateFactorKFStd
-	} else if refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0 {
-		level = vp9RateFactorInterNormal
-	}
+	level := rc.rateFactorLevel(intraOnly, refreshFlags)
 	rc.rateCorrectionFactors[level] = min(max(factor, vp9MinBPBFactor), vp9MaxBPBFactor)
 }
 
@@ -305,10 +594,7 @@ func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex
 	} else if qindex > 255 {
 		qindex = 255
 	}
-	level := vp9RateFactorInterNormal
-	if intraOnly {
-		level = vp9RateFactorKFStd
-	}
+	level := rc.rateFactorLevel(intraOnly, refreshFlags)
 	rateCorrectionFactor := rc.rateCorrectionFactor(intraOnly, refreshFlags)
 	projectedBits := vp9EstimatedBitsAtQ(intraOnly, qindex, macroblocks, rateCorrectionFactor)
 	correctionFactor := 100
@@ -344,6 +630,48 @@ func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex
 		rateCorrectionFactor *= float64(correctionFactor) / 100
 	}
 	rc.setRateCorrectionFactor(intraOnly, refreshFlags, rateCorrectionFactor)
+}
+
+func vp9BoostedInterRefresh(refreshFlags uint8) bool {
+	return refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0
+}
+
+func vp9DefaultMinGFInterval(timing timingState) int {
+	num := int64(timing.timebaseDen)
+	den := int64(timing.timebaseNum) * int64(timing.frameDuration) * 8
+	interval := vp9RoundedRatio(num, den)
+	if interval < vp9MinGFInterval {
+		return vp9MinGFInterval
+	}
+	if interval > vp9MaxGFInterval {
+		return vp9MaxGFInterval
+	}
+	return interval
+}
+
+func vp9DefaultMaxGFInterval(timing timingState, minInterval int) int {
+	num := int64(timing.timebaseDen) * 3
+	den := int64(timing.timebaseNum) * int64(timing.frameDuration) * 4
+	interval := vp9RoundedRatio(num, den)
+	if interval > vp9MaxGFInterval {
+		interval = vp9MaxGFInterval
+	}
+	interval += interval & 1
+	if interval < minInterval {
+		interval = minInterval
+	}
+	return interval
+}
+
+func vp9RoundedRatio(num int64, den int64) int {
+	if num <= 0 || den <= 0 {
+		return 0
+	}
+	v := (num + (den >> 1)) / den
+	if v > int64(maxInt()) {
+		return maxInt()
+	}
+	return int(v)
 }
 
 func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool, refreshFlags uint8, showFrame bool) {

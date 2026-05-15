@@ -8,6 +8,8 @@ type vp9RateControlState struct {
 	targetBandwidthBits int
 	bitsPerFrame        int
 	frameTargetBits     int
+	minFrameBandwidth   int
+	maxFrameBandwidth   int
 	frameRateNum        int
 	frameRateDen        int
 
@@ -28,12 +30,16 @@ type vp9RateControlState struct {
 
 	bestQuality  uint8
 	worstQuality uint8
+	cqLevel      uint8
 
 	avgFrameQIndexKey   uint8
 	avgFrameQIndexInter uint8
 	lastQKey            uint8
 	lastQInter          uint8
 	lastBoostedQIndex   uint8
+
+	totalActualBits int64
+	totalTargetBits int64
 
 	rateCorrectionFactors [vp9RateFactorLevels]float64
 	dampedAdjustment      [vp9RateFactorLevels]bool
@@ -43,6 +49,12 @@ type vp9RateControlState struct {
 	rc2Frame              int8
 
 	framesSinceKey uint16
+	framesTillGF   uint8
+
+	afRatioOnePassVBR   uint8
+	baselineGFInterval  uint8
+	facActiveWorstInter uint16
+	facActiveWorstGF    uint16
 }
 
 type vp9DropReason uint8
@@ -124,6 +136,7 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 	if err := rc.setBitrateKbps(opts.TargetBitrateKbps, timing); err != nil {
 		return err
 	}
+	rc.initOnePassVBRState(timing)
 	rc.bufferLevelBits = rc.bufferInitialBits
 	return nil
 }
@@ -164,6 +177,8 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	rc.bufferSizeBits = bufferSizeBits
 	rc.bufferInitialBits = bufferInitialBits
 	rc.bufferOptimalBits = bufferOptimalBits
+	rc.updateFrameBandwidthBounds()
+	rc.initOnePassVBRState(timing)
 	rc.clampBuffer()
 	return nil
 }
@@ -217,11 +232,20 @@ func (rc *vp9RateControlState) setBufferModel(sizeMs, initialMs, optimalMs int) 
 
 func (rc *vp9RateControlState) initQuantizerStateFromOptions(opts VP9EncoderOptions) {
 	rc.setQuantizerBoundsFromOptions(opts)
-	rc.avgFrameQIndexKey = rc.worstQuality
-	rc.avgFrameQIndexInter = rc.worstQuality
+	if rc.mode == RateControlCBR {
+		rc.avgFrameQIndexKey = rc.worstQuality
+		rc.avgFrameQIndexInter = rc.worstQuality
+	} else {
+		mid := uint8((int(rc.bestQuality) + int(rc.worstQuality)) >> 1)
+		rc.avgFrameQIndexKey = mid
+		rc.avgFrameQIndexInter = mid
+	}
 	rc.lastQKey = rc.bestQuality
 	rc.lastQInter = rc.worstQuality
 	rc.lastBoostedQIndex = rc.worstQuality
+	rc.afRatioOnePassVBR = vp9DefaultAFRatioOnePassVBR
+	rc.facActiveWorstInter = vp9DefaultActiveWorstInterPct
+	rc.facActiveWorstGF = vp9DefaultActiveWorstGFPct
 	for i := range rc.rateCorrectionFactors {
 		rc.rateCorrectionFactors[i] = 1
 	}
@@ -233,7 +257,7 @@ func (rc *vp9RateControlState) initQuantizerStateFromOptions(opts VP9EncoderOpti
 }
 
 func (rc *vp9RateControlState) setQuantizerBoundsFromOptions(opts VP9EncoderOptions) {
-	minQ, maxQ, _ := vp9NormalizedPublicQuantizers(opts)
+	minQ, maxQ, cqLevel := vp9NormalizedPublicQuantizers(opts)
 	best := vp9PublicQuantizerToQIndex(minQ)
 	worst := vp9PublicQuantizerToQIndex(maxQ)
 	if best > worst {
@@ -241,6 +265,7 @@ func (rc *vp9RateControlState) setQuantizerBoundsFromOptions(opts VP9EncoderOpti
 	}
 	rc.bestQuality = uint8(best)
 	rc.worstQuality = uint8(worst)
+	rc.cqLevel = uint8(vp9PublicQuantizerToQIndex(cqLevel))
 	rc.clampQuantizerHistory()
 }
 
@@ -252,8 +277,23 @@ func (rc *vp9RateControlState) clampQuantizerHistory() {
 	rc.lastQKey = clampUint8(rc.lastQKey, best, worst)
 	rc.lastQInter = clampUint8(rc.lastQInter, best, worst)
 	rc.lastBoostedQIndex = clampUint8(rc.lastBoostedQIndex, best, worst)
+	rc.cqLevel = clampUint8(rc.cqLevel, best, worst)
 	rc.q1Frame = clampUint8(rc.q1Frame, best, worst)
 	rc.q2Frame = clampUint8(rc.q2Frame, best, worst)
+}
+
+func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
+	if !rc.enabled {
+		return
+	}
+	rc.afRatioOnePassVBR = vp9DefaultAFRatioOnePassVBR
+	if rc.mode == RateControlQ {
+		rc.baselineGFInterval = vp9FixedGFInterval
+		return
+	}
+	minInterval := vp9DefaultMinGFInterval(timing)
+	maxInterval := vp9DefaultMaxGFInterval(timing, minInterval)
+	rc.baselineGFInterval = uint8((minInterval + maxInterval) >> 1)
 }
 
 func (rc *vp9RateControlState) beginFrame(isKey bool, frameIndex int) {
@@ -273,7 +313,7 @@ func (rc *vp9RateControlState) shouldDropInterFrame() bool {
 }
 
 func (rc *vp9RateControlState) preEncodeFrame(showFrame bool) {
-	if !rc.enabled || rc.mode != RateControlCBR || !showFrame {
+	if !rc.enabled || !showFrame {
 		return
 	}
 	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
@@ -336,8 +376,10 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	encodedBits := encodedSizeBits(sizeBytes)
 	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks)
 	rc.updateQHistory(qindex, intraOnly, refreshFlags, showFrame)
-	if rc.mode != RateControlCBR {
-		return
+	rc.postOnePassVBRRefresh(refreshFlags)
+	rc.totalActualBits += int64(encodedBits)
+	if showFrame {
+		rc.totalTargetBits += int64(rc.bitsPerFrame)
 	}
 	rc.bufferLevelBits = vp9PostEncodeBufferLevel(rc.bufferLevelBits,
 		rc.bufferSizeBits, encodedBits)
@@ -358,6 +400,36 @@ func (rc *vp9RateControlState) setFrameSize(width int, height int) {
 	}
 	rc.codedWidth = uint16(width)
 	rc.codedHeight = uint16(height)
+	rc.updateFrameBandwidthBounds()
+}
+
+func (rc *vp9RateControlState) updateFrameBandwidthBounds() {
+	if !rc.enabled {
+		return
+	}
+	rc.minFrameBandwidth = vp9FrameOverhead
+	if rc.bitsPerFrame > 0 && rc.bitsPerFrame>>5 > rc.minFrameBandwidth {
+		rc.minFrameBandwidth = rc.bitsPerFrame >> 5
+	}
+	miRows := (int(rc.codedHeight) + 7) >> 3
+	miCols := (int(rc.codedWidth) + 7) >> 3
+	mbs := vp9MacroblockCount(miRows, miCols)
+	maxByMB := 0
+	if mbs > 0 {
+		if mbs > maxInt()/vp9MaxMBRateBits {
+			maxByMB = maxInt()
+		} else {
+			maxByMB = mbs * vp9MaxMBRateBits
+		}
+	}
+	maxBits := max(maxByMB, vp9MaxRate1080PBits)
+	if rc.bitsPerFrame > 0 {
+		vbrMax := percentOf(rc.bitsPerFrame, vp9DefaultVBRMaxSectionPct)
+		if vbrMax > maxBits {
+			maxBits = vbrMax
+		}
+	}
+	rc.maxFrameBandwidth = maxBits
 }
 
 func (rc *vp9RateControlState) setFrameDropAllowed(enabled bool, waterMark int) {

@@ -78,11 +78,11 @@ type VP9EncoderOptions struct {
 
 	// RateControlModeSet enables VP9 rate-control bookkeeping. It is explicit
 	// because RateControlVBR is the zero value while the historical VP9 default
-	// is libvpx VPX_Q-style public-Q mode. The first supported VP9 mode is
-	// RateControlCBR; it drives one-pass CBR qindex selection, tracks a CBR
-	// buffer, and can drop visible inter frames when DropFrameAllowed is enabled.
-	// RateControlVBR, RateControlCQ, and RateControlQ are accepted explicitly
-	// and use the VP9 public quantizer path while preserving bitrate metadata.
+	// is libvpx VPX_Q-style public-Q mode. RateControlCBR drives one-pass CBR
+	// qindex selection, tracks a buffer, and can drop visible inter frames when
+	// DropFrameAllowed is enabled. RateControlVBR, RateControlCQ, and
+	// RateControlQ drive one-pass VP9 rate/quality qindex selection without
+	// frame dropping.
 	RateControlModeSet bool
 	// RateControlMode selects the VP9 rate-control mode when
 	// RateControlModeSet is true.
@@ -108,8 +108,8 @@ type VP9EncoderOptions struct {
 	Quantizer int
 
 	// MinQuantizer and MaxQuantizer bound the public libvpx VP9 0..63
-	// quantizer range used by the current VPX_Q-style packet path. When both
-	// are zero, the encoder uses libvpx's oracle defaults: min-q=4, max-q=56.
+	// quantizer range used by VP9 qindex selection. When both are zero, the
+	// encoder uses libvpx's oracle defaults: min-q=4, max-q=56.
 	MinQuantizer int
 	MaxQuantizer int
 
@@ -788,7 +788,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
 	macroblocks := vp9MacroblockCount(miRows, miCols)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
-	if e.rc.enabled && e.rc.mode == RateControlCBR {
+	if e.rc.enabled {
 		e.vp9ModeDecisionQIndex = uint8(qindex)
 		e.vp9ModeDecisionQIndexSet = true
 		defer func() {
@@ -811,10 +811,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		if flags&EncodeNoUpdateEntropy == 0 {
 			header.ResetFrameContext = 2
 		}
-		header.RefreshFrameFlags = vp9InterRefreshFrameFlags(flags)
+		header.RefreshFrameFlags = e.vp9InterRefreshFrameFlags(flags)
 	} else {
 		header.FrameType = common.InterFrame
-		header.RefreshFrameFlags = vp9InterRefreshFrameFlags(flags)
+		header.RefreshFrameFlags = e.vp9InterRefreshFrameFlags(flags)
 		header.FrameContextIdx = vp9InterFrameContextIdx(header.RefreshFrameFlags)
 		header.InterRef.RefIndex = [3]uint8{
 			vp9LastRefSlot,
@@ -1212,6 +1212,15 @@ func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 	}
 	if flags&EncodeNoUpdateAltRef != 0 {
 		refresh &^= 1 << vp9AltRefSlot
+	}
+	return refresh
+}
+
+func (e *VP9Encoder) vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
+	refresh := vp9InterRefreshFrameFlags(flags)
+	if flags&vp9ExternalRefreshCtlFlags == 0 &&
+		e.rc.onePassVBRGoldenRefreshDue() {
+		refresh |= 1 << vp9GoldenRefSlot
 	}
 	return refresh
 }
@@ -5481,24 +5490,41 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 	}
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
-		if e.rc.enabled && e.rc.mode == RateControlCBR {
+		if e.rc.enabled {
 			refreshFlags := uint8(0xff)
 			if !isKey {
-				refreshFlags = vp9InterRefreshFrameFlags(flags)
+				refreshFlags = e.vp9InterRefreshFrameFlags(flags)
 			}
-			if vp9OracleTraceBuild {
+			if e.rc.mode == RateControlCBR {
+				if vp9OracleTraceBuild {
+					var activeBest int
+					var activeWorst int
+					var correctionFactor float64
+					qindex, activeBest, activeWorst, correctionFactor =
+						e.rc.cbrQuantizerWithBounds(isKey || intraOnly,
+							refreshFlags, e.frameIndex, macroblocks)
+					e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
+						correctionFactor, e.rc.onePassRecodeAllowed(), 0)
+					return qindex
+				}
+				qindex = e.rc.cbrQuantizer(isKey || intraOnly, refreshFlags,
+					e.frameIndex, macroblocks)
+			} else if vp9OracleTraceBuild {
 				var activeBest int
 				var activeWorst int
 				var correctionFactor float64
+				e.rc.setOnePassVBRFrameTarget(isKey || intraOnly, refreshFlags)
 				qindex, activeBest, activeWorst, correctionFactor =
-					e.rc.cbrQuantizerWithBounds(isKey || intraOnly,
+					e.rc.vbrQuantizerWithBounds(isKey || intraOnly,
 						refreshFlags, e.frameIndex, macroblocks)
 				e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
 					correctionFactor, e.rc.onePassRecodeAllowed(), 0)
 				return qindex
+			} else {
+				e.rc.setOnePassVBRFrameTarget(isKey || intraOnly, refreshFlags)
+				qindex = e.rc.vbrQuantizer(isKey || intraOnly, refreshFlags,
+					e.frameIndex, macroblocks)
 			}
-			qindex = e.rc.cbrQuantizer(isKey || intraOnly, refreshFlags,
-				e.frameIndex, macroblocks)
 		} else {
 			qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly, flags)
 			if vp9OracleTraceBuild {

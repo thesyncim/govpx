@@ -609,7 +609,7 @@ func TestNewVP9EncoderAcceptsMinimalOptions(t *testing.T) {
 func TestVP9EncoderExplicitRateControlModesEncode(t *testing.T) {
 	const width, height = 64, 64
 	const targetKbps = 300
-	const wantFrameTargetBits = targetKbps * 1000 / 30
+	const wantBitsPerFrame = targetKbps * 1000 / 30
 	cases := []struct {
 		name    string
 		mode    RateControlMode
@@ -658,6 +658,13 @@ func TestVP9EncoderExplicitRateControlModesEncode(t *testing.T) {
 					t.Fatalf("frame %d result = dropped:%t bytes:%d, want packet",
 						frame, result.Dropped, len(result.Data))
 				}
+				wantFrameTargetBits := wantBitsPerFrame
+				if frame == 0 {
+					wantFrameTargetBits = e.rc.onePassVBRKeyFrameTargetBits()
+				} else {
+					wantFrameTargetBits = e.rc.onePassVBRInterFrameTargetBits(
+						1 << vp9LastRefSlot)
+				}
 				if result.TargetBitrateKbps != targetKbps ||
 					result.FrameTargetBits != wantFrameTargetBits {
 					t.Fatalf("frame %d rate = kbps:%d target:%d, want %d/%d",
@@ -678,6 +685,128 @@ func TestVP9EncoderExplicitRateControlModesEncode(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVP9EncoderExplicitVBRUsesOnePassRateQuantizer(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		TargetBitrateKbps:   700,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlVBR,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 128,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.rc.avgFrameQIndexKey != 120 || e.rc.avgFrameQIndexInter != 120 {
+		t.Fatalf("initial VBR average q = key:%d inter:%d, want midpoint 120/120",
+			e.rc.avgFrameQIndexKey, e.rc.avgFrameQIndexInter)
+	}
+	dst := make([]byte, 65536)
+	key, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+		96, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	if key.InternalQuantizer >= vp9DefaultBaseQIndex {
+		t.Fatalf("VBR key qindex = %d, want below public-Q key qindex %d",
+			key.InternalQuantizer, vp9DefaultBaseQIndex)
+	}
+	if key.FrameTargetBits != e.rc.onePassVBRKeyFrameTargetBits() {
+		t.Fatalf("VBR key target = %d, want one-pass target %d",
+			key.FrameTargetBits, e.rc.onePassVBRKeyFrameTargetBits())
+	}
+	inter, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+		116, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	if inter.InternalQuantizer == vp9DefaultInterBaseQIndex {
+		t.Fatalf("VBR inter qindex = %d, still public-Q inter default",
+			inter.InternalQuantizer)
+	}
+}
+
+func TestVP9RateControlVBRGoldenUsesGFARFCorrectionFactor(t *testing.T) {
+	var rc vp9RateControlState
+	if err := rc.applyOptions(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		TargetBitrateKbps:  700,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+	}, vp9TimingStateFromOptions(VP9EncoderOptions{FPS: 30})); err != nil {
+		t.Fatalf("applyOptions: %v", err)
+	}
+	const qindex = 96
+	macroblocks := vp9MacroblockCount((64+7)>>3, (64+7)>>3)
+	actualBits := vp9EstimatedBitsAtQ(false, qindex, macroblocks, 1) * 2
+	rc.updateRateCorrectionFactor(actualBits, qindex, false,
+		1<<vp9GoldenRefSlot, macroblocks)
+	if rc.rateCorrectionFactors[vp9RateFactorGFARFStd] <= 1 {
+		t.Fatalf("GF/ARF correction factor = %.3f, want updated above 1",
+			rc.rateCorrectionFactors[vp9RateFactorGFARFStd])
+	}
+	if rc.rateCorrectionFactors[vp9RateFactorInterNormal] != 1 {
+		t.Fatalf("INTER_NORMAL correction factor = %.3f, want unchanged",
+			rc.rateCorrectionFactors[vp9RateFactorInterNormal])
+	}
+}
+
+func TestVP9EncoderOnePassVBRGoldenRefreshCadence(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		TargetBitrateKbps:   700,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlVBR,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 128,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	for frame := 0; frame <= 10; frame++ {
+		result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width,
+			height, uint8(96+frame*3), 128, 128), dst)
+		if err != nil {
+			t.Fatalf("Encode frame %d: %v", frame, err)
+		}
+		switch frame {
+		case 0:
+			if result.RefreshFrameFlags != 0xff {
+				t.Fatalf("key refresh flags = %#x, want all refs",
+					result.RefreshFrameFlags)
+			}
+		case 10:
+			want := uint8(1<<vp9LastRefSlot | 1<<vp9GoldenRefSlot)
+			if result.RefreshFrameFlags != want {
+				t.Fatalf("frame 10 refresh flags = %#x, want one-pass GF %#x",
+					result.RefreshFrameFlags, want)
+			}
+			if result.FrameTargetBits <= e.rc.bitsPerFrame {
+				t.Fatalf("frame 10 target = %d, want boosted above %d",
+					result.FrameTargetBits, e.rc.bitsPerFrame)
+			}
+		default:
+			if result.RefreshFrameFlags != 1<<vp9LastRefSlot {
+				t.Fatalf("frame %d refresh flags = %#x, want LAST only",
+					frame, result.RefreshFrameFlags)
+			}
+		}
 	}
 }
 
