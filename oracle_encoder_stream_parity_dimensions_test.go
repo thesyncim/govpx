@@ -213,7 +213,7 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 				MaxQuantizer:      56,
 				KeyFrameInterval:  999,
 				Deadline:          tc.deadline,
-				CpuUsed:           tc.cpuUsed,
+				CpuUsed:           strictByteParityCPUUsed(tc.deadline, tc.cpuUsed),
 				Tuning:            TunePSNR,
 			}
 

@@ -15,6 +15,17 @@ import (
 	"testing"
 )
 
+func strictByteParityCPUUsed(deadline Deadline, cpuUsed int) int {
+	if deadline == DeadlineRealtime && cpuUsed > 0 {
+		// Positive realtime cpu-used is libvpx's wall-clock adaptive
+		// auto-speed mode. Strict byte-parity cases pin the requested
+		// speed explicitly so govpx and libvpx make matching encoder
+		// decisions on every machine.
+		return -cpuUsed
+	}
+	return cpuUsed
+}
+
 // TestOracleEncoderStreamByteParity is the strictest possible parity
 // gate: it runs govpx and the patched libvpx vpxenc-oracle on the same
 // I420 fixture under matching options and asserts the encoded frame
@@ -1268,7 +1279,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				CQLevel:                  cqLevel,
 				KeyFrameInterval:         kfInterval,
 				Deadline:                 tc.deadline,
-				CpuUsed:                  tc.cpuUsed,
+				CpuUsed:                  strictByteParityCPUUsed(tc.deadline, tc.cpuUsed),
 				Tuning:                   tuning,
 				ErrorResilient:           tc.errorResilient,
 				ErrorResilientPartitions: tc.errorResilientPartitions,
