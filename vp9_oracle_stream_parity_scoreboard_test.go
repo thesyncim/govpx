@@ -100,6 +100,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		flags       []EncodeFlags
 		extraArgs   []string
 		exactPrefix int
+		exactFrames []int
 	}
 	cases := []streamCase{
 		{
@@ -165,6 +166,146 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			exactPrefix: 2,
+		},
+		{
+			name:    "fixed-q-rt-cpu4-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Deadline:     DeadlineRealtime,
+				CpuUsed:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--deadline=rt",
+				"--cpu-used=4",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactFrames: []int{1, 2, 3},
+		},
+		{
+			name:    "fixed-q-rt-cpu0-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Deadline:     DeadlineRealtime,
+				CpuUsed:      0,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--deadline=rt",
+				"--cpu-used=0",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 0,
+		},
+		{
+			name:    "fixed-q-rt-cpu-neg3-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Deadline:     DeadlineRealtime,
+				CpuUsed:      -3,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--deadline=rt",
+				"--cpu-used=-3",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 0,
+		},
+		{
+			name:    "fixed-q-rt-cpu5-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Deadline:     DeadlineRealtime,
+				CpuUsed:      5,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--deadline=rt",
+				"--cpu-used=5",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 4,
+		},
+		{
+			name:    "fixed-q-rt-cpu8-explicit-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Deadline:     DeadlineRealtime,
+				CpuUsed:      8,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--deadline=rt",
+				"--cpu-used=8",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 4,
+		},
+		{
+			name:    "fixed-q-good-cpu4-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Deadline:     DeadlineGoodQuality,
+				CpuUsed:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--deadline=good",
+				"--cpu-used=4",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 0,
+		},
+		{
+			name:    "fixed-q-best-cpu5-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				Deadline:     DeadlineBestQuality,
+				CpuUsed:      5,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--deadline=best",
+				"--cpu-used=5",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 0,
 		},
 		{
 			name:    "error-resilient-constant-720p",
@@ -433,6 +574,13 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 						govpxPackets[frame], libvpxPackets[frame])
 				}
 			}
+			for _, frame := range tc.exactFrames {
+				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
+					assertVP9PacketByteParity(t,
+						fmt.Sprintf("%s frame %d", tc.name, frame),
+						govpxPackets[frame], libvpxPackets[frame])
+				}
+			}
 			newModeByteCase := tc.name == "vbr-rate-panning" ||
 				tc.name == "vbr-rate-constant" ||
 				tc.name == "cq-rate-panning" ||
@@ -441,8 +589,16 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				tc.name == "q-rate-constant" ||
 				tc.name == "cbr-cyclic-aq-panning" ||
 				tc.name == "vbr-rate-panning-720p"
+			speedByteCase := tc.name == "fixed-q-rt-cpu0-constant" ||
+				tc.name == "fixed-q-rt-cpu4-constant" ||
+				tc.name == "fixed-q-rt-cpu5-constant" ||
+				tc.name == "fixed-q-rt-cpu8-explicit-constant" ||
+				tc.name == "fixed-q-rt-cpu-neg3-constant" ||
+				tc.name == "fixed-q-good-cpu4-constant" ||
+				tc.name == "fixed-q-best-cpu5-constant"
 			if os.Getenv("GOVPX_VP9_STREAM_MATRIX_STRICT") == "1" &&
 				!newModeByteCase &&
+				!speedByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 stream byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
@@ -451,6 +607,12 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				newModeByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 new-mode byte parity %s/%s: matches=%d/%d",
+					tc.name, tc.fixture.name, matches, len(govpxPackets))
+			}
+			if os.Getenv("GOVPX_VP9_SPEED_BYTE_STRICT") == "1" &&
+				speedByteCase &&
+				matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 speed byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
 		})
@@ -1105,6 +1267,159 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				"--buf-initial-sz-schedule=3:300,7:400",
 				"--buf-optimal-sz-schedule=3:350,7:500"),
 			exactPrefix: frames,
+		},
+		{
+			name: "cpu-used-two-step-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetCPUUsed 4", enc.SetCPUUsed(4))
+				case 7:
+					mustVP9Runtime(t, "SetCPUUsed 5", enc.SetCPUUsed(5))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,cpu:4,-,-,-,cpu:5,-,-",
+			},
+			exactPrefix: frames,
+		},
+		{
+			name: "cpu-used-minus3-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetCPUUsed -3", enc.SetCPUUsed(-3))
+				case 7:
+					mustVP9Runtime(t, "SetCPUUsed 8", enc.SetCPUUsed(8))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,cpu:-3,-,-,-,cpu:8,-,-",
+			},
+			exactPrefix: 3,
+			exactFrames: []int{7, 8, 9},
+		},
+		{
+			name: "cpu-used-minus8-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetCPUUsed -8", enc.SetCPUUsed(-8))
+				case 7:
+					mustVP9Runtime(t, "SetCPUUsed 8", enc.SetCPUUsed(8))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,cpu:-8,-,-,-,cpu:8,-,-",
+			},
+			exactPrefix: frames,
+		},
+		{
+			name: "deadline-good-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetDeadline good",
+						enc.SetDeadline(DeadlineGoodQuality))
+				case 7:
+					mustVP9Runtime(t, "SetDeadline rt",
+						enc.SetDeadline(DeadlineRealtime))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,deadline:good,-,-,-,deadline:rt,-,-",
+			},
+			exactPrefix: 3,
+			exactFrames: []int{8, 9},
+		},
+		{
+			name: "deadline-best-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetDeadline best",
+						enc.SetDeadline(DeadlineBestQuality))
+				case 7:
+					mustVP9Runtime(t, "SetDeadline rt",
+						enc.SetDeadline(DeadlineRealtime))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,deadline:best,-,-,-,deadline:rt,-,-",
+			},
+			exactPrefix: 3,
+			exactFrames: []int{8, 9},
+		},
+		{
+			name: "deadline-cpu-combined-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 0:
+					mustVP9Runtime(t, "SetDeadline best",
+						enc.SetDeadline(DeadlineBestQuality))
+					mustVP9Runtime(t, "SetCPUUsed 0", enc.SetCPUUsed(0))
+				case 3:
+					mustVP9Runtime(t, "SetDeadline good",
+						enc.SetDeadline(DeadlineGoodQuality))
+					mustVP9Runtime(t, "SetCPUUsed 4", enc.SetCPUUsed(4))
+				case 7:
+					mustVP9Runtime(t, "SetDeadline rt",
+						enc.SetDeadline(DeadlineRealtime))
+					mustVP9Runtime(t, "SetCPUUsed 8", enc.SetCPUUsed(8))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=deadline:best+cpu:0,-,-,deadline:good+cpu:4,-,-,-,deadline:rt+cpu:8,-,-",
+			},
+			exactFrames: []int{8, 9},
 		},
 	}
 

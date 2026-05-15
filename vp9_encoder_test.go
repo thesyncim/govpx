@@ -434,6 +434,9 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.Width = maxVP9Dimension + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Height = maxVP9Dimension + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Threads = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.Deadline = Deadline(-1) }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.CpuUsed = -10 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.CpuUsed = 10 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TargetBitrateKbps = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Quantizer = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Quantizer = 256 }, ErrInvalidQuantizer},
@@ -628,6 +631,89 @@ func TestNewVP9EncoderAcceptsMinimalOptions(t *testing.T) {
 	}
 	if got := e.Codec(); got != CodecVP9 {
 		t.Errorf("Codec() = %v, want CodecVP9", got)
+	}
+	if e.opts.Deadline != DeadlineRealtime || e.opts.CpuUsed != vp9DefaultCPUUsed {
+		t.Fatalf("default VP9 speed = deadline:%d cpu:%d, want realtime/%d",
+			e.opts.Deadline, e.opts.CpuUsed, vp9DefaultCPUUsed)
+	}
+}
+
+func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if got := e.vp9CoeffProbAppxStep(); got != 4 {
+		t.Fatalf("default coeff step = %d, want 4", got)
+	}
+	if !e.vp9SkipTx16PlusCoefUpdates(false) {
+		t.Fatal("default speed should skip tx16+ coef updates")
+	}
+	if !e.vp9RealtimeVariancePartitionEnabled() {
+		t.Fatal("default speed should enable realtime variance partition")
+	}
+
+	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
+		t.Fatalf("SetDeadline(good): %v", err)
+	}
+	if got := e.vp9CoeffProbAppxStep(); got != 1 {
+		t.Fatalf("good coeff step = %d, want 1", got)
+	}
+	if e.vp9SkipTx16PlusCoefUpdates(false) {
+		t.Fatal("good deadline should not use realtime tx16+ skip")
+	}
+	if e.vp9RealtimeVariancePartitionEnabled() {
+		t.Fatal("good deadline should not use realtime variance partition")
+	}
+
+	if err := e.SetDeadline(DeadlineRealtime); err != nil {
+		t.Fatalf("SetDeadline(rt): %v", err)
+	}
+	if err := e.SetCPUUsed(5); err != nil {
+		t.Fatalf("SetCPUUsed(5): %v", err)
+	}
+	if got := e.vp9CoeffProbAppxStep(); got != 4 {
+		t.Fatalf("rt cpu5 coeff step = %d, want 4", got)
+	}
+	if !e.vp9SkipTx16PlusCoefUpdates(false) {
+		t.Fatal("rt cpu5 should skip tx16+ coef updates")
+	}
+	if e.vp9RealtimeVariancePartitionEnabled() {
+		t.Fatal("rt cpu5 should not enable speed8 variance partition")
+	}
+
+	if err := e.SetCPUUsed(4); err != nil {
+		t.Fatalf("SetCPUUsed(4): %v", err)
+	}
+	if got := e.vp9CoeffProbAppxStep(); got != 1 {
+		t.Fatalf("rt cpu4 coeff step = %d, want 1", got)
+	}
+	if !e.vp9SkipTx16PlusCoefUpdates(false) {
+		t.Fatal("rt cpu4 should still skip tx16+ coef updates")
+	}
+
+	if err := e.SetCPUUsed(0); err != nil {
+		t.Fatalf("SetCPUUsed(0): %v", err)
+	}
+	if e.vp9SkipTx16PlusCoefUpdates(false) {
+		t.Fatal("rt cpu0 should not skip tx16+ coef updates")
+	}
+	if err := e.SetCPUUsed(-9); err != nil {
+		t.Fatalf("SetCPUUsed(-9): %v", err)
+	}
+	if !e.vp9RealtimeVariancePartitionEnabled() {
+		t.Fatal("rt cpu-9 should use abs(cpu-used) speed")
+	}
+
+	beforeDeadline, beforeCPU := e.opts.Deadline, e.opts.CpuUsed
+	if err := e.SetDeadline(Deadline(-1)); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetDeadline invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetCPUUsed(10); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetCPUUsed invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.Deadline != beforeDeadline || e.opts.CpuUsed != beforeCPU {
+		t.Fatal("invalid VP9 speed controls mutated encoder")
 	}
 }
 
@@ -3592,6 +3678,12 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRealtimeTarget after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetDeadline(DeadlineRealtime); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetDeadline after Close err = %v, want ErrClosed", err)
+	}
+	if err := e.SetCPUUsed(8); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetCPUUsed after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer after Close err = %v, want ErrClosed", err)
 	}
@@ -3604,6 +3696,12 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	var nilEnc *VP9Encoder
 	if err := nilEnc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRealtimeTarget on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetDeadline(DeadlineRealtime); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetDeadline on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetCPUUsed(8); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetCPUUsed on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer on nil encoder err = %v, want ErrClosed", err)

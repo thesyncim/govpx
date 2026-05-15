@@ -2,6 +2,29 @@ package govpx
 
 import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 
+const (
+	vp9DefaultCPUUsed int8 = 8
+	vp9MaxCPUUsed          = 9
+)
+
+func normalizeVP9SpeedOptions(opts *VP9EncoderOptions) error {
+	if opts == nil {
+		return ErrInvalidConfig
+	}
+	if opts.Deadline < DeadlineBestQuality || opts.Deadline > DeadlineRealtime {
+		return ErrInvalidConfig
+	}
+	cpuUsed := int(opts.CpuUsed)
+	if cpuUsed < -vp9MaxCPUUsed || cpuUsed > vp9MaxCPUUsed {
+		return ErrInvalidConfig
+	}
+	if opts.Deadline == DeadlineBestQuality && opts.CpuUsed == 0 {
+		opts.Deadline = DeadlineRealtime
+		opts.CpuUsed = vp9DefaultCPUUsed
+	}
+	return nil
+}
+
 // SetRealtimeTarget applies a sparse WebRTC-style runtime target update to the
 // VP9 profile 0 encoder.
 //
@@ -132,6 +155,34 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	return nil
 }
 
+// SetDeadline changes the VP9 speed/quality operating mode used for subsequent
+// frames. It mirrors libvpx's best/good/realtime deadline selector while keeping
+// the current VP9 cpu-used value.
+func (e *VP9Encoder) SetDeadline(deadline Deadline) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if deadline < DeadlineBestQuality || deadline > DeadlineRealtime {
+		return ErrInvalidConfig
+	}
+	e.opts.Deadline = deadline
+	return nil
+}
+
+// SetCPUUsed changes the VP9 libvpx-style speed preset for subsequent frames.
+// Valid values are [-9, 9]. VP9 maps the sign to abs(cpu-used) internally; govpx
+// preserves the signed value so oracle control scripts can round-trip it.
+func (e *VP9Encoder) SetCPUUsed(cpuUsed int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if cpuUsed < -vp9MaxCPUUsed || cpuUsed > vp9MaxCPUUsed {
+		return ErrInvalidConfig
+	}
+	e.opts.CpuUsed = int8(cpuUsed)
+	return nil
+}
+
 // SetFrameDropAllowed enables or disables VP9 CBR buffer-underrun frame
 // dropping without changing bitrate. The encoder must have been created with
 // VP9 CBR rate control enabled.
@@ -245,4 +296,32 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 
 func validVP9Dimension(v int) bool {
 	return v > 0 && v <= maxVP9Dimension
+}
+
+func (e *VP9Encoder) vp9SpeedFeatureCPUUsed() int {
+	if e == nil {
+		return int(vp9DefaultCPUUsed)
+	}
+	if e.opts.CpuUsed < 0 {
+		return int(-e.opts.CpuUsed)
+	}
+	return int(e.opts.CpuUsed)
+}
+
+func (e *VP9Encoder) vp9CoeffProbAppxStep() int {
+	if e == nil || e.opts.Deadline != DeadlineRealtime ||
+		e.vp9SpeedFeatureCPUUsed() < 5 {
+		return 1
+	}
+	return 4
+}
+
+func (e *VP9Encoder) vp9SkipTx16PlusCoefUpdates(isKey bool) bool {
+	return !isKey && e != nil && e.opts.Deadline == DeadlineRealtime &&
+		e.vp9SpeedFeatureCPUUsed() >= 4
+}
+
+func (e *VP9Encoder) vp9RealtimeVariancePartitionEnabled() bool {
+	return e != nil && e.opts.Deadline == DeadlineRealtime &&
+		e.vp9SpeedFeatureCPUUsed() >= 8
 }

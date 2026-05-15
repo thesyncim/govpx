@@ -73,6 +73,14 @@ type VP9EncoderOptions struct {
 	// return ErrInvalidConfig.
 	Threads int
 
+	// Deadline selects the VP9 speed/quality operating mode. The zero-value
+	// options keep govpx's historical VP9 oracle default of realtime cpu-used 8;
+	// use SetDeadline after construction to force explicit best-quality cpu 0.
+	Deadline Deadline
+	// CpuUsed selects the libvpx VP9 speed preset in [-9, 9]. VP9 maps this to
+	// abs(cpu-used) internally; the sign is preserved for control parity.
+	CpuUsed int8
+
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
 	// configuration. When RateControlModeSet is false, the packet path keeps
 	// the existing public-Q mode and only stores this value as metadata.
@@ -397,6 +405,9 @@ type VP9Encoder struct {
 // TargetBitrateKbps / MinQuantizer / MaxQuantizer / CQLevel /
 // MaxKeyframeInterval must be non-negative.
 func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
+	if err := normalizeVP9SpeedOptions(&opts); err != nil {
+		return nil, err
+	}
 	if opts.ARNRType == 0 {
 		opts.ARNRType = 3
 	}
@@ -431,7 +442,8 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.Threads < 0 {
 		return ErrInvalidConfig
 	}
-	if opts.TargetBitrateKbps < 0 || opts.Quantizer < 0 || opts.MaxKeyframeInterval < 0 {
+	if opts.TargetBitrateKbps < 0 || opts.Quantizer < 0 ||
+		opts.MaxKeyframeInterval < 0 {
 		return ErrInvalidConfig
 	}
 	if opts.LookaheadFrames < 0 || opts.LookaheadFrames > vp9MaxLookaheadFrames {
@@ -1020,9 +1032,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		ReferenceMode:           referenceMode,
 		CompoundRefAllowed:      compoundAllowed,
 		AllowHighPrecisionMv:    header.AllowHighPrecisionMv,
-		CoefStepsize:            4,
+		CoefStepsize:            e.vp9CoeffProbAppxStep(),
 		CoefUpdateMode:          vp9CoefUpdateModeForFrame(isKey),
-		SkipTx16PlusCoefUpdates: !isKey,
+		SkipTx16PlusCoefUpdates: e.vp9SkipTx16PlusCoefUpdates(isKey),
 		Probs:                   &e.fc,
 		Counts:                  counts,
 	})
@@ -2677,7 +2689,8 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 func (e *VP9Encoder) vp9InterPreferVarianceRoot(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 ) bool {
-	if inter == nil || inter.dq == nil || bsize != common.Block64x64 {
+	if !e.vp9RealtimeVariancePartitionEnabled() || inter == nil ||
+		inter.dq == nil || bsize != common.Block64x64 {
 		return false
 	}
 	if miRow+int(common.Num8x8BlocksHighLookup[bsize]) > miRows ||
