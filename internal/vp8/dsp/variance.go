@@ -1,6 +1,10 @@
 package dsp
 
-import "github.com/thesyncim/govpx/internal/vp8/tables"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp8/tables"
+)
 
 // Ported from libvpx v1.16.0 vp8/encoder/variance.c scalar variance
 // primitives and vpx_dsp/variance.c sub-pixel variance primitives.
@@ -98,8 +102,21 @@ func SubpelVariance16x16(src []byte, srcStride int, xOffset int, yOffset int, re
 	return subpelVariance(src, srcStride, xOffset, yOffset, ref, refStride, 16, 16)
 }
 
+// SubpelVariance16x16PtrFast is the trusted-pointer form of
+// SubpelVariance16x16 for hot motion-search callers that already validated
+// the 17x17 source window and 16x16 reference window.
+func SubpelVariance16x16PtrFast(src *byte, srcStride int, xOffset int, yOffset int, ref *byte, refStride int) (int, int) {
+	return subpelVariance16x16PtrFast(src, srcStride, xOffset, yOffset, ref, refStride)
+}
+
 func SubpelVariance16x8(src []byte, srcStride int, xOffset int, yOffset int, ref []byte, refStride int) (int, int) {
 	return subpelVariance(src, srcStride, xOffset, yOffset, ref, refStride, 16, 8)
+}
+
+func subpelVariance16x16PtrFastFallback(src *byte, srcStride int, xOffset int, yOffset int, ref *byte, refStride int) (int, int) {
+	srcLen := 16*srcStride + 17
+	refLen := 15*refStride + 16
+	return SubpelVariance16x16(unsafe.Slice(src, srcLen), srcStride, xOffset, yOffset, unsafe.Slice(ref, refLen), refStride)
 }
 
 func SubpelVariance8x16(src []byte, srcStride int, xOffset int, yOffset int, ref []byte, refStride int) (int, int) {

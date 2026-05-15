@@ -74,3 +74,55 @@ func subpelVariance16x16Bilinear(src []byte, srcStride int, xOffset int, yOffset
 	)
 	return int(sum), int(sse), true
 }
+
+func subpelVariance16x16PtrFast(src *byte, srcStride int, xOffset int, yOffset int, ref *byte, refStride int) (int, int) {
+	if xOffset == 0 && yOffset == 0 {
+		sum, sse := VarianceBlock16x16PtrFast(src, srcStride, ref, refStride)
+		return sse - (sum * sum >> 8), sse
+	}
+	var sum int32
+	var sse uint32
+	if xOffset == 0 {
+		filter := tables.BilinearFilters[yOffset]
+		subpelVariance16x16VerticalNEON(
+			src,
+			srcStride,
+			ref,
+			refStride,
+			uint64(uint16(filter[0])),
+			uint64(uint16(filter[1])),
+			&sum,
+			&sse,
+		)
+		return int(sse) - (int(sum) * int(sum) >> 8), int(sse)
+	}
+	if yOffset == 0 {
+		filter := tables.BilinearFilters[xOffset]
+		subpelVariance16x16HorizontalNEON(
+			src,
+			srcStride,
+			ref,
+			refStride,
+			uint64(uint16(filter[0])),
+			uint64(uint16(filter[1])),
+			&sum,
+			&sse,
+		)
+		return int(sse) - (int(sum) * int(sum) >> 8), int(sse)
+	}
+	xFilter := tables.BilinearFilters[xOffset]
+	yFilter := tables.BilinearFilters[yOffset]
+	subpelVariance16x16BilinearNEON(
+		src,
+		srcStride,
+		ref,
+		refStride,
+		uint64(uint16(xFilter[0])),
+		uint64(uint16(xFilter[1])),
+		uint64(uint16(yFilter[0])),
+		uint64(uint16(yFilter[1])),
+		&sum,
+		&sse,
+	)
+	return int(sse) - (int(sum) * int(sum) >> 8), int(sse)
+}
