@@ -1063,6 +1063,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 		name        string
 		flags       []EncodeFlags
 		exactPrefix int
+		strictBytes bool
 	}
 	cases := []flagCase{
 		{
@@ -1073,22 +1074,26 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 		{
 			name:        "force-key-frame3",
 			flags:       vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame),
-			exactPrefix: 1,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-last",
 			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateLast),
-			exactPrefix: 2,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-golden",
 			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateGolden),
-			exactPrefix: 1,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-altref",
 			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateAltRef),
-			exactPrefix: 1,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-all",
@@ -1099,18 +1104,21 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 			name: "repeat-no-reference-golden-altref",
 			flags: vp9OracleRepeatInterFlag(frames,
 				EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			exactPrefix: 2,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name: "repeat-no-reference-all",
 			flags: vp9OracleRepeatInterFlag(frames,
 				EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
 			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-entropy",
 			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateEntropy),
-			exactPrefix: 2,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "force-ref-refresh-transitions",
@@ -1120,7 +1128,8 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 		{
 			name:        "alternating-reference-controls",
 			flags:       vp9OracleAlternatingReferenceControls(frames),
-			exactPrefix: 1,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 	}
 
@@ -1146,6 +1155,10 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 				t.Fatalf("strict VP9 frame-flag byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
 			}
+			if tc.strictBytes && matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 pinned frame-flag byte parity %s: matches=%d/%d",
+					tc.name, matches, len(govpxPackets))
+			}
 		})
 	}
 }
@@ -1165,6 +1178,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 		flags       []EncodeFlags
 		extraArgs   []string
 		exactPrefix int
+		strictBytes bool
 	}
 	cases := []crossCase{
 		{
@@ -1200,7 +1214,8 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			},
 			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateEntropy),
 			extraArgs:   []string{"--error-resilient=1"},
-			exactPrefix: 1,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:   "cbr-no-reference-all",
@@ -1221,7 +1236,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			},
 			flags:       vp9OracleRefRefreshTransitions(frames),
 			extraArgs:   []string{"--tile-columns=2"},
-			exactPrefix: 0,
+			exactPrefix: 3,
 		},
 	}
 
@@ -1245,6 +1260,10 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			if os.Getenv("GOVPX_VP9_CONTROL_CROSS_BYTE_STRICT") == "1" &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 control-cross byte parity %s: matches=%d/%d",
+					tc.name, matches, len(govpxPackets))
+			}
+			if tc.strictBytes && matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 pinned control-cross byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
 			}
 		})
