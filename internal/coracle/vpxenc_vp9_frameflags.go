@@ -58,6 +58,80 @@ func VpxencVP9FrameFlagsTraceI420(raw []byte, width int, height int, frames int,
 		true, extraArgs...)
 }
 
+// VpxencVP9FrameSize describes one raw I420 input frame for VP9 helper runs
+// whose coded size changes at runtime.
+type VpxencVP9FrameSize struct {
+	Width  int
+	Height int
+}
+
+// VpxencVP9FrameFlagsEncodeI420WithFrameSizes encodes a concatenated raw I420
+// stream whose frame dimensions are listed in frameSizes. Dimension changes are
+// passed to the helper as VP9 runtime resize controls before the matching input
+// frame. invisibleFrames is indexed by input frame and clears VP9 show_frame in
+// the helper output for visibility oracle tests.
+func VpxencVP9FrameFlagsEncodeI420WithFrameSizes(raw []byte, frameSizes []VpxencVP9FrameSize, frameFlags []uint32, invisibleFrames []bool, extraArgs ...string) (ivf []byte, diag []byte, err error) {
+	ivf, _, diag, err = runVpxencVP9FrameFlagsI420WithFrameSizes(raw,
+		frameSizes, frameFlags, invisibleFrames, false, extraArgs...)
+	return ivf, diag, err
+}
+
+// VpxencVP9FrameFlagsTraceI420WithFrameSizes is
+// [VpxencVP9FrameFlagsEncodeI420WithFrameSizes] plus the helper's JSONL
+// per-frame rate trace.
+func VpxencVP9FrameFlagsTraceI420WithFrameSizes(raw []byte, frameSizes []VpxencVP9FrameSize, frameFlags []uint32, invisibleFrames []bool, extraArgs ...string) (ivf []byte, trace []byte, diag []byte, err error) {
+	return runVpxencVP9FrameFlagsI420WithFrameSizes(raw, frameSizes,
+		frameFlags, invisibleFrames, true, extraArgs...)
+}
+
+func runVpxencVP9FrameFlagsI420WithFrameSizes(raw []byte, frameSizes []VpxencVP9FrameSize, frameFlags []uint32, invisibleFrames []bool, traceOut bool, extraArgs ...string) (ivf []byte, trace []byte, diag []byte, err error) {
+	if len(frameSizes) == 0 {
+		return nil, nil, nil, errors.New("coracle: VP9 variable frame-size run has no frames")
+	}
+	if len(frameFlags) > len(frameSizes) {
+		return nil, nil, nil, fmt.Errorf("coracle: VP9 frame-flags has %d entries for %d frames", len(frameFlags), len(frameSizes))
+	}
+	if len(invisibleFrames) > len(frameSizes) {
+		return nil, nil, nil, fmt.Errorf("coracle: VP9 invisible frame schedule has %d entries for %d frames", len(invisibleFrames), len(frameSizes))
+	}
+	want := 0
+	controls := make([]string, len(frameSizes))
+	controlsNeeded := false
+	prevWidth := frameSizes[0].Width
+	prevHeight := frameSizes[0].Height
+	for i, size := range frameSizes {
+		frameSize, err := vpxencVP9I420FrameSize(size.Width, size.Height)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		want, err = checkedVP9I420Add(want, frameSize)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		controls[i] = "-"
+		if i != 0 && (size.Width != prevWidth || size.Height != prevHeight) {
+			controls[i] = "resize:" + strconv.Itoa(size.Width) + "x" +
+				strconv.Itoa(size.Height)
+			controlsNeeded = true
+		}
+		prevWidth = size.Width
+		prevHeight = size.Height
+	}
+	if len(raw) != want {
+		return nil, nil, nil, fmt.Errorf("coracle: VP9 variable frame-size raw I420 size = %d, want %d for %d frames",
+			len(raw), want, len(frameSizes))
+	}
+	args := append([]string(nil), extraArgs...)
+	if controlsNeeded {
+		args = append(args, "--control-script="+strings.Join(controls, ","))
+	}
+	if len(invisibleFrames) != 0 {
+		args = append(args, "--invisible-frames="+joinVP9BoolSchedule(invisibleFrames))
+	}
+	return runVpxencVP9FrameFlagsI420Raw(raw, frameSizes[0].Width,
+		frameSizes[0].Height, len(frameSizes), frameFlags, traceOut, args...)
+}
+
 func runVpxencVP9FrameFlagsI420(raw []byte, width int, height int, frames int, frameFlags []uint32, traceOut bool, extraArgs ...string) (ivf []byte, trace []byte, diag []byte, err error) {
 	frameSize, err := vpxencVP9I420FrameSize(width, height)
 	if err != nil {
@@ -77,7 +151,11 @@ func runVpxencVP9FrameFlagsI420(raw []byte, width int, height int, frames int, f
 		return nil, nil, nil, fmt.Errorf("coracle: VP9 frame-flags raw I420 size = %d, want %d for %dx%d x %d frames",
 			len(raw), want, width, height, frames)
 	}
+	return runVpxencVP9FrameFlagsI420Raw(raw, width, height, frames, frameFlags,
+		traceOut, extraArgs...)
+}
 
+func runVpxencVP9FrameFlagsI420Raw(raw []byte, width int, height int, frames int, frameFlags []uint32, traceOut bool, extraArgs ...string) (ivf []byte, trace []byte, diag []byte, err error) {
 	bin, err := VpxencVP9FrameFlagsPath()
 	if err != nil {
 		return nil, nil, nil, err
@@ -150,6 +228,21 @@ func joinVP9FrameFlags(flags []uint32) string {
 			b.WriteByte(',')
 		}
 		b.WriteString(strconv.FormatUint(uint64(flag), 10))
+	}
+	return b.String()
+}
+
+func joinVP9BoolSchedule(values []bool) string {
+	var b strings.Builder
+	for i, v := range values {
+		if i != 0 {
+			b.WriteByte(',')
+		}
+		if v {
+			b.WriteByte('1')
+		} else {
+			b.WriteByte('0')
+		}
 	}
 	return b.String()
 }

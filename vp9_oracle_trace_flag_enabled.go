@@ -20,6 +20,8 @@ type vp9OracleFrameSummary struct {
 	IntraOnly            bool    `json:"intra_only"`
 	ShowFrame            bool    `json:"show_frame"`
 	Droppable            bool    `json:"droppable"`
+	CodedWidth           int     `json:"coded_width"`
+	CodedHeight          int     `json:"coded_height"`
 	BaseQIndex           int     `json:"base_qindex"`
 	PublicQuantizer      int     `json:"public_quantizer"`
 	SizeBytes            int     `json:"size_bytes"`

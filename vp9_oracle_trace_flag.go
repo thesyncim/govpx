@@ -14,6 +14,8 @@ type vp9OracleFrameSummary struct {
 	IntraOnly            bool
 	ShowFrame            bool
 	Droppable            bool
+	CodedWidth           int
+	CodedHeight          int
 	BaseQIndex           int
 	PublicQuantizer      int
 	SizeBytes            int

@@ -1084,6 +1084,7 @@ type vp9OracleTransitionStats struct {
 	DropMismatches           int
 	KeyMismatches            int
 	ShowMismatches           int
+	CodedSizeMismatches      int
 	QMismatches              int
 	PublicQMismatches        int
 	SizeMismatches           int
@@ -1107,6 +1108,7 @@ type vp9OracleTransitionStats struct {
 func (s vp9OracleTransitionStats) hasMismatch() bool {
 	return s.FlagMismatches != 0 || s.DropMismatches != 0 ||
 		s.KeyMismatches != 0 || s.ShowMismatches != 0 ||
+		s.CodedSizeMismatches != 0 ||
 		s.QMismatches != 0 || s.PublicQMismatches != 0 ||
 		s.SizeMismatches != 0 || s.FirstPartitionMismatches != 0 ||
 		s.TargetMismatches != 0 || s.BufferMismatches != 0 ||
@@ -1117,9 +1119,9 @@ func (s vp9OracleTransitionStats) hasMismatch() bool {
 }
 
 func (s vp9OracleTransitionStats) String() string {
-	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d q=%d public_q=%d size=%d first_part=%d target=%d buffer=%d buffer_opt=%d refresh=%d header=%d mode_header=%d lf=%d tile=%d temporal=%d tl0=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f max_buffer_opt_delta_pct=%.2f",
+	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d coded_size=%d q=%d public_q=%d size=%d first_part=%d target=%d buffer=%d buffer_opt=%d refresh=%d header=%d mode_header=%d lf=%d tile=%d temporal=%d tl0=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f max_buffer_opt_delta_pct=%.2f",
 		s.Rows, s.FlagMismatches, s.DropMismatches, s.KeyMismatches,
-		s.ShowMismatches, s.QMismatches, s.PublicQMismatches,
+		s.ShowMismatches, s.CodedSizeMismatches, s.QMismatches, s.PublicQMismatches,
 		s.SizeMismatches, s.FirstPartitionMismatches, s.TargetMismatches,
 		s.BufferMismatches, s.BufferOptimalMismatches, s.RefreshMismatches,
 		s.HeaderMismatches, s.ModeHeaderMismatches, s.LoopFilterMismatches,
@@ -1163,6 +1165,10 @@ func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9Rat
 		}
 		if g.ShowFrame != l.ShowFrame {
 			stats.ShowMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			(g.CodedWidth != l.CodedWidth || g.CodedHeight != l.CodedHeight) {
+			stats.CodedSizeMismatches++
 		}
 		if g.BaseQIndex != l.BaseQIndex {
 			stats.QMismatches++
@@ -1391,12 +1397,13 @@ func vp9OracleAlternatingReferenceControls(frames int) []EncodeFlags {
 
 func formatVP9SingleRateScoreboardRows(rows []vp9RateScoreboardRow) string {
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
+	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,width,height,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
 	for _, row := range rows {
-		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%t,%d,%d,%d,%#x,%d,%d,%d,%d,%d,%t\n",
+		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%t,%d,%d,%d,%#x,%d,%d,%d,%d,%d,%t\n",
 			row.FrameIndex, row.Flags, row.Dropped, row.DropReason, row.KeyFrame,
-			row.ShowFrame, row.BaseQIndex, row.PublicQuantizer, row.SizeBytes,
-			row.SizeBits, row.FirstPartitionSize, row.TargetBitrateKbps,
+			row.ShowFrame, row.CodedWidth, row.CodedHeight, row.BaseQIndex,
+			row.PublicQuantizer, row.SizeBytes, row.SizeBits,
+			row.FirstPartitionSize, row.TargetBitrateKbps,
 			row.FrameTargetBits, row.BufferLevelBits, row.RefreshFrameFlags,
 			row.RefreshFrameContext, row.TxMode, row.InterpFilter,
 			row.ReferenceMode, row.ReferenceMask, row.LoopFilterLevel,

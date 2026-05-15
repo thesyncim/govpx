@@ -190,6 +190,71 @@ func TestVpxencVP9FrameFlagsTraceI420AppliesBufferSchedules(t *testing.T) {
 	}
 }
 
+func TestVpxencVP9FrameFlagsTraceI420WithFrameSizesAppliesResize(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	sizes := []VpxencVP9FrameSize{
+		{Width: 32, Height: 32},
+		{Width: 48, Height: 40},
+		{Width: 48, Height: 40},
+	}
+	var raw []byte
+	for _, size := range sizes {
+		raw = append(raw, makeGeneratedVP9I420(size.Width, size.Height, 1)...)
+	}
+	ivf, trace, diag, err := VpxencVP9FrameFlagsTraceI420WithFrameSizes(raw,
+		sizes, nil, nil)
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420WithFrameSizes failed: %v\n%s", err, diag)
+	}
+	count, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if count != len(sizes) {
+		t.Fatalf("IVF frame count = %d, want %d", count, len(sizes))
+	}
+	if !bytes.Contains(trace, []byte(`"coded_width":48`)) ||
+		!bytes.Contains(trace, []byte(`"coded_height":40`)) {
+		t.Fatalf("resize trace missing resized dimensions:\n%s", trace)
+	}
+}
+
+func TestVpxencVP9FrameFlagsTraceI420WithFrameSizesAppliesInvisibleSchedule(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 1
+	raw := makeGeneratedVP9I420(width, height, frames)
+	ivf, trace, diag, err := VpxencVP9FrameFlagsTraceI420WithFrameSizes(raw,
+		[]VpxencVP9FrameSize{
+			{Width: width, Height: height},
+		},
+		nil, []bool{true})
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420WithFrameSizes failed: %v\n%s", err, diag)
+	}
+	count, err := testutil.CountIVFFrames(ivf)
+	if err != nil {
+		t.Fatalf("CountIVFFrames: %v", err)
+	}
+	if count != frames {
+		t.Fatalf("IVF frame count = %d, want %d", count, frames)
+	}
+	if !bytes.Contains(trace, []byte(`"show_frame":false`)) {
+		t.Fatalf("invisible schedule trace missing hidden row:\n%s", trace)
+	}
+}
+
 func makeGeneratedVP9I420(width int, height int, frames int) []byte {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1

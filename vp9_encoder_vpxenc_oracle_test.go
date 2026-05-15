@@ -875,9 +875,12 @@ func TestVP9EncoderVpxencFrameFlagsRepeatNoReferenceAllModeTxShape(t *testing.T)
 		}
 		gFirst, gLast := firstLastVP9MiForOracleTest(gGrid)
 		lFirst, lLast := firstLastVP9MiForOracleTest(lGrid)
-		t.Logf("VP9 repeat no-reference-all mode/tx frame %d: first_mismatch=%d govpx_bytes=%d libvpx_bytes=%d govpx_first=%+v govpx_last=%+v libvpx_first=%+v libvpx_last=%+v",
-			frameIdx, firstMismatch, len(govpxPackets[frameIdx]),
-			len(libvpxPackets[frameIdx]), gFirst, gLast, lFirst, lLast)
+		firstByteDiff := firstVP9PacketDiffForTest(govpxPackets[frameIdx],
+			libvpxPackets[frameIdx])
+		t.Logf("VP9 repeat no-reference-all mode/tx frame %d: first_shape_mismatch=%d first_byte_diff=%d govpx_bytes=%d libvpx_bytes=%d govpx_first=%+v govpx_last=%+v libvpx_first=%+v libvpx_last=%+v",
+			frameIdx, firstMismatch, firstByteDiff,
+			len(govpxPackets[frameIdx]), len(libvpxPackets[frameIdx]),
+			gFirst, gLast, lFirst, lLast)
 	}
 	t.Logf("VP9 repeat no-reference-all mode/tx scoreboard: shape=%d/%d mode=%d/%d tx=%d/%d skip=%d/%d ref=%d/%d",
 		matchedShape, totalShape, matchedMode, totalMode, matchedTx, totalTx,
