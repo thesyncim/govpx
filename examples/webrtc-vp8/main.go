@@ -232,6 +232,9 @@ function renderRendition(idx, msg){
   row(dl, "bytes", msg.bytes);
   row(dl, "kbps", (msg.kbps||0).toFixed(0));
   row(dl, "target", msg.target_kbps);
+  if(typeof msg.encode_us === "number") {
+    row(dl, "encode", (msg.encode_us/1000).toFixed(2) + " ms");
+  }
   row(dl, "T", msg.tp + (msg.sync?"↑":""));
   row(dl, "TL0", msg.tl0);
   if(msg.dropped) row(dl, "drop", "yes");
@@ -980,14 +983,16 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		// pattern; we just skip emission. Mirrors libvpx's
 		// VP8E_SET_TEMPORAL_LAYER_ID-style cap.
 		cap := int(rs.temporalCap.Load())
+		encodeStart := time.Now()
 		result, err := enc.EncodeInto(packet, img, pts, duration, flags)
+		encodeUS := int(time.Since(encodeStart).Microseconds())
 		pts += duration
 		if err != nil {
 			log.Printf("[%s] EncodeInto: %v", rs.cfg.Name, err)
 			continue
 		}
 		if result.Dropped {
-			pushTelemetry(sess.telemetry, dropTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight))
+			pushTelemetry(sess.telemetry, dropTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, encodeUS))
 			continue
 		}
 		// Only suppress emission for frames the encoder marked as
@@ -995,7 +1000,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		// decoder's reference chain and causes the receiver to render
 		// artifacts until the next keyframe.
 		if cap < result.TemporalLayerID && result.Droppable {
-			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true))
+			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true, encodeUS))
 			continue
 		}
 
@@ -1009,7 +1014,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 			return
 		}
 		tracker.observe(result.SizeBytes, time.Now())
-		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false))
+		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false, encodeUS))
 	}
 }
 
@@ -1079,12 +1084,19 @@ type telemetryMessage struct {
 	Screen     int     `json:"screen,omitempty"`
 	Denoise    int     `json:"denoise,omitempty"`
 	ROI        bool    `json:"roi,omitempty"`
+	// EncodeUS is govpx's per-frame EncodeInto wall time in
+	// microseconds. Exposed so the UI can plot per-frame encoder cost
+	// alongside Q and bytes — useful for diagnosing bitrate-recovery
+	// perception ("FPS doesn't recover after a low-bitrate dip"), where
+	// the encode-time curve tracks Q and bytes, not the bitrate-change
+	// event itself.
+	EncodeUS int `json:"encode_us"`
 }
 
 var frameCounter [renditionCount]int
 
 func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int,
-	r govpx.EncodeResult, tracker *kbpsTracker, suppressed bool,
+	r govpx.EncodeResult, tracker *kbpsTracker, suppressed bool, encodeUS int,
 ) []byte {
 	frameCounter[idx]++
 	rs.roiMu.Lock()
@@ -1109,12 +1121,13 @@ func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width,
 		Screen:     screen,
 		Denoise:    denoise,
 		ROI:        roi,
+		EncodeUS:   encodeUS,
 	}
 	out, _ := json.Marshal(msg)
 	return out
 }
 
-func dropTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int) []byte {
+func dropTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int, encodeUS int) []byte {
 	frameCounter[idx]++
 	rs.roiMu.Lock()
 	roi := rs.roiActive
@@ -1129,6 +1142,7 @@ func dropTelemetry(idx int, rs *renditionState, target, screen, denoise, width, 
 		Denoise:    denoise,
 		Dropped:    true,
 		ROI:        roi,
+		EncodeUS:   encodeUS,
 	}
 	out, _ := json.Marshal(msg)
 	return out
