@@ -444,6 +444,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			// The forced keyframe itself is exact; the following inter
 			// frames currently expose the reference/rate-state gap.
 			exactPrefix: 2,
+			exactFrames: []int{4, 5},
 		},
 		{
 			name:        "no-update-all",
@@ -1392,6 +1393,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 		name        string
 		flags       []EncodeFlags
 		exactPrefix int
+		exactFrames []int
 		strictBytes bool
 	}
 	cases := []flagCase{
@@ -1399,6 +1401,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 			name:        "force-key-frame1",
 			flags:       vp9OracleFlagAt(frames, 1, EncodeForceKeyFrame),
 			exactPrefix: 2,
+			exactFrames: []int{4, 5},
 		},
 		{
 			name:        "force-key-frame3",
@@ -1476,6 +1479,12 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
 					t.Fatalf("frame %d should be inside exact prefix for %s",
+						frame, tc.name)
+				}
+			}
+			for _, frame := range tc.exactFrames {
+				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
+					t.Fatalf("frame %d should be exact for %s",
 						frame, tc.name)
 				}
 			}
