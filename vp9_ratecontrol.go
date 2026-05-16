@@ -36,6 +36,33 @@ type vp9RateControlState struct {
 	maxInterBitratePct int
 	gfCBRBoostPct      int
 
+	// minGFInterval and maxGFInterval mirror libvpx's
+	// VP9E_SET_MIN_GF_INTERVAL / VP9E_SET_MAX_GF_INTERVAL controls. Zero
+	// leaves the framerate-derived libvpx default in place.
+	minGFInterval uint8
+	maxGFInterval uint8
+
+	// framePeriodicBoost mirrors VP9E_SET_FRAME_PERIODIC_BOOST. When set,
+	// the active-best Q is reduced harder on periodic GF/ALTREF refreshes.
+	framePeriodicBoost bool
+	// altRefAQ mirrors VP9E_SET_ALT_REF_AQ. When set, the active-best Q
+	// drops further on alt-ref refresh frames.
+	altRefAQ bool
+	// postEncodeDrop mirrors VP9E_SET_POSTENCODE_DROP_CBR. When set,
+	// inter frames overshooting the target while the buffer is below the
+	// drop watermark are dropped from the visible output.
+	postEncodeDrop bool
+	// disableOvershootMaxQCBR mirrors
+	// VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR. When set, the CBR active-worst
+	// promotion to worstQuality in the critical buffer region is
+	// suppressed.
+	disableOvershootMaxQCBR bool
+	// nextFrameQIndexSet / nextFrameQIndex mirror
+	// VP9E_SET_QUANTIZER_ONE_PASS. The qindex is consumed by the next
+	// encode call and then cleared.
+	nextFrameQIndexSet bool
+	nextFrameQIndex    uint8
+
 	bestQuality  uint8
 	worstQuality uint8
 	cqLevel      uint8
@@ -80,6 +107,20 @@ func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
 	}
 	if err := validateVP9InterRateBound(opts.MaxInterBitratePct); err != nil {
 		return err
+	}
+	if err := validateVP9GFIntervalBounds(opts.MinGFInterval,
+		opts.MaxGFInterval); err != nil {
+		return err
+	}
+	if err := validateVP9NextFrameQIndex(opts.NextFrameQIndex,
+		opts.NextFrameQIndexSet, opts.AQMode); err != nil {
+		return err
+	}
+	if opts.PostEncodeDrop && opts.RateControlMode != RateControlCBR {
+		return ErrInvalidConfig
+	}
+	if opts.DisableOvershootMaxQCBR && opts.RateControlMode != RateControlCBR {
+		return ErrInvalidConfig
 	}
 	if !opts.RateControlModeSet {
 		if opts.BufferSizeMs != 0 || opts.BufferInitialSizeMs != 0 ||
@@ -178,6 +219,43 @@ func validateVP9InterRateBound(maxInterPct int) error {
 	return nil
 }
 
+// validateVP9GFIntervalBounds enforces the libvpx
+// VP9E_SET_MIN_GF_INTERVAL / VP9E_SET_MAX_GF_INTERVAL invariants. Both
+// values must lie in [0, vp9MaxGFInterval]; when both are non-zero, the
+// minimum must not exceed the maximum.
+func validateVP9GFIntervalBounds(minGF, maxGF int) error {
+	if minGF < 0 || maxGF < 0 {
+		return ErrInvalidConfig
+	}
+	if minGF > vp9MaxGFInterval || maxGF > vp9MaxGFInterval {
+		return ErrInvalidConfig
+	}
+	if minGF > 0 && maxGF > 0 && minGF > maxGF {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// validateVP9NextFrameQIndex enforces the libvpx
+// VP9E_SET_QUANTIZER_ONE_PASS invariants. The qindex must lie in
+// [0, 255]; the override is mutually exclusive with cyclic-refresh and
+// perceptual AQ because both rewrite the qindex through segmentation.
+func validateVP9NextFrameQIndex(qindex int, set bool, aqMode VP9AQMode) error {
+	if !set {
+		if qindex != 0 {
+			return ErrInvalidQuantizer
+		}
+		return nil
+	}
+	if qindex < 0 || qindex > 255 {
+		return ErrInvalidQuantizer
+	}
+	if aqMode == VP9AQCyclicRefresh || aqMode == VP9AQPerceptual {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
 func vp9RateControlOptionsFromConfig(opts VP9EncoderOptions, cfg RateControlConfig) (VP9EncoderOptions, error) {
 	if err := validateVP9RateControlConfig(cfg); err != nil {
 		return VP9EncoderOptions{}, err
@@ -208,6 +286,19 @@ func vp9RateControlOptionsFromConfig(opts VP9EncoderOptions, cfg RateControlConf
 func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timingState) error {
 	*rc = vp9RateControlState{}
 	if !opts.RateControlModeSet {
+		// NextFrameQIndex still applies to the public-Q (RC-off) path so
+		// callers can drive the next encode's qindex directly.
+		if opts.NextFrameQIndexSet {
+			rc.nextFrameQIndexSet = true
+			q := opts.NextFrameQIndex
+			if q < 0 {
+				q = 0
+			}
+			if q > 255 {
+				q = 255
+			}
+			rc.nextFrameQIndex = uint8(q)
+		}
 		return nil
 	}
 	if !validRateControlMode(opts.RateControlMode) {
@@ -270,6 +361,24 @@ func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOpti
 	rc.gfCBRBoostPct = 0
 	if rc.mode == RateControlCBR {
 		rc.gfCBRBoostPct = opts.GFCBRBoostPct
+	}
+	rc.minGFInterval = uint8(opts.MinGFInterval)
+	rc.maxGFInterval = uint8(opts.MaxGFInterval)
+	rc.framePeriodicBoost = opts.FramePeriodicBoost
+	rc.altRefAQ = opts.AltRefAQ
+	rc.postEncodeDrop = opts.PostEncodeDrop && rc.mode == RateControlCBR
+	rc.disableOvershootMaxQCBR = opts.DisableOvershootMaxQCBR &&
+		rc.mode == RateControlCBR
+	if opts.NextFrameQIndexSet {
+		rc.nextFrameQIndexSet = true
+		q := opts.NextFrameQIndex
+		if q < 0 {
+			q = 0
+		}
+		if q > 255 {
+			q = 255
+		}
+		rc.nextFrameQIndex = uint8(q)
 	}
 }
 
@@ -478,6 +587,17 @@ func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
 	}
 	minInterval := vp9DefaultMinGFInterval(timing)
 	maxInterval := vp9DefaultMaxGFInterval(timing, minInterval)
+	if rc.minGFInterval > 0 {
+		minInterval = int(rc.minGFInterval)
+	}
+	if rc.maxGFInterval > 0 {
+		maxInterval = int(rc.maxGFInterval)
+		if maxInterval < minInterval {
+			maxInterval = minInterval
+		}
+	} else if rc.minGFInterval > 0 && maxInterval < minInterval {
+		maxInterval = minInterval
+	}
 	rc.baselineGFInterval = uint8((minInterval + maxInterval) >> 1)
 }
 
@@ -579,6 +699,58 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	}
 	rc.bufferLevelBits = vp9PostEncodeBufferLevel(rc.bufferLevelBits,
 		rc.bufferSizeBits, encodedBits)
+}
+
+// vp9PostEncodeDropOvershootFactor scales frameTargetBits when deciding
+// whether to drop a CBR inter frame after encoding it. Mirrors libvpx
+// VP9E_SET_POSTENCODE_DROP_CBR's overshoot trigger which fires when the
+// actual frame bits exceed roughly 8x the frame target while the buffer
+// dropped below the configured watermark.
+const vp9PostEncodeDropOvershootFactor = 8
+
+// shouldPostEncodeDrop mirrors libvpx's CBR post-encode drop check. The
+// drop fires for inter frames when (a) post-encode drop is enabled, (b)
+// CBR drop is allowed with a configured watermark, (c) the encoded
+// bits exceed the frame-target overshoot threshold, and (d) the
+// post-encode buffer level has fallen below the drop watermark or
+// turned negative.
+func (rc *vp9RateControlState) shouldPostEncodeDrop(intraOnly bool, showFrame bool, encodedBits int) bool {
+	if rc == nil || !rc.enabled || !rc.postEncodeDrop || intraOnly || !showFrame {
+		return false
+	}
+	if rc.mode != RateControlCBR || !rc.dropFrameAllowed ||
+		rc.dropFramesWaterMark == 0 || rc.bufferOptimalBits <= 0 {
+		return false
+	}
+	target := rc.frameTargetBits
+	if target <= 0 {
+		return false
+	}
+	overshootBits := target * vp9PostEncodeDropOvershootFactor
+	if encodedBits <= overshootBits {
+		return false
+	}
+	dropMark := int(rc.dropFramesWaterMark) * rc.bufferOptimalBits / 100
+	level := vp9PostEncodeBufferLevel(rc.bufferLevelBits, rc.bufferSizeBits,
+		encodedBits)
+	return level < 0 || level < dropMark
+}
+
+// postEncodeDropFrame rolls rate-control state forward as if the
+// just-encoded frame had been dropped: the buffer level credits the
+// per-frame bandwidth, the visible frame counter advances, and the
+// rate-correction / qindex history reverts to the pre-encode snapshot.
+// Mirrors libvpx's CBR post-encode drop bookkeeping.
+func (rc *vp9RateControlState) postEncodeDropFrame() {
+	if rc == nil || !rc.enabled {
+		return
+	}
+	rc.rc2Frame = 0
+	rc.rc1Frame = 0
+	rc.lastQInter = rc.q1Frame
+	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.clampBuffer()
+	rc.incrementFramesSinceKey()
 }
 
 func (rc *vp9RateControlState) setFrameSize(width int, height int) {

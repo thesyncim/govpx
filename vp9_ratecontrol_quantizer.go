@@ -97,6 +97,12 @@ func (rc *vp9RateControlState) onePassVBRInterFrameTargetBits(refreshFlags uint8
 	if interval <= 0 {
 		interval = (vp9MinGFInterval + vp9MaxGFInterval) >> 1
 	}
+	if rc.minGFInterval > 0 && interval < int(rc.minGFInterval) {
+		interval = int(rc.minGFInterval)
+	}
+	if rc.maxGFInterval > 0 && interval > int(rc.maxGFInterval) {
+		interval = int(rc.maxGFInterval)
+	}
 	afRatio := int(rc.afRatioOnePassVBR)
 	if afRatio <= 0 {
 		afRatio = vp9DefaultAFRatioOnePassVBR
@@ -219,6 +225,8 @@ func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshF
 		}
 		activeBest = vp9RTCMINQ(qBasis)
 	}
+	activeBest = rc.applyVP9RefreshActiveBestBias(activeBest, intraOnly,
+		refreshFlags, best, worst)
 	if activeBest < best {
 		activeBest = best
 	}
@@ -229,6 +237,31 @@ func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshF
 		activeWorst = activeBest
 	}
 	return activeBest, activeWorst
+}
+
+// applyVP9RefreshActiveBestBias applies the FramePeriodicBoost and
+// AltRefAQ active-best-Q reductions on GF / ALTREF refresh frames.
+// FramePeriodicBoost mirrors VP9E_SET_FRAME_PERIODIC_BOOST; AltRefAQ
+// mirrors VP9E_SET_ALT_REF_AQ. Both bias the active-best downward so
+// the regulated quantizer reaches a tighter target on the refresh
+// frame. Intra-only frames and non-boosted inter frames are untouched.
+func (rc *vp9RateControlState) applyVP9RefreshActiveBestBias(activeBest int, intraOnly bool, refreshFlags uint8, best, worst int) int {
+	if intraOnly || !vp9BoostedInterRefresh(refreshFlags) {
+		return activeBest
+	}
+	if rc.framePeriodicBoost {
+		activeBest += vp9ComputeQDelta(best, worst, activeBest, 3, 4)
+	}
+	if rc.altRefAQ && refreshFlags&(1<<vp9AltRefSlot) != 0 {
+		activeBest += vp9ComputeQDelta(best, worst, activeBest, 4, 5)
+	}
+	if activeBest < best {
+		activeBest = best
+	}
+	if activeBest > worst {
+		activeBest = worst
+	}
+	return activeBest
 }
 
 func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshFlags uint8, frameIndex int) (int, int) {
@@ -303,6 +336,8 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 		}
 	}
 
+	activeBest = rc.applyVP9RefreshActiveBestBias(activeBest, intraOnly,
+		refreshFlags, best, worst)
 	if activeBest < best {
 		activeBest = best
 	}
@@ -386,6 +421,12 @@ func (rc *vp9RateControlState) runtimeOnePassVBRGoldenInterval() uint8 {
 	if interval == 0 {
 		interval = (vp9MinGFInterval + vp9MaxGFInterval) >> 1
 	}
+	if rc.minGFInterval > 0 && interval < rc.minGFInterval {
+		interval = rc.minGFInterval
+	}
+	if rc.maxGFInterval > 0 && interval > rc.maxGFInterval {
+		interval = rc.maxGFInterval
+	}
 	return interval
 }
 
@@ -438,7 +479,11 @@ func (rc *vp9RateControlState) cbrActiveWorstQuantizer(intraOnly bool, frameInde
 				activeWorst = ambientQP + int((int64(worst-ambientQP)*int64(rc.bufferOptimalBits-bufferLevel))/int64(step))
 			}
 		}
-	} else {
+	} else if !rc.disableOvershootMaxQCBR {
+		// DisableOvershootMaxQCBR (VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR)
+		// suppresses the promotion to worstQuality on overshoot. With it
+		// disabled, the buffer-driven active-worst remains in force even
+		// while the buffer is in the critical region.
 		activeWorst = worst
 	}
 	return activeWorst

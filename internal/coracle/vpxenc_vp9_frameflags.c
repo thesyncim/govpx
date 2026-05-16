@@ -860,6 +860,44 @@ static void apply_vp9_runtime_control_token(
                           (unsigned)control_value_int(token, "maxinter:"))) {
       die_codec_msg(ctx->ctx, "runtime VP9E_SET_MAX_INTER_BITRATE_PCT");
     }
+  } else if (starts_with(token, "mingf:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_MIN_GF_INTERVAL,
+                          (unsigned)control_value_int(token, "mingf:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_MIN_GF_INTERVAL");
+    }
+  } else if (starts_with(token, "maxgf:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_MAX_GF_INTERVAL,
+                          (unsigned)control_value_int(token, "maxgf:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_MAX_GF_INTERVAL");
+    }
+  } else if (starts_with(token, "periodicboost:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_FRAME_PERIODIC_BOOST,
+                          (unsigned)control_value_int(token,
+                                                      "periodicboost:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_FRAME_PERIODIC_BOOST");
+    }
+  } else if (starts_with(token, "altrefaq:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_ALT_REF_AQ,
+                          control_value_int(token, "altrefaq:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_ALT_REF_AQ");
+    }
+  } else if (starts_with(token, "postdrop:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_POSTENCODE_DROP_CBR,
+                          (unsigned)control_value_int(token, "postdrop:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_POSTENCODE_DROP_CBR");
+    }
+  } else if (starts_with(token, "disovershoot:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR,
+                          (unsigned)control_value_int(token,
+                                                      "disovershoot:"))) {
+      die_codec_msg(ctx->ctx,
+                    "runtime VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR");
+    }
+  } else if (starts_with(token, "qonepass:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_QUANTIZER_ONE_PASS,
+                          control_value_int(token, "qonepass:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_QUANTIZER_ONE_PASS");
+    }
   } else if (starts_with(token, "active:")) {
     flush_vp9_runtime_config(ctx);
     apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,
@@ -1098,6 +1136,12 @@ int main(int argc, char **argv) {
   int max_bitrate_kbps = -1;
   int min_bitrate_kbps = -1;
   int frame_parallel = -1;
+  int min_gf_interval = -1;
+  int max_gf_interval = -1;
+  int frame_periodic_boost = -1;
+  int alt_ref_aq = -1;
+  int postencode_drop = -1;
+  int disable_overshoot_maxq_cbr = -1;
   enum vpx_rc_mode end_usage = VPX_Q;
 
   for (int i = 1; i < argc; ++i) {
@@ -1167,6 +1211,19 @@ int main(int argc, char **argv) {
       min_bitrate_kbps = parse_int(v, "--min-bitrate");
     } else if ((v = flag_value(a, "--frame-parallel"))) {
       frame_parallel = parse_int(v, "--frame-parallel");
+    } else if ((v = flag_value(a, "--min-gf-interval"))) {
+      min_gf_interval = parse_int(v, "--min-gf-interval");
+    } else if ((v = flag_value(a, "--max-gf-interval"))) {
+      max_gf_interval = parse_int(v, "--max-gf-interval");
+    } else if ((v = flag_value(a, "--frame-boost"))) {
+      frame_periodic_boost = parse_int(v, "--frame-boost");
+    } else if ((v = flag_value(a, "--alt-ref-aq"))) {
+      alt_ref_aq = parse_int(v, "--alt-ref-aq");
+    } else if ((v = flag_value(a, "--postencode-drop"))) {
+      postencode_drop = parse_int(v, "--postencode-drop");
+    } else if ((v = flag_value(a, "--disable-overshoot-maxq-cbr"))) {
+      disable_overshoot_maxq_cbr =
+          parse_int(v, "--disable-overshoot-maxq-cbr");
     } else if ((v = flag_value(a, "--error-resilient"))) {
       error_resilient = parse_int(v, "--error-resilient");
     } else if ((v = flag_value(a, "--lag-in-frames"))) {
@@ -1408,6 +1465,29 @@ int main(int argc, char **argv) {
       vpx_codec_control(&ctx, VP9E_SET_FRAME_PARALLEL_DECODING,
                         (unsigned)frame_parallel))
     die_codec_msg(&ctx, "VP9E_SET_FRAME_PARALLEL_DECODING");
+  if (min_gf_interval >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_MIN_GF_INTERVAL,
+                        (unsigned)min_gf_interval))
+    die_codec_msg(&ctx, "VP9E_SET_MIN_GF_INTERVAL");
+  if (max_gf_interval >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_MAX_GF_INTERVAL,
+                        (unsigned)max_gf_interval))
+    die_codec_msg(&ctx, "VP9E_SET_MAX_GF_INTERVAL");
+  if (frame_periodic_boost >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_FRAME_PERIODIC_BOOST,
+                        (unsigned)frame_periodic_boost))
+    die_codec_msg(&ctx, "VP9E_SET_FRAME_PERIODIC_BOOST");
+  if (alt_ref_aq >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_ALT_REF_AQ, alt_ref_aq))
+    die_codec_msg(&ctx, "VP9E_SET_ALT_REF_AQ");
+  if (postencode_drop >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_POSTENCODE_DROP_CBR,
+                        (unsigned)postencode_drop))
+    die_codec_msg(&ctx, "VP9E_SET_POSTENCODE_DROP_CBR");
+  if (disable_overshoot_maxq_cbr >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR,
+                        (unsigned)disable_overshoot_maxq_cbr))
+    die_codec_msg(&ctx, "VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR");
 
   vpx_image_t img;
   if (!vpx_img_alloc(&img, VPX_IMG_FMT_I420, (unsigned)width,

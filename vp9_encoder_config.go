@@ -565,6 +565,125 @@ func (e *VP9Encoder) SetMaxInterBitratePct(pct int) error {
 	return nil
 }
 
+// SetMinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control.
+// interval must be in [0, vp9MaxGFInterval]; zero restores libvpx's
+// framerate-derived default. Forwards to
+// [VP9EncoderOptions.MinGFInterval].
+func (e *VP9Encoder) SetMinGFInterval(interval int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9GFIntervalBounds(interval,
+		e.opts.MaxGFInterval); err != nil {
+		return err
+	}
+	e.opts.MinGFInterval = interval
+	e.rc.minGFInterval = uint8(interval)
+	if e.rc.enabled {
+		e.rc.initOnePassVBRState(e.vp9TimingState())
+	}
+	return nil
+}
+
+// SetMaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control.
+// interval must be in [0, vp9MaxGFInterval]; zero restores libvpx's
+// framerate-derived default. Forwards to
+// [VP9EncoderOptions.MaxGFInterval].
+func (e *VP9Encoder) SetMaxGFInterval(interval int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9GFIntervalBounds(e.opts.MinGFInterval,
+		interval); err != nil {
+		return err
+	}
+	e.opts.MaxGFInterval = interval
+	e.rc.maxGFInterval = uint8(interval)
+	if e.rc.enabled {
+		e.rc.initOnePassVBRState(e.vp9TimingState())
+	}
+	return nil
+}
+
+// SetFramePeriodicBoost mirrors libvpx's VP9E_SET_FRAME_PERIODIC_BOOST
+// control. When enabled, periodic golden-frame refreshes receive a
+// stronger active-best-Q reduction. Forwards to
+// [VP9EncoderOptions.FramePeriodicBoost].
+func (e *VP9Encoder) SetFramePeriodicBoost(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.FramePeriodicBoost = enabled
+	e.rc.framePeriodicBoost = enabled
+	return nil
+}
+
+// SetAltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. When enabled,
+// alt-ref refresh frames apply extra AQ tightening through the active
+// quantizer bounds. Forwards to [VP9EncoderOptions.AltRefAQ].
+func (e *VP9Encoder) SetAltRefAQ(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.AltRefAQ = enabled
+	e.rc.altRefAQ = enabled
+	return nil
+}
+
+// SetPostEncodeDrop mirrors libvpx's VP9E_SET_POSTENCODE_DROP_CBR
+// control. Requires CBR rate control. When enabled, inter frames that
+// overshoot their target while the buffer level fell below the
+// configured watermark are dropped from the visible output after the
+// encode completes. Forwards to [VP9EncoderOptions.PostEncodeDrop].
+func (e *VP9Encoder) SetPostEncodeDrop(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if enabled && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
+		return ErrInvalidConfig
+	}
+	e.opts.PostEncodeDrop = enabled
+	e.rc.postEncodeDrop = enabled
+	return nil
+}
+
+// SetDisableOvershootMaxQCBR mirrors libvpx's
+// VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR control. Requires CBR rate
+// control. When enabled, the CBR active-worst-Q promotion to
+// worstQuality in the critical buffer region is suppressed. Forwards to
+// [VP9EncoderOptions.DisableOvershootMaxQCBR].
+func (e *VP9Encoder) SetDisableOvershootMaxQCBR(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if enabled && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
+		return ErrInvalidConfig
+	}
+	e.opts.DisableOvershootMaxQCBR = enabled
+	e.rc.disableOvershootMaxQCBR = enabled
+	return nil
+}
+
+// SetNextFrameQIndex mirrors libvpx's VP9E_SET_QUANTIZER_ONE_PASS
+// control. qindex must lie in [0, 255]. The override is consumed by the
+// next encode call and then cleared. Mutually exclusive with
+// cyclic-refresh AQ and perceptual AQ, which already rewrite the qindex
+// through segmentation. Forwards to
+// [VP9EncoderOptions.NextFrameQIndex] / NextFrameQIndexSet.
+func (e *VP9Encoder) SetNextFrameQIndex(qindex int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9NextFrameQIndex(qindex, true, e.opts.AQMode); err != nil {
+		return err
+	}
+	e.opts.NextFrameQIndexSet = true
+	e.opts.NextFrameQIndex = qindex
+	e.rc.nextFrameQIndexSet = true
+	e.rc.nextFrameQIndex = uint8(qindex)
+	return nil
+}
+
 // SetARNR changes VP9 auto-alt-ref temporal filtering controls at runtime.
 // maxFrames is the ARNR window length in [0, 15], where 0 or 1 disables ARNR
 // filtering; strength is in [0, 6]; filterType selects 1=backward, 2=forward,

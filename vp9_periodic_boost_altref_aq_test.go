@@ -1,0 +1,129 @@
+package govpx
+
+import (
+	"testing"
+)
+
+func TestVP9SetFramePeriodicBoostAppliesValue(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  600,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.opts.FramePeriodicBoost || e.rc.framePeriodicBoost {
+		t.Fatalf("FramePeriodicBoost default = true, want false")
+	}
+	if err := e.SetFramePeriodicBoost(true); err != nil {
+		t.Fatalf("SetFramePeriodicBoost: %v", err)
+	}
+	if !e.opts.FramePeriodicBoost || !e.rc.framePeriodicBoost {
+		t.Fatalf("opts=%v rc=%v, want both true",
+			e.opts.FramePeriodicBoost, e.rc.framePeriodicBoost)
+	}
+}
+
+func TestVP9SetAltRefAQAppliesValue(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.opts.AltRefAQ || e.rc.altRefAQ {
+		t.Fatalf("AltRefAQ default = true, want false")
+	}
+	if err := e.SetAltRefAQ(true); err != nil {
+		t.Fatalf("SetAltRefAQ: %v", err)
+	}
+	if !e.opts.AltRefAQ || !e.rc.altRefAQ {
+		t.Fatalf("opts=%v rc=%v, want both true",
+			e.opts.AltRefAQ, e.rc.altRefAQ)
+	}
+}
+
+func TestVP9FramePeriodicBoostLowersActiveBestOnGFRefresh(t *testing.T) {
+	rc := &vp9RateControlState{
+		enabled:      true,
+		mode:         RateControlCBR,
+		bestQuality:  16,
+		worstQuality: 200,
+	}
+	refresh := uint8(1) << vp9GoldenRefSlot
+	before := rc.applyVP9RefreshActiveBestBias(120, false, refresh, 16, 200)
+	if before != 120 {
+		t.Fatalf("no-op bias = %d, want 120", before)
+	}
+	rc.framePeriodicBoost = true
+	boosted := rc.applyVP9RefreshActiveBestBias(120, false, refresh, 16, 200)
+	if boosted >= 120 {
+		t.Fatalf("FramePeriodicBoost active-best = %d, want < 120", boosted)
+	}
+}
+
+func TestVP9AltRefAQLowersActiveBestOnAltRefRefresh(t *testing.T) {
+	rc := &vp9RateControlState{
+		enabled:      true,
+		mode:         RateControlVBR,
+		bestQuality:  16,
+		worstQuality: 200,
+		altRefAQ:     true,
+	}
+	// Golden-only refresh: AltRefAQ should not bite.
+	goldenOnly := uint8(1) << vp9GoldenRefSlot
+	goldenBest := rc.applyVP9RefreshActiveBestBias(150, false, goldenOnly, 16,
+		200)
+	if goldenBest != 150 {
+		t.Fatalf("AltRefAQ on golden-only refresh active-best = %d, want 150",
+			goldenBest)
+	}
+	// AltRef refresh: AltRefAQ should bias active-best downward.
+	altRefRefresh := uint8(1) << vp9AltRefSlot
+	altBest := rc.applyVP9RefreshActiveBestBias(150, false, altRefRefresh, 16,
+		200)
+	if altBest >= 150 {
+		t.Fatalf("AltRefAQ on alt-ref refresh active-best = %d, want < 150",
+			altBest)
+	}
+}
+
+func TestVP9PeriodicBoostAndAltRefAQClampAtBest(t *testing.T) {
+	rc := &vp9RateControlState{
+		enabled:            true,
+		mode:               RateControlVBR,
+		bestQuality:        16,
+		worstQuality:       200,
+		framePeriodicBoost: true,
+		altRefAQ:           true,
+	}
+	refresh := uint8(1) << vp9AltRefSlot
+	got := rc.applyVP9RefreshActiveBestBias(16, false, refresh, 16, 200)
+	if got != 16 {
+		t.Fatalf("clamped active-best = %d, want 16", got)
+	}
+}
+
+func TestVP9PeriodicBoostNoBiasOnIntraOnly(t *testing.T) {
+	rc := &vp9RateControlState{
+		enabled:            true,
+		mode:               RateControlVBR,
+		bestQuality:        16,
+		worstQuality:       200,
+		framePeriodicBoost: true,
+	}
+	refresh := uint8(1) << vp9GoldenRefSlot
+	got := rc.applyVP9RefreshActiveBestBias(100, true, refresh, 16, 200)
+	if got != 100 {
+		t.Fatalf("intra-only bias = %d, want 100", got)
+	}
+}
