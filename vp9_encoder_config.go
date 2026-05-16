@@ -528,6 +528,22 @@ func (e *VP9Encoder) SetDeltaQUV(delta int) error {
 	return nil
 }
 
+// SetMaxInterBitratePct mirrors libvpx's VP9E_SET_MAX_INTER_BITRATE_PCT
+// control. pct caps inter-frame target bits at pct% of the per-frame
+// bandwidth budget. Zero disables the cap. Forwards to
+// [VP9EncoderOptions.MaxInterBitratePct].
+func (e *VP9Encoder) SetMaxInterBitratePct(pct int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if pct < 0 {
+		return ErrInvalidConfig
+	}
+	e.opts.MaxInterBitratePct = pct
+	e.rc.maxInterBitratePct = pct
+	return nil
+}
+
 // SetARNR changes VP9 auto-alt-ref temporal filtering controls at runtime.
 // maxFrames is the ARNR window length in [0, 15], where 0 or 1 disables ARNR
 // filtering; strength is in [0, 6]; filterType selects 1=backward, 2=forward,

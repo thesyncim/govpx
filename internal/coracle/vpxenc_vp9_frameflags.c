@@ -855,6 +855,11 @@ static void apply_vp9_runtime_control_token(
                           control_value_int(token, "deltaquv:"))) {
       die_codec_msg(ctx->ctx, "runtime VP9E_SET_DELTA_Q_UV");
     }
+  } else if (starts_with(token, "maxinter:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_MAX_INTER_BITRATE_PCT,
+                          (unsigned)control_value_int(token, "maxinter:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_MAX_INTER_BITRATE_PCT");
+    }
   } else if (starts_with(token, "active:")) {
     flush_vp9_runtime_config(ctx);
     apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,

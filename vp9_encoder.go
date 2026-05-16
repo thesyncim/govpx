@@ -269,6 +269,10 @@ type VP9EncoderOptions struct {
 	// per-frame bandwidth when non-zero. Mirrors libvpx's
 	// rc_max_intra_bitrate_pct VP9 control; zero disables the cap.
 	MaxIntraBitratePct int
+	// MaxInterBitratePct caps inter-frame bitrate as a percentage of the
+	// per-frame bandwidth when non-zero. Mirrors libvpx's
+	// VP9E_SET_MAX_INTER_BITRATE_PCT control; zero disables the cap.
+	MaxInterBitratePct int
 	// GFCBRBoostPct boosts golden-frame target bits in CBR mode by the
 	// configured percentage of the per-frame bandwidth. Mirrors libvpx's
 	// VP9E_SET_GF_CBR_BOOST_PCT control; zero disables the boost.

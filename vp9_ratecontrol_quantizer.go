@@ -44,7 +44,8 @@ func (rc *vp9RateControlState) keyFrameTargetBits(_ int) int {
 }
 
 func (rc *vp9RateControlState) interFrameTargetBits() int {
-	return rc.perFrameBandwidthTargetBits()
+	target := rc.perFrameBandwidthTargetBits()
+	return rc.applyVP9MaxInterBound(target)
 }
 
 // boostedInterFrameTargetBits applies the libvpx VP9 GF CBR boost on top of
@@ -55,6 +56,7 @@ func (rc *vp9RateControlState) boostedInterFrameTargetBits() int {
 	target := rc.perFrameBandwidthTargetBits()
 	target = rc.applyVP9GFCBRBoost(target)
 	target = rc.applyVP9OvershootBound(target)
+	target = rc.applyVP9MaxInterBound(target)
 	return target
 }
 
@@ -89,7 +91,7 @@ func (rc *vp9RateControlState) onePassVBRKeyFrameTargetBits() int {
 
 func (rc *vp9RateControlState) onePassVBRInterFrameTargetBits(refreshFlags uint8) int {
 	if !vp9BoostedInterRefresh(refreshFlags) {
-		return rc.perFrameBandwidthTargetBits()
+		return rc.applyVP9MaxInterBound(rc.perFrameBandwidthTargetBits())
 	}
 	interval := int(rc.baselineGFInterval)
 	if interval <= 0 {
@@ -101,14 +103,14 @@ func (rc *vp9RateControlState) onePassVBRInterFrameTargetBits(refreshFlags uint8
 	}
 	den := interval + afRatio - 1
 	if den <= 0 {
-		return rc.clampPFrameTargetBits(rc.bitsPerFrame)
+		return rc.applyVP9MaxInterBound(rc.clampPFrameTargetBits(rc.bitsPerFrame))
 	}
 	target := int64(rc.bitsPerFrame) * int64(interval) * int64(afRatio)
 	target /= int64(den)
 	if target > int64(maxInt()) {
 		target = int64(maxInt())
 	}
-	return rc.clampPFrameTargetBits(int(target))
+	return rc.applyVP9MaxInterBound(rc.clampPFrameTargetBits(int(target)))
 }
 
 func (rc *vp9RateControlState) clampPFrameTargetBits(target int) int {

@@ -58,6 +58,20 @@ func (rc *vp9RateControlState) applyVP9MaxIntraBound(target int) int {
 	return target
 }
 
+// applyVP9MaxInterBound caps an inter-frame target by
+// max_inter_bitrate_pct% of the per-frame bandwidth when configured.
+// Mirrors libvpx's VP9E_SET_MAX_INTER_BITRATE_PCT control.
+func (rc *vp9RateControlState) applyVP9MaxInterBound(target int) int {
+	if rc == nil || rc.bitsPerFrame <= 0 || rc.maxInterBitratePct <= 0 {
+		return target
+	}
+	cap := percentOf(rc.bitsPerFrame, rc.maxInterBitratePct)
+	if cap > 0 && target > cap {
+		return cap
+	}
+	return target
+}
+
 // applyVP9GFCBRBoost boosts a golden-frame target by gf_cbr_boost_pct% of
 // the per-frame bandwidth in CBR mode. Mirrors libvpx's
 // VP9E_SET_GF_CBR_BOOST_PCT control.

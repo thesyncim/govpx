@@ -33,6 +33,7 @@ type vp9RateControlState struct {
 	undershootPct      uint8
 	overshootPct       uint8
 	maxIntraBitratePct int
+	maxInterBitratePct int
 	gfCBRBoostPct      int
 
 	bestQuality  uint8
@@ -77,6 +78,9 @@ func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
 		opts.BufferOptimalSizeMs < 0 || opts.DropFrameWaterMark < 0 {
 		return ErrInvalidConfig
 	}
+	if err := validateVP9InterRateBound(opts.MaxInterBitratePct); err != nil {
+		return err
+	}
 	if !opts.RateControlModeSet {
 		if opts.BufferSizeMs != 0 || opts.BufferInitialSizeMs != 0 ||
 			opts.BufferOptimalSizeMs != 0 || opts.DropFrameAllowed ||
@@ -98,6 +102,9 @@ func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
 	if err := validateVP9RateControlBounds(opts.MinBitrateKbps, opts.MaxBitrateKbps,
 		opts.TargetBitrateKbps, opts.UndershootPct, opts.OvershootPct,
 		opts.MaxIntraBitratePct, opts.GFCBRBoostPct); err != nil {
+		return err
+	}
+	if err := validateVP9InterRateBound(opts.MaxInterBitratePct); err != nil {
 		return err
 	}
 	if opts.RateControlMode != RateControlCBR && opts.GFCBRBoostPct != 0 {
@@ -157,6 +164,15 @@ func validateVP9RateControlBounds(minKbps, maxKbps, targetKbps, undershootPct,
 		return ErrInvalidConfig
 	}
 	if maxIntraPct < 0 || gfBoostPct < 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// validateVP9InterRateBound enforces the libvpx VP9 max_inter_bitrate_pct
+// invariant: non-negative.
+func validateVP9InterRateBound(maxInterPct int) error {
+	if maxInterPct < 0 {
 		return ErrInvalidConfig
 	}
 	return nil
@@ -250,6 +266,7 @@ func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOpti
 	rc.undershootPct = uint8(normalizeRateControlPct(opts.UndershootPct, defaultRateControlUndershootPct))
 	rc.overshootPct = uint8(normalizeRateControlPct(opts.OvershootPct, defaultRateControlOvershootPct))
 	rc.maxIntraBitratePct = opts.MaxIntraBitratePct
+	rc.maxInterBitratePct = opts.MaxInterBitratePct
 	rc.gfCBRBoostPct = 0
 	if rc.mode == RateControlCBR {
 		rc.gfCBRBoostPct = opts.GFCBRBoostPct
