@@ -82,7 +82,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality oracle-test byte-parity fuzz-controls decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -94,6 +94,19 @@ fmtcheck:
 		printf 'gofmt needed:\n%s\n' "$$files"; \
 		exit 1; \
 	fi
+	hashseeds="$$(find testdata/fuzz -mindepth 2 -maxdepth 2 -type f -regex '.*/[0-9a-f]\{16\}' 2>/dev/null)"; \
+	if [ -n "$$hashseeds" ]; then \
+		printf 'hash-named fuzz seeds detected (run: make fuzz-rename):\n%s\n' "$$hashseeds"; \
+		exit 1; \
+	fi
+
+# fuzz-rename walks testdata/fuzz/<FuzzName>/ and renames any seed
+# whose filename is the default 16-hex SHA to regression_<case>_<hash8>
+# via `git mv`. Idempotent: rerun after every `make fuzz-controls`
+# session. The `fmtcheck` gate fails if hash-named seeds remain, so
+# this also unblocks commits after a fuzz discovery.
+fuzz-rename:
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) run ./cmd/govpx-fuzz-rename
 
 verify: ci
 
