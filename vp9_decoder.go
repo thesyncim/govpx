@@ -483,6 +483,15 @@ func (d *VP9Decoder) SetRowMT(enabled bool) error {
 	return nil
 }
 
+// Active-map decoder controls: libvpx exposes the active-map feature
+// only on the VP9 encoder side via VP8E_SET_ACTIVEMAP. The VP9 decoder
+// (vp8dx.h) has no VP9D_SET_ACTIVE_MAP or equivalent — active maps
+// describe which encoder superblocks to skip and are not transmitted
+// in the VP9 bitstream. govpx therefore mirrors libvpx exactly: see
+// VP9Encoder.SetActiveMap on the encoder side for the supported
+// surface; the VP9Decoder does not expose a decoder-side active-map
+// control because libvpx does not expose one.
+
 // SetLoopFilterOpt mirrors libvpx VP9D_SET_LOOP_FILTER_OPT. When enabled, the
 // deblock pass dispatches the U / V planes to the loop-filter worker pool
 // concurrently with Y, matching libvpx's pipelined loop-filter optimisation.
