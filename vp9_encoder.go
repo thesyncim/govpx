@@ -9276,8 +9276,10 @@ func alignToSb(miCols int) int {
 
 // Close releases internal state and marks the encoder as no longer
 // usable. Subsequent Encode / EncodeInto calls return [ErrClosed].
+// Close is idempotent: calling it on an already-closed encoder returns
+// [ErrClosed] without re-tearing-down the worker pools.
 func (e *VP9Encoder) Close() error {
-	if e == nil {
+	if e == nil || e.closed {
 		return ErrClosed
 	}
 	if vp9OracleTraceBuild {

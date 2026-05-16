@@ -64,15 +64,18 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 		}
 		for i := range frames {
 			if _, err := warm.EncodeIntoWithResult(ycbcr[i], packet); err != nil {
+				warm.Close()
 				return benchReport{}, fmt.Errorf("vp9 warmup encode frame %d: %w", i, err)
 			}
 		}
+		warm.Close()
 	}
 
 	enc, err := newVP9BenchmarkEncoder(cfg, deadline)
 	if err != nil {
 		return benchReport{}, err
 	}
+	defer enc.Close()
 
 	latencies := make([]int64, 0, cfg.Frames)
 	var quantHist [quantizerHistogramBins]int
@@ -305,6 +308,7 @@ func measuredVP9EncodeQualityMetrics(packets []measuredEncodePacket, frames []go
 	if err != nil {
 		return 0, 0, 0, err
 	}
+	defer dec.Close()
 	dst := newImageBuffer(width, height)
 	psnrSum := 0.0
 	ssimSum := 0.0

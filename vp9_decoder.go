@@ -1453,9 +1453,11 @@ func (d *VP9Decoder) Reset() {
 }
 
 // Close releases internal state and marks the decoder as no longer
-// usable. Subsequent calls to Decode return [ErrClosed].
+// usable. Subsequent calls to Decode return [ErrClosed]. Close is
+// idempotent: calling it on an already-closed decoder returns
+// [ErrClosed] without re-tearing-down the worker pools.
 func (d *VP9Decoder) Close() error {
-	if d == nil {
+	if d == nil || d.closed {
 		return ErrClosed
 	}
 	d.Reset()

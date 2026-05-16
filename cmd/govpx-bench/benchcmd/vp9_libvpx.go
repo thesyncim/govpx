@@ -263,6 +263,7 @@ func vp9ReferenceQualityMetrics(ivf []byte, frames []govpx.Image) (float64, floa
 	if err != nil {
 		return 0, 0, 0, err
 	}
+	defer dec.Close()
 	width, height := frames[0].Width, frames[0].Height
 	dst := newImageBuffer(width, height)
 	const (

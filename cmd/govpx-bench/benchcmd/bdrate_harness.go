@@ -252,10 +252,12 @@ func encodeBDOperatingPoint(opts BDRateOptions, q int, apply func(*govpx.VP9Enco
 	if err != nil {
 		return QualityPoint{}, fmt.Errorf("NewVP9Encoder: %w", err)
 	}
+	defer enc.Close()
 	dec, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		return QualityPoint{}, fmt.Errorf("NewVP9Decoder: %w", err)
 	}
+	defer dec.Close()
 	bufSize := max(opts.Width*opts.Height*6, 65536)
 	dst := make([]byte, bufSize)
 	totalBytes := 0
