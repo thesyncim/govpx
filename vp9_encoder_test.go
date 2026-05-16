@@ -4028,6 +4028,141 @@ func TestVP9EncoderEncodeIntoWithFlagsForceKeyFrameOneShot(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderAdaptiveKeyFramesPromotesSceneCut(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		MaxKeyframeInterval: 999,
+		AdaptiveKeyFrames:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	key, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 16, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	if !key.KeyFrame {
+		t.Fatal("first VP9 frame was not a keyframe")
+	}
+	cut, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 240, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode scene cut: %v", err)
+	}
+	if !cut.KeyFrame {
+		t.Fatal("adaptive scene-cut frame KeyFrame = false, want true")
+	}
+	if e.framesSinceKey != 0 {
+		t.Fatalf("framesSinceKey after adaptive keyframe = %d, want 0",
+			e.framesSinceKey)
+	}
+}
+
+func TestVP9EncoderAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		MaxKeyframeInterval: 999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 16, 128, 128), dst); err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	inter, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 240, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatal("default VP9 scene-cut frame became keyframe")
+	}
+	if err := e.SetAdaptiveKeyFrames(true); err != nil {
+		t.Fatalf("SetAdaptiveKeyFrames(true): %v", err)
+	}
+	if !e.opts.AdaptiveKeyFrames {
+		t.Fatal("SetAdaptiveKeyFrames(true) did not update options")
+	}
+	if err := e.SetAdaptiveKeyFrames(false); err != nil {
+		t.Fatalf("SetAdaptiveKeyFrames(false): %v", err)
+	}
+	if e.opts.AdaptiveKeyFrames {
+		t.Fatal("SetAdaptiveKeyFrames(false) did not update options")
+	}
+}
+
+func TestVP9EncoderAdaptiveKeyFramesHonorMinDistance(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		MinKeyframeInterval: 2,
+		MaxKeyframeInterval: 999,
+		AdaptiveKeyFrames:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 16, 128, 128), dst); err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	blocked, err := e.EncodeIntoWithFlagsResult(
+		newVP9YCbCrForTest(width, height, 240, 128, 128), dst,
+		EncodeForceGoldenFrame|EncodeForceAltRefFrame)
+	if err != nil {
+		t.Fatalf("Encode min-distance blocked scene cut: %v", err)
+	}
+	if blocked.KeyFrame {
+		t.Fatal("adaptive scene cut ignored MinKeyframeInterval")
+	}
+	allowed, err := e.EncodeIntoWithResult(
+		newVP9YCbCrForTest(width, height, 16, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode min-distance allowed scene cut: %v", err)
+	}
+	if !allowed.KeyFrame {
+		t.Fatal("adaptive scene cut did not fire after MinKeyframeInterval elapsed")
+	}
+}
+
+func TestVP9EncoderAdaptiveKeyFramesSteadyStateNoAlloc(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		MaxKeyframeInterval: 999,
+		AdaptiveKeyFrames:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	dst := make([]byte, 65536)
+	for i := 0; i < 3; i++ {
+		if _, err := e.EncodeIntoWithResult(src, dst); err != nil {
+			t.Fatalf("warm EncodeIntoWithResult[%d]: %v", i, err)
+		}
+	}
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		if _, err := e.EncodeIntoWithResult(src, dst); err != nil {
+			t.Fatalf("adaptive EncodeIntoWithResult: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("adaptive keyframe steady state allocs = %f, want 0", allocs)
+	}
+}
+
 func TestVP9EncoderSetRealtimeTargetUpdatesHints(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{
 		Width:             64,

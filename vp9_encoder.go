@@ -172,6 +172,11 @@ type VP9EncoderOptions struct {
 	// MaxKeyframeInterval bounds the gap between key frames. Zero
 	// uses libvpx's default (kf_max_dist=128).
 	MaxKeyframeInterval int
+	// AdaptiveKeyFrames enables VP9 one-pass scene-cut keyframe promotion.
+	// Eligible visible inter frames are promoted when every usable reference is
+	// a poor luma predictor and intra prediction is materially cheaper. The
+	// MinKeyframeInterval setting gates these automatic promotions.
+	AdaptiveKeyFrames bool
 
 	// ErrorResilient enables the libvpx error-resilient bit on every
 	// frame header.
@@ -413,6 +418,9 @@ type VP9Encoder struct {
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
 	frameIndex int
+	// framesSinceKey tracks committed and dropped frames since the last
+	// keyframe for adaptive keyframe min-distance gating.
+	framesSinceKey uint16
 	// forceKeyFrame is a sticky one-shot request consumed by the next
 	// successfully committed frame.
 	forceKeyFrame bool
@@ -1384,6 +1392,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if intraOnly {
 		isKey = false
 	}
+	if !isKey && !intraOnly &&
+		e.shouldEncodeVP9SceneCutKeyFrame(img, flags, temporalFrame.Enabled,
+			encoderMacroblockRows(e.opts.Height), encoderMacroblockCols(e.opts.Width)) {
+		isKey = true
+	}
 	if forceFirstInterLayer && isKey && e.frameIndex == 0 &&
 		!e.forceKeyFrame && flags&EncodeForceKeyFrame == 0 &&
 		e.hasVP9UsableInterReference(flags) {
@@ -1436,6 +1449,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 					BufferOptimalBits:  e.rc.bufferOptimalBits,
 				})
 			}
+			e.vp9FinishKeyFrameDistance(false)
 			e.frameIndex++
 			spatialLayerID, spatialLayerCount, interLayerDependency,
 				notRefForUpperSpatialLayer, scalabilityStructurePresent,
@@ -1735,6 +1749,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
 		encodedSizeBits(n), e.vp9TemporalBufferConfig())
+	e.vp9FinishKeyFrameDistance(isKey)
 	e.frameIndex++
 	if isKey {
 		e.forceKeyFrame = false

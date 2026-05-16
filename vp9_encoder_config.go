@@ -475,6 +475,18 @@ func (e *VP9Encoder) SetKeyFrameIntervalRange(minFrames, maxFrames int) error {
 	return nil
 }
 
+// SetAdaptiveKeyFrames enables or disables VP9 one-pass scene-cut keyframe
+// promotion for subsequent frames. Disabling preserves explicit and
+// MaxKeyframeInterval keyframes; it only turns off content-driven automatic
+// promotions.
+func (e *VP9Encoder) SetAdaptiveKeyFrames(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.AdaptiveKeyFrames = enabled
+	return nil
+}
+
 // SetARNR changes VP9 auto-alt-ref temporal filtering controls at runtime.
 // maxFrames is the ARNR window length in [0, 15], where 0 or 1 disables ARNR
 // filtering; strength is in [0, 6]; filterType selects 1=backward, 2=forward,

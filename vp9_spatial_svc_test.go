@@ -677,6 +677,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerKeyFrameIntervalRange(0, 1, 7); err != nil {
 		t.Fatalf("SetLayerKeyFrameIntervalRange: %v", err)
 	}
+	if err := svc.SetLayerAdaptiveKeyFrames(0, true); err != nil {
+		t.Fatalf("SetLayerAdaptiveKeyFrames: %v", err)
+	}
 	if err := svc.SetLayerCQLevel(1, 24); err != nil {
 		t.Fatalf("SetLayerCQLevel: %v", err)
 	}
@@ -715,7 +718,8 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		base.opts.Sharpness != 4 ||
 		base.opts.StaticThreshold != 512 ||
 		base.opts.MinKeyframeInterval != 1 ||
-		base.opts.MaxKeyframeInterval != 7 {
+		base.opts.MaxKeyframeInterval != 7 ||
+		!base.opts.AdaptiveKeyFrames {
 		t.Fatalf("base layer advanced controls missing: opts=%+v rc=%+v",
 			base.opts, base.rc)
 	}
@@ -771,6 +775,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerKeyFrameIntervalRange(0, 8, 7); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerKeyFrameIntervalRange invalid err = %v, want ErrInvalidConfig", err)
 	}
+	if err := svc.SetLayerAdaptiveKeyFrames(2, false); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerAdaptiveKeyFrames invalid layer err = %v, want ErrInvalidConfig", err)
+	}
 	if err := svc.SetLayerRealtimeTarget(2, RealtimeTarget{
 		BitrateKbps: 100,
 	}); !errors.Is(err, ErrInvalidConfig) {
@@ -791,6 +798,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerAQMode(0, VP9AQNone); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerAQMode after close err = %v, want ErrClosed", err)
 	}
+	if err := svc.SetLayerAdaptiveKeyFrames(0, false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerAdaptiveKeyFrames after close err = %v, want ErrClosed", err)
+	}
 	var nilSVC *VP9SpatialSVCEncoder
 	if err := nilSVC.SetLayerRealtimeTarget(0, RealtimeTarget{
 		BitrateKbps: 360,
@@ -802,6 +812,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if err := nilSVC.SetLayerAQMode(0, VP9AQNone); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerAQMode on nil err = %v, want ErrClosed", err)
+	}
+	if err := nilSVC.SetLayerAdaptiveKeyFrames(0, false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerAdaptiveKeyFrames on nil err = %v, want ErrClosed", err)
 	}
 }
 
@@ -866,6 +879,9 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerKeyFrameInterval", fn: func() error { return svc.SetLayerKeyFrameInterval(0, 7) }},
 		{name: "SetLayerKeyFrameIntervalRange", fn: func() error {
 			return svc.SetLayerKeyFrameIntervalRange(0, 1, 7)
+		}},
+		{name: "SetLayerAdaptiveKeyFrames", fn: func() error {
+			return svc.SetLayerAdaptiveKeyFrames(0, true)
 		}},
 		{name: "SetLayerARNR", fn: func() error { return svc.SetLayerARNR(1, 3, 4, 2) }},
 	}

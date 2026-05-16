@@ -167,6 +167,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"ForceKeyFrame":               {kind: "frame-flag-api"},
 		"IsKeyFrameNext":              {kind: "metadata-api"},
 		"CopyReferenceFrame":          {kind: "libvpx-control", helperTokens: []string{"copyref:"}},
+		"SetAdaptiveKeyFrames":        {kind: "vp9-scene-cut-control"},
 		"SetAQMode":                   {kind: "libvpx-control", helperTokens: []string{"aq:"}},
 		"SetARNR":                     {kind: "libvpx-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
 		"SetActiveMap":                {kind: "libvpx-control", helperTokens: []string{"active:"}},
@@ -204,6 +205,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 	fields := exportedFieldSet(t, VP9EncoderOptions{})
 	want := map[string]controlParityMapping{
+		"AdaptiveKeyFrames":   {kind: "vp9-scene-cut-control"},
 		"AQMode":              {kind: "libvpx-vp9-aq-mode-scoreboard"},
 		"ARNRMaxFrames":       {kind: "libvpx-control", helperTokens: []string{"arnrmax:", "--arnr-maxframes"}},
 		"ARNRStrength":        {kind: "libvpx-control", helperTokens: []string{"arnrstrength:", "--arnr-strength"}},
@@ -305,13 +307,14 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"copyref:"},
 		},
-		"SetLayerAQMode":      {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"aq:"}},
-		"SetLayerBitrateKbps": {kind: "vp9-spatial-svc-layer-control"},
-		"SetLayerActiveMap":   {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"active:"}},
-		"SetLayerARNR":        {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
-		"SetLayerCPUUsed":     {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cpu:"}},
-		"SetLayerCQLevel":     {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cq:"}},
-		"SetLayerDeadline":    {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"deadline:"}},
+		"SetLayerAdaptiveKeyFrames": {kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerAQMode":            {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"aq:"}},
+		"SetLayerBitrateKbps":       {kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerActiveMap":         {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"active:"}},
+		"SetLayerARNR":              {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
+		"SetLayerCPUUsed":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cpu:"}},
+		"SetLayerCQLevel":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cq:"}},
+		"SetLayerDeadline":          {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"deadline:"}},
 		"SetLayerFrameDropAllowed": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"drop:"},
