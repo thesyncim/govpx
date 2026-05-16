@@ -261,12 +261,16 @@ func TestVP9FeatureBDRateTPL(t *testing.T) {
 			res.BDRate)
 	}
 	// TPL is a libvpx-default good-quality pass; libvpx-with-TPL is
-	// the reference benchmark. govpx's TPL implementation today only
-	// applies a scalar frame-mean qindex bias (per-SB segmentation
-	// routing is in flight); the absolute gap to libvpx-with-TPL is
-	// therefore wider than the within-govpx gap. Use the default
-	// 20% cap for now; the gate will be ratcheted as per-SB routing
-	// lands.
+	// the reference benchmark.  govpx's TPL is now a verbatim port of
+	// libvpx's TplDepStats data model and get_rdmult_delta machinery
+	// (libvpx: vp9/encoder/vp9_tpl_model.c:679-694,
+	// vp9/encoder/vp9_encodeframe.c:3602-3660), but it is only wired
+	// into the keyframe mode picker — the inter mode picker still uses
+	// a non-Lagrangian rate score (vp9_encoder.go::
+	// vp9ModeDecisionRateScore) that cannot consume the per-SB rdmult
+	// delta until it is reshaped into proper Lagrangian RD form.  The
+	// absolute gap to libvpx-with-TPL therefore remains wider than the
+	// within-govpx gap and the default 20% cap stays in place.
 	assertLibvpxAbsoluteGate(t, "TPL", res, defaultLibvpxAbsoluteGate)
 }
 

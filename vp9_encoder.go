@@ -822,6 +822,10 @@ type VP9Encoder struct {
 	// tpl carries the per-encoder TPL quality-pass state when EnableTPL
 	// is true.  Slabs are sized at construction or on resolution change.
 	tpl vp9TPLState
+	// tplRDMultDeltaCalls counts how many SB-level rdmult delta lookups
+	// produced a non-identity scaling.  Tests consume this to assert the
+	// TPL→mode-picker wiring is actually firing.
+	tplRDMultDeltaCalls int
 
 	// mvHints carries the per-SB64 motion-vector hint slab installed
 	// via importVP9MVHints. The multi-resolution encoder pipeline
@@ -2118,15 +2122,16 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
 	macroblocks := vp9MacroblockCount(miRows, miCols)
-	// TPL runs before the qindex is finalised so its scalar bias can
-	// modulate the regulated qindex.  The pass only fires on visible
-	// inter frames while a populated source-order lookahead window is
-	// available; alt-ref / intra-only / keyframes are excluded for
-	// parity with the libvpx restriction.
-	e.populateVP9TPLForFrame(isKey || intraOnly || !showFrame || flags&EncodeForceAltRefFrame != 0, img)
+	// TPL runs before the qindex is finalised so its per-SB rdmult delta
+	// can scale the keyframe mode picker's Lagrangian search.  Unlike
+	// the deleted scalar bias path, libvpx's TPL does NOT touch the
+	// regulated qindex — it routes through cb_rdmult inside the per-SB
+	// partition search (vp9_encodeframe.c:4245-4248).  The pass fires on
+	// visible frames whenever a populated source-order lookahead window
+	// is available; alt-ref / hidden frames are excluded for parity
+	// with libvpx's restriction.
+	e.populateVP9TPLForFrame(!showFrame || flags&EncodeForceAltRefFrame != 0, img)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
-	qindex = e.applyVP9TPLQIndexBias(qindex, isKey || intraOnly || !showFrame ||
-		flags&EncodeForceAltRefFrame != 0)
 	if e.rc.enabled {
 		e.vp9ModeDecisionQIndex = uint8(qindex)
 		e.vp9ModeDecisionQIndexSet = true
@@ -5568,10 +5573,21 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	var yModeCosts [common.IntraModes]int
 	encoder.VP9CostTokens(yModeCosts[:], yModeProbs, common.IntraModeTree[:])
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	// Apply libvpx's per-SB TPL rdmult scaling.  The base rdmult is the
+	// keyframe Lagrange multiplier vp9KeyframeRDMul(qindex); TPL biases
+	// it via get_rdmult_delta clamped to [orig/2, orig*3/2] before
+	// running the per-mode RD search.
+	// libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248
+	rdmult := vp9KeyframeRDMul(qindex)
+	if bsize < common.BlockSizes {
+		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
+		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
+		rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
+	}
 
 	bestMode := common.DcPred
-	bestScore, ok := e.scoreVP9KeyframeMode(key, bestMode,
-		yModeCosts[bestMode], qindex, tile, miRows, miCols, miRow, miCol,
+	bestScore, ok := e.scoreVP9KeyframeModeRD(key, bestMode,
+		yModeCosts[bestMode], rdmult, tile, miRows, miCols, miRow, miCol,
 		bsize, mi)
 	if !ok {
 		return bestMode
@@ -5579,8 +5595,8 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	// The realtime keyframe picker mirrors vp9_pick_intra_mode and only
 	// evaluates DC, V, and H for >=8x8 blocks.
 	for mode := common.DcPred + 1; mode <= common.HPred; mode++ {
-		score, ok := e.scoreVP9KeyframeMode(key, mode, yModeCosts[mode],
-			qindex, tile, miRows, miCols, miRow, miCol, bsize, mi)
+		score, ok := e.scoreVP9KeyframeModeRD(key, mode, yModeCosts[mode],
+			rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi)
 		if ok && score < bestScore {
 			bestScore = score
 			bestMode = mode
@@ -5589,8 +5605,13 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	return bestMode
 }
 
-func (e *VP9Encoder) scoreVP9KeyframeMode(key *vp9KeyframeEncodeState,
-	mode common.PredictionMode, rate, qindex int, tile vp9dec.TileBounds,
+// scoreVP9KeyframeModeRD computes the Lagrangian RD cost of a keyframe mode
+// using an explicit rdmult.  The picker computes rdmult once per SB —
+// optionally adjusted by the TPL per-SB delta (libvpx: vp9_encodeframe.c:4245
+// -4248 wiring x->cb_rdmult from get_rdmult_delta) — and feeds it into every
+// candidate score so all candidates are compared under the same multiplier.
+func (e *VP9Encoder) scoreVP9KeyframeModeRD(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, rate, rdmult int, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi,
 ) (uint64, bool) {
@@ -5613,7 +5634,7 @@ func (e *VP9Encoder) scoreVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	} else {
 		rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
 	}
-	return vp9RDCost(vp9KeyframeRDMul(qindex), vp9RDDivBits, rate, distortion), true
+	return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion), true
 }
 
 func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState,
@@ -8090,6 +8111,14 @@ func vp9ModeDecisionRateScore(rate, qindex int) uint64 {
 	if rate < 0 {
 		rate = 0
 	}
+	// TODO: requires Lagrangian RD shape.  libvpx's TPL per-SB rdmult
+	// delta multiplies a true Lagrange multiplier
+	// (vp9_compute_rd_mult_based_on_qindex == q*q*(4.15+0.001*qindex),
+	// vp9_rd.c:241-275); govpx's inter mode picker still uses this
+	// linear (rate*(1+qindex/32)) score so the per-SB rdmult delta from
+	// TPL cannot be applied here without reshaping the inter picker
+	// into Lagrangian RD form.  The keyframe picker uses the proper
+	// vp9KeyframeRDMul form and consumes the TPL rdmult delta directly.
 	lambda := 1
 	if qindex > 0 {
 		lambda += qindex / 32

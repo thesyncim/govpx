@@ -1,14 +1,13 @@
 // Package govpx VP9 TPL (Temporal Prediction Loop) quality pass.
 //
-// TPL is libvpx's lookahead-based per-SB importance analysis that biases the
-// effective quantizer toward super-blocks that propagate the most signal to
-// future frames. The libvpx reference lives in vp9/encoder/vp9_tpl_model.c;
-// govpx's port follows the same data flow (per-frame stats slab keyed by 32x32
-// SB index, single-step inter propagation, and a per-SB qindex delta map) but
-// uses a simplified coarse motion search and skips the recursive cross-frame
-// propagation that libvpx performs.  Single-step propagation is sufficient for
-// the BD-rate baseline reported in the libvpx VP9 TPL paper at a fraction of
-// the runtime cost.
+// TPL is libvpx's lookahead-based per-block importance analysis that biases
+// the per-SB Lagrangian RD multiplier toward super-blocks that propagate the
+// most signal to future frames. The libvpx reference lives in
+// vp9/encoder/vp9_tpl_model.c and vp9/encoder/vp9_encodeframe.c; the data
+// model below is a verbatim port of libvpx's TplDepStats / TplDepFrame
+// (vp9/encoder/vp9_encoder.h:294-328) at a coarser 32x32 SB granularity than
+// libvpx's 8x8 per-MI grid.  The rdmult delta machinery (r0, beta, dr clamp)
+// is ported verbatim.
 //
 // Parity caveats versus libvpx:
 //
@@ -16,28 +15,31 @@
 //     precision and a search range of 64.  govpx uses a 16-pixel integer-pel
 //     diamond search (libvpx's tpl_mv_search_range default) and skips sub-pel
 //     refinement.
-//   - libvpx propagates importance through every future frame in the lookahead
-//     window using a recursive formulation.  govpx does single-frame-distance
-//     propagation: each TPL stats slab only depends on the immediately-next
-//     source-order frame.
+//   - libvpx tracks TplDepStats per 8x8 MI; govpx aggregates at 32x32 SB to
+//     keep the propagation loop cheap.  The rdmult delta is computed at the
+//     same 32x32 SB granularity (libvpx computes it at 64x64).
 //   - libvpx integrates TPL with the alt-ref / show-existing scheduler.  govpx
 //     restricts TPL to source-order frames only and skips the pass while an
 //     alt-ref is pending.
-//   - libvpx's per-SB qindex delta is applied through a dedicated segmentation
-//     channel.  Until row-MT is in place, govpx applies the frame-mean of the
-//     per-SB delta map as a scalar bias on the frame's qindex; the per-SB map
-//     itself is exposed through a read-only accessor so the row-MT integration
-//     can consume it without restructuring this package.
+//   - libvpx's per-SB rdmult delta is wired into both the keyframe partition
+//     search and the inter mode picker.  govpx currently wires it only into
+//     the keyframe mode picker; the inter mode picker uses a non-Lagrangian
+//     score (rate * (1 + qindex/32), vp9_encoder.go::vp9ModeDecisionRateScore)
+//     that is not compatible with libvpx's rdmult shape and is left as a TODO
+//     until the inter picker is Lagrangianised.
 package govpx
 
 import (
 	"image"
 	"math"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 const (
 	// vp9TPLSBSizeLog2 is log2 of the TPL super-block size in pixels.
-	// Mirrors libvpx's BLOCK_32X32 stat granularity.
+	// govpx aggregates TPL stats at BLOCK_32X32 to keep the propagation
+	// loop cheap; libvpx tracks at BLOCK_8X8.
 	vp9TPLSBSizeLog2 = 5
 	// vp9TPLSBSize is the TPL super-block size in pixels.
 	vp9TPLSBSize = 1 << vp9TPLSBSizeLog2
@@ -48,50 +50,85 @@ const (
 	// the practical window at MAX_LAG_BUFFERS=25 which matches govpx's
 	// existing vp9MaxLookaheadFrames.
 	vp9TPLMaxLookaheadFrames = vp9MaxLookaheadFrames
-	// vp9TPLSubpelSearchSteps controls sub-pel refinement.  Zero matches the
-	// minimum-viable port (integer-pel motion search only).
-	vp9TPLSubpelSearchSteps = 0
 	// vp9TPLMvSearchRange is the half-window for the coarse motion search.
 	// Mirrors libvpx's tpl_mv_search_range default of 16.
 	vp9TPLMvSearchRange = 16
-	// vp9TPLMaxQDelta caps the magnitude of the per-SB qindex delta TPL is
-	// allowed to apply.  Mirrors libvpx's clamp(deltaq_offset, -15, 15).
-	vp9TPLMaxQDelta = 15
-	// vp9TPLPropagationShift sets how aggressively propagation factors bias
-	// the qindex delta.  Larger values squash deltas closer to zero.
-	vp9TPLPropagationShift = 10
 )
 
-// vp9TPLStats holds the coarse importance accumulator for one TPL SB.
+// vp9TPLStats holds the per-SB TPL bookkeeping.  Field layout mirrors
+// libvpx's TplDepStats struct.
+//
+// libvpx: vp9/encoder/vp9_encoder.h:294-303
+//
+//	typedef struct TplDepStats {
+//	  int64_t intra_cost;
+//	  int64_t inter_cost;
+//	  int64_t mc_flow;
+//	  int64_t mc_dep_cost;
+//	  int64_t mc_ref_cost;
+//	  int ref_frame_index;
+//	  int_mv mv;
+//	} TplDepStats;
 type vp9TPLStats struct {
-	// IntraCost is the SAD-style residual energy if the SB is intra-coded
-	// against its reference-anchor (zero MV).
-	IntraCost uint32
-	// InterCost is the residual energy after the coarse motion search to
-	// the lookahead-source-order frame at distance one.
-	InterCost uint32
+	// IntraCost is the per-SB intra prediction cost (libvpx's
+	// intra_cost).  govpx approximates this with the SB luma variance
+	// proxy; libvpx uses a full intra mode search SATD/RD.
+	IntraCost int64
+	// InterCost is the residual cost after the coarse motion search to
+	// the lookahead-source-order frame at distance one (libvpx's
+	// inter_cost).
+	InterCost int64
+	// McFlow is the recursive motion-compensated flow accumulator
+	// (libvpx's mc_flow, vp9_tpl_model.c:679-694).
+	McFlow int64
+	// McDepCost is the dependency cost: intra_cost + mc_flow (libvpx's
+	// mc_dep_cost; libvpx initialises it lazily inside the propagation
+	// pass since intra_cost is filled first and mc_flow accumulates).
+	McDepCost int64
+	// McRefCost is the reference cost: (intra - inter) accumulated by
+	// downstream frames pointing at this SB (libvpx's mc_ref_cost).
+	McRefCost int64
 	// MVRow, MVCol are the integer-pel motion vector that minimised
-	// InterCost.  Stored in pixel units.
+	// InterCost.  Stored in pixel units.  libvpx tracks an int_mv at
+	// 1/8-pel precision; govpx searches integer-pel only.
 	MVRow int16
 	MVCol int16
-	// Propagation accumulates how often this SB is re-referenced by
-	// future-frame SBs.  Higher values mark important SBs.
-	Propagation uint32
+	// RefFrameIndex selects which reference slab fed mc_flow.  govpx
+	// only references the next source-order frame, so this is always 0
+	// (the next slab) when InterCost < IntraCost and -1 otherwise.
+	RefFrameIndex int8
 }
 
-// vp9TPLFrameStats is the per-frame TPL slab.  It owns one vp9TPLStats per
-// 32x32 SB plus the derived per-SB qindex delta map.
+// vp9TPLFrameStats is the per-frame TPL slab.  Field layout mirrors libvpx's
+// TplDepFrame struct.
+//
+// libvpx: vp9/encoder/vp9_encoder.h:314-328
+//
+//	typedef struct TplDepFrame {
+//	  uint8_t is_valid;
+//	  TplDepStats *tpl_stats_ptr;
+//	  int stride;
+//	  int width;
+//	  int height;
+//	  int mi_rows;
+//	  int mi_cols;
+//	  int base_qindex;
+//	  ...
+//	} TplDepFrame;
 type vp9TPLFrameStats struct {
 	SBRows int
 	SBCols int
 	Stats  []vp9TPLStats
-	// QDelta is the per-SB int8 qindex delta applied as an overlay on top
-	// of the frame-regulated base qindex.  Length is SBRows*SBCols.
-	QDelta []int8
-	// FrameMeanQDelta is the simple-mean of QDelta used as a scalar bias on
-	// frames where the per-SB delta cannot be routed through segmentation.
-	FrameMeanQDelta int
-	// Valid is set once the slab has been populated by [vp9TPLState.populate].
+	// R0 is the per-frame intra/dependency-cost ratio used by
+	// get_rdmult_delta.  libvpx stores this on cpi->rd.r0 rather than on
+	// the slab; govpx keeps it on the slab so the next-to-encode slab
+	// carries the right ratio without referencing global encoder state.
+	//
+	// libvpx: vp9/encoder/vp9_encodeframe.c:5707-5708
+	//   cpi->rd.r0 = (double)intra_cost_base / mc_dep_cost_base;
+	R0 float64
+	// Valid is set once the slab has been populated by
+	// [vp9TPLState.populate].  Mirrors libvpx's TplDepFrame.is_valid.
 	Valid bool
 }
 
@@ -118,33 +155,33 @@ func (e *VP9Encoder) vp9TPLEnabled() bool {
 	return e != nil && e.opts.EnableTPL && e.tpl.enabled
 }
 
-// vp9TPLFrameDelta returns the per-SB int8 qindex delta map for the next
-// frame to be encoded, or nil when TPL is disabled or no slab is ready.  The
-// slice is read-only for callers; copy if you need to persist it.
-func (e *VP9Encoder) vp9TPLFrameDelta() ([]int8, int, int) {
+// vp9TPLFrameR0 returns the per-frame intra/mc_dep_cost ratio for the next
+// frame to encode, or zero if no slab is ready.  Mirrors libvpx's
+// cpi->rd.r0 lookup at the start of get_rdmult_delta
+// (vp9/encoder/vp9_encodeframe.c:3651).
+func (e *VP9Encoder) vp9TPLFrameR0() float64 {
 	if !e.vp9TPLEnabled() || len(e.tpl.frames) == 0 {
-		return nil, 0, 0
+		return 0
 	}
 	slab := &e.tpl.frames[0]
 	if !slab.Valid {
-		return nil, 0, 0
+		return 0
 	}
-	return slab.QDelta, slab.SBRows, slab.SBCols
+	return slab.R0
 }
 
-// vp9TPLFrameMeanQDelta returns the integer-rounded mean of the per-SB qindex
-// delta for the next frame, or zero when no slab is ready.  This is the
-// scalar bias [VP9Encoder.vp9EncoderFrameQIndex] adds on top of the regulated
-// frame qindex while per-SB routing is unavailable.
-func (e *VP9Encoder) vp9TPLFrameMeanQDelta() int {
+// vp9TPLFrameSlab returns the active per-SB slab for the next frame to
+// encode, or nil if no slab is ready.  Internal callers consume this to
+// implement per-SB rdmult scaling.
+func (e *VP9Encoder) vp9TPLFrameSlab() *vp9TPLFrameStats {
 	if !e.vp9TPLEnabled() || len(e.tpl.frames) == 0 {
-		return 0
+		return nil
 	}
 	slab := &e.tpl.frames[0]
 	if !slab.Valid {
-		return 0
+		return nil
 	}
-	return slab.FrameMeanQDelta
+	return slab
 }
 
 func vp9TPLSBGridDims(width, height int) (rows, cols int) {
@@ -190,7 +227,6 @@ func (s *vp9TPLState) configure(enabled bool, width, height, lookahead int) {
 			SBRows: sbRows,
 			SBCols: sbCols,
 			Stats:  make([]vp9TPLStats, cells),
-			QDelta: make([]int8, cells),
 		}
 	}
 }
@@ -200,12 +236,9 @@ func (s *vp9TPLState) configure(enabled bool, width, height, lookahead int) {
 func (s *vp9TPLState) invalidateAll() {
 	for i := range s.frames {
 		s.frames[i].Valid = false
-		s.frames[i].FrameMeanQDelta = 0
+		s.frames[i].R0 = 0
 		for j := range s.frames[i].Stats {
 			s.frames[i].Stats[j] = vp9TPLStats{}
-		}
-		for j := range s.frames[i].QDelta {
-			s.frames[i].QDelta[j] = 0
 		}
 	}
 }
@@ -222,12 +255,9 @@ func (s *vp9TPLState) shiftAndInvalidate() {
 	copy(s.frames[:len(s.frames)-1], s.frames[1:])
 	// Reuse the head slab as the new tail to avoid a fresh allocation.
 	head.Valid = false
-	head.FrameMeanQDelta = 0
+	head.R0 = 0
 	for j := range head.Stats {
 		head.Stats[j] = vp9TPLStats{}
-	}
-	for j := range head.QDelta {
-		head.QDelta[j] = 0
 	}
 	s.frames[len(s.frames)-1] = head
 }
@@ -246,43 +276,84 @@ func (s *vp9TPLState) populate(frames []*image.YCbCr) {
 	if !s.enabled || len(frames) < vp9TPLMinLookaheadFrames || len(s.frames) == 0 {
 		return
 	}
-	limit := min(len(frames)-1, len(s.frames))
-	// Stage A: per-frame coarse motion estimation and intra-energy estimate.
-	for idx := range limit {
+	limit := min(len(frames), len(s.frames))
+	// Stage A: per-frame coarse motion estimation.
+	//
+	// libvpx's TPL does motion search against PAST anchors and pushes
+	// mc_flow BACKWARD onto the reference (vp9_tpl_model.c:1762 — the
+	// outer GOP loop walks frame_idx from tpl_group_frames-1 down to 1).
+	// govpx's lookahead-only design has no decoded past sources at TPL
+	// time, so we anchor every future slab against frames[0] (the frame
+	// currently being encoded).  Each future slab's MV records the
+	// motion FROM that slab TO frames[0]; propagation then pushes the
+	// future slab's mc_flow BACK into the slab[0] cell its MV points at
+	// — matching libvpx's backward direction even though the search
+	// anchor sits in the lookahead rather than the past.
+	//
+	// Slab[0] is the encoded frame; its IntraCost is its self-variance
+	// proxy and InterCost is the InterCost the next future frame
+	// recorded against it.  We do not motion-search slab[0] (no past
+	// reference available) so its MV stays (0,0).
+	if len(frames) > 0 && len(s.frames) > 0 {
+		s.computeIntraStats(frames[0], &s.frames[0])
+	}
+	for idx := 1; idx < limit; idx++ {
 		current := frames[idx]
-		nextSrc := frames[idx+1]
+		anchor := frames[0]
 		slab := &s.frames[idx]
-		s.computeFrameStats(current, nextSrc, slab)
+		s.computeFrameStats(current, anchor, slab)
 	}
-	// Stage B: single-step propagation — each SB inherits a fraction of its
-	// matched-block propagation in the next frame proportional to the
-	// reduction in residual the coarse MV achieved.  Stage A above has
-	// populated every slab in [0, limit) with motion stats so propagation
-	// can read directly from the in-flight (not-yet-Valid) future slab.
-	// Gating propagation on Valid like the original implementation made
-	// the loop a no-op because Stage C is where Valid is finally set;
-	// every Stage-B step ran with next == nil and Propagation stayed 0.
-	for idx := limit - 1; idx >= 0; idx-- {
+	// Stage B: backward mc_flow propagation.  libvpx walks from the
+	// farthest GOP frame back toward frame 1 (vp9_tpl_model.c:1762);
+	// govpx walks from the farthest lookahead slab back toward slab 1
+	// and pushes each slab's mc_flow into slab[0] (the encoded frame's
+	// dependency cost).
+	//
+	// libvpx: vp9/encoder/vp9_tpl_model.c:679-694 (tpl_model_update_b)
+	for idx := limit - 1; idx >= 1; idx-- {
 		slab := &s.frames[idx]
-		var next *vp9TPLFrameStats
-		if idx+1 < limit {
-			next = &s.frames[idx+1]
-		}
-		s.propagateFrame(slab, next)
+		s.propagateFrame(slab, &s.frames[0])
 	}
-	// Stage C: derive a per-SB qindex delta from the propagation factor and
-	// per-SB intra/inter cost ratio.  The frame-mean of the per-SB delta
-	// is the scalar bias [vp9EncoderFrameQIndex] applies until per-SB
-	// segmentation routing is wired up.
+	// Stage C: derive the per-frame r0 ratio from slab[0]'s accumulated
+	// intra/mc_dep_cost totals.  libvpx writes this onto cpi->rd.r0 at
+	// the top of the per-frame encode (vp9_encodeframe.c:5707-5708);
+	// govpx caches it on slab[0] so the next-to-encode frame can read
+	// it without referencing global encoder state.
 	for idx := range limit {
 		slab := &s.frames[idx]
-		s.deriveQDelta(slab)
+		s.deriveFrameR0(slab)
 		slab.Valid = true
 	}
 }
 
+// computeIntraStats fills the intra-only stats for slab against src.  Used on
+// slab[0] (the encoded frame, no past reference available) so its
+// IntraCost / McDepCost seed is populated before downstream slabs push
+// mc_flow into it.
+func (s *vp9TPLState) computeIntraStats(src *image.YCbCr, slab *vp9TPLFrameStats) {
+	if src == nil || slab == nil {
+		return
+	}
+	for row := 0; row < slab.SBRows; row++ {
+		for col := 0; col < slab.SBCols; col++ {
+			intraCost := int64(vp9TPLBlockSelfVariance(src, row, col))
+			stats := &slab.Stats[row*slab.SBCols+col]
+			stats.IntraCost = intraCost
+			stats.InterCost = intraCost // no inter prediction available
+			stats.MVRow = 0
+			stats.MVCol = 0
+			stats.RefFrameIndex = -1
+			stats.McDepCost = intraCost
+			stats.McFlow = 0
+			stats.McRefCost = 0
+		}
+	}
+}
+
 // computeFrameStats fills the intra/inter/MV fields of slab against the
-// reference frame using a coarse integer-pel motion search.
+// reference frame using a coarse integer-pel motion search.  It also seeds
+// McDepCost with IntraCost so the propagation pass can lazily extend it with
+// the accumulated McFlow.
 func (s *vp9TPLState) computeFrameStats(src, ref *image.YCbCr,
 	slab *vp9TPLFrameStats) {
 	if src == nil || ref == nil || slab == nil {
@@ -292,24 +363,53 @@ func (s *vp9TPLState) computeFrameStats(src, ref *image.YCbCr,
 	srcH := src.Rect.Dy()
 	for row := 0; row < slab.SBRows; row++ {
 		for col := 0; col < slab.SBCols; col++ {
-			intraCost := vp9TPLBlockSelfVariance(src, row, col)
-			interCost, mvRow, mvCol := vp9TPLBlockMotionSearch(src, ref,
+			intraCost := int64(vp9TPLBlockSelfVariance(src, row, col))
+			interCostRaw, mvRow, mvCol := vp9TPLBlockMotionSearch(src, ref,
 				row, col, srcW, srcH)
+			interCost := min(
+				// libvpx's intra_cost serves as the reference floor when
+				// inter prediction is worse than intra; cap inter at
+				// intra so the propagation formula's (mc_dep * inter)
+				// / intra stays well-defined.
+				int64(interCostRaw), intraCost)
 			stats := &slab.Stats[row*slab.SBCols+col]
 			stats.IntraCost = intraCost
 			stats.InterCost = interCost
 			stats.MVRow = int16(mvRow)
 			stats.MVCol = int16(mvCol)
-			stats.Propagation = 0
+			stats.RefFrameIndex = 0
+			// Initial McDepCost = IntraCost; propagation Stage B
+			// extends it by the accumulated McFlow from downstream
+			// frames.  Reset McFlow/McRefCost so a re-populate on
+			// the same slab starts clean.
+			stats.McDepCost = intraCost
+			stats.McFlow = 0
+			stats.McRefCost = 0
 		}
 	}
 }
 
-// propagateFrame accumulates one step of importance from next into slab.  Each
-// SB in slab points (via its matched motion vector) at an SB in next; that
-// SB's propagation counter receives a weighted contribution from this SB's
-// cost reduction.  This is the minimum-viable single-step version of
-// libvpx's recursive vp9_tpl_propagation_pass.
+// propagateFrame accumulates one step of mc_flow into next based on the
+// motion vectors recorded in slab.  Each SB in slab points (via its matched
+// motion vector) at an SB in next; that SB's mc_flow and mc_ref_cost receive
+// a contribution proportional to the saved residual and the upstream SB's
+// accumulated dependency cost.
+//
+// libvpx: vp9/encoder/vp9_tpl_model.c:679-694
+//
+//	int64_t mc_flow = tpl_stats->mc_dep_cost -
+//	                  (tpl_stats->mc_dep_cost * tpl_stats->inter_cost) /
+//	                  tpl_stats->intra_cost;
+//	...
+//	des_stats->mc_flow      += (mc_flow * overlap_area) / pix_num;
+//	des_stats->mc_ref_cost  += ((intra - inter) * overlap_area) / pix_num;
+//
+// govpx aggregates at 32x32 SBs whereas libvpx aggregates at 8x8 MIs, so the
+// (overlap_area / pix_num) factor collapses to 1 when the MV lands on the SB
+// grid; we approximate libvpx's bilinear overlap by depositing the full
+// contribution into the single nearest SB.  Once mc_flow has been pushed,
+// the destination's McDepCost is incremented so subsequent propagation steps
+// see the updated dependency cost.
 func (s *vp9TPLState) propagateFrame(slab, next *vp9TPLFrameStats) {
 	if slab == nil {
 		return
@@ -320,11 +420,17 @@ func (s *vp9TPLState) propagateFrame(slab, next *vp9TPLFrameStats) {
 	for row := 0; row < slab.SBRows; row++ {
 		for col := 0; col < slab.SBCols; col++ {
 			st := &slab.Stats[row*slab.SBCols+col]
-			if st.IntraCost <= st.InterCost {
+			if st.IntraCost <= 0 {
 				continue
 			}
-			// Saved residual energy is the importance proxy.
-			saved := uint32(st.IntraCost - st.InterCost)
+			if st.InterCost >= st.IntraCost {
+				continue
+			}
+			// libvpx: vp9_tpl_model.c:679-681.
+			//   mc_flow = mc_dep_cost -
+			//             (mc_dep_cost * inter_cost) / intra_cost
+			mcFlow := st.McDepCost -
+				(st.McDepCost*st.InterCost)/st.IntraCost
 			// Translate the motion vector into a next-frame SB index.
 			nextRow := row + int(st.MVRow)>>vp9TPLSBSizeLog2
 			nextCol := col + int(st.MVCol)>>vp9TPLSBSizeLog2
@@ -333,141 +439,48 @@ func (s *vp9TPLState) propagateFrame(slab, next *vp9TPLFrameStats) {
 				continue
 			}
 			ns := &next.Stats[nextRow*next.SBCols+nextCol]
-			// Clamp to avoid uint32 overflow even on adversarial inputs.
-			before := ns.Propagation
-			ns.Propagation = before + saved
-			if ns.Propagation < before {
-				ns.Propagation = math.MaxUint32
-			}
+			// libvpx: vp9_tpl_model.c:691-694.
+			//   des_stats->mc_flow     += (mc_flow * overlap) / pix
+			//   des_stats->mc_ref_cost +=
+			//       ((intra - inter) * overlap) / pix
+			// With 32x32 SB alignment, overlap == pix_num so the
+			// ratio collapses to 1.
+			ns.McFlow += mcFlow
+			ns.McRefCost += (st.IntraCost - st.InterCost)
+			// Keep McDepCost = IntraCost + McFlow so subsequent
+			// propagation steps see the updated dependency cost.
+			ns.McDepCost = ns.IntraCost + ns.McFlow
 		}
 	}
 }
 
-// deriveQDelta computes the per-SB qindex delta for slab from the propagation
-// factor.  The frame-mean qindex bias (used by the scalar overlay until per-SB
-// segmentation routing lands) is derived from the global intra/saved-inter
-// energy balance, not from per-SB deviation around the mean: a per-SB
-// deviation map averages to zero by construction and produces no scalar
-// bias.  libvpx's TPL maps a high inter-saving ratio to a downward qindex
-// bias because frames that downstream frames lean on heavily pay for
-// themselves with the extra bits.
-func (s *vp9TPLState) deriveQDelta(slab *vp9TPLFrameStats) {
+// deriveFrameR0 computes the per-frame intra/mc_dep_cost ratio that drives
+// get_rdmult_delta.
+//
+// libvpx: vp9/encoder/vp9_encodeframe.c:5697-5708
+//
+//	for (row = 0; row < cm->mi_rows && tpl_frame->is_valid; ++row) {
+//	  for (col = 0; col < cm->mi_cols; ++col) {
+//	    TplDepStats *this_stats = &tpl_stats[row * tpl_stride + col];
+//	    intra_cost_base += this_stats->intra_cost;
+//	    mc_dep_cost_base += this_stats->mc_dep_cost;
+//	  }
+//	}
+//	cpi->rd.r0 = (double)intra_cost_base / mc_dep_cost_base;
+func (s *vp9TPLState) deriveFrameR0(slab *vp9TPLFrameStats) {
 	if slab == nil || len(slab.Stats) == 0 {
 		return
 	}
-	// Compute the mean propagation, used as the reference point for the
-	// per-SB delta direction (above-mean SBs get a negative delta — more
-	// bits; below-mean SBs get a positive delta — fewer bits).
-	var total uint64
-	var intraTotal uint64
-	var savedTotal uint64
+	var intraBase, mcDepBase int64
 	for i := range slab.Stats {
-		total += uint64(slab.Stats[i].Propagation)
-		intraTotal += uint64(slab.Stats[i].IntraCost)
-		if slab.Stats[i].InterCost < slab.Stats[i].IntraCost {
-			savedTotal += uint64(slab.Stats[i].IntraCost -
-				slab.Stats[i].InterCost)
-		}
+		intraBase += slab.Stats[i].IntraCost
+		mcDepBase += slab.Stats[i].McDepCost
 	}
-	count := uint64(len(slab.Stats))
-	mean := total / count
-	if mean == 0 {
-		// Per-SB propagation map is empty (no SB is referenced).  The
-		// per-SB delta stays at zero, but a non-zero saved/intra ratio
-		// still informs the scalar frame-mean bias: a frame that
-		// motion-compensates well against its lookahead anchor is a
-		// strong reference candidate and earns a downward qindex bias
-		// even before propagation contributes.
-		for i := range slab.QDelta {
-			slab.QDelta[i] = 0
-		}
-		slab.FrameMeanQDelta = tplFrameMeanBiasFromRatios(savedTotal,
-			intraTotal, 0, 0)
+	if mcDepBase <= 0 {
+		slab.R0 = 0
 		return
 	}
-	for i := range slab.Stats {
-		delta := tplQDeltaFromPropagation(uint64(slab.Stats[i].Propagation), mean)
-		slab.QDelta[i] = int8(delta)
-	}
-	// FrameMeanQDelta uses a libvpx-style global energy ratio so the
-	// scalar bias has a meaningful sign and magnitude.  A frame whose
-	// inter motion compensation saves a large fraction of its intra
-	// energy is a strong propagation source — bias its qindex down (more
-	// bits, better reference quality).  A frame whose propagation map is
-	// densely populated (high mean) is a heavy propagation sink — same
-	// downward bias on the same intuition.  Both contributions are
-	// clamped to [-vp9TPLMaxQDelta, vp9TPLMaxQDelta] so a single bias
-	// alone can never escape the public quantizer window.
-	slab.FrameMeanQDelta = tplFrameMeanBiasFromRatios(savedTotal,
-		intraTotal, total, count)
-}
-
-// tplFrameMeanBiasFromRatios maps the global TPL energy ratios into a clamped
-// integer qindex bias.  The function is split out so unit tests can pin its
-// shape independently of the propagation accumulator (which depends on the
-// motion search internals).  The sign convention matches the per-SB delta:
-// negative biases reduce the regulated qindex (more bits), positive biases
-// raise it (fewer bits).
-func tplFrameMeanBiasFromRatios(savedTotal, intraTotal, propTotal, count uint64) int {
-	bias := 0
-	// Saved/intra ratio: how much of this frame's intra energy is
-	// recovered by inter prediction against the lookahead anchor.  A
-	// ratio of 0.5 (50% saved) maps to a -8 bias; higher ratios saturate
-	// at -vp9TPLMaxQDelta.  The denominator guards against the all-flat
-	// frame edge case (intraTotal == 0).
-	if intraTotal > 0 && savedTotal > 0 {
-		// Scale by 32 so a 50% saved ratio gives a magnitude of 16, then
-		// shift to land at vp9TPLMaxQDelta near full saving.
-		scaled := min(int(savedTotal*32/intraTotal), vp9TPLMaxQDelta+1)
-		bias -= scaled
-	}
-	// Propagation-density component: how much aggregate downstream
-	// importance the per-SB map carries.  This re-uses the per-SB
-	// propagation accumulator scaled against the per-SB mean (count >
-	// 0).  A heavily-loaded propagation map nudges the frame qindex
-	// further down on top of the saved/intra contribution.
-	if count > 0 && propTotal > 0 {
-		mean := propTotal / count
-		if mean > 0 {
-			// Map log2-ish scaled propagation density to a small
-			// magnitude.  The shift by 8 keeps the contribution
-			// at most ±4 qindex even on saturated inputs.
-			scaled := min(int(mean>>8), vp9TPLMaxQDelta/2)
-			bias -= scaled
-		}
-	}
-	if bias < -vp9TPLMaxQDelta {
-		bias = -vp9TPLMaxQDelta
-	}
-	if bias > vp9TPLMaxQDelta {
-		bias = vp9TPLMaxQDelta
-	}
-	return bias
-}
-
-// tplQDeltaFromPropagation converts a propagation score into a clamped int
-// qindex delta.  Above-mean SBs get a negative delta (lower q, more bits);
-// below-mean SBs get a positive delta (higher q, fewer bits).
-func tplQDeltaFromPropagation(prop, mean uint64) int {
-	if mean == 0 {
-		return 0
-	}
-	if prop >= mean {
-		// ratio = (prop / mean) - 1, scaled by 8 so a 2x SB lands at +8.
-		ratio := int64((prop - mean) << 3 / mean)
-		if ratio == 0 {
-			return 0
-		}
-		// Bias toward more bits — negative delta.
-		delta := max(-int(ratio>>1), -vp9TPLMaxQDelta)
-		return delta
-	}
-	ratio := int64((mean - prop) << 3 / mean)
-	if ratio == 0 {
-		return 0
-	}
-	delta := min(int(ratio>>1), vp9TPLMaxQDelta)
-	return delta
+	slab.R0 = float64(intraBase) / float64(mcDepBase)
 }
 
 // vp9TPLBlockSelfVariance returns the simple per-SB luma variance proxy.  We
@@ -568,34 +581,61 @@ func vp9TPLBlockSAD(src, ref *image.YCbCr, srcY, srcX, refY, refX,
 	return sad
 }
 
-// VP9TPLFrameDelta is the read-only per-SB qindex delta map exposed to other
-// passes (row-MT, oracle traces).  It is the slice returned by
-// [VP9Encoder.TPLFrameDelta]; mutating it is a misuse.
+// VP9TPLFrameDelta is the read-only per-SB TPL summary exposed to other
+// passes (row-MT, oracle traces).  The Delta map exposes the per-SB rdmult
+// scaler (as a fixed-point ratio×256) so downstream consumers can apply the
+// same scaling libvpx does without depending on the TPL pass internals.
 type VP9TPLFrameDelta struct {
 	SBRows int
 	SBCols int
-	Delta  []int8
+	// Delta is a per-SB int8 mapping where 0 means "no scaling".  The
+	// encoded value is clamp(round((beta-1)*16), -128, 127); the
+	// keyframe mode picker applies it as rdmult * (1 + value/16).
+	// Callers that need higher precision should consume the slab
+	// directly via the internal TPL state.
+	Delta []int8
 }
 
-// TPLFrameDelta returns the per-SB int8 qindex delta map TPL has computed for
-// the next frame to be encoded.  The slice is read-only and may be reused
-// across calls; copy it if the caller needs to persist it.  The returned
-// SBRows/SBCols pair gives the grid dimensions (one entry per 32x32 SB).
-// When TPL is disabled, no slab has been populated yet, or the resolution has
-// changed since the last populate call, Delta is nil and SBRows/SBCols are
-// zero.
-//
-// This is the read-only interface row-MT / tile-encode callers consume to
-// pick up the per-SB TPL bias without depending on the TPL pass internals.
+// TPLFrameDelta returns the per-SB TPL summary for the next frame to be
+// encoded.  The returned slice is read-only and is allocated lazily on each
+// call; mutating it is a misuse.  When TPL is disabled, no slab has been
+// populated yet, or the resolution has changed since the last populate call,
+// Delta is nil and SBRows/SBCols are zero.
 func (e *VP9Encoder) TPLFrameDelta() VP9TPLFrameDelta {
 	if e == nil || e.closed {
 		return VP9TPLFrameDelta{}
 	}
-	delta, rows, cols := e.vp9TPLFrameDelta()
-	if delta == nil {
+	slab := e.vp9TPLFrameSlab()
+	if slab == nil {
 		return VP9TPLFrameDelta{}
 	}
-	return VP9TPLFrameDelta{SBRows: rows, SBCols: cols, Delta: delta}
+	r0 := slab.R0
+	delta := make([]int8, len(slab.Stats))
+	for i := range slab.Stats {
+		st := &slab.Stats[i]
+		if st.McDepCost <= 0 || st.IntraCost <= 0 || r0 <= 0 {
+			delta[i] = 0
+			continue
+		}
+		// rk = intra_cost / mc_dep_cost; beta = r0 / rk.
+		rk := float64(st.IntraCost) / float64(st.McDepCost)
+		if rk <= 0 {
+			delta[i] = 0
+			continue
+		}
+		beta := r0 / rk
+		// Encode (beta-1)*16 clamped into int8.
+		scaled := math.Round((beta - 1) * 16)
+		switch {
+		case scaled > 127:
+			delta[i] = 127
+		case scaled < -128:
+			delta[i] = -128
+		default:
+			delta[i] = int8(scaled)
+		}
+	}
+	return VP9TPLFrameDelta{SBRows: slab.SBRows, SBCols: slab.SBCols, Delta: delta}
 }
 
 // SetEnableTPL toggles the VP9 TPL quality pass at runtime.  Enabling
@@ -626,22 +666,20 @@ func (e *VP9Encoder) SetEnableTPL(enabled bool) error {
 // populateVP9TPLForFrame collects the lookahead sources visible from the
 // current frame into a contiguous slice and asks the TPL pass to refresh its
 // per-frame slabs.  The skip parameter mirrors the libvpx gate: TPL is
-// inactive on keyframes, intra-only, hidden, and alt-ref frames because the
-// pass needs a source-order future to inspect.
+// inactive on hidden and alt-ref frames because the pass needs a source-order
+// future to inspect.
 //
 // current points at the frame currently being encoded.  The encoder pops it
 // off the lookahead ring before calling into the per-frame pipeline, so the
 // remaining ring view is one short of the TPL window; we splice current back
 // in as slab[0] so the propagation analysis sees the same source-order
-// window libvpx's TPL operates on.  When current is nil (e.g. retrospective
-// callers that only have the ring view available), we fall back to the ring
-// alone, which is what govpx shipped before the splice landed.
+// window libvpx's TPL operates on.
 func (e *VP9Encoder) populateVP9TPLForFrame(skip bool, current *image.YCbCr) {
 	if !e.vp9TPLEnabled() {
 		return
 	}
 	if skip {
-		// Drop any stale slab so the qindex bias on this frame is zero.
+		// Drop any stale slab so the rdmult delta on this frame is zero.
 		e.tpl.invalidateAll()
 		return
 	}
@@ -649,11 +687,6 @@ func (e *VP9Encoder) populateVP9TPLForFrame(skip bool, current *image.YCbCr) {
 		e.tpl.invalidateAll()
 		return
 	}
-	// The encoder owns the lookahead ring buffer; collect a window-sized
-	// slice pointing at the future frames behind the head in source order.
-	// At the time we run, the frame being encoded has already been popped
-	// off the ring, so we splice current back in front so the TPL pass
-	// sees the source-order window [current, ring[0], ring[1], ...].
 	tail := e.collectVP9TPLLookaheadFrames()
 	var frames []*image.YCbCr
 	if current != nil {
@@ -694,25 +727,115 @@ func (e *VP9Encoder) collectVP9TPLLookaheadFrames() []*image.YCbCr {
 	return out
 }
 
-// applyVP9TPLQIndexBias clamps and applies the TPL frame-mean qindex bias to
-// the regulated qindex.  This is the scalar overlay used while per-SB
-// segmentation routing is unavailable.  The returned qindex stays inside
-// libvpx's allowed range.
-func (e *VP9Encoder) applyVP9TPLQIndexBias(qindex int, skip bool) int {
-	if !e.vp9TPLEnabled() || skip {
-		return qindex
+// getVP9TPLRDMultDelta returns the per-SB rdmult that libvpx's TPL would
+// apply at the given MI coordinates, falling back to origRdmult when TPL is
+// inactive or no slab is populated.
+//
+// libvpx: vp9/encoder/vp9_encodeframe.c:3602-3660 (get_rdmult_delta)
+//
+//	for (row = mi_row; row < mi_row + mi_high; ++row) {
+//	  for (col = mi_col; col < mi_col + mi_wide; ++col) {
+//	    intra_cost  += this_stats->intra_cost;
+//	    mc_dep_cost += this_stats->mc_dep_cost;
+//	  }
+//	}
+//	r0   = cpi->rd.r0;
+//	rk   = (double)intra_cost / mc_dep_cost;
+//	beta = r0 / rk;
+//	dr   = vp9_get_adaptive_rdmult(cpi, beta);
+//	dr   = clamp(dr, orig_rdmult * 1 / 2, orig_rdmult * 3 / 2);
+//	dr   = VPXMAX(1, dr);
+//
+// vp9_get_adaptive_rdmult (vp9/encoder/vp9_rd.c:304-310) computes
+//
+//	rdmult = vp9_compute_rd_mult_based_on_qindex(cpi, base_qindex) / beta;
+//
+// govpx folds the qindex-based rdmult into origRdmult so the caller can reuse
+// the vp9KeyframeRDMul value it already computed; the result is therefore
+// orig_rdmult / beta with the libvpx clamp applied.
+func (e *VP9Encoder) getVP9TPLRDMultDelta(miRow, miCol, blockMiHigh, blockMiWide,
+	origRdmult int) int {
+	if origRdmult <= 0 {
+		return 1
 	}
-	bias := e.vp9TPLFrameMeanQDelta()
-	if bias == 0 {
-		return qindex
+	slab := e.vp9TPLFrameSlab()
+	if slab == nil || slab.R0 <= 0 {
+		return origRdmult
 	}
-	// Bound the bias by the public quantizer window so TPL never lifts the
-	// regulated qindex past the configured max-q or pushes below min-q.
-	minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
-	bestBound := vp9PublicQuantizerToQIndex(minQ)
-	worstBound := vp9PublicQuantizerToQIndex(maxQ)
-	q := min(max(min(max(qindex+bias, bestBound), worstBound), 0), 255)
-	return q
+	// Sum intra_cost / mc_dep_cost over the SBs the block touches.  govpx
+	// tracks stats at 32x32 SB granularity; libvpx tracks at 8x8 MI.  We
+	// convert the (mi_row, mi_col, mi_high, mi_wide) tuple into the SB
+	// range that overlaps the block.
+	miPerSB := vp9TPLSBSize / common.MiSize
+	if miPerSB <= 0 {
+		return origRdmult
+	}
+	sbRowStart := miRow / miPerSB
+	sbColStart := miCol / miPerSB
+	sbRowEnd := (miRow + blockMiHigh + miPerSB - 1) / miPerSB
+	sbColEnd := (miCol + blockMiWide + miPerSB - 1) / miPerSB
+	if sbRowEnd > slab.SBRows {
+		sbRowEnd = slab.SBRows
+	}
+	if sbColEnd > slab.SBCols {
+		sbColEnd = slab.SBCols
+	}
+	if sbRowStart < 0 {
+		sbRowStart = 0
+	}
+	if sbColStart < 0 {
+		sbColStart = 0
+	}
+	if sbRowEnd <= sbRowStart || sbColEnd <= sbColStart {
+		return origRdmult
+	}
+	var intraCost, mcDepCost int64
+	for r := sbRowStart; r < sbRowEnd; r++ {
+		row := slab.Stats[r*slab.SBCols:]
+		for c := sbColStart; c < sbColEnd; c++ {
+			intraCost += row[c].IntraCost
+			mcDepCost += row[c].McDepCost
+		}
+	}
+	if mcDepCost <= 0 || intraCost <= 0 {
+		return origRdmult
+	}
+	// libvpx: vp9_encodeframe.c:3651-3653
+	//   r0 = cpi->rd.r0;
+	//   rk = (double)intra_cost / mc_dep_cost;
+	//   beta = r0 / rk;
+	rk := float64(intraCost) / float64(mcDepCost)
+	if rk <= 0 {
+		return origRdmult
+	}
+	beta := slab.R0 / rk
+	if beta <= 0 || math.IsNaN(beta) || math.IsInf(beta, 0) {
+		return origRdmult
+	}
+	// libvpx: vp9_rd.c:307
+	//   rdmult = (int)((double)rdmult / beta);
+	dr := int(math.Round(float64(origRdmult) / beta))
+	if dr <= 0 {
+		dr = 1
+	}
+	// libvpx: vp9_encodeframe.c:3656-3657
+	//   dr = clamp(dr, orig_rdmult * 1 / 2, orig_rdmult * 3 / 2);
+	//   dr = VPXMAX(1, dr);
+	lo := origRdmult / 2
+	hi := origRdmult * 3 / 2
+	if dr < lo {
+		dr = lo
+	}
+	if dr > hi {
+		dr = hi
+	}
+	if dr < 1 {
+		dr = 1
+	}
+	if dr != origRdmult {
+		e.tplRDMultDeltaCalls++
+	}
+	return dr
 }
 
 // validateVP9TPLOptions enforces the libvpx-compatible TPL prerequisites.
