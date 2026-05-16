@@ -824,6 +824,11 @@ static void apply_vp9_runtime_control_token(
                           control_value_int(token, "sharpness:"))) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_SHARPNESS");
     }
+  } else if (starts_with(token, "static:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_STATIC_THRESHOLD,
+                          (unsigned)control_value_int(token, "static:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_STATIC_THRESHOLD");
+    }
   } else if (starts_with(token, "active:")) {
     flush_vp9_runtime_config(ctx);
     apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,
@@ -1043,6 +1048,7 @@ int main(int argc, char **argv) {
   int tune_content = VP9E_CONTENT_DEFAULT;
   int noise_sensitivity = 0;
   int sharpness = 0;
+  int static_thresh = 0;
   int error_resilient = 0;
   int lag_in_frames = 0;
   int auto_alt_ref = 0;
@@ -1113,6 +1119,8 @@ int main(int argc, char **argv) {
       noise_sensitivity = parse_int(v, "--noise-sensitivity");
     } else if ((v = flag_value(a, "--sharpness"))) {
       sharpness = parse_int(v, "--sharpness");
+    } else if ((v = flag_value(a, "--static-thresh"))) {
+      static_thresh = parse_int(v, "--static-thresh");
     } else if ((v = flag_value(a, "--error-resilient"))) {
       error_resilient = parse_int(v, "--error-resilient");
     } else if ((v = flag_value(a, "--lag-in-frames"))) {
@@ -1299,6 +1307,9 @@ int main(int argc, char **argv) {
     die_codec_msg(&ctx, "VP9E_SET_NOISE_SENSITIVITY");
   if (vpx_codec_control(&ctx, VP8E_SET_SHARPNESS, sharpness))
     die_codec_msg(&ctx, "VP8E_SET_SHARPNESS");
+  if (vpx_codec_control(&ctx, VP8E_SET_STATIC_THRESHOLD,
+                        (unsigned)static_thresh))
+    die_codec_msg(&ctx, "VP8E_SET_STATIC_THRESHOLD");
   if (vpx_codec_control(&ctx, VP8E_SET_ENABLEAUTOALTREF,
                         (unsigned)auto_alt_ref))
     die_codec_msg(&ctx, "VP8E_SET_ENABLEAUTOALTREF");

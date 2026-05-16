@@ -1648,6 +1648,33 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name: "constant-static-threshold-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetStaticThreshold 500",
+						enc.SetStaticThreshold(500))
+				case 7:
+					mustVP9Runtime(t, "SetStaticThreshold 0",
+						enc.SetStaticThreshold(0))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,static:500,-,-,-,static:0,-,-",
+			},
+			exactPrefix: frames,
+			strictBytes: true,
+		},
+		{
 			name: "constant-lossless-roundtrip-fixed-q",
 			opts: VP9EncoderOptions{
 				MinQuantizer: 20,

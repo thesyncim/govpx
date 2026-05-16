@@ -186,6 +186,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetSharpness":                {kind: "libvpx-control", helperTokens: []string{"sharpness:"}},
 		"SetSpatialLayerID":           {kind: "libvpx-vp9-svc-layer-control"},
 		"SetSpatialScalability":       {kind: "libvpx-vp9-svc-control"},
+		"SetStaticThreshold":          {kind: "libvpx-control", helperTokens: []string{"static:"}},
 		"SetTemporalLayerID":          {kind: "libvpx-control", helperTokens: []string{"tlid:"}},
 		"SetTemporalScalability":      {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
 		"SetTuning":                   {kind: "libvpx-control", helperTokens: []string{"tune:"}},
@@ -231,6 +232,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"ScreenContentMode":   {kind: "libvpx-control", helperTokens: []string{"screen:", "--tune-content"}},
 		"Sharpness":           {kind: "libvpx-control", helperTokens: []string{"sharpness:", "--sharpness"}},
 		"SpatialScalability":  {kind: "libvpx-vp9-svc-control"},
+		"StaticThreshold":     {kind: "libvpx-control", helperTokens: []string{"static:", "--static-thresh"}},
 		"TargetBitrateKbps":   {kind: "libvpx-config", helperTokens: []string{"bitrate:", "--target-bitrate"}},
 		"TemporalScalability": {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
 		"Threads":             {kind: "libvpx-config", helperTokens: []string{"--tile-columns"}},
@@ -296,6 +298,10 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 		"ForceKeyFrame":        {kind: "frame-flag-api"},
 		"IsKeyFrameNext":       {kind: "metadata-api"},
 		"LayerEncoder":         {kind: "vp9-spatial-svc-layer-control"},
+		"SetTemporalLayerID":   {kind: "vp9-spatial-temporal-svc-control"},
+		"SetTemporalScalability": {
+			kind: "vp9-spatial-temporal-svc-control",
+		},
 	}
 	assertPublicMethodMappings(t, "VP9SpatialSVCEncoder", methods, want)
 }

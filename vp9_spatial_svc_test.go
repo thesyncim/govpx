@@ -191,6 +191,12 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	if err := layer.SetSharpness(5); err != nil {
 		t.Fatalf("layer SetSharpness: %v", err)
 	}
+	if err := layer.SetSpatialLayerID(0); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("locked layer SetSpatialLayerID err = %v, want ErrInvalidConfig", err)
+	}
+	if err := layer.SetSpatialScalability(VP9SpatialScalabilityConfig{}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("locked layer SetSpatialScalability err = %v, want ErrInvalidConfig", err)
+	}
 	if err := svc.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -199,6 +205,79 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	}
 	if _, err := svc.EncodeIntoWithResult(nil, nil); !errors.Is(err, ErrClosed) {
 		t.Fatalf("EncodeIntoWithResult after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetTemporalScalability after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetTemporalLayerID(0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetTemporalLayerID after close err = %v, want ErrClosed", err)
+	}
+}
+
+func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount:           2,
+		InterLayerPrediction: true,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			{Width: 32, Height: 32, TargetBitrateKbps: 300},
+			{Width: 64, Height: 64, TargetBitrateKbps: 700},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	if err := svc.SetTemporalScalability(TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    TemporalLayeringTwoLayers,
+	}); err != nil {
+		t.Fatalf("SetTemporalScalability: %v", err)
+	}
+	if err := svc.SetTemporalLayerID(2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetTemporalLayerID invalid err = %v, want ErrInvalidConfig", err)
+	}
+
+	srcs := []*image.YCbCr{
+		newVP9YCbCrForTest(32, 32, 80, 128, 128),
+		newVP9YCbCrForTest(64, 64, 80, 128, 128),
+	}
+	dst := make([]byte, 1<<20)
+	for frame := 0; frame < 4; frame++ {
+		result, err := svc.EncodeIntoWithResult(srcs, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		base := result.Layers[0]
+		enh := result.Layers[1]
+		if base.TemporalLayerCount != 2 || enh.TemporalLayerCount != 2 ||
+			base.TemporalLayerID != enh.TemporalLayerID ||
+			base.TL0PICIDX != enh.TL0PICIDX ||
+			base.TemporalLayerSync != enh.TemporalLayerSync {
+			t.Fatalf("temporal metadata mismatch frame %d: base=%+v enh=%+v",
+				frame, base, enh)
+		}
+		baseDesc := base.RTPPayloadDescriptor()
+		enhDesc := enh.RTPPayloadDescriptor()
+		if !baseDesc.LayerIndicesPresent ||
+			int(baseDesc.TemporalID) != base.TemporalLayerID ||
+			baseDesc.SpatialID != 0 ||
+			!enhDesc.LayerIndicesPresent ||
+			int(enhDesc.TemporalID) != enh.TemporalLayerID ||
+			enhDesc.SpatialID != 1 {
+			t.Fatalf("temporal RTP descriptors frame %d: base=%+v enh=%+v",
+				frame, baseDesc, enhDesc)
+		}
+	}
+	if err := svc.SetTemporalLayerID(1); err != nil {
+		t.Fatalf("SetTemporalLayerID(1): %v", err)
+	}
+	result, err := svc.EncodeIntoWithResult(srcs, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult override: %v", err)
+	}
+	if result.Layers[0].TemporalLayerID != 1 ||
+		result.Layers[1].TemporalLayerID != 1 {
+		t.Fatalf("override temporal IDs = %d/%d, want 1/1",
+			result.Layers[0].TemporalLayerID, result.Layers[1].TemporalLayerID)
 	}
 }
 

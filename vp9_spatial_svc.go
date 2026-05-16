@@ -111,6 +111,7 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 			return nil, err
 		}
 		layer.resetVP9EncoderFrameContexts()
+		layer.spatialScalabilityLocked = true
 		svc.layers[i] = layer
 	}
 	return svc, nil
@@ -204,6 +205,55 @@ func (e *VP9SpatialSVCEncoder) LayerEncoder(layerID uint8) (*VP9Encoder, error) 
 		return nil, ErrInvalidConfig
 	}
 	return e.layers[layerID], nil
+}
+
+// SetTemporalScalability configures the same VP9 temporal-layer schedule on
+// every spatial layer. Each layer derives its temporal bitrate split from that
+// layer's TargetBitrateKbps.
+func (e *VP9SpatialSVCEncoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	var next [VP9MaxSpatialLayers]temporalState
+	for i := 0; i < int(e.layerCount); i++ {
+		layer := e.layers[i]
+		if layer == nil {
+			return ErrClosed
+		}
+		if err := next[i].configure(cfg, layer.opts.TargetBitrateKbps); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < int(e.layerCount); i++ {
+		layer := e.layers[i]
+		layer.temporal = next[i]
+		layer.opts.TemporalScalability = next[i].config
+	}
+	return nil
+}
+
+// SetTemporalLayerID overrides the temporal layer ID for every spatial layer
+// in subsequent access units. The override remains active until changed or
+// SetTemporalScalability replaces the schedule.
+func (e *VP9SpatialSVCEncoder) SetTemporalLayerID(layerID int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	var next [VP9MaxSpatialLayers]temporalState
+	for i := 0; i < int(e.layerCount); i++ {
+		layer := e.layers[i]
+		if layer == nil {
+			return ErrClosed
+		}
+		next[i] = layer.temporal
+		if err := next[i].setLayerID(layerID); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < int(e.layerCount); i++ {
+		e.layers[i].temporal = next[i]
+	}
+	return nil
 }
 
 // ForceKeyFrame requests that the next access unit encode every spatial layer

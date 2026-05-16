@@ -549,6 +549,7 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = 7 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Sharpness = 8 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.StaticThreshold = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
 			o.AutoAltRef = true
@@ -2529,6 +2530,60 @@ func TestVP9EncoderSharpnessOptionAndRuntimeControl(t *testing.T) {
 	if e.opts.Sharpness != before {
 		t.Fatalf("invalid SetSharpness mutated encoder to %d, want %d",
 			e.opts.Sharpness, before)
+	}
+}
+
+func TestVP9EncoderStaticThresholdBreakout(t *testing.T) {
+	const width, height = 64, 64
+	opts := VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 4,
+		MaxQuantizer: 4,
+	}
+	baseSrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	changedSrc := newVP9CheckerYCbCrForTest(width, height, 62, 66, 128, 128)
+
+	noStatic, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(noStatic): %v", err)
+	}
+	if _, err := noStatic.Encode(baseSrc); err != nil {
+		t.Fatalf("noStatic key Encode: %v", err)
+	}
+	if _, err := noStatic.Encode(changedSrc); err != nil {
+		t.Fatalf("noStatic inter Encode: %v", err)
+	}
+	if mi := noStatic.vp9MiAt(encoderMacroblockRows(height), encoderMacroblockCols(width), 0, 0); mi == nil || mi.Skip != 0 {
+		t.Fatalf("non-static first block skip = %v, want residue", mi)
+	}
+
+	breakout, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(breakout): %v", err)
+	}
+	if _, err := breakout.Encode(baseSrc); err != nil {
+		t.Fatalf("breakout key Encode: %v", err)
+	}
+	if err := breakout.SetStaticThreshold(1 << 30); err != nil {
+		t.Fatalf("SetStaticThreshold: %v", err)
+	}
+	if _, err := breakout.Encode(changedSrc); err != nil {
+		t.Fatalf("breakout inter Encode: %v", err)
+	}
+	mi := breakout.vp9MiAt(encoderMacroblockRows(height), encoderMacroblockCols(width), 0, 0)
+	if mi == nil || mi.Skip != 1 || mi.Mode < common.NearestMv ||
+		mi.RefFrame[0] != vp9dec.LastFrame || mi.Mv[0] != (vp9dec.MV{}) {
+		t.Fatalf("static breakout mi = %+v, want skipped low-motion LAST", mi)
+	}
+
+	before := breakout.opts.StaticThreshold
+	if err := breakout.SetStaticThreshold(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetStaticThreshold invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if breakout.opts.StaticThreshold != before {
+		t.Fatalf("invalid SetStaticThreshold mutated threshold to %d, want %d",
+			breakout.opts.StaticThreshold, before)
 	}
 }
 
@@ -4988,6 +5043,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetSharpness(3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetSharpness after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetStaticThreshold(1); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetStaticThreshold after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability after Close err = %v, want ErrClosed", err)
 	}
@@ -5042,6 +5100,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetSharpness(3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetSharpness on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetStaticThreshold(1); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetStaticThreshold on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability on nil encoder err = %v, want ErrClosed", err)

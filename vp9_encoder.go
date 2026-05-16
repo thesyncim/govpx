@@ -99,6 +99,10 @@ type VP9EncoderOptions struct {
 	NoiseSensitivity int8
 	// Sharpness is the VP9 loop-filter sharpness level in [0, 7].
 	Sharpness uint8
+	// StaticThreshold is the VP9 static-block breakout threshold. Zero disables
+	// the breakout; positive values allow low-error low-motion inter blocks to
+	// skip residual coding.
+	StaticThreshold int
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
 	// configuration. When RateControlModeSet is false, the packet path keeps
@@ -376,6 +380,9 @@ type VP9Encoder struct {
 	rc       vp9RateControlState
 	twoPass  vp9TwoPassState
 	cyclicAQ vp9CyclicRefreshState
+	// spatialScalabilityLocked is set for encoders owned by
+	// VP9SpatialSVCEncoder; the parent owns spatial layer metadata.
+	spatialScalabilityLocked bool
 
 	activeMap        []uint8
 	activeMapMiRows  int
@@ -564,6 +571,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if opts.Sharpness > 7 {
+		return ErrInvalidConfig
+	}
+	if opts.StaticThreshold < 0 {
 		return ErrInvalidConfig
 	}
 	if err := validateVP9TwoPassOptions(opts); err != nil {
@@ -4946,6 +4956,10 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	if !ok {
 		return common.DcPred, false
 	}
+	if !forcedRef && e.vp9StaticThresholdBreakout(inter, miRows, miCols,
+		miRow, miCol, bsize, mi) {
+		return common.DcPred, false
+	}
 	mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 		bsize, mi.TxSize)
 	if !inter.lossless && !forcedRef {
@@ -4994,6 +5008,110 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		}
 	}
 	return common.DcPred, hasResidue
+}
+
+func (e *VP9Encoder) vp9StaticThresholdBreakout(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) bool {
+	threshold := e.opts.StaticThreshold
+	if threshold <= 0 || inter == nil || mi == nil || inter.dq == nil ||
+		inter.lossless || bsize < common.Block8x8 {
+		return false
+	}
+	refFrame := mi.RefFrame[0]
+	if refFrame <= vp9dec.IntraFrame || refFrame >= vp9dec.MaxRefFrames {
+		return false
+	}
+	if e.opts.SpatialScalability.Enabled && refFrame == vp9dec.GoldenFrame {
+		return false
+	}
+	mv := mi.Mv[0]
+	if mv.Row < -64 || mv.Row > 64 || mv.Col < -64 || mv.Col > 64 {
+		return false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	pred, predStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
+		return false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	predH := 0
+	if predStride > 0 {
+		predH = len(pred) / predStride
+	}
+	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+		!vp9VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
+		return false
+	}
+	segID := vp9EncoderMiSegmentID(mi)
+	threshAC, threshDC := vp9StaticThresholds(threshold, inter.dq.Y[segID],
+		bsize)
+	varY, sseY := vp9BlockDiffVarianceSSE(src, srcStride, pred, predStride,
+		x0, y0, x0, y0, blockW, blockH)
+	if varY > threshAC || sseY-varY > threshDC {
+		return false
+	}
+	return e.vp9StaticThresholdChromaBreakout(inter, miRow, miCol, bsize,
+		threshAC, threshDC)
+}
+
+func (e *VP9Encoder) vp9StaticThresholdChromaBreakout(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, threshAC, threshDC uint64,
+) bool {
+	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			return false
+		}
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+		pred, predStride := e.vp9EncoderReconPlane(plane)
+		if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
+			return false
+		}
+		blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+		predH := len(pred) / predStride
+		if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+			!vp9VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
+			return false
+		}
+		variance, sse := vp9BlockDiffVarianceSSE(src, srcStride, pred,
+			predStride, x0, y0, x0, y0, blockW, blockH)
+		if (variance<<2) > threshAC || sse-variance > threshDC {
+			return false
+		}
+	}
+	return true
+}
+
+func vp9StaticThresholds(threshold int, yDequant [2]int16,
+	bsize common.BlockSize,
+) (uint64, uint64) {
+	const maxThresh = uint64(36000)
+	minThresh := maxThresh
+	if threshold < int(maxThresh>>4) {
+		minThresh = uint64(threshold) << 4
+	}
+	yAC := int(yDequant[1])
+	threshAC := uint64(yAC*yAC) >> 3
+	if threshAC < minThresh {
+		threshAC = minThresh
+	} else if threshAC > maxThresh {
+		threshAC = maxThresh
+	}
+	shift := 8 - int(common.BWidthLog2Lookup[bsize]+common.BHeightLog2Lookup[bsize])
+	if shift > 0 {
+		threshAC >>= uint(shift)
+	}
+	yDC := int(yDequant[0])
+	return threshAC, uint64(yDC*yDC) >> 6
 }
 
 func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
@@ -6938,6 +7056,14 @@ func vp9BlockSSE(src []byte, srcStride int, ref []byte, refStride int,
 func vp9BlockDiffVariance(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int,
 ) uint64 {
+	variance, _ := vp9BlockDiffVarianceSSE(src, srcStride, ref, refStride,
+		srcX, srcY, refX, refY, w, h)
+	return variance
+}
+
+func vp9BlockDiffVarianceSSE(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int,
+) (uint64, uint64) {
 	var sum int64
 	var sse uint64
 	for y := range h {
@@ -6951,13 +7077,13 @@ func vp9BlockDiffVariance(src []byte, srcStride int, ref []byte, refStride int,
 	}
 	n := int64(w * h)
 	if n <= 0 {
-		return 0
+		return 0, sse
 	}
 	meanSquares := uint64((sum * sum) / n)
 	if sse <= meanSquares {
-		return 0
+		return 0, sse
 	}
-	return sse - meanSquares
+	return sse - meanSquares, sse
 }
 
 func vp9BlockSourceVariance128(src []byte, srcStride int, srcX, srcY, w, h int) uint64 {

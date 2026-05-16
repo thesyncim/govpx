@@ -400,6 +400,20 @@ func (e *VP9Encoder) SetSharpness(sharpness uint8) error {
 	return nil
 }
 
+// SetStaticThreshold changes the VP9 static-block breakout threshold used for
+// subsequent inter frames. Non-negative values are accepted; zero disables the
+// breakout.
+func (e *VP9Encoder) SetStaticThreshold(threshold int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if threshold < 0 {
+		return ErrInvalidConfig
+	}
+	e.opts.StaticThreshold = threshold
+	return nil
+}
+
 // SetKeyFrameInterval changes the VP9 maximum GOP distance in frames. Zero
 // restores libvpx's default VP9 key-frame cadence. Explicitly forced key frames
 // are unaffected.
@@ -535,6 +549,9 @@ func (e *VP9Encoder) SetSpatialScalability(cfg VP9SpatialScalabilityConfig) erro
 	if e == nil || e.closed {
 		return ErrClosed
 	}
+	if e.spatialScalabilityLocked {
+		return ErrInvalidConfig
+	}
 	next, err := normalizeVP9SpatialScalabilityConfig(cfg, e.opts.Width,
 		e.opts.Height)
 	if err != nil {
@@ -549,6 +566,9 @@ func (e *VP9Encoder) SetSpatialScalability(cfg VP9SpatialScalabilityConfig) erro
 func (e *VP9Encoder) SetSpatialLayerID(layerID uint8) error {
 	if e == nil || e.closed {
 		return ErrClosed
+	}
+	if e.spatialScalabilityLocked {
+		return ErrInvalidConfig
 	}
 	if !e.opts.SpatialScalability.Enabled {
 		if layerID == 0 {
