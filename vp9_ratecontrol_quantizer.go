@@ -351,16 +351,33 @@ func (rc *vp9RateControlState) onePassVBRGoldenRefreshDue() bool {
 	return rc.enabled && rc.mode != RateControlCBR && rc.framesTillGF == 0
 }
 
+func (rc *vp9RateControlState) setRuntimeOnePassVBRGoldenCadence(prev vp9RateControlState) {
+	if rc == nil || !rc.enabled || rc.mode == RateControlCBR {
+		return
+	}
+	if prev.enabled && prev.mode != RateControlCBR {
+		rc.framesTillGF = prev.framesTillGF
+		return
+	}
+	if rc.framesTillGF == 0 {
+		rc.framesTillGF = rc.runtimeOnePassVBRGoldenInterval()
+	}
+}
+
+func (rc *vp9RateControlState) runtimeOnePassVBRGoldenInterval() uint8 {
+	interval := rc.baselineGFInterval
+	if interval == 0 {
+		interval = (vp9MinGFInterval + vp9MaxGFInterval) >> 1
+	}
+	return interval
+}
+
 func (rc *vp9RateControlState) postOnePassVBRRefresh(refreshFlags uint8) {
 	if !rc.enabled || rc.mode == RateControlCBR {
 		return
 	}
 	if refreshFlags&(1<<vp9GoldenRefSlot) != 0 && rc.framesTillGF == 0 {
-		interval := rc.baselineGFInterval
-		if interval == 0 {
-			interval = (vp9MinGFInterval + vp9MaxGFInterval) >> 1
-		}
-		rc.framesTillGF = interval
+		rc.framesTillGF = rc.runtimeOnePassVBRGoldenInterval()
 	}
 	if refreshFlags&(1<<vp9GoldenRefSlot) != 0 ||
 		refreshFlags&(1<<vp9AltRefSlot) == 0 {

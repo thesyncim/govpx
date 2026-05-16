@@ -189,6 +189,57 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 	return nil
 }
 
+func (rc *vp9RateControlState) applyRuntimeConfig(opts VP9EncoderOptions, timing timingState) error {
+	if !rc.enabled {
+		return rc.applyOptions(opts, timing)
+	}
+	if !opts.RateControlModeSet || !validRateControlMode(opts.RateControlMode) {
+		return ErrInvalidConfig
+	}
+	bufferSize := opts.BufferSizeMs
+	if bufferSize == 0 {
+		bufferSize = libvpxDefaultBufferSizeMs
+	}
+	bufferInitial := opts.BufferInitialSizeMs
+	if bufferInitial == 0 {
+		bufferInitial = libvpxDefaultBufferInitialMs
+	}
+	bufferOptimal := opts.BufferOptimalSizeMs
+	if bufferOptimal == 0 {
+		bufferOptimal = libvpxDefaultBufferOptimalMs
+	}
+	if bufferSize <= 0 || bufferInitial < 0 || bufferOptimal < 0 {
+		return ErrInvalidConfig
+	}
+	waterMark := opts.DropFrameWaterMark
+	if opts.DropFrameAllowed && waterMark <= 0 {
+		waterMark = defaultDropFramesWaterMark
+	}
+	if waterMark > 100 {
+		waterMark = 100
+	}
+
+	prev := *rc
+	rc.mode = opts.RateControlMode
+	rc.bufferSizeMs = bufferSize
+	rc.bufferInitialSizeMs = bufferInitial
+	rc.bufferOptimalSizeMs = bufferOptimal
+	rc.dropFrameAllowed = false
+	rc.dropFramesWaterMark = 0
+	if opts.RateControlMode == RateControlCBR {
+		rc.dropFrameAllowed = opts.DropFrameAllowed
+		rc.dropFramesWaterMark = uint8(waterMark)
+	}
+	rc.setFrameSize(opts.Width, opts.Height)
+	rc.setQuantizerBoundsFromOptions(opts)
+	if err := rc.setBitrateKbps(opts.TargetBitrateKbps, timing); err != nil {
+		*rc = prev
+		return err
+	}
+	rc.setRuntimeOnePassVBRGoldenCadence(prev)
+	return nil
+}
+
 func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	if !rc.enabled {
 		return nil

@@ -136,6 +136,47 @@ func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderOfficialIVFTestDataThreadedMatchesSerial(t *testing.T) {
+	root, ok := externalVP9IVFTestDataRoot(t)
+	if !ok {
+		return
+	}
+	paths := findVP9IVFTestData(t, root, false)
+	if len(paths) == 0 {
+		t.Fatalf("no VP90 IVF files found under %s", root)
+	}
+	assertExternalVP9IVFTestDataMinimum(t, root, paths)
+
+	for _, path := range paths {
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			ivf, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			want, err := decodeVP9IVFVisibleI420WithOptions(ivf,
+				VP9DecoderOptions{})
+			if (errors.Is(err, ErrVP9NotImplemented) || errors.Is(err, ErrInvalidVP9Data)) &&
+				os.Getenv("GOVPX_VP9_TEST_DATA_STRICT") != "1" {
+				t.Skipf("%s is a valid official VP90 IVF stream but needs unsupported VP9 decoder features", filepath.Base(path))
+			}
+			if err != nil {
+				t.Fatalf("serial Decode VP90 IVF returned error: %v", err)
+			}
+			got, err := decodeVP9IVFVisibleI420WithOptions(ivf,
+				VP9DecoderOptions{Threads: 3})
+			if err != nil {
+				t.Fatalf("threaded Decode VP90 IVF returned error: %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("threaded VP90 IVF I420 mismatch for %s\nserial=%s\nthreaded=%s",
+					filepath.Base(path),
+					testutil.MD5Hex(md5.Sum(want)),
+					testutil.MD5Hex(md5.Sum(got)))
+			}
+		})
+	}
+}
+
 func TestVP9DecoderOfficialProfile0WebMTestDataMatchesLibvpx(t *testing.T) {
 	root, ok := externalVP9Profile0WebMTestDataRoot(t)
 	if !ok {
@@ -663,15 +704,23 @@ func decodeVP9IVFVisibleI420ForTest(t *testing.T, ivf []byte) []byte {
 }
 
 func decodeVP9IVFVisibleI420(ivf []byte) ([]byte, error) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	return decodeVP9IVFVisibleI420WithOptions(ivf, VP9DecoderOptions{})
+}
+
+func decodeVP9IVFVisibleI420WithOptions(ivf []byte, opts VP9DecoderOptions) (out []byte, err error) {
+	d, err := NewVP9Decoder(opts)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if closeErr := d.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 	if !vp9ExternalIVFHeaderLooksValid(ivf) {
 		return nil, testutil.ErrInvalidIVF
 	}
 	offset := testutil.IVFFileHeaderSize
-	var out []byte
 	for inputIndex := 0; offset < len(ivf); inputIndex++ {
 		frame, next, err := testutil.NextIVFFrame(ivf, offset, inputIndex)
 		if err != nil {

@@ -204,8 +204,8 @@ func (e *VP9Encoder) SetRateControl(cfg RateControlConfig) error {
 	if err := nextTemporal.refreshBitrate(cfg.TargetBitrateKbps); err != nil {
 		return err
 	}
-	var nextRC vp9RateControlState
-	if err := nextRC.applyOptions(nextOpts, e.vp9TimingState()); err != nil {
+	nextRC := e.rc
+	if err := nextRC.applyRuntimeConfig(nextOpts, e.vp9TimingState()); err != nil {
 		return err
 	}
 	var nextTwoPass vp9TwoPassState

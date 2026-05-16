@@ -1449,7 +1449,8 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 			},
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,-,-,endusage:vbr+bitrate:700+minq:4+maxq:56+bufsz:6000+bufinit:4000+bufopt:5000,-,-,-,endusage:cbr+bitrate:700+minq:4+maxq:56+bufsz:6000+bufinit:4000+bufopt:5000,-,-"),
-			exactPrefix: 3,
+			exactPrefix: frames,
+			strictBytes: true,
 		},
 		{
 			name: "constant-set-rate-control-q-cq-roundtrip",
@@ -1500,8 +1501,8 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 				"--cq-level=20",
 				"--control-script=-,-,-,endusage:q+bitrate:700+minq:4+maxq:56+cq:20+bufsz:6000+bufinit:4000+bufopt:5000,-,-,-,endusage:cq+bitrate:700+minq:4+maxq:56+cq:20+bufsz:6000+bufinit:4000+bufopt:5000,-,-",
 			},
-			exactPrefix: 3,
-			exactFrames: []int{4, 5, 6},
+			exactPrefix: frames,
+			strictBytes: true,
 		},
 		{
 			name: "constant-tuning-ssim-roundtrip-fixed-q",
@@ -2923,7 +2924,8 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 			},
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,-,-,endusage:vbr+bitrate:700+minq:4+maxq:56+bufsz:6000+bufinit:4000+bufopt:5000,-,-,-,endusage:cbr+bitrate:700+minq:4+maxq:56+bufsz:6000+bufinit:4000+bufopt:5000,-,-"),
-			exactPrefix: 3,
+			exactPrefix: frames,
+			strictBytes: true,
 		},
 		{
 			name: "q-band-only-two-step",
@@ -3177,8 +3179,8 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				"--cq-level=20",
 				"--control-script=-,-,-,endusage:q+bitrate:700+minq:4+maxq:56+cq:20+bufsz:6000+bufinit:4000+bufopt:5000,-,-,-,endusage:cq+bitrate:700+minq:4+maxq:56+cq:20+bufsz:6000+bufinit:4000+bufopt:5000,-,-",
 			},
-			exactPrefix: 3,
-			exactFrames: []int{4, 5, 6},
+			exactPrefix: frames,
+			strictBytes: true,
 		},
 		{
 			name: "cpu-used-two-step-fixed-q",
