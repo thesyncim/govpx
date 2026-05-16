@@ -810,6 +810,42 @@ func (e *VP9SpatialSVCEncoder) CopyLayerReferenceFrame(layerID uint8,
 	return layer.CopyReferenceFrame(ref, dst)
 }
 
+// SetInterLayerPrediction enables or disables VP9 spatial inter-layer
+// prediction for subsequent access units. When enabled, each enhancement layer
+// references the just-coded lower spatial layer; when disabled, all spatial
+// layers encode independently while keeping the same superframe/RTP structure.
+func (e *VP9SpatialSVCEncoder) SetInterLayerPrediction(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	count := int(e.layerCount)
+	if enabled {
+		for i := 1; i < count; i++ {
+			lower := e.layers[i-1]
+			upper := e.layers[i]
+			if lower == nil || upper == nil {
+				return ErrClosed
+			}
+			if !validVP9SpatialSVCInterLayerScale(lower.opts.Width,
+				lower.opts.Height, upper.opts.Width, upper.opts.Height) {
+				return ErrInvalidConfig
+			}
+		}
+	}
+	for i := 0; i < count; i++ {
+		layer := e.layers[i]
+		if layer == nil {
+			return ErrClosed
+		}
+		spatial := layer.opts.SpatialScalability
+		spatial.InterLayerDependency = enabled && i > 0
+		spatial.NotRefForUpperSpatialLayer = !enabled || i == count-1
+		layer.opts.SpatialScalability = spatial
+	}
+	e.interLayerPrediction = enabled
+	return nil
+}
+
 // SetTemporalScalability configures the same VP9 temporal-layer schedule on
 // every spatial layer. Each layer derives its temporal bitrate split from that
 // layer's TargetBitrateKbps.

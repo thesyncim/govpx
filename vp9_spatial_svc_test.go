@@ -138,6 +138,63 @@ func TestVP9SpatialSVCEncoderIndependentLayers(t *testing.T) {
 	}
 }
 
+func TestVP9SpatialSVCEncoderSetInterLayerPrediction(t *testing.T) {
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount: 2,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			{Width: 32, Height: 32, Lossless: true},
+			{Width: 64, Height: 64, Lossless: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	srcs := []*image.YCbCr{
+		newVP9YCbCrForTest(32, 32, 20, 128, 128),
+		newVP9YCbCrForTest(64, 64, 40, 128, 128),
+	}
+	dst := make([]byte, 1<<20)
+	result, err := svc.EncodeIntoWithResult(srcs, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult independent: %v", err)
+	}
+	if result.InterLayerPrediction ||
+		!result.Layers[0].NotRefForUpperSpatialLayer ||
+		result.Layers[1].InterLayerDependency {
+		t.Fatalf("initial independent SVC metadata = base:%+v enh:%+v result:%+v",
+			result.Layers[0], result.Layers[1], result)
+	}
+
+	if err := svc.SetInterLayerPrediction(true); err != nil {
+		t.Fatalf("SetInterLayerPrediction(true): %v", err)
+	}
+	result, err = svc.EncodeIntoWithResult(srcs, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult inter-layer: %v", err)
+	}
+	if !result.InterLayerPrediction ||
+		result.Layers[0].NotRefForUpperSpatialLayer ||
+		!result.Layers[1].InterLayerDependency ||
+		!result.Layers[1].NotRefForUpperSpatialLayer {
+		t.Fatalf("enabled inter-layer SVC metadata = base:%+v enh:%+v result:%+v",
+			result.Layers[0], result.Layers[1], result)
+	}
+
+	if err := svc.SetInterLayerPrediction(false); err != nil {
+		t.Fatalf("SetInterLayerPrediction(false): %v", err)
+	}
+	result, err = svc.EncodeIntoWithResult(srcs, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult disabled: %v", err)
+	}
+	if result.InterLayerPrediction ||
+		!result.Layers[0].NotRefForUpperSpatialLayer ||
+		result.Layers[1].InterLayerDependency {
+		t.Fatalf("disabled inter-layer SVC metadata = base:%+v enh:%+v result:%+v",
+			result.Layers[0], result.Layers[1], result)
+	}
+}
+
 func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	base := VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
@@ -223,6 +280,22 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	if err := layer.SetTemporalLayerID(0); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("locked layer SetTemporalLayerID err = %v, want ErrInvalidConfig", err)
 	}
+	invalidScale, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount: 2,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			{Width: 32, Height: 32},
+			{Width: 544, Height: 544},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder invalid-scale-independent: %v", err)
+	}
+	if err := invalidScale.SetInterLayerPrediction(true); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetInterLayerPrediction invalid scale err = %v, want ErrInvalidConfig", err)
+	}
+	if err := invalidScale.Close(); err != nil {
+		t.Fatalf("invalidScale Close: %v", err)
+	}
 	if err := svc.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -237,6 +310,13 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	}
 	if err := svc.SetTemporalLayerID(0); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalLayerID after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetInterLayerPrediction(true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetInterLayerPrediction after close err = %v, want ErrClosed", err)
+	}
+	var nilSVC *VP9SpatialSVCEncoder
+	if err := nilSVC.SetInterLayerPrediction(true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetInterLayerPrediction on nil err = %v, want ErrClosed", err)
 	}
 }
 
@@ -852,6 +932,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		name string
 		fn   func() error
 	}{
+		{name: "SetInterLayerPrediction", fn: func() error { return svc.SetInterLayerPrediction(true) }},
 		{name: "SetLayerCQLevel", fn: func() error { return svc.SetLayerCQLevel(1, 24) }},
 		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, VP9AQComplexity) }},
 		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},

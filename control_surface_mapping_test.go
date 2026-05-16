@@ -361,9 +361,10 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"static:"},
 		},
-		"SetLayerTuning":       {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"tune:"}},
-		"SetLayerTwoPassStats": {kind: "vp9-spatial-svc-layer-control"},
-		"SetTemporalLayerID":   {kind: "vp9-spatial-temporal-svc-control"},
+		"SetInterLayerPrediction": {kind: "libvpx-vp9-svc-control", helperTokens: []string{"inter-layer-pred:"}},
+		"SetLayerTuning":          {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"tune:"}},
+		"SetLayerTwoPassStats":    {kind: "vp9-spatial-svc-layer-control"},
+		"SetTemporalLayerID":      {kind: "vp9-spatial-temporal-svc-control"},
 		"SetTemporalScalability": {
 			kind: "vp9-spatial-temporal-svc-control",
 		},
