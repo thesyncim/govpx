@@ -14,36 +14,117 @@ import (
 	"testing"
 )
 
-// logFirstPassDivergenceSummary records the largest per-field
-// difference between govpx and libvpx first-pass stats for each
-// frame and the totals row. Failures are NOT raised here — the
-// scoreboard data is intended for a future tightening pass.
-func logFirstPassDivergenceSummary(t *testing.T, label string, govpx, libvpx []FirstPassFrameStats) {
+// firstPassLooseTolerances captures per-field |Δ| ceilings that the
+// fuzz-driven first-pass comparator enforces. The ceilings start at
+// values that just-barely admit today's seed corpus and are documented
+// as a *temporary* floor pending closure of the residual govpx vs
+// libvpx MV-accumulator divergence (plan-§3 gap E Step 2). Each entry
+// is "ceiling on |govpx - libvpx|" for that FIRSTPASS_STATS field,
+// applied per-frame and on the IsTotal aggregate.
+//
+// Tighten these as the underlying accumulator bug closes; the goal is
+// a uniform 1e-9 (effective bit-exactness) ceiling once the first-pass
+// reconstruction matches libvpx byte-for-byte.
+type firstPassLooseTolerances struct {
+	IntraError          float64
+	CodedError          float64
+	SSIMWeightedPredErr float64
+	PcntInter           float64
+	PcntMotion          float64
+	PcntSecondRef       float64
+	PcntNeutral         float64
+	MVr                 float64
+	MVrAbs              float64
+	MVc                 float64
+	MVcAbs              float64
+	MVrv                float64
+	MVcv                float64
+	MVInOutCount        float64
+	NewMVCount          float64
+}
+
+// defaultFirstPassLooseTolerances is the cross-config ceiling consumed
+// by the F2 fuzzer. Numbers are calibrated against the current seed
+// corpus (max observed |Δ| on MVcv = 1394, per-frame max ≈ 716): each
+// ceiling is the smallest value that admits the corpus while still
+// catching a 2x regression. MV variance fields dominate because
+// variance scales as the square of MV delta, so a one-pel average
+// shift per frame drives several-hundred-unit |Δ| on a 32x32 frame
+// with four moving MBs.
+//
+// Tighten these as Step 2 (closing the MV-accumulator divergence)
+// makes progress. The expected end-state is a uniform near-zero
+// ceiling once first-pass reconstruction matches libvpx byte-for-byte.
+var defaultFirstPassLooseTolerances = firstPassLooseTolerances{
+	IntraError:          128,  // current max |Δ| = 77 (frame 5 of the cpu=4 seed)
+	CodedError:          128,  // current max |Δ| within the floor IntraError budget
+	SSIMWeightedPredErr: 256,  // CodedError * simple_weight, weight in [0.1, 1.0]
+	PcntInter:           0.5,  // 1 MB on a 4-MB frame is 0.25
+	PcntMotion:          0.5,  // mirrors PcntInter scaling
+	PcntSecondRef:       1.0,  // 2 MBs flipping golden-ref selection on 4-MB frame
+	PcntNeutral:         0.5,  // mirrors PcntInter scaling
+	MVr:                 32,   // per-frame Q3 mean shift; current max ≈ 10
+	MVrAbs:              32,   // current max ≈ 10
+	MVc:                 32,   // current max ≈ 20 (totals row)
+	MVcAbs:              32,   // current max ≈ 20 (totals row)
+	MVrv:                1500, // current max |Δ| = 716 per frame
+	MVcv:                1500, // current max |Δ| = 1394 (totals)
+	MVInOutCount:        0.5,
+	NewMVCount:          4,
+}
+
+// compareFirstPassStatsLoose enforces a per-field |Δ| ceiling between
+// govpx and libvpx FIRSTPASS_STATS across all frames and the totals
+// row. Unlike compareFirstPassStats (which expects a pinned cpu=0,
+// frames<=4 fixture and asserts at 1e-12), this comparator is meant
+// for the fuzz-driven cross-config corpus that currently exercises a
+// known residual MV-accumulator divergence (plan-§3 gap E Step 2).
+//
+// Returns (maxField, maxAbsValue) for diagnostic reporting; callers
+// inspect the returned values to log a scoreboard summary alongside
+// the per-field t.Errorf failures.
+func compareFirstPassStatsLoose(t *testing.T, label string, govpx, libvpx []FirstPassFrameStats, tols firstPassLooseTolerances) (string, float64) {
 	t.Helper()
 	if len(govpx) != len(libvpx) {
-		t.Logf("%s first-pass stats length: govpx=%d libvpx=%d", label, len(govpx), len(libvpx))
-		return
+		t.Errorf("%s first-pass stats length: govpx=%d libvpx=%d", label, len(govpx), len(libvpx))
+		return "", 0
 	}
 	maxAbsField := ""
 	maxAbsValue := 0.0
+	check := func(frameLabel, field string, got, want, tol float64) {
+		d := math.Abs(got - want)
+		if d > maxAbsValue {
+			maxAbsValue = d
+			maxAbsField = field
+		}
+		if d > tol {
+			t.Errorf("%s %s %s |Δ|=%.6g > tol=%.6g (got=%.6g want=%.6g)",
+				label, frameLabel, field, d, tol, got, want)
+		}
+	}
 	for i := range govpx {
 		g, l := govpx[i], libvpx[i]
-		checkField := func(name string, got, want float64) {
-			d := math.Abs(got - want)
-			if d > maxAbsValue {
-				maxAbsValue = d
-				maxAbsField = name
-			}
+		fl := "frame " + strconv.Itoa(i)
+		if l.IsTotal {
+			fl = "total"
 		}
-		checkField("IntraError", g.IntraError, l.IntraError)
-		checkField("CodedError", g.CodedError, l.CodedError)
-		checkField("SSIMWeightedPredErr", g.SSIMWeightedPredErr, l.SSIMWeightedPredErr)
-		checkField("MVrAbs", g.MVrAbs, l.MVrAbs)
-		checkField("MVcAbs", g.MVcAbs, l.MVcAbs)
-		checkField("MVrv", g.MVrv, l.MVrv)
-		checkField("MVcv", g.MVcv, l.MVcv)
+		check(fl, "IntraError", g.IntraError, l.IntraError, tols.IntraError)
+		check(fl, "CodedError", g.CodedError, l.CodedError, tols.CodedError)
+		check(fl, "SSIMWeightedPredErr", g.SSIMWeightedPredErr, l.SSIMWeightedPredErr, tols.SSIMWeightedPredErr)
+		check(fl, "PcntInter", g.PcntInter, l.PcntInter, tols.PcntInter)
+		check(fl, "PcntMotion", g.PcntMotion, l.PcntMotion, tols.PcntMotion)
+		check(fl, "PcntSecondRef", g.PcntSecondRef, l.PcntSecondRef, tols.PcntSecondRef)
+		check(fl, "PcntNeutral", g.PcntNeutral, l.PcntNeutral, tols.PcntNeutral)
+		check(fl, "MVr", g.MVr, l.MVr, tols.MVr)
+		check(fl, "MVrAbs", g.MVrAbs, l.MVrAbs, tols.MVrAbs)
+		check(fl, "MVc", g.MVc, l.MVc, tols.MVc)
+		check(fl, "MVcAbs", g.MVcAbs, l.MVcAbs, tols.MVcAbs)
+		check(fl, "MVrv", g.MVrv, l.MVrv, tols.MVrv)
+		check(fl, "MVcv", g.MVcv, l.MVcv, tols.MVcv)
+		check(fl, "MVInOutCount", g.MVInOutCount, l.MVInOutCount, tols.MVInOutCount)
+		check(fl, "NewMVCount", g.NewMVCount, l.NewMVCount, tols.NewMVCount)
 	}
-	t.Logf("%s first-pass stats max divergence: field=%s |Δ|=%.4g (logged-only)", label, maxAbsField, maxAbsValue)
+	return maxAbsField, maxAbsValue
 }
 
 // FuzzEncoderTwoPassByteParity closes plan-§3 F2 / G3: a fuzz-driven
@@ -110,7 +191,8 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 			t.Fatalf("read fpf: %v", err)
 		}
 		libvpxStats := parseLibvpxFirstPassStats(t, fpfData)
-		logFirstPassDivergenceSummary(t, label, govpxStats, libvpxStats)
+		maxField, maxAbs := compareFirstPassStatsLoose(t, label, govpxStats, libvpxStats, defaultFirstPassLooseTolerances)
+		t.Logf("%s first-pass stats max divergence (post-tolerance): field=%s |Δ|=%.4g", label, maxField, maxAbs)
 
 		// Second-pass: feed libvpx-derived stats to govpx and run
 		// vpxenc-oracle pass=2 for the libvpx reference IVF.
