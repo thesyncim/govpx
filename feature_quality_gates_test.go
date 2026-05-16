@@ -15,9 +15,11 @@ package govpx_test
 //
 // Findings recorded in commit "Add VP9 per-feature BD-rate gates":
 //   - AltRef on/off (panning) saves ~3.6% bitrate; gate at ≤ 0%.
-//   - ARNR on/off has zero observed effect; gate accepts current
-//     0% and asserts the toggle does not regress harder than +5%.
-//   - TPL on/off has zero observed effect; same gate stance as ARNR.
+//   - ARNR on/off saves ~1.4% bitrate on textured/noisy content
+//     after the centered-window fix; gate requires ≤ -1% so a
+//     regression that re-collapses the temporal filter to a
+//     no-op fails immediately.
+//   - TPL on/off has zero observed effect; gate accepts ≤ +5%.
 //   - VarianceAQ hurts bitrate ~+77% on the variance-heavy probe
 //     content; gate pins the upper bound at +90% so a regression
 //     making it even worse fails. Investigation tracked separately.
@@ -108,12 +110,22 @@ func TestVP9FeatureBDRateARNR(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("ARNR BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	// ARNR currently has no observed effect: the gate accepts a
-	// wide band, but the upper bound (+5%) ensures a future
-	// "wired-but-broken" ARNR refactor that loads but does the
-	// wrong thing fails the gate.
-	if res.BDRate > 5.0 {
-		t.Errorf("ARNR BD-rate=%.3f%% > 5%%: enabling ARNR must not significantly hurt rate", res.BDRate)
+	// Post-fix expectation: enabling ARNR must actually save
+	// bitrate on textured-with-noise content (centered temporal
+	// filter against the alt-ref). The pre-fix code collapsed the
+	// centered window to zero whenever the alt-ref sat at the end
+	// of the lookahead, so this gate observed 0.000%; the
+	// bug-detector now requires a negative BD-rate.
+	if res.BDRate > -1.0 {
+		t.Errorf("ARNR BD-rate=%.3f%% > -1%%: enabling ARNR must save bitrate on textured/noisy content; the centered temporal filter dropped to a no-op",
+			res.BDRate)
+	}
+	// Sanity floor: anything below -20% on this 12-frame fixture
+	// is implausible and would indicate a measurement bug rather
+	// than a real improvement.
+	if res.BDRate < -20.0 {
+		t.Errorf("ARNR BD-rate=%.3f%% < -20%%: implausibly large saving, check harness",
+			res.BDRate)
 	}
 }
 
