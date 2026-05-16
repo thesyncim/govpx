@@ -11,18 +11,129 @@ import "unsafe"
 //go:noescape
 func sad16x16SSE2(src *byte, srcStride int, ref *byte, refStride int) uint32
 
+//go:noescape
+func sad16xNSSE2(src *byte, srcStride int, ref *byte, refStride int, rows int) uint32
+
+//go:noescape
+func sad8xNSSE2(src *byte, srcStride int, ref *byte, refStride int, rows int) uint32
+
+//go:noescape
+func sad16ChunksSSE2(src *byte, srcStride int, ref *byte, refStride int, rows int, chunks int) uint32
+
+func sadWindowOK(buf []uint8, off, stride, w, h int) bool {
+	if off < 0 || stride < 0 {
+		return false
+	}
+	limit := off + (h-1)*stride + w
+	return limit >= off && limit <= len(buf)
+}
+
+func sad64x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 64, 64) &&
+		sadWindowOK(ref, refOff, refStride, 64, 64) {
+		return sad16ChunksSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 64, 4)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 64, 64)
+}
+
+func sad64x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 64, 32) &&
+		sadWindowOK(ref, refOff, refStride, 64, 32) {
+		return sad16ChunksSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 32, 4)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 64, 32)
+}
+
+func sad32x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 32, 64) &&
+		sadWindowOK(ref, refOff, refStride, 32, 64) {
+		return sad16ChunksSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 64, 2)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 32, 64)
+}
+
+func sad32x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 32, 32) &&
+		sadWindowOK(ref, refOff, refStride, 32, 32) {
+		return sad16ChunksSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 32, 2)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 32, 32)
+}
+
+func sad32x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 32, 16) &&
+		sadWindowOK(ref, refOff, refStride, 32, 16) {
+		return sad16ChunksSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 16, 2)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 32, 16)
+}
+
+func sad16x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 16, 32) &&
+		sadWindowOK(ref, refOff, refStride, 16, 32) {
+		return sad16xNSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 32)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 32)
+}
+
 func sad16x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	if srcOff >= 0 && refOff >= 0 && srcStride >= 0 && refStride >= 0 {
-		srcLimit := srcOff + 15*srcStride + 16
-		refLimit := refOff + 15*refStride + 16
-		if srcLimit >= srcOff && refLimit >= refOff &&
-			srcLimit <= len(src) && refLimit <= len(ref) {
-			return sad16x16SSE2(
-				unsafe.SliceData(src[srcOff:]),
-				srcStride,
-				unsafe.SliceData(ref[refOff:]),
-				refStride)
-		}
+	if sadWindowOK(src, srcOff, srcStride, 16, 16) &&
+		sadWindowOK(ref, refOff, refStride, 16, 16) {
+		return sad16x16SSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride)
 	}
 	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 16)
+}
+
+func sad16x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 16, 8) &&
+		sadWindowOK(ref, refOff, refStride, 16, 8) {
+		return sad16xNSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 8)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 8)
+}
+
+func sad8x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 8, 16) &&
+		sadWindowOK(ref, refOff, refStride, 8, 16) {
+		return sad8xNSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 16)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 8, 16)
+}
+
+func sad8x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 8, 8) &&
+		sadWindowOK(ref, refOff, refStride, 8, 8) {
+		return sad8xNSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 8)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 8, 8)
+}
+
+func sad8x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	if sadWindowOK(src, srcOff, srcStride, 8, 4) &&
+		sadWindowOK(ref, refOff, refStride, 8, 4) {
+		return sad8xNSSE2(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride, 4)
+	}
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 8, 4)
 }

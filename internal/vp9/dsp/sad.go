@@ -48,37 +48,37 @@ func compAvgPred(compPred, secondPred []uint8, w, h int, ref []uint8, refOff, re
 // inlining of the size constants.
 
 func VpxSad64x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 64, 64)
+	return sad64x64(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad64x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 64, 32)
+	return sad64x32(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad32x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 32, 64)
+	return sad32x64(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad32x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 32, 32)
+	return sad32x32(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad32x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 32, 16)
+	return sad32x16(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad16x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 32)
+	return sad16x32(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad16x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	return sad16x16(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad16x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 8)
+	return sad16x8(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad8x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 8, 16)
+	return sad8x16(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad8x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 8, 8)
+	return sad8x8(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad8x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 8, 4)
+	return sad8x4(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad4x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	return sad(src, srcOff, srcStride, ref, refOff, refStride, 4, 8)
