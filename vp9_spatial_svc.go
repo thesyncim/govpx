@@ -572,6 +572,58 @@ func (e *VP9SpatialSVCEncoder) SetLayerRateControl(layerID uint8, cfg RateContro
 	return layer.SetRateControl(cfg)
 }
 
+// SetLayerDeadline changes one spatial layer's VP9 speed/quality deadline,
+// matching [VP9Encoder.SetDeadline].
+func (e *VP9SpatialSVCEncoder) SetLayerDeadline(layerID uint8, deadline Deadline) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetDeadline(deadline)
+}
+
+// SetLayerCPUUsed changes one spatial layer's VP9 cpu-used speed preset,
+// matching [VP9Encoder.SetCPUUsed].
+func (e *VP9SpatialSVCEncoder) SetLayerCPUUsed(layerID uint8, cpuUsed int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetCPUUsed(cpuUsed)
+}
+
+// SetLayerNoiseSensitivity changes one spatial layer's VP9 temporal denoiser
+// level, matching [VP9Encoder.SetNoiseSensitivity].
+func (e *VP9SpatialSVCEncoder) SetLayerNoiseSensitivity(layerID uint8, level int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetNoiseSensitivity(level)
+}
+
+// SetLayerActiveMap installs one spatial layer's VP9 active map, matching
+// [VP9Encoder.SetActiveMap].
+func (e *VP9SpatialSVCEncoder) SetLayerActiveMap(layerID uint8,
+	activeMap []uint8, rows int, cols int,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetActiveMap(activeMap, rows, cols)
+}
+
+// SetLayerROIMap installs one spatial layer's VP9 ROI map, matching
+// [VP9Encoder.SetROIMap].
+func (e *VP9SpatialSVCEncoder) SetLayerROIMap(layerID uint8, roi *ROIMap) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetROIMap(roi)
+}
+
 // SetLayerReferenceFrame replaces one spatial layer's VP9 encoder reference
 // slot, matching [VP9Encoder.SetReferenceFrame].
 func (e *VP9SpatialSVCEncoder) SetLayerReferenceFrame(layerID uint8,
