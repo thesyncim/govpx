@@ -21,9 +21,9 @@ func filledDestPattern(n, seed int) []uint8 {
 
 type dcCase struct {
 	name      string
-	size      int                                                  // block side
-	wrapper   func(in []int16, dest []uint8, stride int)           // exported entry point under test
-	reference func(in []int16, dest []uint8, stride int)           // always-scalar reference
+	size      int                                        // block side
+	wrapper   func(in []int16, dest []uint8, stride int) // exported entry point under test
+	reference func(in []int16, dest []uint8, stride int) // always-scalar reference
 }
 
 func vp9IdctDcCases() []dcCase {
@@ -69,9 +69,9 @@ func TestVP9IdctDcSimdAgreement(t *testing.T) {
 
 func TestVP9IdctDcSimdEdgeCases(t *testing.T) {
 	type edge struct {
-		name    string
-		dest    uint8
-		dc      int16
+		name string
+		dest uint8
+		dc   int16
 	}
 	edges := []edge{
 		{"zeroDestPositiveDc", 0, 1024},
