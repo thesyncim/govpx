@@ -584,8 +584,15 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshSetup(args vp9CyclicRefreshSetu
 	cr.qindexDelta[0] = 0
 	cr.qindexDelta[1] = cr.vp9CyclicRefreshComputeDeltaq(args.BaseQindex, cr.rateRatioQdelta, args.FrameIsIntraOnly)
 	// libvpx: vp9_aq_cyclicrefresh.c:665 — rdmult.
+	//   cr->rdmult = vp9_compute_rd_mult(cpi, qindex2);
+	// The frame-type bucket follows the libvpx branching in
+	// vp9_compute_rd_mult_based_on_qindex: KF wins, then ARF/GF when
+	// refreshing, else inter.  CR runs after the encoder has resolved
+	// refresh flags, so we recompute the same bucket here.
 	qindex2 := clamp(args.BaseQindex+args.YDcDeltaQ+cr.qindexDelta[1], 0, vp9dec.MaxQ)
-	cr.rdmult = qindex2 // govpx doesn't have a shared vp9_compute_rd_mult yet — store qindex2 as a placeholder
+	frameType := vp9RDFrameTypeFor(args.FrameIsKey, args.IsSrcFrameAltRef,
+		args.RefreshGoldenFrame, args.RefreshAltRefFrame)
+	cr.rdmult = vp9ComputeRDMult(qindex2, frameType)
 	// libvpx: vp9_aq_cyclicrefresh.c:669-674 — BOOST2 delta.
 	ratio := 0.1 * float64(cr.rateBoostFac) * cr.rateRatioQdelta
 	if ratio > vp9CyclicRefreshMaxRateTargetRatio {
@@ -627,6 +634,13 @@ type vp9CyclicRefreshSetupArgs struct {
 	YDcDeltaQ               int
 	Sb64TargetRate          int
 	ConsecZeroMv            []uint8
+	// IsSrcFrameAltRef / RefreshGoldenFrame / RefreshAltRefFrame mirror
+	// cpi->rc.is_src_frame_alt_ref, cpi->refresh_golden_frame, and
+	// cpi->refresh_alt_ref_frame from vp9_aq_cyclicrefresh.c:665 — the
+	// inputs to libvpx's vp9_compute_rd_mult frame-type branching.
+	IsSrcFrameAltRef   bool
+	RefreshGoldenFrame bool
+	RefreshAltRefFrame bool
 }
 
 // vp9CyclicRefreshPostencode mirrors vp9_cyclic_refresh_postencode()

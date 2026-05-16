@@ -105,6 +105,15 @@ type vp9RateControlState struct {
 	//
 	// libvpx: vp9/encoder/vp9_ratectrl.h RATE_CONTROL::gfu_boost
 	gfuBoost uint16
+
+	// rdmult / rddiv mirror libvpx's RD_OPT::RDMULT / RD_OPT::RDDIV.
+	// vp9_initialize_rd_consts populates them once at frame start from
+	// vp9_compute_rd_mult(base_qindex + y_dc_delta_q) and the constant
+	// RDDIV_BITS=7 (vp9/encoder/vp9_rd.c:396-407).  Per-block paths
+	// (mode pickers, AQ deltas) read rdmult here and optionally scale it
+	// per-SB via cbRdmult before invoking RDCOST.
+	rdmult int
+	rddiv  int
 }
 
 type vp9DropReason uint8

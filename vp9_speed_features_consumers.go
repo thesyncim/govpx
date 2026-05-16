@@ -238,3 +238,60 @@ func (e *VP9Encoder) vp9InterPartitionFixed() (common.BlockSize, bool) {
 	}
 	return e.sf.AlwaysThisBlockSize, true
 }
+
+// vp9InterSkipFilterSearch returns true when SPEED_FEATURES.disable_filter_search_var_thresh
+// gates this block out of the multi-interp-filter RD search.  libvpx skips
+// the alternative filters when the source variance is below the threshold —
+// at that quality level the additional RD pass cannot reorder filters.
+//
+// libvpx: vp9/encoder/vp9_rdopt.c (single_motion_search /
+// rd_pick_inter_mode) — when sf->disable_filter_search_var_thresh > 0 the
+// non-EIGHTTAP filters are pruned for low-variance blocks.
+//
+// The gate stays at zero (no skip) for cpu_used <= 3 because
+// set_rt_speed_feature_framesize_dependent only raises it from speed 4
+// onward.  When the SF is zero govpx returns false so the existing
+// behaviour is preserved — the rdmult port keeps byte parity for the slow
+// paths.
+func (e *VP9Encoder) vp9InterSkipFilterSearch(srcVariance uint) bool {
+	if e == nil || e.sf.DisableFilterSearchVarThresh == 0 {
+		return false
+	}
+	return srcVariance < e.sf.DisableFilterSearchVarThresh
+}
+
+// vp9InterAllowTxfmDomainDistortion returns true when SPEED_FEATURES.allow_txfm_domain_distortion
+// is set and the candidate RDCOST exceeds the per-SF threshold.  libvpx's
+// gate fires inside dist_block (vp9_rdopt.c) to short-circuit the iDCT
+// when the coefficient-domain distortion already dominates the pixel
+// domain.  govpx defers the actual iDCT-skip until the consumer wires it
+// inside scoreVP9KeyframeModeTransformRD; the helper here is the policy
+// gate.
+//
+// libvpx: vp9/encoder/vp9_rdopt.c (block_rd_txfm) +
+// vp9_speed_features.c — sf->allow_txfm_domain_distortion +
+// sf->tx_domain_thresh.
+func (e *VP9Encoder) vp9InterAllowTxfmDomainDistortion(rdcost uint64) bool {
+	if e == nil || e.sf.AllowTxfmDomainDistortion == 0 {
+		return false
+	}
+	thresh := e.sf.TxDomainThresh
+	if thresh <= 0 {
+		return true
+	}
+	return float64(rdcost) > thresh
+}
+
+// vp9InterAllowSkipTxfmAcDc returns true when SPEED_FEATURES.allow_skip_txfm_ac_dc
+// permits the transform pipeline to short-circuit the AC/DC pass when the
+// SATD-based rdcost already exceeds the best-so-far.  Mirrors the libvpx
+// gate read in dist_block.
+//
+// libvpx: vp9/encoder/vp9_rdopt.c block_yrd /
+// vp9_speed_features.h::SPEED_FEATURES::allow_skip_txfm_ac_dc.
+func (e *VP9Encoder) vp9InterAllowSkipTxfmAcDc() bool {
+	if e == nil {
+		return false
+	}
+	return e.sf.AllowSkipTxfmAcDc != 0
+}

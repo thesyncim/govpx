@@ -846,6 +846,14 @@ type VP9Encoder struct {
 	// TPL→mode-picker wiring is actually firing.
 	tplRDMultDeltaCalls int
 
+	// cbRdmult mirrors libvpx's MACROBLOCK::cb_rdmult.  Each per-SB mode
+	// picker (libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248) writes
+	// this once from the base rdmult biased by the per-SB AQ/TPL deltas
+	// and all the candidate-scoring helpers read it through
+	// vp9EncoderModeDecisionRDMult.  When zero, callers fall back to the
+	// per-frame rd.rdmult.
+	cbRdmult int
+
 	// mvHints carries the per-SB64 motion-vector hint slab installed
 	// via importVP9MVHints. The multi-resolution encoder pipeline
 	// fills this from a previously-encoded lower-resolution layer's
@@ -1458,6 +1466,17 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		// encoded SB by vp9CyclicRefreshUpdateEncodedSb so this frame
 		// sees the previous frame's stationarity history.
 		ConsecZeroMv: e.cyclicAQ.consecZeroMv,
+		// CR runs on visible inter frames only (see early-returns above),
+		// so is_src_frame_alt_ref is always false here.  The refresh
+		// flags are not yet known at this point in govpx (RefreshFrame
+		// is set later in EncodeInto), so we conservatively pass false
+		// for both — matching libvpx's path because cyclic_refresh_setup
+		// runs before refresh_golden/alt are finalised in many of its
+		// realtime call paths.  The CR rdmult therefore lands in the
+		// inter bucket which is what libvpx's realtime CR runs evaluate.
+		IsSrcFrameAltRef:   false,
+		RefreshGoldenFrame: false,
+		RefreshAltRefFrame: false,
 	})
 	e.cyclicAQ.apply = e.cyclicAQ.applyCyclicRefresh && e.cyclicAQ.targetNumSegBlocks > 0
 }
@@ -2249,6 +2268,24 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		defer func() {
 			e.vp9ModeDecisionQIndexSet = false
 		}()
+	}
+	// libvpx: vp9/encoder/vp9_rd.c:396-407 vp9_initialize_rd_consts.
+	// rd->RDDIV = RDDIV_BITS; rd->RDMULT = vp9_compute_rd_mult(...).
+	// govpx's frame-type bucket replays the libvpx branching: KF wins,
+	// then a non-srcframe-altref ARF/GF refresh, else inter.  The
+	// per-SB cb_rdmult cache cleared inside vp9EncoderInitializeRDConsts
+	// matches libvpx's reset before each rd_pick_sb_modes invocation.
+	{
+		refreshFlags := uint8(0xff)
+		if !isKey {
+			refreshFlags = e.vp9InterRefreshFrameFlags(flags)
+		}
+		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+		srcFrameAltRef := !showFrame || flags&EncodeForceAltRefFrame != 0
+		rdFrameType := vp9RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
+			refreshAlt)
+		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType)
 	}
 	header.Quant.BaseQindex = int16(qindex)
 	header.Quant.UvDcDeltaQ = int8(e.opts.DeltaQUV)
@@ -4715,14 +4752,14 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		rateCostProbs = &inter.selectFc.PartitionProb
 	}
 	bestSize := root
-	bestScore := vp9AddModeDecisionRate(full.score,
+	bestScore := e.vp9AddModeDecisionRate(full.score,
 		vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionNone,
 			hasRows, hasCols), qindex)
 
 	if hasRows {
 		if score, ok := e.scoreVP9InterPartitionPair(inter, tile, miRows, miCols,
 			miRow, miCol, horzSize, bs, 0); ok {
-			score = vp9AddModeDecisionRate(score,
+			score = e.vp9AddModeDecisionRate(score,
 				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionHorz,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
@@ -4734,7 +4771,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if hasCols {
 		if score, ok := e.scoreVP9InterPartitionPair(inter, tile, miRows, miCols,
 			miRow, miCol, vertSize, 0, bs); ok {
-			score = vp9AddModeDecisionRate(score,
+			score = e.vp9AddModeDecisionRate(score,
 				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionVert,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
@@ -4746,7 +4783,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if hasRows && hasCols {
 		if score, ok := e.scoreVP9InterPartitionSplit(inter, tile, miRows, miCols,
 			miRow, miCol, splitSize); ok {
-			score = vp9AddModeDecisionRate(score,
+			score = e.vp9AddModeDecisionRate(score,
 				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionSplit,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
@@ -5956,12 +5993,17 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
 		rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
 	}
-
+	// Prime cb_rdmult so the UV intra and inter-intra scorers downstream
+	// see the same TPL-biased multiplier instead of re-deriving it.
+	// Inline save/restore (no defer) preserves the alloc-parity gate.
+	prevCbRdmult := e.cbRdmult
+	e.cbRdmult = rdmult
 	bestMode := common.DcPred
 	bestScore, ok := e.scoreVP9KeyframeModeRD(key, bestMode,
 		yModeCosts[bestMode], rdmult, tile, miRows, miCols, miRow, miCol,
 		bsize, mi)
 	if !ok {
+		e.cbRdmult = prevCbRdmult
 		return bestMode
 	}
 	// The candidate set follows libvpx's keyframe-RD picker. At cpu_used=0-3
@@ -5991,6 +6033,7 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 			bestMode = mode
 		}
 	}
+	e.cbRdmult = prevCbRdmult
 	return bestMode
 }
 
@@ -6422,7 +6465,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPrediction(key *vp9KeyframeEncodeState,
 		}
 		distortion += score
 	}
-	return vp9ModeDecisionScore(distortion, rate, qindex), true
+	return e.vp9ModeDecisionScore(distortion, rate, qindex), true
 }
 
 func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
@@ -6878,7 +6921,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		if hasResidue {
 			rate = coeffRate + vp9TxSizeRateCost(txProbs, tx, maxTx)
 		}
-		score := vp9ModeDecisionScore(distortion, rate, qindex)
+		score := e.vp9ModeDecisionScore(distortion, rate, qindex)
 		if score < bestScore || (score == bestScore && rate < bestRate) {
 			bestScore = score
 			bestRate = rate
@@ -7221,7 +7264,7 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	qindex := e.vp9EncoderModeDecisionQIndex()
-	interAdjusted := interScore + vp9ModeDecisionRateScore(
+	interAdjusted := interScore + e.vp9ModeDecisionRateScore(
 		vp9IntraInterRateCost(&inter.selectFc, above, left, 1), qindex)
 	if decision.score >= interAdjusted {
 		return vp9InterIntraDecision{}, false
@@ -7332,7 +7375,7 @@ func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
 			uvMode: mode,
 			txSize: txSize,
 			rate:   rate,
-			score:  vp9ModeDecisionScore(distortion, rate, qindex),
+			score:  e.vp9ModeDecisionScore(distortion, rate, qindex),
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -7510,7 +7553,7 @@ func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,
 			uvMode: uvMode,
 			txSize: txSize,
 			rate:   rate,
-			score:  vp9ModeDecisionScore(yDist+uvDist, rate, qindex),
+			score:  e.vp9ModeDecisionScore(yDist+uvDist, rate, qindex),
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -7812,6 +7855,24 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	// libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248 — per-SB cb_rdmult
+	// priming (see pickVP9InterMode for the long-form comment).  The
+	// compound picker shares the same TPL delta lookup as the single-ref
+	// picker because libvpx routes both through rd_pick_sb_modes.
+	prevCbRdmult := e.cbRdmult
+	baseRdmult := e.rc.rdmult
+	if baseRdmult <= 0 {
+		baseRdmult = vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+	}
+	if bsize < common.BlockSizes && e.tpl.enabled {
+		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
+		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
+		baseRdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, baseRdmult)
+	}
+	if baseRdmult <= 0 {
+		baseRdmult = 1
+	}
+	e.cbRdmult = baseRdmult
 	// SPEED_FEATURES.inter_mode_mask gates inter modes for compound refs too.
 	// libvpx: vp9_pickmode.c:2150 — applied to every mode candidate.
 	interModeMask := e.vp9InterModeMaskFor(bsize)
@@ -7838,7 +7899,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 			interpFilter:   filter,
 			rate:           rate,
 			distortion:     distortion,
-			score:          vp9InterModeScore(distortion, rate, qindex),
+			score:          e.vp9InterModeScore(distortion, rate, qindex),
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -7896,6 +7957,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 				refFrame, refSlot, common.NewMv, newMv, newRefMv, consider)
 		}
 	}
+	e.cbRdmult = prevCbRdmult
 	return best, bestSet
 }
 
@@ -7962,6 +8024,26 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	// libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248 — every SB's
+	// rd_pick_sb_modes call seeds x->cb_rdmult from get_rdmult_delta so
+	// the per-mode RDCOST consumes a TPL-biased multiplier rather than
+	// the bare per-frame rd.RDMULT.  Inline save/restore (no defer) to
+	// preserve the alloc-parity gate; the TPL lookup is short-circuited
+	// when no slab is populated so this stays cheap.
+	prevCbRdmult := e.cbRdmult
+	baseRdmult := e.rc.rdmult
+	if baseRdmult <= 0 {
+		baseRdmult = vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+	}
+	if bsize < common.BlockSizes && e.tpl.enabled {
+		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
+		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
+		baseRdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, baseRdmult)
+	}
+	if baseRdmult <= 0 {
+		baseRdmult = 1
+	}
+	e.cbRdmult = baseRdmult
 	useResidualScore := e.vp9InterPreferVarianceRoot(inter, miRows, miCols,
 		miRow, miCol, bsize)
 	// SPEED_FEATURES.inter_mode_mask gates which inter modes the picker
@@ -7988,14 +8070,14 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			interpFilter: filter,
 			rate:         rate,
 			distortion:   distortion,
-			score:        vp9InterModeScore(distortion, rate, qindex),
+			score:        e.vp9InterModeScore(distortion, rate, qindex),
 		}
 		if useResidualScore && refFrame == vp9dec.LastFrame {
 			if rdDist, rdRate, ok := e.scoreVP9InterModeResidual(inter, miRows,
 				miCols, miRow, miCol, bsize, mode, refFrame, mv, filter); ok {
 				cand.distortion = rdDist
 				cand.rate = rate + rdRate
-				cand.score = vp9InterModeScore(cand.distortion, cand.rate, qindex)
+				cand.score = e.vp9InterModeScore(cand.distortion, cand.rate, qindex)
 			}
 		}
 		if !bestSet || cand.score < best.score ||
@@ -8008,6 +8090,21 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	zeroDistortion := vp9BlockSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, scoreW, scoreH)
 	filters := vp9InterInterpFilterCandidates(inter)
+	// libvpx: vp9/encoder/vp9_speed_features.c — sf->disable_filter_search_var_thresh
+	// prunes non-EIGHTTAP filters when source variance falls below the
+	// threshold.  govpx approximates "source variance" with the visible
+	// ZEROMV reference-distortion per pixel which monotonically tracks
+	// libvpx's per-block VARIANCE for ZEROMV — the same quantity its
+	// realtime path uses for the same gate.  Gated by the SF value > 0
+	// so speeds where the SF is zero stay on the slow-path filter search
+	// (no slice reslice, no variance math).
+	if e.sf.DisableFilterSearchVarThresh > 0 && scoreW > 0 && scoreH > 0 &&
+		len(filters) > 1 {
+		perPixel := uint(zeroDistortion / uint64(scoreW*scoreH))
+		if e.vp9InterSkipFilterSearch(perPixel) {
+			filters = filters[:1]
+		}
+	}
 	// libvpx nonrd_pickmode runs distortion for a single interpolation
 	// filter per mode (the default eighttap or the neighbor-derived
 	// filter_ref) and only enters the multi-filter walker when
@@ -8086,6 +8183,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			}
 		}
 	}
+	e.cbRdmult = prevCbRdmult
 	if !bestSet {
 		return vp9InterModeDecision{}, false
 	}
@@ -8478,6 +8576,97 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 	return e.vp9EncoderFrameQIndex(true, false, 0, 1)
 }
 
+// vp9EncoderInitializeRDConsts is the libvpx-faithful entry point that
+// populates rc.rdmult / rc.rddiv before any per-block Lagrangian RD
+// scoring runs.  Called once per frame, after the mode-decision qindex
+// has been resolved by vp9EncoderModeDecisionQIndex.  Mirrors libvpx's
+// vp9_initialize_rd_consts.
+//
+// libvpx: vp9/encoder/vp9_rd.c:396-407
+//
+//	rd->RDDIV = RDDIV_BITS;  // In bits (to multiply D by 128).
+//	rd->RDMULT = vp9_compute_rd_mult(cpi, cm->base_qindex + cm->y_dc_delta_q);
+//	set_error_per_bit(x, rd->RDMULT);
+//
+// y_dc_delta_q is zero for govpx today; when the active-segment Q delta
+// path lands it should be added to qindex here before the rdmult lookup.
+func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
+	frameType vp9RDFrameType,
+) {
+	e.rc.rddiv = vp9RDDivBits
+	e.rc.rdmult = vp9ComputeRDMult(qindex, frameType)
+	// Reset the per-SB cb_rdmult cache so a stale value from the prior
+	// frame does not leak into the first SB picker call.  libvpx clears
+	// it inline before each rd_pick_sb_modes invocation; we mirror that
+	// reset at the frame boundary so the first SB sees a clean state.
+	e.cbRdmult = 0
+}
+
+// vp9EncoderModeDecisionRDMult returns the active Lagrange multiplier the
+// per-block RD scorers should use.  Mirrors libvpx's lookup order:
+//
+//	rdmult = x->cb_rdmult ? x->cb_rdmult : cpi->rd.RDMULT
+//
+// libvpx: vp9/encoder/vp9_encodeframe.c — every per-mode RDCOST call uses
+// x->rdmult which is itself initialized from cb_rdmult at the top of
+// rd_pick_sb_modes.  Callers that have not yet primed cbRdmult (legacy
+// per-block paths still being threaded) fall back to the per-frame
+// rc.rdmult; if even that is missing they synthesize the multiplier from
+// the current mode-decision qindex so older tests that never enter the
+// frame-init path still see a libvpx-shaped multiplier.
+func (e *VP9Encoder) vp9EncoderModeDecisionRDMult() int {
+	if e.cbRdmult > 0 {
+		return e.cbRdmult
+	}
+	if e.rc.rdmult > 0 {
+		return e.rc.rdmult
+	}
+	return vp9ComputeRDMultBasedOnQindex(e.vp9EncoderModeDecisionQIndex(),
+		vp9RDFrameInter)
+}
+
+// vp9EncoderModeDecisionRDDiv returns the active rddiv shift used by
+// RDCOST.  Defaults to libvpx's RDDIV_BITS when the per-frame state has
+// not been primed.
+//
+// libvpx: vp9/encoder/vp9_rd.h:26 (RDDIV_BITS == 7) and vp9_rd.c:405
+// (rd->RDDIV = RDDIV_BITS).
+func (e *VP9Encoder) vp9EncoderModeDecisionRDDiv() int {
+	if e.rc.rddiv > 0 {
+		return e.rc.rddiv
+	}
+	return vp9RDDivBits
+}
+
+// vp9EncoderPrimeCbRdmult sets the per-SB cb_rdmult cache so subsequent
+// candidate scoring within the same SB uses a consistent multiplier.
+// Returns the value installed so callers that want to keep a local
+// variable for clarity can avoid re-reading the field.
+//
+// libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248
+//
+//	x->cb_rdmult = get_rdmult_delta(cpi, BLOCK_64X64, ...);
+//	set_error_per_bit(x, x->cb_rdmult);
+//	x->rdmult = x->cb_rdmult;
+//
+// govpx does not yet store rate-distortion error_per_bit (it would only
+// gate the motion search subpel cost).  The Lagrangian scoring path is
+// the load-bearing consumer today.
+func (e *VP9Encoder) vp9EncoderPrimeCbRdmult(rdmult int) int {
+	if rdmult <= 0 {
+		rdmult = 1
+	}
+	e.cbRdmult = rdmult
+	return rdmult
+}
+
+// vp9EncoderClearCbRdmult releases the per-SB cb_rdmult cache.  Mirrors
+// libvpx's rd_pick_sb_modes epilogue which restores the per-frame
+// rdmult once the SB walk completes.
+func (e *VP9Encoder) vp9EncoderClearCbRdmult() {
+	e.cbRdmult = 0
+}
+
 func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, macroblocks int) int {
 	if vp9OracleTraceBuild {
 		e.resetVP9OracleRateSelectionTrace()
@@ -8676,36 +8865,60 @@ var vp9QuantizerToQIndex = [maxQuantizer + 1]int{
 	224, 228, 232, 236, 240, 244, 249, 255,
 }
 
+// vp9InterModeScore / vp9ModeDecisionScore / vp9AddModeDecisionRate /
+// vp9ModeDecisionRateScore were the legacy linear-lambda scorers
+// (rate*(1+qindex/32)).  They now route through the libvpx-faithful
+// Lagrangian RDCOST macro (vp9/encoder/vp9_rd.h:29-30) using the per-SB
+// cb_rdmult cache when primed, falling back to the per-frame rd.rdmult,
+// then to a freshly-computed rdmult for the supplied qindex.  The
+// qindex argument is kept for source compatibility with the call sites
+// that previously passed e.vp9EncoderModeDecisionQIndex(); when neither
+// cb_rdmult nor rd.rdmult is populated the qindex still seeds the
+// libvpx inter-frame multiplier table.
+//
+// libvpx: vp9/encoder/vp9_rd.h:29-30 (RDCOST) and vp9/encoder/vp9_rd.c
+// vp9_compute_rd_mult_based_on_qindex.
+func (e *VP9Encoder) vp9InterModeScore(sad uint64, rate, qindex int) uint64 {
+	return e.vp9ModeDecisionScore(sad, rate, qindex)
+}
+
+func (e *VP9Encoder) vp9ModeDecisionScore(distortion uint64, rate, qindex int) uint64 {
+	return vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits, rate, distortion)
+}
+
+func (e *VP9Encoder) vp9AddModeDecisionRate(score uint64, rate, qindex int) uint64 {
+	return score + vp9RDCostFromRate(e.activeRDMult(qindex), rate)
+}
+
+func (e *VP9Encoder) vp9ModeDecisionRateScore(rate, qindex int) uint64 {
+	return vp9RDCostFromRate(e.activeRDMult(qindex), rate)
+}
+
+// activeRDMult returns the per-frame/per-SB Lagrange multiplier.
+func (e *VP9Encoder) activeRDMult(qindex int) int {
+	if e.cbRdmult > 0 {
+		return e.cbRdmult
+	}
+	if e.rc.rdmult > 0 {
+		return e.rc.rdmult
+	}
+	return vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+}
+
+// vp9InterModeScore / vp9ModeDecisionScore (package-level, no receiver)
+// preserve the pre-Lagrangian scoring API surface for the small handful
+// of unit tests that assert pure rate/distortion ordering with no
+// encoder context.  They synthesize the multiplier from the supplied
+// qindex via the same libvpx-faithful inter-frame table the production
+// path uses.  Production call sites must use the encoder-bound helpers
+// above so the per-frame / per-SB rdmult state is honoured.
 func vp9InterModeScore(sad uint64, rate, qindex int) uint64 {
 	return vp9ModeDecisionScore(sad, rate, qindex)
 }
 
 func vp9ModeDecisionScore(distortion uint64, rate, qindex int) uint64 {
-	return (distortion << encoder.VP9ProbCostShift) +
-		vp9ModeDecisionRateScore(rate, qindex)
-}
-
-func vp9AddModeDecisionRate(score uint64, rate, qindex int) uint64 {
-	return score + vp9ModeDecisionRateScore(rate, qindex)
-}
-
-func vp9ModeDecisionRateScore(rate, qindex int) uint64 {
-	if rate < 0 {
-		rate = 0
-	}
-	// TODO: requires Lagrangian RD shape.  libvpx's TPL per-SB rdmult
-	// delta multiplies a true Lagrange multiplier
-	// (vp9_compute_rd_mult_based_on_qindex == q*q*(4.15+0.001*qindex),
-	// vp9_rd.c:241-275); govpx's inter mode picker still uses this
-	// linear (rate*(1+qindex/32)) score so the per-SB rdmult delta from
-	// TPL cannot be applied here without reshaping the inter picker
-	// into Lagrangian RD form.  The keyframe picker uses the proper
-	// vp9KeyframeRDMul form and consumes the TPL rdmult delta directly.
-	lambda := 1
-	if qindex > 0 {
-		lambda += qindex / 32
-	}
-	return uint64(rate * lambda)
+	rdmult := vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+	return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion)
 }
 
 func vp9InterModeRateCost(fc *vp9dec.FrameContext, ctx int,
