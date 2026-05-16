@@ -845,6 +845,11 @@ static void apply_vp9_runtime_control_token(
                                                       "frame-parallel:"))) {
       die_codec_msg(ctx->ctx, "runtime VP9E_SET_FRAME_PARALLEL_DECODING");
     }
+  } else if (starts_with(token, "rtc:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_RTC_EXTERNAL_RATECTRL,
+                          (unsigned)control_value_int(token, "rtc:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_RTC_EXTERNAL_RATECTRL");
+    }
   } else if (starts_with(token, "active:")) {
     flush_vp9_runtime_config(ctx);
     apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,

@@ -268,6 +268,13 @@ type VP9EncoderOptions struct {
 	// VP9E_SET_GF_CBR_BOOST_PCT control; zero disables the boost.
 	GFCBRBoostPct int
 
+	// RTCExternalRateControl mirrors libvpx's
+	// VP9E_SET_RTC_EXTERNAL_RATECTRL control. Caller-driven realtime rate
+	// control owns the keyframe cadence: adaptive scene-cut promotion is
+	// suppressed, explicit ForceKeyFrame requests and MaxKeyframeInterval
+	// cadence still emit keyframes.
+	RTCExternalRateControl bool
+
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip

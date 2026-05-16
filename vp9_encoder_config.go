@@ -501,6 +501,16 @@ func (e *VP9Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	return nil
 }
 
+// SetRTCExternalRateControl mirrors libvpx's VP9E_SET_RTC_EXTERNAL_RATECTRL
+// control. Forwards to [VP9EncoderOptions.RTCExternalRateControl].
+func (e *VP9Encoder) SetRTCExternalRateControl(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.RTCExternalRateControl = enabled
+	return nil
+}
+
 // SetARNR changes VP9 auto-alt-ref temporal filtering controls at runtime.
 // maxFrames is the ARNR window length in [0, 15], where 0 or 1 disables ARNR
 // filtering; strength is in [0, 6]; filterType selects 1=backward, 2=forward,

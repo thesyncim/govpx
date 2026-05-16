@@ -14,6 +14,7 @@ func (e *VP9Encoder) shouldEncodeVP9SceneCutKeyFrame(src *image.YCbCr,
 	flags EncodeFlags, temporalEnabled bool, rows int, cols int,
 ) bool {
 	if !e.opts.AdaptiveKeyFrames ||
+		e.opts.RTCExternalRateControl ||
 		e.frameIndex == 0 ||
 		e.twoPass.enabled() ||
 		temporalEnabled ||
