@@ -9058,11 +9058,18 @@ func vp9CompoundRefRateCost(fc *vp9dec.FrameContext,
 func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int, limit uint64,
 ) uint64 {
-	if limit == ^uint64(0) {
-		if sad, ok := vp9BlockSADNoLimit(src, srcStride, ref, refStride,
-			srcX, srcY, refX, refY, w, h); ok {
-			return uint64(sad)
-		}
+	// libvpx's sad_function pointers (cpi->fn_ptr[bsize].sdf) compute the
+	// full block SAD with no early-termination — see vpx_dsp/sad.c
+	// SAD()/vpx_dsp/arm/sad_neon.c. The caller compares the returned SAD
+	// against best_sad afterwards. Govpx historically used the `limit`
+	// argument to early-exit a row-major scalar loop, but that bypassed
+	// the SIMD kernels and was a net pessimization. Always go through the
+	// size-specialized SAD path; the per-row early-exit only matters for
+	// limit-driven calls on sizes outside the wrapper table.
+	// libvpx: vpx_dsp/sad.c:24 — SAD() returns sum without limit check.
+	if sad, ok := vp9BlockSADNoLimit(src, srcStride, ref, refStride,
+		srcX, srcY, refX, refY, w, h); ok {
+		return uint64(sad)
 	}
 	var sad uint64
 	for y := range h {
@@ -9219,15 +9226,16 @@ func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
 	if mode == common.ZeroMv || refFrame <= vp9dec.IntraFrame {
 		return vp9dec.MV{}, false
 	}
-	refFinder := VP9Decoder{
-		miGrid:          e.miGrid,
-		usePrevFrameMvs: e.useVP9EncoderPrevFrameMvs(miRows, miCols),
-		prevFrameMvs:    e.prevFrameMvs,
-		prevFrameMvRows: e.prevFrameMvRows,
-		prevFrameMvCols: e.prevFrameMvCols,
-	}
-	refList, refCount := refFinder.vp9FindInterMvRefs(tile, miRows, miCols,
-		miRow, miCol, bsize, mode, refFrame, signBias)
+	// Pass the five MV-ref-scan inputs directly; previously this site
+	// allocated a ~29kB VP9Decoder per call just to populate five fields.
+	// libvpx: vp9/common/vp9_mvref_common.c — find_mv_refs_idx reads the
+	// flat fields off VP9_COMMON/MACROBLOCKD without an intermediate
+	// composite.
+	refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+		e.useVP9EncoderPrevFrameMvs(miRows, miCols),
+		e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
+		tile, miRows, miCols, miRow, miCol, bsize, mode, refFrame,
+		signBias, -1)
 	if mode == common.NearMv {
 		if refCount <= 1 {
 			return vp9dec.MV{}, false
@@ -9313,9 +9321,13 @@ func (e *VP9Encoder) clearVP9PlaneBlockCoeffs(plane int, bsize common.BlockSize)
 	}
 	n := min(int(common.Num4x4BlocksWideLookup[bsize])*
 		int(common.Num4x4BlocksHighLookup[bsize])*vp9EncoderTxCoeffSlots, len(e.blockCoeffs[plane]))
-	for i := range e.blockCoeffs[plane][:n] {
-		e.blockCoeffs[plane][i] = 0
-	}
+	// clear() compiles to runtime.memclrNoHeapPointers; the prior
+	// `for i := range buf { buf[i] = 0 }` form does too on Go 1.21+ but
+	// only when the slice header is hoisted. libvpx uses memset; match
+	// that semantic via the builtin so the compiler emits a tight
+	// memset.s loop instead of bounds-checked stores.
+	// libvpx: vp9/encoder/vp9_quantize.c:36-37 — memset(qcoeff_ptr, 0, ...).
+	clear(e.blockCoeffs[plane][:n])
 }
 
 func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
