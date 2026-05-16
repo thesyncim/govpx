@@ -189,6 +189,24 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			exactPrefix: 1,
 		},
 		{
+			name:    "fixed-q-force-key-stepped-320",
+			fixture: stepped320,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			flags: vp9OracleRepeatAllFramesFlag(4, EncodeForceKeyFrame),
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
 			name:    "fixed-q-constant-640",
 			fixture: constant640,
 			frames:  2,
@@ -4825,7 +4843,7 @@ func captureLibvpxVP9VariablePacketRows(t *testing.T,
 func formatVP9StreamParityRows(t *testing.T, govpxPackets, libvpxPackets [][]byte) string {
 	t.Helper()
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part,govpx_unc,libvpx_unc,govpx_tile_start,libvpx_tile_start")
+	fmt.Fprintln(&b, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part,govpx_unc,libvpx_unc,govpx_tile_start,libvpx_tile_start,govpx_seg,libvpx_seg,govpx_seg_map,libvpx_seg_map,govpx_seg_data,libvpx_seg_data,govpx_seg_temporal,libvpx_seg_temporal")
 	for i := range govpxPackets {
 		govpxHeader, govpxTileStart := parseVP9EncoderHeaderForTest(t,
 			govpxPackets[i])
@@ -4833,7 +4851,7 @@ func formatVP9StreamParityRows(t *testing.T, govpxPackets, libvpxPackets [][]byt
 			libvpxPackets[i])
 		govpxUncompressed := govpxTileStart - int(govpxHeader.FirstPartitionSize)
 		libvpxUncompressed := libvpxTileStart - int(libvpxHeader.FirstPartitionSize)
-		fmt.Fprintf(&b, "%d,%t,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d\n",
+		fmt.Fprintf(&b, "%d,%t,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d,%t,%t,%t,%t,%t,%t,%t,%t\n",
 			i, bytes.Equal(govpxPackets[i], libvpxPackets[i]),
 			firstVP9PacketDiffForTest(govpxPackets[i], libvpxPackets[i]),
 			len(govpxPackets[i]), len(libvpxPackets[i]),
@@ -4841,7 +4859,10 @@ func formatVP9StreamParityRows(t *testing.T, govpxPackets, libvpxPackets [][]byt
 			govpxHeader.RefreshFrameFlags, libvpxHeader.RefreshFrameFlags,
 			govpxHeader.FirstPartitionSize, libvpxHeader.FirstPartitionSize,
 			govpxUncompressed, libvpxUncompressed, govpxTileStart,
-			libvpxTileStart)
+			libvpxTileStart, govpxHeader.Seg.Enabled, libvpxHeader.Seg.Enabled,
+			govpxHeader.Seg.UpdateMap, libvpxHeader.Seg.UpdateMap,
+			govpxHeader.Seg.UpdateData, libvpxHeader.Seg.UpdateData,
+			govpxHeader.Seg.TemporalUpdate, libvpxHeader.Seg.TemporalUpdate)
 	}
 	return b.String()
 }
