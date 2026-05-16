@@ -1,11 +1,12 @@
-//go:build !arm64 || purego
+//go:build (!amd64 && !arm64) || purego
 
 package dsp
 
 import "github.com/thesyncim/govpx/internal/vp9/tables"
 
 // Scalar fallback for VpxConvolve8Horiz / Vert / 8 / 8Avg. The
-// arm64 build path implements these on NEON in convolve_arm64.go.
+// amd64 / arm64 build paths implement these on SSE2 / NEON via
+// convolve_amd64.go / convolve_arm64.go.
 
 // VpxConvolve8Horiz applies the horizontal 8-tap subpel filter.
 // Mirrors vpx_convolve8_horiz_c.
