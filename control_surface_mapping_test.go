@@ -318,7 +318,9 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"LastFrameSize":        {kind: "metadata-api"},
 		"NextFrame":            {kind: "decode-api"},
 		"Reset":                {kind: "lifecycle"},
+		"SetLoopFilterOpt":     {kind: "libvpx-decoder-control"},
 		"SetReferenceFrame":    {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
+		"SetRowMT":             {kind: "libvpx-decoder-control"},
 		"SetSVCSpatialLayer":   {kind: "libvpx-decoder-control"},
 	}
 	assertPublicMethodMappings(t, "VP9Decoder", methods, want)
@@ -328,6 +330,8 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 	fields := exportedFieldSet(t, VP9DecoderOptions{})
 	want := map[string]controlParityMapping{
+		"DecoderLoopFilterOpt":   {kind: "libvpx-decoder-control"},
+		"DecoderRowMT":           {kind: "libvpx-decoder-control"},
 		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
 		"ErrorResilient":         {kind: "compat-alias"},
 		"MaxHeight":              {kind: "local-validation"},

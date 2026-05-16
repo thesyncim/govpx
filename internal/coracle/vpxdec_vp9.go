@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 )
 
@@ -92,16 +93,33 @@ func VpxdecVP9Decode(ivf []byte) ([]byte, error) {
 // vpxdec and returns the concatenated visible-frame I420 bytes. diag
 // contains combined vpxdec stdout/stderr for failure messages.
 func VpxdecVP9DecodeI420(ivf []byte) (raw []byte, diag []byte, err error) {
-	return vpxdecVP9DecodeI420(ivf, "govpx-vp9-*.ivf")
+	return vpxdecVP9DecodeI420(ivf, "govpx-vp9-*.ivf", VpxdecVP9Options{})
 }
 
 // VpxdecVP9DecodeWebMI420 decodes a WebM-wrapped VP9 stream through libvpx
 // vpxdec and returns the concatenated visible-frame I420 bytes.
 func VpxdecVP9DecodeWebMI420(webm []byte) (raw []byte, diag []byte, err error) {
-	return vpxdecVP9DecodeI420(webm, "govpx-vp9-*.webm")
+	return vpxdecVP9DecodeI420(webm, "govpx-vp9-*.webm", VpxdecVP9Options{})
 }
 
-func vpxdecVP9DecodeI420(input []byte, tempPattern string) (raw []byte, diag []byte, err error) {
+// VpxdecVP9Options carries optional runtime knobs for vpxdec VP9 decode.
+// Threads <= 0 leaves vpxdec at its single-threaded default. RowMT and
+// LoopFilterOpt mirror libvpx vpxdec's --row-mt and --lpf-opt CLI flags;
+// they expose the VP9D_SET_ROW_MT and VP9D_SET_LOOP_FILTER_OPT control
+// codes the govpx VP9 decoder also wires through SetRowMT / SetLoopFilterOpt.
+type VpxdecVP9Options struct {
+	Threads       int
+	RowMT         bool
+	LoopFilterOpt bool
+}
+
+// VpxdecVP9DecodeI420WithOptions is VpxdecVP9DecodeI420 with the additional
+// row-mt / lpf-opt / threads knobs surfaced through vpxdec's CLI.
+func VpxdecVP9DecodeI420WithOptions(ivf []byte, opts VpxdecVP9Options) (raw []byte, diag []byte, err error) {
+	return vpxdecVP9DecodeI420(ivf, "govpx-vp9-*.ivf", opts)
+}
+
+func vpxdecVP9DecodeI420(input []byte, tempPattern string, opts VpxdecVP9Options) (raw []byte, diag []byte, err error) {
 	bin, err := VpxdecVP9Path()
 	if err != nil {
 		return nil, nil, err
@@ -130,8 +148,19 @@ func vpxdecVP9DecodeI420(input []byte, tempPattern string) (raw []byte, diag []b
 	}
 	defer os.Remove(outName)
 
-	cmd := exec.Command(bin, "--codec=vp9", "--rawvideo", "--i420",
-		"--output="+outName, in.Name())
+	args := []string{"--codec=vp9", "--rawvideo", "--i420",
+		"--output=" + outName}
+	if opts.Threads > 0 {
+		args = append(args, "-t", strconv.Itoa(opts.Threads))
+	}
+	if opts.RowMT {
+		args = append(args, "--row-mt=1")
+	}
+	if opts.LoopFilterOpt {
+		args = append(args, "--lpf-opt=1")
+	}
+	args = append(args, in.Name())
+	cmd := exec.Command(bin, args...)
 	diag, err = cmd.CombinedOutput()
 	if err != nil {
 		return nil, diag, err
@@ -142,3 +171,4 @@ func vpxdecVP9DecodeI420(input []byte, tempPattern string) (raw []byte, diag []b
 	}
 	return raw, diag, nil
 }
+
