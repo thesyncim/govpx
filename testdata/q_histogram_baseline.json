@@ -1,9 +1,9 @@
 {
   "fixtures": {
     "good-cpu5-128x128": {
-      "q_mean": 12.875,
+      "q_mean": 12.75,
       "q_max": 16,
-      "hist_l1_to_libvpx": 2
+      "hist_l1_to_libvpx": 0
     },
     "good-cpu5-64x64": {
       "q_mean": 4,
