@@ -124,12 +124,40 @@ func renameOne(corpusDir, fuzzName, hashFile string, cls classifier) (string, er
 	if _, err := os.Stat(dst); err == nil {
 		return "", fmt.Errorf("%s: destination already exists: %s", src, dst)
 	}
-	cmd := exec.Command("git", "mv", src, dst)
-	out, err := cmd.CombinedOutput()
+	tracked, err := gitIsTracked(src)
 	if err != nil {
-		return "", fmt.Errorf("git mv %s %s: %v: %s", src, dst, err, strings.TrimSpace(string(out)))
+		return "", err
+	}
+	if tracked {
+		if out, err := exec.Command("git", "mv", src, dst).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("git mv %s %s: %v: %s", src, dst, err, strings.TrimSpace(string(out)))
+		}
+	} else {
+		// Fresh fuzz discoveries are untracked. git mv refuses those,
+		// so fall back to a plain rename followed by `git add` so the
+		// new name shows up in `git status` ready to stage.
+		if err := os.Rename(src, dst); err != nil {
+			return "", fmt.Errorf("rename %s -> %s: %w", src, dst, err)
+		}
+		if out, err := exec.Command("git", "add", "--", dst).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("git add %s: %v: %s", dst, err, strings.TrimSpace(string(out)))
+		}
 	}
 	return fmt.Sprintf("%s/%s -> %s", fuzzName, hashFile, dstName), nil
+}
+
+// gitIsTracked reports whether path is tracked in the git index.
+func gitIsTracked(path string) (bool, error) {
+	cmd := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, nil
+		}
+		return false, fmt.Errorf("git ls-files %s: %w", path, err)
+	}
+	return true, nil
 }
 
 func run(root string) error {
