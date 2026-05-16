@@ -711,10 +711,7 @@ func (e *VP9Encoder) applyVP9TPLQIndexBias(qindex int, skip bool) int {
 	minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
 	bestBound := vp9PublicQuantizerToQIndex(minQ)
 	worstBound := vp9PublicQuantizerToQIndex(maxQ)
-	q := min(max(qindex+bias, bestBound), worstBound)
-	if q < 0 {
-		q = 0
-	}
+	q := max(min(max(qindex+bias, bestBound), worstBound), 0)
 	if q > 255 {
 		q = 255
 	}

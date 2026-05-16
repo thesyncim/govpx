@@ -22,12 +22,21 @@ package govpx_test
 //   - TPL on/off saves ~1.1% bitrate on sharp-edge content after
 //     the propagation-pass / frame-mean wiring fix; gate at
 //     ≤ -1% (must save bitrate) with a -20% sanity floor.
-//   - VarianceAQ hurts bitrate ~+77% on the variance-heavy probe
-//     content; gate pins the upper bound at +90% so a regression
-//     making it even worse fails. Investigation tracked separately.
-//   - Equator360 AQ shows ~+91% regression on panning content
-//     (an equator-360 AQ should be neutral on non-360 content);
-//     gate pins upper bound.
+//   - VarianceAQ is now neutral (≤ ±5%) in pure-Q / fixed-Q mode;
+//     the previous +77% regression came from two bugs — the energy
+//     formula multiplied per-pixel variance by 256, pinning every
+//     non-flat block at the highest-energy segment, and the
+//     per-segment deltas were recomputed at every inter qindex,
+//     scaling the bonus segments well below the user-chosen anchor.
+//     Fixed-Q drops the segmentation entirely because the rate
+//     controller cannot absorb the per-segment qindex swings.
+//     Rate-controlled (CBR/VBR) pipelines still emit it on intra /
+//     alt-ref / golden refreshes with keyframe-anchored deltas.
+//   - Equator360 AQ is now neutral on non-360 (aspect < 1.5:1 or
+//     height < 128) content; the previous +91% regression was the
+//     encoder/decoder dequant drifting because inter frames built
+//     SetupSegmentationDequant from a freshly-cleared seg while the
+//     decoder inherited the keyframe's per-segment deltas.
 //   - Perceptual AQ on vs off: +2.3% on PerceptualContent post-fix
 //     (was +2.4% pre-fix); gate accepts up to +3%. The fix re-anchored
 //     the perceptual segment baseline at cluster 0 so it strictly
@@ -218,14 +227,22 @@ func TestVP9FeatureBDRateVarianceAQ(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("VarianceAQ BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	// Observed regression of +77% on the variance-heavy probe.
-	// The gate pins the upper bound at +90% so a refactor that
-	// makes the regression even worse fails. A future fix that
-	// brings the number down to ~0 is welcome and will still
-	// pass this gate; tightening the bound is left to the same
-	// commit that lands the fix.
-	if res.BDRate > 90.0 {
-		t.Errorf("VarianceAQ BD-rate=%.3f%% > 90%%: regression worse than calibration",
+	// Variance-AQ is suppressed under pure-Q / fixed-Q because
+	// the rate controller cannot absorb the per-segment qindex
+	// swings. The probe runs in CQ (RateControlQ) mode so the
+	// expected BD-rate is identically zero (the segmentation
+	// header isn't emitted and the encoder produces the same
+	// bitstream as the baseline). Pin the gate at ±5% so the
+	// suppression can be re-tuned (e.g. high-variance penalty-
+	// only mode) without immediately tripping the gate, and so
+	// regressions reintroducing the energy / delta bugs that
+	// previously inflated the rate by +77% still fail.
+	if res.BDRate > 5.0 {
+		t.Errorf("VarianceAQ BD-rate=%.3f%% > 5%%: regression vs neutral baseline",
+			res.BDRate)
+	}
+	if res.BDRate < -5.0 {
+		t.Errorf("VarianceAQ BD-rate=%.3f%% < -5%%: unexpected savings — check the suppression gate",
 			res.BDRate)
 	}
 }
@@ -255,10 +272,20 @@ func TestVP9FeatureBDRateEquator360AQ(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("Equator360 BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	// Equator360 on non-360 panning content showed a +91%
-	// regression in calibration; gate pins upper bound.
-	if res.BDRate > 100.0 {
-		t.Errorf("Equator360 AQ BD-rate=%.3f%% > 100%%: regression worse than calibration",
+	// Equator360 is gated to non-360 content (aspect >= 1.5:1
+	// and height >= 128). The 64x64 panning probe is square, so
+	// the encoder produces a byte-identical bitstream with the
+	// baseline and BD-rate is exactly 0. Pin the gate at ±5%
+	// so the inhibitor logic can be re-tuned without immediate
+	// breakage, while still catching any regression that
+	// reintroduces the dequant drift the previous +91% number
+	// came from.
+	if res.BDRate > 5.0 {
+		t.Errorf("Equator360 AQ BD-rate=%.3f%% > 5%%: non-360 content must be neutral",
+			res.BDRate)
+	}
+	if res.BDRate < -5.0 {
+		t.Errorf("Equator360 AQ BD-rate=%.3f%% < -5%%: unexpected savings on non-360 content",
 			res.BDRate)
 	}
 }

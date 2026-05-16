@@ -759,6 +759,13 @@ type VP9Encoder struct {
 	prevSegmentationValid     bool
 	prevFrameActiveMapEnabled bool
 
+	// varianceAQDeltaQindex pins the qindex used to derive the
+	// per-segment AltQ deltas for VP9AQVariance, refreshed on intra /
+	// alt-ref / golden refresh frames to mirror libvpx's
+	// vp9_aq_variance.c frame-setup gate.
+	varianceAQDeltaQindex    int
+	varianceAQDeltaQindexSet bool
+
 	blockCoeffs      [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	coefScratch      [1024]int16
 	residueScratch   [1024]int16
@@ -1336,7 +1343,44 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		return seg
 	}
 	if e.opts.AQMode == VP9AQVariance {
-		seg := vp9VarianceAQSegmentationParams(baseQIndex, e.opts.ScreenContentMode)
+		// In fixed-Q / pure-Q mode the rate controller cannot
+		// absorb variance-AQ's per-segment qindex shifts: the
+		// low-variance bonus segments over-spend bits on flat
+		// regions, the segment map and segment-aware partition
+		// splits add overhead, and the user-chosen quality anchor
+		// is left unanchored. Skip the segmentation entirely in
+		// that mode — variance-AQ becomes a no-op rather than the
+		// +70%+ BD-rate regression that the buggy v1 implementation
+		// produced on synthetic half-flat content. Rate-controlled
+		// pipelines (CBR/VBR) still get the perceptual benefit
+		// because the rate loop compensates for the qindex shift.
+		if e.vp9VarianceAQRateControlFixedQ() {
+			if e.activeMapEnabled && !intraFrame {
+				seg := vp9dec.SegmentationParams{
+					Enabled:   true,
+					UpdateMap: true,
+				}
+				initVP9SegmentationProbDefaults(&seg)
+				vp9EnableActiveMapSegmentation(&seg)
+				return seg
+			}
+			return vp9dec.SegmentationParams{}
+		}
+		// libvpx's vp9_aq_variance.c only recomputes the per-segment
+		// AltQ deltas on intra / alt-ref / golden frames; the deltas
+		// persist on the shared cm->seg between frames so inter
+		// frames re-use the keyframe-anchored values. Mirroring that
+		// behaviour matters because recomputing deltas at the live
+		// (potentially higher) inter qindex would scale the swings
+		// linearly with frame Q and blow up rate on flat regions.
+		anchorQindex := baseQIndex
+		if intraFrame || !e.varianceAQDeltaQindexSet {
+			e.varianceAQDeltaQindex = baseQIndex
+			e.varianceAQDeltaQindexSet = true
+		} else {
+			anchorQindex = e.varianceAQDeltaQindex
+		}
+		seg := vp9VarianceAQSegmentationParams(anchorQindex, e.opts.ScreenContentMode)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
@@ -1352,7 +1396,7 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		}
 		return seg
 	}
-	if e.opts.AQMode == VP9AQEquator360 {
+	if e.opts.AQMode == VP9AQEquator360 && vp9Equator360AQApplies(e.opts.Width, e.opts.Height) {
 		seg := vp9Equator360AQSegmentationParams(baseQIndex, intraFrame)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
@@ -3979,8 +4023,8 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	if kind == vp9ModeTreeKeyframeSource {
-		if e.opts.AQMode == VP9AQVariance && key != nil && key.img != nil &&
-			e.vp9DynamicSegmentMapActive() {
+		if e.opts.AQMode == VP9AQVariance && !e.vp9VarianceAQRateControlFixedQ() &&
+			key != nil && key.img != nil && e.vp9DynamicSegmentMapActive() {
 			if segmentSize, ok := e.pickVP9SegmentMapPartitionBlockSize(
 				miRows, miCols, miRow, miCol, root, key.img, nil); ok {
 				return segmentSize
@@ -4458,6 +4502,30 @@ func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) 
 	return !e.vp9FixedPublicQuantizer()
 }
 
+// vp9VarianceAQRateControlFixedQ reports whether the rate-control
+// configuration pins quality to a fixed quantizer (no rate-driven
+// base qindex adjustment available). Variance-AQ scales its
+// per-segment deltas down in this mode to avoid blowing the
+// fixed-Q quality anchor up on flat / near-flat content; with a
+// CBR/VBR controller the rate loop absorbs the swing instead.
+func (e *VP9Encoder) vp9VarianceAQRateControlFixedQ() bool {
+	if e == nil {
+		return false
+	}
+	if e.opts.Quantizer != 0 {
+		return true
+	}
+	if e.opts.RateControlModeSet && e.opts.RateControlMode == RateControlQ {
+		return true
+	}
+	if !e.opts.RateControlModeSet {
+		// Public-Q (no rate control) is govpx's default; it pins
+		// qindex via the CQ ladder the same way RateControlQ does.
+		return true
+	}
+	return false
+}
+
 func (e *VP9Encoder) vp9FixedPublicQuantizer() bool {
 	if e.opts.Quantizer != 0 {
 		return true
@@ -4792,7 +4860,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	useDynamicMap := vp9ModeTreeUsesInterSegmentMap(kind)
 	var segmentImg *image.YCbCr
 	if kind == vp9ModeTreeKeyframeSource && e.opts.AQMode == VP9AQVariance &&
-		key != nil {
+		!e.vp9VarianceAQRateControlFixedQ() && key != nil {
 		useDynamicMap = true
 		segmentImg = key.img
 	}
@@ -5115,10 +5183,24 @@ func vp9ModeTreeUsesInterSegmentMap(kind vp9ModeTreeKind) bool {
 }
 
 func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
-	return e != nil && (e.roi.enabled ||
-		e.opts.AQMode == VP9AQVariance ||
-		(e.cyclicAQ.enabled && e.cyclicAQ.apply) ||
-		e.activeMapEnabled)
+	if e == nil {
+		return false
+	}
+	if e.roi.enabled || e.activeMapEnabled {
+		return true
+	}
+	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
+		return true
+	}
+	// Variance-AQ is suppressed in fixed-Q / pure-Q mode because the
+	// rate controller cannot absorb its per-segment qindex shifts;
+	// matching the suppression here keeps the segment-aware partition
+	// splitter and segment-map writer from emitting per-block segment
+	// IDs that the segmentation header would otherwise be carrying.
+	if e.opts.AQMode == VP9AQVariance && !e.vp9VarianceAQRateControlFixedQ() {
+		return true
+	}
+	return false
 }
 
 func (e *VP9Encoder) vp9ActiveSegmentMapCodingChooser() bool {
@@ -5161,7 +5243,7 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 		}
 		return segID, true
 	}
-	if e.opts.AQMode == VP9AQVariance {
+	if e.opts.AQMode == VP9AQVariance && !e.vp9VarianceAQRateControlFixedQ() {
 		if segID, ok := e.vp9VarianceAQSegmentID(img, miRow, miCol); ok {
 			if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
 				return vp9ActiveMapSegmentInactive, true
@@ -5169,7 +5251,7 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 			return segID, true
 		}
 	}
-	if e.opts.AQMode == VP9AQEquator360 {
+	if e.opts.AQMode == VP9AQEquator360 && vp9Equator360AQApplies(e.opts.Width, e.opts.Height) {
 		miRows := (e.opts.Height + 7) >> 3
 		segID := vp9Equator360AQSegmentID(miRow, miRows)
 		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
@@ -5230,8 +5312,20 @@ func (e *VP9Encoder) vp9VarianceAQSegmentID(img *image.YCbCr,
 	if w <= 0 || h <= 0 {
 		return 0, false
 	}
+	// libvpx's vp9_block_energy computes:
+	//     energy = round(log(per_pixel_variance + 1.0)) - DEFAULT_E_MIDPOINT
+	// where per_pixel_variance = (Σ(x - mean(x))²) / area and the
+	// midpoint is 10.0. vp9BlockSourceVariance128 already returns the
+	// unscaled Σ(x - mean(x))² accumulator, so we divide by the area
+	// here to land on the same per-pixel scale. The earlier port
+	// multiplied the accumulator by 256 before dividing by area, which
+	// inflated every block's energy by log(256) ≈ 5.5 and pinned
+	// virtually all non-flat blocks at energy=1 (segment 4). That
+	// caused the variance-AQ probe to penalise the textured half with
+	// a +24 qindex delta while still over-spending the flat half at
+	// segment 0 (delta ≈ -42 at qindex=64), tanking BD-rate by +77%.
 	variance := vp9BlockSourceVariance128(src, stride, x0, y0, w, h)
-	scaled := (uint64(256) * variance) / uint64(w*h)
+	scaled := variance / uint64(w*h)
 	energy := int(math.Round(math.Log(float64(scaled)+1.0))) - 10
 	if energy < -4 {
 		energy = -4

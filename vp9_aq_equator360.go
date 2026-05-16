@@ -21,6 +21,35 @@ var vp9Equator360AQRateRatios = [vp9dec.MaxSegments]struct {
 	{1, 1},
 }
 
+// vp9Equator360AQApplies reports whether the configured frame
+// dimensions are plausibly a 360 (equirectangular) projection.
+// Equirectangular 360 has a 2:1 aspect ratio (full sphere mapped
+// to a rectangle). When the source aspect ratio is well outside
+// that band the latitude-driven Q bias just adds noise to the
+// polar SBs without recovering bits anywhere else, so we keep
+// the segmentation inactive instead of hurting the rate-distortion
+// curve. The 1.5:1 floor is wide enough to cover stereoscopic
+// half-and-half 360 layouts while still rejecting square / 16:9 /
+// 4:3 panel sources.
+func vp9Equator360AQApplies(width, height int) bool {
+	if width <= 0 || height <= 0 {
+		return false
+	}
+	// height*3 < width*2 ⇔ width/height > 1.5.
+	if int64(height)*3 >= int64(width)*2 {
+		return false
+	}
+	// The latitude band thresholds are derived as miRows/8 and
+	// miRows/4. Below ~16 mi rows the floors collapse and the
+	// segmentation degenerates into "every row is polar". Gate the
+	// minimum height at 128 luma pixels (16 mi rows) so we never
+	// reach that degenerate regime.
+	if height < 128 {
+		return false
+	}
+	return true
+}
+
 // vp9Equator360AQSegmentID returns the segment index libvpx's
 // vp9_360aq_segment_id assigns to the given mode-info row. Equatorial
 // rows take segment 0 (no boost), the temperate band takes segment 1,
@@ -43,10 +72,20 @@ func vp9Equator360AQSegmentID(miRow, miRows int) uint8 {
 }
 
 // vp9Equator360AQSegmentationParams builds the per-segment AltQ deltas
-// libvpx emits for AQ_360. Intra frames refresh the segment data;
-// inter frames inherit it via segmentation header inheritance, so we
-// only emit UpdateData on intra or other refresh frames to mirror
-// libvpx's frame_is_intra_only || force_update_segmentation gate.
+// libvpx emits for AQ_360. The FeatureMask + FeatureData slots are
+// populated on every frame so the encoder's local dequant table
+// (built from this seg by SetupSegmentationDequant) matches the
+// decoder's view, which inherits per-segment data from the most
+// recent frame that set UpdateData=true. Only intra (or other
+// refresh) frames toggle UpdateData on so the bitstream stays
+// compact for the inter stream; inter frames carry the same
+// deltas in the encoder's seg struct but skip retransmission.
+//
+// Without populating the feature data on inter frames the encoder
+// would reconstruct using base-qindex dequant while the decoder
+// dequantizes using the inherited per-segment deltas, drifting the
+// loop filter state and tanking decoded PSNR. The fix mirrors
+// libvpx's behavior where cm->seg is a persistent struct.
 func vp9Equator360AQSegmentationParams(baseQIndex int, intraFrame bool) vp9dec.SegmentationParams {
 	seg := vp9dec.SegmentationParams{
 		Enabled:   true,
@@ -54,10 +93,6 @@ func vp9Equator360AQSegmentationParams(baseQIndex int, intraFrame bool) vp9dec.S
 		AbsDelta:  false,
 	}
 	initVP9SegmentationProbDefaults(&seg)
-	if !intraFrame {
-		return seg
-	}
-	seg.UpdateData = true
 	for i, ratio := range vp9Equator360AQRateRatios {
 		if ratio.num == ratio.den {
 			continue
@@ -74,6 +109,9 @@ func vp9Equator360AQSegmentationParams(baseQIndex int, intraFrame bool) vp9dec.S
 		}
 		seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltQ)
 		seg.FeatureData[i][vp9dec.SegLvlAltQ] = int16(delta)
+	}
+	if intraFrame {
+		seg.UpdateData = true
 	}
 	return seg
 }

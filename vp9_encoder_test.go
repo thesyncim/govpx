@@ -1585,12 +1585,19 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 
 func TestVP9EncoderVarianceAQEmitsSegmentation(t *testing.T) {
 	const width, height = 64, 64
+	// Variance-AQ is suppressed in pure-Q / fixed-Q mode because the
+	// rate controller can't absorb the per-segment qindex swings;
+	// drive a CBR config so the perceptual AQ path stays wired and
+	// the bitstream segmentation gets emitted.
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:        width,
-		Height:       height,
-		MinQuantizer: 20,
-		MaxQuantizer: 20,
-		AQMode:       VP9AQVariance,
+		Width:              width,
+		Height:             height,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  500,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		AQMode:             VP9AQVariance,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
@@ -1667,7 +1674,10 @@ func TestVP9EncoderVarianceAQEmitsSegmentation(t *testing.T) {
 		switch mi.SegmentID {
 		case 0:
 			lowVariance++
-		case 4:
+		// libvpx's energy formula puts checkerboard-detail blocks in
+		// segments 2..4 depending on per-pixel variance. Treat any
+		// of those as "non-flat" for the segment-distribution assertion.
+		case 2, 3, 4:
 			highVariance++
 		}
 	}
@@ -4708,11 +4718,17 @@ func TestVP9EncoderSetCQLevelUpdatesPublicQAndRateControl(t *testing.T) {
 
 func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 	const width, height = 64, 64
+	// Use a CBR rate-control config so variance-AQ stays wired —
+	// the AQ path is suppressed under pure-Q / fixed-Q because the
+	// rate controller cannot absorb the per-segment qindex swings.
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:        width,
-		Height:       height,
-		MinQuantizer: 20,
-		MaxQuantizer: 20,
+		Width:              width,
+		Height:             height,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  500,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder public-Q: %v", err)
