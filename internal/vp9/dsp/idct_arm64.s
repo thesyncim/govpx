@@ -18,6 +18,9 @@
 //   SQXTUN  Vd.8B,  Vn.8H    -> 0x2e212800 | (Rn<<5) | Rd
 //   SQXTUN2 Vd.16B, Vn.8H    -> 0x6e212800 | (Rn<<5) | Rd
 //   ADD     Vd.8H, Vn.8H, Vm.8H -> 0x4e608400 | (Rm<<16) | (Rn<<5) | Rd
+//   SRSHR Vd.8H, Vn.8H, #n  -> 0x4f002400 | ((32-n)<<16) | (Rn<<5) | Rd
+//     (shift n in [1,16] for 8H form; #4 -> 0x4f1c2400; #5 -> 0x4f1b2400;
+//      #6 -> 0x4f1a2400)
 //
 // Register convention across all kernels:
 //   R0  -> dest
@@ -185,4 +188,175 @@ loop32x32:
 	SUB	$1, R7, R7
 	CBNZ	R7, loop32x32
 
+	RET
+
+// idctAddResidualRow4NEON adds 4 int16 residuals to a 4-byte dest row,
+// applying SRSHR #4 (round-power-of-two by 4) to the residuals before
+// the saturating add+clip.
+//
+// Mirrors the row-add half of the VP9 inverse-transform column pass:
+// each int16 residual is rounded by shift then added to the existing
+// uint8 pixel; the signed-saturating narrow (SQXTUN) implements
+// clip_pixel_add's [0,255] clamp.
+//
+// ABI ($0-24):
+//   dest+0(FP)    *byte    base of N rows
+//   stride+8(FP)  int      bytes per row
+//   residual+16(FP)    *int16   nRows*4 int16 residuals (row-major)
+//   nRows+24(FP)  int      number of rows to process
+TEXT ·idctAddResidualRows4NEON(SB), NOSPLIT, $0-32
+	MOVD	dest+0(FP), R0
+	MOVD	stride+8(FP), R1
+	MOVD	residual+16(FP), R2
+	MOVD	nRows+24(FP), R7
+
+	CBZ	R7, rows4_done
+
+rows4_loop:
+	// Load 4 int16 (8 bytes) residuals into V1.4H (low D lane).
+	FMOVD	(R2), F1
+	// SRSHR v1.4h, v1.4h, #4  -> equivalent 4H form: Q=0 of 0x4f1c2400 = 0x0f1c2400
+	WORD	$0x0f1c2421         // srshr v1.4h, v1.4h, #4
+	// Load 4 dest bytes into S0 (lower lane), zero rest. Widen to int16
+	// in V0.4H via UXTL (USHLL #0 on 8B).
+	FMOVS	(R0), F0
+	WORD	$0x2f08a400         // ushll v0.8h, v0.8b, #0 (only low 4H valid; high are zero-byte pad)
+	// Signed add (in int16 lanes).
+	WORD	$0x4e618400         // add v0.8h, v0.8h, v1.8h (we only use low 4)
+	// SQXTUN narrow back to uint8: lanes 0..3 of V0.8H -> V0.8B[0..3].
+	WORD	$0x2e212800         // sqxtun v0.8b, v0.8h
+	// Store low 4 bytes (S lane 0).
+	VMOV	V0.S[0], R8
+	MOVW	R8, (R0)
+
+	ADD	$8, R2, R2          // advance 4 int16 = 8 bytes
+	ADD	R1, R0, R0
+	SUB	$1, R7, R7
+	CBNZ	R7, rows4_loop
+
+rows4_done:
+	RET
+
+// idctAddResidualRows8NEON adds 8 int16 residuals per row across nRows,
+// applying SRSHR #5 (8x8 normalization).
+//
+// ABI ($0-32):
+//   dest+0(FP)    *byte
+//   stride+8(FP)  int
+//   residual+16(FP)    *int16
+//   nRows+24(FP)  int
+TEXT ·idctAddResidualRows8NEON(SB), NOSPLIT, $0-32
+	MOVD	dest+0(FP), R0
+	MOVD	stride+8(FP), R1
+	MOVD	residual+16(FP), R2
+	MOVD	nRows+24(FP), R7
+
+	CBZ	R7, rows8_done
+
+rows8_loop:
+	// Load 8 int16 (16 bytes) residuals into V1.8H.
+	VLD1	(R2), [V1.H8]
+	// SRSHR v1.8h, v1.8h, #5
+	WORD	$0x4f1b2421         // srshr v1.8h, v1.8h, #5
+	// Load 8 dest bytes -> widen.
+	FMOVD	(R0), F0
+	WORD	$0x2f08a400         // ushll v0.8h, v0.8b, #0
+	WORD	$0x4e618400         // add v0.8h, v0.8h, v1.8h
+	WORD	$0x2e212800         // sqxtun v0.8b, v0.8h
+	FMOVD	F0, (R0)
+
+	ADD	$16, R2, R2         // advance 8 int16
+	ADD	R1, R0, R0
+	SUB	$1, R7, R7
+	CBNZ	R7, rows8_loop
+
+rows8_done:
+	RET
+
+// idctAddResidualRows16NEON adds 16 int16 residuals per row across
+// nRows, applying SRSHR #6 (16x16 normalization).
+//
+// ABI ($0-32):
+//   dest+0(FP)    *byte
+//   stride+8(FP)  int
+//   residual+16(FP)    *int16
+//   nRows+24(FP)  int
+TEXT ·idctAddResidualRows16NEON(SB), NOSPLIT, $0-32
+	MOVD	dest+0(FP), R0
+	MOVD	stride+8(FP), R1
+	MOVD	residual+16(FP), R2
+	MOVD	nRows+24(FP), R7
+
+	CBZ	R7, rows16_done
+
+rows16_loop:
+	// Load 16 int16 (32 bytes) residuals into V1, V2.
+	VLD1	(R2), [V1.H8, V2.H8]
+	// SRSHR by 6.
+	WORD	$0x4f1a2421         // srshr v1.8h, v1.8h, #6
+	WORD	$0x4f1a2442         // srshr v2.8h, v2.8h, #6
+	// Load 16 dest bytes.
+	VLD1	(R0), [V0.B16]
+	WORD	$0x2f08a410         // ushll  v16.8h, v0.8b,  #0  -> low 8
+	WORD	$0x6f08a411         // ushll2 v17.8h, v0.16b, #0  -> high 8
+	WORD	$0x4e618610         // add v16.8h, v16.8h, v1.8h
+	WORD	$0x4e628631         // add v17.8h, v17.8h, v2.8h
+	WORD	$0x2e212a00         // sqxtun  v0.8b,  v16.8h
+	WORD	$0x6e212a20         // sqxtun2 v0.16b, v17.8h
+	VST1	[V0.B16], (R0)
+
+	ADD	$32, R2, R2
+	ADD	R1, R0, R0
+	SUB	$1, R7, R7
+	CBNZ	R7, rows16_loop
+
+rows16_done:
+	RET
+
+// idctAddResidualRows32NEON adds 32 int16 residuals per row across
+// nRows, applying SRSHR #6 (32x32 normalization).
+//
+// ABI ($0-32):
+//   dest+0(FP)    *byte
+//   stride+8(FP)  int
+//   residual+16(FP)    *int16
+//   nRows+24(FP)  int
+TEXT ·idctAddResidualRows32NEON(SB), NOSPLIT, $0-32
+	MOVD	dest+0(FP), R0
+	MOVD	stride+8(FP), R1
+	MOVD	residual+16(FP), R2
+	MOVD	nRows+24(FP), R7
+
+	CBZ	R7, rows32_done
+
+rows32_loop:
+	// Load 32 int16 (64 bytes) residuals into V1..V4.
+	VLD1	(R2), [V1.H8, V2.H8, V3.H8, V4.H8]
+	// SRSHR each by 6.
+	WORD	$0x4f1a2421         // srshr v1.8h, v1.8h, #6
+	WORD	$0x4f1a2442         // srshr v2.8h, v2.8h, #6
+	WORD	$0x4f1a2463         // srshr v3.8h, v3.8h, #6
+	WORD	$0x4f1a2484         // srshr v4.8h, v4.8h, #6
+	// Load 32 dest bytes into V5..V6 (two 16-byte halves).
+	VLD1	(R0), [V5.B16, V6.B16]
+	WORD	$0x2f08a4b0         // ushll  v16.8h, v5.8b,  #0
+	WORD	$0x6f08a4b1         // ushll2 v17.8h, v5.16b, #0
+	WORD	$0x2f08a4d2         // ushll  v18.8h, v6.8b,  #0
+	WORD	$0x6f08a4d3         // ushll2 v19.8h, v6.16b, #0
+	WORD	$0x4e618610         // add v16.8h, v16.8h, v1.8h
+	WORD	$0x4e628631         // add v17.8h, v17.8h, v2.8h
+	WORD	$0x4e638652         // add v18.8h, v18.8h, v3.8h
+	WORD	$0x4e648673         // add v19.8h, v19.8h, v4.8h
+	WORD	$0x2e212a05         // sqxtun  v5.8b,  v16.8h
+	WORD	$0x6e212a25         // sqxtun2 v5.16b, v17.8h
+	WORD	$0x2e212a46         // sqxtun  v6.8b,  v18.8h
+	WORD	$0x6e212a66         // sqxtun2 v6.16b, v19.8h
+	VST1	[V5.B16, V6.B16], (R0)
+
+	ADD	$64, R2, R2
+	ADD	R1, R0, R0
+	SUB	$1, R7, R7
+	CBNZ	R7, rows32_loop
+
+rows32_done:
 	RET

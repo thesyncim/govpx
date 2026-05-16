@@ -12,10 +12,17 @@ import "unsafe"
 // the NEON implementations land.
 
 // Idct4x4_16Add applies the full 4x4 inverse DCT to a 16-coefficient
-// block and adds the result onto dest.
+// block and adds the result onto dest. The hot per-pixel add+clip is
+// done via a NEON kernel that operates one row at a time over an
+// already-transformed residual buffer.
 func Idct4x4_16Add(input []int16, dest []uint8, stride int) {
-	// 4x4 NEON full IDCT (not yet ported). Defers to scalar.
-	idct4x4_16AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 4, 4) {
+		idct4x4_16AddScalar(input, dest, stride)
+		return
+	}
+	var residual [16]int16
+	idct4x4Residual(input, &residual)
+	idctAddResidualRows4NEON(unsafe.SliceData(dest), stride, &residual[0], 4)
 }
 
 // Idct4x4_1Add is the DC-only fast path for the 4x4 inverse DCT. NEON
@@ -35,13 +42,25 @@ func Idct4x4_1Add(input []int16, dest []uint8, stride int) {
 
 // Idct8x8_64Add applies the full 8x8 inverse DCT.
 func Idct8x8_64Add(input []int16, dest []uint8, stride int) {
-	idct8x8_64AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 8, 8) {
+		idct8x8_64AddScalar(input, dest, stride)
+		return
+	}
+	var residual [64]int16
+	idct8x8Residual(input, &residual, 8)
+	idctAddResidualRows8NEON(unsafe.SliceData(dest), stride, &residual[0], 8)
 }
 
 // Idct8x8_12Add is the sparse upper-left-4x4 fast path for the 8x8
 // inverse DCT.
 func Idct8x8_12Add(input []int16, dest []uint8, stride int) {
-	idct8x8_12AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 8, 8) {
+		idct8x8_12AddScalar(input, dest, stride)
+		return
+	}
+	var residual [64]int16
+	idct8x8Residual(input, &residual, 4)
+	idctAddResidualRows8NEON(unsafe.SliceData(dest), stride, &residual[0], 8)
 }
 
 // Idct8x8_1Add is the DC-only fast path. NEON kernel: scalar a1
@@ -57,17 +76,35 @@ func Idct8x8_1Add(input []int16, dest []uint8, stride int) {
 
 // Idct16x16_256Add applies the full 16x16 inverse DCT.
 func Idct16x16_256Add(input []int16, dest []uint8, stride int) {
-	idct16x16_256AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 16, 16) {
+		idct16x16_256AddScalar(input, dest, stride)
+		return
+	}
+	var residual [256]int16
+	idct16x16Residual(input, &residual, 16)
+	idctAddResidualRows16NEON(unsafe.SliceData(dest), stride, &residual[0], 16)
 }
 
 // Idct16x16_38Add is the upper-left-8x8 sparse fast path.
 func Idct16x16_38Add(input []int16, dest []uint8, stride int) {
-	idct16x16_38AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 16, 16) {
+		idct16x16_38AddScalar(input, dest, stride)
+		return
+	}
+	var residual [256]int16
+	idct16x16Residual(input, &residual, 8)
+	idctAddResidualRows16NEON(unsafe.SliceData(dest), stride, &residual[0], 16)
 }
 
 // Idct16x16_10Add is the upper-left-4x4 sparse fast path.
 func Idct16x16_10Add(input []int16, dest []uint8, stride int) {
-	idct16x16_10AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 16, 16) {
+		idct16x16_10AddScalar(input, dest, stride)
+		return
+	}
+	var residual [256]int16
+	idct16x16Residual(input, &residual, 4)
+	idctAddResidualRows16NEON(unsafe.SliceData(dest), stride, &residual[0], 16)
 }
 
 // Idct16x16_1Add is the DC-only fast path. NEON kernel: scalar a1
@@ -83,17 +120,35 @@ func Idct16x16_1Add(input []int16, dest []uint8, stride int) {
 
 // Idct32x32_1024Add is the dense 32x32 inverse DCT.
 func Idct32x32_1024Add(input []int16, dest []uint8, stride int) {
-	idct32x32_1024AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 32, 32) {
+		idct32x32_1024AddScalar(input, dest, stride)
+		return
+	}
+	var residual [1024]int16
+	idct32x32Residual(input, &residual, 32)
+	idctAddResidualRows32NEON(unsafe.SliceData(dest), stride, &residual[0], 32)
 }
 
 // Idct32x32_135Add is the upper-left-16x16 sparse fast path.
 func Idct32x32_135Add(input []int16, dest []uint8, stride int) {
-	idct32x32_135AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 32, 32) {
+		idct32x32_135AddScalar(input, dest, stride)
+		return
+	}
+	var residual [1024]int16
+	idct32x32Residual(input, &residual, 16)
+	idctAddResidualRows32NEON(unsafe.SliceData(dest), stride, &residual[0], 32)
 }
 
 // Idct32x32_34Add is the upper-left-8x8 sparse fast path.
 func Idct32x32_34Add(input []int16, dest []uint8, stride int) {
-	idct32x32_34AddScalar(input, dest, stride)
+	if !dcWindowOK(dest, stride, 32, 32) {
+		idct32x32_34AddScalar(input, dest, stride)
+		return
+	}
+	var residual [1024]int16
+	idct32x32Residual(input, &residual, 8)
+	idctAddResidualRows32NEON(unsafe.SliceData(dest), stride, &residual[0], 32)
 }
 
 // Idct32x32_1Add is the DC-only fast path. NEON kernel: scalar a1
@@ -134,17 +189,47 @@ func Iwht4x4_1Add(input []int16, dest []uint8, stride int) {
 
 // Iht4x4_16Add dispatches the 2-D hybrid 4x4 inverse transform.
 func Iht4x4_16Add(input []int16, dest []uint8, stride int, txType int) {
-	iht4x4_16AddScalar(input, dest, stride, txType)
+	if txType == 0 {
+		Idct4x4_16Add(input, dest, stride)
+		return
+	}
+	if !dcWindowOK(dest, stride, 4, 4) {
+		iht4x4_16AddScalar(input, dest, stride, txType)
+		return
+	}
+	var residual [16]int16
+	iht4x4Residual(input, &residual, txType)
+	idctAddResidualRows4NEON(unsafe.SliceData(dest), stride, &residual[0], 4)
 }
 
 // Iht8x8_64Add dispatches the 2-D hybrid 8x8 inverse transform.
 func Iht8x8_64Add(input []int16, dest []uint8, stride int, txType int) {
-	iht8x8_64AddScalar(input, dest, stride, txType)
+	if txType == 0 {
+		Idct8x8_64Add(input, dest, stride)
+		return
+	}
+	if !dcWindowOK(dest, stride, 8, 8) {
+		iht8x8_64AddScalar(input, dest, stride, txType)
+		return
+	}
+	var residual [64]int16
+	iht8x8Residual(input, &residual, txType)
+	idctAddResidualRows8NEON(unsafe.SliceData(dest), stride, &residual[0], 8)
 }
 
 // Iht16x16_256Add dispatches the 2-D hybrid 16x16 inverse transform.
 func Iht16x16_256Add(input []int16, dest []uint8, stride int, txType int) {
-	iht16x16_256AddScalar(input, dest, stride, txType)
+	if txType == 0 {
+		Idct16x16_256Add(input, dest, stride)
+		return
+	}
+	if !dcWindowOK(dest, stride, 16, 16) {
+		iht16x16_256AddScalar(input, dest, stride, txType)
+		return
+	}
+	var residual [256]int16
+	iht16x16Residual(input, &residual, txType)
+	idctAddResidualRows16NEON(unsafe.SliceData(dest), stride, &residual[0], 16)
 }
 
 // idctDcA1 mirrors the scalar prelude shared by every Idct*_1Add
@@ -182,3 +267,19 @@ func idct16x16DcAddNEON(dest *byte, stride int, a1 int16)
 
 //go:noescape
 func idct32x32DcAddNEON(dest *byte, stride int, a1 int16)
+
+// idctAddResidualRowsNNEON adds N int16 residuals per row to dest with
+// SRSHR (round-power-of-two) and signed-saturating narrow back to
+// uint8. N is 4/8/16/32; the shift baked into each kernel is 4/5/6/6.
+//
+//go:noescape
+func idctAddResidualRows4NEON(dest *byte, stride int, residual *int16, nRows int)
+
+//go:noescape
+func idctAddResidualRows8NEON(dest *byte, stride int, residual *int16, nRows int)
+
+//go:noescape
+func idctAddResidualRows16NEON(dest *byte, stride int, residual *int16, nRows int)
+
+//go:noescape
+func idctAddResidualRows32NEON(dest *byte, stride int, residual *int16, nRows int)
