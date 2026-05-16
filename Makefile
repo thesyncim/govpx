@@ -33,17 +33,14 @@ VP8_DECODER_IVF_MIN ?= 58
 VP8_INVALID_IVF_MIN ?= 2
 VP9_DECODER_IVF_MIN ?= 7
 VP9_INVALID_IVF_MIN ?= 17
-VP9_DECODER_PROFILE0_WEBM_MIN ?= 42
+VP9_DECODER_PROFILE0_WEBM_MIN ?= 101
 VP9_DECODER_PROFILE_WEBM_MIN ?= 11
 VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
+VP9_DECODER_PROFILE0_WEBM_QUANTIZER_FILES := $(shell $(AWK) 'BEGIN { for (i = 0; i < 64; i++) printf "vp90-2-00-quantizer-%02d.webm ", i }')
 VP9_DECODER_PROFILE0_WEBM_FILES ?= \
-	vp90-2-00-quantizer-00.webm \
-	vp90-2-00-quantizer-16.webm \
-	vp90-2-00-quantizer-32.webm \
-	vp90-2-00-quantizer-48.webm \
-	vp90-2-00-quantizer-63.webm \
+	$(VP9_DECODER_PROFILE0_WEBM_QUANTIZER_FILES) \
 	vp90-2-01-sharpness-1.webm \
 	vp90-2-01-sharpness-2.webm \
 	vp90-2-01-sharpness-3.webm \

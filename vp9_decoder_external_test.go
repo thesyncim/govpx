@@ -22,16 +22,11 @@ const (
 	defaultVP9ExternalTestDataDir       = "internal/coracle/build/test-data/vp9"
 	defaultVP9IVFTestDataMinimum        = 7
 	defaultVP9InvalidIVFTestDataMinimum = 17
-	defaultVP9Profile0WebMTestMinimum   = 42
+	defaultVP9Profile0WebMTestMinimum   = 101
 	defaultVP9ProfileWebMTestMinimum    = 11
 )
 
 var defaultVP9Profile0WebMTestNames = map[string]struct{}{
-	"vp90-2-00-quantizer-00.webm":                 {},
-	"vp90-2-00-quantizer-16.webm":                 {},
-	"vp90-2-00-quantizer-32.webm":                 {},
-	"vp90-2-00-quantizer-48.webm":                 {},
-	"vp90-2-00-quantizer-63.webm":                 {},
 	"vp90-2-01-sharpness-1.webm":                  {},
 	"vp90-2-01-sharpness-2.webm":                  {},
 	"vp90-2-01-sharpness-3.webm":                  {},
@@ -69,6 +64,19 @@ var defaultVP9Profile0WebMTestNames = map[string]struct{}{
 	"vp90-2-15-segkey.webm":                       {},
 	"vp90-2-16-intra-only.webm":                   {},
 	"vp90-2-19-skip.webm":                         {},
+}
+
+func init() {
+	for q := 0; q < 64; q++ {
+		defaultVP9Profile0WebMTestNames[fmt.Sprintf("vp90-2-00-quantizer-%02d.webm", q)] = struct{}{}
+	}
+}
+
+func TestVP9DecoderDefaultProfile0WebMCorpusMinimumMatchesList(t *testing.T) {
+	if got := len(defaultVP9Profile0WebMTestNames); got != defaultVP9Profile0WebMTestMinimum {
+		t.Fatalf("default VP9 Profile 0 WebM corpus list = %d, minimum = %d",
+			got, defaultVP9Profile0WebMTestMinimum)
+	}
 }
 
 func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
