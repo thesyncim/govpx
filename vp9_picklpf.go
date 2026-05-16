@@ -22,21 +22,28 @@
 //     stock dispatcher but the enum is present and the dispatcher
 //     branch must be ported for parity.
 //
-// In govpx today the uncompressed-header (which carries filter_level)
-// is emitted before the reconstruction buffer is built, so the
-// search-based modes can only run as part of a future structural
-// refactor. The dispatcher and helpers are ported verbatim; the
-// search-based modes use a callback-based SSE evaluator that lets the
-// tests exercise the quadratic-search logic without re-plumbing the
-// reconstruct pipeline. The production encoder routes
-// LpfPickFromFullImage / LpfPickFromSubImage through searchFilterLevel
-// with a callback that mirrors libvpx's try_filter_frame on the
-// already-reconstructed luma plane after the tiles have been encoded.
-// libvpx: vp9_picklpf.c:46-76 (try_filter_frame).
+// The govpx encoder mirrors libvpx's per-frame ordering: tiles are
+// encoded into the reconstruction buffer before the picker runs, and
+// the picker re-runs the loop filter at each trial level to score
+// post-filter Y SSE against the source. The uncompressed header is
+// re-written in place after the picker returns the chosen level so
+// the wire stream carries the picked filter_level (libvpx:
+// vp9/encoder/vp9_encoder.c:5391-5467 — encode_with_recode_loop runs
+// before loopfilter_frame, which calls vp9_pick_filter_level, which
+// runs before vp9_pack_bitstream).
+//
+// The callback-driven sseFn lets the unit tests exercise the
+// quadratic-search algorithm with synthetic SSE landscapes; the
+// production encode site supplies vp9PickLpfBuildSSECallback, which
+// runs the real Y-only deblock against the reconstructed luma plane
+// and computes the Y-plane SSE vs source. libvpx: vp9_picklpf.c:46-76
+// (try_filter_frame).
 
 package govpx
 
 import (
+	"image"
+
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -291,12 +298,16 @@ func (e *VP9Encoder) vp9SearchFilterLevel(isKey bool, txMode common.TxMode, part
 //	}
 //
 // The dispatcher returns the chosen filter level; callers should write
-// this into the loopfilter header. When sseFn is nil and the method
-// would invoke the search, the dispatcher falls back to the closed-form
-// LpfPickFromQ formula — this is the production path until the encoder
-// reconstruction-vs-header ordering is restructured so the search can
-// actually call try_filter_frame. The test suite exercises the search
-// directly by passing a non-nil sseFn.
+// this into the loopfilter header. The production encode site supplies
+// a non-nil sseFn that mirrors libvpx try_filter_frame: it applies the
+// Y-plane loop filter at the trial level against the (saved &
+// restorable) post-tile reconstructed luma, scores Y-plane SSE vs the
+// source, and returns the SSE. The test suite drives the same
+// dispatcher with synthetic sseFn landscapes to exercise the
+// quadratic-search algorithm. When sseFn is nil and the method would
+// invoke the search, the dispatcher falls back to the closed-form
+// LpfPickFromQ formula so older call sites that have not been
+// migrated still produce a valid level.
 func (e *VP9Encoder) vp9PickFilterLevel(method LpfPickMethod,
 	qindex int, isKey, segEnabled bool, width, height int,
 	txMode common.TxMode, partialFrame bool,
@@ -352,4 +363,177 @@ func vp9PickLpfClamp(v, lo, hi int) int {
 // ROUND_POWER_OF_TWO(value, n) == ((value) + (1 << ((n) - 1))) >> (n).
 func vp9PickLpfRoundPowerOfTwo(value, n int) int {
 	return (value + (1 << uint(n-1))) >> uint(n)
+}
+
+// vp9PickLpfYSSE mirrors libvpx vpx_dsp/psnr.c:155 vpx_get_y_sse.
+// Computes the Y-plane SSE between source (src) and reconstruction
+// (recon) over a width*height window. Both planes are 8-bit; strides
+// may differ. libvpx clips to y_crop_width / y_crop_height; govpx
+// passes the visible source dims directly.
+//
+// libvpx: vpx_dsp/psnr.c:155
+//
+//	int64_t vpx_get_y_sse(const YV12_BUFFER_CONFIG *a, ...) {
+//	  return get_sse(a->y_buffer, a->y_stride, b->y_buffer, b->y_stride,
+//	                 a->y_crop_width, a->y_crop_height);
+//	}
+func vp9PickLpfYSSE(src []byte, srcStride int,
+	recon []byte, reconStride int,
+	width, height int,
+) int64 {
+	var sse int64
+	for row := range height {
+		srcRow := src[row*srcStride : row*srcStride+width]
+		recRow := recon[row*reconStride : row*reconStride+width]
+		for col := range width {
+			d := int64(srcRow[col]) - int64(recRow[col])
+			sse += d * d
+		}
+	}
+	return sse
+}
+
+// vp9PickLpfBuildSSECallback returns the production sseFn for the
+// full-image / sub-image search picker. The callback follows libvpx
+// vp9_picklpf.c:46-76 try_filter_frame:
+//
+//  1. Build the loop-filter limits tables for filtLevel via
+//     vp9dec.LoopFilterFrameInit (libvpx: vp9_loopfilter.c
+//     vp9_loop_filter_frame_init).
+//  2. Apply Y-only deblock at filtLevel against the reconstructed
+//     luma plane in-place (libvpx vp9_loop_filter_frame(..., y_only=1,
+//     partial_frame)). We use applyVP9LoopFilterPlane(plane=Y).
+//  3. Compute Y-plane SSE between source and the filtered luma over
+//     the visible (Width × Height) window (libvpx vpx_get_y_sse).
+//  4. Restore the unfiltered Y plane from the caller-owned backup so
+//     the next trial filters fresh recon.
+//
+// The caller (vp9EncoderPickFilterLevelAfterTiles) snapshots the
+// unfiltered Y plane once before the search, and arranges the post-
+// search final filter pass via applyVP9EncoderLoopFilter on Y+U+V.
+//
+// libvpx: vp9_picklpf.c:46-76
+//
+//	static int64_t try_filter_frame(const YV12_BUFFER_CONFIG *sd,
+//	                                VP9_COMP *const cpi, int filt_level,
+//	                                int partial_frame) {
+//	  ...
+//	  vp9_loop_filter_frame(cm->frame_to_show, cm, &cpi->td.mb.e_mbd,
+//	                        filt_level, 1, partial_frame);
+//	  filt_err = vpx_get_y_sse(sd, cm->frame_to_show);
+//	  // Re-instate the unfiltered frame
+//	  vpx_yv12_copy_y(&cpi->last_frame_uf, cm->frame_to_show);
+//	  return filt_err;
+//	}
+func (e *VP9Encoder) vp9PickLpfBuildSSECallback(hdr *vp9dec.UncompressedHeader,
+	seg *vp9dec.SegmentationParams, img *image.YCbCr, ufBackupY []byte,
+) vp9PickLpfFilterLevelSSEFunc {
+	layout := vp9FrameBufferLayout(int(hdr.Width), int(hdr.Height))
+	miRows := int((hdr.Height + 7) >> 3)
+	miCols := int((hdr.Width + 7) >> 3)
+	srcY, srcStride, srcW, srcH := vp9EncoderSourcePlane(img, 0)
+	return func(filtLevel int, partialFrame bool) int64 {
+		if filtLevel == 0 {
+			// libvpx: vp9_loop_filter_frame returns immediately when
+			// frame_filter_level == 0 (vp9_loopfilter.c:1473). The
+			// SSE is then unfiltered-recon vs source.
+			return vp9PickLpfYSSE(srcY, srcStride,
+				e.reconYFull[layout.yOrigin:], layout.yStride,
+				srcW, srcH)
+		}
+		// Build LoopFilterInfoN for the trial level.
+		lfTrial := hdr.Loopfilter
+		lfTrial.FilterLevel = uint8(filtLevel)
+		vp9dec.LoopFilterFrameInit(&e.lfi, &lfTrial, seg, filtLevel)
+		d := VP9Decoder{
+			lfi:          e.lfi,
+			miGrid:       e.miGrid,
+			frameYFull:   e.reconYFull,
+			frameUFull:   e.reconUFull,
+			frameVFull:   e.reconVFull,
+			frameYOrigin: layout.yOrigin,
+			frameUOrigin: layout.uvOrigin,
+			frameVOrigin: layout.uvOrigin,
+			lastFrame:    e.reconFrame,
+		}
+		// libvpx: vp9_picklpf.c:54-60 — y_only=1 trial filter.
+		// partial_frame currently always false on the search-driven
+		// path (search_filter_level is invoked with method ==
+		// LPF_PICK_FROM_SUBIMAGE only when partial_frame=true; the
+		// dispatcher exposes that via the partialFrame argument).
+		_ = partialFrame // partial_frame plumbing reserved for future LPF_PICK_FROM_SUBIMAGE.
+		// applyVP9LoopFilterPlane runs the Y-only deblock in-place
+		// against e.reconYFull.
+		if !d.applyVP9LoopFilterPlane(miRows, miCols, vp9LoopFilterPlaneY) {
+			// Fall back to no-op SSE on a structural failure; the
+			// picker treats a missing entry via ss_err[]<0 as
+			// uninitialised, so returning a sentinel here would
+			// derail the search. Instead, restore the backup and
+			// return a deliberately-large SSE so the level is
+			// rejected.
+			copy(e.reconYFull[layout.yOrigin:], ufBackupY)
+			return int64(1) << 62
+		}
+		sse := vp9PickLpfYSSE(srcY, srcStride,
+			e.reconYFull[layout.yOrigin:], layout.yStride,
+			srcW, srcH)
+		// libvpx: vp9_picklpf.c:73 — re-instate the unfiltered Y plane
+		// from cpi->last_frame_uf.
+		copy(e.reconYFull[layout.yOrigin:], ufBackupY)
+		return sse
+	}
+}
+
+// vp9EncoderRunFullImagePicker is the post-tile entry point for the
+// LPF full-image / sub-image search picker. The caller pre-gates the
+// LpfPickFromQ / LpfPickMinimalLpf methods (which don't consult the
+// recon buffer) so this method only fires when a real search is
+// required — keeping the steady-state FROM_Q encode path
+// allocation-free. Invoked after writeVP9FrameTiles has populated
+// e.reconYFull with the unfiltered reconstruction. The method
+// allocates / reuses ufBackupY, snapshots the visible Y plane, builds
+// the production sseFn via vp9PickLpfBuildSSECallback, and invokes
+// the dispatcher (vp9PickFilterLevel). The returned level supersedes
+// the pre-tile placeholder; the caller updates
+// header.Loopfilter.FilterLevel and re-writes the uncompressed
+// header in place so the bitstream carries the picked level.
+//
+// libvpx flow: encode_with_recode_loop (encodes tiles into recon) →
+// loopfilter_frame (calls vp9_pick_filter_level, then applies the
+// loop filter at the picked level) → vp9_pack_bitstream (writes the
+// header carrying lf->filter_level). govpx mirrors the order with
+// in-place header re-write because the uncompressed-header byte
+// length is invariant under filter_level: filter_level is always a
+// 6-bit literal (internal/vp9/encoder/header_writer.go:384
+// EncodeLoopfilterWithPrev).
+//
+// libvpx: vp9_encoder.c:3405-3471 (loopfilter_frame),
+// vp9_encoder.c:5391-5467 (encode_frame_to_data_rate sequencing).
+func (e *VP9Encoder) vp9EncoderRunFullImagePicker(
+	hdr *vp9dec.UncompressedHeader, seg *vp9dec.SegmentationParams,
+	img *image.YCbCr, txMode common.TxMode, isKey bool,
+) uint8 {
+	method := e.sf.LpfPick
+	// Build the production sseFn against the recon buffer. libvpx:
+	// vp9_picklpf.c:99-100 — copy the unfiltered recon into
+	// last_frame_uf before any try_filter_frame call.
+	layout := vp9FrameBufferLayout(int(hdr.Width), int(hdr.Height))
+	yVisibleLen := layout.yStride * layout.yHeight
+	if cap(e.vp9LpfReconYBackup) < yVisibleLen {
+		e.vp9LpfReconYBackup = make([]byte, yVisibleLen)
+	} else {
+		e.vp9LpfReconYBackup = e.vp9LpfReconYBackup[:yVisibleLen]
+	}
+	copy(e.vp9LpfReconYBackup, e.reconYFull[layout.yOrigin:layout.yOrigin+yVisibleLen])
+	sseFn := e.vp9PickLpfBuildSSECallback(hdr, seg, img, e.vp9LpfReconYBackup)
+	level := uint8(e.vp9PickFilterLevel(method, int(hdr.Quant.BaseQindex),
+		isKey, hdr.Seg.Enabled, int(hdr.Width), int(hdr.Height),
+		txMode, false /* partialFrame */, sseFn))
+	// After the search, the recon Y plane holds the last-trial
+	// unfiltered state (try_filter_frame's final copy-back at
+	// vp9_picklpf.c:73). The caller will run the final
+	// applyVP9EncoderLoopFilter at the picked level, matching libvpx
+	// vp9_encoder.c:3459-3468 (the unconditional post-pick filter
+	// pass inside loopfilter_frame).
+	return level
 }

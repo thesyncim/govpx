@@ -796,6 +796,16 @@ type VP9Encoder struct {
 	// (`lf->last_filt_level = 0`).
 	vp9LastFiltLevel uint8
 
+	// vp9LpfReconYBackup is the encoder-owned scratch that mirrors
+	// libvpx cpi->last_frame_uf.y_buffer. The full-image / sub-image
+	// picker snapshots the unfiltered visible Y plane here once after
+	// tile encoding, so each try_filter_frame trial can restore the
+	// unfiltered luma before applying the next trial level. Sized to
+	// the per-frame yStride*yHeight (allocated lazily on first use).
+	// libvpx: vp9_picklpf.c:73,100 (vpx_yv12_copy_y to / from
+	// cpi->last_frame_uf).
+	vp9LpfReconYBackup []byte
+
 	lookahead      []vp9LookaheadEntry
 	lookaheadRead  uint8
 	lookaheadWrite uint8
@@ -2240,13 +2250,19 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// libvpx vp9_picklpf.c:159 — the picker reads sf.lpf_pick to
 	// choose between LPF_PICK_FROM_FULL_IMAGE (default at speeds
 	// 0-2), LPF_PICK_FROM_Q (speed 3+), and LPF_PICK_MINIMAL_LPF.
-	// The full-image search would require reconstructed luma which
-	// govpx does not have at header-emit time, so the dispatcher
-	// degrades that branch to LPF_PICK_FROM_Q in the production path
-	// (sseFn=nil). txMode is determined after the header is emitted;
-	// we pass the libvpx default (TxModeSelect) so the picker's bias
-	// scaling matches the runtime case for any future structural
-	// refactor that wires the search picker in-place.
+	//
+	// govpx writes a placeholder FilterLevel (the closed-form FROM_Q
+	// value) into the uncompressed header before tile encoding; once
+	// the tiles populate the reconstruction buffer the full-image /
+	// sub-image search runs (vp9EncoderRunFullImagePicker below) and
+	// the uncompressed header is re-written in place with the picked
+	// level. The filter_level field is a 6-bit literal at a stable
+	// bit position (internal/vp9/encoder/header_writer.go:384
+	// EncodeLoopfilterWithPrev), so the byte length of the
+	// uncompressed header is invariant under filter_level and the
+	// re-write keeps compressed_header / tile offsets stable. This
+	// matches libvpx's order at vp9_encoder.c:5391-5467
+	// (encode_with_recode_loop → loopfilter_frame → vp9_pack_bitstream).
 	header.Loopfilter = e.vp9EncoderLoopFilterParams(qindex, isKey, intraOnly,
 		resetLoopfilterDeltas, header.Quant.Lossless,
 		header.Seg.Enabled, e.opts.Sharpness,
@@ -2467,6 +2483,74 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		return VP9EncodeResult{}, err
 	}
 	n := tileStart + tileSize
+	// Post-tile loop-filter strength picker. The reconstruction
+	// buffer (e.reconYFull) is now populated with the unfiltered
+	// luma; the dispatcher can route LPF_PICK_FROM_FULL_IMAGE /
+	// LPF_PICK_FROM_SUBIMAGE through the quadratic search against
+	// real recon (libvpx vp9_picklpf.c:78-157 search_filter_level via
+	// try_filter_frame at lines 46-76). LPF_PICK_FROM_Q and
+	// LPF_PICK_MINIMAL_LPF do not consult the recon buffer, so the
+	// pre-tile placeholder already carries the libvpx-correct level
+	// and we skip the post-tile re-run entirely — this also keeps
+	// the steady-state encode path allocation-free for the
+	// (default-realtime) speed >= 3 case where sf.LpfPick =
+	// LpfPickFromQ. libvpx vp9_speed_features.c:555 anchors the
+	// realtime-default switchover.
+	//
+	// The picker is suppressed when the disable / lossless gates
+	// already forced filter_level to 0; rerunning would only flip
+	// the level back away from the intended override. The applyLPF
+	// gate further enforces zero-level skip below.
+	runFullImageSearch := (e.sf.LpfPick == LpfPickFromFullImage ||
+		e.sf.LpfPick == LpfPickFromSubImage) &&
+		header.Loopfilter.FilterLevel != 0 &&
+		!vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) &&
+		!header.Quant.Lossless
+	if runFullImageSearch {
+		// header.Seg already mirrors seg at this point (line 2426
+		// above); we pass header.Seg so the compiler doesn't have to
+		// heap-promote the local seg in the steady-state FROM_Q /
+		// MINIMAL path that never enters this block.
+		pickedLevel := e.vp9EncoderRunFullImagePicker(header, &header.Seg, img,
+			txMode, isKey)
+		if pickedLevel != header.Loopfilter.FilterLevel {
+			header.Loopfilter.FilterLevel = pickedLevel
+			// Re-write the uncompressed header in place at dst[0:].
+			// The byte length is invariant under filter_level (6-bit
+			// literal at a fixed position), so the compressed-header
+			// + tiles tail stays valid.
+			var rewriteBW encoder.BitWriter
+			rewriteBW.Init(dst)
+			var rewSize int
+			rewPrevLfRef, rewPrevLfMode := e.vp9EncoderLoopFilterPrevDeltas(resetLoopfilterDeltas)
+			if header.FrameType == common.KeyFrame {
+				rewSize = encoder.WriteKeyframeUncompressedHeaderWithLoopfilterPrev(
+					&rewriteBW, header, &rewPrevLfRef, &rewPrevLfMode)
+			} else if header.IntraOnly {
+				rewSize = encoder.WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev(
+					&rewriteBW, header, &rewPrevLfRef, &rewPrevLfMode)
+			} else {
+				rewSize = encoder.WriteInterUncompressedHeaderWithLoopfilterPrev(
+					&rewriteBW, header, e.vp9RefDims, &rewPrevLfRef, &rewPrevLfMode)
+			}
+			if rewSize != uncSize {
+				// The uncompressed-header byte length must be
+				// invariant — filter_level is a fixed-width 6-bit
+				// literal and all sibling fields are independent of
+				// it (libvpx encode_loopfilter, header_writer.go:384).
+				// A drift here indicates a bitstream-writer bug; bail
+				// rather than corrupting the stream.
+				return VP9EncodeResult{}, ErrInvalidVP9Data
+			}
+			_ = rewSize
+		}
+		// libvpx: vp9_encoder.c:3448 — `lf->last_filt_level =
+		// lf->filter_level` after the picker returns. We refresh the
+		// encoder-side cache here so the next frame's picker reads
+		// the final post-search level instead of the pre-tile
+		// placeholder.
+		e.vp9LastFiltLevel = header.Loopfilter.FilterLevel
+	}
 	e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
 	var firstPassStats VP9FirstPassFrameStats
 	twoPassTargetBits := 0
