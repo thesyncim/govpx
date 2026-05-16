@@ -978,6 +978,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 		frames int
 		opts   VP9EncoderOptions
 		args   []string
+		source func(frame int) *image.YCbCr
 	}
 	cases := []threadedCase{
 		{
@@ -994,6 +995,26 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--min-q=20",
 				"--max-q=20",
 				"--disable-warning-prompt",
+			},
+		},
+		{
+			name:   "fixed-q-non-neutral-keyframe",
+			frames: 1,
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			source: func(frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height,
+					uint8(96+frame*8), 128, 128)
 			},
 		},
 		{
@@ -1082,8 +1103,14 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				frames = defaultFrames
 			}
 			sources := make([]*image.YCbCr, frames)
+			source := tc.source
+			if source == nil {
+				source = func(frame int) *image.YCbCr {
+					return newVP9YCbCrForTest(width, height, 128, 128, 128)
+				}
+			}
 			for i := range sources {
-				sources[i] = newVP9YCbCrForTest(width, height, 128, 128, 128)
+				sources[i] = source(i)
 			}
 			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
 				tc.opts, sources, nil, tc.args,
