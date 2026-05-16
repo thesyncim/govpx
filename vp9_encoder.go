@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"image"
+	"math"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -37,6 +38,10 @@ type VP9AQMode int8
 const (
 	// VP9AQNone disables VP9 adaptive quantization.
 	VP9AQNone VP9AQMode = 0
+	// VP9AQVariance enables VP9 variance adaptive quantization. It assigns
+	// low-variance blocks to boosted-Q segments and high-variance blocks to
+	// lower-rate segments using libvpx's variance-AQ energy bins.
+	VP9AQVariance VP9AQMode = 1
 	// VP9AQCyclicRefresh enables VP9 cyclic-refresh AQ. This mirrors
 	// libvpx VP9 aq-mode=3 and is currently limited to explicit CBR.
 	VP9AQCyclicRefresh VP9AQMode = 3
@@ -197,8 +202,9 @@ type VP9EncoderOptions struct {
 	// 2=forward, 3=centered. Zero uses libvpx's default centered type.
 	ARNRType int
 
-	// AQMode selects VP9 adaptive quantization. VP9AQCyclicRefresh enables
-	// realtime CBR cyclic-refresh segmentation; zero leaves AQ disabled.
+	// AQMode selects VP9 adaptive quantization. VP9AQVariance enables
+	// variance-based segmentation, VP9AQCyclicRefresh enables realtime CBR
+	// cyclic-refresh segmentation, and zero leaves AQ disabled.
 	AQMode VP9AQMode
 
 	// TwoPassStats enables VP9 second-pass VBR/CQ rate planning when non-empty.
@@ -725,6 +731,11 @@ func validateVP9AQOptions(opts VP9EncoderOptions) error {
 	switch opts.AQMode {
 	case VP9AQNone:
 		return nil
+	case VP9AQVariance:
+		if opts.Lossless || opts.Segmentation.Enabled {
+			return ErrInvalidConfig
+		}
+		return nil
 	case VP9AQCyclicRefresh:
 	default:
 		return ErrInvalidConfig
@@ -799,6 +810,13 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		}
 		return seg
 	}
+	if e.opts.AQMode == VP9AQVariance && !intraFrame {
+		seg := vp9VarianceAQSegmentationParams(baseQIndex)
+		if e.activeMapEnabled {
+			vp9EnableActiveMapSegmentation(&seg)
+		}
+		return seg
+	}
 	if e.cyclicAQ.enabled && e.cyclicAQ.apply && !intraFrame {
 		seg := e.cyclicAQ.segmentationParams(baseQIndex)
 		if e.activeMapEnabled {
@@ -862,6 +880,48 @@ func initVP9SegmentationProbDefaults(seg *vp9dec.SegmentationParams) {
 	for i := range vp9dec.PredictionProbs {
 		seg.PredProbs[i] = vp9dec.MaxProb
 	}
+}
+
+func vp9VarianceAQSegmentationParams(baseQIndex int) vp9dec.SegmentationParams {
+	seg := vp9dec.SegmentationParams{
+		Enabled:    true,
+		UpdateMap:  true,
+		UpdateData: true,
+		AbsDelta:   false,
+	}
+	initVP9SegmentationProbDefaults(&seg)
+	for i, ratio := range vp9VarianceAQRateRatios {
+		if ratio.num == ratio.den {
+			continue
+		}
+		delta := vp9ComputeQDeltaByRate(0, 255, false, baseQIndex,
+			ratio.num, ratio.den)
+		if baseQIndex != 0 && baseQIndex+delta == 0 {
+			delta = -baseQIndex + 1
+		}
+		if delta < -255 {
+			delta = -255
+		} else if delta > 255 {
+			delta = 255
+		}
+		seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltQ)
+		seg.FeatureData[i][vp9dec.SegLvlAltQ] = int16(delta)
+	}
+	return seg
+}
+
+var vp9VarianceAQRateRatios = [vp9dec.MaxSegments]struct {
+	num int
+	den int
+}{
+	{5, 2},
+	{2, 1},
+	{3, 2},
+	{1, 1},
+	{3, 4},
+	{1, 1},
+	{1, 1},
+	{1, 1},
 }
 
 func vp9EnableActiveMapSegmentation(seg *vp9dec.SegmentationParams) {
@@ -4219,6 +4279,7 @@ func vp9ModeTreeUsesInterSegmentMap(kind vp9ModeTreeKind) bool {
 
 func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
 	return e != nil && (e.roi.enabled ||
+		e.opts.AQMode == VP9AQVariance ||
 		(e.cyclicAQ.enabled && e.cyclicAQ.apply) ||
 		e.activeMapEnabled)
 }
@@ -4257,6 +4318,14 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 		}
 		return segID, true
 	}
+	if e.opts.AQMode == VP9AQVariance {
+		if segID, ok := e.vp9VarianceAQSegmentID(inter, miRow, miCol); ok {
+			if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
+				return vp9ActiveMapSegmentInactive, true
+			}
+			return segID, true
+		}
+	}
 	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
 		segID := e.cyclicAQ.segmentID(miRow, miCol)
 		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
@@ -4281,6 +4350,54 @@ func (e *VP9Encoder) vp9ActiveMapInactiveNeedsSegment(inter *vp9InterEncodeState
 	}
 	return !vp9SourceMatchesReferenceMI(inter.img, &e.refFrames[vp9LastRefSlot],
 		miRow, miCol)
+}
+
+func (e *VP9Encoder) vp9VarianceAQSegmentID(inter *vp9InterEncodeState,
+	miRow, miCol int,
+) (uint8, bool) {
+	if inter == nil || inter.img == nil || miRow < 0 || miCol < 0 {
+		return 0, false
+	}
+	src, stride, width, height := vp9EncoderSourcePlane(inter.img, 0)
+	if len(src) == 0 || stride <= 0 {
+		return 0, false
+	}
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0 >= width || y0 >= height {
+		return 0, false
+	}
+	w := min(common.MiSize, width-x0)
+	h := min(common.MiSize, height-y0)
+	if w <= 0 || h <= 0 {
+		return 0, false
+	}
+	variance := vp9BlockSourceVariance128(src, stride, x0, y0, w, h)
+	scaled := (uint64(256) * variance) / uint64(w*h)
+	energy := int(math.Round(math.Log(float64(scaled)+1.0))) - 10
+	if energy < -4 {
+		energy = -4
+	} else if energy > 1 {
+		energy = 1
+	}
+	return vp9VarianceAQSegmentIDFromEnergy(energy), true
+}
+
+func vp9VarianceAQSegmentIDFromEnergy(energy int) uint8 {
+	switch {
+	case energy <= -4:
+		return 0
+	case energy <= -3:
+		return 1
+	case energy <= -2:
+		return 1
+	case energy <= -1:
+		return 2
+	case energy <= 0:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func vp9SourceMatchesReferenceMI(src *image.YCbCr, ref *vp9ReferenceFrame,

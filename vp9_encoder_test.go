@@ -583,6 +583,14 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 			o.Segmentation.Enabled = true
 		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
+			o.AQMode = VP9AQVariance
+			o.Lossless = true
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.AQMode = VP9AQVariance
+			o.Segmentation.Enabled = true
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
 			o.RateControlModeSet = true
 			o.RateControlMode = RateControlMode(99)
 			o.TargetBitrateKbps = 300
@@ -1522,6 +1530,108 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 	}
 	if boosted == 0 {
 		t.Fatal("cyclic refresh AQ encoded no boosted segment blocks")
+	}
+
+	dec, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := dec.Decode(keyPacket); err != nil {
+		t.Fatalf("Decode key: %v", err)
+	}
+	if _, ok := dec.NextFrame(); !ok {
+		t.Fatal("NextFrame key returned !ok")
+	}
+	if err := dec.Decode(interPacket); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	if _, ok := dec.NextFrame(); !ok {
+		t.Fatal("NextFrame inter returned !ok")
+	}
+}
+
+func TestVP9EncoderVarianceAQEmitsSegmentation(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+		AQMode:       VP9AQVariance,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	interSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	for y := height / 2; y < height; y++ {
+		row := interSrc.Y[y*interSrc.YStride:]
+		for x := width / 2; x < width; x++ {
+			if (x+y)&1 == 0 {
+				row[x] = 0
+			} else {
+				row[x] = 255
+			}
+		}
+	}
+
+	dst := make([]byte, 65536)
+	key, err := e.EncodeInto(keySrc, dst)
+	if err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	keyPacket := append([]byte(nil), dst[:key]...)
+	inter, err := e.EncodeInto(interSrc, dst)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	interPacket := append([]byte(nil), dst[:inter]...)
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(keyPacket)
+	keyHeader, err := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader key: %v", err)
+	}
+	if keyHeader.Seg.Enabled {
+		t.Fatal("keyframe segmentation enabled, want variance AQ to start on inter frames")
+	}
+
+	var interBR vp9dec.BitReader
+	interBR.Init(interPacket)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&interBR, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	seg := interHeader.Seg
+	if !seg.Enabled || !seg.UpdateMap || !seg.UpdateData || seg.AbsDelta {
+		t.Fatalf("variance AQ segmentation flags = enabled:%t updateMap:%t updateData:%t absDelta:%t, want true/true/true/false",
+			seg.Enabled, seg.UpdateMap, seg.UpdateData, seg.AbsDelta)
+	}
+	if !vp9dec.SegFeatureActive(&seg, 0, vp9dec.SegLvlAltQ) ||
+		!vp9dec.SegFeatureActive(&seg, 4, vp9dec.SegLvlAltQ) {
+		t.Fatalf("variance AQ missing AltQ features: mask0=%02x mask4=%02x",
+			seg.FeatureMask[0], seg.FeatureMask[4])
+	}
+	if got := vp9dec.GetSegData(&seg, 0, vp9dec.SegLvlAltQ); got >= 0 {
+		t.Fatalf("variance AQ segment 0 delta = %d, want negative boost", got)
+	}
+	if got := vp9dec.GetSegData(&seg, 4, vp9dec.SegLvlAltQ); got <= 0 {
+		t.Fatalf("variance AQ segment 4 delta = %d, want positive rate reduction", got)
+	}
+	var lowVariance, highVariance int
+	for _, mi := range e.miGrid {
+		switch mi.SegmentID {
+		case 0:
+			lowVariance++
+		case 4:
+			highVariance++
+		}
+	}
+	if lowVariance == 0 || highVariance == 0 {
+		t.Fatalf("variance AQ segment counts low/high = %d/%d, want both present",
+			lowVariance, highVariance)
 	}
 
 	dec, err := NewVP9Decoder(VP9DecoderOptions{})
