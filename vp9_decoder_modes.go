@@ -684,11 +684,24 @@ func (d *VP9Decoder) vp9FindInterMvRefs(tile vp9dec.TileBounds,
 	refFrame int8,
 	signBias [vp9dec.MaxRefFrames]uint8,
 ) ([2]vp9dec.MV, int) {
-	return d.vp9FindInterMvRefsForBlock(tile, miRows, miCols, miRow, miCol,
-		bsize, mode, refFrame, signBias, -1)
+	return vp9FindInterMvRefsFields(d.miGrid, d.usePrevFrameMvs,
+		d.prevFrameMvs, d.prevFrameMvRows, d.prevFrameMvCols,
+		tile, miRows, miCols, miRow, miCol, bsize, mode, refFrame,
+		signBias, -1)
 }
 
-func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
+// vp9FindInterMvRefsFields is the no-receiver entry point for the
+// MV-ref scan; it takes only the five fields the search actually
+// reads (miGrid + previous-frame MV state) so the encoder can call
+// it without constructing a fresh ~29kB VP9Decoder per candidate.
+// Mirrors vp9FindInterMvRefs(d, ...).
+// libvpx: vp9/common/vp9_mvref_common.c — find_mv_refs_idx takes the
+// flat fields directly off VP9_COMMON / MACROBLOCKD instead of a
+// composite struct.
+func vp9FindInterMvRefsFields(miGrid []vp9dec.NeighborMi,
+	usePrevFrameMvs bool, prevFrameMvs []vp9MvRef,
+	prevFrameMvRows, prevFrameMvCols int,
+	tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,
 	mode common.PredictionMode,
@@ -702,12 +715,12 @@ func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 	differentRefFound := false
 	earlyBreak := mode != common.NearMv
 	search := tables.MvRefBlocks[bsize]
-	var prevFrameMvs *vp9MvRef
-	if d.usePrevFrameMvs && miRow >= 0 && miCol >= 0 &&
-		miRow < d.prevFrameMvRows && miCol < d.prevFrameMvCols {
-		idx := miRow*d.prevFrameMvCols + miCol
-		if idx >= 0 && idx < len(d.prevFrameMvs) {
-			prevFrameMvs = &d.prevFrameMvs[idx]
+	var prevFrameMvsRef *vp9MvRef
+	if usePrevFrameMvs && miRow >= 0 && miCol >= 0 &&
+		miRow < prevFrameMvRows && miCol < prevFrameMvCols {
+		idx := miRow*prevFrameMvCols + miCol
+		if idx >= 0 && idx < len(prevFrameMvs) {
+			prevFrameMvsRef = &prevFrameMvs[idx]
 		}
 	}
 
@@ -723,7 +736,7 @@ func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 			if r < 0 || c < 0 || r >= miRows || c >= miCols {
 				continue
 			}
-			cand := &d.miGrid[r*miCols+c]
+			cand := &miGrid[r*miCols+c]
 			differentRefFound = true
 			if cand.RefFrame[0] == refFrame {
 				mv := vp9SubBlockMv(cand, 0, int(pos.Col), block)
@@ -749,7 +762,7 @@ func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 		if r < 0 || c < 0 || r >= miRows || c >= miCols {
 			continue
 		}
-		cand := &d.miGrid[r*miCols+c]
+		cand := &miGrid[r*miCols+c]
 		differentRefFound = true
 		if cand.RefFrame[0] == refFrame {
 			if vp9AppendMvRef(&out, &count, cand.Mv[0], earlyBreak) {
@@ -762,13 +775,13 @@ func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 		}
 	}
 
-	if prevFrameMvs != nil {
-		if prevFrameMvs.RefFrame[0] == refFrame {
-			if vp9AppendMvRef(&out, &count, prevFrameMvs.Mv[0], earlyBreak) {
+	if prevFrameMvsRef != nil {
+		if prevFrameMvsRef.RefFrame[0] == refFrame {
+			if vp9AppendMvRef(&out, &count, prevFrameMvsRef.Mv[0], earlyBreak) {
 				goto done
 			}
-		} else if prevFrameMvs.RefFrame[1] == refFrame {
-			if vp9AppendMvRef(&out, &count, prevFrameMvs.Mv[1], earlyBreak) {
+		} else if prevFrameMvsRef.RefFrame[1] == refFrame {
+			if vp9AppendMvRef(&out, &count, prevFrameMvsRef.Mv[1], earlyBreak) {
 				goto done
 			}
 		}
@@ -785,7 +798,7 @@ func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 			if r < 0 || c < 0 || r >= miRows || c >= miCols {
 				continue
 			}
-			cand := &d.miGrid[r*miCols+c]
+			cand := &miGrid[r*miCols+c]
 			if cand.RefFrame[0] > vp9dec.IntraFrame && cand.RefFrame[0] != refFrame {
 				mv := vp9ScaleDiffRefMv(cand.Mv[0], cand.RefFrame[0], refFrame, signBias)
 				if vp9AppendMvRef(&out, &count, mv, earlyBreak) {
@@ -802,20 +815,20 @@ func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 		}
 	}
 
-	if prevFrameMvs != nil {
-		if prevFrameMvs.RefFrame[0] != refFrame &&
-			prevFrameMvs.RefFrame[0] > vp9dec.IntraFrame {
-			mv := vp9ScaleDiffRefMv(prevFrameMvs.Mv[0],
-				prevFrameMvs.RefFrame[0], refFrame, signBias)
+	if prevFrameMvsRef != nil {
+		if prevFrameMvsRef.RefFrame[0] != refFrame &&
+			prevFrameMvsRef.RefFrame[0] > vp9dec.IntraFrame {
+			mv := vp9ScaleDiffRefMv(prevFrameMvsRef.Mv[0],
+				prevFrameMvsRef.RefFrame[0], refFrame, signBias)
 			if vp9AppendMvRef(&out, &count, mv, earlyBreak) {
 				goto done
 			}
 		}
-		if prevFrameMvs.RefFrame[1] > vp9dec.IntraFrame &&
-			prevFrameMvs.RefFrame[1] != refFrame &&
-			prevFrameMvs.Mv[1] != prevFrameMvs.Mv[0] {
-			mv := vp9ScaleDiffRefMv(prevFrameMvs.Mv[1],
-				prevFrameMvs.RefFrame[1], refFrame, signBias)
+		if prevFrameMvsRef.RefFrame[1] > vp9dec.IntraFrame &&
+			prevFrameMvsRef.RefFrame[1] != refFrame &&
+			prevFrameMvsRef.Mv[1] != prevFrameMvsRef.Mv[0] {
+			mv := vp9ScaleDiffRefMv(prevFrameMvsRef.Mv[1],
+				prevFrameMvsRef.RefFrame[1], refFrame, signBias)
 			if vp9AppendMvRef(&out, &count, mv, earlyBreak) {
 				goto done
 			}
@@ -836,6 +849,20 @@ done:
 		vp9ClampMvRef(&out[i], miRows, miCols, miRow, miCol, bsize)
 	}
 	return out, count
+}
+
+func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	mode common.PredictionMode,
+	refFrame int8,
+	signBias [vp9dec.MaxRefFrames]uint8,
+	block int,
+) ([2]vp9dec.MV, int) {
+	return vp9FindInterMvRefsFields(d.miGrid, d.usePrevFrameMvs,
+		d.prevFrameMvs, d.prevFrameMvRows, d.prevFrameMvCols,
+		tile, miRows, miCols, miRow, miCol, bsize, mode, refFrame,
+		signBias, block)
 }
 
 func (d *VP9Decoder) vp9AppendSub8x8MvsForIdx(tile vp9dec.TileBounds,
