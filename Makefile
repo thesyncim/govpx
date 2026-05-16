@@ -82,7 +82,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity oracle-test byte-parity fuzz-controls decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate oracle-test byte-parity fuzz-controls decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -100,6 +100,16 @@ verify: ci
 verify-production: ci oracle-test byte-parity scoreboard
 
 verify-decoder-parity: ci decoder-oracle-test
+
+# verify-bd-rate runs the slow per-feature VP9 BD-rate quality gates
+# under cmd/govpx-bench/benchcmd. The default short test mode skips
+# these because each measurement takes ~5-15s and the full sweep
+# adds ~30s. Run this target before merging any change that touches
+# AltRef, ARNR, TPL, AltRefAQ, or VP9 AQ-mode code paths.
+verify-bd-rate:
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+		GOVPX_BD_RATE_GATES=1 \
+		$(GO) test -count=1 -run 'TestVP9FeatureBDRate' -timeout 300s . ./cmd/govpx-bench/benchcmd/
 
 # vp9-dsp-oracle rebuilds the VP9-decoder-only libvpx variant + the
 # DSP oracle binary, then regenerates the committed testdata corpus.
