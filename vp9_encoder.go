@@ -5793,9 +5793,26 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	if !ok {
 		return bestMode
 	}
-	// The realtime keyframe picker mirrors vp9_pick_intra_mode and only
-	// evaluates DC, V, and H for >=8x8 blocks.
-	for mode := common.DcPred + 1; mode <= common.HPred; mode++ {
+	// The candidate set follows libvpx's keyframe-RD picker. At cpu_used=0-3
+	// (`use_nonrd_pick_mode == 0`) libvpx's `rd_pick_intra_sby_mode` walks
+	// DC_PRED..TM_PRED unconditionally; at cpu_used>=5 (`nonrd_keyframe == 1`)
+	// libvpx's `vp9_pick_intra_mode` walks DC_PRED..H_PRED only. govpx
+	// expresses both via `e.sf.IntraYModeBsizeMask`: at speed 0 the
+	// configurator populates `IntraYModeBsizeMask = sfIntraAll`, so this
+	// loop evaluates all 10 modes; at speed >= 5 the configurator narrows
+	// the mask, so this loop honors the libvpx pruning byte-for-byte. The
+	// fallback `sfIntraDCHV` keeps the historical 3-mode behavior when the
+	// mask is uninitialized (e.g. unit-test paths that bypass the
+	// configurator), preserving baseline parity.
+	//
+	// libvpx: vp9/encoder/vp9_rdopt.c:1383 (rd_pick_intra_sby_mode loop)
+	// libvpx: vp9/encoder/vp9_pickmode.c:1199 (vp9_pick_intra_mode loop)
+	// libvpx: vp9/encoder/vp9_pickmode.c:2578 (intra_y_mode_bsize_mask gate)
+	mask := vp9KeyframeIntraModeMask(&e.sf, bsize)
+	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
+		if mask&(1<<uint(mode)) == 0 {
+			continue
+		}
 		score, ok := e.scoreVP9KeyframeModeRD(key, mode, yModeCosts[mode],
 			rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi)
 		if ok && score < bestScore {
@@ -5804,6 +5821,25 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 		}
 	}
 	return bestMode
+}
+
+// vp9KeyframeIntraModeMask returns the libvpx-faithful per-block-size intra Y
+// mode mask the keyframe picker should consult. When the configurator has set
+// `IntraYModeBsizeMask[bsize]` it is honored verbatim; otherwise a conservative
+// {DC,V,H} fallback preserves govpx's legacy 3-mode behavior used by tests
+// that construct an encoder without running the SPEED_FEATURES configurator.
+//
+// libvpx: vp9/encoder/vp9_pickmode.c:2578 — `(1 << this_mode) &
+// cpi->sf.intra_y_mode_bsize_mask[bsize]`.
+func vp9KeyframeIntraModeMask(sf *SpeedFeatures, bsize common.BlockSize) int {
+	if sf == nil || int(bsize) >= len(sf.IntraYModeBsizeMask) {
+		return sfIntraDCHV
+	}
+	mask := sf.IntraYModeBsizeMask[bsize]
+	if mask == 0 {
+		return sfIntraDCHV
+	}
+	return mask
 }
 
 // scoreVP9KeyframeModeRD computes the Lagrangian RD cost of a keyframe mode
