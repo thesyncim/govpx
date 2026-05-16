@@ -809,6 +809,37 @@ type VP8Encoder struct {
 	// QCoeff/EOB/context state. Only valid for the single-threaded builder.
 	interCoefTokenRecords      vp8enc.InterCoefficientTokenRecords
 	interCoefTokenRecordsValid bool
+	// mtHelperYModeCountAccum / mtHelperUVModeCountAccum mirror libvpx's
+	// per-helper `mb_row_ei[i].mb.ymode_count` / `uv_mode_count` accumulated
+	// across every MT inter frame. Per libvpx v1.16.0
+	// vp8/encoder/ethreading.c vp8cx_init_mbrthread_data the helper-thread
+	// counts are NOT zeroed per frame (only main's are), so they carry
+	// historical state into update_mbintra_mode_probs's branch-cost compare
+	// in vp8/encoder/bitstream.c. govpx tracks them at encoder scope and
+	// feeds the value as `YModeCountBias` / `UVModeCountBias` to the inter
+	// packet writer; after pack the accumulator absorbs this frame's
+	// helper-row intra-mode counts so the next MT frame sees the libvpx
+	// MT-biased distribution. mtHelperRowAccumWorkerCount records the
+	// worker partition the accumulator was last updated under so a thread
+	// reconfiguration drops the stale snapshot, matching the libvpx
+	// vp8cx_create_encoder_threads memset reset on thread-count changes.
+	mtHelperYModeCountAccum     [vp8tables.YModeProbCount][2]int
+	mtHelperUVModeCountAccum    [vp8tables.UVModeProbCount][2]int
+	mtHelperRowAccumWorkerCount int
+	mtHelperRowAccumValid       bool
+	// lastInterReconstructWorkerCount records the worker count used by the
+	// most recent inter-frame reconstruction (>=2 = MT, 0/1 = serial). Set
+	// inside buildReconstructingInterFrameCoefficients{Threaded,WithSegmentation}
+	// and read by the inter-packet writer dispatch in encodeInterFrameAttempt
+	// to gate the libvpx-MT ymode/uv_mode_count bias hand-off.
+	lastInterReconstructWorkerCount int
+	// lastKeyFrameReconstructWorkerCount mirrors lastInterReconstructWorkerCount
+	// for the key-frame path. libvpx VP8 MT uses the same helper threads for
+	// both frame types and accumulates ymode_count / uv_mode_count on every
+	// MB they process (sum_intra_stats fires on every KF MB and on inter
+	// intra MBs, vp8/encoder/encodeframe.c:1067), so the mtHelper*CountAccum
+	// rolls forward across keyframes too.
+	lastKeyFrameReconstructWorkerCount int
 	// interRDCoeffCache stages the winning RD candidate's post-FDCT DCT
 	// inputs across the picker → accepted-path boundary in
 	// selectRDInterFrameModeDecision /

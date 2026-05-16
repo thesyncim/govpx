@@ -48,6 +48,23 @@ func adaptInterFrameModeProbabilitiesWithMVBase(rows int, cols int, modes []Inte
 }
 
 func adaptInterFrameModeProbabilitiesWithBases(rows int, cols int, modes []InterFrameMacroblockMode, yModeBase [tables.YModeProbCount]uint8, uvModeBase [tables.UVModeProbCount]uint8, mvBase [2][tables.MVPCount]uint8, cfg *InterFrameStateConfig) ([tables.YModeProbCount]uint8, [tables.UVModeProbCount]uint8, [2][tables.MVPCount]uint8, error) {
+	return adaptInterFrameModeProbabilitiesWithBasesAndBias(rows, cols, modes, yModeBase, uvModeBase, mvBase, nil, nil, cfg)
+}
+
+// adaptInterFrameModeProbabilitiesWithBasesAndBias mirrors libvpx
+// vp8/encoder/bitstream.c update_mbintra_mode_probs (called from
+// pack_inter_mode_mvs). The yModeCountBias / uvModeCountBias parameters
+// optionally pre-load the per-mode branch counters before this frame's
+// modes contribute. libvpx VP8 MT preserves each helper thread's
+// `mb->ymode_count` and `mb->uv_mode_count` across frames
+// (vp8/encoder/ethreading.c vp8cx_init_mbrthread_data only zeroes main's
+// ymode_count via the `vp8_zero(x->ymode_count)` line at ethreading.c:479;
+// the helper-row counts are summed back into `cpi->mb.ymode_count` in
+// vp8/encoder/encodeframe.c:835-843 after the helpers complete). govpx's
+// inter packet writer rebuilds the count from the final modes grid, so
+// the threaded driver passes the helper-history bias here to reproduce
+// libvpx's MT-biased probability-update decision.
+func adaptInterFrameModeProbabilitiesWithBasesAndBias(rows int, cols int, modes []InterFrameMacroblockMode, yModeBase [tables.YModeProbCount]uint8, uvModeBase [tables.UVModeProbCount]uint8, mvBase [2][tables.MVPCount]uint8, yModeCountBias *[tables.YModeProbCount][2]int, uvModeCountBias *[tables.UVModeProbCount][2]int, cfg *InterFrameStateConfig) ([tables.YModeProbCount]uint8, [tables.UVModeProbCount]uint8, [2][tables.MVPCount]uint8, error) {
 	if rows < 0 || cols < 0 {
 		return [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, ErrModeBufferTooSmall
 	}
@@ -136,6 +153,18 @@ func adaptInterFrameModeProbabilitiesWithBases(rows int, cols int, modes []Inter
 	cfg.ProbIntra = interFrameRefProbability(intraCounts, cfg.ProbIntra)
 	cfg.ProbLast = interFrameRefProbability(lastCounts, cfg.ProbLast)
 	cfg.ProbGolden = interFrameRefProbability(goldenCounts, cfg.ProbGolden)
+	if yModeCountBias != nil {
+		for i := range yModeCounts {
+			yModeCounts[i][0] += yModeCountBias[i][0]
+			yModeCounts[i][1] += yModeCountBias[i][1]
+		}
+	}
+	if uvModeCountBias != nil {
+		for i := range uvModeCounts {
+			uvModeCounts[i][0] += uvModeCountBias[i][0]
+			uvModeCounts[i][1] += uvModeCountBias[i][1]
+		}
+	}
 	frameYModeProbs := adaptInterFrameYModeProbabilitiesWithBase(&yModeCounts, yModeBase, cfg)
 	frameUVModeProbs := adaptInterFrameUVModeProbabilitiesWithBase(&uvModeCounts, uvModeBase, cfg)
 	mvCounts := motionVectorBranchCountsFromEvents(&mvEvents)
@@ -258,6 +287,88 @@ func modeProbabilityUpdateFromBranchCounts(base []uint8, counts []([2]int), fram
 		frameProbs[i] = newProb
 	}
 	return newBits+(len(counts)<<8) < oldBits
+}
+
+// AccumulateKeyFrameHelperRowIntraBranchCounts is the keyframe analogue
+// of AccumulateInterFrameHelperRowIntraBranchCounts: it walks the
+// helper-thread rows of a keyframe and accumulates each MB's Y/UV mode
+// into the same branch-count distribution the inter packet writer's
+// update_mbintra_mode_probs decision consumes. libvpx
+// vp8/encoder/encodeframe.c:1067 increments `x->ymode_count[m]` for
+// every keyframe MB (sum_intra_stats fires unconditionally on KF), and
+// vp8cx_init_mbrthread_data does not zero helpers' ymode_count between
+// frames, so the keyframe's helper-row contribution rolls into every
+// subsequent inter frame's probability-update decision.
+func AccumulateKeyFrameHelperRowIntraBranchCounts(rows int, cols int, workerCount int, modes []KeyFrameMacroblockMode, yModeCounts *[tables.YModeProbCount][2]int, uvModeCounts *[tables.UVModeProbCount][2]int) {
+	if rows <= 0 || cols <= 0 || workerCount <= 1 {
+		return
+	}
+	if yModeCounts == nil && uvModeCounts == nil {
+		return
+	}
+	required := rows * cols
+	if len(modes) < required {
+		return
+	}
+	for row := range rows {
+		if row%workerCount == 0 {
+			continue
+		}
+		for col := range cols {
+			index := row*cols + col
+			mode := &modes[index]
+			if yModeCounts != nil {
+				yToken := interFrameYModeTokens[int(mode.YMode)]
+				_ = countTreeTokenBranches(yModeCounts[:], tables.YModeTree[:], yToken)
+			}
+			if uvModeCounts != nil {
+				uvToken := keyFrameUVModeTokens[int(mode.UVMode)]
+				_ = countTreeTokenBranches(uvModeCounts[:], tables.UVModeTree[:], uvToken)
+			}
+		}
+	}
+}
+
+// AccumulateInterFrameHelperRowIntraBranchCounts walks the inter-frame
+// modes grid and accumulates the per-mode Y / UV intra-mode branch
+// counts for the rows whose `row % workerCount` falls in the
+// [1, workerCount) range (i.e. helper-thread rows in libvpx VP8's MT
+// row dispatch). Ported from libvpx v1.16.0
+// vp8/encoder/encodeframe.c:835-843 ymode_count / uv_mode_count
+// summation of `cpi->mb_row_ei[i].mb`. Callers maintain the persistent
+// helper-history accumulator that pack later feeds back through
+// InterFramePacket.YModeCountBias.
+func AccumulateInterFrameHelperRowIntraBranchCounts(rows int, cols int, workerCount int, modes []InterFrameMacroblockMode, yModeCounts *[tables.YModeProbCount][2]int, uvModeCounts *[tables.UVModeProbCount][2]int) {
+	if rows <= 0 || cols <= 0 || workerCount <= 1 {
+		return
+	}
+	if yModeCounts == nil && uvModeCounts == nil {
+		return
+	}
+	required := rows * cols
+	if len(modes) < required {
+		return
+	}
+	for row := range rows {
+		if row%workerCount == 0 {
+			continue
+		}
+		for col := range cols {
+			index := row*cols + col
+			mode := &modes[index]
+			if interFrameReference(mode) != common.IntraFrame {
+				continue
+			}
+			if yModeCounts != nil {
+				yToken := interFrameYModeTokens[int(mode.Mode)]
+				_ = countTreeTokenBranches(yModeCounts[:], tables.YModeTree[:], yToken)
+			}
+			if uvModeCounts != nil {
+				uvToken := keyFrameUVModeTokens[int(mode.UVMode)]
+				_ = countTreeTokenBranches(uvModeCounts[:], tables.UVModeTree[:], uvToken)
+			}
+		}
+	}
 }
 
 func normalizeYModeProbabilityBase(base [tables.YModeProbCount]uint8) [tables.YModeProbCount]uint8 {

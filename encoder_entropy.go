@@ -3,11 +3,20 @@ package govpx
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	e.lastCodedFrameType = vp8common.KeyFrame
+	// libvpx VP8 MT helper-history accumulator roll-forward for keyframes:
+	// every KF MB feeds sum_intra_stats → x->ymode_count++ /
+	// uv_mode_count++ (vp8/encoder/encodeframe.c:1067), and
+	// vp8cx_init_mbrthread_data does not zero helpers' counts per frame,
+	// so the helper rows of the keyframe pre-load the bias that the next
+	// inter frame's update_mbintra_mode_probs consumes. See encoder.go
+	// mtHelperYModeCountAccum for context.
+	e.absorbKeyFrameMTHelperRowIntraCounts()
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	e.resetKeyFrameModeProbs()
 	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
@@ -113,6 +122,86 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt, sh
 	// clear it; libvpx leaves force_maxqp set only until the next frame
 	// consumes it.
 	e.clearForceMaxQuantizer()
+	// libvpx VP8 MT helper-history accumulator roll-forward: see
+	// encoder.go mtHelperYModeCountAccum and the bias hand-off at the
+	// inter packet writer dispatch in encodeInterFrameAttempt.
+	e.absorbInterFrameMTHelperRowIntraCounts()
+}
+
+// absorbKeyFrameMTHelperRowIntraCounts rolls libvpx's per-helper
+// `mb_row_ei[i].mb.ymode_count` / `uv_mode_count` accumulation forward
+// after a successful MT keyframe commit. Mirrors libvpx
+// vp8/encoder/encodeframe.c:1067 sum_intra_stats (called for every KF
+// MB via vp8cx_encode_intra_macroblock). See encoder.go
+// mtHelperYModeCountAccum and absorbInterFrameMTHelperRowIntraCounts
+// for the common accumulator semantics.
+func (e *VP8Encoder) absorbKeyFrameMTHelperRowIntraCounts() {
+	workerCount := e.lastKeyFrameReconstructWorkerCount
+	if workerCount < 2 {
+		if e.mtHelperRowAccumValid {
+			e.mtHelperYModeCountAccum = [vp8tables.YModeProbCount][2]int{}
+			e.mtHelperUVModeCountAccum = [vp8tables.UVModeProbCount][2]int{}
+			e.mtHelperRowAccumValid = false
+			e.mtHelperRowAccumWorkerCount = 0
+		}
+		return
+	}
+	if e.mtHelperRowAccumValid && e.mtHelperRowAccumWorkerCount != workerCount {
+		e.mtHelperYModeCountAccum = [vp8tables.YModeProbCount][2]int{}
+		e.mtHelperUVModeCountAccum = [vp8tables.UVModeProbCount][2]int{}
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	required := rows * cols
+	if required <= 0 || required > len(e.keyFrameModes) {
+		return
+	}
+	vp8enc.AccumulateKeyFrameHelperRowIntraBranchCounts(rows, cols, workerCount, e.keyFrameModes[:required], &e.mtHelperYModeCountAccum, &e.mtHelperUVModeCountAccum)
+	e.mtHelperRowAccumWorkerCount = workerCount
+	e.mtHelperRowAccumValid = true
+}
+
+// absorbInterFrameMTHelperRowIntraCounts rolls libvpx's per-helper
+// `mb_row_ei[i].mb.ymode_count` / `uv_mode_count` accumulation forward
+// after a successful MT inter frame commit. See encoder.go
+// mtHelperYModeCountAccum and the InterFramePacket.YModeCountBias bias
+// hand-off; called from commitInterFrameAttempt.
+//
+// Threading model — at workerCount==1 (serial reconstruct), no MT
+// accumulation occurs. Otherwise the accumulator's worker partition is
+// pinned to the current frame's workerCount; libvpx
+// vp8/encoder/ethreading.c vp8cx_create_encoder_threads zeroes the
+// helper state when the thread-count changes, so a govpx mid-clip
+// thread reconfiguration drops the stale snapshot too.
+func (e *VP8Encoder) absorbInterFrameMTHelperRowIntraCounts() {
+	workerCount := e.lastInterReconstructWorkerCount
+	if workerCount < 2 {
+		// Serial-only frame: libvpx would never have updated
+		// helper-thread counts; reset the accumulator so subsequent MT
+		// frames do not see a partial snapshot.
+		if e.mtHelperRowAccumValid {
+			e.mtHelperYModeCountAccum = [vp8tables.YModeProbCount][2]int{}
+			e.mtHelperUVModeCountAccum = [vp8tables.UVModeProbCount][2]int{}
+			e.mtHelperRowAccumValid = false
+			e.mtHelperRowAccumWorkerCount = 0
+		}
+		return
+	}
+	if e.mtHelperRowAccumValid && e.mtHelperRowAccumWorkerCount != workerCount {
+		// Thread-count change mirrors libvpx vp8cx_create_encoder_threads's
+		// memset on mb_row_ei realloc; drop the stale accumulator.
+		e.mtHelperYModeCountAccum = [vp8tables.YModeProbCount][2]int{}
+		e.mtHelperUVModeCountAccum = [vp8tables.UVModeProbCount][2]int{}
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	required := rows * cols
+	if required <= 0 || required > len(e.interFrameModes) {
+		return
+	}
+	vp8enc.AccumulateInterFrameHelperRowIntraBranchCounts(rows, cols, workerCount, e.interFrameModes[:required], &e.mtHelperYModeCountAccum, &e.mtHelperUVModeCountAccum)
+	e.mtHelperRowAccumWorkerCount = workerCount
+	e.mtHelperRowAccumValid = true
 }
 
 // updateRefFrameProbsFromAttempt mirrors the gated vp8_convert_rfct_to_prob
