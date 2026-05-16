@@ -89,6 +89,10 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 					libvpxBase, libvpxTop)
 				assertVP9SpatialSVCOracleTemporal(t, frame, tc.temporal,
 					govpxResult)
+				assertVP9SpatialSVCOracleHeaderParity(t, frame, "base",
+					govpxBase, libvpxBase)
+				assertVP9SpatialSVCOracleHeaderParity(t, frame, "top",
+					govpxTop, libvpxTop)
 
 				match := bytes.Equal(govpxPacket, libvpxPackets[frame])
 				if match {
@@ -366,6 +370,20 @@ func assertVP9SpatialSVCOracleDimensions(t *testing.T, side string, frame int,
 	if top.Width != 64 || top.Height != 64 || !top.ShowFrame {
 		t.Fatalf("%s frame %d top header = %+v, want visible 64x64",
 			side, frame, top)
+	}
+}
+
+func assertVP9SpatialSVCOracleHeaderParity(t *testing.T, frame int,
+	layer string, govpx, libvpx vp9dec.UncompressedHeader,
+) {
+	t.Helper()
+	if govpx.FrameType != libvpx.FrameType ||
+		govpx.ShowFrame != libvpx.ShowFrame ||
+		govpx.RefreshFrameFlags != libvpx.RefreshFrameFlags {
+		t.Fatalf("frame %d %s header parity = govpx type:%d show:%t refresh:%#02x libvpx type:%d show:%t refresh:%#02x",
+			frame, layer,
+			govpx.FrameType, govpx.ShowFrame, govpx.RefreshFrameFlags,
+			libvpx.FrameType, libvpx.ShowFrame, libvpx.RefreshFrameFlags)
 	}
 }
 
