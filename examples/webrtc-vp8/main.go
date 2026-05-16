@@ -220,6 +220,14 @@ function renderRendition(idx, msg){
   const dl = cell.querySelector("dl");
   dl.textContent = "";
   cell.classList.toggle("k", !!msg.kf);
+  // Reflect the *encoded* resolution in the cell heading so the user can
+  // see resize requests take effect (the video element auto-scales and
+  // hides this otherwise).
+  if(msg.w && msg.h){
+    const small = cell.querySelector("h3 small");
+    if(small) small.textContent = msg.w + "x" + msg.h;
+  }
+  row(dl, "encoded", (msg.w||0) + "x" + (msg.h||0));
   row(dl, "q", msg.q);
   row(dl, "bytes", msg.bytes);
   row(dl, "kbps", (msg.kbps||0).toFixed(0));
@@ -316,6 +324,17 @@ function buildControls(idx, target){
     }
   });
   mkRow("size", resWrap);
+
+  // ROI radius (in 16x16 macroblock cells)
+  const roiR = document.createElement("input");
+  roiR.type = "range"; roiR.min = 1; roiR.max = 20; roiR.step = 1; roiR.value = 2;
+  const roiRLabel = document.createElement("span"); roiRLabel.className = "val";
+  roiRLabel.textContent = "r=2 mb";
+  roiR.oninput = () => {
+    roiRLabel.textContent = "r=" + roiR.value + " mb";
+    sendCtl({type:"roi-radius", id:idx, radius:+roiR.value});
+  };
+  const roiRow = mkRow("ROI radius", roiR); roiRow.appendChild(roiRLabel);
 
   // temporal cap
   const tWrap = document.createElement("div"); tWrap.style.display="flex"; tWrap.style.gap="4px";
@@ -505,6 +524,8 @@ type renditionState struct {
 	paused      atomic.Bool
 	forceKey    atomic.Bool
 
+	roiRadius atomic.Int32 // in 16x16 macroblock cells; 0 == use default
+
 	roiMu      sync.Mutex
 	roiPending *govpx.ROIMap // installed on next encoder tick when non-nil
 	roiActive  bool          // most recent install state for telemetry
@@ -519,6 +540,7 @@ type controlMessage struct {
 	Cap     int     `json:"cap,omitempty"`
 	W       int     `json:"w,omitempty"`
 	H       int     `json:"h,omitempty"`
+	Radius  int     `json:"radius,omitempty"`
 	U       float64 `json:"u,omitempty"`
 	V       float64 `json:"v,omitempty"`
 	Paused  bool    `json:"paused,omitempty"`
@@ -717,6 +739,17 @@ func applyControl(sess *session, m controlMessage) {
 		if rs := sess.rendition(m.ID); rs != nil {
 			rs.installROI(m.U, m.V)
 		}
+	case "roi-radius":
+		if rs := sess.rendition(m.ID); rs != nil {
+			r := m.Radius
+			if r < 1 {
+				r = 1
+			}
+			if r > 40 {
+				r = 40
+			}
+			rs.roiRadius.Store(int32(r))
+		}
 	case "roi-clear":
 		for _, rs := range sess.renditions {
 			rs.installROI(-1, -1)
@@ -753,7 +786,10 @@ func (rs *renditionState) installROI(u, v float64) {
 	cellMap := make([]uint8, mbRows*mbCols)
 	cy := int(v * float64(mbRows))
 	cx := int(u * float64(mbCols))
-	const radius = 2
+	radius := int(rs.roiRadius.Load())
+	if radius <= 0 {
+		radius = 2
+	}
 	for r := 0; r < mbRows; r++ {
 		dy := r - cy
 		for c := 0; c < mbCols; c++ {
@@ -858,8 +894,11 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 				Width:  wantW,
 				Height: wantH,
 			}); err != nil {
-				log.Printf("[%s] SetRealtimeTarget(%dx%d): %v", rs.cfg.Name, wantW, wantH, err)
+				log.Printf("[%s] SetRealtimeTarget(%dx%d): %v",
+					rs.cfg.Name, wantW, wantH, err)
 			} else {
+				log.Printf("[%s] resize %dx%d -> %dx%d",
+					rs.cfg.Name, currentWidth, currentHeight, wantW, wantH)
 				img = newImage(wantW, wantH)
 				if need := outputBufferSize(wantW, wantH); len(packet) < need {
 					packet = make([]byte, need)
