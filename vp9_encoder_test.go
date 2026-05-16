@@ -3946,6 +3946,56 @@ func TestVP9EncoderActiveMapInterBlocksUseSkipSegment(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderActiveMapConstant320ChoosesTemporalPredProbs(t *testing.T) {
+	const width, height = 320, 180
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			if (row+col)&1 == 0 {
+				activeMap[row*cols+col] = 1
+			}
+		}
+	}
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	var br vp9dec.BitReader
+	br.Init(interPacket)
+	header, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	if !header.Seg.TemporalUpdate {
+		t.Fatal("active-map constant inter did not use temporal segment prediction")
+	}
+	for i, prob := range header.Seg.PredProbs {
+		if prob != 1 {
+			t.Fatalf("active-map constant pred prob[%d] = %d, want 1", i, prob)
+		}
+	}
+}
+
 func TestVP9EncoderActiveMapUnchangedInactiveBlocksStayBaseSegment(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

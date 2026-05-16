@@ -982,6 +982,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 		flags       []EncodeFlags
 		extraArgs   []string
 		source      func(width, height, frame int) *image.YCbCr
+		before      func(*testing.T, *VP9Encoder, int)
 		exactPrefix int
 		exactFrames []int
 		tileJobs    int
@@ -1037,6 +1038,27 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
 			source:      newVP9PanningYCbCrForRateTest,
 			exactPrefix: 1,
+		},
+		{
+			name:      "active-map-fixed-q-constant-320",
+			width:     320,
+			height:    180,
+			frames:    2,
+			opts:      fixedQOpts,
+			extraArgs: append(fixedQArgs, "--control-script=-,active:checker"),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				if frame != 1 {
+					return
+				}
+				activeMap, rows, cols := vp9OracleActiveMap(320, 180, "checker")
+				mustVP9Runtime(t, "SetActiveMap checker",
+					enc.SetActiveMap(activeMap, rows, cols))
+			},
+			exactPrefix: 2,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			},
 		},
 		{
 			name:        "frameflags-force-key-frame1",
@@ -1175,10 +1197,17 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			}
 			var beforeFrame func(*VP9Encoder, int)
 			var afterFrame func(*VP9Encoder, int)
-			if tc.tileJobs > 0 {
+			if tc.tileJobs > 0 || tc.before != nil {
 				beforeFrame = func(enc *VP9Encoder, frame int) {
-					resetVP9OracleThreadedTileJobsForTest(enc)
+					if tc.tileJobs > 0 {
+						resetVP9OracleThreadedTileJobsForTest(enc)
+					}
+					if tc.before != nil {
+						tc.before(t, enc, frame)
+					}
 				}
+			}
+			if tc.tileJobs > 0 {
 				afterFrame = func(enc *VP9Encoder, frame int) {
 					assertVP9OracleThreadedTileWriterUsed(t, enc, frame, tc.tileJobs)
 				}
