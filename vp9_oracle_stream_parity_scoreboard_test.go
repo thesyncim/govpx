@@ -1049,6 +1049,31 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			source:      steppedSource,
 		},
 		{
+			name:        "fixed-q-threaded-force-key-stepped-720p",
+			width:       1280,
+			height:      720,
+			frames:      2,
+			opts:        threadedFixedQOpts,
+			flags:       vp9OracleRepeatAllFramesFlag(2, EncodeForceKeyFrame),
+			extraArgs:   threadedFixedQArgs,
+			exactPrefix: 2,
+			strictBytes: true,
+			tileJobs:    4,
+			source:      steppedSource,
+		},
+		{
+			name:        "fixed-q-threaded-block-checker-keyframe-720p",
+			width:       1280,
+			height:      720,
+			frames:      1,
+			opts:        threadedFixedQOpts,
+			extraArgs:   threadedFixedQArgs,
+			exactPrefix: 1,
+			strictBytes: true,
+			tileJobs:    4,
+			source:      newVP9BlockCheckerYCbCrForOracleTest,
+		},
+		{
 			name:        "cbr-rate-panning",
 			width:       64,
 			height:      64,
@@ -1817,6 +1842,26 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			source: steppedKeyframe,
+		},
+		{
+			name:   "fixed-q-block-checker-keyframe",
+			frames: 1,
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			source: func(frame int) *image.YCbCr {
+				return newVP9BlockCheckerYCbCrForOracleTest(width, height,
+					frame)
+			},
 		},
 		{
 			name:   "fixed-q-force-key-stepped",
@@ -4057,6 +4102,21 @@ func makeVP9SteppedOracleSources(width, height, frames int) []*image.YCbCr {
 		sources[i] = newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
 	}
 	return sources
+}
+
+func newVP9BlockCheckerYCbCrForOracleTest(width, height, frame int) *image.YCbCr {
+	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	for y := 0; y < height; y++ {
+		row := img.Y[y*img.YStride:]
+		for x := 0; x < width; x++ {
+			if ((x>>5)+(y>>5)+frame)&1 == 0 {
+				row[x] = 96
+			} else {
+				row[x] = 160
+			}
+		}
+	}
+	return img
 }
 
 func makeVP9RuntimeResizeSources(w0, h0, w1, h1, resizeFrame, frames int) []*image.YCbCr {
