@@ -817,12 +817,12 @@ func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
+	// libvpx vp8_set_active_map (vp8/encoder/onyx_if.c) just flips
+	// cpi->active_map_enabled and copies the map. It does not touch
+	// segmentation update flags, even when cyclic refresh / RTC external
+	// has left a preserved segmentation header in flight.
 	if activeMap == nil {
-		wasEnabled := e.activeMapEnabled
 		e.activeMapEnabled = false
-		if wasEnabled && e.runtimePreserveSegmentation {
-			e.refreshRuntimeCyclicRefreshConfig()
-		}
 		return nil
 	}
 	expectedRows := encoderMacroblockRows(e.opts.Height)
@@ -838,9 +838,6 @@ func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 	}
 	copy(e.activeMap[:rows*cols], activeMap[:rows*cols])
 	e.activeMapEnabled = true
-	if e.runtimePreserveSegmentation {
-		e.refreshRuntimeCyclicRefreshConfig()
-	}
 	return nil
 }
 

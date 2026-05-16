@@ -53,11 +53,16 @@ func (e *VP8Encoder) rememberSegmentationConfig(cfg vp8enc.SegmentationConfig) {
 	if cfg.Enabled {
 		e.lastSegmentationConfig = cfg
 		if e.runtimePreserveSegmentation && (cfg.UpdateMap || cfg.UpdateData) {
+			// Cache the packed cfg so the next preserve trigger has the
+			// right map/data, but clear the one-shot update arming.
+			// libvpx pack_bitstream's tail (vp8/encoder/onyx_if.c
+			// encode_frame_to_data_rate ~line 4790) clears
+			// update_mb_segmentation_map / update_mb_segmentation_data
+			// after every packed frame; only setup_features (at the next
+			// keyframe / vp8_change_config) sets them back to 1.
 			e.runtimePreservedSegmentation = cfg
-			e.runtimePreserveSegmentationUpdate = true
-		} else {
-			e.runtimePreserveSegmentationUpdate = false
 		}
+		e.runtimePreserveSegmentationUpdate = false
 		return
 	}
 	e.runtimePreserveSegmentationUpdate = false
