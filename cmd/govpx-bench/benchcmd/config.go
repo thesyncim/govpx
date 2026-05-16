@@ -117,6 +117,22 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	if cfg.Decode && cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
 		cfg.LibvpxOracle = repoOracle
 	}
+
+	// Warn loudly when -auto-libvpx was requested but no reference binary
+	// could be located. Without this the bench silently prints only the
+	// govpx column, which looks like a successful run without comparison.
+	if !cfg.Decode && codec == codecVP8 && cfg.LibvpxVpxenc == "" {
+		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but vpxenc not found; "+
+			"run `make oracle-tools` or pass -libvpx-vpxenc=<path> (or -build-libvpx=true)")
+	}
+	if !cfg.Decode && codec == codecVP9 && cfg.LibvpxVpxencVP9 == "" {
+		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but vpxenc-vp9 not found; "+
+			"run `make vp9-vpxdec-tools` or pass -libvpx-vpxenc-vp9=<path> (or -build-libvpx=true)")
+	}
+	if cfg.Decode && cfg.LibvpxOracle == "" {
+		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but govpx-vpx-oracle not found; "+
+			"run `make oracle-tools` or pass -libvpx-oracle=<path> (or -build-libvpx=true)")
+	}
 }
 
 // findGovpxRoot walks up from the working directory (and, as a fallback,

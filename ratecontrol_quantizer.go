@@ -146,8 +146,24 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	}
 
 	activeBest = rc.clampedQuantizerValue(activeBest)
-	if activeWorst < activeBest {
-		activeWorst = activeBest
+	// libvpx vp8/encoder/ratectrl.c:833-834 bumps active_worst to
+	// active_best+1 when they collapse (`active_worst <= active_best`).
+	// The libvpx comment ("Worst quality obviously must not be better
+	// than best quality") spells out the intent. govpx historically used
+	// strict `<` which leaves `active_worst == active_best`; that
+	// matches libvpx for most frames but diverges once the buffer-above-
+	// optimal CBR branch lands `active_worst = ni_av_qi` at exactly the
+	// same value as `active_best` (e.g. both = minQuantizer when ni_av_qi
+	// drifts to the floor). The +1 bump there is what gives libvpx a
+	// 5/4 active_worst/best pair instead of govpx's 4/4 — and the
+	// regulator runs picks a different Q from the now-narrowed band,
+	// flipping the matched-prefix at the seed 847b68e0 frame 173. Port
+	// the inclusive comparison + offset verbatim to fix the drift.
+	if activeWorst <= activeBest {
+		activeWorst = activeBest + 1
+	}
+	if activeWorst > vp8MaxQIndex {
+		activeWorst = vp8MaxQIndex
 	}
 	return activeBest, activeWorst
 }
@@ -166,7 +182,21 @@ func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
 		override := max(min(rc.pass2ActiveWorstQOverride, rc.maxQuantizer), rc.minQuantizer)
 		activeWorst = override
 	}
-	if rc.mode != RateControlCBR || rc.normalInterFrames <= 150 || rc.bufferOptimalBits <= 0 {
+	// libvpx vp8/encoder/ratectrl.c lines 690-837 cover both CBR
+	// (USAGE_STREAM_FROM_SERVER) and VBR/local-file when `buffered_mode`
+	// is enabled (optimal_buffer_level > 0). The active-worst formula
+	// applies whenever `auto_worst_q && ni_frames > 150`, regardless of
+	// the end_usage. The CBR-only details (using min(buffer_level,
+	// bits_off_target) as critical_buffer_level instead of just
+	// bits_off_target) do not affect this port because govpx tracks
+	// `bufferLevelBits` as the bits_off_target equivalent (see
+	// ratecontrol_postencode.go:566). Keep the CBR-only adjustment in
+	// libvpxCBRFullBufferActiveWorst, but the base formula must run for
+	// both modes — otherwise VBR encoders return maxQuantizer here even
+	// when libvpx is locked to ni_av_qi, and the regulator's worst-Q
+	// ceiling diverges (oracle parity gap on long-fixture VBR seed
+	// fuzz-long-rc-847b68e0 frame 173).
+	if !rateControlModeUsesQuantizerRegulator(rc.mode) || rc.normalInterFrames <= 150 || rc.bufferOptimalBits <= 0 {
 		if rc.cqFloorActive() && activeWorst < rc.cqLevel {
 			activeWorst = rc.cqLevel
 		}

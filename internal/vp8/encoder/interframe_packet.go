@@ -52,6 +52,21 @@ type InterFramePacket struct {
 	// grid walk. Probability updates still run first; these records are
 	// emitted with the finalized per-frame coefficient probabilities.
 	PrebuiltCoefTokens *InterCoefficientTokenRecords
+
+	// YModeCountBias and UVModeCountBias, if non-nil, are added to this
+	// frame's per-mode branch counts before the bitstream's
+	// update_mbintra_mode_probs decision runs. Ported from libvpx v1.16.0
+	// vp8/encoder/ethreading.c vp8cx_init_mbrthread_data: per-frame init
+	// zeros `cpi->mb.ymode_count` (main) but does NOT touch each helper
+	// thread's `mbr_ei[i].mb.ymode_count`, so helpers' intra-mode counts
+	// accumulate across every MT-encoded inter frame and are merged into
+	// `cpi->mb.ymode_count` at frame end (vp8/encoder/encodeframe.c
+	// sum loop after the helpers complete). govpx's serial path computes
+	// the count cleanly from the final modes array; the threaded path
+	// must supply the helper-rows historical accumulator here to match
+	// libvpx's MT-biased probability-update decision.
+	YModeCountBias  *[tables.YModeProbCount][2]int
+	UVModeCountBias *[tables.UVModeProbCount][2]int
 }
 
 type InterFramePacketResult struct {
@@ -121,7 +136,7 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 		return result, err
 	}
 	cfg.CoefficientProbs = coefUpdates
-	frameYModeProbs, frameUVModeProbs, frameMVProbs, err := adaptInterFrameModeProbabilitiesWithBases(rows, cols, p.Modes, p.yModeBase(), p.uvModeBase(), p.mvBase(), cfg)
+	frameYModeProbs, frameUVModeProbs, frameMVProbs, err := adaptInterFrameModeProbabilitiesWithBasesAndBias(rows, cols, p.Modes, p.yModeBase(), p.uvModeBase(), p.mvBase(), p.YModeCountBias, p.UVModeCountBias, cfg)
 	if err != nil {
 		return result, err
 	}

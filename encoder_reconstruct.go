@@ -334,6 +334,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
 	e.analysis.ExtendBorders()
+	e.lastKeyFrameReconstructWorkerCount = 1
 	return totalRate, nil
 }
 
@@ -741,6 +742,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if stats := e.opts.PhaseStats; stats != nil {
 		stats.InterCoefTokenRecords += int64(len(e.interCoefTokenRecords.Records))
 	}
+	e.lastInterReconstructWorkerCount = 1
 	return totalRate, nil
 }
 

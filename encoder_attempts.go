@@ -687,6 +687,16 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		MVBase:     &e.modeProbs.MV,
 		Scratch:    &e.partScratch,
 	}
+	// Threaded reconstruction at workerCount >= 2 inherits libvpx VP8 MT's
+	// ymode_count / uv_mode_count helper-history bias. See encoder.go
+	// `mtHelperYModeCountAccum` for the libvpx reference; the accumulator
+	// covers helper-thread rows from every prior MT inter frame and is
+	// rolled forward post-commit by absorbContext below in
+	// commitInterFrameMTHelperAccumulator.
+	if e.lastInterReconstructWorkerCount >= 2 && e.mtHelperRowAccumValid && e.mtHelperRowAccumWorkerCount == e.lastInterReconstructWorkerCount {
+		packet.YModeCountBias = &e.mtHelperYModeCountAccum
+		packet.UVModeCountBias = &e.mtHelperUVModeCountAccum
+	}
 	// Lane D: hand the pre-built coefficient token counts and record stream
 	// to the packet writer so it can skip its own count/context/QCoeff walks.
 	// The caches are only valid after a successful single-threaded
