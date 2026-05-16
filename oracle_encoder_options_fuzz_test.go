@@ -206,6 +206,20 @@ func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 	case RateControlQ:
 		endUsage = "--end-usage=q"
 	}
+	// Resolve the effective min/max quantizer the way NewVP8Encoder
+	// resolves them inside defaultRateControlConfig so the libvpx CLI
+	// receives the same operating quantizer range govpx will actually
+	// use. Without this normalization, the fuzz harness passes raw
+	// EncoderOptions.MinQuantizer/MaxQuantizer (often 0/0) directly to
+	// vpxenc-oracle, forcing libvpx to operate at Q=0 while govpx
+	// silently defaults to 4..56 — a divergence that surfaces as a
+	// first-partition-size mismatch at byte 0 of the keyframe tag.
+	effMinQ := opts.MinQuantizer
+	effMaxQ := opts.MaxQuantizer
+	if effMinQ == 0 && effMaxQ == 0 && !opts.QuantizerRangeSet {
+		effMinQ = 4
+		effMaxQ = 56
+	}
 	args := []string{
 		"--codec=vp8",
 		"--ivf",
@@ -219,8 +233,8 @@ func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 		"--kf-min-dist=999",
 		"--kf-max-dist=999",
 		"--target-bitrate=" + strconv.Itoa(opts.TargetBitrateKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
+		"--min-q=" + strconv.Itoa(effMinQ),
+		"--max-q=" + strconv.Itoa(effMaxQ),
 		"--i420",
 		"--width=" + strconv.Itoa(opts.Width),
 		"--height=" + strconv.Itoa(opts.Height),
