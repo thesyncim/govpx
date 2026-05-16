@@ -55,16 +55,28 @@ func (d *VP9Decoder) adaptVP9FrameContext(hdr *vp9dec.UncompressedHeader,
 		return
 	}
 	pre := &d.frameContexts[idx]
-	d.adaptVP9CoefProbs(pre, hdr)
+	adaptVP9FrameContextWithCounts(&d.fc, pre, &d.counts, hdr, comp.TxMode,
+		d.lastHeaderValid && d.lastHeader.FrameType == common.KeyFrame)
+}
+
+func adaptVP9FrameContextWithCounts(fc *vp9dec.FrameContext,
+	pre *vp9dec.FrameContext, counts *vp9FrameCounts,
+	hdr *vp9dec.UncompressedHeader, txMode common.TxMode, afterKey bool,
+) {
+	if fc == nil || pre == nil || counts == nil || hdr == nil {
+		return
+	}
+	adaptVP9CoefProbsWithCounts(fc, pre, counts, hdr, afterKey)
 	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
 		return
 	}
-	d.adaptVP9ModeProbs(pre, hdr, comp)
-	d.adaptVP9MvProbs(pre, hdr.AllowHighPrecisionMv)
+	adaptVP9ModeProbsWithCounts(fc, pre, counts, hdr, txMode)
+	adaptVP9MvProbsWithCounts(fc, pre, counts, hdr.AllowHighPrecisionMv)
 }
 
-func (d *VP9Decoder) adaptVP9CoefProbs(pre *vp9dec.FrameContext,
-	hdr *vp9dec.UncompressedHeader,
+func adaptVP9CoefProbsWithCounts(fc *vp9dec.FrameContext,
+	pre *vp9dec.FrameContext, counts *vp9FrameCounts,
+	hdr *vp9dec.UncompressedHeader, afterKey bool,
 ) {
 	const (
 		coefCountSat                = 24
@@ -79,7 +91,7 @@ func (d *VP9Decoder) adaptVP9CoefProbs(pre *vp9dec.FrameContext,
 	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
 		countSat = coefCountSatKey
 		updateFactor = coefMaxUpdateFactorKey
-	} else if d.lastHeaderValid && d.lastHeader.FrameType == common.KeyFrame {
+	} else if afterKey {
 		countSat = coefCountSatAfterKey
 		updateFactor = coefMaxUpdateFactorAfterKey
 	}
@@ -89,18 +101,18 @@ func (d *VP9Decoder) adaptVP9CoefProbs(pre *vp9dec.FrameContext,
 			for ref := range vp9dec.CoefRefTypes {
 				for band := range vp9dec.CoefBands {
 					for ctx := range vp9dec.BandCoefContexts(band) {
-						n0 := d.counts.Coef.Coef[tx][plane][ref][band][ctx][0]
-						n1 := d.counts.Coef.Coef[tx][plane][ref][band][ctx][1]
-						n2 := d.counts.Coef.Coef[tx][plane][ref][band][ctx][2]
-						neob := d.counts.Coef.Coef[tx][plane][ref][band][ctx][3]
-						eob := d.counts.Coef.EobBranch[tx][plane][ref][band][ctx]
+						n0 := counts.Coef.Coef[tx][plane][ref][band][ctx][0]
+						n1 := counts.Coef.Coef[tx][plane][ref][band][ctx][1]
+						n2 := counts.Coef.Coef[tx][plane][ref][band][ctx][2]
+						neob := counts.Coef.Coef[tx][plane][ref][band][ctx][3]
+						eob := counts.Coef.EobBranch[tx][plane][ref][band][ctx]
 						branch := [vp9dec.UnconstrainedNodes][2]uint32{
 							{neob, eob - neob},
 							{n0, n1 + n2},
 							{n1, n2},
 						}
 						for node := range vp9dec.UnconstrainedNodes {
-							d.fc.CoefProbs[tx][plane][ref][band][ctx][node] =
+							fc.CoefProbs[tx][plane][ref][band][ctx][node] =
 								vp9MergeProbs(pre.CoefProbs[tx][plane][ref][band][ctx][node],
 									branch[node], countSat, updateFactor)
 						}
@@ -111,105 +123,110 @@ func (d *VP9Decoder) adaptVP9CoefProbs(pre *vp9dec.FrameContext,
 	}
 }
 
-func (d *VP9Decoder) adaptVP9ModeProbs(pre *vp9dec.FrameContext,
-	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+func adaptVP9ModeProbsWithCounts(fc *vp9dec.FrameContext,
+	pre *vp9dec.FrameContext, counts *vp9FrameCounts,
+	hdr *vp9dec.UncompressedHeader, txMode common.TxMode,
 ) {
-	for i := range d.fc.IntraInterProb {
-		d.fc.IntraInterProb[i] = vp9ModeMvMergeProbs(pre.IntraInterProb[i],
-			d.counts.IntraInter[i])
+	for i := range fc.IntraInterProb {
+		fc.IntraInterProb[i] = vp9ModeMvMergeProbs(pre.IntraInterProb[i],
+			counts.IntraInter[i])
 	}
-	for i := range d.fc.ReferenceModeProbs.CompInterProb {
-		d.fc.ReferenceModeProbs.CompInterProb[i] =
+	for i := range fc.ReferenceModeProbs.CompInterProb {
+		fc.ReferenceModeProbs.CompInterProb[i] =
 			vp9ModeMvMergeProbs(pre.ReferenceModeProbs.CompInterProb[i],
-				d.counts.CompInter[i])
+				counts.CompInter[i])
 	}
-	for i := range d.fc.ReferenceModeProbs.CompRefProb {
-		d.fc.ReferenceModeProbs.CompRefProb[i] =
+	for i := range fc.ReferenceModeProbs.CompRefProb {
+		fc.ReferenceModeProbs.CompRefProb[i] =
 			vp9ModeMvMergeProbs(pre.ReferenceModeProbs.CompRefProb[i],
-				d.counts.CompRef[i])
+				counts.CompRef[i])
 	}
-	for i := range d.fc.ReferenceModeProbs.SingleRefProb {
-		for j := range d.fc.ReferenceModeProbs.SingleRefProb[i] {
-			d.fc.ReferenceModeProbs.SingleRefProb[i][j] =
+	for i := range fc.ReferenceModeProbs.SingleRefProb {
+		for j := range fc.ReferenceModeProbs.SingleRefProb[i] {
+			fc.ReferenceModeProbs.SingleRefProb[i][j] =
 				vp9ModeMvMergeProbs(pre.ReferenceModeProbs.SingleRefProb[i][j],
-					d.counts.SingleRef[i][j])
+					counts.SingleRef[i][j])
 		}
 	}
-	for i := range d.fc.InterModeProbs {
+	for i := range fc.InterModeProbs {
 		vp9TreeMergeProbs(common.InterModeTree[:], pre.InterModeProbs[i][:],
-			d.counts.InterMode[i][:], d.fc.InterModeProbs[i][:])
+			counts.InterMode[i][:], fc.InterModeProbs[i][:])
 	}
-	for i := range d.fc.YModeProb {
+	for i := range fc.YModeProb {
 		vp9TreeMergeProbs(common.IntraModeTree[:], pre.YModeProb[i][:],
-			d.counts.YMode[i][:], d.fc.YModeProb[i][:])
+			counts.YMode[i][:], fc.YModeProb[i][:])
 	}
-	for i := range d.fc.UvModeProb {
+	for i := range fc.UvModeProb {
 		vp9TreeMergeProbs(common.IntraModeTree[:], pre.UvModeProb[i][:],
-			d.counts.UvMode[i][:], d.fc.UvModeProb[i][:])
+			counts.UvMode[i][:], fc.UvModeProb[i][:])
 	}
-	for i := range d.fc.PartitionProb {
+	for i := range fc.PartitionProb {
 		vp9TreeMergeProbs(common.PartitionTree[:], pre.PartitionProb[i][:],
-			d.counts.Partition[i][:], d.fc.PartitionProb[i][:])
+			counts.Partition[i][:], fc.PartitionProb[i][:])
 	}
 	if hdr.InterpFilter == vp9dec.InterpSwitchable {
-		for i := range d.fc.SwitchableInterpProb {
+		for i := range fc.SwitchableInterpProb {
 			vp9TreeMergeProbs(common.SwitchableInterpTree[:],
-				pre.SwitchableInterpProb[i][:], d.counts.SwitchableInterp[i][:],
-				d.fc.SwitchableInterpProb[i][:])
+				pre.SwitchableInterpProb[i][:], counts.SwitchableInterp[i][:],
+				fc.SwitchableInterpProb[i][:])
 		}
 	}
-	if comp.TxMode == common.TxModeSelect {
+	if txMode == common.TxModeSelect {
 		for i := range vp9dec.TxSizeContexts {
-			c8 := d.counts.Tx.P8x8[i]
-			d.fc.TxProbs.P8x8[i][0] = vp9ModeMvMergeProbs(pre.TxProbs.P8x8[i][0],
+			c8 := counts.Tx.P8x8[i]
+			fc.TxProbs.P8x8[i][0] = vp9ModeMvMergeProbs(pre.TxProbs.P8x8[i][0],
 				[2]uint32{c8[0], c8[1]})
 
-			c16 := d.counts.Tx.P16x16[i]
-			d.fc.TxProbs.P16x16[i][0] = vp9ModeMvMergeProbs(pre.TxProbs.P16x16[i][0],
+			c16 := counts.Tx.P16x16[i]
+			fc.TxProbs.P16x16[i][0] = vp9ModeMvMergeProbs(pre.TxProbs.P16x16[i][0],
 				[2]uint32{c16[0], c16[1] + c16[2]})
-			d.fc.TxProbs.P16x16[i][1] = vp9ModeMvMergeProbs(pre.TxProbs.P16x16[i][1],
+			fc.TxProbs.P16x16[i][1] = vp9ModeMvMergeProbs(pre.TxProbs.P16x16[i][1],
 				[2]uint32{c16[1], c16[2]})
 
-			c32 := d.counts.Tx.P32x32[i]
-			d.fc.TxProbs.P32x32[i][0] = vp9ModeMvMergeProbs(pre.TxProbs.P32x32[i][0],
+			c32 := counts.Tx.P32x32[i]
+			fc.TxProbs.P32x32[i][0] = vp9ModeMvMergeProbs(pre.TxProbs.P32x32[i][0],
 				[2]uint32{c32[0], c32[1] + c32[2] + c32[3]})
-			d.fc.TxProbs.P32x32[i][1] = vp9ModeMvMergeProbs(pre.TxProbs.P32x32[i][1],
+			fc.TxProbs.P32x32[i][1] = vp9ModeMvMergeProbs(pre.TxProbs.P32x32[i][1],
 				[2]uint32{c32[1], c32[2] + c32[3]})
-			d.fc.TxProbs.P32x32[i][2] = vp9ModeMvMergeProbs(pre.TxProbs.P32x32[i][2],
+			fc.TxProbs.P32x32[i][2] = vp9ModeMvMergeProbs(pre.TxProbs.P32x32[i][2],
 				[2]uint32{c32[2], c32[3]})
 		}
 	}
-	for i := range d.fc.SkipProbs {
-		d.fc.SkipProbs[i] = vp9ModeMvMergeProbs(pre.SkipProbs[i],
-			d.counts.Skip[i])
+	for i := range fc.SkipProbs {
+		fc.SkipProbs[i] = vp9ModeMvMergeProbs(pre.SkipProbs[i],
+			counts.Skip[i])
 	}
 }
 
-func (d *VP9Decoder) adaptVP9MvProbs(pre *vp9dec.FrameContext, allowHP bool) {
+func adaptVP9MvProbsWithCounts(fc *vp9dec.FrameContext,
+	pre *vp9dec.FrameContext, counts *vp9FrameCounts, allowHP bool,
+) {
 	vp9TreeMergeProbs(tables.MvJointTree[:], pre.Nmvc.Joints[:],
-		d.counts.Mv.Joints[:], d.fc.Nmvc.Joints[:])
+		counts.Mv.Joints[:], fc.Nmvc.Joints[:])
 	for i := range 2 {
-		comp := &d.fc.Nmvc.Comps[i]
+		comp := &fc.Nmvc.Comps[i]
 		preComp := &pre.Nmvc.Comps[i]
-		counts := &d.counts.Mv.Comps[i]
+		compCounts := &counts.Mv.Comps[i]
 
-		comp.Sign = vp9ModeMvMergeProbs(preComp.Sign, counts.Sign)
+		comp.Sign = vp9ModeMvMergeProbs(preComp.Sign, compCounts.Sign)
 		vp9TreeMergeProbs(tables.MvClassTree[:], preComp.Classes[:],
-			counts.Classes[:], comp.Classes[:])
+			compCounts.Classes[:], comp.Classes[:])
 		vp9TreeMergeProbs(tables.MvClass0Tree[:], preComp.Class0[:],
-			counts.Class0[:], comp.Class0[:])
+			compCounts.Class0[:], comp.Class0[:])
 		for j := range vp9dec.MvOffsetBits {
-			comp.Bits[j] = vp9ModeMvMergeProbs(preComp.Bits[j], counts.Bits[j])
+			comp.Bits[j] = vp9ModeMvMergeProbs(preComp.Bits[j],
+				compCounts.Bits[j])
 		}
 		for j := range vp9dec.Class0Size {
 			vp9TreeMergeProbs(tables.MvFpTree[:], preComp.Class0Fp[j][:],
-				counts.Class0Fp[j][:], comp.Class0Fp[j][:])
+				compCounts.Class0Fp[j][:], comp.Class0Fp[j][:])
 		}
 		vp9TreeMergeProbs(tables.MvFpTree[:], preComp.Fp[:],
-			counts.Fp[:], comp.Fp[:])
+			compCounts.Fp[:], comp.Fp[:])
 		if allowHP {
-			comp.Class0Hp = vp9ModeMvMergeProbs(preComp.Class0Hp, counts.Class0Hp)
-			comp.Hp = vp9ModeMvMergeProbs(preComp.Hp, counts.Hp)
+			comp.Class0Hp = vp9ModeMvMergeProbs(preComp.Class0Hp,
+				compCounts.Class0Hp)
+			comp.Hp = vp9ModeMvMergeProbs(preComp.Hp, compCounts.Hp)
 		}
 	}
 }

@@ -181,6 +181,15 @@ type VP9EncoderOptions struct {
 	// ErrorResilient enables the libvpx error-resilient bit on every
 	// frame header.
 	ErrorResilient bool
+	// FrameParallelDecodingSet enables explicit control of the VP9
+	// frame_parallel_decoding_mode bit. When false, govpx keeps libvpx's
+	// default enabled mode.
+	FrameParallelDecodingSet bool
+	// FrameParallelDecoding mirrors libvpx's --frame-parallel / VP9E_SET_
+	// FRAME_PARALLEL_DECODING control when FrameParallelDecodingSet is true.
+	// Disabling it makes the encoder apply counts-driven frame-context
+	// adaptation after each coded frame, matching non-frame-parallel decoders.
+	FrameParallelDecoding bool
 
 	// TemporalScalability configures temporal-only VP9 layer scheduling for
 	// one spatial layer. Result metadata is returned by
@@ -452,6 +461,10 @@ type VP9Encoder struct {
 	// Reset on every keyframe via ResetFrameContext.
 	frameContexts [common.FrameContexts]vp9dec.FrameContext
 	fc            vp9dec.FrameContext
+	// lastVP9HeaderFrameType feeds non-frame-parallel coefficient probability
+	// adaptation, which uses a distinct after-key update factor.
+	lastVP9HeaderFrameType common.FrameType
+	lastVP9HeaderValid     bool
 
 	// scratch is the reusable compressed-header staging buffer that
 	// PackBitstream consults. Sized to 64KB so libvpx's
@@ -1509,7 +1522,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		Width:                 width,
 		Height:                height,
 		RefreshFrameContext:   flags&EncodeNoUpdateEntropy == 0,
-		FrameParallelDecoding: true,
+		FrameParallelDecoding: e.vp9FrameParallelDecodingMode(),
 		FrameContextIdx:       0,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
 			BitDepth:   vp9dec.Bits8,
@@ -1745,6 +1758,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		return VP9EncodeResult{}, err
 	}
 	n := tileStart + tileSize
+	e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
 	var firstPassStats VP9FirstPassFrameStats
 	twoPassTargetBits := 0
 	if header.ShowFrame {
@@ -1765,6 +1779,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.finishVP9DenoiserFrame(header, img)
 	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
 	e.commitVP9EncoderFrameContext(header, frameContextIdx)
+	e.lastVP9HeaderFrameType = header.FrameType
+	e.lastVP9HeaderValid = true
 	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
 		header.RefreshFrameFlags, macroblocks)
 	if header.ShowFrame {
@@ -1910,6 +1926,27 @@ func (e *VP9Encoder) commitVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader
 		return
 	}
 	e.frameContexts[idx] = e.fc
+}
+
+func (e *VP9Encoder) adaptVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader,
+	idx int, counts *encoder.FrameCounts, txMode common.TxMode,
+) {
+	if e == nil || hdr == nil || counts == nil ||
+		idx < 0 || idx >= common.FrameContexts ||
+		hdr.ErrorResilientMode || hdr.FrameParallelDecoding {
+		return
+	}
+	pre := &e.frameContexts[idx]
+	bridge := vp9FrameCountsFromEncoder(counts)
+	adaptVP9FrameContextWithCounts(&e.fc, pre, &bridge, hdr, txMode,
+		e.lastVP9HeaderValid && e.lastVP9HeaderFrameType == common.KeyFrame)
+}
+
+func (e *VP9Encoder) vp9FrameParallelDecodingMode() bool {
+	if e == nil || e.opts.ErrorResilient || !e.opts.FrameParallelDecodingSet {
+		return true
+	}
+	return e.opts.FrameParallelDecoding
 }
 
 func (e *VP9Encoder) vp9TimingState() timingState {

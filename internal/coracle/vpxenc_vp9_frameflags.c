@@ -839,6 +839,12 @@ static void apply_vp9_runtime_control_token(
                           (unsigned)control_value_int(token, "gfboost:"))) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_GF_CBR_BOOST_PCT");
     }
+  } else if (starts_with(token, "frame-parallel:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_FRAME_PARALLEL_DECODING,
+                          (unsigned)control_value_int(token,
+                                                      "frame-parallel:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_FRAME_PARALLEL_DECODING");
+    }
   } else if (starts_with(token, "active:")) {
     flush_vp9_runtime_config(ctx);
     apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,
@@ -1076,6 +1082,7 @@ int main(int argc, char **argv) {
   int gf_cbr_boost = -1;
   int max_bitrate_kbps = -1;
   int min_bitrate_kbps = -1;
+  int frame_parallel = -1;
   enum vpx_rc_mode end_usage = VPX_Q;
 
   for (int i = 1; i < argc; ++i) {
@@ -1143,6 +1150,8 @@ int main(int argc, char **argv) {
       max_bitrate_kbps = parse_int(v, "--max-bitrate");
     } else if ((v = flag_value(a, "--min-bitrate"))) {
       min_bitrate_kbps = parse_int(v, "--min-bitrate");
+    } else if ((v = flag_value(a, "--frame-parallel"))) {
+      frame_parallel = parse_int(v, "--frame-parallel");
     } else if ((v = flag_value(a, "--error-resilient"))) {
       error_resilient = parse_int(v, "--error-resilient");
     } else if ((v = flag_value(a, "--lag-in-frames"))) {
@@ -1380,6 +1389,10 @@ int main(int argc, char **argv) {
       vpx_codec_control(&ctx, VP8E_SET_GF_CBR_BOOST_PCT,
                         (unsigned)gf_cbr_boost))
     die_codec_msg(&ctx, "VP8E_SET_GF_CBR_BOOST_PCT");
+  if (frame_parallel >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_FRAME_PARALLEL_DECODING,
+                        (unsigned)frame_parallel))
+    die_codec_msg(&ctx, "VP9E_SET_FRAME_PARALLEL_DECODING");
 
   vpx_image_t img;
   if (!vpx_img_alloc(&img, VPX_IMG_FMT_I420, (unsigned)width,

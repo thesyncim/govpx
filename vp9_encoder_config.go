@@ -290,6 +290,20 @@ func (e *VP9Encoder) SetLossless(enabled bool) error {
 	return nil
 }
 
+// SetFrameParallelDecoding enables or disables VP9 frame-parallel decodability
+// mode for subsequent frames. Error-resilient frames always signal the VP9
+// frame-parallel mode required by the bitstream. When disabled, the encoder
+// maintains the non-frame-parallel adapted probability context so later frames
+// stay decodable by libvpx-style decoders.
+func (e *VP9Encoder) SetFrameParallelDecoding(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.FrameParallelDecodingSet = true
+	e.opts.FrameParallelDecoding = enabled
+	return nil
+}
+
 // SetActiveMap installs a VP9 per-16x16 activity map. Cells equal to 0 mark
 // inactive macroblocks; on inter frames, inactive 8x8 mode blocks code as
 // ZEROMV-LAST with skip=1. Blocks that already match LAST may remain in the
