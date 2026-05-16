@@ -315,6 +315,51 @@ type VP9EncoderOptions struct {
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
 	// segment features.
 	Segmentation VP9SegmentationOptions
+
+	// MinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control. It
+	// bounds the encoder-selected golden-frame interval from below. Valid
+	// values are in [0, vp9MaxGFInterval]; zero leaves libvpx's framerate-
+	// derived default in place.
+	MinGFInterval int
+	// MaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control. It
+	// bounds the encoder-selected golden-frame interval from above. Valid
+	// values are in [0, vp9MaxGFInterval]; zero leaves libvpx's framerate-
+	// derived default in place. When both bounds are non-zero,
+	// MinGFInterval must not exceed MaxGFInterval.
+	MaxGFInterval int
+
+	// FramePeriodicBoost mirrors libvpx's VP9E_SET_FRAME_PERIODIC_BOOST
+	// control. When true, periodic golden-frame refreshes receive a
+	// stronger active-best-Q reduction so the boosted GF/ALTREF achieves
+	// a tighter target qindex.
+	FramePeriodicBoost bool
+
+	// AltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. When true,
+	// alt-ref refresh frames apply extra AQ tightening through the active
+	// quantizer bounds, biasing the selected qindex downward.
+	AltRefAQ bool
+
+	// PostEncodeDrop mirrors libvpx's VP9E_SET_POSTENCODE_DROP_CBR control.
+	// When true (and CBR rate control is enabled), inter frames that
+	// overshoot the frame target while the buffer level fell below the
+	// configured drop watermark are dropped from the visible output.
+	PostEncodeDrop bool
+
+	// DisableOvershootMaxQCBR mirrors libvpx's
+	// VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR control. When true, the CBR
+	// active-worst-Q promotion to worstQuality on overshoot is suppressed,
+	// letting the regulated quantizer use the buffer-derived active worst
+	// bound even when the buffer is in the critical region.
+	DisableOvershootMaxQCBR bool
+
+	// NextFrameQIndex stores the libvpx VP9E_SET_QUANTIZER_ONE_PASS
+	// per-frame qindex override consumed by the next encode. Valid values
+	// are in [0, 255]. Mutually exclusive with cyclic-refresh and
+	// perceptual AQ, since both rewrite the qindex through segmentation.
+	NextFrameQIndex int
+	// NextFrameQIndexSet selects between the zero default and an
+	// explicitly-set NextFrameQIndex=0 override.
+	NextFrameQIndexSet bool
 }
 
 // VP9SegmentationOptions configures static per-frame VP9 segmentation.
@@ -1868,8 +1913,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.commitVP9EncoderFrameContext(header, frameContextIdx)
 	e.lastVP9HeaderFrameType = header.FrameType
 	e.lastVP9HeaderValid = true
-	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
-		header.RefreshFrameFlags, macroblocks)
+	postDrop := e.rc.shouldPostEncodeDrop(isKey || intraOnly,
+		header.ShowFrame, encodedSizeBits(n))
+	if postDrop {
+		e.rc.postEncodeDropFrame()
+	} else {
+		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
+			header.RefreshFrameFlags, macroblocks)
+	}
 	if header.ShowFrame {
 		e.twoPass.finishFrame()
 	}
@@ -1884,19 +1935,34 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	spatialLayerID, spatialLayerCount, interLayerDependency,
 		notRefForUpperSpatialLayer, scalabilityStructurePresent,
 		spatialScalabilityStructure := e.vp9SpatialResultFields()
+	resultData := dst[:n]
+	resultSize := n
+	resultRefreshFlags := header.RefreshFrameFlags
+	if postDrop {
+		// Discard the encoded payload and clear refresh-frame metadata so
+		// downstream consumers treat the frame as dropped. Reference-slot
+		// rolling back has already occurred through postEncodeDropFrame's
+		// rate-control bookkeeping; ref-state side effects on the decoder
+		// reference pool persist by design to keep the encoder's
+		// frame-context probabilities stable for the next frame.
+		resultData = nil
+		resultSize = 0
+		resultRefreshFlags = 0
+	}
 	result = VP9EncodeResult{
-		Data:                        dst[:n],
+		Data:                        resultData,
 		KeyFrame:                    isKey,
 		IntraOnly:                   intraOnly,
 		ShowFrame:                   header.ShowFrame,
+		Dropped:                     postDrop,
 		Droppable:                   !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
 		Quantizer:                   vp9QIndexToPublicQuantizer(qindex),
 		InternalQuantizer:           qindex,
-		SizeBytes:                   n,
+		SizeBytes:                   resultSize,
 		TargetBitrateKbps:           e.vp9ResultTargetBitrateKbps(),
 		FrameTargetBits:             e.rc.frameTargetBits,
 		BufferLevelBits:             e.rc.bufferLevelBits,
-		RefreshFrameFlags:           header.RefreshFrameFlags,
+		RefreshFrameFlags:           resultRefreshFlags,
 		FirstPassStats:              firstPassStats,
 		TwoPassFrameTargetBits:      twoPassTargetBits,
 		TemporalLayerID:             temporalFrame.LayerID,
@@ -7265,6 +7331,16 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 	}
 	if e.opts.Lossless {
 		return 0
+	}
+	if e.rc.nextFrameQIndexSet {
+		qindex := int(e.rc.nextFrameQIndex)
+		e.rc.nextFrameQIndexSet = false
+		e.opts.NextFrameQIndexSet = false
+		e.opts.NextFrameQIndex = 0
+		if vp9OracleTraceBuild {
+			e.recordVP9OracleRateSelectionTrace(qindex, qindex, 1, false, 0)
+		}
+		return qindex
 	}
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
