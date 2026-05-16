@@ -144,6 +144,15 @@ func (e *VP8Encoder) Reset() {
 	e.interCoefTokenCountsValid = false
 	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, encoderMacroblockRows(e.opts.Height), encoderMacroblockCount(e.opts.Width, e.opts.Height))
 	e.interCoefTokenRecordsValid = false
+	// libvpx MT helper-history accumulator (encoder.go
+	// mtHelperYModeCountAccum). vp8cx_remove_encoder_threads frees the
+	// mb_row_ei pool on Reset, so the accumulator goes with it.
+	e.mtHelperYModeCountAccum = [vp8tables.YModeProbCount][2]int{}
+	e.mtHelperUVModeCountAccum = [vp8tables.UVModeProbCount][2]int{}
+	e.mtHelperRowAccumWorkerCount = 0
+	e.mtHelperRowAccumValid = false
+	e.lastInterReconstructWorkerCount = 0
+	e.lastKeyFrameReconstructWorkerCount = 0
 	e.interRDCoeffCacheSlots = [2]interRDCoeffCacheState{}
 	e.interRDCoeffCacheWinner = 0
 	e.interRDCoeffCacheScratchTarget = nil

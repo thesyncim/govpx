@@ -130,6 +130,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 	pool.mergeThreadedInterFrameState(e, workerCount, required)
 	pool.mergeThreadedInterFrameCoefCounts(e, workerCount)
 	pool.mergeThreadedInterFrameCoefRecords(e, workerCount, args.rows, args.cols, required)
+	e.lastInterReconstructWorkerCount = workerCount
 	totalRate := 0
 	totalPredictionError := int64(0)
 	for workerIndex := range workerCount {
@@ -204,6 +205,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsThreaded(args thread
 	pool.encoder = nil
 	pool.job = rowWorkerJobInterFrame
 	pool.keyArgs = threadedKeyRowsArgs{}
+	e.lastKeyFrameReconstructWorkerCount = workerCount
 	return totalRate, nil
 }
 
