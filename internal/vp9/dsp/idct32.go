@@ -393,25 +393,31 @@ func idct32x32Add(input []int16, dest []uint8, stride, rowLimit int) {
 	}
 }
 
-// Idct32x32_1024Add is the dense 32x32 add. Mirrors vpx_idct32x32_1024_add_c.
-func Idct32x32_1024Add(input []int16, dest []uint8, stride int) {
+// idct32x32_1024AddScalar is the dense 32x32 add. Mirrors
+// vpx_idct32x32_1024_add_c. Scalar reference; the exported
+// Idct32x32_1024Add wrapper is in idct_dispatch_*.go.
+func idct32x32_1024AddScalar(input []int16, dest []uint8, stride int) {
 	idct32x32Add(input, dest, stride, 32)
 }
 
-// Idct32x32_135Add is the sparse-top-left-16x16 fast path. Mirrors
-// vpx_idct32x32_135_add_c.
-func Idct32x32_135Add(input []int16, dest []uint8, stride int) {
+// idct32x32_135AddScalar is the sparse-top-left-16x16 fast path.
+// Mirrors vpx_idct32x32_135_add_c. Scalar reference; the exported
+// Idct32x32_135Add wrapper is in idct_dispatch_*.go.
+func idct32x32_135AddScalar(input []int16, dest []uint8, stride int) {
 	idct32x32Add(input, dest, stride, 16)
 }
 
-// Idct32x32_34Add is the sparser top-left-8x8 fast path. Mirrors
-// vpx_idct32x32_34_add_c.
-func Idct32x32_34Add(input []int16, dest []uint8, stride int) {
+// idct32x32_34AddScalar is the sparser top-left-8x8 fast path.
+// Mirrors vpx_idct32x32_34_add_c. Scalar reference; the exported
+// Idct32x32_34Add wrapper is in idct_dispatch_*.go.
+func idct32x32_34AddScalar(input []int16, dest []uint8, stride int) {
 	idct32x32Add(input, dest, stride, 8)
 }
 
-// Idct32x32_1Add is the DC-only fast path. Mirrors vpx_idct32x32_1_add_c.
-func Idct32x32_1Add(input []int16, dest []uint8, stride int) {
+// idct32x32_1AddScalar is the DC-only fast path. Mirrors
+// vpx_idct32x32_1_add_c. Scalar reference; the exported Idct32x32_1Add
+// wrapper is in idct_dispatch_*.go.
+func idct32x32_1AddScalar(input []int16, dest []uint8, stride int) {
 	out := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 6)

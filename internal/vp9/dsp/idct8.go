@@ -70,11 +70,14 @@ func idct8(input, output []int16) {
 	output[7] = int16(int64(step1[0]) - int64(step1[7]))
 }
 
-// Idct8x8_64Add applies the full 8x8 inverse DCT to a 64-coefficient
-// block and adds the result onto dest. Mirrors vpx_idct8x8_64_add_c:
-// row pass into a transposed intermediate, then a column pass with
-// ROUND_POWER_OF_TWO(., 5) into clip_pixel_add.
-func Idct8x8_64Add(input []int16, dest []uint8, stride int) {
+// idct8x8_64AddScalar applies the full 8x8 inverse DCT to a
+// 64-coefficient block and adds the result onto dest. Mirrors
+// vpx_idct8x8_64_add_c: row pass into a transposed intermediate, then
+// a column pass with ROUND_POWER_OF_TWO(., 5) into clip_pixel_add.
+//
+// Scalar reference; the exported Idct8x8_64Add wrapper is in
+// idct_dispatch_*.go.
+func idct8x8_64AddScalar(input []int16, dest []uint8, stride int) {
 	var out [64]int16
 	for i := range 8 {
 		idct8(input[i*8:i*8+8], out[i*8:i*8+8])
@@ -92,11 +95,14 @@ func Idct8x8_64Add(input []int16, dest []uint8, stride int) {
 	}
 }
 
-// Idct8x8_12Add is the sparse fast path used when only the top-left
-// 4x4 of the input is non-zero. Matches vpx_idct8x8_12_add_c: it skips
-// the lower 4 rows of the row pass and zero-fills out before the
-// column pass.
-func Idct8x8_12Add(input []int16, dest []uint8, stride int) {
+// idct8x8_12AddScalar is the sparse fast path used when only the
+// top-left 4x4 of the input is non-zero. Matches vpx_idct8x8_12_add_c:
+// it skips the lower 4 rows of the row pass and zero-fills out before
+// the column pass.
+//
+// Scalar reference; the exported Idct8x8_12Add wrapper is in
+// idct_dispatch_*.go.
+func idct8x8_12AddScalar(input []int16, dest []uint8, stride int) {
 	var out [64]int16
 	for i := range 4 {
 		idct8(input[i*8:i*8+8], out[i*8:i*8+8])
@@ -114,8 +120,12 @@ func Idct8x8_12Add(input []int16, dest []uint8, stride int) {
 	}
 }
 
-// Idct8x8_1Add is the DC-only fast path. Matches vpx_idct8x8_1_add_c.
-func Idct8x8_1Add(input []int16, dest []uint8, stride int) {
+// idct8x8_1AddScalar is the DC-only fast path. Matches
+// vpx_idct8x8_1_add_c.
+//
+// Scalar reference; the exported Idct8x8_1Add wrapper is in
+// idct_dispatch_*.go.
+func idct8x8_1AddScalar(input []int16, dest []uint8, stride int) {
 	out := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 5)

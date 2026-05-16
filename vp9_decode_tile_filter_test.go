@@ -1,0 +1,160 @@
+package govpx
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestVP9DecoderRejectsOutOfRangeDecodeTileFilters(t *testing.T) {
+	cases := []struct {
+		name string
+		mut  func(*VP9DecoderOptions)
+	}{
+		{name: "row out of range", mut: func(o *VP9DecoderOptions) {
+			o.DecodeTileRowSet = true
+			o.DecodeTileRow = vp9DecoderMaxTileFilter + 1
+		}},
+		{name: "col out of range", mut: func(o *VP9DecoderOptions) {
+			o.DecodeTileColSet = true
+			o.DecodeTileCol = vp9DecoderMaxTileFilter + 1
+		}},
+		{name: "row below disable sentinel", mut: func(o *VP9DecoderOptions) {
+			o.DecodeTileRowSet = true
+			o.DecodeTileRow = -2
+		}},
+		{name: "col below disable sentinel", mut: func(o *VP9DecoderOptions) {
+			o.DecodeTileColSet = true
+			o.DecodeTileCol = -2
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var opts VP9DecoderOptions
+			tc.mut(&opts)
+			if _, err := NewVP9Decoder(opts); !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("NewVP9Decoder err = %v, want ErrInvalidConfig", err)
+			}
+		})
+	}
+}
+
+func TestVP9DecoderSetDecodeTileRowAcceptsNegativeAsClear(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.SetDecodeTileRow(3); err != nil {
+		t.Fatalf("SetDecodeTileRow(3): %v", err)
+	}
+	if !d.opts.DecodeTileRowSet || d.opts.DecodeTileRow != 3 {
+		t.Fatalf("DecodeTileRowSet=%v DecodeTileRow=%d, want true/3",
+			d.opts.DecodeTileRowSet, d.opts.DecodeTileRow)
+	}
+	if err := d.SetDecodeTileRow(-1); err != nil {
+		t.Fatalf("SetDecodeTileRow(-1): %v", err)
+	}
+	if d.opts.DecodeTileRowSet || d.opts.DecodeTileRow != 0 {
+		t.Fatalf("DecodeTileRowSet=%v DecodeTileRow=%d, want false/0",
+			d.opts.DecodeTileRowSet, d.opts.DecodeTileRow)
+	}
+	if err := d.SetDecodeTileRow(vp9DecoderMaxTileFilter + 1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetDecodeTileRow oversize err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestVP9DecoderSetDecodeTileColAcceptsNegativeAsClear(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.SetDecodeTileCol(2); err != nil {
+		t.Fatalf("SetDecodeTileCol(2): %v", err)
+	}
+	if !d.opts.DecodeTileColSet || d.opts.DecodeTileCol != 2 {
+		t.Fatalf("DecodeTileColSet=%v DecodeTileCol=%d, want true/2",
+			d.opts.DecodeTileColSet, d.opts.DecodeTileCol)
+	}
+	if err := d.SetDecodeTileCol(-7); err != nil {
+		t.Fatalf("SetDecodeTileCol(-7): %v", err)
+	}
+	if d.opts.DecodeTileColSet || d.opts.DecodeTileCol != 0 {
+		t.Fatalf("DecodeTileColSet=%v DecodeTileCol=%d, want false/0",
+			d.opts.DecodeTileColSet, d.opts.DecodeTileCol)
+	}
+	if err := d.SetDecodeTileCol(vp9DecoderMaxTileFilter + 1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetDecodeTileCol oversize err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+// TestVP9DecoderDecodeTileColFilterMasksOtherTiles drives a multi-tile
+// keyframe through the public decoder with the DecodeTileCol filter
+// pinned to a non-zero tile. The masked tile region must retain the
+// frame buffer's neutral fill while the selected tile decodes to the
+// expected DC-pred constant.
+func TestVP9DecoderDecodeTileColFilterMasksOtherTiles(t *testing.T) {
+	const log2TileCols = 1
+	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, log2TileCols)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.SetDecodeTileCol(1); err != nil {
+		t.Fatalf("SetDecodeTileCol(1): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after filtered keyframe")
+	}
+	if frame.Width != 1024 || frame.Height != 64 {
+		t.Fatalf("frame dims = %dx%d, want 1024x64", frame.Width, frame.Height)
+	}
+	// Masked tile column 0 covers x in [0, 512). The buffer is
+	// pre-filled with 128 by prepareVP9OutputFrame, so masked pixels
+	// remain at 128.
+	for y := 0; y < frame.Height; y++ {
+		for x := 0; x < 512; x++ {
+			if got := frame.Y[y*frame.YStride+x]; got != 128 {
+				t.Fatalf("masked tile col 0 Y[%d,%d] = %d, want 128", y, x, got)
+			}
+		}
+	}
+	// Selected tile column 1 covers x in [512, 1024) and should hold
+	// the DC predictor's filled luma value (128 for an all-zero
+	// residual DC-pred keyframe with no above row).
+	for y := 0; y < frame.Height; y++ {
+		for x := 512; x < 1024; x++ {
+			if got := frame.Y[y*frame.YStride+x]; got != 128 {
+				t.Fatalf("selected tile col 1 Y[%d,%d] = %d, want 128", y, x, got)
+			}
+		}
+	}
+}
+
+// TestVP9DecoderDecodeTileColFilterIgnoredForSingleTileFrames confirms
+// the filter is a no-op when the frame's tile grid has a single column.
+func TestVP9DecoderDecodeTileColFilterIgnoredForSingleTileFrames(t *testing.T) {
+	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 0)
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.SetDecodeTileCol(7); err != nil {
+		t.Fatalf("SetDecodeTileCol(7): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after single-tile frame")
+	}
+	assertVP9NeutralFrame(t, frame, 1024, 64)
+}

@@ -193,29 +193,31 @@ func idct16x16Add(input []int16, dest []uint8, stride, rowLimit int) {
 	}
 }
 
-// Idct16x16_256Add applies the full 16x16 inverse DCT and adds it onto
-// dest. Mirrors vpx_idct16x16_256_add_c. Row + column pass, normalized
-// by ROUND_POWER_OF_TWO(., 6).
-func Idct16x16_256Add(input []int16, dest []uint8, stride int) {
+// idct16x16_256AddScalar applies the full 16x16 inverse DCT and adds
+// it onto dest. Mirrors vpx_idct16x16_256_add_c. Scalar reference; the
+// exported Idct16x16_256Add wrapper is in idct_dispatch_*.go.
+func idct16x16_256AddScalar(input []int16, dest []uint8, stride int) {
 	idct16x16Add(input, dest, stride, 16)
 }
 
-// Idct16x16_38Add is the sparse fast path where all non-zero
-// coefficients sit in the upper-left 8x8 area. Mirrors
-// vpx_idct16x16_38_add_c.
-func Idct16x16_38Add(input []int16, dest []uint8, stride int) {
+// idct16x16_38AddScalar is the sparse upper-left-8x8 fast path. Scalar
+// reference; the exported Idct16x16_38Add wrapper is in
+// idct_dispatch_*.go.
+func idct16x16_38AddScalar(input []int16, dest []uint8, stride int) {
 	idct16x16Add(input, dest, stride, 8)
 }
 
-// Idct16x16_10Add is the sparser fast path where all non-zero
-// coefficients sit in the upper-left 4x4 area. Mirrors
-// vpx_idct16x16_10_add_c.
-func Idct16x16_10Add(input []int16, dest []uint8, stride int) {
+// idct16x16_10AddScalar is the sparser upper-left-4x4 fast path.
+// Scalar reference; the exported Idct16x16_10Add wrapper is in
+// idct_dispatch_*.go.
+func idct16x16_10AddScalar(input []int16, dest []uint8, stride int) {
 	idct16x16Add(input, dest, stride, 4)
 }
 
-// Idct16x16_1Add is the DC-only fast path. Matches vpx_idct16x16_1_add_c.
-func Idct16x16_1Add(input []int16, dest []uint8, stride int) {
+// idct16x16_1AddScalar is the DC-only fast path. Matches
+// vpx_idct16x16_1_add_c. Scalar reference; the exported Idct16x16_1Add
+// wrapper is in idct_dispatch_*.go.
+func idct16x16_1AddScalar(input []int16, dest []uint8, stride int) {
 	out := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 6)

@@ -166,6 +166,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"FlushIntoWithResult":         {kind: "vp9-lookahead-api"},
 		"ForceKeyFrame":               {kind: "frame-flag-api"},
 		"IsKeyFrameNext":              {kind: "metadata-api"},
+		"LastQuantizer":               {kind: "metadata-api"},
 		"CopyReferenceFrame":          {kind: "libvpx-control", helperTokens: []string{"copyref:"}},
 		"SetAdaptiveKeyFrames":        {kind: "vp9-scene-cut-control"},
 		"SetAQMode":                   {kind: "libvpx-control", helperTokens: []string{"aq:"}},
@@ -181,6 +182,8 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetDeltaQUV":                 {kind: "libvpx-control", helperTokens: []string{"deltaquv:"}},
 		"SetDisableLoopfilter":        {kind: "libvpx-control", helperTokens: []string{"disableloopfilter:"}},
 		"SetDisableOvershootMaxQCBR":  {kind: "libvpx-control", helperTokens: []string{"disovershoot:"}},
+		"SetEnableTPL":                {kind: "libvpx-vp9-tpl-control"},
+		"TPLFrameDelta":               {kind: "libvpx-vp9-tpl-control"},
 		"SetFrameDropAllowed":         {kind: "libvpx-config", helperTokens: []string{"drop:"}},
 		"SetFramePeriodicBoost":       {kind: "libvpx-control", helperTokens: []string{"periodicboost:"}},
 		"SetFrameParallelDecoding":    {kind: "libvpx-control", helperTokens: []string{"frame-parallel:"}},
@@ -246,6 +249,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		},
 		"DropFrameAllowed":    {kind: "libvpx-config", helperTokens: []string{"drop:"}},
 		"DropFrameWaterMark":  {kind: "libvpx-config", helperTokens: []string{"drop:"}},
+		"EnableTPL":           {kind: "libvpx-vp9-tpl-control"},
 		"FramePeriodicBoost":  {kind: "libvpx-control", helperTokens: []string{"periodicboost:", "--frame-boost"}},
 		"ErrorResilient":      {kind: "libvpx-config", helperTokens: []string{"error:", "--error-resilient"}},
 		"FPS":                 {kind: "libvpx-config", helperTokens: []string{"fps:"}},
@@ -320,7 +324,11 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"LastFrameSize":        {kind: "metadata-api"},
 		"NextFrame":            {kind: "decode-api"},
 		"Reset":                {kind: "lifecycle"},
+		"SetDecodeTileCol":     {kind: "libvpx-decoder-control"},
+		"SetDecodeTileRow":     {kind: "libvpx-decoder-control"},
+		"SetLoopFilterOpt":     {kind: "libvpx-decoder-control"},
 		"SetReferenceFrame":    {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
+		"SetRowMT":             {kind: "libvpx-decoder-control"},
 		"SetSVCSpatialLayer":   {kind: "libvpx-decoder-control"},
 	}
 	assertPublicMethodMappings(t, "VP9Decoder", methods, want)
@@ -330,6 +338,12 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 	fields := exportedFieldSet(t, VP9DecoderOptions{})
 	want := map[string]controlParityMapping{
+		"DecodeTileCol":          {kind: "libvpx-decoder-control"},
+		"DecodeTileColSet":       {kind: "libvpx-decoder-control"},
+		"DecodeTileRow":          {kind: "libvpx-decoder-control"},
+		"DecodeTileRowSet":       {kind: "libvpx-decoder-control"},
+		"DecoderLoopFilterOpt":   {kind: "libvpx-decoder-control"},
+		"DecoderRowMT":           {kind: "libvpx-decoder-control"},
 		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
 		"ErrorResilient":         {kind: "compat-alias"},
 		"MaxHeight":              {kind: "local-validation"},

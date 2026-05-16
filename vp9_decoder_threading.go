@@ -144,6 +144,11 @@ type vp9DecoderTileJob struct {
 	leftEntropyLen      [vp9dec.MaxMbPlane]uint8
 	interPredictScratch []byte
 
+	// rowMTSync, when non-nil, is the per-tile-column wavefront sync the
+	// decoder body should call read / write against. Populated by the tile
+	// worker pool when VP9D_SET_ROW_MT is enabled.
+	rowMTSync *vp9RowMTSync
+
 	err         error
 	unsupported bool
 }
@@ -156,6 +161,16 @@ type vp9DecoderTileWorkerPool struct {
 	jobs        []vp9DecoderTileJob
 	tileDescs   []vp9DecoderTileDesc
 	header      vp9dec.UncompressedHeader
+
+	// rowMTSyncs holds one vp9RowMTSync per tile-column slot. Allocated
+	// lazily by ensureRowMTSync when VP9D_SET_ROW_MT is enabled; released
+	// by releaseRowMTSync when the option toggles off. Mirrors the encoder
+	// vp9TileWorkerPool layout so the decoder body can index by tile-column
+	// slot.
+	rowMTSyncs []vp9RowMTSync
+	// rowMTArmed records whether SetRowMT(true) has been observed without
+	// a matching SetRowMT(false). It is sticky until releaseRowMTSync runs.
+	rowMTArmed bool
 
 	lastTileJobs    uint8
 	lastTileJobKind vp9DecoderTileJobKind
@@ -209,13 +224,57 @@ func (p *vp9DecoderTileWorkerPool) shutdown() {
 	p.tileDescs = nil
 	p.helperCount = 0
 	p.lastTileJobs = 0
+	p.rowMTSyncs = nil
+	p.rowMTArmed = false
+}
+
+// armRowMT marks the tile worker pool as serving VP9D_SET_ROW_MT decode
+// frames. The per-tile-column wavefront primitive is allocated lazily in
+// ensureRowMTSync once miRows is known for a frame.
+func (p *vp9DecoderTileWorkerPool) armRowMT() {
+	if p == nil {
+		return
+	}
+	p.rowMTArmed = true
+}
+
+// ensureRowMTSync arms one vp9RowMTSync per tile-column slot sized to sbRows
+// when VP9D_SET_ROW_MT is active. Mirrors the encoder helper of the same
+// name so the wavefront primitive layout stays in sync across encode and
+// decode. tileCols is the number of tile columns in the current frame.
+func (p *vp9DecoderTileWorkerPool) ensureRowMTSync(tileCols, sbRows int) {
+	if p == nil || tileCols <= 0 || sbRows <= 0 {
+		return
+	}
+	if cap(p.rowMTSyncs) < tileCols {
+		p.rowMTSyncs = make([]vp9RowMTSync, tileCols)
+	} else {
+		p.rowMTSyncs = p.rowMTSyncs[:tileCols]
+	}
+	for i := range p.rowMTSyncs {
+		p.rowMTSyncs[i].reset(sbRows)
+	}
+}
+
+// releaseRowMTSync drops the per-tile-column vp9RowMTSync state. It is
+// invoked when SetRowMT(false) flips the option so future decodes do not
+// pay the wavefront overhead nor keep the primitive arrays resident.
+func (p *vp9DecoderTileWorkerPool) releaseRowMTSync() {
+	if p == nil {
+		return
+	}
+	for i := range p.rowMTSyncs {
+		p.rowMTSyncs[i].release()
+	}
+	p.rowMTSyncs = p.rowMTSyncs[:0]
+	p.rowMTArmed = false
 }
 
 func (d *VP9Decoder) vp9DecoderTileThreadingEnabled(
 	hdr *vp9dec.UncompressedHeader, tileRows, tileCols int,
 ) bool {
 	return d != nil && d.vp9TilePool != nil && hdr != nil &&
-		tileRows == 1 && tileCols > 1
+		tileRows == 1 && tileCols > 1 && !d.vp9TileFilterActive()
 }
 
 func (d *VP9Decoder) parseVP9IntraModeTilesThreaded(tileData []byte,
@@ -324,6 +383,18 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	if len(descs) == 0 {
 		return nil
 	}
+	// Allocate per-tile-column wavefront sync arrays when VP9D_SET_ROW_MT
+	// is enabled and we have multiple tile columns. The sync primitive is
+	// armed across the parent decoder and all tile workers so the
+	// tile-column body can read / write its row state without further
+	// dispatch changes when per-row goroutines land.
+	if d.opts.DecoderRowMT && p.rowMTArmed {
+		sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+		p.ensureRowMTSync(len(descs), sbRows)
+	} else if len(p.rowMTSyncs) > 0 {
+		// Reset stale state when the option toggled off mid-stream.
+		p.rowMTSyncs = p.rowMTSyncs[:0]
+	}
 	mergeCounts := !hdr.FrameParallelDecoding
 	helpersMax := int(p.helperCount)
 	next := 0
@@ -337,11 +408,27 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 			desc := descs[next+worker+1]
 			p.prepareTileJob(worker, d, kind, desc, comp, intraMaps,
 				interMaps, miRows, miCols, partitionProbs)
+			tileSlot := next + worker + 1
+			if tileSlot < len(p.rowMTSyncs) {
+				p.jobs[worker].rowMTSync = &p.rowMTSyncs[tileSlot]
+			} else {
+				p.jobs[worker].rowMTSync = nil
+			}
 			p.start[worker] <- struct{}{}
 		}
 
+		// The lead tile decode runs on this goroutine. When row-MT is
+		// armed, plumb the lead tile's wavefront sync through the parent
+		// decoder so parseVP9*ModeTile observes the same shape as worker
+		// invocations.
+		if next < len(p.rowMTSyncs) {
+			d.rowMTSync = &p.rowMTSyncs[next]
+		} else {
+			d.rowMTSync = nil
+		}
 		err := d.runVP9DecoderTileDesc(kind, descs[next], &p.header, comp,
 			intraMaps, interMaps, miRows, miCols, partitionProbs)
+		d.rowMTSync = nil
 		for worker := 0; worker < helpers; worker++ {
 			<-p.done[worker]
 			job := &p.jobs[worker]
@@ -398,6 +485,7 @@ func (j *vp9DecoderTileJob) run() {
 	worker := &j.worker
 	worker.vp9LoopFilterPool = nil
 	worker.vp9TilePool = nil
+	worker.rowMTSync = j.rowMTSync
 	worker.leftSegCtx = j.leftSegCtx[:]
 	for i := range worker.leftSegCtx {
 		worker.leftSegCtx[i] = 0
@@ -421,6 +509,7 @@ func (j *vp9DecoderTileJob) run() {
 		j.partitionProbs)
 	j.interPredictScratch = worker.interPredictScratch
 	j.unsupported = worker.unsupportedReconstruct
+	worker.rowMTSync = nil
 }
 
 func (d *VP9Decoder) runVP9DecoderTileDesc(kind vp9DecoderTileJobKind,

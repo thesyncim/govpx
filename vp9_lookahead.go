@@ -102,10 +102,23 @@ func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst
 	if !ok {
 		return VP9EncodeResult{}, ErrFrameNotReady
 	}
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, entry.flags,
-		false, temporalFrame{LayerCount: 1})
+	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, emitFlags,
+		false, temporalFrame)
 	entry.flags = 0
 	return result, err
+}
+
+// vp9LookaheadEmitFlags merges the queued source flags with the next
+// temporal-layer schedule slot when temporal SVC is enabled, mirroring
+// the realtime path's flag/temporal handshake in EncodeIntoWithFlagsResult.
+func (e *VP9Encoder) vp9LookaheadEmitFlags(callerFlags EncodeFlags) (EncodeFlags, temporalFrame) {
+	tFrame := e.temporal.nextFrame(e.vp9TimingState())
+	flags := callerFlags | tFrame.Flags
+	if e.vp9ShouldEncodeKeyFrame(flags) {
+		flags &^= (tFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
+	}
+	return flags, tFrame
 }
 
 // FlushInto drains one queued VP9 lookahead frame into dst. Call repeatedly
@@ -149,8 +162,9 @@ func (e *VP9Encoder) FlushIntoWithResult(dst []byte) (VP9EncodeResult, error) {
 	if !ok {
 		return VP9EncodeResult{}, ErrFrameNotReady
 	}
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, entry.flags,
-		false, temporalFrame{LayerCount: 1})
+	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, emitFlags,
+		false, temporalFrame)
 	entry.flags = 0
 	return result, err
 }

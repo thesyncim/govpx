@@ -462,6 +462,18 @@ type VP9EncoderOptions struct {
 	// because the auto-altref hidden frame is read by future source frames
 	// that would otherwise need to wait for the in-flight batch.
 	FrameParallelEncoderThreads int
+
+	// EnableTPL turns on the VP9 temporal prediction loop (TPL) quality
+	// pass.  Mirrors libvpx's cpi->oxcf.enable_tpl_model and the BD-rate
+	// pass libvpx runs by default for two-pass good-quality VP9.  The
+	// pass requires LookaheadFrames >= 8 and AutoAltRef enabled so it can
+	// look ahead at future source frames; lossless mode is rejected.
+	// Per-SB qindex deltas computed by the pass are exposed through
+	// [VP9Encoder.TPLFrameDelta] for downstream consumers (row-MT, oracle
+	// traces); a scalar frame-mean overlay is applied directly to the
+	// regulated frame qindex while per-SB segmentation routing is in
+	// flight.
+	EnableTPL bool
 }
 
 // VP9SegmentationOptions configures static per-frame VP9 segmentation.
@@ -758,6 +770,19 @@ type VP9Encoder struct {
 	// frameParallel owns the encoder-side concurrent-frame scheduler state.
 	// It is nil unless FrameParallelEncoderThreads >= 2 has been requested.
 	frameParallel *vp9FrameParallelScheduler
+
+	// lastQuantizerInternal / lastQuantizerPublic / lastQuantizerValid mirror
+	// libvpx's VP9E_GET_LAST_QUANTIZER state for callers that don't own the
+	// VP9EncodeResult. They snapshot the qindex of the most recently
+	// committed encoded frame; dropped or buffered-by-lookahead inputs leave
+	// the value untouched.
+	lastQuantizerInternal int
+	lastQuantizerPublic   int
+	lastQuantizerValid    bool
+
+	// tpl carries the per-encoder TPL quality-pass state when EnableTPL
+	// is true.  Slabs are sized at construction or on resolution change.
+	tpl vp9TPLState
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -797,6 +822,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
 	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.perceptualAQ.configure(opts.AQMode == VP9AQPerceptual)
+	e.tpl.configure(opts.EnableTPL, opts.Width, opts.Height, opts.LookaheadFrames)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	e.initVP9TileWorkerPool()
@@ -858,6 +884,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if err := validateVP9AutoAltRefOptions(opts); err != nil {
 		return err
 	}
+	if err := validateVP9TPLOptions(opts); err != nil {
+		return err
+	}
 	if opts.DeltaQUV < -15 || opts.DeltaQUV > 15 {
 		return ErrInvalidQuantizer
 	}
@@ -873,6 +902,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if err := validateVP9TargetLevel(opts.TargetLevel); err != nil {
 		return err
 	}
+	if err := validateVP9TargetLevelLimits(opts); err != nil {
+		return err
+	}
 	if opts.DisableLoopfilter > VP9LoopfilterDisableAll {
 		return ErrInvalidConfig
 	}
@@ -880,11 +912,10 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		opts.Width, opts.Height); err != nil {
 		return err
 	}
-	if opts.LookaheadFrames > 0 {
-		if opts.RateControlModeSet || opts.TemporalScalability.Enabled {
-			return ErrInvalidConfig
-		}
-	}
+	// Lookahead now composes with libvpx-style rate control modes (CBR, VBR,
+	// Q) and temporal SVC. Cyclic-refresh AQ keeps its own lookahead block in
+	// validateVP9AQOptions because its segment-map updates run in
+	// committed-frame order and would re-target a queued source.
 	if err := validateVP9FrameParallelEncoderOptions(opts); err != nil {
 		return err
 	}
@@ -1035,6 +1066,65 @@ func validateVP9TargetLevel(level int) error {
 		}
 	}
 	return ErrInvalidConfig
+}
+
+// vp9LevelLimits mirrors the per-level macroblock-rate, luma
+// picture-size, and bitrate limits from libvpx's vp9_level_def_t table
+// (vp9/encoder/vp9_level.c). Levels not represented here have no
+// configured limit and pass the configuration gate unchanged.
+type vp9LevelLimits struct {
+	maxLumaSampleRate uint64 // samples (luma pixels) per second
+	maxLumaPictureSize uint64 // luma samples per picture
+	maxBitrateKbps     int    // peak rate, kbps
+}
+
+var vp9TargetLevelTable = map[int]vp9LevelLimits{
+	10: {maxLumaSampleRate: 829440, maxLumaPictureSize: 36864, maxBitrateKbps: 200},
+	11: {maxLumaSampleRate: 2764800, maxLumaPictureSize: 73728, maxBitrateKbps: 800},
+	20: {maxLumaSampleRate: 4608000, maxLumaPictureSize: 122880, maxBitrateKbps: 1800},
+	21: {maxLumaSampleRate: 9216000, maxLumaPictureSize: 245760, maxBitrateKbps: 3600},
+	30: {maxLumaSampleRate: 20736000, maxLumaPictureSize: 552960, maxBitrateKbps: 7200},
+	31: {maxLumaSampleRate: 36864000, maxLumaPictureSize: 983040, maxBitrateKbps: 12000},
+	40: {maxLumaSampleRate: 83558400, maxLumaPictureSize: 2228224, maxBitrateKbps: 18000},
+	41: {maxLumaSampleRate: 160432128, maxLumaPictureSize: 2228224, maxBitrateKbps: 30000},
+	50: {maxLumaSampleRate: 311951360, maxLumaPictureSize: 8912896, maxBitrateKbps: 60000},
+	51: {maxLumaSampleRate: 588251136, maxLumaPictureSize: 8912896, maxBitrateKbps: 120000},
+	52: {maxLumaSampleRate: 1176502272, maxLumaPictureSize: 8912896, maxBitrateKbps: 180000},
+	60: {maxLumaSampleRate: 1176502272, maxLumaPictureSize: 35651584, maxBitrateKbps: 180000},
+	61: {maxLumaSampleRate: 2353004544, maxLumaPictureSize: 35651584, maxBitrateKbps: 240000},
+	62: {maxLumaSampleRate: 4706009088, maxLumaPictureSize: 35651584, maxBitrateKbps: 480000},
+}
+
+// validateVP9TargetLevelLimits enforces the VP9 level's luma sample-rate,
+// luma picture-size, and peak bitrate ceilings against the configured
+// width/height/fps/target-bitrate triple. Levels 0 (auto) and 255 (no
+// constraint) skip the check. Levels listed in vp9TargetLevelTable
+// without configured FPS use the timebase-derived rate, falling back to
+// the libvpx default 30 fps when neither FPS nor timebase are set.
+func validateVP9TargetLevelLimits(opts VP9EncoderOptions) error {
+	limits, ok := vp9TargetLevelTable[opts.TargetLevel]
+	if !ok {
+		return nil
+	}
+	if opts.Width <= 0 || opts.Height <= 0 {
+		return nil
+	}
+	picture := uint64(opts.Width) * uint64(opts.Height)
+	if picture > limits.maxLumaPictureSize {
+		return ErrInvalidConfig
+	}
+	timing := vp9TimingStateFromOptions(opts)
+	if timing.timebaseNum > 0 && timing.timebaseDen > 0 {
+		// rate = picture * timebaseDen / timebaseNum (samples/sec)
+		rate := picture * uint64(timing.timebaseDen) / uint64(timing.timebaseNum)
+		if rate > limits.maxLumaSampleRate {
+			return ErrInvalidConfig
+		}
+	}
+	if opts.TargetBitrateKbps > 0 && opts.TargetBitrateKbps > limits.maxBitrateKbps {
+		return ErrInvalidConfig
+	}
+	return nil
 }
 
 // vp9DisableLoopfilterForFrame reports whether the loop filter should
@@ -1580,6 +1670,19 @@ func ycbcrPlaneLen(stride, width, height int) int {
 	return (height-1)*stride + width
 }
 
+// LastQuantizer mirrors libvpx's VP9E_GET_LAST_QUANTIZER /
+// VP9E_GET_LAST_QUANTIZER_64 controls. It returns the public 0..63
+// quantizer and the internal VP9 qindex of the most recently committed
+// encoded frame. ok is false on a nil or closed encoder, and before any
+// frame has been committed (dropped frames and buffered-by-lookahead
+// inputs leave the value untouched).
+func (e *VP9Encoder) LastQuantizer() (public int, internal int, ok bool) {
+	if e == nil || e.closed || !e.lastQuantizerValid {
+		return 0, 0, false
+	}
+	return e.lastQuantizerPublic, e.lastQuantizerInternal, true
+}
+
 // IsKeyFrameNext reports whether the next call to EncodeInto would
 // emit a key frame. The first frame is always a key; subsequent
 // frames key on MaxKeyframeInterval boundaries.
@@ -1885,7 +1988,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
 	macroblocks := vp9MacroblockCount(miRows, miCols)
+	// TPL runs before the qindex is finalised so its scalar bias can
+	// modulate the regulated qindex.  The pass only fires on visible
+	// inter frames while a populated source-order lookahead window is
+	// available; alt-ref / intra-only / keyframes are excluded for
+	// parity with the libvpx restriction.
+	e.populateVP9TPLForFrame(isKey || intraOnly || !showFrame || flags&EncodeForceAltRefFrame != 0)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
+	qindex = e.applyVP9TPLQIndexBias(qindex, isKey || intraOnly || !showFrame ||
+		flags&EncodeForceAltRefFrame != 0)
 	if e.rc.enabled {
 		e.vp9ModeDecisionQIndex = uint8(qindex)
 		e.vp9ModeDecisionQIndexSet = true
@@ -2161,6 +2272,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if isKey {
 		e.forceKeyFrame = false
 	}
+	// Consume the head TPL slab now that this frame has committed.  The
+	// pass refills the new tail on the next populate call.
+	if e.vp9TPLEnabled() {
+		e.tpl.shiftAndInvalidate()
+	}
 	spatialLayerID, spatialLayerCount, interLayerDependency,
 		notRefForUpperSpatialLayer, scalabilityStructurePresent,
 		spatialScalabilityStructure := e.vp9SpatialResultFields()
@@ -2178,6 +2294,12 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		resultSize = 0
 		resultRefreshFlags = 0
 	}
+	publicQuantizer := vp9QIndexToPublicQuantizer(qindex)
+	if !postDrop {
+		e.lastQuantizerInternal = qindex
+		e.lastQuantizerPublic = publicQuantizer
+		e.lastQuantizerValid = true
+	}
 	result = VP9EncodeResult{
 		Data:                        resultData,
 		KeyFrame:                    isKey,
@@ -2185,7 +2307,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		ShowFrame:                   header.ShowFrame,
 		Dropped:                     postDrop,
 		Droppable:                   !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
-		Quantizer:                   vp9QIndexToPublicQuantizer(qindex),
+		Quantizer:                   publicQuantizer,
 		InternalQuantizer:           qindex,
 		SizeBytes:                   resultSize,
 		TargetBitrateKbps:           e.vp9ResultTargetBitrateKbps(),

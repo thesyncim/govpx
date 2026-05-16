@@ -203,10 +203,13 @@ func iht16x16_256Add(txType int, input []int16, dest []uint8, stride int) {
 	}
 }
 
-// Iht16x16_256Add dispatches the 2-D inverse transform for a 16x16 intra
-// block. txType is 0..3 in the order (DCT_DCT, ADST_DCT, DCT_ADST,
-// ADST_ADST). Matches vp9_iht16x16_256_add_c.
-func Iht16x16_256Add(input []int16, dest []uint8, stride int, txType int) {
+// iht16x16_256AddScalar dispatches the 2-D inverse transform for a
+// 16x16 intra block. txType is 0..3 in the order (DCT_DCT, ADST_DCT,
+// DCT_ADST, ADST_ADST). Matches vp9_iht16x16_256_add_c.
+//
+// Scalar reference; the exported Iht16x16_256Add wrapper is in
+// idct_dispatch_*.go.
+func iht16x16_256AddScalar(input []int16, dest []uint8, stride int, txType int) {
 	switch txType {
 	case 0: // DCT_DCT
 		idct16x16Add(input, dest, stride, 16)

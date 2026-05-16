@@ -73,6 +73,10 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 				return ErrInvalidVP9Data
 			}
 
+			if d.vp9TileFilterMasksTile(tileRow, tileCol, tileRows, tileCols) {
+				offset += tileSize
+				continue
+			}
 			tile := vp9dec.TileBounds{
 				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, hdr.Tile.Log2TileRows),
 				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, hdr.Tile.Log2TileRows),
@@ -105,16 +109,28 @@ func (d *VP9Decoder) parseVP9IntraModeTile(data []byte,
 	if err := r.Init(data); err != nil {
 		return ErrInvalidVP9Data
 	}
+	rowMT := d.rowMTSync
+	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
+		common.MiBlockSizeLog2
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range d.leftSegCtx {
 			d.leftSegCtx[i] = 0
 		}
 		d.resetVP9LeftEntropyContexts()
+		sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
 		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+			sbCol := (miCol - tile.MiColStart) >> common.MiBlockSizeLog2
+			// Wavefront: wait for the row above to decode the above and
+			// above-right SB before consuming their entropy / above-context
+			// state. With a single goroutine per tile column this is a
+			// non-blocking no-op; the call shape matches libvpx so future
+			// per-row workers can be slotted in without changes.
+			rowMT.read(sbRow, sbCol)
 			if !d.readVP9IntraModeSb(&r, hdr, maps, tile, miRows, miCols,
 				miRow, miCol, common.Block64x64, comp.TxMode, partitionProbs) {
 				return ErrInvalidVP9Data
 			}
+			rowMT.write(sbRow, sbCol, tileSbCols)
 		}
 	}
 	if r.HasError() {
@@ -185,6 +201,10 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 				return ErrInvalidVP9Data
 			}
 
+			if d.vp9TileFilterMasksTile(tileRow, tileCol, tileRows, tileCols) {
+				offset += tileSize
+				continue
+			}
 			tile := vp9dec.TileBounds{
 				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, hdr.Tile.Log2TileRows),
 				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, hdr.Tile.Log2TileRows),
@@ -217,16 +237,28 @@ func (d *VP9Decoder) parseVP9InterModeTile(data []byte,
 	if err := r.Init(data); err != nil {
 		return ErrInvalidVP9Data
 	}
+	rowMT := d.rowMTSync
+	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
+		common.MiBlockSizeLog2
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range d.leftSegCtx {
 			d.leftSegCtx[i] = 0
 		}
 		d.resetVP9LeftEntropyContexts()
+		sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
 		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+			sbCol := (miCol - tile.MiColStart) >> common.MiBlockSizeLog2
+			// Wavefront: wait for the row above to decode the above and
+			// above-right SB before consuming their entropy / above-context
+			// state. With a single goroutine per tile column this is a
+			// non-blocking no-op; the call shape matches libvpx so future
+			// per-row workers can be slotted in without changes.
+			rowMT.read(sbRow, sbCol)
 			if !d.readVP9InterModeSb(&r, hdr, comp, maps, tile, miRows, miCols,
 				miRow, miCol, common.Block64x64, partitionProbs) {
 				return ErrInvalidVP9Data
 			}
+			rowMT.write(sbRow, sbCol, tileSbCols)
 		}
 	}
 	if r.HasError() {

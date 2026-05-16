@@ -105,7 +105,34 @@ func encodeSuiteCases(name string) ([]encodeSuiteCase, error) {
 			{name: "good-1080p-8m-60f", width: 1920, height: 1080, frames: 60, fps: 30, bitrateKbps: 8000, mode: "good"},
 			{name: "good-1440p-12m-30f", width: 2560, height: 1440, frames: 30, fps: 30, bitrateKbps: 12000, mode: "good"},
 		}, nil
+	case "webrtc":
+		// Realtime streaming budgets across mobile-ish to broadcaster
+		// resolutions; mirrors the WebRTC simulcast ladder rates from
+		// the project's stream-parity scoreboard.
+		return []encodeSuiteCase{
+			{name: "rt-180p-150k-60f", width: 320, height: 180, frames: 60, fps: 30, bitrateKbps: 150, mode: "realtime"},
+			{name: "rt-360p-500k-60f", width: 640, height: 360, frames: 60, fps: 30, bitrateKbps: 500, mode: "realtime"},
+			{name: "rt-720p-1500k-60f", width: 1280, height: 720, frames: 60, fps: 30, bitrateKbps: 1500, mode: "realtime"},
+			{name: "rt-1080p-2500k-60f", width: 1920, height: 1080, frames: 60, fps: 30, bitrateKbps: 2500, mode: "realtime"},
+		}, nil
+	case "vod":
+		// VoD-style good-quality bitrates that the libvpx good-deadline
+		// settings hit comfortably; useful for PSNR/SSIM tracking.
+		return []encodeSuiteCase{
+			{name: "good-480p-1000k-60f", width: 854, height: 480, frames: 60, fps: 30, bitrateKbps: 1000, mode: "good"},
+			{name: "good-720p-2500k-60f", width: 1280, height: 720, frames: 60, fps: 30, bitrateKbps: 2500, mode: "good"},
+			{name: "good-1080p-5000k-60f", width: 1920, height: 1080, frames: 60, fps: 30, bitrateKbps: 5000, mode: "good"},
+			{name: "good-1440p-10000k-30f", width: 2560, height: 1440, frames: 30, fps: 30, bitrateKbps: 10000, mode: "good"},
+		}, nil
+	case "stress":
+		// Pushes the encoder past comfortable rate regions to surface
+		// rate-control / motion-search hot paths.
+		return []encodeSuiteCase{
+			{name: "rt-1080p-300k-60f", width: 1920, height: 1080, frames: 60, fps: 30, bitrateKbps: 300, mode: "realtime"},
+			{name: "rt-1080p-8000k-60f", width: 1920, height: 1080, frames: 60, fps: 30, bitrateKbps: 8000, mode: "realtime"},
+			{name: "good-2160p-15000k-30f", width: 3840, height: 2160, frames: 30, fps: 30, bitrateKbps: 15000, mode: "good"},
+		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported suite %q (want quick or vp8)", name)
+		return nil, fmt.Errorf("unsupported suite %q (want quick, vp8, webrtc, vod, or stress)", name)
 	}
 }

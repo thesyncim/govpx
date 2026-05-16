@@ -62,6 +62,40 @@ type VP9DecoderOptions struct {
 	// RejectResolutionChange, when true, makes Decode reject a coded
 	// frame whose dimensions differ from the active stream.
 	RejectResolutionChange bool
+
+	// DecodeTileRowSet enables the libvpx VP9D_SET_DECODE_TILE_ROW
+	// reconstruction filter. When false (the default), every tile row is
+	// reconstructed.
+	DecodeTileRowSet bool
+	// DecodeTileRow is the active tile row when DecodeTileRowSet is true.
+	// Negative values clear the filter (matching libvpx's "less than zero"
+	// disable sentinel). Frames whose tile_rows are 1 always reconstruct
+	// every tile regardless of the filter.
+	DecodeTileRow int
+	// DecodeTileColSet enables the libvpx VP9D_SET_DECODE_TILE_COL
+	// reconstruction filter. When false (the default), every tile column is
+	// reconstructed.
+	DecodeTileColSet bool
+	// DecodeTileCol is the active tile column when DecodeTileColSet is true.
+	// Negative values clear the filter (matching libvpx's "less than zero"
+	// disable sentinel). Frames whose tile_cols are 1 always reconstruct
+	// every tile regardless of the filter.
+	DecodeTileCol int
+
+	// DecoderRowMT mirrors libvpx VP9D_SET_ROW_MT. When true and Threads > 1,
+	// the tile-column decode body arms a per-SB-row wavefront sync primitive
+	// so future per-row workers can be slotted in without changing the call
+	// shape. The wavefront calls are no-ops in the single-goroutine
+	// tile-column body but stay byte-identical to libvpx and provide the
+	// foundation for actual per-row parallelism. Requires Threads > 1.
+	DecoderRowMT bool
+
+	// DecoderLoopFilterOpt mirrors libvpx VP9D_SET_LOOP_FILTER_OPT. When true
+	// and Threads > 1, the deblock pass dispatches the U / V planes to the
+	// loop-filter worker pool concurrently with the Y plane, matching
+	// libvpx's pipelined loop-filter optimisation. When false, the deblock
+	// pass runs serially even on a threaded decoder. Requires Threads > 1.
+	DecoderLoopFilterOpt bool
 }
 
 // VP9FrameInfo describes one decoded VP9 packet. Quantizer is the raw
@@ -188,6 +222,13 @@ type VP9Decoder struct {
 	vp9LoopFilterPool *vp9DecoderLoopFilterPool
 	vp9TilePool       *vp9DecoderTileWorkerPool
 
+	// rowMTSync is set on the per-tile-column decode worker when
+	// VP9D_SET_ROW_MT is active. parseVP9IntraModeTile and
+	// parseVP9InterModeTile call read / write against it so the wavefront
+	// primitive is fully exercised. Nil keeps the single-goroutine body
+	// byte-identical to libvpx. Mirrors the encoder's vp9RowMTSync field.
+	rowMTSync *vp9RowMTSync
+
 	postSource      vp8common.FrameBuffer
 	post            vp8common.FrameBuffer
 	postModes       []vp8dec.MacroblockMode
@@ -249,6 +290,9 @@ func NewVP9Decoder(opts VP9DecoderOptions) (*VP9Decoder, error) {
 	if opts.Threads > 1 {
 		d.vp9LoopFilterPool = newVP9DecoderLoopFilterPool(opts.Threads)
 		d.vp9TilePool = newVP9DecoderTileWorkerPool(opts.Threads)
+		if opts.DecoderRowMT && d.vp9TilePool != nil {
+			d.vp9TilePool.armRowMT()
+		}
 	}
 	return d, nil
 }
@@ -273,8 +317,39 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 	if opts.MaxWidth < 0 || opts.MaxHeight < 0 {
 		return ErrInvalidConfig
 	}
+	if err := validateVP9DecodeTileFilter(opts.DecodeTileRowSet,
+		opts.DecodeTileRow); err != nil {
+		return err
+	}
+	if err := validateVP9DecodeTileFilter(opts.DecodeTileColSet,
+		opts.DecodeTileCol); err != nil {
+		return err
+	}
+	if (opts.DecoderRowMT || opts.DecoderLoopFilterOpt) && opts.Threads <= 1 {
+		return ErrInvalidConfig
+	}
 	return nil
 }
+
+// validateVP9DecodeTileFilter mirrors libvpx's tile-decode control range:
+// values must fit in [-1, vp9MaxTileLog2Bound] so the filter cannot exceed
+// the maximum tile dimension permitted by the bitstream syntax.
+func validateVP9DecodeTileFilter(set bool, value int) error {
+	if !set {
+		return nil
+	}
+	if value < -1 || value > vp9DecoderMaxTileFilter {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// vp9DecoderMaxTileFilter caps DecodeTileRow/DecodeTileCol at the largest
+// per-frame tile dimension libvpx can emit. VP9's log2 tile fields are
+// 2 bits for rows (1<<3-1 = 7 is the spec ceiling) and up to 6 for columns
+// (1<<6-1 = 63). Use the spec ceiling so the setter rejects clearly
+// out-of-range values without locking out future expansions.
+const vp9DecoderMaxTileFilter = 63
 
 func (opts VP9DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
 	flags := opts.PostProcessFlags
@@ -314,6 +389,114 @@ func (d *VP9Decoder) ClearSVCSpatialLayer() error {
 	}
 	d.opts.SVCSpatialLayerSet = false
 	d.opts.SVCSpatialLayer = 0
+	return nil
+}
+
+// SetDecodeTileRow mirrors libvpx's VP9D_SET_DECODE_TILE_ROW control.
+// Subsequent Decode calls only reconstruct the tile at the configured row
+// (combined with the DecodeTileCol filter). Values < 0 clear the filter so
+// the decoder reconstructs every tile row.
+func (d *VP9Decoder) SetDecodeTileRow(row int) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if row > vp9DecoderMaxTileFilter {
+		return ErrInvalidConfig
+	}
+	if row < 0 {
+		d.opts.DecodeTileRowSet = false
+		d.opts.DecodeTileRow = 0
+		return nil
+	}
+	d.opts.DecodeTileRowSet = true
+	d.opts.DecodeTileRow = row
+	return nil
+}
+
+// SetDecodeTileCol mirrors libvpx's VP9D_SET_DECODE_TILE_COL control.
+// Subsequent Decode calls only reconstruct the tile at the configured
+// column (combined with the DecodeTileRow filter). Values < 0 clear the
+// filter so the decoder reconstructs every tile column.
+func (d *VP9Decoder) SetDecodeTileCol(col int) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if col > vp9DecoderMaxTileFilter {
+		return ErrInvalidConfig
+	}
+	if col < 0 {
+		d.opts.DecodeTileColSet = false
+		d.opts.DecodeTileCol = 0
+		return nil
+	}
+	d.opts.DecodeTileColSet = true
+	d.opts.DecodeTileCol = col
+	return nil
+}
+
+// vp9TileFilterMasksTile reports whether the configured DecodeTileRow /
+// DecodeTileCol filter would mask the given (row, col) for a frame whose
+// tile grid has tileRows × tileCols tiles. Returns true only when at least
+// one filter is set, the frame has multiple tiles in the filtered axis,
+// and the candidate tile falls outside the requested selection.
+func (d *VP9Decoder) vp9TileFilterMasksTile(row, col, tileRows, tileCols int) bool {
+	if d == nil {
+		return false
+	}
+	if d.opts.DecodeTileRowSet && tileRows > 1 && row != d.opts.DecodeTileRow {
+		return true
+	}
+	if d.opts.DecodeTileColSet && tileCols > 1 && col != d.opts.DecodeTileCol {
+		return true
+	}
+	return false
+}
+
+// vp9TileFilterActive reports whether either of the per-tile decode
+// filters has been configured.
+func (d *VP9Decoder) vp9TileFilterActive() bool {
+	if d == nil {
+		return false
+	}
+	return d.opts.DecodeTileRowSet || d.opts.DecodeTileColSet
+}
+
+// SetRowMT mirrors libvpx VP9D_SET_ROW_MT. When enabled, the tile-column
+// decode body arms a per-SB-row wavefront sync primitive so future per-row
+// workers can be slotted in. Requires the decoder to have been constructed
+// with Threads > 1; otherwise ErrInvalidConfig is returned.
+func (d *VP9Decoder) SetRowMT(enabled bool) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if enabled && d.opts.Threads <= 1 {
+		return ErrInvalidConfig
+	}
+	d.opts.DecoderRowMT = enabled
+	if d.vp9TilePool != nil {
+		if enabled {
+			d.vp9TilePool.armRowMT()
+		} else {
+			d.vp9TilePool.releaseRowMTSync()
+		}
+	}
+	return nil
+}
+
+// SetLoopFilterOpt mirrors libvpx VP9D_SET_LOOP_FILTER_OPT. When enabled, the
+// deblock pass dispatches the U / V planes to the loop-filter worker pool
+// concurrently with Y, matching libvpx's pipelined loop-filter optimisation.
+// When disabled the deblock pass runs serially even on a threaded decoder.
+// Requires the decoder to have been constructed with Threads > 1; otherwise
+// ErrInvalidConfig is returned.
+func (d *VP9Decoder) SetLoopFilterOpt(enabled bool) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if enabled && d.opts.Threads <= 1 {
+		return ErrInvalidConfig
+	}
+	d.opts.DecoderLoopFilterOpt = enabled
 	return nil
 }
 

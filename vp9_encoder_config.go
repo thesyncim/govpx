@@ -451,6 +451,7 @@ func (e *VP9Encoder) SetRowMT(enabled bool) error {
 	e.opts.RowMT = enabled
 	if !enabled && e.vp9TilePool != nil {
 		e.vp9TilePool.releaseRowMTSync()
+		e.vp9TilePool.releaseRowWorkers()
 	}
 	return nil
 }
@@ -623,11 +624,20 @@ func (e *VP9Encoder) SetRenderSize(width, height int) error {
 // SetTargetLevel mirrors libvpx's VP9E_SET_TARGET_LEVEL control. level
 // must be one of the canonical VP9 level codes (10, 11, 20, 21, 30, 31,
 // 40, 41, 50, 51, 52, 60, 61, 62), or 255 (no constraint) or 0 (auto).
+// The encoder additionally checks the configured width/height/fps/
+// TargetBitrateKbps against the level's max macroblock rate, max
+// picture size, and max bitrate; configurations that exceed any limit
+// are rejected with [ErrInvalidConfig].
 func (e *VP9Encoder) SetTargetLevel(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
 	if err := validateVP9TargetLevel(level); err != nil {
+		return err
+	}
+	probe := e.opts
+	probe.TargetLevel = level
+	if err := validateVP9TargetLevelLimits(probe); err != nil {
 		return err
 	}
 	e.opts.TargetLevel = level
@@ -974,6 +984,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	}
 	e.cyclicAQ.configure(e.opts.AQMode == VP9AQCyclicRefresh, width, height)
 	e.perceptualAQ.configure(e.opts.AQMode == VP9AQPerceptual)
+	e.tpl.configure(e.opts.EnableTPL, width, height, e.opts.LookaheadFrames)
 	e.denoiser.disable()
 	e.activeMapEnabled = false
 	e.activeMapMiRows = 0

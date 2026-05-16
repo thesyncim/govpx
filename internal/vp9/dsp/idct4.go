@@ -35,12 +35,17 @@ func idct4(input, output []int16) {
 	output[3] = int16(step[0] - step[3])
 }
 
-// Idct4x4_16Add applies the full 4x4 inverse DCT to a 16-coefficient
-// block and adds the result onto the dest pixels at the given stride.
-// Mirrors vpx_idct4x4_16_add_c: row pass produces a 4x4 intermediate,
-// then a column pass with the >>4 normalization shift folded into the
-// pixel-add via clip_pixel_add(ROUND_POWER_OF_TWO(., 4)).
-func Idct4x4_16Add(input []int16, dest []uint8, stride int) {
+// idct4x4_16AddScalar applies the full 4x4 inverse DCT to a
+// 16-coefficient block and adds the result onto the dest pixels at the
+// given stride. Mirrors vpx_idct4x4_16_add_c: row pass produces a 4x4
+// intermediate, then a column pass with the >>4 normalization shift
+// folded into the pixel-add via clip_pixel_add(ROUND_POWER_OF_TWO(.,
+// 4)).
+//
+// This is the always-available scalar reference. The exported
+// Idct4x4_16Add wrapper lives in idct_dispatch_*.go and routes either
+// here or to a NEON kernel.
+func idct4x4_16AddScalar(input []int16, dest []uint8, stride int) {
 	var out [16]int16
 	for i := range 4 {
 		idct4(input[i*4:i*4+4], out[i*4:i*4+4])
@@ -58,10 +63,14 @@ func Idct4x4_16Add(input []int16, dest []uint8, stride int) {
 	}
 }
 
-// Idct4x4_1Add handles the common case where only the DC coefficient is
-// non-zero. Matches vpx_idct4x4_1_add_c — two cospi_16_64 multiplies
-// followed by a single +>>4 broadcast across the 4x4 pixel block.
-func Idct4x4_1Add(input []int16, dest []uint8, stride int) {
+// idct4x4_1AddScalar handles the common case where only the DC
+// coefficient is non-zero. Matches vpx_idct4x4_1_add_c — two
+// cospi_16_64 multiplies followed by a single +>>4 broadcast across the
+// 4x4 pixel block.
+//
+// This is the always-available scalar reference. The exported
+// Idct4x4_1Add wrapper lives in idct_dispatch_*.go.
+func idct4x4_1AddScalar(input []int16, dest []uint8, stride int) {
 	out := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 4)
