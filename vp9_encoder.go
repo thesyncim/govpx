@@ -55,6 +55,13 @@ const (
 	// VP9AQCyclicRefresh enables VP9 cyclic-refresh AQ. This mirrors
 	// libvpx VP9 aq-mode=3 and is currently limited to explicit CBR.
 	VP9AQCyclicRefresh VP9AQMode = 3
+	// VP9AQPerceptual enables VP9 perceptual AQ via wiener-variance
+	// k-means clustering. Mirrors libvpx AQ_PERCEPTUAL (mode 5). The
+	// source luma plane is segmented into 8 clusters whose centroids drive
+	// per-segment AltQ deltas, and each block inherits the cluster of
+	// its containing macroblock. Incompatible with lossless and static
+	// segmentation.
+	VP9AQPerceptual VP9AQMode = 5
 )
 
 func vp9CoefUpdateModeForFrame(isKey bool) encoder.CoefUpdateMode {
@@ -456,7 +463,8 @@ type VP9Encoder struct {
 	temporal temporalState
 	rc       vp9RateControlState
 	twoPass  vp9TwoPassState
-	cyclicAQ vp9CyclicRefreshState
+	cyclicAQ     vp9CyclicRefreshState
+	perceptualAQ vp9PerceptualAQState
 	// spatialScalabilityLocked is set for encoders owned by
 	// VP9SpatialSVCEncoder; the parent owns spatial layer metadata.
 	spatialScalabilityLocked bool
@@ -621,6 +629,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		opts.Height)
 	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
 	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
+	e.perceptualAQ.configure(opts.AQMode == VP9AQPerceptual)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	e.initVP9TileWorkerPool()
@@ -838,6 +847,11 @@ func validateVP9AQOptions(opts VP9EncoderOptions) error {
 			return ErrInvalidConfig
 		}
 		return nil
+	case VP9AQPerceptual:
+		if opts.Lossless || opts.Segmentation.Enabled {
+			return ErrInvalidConfig
+		}
+		return nil
 	case VP9AQCyclicRefresh:
 	default:
 		return ErrInvalidConfig
@@ -931,6 +945,13 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 	}
 	if e.opts.AQMode == VP9AQEquator360 {
 		seg := vp9Equator360AQSegmentationParams(baseQIndex, intraFrame)
+		if e.activeMapEnabled && !intraFrame {
+			vp9EnableActiveMapSegmentation(&seg)
+		}
+		return seg
+	}
+	if e.opts.AQMode == VP9AQPerceptual {
+		seg := e.perceptualAQ.segmentationParams(intraFrame)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
@@ -1661,6 +1682,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
 	e.cyclicAQ.prepareFrame(!isKey && !intraOnly && showFrame, miRows, miCols)
+	if e.opts.AQMode == VP9AQPerceptual {
+		e.perceptualAQ.prepareFrame(img, int(header.Quant.BaseQindex))
+	}
 	seg := e.vp9EncoderSegmentationParams(isKey || intraOnly,
 		int(header.Quant.BaseQindex))
 	e.vp9CarryActiveMapDisableSegmentation(&seg, isKey || intraOnly)
@@ -4630,6 +4654,13 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 	if e.opts.AQMode == VP9AQEquator360 {
 		miRows := (e.opts.Height + 7) >> 3
 		segID := vp9Equator360AQSegmentID(miRow, miRows)
+		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
+			return vp9ActiveMapSegmentInactive, true
+		}
+		return segID, true
+	}
+	if e.opts.AQMode == VP9AQPerceptual && e.perceptualAQ.ready {
+		segID := e.perceptualAQ.segmentIDForBlock(miRow, miCol)
 		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
 			return vp9ActiveMapSegmentInactive, true
 		}
