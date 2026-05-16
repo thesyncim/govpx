@@ -1208,21 +1208,35 @@ func newImage(w, h int) govpx.Image {
 	}
 }
 
-// drawFrame paints a slow scrolling gradient + bouncing bright square at
-// the rendition's native resolution. The per-rendition tint shifts so a
-// viewer can tell which encoder produced the frame they're looking at.
+// drawFrame paints a slow scrolling gradient plus a bouncing bright
+// square. Geometry is computed in normalised [0,1] coordinates so the
+// scene stays visually continuous when the encoder is resized mid-stream
+// (otherwise the same `t` would put the bouncing box near the top of a
+// 160x90 frame and in the middle of a 1280x720 frame on the very next
+// tick, producing a teleport that wastes bits on every resize). The
+// per-rendition tint shifts so a viewer can tell which encoder produced
+// the frame they're looking at.
 func drawFrame(img govpx.Image, t int, idx int) {
 	w, h := img.Width, img.Height
-	cx := (t * 5) % (w + 96)
-	cy := h/2 - 40 + ((t / 2) % 20)
-	const boxSize = 56
-	phase := idx * 21
+	// Normalised box center: bxN, byN in [0,1).
+	bxN := float64((t*5)%600) / 600.0
+	byN := 0.5 + 0.18*float64(int((t/2)%20)-10)/10.0
+	boxN := 0.16 // box side as a fraction of width
+	cx := int(bxN * float64(w))
+	cy := int((byN - boxN/2) * float64(h))
+	bw := int(boxN * float64(w))
+	bh := int(boxN * float64(w))
+	// gradient phase in normalised pixel units so the stripe scale tracks
+	// the visible frame instead of producing a much finer pattern at low
+	// resolution and a coarse one at high.
+	phaseN := float64(idx) * 0.07
 	for y := 0; y < h; y++ {
 		row := img.Y[y*img.YStride : y*img.YStride+w]
-		base := byte(48 + ((y + t) & 0x3F))
+		base := byte(48 + (((y*128)/h + t) & 0x3F))
 		for x := 0; x < w; x++ {
-			v := base + byte((x*3+t*2+phase)&0x7F)
-			if x >= cx && x < cx+boxSize && y >= cy && y < cy+boxSize {
+			u := float64(x) / float64(w)
+			v := base + byte((int(u*256.0)+t*2+int(phaseN*256))&0x7F)
+			if x >= cx && x < cx+bw && y >= cy && y < cy+bh {
 				v = 235
 			}
 			row[x] = v
