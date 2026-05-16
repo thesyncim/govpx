@@ -252,8 +252,10 @@ func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 }
 
 func (e *VP8Encoder) refreshRuntimeCyclicRefreshConfig() {
-	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
-		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
+	// libvpx pins cyclic_refresh_mode_enabled at compressor creation; a
+	// runtime vpx_codec_enc_config_set never recomputes it. Mirror that so a
+	// VBR-born encoder switched to CBR does not gain cyclic refresh (and a
+	// CBR-born encoder switched to VBR does not lose it).
 	if e.cyclicRefreshModeEnabled(false) {
 		updatePending := e.segmentationHeaderEnabled && e.lastSegmentationConfig.Enabled
 		if !e.rtcExternalDisableCyclicRefresh {

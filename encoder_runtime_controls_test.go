@@ -599,7 +599,16 @@ func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
 	}
 }
 
-func TestSetRateControlRecomputesLibvpxCyclicRefreshMode(t *testing.T) {
+// TestSetRateControlPinsLibvpxCyclicRefreshMode asserts that the cyclic
+// refresh mode flag tracks libvpx's vp8_create_compressor gate: it is
+// computed once at construction and never recomputed by
+// vpx_codec_enc_config_set. A CBR-born encoder therefore keeps cyclic
+// refresh after switching to VBR/CQ/Q, and a VBR-born encoder never gains
+// it after switching to CBR. This matches libvpx pack_bitstream output:
+// the VBR→CBR / CBR→VBR runtime-transition byte-parity oracles show
+// segmentation_enabled tracks the construction-time mode, not the live
+// RC mode.
+func TestSetRateControlPinsLibvpxCyclicRefreshMode(t *testing.T) {
 	cbr, err := NewVP8Encoder(EncoderOptions{
 		Width:             16,
 		Height:            16,
@@ -627,8 +636,8 @@ func TestSetRateControlRecomputesLibvpxCyclicRefreshMode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CBR-born SetRateControl(VBR): %v", err)
 	}
-	if cbr.cyclicRefreshModeEnabled(false) {
-		t.Fatalf("CBR-born runtime VBR cyclic refresh enabled, want libvpx vp8_change_config recompute")
+	if !cbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("CBR-born runtime VBR cyclic refresh disabled, want libvpx-pinned at construction")
 	}
 
 	vbr, err := NewVP8Encoder(EncoderOptions{
@@ -658,12 +667,19 @@ func TestSetRateControlRecomputesLibvpxCyclicRefreshMode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("VBR-born SetRateControl(CBR): %v", err)
 	}
-	if !vbr.cyclicRefreshModeEnabled(false) {
-		t.Fatalf("VBR-born runtime CBR cyclic refresh disabled, want libvpx vp8_change_config recompute")
+	if vbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("VBR-born runtime CBR cyclic refresh enabled, want libvpx-pinned at construction")
 	}
 }
 
-func TestSetRateControlVBRPreservesLibvpxSegmentationHeader(t *testing.T) {
+// TestSetRateControlVBRKeepsLibvpxCyclicRefreshHeader asserts the
+// segmentation header carries through a CBR→VBR runtime transition on a
+// CBR-born encoder. libvpx pins cyclic_refresh_mode_enabled at compressor
+// creation, so VBR inter frames emitted after vpx_codec_enc_config_set
+// keep cyclic refresh active and continue to re-emit the segment map and
+// alt-Q feature data each frame, matching pack_bitstream output on the
+// VBR→CBR / CBR→VBR runtime-transition byte-parity oracles.
+func TestSetRateControlVBRKeepsLibvpxCyclicRefreshHeader(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:             16,
 		Height:            16,
@@ -707,11 +723,8 @@ func TestSetRateControlVBRPreservesLibvpxSegmentationHeader(t *testing.T) {
 	if err := e.SetRateControl(cfg); err != nil {
 		t.Fatalf("SetRateControl(VBR): %v", err)
 	}
-	if e.cyclicRefreshModeEnabled(false) {
-		t.Fatalf("cyclic refresh still active after VBR config")
-	}
-	if !e.runtimePreserveSegmentationUpdate {
-		t.Fatalf("runtimePreserveSegmentationUpdate = false after VBR config, want stale segmentation update")
+	if !e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("cyclic refresh disabled after VBR config, want construction-pinned active for CBR-born")
 	}
 	inter, err := e.EncodeInto(dst, encoderValidationPanningFrame(16, 16, 1), 1, 1, 0)
 	if err != nil {
@@ -719,17 +732,10 @@ func TestSetRateControlVBRPreservesLibvpxSegmentationHeader(t *testing.T) {
 	}
 	interState := packetState(t, inter.Data)
 	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
-		t.Fatalf("VBR inter segmentation = %+v, want preserved stale map/data update", interState.Segmentation)
+		t.Fatalf("VBR inter segmentation = %+v, want cyclic-refresh map/data update", interState.Segmentation)
 	}
 	if got := interState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
-		t.Fatalf("VBR inter alt-q delta = %d, want preserved %d", got, wantDelta)
-	}
-
-	if err := e.SetRateControl(cfg); err != nil {
-		t.Fatalf("second SetRateControl(VBR): %v", err)
-	}
-	if !e.runtimePreserveSegmentationUpdate {
-		t.Fatalf("runtimePreserveSegmentationUpdate = false after second VBR config, want re-emitted setup_features update")
+		t.Fatalf("VBR inter alt-q delta = %d, want carried %d", got, wantDelta)
 	}
 }
 
