@@ -102,10 +102,13 @@ func iht8x8_64Add(rowKernel, colKernel func(in, out []int16), input []int16, des
 	}
 }
 
-// Iht8x8_64Add dispatches the 2-D inverse transform for an 8x8 intra
-// block. txType is 0..3 in the order (DCT_DCT, ADST_DCT, DCT_ADST,
-// ADST_ADST). Matches vp9_iht8x8_64_add_c.
-func Iht8x8_64Add(input []int16, dest []uint8, stride int, txType int) {
+// iht8x8_64AddScalar dispatches the 2-D inverse transform for an 8x8
+// intra block. txType is 0..3 in the order (DCT_DCT, ADST_DCT,
+// DCT_ADST, ADST_ADST). Matches vp9_iht8x8_64_add_c.
+//
+// Scalar reference; the exported Iht8x8_64Add wrapper is in
+// idct_dispatch_*.go.
+func iht8x8_64AddScalar(input []int16, dest []uint8, stride int, txType int) {
 	switch txType {
 	case 0: // DCT_DCT
 		iht8x8_64Add(idct8, idct8, input, dest, stride)
