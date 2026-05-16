@@ -967,6 +967,137 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 	}
 }
 
+func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 selected stream byte-parity gate")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	type selectedCase struct {
+		name        string
+		width       int
+		height      int
+		frames      int
+		opts        VP9EncoderOptions
+		extraArgs   []string
+		source      func(width, height, frame int) *image.YCbCr
+		exactPrefix int
+		tileJobs    int
+	}
+	fixedQOpts := VP9EncoderOptions{
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	}
+	fixedQArgs := []string{
+		"--cq-level=20",
+		"--min-q=20",
+		"--max-q=20",
+		"--disable-warning-prompt",
+	}
+	threadedFixedQOpts := fixedQOpts
+	threadedFixedQOpts.Threads = 4
+	threadedFixedQArgs := append([]string{"--tile-columns=2"}, fixedQArgs...)
+	cbrAQOpts := vp9OracleCBROptions(64, 64, 700)
+	cbrAQOpts.AQMode = VP9AQCyclicRefresh
+
+	cases := []selectedCase{
+		{
+			name:        "fixed-q-stepped-320",
+			width:       320,
+			height:      180,
+			frames:      2,
+			opts:        fixedQOpts,
+			extraArgs:   fixedQArgs,
+			exactPrefix: 1,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height,
+					uint8(96+frame*8), 128, 128)
+			},
+		},
+		{
+			name:        "fixed-q-threaded-stepped-720p",
+			width:       1280,
+			height:      720,
+			frames:      2,
+			opts:        threadedFixedQOpts,
+			extraArgs:   threadedFixedQArgs,
+			exactPrefix: 1,
+			tileJobs:    4,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height,
+					uint8(96+frame*8), 128, 128)
+			},
+		},
+		{
+			name:        "cbr-rate-panning",
+			width:       64,
+			height:      64,
+			frames:      4,
+			opts:        vp9OracleCBROptions(64, 64, 700),
+			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			source:      newVP9PanningYCbCrForRateTest,
+			exactPrefix: 1,
+		},
+		{
+			name:   "noise-sensitivity-soft",
+			width:  64,
+			height: 64,
+			frames: 2,
+			opts: VP9EncoderOptions{
+				NoiseSensitivity: 3,
+			},
+			extraArgs:   []string{"--noise-sensitivity=3"},
+			exactPrefix: 1,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height,
+					uint8(100+(frame&1)*2), 128, 128)
+			},
+		},
+		{
+			name:        "cbr-cyclic-aq-constant",
+			width:       64,
+			height:      64,
+			frames:      2,
+			opts:        cbrAQOpts,
+			extraArgs:   append(vp9OracleCBRArgs(700, 600, 400, 500, 0), "--aq-mode=3"),
+			exactPrefix: 1,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]*image.YCbCr, tc.frames)
+			for i := range sources {
+				sources[i] = tc.source(tc.width, tc.height, i)
+			}
+			var beforeFrame func(*VP9Encoder, int)
+			var afterFrame func(*VP9Encoder, int)
+			if tc.tileJobs > 0 {
+				beforeFrame = func(enc *VP9Encoder, frame int) {
+					resetVP9OracleThreadedTileJobsForTest(enc)
+				}
+				afterFrame = func(enc *VP9Encoder, frame int) {
+					assertVP9OracleThreadedTileWriterUsed(t, enc, frame, tc.tileJobs)
+				}
+			}
+			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
+				tc.opts, sources, nil, tc.extraArgs, beforeFrame, afterFrame)
+			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+				libvpxPackets)
+			t.Logf("VP9 selected stream byte-parity gate %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
+				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
+			for frame := 0; frame < tc.exactPrefix; frame++ {
+				assertVP9PacketByteParity(t,
+					fmt.Sprintf("%s frame %d", tc.name, frame),
+					govpxPackets[frame], libvpxPackets[frame])
+			}
+		})
+	}
+}
+
 func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 threaded 720p byte-parity gate")
