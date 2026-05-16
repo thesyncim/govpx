@@ -42,7 +42,31 @@ type vp9FrameParallelScheduler struct {
 	// result aliases into the matching slab to avoid per-result allocations.
 	resultsBuf [][]byte
 
+	// parentInputs holds the per-batch inputs (flag + frameIndex) that the
+	// dispatch reads after popping the lookahead queue. Kept on the scheduler
+	// rather than allocated per batch so steady-state batches recycle the
+	// slab. libvpx pattern: cpi->twopass.frame_intervals buffer reuse;
+	// vp9_encoder.c::vp9_create_compressor sizes everything once.
+	parentInputs []vp9FrameParallelBatchInput
+
+	// parentPrevFrameMvsSnapshot / parentPrevSegmentMapSnapshot are the
+	// pre-batch copies of the parent's prevFrameMvs / prevSegmentMap that
+	// must be restored on batch retire. Owned by the scheduler so steady-
+	// state batches recycle the slab instead of allocating fresh per
+	// vp9RunFrameParallelBatch call. libvpx pattern: cpi->common.prev_mvs is
+	// a fixed CPI-owned buffer; vp9_alloc_context_buffers
+	// (vp9_alloccommon.c:160) allocates once and reuses for every frame.
+	parentPrevFrameMvsSnapshot   []vp9MvRef
+	parentPrevSegmentMapSnapshot []uint8
+
 	wg sync.WaitGroup
+}
+
+// vp9FrameParallelBatchInput is the per-slot dispatch input the scheduler
+// stages between popVP9Lookahead and the worker goroutines.
+type vp9FrameParallelBatchInput struct {
+	flags      EncodeFlags
+	frameIndex int
 }
 
 // vp9FrameParallelResult carries the byte-level output and metadata for one
@@ -69,6 +93,9 @@ func (s *vp9FrameParallelScheduler) release() {
 	s.scratchInputs = nil
 	s.results = nil
 	s.resultsBuf = nil
+	s.parentInputs = nil
+	s.parentPrevFrameMvsSnapshot = nil
+	s.parentPrevSegmentMapSnapshot = nil
 }
 
 // ensureCapacity grows the scheduler slabs to support a batch of `workers`
@@ -114,6 +141,26 @@ func (s *vp9FrameParallelScheduler) ensureCapacity(workers int, dstSize int, wid
 		if s.scratchInputs[i].Rect != rect || len(s.scratchInputs[i].Y) == 0 {
 			s.scratchInputs[i] = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 		}
+	}
+	// libvpx pattern: vp9_encoder.c::vp9_create_compressor allocates
+	// the per-frame dispatch buffers once; we grow the per-batch slot
+	// slabs the same way so steady-state batches reuse the same backing
+	// arrays. miRows*miCols sizes the prev MVs and segment maps to match
+	// vp9_alloc_context_buffers (vp9_alloccommon.c:160) which sizes
+	// cm->prev_mip / cm->cur_mip from cm->mi_rows * cm->mi_cols.
+	if cap(s.parentInputs) < workers {
+		s.parentInputs = make([]vp9FrameParallelBatchInput, workers)
+	} else {
+		s.parentInputs = s.parentInputs[:workers]
+	}
+	miCols := (width + 7) >> 3
+	miRows := (height + 7) >> 3
+	need := miRows * miCols
+	if cap(s.parentPrevFrameMvsSnapshot) < need {
+		s.parentPrevFrameMvsSnapshot = make([]vp9MvRef, need)
+	}
+	if cap(s.parentPrevSegmentMapSnapshot) < need {
+		s.parentPrevSegmentMapSnapshot = make([]uint8, need)
 	}
 }
 
@@ -255,12 +302,10 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	// scratch input buffers. The copy is needed because the lookahead ring
 	// reuses entries for the next push and because each worker reads its
 	// input concurrently while the parent goroutine continues mutating the
-	// queue.
-	type batchInput struct {
-		flags      EncodeFlags
-		frameIndex int
-	}
-	inputs := make([]batchInput, batch)
+	// queue. libvpx pattern: vp9_encoder.c::vp9_create_compressor keeps the
+	// per-worker dispatch buffers on the CPI; we likewise read into the
+	// scheduler-owned parentInputs slab to avoid a per-batch make().
+	inputs := scheduler.parentInputs[:batch]
 	baseFrameIndex := e.frameIndex
 	baseFramesSinceKey := e.framesSinceKey
 	for i := 0; i < batch; i++ {
@@ -269,7 +314,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 			return VP9EncodeResult{}, false, ErrFrameNotReady
 		}
 		copyVP9LookaheadImage(&scheduler.scratchInputs[i], &entry.img, e.opts.Width, e.opts.Height)
-		inputs[i] = batchInput{
+		inputs[i] = vp9FrameParallelBatchInput{
 			flags:      entry.flags,
 			frameIndex: baseFrameIndex + i,
 		}
@@ -335,7 +380,11 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	// state (prevFrameMvs, prevSegmentMap, lastVP9Header*) is refreshed
 	// unconditionally inside encodeVP9FrameIntoWithFlagsResultInternal, so
 	// preserving the entry snapshot here keeps every batch member observing
-	// the same predictor state across the batch.
+	// the same predictor state across the batch. The prevFrameMvs /
+	// prevSegmentMap copies land in scheduler-resident slabs to keep the
+	// hot dispatch loop allocation-free (libvpx pattern:
+	// vp9_alloccommon.c::vp9_alloc_context_buffers sizes cm->prev_mip once
+	// at create time and reuses it for every frame).
 	parentRefValid := e.refValid
 	parentRefWidth := e.refWidth
 	parentRefHeight := e.refHeight
@@ -343,11 +392,21 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	parentPrevFrameMvsValid := e.prevFrameMvsValid
 	parentPrevFrameMvRows := e.prevFrameMvRows
 	parentPrevFrameMvCols := e.prevFrameMvCols
-	parentPrevFrameMvs := append([]vp9MvRef(nil), e.prevFrameMvs...)
+	parentPrevFrameMvsLen := len(e.prevFrameMvs)
+	if cap(scheduler.parentPrevFrameMvsSnapshot) < parentPrevFrameMvsLen {
+		scheduler.parentPrevFrameMvsSnapshot = make([]vp9MvRef, parentPrevFrameMvsLen)
+	}
+	parentPrevFrameMvs := scheduler.parentPrevFrameMvsSnapshot[:parentPrevFrameMvsLen]
+	copy(parentPrevFrameMvs, e.prevFrameMvs)
 	parentPrevSegmentMapValid := e.prevSegmentMapValid
 	parentPrevSegmentMapRows := e.prevSegmentMapRows
 	parentPrevSegmentMapCols := e.prevSegmentMapCols
-	parentPrevSegmentMap := append([]uint8(nil), e.prevSegmentMap...)
+	parentPrevSegmentMapLen := len(e.prevSegmentMap)
+	if cap(scheduler.parentPrevSegmentMapSnapshot) < parentPrevSegmentMapLen {
+		scheduler.parentPrevSegmentMapSnapshot = make([]uint8, parentPrevSegmentMapLen)
+	}
+	parentPrevSegmentMap := scheduler.parentPrevSegmentMapSnapshot[:parentPrevSegmentMapLen]
+	copy(parentPrevSegmentMap, e.prevSegmentMap)
 	parentPrevFrameActiveMapEnabled := e.prevFrameActiveMapEnabled
 	parentLastVP9HeaderFrameType := e.lastVP9HeaderFrameType
 	parentLastVP9HeaderValid := e.lastVP9HeaderValid
