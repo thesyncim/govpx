@@ -55,21 +55,10 @@ func makePanningFrame(width int, height int, index int) govpx.Image {
 	return img
 }
 
-// clampByte saturates v into [0, 255] and returns it as a byte. Used by
-// the panning fixture so signal mixing never wraps around 256.
-func clampByte(v int) byte {
-	if v < 0 {
-		return 0
-	}
-	if v > 255 {
-		return 255
-	}
-	return byte(v)
-}
-
 // triangleByte returns a deterministic [0,255] triangle wave with the
 // given period. Used by makePanningFrame to construct a smoothly-varying
-// luma/chroma signal without floating-point math.
+// luma/chroma signal without floating-point math. The companion
+// clampByte saturator lives in feature_gates.go.
 func triangleByte(x int, period int) int {
 	if period <= 0 {
 		period = 32
