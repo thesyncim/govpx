@@ -890,6 +890,16 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,
 		opts.Height)
 	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
+	// libvpx initializes rc->gfu_boost to DEFAULT_GF_BOOST (2000) outside
+	// the two-pass path so adjust_arnr_filter's adaptive strength/window
+	// is fed even when no first-pass stats are available. Without this
+	// seed govpx's vp9_arnr.go falls back to legacy non-adaptive ARNR
+	// even when LookaheadFrames > 0.
+	// libvpx: vp9/encoder/vp9_ratectrl.c:2082 (one-pass VBR set) and
+	// vp9_ratectrl.h:31 DEFAULT_GF_BOOST.
+	if opts.LookaheadFrames > 0 {
+		e.rc.gfuBoost = uint16(vp9DefaultGFBoost)
+	}
 	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.perceptualAQ.configure(opts.AQMode == VP9AQPerceptual)
 	e.tpl.configure(opts.EnableTPL, opts.Width, opts.Height, opts.LookaheadFrames)

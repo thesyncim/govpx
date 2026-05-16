@@ -21,46 +21,47 @@ package govpx
 //   - vp9_twopass_postencode_update    → finishFrameWithActual
 //     libvpx: vp9/encoder/vp9_firstpass.c:3733
 //
-// Deferred — these require Lagrangian RD shape and VP9_COMP-scale state
-// that govpx does not carry today. Each path falls back to a documented
-// approximation; the comments below pin the libvpx source the agent
-// should port when the surrounding feature gates land.
+// PORTED (see vp9_gf_group.go / vp9_rc_pick_q_two_pass.go):
+//   - define_gf_group               libvpx: vp9/encoder/vp9_firstpass.c:2761
+//   - get_active_gf_inverval_range  libvpx: vp9/encoder/vp9_firstpass.c:2701
+//   - get_gop_coding_frame_num      libvpx: vp9/encoder/vp9_firstpass.c:2587
+//   - calculate_total_gf_group_bits libvpx: vp9/encoder/vp9_firstpass.c:2057
+//   - calculate_boost_bits          libvpx: vp9/encoder/vp9_firstpass.c:2102
+//   - find_arf_order (single-ARF)   libvpx: vp9/encoder/vp9_firstpass.c:2146
+//   - define_gf_group_structure     libvpx: vp9/encoder/vp9_firstpass.c:2218
+//   - allocate_gf_group_bits        libvpx: vp9/encoder/vp9_firstpass.c:2391
+//   - adjust_group_arnr_filter      libvpx: vp9/encoder/vp9_firstpass.c:2541
+//   - vp9_rc_pick_q_and_bounds_two_pass
+//                                   libvpx: vp9/encoder/vp9_ratectrl.c:1468
+//   - compute_arf_boost             libvpx: vp9/encoder/vp9_firstpass.c:1936
+//     (already ported in 54d68f7; re-exported through vp9DefineGFGroup)
 //
-//   TODO: requires Lagrangian RD shape — define_gf_group (the adaptive
-//   GOP analyzer). libvpx: vp9/encoder/vp9_firstpass.c:2761
-//   define_gf_group reads first-pass motion / SR-coded / zero-motion
-//   accumulators across a forward window and emits an ALTREF stack +
-//   per-frame rate factor levels. govpx instead treats each show frame
-//   as its own normal-frame allocation cell, which is correct for the
-//   no-altref / lag=0 path but diverges from libvpx whenever
-//   AutoAltRef is enabled.
+// rc.gfuBoost is now fed at every GF boundary by refreshVP9GFGroupIfDue
+// (this file), which activates the AltRef adaptive-strength path in
+// vp9_arnr.go::applyVP9ARNRFilter.
 //
-//   TODO: requires Lagrangian RD shape — vp9_rc_pick_q_and_bounds_two_pass
-//   (the per-frame qindex picker that consumes layer_depth /
-//   rate_factor_level / arf_active_best_quality_adjustment_factor /
-//   extend_minq / extend_maxq from the GF group structure).
-//   libvpx: vp9/encoder/vp9_ratectrl.c:1468
-//   govpx's quantizer regulator (vp9_ratectrl_quantizer.go
-//   vbrQuantizerWithBounds) reuses the one-pass-VBR active-best /
-//   active-worst flow with the two-pass frame target; it doesn't
-//   read the GF group state machine.
+// Deferred — these require state govpx does not yet carry; the libvpx
+// citations below pin where to port them when the surrounding feature
+// gates land.
 //
-//   TODO: requires Lagrangian RD shape — calc_arf_boost / kf_boost
-//   from boost_factor + sr_decay_rate + zero_motion_factor.
-//   libvpx: vp9/encoder/vp9_firstpass.c:1936 compute_arf_boost
-//   libvpx: vp9/encoder/vp9_firstpass.c:1891 calc_kf_frame_boost
-//   These read the rolling first-pass motion accumulators and feed
-//   gf_group.gfu_boost[] which in turn modulates active_best_quality
-//   via get_gf_active_quality. govpx approximates the active-best
-//   bias via vp9_ratectrl_quantizer.vp9GFActiveQuality without the
-//   first-pass-driven boost factor.
+//   TODO: multi-ARF recursion past depth=1.
+//   libvpx: vp9/encoder/vp9_firstpass.c:2191 / :2200 (find_arf_order
+//   self-recursive case). Requires lookahead fan-out and
+//   cpi->multi_layer_arf. govpx today emits the base ARF + leaf
+//   P-frames; deeper ALTREF layers (gf_group layer_depth > 1) are out
+//   of scope until the lookahead supports multi-source ARF buffers.
 //
-//   TODO: requires Lagrangian RD shape — find_next_key_frame +
-//   kf_zeromotion_pct consumers. libvpx:
-//   vp9/encoder/vp9_firstpass.c (find_next_key_frame)
-//   vp9/encoder/vp9_ratectrl.c:1598 (STATIC_MOTION_THRESH path)
-//   govpx scenecut/forceKey lives in vp9_scenecut.go but doesn't
-//   accumulate the libvpx static-motion percentage.
+//   TODO: kf_zeromotion_pct accumulator and the STATIC_MOTION_THRESH
+//   path in pick_kf_q_bound_two_pass.
+//   libvpx: vp9/encoder/vp9_firstpass.c find_next_key_frame +
+//          vp9/encoder/vp9_ratectrl.c:1598 STATIC_MOTION_THRESH path.
+//   The Q picker port currently surfaces LastKFGroupZeroMotionPct as an
+//   input but the encoder always passes 0 because find_next_key_frame
+//   isn't yet ported.
+//
+//   TODO: vbr_corpus_complexity branch in allocate_gf_group_bits.
+//   libvpx: vp9/encoder/vp9_firstpass.c:2503. No public toggle to
+//   exercise this in govpx today.
 //
 // Pass-1 stats schema parity: VP9FirstPassFrameStats fields are
 // byte-aligned with FIRSTPASS_STATS (vp9_firstpass_stats.h:20). The
@@ -112,6 +113,17 @@ type vp9TwoPassState struct {
 	meanModScore        float64
 	frameIndex          uint64
 	currentTargetBits   int
+	// gfGroup is the currently-active vp9GFGroup decision produced by
+	// vp9DefineGFGroup. framesTillGFUpdate counts down to the next
+	// boundary; when it hits zero we recompute the GF group and refresh
+	// rc.gfuBoost.
+	//
+	// libvpx: vp9/encoder/vp9_firstpass.c:2761 define_gf_group +
+	//        vp9/encoder/vp9_ratectrl.h RATE_CONTROL::gfu_boost
+	gfGroup             vp9GFGroup
+	gfGroupActive       bool
+	framesTillGFUpdate  int
+	gfGroupStartShowIdx int
 	// baseFrameTarget is the assigned target before vbr_rate_correction.
 	// libvpx: vp9/encoder/vp9_ratectrl.c rc->base_frame_target
 	baseFrameTarget int
@@ -149,6 +161,13 @@ func validateVP9TwoPassOptions(opts VP9EncoderOptions) error {
 func (e *VP9Encoder) prepareVP9SecondPassFrameTarget(intraOnly bool, refreshFlags uint8) {
 	e.vp9TwoPassFrameTarget = 0
 	if e.twoPass.enabled() {
+		// libvpx: vp9_rc_get_second_pass_params calls define_gf_group at
+		// each GF boundary (frames_till_gf_update_due == 0). The boost
+		// it produces (rc->gfu_boost) feeds adjust_arnr_filter and the
+		// gf_active_quality picker. Mirror that boundary here so the
+		// AltRef adaptive-strength path (vp9_arnr.go) sees a non-zero
+		// boost when the two-pass stats are available.
+		e.refreshVP9GFGroupIfDue(intraOnly)
 		if target := e.twoPass.frameTargetBits(e.rc.frameTargetBits); target > 0 {
 			e.rc.frameTargetBits = target
 			e.vp9TwoPassFrameTarget = target
@@ -156,6 +175,103 @@ func (e *VP9Encoder) prepareVP9SecondPassFrameTarget(intraOnly bool, refreshFlag
 		}
 	}
 	e.rc.setOnePassVBRFrameTarget(intraOnly, refreshFlags)
+}
+
+// refreshVP9GFGroupIfDue (re)runs vp9DefineGFGroup at every GF boundary
+// and refreshes rc.gfuBoost so the downstream ARNR adaptive-strength
+// path is fed.
+//
+// libvpx: vp9/encoder/vp9_firstpass.c:3696 (call site inside
+// vp9_rc_get_second_pass_params).
+func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
+	if !e.twoPass.enabled() {
+		return
+	}
+	due := !e.twoPass.gfGroupActive || isKey || e.twoPass.framesTillGFUpdate <= 0
+	if !due {
+		e.twoPass.framesTillGFUpdate--
+		return
+	}
+	in := e.buildVP9GFGroupInputs(isKey)
+	gf := vp9DefineGFGroup(in)
+	e.twoPass.gfGroup = gf
+	e.twoPass.gfGroupActive = true
+	e.twoPass.gfGroupStartShowIdx = in.GFStartShowIdx
+	interval := gf.BaselineGFInterval
+	if interval <= 0 {
+		interval = int(e.rc.baselineGFInterval)
+	}
+	if interval <= 0 {
+		interval = vp9MinGFInterval
+	}
+	e.twoPass.framesTillGFUpdate = interval - 1
+	if gf.GFUBoostScalar > 0 {
+		boost := min(gf.GFUBoostScalar, 0xFFFF)
+		e.rc.gfuBoost = uint16(boost)
+	}
+}
+
+// buildVP9GFGroupInputs snapshots the encoder + RC state into the pure
+// inputs vp9DefineGFGroup consumes. Mirrors libvpx's VP9_COMP / RATE_CONTROL
+// / TWO_PASS field reads at the define_gf_group call site.
+func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
+	mbRows := (e.opts.Height + 15) >> 4
+	if mbRows <= 0 {
+		mbRows = 1
+	}
+	minGF := int(e.rc.minGFInterval)
+	if minGF <= 0 {
+		minGF = vp9MinGFInterval
+	}
+	maxGF := int(e.rc.maxGFInterval)
+	if maxGF <= 0 {
+		maxGF = vp9MaxGFInterval
+	}
+	staticMax := maxGF
+	if staticMax < vp9MaxStaticGFGroupLength {
+		staticMax = min(maxGF*4, vp9MaxStaticGFGroupLength)
+	}
+	framesToKey := e.opts.MaxKeyframeInterval - int(e.framesSinceKey)
+	if framesToKey <= 0 {
+		framesToKey = e.opts.MaxKeyframeInterval
+		if framesToKey <= 0 {
+			framesToKey = vp9MaxGFInterval
+		}
+	}
+	startShowIdx := int(e.twoPass.frameIndex)
+	avErr := e.twoPass.distributionAverageError()
+	return vp9GFGroupInputs{
+		IsKeyFrame:               isKey,
+		SourceAltRefActive:       false,
+		FramesToKey:              framesToKey,
+		FramesSinceKey:           int(e.framesSinceKey),
+		MinGFInterval:            minGF,
+		MaxGFInterval:            maxGF,
+		StaticSceneMaxGFInterval: staticMax,
+		ActiveWorstQuality:       int(e.rc.worstQuality),
+		LastBoostedQIndex:        int(e.rc.lastBoostedQIndex),
+		AvgFrameQIndexInter:      int(e.rc.avgFrameQIndexInter),
+		AvgFrameBandwidth:        e.rc.bitsPerFrame,
+		LagInFrames:              max(e.opts.LookaheadFrames, 1),
+		PerceptualAQ:             e.opts.AQMode == VP9AQPerceptual,
+		Lossless:                 false,
+		AllowAltRef:              e.opts.LookaheadFrames > 0,
+		EnableAutoARF:            1,
+		MultiLayerARF:            false,
+		FrameHeight:              e.opts.Height,
+		FrameWidth:               e.opts.Width,
+		MBRows:                   mbRows,
+		KFGroupBits:              int64(e.rc.bitsPerFrame) * int64(framesToKey),
+		KFGroupErrorLeft:         e.twoPass.normalizedScoreLeft,
+		FrameMaxBits:             e.rc.maxFrameBandwidth,
+		GFMaxTotalBoost:          vp9MaxGFBoost,
+		CurrentVideoFrame:        e.frameIndex,
+		MeanModScore:             e.twoPass.meanModScore,
+		AvErr:                    avErr,
+		Stats:                    e.twoPass.stats,
+		GFStartShowIdx:           startShowIdx,
+		BoostParams:              VP9DefaultARFBoostParams(mbRows),
+	}
 }
 
 func (t *vp9TwoPassState) configure(stats []VP9FirstPassFrameStats, bitsPerFrame int,

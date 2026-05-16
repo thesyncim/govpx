@@ -53,14 +53,14 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	// placement off the GF/ARF group boost and the running
 	// avg_frame_qindex. The libvpx-faithful gfu_boost comes from
 	// `define_gf_group`'s call to `compute_arf_boost` (two-pass path) or
-	// the realtime `select_arf_period` path; govpx's full
-	// define_gf_group port is owned by the two-pass agent and lives at
-	// the boundary between first-pass stat consumption and ARF
-	// placement. Until that lands, govpx's rc.gfuBoost stays at zero and
-	// `applyVP9ARNRFilter` falls back to the legacy non-adaptive
-	// strength/window. The branch keeps test/byte-parity for streams
-	// that never produce a gfu_boost value while letting the new path
-	// engage as soon as the two-pass agent wires up a non-zero boost.
+	// the one-pass DEFAULT_GF_BOOST seed (libvpx vp9_ratectrl.c:2082).
+	// Both feeds are now wired (NewVP9Encoder seeds DEFAULT_GF_BOOST
+	// when LookaheadFrames>0; refreshVP9GFGroupIfDue refreshes it from
+	// vp9DefineGFGroup at each GF boundary when two-pass stats are
+	// available). The legacy non-adaptive branch is retained for
+	// streams that explicitly request gfuBoost=0 (e.g. zero-lag
+	// realtime CBR) and for the non-default ARNRType=1/2 directions
+	// which libvpx's adjust_arnr_filter doesn't model.
 	var backward, forward, strength int
 	useAdaptive := e.rc.gfuBoost > 0
 	if useAdaptive {
