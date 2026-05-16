@@ -215,7 +215,7 @@ func (d *VP9Decoder) vp9DecoderTileThreadingEnabled(
 	hdr *vp9dec.UncompressedHeader, tileRows, tileCols int,
 ) bool {
 	return d != nil && d.vp9TilePool != nil && hdr != nil &&
-		tileRows == 1 && tileCols > 1
+		tileRows == 1 && tileCols > 1 && !d.vp9TileFilterActive()
 }
 
 func (d *VP9Decoder) parseVP9IntraModeTilesThreaded(tileData []byte,

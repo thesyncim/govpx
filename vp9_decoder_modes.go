@@ -73,6 +73,10 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 				return ErrInvalidVP9Data
 			}
 
+			if d.vp9TileFilterMasksTile(tileRow, tileCol, tileRows, tileCols) {
+				offset += tileSize
+				continue
+			}
 			tile := vp9dec.TileBounds{
 				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, hdr.Tile.Log2TileRows),
 				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, hdr.Tile.Log2TileRows),
@@ -185,6 +189,10 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 				return ErrInvalidVP9Data
 			}
 
+			if d.vp9TileFilterMasksTile(tileRow, tileCol, tileRows, tileCols) {
+				offset += tileSize
+				continue
+			}
 			tile := vp9dec.TileBounds{
 				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, hdr.Tile.Log2TileRows),
 				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, hdr.Tile.Log2TileRows),

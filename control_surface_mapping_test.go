@@ -166,6 +166,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"FlushIntoWithResult":         {kind: "vp9-lookahead-api"},
 		"ForceKeyFrame":               {kind: "frame-flag-api"},
 		"IsKeyFrameNext":              {kind: "metadata-api"},
+		"LastQuantizer":               {kind: "metadata-api"},
 		"CopyReferenceFrame":          {kind: "libvpx-control", helperTokens: []string{"copyref:"}},
 		"SetAdaptiveKeyFrames":        {kind: "vp9-scene-cut-control"},
 		"SetAQMode":                   {kind: "libvpx-control", helperTokens: []string{"aq:"}},
@@ -318,6 +319,8 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"LastFrameSize":        {kind: "metadata-api"},
 		"NextFrame":            {kind: "decode-api"},
 		"Reset":                {kind: "lifecycle"},
+		"SetDecodeTileCol":     {kind: "libvpx-decoder-control"},
+		"SetDecodeTileRow":     {kind: "libvpx-decoder-control"},
 		"SetReferenceFrame":    {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
 		"SetSVCSpatialLayer":   {kind: "libvpx-decoder-control"},
 	}
@@ -328,6 +331,10 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 	fields := exportedFieldSet(t, VP9DecoderOptions{})
 	want := map[string]controlParityMapping{
+		"DecodeTileCol":          {kind: "libvpx-decoder-control"},
+		"DecodeTileColSet":       {kind: "libvpx-decoder-control"},
+		"DecodeTileRow":          {kind: "libvpx-decoder-control"},
+		"DecodeTileRowSet":       {kind: "libvpx-decoder-control"},
 		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
 		"ErrorResilient":         {kind: "compat-alias"},
 		"MaxHeight":              {kind: "local-validation"},

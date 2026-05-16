@@ -649,26 +649,14 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.TwoPassVBRBiasPct = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TwoPassMinPct = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TwoPassMaxPct = -1 }, ErrInvalidConfig},
+		// Lookahead + CBR/SVC are now permitted; the validator only
+		// rejects the cyclic-refresh AQ combination via validateVP9AQOptions.
 		{func(o *VP9EncoderOptions) {
 			o.LookaheadFrames = 2
+			o.AQMode = VP9AQCyclicRefresh
 			o.RateControlModeSet = true
 			o.RateControlMode = RateControlCBR
 			o.TargetBitrateKbps = 300
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AutoAltRef = true
-			o.LookaheadFrames = 2
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlCBR
-			o.TargetBitrateKbps = 300
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.LookaheadFrames = 2
-			o.TargetBitrateKbps = 300
-			o.TemporalScalability = TemporalScalabilityConfig{
-				Enabled: true,
-				Mode:    TemporalLayeringTwoLayers,
-			}
 		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.FPS = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TimebaseNum = 1 }, ErrInvalidConfig}, // missing Den
