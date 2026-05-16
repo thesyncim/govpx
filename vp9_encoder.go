@@ -236,6 +236,29 @@ type VP9EncoderOptions struct {
 	// percentage. Zero uses libvpx's VP9 default.
 	TwoPassMaxPct int
 
+	// MinBitrateKbps and MaxBitrateKbps optionally bound runtime bitrate
+	// updates. Zero disables the bound. Mirrors libvpx's
+	// rc_target_bitrate clamping when SetBitrateKbps or SetRateControl
+	// updates the target bitrate.
+	MinBitrateKbps int
+	MaxBitrateKbps int
+
+	// UndershootPct and OvershootPct cap libvpx-style rate adjustment as a
+	// percentage of the per-frame bandwidth. Valid range is [0, 100]; zero
+	// selects libvpx's VP9 default of 100. Mirrors VP9's rc_undershoot_pct
+	// and rc_overshoot_pct controls.
+	UndershootPct int
+	OvershootPct  int
+
+	// MaxIntraBitratePct caps key-frame bitrate as a percentage of the
+	// per-frame bandwidth when non-zero. Mirrors libvpx's
+	// rc_max_intra_bitrate_pct VP9 control; zero disables the cap.
+	MaxIntraBitratePct int
+	// GFCBRBoostPct boosts golden-frame target bits in CBR mode by the
+	// configured percentage of the per-frame bandwidth. Mirrors libvpx's
+	// VP9E_SET_GF_CBR_BOOST_PCT control; zero disables the boost.
+	GFCBRBoostPct int
+
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
@@ -1418,7 +1441,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
 		return VP9EncodeResult{}, ErrInvalidConfig
 	}
-	e.rc.beginFrame(isKey || intraOnly, e.frameIndex)
+	e.rc.beginFrameWithRefresh(isKey || intraOnly, e.frameIndex,
+		vp9InterRefreshFrameFlags(flags))
 	showFrame := flags&EncodeInvisibleFrame == 0
 	e.rc.preEncodeFrame(showFrame)
 	e.vp9TwoPassFrameTarget = 0

@@ -4949,13 +4949,24 @@ func TestVP9EncoderSetRateControlSwitchesModeAtomically(t *testing.T) {
 	if err := e.SetRateControl(RateControlConfig{
 		Mode:              RateControlVBR,
 		TargetBitrateKbps: 700,
-		MinBitrateKbps:    100,
-	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("unsupported field SetRateControl err = %v, want ErrInvalidConfig", err)
+		MinBitrateKbps:    900,
+	}); !errors.Is(err, ErrInvalidBitrate) {
+		t.Fatalf("min>target SetRateControl err = %v, want ErrInvalidBitrate", err)
 	}
 	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) ||
 		!reflect.DeepEqual(e.twoPass, oldTwoPass) {
-		t.Fatal("unsupported-field SetRateControl mutated encoder state")
+		t.Fatal("invalid-min SetRateControl mutated encoder state")
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlVBR,
+		TargetBitrateKbps: 700,
+		UndershootPct:     500,
+	}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("out-of-range undershoot SetRateControl err = %v, want ErrInvalidConfig", err)
+	}
+	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) ||
+		!reflect.DeepEqual(e.twoPass, oldTwoPass) {
+		t.Fatal("invalid-undershoot SetRateControl mutated encoder state")
 	}
 }
 

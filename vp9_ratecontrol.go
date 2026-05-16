@@ -28,6 +28,13 @@ type vp9RateControlState struct {
 	decimationFactor    uint8
 	decimationCount     uint8
 
+	minBitrateKbps     int
+	maxBitrateKbps     int
+	undershootPct      uint8
+	overshootPct       uint8
+	maxIntraBitratePct int
+	gfCBRBoostPct      int
+
 	bestQuality  uint8
 	worstQuality uint8
 	cqLevel      uint8
@@ -88,6 +95,14 @@ func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
 		(opts.DropFrameAllowed || opts.DropFrameWaterMark != 0) {
 		return ErrInvalidConfig
 	}
+	if err := validateVP9RateControlBounds(opts.MinBitrateKbps, opts.MaxBitrateKbps,
+		opts.TargetBitrateKbps, opts.UndershootPct, opts.OvershootPct,
+		opts.MaxIntraBitratePct, opts.GFCBRBoostPct); err != nil {
+		return err
+	}
+	if opts.RateControlMode != RateControlCBR && opts.GFCBRBoostPct != 0 {
+		return ErrInvalidConfig
+	}
 	return nil
 }
 
@@ -98,10 +113,10 @@ func validateVP9RateControlConfig(cfg RateControlConfig) error {
 	if cfg.TargetBitrateKbps <= 0 {
 		return ErrInvalidBitrate
 	}
-	if cfg.MinBitrateKbps != 0 || cfg.MaxBitrateKbps != 0 ||
-		cfg.UndershootPct != 0 || cfg.OvershootPct != 0 ||
-		cfg.MaxIntraBitratePct != 0 || cfg.GFCBRBoostPct != 0 {
-		return ErrInvalidConfig
+	if err := validateVP9RateControlBounds(cfg.MinBitrateKbps, cfg.MaxBitrateKbps,
+		cfg.TargetBitrateKbps, cfg.UndershootPct, cfg.OvershootPct,
+		cfg.MaxIntraBitratePct, cfg.GFCBRBoostPct); err != nil {
+		return err
 	}
 	if cfg.BufferSizeMs < 0 || cfg.BufferInitialSizeMs < 0 ||
 		cfg.BufferOptimalSizeMs < 0 || cfg.DropFrameWaterMark < 0 {
@@ -111,11 +126,40 @@ func validateVP9RateControlConfig(cfg RateControlConfig) error {
 		(cfg.DropFrameAllowed || cfg.DropFrameWaterMark != 0) {
 		return ErrInvalidConfig
 	}
+	if cfg.Mode != RateControlCBR && cfg.GFCBRBoostPct != 0 {
+		return ErrInvalidConfig
+	}
 	return validateVP9PublicQuantizerOptions(VP9EncoderOptions{
 		MinQuantizer: cfg.MinQuantizer,
 		MaxQuantizer: cfg.MaxQuantizer,
 		CQLevel:      cfg.CQLevel,
 	})
+}
+
+// validateVP9RateControlBounds enforces the libvpx VP9 rate-control bound
+// invariants shared by VP9EncoderOptions and the runtime RateControlConfig.
+func validateVP9RateControlBounds(minKbps, maxKbps, targetKbps, undershootPct,
+	overshootPct, maxIntraPct, gfBoostPct int) error {
+	if minKbps < 0 || maxKbps < 0 {
+		return ErrInvalidBitrate
+	}
+	if minKbps > 0 && maxKbps > 0 && minKbps > maxKbps {
+		return ErrInvalidBitrate
+	}
+	if targetKbps > 0 && targetKbps < minKbps {
+		return ErrInvalidBitrate
+	}
+	if maxKbps > 0 && targetKbps > maxKbps {
+		return ErrInvalidBitrate
+	}
+	if undershootPct < 0 || undershootPct > maxRateControlUndershootPct ||
+		overshootPct < 0 || overshootPct > maxRateControlOvershootPct {
+		return ErrInvalidConfig
+	}
+	if maxIntraPct < 0 || gfBoostPct < 0 {
+		return ErrInvalidConfig
+	}
+	return nil
 }
 
 func vp9RateControlOptionsFromConfig(opts VP9EncoderOptions, cfg RateControlConfig) (VP9EncoderOptions, error) {
@@ -125,6 +169,12 @@ func vp9RateControlOptionsFromConfig(opts VP9EncoderOptions, cfg RateControlConf
 	opts.RateControlModeSet = true
 	opts.RateControlMode = cfg.Mode
 	opts.TargetBitrateKbps = cfg.TargetBitrateKbps
+	opts.MinBitrateKbps = cfg.MinBitrateKbps
+	opts.MaxBitrateKbps = cfg.MaxBitrateKbps
+	opts.UndershootPct = cfg.UndershootPct
+	opts.OvershootPct = cfg.OvershootPct
+	opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
+	opts.GFCBRBoostPct = cfg.GFCBRBoostPct
 	opts.MinQuantizer = cfg.MinQuantizer
 	opts.MaxQuantizer = cfg.MaxQuantizer
 	opts.CQLevel = cfg.CQLevel
@@ -179,6 +229,7 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 		rc.dropFrameAllowed = opts.DropFrameAllowed
 		rc.dropFramesWaterMark = uint8(waterMark)
 	}
+	rc.applyBitrateBoundsFromOptions(opts)
 	rc.setFrameSize(opts.Width, opts.Height)
 	rc.initQuantizerStateFromOptions(opts)
 	if err := rc.setBitrateKbps(opts.TargetBitrateKbps, timing); err != nil {
@@ -187,6 +238,22 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 	rc.initOnePassVBRState(timing)
 	rc.bufferLevelBits = rc.bufferInitialBits
 	return nil
+}
+
+// applyBitrateBoundsFromOptions stores the libvpx VP9 rate-control bound
+// settings into rc. Zero undershoot/overshoot select libvpx's VP9 default of
+// 100, matching vpxenc's behavior. GFCBRBoostPct is honored only in CBR mode
+// to match libvpx's VP9E_SET_GF_CBR_BOOST_PCT scope.
+func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOptions) {
+	rc.minBitrateKbps = opts.MinBitrateKbps
+	rc.maxBitrateKbps = opts.MaxBitrateKbps
+	rc.undershootPct = uint8(normalizeRateControlPct(opts.UndershootPct, defaultRateControlUndershootPct))
+	rc.overshootPct = uint8(normalizeRateControlPct(opts.OvershootPct, defaultRateControlOvershootPct))
+	rc.maxIntraBitratePct = opts.MaxIntraBitratePct
+	rc.gfCBRBoostPct = 0
+	if rc.mode == RateControlCBR {
+		rc.gfCBRBoostPct = opts.GFCBRBoostPct
+	}
 }
 
 func (rc *vp9RateControlState) applyRuntimeConfig(opts VP9EncoderOptions, timing timingState) error {
@@ -230,6 +297,7 @@ func (rc *vp9RateControlState) applyRuntimeConfig(opts VP9EncoderOptions, timing
 		rc.dropFrameAllowed = opts.DropFrameAllowed
 		rc.dropFramesWaterMark = uint8(waterMark)
 	}
+	rc.applyBitrateBoundsFromOptions(opts)
 	rc.setFrameSize(opts.Width, opts.Height)
 	rc.setQuantizerBoundsFromOptions(opts)
 	if err := rc.setBitrateKbps(opts.TargetBitrateKbps, timing); err != nil {
@@ -247,6 +315,7 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	if kbps <= 0 {
 		return ErrInvalidBitrate
 	}
+	kbps = rc.clampBitrateKbps(kbps)
 	targetBits, ok := checkedMul(kbps, 1000)
 	if !ok {
 		return ErrInvalidBitrate
@@ -396,11 +465,22 @@ func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
 }
 
 func (rc *vp9RateControlState) beginFrame(isKey bool, frameIndex int) {
+	rc.beginFrameWithRefresh(isKey, frameIndex, 0)
+}
+
+// beginFrameWithRefresh is the beginFrame variant that lets CBR mode apply
+// the libvpx VP9 GF CBR boost on golden-frame refreshes. Non-CBR modes route
+// through setOnePassVBRFrameTarget which already understands refresh flags.
+func (rc *vp9RateControlState) beginFrameWithRefresh(isKey bool, frameIndex int, refreshFlags uint8) {
 	if !rc.enabled {
 		return
 	}
 	if isKey {
 		rc.frameTargetBits = rc.keyFrameTargetBits(frameIndex)
+		return
+	}
+	if rc.mode == RateControlCBR && vp9BoostedInterRefresh(refreshFlags) {
+		rc.frameTargetBits = rc.boostedInterFrameTargetBits()
 		return
 	}
 	rc.frameTargetBits = rc.interFrameTargetBits()

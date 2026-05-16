@@ -829,6 +829,16 @@ static void apply_vp9_runtime_control_token(
                           (unsigned)control_value_int(token, "static:"))) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_STATIC_THRESHOLD");
     }
+  } else if (starts_with(token, "maxintra:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_MAX_INTRA_BITRATE_PCT,
+                          (unsigned)control_value_int(token, "maxintra:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_MAX_INTRA_BITRATE_PCT");
+    }
+  } else if (starts_with(token, "gfboost:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_GF_CBR_BOOST_PCT,
+                          (unsigned)control_value_int(token, "gfboost:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_GF_CBR_BOOST_PCT");
+    }
   } else if (starts_with(token, "active:")) {
     flush_vp9_runtime_config(ctx);
     apply_vp9_active_map(ctx->ctx, (int)ctx->cfg->g_w, (int)ctx->cfg->g_h,
@@ -1062,6 +1072,10 @@ int main(int argc, char **argv) {
   int lossless = 0;
   int temporal_layers = 0;
   int temporal_periodicity = 0;
+  int max_intra_rate = -1;
+  int gf_cbr_boost = -1;
+  int max_bitrate_kbps = -1;
+  int min_bitrate_kbps = -1;
   enum vpx_rc_mode end_usage = VPX_Q;
 
   for (int i = 1; i < argc; ++i) {
@@ -1121,6 +1135,14 @@ int main(int argc, char **argv) {
       sharpness = parse_int(v, "--sharpness");
     } else if ((v = flag_value(a, "--static-thresh"))) {
       static_thresh = parse_int(v, "--static-thresh");
+    } else if ((v = flag_value(a, "--max-intra-rate"))) {
+      max_intra_rate = parse_int(v, "--max-intra-rate");
+    } else if ((v = flag_value(a, "--gf-cbr-boost"))) {
+      gf_cbr_boost = parse_int(v, "--gf-cbr-boost");
+    } else if ((v = flag_value(a, "--max-bitrate"))) {
+      max_bitrate_kbps = parse_int(v, "--max-bitrate");
+    } else if ((v = flag_value(a, "--min-bitrate"))) {
+      min_bitrate_kbps = parse_int(v, "--min-bitrate");
     } else if ((v = flag_value(a, "--error-resilient"))) {
       error_resilient = parse_int(v, "--error-resilient");
     } else if ((v = flag_value(a, "--lag-in-frames"))) {
@@ -1241,6 +1263,20 @@ int main(int argc, char **argv) {
   cfg.g_lag_in_frames = (unsigned)lag_in_frames;
   cfg.rc_end_usage = end_usage;
   cfg.rc_target_bitrate = (unsigned)target_kbps;
+  if (min_bitrate_kbps >= 0) {
+    cfg.rc_2pass_vbr_minsection_pct =
+        cfg.rc_target_bitrate > 0
+            ? (unsigned)((100u * (unsigned)min_bitrate_kbps) /
+                         cfg.rc_target_bitrate)
+            : 0u;
+  }
+  if (max_bitrate_kbps >= 0) {
+    cfg.rc_2pass_vbr_maxsection_pct =
+        cfg.rc_target_bitrate > 0
+            ? (unsigned)((100u * (unsigned)max_bitrate_kbps) /
+                         cfg.rc_target_bitrate)
+            : 0u;
+  }
   cfg.rc_min_quantizer = (unsigned)min_q;
   cfg.rc_max_quantizer = (unsigned)max_q;
   cfg.rc_buf_sz = (unsigned)buffer_size_ms;
@@ -1336,6 +1372,14 @@ int main(int argc, char **argv) {
     die_codec_msg(&ctx, "VP9E_SET_TILE_ROWS");
   if (vpx_codec_control(&ctx, VP9E_SET_LOSSLESS, (unsigned)lossless))
     die_codec_msg(&ctx, "VP9E_SET_LOSSLESS");
+  if (max_intra_rate >= 0 &&
+      vpx_codec_control(&ctx, VP8E_SET_MAX_INTRA_BITRATE_PCT,
+                        (unsigned)max_intra_rate))
+    die_codec_msg(&ctx, "VP8E_SET_MAX_INTRA_BITRATE_PCT");
+  if (gf_cbr_boost >= 0 &&
+      vpx_codec_control(&ctx, VP8E_SET_GF_CBR_BOOST_PCT,
+                        (unsigned)gf_cbr_boost))
+    die_codec_msg(&ctx, "VP8E_SET_GF_CBR_BOOST_PCT");
 
   vpx_image_t img;
   if (!vpx_img_alloc(&img, VPX_IMG_FMT_I420, (unsigned)width,

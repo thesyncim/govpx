@@ -36,17 +36,32 @@ func vp9MacroblockCount(miRows, miCols int) int {
 
 func (rc *vp9RateControlState) keyFrameTargetBits(_ int) int {
 	if rc.mode != RateControlCBR {
-		return rc.onePassVBRKeyFrameTargetBits()
+		target := rc.onePassVBRKeyFrameTargetBits()
+		return rc.applyVP9MaxIntraBound(target)
 	}
-	return rc.perFrameBandwidthTargetBits()
+	target := rc.perFrameBandwidthTargetBits()
+	return rc.applyVP9MaxIntraBound(target)
 }
 
 func (rc *vp9RateControlState) interFrameTargetBits() int {
 	return rc.perFrameBandwidthTargetBits()
 }
 
+// boostedInterFrameTargetBits applies the libvpx VP9 GF CBR boost on top of
+// the per-frame bandwidth target, used for golden-frame refresh frames in
+// CBR mode. Non-CBR refresh boosting is handled by
+// onePassVBRInterFrameTargetBits.
+func (rc *vp9RateControlState) boostedInterFrameTargetBits() int {
+	target := rc.perFrameBandwidthTargetBits()
+	target = rc.applyVP9GFCBRBoost(target)
+	target = rc.applyVP9OvershootBound(target)
+	return target
+}
+
 func (rc *vp9RateControlState) perFrameBandwidthTargetBits() int {
 	target := rc.bitsPerFrame
+	target = rc.applyVP9UndershootBound(target)
+	target = rc.applyVP9OvershootBound(target)
 	if target < vp9FrameOverhead {
 		return vp9FrameOverhead
 	}
