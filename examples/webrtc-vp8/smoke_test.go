@@ -237,16 +237,18 @@ func TestSuperDemoEndToEnd(t *testing.T) {
 				return m.KF
 			})
 
-			// resize each rendition to a different alternate dimension
-			// and assert the telemetry advertises the new size.
-			altW, altH := 480, 272
-			if id == 0 {
-				altW, altH = 320, 192
+			// Exercise the full min<->max round-trip the browser UI
+			// offers so a regression in validDim or in the encoder's
+			// big-jump resize path fails the suite.
+			for _, dim := range [][2]int{
+				{160, 90}, {1920, 1088}, {160, 90}, {640, 360},
+			} {
+				send(map[string]any{"type": "resize", "id": id, "w": dim[0], "h": dim[1]})
+				waitFor(id, fmt.Sprintf("resize %dx%d", dim[0], dim[1]),
+					func(m telemetryMessage) bool {
+						return m.Width == dim[0] && m.Height == dim[1]
+					})
 			}
-			send(map[string]any{"type": "resize", "id": id, "w": altW, "h": altH})
-			waitFor(id, "resize", func(m telemetryMessage) bool {
-				return m.Width == altW && m.Height == altH
-			})
 
 			send(map[string]any{"type": "pause", "id": id, "paused": true})
 			// Drain telemetry briefly to verify the rendition stops

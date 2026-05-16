@@ -32,9 +32,15 @@ func TestResizeBigJump(t *testing.T) {
 	}
 	defer enc.Close()
 
+	// Every resolution offered by the browser UI's resize buttons, plus
+	// big min<->max round-trips to make sure non-mb-aligned heights
+	// (90, 180, 360, 720) and odd-stride chroma are accepted.
 	sizes := [][2]int{
-		{320, 180}, {1920, 1088}, {160, 96}, {1280, 720}, {320, 192},
-		{1920, 1088}, {160, 96},
+		{320, 180},
+		{160, 90}, {1920, 1088}, {160, 90},
+		{320, 180}, {480, 272}, {640, 360}, {864, 480},
+		{1280, 720}, {1920, 1088},
+		{160, 90}, {1280, 720}, {160, 90}, {1920, 1088},
 	}
 	dst := make([]byte, 3<<20)
 	var pts uint64

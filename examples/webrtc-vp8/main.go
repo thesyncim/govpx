@@ -1140,11 +1140,13 @@ func pushTelemetry(telemetry chan []byte, payload []byte) {
 	}
 }
 
-// validDim accepts only macroblock-aligned dimensions within the demo's
-// supported range. Anything outside this window is silently rejected so
-// the page can't crash the encoder with a bad runtime resize.
+// validDim accepts dimensions within the demo's supported range. Even
+// values only (chroma subsampling needs both dimensions to be even);
+// macroblock alignment is not required because the encoder pads
+// internally. The lower bound matches the smallest preset offered by
+// the browser UI (160x90).
 func validDim(v int) bool {
-	return v >= 96 && v <= 1920 && v%16 == 0
+	return v >= 32 && v <= 1920 && v%2 == 0
 }
 
 // pickCPUUsed mirrors libwebrtc's non-ARM VP8 complexity selection.
