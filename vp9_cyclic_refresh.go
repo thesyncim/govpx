@@ -933,13 +933,3 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-// vp9ConvertQIndexToQ mirrors libvpx's vp9_convert_qindex_to_q for
-// 8-bit depth: ac_qlookup[qindex] / 4.0.
-func vp9ConvertQIndexToQ(qindex int) float64 {
-	if qindex < 0 {
-		qindex = 0
-	} else if qindex > vp9dec.MaxQ {
-		qindex = vp9dec.MaxQ
-	}
-	return vp9QIndexToQ(int16(qindex))
-}
