@@ -42,6 +42,10 @@ const (
 	// low-variance blocks to boosted-Q segments and high-variance blocks to
 	// lower-rate segments using libvpx's variance-AQ energy bins.
 	VP9AQVariance VP9AQMode = 1
+	// VP9AQComplexity enables VP9 complexity adaptive quantization. It assigns
+	// inter blocks to in-frame Q adjustment segments using libvpx's projected
+	// rate and spatial complexity thresholds.
+	VP9AQComplexity VP9AQMode = 2
 	// VP9AQCyclicRefresh enables VP9 cyclic-refresh AQ. This mirrors
 	// libvpx VP9 aq-mode=3 and is currently limited to explicit CBR.
 	VP9AQCyclicRefresh VP9AQMode = 3
@@ -203,7 +207,8 @@ type VP9EncoderOptions struct {
 	ARNRType int
 
 	// AQMode selects VP9 adaptive quantization. VP9AQVariance enables
-	// variance-based segmentation, VP9AQCyclicRefresh enables realtime CBR
+	// variance-based segmentation, VP9AQComplexity enables projected-rate
+	// complexity segmentation, VP9AQCyclicRefresh enables realtime CBR
 	// cyclic-refresh segmentation, and zero leaves AQ disabled.
 	AQMode VP9AQMode
 
@@ -739,6 +744,12 @@ func validateVP9AQOptions(opts VP9EncoderOptions) error {
 			return ErrInvalidConfig
 		}
 		return nil
+	case VP9AQComplexity:
+		if !opts.RateControlModeSet || opts.TargetBitrateKbps <= 0 ||
+			opts.Lossless || opts.Segmentation.Enabled {
+			return ErrInvalidConfig
+		}
+		return nil
 	case VP9AQCyclicRefresh:
 	default:
 		return ErrInvalidConfig
@@ -815,6 +826,16 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 	}
 	if e.opts.AQMode == VP9AQVariance {
 		seg := vp9VarianceAQSegmentationParams(baseQIndex)
+		if e.activeMapEnabled && !intraFrame {
+			vp9EnableActiveMapSegmentation(&seg)
+		}
+		return seg
+	}
+	if e.opts.AQMode == VP9AQComplexity {
+		if e.vp9ComplexityAQSB64TargetRate() < vp9ComplexityAQMinSB64TargetRate {
+			return vp9dec.SegmentationParams{}
+		}
+		seg := vp9ComplexityAQSegmentationParams(baseQIndex)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
@@ -925,6 +946,82 @@ var vp9VarianceAQRateRatios = [vp9dec.MaxSegments]struct {
 	{1, 1},
 	{1, 1},
 	{1, 1},
+}
+
+const (
+	vp9ComplexityAQSegments          = 5
+	vp9ComplexityAQDefaultSegment    = 3
+	vp9ComplexityAQStrengths         = 3
+	vp9ComplexityAQMinSB64TargetRate = 256
+	vp9ComplexityAQLowVarThreshold   = 10.0
+)
+
+var vp9ComplexityAQRateRatios = [vp9ComplexityAQStrengths][vp9ComplexityAQSegments]struct {
+	num int
+	den int
+}{
+	{{7, 4}, {5, 4}, {21, 20}, {1, 1}, {9, 10}},
+	{{2, 1}, {3, 2}, {23, 20}, {1, 1}, {17, 20}},
+	{{5, 2}, {7, 4}, {5, 4}, {1, 1}, {4, 5}},
+}
+
+var vp9ComplexityAQTransitions = [vp9ComplexityAQStrengths][vp9ComplexityAQSegments]struct {
+	num int
+	den int
+}{
+	{{15, 100}, {30, 100}, {55, 100}, {2, 1}, {100, 1}},
+	{{20, 100}, {40, 100}, {65, 100}, {2, 1}, {100, 1}},
+	{{25, 100}, {50, 100}, {75, 100}, {2, 1}, {100, 1}},
+}
+
+var vp9ComplexityAQVarThresholds = [vp9ComplexityAQStrengths][vp9ComplexityAQSegments]float64{
+	{-4.0, -3.0, -2.0, 100.0, 100.0},
+	{-3.5, -2.5, -1.5, 100.0, 100.0},
+	{-3.0, -2.0, -1.0, 100.0, 100.0},
+}
+
+func vp9ComplexityAQSegmentationParams(baseQIndex int) vp9dec.SegmentationParams {
+	seg := vp9dec.SegmentationParams{
+		Enabled:    true,
+		UpdateMap:  true,
+		UpdateData: true,
+		AbsDelta:   false,
+	}
+	initVP9SegmentationProbDefaults(&seg)
+	strength := vp9ComplexityAQStrength(baseQIndex)
+	for i, ratio := range vp9ComplexityAQRateRatios[strength] {
+		if i == vp9ComplexityAQDefaultSegment || ratio.num == ratio.den {
+			continue
+		}
+		delta := vp9ComputeQDeltaByRate(0, 255, false, baseQIndex,
+			ratio.num, ratio.den)
+		if baseQIndex != 0 && baseQIndex+delta == 0 {
+			delta = -baseQIndex + 1
+		}
+		if baseQIndex+delta <= 0 {
+			continue
+		}
+		if delta < -255 {
+			delta = -255
+		} else if delta > 255 {
+			delta = 255
+		}
+		seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltQ)
+		seg.FeatureData[i][vp9dec.SegLvlAltQ] = int16(delta)
+	}
+	return seg
+}
+
+func vp9ComplexityAQStrength(baseQIndex int) int {
+	baseQuant := int(vp9dec.VpxAcQuant(baseQIndex, 0, vp9dec.BitDepth8)) / 4
+	strength := 0
+	if baseQuant > 10 {
+		strength++
+	}
+	if baseQuant > 25 {
+		strength++
+	}
+	return strength
 }
 
 func vp9EnableActiveMapSegmentation(seg *vp9dec.SegmentationParams) {
@@ -4040,6 +4137,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		} else if kind == vp9ModeTreeInterSource && inter != nil {
 			uvMode, hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
 				miRow, miCol, reconBsize, tile, &cur, forcedRefFrame, forcedRef)
+			segID = vp9EncoderMiSegmentID(&cur)
+			segmentSkip = vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 			if hasResidue {
 				cur.Skip = 0
 			}
@@ -4306,6 +4405,9 @@ func (e *VP9Encoder) vp9ActiveSegmentMapCodingChooser() bool {
 }
 
 func (e *VP9Encoder) vp9StaticSegmentIDForMap() uint8 {
+	if e != nil && e.opts.AQMode == VP9AQComplexity {
+		return vp9ComplexityAQDefaultSegment
+	}
 	if e == nil || e.opts.Segmentation.SegmentID >= vp9dec.MaxSegments {
 		return 0
 	}
@@ -4401,6 +4503,111 @@ func (e *VP9Encoder) vp9VarianceAQSegmentID(img *image.YCbCr,
 		energy = 1
 	}
 	return vp9VarianceAQSegmentIDFromEnergy(energy), true
+}
+
+func (e *VP9Encoder) applyVP9ComplexityAQSegment(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, mi *vp9dec.NeighborMi,
+	projectedRate int,
+) {
+	if e == nil || inter == nil || mi == nil ||
+		e.opts.AQMode != VP9AQComplexity {
+		return
+	}
+	if e.vp9ActiveMapInactive(miRow, miCol) {
+		if e.vp9ActiveMapInactiveNeedsSegment(inter, miRow, miCol) {
+			mi.SegmentID = vp9ActiveMapSegmentInactive
+			mi.SegIDPredicted = 0
+		}
+		return
+	}
+	segID, ok := e.vp9ComplexityAQSegmentID(inter.img, miRow, miCol, bsize,
+		projectedRate)
+	if !ok {
+		return
+	}
+	mi.SegmentID = segID
+	mi.SegIDPredicted = 0
+}
+
+func (e *VP9Encoder) vp9ComplexityAQSegmentID(img *image.YCbCr,
+	miRow, miCol int, bsize common.BlockSize, projectedRate int,
+) (uint8, bool) {
+	if e == nil || img == nil || miRow < 0 || miCol < 0 ||
+		bsize >= common.BlockSizes {
+		return 0, false
+	}
+	sb64TargetRate := e.vp9ComplexityAQSB64TargetRate()
+	if sb64TargetRate < vp9ComplexityAQMinSB64TargetRate {
+		return 0, false
+	}
+	src, stride, width, height := vp9EncoderSourcePlane(img, 0)
+	if len(src) == 0 || stride <= 0 {
+		return 0, false
+	}
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0 >= width || y0 >= height {
+		return 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	w := min(blockW, width-x0)
+	h := min(blockH, height-y0)
+	if w <= 0 || h <= 0 {
+		return 0, false
+	}
+	variance := vp9BlockSourceVariance128(src, stride, x0, y0, w, h)
+	logVar := math.Log(float64(variance) + 1.0)
+	xmis := min(e.vp9MiCols(), miCol+int(common.Num8x8BlocksWideLookup[bsize])) - miCol
+	ymis := min(e.vp9MiRows(), miRow+int(common.Num8x8BlocksHighLookup[bsize])) - miRow
+	if xmis <= 0 || ymis <= 0 {
+		return 0, false
+	}
+	targetRate := int((int64(sb64TargetRate) * int64(xmis) *
+		int64(ymis) * 256) / (8 * 8))
+	if targetRate <= 0 {
+		return 0, false
+	}
+	if projectedRate < 0 {
+		projectedRate = 0
+	}
+	strength := vp9ComplexityAQStrength(e.vp9EncoderModeDecisionQIndex())
+	for i, transition := range vp9ComplexityAQTransitions[strength] {
+		if int64(projectedRate)*int64(transition.den) <
+			int64(targetRate)*int64(transition.num) &&
+			logVar < vp9ComplexityAQLowVarThreshold+
+				vp9ComplexityAQVarThresholds[strength][i] {
+			return uint8(i), true
+		}
+	}
+	return vp9ComplexityAQSegments - 1, true
+}
+
+func (e *VP9Encoder) vp9ComplexityAQSB64TargetRate() int {
+	if e == nil || e.rc.frameTargetBits <= 0 {
+		return 0
+	}
+	sbCols := (e.vp9MiCols() + 7) >> 3
+	sbRows := (e.vp9MiRows() + 7) >> 3
+	sbCount := sbCols * sbRows
+	if sbCount <= 0 {
+		return 0
+	}
+	return e.rc.frameTargetBits / sbCount
+}
+
+func (e *VP9Encoder) vp9MiRows() int {
+	if e == nil || e.opts.Height <= 0 {
+		return 0
+	}
+	return (e.opts.Height + 7) >> 3
+}
+
+func (e *VP9Encoder) vp9MiCols() int {
+	if e == nil || e.opts.Width <= 0 {
+		return 0
+	}
+	return (e.opts.Width + 7) >> 3
 }
 
 func vp9VarianceAQSegmentIDFromEnergy(energy int) uint8 {
@@ -5093,12 +5300,25 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	if !ok {
 		return common.DcPred, false
 	}
+	if e.opts.AQMode == VP9AQComplexity {
+		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
+			bsize, mi.TxSize)
+		projectedRate := interDecision.rate
+		if _, coeffRate, hasTxResidue, ok := e.scoreVP9InterTxCandidate(inter,
+			miRows, miCols, miRow, miCol, bsize, mi.TxSize); ok && hasTxResidue {
+			projectedRate += coeffRate
+		}
+		e.applyVP9ComplexityAQSegment(inter, miRow, miCol, bsize, mi,
+			projectedRate)
+	}
 	if !forcedRef && e.vp9StaticThresholdBreakout(inter, miRows, miCols,
 		miRow, miCol, bsize, mi) {
 		return common.DcPred, false
 	}
-	mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
-		bsize, mi.TxSize)
+	if e.opts.AQMode != VP9AQComplexity {
+		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
+			bsize, mi.TxSize)
+	}
 	if !inter.lossless && !forcedRef {
 		if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
 			miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {

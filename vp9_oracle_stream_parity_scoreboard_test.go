@@ -874,6 +874,28 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			exactPrefix: 0,
 		},
 		{
+			name:    "complexity-aq-panning",
+			fixture: panning320,
+			frames:  8,
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+				AQMode:              VP9AQComplexity,
+			},
+			extraArgs: []string{
+				"--end-usage=vbr",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--aq-mode=2",
+			},
+			exactPrefix: 0,
+		},
+		{
 			name:    "vbr-rate-panning-720p",
 			fixture: panning720,
 			frames:  3,
