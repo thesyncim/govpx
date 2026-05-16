@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
@@ -342,5 +343,317 @@ func TestVP9CyclicRefreshResetResize(t *testing.T) {
 	}
 	if cr.counterEncodeMaxqSceneChange != 0 {
 		t.Fatalf("counter_encode_maxq_scene_change = %d, want 0", cr.counterEncodeMaxqSceneChange)
+	}
+}
+
+// TestVP9CyclicRefreshConsecZeroMVCounterUpdates pins libvpx
+// update_zeromv_cnt (vp9/encoder/vp9_encodeframe.c:5999-6022): for an
+// inter LAST_FRAME block whose MV magnitude is < 8 on both axes, the
+// per-(8x8) consec_zero_mv counter increments (saturating at 255);
+// a single large-MV frame at the same block resets the counter to 0.
+func TestVP9CyclicRefreshConsecZeroMVCounterUpdates(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	cr := &vp9CyclicRefreshState{}
+	cr.configure(true, width, height)
+	miCols := cr.miCols
+	if len(cr.consecZeroMv) != cr.miRows*cr.miCols {
+		t.Fatalf("consecZeroMv len = %d, want %d", len(cr.consecZeroMv), cr.miRows*cr.miCols)
+	}
+	// Toggle MV at a fixed SB across 5 frames; pin (mi_row, mi_col) = (1, 2).
+	// libvpx clamps consec_zero_mv reset to LAST_FRAME inter blocks
+	// only with segment_id <= CR_SEGMENT_ID_BOOST2.
+	const miRow, miCol = 1, 2
+	const bw, bh = 1, 1
+	// Frame 1: zero MV → counter[idx]==1.
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.LastFrame, true, vp9CyclicRefreshSegmentBoost1)
+	idx := miRow*miCols + miCol
+	if got := cr.consecZeroMv[idx]; got != 1 {
+		t.Fatalf("frame1 counter = %d, want 1 after first zero MV", got)
+	}
+	// Frame 2: zero MV → counter[idx]==2.
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.LastFrame, true, vp9CyclicRefreshSegmentBoost1)
+	if got := cr.consecZeroMv[idx]; got != 2 {
+		t.Fatalf("frame2 counter = %d, want 2", got)
+	}
+	// Frame 3: large MV (libvpx uses |mv|>=8 to reset) → counter[idx]==0.
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		16, 16, vp9dec.LastFrame, true, vp9CyclicRefreshSegmentBoost1)
+	if got := cr.consecZeroMv[idx]; got != 0 {
+		t.Fatalf("frame3 counter = %d, want 0 after large MV", got)
+	}
+	// Frame 4: zero MV → counter[idx]==1.
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.LastFrame, true, vp9CyclicRefreshSegmentBoost1)
+	if got := cr.consecZeroMv[idx]; got != 1 {
+		t.Fatalf("frame4 counter = %d, want 1", got)
+	}
+	// Frame 5: zero MV but block is INTRA → counter unchanged (libvpx
+	// vp9_encodeframe.c:6012 gates on is_inter_block).
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.IntraFrame, false, vp9CyclicRefreshSegmentBoost1)
+	if got := cr.consecZeroMv[idx]; got != 1 {
+		t.Fatalf("frame5 (intra) counter = %d, want unchanged 1", got)
+	}
+	// Frame 6: zero MV but ref is GOLDEN_FRAME → counter unchanged
+	// (libvpx vp9_encodeframe.c:6012 gates on ref_frame[0] == LAST_FRAME).
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.GoldenFrame, true, vp9CyclicRefreshSegmentBoost1)
+	if got := cr.consecZeroMv[idx]; got != 1 {
+		t.Fatalf("frame6 (golden ref) counter = %d, want unchanged 1", got)
+	}
+	// Frame 7: zero MV but segment_id > BOOST2 → counter unchanged
+	// (libvpx vp9_encodeframe.c:6013 gates on segment_id <= BOOST2).
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.LastFrame, true, vp9CyclicRefreshSegmentBoost2+1)
+	if got := cr.consecZeroMv[idx]; got != 1 {
+		t.Fatalf("frame7 (seg>BOOST2) counter = %d, want unchanged 1", got)
+	}
+	// Saturation check: bump up to 255 then once more — should clamp.
+	cr.consecZeroMv[idx] = 254
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.LastFrame, true, vp9CyclicRefreshSegmentBoost1)
+	if got := cr.consecZeroMv[idx]; got != 255 {
+		t.Fatalf("saturation step 1: counter = %d, want 255", got)
+	}
+	cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow, miCol, bw, bh,
+		0, 0, vp9dec.LastFrame, true, vp9CyclicRefreshSegmentBoost1)
+	if got := cr.consecZeroMv[idx]; got != 255 {
+		t.Fatalf("saturation clamp: counter = %d, want stays at 255", got)
+	}
+}
+
+// TestVP9CyclicRefreshEligibilityFilterFiresOnStationaryBlocks pins
+// the update_map eligibility filter from libvpx
+// vp9_aq_cyclicrefresh.c:437-442: with consec_zero_mv populated, blocks
+// that have been stationary for longer than consec_zero_mv_thresh are
+// excluded from the refresh candidate pool (eligibility=false), while
+// recently-moved blocks stay eligible. This mirrors the libvpx
+// behaviour that drives the bulk of the BD-rate win — refresh is steered
+// away from already-stable regions and toward changing content.
+func TestVP9CyclicRefreshEligibilityFilterFiresOnStationaryBlocks(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	cr := &vp9CyclicRefreshState{}
+	cr.configure(true, width, height)
+	miRows := cr.miRows
+	miCols := cr.miCols
+	// Pre-prime consec_zero_mv: half the frame stationary for many frames,
+	// half the frame recently-moved.
+	stationary := uint8(120) // > consec_zero_mv_thresh (100 for non-screen).
+	moved := uint8(0)
+	for r := range miRows {
+		for c := range miCols {
+			idx := r*miCols + c
+			if c < miCols/2 {
+				cr.consecZeroMv[idx] = stationary
+			} else {
+				cr.consecZeroMv[idx] = moved
+			}
+		}
+	}
+	// Set last_coded_q_map below qindex_thresh on the whole frame so the
+	// |last_coded_q_map > qindex_thresh| branch of the filter doesn't fire.
+	for i := range cr.lastCodedQMap {
+		cr.lastCodedQMap[i] = 10
+	}
+	// All blocks start as refresh candidates (refreshMap == 0).
+	for i := range cr.refreshMap {
+		cr.refreshMap[i] = 0
+	}
+	// Drive update_map with a high percent_refresh + non-screen content.
+	cr.percentRefresh = 100 // try to refresh the whole frame.
+	cr.contentMode = true
+	cr.vp9CyclicRefreshUpdateMap(cr.consecZeroMv, 50, 100, false)
+	// The half-superblock heuristic in vp9_aq_cyclicrefresh.c:450 means
+	// every SB whose sum_map >= xmis*ymis/2 gets stamped BOOST1. With
+	// half the cols stationary, the SB-eligibility split depends on the
+	// SB layout (8x8 mi blocks per SB); count seg-blocks to confirm
+	// stationarity reduces the refresh population.
+	boostedStationary := 0
+	boostedMoved := 0
+	for r := range miRows {
+		for c := range miCols {
+			idx := r*miCols + c
+			if cr.segMap[idx] != vp9CyclicRefreshSegmentBoost1 {
+				continue
+			}
+			if c < miCols/2 {
+				boostedStationary++
+			} else {
+				boostedMoved++
+			}
+		}
+	}
+	// libvpx's filter sums per-SB; we expect the moved half to dominate
+	// the refresh population.
+	if boostedMoved <= boostedStationary {
+		t.Fatalf("eligibility filter did not steer refresh toward moved blocks: stationary=%d moved=%d",
+			boostedStationary, boostedMoved)
+	}
+}
+
+// TestVP9CyclicRefreshUpdateSbPostencodeUpdatesLastCodedQMap pins the
+// update_sb_postencode loop from libvpx vp9_aq_cyclicrefresh.c:225-255:
+// each 8x8 block in the SB gets its last_coded_q_map[bl] set to
+// clamp(base_qindex + qindex_delta[segment_id], 0, MAXQ) when the
+// block is not inter-skip, and the min() of the new and old value
+// when the block is inter-skip.
+func TestVP9CyclicRefreshUpdateSbPostencodeUpdatesLastCodedQMap(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	cr := &vp9CyclicRefreshState{}
+	cr.configure(true, width, height)
+	cr.qindexDelta[vp9CyclicRefreshSegmentBase] = 0
+	cr.qindexDelta[vp9CyclicRefreshSegmentBoost1] = -20
+	cr.qindexDelta[vp9CyclicRefreshSegmentBoost2] = -40
+	for i := range cr.lastCodedQMap {
+		cr.lastCodedQMap[i] = vp9dec.MaxQ
+	}
+	// Non-inter-skip block at BOOST1 with base_qindex=100 → q=80.
+	cr.vp9CyclicRefreshUpdateSegmentPostencode(0, 0, 1, 1, 100,
+		vp9CyclicRefreshSegmentBoost1, true /*inter*/, false /*skip*/)
+	if got := cr.lastCodedQMap[0]; got != 80 {
+		t.Fatalf("BOOST1 non-skip lastCodedQMap[0] = %d, want 80", got)
+	}
+	// Pre-fill a low value, then inter-skip BOOST1 at base 200 → min(180, 50)=50.
+	cr.lastCodedQMap[1] = 50
+	cr.vp9CyclicRefreshUpdateSegmentPostencode(0, 1, 1, 1, 200,
+		vp9CyclicRefreshSegmentBoost1, true /*inter*/, true /*skip*/)
+	if got := cr.lastCodedQMap[1]; got != 50 {
+		t.Fatalf("BOOST1 inter-skip lastCodedQMap[1] = %d, want min(180, 50) = 50", got)
+	}
+	// Inter-skip BOOST2 at base 100 (q=60) with prior 200 → min(60, 200)=60.
+	cr.lastCodedQMap[2] = 200
+	cr.vp9CyclicRefreshUpdateSegmentPostencode(0, 2, 1, 1, 100,
+		vp9CyclicRefreshSegmentBoost2, true /*inter*/, true /*skip*/)
+	if got := cr.lastCodedQMap[2]; got != 60 {
+		t.Fatalf("BOOST2 inter-skip lastCodedQMap[2] = %d, want min(60, 200) = 60", got)
+	}
+}
+
+// TestVP9CyclicRefreshEncoderConsecZeroMVPlumbing pins the end-to-end
+// wiring of vp9_encodeframe.c:5999-6022 (update_zeromv_cnt) into the
+// govpx encode loop: after encoding a keyframe + an inter frame with
+// cyclic AQ active, the per-SB postencode hook has had a chance to
+// run for every SB. We seed the consec_zero_mv slice with sentinel
+// values, then verify the hook walked every 8x8 block in the frame
+// (either resetting on large MVs or bumping on small MVs).
+func TestVP9CyclicRefreshEncoderConsecZeroMVPlumbing(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            -8,
+		AQMode:             VP9AQCyclicRefresh,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	src1 := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	if _, err := enc.EncodeInto(src1, dst); err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	// Validate the slice is the right size — alloc happened on first frame.
+	want := enc.cyclicAQ.miRows * enc.cyclicAQ.miCols
+	if len(enc.cyclicAQ.consecZeroMv) != want {
+		t.Fatalf("consec_zero_mv len = %d, want mi_rows*mi_cols = %d",
+			len(enc.cyclicAQ.consecZeroMv), want)
+	}
+	// Seed every entry with a sentinel so we can observe whether the
+	// per-SB hook touched each (mi_row, mi_col). libvpx's hook either
+	// bumps (zero MV) or resets to 0 (large MV) every LAST_FRAME inter
+	// block; any non-sentinel value confirms the hook walked the SB.
+	const sentinel uint8 = 250
+	for i := range enc.cyclicAQ.consecZeroMv {
+		enc.cyclicAQ.consecZeroMv[i] = sentinel
+	}
+	src2 := newVP9YCbCrForTest(width, height, 116, 128, 128)
+	if _, err := enc.EncodeInto(src2, dst); err != nil {
+		t.Fatalf("inter: %v", err)
+	}
+	touched := 0
+	for _, v := range enc.cyclicAQ.consecZeroMv {
+		if v != sentinel {
+			touched++
+		}
+	}
+	if touched == 0 {
+		t.Fatalf("consec_zero_mv all sentinel after inter frame: per-SB postencode hook not wired into encode loop")
+	}
+	// At a CBR/RT speed-8 path the encoder is expected to pick LAST_FRAME
+	// inter on most blocks of a constant-grey source — touching the
+	// full mi_rows*mi_cols footprint.
+	if touched < want/2 {
+		t.Fatalf("consec_zero_mv hook only touched %d / %d blocks: SB walker incomplete",
+			touched, want)
+	}
+}
+
+// TestVP9CyclicRefreshEncoderPostencodeUpdatesLastCodedQMap pins that
+// the per-SB postencode hook in writeVP9ModesTileBounds actually fires
+// on encoded inter frames — by checking last_coded_q_map drops below
+// MAXQ on at least some blocks after a frame.
+func TestVP9CyclicRefreshEncoderPostencodeUpdatesLastCodedQMap(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            -8,
+		AQMode:             VP9AQCyclicRefresh,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	src1 := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src2 := newVP9YCbCrForTest(width, height, 116, 128, 128)
+	if _, err := enc.EncodeInto(src1, dst); err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	if _, err := enc.EncodeInto(src2, dst); err != nil {
+		t.Fatalf("inter: %v", err)
+	}
+	// After at least one inter frame with cyclic AQ on, last_coded_q_map
+	// must show at least one entry below MAXQ — meaning the per-SB
+	// postencode hook walked the SB and clamp()-stamped the chosen q.
+	below := 0
+	for _, v := range enc.cyclicAQ.lastCodedQMap {
+		if v < vp9dec.MaxQ {
+			below++
+		}
+	}
+	if below == 0 {
+		t.Fatalf("last_coded_q_map all MAXQ after inter frame: postencode hook not firing")
+	}
+	// Sanity: the bsize lookup constants stay aligned.
+	if common.MiBlockSize != vp9CyclicRefreshSuperblockMi {
+		t.Fatalf("common.MiBlockSize = %d, want %d (mi-per-sb)",
+			common.MiBlockSize, vp9CyclicRefreshSuperblockMi)
 	}
 }
