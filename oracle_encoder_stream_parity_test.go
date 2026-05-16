@@ -1360,6 +1360,25 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 	}
 }
 
+// extraArgsContainsKFDist reports whether the caller already supplied a
+// `--kf-min-dist` or `--kf-max-dist` (with either an `=` form or the
+// space-separated `--name value` form) in extraArgs, so the default
+// `--kf-min-dist=999 --kf-max-dist=999` "disable auto-KF" pair shouldn't
+// be appended on top.
+func extraArgsContainsKFDist(extraArgs []string) bool {
+	for _, arg := range extraArgs {
+		switch {
+		case arg == "--kf-min-dist", arg == "--kf-max-dist":
+			return true
+		case len(arg) >= len("--kf-min-dist=") && arg[:len("--kf-min-dist=")] == "--kf-min-dist=":
+			return true
+		case len(arg) >= len("--kf-max-dist=") && arg[:len("--kf-max-dist=")] == "--kf-max-dist=":
+			return true
+		}
+	}
+	return false
+}
+
 func libvpxEndUsageArgs(extraArgs []string) []string {
 	for _, arg := range extraArgs {
 		if arg == "--end-usage" || len(arg) >= len("--end-usage=") && arg[:len("--end-usage=")] == "--end-usage=" {
@@ -1445,8 +1464,6 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
 		"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
 		autoAltRefArg,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
 		"--target-bitrate=" + strconv.Itoa(targetKbps),
 		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
 		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
@@ -1457,6 +1474,18 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		"--fps=" + libvpxOracleFPSArg(opts),
 		"--limit=" + strconv.Itoa(len(sources)),
 		"--output=" + ivfPath,
+	}
+	// Only inject the default `--kf-min-dist=999 --kf-max-dist=999`
+	// "no auto-KF" pair when the caller hasn't supplied its own kf-*
+	// arguments via extraArgs. Several callers (long-fixture fuzz,
+	// production parity, transitions, twopass fuzz, runtime-controls
+	// parity) configure a finite KeyFrameInterval on the govpx side
+	// and need libvpx's `cpi->key_frame_frequency` to match; passing
+	// the default 999/999 silently in those cases would force govpx
+	// to insert a keyframe at frame `KeyFrameInterval` while libvpx
+	// keeps producing inter frames.
+	if !extraArgsContainsKFDist(extraArgs) {
+		args = append(args, "--kf-min-dist=999", "--kf-max-dist=999")
 	}
 	args = append(args, extraArgs...)
 	args = append(args, yuvPath)
