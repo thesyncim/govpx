@@ -280,6 +280,28 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			tileJobs:    4,
 		},
 		{
+			name:    "fixed-q-threaded-panning-720p",
+			fixture: panning720,
+			frames:  2,
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			extraArgs: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			// Visibility row for the non-constant 720p threaded tile path:
+			// byte parity still diverges, but every frame must exercise the
+			// per-tile writer pool so the remaining gap stays pinned.
+			exactPrefix: 0,
+			tileJobs:    4,
+		},
+		{
 			name:    "fixed-q-rt-cpu4-constant",
 			fixture: constant64,
 			frames:  4,
@@ -992,7 +1014,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				t.Fatalf("strict VP9 pinned byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
-			panningByteCase := tc.name == "no-reference-all-panning" ||
+			panningByteCase := tc.name == "fixed-q-threaded-panning-720p" ||
+				tc.name == "no-reference-all-panning" ||
 				tc.name == "fixed-q-no-reference-all-panning-320"
 			newModeByteCase := tc.name == "vbr-rate-panning" ||
 				tc.name == "vbr-rate-constant" ||
