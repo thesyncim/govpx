@@ -89,6 +89,10 @@ type VP9EncoderOptions struct {
 	// TuneSSIM is accepted for libvpx control-surface parity and future SSIM
 	// mode-decision work.
 	Tuning Tuning
+	// ScreenContentMode selects VP9 content tuning: 0 is default video, 1 is
+	// screen content, and 2 is film/grain content. Screen content enables the
+	// broader no-reference intra mode search used by realtime VP9.
+	ScreenContentMode int8
 	// NoiseSensitivity selects VP9 luma/chroma temporal denoising. Zero
 	// disables the denoiser. Valid values are [0, 6]; 1 is low strength, 2 is
 	// medium, and 3..6 use the high-strength VP9 temporal denoiser path.
@@ -551,6 +555,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if opts.Tuning < TunePSNR || opts.Tuning > TuneSSIM {
+		return ErrInvalidConfig
+	}
+	if opts.ScreenContentMode < 0 || opts.ScreenContentMode > 2 {
 		return ErrInvalidConfig
 	}
 	if opts.NoiseSensitivity < 0 || opts.NoiseSensitivity > 6 {
@@ -5512,10 +5519,10 @@ var vp9NoReferenceIntraModes = [...]common.PredictionMode{
 	common.TmPred,
 }
 
-func vp9NoReferenceIntraModeCount(bsize common.BlockSize) int {
+func vp9NoReferenceIntraModeCount(bsize common.BlockSize, screenContentMode int8) int {
 	// Mirrors the realtime VP9 intra_y_mode_bsize_mask used when inter refs
 	// are disabled: non-screen content only keeps DC for blocks above 16x16.
-	if bsize > common.Block16x16 {
+	if screenContentMode != 1 && bsize > common.Block16x16 {
 		return 1
 	}
 	return 3
@@ -5552,7 +5559,7 @@ func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	rateBase := vp9IntraInterRateCost(&inter.selectFc, above, left, 0)
 	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
-	modeCount := vp9NoReferenceIntraModeCount(bsize)
+	modeCount := vp9NoReferenceIntraModeCount(bsize, e.opts.ScreenContentMode)
 
 	bestSet := false
 	var best vp9InterIntraDecision

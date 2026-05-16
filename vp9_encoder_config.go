@@ -337,6 +337,20 @@ func (e *VP9Encoder) SetTuning(tuning Tuning) error {
 	return nil
 }
 
+// SetScreenContentMode changes VP9 content tuning for subsequent frames. Valid
+// values are 0 for default video, 1 for screen content, and 2 for film/grain
+// content. Screen content expands the realtime no-reference intra search.
+func (e *VP9Encoder) SetScreenContentMode(mode int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if mode < 0 || mode > 2 {
+		return ErrInvalidConfig
+	}
+	e.opts.ScreenContentMode = int8(mode)
+	return nil
+}
+
 // SetNoiseSensitivity changes the VP9 luma/chroma temporal denoiser level used
 // for subsequent frames. Valid values are [0, 6]. Zero disables the denoiser;
 // non-zero values allocate or resize denoiser buffers on the next encode.

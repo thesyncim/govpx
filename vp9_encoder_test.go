@@ -544,6 +544,8 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.ARNRStrength = 7 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.ARNRType = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.ARNRType = 4 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ScreenContentMode = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.ScreenContentMode = 3 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = 7 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Sharpness = 8 }, ErrInvalidConfig},
@@ -812,6 +814,41 @@ func TestVP9EncoderSetNoiseSensitivity(t *testing.T) {
 	if e.opts.NoiseSensitivity != 0 || e.denoiser.sensitivity != 0 {
 		t.Fatalf("disabled noise sensitivity = opts:%d state:%d, want 0/0",
 			e.opts.NoiseSensitivity, e.denoiser.sensitivity)
+	}
+}
+
+func TestVP9EncoderSetScreenContentMode(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	for _, mode := range []int{0, 1, 2} {
+		if err := e.SetScreenContentMode(mode); err != nil {
+			t.Fatalf("SetScreenContentMode(%d): %v", mode, err)
+		}
+		if e.opts.ScreenContentMode != int8(mode) {
+			t.Fatalf("ScreenContentMode = %d, want %d",
+				e.opts.ScreenContentMode, mode)
+		}
+	}
+	if err := e.SetScreenContentMode(3); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetScreenContentMode invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.ScreenContentMode != 2 {
+		t.Fatal("invalid SetScreenContentMode mutated encoder")
+	}
+
+	if got := vp9NoReferenceIntraModeCount(common.Block32x32, 0); got != 1 {
+		t.Fatalf("default 32x32 no-ref intra mode count = %d, want 1", got)
+	}
+	if got := vp9NoReferenceIntraModeCount(common.Block32x32, 1); got != 3 {
+		t.Fatalf("screen 32x32 no-ref intra mode count = %d, want 3", got)
+	}
+	if got := vp9NoReferenceIntraModeCount(common.Block32x32, 2); got != 1 {
+		t.Fatalf("film 32x32 no-ref intra mode count = %d, want 1", got)
+	}
+	if got := vp9NoReferenceIntraModeCount(common.Block16x16, 0); got != 3 {
+		t.Fatalf("default 16x16 no-ref intra mode count = %d, want 3", got)
 	}
 }
 
@@ -4890,6 +4927,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetARNR after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetScreenContentMode(1); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetScreenContentMode after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetSharpness(3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetSharpness after Close err = %v, want ErrClosed", err)
 	}
@@ -4938,6 +4978,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetARNR on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetScreenContentMode(1); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetScreenContentMode on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetSharpness(3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetSharpness on nil encoder err = %v, want ErrClosed", err)

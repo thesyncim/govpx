@@ -130,6 +130,13 @@ static int parse_tune(const char *value) {
   exit(EXIT_FAILURE);
 }
 
+static int parse_tune_content(const char *value) {
+  if (strcmp(value, "default") == 0) return VP9E_CONTENT_DEFAULT;
+  if (strcmp(value, "screen") == 0) return VP9E_CONTENT_SCREEN;
+  if (strcmp(value, "film") == 0) return VP9E_CONTENT_FILM;
+  return parse_int(value, "--tune-content");
+}
+
 static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
   if (!csv) {
     *out_count = 0;
@@ -796,6 +803,11 @@ static void apply_vp9_runtime_control_token(
                           parse_tune(token + strlen("tune:")))) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_TUNING");
     }
+  } else if (starts_with(token, "screen:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_TUNE_CONTENT,
+                          control_value_int(token, "screen:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_TUNE_CONTENT");
+    }
   } else if (starts_with(token, "cq:")) {
     *ctx->cq_level = control_value_int(token, "cq:");
     if (vpx_codec_control(ctx->ctx, VP8E_SET_CQ_LEVEL,
@@ -1028,6 +1040,7 @@ int main(int argc, char **argv) {
   int deadline = (int)VPX_DL_REALTIME;
   int cpu_used = 8;
   int tune = VP8_TUNE_PSNR;
+  int tune_content = VP9E_CONTENT_DEFAULT;
   int noise_sensitivity = 0;
   int sharpness = 0;
   int error_resilient = 0;
@@ -1094,6 +1107,8 @@ int main(int argc, char **argv) {
       cpu_used = parse_int(v, "--cpu-used");
     } else if ((v = flag_value(a, "--tune"))) {
       tune = parse_tune(v);
+    } else if ((v = flag_value(a, "--tune-content"))) {
+      tune_content = parse_tune_content(v);
     } else if ((v = flag_value(a, "--noise-sensitivity"))) {
       noise_sensitivity = parse_int(v, "--noise-sensitivity");
     } else if ((v = flag_value(a, "--sharpness"))) {
@@ -1277,6 +1292,8 @@ int main(int argc, char **argv) {
     die_codec_msg(&ctx, "VP8E_SET_CPUUSED");
   if (vpx_codec_control(&ctx, VP8E_SET_TUNING, tune))
     die_codec_msg(&ctx, "VP8E_SET_TUNING");
+  if (vpx_codec_control(&ctx, VP9E_SET_TUNE_CONTENT, tune_content))
+    die_codec_msg(&ctx, "VP9E_SET_TUNE_CONTENT");
   if (vpx_codec_control(&ctx, VP9E_SET_NOISE_SENSITIVITY,
                         (unsigned)noise_sensitivity))
     die_codec_msg(&ctx, "VP9E_SET_NOISE_SENSITIVITY");

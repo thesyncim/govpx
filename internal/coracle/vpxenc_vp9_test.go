@@ -238,9 +238,10 @@ func TestVpxencVP9FrameFlagsTraceI420AcceptsReferenceAndTuningControls(t *testin
 	ivf, trace, diag, err := VpxencVP9FrameFlagsTraceI420(raw, width, height,
 		frames, nil,
 		"--tune=ssim",
+		"--tune-content=screen",
 		"--noise-sensitivity=1",
 		"--copy-ref-log="+logPath,
-		"--control-script=-,copyref:last,tune:psnr+setref:last:panning:3+copyref:last,tune:ssim+noise:0+copyref:last")
+		"--control-script=-,copyref:last,tune:psnr+screen:2+setref:last:panning:3+copyref:last,tune:ssim+noise:0+screen:0+copyref:last")
 	if err != nil {
 		t.Fatalf("VpxencVP9FrameFlagsTraceI420 reference/tuning controls failed: %v\n%s", err, diag)
 	}
