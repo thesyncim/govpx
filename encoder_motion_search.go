@@ -125,6 +125,13 @@ type fullPelMotionSearch struct {
 	refRow8     int
 	refCol8     int
 	bestRefMV   vp8enc.MotionVector
+	// firstPassMode selects the zero-sadPerBit MV-SAD cost table used by
+	// libvpx's first pass (vp8_first_pass never calls
+	// vp8cx_initialize_me_consts, so x->sadperbit16 stays at 0 and
+	// mvsad_err_cost collapses to 0). Without this flag govpx's first-pass
+	// diamond search over-penalises off-center candidates and converges to
+	// a different MV than libvpx, propagating into frame-3+ MV stats.
+	firstPassMode bool
 }
 
 func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, errorPerBit int, stats *interFrameMotionSearchStats) fullPelMotionSearch {
@@ -159,6 +166,14 @@ func (s *fullPelMotionSearch) cost(mv vp8enc.MotionVector) int {
 func (s *fullPelMotionSearch) walkCost(mv vp8enc.MotionVector, limit int) int {
 	row := int(mv.Row) >> 3
 	col := int(mv.Col) >> 3
+	if s.firstPassMode {
+		// Mirror libvpx's first-pass diamond_search_sad: sadperbit16 is 0
+		// (vp8cx_initialize_me_consts is never called pre-firstpass) so
+		// the MV-SAD cost component collapses to 0. The raw SAD is the
+		// initial bestsad.
+		s.stats.recordFullPelSAD(1, false)
+		return s.ctx.fullPelSADFull(row, col)
+	}
 	if limit == maxInt() {
 		s.stats.recordFullPelSAD(1, false)
 		return s.ctx.fullPelCostFull(row, col, s.refRow8, s.refCol8, s.qIndex)
@@ -233,7 +248,12 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 	ctx := &s.ctx
 	refRow8 := s.refRow8
 	refCol8 := s.refCol8
-	costs := &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+	var costs *[256]int
+	if s.firstPassMode {
+		costs = &libvpxFirstPassFullPelMVSADComponentCost16
+	} else {
+		costs = &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+	}
 	var local fullPelLocalStats
 	var sad4 [4]uint32
 	for range totalSteps {
@@ -348,11 +368,22 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 	bestRow := int(start.Row) >> 3
 	bestCol := int(start.Col) >> 3
 	bestWalkCost := s.ctx.fullPelCostFull(bestRow, bestCol, s.refRow8, s.refCol8, s.qIndex)
+	if s.firstPassMode {
+		// Re-anchor bestWalkCost to the zero-sadPerBit cost table used by
+		// libvpx's first pass: fullPelCostFull uses the per-q LUT, but the
+		// refine inner loop below uses the first-pass table.
+		bestWalkCost = s.ctx.fullPelSADFull(bestRow, bestCol)
+	}
 	bounds := s.bounds
 	ctx := &s.ctx
 	refRow8 := s.refRow8
 	refCol8 := s.refCol8
-	costs := &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+	var costs *[256]int
+	if s.firstPassMode {
+		costs = &libvpxFirstPassFullPelMVSADComponentCost16
+	} else {
+		costs = &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+	}
 	var local fullPelLocalStats
 	var sad4 [4]uint32
 	for range searchRange {

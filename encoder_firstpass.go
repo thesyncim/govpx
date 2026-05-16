@@ -566,6 +566,15 @@ func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 		Col: int16(int(seed.Col) & ^7),
 	})
 	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, seed, qIndex, bounds, &vp8tables.DefaultMVContext, nil, 0, nil)
+	// Mirror libvpx vp8_first_pass: vp8cx_initialize_me_consts is never
+	// called before the first-pass loop, so x->sadperbit16 is the
+	// zero-init calloc value (0) and mvsad_err_cost collapses to 0
+	// inside diamond_search_sad. firstPassMode wires the diamond search
+	// to use the zero-sadPerBit MV-SAD cost table accordingly, otherwise
+	// govpx over-penalises off-center candidates and converges to a
+	// different MV than libvpx — observed as frame-3+ MV-stats drift on
+	// the F2 fuzz seed corpus (plan-§3 gap E Step 2).
+	searcher.firstPassMode = true
 	centerCost := searcher.walkCost(center, maxInt())
 	search := interAnalysisSearchConfig{
 		fullPixelSearchParam:  libvpxFirstPassSearchStepParam,

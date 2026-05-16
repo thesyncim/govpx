@@ -44,33 +44,33 @@ type firstPassLooseTolerances struct {
 }
 
 // defaultFirstPassLooseTolerances is the cross-config ceiling consumed
-// by the F2 fuzzer. Numbers are calibrated against the current seed
-// corpus (max observed |Δ| on MVcv = 1394, per-frame max ≈ 716): each
-// ceiling is the smallest value that admits the corpus while still
-// catching a 2x regression. MV variance fields dominate because
-// variance scales as the square of MV delta, so a one-pel average
-// shift per frame drives several-hundred-unit |Δ| on a 32x32 frame
-// with four moving MBs.
-//
-// Tighten these as Step 2 (closing the MV-accumulator divergence)
-// makes progress. The expected end-state is a uniform near-zero
-// ceiling once first-pass reconstruction matches libvpx byte-for-byte.
+// by the F2 fuzzer. Step 2 of plan-§3 gap E closed the residual
+// first-pass MV-accumulator divergence (govpx's diamond search was
+// computing MV-SAD costs with sad_per_bit derived from qIndex=26,
+// while libvpx's vp8_first_pass leaves x->sadperbit16 at the calloc
+// zero-init because vp8cx_initialize_me_consts is never called before
+// the first-pass loop — see firstPassMode in encoder_motion_search.go).
+// With that fixed, every FIRSTPASS_STATS field matches byte-for-byte
+// across the current seed corpus, so the ceiling collapses to a thin
+// floating-point-noise floor. Bumping the floor catches any future
+// regression that re-introduces drift while still allowing fmadd /
+// fused-multiply-add rounding differences across CPU dispatches.
 var defaultFirstPassLooseTolerances = firstPassLooseTolerances{
-	IntraError:          128,  // current max |Δ| = 77 (frame 5 of the cpu=4 seed)
-	CodedError:          128,  // current max |Δ| within the floor IntraError budget
-	SSIMWeightedPredErr: 256,  // CodedError * simple_weight, weight in [0.1, 1.0]
-	PcntInter:           0.5,  // 1 MB on a 4-MB frame is 0.25
-	PcntMotion:          0.5,  // mirrors PcntInter scaling
-	PcntSecondRef:       1.0,  // 2 MBs flipping golden-ref selection on 4-MB frame
-	PcntNeutral:         0.5,  // mirrors PcntInter scaling
-	MVr:                 32,   // per-frame Q3 mean shift; current max ≈ 10
-	MVrAbs:              32,   // current max ≈ 10
-	MVc:                 32,   // current max ≈ 20 (totals row)
-	MVcAbs:              32,   // current max ≈ 20 (totals row)
-	MVrv:                1500, // current max |Δ| = 716 per frame
-	MVcv:                1500, // current max |Δ| = 1394 (totals)
-	MVInOutCount:        0.5,
-	NewMVCount:          4,
+	IntraError:          1e-9, // libvpx writes intra_error >> 8, govpx mirrors
+	CodedError:          1e-9,
+	SSIMWeightedPredErr: 1e-9,
+	PcntInter:           1e-9,
+	PcntMotion:          1e-9,
+	PcntSecondRef:       1e-9,
+	PcntNeutral:         1e-9,
+	MVr:                 1e-9,
+	MVrAbs:              1e-9,
+	MVc:                 1e-9,
+	MVcAbs:              1e-9,
+	MVrv:                1e-9,
+	MVcv:                1e-9,
+	MVInOutCount:        1e-9,
+	NewMVCount:          1e-9,
 }
 
 // compareFirstPassStatsLoose enforces a per-field |Δ| ceiling between

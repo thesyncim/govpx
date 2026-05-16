@@ -356,6 +356,15 @@ var libvpxSADPerBit4LUT = [vp8common.QIndexRange]int{
 
 var libvpxFullPelMVSADComponentCost16 [vp8common.QIndexRange][256]int
 
+// libvpxFirstPassFullPelMVSADComponentCost16 is the zero-sad_per_bit table
+// used during vp8_first_pass. libvpx never calls vp8cx_initialize_me_consts
+// before the first-pass loop, so x->sadperbit16 stays at its zero-initialised
+// value (calloc'd VP8_COMP) and mvsad_err_cost collapses to 0 inside
+// diamond_search_sad. govpx must mirror that behaviour or its diamond search
+// over-penalises off-center candidates and converges to a worse MV than
+// libvpx, breaking first-pass MV stats (plan-§3 gap E Step 2).
+var libvpxFirstPassFullPelMVSADComponentCost16 [256]int
+
 func init() {
 	initLibvpxFullPelMVSADComponentCost16()
 }
@@ -370,6 +379,13 @@ func initLibvpxFullPelMVSADComponentCost16() {
 			}
 			libvpxFullPelMVSADComponentCost16[q][i] = cost * sadPerBit
 		}
+	}
+	// First-pass: sadPerBit = 0 → all costs zero. The explicit zero init
+	// keeps the table read-only and addressable like the per-q variant so
+	// the search hot path can hold a single *[256]int pointer regardless
+	// of which pass is running.
+	for i := range libvpxFirstPassFullPelMVSADComponentCost16 {
+		libvpxFirstPassFullPelMVSADComponentCost16[i] = 0
 	}
 }
 
