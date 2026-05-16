@@ -187,7 +187,11 @@ func libvpxVP9ParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string)
 		fmt.Sprintf("--target-bitrate=%d", cfg.BitrateKbps),
 		fmt.Sprintf("--min-q=%d", p.MinQuantizer),
 		fmt.Sprintf("--max-q=%d", p.MaxQuantizer),
-		fmt.Sprintf("--kf-min-dist=%d", p.KeyFrameInterval),
+		// govpx VP9 leaves MinKeyframeInterval=0 in the bench parity model
+		// (matches libvpx default kf_min_dist=0). Forcing it to the max
+		// distance would deny libvpx adaptive keyframes that govpx still
+		// permits, biasing the bitrate/keyframe-size comparison.
+		"--kf-min-dist=0",
 		fmt.Sprintf("--kf-max-dist=%d", p.KeyFrameInterval),
 		fmt.Sprintf("--buf-sz=%d", p.BufferSizeMs),
 		fmt.Sprintf("--buf-initial-sz=%d", p.BufferInitialSizeMs),
