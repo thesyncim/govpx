@@ -842,8 +842,9 @@ func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 }
 
 // SetNoiseSensitivity changes the VP8 denoiser level. Valid range is
-// [0, 6]: 0 disables and tears down the denoiser; 1 denoises luma only;
-// 2..6 denoise luma and chroma with increasing aggressiveness. See
+// [0, 6]: 0 disables the denoiser (without freeing or resetting its
+// running-average buffers, matching libvpx); 1 denoises luma only; 2..6
+// denoise luma and chroma with increasing aggressiveness. See
 // EncoderOptions.NoiseSensitivity.
 func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	if e == nil || e.closed {
@@ -852,10 +853,16 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	if uint(level) > 6 {
 		return ErrInvalidConfig
 	}
+	// libvpx: vp8/vp8_cx_iface.c:552 set_noise_sensitivity → update_extracfg
+	// → vp8_change_config. vp8_change_config only allocates the denoiser
+	// when oxcf.noise_sensitivity > 0 (vp8/encoder/onyx_if.c:1721-1733); it
+	// never tears it down or zeros its per-MB state on a runtime control
+	// flipping the value back to 0. All downstream denoiser gates
+	// (vp8_denoiser_denoise_mb callers in onyx_if.c, e.g. line 3161, 3175,
+	// 4390) test cpi->oxcf.noise_sensitivity > 0, so writing 0 into oxcf
+	// alone is enough to bypass the denoiser without disturbing any state
+	// outside the public Set surface.
 	e.opts.NoiseSensitivity = level
-	if level == 0 {
-		e.denoiser.reset()
-	}
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
