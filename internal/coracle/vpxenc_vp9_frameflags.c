@@ -913,9 +913,9 @@ static void apply_vp9_runtime_control_token(
       die_codec_msg(ctx->ctx, "runtime VP9E_SET_ALT_REF_AQ");
     }
   } else if (starts_with(token, "postdrop:")) {
-    if (vpx_codec_control(ctx->ctx, VP9E_SET_POSTENCODE_DROP_CBR,
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_POSTENCODE_DROP,
                           (unsigned)control_value_int(token, "postdrop:"))) {
-      die_codec_msg(ctx->ctx, "runtime VP9E_SET_POSTENCODE_DROP_CBR");
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_POSTENCODE_DROP");
     }
   } else if (starts_with(token, "disovershoot:")) {
     if (vpx_codec_control(ctx->ctx, VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR,
@@ -1530,9 +1530,9 @@ int main(int argc, char **argv) {
       vpx_codec_control(&ctx, VP9E_SET_ALT_REF_AQ, alt_ref_aq))
     die_codec_msg(&ctx, "VP9E_SET_ALT_REF_AQ");
   if (postencode_drop >= 0 &&
-      vpx_codec_control(&ctx, VP9E_SET_POSTENCODE_DROP_CBR,
+      vpx_codec_control(&ctx, VP9E_SET_POSTENCODE_DROP,
                         (unsigned)postencode_drop))
-    die_codec_msg(&ctx, "VP9E_SET_POSTENCODE_DROP_CBR");
+    die_codec_msg(&ctx, "VP9E_SET_POSTENCODE_DROP");
   if (disable_overshoot_maxq_cbr >= 0 &&
       vpx_codec_control(&ctx, VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR,
                         (unsigned)disable_overshoot_maxq_cbr))
