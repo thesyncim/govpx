@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v7-key-boundary
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-16-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v7-key-boundary-niavqi-forcemaxqp-rcf
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -1028,7 +1028,13 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             "\"ref_frame_savings_bits\":%d,"
             "\"cpi_speed\":%d,"
             "\"avg_encode_time\":%d,"
-            "\"avg_pick_mode_time\":%d}\n",
+            "\"avg_pick_mode_time\":%d,"
+            "\"ni_av_qi\":%d,"
+            "\"ni_frames\":%d,"
+            "\"ni_tot_qi\":%d,"
+            "\"force_maxqp\":%d,"
+            "\"frames_since_last_drop_overshoot\":%d,"
+            "\"rate_correction_factor\":%f}\n",
             govpx_oracle_state.frame_index,
             cm->frame_type == KEY_FRAME ? "key" : "inter",
             final_q,
@@ -1045,7 +1051,13 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             ref_frame_savings,
             cpi->Speed,
             cpi->avg_encode_time,
-            cpi->avg_pick_mode_time);
+            cpi->avg_pick_mode_time,
+            cpi->ni_av_qi,
+            cpi->ni_frames,
+            cpi->ni_tot_qi,
+            cpi->force_maxqp,
+            cpi->frames_since_last_drop_overshoot,
+            cpi->rate_correction_factor);
     if (govpx_recode_iter_count > 1) {
         if (cpi->is_src_frame_alt_ref) {
             reason = "altref_src";
