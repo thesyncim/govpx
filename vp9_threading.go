@@ -61,6 +61,7 @@ type vp9EncodeTileJob struct {
 	inter          vp9InterEncodeState
 	worker         *VP9Encoder
 	output         []byte
+	rowMTSync      *vp9RowMTSync
 	miRows         int
 	miCols         int
 	size           int
@@ -84,8 +85,160 @@ type vp9TileWorkerPool struct {
 	wg        sync.WaitGroup
 	doneCount atomic.Int32
 
+	// rowMTSyncs holds one vp9RowMTSync per tile column. Allocated lazily by
+	// ensureRowMTSync when the RowMT option is enabled; released by
+	// releaseRowMTSync when the option toggles off. The slice is sized to
+	// workerCount so each tile column body can index it by tileCol.
+	rowMTSyncs []vp9RowMTSync
+
 	jobKind     vp9TileWorkerJobKind
 	workerCount int
+}
+
+// vp9RowMTSync mirrors libvpx's VP9RowMTSync (vp9/encoder/vp9_ethread.h). It
+// tracks the latest column index encoded for each SB row inside a tile column
+// and exposes Read / Write primitives matching vp9_row_mt_sync_read /
+// vp9_row_mt_sync_write. SyncRange (libvpx's sync_range) caps how far ahead a
+// row can advance before signalling, which lets future per-row workers stay
+// within the configured wavefront slack. The govpx tile-column body still runs
+// on a single goroutine so the Read calls never block; the primitive remains
+// fully exercised so byte-identical output is preserved and the wavefront
+// foundation is in place for actual per-row parallelism.
+type vp9RowMTSync struct {
+	mu        []sync.Mutex
+	cond      []*sync.Cond
+	curCol    []int32
+	rows      int
+	syncRange int
+}
+
+// vp9RowMTSyncDefaultRange mirrors libvpx's row_mt_sync->sync_range = 1 init in
+// vp9_row_mt_sync_mem_alloc. A range of one means each completed SB column
+// signals the row below; larger values reduce signalling frequency at the cost
+// of more wavefront slack.
+const vp9RowMTSyncDefaultRange = 1
+
+func (s *vp9RowMTSync) reset(rows int) {
+	if s == nil || rows <= 0 {
+		return
+	}
+	if cap(s.mu) < rows {
+		s.mu = make([]sync.Mutex, rows)
+		s.cond = make([]*sync.Cond, rows)
+		s.curCol = make([]int32, rows)
+		for r := range s.cond {
+			s.cond[r] = sync.NewCond(&s.mu[r])
+		}
+	} else {
+		s.mu = s.mu[:rows]
+		s.cond = s.cond[:rows]
+		s.curCol = s.curCol[:rows]
+		for r := range s.cond {
+			if s.cond[r] == nil {
+				s.cond[r] = sync.NewCond(&s.mu[r])
+			}
+		}
+	}
+	for r := range s.curCol {
+		s.curCol[r] = -1
+	}
+	s.rows = rows
+	if s.syncRange == 0 {
+		s.syncRange = vp9RowMTSyncDefaultRange
+	}
+}
+
+func (s *vp9RowMTSync) release() {
+	if s == nil {
+		return
+	}
+	s.mu = s.mu[:0]
+	s.cond = s.cond[:0]
+	s.curCol = s.curCol[:0]
+	s.rows = 0
+}
+
+// read mirrors vp9_row_mt_sync_read. It blocks until the row above has reached
+// column position c - syncRange + 1, ensuring the above and above-right SBs
+// are encoded before the caller proceeds. The implementation matches libvpx's
+// pthread_mutex / pthread_cond_wait shape exactly.
+func (s *vp9RowMTSync) read(r, c int) {
+	if s == nil || r <= 0 || r >= s.rows {
+		return
+	}
+	nsync := s.syncRange
+	if nsync <= 0 || (c&(nsync-1)) != 0 {
+		return
+	}
+	target := int32(c - nsync + 1)
+	mu := &s.mu[r-1]
+	mu.Lock()
+	for s.curCol[r-1] < target {
+		s.cond[r-1].Wait()
+	}
+	mu.Unlock()
+}
+
+// write mirrors vp9_row_mt_sync_write. It records the row's current column
+// position and broadcasts to waiters when crossing a syncRange boundary or
+// when the row finishes. cols is the SB column count for the tile.
+func (s *vp9RowMTSync) write(r, c, cols int) {
+	if s == nil || r < 0 || r >= s.rows {
+		return
+	}
+	nsync := s.syncRange
+	if nsync <= 0 {
+		return
+	}
+	var cur int32
+	sig := true
+	if c < cols-1 {
+		cur = int32(c)
+		if c%nsync != nsync-1 {
+			sig = false
+		}
+	} else {
+		cur = int32(cols + nsync)
+	}
+	if !sig {
+		return
+	}
+	mu := &s.mu[r]
+	mu.Lock()
+	s.curCol[r] = cur
+	mu.Unlock()
+	s.cond[r].Signal()
+}
+
+// ensureRowMTSync arms one vp9RowMTSync per tile column sized to sbRows when
+// the RowMT option is enabled. It is called from the per-frame encode path
+// just before dispatching workers so steady-state allocations only happen on
+// dimension changes.
+func (p *vp9TileWorkerPool) ensureRowMTSync(sbRows int) {
+	if p == nil || p.workerCount <= 0 || sbRows <= 0 {
+		return
+	}
+	if cap(p.rowMTSyncs) < p.workerCount {
+		p.rowMTSyncs = make([]vp9RowMTSync, p.workerCount)
+	} else {
+		p.rowMTSyncs = p.rowMTSyncs[:p.workerCount]
+	}
+	for i := range p.rowMTSyncs {
+		p.rowMTSyncs[i].reset(sbRows)
+	}
+}
+
+// releaseRowMTSync drops the per-tile-column vp9RowMTSync state. It is invoked
+// when SetRowMT(false) flips the option so future encodes do not pay the
+// wavefront overhead nor keep the primitive arrays resident.
+func (p *vp9TileWorkerPool) releaseRowMTSync() {
+	if p == nil {
+		return
+	}
+	for i := range p.rowMTSyncs {
+		p.rowMTSyncs[i].release()
+	}
+	p.rowMTSyncs = p.rowMTSyncs[:0]
 }
 
 type vp9TileWorkerJobKind uint8
@@ -441,6 +594,12 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 		return 0, nil, false
 	}
 	pool.ensureOutputSize(len(output))
+	if e.opts.RowMT {
+		sbRows := (miRows + (1 << common.MiBlockSizeLog2) - 1) >> common.MiBlockSizeLog2
+		pool.ensureRowMTSync(sbRows)
+	} else if len(pool.rowMTSyncs) > 0 {
+		pool.releaseRowMTSync()
+	}
 	seed := vp9CountTileSeedForState(key, inter)
 	for tileCol := range tileCols {
 		worker := e
@@ -448,10 +607,14 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 			worker = &pool.workers[tileCol]
 			worker.prepareVP9TileEncodeWorker(e, miRows, miCols)
 		}
+		var sync *vp9RowMTSync
+		if e.opts.RowMT && tileCol < len(pool.rowMTSyncs) {
+			sync = &pool.rowMTSyncs[tileCol]
+		}
 		prepareVP9EncodeTileJob(&pool.encodeJobs[tileCol], worker,
 			pool.outputs[tileCol], miRows, miCols,
 			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
-			partitionProbs, seg, baseMi, txMode, kind, seed)
+			partitionProbs, seg, baseMi, txMode, kind, seed, sync)
 	}
 
 	pool.jobKind = vp9TileWorkerJobEncode
@@ -534,6 +697,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.vp9CountCounts = nil
 	w.vp9CountJobs = nil
 	w.vp9TilePool = nil
+	w.vp9RowMTSync = nil
 	for plane := range vp9dec.MaxMbPlane {
 		w.planes[plane].AboveContext = aboveCtx[plane]
 		w.planes[plane].LeftContext = leftCtx[plane]
@@ -573,6 +737,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.vp9CountCounts = nil
 	w.vp9CountJobs = nil
 	w.vp9TilePool = nil
+	w.vp9RowMTSync = nil
 	for plane := range vp9dec.MaxMbPlane {
 		w.planes[plane].AboveContext = aboveCtx[plane]
 		w.planes[plane].LeftContext = leftCtx[plane]
@@ -650,7 +815,7 @@ func prepareVP9EncodeTileJob(job *vp9EncodeTileJob, worker *VP9Encoder,
 	output []byte, miRows, miCols int, tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
-	kind vp9ModeTreeKind, seed vp9CountTileSeed,
+	kind vp9ModeTreeKind, seed vp9CountTileSeed, rowMTSync *vp9RowMTSync,
 ) {
 	*job = vp9EncodeTileJob{
 		partitionProbs: *partitionProbs,
@@ -659,6 +824,7 @@ func prepareVP9EncodeTileJob(job *vp9EncodeTileJob, worker *VP9Encoder,
 		tile:           tile,
 		worker:         worker,
 		output:         output,
+		rowMTSync:      rowMTSync,
 		miRows:         miRows,
 		miCols:         miCols,
 		txMode:         txMode,
@@ -728,6 +894,8 @@ func runVP9EncodeTileJob(job *vp9EncodeTileJob) {
 	}
 	job.size = 0
 	job.err = nil
+	job.worker.vp9RowMTSync = job.rowMTSync
+	defer func() { job.worker.vp9RowMTSync = nil }()
 	var bw bitstream.Writer
 	bw.Start(job.output)
 	job.worker.writeVP9FrameTile(&bw, job.miRows, job.miCols, job.tile,

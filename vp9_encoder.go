@@ -100,6 +100,17 @@ type VP9EncoderOptions struct {
 	// contexts carry across row boundaries.
 	Log2TileRows int8
 
+	// RowMT mirrors libvpx's VP9E_SET_ROW_MT control. When true with Threads > 1
+	// and a multi-column tile layout, each tile-column body encode arms a per-SB
+	// row-wavefront synchroniser matching libvpx's VP9RowMTSync primitive. Rows
+	// signal column progress after every SB and can wait for the row above to
+	// reach a configurable lookahead, mirroring vp9_row_mt_sync_read/write. The
+	// bitstream output is byte-identical to the serial path because govpx still
+	// runs one goroutine per tile column; the primitive is the foundation for
+	// per-row parallelism within a tile column. Requires Threads > 1; setting it
+	// with Threads <= 1 returns ErrInvalidConfig.
+	RowMT bool
+
 	// Deadline selects the VP9 speed/quality operating mode. The zero-value
 	// options keep govpx's historical VP9 oracle default of realtime cpu-used 8;
 	// use SetDeadline after construction to force explicit best-quality cpu 0.
@@ -569,6 +580,11 @@ type VP9Encoder struct {
 	vp9CountCounts   []encoder.FrameCounts
 	vp9CountJobs     []vp9CountTileJob
 	vp9TilePool      *vp9TileWorkerPool
+	// vp9RowMTSync is set when the worker is dispatched as a tile-column body
+	// with RowMT enabled. The pointer aliases an entry inside
+	// vp9TileWorkerPool.rowMTSyncs and lives for the duration of the per-frame
+	// encode; writeVP9ModesTileBounds reads it to drive the wavefront primitive.
+	vp9RowMTSync *vp9RowMTSync
 	lfi              vp9dec.LoopFilterInfoN
 	lfRefDeltas      [vp9dec.MaxRefLfDeltas]int8
 	lfModeDeltas     [vp9dec.MaxModeLfDeltas]int8
@@ -641,6 +657,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if opts.Threads < 0 {
+		return ErrInvalidConfig
+	}
+	if opts.RowMT && opts.Threads <= 1 {
 		return ErrInvalidConfig
 	}
 	if err := validateVP9TileRowOptions(opts.Width, opts.Height, opts.Log2TileRows); err != nil {
@@ -3337,6 +3356,9 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
+	rowMT := e.vp9RowMTSync
+	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
+		common.MiBlockSizeLog2
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range e.leftSegCtx {
 			e.leftSegCtx[i] = 0
@@ -3344,10 +3366,19 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 		if kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource {
 			e.resetVP9EncoderLeftEntropyContexts()
 		}
+		sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
 		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+			sbCol := (miCol - tile.MiColStart) >> common.MiBlockSizeLog2
+			// Wavefront: wait for the row above to encode the above and
+			// above-right SB before consuming their entropy / above-context
+			// state. With a single goroutine per tile column this is a
+			// non-blocking no-op; the call shape matches libvpx so future
+			// per-row workers can be slotted in without further changes.
+			rowMT.read(sbRow, sbCol)
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
 				common.Block64x64, tile, partitionProbs, seg, baseMi, txMode,
 				kind, key, inter)
+			rowMT.write(sbRow, sbCol, tileSbCols)
 		}
 	}
 }
