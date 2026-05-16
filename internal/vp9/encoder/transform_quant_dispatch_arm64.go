@@ -6,29 +6,59 @@ import "unsafe"
 
 // ARMv8 NEON dispatchers for the VP9 forward transforms and quantizer.
 // Each entry point either routes to a hand-coded NEON kernel or falls
-// back to the canonical scalar reference. Kernels still using the scalar
-// fallback are listed inline so it is obvious which ports are pending.
+// back to the canonical scalar reference. Pending kernels are documented
+// inline with pointers to the libvpx v1.16.0 source that must be ported
+// verbatim and to the NEON encoder helpers (neon_encoder_test.go) that
+// the port should use for instruction-word generation.
 
 func forwardDCT4x4Dispatch(input []int16, stride int, output []int16) {
-	// NEON 4x4 forward DCT not yet ported — a faithful libvpx-style
-	// port needs int32 widening through the column pass to preserve
-	// byte-parity for the full ±1024 residual range. Falls back to
-	// scalar for now.
+	// PENDING: port libvpx v1.16.0 vpx_fdct4x4_neon
+	//   - kernel:  vpx_dsp/arm/fdct4x4_neon.c::vpx_fdct4x4_neon
+	//   - helpers: vpx_dsp/arm/fdct4x4_neon.h (vpx_fdct4x4_pass1_neon,
+	//              vpx_fdct4x4_pass2_neon) and vpx_dsp/arm/fdct_neon.h
+	//              (butterfly_one_coeff_s16_fast_half,
+	//              butterfly_one_coeff_s16_s32_fast_narrow_half,
+	//              butterfly_two_coeff_half).
+	// The kernel relies on int32-widening through pass2 (SADDL/SSUBL +
+	// SQRDMULHQ on the cospi_16_64*1<<17 constant) which is what the
+	// prior attempt missed, so reproduce that path exactly. The required
+	// NEON instruction encoders are pre-built and self-tested in
+	// neon_encoder_test.go (enc_saddl_4s_4h, enc_ssubl_4s_4h,
+	// enc_smull_4s_4h_by_elt, enc_smlal_4s_4h_by_elt,
+	// enc_smlsl_4s_4h_by_elt, enc_sqrshrn_4h_from_4s_imm,
+	// enc_sqrdmulh_4h, enc_shl_4h_imm, enc_sshr_4h_imm,
+	// enc_trn1_4h/2s, enc_trn2_4h/2s, enc_dup_4h_from_w,
+	// enc_movz_w_imm16, enc_ldrsh_w, enc_cbz_w, enc_ins_h_from_w,
+	// enc_ld1_4h, enc_st1_8h_post).
 	forwardDCT4x4Scalar(input, stride, output)
 }
 
 func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
-	// NEON 8x8 forward DCT not yet ported — falls back to scalar.
+	// PENDING: port libvpx v1.16.0 vpx_fdct8x8_neon
+	//   - kernel:  vpx_dsp/arm/fdct8x8_neon.c::vpx_fdct8x8_neon
+	//   - helpers: vpx_dsp/arm/fdct8x8_neon.h
+	// The 8x8 kernel reuses butterfly_two_coeff and add_round_shift_s16
+	// from vpx_dsp/arm/fdct_neon.h. Same encoders as 4x4 plus the .8h
+	// (Q=1) variants of each NEON op.
 	forwardDCT8x8Scalar(input, stride, output)
 }
 
 func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
-	// NEON 16x16 forward DCT not yet ported — falls back to scalar.
+	// PENDING: port libvpx v1.16.0 vpx_fdct16x16_neon
+	//   - kernel:  vpx_dsp/arm/fdct16x16_neon.c::vpx_fdct16x16_neon
+	//   - helpers: vpx_dsp/arm/fdct16x16_neon.h
+	// Two-pass (horizontal then vertical) with 8x8 sub-block reuse.
 	forwardDCT16x16Scalar(input, stride, output)
 }
 
 func forwardDCT32x32Dispatch(input []int16, stride int, output []int16) {
-	// NEON 32x32 forward DCT not yet ported — falls back to scalar.
+	// PENDING: port libvpx v1.16.0 vpx_fdct32x32_neon
+	//   - kernel:  vpx_dsp/arm/fdct32x32_neon.c::vpx_fdct32x32_neon
+	//   - helpers: vpx_dsp/arm/fdct32x32_neon.h (~2900 LOC of macros)
+	// The largest kernel; ~1500 LOC of NEON intrinsics expanding to
+	// thousands of raw NEON instructions. Best ported via a generator
+	// (compute every WORD by calling the enc_* helpers) rather than by
+	// hand transcription.
 	forwardDCT32x32Scalar(input, stride, output)
 }
 
@@ -41,10 +71,20 @@ func forwardWHT4x4Dispatch(input []int16, stride int, output []int16) {
 }
 
 func quantizeFPDispatch(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
-	// NEON quantize_fp port not yet ported. The naive 8-coef-at-a-time
-	// NEON kernel hits a corner case in the eob calculation (q!=0 but
-	// int16(q*dequant)==0 due to wraparound) that needs careful sentinel
-	// tracking. Defer to scalar for now.
+	// PENDING: port libvpx v1.16.0 vp9_quantize_fp_neon
+	//   - kernel:  vp9/encoder/arm/neon/vp9_quantize_neon.c::vp9_quantize_fp_neon
+	//   - helpers: quantize_fp_8, get_max_lane_eob, get_max_eob,
+	//              update_fp_values, calculate_dqcoeff_and_store
+	// IMPORTANT: govpx's quantizeFPScalar signature differs from libvpx's
+	// vp9_quantize_fp_c: this codebase writes dqcoeff in raster order
+	// (indexed by scan[i]) and computes eob from a forward scan, whereas
+	// libvpx writes qcoeff_ptr + dqcoeff_ptr in linear order and tracks
+	// eob via a per-lane iscan max-reduction. Before porting the NEON
+	// kernel verbatim, the scalar entry point likely needs to be
+	// realigned to libvpx's contract (split qcoeff vs dqcoeff buffers,
+	// iscan input, lane-max eob reduce). Otherwise the NEON kernel's
+	// byte-identical output will diverge from this dispatcher's
+	// downstream consumers.
 	return quantizeFPScalar(coeff, dequant, scan, dqcoeff)
 }
 
