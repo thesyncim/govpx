@@ -1059,6 +1059,17 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			exactPrefix: 1,
 		},
 		{
+			name:        "cbr-rate-panning-keyframe-64",
+			width:       64,
+			height:      64,
+			frames:      1,
+			opts:        vp9OracleCBROptions(64, 64, 700),
+			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			source:      newVP9PanningYCbCrForRateTest,
+			exactPrefix: 1,
+			strictBytes: true,
+		},
+		{
 			name:      "active-map-fixed-q-constant-320",
 			width:     320,
 			height:    180,
@@ -1742,6 +1753,15 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 		return newVP9YCbCrForTest(width, height,
 			uint8(96+frame*8), 128, 128)
 	}
+	activeMapBefore := func(t *testing.T, enc *VP9Encoder, frame int) {
+		t.Helper()
+		if frame != 1 {
+			return
+		}
+		activeMap, rows, cols := vp9OracleActiveMap(width, height, "checker")
+		mustVP9Runtime(t, "SetActiveMap checker",
+			enc.SetActiveMap(activeMap, rows, cols))
+	}
 	cases := []threadedCase{
 		{
 			name:   "fixed-q",
@@ -1810,15 +1830,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--control-script=-,active:checker",
 				"--disable-warning-prompt",
 			},
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
-				t.Helper()
-				if frame != 1 {
-					return
-				}
-				activeMap, rows, cols := vp9OracleActiveMap(width, height, "checker")
-				mustVP9Runtime(t, "SetActiveMap checker",
-					enc.SetActiveMap(activeMap, rows, cols))
-			},
+			before: activeMapBefore,
 		},
 		{
 			name: "vbr",
@@ -1839,6 +1851,29 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--max-q=56",
 				"--disable-warning-prompt",
 			},
+		},
+		{
+			name:   "vbr-active-map",
+			frames: 2,
+			opts: VP9EncoderOptions{
+				Threads:             4,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				MaxKeyframeInterval: 128,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--end-usage=vbr",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--control-script=-,active:checker",
+				"--disable-warning-prompt",
+			},
+			before: activeMapBefore,
 		},
 		{
 			name: "cq",
@@ -1863,6 +1898,31 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 			},
 		},
 		{
+			name:   "cq-active-map",
+			frames: 2,
+			opts: VP9EncoderOptions{
+				Threads:             4,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--end-usage=cq",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+				"--control-script=-,active:checker",
+				"--disable-warning-prompt",
+			},
+			before: activeMapBefore,
+		},
+		{
 			name:   "q",
 			frames: 4,
 			opts: VP9EncoderOptions{
@@ -1884,6 +1944,31 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--cq-level=20",
 				"--disable-warning-prompt",
 			},
+		},
+		{
+			name:   "q-active-map",
+			frames: 2,
+			opts: VP9EncoderOptions{
+				Threads:             4,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlQ,
+				TargetBitrateKbps:   2200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--end-usage=q",
+				"--target-bitrate=2200",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+				"--control-script=-,active:checker",
+				"--disable-warning-prompt",
+			},
+			before: activeMapBefore,
 		},
 		{
 			name:   "error-resilient",
@@ -3496,6 +3581,34 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 		(stats.hasMismatch() || matches != len(govpxPackets)) {
 		t.Fatalf("strict VP9 invisible keyframe parity: matches=%d/%d stats=%s",
 			matches, len(govpxPackets), stats)
+	}
+}
+
+func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 invisible-frame byte-parity gate")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	sources := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 96, 128, 128),
+	}
+	flags := []EncodeFlags{EncodeInvisibleFrame}
+	_, govpxPackets := captureGovpxVP9VariablePacketRows(t,
+		VP9EncoderOptions{Width: width, Height: height, MinQuantizer: 32, MaxQuantizer: 32},
+		sources, flags, nil)
+	_, libvpxPackets := captureLibvpxVP9VariablePacketRows(t,
+		sources, flags, []bool{true},
+		[]string{"--cq-level=32", "--min-q=32", "--max-q=32"})
+	if len(govpxPackets) != len(libvpxPackets) {
+		t.Fatalf("VP9 invisible keyframe packet count: govpx=%d libvpx=%d",
+			len(govpxPackets), len(libvpxPackets))
+	}
+	for frame := range govpxPackets {
+		assertVP9PacketByteParity(t,
+			fmt.Sprintf("VP9 invisible keyframe frame %d", frame),
+			govpxPackets[frame], libvpxPackets[frame])
 	}
 }
 
