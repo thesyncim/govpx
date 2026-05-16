@@ -90,6 +90,18 @@ type vp9RateControlState struct {
 	baselineGFInterval  uint8
 	facActiveWorstInter uint16
 	facActiveWorstGF    uint16
+
+	// gfuBoost mirrors libvpx's rc->gfu_boost, the cumulative ARF/GF group
+	// boost computed by define_gf_group via compute_arf_boost. govpx
+	// consumes it as the gating signal in adjust_arnr_filter for adaptive
+	// temporal-filter strength + frame-count selection. The full
+	// libvpx-faithful define_gf_group ARF placement is owned by the
+	// two-pass agent; until that lands, gfuBoost stays at zero and the
+	// ARNR path collapses gracefully to the legacy single-strength
+	// behavior via the MIN_ARF_GF_BOOST floor.
+	//
+	// libvpx: vp9/encoder/vp9_ratectrl.h RATE_CONTROL::gfu_boost
+	gfuBoost uint16
 }
 
 type vp9DropReason uint8

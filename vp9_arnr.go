@@ -48,14 +48,64 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 		return false
 	}
 	distance := int(e.lookaheadCount) - 1
-	backward, forward, ok := vp9ARNRFilterWindow(distance,
-		int(e.lookaheadCount), maxFrames, e.opts.ARNRType)
-	if !ok || backward+forward == 0 {
+	// libvpx vp9/encoder/vp9_temporal_filter.c:1255 adjust_arnr_filter
+	// drives the adaptive temporal-filter strength + symmetric window
+	// placement off the GF/ARF group boost and the running
+	// avg_frame_qindex. The libvpx-faithful gfu_boost comes from
+	// `define_gf_group`'s call to `compute_arf_boost` (two-pass path) or
+	// the realtime `select_arf_period` path; govpx's full
+	// define_gf_group port is owned by the two-pass agent and lives at
+	// the boundary between first-pass stat consumption and ARF
+	// placement. Until that lands, govpx's rc.gfuBoost stays at zero and
+	// `applyVP9ARNRFilter` falls back to the legacy non-adaptive
+	// strength/window. The branch keeps test/byte-parity for streams
+	// that never produce a gfu_boost value while letting the new path
+	// engage as soon as the two-pass agent wires up a non-zero boost.
+	var backward, forward, strength int
+	useAdaptive := e.rc.gfuBoost > 0
+	if useAdaptive {
+		adj := VP9AdjustARNRFilter(VP9AdjustARNRFilterInput{
+			LookaheadDepth:         int(e.lookaheadCount),
+			Distance:               distance,
+			GroupBoost:             int(e.rc.gfuBoost),
+			ARNRMaxFrames:          e.opts.ARNRMaxFrames,
+			ARNRStrengthBase:       e.opts.ARNRStrength,
+			ARNRStrengthAdjustment: 0,
+			Pass:                   1,
+			CurrentVideoFrame:      e.frameIndex,
+			AvgFrameQIndexInter:    int(e.rc.avgFrameQIndexInter),
+			AvgFrameQIndexKey:      int(e.rc.avgFrameQIndexKey),
+		})
+		backward = adj.FramesBackward
+		forward = adj.FramesForward
+		strength = adj.ARNRStrength
+	}
+	// libvpx's adjust_arnr_filter assumes ARNRType=3 (centered). govpx's
+	// ARNRType=1/2 (backward/forward-only) are non-default modes; honor
+	// the caller's request even under the adaptive path by routing
+	// through the legacy window selector for those modes.
+	if !useAdaptive || e.opts.ARNRType != 3 {
+		b, f, ok := vp9ARNRFilterWindow(distance,
+			int(e.lookaheadCount), maxFrames, e.opts.ARNRType)
+		if !ok || b+f == 0 {
+			if vp9ARNRDebugEnabled() {
+				fmt.Fprintf(os.Stderr,
+					"govpx vp9 arnr: window empty (distance=%d look=%d max=%d type=%d back=%d fwd=%d ok=%v)\n",
+					distance, e.lookaheadCount, maxFrames,
+					e.opts.ARNRType, b, f, ok)
+			}
+			return false
+		}
+		backward = b
+		forward = f
+		strength = e.opts.ARNRStrength
+	}
+	if backward+forward == 0 {
 		if vp9ARNRDebugEnabled() {
 			fmt.Fprintf(os.Stderr,
-				"govpx vp9 arnr: window empty (distance=%d look=%d max=%d type=%d back=%d fwd=%d ok=%v)\n",
+				"govpx vp9 arnr: adaptive window empty (distance=%d look=%d max=%d boost=%d type=%d)\n",
 				distance, e.lookaheadCount, maxFrames,
-				e.opts.ARNRType, backward, forward, ok)
+				e.rc.gfuBoost, e.opts.ARNRType)
 		}
 		return false
 	}
@@ -75,12 +125,13 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 		}
 		refs[framesToBlur-1-frame] = arnrViewFromYCbCr(&entry.img)
 	}
-	e.iterateVP9TemporalFilter(e.opts.ARNRStrength, refs, backward, true)
+	e.iterateVP9TemporalFilter(strength, refs, backward, true)
 	if vp9ARNRDebugEnabled() {
 		fmt.Fprintf(os.Stderr,
-			"govpx vp9 arnr: filtered (distance=%d look=%d back=%d fwd=%d strength=%d type=%d)\n",
+			"govpx vp9 arnr: filtered (distance=%d look=%d back=%d fwd=%d strength=%d adapted=%v(base=%d) type=%d boost=%d)\n",
 			distance, e.lookaheadCount, backward, forward,
-			e.opts.ARNRStrength, e.opts.ARNRType)
+			strength, useAdaptive, e.opts.ARNRStrength,
+			e.opts.ARNRType, e.rc.gfuBoost)
 	}
 	return true
 }
