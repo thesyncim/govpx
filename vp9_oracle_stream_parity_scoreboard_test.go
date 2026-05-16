@@ -480,6 +480,36 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name:    "screen-content-fixed-q-constant",
+			fixture: constant64,
+			frames:  4,
+			opts: VP9EncoderOptions{
+				ScreenContentMode: 1,
+				MinQuantizer:      20,
+				MaxQuantizer:      20,
+			},
+			extraArgs: []string{
+				"--tune-content=screen",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+			},
+			exactPrefix: 4,
+			strictBytes: true,
+		},
+		{
+			name:    "screen-content-no-reference-all",
+			fixture: stepped64,
+			frames:  6,
+			opts: VP9EncoderOptions{
+				ScreenContentMode: 1,
+			},
+			flags:       vp9OracleRepeatInterFlag(6, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			extraArgs:   []string{"--tune-content=screen"},
+			exactPrefix: 2,
+			exactFrames: []int{4},
+		},
+		{
 			name:        "no-reference-all-stepped-320",
 			fixture:     stepped320,
 			frames:      4,
@@ -1586,6 +1616,33 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 				"--min-q=20",
 				"--max-q=20",
 				"--control-script=-,-,-,tune:ssim,-,-,-,tune:psnr,-,-",
+			},
+			exactPrefix: frames,
+			strictBytes: true,
+		},
+		{
+			name: "constant-screen-content-mode-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetScreenContentMode screen",
+						enc.SetScreenContentMode(1))
+				case 7:
+					mustVP9Runtime(t, "SetScreenContentMode default",
+						enc.SetScreenContentMode(0))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,screen:1,-,-,-,screen:0,-,-",
 			},
 			exactPrefix: frames,
 			strictBytes: true,
