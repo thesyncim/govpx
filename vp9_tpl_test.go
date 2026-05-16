@@ -554,6 +554,166 @@ func TestVP9TPLIntegrationOnVsOff(t *testing.T) {
 	}
 }
 
+// TestVP9TPLPropagatePopulatesNextSlab pins the bugfix where Stage B in
+// populate gated propagation on next.Valid, which is impossible because
+// Valid is only set in the subsequent Stage C.  The result was that the
+// per-SB propagation accumulator (and therefore the per-SB qindex delta)
+// always stayed zero on the live encoder path even though the standalone
+// propagateFrame unit test passed.  Propagation flows FROM slab[idx] INTO
+// slab[idx+1], so slab[0] has no upstream contributor; the load-bearing
+// assertion is that at least one downstream slab carries a non-zero
+// propagation accumulator.
+func TestVP9TPLPropagatePopulatesNextSlab(t *testing.T) {
+	const w, h = 96, 96
+	frames := newVP9TPLPanningSequence(w, h, vp9TPLMinLookaheadFrames)
+	s := vp9TPLState{}
+	s.configure(true, w, h, vp9TPLMinLookaheadFrames)
+	s.populate(frames)
+	found := false
+	for idx := 1; idx < len(s.frames); idx++ {
+		slab := s.frames[idx]
+		for _, st := range slab.Stats {
+			if st.Propagation > 0 {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no slab carried a non-zero propagation accumulator — Stage B regressed")
+	}
+}
+
+// TestVP9TPLPopulateProducesNonZeroFrameMeanBias asserts that the
+// frame-mean qindex bias is non-trivial on TPL-friendly content.  The
+// original implementation computed it as the per-SB delta deviation
+// around its own mean and therefore always landed at ~0, leaving the
+// encoder byte-identical with TPL on or off.
+func TestVP9TPLPopulateProducesNonZeroFrameMeanBias(t *testing.T) {
+	const w, h = 96, 96
+	frames := newVP9TPLPanningSequence(w, h, vp9TPLMinLookaheadFrames)
+	s := vp9TPLState{}
+	s.configure(true, w, h, vp9TPLMinLookaheadFrames)
+	s.populate(frames)
+	// First slab is what the encoder will read on the next visible
+	// inter frame; require a strictly negative bias because the panning
+	// sequence has high inter-prediction savings.
+	if !s.frames[0].Valid {
+		t.Fatalf("slab 0 not Valid after populate")
+	}
+	if s.frames[0].FrameMeanQDelta == 0 {
+		t.Fatalf("FrameMeanQDelta is zero on TPL-friendly content — frame-mean bias regressed")
+	}
+	if s.frames[0].FrameMeanQDelta < -vp9TPLMaxQDelta ||
+		s.frames[0].FrameMeanQDelta > vp9TPLMaxQDelta {
+		t.Fatalf("FrameMeanQDelta=%d out of [%d,%d]",
+			s.frames[0].FrameMeanQDelta, -vp9TPLMaxQDelta,
+			vp9TPLMaxQDelta)
+	}
+}
+
+// TestVP9TPLChangesEncodedOutput is the direct anti-regression that pins
+// the bug surfaced by the BD-rate quality gate.  With TPL toggled, at
+// least one visible inter frame's regulated qindex must differ between
+// the EnableTPL=true and EnableTPL=false encoders.  The original
+// implementation produced byte-identical output because the frame-mean
+// bias was zero by construction; this test pins the wiring so a future
+// refactor that silently disables it (or makes the bias zero again) is
+// caught before BD-rate regression hits CI.
+func TestVP9TPLChangesEncodedOutput(t *testing.T) {
+	const w, h = 64, 64
+	encode := func(enableTPL bool) ([]int, int, []byte) {
+		opts := VP9EncoderOptions{
+			Width:              w,
+			Height:             h,
+			FPS:                30,
+			LookaheadFrames:    vp9TPLMinLookaheadFrames,
+			AutoAltRef:         true,
+			EnableTPL:          enableTPL,
+			RateControlModeSet: true,
+			RateControlMode:    RateControlQ,
+			TargetBitrateKbps:  1000,
+			CQLevel:            32,
+			MaxQuantizer:       63,
+		}
+		enc, err := NewVP9Encoder(opts)
+		if err != nil {
+			t.Fatalf("NewVP9Encoder: %v", err)
+		}
+		seq := newVP9TPLPanningSequence(w, h, 16)
+		buf := make([]byte, 64*1024)
+		var qs []int
+		total := 0
+		var concat []byte
+		drain := func(res VP9EncodeResult) {
+			if res.ShowFrame {
+				qs = append(qs, res.InternalQuantizer)
+			}
+			total += res.SizeBytes
+			concat = append(concat, res.Data...)
+		}
+		for i := range 16 {
+			res, err := enc.encodeVP9LookaheadIntoWithFlagsResult(seq[i%len(seq)], buf, 0)
+			switch {
+			case err == nil:
+				drain(res)
+			case errors.Is(err, ErrFrameNotReady):
+				// expected while window fills
+			default:
+				t.Fatalf("encode %d: %v", i, err)
+			}
+		}
+		for {
+			res, err := enc.FlushIntoWithResult(buf)
+			if errors.Is(err, ErrFrameNotReady) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("flush: %v", err)
+			}
+			drain(res)
+		}
+		return qs, total, concat
+	}
+	offQs, offBytes, offConcat := encode(false)
+	onQs, onBytes, onConcat := encode(true)
+	if len(offQs) == 0 || len(onQs) == 0 {
+		t.Fatalf("no visible frames: off=%d on=%d", len(offQs), len(onQs))
+	}
+	if len(offQs) != len(onQs) {
+		t.Fatalf("visible packet count drifted: off=%d on=%d", len(offQs), len(onQs))
+	}
+	// Either at least one frame's qindex differs, or the encoded byte
+	// stream itself differs.  The former is the load-bearing assertion;
+	// the latter is the safety net in case TPL ever routes per-SB
+	// segmentation IDs without changing the per-frame qindex.
+	qDiffers := false
+	for i := range offQs {
+		if offQs[i] != onQs[i] {
+			qDiffers = true
+			break
+		}
+	}
+	bytesDiffer := len(offConcat) != len(onConcat) || offBytes != onBytes
+	if !bytesDiffer && len(offConcat) == len(onConcat) {
+		for i := range offConcat {
+			if offConcat[i] != onConcat[i] {
+				bytesDiffer = true
+				break
+			}
+		}
+	}
+	if !qDiffers && !bytesDiffer {
+		t.Fatalf("TPL had no effect: qindex unchanged AND byte streams identical (off=%d on=%d bytes)",
+			offBytes, onBytes)
+	}
+	t.Logf("TPL off->on qindex drift on %d frames; bytes off=%d on=%d",
+		len(offQs), offBytes, onBytes)
+}
+
 func TestVP9TPLEncodesWithoutBreakingExisting(t *testing.T) {
 	// A 16-frame encode under TPL should produce the same packet count as
 	// the same encode without TPL (because TPL is a quality knob, not a

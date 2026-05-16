@@ -19,7 +19,9 @@ package govpx_test
 //     after the centered-window fix; gate requires ≤ -1% so a
 //     regression that re-collapses the temporal filter to a
 //     no-op fails immediately.
-//   - TPL on/off has zero observed effect; gate accepts ≤ +5%.
+//   - TPL on/off saves ~1.1% bitrate on sharp-edge content after
+//     the propagation-pass / frame-mean wiring fix; gate at
+//     ≤ -1% (must save bitrate) with a -20% sanity floor.
 //   - VarianceAQ hurts bitrate ~+77% on the variance-heavy probe
 //     content; gate pins the upper bound at +90% so a regression
 //     making it even worse fails. Investigation tracked separately.
@@ -157,10 +159,24 @@ func TestVP9FeatureBDRateTPL(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("TPL BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	// TPL currently has no observed effect; gate just guards
-	// against a regression where it suddenly hurts rate.
-	if res.BDRate > 5.0 {
-		t.Errorf("TPL BD-rate=%.3f%% > 5%%: enabling TPL must not significantly hurt rate", res.BDRate)
+	// TPL must save bitrate on sharp-edge content.  The lookahead
+	// pass biases the regulated qindex of frames that downstream
+	// frames will lean on; on this generator that means a measurable
+	// negative BD-rate.  The original wiring was broken (the per-SB
+	// propagation accumulator never accumulated and the frame-mean
+	// bias was computed from per-SB deviations that averaged to zero),
+	// which silently produced byte-identical output between TPL on
+	// and TPL off; this gate now pins the corrected behavior.
+	if res.BDRate > -1.0 {
+		t.Errorf("TPL BD-rate=%.3f%% > -1%%: TPL must save bitrate on sharp-edge content",
+			res.BDRate)
+	}
+	// Hard lower bound: anything below -20% on this content size is
+	// unrealistic for the frame-mean fallback and suggests a
+	// measurement bug rather than a feature improvement.
+	if res.BDRate < -20.0 {
+		t.Errorf("TPL BD-rate=%.3f%% < -20%%: implausibly large saving, check harness",
+			res.BDRate)
 	}
 }
 

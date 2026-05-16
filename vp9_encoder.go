@@ -2066,7 +2066,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// inter frames while a populated source-order lookahead window is
 	// available; alt-ref / intra-only / keyframes are excluded for
 	// parity with the libvpx restriction.
-	e.populateVP9TPLForFrame(isKey || intraOnly || !showFrame || flags&EncodeForceAltRefFrame != 0)
+	e.populateVP9TPLForFrame(isKey || intraOnly || !showFrame || flags&EncodeForceAltRefFrame != 0, img)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
 	qindex = e.applyVP9TPLQIndexBias(qindex, isKey || intraOnly || !showFrame ||
 		flags&EncodeForceAltRefFrame != 0)

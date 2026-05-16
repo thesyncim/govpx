@@ -256,11 +256,16 @@ func (s *vp9TPLState) populate(frames []*image.YCbCr) {
 	}
 	// Stage B: single-step propagation — each SB inherits a fraction of its
 	// matched-block propagation in the next frame proportional to the
-	// reduction in residual the coarse MV achieved.
+	// reduction in residual the coarse MV achieved.  Stage A above has
+	// populated every slab in [0, limit) with motion stats so propagation
+	// can read directly from the in-flight (not-yet-Valid) future slab.
+	// Gating propagation on Valid like the original implementation made
+	// the loop a no-op because Stage C is where Valid is finally set;
+	// every Stage-B step ran with next == nil and Propagation stayed 0.
 	for idx := limit - 1; idx >= 0; idx-- {
 		slab := &s.frames[idx]
 		var next *vp9TPLFrameStats
-		if idx+1 < len(s.frames) && s.frames[idx+1].Valid {
+		if idx+1 < limit {
 			next = &s.frames[idx+1]
 		}
 		s.propagateFrame(slab, next)
@@ -339,8 +344,13 @@ func (s *vp9TPLState) propagateFrame(slab, next *vp9TPLFrameStats) {
 }
 
 // deriveQDelta computes the per-SB qindex delta for slab from the propagation
-// factor.  The mean of the delta is stored in slab.FrameMeanQDelta as the
-// scalar bias overlay used by the encoder while per-SB routing is unavailable.
+// factor.  The frame-mean qindex bias (used by the scalar overlay until per-SB
+// segmentation routing lands) is derived from the global intra/saved-inter
+// energy balance, not from per-SB deviation around the mean: a per-SB
+// deviation map averages to zero by construction and produces no scalar
+// bias.  libvpx's TPL maps a high inter-saving ratio to a downward qindex
+// bias because frames that downstream frames lean on heavily pay for
+// themselves with the extra bits.
 func (s *vp9TPLState) deriveQDelta(slab *vp9TPLFrameStats) {
 	if slab == nil || len(slab.Stats) == 0 {
 		return
@@ -349,31 +359,90 @@ func (s *vp9TPLState) deriveQDelta(slab *vp9TPLFrameStats) {
 	// per-SB delta direction (above-mean SBs get a negative delta — more
 	// bits; below-mean SBs get a positive delta — fewer bits).
 	var total uint64
+	var intraTotal uint64
+	var savedTotal uint64
 	for i := range slab.Stats {
 		total += uint64(slab.Stats[i].Propagation)
+		intraTotal += uint64(slab.Stats[i].IntraCost)
+		if slab.Stats[i].InterCost < slab.Stats[i].IntraCost {
+			savedTotal += uint64(slab.Stats[i].IntraCost -
+				slab.Stats[i].InterCost)
+		}
 	}
 	count := uint64(len(slab.Stats))
 	mean := total / count
 	if mean == 0 {
-		// Nothing propagates — leave the delta map as zeros.
+		// Per-SB propagation map is empty (no SB is referenced).  The
+		// per-SB delta stays at zero, but a non-zero saved/intra ratio
+		// still informs the scalar frame-mean bias: a frame that
+		// motion-compensates well against its lookahead anchor is a
+		// strong reference candidate and earns a downward qindex bias
+		// even before propagation contributes.
 		for i := range slab.QDelta {
 			slab.QDelta[i] = 0
 		}
-		slab.FrameMeanQDelta = 0
+		slab.FrameMeanQDelta = tplFrameMeanBiasFromRatios(savedTotal,
+			intraTotal, 0, 0)
 		return
 	}
-	var sumDelta int
 	for i := range slab.Stats {
 		delta := tplQDeltaFromPropagation(uint64(slab.Stats[i].Propagation), mean)
 		slab.QDelta[i] = int8(delta)
-		sumDelta += delta
 	}
-	// Integer-rounded mean of the per-SB delta.
-	if sumDelta >= 0 {
-		slab.FrameMeanQDelta = int((int64(sumDelta) + int64(count)/2) / int64(count))
-	} else {
-		slab.FrameMeanQDelta = -int((-int64(sumDelta) + int64(count)/2) / int64(count))
+	// FrameMeanQDelta uses a libvpx-style global energy ratio so the
+	// scalar bias has a meaningful sign and magnitude.  A frame whose
+	// inter motion compensation saves a large fraction of its intra
+	// energy is a strong propagation source — bias its qindex down (more
+	// bits, better reference quality).  A frame whose propagation map is
+	// densely populated (high mean) is a heavy propagation sink — same
+	// downward bias on the same intuition.  Both contributions are
+	// clamped to [-vp9TPLMaxQDelta, vp9TPLMaxQDelta] so a single bias
+	// alone can never escape the public quantizer window.
+	slab.FrameMeanQDelta = tplFrameMeanBiasFromRatios(savedTotal,
+		intraTotal, total, count)
+}
+
+// tplFrameMeanBiasFromRatios maps the global TPL energy ratios into a clamped
+// integer qindex bias.  The function is split out so unit tests can pin its
+// shape independently of the propagation accumulator (which depends on the
+// motion search internals).  The sign convention matches the per-SB delta:
+// negative biases reduce the regulated qindex (more bits), positive biases
+// raise it (fewer bits).
+func tplFrameMeanBiasFromRatios(savedTotal, intraTotal, propTotal, count uint64) int {
+	bias := 0
+	// Saved/intra ratio: how much of this frame's intra energy is
+	// recovered by inter prediction against the lookahead anchor.  A
+	// ratio of 0.5 (50% saved) maps to a -8 bias; higher ratios saturate
+	// at -vp9TPLMaxQDelta.  The denominator guards against the all-flat
+	// frame edge case (intraTotal == 0).
+	if intraTotal > 0 && savedTotal > 0 {
+		// Scale by 32 so a 50% saved ratio gives a magnitude of 16, then
+		// shift to land at vp9TPLMaxQDelta near full saving.
+		scaled := min(int(savedTotal*32/intraTotal), vp9TPLMaxQDelta+1)
+		bias -= scaled
 	}
+	// Propagation-density component: how much aggregate downstream
+	// importance the per-SB map carries.  This re-uses the per-SB
+	// propagation accumulator scaled against the per-SB mean (count >
+	// 0).  A heavily-loaded propagation map nudges the frame qindex
+	// further down on top of the saved/intra contribution.
+	if count > 0 && propTotal > 0 {
+		mean := propTotal / count
+		if mean > 0 {
+			// Map log2-ish scaled propagation density to a small
+			// magnitude.  The shift by 8 keeps the contribution
+			// at most ±4 qindex even on saturated inputs.
+			scaled := min(int(mean>>8), vp9TPLMaxQDelta/2)
+			bias -= scaled
+		}
+	}
+	if bias < -vp9TPLMaxQDelta {
+		bias = -vp9TPLMaxQDelta
+	}
+	if bias > vp9TPLMaxQDelta {
+		bias = vp9TPLMaxQDelta
+	}
+	return bias
 }
 
 // tplQDeltaFromPropagation converts a propagation score into a clamped int
@@ -562,7 +631,15 @@ func (e *VP9Encoder) SetEnableTPL(enabled bool) error {
 // per-frame slabs.  The skip parameter mirrors the libvpx gate: TPL is
 // inactive on keyframes, intra-only, hidden, and alt-ref frames because the
 // pass needs a source-order future to inspect.
-func (e *VP9Encoder) populateVP9TPLForFrame(skip bool) {
+//
+// current points at the frame currently being encoded.  The encoder pops it
+// off the lookahead ring before calling into the per-frame pipeline, so the
+// remaining ring view is one short of the TPL window; we splice current back
+// in as slab[0] so the propagation analysis sees the same source-order
+// window libvpx's TPL operates on.  When current is nil (e.g. retrospective
+// callers that only have the ring view available), we fall back to the ring
+// alone, which is what govpx shipped before the splice landed.
+func (e *VP9Encoder) populateVP9TPLForFrame(skip bool, current *image.YCbCr) {
 	if !e.vp9TPLEnabled() {
 		return
 	}
@@ -571,16 +648,24 @@ func (e *VP9Encoder) populateVP9TPLForFrame(skip bool) {
 		e.tpl.invalidateAll()
 		return
 	}
-	if !e.vp9LookaheadEnabled() ||
-		e.vp9LookaheadSize() < vp9TPLMinLookaheadFrames {
+	if !e.vp9LookaheadEnabled() {
 		e.tpl.invalidateAll()
 		return
 	}
 	// The encoder owns the lookahead ring buffer; collect a window-sized
-	// slice pointing at the next-to-encode frame plus the future frames
-	// behind it in source order.  The first entry is the frame currently
-	// being encoded which is sitting at e.lookaheadRead.
-	frames := e.collectVP9TPLLookaheadFrames()
+	// slice pointing at the future frames behind the head in source order.
+	// At the time we run, the frame being encoded has already been popped
+	// off the ring, so we splice current back in front so the TPL pass
+	// sees the source-order window [current, ring[0], ring[1], ...].
+	tail := e.collectVP9TPLLookaheadFrames()
+	var frames []*image.YCbCr
+	if current != nil {
+		frames = make([]*image.YCbCr, 0, 1+len(tail))
+		frames = append(frames, current)
+		frames = append(frames, tail...)
+	} else {
+		frames = tail
+	}
 	if len(frames) < vp9TPLMinLookaheadFrames {
 		e.tpl.invalidateAll()
 		return
