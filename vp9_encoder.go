@@ -281,6 +281,13 @@ type VP9EncoderOptions struct {
 	// cadence still emit keyframes.
 	RTCExternalRateControl bool
 
+	// DeltaQUV is the libvpx VP9E_SET_DELTA_Q_UV chroma quantizer delta
+	// applied to both UvDcDeltaQ and UvAcDeltaQ in the uncompressed header.
+	// Valid range is [-15, 15]; non-zero values disable Profile 0 lossless
+	// even at base_qindex == 0. Zero leaves the chroma quantizer matched
+	// to luma.
+	DeltaQUV int
+
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
@@ -667,6 +674,12 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	}
 	if err := validateVP9AutoAltRefOptions(opts); err != nil {
 		return err
+	}
+	if opts.DeltaQUV < -15 || opts.DeltaQUV > 15 {
+		return ErrInvalidQuantizer
+	}
+	if opts.Lossless && opts.DeltaQUV != 0 {
+		return ErrInvalidQuantizer
 	}
 	if _, err := normalizeVP9SpatialScalabilityConfig(opts.SpatialScalability,
 		opts.Width, opts.Height); err != nil {
@@ -1566,6 +1579,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}()
 	}
 	header.Quant.BaseQindex = int16(qindex)
+	header.Quant.UvDcDeltaQ = int8(e.opts.DeltaQUV)
+	header.Quant.UvAcDeltaQ = int8(e.opts.DeltaQUV)
 	header.Quant.Lossless = qindex == 0 &&
 		header.Quant.YDcDeltaQ == 0 &&
 		header.Quant.UvDcDeltaQ == 0 &&

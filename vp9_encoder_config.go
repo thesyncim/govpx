@@ -511,6 +511,23 @@ func (e *VP9Encoder) SetRTCExternalRateControl(enabled bool) error {
 	return nil
 }
 
+// SetDeltaQUV mirrors libvpx's VP9E_SET_DELTA_Q_UV control. delta must be
+// in [-15, 15]; non-zero values disable Profile 0 lossless even at
+// base_qindex == 0. Forwards to [VP9EncoderOptions.DeltaQUV].
+func (e *VP9Encoder) SetDeltaQUV(delta int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if delta < -15 || delta > 15 {
+		return ErrInvalidQuantizer
+	}
+	if e.opts.Lossless && delta != 0 {
+		return ErrInvalidQuantizer
+	}
+	e.opts.DeltaQUV = delta
+	return nil
+}
+
 // SetARNR changes VP9 auto-alt-ref temporal filtering controls at runtime.
 // maxFrames is the ARNR window length in [0, 15], where 0 or 1 disables ARNR
 // filtering; strength is in [0, 6]; filterType selects 1=backward, 2=forward,
