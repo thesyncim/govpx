@@ -1200,6 +1200,176 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name:     "constant-set-bitrate-kbps-two-step",
+			opts:     baseOpts(700),
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetBitrateKbps 300",
+						enc.SetBitrateKbps(300))
+				case 7:
+					mustVP9Runtime(t, "SetBitrateKbps 900",
+						enc.SetBitrateKbps(900))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,-,-,bitrate:300,-,-,-,bitrate:900,-,-"),
+			exactPrefix: 3,
+		},
+		{
+			name:     "constant-set-rate-control-cbr-full-two-step",
+			opts:     baseOpts(700),
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRateControl CBR tight",
+						enc.SetRateControl(RateControlConfig{
+							Mode:                RateControlCBR,
+							TargetBitrateKbps:   300,
+							MinQuantizer:        10,
+							MaxQuantizer:        50,
+							BufferSizeMs:        400,
+							BufferInitialSizeMs: 300,
+							BufferOptimalSizeMs: 350,
+							DropFrameAllowed:    true,
+							DropFrameWaterMark:  60,
+						}))
+				case 7:
+					mustVP9Runtime(t, "SetRateControl CBR restore",
+						enc.SetRateControl(RateControlConfig{
+							Mode:                RateControlCBR,
+							TargetBitrateKbps:   900,
+							MinQuantizer:        4,
+							MaxQuantizer:        56,
+							BufferSizeMs:        600,
+							BufferInitialSizeMs: 400,
+							BufferOptimalSizeMs: 500,
+						}))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,-,-,endusage:cbr+bitrate:300+minq:10+maxq:50+bufsz:400+bufinit:300+bufopt:350+drop:60,-,-,-,endusage:cbr+bitrate:900+minq:4+maxq:56+bufsz:600+bufinit:400+bufopt:500+drop:0,-,-"),
+			exactPrefix: 3,
+		},
+		{
+			name:     "constant-set-rate-control-vbr-cbr-roundtrip",
+			opts:     baseOpts(700),
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRateControl VBR",
+						enc.SetRateControl(RateControlConfig{
+							Mode:                RateControlVBR,
+							TargetBitrateKbps:   700,
+							MinQuantizer:        4,
+							MaxQuantizer:        56,
+							BufferSizeMs:        6000,
+							BufferInitialSizeMs: 4000,
+							BufferOptimalSizeMs: 5000,
+						}))
+				case 7:
+					mustVP9Runtime(t, "SetRateControl CBR",
+						enc.SetRateControl(RateControlConfig{
+							Mode:                RateControlCBR,
+							TargetBitrateKbps:   700,
+							MinQuantizer:        4,
+							MaxQuantizer:        56,
+							BufferSizeMs:        6000,
+							BufferInitialSizeMs: 4000,
+							BufferOptimalSizeMs: 5000,
+						}))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,-,-,endusage:vbr+bitrate:700+minq:4+maxq:56+bufsz:6000+bufinit:4000+bufopt:5000,-,-,-,endusage:cbr+bitrate:700+minq:4+maxq:56+bufsz:6000+bufinit:4000+bufopt:5000,-,-"),
+			exactPrefix: 3,
+		},
+		{
+			name: "constant-set-rate-control-q-cq-roundtrip",
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRateControl Q",
+						enc.SetRateControl(RateControlConfig{
+							Mode:                RateControlQ,
+							TargetBitrateKbps:   700,
+							MinQuantizer:        4,
+							MaxQuantizer:        56,
+							CQLevel:             20,
+							BufferSizeMs:        6000,
+							BufferInitialSizeMs: 4000,
+							BufferOptimalSizeMs: 5000,
+						}))
+				case 7:
+					mustVP9Runtime(t, "SetRateControl CQ",
+						enc.SetRateControl(RateControlConfig{
+							Mode:                RateControlCQ,
+							TargetBitrateKbps:   700,
+							MinQuantizer:        4,
+							MaxQuantizer:        56,
+							CQLevel:             20,
+							BufferSizeMs:        6000,
+							BufferInitialSizeMs: 4000,
+							BufferOptimalSizeMs: 5000,
+						}))
+				}
+			},
+			extraArgs: []string{
+				"--end-usage=cq",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+				"--control-script=-,-,-,endusage:q+bitrate:700+minq:4+maxq:56+cq:20+bufsz:6000+bufinit:4000+bufopt:5000,-,-,-,endusage:cq+bitrate:700+minq:4+maxq:56+cq:20+bufsz:6000+bufinit:4000+bufopt:5000,-,-",
+			},
+			exactPrefix: 3,
+			exactFrames: []int{4, 5, 6},
+		},
+		{
+			name: "constant-tuning-ssim-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetTuning SSIM",
+						enc.SetTuning(TuneSSIM))
+				case 7:
+					mustVP9Runtime(t, "SetTuning PSNR",
+						enc.SetTuning(TunePSNR))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,tune:ssim,-,-,-,tune:psnr,-,-",
+			},
+			exactPrefix: frames,
+			strictBytes: true,
+		},
+		{
 			name:  "bitrate-with-force-key",
 			opts:  baseOpts(700),
 			flags: vp9OracleFlagAt(frames, 4, EncodeForceKeyFrame),
