@@ -493,6 +493,15 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// The page is recompiled into the binary on every restart, so
+		// the browser must always fetch a fresh copy to pick up new
+		// runtime controls and per-rendition defaults. Without this a
+		// soft refresh keeps stale JS and the user sees ghost
+		// behaviour (e.g. wrong initial dimensions) that doesn't match
+		// the running server.
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		_, _ = io.WriteString(w, indexHTML)
 	})
 	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
