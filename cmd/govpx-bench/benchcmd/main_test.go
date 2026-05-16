@@ -306,6 +306,23 @@ func TestEncodeSuiteCases(t *testing.T) {
 	if _, err := encodeSuiteCases("unknown"); err == nil {
 		t.Fatalf("encodeSuiteCases accepted unknown suite")
 	}
+	for _, suite := range []string{"vp8", "webrtc", "vod", "stress"} {
+		cases, err := encodeSuiteCases(suite)
+		if err != nil {
+			t.Fatalf("encodeSuiteCases(%q) returned error: %v", suite, err)
+		}
+		if len(cases) == 0 {
+			t.Fatalf("encodeSuiteCases(%q) returned no cases", suite)
+		}
+		for _, c := range cases {
+			if c.name == "" || c.width <= 0 || c.height <= 0 || c.frames <= 0 || c.fps <= 0 || c.bitrateKbps <= 0 {
+				t.Fatalf("encodeSuiteCases(%q) bad case %+v", suite, c)
+			}
+			if c.mode != "realtime" && c.mode != "good" {
+				t.Fatalf("encodeSuiteCases(%q) mode=%q, want realtime or good", suite, c.mode)
+			}
+		}
+	}
 }
 
 func TestRunEncodeSuiteRequiresLibvpxReference(t *testing.T) {
