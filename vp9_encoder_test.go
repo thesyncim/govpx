@@ -434,6 +434,11 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.Width = maxVP9Dimension + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Height = maxVP9Dimension + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Threads = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.RowMT = true }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.RowMT = true
+			o.Threads = 1
+		}, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Log2TileRows = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Log2TileRows = 3 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
