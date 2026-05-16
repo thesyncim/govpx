@@ -1112,10 +1112,7 @@ func (e *VP8Encoder) propagateTemporalLayerCodingState(meta temporalFrame, encod
 		}
 		state := &e.temporal.codingState[layer]
 		state.BufferLevelBits = saturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
-		state.BufferLevelBits = saturatingSub(state.BufferLevelBits, encodedBits)
-		if state.BufferLevelBits > state.MaximumBufferBits {
-			state.BufferLevelBits = state.MaximumBufferBits
-		}
+		state.BufferLevelBits = min(saturatingSub(state.BufferLevelBits, encodedBits), state.MaximumBufferBits)
 		if encodedBits > 0 {
 			const maxInt64 = int64(^uint64(0) >> 1)
 			if state.TotalActualBits > maxInt64-int64(encodedBits) {
@@ -1136,9 +1133,6 @@ func (e *VP8Encoder) propagateTemporalLayerDroppedCodingState(meta temporalFrame
 			continue
 		}
 		state := &e.temporal.codingState[layer]
-		state.BufferLevelBits = saturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
-		if state.BufferLevelBits > state.MaximumBufferBits {
-			state.BufferLevelBits = state.MaximumBufferBits
-		}
+		state.BufferLevelBits = min(saturatingAdd(state.BufferLevelBits, state.BitsPerFrame), state.MaximumBufferBits)
 	}
 }

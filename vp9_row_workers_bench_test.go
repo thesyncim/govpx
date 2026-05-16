@@ -22,7 +22,6 @@ func BenchmarkVP9EncodeRowMT(b *testing.B) {
 		{"1080p_T8", 1920, 1080, 8},
 	}
 	for _, tc := range cases {
-		tc := tc
 		b.Run(tc.name+"/RowMT_off", func(b *testing.B) {
 			benchmarkVP9EncodeRowMT(b, tc.width, tc.height, tc.threads, false)
 		})

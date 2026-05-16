@@ -163,8 +163,8 @@ func shiftYCbCrCopy(src *image.YCbCr, dy, dx int) *image.YCbCr {
 	w := src.Rect.Dx()
 	h := src.Rect.Dy()
 	out := image.NewYCbCr(image.Rect(0, 0, w, h), image.YCbCrSubsampleRatio420)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			sy := clampEncodeCoord(y-dy, h)
 			sx := clampEncodeCoord(x-dx, w)
 			out.Y[y*out.YStride+x] = src.Y[sy*src.YStride+sx]
@@ -172,8 +172,8 @@ func shiftYCbCrCopy(src *image.YCbCr, dy, dx int) *image.YCbCr {
 	}
 	uvW := (w + 1) >> 1
 	uvH := (h + 1) >> 1
-	for y := 0; y < uvH; y++ {
-		for x := 0; x < uvW; x++ {
+	for y := range uvH {
+		for x := range uvW {
 			sy := clampEncodeCoord(y-dy/2, uvH)
 			sx := clampEncodeCoord(x-dx/2, uvW)
 			out.Cb[y*out.CStride+x] = src.Cb[sy*src.CStride+sx]
@@ -458,7 +458,7 @@ func TestVP9TPLFrameDeltaAfterPopulate(t *testing.T) {
 func newVP9TPLPanningSequence(width, height, n int) []*image.YCbCr {
 	base := newVP9MotionYCbCrForTest(width, height)
 	out := make([]*image.YCbCr, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = shiftYCbCrCopy(base, 2*i, 2*i)
 	}
 	return out
@@ -511,7 +511,7 @@ func TestVP9TPLIntegrationOnVsOff(t *testing.T) {
 		seq := newVP9TPLPanningSequence(w, h, 16)
 		buf := make([]byte, 32*1024)
 		packets, totalBytes := 0, 0
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			res, err := enc.encodeVP9LookaheadIntoWithFlagsResult(seq[i%len(seq)], buf, 0)
 			switch {
 			case err == nil:
@@ -567,7 +567,7 @@ func TestVP9TPLEncodesWithoutBreakingExisting(t *testing.T) {
 	src := newVP9MotionYCbCrForTest(64, 64)
 	buf := make([]byte, 32*1024)
 	encoded := 0
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		_, err := enc.encodeVP9LookaheadIntoWithFlagsResult(src, buf, 0)
 		switch {
 		case err == nil:

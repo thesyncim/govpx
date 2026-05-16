@@ -328,7 +328,7 @@ func vp9IncMvComponent(v int16, counts *vp9NmvComponentCounts) {
 		return
 	}
 	nBits := cls + vp9dec.Class0Bits - 1
-	for i := 0; i < nBits; i++ {
+	for i := range nBits {
 		counts.Bits[i][(d>>i)&1]++
 	}
 	counts.Fp[f]++

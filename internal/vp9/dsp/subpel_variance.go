@@ -45,10 +45,10 @@ func varFilterBlock2DBilFirstPass(src []uint8, srcOff, srcStride int,
 ) {
 	f0 := int32(filter[0])
 	f1 := int32(filter[1])
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := srcOff + y*srcStride
 		dstRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int32(src[srcRow+x])*f0 + int32(src[srcRow+x+1])*f1
 			dst[dstRow+x] = uint16(roundPowerOfTwo(v, subpelFilterBits))
 		}
@@ -63,10 +63,10 @@ func varFilterBlock2DBilSecondPass(src []uint16, dst []uint8, dstOff,
 ) {
 	f0 := int32(filter[0])
 	f1 := int32(filter[1])
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * width
 		dstRow := dstOff + y*width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int32(src[srcRow+x])*f0 + int32(src[srcRow+x+width])*f1
 			dst[dstRow+x] = uint8(roundPowerOfTwo(v, subpelFilterBits))
 		}

@@ -352,7 +352,7 @@ func TestTwoPassGFBoundaryRefreshHeaderAfterTargetSelection(t *testing.T) {
 	}
 	buf := make([]byte, width*height*4+4096)
 	var packets [][]byte
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		result, err := enc.EncodeInto(buf, sources[i], uint64(i), 1, 0)
 		if err != nil {
 			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)

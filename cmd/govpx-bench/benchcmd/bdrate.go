@@ -197,13 +197,13 @@ func polyfitCubic(x, y []float64) ([4]float64, error) {
 	// Build A^T A (4x4) and A^T y (4x1) for A_ij = x_i^j.
 	var ata [4][4]float64
 	var atb [4]float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		xi := x[i]
 		yi := y[i]
 		row := [4]float64{1, xi, xi * xi, xi * xi * xi}
-		for r := 0; r < 4; r++ {
+		for r := range 4 {
 			atb[r] += row[r] * yi
-			for c := 0; c < 4; c++ {
+			for c := range 4 {
 				ata[r][c] += row[r] * row[c]
 			}
 		}
@@ -220,13 +220,13 @@ func polyfitCubic(x, y []float64) ([4]float64, error) {
 // inputs: duplicate xs, collinear data).
 func solve4x4(a [4][4]float64, b [4]float64) ([4]float64, bool) {
 	var m [4][5]float64
-	for r := 0; r < 4; r++ {
-		for c := 0; c < 4; c++ {
+	for r := range 4 {
+		for c := range 4 {
 			m[r][c] = a[r][c]
 		}
 		m[r][4] = b[r]
 	}
-	for col := 0; col < 4; col++ {
+	for col := range 4 {
 		// Partial pivot
 		pivot := col
 		for r := col + 1; r < 4; r++ {

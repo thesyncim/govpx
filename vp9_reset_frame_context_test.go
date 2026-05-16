@@ -119,9 +119,9 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 		reset             uint8
 		intraOnly         bool
 		errorResilient    bool
-		wantSlotReset     []int    // slots expected to be reset
-		wantSlotPreserved []int    // slots expected to keep their seed
-		wantIdx           int      // expected returned frame_context_idx
+		wantSlotReset     []int // slots expected to be reset
+		wantSlotPreserved []int // slots expected to keep their seed
+		wantIdx           int   // expected returned frame_context_idx
 	}{
 		{
 			name:              "0_no_reset_inter",

@@ -11,8 +11,8 @@ import (
 // frame rounds up to a 5x3 SB grid; a 64x64 frame is exactly 1x1.
 func TestVP9MVHintMapSizing(t *testing.T) {
 	for _, tc := range []struct {
-		w, h           int
-		wantC, wantR   int
+		w, h         int
+		wantC, wantR int
 	}{
 		{64, 64, 1, 1},
 		{320, 180, 5, 3},
@@ -184,9 +184,9 @@ func BenchmarkVP9MultiResolutionShareMotionVectors(b *testing.B) {
 		img := image.NewYCbCr(
 			image.Rect(0, 0, width0, height0),
 			image.YCbCrSubsampleRatio420)
-		for y := 0; y < height0; y++ {
+		for y := range height0 {
 			row := img.Y[y*img.YStride:]
-			for x := 0; x < width0; x++ {
+			for x := range width0 {
 				row[x] = byte((x + y + t*4) & 0xFF)
 			}
 		}
@@ -277,7 +277,7 @@ func TestVP9MVHintMapInterMVCandidate(t *testing.T) {
 	m := newVP9MVHintMap(w, h)
 	for i, mv := range []vp9dec.MV{
 		{Row: 0, Col: 0},
-		{Row: 8, Col: 8},   // 1px each
+		{Row: 8, Col: 8},    // 1px each
 		{Row: -16, Col: 16}, // -2px / +2px
 		{Row: 31, Col: -31}, // truncate to 3, -3
 	} {

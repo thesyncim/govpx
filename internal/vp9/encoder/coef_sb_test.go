@@ -130,8 +130,8 @@ func TestWriteCoefSbACOnlyResidueStampsEntropyContext(t *testing.T) {
 	scan, _ := scanForTxSize(common.Tx4x4)
 	blockCoeffs := map[[3]int][]int16{}
 	for plane := range 3 {
-		for r := 0; r < 2; r++ {
-			for c := 0; c < 2; c++ {
+		for r := range 2 {
+			for c := range 2 {
 				blockCoeffs[[3]int{plane, r, c}] = make([]int16, 16)
 			}
 		}
@@ -320,8 +320,8 @@ func TestWriteCoefSbDenseInterTx8LeavesRoundTrip(t *testing.T) {
 	buf := make([]byte, 4096)
 	var bw bitstream.Writer
 	bw.Start(buf)
-	for miRow := 0; miRow < 8; miRow++ {
-		for miCol := 0; miCol < 8; miCol++ {
+	for miRow := range 8 {
+		for miCol := range 8 {
 			aboveOffsets := [vp9dec.MaxMbPlane]int{miCol * 2, miCol, miCol}
 			leftOffsets := [vp9dec.MaxMbPlane]int{miRow * 2, miRow, miRow}
 			if err := WriteCoefSb(&bw, WriteCoefSbArgs{
@@ -365,8 +365,8 @@ func TestWriteCoefSbDenseInterTx8LeavesRoundTrip(t *testing.T) {
 	if err := r.Init(buf[:size]); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	for miRow := 0; miRow < 8; miRow++ {
-		for miCol := 0; miCol < 8; miCol++ {
+	for miRow := range 8 {
+		for miCol := range 8 {
 			aboveOffsets := [vp9dec.MaxMbPlane]int{miCol * 2, miCol, miCol}
 			leftOffsets := [vp9dec.MaxMbPlane]int{miRow * 2, miRow, miRow}
 			for plane := range vp9dec.MaxMbPlane {

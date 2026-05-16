@@ -157,7 +157,7 @@ func TestVP9FrameParallelErrFrameNotReadySemantics(t *testing.T) {
 	// (serial) encode of the keyframe. The first LookaheadFrames-1 pushes
 	// return ErrFrameNotReady; the LookaheadFrames-th push triggers the
 	// keyframe emit through the serial path.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		src := newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
 		_, err := e.EncodeIntoWithResult(src, dst)
 		if !errors.Is(err, ErrFrameNotReady) {
@@ -462,7 +462,7 @@ func TestVP9FrameParallelGoroutineLeak(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 1<<20)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		src := newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
 		_, _ = e.EncodeIntoWithResult(src, dst)
 	}

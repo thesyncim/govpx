@@ -62,10 +62,7 @@ func (e *VP8Encoder) updateSourceFrameRateFromTimestamp(pts, duration uint64, sh
 		return
 	}
 	start := e.sourceTS.timestampTicks(pts)
-	end := e.sourceTS.timestampTicks(saturatingAddUint64(pts, duration))
-	if end < start {
-		end = start
-	}
+	end := max(e.sourceTS.timestampTicks(saturatingAddUint64(pts, duration)), start)
 
 	if start < e.sourceTS.firstTimestampEver {
 		e.sourceTS.firstTimestampEver = start

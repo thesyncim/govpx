@@ -53,7 +53,7 @@ func (r VP9SpatialSVCEncodeResult) RTPPacketizationSize(mtu int) (int, int, erro
 	}
 	packets := 0
 	payloadBytes := 0
-	for layerID := 0; layerID < count; layerID++ {
+	for layerID := range count {
 		desc, frame, err := r.vp9SpatialSVCRTPFrame(layerID)
 		if err != nil {
 			return 0, 0, err
@@ -96,7 +96,7 @@ func (r VP9SpatialSVCEncodeResult) PacketizeRTPInto(dst []RTPPayloadFragment,
 	count := int(r.LayerCount)
 	packetOff := 0
 	byteOff := 0
-	for layerID := 0; layerID < count; layerID++ {
+	for layerID := range count {
 		desc, frame, err := r.vp9SpatialSVCRTPFrame(layerID)
 		if err != nil {
 			return 0, 0, err
@@ -190,7 +190,7 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 	count := int(opts.LayerCount)
 	var widths [VP9RTPMaxSpatialLayers]uint16
 	var heights [VP9RTPMaxSpatialLayers]uint16
-	for i := 0; i < count; i++ {
+	for i := range count {
 		layer := opts.Layers[i]
 		if layer.SpatialScalability.Enabled ||
 			layer.LookaheadFrames != 0 || layer.AutoAltRef ||
@@ -226,7 +226,7 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		scalabilityStructure: vp9SpatialSVCScalabilityStructure(widths,
 			heights, count, temporalMode, temporalEnabled),
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		layerOpts := opts.Layers[i]
 		spatial := VP9SpatialScalabilityConfig{
 			Enabled:                    true,
@@ -469,7 +469,7 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 	if len(srcs) != count {
 		return VP9SpatialSVCEncodeResult{}, ErrInvalidConfig
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if err := e.layers[i].validateVP9EncoderSource(srcs[i]); err != nil {
 			return VP9SpatialSVCEncodeResult{}, err
 		}
@@ -484,7 +484,7 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 	var frameSizes [VP9MaxSpatialLayers]int
 	offset := 0
 	encodeLimit := len(dst) - maxIndexSize
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if encodeLimit-offset < vp9MinEncodeIntoBuffer {
 			return VP9SpatialSVCEncodeResult{}, ErrBufferTooSmall
 		}
@@ -832,7 +832,7 @@ func (e *VP9SpatialSVCEncoder) SetInterLayerPrediction(enabled bool) error {
 			}
 		}
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		layer := e.layers[i]
 		if layer == nil {
 			return ErrClosed
@@ -1004,7 +1004,7 @@ func appendVP9SpatialSVCSuperframeIndex(dst []byte, frameSizes *[VP9MaxSpatialLa
 		return 0, ErrInvalidConfig
 	}
 	maxSize := 0
-	for i := 0; i < count; i++ {
+	for i := range count {
 		size := frameSizes[i]
 		if size <= 0 || uint64(size) > uint64(^uint32(0)) {
 			return 0, ErrInvalidConfig
@@ -1021,9 +1021,9 @@ func appendVP9SpatialSVCSuperframeIndex(dst []byte, frameSizes *[VP9MaxSpatialLa
 	marker := vp9SuperframeMarker(count, sizeBytes)
 	dst[0] = marker
 	off := 1
-	for i := 0; i < count; i++ {
+	for i := range count {
 		size := frameSizes[i]
-		for j := 0; j < sizeBytes; j++ {
+		for j := range sizeBytes {
 			dst[off+j] = byte(size >> (8 * j))
 		}
 		off += sizeBytes

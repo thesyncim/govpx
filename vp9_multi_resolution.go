@@ -231,7 +231,7 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 		return nil, ErrInvalidConfig
 	}
 	count := opts.LayerCount
-	for i := 0; i < count; i++ {
+	for i := range count {
 		layer := opts.Layers[i]
 		if !validVP9Dimension(layer.Width) || !validVP9Dimension(layer.Height) {
 			return nil, ErrInvalidConfig
@@ -253,7 +253,7 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 		count:              count,
 		shareMotionVectors: opts.ShareMotionVectors,
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		layer := opts.Layers[i]
 		mre.layerWidths[i] = layer.Width
 		mre.layerHeights[i] = layer.Height
@@ -296,7 +296,7 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 	// scaled up). Layer 0 has no producer; layer count-1 has no
 	// consumer; the remaining slots are populated.
 	if opts.ShareMotionVectors && count > 1 {
-		for i := 0; i < count; i++ {
+		for i := range count {
 			mre.mvHintExport[i] = newVP9MVHintMap(mre.layerWidths[i], mre.layerHeights[i])
 			mre.mvHintImport[i] = newVP9MVHintMap(mre.layerWidths[i], mre.layerHeights[i])
 		}
@@ -604,4 +604,3 @@ func vp9MultiResolutionDownscaleI420(dst *image.YCbCr, src *image.YCbCr,
 ) {
 	vp9MultiResolutionPolyphaseDownscaleI420(dst, src, dstWidth, dstHeight, scratch)
 }
-

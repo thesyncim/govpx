@@ -3,15 +3,16 @@ package govpx
 import (
 	"image"
 	"math"
+	"slices"
 	"sort"
 
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 const (
-	vp9PerceptualAQClusters    = 8
-	vp9PerceptualAQIterations  = 10
-	vp9PerceptualAQMBSize      = 16
+	vp9PerceptualAQClusters     = 8
+	vp9PerceptualAQIterations   = 10
+	vp9PerceptualAQMBSize       = 16
 	vp9PerceptualAQVarDiffScale = 4.0
 )
 
@@ -73,8 +74,8 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int) bo
 	} else {
 		s.values = s.values[:0]
 	}
-	for mbRow := 0; mbRow < mbRows; mbRow++ {
-		for mbCol := 0; mbCol < mbCols; mbCol++ {
+	for mbRow := range mbRows {
+		for mbCol := range mbCols {
 			x0 := mbCol * vp9PerceptualAQMBSize
 			y0 := mbRow * vp9PerceptualAQMBSize
 			w := min(vp9PerceptualAQMBSize, width-x0)
@@ -107,7 +108,7 @@ func (s *vp9PerceptualAQState) segmentationParams(intraFrame bool) vp9dec.Segmen
 		return seg
 	}
 	seg.UpdateData = true
-	for i := 0; i < vp9dec.MaxSegments; i++ {
+	for i := range vp9dec.MaxSegments {
 		delta := s.deltas[i]
 		if delta == 0 {
 			continue
@@ -156,7 +157,7 @@ func (s *vp9PerceptualAQState) computeSegmentDeltas(baseQIndex int) {
 	}
 	baseQStep := vp9PerceptualQIndexToQStep(baseQIndex)
 	mid := s.centers[vp9PerceptualAQClusters/2]
-	for i := 0; i < vp9PerceptualAQClusters; i++ {
+	for i := range vp9PerceptualAQClusters {
 		if i == vp9PerceptualAQClusters/2 {
 			s.deltas[i] = 0
 			continue
@@ -230,7 +231,7 @@ func vp9PerceptualMBWienerVariance(src []byte, stride, x0, y0, w, h int) int64 {
 	sortInt32(abs[:])
 	median := abs[(coeffCount-1)/2]
 	var wienerVar int64
-	for i := 0; i < coeffCount-1; i++ {
+	for i := range coeffCount - 1 {
 		c := int64(abs[i])
 		sqr := c * c
 		t := c
@@ -246,13 +247,13 @@ func vp9PerceptualMBWienerVariance(src []byte, stride, x0, y0, w, h int) int64 {
 // repeating the last in-frame sample to pad partial right/bottom MBs.
 func vp9PerceptualGatherMBBlock(src []byte, stride, x0, y0, w, h int, dst []int16) {
 	const block = vp9PerceptualAQMBSize
-	for y := 0; y < block; y++ {
+	for y := range block {
 		srcY := y0 + y
 		if y >= h {
 			srcY = y0 + h - 1
 		}
 		row := src[srcY*stride : srcY*stride+stride]
-		for x := 0; x < block; x++ {
+		for x := range block {
 			srcX := x0 + x
 			if x >= w {
 				srcX = x0 + w - 1
@@ -265,7 +266,7 @@ func vp9PerceptualGatherMBBlock(src []byte, stride, x0, y0, w, h int, dst []int1
 // sortInt32 sorts an int32 slice in ascending order. The fixed slice
 // fan-out keeps the call allocation-free on hot paths.
 func sortInt32(a []int32) {
-	sort.Slice(a, func(i, j int) bool { return a[i] < a[j] })
+	slices.Sort(a)
 }
 
 // vp9PerceptualHadamardCol8 is the column pass of libvpx's hadamard_col8,
@@ -301,10 +302,10 @@ func vp9PerceptualHadamardCol8(src []int16, srcStride int, dst []int16) {
 func vp9PerceptualHadamard8x8(src []int16, srcStride int, coeff []int32) {
 	var buffer [64]int16
 	var buffer2 [64]int16
-	for idx := 0; idx < 8; idx++ {
+	for idx := range 8 {
 		vp9PerceptualHadamardCol8(src[idx:], srcStride, buffer[idx*8:idx*8+8])
 	}
-	for idx := 0; idx < 8; idx++ {
+	for idx := range 8 {
 		col := [8]int16{
 			buffer[idx],
 			buffer[8+idx],
@@ -317,18 +318,18 @@ func vp9PerceptualHadamard8x8(src []int16, srcStride int, coeff []int32) {
 		}
 		vp9PerceptualHadamardCol8(col[:], 1, buffer2[idx*8:idx*8+8])
 	}
-	for idx := 0; idx < 64; idx++ {
+	for idx := range 64 {
 		coeff[idx] = int32(buffer2[idx])
 	}
 }
 
 // vp9PerceptualHadamard16x16 mirrors vpx_hadamard_16x16_c.
 func vp9PerceptualHadamard16x16(src []int16, srcStride int, coeff []int32) {
-	for idx := 0; idx < 4; idx++ {
+	for idx := range 4 {
 		offset := (idx>>1)*8*srcStride + (idx&1)*8
 		vp9PerceptualHadamard8x8(src[offset:], srcStride, coeff[idx*64:idx*64+64])
 	}
-	for idx := 0; idx < 64; idx++ {
+	for idx := range 64 {
 		a0 := coeff[idx]
 		a1 := coeff[64+idx]
 		a2 := coeff[128+idx]
@@ -353,26 +354,26 @@ func vp9PerceptualKMeans(values []float64, centers, bounds *[vp9PerceptualAQClus
 	if size < vp9PerceptualAQClusters {
 		return
 	}
-	for j := 0; j < vp9PerceptualAQClusters; j++ {
+	for j := range vp9PerceptualAQClusters {
 		idx := (size * (2*j + 1)) / (2 * vp9PerceptualAQClusters)
 		if idx >= size {
 			idx = size - 1
 		}
 		centers[j] = values[idx]
 	}
-	for itr := 0; itr < vp9PerceptualAQIterations; itr++ {
+	for range vp9PerceptualAQIterations {
 		vp9PerceptualComputeBoundaries(centers, bounds)
 		var sums [vp9PerceptualAQClusters]float64
 		var counts [vp9PerceptualAQClusters]int
 		groupIdx := 0
-		for i := 0; i < size; i++ {
+		for i := range size {
 			for groupIdx < vp9PerceptualAQClusters-1 && values[i] >= bounds[groupIdx] {
 				groupIdx++
 			}
 			sums[groupIdx] += values[i]
 			counts[groupIdx]++
 		}
-		for j := 0; j < vp9PerceptualAQClusters; j++ {
+		for j := range vp9PerceptualAQClusters {
 			if counts[j] > 0 {
 				centers[j] = sums[j] / float64(counts[j])
 			}
@@ -387,7 +388,7 @@ func vp9PerceptualKMeans(values []float64, centers, bounds *[vp9PerceptualAQClus
 func vp9PerceptualComputeBoundaries(centers *[vp9PerceptualAQClusters]float64,
 	bounds *[vp9PerceptualAQClusters]float64,
 ) {
-	for j := 0; j < vp9PerceptualAQClusters-1; j++ {
+	for j := range vp9PerceptualAQClusters - 1 {
 		bounds[j] = (centers[j] + centers[j+1]) / 2.0
 	}
 	bounds[vp9PerceptualAQClusters-1] = math.Inf(1)
@@ -396,7 +397,7 @@ func vp9PerceptualComputeBoundaries(centers *[vp9PerceptualAQClusters]float64,
 // vp9PerceptualGroupIndex finds the cluster a value belongs to by linear
 // scan of the boundary array; matches libvpx's vp9_get_group_idx.
 func vp9PerceptualGroupIndex(value float64, bounds *[vp9PerceptualAQClusters]float64) int {
-	for j := 0; j < vp9PerceptualAQClusters-1; j++ {
+	for j := range vp9PerceptualAQClusters - 1 {
 		if value < bounds[j] {
 			return j
 		}
@@ -459,4 +460,3 @@ var vp9PerceptualAcQuant8 = [256]int16{
 	1219, 1243, 1267, 1292, 1317, 1343, 1369, 1396, 1423, 1451, 1479, 1508, 1537,
 	1567, 1597, 1628, 1660, 1692, 1725, 1759, 1793, 1828,
 }
-

@@ -174,8 +174,8 @@ func TestVP9MFQEWalkerVisitsEveryMI(t *testing.T) {
 	// 64x64 leaf, right half is four 32x32 leaves.
 	miCols := width >> 3
 	miRows := height >> 3
-	for miRow := 0; miRow < miRows; miRow++ {
-		for miCol := 0; miCol < miCols; miCol++ {
+	for miRow := range miRows {
+		for miCol := range miCols {
 			mi := &d.miGrid[miRow*miCols+miCol]
 			switch {
 			case miCol < 8:
@@ -215,8 +215,8 @@ func TestVP9MFQEWalkerVisitsEveryMI(t *testing.T) {
 	d.vp9MFQEWalker(&d.postSource.Img, &d.post.Img, true, 60, 20)
 	stride := d.post.Img.YStride
 	missed := 0
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			if d.post.Img.Y[y*stride+x] == 0 {
 				missed++
 			}

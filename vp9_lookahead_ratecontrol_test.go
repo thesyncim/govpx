@@ -166,4 +166,3 @@ func TestVP9EncoderLookaheadComposesWithTemporalSVC(t *testing.T) {
 		}
 	}
 }
-

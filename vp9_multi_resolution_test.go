@@ -391,7 +391,7 @@ func TestVP9MultiResolutionEncoderSteadyStateAlloc(t *testing.T) {
 	src := newVP9YCbCrForTest(64, 48, 90, 100, 110)
 	dsts := [][]byte{make([]byte, 1<<19), make([]byte, 1<<19)}
 	// Warmup.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		if _, err := enc.EncodeIntoWithResult(src, dsts); err != nil {
 			t.Fatalf("warmup encode: %v", err)
 		}
@@ -434,7 +434,7 @@ func TestVP9MultiResolutionDownscalePlaneLinearGradient(t *testing.T) {
 	// ramp downscaled to 4 samples it stays monotone.
 	srcW, srcH := 16, 1
 	src := make([]byte, srcW*srcH)
-	for x := 0; x < srcW; x++ {
+	for x := range srcW {
 		src[x] = byte(x * 16)
 	}
 	dstW := 4

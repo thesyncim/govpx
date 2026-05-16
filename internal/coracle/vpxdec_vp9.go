@@ -171,4 +171,3 @@ func vpxdecVP9DecodeI420(input []byte, tempPattern string, opts VpxdecVP9Options
 	}
 	return raw, diag, nil
 }
-

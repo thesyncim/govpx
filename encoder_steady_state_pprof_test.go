@@ -44,7 +44,7 @@ func TestVP8EncoderSteadyStateCPUProfile(t *testing.T) {
 	frameIdx := uint64(0)
 	durationNS := uint64(1_000_000_000 / fps)
 	encode := func(n int) {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			src := encoderValidationPanningFrame(width, height, int(frameIdx))
 			if _, err := e.EncodeInto(dst, src, frameIdx*durationNS, durationNS, 0); err != nil {
 				t.Fatalf("encode frame %d: %v", i, err)

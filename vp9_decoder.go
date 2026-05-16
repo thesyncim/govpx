@@ -545,7 +545,7 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return d.decodeVP9FrameWithPTS(packet, pts)
 	}
 	frameCount := d.vp9SVCFrameCount(sf.count)
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
 			return err
 		}
@@ -745,9 +745,9 @@ func vp9ParseSuperframe(packet []byte) (vp9SuperframeIndex, error) {
 
 	offset := 0
 	sizeOffset := indexStart + 1
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		frameSize := 0
-		for j := 0; j < sizeBytes; j++ {
+		for j := range sizeBytes {
 			frameSize |= int(packet[sizeOffset+i*sizeBytes+j]) << (8 * j)
 		}
 		if frameSize <= 0 || frameSize > indexStart-offset {
@@ -802,7 +802,7 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	}
 	if sf.count != 0 {
 		frameCount := d.vp9SVCFrameCount(sf.count)
-		for i := 0; i < frameCount; i++ {
+		for i := range frameCount {
 			if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
 				return VP9FrameInfo{}, err
 			}
@@ -1204,7 +1204,7 @@ func copyVP9ImageToPostSource(dst *vp8common.Image, src Image) {
 func copyVP9PostPlane(dst []byte, dstStride, codedWidth, codedHeight int,
 	src []byte, srcStride, width, height int,
 ) {
-	for y := 0; y < height; y++ {
+	for y := range height {
 		dstRow := dst[y*dstStride:]
 		copy(dstRow[:width], src[y*srcStride:y*srcStride+width])
 		if codedWidth > width {
@@ -1259,16 +1259,16 @@ func (d *VP9Decoder) prepareVP9PostProcessModes(rows, cols int) {
 	}
 	miCols := (d.lastFrame.Width + 7) >> 3
 	miRows := (d.lastFrame.Height + 7) >> 3
-	for mbRow := 0; mbRow < rows; mbRow++ {
-		for mbCol := 0; mbCol < cols; mbCol++ {
+	for mbRow := range rows {
+		for mbCol := range cols {
 			mode := &d.postModes[mbRow*cols+mbCol]
 			mode.MBSkipCoeff = true
-			for subRow := 0; subRow < 2; subRow++ {
+			for subRow := range 2 {
 				miRow := mbRow*2 + subRow
 				if miRow >= miRows {
 					continue
 				}
-				for subCol := 0; subCol < 2; subCol++ {
+				for subCol := range 2 {
 					miCol := mbCol*2 + subCol
 					if miCol >= miCols {
 						continue

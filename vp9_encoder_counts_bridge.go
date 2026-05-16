@@ -104,7 +104,7 @@ func vp9CoefCountsFromEncoderBranchStats(src *encoder.FrameCoefBranchStats) vp9d
 			for ref := range vp9dec.CoefRefTypes {
 				for band := range vp9dec.CoefBands {
 					ctxCount := vp9dec.BandCoefContexts(band)
-					for ctx := 0; ctx < ctxCount; ctx++ {
+					for ctx := range ctxCount {
 						node := &src[tx][plane][ref][band][ctx]
 						eob := node[0][0]
 						neob := node[0][1]

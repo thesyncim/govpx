@@ -371,19 +371,19 @@ func makeGeneratedVP9I420(width int, height int, frames int) []byte {
 	uvHeight := (height + 1) >> 1
 	frameSize := width*height + 2*uvWidth*uvHeight
 	raw := make([]byte, 0, frameSize*frames)
-	for frame := 0; frame < frames; frame++ {
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
+	for frame := range frames {
+		for y := range height {
+			for x := range width {
 				raw = append(raw, byte(24+(x*7+y*11+frame*13)%208))
 			}
 		}
-		for y := 0; y < uvHeight; y++ {
-			for x := 0; x < uvWidth; x++ {
+		for y := range uvHeight {
+			for x := range uvWidth {
 				raw = append(raw, byte(80+(x*5+y*3+frame*9)%96))
 			}
 		}
-		for y := 0; y < uvHeight; y++ {
-			for x := 0; x < uvWidth; x++ {
+		for y := range uvHeight {
+			for x := range uvWidth {
 				raw = append(raw, byte(96+(x*3+y*7+frame*5)%96))
 			}
 		}

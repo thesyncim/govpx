@@ -126,18 +126,18 @@ func TestVP9PostEncodeDropEndToEnd(t *testing.T) {
 	// post-encode drop. The first frame is a key (no drop), the second
 	// frame is an inter that overshoots and should be dropped.
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              64,
-		Height:             64,
-		FPS:                30,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlCBR,
-		TargetBitrateKbps:  100,
-		BufferSizeMs:       500,
+		Width:               64,
+		Height:              64,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   100,
+		BufferSizeMs:        500,
 		BufferInitialSizeMs: 200,
 		BufferOptimalSizeMs: 250,
-		DropFrameAllowed:   true,
-		DropFrameWaterMark: 80,
-		PostEncodeDrop:     true,
+		DropFrameAllowed:    true,
+		DropFrameWaterMark:  80,
+		PostEncodeDrop:      true,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)

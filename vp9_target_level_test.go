@@ -122,7 +122,6 @@ func TestVP9EncoderSetTargetLevelRejectsExceedingConfiguration(t *testing.T) {
 	}
 }
 
-
 func TestVP9EncoderRejectsInvalidTargetLevel(t *testing.T) {
 	for _, level := range []int{-1, 1, 5, 12, 100, 254} {
 		opts := VP9EncoderOptions{

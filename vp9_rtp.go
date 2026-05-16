@@ -408,7 +408,7 @@ func PacketizeVP9RTPFrameInto(dst []RTPPayloadFragment, payloadBuf []byte,
 	}
 	frameOff := 0
 	bufOff := 0
-	for i := 0; i < packets; i++ {
+	for i := range packets {
 		packetDesc := vp9RTPPayloadDescriptorForFragment(desc, i == 0)
 		descSize, err := packetDesc.Size()
 		if err != nil {
@@ -672,7 +672,7 @@ func (ss VP9RTPScalabilityStructure) size() (int, error) {
 	}
 	size := 1
 	if ss.ResolutionPresent {
-		for i := 0; i < layerCount; i++ {
+		for i := range layerCount {
 			if ss.Width[i] == 0 || ss.Height[i] == 0 {
 				return 0, ErrInvalidConfig
 			}
@@ -717,7 +717,7 @@ func (ss VP9RTPScalabilityStructure) marshalInto(dst []byte) int {
 
 	off := 1
 	if ss.ResolutionPresent {
-		for i := 0; i < layerCount; i++ {
+		for i := range layerCount {
 			dst[off] = byte(ss.Width[i] >> 8)
 			dst[off+1] = byte(ss.Width[i])
 			dst[off+2] = byte(ss.Height[i] >> 8)
@@ -759,7 +759,7 @@ func (ss VP9RTPScalabilityStructure) isZero() bool {
 		len(ss.PictureGroups) != 0 {
 		return false
 	}
-	for i := 0; i < VP9RTPMaxSpatialLayers; i++ {
+	for i := range VP9RTPMaxSpatialLayers {
 		if ss.Width[i] != 0 || ss.Height[i] != 0 {
 			return false
 		}
@@ -801,7 +801,7 @@ func parseVP9RTPScalabilityStructure(packet []byte) (VP9RTPScalabilityStructure,
 		if count != 0 {
 			ss.PictureGroups = make([]VP9RTPPictureGroup, count)
 		}
-		for i := 0; i < count; i++ {
+		for i := range count {
 			if off >= len(packet) {
 				return VP9RTPScalabilityStructure{}, 0, ErrInvalidVP9Data
 			}

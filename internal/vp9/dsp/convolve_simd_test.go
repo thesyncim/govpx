@@ -56,10 +56,7 @@ func runConvolveScalarVert(src []byte, srcStride int, dst []byte, dstStride int,
 func TestVP9Convolve8HorizSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xb00b, 0xface))
 	for _, c := range vp9ConvCases() {
-		c := c
 		for fi, f := range filterSet() {
-			f := f
-			fi := fi
 			t.Run(c.name, func(t *testing.T) {
 				stride := c.w + 32
 				margin := 16
@@ -67,7 +64,7 @@ func TestVP9Convolve8HorizSimdAgreement(t *testing.T) {
 				for i := range src {
 					src[i] = uint8(r.UintN(256))
 				}
-				for x0Q4 := 0; x0Q4 < tables.SubpelShifts; x0Q4++ {
+				for x0Q4 := range tables.SubpelShifts {
 					srcOffset := margin*stride + margin
 					gotDst := make([]byte, stride*c.h)
 					wantDst := make([]byte, stride*c.h)
@@ -90,10 +87,7 @@ func TestVP9Convolve8HorizSimdAgreement(t *testing.T) {
 func TestVP9Convolve8VertSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xdada, 0xbeef))
 	for _, c := range vp9ConvCases() {
-		c := c
 		for fi, f := range filterSet() {
-			f := f
-			fi := fi
 			t.Run(c.name, func(t *testing.T) {
 				stride := c.w + 32
 				margin := 16
@@ -101,7 +95,7 @@ func TestVP9Convolve8VertSimdAgreement(t *testing.T) {
 				for i := range src {
 					src[i] = uint8(r.UintN(256))
 				}
-				for y0Q4 := 0; y0Q4 < tables.SubpelShifts; y0Q4++ {
+				for y0Q4 := range tables.SubpelShifts {
 					srcOffset := margin*stride + margin
 					gotDst := make([]byte, stride*c.h)
 					wantDst := make([]byte, stride*c.h)
@@ -130,7 +124,6 @@ func TestVP9Convolve8FullSimdAgreement(t *testing.T) {
 		{"64x64", 64, 64},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			stride := c.w + 32
 			margin := 16
@@ -138,7 +131,7 @@ func TestVP9Convolve8FullSimdAgreement(t *testing.T) {
 			for i := range src {
 				src[i] = uint8(r.UintN(256))
 			}
-			for trial := 0; trial < 6; trial++ {
+			for trial := range 6 {
 				x0Q4 := int(r.UintN(tables.SubpelShifts))
 				y0Q4 := int(r.UintN(tables.SubpelShifts))
 				f := &tables.SubPelFilters8
@@ -180,9 +173,7 @@ func TestVP9Convolve8SimdEdgeCases(t *testing.T) {
 		{"mid", 128},
 	}
 	for _, c := range cases {
-		c := c
 		for _, fc := range fills {
-			fc := fc
 			t.Run(c.name+"_"+fc.name, func(t *testing.T) {
 				stride := c.w + 32
 				margin := 16

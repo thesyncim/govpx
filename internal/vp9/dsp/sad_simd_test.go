@@ -39,9 +39,8 @@ func TestVP9SadSimdRandomAgreement(t *testing.T) {
 	const stride = 96
 	const off = 8
 	for _, c := range vp9SadCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
-			for trial := 0; trial < 12; trial++ {
+			for trial := range 12 {
 				src := make([]uint8, stride*(c.h+off+8))
 				ref := make([]uint8, stride*(c.h+off+8))
 				for i := range src {
@@ -62,7 +61,6 @@ func TestVP9SadSimdEdgeCases(t *testing.T) {
 	const stride = 96
 	const off = 8
 	for _, c := range vp9SadCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			cases := []struct {
 				name      string
@@ -77,7 +75,6 @@ func TestVP9SadSimdEdgeCases(t *testing.T) {
 				{"singlePixelDiff", 100, 100, 17},
 			}
 			for _, ec := range cases {
-				ec := ec
 				t.Run(ec.name, func(t *testing.T) {
 					src := make([]uint8, stride*(c.h+off+8))
 					ref := make([]uint8, stride*(c.h+off+8))
@@ -103,7 +100,6 @@ func TestVP9SadSimdStrides(t *testing.T) {
 	r := rand.New(rand.NewPCG(0x12bf, 0x09a7))
 	strides := []int{64, 67, 80, 96, 128, 129}
 	for _, c := range vp9SadCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			for _, stride := range strides {
 				if stride < c.w {

@@ -89,10 +89,10 @@ func TestVP9EncoderEquator360AQValidation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := VP9EncoderOptions{
-				Width:   64,
-				Height:  64,
-				FPS:     30,
-				AQMode:  VP9AQEquator360,
+				Width:  64,
+				Height: 64,
+				FPS:    30,
+				AQMode: VP9AQEquator360,
 			}
 			tc.mut(&opts)
 			if _, err := NewVP9Encoder(opts); !errors.Is(err, tc.err) {

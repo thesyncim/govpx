@@ -47,8 +47,8 @@ func (d *VP9Decoder) vp9MFQEWalker(src *vp8common.Image, dst *vp8common.Image,
 	// the leaf's top-left (i.e. when (miRow, miCol) is aligned to
 	// the leaf's step) so larger leaves blend as one block instead
 	// of being re-touched once per 8x8 MI.
-	for miRow := 0; miRow < miRows; miRow++ {
-		for miCol := 0; miCol < miCols; miCol++ {
+	for miRow := range miRows {
+		for miCol := range miCols {
 			idx := miRow*miCols + miCol
 			mi := &d.miGrid[idx]
 			step := vp9MFQEStepFromSbType(mi.SbType)
@@ -145,10 +145,11 @@ func (d *VP9Decoder) vp9MFQEProcessBlock(src *vp8common.Image, dst *vp8common.Im
 // narrower side so MFQE sees power-of-two squares.
 //
 // Mapping (in 8x8 MIs):
-//   Block8x8/8x4/4x8/4x4   -> 1
-//   Block16x16/16x8/8x16   -> 2
-//   Block32x32/32x16/16x32 -> 4
-//   Block64x64/64x32/32x64 -> 8
+//
+//	Block8x8/8x4/4x8/4x4   -> 1
+//	Block16x16/16x8/8x16   -> 2
+//	Block32x32/32x16/16x32 -> 4
+//	Block64x64/64x32/32x64 -> 8
 func vp9MFQEStepFromSbType(sb common.BlockSize) int {
 	if sb >= common.BlockSizes {
 		return 1

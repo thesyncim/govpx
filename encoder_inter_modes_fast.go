@@ -145,7 +145,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	refOrder := &libvpxFastRefFrameOrder
 	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
 
-	for modeIndex := 0; modeIndex < len(libvpxFastInterModeOrder); modeIndex++ {
+	for modeIndex := range len(libvpxFastInterModeOrder) {
 		threshold := thresholds[modeIndex]
 		if threshold == libvpxInterModeThresholdDisabled {
 			continue
@@ -403,7 +403,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	refOrder := &libvpxFastRefFrameOrder
 	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
 
-	for modeIndex := 0; modeIndex < len(libvpxFastInterModeOrder); modeIndex++ {
+	for modeIndex := range len(libvpxFastInterModeOrder) {
 		threshold := thresholds[modeIndex]
 		if threshold == libvpxInterModeThresholdDisabled {
 			continue

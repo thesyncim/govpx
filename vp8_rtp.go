@@ -307,7 +307,7 @@ func PacketizeVP8RTPFrameInto(dst []RTPPayloadFragment, payloadBuf []byte,
 	maxPayload := mtu - descSize
 	frameOff := 0
 	bufOff := 0
-	for i := 0; i < packets; i++ {
+	for i := range packets {
 		chunk := min(maxPayload, len(frame)-frameOff)
 		packetDesc := desc
 		packetDesc.StartOfPartition = i == 0

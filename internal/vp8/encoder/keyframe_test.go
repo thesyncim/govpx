@@ -234,7 +234,7 @@ func TestWriteCoefficientKeyFrameDerivesSkipFalseProbabilityFromModes(t *testing
 	for i := range modes {
 		modes[i] = vp8enc.KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		coeffs[i].QCoeff[24][0] = 1
 		coeffs[i].SetBlockEOB(24, 1)
 	}

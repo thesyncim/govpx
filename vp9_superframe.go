@@ -56,7 +56,7 @@ func PackVP9SuperframeInto(dst []byte, frames ...[]byte) (int, error) {
 	offset++
 	for _, frame := range frames {
 		size := len(frame)
-		for i := 0; i < sizeBytes; i++ {
+		for i := range sizeBytes {
 			dst[offset+i] = byte(size >> (8 * i))
 		}
 		offset += sizeBytes

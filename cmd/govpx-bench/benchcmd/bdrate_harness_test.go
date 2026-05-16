@@ -53,18 +53,18 @@ func bdSmokeFrame(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	// Translating gradient: gives the encoder content variation
 	// across frames so inter prediction has work to do.
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			row[x] = byte(((x + idx*3) ^ (y * 5)) & 0xFF)
 		}
 	}
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvW; x++ {
+		for x := range uvW {
 			cb[x] = byte(128 + ((x+idx)*3)&0x3F)
 			cr[x] = byte(128 + ((y+idx*2)*5)&0x3F)
 		}

@@ -152,7 +152,6 @@ func TestVP9FeatureBDRateDiagnostics(t *testing.T) {
 	rows := make([][3]string, 0, len(scenarios)+1)
 	rows = append(rows, [3]string{"scenario", "BD-rate %", "BD-PSNR dB"})
 	for _, sc := range scenarios {
-		sc := sc
 		gen := FeatureGateGenerator(sc.content, sc.width, sc.height)
 		res, err := ComputeBDRate(t, BDRateOptions{
 			Codec:                "vp9",

@@ -82,10 +82,7 @@ func (rc *vp9RateControlState) setOnePassVBRFrameTarget(intraOnly bool, refreshF
 }
 
 func (rc *vp9RateControlState) onePassVBRKeyFrameTargetBits() int {
-	target := int64(rc.bitsPerFrame) * 25
-	if target > int64(maxInt()) {
-		target = int64(maxInt())
-	}
+	target := min(int64(rc.bitsPerFrame)*25, int64(maxInt()))
 	return rc.clampIFrameTargetBits(int(target))
 }
 
@@ -120,10 +117,7 @@ func (rc *vp9RateControlState) onePassVBRInterFrameTargetBits(refreshFlags uint8
 }
 
 func (rc *vp9RateControlState) clampPFrameTargetBits(target int) int {
-	minTarget := rc.minFrameBandwidth
-	if minTarget < vp9FrameOverhead {
-		minTarget = vp9FrameOverhead
-	}
+	minTarget := max(rc.minFrameBandwidth, vp9FrameOverhead)
 	if rc.bitsPerFrame > 0 && rc.bitsPerFrame>>5 > minTarget {
 		minTarget = rc.bitsPerFrame >> 5
 	}
@@ -199,10 +193,7 @@ func (rc *vp9RateControlState) onePassRecodeAllowed() bool {
 func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshFlags uint8, frameIndex int) (int, int) {
 	best := int(rc.bestQuality)
 	worst := int(rc.worstQuality)
-	activeWorst := rc.cbrActiveWorstQuantizer(intraOnly, frameIndex)
-	if activeWorst < best {
-		activeWorst = best
-	}
+	activeWorst := max(rc.cbrActiveWorstQuantizer(intraOnly, frameIndex), best)
 	if activeWorst > worst {
 		activeWorst = worst
 	}
@@ -225,11 +216,8 @@ func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshF
 		}
 		activeBest = vp9RTCMINQ(qBasis)
 	}
-	activeBest = rc.applyVP9RefreshActiveBestBias(activeBest, intraOnly,
-		refreshFlags, best, worst)
-	if activeBest < best {
-		activeBest = best
-	}
+	activeBest = max(rc.applyVP9RefreshActiveBestBias(activeBest, intraOnly,
+		refreshFlags, best, worst), best)
 	if activeBest > worst {
 		activeBest = worst
 	}
@@ -267,11 +255,8 @@ func (rc *vp9RateControlState) applyVP9RefreshActiveBestBias(activeBest int, int
 func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshFlags uint8, frameIndex int) (int, int) {
 	best := int(rc.bestQuality)
 	worst := int(rc.worstQuality)
-	activeWorst := rc.vbrActiveWorstQuantizer(intraOnly, refreshFlags,
-		frameIndex)
-	if activeWorst < best {
-		activeWorst = best
-	}
+	activeWorst := max(rc.vbrActiveWorstQuantizer(intraOnly, refreshFlags,
+		frameIndex), best)
 	if activeWorst > worst {
 		activeWorst = worst
 	}
@@ -279,11 +264,8 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 	activeBest := best
 	if intraOnly {
 		if rc.mode == RateControlQ {
-			activeBest = cqLevel + vp9ComputeQDelta(best, worst, cqLevel,
-				1, 4)
-			if activeBest < best {
-				activeBest = best
-			}
+			activeBest = max(cqLevel+vp9ComputeQDelta(best, worst, cqLevel,
+				1, 4), best)
 		} else {
 			activeBest = vp9KFActiveQuality(int(rc.avgFrameQIndexKey))
 			if int64(rc.codedWidth)*int64(rc.codedHeight) <= 352*288 {
@@ -309,21 +291,15 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 				num = 2
 				den = 5
 			}
-			activeBest = cqLevel + vp9ComputeQDelta(best, worst,
-				cqLevel, num, den)
-			if activeBest < best {
-				activeBest = best
-			}
+			activeBest = max(cqLevel+vp9ComputeQDelta(best, worst,
+				cqLevel, num, den), best)
 		default:
 			activeBest = vp9GFActiveQuality(qBasis)
 		}
 	} else if rc.mode == RateControlQ {
 		num, den := vp9PublicQModeInterRate(frameIndex)
-		activeBest = cqLevel + vp9ComputeQDelta(best, worst, cqLevel,
-			num, den)
-		if activeBest < best {
-			activeBest = best
-		}
+		activeBest = max(cqLevel+vp9ComputeQDelta(best, worst, cqLevel,
+			num, den), best)
 	} else {
 		if frameIndex > 1 {
 			activeBest = vp9InterMINQ(min(int(rc.avgFrameQIndexInter),
@@ -336,11 +312,8 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 		}
 	}
 
-	activeBest = rc.applyVP9RefreshActiveBestBias(activeBest, intraOnly,
-		refreshFlags, best, worst)
-	if activeBest < best {
-		activeBest = best
-	}
+	activeBest = max(rc.applyVP9RefreshActiveBestBias(activeBest, intraOnly,
+		refreshFlags, best, worst), best)
 	if activeBest > worst {
 		activeBest = worst
 	}
@@ -458,10 +431,7 @@ func (rc *vp9RateControlState) cbrActiveWorstQuantizer(intraOnly bool, frameInde
 			ambientQP = int(rc.avgFrameQIndexKey)
 		}
 	}
-	activeWorst := (ambientQP * 5) >> 2
-	if activeWorst > worst {
-		activeWorst = worst
-	}
+	activeWorst := min((ambientQP*5)>>2, worst)
 	if bufferLevel > rc.bufferOptimalBits {
 		maxAdjustmentDown := activeWorst / 3
 		if maxAdjustmentDown > 0 {
@@ -731,10 +701,7 @@ func vp9DefaultMinGFInterval(timing timingState) int {
 func vp9DefaultMaxGFInterval(timing timingState, minInterval int) int {
 	num := int64(timing.timebaseDen) * 3
 	den := int64(timing.timebaseNum) * int64(timing.frameDuration) * 4
-	interval := vp9RoundedRatio(num, den)
-	if interval > vp9MaxGFInterval {
-		interval = vp9MaxGFInterval
-	}
+	interval := min(vp9RoundedRatio(num, den), vp9MaxGFInterval)
 	interval += interval & 1
 	if interval < minInterval {
 		interval = minInterval

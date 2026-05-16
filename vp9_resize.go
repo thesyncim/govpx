@@ -115,14 +115,14 @@ func vp9MultiResolutionPolyphaseFilterPlane(dst []byte, dstStride int,
 	// Horizontal pass: resample every source row from srcWidth to
 	// dstWidth. The output is a signed int32 (we keep the 128-scaled
 	// taps unrounded so the second pass can sum at full precision).
-	for y := 0; y < srcHeight; y++ {
+	for y := range srcHeight {
 		srcRow := src[y*srcStride:]
 		dstRow := scratch[y*dstWidth:]
-		for x := 0; x < dstWidth; x++ {
+		for x := range dstWidth {
 			firstSrc, phase := vp9MultiResolutionPolyphaseTap(x, dstWidth, srcWidth)
 			taps := &vp9MultiResolutionPolyphaseFilters[phase]
 			var acc int32
-			for t := 0; t < vp9MultiResolutionPolyphaseTaps; t++ {
+			for t := range vp9MultiResolutionPolyphaseTaps {
 				idx := firstSrc + t
 				if idx < 0 {
 					idx = 0
@@ -141,13 +141,13 @@ func vp9MultiResolutionPolyphaseFilterPlane(dst []byte, dstStride int,
 	// are 128-scaled; the combined shift is 2 * shift = 14 bits.
 	const combinedShift = 2 * vp9MultiResolutionPolyphaseShift
 	const round = 1 << (combinedShift - 1)
-	for y := 0; y < dstHeight; y++ {
+	for y := range dstHeight {
 		firstSrc, phase := vp9MultiResolutionPolyphaseTap(y, dstHeight, srcHeight)
 		taps := &vp9MultiResolutionPolyphaseFilters[phase]
 		dstRow := dst[y*dstStride:]
-		for x := 0; x < dstWidth; x++ {
+		for x := range dstWidth {
 			var acc int64
-			for t := 0; t < vp9MultiResolutionPolyphaseTaps; t++ {
+			for t := range vp9MultiResolutionPolyphaseTaps {
 				idx := firstSrc + t
 				if idx < 0 {
 					idx = 0

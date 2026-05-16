@@ -1116,8 +1116,8 @@ func TestRTCExternalFirstInterAfterActiveMapPreservesHeaderOnly(t *testing.T) {
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
 	active := make([]uint8, rows*cols)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			if (row+col)&1 == 0 {
 				active[row*cols+col] = 1
 			}
@@ -1276,8 +1276,8 @@ func TestROIMapDisableClearsRuntimeSegmentationPreserve(t *testing.T) {
 		SegmentID: make([]uint8, rows*cols),
 	}
 	roi.DeltaQuantizer[1] = -10
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			if row == 0 || col == 0 || row == rows-1 || col == cols-1 {
 				roi.SegmentID[row*cols+col] = 1
 			}

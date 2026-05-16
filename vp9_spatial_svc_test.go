@@ -351,7 +351,7 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 	wantEnhRefresh := []uint8{0x02, 0x00, 0x02, 0x00}
 	wantBaseSync := []bool{false, true, false, true}
 	wantEnhSync := []bool{false, true, false, true}
-	for frame := 0; frame < 4; frame++ {
+	for frame := range 4 {
 		result, err := svc.EncodeIntoWithResult(srcs, dst)
 		if err != nil {
 			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
@@ -493,7 +493,7 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 	dst := make([]byte, 1<<21)
 	widths := [3]int{32, 64, 128}
 	heights := [3]int{32, 64, 128}
-	for frame := 0; frame < 3; frame++ {
+	for frame := range 3 {
 		y := uint8(60 + frame*11)
 		srcs := []*image.YCbCr{
 			newVP9YCbCrForTest(32, 32, y, 120, 136),
@@ -549,7 +549,7 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 				result.Layers[1].KeyFrame,
 				result.Layers[2].KeyFrame)
 		}
-		for layer := 0; layer < 3; layer++ {
+		for layer := range 3 {
 			var br vp9dec.BitReader
 			br.Init(sf.frames[layer])
 			refWidth := uint32(widths[layer])
@@ -1315,7 +1315,7 @@ func TestVP9SpatialSVCEncoderSteadyStateNoAlloc(t *testing.T) {
 		newVP9YCbCrForTest(64, 64, 80, 128, 128),
 	}
 	dst := make([]byte, 1<<20)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := svc.EncodeIntoWithResult(srcs, dst); err != nil {
 			t.Fatalf("warmup EncodeIntoWithResult %d: %v", i, err)
 		}

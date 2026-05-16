@@ -1037,8 +1037,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 				block := 0
 				num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 				num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
-				for y := 0; y < num4x4H; y++ {
-					for x := 0; x < num4x4W; x++ {
+				for y := range num4x4H {
+					for x := range num4x4W {
 						mv := vp9dec.AverageSplitMvs(&mi.Bmi, refIdx, block,
 							int(pd.SubsamplingX), int(pd.SubsamplingY))
 						if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,

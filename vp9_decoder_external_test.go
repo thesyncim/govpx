@@ -77,7 +77,7 @@ var defaultVP9Profile0WebMTestNames = map[string]struct{}{
 }
 
 func init() {
-	for q := 0; q < 64; q++ {
+	for q := range 64 {
 		defaultVP9Profile0WebMTestNames[fmt.Sprintf("vp90-2-00-quantizer-%02d.webm", q)] = struct{}{}
 	}
 }

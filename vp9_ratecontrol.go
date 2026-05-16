@@ -290,10 +290,7 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 		// callers can drive the next encode's qindex directly.
 		if opts.NextFrameQIndexSet {
 			rc.nextFrameQIndexSet = true
-			q := opts.NextFrameQIndex
-			if q < 0 {
-				q = 0
-			}
+			q := max(opts.NextFrameQIndex, 0)
 			if q > 255 {
 				q = 255
 			}
@@ -371,10 +368,7 @@ func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOpti
 		rc.mode == RateControlCBR
 	if opts.NextFrameQIndexSet {
 		rc.nextFrameQIndexSet = true
-		q := opts.NextFrameQIndex
-		if q < 0 {
-			q = 0
-		}
+		q := max(opts.NextFrameQIndex, 0)
 		if q > 255 {
 			q = 255
 		}
@@ -591,10 +585,7 @@ func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
 		minInterval = int(rc.minGFInterval)
 	}
 	if rc.maxGFInterval > 0 {
-		maxInterval = int(rc.maxGFInterval)
-		if maxInterval < minInterval {
-			maxInterval = minInterval
-		}
+		maxInterval = max(int(rc.maxGFInterval), minInterval)
 	} else if rc.minGFInterval > 0 && maxInterval < minInterval {
 		maxInterval = minInterval
 	}

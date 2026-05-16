@@ -630,7 +630,7 @@ func (e *VP9Encoder) mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols int,
 		len(e.miGrid) < miRows*miCols {
 		return false
 	}
-	for tileCol := 0; tileCol < tileCols; tileCol++ {
+	for tileCol := range tileCols {
 		job := &jobs[tileCol]
 		if job.worker == nil || len(job.worker.miGrid) < miRows*miCols {
 			return false
@@ -645,7 +645,7 @@ func (e *VP9Encoder) mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols int,
 		if start >= end {
 			return false
 		}
-		for row := 0; row < miRows; row++ {
+		for row := range miRows {
 			off := row*miCols + start
 			copy(e.miGrid[off:off+end-start],
 				job.worker.miGrid[off:off+end-start])

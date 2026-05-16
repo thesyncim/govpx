@@ -88,17 +88,17 @@ func requireVP9VpxencOracle(t *testing.T) {
 func appendVP9YCbCrI420(out []byte, img *image.YCbCr) []byte {
 	width := img.Rect.Dx()
 	height := img.Rect.Dy()
-	for row := 0; row < height; row++ {
+	for row := range height {
 		start := row * img.YStride
 		out = append(out, img.Y[start:start+width]...)
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
+	for row := range uvHeight {
 		start := row * img.CStride
 		out = append(out, img.Cb[start:start+uvWidth]...)
 	}
-	for row := 0; row < uvHeight; row++ {
+	for row := range uvHeight {
 		start := row * img.CStride
 		out = append(out, img.Cr[start:start+uvWidth]...)
 	}

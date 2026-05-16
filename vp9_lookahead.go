@@ -292,12 +292,12 @@ func (e *VP9Encoder) newestVP9LookaheadEntry() (*vp9LookaheadEntry, bool) {
 }
 
 func copyVP9LookaheadImage(dst *image.YCbCr, src *image.YCbCr, width int, height int) {
-	for y := 0; y < height; y++ {
+	for y := range height {
 		copy(dst.Y[y*dst.YStride:][:width], src.Y[y*src.YStride:][:width])
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
+	for y := range uvHeight {
 		copy(dst.Cb[y*dst.CStride:][:uvWidth], src.Cb[y*src.CStride:][:uvWidth])
 		copy(dst.Cr[y*dst.CStride:][:uvWidth], src.Cr[y*src.CStride:][:uvWidth])
 	}

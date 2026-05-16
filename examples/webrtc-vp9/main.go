@@ -860,7 +860,7 @@ func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult, targetKbps, s
 			Q:       l.Quantizer,
 			Bytes:   l.SizeBytes,
 			KbpsR:   t.windowed[i].lastKBPS,
-			TL0:    l.TL0PICIDX,
+			TL0:     l.TL0PICIDX,
 			Sync:    l.TemporalLayerSync,
 			KF:      l.KeyFrame,
 			Dropped: l.Dropped,

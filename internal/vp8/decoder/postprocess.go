@@ -339,10 +339,7 @@ func shouldApplyMFQE(opts PostProcessOptions, state *PostProcessState) bool {
 // uses min(filter_level * 10/6, 63) (vp8_post_proc_frame).
 func postProcessQ(filterLevel int, vp9 bool) int {
 	if vp9 {
-		q := filterLevel * 2
-		if q > 105 {
-			q = 105
-		}
+		q := min(filterLevel*2, 105)
 		return q
 	}
 	return min(filterLevel*10/6, 63)
@@ -551,10 +548,10 @@ func mfqeSSE(a []byte, aStride int, b []byte, bStride int, blockSize int) int {
 
 func mfqeSSEScalar(a []byte, aStride int, b []byte, bStride int, blockSize int) int {
 	sum := 0
-	for row := 0; row < blockSize; row++ {
+	for row := range blockSize {
 		aRow := a[row*aStride:]
 		bRow := b[row*bStride:]
-		for col := 0; col < blockSize; col++ {
+		for col := range blockSize {
 			d := int(aRow[col]) - int(bRow[col])
 			sum += d * d
 		}

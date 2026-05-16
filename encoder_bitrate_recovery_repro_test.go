@@ -9,9 +9,9 @@ import (
 // TestVP8EncoderRecoversFPSAfterLowBitrateBurst measures per-frame wall
 // time across three phases:
 //
-//	1. baseline at target bitrate
-//	2. low-bitrate burst (1s)
-//	3. restored bitrate
+//  1. baseline at target bitrate
+//  2. low-bitrate burst (1s)
+//  3. restored bitrate
 //
 // Diagnostic — paired with TestVP8EncoderConstantBitrateBaseline. The two
 // tests together show that phase-3 per-frame time equals the constant-
@@ -56,7 +56,7 @@ func TestVP8EncoderRecoversFPSAfterLowBitrateBurst(t *testing.T) {
 
 	measure := func(label string, frames int) (totalUS int64, perFrame []int64) {
 		perFrame = make([]int64, frames)
-		for i := 0; i < frames; i++ {
+		for i := range frames {
 			src := encoderValidationPanningFrame(width, height, int(frameIdx))
 			start := time.Now()
 			if _, err := e.EncodeInto(dst, src, frameIdx*durationNS, durationNS, 0); err != nil {
@@ -105,10 +105,7 @@ func TestVP8EncoderRecoversFPSAfterLowBitrateBurst(t *testing.T) {
 
 	// Per-30-frame buckets of phase 4 to spot the convergence curve.
 	for i := 0; i < tailFrames; i += 30 {
-		end := i + 30
-		if end > tailFrames {
-			end = tailFrames
-		}
+		end := min(i+30, tailFrames)
 		var sum int64
 		for _, v := range p4[i:end] {
 			sum += v

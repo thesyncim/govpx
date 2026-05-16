@@ -24,7 +24,7 @@ func TestForwardWHT4x4NEONMatchesScalarConstant(t *testing.T) {
 
 func TestForwardWHT4x4NEONMatchesScalarRandom(t *testing.T) {
 	rng := rand.New(rand.NewSource(2))
-	for trial := 0; trial < 20; trial++ {
+	for trial := range 20 {
 		var input [16]int16
 		for i := range input {
 			input[i] = int16(rng.Intn(2049) - 1024)

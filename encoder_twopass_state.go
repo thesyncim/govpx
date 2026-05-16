@@ -161,10 +161,7 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	// target bits minus the whole two_pass_vbrmin_section reserve. Pass2Encode
 	// then credits one min_frame_bandwidth back after each visible frame.
 	totalBits := int64(bitsPerFrame) * int64(len(t.stats))
-	t.bitsLeft = totalBits - int64(t.minFrameBandwidth)*int64(len(t.stats))
-	if t.bitsLeft < 0 {
-		t.bitsLeft = 0
-	}
+	t.bitsLeft = max(totalBits-int64(t.minFrameBandwidth)*int64(len(t.stats)), 0)
 	t.maxPct = maxPct
 	if t.maxPct <= 0 {
 		t.maxPct = 400
@@ -189,10 +186,7 @@ func (t *twoPassState) enabled() bool {
 
 func (t *twoPassState) configureQuantizerBounds(bestQuality int, worstQuality int) {
 	t.bestQuality = clampQuantizerValue(bestQuality, 0, vp8MaxQIndex)
-	t.worstQuality = clampQuantizerValue(worstQuality, 0, vp8MaxQIndex)
-	if t.worstQuality < t.bestQuality {
-		t.worstQuality = t.bestQuality
-	}
+	t.worstQuality = max(clampQuantizerValue(worstQuality, 0, vp8MaxQIndex), t.bestQuality)
 }
 
 func (t *twoPassState) configureErrorResilient(errorResilient bool) {

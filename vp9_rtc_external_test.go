@@ -41,4 +41,3 @@ func TestVP9EncoderSetRTCExternalRateControlSuppressesSceneCutPromotion(t *testi
 		t.Fatal("RTCExternalRateControl stayed true after disable")
 	}
 }
-

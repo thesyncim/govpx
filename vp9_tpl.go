@@ -246,10 +246,7 @@ func (s *vp9TPLState) populate(frames []*image.YCbCr) {
 	if !s.enabled || len(frames) < vp9TPLMinLookaheadFrames || len(s.frames) == 0 {
 		return
 	}
-	limit := len(frames) - 1
-	if limit > len(s.frames) {
-		limit = len(s.frames)
-	}
+	limit := min(len(frames)-1, len(s.frames))
 	// Stage A: per-frame coarse motion estimation and intra-energy estimate.
 	for idx := 0; idx < limit; idx++ {
 		current := frames[idx]
@@ -393,20 +390,14 @@ func tplQDeltaFromPropagation(prop, mean uint64) int {
 			return 0
 		}
 		// Bias toward more bits — negative delta.
-		delta := -int(ratio >> 1)
-		if delta < -vp9TPLMaxQDelta {
-			delta = -vp9TPLMaxQDelta
-		}
+		delta := max(-int(ratio>>1), -vp9TPLMaxQDelta)
 		return delta
 	}
 	ratio := int64((mean - prop) << 3 / mean)
 	if ratio == 0 {
 		return 0
 	}
-	delta := int(ratio >> 1)
-	if delta > vp9TPLMaxQDelta {
-		delta = vp9TPLMaxQDelta
-	}
+	delta := min(int(ratio>>1), vp9TPLMaxQDelta)
 	return delta
 }
 
@@ -419,10 +410,10 @@ func vp9TPLBlockSelfVariance(src *image.YCbCr, sbRow, sbCol int) uint32 {
 	y0 := sbRow << vp9TPLSBSizeLog2
 	x0 := sbCol << vp9TPLSBSizeLog2
 	var sum, sse int
-	for r := 0; r < vp9TPLSBSize; r++ {
+	for r := range vp9TPLSBSize {
 		yy := clampEncodeCoord(y0+r, h)
 		row := src.Y[yy*src.YStride:]
-		for c := 0; c < vp9TPLSBSize; c++ {
+		for c := range vp9TPLSBSize {
 			xx := clampEncodeCoord(x0+c, w)
 			v := int(row[xx])
 			sum += v
@@ -432,10 +423,7 @@ func vp9TPLBlockSelfVariance(src *image.YCbCr, sbRow, sbCol int) uint32 {
 	const pixels = vp9TPLSBSize * vp9TPLSBSize
 	// variance = sse - (sum*sum)/pixels.
 	mean := sum / pixels
-	v := sse - mean*sum
-	if v < 0 {
-		v = 0
-	}
+	v := max(sse-mean*sum, 0)
 	if v > math.MaxUint32 {
 		v = math.MaxUint32
 	}
@@ -496,12 +484,12 @@ func vp9TPLBlockMotionSearch(src, ref *image.YCbCr, sbRow, sbCol,
 func vp9TPLBlockSAD(src, ref *image.YCbCr, srcY, srcX, refY, refX,
 	srcW, srcH, refW, refH int) uint32 {
 	var sad uint32
-	for r := 0; r < vp9TPLSBSize; r++ {
+	for r := range vp9TPLSBSize {
 		sy := clampEncodeCoord(srcY+r, srcH)
 		ry := clampEncodeCoord(refY+r, refH)
 		srcRow := src.Y[sy*src.YStride:]
 		refRow := ref.Y[ry*ref.YStride:]
-		for c := 0; c < vp9TPLSBSize; c++ {
+		for c := range vp9TPLSBSize {
 			sx := clampEncodeCoord(srcX+c, srcW)
 			rx := clampEncodeCoord(refX+c, refW)
 			diff := int(srcRow[sx]) - int(refRow[rx])
@@ -614,7 +602,7 @@ func (e *VP9Encoder) collectVP9TPLLookaheadFrames() []*image.YCbCr {
 	}
 	out := make([]*image.YCbCr, 0, count)
 	idx := int(e.lookaheadRead)
-	for i := 0; i < count; i++ {
+	for range count {
 		out = append(out, &e.lookahead[idx].img)
 		idx++
 		if idx >= len(e.lookahead) {
@@ -641,10 +629,7 @@ func (e *VP9Encoder) applyVP9TPLQIndexBias(qindex int, skip bool) int {
 	minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
 	bestBound := vp9PublicQuantizerToQIndex(minQ)
 	worstBound := vp9PublicQuantizerToQIndex(maxQ)
-	q := qindex + bias
-	if q < bestBound {
-		q = bestBound
-	}
+	q := max(qindex+bias, bestBound)
 	if q > worstBound {
 		q = worstBound
 	}

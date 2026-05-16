@@ -39,12 +39,11 @@ func vp9IdctDcCases() []dcCase {
 func TestVP9IdctDcSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0x1d07c, 0xdec0de))
 	for _, c := range vp9IdctDcCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			// 10 random trials per case, exercising a range of DC
 			// magnitudes that hit both positive and negative
 			// branches of the saturating add.
-			for trial := 0; trial < 10; trial++ {
+			for trial := range 10 {
 				stride := c.size + int(r.UintN(8))
 				bufSize := stride * c.size
 				dest := filledDestPattern(bufSize, trial*7)
@@ -82,7 +81,6 @@ func TestVP9IdctDcSimdEdgeCases(t *testing.T) {
 		{"midDestExtremeNegative", 128, -32768},
 	}
 	for _, c := range vp9IdctDcCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			for _, e := range edges {
 				stride := c.size
@@ -112,7 +110,6 @@ func TestVP9IdctDcSimdEdgeCases(t *testing.T) {
 // case where dest is a slice into a wider plane (stride > block side).
 func TestVP9IdctDcSimdStrideLargerThanWidth(t *testing.T) {
 	for _, c := range vp9IdctDcCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			const extra = 13
 			stride := c.size + extra

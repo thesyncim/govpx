@@ -362,8 +362,11 @@ func TestVP9OracleEncoderResetTransitions(t *testing.T) {
 
 // vp9TransitionCase describes one multi-control transition scenario.
 type vp9TransitionCase struct {
-	name      string
-	fx        struct{ name string; w, h int }
+	name string
+	fx   struct {
+		name string
+		w, h int
+	}
 	extraArgs []string
 	updates   map[int]vp9ControlStep
 }

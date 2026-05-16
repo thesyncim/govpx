@@ -366,7 +366,6 @@ func TestMultiframeQualityEnhanceBlockLargeSizesBlendStationaryContent(t *testin
 	// thresholds.
 	cases := []int{32, 64}
 	for _, blockSize := range cases {
-		blockSize := blockSize
 		t.Run("size_"+itoaTestSize(blockSize), func(t *testing.T) {
 			prev := newPostProcessFrame(t, blockSize, blockSize)
 			curr := newPostProcessFrame(t, blockSize, blockSize)

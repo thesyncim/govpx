@@ -75,10 +75,10 @@ func TestVP9PerceptualLogWienerVarMonotone(t *testing.T) {
 
 func TestVP9PerceptualKMeansSplitsBimodalDistribution(t *testing.T) {
 	values := make([]float64, 0, 64)
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		values = append(values, 1.0+float64(i)*0.01)
 	}
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		values = append(values, 100.0+float64(i)*0.01)
 	}
 	var centers, bounds [vp9PerceptualAQClusters]float64

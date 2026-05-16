@@ -42,7 +42,7 @@ func TestVP8EncoderConstantBitrateBaseline(t *testing.T) {
 	per := make([]int64, totalFrames)
 	qindex := make([]int, totalFrames)
 	bytesOut := make([]int, totalFrames)
-	for i := 0; i < totalFrames; i++ {
+	for i := range totalFrames {
 		src := encoderValidationPanningFrame(width, height, int(frameIdx))
 		start := time.Now()
 		result, err := e.EncodeInto(dst, src, frameIdx*durationNS, durationNS, 0)
@@ -55,10 +55,7 @@ func TestVP8EncoderConstantBitrateBaseline(t *testing.T) {
 		frameIdx++
 	}
 	for i := 0; i < totalFrames; i += 30 {
-		end := i + 30
-		if end > totalFrames {
-			end = totalFrames
-		}
+		end := min(i+30, totalFrames)
 		var sum, qsum, bsum int64
 		for j := i; j < end; j++ {
 			sum += per[j]

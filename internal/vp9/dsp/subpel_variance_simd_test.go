@@ -39,9 +39,8 @@ func TestVP9SubPixelVarianceSimdRandomAgreement(t *testing.T) {
 	const stride = 96
 	const off = 8
 	for _, c := range vp9SubpelVarCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
-			for trial := 0; trial < 12; trial++ {
+			for trial := range 12 {
 				src := make([]uint8, stride*(c.h+off+8))
 				ref := make([]uint8, stride*(c.h+off+8))
 				for i := range src {
@@ -66,7 +65,6 @@ func TestVP9SubPixelVarianceSimdAllSubpelPairs(t *testing.T) {
 	const stride = 96
 	const off = 8
 	for _, c := range vp9SubpelVarCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			src := make([]uint8, stride*(c.h+off+8))
 			ref := make([]uint8, stride*(c.h+off+8))
@@ -74,8 +72,8 @@ func TestVP9SubPixelVarianceSimdAllSubpelPairs(t *testing.T) {
 				src[i] = uint8(r.UintN(256))
 				ref[i] = uint8(r.UintN(256))
 			}
-			for xOff := 0; xOff < 8; xOff++ {
-				for yOff := 0; yOff < 8; yOff++ {
+			for xOff := range 8 {
+				for yOff := range 8 {
 					var sseGot, sseWant uint32
 					got := c.fn(src, off*stride+off, stride, xOff, yOff, ref, off*stride+off, stride, &sseGot)
 					want := subPixelVarianceScalar(c.w, c.h, src, off*stride+off, stride, xOff, yOff, ref, off*stride+off, stride, &sseWant)
@@ -104,10 +102,8 @@ func TestVP9SubPixelVarianceSimdEdgeCases(t *testing.T) {
 		{"singlePixelDiff", 100, 100, 17},
 	}
 	for _, c := range vp9SubpelVarCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			for _, ec := range cases {
-				ec := ec
 				t.Run(ec.name, func(t *testing.T) {
 					src := make([]uint8, stride*(c.h+off+8))
 					ref := make([]uint8, stride*(c.h+off+8))
@@ -139,7 +135,6 @@ func TestVP9SubPixelVarianceSimdStrides(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xdeed, 0xbabe))
 	strides := []int{72, 80, 96, 128, 129}
 	for _, c := range vp9SubpelVarCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			for _, stride := range strides {
 				if stride < c.w+1 {

@@ -246,7 +246,7 @@ func TestVP9RowMTSyncWaitWavefrontProgress(t *testing.T) {
 	if s.syncRange != vp9RowMTSyncDefaultRange {
 		t.Fatalf("reset syncRange = %d, want %d", s.syncRange, vp9RowMTSyncDefaultRange)
 	}
-	for r := 0; r < rows; r++ {
+	for r := range rows {
 		if s.curCol[r] != -1 {
 			t.Fatalf("reset curCol[%d] = %d, want -1", r, s.curCol[r])
 		}
@@ -254,11 +254,11 @@ func TestVP9RowMTSyncWaitWavefrontProgress(t *testing.T) {
 	var wg sync.WaitGroup
 	var completed atomic.Int32
 	wg.Add(rows)
-	for r := 0; r < rows; r++ {
+	for r := range rows {
 		r := r
 		go func() {
 			defer wg.Done()
-			for c := 0; c < cols; c++ {
+			for c := range cols {
 				s.read(r, c)
 				runtime.Gosched()
 				s.write(r, c, cols)

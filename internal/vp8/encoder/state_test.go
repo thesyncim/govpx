@@ -152,7 +152,7 @@ func TestWriteLoopFilterDeltasSuppressesUnchangedDeltaUpdates(t *testing.T) {
 	if d.ReadBit() != 1 || d.ReadBit() != 1 {
 		t.Fatalf("loop-filter enable/update bits did not decode to 1/1")
 	}
-	for i := 0; i < common.MaxRefLFDeltas+common.MaxModeLFDeltas; i++ {
+	for i := range common.MaxRefLFDeltas + common.MaxModeLFDeltas {
 		if d.ReadBit() != 0 {
 			t.Fatalf("delta update bit %d = 1, want 0 for unchanged base", i)
 		}

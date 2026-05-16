@@ -1,5 +1,7 @@
 package govpx
 
+import "slices"
+
 import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 
 // SetReferenceFrame replaces ref with src. ref must be ReferenceLast,
@@ -218,10 +220,8 @@ func (e *VP8Encoder) referenceFrameBuffer(ref ReferenceFrame) (*vp8common.FrameB
 func (e *VP8Encoder) referenceAliasGroup(ref ReferenceFrame) []ReferenceFrame {
 	refs := []ReferenceFrame{ref}
 	add := func(candidate ReferenceFrame) {
-		for _, existing := range refs {
-			if existing == candidate {
-				return
-			}
+		if slices.Contains(refs, candidate) {
+			return
 		}
 		refs = append(refs, candidate)
 	}

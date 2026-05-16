@@ -102,7 +102,7 @@ func TestVP9PolyphaseFilterPlaneEdgeReplication(t *testing.T) {
 func TestVP9PolyphaseFilterPlaneMonotoneRamp(t *testing.T) {
 	srcW, srcH := 32, 1
 	src := make([]byte, srcW*srcH)
-	for x := 0; x < srcW; x++ {
+	for x := range srcW {
 		src[x] = byte(x * 8)
 	}
 	dstW := 8
@@ -167,9 +167,9 @@ func TestVP9PolyphaseDownscaleI420PreservesDetailVsBilinear(t *testing.T) {
 	// Vertical bars: alternating 64 and 192 every two columns. This
 	// is a high-frequency pattern: bilinear collapses it to a flat
 	// mid-grey; polyphase keeps some of the structure.
-	for y := 0; y < srcH; y++ {
+	for y := range srcH {
 		row := src.Y[y*src.YStride:]
-		for x := 0; x < srcW; x++ {
+		for x := range srcW {
 			if (x/2)%2 == 0 {
 				row[x] = 64
 			} else {
@@ -190,11 +190,11 @@ func TestVP9PolyphaseDownscaleI420PreservesDetailVsBilinear(t *testing.T) {
 	// Reference bilinear: every pair of pixels averages to ~128, so
 	// the bilinear output collapses near-flat.
 	dstBilinear := image.NewYCbCr(image.Rect(0, 0, dstW, dstH), image.YCbCrSubsampleRatio420)
-	for y := 0; y < dstH; y++ {
+	for y := range dstH {
 		drow := dstBilinear.Y[y*dstBilinear.YStride:]
 		// Bilinear's effective output for this hard-edged pattern is
 		// roughly the mean of every pair, i.e. ~128.
-		for x := 0; x < dstW; x++ {
+		for x := range dstW {
 			drow[x] = 128
 		}
 	}
@@ -213,17 +213,17 @@ func varianceI420Y(img *image.YCbCr) int64 {
 		return 0
 	}
 	var sum int64
-	for y := 0; y < h; y++ {
+	for y := range h {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < w; x++ {
+		for x := range w {
 			sum += int64(row[x])
 		}
 	}
 	mean := sum / int64(w*h)
 	var sse int64
-	for y := 0; y < h; y++ {
+	for y := range h {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < w; x++ {
+		for x := range w {
 			d := int64(row[x]) - mean
 			sse += d * d
 		}

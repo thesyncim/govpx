@@ -69,12 +69,12 @@ func forwardDCT4x4Scalar(input []int16, stride int, output []int16) {
 	var intermediate [16]int
 	var final [16]int
 
-	for pass := 0; pass < 2; pass++ {
+	for pass := range 2 {
 		out := intermediate[:]
 		if pass == 1 {
 			out = final[:]
 		}
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			var in0, in1, in2, in3 int
 			if pass == 0 {
 				in0 = int(input[0*stride+i]) * 16
@@ -122,7 +122,7 @@ func ForwardWHT4x4Into(input []int16, stride int, output []int16) {
 func forwardWHT4x4Scalar(input []int16, stride int, output []int16) {
 	var tmp [16]int
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		a1 := int(input[0*stride+i])
 		b1 := int(input[1*stride+i])
 		c1 := int(input[2*stride+i])
@@ -142,10 +142,7 @@ func forwardWHT4x4Scalar(input []int16, stride int, output []int16) {
 		tmp[3*4+i] = b1
 	}
 
-	n := len(output)
-	if n > 16 {
-		n = 16
-	}
+	n := min(len(output), 16)
 	for i := range n {
 		output[i] = 0
 	}
@@ -153,7 +150,7 @@ func forwardWHT4x4Scalar(input []int16, stride int, output []int16) {
 		return
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		base := i * 4
 		a1 := tmp[base+0]
 		b1 := tmp[base+1]
@@ -195,8 +192,8 @@ func forwardDCT8x8Scalar(input []int16, stride int, output []int16) {
 	var intermediate [64]int
 	var final [64]int
 
-	for pass := 0; pass < 2; pass++ {
-		for i := 0; i < 8; i++ {
+	for pass := range 2 {
+		for i := range 8 {
 			var s0, s1, s2, s3, s4, s5, s6, s7 int
 			if pass == 0 {
 				s0 = (int(input[0*stride+i]) + int(input[7*stride+i])) * 4
@@ -276,8 +273,8 @@ func forwardDCT16x16Scalar(input []int16, stride int, output []int16) {
 	var intermediate [256]int
 	var final [256]int
 
-	for pass := 0; pass < 2; pass++ {
-		for i := 0; i < 16; i++ {
+	for pass := range 2 {
+		for i := range 16 {
 			var inHigh, step1, step2, step3 [8]int
 			if pass == 0 {
 				inHigh[0] = (int(input[0*stride+i]) + int(input[15*stride+i])) * 4
@@ -412,24 +409,24 @@ func ForwardHT4x4Into(input []int16, stride int, txType common.TxType, output []
 	}
 	var out [16]int
 	var tempIn, tempOut [4]int
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 4; j++ {
+	for i := range 4 {
+		for j := range 4 {
 			tempIn[j] = int(input[j*stride+i]) * 16
 		}
 		if i == 0 && tempIn[0] != 0 {
 			tempIn[0]++
 		}
 		cols(tempIn[:], tempOut[:])
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			out[j*4+i] = tempOut[j]
 		}
 	}
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 4; j++ {
+	for i := range 4 {
+		for j := range 4 {
 			tempIn[j] = out[j+i*4]
 		}
 		rows(tempIn[:], tempOut[:])
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			output[j+i*4] = int16((tempOut[j] + 1) >> 2)
 		}
 	}
@@ -447,21 +444,21 @@ func ForwardHT8x8Into(input []int16, stride int, txType common.TxType, output []
 	}
 	var out [64]int
 	var tempIn, tempOut [8]int
-	for i := 0; i < 8; i++ {
-		for j := 0; j < 8; j++ {
+	for i := range 8 {
+		for j := range 8 {
 			tempIn[j] = int(input[j*stride+i]) * 4
 		}
 		cols(tempIn[:], tempOut[:])
-		for j := 0; j < 8; j++ {
+		for j := range 8 {
 			out[j*8+i] = tempOut[j]
 		}
 	}
-	for i := 0; i < 8; i++ {
-		for j := 0; j < 8; j++ {
+	for i := range 8 {
+		for j := range 8 {
 			tempIn[j] = out[j+i*8]
 		}
 		rows(tempIn[:], tempOut[:])
-		for j := 0; j < 8; j++ {
+		for j := range 8 {
 			output[j+i*8] = int16((tempOut[j] + fdctBoolInt(tempOut[j] < 0)) >> 1)
 		}
 	}
@@ -478,21 +475,21 @@ func ForwardHT16x16Into(input []int16, stride int, txType common.TxType, output 
 	}
 	var out [256]int
 	var tempIn, tempOut [16]int
-	for i := 0; i < 16; i++ {
-		for j := 0; j < 16; j++ {
+	for i := range 16 {
+		for j := range 16 {
 			tempIn[j] = int(input[j*stride+i]) * 4
 		}
 		forwardHybridCol16(txType, tempIn[:], tempOut[:])
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			out[j*16+i] = (tempOut[j] + 1 + fdctBoolInt(tempOut[j] < 0)) >> 2
 		}
 	}
-	for i := 0; i < 16; i++ {
-		for j := 0; j < 16; j++ {
+	for i := range 16 {
+		for j := range 16 {
 			tempIn[j] = out[j+i*16]
 		}
 		forwardHybridRow16(txType, tempIn[:], tempOut[:])
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			output[j+i*16] = int16(tempOut[j])
 		}
 	}
@@ -922,22 +919,22 @@ func forwardDCT32x32Scalar(input []int16, stride int, output []int16) {
 	var intermediate [1024]int
 	var tempIn, tempOut [32]int
 
-	for i := 0; i < 32; i++ {
-		for j := 0; j < 32; j++ {
+	for i := range 32 {
+		for j := range 32 {
 			tempIn[j] = int(input[j*stride+i]) * 4
 		}
 		forwardDCT32(tempIn[:], tempOut[:], false)
-		for j := 0; j < 32; j++ {
+		for j := range 32 {
 			intermediate[j*32+i] = (tempOut[j] + 1 + fdctBoolInt(tempOut[j] > 0)) >> 2
 		}
 	}
 
-	for i := 0; i < 32; i++ {
-		for j := 0; j < 32; j++ {
+	for i := range 32 {
+		for j := range 32 {
 			tempIn[j] = intermediate[j+i*32]
 		}
 		forwardDCT32(tempIn[:], tempOut[:], false)
-		for j := 0; j < 32; j++ {
+		for j := range 32 {
 			output[j+i*32] = int16((tempOut[j] + 1 + fdctBoolInt(tempOut[j] < 0)) >> 2)
 		}
 	}
@@ -1015,7 +1012,7 @@ func forwardDCT32(input []int, output []int, round bool) {
 	output[31] = step[31]
 
 	if round {
-		for i := 0; i < 32; i++ {
+		for i := range 32 {
 			output[i] = fdctHalfRoundShift(output[i])
 		}
 	}
@@ -1311,7 +1308,7 @@ func QuantizeB32x32(coeff []int16, qindex int, dequant [2]int16, scan []int16, d
 		vp9RoundPowerOfTwo(params.zbin[1], 1),
 	}
 	eob := -1
-	for scanIdx := 0; scanIdx < n; scanIdx++ {
+	for scanIdx := range n {
 		rc := int(scan[scanIdx])
 		slot := vp9CoeffQuantSlot(rc)
 		c := int(coeff[rc])

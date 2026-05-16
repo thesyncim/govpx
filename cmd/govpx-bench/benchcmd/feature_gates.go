@@ -78,22 +78,22 @@ func makePanningContent(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	shiftX := idx * 2
 	shiftY := idx
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			// Smooth gradient + low-frequency texture so motion
 			// compensation has a coherent reconstruction.
 			gx := (x + shiftX) % width
 			gy := (y + shiftY) % height
-			row[x] = byte(40 + ((gx*3+gy*5)&0x7F) + ((gx*gy)&0x3F)/2)
+			row[x] = byte(40 + ((gx*3 + gy*5) & 0x7F) + ((gx*gy)&0x3F)/2)
 		}
 	}
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvW; x++ {
+		for x := range uvW {
 			gx := (x + shiftX/2) % uvW
 			gy := (y + shiftY/2) % uvH
 			cb[x] = byte(96 + (gx*5+gy*3)&0x3F)
@@ -113,20 +113,20 @@ func makeTextureNoise(width, height, idx int) *image.YCbCr {
 	// Seed by idx so noise is deterministic per frame, but varies
 	// across frames (different rand draw each frame).
 	r := rand.New(rand.NewSource(int64(idx) + 1))
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
-			base := byte(64 + ((x*3+y*2)&0x7F))
+		for x := range width {
+			base := byte(64 + ((x*3 + y*2) & 0x7F))
 			noise := byte(r.Intn(32) - 16) // small zero-mean noise
 			row[x] = clampByte(int(base) + int(int8(noise)))
 		}
 	}
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvW; x++ {
+		for x := range uvW {
 			cb[x] = byte(112 + (x*5+y*3)&0x3F)
 			cr[x] = byte(128 + (x*3+y*5)&0x3F)
 		}
@@ -140,9 +140,9 @@ func makeTextureNoise(width, height, idx int) *image.YCbCr {
 func makeSharpEdges(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	dx := idx % width
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			// Tiled black/white rectangles, shifting per frame.
 			cellX := ((x + dx) / 16) & 1
 			cellY := (y / 16) & 1
@@ -155,10 +155,10 @@ func makeSharpEdges(width, height, idx int) *image.YCbCr {
 	}
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvW; x++ {
+		for x := range uvW {
 			cb[x] = 128
 			cr[x] = 128
 		}
@@ -174,17 +174,17 @@ func makeVarianceHeavy(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	halfH := height / 2
 	dx := idx
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
 		if y < halfH {
 			// Flat region with very slow gradient so it isn't
 			// completely uniform (rate is non-zero).
-			for x := 0; x < width; x++ {
+			for x := range width {
 				row[x] = byte(96 + (y / 32))
 			}
 		} else {
 			// Heavy texture with translation per frame.
-			for x := 0; x < width; x++ {
+			for x := range width {
 				v := ((x+dx*2)*31 + (y-halfH)*47) & 0xFF
 				row[x] = byte(v)
 			}
@@ -192,10 +192,10 @@ func makeVarianceHeavy(width, height, idx int) *image.YCbCr {
 	}
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvW; x++ {
+		for x := range uvW {
 			cb[x] = 128
 			cr[x] = 128
 		}
@@ -209,20 +209,20 @@ func makeVarianceHeavy(width, height, idx int) *image.YCbCr {
 // model, not pure variance).
 func makePerceptual(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
-			base := 32 + (x*200/width)
+		for x := range width {
+			base := 32 + (x * 200 / width)
 			detail := ((x*3 + y*5 + idx) & 0x1F) - 16
 			row[x] = clampByte(base + detail)
 		}
 	}
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvW; x++ {
+		for x := range uvW {
 			cb[x] = 128
 			cr[x] = 128
 		}

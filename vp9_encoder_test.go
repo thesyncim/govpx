@@ -960,7 +960,7 @@ func TestVP9EncoderSetARNR(t *testing.T) {
 	if len(e.vp9ARNRScratch.Y) == 0 {
 		t.Fatal("SetARNR did not allocate ARNR scratch for active auto-alt-ref")
 	}
-	for frame := 0; frame < 4; frame++ {
+	for frame := range 4 {
 		src := newVP9YCbCrForTest(width, height, uint8(96+frame*12), 128, 128)
 		if err := e.pushVP9Lookahead(src, 0); err != nil {
 			t.Fatalf("pushVP9Lookahead[%d]: %v", frame, err)
@@ -1119,7 +1119,7 @@ func TestVP9EncoderExplicitRateControlModesEncode(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewVP9Decoder: %v", err)
 			}
-			for frame := 0; frame < 2; frame++ {
+			for frame := range 2 {
 				src := newVP9YCbCrForTest(width, height,
 					uint8(96+frame*20), 128, 128)
 				result, err := e.EncodeIntoWithResult(src, dst)
@@ -1309,7 +1309,7 @@ func TestVP9SetRateControlCBRToVBRSeedsGoldenCadence(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	for frame := 0; frame < 3; frame++ {
+	for frame := range 3 {
 		if _, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width,
 			height, uint8(96+frame*3), 128, 128), dst); err != nil {
 			t.Fatalf("Encode CBR frame %d: %v", frame, err)
@@ -1713,9 +1713,9 @@ func TestVP9EncoderComplexityAQEmitsSegmentation(t *testing.T) {
 	keySrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
 	flatInterSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
 	checkerInterSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := checkerInterSrc.Y[y*checkerInterSrc.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			if (x+y)&1 == 0 {
 				row[x] = 0
 			} else {
@@ -2081,7 +2081,7 @@ func TestVP9EncoderAutoAltRefARNRFiltersHiddenSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		src := newVP9YCbCrForTest(width, height, uint8(100+i*4), 128, 128)
 		if err := e.pushVP9Lookahead(src, 0); err != nil {
 			t.Fatalf("pushVP9Lookahead %d: %v", i, err)
@@ -2117,7 +2117,7 @@ func TestVP9EncoderAutoAltRefARNRSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		src := newVP9YCbCrForTest(width, height, uint8(100+i*4), 128, 128)
 		if err := e.pushVP9Lookahead(src, 0); err != nil {
 			t.Fatalf("pushVP9Lookahead %d: %v", i, err)
@@ -2141,14 +2141,14 @@ func TestVP9EncoderAutoAltRefARNRSteadyStateAlloc(t *testing.T) {
 }
 
 func equalVP9YCbCrForTest(a *image.YCbCr, b *image.YCbCr, width int, height int) bool {
-	for y := 0; y < height; y++ {
+	for y := range height {
 		if !bytes.Equal(a.Y[y*a.YStride:][:width], b.Y[y*b.YStride:][:width]) {
 			return false
 		}
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
+	for y := range uvHeight {
 		if !bytes.Equal(a.Cb[y*a.CStride:][:uvWidth], b.Cb[y*b.CStride:][:uvWidth]) ||
 			!bytes.Equal(a.Cr[y*a.CStride:][:uvWidth], b.Cr[y*b.CStride:][:uvWidth]) {
 			return false
@@ -3114,7 +3114,7 @@ func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
 
 	aboveRow := (y0 - 1) * e.reconFrame.YStride
 	internalAboveRow := (y0 + 31) * e.reconFrame.YStride
-	for x := 0; x < 64; x++ {
+	for x := range 64 {
 		above := byte(224 - (x%32)*2)
 		if x < 32 {
 			above = byte(72 + x)
@@ -3122,11 +3122,11 @@ func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
 		e.reconY[aboveRow+x0+x] = above
 		e.reconY[internalAboveRow+x0+x] = byte(224 - (x%32)*2)
 	}
-	for y := 0; y < 64; y++ {
+	for y := range 64 {
 		left := byte(64 + (y%32)*2)
 		e.reconY[(y0+y)*e.reconFrame.YStride+x0-1] = left
 		e.reconY[(y0+y)*e.reconFrame.YStride+x0+31] = left
-		for x := 0; x < 64; x++ {
+		for x := range 64 {
 			pixel := left
 			if y < 32 && x < 32 {
 				pixel = byte(72 + x)
@@ -4141,7 +4141,7 @@ func TestVP9EncoderAdaptiveKeyFramesSteadyStateNoAlloc(t *testing.T) {
 	}
 	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
 	dst := make([]byte, 65536)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := e.EncodeIntoWithResult(src, dst); err != nil {
 			t.Fatalf("warm EncodeIntoWithResult[%d]: %v", i, err)
 		}
@@ -4410,7 +4410,7 @@ func TestVP9EncoderCBRFrameTargetUsesPerFrameBandwidth(t *testing.T) {
 		}
 		dst := make([]byte, 65536)
 		wantTarget := targetKbps * 1000 / 30
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			src := newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
 			result, err := e.EncodeIntoWithResult(src, dst)
 			if err != nil {
@@ -5134,8 +5134,8 @@ func TestVP9EncoderActiveMapConstant320ChoosesTemporalPredProbs(t *testing.T) {
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	activeMap := make([]uint8, rows*cols)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			if (row+col)&1 == 0 {
 				activeMap[row*cols+col] = 1
 			}
@@ -6398,10 +6398,10 @@ func TestVP9BlockSSEMatchesScalar(t *testing.T) {
 
 	got := vp9BlockSSE(src, stride, ref, stride, 3, 5, 7, 11, 32, 16)
 	var want uint64
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		srcRow := src[(5+y)*stride+3:]
 		refRow := ref[(11+y)*stride+7:]
-		for x := 0; x < 32; x++ {
+		for x := range 32 {
 			diff := int(srcRow[x]) - int(refRow[x])
 			want += uint64(diff * diff)
 		}
@@ -6603,9 +6603,9 @@ func TestVP9EncoderInterTxScoringSelectsTx16ForLocalizedResidual(t *testing.T) {
 	vp9dec.ResetFrameContext(&e.fc)
 
 	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			if (x+y)&1 == 0 {
 				row[x] = 16
 			} else {
@@ -6726,7 +6726,7 @@ func TestVP9EncoderFixedQNonNeutralKeyframeThreeMiEdgeUsesSquareBlocks(t *testin
 				miCol, mi)
 		}
 	}
-	for miCol := 0; miCol < miCols; miCol++ {
+	for miCol := range miCols {
 		mi := grid[22*miCols+miCol]
 		if mi.SbType != common.Block8x8 || mi.TxSize != common.Tx8x8 ||
 			mi.Skip != 1 {
@@ -6829,15 +6829,15 @@ func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(width, height)
 
-	for x := 0; x < 64; x++ {
+	for x := range 64 {
 		e.reconY[(y0-1)*e.reconFrame.YStride+x0+x] = byte(48 + x*2)
 	}
-	for y := 0; y < 64; y++ {
+	for y := range 64 {
 		e.reconY[(y0+y)*e.reconFrame.YStride+x0-1] = byte(32 + y*3)
 	}
-	for y := 0; y < 64; y++ {
+	for y := range 64 {
 		row := img.Y[(y0+y)*img.YStride:]
-		for x := 0; x < 64; x++ {
+		for x := range 64 {
 			if y < 32 && x < 32 {
 				row[x0+x] = e.reconY[(y0-1)*e.reconFrame.YStride+x0+x]
 			} else {
@@ -7005,7 +7005,7 @@ func TestVP9EncoderKeyframeKeepsOracleDcUvModeForWholeBlockChroma(t *testing.T) 
 	) {
 		aboveRow := (uvY - 1) * reconStride
 		internalAboveRow := (uvY + 15) * reconStride
-		for x := 0; x < 32; x++ {
+		for x := range 32 {
 			above := byte(farBase - (x%16)*2)
 			if x < 16 {
 				above = byte(nearBase + x)
@@ -7013,11 +7013,11 @@ func TestVP9EncoderKeyframeKeepsOracleDcUvModeForWholeBlockChroma(t *testing.T) 
 			recon[aboveRow+uvX+x] = above
 			recon[internalAboveRow+uvX+x] = byte(farBase - (x%16)*2)
 		}
-		for y := 0; y < 32; y++ {
+		for y := range 32 {
 			left := byte(leftBase + (y%16)*2)
 			recon[(uvY+y)*reconStride+uvX-1] = left
 			recon[(uvY+y)*reconStride+uvX+15] = left
-			for x := 0; x < 32; x++ {
+			for x := range 32 {
 				pixel := left
 				if y < 16 && x < 16 {
 					pixel = byte(nearBase + x)
@@ -8153,7 +8153,7 @@ func TestVP9EncoderAutoAltRefLookaheadSteadyStateAlloc(t *testing.T) {
 		newVP9YCbCrForTest(width, height, 192, 128, 128),
 	}
 	dst := make([]byte, 65536)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, err := e.EncodeIntoWithResult(sources[i], dst)
 		if errors.Is(err, ErrFrameNotReady) {
 			continue

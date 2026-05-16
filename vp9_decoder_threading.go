@@ -32,10 +32,7 @@ type vp9DecoderLoopFilterPool struct {
 }
 
 func newVP9DecoderLoopFilterPool(threads int) *vp9DecoderLoopFilterPool {
-	helpers := threads - 1
-	if helpers > 2 {
-		helpers = 2
-	}
+	helpers := min(threads-1, 2)
 	if helpers <= 0 {
 		return nil
 	}
@@ -177,10 +174,7 @@ type vp9DecoderTileWorkerPool struct {
 }
 
 func newVP9DecoderTileWorkerPool(threads int) *vp9DecoderTileWorkerPool {
-	helpers := threads - 1
-	if helpers > 63 {
-		helpers = 63
-	}
+	helpers := min(threads-1, 63)
 	if helpers <= 0 {
 		return nil
 	}
@@ -400,10 +394,7 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	next := 0
 	jobsRun := 0
 	for next < len(descs) {
-		helpers := len(descs) - next - 1
-		if helpers > helpersMax {
-			helpers = helpersMax
-		}
+		helpers := min(len(descs)-next-1, helpersMax)
 		for worker := 0; worker < helpers; worker++ {
 			desc := descs[next+worker+1]
 			p.prepareTileJob(worker, d, kind, desc, comp, intraMaps,

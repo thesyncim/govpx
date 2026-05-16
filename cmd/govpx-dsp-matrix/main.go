@@ -427,7 +427,7 @@ func maxParallelism() int {
 	return 1
 }
 
-func fail(format string, args ...interface{}) {
+func fail(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "govpx-dsp-matrix: "+format+"\n", args...)
 	os.Exit(1)
 }

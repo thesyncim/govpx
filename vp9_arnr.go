@@ -33,7 +33,7 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 		e.opts.Height)
 	refs := e.vp9ARNRRefs[:framesToBlur:framesToBlur]
 	startFrame := distance + forward
-	for frame := 0; frame < framesToBlur; frame++ {
+	for frame := range framesToBlur {
 		entry, ok := e.peekVP9Lookahead(startFrame - frame)
 		if !ok {
 			return false
@@ -111,9 +111,9 @@ func (e *VP9Encoder) iterateVP9TemporalFilter(strength int, refs []arnrFrameView
 
 	var accumulator [384]uint32
 	var count [384]uint32
-	for mbRow := 0; mbRow < mbRows; mbRow++ {
+	for mbRow := range mbRows {
 		mbY := mbRow << 4
-		for mbCol := 0; mbCol < mbCols; mbCol++ {
+		for mbCol := range mbCols {
 			mbX := mbCol << 4
 			processARNRMacroblock(&dst, refs, centerIdx, mbRow, mbCol,
 				mbRows, mbCols, mbX, mbY, strength, doChroma,

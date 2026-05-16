@@ -16,7 +16,6 @@ func TestQualityFixtureGovpxOnly(t *testing.T) {
 	}
 	gate := defaultQualityGate()
 	for _, fx := range qualityGateFixtures() {
-		fx := fx
 		t.Run(fx.Name, func(t *testing.T) {
 			cfg := benchConfig{
 				Codec:       codecVP9,

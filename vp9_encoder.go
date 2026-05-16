@@ -660,11 +660,11 @@ const (
 
 // VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
 type VP9Encoder struct {
-	opts     VP9EncoderOptions
-	closed   bool
-	temporal temporalState
-	rc       vp9RateControlState
-	twoPass  vp9TwoPassState
+	opts         VP9EncoderOptions
+	closed       bool
+	temporal     temporalState
+	rc           vp9RateControlState
+	twoPass      vp9TwoPassState
 	cyclicAQ     vp9CyclicRefreshState
 	perceptualAQ vp9PerceptualAQState
 	// spatialScalabilityLocked is set for encoders owned by
@@ -776,9 +776,9 @@ type VP9Encoder struct {
 	// vp9TileWorkerPool.rowMTSyncs and lives for the duration of the per-frame
 	// encode; writeVP9ModesTileBounds reads it to drive the wavefront primitive.
 	vp9RowMTSync *vp9RowMTSync
-	lfi              vp9dec.LoopFilterInfoN
-	lfRefDeltas      [vp9dec.MaxRefLfDeltas]int8
-	lfModeDeltas     [vp9dec.MaxModeLfDeltas]int8
+	lfi          vp9dec.LoopFilterInfoN
+	lfRefDeltas  [vp9dec.MaxRefLfDeltas]int8
+	lfModeDeltas [vp9dec.MaxModeLfDeltas]int8
 
 	lookahead      []vp9LookaheadEntry
 	lookaheadRead  uint8
@@ -1007,7 +1007,7 @@ func normalizeVP9SpatialScalabilityConfig(cfg VP9SpatialScalabilityConfig,
 		return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
 	}
 	if !cfg.ResolutionPresent {
-		for i := 0; i < VP9RTPMaxSpatialLayers; i++ {
+		for i := range VP9RTPMaxSpatialLayers {
 			if cfg.Width[i] != 0 || cfg.Height[i] != 0 {
 				return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
 			}
@@ -1087,7 +1087,7 @@ func validateVP9RenderSizeOptions(opts VP9EncoderOptions) error {
 	if w <= 0 || h <= 0 {
 		return ErrInvalidConfig
 	}
-	if w > (1 << 16) || h > (1 << 16) {
+	if w > (1<<16) || h > (1<<16) {
 		return ErrInvalidConfig
 	}
 	return nil
@@ -1116,7 +1116,7 @@ func validateVP9TargetLevel(level int) error {
 // (vp9/encoder/vp9_level.c). Levels not represented here have no
 // configured limit and pass the configuration gate unchanged.
 type vp9LevelLimits struct {
-	maxLumaSampleRate uint64 // samples (luma pixels) per second
+	maxLumaSampleRate  uint64 // samples (luma pixels) per second
 	maxLumaPictureSize uint64 // luma samples per picture
 	maxBitrateKbps     int    // peak rate, kbps
 }
@@ -1312,19 +1312,13 @@ func validateVP9LosslessSegmentationOptions(seg VP9SegmentationOptions) error {
 	}
 	for i := range vp9dec.MaxSegments {
 		if seg.AltQEnabled[i] {
-			qindex := int(seg.AltQ[i])
-			if qindex < 0 {
-				qindex = 0
-			}
+			qindex := max(int(seg.AltQ[i]), 0)
 			if qindex != 0 {
 				return ErrInvalidQuantizer
 			}
 		}
 		if seg.AltLFEnabled[i] {
-			filterLevel := int(seg.AltLF[i])
-			if filterLevel < 0 {
-				filterLevel = 0
-			}
+			filterLevel := max(int(seg.AltLF[i]), 0)
 			if filterLevel != 0 {
 				return ErrInvalidConfig
 			}
@@ -1705,9 +1699,9 @@ func (e *VP9Encoder) vp9SegmentMapMatchesPrevious(miRows, miCols int,
 		return false
 	}
 	staticSegID := e.vp9StaticSegmentIDForMap()
-	for miRow := 0; miRow < miRows; miRow++ {
+	for miRow := range miRows {
 		row := e.prevSegmentMap[miRow*miCols:]
-		for miCol := 0; miCol < miCols; miCol++ {
+		for miCol := range miCols {
 			if row[miCol] != e.vp9PartitionSegmentID(miRow, miCol,
 				staticSegID, nil, inter) {
 				return false
@@ -2784,7 +2778,7 @@ func (e *VP9Encoder) refreshVP9EncoderMvRefs(isKey bool, miRows, miCols int) {
 	} else {
 		e.prevFrameMvs = e.prevFrameMvs[:need]
 	}
-	for i := 0; i < need; i++ {
+	for i := range need {
 		mi := e.miGrid[i]
 		e.prevFrameMvs[i] = vp9MvRef{RefFrame: mi.RefFrame, Mv: mi.Mv}
 	}
@@ -2806,7 +2800,7 @@ func (e *VP9Encoder) refreshVP9EncoderSegmentMap(miRows, miCols int) {
 	} else {
 		e.prevSegmentMap = e.prevSegmentMap[:need]
 	}
-	for i := 0; i < need; i++ {
+	for i := range need {
 		e.prevSegmentMap[i] = e.miGrid[i].SegmentID
 	}
 	e.prevSegmentMapRows = miRows
@@ -3640,7 +3634,7 @@ func vp9IncEncoderMvComponent(v int16, counts *encoder.NmvComponentCounts) {
 		return
 	}
 	nBits := cls + vp9dec.Class0Bits - 1
-	for i := 0; i < nBits; i++ {
+	for i := range nBits {
 		counts.Bits[i][(d>>i)&1]++
 	}
 	counts.Fp[f]++
@@ -4138,7 +4132,7 @@ func vp9KeyframeEdgeBlockHasNonNeutralLuma(key *vp9KeyframeEncodeState,
 	}
 	w := min(width-x0, blockMiW*common.MiSize)
 	h := min(height-y0, blockMiH*common.MiSize)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		row := src[(y0+y)*stride+x0 : (y0+y)*stride+x0+w]
 		for _, px := range row {
 			if px != 128 {
@@ -4522,10 +4516,7 @@ func vp9CBRVariancePartitionSADThreshold(yAcDequant int16, width, height int) ui
 	if width <= 352 && height <= 288 {
 		return 10
 	}
-	threshold := int(yAcDequant) << 1
-	if threshold < 1000 {
-		threshold = 1000
-	}
+	threshold := max(int(yAcDequant)<<1, 1000)
 	return uint64(threshold)
 }
 
@@ -5378,7 +5369,7 @@ func vp9SourceMatchesReferenceMI(src *image.YCbCr, ref *vp9ReferenceFrame,
 	if src == nil || ref == nil || !ref.valid {
 		return false
 	}
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		srcPixels, srcStride, srcW, srcH := vp9EncoderSourcePlane(src, plane)
 		refPixels, refStride, refW, refH := vp9ReferenceVisiblePlane(ref, plane)
 		if len(srcPixels) == 0 || len(refPixels) == 0 ||
@@ -5558,10 +5549,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
 	}
 
-	txSize := mi.TxSize
-	if txSize > common.Tx16x16 {
-		txSize = common.Tx16x16
-	}
+	txSize := min(mi.TxSize, common.Tx16x16)
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	step := 1 << uint(txSize)
@@ -5600,7 +5588,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 }
 
 func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
-	for y := 0; y < h; y++ {
+	for y := range h {
 		copy(data[(y0+y)*stride+x0:(y0+y)*stride+x0+w],
 			saved[y*w:(y+1)*w])
 	}
@@ -5678,7 +5666,7 @@ func vp9QuantizeFPForRD(coeff []int16, dequant [2]int16, scan []int16,
 	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
 	round := [2]int{(48 * int(dequant[0])) >> 7, (42 * int(dequant[1])) >> 7}
 	eob := -1
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rc := int(scan[i])
 		slot := 0
 		if rc != 0 {
@@ -5707,7 +5695,7 @@ func vp9QuantizeFPForRD(coeff []int16, dequant [2]int16, scan []int16,
 func vp9BlockErrorFP(coeff, dqcoeff []int16) uint64 {
 	n := min(len(coeff), len(dqcoeff))
 	var err uint64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		diff := int(coeff[i]) - int(dqcoeff[i])
 		err += uint64(diff * diff)
 	}
@@ -5764,10 +5752,10 @@ func vp9HadamardCol8(src []int16, stride int, coeff []int16) {
 func vp9Hadamard8x8Into(src []int16, stride int, coeff []int16) {
 	var buffer [64]int16
 	var buffer2 [64]int16
-	for idx := 0; idx < 8; idx++ {
+	for idx := range 8 {
 		vp9HadamardCol8(src[idx:], stride, buffer[idx*8:])
 	}
-	for idx := 0; idx < 8; idx++ {
+	for idx := range 8 {
 		vp9HadamardCol8(buffer[idx:], 8, buffer2[idx*8:])
 	}
 	copy(coeff[:64], buffer2[:])
@@ -5778,7 +5766,7 @@ func vp9Hadamard16x16Into(src []int16, stride int, coeff []int16) {
 	vp9Hadamard8x8Into(src[8:], stride, coeff[64:128])
 	vp9Hadamard8x8Into(src[8*stride:], stride, coeff[128:192])
 	vp9Hadamard8x8Into(src[8*stride+8:], stride, coeff[192:256])
-	for idx := 0; idx < 64; idx++ {
+	for idx := range 64 {
 		a0 := int(coeff[idx])
 		a1 := int(coeff[64+idx])
 		a2 := int(coeff[128+idx])
@@ -6341,10 +6329,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	bestTx := maxTx
 	bestScore := uint64(^uint64(0))
 	bestRate := int(^uint(0) >> 1)
-	minTx := maxTx - 1
-	if minTx < common.Tx4x4 {
-		minTx = common.Tx4x4
-	}
+	minTx := max(maxTx-1, common.Tx4x4)
 	for txi := int(maxTx); txi >= int(minTx); txi-- {
 		tx := common.TxSize(txi)
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
@@ -6423,7 +6408,7 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 	var leftCtx [vp9dec.MaxMbPlane][16]uint8
 	var aboveLen [vp9dec.MaxMbPlane]int
 	var leftLen [vp9dec.MaxMbPlane]int
-	for plane := 0; plane < 1; plane++ {
+	for plane := range 1 {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
@@ -6442,7 +6427,7 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 		}
 	}
 
-	for plane := 0; plane < 1; plane++ {
+	for plane := range 1 {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
@@ -6783,7 +6768,7 @@ func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
 
 	bestSet := false
 	var best vp9InterIntraDecision
-	for i := 0; i < modeCount; i++ {
+	for i := range modeCount {
 		mode := vp9NoReferenceIntraModes[i]
 		txSize, txOK := e.pickVP9NoReferenceIntraTxSize(&keyLike, tile,
 			miRows, miCols, miRow, miCol, bsize, maxTx, mode)
@@ -6826,10 +6811,7 @@ func (e *VP9Encoder) pickVP9NoReferenceIntraTxSize(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, maxTx common.TxSize, mode common.PredictionMode,
 ) (common.TxSize, bool) {
-	maxTx = clampVP9TxSizeForBlock(maxTx, bsize)
-	if maxTx > common.Tx16x16 {
-		maxTx = common.Tx16x16
-	}
+	maxTx = min(clampVP9TxSizeForBlock(maxTx, bsize), common.Tx16x16)
 	if maxTx <= common.Tx4x4 {
 		return maxTx, true
 	}
@@ -7251,7 +7233,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	for _, mode := range [...]common.PredictionMode{common.NearestMv, common.NearMv} {
 		var mv [2]vp9dec.MV
 		ok := true
-		for ref := 0; ref < 2; ref++ {
+		for ref := range 2 {
 			mv[ref], ok = e.vp9EncoderInterModeCandidateMv(tile,
 				miRows, miCols, miRow, miCol, bsize, mode,
 				refFrame[ref], inter.allowHP, inter.refSignBias)
@@ -7268,7 +7250,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	var newMv, newRefMv [2]vp9dec.MV
 	newOK := true
 	newHasMotion := false
-	for ref := 0; ref < 2; ref++ {
+	for ref := range 2 {
 		inter.ref = &e.refFrames[refSlot[ref]]
 		newMv[ref], _, newOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame[ref])
@@ -7880,10 +7862,7 @@ func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, flags En
 	} else {
 		num, den = vp9PublicQModeInterRate(e.frameIndex)
 	}
-	qindex := cq + vp9ComputeQDelta(best, worst, cq, num, den)
-	if qindex < best {
-		qindex = best
-	}
+	qindex := max(cq+vp9ComputeQDelta(best, worst, cq, num, den), best)
 	if qindex > worst {
 		qindex = worst
 	}
@@ -7936,10 +7915,7 @@ func vp9NormalizedPublicQuantizers(opts VP9EncoderOptions) (minQ, maxQ, cqLevel 
 		if minQ == maxQ {
 			cqLevel = minQ
 		} else {
-			cqLevel = vp9DefaultCQLevel
-			if cqLevel < minQ {
-				cqLevel = minQ
-			}
+			cqLevel = max(vp9DefaultCQLevel, minQ)
 			if cqLevel > maxQ {
 				cqLevel = maxQ
 			}
@@ -8385,11 +8361,8 @@ func (e *VP9Encoder) clearVP9PlaneBlockCoeffs(plane int, bsize common.BlockSize)
 	if plane < 0 || plane >= vp9dec.MaxMbPlane || bsize >= common.BlockSizes {
 		return
 	}
-	n := int(common.Num4x4BlocksWideLookup[bsize]) *
-		int(common.Num4x4BlocksHighLookup[bsize]) * vp9EncoderTxCoeffSlots
-	if n > len(e.blockCoeffs[plane]) {
-		n = len(e.blockCoeffs[plane])
-	}
+	n := min(int(common.Num4x4BlocksWideLookup[bsize])*
+		int(common.Num4x4BlocksHighLookup[bsize])*vp9EncoderTxCoeffSlots, len(e.blockCoeffs[plane]))
 	for i := range e.blockCoeffs[plane][:n] {
 		e.blockCoeffs[plane][i] = 0
 	}
@@ -8892,10 +8865,7 @@ func vp9AllocatingEncodeBufferSize(width, height int) (int, error) {
 	if raw420 > (maxInt-headerSlack)/4 {
 		return 0, ErrInvalidConfig
 	}
-	size := headerSlack + raw420*4
-	if size < 65536 {
-		size = 65536
-	}
+	size := max(headerSlack+raw420*4, 65536)
 	return size, nil
 }
 

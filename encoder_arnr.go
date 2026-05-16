@@ -703,10 +703,10 @@ func applyTemporalFilterScalar(src []byte, srcStride int, pred []byte, predStrid
 		rounding = 1 << (strength - 1)
 	}
 	k := 0
-	for j := 0; j < blockSize; j++ {
+	for j := range blockSize {
 		srcRow := src[j*srcStride:]
 		predRow := pred[j*predStride:]
-		for i := 0; i < blockSize; i++ {
+		for i := range blockSize {
 			diff := int(srcRow[i]) - int(predRow[i])
 			modifier := diff*diff*3 + rounding
 			modifier >>= uint(strength)

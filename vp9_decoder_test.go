@@ -355,7 +355,7 @@ func TestVP9DecoderPostProcessSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := d.Decode(packet); err != nil {
 			t.Fatalf("warm Decode[%d]: %v", i, err)
 		}
@@ -464,8 +464,8 @@ func TestVP9DecoderPostProcessDeblockAndDemacroblockChangeOutput(t *testing.T) {
 	// Mean absolute deviation must remain bounded: the postprocess chain
 	// must not corrupt pixels far beyond the 0-255 luma range.
 	totalDiff, count := 0, 0
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			a := int(plainY[y*plainFrame.YStride+x])
 			b := int(filteredFrame.Y[y*filteredFrame.YStride+x])
 			if a > b {
@@ -7531,7 +7531,7 @@ func vp9TestGoroutineCount() int {
 	// channel close before sampling.
 	const samples = 8
 	last := runtime.NumGoroutine()
-	for i := 0; i < samples; i++ {
+	for range samples {
 		runtime.Gosched()
 		last = runtime.NumGoroutine()
 	}

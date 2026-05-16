@@ -237,7 +237,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	// before being packed by appendTokenUnchecked. By the time we reach this
 	// writer, every field is guaranteed to be in range, so the per-record
 	// OOR check below is dead weight in the hot loop.
-	for i := 0; i < len(records); i++ {
+	for i := range records {
 		raw := uint32(records[i])
 		token := int(raw & coefficientTokenRecordTokenMask)
 		probIndex := (raw >> coefficientTokenRecordProbIndexShift) & coefficientTokenRecordProbIndexMask

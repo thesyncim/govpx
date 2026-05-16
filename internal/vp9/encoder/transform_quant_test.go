@@ -154,8 +154,8 @@ func TestForwardHTDctDctMatchesForwardDCT(t *testing.T) {
 
 func TestForwardHTHybridTransformsProduceDirectionalCoefficients(t *testing.T) {
 	var in [256]int16
-	for y := 0; y < 16; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range 16 {
+		for x := range 16 {
 			in[y*16+x] = int16((x * (y + 3)) - 60)
 		}
 	}

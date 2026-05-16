@@ -195,10 +195,7 @@ func encodeBDOperatingPoint(opts BDRateOptions, q int, apply func(*govpx.VP9Enco
 	if err != nil {
 		return QualityPoint{}, fmt.Errorf("NewVP9Decoder: %w", err)
 	}
-	bufSize := opts.Width * opts.Height * 6
-	if bufSize < 65536 {
-		bufSize = 65536
-	}
+	bufSize := max(opts.Width*opts.Height*6, 65536)
 	dst := make([]byte, bufSize)
 	totalBytes := 0
 	psnrSum := 0.0

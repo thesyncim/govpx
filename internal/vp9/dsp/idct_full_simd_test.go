@@ -70,8 +70,8 @@ func fillRandomCoefs(r *rand.Rand, input []int16, size, rowLimit, maxMag int) {
 	for i := range input {
 		input[i] = 0
 	}
-	for j := 0; j < rowLimit; j++ {
-		for i := 0; i < rowLimit; i++ {
+	for j := range rowLimit {
+		for i := range rowLimit {
 			v := int16(r.Int32N(int32(maxMag*2+1)) - int32(maxMag))
 			input[j*size+i] = v
 		}
@@ -81,9 +81,8 @@ func fillRandomCoefs(r *rand.Rand, input []int16, size, rowLimit, maxMag int) {
 func TestVP9IdctFullSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xc0ffeebabe, 0xdeadbeef))
 	for _, c := range vp9IdctFullCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
-			for trial := 0; trial < 12; trial++ {
+			for trial := range 12 {
 				stride := c.size + int(r.UintN(11))
 				bufSize := stride * c.size
 				dest := filledDestPattern(bufSize, trial*13+1)
@@ -115,7 +114,6 @@ func TestVP9IdctFullSimdSingleCoefficient(t *testing.T) {
 	// inputs may not hit.
 	r := rand.New(rand.NewPCG(0xab1d, 0x7e57))
 	for _, c := range vp9IdctFullCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			positions := samplePositions(c.size*c.maxCoef, 20, r)
 			for _, pos := range positions {
@@ -152,9 +150,8 @@ func TestVP9IdctFullSimdSingleCoefficient(t *testing.T) {
 func TestVP9IhtFullSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xa11a5, 0xfeed))
 	for _, c := range vp9IhtFullCases() {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
-			for trial := 0; trial < 8; trial++ {
+			for trial := range 8 {
 				stride := c.size + int(r.UintN(7))
 				bufSize := stride * c.size
 				dest := filledDestPattern(bufSize, trial*17+5)

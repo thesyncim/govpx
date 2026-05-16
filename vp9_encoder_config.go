@@ -375,10 +375,10 @@ func (e *VP9Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 		e.activeMap = make([]uint8, miCount)
 	}
 	e.activeMap = e.activeMap[:miCount]
-	for miRow := 0; miRow < miRows; miRow++ {
+	for miRow := range miRows {
 		srcRow := (miRow >> 1) * cols
 		dstRow := miRow * miCols
-		for miCol := 0; miCol < miCols; miCol++ {
+		for miCol := range miCols {
 			segID := vp9ActiveMapSegmentActive
 			if activeMap[srcRow+(miCol>>1)] == 0 {
 				segID = vp9ActiveMapSegmentInactive

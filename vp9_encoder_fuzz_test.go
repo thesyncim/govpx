@@ -114,7 +114,7 @@ func FuzzVP9EncoderRuntimeControls(f *testing.F) {
 		// don't want a fuzz input that's effectively unbounded so
 		// cap iterations.
 		const maxControls = 24
-		for step := 0; step < maxControls; step++ {
+		for range maxControls {
 			if r.remaining() == 0 {
 				break
 			}
@@ -169,10 +169,10 @@ func (r *vp9FuzzByteReader) nextU32() uint32 {
 // reachable for almost every input.
 func vp9EncoderOptionsFromFuzz(data []byte) VP9EncoderOptions {
 	r := vp9FuzzByteReader{data: data}
-	width := 16 + int(r.next()%64)*4   // 16..268, multiples of 4
-	height := 16 + int(r.next()%64)*4  // same
-	fps := 1 + int(r.next()%60)        // 1..60
-	cpuUsed := int8(r.next()%19) - 9   // -9..9
+	width := 16 + int(r.next()%64)*4  // 16..268, multiples of 4
+	height := 16 + int(r.next()%64)*4 // same
+	fps := 1 + int(r.next()%60)       // 1..60
+	cpuUsed := int8(r.next()%19) - 9  // -9..9
 	mode := []RateControlMode{
 		RateControlCBR, RateControlVBR, RateControlCQ, RateControlQ,
 	}[r.next()%4]
@@ -184,9 +184,9 @@ func vp9EncoderOptionsFromFuzz(data []byte) VP9EncoderOptions {
 		rem = 1
 	}
 	maxQ := minQ + int(r.next())%rem
-	noise := int8(r.next() % 7)        // 0..6
-	sharp := r.next() % 8              // 0..7
-	threads := int(r.next() % 8)       // 0..7
+	noise := int8(r.next() % 7)  // 0..6
+	sharp := r.next() % 8        // 0..7
+	threads := int(r.next() % 8) // 0..7
 	tileRows := int8(r.next() % 4)
 	deadline := []Deadline{
 		DeadlineRealtime, DeadlineGoodQuality, DeadlineBestQuality,
@@ -196,43 +196,43 @@ func vp9EncoderOptionsFromFuzz(data []byte) VP9EncoderOptions {
 	dlf := VP9DisableLoopfilter(r.next() % 3)
 	aq := VP9AQMode(r.next() % 7)
 	return VP9EncoderOptions{
-		Width:                width,
-		Height:               height,
-		FPS:                  fps,
-		Threads:              threads,
-		Log2TileRows:         tileRows,
-		Deadline:             deadline,
-		CpuUsed:              cpuUsed,
-		NoiseSensitivity:     noise,
-		Sharpness:            sharp,
-		ScreenContentMode:    int8(r.next() % 3),
-		TargetBitrateKbps:    target,
-		RateControlModeSet:   true,
-		RateControlMode:      mode,
-		BufferSizeMs:         600,
-		BufferInitialSizeMs:  400,
-		BufferOptimalSizeMs:  500,
-		MinQuantizer:         minQ,
-		MaxQuantizer:         maxQ,
-		CQLevel:              cq,
-		MinKeyframeInterval:  int(r.next() % 32),
-		MaxKeyframeInterval:  int(r.next()%240) + 1,
-		AQMode:               aq,
-		ColorSpace:           colorSpace,
-		ColorRange:           colorRange,
-		DisableLoopfilter:    dlf,
-		AdaptiveKeyFrames:    r.next()&1 == 1,
-		ErrorResilient:       r.next()&1 == 1,
-		FrameParallelDecoding: r.next()&1 == 1,
+		Width:                    width,
+		Height:                   height,
+		FPS:                      fps,
+		Threads:                  threads,
+		Log2TileRows:             tileRows,
+		Deadline:                 deadline,
+		CpuUsed:                  cpuUsed,
+		NoiseSensitivity:         noise,
+		Sharpness:                sharp,
+		ScreenContentMode:        int8(r.next() % 3),
+		TargetBitrateKbps:        target,
+		RateControlModeSet:       true,
+		RateControlMode:          mode,
+		BufferSizeMs:             600,
+		BufferInitialSizeMs:      400,
+		BufferOptimalSizeMs:      500,
+		MinQuantizer:             minQ,
+		MaxQuantizer:             maxQ,
+		CQLevel:                  cq,
+		MinKeyframeInterval:      int(r.next() % 32),
+		MaxKeyframeInterval:      int(r.next()%240) + 1,
+		AQMode:                   aq,
+		ColorSpace:               colorSpace,
+		ColorRange:               colorRange,
+		DisableLoopfilter:        dlf,
+		AdaptiveKeyFrames:        r.next()&1 == 1,
+		ErrorResilient:           r.next()&1 == 1,
+		FrameParallelDecoding:    r.next()&1 == 1,
 		FrameParallelDecodingSet: r.next()&1 == 1,
-		Lossless:             r.next()&1 == 1,
-		MinBitrateKbps:       int(r.nextU16() % 1000),
-		MaxBitrateKbps:       int(r.nextU16() % 5000),
-		UndershootPct:        int(r.next() % 101),
-		OvershootPct:         int(r.next() % 101),
-		MaxIntraBitratePct:   int(r.nextU16() % 1000),
-		MaxInterBitratePct:   int(r.nextU16() % 1000),
-		DeltaQUV:             int(int8(r.next())%16) - 8,
+		Lossless:                 r.next()&1 == 1,
+		MinBitrateKbps:           int(r.nextU16() % 1000),
+		MaxBitrateKbps:           int(r.nextU16() % 5000),
+		UndershootPct:            int(r.next() % 101),
+		OvershootPct:             int(r.next() % 101),
+		MaxIntraBitratePct:       int(r.nextU16() % 1000),
+		MaxInterBitratePct:       int(r.nextU16() % 1000),
+		DeltaQUV:                 int(int8(r.next())%16) - 8,
 	}
 }
 

@@ -81,7 +81,7 @@ func TestVP9RowWorkerPoolWavefrontStress(t *testing.T) {
 	var sbDone atomic.Int64
 	job := vp9RowWorkerJob{
 		encode: func(workerIndex, row int, state *vp9RowEncoderState) error {
-			for col := 0; col < sbCols; col++ {
+			for col := range sbCols {
 				sync.read(row, col)
 				// Simulate per-SB work.
 				if col%4 == 0 {

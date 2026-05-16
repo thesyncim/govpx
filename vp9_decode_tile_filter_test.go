@@ -119,7 +119,7 @@ func TestVP9DecoderDecodeTileColFilterMasksOtherTiles(t *testing.T) {
 	// pre-filled with 128 by prepareVP9OutputFrame, so masked pixels
 	// remain at 128.
 	for y := 0; y < frame.Height; y++ {
-		for x := 0; x < 512; x++ {
+		for x := range 512 {
 			if got := frame.Y[y*frame.YStride+x]; got != 128 {
 				t.Fatalf("masked tile col 0 Y[%d,%d] = %d, want 128", y, x, got)
 			}
