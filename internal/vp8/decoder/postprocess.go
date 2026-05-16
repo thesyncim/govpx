@@ -348,10 +348,10 @@ func postProcessQ(filterLevel int, vp9 bool) int {
 func runPostProcessFilters(src *common.Image, dst *common.Image, rows int, cols int, modes []MacroblockMode, q int, yLimits []byte, uvLimits []byte, opts PostProcessOptions) {
 	if opts.Demacroblock {
 		filterQ := q + (opts.DeblockingLevel-5)*10
-		deblockPostProcess(src, dst, rows, cols, modes, filterQ, yLimits, uvLimits)
+		deblockPostProcess(src, dst, rows, cols, modes, filterQ, yLimits, uvLimits, opts.VP9)
 		demacroblockPostProcess(dst, filterQ)
 	} else if opts.Deblock {
-		deblockPostProcess(src, dst, rows, cols, modes, q, yLimits, uvLimits)
+		deblockPostProcess(src, dst, rows, cols, modes, q, yLimits, uvLimits, opts.VP9)
 	}
 }
 
@@ -462,6 +462,20 @@ func CopyMFQEBlock(blockSize int, y []byte, u []byte, v []byte, yStride int, uvS
 	copyBlock(y, yStride, yd, ydStride, blockSize, blockSize)
 	copyBlock(u, uvStride, ud, uvdStride, uvBlockSize, uvBlockSize)
 	copyBlock(v, uvStride, vd, uvdStride, uvBlockSize, uvBlockSize)
+}
+
+// ApplyMFQEIfactor exposes the per-block apply_ifactor kernel used by
+// the VP9 SB-aware MFQE walker. Mirrors libvpx vp9_mfqe.c::apply_ifactor
+// at v1.16.0: it filters Y/U/V at the same weight, where the weight is
+// the libvpx "ifactor" scaled to MFQE_PRECISION = 4 (so weight ∈ [0, 16]).
+//
+// libvpx: vp9/common/vp9_mfqe.c:68
+func ApplyMFQEIfactor(blockSize int, weight int,
+	y []byte, yStride int, yd []byte, ydStride int,
+	u []byte, v []byte, uvStride int,
+	ud []byte, vd []byte, uvdStride int,
+) {
+	applyMFQEIfactor(y, yStride, yd, ydStride, u, v, uvStride, ud, vd, uvdStride, blockSize, weight)
 }
 
 func multiframeQualityEnhanceBlock(blockSize int, qcurr int, qprev int, y []byte, u []byte, v []byte, yStride int, uvStride int, yd []byte, ud []byte, vd []byte, ydStride int, uvdStride int) {
@@ -672,7 +686,7 @@ func postProcessDeblockLevel(q int) int {
 	return int(level + 0.5)
 }
 
-func deblockPostProcess(src *common.Image, dst *common.Image, rows int, cols int, modes []MacroblockMode, q int, yLimits []byte, uvLimits []byte) {
+func deblockPostProcess(src *common.Image, dst *common.Image, rows int, cols int, modes []MacroblockMode, q int, yLimits []byte, uvLimits []byte, vp9 bool) {
 	ppl := postProcessDeblockLevel(q)
 	if ppl <= 0 || dst.Width < 8 || dst.Height < 8 {
 		copyPostProcessImage(dst, src)
@@ -680,14 +694,26 @@ func deblockPostProcess(src *common.Image, dst *common.Image, rows int, cols int
 	}
 
 	uvWidth := (dst.Width + 1) >> 1
+	if vp9 {
+		// libvpx vp9_postproc.c:257 (vp9_deblock): memset the limit
+		// row to a flat ppl across the whole frame width. VP9 does
+		// NOT halve the limit on a skipped MB the way VP8 does
+		// (vp8/common/postproc.c:82). Fill once before the row loop.
+		fillBytes(yLimits[:cols*16], byte(ppl))
+		fillBytes(uvLimits[:cols*8], byte(ppl))
+	}
 	for mbRow := range rows {
-		for mbCol := range cols {
-			limit := byte(ppl)
-			if modes[mbRow*cols+mbCol].MBSkipCoeff {
-				limit = byte(ppl >> 1)
+		if !vp9 {
+			// libvpx vp8/common/postproc.c:82-89 — per-MB ppl, halved
+			// when the MB has the skip-coeff flag.
+			for mbCol := range cols {
+				limit := byte(ppl)
+				if modes[mbRow*cols+mbCol].MBSkipCoeff {
+					limit = byte(ppl >> 1)
+				}
+				fillBytes(yLimits[mbCol*16:mbCol*16+16], limit)
+				fillBytes(uvLimits[mbCol*8:mbCol*8+8], limit)
 			}
-			fillBytes(yLimits[mbCol*16:mbCol*16+16], limit)
-			fillBytes(uvLimits[mbCol*8:mbCol*8+8], limit)
 		}
 
 		yStart := src.YOrigin + 16*mbRow*src.YStride
