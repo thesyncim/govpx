@@ -7406,6 +7406,23 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	if inter == nil {
 		return vp9InterModeDecision{}, false
 	}
+	// SPEED_FEATURES.use_nonrd_pick_mode (cpu_used >= 5 in libvpx realtime)
+	// routes the inter-mode picker through the verbatim nonrd port at
+	// vp9_pick_inter_mode_nonrd.go. The nonrd entry walks the libvpx
+	// ref_mode_set[] schedule, prunes the per-mode interp-filter loop, and
+	// applies aggressive early termination — collapsing the per-block work
+	// from ~36 (3 refs × 4 modes × 3 filters) candidate evaluations to ~12.
+	//
+	// libvpx merges single-ref + compound candidates into a single loop
+	// (vp9_pickmode.c:2050 — idx < num_inter_modes + comp_modes). govpx
+	// keeps them separate: the nonrd entry handles single-ref; the
+	// existing compound branch below handles compound. The schedule order
+	// matches libvpx because nonrd visits all single-ref candidates first
+	// (idx 0..num_inter_modes-1) and compound is appended at the tail.
+	//
+	// libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
+	// libvpx: vp9_speed_features.h:447 sf->use_nonrd_pick_mode.
+	useNonrd := e.vp9InterUsesNonrdPickmode()
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -7450,26 +7467,42 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	bestSet := false
 	var best vp9InterModeDecision
-	for _, refFrame := range refFrameSet {
-		refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
-		if !ok {
-			continue
-		}
-		inter.ref = &e.refFrames[refSlot]
-		refRate := vp9SingleRefModeRateCost(&inter.selectFc, above, left,
-			inter.referenceMode, inter.compoundRefs, refFrame)
-		decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
-			miRow, miCol, bsize, refFrame, refRate)
-		if !ok {
-			continue
-		}
-		decision.refFrame = refFrame
-		decision.secondRefFrame = vp9dec.NoRefFrame
-		decision.refSlot = refSlot
-		if !bestSet || decision.score < best.score ||
-			(decision.score == best.score && decision.rate < best.rate) {
+	// useNonrd: when sf->use_nonrd_pick_mode is set AND the LAST-only
+	// short-circuit above did not prune to a single ref, route the
+	// multi-ref schedule through the verbatim libvpx ref_mode_set[12]
+	// loop in vp9_pick_inter_mode_nonrd.go. With LAST-only the existing
+	// single-ref path below is already libvpx-equivalent and runs the
+	// faster luma-only predictor; the nonrd port adds no value there.
+	//
+	// libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
+	if useNonrd && len(refFrameSet) > 1 {
+		if decision, ok := e.pickVP9InterReferenceModeNonRD(inter, tile,
+			miRows, miCols, miRow, miCol, bsize); ok {
 			best = decision
 			bestSet = true
+		}
+	} else {
+		for _, refFrame := range refFrameSet {
+			refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
+			if !ok {
+				continue
+			}
+			inter.ref = &e.refFrames[refSlot]
+			refRate := vp9SingleRefModeRateCost(&inter.selectFc, above, left,
+				inter.referenceMode, inter.compoundRefs, refFrame)
+			decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
+				miRow, miCol, bsize, refFrame, refRate)
+			if !ok {
+				continue
+			}
+			decision.refFrame = refFrame
+			decision.secondRefFrame = vp9dec.NoRefFrame
+			decision.refSlot = refSlot
+			if !bestSet || decision.score < best.score ||
+				(decision.score == best.score && decision.rate < best.rate) {
+				best = decision
+				bestSet = true
+			}
 		}
 	}
 	// SPEED_FEATURES.use_compound_nonrd_pickmode gates the compound branch
