@@ -197,6 +197,104 @@ func TestVP9RowWorkerPoolReleaseFreesScratch(t *testing.T) {
 	}
 }
 
+// TestVP9TileWorkerPoolRowWorkerLifecycle pins the lifecycle wiring: a
+// multi-thread encoder with RowMT=true must allocate per-tile-column row
+// worker pools on its first encode; SetRowMT(false) must tear them down
+// so the helper goroutines drain.
+func TestVP9TileWorkerPoolRowWorkerLifecycle(t *testing.T) {
+	// Width=1280 → 4 tile columns; height=512 → 8 SB rows so the
+	// rowMTThreadCount clamp picks up at least 4 row workers per tile
+	// column and exercises the per-tile-column pool array fully.
+	const width, height = 1280, 512
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+		RowMT:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	src := newVP9YCbCrForTest(width, height, 80, 100, 200)
+	if _, err := e.Encode(src); err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("expected vp9TilePool after multi-thread encode")
+	}
+	// Per-tile-column row worker pools should be sized to workerCount.
+	if got := len(e.vp9TilePool.rowWorkerPools); got != e.vp9TilePool.workerCount {
+		t.Fatalf("rowWorkerPools len = %d, want %d (workerCount)",
+			got, e.vp9TilePool.workerCount)
+	}
+	// rowMTThreadCount should be clamped by min(Threads, sbRows).
+	if e.vp9TilePool.rowMTThreadCount <= 0 {
+		t.Fatalf("rowMTThreadCount = %d, want > 0", e.vp9TilePool.rowMTThreadCount)
+	}
+	// Toggling RowMT off must release the row worker pools.
+	if err := e.SetRowMT(false); err != nil {
+		t.Fatalf("SetRowMT(false): %v", err)
+	}
+	if got := len(e.vp9TilePool.rowWorkerPools); got != 0 {
+		t.Fatalf("rowWorkerPools after SetRowMT(false) = %d, want 0", got)
+	}
+	if e.vp9TilePool.rowMTThreadCount != 0 {
+		t.Fatalf("rowMTThreadCount after SetRowMT(false) = %d, want 0",
+			e.vp9TilePool.rowMTThreadCount)
+	}
+	// Re-enable + encode must re-allocate the pools.
+	if err := e.SetRowMT(true); err != nil {
+		t.Fatalf("SetRowMT(true): %v", err)
+	}
+	if _, err := e.Encode(src); err != nil {
+		t.Fatalf("Encode after re-enable: %v", err)
+	}
+	if got := len(e.vp9TilePool.rowWorkerPools); got != e.vp9TilePool.workerCount {
+		t.Fatalf("rowWorkerPools after re-enable = %d, want %d",
+			got, e.vp9TilePool.workerCount)
+	}
+}
+
+// TestVP9TileWorkerPoolRowWorkerSteadyStateAllocations gates the row
+// worker pool capacity across steady-state encodes: after warmup the
+// per-tile-column rowWorkerPools slice and the worker count must be
+// stable so the zero-cost-when-not-used invariant is preserved.
+func TestVP9TileWorkerPoolRowWorkerSteadyStateAllocations(t *testing.T) {
+	const width, height = 1280, 512
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+		RowMT:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	dst := make([]byte, 1<<22)
+	src := newVP9YCbCrForTest(width, height, 80, 100, 200)
+	// Warmup.
+	if _, err := e.EncodeInto(src, dst); err != nil {
+		t.Fatalf("warmup EncodeInto: %v", err)
+	}
+	gotWorkers := len(e.vp9TilePool.rowWorkerPools)
+	gotThreadCount := e.vp9TilePool.rowMTThreadCount
+	// Steady-state encodes must not grow rowWorkerPools / rowMTThreadCount.
+	for frame := 1; frame < 4; frame++ {
+		if _, err := e.EncodeInto(src, dst); err != nil {
+			t.Fatalf("frame %d EncodeInto: %v", frame, err)
+		}
+		if got := len(e.vp9TilePool.rowWorkerPools); got != gotWorkers {
+			t.Fatalf("frame %d rowWorkerPools = %d, want %d", frame, got, gotWorkers)
+		}
+		if e.vp9TilePool.rowMTThreadCount != gotThreadCount {
+			t.Fatalf("frame %d rowMTThreadCount = %d, want %d",
+				frame, e.vp9TilePool.rowMTThreadCount, gotThreadCount)
+		}
+	}
+}
+
 // TestVP9RowMTThreadCount verifies the libvpx-style clamp:
 //   - rowMTThreads <= 1 → 1
 //   - sbRows < rowMTThreads → sbRows
