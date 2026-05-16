@@ -1098,6 +1098,212 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 	}
 }
 
+func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 pinned runtime-control byte-parity gate")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 10
+	type runtimeGateCase struct {
+		name        string
+		opts        VP9EncoderOptions
+		flags       []EncodeFlags
+		constant    bool
+		before      func(*testing.T, *VP9Encoder, int)
+		extraArgs   []string
+		exactPrefix int
+		exactFrames []int
+		strictBytes bool
+	}
+	baseOpts := func(targetKbps int) VP9EncoderOptions {
+		return vp9OracleCBROptions(width, height, targetKbps)
+	}
+	cases := []runtimeGateCase{
+		{
+			name:     "constant-buffer-model-two-step",
+			opts:     baseOpts(700),
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRateControlBuffer tight",
+						enc.SetRateControlBuffer(400, 300, 350))
+				case 7:
+					mustVP9Runtime(t, "SetRateControlBuffer restore",
+						enc.SetRateControlBuffer(600, 400, 500))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--buf-sz-schedule=3:400,7:600",
+				"--buf-initial-sz-schedule=3:300,7:400",
+				"--buf-optimal-sz-schedule=3:350,7:500"),
+			exactPrefix: frames,
+			strictBytes: true,
+		},
+		{
+			name: "constant-set-cq-level-cq-mode-window",
+			opts: VP9EncoderOptions{
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlCQ,
+				TargetBitrateKbps:   700,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             20,
+				MaxKeyframeInterval: 128,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetCQLevel 35", enc.SetCQLevel(35))
+				case 7:
+					mustVP9Runtime(t, "SetCQLevel 20", enc.SetCQLevel(20))
+				}
+			},
+			extraArgs: []string{
+				"--end-usage=cq",
+				"--target-bitrate=700",
+				"--min-q=4",
+				"--max-q=56",
+				"--cq-level=20",
+				"--control-script=-,-,-,cq:35,-,-,-,cq:20,-,-",
+			},
+			exactPrefix: frames,
+			strictBytes: true,
+		},
+		{
+			name: "constant-cpu-used-two-step-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetCPUUsed 4", enc.SetCPUUsed(4))
+				case 7:
+					mustVP9Runtime(t, "SetCPUUsed 5", enc.SetCPUUsed(5))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,cpu:4,-,-,-,cpu:5,-,-",
+			},
+			exactPrefix: frames,
+			strictBytes: true,
+		},
+		{
+			name:  "bitrate-with-force-key",
+			opts:  baseOpts(700),
+			flags: vp9OracleFlagAt(frames, 4, EncodeForceKeyFrame),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRealtimeTarget bitrate 300",
+						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}))
+				case 7:
+					mustVP9Runtime(t, "SetRealtimeTarget bitrate 700",
+						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 700}))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--target-bitrate-schedule=3:300,7:700"),
+			exactPrefix: 1,
+			exactFrames: []int{4},
+		},
+		{
+			name: "active-map-checker-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					activeMap, rows, cols := vp9OracleActiveMap(width,
+						height, "checker")
+					mustVP9Runtime(t, "SetActiveMap checker",
+						enc.SetActiveMap(activeMap, rows, cols))
+				case 7:
+					mustVP9Runtime(t, "SetActiveMap nil",
+						enc.SetActiveMap(nil, 0, 0))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,active:checker,-,-,-,-,-,active:off,-,-"),
+			exactPrefix: 1,
+		},
+		{
+			name: "active-roi-combined-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					activeMap, rows, cols := vp9OracleActiveMap(width,
+						height, "checker")
+					mustVP9Runtime(t, "SetActiveMap checker",
+						enc.SetActiveMap(activeMap, rows, cols))
+					mustVP9Runtime(t, "SetROIMap border1",
+						enc.SetROIMap(vp9OracleROIMap(width, height, "border1")))
+				case 7:
+					mustVP9Runtime(t, "SetActiveMap nil",
+						enc.SetActiveMap(nil, 0, 0))
+					mustVP9Runtime(t, "SetROIMap nil", enc.SetROIMap(nil))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,active:checker+roi:border1,-,-,-,-,-,active:off+roi:off,-,-"),
+			exactPrefix: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sources []*image.YCbCr
+			if tc.constant {
+				sources = make([]*image.YCbCr, frames)
+				for i := range sources {
+					sources[i] = newVP9YCbCrForTest(width, height, 128,
+						128, 128)
+				}
+			} else {
+				sources = newVP9OracleTransitionSources(width, height, frames)
+			}
+			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithHooks(t,
+				tc.opts, sources, tc.flags, tc.extraArgs,
+				func(enc *VP9Encoder, frame int) {
+					tc.before(t, enc, frame)
+				})
+			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+				libvpxPackets)
+			t.Logf("VP9 pinned runtime-control byte-parity %s: matches=%d/%d first_mismatch=%d exact_prefix=%d exact_frames=%v",
+				tc.name, matches, len(govpxPackets), firstMismatch,
+				tc.exactPrefix, tc.exactFrames)
+			for frame := 0; frame < tc.exactPrefix; frame++ {
+				assertVP9PacketByteParity(t,
+					fmt.Sprintf("%s frame %d", tc.name, frame),
+					govpxPackets[frame], libvpxPackets[frame])
+			}
+			for _, frame := range tc.exactFrames {
+				assertVP9PacketByteParity(t,
+					fmt.Sprintf("%s frame %d", tc.name, frame),
+					govpxPackets[frame], libvpxPackets[frame])
+			}
+			if tc.strictBytes && matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 pinned runtime-control byte parity %s: matches=%d/%d",
+					tc.name, matches, len(govpxPackets))
+			}
+		})
+	}
+}
+
 func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 threaded 720p byte-parity gate")
@@ -1111,6 +1317,10 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 		opts   VP9EncoderOptions
 		args   []string
 		source func(frame int) *image.YCbCr
+	}
+	steppedKeyframe := func(frame int) *image.YCbCr {
+		return newVP9YCbCrForTest(width, height,
+			uint8(96+frame*8), 128, 128)
 	}
 	cases := []threadedCase{
 		{
@@ -1144,10 +1354,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			source: func(frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height,
-					uint8(96+frame*8), 128, 128)
-			},
+			source: steppedKeyframe,
 		},
 		{
 			name: "vbr",
