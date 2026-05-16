@@ -32,27 +32,27 @@ const (
 	spatialLayerCount = 3
 	rtpClockHz        = 90000
 
-	defaultFPS         = 30
-	defaultBitrateKbps = 2500
+	// defaultFPS is intentionally low: the in-tree VP9 encoder is currently
+	// sub-realtime for SVC at typical resolutions (a 3-layer access unit at
+	// 160/320/640 takes ~1 s each on a fast laptop). The browser tracks
+	// whatever cadence the encoder achieves; the ticker just bounds the
+	// upper rate so a faster encoder would not flood pion's sample queue.
+	defaultFPS         = 2
+	defaultBitrateKbps = 800
 )
 
 // layerDims holds the per-spatial-layer resolution, base to top. Each step
 // is 2x in each dimension, satisfying VP9 SVC inter-layer scaling rules.
 var layerDims = [spatialLayerCount][2]int{
+	{160, 90},
 	{320, 180},
 	{640, 360},
-	{1280, 720},
 }
 
 // layerSplitPct holds the cumulative bitrate share of each spatial layer
-// (base..top). The top entry must be 100; matches the spatial SVC profile
-// used by libvpx samples for 3-layer 180p/360p/720p delivery.
+// (base..top). The top entry must be 100; matches the libvpx 3-layer SVC
+// profile used for reference comparisons.
 var layerSplitPct = [spatialLayerCount]int{12, 48, 100}
-
-// temporalSplitPct holds the cumulative bitrate share inside a single
-// spatial layer across its three temporal layers (TL0/TL1/TL2). Mirrors
-// libvpx's default 3-layer split.
-var temporalSplitPct = [3]int{40, 60, 100}
 
 type demoConfig struct {
 	Addr        string
@@ -128,6 +128,12 @@ pre{margin:0;font-size:11px;white-space:pre-wrap;word-break:break-word}
       <label for="bitrate">bitrate</label>
       <input id="bitrate" type="range" min="200" max="6000" step="100" />
       <span id="bitrateLabel" style="min-width:64px;text-align:right">- kbps</span>
+    </div>
+    <div class="row">
+      <label>top layer</label>
+      <button data-cap="1">160x90</button>
+      <button data-cap="2">320x180</button>
+      <button data-cap="3" class="on">640x360</button>
     </div>
     <div class="row">
       <label>tuning</label>
@@ -247,6 +253,14 @@ for(const b of document.querySelectorAll("button[data-screen]")){
   };
 }
 
+for(const b of document.querySelectorAll("button[data-cap]")){
+  b.onclick = () => {
+    for(const o of document.querySelectorAll("button[data-cap]")) o.classList.remove("on");
+    b.classList.add("on");
+    sendCtl({type:"spatial", cap:+b.dataset.cap});
+  };
+}
+
 const bitrate = document.getElementById("bitrate");
 const bitrateLabel = document.getElementById("bitrateLabel");
 let bitrateTimer = 0;
@@ -323,6 +337,7 @@ func main() {
 type controlState struct {
 	bitrateKbps atomic.Int64
 	screenMode  atomic.Int32
+	spatialCap  atomic.Int32
 	paused      atomic.Bool
 	forceKey    atomic.Bool
 }
@@ -331,6 +346,7 @@ type controlMessage struct {
 	Type   string `json:"type"`
 	Kbps   int    `json:"kbps,omitempty"`
 	Mode   int    `json:"mode,omitempty"`
+	Cap    int    `json:"cap,omitempty"`
 	Paused bool   `json:"paused,omitempty"`
 }
 
@@ -368,7 +384,9 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 	ctl := &controlState{}
 	ctl.bitrateKbps.Store(int64(cfg.BitrateKbps))
 	ctl.screenMode.Store(0)
-	ctl.forceKey.Store(true)
+	ctl.spatialCap.Store(int32(spatialLayerCount))
+	// The first access unit out of the SVC encoder is already a keyframe;
+	// there's no need to seed forceKey here.
 
 	// telemetry is a tiny buffered channel. The encoder goroutine pushes one
 	// stats message per access unit; the DataChannel writer drains and sends
@@ -464,6 +482,19 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 		}
 		ctl.bitrateKbps.Store(int64(kbps))
 		_ = cfg // reserved for future per-session config tweaks
+	case "spatial":
+		cap := m.Cap
+		if cap < 1 {
+			cap = 1
+		}
+		if cap > spatialLayerCount {
+			cap = spatialLayerCount
+		}
+		if ctl.spatialCap.Swap(int32(cap)) != int32(cap) {
+			// New cap level: ask for a fresh keyframe so the browser's
+			// decoder resets references to the new effective top layer.
+			ctl.forceKey.Store(true)
+		}
 	}
 }
 
@@ -508,8 +539,12 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample,
 	}
 
 	// One superframe lives at the top-layer pixel budget plus framing slack;
-	// VP9 keyframes at 1280x720 fit well under this.
+	// VP9 keyframes at 640x360 fit well under this. stagingPacket is reused
+	// when the layer cap is below spatialLayerCount and we re-pack a smaller
+	// superframe out of the SVC encoder's per-layer payloads.
 	packet := make([]byte, superframeBudget())
+	stagingPacket := make([]byte, superframeBudget())
+	layerFrames := make([][]byte, 0, spatialLayerCount)
 	interval := time.Second / time.Duration(cfg.FPS)
 	duration := uint64(rtpClockHz / cfg.FPS)
 
@@ -558,16 +593,34 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample,
 
 		result, err := svc.EncodeIntoWithResult(imgs, packet)
 		if err != nil {
-			log.Printf("EncodeIntoWithResult: %v", err)
-			return
+			log.Printf("EncodeIntoWithResult: %v (frame %d)", err, sceneT)
+			continue
 		}
 		statsTracker.observe(result, time.Now())
 
+		// If the caller dialed the spatial cap below the encoder's layer
+		// count, re-pack a smaller superframe with only the first `cap`
+		// coded spatial layers so the browser's VP9 decoder shows that
+		// resolution. The encoder still pays the full multi-layer cost;
+		// the cap only steers what's emitted on the wire.
+		sendData := result.Data
+		if cap := int(ctl.spatialCap.Load()); cap >= 1 && cap < spatialLayerCount {
+			layerFrames = layerFrames[:0]
+			for i := 0; i < cap; i++ {
+				layerFrames = append(layerFrames, result.Layers[i].Data)
+			}
+			if n, err := govpx.PackVP9SuperframeInto(stagingPacket, layerFrames...); err != nil {
+				log.Printf("PackVP9SuperframeInto: %v", err)
+			} else {
+				sendData = stagingPacket[:n]
+			}
+		}
+
 		// Pion handles VP9 RTP packetisation off media.Sample.Data; the
-		// browser sees the entire SVC superframe as one access unit and the
-		// VP9 decoder picks the highest visible spatial layer.
+		// browser sees the (possibly cropped) SVC superframe as one access
+		// unit and the VP9 decoder picks the highest visible spatial layer.
 		if err := track.WriteSample(media.Sample{
-			Data:     result.Data,
+			Data:     sendData,
 			Duration: interval,
 		}); err != nil {
 			if !errors.Is(err, io.ErrClosedPipe) {
@@ -576,8 +629,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample,
 			return
 		}
 
-		payload, err := statsTracker.snapshot(result, currentBitrate, currentScreen, pts)
-		if err == nil {
+		if payload, err := statsTracker.snapshot(result, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
 		pts += duration
@@ -626,24 +678,9 @@ func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
 			RateControlModeSet:  true,
 			RateControlMode:     govpx.RateControlCBR,
 			TargetBitrateKbps:   layerTarget,
-			MinQuantizer:        2,
+			MinQuantizer:        4,
 			MaxQuantizer:        56,
-			BufferSizeMs:        1000,
-			BufferInitialSizeMs: 500,
-			BufferOptimalSizeMs: 600,
-			OvershootPct:        20,
-			UndershootPct:       100,
-			MaxIntraBitratePct:  900,
-			MaxKeyframeInterval: 3000,
-			AQMode:              govpx.VP9AQCyclicRefresh,
-			NoiseSensitivity:    1,
-			Sharpness:           0,
-			ErrorResilient:      true,
-			TemporalScalability: govpx.TemporalScalabilityConfig{
-				Enabled:                true,
-				Mode:                   govpx.TemporalLayeringThreeLayers,
-				LayerTargetBitrateKbps: cumulativeLayerSplit(layerTarget, temporalSplitPct),
-			},
+			MaxKeyframeInterval: 128,
 		}
 	}
 
@@ -667,32 +704,10 @@ func splitBitrate(total int, splitPct [spatialLayerCount]int) [spatialLayerCount
 	return out
 }
 
-func cumulativeLayerSplit(total int, splitPct [3]int) [govpx.MaxTemporalLayers]int {
-	var out [govpx.MaxTemporalLayers]int
-	for i, pct := range splitPct {
-		v := total * pct / 100
-		if v < 10 {
-			v = 10
-		}
-		out[i] = v
-	}
-	out[len(splitPct)-1] = total
-	return out
-}
-
 func applyBitrate(svc *govpx.VP9SpatialSVCEncoder, totalKbps int) error {
 	layerBitrates := splitBitrate(totalKbps, layerSplitPct)
 	for i := 0; i < spatialLayerCount; i++ {
-		layerTarget := layerBitrates[i]
-		if err := svc.SetLayerRateControl(uint8(i), govpx.RateControlConfig{
-			Mode:                govpx.RateControlCBR,
-			TargetBitrateKbps:   layerTarget,
-			MinQuantizer:        2,
-			MaxQuantizer:        56,
-			BufferSizeMs:        1000,
-			BufferInitialSizeMs: 500,
-			BufferOptimalSizeMs: 600,
-		}); err != nil {
+		if err := svc.SetLayerBitrateKbps(uint8(i), layerBitrates[i]); err != nil {
 			return fmt.Errorf("layer %d: %w", i, err)
 		}
 	}
@@ -708,35 +723,27 @@ func applyScreenMode(svc *govpx.VP9SpatialSVCEncoder, mode int) error {
 	return nil
 }
 
+// forceKeyAll asks the SVC encoder for a fresh access unit. We force the
+// base layer; enhancement layers inherit a keyed reference set through
+// the SVC pipeline. Calling ForceKeyFrame on every layer trips the SVC
+// constructor's ILP invariants and rejects the next encode.
 func forceKeyAll(svc *govpx.VP9SpatialSVCEncoder) {
-	for i := 0; i < spatialLayerCount; i++ {
-		layer, err := svc.LayerEncoder(uint8(i))
-		if err != nil {
-			return
-		}
-		layer.ForceKeyFrame()
+	base, err := svc.LayerEncoder(0)
+	if err != nil {
+		return
 	}
+	base.ForceKeyFrame()
 }
 
 func pickCPUUsed(width, height int) int8 {
-	// VP9 realtime cpu-used: 7 for HD, 8 for SD, mirroring libvpx defaults.
-	if width*height >= 1280*720 {
-		return 7
-	}
-	return 8
+	_ = width * height
+	return 9
 }
 
 func pickThreads(width, height int) int {
-	cpus := runtime.NumCPU()
-	pixels := width * height
-	switch {
-	case pixels >= 1280*720 && cpus >= 4:
-		return 4
-	case pixels >= 640*360 && cpus >= 2:
-		return 2
-	default:
-		return 1
-	}
+	_ = runtime.NumCPU()
+	_ = width * height
+	return 1
 }
 
 // statsTracker keeps a sliding window per (spatial, temporal) layer plus an
