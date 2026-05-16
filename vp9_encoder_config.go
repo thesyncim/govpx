@@ -397,6 +397,26 @@ func (e *VP9Encoder) SetTuning(tuning Tuning) error {
 	return nil
 }
 
+// SetRowMT toggles VP9 row-wavefront multithreading for subsequent frames. It
+// mirrors libvpx's VP9E_SET_ROW_MT control. Enabling it requires Threads > 1
+// because the wavefront primitive is meaningful only with a multi-column tile
+// layout driven by the persistent tile worker pool. Disabling tears down any
+// allocated VP9RowMTSync state on the next encode so steady-state allocations
+// stay bounded. The bitstream output is byte-identical to the serial path.
+func (e *VP9Encoder) SetRowMT(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if enabled && e.opts.Threads <= 1 {
+		return ErrInvalidConfig
+	}
+	e.opts.RowMT = enabled
+	if !enabled && e.vp9TilePool != nil {
+		e.vp9TilePool.releaseRowMTSync()
+	}
+	return nil
+}
+
 // SetScreenContentMode changes VP9 content tuning for subsequent frames. Valid
 // values are 0 for default video, 1 for screen content, and 2 for film/grain
 // content. Screen content expands the realtime no-reference intra search.
@@ -512,6 +532,84 @@ func (e *VP9Encoder) SetRTCExternalRateControl(enabled bool) error {
 	return nil
 }
 
+// SetColorSpace mirrors libvpx's VP9E_SET_COLOR_SPACE control. The
+// value tags the bitstream's color space in the keyframe / intra-only
+// uncompressed header. Profile-0 streams cannot carry SRGB.
+func (e *VP9Encoder) SetColorSpace(cs VP9ColorSpace) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if cs > VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	if cs == VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	e.opts.ColorSpace = cs
+	return nil
+}
+
+// SetColorRange mirrors libvpx's VP9E_SET_COLOR_RANGE control. The
+// 1-bit color_range tag follows the color space in the uncompressed
+// header on keyframes (and profile>0 intra-only frames).
+func (e *VP9Encoder) SetColorRange(cr VP9ColorRange) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if cr > VP9ColorRangeFull {
+		return ErrInvalidConfig
+	}
+	e.opts.ColorRange = cr
+	return nil
+}
+
+// SetRenderSize mirrors libvpx's VP9E_SET_RENDER_SIZE control. The
+// caller passes the desired display (width, height); passing (0, 0)
+// clears the hint and the bitstream emits render_and_frame_size
+// _different=0 so the decoder inherits the coded dimensions.
+func (e *VP9Encoder) SetRenderSize(width, height int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9RenderSizeOptions(VP9EncoderOptions{
+		RenderWidth:  width,
+		RenderHeight: height,
+	}); err != nil {
+		return err
+	}
+	e.opts.RenderWidth = width
+	e.opts.RenderHeight = height
+	return nil
+}
+
+// SetTargetLevel mirrors libvpx's VP9E_SET_TARGET_LEVEL control. level
+// must be one of the canonical VP9 level codes (10, 11, 20, 21, 30, 31,
+// 40, 41, 50, 51, 52, 60, 61, 62), or 255 (no constraint) or 0 (auto).
+func (e *VP9Encoder) SetTargetLevel(level int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9TargetLevel(level); err != nil {
+		return err
+	}
+	e.opts.TargetLevel = level
+	return nil
+}
+
+// SetDisableLoopfilter mirrors libvpx's VP9E_SET_DISABLE_LOOPFILTER
+// control. mode 0 leaves the in-loop filter enabled; mode 1 disables
+// it for non-keyframes; mode 2 disables it on every frame.
+func (e *VP9Encoder) SetDisableLoopfilter(mode VP9DisableLoopfilter) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if mode > VP9LoopfilterDisableAll {
+		return ErrInvalidConfig
+	}
+	e.opts.DisableLoopfilter = mode
+	return nil
+}
+
 // SetDeltaQUV mirrors libvpx's VP9E_SET_DELTA_Q_UV control. delta must be
 // in [-15, 15]; non-zero values disable Profile 0 lossless even at
 // base_qindex == 0. Forwards to [VP9EncoderOptions.DeltaQUV].
@@ -542,6 +640,125 @@ func (e *VP9Encoder) SetMaxInterBitratePct(pct int) error {
 	}
 	e.opts.MaxInterBitratePct = pct
 	e.rc.maxInterBitratePct = pct
+	return nil
+}
+
+// SetMinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control.
+// interval must be in [0, vp9MaxGFInterval]; zero restores libvpx's
+// framerate-derived default. Forwards to
+// [VP9EncoderOptions.MinGFInterval].
+func (e *VP9Encoder) SetMinGFInterval(interval int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9GFIntervalBounds(interval,
+		e.opts.MaxGFInterval); err != nil {
+		return err
+	}
+	e.opts.MinGFInterval = interval
+	e.rc.minGFInterval = uint8(interval)
+	if e.rc.enabled {
+		e.rc.initOnePassVBRState(e.vp9TimingState())
+	}
+	return nil
+}
+
+// SetMaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control.
+// interval must be in [0, vp9MaxGFInterval]; zero restores libvpx's
+// framerate-derived default. Forwards to
+// [VP9EncoderOptions.MaxGFInterval].
+func (e *VP9Encoder) SetMaxGFInterval(interval int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9GFIntervalBounds(e.opts.MinGFInterval,
+		interval); err != nil {
+		return err
+	}
+	e.opts.MaxGFInterval = interval
+	e.rc.maxGFInterval = uint8(interval)
+	if e.rc.enabled {
+		e.rc.initOnePassVBRState(e.vp9TimingState())
+	}
+	return nil
+}
+
+// SetFramePeriodicBoost mirrors libvpx's VP9E_SET_FRAME_PERIODIC_BOOST
+// control. When enabled, periodic golden-frame refreshes receive a
+// stronger active-best-Q reduction. Forwards to
+// [VP9EncoderOptions.FramePeriodicBoost].
+func (e *VP9Encoder) SetFramePeriodicBoost(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.FramePeriodicBoost = enabled
+	e.rc.framePeriodicBoost = enabled
+	return nil
+}
+
+// SetAltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. When enabled,
+// alt-ref refresh frames apply extra AQ tightening through the active
+// quantizer bounds. Forwards to [VP9EncoderOptions.AltRefAQ].
+func (e *VP9Encoder) SetAltRefAQ(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.AltRefAQ = enabled
+	e.rc.altRefAQ = enabled
+	return nil
+}
+
+// SetPostEncodeDrop mirrors libvpx's VP9E_SET_POSTENCODE_DROP_CBR
+// control. Requires CBR rate control. When enabled, inter frames that
+// overshoot their target while the buffer level fell below the
+// configured watermark are dropped from the visible output after the
+// encode completes. Forwards to [VP9EncoderOptions.PostEncodeDrop].
+func (e *VP9Encoder) SetPostEncodeDrop(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if enabled && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
+		return ErrInvalidConfig
+	}
+	e.opts.PostEncodeDrop = enabled
+	e.rc.postEncodeDrop = enabled
+	return nil
+}
+
+// SetDisableOvershootMaxQCBR mirrors libvpx's
+// VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR control. Requires CBR rate
+// control. When enabled, the CBR active-worst-Q promotion to
+// worstQuality in the critical buffer region is suppressed. Forwards to
+// [VP9EncoderOptions.DisableOvershootMaxQCBR].
+func (e *VP9Encoder) SetDisableOvershootMaxQCBR(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if enabled && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
+		return ErrInvalidConfig
+	}
+	e.opts.DisableOvershootMaxQCBR = enabled
+	e.rc.disableOvershootMaxQCBR = enabled
+	return nil
+}
+
+// SetNextFrameQIndex mirrors libvpx's VP9E_SET_QUANTIZER_ONE_PASS
+// control. qindex must lie in [0, 255]. The override is consumed by the
+// next encode call and then cleared. Mutually exclusive with
+// cyclic-refresh AQ and perceptual AQ, which already rewrite the qindex
+// through segmentation. Forwards to
+// [VP9EncoderOptions.NextFrameQIndex] / NextFrameQIndexSet.
+func (e *VP9Encoder) SetNextFrameQIndex(qindex int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9NextFrameQIndex(qindex, true, e.opts.AQMode); err != nil {
+		return err
+	}
+	e.opts.NextFrameQIndexSet = true
+	e.opts.NextFrameQIndex = qindex
+	e.rc.nextFrameQIndexSet = true
+	e.rc.nextFrameQIndex = uint8(qindex)
 	return nil
 }
 

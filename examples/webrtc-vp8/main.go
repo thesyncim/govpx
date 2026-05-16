@@ -232,6 +232,16 @@ function renderRendition(idx, msg){
   row(dl, "bytes", msg.bytes);
   row(dl, "kbps", (msg.kbps||0).toFixed(0));
   row(dl, "target", msg.target_kbps);
+  if(typeof msg.encode_us === "number") {
+    row(dl, "encode", (msg.encode_us/1000).toFixed(2) + " ms");
+  }
+  if(typeof msg.write_us === "number" && msg.write_us > 0) {
+    row(dl, "write",  (msg.write_us/1000).toFixed(2) + " ms");
+  }
+  if(typeof msg.loop_us === "number" && msg.loop_us > 0) {
+    const fps = msg.loop_us > 0 ? (1e6 / msg.loop_us).toFixed(1) : "-";
+    row(dl, "loop",  (msg.loop_us/1000).toFixed(1) + " ms / " + fps + " fps");
+  }
   row(dl, "T", msg.tp + (msg.sync?"↑":""));
   row(dl, "TL0", msg.tl0);
   if(msg.dropped) row(dl, "drop", "yes");
@@ -890,11 +900,17 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 	rs.height.Store(int32(currentHeight))
 	var pts uint64
 	var sceneT int
+	var lastTick time.Time
+	var loopUS, writeUS int
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case tick := <-ticker.C:
+			if !lastTick.IsZero() {
+				loopUS = int(tick.Sub(lastTick).Microseconds())
+			}
+			lastTick = tick
 		}
 
 		if wantW, wantH := int(rs.width.Load()), int(rs.height.Load()); wantW > 0 && wantH > 0 &&
@@ -980,14 +996,16 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		// pattern; we just skip emission. Mirrors libvpx's
 		// VP8E_SET_TEMPORAL_LAYER_ID-style cap.
 		cap := int(rs.temporalCap.Load())
+		encodeStart := time.Now()
 		result, err := enc.EncodeInto(packet, img, pts, duration, flags)
+		encodeUS := int(time.Since(encodeStart).Microseconds())
 		pts += duration
 		if err != nil {
 			log.Printf("[%s] EncodeInto: %v", rs.cfg.Name, err)
 			continue
 		}
 		if result.Dropped {
-			pushTelemetry(sess.telemetry, dropTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight))
+			pushTelemetry(sess.telemetry, dropTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, encodeUS, loopUS))
 			continue
 		}
 		// Only suppress emission for frames the encoder marked as
@@ -995,10 +1013,11 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		// decoder's reference chain and causes the receiver to render
 		// artifacts until the next keyframe.
 		if cap < result.TemporalLayerID && result.Droppable {
-			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true))
+			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true, encodeUS, 0, loopUS))
 			continue
 		}
 
+		writeStart := time.Now()
 		if err := track.WriteSample(media.Sample{
 			Data:     result.Data,
 			Duration: interval,
@@ -1008,8 +1027,9 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 			}
 			return
 		}
+		writeUS = int(time.Since(writeStart).Microseconds())
 		tracker.observe(result.SizeBytes, time.Now())
-		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false))
+		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false, encodeUS, writeUS, loopUS))
 	}
 }
 
@@ -1079,12 +1099,28 @@ type telemetryMessage struct {
 	Screen     int     `json:"screen,omitempty"`
 	Denoise    int     `json:"denoise,omitempty"`
 	ROI        bool    `json:"roi,omitempty"`
+	// EncodeUS is govpx's per-frame EncodeInto wall time in
+	// microseconds. Exposed so the UI can plot per-frame encoder cost
+	// alongside Q and bytes — useful for diagnosing bitrate-recovery
+	// perception ("FPS doesn't recover after a low-bitrate dip"), where
+	// the encode-time curve tracks Q and bytes, not the bitrate-change
+	// event itself.
+	EncodeUS int `json:"encode_us"`
+	// WriteUS is the per-frame track.WriteSample wall time. A large
+	// WriteUS with a small EncodeUS means the WebRTC RTP/pacer is the
+	// bottleneck, not govpx encode.
+	WriteUS int `json:"write_us"`
+	// LoopUS is the tick-to-tick interval of the encoder loop in
+	// microseconds. At 30fps the steady-state value is ~33333. If it
+	// grows to 300000+ while EncodeUS stays small, the loop is being
+	// throttled by something downstream of EncodeInto.
+	LoopUS int `json:"loop_us"`
 }
 
 var frameCounter [renditionCount]int
 
 func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int,
-	r govpx.EncodeResult, tracker *kbpsTracker, suppressed bool,
+	r govpx.EncodeResult, tracker *kbpsTracker, suppressed bool, encodeUS, writeUS, loopUS int,
 ) []byte {
 	frameCounter[idx]++
 	rs.roiMu.Lock()
@@ -1109,12 +1145,15 @@ func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width,
 		Screen:     screen,
 		Denoise:    denoise,
 		ROI:        roi,
+		EncodeUS:   encodeUS,
+		WriteUS:    writeUS,
+		LoopUS:     loopUS,
 	}
 	out, _ := json.Marshal(msg)
 	return out
 }
 
-func dropTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int) []byte {
+func dropTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int, encodeUS, loopUS int) []byte {
 	frameCounter[idx]++
 	rs.roiMu.Lock()
 	roi := rs.roiActive
@@ -1129,6 +1168,8 @@ func dropTelemetry(idx int, rs *renditionState, target, screen, denoise, width, 
 		Denoise:    denoise,
 		Dropped:    true,
 		ROI:        roi,
+		EncodeUS:   encodeUS,
+		LoopUS:     loopUS,
 	}
 	out, _ := json.Marshal(msg)
 	return out

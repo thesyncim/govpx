@@ -71,6 +71,55 @@ func vp9CoefUpdateModeForFrame(isKey bool) encoder.CoefUpdateMode {
 	return encoder.CoefUpdateOneLoopReduced
 }
 
+// VP9ColorSpace mirrors libvpx's vpx_color_space_t — the 3-bit color
+// space tag carried in the uncompressed header on keyframes and
+// profile>0 intra-only frames.
+type VP9ColorSpace uint8
+
+const (
+	// VP9ColorSpaceUnknown indicates the color space is not signalled.
+	VP9ColorSpaceUnknown VP9ColorSpace = 0
+	// VP9ColorSpaceBT601 selects ITU-R BT.601.
+	VP9ColorSpaceBT601 VP9ColorSpace = 1
+	// VP9ColorSpaceBT709 selects ITU-R BT.709.
+	VP9ColorSpaceBT709 VP9ColorSpace = 2
+	// VP9ColorSpaceSMPTE170 selects SMPTE-170 (matches BT.601 in practice).
+	VP9ColorSpaceSMPTE170 VP9ColorSpace = 3
+	// VP9ColorSpaceSMPTE240 selects SMPTE-240.
+	VP9ColorSpaceSMPTE240 VP9ColorSpace = 4
+	// VP9ColorSpaceBT2020 selects ITU-R BT.2020.
+	VP9ColorSpaceBT2020 VP9ColorSpace = 5
+	// VP9ColorSpaceReserved is the reserved value (6).
+	VP9ColorSpaceReserved VP9ColorSpace = 6
+	// VP9ColorSpaceSRGB selects sRGB. Only legal on profiles 1 and 3
+	// (4:4:4 sampling required); rejected on profile 0 streams.
+	VP9ColorSpaceSRGB VP9ColorSpace = 7
+)
+
+// VP9ColorRange mirrors libvpx's vpx_color_range_t — the 1-bit color
+// range tag carried alongside the color space.
+type VP9ColorRange uint8
+
+const (
+	// VP9ColorRangeStudio selects the studio (limited) range.
+	VP9ColorRangeStudio VP9ColorRange = 0
+	// VP9ColorRangeFull selects the full (PC) range.
+	VP9ColorRangeFull VP9ColorRange = 1
+)
+
+// VP9DisableLoopfilter selects whether the in-loop deblock filter is
+// suppressed. Mirrors libvpx's VP9E_SET_DISABLE_LOOPFILTER control.
+type VP9DisableLoopfilter uint8
+
+const (
+	// VP9LoopfilterEnabled leaves the in-loop filter active.
+	VP9LoopfilterEnabled VP9DisableLoopfilter = 0
+	// VP9LoopfilterDisableInter disables the filter on non-keyframes only.
+	VP9LoopfilterDisableInter VP9DisableLoopfilter = 1
+	// VP9LoopfilterDisableAll disables the filter on every frame.
+	VP9LoopfilterDisableAll VP9DisableLoopfilter = 2
+)
+
 // VP9EncoderOptions configures a VP9 profile 0 encoder.
 type VP9EncoderOptions struct {
 	// Width and Height are the fixed visible dimensions accepted by
@@ -99,6 +148,17 @@ type VP9EncoderOptions struct {
 	// emitted in scan order because reconstructed pixels and above entropy
 	// contexts carry across row boundaries.
 	Log2TileRows int8
+
+	// RowMT mirrors libvpx's VP9E_SET_ROW_MT control. When true with Threads > 1
+	// and a multi-column tile layout, each tile-column body encode arms a per-SB
+	// row-wavefront synchroniser matching libvpx's VP9RowMTSync primitive. Rows
+	// signal column progress after every SB and can wait for the row above to
+	// reach a configurable lookahead, mirroring vp9_row_mt_sync_read/write. The
+	// bitstream output is byte-identical to the serial path because govpx still
+	// runs one goroutine per tile column; the primitive is the foundation for
+	// per-row parallelism within a tile column. Requires Threads > 1; setting it
+	// with Threads <= 1 returns ErrInvalidConfig.
+	RowMT bool
 
 	// Deadline selects the VP9 speed/quality operating mode. The zero-value
 	// options keep govpx's historical VP9 oracle default of realtime cpu-used 8;
@@ -299,11 +359,97 @@ type VP9EncoderOptions struct {
 	// to luma.
 	DeltaQUV int
 
+	// ColorSpace tags the bitstream color space in the keyframe and
+	// profile>0 intra-only uncompressed header (3-bit color_space field).
+	// Mirrors libvpx's VP9E_SET_COLOR_SPACE control. Valid values are
+	// VP9ColorSpaceUnknown..VP9ColorSpaceSRGB (0..7). Profile-0 streams
+	// cannot carry SRGB because SRGB mandates 4:4:4 chroma sampling.
+	ColorSpace VP9ColorSpace
+
+	// ColorRange tags the bitstream color range in the same keyframe /
+	// intra-only block (1-bit color_range field). Mirrors libvpx's
+	// VP9E_SET_COLOR_RANGE control. Only emitted when ColorSpace is not
+	// SRGB (SRGB implies full range and skips the bit).
+	ColorRange VP9ColorRange
+
+	// RenderWidth and RenderHeight tag the display-render dimensions in
+	// the keyframe and intra-only uncompressed header. Mirrors libvpx's
+	// VP9E_SET_RENDER_SIZE control. When both are zero (or when they
+	// equal Width/Height), the bitstream emits render_and_frame_size
+	// _different=0 and inherits the coded dimensions. Otherwise both
+	// must be positive and in [1, 65536]; the values are encoded as
+	// 16-bit (width-1, height-1) literals.
+	RenderWidth  int
+	RenderHeight int
+
+	// TargetLevel constrains encode decisions to respect a specific VP9
+	// level's macroblock-rate, picture-size, bitrate, and decoder-model
+	// limits. Mirrors libvpx's VP9E_SET_TARGET_LEVEL control. Valid
+	// values are 255 (unconstrained, the default), 0 (auto), and the
+	// canonical level codes 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52,
+	// 60, 61, 62 (Level N.M encoded as 10*N + M). The current port only
+	// accepts and stores the value; level-aware encode decisions are not
+	// yet wired.
+	TargetLevel int
+
+	// DisableLoopfilter suppresses the in-loop deblock filter. Mirrors
+	// libvpx's VP9E_SET_DISABLE_LOOPFILTER control. Mode 0 leaves the
+	// filter enabled; mode 1 disables it for non-keyframes only; mode 2
+	// disables it on every frame. When disabled, the encoder writes
+	// filter_level=0 in the uncompressed header so the existing
+	// loop-filter pipeline becomes a no-op.
+	DisableLoopfilter VP9DisableLoopfilter
+
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
 	// segment features.
 	Segmentation VP9SegmentationOptions
+
+	// MinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control. It
+	// bounds the encoder-selected golden-frame interval from below. Valid
+	// values are in [0, vp9MaxGFInterval]; zero leaves libvpx's framerate-
+	// derived default in place.
+	MinGFInterval int
+	// MaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control. It
+	// bounds the encoder-selected golden-frame interval from above. Valid
+	// values are in [0, vp9MaxGFInterval]; zero leaves libvpx's framerate-
+	// derived default in place. When both bounds are non-zero,
+	// MinGFInterval must not exceed MaxGFInterval.
+	MaxGFInterval int
+
+	// FramePeriodicBoost mirrors libvpx's VP9E_SET_FRAME_PERIODIC_BOOST
+	// control. When true, periodic golden-frame refreshes receive a
+	// stronger active-best-Q reduction so the boosted GF/ALTREF achieves
+	// a tighter target qindex.
+	FramePeriodicBoost bool
+
+	// AltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. When true,
+	// alt-ref refresh frames apply extra AQ tightening through the active
+	// quantizer bounds, biasing the selected qindex downward.
+	AltRefAQ bool
+
+	// PostEncodeDrop mirrors libvpx's VP9E_SET_POSTENCODE_DROP_CBR control.
+	// When true (and CBR rate control is enabled), inter frames that
+	// overshoot the frame target while the buffer level fell below the
+	// configured drop watermark are dropped from the visible output.
+	PostEncodeDrop bool
+
+	// DisableOvershootMaxQCBR mirrors libvpx's
+	// VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR control. When true, the CBR
+	// active-worst-Q promotion to worstQuality on overshoot is suppressed,
+	// letting the regulated quantizer use the buffer-derived active worst
+	// bound even when the buffer is in the critical region.
+	DisableOvershootMaxQCBR bool
+
+	// NextFrameQIndex stores the libvpx VP9E_SET_QUANTIZER_ONE_PASS
+	// per-frame qindex override consumed by the next encode. Valid values
+	// are in [0, 255]. Mutually exclusive with cyclic-refresh and
+	// perceptual AQ, since both rewrite the qindex through segmentation.
+	NextFrameQIndex int
+	// NextFrameQIndexSet selects between the zero default and an
+	// explicitly-set NextFrameQIndex=0 override.
+	NextFrameQIndexSet bool
 }
 
 // VP9SegmentationOptions configures static per-frame VP9 segmentation.
@@ -569,6 +715,11 @@ type VP9Encoder struct {
 	vp9CountCounts   []encoder.FrameCounts
 	vp9CountJobs     []vp9CountTileJob
 	vp9TilePool      *vp9TileWorkerPool
+	// vp9RowMTSync is set when the worker is dispatched as a tile-column body
+	// with RowMT enabled. The pointer aliases an entry inside
+	// vp9TileWorkerPool.rowMTSyncs and lives for the duration of the per-frame
+	// encode; writeVP9ModesTileBounds reads it to drive the wavefront primitive.
+	vp9RowMTSync *vp9RowMTSync
 	lfi              vp9dec.LoopFilterInfoN
 	lfRefDeltas      [vp9dec.MaxRefLfDeltas]int8
 	lfModeDeltas     [vp9dec.MaxModeLfDeltas]int8
@@ -643,6 +794,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.Threads < 0 {
 		return ErrInvalidConfig
 	}
+	if opts.RowMT && opts.Threads <= 1 {
+		return ErrInvalidConfig
+	}
 	if err := validateVP9TileRowOptions(opts.Width, opts.Height, opts.Log2TileRows); err != nil {
 		return err
 	}
@@ -693,6 +847,18 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	}
 	if opts.Lossless && opts.DeltaQUV != 0 {
 		return ErrInvalidQuantizer
+	}
+	if err := validateVP9ColorOptions(opts); err != nil {
+		return err
+	}
+	if err := validateVP9RenderSizeOptions(opts); err != nil {
+		return err
+	}
+	if err := validateVP9TargetLevel(opts.TargetLevel); err != nil {
+		return err
+	}
+	if opts.DisableLoopfilter > VP9LoopfilterDisableAll {
+		return ErrInvalidConfig
 	}
 	if _, err := normalizeVP9SpatialScalabilityConfig(opts.SpatialScalability,
 		opts.Width, opts.Height); err != nil {
@@ -796,6 +962,87 @@ func (e *VP9Encoder) vp9SpatialResultFields() (
 	return cfg.LayerID, cfg.LayerCount, cfg.InterLayerDependency,
 		cfg.NotRefForUpperSpatialLayer, scalabilityStructurePresent,
 		scalabilityStructure
+}
+
+// validateVP9ColorOptions rejects out-of-range ColorSpace/ColorRange
+// values and the Profile 0 / SRGB combination libvpx rejects.
+func validateVP9ColorOptions(opts VP9EncoderOptions) error {
+	if opts.ColorSpace > VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	if opts.ColorRange > VP9ColorRangeFull {
+		return ErrInvalidConfig
+	}
+	// Profile 0 streams use 4:2:0 chroma; SRGB requires 4:4:4 sampling
+	// (allowed only on profiles 1 and 3) so the writer would emit a
+	// stream the decoder rejects.
+	if opts.ColorSpace == VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// validateVP9RenderSizeOptions enforces the (0,0)-or-(positive,positive)
+// shape of RenderWidth/RenderHeight and caps each at the 16-bit field
+// width libvpx writes.
+func validateVP9RenderSizeOptions(opts VP9EncoderOptions) error {
+	w := opts.RenderWidth
+	h := opts.RenderHeight
+	if w == 0 && h == 0 {
+		return nil
+	}
+	if w <= 0 || h <= 0 {
+		return ErrInvalidConfig
+	}
+	if w > (1 << 16) || h > (1 << 16) {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// vp9ValidTargetLevels lists the canonical VP9 level codes libvpx
+// accepts. 255 disables the constraint, 0 selects auto, and the
+// remainder are level N.M encoded as 10*N + M.
+var vp9ValidTargetLevels = [...]int{
+	0, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 255,
+}
+
+// validateVP9TargetLevel mirrors libvpx's ctrl_set_target_level value
+// check.
+func validateVP9TargetLevel(level int) error {
+	for _, v := range vp9ValidTargetLevels {
+		if level == v {
+			return nil
+		}
+	}
+	return ErrInvalidConfig
+}
+
+// vp9DisableLoopfilterForFrame reports whether the loop filter should
+// be suppressed for the given frame, mirroring libvpx's
+// VP9E_SET_DISABLE_LOOPFILTER semantics: mode 1 disables the filter
+// on every non-keyframe; mode 2 disables it on every frame.
+func vp9DisableLoopfilterForFrame(mode VP9DisableLoopfilter, isKey bool) bool {
+	switch mode {
+	case VP9LoopfilterDisableAll:
+		return true
+	case VP9LoopfilterDisableInter:
+		return !isKey
+	default:
+		return false
+	}
+}
+
+// vp9CommonColorSpace maps the public VP9ColorSpace enum onto the
+// shared internal/vp9/common ColorSpace identifier.
+func vp9CommonColorSpace(c VP9ColorSpace) common.ColorSpace {
+	return common.ColorSpace(c)
+}
+
+// vp9CommonColorRange maps the public VP9ColorRange enum onto the
+// shared internal/vp9/common ColorRange identifier.
+func vp9CommonColorRange(c VP9ColorRange) common.ColorRange {
+	return common.ColorRange(c)
 }
 
 func validateVP9TileRowOptions(width, height int, log2TileRows int8) error {
@@ -1589,9 +1836,17 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		FrameContextIdx:       0,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
 			BitDepth:   vp9dec.Bits8,
-			ColorSpace: common.CSUnknown,
-			ColorRange: common.CRStudioRange,
+			ColorSpace: vp9CommonColorSpace(e.opts.ColorSpace),
+			ColorRange: vp9CommonColorRange(e.opts.ColorRange),
 		},
+	}
+	if rw, rh := e.opts.RenderWidth, e.opts.RenderHeight; rw > 0 && rh > 0 {
+		header.Render = vp9dec.RenderSize{
+			Width:  uint32(rw),
+			Height: uint32(rh),
+		}
+	} else {
+		header.Render = vp9dec.RenderSize{Width: width, Height: height}
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
 	macroblocks := vp9MacroblockCount(miRows, miCols)
@@ -1613,6 +1868,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
 	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey,
 		resetLoopfilterDeltas, header.Quant.Lossless, e.opts.Sharpness)
+	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) {
+		header.Loopfilter.FilterLevel = 0
+	}
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
@@ -1849,8 +2107,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.commitVP9EncoderFrameContext(header, frameContextIdx)
 	e.lastVP9HeaderFrameType = header.FrameType
 	e.lastVP9HeaderValid = true
-	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
-		header.RefreshFrameFlags, macroblocks)
+	postDrop := e.rc.shouldPostEncodeDrop(isKey || intraOnly,
+		header.ShowFrame, encodedSizeBits(n))
+	if postDrop {
+		e.rc.postEncodeDropFrame()
+	} else {
+		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
+			header.RefreshFrameFlags, macroblocks)
+	}
 	if header.ShowFrame {
 		e.twoPass.finishFrame()
 	}
@@ -1865,19 +2129,34 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	spatialLayerID, spatialLayerCount, interLayerDependency,
 		notRefForUpperSpatialLayer, scalabilityStructurePresent,
 		spatialScalabilityStructure := e.vp9SpatialResultFields()
+	resultData := dst[:n]
+	resultSize := n
+	resultRefreshFlags := header.RefreshFrameFlags
+	if postDrop {
+		// Discard the encoded payload and clear refresh-frame metadata so
+		// downstream consumers treat the frame as dropped. Reference-slot
+		// rolling back has already occurred through postEncodeDropFrame's
+		// rate-control bookkeeping; ref-state side effects on the decoder
+		// reference pool persist by design to keep the encoder's
+		// frame-context probabilities stable for the next frame.
+		resultData = nil
+		resultSize = 0
+		resultRefreshFlags = 0
+	}
 	result = VP9EncodeResult{
-		Data:                        dst[:n],
+		Data:                        resultData,
 		KeyFrame:                    isKey,
 		IntraOnly:                   intraOnly,
 		ShowFrame:                   header.ShowFrame,
+		Dropped:                     postDrop,
 		Droppable:                   !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
 		Quantizer:                   vp9QIndexToPublicQuantizer(qindex),
 		InternalQuantizer:           qindex,
-		SizeBytes:                   n,
+		SizeBytes:                   resultSize,
 		TargetBitrateKbps:           e.vp9ResultTargetBitrateKbps(),
 		FrameTargetBits:             e.rc.frameTargetBits,
 		BufferLevelBits:             e.rc.bufferLevelBits,
-		RefreshFrameFlags:           header.RefreshFrameFlags,
+		RefreshFrameFlags:           resultRefreshFlags,
 		FirstPassStats:              firstPassStats,
 		TwoPassFrameTargetBits:      twoPassTargetBits,
 		TemporalLayerID:             temporalFrame.LayerID,
@@ -3337,6 +3616,9 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
+	rowMT := e.vp9RowMTSync
+	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
+		common.MiBlockSizeLog2
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range e.leftSegCtx {
 			e.leftSegCtx[i] = 0
@@ -3344,10 +3626,19 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 		if kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource {
 			e.resetVP9EncoderLeftEntropyContexts()
 		}
+		sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
 		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+			sbCol := (miCol - tile.MiColStart) >> common.MiBlockSizeLog2
+			// Wavefront: wait for the row above to encode the above and
+			// above-right SB before consuming their entropy / above-context
+			// state. With a single goroutine per tile column this is a
+			// non-blocking no-op; the call shape matches libvpx so future
+			// per-row workers can be slotted in without further changes.
+			rowMT.read(sbRow, sbCol)
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
 				common.Block64x64, tile, partitionProbs, seg, baseMi, txMode,
 				kind, key, inter)
+			rowMT.write(sbRow, sbCol, tileSbCols)
 		}
 	}
 }
@@ -7234,6 +7525,16 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 	}
 	if e.opts.Lossless {
 		return 0
+	}
+	if e.rc.nextFrameQIndexSet {
+		qindex := int(e.rc.nextFrameQIndex)
+		e.rc.nextFrameQIndexSet = false
+		e.opts.NextFrameQIndexSet = false
+		e.opts.NextFrameQIndex = 0
+		if vp9OracleTraceBuild {
+			e.recordVP9OracleRateSelectionTrace(qindex, qindex, 1, false, 0)
+		}
+		return qindex
 	}
 	qindex := e.opts.Quantizer
 	if qindex == 0 {

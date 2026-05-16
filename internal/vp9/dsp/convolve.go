@@ -116,19 +116,6 @@ func clipPixel(v int32) uint8 {
 	return uint8(v)
 }
 
-// VpxConvolve8Horiz applies the horizontal 8-tap subpel filter. Mirrors
-// vpx_convolve8_horiz_c. src is the source buffer with `srcOffset`
-// chosen so src[srcOffset] is the top-left subpel-anchor pixel (the
-// caller-side equivalent of the `src` pointer libvpx receives).
-func VpxConvolve8Horiz(src []byte, srcStride int, dst []byte, dstStride int,
-	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
-	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
-) {
-	_ = y0Q4
-	_ = yStepQ4
-	convolveHoriz(src, srcStride, dst, dstStride, filter, x0Q4, xStepQ4, w, h, srcOffset)
-}
-
 // VpxConvolve8AvgHoriz mirrors vpx_convolve8_avg_horiz_c.
 func VpxConvolve8AvgHoriz(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
@@ -137,16 +124,6 @@ func VpxConvolve8AvgHoriz(src []byte, srcStride int, dst []byte, dstStride int,
 	_ = y0Q4
 	_ = yStepQ4
 	convolveAvgHoriz(src, srcStride, dst, dstStride, filter, x0Q4, xStepQ4, w, h, srcOffset)
-}
-
-// VpxConvolve8Vert mirrors vpx_convolve8_vert_c.
-func VpxConvolve8Vert(src []byte, srcStride int, dst []byte, dstStride int,
-	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
-	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
-) {
-	_ = x0Q4
-	_ = xStepQ4
-	convolveVert(src, srcStride, dst, dstStride, filter, y0Q4, yStepQ4, w, h, srcOffset)
 }
 
 // VpxConvolve8AvgVert mirrors vpx_convolve8_avg_vert_c.
@@ -178,31 +155,8 @@ func VpxConvolveAvg(src []byte, srcStride int, dst []byte, dstStride, w, h, srcO
 	}
 }
 
-// VpxConvolve8 mirrors vpx_convolve8_c — full 2-pass subpel filter
-// (horizontal then vertical) with a scratch buffer matching libvpx's
-// 64×135 stride-64 intermediate layout.
-func VpxConvolve8(src []byte, srcStride int, dst []byte, dstStride int,
-	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
-	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
-) {
-	var temp [64 * 135]byte
-	intermediateHeight := (((h-1)*yStepQ4 + y0Q4) >> tables.SubpelBits) + tables.SubpelTaps
-	// Horizontal pass — start the source `(SubpelTaps/2 - 1)` rows above
-	// the block top so the kernel tap window covers the first output row.
-	horizSrcOffset := srcOffset - srcStride*(tables.SubpelTaps/2-1)
-	convolveHoriz(src, srcStride, temp[:], 64, filter, x0Q4, xStepQ4, w, intermediateHeight, horizSrcOffset)
-	// Vertical pass on the scratch buffer, offset by the same tap margin.
-	vertSrcOffset := 64 * (tables.SubpelTaps/2 - 1)
-	convolveVert(temp[:], 64, dst, dstStride, filter, y0Q4, yStepQ4, w, h, vertSrcOffset)
-}
-
-// VpxConvolve8Avg mirrors vpx_convolve8_avg_c — runs VpxConvolve8
-// into a scratch, then averages into dst.
-func VpxConvolve8Avg(src []byte, srcStride int, dst []byte, dstStride int,
-	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
-	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
-) {
-	var temp [64 * 64]byte
-	VpxConvolve8(src, srcStride, temp[:], 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
-	VpxConvolveAvg(temp[:], 64, dst, dstStride, w, h, 0)
-}
+// The size-specialized VpxConvolve8Horiz / VpxConvolve8Vert /
+// VpxConvolve8 / VpxConvolve8Avg public APIs live in convolve_arm64.go
+// (NEON path) and convolve_other.go (scalar fallback). They share the
+// scalar helpers above (convolveHoriz, convolveVert, convolveAvgHoriz,
+// convolveAvgVert) for the slow paths.
