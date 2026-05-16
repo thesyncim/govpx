@@ -814,29 +814,41 @@ func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
 		t.Fatalf("pickmode bias after sticky 1->3 = %d, want 100", got)
 	}
 
+	// libvpx: vp8/encoder/onyx_if.c:1721-1733 vp8_change_config only
+	// allocates the denoiser when noise_sensitivity > 0 AND the buffer is
+	// still NULL, and never frees / resets it on the runtime path. Setting
+	// the sensitivity to 0 must therefore leave the allocated buffers and
+	// the sticky mode in place; only subsequent inter encodes bypass the
+	// denoiser via the cpi->oxcf.noise_sensitivity > 0 gates.
 	if err := e.SetNoiseSensitivity(0); err != nil {
 		t.Fatalf("SetNoiseSensitivity(0): %v", err)
 	}
-	if e.denoiser.allocated {
-		t.Fatalf("denoiser still allocated after disable")
+	if !e.denoiser.allocated {
+		t.Fatalf("denoiser deallocated after disable; libvpx keeps the buffers")
+	}
+	if e.denoiser.mode != denoiserOnYOnly {
+		t.Fatalf("mode after sticky disable = %d, want Y-only", e.denoiser.mode)
 	}
 	if err := e.SetNoiseSensitivity(3); err != nil {
 		t.Fatalf("SetNoiseSensitivity(3) after disable: %v", err)
 	}
 	e.preprocessSource(src, 0, encodeSourceMetadata{})
-	if e.denoiser.mode != denoiserOnYUVAggressive {
-		t.Fatalf("mode after disable->3 = %d, want aggressive", e.denoiser.mode)
+	// libvpx: vp8_change_config skips vp8_denoiser_allocate when
+	// yv12_mc_running_avg.buffer_alloc is non-NULL, so the recorded
+	// denoiser_mode stays Y-only across noise_sensitivity 1 → 0 → 3.
+	if e.denoiser.mode != denoiserOnYOnly {
+		t.Fatalf("mode after sticky disable->3 = %d, want Y-only", e.denoiser.mode)
 	}
-	if got := e.denoiserPickmodeMVBias(); got != 75 {
-		t.Fatalf("pickmode bias after disable->3 = %d, want 75", got)
+	if got := e.denoiserPickmodeMVBias(); got != 100 {
+		t.Fatalf("pickmode bias after sticky disable->3 = %d, want 100", got)
 	}
 
 	if err := e.SetNoiseSensitivity(6); err != nil {
 		t.Fatalf("SetNoiseSensitivity(6): %v", err)
 	}
 	e.preprocessSource(src, 0, encodeSourceMetadata{})
-	if e.denoiser.mode != denoiserOnYUVAggressive {
-		t.Fatalf("mode after 3->6 = %d, want sticky aggressive", e.denoiser.mode)
+	if e.denoiser.mode != denoiserOnYOnly {
+		t.Fatalf("mode after 3->6 = %d, want sticky Y-only", e.denoiser.mode)
 	}
 }
 
