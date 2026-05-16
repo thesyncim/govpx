@@ -4310,9 +4310,33 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if !ok {
 		return root
 	}
+	// SPEED_FEATURES.partition_search_type == FIXED_PARTITION (cpu_used=8
+	// realtime in libvpx) pins the whole SB to sf.AlwaysThisBlockSize. We
+	// only honour it for square block sizes that fit; otherwise fall through
+	// to the variance / RD path so non-square edges remain decodable.
+	//
+	// libvpx: vp9_encodeframe.c set_fixed_partitioning walks the SB at
+	// sf->always_this_block_size granularity.
+	if fixed, on := e.vp9InterPartitionFixed(); on {
+		if fixed >= common.Block8x8 && fixed <= root {
+			return fixed
+		}
+	}
 	if varianceSize, ok := e.pickVP9CBRVariancePartitionBlockSize(inter,
 		miRows, miCols, miRow, miCol, root); ok {
 		return varianceSize
+	}
+	// SPEED_FEATURES.partition_search_type == VAR_BASED_PARTITION (cpu_used
+	// >= 5 in libvpx realtime) replaces the recursive RD partition search
+	// with a single choose_partitioning pass. govpx's variance picker above
+	// is the equivalent of that pass; when it returns BlockInvalid (no
+	// confidence) libvpx still runs the recursive search at speeds 5-7, but
+	// at speed 8 (when UseNonrdPickMode is set) it commits the root size
+	// outright. Mirror that here.
+	//
+	// libvpx: vp9_encodeframe.c:5470 — case VAR_BASED_PARTITION.
+	if e.vp9InterPartitionVarBased() && e.vp9InterUsesNonrdPickmode() {
+		return root
 	}
 	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, root)
 	if !ok {
@@ -7221,7 +7245,13 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 
 	bestSet := false
 	var best vp9InterModeDecision
-	for _, refFrame := range [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame} {
+	// SPEED_FEATURES.use_altref_onepass = 0 (cpu_used >= 5 in realtime) drops
+	// ALTREF from the reference-frame fan. vp9InterReferenceFramesEnabled
+	// returns {LAST, GOLDEN, ALTREF} or {LAST, GOLDEN} depending on the field.
+	//
+	// libvpx: vp9_speed_features.c:586 sf->use_altref_onepass = 0.
+	refFrameSet := e.vp9InterReferenceFramesEnabled()
+	for _, refFrame := range refFrameSet {
 		refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
 		if !ok {
 			continue
@@ -7243,7 +7273,13 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			bestSet = true
 		}
 	}
-	if inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference {
+	// SPEED_FEATURES.use_compound_nonrd_pickmode gates the compound branch
+	// when UseNonrdPickMode is on (cpu_used >= 7 in libvpx realtime). The
+	// nonrd_pickmode entry skips compound entirely when the feature is 0.
+	//
+	// libvpx: vp9_pickmode.c:2604+ — sf->use_compound_nonrd_pickmode.
+	if inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference &&
+		e.vp9InterCompoundEnabled() {
 		for _, varRef := range inter.compoundRefs.CompVarRef {
 			refFrame, refSlot, secondRefFrame, secondRefSlot, ok :=
 				e.vp9CompoundReferencePair(inter, varRef)
@@ -7333,6 +7369,12 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	// SPEED_FEATURES.inter_mode_mask gates inter modes for compound refs too.
+	// libvpx: vp9_pickmode.c:2150 — applied to every mode candidate.
+	interModeMask := e.vp9InterModeMaskFor(bsize)
+	modeAllowed := func(mode common.PredictionMode) bool {
+		return interModeMask&(1<<uint(mode)) != 0
+	}
 	bestSet := false
 	var best vp9InterModeDecision
 	consider := func(mode common.PredictionMode, mv, refMv [2]vp9dec.MV,
@@ -7362,11 +7404,16 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 		}
 	}
 
-	e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
-		refFrame, refSlot, common.ZeroMv, [2]vp9dec.MV{},
-		[2]vp9dec.MV{}, consider)
+	if modeAllowed(common.ZeroMv) {
+		e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
+			refFrame, refSlot, common.ZeroMv, [2]vp9dec.MV{},
+			[2]vp9dec.MV{}, consider)
+	}
 
 	for _, mode := range [...]common.PredictionMode{common.NearestMv, common.NearMv} {
+		if !modeAllowed(mode) {
+			continue
+		}
 		var mv [2]vp9dec.MV
 		ok := true
 		for ref := range 2 {
@@ -7383,26 +7430,28 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 		}
 	}
 
-	var newMv, newRefMv [2]vp9dec.MV
-	newOK := true
-	newHasMotion := false
-	for ref := range 2 {
-		inter.ref = &e.refFrames[refSlot[ref]]
-		newMv[ref], _, newOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
-			miRow, miCol, bsize, refFrame[ref])
-		if !newOK {
-			break
+	if modeAllowed(common.NewMv) {
+		var newMv, newRefMv [2]vp9dec.MV
+		newOK := true
+		newHasMotion := false
+		for ref := range 2 {
+			inter.ref = &e.refFrames[refSlot[ref]]
+			newMv[ref], _, newOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
+				miRow, miCol, bsize, refFrame[ref])
+			if !newOK {
+				break
+			}
+			if newMv[ref] != (vp9dec.MV{}) {
+				newHasMotion = true
+			}
+			newRefMv[ref], _ = e.vp9EncoderInterModeCandidateMv(tile,
+				miRows, miCols, miRow, miCol, bsize, common.NewMv,
+				refFrame[ref], inter.allowHP, inter.refSignBias)
 		}
-		if newMv[ref] != (vp9dec.MV{}) {
-			newHasMotion = true
+		if newOK && newHasMotion {
+			e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
+				refFrame, refSlot, common.NewMv, newMv, newRefMv, consider)
 		}
-		newRefMv[ref], _ = e.vp9EncoderInterModeCandidateMv(tile,
-			miRows, miCols, miRow, miCol, bsize, common.NewMv,
-			refFrame[ref], inter.allowHP, inter.refSignBias)
-	}
-	if newOK && newHasMotion {
-		e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
-			refFrame, refSlot, common.NewMv, newMv, newRefMv, consider)
 	}
 	return best, bestSet
 }
@@ -7472,6 +7521,15 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	useResidualScore := e.vp9InterPreferVarianceRoot(inter, miRows, miCols,
 		miRow, miCol, bsize)
+	// SPEED_FEATURES.inter_mode_mask gates which inter modes the picker
+	// evaluates per block size. At higher cpu_used libvpx drops NEARMV/NEWMV
+	// on large blocks (INTER_NEAREST_NEW_ZERO). Reading the per-bsize mask
+	// here verbatim matches libvpx's pickmode gate.
+	// libvpx: vp9_pickmode.c:2150 — if (!(cpi->sf.inter_mode_mask[bsize] & (1 << this_mode))) continue;
+	interModeMask := e.vp9InterModeMaskFor(bsize)
+	modeAllowed := func(mode common.PredictionMode) bool {
+		return interModeMask&(1<<uint(mode)) != 0
+	}
 	bestSet := false
 	var best vp9InterModeDecision
 	consider := func(mode common.PredictionMode, mv, refMv vp9dec.MV,
@@ -7507,12 +7565,17 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	zeroDistortion := vp9BlockSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, scoreW, scoreH)
 	filters := vp9InterInterpFilterCandidates(inter)
-	for _, filter := range filters {
-		consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
-			zeroDistortion)
+	if modeAllowed(common.ZeroMv) {
+		for _, filter := range filters {
+			consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
+				zeroDistortion)
+		}
 	}
 
 	for _, mode := range [...]common.PredictionMode{common.NearestMv, common.NearMv} {
+		if !modeAllowed(mode) {
+			continue
+		}
 		mv, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
 			miRow, miCol, bsize, mode, refFrame, inter.allowHP,
 			inter.refSignBias)
@@ -7539,27 +7602,29 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		}
 	}
 
-	if mv, _, ok := e.pickVP9InterMv(inter, miRows, miCols,
-		miRow, miCol, bsize, refFrame); ok {
-		refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-			miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
-			inter.refSignBias)
-		if !vp9MvHasSubpel(mv) {
-			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
-				miRow, miCol, bsize, common.NewMv, refFrame, mv,
-				filters[0])
-			if ok {
-				for _, filter := range filters {
-					consider(common.NewMv, mv, refMv, filter, distortion)
-				}
-			}
-		} else {
-			for _, filter := range filters {
+	if modeAllowed(common.NewMv) {
+		if mv, _, ok := e.pickVP9InterMv(inter, miRows, miCols,
+			miRow, miCol, bsize, refFrame); ok {
+			refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
+				miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
+				inter.refSignBias)
+			if !vp9MvHasSubpel(mv) {
 				distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
-					miRow, miCol, bsize, common.NewMv, refFrame, mv, filter,
-				)
+					miRow, miCol, bsize, common.NewMv, refFrame, mv,
+					filters[0])
 				if ok {
-					consider(common.NewMv, mv, refMv, filter, distortion)
+					for _, filter := range filters {
+						consider(common.NewMv, mv, refMv, filter, distortion)
+					}
+				}
+			} else {
+				for _, filter := range filters {
+					distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
+						miRow, miCol, bsize, common.NewMv, refFrame, mv, filter,
+					)
+					if ok {
+						consider(common.NewMv, mv, refMv, filter, distortion)
+					}
 				}
 			}
 		}
@@ -7689,7 +7754,13 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	// search radius widens to encompass the hint so the refinement
 	// step can still walk a local fan around the winning candidate.
 	// When no hint is installed this branch is a nil-check.
-	searchRadius := 16
+	//
+	// libvpx: SPEED_FEATURES.mv.search_method picks the
+	// fast-diamond / bigdia / NSTEP dispatcher (vp9_mcomp.c:2875). At
+	// cpu_used=8 the configurator pins FAST_DIAMOND, which caps the
+	// effective search radius to a 4-pel fan. Read that field here
+	// instead of always running the full 16-pel search.
+	searchRadius := e.vp9InterSearchRadius()
 	if refFrame == vp9dec.LastFrame {
 		if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
 			eval(hintDx, hintDy)
@@ -7712,12 +7783,18 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 	}
 
-	const (
-		coarseStep = 8
-		minStep    = 1
-	)
-	for dy := -16; dy <= 16; dy += coarseStep {
-		for dx := -16; dx <= 16; dx += coarseStep {
+	// Coarse fan: libvpx's bigdia_search at step_param == MAX_MVSEARCH_STEPS-2
+	// (FAST_DIAMOND) visits one bigdia ring around the center and then refines.
+	// We size the coarse step so the fan covers ±searchRadius without
+	// exceeding it. NSTEP / full-search keeps the original 8-pel coarse step.
+	//
+	// libvpx: vp9_mcomp.c:1624 fast_dia_search(MAX(MAX_MVSEARCH_STEPS-2,
+	// search_param), ...). With reduce_first_step_size = 1, the coarse step
+	// at NSTEP drops to half of the radius (vp9_speed_features.c:586).
+	coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
+	const minStep = 1
+	for dy := -searchRadius; dy <= searchRadius; dy += coarseStep {
+		for dx := -searchRadius; dx <= searchRadius; dx += coarseStep {
 			eval(dx, dy)
 		}
 	}
@@ -7742,8 +7819,15 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	mv := vp9dec.MV{Row: int16(bestDy * 8), Col: int16(bestDx * 8)}
 	vp9ClampMvRef(&mv, miRows, miCols, miRow, miCol, bsize)
 	vp9dec.LowerMvPrecision(&mv, inter.allowHP)
-	mv, bestScore = e.refineVP9InterSubpelMv(inter, miRows, miCols,
-		miRow, miCol, bsize, refFrame, mv, bestScore)
+	// SPEED_FEATURES.mv.subpel_force_stop == FULL_PEL — libvpx skips
+	// vp9_find_best_sub_pixel_tree* entirely. govpx mirrors that gate here.
+	//
+	// libvpx: vp9_mcomp.c — find_best_sub_pixel_tree_pruned_more returns
+	// early when forcestop == FULL_PEL.
+	if e.vp9InterSubpelEnabled() {
+		mv, bestScore = e.refineVP9InterSubpelMv(inter, miRows, miCols,
+			miRow, miCol, bsize, refFrame, mv, bestScore)
+	}
 	return mv, bestScore, true
 }
 
@@ -7751,20 +7835,36 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	refFrame int8, best vp9dec.MV, bestScore uint64,
 ) (vp9dec.MV, uint64) {
-	minStep := int16(2)
-	if inter != nil && inter.allowHP {
-		minStep = 1
+	// SPEED_FEATURES.mv.subpel_force_stop scales the min step:
+	// HALFPEL (sf 4), QUARTERPEL (2), EIGHTHPEL (1 with HP / 2 without).
+	// SPEED_FEATURES.mv.subpel_search_method caps the iteration depth.
+	//
+	// libvpx: vp9_mcomp.c — the tree-pruned variants halve the step until
+	// it reaches forcestop and the more pruned methods stop after one or
+	// two iterations.
+	allowHP := inter != nil && inter.allowHP
+	minStep := e.vp9InterSubpelMinStep(allowHP)
+	if minStep > 4 {
+		return best, bestScore
 	}
+	maxIters := e.vp9InterSubpelIters()
+	iters := 0
 	for step := int16(4); step >= minStep; step >>= 1 {
+		if iters >= maxIters {
+			break
+		}
 		improved := true
 		for improved {
+			if iters >= maxIters {
+				break
+			}
 			improved = false
 			center := best
 			for row := center.Row - step; row <= center.Row+step; row += step {
 				for col := center.Col - step; col <= center.Col+step; col += step {
 					cand := vp9dec.MV{Row: row, Col: col}
 					vp9ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
-					vp9dec.LowerMvPrecision(&cand, inter != nil && inter.allowHP)
+					vp9dec.LowerMvPrecision(&cand, allowHP)
 					if cand == best {
 						continue
 					}
@@ -7779,6 +7879,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 					improved = true
 				}
 			}
+			iters++
 		}
 	}
 	return best, bestScore

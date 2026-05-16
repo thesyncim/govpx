@@ -3471,7 +3471,10 @@ func TestVP9EncoderInterPicksVert64x64ForHorizontalMixedMotion(t *testing.T) {
 		width  = 64
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 retains the recursive RD partition picker (speed=3,
+	// PartitionSearchType=SearchPartition). The default speed=8 path uses
+	// VAR_BASED_PARTITION which intentionally commits the root SB size.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -3499,7 +3502,11 @@ func TestVP9EncoderInterPicksVert64x64ForHorizontalMixedMotion(t *testing.T) {
 
 func TestVP9EncoderInterPartitionScoringRestoresFrameState(t *testing.T) {
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 forces the SPEED_FEATURES dispatcher to speed=3
+	// (PartitionSearchType=SearchPartition). The default normalisation routes
+	// CpuUsed=0 to realtime+speed=8 (VAR_BASED_PARTITION + NonrdPickmode),
+	// where the recursive RD partition picker is intentionally bypassed.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -3593,7 +3600,9 @@ func TestVP9EncoderInterPicksVert32x32ForHorizontalMixedMotion(t *testing.T) {
 		width  = 32
 		height = 32
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
+	// rationale on the 64x64 sibling test.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -3624,7 +3633,9 @@ func TestVP9EncoderInterPicksVert16x16ForHorizontalMixedMotion(t *testing.T) {
 		width  = 16
 		height = 16
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
+	// rationale on the 64x64 sibling test.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -3655,7 +3666,9 @@ func TestVP9EncoderInterPicksHorz64x64ForVerticalMixedMotion(t *testing.T) {
 		width  = 64
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
+	// rationale on the 64x64 sibling test.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -3686,7 +3699,9 @@ func TestVP9EncoderInterSplits64x64ForQuadrantMotion(t *testing.T) {
 		width  = 64
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
+	// rationale on the 64x64 sibling test.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -3816,7 +3831,11 @@ func TestVP9EncoderInterPicksEighthPelMv(t *testing.T) {
 		width  = 128
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 forces the SPEED_FEATURES dispatcher to speed=3, which
+	// retains SubpelForceStop=EighthPel. The default normalisation routes
+	// CpuUsed=0 to realtime+speed=8 (SubpelForceStop=QuarterPel), where
+	// 1/8-pel granularity is intentionally suppressed.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -6077,7 +6096,11 @@ func TestVP9EncoderEncodeIntoWithFlagsInvisibleKeyFrameUpdatesReferences(t *test
 
 func TestVP9EncoderEncodeIntoWithFlagsInvisibleAltRefRefresh(t *testing.T) {
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 retains the speed=3 picker (full mode/MV search). The
+	// default speed=8 path uses VAR_BASED_PARTITION which commits root SB
+	// size and skews the per-block reconstruction luma slightly off the
+	// expected 188 anchor.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
 	altSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
 	key, err := e.Encode(keySrc)
@@ -6569,7 +6592,11 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 
 func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// CpuUsed: -3 retains the recursive RD partition picker (SearchPartition);
+	// the default speed=8 path uses VAR_BASED_PARTITION + NonrdPickmode which
+	// commits root SB size and never reaches the Block8x8 leaf this test
+	// asserts.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
