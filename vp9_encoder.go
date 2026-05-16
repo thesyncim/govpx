@@ -4492,16 +4492,39 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	// Cost partition tokens against inter.selectFc.PartitionProb, the
+	// pre-WriteCompressedHeader snapshot of e.fc.PartitionProb that
+	// inter.selectFc captures at the start of encodeVP9FrameInto*. The
+	// `partitionProbs` argument carries the post-WriteCompressedHeader
+	// values used by the writer at WritePartitionForBlock so encoder
+	// emission stays bit-identical with what the decoder reads through
+	// d.fc.PartitionProb (also post-WriteCompressedHeader). Using
+	// partitionProbs directly here flips partition decisions between
+	// the prepass (which sees pre-update partitionProbs) and the real
+	// write pass (which sees post-update partitionProbs) on uniform
+	// synthetic content where the RD margins between adjacent partition
+	// sizes are within a handful of cost units, leaving the bool reader
+	// to underflow the tile body and reject the frame with
+	// ErrInvalidVP9Data. libvpx avoids the entire failure mode by
+	// running mode decision once (with the pre-update probs) and
+	// emitting bits in a separate pass; mirroring its rate-cost source
+	// here keeps the prepass / real-pass walks bit-for-bit identical
+	// while preserving the post-update writer probs the decoder
+	// expects.
+	rateCostProbs := partitionProbs
+	if inter != nil {
+		rateCostProbs = &inter.selectFc.PartitionProb
+	}
 	bestSize := root
 	bestScore := vp9AddModeDecisionRate(full.score,
-		vp9PartitionRateCost(partitionProbs, ctx, common.PartitionNone,
+		vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionNone,
 			hasRows, hasCols), qindex)
 
 	if hasRows {
 		if score, ok := e.scoreVP9InterPartitionPair(inter, tile, miRows, miCols,
 			miRow, miCol, horzSize, bs, 0); ok {
 			score = vp9AddModeDecisionRate(score,
-				vp9PartitionRateCost(partitionProbs, ctx, common.PartitionHorz,
+				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionHorz,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
 				bestScore = score
@@ -4513,7 +4536,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		if score, ok := e.scoreVP9InterPartitionPair(inter, tile, miRows, miCols,
 			miRow, miCol, vertSize, 0, bs); ok {
 			score = vp9AddModeDecisionRate(score,
-				vp9PartitionRateCost(partitionProbs, ctx, common.PartitionVert,
+				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionVert,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
 				bestScore = score
@@ -4525,7 +4548,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		if score, ok := e.scoreVP9InterPartitionSplit(inter, tile, miRows, miCols,
 			miRow, miCol, splitSize); ok {
 			score = vp9AddModeDecisionRate(score,
-				vp9PartitionRateCost(partitionProbs, ctx, common.PartitionSplit,
+				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionSplit,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
 				bestSize = splitSize
