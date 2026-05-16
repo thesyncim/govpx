@@ -3,6 +3,7 @@ package decoder
 import (
 	"bytes"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp8/common"
@@ -356,6 +357,147 @@ func TestQualifyInterMFQESplitMVChecksEachSubblock(t *testing.T) {
 	if total := qualifyInterMFQEMacroblock(&mode, &got); total != 0 {
 		t.Fatalf("split-MV MFQE map = %v total=%d, want all rejected", got, total)
 	}
+}
+
+func TestMultiframeQualityEnhanceBlockLargeSizesBlendStationaryContent(t *testing.T) {
+	// VP9 SB-aware MFQE walker calls MultiframeQualityEnhanceBlock
+	// with blockSize 32 and 64. The kernel must blend the previous
+	// frame into the dst when activity and SAD stay well below the
+	// thresholds.
+	cases := []int{32, 64}
+	for _, blockSize := range cases {
+		blockSize := blockSize
+		t.Run("size_"+itoaTestSize(blockSize), func(t *testing.T) {
+			prev := newPostProcessFrame(t, blockSize, blockSize)
+			curr := newPostProcessFrame(t, blockSize, blockSize)
+			fillPostProcessConstant(&prev.Img, 100, 80, 90)
+			fillPostProcessConstant(&curr.Img, 103, 80, 90)
+			prev.ExtendBorders()
+			curr.ExtendBorders()
+			MultiframeQualityEnhanceBlock(blockSize, 60, 20,
+				prev.Img.Y, prev.Img.U, prev.Img.V,
+				prev.Img.YStride, prev.Img.UStride,
+				curr.Img.Y, curr.Img.U, curr.Img.V,
+				curr.Img.YStride, curr.Img.UStride)
+			// Stationary input → kernel should blend prev=100 into
+			// curr=103 instead of holding curr unchanged. Without
+			// the kernel doing anything we'd get 103; with a pure
+			// copy we'd get 100. Either way must change something
+			// in dst; the blended result lies strictly between.
+			got := curr.Img.Y[0]
+			if got == 103 {
+				t.Fatalf("MFQE blockSize=%d did not touch luma (got %d, want blended)", blockSize, got)
+			}
+			if got < 100 || got > 103 {
+				t.Fatalf("MFQE blockSize=%d luma = %d, want [100, 103]", blockSize, got)
+			}
+		})
+	}
+}
+
+func TestMultiframeQualityEnhanceBlockLargeSizesCopyHighSAD(t *testing.T) {
+	// High SAD between prev and curr should make the kernel fall
+	// through the activity test and copy the previous frame onto
+	// dst (preserving the lower-q reference).
+	const blockSize = 32
+	prev := newPostProcessFrame(t, blockSize, blockSize)
+	curr := newPostProcessFrame(t, blockSize, blockSize)
+	fillPostProcessConstant(&prev.Img, 60, 80, 90)
+	fillPostProcessConstant(&curr.Img, 200, 80, 90) // 140 LSB delta → huge SAD
+	prev.ExtendBorders()
+	curr.ExtendBorders()
+	MultiframeQualityEnhanceBlock(blockSize, 60, 20,
+		prev.Img.Y, prev.Img.U, prev.Img.V,
+		prev.Img.YStride, prev.Img.UStride,
+		curr.Img.Y, curr.Img.U, curr.Img.V,
+		curr.Img.YStride, curr.Img.UStride)
+	got := curr.Img.Y[0]
+	if got != 60 {
+		t.Fatalf("MFQE high-SAD blockSize=%d luma = %d, want previous-frame copy (60)", blockSize, got)
+	}
+}
+
+func TestCopyMFQEBlockCopiesSourcePlanes(t *testing.T) {
+	const blockSize = 16
+	prev := newPostProcessFrame(t, blockSize, blockSize)
+	curr := newPostProcessFrame(t, blockSize, blockSize)
+	fillPostProcessConstant(&prev.Img, 70, 60, 50)
+	fillPostProcessConstant(&curr.Img, 200, 200, 200)
+	CopyMFQEBlock(blockSize,
+		prev.Img.Y, prev.Img.U, prev.Img.V,
+		prev.Img.YStride, prev.Img.UStride,
+		curr.Img.Y, curr.Img.U, curr.Img.V,
+		curr.Img.YStride, curr.Img.UStride)
+	if curr.Img.Y[0] != 70 {
+		t.Fatalf("CopyMFQEBlock did not copy Y: got %d, want 70", curr.Img.Y[0])
+	}
+	if curr.Img.U[0] != 60 || curr.Img.V[0] != 50 {
+		t.Fatalf("CopyMFQEBlock did not copy UV: U=%d V=%d, want 60/50", curr.Img.U[0], curr.Img.V[0])
+	}
+}
+
+// MFQEOverride must be invoked when MFQE is engaged. The injected
+// callback receives the same qcurr/qprev pair the default walker
+// would. We use the callback to stamp a known sentinel value into
+// dst.Y so the rest of the postprocess chain is bypassed (no deblock
+// in this test) and the sentinel surfaces verbatim.
+func TestApplyPostProcessWithOptionsMFQEOverrideRunsCallback(t *testing.T) {
+	prev := newPostProcessFrame(t, 16, 16)
+	curr := newPostProcessFrame(t, 16, 16)
+	fillPostProcessConstant(&prev.Img, 100, 80, 90)
+	fillPostProcessConstant(&curr.Img, 130, 80, 90)
+	prev.ExtendBorders()
+	curr.ExtendBorders()
+	var dst common.FrameBuffer
+	if err := dst.Resize(16, 16, 32, 32); err != nil {
+		t.Fatalf("Resize returned error: %v", err)
+	}
+	var state PostProcessState
+	modes := postProcessModes(1, 1)
+	scratch := make([]byte, 24)
+	first := PostProcessOptions{MFQE: true, BaseQIndex: 20, CurrentFrame: 10, KeyFrame: true}
+	if err := ApplyPostProcessWithOptions(&prev.Img, &dst, 1, 1, modes, 0, scratch, first, &state); err != nil {
+		t.Fatalf("warmup ApplyPostProcessWithOptions returned error: %v", err)
+	}
+
+	called := 0
+	var sawKey bool
+	var sawQcurr, sawQprev int
+	override := MFQEWalker(func(src *common.Image, dstImg *common.Image, keyFrame bool, qcurr int, qprev int) {
+		called++
+		sawKey = keyFrame
+		sawQcurr = qcurr
+		sawQprev = qprev
+		// Stamp a sentinel into dst so the test can confirm the
+		// override actually drives the output.
+		dstImg.Y[0] = 211
+	})
+	second := PostProcessOptions{
+		MFQE:         true,
+		BaseQIndex:   60,
+		CurrentFrame: 11,
+		KeyFrame:     false,
+		MFQEOverride: override,
+	}
+	if err := ApplyPostProcessWithOptions(&curr.Img, &dst, 1, 1, modes, 0, scratch, second, &state); err != nil {
+		t.Fatalf("override ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("override callback called %d times, want 1", called)
+	}
+	if sawKey {
+		t.Fatalf("override callback saw keyFrame=true, want false")
+	}
+	if sawQcurr != 60 || sawQprev != 20 {
+		t.Fatalf("override callback saw qcurr=%d qprev=%d, want 60/20", sawQcurr, sawQprev)
+	}
+	if dst.Img.Y[0] != 211 {
+		t.Fatalf("override sentinel did not reach dst.Y[0]: got %d", dst.Img.Y[0])
+	}
+}
+
+func itoaTestSize(n int) string {
+	return strconv.Itoa(n)
 }
 
 func newPostProcessFrame(t testing.TB, width int, height int) *common.FrameBuffer {
