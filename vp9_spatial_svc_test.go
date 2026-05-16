@@ -267,9 +267,9 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 		newVP9YCbCrForTest(64, 64, 80, 128, 128),
 	}
 	dst := make([]byte, 1<<20)
-	wantBaseRefresh := []uint8{0xff, 0x02, 0x01, 0x02}
+	wantBaseRefresh := []uint8{0xff, 0x04, 0x01, 0x04}
 	wantEnhRefresh := []uint8{0x02, 0x00, 0x02, 0x00}
-	wantBaseSync := []bool{false, true, false, false}
+	wantBaseSync := []bool{false, true, false, true}
 	wantEnhSync := []bool{false, true, false, true}
 	for frame := 0; frame < 4; frame++ {
 		result, err := svc.EncodeIntoWithResult(srcs, dst)

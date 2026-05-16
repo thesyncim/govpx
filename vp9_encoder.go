@@ -1289,6 +1289,23 @@ func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, ds
 		temporalFrame, true)
 }
 
+func (e *VP9Encoder) encodeVP9SpatialSVCBaseIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
+	callerFlags := flags
+	temporalFrame := e.temporal.nextFrame(e.vp9TimingState())
+	temporalFlags := temporalFrame.Flags
+	if temporalFrame.Enabled && temporalFrame.LayerID > 0 &&
+		!e.forceKeyFrame && callerFlags&EncodeForceKeyFrame == 0 {
+		temporalFlags &^= EncodeNoUpdateAltRef
+		temporalFlags |= EncodeNoUpdateGolden
+	}
+	flags |= temporalFlags
+	if e.vp9ShouldEncodeKeyFrame(flags) {
+		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
+	}
+	return e.encodeVP9FrameIntoWithFlagsResultInternal(img, dst, flags, false,
+		temporalFrame, false)
+}
+
 // EncodeIntraOnlyFrameInto packs a hidden VP9 intra-only frame into dst.
 // Intra-only frames are non-key VP9 packets with sync code and frame size but
 // no inter prediction; by VP9 syntax they are always invisible. The VP9 stream

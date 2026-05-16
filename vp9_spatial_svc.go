@@ -498,6 +498,9 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 			layerResult, err = layer.encodeVP9InterLayerIntoWithFlagsResult(
 				srcs[i], dst[offset:encodeLimit],
 				EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+		} else if i == 0 {
+			layerResult, err = layer.encodeVP9SpatialSVCBaseIntoWithFlagsResult(
+				srcs[i], dst[offset:encodeLimit], 0)
 		} else {
 			layerResult, err = layer.EncodeIntoWithResult(srcs[i],
 				dst[offset:encodeLimit])
