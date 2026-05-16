@@ -3181,7 +3181,17 @@ func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
 
 func TestVP9EncoderInterPicksCompoundZeroMotion(t *testing.T) {
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// libvpx nonrd_pickmode (RT speed >= 5) disables compound prediction
+	// unless sf.use_compound_nonrd_pickmode is set (VBR + lag_in_frames
+	// only). At default Deadline+CpuUsed (auto-promoted to Realtime+
+	// speed8), CBR is implicit and compound is off. Request a slower
+	// preset so the GOOD path's compound-prediction loop is exercised.
+	// libvpx: vp9/encoder/vp9_speed_features.c:469 / 656 / 665,
+	// vp9/encoder/vp9_pickmode.c:1989.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width: width, Height: height,
+		Deadline: DeadlineBestQuality, CpuUsed: 1,
+	})
 	low := newVP9CompoundAverageYCbCrForTest(width, height, -32)
 	mid := newVP9CompoundAverageYCbCrForTest(width, height, 0)
 	high := newVP9CompoundAverageYCbCrForTest(width, height, 32)
@@ -3233,7 +3243,14 @@ func TestVP9EncoderInterPicksCompoundZeroMotion(t *testing.T) {
 
 func TestVP9EncoderInterPicksCompoundNewMvForTranslatedAverage(t *testing.T) {
 	const width, height = 128, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// libvpx nonrd_pickmode disables compound at RT speed >= 5 unless
+	// sf.use_compound_nonrd_pickmode is set; request DeadlineBestQuality
+	// so the GOOD path's compound walker is exercised. libvpx:
+	// vp9/encoder/vp9_pickmode.c:1989.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width: width, Height: height,
+		Deadline: DeadlineBestQuality, CpuUsed: 1,
+	})
 	low := newVP9CompoundPairYCbCrForTest(width, height, false)
 	high := newVP9CompoundPairYCbCrForTest(width, height, true)
 	mid := shiftedVP9ReferenceYCbCrForTest(
@@ -3287,7 +3304,14 @@ func TestVP9EncoderInterPicksCompoundNewMvForTranslatedAverage(t *testing.T) {
 
 func TestVP9EncoderInterPicksCompoundNewMvWithStationaryHalf(t *testing.T) {
 	const width, height = 128, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	// libvpx nonrd_pickmode disables compound at RT speed >= 5 unless
+	// sf.use_compound_nonrd_pickmode is set; request DeadlineBestQuality
+	// so the GOOD path's compound walker is exercised. libvpx:
+	// vp9/encoder/vp9_pickmode.c:1989.
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width: width, Height: height,
+		Deadline: DeadlineBestQuality, CpuUsed: 1,
+	})
 	low := newVP9CompoundPairYCbCrForTest(width, height, false)
 	high := newVP9CompoundPairYCbCrForTest(width, height, true)
 	shiftedHigh := shiftedVP9ReferenceYCbCrForTest(vp9ImageFromYCbCrForTest(high), 8, 0)

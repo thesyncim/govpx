@@ -4485,6 +4485,24 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		return splitSize
 	}
 
+	// libvpx VAR_BASED_PARTITION (set at RT speed >= 4) decides the
+	// partition up front in vp9_choose_partitioning and DOES NOT compare
+	// horz/vert/split RD scores against the root: nonrd_use_partition
+	// walks the pre-baked partition tree and runs vp9_pick_inter_mode
+	// per leaf. When SPEED_FEATURES asks for VAR_BASED_PARTITION the
+	// remaining horz/vert/split exploration here is pure overhead that
+	// libvpx never runs. The variance/textured fast paths above already
+	// committed any pre-baked decision; falling through here means
+	// keeping the root partition.
+	// libvpx: vp9/encoder/vp9_speed_features.c:582 / 667
+	// (partition_search_type = VAR_BASED_PARTITION), vp9/encoder/
+	// vp9_encodeframe.c:4854 nonrd_use_partition.
+	if e.sf.PartitionSearchType == VarBasedPartition {
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		inter.ref = savedRef
+		return root
+	}
+
 	bsl := int(common.BWidthLog2Lookup[root])
 	bs := (1 << uint(bsl)) / 4
 	hasRows := miRow+bs < miRows
@@ -7384,14 +7402,44 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 
-	bestSet := false
-	var best vp9InterModeDecision
+	// libvpx restricts usable_ref_frame at speed >= 8 to LAST_FRAME for
+	// the steady-state inter-block hot path: frames_since_golden > 120
+	// or low last_sb_high_content triggers
+	// `usable_ref_frame = LAST_FRAME` and skips GOLDEN/ALTREF
+	// reference-mode picking entirely. Additionally
+	// sf.short_circuit_low_temp_var (3 at speed 8 CBR non-screen) short-
+	// circuits non-LAST refs on low-temporal-variance blocks via
+	// force_skip_low_temp_var. govpx doesn't yet track per-SB temporal
+	// variance, so the closest faithful approximation when both
+	// UseNonrdPickMode == 1 and ShortCircuitLowTempVar >= 1 (both set
+	// together for CBR realtime non-screen) is to restrict the single-
+	// ref loop to LAST_FRAME — but only when LAST is actually one of
+	// the enabled refs for this frame. Frames that explicitly mask out
+	// LAST (e.g. EncodeNoReferenceLast for altref-only inter) must keep
+	// the full ref set so a fallback ref can still be picked.
+	// libvpx: vp9/encoder/vp9_pickmode.c:1962-1985 (usable_ref_frame),
+	// vp9_speed_features.c:774 (ShortCircuitLowTempVar = 3 at speed 8
+	// CBR non-screen).
+	refFramesAll := [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame}
+	refFrames := refFramesAll[:]
+	if e.sf.ShortCircuitLowTempVar >= 1 && e.sf.UseNonrdPickMode == 1 {
+		if _, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
+			refFrames = refFramesAll[:1]
+		}
+	}
 	// SPEED_FEATURES.use_altref_onepass = 0 (cpu_used >= 5 in realtime) drops
 	// ALTREF from the reference-frame fan. vp9InterReferenceFramesEnabled
 	// returns {LAST, GOLDEN, ALTREF} or {LAST, GOLDEN} depending on the field.
 	//
 	// libvpx: vp9_speed_features.c:586 sf->use_altref_onepass = 0.
-	refFrameSet := e.vp9InterReferenceFramesEnabled()
+	refFrameSet := refFrames
+	if len(refFrameSet) == len(refFramesAll) {
+		// Defer to the sibling-agent helper when we haven't already
+		// pruned to LAST-only above (it honors use_altref_onepass).
+		refFrameSet = e.vp9InterReferenceFramesEnabled()
+	}
+	bestSet := false
+	var best vp9InterModeDecision
 	for _, refFrame := range refFrameSet {
 		refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
 		if !ok {
@@ -7418,7 +7466,11 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	// when UseNonrdPickMode is on (cpu_used >= 7 in libvpx realtime). The
 	// nonrd_pickmode entry skips compound entirely when the feature is 0.
 	//
-	// libvpx: vp9_pickmode.c:2604+ — sf->use_compound_nonrd_pickmode.
+	// libvpx: vp9/encoder/vp9_speed_features.c:469 / 656 / 665,
+	// vp9/encoder/vp9_pickmode.c:1989.
+	if e.sf.UseNonrdPickMode == 1 && e.sf.UseCompoundNonrdPickmode == 0 {
+		return best, bestSet
+	}
 	if inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference &&
 		e.vp9InterCompoundEnabled() {
 		for _, varRef := range inter.compoundRefs.CompVarRef {
@@ -7706,6 +7758,20 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	zeroDistortion := vp9BlockSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, scoreW, scoreH)
 	filters := vp9InterInterpFilterCandidates(inter)
+	// libvpx nonrd_pickmode runs distortion for a single interpolation
+	// filter per mode (the default eighttap or the neighbor-derived
+	// filter_ref) and only enters the multi-filter walker when
+	// cb_pred_filter_search is set AND the MV has a non-zero subpel
+	// component. When sf.use_nonrd_pick_mode == 1 (RT speed >= 5) we
+	// mirror that fast path: rate-cost each candidate filter (so the
+	// bitstream's switchable-interp signal still tracks libvpx) but
+	// only compute prediction distortion once per (mode, mv) pair.
+	// predictVP9InterBlock + VpxConvolve8 dominate self-time, so
+	// collapsing the inner filter loop to one convolve cuts the inter-
+	// mode-pick CPU by ~3x for switchable-filter frames.
+	// libvpx: vp9/encoder/vp9_pickmode.c:2318-2330 (single-filter fast
+	// path), vp9_speed_features.c:601 (sf.use_nonrd_pick_mode = 1).
+	collapseFilters := e.sf.UseNonrdPickMode == 1
 	if modeAllowed(common.ZeroMv) {
 		for _, filter := range filters {
 			consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
@@ -7723,7 +7789,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		if !ok {
 			continue
 		}
-		if !vp9MvHasSubpel(mv) {
+		if !vp9MvHasSubpel(mv) || collapseFilters {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
 				miRow, miCol, bsize, mode, refFrame, mv, filters[0],
 			)
@@ -7749,7 +7815,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
 				miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
 				inter.refSignBias)
-			if !vp9MvHasSubpel(mv) {
+			if !vp9MvHasSubpel(mv) || collapseFilters {
 				distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
 					miRow, miCol, bsize, common.NewMv, refFrame, mv,
 					filters[0])
@@ -7933,7 +7999,17 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	// search_param), ...). With reduce_first_step_size = 1, the coarse step
 	// at NSTEP drops to half of the radius (vp9_speed_features.c:586).
 	coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
-	const minStep = 1
+	// libvpx at speed >= 7 sets sf.mv.search_method = FAST_DIAMOND with
+	// step_param = 10, which causes the BIGDIA pattern walker to skip
+	// the dense step=1 refinement. Stop at step=2 when FAST_DIAMOND is
+	// selected; NSTEP / BIGDIA / HEX keep the verbatim step=1 walk.
+	// libvpx: vp9/encoder/vp9_speed_features.c:702-703 (FAST_DIAMOND +
+	// step_param 10), vp9/encoder/vp9_mcomp.c:1014-1015
+	// (search_param_to_steps[10] = 0 → smallest scale only).
+	minStep := 1
+	if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
+		minStep = 2
+	}
 	for dy := -searchRadius; dy <= searchRadius; dy += coarseStep {
 		for dx := -searchRadius; dx <= searchRadius; dx += coarseStep {
 			eval(dx, dy)
@@ -7982,7 +8058,9 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	//
 	// libvpx: vp9_mcomp.c — the tree-pruned variants halve the step until
 	// it reaches forcestop and the more pruned methods stop after one or
-	// two iterations.
+	// two iterations. vp9InterSubpelMinStep already honors
+	// SPEED_FEATURES.mv.subpel_force_stop and returns >4 when the walker
+	// is disabled entirely (FULL_PEL).
 	allowHP := inter != nil && inter.allowHP
 	minStep := e.vp9InterSubpelMinStep(allowHP)
 	if minStep > 4 {
@@ -8056,7 +8134,11 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 		},
 		Mv: [2]vp9dec.MV{mv},
 	}
-	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+	// Motion-search SAD only consults luma; skip chroma reconstruction
+	// to cut ~30% of convolve8 work per candidate. libvpx mirrors this
+	// in nonrd_pickmode via vp9_build_inter_predictors_sby.
+	// libvpx: vp9/encoder/vp9_pickmode.c:2336.
+	if !e.predictVP9InterBlockLumaOnly(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return 0, false
 	}
 	return vp9BlockSAD(src, srcStride, dst, dstStride,
@@ -8699,6 +8781,27 @@ func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi,
 ) bool {
+	return e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
+		bsize, mi, false)
+}
+
+// predictVP9InterBlockLumaOnly reconstructs only the luma plane for the
+// given inter prediction. Encoder motion-search SAD only reads luma, so
+// skipping chroma cuts ~30-40% of convolve8 work per candidate.
+// libvpx: vp9/encoder/vp9_pickmode.c:2336 (vp9_build_inter_predictors_sby
+// in nonrd_pickmode does luma only).
+func (e *VP9Encoder) predictVP9InterBlockLumaOnly(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
+) bool {
+	return e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
+		bsize, mi, true)
+}
+
+func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, lumaOnly bool,
+) bool {
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return false
 	}
@@ -8714,6 +8817,7 @@ func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
 	predictor.interPredictScratch = e.interPredictScratch
 	predictor.refFrames = e.refFrames
 	predictor.unsupportedReconstruct = false
+	predictor.predictLumaOnly = lumaOnly
 	hdr := vp9dec.UncompressedHeader{
 		Width:  uint32(e.opts.Width),
 		Height: uint32(e.opts.Height),
@@ -8734,6 +8838,9 @@ func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
 	}
 	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
 	e.interPredictScratch = predictor.interPredictScratch
+	// Reset flag so subsequent callers that don't explicitly set it get
+	// the full 3-plane reconstruction.
+	predictor.predictLumaOnly = false
 	return ok && !predictor.unsupportedReconstruct
 }
 

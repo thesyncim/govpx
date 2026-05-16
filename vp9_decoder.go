@@ -189,30 +189,37 @@ type VP9Decoder struct {
 	// Unsupported frame classes keep parsing intact but stop before
 	// publishing output.
 	unsupportedReconstruct bool
-	frameReady             bool
-	lastFrame              Image
-	lastInfo               VP9FrameInfo
-	lastInfoValid          bool
-	initialized            bool
-	visibleFrames          int
-	frameY                 []byte
-	frameU                 []byte
-	frameV                 []byte
-	frameYFull             []byte
-	frameUFull             []byte
-	frameVFull             []byte
-	frameYOrigin           int
-	frameUOrigin           int
-	frameVOrigin           int
-	intraScratch           vp9dec.IntraPredictorScratch
-	interPredictScratch    []byte
-	refFrames              [common.RefFrames]vp9ReferenceFrame
-	prevFrameMvs           []vp9MvRef
-	curFrameMvs            []vp9MvRef
-	prevFrameMvRows        int
-	prevFrameMvCols        int
-	usePrevFrameMvs        bool
-	counts                 vp9FrameCounts
+	// predictLumaOnly skips chroma (U/V) reconstruction in the inter
+	// predictor. Encoder-side motion-search and distortion measurement
+	// only consult the luma plane, matching libvpx's
+	// vp9_build_inter_predictors_sby fast path in nonrd_pickmode
+	// (vp9/encoder/vp9_pickmode.c:2336). Skipping U/V cuts the per-
+	// candidate convolution count by ~30-40% for 4:2:0 sources.
+	predictLumaOnly     bool
+	frameReady          bool
+	lastFrame           Image
+	lastInfo            VP9FrameInfo
+	lastInfoValid       bool
+	initialized         bool
+	visibleFrames       int
+	frameY              []byte
+	frameU              []byte
+	frameV              []byte
+	frameYFull          []byte
+	frameUFull          []byte
+	frameVFull          []byte
+	frameYOrigin        int
+	frameUOrigin        int
+	frameVOrigin        int
+	intraScratch        vp9dec.IntraPredictorScratch
+	interPredictScratch []byte
+	refFrames           [common.RefFrames]vp9ReferenceFrame
+	prevFrameMvs        []vp9MvRef
+	curFrameMvs         []vp9MvRef
+	prevFrameMvRows     int
+	prevFrameMvCols     int
+	usePrevFrameMvs     bool
+	counts              vp9FrameCounts
 
 	// width and height carry the most recent decoded frame dimensions.
 	// They stay zero until the first successful frame parse.

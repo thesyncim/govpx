@@ -978,6 +978,17 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		nrefs = 2
 	}
 	for plane := range vp9dec.MaxMbPlane {
+		// Encoder motion-search/distortion measurements only consult the
+		// luma plane; skip U/V to avoid two extra convolutions per
+		// candidate. libvpx mirrors this with
+		// vp9_build_inter_predictors_sby (luma) called from
+		// nonrd_pickmode for mode scoring; chroma reconstruction
+		// (vp9_build_inter_predictors_sbuv) is deferred until the
+		// committed mode is encoded.
+		// libvpx: vp9/encoder/vp9_pickmode.c:2336.
+		if d.predictLumaOnly && plane > 0 {
+			continue
+		}
 		pd := &d.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
