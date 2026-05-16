@@ -337,6 +337,10 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &e.vp9CountCounts[i])
 	}
+	if e.vp9DynamicSegmentMapActive() &&
+		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, e.vp9CountJobs) {
+		return false
+	}
 	return true
 }
 
@@ -374,6 +378,41 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	pool.waitHelperWorkers()
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &pool.countCounts[i])
+	}
+	if e.vp9DynamicSegmentMapActive() &&
+		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, pool.countJobs) {
+		return false
+	}
+	return true
+}
+
+func (e *VP9Encoder) mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols int,
+	jobs []vp9CountTileJob,
+) bool {
+	if e == nil || tileCols <= 0 || len(jobs) < tileCols ||
+		len(e.miGrid) < miRows*miCols {
+		return false
+	}
+	for tileCol := 0; tileCol < tileCols; tileCol++ {
+		job := &jobs[tileCol]
+		if job.worker == nil || len(job.worker.miGrid) < miRows*miCols {
+			return false
+		}
+		start, end := job.tile.MiColStart, job.tile.MiColEnd
+		if start < 0 {
+			start = 0
+		}
+		if end > miCols {
+			end = miCols
+		}
+		if start >= end {
+			return false
+		}
+		for row := 0; row < miRows; row++ {
+			off := row*miCols + start
+			copy(e.miGrid[off:off+end-start],
+				job.worker.miGrid[off:off+end-start])
+		}
 	}
 	return true
 }

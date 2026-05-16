@@ -1708,6 +1708,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 		flags  []EncodeFlags
 		args   []string
 		source func(frame int) *image.YCbCr
+		before func(*testing.T, *VP9Encoder, int)
 	}
 	steppedKeyframe := func(frame int) *image.YCbCr {
 		return newVP9YCbCrForTest(width, height,
@@ -1746,6 +1747,32 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			source: steppedKeyframe,
+		},
+		{
+			name:   "fixed-q-active-map",
+			frames: 2,
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,active:checker",
+				"--disable-warning-prompt",
+			},
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				if frame != 1 {
+					return
+				}
+				activeMap, rows, cols := vp9OracleActiveMap(width, height, "checker")
+				mustVP9Runtime(t, "SetActiveMap checker",
+					enc.SetActiveMap(activeMap, rows, cols))
+			},
 		},
 		{
 			name: "vbr",
@@ -1871,6 +1898,9 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				tc.opts, sources, tc.flags, tc.args,
 				func(enc *VP9Encoder, frame int) {
 					resetVP9OracleThreadedTileJobsForTest(enc)
+					if tc.before != nil {
+						tc.before(t, enc, frame)
+					}
 				},
 				func(enc *VP9Encoder, frame int) {
 					assertVP9OracleThreadedTileWriterUsed(t, enc, frame, 4)

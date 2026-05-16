@@ -1928,7 +1928,7 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 		seed := vp9CountTileSeedForState(key, inter)
 		if e.collectVP9FrameTileCountsThreaded(width, height, miRows, miCols,
 			tileInfo, partitionProbs, seg, baseMi, txMode, kind, seed) {
-			return false
+			return e.vp9DynamicSegmentMapActive()
 		}
 	}
 	for tileRow := range tileRows {
