@@ -119,10 +119,10 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 		govpxFrames := encodeFramesWithGovpx(t, govpxOpts, cfg.sources)
 		libvpxFrames := runLibvpxPass2BytesOnly(t, vpxencOracle, yuvPath, ivf2Path, fpfPath, opts, cfg.targetKbps, len(cfg.sources))
 
-		// Keyframe byte parity on pass 2 is the achievable floor today;
-		// inter-frame parity under arbitrary configs depends on
-		// second-pass quantizer estimator convergence and isn't strict.
-		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 1)
+		// Strict byte parity on pass 2 output. Seeds where govpx pass 2
+		// (driven by libvpx-derived stats) diverges from libvpx pass 2
+		// fail visibly here; that's the signal for pass-2 RC fixes.
+		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 

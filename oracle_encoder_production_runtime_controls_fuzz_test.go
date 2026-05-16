@@ -55,16 +55,11 @@ func FuzzOracleEncoderProductionRuntimeControls(f *testing.F) {
 		}
 		extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
 		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, label, tc.opts, tc.targetKbps, tc.sources, tc.flags, extraArgs)
-		// Keyframe byte parity at production resolutions is already held;
-		// inter-frame parity under arbitrary runtime-control schedules is
-		// not yet fully closed at 640×360 / 854×480 / 1280×720 (see plan G1
-		// and §5 "matched-prefix length as scoreboard"). matchLimit=1
-		// asserts the keyframe and logs inter-frame mismatches so this
-		// fuzzer establishes a parity floor today and the prefix can grow
-		// as divergences get tracked down. Divergences that the runtime
-		// finds become seeds in testdata/fuzz/ and stay logged for
-		// scoreboard tracking.
-		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 1)
+		// Strict byte parity at every production resolution. Seeds that
+		// hit the documented runtime-control state-propagation gap
+		// (gap D) fail here until the relevant fix lands. Failure logs
+		// pinpoint the exact frame index and the byte delta size.
+		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 

@@ -59,10 +59,11 @@ func FuzzEncoderLongFixtureRateControl(f *testing.F) {
 		t.Logf("%s matched-prefix=%d/%d frames (govpx=%d libvpx=%d total)",
 			label, prefix, min(len(govpxFrames), len(libvpxFrames)), len(govpxFrames), len(libvpxFrames))
 
-		// Keyframe parity is the strict floor: every fuzz config must
-		// produce a matching frame 0. matchLimit=1 in
-		// assertSegmentByteParity logs everything else as scoreboard.
-		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 1)
+		// Strict byte parity. Seeds with documented cumulative drift
+		// (gap A: kf=30 GF cliff; gap B: VBR kf=999 long-run drift) are
+		// expected to fail until the corresponding fix lands; the
+		// failure log surfaces the exact frame index where parity broke.
+		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
