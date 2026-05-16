@@ -1,6 +1,32 @@
 package dsp
 
-import "github.com/thesyncim/govpx/internal/vp9/tables"
+import (
+	"sync"
+
+	"github.com/thesyncim/govpx/internal/vp9/tables"
+)
+
+// convolve8TempBuf is the intermediate-row buffer used by VpxConvolve8 /
+// VpxConvolve8Avg between the H and V passes. libvpx declares this as a
+// stack-local uint8_t array (vpx_dsp/vpx_convolve.c:177) which has no
+// initialization cost in C; Go's `var temp [N]byte` form emits a
+// per-call memclr of all 8640 bytes that shows up as ~50ms self-time on
+// cpu_used=8 RT for the convolve-heavy realtime inter predictor. Pool
+// a reusable buffer so the steady-state path performs no zeroing — the
+// H pass always writes the full intermediate region before the V pass
+// reads it.
+type convolve8TempBuf [64 * 135]byte
+
+var convolve8TempPool = sync.Pool{
+	New: func() any { return new(convolve8TempBuf) },
+}
+
+// convolve8AvgTempBuf is the smaller scratch for VpxConvolve8Avg.
+type convolve8AvgTempBuf [64 * 64]byte
+
+var convolve8AvgTempPool = sync.Pool{
+	New: func() any { return new(convolve8AvgTempBuf) },
+}
 
 // VP9 8-tap subpel convolve kernels. Ported from libvpx v1.16.0
 // vpx_dsp/vpx_convolve.c (the "_c" reference implementations only —

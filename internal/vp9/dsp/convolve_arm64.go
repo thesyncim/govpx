@@ -128,12 +128,19 @@ func VpxConvolve8(src []byte, srcStride int, dst []byte, dstStride int,
 ) {
 	// Re-use the scalar dispatcher for setup, but route the inner H/V
 	// passes through the NEON paths when each meets its preconditions.
-	var temp [64 * 135]byte
+	// Pull the H-V intermediate buffer from a pool so the steady-state
+	// path skips Go's mandatory stack-local zero-init (~8.6 KiB / call
+	// → ~50ms cumulative on cpu_used=8 RT). libvpx leaves the stack
+	// array uninitialized (vpx_dsp/vpx_convolve.c:177) and the H pass
+	// fully overwrites every byte before the V pass reads it.
+	tempBuf := convolve8TempPool.Get().(*convolve8TempBuf)
+	temp := tempBuf[:]
 	intermediateHeight := (((h-1)*yStepQ4 + y0Q4) >> tables.SubpelBits) + tables.SubpelTaps
 	horizSrcOffset := srcOffset - srcStride*(tables.SubpelTaps/2-1)
-	VpxConvolve8Horiz(src, srcStride, temp[:], 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, intermediateHeight, horizSrcOffset)
+	VpxConvolve8Horiz(src, srcStride, temp, 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, intermediateHeight, horizSrcOffset)
 	vertSrcOffset := 64 * (tables.SubpelTaps/2 - 1)
-	VpxConvolve8Vert(temp[:], 64, dst, dstStride, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, vertSrcOffset)
+	VpxConvolve8Vert(temp, 64, dst, dstStride, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, vertSrcOffset)
+	convolve8TempPool.Put(tempBuf)
 }
 
 // VpxConvolve8Avg mirrors vpx_convolve8_avg_c.
@@ -141,7 +148,9 @@ func VpxConvolve8Avg(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
-	var temp [64 * 64]byte
-	VpxConvolve8(src, srcStride, temp[:], 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
-	VpxConvolveAvg(temp[:], 64, dst, dstStride, w, h, 0)
+	tempBuf := convolve8AvgTempPool.Get().(*convolve8AvgTempBuf)
+	temp := tempBuf[:]
+	VpxConvolve8(src, srcStride, temp, 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
+	VpxConvolveAvg(temp, 64, dst, dstStride, w, h, 0)
+	convolve8AvgTempPool.Put(tempBuf)
 }
