@@ -1,6 +1,9 @@
 package govpx
 
-import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+)
 
 const (
 	vp9DefaultCPUUsed int8 = 8
@@ -403,6 +406,9 @@ func (e *VP9Encoder) SetDeadline(deadline Deadline) error {
 		return ErrInvalidConfig
 	}
 	e.opts.Deadline = deadline
+	// libvpx: vp9_encoder.c:3754 — speed-feature recompute on speed/mode
+	// changes.
+	e.vp9ApplySpeedFeatures(e.vp9DefaultSpeedFrameContext())
 	return nil
 }
 
@@ -417,6 +423,9 @@ func (e *VP9Encoder) SetCPUUsed(cpuUsed int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.CpuUsed = int8(cpuUsed)
+	// libvpx: vp9_encoder.c:3754 — speed-feature recompute on speed/mode
+	// changes.
+	e.vp9ApplySpeedFeatures(e.vp9DefaultSpeedFrameContext())
 	return nil
 }
 
@@ -1030,20 +1039,54 @@ func (e *VP9Encoder) vp9SpeedFeatureCPUUsed() int {
 	return int(e.opts.CpuUsed)
 }
 
+// vp9CoeffProbAppxStep reads SPEED_FEATURES.coeff_prob_appx_step. libvpx
+// initialises it to 1 at best quality and sets it to 4 in the realtime speed-5
+// branch (vp9_speed_features.c:610). Consumers route through e.sf rather than
+// re-deriving the gate.
+//
+// libvpx: vp9_speed_features.c:937 / vp9_speed_features.c:610.
 func (e *VP9Encoder) vp9CoeffProbAppxStep() int {
-	if e == nil || e.opts.Deadline != DeadlineRealtime ||
-		e.vp9SpeedFeatureCPUUsed() < 5 {
+	if e == nil {
 		return 1
 	}
-	return 4
+	if e.sf.CoeffProbAppxStep == 0 {
+		return 1
+	}
+	return e.sf.CoeffProbAppxStep
 }
 
+// vp9SkipTx16PlusCoefUpdates returns true when SPEED_FEATURES wants the inter
+// frames to skip TX_16X16+ coefficient probability updates. libvpx sets
+// use_fast_coef_updates = ONE_LOOP_REDUCED for non-key frames in the speed
+// >= 4 realtime branches (vp9_speed_features.c:579, 611) and the speed >= 4
+// good branch (vp9_speed_features.c:395).
+//
+// libvpx: vp9_speed_features.c:579 / 611 / 395.
 func (e *VP9Encoder) vp9SkipTx16PlusCoefUpdates(isKey bool) bool {
-	return !isKey && e != nil && e.opts.Deadline == DeadlineRealtime &&
-		e.vp9SpeedFeatureCPUUsed() >= 4
+	if e == nil || isKey {
+		return false
+	}
+	// libvpx re-runs the configurator each frame; recompute SF with an
+	// inter-frame context so the use_fast_coef_updates assignment matches
+	// libvpx for visible inter frames.
+	var sf SpeedFeatures
+	ctx := e.vp9DefaultSpeedFrameContext()
+	ctx.frameType = common.InterFrame
+	ctx.intraOnly = false
+	vp9SetSpeedFeaturesFramesizeIndependent(e, &sf, e.vp9SpeedFeatureCPUUsed(), ctx)
+	vp9SetSpeedFeaturesFramesizeDependent(e, &sf, e.vp9SpeedFeatureCPUUsed(), ctx)
+	return sf.UseFastCoefUpdates == OneLoopReduced
 }
 
+// vp9RealtimeVariancePartitionEnabled returns true when SPEED_FEATURES picks
+// VAR_BASED_PARTITION. libvpx selects this in the realtime speed >= 4 branch
+// (vp9_speed_features.c:582) and again at speed >= 6 (line 667). The good-mode
+// path never picks VAR_BASED_PARTITION.
+//
+// libvpx: vp9_speed_features.c:582 / 667.
 func (e *VP9Encoder) vp9RealtimeVariancePartitionEnabled() bool {
-	return e != nil && e.opts.Deadline == DeadlineRealtime &&
-		e.vp9SpeedFeatureCPUUsed() >= 8
+	if e == nil {
+		return false
+	}
+	return e.sf.PartitionSearchType == VarBasedPartition
 }

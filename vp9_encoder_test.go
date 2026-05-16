@@ -734,14 +734,34 @@ func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
 		t.Fatalf("SetDeadline(good): %v", err)
 	}
+	// libvpx good-mode never sets coeff_prob_appx_step (only realtime speed 5
+	// does, vp9_speed_features.c:610), so the field stays at the best-quality
+	// default of 1.
 	if got := e.vp9CoeffProbAppxStep(); got != 1 {
 		t.Fatalf("good coeff step = %d, want 1", got)
 	}
-	if e.vp9SkipTx16PlusCoefUpdates(false) {
-		t.Fatal("good deadline should not use realtime tx16+ skip")
+	// libvpx good-mode speed >= 4 sets use_fast_coef_updates = ONE_LOOP_REDUCED
+	// for inter frames (vp9_speed_features.c:395), so cpu_used=8 GOOD also
+	// requests the skip.
+	if !e.vp9SkipTx16PlusCoefUpdates(false) {
+		t.Fatal("good cpu8 should request tx16+ skip per libvpx speed >= 4")
 	}
+	// libvpx good-mode never selects VAR_BASED_PARTITION (it's an RT-only
+	// path).
 	if e.vp9RealtimeVariancePartitionEnabled() {
 		t.Fatal("good deadline should not use realtime variance partition")
+	}
+
+	// Going back through good-mode speed 0 (cpu_used=0) confirms the skip is
+	// gated by speed, not deadline.
+	if err := e.SetCPUUsed(0); err != nil {
+		t.Fatalf("SetCPUUsed(0) good: %v", err)
+	}
+	if e.vp9SkipTx16PlusCoefUpdates(false) {
+		t.Fatal("good cpu0 should not request tx16+ skip")
+	}
+	if err := e.SetCPUUsed(8); err != nil {
+		t.Fatalf("SetCPUUsed(8) good: %v", err)
 	}
 
 	if err := e.SetDeadline(DeadlineRealtime); err != nil {

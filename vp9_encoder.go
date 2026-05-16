@@ -832,6 +832,14 @@ type VP9Encoder struct {
 	// motion correlation can pick a hint-derived MV that the local
 	// 16-px search radius would miss. nil disables hint biasing.
 	mvHints *vp9MVHintMap
+
+	// sf carries libvpx's SPEED_FEATURES struct. It is refreshed by
+	// vp9ApplySpeedFeatures() whenever CpuUsed / Deadline / content options
+	// change, and at frame setup so the framesize-dependent dispatcher sees
+	// the actual per-frame state.
+	//
+	// libvpx: vp9_encoder.h cpi->sf + vp9_speed_features.{h,c}.
+	sf SpeedFeatures
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -875,6 +883,11 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	e.initVP9TileWorkerPool()
+	// Populate the SPEED_FEATURES struct so consumers can read e.sf.<field>
+	// before the first frame. libvpx: vp9_encoder.c:2635 also runs the
+	// framesize-independent + framesize-dependent dispatch in setup before
+	// the first frame is encoded.
+	e.vp9ApplySpeedFeatures(e.vp9DefaultSpeedFrameContext())
 	return e, nil
 }
 
