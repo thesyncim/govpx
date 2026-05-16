@@ -46,7 +46,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	fs.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
 	fs.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
-	fs.StringVar(&opts.suite, "suite", "", "run an encode comparison matrix instead of one case: quick or vp8")
+	fs.StringVar(&opts.suite, "suite", "", "run an encode comparison matrix instead of one case: quick, vp8, webrtc, vod, or stress")
 	fs.IntVar(&opts.suiteRuns, "suite-runs", 1, "number of repeats per suite case; selects median govpx ns/frame")
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip quality decode/PSNR/SSIM computation")
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
