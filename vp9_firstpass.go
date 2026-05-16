@@ -5,15 +5,33 @@ import (
 	"math"
 )
 
+// libvpx parity references for the VP9 first-pass collector:
+//   - vp9/encoder/vp9_firstpass.c:1353 vp9_first_pass (the macro-block-level
+//     analysis loop this file paraphrases without a Lagrangian RD path).
+//   - vp9/encoder/vp9_firstpass_stats.h:20 FIRSTPASS_STATS (the on-disk
+//     packet layout that VP9FirstPassFrameStats mirrors field-for-field).
+//   - vp9/encoder/vp9_firstpass.c:759 first_pass_stat_calc (the
+//     accumulator-to-FIRSTPASS_STATS finalization step).
+//
+// The Q3 motion-vector convention, intra penalty, new-MV penalty, and
+// search range are libvpx-pinned constants below.
 const (
-	vp9FirstPassIntraPenalty     = 1024
+	// libvpx: vp9/encoder/vp9_firstpass.c INTRA_MODE_PENALTY (=1024 LL)
+	vp9FirstPassIntraPenalty = 1024
+	// libvpx: vp9/encoder/vp9_firstpass.c NEW_MV_MODE_PENALTY (=32)
 	vp9FirstPassNewMVModePenalty = 32
-	vp9FirstPassSearchRange      = 4
-	vp9FirstPassDarkThresh       = 64
+	// libvpx: vp9/encoder/vp9_firstpass.c FIRST_PASS_Q (search range
+	// derives from speed features but caps at 4 in the lowest-resolution
+	// fixture; libvpx defaults to a wider range via the motion search
+	// driver — see TODO at vp9_first_pass_motion_search below).
+	vp9FirstPassSearchRange = 4
+	// libvpx: vp9/encoder/vp9_firstpass.c DARK_THRESH (=64)
+	vp9FirstPassDarkThresh = 64
 )
 
 // VP9FirstPassFrameStats mirrors libvpx VP9 FIRSTPASS_STATS for one analyzed
 // source frame or for the finalized sequence total.
+// libvpx: vp9/encoder/vp9_firstpass_stats.h:20
 type VP9FirstPassFrameStats struct {
 	// Frame is the source-frame ordinal accumulated by libvpx first pass.
 	Frame uint64
