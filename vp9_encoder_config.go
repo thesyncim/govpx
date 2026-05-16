@@ -522,6 +522,9 @@ func (e *VP9Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	if e == nil || e.closed {
 		return ErrClosed
 	}
+	if e.temporalScalabilityLocked {
+		return ErrInvalidConfig
+	}
 	nextTemporal := temporalState{}
 	if err := nextTemporal.configure(cfg, e.opts.TargetBitrateKbps); err != nil {
 		return err
@@ -537,6 +540,9 @@ func (e *VP9Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 func (e *VP9Encoder) SetTemporalLayerID(layerID int) error {
 	if e == nil || e.closed {
 		return ErrClosed
+	}
+	if e.temporalScalabilityLocked {
+		return ErrInvalidConfig
 	}
 	return e.temporal.setLayerID(layerID)
 }

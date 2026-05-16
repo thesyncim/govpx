@@ -169,6 +169,22 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 			o.Layers[1].Width = 544
 			o.Layers[1].Height = 544
 		}},
+		{name: "temporal enabled on one layer", mutate: func(o *VP9SpatialSVCEncoderOptions) {
+			o.Layers[1].TemporalScalability = TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    TemporalLayeringTwoLayers,
+			}
+		}},
+		{name: "temporal mode mismatch", mutate: func(o *VP9SpatialSVCEncoderOptions) {
+			o.Layers[0].TemporalScalability = TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    TemporalLayeringTwoLayers,
+			}
+			o.Layers[1].TemporalScalability = TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    TemporalLayeringThreeLayers,
+			}
+		}},
 	} {
 		opts := base
 		tc.mutate(&opts)
@@ -196,6 +212,12 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	}
 	if err := layer.SetSpatialScalability(VP9SpatialScalabilityConfig{}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("locked layer SetSpatialScalability err = %v, want ErrInvalidConfig", err)
+	}
+	if err := layer.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("locked layer SetTemporalScalability err = %v, want ErrInvalidConfig", err)
+	}
+	if err := layer.SetTemporalLayerID(0); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("locked layer SetTemporalLayerID err = %v, want ErrInvalidConfig", err)
 	}
 	if err := svc.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -266,6 +288,29 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 			t.Fatalf("temporal RTP descriptors frame %d: base=%+v enh=%+v",
 				frame, baseDesc, enhDesc)
 		}
+		if !baseDesc.ScalabilityStructurePresent ||
+			!baseDesc.ScalabilityStructure.PictureGroupPresent ||
+			len(baseDesc.ScalabilityStructure.PictureGroups) != 2 {
+			t.Fatalf("temporal scalability structure frame %d = %+v",
+				frame, baseDesc.ScalabilityStructure)
+		}
+		wantGroups := [2]VP9RTPPictureGroup{
+			{
+				TemporalID:          0,
+				ReferenceIndexCount: 1,
+				ReferenceIndices:    [VP9RTPMaxReferenceIndices]uint8{2},
+			},
+			{
+				TemporalID:          1,
+				ReferenceIndexCount: 2,
+				ReferenceIndices:    [VP9RTPMaxReferenceIndices]uint8{1, 2},
+			},
+		}
+		for i, want := range wantGroups {
+			if got := baseDesc.ScalabilityStructure.PictureGroups[i]; got != want {
+				t.Fatalf("temporal picture group %d = %+v, want %+v", i, got, want)
+			}
+		}
 	}
 	if err := svc.SetTemporalLayerID(1); err != nil {
 		t.Fatalf("SetTemporalLayerID(1): %v", err)
@@ -278,6 +323,173 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 		result.Layers[1].TemporalLayerID != 1 {
 		t.Fatalf("override temporal IDs = %d/%d, want 1/1",
 			result.Layers[0].TemporalLayerID, result.Layers[1].TemporalLayerID)
+	}
+	if desc := result.Layers[0].RTPPayloadDescriptor(); !desc.ScalabilityStructurePresent ||
+		desc.ScalabilityStructure.PictureGroupPresent {
+		t.Fatalf("override scalability structure = %+v, want resolution-only", desc.ScalabilityStructure)
+	}
+}
+
+func TestVP9SpatialSVCEncoderInitialTemporalOptions(t *testing.T) {
+	temporal := TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    TemporalLayeringTwoLayers,
+	}
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount: 2,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			{
+				Width:               32,
+				Height:              32,
+				TargetBitrateKbps:   300,
+				TemporalScalability: temporal,
+			},
+			{
+				Width:               64,
+				Height:              64,
+				TargetBitrateKbps:   700,
+				TemporalScalability: temporal,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
+		newVP9YCbCrForTest(32, 32, 80, 128, 128),
+		newVP9YCbCrForTest(64, 64, 80, 128, 128),
+	}, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult: %v", err)
+	}
+	if result.Layers[0].TemporalLayerCount != 2 ||
+		result.Layers[1].TemporalLayerCount != 2 ||
+		!result.ScalabilityStructure.PictureGroupPresent ||
+		len(result.ScalabilityStructure.PictureGroups) != 2 {
+		t.Fatalf("initial temporal SVC result = base:%+v enh:%+v ss:%+v",
+			result.Layers[0], result.Layers[1],
+			result.ScalabilityStructure)
+	}
+}
+
+func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount:           3,
+		InterLayerPrediction: true,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			{Width: 32, Height: 32, Lossless: true},
+			{Width: 64, Height: 64, Lossless: true},
+			{Width: 128, Height: 128, Lossless: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	dst := make([]byte, 1<<21)
+	widths := [3]int{32, 64, 128}
+	heights := [3]int{32, 64, 128}
+	for frame := 0; frame < 3; frame++ {
+		y := uint8(60 + frame*11)
+		srcs := []*image.YCbCr{
+			newVP9YCbCrForTest(32, 32, y, 120, 136),
+			newVP9YCbCrForTest(64, 64, y, 120, 136),
+			newVP9YCbCrForTest(128, 128, y, 120, 136),
+		}
+		result, err := svc.EncodeIntoWithResult(srcs, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		sf, err := vp9ParseSuperframe(result.Data)
+		if err != nil {
+			t.Fatalf("vp9ParseSuperframe[%d]: %v", frame, err)
+		}
+		if sf.count != 3 || result.LayerCount != 3 ||
+			result.ScalabilityStructure.SpatialLayerCount != 3 {
+			t.Fatalf("access unit %d counts sf=%d result=%d ss=%d",
+				frame, sf.count, result.LayerCount,
+				result.ScalabilityStructure.SpatialLayerCount)
+		}
+		if result.Layers[0].SpatialLayerID != 0 ||
+			result.Layers[1].SpatialLayerID != 1 ||
+			result.Layers[2].SpatialLayerID != 2 ||
+			result.Layers[0].SpatialLayerCount != 3 ||
+			result.Layers[1].SpatialLayerCount != 3 ||
+			result.Layers[2].SpatialLayerCount != 3 {
+			t.Fatalf("access unit %d spatial metadata = %+v/%+v/%+v",
+				frame, result.Layers[0], result.Layers[1], result.Layers[2])
+		}
+		if result.Layers[0].InterLayerDependency ||
+			!result.Layers[1].InterLayerDependency ||
+			!result.Layers[2].InterLayerDependency ||
+			result.Layers[0].NotRefForUpperSpatialLayer ||
+			result.Layers[1].NotRefForUpperSpatialLayer ||
+			!result.Layers[2].NotRefForUpperSpatialLayer {
+			t.Fatalf("access unit %d dependency metadata = %+v/%+v/%+v",
+				frame, result.Layers[0], result.Layers[1], result.Layers[2])
+		}
+		if frame == 0 {
+			if !result.Layers[0].KeyFrame ||
+				result.Layers[1].KeyFrame ||
+				result.Layers[2].KeyFrame {
+				t.Fatalf("first access unit key flags = %v/%v/%v, want true/false/false",
+					result.Layers[0].KeyFrame,
+					result.Layers[1].KeyFrame,
+					result.Layers[2].KeyFrame)
+			}
+		} else if result.Layers[0].KeyFrame ||
+			result.Layers[1].KeyFrame ||
+			result.Layers[2].KeyFrame {
+			t.Fatalf("inter access unit %d key flags = %v/%v/%v, want all false",
+				frame, result.Layers[0].KeyFrame,
+				result.Layers[1].KeyFrame,
+				result.Layers[2].KeyFrame)
+		}
+		for layer := 0; layer < 3; layer++ {
+			var br vp9dec.BitReader
+			br.Init(sf.frames[layer])
+			refWidth := uint32(widths[layer])
+			refHeight := uint32(heights[layer])
+			if layer > 0 {
+				refWidth = uint32(widths[layer-1])
+				refHeight = uint32(heights[layer-1])
+			}
+			header, err := vp9dec.ReadUncompressedHeader(&br, nil,
+				func(uint8) (uint32, uint32) {
+					return refWidth, refHeight
+				})
+			if err != nil {
+				t.Fatalf("ReadUncompressedHeader[%d][%d]: %v", frame, layer, err)
+			}
+			if header.Width != uint32(widths[layer]) ||
+				header.Height != uint32(heights[layer]) ||
+				!header.ShowFrame {
+				t.Fatalf("header[%d][%d] = %+v", frame, layer, header)
+			}
+			if frame == 0 && layer == 0 {
+				if header.FrameType != common.KeyFrame {
+					t.Fatalf("header[%d][%d] frame type = %d, want key",
+						frame, layer, header.FrameType)
+				}
+			} else if header.FrameType != common.InterFrame {
+				t.Fatalf("header[%d][%d] frame type = %d, want inter",
+					frame, layer, header.FrameType)
+			}
+		}
+		if frame == 0 {
+			decoder, err := NewVP9Decoder(VP9DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP9Decoder: %v", err)
+			}
+			if err := decoder.Decode(result.Data); err != nil {
+				t.Fatalf("Decode first SVC superframe: %v", err)
+			}
+			top, ok := decoder.NextFrame()
+			if !ok {
+				t.Fatal("NextFrame returned no frame")
+			}
+			assertVP9FilledFrameWithin(t, top, 128, 128, y, 120, 136, 0)
+		}
 	}
 }
 

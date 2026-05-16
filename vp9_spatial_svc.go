@@ -13,6 +13,8 @@ type VP9SpatialSVCEncoderOptions struct {
 	// are ignored. SpatialScalability is owned by the SVC encoder and must be
 	// left disabled in each layer option. Lookahead, auto-alt-ref, and frame
 	// dropping are not accepted because access-unit emission is synchronous.
+	// If TemporalScalability is enabled in layer options, every coded layer
+	// must enable the same temporal mode; per-layer target bitrates may differ.
 	Layers [VP9MaxSpatialLayers]VP9EncoderOptions
 	// InterLayerPrediction seeds each enhancement layer's LAST reference from
 	// the just-encoded lower spatial layer and marks enhancement packets with
@@ -31,6 +33,9 @@ type VP9SpatialSVCEncodeResult struct {
 	Layers     [VP9MaxSpatialLayers]VP9EncodeResult
 
 	InterLayerPrediction bool
+	// ScalabilityStructure is the RTP VP9 scalability structure for the
+	// access unit. It always carries spatial resolutions and carries temporal
+	// picture groups when parent-owned temporal SVC uses a fixed pattern.
 	ScalabilityStructure VP9RTPScalabilityStructure
 }
 
@@ -80,15 +85,15 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		widths[i] = uint16(layer.Width)
 		heights[i] = uint16(layer.Height)
 	}
+	temporalMode, temporalEnabled, err := vp9SpatialSVCTemporalMode(opts)
+	if err != nil {
+		return nil, err
+	}
 	svc := &VP9SpatialSVCEncoder{
 		layerCount:           opts.LayerCount,
 		interLayerPrediction: opts.InterLayerPrediction,
-		scalabilityStructure: VP9RTPScalabilityStructure{
-			SpatialLayerCount: count,
-			ResolutionPresent: true,
-			Width:             widths,
-			Height:            heights,
-		},
+		scalabilityStructure: vp9SpatialSVCScalabilityStructure(widths,
+			heights, count, temporalMode, temporalEnabled),
 	}
 	for i := 0; i < count; i++ {
 		layerOpts := opts.Layers[i]
@@ -112,9 +117,206 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		}
 		layer.resetVP9EncoderFrameContexts()
 		layer.spatialScalabilityLocked = true
+		layer.temporalScalabilityLocked = true
 		svc.layers[i] = layer
 	}
 	return svc, nil
+}
+
+func vp9SpatialSVCTemporalMode(opts VP9SpatialSVCEncoderOptions) (TemporalLayeringMode, bool, error) {
+	count := int(opts.LayerCount)
+	if count <= 0 || count > VP9MaxSpatialLayers {
+		return TemporalLayeringOneLayer, false, ErrInvalidConfig
+	}
+	base := opts.Layers[0].TemporalScalability
+	for i := 1; i < count; i++ {
+		cfg := opts.Layers[i].TemporalScalability
+		if cfg.Enabled != base.Enabled {
+			return TemporalLayeringOneLayer, false, ErrInvalidConfig
+		}
+		if cfg.Enabled && cfg.Mode != base.Mode {
+			return TemporalLayeringOneLayer, false, ErrInvalidConfig
+		}
+	}
+	if !base.Enabled {
+		return TemporalLayeringOneLayer, false, nil
+	}
+	return base.Mode, true, nil
+}
+
+func vp9SpatialSVCScalabilityStructure(
+	widths, heights [VP9RTPMaxSpatialLayers]uint16,
+	layerCount int,
+	temporalMode TemporalLayeringMode,
+	temporalEnabled bool,
+) VP9RTPScalabilityStructure {
+	ss := VP9RTPScalabilityStructure{
+		SpatialLayerCount: layerCount,
+		ResolutionPresent: true,
+		Width:             widths,
+		Height:            heights,
+	}
+	if temporalEnabled {
+		vp9SetScalabilityStructureTemporalPattern(&ss, temporalMode)
+	}
+	return ss
+}
+
+func vp9SetScalabilityStructureTemporalPatternFromConfig(
+	ss *VP9RTPScalabilityStructure,
+	cfg TemporalScalabilityConfig,
+) {
+	if cfg.Enabled {
+		vp9SetScalabilityStructureTemporalPattern(ss, cfg.Mode)
+		return
+	}
+	vp9ClearScalabilityStructureTemporalPattern(ss)
+}
+
+func vp9SetScalabilityStructureTemporalPattern(
+	ss *VP9RTPScalabilityStructure,
+	mode TemporalLayeringMode,
+) {
+	groups := vp9TemporalScalabilityPictureGroups(mode)
+	if len(groups) == 0 {
+		vp9ClearScalabilityStructureTemporalPattern(ss)
+		return
+	}
+	ss.PictureGroupPresent = true
+	ss.PictureGroups = groups
+}
+
+func vp9ClearScalabilityStructureTemporalPattern(ss *VP9RTPScalabilityStructure) {
+	ss.PictureGroupPresent = false
+	ss.PictureGroups = nil
+}
+
+func vp9TemporalScalabilityPictureGroups(mode TemporalLayeringMode) []VP9RTPPictureGroup {
+	pattern, ok := temporalLayeringPattern(mode)
+	if !ok || pattern.Layers <= 1 || pattern.Periodicity <= 0 ||
+		pattern.FlagPeriodicity <= 0 ||
+		pattern.Periodicity > maxTemporalPeriodSize {
+		return nil
+	}
+	groups := make([]VP9RTPPictureGroup, pattern.Periodicity)
+	var refIndex [temporalReferenceCount]int
+	for i := range refIndex {
+		refIndex[i] = -1
+	}
+	var refLayer [temporalReferenceCount]int
+	for frame := 0; frame < pattern.Periodicity*2; frame++ {
+		patternIndex := frame % pattern.Periodicity
+		flags := vp9TemporalPatternFlagsAt(pattern, mode, frame)
+		layerID := pattern.LayerID[patternIndex]
+		keyFrame := flags&EncodeForceKeyFrame != 0
+		group := VP9RTPPictureGroup{
+			TemporalID:       uint8(layerID),
+			SwitchingUpPoint: vp9TemporalPatternLayerSync(layerID, flags, refLayer),
+		}
+		if !keyFrame {
+			vp9AddTemporalPictureGroupReference(&group, frame, refIndex[temporalReferenceLast],
+				flags&EncodeNoReferenceLast == 0)
+			vp9AddTemporalPictureGroupReference(&group, frame, refIndex[temporalReferenceGolden],
+				flags&EncodeNoReferenceGolden == 0)
+			vp9AddTemporalPictureGroupReference(&group, frame, refIndex[temporalReferenceAltRef],
+				flags&EncodeNoReferenceAltRef == 0)
+		}
+		if frame >= pattern.Periodicity {
+			groups[patternIndex] = group
+		}
+		vp9UpdateTemporalPatternReferences(&refIndex, &refLayer, frame, layerID, flags,
+			keyFrame)
+	}
+	return groups
+}
+
+func vp9TemporalPatternFlagsAt(
+	pattern temporalPattern,
+	mode TemporalLayeringMode,
+	frame int,
+) EncodeFlags {
+	flags := pattern.Flags[frame%pattern.FlagPeriodicity]
+	if mode != TemporalLayeringFiveLayers && frame > 0 &&
+		frame%pattern.FlagPeriodicity == 0 {
+		flags &^= EncodeForceKeyFrame
+	}
+	return flags
+}
+
+func vp9TemporalPatternLayerSync(
+	layerID int,
+	flags EncodeFlags,
+	refLayer [temporalReferenceCount]int,
+) bool {
+	if layerID <= 0 {
+		return false
+	}
+	if flags&EncodeNoReferenceLast == 0 &&
+		refLayer[temporalReferenceLast] >= layerID {
+		return false
+	}
+	if flags&EncodeNoReferenceGolden == 0 &&
+		refLayer[temporalReferenceGolden] >= layerID {
+		return false
+	}
+	if flags&EncodeNoReferenceAltRef == 0 &&
+		refLayer[temporalReferenceAltRef] >= layerID {
+		return false
+	}
+	return true
+}
+
+func vp9AddTemporalPictureGroupReference(
+	group *VP9RTPPictureGroup,
+	frame int,
+	ref int,
+	allowed bool,
+) {
+	if group == nil || !allowed || ref < 0 || ref >= frame ||
+		group.ReferenceIndexCount >= VP9RTPMaxReferenceIndices {
+		return
+	}
+	diff := frame - ref
+	if diff <= 0 || diff > int(^uint8(0)) {
+		return
+	}
+	refDiff := uint8(diff)
+	for i := 0; i < group.ReferenceIndexCount; i++ {
+		if group.ReferenceIndices[i] == refDiff {
+			return
+		}
+	}
+	group.ReferenceIndices[group.ReferenceIndexCount] = refDiff
+	group.ReferenceIndexCount++
+}
+
+func vp9UpdateTemporalPatternReferences(
+	refIndex *[temporalReferenceCount]int,
+	refLayer *[temporalReferenceCount]int,
+	frame int,
+	layerID int,
+	flags EncodeFlags,
+	keyFrame bool,
+) {
+	if keyFrame {
+		for i := range refIndex {
+			refIndex[i] = frame
+			refLayer[i] = 0
+		}
+		return
+	}
+	if flags&EncodeNoUpdateLast == 0 {
+		refIndex[temporalReferenceLast] = frame
+		refLayer[temporalReferenceLast] = layerID
+	}
+	if flags&EncodeNoUpdateGolden == 0 {
+		refIndex[temporalReferenceGolden] = frame
+		refLayer[temporalReferenceGolden] = layerID
+	}
+	if flags&EncodeNoUpdateAltRef == 0 {
+		refIndex[temporalReferenceAltRef] = frame
+		refLayer[temporalReferenceAltRef] = layerID
+	}
 }
 
 // EncodeInto encodes one source frame per spatial layer into dst and returns
@@ -175,6 +377,9 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 		if layerResult.Dropped || len(layerResult.Data) == 0 {
 			return VP9SpatialSVCEncodeResult{}, ErrInvalidConfig
 		}
+		if i == 0 && layerResult.ScalabilityStructurePresent {
+			layerResult.SpatialScalabilityStructure = e.scalabilityStructure
+		}
 		size := len(layerResult.Data)
 		frameSizes[i] = size
 		layerResult.Data = dst[offset : offset+size]
@@ -196,7 +401,8 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 
 // LayerEncoder returns the internal encoder for layerID so callers can apply
 // VP9 runtime controls to one layer. Do not close the returned encoder or
-// change its spatial scalability configuration; close the parent SVC encoder.
+// change its spatial or temporal scalability configuration; close the parent
+// SVC encoder and use the parent's temporal controls.
 func (e *VP9SpatialSVCEncoder) LayerEncoder(layerID uint8) (*VP9Encoder, error) {
 	return e.layerEncoder(layerID)
 }
@@ -249,11 +455,14 @@ func (e *VP9SpatialSVCEncoder) SetTemporalScalability(cfg TemporalScalabilityCon
 			return err
 		}
 	}
+	nextScalabilityStructure := e.scalabilityStructure
+	vp9SetScalabilityStructureTemporalPatternFromConfig(&nextScalabilityStructure, cfg)
 	for i := 0; i < int(e.layerCount); i++ {
 		layer := e.layers[i]
 		layer.temporal = next[i]
 		layer.opts.TemporalScalability = next[i].config
 	}
+	e.scalabilityStructure = nextScalabilityStructure
 	return nil
 }
 
@@ -278,6 +487,7 @@ func (e *VP9SpatialSVCEncoder) SetTemporalLayerID(layerID int) error {
 	for i := 0; i < int(e.layerCount); i++ {
 		e.layers[i].temporal = next[i]
 	}
+	vp9ClearScalabilityStructureTemporalPattern(&e.scalabilityStructure)
 	return nil
 }
 

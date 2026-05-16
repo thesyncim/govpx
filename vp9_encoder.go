@@ -389,6 +389,9 @@ type VP9Encoder struct {
 	// spatialScalabilityLocked is set for encoders owned by
 	// VP9SpatialSVCEncoder; the parent owns spatial layer metadata.
 	spatialScalabilityLocked bool
+	// temporalScalabilityLocked is set for encoders owned by
+	// VP9SpatialSVCEncoder; the parent owns access-unit temporal metadata.
+	temporalScalabilityLocked bool
 
 	activeMap        []uint8
 	activeMapMiRows  int
