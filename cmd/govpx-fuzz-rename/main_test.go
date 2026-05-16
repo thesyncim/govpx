@@ -225,4 +225,3 @@ func TestOracleRuntimeFullPermutationSeedMirrorsTestFile(t *testing.T) {
 		t.Fatalf("oracleRuntimeFullPermutationSeed drifted: got %v want %v", oracleRuntimeFullPermutationSeed, want)
 	}
 }
-
