@@ -1074,6 +1074,29 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			source:      newVP9BlockCheckerYCbCrForOracleTest,
 		},
 		{
+			name:        "fixed-q-block-checker-keyframe-320",
+			width:       320,
+			height:      180,
+			frames:      1,
+			opts:        fixedQOpts,
+			extraArgs:   fixedQArgs,
+			exactPrefix: 1,
+			strictBytes: true,
+			source:      newVP9BlockCheckerYCbCrForOracleTest,
+		},
+		{
+			name:        "fixed-q-force-key-block-checker-320",
+			width:       320,
+			height:      180,
+			frames:      4,
+			opts:        fixedQOpts,
+			flags:       vp9OracleRepeatAllFramesFlag(4, EncodeForceKeyFrame),
+			extraArgs:   fixedQArgs,
+			exactPrefix: 4,
+			strictBytes: true,
+			source:      newVP9BlockCheckerYCbCrForOracleTest,
+		},
+		{
 			name:        "cbr-rate-panning",
 			width:       64,
 			height:      64,
@@ -1880,6 +1903,27 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			source: steppedKeyframe,
+		},
+		{
+			name:   "fixed-q-force-key-block-checker",
+			frames: 2,
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			flags: vp9OracleRepeatAllFramesFlag(2, EncodeForceKeyFrame),
+			args: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			source: func(frame int) *image.YCbCr {
+				return newVP9BlockCheckerYCbCrForOracleTest(width, height,
+					frame)
+			},
 		},
 		{
 			name:   "fixed-q-active-map",
