@@ -413,6 +413,7 @@ func (e *VP9Encoder) SetRowMT(enabled bool) error {
 	e.opts.RowMT = enabled
 	if !enabled && e.vp9TilePool != nil {
 		e.vp9TilePool.releaseRowMTSync()
+		e.vp9TilePool.releaseRowWorkers()
 	}
 	return nil
 }
@@ -945,6 +946,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	}
 	e.cyclicAQ.configure(e.opts.AQMode == VP9AQCyclicRefresh, width, height)
 	e.perceptualAQ.configure(e.opts.AQMode == VP9AQPerceptual)
+	e.tpl.configure(e.opts.EnableTPL, width, height, e.opts.LookaheadFrames)
 	e.denoiser.disable()
 	e.activeMapEnabled = false
 	e.activeMapMiRows = 0
