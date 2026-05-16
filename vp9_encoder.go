@@ -1351,6 +1351,77 @@ func validateVP9LosslessSegmentationOptions(seg VP9SegmentationOptions) error {
 	return nil
 }
 
+// vp9PrepareCyclicRefreshFrame drives the libvpx
+// vp9_cyclic_refresh_update_parameters() + vp9_cyclic_refresh_setup()
+// pair (vp9/encoder/vp9_aq_cyclicrefresh.c:479-680). It is the
+// encoder-facing entry that picks up the active rate-control state
+// and emits the per-frame segmentation map cyclicAQ.segmentID()
+// consults. Called once per frame in EncodeInto.
+func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bool, miRows, miCols, macroblocks int, header *vp9dec.UncompressedHeader) {
+	if e == nil || !e.cyclicAQ.enabled {
+		e.cyclicAQ.apply = false
+		return
+	}
+	if isKey || intraOnly || !showFrame {
+		e.cyclicAQ.apply = false
+		// libvpx: vp9_aq_cyclicrefresh.c:614-621 — keyframe also resets
+		// last_coded_q_map / sb_index / scene_change counter.
+		if isKey && e.cyclicAQ.miRows == miRows && e.cyclicAQ.miCols == miCols {
+			for i := range e.cyclicAQ.lastCodedQMap {
+				e.cyclicAQ.lastCodedQMap[i] = vp9dec.MaxQ
+			}
+			e.cyclicAQ.sbIndex = 0
+			e.cyclicAQ.reduceRefresh = false
+			e.cyclicAQ.counterEncodeMaxqSceneChange = 0
+		}
+		return
+	}
+	// Re-alloc on mi-grid change.
+	if e.cyclicAQ.miRows != miRows || e.cyclicAQ.miCols != miCols ||
+		len(e.cyclicAQ.segMap) < miRows*miCols {
+		e.cyclicAQ.vp9CyclicRefreshAlloc(miRows, miCols)
+	}
+	screen := e.opts.ScreenContentMode > 0
+	noiseMedium := e.opts.NoiseSensitivity >= 1
+	// libvpx: vp9_aq_cyclicrefresh.c:479-593.
+	e.cyclicAQ.vp9CyclicRefreshUpdateParameters(vp9CyclicRefreshUpdateParametersArgs{
+		Macroblocks:          macroblocks,
+		FrameIsIntraOnly:     false,
+		TemporalLayerID:      0,
+		NumberTemporalLayers: 1,
+		NumberSpatialLayers:  1,
+		SpatialLayerID:       0,
+		Lossless:             header.Quant.Lossless,
+		UseSVC:               false,
+		ScreenContent:        screen,
+		NoiseLevelMedium:     noiseMedium,
+		RateControlIsVBR:     e.rc.mode == RateControlVBR,
+		RefreshGoldenFrame:   false,
+		AvgFrameQindexInter:  int(e.rc.avgFrameQIndexInter),
+		AvgFrameLowMotion:    100, // libvpx default until measured.
+		FramesSinceKey:       int(e.rc.framesSinceKey),
+		BestQuality:          int(e.rc.bestQuality),
+		AvgFrameBandwidth:    e.rc.bitsPerFrame,
+		Width:                e.opts.Width,
+		Height:               e.opts.Height,
+	})
+	// libvpx: vp9_aq_cyclicrefresh.c:596-680.
+	e.cyclicAQ.vp9CyclicRefreshSetup(vp9CyclicRefreshSetupArgs{
+		CurrentVideoFrame: e.frameIndex,
+		FrameIsKey:        false,
+		FrameIsIntraOnly:  false,
+		TemporalLayerID:   0,
+		ResizePending:     false,
+		HighSourceSad:     false,
+		ScreenContent:     screen,
+		NoiseLevelMedium:  noiseMedium,
+		BaseQindex:        int(header.Quant.BaseQindex),
+		YDcDeltaQ:         int(header.Quant.YDcDeltaQ),
+		Sb64TargetRate:    e.rc.frameTargetBits >> 6,
+	})
+	e.cyclicAQ.apply = e.cyclicAQ.applyCyclicRefresh && e.cyclicAQ.targetNumSegBlocks > 0
+}
+
 func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex int) vp9dec.SegmentationParams {
 	if e.roi.enabled && !intraFrame {
 		seg := e.roi.segmentationParams()
@@ -2220,7 +2291,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
-	e.cyclicAQ.prepareFrame(!isKey && !intraOnly && showFrame, miRows, miCols)
+	e.vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame, miRows, miCols, macroblocks, header)
 	if e.opts.AQMode == VP9AQPerceptual {
 		e.perceptualAQ.prepareFrame(img, int(header.Quant.BaseQindex), showFrame)
 	}

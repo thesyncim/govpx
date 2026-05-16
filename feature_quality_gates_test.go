@@ -429,6 +429,65 @@ func TestVP9FeatureBDRateAltRefAQ(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "AltRefAQ", res, defaultLibvpxAbsoluteGate)
 }
 
+// TestVP9FeatureBDRateCyclicRefresh pins the libvpx-verbatim cyclic
+// refresh AQ port against libvpx CYCLIC_REFRESH_AQ over panning
+// content. Cyclic refresh is libvpx's default AQ at realtime speed
+// 5+ and only operates under CBR — both Baseline and Test override
+// the harness's public-Q default to RateControlCBR. The gate is the
+// ≤+5% absolute libvpx-vs-govpx ceiling specified by the task.
+func TestVP9FeatureBDRateCyclicRefresh(t *testing.T) {
+	if !benchcmd.FeatureGatesEnabled() {
+		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
+	}
+	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
+	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
+		Codec:                "vp9",
+		Width:                64,
+		Height:               64,
+		FPS:                  30,
+		Frames:               12,
+		QLadder:              []int{16, 24, 32, 40},
+		Lookahead:            0,
+		Source:               func(i int) *image.YCbCr { return gen(i) },
+		AllowDecoderFallback: true,
+		LibvpxReference:      true,
+		BuildLibvpx:          benchcmd.LibvpxBuildRequested(),
+		Baseline: func(o *govpx.VP9EncoderOptions) {
+			// libvpx CBR + aq-mode=0 baseline.
+			o.RateControlModeSet = true
+			o.RateControlMode = govpx.RateControlCBR
+			o.TargetBitrateKbps = 300
+			o.AQMode = govpx.VP9AQNone
+		},
+		Test: func(o *govpx.VP9EncoderOptions) {
+			// libvpx CBR + aq-mode=3 (CYCLIC_REFRESH_AQ).
+			o.RateControlModeSet = true
+			o.RateControlMode = govpx.RateControlCBR
+			o.TargetBitrateKbps = 300
+			o.AQMode = govpx.VP9AQCyclicRefresh
+		},
+	})
+	if err != nil {
+		t.Fatalf("ComputeBDRate err: %v", err)
+	}
+	t.Logf("CyclicRefresh BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
+	recordFeatureScoreboardRow("CyclicRefresh (panning)", res)
+	// Cyclic refresh is libvpx's default at realtime speed 5+ for a
+	// reason: it should be roughly neutral or save bitrate on panning
+	// content (refreshed blocks pay back the boost). Allow up to +5%
+	// to absorb the synthetic-fixture variance; flag savings deeper
+	// than -20% as harness suspect.
+	if res.BDRate > 5.0 {
+		t.Errorf("CyclicRefresh BD-rate=%.3f%% > 5%%: feature must not regress on panning content",
+			res.BDRate)
+	}
+	if res.BDRate < -20.0 {
+		t.Errorf("CyclicRefresh BD-rate=%.3f%% < -20%%: implausibly large saving, check harness",
+			res.BDRate)
+	}
+	assertLibvpxAbsoluteGate(t, "CyclicRefresh", res, defaultLibvpxAbsoluteGate)
+}
+
 // TestVP9FeatureBDRateScoreboardSummary prints the per-feature
 // scoreboard at the end of the BD-rate run. It runs after the gates
 // (alphabetical Z-suffix) so the table reflects every recorded row.
