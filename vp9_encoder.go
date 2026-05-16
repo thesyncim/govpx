@@ -778,6 +778,19 @@ type VP9Encoder struct {
 	vp9CountCounts   []encoder.FrameCounts
 	vp9CountJobs     []vp9CountTileJob
 	vp9TilePool      *vp9TileWorkerPool
+	// vp9LeafInterDecisions caches the result of pickVP9InterReferenceMode
+	// at the leaf-write site so the count pre-pass populates entries and
+	// the bitstream write pass reuses them without re-running the inter-
+	// mode picker. The cache mirrors libvpx's mi_grid_visible[] store: the
+	// picker decision is committed once, the writer reads back the stored
+	// decision without recomputation (libvpx vp9/encoder/vp9_encodeframe.c
+	// encode_b — write_modes_b in vp9_bitstream.c reads mbmi directly).
+	// Sized to miRows*miCols on first frame; the version stamp invalidates
+	// stale entries on each frame so cross-frame state never leaks.
+	vp9LeafInterDecisions     []vp9LeafInterDecisionEntry
+	vp9LeafInterDecisionsRows int
+	vp9LeafInterDecisionsCols int
+	vp9LeafInterDecisionsVer  uint32
 	// vp9RowMTSync is set when the worker is dispatched as a tile-column body
 	// with RowMT enabled. The pointer aliases an entry inside
 	// vp9TileWorkerPool.rowMTSyncs and lives for the duration of the per-frame
@@ -3151,6 +3164,7 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 			e.miGrid[i] = vp9dec.NeighborMi{}
 		}
 	}
+	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
 	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratch {
 		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
 	} else {
@@ -6813,6 +6827,17 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 			mi.Mv = decision.mv
 			mi.InterpFilter = uint8(decision.interpFilter)
 		}
+	} else if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, bsize); ok {
+		// libvpx: vp9/encoder/vp9_bitstream.c::write_modes_b reads the
+		// stored picker decision from mi[0]->mbmi without re-invoking
+		// the picker. The cache populated by the prior count pre-pass
+		// supplies the same decision for this leaf-write call site.
+		picked = cached
+		mi.Mode = cached.mode
+		mi.Mv = cached.mv
+		mi.RefFrame = [2]int8{cached.refFrame, cached.secondRefFrame}
+		mi.InterpFilter = uint8(cached.interpFilter)
+		inter.ref = &e.refFrames[cached.refSlot]
 	} else if decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, bsize); ok {
 		picked = decision
@@ -6821,6 +6846,12 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		mi.RefFrame = [2]int8{decision.refFrame, decision.secondRefFrame}
 		mi.InterpFilter = uint8(decision.interpFilter)
 		inter.ref = &e.refFrames[decision.refSlot]
+		// Commit the leaf decision so a subsequent same-frame visit at
+		// this (miRow, miCol, bsize) — the bitstream write pass — can
+		// skip the picker. libvpx encodes the decision once into
+		// mi_grid_visible during the encode walk; the bitstream pass
+		// reads it back without recomputation.
+		e.storeVP9LeafInterDecision(miRow, miCol, bsize, decision)
 	} else if refFrame, refSlot, ok := e.firstVP9InterReference(inter); ok {
 		mi.RefFrame[0] = refFrame
 		inter.ref = &e.refFrames[refSlot]
@@ -7647,6 +7678,25 @@ type vp9InterModeDecision struct {
 	rate           int
 	distortion     uint64
 	score          uint64
+}
+
+// vp9LeafInterDecisionEntry stores one cached leaf-write inter-mode decision
+// keyed by (version, bsize). The cache mirrors libvpx's mi_grid_visible
+// per-block storage; entries are populated by the count pre-pass at
+// pickVP9InterReferenceMode and consumed by the bitstream write pass to skip
+// the redundant picker invocation. The version stamp guards against stale
+// entries spanning multiple frames; the bsize discriminator guards against
+// callers that re-enter the leaf-write site at a different block size than
+// the prior visit.
+//
+// libvpx: vp9/encoder/vp9_encodeframe.c encode_b stores the picker decision
+// into mi[0]->mbmi; vp9/encoder/vp9_bitstream.c::write_modes_b reads it back
+// for emission without recomputation.
+type vp9LeafInterDecisionEntry struct {
+	version  uint32
+	bsize    common.BlockSize
+	decision vp9InterModeDecision
+	valid    bool
 }
 
 func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
@@ -9728,6 +9778,90 @@ func (e *VP9Encoder) vp9MiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi {
 		return nil
 	}
 	return &e.miGrid[off]
+}
+
+// ensureVP9LeafInterDecisionCache sizes the per-frame leaf-write picker
+// decision cache to the current miGrid extent. Called from
+// ensureVP9EncoderModeBuffers so the cache always tracks the active frame.
+// The version stamp is bumped to invalidate any stale entries left from the
+// prior frame (avoids the O(N) zeroing every frame).
+//
+// libvpx: vp9/encoder/vp9_encodeframe.c::set_offsets resizes cpi->td.mb
+// per-frame; the per-block mbmi decision survives within the frame but is
+// reset at frame boundaries via vp9_zero(cm->mip).
+func (e *VP9Encoder) ensureVP9LeafInterDecisionCache(miRows, miCols int) {
+	n := miRows * miCols
+	if cap(e.vp9LeafInterDecisions) < n {
+		e.vp9LeafInterDecisions = make([]vp9LeafInterDecisionEntry, n)
+	} else {
+		e.vp9LeafInterDecisions = e.vp9LeafInterDecisions[:n]
+	}
+	e.vp9LeafInterDecisionsRows = miRows
+	e.vp9LeafInterDecisionsCols = miCols
+	e.vp9LeafInterDecisionsVer++
+	// On version wraparound (extremely unlikely; uint32 covers 4B frames)
+	// zero the cache so a stale version stamp can't masquerade as fresh.
+	if e.vp9LeafInterDecisionsVer == 0 {
+		for i := range e.vp9LeafInterDecisions {
+			e.vp9LeafInterDecisions[i] = vp9LeafInterDecisionEntry{}
+		}
+		e.vp9LeafInterDecisionsVer = 1
+	}
+}
+
+// lookupVP9LeafInterDecision returns a previously stored leaf-write inter
+// picker decision for (miRow, miCol, bsize) if one was committed in the
+// current frame. The first leaf-write visit (count pre-pass) populates;
+// the second visit (bitstream write pass) consumes. A miss returns false.
+func (e *VP9Encoder) lookupVP9LeafInterDecision(miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9InterModeDecision, bool) {
+	if e.vp9LeafInterDecisionsCols <= 0 {
+		return vp9InterModeDecision{}, false
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9LeafInterDecisionsRows ||
+		miCol >= e.vp9LeafInterDecisionsCols {
+		return vp9InterModeDecision{}, false
+	}
+	off := miRow*e.vp9LeafInterDecisionsCols + miCol
+	if off < 0 || off >= len(e.vp9LeafInterDecisions) {
+		return vp9InterModeDecision{}, false
+	}
+	entry := &e.vp9LeafInterDecisions[off]
+	if !entry.valid || entry.version != e.vp9LeafInterDecisionsVer ||
+		entry.bsize != bsize {
+		return vp9InterModeDecision{}, false
+	}
+	return entry.decision, true
+}
+
+// storeVP9LeafInterDecision commits the picker decision for (miRow, miCol,
+// bsize) to the per-frame leaf cache. Subsequent same-frame lookups at the
+// same key return the stored decision, allowing the bitstream write pass to
+// skip pickVP9InterReferenceMode after the count pre-pass populated the
+// entry.
+func (e *VP9Encoder) storeVP9LeafInterDecision(miRow, miCol int,
+	bsize common.BlockSize, decision vp9InterModeDecision,
+) {
+	if e.vp9LeafInterDecisionsCols <= 0 {
+		return
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9LeafInterDecisionsRows ||
+		miCol >= e.vp9LeafInterDecisionsCols {
+		return
+	}
+	off := miRow*e.vp9LeafInterDecisionsCols + miCol
+	if off < 0 || off >= len(e.vp9LeafInterDecisions) {
+		return
+	}
+	e.vp9LeafInterDecisions[off] = vp9LeafInterDecisionEntry{
+		version:  e.vp9LeafInterDecisionsVer,
+		bsize:    bsize,
+		decision: decision,
+		valid:    true,
+	}
 }
 
 func (e *VP9Encoder) fillVP9MiGrid(miRows, miCols, r, c int, bsize common.BlockSize, mi vp9dec.NeighborMi) {

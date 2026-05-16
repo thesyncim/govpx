@@ -526,6 +526,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	aboveSegCtx := w.aboveSegCtx
 	leftSegCtx := w.leftSegCtx
 	miGrid := w.miGrid
+	leafDecisions := w.vp9LeafInterDecisions
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
 	interPredictor := w.interPredictor
@@ -555,6 +556,9 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
 	w.miGrid = miGrid
+	// Worker-private leaf-decision cache so helper goroutines don't race
+	// the parent's cache when populating per-block picker decisions.
+	w.vp9LeafInterDecisions = leafDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
 	w.interPredictor = interPredictor

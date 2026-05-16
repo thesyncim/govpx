@@ -760,6 +760,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	aboveSegCtx := w.aboveSegCtx
 	leftSegCtx := w.leftSegCtx
 	miGrid := w.miGrid
+	leafDecisions := w.vp9LeafInterDecisions
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
 	interPredictor := w.interPredictor
@@ -777,6 +778,11 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
 	w.miGrid = miGrid
+	// Each worker owns its own leaf-decision cache so concurrent
+	// tile-column writers don't race on the shared slice; the worker's
+	// pre-existing slice is preserved and ensureVP9LeafInterDecisionCache
+	// below re-sizes it to the active miRows*miCols extent.
+	w.vp9LeafInterDecisions = leafDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
 	w.interPredictor = interPredictor
@@ -800,6 +806,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	aboveSegCtx := w.aboveSegCtx
 	leftSegCtx := w.leftSegCtx
 	miGrid := w.miGrid
+	leafDecisions := w.vp9LeafInterDecisions
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
 	interPredictor := w.interPredictor
@@ -817,6 +824,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
 	w.miGrid = miGrid
+	// Worker-private leaf-decision cache; see prepareVP9CountWorker.
+	w.vp9LeafInterDecisions = leafDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
 	w.interPredictor = interPredictor
