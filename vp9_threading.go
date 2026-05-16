@@ -91,6 +91,18 @@ type vp9TileWorkerPool struct {
 	// workerCount so each tile column body can index it by tileCol.
 	rowMTSyncs []vp9RowMTSync
 
+	// rowWorkerPools holds one vp9RowWorkerPool per tile column, allocated
+	// lazily by ensureRowWorkers when RowMT is enabled. Each pool spins up
+	// min(rowMTThreads, sbRows) goroutines that dispatch SB rows under the
+	// matching rowMTSyncs[tileCol] wavefront. releaseRowWorkers tears the
+	// pools down when SetRowMT(false) flips the option off; shutdownPool
+	// closes them when the encoder is reconfigured or finalized.
+	rowWorkerPools []*vp9RowWorkerPool
+
+	// rowMTThreadCount caches the per-tile-column row worker count selected
+	// by the most recent ensureRowWorkers call. Reset across pool rebuilds.
+	rowMTThreadCount int
+
 	jobKind     vp9TileWorkerJobKind
 	workerCount int
 }
@@ -239,6 +251,75 @@ func (p *vp9TileWorkerPool) releaseRowMTSync() {
 		p.rowMTSyncs[i].release()
 	}
 	p.rowMTSyncs = p.rowMTSyncs[:0]
+}
+
+// ensureRowWorkers arms one vp9RowWorkerPool per tile column with the row
+// worker count clamped by vp9RowMTThreadCount(rowMTThreads, sbRows). It is
+// called from the per-frame encode path immediately after ensureRowMTSync
+// when RowMT is enabled. Pools are reused across frames; if the desired
+// worker count changes (resize) the existing pools are torn down and
+// replaced so the worker goroutine count stays in sync.
+func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, sbRows int) {
+	if p == nil || p.workerCount <= 0 || sbRows <= 0 {
+		return
+	}
+	rowThreads := vp9RowMTThreadCount(rowMTThreads, sbRows)
+	// Single-worker case collapses to the serial path. Tear down any
+	// existing pools so we do not keep goroutines parked for a layout
+	// that no longer wants them.
+	if rowThreads <= 1 {
+		p.releaseRowWorkers()
+		p.rowMTThreadCount = 1
+		return
+	}
+	if p.rowMTThreadCount == rowThreads && len(p.rowWorkerPools) == p.workerCount {
+		// Steady-state: re-arm per-row scratch but reuse the goroutines.
+		for i := range p.rowWorkerPools {
+			if pool := p.rowWorkerPools[i]; pool != nil {
+				pool.reset(&p.workers[i], 0)
+			}
+		}
+		return
+	}
+	// Worker count changed: shut down stale pools and build fresh ones.
+	for i := range p.rowWorkerPools {
+		if pool := p.rowWorkerPools[i]; pool != nil {
+			pool.shutdownPool()
+			p.rowWorkerPools[i] = nil
+		}
+	}
+	if cap(p.rowWorkerPools) < p.workerCount {
+		p.rowWorkerPools = make([]*vp9RowWorkerPool, p.workerCount)
+	} else {
+		p.rowWorkerPools = p.rowWorkerPools[:p.workerCount]
+		for i := range p.rowWorkerPools {
+			p.rowWorkerPools[i] = nil
+		}
+	}
+	for i := 0; i < p.workerCount; i++ {
+		p.rowWorkerPools[i] = newVP9RowWorkerPool(rowThreads)
+		if p.rowWorkerPools[i] != nil {
+			p.rowWorkerPools[i].reset(&p.workers[i], 0)
+		}
+	}
+	p.rowMTThreadCount = rowThreads
+}
+
+// releaseRowWorkers tears down the per-tile-column row worker pools. It is
+// invoked when SetRowMT(false) flips the option off so steady-state
+// encoders that disabled row-MT do not keep helper goroutines parked.
+func (p *vp9TileWorkerPool) releaseRowWorkers() {
+	if p == nil {
+		return
+	}
+	for i := range p.rowWorkerPools {
+		if pool := p.rowWorkerPools[i]; pool != nil {
+			pool.shutdownPool()
+			p.rowWorkerPools[i] = nil
+		}
+	}
+	p.rowWorkerPools = p.rowWorkerPools[:0]
+	p.rowMTThreadCount = 0
 }
 
 type vp9TileWorkerJobKind uint8
@@ -409,6 +490,9 @@ func (p *vp9TileWorkerPool) shutdownPool() {
 	if p == nil {
 		return
 	}
+	// Tear down any per-tile-column row worker pools first so their
+	// helper goroutines drain before the tile-level workers shut down.
+	p.releaseRowWorkers()
 	select {
 	case <-p.shutdown:
 	default:
@@ -597,8 +681,14 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 	if e.opts.RowMT {
 		sbRows := (miRows + (1 << common.MiBlockSizeLog2) - 1) >> common.MiBlockSizeLog2
 		pool.ensureRowMTSync(sbRows)
-	} else if len(pool.rowMTSyncs) > 0 {
-		pool.releaseRowMTSync()
+		pool.ensureRowWorkers(e.opts.Threads, sbRows)
+	} else {
+		if len(pool.rowMTSyncs) > 0 {
+			pool.releaseRowMTSync()
+		}
+		if len(pool.rowWorkerPools) > 0 {
+			pool.releaseRowWorkers()
+		}
 	}
 	seed := vp9CountTileSeedForState(key, inter)
 	for tileCol := range tileCols {

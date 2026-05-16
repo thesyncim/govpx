@@ -413,6 +413,7 @@ func (e *VP9Encoder) SetRowMT(enabled bool) error {
 	e.opts.RowMT = enabled
 	if !enabled && e.vp9TilePool != nil {
 		e.vp9TilePool.releaseRowMTSync()
+		e.vp9TilePool.releaseRowWorkers()
 	}
 	return nil
 }
