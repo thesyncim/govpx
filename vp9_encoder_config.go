@@ -305,6 +305,44 @@ func (e *VP9Encoder) SetFrameParallelDecoding(enabled bool) error {
 	return nil
 }
 
+// SetFrameParallelEncoderThreads configures the maximum number of source
+// frames encoded concurrently. Mirrors libvpx's --frame-parallel-mt scheduling
+// knob at the encoder side. Zero or one disable the batched scheduler;
+// higher values lead the next lookahead-driven encode to dispatch up to N
+// frames in parallel. Requires LookaheadFrames > 0 (frame-parallel scheduling
+// is meaningful only when the lookahead queue accumulates future sources).
+// Mutually exclusive with AutoAltRef since the hidden alt-ref source spans
+// future frames that would otherwise be consumed by the batch.
+//
+// In-flight batches that have not yet been drained block the configuration
+// change with ErrFrameNotReady; drain the encoder with FlushIntoWithResult
+// before retrying.
+func (e *VP9Encoder) SetFrameParallelEncoderThreads(threads int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if threads < 0 {
+		return ErrInvalidConfig
+	}
+	if threads > vp9MaxLookaheadFrames {
+		return ErrInvalidConfig
+	}
+	nextOpts := e.opts
+	nextOpts.FrameParallelEncoderThreads = threads
+	if err := validateVP9FrameParallelEncoderOptions(nextOpts); err != nil {
+		return err
+	}
+	if e.frameParallel != nil && e.frameParallel.hasPendingResults() {
+		return ErrFrameNotReady
+	}
+	e.opts.FrameParallelEncoderThreads = threads
+	if threads <= 1 && e.frameParallel != nil {
+		e.frameParallel.release()
+		e.frameParallel = nil
+	}
+	return nil
+}
+
 // SetActiveMap installs a VP9 per-16x16 activity map. Cells equal to 0 mark
 // inactive macroblocks; on inter frames, inactive 8x8 mode blocks code as
 // ZEROMV-LAST with skip=1. Blocks that already match LAST may remain in the

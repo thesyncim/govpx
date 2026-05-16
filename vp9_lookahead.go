@@ -79,8 +79,21 @@ func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst
 	if err := e.pushVP9Lookahead(img, flags); err != nil {
 		return VP9EncodeResult{}, err
 	}
+	// Drain any packet that an earlier parallel batch left staged.
+	if e.frameParallel != nil && e.frameParallel.hasPendingResults() {
+		if out, ok, err := e.vp9PopFrameParallelResultInto(dst); ok {
+			return out, err
+		}
+	}
 	if e.vp9LookaheadSize() < e.opts.LookaheadFrames {
 		return VP9EncodeResult{}, ErrFrameNotReady
+	}
+	// Frame-parallel scheduling fires before the auto-altref path because
+	// the option pair is mutually exclusive (validated at construction).
+	if e.vp9FrameParallelEnabled() {
+		if result, ok, err := e.vp9RunFrameParallelBatch(dst, false); ok || err != nil {
+			return result, err
+		}
 	}
 	if result, ok, err := e.maybeEncodeVP9AutoAltRefInto(dst); ok || err != nil {
 		return result, err
@@ -112,11 +125,25 @@ func (e *VP9Encoder) FlushIntoWithResult(dst []byte) (VP9EncodeResult, error) {
 	if len(dst) < vp9MinEncodeIntoBuffer {
 		return VP9EncodeResult{}, ErrBufferTooSmall
 	}
+	// Drain any packet staged by a prior parallel batch first.
+	if e.frameParallel != nil && e.frameParallel.hasPendingResults() {
+		if out, ok, err := e.vp9PopFrameParallelResultInto(dst); ok {
+			return out, err
+		}
+	}
 	if e.autoAltRefPendingSet {
 		return e.encodeVP9AutoAltRefPendingInto(dst)
 	}
 	if !e.vp9LookaheadEnabled() || e.vp9LookaheadSize() == 0 {
 		return VP9EncodeResult{}, ErrFrameNotReady
+	}
+	// If frame-parallel encoding is enabled, drain remaining queued frames
+	// through a (possibly under-full) parallel batch so packet emission
+	// stays in display order even when the source stream ends mid-batch.
+	if e.vp9FrameParallelEnabled() {
+		if result, ok, err := e.vp9RunFrameParallelBatch(dst, true); ok || err != nil {
+			return result, err
+		}
 	}
 	entry, ok := e.popVP9Lookahead(true)
 	if !ok {
@@ -221,6 +248,22 @@ func (e *VP9Encoder) popVP9Lookahead(drain bool) (*vp9LookaheadEntry, bool) {
 	}
 	e.lookaheadCount--
 	return entry, true
+}
+
+// peekVP9LookaheadAt returns a pointer to the lookahead entry at logical
+// offset i (0 == oldest queued frame, lookaheadCount-1 == newest) without
+// removing it. The caller must not retain the pointer past the next push or
+// pop operation. Returns false when i is out of range or lookahead is
+// disabled.
+func (e *VP9Encoder) peekVP9LookaheadAt(i int) (*vp9LookaheadEntry, bool) {
+	if !e.vp9LookaheadEnabled() {
+		return nil, false
+	}
+	if i < 0 || i >= int(e.lookaheadCount) {
+		return nil, false
+	}
+	idx := (int(e.lookaheadRead) + i) % len(e.lookahead)
+	return &e.lookahead[idx], true
 }
 
 func (e *VP9Encoder) newestVP9LookaheadEntry() (*vp9LookaheadEntry, bool) {

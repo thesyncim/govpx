@@ -450,6 +450,18 @@ type VP9EncoderOptions struct {
 	// NextFrameQIndexSet selects between the zero default and an
 	// explicitly-set NextFrameQIndex=0 override.
 	NextFrameQIndexSet bool
+
+	// FrameParallelEncoderThreads controls encoder-side frame parallelism.
+	// Zero or one keep the historical single-frame-in-flight scheduling.
+	// Values >= 2 enable batched concurrent encoding of up to N visible
+	// source frames at once. Each batch worker receives its own cloned
+	// VP9Encoder state taken at batch entry; ref frames, entropy contexts,
+	// and rate-control state are not updated between batch members so
+	// every member can encode independently. The batch only fires when
+	// LookaheadFrames is non-zero. Mutually exclusive with AutoAltRef,
+	// because the auto-altref hidden frame is read by future source frames
+	// that would otherwise need to wait for the in-flight batch.
+	FrameParallelEncoderThreads int
 }
 
 // VP9SegmentationOptions configures static per-frame VP9 segmentation.
@@ -742,6 +754,10 @@ type VP9Encoder struct {
 	vp9FirstPassCount uint64
 	vp9FirstPassLast  image.YCbCr
 	vp9FirstPassGF    image.YCbCr
+
+	// frameParallel owns the encoder-side concurrent-frame scheduler state.
+	// It is nil unless FrameParallelEncoderThreads >= 2 has been requested.
+	frameParallel *vp9FrameParallelScheduler
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -868,6 +884,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		if opts.RateControlModeSet || opts.TemporalScalability.Enabled {
 			return ErrInvalidConfig
 		}
+	}
+	if err := validateVP9FrameParallelEncoderOptions(opts); err != nil {
+		return err
 	}
 	if opts.Quantizer > 255 {
 		return ErrInvalidQuantizer
@@ -1070,6 +1089,22 @@ func validateVP9AutoAltRefOptions(opts VP9EncoderOptions) error {
 	}
 	if opts.LookaheadFrames <= 1 || opts.ErrorResilient {
 		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func validateVP9FrameParallelEncoderOptions(opts VP9EncoderOptions) error {
+	if opts.FrameParallelEncoderThreads < 0 ||
+		opts.FrameParallelEncoderThreads > vp9MaxLookaheadFrames {
+		return ErrInvalidConfig
+	}
+	if opts.FrameParallelEncoderThreads >= 2 {
+		if opts.LookaheadFrames <= 0 {
+			return ErrInvalidConfig
+		}
+		if opts.AutoAltRef {
+			return ErrInvalidConfig
+		}
 	}
 	return nil
 }
@@ -8692,6 +8727,10 @@ func (e *VP9Encoder) Close() error {
 	if e.vp9TilePool != nil {
 		e.vp9TilePool.shutdownPool()
 		e.vp9TilePool = nil
+	}
+	if e.frameParallel != nil {
+		e.frameParallel.release()
+		e.frameParallel = nil
 	}
 	e.closed = true
 	return nil
