@@ -46,6 +46,12 @@ const (
 	// inter blocks to in-frame Q adjustment segments using libvpx's projected
 	// rate and spatial complexity thresholds.
 	VP9AQComplexity VP9AQMode = 2
+	// VP9AQEquator360 enables VP9 equator-biased 360-video AQ. It mirrors
+	// libvpx's AQ_360, assigning lower-Q segments to the equatorial band and
+	// higher-Q segments toward the poles to budget more bits where viewers
+	// look most often. Requires explicit rate control and is incompatible
+	// with lossless or static segmentation.
+	VP9AQEquator360 VP9AQMode = 4
 	// VP9AQCyclicRefresh enables VP9 cyclic-refresh AQ. This mirrors
 	// libvpx VP9 aq-mode=3 and is currently limited to explicit CBR.
 	VP9AQCyclicRefresh VP9AQMode = 3
@@ -810,6 +816,11 @@ func validateVP9AQOptions(opts VP9EncoderOptions) error {
 			return ErrInvalidConfig
 		}
 		return nil
+	case VP9AQEquator360:
+		if opts.Lossless || opts.Segmentation.Enabled {
+			return ErrInvalidConfig
+		}
+		return nil
 	case VP9AQCyclicRefresh:
 	default:
 		return ErrInvalidConfig
@@ -896,6 +907,13 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 			return vp9dec.SegmentationParams{}
 		}
 		seg := vp9ComplexityAQSegmentationParams(baseQIndex)
+		if e.activeMapEnabled && !intraFrame {
+			vp9EnableActiveMapSegmentation(&seg)
+		}
+		return seg
+	}
+	if e.opts.AQMode == VP9AQEquator360 {
+		seg := vp9Equator360AQSegmentationParams(baseQIndex, intraFrame)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
@@ -4589,6 +4607,14 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 			}
 			return segID, true
 		}
+	}
+	if e.opts.AQMode == VP9AQEquator360 {
+		miRows := (e.opts.Height + 7) >> 3
+		segID := vp9Equator360AQSegmentID(miRow, miRows)
+		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
+			return vp9ActiveMapSegmentInactive, true
+		}
+		return segID, true
 	}
 	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
 		segID := e.cyclicAQ.segmentID(miRow, miCol)
