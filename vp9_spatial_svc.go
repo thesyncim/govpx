@@ -39,6 +39,137 @@ type VP9SpatialSVCEncodeResult struct {
 	ScalabilityStructure VP9RTPScalabilityStructure
 }
 
+// RTPPacketizationSize returns the RTP payload fragment count and payload-body
+// bytes needed to packetize every coded spatial layer in r at mtu bytes.
+//
+// mtu includes each VP9 RTP payload descriptor but excludes the RTP header.
+// The access unit is packetized as one VP9 RTP frame per spatial layer, in
+// ascending spatial-layer order. The base layer carries the parent scalability
+// structure; enhancement layers carry only their layer indices.
+func (r VP9SpatialSVCEncodeResult) RTPPacketizationSize(mtu int) (int, int, error) {
+	count, err := r.vp9SpatialSVCLayerCount()
+	if err != nil {
+		return 0, 0, err
+	}
+	packets := 0
+	payloadBytes := 0
+	for layerID := 0; layerID < count; layerID++ {
+		desc, frame, err := r.vp9SpatialSVCRTPFrame(layerID)
+		if err != nil {
+			return 0, 0, err
+		}
+		layerPackets, layerBytes, err := VP9RTPFramePacketizationSize(desc,
+			frame, mtu)
+		if err != nil {
+			return 0, 0, err
+		}
+		packets, err = rtpAddPayloadSize(packets, layerPackets)
+		if err != nil {
+			return 0, 0, err
+		}
+		payloadBytes, err = rtpAddPayloadSize(payloadBytes, layerBytes)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	return packets, payloadBytes, nil
+}
+
+// PacketizeRTPInto packetizes every coded spatial layer in r into caller-owned
+// RTP payload storage. dst receives fragment metadata and payloadBuf receives
+// the payload bodies. On [ErrBufferTooSmall], the returned fragment and byte
+// counts are the required capacities.
+//
+// Payload bodies do not include RTP headers. Fragments are written in
+// spatial-layer order, and each layer frame uses its own VP9 RTP start/end and
+// marker semantics.
+func (r VP9SpatialSVCEncodeResult) PacketizeRTPInto(dst []RTPPayloadFragment,
+	payloadBuf []byte, mtu int,
+) (int, int, error) {
+	needPackets, needBytes, err := r.RTPPacketizationSize(mtu)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(dst) < needPackets || len(payloadBuf) < needBytes {
+		return needPackets, needBytes, ErrBufferTooSmall
+	}
+	count := int(r.LayerCount)
+	packetOff := 0
+	byteOff := 0
+	for layerID := 0; layerID < count; layerID++ {
+		desc, frame, err := r.vp9SpatialSVCRTPFrame(layerID)
+		if err != nil {
+			return 0, 0, err
+		}
+		layerPackets, layerBytes, err := VP9RTPFramePacketizationSize(desc,
+			frame, mtu)
+		if err != nil {
+			return 0, 0, err
+		}
+		writtenPackets, writtenBytes, err := PacketizeVP9RTPFrameInto(
+			dst[packetOff:packetOff+layerPackets],
+			payloadBuf[byteOff:byteOff+layerBytes], desc, frame, mtu)
+		if err != nil {
+			return 0, 0, err
+		}
+		packetOff += writtenPackets
+		byteOff += writtenBytes
+	}
+	return needPackets, needBytes, nil
+}
+
+// PacketizeRTP returns RTP payload bodies for every coded spatial layer in r.
+// For a zero-allocation packetization path, use [VP9SpatialSVCEncodeResult.PacketizeRTPInto].
+func (r VP9SpatialSVCEncodeResult) PacketizeRTP(mtu int) ([]RTPPayloadFragment, error) {
+	packets, payloadBytes, err := r.RTPPacketizationSize(mtu)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, _, err := r.PacketizeRTPInto(out, payloadBuf, mtu)
+	if err != nil {
+		return nil, err
+	}
+	return out[:n], nil
+}
+
+func (r VP9SpatialSVCEncodeResult) vp9SpatialSVCLayerCount() (int, error) {
+	if r.LayerCount == 0 || r.LayerCount > VP9MaxSpatialLayers {
+		return 0, ErrInvalidConfig
+	}
+	return int(r.LayerCount), nil
+}
+
+func (r VP9SpatialSVCEncodeResult) vp9SpatialSVCRTPFrame(
+	layerID int,
+) (VP9RTPPayloadDescriptor, []byte, error) {
+	count, err := r.vp9SpatialSVCLayerCount()
+	if err != nil {
+		return VP9RTPPayloadDescriptor{}, nil, err
+	}
+	if layerID < 0 || layerID >= count {
+		return VP9RTPPayloadDescriptor{}, nil, ErrInvalidConfig
+	}
+	layer := r.Layers[layerID]
+	if layer.Dropped || len(layer.Data) == 0 ||
+		layer.SpatialLayerID != uint8(layerID) ||
+		layer.SpatialLayerCount != r.LayerCount {
+		return VP9RTPPayloadDescriptor{}, nil, ErrInvalidConfig
+	}
+	desc := layer.RTPPayloadDescriptor()
+	if layerID == 0 {
+		if !r.ScalabilityStructure.isZero() {
+			desc.ScalabilityStructurePresent = true
+			desc.ScalabilityStructure = r.ScalabilityStructure
+		}
+	} else {
+		desc.ScalabilityStructurePresent = false
+		desc.ScalabilityStructure = VP9RTPScalabilityStructure{}
+	}
+	return desc, layer.Data, nil
+}
+
 // VP9SpatialSVCEncoder encodes a complete VP9 spatial-SVC access unit into one
 // VP9 superframe. The zero value is closed; construct with
 // [NewVP9SpatialSVCEncoder].
@@ -436,6 +567,30 @@ func (e *VP9SpatialSVCEncoder) SetLayerRateControl(layerID uint8, cfg RateContro
 		return err
 	}
 	return layer.SetRateControl(cfg)
+}
+
+// SetLayerReferenceFrame replaces one spatial layer's VP9 encoder reference
+// slot, matching [VP9Encoder.SetReferenceFrame].
+func (e *VP9SpatialSVCEncoder) SetLayerReferenceFrame(layerID uint8,
+	ref ReferenceFrame, src Image,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetReferenceFrame(ref, src)
+}
+
+// CopyLayerReferenceFrame copies one spatial layer's VP9 encoder reference slot
+// into dst, matching [VP9Encoder.CopyReferenceFrame].
+func (e *VP9SpatialSVCEncoder) CopyLayerReferenceFrame(layerID uint8,
+	ref ReferenceFrame, dst *Image,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.CopyReferenceFrame(ref, dst)
 }
 
 // SetTemporalScalability configures the same VP9 temporal-layer schedule on

@@ -298,9 +298,17 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 		"ForceKeyFrame":        {kind: "frame-flag-api"},
 		"IsKeyFrameNext":       {kind: "metadata-api"},
 		"LayerEncoder":         {kind: "vp9-spatial-svc-layer-control"},
-		"SetLayerBitrateKbps":  {kind: "vp9-spatial-svc-layer-control"},
-		"SetLayerRateControl":  {kind: "vp9-spatial-svc-layer-control"},
-		"SetTemporalLayerID":   {kind: "vp9-spatial-temporal-svc-control"},
+		"CopyLayerReferenceFrame": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"copyref:"},
+		},
+		"SetLayerBitrateKbps": {kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerRateControl": {kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerReferenceFrame": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"setref:"},
+		},
+		"SetTemporalLayerID": {kind: "vp9-spatial-temporal-svc-control"},
 		"SetTemporalScalability": {
 			kind: "vp9-spatial-temporal-svc-control",
 		},
