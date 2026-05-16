@@ -114,6 +114,7 @@ returns no more data.
 | Select VP9 decoded spatial-SVC layer | `SetSVCSpatialLayer`, `ClearSVCSpatialLayer` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
+| Encode a VP9 spatial-SVC access unit | `NewVP9SpatialSVCEncoder`, `VP9SpatialSVCEncoder.EncodeIntoWithResult` |
 | Signal VP9 encoded spatial layer | `VP9EncoderOptions.SpatialScalability`, `SetSpatialScalability`, `SetSpatialLayerID` |
 | Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `PackVP9SuperframeInto`, `PackVP9Superframe` |

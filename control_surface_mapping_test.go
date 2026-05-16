@@ -284,6 +284,29 @@ func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 	assertOptionFieldMappings(t, "VP9DecoderOptions", fields, want)
 }
 
+func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
+	methods := exportedMethodSet(t, (*VP9SpatialSVCEncoder)(nil))
+	want := map[string]controlParityMapping{
+		"Close":                {kind: "lifecycle"},
+		"EncodeInto":           {kind: "vp9-spatial-svc-superframe-api"},
+		"EncodeIntoWithResult": {kind: "vp9-spatial-svc-superframe-api"},
+		"ForceKeyFrame":        {kind: "frame-flag-api"},
+		"IsKeyFrameNext":       {kind: "metadata-api"},
+		"LayerEncoder":         {kind: "vp9-spatial-svc-layer-control"},
+	}
+	assertPublicMethodMappings(t, "VP9SpatialSVCEncoder", methods, want)
+}
+
+func TestVP9SpatialSVCEncoderOptionsHaveParityMapping(t *testing.T) {
+	fields := exportedFieldSet(t, VP9SpatialSVCEncoderOptions{})
+	want := map[string]controlParityMapping{
+		"InterLayerPrediction": {kind: "vp9-spatial-svc-layer-control"},
+		"LayerCount":           {kind: "libvpx-vp9-svc-control"},
+		"Layers":               {kind: "libvpx-vp9-svc-layer-config"},
+	}
+	assertOptionFieldMappings(t, "VP9SpatialSVCEncoderOptions", fields, want)
+}
+
 type controlParityMapping struct {
 	kind         string
 	helperTokens []string

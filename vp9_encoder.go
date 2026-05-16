@@ -1086,6 +1086,17 @@ func (e *VP9Encoder) EncodeIntoWithFlagsResult(img *image.YCbCr, dst []byte, fla
 	return e.encodeVP9FrameIntoWithFlagsResult(img, dst, flags, false, temporalFrame)
 }
 
+func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
+	callerFlags := flags
+	temporalFrame := e.temporal.nextFrame(e.vp9TimingState())
+	flags |= temporalFrame.Flags
+	if e.vp9ShouldEncodeKeyFrame(flags) {
+		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
+	}
+	return e.encodeVP9FrameIntoWithFlagsResultInternal(img, dst, flags, false,
+		temporalFrame, true)
+}
+
 // EncodeIntraOnlyFrameInto packs a hidden VP9 intra-only frame into dst.
 // Intra-only frames are non-key VP9 packets with sync code and frame size but
 // no inter prediction; by VP9 syntax they are always invisible. The VP9 stream
@@ -1097,6 +1108,11 @@ func (e *VP9Encoder) EncodeIntraOnlyFrameInto(img *image.YCbCr, dst []byte, flag
 }
 
 func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame) (result VP9EncodeResult, err error) {
+	return e.encodeVP9FrameIntoWithFlagsResultInternal(img, dst, flags,
+		forceIntraOnly, temporalFrame, false)
+}
+
+func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame, forceFirstInterLayer bool) (result VP9EncodeResult, err error) {
 	if e == nil || e.closed {
 		return VP9EncodeResult{}, ErrClosed
 	}
@@ -1130,6 +1146,12 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	isKey := e.vp9ShouldEncodeKeyFrame(flags)
 	intraOnly := forceIntraOnly
 	if intraOnly {
+		isKey = false
+	}
+	if forceFirstInterLayer && isKey && e.frameIndex == 0 &&
+		!e.forceKeyFrame && flags&EncodeForceKeyFrame == 0 &&
+		e.hasVP9UsableInterReference(flags) {
+		e.resetVP9EncoderFrameContexts()
 		isKey = false
 	}
 	if !isKey && !intraOnly && !e.hasVP9UsableInterReference(flags) &&
