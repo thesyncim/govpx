@@ -26,9 +26,17 @@ type QualityPoint struct {
 // BDRateResult bundles the inputs of a BD-rate measurement plus the
 // computed deltas so callers can both consume the headline number and
 // log the underlying operating points.
+//
+// Reference / Govpx hold the within-govpx feature-on-vs-feature-off
+// comparison (baseline curve is `Reference`; test curve under
+// measurement is `Govpx`). When `LibvpxReference` is enabled in
+// BDRateOptions, the harness additionally populates `Libvpx` with the
+// matching libvpx-vp9 (rate, PSNR) curve at the same Q ladder so the
+// caller can compute the absolute-reference deltas
+// (BDRateGovpxVsLibvpx / BDPSNRGovpxVsLibvpx).
 type BDRateResult struct {
-	// Reference is the baseline curve (e.g., libvpx). Govpx is the curve
-	// under test.
+	// Reference is the baseline govpx curve (feature off). Govpx is the
+	// curve under test (feature on).
 	Reference []QualityPoint
 	Govpx     []QualityPoint
 	// BDRate is the percentage extra bitrate Govpx needs to match Reference
@@ -39,6 +47,34 @@ type BDRateResult struct {
 	// rate range. Positive is better (Govpx delivers more dB at the same
 	// rate); negative is worse.
 	BDPSNR float64
+
+	// Libvpx is the libvpx-vp9 reference curve encoded at the same Q
+	// ladder with the same on-feature flags as Govpx (Test callback).
+	// Empty when BDRateOptions.LibvpxReference is false, when the
+	// vpxenc-vp9-frameflags helper is unavailable and -build-libvpx is
+	// not requested, or when libvpx feature-flag mapping is unsupported
+	// for the requested test configuration. Populated, it carries the
+	// same number of QualityPoints as Govpx, ordered by Q.
+	Libvpx []QualityPoint
+
+	// BDRateGovpxVsLibvpx is the percentage extra bitrate govpx needs
+	// to match libvpx at equal PSNR over the overlapping quality range.
+	// Negative means govpx is more efficient than libvpx; positive
+	// means govpx loses bitrate vs libvpx. Set to NaN when Libvpx is
+	// empty or the cubic-overlap solve failed.
+	BDRateGovpxVsLibvpx float64
+	// BDPSNRGovpxVsLibvpx is the PSNR gap in dB at equal rate between
+	// govpx and libvpx. Positive means govpx delivers more dB at the
+	// same rate; negative means govpx loses quality. Set to NaN when
+	// Libvpx is empty or the cubic-overlap solve failed.
+	BDPSNRGovpxVsLibvpx float64
+
+	// LibvpxErr captures the reason Libvpx is empty when
+	// LibvpxReference was requested but the harness could not produce
+	// a libvpx reference (binary missing, libvpx subprocess failed,
+	// invalid feature mapping). The harness only sets this when
+	// BDRateOptions.LibvpxReference is true.
+	LibvpxErr error
 }
 
 // Errors returned by BDRate when the inputs are degenerate.

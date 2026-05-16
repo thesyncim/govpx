@@ -116,10 +116,27 @@ verify-decoder-parity: ci decoder-oracle-test
 # these because each measurement takes ~5-15s and the full sweep
 # adds ~30s. Run this target before merging any change that touches
 # AltRef, ARNR, TPL, AltRefAQ, or VP9 AQ-mode code paths.
-verify-bd-rate:
+#
+# The target also captures the absolute govpx-vs-libvpx BD-rate
+# reference by driving the libvpx vpxenc-vp9-frameflags helper with
+# matching feature flags; the per-feature scoreboard logged at the
+# end of the run carries `govpx BD-rate | libvpx BD-rate |
+# govpx-vs-libvpx` columns so the absolute gap to libvpx is visible
+# without instrumenting the gate tests. GOVPX_BD_RATE_BUILD_LIBVPX=1
+# triggers a one-shot libvpx build when the helper binary is
+# missing; GOVPX_BD_RATE_LIBVPX_REQUIRED=1 elevates the libvpx
+# assertion from a soft-skip to t.Fatal so CI fails fast when the
+# oracle is unavailable.
+verify-bd-rate: $(VPXENC_VP9_FRAMEFLAGS)
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 		GOVPX_BD_RATE_GATES=1 \
-		$(GO) test -count=1 -run 'TestVP9FeatureBDRate' -timeout 300s . ./cmd/govpx-bench/benchcmd/
+		GOVPX_BD_RATE_BUILD_LIBVPX=1 \
+		GOVPX_BD_RATE_LIBVPX_REQUIRED=1 \
+		GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN="$(VPXENC_VP9_FRAMEFLAGS)" \
+		$(GO) test -count=1 -v -run 'TestVP9FeatureBDRate' -timeout 600s . ./cmd/govpx-bench/benchcmd/
+
+$(VPXENC_VP9_FRAMEFLAGS):
+	internal/coracle/build_vpxenc_vp9_frameflags.sh >/dev/null
 
 # vp9-dsp-oracle rebuilds the VP9-decoder-only libvpx variant + the
 # DSP oracle binary, then regenerates the committed testdata corpus.

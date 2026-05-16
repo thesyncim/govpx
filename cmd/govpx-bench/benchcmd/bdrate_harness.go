@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"math"
 	"sort"
 	"testing"
 
@@ -66,6 +67,34 @@ type BDRateOptions struct {
 	// can be fully decoded back. Without this flag, decoder errors
 	// fail the harness with the underlying decode error.
 	AllowDecoderFallback bool
+
+	// LibvpxReference asks the harness to additionally encode the same
+	// source sequence through the libvpx vpxenc-vp9-frameflags helper
+	// at every Q in QLadder, with the same on-feature flags as the
+	// Test callback (mapped to libvpx CLI tokens via
+	// libvpxVP9FrameFlagsCLIArgs). The resulting (kbps, PSNR) curve
+	// lands in BDRateResult.Libvpx and the absolute-reference deltas
+	// (BDRateGovpxVsLibvpx / BDPSNRGovpxVsLibvpx) are computed against
+	// Govpx. The reference uses the Q-derived PSNR proxy (same shape
+	// as govpx's AllowDecoderFallback path) so both curves sit on the
+	// same proxy mapping, and only the rate axis carries the bitstream
+	// information.
+	//
+	// Skip behaviour:
+	//   - If the helper binary is missing AND BuildLibvpx is false, the
+	//     harness sets LibvpxErr = ErrVpxencVP9FrameFlagsNotBuilt and
+	//     callers should t.Skip().
+	//   - If BuildLibvpx is true, the harness invokes
+	//     internal/coracle/build_vpxenc_vp9_frameflags.sh and
+	//     hard-fails (LibvpxErr) when the build still does not
+	//     produce a binary.
+	LibvpxReference bool
+	// BuildLibvpx asks the harness to invoke the libvpx build script
+	// when the vpxenc-vp9-frameflags binary is missing. Without it,
+	// a missing binary surfaces as LibvpxErr and the within-govpx
+	// curves are still returned so callers can decide whether to
+	// t.Skip.
+	BuildLibvpx bool
 }
 
 // ComputeBDRate runs the harness and returns the BD-rate result.
@@ -73,6 +102,17 @@ type BDRateOptions struct {
 // callbacks, fewer than 4 Q points, encode failure that propagates).
 // Encode failures at individual Q points are reported as a wrapped
 // error so callers can inspect which operating point failed.
+//
+// When BDRateOptions.LibvpxReference is true, the harness additionally
+// encodes the same source sequence through the libvpx
+// vpxenc-vp9-frameflags helper at every Q with the on-feature flags
+// mapped from BDRateOptions.Test (see libvpxVP9FrameFlagsCLIArgs).
+// The libvpx curve is appended to BDRateResult.Libvpx along with the
+// govpx-vs-libvpx BD-rate / BD-PSNR cross deltas. A missing helper
+// binary surfaces as BDRateResult.LibvpxErr without failing the call,
+// so callers can either t.Skip or assert based on the per-test
+// policy. If BuildLibvpx is requested but the build cannot produce a
+// binary, the error is still propagated through LibvpxErr.
 func ComputeBDRate(t testing.TB, opts BDRateOptions) (BDRateResult, error) {
 	if err := validateBDRateOptions(opts); err != nil {
 		return BDRateResult{}, err
@@ -107,12 +147,33 @@ func ComputeBDRate(t testing.TB, opts BDRateOptions) (BDRateResult, error) {
 	if err != nil {
 		return BDRateResult{Reference: baseline, Govpx: test, BDRate: bd}, err
 	}
-	return BDRateResult{
-		Reference: baseline,
-		Govpx:     test,
-		BDRate:    bd,
-		BDPSNR:    psnr,
-	}, nil
+	result := BDRateResult{
+		Reference:           baseline,
+		Govpx:               test,
+		BDRate:              bd,
+		BDPSNR:              psnr,
+		BDRateGovpxVsLibvpx: math.NaN(),
+		BDPSNRGovpxVsLibvpx: math.NaN(),
+	}
+	if opts.LibvpxReference {
+		libvpxPts, libvpxErr := encodeBDLibvpxCurve(opts, qs)
+		if libvpxErr != nil {
+			result.LibvpxErr = libvpxErr
+			return result, nil
+		}
+		result.Libvpx = libvpxPts
+		if bdCross, err := BDRate(libvpxPts, test); err == nil {
+			result.BDRateGovpxVsLibvpx = bdCross
+		} else {
+			result.LibvpxErr = fmt.Errorf("BDRate(libvpx, govpx): %w", err)
+		}
+		if psnrCross, err := BDPSNR(libvpxPts, test); err == nil {
+			result.BDPSNRGovpxVsLibvpx = psnrCross
+		} else if result.LibvpxErr == nil {
+			result.LibvpxErr = fmt.Errorf("BDPSNR(libvpx, govpx): %w", err)
+		}
+	}
+	return result, nil
 }
 
 func validateBDRateOptions(opts BDRateOptions) error {
