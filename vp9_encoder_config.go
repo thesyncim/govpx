@@ -418,14 +418,18 @@ func (e *VP9Encoder) SetRowMT(enabled bool) error {
 	return nil
 }
 
-// SetScreenContentMode changes VP9 content tuning for subsequent frames. Valid
-// values are 0 for default video, 1 for screen content, and 2 for film/grain
-// content. Screen content expands the realtime no-reference intra search.
+// SetScreenContentMode changes VP9 content tuning for subsequent frames.
+// Valid values match the libvpx VP9E_SET_TUNE_CONTENT enum and the
+// VP9ScreenContent* constants: 0 for VP9ScreenContentDefault, 1 for
+// VP9ScreenContentScreen, and 2 for VP9ScreenContentFilm. Screen
+// content expands the realtime no-reference intra search; film
+// content suppresses the variance-AQ Q-up bias on high-variance
+// blocks so grain texture survives quantization.
 func (e *VP9Encoder) SetScreenContentMode(mode int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if mode < 0 || mode > 2 {
+	if mode < int(VP9ScreenContentDefault) || mode > int(VP9ScreenContentFilm) {
 		return ErrInvalidConfig
 	}
 	e.opts.ScreenContentMode = int8(mode)

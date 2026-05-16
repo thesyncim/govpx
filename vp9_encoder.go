@@ -107,6 +107,34 @@ const (
 	VP9ColorRangeFull VP9ColorRange = 1
 )
 
+// VP9ScreenContent labels the libvpx VP9 content tuning options exposed
+// by VP9E_SET_TUNE_CONTENT. The constants match libvpx's
+// vp9e_tune_content enum: VPX_CONTENT_DEFAULT (0), VPX_CONTENT_SCREEN
+// (1), and VPX_CONTENT_FILM (2). FILM biases the variance-AQ
+// segmentation to preserve film-grain texture by suppressing the
+// positive Q delta libvpx applies to high-variance blocks under
+// default-video tuning.
+type VP9ScreenContent int8
+
+const (
+	// VP9ScreenContentDefault is libvpx's VPX_CONTENT_DEFAULT — the
+	// general-purpose video tuning. Variance AQ keeps its default
+	// high-variance Q-down ratio.
+	VP9ScreenContentDefault VP9ScreenContent = 0
+	// VP9ScreenContentScreen is libvpx's VPX_CONTENT_SCREEN — screen
+	// content tuning. Expands the realtime no-reference intra search
+	// to cover non-DC modes for blocks above 16x16.
+	VP9ScreenContentScreen VP9ScreenContent = 1
+	// VP9ScreenContentFilm is libvpx's VPX_CONTENT_FILM — film/grain
+	// tuning. When combined with VP9AQVariance, the high-variance
+	// segment's rate ratio is held at 1:1 so libvpx's default 3:4
+	// Q-up bias on textured/grain blocks is removed and the grain is
+	// preserved through quantization. Independent of the AQ choice,
+	// FILM also disables the cyclic-refresh interaction with golden
+	// refresh that the existing mode==2 path already gates.
+	VP9ScreenContentFilm VP9ScreenContent = 2
+)
+
 // VP9DisableLoopfilter selects whether the in-loop deblock filter is
 // suppressed. Mirrors libvpx's VP9E_SET_DISABLE_LOOPFILTER control.
 type VP9DisableLoopfilter uint8
@@ -171,9 +199,13 @@ type VP9EncoderOptions struct {
 	// TuneSSIM is accepted for libvpx control-surface parity and future SSIM
 	// mode-decision work.
 	Tuning Tuning
-	// ScreenContentMode selects VP9 content tuning: 0 is default video, 1 is
-	// screen content, and 2 is film/grain content. Screen content enables the
-	// broader no-reference intra mode search used by realtime VP9.
+	// ScreenContentMode selects VP9 content tuning. Values match the
+	// VP9ScreenContent constants (VP9ScreenContentDefault=0,
+	// VP9ScreenContentScreen=1, VP9ScreenContentFilm=2) and libvpx's
+	// VP9E_SET_TUNE_CONTENT. Screen content enables the broader
+	// no-reference intra mode search used by realtime VP9. Film
+	// content biases the variance-AQ segmentation so high-variance
+	// (grain-bearing) blocks stay at the base Q.
 	ScreenContentMode int8
 	// NoiseSensitivity selects VP9 luma/chroma temporal denoising. Zero
 	// disables the denoiser. Valid values are [0, 6]; 1 is low strength, 2 is
@@ -844,7 +876,8 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.Tuning < TunePSNR || opts.Tuning > TuneSSIM {
 		return ErrInvalidConfig
 	}
-	if opts.ScreenContentMode < 0 || opts.ScreenContentMode > 2 {
+	if opts.ScreenContentMode < int8(VP9ScreenContentDefault) ||
+		opts.ScreenContentMode > int8(VP9ScreenContentFilm) {
 		return ErrInvalidConfig
 	}
 	if opts.NoiseSensitivity < 0 || opts.NoiseSensitivity > 6 {
@@ -1264,7 +1297,7 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		return seg
 	}
 	if e.opts.AQMode == VP9AQVariance {
-		seg := vp9VarianceAQSegmentationParams(baseQIndex)
+		seg := vp9VarianceAQSegmentationParams(baseQIndex, e.opts.ScreenContentMode)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
@@ -1359,7 +1392,7 @@ func initVP9SegmentationProbDefaults(seg *vp9dec.SegmentationParams) {
 	}
 }
 
-func vp9VarianceAQSegmentationParams(baseQIndex int) vp9dec.SegmentationParams {
+func vp9VarianceAQSegmentationParams(baseQIndex int, screenContentMode int8) vp9dec.SegmentationParams {
 	seg := vp9dec.SegmentationParams{
 		Enabled:    true,
 		UpdateMap:  true,
@@ -1367,7 +1400,8 @@ func vp9VarianceAQSegmentationParams(baseQIndex int) vp9dec.SegmentationParams {
 		AbsDelta:   false,
 	}
 	initVP9SegmentationProbDefaults(&seg)
-	for i, ratio := range vp9VarianceAQRateRatios {
+	ratios := vp9VarianceAQRateRatiosForContent(screenContentMode)
+	for i, ratio := range ratios {
 		if ratio.num == ratio.den {
 			continue
 		}
@@ -1387,6 +1421,22 @@ func vp9VarianceAQSegmentationParams(baseQIndex int) vp9dec.SegmentationParams {
 	return seg
 }
 
+// vp9VarianceAQRateRatiosForContent returns the per-segment rate
+// ratios used to derive variance-AQ Q deltas. Default video uses
+// libvpx's table where the highest-variance segment (index 4) is
+// pushed up in Q by a 3:4 ratio. VP9ScreenContentFilm clamps that
+// segment back to 1:1, preserving film-grain texture by leaving the
+// high-variance blocks at the base Q.
+func vp9VarianceAQRateRatiosForContent(screenContentMode int8) [vp9dec.MaxSegments]struct {
+	num int
+	den int
+} {
+	if screenContentMode == int8(VP9ScreenContentFilm) {
+		return vp9VarianceAQRateRatiosFilm
+	}
+	return vp9VarianceAQRateRatios
+}
+
 var vp9VarianceAQRateRatios = [vp9dec.MaxSegments]struct {
 	num int
 	den int
@@ -1396,6 +1446,25 @@ var vp9VarianceAQRateRatios = [vp9dec.MaxSegments]struct {
 	{3, 2},
 	{1, 1},
 	{3, 4},
+	{1, 1},
+	{1, 1},
+	{1, 1},
+}
+
+// vp9VarianceAQRateRatiosFilm is the FILM-content variant of
+// vp9VarianceAQRateRatios. Segments 0..2 keep their low-variance Q
+// boost so flat areas are still coded cleanly; segment 4 is held at
+// 1:1 instead of 3:4 so the encoder leaves the high-variance grain
+// blocks at the base Q and the grain texture survives quantization.
+var vp9VarianceAQRateRatiosFilm = [vp9dec.MaxSegments]struct {
+	num int
+	den int
+}{
+	{5, 2},
+	{2, 1},
+	{3, 2},
+	{1, 1},
+	{1, 1},
 	{1, 1},
 	{1, 1},
 	{1, 1},
