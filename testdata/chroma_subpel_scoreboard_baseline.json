@@ -11,8 +11,8 @@
       "keyframe_y_u_v_adler_match": true,
       "keyframe_q_match": true,
       "inter_q_match_all_frames": true,
-      "max_inter_size_delta_pct_abs": 0.27624309392265195,
-      "mean_inter_size_delta_pct_abs": 0.09208103130755065
+      "max_inter_size_delta_pct_abs": 0,
+      "mean_inter_size_delta_pct_abs": 0
     },
     {
       "name": "160x96-realtime-cbr-cpu8",
@@ -25,8 +25,8 @@
       "keyframe_y_u_v_adler_match": true,
       "keyframe_q_match": true,
       "inter_q_match_all_frames": true,
-      "max_inter_size_delta_pct_abs": 0.33444816053511706,
-      "mean_inter_size_delta_pct_abs": 0.11148272017837235
+      "max_inter_size_delta_pct_abs": 0,
+      "mean_inter_size_delta_pct_abs": 0
     },
     {
       "name": "96x96-realtime-cbr-cpu8",

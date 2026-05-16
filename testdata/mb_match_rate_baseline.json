@@ -6,7 +6,7 @@
       "mv_match_pct": 100,
       "skip_match_pct": 100,
       "segment_id_match_pct": 100,
-      "eob_sum_match_pct": 99.10714285714286
+      "eob_sum_match_pct": 100
     },
     "rt-cpu0-cbr": {
       "mode_match_pct": 100,

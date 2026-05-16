@@ -10,15 +10,15 @@
     "good-cpu0-vbr": {
       "mode_match_pct": 100,
       "splitmv_pick_match_pct": 100,
-      "partition_match_pct": 99.10714285714286,
-      "block_mv_match_pct": 99.10714285714286,
+      "partition_match_pct": 100,
+      "block_mv_match_pct": 100,
       "segment_id_match_pct": 100
     },
     "good-cpu3-vbr": {
       "mode_match_pct": 100,
       "splitmv_pick_match_pct": 100,
-      "partition_match_pct": 96.42857142857143,
-      "block_mv_match_pct": 85.71428571428571,
+      "partition_match_pct": 100,
+      "block_mv_match_pct": 100,
       "segment_id_match_pct": 100
     }
   }
