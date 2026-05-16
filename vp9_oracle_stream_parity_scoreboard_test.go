@@ -1634,6 +1634,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 		name   string
 		frames int
 		opts   VP9EncoderOptions
+		flags  []EncodeFlags
 		args   []string
 		source func(frame int) *image.YCbCr
 	}
@@ -1753,6 +1754,31 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 		},
+		{
+			name:   "force-key-frame3",
+			frames: 4,
+			opts: VP9EncoderOptions{
+				Threads: 4,
+			},
+			flags: vp9OracleFlagAt(4, 3, EncodeForceKeyFrame),
+			args: []string{
+				"--tile-columns=2",
+				"--disable-warning-prompt",
+			},
+		},
+		{
+			name:   "no-reference-all",
+			frames: 4,
+			opts: VP9EncoderOptions{
+				Threads: 4,
+			},
+			flags: vp9OracleRepeatInterFlag(4,
+				EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			args: []string{
+				"--tile-columns=2",
+				"--disable-warning-prompt",
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1771,7 +1797,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				sources[i] = source(i)
 			}
 			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
-				tc.opts, sources, nil, tc.args,
+				tc.opts, sources, tc.flags, tc.args,
 				func(enc *VP9Encoder, frame int) {
 					resetVP9OracleThreadedTileJobsForTest(enc)
 				},
