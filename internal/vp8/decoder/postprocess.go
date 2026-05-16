@@ -47,7 +47,18 @@ type PostProcessOptions struct {
 	// Otherwise the VP8 derivation min(filter_level * 10/6, 63) and
 	// VP8 MFQE precondition apply.
 	VP9 bool
+	// MFQEOverride, when non-nil and MFQE is engaged, replaces the
+	// default 16x16-MB MFQE walker. VP9 uses this to drive MFQE per
+	// VP9 SB partition (Block8x8..Block64x64) using its mode-info
+	// grid. The callback receives the same src/dst images and
+	// qcurr/qprev pair the internal walker would.
+	MFQEOverride MFQEWalker
 }
+
+// MFQEWalker is the VP9 SB-partition-aware MFQE entry point. The
+// implementation may freely traverse its own partition grid and call
+// MultiframeQualityEnhanceBlock for each leaf block.
+type MFQEWalker func(src *common.Image, dst *common.Image, keyFrame bool, qcurr int, qprev int)
 
 type PostProcessState struct {
 	generatedNoise []int8
@@ -278,7 +289,11 @@ func ApplyPostProcessWithOptions(src *common.Image, dst *common.FrameBuffer, row
 	yLimits := scratch[:cols*16]
 	uvLimits := scratch[cols*16 : cols*24]
 	if shouldApplyMFQE(opts, state) {
-		multiframeQualityEnhance(src, &dst.Img, rows, cols, modes, opts.KeyFrame, opts.BaseQIndex, state.lastBaseQIndex)
+		if opts.MFQEOverride != nil {
+			opts.MFQEOverride(src, &dst.Img, opts.KeyFrame, opts.BaseQIndex, state.lastBaseQIndex)
+		} else {
+			multiframeQualityEnhance(src, &dst.Img, rows, cols, modes, opts.KeyFrame, opts.BaseQIndex, state.lastBaseQIndex)
+		}
 		if opts.Deblock || opts.Demacroblock {
 			copyPostProcessImage(&state.mfqeScratch.Img, &dst.Img)
 			state.mfqeScratch.ExtendBorders()
@@ -428,26 +443,45 @@ func qualifyInterMFQEMacroblock(mode *MacroblockMode, out *[4]int) int {
 	return ok * 4
 }
 
+// MultiframeQualityEnhanceBlock exposes the per-block MFQE kernel so
+// callers (like the VP9 wrapper, which walks SB partitions) can apply
+// MFQE to power-of-two square blocks 4 / 8 / 16 / 32 / 64 directly.
+//
+// y / u / v are the previous-frame source planes at the block origin;
+// yd / ud / vd are the current-frame destination planes. The kernel
+// either blends the prev frame onto the dst (when the activity / SAD
+// test admits MFQE) or copies the prev frame in over the dst when it
+// rejects.
+func MultiframeQualityEnhanceBlock(blockSize int, qcurr int, qprev int, y []byte, u []byte, v []byte, yStride int, uvStride int, yd []byte, ud []byte, vd []byte, ydStride int, uvdStride int) {
+	multiframeQualityEnhanceBlock(blockSize, qcurr, qprev, y, u, v, yStride, uvStride, yd, ud, vd, ydStride, uvdStride)
+}
+
+// CopyMFQEBlock copies a power-of-two square luma block and its
+// chroma counterparts from src to dst. Used by VP9 SB walkers when
+// the SB-level mode-info says the partition is too motion-active for
+// MFQE blending.
+func CopyMFQEBlock(blockSize int, y []byte, u []byte, v []byte, yStride int, uvStride int, yd []byte, ud []byte, vd []byte, ydStride int, uvdStride int) {
+	uvBlockSize := blockSize >> 1
+	copyBlock(y, yStride, yd, ydStride, blockSize, blockSize)
+	copyBlock(u, uvStride, ud, uvdStride, uvBlockSize, uvBlockSize)
+	copyBlock(v, uvStride, vd, uvdStride, uvBlockSize, uvBlockSize)
+}
+
 func multiframeQualityEnhanceBlock(blockSize int, qcurr int, qprev int, y []byte, u []byte, v []byte, yStride int, uvStride int, yd []byte, ud []byte, vd []byte, ydStride int, uvdStride int) {
 	uvBlockSize := blockSize >> 1
-	actd := 0
-	act := 0
-	sad := 0
-	usad := 0
-	vsad := 0
-	if blockSize == 16 {
-		actd = (varianceAgainstZero(yd, ydStride, 16, 16) + 128) >> 8
-		act = (varianceAgainstZero(y, yStride, 16, 16) + 128) >> 8
-		sad = (dsp.SSE16x16(y, yStride, yd, ydStride) + 128) >> 8
-		usad = (dsp.SSE8x8(u, uvStride, ud, uvdStride) + 32) >> 6
-		vsad = (dsp.SSE8x8(v, uvStride, vd, uvdStride) + 32) >> 6
-	} else {
-		actd = (varianceAgainstZero(yd, ydStride, 8, 8) + 32) >> 6
-		act = (varianceAgainstZero(y, yStride, 8, 8) + 32) >> 6
-		sad = (dsp.SSE8x8(y, yStride, yd, ydStride) + 32) >> 6
-		usad = (dsp.SSE4x4(u, uvStride, ud, uvdStride) + 8) >> 4
-		vsad = (dsp.SSE4x4(v, uvStride, vd, uvdStride) + 8) >> 4
-	}
+	// pels and uvPels are the per-block divisors that turn an absolute
+	// SSE into "per-pixel" SSE. libvpx rounds to the nearest integer by
+	// adding (pels/2) before the >>log2(pels).
+	pelsLog2 := mfqeBlockLog2(blockSize)
+	uvPelsLog2 := mfqeBlockLog2(uvBlockSize)
+	pelsHalf := 1 << (pelsLog2 - 1)
+	uvPelsHalf := 1 << (uvPelsLog2 - 1)
+
+	actd := (varianceAgainstZero(yd, ydStride, blockSize, blockSize) + pelsHalf) >> pelsLog2
+	act := (varianceAgainstZero(y, yStride, blockSize, blockSize) + pelsHalf) >> pelsLog2
+	sad := (mfqeSSE(y, yStride, yd, ydStride, blockSize) + pelsHalf) >> pelsLog2
+	usad := (mfqeSSE(u, uvStride, ud, uvdStride, uvBlockSize) + uvPelsHalf) >> uvPelsLog2
+	vsad := (mfqeSSE(v, uvStride, vd, uvdStride, uvBlockSize) + uvPelsHalf) >> uvPelsLog2
 
 	actRisk := actd > act*5
 	thr := (qcurr - qprev) >> 4
@@ -472,16 +506,67 @@ func multiframeQualityEnhanceBlock(blockSize int, qcurr int, qprev int, y []byte
 	copyBlock(v, uvStride, vd, uvdStride, uvBlockSize, uvBlockSize)
 }
 
-func applyMFQEIfactor(y []byte, yStride int, yd []byte, ydStride int, u []byte, v []byte, uvStride int, ud []byte, vd []byte, uvdStride int, blockSize int, srcWeight int) {
-	if blockSize == 16 {
-		filterByWeight(y, yStride, yd, ydStride, 16, srcWeight)
-		filterByWeight(u, uvStride, ud, uvdStride, 8, srcWeight)
-		filterByWeight(v, uvStride, vd, uvdStride, 8, srcWeight)
-		return
+// mfqeBlockLog2 returns 2*log2(blockSize) — the log2 of the pixel
+// count in a square blockSize x blockSize block.
+func mfqeBlockLog2(blockSize int) int {
+	switch blockSize {
+	case 4:
+		return 4
+	case 8:
+		return 6
+	case 16:
+		return 8
+	case 32:
+		return 10
+	case 64:
+		return 12
+	default:
+		// Fall back to a runtime computation for non-power-of-two
+		// sizes; mfqe always feeds power-of-two square blocks.
+		log := 0
+		for x := blockSize * blockSize; x > 1; x >>= 1 {
+			log++
+		}
+		return log
 	}
-	filterByWeight(y, yStride, yd, ydStride, 8, srcWeight)
-	filterByWeight(u, uvStride, ud, uvdStride, 4, srcWeight)
-	filterByWeight(v, uvStride, vd, uvdStride, 4, srcWeight)
+}
+
+// mfqeSSE dispatches the SSE accumulator to the right kernel for
+// blockSize x blockSize squares. Sizes 4/8/16 use the VP8 DSP fast
+// paths; larger sizes (32/64) fall back to a scalar SSE for parity
+// with libvpx, which mirrors these block shapes through the variance
+// SSE kernel as well.
+func mfqeSSE(a []byte, aStride int, b []byte, bStride int, blockSize int) int {
+	switch blockSize {
+	case 4:
+		return dsp.SSE4x4(a, aStride, b, bStride)
+	case 8:
+		return dsp.SSE8x8(a, aStride, b, bStride)
+	case 16:
+		return dsp.SSE16x16(a, aStride, b, bStride)
+	default:
+		return mfqeSSEScalar(a, aStride, b, bStride, blockSize)
+	}
+}
+
+func mfqeSSEScalar(a []byte, aStride int, b []byte, bStride int, blockSize int) int {
+	sum := 0
+	for row := 0; row < blockSize; row++ {
+		aRow := a[row*aStride:]
+		bRow := b[row*bStride:]
+		for col := 0; col < blockSize; col++ {
+			d := int(aRow[col]) - int(bRow[col])
+			sum += d * d
+		}
+	}
+	return sum
+}
+
+func applyMFQEIfactor(y []byte, yStride int, yd []byte, ydStride int, u []byte, v []byte, uvStride int, ud []byte, vd []byte, uvdStride int, blockSize int, srcWeight int) {
+	uvBlockSize := blockSize >> 1
+	filterByWeight(y, yStride, yd, ydStride, blockSize, srcWeight)
+	filterByWeight(u, uvStride, ud, uvdStride, uvBlockSize, srcWeight)
+	filterByWeight(v, uvStride, vd, uvdStride, uvBlockSize, srcWeight)
 }
 
 func filterByWeight(src []byte, srcStride int, dst []byte, dstStride int, blockSize int, srcWeight int) {
