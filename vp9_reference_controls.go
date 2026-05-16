@@ -41,6 +41,47 @@ func (e *VP9Encoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 	return nil
 }
 
+// SetReferenceFrame replaces a VP9 decoder reference slot with src. ref must
+// be [ReferenceLast], [ReferenceGolden], or [ReferenceAltRef]; src must match
+// the stream dimensions established by a successfully decoded frame and provide
+// valid I420 strides.
+func (d *VP9Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	slot, ok := vp9PublicReferenceFrameSlot(ref)
+	if !ok || !d.vp9ReferenceFramesInitialized() ||
+		!src.validForEncode(d.width, d.height) {
+		return ErrInvalidConfig
+	}
+	d.refFrames[slot].store(src)
+	return nil
+}
+
+// CopyReferenceFrame copies a VP9 decoder reference slot into dst. ref must be
+// [ReferenceLast], [ReferenceGolden], or [ReferenceAltRef]; dst must be
+// non-nil, match the active stream dimensions, and provide valid I420 strides.
+func (d *VP9Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if dst == nil {
+		return ErrInvalidConfig
+	}
+	slot, ok := vp9PublicReferenceFrameSlot(ref)
+	if !ok || !d.vp9ReferenceFramesInitialized() ||
+		!dst.validForEncode(d.width, d.height) ||
+		!d.refFrames[slot].valid {
+		return ErrInvalidConfig
+	}
+	copyVP9ImageToPublic(dst, d.refFrames[slot].img)
+	return nil
+}
+
+func (d *VP9Decoder) vp9ReferenceFramesInitialized() bool {
+	return d.initialized && d.width > 0 && d.height > 0
+}
+
 func vp9PublicReferenceFrameSlot(ref ReferenceFrame) (int, bool) {
 	switch ref {
 	case ReferenceLast:

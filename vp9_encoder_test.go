@@ -546,6 +546,7 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.ARNRType = 4 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = 7 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.Sharpness = 8 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) {
 			o.AutoAltRef = true
@@ -2443,6 +2444,54 @@ func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	}
 	if h.Loopfilter.ModeDeltas != wantMode {
 		t.Fatalf("ModeDeltas = %v, want %v", h.Loopfilter.ModeDeltas, wantMode)
+	}
+}
+
+func TestVP9EncoderSharpnessOptionAndRuntimeControl(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 32,
+		MaxQuantizer: 32,
+		Sharpness:    4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	for i, tc := range []struct {
+		name      string
+		sharpness uint8
+	}{
+		{name: "option", sharpness: 4},
+		{name: "runtime high", sharpness: 7},
+		{name: "runtime disabled", sharpness: 0},
+	} {
+		if i > 0 {
+			if err := e.SetSharpness(tc.sharpness); err != nil {
+				t.Fatalf("SetSharpness(%d): %v", tc.sharpness, err)
+			}
+		}
+		src := newVP9CheckerYCbCrForTest(width, height,
+			byte(32+i*17), byte(224-i*19), 128, 128)
+		n, err := e.EncodeInto(src, dst)
+		if err != nil {
+			t.Fatalf("%s EncodeInto: %v", tc.name, err)
+		}
+		h, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+		if h.Loopfilter.SharpnessLevel != tc.sharpness {
+			t.Fatalf("%s sharpness = %d, want %d",
+				tc.name, h.Loopfilter.SharpnessLevel, tc.sharpness)
+		}
+	}
+	before := e.opts.Sharpness
+	if err := e.SetSharpness(8); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetSharpness invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.Sharpness != before {
+		t.Fatalf("invalid SetSharpness mutated encoder to %d, want %d",
+			e.opts.Sharpness, before)
 	}
 }
 
@@ -4841,6 +4890,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetARNR after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetSharpness(3); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetSharpness after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability after Close err = %v, want ErrClosed", err)
 	}
@@ -4886,6 +4938,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetARNR on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetSharpness(3); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetSharpness on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability on nil encoder err = %v, want ErrClosed", err)

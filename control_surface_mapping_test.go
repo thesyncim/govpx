@@ -181,6 +181,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetRealtimeTarget":           {kind: "libvpx-config", helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
 		"SetReferenceFrame":           {kind: "libvpx-control", helperTokens: []string{"setref:"}},
 		"SetROIMap":                   {kind: "libvpx-control", helperTokens: []string{"roi:", "roicustom:"}},
+		"SetSharpness":                {kind: "libvpx-control", helperTokens: []string{"sharpness:"}},
 		"SetSpatialLayerID":           {kind: "libvpx-vp9-svc-layer-control"},
 		"SetSpatialScalability":       {kind: "libvpx-vp9-svc-control"},
 		"SetTemporalLayerID":          {kind: "libvpx-control", helperTokens: []string{"tlid:"}},
@@ -225,6 +226,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"RateControlMode":     {kind: "libvpx-config", helperTokens: []string{"endusage:", "--end-usage"}},
 		"RateControlModeSet":  {kind: "local-default-selector"},
 		"Segmentation":        {kind: "vp9-segmentation-header-api"},
+		"Sharpness":           {kind: "libvpx-control", helperTokens: []string{"sharpness:", "--sharpness"}},
 		"SpatialScalability":  {kind: "libvpx-vp9-svc-control"},
 		"TargetBitrateKbps":   {kind: "libvpx-config", helperTokens: []string{"bitrate:", "--target-bitrate"}},
 		"TemporalScalability": {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
@@ -248,6 +250,7 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"ClearSVCSpatialLayer": {kind: "libvpx-decoder-control"},
 		"Close":                {kind: "lifecycle"},
 		"Codec":                {kind: "metadata-api"},
+		"CopyReferenceFrame":   {kind: "libvpx-decoder-control", helperTokens: []string{"copyref:"}},
 		"Decode":               {kind: "libvpx-decode-oracle"},
 		"DecodeInto":           {kind: "libvpx-decode-oracle"},
 		"DecodeIntoWithPTS":    {kind: "local-pts-wrapper"},
@@ -256,9 +259,11 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"LastFrameSize":        {kind: "metadata-api"},
 		"NextFrame":            {kind: "decode-api"},
 		"Reset":                {kind: "lifecycle"},
+		"SetReferenceFrame":    {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
 		"SetSVCSpatialLayer":   {kind: "libvpx-decoder-control"},
 	}
 	assertPublicMethodMappings(t, "VP9Decoder", methods, want)
+	assertDecoderControlTokens(t, want)
 }
 
 func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {

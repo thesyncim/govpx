@@ -357,6 +357,19 @@ func (e *VP9Encoder) SetNoiseSensitivity(level int) error {
 	return nil
 }
 
+// SetSharpness changes the VP9 loop-filter sharpness level used for subsequent
+// frames. Valid values are [0, 7].
+func (e *VP9Encoder) SetSharpness(sharpness uint8) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if sharpness > 7 {
+		return ErrInvalidConfig
+	}
+	e.opts.Sharpness = sharpness
+	return nil
+}
+
 // SetKeyFrameInterval changes the VP9 maximum GOP distance in frames. Zero
 // restores libvpx's default VP9 key-frame cadence. Explicitly forced key frames
 // are unaffected.

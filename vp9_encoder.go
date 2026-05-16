@@ -93,6 +93,8 @@ type VP9EncoderOptions struct {
 	// disables the denoiser. Valid values are [0, 6]; 1 is low strength, 2 is
 	// medium, and 3..6 use the high-strength VP9 temporal denoiser path.
 	NoiseSensitivity int8
+	// Sharpness is the VP9 loop-filter sharpness level in [0, 7].
+	Sharpness uint8
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
 	// configuration. When RateControlModeSet is false, the packet path keeps
@@ -552,6 +554,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if opts.NoiseSensitivity < 0 || opts.NoiseSensitivity > 6 {
+		return ErrInvalidConfig
+	}
+	if opts.Sharpness > 7 {
 		return ErrInvalidConfig
 	}
 	if err := validateVP9TwoPassOptions(opts); err != nil {
@@ -1233,7 +1238,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		header.Quant.UvAcDeltaQ == 0
 	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
 	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey,
-		resetLoopfilterDeltas, header.Quant.Lossless)
+		resetLoopfilterDeltas, header.Quant.Lossless, e.opts.Sharpness)
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
@@ -2368,13 +2373,16 @@ func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
 	return uint8(level)
 }
 
-func vp9EncoderLoopFilterParams(qindex int, isKey, resetDeltas, lossless bool) vp9dec.LoopfilterParams {
+func vp9EncoderLoopFilterParams(qindex int, isKey, resetDeltas, lossless bool,
+	sharpness uint8,
+) vp9dec.LoopfilterParams {
 	level := vp9EncoderLoopFilterLevel(qindex, isKey)
 	if lossless {
 		level = 0
 	}
 	return vp9dec.LoopfilterParams{
 		FilterLevel:         level,
+		SharpnessLevel:      sharpness,
 		ModeRefDeltaEnabled: true,
 		ModeRefDeltaUpdate:  resetDeltas,
 		RefDeltas:           [vp9dec.MaxRefLfDeltas]int8{1, 0, -1, -1},
