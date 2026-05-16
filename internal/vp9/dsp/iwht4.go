@@ -1,12 +1,15 @@
 package dsp
 
-// Iwht4x4_16Add is the inverse 4x4 Walsh-Hadamard used by lossless VP9.
-// Mirrors vpx_iwht4x4_16_add_c line-for-line: each row is unpacked,
-// shifted right by UNIT_QUANT_SHIFT (2 bits), passed through the
-// orthonormal 4-point IWHT (3.5 adds + 0.5 shifts per pixel per
-// libvpx's comment), then a transpose column pass writes back into the
-// pixel buffer with the +clip_pixel_add fold.
-func Iwht4x4_16Add(input []int16, dest []uint8, stride int) {
+// iwht4x4_16AddScalar is the inverse 4x4 Walsh-Hadamard used by
+// lossless VP9. Mirrors vpx_iwht4x4_16_add_c line-for-line: each row
+// is unpacked, shifted right by UNIT_QUANT_SHIFT (2 bits), passed
+// through the orthonormal 4-point IWHT (3.5 adds + 0.5 shifts per
+// pixel per libvpx's comment), then a transpose column pass writes
+// back into the pixel buffer with the +clip_pixel_add fold.
+//
+// Scalar reference; the exported Iwht4x4_16Add wrapper is in
+// idct_dispatch_*.go.
+func iwht4x4_16AddScalar(input []int16, dest []uint8, stride int) {
 	var output [16]int16
 
 	ip := input
@@ -50,9 +53,12 @@ func Iwht4x4_16Add(input []int16, dest []uint8, stride int) {
 	}
 }
 
-// Iwht4x4_1Add is the DC-only fast path for the lossless 4x4 inverse
-// Walsh-Hadamard. Matches vpx_iwht4x4_1_add_c.
-func Iwht4x4_1Add(input []int16, dest []uint8, stride int) {
+// iwht4x4_1AddScalar is the DC-only fast path for the lossless 4x4
+// inverse Walsh-Hadamard. Matches vpx_iwht4x4_1_add_c.
+//
+// Scalar reference; the exported Iwht4x4_1Add wrapper is in
+// idct_dispatch_*.go.
+func iwht4x4_1AddScalar(input []int16, dest []uint8, stride int) {
 	var tmp [4]int16
 
 	a1 := int64(input[0]) >> unitQuantShift
