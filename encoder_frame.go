@@ -196,24 +196,27 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			_, _, onePassAltRefRefresh = libvpxExternalRefreshMask(flags)
 		}
 	}
-	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size sets
-	// frames_till_gf_update_due=baseline_gf_interval (== gf_interval_onepass_cbr)
-	// and current_gf_interval before update_golden_frame_stats accumulates
-	// gf_overspend_bits. Mirror that for govpx's CBR refresh.
-	// calc_gf_params populates last_boost AFTER the per-frame target
-	// (and small +/- last_boost section adjustment) has been computed,
-	// so we defer the calcGFParams call until pickGoldenFrameBoost
-	// runs below — populating last_boost early would feed the small
-	// +/- branch with this frame's boost instead of the prior GF's.
+	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size runs the
+	// "small +/- boost for non-GF frames" adjustment (lines 640-668) BEFORE
+	// the GF-cliff block (lines 901-1040) refreshes
+	// frames_till_gf_update_due / current_gf_interval. The small +/- check
+	// gates on `frames_till_gf_update_due > 0`, so on the cliff frame (where
+	// the countdown has just hit 0) libvpx skips the small +/- adjustment.
+	// Capture the cyclic-refresh-derived gf_interval_onepass_cbr now (libvpx
+	// onyx_if.c:1880-1885), but DEFER the mutation of
+	// rc.framesTillGFUpdateDue / rc.currentGFInterval until after
+	// beginFrameWithTargetAndContext has run the small +/- branch. Otherwise
+	// the small +/- branch would see the freshly-reset (>0) countdown and
+	// erroneously fire on the cliff frame, biasing this_frame_target on
+	// every kf=interval CBR GF boundary.
 	gfBaselineInterval := e.rc.framesTillGFUpdateDue
 	gfMaxInterval := e.rc.framesTillGFUpdateDue
+	cbrOnePassGFCliffInterval := 0
 	if goldenCBROpportunity && e.rc.mode == RateControlCBR {
-		gfInterval := e.goldenFrameCBRInterval(rows, cols)
-		e.rc.framesTillGFUpdateDue = gfInterval
-		e.rc.currentGFInterval = gfInterval
+		cbrOnePassGFCliffInterval = e.goldenFrameCBRInterval(rows, cols)
 		if goldenCBRRefresh {
-			gfBaselineInterval = gfInterval
-			gfMaxInterval = gfInterval
+			gfBaselineInterval = cbrOnePassGFCliffInterval
+			gfMaxInterval = cbrOnePassGFCliffInterval
 		}
 	} else if goldenCBRRefresh {
 		if e.rc.mode == RateControlCBR && !e.rc.onePassAutoGold {
@@ -417,6 +420,20 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
 			e.rc.currentGFInterval = gfOut.FramesTillUpdate
 		}
+	} else if cbrOnePassGFCliffInterval > 0 {
+		// libvpx vp8/encoder/ratectrl.c:1029-1038 (gf_update_onepass_cbr
+		// branch of calc_pframe_target_size): even when the zeromv_count
+		// gate fails and refresh_golden_frame stays at 0, libvpx still
+		// resets `baseline_gf_interval = gf_interval_onepass_cbr`,
+		// `frames_till_gf_update_due = baseline_gf_interval`, and
+		// `current_gf_interval = frames_till_gf_update_due` so the cliff
+		// is consumed and the next opportunity arrives a full interval
+		// later. govpx must mirror that reset here (post-begin-frame so
+		// the small +/- branch saw the pre-reset 0); otherwise
+		// `framesTillGFUpdateDue` stays at 0 across consecutive frames
+		// and `goldenFrameCBROpportunity` fires every frame.
+		e.rc.framesTillGFUpdateDue = cbrOnePassGFCliffInterval
+		e.rc.currentGFInterval = cbrOnePassGFCliffInterval
 	}
 	// In pass 2, the GF-boundary decision is made inside vp8_second_pass
 	// while computing this frame's target. That happens after the earlier
