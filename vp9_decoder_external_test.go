@@ -26,6 +26,16 @@ const (
 	defaultVP9ProfileWebMTestMinimum    = 11
 )
 
+var defaultVP9IVFTestNames = map[string]struct{}{
+	"vp90-2-05-resize.ivf":         {},
+	"vp90-2-09-subpixel-00.ivf":    {},
+	"vp90-2-12-droppable_1.ivf":    {},
+	"vp90-2-12-droppable_2.ivf":    {},
+	"vp90-2-12-droppable_3.ivf":    {},
+	"vp90-2-18-resize.ivf":         {},
+	"vp90-2-22-svc_1280x720_3.ivf": {},
+}
+
 var defaultVP9Profile0WebMTestNames = map[string]struct{}{
 	"vp90-2-01-sharpness-1.webm":                  {},
 	"vp90-2-01-sharpness-2.webm":                  {},
@@ -76,6 +86,13 @@ func TestVP9DecoderDefaultProfile0WebMCorpusMinimumMatchesList(t *testing.T) {
 	if got := len(defaultVP9Profile0WebMTestNames); got != defaultVP9Profile0WebMTestMinimum {
 		t.Fatalf("default VP9 Profile 0 WebM corpus list = %d, minimum = %d",
 			got, defaultVP9Profile0WebMTestMinimum)
+	}
+}
+
+func TestVP9DecoderDefaultIVFCorpusMinimumMatchesList(t *testing.T) {
+	if got := len(defaultVP9IVFTestNames); got != defaultVP9IVFTestDataMinimum {
+		t.Fatalf("default VP90 IVF corpus list = %d, minimum = %d",
+			got, defaultVP9IVFTestDataMinimum)
 	}
 }
 

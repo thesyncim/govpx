@@ -337,27 +337,32 @@ func TestVP9DecoderThreadingOfficialProfile0TileColumnsUseWorkers(t *testing.T) 
 				t.Skipf("no VP9 packets in %s", filepath.Base(path))
 			}
 
-			d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
-			if err != nil {
-				t.Fatalf("threaded NewVP9Decoder: %v", err)
-			}
-			usedWorkers := false
-			for i, packet := range packets {
-				d.vp9TilePool.lastTileJobs = 0
-				if err := d.Decode(packet); err != nil {
-					t.Fatalf("threaded Decode[%d]: %v", i, err)
+			for _, threads := range []int{3, 4} {
+				d, err := NewVP9Decoder(VP9DecoderOptions{Threads: threads})
+				if err != nil {
+					t.Fatalf("threaded NewVP9Decoder(threads=%d): %v",
+						threads, err)
 				}
-				_, _ = d.NextFrame()
-				if d.vp9TilePool.lastTileJobs > 1 {
-					usedWorkers = true
+				usedWorkers := false
+				for i, packet := range packets {
+					d.vp9TilePool.lastTileJobs = 0
+					if err := d.Decode(packet); err != nil {
+						t.Fatalf("threaded Decode[%d] threads=%d: %v",
+							i, threads, err)
+					}
+					_, _ = d.NextFrame()
+					if d.vp9TilePool.lastTileJobs > 1 {
+						usedWorkers = true
+					}
 				}
-			}
-			if err := d.Close(); err != nil {
-				t.Fatalf("threaded Close: %v", err)
-			}
-			if !usedWorkers {
-				t.Fatalf("threaded decoder did not use tile workers for %s",
-					filepath.Base(path))
+				if err := d.Close(); err != nil {
+					t.Fatalf("threaded Close(threads=%d): %v",
+						threads, err)
+				}
+				if !usedWorkers {
+					t.Fatalf("threaded decoder did not use tile workers for %s with threads=%d",
+						filepath.Base(path), threads)
+				}
 			}
 		})
 	}
@@ -520,7 +525,7 @@ func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want i
 		t.Fatalf("serial Close: %v", err)
 	}
 
-	for _, threads := range []int{2, 4} {
+	for _, threads := range []int{2, 3, 4} {
 		threaded, err := NewVP9Decoder(VP9DecoderOptions{Threads: threads})
 		if err != nil {
 			t.Fatalf("threaded NewVP9Decoder(threads=%d): %v", threads, err)
