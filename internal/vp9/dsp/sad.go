@@ -66,7 +66,7 @@ func VpxSad16x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStr
 	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 32)
 }
 func VpxSad16x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 16)
+	return sad16x16(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad16x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	return sad(src, srcOff, srcStride, ref, refOff, refStride, 16, 8)
