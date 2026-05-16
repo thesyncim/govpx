@@ -71,7 +71,7 @@ func TestVP9FramePeriodicBoostLowersActiveBestOnGFRefresh(t *testing.T) {
 	}
 }
 
-func TestVP9AltRefAQLowersActiveBestOnAltRefRefresh(t *testing.T) {
+func TestVP9AltRefAQRaisesActiveBestOnAltRefRefresh(t *testing.T) {
 	rc := &vp9RateControlState{
 		enabled:      true,
 		mode:         RateControlVBR,
@@ -87,29 +87,49 @@ func TestVP9AltRefAQLowersActiveBestOnAltRefRefresh(t *testing.T) {
 		t.Fatalf("AltRefAQ on golden-only refresh active-best = %d, want 150",
 			goldenBest)
 	}
-	// AltRef refresh: AltRefAQ should bias active-best downward.
+	// AltRef refresh: AltRefAQ biases active-best *upward* (coarser
+	// quantizer on alt-ref) so the feature actually saves bitrate.
+	// The older sign convention biased it downward, which spent
+	// extra bits on alt-ref and regressed BD-rate by ~+2.4%.
 	altRefRefresh := uint8(1) << vp9AltRefSlot
 	altBest := rc.applyVP9RefreshActiveBestBias(150, false, altRefRefresh, 16,
 		200)
-	if altBest >= 150 {
-		t.Fatalf("AltRefAQ on alt-ref refresh active-best = %d, want < 150",
+	if altBest <= 150 {
+		t.Fatalf("AltRefAQ on alt-ref refresh active-best = %d, want > 150",
 			altBest)
 	}
 }
 
-func TestVP9PeriodicBoostAndAltRefAQClampAtBest(t *testing.T) {
+func TestVP9PeriodicBoostClampAtBest(t *testing.T) {
 	rc := &vp9RateControlState{
 		enabled:            true,
 		mode:               RateControlVBR,
 		bestQuality:        16,
 		worstQuality:       200,
 		framePeriodicBoost: true,
-		altRefAQ:           true,
 	}
 	refresh := uint8(1) << vp9AltRefSlot
 	got := rc.applyVP9RefreshActiveBestBias(16, false, refresh, 16, 200)
 	if got != 16 {
 		t.Fatalf("clamped active-best = %d, want 16", got)
+	}
+}
+
+func TestVP9AltRefAQClampAtWorst(t *testing.T) {
+	// AltRefAQ biases the active-best Q *upward* (coarser quantizer
+	// on alt-ref) to save bitrate. When starting at the worst-Q
+	// boundary the bias clamps at worst.
+	rc := &vp9RateControlState{
+		enabled:      true,
+		mode:         RateControlVBR,
+		bestQuality:  16,
+		worstQuality: 200,
+		altRefAQ:     true,
+	}
+	refresh := uint8(1) << vp9AltRefSlot
+	got := rc.applyVP9RefreshActiveBestBias(200, false, refresh, 16, 200)
+	if got != 200 {
+		t.Fatalf("clamped active-best = %d, want 200", got)
 	}
 }
 

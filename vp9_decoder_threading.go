@@ -39,7 +39,7 @@ func newVP9DecoderLoopFilterPool(threads int) *vp9DecoderLoopFilterPool {
 	p := &vp9DecoderLoopFilterPool{
 		helperCount: int8(helpers),
 	}
-	for i := 0; i < helpers; i++ {
+	for i := range helpers {
 		p.start[i] = make(chan struct{})
 		p.done[i] = make(chan struct{})
 		p.exited[i] = make(chan struct{})
@@ -185,7 +185,7 @@ func newVP9DecoderTileWorkerPool(threads int) *vp9DecoderTileWorkerPool {
 		exited:      make([]chan struct{}, helpers),
 		jobs:        make([]vp9DecoderTileJob, helpers),
 	}
-	for i := 0; i < helpers; i++ {
+	for i := range helpers {
 		p.start[i] = make(chan struct{})
 		p.done[i] = make(chan struct{})
 		p.exited[i] = make(chan struct{})
@@ -395,7 +395,7 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	jobsRun := 0
 	for next < len(descs) {
 		helpers := min(len(descs)-next-1, helpersMax)
-		for worker := 0; worker < helpers; worker++ {
+		for worker := range helpers {
 			desc := descs[next+worker+1]
 			p.prepareTileJob(worker, d, kind, desc, comp, intraMaps,
 				interMaps, miRows, miCols, partitionProbs)
@@ -420,7 +420,7 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 		err := d.runVP9DecoderTileDesc(kind, descs[next], &p.header, comp,
 			intraMaps, interMaps, miRows, miCols, partitionProbs)
 		d.rowMTSync = nil
-		for worker := 0; worker < helpers; worker++ {
+		for worker := range helpers {
 			<-p.done[worker]
 			job := &p.jobs[worker]
 			if job.unsupported {

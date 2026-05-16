@@ -203,18 +203,48 @@ func makeVarianceHeavy(width, height, idx int) *image.YCbCr {
 	return img
 }
 
-// makePerceptual builds a frame with a smooth luma gradient and small
-// detail bands modulated by luma; this is the workload perceptual AQ
-// is designed for (it allocates Q based on the perceived-importance
-// model, not pure variance).
+// makePerceptual builds a frame with a clear contrast between large
+// smooth (perceptually-important) regions and dense high-frequency
+// (perceptually-masked) detail bands. Perceptual AQ is designed to
+// save bitrate on this kind of content by quantising the detail
+// regions more aggressively while preserving the smooth regions:
+//
+//   - The left third is a slow vertical luma gradient (flat, easy to
+//     model with inter prediction or a small DC residual).
+//   - The middle third is a dense, high-amplitude texture pattern
+//     ("noise band") whose AC coefficients dominate the Wiener
+//     variance — this is the perceptual-masking region.
+//   - The right third is another slow gradient.
+//
+// Frame-to-frame translation lets inter prediction work; the texture
+// region is panned so the texture itself is coherent under motion.
 func makePerceptual(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	bandStart := width / 3
+	bandEnd := (2 * width) / 3
+	shiftX := idx
 	for y := range height {
 		row := img.Y[y*img.YStride:]
 		for x := range width {
-			base := 32 + (x * 200 / width)
-			detail := ((x*3 + y*5 + idx) & 0x1F) - 16
-			row[x] = clampByte(base + detail)
+			var v int
+			switch {
+			case x < bandStart:
+				// Left smooth gradient (perceptually important).
+				v = 48 + (y * 96 / height)
+			case x < bandEnd:
+				// Dense high-frequency band (perceptually masked).
+				gx := (x + shiftX) & 0x3
+				gy := y & 0x3
+				if (gx+gy)&1 == 0 {
+					v = 224
+				} else {
+					v = 32
+				}
+			default:
+				// Right smooth gradient.
+				v = 144 + (y * 96 / height)
+			}
+			row[x] = clampByte(v)
 		}
 	}
 	uvW := (width + 1) >> 1

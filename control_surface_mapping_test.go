@@ -460,7 +460,6 @@ func exportedMethodSet(t *testing.T, sample any) map[string]struct{} {
 	}
 	out := make(map[string]struct{}, typ.NumMethod())
 	for method := range typ.Methods() {
-		method := method
 		if method.PkgPath == "" {
 			out[method.Name] = struct{}{}
 		}
@@ -479,7 +478,6 @@ func exportedFieldSet(t *testing.T, sample any) map[string]struct{} {
 	}
 	out := make(map[string]struct{}, typ.NumField())
 	for field := range typ.Fields() {
-		field := field
 		if field.PkgPath == "" {
 			out[field.Name] = struct{}{}
 		}

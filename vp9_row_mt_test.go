@@ -255,7 +255,6 @@ func TestVP9RowMTSyncWaitWavefrontProgress(t *testing.T) {
 	var completed atomic.Int32
 	wg.Add(rows)
 	for r := range rows {
-		r := r
 		go func() {
 			defer wg.Done()
 			for c := range cols {

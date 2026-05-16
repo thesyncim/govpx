@@ -248,7 +248,7 @@ func (s *vp9TPLState) populate(frames []*image.YCbCr) {
 	}
 	limit := min(len(frames)-1, len(s.frames))
 	// Stage A: per-frame coarse motion estimation and intra-energy estimate.
-	for idx := 0; idx < limit; idx++ {
+	for idx := range limit {
 		current := frames[idx]
 		nextSrc := frames[idx+1]
 		slab := &s.frames[idx]
@@ -274,7 +274,7 @@ func (s *vp9TPLState) populate(frames []*image.YCbCr) {
 	// per-SB intra/inter cost ratio.  The frame-mean of the per-SB delta
 	// is the scalar bias [vp9EncoderFrameQIndex] applies until per-SB
 	// segmentation routing is wired up.
-	for idx := 0; idx < limit; idx++ {
+	for idx := range limit {
 		slab := &s.frames[idx]
 		s.deriveQDelta(slab)
 		slab.Valid = true
@@ -492,10 +492,7 @@ func vp9TPLBlockSelfVariance(src *image.YCbCr, sbRow, sbCol int) uint32 {
 	const pixels = vp9TPLSBSize * vp9TPLSBSize
 	// variance = sse - (sum*sum)/pixels.
 	mean := sum / pixels
-	v := max(sse-mean*sum, 0)
-	if v > math.MaxUint32 {
-		v = math.MaxUint32
-	}
+	v := min(max(sse-mean*sum, 0), math.MaxUint32)
 	return uint32(v)
 }
 
@@ -714,10 +711,7 @@ func (e *VP9Encoder) applyVP9TPLQIndexBias(qindex int, skip bool) int {
 	minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
 	bestBound := vp9PublicQuantizerToQIndex(minQ)
 	worstBound := vp9PublicQuantizerToQIndex(maxQ)
-	q := max(qindex+bias, bestBound)
-	if q > worstBound {
-		q = worstBound
-	}
+	q := min(max(qindex+bias, bestBound), worstBound)
 	if q < 0 {
 		q = 0
 	}

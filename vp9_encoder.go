@@ -7862,10 +7862,7 @@ func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, flags En
 	} else {
 		num, den = vp9PublicQModeInterRate(e.frameIndex)
 	}
-	qindex := max(cq+vp9ComputeQDelta(best, worst, cq, num, den), best)
-	if qindex > worst {
-		qindex = worst
-	}
+	qindex := min(max(cq+vp9ComputeQDelta(best, worst, cq, num, den), best), worst)
 	return qindex
 }
 
@@ -7915,10 +7912,7 @@ func vp9NormalizedPublicQuantizers(opts VP9EncoderOptions) (minQ, maxQ, cqLevel 
 		if minQ == maxQ {
 			cqLevel = minQ
 		} else {
-			cqLevel = max(vp9DefaultCQLevel, minQ)
-			if cqLevel > maxQ {
-				cqLevel = maxQ
-			}
+			cqLevel = min(max(vp9DefaultCQLevel, minQ), maxQ)
 		}
 	}
 	return minQ, maxQ, cqLevel
