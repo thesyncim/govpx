@@ -450,6 +450,18 @@ type VP9EncoderOptions struct {
 	// NextFrameQIndexSet selects between the zero default and an
 	// explicitly-set NextFrameQIndex=0 override.
 	NextFrameQIndexSet bool
+
+	// EnableTPL turns on the VP9 temporal prediction loop (TPL) quality
+	// pass.  Mirrors libvpx's cpi->oxcf.enable_tpl_model and the BD-rate
+	// pass libvpx runs by default for two-pass good-quality VP9.  The
+	// pass requires LookaheadFrames >= 8 and AutoAltRef enabled so it can
+	// look ahead at future source frames; lossless mode is rejected.
+	// Per-SB qindex deltas computed by the pass are exposed through
+	// [VP9Encoder.TPLFrameDelta] for downstream consumers (row-MT, oracle
+	// traces); a scalar frame-mean overlay is applied directly to the
+	// regulated frame qindex while per-SB segmentation routing is in
+	// flight.
+	EnableTPL bool
 }
 
 // VP9SegmentationOptions configures static per-frame VP9 segmentation.
@@ -742,6 +754,10 @@ type VP9Encoder struct {
 	vp9FirstPassCount uint64
 	vp9FirstPassLast  image.YCbCr
 	vp9FirstPassGF    image.YCbCr
+
+	// tpl carries the per-encoder TPL quality-pass state when EnableTPL
+	// is true.  Slabs are sized at construction or on resolution change.
+	tpl vp9TPLState
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -781,6 +797,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
 	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.perceptualAQ.configure(opts.AQMode == VP9AQPerceptual)
+	e.tpl.configure(opts.EnableTPL, opts.Width, opts.Height, opts.LookaheadFrames)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	e.initVP9TileWorkerPool()
@@ -840,6 +857,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		return err
 	}
 	if err := validateVP9AutoAltRefOptions(opts); err != nil {
+		return err
+	}
+	if err := validateVP9TPLOptions(opts); err != nil {
 		return err
 	}
 	if opts.DeltaQUV < -15 || opts.DeltaQUV > 15 {
@@ -1850,7 +1870,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
 	macroblocks := vp9MacroblockCount(miRows, miCols)
+	// TPL runs before the qindex is finalised so its scalar bias can
+	// modulate the regulated qindex.  The pass only fires on visible
+	// inter frames while a populated source-order lookahead window is
+	// available; alt-ref / intra-only / keyframes are excluded for
+	// parity with the libvpx restriction.
+	e.populateVP9TPLForFrame(isKey || intraOnly || !showFrame || flags&EncodeForceAltRefFrame != 0)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
+	qindex = e.applyVP9TPLQIndexBias(qindex, isKey || intraOnly || !showFrame ||
+		flags&EncodeForceAltRefFrame != 0)
 	if e.rc.enabled {
 		e.vp9ModeDecisionQIndex = uint8(qindex)
 		e.vp9ModeDecisionQIndexSet = true
@@ -2125,6 +2153,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.frameIndex++
 	if isKey {
 		e.forceKeyFrame = false
+	}
+	// Consume the head TPL slab now that this frame has committed.  The
+	// pass refills the new tail on the next populate call.
+	if e.vp9TPLEnabled() {
+		e.tpl.shiftAndInvalidate()
 	}
 	spatialLayerID, spatialLayerCount, interLayerDependency,
 		notRefForUpperSpatialLayer, scalabilityStructurePresent,
