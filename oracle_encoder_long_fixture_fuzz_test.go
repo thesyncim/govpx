@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -59,10 +60,11 @@ func FuzzEncoderLongFixtureRateControl(f *testing.F) {
 		t.Logf("%s matched-prefix=%d/%d frames (govpx=%d libvpx=%d total)",
 			label, prefix, min(len(govpxFrames), len(libvpxFrames)), len(govpxFrames), len(libvpxFrames))
 
-		// Keyframe parity is the strict floor: every fuzz config must
-		// produce a matching frame 0. matchLimit=1 in
-		// assertSegmentByteParity logs everything else as scoreboard.
-		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 1)
+		// Strict byte parity. Seeds with documented cumulative drift
+		// (gap A: kf=30 GF cliff; gap B: VBR kf=999 long-run drift) are
+		// expected to fail until the corresponding fix lands; the
+		// failure log surfaces the exact frame index where parity broke.
+		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
@@ -173,8 +175,23 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 	if c.rcMode == RateControlVBR {
 		endUsage = "vbr"
 	}
+	// The base `encodeFramesWithLibvpxOracle` helper hard-codes
+	// `--kf-min-dist=999 --kf-max-dist=999` so libvpx will never insert
+	// a non-first keyframe unless the caller overrides it. The govpx
+	// side, however, honours `EncoderOptions.KeyFrameInterval` and
+	// schedules a forced KF at frame N*interval (see
+	// `applyFixedKeyFrameIntervalFlag` in encoder_reference_decisions.go).
+	// Without aligning the libvpx oracle's kf-max-dist with
+	// `KeyFrameInterval`, the seeds with `kf=30` produce a govpx
+	// keyframe at frame 30 while the oracle stays on inter, diverging
+	// at the second-keyframe boundary. Match libvpx's
+	// `--kf-min-dist=0 --kf-max-dist=interval` to the govpx-side fixed
+	// KF schedule (mirrors libvpx vp8_cx_iface.c
+	// `cfg.kf_max_dist`-driven `cpi->key_frame_frequency` handling).
 	extra := []string{
 		"--end-usage=" + endUsage,
+		"--kf-min-dist=0",
+		"--kf-max-dist=" + strconv.Itoa(c.kfInterval),
 	}
 	return opts, extra
 }

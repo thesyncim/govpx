@@ -90,7 +90,12 @@ func FuzzVP8EncoderOptions(f *testing.F) {
 		gHash := sha256.Sum256(result.Data)
 		lHash := sha256.Sum256(libvpxKey)
 		if gHash != lHash {
-			t.Logf("keyframe byte mismatch under fuzzed options: govpx_len=%d libvpx_len=%d first_diff=%d (logged as scoreboard; option-validation parity is best-effort)",
+			// Strict: any config that BOTH sides accept must produce
+			// identical keyframe bytes. Gap F is exactly the set of
+			// configs where govpx accepts a normalisation that libvpx
+			// quietly does differently; this fuzzer is the regression
+			// gate.
+			t.Errorf("keyframe byte mismatch under fuzzed options: govpx_len=%d libvpx_len=%d first_diff=%d",
 				len(result.Data), len(libvpxKey), firstByteDiff(result.Data, libvpxKey))
 		}
 	})

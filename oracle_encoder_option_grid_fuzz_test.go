@@ -65,15 +65,11 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 		govpxFrames := encodeFramesWithGovpx(t, opts, sources)
 		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs)
 
-		// Production-resolution inter-frame parity is not fully held under
-		// every option combo today (see G1 in the byte-exactness tracker).
-		// matchLimit=1 asserts the keyframe and logs later frames; the
-		// matched-prefix grows as divergences get tracked down.
-		matchLimit := 0
-		if opts.Width >= 320 {
-			matchLimit = 1
-		}
-		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, matchLimit)
+		// Strict byte parity on every frame. Seeds that hit a documented
+		// divergence (see byte-exactness tracker gaps C, D) are expected
+		// to fail today until the relevant fix lands; a green run means
+		// the matched prefix covers the full clip for that config.
+		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
