@@ -180,6 +180,15 @@ type VP9MultiResolutionEncoder struct {
 	// the steady-state encode path does not allocate.
 	scratch [MaxMultiResLayers]*image.YCbCr
 
+	// resizeScratch is the shared int32 intermediate slab used by
+	// the libvpx-aligned 8-tap polyphase downscale filter. The
+	// horizontal pass writes 32-bit unrounded coefficients into
+	// this slab and the vertical pass reads them out. Sized once
+	// at construction to cover the largest (dstWidth × srcHeight)
+	// luma plane any layer needs, so the encode-time path stays
+	// allocation-free.
+	resizeScratch []int32
+
 	// results and resultErrs back parallel per-layer encode
 	// goroutines. They are preallocated once to keep the encode
 	// path allocation-free.
@@ -241,6 +250,23 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 				image.Rect(0, 0, layer.Width, layer.Height),
 				image.YCbCrSubsampleRatio420)
 		}
+	}
+	// Size the resize scratch once: the polyphase filter writes a
+	// dstWidth × srcHeight intermediate. srcHeight is bounded above
+	// by the highest-resolution layer's height; dstWidth is bounded
+	// by the same layer's width since lower-resolution layers
+	// strictly shrink. The slab thus only needs to cover the
+	// largest possible (dstWidth, srcHeight) pair, which is
+	// (layers[1].Width, layers[0].Height) when count > 1. The
+	// single-layer case never downscales, so the slab stays empty.
+	if count > 1 {
+		// layers[0] is highest resolution, so srcHeight is
+		// layers[0].Height. The largest dstWidth across all lower
+		// layers is layers[1].Width.
+		srcHeight := mre.layerHeights[0]
+		dstWidth := mre.layerWidths[1]
+		mre.resizeScratch = make([]int32,
+			vp9MultiResolutionPolyphaseScratchSize(dstWidth, srcHeight))
 	}
 	return mre, nil
 }
@@ -373,10 +399,15 @@ func (e *VP9MultiResolutionEncoder) EncodeIntoWithFlagsResult(img *image.YCbCr,
 		}
 	}
 	// Prepare per-layer source images: layer 0 reuses the caller
-	// frame, lower layers downscale into pre-allocated scratch.
+	// frame, lower layers downscale into pre-allocated scratch
+	// through the libvpx-aligned 8-tap polyphase filter. The
+	// downscale loop is sequential because the intermediate
+	// scratch slab is shared across layers; the per-layer encode
+	// goroutines below get an already-downscaled YCbCr.
 	for i := 1; i < e.count; i++ {
 		vp9MultiResolutionDownscaleI420(e.scratch[i], img,
-			e.layerWidths[i], e.layerHeights[i])
+			e.layerWidths[i], e.layerHeights[i],
+			e.resizeScratch)
 	}
 	// Reset per-call result storage.
 	for i := 0; i < e.count; i++ {
@@ -487,105 +518,22 @@ func (e *VP9MultiResolutionEncoder) Close() error {
 func (e *VP9MultiResolutionEncoder) Codec() Codec { return CodecVP9 }
 
 // vp9MultiResolutionDownscaleI420 downscales src into dst at the
-// destination's declared visible width/height using a 2-tap bilinear
-// filter on each plane.
+// destination's declared visible width/height using the libvpx-
+// aligned 8-tap 16-phase polyphase resampler in vp9_resize.go. The
+// scratch slab carries the horizontal-pass intermediate so the
+// vertical pass can read 32-bit unrounded coefficients and apply the
+// combined two-pass rounding shift in one place. The caller must
+// supply scratch with at least vp9MultiResolutionPolyphaseScratchSize
+// (dstWidth, srcHeight) int32 entries; the multi-resolution encoder
+// allocates one slab once at construction.
 //
-// Parity note: libvpx's vp9_resize_plane uses a higher-quality 5-tap
-// polyphase filter. The bilinear filter here keeps the encode path
-// dependency-free and allocation-free, but it produces a softer
-// downscaled image than libvpx's vp9_multi_resolution_encoder.c
-// would feed to its lower-resolution encoders. The MV-hint sharing
-// follow-up will revisit this for parity-critical paths.
+// Parity note: the previous implementation used a 2-tap bilinear
+// filter which over-smoothed the downscaled image. The 8-tap
+// polyphase filter mirrors libvpx vp9_resize.c's interpolation
+// kernel and preserves significantly more high-frequency detail.
 func vp9MultiResolutionDownscaleI420(dst *image.YCbCr, src *image.YCbCr,
-	dstWidth, dstHeight int,
+	dstWidth, dstHeight int, scratch []int32,
 ) {
-	if dst == nil || src == nil {
-		return
-	}
-	srcWidth := src.Rect.Dx()
-	srcHeight := src.Rect.Dy()
-	if srcWidth <= 0 || srcHeight <= 0 || dstWidth <= 0 || dstHeight <= 0 {
-		return
-	}
-	// Luma plane.
-	vp9MultiResolutionDownscalePlane(dst.Y, dst.YStride,
-		dstWidth, dstHeight,
-		src.Y, src.YStride, srcWidth, srcHeight)
-	// Chroma planes — 4:2:0 sampling so each chroma plane is half
-	// the visible width and height in each dimension.
-	srcChromaW := (srcWidth + 1) >> 1
-	srcChromaH := (srcHeight + 1) >> 1
-	dstChromaW := (dstWidth + 1) >> 1
-	dstChromaH := (dstHeight + 1) >> 1
-	vp9MultiResolutionDownscalePlane(dst.Cb, dst.CStride,
-		dstChromaW, dstChromaH,
-		src.Cb, src.CStride, srcChromaW, srcChromaH)
-	vp9MultiResolutionDownscalePlane(dst.Cr, dst.CStride,
-		dstChromaW, dstChromaH,
-		src.Cr, src.CStride, srcChromaW, srcChromaH)
+	vp9MultiResolutionPolyphaseDownscaleI420(dst, src, dstWidth, dstHeight, scratch)
 }
 
-// vp9MultiResolutionDownscalePlane resamples one 8-bit plane from
-// (srcWidth, srcHeight) to (dstWidth, dstHeight) using a 2-tap
-// bilinear filter with 16.16 fixed-point sampling positions.
-func vp9MultiResolutionDownscalePlane(dst []byte, dstStride int,
-	dstWidth, dstHeight int,
-	src []byte, srcStride int,
-	srcWidth, srcHeight int,
-) {
-	if dstWidth <= 0 || dstHeight <= 0 || srcWidth <= 0 || srcHeight <= 0 {
-		return
-	}
-	// 16.16 step between source samples per output sample.
-	stepX := uint32(0)
-	if dstWidth > 1 {
-		stepX = uint32(((uint64(srcWidth) - 1) << 16) / uint64(dstWidth-1))
-	}
-	stepY := uint32(0)
-	if dstHeight > 1 {
-		stepY = uint32(((uint64(srcHeight) - 1) << 16) / uint64(dstHeight-1))
-	}
-	for y := 0; y < dstHeight; y++ {
-		var sy uint32
-		if dstHeight > 1 {
-			sy = uint32(y) * stepY
-		}
-		yi := int(sy >> 16)
-		yf := int(sy & 0xFFFF)
-		yi1 := yi + 1
-		if yi1 >= srcHeight {
-			yi1 = srcHeight - 1
-		}
-		row0 := src[yi*srcStride:]
-		row1 := src[yi1*srcStride:]
-		dstRow := dst[y*dstStride:]
-		var sx uint32
-		for x := 0; x < dstWidth; x++ {
-			if dstWidth > 1 {
-				sx = uint32(x) * stepX
-			} else {
-				sx = 0
-			}
-			xi := int(sx >> 16)
-			xf := int(sx & 0xFFFF)
-			xi1 := xi + 1
-			if xi1 >= srcWidth {
-				xi1 = srcWidth - 1
-			}
-			// Bilinear blend: top = row0[xi]*(1-xf) + row0[xi1]*xf,
-			// bot = row1[xi]*(1-xf) + row1[xi1]*xf, out = top*(1-yf) + bot*yf.
-			invXF := 0x10000 - xf
-			invYF := 0x10000 - yf
-			top := (int(row0[xi])*invXF + int(row0[xi1])*xf) >> 8
-			bot := (int(row1[xi])*invXF + int(row1[xi1])*xf) >> 8
-			// top/bot now in 8.8 fixed point with 8-bit sample range.
-			out := (top*invYF + bot*yf) >> 24
-			if out < 0 {
-				out = 0
-			} else if out > 255 {
-				out = 255
-			}
-			dstRow[x] = byte(out)
-		}
-	}
-}

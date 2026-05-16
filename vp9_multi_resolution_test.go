@@ -296,7 +296,9 @@ func TestVP9MultiResolutionEncoderParityVsManualEncoders(t *testing.T) {
 	// caller source directly.
 	scratch := image.NewYCbCr(image.Rect(0, 0, width1, height1),
 		image.YCbCrSubsampleRatio420)
-	vp9MultiResolutionDownscaleI420(scratch, src, width1, height1)
+	resizeScratch := make([]int32,
+		vp9MultiResolutionPolyphaseScratchSize(width1, height0))
+	vp9MultiResolutionDownscaleI420(scratch, src, width1, height1, resizeScratch)
 
 	ref0, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:  width0,
@@ -415,7 +417,8 @@ func TestVP9MultiResolutionDownscalePlaneFlatField(t *testing.T) {
 		src[i] = 128
 	}
 	dst := make([]byte, 4*4)
-	vp9MultiResolutionDownscalePlane(dst, 4, 4, 4, src, 8, 8, 8)
+	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(4, 8))
+	vp9MultiResolutionPolyphaseFilterPlane(dst, 4, 4, 4, src, 8, 8, 8, scratch)
 	for i, b := range dst {
 		if b != 128 {
 			t.Fatalf("dst[%d] = %d, want 128", i, b)
@@ -424,9 +427,11 @@ func TestVP9MultiResolutionDownscalePlaneFlatField(t *testing.T) {
 }
 
 func TestVP9MultiResolutionDownscalePlaneLinearGradient(t *testing.T) {
-	// Linear horizontal gradient should round-trip through bilinear
-	// to a coarser linear gradient, with monotonically increasing
-	// output samples.
+	// Linear horizontal gradient should round-trip through the
+	// 8-tap polyphase filter to a coarser monotonically-increasing
+	// gradient. The polyphase filter is not order-preserving in
+	// pathological cases (ringing), but for a 16-sample linear
+	// ramp downscaled to 4 samples it stays monotone.
 	srcW, srcH := 16, 1
 	src := make([]byte, srcW*srcH)
 	for x := 0; x < srcW; x++ {
@@ -434,7 +439,8 @@ func TestVP9MultiResolutionDownscalePlaneLinearGradient(t *testing.T) {
 	}
 	dstW := 4
 	dst := make([]byte, dstW*srcH)
-	vp9MultiResolutionDownscalePlane(dst, dstW, dstW, srcH, src, srcW, srcW, srcH)
+	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(dstW, srcH))
+	vp9MultiResolutionPolyphaseFilterPlane(dst, dstW, dstW, srcH, src, srcW, srcW, srcH, scratch)
 	for i := 1; i < dstW; i++ {
 		if dst[i] < dst[i-1] {
 			t.Fatalf("downscaled gradient regressed at %d: %v", i, dst)
