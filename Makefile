@@ -135,7 +135,7 @@ vp9-decoder-conformance: vp9-vpxdec-tools fetch-vp9-test-data
 	GOVPX_VP9_PROFILE_TEST_DATA_MIN="$(VP9_DECODER_PROFILE_WEBM_MIN)" \
 	GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_VP9_INVALID_TEST_DATA_MIN="$(VP9_INVALID_IVF_MIN)" \
-	$(GO) test . -run 'TestVP9Decoder(Official(IVFTestDataMatchesLibvpx|Profile0WebMTestDataMatchesLibvpx|ProfileWebMTestDataReturnsUnsupported|InvalidIVFTestDataRejectedLikeLibvpx)|ThreadingOfficial(IVFMatchesSerial|Profile0WebMMatchesSerial|Profile0TileColumnsUseWorkers))$$' -count=1 -timeout 10m
+	$(GO) test . -run 'TestVP9Decoder(Official(IVFTestDataMatchesLibvpx|IVFTestDataThreadedMatchesSerial|Profile0WebMTestDataMatchesLibvpx|ProfileWebMTestDataReturnsUnsupported|InvalidIVFTestDataRejectedLikeLibvpx)|ThreadingOfficial(IVFMatchesSerial|Profile0WebMMatchesSerial|Profile0TileColumnsUseWorkers))$$' -count=1 -timeout 10m
 
 pgo-refresh:
 	mkdir -p .pgo
