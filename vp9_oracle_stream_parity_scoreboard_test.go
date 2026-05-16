@@ -477,6 +477,18 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name:    "fixed-keyframe-interval-2-minmax",
+			fixture: constant64,
+			frames:  6,
+			opts: VP9EncoderOptions{
+				MinKeyframeInterval: 2,
+				MaxKeyframeInterval: 2,
+			},
+			extraArgs:   []string{"--kf-min-dist=2", "--kf-max-dist=2"},
+			exactPrefix: 6,
+			strictBytes: true,
+		},
+		{
 			name:    "force-key-frame1",
 			fixture: stepped64,
 			frames:  6,

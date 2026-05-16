@@ -720,6 +720,18 @@ func (e *VP9SpatialSVCEncoder) SetLayerKeyFrameInterval(layerID uint8, frames in
 	return layer.SetKeyFrameInterval(frames)
 }
 
+// SetLayerKeyFrameIntervalRange changes one spatial layer's VP9 minimum and
+// maximum key-frame distances, matching [VP9Encoder.SetKeyFrameIntervalRange].
+func (e *VP9SpatialSVCEncoder) SetLayerKeyFrameIntervalRange(layerID uint8,
+	minFrames, maxFrames int,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetKeyFrameIntervalRange(minFrames, maxFrames)
+}
+
 // SetLayerARNR changes one spatial layer's VP9 auto-alt-ref temporal filtering
 // controls, matching [VP9Encoder.SetARNR].
 func (e *VP9SpatialSVCEncoder) SetLayerARNR(layerID uint8,

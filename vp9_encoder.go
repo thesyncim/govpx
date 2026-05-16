@@ -164,6 +164,11 @@ type VP9EncoderOptions struct {
 	// 4x4 transforms, WHT reconstruction, and disables the loop filter.
 	Lossless bool
 
+	// MinKeyframeInterval is the VP9 kf_min_dist control. Zero keeps libvpx's
+	// default. It constrains future adaptive keyframe decisions and is stored
+	// for libvpx-compatible control/oracle parity; explicitly forced key frames
+	// are unaffected.
+	MinKeyframeInterval int
 	// MaxKeyframeInterval bounds the gap between key frames. Zero
 	// uses libvpx's default (kf_max_dist=128).
 	MaxKeyframeInterval int
@@ -515,7 +520,8 @@ type VP9Encoder struct {
 // NewVP9Encoder creates a VP9 encoder with validated options.
 // Width and Height must be positive; Threads / Log2TileRows / Quantizer /
 // TargetBitrateKbps / MinQuantizer / MaxQuantizer / CQLevel /
-// MaxKeyframeInterval must be within their documented ranges.
+// MinKeyframeInterval / MaxKeyframeInterval must be within their documented
+// ranges.
 func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := normalizeVP9SpeedOptions(&opts); err != nil {
 		return nil, err
@@ -563,9 +569,12 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if err := validateVP9TileRowOptions(opts.Width, opts.Height, opts.Log2TileRows); err != nil {
 		return err
 	}
-	if opts.TargetBitrateKbps < 0 || opts.Quantizer < 0 ||
-		opts.MaxKeyframeInterval < 0 {
+	if opts.TargetBitrateKbps < 0 || opts.Quantizer < 0 {
 		return ErrInvalidConfig
+	}
+	if err := validateVP9KeyFrameIntervalOptions(
+		opts.MinKeyframeInterval, opts.MaxKeyframeInterval); err != nil {
+		return err
 	}
 	if opts.LookaheadFrames < 0 || opts.LookaheadFrames > vp9MaxLookaheadFrames {
 		return ErrInvalidConfig
@@ -1197,6 +1206,20 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 		cadence = 128 // libvpx default kf_max_dist
 	}
 	return e.frameIndex%cadence == 0
+}
+
+func validateVP9KeyFrameIntervalOptions(minFrames, maxFrames int) error {
+	if minFrames < 0 || maxFrames < 0 {
+		return ErrInvalidConfig
+	}
+	max := maxFrames
+	if max <= 0 {
+		max = 128
+	}
+	if minFrames > max {
+		return ErrInvalidConfig
+	}
+	return nil
 }
 
 // ForceKeyFrame requests that the next successfully committed VP9 packet be

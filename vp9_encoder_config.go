@@ -418,17 +418,35 @@ func (e *VP9Encoder) SetStaticThreshold(threshold int) error {
 	return nil
 }
 
-// SetKeyFrameInterval changes the VP9 maximum GOP distance in frames. Zero
-// restores libvpx's default VP9 key-frame cadence. Explicitly forced key frames
-// are unaffected.
+// SetKeyFrameInterval changes the VP9 maximum GOP distance in frames while
+// leaving the current minimum distance unchanged. Zero restores libvpx's
+// default VP9 max key-frame cadence. Explicitly forced key frames are
+// unaffected.
 func (e *VP9Encoder) SetKeyFrameInterval(frames int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if frames < 0 {
-		return ErrInvalidConfig
+	if err := validateVP9KeyFrameIntervalOptions(
+		e.opts.MinKeyframeInterval, frames); err != nil {
+		return err
 	}
 	e.opts.MaxKeyframeInterval = frames
+	return nil
+}
+
+// SetKeyFrameIntervalRange changes the VP9 minimum and maximum key-frame
+// distances. Zero for min leaves libvpx's default kf_min_dist=0; zero for max
+// restores libvpx's default kf_max_dist=128. Explicitly forced key frames are
+// unaffected.
+func (e *VP9Encoder) SetKeyFrameIntervalRange(minFrames, maxFrames int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9KeyFrameIntervalOptions(minFrames, maxFrames); err != nil {
+		return err
+	}
+	e.opts.MinKeyframeInterval = minFrames
+	e.opts.MaxKeyframeInterval = maxFrames
 	return nil
 }
 

@@ -674,6 +674,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerKeyFrameInterval(0, 7); err != nil {
 		t.Fatalf("SetLayerKeyFrameInterval: %v", err)
 	}
+	if err := svc.SetLayerKeyFrameIntervalRange(0, 1, 7); err != nil {
+		t.Fatalf("SetLayerKeyFrameIntervalRange: %v", err)
+	}
 	if err := svc.SetLayerCQLevel(1, 24); err != nil {
 		t.Fatalf("SetLayerCQLevel: %v", err)
 	}
@@ -708,6 +711,7 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		base.opts.ScreenContentMode != 1 ||
 		base.opts.Sharpness != 4 ||
 		base.opts.StaticThreshold != 512 ||
+		base.opts.MinKeyframeInterval != 1 ||
 		base.opts.MaxKeyframeInterval != 7 {
 		t.Fatalf("base layer advanced controls missing: opts=%+v rc=%+v",
 			base.opts, base.rc)
@@ -756,6 +760,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if err := svc.SetLayerCQLevel(2, 24); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerCQLevel invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerKeyFrameIntervalRange(0, 8, 7); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerKeyFrameIntervalRange invalid err = %v, want ErrInvalidConfig", err)
 	}
 	if err := svc.SetLayerRealtimeTarget(2, RealtimeTarget{
 		BitrateKbps: 100,
@@ -843,6 +850,9 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerSharpness", fn: func() error { return svc.SetLayerSharpness(0, 4) }},
 		{name: "SetLayerStaticThreshold", fn: func() error { return svc.SetLayerStaticThreshold(0, 512) }},
 		{name: "SetLayerKeyFrameInterval", fn: func() error { return svc.SetLayerKeyFrameInterval(0, 7) }},
+		{name: "SetLayerKeyFrameIntervalRange", fn: func() error {
+			return svc.SetLayerKeyFrameIntervalRange(0, 1, 7)
+		}},
 		{name: "SetLayerARNR", fn: func() error { return svc.SetLayerARNR(1, 3, 4, 2) }},
 	}
 	for _, tc := range tests {

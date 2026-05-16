@@ -535,7 +535,13 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 			o.Segmentation.AltLFEnabled[0] = true
 			o.Segmentation.AltLF[0] = 1
 		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.MinKeyframeInterval = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.MaxKeyframeInterval = -1 }, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.MinKeyframeInterval = 3
+			o.MaxKeyframeInterval = 2
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) { o.MinKeyframeInterval = 129 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.LookaheadFrames = vp9MaxLookaheadFrames + 1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.ARNRMaxFrames = -1 }, ErrInvalidConfig},
@@ -885,8 +891,9 @@ func TestVP9EncoderSetKeyFrameInterval(t *testing.T) {
 	if err := e.SetKeyFrameInterval(2); err != nil {
 		t.Fatalf("SetKeyFrameInterval(2): %v", err)
 	}
-	if e.opts.MaxKeyframeInterval != 2 {
-		t.Fatalf("MaxKeyframeInterval = %d, want 2", e.opts.MaxKeyframeInterval)
+	if e.opts.MinKeyframeInterval != 0 || e.opts.MaxKeyframeInterval != 2 {
+		t.Fatalf("keyframe interval range = %d/%d, want 0/2",
+			e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval)
 	}
 	dst := make([]byte, 65536)
 	results := make([]VP9EncodeResult, 3)
@@ -911,8 +918,26 @@ func TestVP9EncoderSetKeyFrameInterval(t *testing.T) {
 	if err := e.SetKeyFrameInterval(0); err != nil {
 		t.Fatalf("SetKeyFrameInterval(0): %v", err)
 	}
-	if e.opts.MaxKeyframeInterval != 0 {
-		t.Fatalf("MaxKeyframeInterval reset = %d, want 0", e.opts.MaxKeyframeInterval)
+	if e.opts.MinKeyframeInterval != 0 || e.opts.MaxKeyframeInterval != 0 {
+		t.Fatalf("keyframe interval reset = %d/%d, want 0/0",
+			e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval)
+	}
+	if err := e.SetKeyFrameIntervalRange(2, 2); err != nil {
+		t.Fatalf("SetKeyFrameIntervalRange(2,2): %v", err)
+	}
+	if e.opts.MinKeyframeInterval != 2 || e.opts.MaxKeyframeInterval != 2 {
+		t.Fatalf("keyframe interval range = %d/%d, want 2/2",
+			e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval)
+	}
+	beforeMin, beforeMax := e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval
+	if err := e.SetKeyFrameIntervalRange(3, 2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetKeyFrameIntervalRange(3,2) err = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.MinKeyframeInterval != beforeMin || e.opts.MaxKeyframeInterval != beforeMax {
+		t.Fatal("invalid SetKeyFrameIntervalRange mutated encoder")
+	}
+	if err := e.SetKeyFrameInterval(1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetKeyFrameInterval(1) below active min err = %v, want ErrInvalidConfig", err)
 	}
 }
 
@@ -5370,6 +5395,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetKeyFrameInterval(2); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetKeyFrameInterval after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetKeyFrameIntervalRange(1, 2); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetKeyFrameIntervalRange after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetARNR after Close err = %v, want ErrClosed", err)
 	}
@@ -5427,6 +5455,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetKeyFrameInterval(2); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetKeyFrameInterval on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetKeyFrameIntervalRange(1, 2); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetKeyFrameIntervalRange on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetARNR on nil encoder err = %v, want ErrClosed", err)

@@ -175,6 +175,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetDeadline":                 {kind: "encode-deadline", helperTokens: []string{"deadline:"}},
 		"SetFrameDropAllowed":         {kind: "libvpx-config", helperTokens: []string{"drop:"}},
 		"SetKeyFrameInterval":         {kind: "libvpx-config", helperTokens: []string{"kfmax:"}},
+		"SetKeyFrameIntervalRange":    {kind: "libvpx-config", helperTokens: []string{"kfmin:", "kfmax:"}},
 		"SetLossless":                 {kind: "libvpx-control", helperTokens: []string{"lossless:"}},
 		"SetNoiseSensitivity":         {kind: "libvpx-control", helperTokens: []string{"noise:"}},
 		"SetRateControl":              {kind: "libvpx-config", helperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "bufsz:", "bufinit:", "bufopt:", "drop:", "cq:"}},
@@ -222,6 +223,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"LookaheadFrames":     {kind: "vp9-lookahead-api"},
 		"Lossless":            {kind: "libvpx-control", helperTokens: []string{"lossless:", "--lossless"}},
 		"MaxKeyframeInterval": {kind: "libvpx-config", helperTokens: []string{"kfmax:", "--kf-max-dist"}},
+		"MinKeyframeInterval": {kind: "libvpx-config", helperTokens: []string{"kfmin:", "--kf-min-dist"}},
 		"MaxQuantizer":        {kind: "libvpx-config", helperTokens: []string{"maxq:", "--max-q"}},
 		"MinQuantizer":        {kind: "libvpx-config", helperTokens: []string{"minq:", "--min-q"}},
 		"NoiseSensitivity":    {kind: "libvpx-control", helperTokens: []string{"noise:", "--noise-sensitivity"}},
@@ -315,6 +317,10 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 		"SetLayerKeyFrameInterval": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"kfmax:"},
+		},
+		"SetLayerKeyFrameIntervalRange": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"kfmin:", "kfmax:"},
 		},
 		"SetLayerLossless": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"lossless:"}},
 		"SetLayerNoiseSensitivity": {
