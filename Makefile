@@ -82,7 +82,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate oracle-test byte-parity fuzz-controls decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality oracle-test byte-parity fuzz-controls decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -96,6 +96,16 @@ fmtcheck:
 	fi
 
 verify: ci
+
+# verify-quality runs the govpx-bench VP9 quality-gate fixture suite
+# (panning 360p / 2 Mbps + checker 360p / 600 kbps) against the pinned
+# libvpx vpxenc-vp9 reference. The bench exits non-zero when govpx
+# PSNR drops below 20 dB, SSIM below 0.70, or trails libvpx by more
+# than 2 dB PSNR / 0.03 SSIM. Tune those thresholds via -quality-min-psnr
+# etc. on the bench CLI when investigating regressions.
+verify-quality: vp9-vpxdec-tools
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -o $(CORACLE_BUILD)/govpx-bench ./cmd/govpx-bench
+	$(CORACLE_BUILD)/govpx-bench -quality-fixtures -quality-gate -libvpx-vpxenc-vp9="$(VPXENC_VP9)" -auto-libvpx=false
 
 verify-production: ci oracle-test byte-parity scoreboard
 
