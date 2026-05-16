@@ -75,6 +75,36 @@ func TestRateControlPickFrameSizeKeyFrameAlwaysKept(t *testing.T) {
 	}
 }
 
+func TestRateControlDecimationDropIsNotCBRGated(t *testing.T) {
+	rc := rateControlState{
+		mode:                RateControlVBR,
+		bitsPerFrame:        1000,
+		bufferLevelBits:     0,
+		bufferOptimalBits:   1000,
+		maximumBufferBits:   4000,
+		dropFrameAllowed:    true,
+		dropFramesWaterMark: 60,
+		decimationFactor:    0,
+		decimationCount:     0,
+	}
+	rc.prepareDecimationForFrame()
+	if rc.decimationFactor != 1 {
+		t.Fatalf("VBR decimationFactor = %d, want 1 when buffer is below drop mark", rc.decimationFactor)
+	}
+	if got := rc.decimationBoostedBitsPerFrame(); got != 1500 {
+		t.Fatalf("VBR boosted bits/frame = %d, want 1500", got)
+	}
+	if rc.checkDropBuffer(false) {
+		t.Fatalf("first VBR checkDropBuffer dropped with count=0, want seed only")
+	}
+	if rc.decimationCount != 1 {
+		t.Fatalf("VBR decimationCount = %d, want 1 after seed", rc.decimationCount)
+	}
+	if !rc.checkDropBuffer(false) {
+		t.Fatalf("second VBR checkDropBuffer kept frame, want decimation drop")
+	}
+}
+
 // TestRateControlEstimateKeyFrameFrequencyBootstraps pins libvpx's
 // estimate_keyframe_frequency special case for keyFrameCount==1: the
 // bootstrap assumes a keyframe every two seconds, clamped to key_freq only

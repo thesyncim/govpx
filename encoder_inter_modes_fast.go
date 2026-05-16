@@ -93,7 +93,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
-	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestDistortion := maxInt()
@@ -309,7 +309,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	if !bestSet {
 		return interFrameModeDecision{}, false
 	}
-	if bestModeIndex >= 0 {
+	if interModeRDBestThresholdLowerAllowed(baselineThresholds, bestModeIndex) {
 		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
 	e.recordFastInterModeErrorBin(bestDistortion)
@@ -347,7 +347,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
-	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestDistortion := maxInt()
@@ -584,7 +584,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	if !bestSet {
 		return interFrameModeDecision{}, false
 	}
-	if bestModeIndex >= 0 {
+	if interModeRDBestThresholdLowerAllowed(baselineThresholds, bestModeIndex) {
 		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
 	e.recordFastInterModeErrorBin(bestDistortion)
@@ -638,7 +638,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 		e.beginInterRDModeDecisionMacroblock()
 	}
 	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
-	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestDistortion := maxInt()
@@ -890,7 +890,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 	if !bestSet {
 		return interFrameModeDecision{}, false
 	}
-	if bestModeIndex >= 0 {
+	if interModeRDBestThresholdLowerAllowed(baselineThresholds, bestModeIndex) {
 		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
 	e.recordFastInterModeErrorBin(bestDistortion)

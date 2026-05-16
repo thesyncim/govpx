@@ -82,8 +82,11 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		return interResidualRDAccounting{}, false
 	}
 	zbinOverQuant := e.rc.currentZbinOverQuant
+	actZbinAdj := 0
 	if e.activityMapValid {
-		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, ctx.mbRow, ctx.mbCol)
+		if adjustment, ok := e.tunedZbinAdjustment(ctx.mbRow, ctx.mbCol); ok {
+			actZbinAdj = adjustment
+		}
 	}
 	var decMode vp8dec.MacroblockMode
 	convertInterFrameMode(ctx.mode, &decMode)
@@ -138,6 +141,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		qIndex:              ctx.qIndex,
 		zbinOverQuant:       zbinOverQuant,
 		zbinModeBoost:       interZbinModeBoost(ctx.mode),
+		actZbinAdj:          actZbinAdj,
 		is4x4:               is4x4,
 		splitPartitionValid: ctx.mode.Mode == vp8common.SplitMV,
 		splitPartition:      ctx.mode.Partition,
@@ -209,9 +213,6 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 	}
 	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mode.MV, ctx)
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	if e.activityMapValid {
-		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, mbRow, mbCol)
-	}
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
 	if e.activityMapValid {
 		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, modeRate, variance)
@@ -273,9 +274,6 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 	}
 	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mv, ctx)
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	if e.activityMapValid {
-		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, mbRow, mbCol)
-	}
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
 	if e.activityMapValid {
 		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, modeRate, variance)

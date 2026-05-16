@@ -133,6 +133,12 @@ func (e *VP8Encoder) consumePendingLFDeltaUpdate() bool {
 	return force
 }
 
+func (e *VP8Encoder) restorePendingLFDeltaUpdateAfterDrop(force bool) {
+	if force {
+		e.pendingLFDeltaUpdate = true
+	}
+}
+
 // updateLastSignaledLFDeltas commits the per-frame loop-filter delta
 // snapshot that future frames compare against to decide whether to set
 // mode_ref_lf_delta_update. Called from the keyframe / inter-frame commit

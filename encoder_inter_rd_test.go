@@ -330,7 +330,7 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	if !predictAnalysisMacroblock(&e.analysis.Img, 0, 0, &decMode, &e.reconstructScratch) {
 		t.Fatalf("predictAnalysisMacroblock returned false")
 	}
-	yRate, yDist, _, _ := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 0, nil, nil, &quant, &e.coefProbs, false)
+	yRate, yDist, _, _ := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 0, 0, nil, nil, &quant, &e.coefProbs, false)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, false)
 	if !ok {
 		t.Fatalf("predictBestIntraChromaModeRD mode=%v ok=false", uvMode)
@@ -340,9 +340,10 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	if result.score != want {
 		t.Fatalf("inter-intra RD score = %d, want %d with libvpx penalty", result.score, want)
 	}
-	wantYRD := rdModeScoreWithZbin(20, 0, yRate+intraYModeRate(false, vp8common.DCPred), yDist)
+	uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
+	wantYRD := rdModeScoreWithZbin(20, 0, yRate+intraYModeRate(false, vp8common.DCPred)+uvModeRate, yDist)
 	if result.yrd != wantYRD {
-		t.Fatalf("inter-intra YRD = %d, want libvpx Y-only RD %d", result.yrd, wantYRD)
+		t.Fatalf("inter-intra YRD = %d, want libvpx Y plus UV-mode RD %d", result.yrd, wantYRD)
 	}
 }
 
@@ -370,7 +371,7 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	if !predictAnalysisMacroblock(&e.analysis.Img, 0, 0, &decMode, &e.reconstructScratch) {
 		t.Fatalf("predictAnalysisMacroblock returned false")
 	}
-	yRate, yDist, _, _ := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 0, nil, nil, &quant, &e.coefProbs, false)
+	yRate, yDist, _, _ := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 0, 0, nil, nil, &quant, &e.coefProbs, false)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, e.modeProbs.UVMode[:], false)
 	if !ok {
 		t.Fatalf("predictBestIntraChromaModeRDWithProbs mode=%v ok=false", uvMode)
@@ -384,13 +385,14 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	if result.score != want {
 		t.Fatalf("inter-intra RD score = %d, want %d from live Y/UV mode probabilities", result.score, want)
 	}
-	wantYRD := rdModeScoreWithZbin(20, 0, yRate+liveYModeRate, yDist)
+	uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
+	wantYRD := rdModeScoreWithZbin(20, 0, yRate+liveYModeRate+uvModeRate, yDist)
 	if result.yrd != wantYRD {
-		t.Fatalf("inter-intra YRD = %d, want %d from live Y mode probability", result.yrd, wantYRD)
+		t.Fatalf("inter-intra YRD = %d, want %d from live Y and UV-mode probabilities", result.yrd, wantYRD)
 	}
 }
 
-func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
+func TestEstimateInterIntraBPredYRDExcludesUVTokensAndRefCosts(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
@@ -417,9 +419,10 @@ func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
 		t.Fatalf("predictBestIntraChromaModeRD mode=%v bModes=%v ok=false", uvMode, bModes)
 	}
 	yRate := bRate + intraYModeRate(false, vp8common.BPred)
-	wantYRD := rdModeScoreWithZbin(20, 0, yRate, bDist)
+	uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
+	wantYRD := rdModeScoreWithZbin(20, 0, yRate+uvModeRate, bDist)
 	if result.yrd != wantYRD {
-		t.Fatalf("BPred YRD = %d, want libvpx Y-only RD %d", result.yrd, wantYRD)
+		t.Fatalf("BPred YRD = %d, want libvpx Y plus UV-mode RD %d", result.yrd, wantYRD)
 	}
 	rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 	want := rdModeScoreWithZbin(20, 0, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(20)

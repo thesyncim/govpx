@@ -165,7 +165,7 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 	// rc.bitsPerFrame in non-TS encodes.
 	perFrameBandwidth := rc.currentLayerPerFrameBandwidth
 	if perFrameBandwidth <= 0 {
-		perFrameBandwidth = rc.bitsPerFrame
+		perFrameBandwidth = rc.decimationBoostedBitsPerFrame()
 	}
 	if perFrameBandwidth <= 0 {
 		return
@@ -173,12 +173,16 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 	if keyFrame {
 		if actualBits > perFrameBandwidth {
 			overspend := actualBits - perFrameBandwidth
+			addedKF := 0
+			addedGF := 0
 			if rc.currentTemporalLayers > 1 {
-				rc.kfOverspendBits = saturatingAdd(rc.kfOverspendBits, overspend)
+				addedKF = overspend
 			} else {
-				rc.kfOverspendBits = saturatingAdd(rc.kfOverspendBits, overspend*7/8)
-				rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, overspend/8)
+				addedKF = overspend * 7 / 8
+				addedGF = overspend / 8
 			}
+			rc.kfOverspendBits = saturatingAdd(rc.kfOverspendBits, addedKF)
+			rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, addedGF)
 			outputFrameRate := rc.outputFrameRate
 			if rc.currentTemporalLayers > 1 && rc.currentLayerOutputFrameRate > 0 {
 				rc.outputFrameRate = rc.currentLayerOutputFrameRate
@@ -189,9 +193,9 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 				kfFreq = 1
 			}
 			rc.kfBitrateAdjustment = rc.kfOverspendBits / kfFreq
-			if !errorResilient && rc.framesTillGFUpdateDue > 0 {
-				rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
-			}
+		}
+		if !errorResilient && rc.framesTillGFUpdateDue > 0 {
+			rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
 		}
 		rc.keyFrameCount++
 		return
@@ -211,9 +215,6 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 	// alt-ref, so treat every golden refresh as the non-altref case
 	// (matches libvpx behaviour when source_alt_ref_active is 0).
 	interTarget := rc.interFrameTarget
-	if interTarget <= 0 {
-		interTarget = perFrameBandwidth
-	}
 	rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, actualBits-interTarget)
 	if rc.framesTillGFUpdateDue > 0 {
 		rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
@@ -459,7 +460,7 @@ func (rc *rateControlState) postDropFrame() {
 // Safe to call once per frame (keyframe or inter); does not mutate the
 // decimation_count or take a drop decision.
 func (rc *rateControlState) prepareDecimationForFrame() {
-	if rc.mode != RateControlCBR || !rc.dropFrameAllowed {
+	if !rc.dropFrameAllowed {
 		return
 	}
 	dropMarkBits := rc.dropMarkBits()
@@ -493,13 +494,13 @@ func (rc *rateControlState) prepareDecimationForFrame() {
 // cpi->per_frame_bandwidth so that the begin-frame target consumed by
 // calc_pframe_target_size / vp8_regulate_q on a frame following a
 // decimation drop matches libvpx's. Returns rc.bitsPerFrame unchanged when
-// CBR drops are disabled or decimation_factor==0.
+// frame dropping is disabled or decimation_factor==0.
 func (rc *rateControlState) decimationBoostedBitsPerFrame() int {
 	base := rc.bitsPerFrame
 	if base <= 0 {
 		return base
 	}
-	if rc.mode != RateControlCBR || !rc.dropFrameAllowed {
+	if !rc.dropFrameAllowed {
 		return base
 	}
 	switch rc.decimationFactor {
@@ -528,7 +529,7 @@ func (rc *rateControlState) decimationBoostedBitsPerFrame() int {
 // honors the decimation pattern. This keeps the count/factor lifecycle
 // independent of which frame ultimately fired the buffer-test.
 func (rc *rateControlState) checkDropBuffer(keyFrame bool) bool {
-	if rc.mode != RateControlCBR || !rc.dropFrameAllowed {
+	if !rc.dropFrameAllowed {
 		// Match libvpx's else branch: when drop_frames_allowed is false,
 		// reset decimation_count so a later allow-toggle doesn't honor a
 		// stale count.

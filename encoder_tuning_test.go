@@ -117,6 +117,71 @@ func TestTuneSSIMActivityMapAdjustsRDCost(t *testing.T) {
 	}
 }
 
+func TestActivityProbeRDConstantsCarryLastMacroblock(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 16)
+	baseMult, baseDiv := libvpxRDConstantsWithZbin(4, 0)
+	if baseMult != 179 || baseDiv != 100 {
+		t.Fatalf("q4 RD constants = %d/%d, want 179/100", baseMult, baseDiv)
+	}
+	if gotMult, gotDiv := e.activityProbeRDConstants(4, 0); gotMult != baseMult || gotDiv != baseDiv {
+		t.Fatalf("initial activity probe RD = %d/%d, want frame constants %d/%d", gotMult, gotDiv, baseMult, baseDiv)
+	}
+
+	e.activityProbeRDMult = 256
+	e.activityProbeRDDiv = 100
+	e.activityProbeRDValid = true
+	if gotMult, gotDiv := e.activityProbeRDConstants(4, 0); gotMult != 256 || gotDiv != 100 {
+		t.Fatalf("carried activity probe RD = %d/%d, want stale macroblock 256/100", gotMult, gotDiv)
+	}
+}
+
+func TestUpdateActivityProbeRDStateUsesBottomRightActivityMask(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 16)
+	e.activityMap = []uint32{64, 200000}
+	e.activityAvg = 100000
+	e.activityMapValid = true
+
+	baseMult, baseDiv := libvpxRDConstantsWithZbin(4, 0)
+	e.updateActivityProbeRDState(4, 0, 1, 2)
+
+	wantMult := e.tunedRDMultiplier(baseMult, 0, 1)
+	if e.activityProbeRDMult != wantMult || e.activityProbeRDDiv != baseDiv || !e.activityProbeRDValid {
+		t.Fatalf("activity probe RD state = %d/%d valid=%t, want %d/%d valid",
+			e.activityProbeRDMult, e.activityProbeRDDiv, e.activityProbeRDValid, wantMult, baseDiv)
+	}
+}
+
+func TestTuneSSIMActivityZbinAdjustmentCanApplyBelowZeroBase(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	e.opts.Tuning = TuneSSIM
+	e.activityMap = []uint32{64}
+	e.activityAvg = 100000
+	e.activityMapValid = true
+	actZbinAdj, ok := e.tunedZbinAdjustment(0, 0)
+	if !ok || actZbinAdj >= 0 {
+		t.Fatalf("flat activity zbin adjustment = %d ok=%t, want negative adjustment", actZbinAdj, ok)
+	}
+	if got := e.tunedZbinOverQuant(0, 0, 0); got != 0 {
+		t.Fatalf("tunedZbinOverQuant(0) = %d, want clamped zero", got)
+	}
+
+	for qIndex := 0; qIndex <= maxQuantizer; qIndex++ {
+		quant := testRegularMacroblockQuant(t, qIndex)
+		for v := int16(1); v < 512; v++ {
+			var coeff [16]int16
+			var noActQ, noActDQ [16]int16
+			var actQ, actDQ [16]int16
+			coeff[1] = v
+			noActEOB := quantizeDecisionBlockWithActivity(false, &coeff, &quant.Y1, 0, 0, &noActQ, &noActDQ)
+			actEOB := quantizeDecisionBlockWithActivity(false, &coeff, &quant.Y1, 0, actZbinAdj, &actQ, &actDQ)
+			if noActEOB == 0 && actEOB > 0 {
+				return
+			}
+		}
+	}
+	t.Fatalf("negative activity zbin adjustment did not admit a coefficient at base zbin 0")
+}
+
 func TestTuneSSIMEncodeSmoke(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:             32,

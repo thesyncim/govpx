@@ -599,8 +599,20 @@ func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
 	}
 }
 
-func TestSetRateControlPreservesLibvpxCyclicRefreshMode(t *testing.T) {
-	cbr := newTestEncoder(t)
+func TestSetRateControlRecomputesLibvpxCyclicRefreshMode(t *testing.T) {
+	cbr, err := NewVP8Encoder(EncoderOptions{
+		Width:             16,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder(CBR): %v", err)
+	}
+	defer cbr.Close()
 	if !cbr.cyclicRefreshModeEnabled(false) {
 		t.Fatalf("CBR-born encoder cyclic refresh disabled, want enabled")
 	}
@@ -615,8 +627,8 @@ func TestSetRateControlPreservesLibvpxCyclicRefreshMode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CBR-born SetRateControl(VBR): %v", err)
 	}
-	if !cbr.cyclicRefreshModeEnabled(false) {
-		t.Fatalf("CBR-born runtime VBR cyclic refresh disabled, want libvpx sticky enablement")
+	if cbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("CBR-born runtime VBR cyclic refresh enabled, want libvpx vp8_change_config recompute")
 	}
 
 	vbr, err := NewVP8Encoder(EncoderOptions{
@@ -646,8 +658,540 @@ func TestSetRateControlPreservesLibvpxCyclicRefreshMode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("VBR-born SetRateControl(CBR): %v", err)
 	}
-	if vbr.cyclicRefreshModeEnabled(false) {
-		t.Fatalf("VBR-born runtime CBR cyclic refresh enabled, want libvpx sticky disablement")
+	if !vbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("VBR-born runtime CBR cyclic refresh disabled, want libvpx vp8_change_config recompute")
+	}
+}
+
+func TestSetRateControlVBRPreservesLibvpxSegmentationHeader(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             16,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 8192)
+	key, err := e.EncodeInto(dst, encoderValidationPanningFrame(16, 16, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	wantDelta := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData || wantDelta == 0 {
+		t.Fatalf("key segmentation = %+v, want cyclic-refresh map/data with nonzero alt-q", keyState.Segmentation)
+	}
+
+	cfg := RateControlConfig{
+		Mode:                RateControlVBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}
+	if err := e.SetRateControl(cfg); err != nil {
+		t.Fatalf("SetRateControl(VBR): %v", err)
+	}
+	if e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("cyclic refresh still active after VBR config")
+	}
+	if !e.runtimePreserveSegmentationUpdate {
+		t.Fatalf("runtimePreserveSegmentationUpdate = false after VBR config, want stale segmentation update")
+	}
+	inter, err := e.EncodeInto(dst, encoderValidationPanningFrame(16, 16, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto inter: %v", err)
+	}
+	interState := packetState(t, inter.Data)
+	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
+		t.Fatalf("VBR inter segmentation = %+v, want preserved stale map/data update", interState.Segmentation)
+	}
+	if got := interState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+		t.Fatalf("VBR inter alt-q delta = %d, want preserved %d", got, wantDelta)
+	}
+
+	if err := e.SetRateControl(cfg); err != nil {
+		t.Fatalf("second SetRateControl(VBR): %v", err)
+	}
+	if !e.runtimePreserveSegmentationUpdate {
+		t.Fatalf("runtimePreserveSegmentationUpdate = false after second VBR config, want re-emitted setup_features update")
+	}
+}
+
+func TestRuntimeControlsReemitPreservedVBRSegmentationUpdate(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 0), 0, 1, 0); err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlVBR,
+		TargetBitrateKbps:   300,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(VBR): %v", err)
+	}
+	first, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto VBR inter: %v", err)
+	}
+	if state := packetState(t, first.Data); !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("first VBR segmentation = %+v, want map/data update", state.Segmentation)
+	}
+
+	if err := e.SetRTCExternalRateControl(false); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(false): %v", err)
+	}
+	second, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 2), 2, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto RTC false inter: %v", err)
+	}
+	if state := packetState(t, second.Data); !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("RTC false segmentation = %+v, want preserved map/data update", state.Segmentation)
+	}
+
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	active := make([]uint8, rows*cols)
+	for i := range active {
+		active[i] = uint8(i & 1)
+	}
+	if err := e.SetActiveMap(active, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	third, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 3), 3, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto active-map inter: %v", err)
+	}
+	if state := packetState(t, third.Data); !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("active-map segmentation = %+v, want preserved map/data update", state.Segmentation)
+	}
+}
+
+func TestRTCExternalReemitsEncodeTimeVBRSegmentationDelta(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 0), 0, 1, 0); err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlVBR,
+		TargetBitrateKbps:   300,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(VBR): %v", err)
+	}
+	vbr, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto VBR inter: %v", err)
+	}
+	wantDelta := packetState(t, vbr.Data).Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	if wantDelta == 0 {
+		t.Fatalf("VBR preserved ALT_Q delta = 0, want nonzero")
+	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 2), 2, 1, 0); err != nil {
+		t.Fatalf("EncodeInto RTC header-only inter: %v", err)
+	}
+	if err := e.SetMaxIntraBitratePct(0); err != nil {
+		t.Fatalf("SetMaxIntraBitratePct: %v", err)
+	}
+	if err := e.SetGFCBRBoostPct(400); err != nil {
+		t.Fatalf("SetGFCBRBoostPct: %v", err)
+	}
+	if err := e.SetCQLevel(40); err != nil {
+		t.Fatalf("SetCQLevel: %v", err)
+	}
+	reemit, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 3), 3, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto reemit inter: %v", err)
+	}
+	state := packetState(t, reemit.Data)
+	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("reemit segmentation = %+v, want preserved map/data update", state.Segmentation)
+	}
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+		t.Fatalf("reemit ALT_Q delta = %d, want encode-time VBR delta %d", got, wantDelta)
+	}
+}
+
+func TestSetRateControlCQRefreshesPreservedSegmentationDelta(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 0), 0, 1, 0); err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 1), 1, 1, 0); err != nil {
+		t.Fatalf("EncodeInto first inter: %v", err)
+	}
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlCQ,
+		TargetBitrateKbps:   300,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             30,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CQ): %v", err)
+	}
+	inter, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 2), 2, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto CQ inter: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	wantQ := libvpxPublicQuantizerToQIndex(30)
+	wantDelta := cyclicRefreshQuantizerDeltaForQuantizer(wantQ)
+	if state.Quant.BaseQIndex != uint8(wantQ) {
+		t.Fatalf("CQ base q = %d, want %d", state.Quant.BaseQIndex, wantQ)
+	}
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+		t.Fatalf("CQ preserved alt-q delta = %d, want refreshed %d", got, wantDelta)
+	}
+
+	if err := e.SetCQLevel(40); err != nil {
+		t.Fatalf("SetCQLevel(40): %v", err)
+	}
+	next, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 3), 3, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto CQ-level inter: %v", err)
+	}
+	state = packetState(t, next.Data)
+	wantQ = libvpxPublicQuantizerToQIndex(40)
+	wantDelta = cyclicRefreshQuantizerDeltaForQuantizer(wantQ)
+	if state.Quant.BaseQIndex != uint8(wantQ) {
+		t.Fatalf("CQ level base q = %d, want %d", state.Quant.BaseQIndex, wantQ)
+	}
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+		t.Fatalf("CQ level preserved alt-q delta = %d, want refreshed %d", got, wantDelta)
+	}
+}
+
+func TestRuntimeExtraConfigKeepsRTCExternalCyclicRefreshDisabled(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             16,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+	dst := make([]byte, 4096)
+	if _, err := e.EncodeInto(dst, encoderValidationPanningFrame(16, 16, 0), 0, 1, 0); err != nil {
+		t.Fatalf("EncodeInto frame 0: %v", err)
+	}
+	if !e.segmentationHeaderEnabled {
+		t.Fatalf("segmentationHeaderEnabled = false after initial CBR frame")
+	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	if e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("RTC external cyclic refresh enabled, want disabled before later config")
+	}
+	if err := e.SetGFCBRBoostPct(200); err != nil {
+		t.Fatalf("SetGFCBRBoostPct: %v", err)
+	}
+	if !e.opts.RTCExternalRateControl {
+		t.Fatalf("RTCExternalRateControl sticky flag cleared after extra config")
+	}
+	if e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("cyclic refresh enabled after extra config, want RTC external disable to stay sticky")
+	}
+	if !e.runtimePreserveSegmentationUpdate {
+		t.Fatalf("runtimePreserveSegmentationUpdate = false after extra config, want setup_features-style one-shot segmentation update")
+	}
+}
+
+func TestRTCExternalFirstInterCodecControlsPreserveCyclicSegmentationUpdate(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	wantDelta := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	if wantDelta == 0 {
+		t.Fatalf("key cyclic alt-q delta = 0, want nonzero")
+	}
+	if err := e.SetMaxIntraBitratePct(0); err != nil {
+		t.Fatalf("SetMaxIntraBitratePct: %v", err)
+	}
+	if err := e.SetGFCBRBoostPct(0); err != nil {
+		t.Fatalf("SetGFCBRBoostPct: %v", err)
+	}
+	if err := e.SetCQLevel(40); err != nil {
+		t.Fatalf("SetCQLevel: %v", err)
+	}
+	if err := e.SetARNR(0, 0, 1); err != nil {
+		t.Fatalf("SetARNR: %v", err)
+	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	inter, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto first inter: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("first inter RTC segmentation = %+v, want preserved map/data update", state.Segmentation)
+	}
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+		t.Fatalf("first inter RTC alt-q delta = %d, want preserved %d", got, wantDelta)
+	}
+}
+
+func TestRTCExternalFirstInterWithoutPendingUpdatePreservesHeaderOnly(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             32,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(32, 16, 0), 0, 1, 0); err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	inter, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(32, 16, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto first inter: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	if !state.Segmentation.Enabled || state.Segmentation.UpdateMap || state.Segmentation.UpdateData {
+		t.Fatalf("first inter RTC-only segmentation = %+v, want enabled header without map/data update", state.Segmentation)
+	}
+}
+
+func TestRTCExternalFirstInterAfterActiveMapPreservesHeaderOnly(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 0), 0, 1, 0); err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	active := make([]uint8, rows*cols)
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			if (row+col)&1 == 0 {
+				active[row*cols+col] = 1
+			}
+		}
+	}
+	if err := e.SetActiveMap(active, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	if e.runtimeSegmentationUpdatePending {
+		t.Fatalf("runtimeSegmentationUpdatePending = true after active map, want false")
+	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	inter, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto first inter: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	if !state.Segmentation.Enabled || state.Segmentation.UpdateMap || state.Segmentation.UpdateData {
+		t.Fatalf("first inter active+RTC segmentation = %+v, want enabled header without map/data update", state.Segmentation)
+	}
+}
+
+func TestRTCExternalPreservesPendingCodecControlSegmentationUpdate(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto key: %v", err)
+	}
+	wantDelta := packetState(t, key.Data).Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 1), 1, 1, 0); err != nil {
+		t.Fatalf("EncodeInto first inter: %v", err)
+	}
+	if err := e.SetMaxIntraBitratePct(300); err != nil {
+		t.Fatalf("SetMaxIntraBitratePct: %v", err)
+	}
+	if err := e.SetGFCBRBoostPct(400); err != nil {
+		t.Fatalf("SetGFCBRBoostPct: %v", err)
+	}
+	if err := e.SetCQLevel(24); err != nil {
+		t.Fatalf("SetCQLevel: %v", err)
+	}
+	if !e.runtimeSegmentationUpdatePending {
+		t.Fatalf("runtimeSegmentationUpdatePending = false after codec controls")
+	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	if !e.runtimePreserveSegmentationUpdate {
+		t.Fatalf("runtimePreserveSegmentationUpdate = false after RTC consumes pending segmentation update")
+	}
+	inter, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 2), 2, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto second inter: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("second inter RTC segmentation = %+v, want preserved pending map/data update", state.Segmentation)
+	}
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+		t.Fatalf("second inter RTC alt-q delta = %d, want preserved %d", got, wantDelta)
 	}
 }
 
@@ -715,7 +1259,7 @@ func TestRTCExternalPreservesPriorCyclicSegmentationOnForcedKeyFrame(t *testing.
 	}
 }
 
-func TestROIMapDisableClearsRTCExternalSegmentationPreserve(t *testing.T) {
+func TestROIMapDisableClearsRuntimeSegmentationPreserve(t *testing.T) {
 	e := newTestEncoder(t)
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
@@ -744,15 +1288,15 @@ func TestROIMapDisableClearsRTCExternalSegmentationPreserve(t *testing.T) {
 	if err := e.SetRTCExternalRateControl(true); err != nil {
 		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
 	}
-	if !e.rtcExternalPreserveSegmentation {
-		t.Fatalf("rtcExternalPreserveSegmentation = false, want true after ROI header")
+	if !e.runtimePreserveSegmentation {
+		t.Fatalf("runtimePreserveSegmentation = false, want true after ROI header")
 	}
 	if err := e.SetROIMap(nil); err != nil {
 		t.Fatalf("SetROIMap(nil): %v", err)
 	}
-	if e.rtcExternalPreserveSegmentation || e.rtcExternalPreservedSegmentation.Enabled || e.segmentationHeaderEnabled {
-		t.Fatalf("RTC/segmentation preserve after ROI disable = preserve:%t preserved:%t header:%t, want all false",
-			e.rtcExternalPreserveSegmentation, e.rtcExternalPreservedSegmentation.Enabled, e.segmentationHeaderEnabled)
+	if e.runtimePreserveSegmentation || e.runtimePreservedSegmentation.Enabled || e.segmentationHeaderEnabled {
+		t.Fatalf("runtime segmentation preserve after ROI disable = preserve:%t preserved:%t header:%t, want all false",
+			e.runtimePreserveSegmentation, e.runtimePreservedSegmentation.Enabled, e.segmentationHeaderEnabled)
 	}
 }
 
@@ -962,6 +1506,21 @@ func TestAdaptiveKeyFrameCadenceUsesInitialFrequency(t *testing.T) {
 				t.Fatalf("shouldEncodeKeyFrame = %t, want %t", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRuntimeFixedKeyFrameIntervalZeroMirrorsLibvpx(t *testing.T) {
+	e := VP8Encoder{opts: EncoderOptions{KeyFrameInterval: 0}}
+	if got := e.applyFixedKeyFrameIntervalFlag(0); got&EncodeForceKeyFrame == 0 {
+		t.Fatalf("fixed interval 0 flags = %v, want EncodeForceKeyFrame", got)
+	}
+	if e.fixedKeyFrameCounter != 1 {
+		t.Fatalf("fixedKeyFrameCounter = %d, want 1", e.fixedKeyFrameCounter)
+	}
+
+	e = VP8Encoder{opts: EncoderOptions{KeyFrameInterval: 0}, keyFramesDisabled: true}
+	if got := e.applyFixedKeyFrameIntervalFlag(0); got&EncodeForceKeyFrame != 0 {
+		t.Fatalf("disabled fixed interval 0 flags = %v, want no force keyframe", got)
 	}
 }
 

@@ -129,7 +129,17 @@ func saturatingSub(a int, b int) int {
 }
 
 func computeBitsPerFrame(targetBandwidthBits int, timing timingState) int {
-	if targetBandwidthBits <= 0 || timing.timebaseNum <= 0 || timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
+	if targetBandwidthBits <= 0 {
+		return 0
+	}
+	if timing.frameRate > 0 {
+		v := float64(targetBandwidthBits)/timing.frameRate + 0.5
+		if v > float64(maxInt()) {
+			return 0
+		}
+		return int(v)
+	}
+	if timing.timebaseNum <= 0 || timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
 		return 0
 	}
 	num := int64(targetBandwidthBits) * int64(timing.timebaseNum) * int64(timing.frameDuration)

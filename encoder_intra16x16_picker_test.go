@@ -105,7 +105,7 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 		t.Fatalf("predictAnalysisMacroblock returned false")
 	}
 	gotYRate, gotYDist, _, _ := wholeBlockYTransformRD(
-		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 0,
+		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 0, 0,
 		nil, nil, &quant, &probs, false,
 	)
 	if yRate != gotYRate+yModeRate {
@@ -116,7 +116,7 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 		t.Fatalf("Y distortion = %d, want fresh transform-RD distortion %d", yDist, gotYDist)
 	}
 	gotUVTokRate, gotUVDist := wholeBlockChromaTransformRD(
-		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 0,
+		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 0, 0,
 		nil, nil, &quant, &probs, false,
 	)
 	if uvRate != gotUVTokRate+uvModeRate {
@@ -147,7 +147,7 @@ func TestWholeBlockYTransformRDQuantizesY1DCBeforeSkipping(t *testing.T) {
 	quant := testRegularMacroblockQuant(t, 4)
 	above := vp8enc.TokenContextPlanes{Y1: [4]uint8{0, 0, 0, 1}}
 	left := vp8enc.TokenContextPlanes{Y1: [4]uint8{1, 0, 0, 0}}
-	_, gotDist, gotY2EOB, gotY2Q := wholeBlockYTransformRD(sourceImageFromPublic(src), &pred.Img, 1, 1, 0, &above, &left, &quant, &vp8tables.DefaultCoefProbs, false)
+	_, gotDist, gotY2EOB, gotY2Q := wholeBlockYTransformRD(sourceImageFromPublic(src), &pred.Img, 1, 1, 0, 0, &above, &left, &quant, &vp8tables.DefaultCoefProbs, false)
 	if gotDist != 68 {
 		t.Fatalf("wholeBlockYTransformRD distortion = %d, want 68 with Y1 DC quantized before skip", gotDist)
 	}

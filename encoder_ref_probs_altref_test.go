@@ -164,6 +164,57 @@ func TestApplyLibvpxRdRefFrameProbRefreshAdjustmentsAltRefRefresh(t *testing.T) 
 	}
 }
 
+func TestInterAttemptRDRefFrameProbsRestoresAndReturnsAdjustedRefreshProbs(t *testing.T) {
+	e := &VP8Encoder{
+		refProbIntra:      1,
+		refProbLast:       47,
+		refProbGolden:     1,
+		framesSinceGolden: 4,
+	}
+
+	probIntra, probLast, probGolden := e.interAttemptRDRefFrameProbs(true)
+	if probIntra != 41 || probLast != 200 || probGolden != 255 {
+		t.Fatalf("adjusted ARF-refresh ref probs = %d/%d/%d, want 41/200/255", probIntra, probLast, probGolden)
+	}
+	if e.refProbIntra != 1 || e.refProbLast != 47 || e.refProbGolden != 1 {
+		t.Fatalf("live ref probs after helper = %d/%d/%d, want restored 1/47/1",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
+	}
+}
+
+func TestInterRecodeNextRDRefFrameProbsDoesNotRepeatRefreshBias(t *testing.T) {
+	e := &VP8Encoder{
+		refProbIntra:      119,
+		refProbLast:       200,
+		refProbGolden:     255,
+		framesSinceGolden: 4,
+	}
+
+	probIntra, probLast, probGolden := e.interRecodeNextRDRefFrameProbs(true, true, 0, true)
+	if probIntra != 119 || probLast != 200 || probGolden != 255 {
+		t.Fatalf("preconfigured GF/ARF recode probs = %d/%d/%d, want unchanged 119/200/255", probIntra, probLast, probGolden)
+	}
+}
+
+func TestInterRecodeNextRDRefFrameProbsCarriesConvertedCounts(t *testing.T) {
+	e := &VP8Encoder{
+		interFrameModes: []vp8enc.InterFrameMacroblockMode{
+			{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+			{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+			{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+			{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+		},
+		refProbIntra:  119,
+		refProbLast:   200,
+		refProbGolden: 255,
+	}
+
+	probIntra, probLast, probGolden := e.interRecodeNextRDRefFrameProbs(false, false, 4, true)
+	if probIntra != 63 || probLast != 170 || probGolden != 255 {
+		t.Fatalf("converted recode probs = %d/%d/%d, want 63/170/255", probIntra, probLast, probGolden)
+	}
+}
+
 func TestTemporalEmptyLayerRefUsageDefaultsRDRefFrameProbs(t *testing.T) {
 	e := &VP8Encoder{
 		opts: EncoderOptions{

@@ -640,6 +640,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				},
 				7: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
+					mustRuntime(t, "SetAdaptiveKeyFrames(true)", e.SetAdaptiveKeyFrames(true))
 					mustRuntime(t, "SetKeyFrameInterval(999)", e.SetKeyFrameInterval(999))
 				},
 			},
@@ -1768,6 +1769,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				},
 				7: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
+					mustRuntime(t, "SetAdaptiveKeyFrames(true)", e.SetAdaptiveKeyFrames(true))
 					mustRuntime(t, "SetKeyFrameInterval(999)", e.SetKeyFrameInterval(999))
 				},
 			},

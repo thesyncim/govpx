@@ -306,6 +306,58 @@ func TestSetCPUUsedPreservesRuntimePickerState(t *testing.T) {
 	}
 }
 
+func TestSetDeadlinePreservesRuntimePickerState(t *testing.T) {
+	e := newTestEncoder(t)
+	e.autoSpeed = 9
+	e.avgPickModeTime = 1000
+	e.avgEncodeTime = 2000
+	e.autoSpeedFrameStartNS = 3000
+	e.interRDThreshMult[0] = 192
+	e.interRDThreshTouched[0] = true
+	beforeGen := e.interRDThreshBaselineGen
+
+	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
+		t.Fatalf("SetDeadline(good) returned error: %v", err)
+	}
+	if e.avgPickModeTime != 1000 || e.avgEncodeTime != 2000 || e.autoSpeedFrameStartNS != 3000 {
+		t.Fatalf("auto-speed timers after SetDeadline(good) = pick:%d encode:%d start:%d, want preserved",
+			e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+	if e.interRDThreshMult[0] != 192 || !e.interRDThreshTouched[0] || e.interRDThreshBaselineGen == beforeGen {
+		t.Fatalf("inter RD thresholds after SetDeadline(good) = mult:%d touched:%t gen:%d, want preserved state and invalidated baseline gen past %d",
+			e.interRDThreshMult[0], e.interRDThreshTouched[0], e.interRDThreshBaselineGen, beforeGen)
+	}
+}
+
+func TestSetDeadlineReclampsRawConfiguredCPUUsed(t *testing.T) {
+	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
+		t.Fatalf("SetDeadline(good) returned error: %v", err)
+	}
+	if err := e.SetCPUUsed(-8); err != nil {
+		t.Fatalf("SetCPUUsed(-8) returned error: %v", err)
+	}
+	if e.opts.CpuUsed != -5 {
+		t.Fatalf("good-quality CpuUsed = %d, want mode-clamped -5", e.opts.CpuUsed)
+	}
+	if e.autoSpeed != -5 {
+		t.Fatalf("good-quality autoSpeed = %d, want mode-clamped -5", e.autoSpeed)
+	}
+
+	if err := e.SetDeadline(DeadlineRealtime); err != nil {
+		t.Fatalf("SetDeadline(realtime) returned error: %v", err)
+	}
+	if e.opts.CpuUsed != -8 {
+		t.Fatalf("realtime CpuUsed = %d, want raw configured -8", e.opts.CpuUsed)
+	}
+	if e.autoSpeed != -8 {
+		t.Fatalf("realtime autoSpeed = %d, want raw configured -8", e.autoSpeed)
+	}
+	if got := e.libvpxCPUUsed(); got != 8 {
+		t.Fatalf("realtime speed feature = %d, want 8", got)
+	}
+}
+
 func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
 	e := newSizedTestEncoder(t, 64, 64)
 	e.opts.CpuUsed = 8

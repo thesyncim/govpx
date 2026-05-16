@@ -74,7 +74,7 @@ func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Imag
 func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
 	var ev splitMotionLabelRDEvaluator
-	if !ev.init(0, nil, nil, false, false) {
+	if !ev.init(0, 0, nil, nil, false, false) {
 		t.Fatalf("splitMotionLabelRDEvaluator.init returned false")
 	}
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
@@ -82,15 +82,21 @@ func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 	labelRate := splitSubMotionLabelRate(vp8common.New4x4)
 	labelRate += splitMotionVectorCost(mv, &vp8tables.DefaultMVContext)
 
-	rate, dist, nextAbove, nextLeft, ok := ev.rateDistortion(src, ref, 0, 0, qIndex, &quant, &vp8tables.DefaultCoefProbs, &mode, 0, mv, labelRate)
+	rate, yRate, dist, tteob, nextAbove, nextLeft, ok := ev.rateDistortion(src, ref, 0, 0, qIndex, &quant, &vp8tables.DefaultCoefProbs, &mode, 0, mv, labelRate)
 	if !ok {
 		t.Fatalf("rateDistortion returned ok=false")
 	}
 	if rate <= labelRate {
 		t.Fatalf("rate = %d, want token rate added above label-only rate %d", rate, labelRate)
 	}
+	if yRate != rate-labelRate {
+		t.Fatalf("yRate = %d, want token-only rate %d", yRate, rate-labelRate)
+	}
 	if dist <= 0 {
 		t.Fatalf("distortion = %d, want transform-domain residual distortion", dist)
+	}
+	if tteob <= 0 {
+		t.Fatalf("tteob = %d, want non-zero label EOB count", tteob)
 	}
 	if nextAbove == ([4]uint8{}) || nextLeft == ([4]uint8{}) {
 		t.Fatalf("next contexts = above %v left %v, want cost_coeffs-style token context updates", nextAbove, nextLeft)
@@ -100,7 +106,7 @@ func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 func TestSplitMotionLabelRDCommitsContextsBeforeNewGate(t *testing.T) {
 	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
 	var ev splitMotionLabelRDEvaluator
-	ev.init(0, nil, nil, false, false)
+	ev.init(0, 0, nil, nil, false, false)
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
 	mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(
 		src, ref, 0, 0, &mode, 0, 16, 8,

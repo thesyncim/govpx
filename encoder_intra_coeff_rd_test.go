@@ -149,7 +149,7 @@ func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	if !predictAnalysisChroma(&chosenPred.Img, 0, 0, mode, &chosenScratch) {
 		t.Fatalf("predictAnalysisChroma returned false")
 	}
-	tokenRate, wantDist := wholeBlockChromaTransformRD(sourceImageFromPublic(src), &chosenPred.Img, 0, 0, 0, nil, nil, &quant, &probs, false)
+	tokenRate, wantDist := wholeBlockChromaTransformRD(sourceImageFromPublic(src), &chosenPred.Img, 0, 0, 0, 0, nil, nil, &quant, &probs, false)
 	wantRate := intraUVModeRate(true, mode) + tokenRate
 	if rate != wantRate || dist != wantDist {
 		t.Fatalf("UV RD = rate:%d dist:%d, want transform/token rate:%d dist:%d", rate, dist, wantRate, wantDist)

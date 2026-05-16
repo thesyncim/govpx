@@ -213,20 +213,6 @@ func TestSegmentationConfigForLoopFilterLevelDropsOnlyZeroBaseNonPositiveAltLF(t
 	}
 }
 
-func TestSegmentationConfigForLoopFilterLevelPreservesROINegativeAltLF(t *testing.T) {
-	t.Parallel()
-
-	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
-	cfg.FeatureEnabled[vp8common.MBLvlAltLF][1] = true
-	cfg.FeatureData[vp8common.MBLvlAltLF][1] = -3
-
-	got := segmentationConfigForLoopFilterLevelPreserveAltLF(cfg, 0)
-	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -3 {
-		t.Fatalf("ROI negative zero-level ALT_LF = enabled:%t data:%d, want retained -3",
-			got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
-	}
-}
-
 func TestLoopFilterFastPickerUsesInstalledAltLF(t *testing.T) {
 	t.Parallel()
 

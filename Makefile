@@ -82,7 +82,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity oracle-test byte-parity decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity oracle-test byte-parity fuzz-controls decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -197,7 +197,9 @@ oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	$(GO) test . -run 'Test(Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches|VP9DecoderOfficial|VP9DecoderThreadingOfficial)' -count=1 -timeout 10m
 
 SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleSplitMVDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare|TestOracleChromaSubpelScoreboard|TestOracleImprovedMVScoreboard|TestOracleCBRDropFrameScoreboard|TestOracleCandidateRateScoreboard|TestOracleInterModeDistributionScoreboard|TestOracleTemporalSVCParity|TestVP9OracleRuntimeControl(ByteParityScoreboard|ConstantByteParityMatrix)
-BYTE_PARITY_TESTS := Test(OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity)|VP9Oracle(CopyReferenceFrameStrictParity|SelectedStreamByteParityGate|PinnedRuntimeControlByteParity|Threaded720pStrictByteParityUsesTileWriter|PinnedNewModeStrictByteParity|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))
+BYTE_PARITY_TESTS := Test(OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity)|VP9Oracle(CopyReferenceFrameStrictParity|SelectedStreamByteParityGate|PinnedRuntimeControlByteParity|Threaded720pStrictByteParityUsesTileWriter|PinnedNewModeStrictByteParity|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))|FuzzOracleEncoderRuntimeControlTransitions
+FUZZTIME ?= 30s
+FUZZPARALLEL ?= 1
 
 byte-parity: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
@@ -213,6 +215,20 @@ byte-parity: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	$(GO) test -tags govpx_oracle_trace . -run '$(BYTE_PARITY_TESTS)' -count=1 -timeout 15m
+
+fuzz-controls: oracle-tools fetch-test-data
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	GOVPX_WITH_ORACLE=1 \
+	GOVPX_ORACLE="$(ORACLE)" \
+	GOVPX_VPXDEC="$(VPXDEC)" \
+	GOVPX_VPXENC="$(VPXENC)" \
+	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
+	GOVPX_VPXENC_FRAMEFLAGS="$(VPXENC_FRAMEFLAGS)" \
+	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
+	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
+	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
+	$(GO) test -tags govpx_oracle_trace . -run '^$$' -fuzz '^FuzzOracleEncoderRuntimeControlTransitions$$' -fuzztime '$(FUZZTIME)' -parallel '$(FUZZPARALLEL)' -timeout 30m
 
 scoreboard: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \

@@ -9,10 +9,13 @@ import (
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	e.lastCodedFrameType = vp8common.KeyFrame
 	e.coefProbs = vp8tables.DefaultCoefProbs
-	vp8dec.ResetModeProbs(&e.modeProbs)
+	e.resetKeyFrameModeProbs()
+	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
 	e.resetMotionVectorCostTablesFromModeProbs()
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
+	} else {
+		e.saveNoUpdateEntropyRollbackContext()
 	}
 	// Mirror libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame and the
 	// end-of-frame lfc_X saves in onyx_if.c. Keyframes start with LAST/GOLDEN/
@@ -36,6 +39,16 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	// changed. The keyframe is the first packed frame in a clip, so this
 	// is also where lfDeltasSignaledOnce flips to true.
 	e.updateLastSignaledLFDeltas(attempt.LFDeltaEnabled, attempt.RefLFDeltas, attempt.ModeLFDeltas)
+}
+
+func (e *VP8Encoder) resetKeyFrameModeProbs() {
+	// libvpx keyframe setup resets inter Y/UV mode probabilities and MV
+	// contexts, but intentionally leaves fc.bmode_prob untouched. This matters
+	// after no-update entropy rollback: inter-frame B_PRED RD and packet
+	// writing continue using the carried B-mode table.
+	e.modeProbs.YMode = vp8tables.DefaultYModeProbs
+	e.modeProbs.UVMode = vp8tables.DefaultUVModeProbs
+	e.modeProbs.MV = vp8tables.DefaultMVContext
 }
 
 // updateRefFrameProbsFromKeyFrame mirrors the key-frame branch of
@@ -99,7 +112,7 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt, sh
 	// Once an inter frame has been encoded under the post-drop max-Q gate,
 	// clear it; libvpx leaves force_maxqp set only until the next frame
 	// consumes it.
-	e.forceMaxQuantizer = false
+	e.clearForceMaxQuantizer()
 }
 
 // updateRefFrameProbsFromAttempt mirrors the gated vp8_convert_rfct_to_prob
@@ -124,6 +137,25 @@ func (e *VP8Encoder) updateRDRefFrameProbsForDroppedFrame(refreshAltRef bool) {
 	if !e.opts.TemporalScalability.Enabled {
 		e.applyLibvpxRdRefFrameProbRefreshAdjustments(refreshAltRef)
 	}
+}
+
+func (e *VP8Encoder) interAttemptRDRefFrameProbs(refreshAltRef bool) (uint8, uint8, uint8) {
+	previousRefProbIntra := e.refProbIntra
+	previousRefProbLast := e.refProbLast
+	previousRefProbGolden := e.refProbGolden
+	if e.shouldResetRDRefFrameProbsToDefaultInterRD() {
+		e.resetRefFrameProbsToDefaultInterRD()
+	}
+	if !e.opts.TemporalScalability.Enabled {
+		e.applyLibvpxRdRefFrameProbRefreshAdjustments(refreshAltRef)
+	}
+	nextRefProbIntra := e.refProbIntra
+	nextRefProbLast := e.refProbLast
+	nextRefProbGolden := e.refProbGolden
+	e.refProbIntra = previousRefProbIntra
+	e.refProbLast = previousRefProbLast
+	e.refProbGolden = previousRefProbGolden
+	return nextRefProbIntra, nextRefProbLast, nextRefProbGolden
 }
 
 func (e *VP8Encoder) shouldResetRDRefFrameProbsToDefaultInterRD() bool {
@@ -157,6 +189,29 @@ func (e *VP8Encoder) snapshotDroppedFrameCoefProbs(refreshLast bool, refreshGold
 	if refreshLast {
 		e.coefProbsLast = e.coefProbs
 	}
+}
+
+func (e *VP8Encoder) saveNoUpdateEntropyRollbackContext() {
+	e.noUpdateEntropyCoefProbs = e.coefProbs
+	e.noUpdateEntropyModeProbs = e.modeProbs
+	e.noUpdateEntropySubMVRefProbs = e.subMVRefProbs
+	e.noUpdateEntropyContextValid = true
+}
+
+func (e *VP8Encoder) resetNoUpdateEntropyRollbackContext() {
+	e.noUpdateEntropyCoefProbs = vp8tables.CoefficientProbs{}
+	e.noUpdateEntropyModeProbs = vp8dec.ModeProbs{}
+	e.noUpdateEntropySubMVRefProbs = [3]uint8{}
+	e.noUpdateEntropyContextValid = true
+}
+
+func (e *VP8Encoder) rollbackNoUpdateEntropyForDroppedFrame() {
+	if !e.carriedNoUpdateEntropy || !e.noUpdateEntropyContextValid {
+		return
+	}
+	e.coefProbs = e.noUpdateEntropyCoefProbs
+	e.modeProbs = e.noUpdateEntropyModeProbs
+	e.subMVRefProbs = e.noUpdateEntropySubMVRefProbs
 }
 
 // updateRefFrameProbsFromPackedAttempt mirrors libvpx bitstream.c
@@ -274,6 +329,8 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 		e.modeProbs.YMode = attempt.FrameYModeProbs
 		e.modeProbs.UVMode = attempt.FrameUVModeProbs
 		e.modeProbs.MV = attempt.FrameMVProbs
+	} else {
+		e.saveNoUpdateEntropyRollbackContext()
 	}
 	// Mirror libvpx onyx_if.c lines 5151-5157: the per-reference frame-context
 	// snapshots are updated independently from each refresh flag, AFTER the

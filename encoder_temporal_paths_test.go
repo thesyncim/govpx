@@ -456,6 +456,87 @@ func TestEncodeIntoForcedKeyHonorsNoUpdateEntropy(t *testing.T) {
 	}
 }
 
+func TestEncodeNoUpdateEntropyCarriesAcrossDroppedFrame(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 300,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		KeyFrameInterval:  999,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	update := RealtimeTarget{
+		BitrateKbps:  700,
+		FPS:          15,
+		MinQuantizer: 2,
+		MaxQuantizer: 48,
+		FrameDrop:    RealtimeFrameDropEnabled,
+	}
+	encode := func(frame int, flags EncodeFlags) EncodeResult {
+		t.Helper()
+		result, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, frame), uint64(frame), 1, flags)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", frame, err)
+		}
+		return result
+	}
+
+	encode(0, 0)
+	if err := e.SetRealtimeTarget(update); err != nil {
+		t.Fatalf("SetRealtimeTarget returned error: %v", err)
+	}
+	encodedNoUpdate := encode(1, EncodeNoUpdateEntropy)
+	if encodedNoUpdate.Dropped {
+		t.Fatalf("frame 1 dropped, want emitted setup frame")
+	}
+	if packetState(t, encodedNoUpdate.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("frame 1 refresh entropy = true, want no-update flag honored")
+	}
+	if e.carriedNoUpdateEntropy {
+		t.Fatalf("carried no-update entropy after emitted frame = true, want cleared")
+	}
+
+	if !encode(2, 0).Dropped {
+		t.Fatalf("frame 2 emitted, want decimation drop")
+	}
+	if err := e.SetRealtimeTarget(update); err != nil {
+		t.Fatalf("second SetRealtimeTarget returned error: %v", err)
+	}
+	if err := e.SetARNR(0, 0, 1); err != nil {
+		t.Fatalf("SetARNR returned error: %v", err)
+	}
+	encode(3, 0)
+	if err := e.SetRealtimeTarget(update); err != nil {
+		t.Fatalf("third SetRealtimeTarget returned error: %v", err)
+	}
+	if !encode(4, EncodeNoUpdateEntropy).Dropped {
+		t.Fatalf("frame 4 emitted, want no-update entropy frame to drop")
+	}
+	if !e.carriedNoUpdateEntropy {
+		t.Fatalf("carried no-update entropy after dropped frame = false, want true")
+	}
+
+	next := encode(5, 0)
+	if next.Dropped {
+		t.Fatalf("frame 5 dropped, want emitted carryover frame")
+	}
+	if packetState(t, next.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("frame 5 refresh entropy = true, want dropped no-update flag to carry over")
+	}
+	if e.carriedNoUpdateEntropy {
+		t.Fatalf("carried no-update entropy after emitted carryover frame = true, want cleared")
+	}
+}
+
 func TestEncodeIntoErrorResilientUsesTransientEntropyUpdates(t *testing.T) {
 	e := newEntropyRefreshTestEncoder(t, true)
 	src := testImage(16, 16)

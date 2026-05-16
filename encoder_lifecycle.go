@@ -24,14 +24,16 @@ func (e *VP8Encoder) Reset() {
 	e.forceKeyFrame = false
 	e.frameCount = 0
 	e.keyFrameFrequency = e.opts.KeyFrameInterval
+	e.keyFramesDisabled = false
+	e.fixedKeyFrameCounter = 0
 	e.lastQuantizerPublic = 0
 	e.lastQuantizerInternal = 0
 	e.lastQuantizerValid = false
 	e.cyclicRefreshIndex = 0
 	e.segmentationHeaderEnabled = false
 	e.lastSegmentationConfig = vp8enc.SegmentationConfig{}
-	e.rtcExternalPreserveSegmentation = false
-	e.rtcExternalPreservedSegmentation = vp8enc.SegmentationConfig{}
+	e.clearRuntimePreservedSegmentationHeader()
+	e.rtcExternalDisableCyclicRefresh = e.opts.RTCExternalRateControl
 	e.lookaheadRead = 0
 	e.lookaheadWrite = 0
 	e.lookaheadCount = 0
@@ -49,10 +51,15 @@ func (e *VP8Encoder) Reset() {
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
 	clearUint8Map(e.skinMap)
 	clearUint8Map(e.activeMap)
+	clear(e.activityMap)
 	clearUint8Map(e.consecZeroLast)
 	clearUint8Map(e.consecZeroLastMVBias)
 	clearBoolMap(e.dotArtifactChecked)
 	e.activeMapEnabled = false
+	e.activityMapValid = false
+	e.activityProbeRDMult = 0
+	e.activityProbeRDDiv = 0
+	e.activityProbeRDValid = false
 	e.roi.reset()
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
@@ -92,12 +99,15 @@ func (e *VP8Encoder) Reset() {
 	e.framesTillAltRefFrame = 0
 	e.clearExternalRefreshMaskAfterPacket()
 	e.clearExternalReferenceMaskAfterPacket()
+	e.clearCarriedNoUpdateEntropyAfterPacket()
 	e.autoAltRefStashValid = false
 	e.autoAltRefStashPTS = 0
 	e.autoAltRefStashDuration = 0
 	e.autoAltRefStashFlags = 0
 	e.currentSourcePTS = 0
 	e.savedContext = savedCodingContext{}
+	e.timing = timingFromEncoderOptions(e.opts)
+	e.sourceTS = newEncoderSourceTimestampState(e.timing)
 	// Re-zero every per-MB and per-row decision/coefficient buffer.
 	for i := range e.keyFrameModes {
 		e.keyFrameModes[i] = vp8enc.KeyFrameMacroblockMode{}
@@ -184,6 +194,9 @@ func (e *VP8Encoder) Reset() {
 	}
 	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
 		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
+	e.runtimePreserveSegmentationUpdate = false
+	e.runtimeSegmentationUpdatePending = false
+	e.rtcExternalDisableCyclicRefresh = e.opts.RTCExternalRateControl
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {
@@ -199,7 +212,7 @@ func (e *VP8Encoder) Reset() {
 	// cpi->frames_since_last_drop_overshoot = 0; mirror that on Reset
 	// so a sequence re-init does not leak overshoot-drop state from the
 	// previous run.
-	e.forceMaxQuantizer = false
+	e.clearForceMaxQuantizer()
 	e.framePredictionError = 0
 	e.lastPredErrorMB = 0
 	// Temporal layer state.
@@ -218,6 +231,8 @@ func (e *VP8Encoder) Reset() {
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
+	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
+	e.resetNoUpdateEntropyRollbackContext()
 	e.mvCostTables = vp8enc.MotionVectorCostTables{}
 	e.mvCostProbs = [2][vp8tables.MVPCount]uint8{}
 	e.mvCostTablesValid = false

@@ -19,6 +19,8 @@ type InterFrameStateConfig struct {
 	LFDeltaForceUpdateAll bool
 	RefLFDeltas           [common.MaxRefLFDeltas]int8
 	ModeLFDeltas          [common.MaxModeLFDeltas]int8
+	RefLFDeltasBase       [common.MaxRefLFDeltas]int8
+	ModeLFDeltasBase      [common.MaxModeLFDeltas]int8
 
 	TokenPartition common.TokenPartition
 	BaseQIndex     uint8
@@ -60,6 +62,7 @@ type InterFrameStateConfig struct {
 	UVModeProbs  [tables.UVModeProbCount]uint8
 	UVModeBase   [tables.UVModeProbCount]uint8
 	UVModeUpdate bool
+	BModeBase    [tables.BModeProbCount]uint8
 
 	MVProbs       [2][tables.MVPCount]uint8
 	MVBase        [2][tables.MVPCount]uint8
@@ -90,6 +93,7 @@ func DefaultInterFrameStateConfig(baseQIndex uint8) InterFrameStateConfig {
 		YModeBase:   tables.DefaultYModeProbs,
 		UVModeProbs: tables.DefaultUVModeProbs,
 		UVModeBase:  tables.DefaultUVModeProbs,
+		BModeBase:   tables.DefaultBModeProbs,
 
 		MVProbs: tables.DefaultMVContext,
 		MVBase:  tables.DefaultMVContext,
@@ -111,7 +115,7 @@ func WriteInterFrameStateHeader(w *BoolWriter, cfg *InterFrameStateConfig) error
 	}
 	w.WriteLiteral(uint32(cfg.LoopFilterLevel), 6)
 	w.WriteLiteral(uint32(cfg.SharpnessLevel), 3)
-	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.LFDeltaForceUpdateAll, cfg.RefLFDeltas, cfg.ModeLFDeltas)
+	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.LFDeltaForceUpdateAll, cfg.RefLFDeltas, cfg.ModeLFDeltas, cfg.RefLFDeltasBase, cfg.ModeLFDeltasBase)
 	w.WriteLiteral(uint32(cfg.TokenPartition), 2)
 	w.WriteLiteral(uint32(cfg.BaseQIndex), 7)
 	writeQuantDeltas(w, cfg.QuantDeltas)

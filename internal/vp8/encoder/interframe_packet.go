@@ -35,6 +35,7 @@ type InterFramePacket struct {
 
 	YModeBase  *[tables.YModeProbCount]uint8
 	UVModeBase *[tables.UVModeProbCount]uint8
+	BModeBase  *[tables.BModeProbCount]uint8
 	MVBase     *[2][tables.MVPCount]uint8
 	Scratch    *PartitionScratch
 
@@ -124,6 +125,7 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 	if err != nil {
 		return result, err
 	}
+	cfg.BModeBase = p.bModeBase()
 
 	firstStart := FrameTagSize
 	first := BoolWriter{}
@@ -220,6 +222,13 @@ func (p *InterFramePacket) uvModeBase() [tables.UVModeProbCount]uint8 {
 		return *p.UVModeBase
 	}
 	return tables.DefaultUVModeProbs
+}
+
+func (p *InterFramePacket) bModeBase() [tables.BModeProbCount]uint8 {
+	if p.BModeBase != nil {
+		return *p.BModeBase
+	}
+	return tables.DefaultBModeProbs
 }
 
 func (p *InterFramePacket) mvBase() [2][tables.MVPCount]uint8 {

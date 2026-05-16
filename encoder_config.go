@@ -2,7 +2,6 @@ package govpx
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 // SetBitrateKbps changes the total encoder target bitrate, in kbps. The
@@ -26,6 +25,7 @@ func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	e.refreshTemporalLayerCodingGeometry()
 	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 	e.opts.TemporalScalability = nextTemporal.config
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -67,6 +67,7 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
 	e.opts.GFCBRBoostPct = cfg.GFCBRBoostPct
 	e.opts.TemporalScalability = nextTemporal.config
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -94,6 +95,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 		e.rc.lastQuantizer = qIndex
 		e.rc.lastInterQuantizer = qIndex
 	}
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -110,6 +112,7 @@ func (e *VP8Encoder) SetMaxIntraBitratePct(pct int) error {
 	}
 	e.rc.maxIntraBitratePct = pct
 	e.opts.MaxIntraBitratePct = pct
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -126,6 +129,7 @@ func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
 	}
 	e.rc.gfCBRBoostPct = pct
 	e.opts.GFCBRBoostPct = pct
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -141,6 +145,7 @@ func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.TokenPartitions = partitions
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -155,6 +160,7 @@ func (e *VP8Encoder) SetSharpness(sharpness int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.Sharpness = sharpness
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -170,6 +176,7 @@ func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.StaticThreshold = threshold
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -185,27 +192,32 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.ScreenContentMode = mode
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
 // SetRTCExternalRateControl enables libvpx's VP8 RTC external-rate-control
-// mode. Like libvpx's VP8E_SET_RTC_EXTERNAL_RATECTRL control, enabling is
-// sticky: a later false call is accepted but does not re-enable cyclic refresh
-// or overshoot recode. See EncoderOptions.RTCExternalRateControl.
+// mode. Like libvpx's VP8E_SET_RTC_EXTERNAL_RATECTRL control, only a non-zero
+// value mutates encoder state; a false call is accepted as a no-op. Enabling is
+// sticky and does not re-enable cyclic refresh or overshoot recode later. See
+// EncoderOptions.RTCExternalRateControl.
 func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if enabled {
-		e.rtcExternalPreserveSegmentation = e.segmentationHeaderEnabled
-		if e.segmentationHeaderEnabled {
-			e.rtcExternalPreservedSegmentation = e.lastSegmentationConfig
-		} else {
-			e.rtcExternalPreservedSegmentation = vp8enc.SegmentationConfig{}
-		}
-		e.opts.RTCExternalRateControl = true
+	if !enabled {
+		return nil
 	}
+	update := e.runtimeSegmentationUpdatePending
+	if !e.runtimePreserveSegmentation {
+		e.preserveCurrentSegmentationHeader(update)
+	} else if update && e.runtimePreservedSegmentation.Enabled {
+		e.runtimePreserveSegmentationUpdate = true
+		e.runtimeSegmentationUpdatePending = false
+	}
+	e.opts.RTCExternalRateControl = true
+	e.rtcExternalDisableCyclicRefresh = true
 	return nil
 }
 
@@ -217,6 +229,7 @@ func (e *VP8Encoder) SetFrameDropAllowed(enabled bool) error {
 		return ErrClosed
 	}
 	e.setFrameDropAllowed(enabled)
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -236,6 +249,39 @@ func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 		e.rc.dropFramesWaterMark = 0
 	}
 	e.opts.DropFrameAllowed = enabled
+}
+
+func (e *VP8Encoder) refreshRuntimeCyclicRefreshConfig() {
+	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
+		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
+	if e.cyclicRefreshModeEnabled(false) {
+		updatePending := e.segmentationHeaderEnabled && e.lastSegmentationConfig.Enabled
+		if !e.rtcExternalDisableCyclicRefresh {
+			e.clearRuntimePreservedSegmentationHeader()
+			e.runtimeSegmentationUpdatePending = updatePending
+		}
+		return
+	}
+	if e.runtimePreserveSegmentation && e.runtimePreservedSegmentation.Enabled {
+		if !e.rtcExternalDisableCyclicRefresh && !e.cyclicRefreshConfigured {
+			e.runtimePreservedSegmentation = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(e.rc.currentQuantizer)
+		}
+		e.runtimePreserveSegmentationUpdate = true
+		e.runtimeSegmentationUpdatePending = false
+		return
+	}
+	if e.segmentationHeaderEnabled && e.lastSegmentationConfig.Enabled {
+		// libvpx's runtime vpx_codec_enc_config_set can turn cyclic refresh
+		// off (for example CBR -> VBR) without clearing the already-enabled
+		// VP8 segmentation header. setup_features then re-emits the stale
+		// segment feature data/map updates even though no cyclic-refresh
+		// producer is active.
+		if !e.rtcExternalDisableCyclicRefresh && !e.cyclicRefreshConfigured {
+			e.preserveRuntimeCyclicSegmentationForQuantizer(e.rc.currentQuantizer, true)
+			return
+		}
+		e.preserveCurrentSegmentationHeader(true)
+	}
 }
 
 // SetRealtimeTarget applies a WebRTC-style runtime target update.
@@ -300,7 +346,6 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.opts.FPS = target.FPS
 		e.opts.TimebaseNum = 1
 		e.opts.TimebaseDen = target.FPS
-		e.timing = timingState{timebaseNum: 1, timebaseDen: target.FPS, frameDuration: 1}
 		if fpsChanged {
 			e.resetAutoSpeedTiming()
 		}
@@ -319,11 +364,13 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if rateControlModeUsesCQLevel(e.rc.mode) && (e.opts.CQLevel < nextMinQuantizer || e.opts.CQLevel > nextMaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
+	prevCurrentQuantizer := e.rc.currentQuantizer
+	prevLastQuantizer := e.rc.lastQuantizer
+	prevLastInterQuantizer := e.rc.lastInterQuantizer
 	e.rc.minQuantizer = libvpxPublicQuantizerToQIndex(nextMinQuantizer)
 	e.rc.maxQuantizer = libvpxPublicQuantizerToQIndex(nextMaxQuantizer)
 	e.opts.MinQuantizer = nextMinQuantizer
 	e.opts.MaxQuantizer = nextMaxQuantizer
-	e.rc.clampQuantizer()
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 		e.rc.lastQuantizer = e.rc.cqLevel
@@ -345,6 +392,11 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		if err := nextRC.setBitrateKbps(target.BitrateKbps, e.timing); err != nil {
 			return err
 		}
+		if e.rc.mode != RateControlCQ {
+			nextRC.currentQuantizer = prevCurrentQuantizer
+			nextRC.lastQuantizer = prevLastQuantizer
+			nextRC.lastInterQuantizer = prevLastInterQuantizer
+		}
 		if err := nextTemporal.refreshBitrate(nextRC.targetBitrateKbps); err != nil {
 			return err
 		}
@@ -353,12 +405,18 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.refreshTemporalLayerCodingGeometry()
 		e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 		e.opts.TemporalScalability = nextTemporal.config
+		e.refreshRuntimeCyclicRefreshConfig()
 		e.forceNextLFDeltaUpdate()
 		return nil
 	}
 	nextRC := e.rc
 	if err := nextRC.setBitrateKbps(e.rc.targetBitrateKbps, e.timing); err != nil {
 		return err
+	}
+	if e.rc.mode != RateControlCQ {
+		nextRC.currentQuantizer = prevCurrentQuantizer
+		nextRC.lastQuantizer = prevLastQuantizer
+		nextRC.lastInterQuantizer = prevLastInterQuantizer
 	}
 	if err := nextTemporal.refreshBitrate(nextRC.targetBitrateKbps); err != nil {
 		return err
@@ -367,6 +425,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	e.temporal = nextTemporal
 	e.refreshTemporalLayerCodingGeometry()
 	e.opts.TemporalScalability = nextTemporal.config
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -395,6 +454,7 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	if wasTemporal && !e.temporal.enabled {
 		e.restoreBaseLayerCodingStateAfterTemporalDisable(prevTemporal)
 	}
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -411,9 +471,9 @@ func (e *VP8Encoder) SetTemporalLayerID(layerID int) error {
 }
 
 // SetDeadline changes the encoder speed/quality operating mode. It also
-// re-derives the effective CPU-used preset from the current
-// EncoderOptions.CpuUsed, since the realtime path interprets that value
-// differently than good/best quality.
+// re-derives the effective CPU-used preset from the raw configured
+// cpu-used value, since libvpx stores that raw value at the wrapper layer
+// and only clamps the active compressor copy for the current mode.
 func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -422,20 +482,19 @@ func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 		return ErrInvalidConfig
 	}
 	previousDeadline := e.opts.Deadline
+	cpuUsed := e.configuredCPUUsedForModeSwitch()
 	e.opts.Deadline = deadline
-	e.opts.CpuUsed = libvpxEffectiveCPUUsed(deadline, e.opts.CpuUsed)
+	e.opts.CpuUsed = libvpxEffectiveCPUUsed(deadline, cpuUsed)
 	if deadline != DeadlineRealtime {
 		e.runtimePinnedCPUUsed = false
 	}
 	if deadline != previousDeadline {
-		e.resetInterRDThresholdMultipliers()
+		e.interRDThreshBaselineGen++
+		e.interRDFrameRefSearchOrderValid = false
 		e.forceNextLFDeltaUpdate()
-		if deadline == DeadlineRealtime {
-			e.resetAutoSpeedTiming()
-		} else {
-			e.autoSpeed = e.opts.CpuUsed
-		}
+		e.autoSpeed = e.opts.CpuUsed
 	}
+	e.refreshRuntimeCyclicRefreshConfig()
 	return nil
 }
 
@@ -450,8 +509,10 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	if cpuUsed < -16 || cpuUsed > 16 {
 		return ErrInvalidConfig
 	}
-	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, cpuUsed)
-	e.runtimePinnedCPUUsed = e.opts.Deadline == DeadlineRealtime && cpuUsed < 0
+	e.configuredCPUUsed = cpuUsed
+	e.configuredCPUUsedValid = true
+	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, e.configuredCPUUsed)
+	e.runtimePinnedCPUUsed = e.opts.Deadline == DeadlineRealtime && e.configuredCPUUsed < 0
 	// libvpx routes VP8E_SET_CPUUSED through vp8_change_config, whose tail
 	// assigns cpi->Speed = oxcf.cpu_used. It does not reset the accumulated
 	// picker threshold multipliers or realtime timing windows; the next frame's
@@ -460,8 +521,16 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	e.autoSpeed = e.opts.CpuUsed
 	e.interRDThreshBaselineGen++
 	e.interRDFrameRefSearchOrderValid = false
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
+}
+
+func (e *VP8Encoder) configuredCPUUsedForModeSwitch() int {
+	if e.configuredCPUUsedValid {
+		return e.configuredCPUUsed
+	}
+	return e.opts.CpuUsed
 }
 
 // SetTuning changes the encoder's visual quality model. [TuneSSIM]
@@ -476,6 +545,7 @@ func (e *VP8Encoder) SetTuning(tuning Tuning) error {
 	}
 	e.opts.Tuning = tuning
 	e.activityMapValid = false
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -697,9 +767,11 @@ func (e *VP8Encoder) resetAutoSpeedTiming() {
 	e.autoSpeedFrameStartNS = 0
 }
 
-// SetKeyFrameInterval changes the maximum GOP distance in frames. Zero
-// disables interval-forced key frames; content-driven and explicitly
-// forced key frames are unaffected. See EncoderOptions.KeyFrameInterval.
+// SetKeyFrameInterval changes the maximum GOP distance in frames. At
+// runtime, zero mirrors libvpx's fixed keyframe interval of zero: every
+// accepted input frame is interval-forced unless runtime keyframes have
+// been disabled by SetAdaptiveKeyFrames(false). See EncoderOptions.
+// KeyFrameInterval.
 func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -710,18 +782,23 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	e.opts.KeyFrameInterval = frames
 	// Mirror libvpx oxcf.key_freq for estimate_keyframe_frequency.
 	e.rc.keyFrameFrequency = frames
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
-// SetAdaptiveKeyFrames enables or disables libvpx-compatible one-pass
-// auto-key recode. See EncoderOptions.AdaptiveKeyFrames.
+// SetAdaptiveKeyFrames enables or disables libvpx-compatible runtime
+// automatic keyframe placement. Runtime false mirrors VPX_KF_DISABLED;
+// runtime true re-enables keyframes and the one-pass auto-key recode.
+// See EncoderOptions.AdaptiveKeyFrames.
 func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
 	e.opts.AdaptiveKeyFrames = enabled
 	e.rc.autoKeyFrames = enabled
+	e.keyFramesDisabled = !enabled
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -739,7 +816,11 @@ func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 		return ErrClosed
 	}
 	if activeMap == nil {
+		wasEnabled := e.activeMapEnabled
 		e.activeMapEnabled = false
+		if wasEnabled && e.runtimePreserveSegmentation {
+			e.refreshRuntimeCyclicRefreshConfig()
+		}
 		return nil
 	}
 	expectedRows := encoderMacroblockRows(e.opts.Height)
@@ -755,6 +836,9 @@ func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 	}
 	copy(e.activeMap[:rows*cols], activeMap[:rows*cols])
 	e.activeMapEnabled = true
+	if e.runtimePreserveSegmentation {
+		e.refreshRuntimeCyclicRefreshConfig()
+	}
 	return nil
 }
 
@@ -773,6 +857,7 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	if level == 0 {
 		e.denoiser.reset()
 	}
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
@@ -791,6 +876,7 @@ func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error 
 	e.opts.ARNRMaxFrames = maxFrames
 	e.opts.ARNRStrength = strength
 	e.opts.ARNRType = filterType
+	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	return nil
 }

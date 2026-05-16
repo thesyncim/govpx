@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
@@ -26,13 +27,16 @@ type interSplitModeRDContext struct {
 }
 
 type interSplitModeRDResult struct {
-	mode        vp8enc.InterFrameMacroblockMode
-	rd          int
-	yrd         int
-	rate        int
-	distortion  int
-	rdLoopSkip  bool
-	mbSkipCoeff bool
+	mode         vp8enc.InterFrameMacroblockMode
+	rd           int
+	yrd          int
+	rate         int
+	rateY        int
+	rateUV       int
+	distortion   int
+	distortionUV int
+	rdLoopSkip   bool
+	mbSkipCoeff  bool
 }
 
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDContext) (interSplitModeRDResult, bool) {
@@ -50,12 +54,16 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 		bestSegmentYRD = maxInt()
 	}
 	var bestMode vp8enc.InterFrameMacroblockMode
+	var bestShape splitMotionShapeResult
 	var splitSeeds splitMotionSearchSeeds
 	search := e.interAnalysisSearchConfig()
 	compressor := e.interAnalysisCompressorSpeed()
 	zbinOverQuant := e.rc.currentZbinOverQuant
+	actZbinAdj := 0
 	if e.activityMapValid {
-		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, ctx.mbRow, ctx.mbCol)
+		if adjustment, ok := e.tunedZbinAdjustment(ctx.mbRow, ctx.mbCol); ok {
+			actZbinAdj = adjustment
+		}
 	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	coefProbs := e.pickerCoefProbs()
@@ -67,7 +75,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	}
 	tryPartition := func(partition int) {
 		var labelRD splitMotionLabelRDEvaluator
-		labelRD.init(zbinOverQuant, ctx.aboveTok, ctx.leftTok, fastQuant, false)
+		labelRD.init(zbinOverQuant, actZbinAdj, ctx.aboveTok, ctx.leftTok, fastQuant, false)
 		if e.activityMapValid {
 			rdMult, rdDiv := libvpxRDConstantsWithZbin(ctx.qIndex, zbinOverQuant)
 			rdMult = e.tunedRDMultiplier(rdMult, ctx.mbRow, ctx.mbCol)
@@ -79,28 +87,30 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 			overheadRD = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, overheadRate, 0)
 		}
 		shapeCtx := splitMotionShapeContext{
-			src:               ctx.src,
-			ref:               ctx.ref.Img,
-			refFrame:          ctx.ref.Frame,
-			mbRow:             ctx.mbRow,
-			mbCol:             ctx.mbCol,
-			bestRefMV:         ctx.bestRefMV,
-			qIndex:            ctx.qIndex,
-			errorPerBit:       errorPerBit,
-			partition:         partition,
-			left:              ctx.left,
-			above:             ctx.above,
-			search:            search,
-			compressor:        compressor,
-			seeds:             &splitSeeds,
-			mvProbs:           &e.modeProbs.MV,
-			mvCosts:           mvCosts,
-			mvthresh:          ctx.mvthresh,
-			labelRD:           &labelRD,
-			quant:             ctx.quant,
-			coefProbs:         coefProbs,
-			segmentYRDCap:     bestSegmentYRD,
-			segmentOverheadRD: overheadRD,
+			src:                 ctx.src,
+			ref:                 ctx.ref.Img,
+			refFrame:            ctx.ref.Frame,
+			mbRow:               ctx.mbRow,
+			mbCol:               ctx.mbCol,
+			bestRefMV:           ctx.bestRefMV,
+			qIndex:              ctx.qIndex,
+			errorPerBit:         errorPerBit,
+			partition:           partition,
+			left:                ctx.left,
+			above:               ctx.above,
+			search:              search,
+			compressor:          compressor,
+			seeds:               &splitSeeds,
+			mvProbs:             &e.modeProbs.MV,
+			mvCosts:             mvCosts,
+			subMVRefProbs:       &e.subMVRefProbs,
+			mvthresh:            ctx.mvthresh,
+			labelRD:             &labelRD,
+			quant:               ctx.quant,
+			coefProbs:           coefProbs,
+			segmentYRDCap:       bestSegmentYRD,
+			segmentOverheadRate: overheadRate,
+			segmentOverheadRD:   overheadRD,
 		}
 		shape := shapeCtx.selectShape()
 		if !shape.OK {
@@ -127,6 +137,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 			bestSegmentYRD = shape.SegmentYRD
 			bestSet = true
 			bestMode = mode
+			bestShape = shape
 		}
 	}
 
@@ -147,36 +158,104 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	if !bestSet {
 		return interSplitModeRDResult{}, false
 	}
-	rdCtx := interResidualRDContext{
-		src:        ctx.src,
-		ref:        ctx.ref.Img,
-		mbRow:      ctx.mbRow,
-		mbCol:      ctx.mbCol,
-		mode:       &bestMode,
-		above:      ctx.above,
-		left:       ctx.left,
-		aboveLeft:  ctx.aboveLeft,
-		aboveTok:   ctx.aboveTok,
-		leftTok:    ctx.leftTok,
-		quant:      ctx.quant,
-		qIndex:     ctx.qIndex,
-		segmentID:  ctx.segmentID,
-		refRate:    e.interReferenceFrameRateForReference(ctx.ref),
-		modeCounts: ctx.modeCounts,
-		bestRefMV:  ctx.bestRefMV,
-	}
-	acct, ok := e.estimateInterResidualRDAccountingWithModeContext(&rdCtx)
+	acct, ok := e.estimateInterSplitResidualRDAccounting(ctx, &bestMode, &bestShape)
 	if !ok {
 		return interSplitModeRDResult{}, false
 	}
 	return interSplitModeRDResult{
-		mode:        bestMode,
-		rd:          acct.rd,
-		yrd:         acct.yrd,
-		rate:        acct.rate2,
-		distortion:  acct.distortion2,
-		rdLoopSkip:  acct.rdLoopSkip,
-		mbSkipCoeff: acct.mbSkipCoeff,
+		mode:         bestMode,
+		rd:           acct.rd,
+		yrd:          acct.yrd,
+		rate:         acct.rate2,
+		rateY:        acct.rateY,
+		rateUV:       acct.rateUV,
+		distortion:   acct.distortion2,
+		distortionUV: acct.distortionUV,
+		rdLoopSkip:   acct.rdLoopSkip,
+		mbSkipCoeff:  acct.mbSkipCoeff,
+	}, true
+}
+
+func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeRDContext, mode *vp8enc.InterFrameMacroblockMode, shape *splitMotionShapeResult) (interResidualRDAccounting, bool) {
+	if ctx == nil || mode == nil || shape == nil || ctx.ref.Img == nil || ctx.quant == nil || ctx.segmentID >= vp8common.MaxMBSegments {
+		return interResidualRDAccounting{}, false
+	}
+	zbinOverQuant := e.rc.currentZbinOverQuant
+	actZbinAdj := 0
+	if e.activityMapValid {
+		if adjustment, ok := e.tunedZbinAdjustment(ctx.mbRow, ctx.mbCol); ok {
+			actZbinAdj = adjustment
+		}
+	}
+	var decMode vp8dec.MacroblockMode
+	convertInterFrameMode(mode, &decMode)
+	decMode.MBSkipCoeff = true
+	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ctx.ref.Img, ctx.mbRow, ctx.mbCol, &decMode, nil, &e.dequants[ctx.segmentID&3], &e.reconstructScratch) {
+		return interResidualRDAccounting{}, false
+	}
+
+	var coeffs vp8enc.MacroblockCoefficients
+	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:           e.pickerCoefProbs(),
+		src:                 ctx.src,
+		mbRow:               ctx.mbRow,
+		mbCol:               ctx.mbCol,
+		pred:                &e.analysis.Img,
+		aboveTok:            ctx.aboveTok,
+		leftTok:             ctx.leftTok,
+		quant:               ctx.quant,
+		qIndex:              ctx.qIndex,
+		zbinOverQuant:       zbinOverQuant,
+		zbinModeBoost:       splitInterModeZbinBoost,
+		actZbinAdj:          actZbinAdj,
+		is4x4:               true,
+		splitPartitionValid: true,
+		splitPartition:      mode.Partition,
+		intra:               false,
+		fastQuant:           e.libvpxUseFastQuantForPick(),
+		optimize:            false,
+		collectStats:        true,
+		coeffs:              &coeffs,
+		cacheOut:            e.interRDCoeffCacheScratchTarget,
+	})
+
+	refCost := e.interInterReferenceRate(e.interReferenceFrameRateForReference(ctx.ref))
+	otherCost := e.interMacroblockSkipRate(false)
+	rateUV := stats.rateUV
+	rate2 := shape.SegmentRate + rateUV + otherCost + refCost
+	distortion2 := shape.SegmentDistortion + stats.distortionUV
+	uvTTEOB := 0
+	for block := 16; block < 24; block++ {
+		uvTTEOB += int(coeffs.EOB[block])
+	}
+	// SPLITMV returnrate is the RD picker's rate, not the later accepted
+	// coefficient rebuild's packet skip state. Libvpx keeps rd_inter4x4_uv's
+	// token rate here even when the accepted MB is ultimately packet-skipped.
+	mbSkipCoeff := shape.SegmentTTEOB+uvTTEOB == 0 && stats.rateUV == 0
+	if mbSkipCoeff {
+		rate2 -= shape.SegmentYRate + stats.rateUV
+		rateUV = 0
+		skipBackout := e.interMacroblockSkipRate(true) - e.interMacroblockSkipRate(false)
+		rate2 += skipBackout
+		otherCost += skipBackout
+	}
+	rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2, distortion2)
+	yrd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
+	if e.activityMapValid {
+		rd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, rate2, distortion2)
+		yrd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
+	}
+	return interResidualRDAccounting{
+		rd:           rd,
+		yrd:          yrd,
+		rate2:        rate2,
+		rateY:        shape.SegmentYRate,
+		rateUV:       rateUV,
+		distortion2:  distortion2,
+		distortionUV: stats.distortionUV,
+		otherCost:    otherCost,
+		refCost:      refCost,
+		mbSkipCoeff:  mbSkipCoeff,
 	}, true
 }
 

@@ -389,10 +389,15 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 }
 
 func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
+	thresholds, _ := e.interModeRDThresholdsAndBaselineForReferences(qIndex, refs, refCount)
+	return thresholds
+}
+
+func (e *VP8Encoder) interModeRDThresholdsAndBaselineForReferences(qIndex int, refs []interAnalysisReference, refCount int) ([libvpxInterModeCount]int, [libvpxInterModeCount]int) {
 	baselineQIndex := e.interModeRDThresholdQIndex(qIndex)
 	baseline := e.interModeRDThresholdsBaseline(baselineQIndex, refs, refCount)
 	if !e.interRDFrameActive {
-		return baseline
+		return baseline, baseline
 	}
 	thresholds := baseline
 	touched := &e.interRDThreshTouched
@@ -406,7 +411,15 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 			thresholds[i] = (v >> 7) * mult[i]
 		}
 	}
-	return thresholds
+	return thresholds, baseline
+}
+
+func interModeRDBestThresholdLowerAllowed(baseline [libvpxInterModeCount]int, modeIndex int) bool {
+	if uint(modeIndex) >= uint(libvpxInterModeCount) {
+		return false
+	}
+	threshold := baseline[modeIndex]
+	return threshold > 0 && threshold < (maxInt()>>2)
 }
 
 func (e *VP8Encoder) interModeRDThresholdQIndex(qIndex int) int {

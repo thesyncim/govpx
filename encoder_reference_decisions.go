@@ -330,6 +330,13 @@ func (e *VP8Encoder) clearExternalReferenceMaskAfterPacket() {
 	e.carriedExternalReferenceAltRef = false
 }
 
+func (e *VP8Encoder) clearCarriedNoUpdateEntropyAfterPacket() {
+	if e == nil {
+		return
+	}
+	e.carriedNoUpdateEntropy = false
+}
+
 func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRefresh bool, flags EncodeFlags) bool {
 	if errorResilient || !goldenCBRRefresh {
 		return false
@@ -398,7 +405,7 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	if e.opts.KeyFrameInterval <= 0 {
+	if e.keyFramesDisabled || e.opts.KeyFrameInterval <= 0 {
 		return false
 	}
 	if e.opts.AdaptiveKeyFrames {
@@ -410,6 +417,22 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
 		return framesSinceKey%keyFrameFrequency == 0
 	}
 	return e.rc.framesSinceKeyframe+1 >= e.opts.KeyFrameInterval
+}
+
+func (e *VP8Encoder) applyFixedKeyFrameIntervalFlag(flags EncodeFlags) EncodeFlags {
+	if e.keyFramesDisabled || e.opts.AdaptiveKeyFrames {
+		return flags
+	}
+	interval := e.opts.KeyFrameInterval
+	if interval < 0 {
+		return flags
+	}
+	e.fixedKeyFrameCounter++
+	if e.fixedKeyFrameCounter > interval {
+		flags |= EncodeForceKeyFrame
+		e.fixedKeyFrameCounter = 1
+	}
+	return flags
 }
 
 func (e *VP8Encoder) forceKeyFrameRequested(flags EncodeFlags) bool {

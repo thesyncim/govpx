@@ -265,7 +265,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			if e.libvpxUseFastIntraPick() {
 				mode, projectedRate, ok = predictBestKeyFrameIntraModeFastWithRDConstants(src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 			} else {
-				mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(src, segmentQIndex, zbinOverQuant, actZbinAdj, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 			}
 			if !ok {
 				return 0, ErrInvalidConfig
@@ -516,7 +516,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			e.beginInterRDModeDecisionMacroblock()
 			var fallbackSnapshot interMacroblockImageSnapshot
 			haveFallbackSnapshot := false
-			cyclicRefreshFallback := false
 			// Snapshot only the reconstructed pixels for cyclic-refresh
 			// quantizer fallback. Libvpx still keeps the picker-side
 			// rd_thresh_mult / mode-test mutations from the original
@@ -542,7 +541,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if haveFallbackSnapshot {
 					restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 				}
-				cyclicRefreshFallback = true
 				segmentID = 0
 				decision.interMode.SegmentID = 0
 				decision.intraMode.SegmentID = 0
@@ -665,7 +663,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 			}
 			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
-			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], is4x4)
+			finalCoeffSkip := false
+			if !breakoutSkip {
+				finalCoeffSkip = macroblockCoefficientsEmpty(&coeffs[index], is4x4)
+			}
+			modes[index].MBSkipCoeff = breakoutSkip || finalCoeffSkip
 			// Lane C accepted-candidate reuse: the picker→accepted boundary
 			// for an inter MB ends up calling convertInterFrameMode twice —
 			// first at the winner branch above (lines 469/480) right after
@@ -690,7 +692,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if !modes[index].MBSkipCoeff {
 				convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			}
-			if cyclicRefreshFallback && e.interAnalysisUsesRDModeDecision() && modes[index].RefFrame != vp8common.IntraFrame {
+			if finalCoeffSkip && modes[index].Mode == vp8common.SplitMV && modes[index].Partition == 0 {
 				projectedRate = e.acceptedInterFrameRDProjectedRate(&modes[index], above, left, aboveLeft, &aboveTok[col], &leftTok, &coeffs[index], decision.ref, row, col, rows, cols, is4x4)
 			}
 			totalRate = addProjectedMacroblockRate(totalRate, projectedRate)

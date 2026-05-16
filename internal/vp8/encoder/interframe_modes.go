@@ -61,6 +61,7 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
 	yModeProbs := interFrameYModeProbs(cfg)
 	uvModeProbs := interFrameUVModeProbs(cfg)
+	bModeProbs := interFrameBModeProbs(cfg)
 	mvProbs := interFrameMVProbs(cfg)
 	signBias := interFrameSignBias(cfg)
 	probLast := cfg.ProbLast
@@ -83,7 +84,7 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			refFrame := interFrameReference(mode)
 			if refFrame == common.IntraFrame {
 				w.WriteBool(0, cfg.ProbIntra)
-				if !WriteInterIntraMacroblockMode(w, mode, yModeProbs, uvModeProbs) {
+				if !WriteInterIntraMacroblockMode(w, mode, yModeProbs, uvModeProbs, bModeProbs) {
 					return ErrInvalidPacketConfig
 				}
 				continue
@@ -133,18 +134,16 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 
 var interFrameYModeTokens = initInterFrameYModeTokens()
 
-func WriteInterIntraMacroblockMode(w *BoolWriter, mode *InterFrameMacroblockMode, yModeProbs [tables.YModeProbCount]uint8, uvModeProbs [tables.UVModeProbCount]uint8) bool {
+func WriteInterIntraMacroblockMode(w *BoolWriter, mode *InterFrameMacroblockMode, yModeProbs [tables.YModeProbCount]uint8, uvModeProbs [tables.UVModeProbCount]uint8, bModeProbs [tables.BModeProbCount]uint8) bool {
 	if w == nil || mode == nil || !validInterIntraMacroblockMode(mode) {
 		return false
 	}
-	yModeProbs = normalizeYModeProbabilityBase(yModeProbs)
-	uvModeProbs = normalizeUVModeProbabilityBase(uvModeProbs)
 	if !WriteTreeToken(w, tables.YModeTree[:], yModeProbs[:], interFrameYModeTokens[int(mode.Mode)]) {
 		return false
 	}
 	if mode.Mode == common.BPred {
 		for block := range 16 {
-			if !WriteTreeToken(w, tables.BModeTree[:], tables.DefaultBModeProbs[:], bModeTokens[int(mode.BModes[block])]) {
+			if !WriteTreeToken(w, tables.BModeTree[:], bModeProbs[:], bModeTokens[int(mode.BModes[block])]) {
 				return false
 			}
 		}

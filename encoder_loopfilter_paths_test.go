@@ -284,6 +284,23 @@ func TestComputeLFDeltaUpdateBitResignalsEveryKeyFrame(t *testing.T) {
 	}
 }
 
+func TestPendingLFDeltaUpdateRestoredAfterDroppedFrame(t *testing.T) {
+	var e VP8Encoder
+
+	e.restorePendingLFDeltaUpdateAfterDrop(false)
+	if e.pendingLFDeltaUpdate {
+		t.Fatalf("pending LF update restored without consumed force bit")
+	}
+	e.restorePendingLFDeltaUpdateAfterDrop(true)
+	if !e.pendingLFDeltaUpdate {
+		t.Fatalf("pending LF update = false, want restored for next encoded frame")
+	}
+	force := e.consumePendingLFDeltaUpdate()
+	if !force || e.pendingLFDeltaUpdate {
+		t.Fatalf("consume restored LF update failed: force=%t pending=%t", force, e.pendingLFDeltaUpdate)
+	}
+}
+
 func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T) {
 	tests := []struct {
 		name     string
