@@ -985,6 +985,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 		before      func(*testing.T, *VP9Encoder, int)
 		exactPrefix int
 		exactFrames []int
+		strictBytes bool
 		tileJobs    int
 	}
 	fixedQOpts := VP9EncoderOptions{
@@ -1056,6 +1057,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 					enc.SetActiveMap(activeMap, rows, cols))
 			},
 			exactPrefix: 2,
+			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
 				return newVP9YCbCrForTest(width, height, 128, 128, 128)
 			},
@@ -1143,6 +1145,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			},
 			extraArgs:   []string{"--noise-sensitivity=1"},
 			exactPrefix: 2,
+			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
 				return newVP9YCbCrForTest(width, height, 128, 128, 128)
 			},
@@ -1157,6 +1160,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			},
 			extraArgs:   []string{"--noise-sensitivity=2"},
 			exactPrefix: 2,
+			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
 				return newVP9YCbCrForTest(width, height, 128, 128, 128)
 			},
@@ -1171,6 +1175,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			},
 			extraArgs:   []string{"--noise-sensitivity=6"},
 			exactPrefix: 2,
+			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
 				return newVP9YCbCrForTest(width, height, 128, 128, 128)
 			},
@@ -1227,6 +1232,10 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 				assertVP9PacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
+			}
+			if tc.strictBytes && matches != len(govpxPackets) {
+				t.Fatalf("strict VP9 selected stream byte parity %s: matches=%d/%d",
+					tc.name, matches, len(govpxPackets))
 			}
 		})
 	}
@@ -1739,6 +1748,24 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 				MinQuantizer: 20,
 				MaxQuantizer: 20,
 			},
+			args: []string{
+				"--tile-columns=2",
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--disable-warning-prompt",
+			},
+			source: steppedKeyframe,
+		},
+		{
+			name:   "fixed-q-force-key-stepped",
+			frames: 4,
+			opts: VP9EncoderOptions{
+				Threads:      4,
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			flags: vp9OracleRepeatAllFramesFlag(4, EncodeForceKeyFrame),
 			args: []string{
 				"--tile-columns=2",
 				"--cq-level=20",

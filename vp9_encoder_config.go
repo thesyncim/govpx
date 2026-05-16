@@ -333,8 +333,8 @@ func (e *VP9Encoder) SetTuning(tuning Tuning) error {
 	return nil
 }
 
-// SetNoiseSensitivity changes the VP9 luma temporal denoiser level used for
-// subsequent frames. Valid values are [0, 6]. Zero disables the denoiser;
+// SetNoiseSensitivity changes the VP9 luma/chroma temporal denoiser level used
+// for subsequent frames. Valid values are [0, 6]. Zero disables the denoiser;
 // non-zero values allocate or resize denoiser buffers on the next encode.
 func (e *VP9Encoder) SetNoiseSensitivity(level int) error {
 	if e == nil || e.closed {
