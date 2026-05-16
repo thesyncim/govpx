@@ -3676,8 +3676,24 @@ func vp9MultiTileStubPacketForTest(t *testing.T, width, height, log2TileCols int
 	return vp9StubPacketForTest(t, width, height, log2TileCols, common.DcPred)
 }
 
+func vp9MultiTileStubPacketWithFrameParallelForTest(t *testing.T,
+	width, height, log2TileCols int, frameParallel bool,
+) []byte {
+	t.Helper()
+	return vp9StubPacketWithFrameParallelForTest(t, width, height,
+		log2TileCols, common.DcPred, frameParallel)
+}
+
 func vp9StubPacketForTest(t *testing.T, width, height, log2TileCols int,
 	yMode common.PredictionMode,
+) []byte {
+	t.Helper()
+	return vp9StubPacketWithFrameParallelForTest(t, width, height,
+		log2TileCols, yMode, true)
+}
+
+func vp9StubPacketWithFrameParallelForTest(t *testing.T, width, height,
+	log2TileCols int, yMode common.PredictionMode, frameParallel bool,
 ) []byte {
 	t.Helper()
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -3701,7 +3717,7 @@ func vp9StubPacketForTest(t *testing.T, width, height, log2TileCols int,
 		Width:                 w,
 		Height:                h,
 		RefreshFrameContext:   true,
-		FrameParallelDecoding: true,
+		FrameParallelDecoding: frameParallel,
 		InterpFilter:          vp9dec.InterpEighttap,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
 			BitDepth:   vp9dec.Bits8,
@@ -6386,8 +6402,16 @@ func vp9InterSkipFrameForTest(t *testing.T, width, height int) []byte {
 
 func vp9InterSkipFrameTilesForTest(t *testing.T, width, height, log2TileCols int) []byte {
 	t.Helper()
-	return vp9InterSkipFrameRefDimsForTest(t, width, height, log2TileCols,
-		uint32(width), uint32(height))
+	return vp9InterSkipFrameTilesWithFrameParallelForTest(t, width, height,
+		log2TileCols, true)
+}
+
+func vp9InterSkipFrameTilesWithFrameParallelForTest(t *testing.T,
+	width, height, log2TileCols int, frameParallel bool,
+) []byte {
+	t.Helper()
+	return vp9InterSkipFrameRefDimsWithFrameParallelForTest(t, width, height,
+		log2TileCols, uint32(width), uint32(height), frameParallel)
 }
 
 func vp9ScaledZeroMvInterFrameForTest(t *testing.T, width, height, refWidth, refHeight int) []byte {
@@ -6398,6 +6422,15 @@ func vp9ScaledZeroMvInterFrameForTest(t *testing.T, width, height, refWidth, ref
 
 func vp9InterSkipFrameRefDimsForTest(t *testing.T, width, height, log2TileCols int,
 	refWidth, refHeight uint32,
+) []byte {
+	t.Helper()
+	return vp9InterSkipFrameRefDimsWithFrameParallelForTest(t, width, height,
+		log2TileCols, refWidth, refHeight, true)
+}
+
+func vp9InterSkipFrameRefDimsWithFrameParallelForTest(t *testing.T,
+	width, height, log2TileCols int, refWidth, refHeight uint32,
+	frameParallel bool,
 ) []byte {
 	t.Helper()
 	w := uint32(width)
@@ -6422,7 +6455,7 @@ func vp9InterSkipFrameRefDimsForTest(t *testing.T, width, height, log2TileCols i
 		Height:                h,
 		InterpFilter:          vp9dec.InterpEighttap,
 		RefreshFrameContext:   true,
-		FrameParallelDecoding: true,
+		FrameParallelDecoding: frameParallel,
 		FrameContextIdx:       0,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
 			BitDepth:     vp9dec.Bits8,

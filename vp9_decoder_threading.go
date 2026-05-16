@@ -215,7 +215,7 @@ func (d *VP9Decoder) vp9DecoderTileThreadingEnabled(
 	hdr *vp9dec.UncompressedHeader, tileRows, tileCols int,
 ) bool {
 	return d != nil && d.vp9TilePool != nil && hdr != nil &&
-		hdr.FrameParallelDecoding && tileRows == 1 && tileCols > 1
+		tileRows == 1 && tileCols > 1
 }
 
 func (d *VP9Decoder) parseVP9IntraModeTilesThreaded(tileData []byte,
@@ -324,6 +324,7 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	if len(descs) == 0 {
 		return nil
 	}
+	mergeCounts := !hdr.FrameParallelDecoding
 	helpersMax := int(p.helperCount)
 	next := 0
 	jobsRun := 0
@@ -349,6 +350,9 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 			}
 			if err == nil && job.err != nil {
 				err = job.err
+			}
+			if mergeCounts && job.err == nil {
+				vp9MergeFrameCounts(&d.counts, &job.worker.counts)
 			}
 		}
 		if err != nil {
@@ -382,6 +386,9 @@ func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 	job.kind = kind
 	job.err = nil
 	job.unsupported = false
+	if !p.header.FrameParallelDecoding {
+		job.worker.counts = vp9FrameCounts{}
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		job.leftEntropyLen[plane] = uint8(len(parent.planes[plane].LeftContext))
 	}
@@ -428,4 +435,149 @@ func (d *VP9Decoder) runVP9DecoderTileDesc(kind vp9DecoderTileJobKind,
 	}
 	return d.parseVP9InterModeTile(desc.data, hdr, comp, &interMaps, desc.tile,
 		miRows, miCols, partitionProbs)
+}
+
+func vp9MergeFrameCounts(dst, src *vp9FrameCounts) {
+	for i := range dst.YMode {
+		for j := range dst.YMode[i] {
+			dst.YMode[i][j] += src.YMode[i][j]
+		}
+	}
+	for i := range dst.UvMode {
+		for j := range dst.UvMode[i] {
+			dst.UvMode[i][j] += src.UvMode[i][j]
+		}
+	}
+	for i := range dst.Partition {
+		for j := range dst.Partition[i] {
+			dst.Partition[i][j] += src.Partition[i][j]
+		}
+	}
+	vp9MergeCoefCounts(&dst.Coef, &src.Coef)
+	for i := range dst.SwitchableInterp {
+		for j := range dst.SwitchableInterp[i] {
+			dst.SwitchableInterp[i][j] += src.SwitchableInterp[i][j]
+		}
+	}
+	for i := range dst.InterMode {
+		for j := range dst.InterMode[i] {
+			dst.InterMode[i][j] += src.InterMode[i][j]
+		}
+	}
+	for i := range dst.IntraInter {
+		for j := range dst.IntraInter[i] {
+			dst.IntraInter[i][j] += src.IntraInter[i][j]
+		}
+	}
+	for i := range dst.CompInter {
+		for j := range dst.CompInter[i] {
+			dst.CompInter[i][j] += src.CompInter[i][j]
+		}
+	}
+	for i := range dst.SingleRef {
+		for j := range dst.SingleRef[i] {
+			for k := range dst.SingleRef[i][j] {
+				dst.SingleRef[i][j][k] += src.SingleRef[i][j][k]
+			}
+		}
+	}
+	for i := range dst.CompRef {
+		for j := range dst.CompRef[i] {
+			dst.CompRef[i][j] += src.CompRef[i][j]
+		}
+	}
+	vp9MergeTxCounts(&dst.Tx, &src.Tx)
+	for i := range dst.Skip {
+		for j := range dst.Skip[i] {
+			dst.Skip[i][j] += src.Skip[i][j]
+		}
+	}
+	vp9MergeMvCounts(&dst.Mv, &src.Mv)
+}
+
+func vp9MergeCoefCounts(dst, src *vp9dec.CoefCounts) {
+	for tx := range dst.Coef {
+		for plane := range dst.Coef[tx] {
+			for ref := range dst.Coef[tx][plane] {
+				for band := range dst.Coef[tx][plane][ref] {
+					for ctx := range dst.Coef[tx][plane][ref][band] {
+						for node := range dst.Coef[tx][plane][ref][band][ctx] {
+							dst.Coef[tx][plane][ref][band][ctx][node] +=
+								src.Coef[tx][plane][ref][band][ctx][node]
+						}
+					}
+				}
+			}
+		}
+	}
+	for tx := range dst.EobBranch {
+		for plane := range dst.EobBranch[tx] {
+			for ref := range dst.EobBranch[tx][plane] {
+				for band := range dst.EobBranch[tx][plane][ref] {
+					for ctx := range dst.EobBranch[tx][plane][ref][band] {
+						dst.EobBranch[tx][plane][ref][band][ctx] +=
+							src.EobBranch[tx][plane][ref][band][ctx]
+					}
+				}
+			}
+		}
+	}
+}
+
+func vp9MergeTxCounts(dst, src *vp9TxCounts) {
+	for i := range dst.P32x32 {
+		for j := range dst.P32x32[i] {
+			dst.P32x32[i][j] += src.P32x32[i][j]
+		}
+	}
+	for i := range dst.P16x16 {
+		for j := range dst.P16x16[i] {
+			dst.P16x16[i][j] += src.P16x16[i][j]
+		}
+	}
+	for i := range dst.P8x8 {
+		for j := range dst.P8x8[i] {
+			dst.P8x8[i][j] += src.P8x8[i][j]
+		}
+	}
+}
+
+func vp9MergeMvCounts(dst, src *vp9NmvContextCounts) {
+	for i := range dst.Joints {
+		dst.Joints[i] += src.Joints[i]
+	}
+	for i := range dst.Comps {
+		vp9MergeMvComponentCounts(&dst.Comps[i], &src.Comps[i])
+	}
+}
+
+func vp9MergeMvComponentCounts(dst, src *vp9NmvComponentCounts) {
+	for i := range dst.Sign {
+		dst.Sign[i] += src.Sign[i]
+	}
+	for i := range dst.Classes {
+		dst.Classes[i] += src.Classes[i]
+	}
+	for i := range dst.Class0 {
+		dst.Class0[i] += src.Class0[i]
+	}
+	for i := range dst.Bits {
+		for j := range dst.Bits[i] {
+			dst.Bits[i][j] += src.Bits[i][j]
+		}
+	}
+	for i := range dst.Class0Fp {
+		for j := range dst.Class0Fp[i] {
+			dst.Class0Fp[i][j] += src.Class0Fp[i][j]
+		}
+	}
+	for i := range dst.Fp {
+		dst.Fp[i] += src.Fp[i]
+	}
+	for i := range dst.Class0Hp {
+		dst.Class0Hp[i] += src.Class0Hp[i]
+	}
+	for i := range dst.Hp {
+		dst.Hp[i] += src.Hp[i]
+	}
 }

@@ -341,6 +341,58 @@ func TestVP9DecoderThreadingUsesTileModeWorkers(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderThreadingNonFrameParallelTileColumnsMatchSerial(t *testing.T) {
+	key := vp9MultiTileStubPacketWithFrameParallelForTest(t, 1024, 64, 2,
+		false)
+	inter := vp9InterSkipFrameTilesWithFrameParallelForTest(t, 1024, 64, 2,
+		false)
+
+	serial, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("serial NewVP9Decoder: %v", err)
+	}
+	serialKey := decodeVP9PacketAndCaptureForThreadingTest(t, serial, key)
+	serialInter := decodeVP9PacketAndCaptureForThreadingTest(t, serial, inter)
+
+	threaded, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
+	if err != nil {
+		t.Fatalf("threaded NewVP9Decoder: %v", err)
+	}
+	if threaded.vp9TilePool == nil {
+		t.Fatalf("threaded decoder did not initialize VP9 tile worker pool")
+	}
+	threadedKey := decodeVP9PacketAndCaptureForThreadingTest(t, threaded, key)
+	if got := threaded.vp9TilePool.lastTileJobs; got != 4 {
+		t.Fatalf("non-frame-parallel key threaded tile jobs = %d, want 4", got)
+	}
+	if got := threaded.vp9TilePool.lastTileJobKind; got != vp9DecoderTileJobIntra {
+		t.Fatalf("non-frame-parallel key threaded tile job kind = %d, want intra", got)
+	}
+	threadedInter := decodeVP9PacketAndCaptureForThreadingTest(t, threaded, inter)
+	if got := threaded.vp9TilePool.lastTileJobs; got != 4 {
+		t.Fatalf("non-frame-parallel inter threaded tile jobs = %d, want 4", got)
+	}
+	if got := threaded.vp9TilePool.lastTileJobKind; got != vp9DecoderTileJobInter {
+		t.Fatalf("non-frame-parallel inter threaded tile job kind = %d, want inter", got)
+	}
+
+	if !sameCapturedFramePlanes(serialKey, threadedKey) {
+		t.Fatalf("non-frame-parallel tiled key planes diverge")
+	}
+	if !sameCapturedFramePlanes(serialInter, threadedInter) {
+		t.Fatalf("non-frame-parallel tiled inter planes diverge")
+	}
+	if serial.frameContexts != threaded.frameContexts {
+		t.Fatalf("non-frame-parallel threaded decode frame-context adaptation diverged")
+	}
+	if err := serial.Close(); err != nil {
+		t.Fatalf("serial Close: %v", err)
+	}
+	if err := threaded.Close(); err != nil {
+		t.Fatalf("threaded Close: %v", err)
+	}
+}
+
 func TestVP9DecoderThreadedTileParseSteadyStateAlloc(t *testing.T) {
 	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 2)
 	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 2)
@@ -369,6 +421,20 @@ func TestVP9DecoderThreadedTileParseSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func decodeVP9PacketAndCaptureForThreadingTest(t testing.TB, d *VP9Decoder,
+	packet []byte,
+) capturedFramePlanes {
+	t.Helper()
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("VP9 Decode: %v", err)
+	}
+	img, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("VP9 Decode produced no visible frame")
+	}
+	return captureDecodedPlanes(img)
+}
+
 func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want int) {
 	t.Helper()
 	serial, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -376,6 +442,10 @@ func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want i
 		t.Fatalf("serial NewVP9Decoder: %v", err)
 	}
 	serialFrames := decodeVP9Planes(t, serial, packets, want)
+	if len(serialFrames) == 0 {
+		t.Fatalf("serial VP9 decode produced no visible frames from %d packets",
+			len(packets))
+	}
 	if err := serial.Close(); err != nil {
 		t.Fatalf("serial Close: %v", err)
 	}
