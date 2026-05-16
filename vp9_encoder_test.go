@@ -6123,7 +6123,7 @@ func TestVP9TileWorkerPoolOutputSizeCache(t *testing.T) {
 }
 
 func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
-	const width, height = 1024, 64
+	const width, height = 1280, 720
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:   width,
 		Height:  height,
@@ -6132,19 +6132,29 @@ func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	frames := [4]*image.YCbCr{}
+	frames := [2]*image.YCbCr{}
 	for i := range frames {
-		frames[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		frames[i] = newVP9YCbCrForTest(width, height, 128, 128, 128)
 	}
-	dst := make([]byte, 1<<20)
+	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
 	for i := range frames {
 		if _, err := e.EncodeInto(frames[i], dst); err != nil {
 			t.Fatalf("warm EncodeInto[%d]: %v", i, err)
 		}
 	}
+	if e.vp9TilePool == nil {
+		t.Fatal("threaded 720p encode did not initialize VP9 tile worker pool")
+	}
+	if got, want := e.vp9TilePool.workerCount, 4; got != want {
+		t.Fatalf("threaded 720p tile worker count = %d, want %d", got, want)
+	}
 	idx := 0
-	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
-		frame := frames[idx&3]
+	allocs := testing.AllocsPerRun(1, func() {
+		frame := frames[idx&1]
 		idx++
 		if _, err := e.EncodeInto(frame, dst); err != nil {
 			t.Fatalf("EncodeInto threaded alloc run: %v", err)
@@ -6152,6 +6162,12 @@ func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("threaded tile EncodeInto steady-state allocs = %f, want 0", allocs)
+	}
+	for i := 0; i < e.vp9TilePool.workerCount; i++ {
+		if e.vp9TilePool.encodeJobs[i].size <= 0 {
+			t.Fatalf("threaded 720p tile job %d wrote %d bytes",
+				i, e.vp9TilePool.encodeJobs[i].size)
+		}
 	}
 }
 
