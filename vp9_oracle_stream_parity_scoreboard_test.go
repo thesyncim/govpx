@@ -1112,6 +1112,48 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			},
 		},
 		{
+			name:   "noise-sensitivity-low-constant",
+			width:  64,
+			height: 64,
+			frames: 2,
+			opts: VP9EncoderOptions{
+				NoiseSensitivity: 1,
+			},
+			extraArgs:   []string{"--noise-sensitivity=1"},
+			exactPrefix: 2,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			},
+		},
+		{
+			name:   "noise-sensitivity-medium-constant",
+			width:  64,
+			height: 64,
+			frames: 2,
+			opts: VP9EncoderOptions{
+				NoiseSensitivity: 2,
+			},
+			extraArgs:   []string{"--noise-sensitivity=2"},
+			exactPrefix: 2,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			},
+		},
+		{
+			name:   "noise-sensitivity-high-constant-320",
+			width:  320,
+			height: 180,
+			frames: 2,
+			opts: VP9EncoderOptions{
+				NoiseSensitivity: 6,
+			},
+			extraArgs:   []string{"--noise-sensitivity=6"},
+			exactPrefix: 2,
+			source: func(width, height, frame int) *image.YCbCr {
+				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			},
+		},
+		{
 			name:        "cbr-cyclic-aq-constant",
 			width:       64,
 			height:      64,

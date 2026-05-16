@@ -730,20 +730,35 @@ func TestVP9EncoderSetNoiseSensitivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if err := e.SetNoiseSensitivity(3); err != nil {
-		t.Fatalf("SetNoiseSensitivity(3): %v", err)
-	}
-	if e.opts.NoiseSensitivity != 3 {
-		t.Fatalf("NoiseSensitivity = %d, want 3", e.opts.NoiseSensitivity)
-	}
-	if e.denoiser.sensitivity != 3 || e.denoiser.level != vp9DenoiserHigh {
-		t.Fatalf("denoiser sensitivity/level = %d/%d, want 3/high",
-			e.denoiser.sensitivity, e.denoiser.level)
+	for _, tc := range []struct {
+		sensitivity int
+		level       int8
+	}{
+		{sensitivity: 1, level: vp9DenoiserLow},
+		{sensitivity: 2, level: vp9DenoiserMedium},
+		{sensitivity: 3, level: vp9DenoiserHigh},
+		{sensitivity: 4, level: vp9DenoiserHigh},
+		{sensitivity: 5, level: vp9DenoiserHigh},
+		{sensitivity: 6, level: vp9DenoiserHigh},
+	} {
+		if err := e.SetNoiseSensitivity(tc.sensitivity); err != nil {
+			t.Fatalf("SetNoiseSensitivity(%d): %v", tc.sensitivity, err)
+		}
+		if e.opts.NoiseSensitivity != int8(tc.sensitivity) {
+			t.Fatalf("NoiseSensitivity = %d, want %d",
+				e.opts.NoiseSensitivity, tc.sensitivity)
+		}
+		if e.denoiser.sensitivity != int8(tc.sensitivity) ||
+			e.denoiser.level != tc.level {
+			t.Fatalf("denoiser sensitivity/level = %d/%d, want %d/%d",
+				e.denoiser.sensitivity, e.denoiser.level,
+				tc.sensitivity, tc.level)
+		}
 	}
 	if err := e.SetNoiseSensitivity(7); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetNoiseSensitivity invalid err = %v, want ErrInvalidConfig", err)
 	}
-	if e.opts.NoiseSensitivity != 3 {
+	if e.opts.NoiseSensitivity != 6 {
 		t.Fatal("invalid SetNoiseSensitivity mutated encoder")
 	}
 	if err := e.SetNoiseSensitivity(0); err != nil {
