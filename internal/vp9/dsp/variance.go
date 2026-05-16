@@ -23,7 +23,7 @@ func computeVariance(src []uint8, srcOff, srcStride int,
 	return
 }
 
-func variance(w, h int, src []uint8, srcOff, srcStride int,
+func varianceScalar(w, h int, src []uint8, srcOff, srcStride int,
 	ref []uint8, refOff, refStride int, sse *uint32,
 ) uint32 {
 	s, sum := computeVariance(src, srcOff, srcStride, ref, refOff, refStride, w, h)
@@ -31,46 +31,49 @@ func variance(w, h int, src []uint8, srcOff, srcStride int,
 	return s - uint32((int64(sum)*int64(sum))/int64(w*h))
 }
 
-// VpxVariance{W}x{H} mirror libvpx's vpx_variance{W}x{H}_c.
+// VpxVariance{W}x{H} mirror libvpx's vpx_variance{W}x{H}_c. Each
+// delegates to a size-specialized internal helper so per-arch SIMD
+// backends can override the hot sizes (16+) while the small sizes
+// stay on the scalar reference.
 
 func VpxVariance64x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(64, 64, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance64x64(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance64x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(64, 32, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance64x32(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance32x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(32, 64, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance32x64(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance32x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(32, 32, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance32x32(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance32x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(32, 16, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance32x16(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance16x32(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(16, 32, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance16x32(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance16x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(16, 16, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance16x16(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance16x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(16, 8, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance16x8(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance8x16(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(8, 16, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance8x16(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance8x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(8, 8, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance8x8(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance8x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(8, 4, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance8x4(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance4x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(4, 8, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance4x8(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 func VpxVariance4x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	return variance(4, 4, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	return variance4x4(src, srcOff, srcStride, ref, refOff, refStride, sse)
 }
 
 // VpxMse{W}x{H} mirror vpx_mse{W}x{H}_c — return just the sse.

@@ -81,10 +81,10 @@ func VpxSad8x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStrid
 	return sad8x4(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad4x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 4, 8)
+	return sad4x8(src, srcOff, srcStride, ref, refOff, refStride)
 }
 func VpxSad4x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
-	return sad(src, srcOff, srcStride, ref, refOff, refStride, 4, 4)
+	return sad4x4(src, srcOff, srcStride, ref, refOff, refStride)
 }
 
 // VpxCompAvgPred is the public wrapper for vpx_comp_avg_pred_c.

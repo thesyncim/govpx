@@ -1,4 +1,4 @@
-//go:build !amd64 || purego
+//go:build (!amd64 && !arm64) || purego
 
 package dsp
 
@@ -44,4 +44,12 @@ func sad8x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride i
 
 func sad8x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	return sad(src, srcOff, srcStride, ref, refOff, refStride, 8, 4)
+}
+
+func sad4x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 4, 8)
+}
+
+func sad4x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
+	return sad(src, srcOff, srcStride, ref, refOff, refStride, 4, 4)
 }
