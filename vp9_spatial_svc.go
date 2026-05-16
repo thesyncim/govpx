@@ -535,8 +535,9 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 
 // LayerEncoder returns the internal encoder for layerID so callers can apply
 // VP9 runtime controls to one layer. Do not close the returned encoder or
-// change its spatial or temporal scalability configuration; close the parent
-// SVC encoder and use the parent's temporal controls.
+// change its spatial or temporal scalability configuration. Size-changing
+// realtime target updates are rejected while the layer is owned by the SVC
+// encoder; close the parent SVC encoder and use the parent's temporal controls.
 func (e *VP9SpatialSVCEncoder) LayerEncoder(layerID uint8) (*VP9Encoder, error) {
 	return e.layerEncoder(layerID)
 }
@@ -572,6 +573,50 @@ func (e *VP9SpatialSVCEncoder) SetLayerRateControl(layerID uint8, cfg RateContro
 	return layer.SetRateControl(cfg)
 }
 
+// SetLayerCQLevel changes one spatial layer's VP9 public CQ/Q level,
+// matching [VP9Encoder.SetCQLevel].
+func (e *VP9SpatialSVCEncoder) SetLayerCQLevel(layerID uint8, level int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetCQLevel(level)
+}
+
+// SetLayerFrameDropAllowed enables or disables one spatial layer's VP9 CBR
+// frame dropping, matching [VP9Encoder.SetFrameDropAllowed].
+func (e *VP9SpatialSVCEncoder) SetLayerFrameDropAllowed(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetFrameDropAllowed(enabled)
+}
+
+// SetLayerRateControlBuffer changes one spatial layer's VP9 CBR buffer model,
+// matching [VP9Encoder.SetRateControlBuffer].
+func (e *VP9SpatialSVCEncoder) SetLayerRateControlBuffer(layerID uint8,
+	sizeMs, initialMs, optimalMs int,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetRateControlBuffer(sizeMs, initialMs, optimalMs)
+}
+
+// SetLayerTwoPassStats replaces one spatial layer's VP9 second-pass stats,
+// matching [VP9Encoder.SetTwoPassStats].
+func (e *VP9SpatialSVCEncoder) SetLayerTwoPassStats(layerID uint8,
+	stats []VP9FirstPassFrameStats,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetTwoPassStats(stats)
+}
+
 // SetLayerDeadline changes one spatial layer's VP9 speed/quality deadline,
 // matching [VP9Encoder.SetDeadline].
 func (e *VP9SpatialSVCEncoder) SetLayerDeadline(layerID uint8, deadline Deadline) error {
@@ -592,6 +637,36 @@ func (e *VP9SpatialSVCEncoder) SetLayerCPUUsed(layerID uint8, cpuUsed int) error
 	return layer.SetCPUUsed(cpuUsed)
 }
 
+// SetLayerTuning changes one spatial layer's VP9 tuning model, matching
+// [VP9Encoder.SetTuning].
+func (e *VP9SpatialSVCEncoder) SetLayerTuning(layerID uint8, tuning Tuning) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetTuning(tuning)
+}
+
+// SetLayerLossless enables or disables one spatial layer's VP9 lossless mode,
+// matching [VP9Encoder.SetLossless].
+func (e *VP9SpatialSVCEncoder) SetLayerLossless(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetLossless(enabled)
+}
+
+// SetLayerScreenContentMode changes one spatial layer's VP9 content tuning,
+// matching [VP9Encoder.SetScreenContentMode].
+func (e *VP9SpatialSVCEncoder) SetLayerScreenContentMode(layerID uint8, mode int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetScreenContentMode(mode)
+}
+
 // SetLayerNoiseSensitivity changes one spatial layer's VP9 temporal denoiser
 // level, matching [VP9Encoder.SetNoiseSensitivity].
 func (e *VP9SpatialSVCEncoder) SetLayerNoiseSensitivity(layerID uint8, level int) error {
@@ -600,6 +675,48 @@ func (e *VP9SpatialSVCEncoder) SetLayerNoiseSensitivity(layerID uint8, level int
 		return err
 	}
 	return layer.SetNoiseSensitivity(level)
+}
+
+// SetLayerSharpness changes one spatial layer's VP9 loop-filter sharpness,
+// matching [VP9Encoder.SetSharpness].
+func (e *VP9SpatialSVCEncoder) SetLayerSharpness(layerID uint8, sharpness uint8) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetSharpness(sharpness)
+}
+
+// SetLayerStaticThreshold changes one spatial layer's VP9 static-block
+// breakout threshold, matching [VP9Encoder.SetStaticThreshold].
+func (e *VP9SpatialSVCEncoder) SetLayerStaticThreshold(layerID uint8, threshold int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetStaticThreshold(threshold)
+}
+
+// SetLayerKeyFrameInterval changes one spatial layer's VP9 maximum GOP
+// distance, matching [VP9Encoder.SetKeyFrameInterval].
+func (e *VP9SpatialSVCEncoder) SetLayerKeyFrameInterval(layerID uint8, frames int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetKeyFrameInterval(frames)
+}
+
+// SetLayerARNR changes one spatial layer's VP9 auto-alt-ref temporal filtering
+// controls, matching [VP9Encoder.SetARNR].
+func (e *VP9SpatialSVCEncoder) SetLayerARNR(layerID uint8,
+	maxFrames int, strength int, filterType int,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetARNR(maxFrames, strength, filterType)
 }
 
 // SetLayerActiveMap installs one spatial layer's VP9 active map, matching

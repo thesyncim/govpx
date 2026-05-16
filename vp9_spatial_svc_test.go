@@ -600,6 +600,212 @@ func TestVP9SpatialSVCEncoderLayerRateControl(t *testing.T) {
 	}
 }
 
+func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
+	cbrLayer := func(width, height, kbps int) VP9EncoderOptions {
+		return VP9EncoderOptions{
+			Width:               width,
+			Height:              height,
+			RateControlModeSet:  true,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   kbps,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			MaxKeyframeInterval: 128,
+		}
+	}
+	vbrLayer := func(width, height, kbps int) VP9EncoderOptions {
+		opts := cbrLayer(width, height, kbps)
+		opts.RateControlMode = RateControlVBR
+		return opts
+	}
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount:           2,
+		InterLayerPrediction: true,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			cbrLayer(32, 32, 300),
+			vbrLayer(64, 64, 700),
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+
+	stats := finalizedVP9TwoPassTestStats(100, 120, 90, 110)
+	if err := svc.SetLayerFrameDropAllowed(0, true); err != nil {
+		t.Fatalf("SetLayerFrameDropAllowed: %v", err)
+	}
+	if err := svc.SetLayerRateControlBuffer(0, 320, 160, 240); err != nil {
+		t.Fatalf("SetLayerRateControlBuffer: %v", err)
+	}
+	if err := svc.SetLayerTuning(0, TuneSSIM); err != nil {
+		t.Fatalf("SetLayerTuning: %v", err)
+	}
+	if err := svc.SetLayerLossless(0, true); err != nil {
+		t.Fatalf("SetLayerLossless: %v", err)
+	}
+	if err := svc.SetLayerScreenContentMode(0, 1); err != nil {
+		t.Fatalf("SetLayerScreenContentMode: %v", err)
+	}
+	if err := svc.SetLayerSharpness(0, 4); err != nil {
+		t.Fatalf("SetLayerSharpness: %v", err)
+	}
+	if err := svc.SetLayerStaticThreshold(0, 512); err != nil {
+		t.Fatalf("SetLayerStaticThreshold: %v", err)
+	}
+	if err := svc.SetLayerKeyFrameInterval(0, 7); err != nil {
+		t.Fatalf("SetLayerKeyFrameInterval: %v", err)
+	}
+	if err := svc.SetLayerCQLevel(1, 24); err != nil {
+		t.Fatalf("SetLayerCQLevel: %v", err)
+	}
+	if err := svc.SetLayerTwoPassStats(1, stats); err != nil {
+		t.Fatalf("SetLayerTwoPassStats: %v", err)
+	}
+	if err := svc.SetLayerARNR(1, 3, 4, 2); err != nil {
+		t.Fatalf("SetLayerARNR: %v", err)
+	}
+
+	base, err := svc.LayerEncoder(0)
+	if err != nil {
+		t.Fatalf("LayerEncoder(0): %v", err)
+	}
+	enh, err := svc.LayerEncoder(1)
+	if err != nil {
+		t.Fatalf("LayerEncoder(1): %v", err)
+	}
+	if !base.opts.DropFrameAllowed ||
+		!base.rc.dropFrameAllowed ||
+		base.opts.BufferSizeMs != 320 ||
+		base.opts.BufferInitialSizeMs != 160 ||
+		base.opts.BufferOptimalSizeMs != 240 ||
+		base.opts.Tuning != TuneSSIM ||
+		!base.opts.Lossless ||
+		base.opts.ScreenContentMode != 1 ||
+		base.opts.Sharpness != 4 ||
+		base.opts.StaticThreshold != 512 ||
+		base.opts.MaxKeyframeInterval != 7 {
+		t.Fatalf("base layer advanced controls missing: opts=%+v rc=%+v",
+			base.opts, base.rc)
+	}
+	if enh.opts.CQLevel != 24 ||
+		len(enh.opts.TwoPassStats) != len(stats) ||
+		!enh.twoPass.enabled() ||
+		enh.opts.ARNRMaxFrames != 3 ||
+		enh.opts.ARNRStrength != 4 ||
+		enh.opts.ARNRType != 2 ||
+		enh.opts.DropFrameAllowed ||
+		enh.opts.Lossless {
+		t.Fatalf("enhancement layer advanced controls missing/leaked: opts=%+v twoPass=%t",
+			enh.opts, enh.twoPass.enabled())
+	}
+	if err := svc.SetLayerSharpness(0, 8); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerSharpness invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.Sharpness != 4 {
+		t.Fatalf("invalid sharpness mutated base layer to %d", base.opts.Sharpness)
+	}
+	if err := enh.SetRealtimeTarget(RealtimeTarget{
+		Width:  32,
+		Height: 32,
+	}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("enhancement layer resize err = %v, want ErrInvalidConfig", err)
+	}
+	if enh.opts.Width != 64 || enh.opts.Height != 64 {
+		t.Fatalf("rejected enhancement resize mutated dimensions to %dx%d",
+			enh.opts.Width, enh.opts.Height)
+	}
+	if err := enh.SetRealtimeTarget(RealtimeTarget{
+		Width:  64,
+		Height: 64,
+	}); err != nil {
+		t.Fatalf("same-size enhancement realtime target: %v", err)
+	}
+	if err := svc.SetLayerRateControlBuffer(1, 320, 160, 240); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerRateControlBuffer on VBR err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerTwoPassStats(0, stats); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerTwoPassStats on CBR err = %v, want ErrInvalidConfig", err)
+	}
+	if base.twoPass.enabled() {
+		t.Fatal("invalid base two-pass update enabled CBR layer")
+	}
+	if err := svc.SetLayerCQLevel(2, 24); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerCQLevel invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := svc.SetLayerARNR(0, 3, 4, 2); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerARNR after close err = %v, want ErrClosed", err)
+	}
+	var nilSVC *VP9SpatialSVCEncoder
+	if err := nilSVC.SetLayerTuning(0, TunePSNR); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerTuning on nil err = %v, want ErrClosed", err)
+	}
+}
+
+func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
+	cbrLayer := func(width, height, kbps int) VP9EncoderOptions {
+		return VP9EncoderOptions{
+			Width:               width,
+			Height:              height,
+			RateControlModeSet:  true,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   kbps,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			MaxKeyframeInterval: 128,
+		}
+	}
+	vbrLayer := func(width, height, kbps int) VP9EncoderOptions {
+		opts := cbrLayer(width, height, kbps)
+		opts.RateControlMode = RateControlVBR
+		return opts
+	}
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount: 2,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			cbrLayer(32, 32, 300),
+			vbrLayer(64, 64, 700),
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	stats := finalizedVP9TwoPassTestStats(100, 120, 90, 110)
+
+	tests := []struct {
+		name string
+		fn   func() error
+	}{
+		{name: "SetLayerCQLevel", fn: func() error { return svc.SetLayerCQLevel(1, 24) }},
+		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},
+		{name: "SetLayerRateControlBuffer", fn: func() error { return svc.SetLayerRateControlBuffer(0, 320, 160, 240) }},
+		{name: "SetLayerTwoPassStats", fn: func() error { return svc.SetLayerTwoPassStats(1, stats) }},
+		{name: "SetLayerDeadline", fn: func() error { return svc.SetLayerDeadline(0, DeadlineRealtime) }},
+		{name: "SetLayerCPUUsed", fn: func() error { return svc.SetLayerCPUUsed(0, 4) }},
+		{name: "SetLayerTuning", fn: func() error { return svc.SetLayerTuning(0, TuneSSIM) }},
+		{name: "SetLayerLossless", fn: func() error { return svc.SetLayerLossless(0, true) }},
+		{name: "SetLayerScreenContentMode", fn: func() error { return svc.SetLayerScreenContentMode(0, 1) }},
+		{name: "SetLayerNoiseSensitivityZero", fn: func() error { return svc.SetLayerNoiseSensitivity(0, 0) }},
+		{name: "SetLayerSharpness", fn: func() error { return svc.SetLayerSharpness(0, 4) }},
+		{name: "SetLayerStaticThreshold", fn: func() error { return svc.SetLayerStaticThreshold(0, 512) }},
+		{name: "SetLayerKeyFrameInterval", fn: func() error { return svc.SetLayerKeyFrameInterval(0, 7) }},
+		{name: "SetLayerARNR", fn: func() error { return svc.SetLayerARNR(1, 3, 4, 2) }},
+	}
+	for _, tc := range tests {
+		allocs := testing.AllocsPerRun(100, func() {
+			if err := tc.fn(); err != nil {
+				t.Fatalf("%s returned error: %v", tc.name, err)
+			}
+		})
+		if allocs != 0 {
+			t.Fatalf("%s allocations = %v, want 0", tc.name, allocs)
+		}
+	}
+}
+
 func TestVP9SpatialSVCEncoderLayerRuntimeControls(t *testing.T) {
 	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
 		LayerCount:           2,

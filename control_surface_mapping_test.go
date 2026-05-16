@@ -304,13 +304,28 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 		},
 		"SetLayerBitrateKbps": {kind: "vp9-spatial-svc-layer-control"},
 		"SetLayerActiveMap":   {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"active:"}},
+		"SetLayerARNR":        {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
 		"SetLayerCPUUsed":     {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cpu:"}},
+		"SetLayerCQLevel":     {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cq:"}},
 		"SetLayerDeadline":    {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"deadline:"}},
+		"SetLayerFrameDropAllowed": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"drop:"},
+		},
+		"SetLayerKeyFrameInterval": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"kfmax:"},
+		},
+		"SetLayerLossless": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"lossless:"}},
 		"SetLayerNoiseSensitivity": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"noise:"},
 		},
 		"SetLayerRateControl": {kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerRateControlBuffer": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"bufsz:", "bufinit:", "bufopt:"},
+		},
 		"SetLayerROIMap": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"roi:", "roicustom:"},
@@ -319,7 +334,21 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"setref:"},
 		},
-		"SetTemporalLayerID": {kind: "vp9-spatial-temporal-svc-control"},
+		"SetLayerScreenContentMode": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"screen:"},
+		},
+		"SetLayerSharpness": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"sharpness:"},
+		},
+		"SetLayerStaticThreshold": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"static:"},
+		},
+		"SetLayerTuning":       {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"tune:"}},
+		"SetLayerTwoPassStats": {kind: "vp9-spatial-svc-layer-control"},
+		"SetTemporalLayerID":   {kind: "vp9-spatial-temporal-svc-control"},
 		"SetTemporalScalability": {
 			kind: "vp9-spatial-temporal-svc-control",
 		},
