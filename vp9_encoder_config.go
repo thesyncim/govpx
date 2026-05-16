@@ -353,6 +353,46 @@ func (e *VP9Encoder) SetNoiseSensitivity(level int) error {
 	return nil
 }
 
+// SetKeyFrameInterval changes the VP9 maximum GOP distance in frames. Zero
+// restores libvpx's default VP9 key-frame cadence. Explicitly forced key frames
+// are unaffected.
+func (e *VP9Encoder) SetKeyFrameInterval(frames int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if frames < 0 {
+		return ErrInvalidConfig
+	}
+	e.opts.MaxKeyframeInterval = frames
+	return nil
+}
+
+// SetARNR changes VP9 auto-alt-ref temporal filtering controls at runtime.
+// maxFrames is the ARNR window length in [0, 15], where 0 or 1 disables ARNR
+// filtering; strength is in [0, 6]; filterType selects 1=backward, 2=forward,
+// or 3=centered. Passing filterType 0 restores the centered default.
+func (e *VP9Encoder) SetARNR(maxFrames int, strength int, filterType int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if maxFrames < 0 || maxFrames > maxARNRFrames ||
+		strength < 0 || strength > 6 ||
+		filterType < 0 || filterType > 3 {
+		return ErrInvalidConfig
+	}
+	if filterType == 0 {
+		filterType = 3
+	}
+	e.opts.ARNRMaxFrames = maxFrames
+	e.opts.ARNRStrength = strength
+	e.opts.ARNRType = filterType
+	if maxFrames > 1 && e.opts.AutoAltRef && e.vp9LookaheadEnabled() &&
+		len(e.vp9ARNRScratch.Y) == 0 {
+		e.ensureVP9ARNRScratch()
+	}
+	return nil
+}
+
 // SetFrameDropAllowed enables or disables VP9 CBR buffer-underrun frame
 // dropping without changing bitrate. The encoder must have been created with
 // VP9 CBR rate control enabled.

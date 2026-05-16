@@ -781,6 +781,9 @@ static void apply_vp9_runtime_control_token(
   } else if (starts_with(token, "endusage:")) {
     ctx->cfg->rc_end_usage = parse_end_usage(token + strlen("endusage:"));
     ctx->config_changed = 1;
+  } else if (starts_with(token, "kfmax:")) {
+    ctx->cfg->kf_max_dist = (unsigned)control_value_int(token, "kfmax:");
+    ctx->config_changed = 1;
   } else if (starts_with(token, "deadline:")) {
     *ctx->deadline = parse_deadline(token + strlen("deadline:"));
   } else if (starts_with(token, "cpu:")) {
@@ -832,6 +835,21 @@ static void apply_vp9_runtime_control_token(
     if (vpx_codec_control(ctx->ctx, VP8E_SET_ENABLEAUTOALTREF,
                           (unsigned)control_value_int(token, "autoaltref:"))) {
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_ENABLEAUTOALTREF");
+    }
+  } else if (starts_with(token, "arnrmax:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_ARNR_MAXFRAMES,
+                          (unsigned)control_value_int(token, "arnrmax:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_ARNR_MAXFRAMES");
+    }
+  } else if (starts_with(token, "arnrstrength:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_ARNR_STRENGTH,
+                          (unsigned)control_value_int(token, "arnrstrength:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_ARNR_STRENGTH");
+    }
+  } else if (starts_with(token, "arnrtype:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_ARNR_TYPE,
+                          (unsigned)control_value_int(token, "arnrtype:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_ARNR_TYPE");
     }
   } else if (starts_with(token, "aq:")) {
     if (vpx_codec_control(ctx->ctx, VP9E_SET_AQ_MODE,

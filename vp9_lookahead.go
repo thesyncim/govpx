@@ -30,13 +30,26 @@ func (e *VP9Encoder) initVP9Lookahead(width int, height int, depth int) {
 		e.autoAltRefPending.img = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	}
 	if e.opts.AutoAltRef && e.opts.ARNRMaxFrames > 1 {
-		e.vp9ARNRScratch = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
+		e.ensureVP9ARNRScratch()
 	} else {
 		e.vp9ARNRScratch = image.YCbCr{}
 	}
 	e.lookaheadRead = 0
 	e.lookaheadWrite = 0
 	e.lookaheadCount = 0
+}
+
+func (e *VP9Encoder) ensureVP9ARNRScratch() {
+	if e == nil || e.opts.Width <= 0 || e.opts.Height <= 0 {
+		return
+	}
+	if len(e.vp9ARNRScratch.Y) != 0 &&
+		e.vp9ARNRScratch.Rect.Dx() == e.opts.Width &&
+		e.vp9ARNRScratch.Rect.Dy() == e.opts.Height {
+		return
+	}
+	rect := image.Rect(0, 0, e.opts.Width, e.opts.Height)
+	e.vp9ARNRScratch = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 }
 
 func (e *VP9Encoder) vp9LookaheadEnabled() bool {

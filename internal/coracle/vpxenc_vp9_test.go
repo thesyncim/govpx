@@ -183,7 +183,8 @@ func TestVpxencVP9FrameFlagsTraceI420AcceptsARNRControls(t *testing.T) {
 		"--arnr-strength=3",
 		"--arnr-type=3",
 		"--end-usage=vbr",
-		"--target-bitrate=300")
+		"--target-bitrate=300",
+		"--control-script=-,arnrmax:5+arnrstrength:6+arnrtype:1+kfmax:4")
 	if err != nil {
 		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
 	}

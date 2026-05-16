@@ -1543,6 +1543,28 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name: "constant-set-keyframe-interval-2-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				if frame == 1 {
+					mustVP9Runtime(t, "SetKeyFrameInterval 2",
+						enc.SetKeyFrameInterval(2))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,kfmax:2,-,-,-,-,-,-,-,-",
+			},
+			exactPrefix: 2,
+		},
+		{
 			name:  "bitrate-with-force-key",
 			opts:  baseOpts(700),
 			flags: vp9OracleFlagAt(frames, 4, EncodeForceKeyFrame),

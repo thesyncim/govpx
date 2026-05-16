@@ -770,6 +770,113 @@ func TestVP9EncoderSetNoiseSensitivity(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSetKeyFrameInterval(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetKeyFrameInterval(2); err != nil {
+		t.Fatalf("SetKeyFrameInterval(2): %v", err)
+	}
+	if e.opts.MaxKeyframeInterval != 2 {
+		t.Fatalf("MaxKeyframeInterval = %d, want 2", e.opts.MaxKeyframeInterval)
+	}
+	dst := make([]byte, 65536)
+	results := make([]VP9EncodeResult, 3)
+	for frame := range results {
+		src := newVP9YCbCrForTest(width, height, uint8(96+frame), 128, 128)
+		results[frame], err = e.EncodeIntoWithResult(src, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+	}
+	if !results[0].KeyFrame || results[1].KeyFrame || !results[2].KeyFrame {
+		t.Fatalf("keyframe cadence = [%t %t %t], want [true false true]",
+			results[0].KeyFrame, results[1].KeyFrame, results[2].KeyFrame)
+	}
+	before := e.opts.MaxKeyframeInterval
+	if err := e.SetKeyFrameInterval(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetKeyFrameInterval(-1) err = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.MaxKeyframeInterval != before {
+		t.Fatal("invalid SetKeyFrameInterval mutated encoder")
+	}
+	if err := e.SetKeyFrameInterval(0); err != nil {
+		t.Fatalf("SetKeyFrameInterval(0): %v", err)
+	}
+	if e.opts.MaxKeyframeInterval != 0 {
+		t.Fatalf("MaxKeyframeInterval reset = %d, want 0", e.opts.MaxKeyframeInterval)
+	}
+}
+
+func TestVP9EncoderSetARNR(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 4,
+		AutoAltRef:      true,
+		ARNRMaxFrames:   1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if len(e.vp9ARNRScratch.Y) != 0 {
+		t.Fatal("ARNR scratch allocated before ARNR is enabled")
+	}
+	if err := e.SetARNR(5, 6, 1); err != nil {
+		t.Fatalf("SetARNR: %v", err)
+	}
+	if e.opts.ARNRMaxFrames != 5 || e.opts.ARNRStrength != 6 ||
+		e.opts.ARNRType != 1 {
+		t.Fatalf("ARNR opts = max:%d strength:%d type:%d, want 5/6/1",
+			e.opts.ARNRMaxFrames, e.opts.ARNRStrength, e.opts.ARNRType)
+	}
+	if len(e.vp9ARNRScratch.Y) == 0 {
+		t.Fatal("SetARNR did not allocate ARNR scratch for active auto-alt-ref")
+	}
+	for frame := 0; frame < 4; frame++ {
+		src := newVP9YCbCrForTest(width, height, uint8(96+frame*12), 128, 128)
+		if err := e.pushVP9Lookahead(src, 0); err != nil {
+			t.Fatalf("pushVP9Lookahead[%d]: %v", frame, err)
+		}
+	}
+	future, ok := e.newestVP9LookaheadEntry()
+	if !ok {
+		t.Fatal("newestVP9LookaheadEntry returned !ok")
+	}
+	if !e.applyVP9ARNRFilter(future) {
+		t.Fatal("runtime SetARNR filter returned false")
+	}
+	if bytes.Equal(e.vp9ARNRScratch.Y, future.img.Y) {
+		t.Fatal("runtime SetARNR left ARNR scratch equal to source")
+	}
+	before := e.opts
+	for _, tc := range []struct {
+		name string
+		max  int
+		str  int
+		typ  int
+	}{
+		{name: "max low", max: -1, str: 3, typ: 3},
+		{name: "max high", max: maxARNRFrames + 1, str: 3, typ: 3},
+		{name: "strength low", max: 5, str: -1, typ: 3},
+		{name: "strength high", max: 5, str: 7, typ: 3},
+		{name: "type low", max: 5, str: 3, typ: -1},
+		{name: "type high", max: 5, str: 3, typ: 4},
+	} {
+		if err := e.SetARNR(tc.max, tc.str, tc.typ); !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("%s SetARNR err = %v, want ErrInvalidConfig", tc.name, err)
+		}
+		if e.opts.ARNRMaxFrames != before.ARNRMaxFrames ||
+			e.opts.ARNRStrength != before.ARNRStrength ||
+			e.opts.ARNRType != before.ARNRType {
+			t.Fatalf("%s invalid SetARNR mutated opts", tc.name)
+		}
+	}
+}
+
 func TestVP9EncoderNoiseSensitivityDenoisesInterLuma(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -4533,6 +4640,12 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetKeyFrameInterval(2); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetKeyFrameInterval after Close err = %v, want ErrClosed", err)
+	}
+	if err := e.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetARNR after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability after Close err = %v, want ErrClosed", err)
 	}
@@ -4566,6 +4679,12 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControlBuffer on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetKeyFrameInterval(2); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetKeyFrameInterval on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetARNR(5, 6, 3); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetARNR on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability on nil encoder err = %v, want ErrClosed", err)
