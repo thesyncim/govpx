@@ -4578,6 +4578,138 @@ func TestVP9EncoderSetCQLevelUpdatesPublicQAndRateControl(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder public-Q: %v", err)
+	}
+	if err := e.SetAQMode(VP9AQVariance); err != nil {
+		t.Fatalf("SetAQMode variance: %v", err)
+	}
+	if e.opts.AQMode != VP9AQVariance || e.cyclicAQ.enabled {
+		t.Fatalf("variance AQ state = mode:%d cyclic:%t, want variance/false",
+			e.opts.AQMode, e.cyclicAQ.enabled)
+	}
+	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode variance AQ key: %v", err)
+	}
+	header, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if !header.Seg.Enabled || !header.Seg.UpdateMap || !header.Seg.UpdateData {
+		t.Fatalf("runtime variance AQ segmentation = enabled:%t updateMap:%t updateData:%t, want true/true/true",
+			header.Seg.Enabled, header.Seg.UpdateMap, header.Seg.UpdateData)
+	}
+
+	oldOpts := e.opts
+	oldCyclic := e.cyclicAQ
+	if err := e.SetAQMode(VP9AQNone); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("post-start SetAQMode none err = %v, want ErrInvalidConfig", err)
+	}
+	if !reflect.DeepEqual(e.opts, oldOpts) ||
+		!reflect.DeepEqual(e.cyclicAQ, oldCyclic) {
+		t.Fatal("post-start SetAQMode mutated encoder state")
+	}
+
+	cbr, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder CBR: %v", err)
+	}
+	if err := cbr.SetAQMode(VP9AQCyclicRefresh); err != nil {
+		t.Fatalf("SetAQMode cyclic refresh: %v", err)
+	}
+	if cbr.opts.AQMode != VP9AQCyclicRefresh || !cbr.cyclicAQ.enabled ||
+		len(cbr.cyclicAQ.segMap) != 64 {
+		t.Fatalf("cyclic AQ state = mode:%d enabled:%t map:%d, want cyclic/true/64",
+			cbr.opts.AQMode, cbr.cyclicAQ.enabled, len(cbr.cyclicAQ.segMap))
+	}
+	disabled, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder disabled CBR: %v", err)
+	}
+	if err := disabled.SetAQMode(VP9AQCyclicRefresh); err != nil {
+		t.Fatalf("disabled SetAQMode cyclic refresh: %v", err)
+	}
+	if err := disabled.SetAQMode(VP9AQNone); err != nil {
+		t.Fatalf("disabled SetAQMode none: %v", err)
+	}
+	if disabled.opts.AQMode != VP9AQNone || disabled.cyclicAQ.enabled ||
+		disabled.cyclicAQ.miRows != 0 || disabled.cyclicAQ.miCols != 0 {
+		t.Fatalf("pre-start disabled AQ state = mode:%d enabled:%t rows:%d cols:%d, want none/false/0/0",
+			disabled.opts.AQMode, disabled.cyclicAQ.enabled,
+			disabled.cyclicAQ.miRows, disabled.cyclicAQ.miCols)
+	}
+	invalidComplexity, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder invalid complexity: %v", err)
+	}
+	if err := invalidComplexity.SetAQMode(VP9AQComplexity); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid SetAQMode complexity err = %v, want ErrInvalidConfig", err)
+	}
+	if invalidComplexity.opts.AQMode != VP9AQNone {
+		t.Fatal("invalid SetAQMode complexity mutated encoder state")
+	}
+	dst := make([]byte, 65536)
+	keyN, err := cbr.EncodeInto(newVP9YCbCrForTest(width, height, 96, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode cyclic AQ key: %v", err)
+	}
+	keyPacket := append([]byte(nil), dst[:keyN]...)
+	interN, err := cbr.EncodeInto(newVP9YCbCrForTest(width, height, 116, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode cyclic AQ inter: %v", err)
+	}
+	interPacket := append([]byte(nil), dst[:interN]...)
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	var br vp9dec.BitReader
+	br.Init(interPacket)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader cyclic AQ inter: %v", err)
+	}
+	if !interHeader.Seg.Enabled || !interHeader.Seg.UpdateMap ||
+		!interHeader.Seg.UpdateData {
+		t.Fatalf("runtime cyclic AQ segmentation = enabled:%t updateMap:%t updateData:%t, want true/true/true",
+			interHeader.Seg.Enabled, interHeader.Seg.UpdateMap,
+			interHeader.Seg.UpdateData)
+	}
+	if err := disabled.SetAQMode(VP9AQMode(99)); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid SetAQMode enum err = %v, want ErrInvalidConfig", err)
+	}
+	if disabled.opts.AQMode != VP9AQNone || disabled.cyclicAQ.enabled {
+		t.Fatal("invalid SetAQMode enum mutated encoder state")
+	}
+}
+
 func TestVP9EncoderSetLossless(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	if err != nil {
@@ -5377,6 +5509,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetCQLevel(20); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetCQLevel after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetAQMode(VP9AQNone); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetAQMode after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetLossless(true); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLossless after Close err = %v, want ErrClosed", err)
 	}
@@ -5437,6 +5572,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetCQLevel(20); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetCQLevel on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetAQMode(VP9AQNone); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetAQMode on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetLossless(true); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLossless on nil encoder err = %v, want ErrClosed", err)

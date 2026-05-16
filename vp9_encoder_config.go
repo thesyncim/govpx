@@ -249,6 +249,31 @@ func (e *VP9Encoder) SetCQLevel(level int) error {
 	return nil
 }
 
+// SetAQMode changes the VP9 adaptive quantization mode before the first coded
+// frame. Valid values are [VP9AQNone], [VP9AQVariance], [VP9AQComplexity], and
+// [VP9AQCyclicRefresh]; the same mode-specific option constraints as
+// [VP9EncoderOptions.AQMode] apply. The control is rejected after encoding has
+// started because libvpx's VP9E_SET_AQ_MODE does not reconfigure active AQ
+// segmentation state mid-stream. Enabling cyclic-refresh AQ allocates or
+// resizes its segment map during this control call, keeping the encode hot path
+// allocation-free after the update.
+func (e *VP9Encoder) SetAQMode(mode VP9AQMode) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if e.frameIndex != 0 || e.vp9LookaheadSize() != 0 {
+		return ErrInvalidConfig
+	}
+	nextOpts := e.opts
+	nextOpts.AQMode = mode
+	if err := validateVP9EncoderOptions(nextOpts); err != nil {
+		return err
+	}
+	e.opts = nextOpts
+	e.cyclicAQ.configure(mode == VP9AQCyclicRefresh, e.opts.Width, e.opts.Height)
+	return nil
+}
+
 // SetLossless enables or disables VP9 profile 0 lossless coding for subsequent
 // frames. Enabling lossless forces base qindex 0, 4x4 transforms, WHT
 // reconstruction, and the lossless loop-filter path.

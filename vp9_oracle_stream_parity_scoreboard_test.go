@@ -1750,6 +1750,29 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name: "constant-aq-mode-variance-before-start-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 0:
+					mustVP9Runtime(t, "SetAQMode variance",
+						enc.SetAQMode(VP9AQVariance))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=aq:1,-,-,-,-,-,-,-,-,-",
+			},
+			exactFrames: []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
+		},
+		{
 			name: "constant-lossless-roundtrip-fixed-q",
 			opts: VP9EncoderOptions{
 				MinQuantizer: 20,

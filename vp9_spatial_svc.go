@@ -596,6 +596,16 @@ func (e *VP9SpatialSVCEncoder) SetLayerCQLevel(layerID uint8, level int) error {
 	return layer.SetCQLevel(level)
 }
 
+// SetLayerAQMode changes one spatial layer's VP9 adaptive quantization mode,
+// matching [VP9Encoder.SetAQMode].
+func (e *VP9SpatialSVCEncoder) SetLayerAQMode(layerID uint8, mode VP9AQMode) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetAQMode(mode)
+}
+
 // SetLayerFrameDropAllowed enables or disables one spatial layer's VP9 CBR
 // frame dropping, matching [VP9Encoder.SetFrameDropAllowed].
 func (e *VP9SpatialSVCEncoder) SetLayerFrameDropAllowed(layerID uint8, enabled bool) error {
