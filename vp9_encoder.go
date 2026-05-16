@@ -1266,8 +1266,23 @@ func (e *VP9Encoder) EncodeIntoWithFlagsResult(img *image.YCbCr, dst []byte, fla
 func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
 	callerFlags := flags
 	temporalFrame := e.temporal.nextFrame(e.vp9TimingState())
-	flags |= temporalFrame.Flags
-	if e.vp9ShouldEncodeKeyFrame(flags) {
+	temporalFlags := temporalFrame.Flags
+	useInterLayerReference := !e.forceKeyFrame &&
+		callerFlags&EncodeForceKeyFrame == 0 &&
+		e.hasVP9UsableInterReference(flags|temporalFlags)
+	if useInterLayerReference {
+		flags |= EncodeNoUpdateLast | EncodeNoUpdateAltRef
+		if temporalFrame.Enabled && temporalFrame.LayerID > 0 {
+			flags |= EncodeNoUpdateGolden
+		}
+		temporalFlags &^= EncodeNoUpdateGolden
+	}
+	if e.frameIndex == 0 && !e.forceKeyFrame &&
+		callerFlags&EncodeForceKeyFrame == 0 {
+		temporalFlags &^= EncodeForceKeyFrame
+	}
+	flags |= temporalFlags
+	if !useInterLayerReference && e.vp9ShouldEncodeKeyFrame(flags) {
 		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}
 	return e.encodeVP9FrameIntoWithFlagsResultInternal(img, dst, flags, false,

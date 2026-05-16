@@ -62,6 +62,10 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 		result.Layers[1].ScalabilityStructurePresent {
 		t.Fatalf("enhancement layer result = %+v", result.Layers[1])
 	}
+	if got, want := result.Layers[1].RefreshFrameFlags,
+		uint8(1<<vp9GoldenRefSlot); got != want {
+		t.Fatalf("enhancement refresh flags = %#x, want GOLDEN %#x", got, want)
+	}
 
 	baseDesc := result.Layers[0].RTPPayloadDescriptor()
 	if !baseDesc.ScalabilityStructurePresent ||
@@ -263,6 +267,10 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 		newVP9YCbCrForTest(64, 64, 80, 128, 128),
 	}
 	dst := make([]byte, 1<<20)
+	wantBaseRefresh := []uint8{0xff, 0x02, 0x01, 0x02}
+	wantEnhRefresh := []uint8{0x02, 0x00, 0x02, 0x00}
+	wantBaseSync := []bool{false, true, false, false}
+	wantEnhSync := []bool{false, true, false, true}
 	for frame := 0; frame < 4; frame++ {
 		result, err := svc.EncodeIntoWithResult(srcs, dst)
 		if err != nil {
@@ -270,12 +278,28 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 		}
 		base := result.Layers[0]
 		enh := result.Layers[1]
+		if frame == 0 && (!base.KeyFrame || enh.KeyFrame ||
+			enh.RefreshFrameFlags == 0xff) {
+			t.Fatalf("first temporal SVC access unit key/refresh = base:%t enh:%t enh_refresh:%#x, want base key and enhancement inter",
+				base.KeyFrame, enh.KeyFrame, enh.RefreshFrameFlags)
+		}
+		if base.RefreshFrameFlags != wantBaseRefresh[frame] ||
+			enh.RefreshFrameFlags != wantEnhRefresh[frame] {
+			t.Fatalf("temporal SVC refresh frame %d = base:%#x enh:%#x, want %#x/%#x",
+				frame, base.RefreshFrameFlags, enh.RefreshFrameFlags,
+				wantBaseRefresh[frame], wantEnhRefresh[frame])
+		}
 		if base.TemporalLayerCount != 2 || enh.TemporalLayerCount != 2 ||
 			base.TemporalLayerID != enh.TemporalLayerID ||
-			base.TL0PICIDX != enh.TL0PICIDX ||
-			base.TemporalLayerSync != enh.TemporalLayerSync {
+			base.TL0PICIDX != enh.TL0PICIDX {
 			t.Fatalf("temporal metadata mismatch frame %d: base=%+v enh=%+v",
 				frame, base, enh)
+		}
+		if base.TemporalLayerSync != wantBaseSync[frame] ||
+			enh.TemporalLayerSync != wantEnhSync[frame] {
+			t.Fatalf("temporal sync frame %d = base:%t enh:%t, want %t/%t",
+				frame, base.TemporalLayerSync, enh.TemporalLayerSync,
+				wantBaseSync[frame], wantEnhSync[frame])
 		}
 		baseDesc := base.RTPPayloadDescriptor()
 		enhDesc := enh.RTPPayloadDescriptor()
