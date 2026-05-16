@@ -281,6 +281,89 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 	}
 }
 
+func TestVP9SpatialSVCEncoderLayerRateControl(t *testing.T) {
+	cbrLayer := func(width, height, kbps int) VP9EncoderOptions {
+		return VP9EncoderOptions{
+			Width:               width,
+			Height:              height,
+			RateControlModeSet:  true,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   kbps,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			MaxKeyframeInterval: 128,
+		}
+	}
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount: 2,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			cbrLayer(32, 32, 300),
+			cbrLayer(64, 64, 700),
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	if err := svc.SetLayerBitrateKbps(1, 900); err != nil {
+		t.Fatalf("SetLayerBitrateKbps: %v", err)
+	}
+	if err := svc.SetLayerRateControl(0, RateControlConfig{
+		Mode:              RateControlVBR,
+		TargetBitrateKbps: 250,
+		MinQuantizer:      6,
+		MaxQuantizer:      50,
+	}); err != nil {
+		t.Fatalf("SetLayerRateControl: %v", err)
+	}
+	if err := svc.SetLayerBitrateKbps(2, 100); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerBitrateKbps invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerRateControl(2, RateControlConfig{}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerRateControl invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+
+	base, err := svc.LayerEncoder(0)
+	if err != nil {
+		t.Fatalf("LayerEncoder(0): %v", err)
+	}
+	enh, err := svc.LayerEncoder(1)
+	if err != nil {
+		t.Fatalf("LayerEncoder(1): %v", err)
+	}
+	if base.opts.RateControlMode != RateControlVBR ||
+		base.opts.TargetBitrateKbps != 250 ||
+		base.opts.MinQuantizer != 6 ||
+		base.opts.MaxQuantizer != 50 ||
+		enh.opts.TargetBitrateKbps != 900 {
+		t.Fatalf("layer RC opts base=%+v enh=%+v", base.opts, enh.opts)
+	}
+
+	dst := make([]byte, 1<<20)
+	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
+		newVP9YCbCrForTest(32, 32, 70, 128, 128),
+		newVP9YCbCrForTest(64, 64, 90, 128, 128),
+	}, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult: %v", err)
+	}
+	if result.Layers[0].TargetBitrateKbps != 250 ||
+		result.Layers[1].TargetBitrateKbps != 900 {
+		t.Fatalf("result layer bitrates = %d/%d, want 250/900",
+			result.Layers[0].TargetBitrateKbps,
+			result.Layers[1].TargetBitrateKbps)
+	}
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := svc.SetLayerBitrateKbps(0, 300); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerBitrateKbps after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerRateControl(0, RateControlConfig{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerRateControl after close err = %v, want ErrClosed", err)
+	}
+}
+
 func TestVP9SpatialSVCEncoderSteadyStateNoAlloc(t *testing.T) {
 	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
 		LayerCount:           2,

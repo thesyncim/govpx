@@ -198,6 +198,10 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 // VP9 runtime controls to one layer. Do not close the returned encoder or
 // change its spatial scalability configuration; close the parent SVC encoder.
 func (e *VP9SpatialSVCEncoder) LayerEncoder(layerID uint8) (*VP9Encoder, error) {
+	return e.layerEncoder(layerID)
+}
+
+func (e *VP9SpatialSVCEncoder) layerEncoder(layerID uint8) (*VP9Encoder, error) {
 	if e == nil || e.closed {
 		return nil, ErrClosed
 	}
@@ -205,6 +209,27 @@ func (e *VP9SpatialSVCEncoder) LayerEncoder(layerID uint8) (*VP9Encoder, error) 
 		return nil, ErrInvalidConfig
 	}
 	return e.layers[layerID], nil
+}
+
+// SetLayerBitrateKbps changes one spatial layer's VP9 explicit rate-control
+// target bitrate, in kbps. The target layer must have VP9 rate control
+// enabled, matching [VP9Encoder.SetBitrateKbps].
+func (e *VP9SpatialSVCEncoder) SetLayerBitrateKbps(layerID uint8, kbps int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetBitrateKbps(kbps)
+}
+
+// SetLayerRateControl replaces one spatial layer's VP9 runtime-updatable
+// rate-control configuration, matching [VP9Encoder.SetRateControl].
+func (e *VP9SpatialSVCEncoder) SetLayerRateControl(layerID uint8, cfg RateControlConfig) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetRateControl(cfg)
 }
 
 // SetTemporalScalability configures the same VP9 temporal-layer schedule on
