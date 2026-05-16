@@ -1393,19 +1393,66 @@ func vp9RoundPowerOfTwo(v, n int) int {
 // dqcoeff receives dequantized coefficients in raster order, which is the
 // representation consumed by WriteCoefBlock. The return value is the scan-order
 // EOB position. Dispatches to a SIMD kernel when available.
+//
+// This is the legacy entry point: round_fp/quant_fp are derived from
+// dequant using the same recipe vp9_init_quantizer uses
+// (libvpx: vp9/encoder/vp9_quantize.c:209-210), and qcoeff/iscan are
+// synthesised on the fly. Callers that already hold round_fp/quant_fp +
+// iscan should use QuantizeFPLibvpx directly to avoid the conversion and
+// to share scratch with the NEON kernel verbatim.
 func QuantizeFP(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
 	return quantizeFPDispatch(coeff, dequant, scan, dqcoeff)
 }
 
-// quantizeFPScalar is the canonical scalar port of libvpx's
-// vp9_quantize_fp_c.  SIMD implementations must produce byte-identical
-// dqcoeff and eob values.
-func quantizeFPScalar(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
-	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
-	round := [2]int{(48 * int(dequant[0])) >> 7, (42 * int(dequant[1])) >> 7}
+// QuantizeFPLibvpx is the verbatim Go entry point matching libvpx's
+// vp9_quantize_fp signature so the NEON kernel (vp9_quantize_fp_neon) can
+// plug in byte-identically. Inputs/outputs follow the libvpx contract:
+//
+//   - coeff[0..nCoeffs)   : raster-order DCT output
+//   - roundFP[2]          : mb_plane->round_fp [DC, AC]
+//   - quantFP[2]          : mb_plane->quant_fp [DC, AC] = (1<<16)/dequant
+//   - dequant[2]          : per-plane dequant [DC, AC]
+//   - scan, iscan         : ScanOrder tables; scan[i] -> raster pos,
+//     iscan[rc] = scan_pos(rc) + 1
+//   - qcoeff[0..nCoeffs)  : OUT quantized coefficients, raster order
+//   - dqcoeff[0..nCoeffs) : OUT dequantized coefficients, raster order
+//
+// Returns the 1-indexed EOB position (== max(iscan[rc] | qcoeff[rc] != 0)).
+// libvpx: vp9/encoder/vp9_quantize.c:26 vp9_quantize_fp_c
+func QuantizeFPLibvpx(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	return quantizeFPLibvpxScalar(coeff, nCoeffs, roundFP, quantFP, dequant,
+		scan, iscan, qcoeff, dqcoeff)
+}
+
+// quantizeFPLibvpxScalar is the verbatim Go port of libvpx v1.16.0
+// vp9_quantize_fp_c. The signature mirrors the libvpx kernel contract so
+// vp9_quantize_fp_neon can swap in byte-identically: split qcoeff/dqcoeff
+// outputs in raster order, separate round_fp/quant_fp/dequant tables, and
+// per-lane iscan max-reduce for the eob.
+// libvpx: vp9/encoder/vp9_quantize.c:26-56 vp9_quantize_fp_c
+func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	// libvpx: vp9/encoder/vp9_quantize.c:36-37
+	//   memset(qcoeff_ptr, 0, n_coeffs * sizeof(*qcoeff_ptr));
+	//   memset(dqcoeff_ptr, 0, n_coeffs * sizeof(*dqcoeff_ptr));
+	for i := range nCoeffs {
+		qcoeff[i] = 0
+		dqcoeff[i] = 0
+	}
+	// libvpx: vp9/encoder/vp9_quantize.c:32-34 (round_ptr/quant_ptr/scan)
+	round := [2]int{int(roundFP[0]), int(roundFP[1])}
+	quant := [2]int{int(quantFP[0]), int(quantFP[1])}
+	deq := [2]int{int(dequant[0]), int(dequant[1])}
+	// libvpx: vp9/encoder/vp9_quantize.c:31 (int i, eob = -1)
+	// NEON kernel does an iscan-based max-reduce instead; both produce
+	// the same (eob + 1) since iscan[scan[i]] == i + 1.
+	// libvpx: vp9/encoder/arm/neon/vp9_quantize_neon.c:46-71
 	eob := -1
-	n := min(len(coeff), min(len(scan), len(dqcoeff)))
-	for i := range n {
+	for i := range nCoeffs {
+		// libvpx: vp9/encoder/vp9_quantize.c:42-45
 		rc := int(scan[i])
 		slot := 0
 		if rc != 0 {
@@ -1416,18 +1463,76 @@ func quantizeFPScalar(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []i
 		if absCoeff < 0 {
 			absCoeff = -absCoeff
 		}
+		// libvpx: vp9/encoder/vp9_quantize.c:47-48
+		//   tmp = clamp(abs_coeff + round_ptr[rc != 0], INT16_MIN, INT16_MAX);
+		//   tmp = (tmp * quant_ptr[rc != 0]) >> 16;
 		tmp := clampInt16(absCoeff + round[slot])
 		tmp = (tmp * quant[slot]) >> 16
+		// libvpx: vp9/encoder/vp9_quantize.c:50-51
+		//   qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign;
+		//   dqcoeff_ptr[rc] = qcoeff_ptr[rc] * dequant_ptr[rc != 0];
 		q := tmp
 		if c < 0 {
 			q = -q
 		}
-		dqcoeff[rc] = int16(q * int(dequant[slot]))
+		qcoeff[rc] = int16(q)
+		dqcoeff[rc] = int16(q * deq[slot])
+		// libvpx: vp9/encoder/vp9_quantize.c:53 (if (tmp) eob = i;)
+		// Per-lane iscan max-reduce equivalent:
+		// libvpx: vp9/encoder/arm/neon/vp9_quantize_neon.c:111,117
+		//   v_nz_mask = vceqq_s16(v_tmp2, v_zero); // nonzero -> 0
+		//   v_eobmax = max(v_eobmax, iscan masked by nz)
 		if tmp != 0 {
-			eob = i
+			pos := int(iscan[rc]) - 1
+			if pos > eob {
+				eob = pos
+			}
 		}
 	}
+	// libvpx: vp9/encoder/vp9_quantize.c:55 (*eob_ptr = eob + 1;)
 	return eob + 1
+}
+
+// quantizeFPScalar is the canonical scalar port of libvpx's
+// vp9_quantize_fp_c packaged behind the legacy QuantizeFP signature
+// (dqcoeff-only, dequant-derived round/quant, scan only).  It allocates a
+// stack-bounded qcoeff scratch and derives the iscan table internally,
+// then funnels through quantizeFPLibvpxScalar so the byte-identical
+// libvpx contract holds end-to-end. SIMD implementations must produce
+// byte-identical dqcoeff and eob values.
+func quantizeFPScalar(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
+	n := min(len(coeff), min(len(scan), len(dqcoeff)))
+	if n == 0 {
+		return 0
+	}
+	// libvpx: vp9/encoder/vp9_quantize.c:209-210 — derive fp tables
+	// from dequant the same way vp9_init_quantizer does:
+	//   quants->y_quant_fp[q][i] = (1 << 16) / quant;
+	//   quants->y_round_fp[q][i] = (qrounding_factor_fp * quant) >> 7;
+	// where qrounding_factor_fp = i == 0 ? 48 : 42 (non-q0, no sharpness).
+	roundFP := [2]int16{
+		int16((48 * int(dequant[0])) >> 7),
+		int16((42 * int(dequant[1])) >> 7),
+	}
+	quantFP := [2]int16{
+		int16((1 << 16) / int(dequant[0])),
+		int16((1 << 16) / int(dequant[1])),
+	}
+	// Synthesise iscan on the fly: iscan[scan[i]] = i + 1. Allocates a
+	// 1024-entry scratch (max TX block area) on the stack-resident
+	// fixed-size array so the legacy path stays alloc-free.
+	var iscanBuf [1024]int16
+	iscan := iscanBuf[:n]
+	var qcoeffBuf [1024]int16
+	qcoeff := qcoeffBuf[:n]
+	for i := range n {
+		rc := int(scan[i])
+		if rc >= 0 && rc < n {
+			iscan[rc] = int16(i + 1)
+		}
+	}
+	return quantizeFPLibvpxScalar(coeff, n, roundFP, quantFP, dequant,
+		scan, iscan, qcoeff, dqcoeff)
 }
 
 // QuantizeFP4x4 mirrors libvpx's vp9_quantize_fp_c for a 4x4 transform.

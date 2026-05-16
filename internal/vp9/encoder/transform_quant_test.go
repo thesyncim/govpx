@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -325,5 +326,171 @@ func TestQuantizeFP8x8EmitsDequantizedCoefficients(t *testing.T) {
 		if i != ac && dqcoeff[i] != 0 {
 			t.Fatalf("dqcoeff[%d] = %d, want 0", i, dqcoeff[i])
 		}
+	}
+}
+
+// referenceQuantizeFPC is the byte-identical Go transcription of libvpx
+// v1.16.0 vp9_quantize_fp_c (vp9/encoder/vp9_quantize.c:26). It is used
+// only by TestVP9QuantizeFPMatchesLibvpxContract as the oracle that the
+// govpx port must match exactly. Kept verbatim — do not optimise.
+func referenceQuantizeFPC(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
+	for i := range nCoeffs {
+		qcoeff[i] = 0
+		dqcoeff[i] = 0
+	}
+	eob := -1
+	for i := range nCoeffs {
+		rc := int(scan[i])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		c := int(coeff[rc])
+		absCoeff := c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp := min(absCoeff+int(roundFP[slot]), 32767)
+		tmp = (tmp * int(quantFP[slot])) >> 16
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[rc] = int16(q)
+		dqcoeff[rc] = int16(q * int(dequant[slot]))
+		if tmp != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+// TestVP9QuantizeFPMatchesLibvpxContract is the parity guard for the
+// govpx libvpx-shaped quantize entry point (QuantizeFPLibvpx). For five
+// representative coefficient layouts drawn from real encoder workloads
+// (all-zero, single DC, single high-freq AC, dense random, ±boundary)
+// it cross-checks (qcoeff, dqcoeff, eob) against the byte-identical
+// libvpx vp9_quantize_fp_c oracle. Any divergence breaks the contract
+// the vp9_quantize_fp_neon kernel relies on for byte parity.
+func TestVP9QuantizeFPMatchesLibvpxContract(t *testing.T) {
+	// Real q=64 dequant table values from libvpx vp9_init_quantizer for
+	// the Y plane: y_dequant[64][0..1] = {16, 17}. Derived round_fp and
+	// quant_fp follow libvpx: vp9/encoder/vp9_quantize.c:209-210.
+	dequant := [2]int16{16, 17}
+	roundFP := [2]int16{
+		int16((48 * int(dequant[0])) >> 7),
+		int16((42 * int(dequant[1])) >> 7),
+	}
+	quantFP := [2]int16{
+		int16((1 << 16) / int(dequant[0])),
+		int16((1 << 16) / int(dequant[1])),
+	}
+
+	type tc struct {
+		name    string
+		txSize  common.TxSize
+		nCoeffs int
+		fill    func(coeff []int16)
+	}
+	cases := []tc{
+		{
+			name:    "all-zero 4x4",
+			txSize:  common.Tx4x4,
+			nCoeffs: 16,
+			fill:    func(c []int16) {},
+		},
+		{
+			name:    "single DC 8x8",
+			txSize:  common.Tx8x8,
+			nCoeffs: 64,
+			fill: func(c []int16) {
+				c[0] = 312
+			},
+		},
+		{
+			name:    "single high-freq AC 16x16",
+			txSize:  common.Tx16x16,
+			nCoeffs: 256,
+			fill: func(c []int16) {
+				scan := common.DefaultScanOrders[common.Tx16x16].Scan
+				rc := int(scan[200])
+				c[rc] = -918
+			},
+		},
+		{
+			name:    "dense random +/-1024 8x8",
+			txSize:  common.Tx8x8,
+			nCoeffs: 64,
+			fill: func(c []int16) {
+				r := rand.New(rand.NewSource(0xC0FFEE))
+				for i := range c {
+					c[i] = int16(r.Intn(2049) - 1024)
+				}
+			},
+		},
+		{
+			name:    "boundary +/-32767 4x4",
+			txSize:  common.Tx4x4,
+			nCoeffs: 16,
+			fill: func(c []int16) {
+				for i := range c {
+					if i%2 == 0 {
+						c[i] = 32767
+					} else {
+						c[i] = -32767
+					}
+				}
+			},
+		},
+	}
+
+	for _, tcase := range cases {
+		t.Run(tcase.name, func(t *testing.T) {
+			so := common.DefaultScanOrders[tcase.txSize]
+			scan := so.Scan[:tcase.nCoeffs]
+			iscan := so.IScan[:tcase.nCoeffs]
+			coeff := make([]int16, tcase.nCoeffs)
+			tcase.fill(coeff)
+
+			gotQ := make([]int16, tcase.nCoeffs)
+			gotDQ := make([]int16, tcase.nCoeffs)
+			gotEOB := QuantizeFPLibvpx(coeff, tcase.nCoeffs, roundFP, quantFP, dequant,
+				scan, iscan, gotQ, gotDQ)
+
+			wantQ := make([]int16, tcase.nCoeffs)
+			wantDQ := make([]int16, tcase.nCoeffs)
+			wantEOB := referenceQuantizeFPC(coeff, tcase.nCoeffs, roundFP, quantFP, dequant,
+				scan, wantQ, wantDQ)
+
+			if gotEOB != wantEOB {
+				t.Fatalf("eob mismatch: got %d, want %d", gotEOB, wantEOB)
+			}
+			for i := range tcase.nCoeffs {
+				if gotQ[i] != wantQ[i] {
+					t.Fatalf("qcoeff[%d] mismatch: got %d, want %d", i, gotQ[i], wantQ[i])
+				}
+				if gotDQ[i] != wantDQ[i] {
+					t.Fatalf("dqcoeff[%d] mismatch: got %d, want %d", i, gotDQ[i], wantDQ[i])
+				}
+			}
+
+			// Cross-check the legacy QuantizeFP entry point still
+			// produces the same dqcoeff + eob even though it doesn't
+			// emit qcoeff. This guarantees no regression for the
+			// existing hot-path callers.
+			legacyDQ := make([]int16, tcase.nCoeffs)
+			legacyEOB := QuantizeFP(coeff, dequant, scan, legacyDQ)
+			if legacyEOB != wantEOB {
+				t.Fatalf("legacy QuantizeFP eob mismatch: got %d, want %d", legacyEOB, wantEOB)
+			}
+			for i := range tcase.nCoeffs {
+				if legacyDQ[i] != wantDQ[i] {
+					t.Fatalf("legacy QuantizeFP dqcoeff[%d] mismatch: got %d, want %d",
+						i, legacyDQ[i], wantDQ[i])
+				}
+			}
+		})
 	}
 }

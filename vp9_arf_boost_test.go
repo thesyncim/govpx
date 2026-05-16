@@ -15,10 +15,7 @@ func libvpxAdjustARNRFilterReference(in VP9AdjustARNRFilterInput) VP9TemporalFil
 
 	var baseStrength int
 	if in.Pass == 2 {
-		baseStrength = max(in.ARNRStrengthBase+in.ARNRStrengthAdjustment, 0)
-		if baseStrength > 6 {
-			baseStrength = 6
-		}
+		baseStrength = min(max(in.ARNRStrengthBase+in.ARNRStrengthAdjustment, 0), 6)
 	} else {
 		baseStrength = in.ARNRStrengthBase
 	}

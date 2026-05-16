@@ -287,10 +287,7 @@ func (t *vp9TwoPassState) frameTargetBits(defaultTargetBits int) int {
 	// is bled back into subsequent frame targets over a 16-frame window
 	// (capped to VBR_PCT_ADJUSTMENT_LIMIT% of the current target).
 	t.baseFrameTarget = int(target)
-	target = max(t.applyVBRRateCorrection(target), int64(vp9FrameOverhead))
-	if target > int64(maxInt()) {
-		target = int64(maxInt())
-	}
+	target = min(max(t.applyVBRRateCorrection(target), int64(vp9FrameOverhead)), int64(maxInt()))
 	t.currentTargetBits = int(target)
 	return t.currentTargetBits
 }

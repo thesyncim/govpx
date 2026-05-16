@@ -75,16 +75,11 @@ func quantizeFPDispatch(coeff []int16, dequant [2]int16, scan []int16, dqcoeff [
 	//   - kernel:  vp9/encoder/arm/neon/vp9_quantize_neon.c::vp9_quantize_fp_neon
 	//   - helpers: quantize_fp_8, get_max_lane_eob, get_max_eob,
 	//              update_fp_values, calculate_dqcoeff_and_store
-	// IMPORTANT: govpx's quantizeFPScalar signature differs from libvpx's
-	// vp9_quantize_fp_c: this codebase writes dqcoeff in raster order
-	// (indexed by scan[i]) and computes eob from a forward scan, whereas
-	// libvpx writes qcoeff_ptr + dqcoeff_ptr in linear order and tracks
-	// eob via a per-lane iscan max-reduction. Before porting the NEON
-	// kernel verbatim, the scalar entry point likely needs to be
-	// realigned to libvpx's contract (split qcoeff vs dqcoeff buffers,
-	// iscan input, lane-max eob reduce). Otherwise the NEON kernel's
-	// byte-identical output will diverge from this dispatcher's
-	// downstream consumers.
+	// The libvpx-shaped scalar entry point is QuantizeFPLibvpx
+	// (transform_quant.go); both this legacy dispatch and the NEON kernel
+	// funnel through quantizeFPLibvpxScalar so byte parity is automatic
+	// once the NEON kernel is plumbed in here. The required SIMD encoders
+	// are pre-built in neon_encoder_test.go.
 	return quantizeFPScalar(coeff, dequant, scan, dqcoeff)
 }
 
