@@ -326,6 +326,10 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"bufsz:", "bufinit:", "bufopt:"},
 		},
+		"SetLayerRealtimeTarget": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"},
+		},
 		"SetLayerROIMap": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"roi:", "roicustom:"},

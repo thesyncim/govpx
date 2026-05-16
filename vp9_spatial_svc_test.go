@@ -499,6 +499,14 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 				t.Fatalf("header[%d][%d] frame type = %d, want inter",
 					frame, layer, header.FrameType)
 			}
+			wantRefresh := uint8(1 << uint(layer))
+			if frame == 0 && layer == 0 {
+				wantRefresh = 0xff
+			}
+			if header.RefreshFrameFlags != wantRefresh {
+				t.Fatalf("header[%d][%d] refresh = %#02x, want %#02x",
+					frame, layer, header.RefreshFrameFlags, wantRefresh)
+			}
 		}
 		if frame == 0 {
 			decoder, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -637,6 +645,17 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerRateControlBuffer(0, 320, 160, 240); err != nil {
 		t.Fatalf("SetLayerRateControlBuffer: %v", err)
 	}
+	if err := svc.SetLayerRealtimeTarget(0, RealtimeTarget{
+		BitrateKbps:  360,
+		FPS:          24,
+		Width:        32,
+		Height:       32,
+		MinQuantizer: 6,
+		MaxQuantizer: 54,
+		FrameDrop:    RealtimeFrameDropDisabled,
+	}); err != nil {
+		t.Fatalf("SetLayerRealtimeTarget: %v", err)
+	}
 	if err := svc.SetLayerTuning(0, TuneSSIM); err != nil {
 		t.Fatalf("SetLayerTuning: %v", err)
 	}
@@ -673,8 +692,14 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LayerEncoder(1): %v", err)
 	}
-	if !base.opts.DropFrameAllowed ||
-		!base.rc.dropFrameAllowed ||
+	if base.opts.DropFrameAllowed ||
+		base.rc.dropFrameAllowed ||
+		base.opts.TargetBitrateKbps != 360 ||
+		base.opts.FPS != 24 ||
+		base.opts.TimebaseNum != 1 ||
+		base.opts.TimebaseDen != 24 ||
+		base.opts.MinQuantizer != 6 ||
+		base.opts.MaxQuantizer != 54 ||
 		base.opts.BufferSizeMs != 320 ||
 		base.opts.BufferInitialSizeMs != 160 ||
 		base.opts.BufferOptimalSizeMs != 240 ||
@@ -704,21 +729,21 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if base.opts.Sharpness != 4 {
 		t.Fatalf("invalid sharpness mutated base layer to %d", base.opts.Sharpness)
 	}
-	if err := enh.SetRealtimeTarget(RealtimeTarget{
+	if err := svc.SetLayerRealtimeTarget(1, RealtimeTarget{
 		Width:  32,
 		Height: 32,
 	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("enhancement layer resize err = %v, want ErrInvalidConfig", err)
+		t.Fatalf("SetLayerRealtimeTarget resize err = %v, want ErrInvalidConfig", err)
 	}
 	if enh.opts.Width != 64 || enh.opts.Height != 64 {
 		t.Fatalf("rejected enhancement resize mutated dimensions to %dx%d",
 			enh.opts.Width, enh.opts.Height)
 	}
-	if err := enh.SetRealtimeTarget(RealtimeTarget{
+	if err := svc.SetLayerRealtimeTarget(1, RealtimeTarget{
 		Width:  64,
 		Height: 64,
 	}); err != nil {
-		t.Fatalf("same-size enhancement realtime target: %v", err)
+		t.Fatalf("same-size SetLayerRealtimeTarget: %v", err)
 	}
 	if err := svc.SetLayerRateControlBuffer(1, 320, 160, 240); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerRateControlBuffer on VBR err = %v, want ErrInvalidConfig", err)
@@ -732,14 +757,29 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerCQLevel(2, 24); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerCQLevel invalid layer err = %v, want ErrInvalidConfig", err)
 	}
+	if err := svc.SetLayerRealtimeTarget(2, RealtimeTarget{
+		BitrateKbps: 100,
+	}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerRealtimeTarget invalid layer err = %v, want ErrInvalidConfig", err)
+	}
 
 	if err := svc.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+	if err := svc.SetLayerRealtimeTarget(0, RealtimeTarget{
+		BitrateKbps: 360,
+	}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerRealtimeTarget after close err = %v, want ErrClosed", err)
 	}
 	if err := svc.SetLayerARNR(0, 3, 4, 2); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerARNR after close err = %v, want ErrClosed", err)
 	}
 	var nilSVC *VP9SpatialSVCEncoder
+	if err := nilSVC.SetLayerRealtimeTarget(0, RealtimeTarget{
+		BitrateKbps: 360,
+	}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerRealtimeTarget on nil err = %v, want ErrClosed", err)
+	}
 	if err := nilSVC.SetLayerTuning(0, TunePSNR); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerTuning on nil err = %v, want ErrClosed", err)
 	}
@@ -782,6 +822,17 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerCQLevel", fn: func() error { return svc.SetLayerCQLevel(1, 24) }},
 		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},
 		{name: "SetLayerRateControlBuffer", fn: func() error { return svc.SetLayerRateControlBuffer(0, 320, 160, 240) }},
+		{name: "SetLayerRealtimeTarget", fn: func() error {
+			return svc.SetLayerRealtimeTarget(0, RealtimeTarget{
+				BitrateKbps:  360,
+				FPS:          24,
+				Width:        32,
+				Height:       32,
+				MinQuantizer: 6,
+				MaxQuantizer: 54,
+				FrameDrop:    RealtimeFrameDropEnabled,
+			})
+		}},
 		{name: "SetLayerTwoPassStats", fn: func() error { return svc.SetLayerTwoPassStats(1, stats) }},
 		{name: "SetLayerDeadline", fn: func() error { return svc.SetLayerDeadline(0, DeadlineRealtime) }},
 		{name: "SetLayerCPUUsed", fn: func() error { return svc.SetLayerCPUUsed(0, 4) }},

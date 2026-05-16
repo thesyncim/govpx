@@ -1271,7 +1271,11 @@ func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, ds
 		callerFlags&EncodeForceKeyFrame == 0 &&
 		e.hasVP9UsableInterReference(flags|temporalFlags)
 	if useInterLayerReference {
-		flags |= EncodeNoUpdateLast | EncodeNoUpdateAltRef
+		if callerUpdateFlags := callerFlags & vp9NoUpdateRefFlags; callerUpdateFlags != 0 {
+			flags |= callerUpdateFlags
+		} else {
+			flags |= EncodeNoUpdateLast | EncodeNoUpdateAltRef
+		}
 		if temporalFrame.Enabled && temporalFrame.LayerID > 0 {
 			flags |= EncodeNoUpdateGolden
 		}

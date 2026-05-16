@@ -497,7 +497,7 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 			}
 			layerResult, err = layer.encodeVP9InterLayerIntoWithFlagsResult(
 				srcs[i], dst[offset:encodeLimit],
-				EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+				vp9SpatialSVCInterLayerEncodeFlags(uint8(i)))
 		} else if i == 0 {
 			layerResult, err = layer.encodeVP9SpatialSVCBaseIntoWithFlagsResult(
 				srcs[i], dst[offset:encodeLimit], 0)
@@ -571,6 +571,19 @@ func (e *VP9SpatialSVCEncoder) SetLayerRateControl(layerID uint8, cfg RateContro
 		return err
 	}
 	return layer.SetRateControl(cfg)
+}
+
+// SetLayerRealtimeTarget applies one spatial layer's sparse VP9 realtime
+// target update, matching [VP9Encoder.SetRealtimeTarget]. Size-changing
+// updates are rejected while the layer is owned by the SVC encoder.
+func (e *VP9SpatialSVCEncoder) SetLayerRealtimeTarget(layerID uint8,
+	target RealtimeTarget,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetRealtimeTarget(target)
 }
 
 // SetLayerCQLevel changes one spatial layer's VP9 public CQ/Q level,
@@ -876,7 +889,41 @@ func (e *VP9Encoder) seedVP9InterLayerReference(lower *VP9Encoder) bool {
 		e.refValid[slot] = true
 		e.refSignBias[slot] = 0
 	}
+	lowerLayerID := e.opts.SpatialScalability.LayerID
+	if lowerLayerID > 0 {
+		lowerLayerID--
+	}
+	lowerLayerSlot := vp9SpatialSVCLayerReferenceSlot(lowerLayerID)
+	if lower.refValid[lowerLayerSlot] && lower.refFrames[lowerLayerSlot].valid {
+		e.refFrames[vp9LastRefSlot].store(lower.refFrames[lowerLayerSlot].img)
+		e.refWidth[vp9LastRefSlot] = lower.refWidth[lowerLayerSlot]
+		e.refHeight[vp9LastRefSlot] = lower.refHeight[lowerLayerSlot]
+		e.refValid[vp9LastRefSlot] = true
+		e.refSignBias[vp9LastRefSlot] = 0
+	}
 	return true
+}
+
+func vp9SpatialSVCInterLayerEncodeFlags(layerID uint8) EncodeFlags {
+	flags := EncodeNoReferenceGolden | EncodeNoReferenceAltRef
+	switch vp9SpatialSVCLayerReferenceSlot(layerID) {
+	case vp9GoldenRefSlot:
+		flags |= EncodeNoUpdateLast | EncodeNoUpdateAltRef
+	case vp9AltRefSlot:
+		flags |= EncodeNoUpdateLast | EncodeNoUpdateGolden
+	}
+	return flags
+}
+
+func vp9SpatialSVCLayerReferenceSlot(layerID uint8) int {
+	switch layerID {
+	case 0:
+		return vp9LastRefSlot
+	case 1:
+		return vp9GoldenRefSlot
+	default:
+		return vp9AltRefSlot
+	}
 }
 
 func validVP9SpatialSVCInterLayerScale(lowerW, lowerH, upperW, upperH int) bool {

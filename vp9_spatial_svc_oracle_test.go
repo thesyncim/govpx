@@ -23,38 +23,64 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 	spatialSVC := findVP9SpatialSVCEncoder(t)
 
 	const frames = 4
-	const baseW, baseH = 32, 32
-	const topW, topH = 64, 64
 	for _, tc := range []struct {
-		name     string
-		temporal TemporalScalabilityConfig
+		name       string
+		layerCount int
+		widths     [VP9MaxSpatialLayers]int
+		heights    [VP9MaxSpatialLayers]int
+		bitrates   [VP9MaxSpatialLayers]int
+		temporal   TemporalScalabilityConfig
 	}{
-		{name: "spatial-only"},
 		{
-			name: "spatial-temporal-two-layer",
+			name:       "spatial-only",
+			layerCount: 2,
+			widths:     [VP9MaxSpatialLayers]int{32, 64},
+			heights:    [VP9MaxSpatialLayers]int{32, 64},
+			bitrates:   [VP9MaxSpatialLayers]int{300, 700},
+		},
+		{
+			name:       "spatial-temporal-two-layer",
+			layerCount: 2,
+			widths:     [VP9MaxSpatialLayers]int{32, 64},
+			heights:    [VP9MaxSpatialLayers]int{32, 64},
+			bitrates:   [VP9MaxSpatialLayers]int{300, 700},
 			temporal: TemporalScalabilityConfig{
 				Enabled: true,
 				Mode:    TemporalLayeringTwoLayers,
 			},
 		},
+		{
+			name:       "spatial-only-three-layers",
+			layerCount: 3,
+			widths:     [VP9MaxSpatialLayers]int{32, 64, 128},
+			heights:    [VP9MaxSpatialLayers]int{32, 64, 128},
+			bitrates:   [VP9MaxSpatialLayers]int{200, 500, 1000},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sourcesTop := make([]*image.YCbCr, frames)
-			sourcesBase := make([]*image.YCbCr, frames)
+			var sources [VP9MaxSpatialLayers][]*image.YCbCr
+			for layer := 0; layer < tc.layerCount; layer++ {
+				sources[layer] = make([]*image.YCbCr, frames)
+			}
 			var raw []byte
 			for frame := 0; frame < frames; frame++ {
 				y := uint8(64 + frame*13)
 				u := uint8(120 + frame)
 				v := uint8(136 - frame)
-				sourcesTop[frame] = newVP9YCbCrForTest(topW, topH, y, u, v)
-				sourcesBase[frame] = newVP9YCbCrForTest(baseW, baseH, y, u, v)
-				raw = appendVP9YCbCrI420(raw, sourcesTop[frame])
+				for layer := 0; layer < tc.layerCount; layer++ {
+					sources[layer][frame] = newVP9YCbCrForTest(
+						tc.widths[layer], tc.heights[layer], y, u, v)
+				}
+				raw = appendVP9YCbCrI420(raw,
+					sources[tc.layerCount-1][frame])
 			}
 
-			govpxFrames := encodeGovpxVP9SpatialSVCOracle(t, sourcesBase,
-				sourcesTop, tc.temporal)
+			govpxFrames := encodeGovpxVP9SpatialSVCOracle(t, sources,
+				tc.layerCount, tc.widths, tc.heights, tc.bitrates,
+				tc.temporal)
 			libvpxPackets := encodeLibvpxVP9SpatialSVCOracle(t, spatialSVC,
-				raw, topW, topH, frames, tc.temporal)
+				raw, tc.layerCount, tc.widths, tc.heights, tc.bitrates,
+				frames, tc.temporal)
 			if len(libvpxPackets) != frames {
 				t.Fatalf("libvpx spatial SVC packets = %d, want %d",
 					len(libvpxPackets), frames)
@@ -63,7 +89,7 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 			matches := 0
 			firstMismatch := -1
 			var rows strings.Builder
-			fmt.Fprintln(&rows, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_layers,libvpx_layers,govpx_layer0,libvpx_layer0,govpx_layer1,libvpx_layer1,govpx_tl,expected_tl,govpx_tl0picidx,govpx_base_refresh,libvpx_base_refresh,govpx_top_refresh,libvpx_top_refresh,govpx_base_q,libvpx_base_q,govpx_top_q,libvpx_top_q,govpx_base_key,libvpx_base_key,govpx_top_key,libvpx_top_key")
+			fmt.Fprintln(&rows, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_layers,libvpx_layers,govpx_layer_bytes,libvpx_layer_bytes,govpx_tl,expected_tl,govpx_tl0picidx,govpx_refresh,libvpx_refresh,govpx_q,libvpx_q,govpx_key,libvpx_key")
 			for frame := 0; frame < frames; frame++ {
 				govpxPacket := govpxFrames[frame].data
 				govpxResult := govpxFrames[frame].result
@@ -71,28 +97,43 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 					frame, govpxPacket)
 				libvpxSF := parseVP9SpatialSVCOracleSuperframe(t, "libvpx",
 					frame, libvpxPackets[frame])
-				if govpxSF.count != 2 || libvpxSF.count != 2 {
-					t.Fatalf("frame %d layer counts = govpx:%d libvpx:%d, want 2/2",
-						frame, govpxSF.count, libvpxSF.count)
+				if govpxSF.count != tc.layerCount ||
+					libvpxSF.count != tc.layerCount {
+					t.Fatalf("frame %d layer counts = govpx:%d libvpx:%d, want %d/%d",
+						frame, govpxSF.count, libvpxSF.count,
+						tc.layerCount, tc.layerCount)
 				}
-				govpxBase := readVP9SpatialSVCOracleHeader(t, "govpx",
-					frame, 0, govpxSF.frames[0], baseW, baseH)
-				govpxTop := readVP9SpatialSVCOracleHeader(t, "govpx",
-					frame, 1, govpxSF.frames[1], topW, topH)
-				libvpxBase := readVP9SpatialSVCOracleHeader(t, "libvpx",
-					frame, 0, libvpxSF.frames[0], baseW, baseH)
-				libvpxTop := readVP9SpatialSVCOracleHeader(t, "libvpx",
-					frame, 1, libvpxSF.frames[1], topW, topH)
-				assertVP9SpatialSVCOracleDimensions(t, "govpx", frame,
-					govpxBase, govpxTop)
-				assertVP9SpatialSVCOracleDimensions(t, "libvpx", frame,
-					libvpxBase, libvpxTop)
+				var govpxLayerBytes, libvpxLayerBytes [VP9MaxSpatialLayers]int
+				var govpxRefresh, libvpxRefresh [VP9MaxSpatialLayers]uint8
+				var govpxQ, libvpxQ [VP9MaxSpatialLayers]int
+				var govpxKey, libvpxKey [VP9MaxSpatialLayers]bool
+				for layer := 0; layer < tc.layerCount; layer++ {
+					refW := tc.widths[layer]
+					refH := tc.heights[layer]
+					govpxHeader := readVP9SpatialSVCOracleHeader(t, "govpx",
+						frame, layer, govpxSF.frames[layer], refW, refH)
+					libvpxHeader := readVP9SpatialSVCOracleHeader(t, "libvpx",
+						frame, layer, libvpxSF.frames[layer], refW, refH)
+					assertVP9SpatialSVCOracleLayerDimensions(t, "govpx",
+						frame, layer, govpxHeader, tc.widths[layer],
+						tc.heights[layer])
+					assertVP9SpatialSVCOracleLayerDimensions(t, "libvpx",
+						frame, layer, libvpxHeader, tc.widths[layer],
+						tc.heights[layer])
+					assertVP9SpatialSVCOracleHeaderParity(t, frame,
+						fmt.Sprintf("layer%d", layer), govpxHeader,
+						libvpxHeader)
+					govpxLayerBytes[layer] = len(govpxSF.frames[layer])
+					libvpxLayerBytes[layer] = len(libvpxSF.frames[layer])
+					govpxRefresh[layer] = govpxHeader.RefreshFrameFlags
+					libvpxRefresh[layer] = libvpxHeader.RefreshFrameFlags
+					govpxQ[layer] = int(govpxHeader.Quant.BaseQindex)
+					libvpxQ[layer] = int(libvpxHeader.Quant.BaseQindex)
+					govpxKey[layer] = govpxHeader.FrameType == common.KeyFrame
+					libvpxKey[layer] = libvpxHeader.FrameType == common.KeyFrame
+				}
 				assertVP9SpatialSVCOracleTemporal(t, frame, tc.temporal,
 					govpxResult)
-				assertVP9SpatialSVCOracleHeaderParity(t, frame, "base",
-					govpxBase, libvpxBase)
-				assertVP9SpatialSVCOracleHeaderParity(t, frame, "top",
-					govpxTop, libvpxTop)
 
 				match := bytes.Equal(govpxPacket, libvpxPackets[frame])
 				if match {
@@ -101,27 +142,25 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 					firstMismatch = frame
 				}
 				firstDiff := firstByteDiff(govpxPacket, libvpxPackets[frame])
-				fmt.Fprintf(&rows, "%d,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#02x,%#02x,%#02x,%#02x,%d,%d,%d,%d,%t,%t,%t,%t\n",
+				fmt.Fprintf(&rows, "%d,%t,%d,%d,%d,%d,%d,%s,%s,%d,%d,%d,%s,%s,%s,%s,%s,%s\n",
 					frame, match, firstDiff, len(govpxPacket),
 					len(libvpxPackets[frame]), govpxSF.count, libvpxSF.count,
-					len(govpxSF.frames[0]), len(libvpxSF.frames[0]),
-					len(govpxSF.frames[1]), len(libvpxSF.frames[1]),
+					vp9SpatialSVCOracleJoinInts(
+						govpxLayerBytes[:tc.layerCount]),
+					vp9SpatialSVCOracleJoinInts(
+						libvpxLayerBytes[:tc.layerCount]),
 					govpxResult.Layers[0].TemporalLayerID,
 					vp9SpatialSVCOracleExpectedTemporalLayer(t,
 						tc.temporal, frame),
 					govpxResult.Layers[0].TL0PICIDX,
-					govpxBase.RefreshFrameFlags,
-					libvpxBase.RefreshFrameFlags,
-					govpxTop.RefreshFrameFlags,
-					libvpxTop.RefreshFrameFlags,
-					govpxBase.Quant.BaseQindex,
-					libvpxBase.Quant.BaseQindex,
-					govpxTop.Quant.BaseQindex,
-					libvpxTop.Quant.BaseQindex,
-					govpxBase.FrameType == common.KeyFrame,
-					libvpxBase.FrameType == common.KeyFrame,
-					govpxTop.FrameType == common.KeyFrame,
-					libvpxTop.FrameType == common.KeyFrame)
+					vp9SpatialSVCOracleJoinHexBytes(
+						govpxRefresh[:tc.layerCount]),
+					vp9SpatialSVCOracleJoinHexBytes(
+						libvpxRefresh[:tc.layerCount]),
+					vp9SpatialSVCOracleJoinInts(govpxQ[:tc.layerCount]),
+					vp9SpatialSVCOracleJoinInts(libvpxQ[:tc.layerCount]),
+					vp9SpatialSVCOracleJoinBools(govpxKey[:tc.layerCount]),
+					vp9SpatialSVCOracleJoinBools(libvpxKey[:tc.layerCount]))
 			}
 			t.Logf("VP9 spatial SVC oracle scoreboard: matches=%d/%d first_mismatch=%d",
 				matches, frames, firstMismatch)
@@ -141,13 +180,21 @@ type vp9SpatialSVCOracleGovpxFrame struct {
 }
 
 func encodeGovpxVP9SpatialSVCOracle(t *testing.T,
-	sourcesBase, sourcesTop []*image.YCbCr,
+	sources [VP9MaxSpatialLayers][]*image.YCbCr,
+	layerCount int,
+	widths, heights, bitrates [VP9MaxSpatialLayers]int,
 	temporal TemporalScalabilityConfig,
 ) []vp9SpatialSVCOracleGovpxFrame {
 	t.Helper()
-	if len(sourcesBase) != len(sourcesTop) {
-		t.Fatalf("govpx spatial SVC source counts = %d/%d",
-			len(sourcesBase), len(sourcesTop))
+	if layerCount < 2 || layerCount > VP9MaxSpatialLayers {
+		t.Fatalf("govpx spatial SVC layerCount = %d", layerCount)
+	}
+	frameCount := len(sources[0])
+	for layer := 0; layer < layerCount; layer++ {
+		if len(sources[layer]) != frameCount {
+			t.Fatalf("govpx spatial SVC source counts layer0:%d layer%d:%d",
+				frameCount, layer, len(sources[layer]))
+		}
 	}
 	cbrLayer := func(width, height, kbps int) VP9EncoderOptions {
 		return VP9EncoderOptions{
@@ -164,24 +211,27 @@ func encodeGovpxVP9SpatialSVCOracle(t *testing.T,
 			TemporalScalability: temporal,
 		}
 	}
+	var layerOpts [VP9MaxSpatialLayers]VP9EncoderOptions
+	for layer := 0; layer < layerCount; layer++ {
+		layerOpts[layer] = cbrLayer(widths[layer], heights[layer],
+			bitrates[layer])
+	}
 	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
-		LayerCount:           2,
+		LayerCount:           uint8(layerCount),
 		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
-			cbrLayer(32, 32, 300),
-			cbrLayer(64, 64, 700),
-		},
+		Layers:               layerOpts,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
-	dst := make([]byte, 1<<20)
-	frames := make([]vp9SpatialSVCOracleGovpxFrame, len(sourcesBase))
-	for frame := range sourcesBase {
-		result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
-			sourcesBase[frame],
-			sourcesTop[frame],
-		}, dst)
+	dst := make([]byte, 1<<22)
+	frames := make([]vp9SpatialSVCOracleGovpxFrame, frameCount)
+	for frame := 0; frame < frameCount; frame++ {
+		var srcs [VP9MaxSpatialLayers]*image.YCbCr
+		for layer := 0; layer < layerCount; layer++ {
+			srcs[layer] = sources[layer][frame]
+		}
+		result, err := svc.EncodeIntoWithResult(srcs[:layerCount], dst)
 		if err != nil {
 			t.Fatalf("govpx EncodeIntoWithResult[%d]: %v", frame, err)
 		}
@@ -199,7 +249,10 @@ func encodeGovpxVP9SpatialSVCOracle(t *testing.T,
 }
 
 func encodeLibvpxVP9SpatialSVCOracle(t *testing.T, spatialSVC string,
-	raw []byte, width, height, frames int,
+	raw []byte,
+	layerCount int,
+	widths, heights, bitrates [VP9MaxSpatialLayers]int,
+	frames int,
 	temporal TemporalScalabilityConfig,
 ) [][]byte {
 	t.Helper()
@@ -209,26 +262,26 @@ func encodeLibvpxVP9SpatialSVCOracle(t *testing.T, spatialSVC string,
 	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
 		t.Fatalf("write %s: %v", inPath, err)
 	}
-	bitrates := "300,700"
+	bitrateArgs := vp9SpatialSVCOracleLayerBitrates(t, temporal,
+		bitrates, layerCount)
 	temporalArgs := vp9SpatialSVCOracleTemporalArgs(t, temporal)
-	if temporal.Enabled {
-		bitrates = vp9SpatialSVCOracleLayerBitrates(t, temporal)
-	}
 	args := []string{
 		"-f", fmt.Sprint(frames),
-		"-w", fmt.Sprint(width),
-		"-h", fmt.Sprint(height),
+		"-w", fmt.Sprint(widths[layerCount-1]),
+		"-h", fmt.Sprint(heights[layerCount-1]),
 		"-t", "1/30",
-		"-b", "1000",
-		"-sl", "2",
-		"-r", "1/2,1/1",
+		"-b", fmt.Sprint(vp9SpatialSVCOracleTotalBitrate(bitrates,
+			layerCount)),
+		"-sl", fmt.Sprint(layerCount),
+		"-r", vp9SpatialSVCOracleScaleFactors(t, widths, heights,
+			layerCount),
 	}
 	args = append(args, temporalArgs...)
 	args = append(args,
-		"-bl", bitrates,
+		"-bl", bitrateArgs,
 		"-k", "128",
-		"--min-q=4,4",
-		"--max-q=56,56",
+		"--min-q="+vp9SpatialSVCOracleRepeatedIntCSV(4, layerCount),
+		"--max-q="+vp9SpatialSVCOracleRepeatedIntCSV(56, layerCount),
 		"--lag-in-frames=0",
 		"-th", "1",
 		"-sp", "8",
@@ -284,28 +337,118 @@ func vp9SpatialSVCOracleTemporalLayeringMode(
 
 func vp9SpatialSVCOracleLayerBitrates(t *testing.T,
 	cfg TemporalScalabilityConfig,
+	bitrates [VP9MaxSpatialLayers]int,
+	layerCount int,
 ) string {
 	t.Helper()
+	if !cfg.Enabled {
+		return vp9OracleIntCSV(bitrates[:layerCount])
+	}
 	pattern, ok := temporalLayeringPattern(cfg.Mode)
 	if !ok {
 		t.Fatalf("temporalLayeringPattern(%d) failed", cfg.Mode)
 	}
-	base, _, err := normalizeTemporalBitrates(cfg, pattern.Layers, 300)
-	if err != nil {
-		t.Fatalf("base normalizeTemporalBitrates(%d): %v", cfg.Mode, err)
-	}
-	top, _, err := normalizeTemporalBitrates(cfg, pattern.Layers, 700)
-	if err != nil {
-		t.Fatalf("top normalizeTemporalBitrates(%d): %v", cfg.Mode, err)
-	}
-	values := make([]int, 0, pattern.Layers*2)
-	for layer := 0; layer < pattern.Layers; layer++ {
-		values = append(values, base.LayerTargetBitrateKbps[layer])
-	}
-	for layer := 0; layer < pattern.Layers; layer++ {
-		values = append(values, top.LayerTargetBitrateKbps[layer])
+	values := make([]int, 0, pattern.Layers*layerCount)
+	for spatial := 0; spatial < layerCount; spatial++ {
+		normalized, _, err := normalizeTemporalBitrates(cfg, pattern.Layers,
+			bitrates[spatial])
+		if err != nil {
+			t.Fatalf("layer %d normalizeTemporalBitrates(%d): %v",
+				spatial, cfg.Mode, err)
+		}
+		for layer := 0; layer < pattern.Layers; layer++ {
+			values = append(values, normalized.LayerTargetBitrateKbps[layer])
+		}
 	}
 	return vp9OracleIntCSV(values)
+}
+
+func vp9SpatialSVCOracleTotalBitrate(
+	bitrates [VP9MaxSpatialLayers]int,
+	layerCount int,
+) int {
+	total := 0
+	for layer := 0; layer < layerCount; layer++ {
+		total += bitrates[layer]
+	}
+	return total
+}
+
+func vp9SpatialSVCOracleScaleFactors(t *testing.T,
+	widths, heights [VP9MaxSpatialLayers]int,
+	layerCount int,
+) string {
+	t.Helper()
+	topW := widths[layerCount-1]
+	topH := heights[layerCount-1]
+	values := make([]string, 0, layerCount)
+	for layer := 0; layer < layerCount; layer++ {
+		if widths[layer]*topH != heights[layer]*topW {
+			t.Fatalf("layer %d scale is not uniform: %dx%d top=%dx%d",
+				layer, widths[layer], heights[layer], topW, topH)
+		}
+		divisor := gcdInt(widths[layer], topW)
+		values = append(values, fmt.Sprintf("%d/%d",
+			widths[layer]/divisor, topW/divisor))
+	}
+	return strings.Join(values, ",")
+}
+
+func vp9SpatialSVCOracleRepeatedIntCSV(value, count int) string {
+	values := make([]int, count)
+	for i := range values {
+		values[i] = value
+	}
+	return vp9OracleIntCSV(values)
+}
+
+func gcdInt(a, b int) int {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a == 0 {
+		return 1
+	}
+	return a
+}
+
+func vp9SpatialSVCOracleJoinInts(values []int) string {
+	var out strings.Builder
+	for i, value := range values {
+		if i > 0 {
+			out.WriteByte('|')
+		}
+		fmt.Fprint(&out, value)
+	}
+	return out.String()
+}
+
+func vp9SpatialSVCOracleJoinHexBytes(values []uint8) string {
+	var out strings.Builder
+	for i, value := range values {
+		if i > 0 {
+			out.WriteByte('|')
+		}
+		fmt.Fprintf(&out, "%#02x", value)
+	}
+	return out.String()
+}
+
+func vp9SpatialSVCOracleJoinBools(values []bool) string {
+	var out strings.Builder
+	for i, value := range values {
+		if i > 0 {
+			out.WriteByte('|')
+		}
+		fmt.Fprint(&out, value)
+	}
+	return out.String()
 }
 
 func findVP9SpatialSVCEncoder(t *testing.T) string {
@@ -359,17 +502,15 @@ func readVP9SpatialSVCOracleHeader(t *testing.T, side string, frame, layer int,
 	return header
 }
 
-func assertVP9SpatialSVCOracleDimensions(t *testing.T, side string, frame int,
-	base, top vp9dec.UncompressedHeader,
+func assertVP9SpatialSVCOracleLayerDimensions(t *testing.T,
+	side string, frame int, layer int,
+	header vp9dec.UncompressedHeader, width int, height int,
 ) {
 	t.Helper()
-	if base.Width != 32 || base.Height != 32 || !base.ShowFrame {
-		t.Fatalf("%s frame %d base header = %+v, want visible 32x32",
-			side, frame, base)
-	}
-	if top.Width != 64 || top.Height != 64 || !top.ShowFrame {
-		t.Fatalf("%s frame %d top header = %+v, want visible 64x64",
-			side, frame, top)
+	if header.Width != uint32(width) || header.Height != uint32(height) ||
+		!header.ShowFrame {
+		t.Fatalf("%s frame %d layer %d header = %+v, want visible %dx%d",
+			side, frame, layer, header, width, height)
 	}
 }
 
