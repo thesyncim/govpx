@@ -1399,6 +1399,12 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 			for i := range e.cyclicAQ.lastCodedQMap {
 				e.cyclicAQ.lastCodedQMap[i] = vp9dec.MaxQ
 			}
+			// libvpx: vp9_encoder.c:4103-4106 — intra_only zeros
+			// consec_zero_mv too. Without this, post-key stale counters
+			// would still drive the next frame's eligibility filter.
+			for i := range e.cyclicAQ.consecZeroMv {
+				e.cyclicAQ.consecZeroMv[i] = 0
+			}
 			e.cyclicAQ.sbIndex = 0
 			e.cyclicAQ.reduceRefresh = false
 			e.cyclicAQ.counterEncodeMaxqSceneChange = 0
@@ -1447,6 +1453,11 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		BaseQindex:        int(header.Quant.BaseQindex),
 		YDcDeltaQ:         int(header.Quant.YDcDeltaQ),
 		Sb64TargetRate:    e.rc.frameTargetBits >> 6,
+		// libvpx: vp9_aq_cyclicrefresh.c:439 — consec_zero_mv feeds the
+		// update_map eligibility filter. The slice is maintained per
+		// encoded SB by vp9CyclicRefreshUpdateEncodedSb so this frame
+		// sees the previous frame's stationarity history.
+		ConsecZeroMv: e.cyclicAQ.consecZeroMv,
 	})
 	e.cyclicAQ.apply = e.cyclicAQ.applyCyclicRefresh && e.cyclicAQ.targetNumSegBlocks > 0
 }
@@ -4131,6 +4142,26 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 	rowMT := e.vp9RowMTSync
 	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
 		common.MiBlockSizeLog2
+	// libvpx: vp9_encodeframe.c:6126-6128 — vp9_cyclic_refresh_update_sb_postencode
+	// only runs on inter frames where the seg+aq path is live. govpx
+	// invokes writeVP9ModesTileBounds twice per frame: a count
+	// pre-pass (collectVP9EncodeFrameCounts at vp9_encoder.go:2404)
+	// and the real bitstream pass (writeVP9FrameTiles at 2474). The
+	// pre-pass sets inter.counts != nil; the real pass leaves it nil.
+	// libvpx's call site only fires at real-encode time, so gate on
+	// inter.counts == nil here to avoid double-counting consec_zero_mv
+	// / last_coded_q_map per frame.
+	doCyclicSbPostencode := kind == vp9ModeTreeInterSource &&
+		e.cyclicAQ.enabled && e.cyclicAQ.apply && e.cyclicAQ.contentMode &&
+		seg != nil && seg.Enabled && inter != nil && inter.counts == nil
+	var cyclicBaseQindex int
+	if doCyclicSbPostencode {
+		// libvpx uses cm->base_qindex when clamping last_coded_q_map.
+		// govpx's inter state pins the corresponding qindex in the
+		// dequant tables; we recover it through the encoder header
+		// scratch which holds the final header for this frame.
+		cyclicBaseQindex = int(e.vp9HeaderScratch.Quant.BaseQindex)
+	}
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range e.leftSegCtx {
 			e.leftSegCtx[i] = 0
@@ -4150,7 +4181,63 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
 				common.Block64x64, tile, partitionProbs, seg, baseMi, txMode,
 				kind, key, inter)
+			if doCyclicSbPostencode {
+				e.vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
+					miRow, miCol, cyclicBaseQindex)
+			}
 			rowMT.write(sbRow, sbCol, tileSbCols)
+		}
+	}
+}
+
+// vp9CyclicRefreshUpdateEncodedSb mirrors libvpx's per-SB postencode hook
+// from vp9/encoder/vp9_encodeframe.c:6126-6134. After all leaf blocks of
+// a 64x64 superblock have been written to the bitstream (and their
+// miGrid entries populated), this walks the 8x8 grid that backs the SB
+// and:
+//
+//   - bumps consec_zero_mv for LAST_FRAME inter blocks with near-zero MVs
+//     (libvpx: update_zeromv_cnt, vp9_encodeframe.c:5999-6022), and
+//   - updates last_coded_q_map for refresh-segmented blocks
+//     (libvpx: vp9_cyclic_refresh_update_sb_postencode,
+//     vp9_aq_cyclicrefresh.c:225-255).
+//
+// Both feed the next frame's cyclic_refresh_update_map eligibility filter
+// (libvpx: vp9_aq_cyclicrefresh.c:437-442).
+func (e *VP9Encoder) vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
+	miRow, miCol, baseQindex int,
+) {
+	if e == nil {
+		return
+	}
+	cr := &e.cyclicAQ
+	if cr.miRows != miRows || cr.miCols != miCols {
+		return
+	}
+	// libvpx: vp9_aq_cyclicrefresh.c:231-234 — superblock 8x8 block
+	// walk. num_8x8_blocks_{wide,high}_lookup[BLOCK_64X64] = 8.
+	xmis := min(miCols-miCol, common.MiBlockSize)
+	ymis := min(miRows-miRow, common.MiBlockSize)
+	if xmis <= 0 || ymis <= 0 {
+		return
+	}
+	// Walk each 8x8 leaf block in raster order; the leaf's MODE_INFO is
+	// stored at the (miRow+y, miCol+x) miGrid slot by fillVP9MiGrid.
+	for y := range ymis {
+		for x := range xmis {
+			mi := e.vp9MiAt(miRows, miCols, miRow+y, miCol+x)
+			if mi == nil {
+				continue
+			}
+			isInter := mi.RefFrame[0] > vp9dec.IntraFrame
+			segID := mi.SegmentID
+			skip := mi.Skip != 0
+			// libvpx: vp9_aq_cyclicrefresh.c:244-253 — single-cell update.
+			cr.vp9CyclicRefreshUpdateSegmentPostencode(miRow+y, miCol+x,
+				1, 1, baseQindex, segID, isInter, skip)
+			// libvpx: vp9_encodeframe.c:5999-6022 — update_zeromv_cnt.
+			cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow+y, miCol+x, 1, 1,
+				mi.Mv[0].Row, mi.Mv[0].Col, mi.RefFrame[0], isInter, segID)
 		}
 	}
 }

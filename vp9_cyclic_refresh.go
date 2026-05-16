@@ -113,6 +113,18 @@ type vp9CyclicRefreshState struct {
 	// the lifetime of the cyclic-refresh state.
 	segMap []uint8
 
+	// consecZeroMv — per-(mi_row, mi_col) saturating counter of
+	// consecutive frames the LAST-frame MV at this 8x8 block was
+	// near-zero (|mv.row| < 8 && |mv.col| < 8). Mirrors
+	// cpi->consec_zero_mv from libvpx's VP9_COMP
+	// (vp9/encoder/vp9_encoder.h:838) — co-located here because the
+	// cyclic refresh setup path is the only consumer. Updated per
+	// encoded SB by vp9CyclicRefreshUpdateZeroMVCnt, mirroring
+	// libvpx's update_zeromv_cnt (vp9_encodeframe.c:5999-6022). The
+	// counter feeds the eligibility filter in
+	// cyclic_refresh_update_map (vp9_aq_cyclicrefresh.c:437-442).
+	consecZeroMv []uint8
+
 	// miRows / miCols pin the current frame's mi-grid dims.
 	miRows int
 	miCols int
@@ -131,6 +143,7 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshAlloc(miRows, miCols int) {
 		cr.refreshMap = nil
 		cr.lastCodedQMap = nil
 		cr.segMap = nil
+		cr.consecZeroMv = nil
 		cr.miRows = 0
 		cr.miCols = 0
 		return
@@ -160,6 +173,15 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshAlloc(miRows, miCols int) {
 			cr.segMap[i] = 0
 		}
 	}
+	// libvpx: vp9_encoder.c:2180-2183 — vpx_calloc(consec_zero_mv).
+	if cap(cr.consecZeroMv) < n {
+		cr.consecZeroMv = make([]uint8, n)
+	} else {
+		cr.consecZeroMv = cr.consecZeroMv[:n]
+		for i := range cr.consecZeroMv {
+			cr.consecZeroMv[i] = 0
+		}
+	}
 	cr.miRows = miRows
 	cr.miCols = miCols
 	// libvpx: vp9_aq_cyclicrefresh.c:50-51.
@@ -176,6 +198,7 @@ func (cr *vp9CyclicRefreshState) configure(enabled bool, width, height int) {
 		cr.refreshMap = nil
 		cr.lastCodedQMap = nil
 		cr.segMap = nil
+		cr.consecZeroMv = nil
 		cr.miRows = 0
 		cr.miCols = 0
 		cr.sbIndex = 0
@@ -200,6 +223,10 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshResetResize() {
 	}
 	for i := range cr.lastCodedQMap {
 		cr.lastCodedQMap[i] = vp9dec.MaxQ
+	}
+	// libvpx: vp9_encoder.c:4103-4106 — resize_pending zeroes consec_zero_mv.
+	for i := range cr.consecZeroMv {
+		cr.consecZeroMv[i] = 0
 	}
 	cr.sbIndex = 0
 	cr.counterEncodeMaxqSceneChange = 0
@@ -772,6 +799,53 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateSegmentPostencode(miRow, 
 				if uint8(q) < cr.lastCodedQMap[off] {
 					cr.lastCodedQMap[off] = uint8(q)
 				}
+			}
+		}
+	}
+}
+
+// vp9CyclicRefreshUpdateZeroMVCnt mirrors update_zeromv_cnt() from
+// vp9/encoder/vp9_encodeframe.c:5999-6022. For every encoded SB whose
+// chosen leaf references LAST_FRAME and is inter (and the leaf is in
+// a refresh-tracked segment), bumps consec_zero_mv up by one when the
+// chosen MV magnitude is < 8 in both dimensions, and resets to zero
+// otherwise. The counter is saturating at 255. Called from the per-SB
+// encode hook so the next frame's update_map filter sees the correct
+// per-block stationarity history.
+func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateZeroMVCnt(
+	miRow, miCol, bw, bh int, mvRow, mvCol int16, refFrame int8,
+	isInter bool, segID uint8,
+) {
+	if cr.miRows <= 0 || cr.miCols <= 0 || len(cr.consecZeroMv) == 0 {
+		return
+	}
+	// libvpx: vp9_encodeframe.c:6012 — gates on LAST_FRAME + inter +
+	// segment_id <= CR_SEGMENT_ID_BOOST2.
+	if !isInter || refFrame != vp9dec.LastFrame ||
+		segID > vp9CyclicRefreshSegmentBoost2 {
+		return
+	}
+	xmis := min(cr.miCols-miCol, bw)
+	ymis := min(cr.miRows-miRow, bh)
+	if xmis <= 0 || ymis <= 0 {
+		return
+	}
+	blIndex := miRow*cr.miCols + miCol
+	zero := absInt16(mvRow) < 8 && absInt16(mvCol) < 8
+	for y := range ymis {
+		for x := range xmis {
+			off := blIndex + y*cr.miCols + x
+			if off < 0 || off >= len(cr.consecZeroMv) {
+				continue
+			}
+			if zero {
+				// libvpx: vp9_encodeframe.c:6014-6016 — saturating bump.
+				if cr.consecZeroMv[off] < 255 {
+					cr.consecZeroMv[off]++
+				}
+			} else {
+				// libvpx: vp9_encodeframe.c:6017-6019 — reset on large MV.
+				cr.consecZeroMv[off] = 0
 			}
 		}
 	}
