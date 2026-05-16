@@ -63,6 +63,10 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		if err := validateVP9TileRowOptions(target.Width, target.Height, e.opts.Log2TileRows); err != nil {
 			return err
 		}
+		if _, err := normalizeVP9SpatialScalabilityConfig(e.opts.SpatialScalability,
+			target.Width, target.Height); err != nil {
+			return err
+		}
 		if e.vp9LookaheadSize() != 0 {
 			return ErrFrameNotReady
 		}
@@ -478,6 +482,46 @@ func (e *VP9Encoder) SetTemporalLayerID(layerID int) error {
 		return ErrClosed
 	}
 	return e.temporal.setLayerID(layerID)
+}
+
+// SetSpatialScalability replaces the VP9 spatial-SVC layer signaling
+// configuration. This controls encoded result metadata and RTP payload
+// descriptors for packets produced by this encoder; it does not synthesize
+// additional coded spatial layers.
+func (e *VP9Encoder) SetSpatialScalability(cfg VP9SpatialScalabilityConfig) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	next, err := normalizeVP9SpatialScalabilityConfig(cfg, e.opts.Width,
+		e.opts.Height)
+	if err != nil {
+		return err
+	}
+	e.opts.SpatialScalability = next
+	return nil
+}
+
+// SetSpatialLayerID changes the VP9 spatial layer ID signaled for subsequent
+// packets. Spatial scalability must already be enabled unless layerID is zero.
+func (e *VP9Encoder) SetSpatialLayerID(layerID uint8) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if !e.opts.SpatialScalability.Enabled {
+		if layerID == 0 {
+			return nil
+		}
+		return ErrInvalidConfig
+	}
+	next := e.opts.SpatialScalability
+	next.LayerID = layerID
+	cfg, err := normalizeVP9SpatialScalabilityConfig(next, e.opts.Width,
+		e.opts.Height)
+	if err != nil {
+		return err
+	}
+	e.opts.SpatialScalability = cfg
+	return nil
 }
 
 func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {

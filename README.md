@@ -97,7 +97,7 @@ Profile 0 packets and valid Profile 0 superframes only.
 | Capability | Knobs |
 | --- | --- |
 | Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, frame dropping, buffer model, min/max quantizers, max intra bitrate |
-| Realtime controls | Error resilience, temporal scalability, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
+| Realtime controls | Error resilience, temporal/spatial scalability signaling, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
 | Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless`, multi-threaded row encode |
 
 Lookahead and auto-alt-ref can make `EncodeInto` return `ErrFrameNotReady`
@@ -110,8 +110,10 @@ returns no more data.
 | --- | --- |
 | Decode one packet | `Decode`, then `NextFrame` |
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
+| Select VP9 decoded spatial-SVC layer | `SetSVCSpatialLayer`, `ClearSVCSpatialLayer` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
+| Signal VP9 encoded spatial layer | `VP9EncoderOptions.SpatialScalability`, `SetSpatialScalability`, `SetSpatialLayerID` |
 | Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `PackVP9SuperframeInto`, `PackVP9Superframe` |
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
@@ -133,7 +135,9 @@ Packetizers return payload bodies plus marker bits; assemblers consume ordered
 payload bodies plus marker bits. RTP headers, sequence/loss policy, jitter
 buffering, SRTP, SDP, and signaling remain caller-owned. VP9 helpers carry
 picture IDs, layer indices, flexible-mode references, and scalability
-structures through packetization and assembly.
+structures through packetization and assembly. The VP9 decoder also exposes
+libvpx-style spatial-SVC superframe filtering with `SetSVCSpatialLayer`; the
+VP9 encoder exposes spatial layer signaling through `SetSpatialScalability`.
 
 For WebRTC senders, start with the same one-stream VP8/libvpx profile
 used by libwebrtc: realtime CBR, no lookahead, frame dropping, adaptive

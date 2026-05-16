@@ -157,6 +157,11 @@ type VP9EncoderOptions struct {
 	// one spatial layer. Result metadata is returned by
 	// EncodeIntoWithResult / EncodeIntoWithFlagsResult.
 	TemporalScalability TemporalScalabilityConfig
+	// SpatialScalability configures VP9 spatial-SVC layer signaling for the
+	// packet produced by this encoder. It reports spatial layer metadata in
+	// VP9EncodeResult and RTPPayloadDescriptor; it does not synthesize lower or
+	// higher resolution layers.
+	SpatialScalability VP9SpatialScalabilityConfig
 
 	// LookaheadFrames enables buffered VP9 source scheduling. Zero preserves
 	// immediate encoding. Positive values are valid in [1, 25] and make
@@ -266,22 +271,37 @@ type VP9EncodeResult struct {
 	TemporalLayerCount int
 	TemporalLayerSync  bool
 	TL0PICIDX          uint8
+
+	SpatialLayerID              uint8
+	SpatialLayerCount           uint8
+	InterLayerDependency        bool
+	NotRefForUpperSpatialLayer  bool
+	ScalabilityStructurePresent bool
+	SpatialScalabilityStructure VP9RTPScalabilityStructure
 }
 
 // RTPPayloadDescriptor returns a non-flexible VP9 RTP descriptor populated
-// from temporal-layer metadata. Picture ID is intentionally left unset so
-// callers can choose their own RTP picture-id policy.
+// from temporal and spatial layer metadata. Picture ID is intentionally left
+// unset so callers can choose their own RTP picture-id policy.
 func (r VP9EncodeResult) RTPPayloadDescriptor() VP9RTPPayloadDescriptor {
 	desc := VP9RTPPayloadDescriptor{
 		InterPicturePredicted: !r.KeyFrame && !r.IntraOnly,
 		StartOfFrame:          true,
 		EndOfFrame:            true,
 	}
-	if r.TemporalLayerCount > 1 {
+	if r.TemporalLayerCount > 1 || r.SpatialLayerCount > 1 ||
+		r.SpatialLayerID != 0 || r.InterLayerDependency {
 		desc.LayerIndicesPresent = true
 		desc.TemporalID = uint8(r.TemporalLayerID)
+		desc.SpatialID = r.SpatialLayerID
 		desc.TL0PICIDX = r.TL0PICIDX
 		desc.SwitchingUpPoint = r.TemporalLayerSync
+		desc.InterLayerDependency = r.InterLayerDependency
+	}
+	desc.NotRefForUpperSpatialLayer = r.NotRefForUpperSpatialLayer
+	if r.ScalabilityStructurePresent {
+		desc.ScalabilityStructurePresent = true
+		desc.ScalabilityStructure = r.SpatialScalabilityStructure
 	}
 	return desc
 }
@@ -303,7 +323,39 @@ const (
 	VP9RefFrameLast   int8 = vp9dec.LastFrame
 	VP9RefFrameGolden int8 = vp9dec.GoldenFrame
 	VP9RefFrameAltRef int8 = vp9dec.AltrefFrame
+
+	// VP9MaxSpatialLayers is the maximum VP9 encoder spatial-layer count
+	// exposed by libvpx's vpx_codec_enc_cfg::ss_number_layers.
+	VP9MaxSpatialLayers = 5
 )
+
+// VP9SpatialScalabilityConfig configures VP9 spatial-SVC layer signaling for
+// packets produced by one VP9Encoder. Use one encoder per coded spatial layer
+// and pack the layer packets into a VP9 superframe when building a complete
+// spatial-SVC access unit.
+type VP9SpatialScalabilityConfig struct {
+	// Enabled turns on spatial layer signaling in VP9EncodeResult and RTP
+	// payload descriptors.
+	Enabled bool
+	// LayerCount is the total number of spatial layers in the stream. Valid
+	// values are 1..VP9MaxSpatialLayers when Enabled is true.
+	LayerCount uint8
+	// LayerID is the spatial layer encoded by this VP9Encoder.
+	LayerID uint8
+	// InterLayerDependency marks this non-base layer as depending on a lower
+	// spatial layer for RTP signaling.
+	InterLayerDependency bool
+	// NotRefForUpperSpatialLayer sets the VP9 RTP N bit for this layer.
+	NotRefForUpperSpatialLayer bool
+	// ResolutionPresent includes the per-layer dimensions below in the VP9 RTP
+	// scalability structure. When true, Width[LayerID] and Height[LayerID] must
+	// match the encoder's configured coded size.
+	ResolutionPresent bool
+	// Width and Height hold per-layer coded dimensions when ResolutionPresent
+	// is true. Entries above LayerCount must be zero.
+	Width  [VP9RTPMaxSpatialLayers]uint16
+	Height [VP9RTPMaxSpatialLayers]uint16
+}
 
 const (
 	vp9ActiveMapSegmentActive   uint8 = 0
@@ -455,7 +507,13 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := rc.applyOptions(opts, vp9TimingStateFromOptions(opts)); err != nil {
 		return nil, err
 	}
+	spatial, err := normalizeVP9SpatialScalabilityConfig(opts.SpatialScalability,
+		opts.Width, opts.Height)
+	if err != nil {
+		return nil, err
+	}
 	opts.TemporalScalability = temporal.config
+	opts.SpatialScalability = spatial
 	e := &VP9Encoder{opts: opts, temporal: temporal, rc: rc}
 	e.twoPass.configure(opts.TwoPassStats, rc.bitsPerFrame,
 		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,
@@ -508,6 +566,10 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if err := validateVP9AutoAltRefOptions(opts); err != nil {
 		return err
 	}
+	if _, err := normalizeVP9SpatialScalabilityConfig(opts.SpatialScalability,
+		opts.Width, opts.Height); err != nil {
+		return err
+	}
 	if opts.LookaheadFrames > 0 {
 		if opts.RateControlModeSet || opts.TemporalScalability.Enabled {
 			return ErrInvalidConfig
@@ -542,6 +604,70 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 		}
 	}
 	return nil
+}
+
+func normalizeVP9SpatialScalabilityConfig(cfg VP9SpatialScalabilityConfig,
+	width, height int,
+) (VP9SpatialScalabilityConfig, error) {
+	if !cfg.Enabled {
+		return VP9SpatialScalabilityConfig{}, nil
+	}
+	if cfg.LayerCount == 0 || cfg.LayerCount > VP9MaxSpatialLayers ||
+		cfg.LayerID >= cfg.LayerCount {
+		return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
+	}
+	if cfg.InterLayerDependency && cfg.LayerID == 0 {
+		return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
+	}
+	if !cfg.ResolutionPresent {
+		for i := 0; i < VP9RTPMaxSpatialLayers; i++ {
+			if cfg.Width[i] != 0 || cfg.Height[i] != 0 {
+				return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
+			}
+		}
+		return cfg, nil
+	}
+	for i := 0; i < int(cfg.LayerCount); i++ {
+		if cfg.Width[i] == 0 || cfg.Height[i] == 0 {
+			return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
+		}
+	}
+	for i := int(cfg.LayerCount); i < VP9RTPMaxSpatialLayers; i++ {
+		if cfg.Width[i] != 0 || cfg.Height[i] != 0 {
+			return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
+		}
+	}
+	if int(cfg.Width[cfg.LayerID]) != width ||
+		int(cfg.Height[cfg.LayerID]) != height {
+		return VP9SpatialScalabilityConfig{}, ErrInvalidConfig
+	}
+	return cfg, nil
+}
+
+func (e *VP9Encoder) vp9SpatialResultFields() (
+	layerID uint8,
+	layerCount uint8,
+	interLayerDependency bool,
+	notRefForUpperSpatialLayer bool,
+	scalabilityStructurePresent bool,
+	scalabilityStructure VP9RTPScalabilityStructure,
+) {
+	cfg := e.opts.SpatialScalability
+	if !cfg.Enabled {
+		return 0, 1, false, false, false, VP9RTPScalabilityStructure{}
+	}
+	if cfg.ResolutionPresent {
+		scalabilityStructurePresent = true
+		scalabilityStructure = VP9RTPScalabilityStructure{
+			SpatialLayerCount: int(cfg.LayerCount),
+			ResolutionPresent: true,
+			Width:             cfg.Width,
+			Height:            cfg.Height,
+		}
+	}
+	return cfg.LayerID, cfg.LayerCount, cfg.InterLayerDependency,
+		cfg.NotRefForUpperSpatialLayer, scalabilityStructurePresent,
+		scalabilityStructure
 }
 
 func validateVP9TileRowOptions(width, height int, log2TileRows int8) error {
@@ -1048,17 +1174,26 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 				})
 			}
 			e.frameIndex++
+			spatialLayerID, spatialLayerCount, interLayerDependency,
+				notRefForUpperSpatialLayer, scalabilityStructurePresent,
+				spatialScalabilityStructure := e.vp9SpatialResultFields()
 			return VP9EncodeResult{
-				Dropped:            true,
-				ShowFrame:          true,
-				TargetBitrateKbps:  e.rc.targetBitrateKbps,
-				FrameTargetBits:    e.rc.frameTargetBits,
-				BufferLevelBits:    e.rc.bufferLevelBits,
-				FirstPassStats:     firstPassStats,
-				TemporalLayerID:    temporalFrame.LayerID,
-				TemporalLayerCount: temporalFrame.LayerCount,
-				TemporalLayerSync:  temporalFrame.LayerSync,
-				TL0PICIDX:          temporalFrame.TL0PICIDX,
+				Dropped:                     true,
+				ShowFrame:                   true,
+				TargetBitrateKbps:           e.rc.targetBitrateKbps,
+				FrameTargetBits:             e.rc.frameTargetBits,
+				BufferLevelBits:             e.rc.bufferLevelBits,
+				FirstPassStats:              firstPassStats,
+				TemporalLayerID:             temporalFrame.LayerID,
+				TemporalLayerCount:          temporalFrame.LayerCount,
+				TemporalLayerSync:           temporalFrame.LayerSync,
+				TL0PICIDX:                   temporalFrame.TL0PICIDX,
+				SpatialLayerID:              spatialLayerID,
+				SpatialLayerCount:           spatialLayerCount,
+				InterLayerDependency:        interLayerDependency,
+				NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
+				ScalabilityStructurePresent: scalabilityStructurePresent,
+				SpatialScalabilityStructure: spatialScalabilityStructure,
 			}, nil
 		}
 	}
@@ -1341,25 +1476,34 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	if isKey {
 		e.forceKeyFrame = false
 	}
+	spatialLayerID, spatialLayerCount, interLayerDependency,
+		notRefForUpperSpatialLayer, scalabilityStructurePresent,
+		spatialScalabilityStructure := e.vp9SpatialResultFields()
 	result = VP9EncodeResult{
-		Data:                   dst[:n],
-		KeyFrame:               isKey,
-		IntraOnly:              intraOnly,
-		ShowFrame:              header.ShowFrame,
-		Droppable:              !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
-		Quantizer:              vp9QIndexToPublicQuantizer(qindex),
-		InternalQuantizer:      qindex,
-		SizeBytes:              n,
-		TargetBitrateKbps:      e.vp9ResultTargetBitrateKbps(),
-		FrameTargetBits:        e.rc.frameTargetBits,
-		BufferLevelBits:        e.rc.bufferLevelBits,
-		RefreshFrameFlags:      header.RefreshFrameFlags,
-		FirstPassStats:         firstPassStats,
-		TwoPassFrameTargetBits: twoPassTargetBits,
-		TemporalLayerID:        temporalFrame.LayerID,
-		TemporalLayerCount:     temporalFrame.LayerCount,
-		TemporalLayerSync:      temporalFrame.LayerSync,
-		TL0PICIDX:              temporalFrame.TL0PICIDX,
+		Data:                        dst[:n],
+		KeyFrame:                    isKey,
+		IntraOnly:                   intraOnly,
+		ShowFrame:                   header.ShowFrame,
+		Droppable:                   !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
+		Quantizer:                   vp9QIndexToPublicQuantizer(qindex),
+		InternalQuantizer:           qindex,
+		SizeBytes:                   n,
+		TargetBitrateKbps:           e.vp9ResultTargetBitrateKbps(),
+		FrameTargetBits:             e.rc.frameTargetBits,
+		BufferLevelBits:             e.rc.bufferLevelBits,
+		RefreshFrameFlags:           header.RefreshFrameFlags,
+		FirstPassStats:              firstPassStats,
+		TwoPassFrameTargetBits:      twoPassTargetBits,
+		TemporalLayerID:             temporalFrame.LayerID,
+		TemporalLayerCount:          temporalFrame.LayerCount,
+		TemporalLayerSync:           temporalFrame.LayerSync,
+		TL0PICIDX:                   temporalFrame.TL0PICIDX,
+		SpatialLayerID:              spatialLayerID,
+		SpatialLayerCount:           spatialLayerCount,
+		InterLayerDependency:        interLayerDependency,
+		NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
+		ScalabilityStructurePresent: scalabilityStructurePresent,
+		SpatialScalabilityStructure: spatialScalabilityStructure,
 	}
 	if result.TemporalLayerCount == 0 {
 		result.TemporalLayerCount = 1

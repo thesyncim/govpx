@@ -34,6 +34,7 @@ func TestNewVP9DecoderZeroValueOptions(t *testing.T) {
 func TestNewVP9DecoderRejectsBadOptions(t *testing.T) {
 	cases := []VP9DecoderOptions{
 		{Threads: -1},
+		{SVCSpatialLayerSet: true, SVCSpatialLayer: uint8(VP9RTPMaxSpatialLayers)},
 		{MaxWidth: -1},
 		{MaxHeight: -1},
 	}
@@ -140,6 +141,113 @@ func TestVP9SuperframeIndexRejectsSizeMismatch(t *testing.T) {
 
 	if _, err := vp9ParseSuperframe(bad); !errors.Is(err, ErrInvalidVP9Data) {
 		t.Fatalf("vp9ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+	}
+}
+
+func TestVP9DecoderSVCSpatialLayerSelectsSuperframePrefix(t *testing.T) {
+	packet := vp9SVCStyleSuperframeForTest(t)
+
+	all, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder all: %v", err)
+	}
+	if err := all.DecodeWithPTS(packet, 10); err != nil {
+		t.Fatalf("Decode all layers: %v", err)
+	}
+	info, ok := all.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo all layers returned !ok")
+	}
+	if info.Width != 64 || info.Height != 64 || info.PTS != 10 {
+		t.Fatalf("all-layers info = %+v, want top 64x64 layer", info)
+	}
+
+	base, err := NewVP9Decoder(VP9DecoderOptions{
+		SVCSpatialLayerSet: true,
+		SVCSpatialLayer:    0,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder base: %v", err)
+	}
+	if err := base.DecodeWithPTS(packet, 11); err != nil {
+		t.Fatalf("Decode base layer: %v", err)
+	}
+	info, ok = base.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo base layer returned !ok")
+	}
+	if info.Width != 32 || info.Height != 32 || info.PTS != 11 {
+		t.Fatalf("base-layer info = %+v, want 32x32 layer", info)
+	}
+	img, ok := base.NextFrame()
+	if !ok {
+		t.Fatal("base layer NextFrame returned !ok")
+	}
+	if img.Width != 32 || img.Height != 32 {
+		t.Fatalf("base layer image = %dx%d, want 32x32", img.Width, img.Height)
+	}
+
+	dst := newTestImage(32, 32)
+	into, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder into: %v", err)
+	}
+	if err := into.SetSVCSpatialLayer(0); err != nil {
+		t.Fatalf("SetSVCSpatialLayer(0): %v", err)
+	}
+	info, err = into.DecodeIntoWithPTS(packet, &dst, 12)
+	if err != nil {
+		t.Fatalf("DecodeInto base layer: %v", err)
+	}
+	if info.Width != 32 || info.Height != 32 || info.PTS != 12 {
+		t.Fatalf("DecodeInto base-layer info = %+v, want 32x32", info)
+	}
+	if err := into.SetSVCSpatialLayer(1); err != nil {
+		t.Fatalf("SetSVCSpatialLayer(1): %v", err)
+	}
+	dst = newTestImage(64, 64)
+	info, err = into.DecodeIntoWithPTS(packet, &dst, 13)
+	if err != nil {
+		t.Fatalf("DecodeInto top layer: %v", err)
+	}
+	if info.Width != 64 || info.Height != 64 || info.PTS != 13 {
+		t.Fatalf("DecodeInto top-layer info = %+v, want 64x64", info)
+	}
+	if err := into.ClearSVCSpatialLayer(); err != nil {
+		t.Fatalf("ClearSVCSpatialLayer: %v", err)
+	}
+	info, err = into.DecodeIntoWithPTS(packet, &dst, 14)
+	if err != nil {
+		t.Fatalf("DecodeInto cleared layer filter: %v", err)
+	}
+	if info.Width != 64 || info.Height != 64 || info.PTS != 14 {
+		t.Fatalf("DecodeInto cleared info = %+v, want 64x64", info)
+	}
+}
+
+func TestVP9DecoderSVCSpatialLayerControlValidation(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.SetSVCSpatialLayer(uint8(VP9RTPMaxSpatialLayers)); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetSVCSpatialLayer invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := d.SetSVCSpatialLayer(0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetSVCSpatialLayer closed err = %v, want ErrClosed", err)
+	}
+	if err := d.ClearSVCSpatialLayer(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("ClearSVCSpatialLayer closed err = %v, want ErrClosed", err)
+	}
+	var nilDecoder *VP9Decoder
+	if err := nilDecoder.SetSVCSpatialLayer(0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetSVCSpatialLayer nil err = %v, want ErrClosed", err)
+	}
+	if err := nilDecoder.ClearSVCSpatialLayer(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("ClearSVCSpatialLayer nil err = %v, want ErrClosed", err)
 	}
 }
 
@@ -6742,6 +6850,39 @@ func vp9SuperframePacketForTest(frames ...[]byte) []byte {
 		panic(err)
 	}
 	return packet
+}
+
+func vp9SVCStyleSuperframeForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9SuperframePacketForTest(
+		vp9EncodedKeyframeForTest(t, 32, 32, 80),
+		vp9EncodedKeyframeForTest(t, 64, 64, 160),
+	)
+}
+
+func vp9EncodedKeyframeForTest(t *testing.T, width, height int, y byte) []byte {
+	t.Helper()
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:     width,
+		Height:    height,
+		Quantizer: 37,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder %dx%d: %v", width, height, err)
+	}
+	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize %dx%d: %v", width, height, err)
+	}
+	dst := make([]byte, dstSize)
+	result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height, y, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult %dx%d: %v", width, height, err)
+	}
+	if !result.KeyFrame || !result.ShowFrame || len(result.Data) == 0 {
+		t.Fatalf("encoded test frame result = %+v, want visible keyframe", result)
+	}
+	return append([]byte(nil), result.Data...)
 }
 
 // TestVP9DecoderClose marks the decoder as closed; subsequent Decode

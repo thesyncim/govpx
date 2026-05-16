@@ -3869,12 +3869,13 @@ func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
 	cases := []struct {
-		name string
-		mode TemporalLayeringMode
+		name        string
+		mode        TemporalLayeringMode
+		exactPrefix int
 	}{
-		{name: "two-layer", mode: TemporalLayeringTwoLayers},
-		{name: "three-layer-default", mode: TemporalLayeringThreeLayers},
-		{name: "three-layer-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction},
+		{name: "two-layer", mode: TemporalLayeringTwoLayers, exactPrefix: 1},
+		{name: "three-layer-default", mode: TemporalLayeringThreeLayers, exactPrefix: 1},
+		{name: "three-layer-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction, exactPrefix: 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -3893,10 +3894,15 @@ func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 				opts, sources, flags, extraArgs)
 			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
 				libvpxPackets)
-			t.Logf("VP9 temporal byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d",
-				tc.name, matches, len(govpxPackets), firstMismatch)
+			t.Logf("VP9 temporal byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
+				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
 			t.Logf("VP9 temporal byte-parity rows %s:\n%s", tc.name,
 				formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+			for frame := 0; frame < tc.exactPrefix; frame++ {
+				assertVP9PacketByteParity(t,
+					fmt.Sprintf("%s frame %d", tc.name, frame),
+					govpxPackets[frame], libvpxPackets[frame])
+			}
 			if os.Getenv("GOVPX_VP9_TEMPORAL_BYTE_STRICT") == "1" &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 temporal byte parity %s: matches=%d/%d",

@@ -26,6 +26,15 @@ type VP9DecoderOptions struct {
 	// libvpx order.
 	Threads int
 
+	// SVCSpatialLayerSet enables libvpx-style VP9 spatial-SVC superframe
+	// filtering. When set, Decode decodes only frames 0..SVCSpatialLayer from a
+	// VP9 superframe, matching VP9_DECODE_SVC_SPATIAL_LAYER. Zero leaves
+	// superframes fully decoded.
+	SVCSpatialLayerSet bool
+	// SVCSpatialLayer is the highest VP9 spatial layer decoded from a
+	// superframe when SVCSpatialLayerSet is true. Valid values are 0..7.
+	SVCSpatialLayer uint8
+
 	// MaxWidth and MaxHeight cap the accepted frame dimensions.
 	// Zero means no cap.
 	MaxWidth  int
@@ -219,9 +228,38 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 	if opts.Threads < 0 {
 		return ErrInvalidConfig
 	}
+	if opts.SVCSpatialLayerSet && opts.SVCSpatialLayer >= VP9RTPMaxSpatialLayers {
+		return ErrInvalidConfig
+	}
 	if opts.MaxWidth < 0 || opts.MaxHeight < 0 {
 		return ErrInvalidConfig
 	}
+	return nil
+}
+
+// SetSVCSpatialLayer enables libvpx-style VP9 spatial-SVC superframe
+// filtering. Subsequent Decode calls decode only frames 0..layer from a VP9
+// superframe, matching VP9_DECODE_SVC_SPATIAL_LAYER.
+func (d *VP9Decoder) SetSVCSpatialLayer(layer uint8) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if layer >= VP9RTPMaxSpatialLayers {
+		return ErrInvalidConfig
+	}
+	d.opts.SVCSpatialLayerSet = true
+	d.opts.SVCSpatialLayer = layer
+	return nil
+}
+
+// ClearSVCSpatialLayer disables VP9 spatial-SVC superframe filtering so
+// subsequent Decode calls decode every frame listed in a VP9 superframe.
+func (d *VP9Decoder) ClearSVCSpatialLayer() error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	d.opts.SVCSpatialLayerSet = false
+	d.opts.SVCSpatialLayer = 0
 	return nil
 }
 
@@ -253,12 +291,24 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if sf.count == 0 {
 		return d.decodeVP9FrameWithPTS(packet, pts)
 	}
-	for i := 0; i < sf.count; i++ {
+	frameCount := d.vp9SVCFrameCount(sf.count)
+	for i := 0; i < frameCount; i++ {
 		if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (d *VP9Decoder) vp9SVCFrameCount(frameCount int) int {
+	if !d.opts.SVCSpatialLayerSet {
+		return frameCount
+	}
+	limit := int(d.opts.SVCSpatialLayer) + 1
+	if limit < frameCount {
+		return limit
+	}
+	return frameCount
 }
 
 func (d *VP9Decoder) decodeVP9FrameWithPTS(packet []byte, pts uint64) error {
@@ -438,7 +488,8 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 		return VP9FrameInfo{}, err
 	}
 	if sf.count != 0 {
-		for i := 0; i < sf.count; i++ {
+		frameCount := d.vp9SVCFrameCount(sf.count)
+		for i := 0; i < frameCount; i++ {
 			if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
 				return VP9FrameInfo{}, err
 			}

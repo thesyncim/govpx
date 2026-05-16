@@ -181,6 +181,8 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetRealtimeTarget":           {kind: "libvpx-config", helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
 		"SetReferenceFrame":           {kind: "libvpx-control", helperTokens: []string{"setref:"}},
 		"SetROIMap":                   {kind: "libvpx-control", helperTokens: []string{"roi:", "roicustom:"}},
+		"SetSpatialLayerID":           {kind: "libvpx-vp9-svc-layer-control"},
+		"SetSpatialScalability":       {kind: "libvpx-vp9-svc-control"},
 		"SetTemporalLayerID":          {kind: "libvpx-control", helperTokens: []string{"tlid:"}},
 		"SetTemporalScalability":      {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
 		"SetTuning":                   {kind: "libvpx-control", helperTokens: []string{"tune:"}},
@@ -223,6 +225,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"RateControlMode":     {kind: "libvpx-config", helperTokens: []string{"endusage:", "--end-usage"}},
 		"RateControlModeSet":  {kind: "local-default-selector"},
 		"Segmentation":        {kind: "vp9-segmentation-header-api"},
+		"SpatialScalability":  {kind: "libvpx-vp9-svc-control"},
 		"TargetBitrateKbps":   {kind: "libvpx-config", helperTokens: []string{"bitrate:", "--target-bitrate"}},
 		"TemporalScalability": {kind: "libvpx-config", helperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
 		"Threads":             {kind: "libvpx-config", helperTokens: []string{"--tile-columns"}},
@@ -242,18 +245,33 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 	methods := exportedMethodSet(t, (*VP9Decoder)(nil))
 	want := map[string]controlParityMapping{
-		"Close":             {kind: "lifecycle"},
-		"Codec":             {kind: "metadata-api"},
-		"Decode":            {kind: "libvpx-decode-oracle"},
-		"DecodeInto":        {kind: "libvpx-decode-oracle"},
-		"DecodeIntoWithPTS": {kind: "local-pts-wrapper"},
-		"DecodeWithPTS":     {kind: "local-pts-wrapper"},
-		"LastFrameInfo":     {kind: "metadata-api"},
-		"LastFrameSize":     {kind: "metadata-api"},
-		"NextFrame":         {kind: "decode-api"},
-		"Reset":             {kind: "lifecycle"},
+		"ClearSVCSpatialLayer": {kind: "libvpx-decoder-control"},
+		"Close":                {kind: "lifecycle"},
+		"Codec":                {kind: "metadata-api"},
+		"Decode":               {kind: "libvpx-decode-oracle"},
+		"DecodeInto":           {kind: "libvpx-decode-oracle"},
+		"DecodeIntoWithPTS":    {kind: "local-pts-wrapper"},
+		"DecodeWithPTS":        {kind: "local-pts-wrapper"},
+		"LastFrameInfo":        {kind: "metadata-api"},
+		"LastFrameSize":        {kind: "metadata-api"},
+		"NextFrame":            {kind: "decode-api"},
+		"Reset":                {kind: "lifecycle"},
+		"SetSVCSpatialLayer":   {kind: "libvpx-decoder-control"},
 	}
 	assertPublicMethodMappings(t, "VP9Decoder", methods, want)
+}
+
+func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
+	fields := exportedFieldSet(t, VP9DecoderOptions{})
+	want := map[string]controlParityMapping{
+		"MaxHeight":              {kind: "local-validation"},
+		"MaxWidth":               {kind: "local-validation"},
+		"RejectResolutionChange": {kind: "local-validation"},
+		"SVCSpatialLayer":        {kind: "libvpx-decoder-control"},
+		"SVCSpatialLayerSet":     {kind: "libvpx-decoder-control"},
+		"Threads":                {kind: "libvpx-decode-oracle"},
+	}
+	assertOptionFieldMappings(t, "VP9DecoderOptions", fields, want)
 }
 
 type controlParityMapping struct {
