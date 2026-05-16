@@ -85,11 +85,11 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity oracle-test byte-parity decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity oracle-test byte-parity decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
-ci: fmtcheck pgo-check test test-purego
+ci: fmtcheck pgo-check test test-purego vp9-decoder-conformance
 
 fmtcheck:
 	files="$$($(GOFMT) -l $$($(GIT) ls-files '*.go'))"; \
@@ -123,6 +123,22 @@ test-purego:
 		exit 1; \
 	fi
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test -tags purego ./... -count=1
+
+vp9-decoder-conformance: vp9-vpxdec-tools fetch-vp9-test-data
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	GOVPX_VPXDEC_VP9_BIN="$(VPXDEC_VP9)" \
+	GOVPX_VP9_TEST_DATA_PATH="$(VP9_TEST_DATA_DIR)" \
+	GOVPX_VP9_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_TEST_DATA_MIN="$(VP9_DECODER_IVF_MIN)" \
+	GOVPX_VP9_TEST_DATA_STRICT=1 \
+	GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN="$(VP9_DECODER_PROFILE0_WEBM_MIN)" \
+	GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_PROFILE_TEST_DATA_MIN="$(VP9_DECODER_PROFILE_WEBM_MIN)" \
+	GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_INVALID_TEST_DATA_MIN="$(VP9_INVALID_IVF_MIN)" \
+	$(GO) test . -run 'TestVP9Decoder(Official(IVFTestDataMatchesLibvpx|Profile0WebMTestDataMatchesLibvpx|ProfileWebMTestDataReturnsUnsupported|InvalidIVFTestDataRejectedLikeLibvpx)|ThreadingOfficial(IVFMatchesSerial|Profile0WebMMatchesSerial|Profile0TileColumnsUseWorkers))$$' -count=1 -timeout 10m
 
 pgo-refresh:
 	mkdir -p .pgo

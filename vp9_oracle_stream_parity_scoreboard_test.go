@@ -2163,6 +2163,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,roi:border1,-,-,-,-,-,roi:off,-,-"),
 			exactPrefix: 1,
+			exactFrames: []int{7, 8, 9},
 		},
 		{
 			name: "active-roi-combined-toggle",
@@ -2186,6 +2187,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,active:checker+roi:border1,-,-,-,-,-,active:off+roi:off,-,-"),
 			exactPrefix: 1,
+			exactFrames: []int{7, 8, 9},
 		},
 		{
 			name: "noise-sensitivity-toggle",
