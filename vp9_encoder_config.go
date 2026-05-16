@@ -532,6 +532,84 @@ func (e *VP9Encoder) SetRTCExternalRateControl(enabled bool) error {
 	return nil
 }
 
+// SetColorSpace mirrors libvpx's VP9E_SET_COLOR_SPACE control. The
+// value tags the bitstream's color space in the keyframe / intra-only
+// uncompressed header. Profile-0 streams cannot carry SRGB.
+func (e *VP9Encoder) SetColorSpace(cs VP9ColorSpace) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if cs > VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	if cs == VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	e.opts.ColorSpace = cs
+	return nil
+}
+
+// SetColorRange mirrors libvpx's VP9E_SET_COLOR_RANGE control. The
+// 1-bit color_range tag follows the color space in the uncompressed
+// header on keyframes (and profile>0 intra-only frames).
+func (e *VP9Encoder) SetColorRange(cr VP9ColorRange) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if cr > VP9ColorRangeFull {
+		return ErrInvalidConfig
+	}
+	e.opts.ColorRange = cr
+	return nil
+}
+
+// SetRenderSize mirrors libvpx's VP9E_SET_RENDER_SIZE control. The
+// caller passes the desired display (width, height); passing (0, 0)
+// clears the hint and the bitstream emits render_and_frame_size
+// _different=0 so the decoder inherits the coded dimensions.
+func (e *VP9Encoder) SetRenderSize(width, height int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9RenderSizeOptions(VP9EncoderOptions{
+		RenderWidth:  width,
+		RenderHeight: height,
+	}); err != nil {
+		return err
+	}
+	e.opts.RenderWidth = width
+	e.opts.RenderHeight = height
+	return nil
+}
+
+// SetTargetLevel mirrors libvpx's VP9E_SET_TARGET_LEVEL control. level
+// must be one of the canonical VP9 level codes (10, 11, 20, 21, 30, 31,
+// 40, 41, 50, 51, 52, 60, 61, 62), or 255 (no constraint) or 0 (auto).
+func (e *VP9Encoder) SetTargetLevel(level int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateVP9TargetLevel(level); err != nil {
+		return err
+	}
+	e.opts.TargetLevel = level
+	return nil
+}
+
+// SetDisableLoopfilter mirrors libvpx's VP9E_SET_DISABLE_LOOPFILTER
+// control. mode 0 leaves the in-loop filter enabled; mode 1 disables
+// it for non-keyframes; mode 2 disables it on every frame.
+func (e *VP9Encoder) SetDisableLoopfilter(mode VP9DisableLoopfilter) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if mode > VP9LoopfilterDisableAll {
+		return ErrInvalidConfig
+	}
+	e.opts.DisableLoopfilter = mode
+	return nil
+}
+
 // SetDeltaQUV mirrors libvpx's VP9E_SET_DELTA_Q_UV control. delta must be
 // in [-15, 15]; non-zero values disable Profile 0 lossless even at
 // base_qindex == 0. Forwards to [VP9EncoderOptions.DeltaQUV].

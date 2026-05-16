@@ -187,7 +187,7 @@ func writeFrameSizeWithRefs(w *BitWriter, h *vp9dec.UncompressedHeader,
 		w.WriteLiteral(h.Width-1, 16)
 		w.WriteLiteral(h.Height-1, 16)
 	}
-	w.WriteBit(0) // render_flag = 0
+	writeRenderSize(w, h)
 }
 
 // writeInterpFilter mirrors write_interp_filter. Bit 0 = "switchable";
@@ -323,12 +323,29 @@ func writeBitdepthColorspaceSampling(w *BitWriter, h *vp9dec.UncompressedHeader)
 }
 
 // writeFrameSize mirrors libvpx's write_frame_size: 16-bit width-1,
-// 16-bit height-1, then render_flag=0.
+// 16-bit height-1, then the render_and_frame_size_different bit. When
+// h.Render differs from the coded (Width, Height), the bit is set and
+// the writer emits the 32-bit (render_width-1, render_height-1) field
+// that follows. Zero / matching values keep the render bit at 0 and
+// reuse the coded dimensions on the decoder side.
 func writeFrameSize(w *BitWriter, h *vp9dec.UncompressedHeader) {
 	w.WriteLiteral(h.Width-1, 16)
 	w.WriteLiteral(h.Height-1, 16)
-	// render_flag = 0; no per-frame render size.
-	w.WriteBit(0)
+	writeRenderSize(w, h)
+}
+
+// writeRenderSize mirrors libvpx's write_render_size — write a single
+// "render_and_frame_size_different" bit, optionally followed by the
+// 32-bit (width-1, height-1) literal.
+func writeRenderSize(w *BitWriter, h *vp9dec.UncompressedHeader) {
+	rw, rh := h.Render.Width, h.Render.Height
+	if rw == 0 || rh == 0 || (rw == h.Width && rh == h.Height) {
+		w.WriteBit(0)
+		return
+	}
+	w.WriteBit(1)
+	w.WriteLiteral(rw-1, 16)
+	w.WriteLiteral(rh-1, 16)
 }
 
 // encodeLoopfilter mirrors the reset-state path through libvpx's

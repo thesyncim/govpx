@@ -855,6 +855,37 @@ static void apply_vp9_runtime_control_token(
                           control_value_int(token, "deltaquv:"))) {
       die_codec_msg(ctx->ctx, "runtime VP9E_SET_DELTA_Q_UV");
     }
+  } else if (starts_with(token, "colorspace:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_COLOR_SPACE,
+                          (unsigned)control_value_int(token, "colorspace:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_COLOR_SPACE");
+    }
+  } else if (starts_with(token, "colorrange:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_COLOR_RANGE,
+                          (unsigned)control_value_int(token, "colorrange:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_COLOR_RANGE");
+    }
+  } else if (starts_with(token, "rendersize:")) {
+    int dims[2] = {0, 0};
+    if (parse_slash_ints(token + strlen("rendersize:"), dims, 2, "rendersize") !=
+        2) {
+      die_msg("rendersize: token must be width/height");
+    }
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_RENDER_SIZE, dims)) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_RENDER_SIZE");
+    }
+  } else if (starts_with(token, "targetlevel:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_TARGET_LEVEL,
+                          (unsigned)control_value_int(token,
+                                                      "targetlevel:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_TARGET_LEVEL");
+    }
+  } else if (starts_with(token, "disableloopfilter:")) {
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_DISABLE_LOOPFILTER,
+                          (unsigned)control_value_int(token,
+                                                      "disableloopfilter:"))) {
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_DISABLE_LOOPFILTER");
+    }
   } else if (starts_with(token, "maxinter:")) {
     if (vpx_codec_control(ctx->ctx, VP9E_SET_MAX_INTER_BITRATE_PCT,
                           (unsigned)control_value_int(token, "maxinter:"))) {
@@ -1142,6 +1173,12 @@ int main(int argc, char **argv) {
   int alt_ref_aq = -1;
   int postencode_drop = -1;
   int disable_overshoot_maxq_cbr = -1;
+  int color_space = -1;
+  int color_range = -1;
+  int render_width = 0;
+  int render_height = 0;
+  int target_level = -1;
+  int disable_loopfilter = -1;
   enum vpx_rc_mode end_usage = VPX_Q;
 
   for (int i = 1; i < argc; ++i) {
@@ -1224,6 +1261,18 @@ int main(int argc, char **argv) {
     } else if ((v = flag_value(a, "--disable-overshoot-maxq-cbr"))) {
       disable_overshoot_maxq_cbr =
           parse_int(v, "--disable-overshoot-maxq-cbr");
+    } else if ((v = flag_value(a, "--color-space"))) {
+      color_space = parse_int(v, "--color-space");
+    } else if ((v = flag_value(a, "--color-range"))) {
+      color_range = parse_int(v, "--color-range");
+    } else if ((v = flag_value(a, "--render-width"))) {
+      render_width = parse_int(v, "--render-width");
+    } else if ((v = flag_value(a, "--render-height"))) {
+      render_height = parse_int(v, "--render-height");
+    } else if ((v = flag_value(a, "--target-level"))) {
+      target_level = parse_int(v, "--target-level");
+    } else if ((v = flag_value(a, "--disable-loopfilter"))) {
+      disable_loopfilter = parse_int(v, "--disable-loopfilter");
     } else if ((v = flag_value(a, "--error-resilient"))) {
       error_resilient = parse_int(v, "--error-resilient");
     } else if ((v = flag_value(a, "--lag-in-frames"))) {
@@ -1488,6 +1537,24 @@ int main(int argc, char **argv) {
       vpx_codec_control(&ctx, VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR,
                         (unsigned)disable_overshoot_maxq_cbr))
     die_codec_msg(&ctx, "VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR");
+  if (color_space >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_COLOR_SPACE, (unsigned)color_space))
+    die_codec_msg(&ctx, "VP9E_SET_COLOR_SPACE");
+  if (color_range >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_COLOR_RANGE, (unsigned)color_range))
+    die_codec_msg(&ctx, "VP9E_SET_COLOR_RANGE");
+  if (render_width > 0 && render_height > 0) {
+    int dims[2] = {render_width, render_height};
+    if (vpx_codec_control(&ctx, VP9E_SET_RENDER_SIZE, dims))
+      die_codec_msg(&ctx, "VP9E_SET_RENDER_SIZE");
+  }
+  if (target_level >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_TARGET_LEVEL, (unsigned)target_level))
+    die_codec_msg(&ctx, "VP9E_SET_TARGET_LEVEL");
+  if (disable_loopfilter >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_DISABLE_LOOPFILTER,
+                        (unsigned)disable_loopfilter))
+    die_codec_msg(&ctx, "VP9E_SET_DISABLE_LOOPFILTER");
 
   vpx_image_t img;
   if (!vpx_img_alloc(&img, VPX_IMG_FMT_I420, (unsigned)width,

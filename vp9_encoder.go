@@ -71,6 +71,55 @@ func vp9CoefUpdateModeForFrame(isKey bool) encoder.CoefUpdateMode {
 	return encoder.CoefUpdateOneLoopReduced
 }
 
+// VP9ColorSpace mirrors libvpx's vpx_color_space_t — the 3-bit color
+// space tag carried in the uncompressed header on keyframes and
+// profile>0 intra-only frames.
+type VP9ColorSpace uint8
+
+const (
+	// VP9ColorSpaceUnknown indicates the color space is not signalled.
+	VP9ColorSpaceUnknown VP9ColorSpace = 0
+	// VP9ColorSpaceBT601 selects ITU-R BT.601.
+	VP9ColorSpaceBT601 VP9ColorSpace = 1
+	// VP9ColorSpaceBT709 selects ITU-R BT.709.
+	VP9ColorSpaceBT709 VP9ColorSpace = 2
+	// VP9ColorSpaceSMPTE170 selects SMPTE-170 (matches BT.601 in practice).
+	VP9ColorSpaceSMPTE170 VP9ColorSpace = 3
+	// VP9ColorSpaceSMPTE240 selects SMPTE-240.
+	VP9ColorSpaceSMPTE240 VP9ColorSpace = 4
+	// VP9ColorSpaceBT2020 selects ITU-R BT.2020.
+	VP9ColorSpaceBT2020 VP9ColorSpace = 5
+	// VP9ColorSpaceReserved is the reserved value (6).
+	VP9ColorSpaceReserved VP9ColorSpace = 6
+	// VP9ColorSpaceSRGB selects sRGB. Only legal on profiles 1 and 3
+	// (4:4:4 sampling required); rejected on profile 0 streams.
+	VP9ColorSpaceSRGB VP9ColorSpace = 7
+)
+
+// VP9ColorRange mirrors libvpx's vpx_color_range_t — the 1-bit color
+// range tag carried alongside the color space.
+type VP9ColorRange uint8
+
+const (
+	// VP9ColorRangeStudio selects the studio (limited) range.
+	VP9ColorRangeStudio VP9ColorRange = 0
+	// VP9ColorRangeFull selects the full (PC) range.
+	VP9ColorRangeFull VP9ColorRange = 1
+)
+
+// VP9DisableLoopfilter selects whether the in-loop deblock filter is
+// suppressed. Mirrors libvpx's VP9E_SET_DISABLE_LOOPFILTER control.
+type VP9DisableLoopfilter uint8
+
+const (
+	// VP9LoopfilterEnabled leaves the in-loop filter active.
+	VP9LoopfilterEnabled VP9DisableLoopfilter = 0
+	// VP9LoopfilterDisableInter disables the filter on non-keyframes only.
+	VP9LoopfilterDisableInter VP9DisableLoopfilter = 1
+	// VP9LoopfilterDisableAll disables the filter on every frame.
+	VP9LoopfilterDisableAll VP9DisableLoopfilter = 2
+)
+
 // VP9EncoderOptions configures a VP9 profile 0 encoder.
 type VP9EncoderOptions struct {
 	// Width and Height are the fixed visible dimensions accepted by
@@ -309,6 +358,47 @@ type VP9EncoderOptions struct {
 	// even at base_qindex == 0. Zero leaves the chroma quantizer matched
 	// to luma.
 	DeltaQUV int
+
+	// ColorSpace tags the bitstream color space in the keyframe and
+	// profile>0 intra-only uncompressed header (3-bit color_space field).
+	// Mirrors libvpx's VP9E_SET_COLOR_SPACE control. Valid values are
+	// VP9ColorSpaceUnknown..VP9ColorSpaceSRGB (0..7). Profile-0 streams
+	// cannot carry SRGB because SRGB mandates 4:4:4 chroma sampling.
+	ColorSpace VP9ColorSpace
+
+	// ColorRange tags the bitstream color range in the same keyframe /
+	// intra-only block (1-bit color_range field). Mirrors libvpx's
+	// VP9E_SET_COLOR_RANGE control. Only emitted when ColorSpace is not
+	// SRGB (SRGB implies full range and skips the bit).
+	ColorRange VP9ColorRange
+
+	// RenderWidth and RenderHeight tag the display-render dimensions in
+	// the keyframe and intra-only uncompressed header. Mirrors libvpx's
+	// VP9E_SET_RENDER_SIZE control. When both are zero (or when they
+	// equal Width/Height), the bitstream emits render_and_frame_size
+	// _different=0 and inherits the coded dimensions. Otherwise both
+	// must be positive and in [1, 65536]; the values are encoded as
+	// 16-bit (width-1, height-1) literals.
+	RenderWidth  int
+	RenderHeight int
+
+	// TargetLevel constrains encode decisions to respect a specific VP9
+	// level's macroblock-rate, picture-size, bitrate, and decoder-model
+	// limits. Mirrors libvpx's VP9E_SET_TARGET_LEVEL control. Valid
+	// values are 255 (unconstrained, the default), 0 (auto), and the
+	// canonical level codes 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52,
+	// 60, 61, 62 (Level N.M encoded as 10*N + M). The current port only
+	// accepts and stores the value; level-aware encode decisions are not
+	// yet wired.
+	TargetLevel int
+
+	// DisableLoopfilter suppresses the in-loop deblock filter. Mirrors
+	// libvpx's VP9E_SET_DISABLE_LOOPFILTER control. Mode 0 leaves the
+	// filter enabled; mode 1 disables it for non-keyframes only; mode 2
+	// disables it on every frame. When disabled, the encoder writes
+	// filter_level=0 in the uncompressed header so the existing
+	// loop-filter pipeline becomes a no-op.
+	DisableLoopfilter VP9DisableLoopfilter
 
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
@@ -758,6 +848,18 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.Lossless && opts.DeltaQUV != 0 {
 		return ErrInvalidQuantizer
 	}
+	if err := validateVP9ColorOptions(opts); err != nil {
+		return err
+	}
+	if err := validateVP9RenderSizeOptions(opts); err != nil {
+		return err
+	}
+	if err := validateVP9TargetLevel(opts.TargetLevel); err != nil {
+		return err
+	}
+	if opts.DisableLoopfilter > VP9LoopfilterDisableAll {
+		return ErrInvalidConfig
+	}
 	if _, err := normalizeVP9SpatialScalabilityConfig(opts.SpatialScalability,
 		opts.Width, opts.Height); err != nil {
 		return err
@@ -860,6 +962,87 @@ func (e *VP9Encoder) vp9SpatialResultFields() (
 	return cfg.LayerID, cfg.LayerCount, cfg.InterLayerDependency,
 		cfg.NotRefForUpperSpatialLayer, scalabilityStructurePresent,
 		scalabilityStructure
+}
+
+// validateVP9ColorOptions rejects out-of-range ColorSpace/ColorRange
+// values and the Profile 0 / SRGB combination libvpx rejects.
+func validateVP9ColorOptions(opts VP9EncoderOptions) error {
+	if opts.ColorSpace > VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	if opts.ColorRange > VP9ColorRangeFull {
+		return ErrInvalidConfig
+	}
+	// Profile 0 streams use 4:2:0 chroma; SRGB requires 4:4:4 sampling
+	// (allowed only on profiles 1 and 3) so the writer would emit a
+	// stream the decoder rejects.
+	if opts.ColorSpace == VP9ColorSpaceSRGB {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// validateVP9RenderSizeOptions enforces the (0,0)-or-(positive,positive)
+// shape of RenderWidth/RenderHeight and caps each at the 16-bit field
+// width libvpx writes.
+func validateVP9RenderSizeOptions(opts VP9EncoderOptions) error {
+	w := opts.RenderWidth
+	h := opts.RenderHeight
+	if w == 0 && h == 0 {
+		return nil
+	}
+	if w <= 0 || h <= 0 {
+		return ErrInvalidConfig
+	}
+	if w > (1 << 16) || h > (1 << 16) {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// vp9ValidTargetLevels lists the canonical VP9 level codes libvpx
+// accepts. 255 disables the constraint, 0 selects auto, and the
+// remainder are level N.M encoded as 10*N + M.
+var vp9ValidTargetLevels = [...]int{
+	0, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 255,
+}
+
+// validateVP9TargetLevel mirrors libvpx's ctrl_set_target_level value
+// check.
+func validateVP9TargetLevel(level int) error {
+	for _, v := range vp9ValidTargetLevels {
+		if level == v {
+			return nil
+		}
+	}
+	return ErrInvalidConfig
+}
+
+// vp9DisableLoopfilterForFrame reports whether the loop filter should
+// be suppressed for the given frame, mirroring libvpx's
+// VP9E_SET_DISABLE_LOOPFILTER semantics: mode 1 disables the filter
+// on every non-keyframe; mode 2 disables it on every frame.
+func vp9DisableLoopfilterForFrame(mode VP9DisableLoopfilter, isKey bool) bool {
+	switch mode {
+	case VP9LoopfilterDisableAll:
+		return true
+	case VP9LoopfilterDisableInter:
+		return !isKey
+	default:
+		return false
+	}
+}
+
+// vp9CommonColorSpace maps the public VP9ColorSpace enum onto the
+// shared internal/vp9/common ColorSpace identifier.
+func vp9CommonColorSpace(c VP9ColorSpace) common.ColorSpace {
+	return common.ColorSpace(c)
+}
+
+// vp9CommonColorRange maps the public VP9ColorRange enum onto the
+// shared internal/vp9/common ColorRange identifier.
+func vp9CommonColorRange(c VP9ColorRange) common.ColorRange {
+	return common.ColorRange(c)
 }
 
 func validateVP9TileRowOptions(width, height int, log2TileRows int8) error {
@@ -1653,9 +1836,17 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		FrameContextIdx:       0,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
 			BitDepth:   vp9dec.Bits8,
-			ColorSpace: common.CSUnknown,
-			ColorRange: common.CRStudioRange,
+			ColorSpace: vp9CommonColorSpace(e.opts.ColorSpace),
+			ColorRange: vp9CommonColorRange(e.opts.ColorRange),
 		},
+	}
+	if rw, rh := e.opts.RenderWidth, e.opts.RenderHeight; rw > 0 && rh > 0 {
+		header.Render = vp9dec.RenderSize{
+			Width:  uint32(rw),
+			Height: uint32(rh),
+		}
+	} else {
+		header.Render = vp9dec.RenderSize{Width: width, Height: height}
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
 	macroblocks := vp9MacroblockCount(miRows, miCols)
@@ -1677,6 +1868,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
 	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey,
 		resetLoopfilterDeltas, header.Quant.Lossless, e.opts.Sharpness)
+	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) {
+		header.Loopfilter.FilterLevel = 0
+	}
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
