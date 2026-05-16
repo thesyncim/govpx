@@ -337,7 +337,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &e.vp9CountCounts[i])
 	}
-	if e.vp9DynamicSegmentMapActive() &&
+	if e.vp9ActiveSegmentMapCodingChooser() &&
 		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, e.vp9CountJobs) {
 		return false
 	}
@@ -379,7 +379,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &pool.countCounts[i])
 	}
-	if e.vp9DynamicSegmentMapActive() &&
+	if e.vp9ActiveSegmentMapCodingChooser() &&
 		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, pool.countJobs) {
 		return false
 	}

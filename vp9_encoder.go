@@ -1906,7 +1906,7 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	}
 	miGridValid := e.collectVP9FrameTileCounts(width, height, miRows, miCols, tileInfo,
 		partitionProbs, seg, baseMi, txMode, kind, countKey, countInter)
-	if miGridValid && e.vp9DynamicSegmentMapActive() {
+	if miGridValid && e.vp9ActiveSegmentMapCodingChooser() {
 		e.vp9ChooseSegmentMapCodingMethod(seg, miRows, miCols, tileInfo,
 			isKey || intraOnly)
 	}
@@ -1928,7 +1928,7 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 		seed := vp9CountTileSeedForState(key, inter)
 		if e.collectVP9FrameTileCountsThreaded(width, height, miRows, miCols,
 			tileInfo, partitionProbs, seg, baseMi, txMode, kind, seed) {
-			return e.vp9DynamicSegmentMapActive()
+			return e.vp9ActiveSegmentMapCodingChooser()
 		}
 	}
 	for tileRow := range tileRows {
@@ -4030,6 +4030,10 @@ func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
 	return e != nil && (e.roi.enabled ||
 		(e.cyclicAQ.enabled && e.cyclicAQ.apply) ||
 		e.activeMapEnabled)
+}
+
+func (e *VP9Encoder) vp9ActiveSegmentMapCodingChooser() bool {
+	return e != nil && e.activeMapEnabled && !e.roi.enabled
 }
 
 func (e *VP9Encoder) vp9StaticSegmentIDForMap() uint8 {
