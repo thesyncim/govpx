@@ -815,6 +815,16 @@ type VP9Encoder struct {
 	// tpl carries the per-encoder TPL quality-pass state when EnableTPL
 	// is true.  Slabs are sized at construction or on resolution change.
 	tpl vp9TPLState
+
+	// mvHints carries the per-SB64 motion-vector hint slab installed
+	// via importVP9MVHints. The multi-resolution encoder pipeline
+	// fills this from a previously-encoded lower-resolution layer's
+	// MVs scaled to this encoder's resolution; the inter motion
+	// search evaluates the hint MV as one extra candidate alongside
+	// its (0,0)-centered search so blocks with strong cross-layer
+	// motion correlation can pick a hint-derived MV that the local
+	// 16-px search radius would miss. nil disables hint biasing.
+	mvHints *vp9MVHintMap
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -7552,13 +7562,44 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return false
 	}
 
+	// MV-hint biasing: when a multi-resolution lower-resolution layer
+	// has supplied a scaled MV hint for this SB, evaluate it as an
+	// extra candidate before the (0,0)-centered fan. The hint can
+	// land outside the local 16-pixel radius (libvpx-style cross-
+	// resolution motion correlation regularly produces hints that
+	// exceed the realtime search radius); when that happens the
+	// search radius widens to encompass the hint so the refinement
+	// step can still walk a local fan around the winning candidate.
+	// When no hint is installed this branch is a nil-check.
+	searchRadius := 16
+	if refFrame == vp9dec.LastFrame {
+		if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
+			eval(hintDx, hintDy)
+			// Widen the search radius so the refinement loop can
+			// walk a small fan around the hint when it wins.
+			absDx := hintDx
+			if absDx < 0 {
+				absDx = -absDx
+			}
+			absDy := hintDy
+			if absDy < 0 {
+				absDy = -absDy
+			}
+			if absDx > searchRadius {
+				searchRadius = absDx
+			}
+			if absDy > searchRadius {
+				searchRadius = absDy
+			}
+		}
+	}
+
 	const (
-		searchRadius = 16
-		coarseStep   = 8
-		minStep      = 1
+		coarseStep = 8
+		minStep    = 1
 	)
-	for dy := -searchRadius; dy <= searchRadius; dy += coarseStep {
-		for dx := -searchRadius; dx <= searchRadius; dx += coarseStep {
+	for dy := -16; dy <= 16; dy += coarseStep {
+		for dx := -16; dx <= 16; dx += coarseStep {
 			eval(dx, dy)
 		}
 	}

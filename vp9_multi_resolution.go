@@ -149,12 +149,24 @@ type VP9MultiResolutionEncoderOptions struct {
 	// RateControlCBR.
 	DropFrameAllowed bool
 
-	// ShareMotionVectors is currently a placeholder. libvpx scales
-	// motion vectors from the lowest-resolution encoder up to seed
-	// higher-resolution motion search. govpx does not yet thread
-	// per-SB MV hints through VP9Encoder; setting this field is
-	// accepted but does not yet alter encoding. It is reserved
-	// for a follow-up commit that wires the MV-hint slab.
+	// ShareMotionVectors enables libvpx-style cross-resolution motion
+	// hint propagation. When set, the multi-resolution encoder
+	// switches to a bottom-up sequential encode pipeline: the
+	// lowest-resolution layer encodes first; its per-SB64 LAST-ref
+	// MVs are exported, scaled up by the inter-layer resolution
+	// ratio, and installed as hints on the next-higher-resolution
+	// layer's motion search before that layer encodes. The hints
+	// are evaluated as an extra candidate alongside the (0,0)-
+	// centered local search, so the consumer can pick a hint-derived
+	// MV when cross-resolution motion correlation produces a vector
+	// the local 16-pixel search radius would miss.
+	//
+	// Trade-offs: sequential encoding loses the per-layer parallelism
+	// that the default false-mode uses, but high-motion content with
+	// strong spatial correlation across resolutions converges in
+	// fewer iterations on the higher-resolution layers. The bitstream
+	// CHANGES when ShareMotionVectors flips on or off; the option is
+	// not byte-parity-compatible with the unhinted path.
 	ShareMotionVectors bool
 }
 
@@ -188,6 +200,16 @@ type VP9MultiResolutionEncoder struct {
 	// luma plane any layer needs, so the encode-time path stays
 	// allocation-free.
 	resizeScratch []int32
+
+	// mvHintExport is the per-layer producer slab used when
+	// ShareMotionVectors is true: each lower-resolution layer's
+	// encode walks its miGrid into mvHintExport[i], then
+	// scaleVP9MVHintMap projects mvHintExport[i] into
+	// mvHintImport[i-1] for the next-higher-resolution consumer.
+	// Both slabs are sized once at construction so the
+	// hint-propagation path is allocation-free.
+	mvHintExport [MaxMultiResLayers]*vp9MVHintMap
+	mvHintImport [MaxMultiResLayers]*vp9MVHintMap
 
 	// results and resultErrs back parallel per-layer encode
 	// goroutines. They are preallocated once to keep the encode
@@ -267,6 +289,17 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 		dstWidth := mre.layerWidths[1]
 		mre.resizeScratch = make([]int32,
 			vp9MultiResolutionPolyphaseScratchSize(dstWidth, srcHeight))
+	}
+	// Pre-allocate MV-hint slabs when share-motion-vectors is on.
+	// Producer slab i is sized to layer i's SB grid; consumer slab
+	// i is also sized to layer i's grid (the producer is layer i+1
+	// scaled up). Layer 0 has no producer; layer count-1 has no
+	// consumer; the remaining slots are populated.
+	if opts.ShareMotionVectors && count > 1 {
+		for i := 0; i < count; i++ {
+			mre.mvHintExport[i] = newVP9MVHintMap(mre.layerWidths[i], mre.layerHeights[i])
+			mre.mvHintImport[i] = newVP9MVHintMap(mre.layerWidths[i], mre.layerHeights[i])
+		}
 	}
 	return mre, nil
 }
@@ -414,26 +447,61 @@ func (e *VP9MultiResolutionEncoder) EncodeIntoWithFlagsResult(img *image.YCbCr,
 		e.results[i] = VP9EncodeResult{}
 		e.resultErrs[i] = nil
 	}
-	// Each per-layer encoder runs on its own goroutine. The
-	// goroutines are spawned in parallel; the calling goroutine
-	// participates as the worker for layer 0 so a single-layer
-	// configuration does not pay the cost of launching a goroutine.
-	var wg sync.WaitGroup
-	for i := 1; i < e.count; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+	if e.shareMotionVectors {
+		// Bottom-up sequential encode pipeline: the lowest-resolution
+		// layer encodes first; its MVs are exported, scaled up, and
+		// installed as hints on the next-higher-resolution layer's
+		// motion search before that layer encodes. Repeats up to
+		// layer 0. The sequential ordering trades parallelism for
+		// cross-layer motion correlation.
+		for idx := e.count - 1; idx >= 0; idx-- {
+			var src *image.YCbCr
+			if idx == 0 {
+				src = img
+			} else {
+				src = e.scratch[idx]
+			}
 			res, err := e.layers[idx].EncodeIntoWithFlagsResult(
-				e.scratch[idx], dsts[idx], flags)
+				src, dsts[idx], flags)
 			e.results[idx] = res
 			e.resultErrs[idx] = err
-		}(i)
+			if err != nil {
+				break
+			}
+			// Propagate MVs from this layer (idx) to the next-higher
+			// resolution layer (idx-1). When idx==0 there is no
+			// consumer; when the producer's slab is empty (e.g. on
+			// a keyframe-only result) the scaler turns into a no-op.
+			if idx > 0 && e.mvHintExport[idx] != nil && e.mvHintImport[idx-1] != nil {
+				e.layers[idx].exportVP9MVHints(e.mvHintExport[idx])
+				scaleVP9MVHintMap(e.mvHintImport[idx-1], e.mvHintExport[idx],
+					e.layerWidths[idx-1], e.layerWidths[idx],
+					e.layerHeights[idx-1], e.layerHeights[idx])
+				e.layers[idx-1].importVP9MVHints(e.mvHintImport[idx-1])
+			}
+		}
+	} else {
+		// Each per-layer encoder runs on its own goroutine. The
+		// goroutines are spawned in parallel; the calling goroutine
+		// participates as the worker for layer 0 so a single-layer
+		// configuration does not pay the cost of launching a goroutine.
+		var wg sync.WaitGroup
+		for i := 1; i < e.count; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				res, err := e.layers[idx].EncodeIntoWithFlagsResult(
+					e.scratch[idx], dsts[idx], flags)
+				e.results[idx] = res
+				e.resultErrs[idx] = err
+			}(i)
+		}
+		// Layer 0 (highest resolution) encodes inline.
+		res0, err0 := e.layers[0].EncodeIntoWithFlagsResult(img, dsts[0], flags)
+		e.results[0] = res0
+		e.resultErrs[0] = err0
+		wg.Wait()
 	}
-	// Layer 0 (highest resolution) encodes inline.
-	res0, err0 := e.layers[0].EncodeIntoWithFlagsResult(img, dsts[0], flags)
-	e.results[0] = res0
-	e.resultErrs[0] = err0
-	wg.Wait()
 	// Collect: return the first non-nil error so the caller can
 	// distinguish encoder failure from a normal drop.
 	for i := 0; i < e.count; i++ {
