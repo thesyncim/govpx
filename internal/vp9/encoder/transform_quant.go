@@ -56,8 +56,16 @@ func ForwardDCT4x4(input []int16, stride int, output *[16]int16) {
 }
 
 // ForwardDCT4x4Into is the slice-backed form of ForwardDCT4x4. output must
-// hold at least 16 coefficients.
+// hold at least 16 coefficients. Dispatches to a SIMD kernel when one is
+// available; otherwise drops to the canonical scalar reference.
 func ForwardDCT4x4Into(input []int16, stride int, output []int16) {
+	forwardDCT4x4Dispatch(input, stride, output)
+}
+
+// forwardDCT4x4Scalar is the canonical scalar port of libvpx
+// v1.16.0 vpx_fdct4x4_c. SIMD implementations must produce byte-identical
+// output for the encoder's residual range.
+func forwardDCT4x4Scalar(input []int16, stride int, output []int16) {
 	var intermediate [16]int
 	var final [16]int
 
@@ -103,8 +111,15 @@ func ForwardDCT4x4Into(input []int16, stride int, output []int16) {
 
 // ForwardWHT4x4Into mirrors libvpx v1.16.0 vp9_fwht4x4_c. VP9 lossless
 // mode uses this reversible 4x4 Walsh-Hadamard transform instead of the
-// normal DCT path.
+// normal DCT path. Dispatches to a SIMD kernel when available.
 func ForwardWHT4x4Into(input []int16, stride int, output []int16) {
+	forwardWHT4x4Dispatch(input, stride, output)
+}
+
+// forwardWHT4x4Scalar is the canonical scalar port of libvpx
+// v1.16.0 vp9_fwht4x4_c. SIMD implementations must produce byte-identical
+// output for the encoder's residual range.
+func forwardWHT4x4Scalar(input []int16, stride int, output []int16) {
 	var tmp [16]int
 
 	for i := 0; i < 4; i++ {
@@ -168,8 +183,15 @@ func ForwardDCT8x8(input []int16, stride int, output *[64]int16) {
 }
 
 // ForwardDCT8x8Into is the slice-backed form of ForwardDCT8x8. output must
-// hold at least 64 coefficients.
+// hold at least 64 coefficients. Dispatches to a SIMD kernel when available.
 func ForwardDCT8x8Into(input []int16, stride int, output []int16) {
+	forwardDCT8x8Dispatch(input, stride, output)
+}
+
+// forwardDCT8x8Scalar is the canonical scalar port of libvpx
+// v1.16.0 vpx_fdct8x8_c. SIMD implementations must produce byte-identical
+// output for the encoder's residual range.
+func forwardDCT8x8Scalar(input []int16, stride int, output []int16) {
 	var intermediate [64]int
 	var final [64]int
 
@@ -241,8 +263,16 @@ func ForwardDCT16x16(input []int16, stride int, output *[256]int16) {
 }
 
 // ForwardDCT16x16Into is the slice-backed form of ForwardDCT16x16. output
-// must hold at least 256 coefficients.
+// must hold at least 256 coefficients. Dispatches to a SIMD kernel when
+// available.
 func ForwardDCT16x16Into(input []int16, stride int, output []int16) {
+	forwardDCT16x16Dispatch(input, stride, output)
+}
+
+// forwardDCT16x16Scalar is the canonical scalar port of libvpx
+// v1.16.0 vpx_fdct16x16_c. SIMD implementations must produce byte-identical
+// output for the encoder's residual range.
+func forwardDCT16x16Scalar(input []int16, stride int, output []int16) {
 	var intermediate [256]int
 	var final [256]int
 
@@ -879,8 +909,16 @@ func ForwardDCT32x32(input []int16, stride int, output *[1024]int16) {
 }
 
 // ForwardDCT32x32Into is the slice-backed form of ForwardDCT32x32. output
-// must hold at least 1024 coefficients.
+// must hold at least 1024 coefficients. Dispatches to a SIMD kernel when
+// available.
 func ForwardDCT32x32Into(input []int16, stride int, output []int16) {
+	forwardDCT32x32Dispatch(input, stride, output)
+}
+
+// forwardDCT32x32Scalar is the canonical scalar port of libvpx
+// v1.16.0 vpx_fdct32x32_c. SIMD implementations must produce byte-identical
+// output for the encoder's residual range.
+func forwardDCT32x32Scalar(input []int16, stride int, output []int16) {
 	var intermediate [1024]int
 	var tempIn, tempOut [32]int
 
@@ -1357,8 +1395,15 @@ func vp9RoundPowerOfTwo(v, n int) int {
 // QuantizeFP mirrors libvpx's vp9_quantize_fp_c for non-32x32 transforms.
 // dqcoeff receives dequantized coefficients in raster order, which is the
 // representation consumed by WriteCoefBlock. The return value is the scan-order
-// EOB position.
+// EOB position. Dispatches to a SIMD kernel when available.
 func QuantizeFP(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
+	return quantizeFPDispatch(coeff, dequant, scan, dqcoeff)
+}
+
+// quantizeFPScalar is the canonical scalar port of libvpx's
+// vp9_quantize_fp_c.  SIMD implementations must produce byte-identical
+// dqcoeff and eob values.
+func quantizeFPScalar(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
 	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
 	round := [2]int{(48 * int(dequant[0])) >> 7, (42 * int(dequant[1])) >> 7}
 	eob := -1
