@@ -2397,7 +2397,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			header.RefreshFrameFlags, macroblocks)
 	}
 	if header.ShowFrame {
-		e.twoPass.finishFrame()
+		// libvpx vp9_twopass_postencode_update consumes the encoded bit
+		// count to drive vbr_bits_off_target. Feed it 0 on drops, the
+		// encoded size in bits otherwise, mirroring rc->projected_frame_size.
+		// libvpx: vp9/encoder/vp9_firstpass.c:3733
+		projected := 0
+		if !postDrop {
+			projected = encodedSizeBits(n)
+		}
+		e.twoPass.finishFrameWithActual(projected)
 	}
 	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
