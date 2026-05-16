@@ -59,10 +59,14 @@ func iht4x4_16Add(rowKernel, colKernel func(in, out []int16), input []int16, des
 	}
 }
 
-// Iht4x4_16Add dispatches the inverse transform pair for a 4x4 intra
-// block. txType is 0..3 in the order (DCT_DCT, ADST_DCT, DCT_ADST,
-// ADST_ADST). Matches the dispatch in libvpx's vp9_iht4x4_16_add_c.
-func Iht4x4_16Add(input []int16, dest []uint8, stride int, txType int) {
+// iht4x4_16AddScalar dispatches the inverse transform pair for a 4x4
+// intra block. txType is 0..3 in the order (DCT_DCT, ADST_DCT,
+// DCT_ADST, ADST_ADST). Matches the dispatch in libvpx's
+// vp9_iht4x4_16_add_c.
+//
+// Scalar reference; the exported Iht4x4_16Add wrapper is in
+// idct_dispatch_*.go.
+func iht4x4_16AddScalar(input []int16, dest []uint8, stride int, txType int) {
 	switch txType {
 	case 0: // DCT_DCT
 		iht4x4_16Add(idct4, idct4, input, dest, stride)

@@ -1,9 +1,10 @@
-//go:build !arm64 || purego
+//go:build (!amd64 && !arm64) || purego
 
 package dsp
 
 // Scalar size-specialized sub-pixel variance helpers. Architectures
-// with NEON support override these via subpel_variance_arm64.go.
+// with SIMD support override these via subpel_variance_amd64.go /
+// subpel_variance_arm64.go.
 
 func subPixelVariance64x64(src []uint8, srcOff, srcStride, xOffset, yOffset int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
 	return subPixelVarianceScalar(64, 64, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse)

@@ -1,9 +1,14 @@
-//go:build !arm64 || purego
+//go:build (!amd64 && !arm64) || purego
 
 package dsp
 
-// Scalar size-specialized variance helpers. Architectures with NEON
-// support override these via variance_arm64.go.
+// Scalar size-specialized variance helpers. Architectures with SIMD
+// support override these via variance_amd64.go / variance_arm64.go.
+
+// varWindowOK, finalVariance, varianceSimd* are defined in the SIMD
+// variants; the scalar build doesn't need them. The size-specialized
+// helpers below shadow the SIMD-build versions when the platform isn't
+// supported (or purego is requested).
 
 func variance64x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
 	return varianceScalar(64, 64, src, srcOff, srcStride, ref, refOff, refStride, sse)
