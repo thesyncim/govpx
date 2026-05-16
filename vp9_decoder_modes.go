@@ -1244,13 +1244,53 @@ func (d *VP9Decoder) vp9ExtendInterPredictSource(src []byte, srcStride int,
 	} else {
 		d.interPredictScratch = d.interPredictScratch[:need]
 	}
+	// libvpx: vp9/decoder/vp9_decodeframe.c:458 build_mc_border splits
+	// each row into a left memset (clamped to src[0]), a center memcpy
+	// of in-bounds pixels, and a right memset (clamped to src[w-1]).
+	// Replaces the per-pixel clamp loop, which was the inner hot loop
+	// when motion vectors push the kernel window outside the frame
+	// boundary.
+	w := srcWidth
+	h := srcHeight
 	for y := range extRows {
-		sy := vp9ClampInt(startY+y, 0, srcHeight-1)
+		sy := startY + y
+		if sy < 0 {
+			sy = 0
+		} else if sy > h-1 {
+			sy = h - 1
+		}
 		srcRow := src[sy*srcStride:]
-		dstRow := d.interPredictScratch[y*extStride:]
-		for x := range extStride {
-			sx := vp9ClampInt(startX+x, 0, srcWidth-1)
-			dstRow[x] = srcRow[sx]
+		dstRow := d.interPredictScratch[y*extStride : y*extStride+extStride]
+		x := startX
+		left := 0
+		if x < 0 {
+			left = -x
+		}
+		if left > extStride {
+			left = extStride
+		}
+		right := 0
+		if x+extStride > w {
+			right = x + extStride - w
+		}
+		if right > extStride {
+			right = extStride
+		}
+		copyN := extStride - left - right
+		if left > 0 {
+			leftFill := srcRow[0]
+			for i := 0; i < left; i++ {
+				dstRow[i] = leftFill
+			}
+		}
+		if copyN > 0 {
+			copy(dstRow[left:left+copyN], srcRow[x+left:x+left+copyN])
+		}
+		if right > 0 {
+			rightFill := srcRow[w-1]
+			for i := 0; i < right; i++ {
+				dstRow[left+copyN+i] = rightFill
+			}
 		}
 	}
 	return d.interPredictScratch, extStride, srcOffset
