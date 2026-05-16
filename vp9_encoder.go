@@ -5877,9 +5877,26 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	if !ok {
 		return bestMode
 	}
-	// The realtime keyframe picker mirrors vp9_pick_intra_mode and only
-	// evaluates DC, V, and H for >=8x8 blocks.
-	for mode := common.DcPred + 1; mode <= common.HPred; mode++ {
+	// The candidate set follows libvpx's keyframe-RD picker. At cpu_used=0-3
+	// (`use_nonrd_pick_mode == 0`) libvpx's `rd_pick_intra_sby_mode` walks
+	// DC_PRED..TM_PRED unconditionally; at cpu_used>=5 (`nonrd_keyframe == 1`)
+	// libvpx's `vp9_pick_intra_mode` walks DC_PRED..H_PRED only. govpx
+	// expresses both via `e.sf.IntraYModeBsizeMask`: at speed 0 the
+	// configurator populates `IntraYModeBsizeMask = sfIntraAll`, so this
+	// loop evaluates all 10 modes; at speed >= 5 the configurator narrows
+	// the mask, so this loop honors the libvpx pruning byte-for-byte. The
+	// fallback `sfIntraDCHV` keeps the historical 3-mode behavior when the
+	// mask is uninitialized (e.g. unit-test paths that bypass the
+	// configurator), preserving baseline parity.
+	//
+	// libvpx: vp9/encoder/vp9_rdopt.c:1383 (rd_pick_intra_sby_mode loop)
+	// libvpx: vp9/encoder/vp9_pickmode.c:1199 (vp9_pick_intra_mode loop)
+	// libvpx: vp9/encoder/vp9_pickmode.c:2578 (intra_y_mode_bsize_mask gate)
+	mask := vp9KeyframeIntraModeMask(&e.sf, bsize)
+	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
+		if mask&(1<<uint(mode)) == 0 {
+			continue
+		}
 		score, ok := e.scoreVP9KeyframeModeRD(key, mode, yModeCosts[mode],
 			rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi)
 		if ok && score < bestScore {
@@ -5888,6 +5905,25 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 		}
 	}
 	return bestMode
+}
+
+// vp9KeyframeIntraModeMask returns the libvpx-faithful per-block-size intra Y
+// mode mask the keyframe picker should consult. When the configurator has set
+// `IntraYModeBsizeMask[bsize]` it is honored verbatim; otherwise a conservative
+// {DC,V,H} fallback preserves govpx's legacy 3-mode behavior used by tests
+// that construct an encoder without running the SPEED_FEATURES configurator.
+//
+// libvpx: vp9/encoder/vp9_pickmode.c:2578 — `(1 << this_mode) &
+// cpi->sf.intra_y_mode_bsize_mask[bsize]`.
+func vp9KeyframeIntraModeMask(sf *SpeedFeatures, bsize common.BlockSize) int {
+	if sf == nil || int(bsize) >= len(sf.IntraYModeBsizeMask) {
+		return sfIntraDCHV
+	}
+	mask := sf.IntraYModeBsizeMask[bsize]
+	if mask == 0 {
+		return sfIntraDCHV
+	}
+	return mask
 }
 
 // scoreVP9KeyframeModeRD computes the Lagrangian RD cost of a keyframe mode
@@ -7490,6 +7526,23 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	if inter == nil {
 		return vp9InterModeDecision{}, false
 	}
+	// SPEED_FEATURES.use_nonrd_pick_mode (cpu_used >= 5 in libvpx realtime)
+	// routes the inter-mode picker through the verbatim nonrd port at
+	// vp9_pick_inter_mode_nonrd.go. The nonrd entry walks the libvpx
+	// ref_mode_set[] schedule, prunes the per-mode interp-filter loop, and
+	// applies aggressive early termination — collapsing the per-block work
+	// from ~36 (3 refs × 4 modes × 3 filters) candidate evaluations to ~12.
+	//
+	// libvpx merges single-ref + compound candidates into a single loop
+	// (vp9_pickmode.c:2050 — idx < num_inter_modes + comp_modes). govpx
+	// keeps them separate: the nonrd entry handles single-ref; the
+	// existing compound branch below handles compound. The schedule order
+	// matches libvpx because nonrd visits all single-ref candidates first
+	// (idx 0..num_inter_modes-1) and compound is appended at the tail.
+	//
+	// libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
+	// libvpx: vp9_speed_features.h:447 sf->use_nonrd_pick_mode.
+	useNonrd := e.vp9InterUsesNonrdPickmode()
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -7534,26 +7587,42 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	bestSet := false
 	var best vp9InterModeDecision
-	for _, refFrame := range refFrameSet {
-		refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
-		if !ok {
-			continue
-		}
-		inter.ref = &e.refFrames[refSlot]
-		refRate := vp9SingleRefModeRateCost(&inter.selectFc, above, left,
-			inter.referenceMode, inter.compoundRefs, refFrame)
-		decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
-			miRow, miCol, bsize, refFrame, refRate)
-		if !ok {
-			continue
-		}
-		decision.refFrame = refFrame
-		decision.secondRefFrame = vp9dec.NoRefFrame
-		decision.refSlot = refSlot
-		if !bestSet || decision.score < best.score ||
-			(decision.score == best.score && decision.rate < best.rate) {
+	// useNonrd: when sf->use_nonrd_pick_mode is set AND the LAST-only
+	// short-circuit above did not prune to a single ref, route the
+	// multi-ref schedule through the verbatim libvpx ref_mode_set[12]
+	// loop in vp9_pick_inter_mode_nonrd.go. With LAST-only the existing
+	// single-ref path below is already libvpx-equivalent and runs the
+	// faster luma-only predictor; the nonrd port adds no value there.
+	//
+	// libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
+	if useNonrd && len(refFrameSet) > 1 {
+		if decision, ok := e.pickVP9InterReferenceModeNonRD(inter, tile,
+			miRows, miCols, miRow, miCol, bsize); ok {
 			best = decision
 			bestSet = true
+		}
+	} else {
+		for _, refFrame := range refFrameSet {
+			refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
+			if !ok {
+				continue
+			}
+			inter.ref = &e.refFrames[refSlot]
+			refRate := vp9SingleRefModeRateCost(&inter.selectFc, above, left,
+				inter.referenceMode, inter.compoundRefs, refFrame)
+			decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
+				miRow, miCol, bsize, refFrame, refRate)
+			if !ok {
+				continue
+			}
+			decision.refFrame = refFrame
+			decision.secondRefFrame = vp9dec.NoRefFrame
+			decision.refSlot = refSlot
+			if !bestSet || decision.score < best.score ||
+				(decision.score == best.score && decision.rate < best.rate) {
+				best = decision
+				bestSet = true
+			}
 		}
 	}
 	// SPEED_FEATURES.use_compound_nonrd_pickmode gates the compound branch

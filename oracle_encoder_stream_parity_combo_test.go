@@ -194,6 +194,7 @@ func TestOracleEncoderStreamByteParityCombo(t *testing.T) {
 			if len(govpxFrames) != len(libvpxFrames) {
 				if tc.limit < 0 {
 					t.Logf("frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+					assertStrictGateKnownGapMatchedPrefix(t, tc.name, govpxFrames, libvpxFrames, 1)
 					return
 				}
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -407,6 +408,7 @@ func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
 			if len(govpxFrames) != len(libvpxFrames) {
 				if tc.limit < 0 {
 					t.Logf("frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+					assertStrictGateKnownGapMatchedPrefix(t, tc.name, govpxFrames, libvpxFrames, 1)
 					return
 				}
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -554,6 +556,7 @@ func TestOracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 			if len(govpxFrames) != len(libvpxFrames) {
 				if tc.limit < 0 {
 					t.Logf("frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+					assertStrictGateKnownGapMatchedPrefix(t, tc.name, govpxFrames, libvpxFrames, 1)
 					return
 				}
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -684,6 +687,7 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 			if len(govpxFrames) != len(libvpxFrames) {
 				if tc.limit < 0 {
 					t.Logf("frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+					assertStrictGateKnownGapMatchedPrefix(t, tc.name, govpxFrames, libvpxFrames, 1)
 					return
 				}
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -880,6 +884,7 @@ func TestOracleEncoderStreamByteParityComboDropDenoiser(t *testing.T) {
 			if len(govpxFrames) != len(libvpxFrames) {
 				if tc.limit < 0 {
 					t.Logf("frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+					assertStrictGateKnownGapMatchedPrefix(t, tc.name, govpxFrames, libvpxFrames, 1)
 					return
 				}
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))

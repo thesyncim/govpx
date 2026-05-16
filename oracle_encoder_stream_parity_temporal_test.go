@@ -222,6 +222,7 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 				if len(govpxFrames) != len(libvpxFrames) {
 					if tc.limit < 0 {
 						t.Logf("layer %d frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", layer, len(govpxFrames), len(libvpxFrames))
+						assertStrictGateKnownGapMatchedPrefix(t, fmt.Sprintf("%s/layer-%d", tc.name, layer), govpxFrames, libvpxFrames, 1)
 						continue
 					}
 					t.Errorf("layer %d frame count mismatch: govpx=%d libvpx=%d", layer, len(govpxFrames), len(libvpxFrames))

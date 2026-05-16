@@ -1312,6 +1312,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			if len(govpxFrames) != len(libvpxFrames) {
 				if tc.limit < 0 {
 					t.Logf("frame count mismatch (not asserted, known gap): govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+					assertStrictGateKnownGapMatchedPrefix(t, tc.name, govpxFrames, libvpxFrames, 1)
 					return
 				}
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))

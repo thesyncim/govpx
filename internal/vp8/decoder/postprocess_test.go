@@ -495,6 +495,52 @@ func TestApplyPostProcessWithOptionsMFQEOverrideRunsCallback(t *testing.T) {
 	}
 }
 
+// TestDeblockVP9DoesNotHalveLimitOnSkippedMB pins libvpx's VP9-specific
+// behaviour: vp9_deblock (vp9/common/vp9_postproc.c:257) memsets a flat
+// ppl across the limit row, regardless of per-MB skip flags. The VP8
+// path (vp8/common/postproc.c:82) halves on skip. govpx's shared kernel
+// must dispatch by opts.VP9.
+//
+// To prove the divergence, run two postprocess passes — one with VP9
+// flag set, one without — on a frame whose modes are all MBSkipCoeff,
+// and verify the outputs differ.
+func TestDeblockVP9DoesNotHalveLimitOnSkippedMB(t *testing.T) {
+	src := newPostProcessFrame(t, 32, 32)
+	fillPostProcessPattern(&src.Img)
+	src.ExtendBorders()
+
+	modes := postProcessModes(2, 2)
+	for i := range modes {
+		modes[i].MBSkipCoeff = true
+	}
+
+	makeDst := func() *common.FrameBuffer {
+		var dst common.FrameBuffer
+		if err := dst.Resize(32, 32, 32, 32); err != nil {
+			t.Fatalf("Resize returned error: %v", err)
+		}
+		return &dst
+	}
+
+	scratch := make([]byte, 2*24)
+	vp8Dst := makeDst()
+	vp9Dst := makeDst()
+
+	if err := ApplyPostProcessWithOptions(&src.Img, vp8Dst, 2, 2, modes, 40, scratch,
+		PostProcessOptions{Deblock: true}, nil); err != nil {
+		t.Fatalf("VP8 ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	if err := ApplyPostProcessWithOptions(&src.Img, vp9Dst, 2, 2, modes, 40, scratch,
+		PostProcessOptions{Deblock: true, VP9: true}, nil); err != nil {
+		t.Fatalf("VP9 ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	if bytes.Equal(vp8Dst.Img.Y, vp9Dst.Img.Y) {
+		t.Fatal("VP9 and VP8 deblock outputs are byte-identical; VP9 must " +
+			"NOT halve the limit on skipped MBs (libvpx vp9_postproc.c:257 " +
+			"vs vp8/common/postproc.c:82)")
+	}
+}
+
 func itoaTestSize(n int) string {
 	return strconv.Itoa(n)
 }

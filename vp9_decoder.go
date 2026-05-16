@@ -1182,10 +1182,12 @@ func (d *VP9Decoder) outputVP9FrameImage(hdr *vp9dec.UncompressedHeader,
 		VP9:             true,
 	}
 	if opts.MFQE && len(d.miGrid) > 0 {
-		// Use the VP9 SB-partition-aware MFQE walker so SB-sized
-		// (32x32 / 64x64) stationary regions blend as one block
-		// instead of stitching 16x16 MB decisions.
-		opts.MFQEOverride = d.vp9MFQEWalker
+		// Use the libvpx-faithful VP9 SB-partition walker so MFQE
+		// uses the VP9-specific decision (libvpx vp9_mfqe.c:198) and
+		// per-block kernel (vp9_mfqe.c:159), not the VP8 mfqe_block
+		// kernel (which has totally different SAD / variance / weight
+		// thresholds and accepts intra and skipped blocks).
+		opts.MFQEOverride = d.vp9MFQEFaithfulWalker
 	}
 	if err := vp8dec.ApplyPostProcessWithOptions(&d.postSource.Img, &d.post,
 		rows, cols, d.postModes, filterLevel, d.postprocScratch, opts,

@@ -3,15 +3,58 @@ package govpx
 import "testing"
 
 func FuzzDecoderMalformedPackets(f *testing.F) {
+	// Expanded seed corpus per plan §3 "Improvements to existing
+	// fuzzers" — closes G9 by adding handcrafted boundary cases at
+	// known protocol edges: partition0 size > remaining payload,
+	// oversized first_part_size, key frame with version > 3, key
+	// frame with width/height at the 0 / MaxWidth boundary, plus
+	// targeted bit-flips on the frame tag and sync code.
 	seeds := [][]byte{
 		{},
 		{0},
 		{0, 0, 0},
+		{0xff, 0xff, 0xff},
 		vp8InterFramePacket(0, 0, true),
+		vp8InterFramePacket(0, 0, false),
+		vp8InterFramePacket(1, 0, true),
+		vp8InterFramePacket(0xfffff, 0, true), // first_part overflow
+
 		vp8KeyFramePacket(0, 16, 0, 0, true),
+		vp8KeyFramePacket(16, 0, 0, 0, true),
+		vp8KeyFramePacket(0, 0, 0, 0, true),
+		vp8KeyFramePacket(16, 16, 0, 0, false), // hidden frame
 		vp8KeyFramePacket(16, 16, 200, 0, true),
+		vp8KeyFramePacket(16, 16, 200, 4, true),     // profile=4 (invalid)
+		vp8KeyFramePacket(16, 16, 200, 7, true),     // profile=7 (invalid)
+		vp8KeyFramePacket(65535, 65535, 1, 0, true), // dimensions at uint16 max
+		vp8KeyFramePacket(8192, 4320, 1, 0, true),   // 8K width
+		vp8KeyFramePacket(16, 16, 0xffff, 0, true),  // huge first_part_size
+
 		vp8KeyFramePacketWithPayload(16, 16, 200, 0, true),
 		vp8KeyFramePacketWithPayload(16, 16, 200, 4, true),
+		vp8KeyFramePacketWithPayload(16, 16, 1, 0, true),
+		vp8KeyFramePacketWithPayload(16, 16, 0, 0, true),
+		vp8KeyFramePacketWithPayload(32, 16, 50, 0, true),
+		vp8KeyFramePacketWithPayload(31, 17, 50, 0, true), // odd dims
+		vp8KeyFramePacketWithPayload(65, 33, 50, 0, true), // larger odd dims
+
+		// Truncated forms: drop trailing bytes so the parser hits EOF
+		// at different points (frame header, partition0, tokens).
+		truncatedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 1),
+		truncatedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 9),
+		truncatedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 209),
+		truncatedFuzzPacket(vp8KeyFramePacket(16, 16, 200, 0, true), 6),
+
+		// Frame-tag bit flips.
+		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 0, 0x01),
+		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 0, 0x80),
+		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 1, 0xff),
+		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 2, 0xff),
+
+		// Sync-code (start_code_prefix) corruption on a keyframe.
+		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 3, 0xff),
+		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 4, 0x00),
+		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 5, 0x00),
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -31,6 +74,26 @@ func FuzzDecoderMalformedPackets(f *testing.F) {
 		d.Reset()
 		_, _ = d.NextFrame()
 	})
+}
+
+// truncatedFuzzPacket returns p[:len(p)-n] when feasible. Used to
+// seed parser-EOF cases at specific offsets.
+func truncatedFuzzPacket(p []byte, n int) []byte {
+	if n >= len(p) {
+		return nil
+	}
+	return append([]byte(nil), p[:len(p)-n]...)
+}
+
+// taintedFuzzPacket returns p with p[off] XOR'd by mask. Used to
+// seed targeted bit-flip cases on the frame tag and sync code.
+func taintedFuzzPacket(p []byte, off int, mask byte) []byte {
+	if off >= len(p) {
+		return append([]byte(nil), p...)
+	}
+	out := append([]byte(nil), p...)
+	out[off] ^= mask
+	return out
 }
 
 func fuzzDecodeTarget(packet []byte) Image {
