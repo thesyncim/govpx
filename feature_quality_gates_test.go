@@ -488,6 +488,69 @@ func TestVP9FeatureBDRateCyclicRefresh(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "CyclicRefresh", res, defaultLibvpxAbsoluteGate)
 }
 
+// TestVP9FeatureBDRateLoopFilter exercises the loop-filter strength
+// picker port. The baseline disables the loop filter entirely (govpx
+// DisableLoopfilter=VP9LoopfilterDisableAll, which writes
+// FilterLevel=0 in the uncompressed header); the test arm runs the
+// stock libvpx-faithful from-Q picker. Loop filtering should save
+// bitrate on textured / panning content because the in-loop deblock
+// removes block artifacts that the residual coder would otherwise
+// have to code around. The govpx-vs-libvpx absolute gate is set to
+// the conservative +3% cap because the from-Q closed-form here is
+// identical to libvpx's vp9_picklpf.c:189; any remaining gap is due
+// to non-picker code paths.
+//
+// libvpx: vp9_picklpf.c:159-203 (vp9_pick_filter_level dispatcher).
+func TestVP9FeatureBDRateLoopFilter(t *testing.T) {
+	if !benchcmd.FeatureGatesEnabled() {
+		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
+	}
+	gen := benchcmd.FeatureGateGenerator(benchcmd.TextureNoise, 64, 64)
+	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
+		Codec:                "vp9",
+		Width:                64,
+		Height:               64,
+		FPS:                  30,
+		Frames:               12,
+		QLadder:              []int{16, 24, 32, 40},
+		Lookahead:            0,
+		Source:               func(i int) *image.YCbCr { return gen(i) },
+		AllowDecoderFallback: true,
+		LibvpxReference:      true,
+		BuildLibvpx:          benchcmd.LibvpxBuildRequested(),
+		Baseline: func(o *govpx.VP9EncoderOptions) {
+			o.DisableLoopfilter = govpx.VP9LoopfilterDisableAll
+		},
+		Test: func(o *govpx.VP9EncoderOptions) {
+			o.DisableLoopfilter = govpx.VP9LoopfilterEnabled
+		},
+	})
+	if err != nil {
+		t.Fatalf("ComputeBDRate err: %v", err)
+	}
+	t.Logf("LoopFilter BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
+	recordFeatureScoreboardRow("LoopFilter (texture+noise)", res)
+	// The loop filter should save bitrate on textured content. Use the
+	// same direction-of-effect gate the other "must save bitrate"
+	// features use; the search-based picker isn't wired into the
+	// production header-emit path yet (sseFn=nil falls back to from-Q),
+	// but even from-Q vs disabled should show a clear win.
+	if res.BDRate > 1.0 {
+		t.Errorf("LoopFilter BD-rate=%.3f%% > 1%%: enabling the loop filter must save bitrate on textured content",
+			res.BDRate)
+	}
+	if res.BDRate < -40.0 {
+		t.Errorf("LoopFilter BD-rate=%.3f%% < -40%%: implausibly large saving, check harness",
+			res.BDRate)
+	}
+	// Cap govpx's BD-rate disadvantage vs libvpx at +3% — tighter
+	// than the global default because the picker here is verbatim from-Q.
+	assertLibvpxAbsoluteGate(t, "LoopFilter", res, benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 3.0,
+		MinBDPSNRdB:            -2.0,
+	})
+}
+
 // TestVP9FeatureBDRateScoreboardSummary prints the per-feature
 // scoreboard at the end of the BD-rate run. It runs after the gates
 // (alphabetical Z-suffix) so the table reflects every recorded row.

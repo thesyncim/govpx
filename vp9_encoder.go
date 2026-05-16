@@ -787,6 +787,15 @@ type VP9Encoder struct {
 	lfRefDeltas  [vp9dec.MaxRefLfDeltas]int8
 	lfModeDeltas [vp9dec.MaxModeLfDeltas]int8
 
+	// vp9LastFiltLevel mirrors libvpx loopfilter::last_filt_level. The
+	// picker's quadratic search seeds filt_mid from the previous
+	// frame's chosen level (libvpx vp9_picklpf.c:90), and the
+	// LPF_PICK_MINIMAL_LPF branch reads it to decide whether to zero
+	// the filter (libvpx vp9_picklpf.c:166). Reset to 0 on the
+	// non-forced KEY_FRAME edge to match libvpx vp9_encoder.c:3444-3445
+	// (`lf->last_filt_level = 0`).
+	vp9LastFiltLevel uint8
+
 	lookahead      []vp9LookaheadEntry
 	lookaheadRead  uint8
 	lookaheadWrite uint8
@@ -2218,8 +2227,20 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		header.Quant.UvDcDeltaQ == 0 &&
 		header.Quant.UvAcDeltaQ == 0
 	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
-	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey,
-		resetLoopfilterDeltas, header.Quant.Lossless, e.opts.Sharpness)
+	// libvpx vp9_picklpf.c:159 — the picker reads sf.lpf_pick to
+	// choose between LPF_PICK_FROM_FULL_IMAGE (default at speeds
+	// 0-2), LPF_PICK_FROM_Q (speed 3+), and LPF_PICK_MINIMAL_LPF.
+	// The full-image search would require reconstructed luma which
+	// govpx does not have at header-emit time, so the dispatcher
+	// degrades that branch to LPF_PICK_FROM_Q in the production path
+	// (sseFn=nil). txMode is determined after the header is emitted;
+	// we pass the libvpx default (TxModeSelect) so the picker's bias
+	// scaling matches the runtime case for any future structural
+	// refactor that wires the search picker in-place.
+	header.Loopfilter = e.vp9EncoderLoopFilterParams(qindex, isKey, intraOnly,
+		resetLoopfilterDeltas, header.Quant.Lossless,
+		header.Seg.Enabled, e.opts.Sharpness,
+		e.opts.Width, e.opts.Height, common.TxModeSelect)
 	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) {
 		header.Loopfilter.FilterLevel = 0
 	}
@@ -3410,6 +3431,10 @@ func vp9EncoderFrameAllowHighPrecisionMv(isKey, intraOnly bool) bool {
 	return !isKey && !intraOnly
 }
 
+// vp9EncoderLoopFilterLevel returns the closed-form LPF_PICK_FROM_Q
+// level. Retained for backward-compatible call sites; the encoder
+// path now goes through (*VP9Encoder).vp9PickFilterLevel which
+// dispatches on e.sf.LpfPick (libvpx vp9_picklpf.c:159-203).
 func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
 	q := int(vp9dec.VpxAcQuant(qindex, 0, vp9dec.BitDepth8))
 	level := (q*20723 + 1015158 + (1 << 17)) >> 18
@@ -3425,13 +3450,35 @@ func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
 	return uint8(level)
 }
 
-func vp9EncoderLoopFilterParams(qindex int, isKey, resetDeltas, lossless bool,
-	sharpness uint8,
+// vp9EncoderLoopFilterParams builds the per-frame Loopfilter header
+// fields. The filter level is now selected by
+// (*VP9Encoder).vp9PickFilterLevel which dispatches across the three
+// libvpx LPF_PICK_METHOD modes; the static closed-form fallback is
+// reserved for the lossless / disabled paths.
+func (e *VP9Encoder) vp9EncoderLoopFilterParams(qindex int, isKey, intraOnly, resetDeltas, lossless, segEnabled bool,
+	sharpness uint8, width, height int, txMode common.TxMode,
 ) vp9dec.LoopfilterParams {
-	level := vp9EncoderLoopFilterLevel(qindex, isKey)
+	// libvpx vp9_encoder.c:3442-3446 — at a non-forced keyframe the
+	// picker is seeded with last_filt_level=0 so the quadratic search
+	// starts fresh. govpx tracks `is_src_frame_alt_ref` only when
+	// AltRef is enabled, so we conservatively reset on every key /
+	// intra-only frame, matching libvpx's "reset on KEY_FRAME &&
+	// !this_key_frame_forced" path for the common case
+	// (this_key_frame_forced is the libvpx GF-derived forced-key
+	// signal; govpx does not emit forced keys distinct from natural
+	// key intervals).
+	if isKey || intraOnly {
+		e.vp9LastFiltLevel = 0
+	}
+	level := uint8(e.vp9PickFilterLevel(e.sf.LpfPick, qindex, isKey, segEnabled,
+		width, height, txMode, false /* partialFrame */, nil /* sseFn */))
 	if lossless {
 		level = 0
 	}
+	// libvpx vp9_encoder.c:3448 — `lf->last_filt_level = lf->filter_level`
+	// after the picker returns. We mirror that here so the next
+	// frame's picker reads the just-chosen level.
+	e.vp9LastFiltLevel = level
 	return vp9dec.LoopfilterParams{
 		FilterLevel:         level,
 		SharpnessLevel:      sharpness,
