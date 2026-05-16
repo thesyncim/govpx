@@ -142,6 +142,7 @@ type timingState struct {
 	timebaseNum   int
 	timebaseDen   int
 	frameDuration int
+	frameRate     float64
 }
 
 type rateControlState struct {
@@ -497,6 +498,15 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	return nil
 }
 
+func (rc *rateControlState) refreshFrameRate(timing timingState, twoPassMinPct int) {
+	bitsPerFrame := computeBitsPerFrame(rc.targetBandwidthBits, timing)
+	if bitsPerFrame > 0 {
+		rc.bitsPerFrame = bitsPerFrame
+	}
+	rc.outputFrameRate = int(outputFrameRate(timing))
+	rc.minFrameBandwidth = vbrMinFrameBandwidthBits(rc.bitsPerFrame, twoPassMinPct)
+}
+
 // libvpxClampToRawTargetRate returns kbps capped to the libvpx
 // raw-target-rate envelope (Width*Height*8*3*fps/1000 kbps). When the
 // configured frame dimensions or framerate are zero the clamp is a
@@ -658,9 +668,12 @@ func (rc *rateControlState) beginOnePassAltRefRefreshFrameWithTargetAndContext(b
 	}
 	// libvpx's one-pass calc_pframe_target_size has a special
 	// refresh_alt_ref_frame branch with no body. It skips normal p-frame
-	// target setup, KF/GF overspend drains, and inter_frame_target refresh;
-	// the stale this_frame_target then flows into the one-pass buffer
-	// adjustment below.
+	// target setup, KF/GF overspend drains, and inter_frame_target refresh,
+	// but still falls through the shared min_frame_target sanity clamp before
+	// the one-pass buffer adjustment.
+	if minFrameTarget := onePassMinFrameTarget(baseTargetBits); targetBits < minFrameTarget {
+		targetBits = minFrameTarget
+	}
 	targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 	rc.frameTargetBits = targetBits
 	rc.clampQuantizer()
@@ -670,7 +683,7 @@ func (rc *rateControlState) beginOnePassAltRefRefreshFrameWithTargetAndContext(b
 // branch of libvpx's calc_pframe_target_size (vp8/encoder/ratectrl.c). It
 // drains accumulated kf_overspend_bits / gf_overspend_bits into the
 // per-frame target via kf_bitrate_adjustment / non_gf_bitrate_adjustment,
-// clamping to min_frame_target = max(min_frame_bandwidth, per_frame_bandwidth/4).
+// clamping to min_frame_target = per_frame_bandwidth/4 in one-pass mode.
 // inter_frame_target is captured after recovery (libvpx records it on every
 // non-altref normal frame).
 func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int, perFrameBandwidth int) int {
@@ -689,14 +702,7 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int, 
 	if perFrameBandwidth <= 0 {
 		return targetBits
 	}
-	minFrameTarget := rc.minFrameBandwidth
-	quarter := perFrameBandwidth / 4
-	if minFrameTarget < quarter {
-		minFrameTarget = quarter
-	}
-	if minFrameTarget < 0 {
-		minFrameTarget = 0
-	}
+	minFrameTarget := onePassMinFrameTarget(perFrameBandwidth)
 	thisFrameTarget := targetBits
 	if rc.kfOverspendBits > 0 {
 		adjustment := max(min(min(rc.kfBitrateAdjustment, rc.kfOverspendBits), perFrameBandwidth-minFrameTarget), 0)
@@ -731,6 +737,13 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int, 
 	// libvpx records inter_frame_target on every non-altref normal frame.
 	rc.interFrameTarget = thisFrameTarget
 	return thisFrameTarget
+}
+
+func onePassMinFrameTarget(perFrameBandwidth int) int {
+	if perFrameBandwidth <= 0 {
+		return 0
+	}
+	return perFrameBandwidth / 4
 }
 
 func (rc *rateControlState) initialKeyFrameTargetBits() int {
@@ -813,6 +826,9 @@ func libvpxHalfFrameRate(timing timingState) float64 {
 }
 
 func outputFrameRate(timing timingState) float64 {
+	if timing.frameRate > 0 {
+		return timing.frameRate
+	}
 	if min(min(timing.timebaseNum, timing.timebaseDen), timing.frameDuration) <= 0 {
 		return 0
 	}

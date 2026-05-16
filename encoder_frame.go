@@ -92,14 +92,22 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	defer func() {
 		e.currentLFDeltaUpdate = false
 	}()
+	packetInvisible := flags&EncodeInvisibleFrame != 0
+	internalInvisible := packetInvisible && meta.internalInvisible
+	internalShowFrame := !internalInvisible
+	e.updateSourceFrameRateFromTimestamp(pts, duration, internalShowFrame)
 	// libvpx vp8/encoder/encodeframe.c:685-691 -- vp8_auto_select_speed runs
 	// once at the top of vp8_encode_frame for realtime+positive-cpu_used,
 	// evolving cpi->Speed from the prior frame's encode timer.
 	e.libvpxAutoSelectSpeed()
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
+	flags = e.applyFixedKeyFrameIntervalFlag(flags)
 	if err := validateEncodeFlags(flags); err != nil {
 		return EncodeResult{}, err
+	}
+	if flags&EncodeNoUpdateEntropy != 0 {
+		e.carriedNoUpdateEntropy = true
 	}
 	e.armExternalRefreshMask(flags)
 	e.armExternalReferenceMask(flags)
@@ -156,9 +164,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) == 0 {
 		goldenCBRRefresh = true
 	}
-	packetInvisible := flags&EncodeInvisibleFrame != 0
-	internalInvisible := packetInvisible && meta.internalInvisible
-	internalShowFrame := !internalInvisible
+	packetInvisible = flags&EncodeInvisibleFrame != 0
+	internalInvisible = packetInvisible && meta.internalInvisible
+	internalShowFrame = !internalInvisible
 	hiddenAltRefFrame := internalInvisible &&
 		flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
 	sourceIsAltRef := !temporalFrame.Enabled && internalShowFrame && e.isSrcFrameAltRef(pts)
@@ -170,6 +178,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	externalRefreshLast, externalRefreshGolden, externalRefreshAltRef, externalRefreshActive := e.currentExternalRefreshMask()
+	snapshotDroppedFrameEntropy := func() {
+		if externalRefreshActive {
+			e.snapshotDroppedFrameCoefProbs(externalRefreshLast, externalRefreshGolden, externalRefreshAltRef)
+			return
+		}
+		e.snapshotDroppedFrameCoefProbs(true, false, false)
+	}
 	if externalRefreshActive && (externalRefreshGolden || externalRefreshAltRef) {
 		boostedReferenceFrame = true
 	}
@@ -208,12 +223,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			gfBaselineInterval = libvpxDefaultGFInterval
 			gfMaxInterval = e.libvpxMaxGFInterval()
 		}
-	}
-	droppedFrameRefreshMask := func() (refreshLast bool, refreshGolden bool, refreshAltRef bool) {
-		if externalRefreshActive {
-			return externalRefreshLast, externalRefreshGolden, externalRefreshAltRef
-		}
-		return true, false, false
 	}
 	// libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer adjusts
 	// cpi->decimation_factor from the post-encode buffer level of the
@@ -271,7 +280,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if oracleTraceBuild {
 			e.emitOracleDroppedFrameTrace("decimation")
 		}
-		e.snapshotDroppedFrameCoefProbs(droppedFrameRefreshMask())
+		e.rollbackNoUpdateEntropyForDroppedFrame()
+		snapshotDroppedFrameEntropy()
+		e.restorePendingLFDeltaUpdateAfterDrop(meta.forceLFDeltaUpdate)
 		e.frameCount++
 		finishSourceAltRef()
 		return droppedResult, nil
@@ -433,7 +444,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// is observed (cyclic refresh suppression) but the next frame's Q is
 	// still picked from the rate model and undoes the buffer recovery.
 	if e.forceMaxQuantizer {
-		e.rc.currentQuantizer = e.rc.maxQuantizer
+		e.rc.currentQuantizer = e.pendingForceMaxQuantizer()
 		e.rc.currentZbinOverQuant = 0
 	}
 	// libvpx vp8/encoder/onyx_if.c lines 3727-3739: for one-pass CQ
@@ -500,7 +511,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if oracleTraceBuild {
 			e.emitOracleDroppedFrameTrace("buffer_underrun")
 		}
-		e.snapshotDroppedFrameCoefProbs(droppedFrameRefreshMask())
+		e.rollbackNoUpdateEntropyForDroppedFrame()
+		snapshotDroppedFrameEntropy()
+		e.restorePendingLFDeltaUpdateAfterDrop(meta.forceLFDeltaUpdate)
 		e.frameCount++
 		finishSourceAltRef()
 		return result, nil
@@ -521,27 +534,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.cancelAutoSpeedTiming()
 			return EncodeResult{}, err
 		}
-		// libvpx vp8/encoder/onyx_if.c:3970-3982 runs
-		// vp8_drop_encodedframe_overshoot after vp8_encode_frame on
-		// one-pass CBR. When it returns 1 the encoded frame is discarded
-		// and the next frame is forced to max-Q via cpi->force_maxqp.
-		// The function only fires under screen_content_mode==2 or with
-		// drop_frames_allowed plus a starved rate-correction-factor; for
-		// the common non-screen-content / drop-disabled config it just
-		// advances frames_since_last_drop_overshoot so the rcf-watchdog
-		// branch can arm next time.
-		// libvpx vp8/encoder/onyx_if.c:3977 calls
-		// vp8_drop_encodedframe_overshoot with cpi->projected_frame_size set
-		// to the picker's pre-pack totalrate>>8 from
-		// vp8/encoder/encodeframe.c:946. The overshoot drop's rate threshold
-		// compares against THAT picker estimate, not the packed bitstream
-		// size — passing attempt.Size (which is the final packed payload in
-		// bytes) systematically underfeeds the gate and lets govpx encode
-		// frames that libvpx drops (e.g. the first inter frame after a fat
-		// keyframe on screen-content mode 2). PickerProjectedSizeBytes is
-		// always populated by encodeInterFrameAttempt so the gate evaluates
-		// even when the recode loop is disabled at realtime.
-		if e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.PickerProjectedSizeBytes, required, false) {
+		// libvpx runs vp8_drop_encodedframe_overshoot inside the inter
+		// encode/recode loop. encodeInterFrameWithQuantizerFeedback mirrors
+		// that timing and marks the accepted attempt when the branch fired.
+		if attempt.OvershootDropped {
 			// The overshoot decision runs after vp8_encode_frame has walked
 			// MBs and converted their reference counts. Libvpx discards the
 			// packet and reference refresh, but the converted ref-frame
@@ -557,6 +553,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			if attempt.CyclicRefresh {
 				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
 			}
+			e.updateActivityProbeRDState(int(attempt.Config.BaseQIndex), e.rc.currentZbinOverQuant, rows, cols)
 			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
 			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
@@ -569,12 +566,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			if oracleTraceBuild {
 				e.emitOracleDroppedFrameTrace("overshoot")
 			}
-			e.snapshotDroppedFrameCoefProbs(droppedFrameRefreshMask())
+			e.rollbackNoUpdateEntropyForDroppedFrame()
+			snapshotDroppedFrameEntropy()
+			e.restorePendingLFDeltaUpdateAfterDrop(meta.forceLFDeltaUpdate)
 			e.frameCount++
 			finishSourceAltRef()
 			return result, nil
 		}
-		e.lastPredErrorMB = e.currentPredictionErrorMB(required)
 		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, internalInvisible); recodeKeyFrame {
 			keyFrame = true
 			sceneCutKeyFrame = true
@@ -606,7 +604,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// regardless of frame type, including a scene-cut KF
 			// promoted from this auto-key recode path.
 			if e.forceMaxQuantizer {
-				e.rc.currentQuantizer = e.rc.maxQuantizer
+				e.rc.currentQuantizer = e.pendingForceMaxQuantizer()
 				e.rc.currentZbinOverQuant = 0
 			}
 			// Scene-cut promotion path: forced KF, so do not apply the
@@ -655,6 +653,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			if attempt.CyclicRefresh {
 				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
 			}
+			e.updateActivityProbeRDState(finalQuantizer, e.rc.currentZbinOverQuant, rows, cols)
 			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
 			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
@@ -710,6 +709,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			}
 			e.clearExternalRefreshMaskAfterPacket()
 			e.clearExternalReferenceMaskAfterPacket()
+			e.clearCarriedNoUpdateEntropyAfterPacket()
 			// libvpx onyx_if.c end-of-encode: record ambient_err if the next
 			// frame will be a forced KF so the forced-KF recode branch has a
 			// baseline to compare against.
@@ -723,11 +723,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		}
 	}
 
-	// libvpx vp8/encoder/onyx_if.c sets cpi->this_key_frame_forced when the
-	// key frame is timing-driven (max-interval forced) rather than content-
-	// driven. The recode loop reads it to engage the SS-error feedback Q
-	// adjustment branch around line 4065.
-	e.thisKeyFrameForced = forcedKeyFrame && !sceneCutKeyFrame && e.frameCount > 0
+	// libvpx API-forced keyframes, including wrapper fixed-kf frames, set
+	// FRAMEFLAGS_KEY but do not set cpi->this_key_frame_forced. That field is
+	// only driven by the two-pass next_key_frame_forced scheduler.
+	e.thisKeyFrameForced = false
 	// libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame seeds the next GF
 	// section countdown to baseline_gf_interval and asserts
 	// refresh_golden_frame=1 / refresh_alt_ref_frame=1 on every key frame
@@ -773,7 +772,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.initDenoiserAvgFromKeyFrame(source)
 	// Key frames consume any pending force_maxqp gate without applying it
 	// (cyclic refresh is already keyframe-reset).
-	e.forceMaxQuantizer = false
+	e.clearForceMaxQuantizer()
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
@@ -803,6 +802,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// Preserve both rolling structures so the next inter frame attempts the
 	// same refresh candidates.
 	e.commitKeyFrameCyclicRefreshMap(rows, cols, e.keyFrameModes[:required], keyAttempt.SegmentationEnabled)
+	e.updateActivityProbeRDState(finalQuantizer, e.rc.currentZbinOverQuant, rows, cols)
 	clearUint8Map(e.consecZeroLast)
 	clearUint8Map(e.consecZeroLastMVBias)
 	clearBoolMap(e.dotArtifactChecked)
@@ -849,6 +849,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	e.clearExternalRefreshMaskAfterPacket()
 	e.clearExternalReferenceMaskAfterPacket()
+	e.clearCarriedNoUpdateEntropyAfterPacket()
 	// libvpx onyx_if.c, end-of-encode: clear this_key_frame_forced after the
 	// frame has been committed; the next forced KF will set it again. Update
 	// the next_key_frame_forced bookkeeping for the following frame's

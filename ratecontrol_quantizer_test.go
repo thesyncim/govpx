@@ -326,11 +326,36 @@ func TestRateControlFrameSizeRecodeRelaxesActiveWorstOnOvershoot(t *testing.T) {
 
 	got, ok := rc.frameSizeRecodeQuantizerWithContext(300, false, false, 60, &recode)
 
-	if !ok || got <= 80 || recode.qHigh != 100 || !recode.activeWorstQChanged || !rc.activeWorstQChanged {
-		t.Fatalf("active-worst recode = q:%d ok:%t state:%+v rcChanged:%t, want relaxed q_high and recode", got, ok, recode, rc.activeWorstQChanged)
+	if !ok || got != 80 || recode.qHigh != 80 || recode.regulateHigh != 100 || !recode.activeWorstQChanged || !rc.activeWorstQChanged {
+		t.Fatalf("active-worst recode = q:%d ok:%t state:%+v rcChanged:%t, want relaxed active-worst while local q_high stays pinned", got, ok, recode, rc.activeWorstQChanged)
 	}
 	if recode.correctionFactor != 1.0 {
 		t.Fatalf("active-worst correction factor = %g, want unchanged when active worst changed", recode.correctionFactor)
+	}
+}
+
+func TestRateControlFrameSizeRecodeDoesNotReopenNarrowedQHigh(t *testing.T) {
+	rc := rateControlState{
+		mode:             RateControlCBR,
+		minQuantizer:     2,
+		maxQuantizer:     106,
+		currentQuantizer: 2,
+		bitsPerFrame:     10_000,
+		frameTargetBits:  7061,
+	}
+	recode := frameSizeRecodeState{
+		qLow:             2,
+		qHigh:            2,
+		regulateLow:      2,
+		regulateHigh:     106,
+		correctionFactor: 0.483560357,
+		undershootSeen:   true,
+	}
+
+	got, ok := rc.frameSizeRecodeQuantizerWithContextBits(8496, false, true, 16, &recode)
+
+	if !ok || got != 2 || recode.qHigh != 2 || recode.regulateHigh != 106 || recode.activeWorstQChanged {
+		t.Fatalf("narrowed q_high recode = q:%d ok:%t state:%+v, want q2 accepted without active-worst relaxation", got, ok, recode)
 	}
 }
 
@@ -565,6 +590,36 @@ func TestRateControlScreenContentLimitsLibvpxInterQuantizerDrop(t *testing.T) {
 	}
 }
 
+func TestRateControlScreenContentLimitsInterRecodeQuantizerDrop(t *testing.T) {
+	rc := rateControlState{
+		mode:               RateControlCBR,
+		minQuantizer:       2,
+		maxQuantizer:       94,
+		currentQuantizer:   30,
+		lastInterQuantizer: 50,
+		bitsPerFrame:       120000,
+		frameTargetBits:    120000,
+		bufferOptimalBits:  3500000,
+		bufferLevelBits:    3500000,
+		maximumBufferBits:  4200000,
+	}
+
+	recode := rc.newFrameSizeRecodeState(false, false)
+	recode.onePass = true
+	recode.screenContentMode = 1
+	got, ok := rc.frameSizeRecodeQuantizerWithContextBits(100, false, false, 60, &recode)
+	if !ok || got != 29 {
+		t.Fatalf("screen-content inter recode quantizer = %d ok=%t, want q_high-limited 29", got, ok)
+	}
+
+	rc.currentQuantizer = 30
+	recode = rc.newFrameSizeRecodeState(false, false)
+	got, ok = rc.frameSizeRecodeQuantizerWithContextBits(100, false, false, 60, &recode)
+	if !ok || got >= 29 {
+		t.Fatalf("non-screen inter recode quantizer = %d ok=%t, want unbounded drop below q_high", got, ok)
+	}
+}
+
 func TestRateControlTracksLibvpxLastInterQuantizer(t *testing.T) {
 	rc := rateControlState{
 		mode:               RateControlCBR,
@@ -634,5 +689,28 @@ func TestLibvpxEstimatedBitsAtQuantizerWithZbinAppliesLibvpxFactorWalk(t *testin
 			t.Fatalf("zbin=%d estimate %d exceeds zbin=%d estimate %d", z, got, z-1, prev)
 		}
 		prev = got
+	}
+}
+
+func TestFrameSizeRecodeRetriesRegulatorUntilBoundsSatisfied(t *testing.T) {
+	rc := rateControlState{
+		mode:                 RateControlCBR,
+		minQuantizer:         2,
+		maxQuantizer:         106,
+		currentQuantizer:     2,
+		frameTargetBits:      14468,
+		rateCorrectionFactor: 0.76812792,
+	}
+	recode := rc.newFrameSizeRecodeState(false, true)
+
+	next, ok := rc.frameSizeRecodeQuantizerWithContextBits(16604, false, true, 16, &recode)
+	if !ok {
+		t.Fatalf("frameSizeRecodeQuantizerWithContextBits did not recode")
+	}
+	if next != 3 {
+		t.Fatalf("recode quantizer = %d, want q3", next)
+	}
+	if recode.correctionFactor < 1.08 || recode.correctionFactor > 1.10 {
+		t.Fatalf("recode correction factor = %.9f, want libvpx retry-updated factor near 1.091", recode.correctionFactor)
 	}
 }

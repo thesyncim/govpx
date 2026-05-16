@@ -49,7 +49,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		e.interRDCoeffCacheScratchTarget = nil
 	}()
 	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
-	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestYRD := maxInt()
@@ -244,7 +244,10 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			score = split.rd
 			yrd = split.yrd
 			rate = split.rate
+			rateY = split.rateY
+			rateUV = split.rateUV
 			distortion = split.distortion
+			distortionUV = split.distortionUV
 			rdLoopSkip = split.rdLoopSkip
 			mbSkipCoeff = split.mbSkipCoeff
 		} else {
@@ -425,7 +428,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	if !bestSet {
 		return interFrameModeDecision{}, false
 	}
-	if bestModeIndex >= 0 {
+	if interModeRDBestThresholdLowerAllowed(baselineThresholds, bestModeIndex) {
 		e.lowerBestInterRDThreshold(bestModeIndex)
 	}
 	best.predictionError = int32(bestDistortion)

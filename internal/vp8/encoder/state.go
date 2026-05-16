@@ -20,6 +20,8 @@ type KeyFrameStateConfig struct {
 	LFDeltaForceUpdateAll bool
 	RefLFDeltas           [common.MaxRefLFDeltas]int8
 	ModeLFDeltas          [common.MaxModeLFDeltas]int8
+	RefLFDeltasBase       [common.MaxRefLFDeltas]int8
+	ModeLFDeltasBase      [common.MaxModeLFDeltas]int8
 
 	TokenPartition common.TokenPartition
 	BaseQIndex     uint8
@@ -56,7 +58,7 @@ func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {
 	}
 	w.WriteLiteral(uint32(cfg.LoopFilterLevel), 6)
 	w.WriteLiteral(uint32(cfg.SharpnessLevel), 3)
-	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.LFDeltaForceUpdateAll, cfg.RefLFDeltas, cfg.ModeLFDeltas)
+	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.LFDeltaForceUpdateAll, cfg.RefLFDeltas, cfg.ModeLFDeltas, cfg.RefLFDeltasBase, cfg.ModeLFDeltasBase)
 	w.WriteLiteral(uint32(cfg.TokenPartition), 2)
 	w.WriteLiteral(uint32(cfg.BaseQIndex), 7)
 	writeQuantDeltas(w, cfg.QuantDeltas)
@@ -105,7 +107,7 @@ func writeQuantDelta(w *BoolWriter, delta int) {
 	w.WriteBit(0)
 }
 
-func writeLoopFilterDeltas(w *BoolWriter, enabled bool, update bool, forceAll bool, refDeltas [common.MaxRefLFDeltas]int8, modeDeltas [common.MaxModeLFDeltas]int8) {
+func writeLoopFilterDeltas(w *BoolWriter, enabled bool, update bool, forceAll bool, refDeltas [common.MaxRefLFDeltas]int8, modeDeltas [common.MaxModeLFDeltas]int8, refBase [common.MaxRefLFDeltas]int8, modeBase [common.MaxModeLFDeltas]int8) {
 	if !enabled {
 		w.WriteBit(0)
 		return
@@ -116,22 +118,16 @@ func writeLoopFilterDeltas(w *BoolWriter, enabled bool, update bool, forceAll bo
 		return
 	}
 	w.WriteBit(1)
-	for _, delta := range refDeltas {
-		writeLoopFilterDelta(w, delta, forceAll)
+	for i, delta := range refDeltas {
+		writeLoopFilterDelta(w, delta, forceAll || delta != refBase[i])
 	}
-	for _, delta := range modeDeltas {
-		writeLoopFilterDelta(w, delta, forceAll)
+	for i, delta := range modeDeltas {
+		writeLoopFilterDelta(w, delta, forceAll || delta != modeBase[i])
 	}
 }
 
-func writeLoopFilterDelta(w *BoolWriter, delta int8, force bool) {
-	if delta == 0 {
-		if force {
-			w.WriteBit(1)
-			w.WriteLiteral(0, 6)
-			w.WriteBit(1)
-			return
-		}
+func writeLoopFilterDelta(w *BoolWriter, delta int8, update bool) {
+	if !update {
 		w.WriteBit(0)
 		return
 	}
@@ -141,10 +137,10 @@ func writeLoopFilterDelta(w *BoolWriter, delta int8, force bool) {
 		value = -value
 	}
 	w.WriteLiteral(uint32(value)&0x3f, 6)
-	if delta < 0 {
-		w.WriteBit(1)
-	} else {
+	if delta > 0 {
 		w.WriteBit(0)
+	} else {
+		w.WriteBit(1)
 	}
 }
 

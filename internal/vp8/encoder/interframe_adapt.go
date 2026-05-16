@@ -175,9 +175,6 @@ func adaptInterFrameMVProbabilitiesWithBase(counts *[2][tables.MVPCount][2]int, 
 	if counts == nil || cfg == nil {
 		return base
 	}
-	if base == ([2][tables.MVPCount]uint8{}) {
-		base = tables.DefaultMVContext
-	}
 	cfg.MVBase = base
 	cfg.MVProbs = base
 	cfg.MVUpdate = [2][tables.MVPCount]bool{}
@@ -222,7 +219,6 @@ func motionVectorProbabilityUpdateSavings(counts [2]int, oldProb uint8, newProb 
 }
 
 func adaptInterFrameYModeProbabilitiesWithBase(counts *[tables.YModeProbCount][2]int, base [tables.YModeProbCount]uint8, cfg *InterFrameStateConfig) [tables.YModeProbCount]uint8 {
-	base = normalizeYModeProbabilityBase(base)
 	cfg.YModeBase = base
 	cfg.YModeProbs = base
 	cfg.YModeUpdate = false
@@ -236,7 +232,6 @@ func adaptInterFrameYModeProbabilitiesWithBase(counts *[tables.YModeProbCount][2
 }
 
 func adaptInterFrameUVModeProbabilitiesWithBase(counts *[tables.UVModeProbCount][2]int, base [tables.UVModeProbCount]uint8, cfg *InterFrameStateConfig) [tables.UVModeProbCount]uint8 {
-	base = normalizeUVModeProbabilityBase(base)
 	cfg.UVModeBase = base
 	cfg.UVModeProbs = base
 	cfg.UVModeUpdate = false
@@ -280,26 +275,27 @@ func normalizeUVModeProbabilityBase(base [tables.UVModeProbCount]uint8) [tables.
 }
 
 func interFrameYModeProbs(cfg *InterFrameStateConfig) [tables.YModeProbCount]uint8 {
-	probs := normalizeYModeProbabilityBase(cfg.YModeBase)
+	probs := cfg.YModeBase
 	if cfg.YModeUpdate {
-		probs = normalizeYModeProbabilityBase(cfg.YModeProbs)
+		probs = cfg.YModeProbs
 	}
 	return probs
 }
 
 func interFrameUVModeProbs(cfg *InterFrameStateConfig) [tables.UVModeProbCount]uint8 {
-	probs := normalizeUVModeProbabilityBase(cfg.UVModeBase)
+	probs := cfg.UVModeBase
 	if cfg.UVModeUpdate {
-		probs = normalizeUVModeProbabilityBase(cfg.UVModeProbs)
+		probs = cfg.UVModeProbs
 	}
 	return probs
 }
 
+func interFrameBModeProbs(cfg *InterFrameStateConfig) [tables.BModeProbCount]uint8 {
+	return cfg.BModeBase
+}
+
 func interFrameMVProbs(cfg *InterFrameStateConfig) [2][tables.MVPCount]uint8 {
 	probs := cfg.MVBase
-	if probs == ([2][tables.MVPCount]uint8{}) {
-		probs = tables.DefaultMVContext
-	}
 	for component := range 2 {
 		for i := range tables.MVPCount {
 			if cfg.MVUpdate[component][i] {

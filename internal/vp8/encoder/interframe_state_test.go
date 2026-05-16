@@ -57,6 +57,42 @@ func TestWriteInterFrameStateHeaderParsesLoopFilterDeltas(t *testing.T) {
 	}
 }
 
+func TestWriteInterFrameStateHeaderCarriesPreviousLoopFilterDeltas(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	cfg.LoopFilterLevel = 9
+	cfg.LFDeltaEnabled = true
+	cfg.LFDeltaUpdate = true
+	cfg.RefLFDeltas = [common.MaxRefLFDeltas]int8{2, 0, -2, -2}
+	cfg.ModeLFDeltas = [common.MaxModeLFDeltas]int8{4, -2, 2, 4}
+	cfg.RefLFDeltasBase = cfg.RefLFDeltas
+	cfg.ModeLFDeltasBase = cfg.ModeLFDeltas
+	dst := make([]byte, 512)
+	n, err := WriteZeroInterFrame(dst, 16, 16, cfg)
+	if err != nil {
+		t.Fatalf("WriteZeroInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	prev := vp8dec.LoopFilterHeader{
+		DeltaEnabled: true,
+		DeltaUpdate:  true,
+		RefDeltas:    cfg.RefLFDeltas,
+		ModeDeltas:   cfg.ModeLFDeltas,
+	}
+
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(dst[:n], vp8dec.QuantHeader{}, prev, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if !state.LoopFilter.DeltaEnabled || !state.LoopFilter.DeltaUpdate {
+		t.Fatalf("loop filter delta flags = enabled:%t update:%t, want enabled update", state.LoopFilter.DeltaEnabled, state.LoopFilter.DeltaUpdate)
+	}
+	if state.LoopFilter.RefDeltas != cfg.RefLFDeltas || state.LoopFilter.ModeDeltas != cfg.ModeLFDeltas {
+		t.Fatalf("loop filter deltas = %v/%v, want carried %v/%v", state.LoopFilter.RefDeltas, state.LoopFilter.ModeDeltas, cfg.RefLFDeltas, cfg.ModeLFDeltas)
+	}
+}
+
 func TestWriteInterFrameStateHeaderParsesQuantDeltas(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(2)
 	cfg.QuantDeltas = common.QuantDeltas{Y2DC: 2, UVDC: -3, UVAC: -3}

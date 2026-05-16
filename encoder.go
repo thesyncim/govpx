@@ -266,8 +266,11 @@ type EncoderOptions struct {
 	// Tuning selects the PSNR or SSIM visual quality model.
 	Tuning Tuning
 
-	// KeyFrameInterval is the maximum GOP distance in frames. Zero disables
-	// interval-forced key frames.
+	// KeyFrameInterval is the maximum GOP distance in frames. In
+	// EncoderOptions, zero defaults to libvpx's startup default of 120.
+	// Runtime SetKeyFrameInterval(0) mirrors libvpx's fixed interval of zero
+	// and interval-forces every accepted input frame unless keyframes are
+	// disabled by runtime control.
 	KeyFrameInterval int
 	// LookaheadFrames enables buffered encoding. When positive, EncodeInto
 	// queues input frames and returns ErrFrameNotReady until enough future
@@ -439,6 +442,7 @@ type VP8Encoder struct {
 	opts EncoderOptions
 
 	timing   timingState
+	sourceTS encoderSourceTimestampState
 	rc       rateControlState
 	temporal temporalState
 
@@ -450,6 +454,14 @@ type VP8Encoder struct {
 	// on runtime vpx_codec_enc_config_set updates; adaptive auto-key forcing
 	// must therefore not read the live EncoderOptions.KeyFrameInterval.
 	keyFrameFrequency int
+	// keyFramesDisabled mirrors libvpx cfg.kf_mode == VPX_KF_DISABLED for
+	// runtime controls. The cold-start default keeps fixed key-frame cadence
+	// active even when AdaptiveKeyFrames is false.
+	keyFramesDisabled bool
+	// fixedKeyFrameCounter mirrors libvpx's wrapper-level fixed_kf_cntr for
+	// kf_min_dist == kf_max_dist. It is intentionally not reset by runtime
+	// config changes.
+	fixedKeyFrameCounter int
 
 	lastQuantizerPublic   int
 	lastQuantizerInternal int
@@ -467,6 +479,13 @@ type VP8Encoder struct {
 	avgPickModeTime       int // microseconds (libvpx cpi->avg_pick_mode_time, signed int per onyx_int.h)
 	avgEncodeTime         int // microseconds (libvpx cpi->avg_encode_time, signed int per onyx_int.h)
 	autoSpeedFrameStartNS int64
+	// configuredCPUUsed mirrors the wrapper-level vp8_extracfg.cpu_used.
+	// libvpx stores the unclamped VP8E_SET_CPUUSED value there and only
+	// clamps the compressor copy when vp8_change_config applies the active
+	// deadline mode. Keeping this separate prevents good-quality's [-5,5]
+	// clamp from leaking into a later realtime deadline switch.
+	configuredCPUUsed      int
+	configuredCPUUsedValid bool
 	// Runtime VP8E_SET_CPUUSED follows a slightly different temporal RD
 	// frame-context path from cold-start cpu_used config when it pins
 	// realtime speed. Track that control call so temporal GF refresh scoring
@@ -490,18 +509,21 @@ type VP8Encoder struct {
 	// restoreCodingContext when an attempt is rejected.
 	savedContext savedCodingContext
 
-	cyclicRefreshIndex               int
-	cyclicRefreshConfigured          bool
-	cyclicRefreshMap                 []int8
-	cyclicRefreshAttemptMap          []int8
-	segmentationHeaderEnabled        bool
-	lastSegmentationConfig           vp8enc.SegmentationConfig
-	rtcExternalPreserveSegmentation  bool
-	rtcExternalPreservedSegmentation vp8enc.SegmentationConfig
-	skinMap                          []uint8
-	consecZeroLast                   []uint8
-	lastInterZeroMVCount             int
-	lastInterSkipCount               int
+	cyclicRefreshIndex                int
+	cyclicRefreshConfigured           bool
+	cyclicRefreshMap                  []int8
+	cyclicRefreshAttemptMap           []int8
+	segmentationHeaderEnabled         bool
+	lastSegmentationConfig            vp8enc.SegmentationConfig
+	runtimePreserveSegmentation       bool
+	runtimePreservedSegmentation      vp8enc.SegmentationConfig
+	runtimePreserveSegmentationUpdate bool
+	runtimeSegmentationUpdatePending  bool
+	rtcExternalDisableCyclicRefresh   bool
+	skinMap                           []uint8
+	consecZeroLast                    []uint8
+	lastInterZeroMVCount              int
+	lastInterSkipCount                int
 
 	// libvpx active-map: when enabled, MBs flagged 0 skip mode decision in
 	// inter frames and code as ZEROMV-LAST with skip=1 (see pickinter.c
@@ -513,6 +535,14 @@ type VP8Encoder struct {
 	activityMap      []uint32
 	activityAvg      uint32
 	activityMapValid bool
+	// libvpx's TuneSSIM build_activity_map reuses MACROBLOCK.rdmult/rddiv
+	// left by the last encoded macroblock; vp8_initialize_rd_consts updates
+	// cpi->RDMULT/RDDIV but not the MACROBLOCK copies before the activity
+	// probe runs. Carry that stale pair across frames for the probe's
+	// optimize_mby trellis.
+	activityProbeRDMult  int
+	activityProbeRDDiv   int
+	activityProbeRDValid bool
 
 	// libvpx dot-artifact suppression: count of MBs that have biased
 	// against ZEROMV-LAST this frame (capped at MBs/10), and the current
@@ -549,6 +579,13 @@ type VP8Encoder struct {
 	carriedExternalReferenceLast   bool
 	carriedExternalReferenceGolden bool
 	carriedExternalReferenceAltRef bool
+
+	// carriedNoUpdateEntropy mirrors common.refresh_entropy_probs across
+	// dropped frames. VP8_EFLAG_NO_UPD_ENTROPY sets it before drop checks;
+	// libvpx only restores the default refresh-on state after a packet is
+	// actually emitted, so a dropped no-update frame suppresses entropy
+	// refresh on the next encoded frame.
+	carriedNoUpdateEntropy bool
 
 	// framePredictionError mirrors libvpx's cpi->mb.prediction_error for
 	// the current inter encode attempt. The overshoot-drop gate reads it
@@ -838,11 +875,16 @@ type VP8Encoder struct {
 	// encodeInterFrameAttempt). When non-nil, picker call sites read from it
 	// instead of e.coefProbs so token costs match libvpx's per-reference
 	// fill_token_costs source. nil during key-frame and committed-encode paths.
-	rdPickerCoefProbsActive *vp8tables.CoefficientProbs
-	modeProbs               vp8dec.ModeProbs
-	mvCostTables            vp8enc.MotionVectorCostTables
-	mvCostProbs             [2][vp8tables.MVPCount]uint8
-	mvCostTablesValid       bool
+	rdPickerCoefProbsActive      *vp8tables.CoefficientProbs
+	modeProbs                    vp8dec.ModeProbs
+	subMVRefProbs                [3]uint8
+	noUpdateEntropyCoefProbs     vp8tables.CoefficientProbs
+	noUpdateEntropyModeProbs     vp8dec.ModeProbs
+	noUpdateEntropySubMVRefProbs [3]uint8
+	noUpdateEntropyContextValid  bool
+	mvCostTables                 vp8enc.MotionVectorCostTables
+	mvCostProbs                  [2][vp8tables.MVPCount]uint8
+	mvCostTablesValid            bool
 
 	// threadedRowsActive marks the worker-private encoder view used by the
 	// row-threaded inter-frame builder. It is false on the canonical encoder
@@ -872,8 +914,6 @@ type VP8Encoder struct {
 	// not pay for atomic coordination.
 	threadedDotArtifactBudget *atomic.Int32
 }
-
-const encoderQuantizerFeedbackMaxAttempts = 8
 
 func (e *VP8Encoder) phaseStart() int64 {
 	if e.opts.PhaseStats == nil {
@@ -928,10 +968,12 @@ type savedCodingContext struct {
 	framesSinceGolden     int
 	thisFramePercentIntra int
 	// libvpx CODING_CONTEXT array fields (mvc/ymode_prob/uv_mode_prob).
-	// govpx stores MV/Y/UV/B mode probabilities in e.modeProbs (vp8dec.ModeProbs)
+	// govpx stores MV/Y/UV/B mode probabilities in e.modeProbs
+	// (vp8dec.ModeProbs), SPLITMV RD label probabilities in e.subMVRefProbs,
 	// and coefficient probabilities in e.coefProbs.
-	modeProbs vp8dec.ModeProbs
-	coefProbs vp8tables.CoefficientProbs
+	modeProbs     vp8dec.ModeProbs
+	subMVRefProbs [3]uint8
+	coefProbs     vp8tables.CoefficientProbs
 	// libvpx also tracks ref-frame and skip-false probabilities across the
 	// recode loop via cpi->prob_intra/prob_last/prob_gf and
 	// cpi->prob_skip_false; govpx's per-attempt deferred restore covers them
@@ -957,6 +999,7 @@ func (e *VP8Encoder) saveCodingContext() {
 		framesSinceGolden:              e.framesSinceGolden,
 		thisFramePercentIntra:          e.rc.thisFramePercentIntra,
 		modeProbs:                      e.modeProbs,
+		subMVRefProbs:                  e.subMVRefProbs,
 		coefProbs:                      e.coefProbs,
 		refProbIntra:                   e.refProbIntra,
 		refProbLast:                    e.refProbLast,
@@ -981,6 +1024,7 @@ func (e *VP8Encoder) restoreCodingContext() {
 	e.framesSinceGolden = e.savedContext.framesSinceGolden
 	e.rc.thisFramePercentIntra = e.savedContext.thisFramePercentIntra
 	e.modeProbs = e.savedContext.modeProbs
+	e.subMVRefProbs = e.savedContext.subMVRefProbs
 	e.coefProbs = e.savedContext.coefProbs
 	e.refProbIntra = e.savedContext.refProbIntra
 	e.refProbLast = e.savedContext.refProbLast
@@ -1031,6 +1075,9 @@ type interFrameEncodeAttempt struct {
 	// for non-zero-ref attempts so the overshoot drop can fire even when
 	// the recode loop is disabled.
 	PickerProjectedSizeBytes int
+	// OvershootDropped is set when the libvpx post-encode overshoot gate
+	// fired for this attempt inside the inter recode loop.
+	OvershootDropped bool
 	// Entropy-savings breakdown (see keyFrameEncodeAttempt).
 	CoefSavingsBits        int
 	RefFrameSavingsBits    int
@@ -1049,6 +1096,7 @@ type interFrameEncodeAttempt struct {
 // without allocating any encoder state. Width, Height, FPS (or
 // TimebaseNum/Den), and TargetBitrateKbps are required.
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
+	configuredCPUUsed := opts.CpuUsed
 	normalized, timing, err := normalizeEncoderOptions(opts)
 	if err != nil {
 		return nil, err
@@ -1056,20 +1104,25 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 
 	cfg := defaultRateControlConfig(normalized)
 	e := &VP8Encoder{
-		opts:               normalized,
-		timing:             timing,
-		coefProbs:          vp8tables.DefaultCoefProbs,
-		refProbIntra:       63,
-		refProbLast:        128,
-		refProbGolden:      128,
-		probSkipFalse:      128,
-		baseSkipFalseProbs: libvpxBaseSkipFalseProbs,
+		opts:                   normalized,
+		timing:                 timing,
+		sourceTS:               newEncoderSourceTimestampState(timing),
+		coefProbs:              vp8tables.DefaultCoefProbs,
+		refProbIntra:           63,
+		refProbLast:            128,
+		refProbGolden:          128,
+		probSkipFalse:          128,
+		baseSkipFalseProbs:     libvpxBaseSkipFalseProbs,
+		configuredCPUUsed:      configuredCPUUsed,
+		configuredCPUUsedValid: true,
 	}
 	if err := e.reallocateForDimensions(normalized.Width, normalized.Height); err != nil {
 		return nil, err
 	}
 	e.resetInterRDThresholdMultipliers()
 	vp8dec.ResetModeProbs(&e.modeProbs)
+	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
+	e.resetNoUpdateEntropyRollbackContext()
 	if err := e.initLookahead(normalized.Width, normalized.Height, normalized.LookaheadFrames); err != nil {
 		return nil, err
 	}
@@ -1105,6 +1158,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	}
 	e.cyclicRefreshConfigured = normalized.ErrorResilient ||
 		(e.rc.mode == RateControlCBR && len(normalized.TwoPassStats) == 0)
+	e.rtcExternalDisableCyclicRefresh = normalized.RTCExternalRateControl
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {

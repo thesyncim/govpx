@@ -61,13 +61,10 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 			rc.currentZbinOverQuant = 0
 		}
 	}
+	rc.clampQuantizer()
 	if rc.mode == RateControlCBR && screenContentMode > 0 && !keyFrame {
 		rc.currentQuantizer = libvpxLimitCBRInterQuantizerDrop(rc.lastInterQuantizer, rc.currentQuantizer)
-		if rc.currentQuantizer < vp8MaxQIndex {
-			rc.currentZbinOverQuant = 0
-		}
 	}
-	rc.clampQuantizer()
 	if rc.currentQuantizer < vp8MaxQIndex {
 		rc.currentZbinOverQuant = 0
 	}
@@ -249,6 +246,4 @@ func (rc *rateControlState) clampBuffer() {
 
 func (rc *rateControlState) clampQuantizer() {
 	rc.currentQuantizer = min(max(rc.currentQuantizer, rc.minQuantizer), rc.maxQuantizer)
-	rc.lastQuantizer = min(max(rc.lastQuantizer, rc.minQuantizer), rc.maxQuantizer)
-	rc.lastInterQuantizer = min(max(rc.lastInterQuantizer, rc.minQuantizer), rc.maxQuantizer)
 }

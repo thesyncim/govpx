@@ -258,6 +258,64 @@ func TestRateControlUndersizeKeyFrameSkipsOverspend(t *testing.T) {
 	}
 }
 
+func TestRateControlUndersizeKeyFrameRefreshesGoldenRecoveryAdjustment(t *testing.T) {
+	rc := rateControlState{
+		mode:                   RateControlCBR,
+		minQuantizer:           4,
+		maxQuantizer:           56,
+		currentQuantizer:       30,
+		bitsPerFrame:           4000,
+		gfOverspendBits:        20080,
+		nonGFBitrateAdjustment: 2510,
+		framesTillGFUpdateDue:  10,
+		bufferLevelBits:        500,
+		maximumBufferBits:      5000,
+	}
+	rc.postEncodeFrameWithPacketContext(100, rateControlPostEncodeContext{
+		keyFrame:    true,
+		macroblocks: 1,
+		showFrame:   true,
+	}) // 800 bits < 4000.
+	if rc.kfOverspendBits != 0 || rc.gfOverspendBits != 20080 {
+		t.Fatalf("undersize KF overspend changed: kf=%d gf=%d", rc.kfOverspendBits, rc.gfOverspendBits)
+	}
+	if rc.nonGFBitrateAdjustment != 2008 {
+		t.Fatalf("nonGFBitrateAdjustment = %d, want existing gf overspend / key GF interval", rc.nonGFBitrateAdjustment)
+	}
+}
+
+func TestRateControlKeyFrameOverspendUsesDecimationBoostedBandwidth(t *testing.T) {
+	rc := rateControlState{
+		mode:                RateControlCBR,
+		minQuantizer:        4,
+		maxQuantizer:        56,
+		currentQuantizer:    30,
+		bitsPerFrame:        1000,
+		dropFrameAllowed:    true,
+		decimationFactor:    1,
+		bufferLevelBits:     500,
+		maximumBufferBits:   5000,
+		framesSinceKeyframe: 1,
+		outputFrameRate:     30,
+		keyFrameCount:       1,
+	}
+	// vp8_check_drop_buffer boosts cpi->per_frame_bandwidth by 3/2 before
+	// key-frame encode too. Keys are not dropped, but post-pack
+	// vp8_adjust_key_frame_context compares against that boosted bandwidth.
+	rc.postEncodeFrameWithPacketContext(250, rateControlPostEncodeContext{
+		keyFrame:    true,
+		macroblocks: 1,
+		showFrame:   true,
+	})
+	const overspend = 250*8 - 1500
+	if rc.kfOverspendBits != overspend*7/8 {
+		t.Fatalf("kfOverspendBits = %d, want boosted-bandwidth split %d", rc.kfOverspendBits, overspend*7/8)
+	}
+	if rc.gfOverspendBits != overspend/8 {
+		t.Fatalf("gfOverspendBits = %d, want boosted-bandwidth split %d", rc.gfOverspendBits, overspend/8)
+	}
+}
+
 // TestRateControlGoldenFrameAccumulatesOverspend pins the libvpx
 // update_golden_frame_stats post-pack accumulation: GF overspend equals
 // projected_frame_size - inter_frame_target, and non_gf_bitrate_adjustment
@@ -292,6 +350,34 @@ func TestRateControlGoldenFrameAccumulatesOverspend(t *testing.T) {
 	// Golden refresh resets framesSinceGolden to 0.
 	if rc.framesSinceGolden != 0 {
 		t.Fatalf("framesSinceGolden = %d, want 0", rc.framesSinceGolden)
+	}
+}
+
+func TestRateControlGoldenFrameUsesStaleZeroInterTarget(t *testing.T) {
+	rc := rateControlState{
+		mode:                  RateControlCBR,
+		minQuantizer:          4,
+		maxQuantizer:          56,
+		currentQuantizer:      30,
+		bitsPerFrame:          1000,
+		frameTargetBits:       3000,
+		bufferLevelBits:       5000,
+		maximumBufferBits:     8000,
+		framesTillGFUpdateDue: 10,
+	}
+	// When a frame refreshes ALTREF in one-pass mode, calc_pframe_target_size
+	// skips refreshing inter_frame_target. libvpx's later
+	// update_golden_frame_stats uses that stale zero value as-is.
+	rc.postEncodeFrameWithPacketContext(500, rateControlPostEncodeContext{
+		goldenFrame: true,
+		altRefFrame: true,
+		showFrame:   true,
+	})
+	if rc.gfOverspendBits != 4000 {
+		t.Fatalf("gfOverspendBits = %d, want full 4000 bits against stale zero inter target", rc.gfOverspendBits)
+	}
+	if rc.nonGFBitrateAdjustment != 400 {
+		t.Fatalf("nonGFBitrateAdjustment = %d, want 400", rc.nonGFBitrateAdjustment)
 	}
 }
 
@@ -439,7 +525,7 @@ func TestRateControlAccumulatesPostPackAltRefOverspendIgnoresZeroBits(t *testing
 // calc_pframe_target_size GF-overspend recovery branch: starting with
 // gf_overspend_bits=2000, non_gf_bitrate_adjustment=200, the next p-frame
 // target = per_frame_bandwidth - 200, and the gf_overspend_bits residue is
-// 1800. min_frame_target = max(min_frame_bandwidth, per_frame_bandwidth/4).
+// 1800. In one-pass mode min_frame_target is per_frame_bandwidth/4.
 // The buffered-mode percent_low/percent_high pass is suppressed by
 // keeping bufferLevelBits at bufferOptimalBits.
 func TestRateControlGFOverspendDrainsIntoNextPFrameTarget(t *testing.T) {
@@ -512,8 +598,8 @@ func TestRateControlKFOverspendDrainsBeforeGFOverspend(t *testing.T) {
 }
 
 // TestRateControlOverspendRecoveryClampsAtMinFrameTarget pins the
-// min_frame_target = max(min_frame_bandwidth, per_frame_bandwidth/4)
-// floor inside calc_pframe_target_size. With kf_bitrate_adjustment far
+// one-pass min_frame_target = per_frame_bandwidth/4 floor inside
+// calc_pframe_target_size. With kf_bitrate_adjustment far
 // exceeding the available headroom, the drain saturates at
 // per_frame_bandwidth - min_frame_target and the residue is reduced
 // accordingly.
@@ -570,6 +656,36 @@ func TestOnePassAltRefRefreshUsesStaleTargetWithoutOverspendDrain(t *testing.T) 
 	}
 	if rc.interFrameTarget != 18769 {
 		t.Fatalf("interFrameTarget = %d, want stale 18769", rc.interFrameTarget)
+	}
+}
+
+func TestOnePassAltRefRefreshAppliesMinFrameTargetFloor(t *testing.T) {
+	rc := rateControlState{
+		mode:                   RateControlCBR,
+		bitsPerFrame:           40000,
+		frameTargetBits:        8970,
+		bufferLevelBits:        2955906,
+		bufferOptimalBits:      6000000,
+		undershootPct:          100,
+		overshootPct:           100,
+		kfOverspendBits:        3761,
+		kfBitrateAdjustment:    63,
+		gfOverspendBits:        -111931,
+		nonGFBitrateAdjustment: 55,
+		interFrameTarget:       10000,
+	}
+
+	rc.beginOnePassAltRefRefreshFrameWithTargetAndContext(rc.bitsPerFrame, rateControlFrameContext{})
+
+	if rc.frameTargetBits != 7500 {
+		t.Fatalf("frameTargetBits = %d, want stale target floored then buffer-shaped to 7500", rc.frameTargetBits)
+	}
+	if rc.kfOverspendBits != 3761 || rc.gfOverspendBits != -111931 {
+		t.Fatalf("overspend bits = kf:%d gf:%d, want unchanged 3761/-111931",
+			rc.kfOverspendBits, rc.gfOverspendBits)
+	}
+	if rc.interFrameTarget != 10000 {
+		t.Fatalf("interFrameTarget = %d, want unchanged stale 10000", rc.interFrameTarget)
 	}
 }
 

@@ -239,9 +239,9 @@ func TestSelectQuantizerARFRecodeInteraction(t *testing.T) {
 	}
 
 	// Drive a heavy overshoot with q at the seeded q_high. The
-	// libvpx-style relax-active-worst path raises q_high above 106 (toward
-	// rc.maxQuantizer=127) and the chosen recode Q must not exceed the
-	// relaxed q_high.
+	// libvpx-style relax-active-worst path raises active_worst_quality
+	// (regulateHigh here) above 106, but does not reopen the local q_high
+	// binary-search bound for the in-flight frame.
 	rc.currentQuantizer = recode.qHigh
 	rc.frameTargetBits = 1_000_000
 	rc.bitsPerFrame = 1_000_000
@@ -252,14 +252,17 @@ func TestSelectQuantizerARFRecodeInteraction(t *testing.T) {
 	if !recode.activeWorstQChanged {
 		t.Fatalf("ARF recode active-worst flag = false, want libvpx 4%%/Qstep relaxation to fire")
 	}
-	if recode.qHigh <= 106 {
-		t.Fatalf("ARF recode q_high = %d, want raised above ARF active-worst seed 106", recode.qHigh)
+	if recode.qHigh != 106 {
+		t.Fatalf("ARF recode q_high = %d, want local bound pinned at ARF seed 106", recode.qHigh)
 	}
-	if recode.qHigh > rc.maxQuantizer {
-		t.Fatalf("ARF recode q_high = %d, want clamped at maxQuantizer %d", recode.qHigh, rc.maxQuantizer)
+	if recode.regulateHigh <= 106 {
+		t.Fatalf("ARF recode active-worst = %d, want raised above ARF active-worst seed 106", recode.regulateHigh)
+	}
+	if recode.regulateHigh > rc.maxQuantizer {
+		t.Fatalf("ARF recode active-worst = %d, want clamped at maxQuantizer %d", recode.regulateHigh, rc.maxQuantizer)
 	}
 	if got > recode.qHigh {
-		t.Fatalf("ARF recoded q = %d, want bounded by relaxed q_high %d", got, recode.qHigh)
+		t.Fatalf("ARF recoded q = %d, want bounded by local q_high %d", got, recode.qHigh)
 	}
 	if got < recode.qLow {
 		t.Fatalf("ARF recoded q = %d, want at or above ARF-table floor %d", got, recode.qLow)

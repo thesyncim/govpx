@@ -64,8 +64,7 @@ func (r *roiMapState) reset() {
 func (e *VP8Encoder) disableROIMap() {
 	e.roi.disable()
 	e.rememberSegmentationConfig(vp8enc.SegmentationConfig{})
-	e.rtcExternalPreserveSegmentation = false
-	e.rtcExternalPreservedSegmentation = vp8enc.SegmentationConfig{}
+	e.clearRuntimePreservedSegmentationHeader()
 }
 
 // SetROIMap installs a libvpx-style region-of-interest map. ROI segmentation

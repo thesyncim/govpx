@@ -4,7 +4,6 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
-	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // vp8ActivityAvgMin is the libvpx activity floor used by SSIM activity
@@ -69,6 +68,9 @@ func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, 
 	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	_ = vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, vp8enc.SegmentationConfig{}, &quants)
+	fastQuant := e.libvpxUseFastQuant()
+	optimize := e.libvpxOptimizeCoefficients()
+	activityRDMult, activityRDDiv := e.activityProbeRDConstants(qIndex, 0)
 
 	// libvpx's build_activity_map uses cm->new_fb_idx after
 	// vp8_setup_intra_recon. That setup writes only the synthetic top and
@@ -79,7 +81,7 @@ func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, 
 	for row := range rows {
 		for col := range cols {
 			index := row*cols + col
-			e.activityMap[index] = e.ssimActivityMeasure(src, row, col, qIndex, &quants[0])
+			e.activityMap[index] = e.ssimActivityMeasure(src, row, col, qIndex, &quants[0], fastQuant, optimize, activityRDMult, activityRDDiv)
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
@@ -132,7 +134,7 @@ func setupIntraReconPlane(full []byte, origin int, stride int, width int, height
 // computing the activity, the function quantize+IDCT-rebuilds the residue
 // back into e.analysis.Img.Y so the next MB's prediction reads from the
 // reconstructed neighbors libvpx would have written there.
-func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant) uint32 {
+func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, fastQuant bool, optimize bool, rdMult int, rdDiv int) uint32 {
 	useDC16 := (mbCol != 0 || mbRow != 0) && (mbCol == 0 || mbRow == 0)
 	img := &e.analysis.Img
 	refs := vp8dec.BuildIntraPredictorRefs(img, mbRow, mbCol, &e.reconstructScratch.Refs)
@@ -157,15 +159,18 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 		sse = macroblockLumaSSE(src, img, mbRow, mbCol, vp8enc.MotionVector{})
 		var coeffs vp8enc.MacroblockCoefficients
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
-			coefProbs: &vp8tables.DefaultCoefProbs,
+			coefProbs: &e.coefProbs,
 			src:       src,
 			mbRow:     mbRow,
 			mbCol:     mbCol,
 			pred:      img,
 			quant:     quant,
 			qIndex:    qIndex,
+			rdMult:    rdMult,
+			rdDiv:     rdDiv,
 			intra:     true,
-			fastQuant: true,
+			fastQuant: fastQuant,
+			optimize:  optimize,
 			coeffs:    &coeffs,
 		})
 		var tokens vp8dec.MacroblockTokens
@@ -200,7 +205,7 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := int(yAbove[a] + yLeft[l])
-			eob := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, qIndex, 3, ctx, 0, 0, 0, true, true, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+			eob := quantizeEncodedBlockWithRDZbinAndActivity(&e.coefProbs, qIndex, 3, ctx, 0, 0, 0, 0, 0, rdMult, rdDiv, true, fastQuant, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
 			hasCoeffs := uint8(0)
 			if eob > 0 {
@@ -227,6 +232,23 @@ func (e *VP8Encoder) tunedRDModeScoreWithZbin(qIndex int, zbinOverQuant int, mbR
 	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
 	rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
 	return libvpxRDCost(rdMult, rdDiv, rate, distortion)
+}
+
+func (e *VP8Encoder) activityProbeRDConstants(qIndex int, zbinOverQuant int) (int, int) {
+	if e.activityProbeRDValid {
+		return e.activityProbeRDMult, e.activityProbeRDDiv
+	}
+	return libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+}
+
+func (e *VP8Encoder) updateActivityProbeRDState(qIndex int, zbinOverQuant int, rows int, cols int) {
+	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	if e.activityMapValid && rows > 0 && cols > 0 {
+		rdMult = e.tunedRDMultiplier(rdMult, rows-1, cols-1)
+	}
+	e.activityProbeRDMult = rdMult
+	e.activityProbeRDDiv = rdDiv
+	e.activityProbeRDValid = true
 }
 
 // tunedRDMultiplier mirrors libvpx's activity masking multiplier: textured

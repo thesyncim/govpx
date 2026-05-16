@@ -47,9 +47,6 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	// branch below was a no-op cost driver. Hoist the analysis image / zbin
 	// loads into locals so the predict + variance calls share a single read.
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	if e.activityMapValid {
-		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, mbRow, mbCol)
-	}
 	analysisImg := &e.analysis.Img
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	if !predictAnalysisMacroblock(analysisImg, mbRow, mbCol, &mode, &e.reconstructScratch) {
@@ -91,8 +88,11 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	// e is always non-nil on the inter picker entry path; the prior nil
 	// guard was dead code.
 	zbinOverQuant := e.rc.currentZbinOverQuant
+	actZbinAdj := 0
 	if e.activityMapValid {
-		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, mbRow, mbCol)
+		if adjustment, ok := e.tunedZbinAdjustment(mbRow, mbCol); ok {
+			actZbinAdj = adjustment
+		}
 	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	analysisImg := &e.analysis.Img
@@ -129,7 +129,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			if !predictAnalysisBPredBlock(bMode, blockPred[:], 4, y, yStride, refsYAbove, refsYLeft, refsYTopLeft, block) {
 				return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 			}
-			modeRate := libvpxInterFastBpredModeCost(bMode)
+			modeRate := libvpxInterFastBpredModeCostWithProbs(bMode, e.modeProbs.BMode[:])
 			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
 			modeCost := libvpxRDCost(rdMult, rdDiv, modeRate, modeDist)
 			if modeCost < bestCost {
@@ -154,7 +154,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		var dqcoeff [16]int16
 		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		eob := quantizeDecisionBlock(fastQuant, &dct, quantY1, zbinOverQuant, &qcoeff, &dqcoeff)
+		eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, quantY1, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
 		var recon [16]byte
 		if eob > 1 {
 			dsp.IDCT4x4Add(&dqcoeff, bestPred[:], 4, recon[:], 4)

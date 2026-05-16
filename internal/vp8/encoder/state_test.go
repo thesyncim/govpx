@@ -112,7 +112,7 @@ func TestWriteLoopFilterDeltasCanForceZeroDeltaUpdates(t *testing.T) {
 	var w BoolWriter
 	buf := make([]byte, 64)
 	w.Init(buf)
-	writeLoopFilterDeltas(&w, true, true, true, refDeltas, modeDeltas)
+	writeLoopFilterDeltas(&w, true, true, true, refDeltas, modeDeltas, [common.MaxRefLFDeltas]int8{}, [common.MaxModeLFDeltas]int8{})
 	w.Finish()
 	if err := w.Err(); err != nil {
 		t.Fatalf("BoolWriter error = %v, want nil", err)
@@ -130,6 +130,32 @@ func TestWriteLoopFilterDeltasCanForceZeroDeltaUpdates(t *testing.T) {
 	}
 	if d.ReadBit() != 1 || d.ReadLiteral(6) != 0 || d.ReadBit() != 1 {
 		t.Fatalf("forced zero ref delta did not decode as update/value/sign 1/0/1")
+	}
+}
+
+func TestWriteLoopFilterDeltasSuppressesUnchangedDeltaUpdates(t *testing.T) {
+	refDeltas := [common.MaxRefLFDeltas]int8{2, 0, -2, -2}
+	modeDeltas := [common.MaxModeLFDeltas]int8{4, -2, 2, 4}
+	var w BoolWriter
+	buf := make([]byte, 64)
+	w.Init(buf)
+	writeLoopFilterDeltas(&w, true, true, false, refDeltas, modeDeltas, refDeltas, modeDeltas)
+	w.Finish()
+	if err := w.Err(); err != nil {
+		t.Fatalf("BoolWriter error = %v, want nil", err)
+	}
+
+	var d boolcoder.Decoder
+	if err := d.Init(w.Bytes()); err != nil {
+		t.Fatalf("Decoder Init returned error: %v", err)
+	}
+	if d.ReadBit() != 1 || d.ReadBit() != 1 {
+		t.Fatalf("loop-filter enable/update bits did not decode to 1/1")
+	}
+	for i := 0; i < common.MaxRefLFDeltas+common.MaxModeLFDeltas; i++ {
+		if d.ReadBit() != 0 {
+			t.Fatalf("delta update bit %d = 1, want 0 for unchanged base", i)
+		}
 	}
 }
 

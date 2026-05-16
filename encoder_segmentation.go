@@ -48,12 +48,53 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizerUnchecked(q int)
 }
 
 func (e *VP8Encoder) rememberSegmentationConfig(cfg vp8enc.SegmentationConfig) {
+	e.runtimeSegmentationUpdatePending = false
 	e.segmentationHeaderEnabled = cfg.Enabled
 	if cfg.Enabled {
 		e.lastSegmentationConfig = cfg
+		if e.runtimePreserveSegmentation && (cfg.UpdateMap || cfg.UpdateData) {
+			e.runtimePreservedSegmentation = cfg
+			e.runtimePreserveSegmentationUpdate = true
+		} else {
+			e.runtimePreserveSegmentationUpdate = false
+		}
 		return
 	}
+	e.runtimePreserveSegmentationUpdate = false
 	e.lastSegmentationConfig = vp8enc.SegmentationConfig{}
+}
+
+func (e *VP8Encoder) preserveCurrentSegmentationHeader(update bool) {
+	e.runtimePreserveSegmentation = e.segmentationHeaderEnabled
+	if e.segmentationHeaderEnabled {
+		e.runtimePreservedSegmentation = e.lastSegmentationConfig
+		e.runtimePreserveSegmentationUpdate = update && e.runtimePreservedSegmentation.Enabled
+		e.runtimeSegmentationUpdatePending = false
+		return
+	}
+	e.runtimePreservedSegmentation = vp8enc.SegmentationConfig{}
+	e.runtimePreserveSegmentationUpdate = false
+	e.runtimeSegmentationUpdatePending = false
+}
+
+func (e *VP8Encoder) preserveRuntimeCyclicSegmentationForQuantizer(q int, update bool) {
+	e.runtimePreserveSegmentation = e.segmentationHeaderEnabled
+	if e.segmentationHeaderEnabled {
+		e.runtimePreservedSegmentation = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(q)
+		e.runtimePreserveSegmentationUpdate = update && e.runtimePreservedSegmentation.Enabled
+		e.runtimeSegmentationUpdatePending = false
+		return
+	}
+	e.runtimePreservedSegmentation = vp8enc.SegmentationConfig{}
+	e.runtimePreserveSegmentationUpdate = false
+	e.runtimeSegmentationUpdatePending = false
+}
+
+func (e *VP8Encoder) clearRuntimePreservedSegmentationHeader() {
+	e.runtimePreserveSegmentation = false
+	e.runtimePreservedSegmentation = vp8enc.SegmentationConfig{}
+	e.runtimePreserveSegmentationUpdate = false
+	e.runtimeSegmentationUpdatePending = false
 }
 
 // aggressiveDenoiseAltLFDelta mirrors libvpx's lf_adjustment = -40 in the
@@ -100,10 +141,6 @@ func segmentationConfigForLoopFilterLevel(cfg vp8enc.SegmentationConfig, level u
 	return segmentationConfigForLoopFilterLevelWithPolicy(cfg, level, true)
 }
 
-func segmentationConfigForLoopFilterLevelPreserveAltLF(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
-	return segmentationConfigForLoopFilterLevelWithPolicy(cfg, level, false)
-}
-
 func segmentationConfigForLoopFilterLevelWithPolicy(cfg vp8enc.SegmentationConfig, level uint8, stripNonPositiveAltLF bool) vp8enc.SegmentationConfig {
 	if !cfg.Enabled || level > 0 {
 		return cfg
@@ -121,7 +158,7 @@ func segmentationConfigForLoopFilterLevelWithPolicy(cfg vp8enc.SegmentationConfi
 }
 
 func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
-	if e.opts.RTCExternalRateControl {
+	if e.rtcExternalDisableCyclicRefresh {
 		return false
 	}
 	if e.opts.ScreenContentMode == 2 && refreshGolden {
