@@ -98,7 +98,7 @@ Profile 0 packets and valid Profile 0 superframes only.
 | --- | --- |
 | Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, frame dropping, buffer model, min/max quantizers, max intra bitrate |
 | Realtime controls | Error resilience, temporal/spatial scalability signaling, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
-| Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless`, multi-threaded row encode |
+| Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless` / `SetLossless`, multi-threaded row encode |
 
 Lookahead and auto-alt-ref can make `EncodeInto` return `ErrFrameNotReady`
 while frames are queued. Call `FlushInto` at end of stream until it

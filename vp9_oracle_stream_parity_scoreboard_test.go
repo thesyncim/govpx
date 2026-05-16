@@ -1648,6 +1648,33 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name: "constant-lossless-roundtrip-fixed-q",
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			constant: true,
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetLossless true",
+						enc.SetLossless(true))
+				case 7:
+					mustVP9Runtime(t, "SetLossless false",
+						enc.SetLossless(false))
+				}
+			},
+			extraArgs: []string{
+				"--cq-level=20",
+				"--min-q=20",
+				"--max-q=20",
+				"--control-script=-,-,-,lossless:1,-,-,-,lossless:0,-,-",
+			},
+			exactPrefix: frames,
+			strictBytes: true,
+		},
+		{
 			name: "constant-set-keyframe-interval-2-fixed-q",
 			opts: VP9EncoderOptions{
 				MinQuantizer: 20,

@@ -245,6 +245,22 @@ func (e *VP9Encoder) SetCQLevel(level int) error {
 	return nil
 }
 
+// SetLossless enables or disables VP9 profile 0 lossless coding for subsequent
+// frames. Enabling lossless forces base qindex 0, 4x4 transforms, WHT
+// reconstruction, and the lossless loop-filter path.
+func (e *VP9Encoder) SetLossless(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	nextOpts := e.opts
+	nextOpts.Lossless = enabled
+	if err := validateVP9EncoderOptions(nextOpts); err != nil {
+		return err
+	}
+	e.opts = nextOpts
+	return nil
+}
+
 // SetActiveMap installs a VP9 per-16x16 activity map. Cells equal to 0 mark
 // inactive macroblocks; on inter frames, inactive 8x8 mode blocks code as
 // ZEROMV-LAST with skip=1. Blocks that already match LAST may remain in the

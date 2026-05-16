@@ -4162,6 +4162,58 @@ func TestVP9EncoderSetCQLevelUpdatesPublicQAndRateControl(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSetLossless(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetLossless(true); err != nil {
+		t.Fatalf("SetLossless(true): %v", err)
+	}
+	if !e.opts.Lossless {
+		t.Fatal("SetLossless(true) did not update encoder options")
+	}
+	src := newVP9CheckerYCbCrForTest(64, 64, 0, 255, 80, 192)
+	packet, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("lossless Encode: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Quant.BaseQindex != 0 || !h.Quant.Lossless {
+		t.Fatalf("lossless header q/lossless = %d/%v, want 0/true",
+			h.Quant.BaseQindex, h.Quant.Lossless)
+	}
+
+	if err := e.SetLossless(false); err != nil {
+		t.Fatalf("SetLossless(false): %v", err)
+	}
+	e.ForceKeyFrame()
+	packet, err = e.Encode(src)
+	if err != nil {
+		t.Fatalf("non-lossless Encode: %v", err)
+	}
+	h, _ = parseVP9EncoderHeaderForTest(t, packet)
+	if h.Quant.Lossless {
+		t.Fatal("SetLossless(false) left lossless header enabled")
+	}
+
+	invalid, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:     64,
+		Height:    64,
+		Quantizer: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder invalid toggle fixture: %v", err)
+	}
+	before := invalid.opts
+	if err := invalid.SetLossless(true); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("SetLossless invalid err = %v, want ErrInvalidQuantizer", err)
+	}
+	if !reflect.DeepEqual(invalid.opts, before) {
+		t.Fatal("invalid SetLossless mutated encoder options")
+	}
+}
+
 func TestVP9EncoderSetRateControlSwitchesModeAtomically(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	if err != nil {
@@ -4909,6 +4961,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetCQLevel(20); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetCQLevel after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetLossless(true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLossless after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetRateControl(RateControlConfig{Mode: RateControlVBR, TargetBitrateKbps: 900}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControl after Close err = %v, want ErrClosed", err)
 	}
@@ -4960,6 +5015,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	}
 	if err := nilEnc.SetCQLevel(20); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetCQLevel on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetLossless(true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLossless on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetRateControl(RateControlConfig{Mode: RateControlVBR, TargetBitrateKbps: 900}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRateControl on nil encoder err = %v, want ErrClosed", err)
