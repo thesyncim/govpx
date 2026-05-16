@@ -979,9 +979,11 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 		height      int
 		frames      int
 		opts        VP9EncoderOptions
+		flags       []EncodeFlags
 		extraArgs   []string
 		source      func(width, height, frame int) *image.YCbCr
 		exactPrefix int
+		exactFrames []int
 		tileJobs    int
 	}
 	fixedQOpts := VP9EncoderOptions{
@@ -999,6 +1001,10 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 	threadedFixedQArgs := append([]string{"--tile-columns=2"}, fixedQArgs...)
 	cbrAQOpts := vp9OracleCBROptions(64, 64, 700)
 	cbrAQOpts.AQMode = VP9AQCyclicRefresh
+	steppedSource := func(width, height, frame int) *image.YCbCr {
+		return newVP9YCbCrForTest(width, height, uint8(96+frame*8),
+			128, 128)
+	}
 
 	cases := []selectedCase{
 		{
@@ -1009,10 +1015,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			opts:        fixedQOpts,
 			extraArgs:   fixedQArgs,
 			exactPrefix: 1,
-			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height,
-					uint8(96+frame*8), 128, 128)
-			},
+			source:      steppedSource,
 		},
 		{
 			name:        "fixed-q-threaded-stepped-720p",
@@ -1023,10 +1026,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			extraArgs:   threadedFixedQArgs,
 			exactPrefix: 1,
 			tileJobs:    4,
-			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height,
-					uint8(96+frame*8), 128, 128)
-			},
+			source:      steppedSource,
 		},
 		{
 			name:        "cbr-rate-panning",
@@ -1037,6 +1037,64 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
 			source:      newVP9PanningYCbCrForRateTest,
 			exactPrefix: 1,
+		},
+		{
+			name:        "frameflags-force-key-frame1",
+			width:       64,
+			height:      64,
+			frames:      6,
+			flags:       vp9OracleFlagAt(6, 1, EncodeForceKeyFrame),
+			source:      steppedSource,
+			exactPrefix: 2,
+			exactFrames: []int{4, 5},
+		},
+		{
+			name:        "frameflags-no-update-all",
+			width:       64,
+			height:      64,
+			frames:      6,
+			flags:       vp9OracleRepeatInterFlag(6, vp9NoUpdateRefFlags),
+			source:      steppedSource,
+			exactPrefix: 5,
+		},
+		{
+			name:   "control-cross-fixed-q-no-update-all",
+			width:  64,
+			height: 64,
+			frames: 6,
+			opts: VP9EncoderOptions{
+				MinQuantizer: 20,
+				MaxQuantizer: 20,
+			},
+			flags:       vp9OracleRepeatInterFlag(6, vp9NoUpdateRefFlags),
+			extraArgs:   []string{"--min-q=20", "--max-q=20"},
+			source:      steppedSource,
+			exactPrefix: 1,
+		},
+		{
+			name:        "control-cross-cbr-force-key-frame3",
+			width:       64,
+			height:      64,
+			frames:      6,
+			opts:        vp9OracleCBROptions(64, 64, 700),
+			flags:       vp9OracleFlagAt(6, 3, EncodeForceKeyFrame),
+			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			source:      steppedSource,
+			exactPrefix: 4,
+		},
+		{
+			name:   "control-cross-threaded-ref-refresh",
+			width:  1024,
+			height: 64,
+			frames: 6,
+			opts: VP9EncoderOptions{
+				Threads: 4,
+			},
+			flags:       vp9OracleRefRefreshTransitions(6),
+			extraArgs:   []string{"--tile-columns=2"},
+			source:      steppedSource,
+			exactPrefix: 3,
+			tileJobs:    4,
 		},
 		{
 			name:   "noise-sensitivity-soft",
@@ -1084,12 +1142,17 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 				}
 			}
 			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
-				tc.opts, sources, nil, tc.extraArgs, beforeFrame, afterFrame)
+				tc.opts, sources, tc.flags, tc.extraArgs, beforeFrame, afterFrame)
 			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 selected stream byte-parity gate %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
 			for frame := 0; frame < tc.exactPrefix; frame++ {
+				assertVP9PacketByteParity(t,
+					fmt.Sprintf("%s frame %d", tc.name, frame),
+					govpxPackets[frame], libvpxPackets[frame])
+			}
+			for _, frame := range tc.exactFrames {
 				assertVP9PacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
