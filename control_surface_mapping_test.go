@@ -264,8 +264,13 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 	fields := exportedFieldSet(t, VP9DecoderOptions{})
 	want := map[string]controlParityMapping{
+		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
+		"ErrorResilient":         {kind: "compat-alias"},
 		"MaxHeight":              {kind: "local-validation"},
 		"MaxWidth":               {kind: "local-validation"},
+		"PostProcess":            {kind: "libvpx-decode-oracle"},
+		"PostProcessFlags":       {kind: "libvpx-decode-oracle"},
+		"PostProcessNoiseLevel":  {kind: "libvpx-decode-oracle"},
 		"RejectResolutionChange": {kind: "local-validation"},
 		"SVCSpatialLayer":        {kind: "libvpx-decoder-control"},
 		"SVCSpatialLayerSet":     {kind: "libvpx-decoder-control"},

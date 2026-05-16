@@ -35,6 +35,11 @@ func TestNewVP9DecoderRejectsBadOptions(t *testing.T) {
 	cases := []VP9DecoderOptions{
 		{Threads: -1},
 		{SVCSpatialLayerSet: true, SVCSpatialLayer: uint8(VP9RTPMaxSpatialLayers)},
+		{PostProcess: true, PostProcessNoiseLevel: -1},
+		{PostProcess: true, PostProcessNoiseLevel: 17},
+		{PostProcessNoiseLevel: 4},
+		{PostProcessFlags: PostProcessDeblock, PostProcessNoiseLevel: 4},
+		{PostProcessFlags: PostProcessFlag(1 << 12)},
 		{MaxWidth: -1},
 		{MaxHeight: -1},
 	}
@@ -249,6 +254,192 @@ func TestVP9DecoderSVCSpatialLayerControlValidation(t *testing.T) {
 	if err := nilDecoder.ClearSVCSpatialLayer(); !errors.Is(err, ErrClosed) {
 		t.Fatalf("ClearSVCSpatialLayer nil err = %v, want ErrClosed", err)
 	}
+}
+
+func TestVP9DecoderPostProcessOutputsPostFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{PostProcess: true})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned no frame")
+	}
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.frameY) == 0 {
+		t.Fatal("decoded frame buffers are empty")
+	}
+	if &frame.Y[0] != &d.post.Img.Y[0] {
+		t.Fatal("NextFrame did not return VP9 postprocess buffer")
+	}
+	if &frame.Y[0] == &d.frameY[0] {
+		t.Fatal("postprocessed output aliases VP9 reconstruction buffer")
+	}
+}
+
+func TestVP9DecoderDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{PostProcessFlags: PostProcessDeblock})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	dst := newTestImage(64, 64)
+	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	info, err := d.DecodeInto(packet, &dst)
+	if err != nil {
+		t.Fatalf("DecodeInto: %v", err)
+	}
+	if !info.ShowFrame || info.Width != 64 || info.Height != 64 {
+		t.Fatalf("VP9FrameInfo = %+v, want visible 64x64 frame", info)
+	}
+	if !publicImageEqualVP8(dst, &d.post.Img) {
+		t.Fatal("DecodeInto output does not match VP9 postprocess buffer")
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("DecodeInto queued a frame for NextFrame")
+	}
+}
+
+func TestVP9DecoderPostProcessAddNoiseChangesOnlyLuma(t *testing.T) {
+	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	plain, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder plain: %v", err)
+	}
+	if err := plain.Decode(packet); err != nil {
+		t.Fatalf("plain Decode: %v", err)
+	}
+	plainFrame, ok := plain.NextFrame()
+	if !ok {
+		t.Fatal("plain NextFrame returned no frame")
+	}
+	noisy, err := NewVP9Decoder(VP9DecoderOptions{
+		PostProcessFlags:      PostProcessAddNoise,
+		PostProcessNoiseLevel: 4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder noisy: %v", err)
+	}
+	if err := noisy.Decode(packet); err != nil {
+		t.Fatalf("noisy Decode: %v", err)
+	}
+	noisyFrame, ok := noisy.NextFrame()
+	if !ok {
+		t.Fatal("noisy NextFrame returned no frame")
+	}
+	uvWidth := (plainFrame.Width + 1) >> 1
+	uvHeight := (plainFrame.Height + 1) >> 1
+	if planeEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y,
+		noisyFrame.YStride, plainFrame.Width, plainFrame.Height) {
+		t.Fatal("VP9 postprocess add-noise left luma unchanged")
+	}
+	if !planeEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U,
+		noisyFrame.UStride, uvWidth, uvHeight) {
+		t.Fatal("VP9 postprocess add-noise changed U plane")
+	}
+	if !planeEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V,
+		noisyFrame.VStride, uvWidth, uvHeight) {
+		t.Fatal("VP9 postprocess add-noise changed V plane")
+	}
+}
+
+func TestVP9DecoderPostProcessSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{
+		PostProcess:           true,
+		PostProcessNoiseLevel: 4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	for i := 0; i < 3; i++ {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("warm Decode[%d]: %v", i, err)
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatalf("warm NextFrame[%d] returned no frame", i)
+		}
+	}
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode alloc run: %v", err)
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatal("NextFrame alloc run returned no frame")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("VP9 postprocess steady-state allocs = %f, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	previous, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("keyframe NextFrame returned no frame")
+	}
+	inter := vp9InterSkipFrameForTest(t, 64, 64)
+	tileStart, err := vp9TileStartForTest(inter)
+	if err != nil {
+		t.Fatalf("vp9TileStartForTest: %v", err)
+	}
+	if err := d.DecodeWithPTS(inter[:tileStart], 99); err != nil {
+		t.Fatalf("corrupt inter DecodeWithPTS: %v", err)
+	}
+	info, ok := d.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo after concealment returned !ok")
+	}
+	if !info.Corrupted || info.PTS != 99 || info.Width != 64 ||
+		info.Height != 64 {
+		t.Fatalf("concealed info = %+v, want corrupted 64x64 PTS 99", info)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("concealed NextFrame returned no frame")
+	}
+	assertImagesEqual(t, "concealed VP9 frame", previous, frame)
+}
+
+func TestVP9DecoderErrorConcealmentConcealsMissingFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{ErrorResilient: true})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	previous, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("keyframe NextFrame returned no frame")
+	}
+	if err := d.DecodeWithPTS(nil, 100); err != nil {
+		t.Fatalf("missing DecodeWithPTS: %v", err)
+	}
+	info, ok := d.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo after missing-frame concealment returned !ok")
+	}
+	if !info.Corrupted || info.PTS != 100 || info.Width != 64 ||
+		info.Height != 64 {
+		t.Fatalf("missing-frame info = %+v, want corrupted 64x64 PTS 100", info)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("missing-frame NextFrame returned no frame")
+	}
+	assertImagesEqual(t, "missing-frame VP9 concealment", previous, frame)
 }
 
 func TestVP9DecoderRejectsNonProfile0AsNotImplemented(t *testing.T) {

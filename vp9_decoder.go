@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	"github.com/thesyncim/govpx/internal/vp8/mem"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -34,6 +36,23 @@ type VP9DecoderOptions struct {
 	// SVCSpatialLayer is the highest VP9 spatial layer decoded from a
 	// superframe when SVCSpatialLayerSet is true. Valid values are 0..7.
 	SVCSpatialLayer uint8
+
+	// ErrorConcealment enables libvpx-style concealment for corrupt interframes
+	// after a clean frame has initialized references.
+	ErrorConcealment bool
+	// ErrorResilient is kept as a compatibility alias for ErrorConcealment.
+	ErrorResilient bool
+	// PostProcess enables the legacy libvpx-style postprocess chain
+	// (Deblock | Demacroblock | MFQE, plus AddNoise when
+	// PostProcessNoiseLevel > 0). Prefer PostProcessFlags for new code.
+	PostProcess bool
+	// PostProcessFlags selects individual libvpx-style postprocess filters.
+	// Zero disables postprocessing unless PostProcess is set.
+	PostProcessFlags PostProcessFlag
+	// PostProcessNoiseLevel enables libvpx-style additive luma noise when
+	// PostProcess is true or PostProcessAddNoise is set. Zero disables
+	// additive noise; valid range is [0, 16].
+	PostProcessNoiseLevel int
 
 	// MaxWidth and MaxHeight cap the accepted frame dimensions.
 	// Zero means no cap.
@@ -70,6 +89,9 @@ type VP9FrameInfo struct {
 
 	// PTS is the caller-provided presentation timestamp.
 	PTS uint64
+	// Corrupted reports that the frame was recovered through decoder error
+	// concealment instead of fully decoded from its packet.
+	Corrupted bool
 }
 
 // ErrVP9NotImplemented is returned by VP9Decoder.Decode for valid VP9
@@ -138,6 +160,7 @@ type VP9Decoder struct {
 	lastInfo               VP9FrameInfo
 	lastInfoValid          bool
 	initialized            bool
+	visibleFrames          int
 	frameY                 []byte
 	frameU                 []byte
 	frameV                 []byte
@@ -164,6 +187,12 @@ type VP9Decoder struct {
 
 	vp9LoopFilterPool *vp9DecoderLoopFilterPool
 	vp9TilePool       *vp9DecoderTileWorkerPool
+
+	postSource      vp8common.FrameBuffer
+	post            vp8common.FrameBuffer
+	postModes       []vp8dec.MacroblockMode
+	postprocScratch []byte
+	postprocState   vp8dec.PostProcessState
 }
 
 type vp9ReferenceFrame struct {
@@ -231,10 +260,35 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 	if opts.SVCSpatialLayerSet && opts.SVCSpatialLayer >= VP9RTPMaxSpatialLayers {
 		return ErrInvalidConfig
 	}
+	if opts.PostProcessFlags&^allPostProcessFlags != 0 {
+		return ErrInvalidConfig
+	}
+	if uint(opts.PostProcessNoiseLevel) > 16 {
+		return ErrInvalidConfig
+	}
+	if opts.PostProcessNoiseLevel > 0 &&
+		opts.effectivePostProcessFlags()&PostProcessAddNoise == 0 {
+		return ErrInvalidConfig
+	}
 	if opts.MaxWidth < 0 || opts.MaxHeight < 0 {
 		return ErrInvalidConfig
 	}
 	return nil
+}
+
+func (opts VP9DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
+	flags := opts.PostProcessFlags
+	if flags == 0 && opts.PostProcess {
+		flags = legacyPostProcessFlags
+		if opts.PostProcessNoiseLevel > 0 {
+			flags |= PostProcessAddNoise
+		}
+	}
+	return flags
+}
+
+func (opts VP9DecoderOptions) effectiveErrorConcealment() bool {
+	return opts.ErrorConcealment || opts.ErrorResilient
 }
 
 // SetSVCSpatialLayer enables libvpx-style VP9 spatial-SVC superframe
@@ -286,6 +340,13 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	}
 	sf, err := vp9ParseSuperframe(packet)
 	if err != nil {
+		if len(packet) == 0 && d.opts.effectiveErrorConcealment() &&
+			d.canConcealVP9Frame() {
+			return d.concealVP9Frame(nil, VP9FrameInfo{
+				ShowFrame: true,
+				PTS:       pts,
+			}, pts)
+		}
 		return err
 	}
 	if sf.count == 0 {
@@ -312,6 +373,39 @@ func (d *VP9Decoder) vp9SVCFrameCount(frameCount int) int {
 }
 
 func (d *VP9Decoder) decodeVP9FrameWithPTS(packet []byte, pts uint64) error {
+	err := d.decodeVP9FrameWithPTSStrict(packet, pts)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrVP9NotImplemented) || errors.Is(err, ErrFrameRejected) ||
+		!d.opts.effectiveErrorConcealment() || !d.canConcealVP9Frame() {
+		return err
+	}
+	hdr, uncSize, err := d.readVP9UncompressedHeader(packet)
+	if err != nil {
+		if len(packet) == 0 {
+			return d.concealVP9Frame(nil, VP9FrameInfo{
+				ShowFrame: true,
+				PTS:       pts,
+			}, pts)
+		}
+		return err
+	}
+	info, infoErr := d.vp9FrameInfoFromHeader(&hdr, pts)
+	if infoErr != nil || hdr.FrameType == common.KeyFrame || hdr.IntraOnly ||
+		hdr.ShowExistingFrame {
+		if infoErr != nil {
+			return infoErr
+		}
+		return err
+	}
+	if uncSize > len(packet) {
+		return err
+	}
+	return d.concealVP9Frame(&hdr, info, pts)
+}
+
+func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) error {
 	hdr, uncSize, err := d.readVP9UncompressedHeader(packet)
 	if err != nil {
 		return err
@@ -325,6 +419,11 @@ func (d *VP9Decoder) decodeVP9FrameWithPTS(packet []byte, pts uint64) error {
 		if err := d.decodeVP9ShowExistingFrame(&hdr); err != nil {
 			return err
 		}
+		output, err := d.outputVP9FrameImage(&hdr, info, d.lastFrame)
+		if err != nil {
+			return err
+		}
+		d.lastFrame = output
 		d.finishVP9FrameInfo(info)
 		return nil
 	}
@@ -413,6 +512,11 @@ func (d *VP9Decoder) decodeVP9FrameWithPTS(packet []byte, pts uint64) error {
 	if d.vp9CanPublishReconstructedFrame(&hdr) {
 		d.refreshVP9ReferenceFrames(&hdr)
 		if hdr.ShowFrame {
+			output, err := d.outputVP9FrameImage(&hdr, info, d.lastFrame)
+			if err != nil {
+				return err
+			}
+			d.lastFrame = output
 			d.frameReady = true
 		}
 		d.finishVP9FrameInfo(info)
@@ -485,6 +589,23 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	}
 	sf, err := vp9ParseSuperframe(packet)
 	if err != nil {
+		if len(packet) == 0 && d.opts.effectiveErrorConcealment() &&
+			d.canConcealVP9Frame() {
+			if err := d.concealVP9Frame(nil, VP9FrameInfo{
+				ShowFrame: true,
+				PTS:       pts,
+			}, pts); err != nil {
+				return VP9FrameInfo{}, err
+			}
+			info := d.lastInfo
+			if info.ShowFrame {
+				if !dst.validForEncode(info.Width, info.Height) {
+					return VP9FrameInfo{}, ErrInvalidConfig
+				}
+				copyVP9ImageToPublic(dst, d.lastFrame)
+			}
+			return info, nil
+		}
 		return VP9FrameInfo{}, err
 	}
 	if sf.count != 0 {
@@ -520,6 +641,9 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	}
 	if err := d.DecodeWithPTS(packet, pts); err != nil {
 		return VP9FrameInfo{}, err
+	}
+	if d.lastInfoValid {
+		info = d.lastInfo
 	}
 	d.frameReady = false
 	if info.ShowFrame {
@@ -591,6 +715,9 @@ func (d *VP9Decoder) finishVP9FrameInfo(info VP9FrameInfo) {
 	d.lastInfo = info
 	d.lastInfoValid = true
 	d.initialized = true
+	if info.ShowFrame {
+		d.visibleFrames++
+	}
 }
 
 func (d *VP9Decoder) resetVP9FrameContexts() {
@@ -679,6 +806,65 @@ func (d *VP9Decoder) decodeVP9ShowExistingFrame(hdr *vp9dec.UncompressedHeader) 
 	return nil
 }
 
+func (d *VP9Decoder) canConcealVP9Frame() bool {
+	if !d.initialized || d.width <= 0 || d.height <= 0 {
+		return false
+	}
+	for i := range d.refFrames {
+		if d.refFrames[i].valid {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *VP9Decoder) concealVP9Frame(hdr *vp9dec.UncompressedHeader,
+	info VP9FrameInfo, pts uint64,
+) error {
+	ref := d.vp9ConcealmentReference(hdr)
+	if ref == nil {
+		return ErrInvalidVP9Data
+	}
+	info.Width = ref.img.Width
+	info.Height = ref.img.Height
+	info.KeyFrame = false
+	info.ShowFrame = true
+	info.ShowExistingFrame = false
+	info.ExistingFrameSlot = 0
+	info.PTS = pts
+	info.Corrupted = true
+	d.lastFrame = ref.img
+	output, err := d.outputVP9FrameImage(hdr, info, d.lastFrame)
+	if err != nil {
+		return err
+	}
+	d.lastFrame = output
+	d.width = ref.img.Width
+	d.height = ref.img.Height
+	d.frameReady = true
+	d.finishVP9FrameInfo(info)
+	return nil
+}
+
+func (d *VP9Decoder) vp9ConcealmentReference(
+	hdr *vp9dec.UncompressedHeader,
+) *vp9ReferenceFrame {
+	if hdr != nil {
+		for i := range common.RefsPerFrame {
+			slot := int(hdr.InterRef.RefIndex[i])
+			if slot >= 0 && slot < len(d.refFrames) && d.refFrames[slot].valid {
+				return &d.refFrames[slot]
+			}
+		}
+	}
+	for i := range d.refFrames {
+		if d.refFrames[i].valid {
+			return &d.refFrames[i]
+		}
+	}
+	return nil
+}
+
 func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 	flags := hdr.RefreshFrameFlags
 	for slot := range d.refFrames {
@@ -760,6 +946,153 @@ func (d *VP9Decoder) prepareVP9OutputFrame(width, height int) {
 		YStride: layout.yStride,
 		UStride: layout.uvStride,
 		VStride: layout.uvStride,
+	}
+}
+
+func (d *VP9Decoder) outputVP9FrameImage(hdr *vp9dec.UncompressedHeader,
+	info VP9FrameInfo, src Image,
+) (Image, error) {
+	flags := d.opts.effectivePostProcessFlags()
+	if flags == 0 {
+		return src, nil
+	}
+	if err := d.prepareVP9PostProcess(src.Width, src.Height); err != nil {
+		return Image{}, err
+	}
+	copyVP9ImageToPostSource(&d.postSource.Img, src)
+	d.postSource.ExtendBorders()
+	rows := (src.Height + 15) >> 4
+	cols := (src.Width + 15) >> 4
+	d.prepareVP9PostProcessModes(rows, cols)
+	filterLevel := uint8(0)
+	baseQIndex := info.Quantizer
+	if hdr != nil {
+		filterLevel = hdr.Loopfilter.FilterLevel
+		baseQIndex = int(hdr.Quant.BaseQindex)
+	}
+	opts := vp8dec.PostProcessOptions{
+		Deblock:         flags&PostProcessDeblock != 0,
+		Demacroblock:    flags&PostProcessDemacroblock != 0,
+		MFQE:            flags&PostProcessMFQE != 0,
+		AddNoise:        flags&PostProcessAddNoise != 0 && d.opts.PostProcessNoiseLevel > 0,
+		DeblockingLevel: vp8dec.DefaultPostProcessDeblockingLevel,
+		NoiseLevel:      d.opts.PostProcessNoiseLevel,
+		BaseQIndex:      baseQIndex,
+		CurrentFrame:    d.visibleFrames + 1,
+		KeyFrame:        info.KeyFrame,
+	}
+	if err := vp8dec.ApplyPostProcessWithOptions(&d.postSource.Img, &d.post,
+		rows, cols, d.postModes, filterLevel, d.postprocScratch, opts,
+		&d.postprocState); err != nil {
+		return Image{}, ErrInvalidVP9Data
+	}
+	return publicImageFromVP8(&d.post.Img), nil
+}
+
+func copyVP9ImageToPostSource(dst *vp8common.Image, src Image) {
+	copyVP9PostPlane(dst.Y, dst.YStride, dst.CodedWidth, dst.CodedHeight,
+		src.Y, src.YStride, src.Width, src.Height)
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	codedUVWidth := (dst.CodedWidth + 1) >> 1
+	codedUVHeight := (dst.CodedHeight + 1) >> 1
+	copyVP9PostPlane(dst.U, dst.UStride, codedUVWidth, codedUVHeight,
+		src.U, src.UStride, uvWidth, uvHeight)
+	copyVP9PostPlane(dst.V, dst.VStride, codedUVWidth, codedUVHeight,
+		src.V, src.VStride, uvWidth, uvHeight)
+}
+
+func copyVP9PostPlane(dst []byte, dstStride, codedWidth, codedHeight int,
+	src []byte, srcStride, width, height int,
+) {
+	for y := 0; y < height; y++ {
+		dstRow := dst[y*dstStride:]
+		copy(dstRow[:width], src[y*srcStride:y*srcStride+width])
+		if codedWidth > width {
+			fillVP9Plane(dstRow[width:codedWidth], dstRow[width-1])
+		}
+	}
+	if height == 0 {
+		return
+	}
+	lastRow := dst[(height-1)*dstStride:]
+	for y := height; y < codedHeight; y++ {
+		copy(dst[y*dstStride:y*dstStride+codedWidth], lastRow[:codedWidth])
+	}
+}
+
+func (d *VP9Decoder) prepareVP9PostProcess(width, height int) error {
+	if err := d.postSource.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidVP9Data
+	}
+	if err := d.post.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidVP9Data
+	}
+	rows := (height + 15) >> 4
+	cols := (width + 15) >> 4
+	count := rows * cols
+	if cap(d.postModes) < count {
+		d.postModes = make([]vp8dec.MacroblockMode, count)
+	} else {
+		d.postModes = d.postModes[:count]
+	}
+	scratchLen := cols * 24
+	if cap(d.postprocScratch) < scratchLen {
+		d.postprocScratch = make([]byte, scratchLen)
+	} else {
+		d.postprocScratch = d.postprocScratch[:scratchLen]
+	}
+	flags := d.opts.effectivePostProcessFlags()
+	if flags&PostProcessMFQE != 0 {
+		if err := d.postprocState.EnsureMFQE(width, height); err != nil {
+			return ErrInvalidVP9Data
+		}
+	}
+	if flags&PostProcessAddNoise != 0 && d.opts.PostProcessNoiseLevel > 0 {
+		d.postprocState.EnsureNoise(width)
+	}
+	return nil
+}
+
+func (d *VP9Decoder) prepareVP9PostProcessModes(rows, cols int) {
+	for i := range d.postModes {
+		d.postModes[i] = vp8dec.MacroblockMode{}
+	}
+	miCols := (d.lastFrame.Width + 7) >> 3
+	miRows := (d.lastFrame.Height + 7) >> 3
+	for mbRow := 0; mbRow < rows; mbRow++ {
+		for mbCol := 0; mbCol < cols; mbCol++ {
+			mode := &d.postModes[mbRow*cols+mbCol]
+			mode.MBSkipCoeff = true
+			for subRow := 0; subRow < 2; subRow++ {
+				miRow := mbRow*2 + subRow
+				if miRow >= miRows {
+					continue
+				}
+				for subCol := 0; subCol < 2; subCol++ {
+					miCol := mbCol*2 + subCol
+					if miCol >= miCols {
+						continue
+					}
+					idx := miRow*miCols + miCol
+					if idx >= len(d.miGrid) {
+						continue
+					}
+					mi := &d.miGrid[idx]
+					if mi.Skip == 0 {
+						mode.MBSkipCoeff = false
+					}
+					if mi.RefFrame[0] > vp9dec.IntraFrame {
+						mode.RefFrame = vp8common.LastFrame
+						mode.Mode = vp8common.ZeroMV
+						mode.MV = vp8dec.MotionVector{
+							Row: mi.Mv[0].Row,
+							Col: mi.Mv[0].Col,
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -879,6 +1212,7 @@ func (d *VP9Decoder) Reset() {
 	d.lastInfo = VP9FrameInfo{}
 	d.lastInfoValid = false
 	d.initialized = false
+	d.visibleFrames = 0
 	d.width = 0
 	d.height = 0
 	for i := range d.refFrames {
@@ -914,6 +1248,9 @@ func (d *VP9Decoder) Reset() {
 	if d.interPredictScratch != nil {
 		d.interPredictScratch = d.interPredictScratch[:0]
 	}
+	d.postSource.Reset()
+	d.post.Reset()
+	d.postprocState.Reset()
 }
 
 // Close releases internal state and marks the decoder as no longer
