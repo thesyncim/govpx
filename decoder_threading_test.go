@@ -293,6 +293,76 @@ func TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderThreadingOfficialProfile0TileColumnsUseWorkers(t *testing.T) {
+	root, ok := externalVP9Profile0WebMTestDataRoot(t)
+	if !ok {
+		return
+	}
+	paths := findVP9Profile0WebMTestData(t, root)
+	if len(paths) == 0 {
+		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
+			externalVP9Profile0WebMTestMinimum(t, root) > 0 {
+			t.Fatalf("no official VP9 Profile 0 WebM files found under %s", root)
+		}
+		t.Skipf("no official VP9 Profile 0 WebM files found under %s", root)
+	}
+
+	wanted := map[string]struct{}{
+		"vp90-2-08-tile_1x4.webm":                {},
+		"vp90-2-08-tile_1x8.webm":                {},
+		"vp90-2-08-tile_1x2_frame_parallel.webm": {},
+	}
+	var tiledPaths []string
+	for _, path := range paths {
+		if _, ok := wanted[filepath.Base(path)]; ok {
+			tiledPaths = append(tiledPaths, path)
+		}
+	}
+	if len(tiledPaths) != len(wanted) {
+		t.Fatalf("official VP9 tiled Profile 0 WebM files = %d, want %d",
+			len(tiledPaths), len(wanted))
+	}
+
+	for _, path := range tiledPaths {
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			webm, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			packets, err := extractVP9WebMPackets(webm)
+			if err != nil {
+				t.Fatalf("extract VP9 WebM packets: %v", err)
+			}
+			if len(packets) == 0 {
+				t.Skipf("no VP9 packets in %s", filepath.Base(path))
+			}
+
+			d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
+			if err != nil {
+				t.Fatalf("threaded NewVP9Decoder: %v", err)
+			}
+			usedWorkers := false
+			for i, packet := range packets {
+				d.vp9TilePool.lastTileJobs = 0
+				if err := d.Decode(packet); err != nil {
+					t.Fatalf("threaded Decode[%d]: %v", i, err)
+				}
+				_, _ = d.NextFrame()
+				if d.vp9TilePool.lastTileJobs > 1 {
+					usedWorkers = true
+				}
+			}
+			if err := d.Close(); err != nil {
+				t.Fatalf("threaded Close: %v", err)
+			}
+			if !usedWorkers {
+				t.Fatalf("threaded decoder did not use tile workers for %s",
+					filepath.Base(path))
+			}
+		})
+	}
+}
+
 func TestVP9DecoderThreadingUsesTileModeWorkers(t *testing.T) {
 	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 2)
 	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 2)
