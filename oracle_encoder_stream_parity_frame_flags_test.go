@@ -804,6 +804,18 @@ func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, name string, opts En
 	if opts.CQLevel > 0 {
 		args = append(args, "--cq-level="+strconv.Itoa(opts.CQLevel))
 	}
+	if opts.Threads > 0 {
+		hasThreads := false
+		for _, a := range extraArgs {
+			if strings.HasPrefix(a, "--threads=") {
+				hasThreads = true
+				break
+			}
+		}
+		if !hasThreads {
+			args = append(args, "--threads="+strconv.Itoa(opts.Threads))
+		}
+	}
 	args = append(args, extraArgs...)
 	cmd := exec.Command(driver, args...)
 	cmd.Env = os.Environ()
