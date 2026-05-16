@@ -7,24 +7,44 @@ import (
 const quantizerHistogramBins = 128
 
 type benchConfig struct {
-	Width        int
-	Height       int
-	Frames       int
-	FPS          int
-	BitrateKbps  int
-	Mode         string
-	Decode       bool
-	SkipQuality  bool
-	Threads      int
-	CpuUsed      int
-	PhaseTiming  bool
-	CPUProfile   string
-	LibvpxVpxenc string
-	LibvpxOracle string
-	LibvpxArgs   []string
+	Width           int
+	Height          int
+	Frames          int
+	FPS             int
+	BitrateKbps     int
+	Mode            string
+	Codec           string
+	Decode          bool
+	SkipQuality     bool
+	Threads         int
+	CpuUsed         int
+	PhaseTiming     bool
+	CPUProfile      string
+	LibvpxVpxenc    string
+	LibvpxVpxencVP9 string
+	LibvpxOracle    string
+	LibvpxArgs      []string
+
+	// QualityGate is consulted by runBenchmark/Main after the encode pass
+	// completes. When Enabled is true the bench exits non-zero on regression.
+	QualityGate QualityGate
+}
+
+// codec values for benchConfig.Codec.
+const (
+	codecVP8 = "vp8"
+	codecVP9 = "vp9"
+)
+
+func benchCodec(cfg benchConfig) string {
+	if cfg.Codec == codecVP9 {
+		return codecVP9
+	}
+	return codecVP8
 }
 
 type benchReport struct {
+	Codec             string                   `json:"codec,omitempty"`
 	Encoder           string                   `json:"encoder"`
 	Mode              string                   `json:"mode"`
 	Width             int                      `json:"width"`

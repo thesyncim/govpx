@@ -17,16 +17,17 @@ func benchSummary(deadline string) benchConfigSummary {
 }
 
 type benchCLIOptions struct {
-	format      string
-	autoCompare bool
-	buildLibvpx bool
-	suite       string
-	suiteRuns   int
-	memProfile  string
-	ffmpeg      string
-	plotPath    string
-	plotCSV     string
-	plotJSON    string
+	format          string
+	autoCompare     bool
+	buildLibvpx     bool
+	suite           string
+	suiteRuns       int
+	memProfile      string
+	ffmpeg          string
+	plotPath        string
+	plotCSV         string
+	plotJSON        string
+	qualityFixtures bool
 }
 
 func defaultBenchCLIOptions() benchCLIOptions {
@@ -53,8 +54,12 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
 	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and optional libvpx comparison; negative realtime values pin libvpx Speed")
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
-	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for reference comparison")
+	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for VP8 reference comparison")
+	fs.StringVar(&cfg.LibvpxVpxencVP9, "libvpx-vpxenc-vp9", "", "optional libvpx vpxenc-vp9 path for VP9 reference comparison")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", "", "optional libvpx checksum oracle path for decoder reference timing")
+	fs.StringVar(&cfg.Codec, "codec", codecVP8, "codec to benchmark: vp8 or vp9")
+	fs.BoolVar(&opts.qualityFixtures, "quality-fixtures", false, "run the canonical VP9 quality-gate fixture suite (panning + checker)")
+	registerQualityGateFlags(fs, &cfg.QualityGate)
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc (and PATH vpxenc) for encode comparison; decoder mode also locates the oracle")
 	fs.BoolVar(&opts.buildLibvpx, "build-libvpx", opts.buildLibvpx, "if -auto-libvpx finds no built binaries, run `make oracle-tools` to build them")
 	fs.StringVar(&opts.ffmpeg, "ffmpeg", opts.ffmpeg, "ffmpeg binary for -plot mode; it must include the libvpx encoder and libvmaf filter")
@@ -68,30 +73,45 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	root, haveRoot := findGovpxRoot()
 	repoVpxenc := ""
+	repoVpxencVP9 := ""
 	repoOracle := ""
 	if haveRoot {
 		repoVpxenc = filepath.Join(root, "internal", "coracle", "build", "vpxenc")
+		repoVpxencVP9 = filepath.Join(root, "internal", "coracle", "build", "vpxenc-vp9")
 		repoOracle = filepath.Join(root, "internal", "coracle", "build", "govpx-vpx-oracle")
 	}
 
-	needVpxenc := !cfg.Decode && cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
+	codec := benchCodec(*cfg)
+	needVpxenc := !cfg.Decode && codec == codecVP8 && cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
+	needVpxencVP9 := !cfg.Decode && codec == codecVP9 && cfg.LibvpxVpxencVP9 == "" && haveRoot && !isExecutable(repoVpxencVP9)
 	needOracle := cfg.Decode && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
-	if buildIfMissing && haveRoot && (needVpxenc || needOracle) {
-		fmt.Fprintln(os.Stderr, "govpx-bench: building libvpx oracle tools (make oracle-tools)")
-		makeCmd := exec.Command("make", "oracle-tools")
+	if buildIfMissing && haveRoot && (needVpxenc || needVpxencVP9 || needOracle) {
+		target := "oracle-tools"
+		if needVpxencVP9 {
+			target = "vp9-vpxdec-tools"
+		}
+		fmt.Fprintf(os.Stderr, "govpx-bench: building libvpx oracle tools (make %s)\n", target)
+		makeCmd := exec.Command("make", target)
 		makeCmd.Dir = root
 		makeCmd.Stdout = os.Stderr
 		makeCmd.Stderr = os.Stderr
 		if err := makeCmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "govpx-bench: make oracle-tools failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "govpx-bench: make %s failed: %v\n", target, err)
 		}
 	}
 
-	if !cfg.Decode && cfg.LibvpxVpxenc == "" {
+	if !cfg.Decode && codec == codecVP8 && cfg.LibvpxVpxenc == "" {
 		if isExecutable(repoVpxenc) {
 			cfg.LibvpxVpxenc = repoVpxenc
 		} else if path, err := exec.LookPath("vpxenc"); err == nil {
 			cfg.LibvpxVpxenc = path
+		}
+	}
+	if !cfg.Decode && codec == codecVP9 && cfg.LibvpxVpxencVP9 == "" {
+		if isExecutable(repoVpxencVP9) {
+			cfg.LibvpxVpxencVP9 = repoVpxencVP9
+		} else if path, err := exec.LookPath("vpxenc-vp9"); err == nil {
+			cfg.LibvpxVpxencVP9 = path
 		}
 	}
 	if cfg.Decode && cfg.LibvpxOracle == "" && isExecutable(repoOracle) {

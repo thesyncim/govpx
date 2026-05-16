@@ -1,0 +1,152 @@
+package benchcmd
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestRunVP9BenchmarkOutputsMetrics(t *testing.T) {
+	report, err := runVP9Benchmark(benchConfig{
+		Codec:       codecVP9,
+		Width:       64,
+		Height:      64,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 600,
+		Mode:        "realtime",
+	})
+	if err != nil {
+		t.Fatalf("runVP9Benchmark returned error: %v", err)
+	}
+	if report.Codec != codecVP9 {
+		t.Fatalf("Codec = %q, want %q", report.Codec, codecVP9)
+	}
+	if report.Encoder != "govpx-vp9" {
+		t.Fatalf("Encoder = %q, want govpx-vp9", report.Encoder)
+	}
+	if report.EncodedFrames == 0 || report.OutputBytes <= 0 {
+		t.Fatalf("encode metrics = frames:%d bytes:%d, want positive",
+			report.EncodedFrames, report.OutputBytes)
+	}
+	if report.NSPerFrame <= 0 || report.EncodeFPS <= 0 {
+		t.Fatalf("timing metrics = ns:%d fps:%f, want positive",
+			report.NSPerFrame, report.EncodeFPS)
+	}
+	if report.QualityFrames == 0 || report.PSNR <= 0 || report.SSIM <= 0 || report.SSIM > 1 {
+		t.Fatalf("quality metrics = frames:%d psnr:%f ssim:%f, want populated",
+			report.QualityFrames, report.PSNR, report.SSIM)
+	}
+}
+
+func TestRunVP9BenchmarkSkipQuality(t *testing.T) {
+	report, err := runVP9Benchmark(benchConfig{
+		Codec:       codecVP9,
+		Width:       64,
+		Height:      64,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 600,
+		Mode:        "realtime",
+		SkipQuality: true,
+	})
+	if err != nil {
+		t.Fatalf("runVP9Benchmark returned error: %v", err)
+	}
+	if !report.QualitySkipped {
+		t.Fatalf("QualitySkipped = false, want true")
+	}
+	if report.PSNR != 0 || report.SSIM != 0 || report.QualityFrames != 0 {
+		t.Fatalf("quality fields = psnr:%f ssim:%f frames:%d, want zero",
+			report.PSNR, report.SSIM, report.QualityFrames)
+	}
+}
+
+func TestRunVP9BenchmarkWithCustomSource(t *testing.T) {
+	report, err := runVP9BenchmarkWithSource(benchConfig{
+		Codec:       codecVP9,
+		Width:       64,
+		Height:      64,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 600,
+		Mode:        "realtime",
+	}, makePanningFrame)
+	if err != nil {
+		t.Fatalf("runVP9BenchmarkWithSource panning returned error: %v", err)
+	}
+	if report.EncodedFrames == 0 {
+		t.Fatalf("panning source produced zero encoded frames")
+	}
+
+	report2, err := runVP9BenchmarkWithSource(benchConfig{
+		Codec:       codecVP9,
+		Width:       64,
+		Height:      64,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 600,
+		Mode:        "realtime",
+	}, makeCheckerFrame)
+	if err != nil {
+		t.Fatalf("runVP9BenchmarkWithSource checker returned error: %v", err)
+	}
+	if report2.EncodedFrames == 0 {
+		t.Fatalf("checker source produced zero encoded frames")
+	}
+}
+
+func TestRunVP9BenchmarkRejectsBadConfig(t *testing.T) {
+	if _, err := runVP9Benchmark(benchConfig{Codec: codecVP9, Width: 0, Height: 16, Frames: 1, FPS: 30, BitrateKbps: 1200, Mode: "realtime"}); err == nil {
+		t.Fatalf("runVP9Benchmark accepted zero width")
+	}
+	if _, err := runVP9Benchmark(benchConfig{Codec: codecVP9, Width: 16, Height: 16, Frames: 1, FPS: 30, BitrateKbps: 1200, Mode: "slow"}); err == nil {
+		t.Fatalf("runVP9Benchmark accepted unsupported mode")
+	}
+}
+
+func TestImageToYCbCrAliasesPlanes(t *testing.T) {
+	img := makeBenchmarkFrame(32, 32, 0)
+	y := imageToYCbCr(img)
+	if y == nil || len(y.Y) == 0 {
+		t.Fatalf("imageToYCbCr returned empty result")
+	}
+	if y.Rect.Dx() != 32 || y.Rect.Dy() != 32 {
+		t.Fatalf("Rect = %v, want 32x32", y.Rect)
+	}
+	if y.YStride != img.YStride || y.CStride != (img.Width+1)>>1 {
+		t.Fatalf("strides = y:%d c:%d, want y:%d c:%d", y.YStride, y.CStride, img.YStride, (img.Width+1)>>1)
+	}
+	// Plane slices must alias rather than copy so the encoder sees the
+	// caller's pixels directly.
+	if &y.Y[0] != &img.Y[0] || &y.Cb[0] != &img.U[0] || &y.Cr[0] != &img.V[0] {
+		t.Fatalf("imageToYCbCr did not alias plane slices")
+	}
+}
+
+func TestParseVP9IVFFrameInfoRejectsInvalid(t *testing.T) {
+	if _, err := parseVP9IVFFrameInfo(nil); err == nil {
+		t.Fatalf("parseVP9IVFFrameInfo accepted nil input")
+	}
+	if _, err := parseVP9IVFFrameInfo([]byte("not an ivf")); err == nil {
+		t.Fatalf("parseVP9IVFFrameInfo accepted garbage prefix")
+	}
+}
+
+func TestRunVP9BenchmarkReportFormat(t *testing.T) {
+	report, err := runVP9Benchmark(benchConfig{
+		Codec:       codecVP9,
+		Width:       64,
+		Height:      64,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 600,
+		Mode:        "realtime",
+	})
+	if err != nil {
+		t.Fatalf("runVP9Benchmark returned error: %v", err)
+	}
+	text := formatEncodeReport(report)
+	if !strings.Contains(text, "encode") || !strings.Contains(text, "ns/frame") {
+		t.Fatalf("formatted VP9 report missing expected fields:\n%s", text)
+	}
+}

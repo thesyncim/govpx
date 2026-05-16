@@ -11,8 +11,12 @@ import (
 
 func formatEncodeReport(r benchReport) string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "govpx-bench  encode  %s  %dx%d @%dfps  target=%d kbps  frames=%d\n\n",
-		r.Mode, r.Width, r.Height, r.FPS, r.TargetBitrateKbps, r.Frames)
+	codec := r.Codec
+	if codec == "" {
+		codec = "vp8"
+	}
+	fmt.Fprintf(&b, "govpx-bench  encode  %s  %s  %dx%d @%dfps  target=%d kbps  frames=%d\n\n",
+		codec, r.Mode, r.Width, r.Height, r.FPS, r.TargetBitrateKbps, r.Frames)
 
 	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	if r.Reference != nil {

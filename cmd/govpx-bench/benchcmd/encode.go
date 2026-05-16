@@ -138,6 +138,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	}
 
 	report := benchReport{
+		Codec:             codecVP8,
 		Encoder:           "govpx",
 		Mode:              deadlineName,
 		Width:             cfg.Width,
