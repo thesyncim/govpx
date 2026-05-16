@@ -1083,3 +1083,32 @@ func assertFirstFrameByteParity(t *testing.T, label string, got, want [][]byte) 
 	}
 	assertSegmentByteParity(t, label, got[:1], want[:1], 0)
 }
+
+// assertStrictGateKnownGapMatchedPrefix is the migration target for
+// strict-gate cases that opt into known-divergence behaviour with
+// tc.limit < 0. It computes the matched-prefix length of got vs
+// want and asserts it is at least `floor`. Per plan §5 this catches
+// silent regression in the matched prefix that the prior
+// log-and-return pattern would have masked. Empty common range
+// (one side produced zero frames) is logged-only — the floor only
+// binds when at least one common frame exists.
+func assertStrictGateKnownGapMatchedPrefix(t *testing.T, label string, got, want [][]byte, floor int) {
+	t.Helper()
+	common := min(len(got), len(want))
+	if common == 0 {
+		t.Logf("%s known-gap: no common frames (got=%d want=%d)", label, len(got), len(want))
+		return
+	}
+	matched := 0
+	for i := 0; i < common; i++ {
+		if sha256.Sum256(got[i]) == sha256.Sum256(want[i]) {
+			matched++
+		} else {
+			break
+		}
+	}
+	t.Logf("%s known-gap matched-prefix=%d (floor=%d)", label, matched, floor)
+	if matched < floor {
+		t.Errorf("%s matched-prefix=%d below floor=%d (regression in matched prefix)", label, matched, floor)
+	}
+}
