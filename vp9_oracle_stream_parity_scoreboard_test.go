@@ -1835,6 +1835,26 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 			exactPrefix: 1,
 		},
 		{
+			name: "active-map-checker-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					activeMap, rows, cols := vp9OracleActiveMap(width,
+						height, "checker")
+					mustVP9Runtime(t, "SetActiveMap checker",
+						enc.SetActiveMap(activeMap, rows, cols))
+				case 7:
+					mustVP9Runtime(t, "SetActiveMap nil",
+						enc.SetActiveMap(nil, 0, 0))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,active:checker,-,-,-,-,-,active:off,-,-"),
+			exactPrefix: 1,
+		},
+		{
 			name: "roi-border-toggle",
 			opts: baseOpts(700),
 			before: func(t *testing.T, enc *VP9Encoder, frame int) {
@@ -1849,6 +1869,29 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 			},
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,roi:border1,-,-,-,-,-,roi:off,-,-"),
+			exactPrefix: 1,
+		},
+		{
+			name: "active-roi-combined-toggle",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 1:
+					activeMap, rows, cols := vp9OracleActiveMap(width,
+						height, "checker")
+					mustVP9Runtime(t, "SetActiveMap checker",
+						enc.SetActiveMap(activeMap, rows, cols))
+					mustVP9Runtime(t, "SetROIMap border1",
+						enc.SetROIMap(vp9OracleROIMap(width, height, "border1")))
+				case 7:
+					mustVP9Runtime(t, "SetActiveMap nil",
+						enc.SetActiveMap(nil, 0, 0))
+					mustVP9Runtime(t, "SetROIMap nil", enc.SetROIMap(nil))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--control-script=-,active:checker+roi:border1,-,-,-,-,-,active:off+roi:off,-,-"),
 			exactPrefix: 1,
 		},
 		{
