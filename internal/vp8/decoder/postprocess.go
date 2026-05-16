@@ -40,6 +40,13 @@ type PostProcessOptions struct {
 	BaseQIndex      int
 	CurrentFrame    int
 	KeyFrame        bool
+	// VP9 selects VP9-specific postprocess semantics. When set, the
+	// deblock strength q is derived as min(105, filter_level * 2) and
+	// the MFQE precondition follows libvpx vp9_post_proc_frame
+	// (last_base_qindex <= 170, cur - last >= 20, current >= 2).
+	// Otherwise the VP8 derivation min(filter_level * 10/6, 63) and
+	// VP8 MFQE precondition apply.
+	VP9 bool
 }
 
 type PostProcessState struct {
@@ -266,7 +273,7 @@ func ApplyPostProcessWithOptions(src *common.Image, dst *common.FrameBuffer, row
 		return ErrPostProcessBufferTooSmall
 	}
 
-	q := min(int(filterLevel)*10/6, 63)
+	q := postProcessQ(int(filterLevel), opts.VP9)
 
 	yLimits := scratch[:cols*16]
 	uvLimits := scratch[cols*16 : cols*24]
@@ -296,12 +303,34 @@ func ApplyPostProcessWithOptions(src *common.Image, dst *common.FrameBuffer, row
 }
 
 func shouldApplyMFQE(opts PostProcessOptions, state *PostProcessState) bool {
-	return opts.MFQE &&
-		state != nil &&
-		state.lastFrameValid &&
-		opts.CurrentFrame > 10 &&
+	if !opts.MFQE || state == nil || !state.lastFrameValid {
+		return false
+	}
+	if opts.VP9 {
+		// libvpx vp9_post_proc_frame: VP9 MFQE triggers when
+		// current_video_frame >= 2, last_base_qindex <= 170, and
+		// base_qindex - last_base_qindex >= 20.
+		return opts.CurrentFrame >= 2 &&
+			state.lastBaseQIndex <= 170 &&
+			opts.BaseQIndex-state.lastBaseQIndex >= 20
+	}
+	return opts.CurrentFrame > 10 &&
 		state.lastBaseQIndex < 60 &&
 		opts.BaseQIndex-state.lastBaseQIndex >= 20
+}
+
+// postProcessQ returns the deblock strength used by libvpx's postprocess
+// chain. VP9 uses min(105, filter_level * 2) (vp9_post_proc_frame), VP8
+// uses min(filter_level * 10/6, 63) (vp8_post_proc_frame).
+func postProcessQ(filterLevel int, vp9 bool) int {
+	if vp9 {
+		q := filterLevel * 2
+		if q > 105 {
+			q = 105
+		}
+		return q
+	}
+	return min(filterLevel*10/6, 63)
 }
 
 func runPostProcessFilters(src *common.Image, dst *common.Image, rows int, cols int, modes []MacroblockMode, q int, yLimits []byte, uvLimits []byte, opts PostProcessOptions) {

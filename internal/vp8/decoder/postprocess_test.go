@@ -286,6 +286,65 @@ func TestApplyPostProcessWithOptionsMFQECopiesHighMotionInterBlock(t *testing.T)
 	}
 }
 
+func TestPostProcessQUsesVP9FormulaWhenVP9Flagged(t *testing.T) {
+	// libvpx vp9_post_proc_frame: q = min(105, filter_level * 2).
+	cases := []struct {
+		filterLevel int
+		vp9         bool
+		want        int
+	}{
+		{filterLevel: 0, vp9: true, want: 0},
+		{filterLevel: 20, vp9: true, want: 40},
+		{filterLevel: 50, vp9: true, want: 100},
+		{filterLevel: 63, vp9: true, want: 105},
+		{filterLevel: 80, vp9: true, want: 105},
+		{filterLevel: 0, vp9: false, want: 0},
+		{filterLevel: 20, vp9: false, want: 33},
+		{filterLevel: 50, vp9: false, want: 63},
+		{filterLevel: 63, vp9: false, want: 63},
+	}
+	for _, tc := range cases {
+		got := postProcessQ(tc.filterLevel, tc.vp9)
+		if got != tc.want {
+			t.Errorf("postProcessQ(fl=%d vp9=%v) = %d, want %d",
+				tc.filterLevel, tc.vp9, got, tc.want)
+		}
+	}
+}
+
+func TestShouldApplyMFQEHonorsVP9Threshold(t *testing.T) {
+	// libvpx vp9_post_proc_frame triggers MFQE when current_video_frame >= 2,
+	// last_base_qindex <= 170, and base_qindex - last_base_qindex >= 20.
+	// VP8 keeps the stricter last_base_qindex < 60 and current > 10 gate.
+	state := PostProcessState{lastFrameValid: true, lastBaseQIndex: 100}
+	vp9 := PostProcessOptions{MFQE: true, VP9: true, BaseQIndex: 130, CurrentFrame: 3}
+	if !shouldApplyMFQE(vp9, &state) {
+		t.Fatalf("VP9 MFQE should trigger at last=100 cur=130 frame=3")
+	}
+	vp8 := PostProcessOptions{MFQE: true, BaseQIndex: 130, CurrentFrame: 3}
+	if shouldApplyMFQE(vp8, &state) {
+		t.Fatalf("VP8 MFQE must not trigger when last_base_qindex>=60")
+	}
+	stateLow := PostProcessState{lastFrameValid: true, lastBaseQIndex: 40}
+	vp8 = PostProcessOptions{MFQE: true, BaseQIndex: 80, CurrentFrame: 11}
+	if !shouldApplyMFQE(vp8, &stateLow) {
+		t.Fatalf("VP8 MFQE should trigger at last=40 cur=80 frame=11")
+	}
+	vp9EarlyFrame := PostProcessOptions{MFQE: true, VP9: true, BaseQIndex: 80, CurrentFrame: 1}
+	if shouldApplyMFQE(vp9EarlyFrame, &stateLow) {
+		t.Fatalf("VP9 MFQE must not trigger before current_video_frame >= 2")
+	}
+	vp9TooClose := PostProcessOptions{MFQE: true, VP9: true, BaseQIndex: 55, CurrentFrame: 3}
+	if shouldApplyMFQE(vp9TooClose, &stateLow) {
+		t.Fatalf("VP9 MFQE must require qcurr-qprev >= 20")
+	}
+	vp9HighPrev := PostProcessOptions{MFQE: true, VP9: true, BaseQIndex: 220, CurrentFrame: 3}
+	stateHigh := PostProcessState{lastFrameValid: true, lastBaseQIndex: 180}
+	if shouldApplyMFQE(vp9HighPrev, &stateHigh) {
+		t.Fatalf("VP9 MFQE must reject last_base_qindex > 170")
+	}
+}
+
 func TestQualifyInterMFQESplitMVChecksEachSubblock(t *testing.T) {
 	mode := MacroblockMode{Mode: common.SplitMV}
 	mode.BlockMV[0] = MotionVector{Row: 3}

@@ -980,6 +980,7 @@ func (d *VP9Decoder) outputVP9FrameImage(hdr *vp9dec.UncompressedHeader,
 		BaseQIndex:      baseQIndex,
 		CurrentFrame:    d.visibleFrames + 1,
 		KeyFrame:        info.KeyFrame,
+		VP9:             true,
 	}
 	if err := vp8dec.ApplyPostProcessWithOptions(&d.postSource.Img, &d.post,
 		rows, cols, d.postModes, filterLevel, d.postprocScratch, opts,
