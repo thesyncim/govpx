@@ -5254,6 +5254,43 @@ func TestVP9EncoderKeyframeThreeMiEdgeUsesBlock32x32(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderFixedQNonNeutralKeyframeThreeMiEdgeUsesSquareBlocks(t *testing.T) {
+	const width, height = 320, 180
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	})
+	img := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	grid := decodeVP9PacketMiGridForOracleTest(t, packet)
+	miRows := (height + 7) >> 3
+	miCols := (width + 7) >> 3
+	if got, want := len(grid), miRows*miCols; got != want {
+		t.Fatalf("decoded mi grid len = %d, want %d", got, want)
+	}
+	for miCol := 0; miCol < miCols; miCol += 2 {
+		mi := grid[20*miCols+miCol]
+		if mi.SbType != common.Block16x16 || mi.TxSize != common.Tx16x16 ||
+			mi.Skip != 1 {
+			t.Fatalf("bottom 3-mi edge 16x16 leaf at col %d = %+v, want Block16x16/Tx16/skip",
+				miCol, mi)
+		}
+	}
+	for miCol := 0; miCol < miCols; miCol++ {
+		mi := grid[22*miCols+miCol]
+		if mi.SbType != common.Block8x8 || mi.TxSize != common.Tx8x8 ||
+			mi.Skip != 1 {
+			t.Fatalf("bottom 1-mi edge leaf at col %d = %+v, want Block8x8/Tx8/skip",
+				miCol, mi)
+		}
+	}
+}
+
 func TestVP9EncoderInterOneMiEdgeKeepsBlock64x64(t *testing.T) {
 	const width, height = 320, 180
 	e, _ := NewVP9Encoder(VP9EncoderOptions{

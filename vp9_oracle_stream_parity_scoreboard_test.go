@@ -186,7 +186,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactPrefix: 0,
+			exactPrefix: 1,
 		},
 		{
 			name:    "fixed-q-constant-640",
@@ -238,7 +238,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactPrefix: 0,
+			exactPrefix: 1,
 			tileJobs:    4,
 		},
 		{

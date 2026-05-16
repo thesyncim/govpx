@@ -2705,6 +2705,14 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 			miRows, miCols, miRow, miCol, root); ok {
 			return varianceSize
 		}
+		// Fixed-Q libvpx keeps neutral clipped keyframe edges at the coarse
+		// geometry, but uses square leaves once the edge carries luma residue.
+		if e.vp9FixedPublicQuantizer() &&
+			vp9KeyframeEdgeBlockHasNonNeutralLuma(key, miRows, miCols,
+				miRow, miCol, root) {
+			return vp9KeyframeSquareBlockSizeForRegion(miRows, miCols,
+				miRow, miCol, root)
+		}
 		return vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	}
 	if kind == vp9ModeTreeInterSource && inter != nil {
@@ -2798,6 +2806,56 @@ func vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		}
 	}
 	return common.Block4x4
+}
+
+func vp9KeyframeSquareBlockSizeForRegion(miRows, miCols, miRow, miCol int,
+	root common.BlockSize,
+) common.BlockSize {
+	maxW := min(miCols-miCol, int(common.Num8x8BlocksWideLookup[root]))
+	maxH := min(miRows-miRow, int(common.Num8x8BlocksHighLookup[root]))
+	if maxW >= 4 && maxH >= 4 {
+		return common.Block32x32
+	}
+	if maxW >= 2 && maxH >= 2 {
+		return common.Block16x16
+	}
+	if maxW >= 1 && maxH >= 1 {
+		return common.Block8x8
+	}
+	return common.Block4x4
+}
+
+func vp9KeyframeEdgeBlockHasNonNeutralLuma(key *vp9KeyframeEncodeState,
+	miRows, miCols, miRow, miCol int, root common.BlockSize,
+) bool {
+	if key == nil || key.img == nil {
+		return false
+	}
+	blockMiW := int(common.Num8x8BlocksWideLookup[root])
+	blockMiH := int(common.Num8x8BlocksHighLookup[root])
+	if miCol+blockMiW <= miCols && miRow+blockMiH <= miRows {
+		return false
+	}
+	src, stride, width, height := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || stride <= 0 || width <= 0 || height <= 0 {
+		return false
+	}
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0 >= width || y0 >= height {
+		return false
+	}
+	w := min(width-x0, blockMiW*common.MiSize)
+	h := min(height-y0, blockMiH*common.MiSize)
+	for y := 0; y < h; y++ {
+		row := src[(y0+y)*stride+x0 : (y0+y)*stride+x0+w]
+		for _, px := range row {
+			if px != 128 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeEncodeState,

@@ -479,6 +479,22 @@ func TestVP9EncoderVpxencOracleChecker320KeyframeByteParity(t *testing.T) {
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
+func TestVP9EncoderVpxencOracleStepped320FixedQuantizerKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 320, 180
+	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	}, []string{
+		"--cq-level=20",
+		"--min-q=20",
+		"--max-q=20",
+		"--disable-warning-prompt",
+	})
+}
+
 func TestVP9EncoderVpxencOracleFixedQuantizerKeyframeByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
