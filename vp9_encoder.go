@@ -810,9 +810,9 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		}
 		return seg
 	}
-	if e.opts.AQMode == VP9AQVariance && !intraFrame {
+	if e.opts.AQMode == VP9AQVariance {
 		seg := vp9VarianceAQSegmentationParams(baseQIndex)
-		if e.activeMapEnabled {
+		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
 		return seg
@@ -1042,7 +1042,7 @@ func (e *VP9Encoder) vp9SegmentMapMatchesPrevious(miRows, miCols int,
 		row := e.prevSegmentMap[miRow*miCols:]
 		for miCol := 0; miCol < miCols; miCol++ {
 			if row[miCol] != e.vp9PartitionSegmentID(miRow, miCol,
-				staticSegID, inter) {
+				staticSegID, nil, inter) {
 				return false
 			}
 		}
@@ -3155,6 +3155,13 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	if kind == vp9ModeTreeKeyframeSource {
+		if e.opts.AQMode == VP9AQVariance && key != nil && key.img != nil &&
+			e.vp9DynamicSegmentMapActive() {
+			if segmentSize, ok := e.pickVP9SegmentMapPartitionBlockSize(
+				miRows, miCols, miRow, miCol, root, key.img, nil); ok {
+				return segmentSize
+			}
+		}
 		if varianceSize, ok := e.pickVP9KeyframeVariancePartitionBlockSize(key,
 			miRows, miCols, miRow, miCol, root); ok {
 			return varianceSize
@@ -3177,7 +3184,7 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	}
 	if vp9ModeTreeUsesInterSegmentMap(kind) && e.vp9DynamicSegmentMapActive() {
 		if activeMapSize, ok := e.pickVP9SegmentMapPartitionBlockSize(
-			miRows, miCols, miRow, miCol, root, inter); ok {
+			miRows, miCols, miRow, miCol, root, nil, inter); ok {
 			return activeMapSize
 		}
 	}
@@ -3189,7 +3196,7 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 }
 
 func (e *VP9Encoder) pickVP9SegmentMapPartitionBlockSize(miRows, miCols, miRow, miCol int,
-	root common.BlockSize, inter *vp9InterEncodeState,
+	root common.BlockSize, img *image.YCbCr, inter *vp9InterEncodeState,
 ) (common.BlockSize, bool) {
 	if e == nil || !e.vp9DynamicSegmentMapActive() || root <= common.Block8x8 {
 		return common.BlockInvalid, false
@@ -3209,10 +3216,10 @@ func (e *VP9Encoder) pickVP9SegmentMapPartitionBlockSize(miRows, miCols, miRow, 
 		return common.BlockInvalid, false
 	}
 	staticSegID := e.vp9StaticSegmentIDForMap()
-	segID := e.vp9PartitionSegmentID(miRow, miCol, staticSegID, inter)
+	segID := e.vp9PartitionSegmentID(miRow, miCol, staticSegID, img, inter)
 	for row := miRow; row < endRow; row++ {
 		for col := miCol; col < endCol; col++ {
-			if e.vp9PartitionSegmentID(row, col, staticSegID, inter) != segID {
+			if e.vp9PartitionSegmentID(row, col, staticSegID, img, inter) != segID {
 				return splitSize, true
 			}
 		}
@@ -3961,9 +3968,16 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	cur := baseMi
 	cur.SbType = bsize
 	cur.TxSize = clampVP9TxSizeForBlock(cur.TxSize, bsize)
+	useDynamicMap := vp9ModeTreeUsesInterSegmentMap(kind)
+	var segmentImg *image.YCbCr
+	if kind == vp9ModeTreeKeyframeSource && e.opts.AQMode == VP9AQVariance &&
+		key != nil {
+		useDynamicMap = true
+		segmentImg = key.img
+	}
 	cur.SegmentID, cur.SegIDPredicted = e.vp9EncoderBlockSegmentID(
 		seg, miRows, miCols, miRow, miCol, bsize,
-		vp9ModeTreeUsesInterSegmentMap(kind), inter)
+		useDynamicMap, segmentImg, inter)
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -4213,7 +4227,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 
 func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize, useDynamicMap bool,
-	inter *vp9InterEncodeState,
+	img *image.YCbCr, inter *vp9InterEncodeState,
 ) (uint8, uint8) {
 	if seg == nil || !seg.Enabled {
 		return 0, 0
@@ -4224,7 +4238,7 @@ func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams,
 	}
 	segID := e.vp9StaticSegmentIDForMap()
 	if useDynamicMap {
-		if dynamicID, ok := e.vp9DynamicSegmentID(miRow, miCol, inter); ok {
+		if dynamicID, ok := e.vp9DynamicSegmentID(miRow, miCol, img, inter); ok {
 			segID = dynamicID
 		}
 	}
@@ -4295,10 +4309,10 @@ func (e *VP9Encoder) vp9StaticSegmentIDForMap() uint8 {
 	return e.opts.Segmentation.SegmentID
 }
 
-func (e *VP9Encoder) vp9PartitionSegmentID(miRow int, miCol int, staticSegID uint8,
-	inter *vp9InterEncodeState,
+func (e *VP9Encoder) vp9PartitionSegmentID(miRow int, miCol int,
+	staticSegID uint8, img *image.YCbCr, inter *vp9InterEncodeState,
 ) uint8 {
-	segID, ok := e.vp9DynamicSegmentID(miRow, miCol, inter)
+	segID, ok := e.vp9DynamicSegmentID(miRow, miCol, img, inter)
 	if ok {
 		return segID
 	}
@@ -4306,10 +4320,13 @@ func (e *VP9Encoder) vp9PartitionSegmentID(miRow int, miCol int, staticSegID uin
 }
 
 func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
-	inter *vp9InterEncodeState,
+	img *image.YCbCr, inter *vp9InterEncodeState,
 ) (uint8, bool) {
 	if e == nil {
 		return 0, false
+	}
+	if img == nil && inter != nil {
+		img = inter.img
 	}
 	activeMapNeedsSegment := e.vp9ActiveMapInactiveNeedsSegment(inter, miRow, miCol)
 	if segID, ok := e.roi.segmentIDAt(miRow, miCol); ok {
@@ -4319,7 +4336,7 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 		return segID, true
 	}
 	if e.opts.AQMode == VP9AQVariance {
-		if segID, ok := e.vp9VarianceAQSegmentID(inter, miRow, miCol); ok {
+		if segID, ok := e.vp9VarianceAQSegmentID(img, miRow, miCol); ok {
 			if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
 				return vp9ActiveMapSegmentInactive, true
 			}
@@ -4352,13 +4369,13 @@ func (e *VP9Encoder) vp9ActiveMapInactiveNeedsSegment(inter *vp9InterEncodeState
 		miRow, miCol)
 }
 
-func (e *VP9Encoder) vp9VarianceAQSegmentID(inter *vp9InterEncodeState,
+func (e *VP9Encoder) vp9VarianceAQSegmentID(img *image.YCbCr,
 	miRow, miCol int,
 ) (uint8, bool) {
-	if inter == nil || inter.img == nil || miRow < 0 || miCol < 0 {
+	if img == nil || miRow < 0 || miCol < 0 {
 		return 0, false
 	}
-	src, stride, width, height := vp9EncoderSourcePlane(inter.img, 0)
+	src, stride, width, height := vp9EncoderSourcePlane(img, 0)
 	if len(src) == 0 || stride <= 0 {
 		return 0, false
 	}

@@ -1593,8 +1593,11 @@ func TestVP9EncoderVarianceAQEmitsSegmentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadUncompressedHeader key: %v", err)
 	}
-	if keyHeader.Seg.Enabled {
-		t.Fatal("keyframe segmentation enabled, want variance AQ to start on inter frames")
+	if !keyHeader.Seg.Enabled || !keyHeader.Seg.UpdateMap ||
+		!keyHeader.Seg.UpdateData {
+		t.Fatalf("keyframe variance AQ segmentation = enabled:%t updateMap:%t updateData:%t, want true/true/true",
+			keyHeader.Seg.Enabled, keyHeader.Seg.UpdateMap,
+			keyHeader.Seg.UpdateData)
 	}
 
 	var interBR vp9dec.BitReader
@@ -1604,9 +1607,15 @@ func TestVP9EncoderVarianceAQEmitsSegmentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadUncompressedHeader inter: %v", err)
 	}
-	seg := interHeader.Seg
+	if !interHeader.Seg.Enabled || !interHeader.Seg.UpdateMap ||
+		interHeader.Seg.AbsDelta {
+		t.Fatalf("variance AQ segmentation flags = enabled:%t updateMap:%t updateData:%t absDelta:%t, want true/true/any/false",
+			interHeader.Seg.Enabled, interHeader.Seg.UpdateMap,
+			interHeader.Seg.UpdateData, interHeader.Seg.AbsDelta)
+	}
+	seg := keyHeader.Seg
 	if !seg.Enabled || !seg.UpdateMap || !seg.UpdateData || seg.AbsDelta {
-		t.Fatalf("variance AQ segmentation flags = enabled:%t updateMap:%t updateData:%t absDelta:%t, want true/true/true/false",
+		t.Fatalf("key variance AQ segmentation flags = enabled:%t updateMap:%t updateData:%t absDelta:%t, want true/true/true/false",
 			seg.Enabled, seg.UpdateMap, seg.UpdateData, seg.AbsDelta)
 	}
 	if !vp9dec.SegFeatureActive(&seg, 0, vp9dec.SegLvlAltQ) ||
