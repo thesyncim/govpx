@@ -19,6 +19,15 @@ import (
 // entry cites the libvpx file:line that drives the divergence so a follow-up
 // port has a concrete starting point.
 //
+// Two equivalence classes are listed: the 6 baseline {dimBucket, framesBucket,
+// cpuBucket, kfPos, refPos, action1, ...} seeds and additional short-byte
+// regression corpus entries that resolve to the SAME materialised case via
+// the wrap-around cursor (vp9FuzzByteCursor.pick = byte % n in
+// vp9_oracle_fuzz_helpers_test.go:72-77). The cursor wraps for inputs shorter
+// than the 8 cells consumed by vp9OracleRuntimeFuzzCaseFromBytes, so short
+// regression seeds captured by sweeps land here next to their canonical
+// 8-byte equivalent.
+//
 // The 6 baseline seeds populate (dimBucket, framesBucket, cpuBucket, kfPos,
 // refPos, action1, ...) from cpuPool {0, -3, -8, 4} — all four entries hit
 // libvpx speed-feature paths govpx ports only at cpu_used=8 today, and even
@@ -102,6 +111,25 @@ import (
 //     contradictory combination or a verbatim port of
 //     set_ext_overrides's resolution rules into govpx's flag validator.
 //
+// Short-byte regression-corpus seeds resolving to one of the above cases via
+// vp9FuzzByteCursor wrap-around:
+//
+//   - {0x30} (single ASCII '0', from testdata/fuzz/
+//     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
+//     582528dd captured in commit 0fba532) — vp9FuzzByteCursor returns
+//     48%n for every pick(), so every cell evaluates to 0 and the case
+//     materialises identically to baseline seed #0
+//     {0,0,0,0,0,0,0,0}: w=64 h=64 frames=4 cpu=0 flags=[0,0,0,0]. Frame 0
+//     KF still diverges at byte 9 (filter_level pick) for the cpu_used=0
+//     speed-features gap documented under seed #0 above
+//     (vp9_speed_features.c:140-280 set_good_speed_feature_framesize_*).
+//     Current observed delta as of this defer-list update:
+//     got_len=3725 want_len=2726 first_diff=9 (improved from the original
+//     sweep capture of got_len=3973 want_len=2726 after the Phase C
+//     choose_partitioning / ML / interp-filter ports, but the cpu_used=0
+//     speed-features cascade is still the root cause). Same handoff as
+//     seed #0; do NOT close this entry until #0 closes.
+//
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{
@@ -111,6 +139,8 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{1, 1, 2, 0, 3, 1, 1, 0},
 	{0, 2, 0, 2, 0, 0, 0, 0},
 	{1, 2, 1, 0, 4, 1, 0, 1},
+	// Short-byte regression-corpus aliases of the above (see comment).
+	{0x30}, // regression_vp9_runtime_controls_582528dd — alias of #0
 }
 
 func vp9RuntimeControlsSeedDeferred(data []byte) bool {
