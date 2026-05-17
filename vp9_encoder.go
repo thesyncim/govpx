@@ -2649,6 +2649,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			compoundRefs:    compoundRefs,
 			interpFilter:    header.InterpFilter,
 			lossless:        header.Quant.Lossless,
+			baseQindex:      int(header.Quant.BaseQindex),
 		}
 	}
 	e.vp9ReuseStableSegmentationState(&seg, isKey || intraOnly, miRows, miCols,
@@ -5020,6 +5021,12 @@ type vp9InterEncodeState struct {
 	interpFilter    vp9dec.InterpFilter
 	lossless        bool
 	counts          *encoder.FrameCounts
+	// baseQindex mirrors libvpx's cm->base_qindex for the current frame.
+	// Used by vp9ChoosePartitioning to drive set_vbp_thresholds without
+	// reverse-looking up from dq.Y[0][1] (which is wrong when
+	// segmentation is enabled and segment 0 has a non-zero delta_q).
+	// libvpx ref: vp9_encodeframe.c:1379 (set_vbp_thresholds caller).
+	baseQindex int
 }
 
 func vp9InterReferenceMode(inter *vp9InterEncodeState) vp9dec.ReferenceMode {
@@ -5850,7 +5857,13 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		args.FrameWidth = srcW
 		args.FrameHeight = srcH
 		args.IsKeyFrame = true
-		args.BaseQIndex = e.vp9ChoosePartitioningBaseQIndex(key.dq)
+		// libvpx feeds set_vbp_thresholds with cm->base_qindex
+		// (vp9_encodeframe.c:1379), not a per-segment dequant. Read it
+		// straight from the header so segmentation deltas on segment 0
+		// don't perturb the threshold derivation.
+		if key.hdr != nil {
+			args.BaseQIndex = int(key.hdr.Quant.BaseQindex)
+		}
 	case inter != nil && inter.img != nil && inter.dq != nil:
 		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
 		if len(src) == 0 || srcStride <= 0 {
@@ -5867,7 +5880,10 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		args.FrameWidth = srcW
 		args.FrameHeight = srcH
 		args.IsKeyFrame = false
-		args.BaseQIndex = e.vp9ChoosePartitioningBaseQIndex(inter.dq)
+		// libvpx feeds set_vbp_thresholds with cm->base_qindex
+		// (vp9_encodeframe.c:1379). See keyframe branch above for
+		// motivation.
+		args.BaseQIndex = inter.baseQindex
 		args.AvgFrameQIndexInter = int(e.rc.avgFrameQIndexInter)
 		// Inter predictor: zero-MV LAST reference plane (matches libvpx
 		// when vp9_int_pro_motion_estimation returns dummy_mv = {0,0}).
@@ -5896,42 +5912,43 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	return true
 }
 
-// vp9ChoosePartitioningBaseQIndex extracts the qindex driving the AC
-// dequant lookup vp9SetVBPThresholds uses. Mirrors libvpx's
-// cm->base_qindex (set_vbp_thresholds caller at vp9_encodeframe.c:1379).
-func (e *VP9Encoder) vp9ChoosePartitioningBaseQIndex(dq *vp9dec.DequantTables) int {
-	if dq == nil {
-		return 0
-	}
-	yAC := dq.Y[0][1]
-	// Reverse-lookup: find the qindex whose AcQLookup8 entry matches yAC.
-	// govpx callers populate dq from the same AcQLookup table so a direct
-	// search is byte-exact. Falls back to scanning the table.
-	for q := range 256 {
-		if vp9YDequantAC(q) == yAC {
-			return q
-		}
-	}
-	return 0
-}
-
-// vp9VarPartDecisionFor reads e.varPartGrid[miRow*miCols+miCol].SbType
-// and returns the partition decision for the call at (miRow, miCol,
-// bsize). Returns (BlockInvalid, false) when the picker chose to claim
-// at bsize (or larger). Returns (horzSize, true), (vertSize, true), or
-// (splitSize, true) when the picker decided to subdivide.
+// vp9VarPartDecisionFor reads xd->mi[(miRow*miCols+miCol)].sb_type and
+// returns the libvpx subsize the walker should consume. Verbatim port
+// of vp9/encoder/vp9_encodeframe.c:5007-5010 (nonrd_use_partition):
 //
-// The mapping:
-//   - picked >= bsize: claim at bsize (libvpx wrote bsize at this cell).
-//   - picked == horzSize: horizontal split.
-//   - picked == vertSize: vertical split.
-//   - picked < horzSize && picked < vertSize: full split (4 quadrants).
+//	if (mi_row >= cm->mi_rows || mi_col >= cm->mi_cols) return;
+//	subsize = (bsize >= BLOCK_8X8) ? mi[0]->sb_type : BLOCK_4X4;
+//	partition = partition_lookup[bsl][subsize];
 //
-// libvpx ref: vp9_encodeframe.c:nonrd_use_partition reads xd->mi[]->sb_type
-// at each cell to drive the recursive encode walk.
+// Returns (BlockInvalid, false) when partition_lookup yields
+// PARTITION_NONE (caller stays at bsize) or PARTITION_INVALID (defensive
+// fallback). Returns (subsize, true) for PARTITION_HORZ / VERT / SPLIT
+// — the walker re-derives PartitionType via PartitionLookup[bsl][target].
+//
+// libvpx ref: vp9_encodeframe.c:4993-5100 nonrd_use_partition.
 func (e *VP9Encoder) vp9VarPartDecisionFor(miCols, miRow, miCol int,
 	bsize common.BlockSize,
 ) (common.BlockSize, bool) {
+	// Verbatim port of vp9/encoder/vp9_encodeframe.c:5007-5010
+	// (nonrd_use_partition):
+	//
+	//   if (mi_row >= cm->mi_rows || mi_col >= cm->mi_cols) return;
+	//   subsize = (bsize >= BLOCK_8X8) ? mi[0]->sb_type : BLOCK_4X4;
+	//   partition = partition_lookup[bsl][subsize];
+	//
+	// The walker (writeVP9ModesSb) re-derives the PartitionType from
+	// PartitionLookup[bsl][target], so we return the libvpx `subsize`
+	// directly when partition != PARTITION_NONE.
+	//
+	// Critically, we MUST NOT treat picked==Block4x4 (enum 0) as
+	// "unstamped cell": that conflates a legitimate libvpx
+	// PARTITION_SPLIT leaf at bsize=BLOCK_8X8 with the zero-init grid
+	// sentinel. The varPartSBComputed flag (managed by
+	// vp9EnsureSBPartitionChosen) is the only valid stamped oracle, and
+	// the picker stamps the upper-left mi of every terminal block via
+	// set_block_size (vp9_encodeframe.c:340), so reads at the upper-left
+	// of the outer bsize always see a real stamp once the SB has been
+	// computed.
 	if len(e.varPartGrid) == 0 || !e.varPartFrameValid {
 		return common.BlockInvalid, false
 	}
@@ -5939,23 +5956,44 @@ func (e *VP9Encoder) vp9VarPartDecisionFor(miCols, miRow, miCol int,
 	if idx < 0 || idx >= len(e.varPartGrid) {
 		return common.BlockInvalid, false
 	}
-	picked := e.varPartGrid[idx].SbType
-	if picked == 0 || picked >= bsize {
-		// Picker claimed at bsize or larger — caller stays at bsize
-		// (no subdivision).
+	// libvpx: subsize = (bsize >= BLOCK_8X8) ? mi[0]->sb_type : BLOCK_4X4;
+	var subsize common.BlockSize
+	if bsize >= common.Block8x8 {
+		subsize = e.varPartGrid[idx].SbType
+	} else {
+		subsize = common.Block4x4
+	}
+	// Map outer bsize to PartitionLookup row: BLOCK_4X4..BLOCK_64X64 →
+	// row 0..4. b_width_log2_lookup gives the row index directly for the
+	// square outer sizes nonrd_use_partition is ever called with.
+	if bsize >= common.BlockSizes {
 		return common.BlockInvalid, false
 	}
-	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
-	if !ok {
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	if bsl < 0 || bsl >= len(common.PartitionLookup) {
 		return common.BlockInvalid, false
 	}
-	switch picked {
-	case horzSize:
-		return horzSize, true
-	case vertSize:
-		return vertSize, true
+	if subsize >= common.BlockSizes {
+		return common.BlockInvalid, false
+	}
+	// libvpx: partition = partition_lookup[bsl][subsize];
+	partition := common.PartitionLookup[bsl][subsize]
+	switch partition {
+	case common.PartitionNone:
+		// libvpx stamped bsize at this cell — encode the whole block as
+		// a single leaf. Return (bsize, true) so the caller commits to
+		// PARTITION_NONE (PartitionLookup[bsl][bsize] = PartitionNone);
+		// returning (BlockInvalid, false) here would let the dispatch
+		// fall through to a non-libvpx heuristic and diverge.
+		return bsize, true
+	case common.PartitionHorz, common.PartitionVert, common.PartitionSplit:
+		// Walker derives this partition back from
+		// PartitionLookup[bsl][subsize]; return subsize to feed that.
+		return subsize, true
 	default:
-		return splitSize, true
+		// PartitionInvalid: defensive fallback for an illegal subsize
+		// at this outer bsize.
+		return common.BlockInvalid, false
 	}
 }
 

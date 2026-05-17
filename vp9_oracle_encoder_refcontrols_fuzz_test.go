@@ -88,15 +88,41 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	[]byte("0"),
 	// regression_vp9_refctrl_916d1b27: captured by sweep (commit 5f2e7cb).
 	// Same residual divergence profile as regression_582528dd; inter-frame
-	// FirstPartitionSize literal differs by 30-100 bytes at byte 9 because
-	// govpx's simplified variance picker emits a different partition tree
-	// than libvpx's full choose_partitioning walk
-	// (vp9/encoder/vp9_encodeframe.c:1253-1640). The Phase C opt-in port
-	// (commit ed9c956 + downstream plumbing fixes) still produces a
-	// divergent partition tree under GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1;
-	// staying deferred until the Phase C wiring is byte-aligned with
-	// nonrd_use_partition's grid-read semantics.
+	// FirstPartitionSize literal differs by 30-100 bytes at byte 9.
 	[]byte("1"),
+	// Progress notes (this commit, task #84):
+	//
+	//  * vp9VarPartDecisionFor is now a verbatim port of
+	//    nonrd_use_partition (vp9_encodeframe.c:5007-5010): subsize =
+	//    (bsize >= BLOCK_8X8) ? mi[0]->sb_type : BLOCK_4X4, partition =
+	//    partition_lookup[bsl][subsize]. Critically the Block4x4==0
+	//    "unstamped cell" sentinel collision is removed; the SB-
+	//    computed flag is the only stamped oracle, matching libvpx's
+	//    persistent xd->mi[]->sb_type grid.
+	//
+	//  * cm->base_qindex is now threaded into vp9ChoosePartitioning from
+	//    header.Quant.BaseQindex (matches libvpx's set_vbp_thresholds
+	//    caller at vp9_encodeframe.c:1379). The previous reverse-lookup
+	//    from dq.Y[0][1] was wrong under segmentation when segment 0
+	//    had a non-zero delta_q.
+	//
+	// Residual divergence under GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1
+	// (frame 0 across all seeds, since the panning fixture's keyframe
+	// is identical): got_len=2847 want_len=3040 first_diff=17 (-193
+	// bytes — the keyframe now emits a coarser partition tree than
+	// libvpx). Pre-port baseline was got=3973 first_diff=16 (+933);
+	// the keyframe regression has closed by 1126 bytes but still
+	// diverges in producer-level decisions.
+	//
+	// Inter-frame deltas under the gate have narrowed but not closed:
+	// most seeds show 5-200 byte deltas at byte 9 (FirstPartitionSize
+	// literal). The producer (vp9ChoosePartitioning) doesn't yet wire
+	// the int_pro_motion_estimation predictor for low_res (lowRes =
+	// width<=352 && height<=288), so at this 64x64 fixture the picker
+	// sees a zero-MV LAST predictor where libvpx uses a motion-
+	// compensated predictor (vp9_encodeframe.c:1456-1458). That's the
+	// remaining producer-side gap; closing it requires the
+	// vp9_int_pro_motion_estimation port.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {

@@ -8,8 +8,9 @@ import (
 )
 
 // TestVP9VarPartDecisionForClaimAtBSize: when the picker stamped bsize
-// at (miRow, miCol), the decision read-back returns (BlockInvalid,
-// false) — i.e. the caller stays at bsize (no subdivision).
+// at (miRow, miCol), partition_lookup[bsl][bsize] == PartitionNone, so
+// the read-back commits to the leaf at bsize via (bsize, true). The
+// caller forwards `bsize` and writeVP9ModesSb emits PartitionNone.
 func TestVP9VarPartDecisionForClaimAtBSize(t *testing.T) {
 	const miRows, miCols = 8, 8
 	e := &VP9Encoder{}
@@ -18,8 +19,8 @@ func TestVP9VarPartDecisionForClaimAtBSize(t *testing.T) {
 	// Picker claimed Block32x32 at (0, 0).
 	e.varPartGrid[0].SbType = common.Block32x32
 	got, ok := e.vp9VarPartDecisionFor(miCols, 0, 0, common.Block32x32)
-	if ok || got != common.BlockInvalid {
-		t.Errorf("decision = (%v, %v), want (BlockInvalid, false)", got, ok)
+	if !ok || got != common.Block32x32 {
+		t.Errorf("decision = (%v, %v), want (Block32x32, true)", got, ok)
 	}
 }
 
