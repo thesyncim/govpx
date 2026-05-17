@@ -73,7 +73,7 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 		// Warm the encoder with one encode first so runtime controls hit
 		// the in-flight path rather than the cold-start branches.
 		if _, err := e.EncodeInto(dst, img, 0, 1, 0); err != nil {
-			assertVP8FuzzEncoderRuntimeError(t, err)
+			assertVP8FuzzRuntimeControlError(t, err)
 		}
 		const maxControls = 24
 		for i := range maxControls {
@@ -85,7 +85,7 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 				break
 			}
 			if _, err := e.EncodeInto(dst, img, uint64(i+1), 1, 0); err != nil {
-				assertVP8FuzzEncoderRuntimeError(t, err)
+				assertVP8FuzzRuntimeControlError(t, err)
 			}
 		}
 	})
@@ -205,14 +205,14 @@ func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *vp8FuzzByteReade
 		err = e.SetTemporalLayerID(int(r.next() % 5))
 	}
 	if err != nil {
-		assertVP8FuzzEncoderRuntimeError(t, err)
+		assertVP8FuzzRuntimeControlError(t, err)
 	}
 }
 
-// assertVP8FuzzEncoderRuntimeError pins the set of errors a runtime Set* call
+// assertVP8FuzzRuntimeControlError pins the set of errors a runtime Set* call
 // or a frame encode may return for arbitrary inputs. Anything else means
 // the encoder leaked an internal sentinel or panicked in disguise.
-func assertVP8FuzzEncoderRuntimeError(t *testing.T, err error) {
+func assertVP8FuzzRuntimeControlError(t *testing.T, err error) {
 	t.Helper()
 	switch {
 	case errors.Is(err, ErrInvalidConfig):
