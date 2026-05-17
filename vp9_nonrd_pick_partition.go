@@ -276,7 +276,7 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	speed := e.vp9SpeedFeatureCPUUsed()
 	ctx.sbMiRow = sbMiRow
 	ctx.sbMiCol = sbMiCol
-	ctx.baseQindex = e.vp9ChoosePartitioningBaseQIndex(inter.dq)
+	ctx.baseQindex = inter.baseQindex
 	ctx.speed = speed
 
 	// libvpx get_estimated_pred uses LAST_FRAME (with possible GOLDEN/ALTREF
