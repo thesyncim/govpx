@@ -631,3 +631,142 @@ func TestVP9LoopFilterChangesPSNR(t *testing.T) {
 			fromQ)
 	}
 }
+
+// TestVP9PickLpfPartialFrameRowsMatchesLibvpx asserts the row-range
+// helper matches libvpx vp9_loopfilter.c:1474-1481 exactly across the
+// guard band (mi_rows <= 8 → unrestricted) and several representative
+// mi_rows values.
+//
+// libvpx: vp9_loopfilter.c:1476
+//
+//	if (partial_frame && cm->mi_rows > 8) {
+//	  start_mi_row = cm->mi_rows >> 1;
+//	  start_mi_row &= 0xfffffff8;
+//	  mi_rows_to_filter = VPXMAX(cm->mi_rows / 8, 8);
+//	}
+func TestVP9PickLpfPartialFrameRowsMatchesLibvpx(t *testing.T) {
+	cases := []struct {
+		miRows             int
+		wantStart, wantEnd int
+	}{
+		// mi_rows <= 8 → guard band, unrestricted.
+		{1, 0, 1},
+		{8, 0, 8},
+		// mi_rows > 8 → partial band.
+		// libvpx: start = (mi_rows >> 1) & ~7, len = max(mi_rows/8, 8).
+		{16, 8, 16},   // start=(16>>1)&~7=8, len=max(2,8)=8 → end=16.
+		{32, 16, 24},  // start=(32>>1)&~7=16, len=max(4,8)=8 → end=24.
+		{64, 32, 40},  // start=(64>>1)&~7=32, len=max(8,8)=8 → end=40.
+		{80, 40, 50},  // start=(80>>1)&~7=40, len=max(10,8)=10 → end=50.
+		{96, 48, 60},  // start=(96>>1)&~7=48, len=max(12,8)=12 → end=60.
+		{128, 64, 80}, // start=(128>>1)&~7=64, len=max(16,8)=16 → end=80.
+	}
+	for _, tc := range cases {
+		gotStart, gotEnd := vp9PickLpfPartialFrameRows(tc.miRows)
+		if gotStart != tc.wantStart || gotEnd != tc.wantEnd {
+			t.Errorf("miRows=%d: got [%d,%d), want [%d,%d)",
+				tc.miRows, gotStart, gotEnd, tc.wantStart, tc.wantEnd)
+		}
+	}
+}
+
+// TestVP9SearchFilterLevelSubImageRunsPartialFrameCallback verifies
+// the dispatcher plumbs the partialFrame flag through to the sseFn.
+// The synthetic sseFn records whether it was invoked with partial=true
+// at least once; both LpfPickFromFullImage and LpfPickFromSubImage
+// invoke search_filter_level, but only the latter passes
+// partial_frame=1 (libvpx vp9_picklpf.c:201). The dispatcher must
+// forward that flag verbatim to try_filter_frame (libvpx vp9_picklpf.c
+// :46-76 — partial_frame is the 4th arg).
+func TestVP9SearchFilterLevelSubImageRunsPartialFrameCallback(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:  128,
+		Height: 128,
+		FPS:    30,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	e.vp9LastFiltLevel = 20
+
+	var sawPartialTrue, sawPartialFalse bool
+	sseFn := func(level int, partial bool) int64 {
+		if partial {
+			sawPartialTrue = true
+		} else {
+			sawPartialFalse = true
+		}
+		d := int64(level - 20)
+		return 1_000_000 + 4_000_000*d*d
+	}
+
+	// LpfPickFromFullImage → partial_frame=false through the dispatcher.
+	sawPartialTrue, sawPartialFalse = false, false
+	_ = e.vp9PickFilterLevel(LpfPickFromFullImage, 60 /*isKey=*/, true, false,
+		128, 128, common.TxModeSelect /*partialFrame=*/, false, sseFn)
+	if sawPartialTrue || !sawPartialFalse {
+		t.Fatalf("LpfPickFromFullImage: sawPartialTrue=%v sawPartialFalse=%v, want false/true",
+			sawPartialTrue, sawPartialFalse)
+	}
+
+	// LpfPickFromSubImage → caller passes partialFrame=true through.
+	sawPartialTrue, sawPartialFalse = false, false
+	_ = e.vp9PickFilterLevel(LpfPickFromSubImage, 60 /*isKey=*/, true, false,
+		128, 128, common.TxModeSelect /*partialFrame=*/, true, sseFn)
+	if !sawPartialTrue || sawPartialFalse {
+		t.Fatalf("LpfPickFromSubImage: sawPartialTrue=%v sawPartialFalse=%v, want true/false",
+			sawPartialTrue, sawPartialFalse)
+	}
+}
+
+// TestVP9LoopFilterSubImagePickerWiringAtSpeed0 asserts the production
+// wiring of the sub-image picker. When sf.LpfPick is overridden to
+// LpfPickFromSubImage post-construction, the post-tile encoder branch
+// must run the quadratic search with partial_frame=1 against the
+// reconstructed luma (libvpx vp9_picklpf.c:201: `method ==
+// LPF_PICK_FROM_SUBIMAGE`). The encoded header carries a valid 6-bit
+// FilterLevel; the search must complete without bitstream corruption.
+// Stock libvpx never selects SUBIMAGE through the speed-features
+// dispatcher (vp9_speed_features.c only emits FROM_FULL_IMAGE and
+// FROM_Q), so this test exercises the manual override path the C
+// public API surfaces via VP9E_SET_LPF_PICK.
+func TestVP9LoopFilterSubImagePickerWiringAtSpeed0(t *testing.T) {
+	const width, height = 128, 128
+	src := newVP9TexturedYCbCrForLpfPickerTest(width, height)
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		FPS:      30,
+		CpuUsed:  0,
+		Deadline: DeadlineGoodQuality,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	e.sf.LpfPick = LpfPickFromSubImage
+	dst := make([]byte, 65536)
+	n, err := e.EncodeInto(src, dst)
+	if err != nil {
+		t.Fatalf("EncodeInto: %v", err)
+	}
+	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	if hdr.Loopfilter.FilterLevel > vp9dec.MaxLoopFilter {
+		t.Fatalf("FilterLevel=%d, want in [0, %d]",
+			hdr.Loopfilter.FilterLevel, vp9dec.MaxLoopFilter)
+	}
+	// Decode round-trip — the stream must remain well-formed under the
+	// sub-image picker's partial-frame trials. The post-pick final
+	// filter pass runs on the full frame Y+U+V, so the encoded
+	// reconstruction matches a decoder's full-frame deblock.
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.Decode(dst[:n]); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("NextFrame returned !ok")
+	}
+}

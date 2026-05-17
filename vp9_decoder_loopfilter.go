@@ -116,7 +116,44 @@ func (d *VP9Decoder) applyVP9LoopFilterSerial(miRows, miCols int) bool {
 func (d *VP9Decoder) applyVP9LoopFilterPlane(miRows, miCols int,
 	plane vp9LoopFilterPlane,
 ) bool {
-	for miRow := 0; miRow < miRows; miRow += common.MiBlockSize {
+	return d.applyVP9LoopFilterPlaneRows(miRows, miCols, 0, miRows, plane)
+}
+
+// applyVP9LoopFilterPlaneRows runs the loop filter on a single plane
+// restricted to mi rows in [startMiRow, endMiRow). Mirrors libvpx
+// vp9_loop_filter_frame's row-range walk used by the partial-frame /
+// LPF_PICK_FROM_SUBIMAGE path (vp9_loopfilter.c:1469-1483
+// vp9_loop_filter_frame). When startMiRow == 0 and endMiRow == miRows
+// the range covers the whole frame, matching the unrestricted
+// applyVP9LoopFilterPlane path.
+//
+// libvpx: vp9_loopfilter.c:1469
+//
+//	void vp9_loop_filter_frame(YV12_BUFFER_CONFIG *frame, VP9_COMMON *cm,
+//	                           MACROBLOCKD *xd, int frame_filter_level, int y_only,
+//	                           int partial_frame) {
+//	  int start_mi_row, end_mi_row, mi_rows_to_filter;
+//	  if (!frame_filter_level) return;
+//	  start_mi_row = 0;
+//	  mi_rows_to_filter = cm->mi_rows;
+//	  if (partial_frame && cm->mi_rows > 8) {
+//	    start_mi_row = cm->mi_rows >> 1;
+//	    start_mi_row &= 0xfffffff8;
+//	    mi_rows_to_filter = VPXMAX(cm->mi_rows / 8, 8);
+//	  }
+//	  end_mi_row = start_mi_row + mi_rows_to_filter;
+//	  loop_filter_rows(frame, cm, xd->plane, start_mi_row, end_mi_row, y_only);
+//	}
+func (d *VP9Decoder) applyVP9LoopFilterPlaneRows(miRows, miCols int,
+	startMiRow, endMiRow int, plane vp9LoopFilterPlane,
+) bool {
+	if startMiRow < 0 {
+		startMiRow = 0
+	}
+	if endMiRow > miRows {
+		endMiRow = miRows
+	}
+	for miRow := startMiRow; miRow < endMiRow; miRow += common.MiBlockSize {
 		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
 			var lfm vp9LoopFilterMask
 			if !d.vp9SetupLoopFilterMask(miRows, miCols, miRow, miCol, &lfm) {
@@ -129,6 +166,32 @@ func (d *VP9Decoder) applyVP9LoopFilterPlane(miRows, miCols int,
 		}
 	}
 	return true
+}
+
+// vp9PickLpfPartialFrameRows returns the (startMiRow, endMiRow) range
+// for LPF_PICK_FROM_SUBIMAGE partial-frame filtering. Verbatim port of
+// libvpx vp9_loopfilter.c:1474-1481 (the partial_frame branch of
+// vp9_loop_filter_frame) — start at mi_rows/2 aligned down to an
+// 8-mi boundary, filter max(mi_rows/8, 8) rows. The guard
+// `mi_rows > 8` keeps very small frames unrestricted (libvpx
+// vp9_loopfilter.c:1476).
+//
+// libvpx: vp9_loopfilter.c:1476
+//
+//	if (partial_frame && cm->mi_rows > 8) {
+//	  start_mi_row = cm->mi_rows >> 1;
+//	  start_mi_row &= 0xfffffff8;
+//	  mi_rows_to_filter = VPXMAX(cm->mi_rows / 8, 8);
+//	}
+//	end_mi_row = start_mi_row + mi_rows_to_filter;
+func vp9PickLpfPartialFrameRows(miRows int) (startMiRow, endMiRow int) {
+	if miRows <= 8 {
+		return 0, miRows
+	}
+	startMiRow = (miRows >> 1) & ^7
+	miRowsToFilter := max(miRows/8, 8)
+	endMiRow = min(startMiRow+miRowsToFilter, miRows)
+	return startMiRow, endMiRow
 }
 
 func (d *VP9Decoder) vp9SetupLoopFilterMask(miRows, miCols, miRow, miCol int,
