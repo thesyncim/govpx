@@ -105,25 +105,51 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//    (3040 bytes), closing the prior -193 byte residual at
 	//    first_diff=17.
 	//
+	// Progress notes (task #95, this commit):
+	//
+	//  * YV12 border substrate landed in vp9_yv12_border.go: verbatim
+	//    port of libvpx's extend_plane + vpx_extend_frame_borders
+	//    (vpx_scale/generic/yv12extend.c:22-60 + 130-171).
+	//  * Per-encoder lastBordered lifecycle wired into the end-of-frame
+	//    refreshVP9EncoderRefs hook (vp9_encoder.go: ensureLastBordered)
+	//    so the next frame's choose_partitioning sees a 160-pixel
+	//    border around the LAST_FRAME luma plane.
+	//  * vp9_int_pro_motion_estimation + vp9_build_inter_predictors_sb
+	//    wiring landed inside vp9EnsureSBPartitionChosen's inter branch
+	//    (low_res = width<=352 && height<=288 — matches libvpx
+	//    vp9_encodeframe.c:1311 + 1450-1497). Driven via
+	//    vp9GetEstimatedPred which dispatches to
+	//    vp9BuildEstimatedPredLuma64x64 for the 64x64 luma BILINEAR
+	//    convolve (libvpx vp9_reconinter.c:253-258).
+	//  * vp9CBRVariancePartitionEnabled +
+	//    vp9CBRKeyframeVariancePartitionEnabled now bypass the
+	//    public-Q veto when GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1, so
+	//    the libvpx VAR_BASED_PARTITION dispatch fires on Q-mode too
+	//    (matches libvpx's rc-mode-agnostic dispatch at
+	//    vp9_encodeframe.c:5304-5311).
+	//
 	// Residual divergence (inter frames only) under
 	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1: 100-900 byte deltas at
-	// bytes 4/8/9 across frames 1-7. This residual is NOT in the
-	// verbatim choose_partitioning port — for the Q-mode
-	// (RateControlQ) fuzz fixture vp9CBRVariancePartitionEnabled
-	// returns false (via vp9FixedPublicQuantizer), so the inter
-	// picker bypasses vp9EnsureSBPartitionChosen entirely and
-	// threads through the legacy
-	// pickVP9CBRVariancePartitionBlockSize variance pre-check.
-	// Closing the inter residual requires (a) widening the inter
-	// gate to fire on Q-mode (matches libvpx's rc-mode-agnostic
-	// VAR_BASED_PARTITION dispatch at vp9_encodeframe.c:5304-5311),
-	// and (b) porting the low_res int_pro motion search through a
-	// per-encoder border-padded LAST plane (libvpx
-	// vp9_encodeframe.c:1455-1497, requires
-	// VP9_ENC_BORDER_IN_PIXELS = 32 of padding around the visible
-	// plane for the integral-projection 1-D search at refOff -
-	// (bw>>1)). The keyframe path is now byte-exact and serves as
-	// the substrate for the inter-frame widening follow-up.
+	// bytes 4/8/9 across frames 1-7. The int_pro wiring is in place
+	// and exercised through the VAR_BASED_PARTITION dispatch — but at
+	// the fuzz fixture's CpuUsed=8 with width*height <= 352*288
+	// libvpx's speed-feature configurator overrides
+	// sf->partition_search_type to ML_BASED_PARTITION
+	// (vp9_speed_features.c:825-826) for inter frames, so
+	// vp9EnsureSBPartitionChosen's inter branch is never reached at
+	// this fixture — the ML picker (vp9MLPickPartitionEntry at
+	// vp9_nonrd_pick_partition.go:240+) handles the inter SBs instead.
+	// The ML picker already runs vp9_int_pro_motion via its own
+	// 64-pixel padded-plane substrate (vp9PaddedLastFrameBuffer).
+	//
+	// Closing the inter residual now requires either (a) porting the
+	// ML picker's NN-driven partition-split decisions byte-exactly
+	// (vp9_encodeframe.c:4530-4596 + the per-resolution NN config in
+	// vp9_partition_models.h) so the inter partition tree matches
+	// libvpx's ml_predict_var_partitioning, or (b) lowering the
+	// CpuUsed in the test fixture below 8 (e.g., to 6) so the
+	// dispatch falls back to VAR_BASED_PARTITION and the int_pro
+	// wiring landed here fires.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
