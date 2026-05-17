@@ -349,6 +349,17 @@ type VP9EncoderOptions struct {
 	// TwoPassMaxPct sets the VP9 second-pass maximum section bitrate
 	// percentage. Zero uses libvpx's VP9 default.
 	TwoPassMaxPct int
+	// VBRCorpusComplexity enables libvpx VP9 corpus-VBR rate planning when
+	// non-zero. The value is the global mean modified-score numerator (the
+	// libvpx field is scaled by 1/10 so a value of 50 means mean_mod_score
+	// = 5.0). Valid range is [0, 10000]; zero disables corpus VBR and
+	// libvpx falls back to per-clip mean-mod-score derivation.
+	//
+	// libvpx: vpx/vpx_encoder.h:597 rc_2pass_vbr_corpus_complexity,
+	//         vp9/vp9_cx_iface.c:206 (range check 0..10000),
+	//         vp9/vp9_cx_iface.c:582 (oxcf->vbr_corpus_complexity wire-up),
+	//         vp9/encoder/vp9_encoder.h:225 (oxcf field).
+	VBRCorpusComplexity int
 
 	// MinBitrateKbps and MaxBitrateKbps optionally bound runtime bitrate
 	// updates. Zero disables the bound. Mirrors libvpx's
@@ -1001,9 +1012,9 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		svc:           vp9SVCDefault(),
 		refFrameFlags: vp9AllRefFlags,
 	}
-	e.twoPass.configure(opts.TwoPassStats, rc.bitsPerFrame,
+	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,
 		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,
-		opts.Height)
+		opts.Height, opts.VBRCorpusComplexity)
 	e.initVP9Lookahead(opts.Width, opts.Height, opts.LookaheadFrames)
 	// libvpx initializes rc->gfu_boost to DEFAULT_GF_BOOST (2000) outside
 	// the two-pass path so adjust_arnr_filter's adaptive strength/window

@@ -59,9 +59,12 @@ package govpx
 //   input but the encoder always passes 0 because find_next_key_frame
 //   isn't yet ported.
 //
-//   TODO: vbr_corpus_complexity branch in allocate_gf_group_bits.
-//   libvpx: vp9/encoder/vp9_firstpass.c:2503. No public toggle to
-//   exercise this in govpx today.
+//   PORTED: vbr_corpus_complexity consumer.
+//   libvpx: vp9/encoder/vp9_firstpass.c:1647-1682 (init_second_pass
+//   corpus branch), :2503-2516 (allocate_gf_group_bits corpus branch),
+//   vp9/encoder/vp9_ratectrl.c:2734 (vp9_set_target_rate skip), and
+//   vp9/encoder/vp9_speed_features.c:321-324 (recode-loop fork). The
+//   govpx surface is VP9EncoderOptions.VBRCorpusComplexity.
 //
 // Pass-1 stats schema parity: VP9FirstPassFrameStats fields are
 // byte-aligned with FIRSTPASS_STATS (vp9_firstpass_stats.h:20). The
@@ -130,11 +133,16 @@ type vp9TwoPassState struct {
 	// vbrBitsOffTarget tracks the cumulative drift between assigned per-frame
 	// targets and actual encoded bits, mirroring rc->vbr_bits_off_target.
 	// libvpx: vp9/encoder/vp9_ratectrl.c rc->vbr_bits_off_target
-	vbrBitsOffTarget  int64
-	vbrBiasPct        int
-	minPct            int
-	maxPct            int
-	minFrameBandwidth int
+	vbrBitsOffTarget int64
+	vbrBiasPct       int
+	minPct           int
+	maxPct           int
+	// vbrCorpusComplexity mirrors oxcf->vbr_corpus_complexity. When
+	// non-zero, twopass init forces mean_mod_score = value/10.0 and
+	// scales the clip target bandwidth by normalized_score_left/count.
+	// libvpx: vp9/encoder/vp9_firstpass.c:1647-1682.
+	vbrCorpusComplexity int
+	minFrameBandwidth   int
 	// avgFrameBandwidth is the libvpx rc->avg_frame_bandwidth value used to
 	// derive max_frame_bandwidth and vbr_max_bits clamps.
 	// libvpx: vp9/encoder/vp9_ratectrl.c:2655
@@ -145,6 +153,11 @@ type vp9TwoPassState struct {
 func validateVP9TwoPassOptions(opts VP9EncoderOptions) error {
 	if opts.TwoPassVBRBiasPct < 0 || opts.TwoPassMinPct < 0 ||
 		opts.TwoPassMaxPct < 0 {
+		return ErrInvalidConfig
+	}
+	// libvpx: vp9/vp9_cx_iface.c:206 RANGE_CHECK(cfg,
+	// rc_2pass_vbr_corpus_complexity, 0, 10000).
+	if opts.VBRCorpusComplexity < 0 || opts.VBRCorpusComplexity > 10000 {
 		return ErrInvalidConfig
 	}
 	if len(opts.TwoPassStats) == 0 {
@@ -271,11 +284,27 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
 		Stats:                    e.twoPass.stats,
 		GFStartShowIdx:           startShowIdx,
 		BoostParams:              VP9DefaultARFBoostParams(mbRows),
+		VBRCorpusComplexity:      e.opts.VBRCorpusComplexity,
+		TwoPassVBRBiasPct:        e.twoPass.vbrBiasPct,
+		TwoPassVBRMinSection:     e.twoPass.minPct,
+		TwoPassVBRMaxSection:     e.twoPass.maxPct,
 	}
 }
 
 func (t *vp9TwoPassState) configure(stats []VP9FirstPassFrameStats, bitsPerFrame int,
 	biasPct int, minPct int, maxPct int, height int,
+) {
+	t.configureWithCorpus(stats, bitsPerFrame, biasPct, minPct, maxPct, height, 0)
+}
+
+// configureWithCorpus mirrors libvpx vp9_init_second_pass with the
+// vbr_corpus_complexity branch in vp9_firstpass.c:1647-1682 enabled when
+// vbrCorpusComplexity != 0.
+//
+// libvpx: vp9/encoder/vp9_firstpass.c:1621 vp9_init_second_pass.
+func (t *vp9TwoPassState) configureWithCorpus(stats []VP9FirstPassFrameStats,
+	bitsPerFrame int, biasPct int, minPct int, maxPct int, height int,
+	vbrCorpusComplexity int,
 ) {
 	*t = vp9TwoPassState{}
 	if len(stats) == 0 || bitsPerFrame <= 0 {
@@ -294,6 +323,7 @@ func (t *vp9TwoPassState) configure(stats []VP9FirstPassFrameStats, bitsPerFrame
 	if t.maxPct <= 0 {
 		t.maxPct = vp9DefaultVBRMaxSectionPct
 	}
+	t.vbrCorpusComplexity = vbrCorpusComplexity
 	t.minFrameBandwidth = vbrMinFrameBandwidthBits(bitsPerFrame, t.minPct)
 	t.avgFrameBandwidth = bitsPerFrame
 	// libvpx: vp9/encoder/vp9_firstpass.c:1702 — bits_left =
@@ -308,14 +338,24 @@ func (t *vp9TwoPassState) configure(stats []VP9FirstPassFrameStats, bitsPerFrame
 		t.mbRows = 1
 	}
 
-	// libvpx: vp9/encoder/vp9_firstpass.c:1642 — two-scan mean_mod_score
-	// followed by normalized_score_left under the clamped scoring.
-	avErr := t.distributionAverageError()
-	rawTotal := 0.0
-	for i := range t.stats {
-		rawTotal += t.modifiedFrameScore(t.stats[i], avErr)
+	// libvpx: vp9/encoder/vp9_firstpass.c:1642-1662 — when
+	// oxcf->vbr_corpus_complexity is non-zero, mean_mod_score is forced
+	// to vbr_corpus_complexity/10.0 first and then av_err is recomputed
+	// via get_distribution_av_err which switches to the corpus-weighted
+	// branch (`av_weight * mean_mod_score`). The raw mod-score scan is
+	// skipped on this branch; otherwise the per-clip raw scan derives
+	// mean_mod_score using the non-corpus av_err.
+	if t.vbrCorpusComplexity != 0 {
+		t.meanModScore = float64(t.vbrCorpusComplexity) / 10.0
 	}
-	t.meanModScore = rawTotal / nonZeroFloat(t.totalStats.Count)
+	avErr := t.distributionAverageError()
+	if t.vbrCorpusComplexity == 0 {
+		rawTotal := 0.0
+		for i := range t.stats {
+			rawTotal += t.modifiedFrameScore(t.stats[i], avErr)
+		}
+		t.meanModScore = rawTotal / nonZeroFloat(t.totalStats.Count)
+	}
 	if t.meanModScore <= 0 {
 		t.meanModScore = 1
 	}
@@ -324,6 +364,19 @@ func (t *vp9TwoPassState) configure(stats []VP9FirstPassFrameStats, bitsPerFrame
 	}
 	if t.normalizedScoreLeft <= 0 {
 		t.normalizedScoreLeft = float64(len(t.stats))
+	}
+
+	// libvpx vp9_firstpass.c:1678-1682 — when corpus VBR is enabled the
+	// effective clip target bandwidth is scaled by the clip's overall
+	// complexity score relative to the corpus mean. bits_left is the
+	// encoder-visible budget for the remainder of the clip, so scale it
+	// here so frameTargetBits picks up the corpus-relative budget on the
+	// first call.
+	if t.vbrCorpusComplexity != 0 && t.totalStats.Count > 0 {
+		scale := t.normalizedScoreLeft / t.totalStats.Count
+		if scale > 0 {
+			t.bitsLeft = int64(float64(t.bitsLeft) * scale)
+		}
 	}
 }
 
@@ -402,8 +455,16 @@ func (t *vp9TwoPassState) frameTargetBits(defaultTargetBits int) int {
 	// running vbr_bits_off_target feedback so cumulative over/undershoot
 	// is bled back into subsequent frame targets over a 16-frame window
 	// (capped to VBR_PCT_ADJUSTMENT_LIMIT% of the current target).
+	//
+	// libvpx vp9_ratectrl.c:2734 — vp9_set_target_rate skips
+	// vbr_rate_correction when oxcf->vbr_corpus_complexity is non-zero
+	// (corpus VBR relies on its own pre-scan budget scaling and does
+	// not apply the per-frame drift feedback loop).
 	t.baseFrameTarget = int(target)
-	target = min(max(t.applyVBRRateCorrection(target), int64(vp9FrameOverhead)), int64(maxInt()))
+	if t.vbrCorpusComplexity == 0 {
+		target = t.applyVBRRateCorrection(target)
+	}
+	target = min(max(target, int64(vp9FrameOverhead)), int64(maxInt()))
 	t.currentTargetBits = int(target)
 	return t.currentTargetBits
 }
@@ -488,10 +549,20 @@ func (t *vp9TwoPassState) distributionAverageError() float64 {
 	if t.totalStats.Count <= 0 {
 		return 1
 	}
-	// libvpx: vp9/encoder/vp9_firstpass.c:251 get_distribution_av_err.
+	// libvpx: vp9/encoder/vp9_firstpass.c:251-260 get_distribution_av_err.
+	// The corpus-VBR branch returns `av_weight * twopass->mean_mod_score`
+	// (vp9_firstpass.c:255-256); the default branch returns
+	// `(total_stats.coded_error * av_weight) / total_stats.count`.
 	avgWeight := t.totalStats.Weight / t.totalStats.Count
 	if avgWeight <= 0 {
 		avgWeight = 1
+	}
+	if t.vbrCorpusComplexity != 0 {
+		avErr := avgWeight * t.meanModScore
+		if avErr <= 0 {
+			return 1
+		}
+		return avErr
 	}
 	avErr := (t.totalStats.CodedError * avgWeight) / t.totalStats.Count
 	if avErr <= 0 {

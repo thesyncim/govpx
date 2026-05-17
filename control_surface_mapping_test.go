@@ -303,6 +303,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"TwoPassMinPct":               {kind: "libvpx-two-pass"},
 		"TwoPassStats":                {kind: "libvpx-two-pass"},
 		"TwoPassVBRBiasPct":           {kind: "libvpx-two-pass"},
+		"VBRCorpusComplexity":         {kind: "libvpx-two-pass"},
 		"Width":                       {kind: "libvpx-config-dimensions"},
 	}
 	assertOptionFieldMappings(t, "VP9EncoderOptions", fields, want)

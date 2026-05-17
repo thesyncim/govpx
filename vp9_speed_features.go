@@ -1304,11 +1304,15 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 		// libvpx: vp9_speed_features.c:319-356.
 		sf.RdMlPartition.VarPruning = 0
 		// libvpx: vp9_speed_features.c:321-324 — oxcf->vbr_corpus_complexity
-		// fork. govpx does not surface VBR corpus complexity yet; default to
-		// ALLOW_RECODE_KFARFGF (the non-corpus libvpx path).
-		// TODO: consumer requires oxcf->vbr_corpus_complexity. libvpx:
-		// vp9_speed_features.c:321-324.
-		sf.RecodeLoop = RecodeLoopAllowKfArfGf
+		// fork. When corpus VBR is active, libvpx widens the recode loop to
+		// ALLOW_RECODE_FIRST (loop after the first encode attempt) so the
+		// per-frame Q can hit the corpus-relative target; otherwise the
+		// non-corpus path uses ALLOW_RECODE_KFARFGF.
+		if e.opts.VBRCorpusComplexity != 0 {
+			sf.RecodeLoop = RecodeLoopAllowFirst
+		} else {
+			sf.RecodeLoop = RecodeLoopAllowKfArfGf
+		}
 
 		if vp9FrameIsKfGfArf(ctx) {
 			sf.TxSizeSearchMethod = UseFullRD

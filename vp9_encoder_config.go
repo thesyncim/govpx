@@ -192,9 +192,9 @@ func (e *VP9Encoder) SetBitrateKbps(kbps int) error {
 	e.temporal = nextTemporal
 	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 	e.opts.TemporalScalability = nextTemporal.config
-	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame,
+	e.twoPass.configureWithCorpus(e.opts.TwoPassStats, e.rc.bitsPerFrame,
 		e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct,
-		e.opts.TwoPassMaxPct, e.opts.Height)
+		e.opts.TwoPassMaxPct, e.opts.Height, e.opts.VBRCorpusComplexity)
 	return nil
 }
 
@@ -220,9 +220,9 @@ func (e *VP9Encoder) SetRateControl(cfg RateControlConfig) error {
 		return err
 	}
 	var nextTwoPass vp9TwoPassState
-	nextTwoPass.configure(nextOpts.TwoPassStats, nextRC.bitsPerFrame,
+	nextTwoPass.configureWithCorpus(nextOpts.TwoPassStats, nextRC.bitsPerFrame,
 		nextOpts.TwoPassVBRBiasPct, nextOpts.TwoPassMinPct,
-		nextOpts.TwoPassMaxPct, nextOpts.Height)
+		nextOpts.TwoPassMaxPct, nextOpts.Height, nextOpts.VBRCorpusComplexity)
 	nextOpts.TemporalScalability = nextTemporal.config
 	e.opts = nextOpts
 	e.rc = nextRC
@@ -904,8 +904,9 @@ func (e *VP9Encoder) SetTwoPassStats(stats []VP9FirstPassFrameStats) error {
 		return ErrInvalidConfig
 	}
 	e.opts.TwoPassStats = stats
-	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct,
-		e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct, e.opts.Height)
+	e.twoPass.configureWithCorpus(stats, e.rc.bitsPerFrame,
+		e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct,
+		e.opts.TwoPassMaxPct, e.opts.Height, e.opts.VBRCorpusComplexity)
 	return nil
 }
 

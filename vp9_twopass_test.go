@@ -329,6 +329,231 @@ func TestVP9TwoPassMinFrameFloorMatchesLibvpx(t *testing.T) {
 	}
 }
 
+// TestVP9TwoPassCorpusVBRPinned pins the libvpx corpus-VBR consumer math
+// against hand-computed expected values. The libvpx reference is
+// vp9/encoder/vp9_firstpass.c:1647-1682 (vp9_init_second_pass corpus branch)
+// + vp9/encoder/vp9_ratectrl.c:2734 (skip vbr_rate_correction when corpus is
+// enabled).
+//
+// All four rows have coded_error = 100, weight = 1, active_area = 1 (no
+// intra-skip / inactive-zone), so each row's modified_score is the same.
+//
+// Hand-computed steps for vbrCorpusComplexity != 0:
+//
+//	av_weight        = total.weight / total.count = 4 / 4 = 1.0
+//	mean_mod_score   = vbrCorpusComplexity / 10.0           // corpus forced
+//	av_err           = av_weight * mean_mod_score           // get_distribution_av_err
+//	modified_score_i = av_err * pow(coded_err / av_err, bias/100)
+//	                 * pow(active_area, ACT_AREA_CORRECTION)
+//	normalized_i     = clamp(modified_score_i / mean_mod_score,
+//	                          min_pct/100, max_pct/100)
+//	bits_left        = bitsPerFrame * Nframes * (sum(normalized_i) / count)
+//	frame_target     = bits_left * normalized_i / sum(normalized_i)
+//	                 = bitsPerFrame * normalized_i
+//
+// With default bias=50, default min=0, default max=2000, identical rows:
+//   - For coded_err = av_err: pow(1, 0.5) = 1, modified_score = av_err,
+//     normalized = av_err / mean_mod_score = av_weight = 1.0.
+//     Plug in: bits_left = 1000*4*1 = 4000, frame_target = 1000.
+//   - For coded_err = 100 vs mean_mod_score = 10 (cc=100):
+//     av_err = 10, modified_score = 10 * sqrt(100/10) = 10 * sqrt(10),
+//     normalized = (10*sqrt(10)) / 10 = sqrt(10) ≈ 3.16227766.
+//     bits_left = 1000*4*3.16227766 ≈ 12649.11, frame_target = bitsLeft *
+//     score / total_score = 12649.11 / 4 = 3162.27 → int(3162).
+func TestVP9TwoPassCorpusVBRPinned(t *testing.T) {
+	// 4 frames, each with coded_error=100, weight=1, no intra-skip.
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	const bitsPerFrame = 1000
+	const height = 64
+
+	tests := []struct {
+		name                    string
+		vbrCorpusComplexity     int
+		wantMeanModScore        float64
+		wantNormalizedScoreLeft float64
+		wantBitsLeft            int64
+		wantFrameTarget         int
+	}{
+		{
+			// Corpus disabled — the per-clip raw scan derives
+			// mean_mod_score and bits_left stays at bitsPerFrame * N.
+			// modified_score = av_err * sqrt(coded_err / av_err) =
+			//   100 * sqrt(1) = 100. mean_mod_score = 100, normalized = 1.0.
+			// bits_left = 1000 * 4 = 4000, frame_target = 1000.
+			name:                    "disabled",
+			vbrCorpusComplexity:     0,
+			wantMeanModScore:        100.0,
+			wantNormalizedScoreLeft: 4.0,
+			wantBitsLeft:            4000,
+			wantFrameTarget:         1000,
+		},
+		{
+			// Corpus matches per-clip complexity (mean_mod_score=10).
+			// av_err = 10. modified_score = 10 * sqrt(100/10) = 10*sqrt(10).
+			// normalized = sqrt(10) ≈ 3.16227766. scale = 3.16227766.
+			// bits_left = 4000 * 3.16227766 ≈ 12649, frame_target ≈ 3162.
+			name:                    "complexity_100",
+			vbrCorpusComplexity:     100,
+			wantMeanModScore:        10.0,
+			wantNormalizedScoreLeft: 4.0 * math.Sqrt(10),
+			wantBitsLeft:            int64(4000 * math.Sqrt(10)),
+			wantFrameTarget:         int(1000 * math.Sqrt(10)),
+		},
+		{
+			// Corpus is 10x the per-clip complexity (mean_mod_score=100).
+			// av_err = 100. modified_score = 100 * sqrt(100/100) = 100.
+			// normalized = 1.0. scale = 1.0. bits_left = 4000.
+			// frame_target = 1000.
+			name:                    "complexity_1000",
+			vbrCorpusComplexity:     1000,
+			wantMeanModScore:        100.0,
+			wantNormalizedScoreLeft: 4.0,
+			wantBitsLeft:            4000,
+			wantFrameTarget:         1000,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var ts vp9TwoPassState
+			ts.configureWithCorpus(stats, bitsPerFrame, 50, 0, 0, height,
+				tc.vbrCorpusComplexity)
+			if got := ts.vbrCorpusComplexity; got != tc.vbrCorpusComplexity {
+				t.Errorf("vbrCorpusComplexity = %d, want %d",
+					got, tc.vbrCorpusComplexity)
+			}
+			if !floatNear(ts.meanModScore, tc.wantMeanModScore, 1e-9) {
+				t.Errorf("meanModScore = %v, want %v",
+					ts.meanModScore, tc.wantMeanModScore)
+			}
+			if !floatNear(ts.normalizedScoreLeft, tc.wantNormalizedScoreLeft, 1e-9) {
+				t.Errorf("normalizedScoreLeft = %v, want %v",
+					ts.normalizedScoreLeft, tc.wantNormalizedScoreLeft)
+			}
+			if ts.bitsLeft != tc.wantBitsLeft {
+				t.Errorf("bitsLeft = %d, want %d",
+					ts.bitsLeft, tc.wantBitsLeft)
+			}
+			target := ts.frameTargetBits(bitsPerFrame)
+			if target != tc.wantFrameTarget {
+				t.Errorf("frameTargetBits = %d, want %d (libvpx-pinned)",
+					target, tc.wantFrameTarget)
+			}
+		})
+	}
+}
+
+// TestVP9TwoPassCorpusVBRSkipsRateCorrection pins the libvpx invariant from
+// vp9/encoder/vp9_ratectrl.c:2734: vp9_set_target_rate skips
+// vbr_rate_correction when oxcf->vbr_corpus_complexity is non-zero. Even a
+// large simulated overshoot/undershoot must not perturb the next per-frame
+// target.
+func TestVP9TwoPassCorpusVBRSkipsRateCorrection(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	var ts vp9TwoPassState
+	ts.configureWithCorpus(stats, 1000, 50, 0, 0, 64, 100)
+
+	baseline := ts.frameTargetBits(1000)
+	if baseline <= 0 {
+		t.Fatalf("baseline = %d, want positive", baseline)
+	}
+	// A 4x overshoot would normally make vbr_rate_correction shrink the
+	// next target. With corpus VBR, libvpx skips that correction.
+	overshoot := 4 * ts.baseFrameTarget
+	ts.finishFrameWithActual(overshoot)
+	next := ts.frameTargetBits(1000)
+	if next != baseline {
+		t.Errorf("after overshoot, next = %d want %d (vbr_rate_correction must be skipped)",
+			next, baseline)
+	}
+}
+
+// TestVP9TwoPassCorpusVBRValidatesRange pins the libvpx range check from
+// vp9/vp9_cx_iface.c:206 RANGE_CHECK(cfg, rc_2pass_vbr_corpus_complexity,
+// 0, 10000).
+func TestVP9TwoPassCorpusVBRValidatesRange(t *testing.T) {
+	cases := []struct {
+		name  string
+		value int
+		want  bool // true => accepted
+	}{
+		{"zero_ok", 0, true},
+		{"min_inclusive", 1, true},
+		{"max_inclusive", 10000, true},
+		{"negative_rejected", -1, false},
+		{"above_max_rejected", 10001, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := VP9EncoderOptions{
+				Width:               64,
+				Height:              64,
+				FPS:                 30,
+				VBRCorpusComplexity: tc.value,
+			}
+			err := validateVP9TwoPassOptions(opts)
+			if tc.want && err != nil {
+				t.Errorf("validate(%d) = %v, want nil", tc.value, err)
+			}
+			if !tc.want && err == nil {
+				t.Errorf("validate(%d) = nil, want non-nil", tc.value)
+			}
+		})
+	}
+}
+
+// TestVP9TwoPassCorpusVBRSpeedFeatureRecodeLoop pins the libvpx speed-feature
+// fork from vp9/encoder/vp9_speed_features.c:321-324: at speed >= 2 the
+// recode loop widens to ALLOW_RECODE_FIRST when oxcf->vbr_corpus_complexity
+// is non-zero, else it stays at ALLOW_RECODE_KFARFGF.
+func TestVP9TwoPassCorpusVBRSpeedFeatureRecodeLoop(t *testing.T) {
+	cases := []struct {
+		name                string
+		vbrCorpusComplexity int
+		wantRecodeLoop      RecodeLoopType
+	}{
+		{"corpus_disabled", 0, RecodeLoopAllowKfArfGf},
+		{"corpus_enabled", 100, RecodeLoopAllowFirst},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewVP9Encoder(VP9EncoderOptions{
+				Width:               64,
+				Height:              64,
+				FPS:                 30,
+				CpuUsed:             2,
+				Deadline:            DeadlineGoodQuality,
+				RateControlModeSet:  true,
+				RateControlMode:     RateControlVBR,
+				TargetBitrateKbps:   600,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				TwoPassStats:        finalizedVP9TwoPassTestStats(100, 100, 100, 100),
+				VBRCorpusComplexity: tc.vbrCorpusComplexity,
+			})
+			if err != nil {
+				t.Fatalf("NewVP9Encoder: %v", err)
+			}
+			ctx := enc.vp9DefaultSpeedFrameContext()
+			enc.vp9ApplySpeedFeatures(ctx)
+			if enc.sf.RecodeLoop != tc.wantRecodeLoop {
+				t.Errorf("RecodeLoop = %v, want %v",
+					enc.sf.RecodeLoop, tc.wantRecodeLoop)
+			}
+		})
+	}
+}
+
+func floatNear(a, b, eps float64) bool {
+	if a == b {
+		return true
+	}
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= eps
+}
+
 func finalizedVP9TwoPassTestStats(errors ...float64) []VP9FirstPassFrameStats {
 	rows := make([]VP9FirstPassFrameStats, len(errors))
 	for i, err := range errors {

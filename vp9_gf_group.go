@@ -38,9 +38,10 @@ import "math"
 //     find_next_key_frame accumulator that feeds this is not yet
 //     populated; until then the Q picker treats every KF as
 //     non-static.
-//   - vbr_corpus_complexity branch in allocate_gf_group_bits
-//     (vp9_firstpass.c:2503). No public toggle to exercise this in
-//     govpx today.
+//   - PORTED: vbr_corpus_complexity branch in allocate_gf_group_bits
+//     (vp9_firstpass.c:2503-2516). Toggled via
+//     VP9EncoderOptions.VBRCorpusComplexity threaded through
+//     vp9GFGroupInputs.
 
 // vp9GFGroup mirrors libvpx GF_GROUP field-for-field. Slice lengths use
 // vp9MaxStaticGFGroupLength+2 to match libvpx's MAX_STATIC_GF_GROUP_LENGTH+2.
@@ -198,6 +199,22 @@ type vp9GFGroupInputs struct {
 	GFStartShowIdx int
 	// Two-pass tuning parameters (VP9ARFBoostParams).
 	BoostParams VP9ARFBoostParams
+	// VBRCorpusComplexity mirrors oxcf->vbr_corpus_complexity. Non-zero
+	// activates the corpus-VBR branch in allocate_gf_group_bits, which
+	// distributes intra-GOP bits proportional to per-frame normalized
+	// modified scores instead of an even split.
+	// libvpx: vp9/encoder/vp9_firstpass.c:2503-2516.
+	VBRCorpusComplexity int
+	// TwoPassVBRBiasPct mirrors oxcf->two_pass_vbrbias. Used as the bias
+	// exponent inside calculate_norm_frame_score; needed by the corpus
+	// branch of allocate_gf_group_bits. libvpx vp9/encoder/vp9_firstpass.c:272.
+	TwoPassVBRBiasPct int
+	// TwoPassVBRMinSection mirrors oxcf->two_pass_vbrmin_section. libvpx
+	// vp9_firstpass.c:294.
+	TwoPassVBRMinSection int
+	// TwoPassVBRMaxSection mirrors oxcf->two_pass_vbrmax_section. libvpx
+	// vp9_firstpass.c:295.
+	TwoPassVBRMaxSection int
 }
 
 // vp9DefineGFGroup is a verbatim Go port of libvpx's define_gf_group. It
@@ -853,12 +870,37 @@ func vp9AllocateGFGroupBits(gf *vp9GFGroup, in vp9GFGroupInputs,
 	// libvpx: gf_group->gfu_boost[1] = rc->gfu_boost.
 	gf.GFUBoost[1] = gf.GFUBoostScalar
 
+	// libvpx vp9_firstpass.c:2503-2506 — corpus-VBR branch precomputes
+	// the distribution mean error and the group-level normalized-score
+	// sum used to renormalize each frame's complexity-weighted share.
+	corpus := in.VBRCorpusComplexity != 0
+	var avScore, totNormFrameScore float64
+	if corpus {
+		avScore = vp9DistributionAverageError(in.MeanModScore, in.AvErr)
+		totNormFrameScore = vp9CalculateGroupScore(in, avScore, normalFrames)
+	}
+
 	// Multi-layer ARF branch deferred — see file-header TODO. We always
 	// take the single-ARF branch (allocate normal-frame bits uniformly
 	// across leaves, with the last-frame reduction redistributed to the
 	// middle slot per libvpx's bitstream-parity rule).
 	lastFrameReduction := 0
 	for i := range normalFrames {
+		// libvpx vp9_firstpass.c:2509-2516 — input_stats() advance plus
+		// per-frame normal_frame_bits override when corpus VBR is active.
+		if corpus {
+			showIdx := in.GFStartShowIdx + i
+			if showIdx < 0 || showIdx >= len(in.Stats) {
+				break
+			}
+			thisFrameScore := vp9CalcNormFrameScoreCorpus(in.Stats[showIdx], avScore,
+				in.MeanModScore, in.TwoPassVBRBiasPct,
+				in.TwoPassVBRMinSection, in.TwoPassVBRMaxSection, in.MBRows)
+			if totNormFrameScore > 0 {
+				normalFrameBits = int(float64(totalGroupBits) *
+					(thisFrameScore / totNormFrameScore))
+			}
+		}
 		target := normalFrameBits
 		if i == normalFrames-1 && i >= 1 {
 			lastFrameReduction = normalFrameBits / 16
@@ -880,6 +922,111 @@ func vp9AllocateGFGroupBits(gf *vp9GFGroup, in vp9GFGroupInputs,
 	if midFrameIdx >= 0 && midFrameIdx < len(gf.BitAllocation) {
 		gf.BitAllocation[midFrameIdx] += lastFrameReduction
 	}
+}
+
+// vp9DistributionAverageError mirrors libvpx get_distribution_av_err for the
+// corpus-VBR branch. When the encoder configures corpus VBR, libvpx returns
+// `av_weight * twopass->mean_mod_score` (vp9_firstpass.c:255-256); we already
+// have those two scalars stored on the inputs as MeanModScore and AvErr
+// (AvErr is the libvpx pre-corpus av_weight average for the clip).
+//
+// libvpx: vp9/encoder/vp9_firstpass.c:251-260 get_distribution_av_err.
+func vp9DistributionAverageError(meanModScore, avErr float64) float64 {
+	if meanModScore <= 0 {
+		if avErr > 0 {
+			return avErr
+		}
+		return 1
+	}
+	if avErr > 0 {
+		return avErr * meanModScore
+	}
+	return meanModScore
+}
+
+// vp9CalcNormFrameScoreCorpus ports libvpx's calc_norm_frame_score helper
+// used by the corpus-VBR branch of allocate_gf_group_bits. Unlike the
+// existing vp9CalcNormFrameScore helper (which hardcodes the libvpx default
+// 50% bias and the default [0.01, 20] clamp), this variant honours the
+// configured `oxcf->two_pass_vbrbias`, `oxcf->two_pass_vbrmin_section`, and
+// `oxcf->two_pass_vbrmax_section` so the corpus branch matches libvpx
+// byte-for-byte under non-default settings.
+//
+// libvpx: vp9/encoder/vp9_firstpass.c:285 calc_norm_frame_score.
+func vp9CalcNormFrameScoreCorpus(row VP9FirstPassFrameStats, avErr, meanModScore float64,
+	vbrBiasPct, vbrMinSection, vbrMaxSection, mbRows int,
+) float64 {
+	bias := vbrBiasPct
+	if bias <= 0 {
+		bias = vp9DefaultTwoPassVBRBiasPct
+	}
+	maxSection := vbrMaxSection
+	if maxSection <= 0 {
+		maxSection = vp9DefaultVBRMaxSectionPct
+	}
+	err := row.CodedError
+	if err < 1 {
+		err = 1
+	}
+	weight := row.Weight
+	if weight <= 0 {
+		weight = 1
+	}
+	// libvpx vp9_firstpass.c:289-292.
+	modifiedScore := avErr * math.Pow((err*weight)/nonZeroFloat(avErr),
+		float64(bias)/100.0)
+	// libvpx vp9_firstpass.c:302-303 active-area correction.
+	if mbRows <= 0 {
+		mbRows = 1
+	}
+	active := 1.0 - ((row.IntraSkipPct / 2.0) +
+		((row.InactiveZoneRows * 2.0) / float64(mbRows)))
+	if active < vp9MinActiveArea {
+		active = vp9MinActiveArea
+	} else if active > vp9MaxActiveArea {
+		active = vp9MaxActiveArea
+	}
+	modifiedScore *= math.Pow(active, vp9ActiveAreaCorrection)
+	// libvpx vp9_firstpass.c:306-307 normalize + clamp to [min, max].
+	modifiedScore /= nonZeroFloat(meanModScore)
+	minScore := float64(vbrMinSection) / 100.0
+	maxScore := float64(maxSection) / 100.0
+	if modifiedScore < minScore {
+		modifiedScore = minScore
+	}
+	if modifiedScore > maxScore {
+		modifiedScore = maxScore
+	}
+	if modifiedScore <= 0 || math.IsNaN(modifiedScore) || math.IsInf(modifiedScore, 0) {
+		return 1
+	}
+	return modifiedScore
+}
+
+// vp9CalculateGroupScore mirrors libvpx calculate_group_score, summing the
+// normalized modified scores for the next `frameCount` show frames starting
+// at GFStartShowIdx.
+//
+// libvpx: vp9/encoder/vp9_firstpass.c:2126 calculate_group_score.
+func vp9CalculateGroupScore(in vp9GFGroupInputs, avScore float64, frameCount int) float64 {
+	if frameCount <= 0 {
+		// libvpx vp9_firstpass.c:2135 — never return 0.
+		return 1.0
+	}
+	scoreTotal := 0.0
+	for i := range frameCount {
+		showIdx := in.GFStartShowIdx + i
+		if showIdx < 0 || showIdx >= len(in.Stats) {
+			break
+		}
+		scoreTotal += vp9CalcNormFrameScoreCorpus(in.Stats[showIdx], avScore,
+			in.MeanModScore, in.TwoPassVBRBiasPct,
+			in.TwoPassVBRMinSection, in.TwoPassVBRMaxSection, in.MBRows)
+	}
+	if scoreTotal <= 0 {
+		return 1.0
+	}
+	return scoreTotal
 }
 
 // vp9AdjustGroupARNRFilter ports libvpx adjust_group_arnr_filter.
