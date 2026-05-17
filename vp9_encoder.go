@@ -6046,13 +6046,19 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	}
 
 	args := vp9ChoosePartitioningArgs{
-		MiGrid:                 e.varPartGrid,
-		MiRows:                 miRows,
-		MiCols:                 miCols,
-		MiRow:                  sbMiRow,
-		MiCol:                  sbMiCol,
-		Speed:                  int(e.opts.CpuUsed),
-		VariancePartThreshMult: 1,
+		MiGrid: e.varPartGrid,
+		MiRows: miRows,
+		MiCols: miCols,
+		MiRow:  sbMiRow,
+		MiCol:  sbMiCol,
+		Speed:  int(e.opts.CpuUsed),
+		// libvpx vp9_encodeframe.c:1379 feeds set_vbp_thresholds with
+		// cpi->sf.variance_part_thresh_mult. The configurator sets this
+		// to 2 for resolutions w*h >= 640*360 (vp9_speed_features.c:813),
+		// otherwise 1 (vp9_speed_features.c:479). Read the live SF value
+		// rather than hard-coding 1 so the threshold base scales with
+		// resolution the libvpx way.
+		VariancePartThreshMult: e.sf.VariancePartThreshMult,
 		// libvpx vp9_encodeframe.c:1310 — use_4x4_partition is gated on
 		// !sf->nonrd_keyframe. At speed >= 8 the realtime configurator
 		// sets sf->nonrd_keyframe = 1 (vp9_speed_features.c:751-757),
