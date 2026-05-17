@@ -586,6 +586,44 @@ type vp9SpeedFrameContext struct {
 	avgFrameLowMotion   int
 	avgFrameQindexInter int
 	currentVideoFrame   int
+
+	// svc carries the per-frame SVC state libvpx reads via cpi->svc / cpi->use_svc
+	// from the speed-features dispatcher. Single-layer encoders see
+	// vp9SVCDefault() (NumberSpatialLayers=NumberTemporalLayers=1, UseSvc=false).
+	//
+	// libvpx: vp9_speed_features.c set_rt_speed_feature_framesize_independent
+	// reads SVC *svc = &cpi->svc.
+	svc vp9SVCState
+
+	// externalResize mirrors cpi->external_resize. libvpx sets the flag in
+	// vp9_change_config() when the encoder's frame size shrinks without
+	// triggering a full re-allocation (sf.use_source_sad / reference_masking /
+	// copy_partition_flag gates).
+	//
+	// libvpx: vp9_encoder.c:2153, vp9_speed_features.c:519, 659, 723.
+	externalResize bool
+
+	// lastFrameDropped mirrors cpi->last_frame_dropped, set after a frame-drop
+	// decision in the rate-control loop. Used by sf->copy_partition_flag at
+	// speed 7 to gate partition-copy across the just-dropped boundary.
+	//
+	// libvpx: vp9_encoder.h cpi->last_frame_dropped,
+	// vp9_speed_features.c:722.
+	lastFrameDropped bool
+
+	// resizeStateOrig mirrors `cpi->resize_state == ORIG`. govpx does not run
+	// the libvpx internal dynamic-resize state machine; the configurator path
+	// only consults ORIG so resizeStateOrig defaults to true for single-layer
+	// encoders. libvpx sets ORIG when no internal downscale is active.
+	//
+	// libvpx: vp9_encoder.h cpi->resize_state RESIZE_STATE enum.
+	resizeStateOrig bool
+
+	// disableOvershootMaxqCbr mirrors cpi->rc.disable_overshoot_maxq_cbr. Used
+	// only on the rate-control overshoot detection path.
+	//
+	// libvpx: vp9_ratectrl.h rc->disable_overshoot_maxq_cbr.
+	disableOvershootMaxqCbr bool
 }
 
 // vp9DefaultSpeedFrameContext returns the configurator context built from
@@ -593,13 +631,20 @@ type vp9SpeedFrameContext struct {
 // frame 0", which matches the libvpx framesize_independent path that runs
 // before the first frame is encoded.
 func (e *VP9Encoder) vp9DefaultSpeedFrameContext() vp9SpeedFrameContext {
-	return vp9SpeedFrameContext{
-		width:     e.opts.Width,
-		height:    e.opts.Height,
-		showFrame: true,
-		frameType: common.KeyFrame,
-		intraOnly: true,
+	ctx := vp9SpeedFrameContext{
+		width:           e.opts.Width,
+		height:          e.opts.Height,
+		showFrame:       true,
+		frameType:       common.KeyFrame,
+		intraOnly:       true,
+		resizeStateOrig: true,
 	}
+	if e != nil {
+		ctx.svc = e.svc
+	} else {
+		ctx.svc = vp9SVCDefault()
+	}
+	return ctx
 }
 
 // vp9PerFrameSpeedContextArgs carries the per-frame inputs that drive
@@ -648,6 +693,25 @@ func (e *VP9Encoder) vp9PerFrameSpeedContext(args vp9PerFrameSpeedContextArgs) v
 		avgFrameLowMotion:   100,
 		avgFrameQindexInter: int(e.rc.avgFrameQIndexInter),
 		currentVideoFrame:   e.frameIndex,
+		svc:                 e.svc,
+		// govpx's runtime resize always triggers a full re-allocation in
+		// applyVP9ResolutionChange(), so libvpx's external_resize (set only
+		// when the resize *did not* realloc) is never observable here.
+		// libvpx: vp9_encoder.c:2153-2166.
+		externalResize: false,
+		// govpx's rate-control state does not yet surface cpi->last_frame_dropped
+		// to the configurator. Treat as false so libvpx's
+		// copy_partition_flag/max_copied_frame gates engage by default.
+		// libvpx: vp9_encoder.h cpi->last_frame_dropped.
+		lastFrameDropped: false,
+		// govpx does not run libvpx's internal dynamic-resize loop, so
+		// cpi->resize_state == ORIG always.
+		resizeStateOrig: true,
+		// govpx's rate-control state does not surface disable_overshoot_maxq_cbr;
+		// treat as 0 so libvpx's overshoot detection gate engages whenever the
+		// other conditions match. libvpx itself defaults the flag to 0.
+		// libvpx: vp9_ratectrl.h rc->disable_overshoot_maxq_cbr.
+		disableOvershootMaxqCbr: false,
 	}
 	return ctx
 }
@@ -1471,11 +1535,22 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		sf.AdaptivePredInterpFilter = 2
 
 		// libvpx: vp9_speed_features.c:514-531 — reference masking, SVC
-		// downscale check. govpx is single-spatial-layer with no dynamic
-		// resize, so reference_masking = 1.
-		sf.ReferenceMasking = 1
-		// TODO: consumer requires libvpx vp9_is_scaled / external_resize SVC
-		// path. libvpx: vp9_speed_features.c:514-531.
+		// downscale check. Enabled when there is exactly one spatial layer; the
+		// dynamic-resize / vp9_is_scaled() inner check that libvpx adds for
+		// resize_mode==RESIZE_DYNAMIC or external_resize==1 is a no-op in govpx
+		// because applyVP9ResolutionChange() always invalidates every reference
+		// frame (refValid[] = false), so the per-ref scale check would skip all
+		// slots regardless.
+		if ctx.svc.NumberSpatialLayers == 1 {
+			sf.ReferenceMasking = 1
+		} else {
+			sf.ReferenceMasking = 0
+		}
+		// libvpx: vp9_speed_features.c:518-530 — inner per-reference
+		// vp9_is_scaled() loop only fires when reference_masking==1 AND
+		// (external_resize==1 OR resize_mode==RESIZE_DYNAMIC). govpx has no
+		// dynamic-resize mode and external_resize is never observable (see
+		// vp9SpeedFrameContext.externalResize), so the inner clear is a no-op.
 
 		sf.DisableFilterSearchVarThresh = 50
 		sf.CompInterJointSearchIterLevel = 2
@@ -1627,17 +1702,23 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		if e.opts.RateControlMode == RateControlCBR && content != vp9ContentScreen {
 			// libvpx: vp9_speed_features.c:637-641.
 			sf.LimitNewmvEarlyExit = 1
-			// govpx does not track SVC use_svc; treat as no-SVC so bias_golden
-			// applies at speed 5 CBR like libvpx single-layer.
-			sf.BiasGolden = 1
+			if !ctx.svc.UseSvc {
+				sf.BiasGolden = 1
+			}
 		}
-		// libvpx: vp9_speed_features.c:643-644 — SVC nonrd keyframe override.
-		// TODO: consumer requires SVC spatial layer id. libvpx:
-		// vp9_speed_features.c:643-644.
+		// libvpx: vp9_speed_features.c:642-644 — Keep nonrd_keyframe = 1 for
+		// non-base spatial layers to prevent increase in encoding time.
+		if ctx.svc.UseSvc && ctx.svc.SpatialLayerID > 0 {
+			sf.NonrdKeyframe = 1
+		}
 
 		// libvpx: vp9_speed_features.c:645-652 — CBR overshoot detection.
-		if ctx.frameType != common.KeyFrame && e.opts.RateControlMode == RateControlCBR {
-			if ctx.width*ctx.height <= 352*288 && content != vp9ContentScreen {
+		// libvpx adds use_svc to the inner RE_ENCODE_MAXQ gate so that SVC
+		// non-base resolutions skip the recode path. mirror that.
+		if ctx.frameType != common.KeyFrame && ctx.resizeStateOrig &&
+			e.opts.RateControlMode == RateControlCBR && !ctx.disableOvershootMaxqCbr {
+			if ctx.width*ctx.height <= 352*288 && !ctx.svc.UseSvc &&
+				content != vp9ContentScreen {
 				sf.OvershootDetectionCbrRt = OvershootReEncodeMaxQ
 			} else {
 				sf.OvershootDetectionCbrRt = OvershootFastDetectionMaxQ
@@ -1651,10 +1732,10 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		if ctx.width*ctx.height > 1280*720 {
 			sf.CbPredFilterSearch = 2
 		}
-		// libvpx: vp9_speed_features.c:659 — external_resize plumb. govpx has
-		// no external_resize plumbing in the configurator; treat as
-		// external_resize == 0 so use_source_sad = 1.
-		sf.UseSourceSad = 1
+		// libvpx: vp9_speed_features.c:659 — if (!cpi->external_resize) sf->use_source_sad = 1;
+		if !ctx.externalResize {
+			sf.UseSourceSad = 1
+		}
 	}
 
 	if speed >= 6 {
@@ -1682,11 +1763,15 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		if e.opts.RateControlMode == RateControlCBR && content != vp9ContentScreen {
 			sf.ShortCircuitLowTempVar = 1
 		}
-		// libvpx: vp9_speed_features.c:689-693 — SVC temporal layer fork.
-		// TODO: consumer requires SVC temporal_layer_id. libvpx:
-		// vp9_speed_features.c:689-693.
+		// libvpx: vp9_speed_features.c:689-693.
+		if ctx.svc.TemporalLayerID > 0 {
+			sf.AdaptiveRdThresh = 4
+			sf.LimitNewmvEarlyExit = 0
+			sf.BaseMvAggressive = 1
+		}
 
-		if ctx.frameType != common.KeyFrame && e.opts.RateControlMode == RateControlCBR {
+		if ctx.frameType != common.KeyFrame && ctx.resizeStateOrig &&
+			e.opts.RateControlMode == RateControlCBR && !ctx.disableOvershootMaxqCbr {
 			sf.OvershootDetectionCbrRt = OvershootFastDetectionMaxQ
 		}
 	}
@@ -1697,35 +1782,58 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		sf.AdaptiveRdThresh = 3
 		sf.Mv.SearchMethod = SearchMethodFastDiamond
 		sf.Mv.FullpelSearchStepParam = 10
-		// libvpx: vp9_speed_features.c:706-711 — SVC base spatial / temporal
-		// override. govpx single-layer: skipped, default speed-7 search method
-		// stays FAST_DIAMOND.
-		// TODO: consumer requires SVC number_temporal_layers / spatial_layer_id.
-
-		// libvpx: vp9_speed_features.c:712-716 — SVC non-reference frame.
-		// TODO: consumer requires SVC non_reference_frame.
-
-		if e.opts.RowMT && e.opts.Threads > 1 {
+		// libvpx: vp9_speed_features.c:704-711 — For SVC: use better mv search
+		// on base temporal layer, and only on base spatial layer if highest
+		// resolution is above 640x360.
+		if ctx.svc.NumberTemporalLayers > 2 && ctx.svc.TemporalLayerID == 0 &&
+			(ctx.svc.SpatialLayerID == 0 ||
+				e.opts.Width*e.opts.Height <= 640*360) {
+			sf.Mv.SearchMethod = SearchMethodNStep
+			sf.Mv.FullpelSearchStepParam = 6
+		}
+		// libvpx: vp9_speed_features.c:712-716.
+		if ctx.svc.TemporalLayerID > 0 || ctx.svc.SpatialLayerID > 1 {
+			sf.UseSimpleBlockYrd = 1
+			if ctx.svc.NonReferenceFrame {
+				sf.Mv.SubpelSearchMethod = SubpelTreePrunedEvenMore
+			}
+		}
+		if ctx.svc.UseSvc && e.opts.RowMT && e.opts.Threads > 1 {
 			// libvpx: vp9_speed_features.c:717-718.
 			sf.AdaptiveRdThreshRowMt = 1
 		}
-
 		// libvpx: vp9_speed_features.c:721-734 — partition-copy plumbing.
-		// govpx does not surface max_copied_frame / last_frame_dropped /
-		// external_resize / SVC last_layer_dropped in the configurator.
-		// Single-layer non-resize default: enable copy_partition_flag.
-		sf.CopyPartitionFlag = 1
-		// TODO: consumer requires VP9_COMP.max_copied_frame /
-		// last_frame_dropped / external_resize / SVC last_layer_dropped.
-		// libvpx: vp9_speed_features.c:721-734.
-
-		// libvpx: vp9_speed_features.c:738-741 — SVC lowres partition reuse.
-		// TODO: consumer requires SVC use_partition_reuse /
-		// number_spatial_layers. libvpx: vp9_speed_features.c:738-741.
-
-		// libvpx: vp9_speed_features.c:744-747 — SVC golden temporal ref.
-		// TODO: consumer requires SVC use_gf_temporal_ref_current_layer.
-
+		e.maxCopiedFrame = 0
+		if !ctx.lastFrameDropped && ctx.resizeStateOrig && !ctx.externalResize &&
+			(!ctx.svc.UseSvc ||
+				(ctx.svc.SpatialLayerID == ctx.svc.NumberSpatialLayers-1 &&
+					!ctx.svc.LastLayerDropped[ctx.svc.NumberSpatialLayers-1])) {
+			sf.CopyPartitionFlag = 1
+			e.maxCopiedFrame = 2
+			// The top temporal enhancement layer (for number of temporal
+			// layers > 1) are non-reference frames, so use large/max value for
+			// max_copied_frame.
+			if ctx.svc.NumberTemporalLayers > 1 &&
+				ctx.svc.TemporalLayerID == ctx.svc.NumberTemporalLayers-1 {
+				e.maxCopiedFrame = 255
+			}
+		}
+		// libvpx: vp9_speed_features.c:735-741 — For SVC: enable use of lower
+		// resolution partition for higher resolution, only for 3 spatial
+		// layers and when config/top resolution is above VGA. Enable only for
+		// non-base temporal layer frames.
+		if ctx.svc.UseSvc && ctx.svc.UsePartitionReuse &&
+			ctx.svc.NumberSpatialLayers == 3 && ctx.svc.TemporalLayerID > 0 &&
+			e.opts.Width*e.opts.Height > 640*480 {
+			sf.SvcUseLowresPart = 1
+		}
+		// libvpx: vp9_speed_features.c:742-747 — For SVC when golden is used
+		// as second temporal reference: to avoid encode time increase only use
+		// this feature on base temporal layer.
+		if ctx.svc.UseSvc && ctx.svc.UseGfTemporalRefCurrentLayer &&
+			ctx.svc.TemporalLayerID > 0 {
+			e.refFrameFlags &^= vp9GoldFlag
+		}
 		if ctx.width*ctx.height > 640*480 {
 			sf.CbPredFilterSearch = 2
 		}
@@ -1735,12 +1843,16 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		// libvpx: vp9_speed_features.c:751-793.
 		sf.AdaptiveRdThresh = 4
 		sf.SkipEncodeSb = 1
-		// libvpx: vp9_speed_features.c:754-757 — SVC nonrd_keyframe.
-		// govpx single-layer: nonrd_keyframe = 1.
-		sf.NonrdKeyframe = 1
-		// libvpx: vp9_speed_features.c:758 — single-layer max_copied_frame=4.
-		// TODO: consumer requires VP9_COMP.max_copied_frame setter. libvpx:
-		// vp9_speed_features.c:758.
+		// libvpx: vp9_speed_features.c:754-757.
+		if ctx.svc.NumberSpatialLayers > 1 && !ctx.svc.SimulcastMode {
+			sf.NonrdKeyframe = 0
+		} else {
+			sf.NonrdKeyframe = 1
+		}
+		// libvpx: vp9_speed_features.c:758 — if (!cpi->use_svc) cpi->max_copied_frame = 4;
+		if !ctx.svc.UseSvc {
+			e.maxCopiedFrame = 4
+		}
 
 		if e.opts.RowMT && e.opts.Threads > 1 {
 			sf.AdaptiveRdThreshRowMt = 1
@@ -1754,8 +1866,11 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 			sf.Mv.SubpelForceStop = HalfPel
 		}
 		sf.RtIntraDcOnlyLowContent = 1
-		if e.opts.RateControlMode == RateControlCBR && content != vp9ContentScreen {
-			// libvpx: vp9_speed_features.c:773-789.
+		// libvpx: vp9_speed_features.c:771-789 — !cpi->use_svc gate so SVC at
+		// speed 8 does not engage the aggressive short-circuit / adaptive_rd
+		// reduction path.
+		if !ctx.svc.UseSvc && e.opts.RateControlMode == RateControlCBR &&
+			content != vp9ContentScreen {
 			sf.ShortCircuitLowTempVar = 3
 			// libvpx: vp9_speed_features.c:777-782 — noise-estimate level.
 			// TODO: consumer requires noise_estimate.enabled +
@@ -1819,13 +1934,20 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 	// count_lastgolden_frame_usage / rc.is_src_frame_alt_ref. libvpx:
 	// vp9_speed_features.c:828-844.
 
-	// libvpx: vp9_speed_features.c:845-848 — SVC previous_frame_is_intra_only.
-	// TODO: consumer requires SVC.previous_frame_is_intra_only.
-
-	// libvpx: vp9_speed_features.c:850-857 — screen content high-motion
-	// search override.
-	// TODO: consumer requires SVC.high_num_blocks_with_motion /
-	// last_layer_dropped.
+	// libvpx: vp9_speed_features.c:845-848.
+	if ctx.svc.PreviousFrameIsIntraOnly {
+		sf.PartitionSearchType = FixedPartition
+		sf.AlwaysThisBlockSize = common.Block64x64
+	}
+	// libvpx: vp9_speed_features.c:849-857 — Special case for screen content:
+	// increase motion search on base spatial layer when high motion is detected
+	// or previous SL0 frame was dropped.
+	if e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
+		e.vp9SpeedFeatureCPUUsed() >= 5 &&
+		(ctx.svc.HighNumBlocksWithMotion || ctx.svc.LastLayerDropped[0]) {
+		sf.Mv.SearchMethod = SearchMethodNStep
+		sf.Mv.FullpelSearchStepParam = 2
+	}
 
 	// libvpx: vp9_speed_features.c:858-861 — speed<=3 disables CYCLIC_REFRESH.
 	if speed <= 3 && e.opts.AQMode == VP9AQCyclicRefresh {

@@ -226,6 +226,18 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		scalabilityStructure: vp9SpatialSVCScalabilityStructure(widths,
 			heights, count, temporalMode, temporalEnabled),
 	}
+	// libvpx: vp9_svc_layercontext.c vp9_init_layer_context() — derive
+	// number_temporal_layers from cpi->oxcf.ts_number_layers, which on the
+	// VP9 spatial-SVC encoder is the LAYER_COUNT temporal pattern for every
+	// spatial layer. govpx asserts every layer carries the same temporal
+	// scalability mode in vp9SpatialSVCTemporalMode above.
+	numberTemporalLayers := 1
+	if temporalEnabled {
+		if pattern, ok := temporalLayeringPattern(temporalMode); ok &&
+			pattern.Layers > 1 {
+			numberTemporalLayers = pattern.Layers
+		}
+	}
 	for i := range count {
 		layerOpts := opts.Layers[i]
 		spatial := VP9SpatialScalabilityConfig{
@@ -249,6 +261,15 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		layer.resetVP9EncoderFrameContexts()
 		layer.spatialScalabilityLocked = true
 		layer.temporalScalabilityLocked = true
+		// libvpx: vp9_svc_layercontext.c vp9_init_layer_context() and
+		// vp9_one_pass_svc_start_layer() — populate cpi->use_svc and
+		// cpi->svc.{spatial_layer_id, number_spatial_layers,
+		// number_temporal_layers} before any speed-features dispatch.
+		layer.svc.UseSvc = true
+		layer.svc.SpatialLayerID = i
+		layer.svc.NumberSpatialLayers = count
+		layer.svc.NumberTemporalLayers = numberTemporalLayers
+		layer.vp9ApplySpeedFeatures(layer.vp9DefaultSpeedFrameContext())
 		svc.layers[i] = layer
 	}
 	return svc, nil
@@ -865,10 +886,23 @@ func (e *VP9SpatialSVCEncoder) SetTemporalScalability(cfg TemporalScalabilityCon
 	}
 	nextScalabilityStructure := e.scalabilityStructure
 	vp9SetScalabilityStructureTemporalPatternFromConfig(&nextScalabilityStructure, cfg)
+	// libvpx: vp9_svc_layercontext.c vp9_update_layer_context_change_config() —
+	// number_temporal_layers tracks oxcf->ts_number_layers across change_config
+	// calls. Mirror that here so the speed-features dispatcher sees the new
+	// layer count after SetTemporalScalability runs.
+	numberTemporalLayers := 1
+	if cfg.Enabled {
+		if pattern, ok := temporalLayeringPattern(cfg.Mode); ok &&
+			pattern.Layers > 1 {
+			numberTemporalLayers = pattern.Layers
+		}
+	}
 	for i := 0; i < int(e.layerCount); i++ {
 		layer := e.layers[i]
 		layer.temporal = next[i]
 		layer.opts.TemporalScalability = next[i].config
+		layer.svc.NumberTemporalLayers = numberTemporalLayers
+		layer.vp9ApplySpeedFeatures(layer.vp9DefaultSpeedFrameContext())
 	}
 	e.scalabilityStructure = nextScalabilityStructure
 	return nil

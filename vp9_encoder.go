@@ -674,6 +674,32 @@ type VP9Encoder struct {
 	// VP9SpatialSVCEncoder; the parent owns access-unit temporal metadata.
 	temporalScalabilityLocked bool
 
+	// svc mirrors the subset of libvpx SVC layer-context state read by the
+	// speed-features dispatcher and other ported consumers. Single-layer
+	// encoders leave it at vp9SVCDefault() so e.svc.UseSvc reports cpi->use_svc
+	// = 0 and number_spatial_layers = number_temporal_layers = 1.
+	//
+	// libvpx: vp9_svc_layercontext.h SVC struct.
+	svc vp9SVCState
+
+	// maxCopiedFrame mirrors cpi->max_copied_frame, written by the
+	// speed-features dispatcher at speeds 7-8 to bound the number of
+	// consecutive frames whose partition can be copied from the prior frame.
+	//
+	// libvpx: vp9_encoder.h cpi->max_copied_frame,
+	// vp9_speed_features.c:721,728,733,758.
+	maxCopiedFrame int
+
+	// refFrameFlags mirrors cpi->ref_frame_flags, the bitmask of currently
+	// enabled reference frames. The speed-features dispatcher clears the
+	// VP9_GOLD_FLAG bit at speed 7 when SVC enables the long-term temporal
+	// reference for a non-base temporal layer. libvpx initializes this from
+	// kVp9RefFlagList; govpx defaults to the union of LAST/GOLD/ALT.
+	//
+	// libvpx: vp9_encoder.h cpi->ref_frame_flags,
+	// vp9_speed_features.c:747.
+	refFrameFlags int
+
 	activeMap        []uint8
 	activeMapMiRows  int
 	activeMapMiCols  int
@@ -968,7 +994,13 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	}
 	opts.TemporalScalability = temporal.config
 	opts.SpatialScalability = spatial
-	e := &VP9Encoder{opts: opts, temporal: temporal, rc: rc}
+	e := &VP9Encoder{
+		opts:          opts,
+		temporal:      temporal,
+		rc:            rc,
+		svc:           vp9SVCDefault(),
+		refFrameFlags: vp9AllRefFlags,
+	}
 	e.twoPass.configure(opts.TwoPassStats, rc.bitsPerFrame,
 		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,
 		opts.Height)
