@@ -9,7 +9,7 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 | 1  | Decoder GETs: FrameCorrupted, LastReferenceUpdates, LastReferencesUsed | ✅      |
 | 2  | Encoder runtime SetAutoAltRef                                          | ✅      |
 | 3  | VP8E_SET_SCALEMODE / spatial resampler                                 | ✅      |
-| 4  | Burn down ~75 deferred VP8 fuzz seeds                                  | ⬜      |
+| 4  | VP8 deferred fuzz seeds                                                | ✅      |
 | 5  | ALT_LF segmentation                                                    | ✅      |
 | 6  | CBR golden-frame correction-factor branch                              | ✅      |
 | 7  | Cyclic-refresh + static-background segmentation parity                 | ✅      |
@@ -30,3 +30,4 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 - 2026-05-17 items 6 and 10 verified already implemented: golden-frame correction-factor lives in ratecontrol_postencode.go (usesGoldenFrameCorrectionFactor), recode-loop dampVar dispatch in ratecontrol_recode.go; VP8 version 1-3 dispatch lives in internal/vp8/decoder/version.go with all 4 call sites wired in decoder.go (IsSupportedVersion, LoopFilterHeaderForVersion, InterPredictionConfigForVersion, VersionSkipsLoopFilter).
 - 2026-05-17 item 7 verified already implemented: cyclicRefreshMap + cyclicRefreshIndex state, assignInterFrameStaticSegmentsWithMap MB walker, cyclicRefreshMaxMBsPerFrameForConfig (screen-content qp_thresh 80/100 + 250-frames-since-key skip rule), cyclicRefreshQuantizerDeltaForQuantizer (Q/2 delta), aggressiveDenoiseSegmentationActiveForQuantizer override (-40 LF delta when denoiser_mode == kDenoiserOnYUVAggressive). Gated by TestOracleEncoderStreamByteParitySegmentation.
 - 2026-05-17 item 3 phase 2 shipped: public ScalingMode + SetScalingMode on VP8Encoder, KeyFrameStateConfig.HorizScale/VertScale threaded into PutKeyFrameExtraHeader at all 3 writer sites. Divergence from libvpx documented on SetScalingMode godoc: caller must pre-scale source (internal/vp8/scale exposes the kernels). Output bitstream is byte-equivalent to libvpx with oxcf.Width/Height set to the scaled dimensions.
+- 2026-05-17 item 4 closed: VP8 deferred-fuzz-seed list was only 2 entries (vbr_300kbps_kf999_panning and vbr_700kbps_kf30_splitmv good-quality). Both now pass 256-frame byte-identical against the libvpx vpxenc oracle; the regression seeds were already in testdata/fuzz, only the runtime defer guard was blocking them. Emptied longFixtureSeedsDeferred so the existing regression seeds run normally. The other ~70 `regression_*` files under testdata/fuzz are passing regression guards (not deferred bugs); they exercise on every fuzz invocation.
