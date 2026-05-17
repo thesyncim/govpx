@@ -1,7 +1,7 @@
 package dsp
 
 import (
-	"sync"
+	"runtime"
 
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
@@ -17,15 +17,84 @@ import (
 // reads it.
 type convolve8TempBuf [64 * 135]byte
 
-var convolve8TempPool = sync.Pool{
-	New: func() any { return new(convolve8TempBuf) },
-}
-
 // convolve8AvgTempBuf is the smaller scratch for VpxConvolve8Avg.
 type convolve8AvgTempBuf [64 * 64]byte
 
-var convolve8AvgTempPool = sync.Pool{
-	New: func() any { return new(convolve8AvgTempBuf) },
+// convolveTempCap caps the GC-immune free list capacity at 4×GOMAXPROCS
+// so even with the VP9 encoder's per-tile-column worker pool plus the
+// helper row workers there are always free slabs ready to hand out. The
+// channel itself is allocated lazily once per program start.
+var (
+	convolve8TempPool    chan *convolve8TempBuf
+	convolve8AvgTempPool chan *convolve8AvgTempBuf
+)
+
+// convolveTempPoolCapacity returns the steady-state slab budget for the
+// convolve8 free lists. Matches libvpx's stack-local zero-init avoidance
+// rationale but in a form that survives runtime.GC() — sync.Pool drops
+// items on the second GC sweep which made the encoder steady-state
+// allocation gate flaky under parallel test load (agents #108/#114/#117).
+func convolveTempPoolCapacity() int {
+	n := runtime.GOMAXPROCS(0)
+	if n <= 0 {
+		n = 1
+	}
+	// 4× headroom covers tile-column + row-MT helper goroutines on every
+	// realistic config without growing the global slab footprint.
+	return n * 4
+}
+
+func init() {
+	capacity := convolveTempPoolCapacity()
+	convolve8TempPool = make(chan *convolve8TempBuf, capacity)
+	convolve8AvgTempPool = make(chan *convolve8AvgTempBuf, capacity)
+	for range capacity {
+		convolve8TempPool <- new(convolve8TempBuf)
+		convolve8AvgTempPool <- new(convolve8AvgTempBuf)
+	}
+}
+
+// convolve8TempGet returns a reusable 64×135 intermediate buffer. If the
+// free list is empty (e.g., GOMAXPROCS grew at runtime above the capacity
+// snapshot taken at init time) the call falls back to a one-shot heap
+// allocation; convolve8TempPut silently drops returns that would overfill
+// the channel.
+func convolve8TempGet() *convolve8TempBuf {
+	select {
+	case b := <-convolve8TempPool:
+		return b
+	default:
+		return new(convolve8TempBuf)
+	}
+}
+
+func convolve8TempPut(b *convolve8TempBuf) {
+	if b == nil {
+		return
+	}
+	select {
+	case convolve8TempPool <- b:
+	default:
+	}
+}
+
+func convolve8AvgTempGet() *convolve8AvgTempBuf {
+	select {
+	case b := <-convolve8AvgTempPool:
+		return b
+	default:
+		return new(convolve8AvgTempBuf)
+	}
+}
+
+func convolve8AvgTempPut(b *convolve8AvgTempBuf) {
+	if b == nil {
+		return
+	}
+	select {
+	case convolve8AvgTempPool <- b:
+	default:
+	}
 }
 
 // VP9 8-tap subpel convolve kernels. Ported from libvpx v1.16.0

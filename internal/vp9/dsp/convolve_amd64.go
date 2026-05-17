@@ -116,14 +116,14 @@ func VpxConvolve8(src []byte, srcStride int, dst []byte, dstStride int,
 ) {
 	// See convolve.go for the pool rationale: avoids the per-call
 	// 8.6 KiB memclr Go inserts for stack-local arrays.
-	tempBuf := convolve8TempPool.Get().(*convolve8TempBuf)
+	tempBuf := convolve8TempGet()
 	temp := tempBuf[:]
 	intermediateHeight := (((h-1)*yStepQ4 + y0Q4) >> tables.SubpelBits) + tables.SubpelTaps
 	horizSrcOffset := srcOffset - srcStride*(tables.SubpelTaps/2-1)
 	VpxConvolve8Horiz(src, srcStride, temp, 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, intermediateHeight, horizSrcOffset)
 	vertSrcOffset := 64 * (tables.SubpelTaps/2 - 1)
 	VpxConvolve8Vert(temp, 64, dst, dstStride, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, vertSrcOffset)
-	convolve8TempPool.Put(tempBuf)
+	convolve8TempPut(tempBuf)
 }
 
 // VpxConvolve8Avg mirrors vpx_convolve8_avg_c.
@@ -131,9 +131,9 @@ func VpxConvolve8Avg(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
-	tempBuf := convolve8AvgTempPool.Get().(*convolve8AvgTempBuf)
+	tempBuf := convolve8AvgTempGet()
 	temp := tempBuf[:]
 	VpxConvolve8(src, srcStride, temp, 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
 	VpxConvolveAvg(temp, 64, dst, dstStride, w, h, 0)
-	convolve8AvgTempPool.Put(tempBuf)
+	convolve8AvgTempPut(tempBuf)
 }
