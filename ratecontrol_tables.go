@@ -268,11 +268,28 @@ func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, corre
 	if correctionFactor <= 0 {
 		correctionFactor = 1.0
 	}
-	bitsPerMB := int(0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][q]))
-	if macroblocks > 1<<11 {
-		return (bitsPerMB >> libvpxBPerMBNormBits) * macroblocks
-	}
-	return (bitsPerMB * macroblocks) >> libvpxBPerMBNormBits
+	// libvpx vp8_update_rate_correction_factors (vp8/encoder/ratectrl.c
+	// lines 1072-1076):
+	//
+	//   projected_size_based_on_q =
+	//       (int)(((.5 + rate_correction_factor *
+	//                        vp8_bits_per_mb[frame_type][Q]) *
+	//              cpi->common.MBs) /
+	//             (1 << BPER_MB_NORMBITS));
+	//
+	// The `.5 + rcf * bpm[Q]` term is evaluated in double precision and
+	// then multiplied by MBs (also promoted to double) BEFORE being cast
+	// to int and divided by `1 << BPER_MB_NORMBITS`. Govpx historically
+	// truncated to int per-MB (after the `.5 + rcf * bpm[Q]` step) and
+	// then multiplied by MBs in integer space; that drops the
+	// sub-NORMBIT fractional bits-per-MB on every iteration and shifts
+	// the rate-correction-factor trajectory by ~0.001 per recode step.
+	// On long recode loops (cq56-best 5-iteration KF, q20-good
+	// 5-iteration KF) the cumulative drift lands govpx one Q step above
+	// libvpx, breaking byte parity. Port libvpx's double-precision
+	// multiplication verbatim.
+	bitsAtQTimesMBs := (0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][q])) * float64(macroblocks)
+	return int(bitsAtQTimesMBs) >> libvpxBPerMBNormBits
 }
 
 // libvpxEstimatedBitsAtQuantizerWithZbin mirrors the post-encode projection in

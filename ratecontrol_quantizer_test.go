@@ -645,11 +645,24 @@ func TestRateControlTracksLibvpxLastInterQuantizer(t *testing.T) {
 	}
 }
 
-func TestLibvpxEstimatedBitsAtQuantizerUsesLargeMacroblockPath(t *testing.T) {
-	macroblocks := (1 << 11) + 1
-	want := (libvpxBitsPerMB[1][24] >> libvpxBPerMBNormBits) * macroblocks
-	if got := libvpxEstimatedBitsAtQuantizer(1, 24, macroblocks, 1.0); got != want {
-		t.Fatalf("large-macroblock estimate = %d, want %d", got, want)
+func TestLibvpxEstimatedBitsAtQuantizerMatchesLibvpxFormula(t *testing.T) {
+	// libvpx vp8/encoder/ratectrl.c vp8_update_rate_correction_factors:
+	//   projected_size_based_on_q =
+	//       (int)(((.5 + rate_correction_factor *
+	//                        vp8_bits_per_mb[frame_type][Q]) *
+	//              cpi->common.MBs) /
+	//             (1 << BPER_MB_NORMBITS));
+	// The fractional bits-per-MB carry through the *MBs multiplication
+	// before being truncated; precision matters for the cumulative
+	// rate-correction-factor trajectory on long recode loops.
+	for _, mb := range []int{1, 60, 1024, (1 << 11) + 1, 3600} {
+		for _, q := range []int{0, 24, 64, 96, 127} {
+			rcf := 1.5
+			want := int((0.5+rcf*float64(libvpxBitsPerMB[1][q]))*float64(mb)) >> libvpxBPerMBNormBits
+			if got := libvpxEstimatedBitsAtQuantizer(1, q, mb, rcf); got != want {
+				t.Fatalf("estimate(q=%d, mb=%d) = %d, want %d", q, mb, got, want)
+			}
+		}
 	}
 }
 

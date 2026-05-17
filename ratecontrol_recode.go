@@ -332,10 +332,25 @@ func (rc *rateControlState) minimumFrameBandwidthBits() int {
 	return minTarget
 }
 
+// clampedFrameQuantizerValue clamps the recode-loop's Q to the libvpx
+// [active_best_quality, active_worst_quality] envelope. libvpx's recode loop
+// (vp8/encoder/onyx_if.c lines 4087-4090 and 4224-4227) only clamps the
+// chosen Q to `q_low` / `q_high`, which are seeded once from
+// `cpi->active_best_quality` / `cpi->active_worst_quality` and then narrowed
+// across iterations. The CQ floor (cq_target_quality) is enforced
+// *implicitly* through `active_best_quality`: libvpx's
+// `vp8_pick_frame_size` / surrounding setup pins active_best_quality to
+// best_quality for KEY_FRAME / refresh_golden / refresh_alt_ref (line 3733)
+// and to cq_target_quality for inter non-refresh frames (line 3735). Govpx
+// already mirrors that gate in libvpxActiveQuantizerBoundsForFrame, so by
+// the time we reach the recode-loop tail, `recode.qLow` already encodes the
+// correct floor (best_quality for refreshes, cq_level for inter).
+// Re-applying clampedCQQuantizerValue here would re-floor the KF / refresh
+// frames at cq_level — diverging from libvpx, which lets a KF recode down
+// to best_quality. Use the plain [minQuantizer, maxQuantizer] envelope and
+// rely on the qLow/qHigh clamp earlier in the recode body for the
+// per-frame-kind floor.
 func (rc *rateControlState) clampedFrameQuantizerValue(q int) int {
-	if rc.cqFloorActive() {
-		return rc.clampedCQQuantizerValue(q)
-	}
 	return rc.clampedQuantizerValue(q)
 }
 

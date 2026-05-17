@@ -258,14 +258,30 @@ func TestOracleEncoderStreamByteParityProductionConstantQuality(t *testing.T) {
 			deadline: DeadlineGoodQuality,
 			cpuUsed:  4,
 		},
-		// Deferred: webrtc-720p-cq56-best-cpu0 (recode_loop=1
-		// BestQuality high-CQ ceiling) and webrtc-720p-q20-good-cpu0
-		// (recode_loop=1 GoodQuality Q-mode) reveal pre-existing
-		// inter-rate-correction divergences at recode_loop=1 +
-		// production resolutions. The picked Q matches libvpx within
-		// 1-2 indices but the regulator chooses a different activeBest
-		// table lookup before recode converges. Tracked separately
-		// from this port; do not gate parity on these fixtures yet.
+		{
+			name:     "webrtc-720p-cq56-best-cpu0-3f",
+			width:    1280,
+			height:   720,
+			frames:   3,
+			fps:      30,
+			bitrate:  1500,
+			rcMode:   RateControlCQ,
+			cqLevel:  56,
+			deadline: DeadlineBestQuality,
+			cpuUsed:  0,
+		},
+		{
+			name:     "webrtc-720p-q20-good-cpu0-3f",
+			width:    1280,
+			height:   720,
+			frames:   3,
+			fps:      30,
+			bitrate:  1500,
+			rcMode:   RateControlQ,
+			cqLevel:  20,
+			deadline: DeadlineGoodQuality,
+			cpuUsed:  0,
+		},
 		{
 			name:     "webrtc-720p-q40-good-cpu4-3f",
 			width:    1280,
