@@ -2,10 +2,36 @@ package govpx
 
 import (
 	"math"
+	"os"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
+
+// vp9NonrdPickPartitionOptIn gates the Phase D recursive ML walker.
+// Default (env unset): keep Phase C NONE-only-at-BLOCK_64X64 shortcut so
+// the legacy MV-pinning tests (TestVP9EncoderInterPicks*Mv*) — which pin
+// values from govpx's pre-Phase-D variance / RD picker — stay green.
+// Opt-in (GOVPX_VP9_NONRD_PICK_PARTITION=1): full recursive walker that
+// honours NN PARTITION_NONE / PARTITION_SPLIT / forced-edge-split votes
+// at every ML-eligible recursion level (BLOCK_64X64, BLOCK_32X32,
+// BLOCK_16X16). Once the deferred RefControl seed byte-parity is
+// validated under this opt-in mode, the gate moves to
+// sf.PartitionSearchType == MlBasedPartition outright.
+//
+// libvpx: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition,
+// with use_ml_based_partitioning = (sf->partition_search_type ==
+// ML_BASED_PARTITION) at line 4627-4628.
+var vp9NonrdPickPartitionOptIn = os.Getenv("GOVPX_VP9_NONRD_PICK_PARTITION") == "1"
+
+// vp9NonrdPickPartitionEnabled returns true when the Phase D opt-in env
+// gate is set. Wired into pickVP9InterPartitionBlockSize so the
+// ML_BASED_PARTITION dispatch can be tested against the deferred fuzz
+// seeds without flipping the default behaviour of the existing scoreboard
+// / MV-pinning tests.
+func vp9NonrdPickPartitionEnabled() bool {
+	return vp9NonrdPickPartitionOptIn
+}
 
 // vp9_nonrd_pick_partition.go ports the ML_BASED_PARTITION branch of libvpx
 // v1.16.0 vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition into

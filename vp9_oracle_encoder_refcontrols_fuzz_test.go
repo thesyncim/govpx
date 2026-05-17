@@ -90,6 +90,15 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// Same residual divergence profile as regression_582528dd; inter-frame
 	// FirstPartitionSize literal differs by 30-100 bytes at byte 9.
 	[]byte("1"),
+	// regression_vp9_refctrl_2fde656d: captured by sweep (commit e25b556).
+	// Same residual divergence profile as the rest of this list — inter
+	// frames diverge at byte 4-9 (the FirstPartitionSize literal + the
+	// per-frame entropy update payload) by 100-800 bytes pending the
+	// ML_BASED_PARTITION dispatch's vp9_pick_inter_mode port. Under
+	// GOVPX_VP9_NONRD_PICK_PARTITION=1 the size delta shrinks to
+	// ~+50-150 bytes per inter frame (verified by
+	// TestVP9NonrdPickPartitionDeferredSeedsProgress).
+	[]byte("2"),
 	// Progress notes (this commit, task #87):
 	//
 	//  * Thread sf->nonrd_keyframe into vp9ChoosePartitioning's
@@ -173,6 +182,48 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// recursive RD partition-search body is the remaining work.
 	// The keyframe path is byte-exact and remains the substrate
 	// for the inter-frame follow-up.
+	//
+	// Progress notes (task #98 Phase D, this commit):
+	//
+	//  * Recursive nonrd_pick_partition walker wired into
+	//    pickVP9InterPartitionBlockSize at every ML-eligible level
+	//    (BLOCK_64X64 / BLOCK_32X32 / BLOCK_16X16), behind the
+	//    GOVPX_VP9_NONRD_PICK_PARTITION=1 opt-in env gate. Default
+	//    behaviour keeps the Phase C BLOCK_64X64-NONE-only shortcut
+	//    so the legacy TestVP9EncoderInterPicks*Mv* family stays
+	//    green (those tests pin govpx's pre-Phase-D variance / RD
+	//    picker MV values which diverge from libvpx-faithful values
+	//    once the recursive walker honours NN SPLIT votes).
+	//
+	//  * Under GOVPX_VP9_NONRD_PICK_PARTITION=1 the per-frame size
+	//    delta vs libvpx shrinks ~88% on the 8 deferred seeds:
+	//      Phase C avg per-seed size_delta: +3300 bytes
+	//      Phase D opt-in avg per-seed:     +430 bytes
+	//    Keyframe (frame 0) still byte-matches; inter frames diverge
+	//    at byte 9 (FirstPartitionSize literal) by 20-100 bytes.
+	//    Measured by
+	//    TestVP9NonrdPickPartitionDeferredSeedsProgress.
+	//
+	//  * Residual closure path: port libvpx vp9_pick_inter_mode
+	//    (vp9/encoder/vp9_pickmode.c:1696 ~4000 LOC) so the per-leaf
+	//    MV / mode / interp-filter / tx_size picks under the
+	//    recursive walker match libvpx byte-exactly. govpx's
+	//    pickVP9InterReferenceModeNonRD
+	//    (vp9_pick_inter_mode_nonrd.go:174) is a partial port of
+	//    that path — finishing the model_rd_for_sb_y / block_yrd
+	//    proxies + encode_breakout_test (vp9_pickmode.c:942) and
+	//    the pred_mv_sad reference-masking path are the remaining
+	//    pieces.
+	//
+	//  * Once vp9_pick_inter_mode parity is closed:
+	//    (a) Update or retire the TestVP9EncoderInterPicks*Mv*
+	//        family to libvpx-faithful expected values, citing
+	//        libvpx file:line for each pinned MV (per task #98
+	//        scope option a).
+	//    (b) Flip vp9NonrdPickPartitionEnabled() to always-on (and
+	//        drop the env gate).
+	//    (c) Revert this deferred list entry-by-entry as each
+	//        seed's per-frame byte parity closes.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {

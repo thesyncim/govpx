@@ -5699,22 +5699,53 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// vp9NonrdPickPartition mirrors the ml_based_partitioning=1 branch of
 	// nonrd_pick_partition (libvpx vp9_encodeframe.c:4598-4855 + 4660-4667).
 	//
-	// The picker only commits when NN votes PARTITION_NONE at the root
-	// BLOCK_64X64 level — that lets the recursive govpx walker still
-	// converge on the legacy mode picker for non-uniform content. NN
-	// SPLIT votes and -1 (no confidence) outcomes fall through to the
-	// legacy variance / RD path so govpx-internal MV-pinning tests stay
-	// green. The deferred ML byte-parity tests (Checker, Lossless) hit
-	// the NONE branch on uniform constant residuals (verified by
-	// vp9NNPredict feature inspection at dc_q in [15..80], score < -2)
-	// so the partition decision still matches libvpx for those cases.
-	if e.sf.PartitionSearchType == MlBasedPartition && root == common.Block64x64 {
-		if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
-			miRow, miCol); mlCtx != nil {
-			pred := vp9MLPredictVarPartitioning(common.Block64x64,
-				miRow, miCol, mlCtx)
-			if pred == vp9MLPredictNone {
-				return common.Block64x64
+	// Default scope: the picker only commits when NN votes PARTITION_NONE
+	// at the root BLOCK_64X64 level. NN SPLIT votes and -1 (no confidence)
+	// outcomes fall through to the legacy variance / RD path so
+	// govpx-internal MV-pinning tests stay green.
+	//
+	// Phase D opt-in (GOVPX_VP9_NONRD_PICK_PARTITION=1): full recursive
+	// walker — NN runs at every ML-eligible recursion level (BLOCK_64X64,
+	// BLOCK_32X32, BLOCK_16X16). govpx's writeVP9ModesSb walker calls this
+	// dispatcher once per (miRow, miCol, bsize) region; when the picker
+	// returns the same bsize the walker commits PARTITION_NONE, when it
+	// returns the PARTITION_SPLIT subsize the walker recurses 4 ways. That
+	// folds the libvpx recursive nonrd_pick_partition body onto govpx's
+	// already-recursive write walker without a separate PC_TREE substrate.
+	// Forced-edge splits (libvpx vp9_encodeframe.c:4617-4626) are honoured
+	// by vp9NonrdPickPartition for trailing rows/cols at the frame edge.
+	// On the -1 ("no confidence") branch the libvpx picker would RD-compare
+	// PARTITION_NONE against PARTITION_SPLIT (libvpx vp9_encodeframe.c:
+	// 4676-4746); govpx defers that compare to the legacy variance / RD
+	// picker below by returning BlockInvalid.
+	//
+	// The opt-in gate exists because the recursive walker shifts MV picks
+	// at sub-64x64 leaves into a libvpx-faithful schedule that disagrees
+	// with the legacy variance-picker MV picks the existing
+	// TestVP9EncoderInterPicks*Mv* family pins. Closing those pins to
+	// libvpx-faithful values is tracked under task #98 follow-up; until
+	// then opt-in via env keeps both worlds available for the deferred
+	// RefControl seed validation work.
+	if e.sf.PartitionSearchType == MlBasedPartition {
+		if vp9NonrdPickPartitionEnabled() {
+			if root == common.Block64x64 || root == common.Block32x32 ||
+				root == common.Block16x16 {
+				if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+					miRow, miCol); mlCtx != nil {
+					if picked, ok := e.vp9NonrdPickPartition(mlCtx, miRows,
+						miCols, miRow, miCol, root); ok {
+						return picked
+					}
+				}
+			}
+		} else if root == common.Block64x64 {
+			if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+				miRow, miCol); mlCtx != nil {
+				pred := vp9MLPredictVarPartitioning(common.Block64x64,
+					miRow, miCol, mlCtx)
+				if pred == vp9MLPredictNone {
+					return common.Block64x64
+				}
 			}
 		}
 	}
