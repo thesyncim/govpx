@@ -550,6 +550,17 @@ func vp9PredVariance(src []uint8, srcStride int, srcX, srcY int,
 //   - If only one axis triggers a forced split, we still funnel through the
 //     NN. The downstream caller honours the partition direction.
 //
+// Audit note (#147): the -1 branch above ("no confidence") is the residual
+// divergence vs libvpx for the deferred RefControl seeds (e.g. d4735e3a /
+// ASCII "2", 64x64@speed8). libvpx's nonrd_pick_partition lines 4675-4746
+// RD-compares PARTITION_NONE vs PARTITION_SPLIT (running nonrd_pick_sb_modes
+// for each candidate and picking by RDCOST). govpx instead falls back to the
+// legacy variance / RD picker which commits a single level. The full RD
+// compare requires the vp9_pick_inter_mode (vp9_pickmode.c:1696) port that
+// the deferred-seeds list already tracks — see vp9_oracle_encoder_refcontrols_-
+// fuzz_test.go:218-228. The leaf-density gap on flat panning sources at the
+// d4735e3a fixture is ~16 leaves (govpx) vs 256+ (libvpx) per task #138.
+//
 // libvpx ref: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition
 // with use_ml_based_partitioning=1.
 func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,

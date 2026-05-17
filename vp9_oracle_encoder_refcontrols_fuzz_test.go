@@ -251,6 +251,99 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//   path above (vp9_pick_inter_mode port for the per-leaf MV /
 	//   tx_size / interp picks) is still required before any seed
 	//   un-defers.
+	//
+	// Progress notes (task #119, this commit):
+	//
+	//  * Ported the libvpx-faithful find_predictors frame_mv[mode][ref]
+	//    pre-population into pickVP9InterReferenceModeNonRD (libvpx
+	//    vp9_pickmode.c:1710 + 2002-2012). The picker now walks
+	//    vp9FindInterMvRefsFields once per ref to populate NEAREST/
+	//    NEAR MVs outside the main candidate loop, replacing the
+	//    per-iteration vp9EncoderInterModeCandidateMv re-walk.
+	//
+	//  * Ported the libvpx-exact dedup checks at vp9_pickmode.c:
+	//    2269-2278 (mode_checked walk) and 2296-2299 (NEARESTMV
+	//    duplicate-MV skip). The earlier narrow bp.winner-based
+	//    dedup is replaced with the full mode_checked[mode][ref]
+	//    table the libvpx walker maintains.
+	//
+	//  * Per-seed size_delta vs libvpx under the Phase D opt-in
+	//    after this commit (verified by
+	//    TestVP9NonrdPickPartitionDeferredSeedsProgress):
+	//
+	//      af5570f5: +42, b9af55f0: -91, fda5b6b4: -192,
+	//      ffa55725: -49, 8ec0abe5: +72, 9c3e08e8: +420,
+	//      5feceb66: -285, 6b86b273: -131, d4735e3a: -502.
+	//
+	//    Aggregate: -716 bytes (avg -80B/seed). Pre-#119 baseline
+	//    was +3900 bytes aggregate (avg +430B/seed) — the dedup
+	//    port changed the sign of the bias and tightens the
+	//    distribution. Seeds still don't byte-match because the
+	//    residual is now structural: the per-block (tx_size,
+	//    interp_filter) decisions still differ from libvpx where
+	//    pickVP9InterTxSize runs a variance-RDO instead of
+	//    libvpx's verbatim calculate_tx_size output (the latter is
+	//    surfaced by vp9ModelRdForSbY but currently overridden by
+	//    the leaf-commit pickVP9InterTxSize hook).
+	//
+	//  * Remaining closure path: route the picker's mrdTxSize
+	//    (already computed via vp9ModelRdForSbY at the per-mode
+	//    inner loop) into the leaf commit so the picker's tx_size
+	//    decision survives end-to-end, bypassing the variance-RDO
+	//    pickVP9InterTxSize. That requires threading a TxSize
+	//    field through vp9InterModeDecision and updating the
+	//    consumers in prepareVP9InterBlockResidue
+	//    (vp9_encoder.go:8498/8513).
+	//
+	// Progress notes (task #148, this commit):
+	//
+	// Re-measurement after the following landings since f5fe476 (#142):
+	//
+	//   * 838691b token-cost (vp9KeyframeCoeffBlockRateCost) reconcile
+	//   * b87ff4d super_block_uvrd + rd_pick_intra_sbuv_mode port
+	//   * 404c7dd intra-only coef counts pass via KeyframeSource
+	//   * 7017378 nonrd block_yrd compare + breakout (already in #142)
+	//   * Phase E1b/E1c/E3 chain (already in #142)
+	//
+	// Per-seed aggregate size_delta (sum across all frames) under the
+	// three gate combos (verified by TestVP9DeferredSeedsRemeasureRefControl):
+	//
+	//   Default (no opt-in):
+	//     af5570f5: +2541, b9af55f0: +3021, fda5b6b4: +3529,
+	//     ffa55725: +2993, 8ec0abe5: +3511, 9c3e08e8: +2779,
+	//     5feceb66: +3158, 6b86b273: +4060, d4735e3a: +5022,
+	//     7902699b: +3121. Aggregate: +33735 / avg +3373 per seed.
+	//
+	//   GOVPX_VP9_NONRD_PICK_PARTITION=1 (Phase D opt-in alone):
+	//     af5570f5: +55, b9af55f0: -105, fda5b6b4: +204,
+	//     ffa55725: +43, 8ec0abe5: +304, 9c3e08e8: +483,
+	//     5feceb66: +65, 6b86b273: +549, d4735e3a: +380,
+	//     7902699b: +24. Aggregate: +2002 / avg +200 per seed.
+	//
+	//   Both gates ON (NONRD_PICK_PARTITION=1 + LIBVPX_CHOOSE_PARTITIONING=1):
+	//     Identical to NONRD-only column on RefControl seeds —
+	//     LIBVPX_CHOOSE_PARTITIONING ON is a no-op once Phase D opt-in
+	//     fires because vp9RealtimeVariancePartitionEnabled() defers to
+	//     ML_BASED_PARTITION at cpu_used>=8 anyway (see #87 dispatch
+	//     notes above).
+	//
+	// Comparison to f5fe476 (#142) Phase D baseline: every per-seed
+	// delta is IDENTICAL byte-for-byte. The four landings above
+	// (token-cost reconcile / super_block_uvrd / intra-only counts /
+	// block_yrd / Phase E chain) did NOT shift the RefControl
+	// keyframe-frame-0 byte parity nor the inter-frame size_delta on
+	// these seeds. The keyframe still under-shoots by 26 bytes
+	// (got=3014 want=3040 first_byte_diff=17) on every seed because
+	// these landings target inter-frame / keyframe-RD-internal paths
+	// that the RefControl fixture does not exercise on the keyframe
+	// compressed-header literal that drives the byte-9 gap.
+	//
+	// Gate-flip recommendation: NOT YET. RefControl Phase D aggregate
+	// residual remains +200B/seed (above the +/-50B target) and
+	// keyframe byte parity is still RED on all 10 seeds. Same
+	// closure path as #142: route mrdTxSize through leaf commit
+	// (vp9_encoder.go:8498/8513) AND close the keyframe -26 byte
+	// first_byte_diff=17 regression.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {

@@ -100,9 +100,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
 	recode.activeWorstQChanged = rc.relaxActiveWorstQuantizerForOvershoot(actualBits, overshootLimit, q, recode)
 	rc.activeWorstQChanged = recode.activeWorstQChanged
-	println("RTRACE_IN", q, actualBits, targetBits, undershootLimit, overshootLimit, recode.qLow, recode.qHigh, recode.loopLow, recode.loopHigh, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 	if !rc.shouldRecodeFrameSize(actualBits, undershootLimit, overshootLimit, q, keyFrame, goldenFrame, recode) {
-		println("RTRACE_STOP", q, actualBits, targetBits, recode.qLow, recode.qHigh, recode.loopLow, recode.loopHigh, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 		return rc.clampedFrameQuantizerValue(q), false
 	}
 
@@ -195,7 +193,6 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 		recode.zbinOverQuant = 0
 	}
 	rc.setRateCorrectionFactorForFrame(keyFrame, goldenFrame, recode.correctionFactor)
-	println("RTRACE_OUT", q, next, recode.zbinOverQuant, recode.qLow, recode.qHigh, recode.loopLow, recode.loopHigh, recode.activeBest, recode.activeWorst, recode.correctionFactor, recode.overshootSeen, recode.undershootSeen)
 	return rc.clampedFrameQuantizerValue(next), true
 }
 

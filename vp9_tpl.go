@@ -505,7 +505,7 @@ func vp9TPLBlockSelfVariance(src *image.YCbCr, sbRow, sbCol int) uint32 {
 	const pixels = vp9TPLSBSize * vp9TPLSBSize
 	// variance = sse - (sum*sum)/pixels.
 	mean := sum / pixels
-	v := min(max(sse-mean*sum, 0), math.MaxUint32)
+	v := min(max(int64(sse-mean*sum), 0), int64(math.MaxUint32))
 	return uint32(v)
 }
 

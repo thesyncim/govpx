@@ -33,9 +33,21 @@ import "math"
 //     layer_depth > 1) require cpi->multi_layer_arf and the lookahead
 //     buffer fan-out that govpx's single-ARF lookahead does not yet
 //     model. The vp9FindARFOrder closure for `calc_arf_boost` therefore
-//     ignores the libvpx `mid` advance (vp9_firstpass.c:2180-2185) — at
-//     depth=1 the leaf branch is taken so the boost-anchor never
-//     diverges in practice.
+//     ignores the libvpx `mid`-frame stats_in advance
+//     (vp9_firstpass.c:2180-2185). This divergence is currently
+//     unreachable: libvpx's vp9DefineGFGroupStructure (mirroring
+//     vp9_firstpass.c:2218-2255) enters find_arf_order at depth=1 when
+//     source_alt_ref_pending=false (with allowed_max_layer_depth pinned
+//     at 0, so `depth(1) > 0` selects the leaf branch) and at depth=2
+//     when source_alt_ref_pending=true (with allowed_max_layer_depth =
+//     oxcf.enable_auto_arf). govpx pins EnableAutoARF=1
+//     unconditionally (vp9_twopass.go:272) and exposes no option to
+//     raise it; in libvpx, the recursive ARF case is only entered when
+//     enable_auto_arf >= 2, which also flips cpi->multi_layer_arf=1
+//     (vp9_encoder.c:6157). Audited at task #126: no fuzz seed or test
+//     fixture sets EnableAutoARF != 1 or MultiLayerARF=true; the
+//     C-oracle command lines use --auto-alt-ref in {0,1} only. Port
+//     when govpx surfaces a multi-layer ARF option.
 //   - kf_zeromotion_pct STATIC_MOTION_THRESH consumer in
 //     pick_kf_q_bound_two_pass (vp9_ratectrl.c:1378). The
 //     find_next_key_frame accumulator that feeds this is not yet
@@ -862,6 +874,13 @@ func vp9DefineGFGroupStructure(gf *vp9GFGroup, in vp9GFGroupInputs) {
 	// libvpx: find_arf_order(cpi, gf_group, &frame_index, layer_depth, 1, gop_frames)
 	// Multi-ARF deeper recursion deferred (see file header). We provide a
 	// per-call closure for calc_arf_boost when allowed_max_layer_depth>1.
+	// Audited at task #126: with EnableAutoARF=1 pinned and
+	// MultiLayerARF=false, both find_arf_order entries (depth=1 with
+	// allowed_max=0 when SourceAltRefPending=false, depth=2 with
+	// allowed_max=1 when SourceAltRefPending=true) hit
+	// `depth > allowed_max_layer_depth` and take the leaf branch. The
+	// closure below is never invoked under current govpx options; left in
+	// place so the recursion lights up cleanly when multi-layer ARF lands.
 	calcArfBoost := func(fFrames, bFrames int) int {
 		// libvpx call site (find_arf_order line ~2185) passes
 		// arfShowIdx == twopass_stats_in advanced by `mid` frames from

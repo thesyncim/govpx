@@ -31,6 +31,31 @@ var CoefConTree = [16]int8{
 	-Category5Tok, -Category6Tok,
 }
 
+// CoefTree mirrors libvpx's vp9_coef_tree (vp9/encoder/vp9_tokenize.c:75)
+// — the full 11-internal-node tree over all 12 entropy tokens, including
+// the three unconstrained nodes (EOB, ZERO, ONE) that the encoder writes
+// directly before walking the pareto8-modeled tail. The table drives
+// libvpx's fill_token_costs (vp9/encoder/vp9_rd.c:135-152) via
+// vp9_cost_tokens; govpx exposes it so the Go-side pinning test can
+// replay the same walk against the libvpx-oracle cost blob byte-for-byte.
+//
+// Internal nodes are positive offsets into the array (always even);
+// leaves are -token_class, mapping to the indices in
+// vp9_entropy.h:27-38 (ZERO_TOKEN..EOB_TOKEN).
+var CoefTree = [22]int8{
+	-EobToken, 2, //         0  = EOB
+	-ZeroToken, 4, //        1  = ZERO
+	-OneToken, 6, //         2  = ONE
+	8, 12, //                3  = LOW_VAL
+	-TwoToken, 10, //        4  = TWO
+	-ThreeToken, -FourToken, //  5  = THREE
+	14, 16, //                6  = HIGH_LOW
+	-Category1Tok, -Category2Tok, // 7 = CAT_ONE
+	18, 20, //                       8 = CAT_THREEFOUR
+	-Category3Tok, -Category4Tok, // 9 = CAT_THREE
+	-Category5Tok, -Category6Tok, // 10 = CAT_FIVE
+}
+
 // CoefEncoding mirrors libvpx's struct vp9_token — the (value, len)
 // bit pattern that walks CoefConTree to the matching leaf. The
 // encoder picks Encodings[token].Value and emits its top `Len` bits

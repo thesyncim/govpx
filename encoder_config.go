@@ -293,7 +293,9 @@ func (e *VP8Encoder) setFrameDropFromThresh(thresh int) {
 
 func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 	thresh := e.opts.DropFrameWaterMark
-	if !enabled {
+	if enabled && thresh == 0 {
+		thresh = defaultDropFramesWaterMark
+	} else if !enabled {
 		thresh = 0
 	}
 	e.setFrameDropFromThresh(thresh)
