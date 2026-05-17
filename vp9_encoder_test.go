@@ -3080,8 +3080,14 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadUncompressedHeader inter: %v", err)
 	}
-	if interHeader.InterpFilter != vp9dec.InterpEighttap {
-		t.Fatalf("inter header InterpFilter = %d, want Eighttap",
+	// libvpx vp9/encoder/vp9_encoder.c:2141 sets cm->interp_filter =
+	// cpi->sf.default_interp_filter, and the speed-features configurator
+	// (vp9/encoder/vp9_speed_features.c:1008) initialises that to
+	// SWITCHABLE. The per-block 3-filter RD search in
+	// pickVP9InterMode / pickVP9InterModeNonrd then selects the
+	// winning eighttap / smooth / sharp filter per MI.
+	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
+		t.Fatalf("inter header InterpFilter = %d, want Switchable",
 			interHeader.InterpFilter)
 	}
 
@@ -6598,8 +6604,10 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if !interHeader.AllowHighPrecisionMv {
 		t.Error("AllowHighPrecisionMv = false, want true")
 	}
-	if interHeader.InterpFilter != vp9dec.InterpEighttap {
-		t.Errorf("InterpFilter = %d, want Eighttap", interHeader.InterpFilter)
+	// libvpx default_interp_filter = SWITCHABLE
+	// (vp9/encoder/vp9_speed_features.c:1008).
+	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
+		t.Errorf("InterpFilter = %d, want Switchable", interHeader.InterpFilter)
 	}
 	if interHeader.FirstPartitionSize == 0 {
 		t.Fatal("FirstPartitionSize = 0 (compressed header empty)")

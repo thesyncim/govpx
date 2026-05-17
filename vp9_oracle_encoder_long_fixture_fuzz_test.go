@@ -30,20 +30,20 @@ import (
 // Deferred seeds:
 //
 //   - {0,0,0,0,0} — CBR 300kbps kf=999 realtime cpu8. Frame 0 matches (post
-//     d248324). Frame 1 diverges because govpx hardcodes interp_filter to
-//     EIGHTTAP in vp9_encoder.go vp9EncoderFrameInterpFilter while libvpx's
-//     default_interp_filter = SWITCHABLE
-//     (vp9/encoder/vp9_speed_features.c:1008) is the cpu_used=8 default,
-//     downgraded to BILINEAR only at speed>=9 with avg_frame_low_motion<70
-//     (vp9_speed_features.c:812). Porting the SWITCHABLE path needs the
-//     vp9_pickmode.c set-best filter loop on every inter block.
+//     d248324). Frame 1 still diverges; the interp_filter gap (SWITCHABLE
+//     per vp9/encoder/vp9_speed_features.c:1008) is closed — govpx now
+//     reads sf.DefaultInterpFilter into the uncompressed header — but the
+//     residual divergence on frame 1 stems from the remaining
+//     cpu_used=8-only encoder coverage (mode picker / counts / coef-update
+//     payload) listed below; matched-prefix remains at 1/256.
 //
-//   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. Same interp_filter gap
-//     as seed#0 plus the cpu_used=4 realtime speed-features path
-//     (vp9/encoder/vp9_speed_features.c set_rt_speed_feature_framesize_*
-//     @ speed_features.c:414+, 452+) which govpx covers only at cpu=8.
-//     The forced KF at frame 30 also exercises the kf_boost ramp now
-//     landed in d248324 but inter frames between KFs diverge first.
+//   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. Interp_filter gap
+//     closed; the residual divergence is the cpu_used=4 realtime
+//     speed-features path (vp9/encoder/vp9_speed_features.c
+//     set_rt_speed_feature_framesize_* @ speed_features.c:414+, 452+)
+//     which govpx covers only at cpu=8. The forced KF at frame 30 also
+//     exercises the kf_boost ramp now landed in d248324 but inter frames
+//     between KFs diverge first.
 //
 //   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. Frame 0 header parses
 //     identically through Quant.BaseQindex=29 / Loopfilter.FilterLevel=3,
@@ -57,9 +57,9 @@ import (
 //
 //   - {1,1,1,1,0} — VBR 700kbps kf=30 good-quality cpu8. Same compressed-
 //     header gap as the previous seed plus the GoodQuality speed-features
-//     path. cpi->sf.default_interp_filter @
-//     vp9/encoder/vp9_speed_features.c:1008 leaves interp_filter SWITCHABLE
-//     for good-quality / cpu_used=8.
+//     path. The interp_filter SWITCHABLE handshake matches libvpx now
+//     (cpi->sf.default_interp_filter @ vp9_speed_features.c:1008), but the
+//     compressed-header divergence still defers the seed.
 //
 //   - {0,2,0,0,2} — CBR 1200kbps kf=999 realtime cpu0. cpu_used=0 selects
 //     a different partition_search_type, default_interp_filter, and

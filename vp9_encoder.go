@@ -2373,7 +2373,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			e.fc = e.frameContexts[frameContextIdx]
 		}
 	}()
-	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly,
+	header.InterpFilter = e.vp9EncoderFrameInterpFilter(isKey, header.IntraOnly,
 		header.Quant.Lossless)
 	if !isKey && !header.IntraOnly && vp9InterReferenceMask(flags) == 0 {
 		header.InterpFilter = vp9dec.InterpSwitchable
@@ -3579,8 +3579,37 @@ func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 	return common.Only4x4
 }
 
-func vp9EncoderFrameInterpFilter(isKey, intraOnly, lossless bool) vp9dec.InterpFilter {
-	return vp9dec.InterpEighttap
+// vp9EncoderFrameInterpFilter mirrors libvpx's frame-level interp_filter
+// assignment at vp9/encoder/vp9_encoder.c:2141 —
+//
+//	cm->interp_filter = cpi->sf.default_interp_filter;
+//
+// The speed-features configurator
+// (vp9/encoder/vp9_speed_features.c:1008) initialises
+// default_interp_filter to SWITCHABLE for every speed; only the
+// realtime cpu_used>=9 low-motion gate at vp9_speed_features.c:812
+// downgrades it to BILINEAR. All other speeds (including cpu_used=8
+// realtime and good-quality) inherit SWITCHABLE, which enables the
+// per-block 3-filter RD search already wired through
+// vp9_pick_inter_mode_nonrd.go (filterRef / predFilterSearch loop)
+// and pickVP9InterMode (vp9InterInterpFilterCandidates).
+//
+// Lossless / keyframe / intra-only frames carry the same field —
+// libvpx does not special-case them at this assignment site; the
+// uncompressed-header writer omits the field for intra-only frames
+// (header_writer.go:196) so the value is harmless for those frame
+// types.
+func (e *VP9Encoder) vp9EncoderFrameInterpFilter(isKey, intraOnly, lossless bool) vp9dec.InterpFilter {
+	if e == nil {
+		return vp9dec.InterpEighttap
+	}
+	filter := e.sf.DefaultInterpFilter
+	if filter > vp9dec.InterpSwitchable {
+		// Unset / out-of-range falls back to the libvpx initial value
+		// at vp9_speed_features.c:1008.
+		return vp9dec.InterpSwitchable
+	}
+	return filter
 }
 
 func vp9EncoderFrameAllowHighPrecisionMv(isKey, intraOnly bool) bool {
