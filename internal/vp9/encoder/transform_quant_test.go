@@ -494,3 +494,627 @@ func TestVP9QuantizeFPMatchesLibvpxContract(t *testing.T) {
 		})
 	}
 }
+
+// referenceQuantizeFP32x32C is the byte-identical Go transcription of
+// libvpx v1.16.0 vp9_quantize_fp_32x32_c (vp9/encoder/vp9_quantize.c:92).
+// Kept verbatim — do not optimise.
+func referenceQuantizeFP32x32C(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
+	for i := range nCoeffs {
+		qcoeff[i] = 0
+		dqcoeff[i] = 0
+	}
+	eob := -1
+	for i := range nCoeffs {
+		rc := int(scan[i])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		c := int(coeff[rc])
+		coeffSign := 0
+		if c < 0 {
+			coeffSign = -1
+		}
+		absCoeff := (c ^ coeffSign) - coeffSign
+		tmp := 0
+		if absCoeff >= int(dequant[slot])>>2 {
+			// abs_coeff += ROUND_POWER_OF_TWO(round_ptr[rc != 0], 1)
+			absCoeff += (int(roundFP[slot]) + 1) >> 1
+			// clamp(abs_coeff, INT16_MIN, INT16_MAX)
+			if absCoeff > 32767 {
+				absCoeff = 32767
+			}
+			if absCoeff < -32768 {
+				absCoeff = -32768
+			}
+			tmp = (absCoeff * int(quantFP[slot])) >> 15
+			// qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign
+			q := (tmp ^ coeffSign) - coeffSign
+			qcoeff[rc] = int16(q)
+			// dqcoeff_ptr[rc] = qcoeff_ptr[rc] * dequant_ptr[..] / 2  (qcoeff is tran_low_t/int16 here)
+			dqcoeff[rc] = int16(int(qcoeff[rc]) * int(dequant[slot]) / 2)
+		}
+		if tmp != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+// referenceQuantizeBC is the byte-identical Go transcription of libvpx
+// v1.16.0 vpx_quantize_b_c (vpx_dsp/quantize.c:118). Kept verbatim — do
+// not optimise.
+func referenceQuantizeBC(coeff []int16, nCoeffs int,
+	zbin, round, quant, quantShift, dequant [2]int16,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
+	for i := range nCoeffs {
+		qcoeff[i] = 0
+		dqcoeff[i] = 0
+	}
+	zbins := [2]int{int(zbin[0]), int(zbin[1])}
+	nzbins := [2]int{-zbins[0], -zbins[1]}
+	nonZeroCount := nCoeffs
+	for i := nCoeffs - 1; i >= 0; i-- {
+		rc := int(scan[i])
+		c := int(coeff[rc])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		if c < zbins[slot] && c > nzbins[slot] {
+			nonZeroCount--
+		} else {
+			break
+		}
+	}
+	eob := -1
+	for i := 0; i < nonZeroCount; i++ {
+		rc := int(scan[i])
+		c := int(coeff[rc])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		coeffSign := 0
+		if c < 0 {
+			coeffSign = -1
+		}
+		absCoeff := (c ^ coeffSign) - coeffSign
+		if absCoeff >= zbins[slot] {
+			tmp := max(min(absCoeff+int(round[slot]), 32767), -32768)
+			tmp = ((((tmp * int(quant[slot])) >> 16) + tmp) *
+				int(quantShift[slot])) >> 16
+			q := (tmp ^ coeffSign) - coeffSign
+			qcoeff[rc] = int16(q)
+			dqcoeff[rc] = int16(int(qcoeff[rc]) * int(dequant[slot]))
+			if tmp != 0 {
+				eob = i
+			}
+		}
+	}
+	return eob + 1
+}
+
+// referenceQuantizeB32x32C is the byte-identical Go transcription of
+// libvpx v1.16.0 vpx_quantize_b_32x32_c (vpx_dsp/quantize.c:216). Kept
+// verbatim — do not optimise.
+func referenceQuantizeB32x32C(coeff []int16,
+	zbin, round, quant, quantShift, dequant [2]int16,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
+	const nCoeffs = 32 * 32
+	for i := range nCoeffs {
+		qcoeff[i] = 0
+		dqcoeff[i] = 0
+	}
+	zbins := [2]int{
+		(int(zbin[0]) + 1) >> 1,
+		(int(zbin[1]) + 1) >> 1,
+	}
+	nzbins := [2]int{-zbins[0], -zbins[1]}
+	idxArr := make([]int, 0, nCoeffs)
+	for i := range nCoeffs {
+		rc := int(scan[i])
+		c := int(coeff[rc])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		if c >= zbins[slot] || c <= nzbins[slot] {
+			idxArr = append(idxArr, i)
+		}
+	}
+	eob := -1
+	for _, i := range idxArr {
+		rc := int(scan[i])
+		c := int(coeff[rc])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		coeffSign := 0
+		if c < 0 {
+			coeffSign = -1
+		}
+		absCoeff := (c ^ coeffSign) - coeffSign
+		// abs_coeff += ROUND_POWER_OF_TWO(round_ptr[..], 1)
+		absCoeff += (int(round[slot]) + 1) >> 1
+		if absCoeff > 32767 {
+			absCoeff = 32767
+		}
+		if absCoeff < -32768 {
+			absCoeff = -32768
+		}
+		tmp := ((((absCoeff * int(quant[slot])) >> 16) + absCoeff) *
+			int(quantShift[slot])) >> 15
+		q := (tmp ^ coeffSign) - coeffSign
+		qcoeff[rc] = int16(q)
+		dqcoeff[rc] = int16(int(qcoeff[rc]) * int(dequant[slot]) / 2)
+		if tmp != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+// TestVP9QuantizeFPPinned1280DCPredict pins QuantizeFP against a hand-
+// computed reference for a 4-coefficient block. Hand-traced from libvpx
+// v1.16.0 vp9_quantize_fp_c (vp9/encoder/vp9_quantize.c:26-56) using
+// dequant=[10,12] (so round_fp=[3,3], quant_fp=[6553,5461]).
+func TestVP9QuantizeFPPinned1280DCPredict(t *testing.T) {
+	// 4 coeffs, identity scan; dequant=[10,12].
+	dequant := [2]int16{10, 12}
+	scan := []int16{0, 1, 2, 3}
+	coeff := []int16{500, 0, -300, 12}
+	dqcoeff := make([]int16, 4)
+	eob := QuantizeFP(coeff, dequant, scan, dqcoeff)
+	// Hand-traced: round_fp=[(48*10)>>7,(42*12)>>7]=[3,3];
+	//   quant_fp=[65536/10,65536/12]=[6553,5461].
+	// i=0 rc=0 abs=500 tmp=503 *6553=3296159 >>16 =50 -> dq[0]=500
+	// i=1 rc=1 abs=0   tmp=3   *5461=16383   >>16 =0  -> dq[1]=0
+	// i=2 rc=2 abs=300 tmp=303 *5461=1654683 >>16 =25 -> dq[2]=-300
+	// i=3 rc=3 abs=12  tmp=15  *5461=81915   >>16 =1  -> dq[3]=12
+	want := []int16{500, 0, -300, 12}
+	if eob != 4 {
+		t.Fatalf("eob = %d, want 4; dqcoeff=%v", eob, dqcoeff)
+	}
+	for i, v := range dqcoeff {
+		if v != want[i] {
+			t.Fatalf("dqcoeff[%d] = %d, want %d", i, v, want[i])
+		}
+	}
+}
+
+// TestVP9QuantizeFP32x32PinnedDC pins QuantizeFP32x32 against a hand-
+// computed reference. Hand-traced from libvpx v1.16.0
+// vp9_quantize_fp_32x32_c (vp9/encoder/vp9_quantize.c:92-123).
+func TestVP9QuantizeFP32x32PinnedDC(t *testing.T) {
+	dequant := [2]int16{20, 24}
+	scan := make([]int16, 1024)
+	for i := range scan {
+		scan[i] = int16(i)
+	}
+	coeff := make([]int16, 1024)
+	coeff[0] = 1000
+	dqcoeff := make([]int16, 1024)
+	eob := QuantizeFP32x32(coeff, dequant, scan, dqcoeff)
+	// Hand-traced: round_fp_base=[(48*20)>>7,(42*24)>>7]=[7,7];
+	//   shifted round=[(7+1)>>1,(7+1)>>1]=[4,4]; quant=[65536/20,65536/24]=[3276,2730]
+	// i=0 rc=0 abs=1000 >= 5 -> abs+=4=1004; (1004*3276)>>15 = 3289104>>15 = 100
+	//   dq[0] = 100*20/2 = 1000
+	// other rc: abs=0 < (24>>2=6) -> tmp=0, dq stays 0.
+	if eob != 1 {
+		t.Fatalf("eob = %d, want 1", eob)
+	}
+	if dqcoeff[0] != 1000 {
+		t.Fatalf("dqcoeff[0] = %d, want 1000", dqcoeff[0])
+	}
+	for i := 1; i < len(dqcoeff); i++ {
+		if dqcoeff[i] != 0 {
+			t.Fatalf("dqcoeff[%d] = %d, want 0", i, dqcoeff[i])
+		}
+	}
+}
+
+// TestVP9QuantizeFP32x32PinnedDCWithACPair pins QuantizeFP32x32 with a
+// DC + low-frequency AC pair so the AC slot exercises the shifted-round
+// + >>15 path (not just the DC slot). Hand-traced from libvpx
+// v1.16.0 vp9_quantize_fp_32x32_c.
+func TestVP9QuantizeFP32x32PinnedDCWithACPair(t *testing.T) {
+	dequant := [2]int16{20, 24}
+	scan := make([]int16, 1024)
+	for i := range scan {
+		scan[i] = int16(i)
+	}
+	coeff := make([]int16, 1024)
+	coeff[0] = 1000
+	coeff[1] = -200
+	dqcoeff := make([]int16, 1024)
+	eob := QuantizeFP32x32(coeff, dequant, scan, dqcoeff)
+	// AC slot: round=4, quant=2730, dequant=24.
+	// i=1 rc=1 abs=200 >= 24>>2=6 -> abs+=4=204; (204*2730)>>15 = 556920>>15 = 16
+	//   q = -16, dq[1] = -16*24/2 = -192
+	if eob != 2 {
+		t.Fatalf("eob = %d, want 2; dqcoeff[0..2]=%v", eob, dqcoeff[:2])
+	}
+	if dqcoeff[0] != 1000 {
+		t.Fatalf("dqcoeff[0] = %d, want 1000", dqcoeff[0])
+	}
+	if dqcoeff[1] != -192 {
+		t.Fatalf("dqcoeff[1] = %d, want -192", dqcoeff[1])
+	}
+}
+
+// TestVP9QuantizeBPinned pins QuantizeB against a hand-computed reference.
+// Hand-traced from libvpx v1.16.0 vpx_quantize_b_c (vpx_dsp/quantize.c:118)
+// using dequant=[10,12] and qindex=37 so qzbin_factor=84 and
+// qrounding_factor=48 (non-zero q, no sharpness).
+func TestVP9QuantizeBPinned(t *testing.T) {
+	// 4 coeffs, identity scan; dequant=[10,12]; qindex=37 (DcQuant<148 -> zbinFactor=84).
+	dequant := [2]int16{10, 12}
+	scan := []int16{0, 1, 2, 3}
+	coeff := []int16{500, 0, -300, 12}
+	dqcoeff := make([]int16, 4)
+	eob := QuantizeB(coeff, 37, dequant, scan, dqcoeff)
+	// Hand-traced: zbin=[ROUND_POWER_OF_TWO(84*10,7), ROUND_POWER_OF_TWO(84*12,7)]
+	//                  = [(840+64)>>7, (1008+64)>>7] = [7,8]
+	//   round=[(48*10)>>7,(48*12)>>7]=[3,4]
+	//   invert_quant(10): msb=3, m=1+(1<<19)/10=52429, quant=int16(52429-65536)=-13107, shift=1<<13=8192
+	//   invert_quant(12): msb=3, m=1+(1<<19)/12=43691, quant=int16(43691-65536)=-21845, shift=1<<13=8192
+	// i=0 rc=0 abs=500 >= 7 -> tmp=503; ((503*-13107)>>16=-101)+503=402; (402*8192)>>16=50 -> dq[0]=500
+	// i=1 rc=1 abs=0   <  8 -> skip
+	// i=2 rc=2 abs=300 >= 8 -> tmp=304; ((304*-21845)>>16=-102)+304=202; (202*8192)>>16=25 -> dq[2]=-300
+	// i=3 rc=3 abs=12  >= 8 -> tmp=16; ((16*-21845)>>16=-6)+16=10; (10*8192)>>16=1 -> dq[3]=12
+	want := []int16{500, 0, -300, 12}
+	if eob != 4 {
+		t.Fatalf("eob = %d, want 4; dqcoeff=%v", eob, dqcoeff)
+	}
+	for i, v := range dqcoeff {
+		if v != want[i] {
+			t.Fatalf("dqcoeff[%d] = %d, want %d", i, v, want[i])
+		}
+	}
+}
+
+// TestVP9QuantizeBPinnedZbinSkipsACTrail pins QuantizeB pre-scan: a
+// trailing AC zero run below the zbin should be dropped from non_zero_count
+// (libvpx vpx_dsp/quantize.c:135-143). EOB must reflect the trimmed range.
+func TestVP9QuantizeBPinnedZbinSkipsACTrail(t *testing.T) {
+	// qindex=37 -> zbin=[7,8] (Y). Trailing 1's are below AC zbin=8 -> skipped.
+	dequant := [2]int16{10, 12}
+	scan := []int16{0, 1, 2, 3}
+	coeff := []int16{500, 1, 0, -1}
+	dqcoeff := make([]int16, 4)
+	eob := QuantizeB(coeff, 37, dequant, scan, dqcoeff)
+	// Pre-scan: rc=3 c=-1 in (-8,8) -> nzc=3. rc=2 c=0 in (-8,8) -> nzc=2.
+	//   rc=1 c=1 in (-8,8) -> nzc=1. Loop runs i=0 only.
+	// i=0: 500 quantizes to 50, dq[0]=500. eob=0 -> EOB=1.
+	if eob != 1 {
+		t.Fatalf("eob = %d, want 1; dqcoeff=%v", eob, dqcoeff)
+	}
+	if dqcoeff[0] != 500 {
+		t.Fatalf("dqcoeff[0] = %d, want 500", dqcoeff[0])
+	}
+	for i := 1; i < 4; i++ {
+		if dqcoeff[i] != 0 {
+			t.Fatalf("dqcoeff[%d] = %d, want 0", i, dqcoeff[i])
+		}
+	}
+}
+
+// TestVP9QuantizeB32x32PinnedDC pins QuantizeB32x32 against a hand-
+// computed reference. Hand-traced from libvpx v1.16.0
+// vpx_quantize_b_32x32_c (vpx_dsp/quantize.c:216-275).
+func TestVP9QuantizeB32x32PinnedDC(t *testing.T) {
+	// 1024 coeffs, identity scan; dequant=[20,24]; qindex=37.
+	dequant := [2]int16{20, 24}
+	scan := make([]int16, 1024)
+	for i := range scan {
+		scan[i] = int16(i)
+	}
+	coeff := make([]int16, 1024)
+	coeff[0] = 1000
+	dqcoeff := make([]int16, 1024)
+	eob := QuantizeB32x32(coeff, 37, dequant, scan, dqcoeff)
+	// Hand-traced for qindex=37 (assuming DcQuant<148 -> qzbinFactor=84):
+	//   zbin_base=[(84*20+64)>>7,(84*24+64)>>7]=[(1744)>>7,(2080)>>7]=[13,16]
+	//   shifted zbin=[(13+1)>>1,(16+1)>>1]=[7,8]
+	//   round_base=[(48*20)>>7,(48*24)>>7]=[7,9]
+	//   invert_quant(20): msb=4, m=1+(1<<20)/20=52429, quant=int16(52429-65536)=-13107, shift=1<<12=4096
+	//   invert_quant(24): msb=4, m=1+(1<<20)/24=43691, quant=int16(43691-65536)=-21845, shift=1<<12=4096
+	// i=0 rc=0 c=1000: 1000 >= 7 OK -> abs+=(7+1)>>1=4 -> 1004
+	//   (1004*-13107)>>16 = -201; -201+1004 = 803; (803*4096)>>15 = 100
+	//   q = 100, dq[0] = 100*20/2 = 1000
+	// other rc: c=0 in (-8,8) -> not in idx_arr.
+	if eob != 1 {
+		t.Fatalf("eob = %d, want 1", eob)
+	}
+	if dqcoeff[0] != 1000 {
+		t.Fatalf("dqcoeff[0] = %d, want 1000", dqcoeff[0])
+	}
+	for i := 1; i < len(dqcoeff); i++ {
+		if dqcoeff[i] != 0 {
+			t.Fatalf("dqcoeff[%d] = %d, want 0", i, dqcoeff[i])
+		}
+	}
+}
+
+// TestVP9QuantizeFP32x32MatchesLibvpxContract cross-checks
+// QuantizeFP32x32 against the verbatim libvpx oracle
+// referenceQuantizeFP32x32C across representative coefficient layouts.
+func TestVP9QuantizeFP32x32MatchesLibvpxContract(t *testing.T) {
+	dequant := [2]int16{16, 17}
+	// Derive the legacy round_fp/quant_fp per libvpx vp9_init_quantizer:
+	roundFP := [2]int16{
+		int16((48 * int(dequant[0])) >> 7),
+		int16((42 * int(dequant[1])) >> 7),
+	}
+	quantFP := [2]int16{
+		int16((1 << 16) / int(dequant[0])),
+		int16((1 << 16) / int(dequant[1])),
+	}
+
+	scan := common.DefaultScanOrders[common.Tx32x32].Scan[:1024]
+	type tc struct {
+		name string
+		fill func(c []int16)
+	}
+	cases := []tc{
+		{"all-zero", func(c []int16) {}},
+		{"single DC", func(c []int16) { c[0] = 1278 }},
+		{"DC + mid AC", func(c []int16) {
+			c[0] = 800
+			c[int(scan[60])] = -46
+		}},
+		{"high-freq AC", func(c []int16) {
+			c[int(scan[700])] = -700
+		}},
+		{"dense ±256", func(c []int16) {
+			r := rand.New(rand.NewSource(0xC0FFEE))
+			for i := range c {
+				c[i] = int16(r.Intn(513) - 256)
+			}
+		}},
+		{"boundary ±32767 (alternating)", func(c []int16) {
+			for i := range c {
+				if i%2 == 0 {
+					c[i] = 32767
+				} else {
+					c[i] = -32767
+				}
+			}
+		}},
+	}
+
+	for _, tcase := range cases {
+		t.Run(tcase.name, func(t *testing.T) {
+			coeff := make([]int16, 1024)
+			tcase.fill(coeff)
+
+			gotDQ := make([]int16, 1024)
+			gotEOB := QuantizeFP32x32(coeff, dequant, scan, gotDQ)
+
+			wantQ := make([]int16, 1024)
+			wantDQ := make([]int16, 1024)
+			wantEOB := referenceQuantizeFP32x32C(coeff, 1024, roundFP, quantFP, dequant,
+				scan, wantQ, wantDQ)
+
+			if gotEOB != wantEOB {
+				t.Fatalf("eob mismatch: got %d, want %d", gotEOB, wantEOB)
+			}
+			for i := range 1024 {
+				if gotDQ[i] != wantDQ[i] {
+					t.Fatalf("dqcoeff[%d] mismatch: got %d, want %d",
+						i, gotDQ[i], wantDQ[i])
+				}
+			}
+		})
+	}
+}
+
+// TestVP9QuantizeBMatchesLibvpxContract cross-checks QuantizeB against
+// referenceQuantizeBC across representative coefficient layouts. zbin/
+// round/quant/quant_shift are derived using the same recipe libvpx's
+// vp9_init_quantizer uses (vp9/encoder/vp9_quantize.c:185-244).
+func TestVP9QuantizeBMatchesLibvpxContract(t *testing.T) {
+	type qParams struct {
+		zbin, round, quant, quantShift [2]int16
+	}
+	deriveQ := func(qindex int, dequant [2]int16) qParams {
+		qzbinFactor := 80
+		if qindex == 0 {
+			qzbinFactor = 64
+		} else if int(common.DcQuant(qindex, 0, common.Bits8)) < 148 {
+			qzbinFactor = 84
+		}
+		qroundingFactor := 48
+		if qindex == 0 {
+			qroundingFactor = 64
+		}
+		invert := func(d int) (q, sh int16) {
+			if d <= 0 {
+				return 0, 0
+			}
+			l := 0
+			for (1 << uint(l+1)) <= d {
+				l++
+			}
+			m := 1 + (1 << uint(16+l) / d)
+			return int16(m - (1 << 16)), int16(1 << uint(16-l))
+		}
+		var p qParams
+		for i := range 2 {
+			dq := int(dequant[i])
+			p.zbin[i] = int16((qzbinFactor*dq + 64) >> 7)
+			p.round[i] = int16((qroundingFactor * dq) >> 7)
+			p.quant[i], p.quantShift[i] = invert(dq)
+		}
+		return p
+	}
+
+	type tc struct {
+		name    string
+		txSize  common.TxSize
+		nCoeffs int
+		qindex  int
+		dequant [2]int16
+		fill    func(c []int16)
+	}
+	cases := []tc{
+		{"4x4 single DC q=37", common.Tx4x4, 16, 37, [2]int16{10, 12},
+			func(c []int16) { c[0] = 500 }},
+		{"8x8 dense q=64", common.Tx8x8, 64, 64, [2]int16{16, 17},
+			func(c []int16) {
+				r := rand.New(rand.NewSource(0xBEEF))
+				for i := range c {
+					c[i] = int16(r.Intn(513) - 256)
+				}
+			}},
+		{"16x16 high-freq AC q=128", common.Tx16x16, 256, 128, [2]int16{38, 44},
+			func(c []int16) {
+				scan := common.DefaultScanOrders[common.Tx16x16].Scan
+				c[int(scan[200])] = -918
+			}},
+		{"4x4 boundary ±32767 q=200", common.Tx4x4, 16, 200, [2]int16{96, 113},
+			func(c []int16) {
+				for i := range c {
+					if i%2 == 0 {
+						c[i] = 32767
+					} else {
+						c[i] = -32767
+					}
+				}
+			}},
+		{"16x16 zero-trail q=37", common.Tx16x16, 256, 37, [2]int16{10, 12},
+			func(c []int16) {
+				c[0] = 320
+				c[3] = -7
+			}},
+	}
+
+	for _, tcase := range cases {
+		t.Run(tcase.name, func(t *testing.T) {
+			so := common.DefaultScanOrders[tcase.txSize]
+			scan := so.Scan[:tcase.nCoeffs]
+			coeff := make([]int16, tcase.nCoeffs)
+			tcase.fill(coeff)
+
+			gotDQ := make([]int16, tcase.nCoeffs)
+			gotEOB := QuantizeB(coeff, tcase.qindex, tcase.dequant, scan, gotDQ)
+
+			p := deriveQ(tcase.qindex, tcase.dequant)
+			wantQ := make([]int16, tcase.nCoeffs)
+			wantDQ := make([]int16, tcase.nCoeffs)
+			wantEOB := referenceQuantizeBC(coeff, tcase.nCoeffs, p.zbin, p.round,
+				p.quant, p.quantShift, tcase.dequant, scan, wantQ, wantDQ)
+
+			if gotEOB != wantEOB {
+				t.Fatalf("eob mismatch: got %d, want %d", gotEOB, wantEOB)
+			}
+			for i := range tcase.nCoeffs {
+				if gotDQ[i] != wantDQ[i] {
+					t.Fatalf("dqcoeff[%d] mismatch: got %d, want %d",
+						i, gotDQ[i], wantDQ[i])
+				}
+			}
+		})
+	}
+}
+
+// TestVP9QuantizeB32x32MatchesLibvpxContract cross-checks QuantizeB32x32
+// against referenceQuantizeB32x32C across representative coefficient
+// layouts. Uses the same param-derivation recipe as the 4x4/8x8/16x16
+// contract test above (vp9/encoder/vp9_quantize.c:185-244).
+func TestVP9QuantizeB32x32MatchesLibvpxContract(t *testing.T) {
+	type qParams struct {
+		zbin, round, quant, quantShift [2]int16
+	}
+	deriveQ := func(qindex int, dequant [2]int16) qParams {
+		qzbinFactor := 80
+		if qindex == 0 {
+			qzbinFactor = 64
+		} else if int(common.DcQuant(qindex, 0, common.Bits8)) < 148 {
+			qzbinFactor = 84
+		}
+		qroundingFactor := 48
+		if qindex == 0 {
+			qroundingFactor = 64
+		}
+		invert := func(d int) (q, sh int16) {
+			if d <= 0 {
+				return 0, 0
+			}
+			l := 0
+			for (1 << uint(l+1)) <= d {
+				l++
+			}
+			m := 1 + (1 << uint(16+l) / d)
+			return int16(m - (1 << 16)), int16(1 << uint(16-l))
+		}
+		var p qParams
+		for i := range 2 {
+			dq := int(dequant[i])
+			p.zbin[i] = int16((qzbinFactor*dq + 64) >> 7)
+			p.round[i] = int16((qroundingFactor * dq) >> 7)
+			p.quant[i], p.quantShift[i] = invert(dq)
+		}
+		return p
+	}
+
+	type tc struct {
+		name    string
+		qindex  int
+		dequant [2]int16
+		fill    func(c []int16)
+	}
+	cases := []tc{
+		{"all-zero q=37", 37, [2]int16{20, 24}, func(c []int16) {}},
+		{"single DC q=37", 37, [2]int16{20, 24},
+			func(c []int16) { c[0] = 1000 }},
+		{"DC + low AC q=37", 37, [2]int16{20, 24}, func(c []int16) {
+			c[0] = 1000
+			scan := common.DefaultScanOrders[common.Tx32x32].Scan
+			c[int(scan[12])] = -250
+		}},
+		{"high-freq AC q=128", 128, [2]int16{38, 44}, func(c []int16) {
+			scan := common.DefaultScanOrders[common.Tx32x32].Scan
+			c[int(scan[700])] = -700
+		}},
+		{"dense ±256 q=64", 64, [2]int16{16, 17}, func(c []int16) {
+			r := rand.New(rand.NewSource(0xC0FFEE))
+			for i := range c {
+				c[i] = int16(r.Intn(513) - 256)
+			}
+		}},
+	}
+
+	scan := common.DefaultScanOrders[common.Tx32x32].Scan[:1024]
+	for _, tcase := range cases {
+		t.Run(tcase.name, func(t *testing.T) {
+			coeff := make([]int16, 1024)
+			tcase.fill(coeff)
+
+			gotDQ := make([]int16, 1024)
+			gotEOB := QuantizeB32x32(coeff, tcase.qindex, tcase.dequant, scan, gotDQ)
+
+			p := deriveQ(tcase.qindex, tcase.dequant)
+			wantQ := make([]int16, 1024)
+			wantDQ := make([]int16, 1024)
+			wantEOB := referenceQuantizeB32x32C(coeff, p.zbin, p.round,
+				p.quant, p.quantShift, tcase.dequant, scan, wantQ, wantDQ)
+
+			if gotEOB != wantEOB {
+				t.Fatalf("eob mismatch: got %d, want %d", gotEOB, wantEOB)
+			}
+			for i := range 1024 {
+				if gotDQ[i] != wantDQ[i] {
+					t.Fatalf("dqcoeff[%d] mismatch: got %d, want %d",
+						i, gotDQ[i], wantDQ[i])
+				}
+			}
+		})
+	}
+}
