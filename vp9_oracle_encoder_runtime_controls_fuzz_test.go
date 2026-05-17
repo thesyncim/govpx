@@ -160,6 +160,23 @@ import (
 //     #0 (KEY_FRAME TX_MODE_SELECT writer port); do NOT close this entry
 //     until #0 closes.
 //
+//   - {0x31} (single ASCII '1', from testdata/fuzz/
+//     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
+//     916d1b27 captured in commit 9e8f70a) — vp9FuzzByteCursor returns
+//     49%n for every pick(); 49 % 2 = 1, 49 % 3 = 1, 49 % 4 = 1, etc. so
+//     every cell evaluates to 1. The case materialises to dims[1]=
+//     (128,64), frameCountPool[1]=6, cpuPool[1]=-3, kfPos=1, refPos=1,
+//     plus the action loop picks EncodeNoUpdateEntropy for every inter
+//     frame (r.pick(4)==1). Frame 0 KF diverges at byte 16
+//     (got_len=7611 want_len=5324) and inter frames diverge at byte 4
+//     each. Same downstream encoder-body gap as seed #1 (cpu=-3 RT
+//     speed=3 path + KEY_FRAME TX_MODE_SELECT writer cascade at
+//     vp9_encodeframe.c:4336-4344). The RT speed=3 SPEED_FEATURES
+//     struct is already verbatim (TestVP9SetRtSpeedFeaturesCPUUsed3Verbatim
+//     or analogous), but the per-block tx_size search + the keyframe
+//     TX_MODE_SELECT writer remain unported. Same handoff as #1; do NOT
+//     close this entry until #1 closes.
+//
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{
@@ -171,6 +188,7 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{1, 2, 1, 0, 4, 1, 0, 1},
 	// Short-byte regression-corpus aliases of the above (see comment).
 	{0x30}, // regression_vp9_runtime_controls_582528dd — alias of #0
+	{0x31}, // regression_vp9_runtime_controls_916d1b27 — alias of #1 family
 }
 
 func vp9RuntimeControlsSeedDeferred(data []byte) bool {
