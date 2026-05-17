@@ -146,21 +146,40 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	}
 
 	activeBest = rc.clampedQuantizerValue(activeBest)
-	// libvpx vp8/encoder/ratectrl.c:833-834 bumps active_worst to
-	// active_best+1 when they collapse (`active_worst <= active_best`).
-	// The libvpx comment ("Worst quality obviously must not be better
-	// than best quality") spells out the intent. govpx historically used
-	// strict `<` which leaves `active_worst == active_best`; that
-	// matches libvpx for most frames but diverges once the buffer-above-
-	// optimal CBR branch lands `active_worst = ni_av_qi` at exactly the
-	// same value as `active_best` (e.g. both = minQuantizer when ni_av_qi
-	// drifts to the floor). The +1 bump there is what gives libvpx a
-	// 5/4 active_worst/best pair instead of govpx's 4/4 — and the
-	// regulator runs picks a different Q from the now-narrowed band,
-	// flipping the matched-prefix at the seed 847b68e0 frame 173. Port
-	// the inclusive comparison + offset verbatim to fix the drift.
-	if activeWorst <= activeBest {
-		activeWorst = activeBest + 1
+	// Two distinct libvpx bumps clamp the active_worst / active_best pair.
+	//
+	//  (a) vp8/encoder/ratectrl.c:833-834: when they collapse
+	//      (`active_worst <= active_best`), bump
+	//      `active_worst = active_best + 1`. This fires inside
+	//      calc_pframe_target_size which is gated on `cpi->pass == 0`
+	//      (ratectrl.c:690) — the one-pass / pass-0 path only. Pass-2
+	//      frames go through the `this_frame_target = per_frame_bandwidth`
+	//      arm at ratectrl.c:590 and never enter this recompute.
+	//
+	//  (b) vp8/encoder/onyx_if.c:3748-3750: runs for every frame
+	//      (pass-0 and pass-2) inside encode_frame_to_data_rate:
+	//      `if (active_worst < active_best) active_worst = active_best;`
+	//      A strict `<` test with `=` assignment, NOT the `<=` / `+1`
+	//      of (a). This is the libvpx-universal safety clamp.
+	//
+	// govpx historically applied (a) unconditionally with `<=` / `+1`.
+	// That matched libvpx for one-pass but propagated a stale-by-1 Q
+	// ceiling on every pass-2 KF group when the regulator picked
+	// `tmp_q == active_best_quality` (e.g. the
+	// regression_twopass_6573b9b5 fuzz seed: mid-stream KF=4 + cpu=4
+	// + 500kbps lands tmp_q=4 == best_quality=4, which the unconditional
+	// +1 bump shifted to 5 and propagated to every inter frame in the KF
+	// group, producing a one-byte second-partition divergence).
+	//
+	// Split the two bumps: gate (a) on `!pass2ActiveWorstQValid`
+	// (one-pass surfaces only) and apply (b) for all frames as a
+	// `<` / `=` clamp.
+	if !rc.pass2ActiveWorstQValid {
+		if activeWorst <= activeBest {
+			activeWorst = activeBest + 1
+		}
+	} else if activeWorst < activeBest {
+		activeWorst = activeBest
 	}
 	if activeWorst > vp8MaxQIndex {
 		activeWorst = vp8MaxQIndex
