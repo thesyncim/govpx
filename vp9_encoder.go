@@ -1734,9 +1734,9 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		// low-variance bonus segments over-spend bits on flat
 		// regions, the segment map and segment-aware partition
 		// splits add overhead, and the user-chosen quality anchor
-		// is left unanchored. Skip the segmentation entirely in
-		// that mode — variance-AQ becomes a no-op rather than the
-		// +70%+ BD-rate regression that the buggy v1 implementation
+		// is left unanchored. Suppress map/data updates in that
+		// mode — variance-AQ becomes a header-only no-op rather than
+		// the +70%+ BD-rate regression that the buggy v1 implementation
 		// produced on synthetic half-flat content. Rate-controlled
 		// pipelines (CBR/VBR) still get the perceptual benefit
 		// because the rate loop compensates for the qindex shift.
@@ -1750,7 +1750,7 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 				vp9EnableActiveMapSegmentation(&seg)
 				return seg
 			}
-			return vp9dec.SegmentationParams{}
+			return vp9dec.SegmentationParams{Enabled: true}
 		}
 		// libvpx's vp9_aq_variance.c only recomputes the per-segment
 		// AltQ deltas on intra / alt-ref / golden frames; the deltas

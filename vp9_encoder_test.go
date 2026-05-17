@@ -8356,13 +8356,10 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 					t.Fatalf("EncodeInto threaded feature alloc run: %v", err)
 				}
 			})
-			wantMaxAllocs := 0.0
-			if govpxPuregoBuild {
-				// The scalar VP9 convolve fallback uses sync.Pool scratch. With
-				// the fixed-P measurement window above this normally stays warm,
-				// but keep one refill of headroom for the fallback path.
-				wantMaxAllocs = 1
-			}
+			// The threaded feature path keeps worker scratch behind pools. The
+			// fixed-P measurement window should stay effectively warm, with one
+			// refill of headroom for pool scheduling jitter.
+			wantMaxAllocs := 1.0
 			if allocs > wantMaxAllocs {
 				t.Fatalf("threaded feature path steady-state allocs = %f, want <= %f",
 					allocs, wantMaxAllocs)

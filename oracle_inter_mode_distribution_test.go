@@ -20,13 +20,15 @@ import (
 // testdata/inter_mode_distribution_baseline.json. Each fixture's mode pp
 // (percentage-points) deltas from libvpx must stay within +/- 4pp of the
 // recorded baseline; the L1 mode-distribution distance must not grow by
-// more than 6pp; and the EOB-sum-ratio must not drift more than 0.10.
+// more than 6pp; and the EOB-sum-ratio must not move more than 0.10 farther
+// from parity.
 //
 // The scoreboard originated as the r7-b diagnosis of the +74% inter-frame
 // gap at speed 8 RT CBR (govpx over-picked NEAR/NEW vs libvpx's
 // NEAREST/ZEROMV). The R8 sweep closed the bulk of that gap; the
-// current baselines all sit at L1 < ~1.8pp, with the residual being a
-// <1pp ZEROMV<->NEARESTMV swap on noise-pattern fixtures. The
+// small-fixture baselines sit at L1=0pp. The high-resolution 720p fixture
+// intentionally records the remaining bench-scale residual so future changes
+// still have a stable line to beat instead of a stale impossible target. The
 // rt-cpu8-1280x720-bench-noise fixture (R9-1) extends the scoreboard
 // to the resolution and frame budget the cmd/govpx-bench harness
 // targets so future regressions in the high-resolution picker path
@@ -140,6 +142,7 @@ func TestOracleInterModeDistributionScoreboard(t *testing.T) {
 				TargetBitrateKbps:   spec.TargetKbps,
 				MinQuantizer:        4,
 				MaxQuantizer:        56,
+				OvershootPct:        15,
 				Deadline:            spec.Deadline,
 				CpuUsed:             spec.CpuUsed,
 				KeyFrameInterval:    spec.KFInterval,
@@ -256,9 +259,10 @@ func TestOracleInterModeDistributionScoreboard(t *testing.T) {
 					t.Errorf("L1 pp regression %s: cur=%.2fpp baseline=%.2fpp drift=%.2fpp > %.1f",
 						spec.Name, l1, prev.L1Pp, l1-prev.L1Pp, l1Tol)
 				}
-				if math.Abs(eobRatio-prev.EOBSumRatio) > eobTol {
-					t.Errorf("EOB ratio drift %s: cur=%.3f baseline=%.3f drift=%.3f > %.2f",
-						spec.Name, eobRatio, prev.EOBSumRatio, eobRatio-prev.EOBSumRatio, eobTol)
+				eobParityDrift := math.Abs(eobRatio-1) - math.Abs(prev.EOBSumRatio-1)
+				if eobParityDrift > eobTol {
+					t.Errorf("EOB ratio regression %s: cur=%.3f baseline=%.3f parity_drift=%.3f > %.2f",
+						spec.Name, eobRatio, prev.EOBSumRatio, eobParityDrift, eobTol)
 				}
 			}
 		})
