@@ -717,6 +717,14 @@ type VP9Encoder struct {
 	activeMapEnabled bool
 	roi              vp9ROIMapState
 	denoiser         vp9DenoiserState
+	// noiseEstimate mirrors libvpx's cpi->noise_estimate. The struct is
+	// seeded by vp9NoiseEstimateInit in NewVP9Encoder (libvpx:
+	// vp9_encoder.c:1528). The enabled flag is recomputed by
+	// vp9NoiseEstimateRefreshEnabled before each speed-features dispatch
+	// so the consumer at vp9_speed_features.c:777-782 reads the same
+	// predicate libvpx evaluates.
+	// libvpx ref: vp9/encoder/vp9_noise_estimate.h:30-40.
+	noiseEstimate vp9NoiseEstimateState
 
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
@@ -1032,6 +1040,12 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	e.initVP9TileWorkerPool()
+	// libvpx: vp9_encoder.c:1528 — vp9_noise_estimate_init runs at
+	// encoder setup. vp9ApplySpeedFeatures below also refreshes
+	// ne.enabled via vp9NoiseEstimateRefreshEnabled (mirroring the
+	// vp9_update_noise_estimate ne->enabled assignment that precedes
+	// the speed-features dispatch in libvpx).
+	vp9NoiseEstimateInit(&e.noiseEstimate, opts.Width, opts.Height)
 	// Populate the SPEED_FEATURES struct so consumers can read e.sf.<field>
 	// before the first frame. libvpx: vp9_encoder.c:2635 also runs the
 	// framesize-independent + framesize-dependent dispatch in setup before

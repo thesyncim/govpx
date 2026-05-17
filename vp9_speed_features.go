@@ -727,6 +727,14 @@ func (e *VP9Encoder) vp9ApplySpeedFeatures(ctx vp9SpeedFrameContext) {
 	if e == nil {
 		return
 	}
+	// libvpx: vp9_noise_estimate.c:129 — ne->enabled is recomputed by
+	// vp9_update_noise_estimate at the top of encode_frame_to_data_rate
+	// (vp9_encoder.c:4142), which runs before the speed-features dispatch
+	// at vp9_encoder.c:3754. Refresh here so the consumer at
+	// vp9_speed_features.c:777-782 reads the same predicate libvpx
+	// evaluates whether the SF dispatch fires at setup, on options
+	// change, or per-frame at top-of-encode.
+	e.vp9NoiseEstimateRefreshEnabled()
 	vp9SetSpeedFeaturesFramesizeIndependent(e, &e.sf, e.vp9SpeedFeatureCPUUsed(), ctx)
 	vp9SetSpeedFeaturesFramesizeDependent(e, &e.sf, e.vp9SpeedFeatureCPUUsed(), ctx)
 }
@@ -1876,10 +1884,22 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		if !ctx.svc.UseSvc && e.opts.RateControlMode == RateControlCBR &&
 			content != vp9ContentScreen {
 			sf.ShortCircuitLowTempVar = 3
-			// libvpx: vp9_speed_features.c:777-782 — noise-estimate level.
-			// TODO: consumer requires noise_estimate.enabled +
-			// vp9_noise_estimate_extract_level. libvpx:
-			// vp9_speed_features.c:777-782.
+			// libvpx: vp9_speed_features.c:777-782 — for HD CBR, drop
+			// short_circuit_low_temp_var to level 2 when the noise
+			// estimator flags the source as medium-or-higher noise:
+			//
+			//	if (cpi->noise_estimate.enabled && cm->width >= 1280 &&
+			//	    cm->height >= 720) {
+			//	  NOISE_LEVEL noise_level =
+			//	      vp9_noise_estimate_extract_level(&cpi->noise_estimate);
+			//	  if (noise_level >= kMedium) sf->short_circuit_low_temp_var = 2;
+			//	}
+			if e.noiseEstimate.enabled && ctx.width >= 1280 && ctx.height >= 720 {
+				noiseLevel := vp9NoiseEstimateExtractLevel(&e.noiseEstimate)
+				if noiseLevel >= vp9NoiseLevelMedium {
+					sf.ShortCircuitLowTempVar = 2
+				}
+			}
 			if ctx.width*ctx.height > 352*288 {
 				sf.AdaptiveRdThresh = 1
 			} else {
