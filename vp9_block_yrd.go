@@ -617,18 +617,19 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	res.sse = int64(sseIn << 4) // (<<6)>>2 == <<4
 
 	if skippable {
-		// libvpx: vp9_pickmode.c:824-826 — *skippable case.
-		//   this_rdc.dist = *sse;
-		//   (rate is 0 here; the +eob_cost shift below adds the per-tx-unit
-		//   sentinel rate too.)
+		// libvpx: vp9_pickmode.c:821 sets `this_rdc->rate = 0;` then the
+		// skippable branch (vp9_pickmode.c:824-826) returns BEFORE the
+		// non-skippable second-pass rate accumulation and BEFORE the
+		// `this_rdc->rate <<= (2 + VP9_PROB_COST_SHIFT); this_rdc->rate +=
+		// (eob_cost << VP9_PROB_COST_SHIFT);` finalization at lines
+		// 852-853. The "If skippable is set, rate gets clobbered later"
+		// comment at line 851 refers to the caller (vp9_pickmode.c:2364
+		// overwrites this_rdc.rate with vp9_cost_bit(skip_prob, 1)). So
+		// block_yrd's output on the skippable path is rate=0, dist=*sse.
 		res.dist = res.sse
 		res.skippable = true
-		// libvpx: vp9_pickmode.c:851-853 — even on the skippable branch the
-		// rate accumulator picks up eob_cost << VP9_PROB_COST_SHIFT before
-		// the caller decides to clobber it (the "if skippable, rate gets
-		// clobbered later" comment refers to the caller, not block_yrd
-		// itself). Mirror byte-exactly.
-		res.rate = (eobCost << encoder.VP9ProbCostShift)
+		res.rate = 0
+		_ = eobCost // unused on the skippable branch — see libvpx note above.
 		res.valid = true
 		return res
 	}

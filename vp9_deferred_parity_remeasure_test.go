@@ -22,9 +22,15 @@ import (
 // Measurement under
 // GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
 // (this commit): PASS=0/9 FAIL=9/9. Inter frames diverge at byte 9
-// (FirstPartitionSize literal) by 39-552 bytes. Closure path: port libvpx
-// vp9_pick_inter_mode (vp9_pickmode.c:1696) so the recursive walker's
-// per-leaf MV / tx_size / interp picks match libvpx byte-exactly.
+// (FirstPartitionSize literal) by 39-552 bytes. After task #119's port of
+// find_predictors's frame_mv table + the libvpx-exact mode_checked /
+// NEARESTMV dedup paths (vp9_pickmode.c:1710 + 2269-2299), the aggregate
+// per-seed size_delta flipped from +3900 bytes (pre-#119 baseline) to
+// -716 bytes (avg -80B/seed); individual seeds now under-shoot or
+// over-shoot libvpx by 42-502 bytes vs the previous uniform +30-552 B
+// over-shoot. Closure path: route the picker's mrdTxSize through to the
+// leaf commit so pickVP9InterTxSize stops overriding the picker's
+// libvpx-faithful tx_size decision (vp9_encoder.go:8498/8513).
 func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RefControl seeds")
