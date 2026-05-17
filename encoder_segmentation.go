@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"sync/atomic"
-
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -817,11 +815,16 @@ func (e *VP8Encoder) checkDotArtifactCandidate(src vp8enc.SourceImage, lastRef *
 		!dotArtifactCornerCandidateUV(src.V, src.VStride, lastRef.V, lastRef.VStride, mbRow, mbCol) {
 		return false
 	}
-	if e.threadedRowsActive && e.threadedDotArtifactBudget != nil {
-		if !reserveDotArtifactSuppressSlot(e.threadedDotArtifactBudget, cap) {
-			return false
-		}
-	}
+	// libvpx vp8/encoder/pickinter.c check_dot_artifact_candidate increments
+	// the per-MACROBLOCK counter inside each corner-hit branch. We have a
+	// single common increment because the corner test above returns true if
+	// any of the four checks fired, matching libvpx's "first hit wins, then
+	// bump counter and return 1" behaviour for one MB. The counter lives on
+	// the encoder view (per-thread copy under threaded encode, since the row
+	// worker takes a shallow copy of *e), which mirrors libvpx's per-thread
+	// MACROBLOCK::mbs_zero_last_dot_suppress cap of MBs/10 reset frame-start
+	// in vp8cx_init_mbrthread_data (ethreading.c:486) for helpers and in
+	// vp8_set_speed_features for the main lane.
 	e.mbsZeroLastDotSuppress++
 	return true
 }
@@ -830,22 +833,6 @@ func (e *VP8Encoder) checkDotArtifactCandidate(src vp8enc.SourceImage, lastRef *
 // full Y+UV check.
 func (e *VP8Encoder) checkDotArtifactCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int) bool {
 	return e.checkDotArtifactCandidate(src, lastRef, mbRow, mbCol, mbRows, mbCols)
-}
-
-func reserveDotArtifactSuppressSlot(budget *atomic.Int32, cap int) bool {
-	if budget == nil || cap <= 0 {
-		return false
-	}
-	limit := int32(cap)
-	for {
-		used := budget.Load()
-		if used >= limit {
-			return false
-		}
-		if budget.CompareAndSwap(used, used+1) {
-			return true
-		}
-	}
 }
 
 func dotArtifactCornerCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int) bool {

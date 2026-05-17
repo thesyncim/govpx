@@ -5,7 +5,6 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
-	"sync/atomic"
 	_ "unsafe" // for go:linkname
 )
 
@@ -938,12 +937,6 @@ type VP8Encoder struct {
 	// Threads=1 so picker / reconstruct hot paths can branch on a
 	// single nil-check before any threading code path executes.
 	rowWorkers *rowWorkerPool
-
-	// threadedDotArtifactBudget points at the row-worker pool's shared
-	// per-frame dot-artifact suppression counter while threaded rows are
-	// active. Nil on the serial path so the hot single-thread encoder does
-	// not pay for atomic coordination.
-	threadedDotArtifactBudget *atomic.Int32
 }
 
 func (e *VP8Encoder) phaseStart() int64 {

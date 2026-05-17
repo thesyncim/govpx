@@ -135,6 +135,66 @@ func TestCheckDotArtifactCandidateChecksUVChannelsWhenYIsFlat(t *testing.T) {
 	}
 }
 
+// TestCheckDotArtifactCandidatePerThreadCapIsIndependent mirrors libvpx's
+// per-MACROBLOCK x->mbs_zero_last_dot_suppress cap of MBs/10 in
+// vp8/encoder/pickinter.c:80. The threaded path gives each row worker its
+// own shallow VP8Encoder copy (see rowEncoderState.reset), so the cap must
+// apply per-worker, NOT through a shared frame-global atomic. This ensures
+// MT runs can produce up to N*MBs/10 dot-suppress triggers (one per thread)
+// — same as libvpx's ethreading.c:486 per-thread reset — and the per-MB
+// gating is deterministic regardless of scheduling order.
+func TestCheckDotArtifactCandidatePerThreadCapIsIndependent(t *testing.T) {
+	// 64x64 frame => 16 MBs => cap = 16/10 = 1 hit per thread.
+	const w, h = 64, 64
+	src := testImage(w, h)
+	fillImage(src, 128, 128, 128)
+
+	// Build two independent worker views: each shallow-copies the master
+	// encoder and gets its own mbsZeroLastDotSuppress counter just like
+	// rowEncoderState.reset does (matching libvpx setup_mbby_copy +
+	// vp8cx_init_mbrthread_data which both clear the field per thread).
+	master := newSizedTestEncoder(t, w, h)
+	for i := range master.lastRef.Img.Y {
+		master.lastRef.Img.Y[i] = 128
+	}
+	master.lastRef.Img.Y[0] = 230 // sharp top-left of MB(0,0) on last_ref
+	master.consecZeroLastMVBias[0] = 50
+	// Sharp top-left of MB(0,1) on last_ref: a second-MB candidate to prove
+	// the second per-thread slot is independently available.
+	master.lastRef.Img.Y[16] = 230
+	master.consecZeroLastMVBias[1] = 50
+
+	// Worker A: a shallow encoder view (analogous to rowEncoderState.enc).
+	workerA := *master
+	workerA.threadedRowsActive = true
+	workerA.mbsZeroLastDotSuppress = 0
+	// Worker B: an independent shallow view sharing the same source/refs.
+	workerB := *master
+	workerB.threadedRowsActive = true
+	workerB.mbsZeroLastDotSuppress = 0
+
+	if !workerA.checkDotArtifactCandidate(sourceImageFromPublic(src), &workerA.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("worker A: first eligible MB should be a candidate")
+	}
+	if workerA.mbsZeroLastDotSuppress != 1 {
+		t.Fatalf("worker A counter = %d after first trigger, want 1", workerA.mbsZeroLastDotSuppress)
+	}
+	// Worker A is now at its per-thread cap (1) and must reject the next MB.
+	if workerA.checkDotArtifactCandidate(sourceImageFromPublic(src), &workerA.lastRef.Img, 0, 1, 4, 4) {
+		t.Fatalf("worker A: second MB should be capped (per-thread MBs/10 limit)")
+	}
+
+	// Worker B's slot must still be available — libvpx caps PER THREAD, not
+	// frame-globally. Pre-fix this assertion would fail because a shared
+	// atomic budget on the master would have been consumed by worker A.
+	if !workerB.checkDotArtifactCandidate(sourceImageFromPublic(src), &workerB.lastRef.Img, 0, 1, 4, 4) {
+		t.Fatalf("worker B: per-thread cap should be independent of worker A")
+	}
+	if workerB.mbsZeroLastDotSuppress != 1 {
+		t.Fatalf("worker B counter = %d after first trigger, want 1", workerB.mbsZeroLastDotSuppress)
+	}
+}
+
 func TestComputeSkin8x8BlockNeedsTwoSubBlocksToTrigger(t *testing.T) {
 	// (Y=120, U=117, V=150) is a known skin tuple per
 	// TestCyclicRefreshStaticClassificationMasksSkinBlocks. Build a 16x16

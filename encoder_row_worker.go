@@ -92,7 +92,6 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int, preserveInterModeT
 	}
 	rs.enc.rowWorkers = nil
 	rs.enc.threadedRowsActive = true
-	rs.enc.threadedDotArtifactBudget = e.threadedDotArtifactBudget
 	rs.enc.reconstructScratch = rs.scratch
 	if cap(rs.dotArtifactChecked) < required {
 		rs.dotArtifactChecked = make([]bool, required)
@@ -173,11 +172,6 @@ type rowWorkerPool struct {
 
 	// syncRange mirrors libvpx's cpi->mt_sync_range.
 	syncRange int
-
-	// dotArtifactBudget is the frame-global suppression cap shared across
-	// worker-private encoder views. It keeps the libvpx ZEROMV-LAST bias
-	// budget global instead of letting each worker spend its own copy.
-	dotArtifactBudget atomic.Int32
 
 	// start has one lane per helper worker. The main goroutine owns lane 0,
 	// so only lanes [1, len(workers)) have persistent goroutines.
@@ -365,7 +359,6 @@ func (p *rowWorkerPool) reset(mbRows int) {
 	if p == nil {
 		return
 	}
-	p.dotArtifactBudget.Store(0)
 	if cap(p.rowProgress) < mbRows {
 		p.rowProgress = make([]paddedAtomicInt64, mbRows)
 	} else {
@@ -386,7 +379,6 @@ func (p *rowWorkerPool) resetForEncoderReset() {
 	for i := range p.rowProgress {
 		p.rowProgress[i].value.Store(0)
 	}
-	p.dotArtifactBudget.Store(0)
 	p.encoder = nil
 	p.job = rowWorkerJobInterFrame
 	p.keyArgs = threadedKeyRowsArgs{}

@@ -646,10 +646,8 @@ func TestMergeThreadedInterFrameCoefCountsOmitsHelperEOBOnly(t *testing.T) {
 
 func TestRowWorkerResetPreservesHelperModeTestHits(t *testing.T) {
 	modeIndex := libvpxThrNew2
-	pool := &rowWorkerPool{}
 	e := &VP8Encoder{
-		dotArtifactChecked:        make([]bool, 1),
-		threadedDotArtifactBudget: &pool.dotArtifactBudget,
+		dotArtifactChecked: make([]bool, 1),
 	}
 	e.interModeTestHitCounts[modeIndex] = 3
 	e.interMBsTestedSoFar = 0
@@ -665,8 +663,12 @@ func TestRowWorkerResetPreservesHelperModeTestHits(t *testing.T) {
 	if got := worker.enc.interMBsTestedSoFar; got != 0 {
 		t.Fatalf("helper mbs_tested_so_far = %d, want frame reset 0", got)
 	}
-	if worker.enc.threadedDotArtifactBudget != e.threadedDotArtifactBudget {
-		t.Fatalf("helper threadedDotArtifactBudget pointer was not preserved")
+	// libvpx vp8/encoder/pickinter.c keeps mbs_zero_last_dot_suppress on
+	// the per-MACROBLOCK struct (per-thread). The shallow rs.enc = *e copy
+	// gives each helper its own counter capped at MBs/10 independently,
+	// matching ethreading.c:486's per-thread reset of the same field.
+	if got := worker.enc.mbsZeroLastDotSuppress; got != 0 {
+		t.Fatalf("helper mbs_zero_last_dot_suppress = %d, want frame reset 0", got)
 	}
 
 	worker.reset(e, 1, false)
