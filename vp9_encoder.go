@@ -6935,8 +6935,20 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	}
 	if kind == vp9ModeTreeKeyframeSource && key != nil {
 		reconBsize := vp9ModeInfoDecodeBSize(bsize)
-		cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
-			miRow, miCol, reconBsize, &cur)
+		// libvpx vp9_rdopt.c:3239-3252 — vp9_rd_pick_intra_mode_sb
+		// dispatches the Y-mode picker on bsize: BLOCK_8X8+ routes
+		// through rd_pick_intra_sby_mode (the per-MI mode picker), while
+		// BLOCK_4X4 / BLOCK_4X8 / BLOCK_8X4 route through
+		// rd_pick_intra_sub_8x8_y_mode which runs an independent
+		// DC..TM_PRED RD scan per 4x4 raster sub-block and stows the
+		// per-subblock pick in mic->bmi[i].as_mode.
+		if reconBsize < common.Block8x8 {
+			e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
+				miRow, miCol, reconBsize, &cur)
+		} else {
+			cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
+				miRow, miCol, reconBsize, &cur)
+		}
 		uvMode := e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
 			miRow, miCol, reconBsize, &cur)
 		segID := vp9EncoderMiSegmentID(&cur)
@@ -7533,6 +7545,203 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 		}
 	}
 	e.cbRdmult = prevCbRdmult
+	return bestMode
+}
+
+// pickVP9KeyframeSub8x8YMode ports libvpx's rd_pick_intra_sub_8x8_y_mode
+// (vp9/encoder/vp9_rdopt.c:1299-1360) plus the per-subblock walker
+// rd_pick_intra4x4block (vp9_rdopt.c:1061-1297). For BLOCK_4X4 / BLOCK_4X8 /
+// BLOCK_8X4 keyframe partitions, the libvpx Y-mode picker walks the 2x2
+// grid of 4x4 raster sub-blocks (stepped by num_4x4_blocks_{wide,high})
+// and runs an independent DC_PRED..TM_PRED RD scan per sub-block. The
+// chosen per-subblock mode lands in mic->bmi[i].as_mode (replicated
+// across the num_4x4_blocks_{wide,high} cells the decision covers); the
+// final mic->mode = mic->bmi[3].as_mode so write_modes_b / coef_sb pick
+// up the per-block mode for sub-8x8 partitions via get_y_mode.
+//
+// The previous govpx behaviour reused pickVP9KeyframeMode for sub-8x8
+// blocks, which left all Bmi[].AsMode entries at the default DC_PRED
+// regardless of the picked block-level mode — divergent from libvpx
+// whenever the per-subblock RD picker selects a non-DC mode for any
+// 4x4 raster cell.
+func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) {
+	if key == nil || mi == nil {
+		return
+	}
+	if bsize >= common.Block8x8 {
+		return
+	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	qindex := e.vp9EncoderModeDecisionQIndex()
+	// Mirror libvpx vp9_encodeframe.c:4245-4248 — TPL bias the rdmult so
+	// the per-subblock RD compares under the same multiplier as the
+	// 8x8+ keyframe picker.
+	rdmult := vp9KeyframeRDMul(qindex)
+	bwMi := int(common.Num8x8BlocksWideLookup[bsize])
+	bhMi := int(common.Num8x8BlocksHighLookup[bsize])
+	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
+	prevCbRdmult := e.cbRdmult
+	e.cbRdmult = rdmult
+	num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
+	num4x4H := int(common.Num4x4BlocksHighLookup[bsize])
+	// Pin tx_size at TX_4X4 for the sub-8x8 picker, matching libvpx
+	// rd_pick_intra4x4block:1088 — `xd->mi[0]->tx_size = TX_4X4`.
+	mi.TxSize = common.Tx4x4
+	for idy := 0; idy < 2; idy += num4x4H {
+		for idx := 0; idx < 2; idx += num4x4W {
+			i := idy*2 + idx
+			// libvpx vp9_rdopt.c:1325-1330 — for keyframe blocks the
+			// per-subblock bmode_costs row is keyed by (above_block_mode,
+			// left_block_mode). govpx's GetYModeProbs encapsulates the same
+			// kf_y_mode_prob[A][L] lookup, fed into VP9CostTokens to expand
+			// per-mode rates.
+			probs := vp9dec.GetYModeProbs(mi, above, left, i)
+			var bmodeCosts [common.IntraModes]int
+			encoder.VP9CostTokens(bmodeCosts[:], probs, common.IntraModeTree[:])
+			bestMode := e.pickVP9Sub4x4IntraBlockMode(key, tile, miRows, miCols,
+				miRow, miCol, bsize, mi, idy, idx, bmodeCosts[:], rdmult)
+			// Replicate best_mode into the bmi cells the sub-block
+			// decision covers (libvpx vp9_rdopt.c:1344-1348).
+			mi.Bmi[i].AsMode = bestMode
+			for j := 1; j < num4x4H; j++ {
+				mi.Bmi[i+j*2].AsMode = bestMode
+			}
+			for j := 1; j < num4x4W; j++ {
+				mi.Bmi[i+j].AsMode = bestMode
+			}
+		}
+	}
+	// libvpx vp9_rdopt.c:1357 — `mic->mode = mic->bmi[3].as_mode` so
+	// downstream consumers (write_mb_modes_kf coef_sb get_y_mode) read
+	// the per-subblock mode through Bmi[] while leaving mi.Mode as the
+	// bottom-right subblock's pick.
+	mi.Mode = mi.Bmi[3].AsMode
+	e.cbRdmult = prevCbRdmult
+}
+
+// pickVP9Sub4x4IntraBlockMode ports libvpx's rd_pick_intra4x4block
+// (vp9/encoder/vp9_rdopt.c:1061-1297). For one 4x4-grid raster sub-block
+// at (idy,idx) inside a BLOCK_4X4 / 4X8 / 8X4 partition, it scans
+// DC_PRED..TM_PRED, scoring each candidate via the same RD primitives
+// the keyframe block picker uses (predict at TX_4X4 then quantise + RD
+// cost the Hadamard-domain residue) and returns the lowest-RD mode. The
+// best mode's prediction is left on the recon plane so subsequent
+// sub-blocks see the correct intra-pred neighbours; the recon outside
+// the {num_4x4_blocks_wide_lookup, num_4x4_blocks_high_lookup} footprint
+// of this sub-block is preserved via a snapshot/restore mirroring
+// libvpx's `best_dst[]` save (vp9_rdopt.c:1081-1085 + 1280-1294).
+func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+	idy, idx int, bmodeCosts []int, rdmult int,
+) common.PredictionMode {
+	pd := &e.planes[0]
+	planeData, stride := e.vp9EncoderReconPlane(0)
+	if len(planeData) == 0 || stride <= 0 {
+		return common.DcPred
+	}
+	num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
+	num4x4H := int(common.Num4x4BlocksHighLookup[bsize])
+	// Snapshot the sub-block's recon rect so per-candidate predictions
+	// can be undone before re-trying the next mode. Footprint matches
+	// libvpx vp9_rdopt.c:1081 — `uint8_t best_dst[8 * 8]` covering
+	// num_4x4_blocks_{wide,high}*4 pixels.
+	baseX := miCol*common.MiSize + idx*4
+	baseY := miRow*common.MiSize + idy*4
+	rectW := num4x4W * 4
+	rectH := num4x4H * 4
+	rows := len(planeData) / stride
+	if baseX < 0 || baseY < 0 || baseX+rectW > stride || baseY+rectH > rows {
+		return common.DcPred
+	}
+	if rectW*rectH > len(e.blockScratch) {
+		return common.DcPred
+	}
+	saved := e.blockScratch[:rectW*rectH]
+	for y := range rectH {
+		copy(saved[y*rectW:(y+1)*rectW],
+			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+rectW])
+	}
+	segID := vp9EncoderMiSegmentID(mi)
+	dequant := key.dq.Y[segID]
+	// Mode-mask gate mirrors libvpx vp9_rdopt.c:1207 —
+	// `if (!(cpi->sf.intra_y_mode_mask[TX_4X4] & (1 << mode))) continue;`.
+	mask := sfIntraAll
+	if int(common.Tx4x4) < len(e.sf.IntraYModeMask) && e.sf.IntraYModeMask[common.Tx4x4] != 0 {
+		mask = e.sf.IntraYModeMask[common.Tx4x4]
+	}
+	bestMode := common.DcPred
+	bestRD := uint64(^uint64(0))
+	bestValid := false
+	for mode := common.DcPred; mode <= common.TmPred; mode++ {
+		if mask&(1<<mode) == 0 {
+			continue
+		}
+		// Restore the saved recon so this candidate's prediction starts
+		// from the same neighbour state as the previous candidate
+		// (libvpx vp9_rdopt.c:1108-1109 — `memcpy(tempa,...);
+		// memcpy(templ,...);` before each per-mode pass).
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
+		rate := bmodeCosts[mode]
+		var totalDistortion uint64
+		var totalCoeffRate int
+		valid := true
+		for jy := 0; jy < num4x4H && valid; jy++ {
+			for jx := 0; jx < num4x4W && valid; jx++ {
+				dst, dstStride, x0, y0, predOK := e.predictVP9KeyframeTx(
+					key.hdr, pd, 0, mode, common.Tx4x4, tile, miRows, miCols,
+					miRow, miCol, bsize, idy+jy, idx+jx)
+				if !predOK {
+					valid = false
+					break
+				}
+				src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+				if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH,
+					dst, dstStride, x0, y0, common.Tx4x4) {
+					valid = false
+					break
+				}
+				txRate, txDist, _, scoreOK := e.scoreVP9KeyframeTxBlockRD(
+					common.Tx4x4, dequant)
+				if !scoreOK {
+					valid = false
+					break
+				}
+				totalCoeffRate += txRate
+				totalDistortion += txDist
+			}
+		}
+		if !valid {
+			continue
+		}
+		rate += totalCoeffRate
+		thisRD := vp9RDCost(rdmult, vp9RDDivBits, rate, totalDistortion)
+		if !bestValid || thisRD < bestRD {
+			bestRD = thisRD
+			bestMode = mode
+			bestValid = true
+		}
+	}
+	// Leave the best mode's prediction on the recon plane (libvpx
+	// vp9_rdopt.c:1292-1294 — `memcpy(dst_init + idy * dst_stride,
+	// best_dst + idy * 8, num_4x4_blocks_wide * 4);`). Restore the
+	// snapshot first so the trailing candidate's prediction is wiped,
+	// then re-predict at the best mode so neighbouring sub-blocks see
+	// the chosen reconstruction.
+	vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
+	for jy := range num4x4H {
+		for jx := range num4x4W {
+			e.predictVP9KeyframeTx(key.hdr, pd, 0, bestMode, common.Tx4x4,
+				tile, miRows, miCols, miRow, miCol, bsize, idy+jy, idx+jx)
+		}
+	}
 	return bestMode
 }
 
