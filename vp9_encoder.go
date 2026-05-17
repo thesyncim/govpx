@@ -3323,7 +3323,11 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	// vp9EnsureSBPartitionChosen so the steady-state encode path
 	// (which currently does not invoke the libvpx choose_partitioning
 	// port) pays no allocation cost. Reset the frame-validity flag
-	// and per-SB computed mask in place when state already exists.
+	// and per-SB computed mask in place when state already exists; the
+	// reset MUST happen here (once per frame) and never on each per-MI
+	// vp9EnsureSBPartitionChosen call, because the picker stamps the
+	// partition tree into varPartGrid for every SB in the frame and a
+	// per-call wipe would lose decisions for SBs the walker re-visits.
 	if cap(e.varPartGrid) >= miGridLen {
 		e.varPartGrid = e.varPartGrid[:miGridLen]
 		for i := range e.varPartGrid {
@@ -5642,22 +5646,31 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
 	// Lazy alloc: first activation of the libvpx picker on this encoder
 	// instance grows the per-SB tracking slices to fit the current frame
-	// dimensions. Subsequent calls reuse the capacity.
+	// dimensions. Subsequent calls reuse the capacity. The per-frame
+	// reset of these buffers is handled by the frame-setup path
+	// (vp9_encoder.go:3327-3340) — wiping the grid on every per-MI call
+	// would destroy partition decisions stamped by earlier SBs in the
+	// same frame (libvpx's xd->mi[]->sb_type grid is persistent across
+	// the encode walk).
 	if cap(e.varPartGrid) < miGridLen {
-		e.varPartGrid = make([]vp9dec.NeighborMi, miGridLen)
-	} else {
-		e.varPartGrid = e.varPartGrid[:miGridLen]
-		for i := range e.varPartGrid {
-			e.varPartGrid[i] = vp9dec.NeighborMi{}
+		grid := make([]vp9dec.NeighborMi, miGridLen)
+		e.varPartGrid = grid
+	} else if len(e.varPartGrid) < miGridLen {
+		// Grow without zeroing already-stamped cells.
+		tail := e.varPartGrid[len(e.varPartGrid):miGridLen]
+		for i := range tail {
+			tail[i] = vp9dec.NeighborMi{}
 		}
+		e.varPartGrid = e.varPartGrid[:miGridLen]
 	}
 	if cap(e.varPartSBComputed) < sbCount {
 		e.varPartSBComputed = make([]bool, sbCount)
-	} else {
-		e.varPartSBComputed = e.varPartSBComputed[:sbCount]
-		for i := range e.varPartSBComputed {
-			e.varPartSBComputed[i] = false
+	} else if len(e.varPartSBComputed) < sbCount {
+		tail := e.varPartSBComputed[len(e.varPartSBComputed):sbCount]
+		for i := range tail {
+			tail[i] = false
 		}
+		e.varPartSBComputed = e.varPartSBComputed[:sbCount]
 	}
 	sbMiRow := (miRow >> 3) << 3
 	sbMiCol := (miCol >> 3) << 3

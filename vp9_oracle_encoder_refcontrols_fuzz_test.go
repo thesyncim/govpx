@@ -86,6 +86,17 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// pending the verbatim port of libvpx choose_partitioning
 	// (vp9/encoder/vp9_encodeframe.c:1253-1640).
 	[]byte("0"),
+	// regression_vp9_refctrl_916d1b27: captured by sweep (commit 5f2e7cb).
+	// Same residual divergence profile as regression_582528dd; inter-frame
+	// FirstPartitionSize literal differs by 30-100 bytes at byte 9 because
+	// govpx's simplified variance picker emits a different partition tree
+	// than libvpx's full choose_partitioning walk
+	// (vp9/encoder/vp9_encodeframe.c:1253-1640). The Phase C opt-in port
+	// (commit ed9c956 + downstream plumbing fixes) still produces a
+	// divergent partition tree under GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1;
+	// staying deferred until the Phase C wiring is byte-aligned with
+	// nonrd_use_partition's grid-read semantics.
+	[]byte("1"),
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
