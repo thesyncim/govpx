@@ -21,6 +21,7 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetARNR":               {kind: "libvpx-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
 		"SetActiveMap":          {kind: "libvpx-control", helperTokens: []string{"active:"}},
 		"SetAdaptiveKeyFrames":  {kind: "libvpx-config", helperTokens: []string{"kfdisabled:", "kfmin:", "kfmax:"}},
+		"SetAutoAltRef":         {kind: "libvpx-control"},
 		"SetBitrateKbps":        {kind: "libvpx-config", helperTokens: []string{"bitrate:"}},
 		"SetCPUUsed":            {kind: "libvpx-control", helperTokens: []string{"cpu:"}},
 		"SetCQLevel":            {kind: "libvpx-control", helperTokens: []string{"cq:"}},
@@ -61,16 +62,19 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 	methods := exportedMethodSet(t, (*VP8Decoder)(nil))
 	want := map[string]controlParityMapping{
-		"Close":              {kind: "lifecycle"},
-		"CopyReferenceFrame": {kind: "libvpx-decoder-control", helperTokens: []string{"copyref:"}},
-		"Decode":             {kind: "libvpx-decode-oracle"},
-		"DecodeInto":         {kind: "libvpx-decode-oracle"},
-		"DecodeIntoWithPTS":  {kind: "local-pts-wrapper"},
-		"DecodeWithPTS":      {kind: "local-pts-wrapper"},
-		"LastFrameInfo":      {kind: "metadata-api"},
-		"NextFrame":          {kind: "decode-api"},
-		"Reset":              {kind: "lifecycle"},
-		"SetReferenceFrame":  {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
+		"Close":                {kind: "lifecycle"},
+		"CopyReferenceFrame":   {kind: "libvpx-decoder-control", helperTokens: []string{"copyref:"}},
+		"Decode":               {kind: "libvpx-decode-oracle"},
+		"DecodeInto":           {kind: "libvpx-decode-oracle"},
+		"DecodeIntoWithPTS":    {kind: "local-pts-wrapper"},
+		"DecodeWithPTS":        {kind: "local-pts-wrapper"},
+		"LastFrameCorrupted":   {kind: "metadata-api"},
+		"LastFrameInfo":        {kind: "metadata-api"},
+		"LastReferenceUpdates": {kind: "metadata-api"},
+		"LastReferencesUsed":   {kind: "metadata-api"},
+		"NextFrame":            {kind: "decode-api"},
+		"Reset":                {kind: "lifecycle"},
+		"SetReferenceFrame":    {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
 	}
 	assertPublicMethodMappings(t, "VP8Decoder", methods, want)
 	assertDecoderControlTokens(t, want)

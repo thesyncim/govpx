@@ -233,6 +233,43 @@ func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
 	return d.lastInfo, true
 }
 
+// LastFrameCorrupted reports whether the most recently decoded frame was
+// flagged as corrupted by the decoder. Mirrors libvpx's
+// VP8D_GET_FRAME_CORRUPTED control (vp8/vp8_dx_iface.c). ok is false on a
+// nil or closed decoder, and before the first successful Decode/DecodeInto
+// call.
+func (d *VP8Decoder) LastFrameCorrupted() (corrupted bool, ok bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return false, false
+	}
+	return d.lastInfo.Corrupted, true
+}
+
+// LastReferenceUpdates reports which reference buffers the most recently
+// decoded frame refreshed. Mirrors libvpx's VP8D_GET_LAST_REF_UPDATES
+// control (vp8/vp8_dx_iface.c vp8_get_last_ref_updates). ok is false on a
+// nil or closed decoder, and before the first successful Decode/DecodeInto
+// call.
+func (d *VP8Decoder) LastReferenceUpdates() (flags ReferenceFlags, ok bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return 0, false
+	}
+	return d.lastInfo.RefUpdates, true
+}
+
+// LastReferencesUsed reports which reference buffers were referenced by
+// inter prediction in the most recently decoded frame. Mirrors libvpx's
+// VP8D_GET_LAST_REF_USED control (vp8/vp8_dx_iface.c vp8_get_last_ref_frame,
+// vp8/decoder/onyxd_if.c vp8dx_references_buffer). Key frames report 0. ok
+// is false on a nil or closed decoder, and before the first successful
+// Decode/DecodeInto call.
+func (d *VP8Decoder) LastReferencesUsed() (flags ReferenceFlags, ok bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return 0, false
+	}
+	return d.lastInfo.RefUsed, true
+}
+
 // SetReferenceFrame replaces ref with src. ref must be ReferenceLast,
 // ReferenceGolden, or ReferenceAltRef; src must match the stream dimensions
 // established by the most recently decoded key frame and provide valid

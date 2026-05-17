@@ -245,6 +245,21 @@ func (e *VP8Encoder) SetFrameDropAllowed(enabled bool) error {
 	return nil
 }
 
+// SetAutoAltRef enables or disables automatic alternate-reference
+// scheduling at runtime. Mirrors libvpx's VP8E_SET_ENABLEAUTOALTREF
+// control (vp8/vp8_cx_iface.c set_enable_auto_alt_ref). libvpx applies
+// the value verbatim with only a boolean range check; downstream altref
+// scheduling code gates on the combination of this flag and lookahead /
+// rate-control mode at use time. See EncoderOptions.AutoAltRef.
+func (e *VP8Encoder) SetAutoAltRef(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.AutoAltRef = enabled
+	e.applyChangeConfigSpeedReset()
+	return nil
+}
+
 func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 	e.rc.dropFrameAllowed = enabled
 	if enabled {
