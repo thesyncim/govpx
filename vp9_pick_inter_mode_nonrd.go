@@ -681,29 +681,109 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2346 model_rd_for_sb_y — produces
 				// (rate_y, dist_y) in libvpx's prob-cost / shifted-domain
 				// distortion units. govpx ports the kernel in
-				// vp9_block_yrd.go::vp9ModelRdForSbY.
-				rateY, distY, _, _ := vp9ModelRdForSbY(bsize, dequantY,
+				// vp9_block_yrd.go::vp9ModelRdForSbY. The kernel also
+				// produces tx_size via calculate_tx_size (libvpx
+				// vp9_pickmode.c:660-680); block_yrd consumes
+				// min(tx_size, TX_16X16).
+				rateY, distY, _, mrdTxSize := vp9ModelRdForSbY(bsize, dequantY,
 					varY, sseY, 0)
+
+				// libvpx vp9_pickmode.c:2358-2374 — when block_yrd runs
+				// (rd_computed=1 from the model_rd call above, and
+				// !use_simple_block_yrd or bsize >= 32x32), it overwrites
+				// (rate_y, dist_y) with the Hadamard + quantize_fp + SATD
+				// refinement and sets this_sse from the model_rd sse_y
+				// value. govpx mirrors:
+				//
+				//   - For (use_simple_block_yrd && bsize < BLOCK_32X32):
+				//     libvpx skips block_yrd via the early-return at
+				//     vp9_pickmode.c:747-759 (rd_computed=1 path); govpx
+				//     keeps the model_rd (rate, dist) tuple unchanged and
+				//     the skip-comparison runs against sse_y << 4.
+				//
+				//   - For (!use_simple_block_yrd || bsize >= BLOCK_32X32):
+				//     vp9BlockYrd is called with tx_size =
+				//     min(mrdTxSize, TX_16X16) (vp9_pickmode.c:2361). The
+				//     result.rate/result.dist replace (rateY, distY); the
+				//     skip comparison runs against result.sse (which is
+				//     sse_y << 4, same scaling).
+				thisSse := sseY << 4
+				finalRate := rateY
+				finalDist := uint64(distY)
+				blockYrdFired := false
+				if !useSimpleBlockYrd {
+					txClamp := min(mrdTxSize, common.Tx16x16)
+					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+					dst, dstStride := e.vp9EncoderReconPlane(0)
+					blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+					blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+					x0 := miCol * common.MiSize
+					y0 := miRow * common.MiSize
+					// libvpx block_yrd does the prediction-build via
+					// vp9_build_inter_predictors_sby just above (line
+					// 2336); govpx's vp9InterPredictionVarianceSSE call
+					// above already wrote the predictor to recon. The
+					// kernel reads src and recon directly.
+					if len(src) > 0 && len(dst) > 0 && srcStride > 0 &&
+						dstStride > 0 {
+						// libvpx uses bw/bh from num_4x4_w/h (the full
+						// block extent, not the visible window) for the
+						// src_diff stride. govpx mirrors; the visible-
+						// clamp happens via maxBlocksWide / maxBlocksHigh
+						// inside block_yrd at the tx-unit loop, but for
+						// realtime BLOCK_32X32+ candidates the picker only
+						// commits a candidate whose visible window equals
+						// the full block (vp9VisibleInterScoreBlock check
+						// inside vp9InterPredictionVarianceSSE), so the
+						// edge clamp is a no-op here.
+						byrd := vp9BlockYrd(src, srcStride, x0, y0,
+							dst, dstStride, x0, y0,
+							blockW, blockH, txClamp, dequantY, sseY,
+							e.vp9BlockYrdScratch[:])
+						if byrd.valid {
+							thisSse = uint64(byrd.sse)
+							if byrd.skippable {
+								// libvpx vp9_pickmode.c:2363-2364 —
+								// is_skippable forces rate = skip-bit
+								// cost (added below) and dist = sse;
+								// the post-compare is then skipped.
+								finalRate = 0
+								finalDist = uint64(byrd.sse)
+								blockYrdFired = true
+							} else {
+								// libvpx vp9_pickmode.c:2365-2374 — the
+								// non-skippable branch runs the RDCOST
+								// compare with block_yrd's refined (rate,
+								// dist) and the model_rd-derived sseY.
+								finalRate = byrd.rate
+								finalDist = uint64(byrd.dist)
+								// blockYrdFired stays false: the RDCOST
+								// compare below still runs.
+							}
+						}
+					}
+				}
+				_ = blockYrdFired
 
 				// libvpx vp9_pickmode.c:2366-2374 — skip-vs-non-skip RDCOST
 				// comparison. When use_simple_block_yrd is set and bsize
 				// is small, block_yrd returns sse=INT_MAX which makes the
 				// skip branch unreachable; govpx mirrors by skipping the
-				// compare.
-				//
-				// For bsize >= BLOCK_32X32 (or use_simple_block_yrd=0),
-				// libvpx runs the real block_yrd: govpx defers that
-				// detailed kernel to a follow-up port (E1b) and uses
-				// model_rd as the proxy. In that path the skip comparison
-				// runs against sseY << 4.
-				useSkipCheck := !useSimpleBlockYrd
-				isSkip := false
-				finalRate := rateY
-				finalDist := uint64(distY)
+				// compare. When vp9BlockYrd fired with skippable=true the
+				// is_skippable branch already locked finalRate/finalDist
+				// to the skip override (rate=0, dist=sse) — leave the
+				// post-compare alone.
+				// useSkipCheck mirrors libvpx vp9_pickmode.c:2365-2374. The
+				// post-compare runs when block_yrd produced a non-skippable
+				// refinement (or was bypassed by use_simple_block_yrd / no
+				// kernel run). When block_yrd reported skippable=true the
+				// is_skippable branch already set finalRate=0, finalDist=sse
+				// — the post-compare is skipped (blockYrdFired guard).
+				useSkipCheck := !useSimpleBlockYrd && !blockYrdFired
+				isSkip := blockYrdFired // skippable=true counts as the skip branch
 				if useSkipCheck {
-					thisSse := sseY << 4
 					rdNonSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
-						rateY+skipBitOff, finalDist)
+						finalRate+skipBitOff, finalDist)
 					rdSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
 						skipBitOn, thisSse)
 					if rdSkip < rdNonSkip {

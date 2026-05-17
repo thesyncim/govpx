@@ -908,18 +908,25 @@ type VP9Encoder struct {
 	varianceAQDeltaQindex    int
 	varianceAQDeltaQindexSet bool
 
-	blockCoeffs      [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
-	coefScratch      [1024]int16
-	residueScratch   [1024]int16
-	txCoeffScratch   [1024]int16
-	dqCoeffScratch   [1024]int16
-	dqScratch        vp9dec.DequantTables
-	frameCounts      encoder.FrameCounts
-	vp9HeaderScratch vp9dec.UncompressedHeader
-	vp9CountWorkers  []VP9Encoder
-	vp9CountCounts   []encoder.FrameCounts
-	vp9CountJobs     []vp9CountTileJob
-	vp9TilePool      *vp9TileWorkerPool
+	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
+	coefScratch    [1024]int16
+	residueScratch [1024]int16
+	txCoeffScratch [1024]int16
+	dqCoeffScratch [1024]int16
+	// vp9BlockYrdScratch backs vp9BlockYrd's src_diff + per-tx-unit
+	// coeff/qcoeff/dqcoeff scratch. Sized for the realtime nonrd worst
+	// case: BLOCK_64X64 + TX_16X16 = 4096 src_diff + 16 tx units × 256
+	// coeffs × 3 (coeff/qcoeff/dqcoeff) = 16384 int16. libvpx clamps
+	// tx_size <= TX_16X16 for nonrd_pickmode (vp9_pickmode.c:2361) so
+	// the TX_8X8 / TX_4X4 paths fit within this allocation too.
+	vp9BlockYrdScratch [16384]int16
+	dqScratch          vp9dec.DequantTables
+	frameCounts        encoder.FrameCounts
+	vp9HeaderScratch   vp9dec.UncompressedHeader
+	vp9CountWorkers    []VP9Encoder
+	vp9CountCounts     []encoder.FrameCounts
+	vp9CountJobs       []vp9CountTileJob
+	vp9TilePool        *vp9TileWorkerPool
 	// vp9LeafInterDecisions caches the result of pickVP9InterReferenceMode
 	// at the leaf-write site so the count pre-pass populates entries and
 	// the bitstream write pass reuses them without re-running the inter-

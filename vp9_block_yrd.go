@@ -4,6 +4,7 @@ import (
 	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9_block_yrd.go ports the libvpx v1.16.0 substrate the realtime nonrd
@@ -374,4 +375,310 @@ func vp9EncodeBreakoutTest(bsize common.BlockSize, dequant [2]int16,
 	rateOverride = interModeBitCost
 	distOverride = int64(sseY << 4)
 	return true, distOverride, rateOverride
+}
+
+// vp9BlockYrdMaxTxUnits bounds the per-call eob array. BLOCK_64X64 with
+// TX_4X4 produces 256 tx units; libvpx clamps tx_size to TX_16X16 in the
+// realtime nonrd path (vp9/encoder/vp9_pickmode.c:2361) so the actual cap
+// is 16, but we size for the worst case so the function stays usable from
+// future callers (e.g. the block_yrd at vp9_pickmode.c:1083 / 2610 which
+// passes the un-clamped mi->tx_size).
+const vp9BlockYrdMaxTxUnits = 256
+
+// vp9BlockYrdResult bundles the libvpx block_yrd outputs:
+//   - rate, dist: refined (rate, dist) tuple after Hadamard + quantize_fp +
+//     SATD scoring. Both in libvpx's prob-cost / shifted-distortion units
+//     (rate is bits << VP9_PROB_COST_SHIFT, dist is sum-of-squared-error
+//     in the shifted domain block_yrd produces — see the (*sse<<6)>>2
+//     scale at vp9_pickmode.c:823, equivalent to sse << 4).
+//   - skippable: true when every transform unit's eob came back as zero
+//     (i.e. the Y residual quantizes entirely to zero); libvpx sets the
+//     SKIP_TXFM_AC_DC bit and forces this_rdc.dist = sse in that case.
+//   - sse: the shifted-domain sum-of-squares the picker compares against
+//     RDCOST(0, sse) for the skip-vs-non-skip override.
+type vp9BlockYrdResult struct {
+	rate      int
+	dist      int64
+	sse       int64
+	skippable bool
+	valid     bool
+}
+
+// vp9BlockYrd ports libvpx v1.16.0 block_yrd (vp9/encoder/vp9_pickmode.c:728-854)
+// verbatim. It refines the (rate, dist) tuple model_rd_for_sb_y produces by
+// running the actual Hadamard + quantize_fp + SATD path on the Y-plane
+// residual, mirroring the realtime nonrd kernel that scores BLOCK_32X32+
+// candidates after model_rd. Inputs:
+//
+//   - src/srcStride/srcX/srcY: source plane and the top-left pixel of the
+//     bw×bh block in source space.
+//   - dst/dstStride/dstX/dstY: prediction plane (the inter-predictor output
+//     written by predictVP9InterBlock) and its top-left pixel. govpx's
+//     pickVP9InterReferenceModeNonRD already calls
+//     vp9InterPredictionVarianceSSE which fills the reconstruction plane;
+//     this kernel reads from it directly so no extra prediction pass is
+//     needed.
+//   - bsize: the picker-decided block size (BLOCK_32X32 / BLOCK_64X32 /
+//     BLOCK_32X64 / BLOCK_64X64).
+//   - txSize: the transform size to score with. Realtime nonrd passes
+//     min(mi->tx_size, TX_16X16) (vp9_pickmode.c:2361). The libvpx assert
+//     at line 764 guarantees tx_size != TX_32X32 here.
+//   - dequant: Y-plane (dc, ac) dequantizers (inter.dq.Y[segId]).
+//   - sseIn: the (sse_y) value model_rd_for_sb_y produced; libvpx writes
+//     this directly to *sse before scaling by ((*sse << 6) >> 2) and the
+//     skippable-vs-non-skippable branch.
+//   - residueScratch: int16 scratch the kernel uses for the bw*bh src_diff
+//     buffer plus the per-tx coeff / qcoeff / dqcoeff. Caller-supplied so
+//     we don't allocate per-candidate.
+//
+// libvpx flow (verbatim):
+//
+//	*skippable = 1;
+//	subtract bw×bh src_diff = src - pred;
+//	for each tx-unit (r, c) inside max_blocks_high × max_blocks_wide {
+//	  hadamard(src_diff + (r*bw + c)<<2, bw, coeff);   // 4x4 / 8x8 / 16x16
+//	  quantize_fp(coeff, n, qcoeff, dqcoeff, dequant, &eob, scan_order);
+//	  skippable &= (eob == 0);
+//	  eob_cost += 1;
+//	}
+//	*sse = (sseIn << 6) >> 2;            // = sseIn << 4
+//	if (skippable) {
+//	  this_rdc.dist = *sse;
+//	  this_rdc.rate = (eob_cost << VP9_PROB_COST_SHIFT);    // post-shift below
+//	  return;
+//	}
+//	this_rdc.dist = 0;
+//	this_rdc.rate = 0;
+//	for each tx-unit {
+//	  rate += (eob == 1) ? abs(qcoeff[0]) : vpx_satd(qcoeff, n);
+//	  dist += vp9_block_error_fp(coeff, dqcoeff, n) >> 2;
+//	}
+//	this_rdc.rate <<= (2 + VP9_PROB_COST_SHIFT);
+//	this_rdc.rate += (eob_cost << VP9_PROB_COST_SHIFT);
+//
+// Limitations vs libvpx:
+//
+//   - High-bit-depth (CONFIG_VP9_HIGHBITDEPTH) is not handled; govpx is
+//     8-bit only.
+//   - The xd->mb_to_right_edge / mb_to_bottom_edge clamping is folded into
+//     the caller's bw/bh (it always passes the visible block extents); a
+//     follow-up port can surface the edge clamp explicitly if a fuzz seed
+//     ever hits a sub-tile-edge inter block at BLOCK_32X32+.
+func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
+	dst []byte, dstStride int, dstX, dstY int,
+	bw, bh int, txSize common.TxSize, dequant [2]int16,
+	sseIn uint64, residueScratch []int16,
+) vp9BlockYrdResult {
+	var res vp9BlockYrdResult
+
+	// libvpx asserts tx_size != TX_32X32 (vp9_pickmode.c:764). govpx clamps
+	// at the call site (txSize is always min(mi->tx_size, TX_16X16)); fall
+	// back rather than panic if a caller violates it.
+	if txSize > common.Tx16x16 {
+		return res
+	}
+
+	// libvpx: vp9_pickmode.c:736-737
+	//   step = 1 << (tx_size << 1)            (libvpx walks block += step
+	//                                          through p->coeff; govpx
+	//                                          uses local per-tx slabs
+	//                                          so step is implicit.)
+	//   block_step = 1 << tx_size              (in 4x4 units)
+	blockStep := 1 << uint(txSize) // in 4x4 units along one axis
+	txDim := blockStep * 4         // tx unit pixel dimension
+	nCoeffs := txDim * txDim       // 16/64/256
+	num4x4W := bw >> 2
+	num4x4H := bh >> 2
+	maxBlocksWide := num4x4W
+	maxBlocksHigh := num4x4H
+
+	// libvpx: vp9_pickmode.c:771-777 — vpx_subtract_block fills p->src_diff
+	// with src - dst (the prediction). govpx mirrors verbatim.
+	srcDiffLen := bw * bh
+	if len(residueScratch) < srcDiffLen {
+		return res
+	}
+	srcDiff := residueScratch[:srcDiffLen]
+
+	// Bounds-check the source/dst windows before reading. If the block runs
+	// off the buffer (sub-frame-edge), the picker should be using a smaller
+	// bw/bh — refuse rather than over-read.
+	if srcX < 0 || srcY < 0 || dstX < 0 || dstY < 0 ||
+		srcX+bw > srcStride || dstX+bw > dstStride {
+		return res
+	}
+	if (srcY+bh)*srcStride > len(src) || (dstY+bh)*dstStride > len(dst) {
+		return res
+	}
+	for y := range bh {
+		srcRow := src[(srcY+y)*srcStride+srcX : (srcY+y)*srcStride+srcX+bw]
+		dstRow := dst[(dstY+y)*dstStride+dstX : (dstY+y)*dstStride+dstX+bw]
+		out := srcDiff[y*bw:]
+		for x := range bw {
+			out[x] = int16(int(srcRow[x]) - int(dstRow[x]))
+		}
+	}
+
+	// libvpx: vp9_pickmode.c:784 scan_order = &vp9_default_scan_orders[tx_size]
+	scanOrder := common.DefaultScanOrders[txSize]
+	scan := scanOrder.Scan
+	iscan := scanOrder.IScan
+
+	// libvpx: vp9_quantize.c:209-210 — derive (round_fp, quant_fp) from dequant
+	// using vp9_init_quantizer's recipe. nonrd_pickmode runs with
+	// sf->use_quant_fp=1, so these are the same tables the realtime tokenizer
+	// later consumes. qrounding_factor_fp == 64 at q==0; otherwise 48 (dc)
+	// and 42 (ac). govpx routes through encoder.QuantizeFPLibvpx which
+	// already takes (roundFP, quantFP, dequant) so we mirror the recipe
+	// inline.
+	var roundFP, quantFP [2]int16
+	if int(dequant[0]) <= 0 || int(dequant[1]) <= 0 {
+		return res
+	}
+	roundFP[0] = int16((48 * int(dequant[0])) >> 7)
+	roundFP[1] = int16((42 * int(dequant[1])) >> 7)
+	quantFP[0] = int16((1 << 16) / int(dequant[0]))
+	quantFP[1] = int16((1 << 16) / int(dequant[1]))
+
+	// libvpx: vp9_pickmode.c:778 *skippable = 1; (set true initially)
+	skippable := true
+	eobCost := 0
+
+	// Tx-unit pointer scratch: track per-tx eob/coeff/qcoeff/dqcoeff so the
+	// second pass can re-use them for the SATD / block_error_fp accumulation
+	// without re-running Hadamard+quantize.
+	maxTxUnits := (num4x4W / blockStep) * (num4x4H / blockStep)
+	if maxTxUnits <= 0 {
+		return res
+	}
+	// Per-tx scratch slabs: each transform writes nCoeffs entries. The
+	// caller's residueScratch is sized for the realtime worst case
+	// (BLOCK_64X64 + TX_16X16 = 4096 + 16 × 256 × 3 = 16384). For TX_8X8
+	// at BLOCK_64X64 we have 64 tx units × 64 × 3 = 12288 + 4096 = 16384;
+	// for TX_4X4 it would be 256 × 16 × 3 + 4096 = 16384 — all fits.
+	if len(residueScratch) < srcDiffLen+3*nCoeffs*maxTxUnits {
+		return res
+	}
+	perTxBase := srcDiffLen
+	coeffsAll := residueScratch[perTxBase : perTxBase+nCoeffs*maxTxUnits]
+	qcoeffAll := residueScratch[perTxBase+nCoeffs*maxTxUnits : perTxBase+2*nCoeffs*maxTxUnits]
+	dqcoeffAll := residueScratch[perTxBase+2*nCoeffs*maxTxUnits : perTxBase+3*nCoeffs*maxTxUnits]
+
+	// First pass: Hadamard / fdct4x4 + quantize_fp. libvpx:
+	// vp9_pickmode.c:781-819. The eobs cap is bounded by the realtime
+	// schedule: BLOCK_64X64 + TX_4X4 -> 256 tx units, which fits the
+	// vp9BlockYrdMaxTxUnits ceiling below. govpx clamps tx_size <=
+	// TX_16X16 (vp9_pickmode.c:2361) so the realistic max is 16.
+	txIdx := 0
+	var eobsBuf [vp9BlockYrdMaxTxUnits]int
+	if maxTxUnits > len(eobsBuf) {
+		return res
+	}
+	_ = eobsBuf
+	for r := 0; r < maxBlocksHigh; r += blockStep {
+		for c := 0; c < num4x4W; c += blockStep {
+			if c >= maxBlocksWide {
+				continue
+			}
+			// libvpx: vp9_pickmode.c:791
+			//   src_diff = &p->src_diff[(r * diff_stride + c) << 2];
+			// diff_stride == bw (== num_4x4_w * 4).
+			srcOff := (r*bw + c) << 2
+			coeffSlot := coeffsAll[txIdx*nCoeffs : (txIdx+1)*nCoeffs]
+			qcoeffSlot := qcoeffAll[txIdx*nCoeffs : (txIdx+1)*nCoeffs]
+			dqcoeffSlot := dqcoeffAll[txIdx*nCoeffs : (txIdx+1)*nCoeffs]
+
+			// libvpx: vp9_pickmode.c:796-813 — Hadamard dispatch by tx_size.
+			switch txSize {
+			case common.Tx16x16:
+				vp9Hadamard16x16Into(srcDiff[srcOff:], bw, coeffSlot)
+			case common.Tx8x8:
+				vp9Hadamard8x8Into(srcDiff[srcOff:], bw, coeffSlot)
+			default:
+				// libvpx: vp9_pickmode.c:809 — x->fwd_txfm4x4 is the forward
+				// 4x4 DCT (vpx_fdct4x4). govpx's encoder.ForwardDCT4x4Into
+				// is the verbatim libvpx port.
+				encoder.ForwardDCT4x4Into(srcDiff[srcOff:], bw, coeffSlot)
+			}
+			// libvpx: vp9_pickmode.c:799-811 — vp9_quantize_fp_c.
+			eob := encoder.QuantizeFPLibvpx(coeffSlot, nCoeffs, roundFP, quantFP,
+				dequant, scan, iscan, qcoeffSlot, dqcoeffSlot)
+			eobsBuf[txIdx] = eob
+			// libvpx: vp9_pickmode.c:814 *skippable &= (*eob == 0);
+			if eob != 0 {
+				skippable = false
+			}
+			eobCost++
+			txIdx++
+		}
+	}
+
+	// libvpx: vp9_pickmode.c:822-828 — *sse = (sseIn << 6) >> 2.
+	res.sse = int64(sseIn << 4) // (<<6)>>2 == <<4
+
+	if skippable {
+		// libvpx: vp9_pickmode.c:824-826 — *skippable case.
+		//   this_rdc.dist = *sse;
+		//   (rate is 0 here; the +eob_cost shift below adds the per-tx-unit
+		//   sentinel rate too.)
+		res.dist = res.sse
+		res.skippable = true
+		// libvpx: vp9_pickmode.c:851-853 — even on the skippable branch the
+		// rate accumulator picks up eob_cost << VP9_PROB_COST_SHIFT before
+		// the caller decides to clobber it (the "if skippable, rate gets
+		// clobbered later" comment refers to the caller, not block_yrd
+		// itself). Mirror byte-exactly.
+		res.rate = (eobCost << encoder.VP9ProbCostShift)
+		res.valid = true
+		return res
+	}
+
+	// Second pass: SATD + block_error_fp. libvpx: vp9_pickmode.c:830-849.
+	var rate int
+	var dist int64
+	for i := 0; i < txIdx; i++ {
+		coeffSlot := coeffsAll[i*nCoeffs : (i+1)*nCoeffs]
+		qcoeffSlot := qcoeffAll[i*nCoeffs : (i+1)*nCoeffs]
+		dqcoeffSlot := dqcoeffAll[i*nCoeffs : (i+1)*nCoeffs]
+		eob := eobsBuf[i]
+
+		// libvpx: vp9_pickmode.c:840-843 — rate accumulation.
+		if eob == 1 {
+			// abs(qcoeff[0]).
+			q0 := int(qcoeffSlot[0])
+			if q0 < 0 {
+				q0 = -q0
+			}
+			rate += q0
+		} else if eob > 1 {
+			// vpx_satd over n coefficients.
+			satd := 0
+			for j := range nCoeffs {
+				q := int(qcoeffSlot[j])
+				if q < 0 {
+					q = -q
+				}
+				satd += q
+			}
+			rate += satd
+		}
+
+		// libvpx: vp9_pickmode.c:845 — vp9_block_error_fp(coeff, dqcoeff, n) >> 2.
+		var blockErr int64
+		for j := range nCoeffs {
+			d := int64(coeffSlot[j]) - int64(dqcoeffSlot[j])
+			blockErr += d * d
+		}
+		dist += blockErr >> 2
+	}
+
+	// libvpx: vp9_pickmode.c:852-853 — final rate scaling.
+	//   this_rdc.rate <<= (2 + VP9_PROB_COST_SHIFT);
+	//   this_rdc.rate += (eob_cost << VP9_PROB_COST_SHIFT);
+	res.rate = (rate << (2 + encoder.VP9ProbCostShift)) +
+		(eobCost << encoder.VP9ProbCostShift)
+	res.dist = dist
+	res.skippable = false
+	res.valid = true
+	return res
 }
