@@ -7879,6 +7879,42 @@ func (e *VP9Encoder) scoreVP9KeyframeModeRD(key *vp9KeyframeEncodeState,
 	return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion), true
 }
 
+// scoreVP9KeyframeModeTransformRD is a libvpx-faithful port of
+// txfm_rd_in_plane (vp9/encoder/vp9_rdopt.c:854-889) → block_rd_txfm
+// (vp9_rdopt.c:699-852) → cost_coeffs (vp9_rdopt.c:358-459) for the
+// keyframe Y-plane RD pick. libvpx's rd_pick_intra_sby_mode
+// (vp9_rdopt.c:1383) calls super_block_yrd (vp9_rdopt.c:1025) which
+// dispatches to txfm_rd_in_plane (vp9_rdopt.c:1042) — this drives the
+// keyframe-Y-mode RD scorer.
+//
+// The libvpx-faithful flow per 4x4 step (with `step = 1 << tx_size`):
+//
+//   - block_rd_txfm runs the real forward DCT/ADST (vp9_xform_quant),
+//     QuantizeB / QuantizeFP, and inverse-transform-add into the recon
+//     buffer (vp9_rdopt.c:519-690).
+//   - distortion = pixel_sse(src, recon) * 16 (vp9_rdopt.c:689).
+//   - rate = cost_coeffs(... coeff_ctx ...) with coeff_ctx =
+//     combine_entropy_contexts(t_above[c], t_left[r]) (vp9_rdopt.c:709-710).
+//   - After each block, args.t_above[c..c+w]/t_left[r..r+h] are updated
+//     to `eob > 0` so subsequent blocks see the proper entropy context
+//     (libvpx vp9_encodemb.c:set_entropy_context_b drives the
+//     non-RD update; for the RD path block_rd_txfm at vp9_rdopt.c:786-792
+//     writes args.t_above/args.t_left = (eob > 0) under the
+//     trellis_opt_tx_rd path — without trellis it stays at the
+//     vp9_get_entropy_contexts initial values, but the inner-block
+//     coeff_ctx still observes the per-block residue presence).
+//
+// The previous govpx implementation called the SATD-of-qcoeff proxy
+// (the libvpx vp9_pickmode.c:830-853 block_yrd nonrd estimator) for
+// the keyframe RD path. That was incorrect: libvpx keyframe at
+// cpu_used=0..4 GOOD/REALTIME runs through the FULL_RD pick
+// (sf->tx_size_search_method == USE_FULL_RD, sf->use_nonrd_pick_mode
+// == 0; vp9_speed_features.c:942, 997) and dispatches to
+// super_block_yrd, NOT block_yrd. The SATD proxy underestimated the
+// larger-tx coef rate, so the picker biased toward smaller tx_size on
+// textured residuals — the residual measured under
+// TestVP9DeferredSeedsRemeasureRuntimeControls was +989-2298B/frame
+// across seeds #0/#1/#2/#4/#6/#7 (the RuntimeControls regression).
 func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState,
 	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
@@ -7892,7 +7928,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 		return 0, 0, false, false
 	}
 	planeData, stride := e.vp9EncoderReconPlane(0)
-	src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
 	if len(planeData) == 0 || stride <= 0 || len(src) == 0 || srcStride <= 0 {
 		return 0, 0, false, false
 	}
@@ -7919,38 +7955,116 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
 	}
 
-	txSize := min(mi.TxSize, common.Tx16x16)
+	txSize := clampVP9TxSizeForBlock(mi.TxSize, bsize)
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	step := 1 << uint(txSize)
 	segID := vp9EncoderMiSegmentID(mi)
 	dequant := key.dq.Y[segID]
+	qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
+		int(key.hdr.Quant.BaseQindex))
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if maxEob > len(e.coefScratch) {
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+			restoreW, restoreH, saved)
+		return 0, 0, false, false
+	}
+	// libvpx vp9_rdopt.c:872 — args.t_above/args.t_left initialised by
+	// vp9_get_entropy_contexts from pd->above_context/pd->left_context.
+	// govpx mirrors via the plane context cache; the entropy-context
+	// arrays are then updated per block to !!eob (vp9_rdopt.c:786-792).
+	var aboveCtx [16]uint8
+	var leftCtx [16]uint8
+	aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
+	leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
+	if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+			restoreW, restoreH, saved)
+		return 0, 0, false, false
+	}
+	// vp9EncoderPlaneContextOffsets() does a modulo by len(pd.LeftContext)
+	// and would panic when the plane LeftContext slab is not yet
+	// allocated (some test fixtures bypass the encoder init path). Skip
+	// the context cache copy in that case and start with the
+	// vp9_get_entropy_contexts default of zeroes (libvpx's
+	// vp9_rd.c:547-583 initial state for a fresh SB), which matches the
+	// libvpx-faithful coeff_ctx at SB corners.
+	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
+		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+		if off := aboveOffsets[0]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+			copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
+		}
+		if off := leftOffsets[0]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+			copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
+		}
+	}
 	skippable = true
 	for rr := 0; rr < max4x4H; rr += step {
 		for cc := 0; cc < max4x4W; cc += step {
-			dst, dstStride, x0, y0, predOK := e.predictVP9KeyframeTx(
-				key.hdr, pd, 0, mode, txSize, tile, miRows, miCols,
-				miRow, miCol, bsize, rr, cc)
-			if !predOK {
+			coeffs := e.coefScratch[:maxEob]
+			for i := range coeffs {
+				coeffs[i] = 0
+			}
+			// libvpx vp9_rdopt.c:699-768 — block_rd_txfm dispatches to
+			// vp9_xform_quant + inv_txfm_add. govpx's
+			// prepareVP9KeyframeTxResidue chains predictVP9KeyframeTx
+			// (intra prediction) → gatherVP9TxResidual (src - pred) →
+			// quantizeVP9TxResidual (forward DCT/ADST + QuantizeB +
+			// InverseTransformBlock). The dst recon is updated in
+			// place, so subsequent intra predictions for later blocks
+			// in the SB see the libvpx-correct reconstructed neighbour
+			// samples — mirroring vp9_rdopt.c:683-687 which copies the
+			// recon into out_recon for downstream blocks.
+			hasResidue := e.prepareVP9KeyframeTxResidue(key, pd, 0, mode, txSize,
+				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
+				qindex, coeffs)
+
+			// libvpx vp9_rdopt.c:689 — dist = pixel_sse(src, recon) * 16.
+			// govpx pulls the dst rect post-encode (after the inverse
+			// transform writes recon back) via vp9PlaneRectSSEClamped.
+			bs := 4 << uint(txSize)
+			txX := baseX + cc*4
+			txY := baseY + rr*4
+			dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
+				srcH, planeData, stride, txX, txY, bs, bs)
+			if !distOK {
 				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
 					restoreW, restoreH, saved)
 				return 0, 0, false, false
 			}
-			_ = e.gatherVP9TxResidual(src, srcStride, int(key.hdr.Width),
-				int(key.hdr.Height), dst, dstStride, x0, y0, txSize)
-			txRate, txDist, txSkippable, scoreOK := e.scoreVP9KeyframeTxBlockRD(
-				txSize, dequant)
-			if !scoreOK {
-				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
-					restoreW, restoreH, saved)
-				return 0, 0, false, false
+			distortion += dist * 16
+
+			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
+			// combine_entropy_contexts(t_above[c], t_left[r]).
+			// govpx's vp9dec.GetEntropyContext returns
+			// (above != 0) + (left != 0) which matches.
+			initCtx := vp9dec.GetEntropyContext(txSize,
+				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+			// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
+			// cost_coeffs(...). The keyframe-Y intra is_inter=0 path
+			// reads x->token_costs[tx_size][PLANE_TYPE_Y][0]; govpx
+			// dispatches to vp9KeyframeCoeffBlockRateCost which
+			// indexes fc.CoefProbs[txSize][0][0] (planeType=0,
+			// is_inter=0) and walks the per-token entropy tree.
+			coeffRate += e.vp9KeyframeCoeffBlockRateCost(txSize, dequant,
+				coeffs, initCtx)
+
+			// libvpx vp9_rdopt.c:786-792 — after the block,
+			// t_above[c..c+w]/t_left[r..r+h] = (eob > 0). govpx
+			// mirrors via the hasResidue flag (prepareVP9KeyframeTxResidue
+			// returns true exactly when eob > 0 from the encoder
+			// quantize pass).
+			hasCtx := uint8(0)
+			if hasResidue {
+				hasCtx = 1
+				skippable = false
 			}
-			coeffRate += txRate
-			distortion += txDist
-			// libvpx's realtime estimate_block_intra passes the same
-			// skippable pointer into block_yrd for each transform. block_yrd
-			// resets it before scoring, so the final transform owns this flag.
-			skippable = txSkippable
+			for i := 0; i < step && cc+i < aboveLen; i++ {
+				aboveCtx[cc+i] = hasCtx
+			}
+			for i := 0; i < step && rr+i < leftLen; i++ {
+				leftCtx[rr+i] = hasCtx
+			}
 		}
 	}
 	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
@@ -7962,40 +8076,6 @@ func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
 		copy(data[(y0+y)*stride+x0:(y0+y)*stride+x0+w],
 			saved[y*w:(y+1)*w])
 	}
-}
-
-func (e *VP9Encoder) scoreVP9KeyframeTxBlockRD(txSize common.TxSize,
-	dequant [2]int16,
-) (rate int, distortion uint64, skippable bool, ok bool) {
-	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	if maxEob > len(e.txCoeffScratch) || maxEob > len(e.coefScratch) ||
-		maxEob > len(e.dqCoeffScratch) {
-		return 0, 0, false, false
-	}
-	coeff := e.txCoeffScratch[:maxEob]
-	switch txSize {
-	case common.Tx4x4:
-		encoder.ForwardHT4x4Into(e.residueScratch[:], 4, common.DctDct, coeff)
-	case common.Tx8x8:
-		vp9Hadamard8x8Into(e.residueScratch[:], 8, coeff)
-	case common.Tx16x16:
-		vp9Hadamard16x16Into(e.residueScratch[:], 16, coeff)
-	default:
-		return 0, 0, false, false
-	}
-	qcoeff := e.coefScratch[:maxEob]
-	dqcoeff := e.dqCoeffScratch[:maxEob]
-	eob := vp9QuantizeFPForRD(coeff, dequant,
-		common.DefaultScanOrders[txSize].Scan, qcoeff, dqcoeff)
-	skippable = eob == 0
-	if eob == 1 {
-		rate += vp9AbsInt(int(qcoeff[0]))
-	} else if eob > 1 {
-		rate += vp9Satd(qcoeff)
-	}
-	rate <<= 2 + encoder.VP9ProbCostShift
-	rate += 1 << encoder.VP9ProbCostShift
-	return rate, vp9BlockErrorFP(coeff, dqcoeff) >> 2, skippable, true
 }
 
 func vp9RDCost(rdmult, rddiv, rate int, distortion uint64) uint64 {
@@ -8020,64 +8100,6 @@ func vp9KeyframeRDMul(qindex int) int {
 		return 1
 	}
 	return rdmult
-}
-
-func vp9QuantizeFPForRD(coeff []int16, dequant [2]int16, scan []int16,
-	qcoeff, dqcoeff []int16,
-) int {
-	n := min(len(coeff), min(len(scan), min(len(qcoeff), len(dqcoeff))))
-	for i := range n {
-		qcoeff[i] = 0
-		dqcoeff[i] = 0
-	}
-	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
-		return 0
-	}
-	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
-	round := [2]int{(48 * int(dequant[0])) >> 7, (42 * int(dequant[1])) >> 7}
-	eob := -1
-	for i := range n {
-		rc := int(scan[i])
-		slot := 0
-		if rc != 0 {
-			slot = 1
-		}
-		c := int(coeff[rc])
-		absCoeff := c
-		if absCoeff < 0 {
-			absCoeff = -absCoeff
-		}
-		tmp := vp9ClampInt16(absCoeff + round[slot])
-		tmp = (tmp * quant[slot]) >> 16
-		q := tmp
-		if c < 0 {
-			q = -q
-		}
-		qcoeff[rc] = int16(q)
-		dqcoeff[rc] = int16(q * int(dequant[slot]))
-		if tmp != 0 {
-			eob = i
-		}
-	}
-	return eob + 1
-}
-
-func vp9Satd(coeff []int16) int {
-	sum := 0
-	for _, c := range coeff {
-		sum += vp9AbsInt(int(c))
-	}
-	return sum
-}
-
-func vp9ClampInt16(v int) int {
-	if v < -32768 {
-		return -32768
-	}
-	if v > 32767 {
-		return 32767
-	}
-	return v
 }
 
 func vp9HadamardCol8(src []int16, stride int, coeff []int16) {
@@ -8516,9 +8538,17 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 				}
 				// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
 				// cost_coeffs(...). govpx uses
-				// vp9InterCoeffBlockRateCost as the cost_coeffs port;
+				// vp9KeyframeCoeffBlockRateCost as the cost_coeffs port;
 				// keyframe is_inter=0 so the [0] is_inter index of
-				// fc.CoefProbs is the libvpx-faithful path.
+				// fc.CoefProbs is the libvpx-faithful path. initCtx=0
+				// matches the per-tx_size choose_tx_size_from_rd loop
+				// which doesn't thread per-block above/left contexts
+				// across the inner TX_SIZE candidates (libvpx
+				// vp9_rdopt.c:854-872 — txfm_rd_in_plane resets
+				// args.t_above/t_left from vp9_get_entropy_contexts each
+				// outer iteration; the per-block coeff_ctx is computed
+				// inside block_rd_txfm and is locally 0 at the SB
+				// corner with no above/left residue).
 				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs, 0)
 			}
 		}
@@ -8578,7 +8608,11 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 // per-coefficient energy class fed into the next coef-context lookup
 // mirrors libvpx's token_cache[rc] = vp9_pt_energy_class[token]
 // (vp9_rdopt.c:397, 429, 442; pt_energy_class table is in
-// vp9/common/vp9_entropy.c:95).
+// vp9/common/vp9_entropy.c:95). initCtx is libvpx's coeff_ctx
+// (vp9_rdopt.c:709 combine_entropy_contexts(t_above, t_left)) that
+// block_rd_txfm threads into the cost_coeffs(... pt ...) `pt` parameter
+// (vp9_rdopt.c:695). Callers compute initCtx via
+// vp9dec.GetEntropyContext on the per-block above/left context cache.
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 	dequant [2]int16, coeffs []int16, initCtx int,
 ) int {
