@@ -665,12 +665,9 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 		}
 
 		// libvpx: vp9_pickmode.c:845 — vp9_block_error_fp(coeff, dqcoeff, n) >> 2.
-		var blockErr int64
-		for j := range nCoeffs {
-			d := int64(coeffSlot[j]) - int64(dqcoeffSlot[j])
-			blockErr += d * d
-		}
-		dist += blockErr >> 2
+		// The >> 2 is caller-side (the helper itself returns the raw
+		// sum-of-squared-diffs — libvpx vp9_rdopt.c:334-345).
+		dist += int64(vp9BlockErrorFP(coeffSlot, dqcoeffSlot)) >> 2
 	}
 
 	// libvpx: vp9_pickmode.c:852-853 — final rate scaling.
@@ -682,4 +679,41 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	res.skippable = false
 	res.valid = true
 	return res
+}
+
+// vp9BlockErrorFP ports libvpx vp9_rdopt.c:334-345 verbatim:
+//
+//	int64_t vp9_block_error_fp_c(const tran_low_t *coeff,
+//	                             const tran_low_t *dqcoeff,
+//	                             int block_size) {
+//	  int i;
+//	  int64_t error = 0;
+//	  for (i = 0; i < block_size; i++) {
+//	    const int diff = coeff[i] - dqcoeff[i];
+//	    error += diff * diff;
+//	  }
+//	  return error;
+//	}
+//
+// In libvpx's 8-bit build tran_low_t is int16_t (vpx_dsp_common.h:45), so
+// diff fits in int and diff*diff fits in int. The accumulator is int64_t
+// for headroom against 1024-coeff TX_32X32 blocks. govpx is 8-bit only
+// (no CONFIG_VP9_HIGHBITDEPTH path) so int16 + int (== int64 on 64-bit
+// Go) preserves identical semantics. The return type is uint64 because
+// the sum of squared diffs is non-negative; the caller (block_yrd second
+// pass, libvpx vp9_pickmode.c:845) widens to int64 and applies >> 2
+// itself — that shift is NOT part of this helper.
+//
+// Caller currently in govpx: vp9_block_yrd.go second-pass loop. The
+// historical scoreVP9KeyframeTxBlockRD caller (vp9_encoder.go) was
+// removed when the keyframe RD picker switched to cost_coeffs (commit
+// a2f325c); this helper remains as the verbatim block_yrd dependency.
+func vp9BlockErrorFP(coeff, dqcoeff []int16) uint64 {
+	n := min(len(coeff), len(dqcoeff))
+	var err uint64
+	for i := range n {
+		diff := int(coeff[i]) - int(dqcoeff[i])
+		err += uint64(diff * diff)
+	}
+	return err
 }

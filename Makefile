@@ -82,7 +82,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci pre-commit fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci pre-commit fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -350,6 +350,19 @@ vp9-vpxdec-tools:
 	test -x "$(VPXDEC_VP9)"
 	test -x "$(VPXENC_VP9)"
 	test -x "$(VPXENC_VP9_FRAMEFLAGS)"
+
+# oracle-bins builds every libvpx oracle binary the test suite can
+# consume in one shot: the VP8 oracle + stock vpxenc/vpxdec, the patched
+# VP8 trace encoder + VP8 per-frame flag driver, and the VP9-enabled
+# vpxdec/vpxenc + per-frame flag driver. Use this when a fresh checkout
+# (or worktree) needs all GOVPX_*_BIN paths populated under
+# internal/coracle/build/ before running ad-hoc GOVPX_WITH_ORACLE=1
+# tests, without picking a single verify-* gate.
+oracle-bins: oracle-tools vp9-vpxdec-tools
+	@printf 'oracle binaries ready under %s:\n' "$(CORACLE_BUILD)"
+	@for f in $(ORACLE) $(VPXENC) $(VPXDEC) $(VPXENC_ORACLE) $(VPXENC_FRAMEFLAGS) $(VPX_TEMPORAL_SVC_ENCODER) $(VPXDEC_VP9) $(VPXENC_VP9) $(VPXENC_VP9_FRAMEFLAGS); do \
+		test -x "$$f" && printf '  %s\n' "$$f"; \
+	done
 
 $(ORACLE): internal/coracle/build_libvpx.sh internal/coracle/vpx_oracle.c
 	internal/coracle/build_libvpx.sh >/dev/null
