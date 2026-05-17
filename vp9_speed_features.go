@@ -1658,10 +1658,21 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 			sf.MaxDeltaQindex = 15
 		}
 		sf.PartitionSearchType = ReferencePartition
-		// libvpx: vp9_speed_features.c:597-600 — is_src_frame_alt_ref VBR.
-		// govpx does not track is_src_frame_alt_ref in the configurator yet.
-		// TODO: consumer requires rc.is_src_frame_alt_ref. libvpx:
-		// vp9_speed_features.c:597-600.
+		// libvpx: vp9_speed_features.c:597-600 — is_src_frame_alt_ref VBR
+		// override:
+		//
+		//   if (cpi->oxcf.rc_mode == VPX_VBR && cpi->oxcf.lag_in_frames > 0 &&
+		//       cpi->rc.is_src_frame_alt_ref) {
+		//     sf->partition_search_type = VAR_BASED_PARTITION;
+		//   }
+		//
+		// ctx.isSrcFrameAltRef threads rc->is_src_frame_alt_ref through the
+		// per-frame configurator context (vp9PerFrameSpeedContextArgs /
+		// vp9SpeedFrameContext).
+		if e.opts.RateControlMode == RateControlVBR && e.opts.LookaheadFrames > 0 &&
+			ctx.isSrcFrameAltRef {
+			sf.PartitionSearchType = VarBasedPartition
+		}
 
 		sf.UseNonrdPickMode = 1
 		sf.AllowSkipRecode = 0
@@ -1768,9 +1779,21 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 			} else {
 				sf.AdaptPartitionThresh = 60000
 			}
-			// libvpx: vp9_speed_features.c:676-683 — content_state_sb_fd alloc.
-			// TODO: consumer requires VP9_COMP.content_state_sb_fd allocation.
-			// libvpx: vp9_speed_features.c:676-683.
+			// libvpx: vp9_speed_features.c:676-683 — content_state_sb_fd alloc:
+			//
+			//   if (cpi->content_state_sb_fd == NULL &&
+			//       (!cpi->use_svc ||
+			//        svc->spatial_layer_id == svc->number_spatial_layers - 1)) {
+			//     CHECK_MEM_ERROR(&cm->error, cpi->content_state_sb_fd,
+			//         (uint8_t *)vpx_calloc(
+			//             (cm->mi_stride >> 3) * ((cm->mi_rows >> 3) + 1),
+			//             sizeof(uint8_t)));
+			//   }
+			//
+			// govpx is single-layer so the !use_svc clause is always
+			// satisfied. vp9EnsureContentStateSbFd is the libvpx allocation
+			// body, sized from the frame mi grid via vp9MiDimensionsForFrame.
+			e.vp9EnsureContentStateSbFd(ctx.width, ctx.height)
 		}
 		if e.opts.RateControlMode == RateControlCBR && content != vp9ContentScreen {
 			sf.ShortCircuitLowTempVar = 1
@@ -1953,10 +1976,36 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 	}
 
 	// libvpx: vp9_speed_features.c:828-844 — altref-onepass FIXED_PARTITION
-	// override + ARF usage counters alloc.
-	// TODO: consumer requires VP9_COMP.count_arf_frame_usage /
-	// count_lastgolden_frame_usage / rc.is_src_frame_alt_ref. libvpx:
-	// vp9_speed_features.c:828-844.
+	// override + ARF usage counter allocation:
+	//
+	//   if (sf->use_altref_onepass) {
+	//     if (cpi->rc.is_src_frame_alt_ref && cm->frame_type != KEY_FRAME) {
+	//       sf->partition_search_type = FIXED_PARTITION;
+	//       sf->always_this_block_size = BLOCK_64X64;
+	//     }
+	//     if (cpi->count_arf_frame_usage == NULL) {
+	//       CHECK_MEM_ERROR(&cm->error, cpi->count_arf_frame_usage,
+	//           (uint8_t *)vpx_calloc((cm->mi_stride >> 3) *
+	//                                  ((cm->mi_rows >> 3) + 1),
+	//                                  sizeof(*cpi->count_arf_frame_usage)));
+	//     }
+	//     if (cpi->count_lastgolden_frame_usage == NULL)
+	//       CHECK_MEM_ERROR(&cm->error, cpi->count_lastgolden_frame_usage,
+	//           (uint8_t *)vpx_calloc((cm->mi_stride >> 3) *
+	//                                  ((cm->mi_rows >> 3) + 1),
+	//                                  sizeof(*cpi->count_lastgolden_frame_usage)));
+	//   }
+	//
+	// vp9EnsureArfFrameUsage allocates both counters with the libvpx
+	// calc_mi_size-derived shape. ctx.isSrcFrameAltRef threads
+	// rc->is_src_frame_alt_ref from the per-frame configurator context.
+	if sf.UseAltrefOnepass != 0 {
+		if ctx.isSrcFrameAltRef && ctx.frameType != common.KeyFrame {
+			sf.PartitionSearchType = FixedPartition
+			sf.AlwaysThisBlockSize = common.Block64x64
+		}
+		e.vp9EnsureArfFrameUsage(ctx.width, ctx.height)
+	}
 
 	// libvpx: vp9_speed_features.c:845-848.
 	if ctx.svc.PreviousFrameIsIntraOnly {

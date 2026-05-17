@@ -981,6 +981,45 @@ type VP9Encoder struct {
 	//
 	// libvpx: vp9_encoder.h cpi->sf + vp9_speed_features.{h,c}.
 	sf SpeedFeatures
+
+	// contentStateSbFd mirrors libvpx's cpi->content_state_sb_fd: a per-SB
+	// uint8 counter incremented on every SB whose tmp_sad reading falls
+	// below avg_source_sad_threshold2, and reset to zero on the first SB
+	// above the threshold. Allocated lazily by the speed-feature
+	// configurator when sf.UseSourceSad is set on the speed >= 6 path;
+	// sized (mi_stride >> 3) * ((mi_rows >> 3) + 1) bytes. A nil slice
+	// means the counter is disabled, exactly as libvpx tests
+	// `if (cpi->content_state_sb_fd != NULL)`.
+	//
+	// libvpx: vp9_encoder.h:883 cpi->content_state_sb_fd,
+	// vp9_speed_features.c:676-683 allocation,
+	// vp9_encodeframe.c:1238-1244 increment/reset per-SB,
+	// vp9_encodeframe.c:1346-1347 read into x->last_sb_high_content,
+	// vp9_encoder.c:4079-4082 SVC/resize memset reset.
+	contentStateSbFd         []uint8
+	contentStateSbFdMiCols   int
+	contentStateSbFdMiRows   int
+	contentStateSbFdMiStride int
+
+	// countArfFrameUsage / countLastgoldenFrameUsage mirror libvpx's
+	// cpi->count_arf_frame_usage / cpi->count_lastgolden_frame_usage.
+	// Allocated lazily by the speed-feature configurator when
+	// sf.UseAltrefOnepass is set; sized
+	// (mi_stride >> 3) * ((mi_rows >> 3) + 1) bytes each. Per-SB picker
+	// writes at vp9_encodeframe.c:5368-5371; the per-frame ARF usage
+	// percentage is recomputed by update_altref_usage
+	// (vp9_ratectrl.c:1802-1819) and stored in rc.percArfUsage.
+	//
+	// libvpx: vp9_encoder.h:891-892 cpi->count_arf_frame_usage /
+	// count_lastgolden_frame_usage,
+	// vp9_speed_features.c:828-844 allocation,
+	// vp9_encodeframe.c:5363-5371 write,
+	// vp9_ratectrl.c:1802-1819 read into rc.percArfUsage.
+	countArfFrameUsage         []uint8
+	countLastgoldenFrameUsage  []uint8
+	countArfFrameUsageMiCols   int
+	countArfFrameUsageMiRows   int
+	countArfFrameUsageMiStride int
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.

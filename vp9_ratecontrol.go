@@ -114,6 +114,31 @@ type vp9RateControlState struct {
 	// per-SB via cbRdmult before invoking RDCOST.
 	rdmult int
 	rddiv  int
+
+	// percArfUsage mirrors libvpx's RATE_CONTROL::perc_arf_usage: a smoothed
+	// ARF-usage percentage that update_altref_usage refreshes from the
+	// per-SB count_arf_frame_usage / count_lastgolden_frame_usage slabs at
+	// the end of every non-overlay, non-refresh ARF-group frame. Consumed
+	// by the one-pass VBR ARF disable gate at vp9_ratectrl.c:3007-3010
+	// (`cpi->rc.perc_arf_usage < 15 && cpi->oxcf.speed >= 5`).
+	//
+	// libvpx: vp9_ratectrl.h:192 perc_arf_usage,
+	// vp9_ratectrl.c:1814-1815 update,
+	// vp9_ratectrl.c:3007-3010 consumer.
+	percArfUsage float64
+
+	// isSrcFrameAltRef mirrors libvpx's RATE_CONTROL::is_src_frame_alt_ref.
+	// Set by vp9_configure_buffer_updates (vp9_ratectrl.c:1655-1697) or
+	// check_src_altref (vp9_encoder.c:5810-5822) when the lookahead pops
+	// the frame that was scheduled as the ARF source. Read by the speed-5
+	// VBR VAR_BASED_PARTITION switch (vp9_speed_features.c:597-600), the
+	// altref-onepass FIXED_PARTITION BLOCK_64X64 override
+	// (vp9_speed_features.c:828-832), update_altref_usage
+	// (vp9_ratectrl.c:1802), and a long list of further rate-control /
+	// encoder consumers.
+	//
+	// libvpx: vp9_ratectrl.h:118 is_src_frame_alt_ref.
+	isSrcFrameAltRef bool
 }
 
 type vp9DropReason uint8
