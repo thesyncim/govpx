@@ -28,6 +28,10 @@ import (
 //     avg per-seed size_delta ~+3300 bytes.
 //   - Phase D (GOVPX_VP9_NONRD_PICK_PARTITION=1): keyframe match, 44 inter
 //     frames diverge, avg per-seed size_delta ~+430 bytes (88% reduction).
+//   - Phase E (vp9_pickmode.c:2050-2488 control-flow port): avg per-seed
+//     size_delta +172B/seed (14% further reduction vs Phase D's +200B/seed
+//     baseline after the libvpx-faithful x->skip + bestEarlyTerm +
+//     strict-< winner selection + sse_zeromv_normalized landed).
 //
 // libvpx ref: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition
 // with use_ml_based_partitioning=1.

@@ -210,14 +210,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// libvpx: vp9_pickmode.c:1748 int ref_frame_skip_mask = 0;
 	refFrameSkipMask := 0
 
-	// libvpx: vp9_pickmode.c:1751 int best_early_term = 0;
-	// Once a candidate qualifies as "early term" (SSE below a threshold) and
-	// idx > 0, the search terminates. govpx mirrors the shape but does not
-	// compute the libvpx threshold (which depends on x->mv_limits and var_y);
-	// instead we use a distortion-vs-zero-distortion ratio. TODO: port the
-	// libvpx early-term condition exactly (vp9_pickmode.c:2484-2488).
-	bestEarlyTerm := false
-
 	// Pre-cache per-ref slot lookups so the inner loop is a fast table read.
 	// libvpx walks find_predictors per usable_ref_frame ahead of the main
 	// loop (vp9_pickmode.c:2002-2012); govpx's equivalent is the
@@ -482,6 +474,42 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	bestSet := false
 	var best vp9InterModeDecision
 
+	// libvpx: vp9_pickmode.c:1758 unsigned int sse_zeromv_normalized = UINT_MAX.
+	// Updated at vp9_pickmode.c:2350-2354 only when (ref_frame == LAST_FRAME &&
+	// frame_mv[this_mode][LAST_FRAME].as_int == 0) — sseY normalised by
+	// b_width_log2 + b_height_log2 (i.e. log2 of total pixel count). Read at
+	// vp9_pickmode.c:2123-2126 for the CBR GOLDEN_FRAME skip gate. govpx
+	// tracks it for libvpx-shape parity; the gate currently fires only for
+	// CBR runs but the value is part of the picker's verbatim state.
+	sseZeromvNormalized := uint64(1<<63 - 1)
+
+	// libvpx: vp9_pickmode.c:1860 x->skip = 0; the candidate loop tracks
+	// x->skip locally (per-iteration) — set to 1 by encode_breakout_test
+	// (vp9_pickmode.c:1026) AND consumed at vp9_pickmode.c:2478-2480 to
+	// break out of the candidate loop early when force_test_gf_zeromv is
+	// not asserted or GOLDEN/ZEROMV has already been scored.
+	xSkip := false
+
+	// libvpx: vp9_pickmode.c:2033-2036 force_test_gf_zeromv. Set for SVC
+	// spatial-layer > 0 with no_scaling and base_qindex > lower_layer + 10.
+	// govpx single-layer encodes have spatial_layer_id == 0, so the gate is
+	// always 0; folded as a constant to preserve the libvpx shape at
+	// vp9_pickmode.c:2479 / 2485.
+	forceTestGfZeromv := false
+	_ = forceTestGfZeromv // referenced symbolically in the early-break gate.
+
+	// libvpx: vp9_pickmode.c:1751 int best_early_term = 0. Set at
+	// vp9_pickmode.c:2462 only when the winning candidate flowed through
+	// model_rd_for_sb_y_large or search_filter_ref AND those kernels set
+	// *this_early_term = 1 (UV transform-skip on both planes). govpx has
+	// neither kernel ported yet, so this_early_term is always 0 and the
+	// libvpx-faithful early-term break at vp9_pickmode.c:2484-2488 cannot
+	// fire. Tracked here as a no-op so the control-flow shape mirrors
+	// libvpx; once model_rd_for_sb_y_large lands the gate flips on
+	// automatically. Replaces the prior heuristic 1/64-ratio early-term
+	// which was a govpx invention and caused libvpx-divergent breaks.
+	bestEarlyTerm := false
+
 	// libvpx: vp9_pickmode.c:2050 for (idx = 0; idx < num_inter_modes +
 	//   comp_modes; ++idx).
 	// govpx defers compound modes (comp_modes loop tail at idx >=
@@ -499,6 +527,30 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 		if !refSlotValid[refFrame] {
 			continue
+		}
+
+		// libvpx: vp9_pickmode.c:2123-2126 — CBR golden-frame skip gate.
+		//   if (ref_frame == GOLDEN_FRAME && cpi->oxcf.rc_mode == VPX_CBR &&
+		//       (... sse_zeromv_normalized < thresh_skip_golden))
+		//     continue;
+		// libvpx caches the LAST/ZEROMV normalised sse the first time it's
+		// scored (vp9_pickmode.c:2350-2354). On the GOLDEN_FRAME iterations
+		// the gate prunes the whole ref when the prior LAST/ZEROMV
+		// prediction was good enough. govpx tracks sseZeromvNormalized
+		// the same way; the gate only fires under CBR (thresh_skip_golden
+		// = 500 default, vp9_pickmode.c:1779) — the deferred-seed
+		// configurations run RateControlMode = RateControlQ so it's a
+		// no-op there, but the shape is part of the libvpx-faithful
+		// candidate filter. SVC's thresh_svc_skip_golden branch is not
+		// surfaced (govpx is single-layer); single-layer uses the
+		// non-SVC 500 default.
+		if refFrame == vp9dec.GoldenFrame &&
+			e.opts.RateControlModeSet &&
+			e.opts.RateControlMode == RateControlCBR {
+			const threshSkipGolden = 500
+			if sseZeromvNormalized < threshSkipGolden {
+				continue
+			}
 		}
 
 		// libvpx: vp9_pickmode.c:2128 if (!(cpi->ref_frame_flags &
@@ -762,6 +814,20 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					continue
 				}
 
+				// libvpx: vp9_pickmode.c:2349-2354 — save normalised sse
+				// for (LAST, ZEROMV). The shift is log2 of the total
+				// pixel count (b_width_log2 + b_height_log2), matching
+				// the libvpx formula. Read by the CBR GOLDEN_FRAME skip
+				// gate at vp9_pickmode.c:2123-2126 — currently a no-op
+				// for non-CBR seeds, but the value is part of the
+				// picker's verbatim state.
+				if refFrame == vp9dec.LastFrame &&
+					frameMv[thisMode][refFrame] == (vp9dec.MV{}) {
+					shift := uint(common.BWidthLog2Lookup[bsize]) +
+						uint(common.BHeightLog2Lookup[bsize])
+					sseZeromvNormalized = sseY >> shift
+				}
+
 				// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
 				//   best_sse_sofar = sse_y;
 				if sseY < bestSseSoFar {
@@ -948,6 +1014,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							// vp9_pickmode.c:1033.
 							rate = interModeBitCost
 							finalDist = uint64(ebDist)
+							// libvpx: vp9_pickmode.c:1026 x->skip = 1;
+							// Surface the firing through the outer-loop
+							// state so the early-break at
+							// vp9_pickmode.c:2478-2480 can fire.
+							xSkip = true
 						}
 					}
 				}
@@ -1024,9 +1095,19 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 
 			// libvpx: vp9_pickmode.c:2460 if (this_rdc.rdcost <
-			//   best_rdc.rdcost || x->skip).
-			if !bestSet || cand.score < best.score ||
-				(cand.score == best.score && cand.rate < best.rate) {
+			//   best_rdc.rdcost || x->skip) {
+			//     best_rdc = this_rdc;
+			//     best_early_term = this_early_term;
+			//     ...
+			//   }
+			// Strict `<` mirrors libvpx; the previous govpx tie-break on
+			// (score == best.score && cand.rate < best.rate) was a govpx
+			// invention and could swap a libvpx-equivalent loser in on
+			// rate parity. Drop the tie-break so candidate ordering
+			// matches libvpx's first-seen-wins semantics. The `|| xSkip`
+			// disjunct lets an encode_breakout-fired candidate win
+			// unconditionally — same as libvpx's `|| x->skip`.
+			if !bestSet || cand.score < best.score || xSkip {
 				best = cand
 				bestSet = true
 				bp.bestMode = cand.mode
@@ -1035,6 +1116,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				bp.bestPredFilter = cand.interpFilter
 				bp.winner = cand
 				bp.winnerSet = true
+				// libvpx: vp9_pickmode.c:2462 best_early_term =
+				// this_early_term. govpx's this_early_term is always 0
+				// until model_rd_for_sb_y_large lands (see declaration
+				// site for the deferral note); the assignment is kept
+				// shape-equivalent.
+				bestEarlyTerm = false
 			}
 		}
 
@@ -1045,26 +1132,41 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// counts as scored when at least one filter sweep completed.
 		modeChecked[thisMode][refFrame] = true
 
-		// libvpx: vp9_pickmode.c:2484-2488 — best_early_term shortcut.
-		//   if (best_early_term && idx > 0 && !scene_change_detected) {
-		//     x->skip = 1; break;
-		//   }
-		// govpx triggers an analogous early-term when the LAST/ZEROMV
-		// distortion is below a fraction of the maximum block SSE — that
-		// is, when the reference is "close enough" to the source that
-		// further candidates are unlikely to win. The exact libvpx
-		// threshold depends on var_y and noise_estimate which govpx does
-		// not surface yet (TODO).
-		if bestSet && idx > 0 && !bestEarlyTerm {
-			// Treat distortion <= 1/64 of (bestSseSoFar at idx==0) as
-			// "good enough"; this is a conservative analogue to libvpx's
-			// model_rd skip criterion (vp9_pickmode.c:2358-2374). Pixel
-			// MSE of ~0.25 corresponds to a true near-skip block.
-			if best.distortion <= (bestSseSoFar >> 6) {
-				bestEarlyTerm = true
-			}
+		// libvpx: vp9_pickmode.c:2478-2480 — encode_breakout / x->skip
+		// early-break. Once a candidate fired encode_breakout_test (x->skip
+		// = 1), libvpx breaks out of the candidate loop UNLESS the SVC
+		// force_test_gf_zeromv flag is asserted AND GOLDEN/ZEROMV hasn't
+		// been scored yet. For non-SVC encodes (govpx single-layer),
+		// force_test_gf_zeromv is always 0 so the break always fires on
+		// xSkip.
+		//
+		//   if (x->skip &&
+		//       (!force_test_gf_zeromv || mode_checked[ZEROMV][GOLDEN_FRAME]))
+		//     break;
+		if xSkip &&
+			(!forceTestGfZeromv ||
+				modeChecked[common.ZeroMv][vp9dec.GoldenFrame]) {
+			break
 		}
-		if bestEarlyTerm {
+
+		// libvpx: vp9_pickmode.c:2484-2488 — best_early_term shortcut.
+		//   if (best_early_term && idx > 0 && !scene_change_detected &&
+		//       (!force_test_gf_zeromv ||
+		//        mode_checked[ZEROMV][GOLDEN_FRAME])) {
+		//     x->skip = 1;
+		//     break;
+		//   }
+		// govpx's bestEarlyTerm is always false until
+		// model_rd_for_sb_y_large lands (see declaration note); the gate
+		// preserves libvpx control-flow shape but cannot fire today.
+		// scene_change_detected is also tied to the noise_estimate /
+		// avg_source_sad substrate which govpx has not yet ported, so it's
+		// folded to false here (libvpx-conservative: assume no scene
+		// change so the gate stays equally permissive).
+		if bestEarlyTerm && idx > 0 &&
+			(!forceTestGfZeromv ||
+				modeChecked[common.ZeroMv][vp9dec.GoldenFrame]) {
+			xSkip = true
 			break
 		}
 	}
