@@ -382,6 +382,9 @@ func libvpxDropFrameThreshFromConfig(cfg RateControlConfig) int {
 	if !cfg.DropFrameAllowed {
 		return 0
 	}
+	if cfg.DropFrameWaterMark == 0 {
+		return defaultDropFramesWaterMark
+	}
 	return cfg.DropFrameWaterMark
 }
 

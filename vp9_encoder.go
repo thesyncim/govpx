@@ -1734,9 +1734,9 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		// low-variance bonus segments over-spend bits on flat
 		// regions, the segment map and segment-aware partition
 		// splits add overhead, and the user-chosen quality anchor
-		// is left unanchored. Skip the segmentation entirely in
-		// that mode — variance-AQ becomes a no-op rather than the
-		// +70%+ BD-rate regression that the buggy v1 implementation
+		// is left unanchored. Suppress map/data updates in that
+		// mode — variance-AQ becomes a header-only no-op rather than
+		// the +70%+ BD-rate regression that the buggy v1 implementation
 		// produced on synthetic half-flat content. Rate-controlled
 		// pipelines (CBR/VBR) still get the perceptual benefit
 		// because the rate loop compensates for the qindex shift.
@@ -1750,7 +1750,7 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 				vp9EnableActiveMapSegmentation(&seg)
 				return seg
 			}
-			return vp9dec.SegmentationParams{}
+			return vp9dec.SegmentationParams{Enabled: true}
 		}
 		// libvpx's vp9_aq_variance.c only recomputes the per-segment
 		// AltQ deltas on intra / alt-ref / golden frames; the deltas
@@ -2403,9 +2403,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			return VP9EncodeResult{}, err
 		}
 	}
-	if isKey && flags&vp9NoUpdateRefFlags != 0 {
-		return VP9EncodeResult{}, ErrInvalidConfig
-	}
+	// libvpx vp9/encoder/vp9_encoder.c:5444 forces cpi->refresh_last_frame=1
+	// on every KEY_FRAME after set_ext_overrides has copied the user-supplied
+	// ext_refresh_*_frame fields, and vp9_encoder.c:856-858 forces
+	// refresh_golden_frame=1 / refresh_alt_ref_frame=1 inside check_show_existing.
+	// The net effect is that any EncodeNoUpdate{Last,Golden,AltRef} hint passed
+	// with EncodeForceKeyFrame is SILENTLY IGNORED — it is not a "Conflicting
+	// flags." error. govpx writes header.RefreshFrameFlags = 0xff on KEY_FRAMEs
+	// at vp9_encoder.go:2593 unconditionally, mirroring this, so accepting
+	// NoUpdate bits on key frames yields the same bitstream as libvpx.
 	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
 		return VP9EncodeResult{}, ErrInvalidConfig
 	}

@@ -55,11 +55,9 @@ type fastInterRefSlot struct {
 //
 // R9-1: TestOracleInterModeDistributionScoreboard's
 // rt-cpu8-1280x720-bench-noise fixture pins the high-resolution mode
-// dispersal at L1=1.67pp / EOB ratio=1.013. The dominant residual is a
-// ~0.83pp ZEROMV<->NEARESTMV swap; the NEAR/NEW gap called out in r7-b
-// is closed (NEAR 0.01% govpx vs 0.00% libvpx, NEW 0.30% vs 0.47%).
-// cmd/govpx-bench's interframe overshoot is dominated by residual-token
-// / entropy-savings path downstream of the picker.
+// dispersal at bench scale. The current residual is a NEAREST-heavy
+// distribution with NEAR/NEW under-picked vs libvpx, plus a residual-token
+// / entropy-savings gap downstream of the picker.
 //
 // The threshold gates must use the frame base quantizer, not the active
 // cyclic-refresh segment quantizer. libvpx derives rd_baseline_thresh from
