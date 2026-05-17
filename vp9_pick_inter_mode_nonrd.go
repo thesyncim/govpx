@@ -157,11 +157,11 @@ func vp9InitBestPickmode(bp *vp9BestPickmode) {
 //     through the fuzz seeds the > 0 path will exercise too.
 //
 //   - libvpx's pred_mv_sad reference-masking (vp9_pickmode.c:2204-2228)
-//     skips a ref whose SAD is 2x worse than another. govpx approximates
-//     pred_mv_sad with the (0,0)-offset SAD per ref; the (ref_mvs[0],
-//     ref_mvs[1], x->pred_mv) candidate set (vp9_rd.c:588) is a Phase E4
-//     follow-up.
-//     TODO: port full vp9_mv_pred candidate-set SAD (vp9_rd.c:588-639).
+//     skips a ref whose SAD is 2x worse than another. govpx ports the
+//     full vp9_mv_pred candidate-set SAD (vp9_rd.c:588-639) in
+//     vp9_mv_pred.go — the same {ref_mvs[0], ref_mvs[1], x->pred_mv}
+//     candidate triple with INT16_MAX skip, near_same_nearest dedup,
+//     zero_seen dedup, and sub-pel-to-full-pel rounding.
 //
 //   - libvpx's block_yrd (vp9_pickmode.c:728-854) refines (rate, dist)
 //     with Hadamard + quantize_fp + satd. govpx still uses model_rd as
@@ -251,18 +251,40 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 
 	// libvpx: vp9_pickmode.c:2204-2228 — sf->reference_masking gate.
 	// libvpx's pred_mv_sad[ref] is the best SAD across the per-ref MV
-	// candidates (vp9_rd.c:588 vp9_mv_pred). When a ref's pred_mv_sad is
-	// more than 2x the dominant ref's, the entire ref is pruned. govpx
-	// approximates pred_mv_sad with the (0,0)-offset SAD per ref: this
-	// catches the common case where LAST tracks the source motion and
-	// GOLDEN/ALTREF lag significantly. Pre-compute the per-ref (0,0) SAD
-	// to seed the ref_frame_skip_mask before the main loop.
+	// candidate set {ref_mvs[0], ref_mvs[1], x->pred_mv[ref]} produced by
+	// vp9_mv_pred (vp9_rd.c:588). When a ref's pred_mv_sad is more than 2x
+	// the dominant ref's, the entire ref is pruned.
 	//
-	// TODO: port full vp9_mv_pred which evaluates {ref_mvs[0], ref_mvs[1],
-	// x->pred_mv} candidates and picks the best — would catch more refs
-	// that the (0,0)-only approximation misses (vp9_rd.c:588-639).
+	// Phase E3 (GOVPX_VP9_NONRD_PICK_PARTITION=1): full vp9_mv_pred
+	// candidate-set SAD via vp9MvPredScanCandidates (see vp9_mv_pred.go).
+	// The third candidate (x->pred_mv[ref]) is included only at bsize <
+	// max_partition_size; libvpx sets max_partition_size = BLOCK_64X64 for
+	// the ML_BASED_PARTITION case (vp9_encodeframe.c:5315) and INT16_MAX
+	// for sizes >= max_partition_size (vp9_encodeframe.c:4216-4217), so it
+	// is skipped at root BLOCK_64X64. govpx does not yet surface
+	// x->pred_mv[ref] (the SB-level y_sad path that writes it lives in a
+	// future port), so the third candidate is always invalid here.
+	//
+	// Legacy path (gate off): keep the (0,0)-offset SAD approximation so
+	// the cpu_used=8-default oracle parity tests (LosslessInter, Checker,
+	// Lookahead) stay byte-exact while Phase E ramps in.
+	//
+	// libvpx: vp9_rd.c:599-601 num_mv_refs formula.
+	// libvpx: vp9_rd.c:602-606 candidate triple population.
+	useMvPredCandidateSet := vp9NonrdPickPartitionEnabled()
+	maxPartitionSize := e.sf.DefaultMaxPartitionSize
+	if maxPartitionSize == 0 {
+		// libvpx: vp9_speed_features.c:876 — default at speed 0 / cpu_used 0.
+		maxPartitionSize = common.Block64x64
+	}
+	numMvRefs := vp9MvPredNumCandidates(bsize, maxPartitionSize)
 	var predMvSad [vp9dec.MaxRefFrames]uint64
+	var mvBestRefIndex [vp9dec.MaxRefFrames]int
+	var maxMvContext [vp9dec.MaxRefFrames]int
 	for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
+		// libvpx: vp9_pickmode.c:1278 — x->pred_mv_sad[ref] = INT_MAX
+		// (find_predictors precondition); govpx mirrors with the widened
+		// uint64 sentinel.
 		predMvSad[r] = 1<<63 - 1
 	}
 	if e.sf.ReferenceMasking != 0 {
@@ -279,15 +301,66 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				refSlot := refSlots[r]
 				inter.ref = &e.refFrames[refSlot]
 				refBuf, refStride, refW, refH := vp9ReferenceVisiblePlane(inter.ref, 0)
-				if len(refBuf) == 0 || refStride <= 0 ||
-					x0+blockW > refW || y0+blockH > refH {
+				if len(refBuf) == 0 || refStride <= 0 {
 					continue
 				}
-				predMvSad[r] = vp9BlockSAD(src, srcStride, refBuf, refStride,
-					x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+
+				if useMvPredCandidateSet {
+					// libvpx: vp9_rd.c:602-606 — populate pred_mv[0..2]
+					// from ref_mvs[ref][0], ref_mvs[ref][1],
+					// x->pred_mv[ref]. govpx derives ref_mvs[ref][0..1]
+					// from vp9FindInterMvRefsFields in its mode-
+					// independent shape: mode=NearMv sets earlyBreak=
+					// false in the scanner so we walk to the full
+					// 2-candidate list (NearestMv would short-circuit
+					// after the first match and normalize count=1,
+					// dropping the second candidate that vp9_mv_pred
+					// needs).
+					var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
+					refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+						e.useVP9EncoderPrevFrameMvs(miRows, miCols),
+						e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
+						tile, miRows, miCols, miRow, miCol, bsize,
+						common.NearMv, r, inter.refSignBias, -1)
+					if refCount >= 1 {
+						candidates[0] = vp9MvPredInputCandidate{
+							mv:    refList[0],
+							valid: true,
+						}
+					}
+					if refCount >= 2 {
+						candidates[1] = vp9MvPredInputCandidate{
+							mv:    refList[1],
+							valid: true,
+						}
+					}
+					// libvpx: vp9_rd.c:606 — pred_mv[2] =
+					// x->pred_mv[ref_frame]. govpx does not surface
+					// x->pred_mv yet; candidates[2] stays valid=false
+					// which the kernel skips via the INT16_MAX shortcut.
+
+					result := vp9MvPredScanCandidates(candidates[:], numMvRefs,
+						src, srcStride, x0, y0,
+						refBuf, refStride, x0, y0, refW, refH,
+						blockW, blockH)
+					if result.bestSad != ^uint64(0) {
+						predMvSad[r] = result.bestSad
+						mvBestRefIndex[r] = result.bestIndex
+						maxMvContext[r] = result.maxMvContext
+					}
+				} else {
+					// Legacy (0,0)-offset SAD approximation.
+					if x0+blockW > refW || y0+blockH > refH {
+						continue
+					}
+					predMvSad[r] = vp9BlockSAD(src, srcStride, refBuf, refStride,
+						x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+				}
 			}
 		}
 	}
+	_ = mvBestRefIndex // libvpx writes to x->mv_best_ref_index; govpx's
+	_ = maxMvContext   // motion-search path does not yet read them.
 
 	// Read the neighbour MIs once for per-candidate rate cost computation.
 	var left *vp9dec.NeighborMi
@@ -667,6 +740,31 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
 				score := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
 					rate, finalDist)
+
+				// libvpx vp9_pickmode.c:2414-2422 — vp9_NEWMV_diff_bias.
+				// Gated on (rc_mode == VPX_CBR && speed >= 5 && content
+				// != VP9E_CONTENT_SCREEN). govpx mirrors the gate at the
+				// call site; the bias adjusts this_rdc.rdcost in place.
+				//
+				// libvpx vp9_pickmode.c:2415:
+				//   if (cpi->oxcf.rc_mode == VPX_CBR && cpi->oxcf.speed >= 5 &&
+				//       cpi->oxcf.content != VP9E_CONTENT_SCREEN)
+				//     vp9_NEWMV_diff_bias(...);
+				if e.opts.RateControlModeSet &&
+					e.opts.RateControlMode == RateControlCBR &&
+					e.vp9SpeedFeatureCPUUsed() >= 5 &&
+					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
+					// noise_estimate / lowvar_highsumdiff / sb_is_skin
+					// are not wired through govpx yet (cpi->noise_estimate
+					// disabled when oxcf.noise_sensitivity == 0); the
+					// kernel returns the unmodified rdcost in that case.
+					biased := vp9NewmvDiffBias(thisMode, score, bsize,
+						int(mv.Row), int(mv.Col),
+						above, left,
+						refFrame == vp9dec.LastFrame,
+						false, false, false, false)
+					score = biased.rdcost
+				}
 
 				cand = vp9InterModeDecision{
 					refFrame:       refFrame,
