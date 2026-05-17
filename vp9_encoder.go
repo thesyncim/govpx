@@ -8261,11 +8261,19 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 	}
 }
 
-// vp9KeyframeCoeffBlockRateCost mirrors vp9InterCoeffBlockRateCost but
-// reads from the is_inter=0 coef context (fc.CoefProbs[txSize][planeType][0])
-// since the keyframe context's coef table is the libvpx-faithful path for
-// intra blocks. libvpx cost_coeffs (vp9/encoder/vp9_rdopt.c:cost_coeffs)
-// dispatches on the same fc->coef_probs[tx_size][plane_type][ref==0].
+// vp9KeyframeCoeffBlockRateCost is a verbatim port of libvpx's cost_coeffs
+// (vp9/encoder/vp9_rdopt.c:358-459) specialised for the keyframe Y-plane
+// path. libvpx walks the per-token entropy tree against
+// x->token_costs[tx_size][type][is_inter_block(mi)] where type=PLANE_TYPE_Y
+// (=0) and is_inter=0 for an intra/keyframe block. govpx mirrors by
+// reading the matching fc.CoefProbs[txSize][planeType=0][ref=0] slab and
+// invoking vp9CoeffTokenRateCost for the unconstrained pareto8 tail —
+// the same pareto-tree walk vp9_cost_tokens (vp9/encoder/vp9_cost.c)
+// drives in fill_token_costs (vp9/encoder/vp9_rd.c:135-152). The
+// per-coefficient energy class fed into the next coef-context lookup
+// mirrors libvpx's token_cache[rc] = vp9_pt_energy_class[token]
+// (vp9_rdopt.c:397, 429, 442; pt_energy_class table is in
+// vp9/common/vp9_entropy.c:95).
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 	dequant [2]int16, coeffs []int16,
 ) int {
@@ -8286,6 +8294,8 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 			eob = i + 1
 		}
 	}
+	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
+	// type=PLANE_TYPE_Y=0, is_inter=0 for a keyframe / intra block.
 	coefModel := &e.fc.CoefProbs[txSize][0][0]
 	ctx := 0
 	bandIdx := 0
@@ -8323,15 +8333,35 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 		if c == 0 {
 			dqv = dequant[0]
 		}
-		absVal := vp9CoeffTokenAbsVal(int16(coeff), dqv, txSize == common.Tx32x32)
-		_ = sign
-		rate += int(absVal)
-		e.modeScratch[raster] = byte(min(int(coeff), 3))
-		c++
-		if c >= maxEob {
-			break
+		// libvpx vp9_rdopt.c:394-407 — vp9_get_token_cost(v, &t, ...);
+		// cost += token_costs[!prev_t][!prev_t][t]. govpx mirrors by
+		// recovering the quantized magnitude via vp9CoeffTokenAbsVal
+		// (coeffs[] carry the dequantized values out of QuantizeB) and
+		// walking the pareto8 tree via vp9CoeffTokenRateCost.
+		absVal := vp9CoeffTokenAbsVal(coeff, dqv, txSize == common.Tx32x32)
+		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
+		// libvpx vp9_rdopt.c:397, 429, 442 — token_cache[rc] =
+		// vp9_pt_energy_class[token]. The libvpx table
+		// vp9/common/vp9_entropy.c:95 reads
+		//   {0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5}
+		// for ZERO/ONE/TWO/THREE/FOUR/CAT1..CAT6/EOB, matching
+		// TokenForAbsCoeff's classification ranges below.
+		switch {
+		case absVal == 1:
+			e.modeScratch[raster] = 1
+		case absVal == 2:
+			e.modeScratch[raster] = 2
+		case absVal == 3 || absVal == 4:
+			e.modeScratch[raster] = 3
+		case absVal <= 10:
+			e.modeScratch[raster] = 4
+		default:
+			e.modeScratch[raster] = 5
 		}
-		ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
+		c++
+		if c < maxEob {
+			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
+		}
 	}
 	return rate
 }
