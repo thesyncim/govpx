@@ -991,6 +991,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					rate:           rate,
 					distortion:     finalDist,
 					score:          score,
+					// libvpx vp9_pickmode.c:668 — model_rd_for_sb_y commits
+					// calculate_tx_size to xd->mi[0]->tx_size directly. govpx
+					// surfaces the picker's tx_size choice on the decision so
+					// the leaf commit can route it into mi.TxSize without the
+					// variance-RDO override at pickVP9InterTxSize. libvpx's
+					// best_pickmode.best_tx_size = mi->tx_size at vp9_pickmode.c:
+					// 2465 captures the same value at the per-candidate point.
+					txSize:    mrdTxSize,
+					txSizeSet: true,
 				}
 			} else {
 				// Legacy SSE-only proxy path. Kept so the cpu_used=8-

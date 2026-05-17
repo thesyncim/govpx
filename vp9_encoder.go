@@ -9138,9 +9138,54 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	if !ok {
 		return common.DcPred, false
 	}
+	// libvpx vp9_pickmode.c:2493 — mi->tx_size = best_pickmode.best_tx_size.
+	// The realtime nonrd picker (vp9_pickmode.c:2336-2474) commits
+	// xd->mi[0]->tx_size = calculate_tx_size(...) inside model_rd_for_sb_y
+	// (vp9_pickmode.c:668) per-candidate and snapshots it into
+	// best_pickmode.best_tx_size (vp9_pickmode.c:2465) when the candidate
+	// wins; at function exit the winner's tx_size is written back to mi.
+	// govpx surfaces that picker tx_size via interDecision.txSize /
+	// txSizeSet; when set we honour the libvpx-faithful decision directly
+	// and skip the variance-RDO scan in pickVP9InterTxSize (which has no
+	// libvpx analogue in the realtime nonrd path).
+	//
+	// The libvpx calculate_tx_size body has THREE post-selection clamps
+	// (limit_tx Tx16x16 cap, cyclic-refresh boosted Tx8x8 force, and
+	// VP9E_CONTENT_SCREEN Tx4x4 force) that vp9ModelRdForSbY does not
+	// fold in. Those forces are ported in vp9InterTxApplyForces; we
+	// invoke that helper here so the leaf commit picks up the same
+	// libvpx-faithful clamps when the picker tx_size is routed through.
+	//
+	// When txSizeSet is false (e.g. cpu_used <= 4 RD path, or the legacy
+	// SSE-proxy nonrd path with GOVPX_VP9_NONRD_PICK_PARTITION unset)
+	// the variance-RDO scan still owns the decision so existing parity
+	// tests stay byte-exact.
+	pickerTxSet := interDecision.txSizeSet
+	if pickerTxSet {
+		picked := clampVP9TxSizeForBlock(interDecision.txSize, bsize)
+		// Apply the libvpx calculate_tx_size post-clamps on the picker's
+		// tx_size (vp9_pickmode.c:380-388). vp9InterTxApplyForces requires
+		// (sse, residualVar, acThr, limitTx, segmentID); derive them via
+		// the same helpers vp9pickVP9InterTxSize uses so the clamp inputs
+		// match libvpx exactly. When the residual stats are unavailable
+		// fall through with the raw picker tx_size (clamped at the block
+		// boundary above) — that matches the libvpx behaviour when
+		// model_rd_for_sb_y's calculate_tx_size body short-circuits.
+		if sse, _, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize); ok {
+			limitTx := e.vp9InterCalculateTxLimitTx(inter, miRow, miCol, bsize, sse)
+			acThr := e.vp9InterCalculateTxAcThr(inter, mi.SegmentID)
+			_, residualVar, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+				miCol, bsize, sse)
+			picked = e.vp9InterTxApplyForces(picked, bsize, sse, residualVar,
+				acThr, limitTx, mi.SegmentID)
+		}
+		mi.TxSize = picked
+	}
 	if e.opts.AQMode == VP9AQComplexity {
-		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
-			bsize, mi.TxSize, mi.SegmentID)
+		if !pickerTxSet {
+			mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
+				bsize, mi.TxSize, mi.SegmentID)
+		}
 		projectedRate := interDecision.rate
 		if _, coeffRate, hasTxResidue, ok := e.scoreVP9InterTxCandidate(inter,
 			miRows, miCols, miRow, miCol, bsize, mi.TxSize); ok && hasTxResidue {
@@ -9153,7 +9198,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		miRow, miCol, bsize, mi) {
 		return common.DcPred, false
 	}
-	if e.opts.AQMode != VP9AQComplexity {
+	if e.opts.AQMode != VP9AQComplexity && !pickerTxSet {
 		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 			bsize, mi.TxSize, mi.SegmentID)
 	}
@@ -10517,6 +10562,19 @@ type vp9InterModeDecision struct {
 	rate           int
 	distortion     uint64
 	score          uint64
+	// txSize carries the picker's libvpx-faithful tx_size decision out of
+	// model_rd_for_sb_y (vp9_pickmode.c:668: xd->mi[0]->tx_size =
+	// calculate_tx_size(...)). When txSizeSet is true, the leaf commit
+	// at prepareVP9InterBlockResidue routes this value into mi.TxSize
+	// directly, bypassing the variance-RDO override in pickVP9InterTxSize
+	// (which has no libvpx analogue). When false the legacy variance-RDO
+	// path still owns the tx_size decision, preserving byte-parity for
+	// the cpu_used=8 default oracle tests that don't run model_rd_for_sb_y.
+	//
+	// libvpx: vp9_pickmode.c:2465 best_pickmode.best_tx_size = mi->tx_size;
+	//          vp9_pickmode.c:2493 mi->tx_size = best_pickmode.best_tx_size;
+	txSize    common.TxSize
+	txSizeSet bool
 }
 
 // vp9LeafInterDecisionEntry stores one cached leaf-write inter-mode decision

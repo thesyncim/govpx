@@ -22,15 +22,21 @@ import (
 // Measurement under
 // GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
 // (this commit): PASS=0/9 FAIL=9/9. Inter frames diverge at byte 9
-// (FirstPartitionSize literal) by 39-552 bytes. After task #119's port of
-// find_predictors's frame_mv table + the libvpx-exact mode_checked /
-// NEARESTMV dedup paths (vp9_pickmode.c:1710 + 2269-2299), the aggregate
-// per-seed size_delta flipped from +3900 bytes (pre-#119 baseline) to
-// -716 bytes (avg -80B/seed); individual seeds now under-shoot or
-// over-shoot libvpx by 42-502 bytes vs the previous uniform +30-552 B
-// over-shoot. Closure path: route the picker's mrdTxSize through to the
-// leaf commit so pickVP9InterTxSize stops overriding the picker's
-// libvpx-faithful tx_size decision (vp9_encoder.go:8498/8513).
+// (FirstPartitionSize literal). After task #144 / #131 retry threaded
+// the picker's mrdTxSize through vp9InterModeDecision to the leaf
+// commit (the variance-RDO scan in pickVP9InterTxSize is bypassed when
+// txSizeSet=true), every BLOCK_8X8 inter leaf now commits the
+// libvpx-faithful Tx8x8 (calculate_tx_size output, vp9_pickmode.c:668
+// → :2465 → :2493) instead of the variance-RDO's mix of Tx4x4 / Tx8x8.
+// Per-seed size_delta rose from a pre-routing +2002 bytes aggregate
+// (avg +200B/seed) to +9663 bytes (avg +966B/seed) because the
+// downstream Tx8x8 token-cost path diverges from libvpx more than
+// Tx4x4 does — the variance-RDO was coincidentally picking the
+// downstream-friendlier (but libvpx-incorrect) Tx4x4 on ~43% of
+// BLOCK_8X8 leaves. Closure path is no longer in the tx_size picker;
+// it has moved to the Tx8x8 cost_coeffs / token-cost gap (the same
+// gap flagged in the RuntimeControls remeasure notes) and the
+// >99%-BLOCK_8X8 partition over-leaf divergence.
 func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RefControl seeds")

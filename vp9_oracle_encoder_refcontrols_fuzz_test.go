@@ -268,32 +268,48 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//    table the libvpx walker maintains.
 	//
 	//  * Per-seed size_delta vs libvpx under the Phase D opt-in
-	//    after this commit (verified by
-	//    TestVP9NonrdPickPartitionDeferredSeedsProgress):
+	//    before mrdTxSize threading (verified by
+	//    TestVP9NonrdPickPartitionDeferredSeedsProgress at the
+	//    parent commit):
 	//
-	//      af5570f5: +42, b9af55f0: -91, fda5b6b4: -192,
-	//      ffa55725: -49, 8ec0abe5: +72, 9c3e08e8: +420,
-	//      5feceb66: -285, 6b86b273: -131, d4735e3a: -502.
+	//      af5570f5: +55, b9af55f0: -105, fda5b6b4: +204,
+	//      ffa55725: +43, 8ec0abe5: +304, 9c3e08e8: +483,
+	//      5feceb66: +65, 6b86b273: +549, d4735e3a: +380,
+	//      7902699b: +24.  Aggregate: +2002 bytes.
 	//
-	//    Aggregate: -716 bytes (avg -80B/seed). Pre-#119 baseline
-	//    was +3900 bytes aggregate (avg +430B/seed) — the dedup
-	//    port changed the sign of the bias and tightens the
-	//    distribution. Seeds still don't byte-match because the
-	//    residual is now structural: the per-block (tx_size,
-	//    interp_filter) decisions still differ from libvpx where
-	//    pickVP9InterTxSize runs a variance-RDO instead of
-	//    libvpx's verbatim calculate_tx_size output (the latter is
-	//    surfaced by vp9ModelRdForSbY but currently overridden by
-	//    the leaf-commit pickVP9InterTxSize hook).
+	//  * After mrdTxSize threading (this commit, task #144 / #131
+	//    retry):
 	//
-	//  * Remaining closure path: route the picker's mrdTxSize
-	//    (already computed via vp9ModelRdForSbY at the per-mode
-	//    inner loop) into the leaf commit so the picker's tx_size
-	//    decision survives end-to-end, bypassing the variance-RDO
-	//    pickVP9InterTxSize. That requires threading a TxSize
-	//    field through vp9InterModeDecision and updating the
-	//    consumers in prepareVP9InterBlockResidue
-	//    (vp9_encoder.go:8498/8513).
+	//      af5570f5: +667, b9af55f0: +581, fda5b6b4: +1242,
+	//      ffa55725: +840, 8ec0abe5: +1267, 9c3e08e8: +651,
+	//      5feceb66: +904, 6b86b273: +1270, d4735e3a: +1414,
+	//      7902699b: +827.  Aggregate: +9663 bytes.
+	//
+	//    The mrdTxSize routing is structurally correct: the
+	//    realtime nonrd picker now commits the libvpx-faithful
+	//    calculate_tx_size output to mi.TxSize (vp9_pickmode.c:668
+	//    → :2465 → :2493) and the variance-RDO scan in
+	//    pickVP9InterTxSize is bypassed on the gated path. The
+	//    size-delta growth surfaces a previously masked downstream
+	//    divergence: govpx's coefficient encoder produces more
+	//    bytes than libvpx for the same {Tx8x8, residual} pair on
+	//    these seeds (likely the cost_coeffs / token-cost gap
+	//    flagged in the runtime-controls remeasure notes). The
+	//    variance-RDO was coincidentally picking Tx4x4 on ~3.2K of
+	//    7.5K BLOCK_8X8 leaves — a libvpx-incorrect choice that
+	//    happened to land closer to libvpx byte counts because
+	//    those blocks then took the Tx4x4 token-cost path instead
+	//    of the diverging Tx8x8 token-cost path. With mrdTxSize
+	//    routed verbatim, every BLOCK_8X8 leaf now commits Tx8x8
+	//    (matching libvpx) and the downstream tx-encoding gap is
+	//    no longer masked.
+	//
+	//  * Remaining closure path: investigate the Tx8x8 token-cost
+	//    divergence (vp9InterCoeffBlockRateCost vs libvpx
+	//    cost_coeffs) and the partition divergence (>99% of leaves
+	//    land at BLOCK_8X8 in govpx vs a mix in libvpx). Both feed
+	//    the per-frame size_delta; the tx_size step is necessary
+	//    but not sufficient for byte parity.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
