@@ -260,6 +260,50 @@ func (e *VP8Encoder) SetAutoAltRef(enabled bool) error {
 	return nil
 }
 
+// SetScalingMode mirrors libvpx's VP8E_SET_SCALEMODE control
+// (vp8/vp8_cx_iface.c vp8e_set_scalemode + vp8/encoder/onyx_if.c
+// vp8_set_internal_size). It selects a fixed VP8 down-scale ratio for
+// each axis and signals it in the keyframe uncompressed-data chunk's
+// scale bits (RFC 6386 §9.1). libvpx forces the next frame to be a key
+// frame so the new scale takes effect; govpx mirrors that with
+// forceKeyFrame.
+//
+// Both modes must be one of [ScalingNormal], [ScalingFourFive],
+// [ScalingThreeFive], or [ScalingOneTwo]; out-of-range values are
+// rejected with [ErrInvalidConfig], matching libvpx's
+// vp8_set_internal_size range check (returns -1, which the iface
+// translates to VPX_CODEC_INVALID_PARAM).
+//
+// Divergence from libvpx's input contract: libvpx accepts source frames
+// at the unscaled [EncoderOptions.Width] / Height and rescales them
+// internally via vpx_scale_frame before encoding (the
+// CONFIG_SPATIAL_RESAMPLING path). govpx writes the scale bits into the
+// bitstream but does not rescale the input source itself; callers must
+// supply source frames at the dimensions they want the encoder to code
+// at. The decoded output is bit-identical to what libvpx would emit if
+// its [EncoderOptions.Width] / Height already equaled the scaled
+// dimensions. Use the [internal/vp8/scale] package to pre-scale.
+func (e *VP8Encoder) SetScalingMode(horiz ScalingMode, vert ScalingMode) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if horiz < ScalingNormal || horiz > ScalingOneTwo {
+		return ErrInvalidConfig
+	}
+	if vert < ScalingNormal || vert > ScalingOneTwo {
+		return ErrInvalidConfig
+	}
+	e.horizScale = uint8(horiz)
+	e.vertScale = uint8(vert)
+	// libvpx vp8e_set_scalemode (vp8/vp8_cx_iface.c:1305-1308) sets
+	// next_frame_flag |= FRAMEFLAGS_KEY after a successful scale change
+	// so the new pc->horiz_scale / pc->vert_scale take effect on the
+	// next emitted frame tag (which carries the scale bits only on key
+	// frames).
+	e.forceKeyFrame = true
+	return nil
+}
+
 func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 	e.rc.dropFrameAllowed = enabled
 	if enabled {

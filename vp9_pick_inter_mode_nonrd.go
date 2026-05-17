@@ -3,6 +3,7 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9_pick_inter_mode_nonrd.go ports libvpx v1.16.0's realtime nonrd inter-mode
@@ -135,36 +136,46 @@ func vp9InitBestPickmode(bp *vp9BestPickmode) {
 // gates from SPEED_FEATURES, and returns the winning (ref, mode, mv, filter)
 // tuple as a vp9InterModeDecision.
 //
-// Differences from libvpx (deferred):
+// Differences from libvpx (Phase E1 ramp behind GOVPX_VP9_NONRD_PICK_PARTITION):
 //
 //   - libvpx tracks Lagrangian RD via x->rdmult / x->rddiv (vp9_rd.c::
-//     vp9_compute_rd_mult). govpx's RD form is the simpler
-//     vp9InterModeScore(distortion, rate, qindex) used by the existing RD
-//     picker. The libvpx best_rdc comparison is replaced by govpx's score
-//     comparison, which preserves the (ref, mode) winner ordering but loses
-//     the exact bitcost equivalence of the libvpx RDCOST macro.
-//     TODO: requires Lagrangian RD shape; see vp9_rd.c::vp9_compute_rd_mult.
+//     vp9_compute_rd_mult). govpx routes through the libvpx-faithful
+//     vp9RDCost macro that consumes activeRDMult(qindex) + vp9RDDivBits=7
+//     (same scale as libvpx). The picker now constructs (rate, dist)
+//     per candidate via the verbatim model_rd_for_sb_y port in
+//     vp9_block_yrd.go::vp9ModelRdForSbY (when the opt-in env gate is
+//     set) so the RDCOST comparison reproduces libvpx's quantizer-aware
+//     ordering rather than the previous SSE-only proxy.
 //
-//   - libvpx's encode_breakout_test (vp9_pickmode.c:942) sets x->skip when the
-//     predicted block is "close enough" to the source that quantising the
-//     residue would zero it. govpx defers that path because allow_encode_
-//     breakout is not surfaced yet. Without it the picker still terminates
-//     early via best_early_term, just not as aggressively.
-//     TODO: port encode_breakout_test (vp9_pickmode.c:942-1045).
+//   - libvpx's encode_breakout_test (vp9_pickmode.c:942) is ported in
+//     vp9_block_yrd.go::vp9EncodeBreakoutTest. The gate fires for non-
+//     lossless candidates when (cpi->oxcf.encode_breakout > 0 &&
+//     motion_low) OR (var==0 && sse==0) (a true perfect match). The
+//     deferred RefControl seed configurations run with
+//     static_thresh / encode_breakout == 0 so only the perfect-match
+//     path is reachable; once the StaticThreshold control is plumbed
+//     through the fuzz seeds the > 0 path will exercise too.
 //
-//   - libvpx's pred_mv_sad reference-masking (vp9_pickmode.c:2204-2228) skips
-//     a ref whose SAD is 2x worse than another. govpx does not yet populate
-//     x->pred_mv_sad (libvpx writes it inside vp9_mv_pred). With sf->
-//     reference_masking gated off below the skip never fires; the schedule
-//     visits all 12 candidates instead of being pruned to ~6.
-//     TODO: port vp9_mv_pred pred_mv_sad population (vp9_mcomp.c:1830+).
+//   - libvpx's pred_mv_sad reference-masking (vp9_pickmode.c:2204-2228)
+//     skips a ref whose SAD is 2x worse than another. govpx approximates
+//     pred_mv_sad with the (0,0)-offset SAD per ref; the (ref_mvs[0],
+//     ref_mvs[1], x->pred_mv) candidate set (vp9_rd.c:588) is a Phase E4
+//     follow-up.
+//     TODO: port full vp9_mv_pred candidate-set SAD (vp9_rd.c:588-639).
 //
-//   - libvpx's model_rd_for_sb_y / block_yrd (vp9_pickmode.c:2341/728) runs a
-//     simplified transform-domain RD on the predicted residue. govpx
-//     approximates this via vp9InterPredictionDistortion (SSE in pel
-//     domain). The proxy preserves candidate ordering for most content but
-//     undervalues sub-pel NEWMV gains on flat textures (which is what the
-//     scoreVP9InterModeResidual fallback above exists to mitigate).
+//   - libvpx's block_yrd (vp9_pickmode.c:728-854) refines (rate, dist)
+//     with Hadamard + quantize_fp + satd. govpx still uses model_rd as
+//     the proxy for that refinement; under speed=8 with
+//     sf->use_simple_block_yrd=1 libvpx itself bypasses block_yrd for
+//     bsize < BLOCK_32X32, so the gap only shows for the four 32x32 /
+//     64x64 partition leaves on these seeds.
+//     TODO: port block_yrd full kernel (Phase E1b).
+//
+// The model_rd_for_sb_y substrate runs only when
+// vp9NonrdPickPartitionEnabled() returns true. Without the gate the
+// picker keeps the legacy SSE proxy path so the cpu_used=8-default
+// oracle parity tests (Lossless, Checker, Lookahead) stay byte-exact
+// during the Phase E ramp.
 //
 // The pickVP9InterReferenceMode entry routes to this function when
 // e.sf.UseNonrdPickMode != 0 (cpu_used >= 5 realtime). At cpu_used < 5 the
@@ -499,39 +510,204 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 		}
 
+		// libvpx vp9_pickmode.c:1787 — x->encode_breakout is seeded from
+		// cpi->oxcf.encode_breakout (or the per-segment override). govpx's
+		// equivalent is the StaticThreshold option; zero by default.
+		encodeBreakout := e.opts.StaticThreshold
+
+		// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test fires when
+		// cpi->allow_encode_breakout is set and !xd->lossless. govpx
+		// mirrors the gate.
+		allowEncodeBreakout := !inter.lossless
+
+		// libvpx vp9_pickmode.c:2369-2374 — skip rate is the skip-bit cost
+		// from the per-frame skip probability; the unsigned skip pre-cost
+		// is added once per candidate (see line 2367).
+		var skipProb uint8
+		ctx := vp9dec.GetSkipContext(above, left)
+		if ctx >= 0 && ctx < len(e.fc.SkipProbs) {
+			skipProb = e.fc.SkipProbs[ctx]
+		}
+		// libvpx: vp9_cost_bit(skip_prob, 1/0). The picker computes both
+		// branches because encode_breakout / block_yrd skip override the
+		// dist=sse branch with skip=1.
+		skipBitOn := 0
+		skipBitOff := 0
+		if skipProb > 0 {
+			skipBitOn = encoder.VP9CostBit(skipProb, 1)
+			skipBitOff = encoder.VP9CostBit(skipProb, 0)
+		}
+
+		// libvpx vp9_speed_features.c:713 / 791 — sf->use_simple_block_yrd
+		// is set at speed >= 8 (and at SVC temporal/spatial layer > 0 at
+		// speed >= 7). govpx mirrors via the speed-features field; the
+		// realtime nonrd path uses this to bypass block_yrd for sub-32x32
+		// blocks (vp9_pickmode.c:747-759), returning sse=INT_MAX so the
+		// RDCOST(0, this_sse) skip comparison never wins.
+		useSimpleBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
+			bsize < common.Block32x32
+
+		// useModelRD gates the libvpx-faithful model_rd_for_sb_y +
+		// block_yrd substrate. Behind the Phase E opt-in env (same
+		// GOVPX_VP9_NONRD_PICK_PARTITION=1 gate as the recursive walker)
+		// because the libvpx-faithful (rate, dist) tuple shape disagrees
+		// with the legacy SSE-only proxy on the lossless / cpu_used=8-
+		// default oracle parity tests until the full block_yrd is also
+		// ported. Once parity closes the gate flips and the legacy path
+		// retires.
+		useModelRD := vp9NonrdPickPartitionEnabled()
+
+		// segId for dequant lookup.
+		var dequantY [2]int16
+		var dequantU, dequantV [2]int16
+		if inter.dq != nil {
+			// Realtime nonrd uses the SB segment id (0 when segmentation
+			// is off, which matches the deferred-seed configurations).
+			dequantY = inter.dq.Y[0]
+			dequantU = inter.dq.Uv[0]
+			dequantV = inter.dq.Uv[0]
+		}
+
 		// Per-candidate inner: evaluate distortion and rate.
 		for _, filter := range filters {
-			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows,
-				miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
-			if !ok {
-				continue
-			}
+			var cand vp9InterModeDecision
+			if useModelRD {
+				// libvpx vp9_pickmode.c:2336 vp9_build_inter_predictors_sby +
+				// vp9_pickmode.c:2346 model_rd_for_sb_y.
+				varY, sseY, ok := e.vp9InterPredictionVarianceSSE(inter, miRows,
+					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+				if !ok {
+					continue
+				}
 
-			// libvpx: vp9_pickmode.c:2405 this_rdc.rate += rate_mv;
-			//          vp9_pickmode.c:2406-2407 inter_mode_cost contribution.
-			//          vp9_pickmode.c:2409 ref_frame_cost[ref_frame].
-			rate := refRate +
-				vp9InterModeRateCost(&inter.selectFc, interModeCtx, thisMode,
-					mv, refMv, inter.allowHP) +
-				vp9InterInterpFilterRateCost(inter, &inter.selectFc,
-					switchableCtx, filter)
+				// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
+				//   best_sse_sofar = sse_y;
+				if sseY < bestSseSoFar {
+					bestSseSoFar = sseY
+				}
 
-			cand := vp9InterModeDecision{
-				refFrame:       refFrame,
-				secondRefFrame: vp9dec.NoRefFrame,
-				refSlot:        refSlots[refFrame],
-				mode:           thisMode,
-				mv:             [2]vp9dec.MV{mv},
-				interpFilter:   filter,
-				rate:           rate,
-				distortion:     distortion,
-				score:          e.vp9InterModeScore(distortion, rate, qindex),
-			}
+				// libvpx vp9_pickmode.c:2346 model_rd_for_sb_y — produces
+				// (rate_y, dist_y) in libvpx's prob-cost / shifted-domain
+				// distortion units. govpx ports the kernel in
+				// vp9_block_yrd.go::vp9ModelRdForSbY.
+				rateY, distY, _, _ := vp9ModelRdForSbY(bsize, dequantY,
+					varY, sseY, 0)
 
-			// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
-			//   best_sse_sofar = sse_y;
-			if distortion < bestSseSoFar {
-				bestSseSoFar = distortion
+				// libvpx vp9_pickmode.c:2366-2374 — skip-vs-non-skip RDCOST
+				// comparison. When use_simple_block_yrd is set and bsize
+				// is small, block_yrd returns sse=INT_MAX which makes the
+				// skip branch unreachable; govpx mirrors by skipping the
+				// compare.
+				//
+				// For bsize >= BLOCK_32X32 (or use_simple_block_yrd=0),
+				// libvpx runs the real block_yrd: govpx defers that
+				// detailed kernel to a follow-up port (E1b) and uses
+				// model_rd as the proxy. In that path the skip comparison
+				// runs against sseY << 4.
+				useSkipCheck := !useSimpleBlockYrd
+				isSkip := false
+				finalRate := rateY
+				finalDist := uint64(distY)
+				if useSkipCheck {
+					thisSse := sseY << 4
+					rdNonSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+						rateY+skipBitOff, finalDist)
+					rdSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+						skipBitOn, thisSse)
+					if rdSkip < rdNonSkip {
+						// libvpx: this_rdc.rate = vp9_cost_bit(skip_prob, 1);
+						//         this_rdc.dist = this_sse;
+						finalRate = 0
+						finalDist = thisSse
+						isSkip = true
+					}
+				}
+
+				// libvpx vp9_pickmode.c:2405-2410 — finalize the
+				// (rate, dist) tuple by adding rate_mv + inter_mode_cost
+				// + ref_frame_cost + the chosen skip bit.
+				interModeBitCost := vp9InterModeRateCost(&inter.selectFc,
+					interModeCtx, thisMode, mv, refMv, inter.allowHP)
+				interpFilterCost := vp9InterInterpFilterRateCost(inter,
+					&inter.selectFc, switchableCtx, filter)
+				rate := refRate + interModeBitCost + interpFilterCost + finalRate
+				if isSkip {
+					rate += skipBitOn
+				} else {
+					rate += skipBitOff
+				}
+
+				// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test
+				// override. Fires only when allow_encode_breakout, not
+				// lossless, encode_breakout > 0, and motion-low. For the
+				// deferred-seed configurations encode_breakout == 0 so
+				// the gate falls through unless var==0 && sse==0 (a true
+				// near-perfect prediction).
+				if allowEncodeBreakout && (encodeBreakout > 0 ||
+					(varY == 0 && sseY == 0)) {
+					varU, sseU, varV, sseV, uvOk := e.vp9NonrdUVVarianceSSE(
+						inter, miRows, miCols, miRow, miCol, bsize, thisMode,
+						refFrame, mv, filter)
+					if uvOk {
+						fired, ebDist, _ := vp9EncodeBreakoutTest(bsize,
+							dequantY, mv.Row, mv.Col, varY, sseY,
+							[2][2]int16{dequantU, dequantV},
+							varU, sseU, varV, sseV,
+							encodeBreakout, false, interModeBitCost)
+						if fired {
+							// libvpx vp9_pickmode.c:1026-1041 —
+							// x->skip = 1, rate = inter_mode_cost only,
+							// dist = sse << 4.
+							rate = refRate + interModeBitCost + skipBitOn
+							finalDist = uint64(ebDist)
+						}
+					}
+				}
+
+				// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
+				score := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+					rate, finalDist)
+
+				cand = vp9InterModeDecision{
+					refFrame:       refFrame,
+					secondRefFrame: vp9dec.NoRefFrame,
+					refSlot:        refSlots[refFrame],
+					mode:           thisMode,
+					mv:             [2]vp9dec.MV{mv},
+					interpFilter:   filter,
+					rate:           rate,
+					distortion:     finalDist,
+					score:          score,
+				}
+			} else {
+				// Legacy SSE-only proxy path. Kept so the cpu_used=8-
+				// default oracle parity tests (LosslessInter, Checker,
+				// Lookahead) stay byte-exact while Phase E ramps in.
+				distortion, ok := e.vp9InterPredictionDistortion(inter,
+					miRows, miCols, miRow, miCol, bsize, thisMode,
+					refFrame, mv, filter)
+				if !ok {
+					continue
+				}
+				rate := refRate +
+					vp9InterModeRateCost(&inter.selectFc, interModeCtx, thisMode,
+						mv, refMv, inter.allowHP) +
+					vp9InterInterpFilterRateCost(inter, &inter.selectFc,
+						switchableCtx, filter)
+				cand = vp9InterModeDecision{
+					refFrame:       refFrame,
+					secondRefFrame: vp9dec.NoRefFrame,
+					refSlot:        refSlots[refFrame],
+					mode:           thisMode,
+					mv:             [2]vp9dec.MV{mv},
+					interpFilter:   filter,
+					rate:           rate,
+					distortion:     distortion,
+					score:          e.vp9InterModeScore(distortion, rate, qindex),
+				}
+				if distortion < bestSseSoFar {
+					bestSseSoFar = distortion
+				}
 			}
 
 			// libvpx: vp9_pickmode.c:2460 if (this_rdc.rdcost <

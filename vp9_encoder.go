@@ -10738,6 +10738,113 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 		x0, y0, x0, y0, scoreW, scoreH, limit), true
 }
 
+// vp9NonrdUVVarianceSSE rebuilds the UV inter prediction (assuming the Y
+// predictor has already been committed via vp9InterPredictionVarianceSSE)
+// and returns (var_u, sse_u, var_v, sse_v). The realtime nonrd picker
+// consumes these to drive encode_breakout_test's UV-plane skip check
+// (vp9_pickmode.c:1014-1025).
+//
+// libvpx counterpart: vp9_pickmode.c:1009-1022 — xd->plane[1|2].pre[0] is
+// pointed at the reference U/V buffer, vp9_build_inter_predictors_sbuv
+// runs the chroma predictor, then cpi->fn_ptr[uv_bsize].vf returns
+// (var_u, sse_u) / (var_v, sse_v).
+func (e *VP9Encoder) vp9NonrdUVVarianceSSE(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter,
+) (varU, sseU, varV, sseV uint64, ok bool) {
+	if inter == nil || inter.img == nil {
+		return 0, 0, 0, 0, false
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		Mode:         mode,
+		InterpFilter: uint8(filter),
+		RefFrame: [2]int8{
+			refFrame,
+			vp9dec.NoRefFrame,
+		},
+		Mv: [2]vp9dec.MV{mv},
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+		return 0, 0, 0, 0, false
+	}
+	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			return 0, 0, 0, 0, false
+		}
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+		dst, dstStride := e.vp9EncoderReconPlane(plane)
+		if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
+			return 0, 0, 0, 0, false
+		}
+		blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+		dstRows := len(dst) / dstStride
+		if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+			!vp9VisibleBlockFits(x0, y0, blockW, blockH, dstStride, dstRows) {
+			return 0, 0, 0, 0, false
+		}
+		variance, sse := vp9BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
+			x0, y0, x0, y0, blockW, blockH)
+		if plane == 1 {
+			varU = variance
+			sseU = sse
+		} else {
+			varV = variance
+			sseV = sse
+		}
+	}
+	return varU, sseU, varV, sseV, true
+}
+
+// vp9InterPredictionVarianceSSE runs the inter predictor for one
+// (mode, ref, mv, filter) candidate and returns both the variance and the
+// SSE between the source and the prediction. Mirrors libvpx's
+// fn_ptr[bsize].vf call inside model_rd_for_sb_y (vp9_pickmode.c:661-666)
+// which produces (var, sse). The realtime nonrd picker consumes both.
+func (e *VP9Encoder) vp9InterPredictionVarianceSSE(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter,
+) (variance, sse uint64, ok bool) {
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	dst, dstStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
+		return 0, 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	dstRows := len(dst) / dstStride
+	scoreW, scoreH, vok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+		srcW, srcH, dstStride, dstRows)
+	if !vok {
+		return 0, 0, false
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		Mode:         mode,
+		InterpFilter: uint8(filter),
+		RefFrame: [2]int8{
+			refFrame,
+			vp9dec.NoRefFrame,
+		},
+		Mv: [2]vp9dec.MV{mv},
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+		return 0, 0, false
+	}
+	variance, sse = vp9BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
+		x0, y0, x0, y0, scoreW, scoreH)
+	return variance, sse, true
+}
+
 func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,

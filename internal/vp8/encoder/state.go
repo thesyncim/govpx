@@ -39,6 +39,15 @@ type KeyFrameStateConfig struct {
 
 	MBNoCoeffSkip bool
 	ProbSkipFalse uint8
+
+	// HorizScale and VertScale carry the libvpx VPX_SCALING_MODE pair
+	// (vpx/vp8cx.h: VP8E_NORMAL=0, VP8E_FOURFIVE=1, VP8E_THREEFIVE=2,
+	// VP8E_ONETWO=3) packed into the keyframe uncompressed-data chunk's
+	// scale bits (RFC 6386 §9.1: 2-bit horizontal scale << 14 | 14-bit
+	// width; same for vertical). Zero matches libvpx's default
+	// pc->horiz_scale / pc->vert_scale = VP8E_NORMAL.
+	HorizScale uint8
+	VertScale  uint8
 }
 
 func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {

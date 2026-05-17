@@ -33,6 +33,25 @@ const (
 	DeadlineRealtime
 )
 
+// ScalingMode mirrors libvpx's vpx_scaling_mode_t enum (vpx/vp8cx.h)
+// used by the VP8E_SET_SCALEMODE control. The value selects a fixed
+// down-scaling ratio that the encoder writes into the keyframe
+// uncompressed-data chunk's scale bits (RFC 6386 §9.1: 2-bit horizontal
+// scale << 14 | 14-bit width; same for vertical) for decoders to
+// interpret as an intended display ratio.
+type ScalingMode int
+
+const (
+	// ScalingNormal is the 1:1 identity ratio. Matches libvpx VP8E_NORMAL.
+	ScalingNormal ScalingMode = 0
+	// ScalingFourFive scales by 4/5. Matches libvpx VP8E_FOURFIVE.
+	ScalingFourFive ScalingMode = 1
+	// ScalingThreeFive scales by 3/5. Matches libvpx VP8E_THREEFIVE.
+	ScalingThreeFive ScalingMode = 2
+	// ScalingOneTwo scales by 1/2. Matches libvpx VP8E_ONETWO.
+	ScalingOneTwo ScalingMode = 3
+)
+
 // Tuning selects the encoder's visual quality model.
 type Tuning int
 
@@ -448,6 +467,14 @@ type VP8Encoder struct {
 	closed        bool
 	forceKeyFrame bool
 	frameCount    uint64
+
+	// horizScale and vertScale carry the libvpx pc->horiz_scale /
+	// pc->vert_scale pair set by VP8E_SET_SCALEMODE (vp8_set_internal_size
+	// in vp8/encoder/onyx_if.c:5416-5430). They flow into the keyframe
+	// uncompressed-data chunk as the 2-bit scale field per axis. Default
+	// zero == VP8E_NORMAL.
+	horizScale uint8
+	vertScale  uint8
 	// keyFrameFrequency mirrors cpi->key_frame_frequency. libvpx seeds it
 	// from oxcf.key_freq during compressor creation and does not rewrite it
 	// on runtime vpx_codec_enc_config_set updates; adaptive auto-key forcing
