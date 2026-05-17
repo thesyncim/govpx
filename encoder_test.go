@@ -222,8 +222,14 @@ func TestSetRealtimeTargetFPSChangeResetsAutospeedTiming(t *testing.T) {
 		t.Fatalf("SetRealtimeTarget returned error: %v", err)
 	}
 
-	if e.autoSpeed != 0 || e.avgPickModeTime != 0 || e.avgEncodeTime != 0 || e.autoSpeedFrameStartNS != 0 {
-		t.Fatalf("autospeed state = speed:%d pick:%d encode:%d start:%d, want reset", e.autoSpeed, e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	// FPS-change triggers govpx's resetAutoSpeedTiming (clears timers and
+	// transiently sets autoSpeed=0) and the tail applyChangeConfigSpeedReset
+	// then mirrors libvpx vp8_change_config's seed `cpi->Speed = oxcf.cpu_used`
+	// (newTestEncoder uses CpuUsed=8). libvpxCPUUsed still returns 4 because
+	// frameCount==0 (cold start before any encode_mb_row).
+	if e.autoSpeed != e.opts.CpuUsed || e.avgPickModeTime != 0 || e.avgEncodeTime != 0 || e.autoSpeedFrameStartNS != 0 {
+		t.Fatalf("autospeed state = speed:%d pick:%d encode:%d start:%d, want speed=%d pick=0 encode=0 start=0",
+			e.autoSpeed, e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS, e.opts.CpuUsed)
 	}
 	if got := e.libvpxCPUUsed(); got != 4 {
 		t.Fatalf("cold-start libvpxCPUUsed = %d, want 4", got)
@@ -368,12 +374,19 @@ func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
 	}
 	e.beginAutoSpeedTiming()
 	e.finishAutoSpeedTiming(true)
+	// libvpxAutoSelectSpeed keys its cold-start branch off e.frameCount==0
+	// (mirroring libvpx's avg_pick_mode_time==0 sentinel without picking up
+	// govpx-side timer noise). Simulate the post-frame-0 transition so the
+	// follow-up call exercises the real auto-select branch rather than the
+	// cold-start reset.
+	e.frameCount = 1
 	e.libvpxAutoSelectSpeed()
 	if e.autoSpeed != 4 {
 		t.Fatalf("post-key positive-cpu autospeed = %d, want speed-4 band", e.autoSpeed)
 	}
 	e.beginAutoSpeedTiming()
 	e.finishAutoSpeedTiming(false)
+	e.frameCount = 2
 	e.libvpxAutoSelectSpeed()
 	if e.autoSpeed != 4 {
 		t.Fatalf("post-inter positive-cpu autospeed = %d, want speed-4 band", e.autoSpeed)
@@ -399,6 +412,11 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 		t.Fatalf("key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
 			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
 	}
+	// libvpxAutoSelectSpeed keys cold-start off e.frameCount==0 (see
+	// libvpxCPUUsed comment). Simulate the post-frame-0 transition so the
+	// follow-up call exercises the budget-vs-encode-time branch rather than
+	// re-entering the cold-start reset.
+	e.frameCount = 1
 	e.libvpxAutoSelectSpeed()
 	if e.autoSpeed != 5 {
 		t.Fatalf("post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)
@@ -414,6 +432,7 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 		t.Fatalf("cpu4 720p key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
 			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
 	}
+	e.frameCount = 1
 	e.libvpxAutoSelectSpeed()
 	if e.autoSpeed != 5 {
 		t.Fatalf("cpu4 720p post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)

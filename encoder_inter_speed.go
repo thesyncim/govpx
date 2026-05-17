@@ -353,19 +353,22 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 			return slot.baseline
 		}
 	}
-	cpuUsedForThresholds := e.opts.CpuUsed
+	var baseline [libvpxInterModeCount]int
 	if e.libvpxAutoSelectSpeedActive() {
 		// libvpx vp8_initialize_rd_consts (rdopt.c:163, called from
 		// vp8_encode_frame each frame after vp8_auto_select_speed has run)
 		// invokes vp8_set_speed_features, so the thresh_mult tables track the
 		// auto-evolved cpi->Speed every frame rather than being frozen at
-		// init. Mirror that by routing the dynamic autoSpeed (via
-		// libvpxCPUUsed) into the static-table helper. Passing -currentRTSpeed
-		// makes libvpxSpeedFeatureCPUUsed return currentRTSpeed (it negates
-		// negative RT cpu_used).
-		cpuUsedForThresholds = -e.libvpxCPUUsed()
+		// init. Mirror that by feeding the dynamic autoSpeed (via
+		// libvpxCPUUsed) straight into the *ForCPISpeed helper — the legacy
+		// negate-pass-through trick (`cpuUsedForThresholds = -libvpxCPUUsed()`
+		// fed through libvpxSpeedFeatureCPUUsed) collides on autoSpeed=0
+		// because `-0` is non-negative and is interpreted as "raw cpu_used 0"
+		// (the cold-start default of 4) rather than the actual Speed=0.
+		baseline = libvpxInterModeRDThresholdsForCPISpeed(qIndex, zbinOverQuant, e.opts.Deadline, e.libvpxCPUUsed(), context)
+	} else {
+		baseline = libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, e.opts.Deadline, e.opts.CpuUsed, context)
 	}
-	baseline := libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, e.opts.Deadline, cpuUsedForThresholds, context)
 	// Pick the first invalid/stale slot, else replace slot 0 (LRU is fine
 	// here — at most 4 distinct (qIndex, refSig) pairs per frame so
 	// collisions are rare).
@@ -461,13 +464,17 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 		}
 	}
 	e.interRDThreshTouched = [libvpxInterModeCount]bool{}
-	cpuUsedForFreq := e.opts.CpuUsed
 	if e.libvpxAutoSelectSpeedActive() {
-		// Same per-frame vp8_set_speed_features re-run as above; route the
-		// auto-evolved Speed into the mode-check-freq speed_map lookups.
-		cpuUsedForFreq = -e.libvpxCPUUsed()
+		// Same per-frame vp8_set_speed_features re-run as above; feed the
+		// auto-evolved Speed straight into the mode-check-freq speed_map
+		// lookups via the *ForCPISpeed helper. The legacy
+		// `cpuUsedForFreq = -libvpxCPUUsed()` negate-pass-through path
+		// collapses Speed=0 to the cold-start default of 4 (see
+		// libvpxInterModeThresholdMultipliersForCPISpeed).
+		e.interModeCheckFreq = libvpxInterModeCheckFrequenciesForCPISpeed(e.opts.Deadline, e.libvpxCPUUsed())
+	} else {
+		e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.opts.CpuUsed)
 	}
-	e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, cpuUsedForFreq)
 	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
 	e.interMBsTestedSoFar = 0
 	e.interModeSpeedErrorBins = e.interModeErrorBins
@@ -596,8 +603,31 @@ func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadlin
 	return libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, deadline, speed, libvpxInterModeThresholdContext{})
 }
 
+// libvpxInterModeRDThresholdsForContext computes per-mode RD thresholds. The
+// `speed` parameter is interpreted via libvpxSpeedFeatureCPUUsed (raw
+// configured cpu_used or `-autoSelectedSpeed` sentinel for the negate-pass-
+// through realtime path). For the explicit autoSpeed=0 case (post-
+// vp8_change_config Speed reset, before the next vp8_auto_select_speed cold-
+// start fires) use libvpxInterModeRDThresholdsForCPISpeed which bypasses the
+// SpeedFeatureCPUUsed translation — `-0 = 0` collides with the "raw
+// cpu_used 0 → 4 default" mapping.
 func libvpxInterModeRDThresholdsForContext(qIndex int, zbinOverQuant int, deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	multipliers := libvpxInterModeThresholdMultipliersForContext(deadline, speed, context)
+	return libvpxInterModeRDThresholdsFromMultipliers(qIndex, zbinOverQuant, multipliers)
+}
+
+// libvpxInterModeRDThresholdsForCPISpeed mirrors
+// libvpxInterModeRDThresholdsForContext but with cpiSpeed already in hand.
+// See libvpxInterModeThresholdMultipliersForCPISpeed for the rationale: the
+// legacy negate-pass-through `-libvpxCPUUsed()` argument collides on
+// autoSpeed=0 because `-0` is not negative and is interpreted as "raw
+// cpu_used 0" by libvpxSpeedFeatureCPUUsed.
+func libvpxInterModeRDThresholdsForCPISpeed(qIndex int, zbinOverQuant int, deadline Deadline, cpiSpeed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
+	multipliers := libvpxInterModeThresholdMultipliersForCPISpeed(deadline, cpiSpeed, context)
+	return libvpxInterModeRDThresholdsFromMultipliers(qIndex, zbinOverQuant, multipliers)
+}
+
+func libvpxInterModeRDThresholdsFromMultipliers(qIndex int, zbinOverQuant int, multipliers [libvpxInterModeCount]int) [libvpxInterModeCount]int {
 	qValue := min(vp8common.DCQuant(qIndex, 0), 160)
 	q := max(int(math.Pow(float64(qValue), 1.25)), 8)
 	_, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
@@ -633,7 +663,21 @@ func libvpxInterModeThresholdMultipliers(deadline Deadline, speed int) [libvpxIn
 
 func libvpxInterModeThresholdMultipliersForContext(deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
-	continuousSpeed := libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline, speed)
+	return libvpxInterModeThresholdMultipliersForCPISpeed(deadline, speed, context)
+}
+
+// libvpxInterModeThresholdMultipliersForCPISpeed mirrors libvpx's
+// vp8_set_speed_features RD threshold lookup with the actual cpi->Speed
+// value already in hand. The caller is responsible for passing the post-
+// vp8_change_config / post-vp8_auto_select_speed cpi->Speed; this helper
+// computes continuousSpeed = cpiSpeed + 7 (realtime) or the corresponding
+// good-quality / best-quality mapping, then runs the per-mode speed_map
+// lookups. Use this instead of the legacy negate-pass-through path when the
+// caller already knows cpi->Speed (in particular when it can be 0 after a
+// runtime config-set reset — the legacy path collapses 0 to the 4 cold-
+// start default and skews thresholds by 4 Speed steps).
+func libvpxInterModeThresholdMultipliersForCPISpeed(deadline Deadline, cpiSpeed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
+	continuousSpeed := libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline, cpiSpeed)
 	znn := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapZNN[:])
 	vhPred := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapVHPred[:])
 	bPred := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapBPred[:])
@@ -664,7 +708,7 @@ func libvpxInterModeThresholdMultipliersForContext(deadline Deadline, speed int,
 	mult[libvpxThrSplit1] = split1
 	mult[libvpxThrSplit2] = split2
 	mult[libvpxThrSplit3] = split2
-	if context.temporalLayers > 1 && speed <= 6 && context.lastEnabled && context.goldenEnabled {
+	if context.temporalLayers > 1 && cpiSpeed <= 6 && context.lastEnabled && context.goldenEnabled {
 		shift := 1
 		if context.closestRef == vp8common.GoldenFrame {
 			shift = 3
@@ -673,8 +717,8 @@ func libvpxInterModeThresholdMultipliersForContext(deadline Deadline, speed int,
 		mult[libvpxThrNearest2] >>= shift
 		mult[libvpxThrNear2] >>= shift
 	}
-	if deadline == DeadlineRealtime && speed > 6 && context.errorBins != nil && context.totalMBs > 0 {
-		thresh := libvpxRealtimeAdaptiveInterModeThreshold(context.errorBins, context.totalMBs, speed, context.staticThreshold)
+	if deadline == DeadlineRealtime && cpiSpeed > 6 && context.errorBins != nil && context.totalMBs > 0 {
+		thresh := libvpxRealtimeAdaptiveInterModeThreshold(context.errorBins, context.totalMBs, cpiSpeed, context.staticThreshold)
 		if context.refFrameCount > 1 {
 			mult[libvpxThrNew1] = thresh
 			mult[libvpxThrNearest1] = thresh >> 1
@@ -726,6 +770,14 @@ func libvpxRealtimeAdaptiveInterModeThreshold(errorBins *[1024]uint32, totalMBs 
 
 func libvpxInterModeCheckFrequencies(deadline Deadline, speed int) [libvpxInterModeCount]int {
 	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
+	return libvpxInterModeCheckFrequenciesForCPISpeed(deadline, speed)
+}
+
+// libvpxInterModeCheckFrequenciesForCPISpeed mirrors
+// libvpxInterModeCheckFrequencies with the actual cpi->Speed in hand. See
+// libvpxInterModeThresholdMultipliersForCPISpeed for why the negate-pass-
+// through legacy path breaks at autoSpeed=0.
+func libvpxInterModeCheckFrequenciesForCPISpeed(deadline Deadline, speed int) [libvpxInterModeCount]int {
 	continuousSpeed := libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline, speed)
 	new1Speed := continuousSpeed
 	if deadline == DeadlineRealtime && speed == 10 {

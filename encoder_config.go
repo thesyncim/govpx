@@ -27,6 +27,7 @@ func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	e.opts.TemporalScalability = nextTemporal.config
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -69,6 +70,7 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.TemporalScalability = nextTemporal.config
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -97,6 +99,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 	}
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -114,6 +117,7 @@ func (e *VP8Encoder) SetMaxIntraBitratePct(pct int) error {
 	e.opts.MaxIntraBitratePct = pct
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -131,6 +135,7 @@ func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
 	e.opts.GFCBRBoostPct = pct
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -147,6 +152,7 @@ func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
 	e.opts.TokenPartitions = partitions
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -162,6 +168,7 @@ func (e *VP8Encoder) SetSharpness(sharpness int) error {
 	e.opts.Sharpness = sharpness
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -178,6 +185,7 @@ func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
 	e.opts.StaticThreshold = threshold
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -194,6 +202,7 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 	e.opts.ScreenContentMode = mode
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -218,6 +227,7 @@ func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 	}
 	e.opts.RTCExternalRateControl = true
 	e.rtcExternalDisableCyclicRefresh = true
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -231,6 +241,7 @@ func (e *VP8Encoder) SetFrameDropAllowed(enabled bool) error {
 	e.setFrameDropAllowed(enabled)
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -409,6 +420,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.opts.TemporalScalability = nextTemporal.config
 		e.refreshRuntimeCyclicRefreshConfig()
 		e.forceNextLFDeltaUpdate()
+		e.applyChangeConfigSpeedReset()
 		return nil
 	}
 	nextRC := e.rc
@@ -429,6 +441,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	e.opts.TemporalScalability = nextTemporal.config
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -458,6 +471,7 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	}
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -549,19 +563,29 @@ func (e *VP8Encoder) SetTuning(tuning Tuning) error {
 	e.activityMapValid = false
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
 func (e *VP8Encoder) libvpxCPUUsed() int {
 	// libvpx encodeframe.c:685-691: realtime mode runs vp8_auto_select_speed
 	// which evolves cpi->Speed. Mirror that: for realtime+positive-cpu_used,
-	// return the adaptive autoSpeed (seeded to 4 at cold start, cf.
-	// libvpxAutoSelectSpeed). For realtime+negative-cpu_used and other
-	// deadlines, fall back to the static formula.
+	// return the adaptive autoSpeed (seeded to 4 by the cold-start branch in
+	// libvpxAutoSelectSpeed during the first frame's auto-select). The
+	// "fresh compressor before first encode_mb_row" case keys off
+	// `e.frameCount == 0`, NOT off `e.autoSpeed == 0`: after a runtime
+	// vp8_change_config the wrapper has reseeded autoSpeed to oxcf.cpu_used
+	// (commonly 0) but has already encoded frames, so the libvpx-correct
+	// next-frame Speed is 0 rather than the cold-start sentinel of 4.
+	// Conflating the two states surfaced as a fast-vs-RD picker divergence
+	// at the first frame after every SetBitrateKbps / SetRealtimeTarget /
+	// SetTuning / etc — see applyChangeConfigSpeedReset. For
+	// realtime+negative-cpu_used and other deadlines, fall back to the
+	// static formula.
 	if e.opts.Deadline == DeadlineRealtime {
 		cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
 		if cpuUsed >= 0 {
-			if e.autoSpeed == 0 {
+			if e.frameCount == 0 {
 				return 4 // cold start before first encode_mb_row
 			}
 			return e.autoSpeed
@@ -626,13 +650,15 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 		e.autoSpeed = -cpuUsed
 		return
 	}
-	if e.autoSpeed == 0 {
+	if e.frameCount == 0 && e.autoSpeed == 0 {
 		// libvpx onyx_if.c:1706 seeds cpi->Speed = cpi->oxcf.cpu_used at
-		// vp8_change_config. vp8_auto_select_speed then iterates from
-		// that starting value. At cpu_used=16 the "else" branch
-		// (avg_pick_mode_time >= msForCompress=0) keeps Speed pinned at
-		// 16 rather than collapsing it to 4 as the cold-start reset in
-		// the matching-budget branch would.
+		// vp8_create_compressor and at every vp8_change_config. Before any
+		// frame has committed, reseed autoSpeed from the configured cpu_used
+		// so a fresh encoder with cpu_used > 0 doesn't enter the auto-select
+		// loop with Speed=0. After the first encoded frame, autoSpeed is
+		// whatever the previous auto-select committed (plus any
+		// applyChangeConfigSpeedReset triggered between frames), so we must
+		// NOT clobber it with cpuUsed here.
 		e.autoSpeed = cpuUsed
 	}
 	fps := e.opts.FPS
@@ -648,9 +674,16 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	// the compression budget.
 	if e.avgPickModeTime < msForCompress &&
 		(e.avgEncodeTime-e.avgPickModeTime) < msForCompress {
-		if e.avgPickModeTime == 0 {
+		// libvpx vp8/encoder/rdopt.c:284 uses `avg_pick_mode_time == 0` as
+		// the cold-start sentinel inside vp8_auto_select_speed itself. govpx
+		// keys off `e.frameCount == 0` because govpx's monotonic timer can
+		// observe zero elapsed for fast frames and would otherwise re-enter
+		// the cold-start branch on later frames whose timers happen to read
+		// as zero — masking the post-vp8_change_config Speed=cpu_used state
+		// that drives picker dispatch through libvpxCPUUsed.
+		if e.frameCount == 0 {
 			e.autoSpeed = 4
-		} else {
+		} else if e.avgPickModeTime != 0 {
 			if msForCompress*100 < e.avgEncodeTime*95 {
 				e.autoSpeed += 2
 				e.avgPickModeTime = 0
@@ -769,6 +802,24 @@ func (e *VP8Encoder) resetAutoSpeedTiming() {
 	e.autoSpeedFrameStartNS = 0
 }
 
+// applyChangeConfigSpeedReset mirrors the tail of libvpx vp8_change_config
+// (vp8/encoder/onyx_if.c:1706): every wrapper-level VP8E_SET_* or
+// vpx_codec_enc_config_set call routes through `update_extracfg` ->
+// `vp8_change_config`, which unconditionally sets
+// `cpi->Speed = cpi->oxcf.cpu_used`. The accumulated avg_pick_mode_time /
+// avg_encode_time timing windows are NOT reset; vp8_auto_select_speed re-runs
+// at the top of the next vp8_encode_frame using the freshly seeded Speed and
+// the preserved timers. govpx must mirror that so the picker dispatch
+// (`interAnalysisUsesRDModeDecision`, `libvpxCPUUsed`) consults the same
+// Speed libvpx would after a runtime config-set, even when the caller did
+// not change cpu_used itself. Without this reset govpx would keep the
+// cold-start autoSpeed=4 across SetBitrateKbps / SetRealtimeTarget /
+// SetTuning / SetARNR / etc, and the fast-vs-RD picker would diverge from
+// libvpx for the very first frame after the runtime control fires.
+func (e *VP8Encoder) applyChangeConfigSpeedReset() {
+	e.autoSpeed = e.opts.CpuUsed
+}
+
 // SetKeyFrameInterval changes the maximum GOP distance in frames. At
 // runtime, zero mirrors libvpx's fixed keyframe interval of zero: every
 // accepted input frame is interval-forced unless runtime keyframes have
@@ -786,6 +837,7 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	e.rc.keyFrameFrequency = frames
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -802,6 +854,7 @@ func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	e.keyFramesDisabled = !enabled
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -865,6 +918,7 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	e.opts.NoiseSensitivity = level
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
@@ -884,6 +938,7 @@ func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error 
 	e.opts.ARNRType = filterType
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
 	return nil
 }
 
