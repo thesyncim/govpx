@@ -62,6 +62,17 @@ func forwardDCT32x32Dispatch(input []int16, stride int, output []int16) {
 	forwardDCT32x32Scalar(input, stride, output)
 }
 
+func forwardDCT32x32RDDispatch(input []int16, stride int, output []int16) {
+	// PENDING: port libvpx v1.16.0 vpx_fdct32x32_rd_neon
+	//   - kernel:  vpx_dsp/arm/fdct32x32_neon.c::vpx_fdct32x32_rd_neon
+	//   - helpers: vpx_dsp/arm/fdct32x32_neon.h (shared with vpx_fdct32x32_neon)
+	// Shares the same column/row pipeline as the precision variant; the
+	// row pass invokes the `1<<round` halving stage rather than the
+	// (out + 1 + (out<0)) >> 2 final shift. Will land alongside the
+	// precision variant in the eventual NEON port.
+	forwardDCT32x32RDScalar(input, stride, output)
+}
+
 func forwardWHT4x4Dispatch(input []int16, stride int, output []int16) {
 	if len(input) < 3*stride+4 || len(output) < 16 || stride < 4 {
 		forwardWHT4x4Scalar(input, stride, output)

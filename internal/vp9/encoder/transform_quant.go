@@ -940,6 +940,60 @@ func forwardDCT32x32Scalar(input []int16, stride int, output []int16) {
 	}
 }
 
+// ForwardDCT32x32RD mirrors libvpx v1.16.0 vpx_fdct32x32_rd_c
+// (vpx_dsp/fwd_txfm.c:735). The rate-distortion-loop variant of the 32x32
+// forward DCT trades a small amount of precision for speed by issuing
+// `dct_32_round` after stage 2 on the row pass (round=1 in forwardDCT32)
+// and emitting the row coefficients without a final rounding step. libvpx
+// dispatches this variant when MACROBLOCK::use_lp32x32fdct is non-zero
+// (see vp9/encoder/vp9_encodemb.c:331-337 and vp9_xform_quant_fp at line
+// 396). Input is a 32x32 residual block with caller-provided stride;
+// output is raster-order transform coefficients.
+func ForwardDCT32x32RD(input []int16, stride int, output *[1024]int16) {
+	ForwardDCT32x32RDInto(input, stride, output[:])
+}
+
+// ForwardDCT32x32RDInto is the slice-backed form of ForwardDCT32x32RD.
+// output must hold at least 1024 coefficients. Dispatches to a SIMD
+// kernel when available.
+func ForwardDCT32x32RDInto(input []int16, stride int, output []int16) {
+	forwardDCT32x32RDDispatch(input, stride, output)
+}
+
+// forwardDCT32x32RDScalar is the canonical scalar port of libvpx
+// v1.16.0 vpx_fdct32x32_rd_c (vpx_dsp/fwd_txfm.c:735-758). SIMD
+// implementations must produce byte-identical output for the encoder's
+// residual range.
+func forwardDCT32x32RDScalar(input []int16, stride int, output []int16) {
+	var intermediate [1024]int
+	var tempIn, tempOut [32]int
+
+	// Columns
+	for i := range 32 {
+		for j := range 32 {
+			tempIn[j] = int(input[j*stride+i]) * 4
+		}
+		forwardDCT32(tempIn[:], tempOut[:], false)
+		for j := range 32 {
+			// TODO(cd): see quality impact of only doing
+			//           intermediate[j * 32 + i] = (tempOut[j] + 1) >> 2;
+			//           PS: also change code in vpx_dsp/x86/vpx_dct_sse2.c
+			intermediate[j*32+i] = (tempOut[j] + 1 + fdctBoolInt(tempOut[j] > 0)) >> 2
+		}
+	}
+
+	// Rows
+	for i := range 32 {
+		for j := range 32 {
+			tempIn[j] = intermediate[j+i*32]
+		}
+		forwardDCT32(tempIn[:], tempOut[:], true)
+		for j := range 32 {
+			output[j+i*32] = int16(tempOut[j])
+		}
+	}
+}
+
 func forwardDCT32(input []int, output []int, round bool) {
 	var step [32]int
 
