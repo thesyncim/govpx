@@ -20,31 +20,33 @@ import (
 // and the fuzz harness itself enforce the actual gating.
 //
 // Measurement under
-// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1:
+// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
+// (this commit, after merge with #149 / #150 / #151 + task #146's port):
 //
-//	PASS=0/10 FAIL=10/10. Frame 0 (keyframe) diverges uniformly at
-//	first_byte_diff=17 with got_len=3014 want_len=3040 (a -26 byte
-//	keyframe deficit; under-shoots in compressed-header coef-payload).
-//	After task #148's port of the libvpx-faithful x->skip +
-//	bestEarlyTerm control-flow (vp9_pickmode.c:2460/2478-2488),
-//	the strict-< winner-selection (vp9_pickmode.c:2460), the
+//	PASS=0/10 FAIL=10/10 (10/70 frames byte-match, was 0/70). After
+//	task #146's port of the libvpx-faithful x->skip + bestEarlyTerm
+//	control-flow (vp9_pickmode.c:2460/2478-2488), the strict-<
+//	winner-selection (vp9_pickmode.c:2460), the
 //	sse_zeromv_normalized + CBR golden-skip gate (vp9_pickmode.c:
 //	2350-2354 + 2123-2126), and the removal of govpx's heuristic
-//	1/64-ratio early-term gate, per-seed aggregate size_delta
-//	(sum across all frames) shrinks from the f5fe476 / #142
-//	baseline aggregate +2002 (avg +200B/seed) to:
-//	  af5570f5: +55, b9af55f0: -10, fda5b6b4: -79, ffa55725: +43,
-//	  8ec0abe5: +229, 9c3e08e8: +472, 5feceb66: +57, 6b86b273: +549,
-//	  d4735e3a: +380, 7902699b: +24. Aggregate +1720 / avg +172B/seed.
+//	1/64-ratio early-term gate AND in combination with the
+//	keyframe-coeff / hybrid-nonrd / variance-part-thresh-mult ports
+//	merged in from origin/main, per-seed aggregate size_delta (sum
+//	across all frames) shrinks from the f5fe476 / #142 baseline
+//	aggregate +2002 (avg +200B/seed) to:
+//	  af5570f5: +44, b9af55f0: +71, fda5b6b4: +295, ffa55725: +233,
+//	  8ec0abe5: +132, 9c3e08e8: +292, 5feceb66: -138, 6b86b273: +48,
+//	  d4735e3a: -179, 7902699b: +60. Aggregate +858 / avg +86B/seed.
+//	  Range -179..+295 (was uniformly +24..+549 pre-merge).
 //
 // Closure path: route the picker's mrdTxSize through to the leaf
 // commit so pickVP9InterTxSize stops overriding the picker's
 // libvpx-faithful tx_size decision (vp9_encoder.go:9142/9157) AND
-// close the keyframe -26 byte first_byte_diff=17 deficit
-// (compressed-header coef-update payload). The four seeds with
-// +380..+549 residuals don't fire encode_breakout AND don't hit
-// the distortion-ratio early-term: their gap is the tx_size
-// override.
+// close the residual inter-frame size deltas in the +200..+300
+// range (fda5b6b4, ffa55725, 8ec0abe5, 9c3e08e8). The remaining
+// gap is mostly the tx_size override path; the model_rd kernel
+// shape, the encode_breakout gate, and the early-term break are
+// now libvpx-faithful.
 func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RefControl seeds")
