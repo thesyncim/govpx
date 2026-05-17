@@ -61,6 +61,10 @@ var dispatch = map[string]classifier{
 	"FuzzVP9DecoderAgainstLibvpx":              classifyDecoderAgainstLibvpx,
 	"FuzzVP9EncoderRandomStrides":              constantCase("vp9_strides"),
 	"FuzzVP9EncoderReferenceControlSequences":  constantCase("vp9_refctrl"),
+	"FuzzEncoderFrameFlags":                    constantCase("frame_flags"),
+	"FuzzDecoderThreaded":                      constantCase("threaded"),
+	"FuzzDecoderErrorConcealment":              constantCase("error_concealment"),
+	"FuzzExtendBorders":                        constantCase("extend_borders"),
 }
 
 func constantCase(name string) classifier {
