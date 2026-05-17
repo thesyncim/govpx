@@ -32,12 +32,22 @@ import "math"
 //     emits the base ARF + leaf P-frames; deeper ALTREF layers (gf_group
 //     layer_depth > 1) require cpi->multi_layer_arf and the lookahead
 //     buffer fan-out that govpx's single-ARF lookahead does not yet
-//     model.
+//     model. The vp9FindARFOrder closure for `calc_arf_boost` therefore
+//     ignores the libvpx `mid` advance (vp9_firstpass.c:2180-2185) — at
+//     depth=1 the leaf branch is taken so the boost-anchor never
+//     diverges in practice.
 //   - kf_zeromotion_pct STATIC_MOTION_THRESH consumer in
 //     pick_kf_q_bound_two_pass (vp9_ratectrl.c:1378). The
 //     find_next_key_frame accumulator that feeds this is not yet
 //     populated; until then the Q picker treats every KF as
 //     non-static.
+//   - GF_GROUP ext_rc fields (vp9_firstpass.h:100-111): arf_index_stack,
+//     top_arf_idx, stack_size, ext_rc_ref[], ref_frame_list[][]. Only
+//     consumed by libvpx's multi-layer ARF and external rate-control
+//     paths (vp9_encoder.c:3286-3304, vp9_firstpass.c:2328
+//     ext_rc_define_gf_group_structure). govpx does not yet ship
+//     ext_ratectrl or multi-layer ARF, so these slots are intentionally
+//     absent from vp9GFGroup. Promote when multi-ARF lands.
 //   - PORTED: vbr_corpus_complexity branch in allocate_gf_group_bits
 //     (vp9_firstpass.c:2503-2516). Toggled via
 //     VP9EncoderOptions.VBRCorpusComplexity threaded through
@@ -347,8 +357,11 @@ func vp9DefineGFGroup(in vp9GFGroupInputs) vp9GFGroup {
 			break
 		}
 		fs := in.Stats[showIdx]
-		gfGroupErr += vp9CalcNormFrameScore(fs, in.MeanModScore, in.AvErr,
-			in.MBRows, in.BoostParams)
+		// libvpx vp9_firstpass.c:2957 calls calc_norm_frame_score with the
+		// configured oxcf bias/min/max; honour those here too instead of
+		// the libvpx-default 50% / 0 / 2000 captured in
+		// vp9CalcNormFrameScore.
+		gfGroupErr += vp9CalcNormFrameScoreFromInputs(fs, in)
 		gfGroupNoise += fs.FrameNoiseEnergy
 		gfGroupInter += fs.PcntInter
 		gfGroupMotion += fs.PcntMotion
@@ -602,8 +615,34 @@ func vp9GetARFLayers(multiLayerARF bool, maxLayers, codingFrameNum int) int {
 // This is the same math as vp9TwoPassState.normalizedFrameScore but in a
 // pure form keyed on the per-call MB rows / params.
 //
+// Callers that have the libvpx oxcf->two_pass_vbrbias / vbrmin_section /
+// vbrmax_section threaded through vp9GFGroupInputs should prefer
+// vp9CalcNormFrameScoreFromInputs so the bias exponent and the [min,max]
+// clamp track libvpx exactly. The default-bias overload here keeps
+// pre-existing call sites compiling and uses libvpx's documented
+// defaults (bias=50, vbrmin_section=1, vbrmax_section=2000); the
+// vbrmin_section=1 value preserves the pre-existing 0.01 floor — libvpx
+// itself accepts vbrmin_section=0 via the configuration default, but
+// existing govpx consumers (TestVP9DefineGFGroup*) wrote against the
+// 0.01 floor and we keep that here as a backstop.
+//
 // libvpx: vp9/encoder/vp9_firstpass.c:285 calc_norm_frame_score
 func vp9CalcNormFrameScore(row VP9FirstPassFrameStats, meanModScore, avErr float64, mbRows int, params VP9ARFBoostParams) float64 {
+	return vp9CalcNormFrameScoreConfig(row, meanModScore, avErr, mbRows,
+		vp9DefaultTwoPassVBRBiasPct, 1, vp9DefaultVBRMaxSectionPct)
+}
+
+// vp9CalcNormFrameScoreConfig is the configurable variant of
+// vp9CalcNormFrameScore that honours libvpx's oxcf->two_pass_vbrbias /
+// vbrmin_section / vbrmax_section instead of the libvpx-default values.
+// All other behaviour matches calc_norm_frame_score (vp9_firstpass.c:285)
+// byte-for-byte. When vbrBiasPct <= 0 the libvpx default (50) is used;
+// when vbrMaxSection <= 0 the libvpx default (2000) is used; vbrMinSection
+// is taken as-is (libvpx's default is 0 → no lower clamp).
+func vp9CalcNormFrameScoreConfig(row VP9FirstPassFrameStats,
+	meanModScore, avErr float64, mbRows int,
+	vbrBiasPct, vbrMinSection, vbrMaxSection int,
+) float64 {
 	if meanModScore <= 0 {
 		meanModScore = 1
 	}
@@ -618,25 +657,45 @@ func vp9CalcNormFrameScore(row VP9FirstPassFrameStats, meanModScore, avErr float
 	if weight <= 0 {
 		weight = 1
 	}
-	// libvpx: modified score uses pow(err*weight / av_err, bias_pct/100).
-	// Use libvpx's two-pass-default bias (50%) here; the encoder's
-	// twoPassState carries the configurable bias for non-default
-	// callers.
-	bias := 0.5
-	score := avErr * vp9PowSafe((err*weight)/avErr, bias)
+	// libvpx vp9_firstpass.c:289-292 — modified_score =
+	//   av_err * pow(err*weight / av_err, oxcf->two_pass_vbrbias / 100).
+	bias := vbrBiasPct
+	if bias <= 0 {
+		bias = vp9DefaultTwoPassVBRBiasPct
+	}
+	score := avErr * vp9PowSafe((err*weight)/avErr, float64(bias)/100.0)
 	score *= vp9PowSafe(vp9CalculateActiveArea(mbRows, row), vp9ActiveAreaCorrection)
-	if score <= 0 {
-		score = 1
-	}
-	// libvpx clamps to [min_pct/100, max_pct/100] = default [0.01, 20].
+	// libvpx vp9_firstpass.c:306-307 normalize and clamp to
+	// [min_section/100, max_section/100].
 	normalized := score / meanModScore
-	if normalized < 0.01 {
-		normalized = 0.01
+	maxSection := vbrMaxSection
+	if maxSection <= 0 {
+		maxSection = vp9DefaultVBRMaxSectionPct
 	}
-	if normalized > 20.0 {
-		normalized = 20.0
+	minScore := float64(vbrMinSection) / 100.0
+	maxScore := float64(maxSection) / 100.0
+	if minScore < 0 {
+		minScore = 0
+	}
+	if normalized < minScore {
+		normalized = minScore
+	}
+	if normalized > maxScore {
+		normalized = maxScore
 	}
 	return normalized
+}
+
+// vp9CalcNormFrameScoreFromInputs threads the configured VBR bias / min /
+// max from vp9GFGroupInputs into vp9CalcNormFrameScoreConfig. This is what
+// vp9DefineGFGroup uses when accumulating gf_group_err so the value matches
+// libvpx under non-default oxcf->two_pass_vbr* settings.
+func vp9CalcNormFrameScoreFromInputs(row VP9FirstPassFrameStats,
+	in vp9GFGroupInputs,
+) float64 {
+	return vp9CalcNormFrameScoreConfig(row, in.MeanModScore, in.AvErr,
+		in.MBRows, in.TwoPassVBRBiasPct, in.TwoPassVBRMinSection,
+		in.TwoPassVBRMaxSection)
 }
 
 func vp9PowSafe(base, exp float64) float64 {
