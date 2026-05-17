@@ -86,7 +86,7 @@ func (rc *rateControlState) libvpxActiveQuantizerBounds(keyFrame bool, goldenFra
 // branch fires regardless of `goldenFrame` so the caller can drive a hidden
 // ARF without first marking the source frame as a golden refresh.
 func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, goldenFrame bool, altRefFrame bool) (int, int) {
-	activeWorst := rc.libvpxActiveWorstQuantizer()
+	activeWorst := rc.libvpxActiveWorstQuantizerForFrame(keyFrame)
 	if rc.mode == RateControlCBR && rc.bufferOptimalBits > 0 && rc.bufferLevelBits >= rc.bufferOptimalBits {
 		activeWorst = rc.libvpxCBRFullBufferActiveWorst(activeWorst)
 	}
@@ -169,6 +169,28 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 }
 
 func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
+	return rc.libvpxActiveWorstQuantizerForFrame(false)
+}
+
+// libvpxActiveWorstQuantizerForFrame ports both libvpx active-worst-quality
+// pathways:
+//
+//   - For inter frames (keyFrame=false): vp8/encoder/ratectrl.c
+//     `calc_pframe_target_size` (lines 690-837) scales active_worst_quality
+//     from ni_av_qi up to worst_quality based on buffer fullness.
+//
+//   - For keyframes (keyFrame=true): vp8/encoder/ratectrl.c
+//     `calc_iframe_target_size` line 374 unconditionally resets
+//     `cpi->active_worst_quality = cpi->worst_quality` in one-pass mode
+//     (pass != 2). The buffer-based P-frame formula does NOT run for KFs,
+//     so a long inter run that drifted ni_av_qi to a low value (e.g. 14
+//     on splitmv VBR 700kbps tight-buf good-quality) must not propagate
+//     into the keyframe's active-worst floor — otherwise the KF's
+//     active_best (read from kf_high_motion_minq[active_worst]) collapses
+//     to a tiny value and the keyframe is encoded at Q≈4 instead of the
+//     libvpx Q≈20, exploding the bitstream and breaking byte parity at
+//     the next forced-KF boundary (long-fixture splitmv fuzz frame 180).
+func (rc *rateControlState) libvpxActiveWorstQuantizerForFrame(keyFrame bool) int {
 	activeWorst := rc.maxQuantizer
 	// libvpx vp8/encoder/firstpass.c vp8_second_pass first-frame branch
 	// (lines 2349-2363) overwrites active_worst_quality with the
@@ -181,6 +203,20 @@ func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
 	if rc.pass2ActiveWorstQValid {
 		override := max(min(rc.pass2ActiveWorstQOverride, rc.maxQuantizer), rc.minQuantizer)
 		activeWorst = override
+	}
+	// libvpx calc_iframe_target_size line 374: one-pass KFs reset
+	// active_worst_quality to cpi->worst_quality (== maxQuantizer in
+	// internal Q-index space). Skip the P-frame buffer-based formula
+	// entirely. The pass-2 branch (pass2ActiveWorstQValid) preserves the
+	// twoPassState-driven override above; the one-pass keyframe branch
+	// pins to maxQuantizer here so the subsequent kf_high_motion_minq
+	// lookup in libvpxActiveQuantizerBoundsForFrame sees the libvpx-side
+	// active_worst value, not the inter-tracked ni_av_qi.
+	if keyFrame && !rc.pass2ActiveWorstQValid {
+		if rc.cqFloorActive() && activeWorst < rc.cqLevel {
+			activeWorst = rc.cqLevel
+		}
+		return activeWorst
 	}
 	// libvpx vp8/encoder/ratectrl.c lines 690-837 cover both CBR
 	// (USAGE_STREAM_FROM_SERVER) and VBR/local-file when `buffered_mode`
