@@ -29,19 +29,12 @@ import (
 // 8-byte equivalent.
 //
 // The 6 baseline seeds populate (dimBucket, framesBucket, cpuBucket, kfPos,
-// refPos, action1, ...) from cpuPool {0, -3, -8, 4}. The fuzz case
-// materialiser pins Deadline=DeadlineRealtime, so all six seeds run REALTIME
-// mode at speed=abs(cpu_used). govpx's RT-mode speed-feature cascade is
-// already verbatim against libvpx at every speed (pinned by
-// TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim, TestVP9SetRtSpeedFeaturesCPUUsed4Verbatim,
-// TestVP9SetRtSpeedFeaturesCPUUsed4Verbatim720p, and the per-field RT speed-3
-// configurator tests), so divergence below is in the encoder body
-// (tx_mode + per-block mode picker + writer cascade), NOT the
-// speed-features dispatcher. Even the abs(cpu)=8 seeds (#3) diverge on byte
-// 16 of the first keyframe because the runtime-controls fuzz uses
-// content-rich newVP9YCbCrFuzzPanning sources that exercise govpx's
-// keyframe compressed-header writer gap (see citations below) instead of
-// the flat black/checker patches the existing
+// refPos, action1, ...) from cpuPool {0, -3, -8, 4} — all four entries hit
+// libvpx speed-feature paths govpx ports only at cpu_used=8 today, and even
+// the abs(cpu)=8 seeds (#3) diverge on byte 16 of the first keyframe because
+// the runtime-controls fuzz uses content-rich newVP9YCbCrFuzzPanning sources
+// that exercise govpx's keyframe compressed-header writer gap (see citations
+// below) instead of the flat black/checker patches the existing
 // TestVP9EncoderVpxencOracle*KeyframeByteParity tests pin.
 //
 // All 6 seeds are RED at frame 0 (keyframe) with first_diff in [9, 20]
@@ -52,56 +45,36 @@ import (
 //
 // Deferred seeds (cpu values from cpuPool[bucket]):
 //
-//   - {0,0,0,0,0,0,0,0} — 64x64 frames=4 cpu=0. The fuzz case
-//     materialiser builds opts with Deadline=DeadlineRealtime
-//     (vp9_oracle_encoder_runtime_controls_fuzz_test.go) and the libvpx
-//     oracle defaults to VPX_DL_REALTIME, so both sides run REALTIME mode
-//     at speed=0. The full RT cpu_used=0 SPEED_FEATURES struct is already
-//     pinned verbatim against libvpx by
-//     TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim and the sibling GOOD-mode
-//     anchor TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim — the
-//     speed-features cascade is NOT the root cause of this deferral.
+//   - {0,0,0,0,0,0,0,0} — 64x64 frames=4 cpu=0. Frame 0 KF diverges at byte 9
+//     (filter_level=13 govpx vs 12 libvpx) because cpu_used=0 selects the
+//     LpfPickFromFullImage search method
+//     (vp9/encoder/vp9_speed_features.c:set_good_speed_feature_framesize_*
+//     @ vp9_speed_features.c:140-280 best/good-quality branches set
+//     sf.lpf_pick = LPF_PICK_FROM_FULL_IMAGE). The LpfPickFromFullImage
+//     post-tile search seed contamination was fixed by aligning
+//     vp9EncoderLoopFilterParams with libvpx vp9_picklpf.c:90 (do NOT
+//     overwrite vp9LastFiltLevel with the from-Q placeholder when the
+//     search will run post-tile); the remaining divergence stems from
+//     the cpu_used=0 speed-features path govpx has not yet ported
+//     (vp9_speed_features.c:140-280). At cpu_used=0 libvpx picks a
+//     different partition_search_type / RD path than govpx's
+//     cpu_used=8-only verbatim port, so the reconstructed luma the
+//     picker scores diverges and the chosen filter_level diverges with
+//     it.
 //
-//     The actual byte-9 divergence (filter_level=0 govpx vs 12 libvpx)
-//     stems from a downstream encoder-body gap at cpu_used=0:
-//     libvpx vp9_encodeframe.c:4334-4344 select_tx_mode picks
-//     TX_MODE_SELECT for KEY_FRAME at cpu_used=0 (use_nonrd_pick_mode==0,
-//     tx_size_search_method==USE_FULL_RD), but govpx's
-//     vp9EncoderFrameTxMode (vp9_encoder.go:3956-4013) pins KEY_FRAME to
-//     ALLOW_32X32 because govpx's keyframe block writer does not yet
-//     emit the TX_MODE_SELECT cascade. The divergent tx_mode flows into
-//     the per-block coefficient writer and inflates the bitstream
-//     (~3725 vs ~2726 bytes), and the loop-filter SSE picker (which
-//     scores the reconstructed luma at trial filter levels) then picks
-//     0 instead of 12 because govpx's reconstructed luma is much
-//     coarser at the larger tx sizes. byte-9 mismatch is therefore a
-//     symptom of the upstream tx_mode + keyframe-writer gap, not a
-//     speed-features cascade gap.
+//   - {0,1,1,0,2,1,0,0} — 64x64 frames=6 cpu=-3 (abs=3). Same cpu_used!=8
+//     speed-features gap as #0 plus the realtime-cpu_used=3 branch of
+//     set_rt_speed_feature_framesize_independent
+//     (vp9_speed_features.c:587-688). Govpx implements the cpu_used=8
+//     realtime defaults verbatim (vp9_speed_features.c:661+ branch) but
+//     speeds 3-7 require their own partition_search_type, mv_precision,
+//     and recode-tolerance branches that govpx has not ported.
 //
-//     Closing this seed requires porting the libvpx KEY_FRAME
-//     TX_MODE_SELECT writer cascade into govpx's keyframe block writer
-//     (internal/vp9/encoder/block_write.go) and the matching encoder
-//     body (per-block tx_size search at speed=0 RT, libvpx
-//     vp9_encodeframe.c rd_pick_sb_modes path). Filed as the explicit
-//     handoff for the TX_MODE_SELECT keyframe-writer port.
-//
-//   - {0,1,1,0,2,1,0,0} — 64x64 frames=6 cpu=-3 (abs=3). Same KEY_FRAME
-//     TX_MODE_SELECT writer gap as #0 (vp9_encodeframe.c:4336-4344);
-//     additionally, at RT speed=3 the libvpx configurator sets
-//     sf.lpf_pick=LPF_PICK_FROM_Q (vp9_speed_features.c:555) and
-//     sf.disable_split_mask=DISABLE_ALL_SPLIT, which alters the
-//     partition + lpf paths relative to speed=0. govpx's RT speed=3
-//     SPEED_FEATURES struct itself IS verbatim against libvpx, but the
-//     downstream encoder body (per-block tx_size search, partition
-//     pruning, RD cost rounding at adaptive_rd_thresh=4) still
-//     accumulates byte-level drift at cpu_used=3 RT — same encoder-body
-//     handoff as #0.
-//
-//   - {1,0,0,1,0,0,1,0} — 128x64 frames=4 cpu=0. Same KEY_FRAME
-//     TX_MODE_SELECT writer gap as #0 (vp9_encodeframe.c:4336-4344
-//     select_tx_mode picks TX_MODE_SELECT but govpx pins ALLOW_32X32);
-//     the wider frame_width-1 (127) trips a different miCols path that
-//     amplifies the bitstream divergence on top.
+//   - {1,0,0,1,0,0,1,0} — 128x64 frames=4 cpu=0. Same cpu_used=0 gap as #0
+//     plus the wider frame_width-1 (127) trips a different miCols path that
+//     amplifies the partition-search divergence; libvpx's
+//     vp9_speed_features.c:partition_search_breakout_dist_thr scaling at
+//     wider widths leaves more partitions in govpx's emitted bitstream.
 //
 //   - {1,1,2,0,3,1,1,0} — 128x64 frames=6 cpu=-8 (abs=8). govpx covers the
 //     cpu_used=8 speed-features path, yet frame 0 still diverges at byte 16
@@ -118,12 +91,11 @@ import (
 //     emit predominantly all-zero counts so the writers agree there;
 //     panning content exposes the gap.
 //
-//   - {0,2,0,2,0,0,0,0} — 64x64 frames=8 cpu=0. Same KEY_FRAME
-//     TX_MODE_SELECT writer gap as #0 with frame count widened; once
-//     frame 0 KF parity holds the inter frames should follow because the
-//     runtime-controls fuzz only flips EncodeForce*/NoUpdate* flags that
-//     govpx already routes through vp9_set_reference_frame_flags /
-//     ext_refresh_frame_flags.
+//   - {0,2,0,2,0,0,0,0} — 64x64 frames=8 cpu=0. Same as #0 (cpu_used=0 gap)
+//     with frame count widened; once frame 0 KF parity holds the inter
+//     frames should follow because the runtime-controls fuzz only flips
+//     EncodeForce*/NoUpdate* flags that govpx already routes through
+//     vp9_set_reference_frame_flags / ext_refresh_frame_flags.
 //
 //   - {1,2,1,0,4,1,0,1} — 128x64 frames=8 cpu=-3. Triggers the seed-byte
 //     refPos generator (r.pick(5)==4) which OR's
@@ -148,34 +120,15 @@ import (
 //     48%n for every pick(), so every cell evaluates to 0 and the case
 //     materialises identically to baseline seed #0
 //     {0,0,0,0,0,0,0,0}: w=64 h=64 frames=4 cpu=0 flags=[0,0,0,0]. Frame 0
-//     KF diverges at byte 9 (filter_level=0 govpx vs 12 libvpx). Current
-//     observed delta: got_len=3725 want_len=2726 first_diff=9. The
-//     filter_level=0 vs 12 difference is a symptom of the upstream
-//     KEY_FRAME tx_mode gap described under seed #0
-//     (vp9_encodeframe.c:4336-4344 select_tx_mode returns TX_MODE_SELECT
-//     at cpu_used=0, but govpx pins ALLOW_32X32), not the speed-features
-//     cascade — the RT/GOOD cpu_used=0 cascade IS already verbatim per
-//     TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim and
-//     TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim. Same handoff as seed
-//     #0 (KEY_FRAME TX_MODE_SELECT writer port); do NOT close this entry
-//     until #0 closes.
-//
-//   - {0x31} (single ASCII '1', from testdata/fuzz/
-//     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
-//     916d1b27 captured in commit 9e8f70a) — vp9FuzzByteCursor returns
-//     49%n for every pick(); 49 % 2 = 1, 49 % 3 = 1, 49 % 4 = 1, etc. so
-//     every cell evaluates to 1. The case materialises to dims[1]=
-//     (128,64), frameCountPool[1]=6, cpuPool[1]=-3, kfPos=1, refPos=1,
-//     plus the action loop picks EncodeNoUpdateEntropy for every inter
-//     frame (r.pick(4)==1). Frame 0 KF diverges at byte 16
-//     (got_len=7611 want_len=5324) and inter frames diverge at byte 4
-//     each. Same downstream encoder-body gap as seed #1 (cpu=-3 RT
-//     speed=3 path + KEY_FRAME TX_MODE_SELECT writer cascade at
-//     vp9_encodeframe.c:4336-4344). The RT speed=3 SPEED_FEATURES
-//     struct is already verbatim (TestVP9SetRtSpeedFeaturesCPUUsed3Verbatim
-//     or analogous), but the per-block tx_size search + the keyframe
-//     TX_MODE_SELECT writer remain unported. Same handoff as #1; do NOT
-//     close this entry until #1 closes.
+//     KF still diverges at byte 9 (filter_level pick) for the cpu_used=0
+//     speed-features gap documented under seed #0 above
+//     (vp9_speed_features.c:140-280 set_good_speed_feature_framesize_*).
+//     Current observed delta as of this defer-list update:
+//     got_len=3725 want_len=2726 first_diff=9 (improved from the original
+//     sweep capture of got_len=3973 want_len=2726 after the Phase C
+//     choose_partitioning / ML / interp-filter ports, but the cpu_used=0
+//     speed-features cascade is still the root cause). Same handoff as
+//     seed #0; do NOT close this entry until #0 closes.
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
@@ -188,7 +141,41 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{1, 2, 1, 0, 4, 1, 0, 1},
 	// Short-byte regression-corpus aliases of the above (see comment).
 	{0x30}, // regression_vp9_runtime_controls_582528dd — alias of #0
-	{0x31}, // regression_vp9_runtime_controls_916d1b27 — alias of #1 family
+	// {0x31} (single ASCII '1', from testdata/fuzz/
+	// FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
+	// 916d1b27 captured in commit 9e8f70a). vp9FuzzByteCursor returns
+	// 49%n for every pick(), so the case materialises as: dim=128x64,
+	// frames=6, cpuUsed=-3, kfPos=1 (frame 1 picks up
+	// EncodeForceKeyFrame), refPos=1 (action 4 maps to
+	// EncodeNoReferenceGolden | EncodeNoReferenceAltRef = 0x100 | 0x080 =
+	// 0x180; cumulative with EncodeForceKeyFrame at frame 1 = 0x181 plus
+	// the action stream sprinkles EncodeForceGoldenFrame at frames 2-5).
+	// Observed delta: got_len=7611 want_len=5324 first_diff=16 on frame 0
+	// (the cpu_used=-3 → speed=3 picker emits a coarser tx_size /
+	// interp-filter distribution than libvpx). Same root cause as the
+	// cpu_used=0 seed family: govpx's speed-3 dispatch under
+	// SearchPartition does not fully match libvpx's full-RD partition
+	// search at vp9_speed_features.c:140-280 + 998-1080. Closing this
+	// seed requires the recursive vp9_rd_pick_partition port — orthogonal
+	// to the ML_BASED_PARTITION work tracked under the RefControl
+	// deferred list (those fire at cpu_used=8).
+	{0x31}, // regression_vp9_runtime_controls_916d1b27
+	// {0x32} (single ASCII '2', from testdata/fuzz/
+	// FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
+	// 2fde656d captured in commit 2ebdb7d). vp9FuzzByteCursor returns
+	// 50%n for every pick(), materialising as: dim=64x64, frames=8,
+	// cpuUsed=-8 (abs=8), kfPos=0, refPos=0, action stream produces
+	// cumulative flags [0,512,545,512,512,512,512,512]. Frame 2 trips an
+	// ErrInvalidConfig in govpx's VP9 EncodeIntoWithFlagsResult because
+	// flag 545 = 0x221 = EncodeNoUpdateGolden(0x008) +
+	// EncodeNoUpdateAltRef(0x020) + EncodeForceAltRefFrame(0x200) +
+	// EncodeForceKeyFrame(0x001) is a redundant combination libvpx's
+	// vp9_cx_iface.c:1657 ctrl_set_reference accepts but govpx rejects.
+	// Same surface-validator gap as baseline seed #6 ({1,2,1,0,4,1,0,1}):
+	// closing requires either the fuzz corpus to avoid the contradictory
+	// combination or a verbatim port of set_ext_overrides's resolution
+	// rules into govpx's flag validator (vp9_encoder.c:set_ext_overrides).
+	{0x32}, // regression_vp9_runtime_controls_2fde656d
 }
 
 func vp9RuntimeControlsSeedDeferred(data []byte) bool {
