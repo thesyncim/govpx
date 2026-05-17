@@ -5839,6 +5839,13 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		MiCol:                  sbMiCol,
 		Speed:                  int(e.opts.CpuUsed),
 		VariancePartThreshMult: 1,
+		// libvpx vp9_encodeframe.c:1310 — use_4x4_partition is gated on
+		// !sf->nonrd_keyframe. At speed >= 8 the realtime configurator
+		// sets sf->nonrd_keyframe = 1 (vp9_speed_features.c:751-757),
+		// which suppresses the keyframe 4x4-leaf split. Thread the
+		// speed-feature flag through so vp9ChoosePartitioning respects
+		// it on the keyframe walker.
+		NonRdKeyframe: e.sf.NonrdKeyframe != 0,
 	}
 	switch {
 	case key != nil && key.img != nil && key.dq != nil:
@@ -5885,8 +5892,36 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// motivation.
 		args.BaseQIndex = inter.baseQindex
 		args.AvgFrameQIndexInter = int(e.rc.avgFrameQIndexInter)
-		// Inter predictor: zero-MV LAST reference plane (matches libvpx
-		// when vp9_int_pro_motion_estimation returns dummy_mv = {0,0}).
+		// Inter predictor. libvpx vp9_encodeframe.c:1450-1497:
+		//   if (cpi->oxcf.speed >= 8 && !low_res &&
+		//       x->content_state_sb != kVeryHighSad) {
+		//     y_sad = sdf(src, pre);              // zero-MV SAD only
+		//   } else {
+		//     const MV dummy_mv = { 0, 0 };
+		//     y_sad = vp9_int_pro_motion_estimation(...); // sets mi->mv[0]
+		//   }
+		//   vp9_build_inter_predictors_sb(xd, mi_row, mi_col, BLOCK_64X64);
+		//   d = xd->plane[0].dst.buf;
+		//
+		// govpx currently passes the zero-MV LAST plane at the SB origin
+		// — byte-exact with libvpx's "speed>=8 && !low_res &&
+		// content_state != kVeryHighSad" SAD-only branch. The low_res
+		// int-pro path (vp9_int_pro_motion_estimation +
+		// vp9_build_inter_predictors_sb) is gated off here because
+		// vp9_int_pro_motion_estimation reads refOff-(bw>>1) — 32
+		// pixels before the SB origin — and govpx's image.YCbCr
+		// reference planes carry no border (libvpx allocates the YV12
+		// buffer with VP9_ENC_BORDER_IN_PIXELS = 32 of padding around
+		// the visible plane; vpx_scale/yv12config.h:25). Wiring
+		// vp9GetEstimatedPred for low_res requires a per-encoder
+		// border-padded LAST plane, which is a follow-up substrate
+		// task. For the current deferred fuzz fixture (64x64 frame,
+		// Q-mode/RateControlQ) the inter picker bypasses
+		// vp9CBRVariancePartitionEnabled entirely
+		// (vp9FixedPublicQuantizer gate), so this function is never
+		// called for inter frames in the failing seeds — the int-pro
+		// wiring would be a no-op there.
+		// libvpx ref: vp9_encodeframe.c:1450-1497.
 		if refSlot, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
 			refPx, refStride, refW, refH := vp9ReferenceVisiblePlane(
 				&e.refFrames[refSlot], 0)

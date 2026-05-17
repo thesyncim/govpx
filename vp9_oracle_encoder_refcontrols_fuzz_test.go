@@ -90,39 +90,40 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// Same residual divergence profile as regression_582528dd; inter-frame
 	// FirstPartitionSize literal differs by 30-100 bytes at byte 9.
 	[]byte("1"),
-	// Progress notes (this commit, task #84):
+	// Progress notes (this commit, task #87):
 	//
-	//  * vp9VarPartDecisionFor is now a verbatim port of
-	//    nonrd_use_partition (vp9_encodeframe.c:5007-5010): subsize =
-	//    (bsize >= BLOCK_8X8) ? mi[0]->sb_type : BLOCK_4X4, partition =
-	//    partition_lookup[bsl][subsize]. Critically the Block4x4==0
-	//    "unstamped cell" sentinel collision is removed; the SB-
-	//    computed flag is the only stamped oracle, matching libvpx's
-	//    persistent xd->mi[]->sb_type grid.
+	//  * Thread sf->nonrd_keyframe into vp9ChoosePartitioning's
+	//    use_4x4_partition predicate. libvpx vp9_encodeframe.c:1310
+	//    gates the keyframe 4x4-leaf split on !sf->nonrd_keyframe; at
+	//    speed >= 8 the realtime configurator sets nonrd_keyframe = 1
+	//    (vp9_speed_features.c:751-757), suppressing 4x4 splits on
+	//    the keyframe walker. govpx previously defaulted
+	//    NonRdKeyframe=false, which overstamped the keyframe with
+	//    Block4x4 leaves and emitted a coarser entropy distribution
+	//    than libvpx. Under GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1
+	//    all 8 deferred seeds now produce a byte-exact keyframe
+	//    (3040 bytes), closing the prior -193 byte residual at
+	//    first_diff=17.
 	//
-	//  * cm->base_qindex is now threaded into vp9ChoosePartitioning from
-	//    header.Quant.BaseQindex (matches libvpx's set_vbp_thresholds
-	//    caller at vp9_encodeframe.c:1379). The previous reverse-lookup
-	//    from dq.Y[0][1] was wrong under segmentation when segment 0
-	//    had a non-zero delta_q.
-	//
-	// Residual divergence under GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1
-	// (frame 0 across all seeds, since the panning fixture's keyframe
-	// is identical): got_len=2847 want_len=3040 first_diff=17 (-193
-	// bytes — the keyframe now emits a coarser partition tree than
-	// libvpx). Pre-port baseline was got=3973 first_diff=16 (+933);
-	// the keyframe regression has closed by 1126 bytes but still
-	// diverges in producer-level decisions.
-	//
-	// Inter-frame deltas under the gate have narrowed but not closed:
-	// most seeds show 5-200 byte deltas at byte 9 (FirstPartitionSize
-	// literal). The producer (vp9ChoosePartitioning) doesn't yet wire
-	// the int_pro_motion_estimation predictor for low_res (lowRes =
-	// width<=352 && height<=288), so at this 64x64 fixture the picker
-	// sees a zero-MV LAST predictor where libvpx uses a motion-
-	// compensated predictor (vp9_encodeframe.c:1456-1458). That's the
-	// remaining producer-side gap; closing it requires the
-	// vp9_int_pro_motion_estimation port.
+	// Residual divergence (inter frames only) under
+	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1: 100-900 byte deltas at
+	// bytes 4/8/9 across frames 1-7. This residual is NOT in the
+	// verbatim choose_partitioning port — for the Q-mode
+	// (RateControlQ) fuzz fixture vp9CBRVariancePartitionEnabled
+	// returns false (via vp9FixedPublicQuantizer), so the inter
+	// picker bypasses vp9EnsureSBPartitionChosen entirely and
+	// threads through the legacy
+	// pickVP9CBRVariancePartitionBlockSize variance pre-check.
+	// Closing the inter residual requires (a) widening the inter
+	// gate to fire on Q-mode (matches libvpx's rc-mode-agnostic
+	// VAR_BASED_PARTITION dispatch at vp9_encodeframe.c:5304-5311),
+	// and (b) porting the low_res int_pro motion search through a
+	// per-encoder border-padded LAST plane (libvpx
+	// vp9_encodeframe.c:1455-1497, requires
+	// VP9_ENC_BORDER_IN_PIXELS = 32 of padding around the visible
+	// plane for the integral-projection 1-D search at refOff -
+	// (bw>>1)). The keyframe path is now byte-exact and serves as
+	// the substrate for the inter-frame widening follow-up.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
