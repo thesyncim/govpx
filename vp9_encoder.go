@@ -7712,6 +7712,15 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	if int(common.Tx4x4) < len(e.sf.IntraYModeMask) && e.sf.IntraYModeMask[common.Tx4x4] != 0 {
 		mask = e.sf.IntraYModeMask[common.Tx4x4]
 	}
+	// libvpx vp9_rdopt.c:1148-1149, 1237-1238 — coeff_ctx =
+	// combine_entropy_contexts(tempa[idx], templ[idy]) per 4x4
+	// sub-block, with tempa/templ rebooted from the SB context arrays
+	// at the start of each candidate mode. Since this helper operates
+	// on one (idy,idx) sub-block of the 8x8 (or 4x8/8x4) partition,
+	// govpx threads tempa/templ across the inner per-block grid.
+	qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
+		int(key.hdr.Quant.BaseQindex))
+	maxEob := vp9dec.MaxEobForTxSize(common.Tx4x4)
 	bestMode := common.DcPred
 	bestRD := uint64(^uint64(0))
 	bestValid := false
@@ -7728,29 +7737,62 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		var totalDistortion uint64
 		var totalCoeffRate int
 		valid := true
+		// libvpx vp9_rdopt.c:1108-1109 — per-candidate tempa/templ
+		// refresh; govpx tracks the per-sub-block residue flag with a
+		// local 2-cell strip per axis (the libvpx 8x8 partition only
+		// holds 2 num_4x4_blocks in either direction).
+		var tempa, templ [2]uint8
 		for jy := 0; jy < num4x4H && valid; jy++ {
 			for jx := 0; jx < num4x4W && valid; jx++ {
-				dst, dstStride, x0, y0, predOK := e.predictVP9KeyframeTx(
-					key.hdr, pd, 0, mode, common.Tx4x4, tile, miRows, miCols,
-					miRow, miCol, bsize, idy+jy, idx+jx)
-				if !predOK {
-					valid = false
-					break
-				}
 				src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
-				if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH,
-					dst, dstStride, x0, y0, common.Tx4x4) {
+				if len(src) == 0 || srcStride <= 0 {
 					valid = false
 					break
 				}
-				txRate, txDist, _, scoreOK := e.scoreVP9KeyframeTxBlockRD(
-					common.Tx4x4, dequant)
-				if !scoreOK {
+				coeffs := e.coefScratch[:maxEob]
+				for i := range coeffs {
+					coeffs[i] = 0
+				}
+				// libvpx vp9_rdopt.c:1124-1167 — predict_intra +
+				// subtract + fdct/fht4x4 + quantize_b + cost_coeffs.
+				// govpx folds these into prepareVP9KeyframeTxResidue
+				// (the same primitive the main keyframe writer uses),
+				// then adds the cost_coeffs rate and pixel_sse
+				// distortion mirroring vp9_rdopt.c:1156-1161.
+				hasResidue := e.prepareVP9KeyframeTxResidue(key, pd, 0, mode,
+					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
+					idy+jy, idx+jx, dequant, qindex, coeffs)
+				// libvpx vp9_rdopt.c:1156-1161 — distortion =
+				// vp9_block_error_dispatch(coeff, dqcoeff) >> 2.
+				// govpx's keyframe writer already inverse-transforms
+				// into the recon plane, so pixel_sse(src, recon) is
+				// the libvpx-equivalent reconstruction error.
+				blkX := miCol*common.MiSize + (idx+jx)*4
+				blkY := miRow*common.MiSize + (idy+jy)*4
+				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
+					srcH, planeData, stride, blkX, blkY, 4, 4)
+				if !distOK {
 					valid = false
 					break
 				}
-				totalCoeffRate += txRate
-				totalDistortion += txDist
+				totalDistortion += dist
+				// libvpx vp9_rdopt.c:1148-1149 + 1156-1157 — coeff_ctx
+				// = combine_entropy_contexts(tempa[idx], templ[idy]);
+				// ratey += cost_coeffs(... coeff_ctx ...). govpx
+				// dispatches to vp9KeyframeCoeffBlockRateCost with
+				// the same coeff_ctx via vp9dec.GetEntropyContext.
+				initCtx := vp9dec.GetEntropyContext(common.Tx4x4,
+					tempa[jx:jx+1], templ[jy:jy+1])
+				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCost(
+					common.Tx4x4, dequant, coeffs, initCtx)
+				// libvpx vp9_rdopt.c:1162, 1244 — tempa[idx] =
+				// templ[idy] = (eobs[block] > 0) ? 1 : 0.
+				eobFlag := uint8(0)
+				if hasResidue {
+					eobFlag = 1
+				}
+				tempa[jx] = eobFlag
+				templ[jy] = eobFlag
 			}
 		}
 		if !valid {
@@ -12204,7 +12246,18 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 			encoder.ForwardHT16x16Into(e.residueScratch[:], 16, txType,
 				e.txCoeffScratch[:maxEob])
 		case common.Tx32x32:
-			encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
+			// libvpx vp9/encoder/vp9_encodemb.c:331-337,396 routes the
+			// 32x32 forward DCT through the rate-distortion-loop variant
+			// (vpx_fdct32x32_rd_c) whenever MACROBLOCK::use_lp32x32fdct is
+			// set, which mirrors the speed feature sf.use_lp32x32fdct. The
+			// RD variant is the FP-path companion in libvpx, so it only
+			// applies when this caller is on the fast (vp9_quantize_fp)
+			// branch.
+			if useFastQuant && e.sf.UseLp32x32Fdct != 0 {
+				encoder.ForwardDCT32x32RDInto(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
+			} else {
+				encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
+			}
 		default:
 			return false
 		}
