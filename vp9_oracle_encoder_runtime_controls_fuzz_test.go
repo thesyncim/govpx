@@ -188,6 +188,24 @@ import (
 //     unported. Same handoff as #1; do NOT close this entry until #1
 //     closes.
 //
+//   - {0x32} (single ASCII '2', from testdata/fuzz/
+//     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
+//     2fde656d captured in commit 2ebdb7d) — vp9FuzzByteCursor returns
+//     50%n for every pick(); 50 % 2 = 0, 50 % 3 = 2, 50 % 4 = 2,
+//     50 % 5 = 0, 50 % 8 = 2 etc. The case materialises to dims[0]=
+//     (64,64), frameCountPool[2]=8, cpuPool[2]=-8, kfPos=2, refPos=2,
+//     plus the refPos generator picks r.pick(5)==0 -> EncodeNoUpdateLast
+//     for frame 2 and the per-frame action loop picks r.pick(4)==2 ->
+//     EncodeForceGoldenFrame for every inter frame. Frame 2 stacks
+//     EncodeNoUpdateLast | EncodeForceGoldenFrame plus the kfPos-driven
+//     EncodeForceKeyFrame (cumulative flags 545 = 0x221). govpx's
+//     vp9_set_reference_frame_flags rejects EncodeForceGoldenFrame in
+//     combination with the implicit NoUpdateGolden derivation rule the
+//     same way it rejects seed #5 (vp9_cx_iface.c:1657 ctrl_set_reference
+//     accepts the redundant flags in libvpx and clears the no-update
+//     bit at vp9_encoder.c:set_ext_overrides). Same handoff as #5
+//     (set_ext_overrides resolution rules); do NOT close until #5 closes.
+//
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{
@@ -200,6 +218,7 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	// Short-byte regression-corpus aliases of the above (see comment).
 	{0x30}, // regression_vp9_runtime_controls_582528dd — alias of #0
 	{0x31}, // regression_vp9_runtime_controls_916d1b27 — alias of #1 family
+	{0x32}, // regression_vp9_runtime_controls_2fde656d — alias of #5 family
 }
 
 func vp9RuntimeControlsSeedDeferred(data []byte) bool {
