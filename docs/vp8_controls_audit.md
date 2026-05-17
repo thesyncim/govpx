@@ -16,7 +16,7 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 | 8  | SPLITMV label-level RD oracle + improved-MV comparator                 | ⬜      |
 | 9  | Right-edge chroma sub-pel residual (96x96 / 128x128)                   | ⬜      |
 | 10 | VP8 version 1-3 decoder spec corners                                   | ⬜      |
-| 11 | VP8D_SET_DECRYPTOR (encrypted bitstream)                               | ⬜      |
+| 11 | VP8D_SET_DECRYPTOR (encrypted bitstream)                               | ✅      |
 
 ⬜ open  ⏳ in flight  ✅ landed
 
@@ -26,3 +26,4 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 - 2026-05-17 rebased onto `0dfca64`; items 1+2 shipped (PR #19, merged to main).
 - 2026-05-17 item 5 (ALT_LF) verified already implemented; plan.md text stale.
 - 2026-05-17 item 3 phase 1: ported vpx_scale/generic kernels + Scale2D + ScaleFrame to internal/vp8/scale. Phase 2 is encoder integration (SetScalingMode + scale_and_extend_source + bitstream emission).
+- 2026-05-17 item 11 (VP8D_SET_DECRYPTOR) shipped: boolcoder fill() decrypts per libvpx vp8dx_bool_decoder_fill; DecoderOptions.Decryptor+DecryptorState fan out to mode + all 8 token readers.

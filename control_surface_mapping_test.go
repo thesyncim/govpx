@@ -137,6 +137,8 @@ func TestVP8EncoderOptionsFieldsHaveParityMapping(t *testing.T) {
 func TestVP8DecoderOptionsFieldsHaveParityMapping(t *testing.T) {
 	fields := exportedFieldSet(t, DecoderOptions{})
 	want := map[string]controlParityMapping{
+		"Decryptor":              {kind: "libvpx-decoder-control"},
+		"DecryptorState":         {kind: "libvpx-decoder-control"},
 		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
 		"ErrorResilient":         {kind: "libvpx-decode-oracle-alias"},
 		"MaxHeight":              {kind: "local-validation"},
