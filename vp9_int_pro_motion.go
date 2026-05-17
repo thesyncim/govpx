@@ -18,10 +18,14 @@ import (
 // Phase C (vp9_nonrd_pick_partition.go) wires this helper into
 // pickVP9InterPartitionBlockSize through vp9MLPickPartitionEntry +
 // vp9GetEstimatedPred for the ML_BASED_PARTITION dispatch (libvpx
-// vp9/encoder/vp9_encodeframe.c:5313-5321). Residual lookahead
-// inter-byte-parity drift is deferred by
-// skipVP9MLBasedPartitionLookaheadInterpFilter pending a verbatim port
-// of vp9_pick_inter_mode (libvpx vp9_pickmode.c).
+// vp9/encoder/vp9_encodeframe.c:5313-5321). With Phase C landed the
+// no-alt-ref lookahead byte-parity oracle
+// (TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard) now matches
+// libvpx 4/4 packets — the previous EIGHTTAP_SMOOTH vs EIGHTTAP
+// interp-filter-literal drift at uncompressed-header byte 4 closed
+// once the recursive ML picker began contributing the correct per-block
+// filter histogram that drives fix_interp_filter's SWITCHABLE -> concrete
+// demotion (libvpx vp9_bitstream.c:864-885).
 
 // vp9MvLimits mirrors libvpx's MvLimits struct
 // (vp9/encoder/vp9_block.h:50-55). All values are in 1/8-pel units

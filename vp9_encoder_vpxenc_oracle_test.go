@@ -143,7 +143,6 @@ func TestVP9EncoderVpxencOracleMidgrayKeyframeByteParity(t *testing.T) {
 
 func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 	requireVP9VpxencOracle(t)
-	skipVP9MLBasedPartitionLookaheadInterpFilter(t)
 
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)

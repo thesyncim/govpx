@@ -85,49 +85,6 @@ func requireVP9VpxencOracle(t *testing.T) {
 	}
 }
 
-// skipVP9MLBasedPartitionLookaheadInterpFilter defers the no-alt-ref
-// lookahead byte-parity test pending a mode-picker port. The
-// ML_BASED_PARTITION speed-feature gate (libvpx
-// vp9/encoder/vp9_speed_features.c:751-768 + 825-826) routes the
-// (cpu_used=8, w*h<=352*288) inter path through Phase A's nn_predict
-// (vp9_partition_models.go), Phase B's get_estimated_pred
-// (vp9_get_estimated_pred.go), and Phase C's recursive picker
-// (vp9_nonrd_pick_partition.go). All three phases are landed so the
-// Checker and Lossless inter-byte-parity tests now byte-match libvpx.
-//
-// The residual divergence in the lookahead test (rows 1 and 2 of 4) is
-// outside the partition-picker scope: govpx's per-block mode picker
-// (vp9_pick_inter_mode_nonrd.go + pickVP9InterReferenceMode) chooses
-// EIGHTTAP_SMOOTH while libvpx's vp9_pick_inter_mode (libvpx
-// vp9/encoder/vp9_pickmode.c) chooses EIGHTTAP for one of the uniform
-// constant inter frames (frame Y=128 at q=119) — surfaces as the
-// single-bit drift at byte 4 of the inter uncompressed header
-// (interp_filter literal: 0b00=SMOOTH vs 0b01=EIGHTTAP via
-// writeInterpFilter at internal/vp9/encoder/header_writer.go:195-215).
-// Frame Y=104 at q=128 (row 1) likewise shows a 2-byte tile-data drift
-// rooted in the per-block coefficient / MV picker.
-//
-// Re-enable once vp9_pick_inter_mode is ported verbatim from
-// vp9/encoder/vp9_pickmode.c (~4000 lines: vp9_pick_inter_mode,
-// vp9_pick_inter_mode_sub8x8, hybrid_intra_mode_search,
-// hybrid_search_*, and the per-block filter_thresh accumulator that
-// drives fix_interp_filter's per-frame demotion).
-func skipVP9MLBasedPartitionLookaheadInterpFilter(t *testing.T) {
-	t.Helper()
-	t.Skip("ML_BASED_PARTITION lookahead inter-byte-parity deferred: " +
-		"Phase A+B+C of nonrd_pick_partition (libvpx vp9_encodeframe.c:" +
-		"4598-4855 + vp9_encodeframe.c:2994-3038 + " +
-		"vp9_encodeframe.c:5103-5198) are landed in " +
-		"vp9_partition_models.go / vp9_get_estimated_pred.go / " +
-		"vp9_nonrd_pick_partition.go, but the per-block mode picker " +
-		"(libvpx vp9_pick_inter_mode at vp9_pickmode.c:~2500) is " +
-		"not yet ported verbatim. govpx selects EIGHTTAP_SMOOTH " +
-		"where libvpx selects EIGHTTAP for one of the uniform inter " +
-		"frames, surfacing as a single-bit drift at uncompressed " +
-		"header byte 4 (interp_filter literal). Re-enable when " +
-		"vp9_pickmode.c lands.")
-}
-
 func appendVP9YCbCrI420(out []byte, img *image.YCbCr) []byte {
 	width := img.Rect.Dx()
 	height := img.Rect.Dy()
