@@ -517,6 +517,20 @@ type VP9EncoderOptions struct {
 	// regulated frame qindex while per-SB segmentation routing is in
 	// flight.
 	EnableTPL bool
+
+	// EnableKeyFrameFiltering turns on the keyframe temporal-filter pass.
+	// Mirrors libvpx's VP9E_SET_KEY_FRAME_FILTERING runtime control and the
+	// cpi->oxcf.enable_keyframe_filtering field
+	// (vp9/encoder/vp9_encoder.h:266, vp9/vp9_cx_iface.c:48).  When set, the
+	// encoder filters the keyframe source against forward lookahead frames
+	// using the existing ARNR temporal-filter machinery before running the
+	// keyframe encode, matching libvpx's vp9_temporal_filter(cpi, -1) call
+	// at vp9/encoder/vp9_encoder.c:6347-6364.  The filter is gated off in
+	// realtime mode, when ARNRMaxFrames == 0 or ARNRStrength == 0, on
+	// lossless, on intra-only frames, and on frames that fall outside the
+	// libvpx-faithful precondition (vp9_encoder.c:6347-6353); when any gate
+	// trips the keyframe is encoded against its raw source.
+	EnableKeyFrameFiltering bool
 }
 
 // VP9SegmentationOptions configures static per-frame VP9 segmentation.
@@ -2326,6 +2340,17 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
 		return VP9EncodeResult{}, ErrInvalidConfig
+	}
+	// libvpx: vp9/encoder/vp9_encoder.c:6347-6364 — when
+	// VP9E_SET_KEY_FRAME_FILTERING is enabled and the other libvpx
+	// preconditions hold (non-realtime mode, non-lossless, single-pass,
+	// non-SVC, ARNRMaxFrames>0, ARNRStrength>0, speed<2), run
+	// vp9_temporal_filter(cpi, -1) on the keyframe source against the
+	// forward lookahead window and substitute the filtered buffer for
+	// the per-frame encode.  govpx's gate helper checks the same set;
+	// when any gate trips we fall through to the raw source.
+	if isKey && e.vp9KeyFrameFilteringActive() {
+		img = e.applyVP9KeyFrameFilter(img)
 	}
 	e.rc.beginFrameWithRefresh(isKey || intraOnly, e.frameIndex,
 		vp9InterRefreshFrameFlags(flags))

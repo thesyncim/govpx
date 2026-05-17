@@ -1155,6 +1155,7 @@ int main(int argc, char **argv) {
   int arnr_maxframes = 0, arnr_maxframes_set = 0;
   int arnr_strength = 0, arnr_strength_set = 0;
   int arnr_type = 0, arnr_type_set = 0;
+  int enable_keyframe_filtering = -1;
   int aq_mode = 0;
   int row_mt = 0;
   int tile_columns = 0;
@@ -1288,6 +1289,8 @@ int main(int argc, char **argv) {
     } else if ((v = flag_value(a, "--arnr-type"))) {
       arnr_type = parse_int(v, "--arnr-type");
       arnr_type_set = 1;
+    } else if ((v = flag_value(a, "--enable-keyframe-filtering"))) {
+      enable_keyframe_filtering = parse_int(v, "--enable-keyframe-filtering");
     } else if ((v = flag_value(a, "--aq-mode"))) {
       aq_mode = parse_int(v, "--aq-mode");
     } else if ((v = flag_value(a, "--row-mt"))) {
@@ -1490,6 +1493,10 @@ int main(int argc, char **argv) {
   if (arnr_type_set &&
       vpx_codec_control(&ctx, VP8E_SET_ARNR_TYPE, (unsigned)arnr_type))
     die_codec_msg(&ctx, "VP8E_SET_ARNR_TYPE");
+  if (enable_keyframe_filtering >= 0 &&
+      vpx_codec_control(&ctx, VP9E_SET_KEY_FRAME_FILTERING,
+                        enable_keyframe_filtering))
+    die_codec_msg(&ctx, "VP9E_SET_KEY_FRAME_FILTERING");
   if (vpx_codec_control(&ctx, VP8E_SET_CQ_LEVEL, (unsigned)cq_level))
     die_codec_msg(&ctx, "VP8E_SET_CQ_LEVEL");
   if (vpx_codec_control(&ctx, VP9E_SET_AQ_MODE, (unsigned)aq_mode))

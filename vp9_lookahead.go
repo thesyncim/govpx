@@ -29,7 +29,12 @@ func (e *VP9Encoder) initVP9Lookahead(width int, height int, depth int) {
 	if e.opts.AutoAltRef {
 		e.autoAltRefPending.img = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	}
-	if e.opts.AutoAltRef && e.opts.ARNRMaxFrames > 1 {
+	if (e.opts.AutoAltRef || e.opts.EnableKeyFrameFiltering) &&
+		e.opts.ARNRMaxFrames > 1 {
+		// libvpx allocates cpi->tf_buffer whenever either ARNR or
+		// keyframe filtering may run; mirror that so the runtime
+		// SetEnableKeyFrameFiltering toggle has a destination buffer
+		// to write into.
 		e.ensureVP9ARNRScratch()
 	} else {
 		e.vp9ARNRScratch = image.YCbCr{}
