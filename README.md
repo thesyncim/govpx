@@ -202,6 +202,7 @@ VP8 through pion/webrtc to a browser.
 Fast local checks:
 
 ```sh
+make pre-commit                  # fmt + PGO freshness check
 make ci                          # fmt + tests + purego tests
 go test ./... -count=1
 go test -tags purego ./... -count=1
@@ -264,6 +265,7 @@ checked-in profile and source fingerprint:
 
 ```sh
 make pgo-refresh
+make pre-commit
 ```
 
 ## Repository layout

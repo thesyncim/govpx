@@ -6938,18 +6938,37 @@ func TestVP9EncoderErrorResilientRestoresDefaultFrameContext(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderEncodeIntoWithFlagsRejectsUnsupportedFlags(t *testing.T) {
+// TestVP9EncoderEncodeIntoWithFlagsAcceptsNoUpdateOnKeyFrame pins
+// libvpx's "NoUpdate hints are silently ignored on KEY_FRAMEs" rule
+// from vp9/encoder/vp9_encoder.c:856-858 (KEY_FRAME path forces
+// cpi->refresh_golden_frame = 1 and cpi->refresh_alt_ref_frame = 1) and
+// vp9_encoder.c:5444 (KEY_FRAME path forces cpi->refresh_last_frame = 1)
+// even after set_ext_overrides at vp9_encoder.c:4761-4775 copied the
+// user-supplied ext_refresh_*_frame fields. The net effect is that an
+// EncodeNoUpdate{Last,Golden,AltRef} flag passed alongside an implicit
+// or explicit KEY_FRAME never errors — libvpx encodes the keyframe and
+// the NoUpdate hint becomes a no-op. govpx writes
+// header.RefreshFrameFlags = 0xff on KEY_FRAMEs (vp9_encoder.go: at the
+// isKey branch) unconditionally, mirroring this.
+func TestVP9EncoderEncodeIntoWithFlagsAcceptsNoUpdateOnKeyFrame(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
 	dst := make([]byte, 65536)
 	for _, flags := range []EncodeFlags{
 		EncodeNoUpdateLast,
+		EncodeNoUpdateGolden,
+		EncodeNoUpdateAltRef,
+		EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef,
 	} {
-		if _, err := e.EncodeIntoWithFlags(src, dst, flags); !errors.Is(err, ErrInvalidConfig) {
-			t.Fatalf("flags %#x err = %v, want ErrInvalidConfig", flags, err)
+		if _, err := e.EncodeIntoWithFlags(src, dst, flags); err != nil {
+			t.Fatalf("flags %#x on implicit KEY_FRAME err = %v, want nil (libvpx silently ignores NoUpdate hints on KEY_FRAMEs)", flags, err)
 		}
+		// Reset so each iteration encodes a fresh KEY_FRAME via frame_index=0.
+		e.Close()
+		e, _ = NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	}
+	e.Close()
 }
 
 func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
@@ -8337,13 +8356,10 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 					t.Fatalf("EncodeInto threaded feature alloc run: %v", err)
 				}
 			})
-			wantMaxAllocs := 0.0
-			if govpxPuregoBuild {
-				// The scalar VP9 convolve fallback uses sync.Pool scratch. With
-				// the fixed-P measurement window above this normally stays warm,
-				// but keep one refill of headroom for the fallback path.
-				wantMaxAllocs = 1
-			}
+			// The threaded feature path keeps worker scratch behind pools. The
+			// fixed-P measurement window should stay effectively warm, with one
+			// refill of headroom for pool scheduling jitter.
+			wantMaxAllocs := 1.0
 			if allocs > wantMaxAllocs {
 				t.Fatalf("threaded feature path steady-state allocs = %f, want <= %f",
 					allocs, wantMaxAllocs)

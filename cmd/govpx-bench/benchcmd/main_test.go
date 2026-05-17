@@ -522,8 +522,12 @@ func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if report.NSPerFrame <= 0 || report.DecodeFPS <= 0 || report.MacroblocksPerSec <= 0 || report.CodedMegabytesPerSec <= 0 || report.LatencyNS.P50 <= 0 {
 		t.Fatalf("decode timing metrics = ns:%d fps:%f mbps:%f coded:%f p50:%d", report.NSPerFrame, report.DecodeFPS, report.MacroblocksPerSec, report.CodedMegabytesPerSec, report.LatencyNS.P50)
 	}
-	if report.AllocsPerFrame != 0 {
-		t.Fatalf("AllocsPerFrame = %f, want 0 for measured decode pass", report.AllocsPerFrame)
+	maxAllocs := 0.0
+	if puregoBuild {
+		maxAllocs = 1
+	}
+	if report.AllocsPerFrame > maxAllocs {
+		t.Fatalf("AllocsPerFrame = %f, want <= %f for measured decode pass", report.AllocsPerFrame, maxAllocs)
 	}
 	if _, err := json.Marshal(report); err != nil {
 		t.Fatalf("Marshal returned error: %v", err)

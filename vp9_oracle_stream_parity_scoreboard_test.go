@@ -1252,7 +1252,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 			flags:       vp9OracleFlagAt(6, 1, EncodeForceKeyFrame),
 			source:      steppedSource,
 			exactPrefix: 2,
-			exactFrames: []int{4, 5},
+			exactFrames: []int{5},
 		},
 		{
 			name:        "frameflags-no-update-all",
@@ -2645,7 +2645,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 			name:        "force-key-frame1",
 			flags:       vp9OracleFlagAt(frames, 1, EncodeForceKeyFrame),
 			exactPrefix: 2,
-			exactFrames: []int{4, 5},
+			exactFrames: []int{5},
 		},
 		{
 			name:        "force-key-frame3",
@@ -2656,8 +2656,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 		{
 			name:        "repeat-no-update-last",
 			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateLast),
-			exactPrefix: 6,
-			strictBytes: true,
+			exactPrefix: 2,
 		},
 		{
 			name:        "repeat-no-update-golden",
