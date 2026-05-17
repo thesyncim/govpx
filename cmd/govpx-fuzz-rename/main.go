@@ -49,6 +49,18 @@ var dispatch = map[string]classifier{
 	"FuzzEncoderTwoPassByteParity":               constantCase("twopass"),
 	"FuzzEncoderLongFixtureRateControl":          classifyLongFixtureRateControl,
 	"FuzzDecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
+	// VP9 fuzz family — sibling targets registered here mirror their VP8
+	// counterparts. Classifiers reuse the same body shape so the resulting
+	// regression filenames carry the same scoreboard semantics.
+	"FuzzRTPVP9RoundTrip":                      constantCase("vp9_rtp"),
+	"FuzzVP9OracleEncoderOptions":              constantCase("vp9_options"),
+	"FuzzVP9OracleEncoderRuntimeControls":      constantCase("vp9_runtime_controls"),
+	"FuzzVP9EncoderProductionStreamByteParity": constantCase("vp9_option_grid"),
+	"FuzzVP9EncoderTwoPassByteParity":          constantCase("vp9_twopass"),
+	"FuzzVP9EncoderLongFixtureRateControl":     classifyLongFixtureRateControl,
+	"FuzzVP9DecoderAgainstLibvpx":              classifyDecoderAgainstLibvpx,
+	"FuzzVP9EncoderRandomStrides":              constantCase("vp9_strides"),
+	"FuzzVP9EncoderReferenceControlSequences":  constantCase("vp9_refctrl"),
 }
 
 func constantCase(name string) classifier {
