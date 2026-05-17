@@ -51,12 +51,18 @@ import (
 //
 // Closing requires the verbatim port of:
 //
-//   - libvpx choose_partitioning (vp9/encoder/vp9_encodeframe.c:1253-1640),
-//     including set_vbp_thresholds (vp9_encodeframe.c:573-635),
-//     fill_variance_8x8avg, fill_variance_tree, get_variance,
-//     and the avg_8x8 reference path. Pair with the keyframe-specific
-//     `is_key_frame` skip-pred-set-on-pred path
-//     (vp9_encodeframe.c:1390-1410).
+//   - libvpx choose_partitioning (vp9/encoder/vp9_encodeframe.c:1253-1640).
+//     Phase A — set_vbp_thresholds (vp9_encodeframe.c:573-635) and the
+//     aux thresholds in vp9_set_variance_partition_thresholds
+//     (vp9_encodeframe.c:637-676) — has been ported verbatim into
+//     vp9_variance_partition.go (vp9SetVBPThresholds /
+//     vp9SetVariancePartitionAuxThresholds / vp9ScalePartThreshSumdiff,
+//     unit-tested). Still pending: the variance-tree helpers
+//     (fill_variance, fill_variance_4x4avg, fill_variance_8x8avg,
+//     fill_variance_tree, get_variance — vp9_encodeframe.c:440-470,
+//     714-784) and the choose_partitioning + set_vt_partitioning body
+//     (vp9_encodeframe.c:472-547, 1253-1763) that consumes those
+//     thresholds.
 //
 //   - libvpx nonrd_use_partition (vp9/encoder/vp9_encodeframe.c:4854)
 //     so the picked partition is honoured the same way at speed 8.
