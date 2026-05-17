@@ -864,8 +864,12 @@ func (e *VP8Encoder) applyChangeConfigSpeedReset() {
 // applyVP8ChangeConfigRuntimeSideEffects mirrors the shared body/tail effects
 // of libvpx update_extracfg / vpx_codec_enc_config_set -> vp8_change_config.
 func (e *VP8Encoder) applyVP8ChangeConfigRuntimeSideEffects() {
+	e.rc.applyVP8ChangeConfigRateModel(e.opts.TwoPassMinPct)
 	e.rc.applyVP8ChangeConfigQuantizerClamp()
 	e.rc.refreshDropFramesAllowed()
+	if e.twoPass.enabled() {
+		e.twoPass.configureGFIntervals(e.libvpxStaticSceneMaxGFInterval(), e.libvpxMaxGFInterval())
+	}
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	e.applyChangeConfigSpeedReset()

@@ -131,7 +131,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
-	segmentation = segmentationConfigForLoopFilterLevel(segmentation, lfLevel)
+	segmentation = e.segmentationConfigForLoopFilterLevel(segmentation, lfLevel)
 	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
 	phase = e.phaseStart()
 	err = e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required)
@@ -234,16 +234,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 			return result, nil
 		}
 		e.lastPredErrorMB = e.currentPredictionErrorMB(required)
-		projectedSizeBits := result.ProjectedSizeBits
-		if projectedSizeBits > 0 && projectedSizeBits < e.rc.frameTargetBits {
-			// The pre-pack projection can sit a few bytes below libvpx's
-			// recode threshold on small inter frames even when the emitted
-			// packet bytes already match. Keep those boundary undershoots from
-			// taking a divergent lower-Q recode while preserving large
-			// undershoot recodes.
-			projectedSizeBits += 256
-		}
-		if !allowRecode || !e.updateQuantizerForProjectedFrameSize(projectedSizeBits, false, boostedReferenceFrame, required, &recode) {
+		if !allowRecode || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
 		if traceEnabled {
@@ -630,7 +621,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
-	segmentation = segmentationConfigForLoopFilterLevel(segmentation, cfg.LoopFilterLevel)
+	segmentation = e.segmentationConfigForLoopFilterLevel(segmentation, cfg.LoopFilterLevel)
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
 	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
 	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled

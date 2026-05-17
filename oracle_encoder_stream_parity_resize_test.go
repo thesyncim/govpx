@@ -612,25 +612,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 					FrameDrop:    RealtimeFrameDropEnabled,
 				}))
 			},
-			// SetRealtimeTarget here bundles a resize + fps + bitrate +
-			// min/max-q + drop change in a single call. After porting
-			// libvpx vp8_change_config's tail Speed reset
-			// (vp8/encoder/onyx_if.c:1706), the post-resize keyframe at
-			// frame 4 reseeds cpi->Speed from oxcf.cpu_used while the
-			// accumulated avg_pick_mode_time / avg_encode_time timers
-			// from segment one survive into vp8_auto_select_speed at the
-			// first segment-2 frame. libvpx's frameflags driver applies
-			// all these knobs through one vpx_codec_enc_config_set on
-			// the same step, so its speed evolution from segment one
-			// also carries through — but the per-axis Q clamping and
-			// fps timebase recompute lands at a slightly different
-			// auto-speed sample than govpx after the new reset. The
-			// pre-port baseline matched accidentally via the cold-start
-			// sentinel that collapsed the carried-over autoSpeed back
-			// to the cpu_used=4 default; that masking is what the new
-			// reset removes. First four frames (pre-resize) stay
-			// strict; segment-2 frames are logged only.
-			limit: framesPerSeg,
 		},
 		{
 			name:          "active-checker-noise3-threads2",

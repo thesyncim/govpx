@@ -223,18 +223,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					mustRuntime(t, "SetRealtimeTarget(fps30)", e.SetRealtimeTarget(RealtimeTarget{FPS: 30}))
 				},
 			},
-			// SetRealtimeTarget at frame 3 now triggers the libvpx
-			// vp8_change_config Speed reset port
-			// (vp8/encoder/onyx_if.c:1706). The govpx encoder reseeds
-			// cpi->Speed from oxcf.cpu_used and the subsequent
-			// vp8_auto_select_speed at frame 3 samples a slightly
-			// different post-reset speed than the libvpx
-			// frameflags driver, which routes the same fps change
-			// through vpx_codec_enc_config_set on the same step but
-			// lands at a non-matching auto-speed evolution because the
-			// per-frame timing windows differ. Frames 0-2 stay
-			// strict; frames 3+ are logged only.
-			matchLimit: 3,
 		},
 		{
 			name: "undershoot-overshoot-only-two-step",
@@ -430,14 +418,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					}
 				},
 			},
-			// SetRealtimeTarget + SetRateControl at frame 3 both run the
-			// libvpx vp8_change_config Speed reset port
-			// (vp8/encoder/onyx_if.c:1706). The post-reset auto-speed
-			// sample differs from the libvpx frameflags driver path
-			// because the back-to-back resets reseed Speed twice while
-			// libvpx merges all fields into one vpx_codec_enc_config_set.
-			// Frames 0-2 stay strict; frames 3+ are logged only.
-			matchLimit: 3,
 		},
 		{
 			name: "realtime-target-same-size-bwe-update",
@@ -457,16 +437,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					mustRuntime(t, "SetRealtimeTarget(same-size-bwe-default)", e.SetRealtimeTarget(RealtimeTarget{Width: 64, Height: 64, BitrateKbps: 700, FPS: 30, MinQuantizer: 4, MaxQuantizer: 56}))
 				},
 			},
-			// SetRealtimeTarget at frame 3 triggers the libvpx
-			// vp8_change_config Speed reset port. Same-size echo +
-			// bitrate + fps + min/max-q all flow through a single
-			// applyChangeConfigSpeedReset on the govpx side; libvpx's
-			// frameflags driver does the same via
-			// vpx_codec_enc_config_set, but the carried-over
-			// avg_pick_mode_time / avg_encode_time evolves to a
-			// slightly different post-reset auto-speed sample. Frames
-			// 0-2 stay strict; frames 3+ are logged only.
-			matchLimit: 3,
 		},
 		{
 			name: "rate-control-full-config-maxintra-gfboost",
@@ -4540,22 +4510,6 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 				mustRuntime(t, "SetRealtimeTarget(fps30-bitrate700)", e.SetRealtimeTarget(RealtimeTarget{FPS: 30, BitrateKbps: targetKbps}))
 			},
 		},
-		// After porting libvpx vp8_change_config's tail Speed reset
-		// (vp8/encoder/onyx_if.c:1706) onto every Set* runtime control,
-		// the SetRealtimeTarget call at frame 4 reseeds cpi->Speed from
-		// oxcf.cpu_used while vp8_auto_select_speed's avg_pick_mode_time
-		// and avg_encode_time timers from frames 0-3 survive. libvpx's
-		// frameflags driver routes the fps+bitrate change through one
-		// vpx_codec_enc_config_set on the same step, so its post-reset
-		// auto-speed evolution starts from the same Speed seed but
-		// samples a slightly different speed-feature decision than govpx
-		// at the first frame after the reset. The pre-port baseline
-		// matched here only because the cold-start sentinel collapsed
-		// govpx's carried-over autoSpeed back to the cpu_used=4 default
-		// that libvpx's evolved Speed also happened to land on; that
-		// masking is what the new reset removes. Pre-reconfigure frames
-		// 0-3 stay strict; frames 4+ are logged only.
-		matchLimit: 4,
 	})
 
 	tokenERScript := twoLayerScript(12)

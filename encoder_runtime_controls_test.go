@@ -543,6 +543,50 @@ func TestSetRateControlPreservesLibvpxZeroBufferLevel(t *testing.T) {
 	}
 }
 
+func TestCodecControlsRunVP8ChangeConfigSideEffectsForZeroValues(t *testing.T) {
+	e := newTestEncoder(t)
+	wantKbps := e.rc.libvpxClampToRawTargetRate(e.rc.targetBitrateKbps, e.rc.libvpxRateControlTiming())
+	wantTargetBits := wantKbps * 1000
+	wantBitsPerFrame := computeBitsPerFrame(wantTargetBits, e.rc.libvpxRateControlTiming())
+	wantMaxBuffer := libvpxVP8BufferBits(e.rc.bufferSizeMs, wantTargetBits)
+
+	assertChangeConfig := func(name string, fn func() error) {
+		t.Helper()
+		e.rc.targetBandwidthBits = 1
+		e.rc.bitsPerFrame = 1
+		e.rc.bufferLevelBits = maxInt()
+		e.autoSpeed = 13
+		if err := fn(); err != nil {
+			t.Fatalf("%s returned error: %v", name, err)
+		}
+		if e.rc.targetBandwidthBits != wantTargetBits || e.rc.bitsPerFrame != wantBitsPerFrame {
+			t.Fatalf("%s rate model = target:%d bpf:%d, want %d/%d",
+				name, e.rc.targetBandwidthBits, e.rc.bitsPerFrame, wantTargetBits, wantBitsPerFrame)
+		}
+		if e.rc.bufferLevelBits != wantMaxBuffer || e.rc.maximumBufferBits != wantMaxBuffer {
+			t.Fatalf("%s buffer = level:%d max:%d, want %d",
+				name, e.rc.bufferLevelBits, e.rc.maximumBufferBits, wantMaxBuffer)
+		}
+		if e.autoSpeed != e.opts.CpuUsed {
+			t.Fatalf("%s autoSpeed = %d, want vp8_change_config reset %d",
+				name, e.autoSpeed, e.opts.CpuUsed)
+		}
+	}
+
+	assertChangeConfig("SetNoiseSensitivity(0)", func() error {
+		return e.SetNoiseSensitivity(0)
+	})
+	assertChangeConfig("VP8E_SET_ARNR_MAXFRAMES(0)", func() error {
+		return e.setARNRMaxFrames(0)
+	})
+	assertChangeConfig("VP8E_SET_ARNR_STRENGTH(0)", func() error {
+		return e.setARNRStrength(0)
+	})
+	assertChangeConfig("VP8E_SET_ARNR_TYPE(1)", func() error {
+		return e.setARNRType(1)
+	})
+}
+
 func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
 	e := newTestEncoder(t)
 	e.rc.decimationFactor = 2

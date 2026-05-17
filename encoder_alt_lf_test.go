@@ -176,9 +176,10 @@ func TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData(t *testing.T) {
 	}
 }
 
-func TestSegmentationConfigForLoopFilterLevelRetainsPacketAltLFData(t *testing.T) {
+func TestSegmentationConfigForLoopFilterLevelUsesInstalledPacketAltLFData(t *testing.T) {
 	t.Parallel()
 
+	e := &VP8Encoder{}
 	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
 	cfg.FeatureEnabled[vp8common.MBLvlAltLF][1] = true
 	cfg.FeatureData[vp8common.MBLvlAltLF][1] = -3
@@ -187,29 +188,31 @@ func TestSegmentationConfigForLoopFilterLevelRetainsPacketAltLFData(t *testing.T
 	cfg.FeatureEnabled[vp8common.MBLvlAltLF][3] = true
 	cfg.FeatureData[vp8common.MBLvlAltLF][3] = -2
 
-	got := segmentationConfigForLoopFilterLevel(cfg, 0)
-	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -3 {
-		t.Fatalf("negative zero-level ALT_LF = enabled:%t data:%d, want retained -3", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	got := e.segmentationConfigForLoopFilterLevel(cfg, 0)
+	if got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != 0 {
+		t.Fatalf("uninstalled ALT_LF = enabled:%t data:%d, want zero packet state", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
 	}
-	if !got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 4 {
-		t.Fatalf("positive zero-level ALT_LF = enabled:%t data:%d, want retained +4", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
+	if got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 0 {
+		t.Fatalf("uninstalled positive ALT_LF = enabled:%t data:%d, want zero packet state", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
 	}
 
-	got = segmentationConfigForLoopFilterLevel(cfg, 3)
-	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -3 {
-		t.Fatalf("positive-base ALT_LF = enabled:%t data:%d, want retained -3", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	e.loopFilterSegmentLF[1] = -5
+	e.loopFilterSegmentLF[3] = 2
+	got = e.segmentationConfigForLoopFilterLevel(cfg, 3)
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -5 {
+		t.Fatalf("current cfg leaked into installed ALT_LF[1] = enabled:%t data:%d, want installed -5", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
 	}
-	if !got.FeatureEnabled[vp8common.MBLvlAltLF][3] || got.FeatureData[vp8common.MBLvlAltLF][3] != -2 {
-		t.Fatalf("nonzero effective ALT_LF = enabled:%t data:%d, want retained -2", got.FeatureEnabled[vp8common.MBLvlAltLF][3], got.FeatureData[vp8common.MBLvlAltLF][3])
+	if got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 0 {
+		t.Fatalf("cleared installed ALT_LF[2] = enabled:%t data:%d, want zero", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
+	}
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][3] || got.FeatureData[vp8common.MBLvlAltLF][3] != 2 {
+		t.Fatalf("installed ALT_LF[3] = enabled:%t data:%d, want 2", got.FeatureEnabled[vp8common.MBLvlAltLF][3], got.FeatureData[vp8common.MBLvlAltLF][3])
 	}
 
 	cfg.AbsDelta = true
-	got = segmentationConfigForLoopFilterLevel(cfg, 0)
-	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -3 {
-		t.Fatalf("negative absolute ALT_LF = enabled:%t data:%d, want retained -3", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
-	}
-	if !got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 4 {
-		t.Fatalf("positive absolute ALT_LF = enabled:%t data:%d, want retained +4", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
+	got = e.segmentationConfigForLoopFilterLevel(cfg, 0)
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -5 {
+		t.Fatalf("absolute installed ALT_LF[1] = enabled:%t data:%d, want -5", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
 	}
 }
 

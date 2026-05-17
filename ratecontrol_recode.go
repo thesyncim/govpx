@@ -3,6 +3,10 @@ package govpx
 type frameSizeRecodeState struct {
 	qLow                int
 	qHigh               int
+	loopLow             int
+	loopHigh            int
+	activeBest          int
+	activeWorst         int
 	regulateLow         int
 	regulateHigh        int
 	zbinOQLow           int
@@ -32,12 +36,48 @@ func (rc *rateControlState) newFrameSizeRecodeStateWithAltRef(keyFrame bool, gol
 	return frameSizeRecodeState{
 		qLow:             activeBest,
 		qHigh:            activeWorst,
+		loopLow:          activeBest,
+		loopHigh:         activeWorst,
+		activeBest:       activeBest,
+		activeWorst:      activeWorst,
 		regulateLow:      activeBest,
 		regulateHigh:     activeWorst,
 		zbinOQHigh:       libvpxZbinOverQuantHighAltRef(keyFrame, goldenFrame, altRefFrame),
 		zbinOverQuant:    rc.currentZbinOverQuant,
 		correctionFactor: rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame || altRefFrame),
 	}
+}
+
+func (recode *frameSizeRecodeState) ensureFrameSizeRecodeBounds() {
+	if recode.loopLow == 0 {
+		recode.loopLow = recode.qLow
+	}
+	if recode.loopHigh == 0 {
+		switch {
+		case recode.regulateHigh != 0:
+			recode.loopHigh = recode.regulateHigh
+		default:
+			recode.loopHigh = recode.qHigh
+		}
+	}
+	if recode.activeBest == 0 {
+		switch {
+		case recode.regulateLow != 0:
+			recode.activeBest = recode.regulateLow
+		default:
+			recode.activeBest = recode.qLow
+		}
+	}
+	if recode.activeWorst == 0 {
+		switch {
+		case recode.regulateHigh != 0:
+			recode.activeWorst = recode.regulateHigh
+		default:
+			recode.activeWorst = recode.qHigh
+		}
+	}
+	recode.regulateLow = recode.activeBest
+	recode.regulateHigh = recode.activeWorst
 }
 
 func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) (int, bool) {
@@ -48,12 +88,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 	if recode == nil {
 		return rc.currentQuantizer, false
 	}
-	if recode.regulateHigh == 0 && recode.qHigh != 0 {
-		recode.regulateHigh = recode.qHigh
-	}
-	if recode.regulateLow == 0 && recode.qLow != 0 {
-		recode.regulateLow = recode.qLow
-	}
+	recode.ensureFrameSizeRecodeBounds()
 	q := rc.currentQuantizer
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
@@ -65,7 +100,9 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
 	recode.activeWorstQChanged = rc.relaxActiveWorstQuantizerForOvershoot(actualBits, overshootLimit, q, recode)
 	rc.activeWorstQChanged = recode.activeWorstQChanged
+	println("RTRACE_IN", q, actualBits, targetBits, undershootLimit, overshootLimit, recode.qLow, recode.qHigh, recode.loopLow, recode.loopHigh, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 	if !rc.shouldRecodeFrameSize(actualBits, undershootLimit, overshootLimit, q, keyFrame, goldenFrame, recode) {
+		println("RTRACE_STOP", q, actualBits, targetBits, recode.qLow, recode.qHigh, recode.loopLow, recode.loopHigh, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 		return rc.clampedFrameQuantizerValue(q), false
 	}
 
@@ -94,11 +131,11 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 			if !recode.activeWorstQChanged {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
 			}
-			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.regulateLow, recode.regulateHigh, recode.correctionFactor)
+			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 			next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			for retries := 0; retries < 10 && (next < recode.qLow || recode.zbinOverQuant < recode.zbinOQLow); retries++ {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
-				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.regulateLow, recode.regulateHigh, recode.correctionFactor)
+				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 				next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			}
 			if next < vp8MaxQIndex {
@@ -128,14 +165,14 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 			if !recode.activeWorstQChanged {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
 			}
-			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.regulateLow, recode.regulateHigh, recode.correctionFactor)
+			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 			next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			if rc.cqFloorActive() && next < recode.qLow {
 				recode.qLow = next
 			}
 			for retries := 0; retries < 10 && (next > recode.qHigh || recode.zbinOverQuant > recode.zbinOQHigh); retries++ {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
-				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.regulateLow, recode.regulateHigh, recode.correctionFactor)
+				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 				next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			}
 			if next < vp8MaxQIndex {
@@ -158,6 +195,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 		recode.zbinOverQuant = 0
 	}
 	rc.setRateCorrectionFactorForFrame(keyFrame, goldenFrame, recode.correctionFactor)
+	println("RTRACE_OUT", q, next, recode.zbinOverQuant, recode.qLow, recode.qHigh, recode.loopLow, recode.loopHigh, recode.activeBest, recode.activeWorst, recode.correctionFactor, recode.overshootSeen, recode.undershootSeen)
 	return rc.clampedFrameQuantizerValue(next), true
 }
 
@@ -223,21 +261,26 @@ func (rc *rateControlState) relaxActiveWorstQuantizerForOvershoot(actualBits int
 	if recode == nil || actualBits <= overshootLimit || overshootLimit <= 0 {
 		return false
 	}
-	if q != recode.regulateHigh || recode.regulateHigh >= rc.maxQuantizer {
+	if q != recode.activeWorst || recode.activeWorst >= rc.maxQuantizer {
 		return false
 	}
 	overSizePercent := ((actualBits - overshootLimit) * 100) / overshootLimit
 	changed := false
-	for recode.regulateHigh < rc.maxQuantizer && overSizePercent > 0 {
-		recode.regulateHigh++
+	for recode.activeWorst < rc.maxQuantizer && overSizePercent > 0 {
+		recode.activeWorst++
 		overSizePercent = (overSizePercent * 96) / 100
 		changed = true
+	}
+	if changed {
+		// libvpx updates active_worst_quality, then mirrors it to top_index.
+		recode.loopHigh = recode.activeWorst
+		recode.regulateHigh = recode.activeWorst
 	}
 	return changed
 }
 
 func (rc *rateControlState) shouldRecodeFrameSize(actualBits int, undershootLimit int, overshootLimit int, q int, keyFrame bool, goldenFrame bool, recode *frameSizeRecodeState) bool {
-	if (actualBits > overshootLimit && q < recode.regulateHigh) || (actualBits < undershootLimit && q > recode.regulateLow) {
+	if (actualBits > overshootLimit && q < recode.loopHigh) || (actualBits < undershootLimit && q > recode.loopLow) {
 		return true
 	}
 	if !rc.cqFloorActive() {
@@ -256,23 +299,11 @@ func (rc *rateControlState) shouldRecodeFrameSize(actualBits int, undershootLimi
 	if q > rc.cqLevel && actualBits < (targetBits*7)>>3 {
 		return true
 	}
-	// libvpx vp8/encoder/onyx_if.c:2847-2852 "Severe undershoot and
-	// between auto and user cq level": when Q is above oxcf.cq_level,
-	// projected size is below min_frame_bandwidth, AND active_best_quality
-	// is still above oxcf.cq_level, libvpx force-recodes AND mutates
-	// `cpi->active_best_quality = cpi->oxcf.cq_level` so the next recode
-	// pass can pick a quantizer down at the CQ floor. govpx's
-	// recode.qLow is libvpx's active_best_quality equivalent (seeded from
-	// `libvpxActiveQuantizerBoundsForFrame` activeBest and used as the
-	// regulator's lower bound on every recode iteration), so mirror the
-	// mutation here. Without this, govpx's recode loop keeps qLow above
-	// cqLevel and the regulator picks a higher Q than libvpx for the
-	// next attempt on the same severely-undersized CQ frame.
-	if q > rc.cqLevel && actualBits < rc.minimumFrameBandwidthBits() && recode.qLow > rc.cqLevel {
-		recode.qLow = rc.cqLevel
-		if recode.regulateLow > rc.cqLevel {
-			recode.regulateLow = rc.cqLevel
-		}
+	// libvpx recode_loop_test mutates active_best_quality here; q_low is
+	// lowered later only if the post-regulate Q falls below it.
+	if q > rc.cqLevel && actualBits < rc.minimumFrameBandwidthBits() && recode.activeBest > rc.cqLevel {
+		recode.activeBest = rc.cqLevel
+		recode.regulateLow = recode.activeBest
 		return true
 	}
 	return false

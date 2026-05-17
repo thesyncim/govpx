@@ -423,6 +423,53 @@ func (rc *rateControlState) applyVP8ChangeConfigQuantizerClamp() {
 	}
 }
 
+// applyVP8ChangeConfigRateModel mirrors the target/buffer/framerate block in
+// vp8_change_config (vp8/encoder/onyx_if.c:1593-1625). Codec controls also
+// enter this path through update_extracfg, even when the control value is 0 or
+// unchanged.
+func (rc *rateControlState) applyVP8ChangeConfigRateModel(twoPassMinPct int) {
+	timing := rc.libvpxRateControlTiming()
+	if timing.frameRate <= 0 {
+		return
+	}
+	effectiveKbps := rc.libvpxClampToRawTargetRate(rc.targetBitrateKbps, timing)
+	targetBits := effectiveKbps * 1000
+	if effectiveKbps <= 0 || targetBits/1000 != effectiveKbps {
+		return
+	}
+	rc.effectiveBitrateKbps = effectiveKbps
+	rc.targetBandwidthBits = targetBits
+	if bitsPerFrame := computeBitsPerFrame(targetBits, timing); bitsPerFrame > 0 {
+		rc.bitsPerFrame = bitsPerFrame
+		rc.minFrameBandwidth = vbrMinFrameBandwidthBits(bitsPerFrame, twoPassMinPct)
+	}
+	rc.bufferInitialBits = libvpxVP8BufferBits(rc.bufferInitialSizeMs, targetBits)
+	if rc.bufferOptimalSizeMs == 0 {
+		rc.bufferOptimalBits = targetBits / 8
+	} else {
+		rc.bufferOptimalBits = libvpxVP8BufferBits(rc.bufferOptimalSizeMs, targetBits)
+	}
+	if rc.bufferSizeMs == 0 {
+		rc.maximumBufferBits = targetBits / 8
+		rc.bufferSizeBits = rc.maximumBufferBits
+	} else {
+		rc.bufferSizeBits = libvpxVP8BufferBits(rc.bufferSizeMs, targetBits)
+		rc.maximumBufferBits = rc.bufferSizeBits
+	}
+	rc.clampBuffer()
+}
+
+func libvpxVP8BufferBits(ms int, targetBandwidthBits int) int {
+	if ms <= 0 || targetBandwidthBits <= 0 {
+		return 0
+	}
+	v := int64(ms) * int64(targetBandwidthBits) / 1000
+	if v > int64(maxInt()) {
+		return maxInt()
+	}
+	return int(v)
+}
+
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
 	if err := validateRateControlConfig(cfg); err != nil {
 		return err

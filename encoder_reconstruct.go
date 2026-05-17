@@ -693,9 +693,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if !modes[index].MBSkipCoeff {
 				convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			}
-			if finalCoeffSkip && modes[index].Mode == vp8common.SplitMV && modes[index].Partition == 0 {
-				projectedRate = e.acceptedInterFrameRDProjectedRate(&modes[index], above, left, aboveLeft, &aboveTok[col], &leftTok, &coeffs[index], decision.ref, row, col, rows, cols, is4x4)
-			}
 			totalRate = addProjectedMacroblockRate(totalRate, projectedRate)
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
 				if err := updateInterAnalysisTokenContextAndCount(&e.interCoefTokenCounts, &e.interCoefTokenRecords, &aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index]); err != nil {

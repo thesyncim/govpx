@@ -136,11 +136,21 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 	return header
 }
 
-// libvpx writes segment_feature_data directly in the segmentation header.
-// The loop-filter effective level is clamped later by vp8_loop_filter_frame_init;
-// it does not rewrite packet-facing ALT_LF deltas when the base level is zero.
-func segmentationConfigForLoopFilterLevel(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
+// libvpx's packet writer reads ALT_LF values from mb.e_mbd.segment_feature_data,
+// not directly from cpi->segment_feature_data. vp8cx_set_alt_lf_level is the
+// copy point from configured segment data to mb.e_mbd; full LF search calls it
+// during trials, while the fast path only calls it after picking a positive
+// frame filter level. loopFilterSegmentLF tracks that installed mb.e_mbd state.
+func (e *VP8Encoder) segmentationConfigForLoopFilterLevel(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
 	_ = level
+	if e == nil || !cfg.Enabled {
+		return cfg
+	}
+	for segment := range vp8common.MaxMBSegments {
+		data := e.loopFilterSegmentLF[segment]
+		cfg.FeatureData[vp8common.MBLvlAltLF][segment] = data
+		cfg.FeatureEnabled[vp8common.MBLvlAltLF][segment] = data != 0
+	}
 	return cfg
 }
 
