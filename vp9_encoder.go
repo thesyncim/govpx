@@ -8062,16 +8062,6 @@ func vp9QuantizeFPForRD(coeff []int16, dequant [2]int16, scan []int16,
 	return eob + 1
 }
 
-func vp9BlockErrorFP(coeff, dqcoeff []int16) uint64 {
-	n := min(len(coeff), len(dqcoeff))
-	var err uint64
-	for i := range n {
-		diff := int(coeff[i]) - int(dqcoeff[i])
-		err += uint64(diff * diff)
-	}
-	return err
-}
-
 func vp9Satd(coeff []int16) int {
 	sum := 0
 	for _, c := range coeff {
@@ -8529,7 +8519,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 				// vp9InterCoeffBlockRateCost as the cost_coeffs port;
 				// keyframe is_inter=0 so the [0] is_inter index of
 				// fc.CoefProbs is the libvpx-faithful path.
-				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs)
+				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs, 0)
 			}
 		}
 		if !valid {
@@ -8590,11 +8580,12 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 // (vp9_rdopt.c:397, 429, 442; pt_energy_class table is in
 // vp9/common/vp9_entropy.c:95).
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
-	dequant [2]int16, coeffs []int16,
+	dequant [2]int16, coeffs []int16, initCtx int,
 ) int {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txSize >= common.TxSizes || dequant[0] == 0 || dequant[1] == 0 ||
-		len(coeffs) < maxEob || len(e.modeScratch) < maxEob {
+		len(coeffs) < maxEob || len(e.modeScratch) < maxEob ||
+		initCtx < 0 || initCtx > 2 {
 		return 0
 	}
 	scan := common.DefaultScanOrders[txSize].Scan
@@ -8612,7 +8603,7 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
 	// type=PLANE_TYPE_Y=0, is_inter=0 for a keyframe / intra block.
 	coefModel := &e.fc.CoefProbs[txSize][0][0]
-	ctx := 0
+	ctx := initCtx
 	bandIdx := 0
 	rate := 0
 	for c := 0; c < maxEob; {
