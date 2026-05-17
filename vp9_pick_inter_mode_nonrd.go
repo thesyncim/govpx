@@ -289,6 +289,29 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
 
+	// libvpx: vp9_encodeframe.c:4244-4248 — every SB's rd_pick_sb_modes call
+	// seeds x->cb_rdmult from get_rdmult_delta so per-mode RDCOST consumes
+	// a TPL-biased multiplier rather than the bare per-frame rd.RDMULT.
+	// The nonrd-pickmode path in libvpx scores via vp9_pickmode.c::model_rd_*
+	// which reads x->rdmult (set from x->cb_rdmult at line 1955); govpx
+	// mirrors that by priming e.cbRdmult before the per-candidate score
+	// loop and clearing it on every exit.  Inline save/restore (no defer)
+	// preserves the alloc-parity gate.
+	prevCbRdmult := e.cbRdmult
+	if e.tpl.enabled && bsize < common.BlockSizes {
+		baseRdmult := e.rc.rdmult
+		if baseRdmult <= 0 {
+			baseRdmult = vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+		}
+		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
+		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
+		baseRdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, baseRdmult)
+		if baseRdmult <= 0 {
+			baseRdmult = 1
+		}
+		e.cbRdmult = baseRdmult
+	}
+
 	// libvpx: vp9_pickmode.c:1731 INTERP_FILTER filter_ref;
 	//          vp9_pickmode.c:1874 filter_ref = cm->interp_filter;
 	//          vp9_pickmode.c:1875-1880 — when default_interp_filter != BILINEAR,
@@ -502,7 +525,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				interpFilter:   filter,
 				rate:           rate,
 				distortion:     distortion,
-				score:          vp9InterModeScore(distortion, rate, qindex),
+				score:          e.vp9InterModeScore(distortion, rate, qindex),
 			}
 
 			// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
@@ -550,6 +573,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 	}
 
+	e.cbRdmult = prevCbRdmult
 	if !bestSet {
 		return vp9InterModeDecision{}, false
 	}

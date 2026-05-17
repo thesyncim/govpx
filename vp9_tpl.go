@@ -697,7 +697,14 @@ func (e *VP9Encoder) populateVP9TPLForFrame(skip bool, current *image.YCbCr) {
 		frames = tail
 	}
 	if len(frames) < vp9TPLMinLookaheadFrames {
-		e.tpl.invalidateAll()
+		// libvpx computes the TPL plan ONCE per GOP at the ARF frame
+		// (vp9_encoder.c:6402-6410 setup_tpl_stats) and the plan persists
+		// for the entire GOP via cpi->tpl_stats[gf_group_index] lookups
+		// (vp9_encodeframe.c:3619).  Once the lookahead has drained mid-GOP,
+		// govpx must NOT invalidate the existing slab — it should keep
+		// serving the planned per-SB rdmult delta until the GOP ends.
+		// shiftAndInvalidate has already advanced slab[0] to the new
+		// current frame, so the residual slabs remain libvpx-faithful.
 		return
 	}
 	e.tpl.populate(frames)
