@@ -6605,9 +6605,15 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 		t.Error("AllowHighPrecisionMv = false, want true")
 	}
 	// libvpx default_interp_filter = SWITCHABLE
-	// (vp9/encoder/vp9_speed_features.c:1008).
-	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
-		t.Errorf("InterpFilter = %d, want Switchable", interHeader.InterpFilter)
+	// (vp9/encoder/vp9_speed_features.c:1008), but fix_interp_filter
+	// (vp9/encoder/vp9_bitstream.c:864-885) demotes the frame to the
+	// single concrete filter when all blocks pick the same one. On this
+	// constant-color synthetic fixture every block resolves to EIGHTTAP
+	// via the per-block 3-filter RD search, so fix_interp_filter
+	// rewrites the frame header to EIGHTTAP.
+	if interHeader.InterpFilter != vp9dec.InterpEighttap {
+		t.Errorf("InterpFilter = %d, want Eighttap (post-fix_interp_filter demotion)",
+			interHeader.InterpFilter)
 	}
 	if interHeader.FirstPartitionSize == 0 {
 		t.Fatal("FirstPartitionSize = 0 (compressed header empty)")

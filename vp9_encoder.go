@@ -819,6 +819,32 @@ type VP9Encoder struct {
 	// cpi->last_frame_uf).
 	vp9LpfReconYBackup []byte
 
+	// vp9FilterThreshes / vp9FilterThreshesPrev mirror libvpx
+	// RD_OPT::filter_threshes[MAX_REF_FRAMES][SWITCHABLE_FILTER_CONTEXTS]
+	// and filter_threshes_prev (vp9/encoder/vp9_rd.h:123,126). They
+	// drive the per-frame SWITCHABLE -> concrete InterpFilter demotion
+	// at vp9_encodeframe.c:5876-5877 (`get_interp_filter`) and accumulate
+	// post-encode at vp9_encodeframe.c:5890-5891 via the per-block
+	// `best_filter_diff` RD signal aggregated into rdc->filter_diff.
+	//
+	// The _prev snapshot is the libvpx save_encode_params (vp9_encoder.c
+	// :3927-3946) / restore_encode_params (vp9_encodeframe.c:5798-5820)
+	// recode-loop guard: govpx does not currently re-encode a frame, but
+	// the snapshot pair is ported verbatim so the wiring is identical
+	// when recode lands. SwitchableFilterContexts is the libvpx
+	// SWITCHABLE_FILTER_CONTEXTS == 4 width; vp9dec.MaxRefFrames is the
+	// MAX_REF_FRAMES == 4 outer dimension.
+	vp9FilterThreshes     [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
+	vp9FilterThreshesPrev [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
+
+	// vp9FilterDiff is the per-frame accumulator for libvpx
+	// rdc->filter_diff[SWITCHABLE_FILTER_CONTEXTS] (vp9_encoder.h:383).
+	// Per-block RD picks deposit `best_rd - best_filter_rd[i]` here via
+	// vp9_encodeframe.c:1881 (`rdc->filter_diff[i] += ctx->best_filter_diff[i]`).
+	// Drained and merged into vp9FilterThreshes at the post-encode update
+	// (vp9_encodeframe.c:5890-5891).
+	vp9FilterDiff [vp9dec.SwitchableFilterContexts]int64
+
 	lookahead      []vp9LookaheadEntry
 	lookaheadRead  uint8
 	lookaheadWrite uint8
@@ -2373,10 +2399,36 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			e.fc = e.frameContexts[frameContextIdx]
 		}
 	}()
+	// libvpx vp9/encoder/vp9_encoder.c:5355 calls save_encode_params once
+	// per frame before the recode loop; vp9/encoder/vp9_encodeframe.c:5825
+	// then calls restore_encode_params at the top of every vp9_encode_frame
+	// so each recode iteration starts from the same prev snapshot. govpx
+	// encodes each frame once, so save+restore collapses to a single
+	// in-place pass, but the calls are ported verbatim to keep wire
+	// behaviour identical when the recode loop is introduced.
+	e.vp9SaveEncodeParamsFilterThreshes()
+	e.vp9RestoreEncodeParamsFilterThreshes()
 	header.InterpFilter = e.vp9EncoderFrameInterpFilter(isKey, header.IntraOnly,
 		header.Quant.Lossless)
 	if !isKey && !header.IntraOnly && vp9InterReferenceMask(flags) == 0 {
 		header.InterpFilter = vp9dec.InterpSwitchable
+	}
+	// libvpx vp9/encoder/vp9_encodeframe.c:5876-5877 — when the frame
+	// enters encode with cm->interp_filter == SWITCHABLE and the
+	// frame_parameter_update speed feature is enabled, demote the frame
+	// to the concrete EIGHTTAP / EIGHTTAP_SMOOTH / EIGHTTAP_SHARP that
+	// won the previous frames' per-block 3-filter RD race
+	// (filter_threshes accumulator). Skipped for intra-only frames
+	// because the uncompressed-header writer omits the filter field for
+	// those (internal/vp9/encoder/header_writer.go:196).
+	if !isKey && !header.IntraOnly {
+		refreshFlags := e.vp9InterRefreshFrameFlags(flags)
+		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+		srcFrameAltRef := !showFrame || flags&EncodeForceAltRefFrame != 0
+		header.InterpFilter = e.vp9DemoteSwitchableInterpFilter(
+			header.InterpFilter, isKey, header.IntraOnly,
+			srcFrameAltRef, refreshGolden, refreshAlt)
 	}
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 
@@ -2485,6 +2537,33 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	}
 	header.Seg = seg
+
+	// libvpx vp9/encoder/vp9_bitstream.c:1312 — fix_interp_filter runs at
+	// uncompressed-header write time, just before write_interp_filter and
+	// before the compressed header is appended (libvpx vp9_bitstream.c:
+	// 1425 then :1453). If exactly one filter has nonzero switchable
+	// counts after the per-block RD pass, the frame header is demoted to
+	// that filter so the bitstream omits the per-block filter bits.
+	// govpx writes compressed first to size FirstPartitionSize, so we
+	// apply the demotion here — between collectVP9EncodeFrameCounts and
+	// WriteCompressedHeaderFromCounts — so the compressed-header
+	// switchable_interp_probs update branch
+	// (libvpx vp9_bitstream.c:1356 ; govpx WriteCompressedHeaderFromCounts)
+	// reads the post-demotion InterpFilter, matching libvpx wire bits.
+	header.InterpFilter = vp9FixInterpFilter(header.InterpFilter, counts)
+	// libvpx's tile-write pass reads cm->interp_filter via
+	// vp9_bitstream.c:306-314 to decide whether each block emits a
+	// per-block switchable_interp literal. govpx mirrors that through
+	// vp9ModeTreeInterpFilter -> inter.interpFilter, so the demoted
+	// value must be propagated to the InterEncodeState the tile writer
+	// reads (vp9_encoder.go:5740,5785). When c==1, fix_interp_filter
+	// only demotes to the filter every block already picked
+	// (libvpx vp9_bitstream.c:877-881), so the per-block assert
+	// `mi->interp_filter == cm->interp_filter`
+	// (libvpx vp9_bitstream.c:313) stays satisfied.
+	if interState != nil {
+		interState.interpFilter = header.InterpFilter
+	}
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:                header.Quant.Lossless,
@@ -2611,6 +2690,25 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		// the final post-search level instead of the pre-tile
 		// placeholder.
 		e.vp9LastFiltLevel = header.Loopfilter.FilterLevel
+	}
+	// libvpx vp9/encoder/vp9_encodeframe.c:5890-5891 — after the encode
+	// pass produces rdc->filter_diff (per-block best_filter_diff[i] sums
+	// at vp9_encodeframe.c:1881), merge it into the persistent
+	// filter_threshes accumulator that drives the next frame's
+	// SWITCHABLE -> concrete demotion. Skipped outside
+	// frame_parameter_update inside the helper. We compute the same
+	// refresh/alt-ref flags used at the demotion site so the frame_type
+	// bucket is consistent across save / demote / update.
+	{
+		refreshFlags := uint8(0xff)
+		if !isKey {
+			refreshFlags = e.vp9InterRefreshFrameFlags(flags)
+		}
+		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+		srcFrameAltRef := !showFrame || flags&EncodeForceAltRefFrame != 0
+		e.vp9UpdateFilterThreshesPostEncode(isKey, header.IntraOnly,
+			srcFrameAltRef, refreshGolden, refreshAlt, macroblocks)
 	}
 	e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
 	var firstPassStats VP9FirstPassFrameStats
@@ -3610,6 +3708,239 @@ func (e *VP9Encoder) vp9EncoderFrameInterpFilter(isKey, intraOnly, lossless bool
 		return vp9dec.InterpSwitchable
 	}
 	return filter
+}
+
+// vp9GetFrameTypeForFilterThreshes mirrors libvpx's get_frame_type at
+// vp9/encoder/vp9_encodeframe.c:4323-4332, used to index into
+// filter_threshes[MV_REFERENCE_FRAME] for the per-frame SWITCHABLE ->
+// concrete InterpFilter demotion. The mapping is exactly:
+//
+//	if (frame_is_intra_only(cm))                          return INTRA_FRAME;
+//	else if (rc.is_src_frame_alt_ref && refresh_golden)   return ALTREF_FRAME;
+//	else if (refresh_golden || refresh_alt_ref)           return GOLDEN_FRAME;
+//	else                                                  return LAST_FRAME;
+//
+// govpx tracks `is_src_frame_alt_ref` as (!showFrame ||
+// EncodeForceAltRefFrame); refresh_golden / refresh_alt_ref are decoded
+// from the libvpx-shaped refresh_frame_flags slot bits (vp9GoldenRefSlot
+// / vp9AltRefSlot at vp9_encoder.c:2773-2774).
+func vp9GetFrameTypeForFilterThreshes(isKey, intraOnly, isSrcFrameAltRef,
+	refreshGolden, refreshAlt bool,
+) int {
+	if isKey || intraOnly {
+		return vp9dec.IntraFrame
+	}
+	if isSrcFrameAltRef && refreshGolden {
+		return vp9dec.AltrefFrame
+	}
+	if refreshGolden || refreshAlt {
+		return vp9dec.GoldenFrame
+	}
+	return vp9dec.LastFrame
+}
+
+// vp9GetInterpFilterFromThreshes is the verbatim port of libvpx's
+// get_interp_filter at vp9/encoder/vp9_encodeframe.c:5759-5773:
+//
+//	if (!is_alt_ref && threshes[EIGHTTAP_SMOOTH] > threshes[EIGHTTAP] &&
+//	    threshes[EIGHTTAP_SMOOTH] > threshes[EIGHTTAP_SHARP] &&
+//	    threshes[EIGHTTAP_SMOOTH] > threshes[SWITCHABLE - 1]) {
+//	  return EIGHTTAP_SMOOTH;
+//	} else if (threshes[EIGHTTAP_SHARP] > threshes[EIGHTTAP] &&
+//	           threshes[EIGHTTAP_SHARP] > threshes[SWITCHABLE - 1]) {
+//	  return EIGHTTAP_SHARP;
+//	} else if (threshes[EIGHTTAP] > threshes[SWITCHABLE - 1]) {
+//	  return EIGHTTAP;
+//	} else {
+//	  return SWITCHABLE;
+//	}
+//
+// Note that libvpx indexes the threshold array up to SWITCHABLE_FILTER_CONTEXTS
+// (== SWITCHABLE_FILTERS + 1 == 4 here), and the gate slot
+// `threshes[SWITCHABLE - 1]` is `threshes[3]` (the BILINEAR slot, repurposed
+// here as the "switchable wins" comparator — libvpx's filter_diff accumulator
+// uses index SWITCHABLE_FILTERS for the switchable rd cost, which lands at 3
+// since the EIGHTTAP family occupies 0..2). See the matching slot use in the
+// post-encode merge at vp9_encodeframe.c:5890-5891.
+func vp9GetInterpFilterFromThreshes(
+	threshes [vp9dec.SwitchableFilterContexts]int64, isAltRef bool,
+) vp9dec.InterpFilter {
+	const switchableSlot = int(vp9dec.InterpSwitchable) - 1
+	if !isAltRef &&
+		threshes[vp9dec.InterpEighttapSmooth] > threshes[vp9dec.InterpEighttap] &&
+		threshes[vp9dec.InterpEighttapSmooth] > threshes[vp9dec.InterpEighttapSharp] &&
+		threshes[vp9dec.InterpEighttapSmooth] > threshes[switchableSlot] {
+		return vp9dec.InterpEighttapSmooth
+	}
+	if threshes[vp9dec.InterpEighttapSharp] > threshes[vp9dec.InterpEighttap] &&
+		threshes[vp9dec.InterpEighttapSharp] > threshes[switchableSlot] {
+		return vp9dec.InterpEighttapSharp
+	}
+	if threshes[vp9dec.InterpEighttap] > threshes[switchableSlot] {
+		return vp9dec.InterpEighttap
+	}
+	return vp9dec.InterpSwitchable
+}
+
+// vp9SaveEncodeParamsFilterThreshes mirrors the filter_threshes subset of
+// libvpx's save_encode_params at vp9/encoder/vp9_encoder.c:3927-3946:
+//
+//	for (j = 0; j < SWITCHABLE_FILTER_CONTEXTS; j++)
+//	  rd_opt->filter_threshes_prev[i][j] = rd_opt->filter_threshes[i][j];
+//
+// (The prediction_type_thresh and per-tile freq_fact halves are owned by
+// other ports; this routine only handles the InterpFilter snapshot.)
+// Called once per frame before vp9EncodeFrame mutates filter_threshes
+// (libvpx call site: vp9_encoder.c:5355, ahead of encode_frame_to_data_rate).
+func (e *VP9Encoder) vp9SaveEncodeParamsFilterThreshes() {
+	e.vp9FilterThreshesPrev = e.vp9FilterThreshes
+}
+
+// vp9RestoreEncodeParamsFilterThreshes mirrors the filter_threshes subset of
+// libvpx's restore_encode_params at vp9/encoder/vp9_encodeframe.c:5798-5820:
+//
+//	for (j = 0; j < SWITCHABLE_FILTER_CONTEXTS; j++)
+//	  rd_opt->filter_threshes[i][j] = rd_opt->filter_threshes_prev[i][j];
+//
+// libvpx calls this at the top of every vp9_encode_frame so each recode
+// iteration starts from the same baseline; govpx encodes each frame once
+// today, so the restore is a no-op in steady state — kept verbatim because
+// the recode loop is on the roadmap.
+func (e *VP9Encoder) vp9RestoreEncodeParamsFilterThreshes() {
+	e.vp9FilterThreshes = e.vp9FilterThreshesPrev
+}
+
+// vp9DemoteSwitchableInterpFilter applies the per-frame SWITCHABLE -> concrete
+// filter demotion at libvpx vp9/encoder/vp9_encodeframe.c:5846-5877:
+//
+//	if (cpi->sf.frame_parameter_update) {
+//	  ...
+//	  const MV_REFERENCE_FRAME frame_type = get_frame_type(cpi);
+//	  int64_t *const filter_thrs = rd_opt->filter_threshes[frame_type];
+//	  const int is_alt_ref = frame_type == ALTREF_FRAME;
+//	  ...
+//	  if (cm->interp_filter == SWITCHABLE)
+//	    cm->interp_filter = get_interp_filter(filter_thrs, is_alt_ref);
+//	}
+//
+// The gate `cpi->sf.frame_parameter_update` matches govpx
+// `e.sf.FrameParameterUpdate != 0` (vp9_speed_features.go:336,766,1517).
+// Demotion is skipped entirely outside that path, leaving header.InterpFilter
+// at SWITCHABLE so the per-block 3-filter RD search drives the per-block
+// mi->interp_filter writes.
+func (e *VP9Encoder) vp9DemoteSwitchableInterpFilter(currentFilter vp9dec.InterpFilter,
+	isKey, intraOnly, isSrcFrameAltRef, refreshGolden, refreshAlt bool,
+) vp9dec.InterpFilter {
+	if e == nil || e.sf.FrameParameterUpdate == 0 {
+		return currentFilter
+	}
+	if currentFilter != vp9dec.InterpSwitchable {
+		return currentFilter
+	}
+	frameType := vp9GetFrameTypeForFilterThreshes(isKey, intraOnly,
+		isSrcFrameAltRef, refreshGolden, refreshAlt)
+	isAltRef := frameType == vp9dec.AltrefFrame
+	return vp9GetInterpFilterFromThreshes(e.vp9FilterThreshes[frameType], isAltRef)
+}
+
+// vp9FixInterpFilter is the verbatim port of libvpx's fix_interp_filter
+// at vp9/encoder/vp9_bitstream.c:864-885:
+//
+//	static void fix_interp_filter(VP9_COMMON *cm, FRAME_COUNTS *counts) {
+//	  if (cm->interp_filter == SWITCHABLE) {
+//	    // Check to see if only one of the filters is actually used
+//	    int count[SWITCHABLE_FILTERS];
+//	    int i, j, c = 0;
+//	    for (i = 0; i < SWITCHABLE_FILTERS; ++i) {
+//	      count[i] = 0;
+//	      for (j = 0; j < SWITCHABLE_FILTER_CONTEXTS; ++j)
+//	        count[i] += counts->switchable_interp[j][i];
+//	      c += (count[i] > 0);
+//	    }
+//	    if (c == 1) {
+//	      // Only one filter is used. So set the filter at frame level
+//	      for (i = 0; i < SWITCHABLE_FILTERS; ++i) {
+//	        if (count[i]) { cm->interp_filter = i; break; }
+//	      }
+//	    }
+//	  }
+//	}
+//
+// libvpx call site is vp9_bitstream.c:1312, sandwiched between
+// write_frame_size_with_refs and write_interp_filter inside
+// write_uncompressed_header. Because write_uncompressed_header runs
+// before write_compressed_header (libvpx vp9_bitstream.c:1425,1453), the
+// compressed-header writer sees the already-demoted cm->interp_filter
+// at vp9_bitstream.c:1356 (`if (cm->interp_filter == SWITCHABLE)
+// update_switchable_interp_probs...`). govpx inverts that order
+// (compressed first, to size FirstPartitionSize), so the demotion runs
+// right after collectVP9EncodeFrameCounts produces the counts and
+// before WriteCompressedHeaderFromCounts reads InterpFilter.
+//
+// SWITCHABLE_FILTERS is the libvpx constant 3 (the count of real filters,
+// excluding the SWITCHABLE sentinel); govpx exposes it as
+// vp9dec.SwitchableFilters via internal/vp9/decoder/compressed_inter.go.
+// counts.SwitchableInterp is the [SwitchableFilterContexts][SwitchableFilters]
+// table populated by countVP9SwitchableInterp (vp9_encoder.go:3957).
+func vp9FixInterpFilter(currentFilter vp9dec.InterpFilter,
+	counts *encoder.FrameCounts,
+) vp9dec.InterpFilter {
+	if currentFilter != vp9dec.InterpSwitchable || counts == nil {
+		return currentFilter
+	}
+	var count [vp9dec.SwitchableFilters]int
+	c := 0
+	for i := range vp9dec.SwitchableFilters {
+		count[i] = 0
+		for j := range vp9dec.SwitchableFilterContexts {
+			count[i] += int(counts.SwitchableInterp[j][i])
+		}
+		if count[i] > 0 {
+			c++
+		}
+	}
+	if c != 1 {
+		return currentFilter
+	}
+	for i := range vp9dec.SwitchableFilters {
+		if count[i] != 0 {
+			return vp9dec.InterpFilter(i)
+		}
+	}
+	return currentFilter
+}
+
+// vp9UpdateFilterThreshesPostEncode merges this frame's accumulated
+// rdc.filter_diff into the persistent filter_threshes via libvpx
+// vp9/encoder/vp9_encodeframe.c:5890-5891:
+//
+//	for (i = 0; i < SWITCHABLE_FILTER_CONTEXTS; ++i)
+//	  filter_thrs[i] = (filter_thrs[i] + rdc->filter_diff[i] / cm->MBs) / 2;
+//
+// The gate is identical to the demotion gate (sf.frame_parameter_update):
+// libvpx hangs both off the same if-block at vp9_encodeframe.c:5846. mbs is
+// the libvpx cm->MBs which govpx tracks as vp9MacroblockCount(miRows, miCols).
+// Per-block contributions land in vp9FilterDiff via
+// vp9_encodeframe.c:1881 once the per-block 3-filter RD path produces signal;
+// today vp9FilterDiff stays zero so this update is a no-op stable point.
+func (e *VP9Encoder) vp9UpdateFilterThreshesPostEncode(isKey, intraOnly,
+	isSrcFrameAltRef, refreshGolden, refreshAlt bool, mbs int,
+) {
+	if e == nil || e.sf.FrameParameterUpdate == 0 || mbs <= 0 {
+		// Always clear the per-frame accumulator so a stale value
+		// cannot leak into the next frame even when the gate is off.
+		e.vp9FilterDiff = [vp9dec.SwitchableFilterContexts]int64{}
+		return
+	}
+	frameType := vp9GetFrameTypeForFilterThreshes(isKey, intraOnly,
+		isSrcFrameAltRef, refreshGolden, refreshAlt)
+	for i := range vp9dec.SwitchableFilterContexts {
+		// libvpx: filter_thrs[i] = (filter_thrs[i] + filter_diff[i] / MBs) / 2
+		e.vp9FilterThreshes[frameType][i] =
+			(e.vp9FilterThreshes[frameType][i] +
+				e.vp9FilterDiff[i]/int64(mbs)) / 2
+	}
+	e.vp9FilterDiff = [vp9dec.SwitchableFilterContexts]int64{}
 }
 
 func vp9EncoderFrameAllowHighPrecisionMv(isKey, intraOnly bool) bool {
