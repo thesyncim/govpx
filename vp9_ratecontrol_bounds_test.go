@@ -205,6 +205,69 @@ func TestVP9ApplyVP9MaxIntraBoundCapsTarget(t *testing.T) {
 	}
 }
 
+// TestVP9ClampIFrameTargetBitsAppliesMaxIntraBound pins the libvpx VP9
+// vp9_rc_clamp_iframe_target_size invariant: MaxIntraBitratePct must cap
+// the iframe target BEFORE the max_frame_bandwidth ceiling. Before the
+// fix the one-pass VBR keyframe path (which only routes through
+// clampIFrameTargetBits, not the keyFrameTargetBits post-clamp
+// applyVP9MaxIntraBound) silently ignored MaxIntraBitratePct.
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:245-255.
+func TestVP9ClampIFrameTargetBitsAppliesMaxIntraBound(t *testing.T) {
+	rc := &vp9RateControlState{
+		bitsPerFrame:       1000,
+		maxIntraBitratePct: 200,
+		maxFrameBandwidth:  10000,
+	}
+	if got := rc.clampIFrameTargetBits(5000); got != 2000 {
+		t.Fatalf("clampIFrameTargetBits with max-intra=200%% = %d, want 2000",
+			got)
+	}
+	// max_frame_bandwidth still wins over an unbounded max-intra cap.
+	rc.maxIntraBitratePct = 0
+	if got := rc.clampIFrameTargetBits(50000); got != 10000 {
+		t.Fatalf("clampIFrameTargetBits without max-intra = %d, want 10000",
+			got)
+	}
+}
+
+// TestVP9OnePassCBRKeyFrameTargetBitsMatchesLibvpx pins the libvpx VP9
+// vp9_calc_iframe_target_size_one_pass_cbr formula for the kf_boost ramp.
+// Prior to this fix govpx's CBR keyframe target was hard-coded to the
+// per-frame bandwidth, producing a slightly higher base qindex than libvpx
+// on small frames (the bug surfaced by the FuzzVP9OracleEncoderOptions
+// follow-up audit).
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:2205-2232.
+func TestVP9OnePassCBRKeyFrameTargetBitsMatchesLibvpx(t *testing.T) {
+	rc := &vp9RateControlState{
+		mode:              RateControlCBR,
+		bitsPerFrame:      20000,
+		bufferInitialBits: 280000,
+		frameRateNum:      30,
+		frameRateDen:      1,
+		maxFrameBandwidth: 10_000_000,
+		framesSinceKey:    8,
+	}
+	// First video frame: target = starting_buffer_level / 2.
+	if got := rc.onePassCBRKeyFrameTargetBits(0); got != 140000 {
+		t.Fatalf("frame 0 target = %d, want 140000 (buffer_initial/2)", got)
+	}
+	// At fps=30: kf_boost = max(32, round(2*30-16)) = max(32, 44) = 44.
+	// Since framesSinceKey(8) >= framerate/2(15)? Actually 8 < 15 so the
+	// ramp applies: kf_boost' = round(44 * 8 / 15) = round(23.46) = 23.
+	// target = ((16 + 23) * 20000) >> 4 = 780000 >> 4 = 48750.
+	if got := rc.onePassCBRKeyFrameTargetBits(1); got != 48750 {
+		t.Fatalf("frame 1 target = %d, want 48750 (kf_boost ramp)", got)
+	}
+	// After enough frames-since-key, the ramp saturates at kf_boost = 44.
+	// target = ((16 + 44) * 20000) >> 4 = 1200000 >> 4 = 75000.
+	rc.framesSinceKey = 30
+	if got := rc.onePassCBRKeyFrameTargetBits(1); got != 75000 {
+		t.Fatalf("frame 1 target (saturated kf_boost) = %d, want 75000", got)
+	}
+}
+
 func TestVP9ApplyVP9GFCBRBoostAddsTarget(t *testing.T) {
 	rc := &vp9RateControlState{
 		mode:          RateControlCBR,

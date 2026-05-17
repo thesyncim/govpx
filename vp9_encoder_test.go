@@ -4461,18 +4461,27 @@ func TestVP9EncoderCBRSelectsLibvpxQuantizers(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderCBRFrameTargetUsesPerFrameBandwidth(t *testing.T) {
+// TestVP9EncoderCBRFrameTargetMatchesLibvpx asserts the one-pass CBR
+// frame-target formula matches libvpx vp9_calc_iframe_target_size_one_pass_cbr
+// (kf_boost ramp uses starting_buffer_level/2 on the very first frame) and
+// the inter-frame per-frame bandwidth target on subsequent inter frames.
+// Prior to the kf_boost port the keyframe target was hard-coded to the
+// per-frame bandwidth, which produced a slightly higher base qindex than the
+// libvpx CLI on small frames (libvpx: vp9_ratectrl.c:2205-2232).
+func TestVP9EncoderCBRFrameTargetMatchesLibvpx(t *testing.T) {
 	const width, height = 64, 64
+	const fps = 30
+	const bufferInitialSizeMs = 400
 	for _, targetKbps := range [...]int{700, 140} {
 		e, err := NewVP9Encoder(VP9EncoderOptions{
 			Width:               width,
 			Height:              height,
-			FPS:                 30,
+			FPS:                 fps,
 			TargetBitrateKbps:   targetKbps,
 			RateControlModeSet:  true,
 			RateControlMode:     RateControlCBR,
 			BufferSizeMs:        600,
-			BufferInitialSizeMs: 400,
+			BufferInitialSizeMs: bufferInitialSizeMs,
 			BufferOptimalSizeMs: 500,
 			MinQuantizer:        4,
 			MaxQuantizer:        56,
@@ -4482,7 +4491,10 @@ func TestVP9EncoderCBRFrameTargetUsesPerFrameBandwidth(t *testing.T) {
 			t.Fatalf("NewVP9Encoder target %d: %v", targetKbps, err)
 		}
 		dst := make([]byte, 65536)
-		wantTarget := targetKbps * 1000 / 30
+		// libvpx: vp9_calc_iframe_target_size_one_pass_cbr returns
+		// starting_buffer_level/2 on the very first video frame.
+		wantKeyTarget := targetKbps * bufferInitialSizeMs / 2
+		wantInterTarget := targetKbps * 1000 / fps
 		for i := range 3 {
 			src := newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
 			result, err := e.EncodeIntoWithResult(src, dst)
@@ -4490,9 +4502,13 @@ func TestVP9EncoderCBRFrameTargetUsesPerFrameBandwidth(t *testing.T) {
 				t.Fatalf("EncodeIntoWithResult target %d frame %d: %v",
 					targetKbps, i, err)
 			}
-			if result.FrameTargetBits != wantTarget {
+			want := wantInterTarget
+			if i == 0 {
+				want = wantKeyTarget
+			}
+			if result.FrameTargetBits != want {
 				t.Fatalf("target %d frame %d target bits = %d, want %d",
-					targetKbps, i, result.FrameTargetBits, wantTarget)
+					targetKbps, i, result.FrameTargetBits, want)
 			}
 		}
 	}

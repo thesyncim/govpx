@@ -34,13 +34,58 @@ func vp9MacroblockCount(miRows, miCols int) int {
 	return ((miRows + 1) >> 1) * ((miCols + 1) >> 1)
 }
 
-func (rc *vp9RateControlState) keyFrameTargetBits(_ int) int {
+func (rc *vp9RateControlState) keyFrameTargetBits(frameIndex int) int {
 	if rc.mode != RateControlCBR {
+		// onePassVBRKeyFrameTargetBits already routes through
+		// clampIFrameTargetBits, which (per libvpx
+		// vp9_rc_clamp_iframe_target_size) applies the max-intra cap.
+		// The explicit applyVP9MaxIntraBound here is a defensive no-op
+		// when the cap was already enforced upstream.
 		target := rc.onePassVBRKeyFrameTargetBits()
 		return rc.applyVP9MaxIntraBound(target)
 	}
-	target := rc.perFrameBandwidthTargetBits()
+	target := rc.onePassCBRKeyFrameTargetBits(frameIndex)
 	return rc.applyVP9MaxIntraBound(target)
+}
+
+// onePassCBRKeyFrameTargetBits ports libvpx
+// vp9_calc_iframe_target_size_one_pass_cbr. For the first video frame the
+// target is starting_buffer_level / 2. For subsequent keyframes the target
+// scales with kf_boost: target = ((16 + kf_boost) * avg_frame_bandwidth) >> 4
+// where kf_boost = max(32, round(2*framerate - 16)) and is ramped up
+// proportionally for keyframes that arrive earlier than framerate/2 frames
+// after the previous key.
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:2205-2232.
+func (rc *vp9RateControlState) onePassCBRKeyFrameTargetBits(frameIndex int) int {
+	if frameIndex == 0 {
+		target := rc.bufferInitialBits >> 1
+		return rc.clampIFrameTargetBits(target)
+	}
+	framerate := rc.framerateHz()
+	kfBoost := 32
+	if framerate > 0 {
+		boost := int(2*framerate - 16 + 0.5)
+		if boost > kfBoost {
+			kfBoost = boost
+		}
+		halfRate := framerate / 2
+		if halfRate > 0 && float64(rc.framesSinceKey) < halfRate {
+			kfBoost = int(float64(kfBoost)*float64(rc.framesSinceKey)/halfRate + 0.5)
+		}
+	}
+	target64 := min((int64(16+kfBoost)*int64(rc.bitsPerFrame))>>4, int64(maxInt()))
+	return rc.clampIFrameTargetBits(int(target64))
+}
+
+// framerateHz returns the encoded framerate in Hz derived from the rate
+// controller's timing fields, or 0 when unset. Mirrors libvpx's cpi->framerate
+// (vp9_encoder.h:486, populated via vp9_new_framerate).
+func (rc *vp9RateControlState) framerateHz() float64 {
+	if rc == nil || rc.frameRateNum <= 0 || rc.frameRateDen <= 0 {
+		return 0
+	}
+	return float64(rc.frameRateNum) / float64(rc.frameRateDen)
 }
 
 func (rc *vp9RateControlState) interFrameTargetBits() int {
@@ -130,7 +175,15 @@ func (rc *vp9RateControlState) clampPFrameTargetBits(target int) int {
 	return target
 }
 
+// clampIFrameTargetBits ports libvpx VP9 vp9_rc_clamp_iframe_target_size.
+// libvpx applies rc_max_intra_bitrate_pct first, then max_frame_bandwidth.
+// Without the max-intra step, MaxIntraBitratePct never reaches the one-pass
+// VBR keyframe target (which only routes through clampIFrameTargetBits, not
+// through keyFrameTargetBits's post-clamp applyVP9MaxIntraBound call).
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:245-255 (vp9_rc_clamp_iframe_target_size).
 func (rc *vp9RateControlState) clampIFrameTargetBits(target int) int {
+	target = rc.applyVP9MaxIntraBound(target)
 	if rc.maxFrameBandwidth > 0 && target > rc.maxFrameBandwidth {
 		return rc.maxFrameBandwidth
 	}
