@@ -47,6 +47,8 @@ var dispatch = map[string]classifier{
 	"FuzzEncoderRandomStrides":                   constantCase("strides"),
 	"FuzzEncoderReferenceControlSequences":       constantCase("refctrl"),
 	"FuzzEncoderTwoPassByteParity":               constantCase("twopass"),
+	"FuzzEncoderLongFixtureRateControl":          classifyLongFixtureRateControl,
+	"FuzzDecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
 }
 
 func constantCase(name string) classifier {
@@ -78,6 +80,66 @@ func classifyOracleRuntimeControls(data []byte) (string, error) {
 	default:
 		return "general", nil
 	}
+}
+
+// classifyLongFixtureRateControl mirrors newLongFixtureFuzzCase in
+// oracle_encoder_long_fixture_fuzz_test.go: the seed bytes drive a
+// `pick(n)` cursor (next-byte % n) across seven pools — rcMode,
+// targetKbps, kfInterval, buffer, fixture, deadline, cpuUsed. We
+// compose the regression suffix from the resulting bucket choices so
+// each new failing seed reads like the existing curated names
+// (regression_<rc>_<kbps>kbps_kf<n>_<fixture>...).
+func classifyLongFixtureRateControl(data []byte) (string, error) {
+	r := bucketCursor{data: data}
+	rc := []string{"cbr", "vbr"}[r.pick(2)]
+	kbps := []int{300, 700, 1200}[r.pick(3)]
+	kf := []int{999, 30, 60}[r.pick(3)]
+	buf := []string{"defbuf", "tightbuf"}[r.pick(2)]
+	fixture := []string{"panning", "splitmv"}[r.pick(2)]
+	deadline := []string{"rt", "good"}[r.pick(2)]
+	// cpuPool = {-3, 0, -8} in the test; cpu suffix distinguishes
+	// otherwise-identical bucket tuples that diverge only on cpu_used.
+	cpu := []string{"cpum3", "cpu0", "cpum8"}[r.pick(3)]
+	return fmt.Sprintf("%s_%dkbps_kf%d_%s_%s_%s_%s", rc, kbps, kf, fixture, buf, deadline, cpu), nil
+}
+
+// classifyDecoderAgainstLibvpx tags fuzz finds by the structural shape
+// of the input rather than the precise divergence reason (the
+// fuzz-driver log carries the latter, and parsing the IVF header here
+// would duplicate testutil parsing logic). "ivf_vp80" marks streams
+// that survive minimal IVF magic/codec checks (likely an asymmetric
+// decoder bug); "non_ivf" marks malformed-container inputs that one
+// side still latched onto.
+func classifyDecoderAgainstLibvpx(data []byte) (string, error) {
+	if len(data) >= 12 && string(data[0:4]) == "DKIF" && string(data[8:12]) == "VP80" {
+		return "ivf_vp80_accept_disagreement", nil
+	}
+	return "non_ivf_accept_disagreement", nil
+}
+
+// bucketCursor mirrors oracleRuntimeControlFuzzBytes.pick semantics:
+// each call advances a wrapping byte cursor and returns `b % n`. Used
+// by classifiers that have to replay the same bucket-selection logic
+// the fuzz target itself runs.
+type bucketCursor struct {
+	data []byte
+	pos  int
+}
+
+func (r *bucketCursor) next() byte {
+	if len(r.data) == 0 {
+		return 0
+	}
+	b := r.data[r.pos%len(r.data)]
+	r.pos++
+	return b
+}
+
+func (r *bucketCursor) pick(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	return int(r.next()) % n
 }
 
 func bytesEqual(a, b []byte) bool {
