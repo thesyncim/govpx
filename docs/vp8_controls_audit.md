@@ -9,8 +9,8 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 | 1  | Decoder GETs: FrameCorrupted, LastReferenceUpdates, LastReferencesUsed | ✅      |
 | 2  | Encoder runtime SetAutoAltRef                                          | ✅      |
 | 3  | VP8E_SET_SCALEMODE / spatial resampler                                 | ⬜      |
-| 4  | Burn down ~24 deferred VP8 fuzz seeds                                  | ⬜      |
-| 5  | ALT_LF segmentation                                                    | ⬜      |
+| 4  | Burn down ~75 deferred VP8 fuzz seeds                                  | ⬜      |
+| 5  | ALT_LF segmentation                                                    | ✅      |
 | 6  | CBR golden-frame correction-factor branch                              | ⬜      |
 | 7  | Cyclic-refresh + static-background segmentation parity                 | ⬜      |
 | 8  | SPLITMV label-level RD oracle + improved-MV comparator                 | ⬜      |
@@ -23,3 +23,5 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 ## Sync log
 
 - 2026-05-17 worktree branched from origin/main `4219a4c`.
+- 2026-05-17 rebased onto `0dfca64`; items 1+2 shipped (PR #19, merged to main).
+- 2026-05-17 item 5 (ALT_LF) verified already implemented; plan.md text stale.
