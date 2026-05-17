@@ -2396,9 +2396,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			return VP9EncodeResult{}, err
 		}
 	}
-	if isKey && flags&vp9NoUpdateRefFlags != 0 {
-		return VP9EncodeResult{}, ErrInvalidConfig
-	}
+	// libvpx vp9/encoder/vp9_encoder.c:5444 forces cpi->refresh_last_frame=1
+	// on every KEY_FRAME after set_ext_overrides has copied the user-supplied
+	// ext_refresh_*_frame fields, and vp9_encoder.c:856-858 forces
+	// refresh_golden_frame=1 / refresh_alt_ref_frame=1 inside check_show_existing.
+	// The net effect is that any EncodeNoUpdate{Last,Golden,AltRef} hint passed
+	// with EncodeForceKeyFrame is SILENTLY IGNORED — it is not a "Conflicting
+	// flags." error. govpx writes header.RefreshFrameFlags = 0xff on KEY_FRAMEs
+	// at vp9_encoder.go:2593 unconditionally, mirroring this, so accepting
+	// NoUpdate bits on key frames yields the same bitstream as libvpx.
 	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
 		return VP9EncodeResult{}, ErrInvalidConfig
 	}

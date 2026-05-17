@@ -99,6 +99,18 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// ~+50-150 bytes per inter frame (verified by
 	// TestVP9NonrdPickPartitionDeferredSeedsProgress).
 	[]byte("2"),
+	// regression_vp9_refctrl_6573b9b5: captured by sweep (commit e7b9906).
+	// All-zero materialised flags (vp9RefcontrolsFuzzCase pool produces
+	// no per-frame EncodeForce*/NoUpdate* permutations for this byte
+	// pattern), so the divergence reduces to the same ML_BASED_PARTITION
+	// inter-frame pick-mode gap that affects regression_2fde656d above.
+	// Frame 0 KF matches byte-for-byte (3040 bytes); inter frames 1-7
+	// diverge at first_diff in [4, 13] by 100-600 bytes pending the
+	// vp9_pick_inter_mode port (vp9_pickmode.c:1696). Same handoff as
+	// regression_582528dd / _916d1b27 / _2fde656d; do NOT close until
+	// the ML_BASED_PARTITION dispatch's per-leaf MV / mode / tx_size
+	// picks land verbatim.
+	[]byte("7"),
 	// Progress notes (this commit, task #87):
 	//
 	//  * Thread sf->nonrd_keyframe into vp9ChoosePartitioning's
