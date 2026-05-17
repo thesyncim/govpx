@@ -149,8 +149,21 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass byte-parity fuzz")
 	}
-	// Each seed is (bitrateBucket, kfBucket, arnrBucket, threadsBucket,
-	// cpuBucket, framesBucket).
+	// Each seed is consumed in newTwoPassFuzzCase order:
+	// byte0→targetKbps, byte1→cpuUsed, byte2→kfInterval, byte3→arnrMax,
+	// byte4→threads, byte5→frames. Each byte is mod len(pool).
+	//
+	// The seeds exercise the cross-product of (bitrate, kf-interval,
+	// arnr, threads, cpu, frames) on the firstPassOracleRampFrame
+	// fixture. Mid-stream KF-force coverage (kfPool index 3 → kf=4 on
+	// 8/12-frame clips, exercising libvpx vp8_second_pass's
+	// `frames_to_key == 0` branch at firstpass.c line 2237) is deferred
+	// pending the find_next_key_frame mid-stream re-seed bug: govpx's
+	// prepareKFGroup computes kfGroupErr over `len(stats) - frame`
+	// rather than the libvpx `frames_to_key` returned by
+	// find_next_key_frame, so a forced mid-stream KF re-seeds with the
+	// wrong denominator. Re-add the mid-stream kf=4 seeds once
+	// prepareKFGroup respects the configured KeyFrameInterval.
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0, 0},
 		{1, 0, 0, 0, 0, 0},
@@ -286,7 +299,12 @@ func newTwoPassFuzzCase(data []byte) twoPassFuzzCase {
 	r := oracleRuntimeControlFuzzBytes{data: data}
 
 	kbpsPool := [...]int{300, 500, 700}
-	kfPool := [...]int{30, 60, 120}
+	// kfPool: indices 0-2 retain the long-interval coverage (no mid-stream
+	// kf force in frames<=12); index 3 (kf=4) drives a mid-stream kf
+	// force at frame 4 of an 8/12-frame clip — exercising libvpx
+	// vp8_second_pass's `frames_to_key == 0` branch at firstpass.c line
+	// 2237 along with `find_next_key_frame` re-seed under two pass.
+	kfPool := [...]int{30, 60, 120, 4}
 	arnrMaxPool := [...]int{0, 3, 7}
 	threadPool := [...]int{0, 2}
 	cpuPool := [...]int{0, 4}

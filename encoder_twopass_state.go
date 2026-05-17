@@ -284,7 +284,24 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 	_, sectionMax := t.pass2VBRSectionLimits(frame, defaultTargetBits)
 	gfBoundary := false
 	t.currentFrameIsGFRefresh = false
-	if keyFrame {
+	// libvpx vp8_second_pass at firstpass.c line 2237 runs
+	// find_next_key_frame ONLY when `cpi->twopass.frames_to_key == 0`
+	// — i.e., the natural KF boundary the two-pass tracker computed.
+	// User-forced mid-stream KFs (set via VPX_EFLAG_FORCE_KF in the
+	// codec layer; cf. vp8_cx_iface.c lines 938-944) take the
+	// KEY_FRAME branch in onyx_if.c:set_frame_type at line 3407 but
+	// do NOT re-run find_next_key_frame. Their bit target is therefore
+	// computed by the ordinary `assign_std_frame_bits` path (or
+	// define_gf_group at a GF boundary), not by a fresh
+	// find_next_key_frame re-seed.
+	//
+	// govpx previously ran prepareKFGroup on every `keyFrame=true`
+	// call, which re-seeded the kf-group state on every forced
+	// mid-stream KF. The fix below gates the re-seed on the libvpx
+	// `frames_to_key == 0` predicate so forced KFs reuse the existing
+	// kf-group accounting just like libvpx.
+	naturalKF := keyFrame && (frame == 0 || t.framesToKeyRemaining == 0)
+	if naturalKF {
 		// libvpx vp8_second_pass at KF: find_next_key_frame runs first
 		// (sets kf_group_bits / kf_bits / drains kf_group_bits by
 		// kf_bits), THEN define_gf_group runs (which can re-seed
@@ -339,7 +356,14 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 		gfBoundary = true
 		t.currentFrameIsGFRefresh = true
 	}
-	if !keyFrame {
+	// Forced mid-stream KFs (keyFrame=true && !naturalKF) follow the
+	// non-KF target path in libvpx: their target is computed by
+	// assign_std_frame_bits (or the GF allocator at a GF boundary), not
+	// by find_next_key_frame. Routing them through the !naturalKF
+	// branch mirrors libvpx's vp8_second_pass control flow at
+	// firstpass.c lines 2283-2303 (the `else` block when
+	// frames_till_gf_update_due > 0).
+	if !naturalKF {
 		if gfBoundary && t.gfGroupValid {
 			// libvpx vp8_second_pass: at a non-key ARF boundary,
 			// define_gf_group computes both the hidden ARF target and

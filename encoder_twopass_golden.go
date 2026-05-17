@@ -505,14 +505,62 @@ func computeGFUBoost(stats []FirstPassFrameStats, frame uint64, gfInterval int, 
 // assignStdFrameBits ports libvpx's assign_std_frame_bits inner-loop
 // allocator for std P frames inside a GF group. Drains gfGroupBits and
 // gfGroupErrorLeft per call.
+//
+// Verbatim port from vp8/encoder/firstpass.c assign_std_frame_bits
+// (lines 2156-2208), v1.16.0. The libvpx body is, in order:
+//
+//	int max_bits = frame_max_bits(cpi);
+//	modified_err = calculate_modified_err(cpi, this_frame);
+//	if (cpi->twopass.gf_group_error_left > 0)
+//	    err_fraction = modified_err / cpi->twopass.gf_group_error_left;
+//	else err_fraction = 0.0;
+//	target_frame_size = saturate_cast_double_to_int(
+//	    (double)cpi->twopass.gf_group_bits * err_fraction);
+//	if (target_frame_size < 0) target_frame_size = 0;
+//	else {
+//	    if (target_frame_size > max_bits) target_frame_size = max_bits;
+//	    if (target_frame_size > cpi->twopass.gf_group_bits)
+//	        target_frame_size = (int)cpi->twopass.gf_group_bits;
+//	}
+//	cpi->twopass.gf_group_error_left -= (int)modified_err;
+//	cpi->twopass.gf_group_bits -= target_frame_size;
+//	if (cpi->twopass.gf_group_bits < 0) cpi->twopass.gf_group_bits = 0;
+//	target_frame_size += cpi->min_frame_bandwidth;
+//	if ((cpi->frames_since_golden & 0x01) &&
+//	    (cpi->frames_till_gf_update_due > 0))
+//	    target_frame_size += cpi->twopass.alt_extra_bits;
+//	cpi->per_frame_bandwidth = target_frame_size;
+//
+// Key invariants govpx mirrors:
+//   - `gf_group_error_left -= (int)modified_err` truncates modified_err
+//     toward zero (Go's int64() of a positive float64 matches), and the
+//     subtraction is allowed to go negative. The next call's
+//     `gf_group_error_left > 0` guard then routes through the zero
+//     err_fraction branch — semantically the same as clamping to 0, but
+//     we keep the unclamped value to mirror libvpx exactly for any
+//     callers that read `gfGroupErrorLeft` between calls.
+//   - `gf_group_bits` IS clamped to 0 if negative.
+//   - target_frame_size's lower clamp at 0 happens before max_bits /
+//     gf_group_bits upper clamps (matching libvpx's if/else block above).
+//   - min_frame_bandwidth and alt_extra_bits are additive on top of the
+//     clamped target_frame_size.
 func (t *twoPassState) assignStdFrameBits(modErr float64, maxBits int64) int64 {
 	if !t.gfGroupValid {
 		return int64(t.minFrameBandwidth)
 	}
-	target := int64(0)
-	if t.gfGroupErrorLeft > 0 && t.gfGroupBits > 0 {
-		errFraction := modErr / t.gfGroupErrorLeft
-		target = max(int64(float64(t.gfGroupBits)*errFraction), 0)
+	var errFraction float64
+	if t.gfGroupErrorLeft > 0 {
+		errFraction = modErr / t.gfGroupErrorLeft
+	}
+	// libvpx: target_frame_size = saturate_cast_double_to_int(
+	//   (double)gf_group_bits * err_fraction);
+	// saturate_cast_double_to_int truncates a double to int (toward 0)
+	// after clamping at INT_MAX. Go's int64 conversion of a positive
+	// float64 also truncates toward zero.
+	target := int64(float64(t.gfGroupBits) * errFraction)
+	if target < 0 {
+		target = 0
+	} else {
 		if maxBits > 0 && target > maxBits {
 			target = maxBits
 		}
@@ -520,14 +568,10 @@ func (t *twoPassState) assignStdFrameBits(modErr float64, maxBits int64) int64 {
 			target = t.gfGroupBits
 		}
 	}
-	// Drain (libvpx: gf_group_error_left -= modified_err;
-	// gf_group_bits -= target_frame_size). Even when gf_group_bits is
-	// already empty, libvpx still drains the error denominator and then
-	// adds min_frame_bandwidth to the returned target.
-	t.gfGroupErrorLeft -= modErr
-	if t.gfGroupErrorLeft < 0 {
-		t.gfGroupErrorLeft = 0
-	}
+	// Drain mirrors libvpx exactly: error_left drains the int-truncated
+	// modified_err (no clamp), gf_group_bits drains the clamped target
+	// and IS clamped to zero.
+	t.gfGroupErrorLeft -= float64(int64(modErr))
 	t.gfGroupBits -= target
 	if t.gfGroupBits < 0 {
 		t.gfGroupBits = 0
