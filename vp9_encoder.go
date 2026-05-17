@@ -940,6 +940,13 @@ type VP9Encoder struct {
 	vp9LeafInterDecisionsRows int
 	vp9LeafInterDecisionsCols int
 	vp9LeafInterDecisionsVer  uint32
+	// vp9LeafKeyframeDecisions mirrors the same count-pass to write-pass
+	// replay for intra keyframe leaves. The stored values are just the mode
+	// decisions; residue and entropy contexts are rebuilt in each pass.
+	vp9LeafKeyframeDecisions     []vp9LeafKeyframeDecisionEntry
+	vp9LeafKeyframeDecisionsRows int
+	vp9LeafKeyframeDecisionsCols int
+	vp9LeafKeyframeDecisionsVer  uint32
 	// vp9RowMTSync is set when the worker is dispatched as a tile-column body
 	// with RowMT enabled. The pointer aliases an entry inside
 	// vp9TileWorkerPool.rowMTSyncs and lives for the duration of the per-frame
@@ -3615,6 +3622,7 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	// fresh for every SB on every frame). See vp9_nonrd_pick_partition.go.
 	e.vp9ResetMLPartitionCache(miRows, miCols)
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
+	e.ensureVP9LeafKeyframeDecisionCache(miRows, miCols)
 	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratch {
 		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
 	} else {
@@ -6935,6 +6943,10 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				IsInter:      vp9BoolInt(isInter),
 				Lossless:     inter.lossless,
 				Mi:           &cur,
+				MiRows:       miRows,
+				MiCols:       miCols,
+				MiRow:        miRow,
+				MiCol:        miCol,
 				Planes:       &e.planes,
 				AboveOffsets: aboveOffsets,
 				LeftOffsets:  leftOffsets,
@@ -6963,23 +6975,44 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		// DC..TM_PRED RD scan per 4x4 raster sub-block and stows the
 		// per-subblock pick in mic->bmi[i].as_mode.
 		useNonRDKeyframeMode := e.useVP9KeyframeNonRDIntraMode(reconBsize)
-		if reconBsize < common.Block8x8 {
-			e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
-				miRow, miCol, reconBsize, &cur)
-		} else {
-			cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
-				miRow, miCol, reconBsize, &cur)
-		}
 		uvMode := common.DcPred
-		if !useNonRDKeyframeMode {
-			uvMode = e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
-				miRow, miCol, reconBsize, &cur)
+		keyDecisionReplayed := false
+		if key.counts == nil {
+			if cached, ok := e.lookupVP9LeafKeyframeDecision(miRow, miCol, reconBsize); ok {
+				cur.Mode = cached.mode
+				cur.Bmi = cached.bmi
+				cur.TxSize = cached.txSize
+				uvMode = cached.uvMode
+				keyDecisionReplayed = true
+			}
+		}
+		if !keyDecisionReplayed {
+			if reconBsize < common.Block8x8 {
+				e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
+					miRow, miCol, reconBsize, &cur)
+			} else {
+				cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
+					miRow, miCol, reconBsize, &cur)
+			}
+			if !useNonRDKeyframeMode {
+				uvMode = e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
+					miRow, miCol, reconBsize, &cur)
+			}
 		}
 		segID := vp9EncoderMiSegmentID(&cur)
 		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 		hasResidue := false
 		if segmentSkip {
 			cur.Skip = 1
+			if key.counts != nil {
+				e.storeVP9LeafKeyframeDecision(miRow, miCol, reconBsize,
+					vp9KeyframeModeDecision{
+						mode:   cur.Mode,
+						bmi:    cur.Bmi,
+						txSize: cur.TxSize,
+						uvMode: uvMode,
+					})
+			}
 		} else {
 			// libvpx vp9_rdopt.c:3221-3270 — vp9_rd_pick_intra_mode_sb
 			// chains rd_pick_intra_sby_mode (which runs the per-block
@@ -6990,9 +7023,18 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			// per-block tx_size RD pick on top so mi.TxSize is RD-optimal
 			// across {Tx32x32, Tx16x16, Tx8x8, Tx4x4} subject to
 			// sf.TxSizeSearchDepth bounds, matching choose_tx_size_from_rd.
-			if !useNonRDKeyframeMode {
+			if !useNonRDKeyframeMode && !keyDecisionReplayed {
 				e.pickVP9KeyframeBlockTxSize(key, tile, miRows, miCols,
 					miRow, miCol, reconBsize, &cur, txMode)
+			}
+			if key.counts != nil {
+				e.storeVP9LeafKeyframeDecision(miRow, miCol, reconBsize,
+					vp9KeyframeModeDecision{
+						mode:   cur.Mode,
+						bmi:    cur.Bmi,
+						txSize: cur.TxSize,
+						uvMode: uvMode,
+					})
 			}
 			hasResidue = e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur, uvMode)
@@ -7030,6 +7072,10 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			IsInter:      0,
 			Lossless:     key.lossless,
 			Mi:           &cur,
+			MiRows:       miRows,
+			MiCols:       miCols,
+			MiRow:        miRow,
+			MiCol:        miCol,
 			Planes:       &e.planes,
 			AboveOffsets: aboveOffsets,
 			LeftOffsets:  leftOffsets,
@@ -7943,7 +7989,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 		return 0, false
 	}
 	planeData, stride := e.vp9EncoderReconPlane(0)
-	src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
 	if len(planeData) == 0 || stride <= 0 || len(src) == 0 || srcStride <= 0 {
 		return 0, false
 	}
@@ -7996,7 +8042,33 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 					restoreW, restoreH, saved)
 				return 0, false
 			}
-			yrd := vp9BlockYrd(src, srcStride, x0, y0,
+			yrdSrc := src
+			yrdSrcStride := srcStride
+			yrdSrcX := x0
+			yrdSrcY := y0
+			// vpxenc scores keyframe edge blocks against the extended source
+			// border; mirror that here so partial bottom/right TUs stay valid.
+			if x0 < 0 || y0 < 0 || x0+bs > srcW || y0+bs > srcH {
+				if bs*bs > len(e.modeScratch) {
+					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+						restoreW, restoreH, saved)
+					return 0, false
+				}
+				yrdSrc = e.modeScratch[:bs*bs]
+				yrdSrcStride = bs
+				yrdSrcX = 0
+				yrdSrcY = 0
+				for yy := range bs {
+					sy := vp9ClampSourceCoord(y0+yy, srcH)
+					srcRow := src[sy*srcStride:]
+					dstRow := yrdSrc[yy*bs:]
+					for xx := range bs {
+						sx := vp9ClampSourceCoord(x0+xx, srcW)
+						dstRow[xx] = srcRow[sx]
+					}
+				}
+			}
+			yrd := vp9BlockYrd(yrdSrc, yrdSrcStride, yrdSrcX, yrdSrcY,
 				planeData, stride, x0, y0, bs, bs, yrdTxSize, dequant,
 				vp9BlockYrdUnknownSSE, e.vp9BlockYrdScratch[:])
 			if !yrd.valid {
@@ -10672,6 +10744,25 @@ type vp9InterModeDecision struct {
 	score          uint64
 }
 
+type vp9KeyframeModeDecision struct {
+	mode   common.PredictionMode
+	bmi    [4]vp9dec.Bmi
+	txSize common.TxSize
+	uvMode common.PredictionMode
+}
+
+// vp9LeafKeyframeDecisionEntry stores the intra-mode choices selected during
+// the keyframe count pre-pass so the bitstream write pass can emit with the
+// same Y mode, sub-8x8 BMI quartet, UV mode, and tx size after probability
+// updates. Coefficients are intentionally not cached; each pass rebuilds
+// residue against its own entropy contexts.
+type vp9LeafKeyframeDecisionEntry struct {
+	version  uint32
+	bsize    common.BlockSize
+	decision vp9KeyframeModeDecision
+	valid    bool
+}
+
 // vp9LeafInterDecisionEntry stores one cached leaf-write inter-mode decision
 // keyed by (version, bsize). The cache mirrors libvpx's mi_grid_visible
 // per-block storage; entries are populated by the count pre-pass at
@@ -12984,6 +13075,70 @@ func (e *VP9Encoder) vp9MiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi {
 		return nil
 	}
 	return &e.miGrid[off]
+}
+
+func (e *VP9Encoder) ensureVP9LeafKeyframeDecisionCache(miRows, miCols int) {
+	n := miRows * miCols
+	if cap(e.vp9LeafKeyframeDecisions) < n {
+		e.vp9LeafKeyframeDecisions = make([]vp9LeafKeyframeDecisionEntry, n)
+	} else {
+		e.vp9LeafKeyframeDecisions = e.vp9LeafKeyframeDecisions[:n]
+	}
+	e.vp9LeafKeyframeDecisionsRows = miRows
+	e.vp9LeafKeyframeDecisionsCols = miCols
+	e.vp9LeafKeyframeDecisionsVer++
+	if e.vp9LeafKeyframeDecisionsVer == 0 {
+		for i := range e.vp9LeafKeyframeDecisions {
+			e.vp9LeafKeyframeDecisions[i] = vp9LeafKeyframeDecisionEntry{}
+		}
+		e.vp9LeafKeyframeDecisionsVer = 1
+	}
+}
+
+func (e *VP9Encoder) lookupVP9LeafKeyframeDecision(miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9KeyframeModeDecision, bool) {
+	if e.vp9LeafKeyframeDecisionsCols <= 0 {
+		return vp9KeyframeModeDecision{}, false
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9LeafKeyframeDecisionsRows ||
+		miCol >= e.vp9LeafKeyframeDecisionsCols {
+		return vp9KeyframeModeDecision{}, false
+	}
+	off := miRow*e.vp9LeafKeyframeDecisionsCols + miCol
+	if off < 0 || off >= len(e.vp9LeafKeyframeDecisions) {
+		return vp9KeyframeModeDecision{}, false
+	}
+	entry := &e.vp9LeafKeyframeDecisions[off]
+	if !entry.valid || entry.version != e.vp9LeafKeyframeDecisionsVer ||
+		entry.bsize != bsize {
+		return vp9KeyframeModeDecision{}, false
+	}
+	return entry.decision, true
+}
+
+func (e *VP9Encoder) storeVP9LeafKeyframeDecision(miRow, miCol int,
+	bsize common.BlockSize, decision vp9KeyframeModeDecision,
+) {
+	if e.vp9LeafKeyframeDecisionsCols <= 0 {
+		return
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9LeafKeyframeDecisionsRows ||
+		miCol >= e.vp9LeafKeyframeDecisionsCols {
+		return
+	}
+	off := miRow*e.vp9LeafKeyframeDecisionsCols + miCol
+	if off < 0 || off >= len(e.vp9LeafKeyframeDecisions) {
+		return
+	}
+	e.vp9LeafKeyframeDecisions[off] = vp9LeafKeyframeDecisionEntry{
+		version:  e.vp9LeafKeyframeDecisionsVer,
+		bsize:    bsize,
+		decision: decision,
+		valid:    true,
+	}
 }
 
 // ensureVP9LeafInterDecisionCache sizes the per-frame leaf-write picker

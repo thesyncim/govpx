@@ -43,6 +43,14 @@ type WriteCoefSbArgs struct {
 	// nil for inter blocks (which always take the default scan branch).
 	Mi *vp9dec.NeighborMi
 
+	// MiRows/MiCols and MiRow/MiCol clip transform-block emission at
+	// right/bottom frame edges. Zero dimensions preserve the historical
+	// full-block walk used by standalone unit tests.
+	MiRows int
+	MiCols int
+	MiRow  int
+	MiCol  int
+
 	// Planes carries the per-plane macroblockd_plane shape (subsampling
 	// + above/left entropy context buffers).
 	Planes *[vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
@@ -77,6 +85,34 @@ type WriteCoefSbArgs struct {
 func scanForTxSize(tx common.TxSize) (scan, neighbors []int16) {
 	o := common.DefaultScanOrders[tx]
 	return o.Scan, o.Neighbors
+}
+
+func planeMaxBlocks4x4(miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, pd *vp9dec.MacroblockdPlane,
+	planeBsize common.BlockSize,
+) (int, int) {
+	w := int(common.Num4x4BlocksWideLookup[planeBsize])
+	h := int(common.Num4x4BlocksHighLookup[planeBsize])
+	if miRows <= 0 || miCols <= 0 {
+		return w, h
+	}
+	mbToRightEdge := ((miCols - int(common.Num8x8BlocksWideLookup[bsize]) - miCol) *
+		common.MiSize) * 8
+	mbToBottomEdge := ((miRows - int(common.Num8x8BlocksHighLookup[bsize]) - miRow) *
+		common.MiSize) * 8
+	if mbToRightEdge < 0 {
+		w += mbToRightEdge >> (5 + pd.SubsamplingX)
+	}
+	if mbToBottomEdge < 0 {
+		h += mbToBottomEdge >> (5 + pd.SubsamplingY)
+	}
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	return w, h
 }
 
 // yModeForBlock mirrors libvpx's get_y_mode — picks the Y mode for
@@ -118,6 +154,10 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 		planeBsize := vp9dec.GetPlaneBlockSize(a.BSize, pd)
 		num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 		num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+		if a.MiRows > 0 && a.MiCols > 0 {
+			num4x4W, num4x4H = planeMaxBlocks4x4(a.MiRows, a.MiCols,
+				a.MiRow, a.MiCol, a.BSize, pd, planeBsize)
+		}
 		step := 1 << uint(txSize)
 		// Default-scan fallback: inter blocks, chroma planes, and
 		// lossless frames all take it. Intra-Y blocks pick the per-tx

@@ -574,6 +574,9 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &e.vp9CountCounts[i])
 	}
+	if tileCols > 0 {
+		e.adoptVP9CountWorkerLeafDecisionCaches(&e.vp9CountWorkers[0])
+	}
 	if e.vp9ActiveSegmentMapCodingChooser() &&
 		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, e.vp9CountJobs) {
 		return false
@@ -616,6 +619,9 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &pool.countCounts[i])
 	}
+	if tileCols > 0 {
+		e.adoptVP9CountWorkerLeafDecisionCaches(&pool.workers[0])
+	}
 	if e.vp9ActiveSegmentMapCodingChooser() &&
 		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, pool.countJobs) {
 		return false
@@ -652,6 +658,34 @@ func (e *VP9Encoder) mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols int,
 		}
 	}
 	return true
+}
+
+func (e *VP9Encoder) adoptVP9CountWorkerLeafDecisionCaches(w *VP9Encoder) {
+	if e == nil || w == nil {
+		return
+	}
+	if n := len(w.vp9LeafInterDecisions); n > 0 {
+		if cap(e.vp9LeafInterDecisions) < n {
+			e.vp9LeafInterDecisions = make([]vp9LeafInterDecisionEntry, n)
+		} else {
+			e.vp9LeafInterDecisions = e.vp9LeafInterDecisions[:n]
+		}
+		copy(e.vp9LeafInterDecisions, w.vp9LeafInterDecisions)
+		e.vp9LeafInterDecisionsRows = w.vp9LeafInterDecisionsRows
+		e.vp9LeafInterDecisionsCols = w.vp9LeafInterDecisionsCols
+		e.vp9LeafInterDecisionsVer = w.vp9LeafInterDecisionsVer
+	}
+	if n := len(w.vp9LeafKeyframeDecisions); n > 0 {
+		if cap(e.vp9LeafKeyframeDecisions) < n {
+			e.vp9LeafKeyframeDecisions = make([]vp9LeafKeyframeDecisionEntry, n)
+		} else {
+			e.vp9LeafKeyframeDecisions = e.vp9LeafKeyframeDecisions[:n]
+		}
+		copy(e.vp9LeafKeyframeDecisions, w.vp9LeafKeyframeDecisions)
+		e.vp9LeafKeyframeDecisionsRows = w.vp9LeafKeyframeDecisionsRows
+		e.vp9LeafKeyframeDecisionsCols = w.vp9LeafKeyframeDecisionsCols
+		e.vp9LeafKeyframeDecisionsVer = w.vp9LeafKeyframeDecisionsVer
+	}
 }
 
 func (e *VP9Encoder) writeVP9FrameTilesThreadedEnabled(tileRows, tileCols int) bool {
@@ -761,6 +795,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	leftSegCtx := w.leftSegCtx
 	miGrid := w.miGrid
 	leafDecisions := w.vp9LeafInterDecisions
+	keyframeDecisions := w.vp9LeafKeyframeDecisions
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
 	interPredictor := w.interPredictor
@@ -783,6 +818,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	// pre-existing slice is preserved and ensureVP9LeafInterDecisionCache
 	// below re-sizes it to the active miRows*miCols extent.
 	w.vp9LeafInterDecisions = leafDecisions
+	w.vp9LeafKeyframeDecisions = keyframeDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
 	w.interPredictor = interPredictor
@@ -807,6 +843,13 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	leftSegCtx := w.leftSegCtx
 	miGrid := w.miGrid
 	leafDecisions := w.vp9LeafInterDecisions
+	leafDecisionRows := w.vp9LeafInterDecisionsRows
+	leafDecisionCols := w.vp9LeafInterDecisionsCols
+	leafDecisionVer := w.vp9LeafInterDecisionsVer
+	keyframeDecisions := w.vp9LeafKeyframeDecisions
+	keyframeDecisionRows := w.vp9LeafKeyframeDecisionsRows
+	keyframeDecisionCols := w.vp9LeafKeyframeDecisionsCols
+	keyframeDecisionVer := w.vp9LeafKeyframeDecisionsVer
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
 	interPredictor := w.interPredictor
@@ -826,6 +869,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.miGrid = miGrid
 	// Worker-private leaf-decision cache; see prepareVP9CountWorker.
 	w.vp9LeafInterDecisions = leafDecisions
+	w.vp9LeafKeyframeDecisions = keyframeDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
 	w.interPredictor = interPredictor
@@ -842,6 +886,22 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 		w.planes[plane].LeftContext = leftCtx[plane]
 	}
 	w.ensureVP9EncoderModeBuffers(miRows, miCols)
+	if leafDecisionRows == miRows && leafDecisionCols == miCols &&
+		leafDecisionVer == src.vp9LeafInterDecisionsVer &&
+		len(leafDecisions) >= miRows*miCols {
+		w.vp9LeafInterDecisions = leafDecisions[:miRows*miCols]
+		w.vp9LeafInterDecisionsRows = leafDecisionRows
+		w.vp9LeafInterDecisionsCols = leafDecisionCols
+		w.vp9LeafInterDecisionsVer = leafDecisionVer
+	}
+	if keyframeDecisionRows == miRows && keyframeDecisionCols == miCols &&
+		keyframeDecisionVer == src.vp9LeafKeyframeDecisionsVer &&
+		len(keyframeDecisions) >= miRows*miCols {
+		w.vp9LeafKeyframeDecisions = keyframeDecisions[:miRows*miCols]
+		w.vp9LeafKeyframeDecisionsRows = keyframeDecisionRows
+		w.vp9LeafKeyframeDecisionsCols = keyframeDecisionCols
+		w.vp9LeafKeyframeDecisionsVer = keyframeDecisionVer
+	}
 	for i := range w.aboveSegCtx {
 		w.aboveSegCtx[i] = 0
 	}

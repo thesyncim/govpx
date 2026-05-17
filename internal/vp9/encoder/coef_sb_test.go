@@ -114,6 +114,117 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 	}
 }
 
+func TestWriteCoefSbClipsFrameEdges(t *testing.T) {
+	cases := []struct {
+		name               string
+		miRows, miCols     int
+		miRow, miCol       int
+		wantY, wantUV      uint32
+		maxYRow, maxYCol   int
+		maxUVRow, maxUVCol int
+	}{
+		{
+			name:     "bottom",
+			miRows:   3,
+			miCols:   4,
+			miRow:    2,
+			miCol:    0,
+			wantY:    8,
+			wantUV:   4,
+			maxYRow:  2,
+			maxYCol:  4,
+			maxUVRow: 1,
+			maxUVCol: 2,
+		},
+		{
+			name:     "right",
+			miRows:   4,
+			miCols:   3,
+			miRow:    0,
+			miCol:    2,
+			wantY:    8,
+			wantUV:   4,
+			maxYRow:  4,
+			maxYCol:  2,
+			maxUVRow: 2,
+			maxUVCol: 1,
+		},
+		{
+			name:     "bottom-right",
+			miRows:   3,
+			miCols:   3,
+			miRow:    2,
+			miCol:    2,
+			wantY:    4,
+			wantUV:   2,
+			maxYRow:  2,
+			maxYCol:  2,
+			maxUVRow: 1,
+			maxUVCol: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := seedDefaultCoefProbsForEnc()
+
+			var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+			vp9dec.SetupBlockPlanes(&planes, 1, 1)
+			planes[0].AboveContext = make([]uint8, 4)
+			planes[0].LeftContext = make([]uint8, 4)
+			planes[1].AboveContext = make([]uint8, 2)
+			planes[1].LeftContext = make([]uint8, 2)
+			planes[2].AboveContext = make([]uint8, 2)
+			planes[2].LeftContext = make([]uint8, 2)
+
+			zeroCoeffs := make([]int16, 16)
+			calls := map[[3]int]int{}
+			var stats FrameCoefBranchStats
+			buf := make([]byte, 256)
+			var bw bitstream.Writer
+			bw.Start(buf)
+			if err := WriteCoefSb(&bw, WriteCoefSbArgs{
+				BSize:    common.Block16x16,
+				MiTxSize: common.Tx4x4,
+				MiRows:   tc.miRows,
+				MiCols:   tc.miCols,
+				MiRow:    tc.miRow,
+				MiCol:    tc.miCol,
+				Planes:   &planes,
+				PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+					{16, 16}, {16, 16}, {16, 16},
+				},
+				Fc:              &fc,
+				CoefBranchStats: &stats,
+				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
+					calls[[3]int{plane, r, c}]++
+					return zeroCoeffs
+				},
+			}); err != nil {
+				t.Fatalf("WriteCoefSb: %v", err)
+			}
+			if _, err := bw.Stop(); err != nil {
+				t.Fatalf("Stop: %v", err)
+			}
+
+			if got := stats[common.Tx4x4][0][0][0][0][0]; got != [2]uint32{tc.wantY, 0} {
+				t.Fatalf("clipped Y eob stats = %v, want [%d 0]", got, tc.wantY)
+			}
+			if got := stats[common.Tx4x4][1][0][0][0][0]; got != [2]uint32{tc.wantUV, 0} {
+				t.Fatalf("clipped UV eob stats = %v, want [%d 0]", got, tc.wantUV)
+			}
+			for key := range calls {
+				plane, r, c := key[0], key[1], key[2]
+				if plane == 0 && (r >= tc.maxYRow || c >= tc.maxYCol) {
+					t.Fatalf("Y out-of-frame tx encoded at r=%d c=%d", r, c)
+				}
+				if plane > 0 && (r >= tc.maxUVRow || c >= tc.maxUVCol) {
+					t.Fatalf("UV out-of-frame tx encoded at r=%d c=%d", r, c)
+				}
+			}
+		})
+	}
+}
+
 func TestWriteCoefSbACOnlyResidueStampsEntropyContext(t *testing.T) {
 	fc := seedDefaultCoefProbsForEnc()
 
