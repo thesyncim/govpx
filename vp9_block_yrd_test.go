@@ -8,9 +8,14 @@ import (
 )
 
 // TestVP9BlockYrdSkippableOnIdenticalPrediction pins the libvpx
-// vp9_pickmode.c:824-826 skippable branch: when the prediction matches the
+// vp9_pickmode.c:821-828 skippable branch: when the prediction matches the
 // source exactly (src_diff is all zeros) every tx unit's eob is zero, so
-// skippable=true, rate = eob_cost << VP9_PROB_COST_SHIFT, dist = sse << 4.
+// skippable=true, dist = sse << 4. libvpx sets this_rdc->rate=0 at line 821
+// BEFORE the *sse=(*sse<<6)>>2 / skippable-return at lines 822-828; the
+// caller (vp9_pickmode.c:2364) overwrites this_rdc.rate with
+// vp9_cost_bit(skip_prob, 1). So block_yrd's output on the skippable path
+// is rate=0 (NOT eob_cost<<VP9_PROB_COST_SHIFT — that finalization at
+// libvpx :852-853 runs only in the non-skippable branch).
 func TestVP9BlockYrdSkippableOnIdenticalPrediction(t *testing.T) {
 	const bw, bh = 32, 32
 	var src [bw * bh]byte
@@ -33,12 +38,10 @@ func TestVP9BlockYrdSkippableOnIdenticalPrediction(t *testing.T) {
 	if res.dist != 0 {
 		t.Errorf("dist = %d, want 0 (sse=0 -> dist = sse<<4 = 0)", res.dist)
 	}
-	// For BLOCK_32X32 with TX_16X16 there are (32/16)*(32/16) = 4 tx units.
-	wantEobCost := 4
-	wantRate := wantEobCost << encoder.VP9ProbCostShift
-	if res.rate != wantRate {
-		t.Errorf("rate = %d, want %d (eob_cost=%d << VP9ProbCostShift)",
-			res.rate, wantRate, wantEobCost)
+	if res.rate != 0 {
+		t.Errorf("rate = %d, want 0 (libvpx vp9_pickmode.c:821 sets rate=0 "+
+			"and returns at :826 before the eob_cost finalization)",
+			res.rate)
 	}
 }
 

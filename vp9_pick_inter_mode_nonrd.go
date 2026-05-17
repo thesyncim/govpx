@@ -779,13 +779,27 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// kernel run). When block_yrd reported skippable=true the
 				// is_skippable branch already set finalRate=0, finalDist=sse
 				// — the post-compare is skipped (blockYrdFired guard).
+				//
+				// libvpx's compare is verbatim:
+				//
+				//   if (RDCOST(rdmult, rddiv, this_rdc.rate, this_rdc.dist) <
+				//       RDCOST(rdmult, rddiv, 0, this_sse)) { ... } else { ... }
+				//
+				// NOTE the non-skip side is RDCOST(this_rdc.rate, dist) with NO
+				// skip-bit-off added, and the skip side is RDCOST(0, this_sse)
+				// with NO skip-bit-on added. The chosen skip-bit cost is
+				// appended AFTER the compare (libvpx vp9_pickmode.c:2368 or
+				// :2370). govpx previously biased the compare by adding
+				// skipBitOff / skipBitOn into the two sides, which shifted the
+				// skip-vs-non-skip break-even point by (skipBitOff -
+				// skipBitOn) * rdmult — a context-dependent over/under-skip.
 				useSkipCheck := !useSimpleBlockYrd && !blockYrdFired
 				isSkip := blockYrdFired // skippable=true counts as the skip branch
 				if useSkipCheck {
 					rdNonSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
-						finalRate+skipBitOff, finalDist)
+						finalRate, finalDist)
 					rdSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
-						skipBitOn, thisSse)
+						0, thisSse)
 					if rdSkip < rdNonSkip {
 						// libvpx: this_rdc.rate = vp9_cost_bit(skip_prob, 1);
 						//         this_rdc.dist = this_sse;
@@ -827,10 +841,22 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							varU, sseU, varV, sseV,
 							encodeBreakout, false, interModeBitCost)
 						if fired {
-							// libvpx vp9_pickmode.c:1026-1041 —
-							// x->skip = 1, rate = inter_mode_cost only,
-							// dist = sse << 4.
-							rate = refRate + interModeBitCost + skipBitOn
+							// libvpx vp9_pickmode.c:1029-1030 (inside
+							// encode_breakout_test) +:2431 (callsite):
+							//   *rate = inter_mode_cost[ctx][INTER_OFFSET(mode)];
+							//   *dist = sse << 4;
+							//   this_rdc.rate += rate_mv;
+							//
+							// rate_mv is already folded into govpx's
+							// interModeBitCost for NEWMV (zero otherwise);
+							// inter_mode_cost is the mode-context bit cost
+							// inside that helper too. NO ref_frame_cost is
+							// added: libvpx's encode_breakout-fired branch
+							// emits the block with x->skip=1 and writes only
+							// inter_mode + rate_mv. The "rate += skip_bit(1)"
+							// add is intentionally commented out at libvpx
+							// vp9_pickmode.c:1033.
+							rate = interModeBitCost
 							finalDist = uint64(ebDist)
 						}
 					}
