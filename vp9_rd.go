@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
@@ -207,3 +208,236 @@ func vp9RDCostFromDistortion(rddiv int, distortion uint64) uint64 {
 	}
 	return distortion << uint(rddiv)
 }
+
+// rd_variance_adjustment infrastructure — verbatim port of libvpx's
+// rd_variance_adjustment (vp9/encoder/vp9_rdopt.c:3273-3363, v1.16.0).
+//
+// libvpx applies this bias inside vp9_rd_pick_inter_mode_sb after the
+// per-mode this_rd has been finalised but before the candidate is compared
+// to best_rd (vp9_rdopt.c:3960-3964).  The adjustment penalises modes whose
+// reconstruction is significantly smoother than the source — protecting
+// fine texture (film grain in particular) on textured SB partitions.  It is
+// gated at the caller by `recon != NULL`, which libvpx only allocates when
+// `cpi->oxcf.content == VP9E_CONTENT_FILM` (vp9_rdopt.c:3503-3515), so the
+// adjustment is FILM-content-only in practice.
+//
+// LOW_VAR_THRESH and VAR_MULT match the libvpx #defines verbatim.
+
+// vp9LowVarThresh is libvpx's LOW_VAR_THRESH (vp9_rdopt.c:3276).
+const vp9LowVarThresh = 250
+
+// vp9VarMult is libvpx's VAR_MULT (vp9_rdopt.c:3277).
+const vp9VarMult = 250
+
+// vp9MaxVarAdjust mirrors libvpx's max_var_adjust[VP9E_CONTENT_INVALID]
+// table (vp9_rdopt.c:3278).  Indexed by VP9E_CONTENT enum:
+// DEFAULT=0, SCREEN=1, FILM=2.
+var vp9MaxVarAdjust = [3]uint{16, 16, 250}
+
+// vp9SectionNoiseDef mirrors libvpx's SECTION_NOISE_DEF
+// (vp9_firstpass.h:28).  Used by rd_variance_adjustment to scale
+// LOW_VAR_THRESH by the GF group's estimated noise energy in pass 2.
+const vp9SectionNoiseDef = 250.0
+
+// vp9RDVarianceAdjustmentInputs captures every input rd_variance_adjustment
+// consumes.  Pulled into a struct so the call site can synthesize each
+// field from its local state and pass them into a pure function that
+// matches libvpx's branching one-to-one.
+//
+// libvpx: vp9/encoder/vp9_rdopt.c:3280-3285 (parameter list).
+type vp9RDVarianceAdjustmentInputs struct {
+	// SrcVariance is libvpx's `src_variance` BEFORE the (bw*bh) scaling.
+	// The caller is expected to compute it via vp9_get_sby_variance (which
+	// in govpx is vp9BlockSourceVariance128 on the luma source buffer).
+	SrcVariance uint
+	// RecVariance is libvpx's `rec_variance` BEFORE the (bw*bh) scaling.
+	// The caller is expected to compute it via vp9_get_sby_variance on
+	// libvpx's `recon` buffer (8-bit reconstruction at stride 64).
+	RecVariance uint
+	// BSize is the BLOCK_SIZE the RD is being evaluated at.
+	BSize common.BlockSize
+	// ContentType mirrors `cpi->oxcf.content`.  Index into vp9MaxVarAdjust.
+	ContentType vp9SpeedDispatchContent
+	// Pass2 mirrors `cpi->oxcf.pass == 2`.  Gates the FILM noise-factor
+	// low-var-threshold scaling at vp9_rdopt.c:3318-3331.
+	Pass2 bool
+	// GroupNoiseEnergy mirrors `cpi->twopass.gf_group.group_noise_energy`
+	// used to compute noise_factor in pass-2 FILM mode.  Caller should
+	// pass 0 when the GF-group state is not yet populated; the resulting
+	// noise_factor (== 0/250) collapses the FILM branch's threshold to 0
+	// which then bails on the early-return `src_rec_min > low_var_thresh`
+	// path (mirrors libvpx when group_noise_energy is unset).
+	GroupNoiseEnergy int
+	// RefFrame mirrors `ref_frame`.  Compared to INTRA_FRAME (=0) by the
+	// FILM pass-2 low_var_thresh inflation at vp9_rdopt.c:3325-3327.
+	RefFrame int8
+	// SecondRefFrame mirrors `second_ref_frame`.  Used to detect compound
+	// (`second_ref_frame > INTRA_FRAME`) at vp9_rdopt.c:3328-3330 and
+	// :3354-3357.
+	SecondRefFrame int8
+	// ThisMode mirrors `this_mode`.  Only used to detect DC_PRED inside
+	// the FILM intra-frame branch at vp9_rdopt.c:3327.
+	ThisMode common.PredictionMode
+}
+
+// vp9RDVarianceAdjustment is the verbatim Go port of libvpx's
+// rd_variance_adjustment (vp9/encoder/vp9_rdopt.c:3280-3362).  Returns the
+// adjusted this_rd; if the caller's this_rd is the int64 sentinel for
+// INT64_MAX it is returned unmodified (matching libvpx's early return at
+// :3298).
+//
+// libvpx body, reproduced inline for the reviewer:
+//
+//	static void rd_variance_adjustment(VP9_COMP *cpi, MACROBLOCK *x,
+//	                                   BLOCK_SIZE bsize, int64_t *this_rd,
+//	                                   struct buf_2d *recon,
+//	                                   MV_REFERENCE_FRAME ref_frame,
+//	                                   MV_REFERENCE_FRAME second_ref_frame,
+//	                                   PREDICTION_MODE this_mode) {
+//	  ...
+//	  if (*this_rd == INT64_MAX) return;
+//	  rec_variance = vp9_get_sby_variance(cpi, recon, bsize);
+//	  src_variance = vp9_get_sby_variance(cpi, &x->plane[0].src, bsize);
+//	  // Scale based on area in 8x8 blocks
+//	  rec_variance /= (bw * bh);
+//	  src_variance /= (bw * bh);
+//
+//	  if (content_type == VP9E_CONTENT_FILM) {
+//	    if (cpi->oxcf.pass == 2) {
+//	      double noise_factor =
+//	          (double)cpi->twopass.gf_group.group_noise_energy /
+//	          SECTION_NOISE_DEF;
+//	      low_var_thresh = (unsigned int)(low_var_thresh * noise_factor);
+//	      if (ref_frame == INTRA_FRAME) {
+//	        low_var_thresh *= 2;
+//	        if (this_mode == DC_PRED) low_var_thresh *= 5;
+//	      } else if (second_ref_frame > INTRA_FRAME) {
+//	        low_var_thresh *= 2;
+//	      }
+//	    }
+//	  } else {
+//	    low_var_thresh = LOW_VAR_THRESH / 2;
+//	  }
+//
+//	  src_rec_min = VPXMIN(src_variance, rec_variance);
+//	  if (src_rec_min > low_var_thresh) return;
+//
+//	  var_diff = (src_variance > rec_variance) ?
+//	      (src_variance - rec_variance) * 2 :
+//	      (rec_variance - src_variance) / 2;
+//	  adj_max = max_var_adjust[content_type];
+//	  var_factor =
+//	      (unsigned int)((int64_t)VAR_MULT * var_diff) /
+//	      VPXMAX(1, src_variance);
+//	  var_factor = VPXMIN(adj_max, var_factor);
+//	  if ((content_type == VP9E_CONTENT_FILM) &&
+//	      ((ref_frame == INTRA_FRAME) || (second_ref_frame > INTRA_FRAME))) {
+//	    var_factor *= 2;
+//	  }
+//	  *this_rd += (*this_rd * var_factor) / 100;
+//	}
+func vp9RDVarianceAdjustment(thisRD int64, in vp9RDVarianceAdjustmentInputs) int64 {
+	// libvpx: vp9_rdopt.c:3298 — `if (*this_rd == INT64_MAX) return;`.
+	// govpx callers represent INT64_MAX with math.MaxInt64.  Anything that
+	// already overflowed past that sentinel is opaque to the picker.
+	if thisRD == vp9RDVarianceAdjustmentInfinity {
+		return thisRD
+	}
+	if in.BSize >= common.BlockSizes {
+		// Defensive: libvpx indexes num_8x8_blocks_*_lookup at BLOCK_*; an
+		// out-of-range bsize would slice-panic on the lookup table.
+		return thisRD
+	}
+	// libvpx: vp9_rdopt.c:3294-3295 — `const int bw =
+	// num_8x8_blocks_wide_lookup[bsize]; const int bh =
+	// num_8x8_blocks_high_lookup[bsize];`.
+	bw := uint(common.Num8x8BlocksWideLookup[in.BSize])
+	bh := uint(common.Num8x8BlocksHighLookup[in.BSize])
+	if bw == 0 || bh == 0 {
+		return thisRD
+	}
+	// libvpx: vp9_rdopt.c:3296 — `vp9e_tune_content content_type =
+	// cpi->oxcf.content;`.
+	contentType := in.ContentType
+	srcVariance := in.SrcVariance
+	recVariance := in.RecVariance
+	// libvpx: vp9_rdopt.c:3314-3316 — "Scale based on area in 8x8 blocks".
+	scale := bw * bh
+	recVariance /= scale
+	srcVariance /= scale
+	// libvpx: vp9_rdopt.c:3293 — `unsigned int low_var_thresh =
+	// LOW_VAR_THRESH;`.
+	lowVarThresh := uint(vp9LowVarThresh)
+	// libvpx: vp9_rdopt.c:3318-3334 — FILM branch with optional pass-2
+	// noise-factor scaling, then the non-FILM `low_var_thresh / 2` else.
+	if contentType == vp9ContentFilm {
+		if in.Pass2 {
+			noiseFactor :=
+				float64(in.GroupNoiseEnergy) / vp9SectionNoiseDef
+			lowVarThresh = uint(float64(lowVarThresh) * noiseFactor)
+			if in.RefFrame == vp9dec.IntraFrame {
+				lowVarThresh *= 2
+				if in.ThisMode == common.DcPred {
+					lowVarThresh *= 5
+				}
+			} else if in.SecondRefFrame > vp9dec.IntraFrame {
+				lowVarThresh *= 2
+			}
+		}
+	} else {
+		lowVarThresh = uint(vp9LowVarThresh) / 2
+	}
+	// libvpx: vp9_rdopt.c:3339 — `src_rec_min = VPXMIN(src_variance,
+	// rec_variance);`.
+	srcRecMin := min(recVariance, srcVariance)
+	// libvpx: vp9_rdopt.c:3341 — `if (src_rec_min > low_var_thresh) return;`.
+	if srcRecMin > lowVarThresh {
+		return thisRD
+	}
+	// libvpx: vp9_rdopt.c:3343-3346 — asymmetric var_diff.  When the
+	// reconstruction is smoother than the source the penalty doubles; when
+	// the reconstruction is rougher the penalty is halved.
+	var varDiff uint
+	if srcVariance > recVariance {
+		varDiff = (srcVariance - recVariance) * 2
+	} else {
+		varDiff = (recVariance - srcVariance) / 2
+	}
+	// libvpx: vp9_rdopt.c:3348 — `adj_max = max_var_adjust[content_type];`.
+	// Bounds-clamp content_type as libvpx does (the array is sized
+	// VP9E_CONTENT_INVALID == 3 so DEFAULT/SCREEN/FILM all land in-range).
+	adjIdx := int(contentType)
+	if adjIdx < 0 || adjIdx >= len(vp9MaxVarAdjust) {
+		adjIdx = 0
+	}
+	adjMax := vp9MaxVarAdjust[adjIdx]
+	// libvpx: vp9_rdopt.c:3350-3352 — `var_factor = (unsigned int)((int64_t)
+	// VAR_MULT * var_diff) / VPXMAX(1, src_variance); var_factor =
+	// VPXMIN(adj_max, var_factor);`.  We perform the multiplication in
+	// int64 to match libvpx's explicit cast and avoid wrap-around at large
+	// var_diff values.
+	srcDenom := max(srcVariance, 1)
+	varFactor := min(uint(uint64(vp9VarMult)*uint64(varDiff)/uint64(srcDenom)), adjMax)
+	// libvpx: vp9_rdopt.c:3354-3357 — FILM doubling for intra and compound.
+	if contentType == vp9ContentFilm &&
+		(in.RefFrame == vp9dec.IntraFrame ||
+			in.SecondRefFrame > vp9dec.IntraFrame) {
+		varFactor *= 2
+	}
+	// libvpx: vp9_rdopt.c:3359 — `*this_rd += (*this_rd * var_factor) / 100;`.
+	// Performed in int64 to match libvpx's int64 *this_rd.
+	if thisRD < 0 {
+		return thisRD
+	}
+	adjustment := thisRD * int64(varFactor) / 100
+	// Saturate to the sentinel rather than overflow the int64 cost domain.
+	if adjustment < 0 || thisRD > vp9RDVarianceAdjustmentInfinity-adjustment {
+		return vp9RDVarianceAdjustmentInfinity
+	}
+	return thisRD + adjustment
+}
+
+// vp9RDVarianceAdjustmentInfinity is the int64 sentinel matching libvpx's
+// INT64_MAX (which represents "RD overflowed / mode rejected").  Kept as a
+// named constant so call sites read the same word libvpx does.
+const vp9RDVarianceAdjustmentInfinity = int64(^uint64(0) >> 1)

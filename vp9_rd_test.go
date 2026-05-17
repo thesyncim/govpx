@@ -3,6 +3,7 @@ package govpx
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
@@ -229,5 +230,263 @@ func TestVP9EncoderRDMultLookupPrecedence(t *testing.T) {
 	e.cbRdmult = 0
 	if got := e.activeRDMult(80); got != 9876 {
 		t.Fatalf("zero cbRdmult fallback = %d, want 9876", got)
+	}
+}
+
+// libvpxRDVarianceAdjustmentOracle is a literal Go transcription of the
+// libvpx C body at vp9/encoder/vp9_rdopt.c:3280-3362 (v1.16.0).  Kept as a
+// genuine oracle (does NOT call vp9RDVarianceAdjustment) so the test below
+// is a real cross-check rather than a self-reference.
+func libvpxRDVarianceAdjustmentOracle(thisRD int64, in vp9RDVarianceAdjustmentInputs) int64 {
+	if thisRD == int64(^uint64(0)>>1) {
+		return thisRD
+	}
+	bw := uint(common.Num8x8BlocksWideLookup[in.BSize])
+	bh := uint(common.Num8x8BlocksHighLookup[in.BSize])
+	scale := bw * bh
+	src := in.SrcVariance / scale
+	rec := in.RecVariance / scale
+	lowVarThresh := uint(250) // LOW_VAR_THRESH
+	if in.ContentType == vp9ContentFilm {
+		if in.Pass2 {
+			noiseFactor := float64(in.GroupNoiseEnergy) / 250.0
+			lowVarThresh = uint(float64(lowVarThresh) * noiseFactor)
+			if in.RefFrame == vp9dec.IntraFrame {
+				lowVarThresh *= 2
+				if in.ThisMode == common.DcPred {
+					lowVarThresh *= 5
+				}
+			} else if in.SecondRefFrame > vp9dec.IntraFrame {
+				lowVarThresh *= 2
+			}
+		}
+	} else {
+		lowVarThresh = 250 / 2
+	}
+	srcRecMin := min(rec, src)
+	if srcRecMin > lowVarThresh {
+		return thisRD
+	}
+	var varDiff uint
+	if src > rec {
+		varDiff = (src - rec) * 2
+	} else {
+		varDiff = (rec - src) / 2
+	}
+	maxVarAdjust := [3]uint{16, 16, 250}
+	adjMax := maxVarAdjust[int(in.ContentType)]
+	denom := max(src, 1)
+	varFactor := min(uint(int64(250)*int64(varDiff))/denom, adjMax)
+	if in.ContentType == vp9ContentFilm &&
+		(in.RefFrame == vp9dec.IntraFrame ||
+			in.SecondRefFrame > vp9dec.IntraFrame) {
+		varFactor *= 2
+	}
+	return thisRD + (thisRD*int64(varFactor))/100
+}
+
+// TestVP9RDVarianceAdjustmentMatchesLibvpx exercises every libvpx branch
+// against the oracle above.
+func TestVP9RDVarianceAdjustmentMatchesLibvpx(t *testing.T) {
+	t.Parallel()
+	// (bsize, content_type, pass2, ref, second_ref, mode, src, rec, this_rd)
+	cases := []struct {
+		name        string
+		bsize       common.BlockSize
+		content     vp9SpeedDispatchContent
+		pass2       bool
+		ref         int8
+		secondRef   int8
+		mode        common.PredictionMode
+		srcVariance uint
+		recVariance uint
+		groupNoise  int
+		thisRD      int64
+	}{
+		// (1) FILM intra: variance loss should bias upward.
+		{
+			name:        "film_intra_dc_pred_smooth_rec",
+			bsize:       common.Block16x16,
+			content:     vp9ContentFilm,
+			pass2:       false,
+			ref:         int8(vp9dec.IntraFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.DcPred,
+			srcVariance: 600, // 8x8-scaled to 150 (under thresh)
+			recVariance: 200, // 8x8-scaled to 50  (under thresh)
+			groupNoise:  0,
+			thisRD:      100_000,
+		},
+		// (2) FILM compound (second_ref > INTRA_FRAME): same doubling path.
+		{
+			name:        "film_compound_smooth_rec",
+			bsize:       common.Block32x32,
+			content:     vp9ContentFilm,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   int8(vp9dec.GoldenFrame),
+			mode:        common.NearestMv,
+			srcVariance: 4 * 4 * 80, // 8x8-scaled to 80
+			recVariance: 4 * 4 * 20, // 8x8-scaled to 20
+			thisRD:      250_000,
+		},
+		// (3) FILM single inter (LAST): factor not doubled.
+		{
+			name:        "film_inter_last_smooth_rec",
+			bsize:       common.Block16x16,
+			content:     vp9ContentFilm,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.NewMv,
+			srcVariance: 4 * 100, // 8x8-scaled to 100
+			recVariance: 4 * 40,  // 8x8-scaled to 40
+			thisRD:      80_000,
+		},
+		// (4) DEFAULT content single inter: threshold halved, no compound
+		// doubling.
+		{
+			name:        "default_inter_smooth_rec",
+			bsize:       common.Block8x8,
+			content:     vp9ContentDefault,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.NearestMv,
+			srcVariance: 120,
+			recVariance: 50,
+			thisRD:      60_000,
+		},
+		// (5) SCREEN content: shares the DEFAULT path inside the function
+		// (else branch), adj_max[1] == 16.
+		{
+			name:        "screen_inter_modest_loss",
+			bsize:       common.Block8x8,
+			content:     vp9ContentScreen,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.ZeroMv,
+			srcVariance: 100,
+			recVariance: 30,
+			thisRD:      45_000,
+		},
+		// (6) src_rec_min above threshold: early-return path.
+		{
+			name:        "above_thresh_early_return",
+			bsize:       common.Block16x16,
+			content:     vp9ContentFilm,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.NearMv,
+			srcVariance: 4 * 1000, // 8x8-scaled to 1000 > 250
+			recVariance: 4 * 900,
+			thisRD:      90_000,
+		},
+		// (7) rec > src (reconstruction rougher): var_diff halved.
+		{
+			name:        "rec_rougher_than_src",
+			bsize:       common.Block16x16,
+			content:     vp9ContentFilm,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.NewMv,
+			srcVariance: 4 * 40,
+			recVariance: 4 * 100,
+			thisRD:      120_000,
+		},
+		// (8) INT64_MAX sentinel: short-circuit.
+		{
+			name:        "infinity_short_circuit",
+			bsize:       common.Block64x64,
+			content:     vp9ContentFilm,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.NewMv,
+			srcVariance: 0,
+			recVariance: 0,
+			thisRD:      int64(^uint64(0) >> 1),
+		},
+		// (9) FILM intra DC_PRED with pass2 noise factor.
+		{
+			name:        "film_pass2_intra_dc_pred",
+			bsize:       common.Block16x16,
+			content:     vp9ContentFilm,
+			pass2:       true,
+			ref:         int8(vp9dec.IntraFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.DcPred,
+			srcVariance: 4 * 50,
+			recVariance: 4 * 10,
+			groupNoise:  500, // noise_factor = 500/250 = 2.0
+			thisRD:      75_000,
+		},
+		// (10) Zero src_variance: VPXMAX(1, src_variance) protects /0.
+		{
+			name:        "zero_src_variance",
+			bsize:       common.Block16x16,
+			content:     vp9ContentFilm,
+			ref:         int8(vp9dec.LastFrame),
+			secondRef:   vp9dec.NoRefFrame,
+			mode:        common.ZeroMv,
+			srcVariance: 0,
+			recVariance: 4 * 8,
+			thisRD:      50_000,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := vp9RDVarianceAdjustmentInputs{
+				SrcVariance:      tc.srcVariance,
+				RecVariance:      tc.recVariance,
+				BSize:            tc.bsize,
+				ContentType:      tc.content,
+				Pass2:            tc.pass2,
+				GroupNoiseEnergy: tc.groupNoise,
+				RefFrame:         tc.ref,
+				SecondRefFrame:   tc.secondRef,
+				ThisMode:         tc.mode,
+			}
+			got := vp9RDVarianceAdjustment(tc.thisRD, in)
+			want := libvpxRDVarianceAdjustmentOracle(tc.thisRD, in)
+			if got != want {
+				t.Fatalf("vp9RDVarianceAdjustment(%d, %+v) = %d, want %d",
+					tc.thisRD, in, got, want)
+			}
+		})
+	}
+}
+
+// TestVP9RDVarianceAdjustmentMonotoneOnTexturedRec confirms the
+// directional property the lesson chain cited:  on FILM content, a
+// candidate whose reconstruction is significantly smoother than the source
+// receives a strictly larger RD penalty than a candidate whose
+// reconstruction matches the source variance.  This is what biases the SB
+// partition picker toward partitions that preserve texture.
+func TestVP9RDVarianceAdjustmentMonotoneOnTexturedRec(t *testing.T) {
+	t.Parallel()
+	const baseRD = int64(100_000)
+	in := vp9RDVarianceAdjustmentInputs{
+		BSize:          common.Block16x16,
+		ContentType:    vp9ContentFilm,
+		RefFrame:       int8(vp9dec.LastFrame),
+		SecondRefFrame: vp9dec.NoRefFrame,
+		ThisMode:       common.NewMv,
+	}
+	// Matched-variance candidate: src == rec → var_diff = 0 → no bias.
+	in.SrcVariance = 4 * 80
+	in.RecVariance = 4 * 80
+	matched := vp9RDVarianceAdjustment(baseRD, in)
+	if matched != baseRD {
+		t.Fatalf("matched-variance candidate should not be biased, got %d (base %d)",
+			matched, baseRD)
+	}
+	// Smoother reconstruction: src > rec → var_diff = (src-rec)*2 → bias up.
+	in.RecVariance = 4 * 20
+	smoother := vp9RDVarianceAdjustment(baseRD, in)
+	if smoother <= baseRD {
+		t.Fatalf("smoother-rec candidate should be penalised, got %d (base %d)",
+			smoother, baseRD)
+	}
+	if smoother <= matched {
+		t.Fatalf("smoother-rec should exceed matched-variance, got %d vs %d",
+			smoother, matched)
 	}
 }

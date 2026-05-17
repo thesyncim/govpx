@@ -10382,6 +10382,18 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	}
 	bestSet := false
 	var best vp9InterModeDecision
+	// libvpx: vp9/encoder/vp9_rdopt.c:3354-3357 — the FILM-mode variance
+	// adjustment fires for compound modes too (in fact compound is one of
+	// the two cases — alongside intra — where libvpx doubles the
+	// var_factor).  Gate the wire-in by content==FILM to mirror libvpx's
+	// `recon != NULL` precondition (vp9_rdopt.c:3515).
+	filmContent := e.opts.ScreenContentMode == int8(VP9ScreenContentFilm)
+	var rdAdjustSrcVar uint
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	if filmContent {
+		rdAdjustSrcVar = e.vp9SourceLumaVariance128(inter, miRow, miCol, bsize)
+	}
 	consider := func(mode common.PredictionMode, mv, refMv [2]vp9dec.MV,
 		filter vp9dec.InterpFilter, distortion uint64,
 	) {
@@ -10401,6 +10413,13 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 			rate:           rate,
 			distortion:     distortion,
 			score:          e.vp9InterModeScore(distortion, rate, qindex),
+		}
+		// libvpx: vp9/encoder/vp9_rdopt.c:3960-3964 — variance adjustment
+		// after the per-mode this_rd is finalised.
+		if filmContent {
+			recVar := e.vp9ReconLumaVariance128(miRow, miCol, blockW, blockH)
+			cand.score = e.vp9ApplyRDVarianceAdjustment(cand.score, bsize,
+				rdAdjustSrcVar, recVar, refFrame[0], refFrame[1], mode)
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -10558,6 +10577,19 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	}
 	bestSet := false
 	var best vp9InterModeDecision
+	// libvpx: vp9/encoder/vp9_rdopt.c:3503-3515 — `recon` is allocated and
+	// passed into rd_variance_adjustment iff `cpi->oxcf.content ==
+	// VP9E_CONTENT_FILM`.  Gate the post-RD variance bias the same way so
+	// non-FILM contents remain byte-identical to the legacy picker.
+	filmContent := e.opts.ScreenContentMode == int8(VP9ScreenContentFilm)
+	// libvpx: vp9/encoder/vp9_rdopt.c:3307 — `src_variance =
+	// vp9_get_sby_variance(cpi, &x->plane[0].src, bsize);`.  The source is
+	// constant across candidates so compute it once per SB-mode call.
+	var rdAdjustSrcVar uint
+	if filmContent {
+		rdAdjustSrcVar = uint(vp9BlockSourceVariance128(src, srcStride,
+			x0, y0, scoreW, scoreH))
+	}
 	consider := func(mode common.PredictionMode, mv, refMv vp9dec.MV,
 		filter vp9dec.InterpFilter, distortion uint64,
 	) {
@@ -10580,6 +10612,21 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 				cand.rate = rate + rdRate
 				cand.score = e.vp9InterModeScore(cand.distortion, cand.rate, qindex)
 			}
+		}
+		// libvpx: vp9/encoder/vp9_rdopt.c:3960-3964 — apply
+		// rd_variance_adjustment to this_rd after the per-mode RD is
+		// finalised but before the candidate is compared to best_rd.  The
+		// FILM-only gate matches libvpx's `recon != NULL` precondition
+		// (vp9_rdopt.c:3515).  The reconstruction buffer here is the most
+		// recently materialised prediction (or, when useResidualScore
+		// fires, the dequantized-residual-summed reconstruction inside
+		// scoreVP9InterModeResidual).  This is the closest analogue
+		// available at this layer to libvpx's `recon` buffer.
+		if filmContent {
+			recVar := e.vp9ReconLumaVariance128(miRow, miCol,
+				scoreW, scoreH)
+			cand.score = e.vp9ApplyRDVarianceAdjustment(cand.score, bsize,
+				rdAdjustSrcVar, recVar, refFrame, vp9dec.NoRefFrame, mode)
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -11849,6 +11896,96 @@ func vp9BlockSourceVariance128(src []byte, srcStride int, srcX, srcY, w, h int) 
 		return 0
 	}
 	return sse - meanSquares
+}
+
+// vp9ReconLumaVariance128 returns the variance of the luma reconstruction
+// plane at (miRow, miCol) over the visible (w, h) window — analogous to
+// libvpx's `vp9_get_sby_variance(cpi, recon, bsize)` call inside
+// rd_variance_adjustment (vp9/encoder/vp9_rdopt.c:3306).  The reconstruction
+// plane is the most recently materialised prediction (and, when the
+// model-RD residue path fires, the dequantized-residual-summed pixels).
+//
+// Returns 0 when the recon plane is unavailable or the window is empty;
+// the variance adjustment is a monotonic penalty so zero degrades to "no
+// adjustment" which is what libvpx's early-return at :3341 produces when
+// src_rec_min lands above LOW_VAR_THRESH.
+func (e *VP9Encoder) vp9ReconLumaVariance128(miRow, miCol, w, h int) uint {
+	if w <= 0 || h <= 0 {
+		return 0
+	}
+	dst, dstStride := e.vp9EncoderReconPlane(0)
+	if len(dst) == 0 || dstStride <= 0 {
+		return 0
+	}
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	dstRows := len(dst) / dstStride
+	if x0+w > dstStride || y0+h > dstRows {
+		return 0
+	}
+	return uint(vp9BlockSourceVariance128(dst, dstStride, x0, y0, w, h))
+}
+
+// vp9SourceLumaVariance128 mirrors libvpx's source-variance call inside
+// rd_variance_adjustment (vp9/encoder/vp9_rdopt.c:3307,
+// `src_variance = vp9_get_sby_variance(cpi, &x->plane[0].src, bsize)`).
+// Returns 0 when the visible window is empty or the source plane is
+// unavailable.
+func (e *VP9Encoder) vp9SourceLumaVariance128(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) uint {
+	if inter == nil {
+		return 0
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	if len(src) == 0 || srcStride <= 0 {
+		return 0
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+		srcW, srcH, srcW, srcH)
+	if !ok {
+		return 0
+	}
+	return uint(vp9BlockSourceVariance128(src, srcStride, x0, y0,
+		scoreW, scoreH))
+}
+
+// vp9ApplyRDVarianceAdjustment is the in-encoder helper that the per-mode
+// picker invokes after the candidate's RDCOST has been finalised.  It
+// preserves the libvpx FILM-only call-site gate (vp9/encoder/vp9_rdopt.c:
+// 3515) so non-FILM contents stay byte-identical to the legacy picker.
+//
+// `score` is the libvpx `this_rd` (RDCOST-folded into uint64 because govpx
+// runs the picker in the unsigned cost domain); the returned uint64 is the
+// adjusted RDCOST, saturated to INT64_MAX on overflow.
+func (e *VP9Encoder) vp9ApplyRDVarianceAdjustment(score uint64,
+	bsize common.BlockSize, srcVar, recVar uint,
+	refFrame, secondRefFrame int8, mode common.PredictionMode,
+) uint64 {
+	thisRD := int64(score)
+	if score > uint64(vp9RDVarianceAdjustmentInfinity) {
+		thisRD = vp9RDVarianceAdjustmentInfinity
+	}
+	adjusted := vp9RDVarianceAdjustment(thisRD,
+		vp9RDVarianceAdjustmentInputs{
+			SrcVariance:      srcVar,
+			RecVariance:      recVar,
+			BSize:            bsize,
+			ContentType:      vp9ContentFilm,
+			Pass2:            e.twoPass.enabled(),
+			GroupNoiseEnergy: 0,
+			RefFrame:         refFrame,
+			SecondRefFrame:   secondRefFrame,
+			ThisMode:         mode,
+		})
+	if adjusted < 0 {
+		return uint64(vp9RDVarianceAdjustmentInfinity)
+	}
+	return uint64(adjusted)
 }
 
 func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,
