@@ -402,7 +402,10 @@ func vp9PickLpfYSSE(src []byte, srcStride int,
 //     vp9_loop_filter_frame_init).
 //  2. Apply Y-only deblock at filtLevel against the reconstructed
 //     luma plane in-place (libvpx vp9_loop_filter_frame(..., y_only=1,
-//     partial_frame)). We use applyVP9LoopFilterPlane(plane=Y).
+//     partial_frame)). For partialFrame=true the deblock is restricted
+//     to mi rows in [vp9PickLpfPartialFrameRows], matching libvpx's
+//     LPF_PICK_FROM_SUBIMAGE partial-frame band (vp9_loopfilter.c:1474-
+//     1481). We use applyVP9LoopFilterPlaneRows(plane=Y, [start, end)).
 //  3. Compute Y-plane SSE between source and the filtered luma over
 //     the visible (Width × Height) window (libvpx vpx_get_y_sse).
 //  4. Restore the unfiltered Y plane from the caller-owned backup so
@@ -456,15 +459,24 @@ func (e *VP9Encoder) vp9PickLpfBuildSSECallback(hdr *vp9dec.UncompressedHeader,
 			frameVOrigin: layout.uvOrigin,
 			lastFrame:    e.reconFrame,
 		}
-		// libvpx: vp9_picklpf.c:54-60 — y_only=1 trial filter.
-		// partial_frame currently always false on the search-driven
-		// path (search_filter_level is invoked with method ==
-		// LPF_PICK_FROM_SUBIMAGE only when partial_frame=true; the
-		// dispatcher exposes that via the partialFrame argument).
-		_ = partialFrame // partial_frame plumbing reserved for future LPF_PICK_FROM_SUBIMAGE.
-		// applyVP9LoopFilterPlane runs the Y-only deblock in-place
-		// against e.reconYFull.
-		if !d.applyVP9LoopFilterPlane(miRows, miCols, vp9LoopFilterPlaneY) {
+		// libvpx: vp9_picklpf.c:54-60 — y_only=1 trial filter. The
+		// partial_frame flag drives vp9_loop_filter_frame to filter
+		// only a central band of mi rows (libvpx vp9_loopfilter.c:1474-
+		// 1481). LPF_PICK_FROM_SUBIMAGE sets partial_frame=1; full-
+		// image picks pass 0. Either way the SSE is scored against
+		// the entire visible Y plane (libvpx vp9_picklpf.c:69 calls
+		// vpx_get_y_sse on the whole frame), so the partial-frame
+		// trial reuses the unfiltered backup outside the filtered
+		// band — the SSE delta vs source remains a valid relative
+		// score across candidate levels.
+		startMiRow, endMiRow := 0, miRows
+		if partialFrame {
+			startMiRow, endMiRow = vp9PickLpfPartialFrameRows(miRows)
+		}
+		// applyVP9LoopFilterPlaneRows runs the Y-only deblock in-place
+		// against e.reconYFull, restricted to [startMiRow, endMiRow).
+		if !d.applyVP9LoopFilterPlaneRows(miRows, miCols,
+			startMiRow, endMiRow, vp9LoopFilterPlaneY) {
 			// Fall back to no-op SSE on a structural failure; the
 			// picker treats a missing entry via ss_err[]<0 as
 			// uninitialised, so returning a sentinel here would
@@ -526,9 +538,17 @@ func (e *VP9Encoder) vp9EncoderRunFullImagePicker(
 	}
 	copy(e.vp9LpfReconYBackup, e.reconYFull[layout.yOrigin:layout.yOrigin+yVisibleLen])
 	sseFn := e.vp9PickLpfBuildSSECallback(hdr, seg, img, e.vp9LpfReconYBackup)
+	// libvpx: vp9_picklpf.c:201 — `method == LPF_PICK_FROM_SUBIMAGE`
+	// is the partial_frame flag fed to search_filter_level. The sub-
+	// image search re-filters only a central mi-row band (libvpx
+	// vp9_loopfilter.c:1474-1481) per trial, halving the deblock cost
+	// of the picker on large frames at the price of a less-accurate
+	// score landscape. LPF_PICK_FROM_FULL_IMAGE keeps the full-frame
+	// trial.
+	partialFrame := method == LpfPickFromSubImage
 	level := uint8(e.vp9PickFilterLevel(method, int(hdr.Quant.BaseQindex),
 		isKey, hdr.Seg.Enabled, int(hdr.Width), int(hdr.Height),
-		txMode, false /* partialFrame */, sseFn))
+		txMode, partialFrame, sseFn))
 	// After the search, the recon Y plane holds the last-trial
 	// unfiltered state (try_filter_frame's final copy-back at
 	// vp9_picklpf.c:73). The caller will run the final
