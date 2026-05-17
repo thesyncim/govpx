@@ -68,31 +68,36 @@ import (
 //     govpx's vp9EncoderFrameTxMode now ports that branch verbatim — the
 //     keyframe writer plumbs the TxModeSelect-shaped tx_probs row via
 //     the existing keyframe-source path (writeVP9ModeBlock:6885+) and
-//     the vp9ModeTreeKeyframe fallback (commit 0dfca64). With the
-//     verbatim TX_MODE_SELECT routing in place the bitstream still
-//     diverges at byte 9 (filter_level=0 govpx vs 12 libvpx) because
-//     govpx's keyframe per-block tx_size decision is pinned to
-//     mi.TxSize = TxModeToBiggestTxSize[txMode] for the whole SB
-//     (prepareVP9KeyframeBlockResidue at vp9_encoder.go:7994 reads
-//     mi.TxSize verbatim, no RD search). libvpx's
-//     vp9_rd_pick_intra_mode_sb (vp9_rdopt.c:3950+) runs a per-block
-//     RD search over Tx32x32/Tx16x16/Tx8x8/Tx4x4 candidates and emits
-//     the picked size per block; the resulting reconstruction differs
-//     and the loop-filter SSE picker
-//     (vp9EncoderRunFullImagePicker -> vp9_picklpf.c) lands on a
-//     different filter_level. With the TX_MODE_SELECT pin lifted the
-//     bitstream length stays ~3724 bytes vs libvpx's ~2726 — the
-//     unblocker is now the missing per-block keyframe tx_size RD
-//     search rather than the writer cascade.
+//     the vp9ModeTreeKeyframe fallback (commit 0dfca64). govpx now also
+//     ports the per-block tx_size RD loop from libvpx's
+//     choose_tx_size_from_rd (vp9_rdopt.c:907-1023) via
+//     pickVP9KeyframeBlockTxSize (vp9_encoder.go), running the libvpx
+//     start_tx/end_tx loop with sf.TxSizeSearchDepth bounds and the
+//     tx_size_search_breakout early-exit on textured residuals.
 //
-//     Closing this seed requires porting libvpx's
-//     vp9_rd_pick_intra_mode_sb (and its tx_size RD search subroutines
-//     super_block_yrd / rd_pick_intra4x4row, vp9_rdopt.c:3950-4250)
-//     into govpx's keyframe per-block picker so cur.TxSize is
-//     RD-optimal rather than capped at MaxTxsizeLookup[bsize]. The
-//     writer plumbing landed in 0dfca64 and the TxMode resolver
-//     verbatim port landed in this commit; both are prerequisites for
-//     the per-block RD search port.
+//     With the per-block RD loop in place the bitstream length on
+//     content-rich panning sources stays at ~3828 bytes vs libvpx's
+//     ~2726 (got_len=3828 want_len=2726 first_diff=9, filter_level=0
+//     govpx vs 12 libvpx). The remaining gap is the RATE PROXY used by
+//     the picker. govpx's keyframe RD scorers (the existing
+//     scoreVP9KeyframeTxBlockRD at vp9_encoder.go:7641 and the new
+//     pickVP9KeyframeBlockTxSize at vp9_encoder.go) approximate the
+//     libvpx coefficient rate via SATD-of-qcoeff scaled into prob-cost
+//     units (`rate <<= 2 + VP9ProbCostShift`). libvpx's cost_coeffs
+//     (vp9_rdopt.c:358-470) uses the full per-token entropy walk via
+//     x->token_costs[tx_size][type][is_inter] (computed from the
+//     pareto8 tables via vp9_get_token_cost). The SATD proxy
+//     underestimates the larger-tx coef rate so the picker can
+//     occasionally pick a smaller tx where libvpx picks the larger.
+//
+//     Closing this seed requires porting libvpx's cost_coeffs
+//     (vp9_rdopt.c:358) into govpx's pickVP9KeyframeBlockTxSize rate
+//     leg so the RD comparison uses byte-exact libvpx rates. The
+//     choose_tx_size_from_rd loop body (vp9_rdopt.c:907-1023) is
+//     already verbatim in govpx; only the coefficient-cost proxy needs
+//     replacing. Once cost_coeffs lands, the bitstream length should
+//     converge with libvpx's ~2726 and the LPF picker's filter_level
+//     pick should also converge.
 //
 //   - {0,1,1,0,2,1,0,0} — 64x64 frames=6 cpu=-3 (abs=3). Same KEY_FRAME
 //     per-block tx_size RD-search gap as #0 (vp9_rdopt.c:3950+);
@@ -157,18 +162,18 @@ import (
 //     materialises identically to baseline seed #0
 //     {0,0,0,0,0,0,0,0}: w=64 h=64 frames=4 cpu=0 flags=[0,0,0,0]. Frame 0
 //     KF diverges at byte 9 (filter_level=0 govpx vs 12 libvpx). Current
-//     observed delta with the verbatim TX_MODE_SELECT routing in place:
-//     got_len=3724 want_len=2726 first_diff=9. The filter_level=0 vs 12
-//     difference reflects the keyframe per-block tx_size RD-search gap
-//     described under seed #0 (vp9_rdopt.c:3950+ vp9_rd_pick_intra_mode_sb
-//     unported in govpx — mi.TxSize is pinned at MaxTxsizeLookup[bsize]
-//     for the whole SB by prepareVP9KeyframeBlockResidue), not the
-//     speed-features cascade — the RT/GOOD cpu_used=0 cascade IS
-//     verbatim per TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim and
-//     TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim, and the upstream
-//     TX_MODE_SELECT routing is now also verbatim. Same handoff as
-//     seed #0 (per-block keyframe tx_size RD search); do NOT close this
-//     entry until #0 closes.
+//     observed delta with the per-block tx_size RD loop in place:
+//     got_len=3828 want_len=2726 first_diff=9. The filter_level=0 vs 12
+//     difference reflects the cost_coeffs rate-proxy gap described
+//     under seed #0 (govpx's SATD proxy underestimates the larger-tx
+//     rate; libvpx's cost_coeffs at vp9_rdopt.c:358 needs porting). The
+//     RT/GOOD cpu_used=0 SPEED_FEATURES cascade IS verbatim per
+//     TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim and
+//     TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim; the upstream
+//     TX_MODE_SELECT routing is also verbatim; and the per-block tx_size
+//     loop (choose_tx_size_from_rd) is verbatim — only the rate proxy
+//     remains. Same handoff as seed #0 (cost_coeffs rate port); do NOT
+//     close this entry until #0 closes.
 //
 //   - {0x31} (single ASCII '1', from testdata/fuzz/
 //     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
