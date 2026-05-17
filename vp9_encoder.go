@@ -5573,17 +5573,17 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 // keyframes at speed >= 6. libvpx unconditionally sets
 // `sf->partition_search_type = VAR_BASED_PARTITION` at speed 6+
 // (vp9/encoder/vp9_speed_features.c:667) and at speed 4 keyframe path
-// (vp9_speed_features.c:582). The gate is NOT rc_mode-specific; libvpx fires
+// (vp9_speed_features.c:582). The gate is NOT rc_mode-specific, NOT gated on
+// drop-frame-allowed, and NOT gated on a fixed public quantizer; libvpx fires
 // choose_partitioning at every keyframe whose `partition_search_type` is
-// VAR_BASED_PARTITION regardless of VPX_CBR / VPX_VBR / VPX_CQ
+// VAR_BASED_PARTITION regardless of VPX_CBR / VPX_VBR / VPX_CQ / VPX_Q
 // (vp9_encodeframe.c:5304-5311 dispatches on partition_search_type alone).
 //
 // libvpx: vp9/encoder/vp9_speed_features.c:582 / :667, vp9_encodeframe.c:5304.
 func (e *VP9Encoder) vp9CBRKeyframeVariancePartitionEnabled(key *vp9KeyframeEncodeState) bool {
 	return key != nil && key.dq != nil && key.hdr != nil &&
 		key.hdr.FrameType == common.KeyFrame && !key.lossless &&
-		e.rc.enabled && e.vp9RealtimeVariancePartitionEnabled() &&
-		!e.vp9FixedPublicQuantizer()
+		e.rc.enabled && e.vp9RealtimeVariancePartitionEnabled()
 }
 
 func vp9KeyframeVariancePartitionThreshold(yAcDequant int16, bsize common.BlockSize) uint64 {
@@ -6200,16 +6200,23 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 // vp9CBRVariancePartitionEnabled mirrors libvpx's choose_partitioning gate
 // for inter frames. libvpx dispatches via partition_search_type ==
 // VAR_BASED_PARTITION (vp9/encoder/vp9_encodeframe.c:5304-5311); the gate is
-// NOT rc_mode-specific and is NOT gated on drop-frame-allowed. At speed >= 6
-// (vp9_speed_features.c:667) the configurator sets the type unconditionally.
+// NOT rc_mode-specific, NOT gated on drop-frame-allowed, and NOT gated on a
+// fixed public quantizer. At speed >= 6 (vp9_speed_features.c:667) the
+// configurator sets the type unconditionally regardless of VPX_CBR / VPX_VBR
+// / VPX_CQ / VPX_Q. The dispatch is purely on partition_search_type. The
+// !vp9FixedPublicQuantizer() predicate was previously here but has no libvpx
+// counterpart and is removed for verbatim-libvpx faithfulness; the remaining
+// predicates (inter != nil, dq != nil, !lossless, rc.enabled, RealtimeVar)
+// guard the govpx-internal preconditions that vp9EnsureSBPartitionChosen
+// inherits from libvpx's xd->dq / cm->frame_type / encode-state lifecycle.
 //
-// libvpx: vp9/encoder/vp9_speed_features.c:667, vp9_encodeframe.c:5304.
+// libvpx: vp9/encoder/vp9_speed_features.c:667, vp9_encodeframe.c:5304-5311.
 func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) bool {
 	if inter == nil || inter.dq == nil || inter.lossless ||
 		!e.rc.enabled || !e.vp9RealtimeVariancePartitionEnabled() {
 		return false
 	}
-	return !e.vp9FixedPublicQuantizer()
+	return true
 }
 
 // vp9VarianceAQRateControlFixedQ reports whether the rate-control

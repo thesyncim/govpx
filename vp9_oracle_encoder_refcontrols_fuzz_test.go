@@ -108,22 +108,40 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// Residual divergence (inter frames only) under
 	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1: 100-900 byte deltas at
 	// bytes 4/8/9 across frames 1-7. This residual is NOT in the
-	// verbatim choose_partitioning port — for the Q-mode
-	// (RateControlQ) fuzz fixture vp9CBRVariancePartitionEnabled
-	// returns false (via vp9FixedPublicQuantizer), so the inter
-	// picker bypasses vp9EnsureSBPartitionChosen entirely and
-	// threads through the legacy
-	// pickVP9CBRVariancePartitionBlockSize variance pre-check.
-	// Closing the inter residual requires (a) widening the inter
-	// gate to fire on Q-mode (matches libvpx's rc-mode-agnostic
-	// VAR_BASED_PARTITION dispatch at vp9_encodeframe.c:5304-5311),
-	// and (b) porting the low_res int_pro motion search through a
-	// per-encoder border-padded LAST plane (libvpx
-	// vp9_encodeframe.c:1455-1497, requires
-	// VP9_ENC_BORDER_IN_PIXELS = 32 of padding around the visible
-	// plane for the integral-projection 1-D search at refOff -
-	// (bw>>1)). The keyframe path is now byte-exact and serves as
-	// the substrate for the inter-frame widening follow-up.
+	// verbatim choose_partitioning port. Diagnosis (task #91): the
+	// inter gate vp9CBRVariancePartitionEnabled has been audited
+	// and made libvpx-faithful — the !vp9FixedPublicQuantizer()
+	// predicate was removed (libvpx's dispatch at
+	// vp9_encodeframe.c:5304-5311 is purely on partition_search_type
+	// == VAR_BASED_PARTITION; no fixed-Q predicate). That change
+	// produced ZERO observable effect on these seeds because for
+	// the fuzz fixture (MinQuantizer=4, MaxQuantizer=56)
+	// vp9FixedPublicQuantizer() was already returning false.
+	//
+	// The actual blocker is structural: at cpu_used=8 with
+	// w*h <= 352*288 (the 64x64 fuzz fixture), the speed-feature
+	// configurator sets sf->nonrd_use_ml_partition = 1 at
+	// libvpx vp9_speed_features.c:762-764, which then overrides
+	// sf->partition_search_type = ML_BASED_PARTITION at
+	// vp9_speed_features.c:825-826. libvpx itself does NOT call
+	// vp9_choose_partitioning for these inter frames; it dispatches
+	// through case ML_BASED_PARTITION (vp9_encodeframe.c:5313-5321)
+	// which runs get_estimated_pred + nonrd_pick_partition. govpx's
+	// verbatim vp9_choose_partitioning port (vp9EnsureSBPartitionChosen)
+	// is therefore correctly skipped for these inter frames; the
+	// gate predicate vp9RealtimeVariancePartitionEnabled() returns
+	// false because e.sf.PartitionSearchType == MlBasedPartition,
+	// which matches libvpx's behaviour exactly.
+	//
+	// Closing the residual requires porting libvpx's
+	// nonrd_pick_partition (vp9_encodeframe.c:4598-4900) so the
+	// ML_BASED_PARTITION dispatch produces a byte-exact partition
+	// tree. Phase B already landed get_estimated_pred at commit
+	// 7d09b05 and the ML predictor lives in vp9NonrdPickPartition
+	// (vp9_nonrd_pick_partition.go:529); a full port of the
+	// recursive RD partition-search body is the remaining work.
+	// The keyframe path is byte-exact and remains the substrate
+	// for the inter-frame follow-up.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
