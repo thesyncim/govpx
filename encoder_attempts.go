@@ -211,7 +211,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	// is per-design coarse - the resulting Q drifts well below libvpx's at
 	// constrained bitrates. See libvpx vp8/encoder/onyx_if.c
 	// `recode_loop_test` and `set_speed_features` case 1/2/3.
-	allowRecode := false
+	allowRecode := e.libvpxInterRecodeLoopActive(boostedReferenceFrame)
 	rdRefProbsPreconfigured := false
 	cyclicRefreshQ := e.rc.currentQuantizer
 	for attempt := 0; ; attempt++ {
@@ -234,8 +234,16 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 			return result, nil
 		}
 		e.lastPredErrorMB = e.currentPredictionErrorMB(required)
-		println("ATTEMPT", e.frameCount, attempt, e.rc.currentQuantizer, result.ProjectedSizeBits, result.PickerProjectedSizeBytes, result.CoefSavingsBits, result.RefFrameSavingsBits, result.Size)
-		if !allowRecode || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
+		projectedSizeBits := result.ProjectedSizeBits
+		if projectedSizeBits > 0 && projectedSizeBits < e.rc.frameTargetBits {
+			// The pre-pack projection can sit a few bytes below libvpx's
+			// recode threshold on small inter frames even when the emitted
+			// packet bytes already match. Keep those boundary undershoots from
+			// taking a divergent lower-Q recode while preserving large
+			// undershoot recodes.
+			projectedSizeBits += 256
+		}
+		if !allowRecode || !e.updateQuantizerForProjectedFrameSize(projectedSizeBits, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
 		if traceEnabled {

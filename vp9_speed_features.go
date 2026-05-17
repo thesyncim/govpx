@@ -707,11 +707,11 @@ func (e *VP9Encoder) vp9PerFrameSpeedContext(args vp9PerFrameSpeedContextArgs) v
 		// govpx does not run libvpx's internal dynamic-resize loop, so
 		// cpi->resize_state == ORIG always.
 		resizeStateOrig: true,
-		// govpx's rate-control state does not surface disable_overshoot_maxq_cbr;
-		// treat as 0 so libvpx's overshoot detection gate engages whenever the
-		// other conditions match. libvpx itself defaults the flag to 0.
+		// Mirror VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR into the per-frame
+		// speed-feature context so overshoot-detection speed gates see the
+		// same runtime bit as rate control.
 		// libvpx: vp9_ratectrl.h rc->disable_overshoot_maxq_cbr.
-		disableOvershootMaxqCbr: false,
+		disableOvershootMaxqCbr: e.rc.disableOvershootMaxQCBR,
 	}
 	return ctx
 }

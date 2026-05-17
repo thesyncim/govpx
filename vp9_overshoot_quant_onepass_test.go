@@ -42,6 +42,10 @@ func TestVP9SetDisableOvershootMaxQCBRAppliesInCBR(t *testing.T) {
 		t.Fatalf("opts=%v rc=%v, want both true",
 			e.opts.DisableOvershootMaxQCBR, e.rc.disableOvershootMaxQCBR)
 	}
+	ctx := e.vp9PerFrameSpeedContext(vp9PerFrameSpeedContextArgs{})
+	if !ctx.disableOvershootMaxqCbr {
+		t.Fatal("speed-feature context did not inherit DisableOvershootMaxQCBR")
+	}
 }
 
 func TestVP9DisableOvershootMaxQCBRSuppressesWorstQClamp(t *testing.T) {

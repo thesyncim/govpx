@@ -69,6 +69,7 @@ func (e *VP9Encoder) vp9LookaheadSize() int {
 }
 
 func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
+	flags = normalizeVP9EncodeFlags(flags)
 	if err := validateVP9EncodeFlags(flags); err != nil {
 		return VP9EncodeResult{}, err
 	}
@@ -120,6 +121,7 @@ func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst
 func (e *VP9Encoder) vp9LookaheadEmitFlags(callerFlags EncodeFlags) (EncodeFlags, temporalFrame) {
 	tFrame := e.temporal.nextFrame(e.vp9TimingState())
 	flags := callerFlags | tFrame.Flags
+	flags = normalizeVP9EncodeFlags(flags)
 	if e.vp9ShouldEncodeKeyFrame(flags) {
 		flags &^= (tFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}

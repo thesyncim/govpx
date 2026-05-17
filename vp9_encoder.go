@@ -2268,6 +2268,7 @@ func (e *VP9Encoder) EncodeIntoWithFlagsResult(img *image.YCbCr, dst []byte, fla
 	callerFlags := flags
 	temporalFrame := e.temporal.nextFrame(e.vp9TimingState())
 	flags |= temporalFrame.Flags
+	flags = normalizeVP9EncodeFlags(flags)
 	if e.vp9ShouldEncodeKeyFrame(flags) {
 		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}
@@ -2297,6 +2298,7 @@ func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, ds
 		temporalFlags &^= EncodeForceKeyFrame
 	}
 	flags |= temporalFlags
+	flags = normalizeVP9EncodeFlags(flags)
 	if !useInterLayerReference && e.vp9ShouldEncodeKeyFrame(flags) {
 		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}
@@ -2314,6 +2316,7 @@ func (e *VP9Encoder) encodeVP9SpatialSVCBaseIntoWithFlagsResult(img *image.YCbCr
 		temporalFlags |= EncodeNoUpdateGolden
 	}
 	flags |= temporalFlags
+	flags = normalizeVP9EncodeFlags(flags)
 	if e.vp9ShouldEncodeKeyFrame(flags) {
 		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}
@@ -2340,6 +2343,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if e == nil || e.closed {
 		return VP9EncodeResult{}, ErrClosed
 	}
+	flags = normalizeVP9EncodeFlags(flags)
 	if err := validateVP9EncodeFlags(flags); err != nil {
 		return VP9EncodeResult{}, err
 	}
@@ -3254,6 +3258,7 @@ func vp9AllInterReferencesDisabled(flags EncodeFlags) bool {
 }
 
 func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
+	flags = normalizeVP9EncodeFlags(flags)
 	if flags&vp9ExternalRefreshCtlFlags == 0 {
 		return 1 << vp9LastRefSlot
 	}
@@ -3353,10 +3358,21 @@ func vp9EncoderReferenceSlot(refFrame int8) (int, bool) {
 }
 
 func validateVP9EncodeFlags(flags EncodeFlags) error {
+	flags = normalizeVP9EncodeFlags(flags)
 	if err := validateEncodeFlags(flags); err != nil {
 		return err
 	}
 	return nil
+}
+
+func normalizeVP9EncodeFlags(flags EncodeFlags) EncodeFlags {
+	if flags&EncodeForceGoldenFrame != 0 {
+		flags &^= EncodeNoUpdateGolden
+	}
+	if flags&EncodeForceAltRefFrame != 0 {
+		flags &^= EncodeNoUpdateAltRef
+	}
+	return flags
 }
 
 func (e *VP9Encoder) vp9ShouldEncodeKeyFrame(flags EncodeFlags) bool {
@@ -10169,7 +10185,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 		for ref := range 2 {
 			inter.ref = &e.refFrames[refSlot[ref]]
 			newMv[ref], _, newOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
-				miRow, miCol, bsize, refFrame[ref])
+				miRow, miCol, bsize, refFrame[ref], vp9InterMvSearchOptions{})
 			if !newOK {
 				break
 			}
@@ -10483,8 +10499,22 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrame int8,
 ) (vp9dec.MV, uint64, bool) {
+	return e.pickVP9InterMvWithOptions(inter, miRows, miCols, miRow, miCol,
+		bsize, refFrame, vp9InterMvSearchOptions{})
+}
+
+type vp9InterMvSearchOptions struct {
+	seed      vp9dec.MV
+	seedValid bool
+}
+
+func (e *VP9Encoder) pickVP9InterMvWithOptions(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, refFrame int8,
+	opts vp9InterMvSearchOptions,
+) (vp9dec.MV, uint64, bool) {
 	mv, score, ok := e.pickVP9InterMvAllowZero(inter, miRows, miCols,
-		miRow, miCol, bsize, refFrame)
+		miRow, miCol, bsize, refFrame, opts)
 	if !ok || mv == (vp9dec.MV{}) {
 		return vp9dec.MV{}, score, false
 	}
@@ -10531,6 +10561,7 @@ func (e *VP9Encoder) scoreVP9InterModeResidual(inter *vp9InterEncodeState,
 func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrame int8,
+	opts vp9InterMvSearchOptions,
 ) (vp9dec.MV, uint64, bool) {
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return vp9dec.MV{}, 0, false
@@ -10555,6 +10586,8 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	bestScore := vp9BlockSAD(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH, ^uint64(0))
 	bestDx, bestDy := 0, 0
+	searchCenterDx, searchCenterDy := 0, 0
+	searchFromSeed := false
 	eval := func(dx, dy int) bool {
 		if dx == bestDx && dy == bestDy {
 			return false
@@ -10573,6 +10606,15 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			return true
 		}
 		return false
+	}
+	if opts.seedValid {
+		seedDx := int(opts.seed.Col) >> 3
+		seedDy := int(opts.seed.Row) >> 3
+		if eval(seedDx, seedDy) {
+			searchCenterDx = seedDx
+			searchCenterDy = seedDy
+			searchFromSeed = true
+		}
 	}
 
 	// MV-hint biasing: when a multi-resolution lower-resolution layer
@@ -10593,7 +10635,10 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	searchRadius := e.vp9InterSearchRadius()
 	if refFrame == vp9dec.LastFrame {
 		if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
-			eval(hintDx, hintDy)
+			if eval(hintDx, hintDy) && searchFromSeed {
+				searchCenterDx = hintDx
+				searchCenterDy = hintDy
+			}
 			// Widen the search radius so the refinement loop can
 			// walk a small fan around the hint when it wins.
 			absDx := hintDx
@@ -10633,8 +10678,16 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
 		minStep = 2
 	}
-	for dy := -searchRadius; dy <= searchRadius; dy += coarseStep {
-		for dx := -searchRadius; dx <= searchRadius; dx += coarseStep {
+	scanMinDx, scanMaxDx := -searchRadius, searchRadius
+	scanMinDy, scanMaxDy := -searchRadius, searchRadius
+	if searchFromSeed {
+		scanMinDx = searchCenterDx - searchRadius
+		scanMaxDx = searchCenterDx + searchRadius
+		scanMinDy = searchCenterDy - searchRadius
+		scanMaxDy = searchCenterDy + searchRadius
+	}
+	for dy := scanMinDy; dy <= scanMaxDy; dy += coarseStep {
+		for dx := scanMinDx; dx <= scanMaxDx; dx += coarseStep {
 			eval(dx, dy)
 		}
 	}
@@ -10645,8 +10698,8 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			centerDx, centerDy := bestDx, bestDy
 			for dy := centerDy - step; dy <= centerDy+step; dy += step {
 				for dx := centerDx - step; dx <= centerDx+step; dx += step {
-					if dx < -searchRadius || dx > searchRadius ||
-						dy < -searchRadius || dy > searchRadius {
+					if dx < scanMinDx || dx > scanMaxDx ||
+						dy < scanMinDy || dy > scanMaxDy {
 						continue
 					}
 					if eval(dx, dy) {

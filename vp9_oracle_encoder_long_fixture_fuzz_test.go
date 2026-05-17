@@ -103,7 +103,7 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 		{0, 1, 1, 0, 1}, // CBR 700kbps kf=30
 		{1, 0, 0, 0, 0}, // VBR 300kbps kf=999
 		{1, 1, 1, 1, 0}, // VBR 700kbps kf=30 good
-		{0, 2, 0, 0, 2}, // CBR 1200kbps cpu4
+		{0, 2, 0, 0, 2}, // CBR 1200kbps cpu0
 	}
 	for _, seed := range seeds {
 		f.Add(seed)

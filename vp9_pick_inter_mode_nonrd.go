@@ -281,6 +281,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	var predMvSad [vp9dec.MaxRefFrames]uint64
 	var mvBestRefIndex [vp9dec.MaxRefFrames]int
 	var maxMvContext [vp9dec.MaxRefFrames]int
+	var mvPredSearchSeed [vp9dec.MaxRefFrames]vp9dec.MV
+	var mvPredSearchSeedValid [vp9dec.MaxRefFrames]bool
 	for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
 		// libvpx: vp9_pickmode.c:1278 — x->pred_mv_sad[ref] = INT_MAX
 		// (find_predictors precondition); govpx mirrors with the widened
@@ -347,6 +349,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						predMvSad[r] = result.bestSad
 						mvBestRefIndex[r] = result.bestIndex
 						maxMvContext[r] = result.maxMvContext
+						if result.bestIndex >= 0 &&
+							result.bestIndex < len(candidates) &&
+							candidates[result.bestIndex].valid {
+							mvPredSearchSeed[r] = candidates[result.bestIndex].mv
+							mvPredSearchSeedValid[r] = true
+						}
 					}
 				} else {
 					// Legacy (0,0)-offset SAD approximation.
@@ -508,8 +516,19 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		var mv vp9dec.MV
 		var refMv vp9dec.MV
 		if thisMode == common.NewMv {
-			gotMv, _, ok := e.pickVP9InterMv(inter, miRows, miCols,
-				miRow, miCol, bsize, refFrame)
+			var gotMv vp9dec.MV
+			var ok bool
+			if useMvPredCandidateSet && mvPredSearchSeedValid[refFrame] {
+				gotMv, _, ok = e.pickVP9InterMvWithOptions(inter, miRows, miCols,
+					miRow, miCol, bsize, refFrame,
+					vp9InterMvSearchOptions{
+						seed:      mvPredSearchSeed[refFrame],
+						seedValid: true,
+					})
+			} else {
+				gotMv, _, ok = e.pickVP9InterMv(inter, miRows, miCols,
+					miRow, miCol, bsize, refFrame)
+			}
 			if !ok {
 				continue
 			}

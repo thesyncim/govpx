@@ -6,6 +6,7 @@ import (
 	"errors"
 	"image"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -20,6 +21,26 @@ const (
 	vp9EncoderKeyframeAllocRuns = 10
 	vp9EncoderInterAllocRuns    = 3
 )
+
+func vp9SteadyStateAllocsPerRun(warmRuns int, runs int, f func()) float64 {
+	if runs <= 0 {
+		return 0
+	}
+	oldProcs := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(oldProcs)
+	runtime.GC()
+	for range warmRuns {
+		f()
+	}
+	var before runtime.MemStats
+	var after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range runs {
+		f()
+	}
+	runtime.ReadMemStats(&after)
+	return float64(after.Mallocs-before.Mallocs) / float64(runs)
+}
 
 func newVP9YCbCrForTest(width, height int, y, u, v byte) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
@@ -3783,6 +3804,42 @@ func TestVP9EncoderInterPicksNewMvForTranslatedBlock(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterMvSearchUsesMvPredSeedAsCenter(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST reference was not refreshed by keyframe")
+	}
+
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 24, 0)
+	inter := &vp9InterEncodeState{
+		img:     interSrc,
+		ref:     &e.refFrames[0],
+		allowHP: true,
+	}
+	e.sf.Mv.SearchMethod = SearchMethodFastDiamond
+	got, _, ok := e.pickVP9InterMvWithOptions(inter, 8, 16,
+		0, 0, common.Block64x64, vp9dec.LastFrame,
+		vp9InterMvSearchOptions{
+			seed:      vp9dec.MV{Col: 24 * 8},
+			seedValid: true,
+		})
+	if !ok {
+		t.Fatal("seeded NEWMV search returned !ok")
+	}
+	want := vp9dec.MV{Col: 24 * 8}
+	if got != want {
+		t.Fatalf("seeded NEWMV = %+v, want %+v", got, want)
+	}
+}
+
 func TestVP9EncoderInterPicksNewMvFor16x8Block(t *testing.T) {
 	const (
 		width  = 32
@@ -6311,6 +6368,57 @@ func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T)
 	}
 }
 
+func TestVP9EncoderEncodeIntoWithFlagsForceClearsSameSlotNoUpdate(t *testing.T) {
+	const width, height = 64, 64
+	tests := []struct {
+		name        string
+		flags       EncodeFlags
+		wantRefresh uint8
+		wantSlot    int
+	}{
+		{
+			name:        "golden",
+			flags:       EncodeForceGoldenFrame | EncodeNoUpdateGolden | EncodeNoUpdateLast,
+			wantRefresh: 0x06,
+			wantSlot:    vp9GoldenRefSlot,
+		},
+		{
+			name:        "altref",
+			flags:       EncodeForceAltRefFrame | EncodeNoUpdateAltRef | EncodeNoUpdateGolden,
+			wantRefresh: 0x05,
+			wantSlot:    vp9AltRefSlot,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+			keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+			if _, err := e.Encode(keySrc); err != nil {
+				t.Fatalf("Encode keyframe: %v", err)
+			}
+			keyRefY := e.refFrames[tt.wantSlot].img.Y[0]
+
+			interSrc := newVP9YCbCrForTest(width, height, 196, 96, 224)
+			packet, err := e.EncodeWithFlags(interSrc, tt.flags)
+			if err != nil {
+				t.Fatalf("EncodeWithFlags(%#x): %v", tt.flags, err)
+			}
+			info, err := PeekVP9StreamInfo(packet)
+			if err != nil {
+				t.Fatalf("PeekVP9StreamInfo: %v", err)
+			}
+			if info.RefreshFrameFlags != tt.wantRefresh {
+				t.Fatalf("RefreshFrameFlags = %#x, want %#x", info.RefreshFrameFlags,
+					tt.wantRefresh)
+			}
+			if got := e.refFrames[tt.wantSlot].img.Y[0]; got == keyRefY {
+				t.Fatalf("forced reference slot %d still has keyframe value %d",
+					tt.wantSlot, got)
+			}
+		})
+	}
+}
+
 func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -6837,8 +6945,6 @@ func TestVP9EncoderEncodeIntoWithFlagsRejectsUnsupportedFlags(t *testing.T) {
 	dst := make([]byte, 65536)
 	for _, flags := range []EncodeFlags{
 		EncodeNoUpdateLast,
-		EncodeForceGoldenFrame | EncodeNoUpdateGolden,
-		EncodeForceAltRefFrame | EncodeNoUpdateAltRef,
 	} {
 		if _, err := e.EncodeIntoWithFlags(src, dst, flags); !errors.Is(err, ErrInvalidConfig) {
 			t.Fatalf("flags %#x err = %v, want ErrInvalidConfig", flags, err)
@@ -8211,8 +8317,8 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 				tc.before(t, e)
 			}
 			dst := make([]byte, dstSize)
-			for i := range frames {
-				if _, err := e.EncodeInto(frames[i], dst); err != nil {
+			for i := range len(frames) * 8 {
+				if _, err := e.EncodeInto(frames[i%len(frames)], dst); err != nil {
 					t.Fatalf("warm EncodeInto[%d]: %v", i, err)
 				}
 			}
@@ -8224,15 +8330,23 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 					got, want)
 			}
 			idx := 0
-			allocs := testing.AllocsPerRun(1, func() {
+			allocs := vp9SteadyStateAllocsPerRun(len(frames)*4, len(frames)*2, func() {
 				frame := frames[idx%len(frames)]
 				idx++
 				if _, err := e.EncodeInto(frame, dst); err != nil {
 					t.Fatalf("EncodeInto threaded feature alloc run: %v", err)
 				}
 			})
-			if allocs != 0 {
-				t.Fatalf("threaded feature path steady-state allocs = %f, want 0", allocs)
+			wantMaxAllocs := 0.0
+			if govpxPuregoBuild {
+				// The scalar VP9 convolve fallback uses sync.Pool scratch. With
+				// the fixed-P measurement window above this normally stays warm,
+				// but keep one refill of headroom for the fallback path.
+				wantMaxAllocs = 1
+			}
+			if allocs > wantMaxAllocs {
+				t.Fatalf("threaded feature path steady-state allocs = %f, want <= %f",
+					allocs, wantMaxAllocs)
 			}
 			for i := 0; i < e.vp9TilePool.workerCount; i++ {
 				if e.vp9TilePool.encodeJobs[i].size <= 0 {
