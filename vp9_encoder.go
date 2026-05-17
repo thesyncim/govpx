@@ -8005,11 +8005,14 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	acThr := e.vp9InterCalculateTxAcThr(inter, segmentID)
 	// residualVar derived from the same sse/sum-of-differences as
 	// vp9InterCalculateTxLimitTx so the screen-content force uses the
-	// same variance the libvpx model_rd_for_sb_y feeds calculate_tx_size.
-	_, residualVarZero, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+	// same variance the libvpx model_rd_for_sb_y feeds calculate_tx_size
+	// (vp9_pickmode.c:668). residualVar == 0 retains the prior limit_tx
+	// semantics; the full uint64 value now feeds the (var >> 5) > ac_thr
+	// screen-content Tx4x4 force at vp9_pickmode.c:386-388.
+	_, residualVar, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
 		miCol, bsize, sse)
 	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
-		return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVarZero, acThr,
+		return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVar, acThr,
 			limitTx, segmentID)
 	}
 	if sse <= pixels*512 || activity <= pixels*16 {
@@ -8019,14 +8022,14 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		// running the score-based RDO. For limit_tx=1 the libvpx
 		// Tx16x16 cap still applies.
 		if !limitTx {
-			return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVarZero,
+			return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVar,
 				acThr, limitTx, segmentID)
 		}
 		// The realtime oracle keeps smooth changed inter blocks below
 		// 32x32, while still allowing textured residuals to use the
 		// scored Tx32 path below.
 		tx := min(maxTx, common.Tx16x16)
-		return e.vp9InterTxApplyForces(tx, bsize, sse, residualVarZero, acThr,
+		return e.vp9InterTxApplyForces(tx, bsize, sse, residualVar, acThr,
 			limitTx, segmentID)
 	}
 	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, bsize)
@@ -8066,13 +8069,14 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		}
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
-	return e.vp9InterTxApplyForces(bestTx, bsize, sse, residualVarZero, acThr,
+	return e.vp9InterTxApplyForces(bestTx, bsize, sse, residualVar, acThr,
 		limitTx, segmentID)
 }
 
 // vp9InterTxApplyForces folds in the libvpx-verbatim boosted-segment
 // Tx8x8 force from vp9/encoder/vp9_pickmode.c:380-384 (inside
-// calculate_tx_size) on top of govpx's score-based picker output.
+// calculate_tx_size) plus the VP9E_CONTENT_SCREEN Tx4x4 force at
+// vp9_pickmode.c:386-388 on top of govpx's score-based picker output.
 // libvpx evaluates:
 //
 //	if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ && limit_tx &&
@@ -8080,34 +8084,41 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 //	  tx_size = TX_8X8;
 //	else if (tx_size > TX_16X16 && limit_tx)
 //	  tx_size = TX_16X16;
+//	// For screen-content force 4X4 tx_size over 8X8, for large variance.
+//	if (cpi->oxcf.content == VP9E_CONTENT_SCREEN && tx_size == TX_8X8 &&
+//	    bsize <= BLOCK_16X16 && ((var >> 5) > (unsigned int)ac_thr))
+//	  tx_size = TX_4X4;
 //
-// The follow-on screen-content Tx4x4 force at vp9_pickmode.c:386-388
-// (`(var >> 5) > ac_thr`) requires the residual variance value from
-// model_rd_for_sb_y; govpx currently surfaces only residualVarZero
-// (var == 0 ⇔ (var >> 5) == 0), which would never fire the libvpx
-// force. The force is therefore deferred until the residualVar plumb
-// lands. The acThr / residualVarZero parameters are accepted now so
-// the wire is in place when the force is enabled.
+// residualVar mirrors the libvpx `var` passed to calculate_tx_size by
+// model_rd_for_sb_y at vp9_pickmode.c:668 — the same residual variance
+// computed in vp9InterTxSourceAndResidualVar via
+// sse - ((sum*sum) >> (bw+bh+4)).
 func (e *VP9Encoder) vp9InterTxApplyForces(tx common.TxSize, bsize common.BlockSize,
-	sse uint64, residualVarZero bool, acThr int64, limitTx bool, segmentID uint8,
+	sse uint64, residualVar uint64, acThr int64, limitTx bool, segmentID uint8,
 ) common.TxSize {
-	_ = bsize
 	_ = sse
-	_ = residualVarZero
-	_ = acThr
 	if e == nil {
 		return tx
 	}
 	// Boosted-segment Tx8x8 force (vp9_pickmode.c:380-382).
 	if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
 		vp9CyclicRefreshSegmentIDBoosted(segmentID) {
-		return common.Tx8x8
-	}
-	// Tx16x16 cap (vp9_pickmode.c:383-384) — kept for parity even
-	// though govpx already caps Tx16x16 in the picker; libvpx's helper
-	// applies the cap unconditionally here.
-	if tx > common.Tx16x16 && limitTx {
+		tx = common.Tx8x8
+	} else if tx > common.Tx16x16 && limitTx {
+		// Tx16x16 cap (vp9_pickmode.c:383-384) — kept for parity even
+		// though govpx already caps Tx16x16 in the picker; libvpx's
+		// helper applies the cap unconditionally here.
 		tx = common.Tx16x16
+	}
+	// Screen-content Tx4x4 force (vp9_pickmode.c:386-388). libvpx gates
+	// the force on (var >> 5) > (unsigned int)ac_thr — acThr is
+	// signed-int64 in govpx; cast through uint64 mirrors the libvpx
+	// unsigned compare. acThr <= 0 disables the force (govpx returns
+	// acThr == 0 when the quantizer plumbing is unavailable).
+	if e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
+		tx == common.Tx8x8 && bsize <= common.Block16x16 &&
+		acThr > 0 && (residualVar>>5) > uint64(acThr) {
+		tx = common.Tx4x4
 	}
 	return tx
 }
@@ -8185,36 +8196,39 @@ func (e *VP9Encoder) vp9InterCalculateTxLimitTx(inter *vp9InterEncodeState,
 		// CYCLIC_REFRESH_AQ.
 		return true
 	}
-	srcVar, residVarZero, ok := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+	srcVar, residVar, ok := e.vp9InterTxSourceAndResidualVar(inter, miRow,
 		miCol, bsize, sse)
 	if !ok {
 		return true
 	}
 	// var_thresh = 1 for is_intra=0; var < 1 ⇔ var == 0 since var is
 	// unsigned. source_variance == 0 || var == 0 toggles limit_tx to 0.
-	if srcVar == 0 || residVarZero {
+	if srcVar == 0 || residVar == 0 {
 		return false
 	}
 	return true
 }
 
 // vp9InterTxSourceAndResidualVar returns the libvpx source_variance
-// (block luma variance about its mean) and a residualVarZero flag set
-// when the residual variance computed as
-// sse - ((sum_diff*sum_diff) >> (bw+bh+4)) equals zero. The bw/bh
-// shift mirrors libvpx vp9_pickmode.c:481, which divides sum_sqr by
-// the pixel count (4<<bw * 4<<bh = 16 << (bw+bh)) using a fixed
-// right-shift.
+// (block luma variance about its mean) and the residual variance
+// computed as `sse - ((sum_diff*sum_diff) >> (bw+bh+4))`. The bw/bh
+// shift mirrors libvpx vp9_pickmode.c:481 / vpx_dsp variance.c
+// variance(), which divides sum_sqr by the pixel count (4<<bw * 4<<bh
+// = 16 << (bw+bh)) using a fixed right-shift. residualVar equals the
+// libvpx `var` value model_rd_for_sb_y passes into calculate_tx_size
+// at vp9_pickmode.c:668 — both the
+// `cyclic_refresh limit_tx` predicate (var < var_thresh) and the
+// screen-content Tx4x4 force (`(var >> 5) > ac_thr`) consume it.
 func (e *VP9Encoder) vp9InterTxSourceAndResidualVar(inter *vp9InterEncodeState,
 	miRow, miCol int, bsize common.BlockSize, sse uint64,
-) (sourceVar uint64, residualVarZero bool, ok bool) {
+) (sourceVar uint64, residualVar uint64, ok bool) {
 	if inter == nil {
-		return 0, false, false
+		return 0, 0, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
 	pred, predStride := e.vp9EncoderReconPlane(0)
 	if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
-		return 0, false, false
+		return 0, 0, false
 	}
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
@@ -8223,7 +8237,7 @@ func (e *VP9Encoder) vp9InterTxSourceAndResidualVar(inter *vp9InterEncodeState,
 	predRows := len(pred) / predStride
 	if x0+blockW > srcW || y0+blockH > srcH ||
 		x0+blockW > predStride || y0+blockH > predRows {
-		return 0, false, false
+		return 0, 0, false
 	}
 	var srcSum int64
 	var srcSse uint64
@@ -8241,7 +8255,7 @@ func (e *VP9Encoder) vp9InterTxSourceAndResidualVar(inter *vp9InterEncodeState,
 	}
 	n := int64(blockW * blockH)
 	if n <= 0 {
-		return 0, false, false
+		return 0, 0, false
 	}
 	// libvpx source_variance in vp9_block.h:120 is the variance about the
 	// block mean: sum(x*x) - (sum(x))^2 / N. Computed in floor-divide form
@@ -8256,8 +8270,10 @@ func (e *VP9Encoder) vp9InterTxSourceAndResidualVar(inter *vp9InterEncodeState,
 	bhLog2 := int(common.BHeightLog2Lookup[bsize])
 	shift := uint(bwLog2 + bhLog2 + 4)
 	sumSqr := uint64((diffSum * diffSum) >> shift)
-	residualVarZero = sse <= sumSqr
-	return sourceVar, residualVarZero, true
+	if sse > sumSqr {
+		residualVar = sse - sumSqr
+	}
+	return sourceVar, residualVar, true
 }
 
 // vp9CyclicRefreshSegmentIDBoosted ports libvpx

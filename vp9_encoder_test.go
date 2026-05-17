@@ -2408,6 +2408,124 @@ func TestVP9InterCalculateTxSizeMirrorsLibvpx(t *testing.T) {
 	}
 }
 
+// TestVP9InterTxApplyForcesMirrorsLibvpx pins the live picker
+// post-pass vp9InterTxApplyForces against the libvpx
+// vp9/encoder/vp9_pickmode.c:380-388 force cascade. The cases cover:
+//
+//   - Boosted-segment Tx8x8 force (vp9_pickmode.c:380-382).
+//   - Tx16x16 cap (vp9_pickmode.c:383-384).
+//   - VP9E_CONTENT_SCREEN Tx4x4 force (vp9_pickmode.c:386-388) — both
+//     `(var >> 5) > ac_thr` firing and not firing, plus the
+//     bsize <= BLOCK_16X16 gate.
+func TestVP9InterTxApplyForcesMirrorsLibvpx(t *testing.T) {
+	t.Helper()
+	type tcase struct {
+		name      string
+		aqMode    VP9AQMode
+		screen    bool
+		tx        common.TxSize
+		bsize     common.BlockSize
+		residVar  uint64
+		acThr     int64
+		limitTx   bool
+		segmentID uint8
+		want      common.TxSize
+	}
+	cases := []tcase{
+		{
+			// Boosted-segment Tx8x8 force (vp9_pickmode.c:380-382).
+			name:    "cr-aq-boosted-forces-tx8",
+			aqMode:  VP9AQCyclicRefresh,
+			tx:      common.Tx32x32,
+			bsize:   common.Block64x64,
+			limitTx: true, segmentID: vp9CyclicRefreshSegmentBoost1,
+			want: common.Tx8x8,
+		},
+		{
+			// Tx16x16 cap (vp9_pickmode.c:383-384). Non-boosted CR-AQ
+			// limit_tx=1 + Tx32x32 -> Tx16x16.
+			name:    "cr-aq-non-boosted-caps-tx16",
+			aqMode:  VP9AQCyclicRefresh,
+			tx:      common.Tx32x32,
+			bsize:   common.Block64x64,
+			limitTx: true,
+			want:    common.Tx16x16,
+		},
+		{
+			// limit_tx=0 lifts the Tx16x16 cap.
+			name:    "cr-aq-limit-tx-off-keeps-tx32",
+			aqMode:  VP9AQCyclicRefresh,
+			tx:      common.Tx32x32,
+			bsize:   common.Block64x64,
+			limitTx: false,
+			want:    common.Tx32x32,
+		},
+		{
+			// VP9E_CONTENT_SCREEN: Tx8x8 + (residVar >> 5) > acThr +
+			// bsize <= BLOCK_16X16 -> Tx4x4 (vp9_pickmode.c:386-388).
+			name:     "screen-content-forces-tx4-over-tx8",
+			screen:   true,
+			tx:       common.Tx8x8,
+			bsize:    common.Block16x16,
+			residVar: 1 << 16, acThr: 100, limitTx: true,
+			want: common.Tx4x4,
+		},
+		{
+			// VP9E_CONTENT_SCREEN: (residVar >> 5) <= acThr -> Tx8x8
+			// stays put.
+			name:     "screen-content-low-var-keeps-tx8",
+			screen:   true,
+			tx:       common.Tx8x8,
+			bsize:    common.Block16x16,
+			residVar: 1 << 5, acThr: 100, limitTx: true,
+			want: common.Tx8x8,
+		},
+		{
+			// VP9E_CONTENT_SCREEN: bsize > BLOCK_16X16 -> force does not
+			// fire (vp9_pickmode.c:387 `bsize <= BLOCK_16X16`).
+			name:     "screen-content-large-bsize-keeps-tx8",
+			screen:   true,
+			tx:       common.Tx8x8,
+			bsize:    common.Block32x32,
+			residVar: 1 << 16, acThr: 100, limitTx: true,
+			want: common.Tx8x8,
+		},
+		{
+			// Non-screen content: even with large var, no Tx4x4 force.
+			name:     "default-content-no-tx4-force",
+			tx:       common.Tx8x8,
+			bsize:    common.Block16x16,
+			residVar: 1 << 16, acThr: 100, limitTx: true,
+			want: common.Tx8x8,
+		},
+		{
+			// acThr <= 0 disables the screen-content force regardless of
+			// residVar — govpx returns acThr=0 when the quantizer plumb
+			// is unavailable.
+			name:     "screen-content-zero-acthr-keeps-tx8",
+			screen:   true,
+			tx:       common.Tx8x8,
+			bsize:    common.Block16x16,
+			residVar: 1 << 16, acThr: 0, limitTx: true,
+			want: common.Tx8x8,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &VP9Encoder{}
+			e.opts.AQMode = tc.aqMode
+			if tc.screen {
+				e.opts.ScreenContentMode = int8(VP9ScreenContentScreen)
+			}
+			got := e.vp9InterTxApplyForces(tc.tx, tc.bsize, 0, tc.residVar,
+				tc.acThr, tc.limitTx, tc.segmentID)
+			if got != tc.want {
+				t.Fatalf("vp9InterTxApplyForces = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestVP9CyclicRefreshSegmentIDBoostedMirrorsLibvpx pins the
 // cyclic_refresh_segment_id_boosted port at libvpx
 // vp9/encoder/vp9_aq_cyclicrefresh.h:127-130.
