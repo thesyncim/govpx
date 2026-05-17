@@ -13,6 +13,14 @@ import (
 // loop-filter deltas in [-63, 63]. StaticThreshold sets VP8 per-segment
 // encode-breakout thresholds for inter frames; VP9 rejects non-zero
 // StaticThreshold values.
+//
+// Skip and RefFrame are VP9-only extensions (libvpx vp9_set_roi_map at
+// vp9/encoder/vp9_encoder.c:693).  Skip[i] forces segment i to use the
+// SegLvlSkip feature when nonzero (0 disables, 1 enables); the rest of the
+// libvpx skip_range (always 1) is rejected.  RefFrame[i] in [0, 3]
+// activates SegLvlRefFrame for segment i with the libvpx semantics
+// (0=intra, 1=LAST, 2=GOLDEN, 3=ALTREF); RefFrame[i] == -1 disables the
+// override.  VP8 ignores both arrays.
 type ROIMap struct {
 	// Enabled turns the ROI map on. A nil *ROIMap, Enabled=false, nil
 	// SegmentID, or an all-zero delta/threshold configuration disables ROI.
@@ -29,6 +37,13 @@ type ROIMap struct {
 	DeltaLoopFilter [vp8common.MaxMBSegments]int
 	// StaticThreshold contains per-segment static encode-breakout thresholds.
 	StaticThreshold [vp8common.MaxMBSegments]int
+	// Skip (VP9-only) flags per-segment skip override; 1 forces skip, 0
+	// disables.  libvpx skip[] range is [0, 1].
+	Skip [vp8common.MaxMBSegments]int
+	// RefFrame (VP9-only) overrides the per-segment reference frame.  -1
+	// disables the override; 0..3 select intra/last/golden/altref per
+	// libvpx ref_frame_range == 3.  Initialize to all -1 to disable.
+	RefFrame [vp8common.MaxMBSegments]int
 }
 
 type roiMapState struct {

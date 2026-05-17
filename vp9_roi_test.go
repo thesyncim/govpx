@@ -95,6 +95,141 @@ func TestVP9EncoderSetROIMapValidationAndCopy(t *testing.T) {
 	}
 }
 
+// TestVP9EncoderSetROIMapSkipAndRefFrameWiring pins the libvpx-faithful
+// translation of ROIMap.Skip[]/ROIMap.RefFrame[] (the libvpx
+// vp9_set_roi_map skip[] and ref_frame[] arrays) into VP9 segmentation
+// header bits.  The encoder is expected to set SegLvlSkip and SegLvlRefFrame
+// in the segmentation header for any segment with a non-zero override.
+//
+// libvpx: vp9/encoder/vp9_encoder.c:693 vp9_set_roi_map — skip[]/ref_frame[]
+// flow into cpi->roi.skip and cpi->roi.ref_frame, then into the per-frame
+// segmentation header bits at vp9/encoder/vp9_pickmode.c::set_segment_index_
+// roi (delegated through the segmentation feature mask).
+func TestVP9EncoderSetROIMapSkipAndRefFrameWiring(t *testing.T) {
+	const width, height = 16, 16
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	rows := (height + 7) >> 3
+	cols := (width + 7) >> 3
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      rows,
+		Cols:      cols,
+		SegmentID: []uint8{1, 2, 0, 0},
+	}
+	roi.Skip[1] = 1
+	roi.RefFrame[2] = 2 // GOLDEN_FRAME per libvpx ref_frame_range == 3 mapping
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap: %v", err)
+	}
+	if !e.roi.enabled {
+		t.Fatalf("ROI not enabled after Skip/RefFrame-only set")
+	}
+	if e.roi.skip[1] != 1 {
+		t.Fatalf("skip[1] = %d, want 1", e.roi.skip[1])
+	}
+	if e.roi.refFrame[2] != 2 {
+		t.Fatalf("refFrame[2] = %d, want 2 (GOLDEN)", e.roi.refFrame[2])
+	}
+	seg := e.roi.segmentationParams()
+	if seg.FeatureMask[1]&(1<<uint(vp9dec.SegLvlSkip)) == 0 {
+		t.Fatalf("Skip[1] not surfaced as SegLvlSkip in segmentationParams")
+	}
+	if seg.FeatureMask[2]&(1<<uint(vp9dec.SegLvlRefFrame)) == 0 {
+		t.Fatalf("RefFrame[2] not surfaced as SegLvlRefFrame in segmentationParams")
+	}
+	if seg.FeatureData[2][vp9dec.SegLvlRefFrame] != 2 {
+		t.Fatalf("SegLvlRefFrame data = %d, want 2 (GOLDEN)",
+			seg.FeatureData[2][vp9dec.SegLvlRefFrame])
+	}
+}
+
+// TestVP9EncoderSetROIMapSkipAndRefFrameValidationRanges pins the libvpx
+// vp9_set_roi_map range checks (vp9/encoder/vp9_encoder.c:699-704).  Out-
+// of-range Skip / RefFrame values must return ErrInvalidConfig.
+func TestVP9EncoderSetROIMapSkipAndRefFrameValidationRanges(t *testing.T) {
+	const width, height = 16, 16
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	rows := (height + 7) >> 3
+	cols := (width + 7) >> 3
+	base := ROIMap{
+		Enabled:   true,
+		Rows:      rows,
+		Cols:      cols,
+		SegmentID: []uint8{0, 0, 0, 0},
+	}
+	for _, tc := range []struct {
+		name string
+		mut  func(*ROIMap)
+	}{
+		{name: "Skip > 1", mut: func(r *ROIMap) { r.Skip[1] = 2 }},
+		{name: "Skip < 0", mut: func(r *ROIMap) { r.Skip[1] = -1 }},
+		{name: "RefFrame > 3", mut: func(r *ROIMap) { r.RefFrame[1] = 4 }},
+		{name: "RefFrame < -1", mut: func(r *ROIMap) { r.RefFrame[1] = -2 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			roi := base
+			tc.mut(&roi)
+			if err := e.SetROIMap(&roi); !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("SetROIMap(%s) err = %v, want ErrInvalidConfig",
+					tc.name, err)
+			}
+		})
+	}
+}
+
+// TestVP9EncoderSetROIMapRefFrameMinusOneEqualsZero pins the libvpx-faithful
+// no-override sentinel: both RefFrame == -1 (libvpx convention) and
+// RefFrame == 0 (Go zero value) MUST disable the segment ref-frame
+// override.  Skip == 0 must do the same for the skip override.
+func TestVP9EncoderSetROIMapRefFrameMinusOneEqualsZero(t *testing.T) {
+	const width, height = 16, 16
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	rows := (height + 7) >> 3
+	cols := (width + 7) >> 3
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      rows,
+		Cols:      cols,
+		SegmentID: []uint8{1, 0, 0, 0},
+	}
+	roi.RefFrame[1] = -1
+	roi.RefFrame[2] = 0
+	// Add a real delta so the ROI is enabled but Skip/RefFrame both stay off.
+	roi.DeltaQuantizer[1] = -10
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap: %v", err)
+	}
+	if !e.roi.enabled {
+		t.Fatalf("ROI not enabled with non-zero delta")
+	}
+	for i, want := range [vp9dec.MaxSegments]int8{-1, -1, -1, -1, -1, -1, -1, -1} {
+		if e.roi.refFrame[i] != want {
+			t.Fatalf("refFrame[%d] = %d, want -1 (no override)",
+				i, e.roi.refFrame[i])
+		}
+	}
+	seg := e.roi.segmentationParams()
+	for i := range vp9dec.MaxSegments {
+		if seg.FeatureMask[i]&(1<<uint(vp9dec.SegLvlRefFrame)) != 0 {
+			t.Fatalf("SegLvlRefFrame surfaced on segment %d with no override",
+				i)
+		}
+		if seg.FeatureMask[i]&(1<<uint(vp9dec.SegLvlSkip)) != 0 {
+			t.Fatalf("SegLvlSkip surfaced on segment %d with no override",
+				i)
+		}
+	}
+}
+
 func TestVP9EncoderROIMapInterBlocksUseSegmentMap(t *testing.T) {
 	const width, height = 16, 16
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
