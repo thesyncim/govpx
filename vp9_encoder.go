@@ -7824,7 +7824,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				initCtx := vp9dec.GetEntropyContext(common.Tx4x4,
 					tempa[jx:jx+1], templ[jy:jy+1])
 				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCost(
-					common.Tx4x4, dequant, coeffs, initCtx)
+					common.Tx4x4, mode, key.lossless, dequant, coeffs, initCtx)
 				// libvpx vp9_rdopt.c:1162, 1244 — tempa[idx] =
 				// templ[idy] = (eobs[block] > 0) ? 1 : 0.
 				eobFlag := uint8(0)
@@ -8189,8 +8189,8 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 			// dispatches to vp9KeyframeCoeffBlockRateCost which
 			// indexes fc.CoefProbs[txSize][0][0] (planeType=0,
 			// is_inter=0) and walks the per-token entropy tree.
-			coeffRate += e.vp9KeyframeCoeffBlockRateCost(txSize, dequant,
-				coeffs, initCtx)
+			coeffRate += e.vp9KeyframeCoeffBlockRateCost(txSize, mode,
+				key.lossless, dequant, coeffs, initCtx)
 
 			// libvpx vp9_rdopt.c:786-792 — after the block,
 			// t_above[c..c+w]/t_left[r..r+h] = (eob > 0). govpx
@@ -8994,7 +8994,8 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 				// outer iteration; the per-block coeff_ctx is computed
 				// inside block_rd_txfm and is locally 0 at the SB
 				// corner with no above/left residue).
-				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs, 0)
+				rate += e.vp9KeyframeCoeffBlockRateCost(tx, mode,
+					key.lossless, dequant, coeffs, 0)
 			}
 		}
 		if !valid {
@@ -9059,9 +9060,18 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 // (vp9_rdopt.c:695). Callers compute initCtx via
 // vp9dec.GetEntropyContext on the per-block above/left context cache.
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
-	dequant [2]int16, coeffs []int16, initCtx int,
+	mode common.PredictionMode, lossless bool, dequant [2]int16,
+	coeffs []int16, initCtx int,
 ) int {
-	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 0, dequant, coeffs, initCtx)
+	if txSize >= common.TxSizes {
+		return 0
+	}
+	if int(mode) >= common.IntraModes {
+		mode = common.DcPred
+	}
+	scanOrder := common.GetScan(txSize, 0, 0, lossless, mode)
+	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 0, scanOrder,
+		dequant, coeffs, initCtx)
 }
 
 // vp9KeyframeUvCoeffBlockRateCost is the chroma sibling of
@@ -9071,7 +9081,11 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCost(txSize common.TxSize,
 	dequant [2]int16, coeffs []int16, initCtx int,
 ) int {
-	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 1, dequant, coeffs, initCtx)
+	if txSize >= common.TxSizes {
+		return 0
+	}
+	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 1,
+		common.DefaultScanOrders[txSize], dequant, coeffs, initCtx)
 }
 
 // vp9KeyframeCoeffBlockRateCostPlane is the shared cost_coeffs walker
@@ -9079,7 +9093,8 @@ func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCost(txSize common.TxSize,
 // the chroma RD pick consumes the libvpx-faithful chroma coef-token
 // model fc.CoefProbs[txSize][planeType][is_inter=0].
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlane(txSize common.TxSize,
-	planeType int, dequant [2]int16, coeffs []int16, initCtx int,
+	planeType int, scanOrder common.ScanOrder, dequant [2]int16,
+	coeffs []int16, initCtx int,
 ) int {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txSize >= common.TxSizes || dequant[0] == 0 || dequant[1] == 0 ||
@@ -9087,8 +9102,11 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlane(txSize common.TxSize,
 		initCtx < 0 || initCtx > 2 || planeType < 0 || planeType > 1 {
 		return 0
 	}
-	scan := common.DefaultScanOrders[txSize].Scan
-	neighbors := common.DefaultScanOrders[txSize].Neighbors
+	scan := scanOrder.Scan
+	neighbors := scanOrder.Neighbors
+	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
+		return 0
+	}
 	bandTrans := vp9dec.BandTranslateForTxSize(txSize)
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0
