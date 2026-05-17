@@ -2447,6 +2447,29 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		rdFrameType := vp9RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
 			refreshAlt)
 		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType)
+		// libvpx vp9/encoder/vp9_encoder.c:3754 / 3765 call
+		// set_speed_features_framesize_independent +
+		// set_speed_features_framesize_dependent (via
+		// set_size_independent_vars / set_size_dependent_vars) on every
+		// frame from encode_frame_to_data_rate / encode_with_recode_loop
+		// at vp9_encoder.c:4169-4170 and 4377-4392. The SF refresh
+		// sees the per-frame (frame_type, intra_only, refresh_*_frame,
+		// is_src_frame_alt_ref, base_qindex) tuple — the same triple
+		// frame_is_kf_gf_arf / frame_is_boosted consume — so
+		// sf.tx_size_search_method and sf.use_nonrd_pick_mode track the
+		// live frame state. govpx previously pinned e.sf at compressor
+		// create time which left non-key non-intra-only frames reading
+		// the keyframe-context value; the per-frame call here closes
+		// that gap.
+		e.vp9ApplySpeedFeatures(e.vp9PerFrameSpeedContext(vp9PerFrameSpeedContextArgs{
+			IsKey:              isKey,
+			IntraOnly:          intraOnly,
+			ShowFrame:          showFrame,
+			RefreshGoldenFrame: refreshGolden,
+			RefreshAltRefFrame: refreshAlt,
+			IsSrcFrameAltRef:   srcFrameAltRef,
+			BaseQIndex:         qindex,
+		}))
 	}
 	header.Quant.BaseQindex = int16(qindex)
 	header.Quant.UvDcDeltaQ = int8(e.opts.DeltaQUV)
