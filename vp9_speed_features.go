@@ -564,12 +564,23 @@ var vp9QoptThresholds = [6]float64{99.0, 12.0, 10.0, 4.0, 2.0, 0.0}
 // and cpi->rc when the configurator runs. The encoder fills this in at frame
 // setup time so the framesize-dependent step sees the exact same inputs libvpx
 // uses on the corresponding frame.
+//
+// refreshAltRefFrame / refreshGoldenFrame / isSrcFrameAltRef mirror
+// cpi->refresh_alt_ref_frame / cpi->refresh_golden_frame /
+// cpi->rc.is_src_frame_alt_ref. They feed frame_is_kf_gf_arf() so the
+// configurator's boosted-frame branches activate on GF/ARF frames, not just
+// keyframes.
+//
+// libvpx: vp9_encoder.h:1013-1016 frame_is_kf_gf_arf().
 type vp9SpeedFrameContext struct {
 	width               int
 	height              int
 	showFrame           bool
 	frameType           common.FrameType
 	intraOnly           bool
+	refreshAltRefFrame  bool
+	refreshGoldenFrame  bool
+	isSrcFrameAltRef    bool
 	baseQIndex          int
 	framesSinceKey      int
 	avgFrameLowMotion   int
@@ -589,6 +600,56 @@ func (e *VP9Encoder) vp9DefaultSpeedFrameContext() vp9SpeedFrameContext {
 		frameType: common.KeyFrame,
 		intraOnly: true,
 	}
+}
+
+// vp9PerFrameSpeedContextArgs carries the per-frame inputs that drive
+// frame_is_kf_gf_arf() and the framesize-dependent SF picks. Mirrors the
+// subset of cpi->common / cpi->refresh_*_frame / cpi->rc fields libvpx reads
+// at the top of encode_frame_to_data_rate.
+//
+// libvpx: vp9_encoder.h:1013-1016 frame_is_kf_gf_arf,
+// vp9_speed_features.c:919-1096 vp9_set_speed_features_framesize_independent.
+type vp9PerFrameSpeedContextArgs struct {
+	IsKey              bool
+	IntraOnly          bool
+	ShowFrame          bool
+	RefreshGoldenFrame bool
+	RefreshAltRefFrame bool
+	IsSrcFrameAltRef   bool
+	BaseQIndex         int
+}
+
+// vp9PerFrameSpeedContext builds a configurator context for a specific frame.
+// The caller supplies the per-frame state libvpx reads via cpi->common,
+// cpi->refresh_alt_ref_frame, cpi->refresh_golden_frame, and
+// cpi->rc.is_src_frame_alt_ref. The remaining encoder-state fields
+// (framesSinceKey, avgFrameLowMotion, avgFrameQindexInter, currentVideoFrame)
+// are pulled from the live rate-control / frame counters so the framesize-
+// dependent dispatcher sees the same inputs libvpx feeds it.
+//
+// libvpx: vp9_encoder.c:2635 / 3754 — same two-step protocol invoked per
+// frame at top-of-encode.
+func (e *VP9Encoder) vp9PerFrameSpeedContext(args vp9PerFrameSpeedContextArgs) vp9SpeedFrameContext {
+	frameType := common.InterFrame
+	if args.IsKey {
+		frameType = common.KeyFrame
+	}
+	ctx := vp9SpeedFrameContext{
+		width:               e.opts.Width,
+		height:              e.opts.Height,
+		showFrame:           args.ShowFrame,
+		frameType:           frameType,
+		intraOnly:           args.IntraOnly,
+		refreshAltRefFrame:  args.RefreshAltRefFrame,
+		refreshGoldenFrame:  args.RefreshGoldenFrame,
+		isSrcFrameAltRef:    args.IsSrcFrameAltRef,
+		baseQIndex:          args.BaseQIndex,
+		framesSinceKey:      int(e.rc.framesSinceKey),
+		avgFrameLowMotion:   100,
+		avgFrameQindexInter: int(e.rc.avgFrameQIndexInter),
+		currentVideoFrame:   e.frameIndex,
+	}
+	return ctx
 }
 
 // vp9ApplySpeedFeatures runs the libvpx framesize-independent and
@@ -658,14 +719,25 @@ func vp9FrameIsIntraOnly(ctx vp9SpeedFrameContext) bool {
 	return ctx.frameType == common.KeyFrame || ctx.intraOnly
 }
 
-// vp9FrameIsKfGfArf approximates libvpx's frame_is_boosted() — true for KF,
-// GF, and ARF frames. govpx doesn't currently track GF/ARF state in the
-// configurator context, so frames after the first key always read as inter.
-// This matches the libvpx GOOD-mode boosted check for cpu_used=0 (first KF).
+// vp9FrameIsKfGfArf mirrors libvpx's frame_is_boosted(), which delegates to
+// frame_is_kf_gf_arf():
 //
-// libvpx: vp9_speed_features.c:38-40 (frame_is_boosted).
+//	return frame_is_intra_only(&cpi->common) || cpi->refresh_alt_ref_frame ||
+//	       (cpi->refresh_golden_frame && !cpi->rc.is_src_frame_alt_ref);
+//
+// libvpx: vp9_speed_features.c:38-40 (frame_is_boosted),
+// vp9_encoder.h:1013-1016 (frame_is_kf_gf_arf).
 func vp9FrameIsKfGfArf(ctx vp9SpeedFrameContext) bool {
-	return ctx.frameType == common.KeyFrame
+	if vp9FrameIsIntraOnly(ctx) {
+		return true
+	}
+	if ctx.refreshAltRefFrame {
+		return true
+	}
+	if ctx.refreshGoldenFrame && !ctx.isSrcFrameAltRef {
+		return true
+	}
+	return false
 }
 
 // vp9SetPartitionMinLimit mirrors set_partition_min_limit().
