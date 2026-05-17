@@ -2266,7 +2266,11 @@ func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
 // vp9_encodeframe.c:4334-4345 select_tx_mode truth table for the
 // realtime cpu_used=8 surface that drives govpx's byte-parity matrix.
 // The KEY_FRAME && use_nonrd_pick_mode -> ALLOW_16X16 clamp is the
-// signature change this commit introduces.
+// signature change a843f45d introduced; intra-only frames now route
+// through the non-key dispatch (libvpx's `cm->frame_type == KEY_FRAME`
+// predicate is literal at vp9_encodeframe.c:4336) — they pick up
+// USE_TX_8X8 from the RT cpu_used >= 5 leg
+// (vp9_speed_features.c:1541) and resolve to TX_MODE_SELECT.
 func TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -2278,14 +2282,23 @@ func TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode(t *testing.T) {
 		{name: "lossless", isKey: true, lossless: true, want: common.Only4x4},
 		{name: "lossless-inter", lossless: true, want: common.Only4x4},
 		{name: "keyframe-nonrd-allow16x16", isKey: true, want: common.Allow16x16},
-		{name: "intra-only-keeps-allow32x32", intraOnly: true, want: common.Allow32x32},
-		{name: "inter-keeps-tx-mode-select", want: common.TxModeSelect},
+		{name: "intra-only-uses-tx-mode-select", intraOnly: true, want: common.TxModeSelect},
+		{name: "inter-uses-tx-mode-select", want: common.TxModeSelect},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 			if err != nil {
 				t.Fatalf("NewVP9Encoder: %v", err)
 			}
+			// Mirror the per-frame SF refresh
+			// encodeVP9FrameIntoWithFlagsResultInternal runs before
+			// vp9EncoderFrameTxMode at libvpx vp9_encoder.c:3754 /
+			// 3765 so e.sf carries the live per-frame value.
+			e.vp9ApplySpeedFeatures(e.vp9PerFrameSpeedContext(vp9PerFrameSpeedContextArgs{
+				IsKey:     tc.isKey,
+				IntraOnly: tc.intraOnly,
+				ShowFrame: true,
+			}))
 			got := e.vp9EncoderFrameTxMode(tc.isKey, tc.intraOnly, tc.lossless)
 			if got != tc.want {
 				t.Fatalf("vp9EncoderFrameTxMode(isKey=%t intraOnly=%t lossless=%t) = %d, want %d",
@@ -6652,6 +6665,74 @@ func TestVP9EncoderEncodeIntraOnlyFrameRefreshesLastAndShowExisting(t *testing.T
 		t.Fatal("NextFrame returned !ok after show-existing LAST")
 	}
 	assertVP9FilledFrameWithin(t, frame, width, height, 83, 141, 209, 1)
+}
+
+// TestVP9EncoderIntraOnlyFrameUsesTxModeSelect pins the libvpx-faithful
+// intra-only tx_mode dispatch. libvpx's select_tx_mode predicate at
+// vp9/encoder/vp9_encodeframe.c:4336 reads `cm->frame_type == KEY_FRAME`
+// literally; intra-only frames carry cm->frame_type == INTER_FRAME, so
+// the KEY_FRAME && use_nonrd_pick_mode ALLOW_16X16 branch does not fire
+// and the dispatch falls through to sf.tx_size_search_method. At the
+// govpx default (RT cpu_used=8) the per-frame SF refresh picks
+// USE_TX_8X8 (vp9_speed_features.c:1541 — is_keyframe=0 for intra-only),
+// which select_tx_mode at vp9_encodeframe.c:4341-4342 returns as
+// TX_MODE_SELECT.
+//
+// Prior to a843f45d's follow-up fix the intra-only path panicked in
+// WriteSelectedTxSize because the vp9ModeTreeKeyframe counts-collection
+// dispatch in writeVP9ModeBlock did not plumb the TxProbs row; this
+// test exercises the full encode -> decode roundtrip to lock the fix
+// in place.
+func TestVP9EncoderIntraOnlyFrameUsesTxModeSelect(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	src := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	intra, err := e.EncodeIntraOnlyFrame(src, 0)
+	if err != nil {
+		t.Fatalf("EncodeIntraOnlyFrame: %v", err)
+	}
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(intra)
+	intraHeader, err := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader intra-only: %v", err)
+	}
+	if !intraHeader.IntraOnly || intraHeader.FrameType != common.InterFrame {
+		t.Fatalf("intra-only header = (FrameType=%d, IntraOnly=%t), want "+
+			"(InterFrame, true)", intraHeader.FrameType, intraHeader.IntraOnly)
+	}
+	uncSize := keyBR.BytesRead()
+	compEnd := uncSize + int(intraHeader.FirstPartitionSize)
+	if compEnd > len(intra) {
+		t.Fatalf("compressed header end %d past frame %d", compEnd, len(intra))
+	}
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	var cr bitstream.Reader
+	if err := cr.Init(intra[uncSize:compEnd]); err != nil {
+		t.Fatalf("compressed reader Init: %v", err)
+	}
+	out := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless:             false,
+		IntraOnly:            true,
+		KeyFrame:             false,
+		InterpFilter:         intraHeader.InterpFilter,
+		AllowHighPrecisionMv: intraHeader.AllowHighPrecisionMv,
+		CompoundRefAllowed:   false,
+	})
+	if out.TxMode != common.TxModeSelect {
+		t.Fatalf("intra-only TxMode = %d, want TxModeSelect (libvpx "+
+			"vp9_encodeframe.c:4341-4342 USE_TX_8X8 -> TX_MODE_SELECT)",
+			out.TxMode)
+	}
 }
 
 func TestVP9EncoderEncodeIntraOnlyFrameRejectsConflictingFlags(t *testing.T) {

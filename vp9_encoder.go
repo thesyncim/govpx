@@ -3904,9 +3904,13 @@ func (e *VP9Encoder) vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) comm
 	if isKey && useNonrd {
 		// libvpx vp9_encodeframe.c:4336-4337 — the KEY_FRAME &&
 		// use_nonrd_pick_mode ALLOW_16X16 clamp ported verbatim.
+		// Note: libvpx's `frame_type == KEY_FRAME` predicate is
+		// literal — intra-only frames carry frame_type INTER_FRAME
+		// and fall through to the tx_size_search_method dispatch
+		// below.
 		return common.Allow16x16
 	}
-	if isKey || intraOnly {
+	if isKey {
 		// libvpx vp9_encodeframe.c:4338-4339 — at cpu_used >= 5 RT/GOOD
 		// keyframes route through USE_LARGESTALL -> ALLOW_32X32. Below
 		// cpu_used 5 the configurator still pins USE_FULL_RD ->
@@ -3914,21 +3918,40 @@ func (e *VP9Encoder) vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) comm
 		// (internal/vp9/encoder/block_write.go) is keyframe-style and
 		// expects ALLOW_32X32, so the non-nonrd keyframe path is held at
 		// Allow32x32 here until the keyframe writer learns the inter-style
-		// TX_MODE_SELECT cascade. Intra-only frames pin here for the same
-		// writer reason (see note above).
+		// TX_MODE_SELECT cascade.
 		return common.Allow32x32
 	}
+	if intraOnly {
+		// libvpx vp9_encodeframe.c:4340-4344 fallthrough for intra-only
+		// frames — `cm->frame_type == KEY_FRAME` is literal in libvpx
+		// and intra-only frames carry INTER_FRAME, so the dispatch
+		// reads sf.tx_size_search_method directly. The per-frame SF
+		// refresh (encodeVP9FrameIntoWithFlagsResultInternal ->
+		// vp9ApplySpeedFeatures) keeps e.sf.TxSizeSearchMethod
+		// tracking the live frame state, so consulting it here matches
+		// libvpx select_tx_mode verbatim. USE_TX_8X8 / USE_FULL_RD ->
+		// TX_MODE_SELECT, USE_LARGESTALL -> ALLOW_32X32. The block
+		// writer's vp9ModeTreeKeyframe fallback now plumbs the
+		// TxModeSelect-shaped tx_probs row so intra-only frames no
+		// longer panic in WriteSelectedTxSize (libvpx
+		// vp9_bitstream.c:344-376 write_mb_modes_kf services both
+		// keyframe and intra-only via frame_is_intra_only(cm)).
+		switch e.sf.TxSizeSearchMethod {
+		case UseLargestAll:
+			return common.Allow32x32
+		default:
+			return common.TxModeSelect
+		}
+	}
 	// libvpx vp9_encodeframe.c:4340-4344 fallthrough for non-key non-
-	// intra-only frames. govpx's once-at-NewVP9Encoder sf snapshot does
-	// not refresh per-frame, so consulting sf.TxSizeSearchMethod here
-	// would read the keyframe-context value (UseLargestAll at speed >= 1
-	// RT/GOOD) for every inter frame, breaking inter byte-parity. Until
-	// govpx wires the per-frame speed-feature re-apply
-	// (libvpx vp9_encoder.c:3754 / 3765 set_speed_features_*_dependent),
-	// non-key non-intra-only frames are pinned to TX_MODE_SELECT, which
-	// is the value libvpx's default + speed>=5 path lands on (USE_TX_8X8
-	// -> TX_MODE_SELECT) for the realtime cpu_used=8 surface that
-	// dominates govpx's byte-parity matrix.
+	// intra-only frames. govpx pins inter frames at TX_MODE_SELECT to
+	// preserve byte parity against the established golden corpus
+	// (libvpx's default + RT speed>=5 path lands on USE_TX_8X8 ->
+	// TX_MODE_SELECT for the cpu_used=8 surface that dominates the
+	// byte-parity matrix). Lifting this pin would surface
+	// USE_LARGESTALL -> ALLOW_32X32 at GOOD speed 3 / RT speed 1 inter
+	// — a deeper byte-parity excursion than this commit targets and
+	// is tracked as a separate follow-up.
 	return common.TxModeSelect
 }
 
@@ -6635,13 +6658,29 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 		return
 	}
+	// Fallback path: vp9ModeTreeKeyframe (counts-pass dispatch for
+	// intra-only frames at collectVP9EncodeFrameCounts:3480) and any
+	// other kind that arrives without key/inter state. libvpx's
+	// equivalent is write_modes_b at vp9/encoder/vp9_bitstream.c:378-403
+	// inside frame_is_intra_only(cm) -> write_mb_modes_kf — the same
+	// function the keyframe-source branch above dispatches to. The
+	// TX_MODE_SELECT cascade needs the fc.TxProbs row keyed by
+	// (max_tx_size, ctx); without it WriteSelectedTxSize would index
+	// into an empty slice (the bug a843f45d cited as a deferred panic).
+	fallbackMaxTxSize := common.MaxTxsizeLookup[bsize]
+	fallbackTxCtx := vp9dec.GetTxSizeContext(above, left, fallbackMaxTxSize)
+	if txMode == common.TxModeSelect && bsize >= common.Block8x8 {
+		countVP9TxSize(counts, fallbackTxCtx, fallbackMaxTxSize, cur.TxSize)
+	}
+	countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
 	encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
 		Seg:       seg,
 		Mi:        &cur,
 		AboveMi:   above,
 		LeftMi:    left,
 		TxMode:    txMode,
-		MaxTxSize: common.MaxTxsizeLookup[bsize],
+		MaxTxSize: fallbackMaxTxSize,
+		TxProbs:   vp9TxProbsRow(&e.fc.TxProbs, fallbackMaxTxSize, fallbackTxCtx),
 		SkipProbs: e.fc.SkipProbs,
 	})
 	encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
