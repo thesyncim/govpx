@@ -6956,6 +6956,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		// rd_pick_intra_sub_8x8_y_mode which runs an independent
 		// DC..TM_PRED RD scan per 4x4 raster sub-block and stows the
 		// per-subblock pick in mic->bmi[i].as_mode.
+		useNonRDKeyframeMode := e.useVP9KeyframeNonRDIntraMode(reconBsize)
 		if reconBsize < common.Block8x8 {
 			e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur)
@@ -6964,7 +6965,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				miRow, miCol, reconBsize, &cur)
 		}
 		uvMode := common.DcPred
-		if e.sf.NonrdKeyframe == 0 {
+		if !useNonRDKeyframeMode {
 			uvMode = e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur)
 		}
@@ -6983,7 +6984,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			// per-block tx_size RD pick on top so mi.TxSize is RD-optimal
 			// across {Tx32x32, Tx16x16, Tx8x8, Tx4x4} subject to
 			// sf.TxSizeSearchDepth bounds, matching choose_tx_size_from_rd.
-			if e.sf.NonrdKeyframe == 0 {
+			if !useNonRDKeyframeMode {
 				e.pickVP9KeyframeBlockTxSize(key, tile, miRows, miCols,
 					miRow, miCol, reconBsize, &cur, txMode)
 			}
@@ -7559,26 +7560,24 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	// Inline save/restore (no defer) preserves the alloc-parity gate.
 	prevCbRdmult := e.cbRdmult
 	e.cbRdmult = rdmult
-	// The candidate set follows libvpx's keyframe-RD picker. At
-	// `sf.nonrd_keyframe == 0` (cpu_used<=4 GOOD or REALTIME, plus speed=0
-	// BEST) libvpx routes through `vp9_rd_pick_intra_mode_sb` →
-	// `rd_pick_intra_sby_mode` (vp9_rdopt.c:1383) which walks DC_PRED..
-	// TM_PRED unconditionally — there is no `intra_y_mode_(_bsize)_mask` gate
-	// on the keyframe Y picker. At `sf.nonrd_keyframe == 1` (cpu_used>=5
-	// REALTIME) libvpx routes through `vp9_pick_intra_mode` (vp9_pickmode.c
-	// :1199) which walks DC_PRED..H_PRED only (3 modes). govpx honours both
-	// by dispatching on `e.sf.NonrdKeyframe`: when 1, narrow to {DC, V, H};
-	// when 0, walk all 10. The previous mask-based fallback walked only the
-	// {DC, V, H} subset on GOOD speed=1 because the configurator did not
-	// populate `IntraYModeBsizeMask` for the GOOD path, which violated
-	// libvpx parity for cpu_used 0..4 GOOD-mode keyframes (see
-	// vp9OptionsSeedsDeferred regression_vp9_options_e03af0a9).
+	// The candidate set follows libvpx's keyframe hybrid picker. The RD arm
+	// (`vp9_rd_pick_intra_mode_sb` -> `rd_pick_intra_sby_mode`) walks
+	// DC_PRED..TM_PRED unconditionally; there is no
+	// `intra_y_mode_(_bsize)_mask` gate on the keyframe Y picker. The non-RD
+	// arm (`vp9_pick_intra_mode`) walks DC_PRED..H_PRED only. libvpx selects
+	// the non-RD arm when `sf.use_nonrd_pick_mode` is active and either
+	// `sf.nonrd_keyframe` is set or the block is at least BLOCK_16X16.
+	// govpx mirrors that with useVP9KeyframeNonRDIntraMode. The previous
+	// mask-based fallback walked only the {DC, V, H} subset on GOOD speed=1
+	// because the configurator did not populate `IntraYModeBsizeMask` for the
+	// GOOD path, which violated libvpx parity for cpu_used 0..4 GOOD-mode
+	// keyframes (see vp9OptionsSeedsDeferred regression_vp9_options_e03af0a9).
 	//
 	// libvpx: vp9/encoder/vp9_rdopt.c:1383 (rd_pick_intra_sby_mode loop)
 	// libvpx: vp9/encoder/vp9_pickmode.c:1199 (vp9_pick_intra_mode loop)
-	// libvpx: vp9/encoder/vp9_encodeframe.c:4350-4365 (nonrd_keyframe
-	// dispatch between the two pickers)
-	if e.sf.NonrdKeyframe != 0 {
+	// libvpx: vp9/encoder/vp9_encodeframe.c:4350-4365 (hybrid dispatch
+	// between the two pickers)
+	if e.useVP9KeyframeNonRDIntraMode(bsize) {
 		bestMode := common.DcPred
 		bestScore, ok := e.scoreVP9KeyframeModeNonRD(key, bestMode,
 			yModeCosts[bestMode], rdmult, tile, miRows, miCols, miRow, miCol,
@@ -7617,6 +7616,11 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	}
 	e.cbRdmult = prevCbRdmult
 	return bestMode
+}
+
+func (e *VP9Encoder) useVP9KeyframeNonRDIntraMode(bsize common.BlockSize) bool {
+	return e.sf.UseNonrdPickMode != 0 &&
+		(e.sf.NonrdKeyframe != 0 || bsize >= common.Block16x16)
 }
 
 // pickVP9KeyframeSub8x8YMode ports libvpx's rd_pick_intra_sub_8x8_y_mode
