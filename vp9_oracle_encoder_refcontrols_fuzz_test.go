@@ -73,6 +73,13 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	{0, 4, 0, 5, 0, 6, 0, 7},
 	{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 	{0, 7, 0, 8, 0, 9, 0, 10},
+	// regression_vp9_refctrl_582528dd: captured by sweep (commit 0fba532).
+	// Same residual divergence as the 6 baseline seeds — keyframe matches
+	// byte-exactly after VAR_BASED_PARTITION gate widening, inter frames
+	// diverge at byte 9 (FirstPartitionSize literal) by 30-200 bytes
+	// pending the verbatim port of libvpx choose_partitioning
+	// (vp9/encoder/vp9_encodeframe.c:1253-1640).
+	[]byte("0"),
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
