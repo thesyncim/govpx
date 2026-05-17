@@ -597,28 +597,17 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 	return true
 }
 
-// gatherVisibleClampedRefBlock copies a (height x width) Y-plane block from
-// ref into dst at dstStride, clamping each source coordinate to the visible
-// extent (ref.Width / ref.Height). This mirrors libvpx's effective state on
-// the bordered Y buffer post vp8_yv12_extend_frame_borders without requiring
-// a full-plane overwrite of the live reconstruction.
-func gatherVisibleClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
-	visibleH := refVisibleClampDim(ref.Height, ref.CodedHeight)
-	visibleW := refVisibleClampDim(ref.Width, ref.CodedWidth)
-	for row := range height {
-		refY := clampEncodeCoord(baseY+row, visibleH)
-		dstRow := row * dstStride
-		srcRow := refY * ref.YStride
-		for col := range width {
-			refX := clampEncodeCoord(baseX+col, visibleW)
-			dst[dstRow+col] = ref.Y[srcRow+refX]
-		}
-	}
-}
-
-// gatherCodedClampedRefBlock copies a block from the coded extent. A few
-// libvpx SPLITMV scoring paths still read the coded-edge sample instead of
-// the visible-edge sample on odd-sized frames.
+// gatherCodedClampedRefBlock copies a (height x width) Y-plane block from
+// ref into dst at dstStride, clamping each source coordinate to the coded
+// extent (ref.CodedWidth / ref.CodedHeight). libvpx's reference YV12 buffer
+// is allocated with 16-aligned dimensions (alloccommon.c:56-65 rounds
+// (width,height) up before vp8_yv12_alloc_frame_buffer), so y_crop_height
+// == y_height == coded height. The post-LF vp8_yv12_extend_frame_borders
+// therefore extends from coded-edge-1 (yv12extend.c:105-117), leaving the
+// coded-but-invisible MB padding populated with the live LF
+// reconstruction. SixTap/bilinear scratch fills here mirror that state by
+// clamping to the coded extent — matching libvpx's effective bordered-Y
+// buffer byte-for-byte.
 func gatherCodedClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
 	for row := range height {
 		refY := clampEncodeCoord(baseY+row, ref.CodedHeight)

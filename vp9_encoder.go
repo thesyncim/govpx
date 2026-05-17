@@ -6916,6 +6916,17 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if segmentSkip {
 			cur.Skip = 1
 		} else {
+			// libvpx vp9_rdopt.c:3221-3270 — vp9_rd_pick_intra_mode_sb
+			// chains rd_pick_intra_sby_mode (which runs the per-block
+			// tx_size RD via super_block_yrd -> choose_tx_size_from_rd
+			// when cm->tx_mode == TX_MODE_SELECT) before
+			// rd_pick_intra_sbuv_mode. govpx's pickVP9KeyframeMode picks
+			// the Y mode under a Tx16x16-capped scorer; here we run the
+			// per-block tx_size RD pick on top so mi.TxSize is RD-optimal
+			// across {Tx32x32, Tx16x16, Tx8x8, Tx4x4} subject to
+			// sf.TxSizeSearchDepth bounds, matching choose_tx_size_from_rd.
+			e.pickVP9KeyframeBlockTxSize(key, tile, miRows, miCols,
+				miRow, miCol, reconBsize, &cur, txMode)
 			hasResidue = e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur, uvMode)
 			if hasResidue {
@@ -8014,6 +8025,389 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 	score := vp9PredictionSSEClamped(src, srcStride, srcW, srcH,
 		pred, bs, x0, y0, bs)
 	return score, true
+}
+
+// pickVP9KeyframeBlockTxSize is a verbatim port of libvpx's
+// choose_tx_size_from_rd (vp9/encoder/vp9_rdopt.c:907-1023) specialised for
+// the keyframe Y-plane RD pick. libvpx's vp9_rd_pick_intra_mode_sb
+// (vp9_rdopt.c:3221-3271) calls rd_pick_intra_sby_mode which, for each
+// candidate Y mode, invokes super_block_yrd (vp9_rdopt.c:1025-1042) which in
+// turn dispatches to choose_tx_size_from_rd for cm->tx_mode == TX_MODE_SELECT
+// (the case the keyframe write_mb_modes_kf bitstream emits when tx_mode is
+// TX_MODE_SELECT). govpx already picks the Y mode upstream via
+// pickVP9KeyframeMode using a Tx16x16-capped score; this helper layers the
+// per-block Tx32x32/Tx16x16/Tx8x8/Tx4x4 RD pick on top so mi.TxSize matches
+// libvpx's choose_tx_size_from_rd output. The Y-plane only — libvpx UV
+// tx_size is derived from mi->tx_size via get_uv_tx_size (which the
+// keyframe-source write path already does via vp9dec.GetUvTxSize).
+//
+// libvpx (vp9_rdopt.c:946-955) sets start_tx/end_tx as:
+//
+//	if (cm->tx_mode == TX_MODE_SELECT) {
+//	  start_tx = max_tx_size;
+//	  end_tx = VPXMAX(start_tx - cpi->sf.tx_size_search_depth, 0);
+//	  if (bs > BLOCK_32X32) end_tx = VPXMIN(end_tx + 1, start_tx);
+//	}
+//
+// and loops `for (n = start_tx; n >= end_tx; n--)`. Each candidate's rate
+// includes the tx_size signalling cost cpi->tx_size_cost[..][..][n] (libvpx
+// vp9_rdopt.c:958); govpx mirrors this via vp9TxSizeRateCost using the
+// fc.TxProbs row keyed on (max_tx_size, tx_size_ctx).
+//
+// Distortion is measured as libvpx's block_rd_txfm (vp9_rdopt.c:766-768):
+// `dist = pixel_sse(src, dst) * 16` where `dst` is the post-encoded recon
+// (the same recon the loop-filter SSE picker later consumes). Rate is the
+// coefficient-block cost via vp9InterCoeffBlockRateCost reusing
+// fc.CoefProbs[txSize][0] (planeType=0 for Y; is_inter=0 for keyframe).
+func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, txMode common.TxMode,
+) {
+	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
+		return
+	}
+	if txMode != common.TxModeSelect || bsize < common.Block8x8 ||
+		bsize >= common.BlockSizes {
+		return
+	}
+	if key.lossless {
+		// libvpx vp9_rdopt.c:1035 — lossless dispatches to
+		// choose_largest_tx_size which pins tx_size at the cap; here that
+		// reduces to Tx4x4 because the keyframe Y residue is forced to
+		// Tx4x4 elsewhere when lossless is set.
+		return
+	}
+	// libvpx vp9_rdopt.c:1035 — when sf.tx_size_search_method == USE_LARGESTALL
+	// super_block_yrd dispatches to choose_largest_tx_size, NOT
+	// choose_tx_size_from_rd. govpx leaves mi.TxSize at the
+	// MaxTxsizeLookup[bsize] preload (the existing keyframe baseMi /
+	// clampVP9TxSizeForBlock pin), matching libvpx's choose_largest_tx_size
+	// output `mi->tx_size = VPXMIN(max_tx_size, tx_mode_to_biggest_tx_size)`.
+	if e.sf.TxSizeSearchMethod != UseFullRD {
+		return
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return
+	}
+	planeData, stride := e.vp9EncoderReconPlane(0)
+	if len(planeData) == 0 || stride <= 0 {
+		return
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || srcStride <= 0 {
+		return
+	}
+	maxTx := common.MaxTxsizeLookup[bsize]
+	// libvpx vp9_rdopt.c:946-954 — TX_MODE_SELECT start_tx/end_tx range.
+	startTx := int(maxTx)
+	endTx := max(startTx-e.sf.TxSizeSearchDepth, 0)
+	if bsize > common.Block32x32 {
+		// VPXMIN(end_tx + 1, start_tx) (vp9_rdopt.c:949).
+		newEnd := min(endTx+1, startTx)
+		endTx = newEnd
+	}
+	if startTx <= endTx && startTx == endTx {
+		// Only one candidate; nothing to RD-pick.
+		mi.TxSize = common.TxSize(startTx)
+		return
+	}
+	if startTx < endTx {
+		return
+	}
+	// Snapshot the SB Y-plane recon so each TX candidate can run on a
+	// pristine baseline. libvpx accomplishes the same via per-candidate
+	// recon_buf[n][64*64] in choose_tx_size_from_rd (vp9_rdopt.c:929-940).
+	baseX := miCol * common.MiSize
+	baseY := miRow * common.MiSize
+	rows := len(planeData) / stride
+	if baseX >= stride || baseY >= rows {
+		return
+	}
+	restoreW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	restoreH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if baseX+restoreW > stride {
+		restoreW = stride - baseX
+	}
+	if baseY+restoreH > rows {
+		restoreH = rows - baseY
+	}
+	if restoreW <= 0 || restoreH <= 0 ||
+		restoreW*restoreH > len(e.blockScratch) {
+		return
+	}
+	saved := e.blockScratch[:restoreW*restoreH]
+	for y := 0; y < restoreH; y++ {
+		copy(saved[y*restoreW:(y+1)*restoreW],
+			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	}
+	// Tx-size signalling cost. libvpx vp9_rdopt.c:927+958 derive
+	// tx_size_ctx from get_tx_size_context and rate from
+	// cpi->tx_size_cost[max_tx-1][ctx][n]. govpx mirrors via
+	// vp9TxSizeRateCost on the fc.TxProbs row.
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	txCtx := vp9dec.GetTxSizeContext(above, left, maxTx)
+	txProbs := vp9TxProbsRow(&e.fc.TxProbs, maxTx, txCtx)
+	qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, vp9EncoderMiSegmentID(mi),
+		int(key.hdr.Quant.BaseQindex))
+	dequant := key.dq.Y[vp9EncoderMiSegmentID(mi)]
+
+	bestTx := common.TxSize(startTx)
+	bestScore := uint64(^uint64(0))
+	bestValid := false
+	prevScore := uint64(0)
+	prevValid := false
+	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	for n := startTx; n >= endTx; n-- {
+		tx := common.TxSize(n)
+		// libvpx vp9_rdopt.c:1004-1009 — restore recon and run
+		// txfm_rd_in_plane for this tx candidate. govpx restores by
+		// blitting `saved` back over the SB rect.
+		for y := 0; y < restoreH; y++ {
+			copy(planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW],
+				saved[y*restoreW:(y+1)*restoreW])
+		}
+		step := 1 << uint(tx)
+		bs := 4 << uint(tx)
+		coeffBlockSlots := vp9dec.MaxEobForTxSize(tx)
+		if coeffBlockSlots > len(e.coefScratch) {
+			continue
+		}
+		var rate int
+		var distortion uint64
+		valid := true
+		for rr := 0; rr < max4x4H && valid; rr += step {
+			for cc := 0; cc < max4x4W && valid; cc += step {
+				mode := vp9dec.GetYMode(mi, rr*int(common.Num4x4BlocksWideLookup[planeBsize])+cc)
+				coeffs := e.coefScratch[:coeffBlockSlots]
+				for i := range coeffs {
+					coeffs[i] = 0
+				}
+				if !e.prepareVP9KeyframeTxResidue(key, pd, 0, mode, tx, tile,
+					miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
+					qindex, coeffs) {
+					// No residue: the prediction matched src exactly (or
+					// quantization zeroed everything). libvpx's
+					// block_rd_txfm still computes dist via pixel_sse —
+					// which is 0 here — and rate via cost_coeffs on the
+					// zero-coeff EOB. Mirror by leaving rate/dist 0 for
+					// this 4x4 step.
+				}
+				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,dst)*16.
+				txX := baseX + cc*4
+				txY := baseY + rr*4
+				if dist, ok := vp9PlaneRectSSEClamped(src, srcStride, srcW,
+					srcH, planeData, stride, txX, txY, bs, bs); ok {
+					distortion += dist * 16
+				} else {
+					valid = false
+					break
+				}
+				// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
+				// cost_coeffs(...). govpx uses
+				// vp9InterCoeffBlockRateCost as the cost_coeffs port;
+				// keyframe is_inter=0 so the [0] is_inter index of
+				// fc.CoefProbs is the libvpx-faithful path.
+				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs)
+			}
+		}
+		if !valid {
+			continue
+		}
+		// libvpx vp9_rdopt.c:958+985 — r[n][1] = r[n][0] + r_tx_size,
+		// then rd[n][1] = RDCOST(rate + s0, dist) (the !skip branch).
+		// govpx folds s0/s1 (the skip-flag costs) into the existing
+		// keyframe writer downstream; for the TX_MODE_SELECT inner pick
+		// we only need rate + r_tx_size to compare candidates under the
+		// same skip context. This mirrors libvpx since the skip cost is
+		// independent of tx_size when the block has residue (the
+		// dominant case during keyframe TX_MODE_SELECT pick).
+		rate += vp9TxSizeRateCost(txProbs, tx, maxTx)
+		score := e.vp9ModeDecisionScore(distortion, rate, qindex)
+		if !bestValid || score < bestScore {
+			bestScore = score
+			bestTx = tx
+			bestValid = true
+		}
+		// libvpx tx_size_search_breakout (vp9_rdopt.c:994-997) — break the
+		// search loop when smaller-tx fails to improve over the previous
+		// larger-tx score. govpx initializes sf.tx_size_search_breakout = 1
+		// in the best-quality init (vp9_speed_features.go:944), so the
+		// libvpx-default behaviour applies. Without the breakout, the loop
+		// continues testing smaller tx candidates, which biases the picker
+		// toward smaller tx_size on textured residuals because the
+		// SATD-based rate proxy underestimates the larger-tx coef rate.
+		if e.sf.TxSizeSearchBreakout != 0 && n < startTx && prevValid &&
+			score > prevScore {
+			break
+		}
+		prevScore = score
+		prevValid = true
+	}
+	// Restore the recon snapshot. The subsequent
+	// prepareVP9KeyframeBlockResidue call will re-encode with the chosen tx.
+	for y := 0; y < restoreH; y++ {
+		copy(planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW],
+			saved[y*restoreW:(y+1)*restoreW])
+	}
+	if bestValid {
+		mi.TxSize = bestTx
+	}
+}
+
+// vp9KeyframeCoeffBlockRateCost is a verbatim port of libvpx's cost_coeffs
+// (vp9/encoder/vp9_rdopt.c:358-459) specialised for the keyframe Y-plane
+// path. libvpx walks the per-token entropy tree against
+// x->token_costs[tx_size][type][is_inter_block(mi)] where type=PLANE_TYPE_Y
+// (=0) and is_inter=0 for an intra/keyframe block. govpx mirrors by
+// reading the matching fc.CoefProbs[txSize][planeType=0][ref=0] slab and
+// invoking vp9CoeffTokenRateCost for the unconstrained pareto8 tail —
+// the same pareto-tree walk vp9_cost_tokens (vp9/encoder/vp9_cost.c)
+// drives in fill_token_costs (vp9/encoder/vp9_rd.c:135-152). The
+// per-coefficient energy class fed into the next coef-context lookup
+// mirrors libvpx's token_cache[rc] = vp9_pt_energy_class[token]
+// (vp9_rdopt.c:397, 429, 442; pt_energy_class table is in
+// vp9/common/vp9_entropy.c:95).
+func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
+	dequant [2]int16, coeffs []int16,
+) int {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txSize >= common.TxSizes || dequant[0] == 0 || dequant[1] == 0 ||
+		len(coeffs) < maxEob || len(e.modeScratch) < maxEob {
+		return 0
+	}
+	scan := common.DefaultScanOrders[txSize].Scan
+	neighbors := common.DefaultScanOrders[txSize].Neighbors
+	bandTrans := vp9dec.BandTranslateForTxSize(txSize)
+	for i := range e.modeScratch[:maxEob] {
+		e.modeScratch[i] = 0
+	}
+	eob := 0
+	for i := range maxEob {
+		if coeffs[scan[i]] != 0 {
+			eob = i + 1
+		}
+	}
+	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
+	// type=PLANE_TYPE_Y=0, is_inter=0 for a keyframe / intra block.
+	coefModel := &e.fc.CoefProbs[txSize][0][0]
+	ctx := 0
+	bandIdx := 0
+	rate := 0
+	for c := 0; c < maxEob; {
+		band := int(bandTrans[bandIdx])
+		bandIdx++
+		probs := &coefModel[band][ctx]
+		if c == eob {
+			rate += encoder.VP9CostBit(probs[0], 0)
+			return rate
+		}
+		rate += encoder.VP9CostBit(probs[0], 1)
+		for coeffs[scan[c]] == 0 {
+			rate += encoder.VP9CostBit(probs[1], 0)
+			e.modeScratch[scan[c]] = 0
+			c++
+			if c >= maxEob {
+				return rate
+			}
+			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
+			band = int(bandTrans[bandIdx])
+			bandIdx++
+			probs = &coefModel[band][ctx]
+		}
+		rate += encoder.VP9CostBit(probs[1], 1)
+		raster := scan[c]
+		coeff := coeffs[raster]
+		sign := 0
+		if coeff < 0 {
+			coeff = -coeff
+			sign = 1
+		}
+		dqv := dequant[1]
+		if c == 0 {
+			dqv = dequant[0]
+		}
+		// libvpx vp9_rdopt.c:394-407 — vp9_get_token_cost(v, &t, ...);
+		// cost += token_costs[!prev_t][!prev_t][t]. govpx mirrors by
+		// recovering the quantized magnitude via vp9CoeffTokenAbsVal
+		// (coeffs[] carry the dequantized values out of QuantizeB) and
+		// walking the pareto8 tree via vp9CoeffTokenRateCost.
+		absVal := vp9CoeffTokenAbsVal(coeff, dqv, txSize == common.Tx32x32)
+		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
+		// libvpx vp9_rdopt.c:397, 429, 442 — token_cache[rc] =
+		// vp9_pt_energy_class[token]. The libvpx table
+		// vp9/common/vp9_entropy.c:95 reads
+		//   {0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5}
+		// for ZERO/ONE/TWO/THREE/FOUR/CAT1..CAT6/EOB, matching
+		// TokenForAbsCoeff's classification ranges below.
+		switch {
+		case absVal == 1:
+			e.modeScratch[raster] = 1
+		case absVal == 2:
+			e.modeScratch[raster] = 2
+		case absVal == 3 || absVal == 4:
+			e.modeScratch[raster] = 3
+		case absVal <= 10:
+			e.modeScratch[raster] = 4
+		default:
+			e.modeScratch[raster] = 5
+		}
+		c++
+		if c < maxEob {
+			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
+		}
+	}
+	return rate
+}
+
+// vp9PlaneRectSSEClamped returns the SSE between src and dst rectangles of
+// size (w,h) starting at (x0,y0) in BOTH planes (src has dim srcW x srcH,
+// dst has dim dstStride x dstRows). Clamps both src and dst coords to
+// extents to mirror libvpx's pixel_sse which uses sum_squares_visible
+// semantics. Returns false if dst access would be out-of-bounds at (x0,y0).
+func vp9PlaneRectSSEClamped(src []byte, srcStride, srcW, srcH int,
+	dst []byte, dstStride, x0, y0, w, h int,
+) (uint64, bool) {
+	if len(src) == 0 || srcStride <= 0 || len(dst) == 0 || dstStride <= 0 ||
+		w <= 0 || h <= 0 {
+		return 0, false
+	}
+	dstRows := len(dst) / dstStride
+	if x0 < 0 || y0 < 0 || x0 >= dstStride || y0 >= dstRows {
+		return 0, false
+	}
+	var sse uint64
+	for y := range h {
+		sy := y0 + y
+		if sy >= srcH {
+			sy = srcH - 1
+		}
+		dy := y0 + y
+		if dy >= dstRows {
+			dy = dstRows - 1
+		}
+		srcRow := src[sy*srcStride:]
+		dstRow := dst[dy*dstStride:]
+		for x := range w {
+			sx := x0 + x
+			if sx >= srcW {
+				sx = srcW - 1
+			}
+			dx := x0 + x
+			if dx >= dstStride {
+				dx = dstStride - 1
+			}
+			diff := int(srcRow[sx]) - int(dstRow[dx])
+			sse += uint64(diff * diff)
+		}
+	}
+	return sse, true
 }
 
 func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,

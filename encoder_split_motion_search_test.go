@@ -504,13 +504,15 @@ func TestSplitBlockSADClampsPartialSourceSubpel(t *testing.T) {
 			srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
 		}
 	}
-	// libvpx's vp8_yv12_extend_frame_borders publishes visible-edge
-	// replication into the padded-but-uncoded region of the reference.
-	// splitBlockSAD mirrors that on padded-edge MBs by routing the SixTap
-	// input through a visible-clamped scratch; the expected result here
-	// must do the same so the kernel sees the libvpx-equivalent buffer.
+	// libvpx allocates the reference YV12 buffer with 16-aligned width/
+	// height (alloccommon.c:56-65 rounds up before vp8_yv12_alloc_frame_buffer),
+	// so y_crop_height==y_height==coded height. The post-LF
+	// vp8_yv12_extend_frame_borders therefore extends from coded-edge-1,
+	// leaving the coded-but-invisible MB padding populated with the live
+	// LF reconstruction. splitBlockSAD's SixTap fallback clamps the
+	// scratch read window to the coded extent to mirror that state.
 	var refScratch [(8 + 5) * (8 + 5)]byte
-	gatherVisibleClampedRefBlock(&ref.Img, refBaseY-2, refBaseX-2, 8+5, 8+5, refScratch[:], 8+5)
+	gatherCodedClampedRefBlock(&ref.Img, refBaseY-2, refBaseX-2, 8+5, 8+5, refScratch[:], 8+5)
 	var pred [16 * 16]byte
 	dsp.SixTapPredict8x8(refScratch[:], 8+5, xOffset, yOffset, pred[:], 8)
 	want := dsp.SAD8x8(srcScratch[:], 16, pred[:], 8)
@@ -552,7 +554,7 @@ func TestSplitBlockSubpixelVarianceClampsPartialSource(t *testing.T) {
 	var srcScratch [16 * 16]byte
 	gatherClampedLumaBlock(sourceImageFromPublic(src), baseY, baseX, width, height, srcScratch[:], 16)
 	var refScratch [(8 + 1) * (8 + 1)]byte
-	gatherVisibleClampedRefBlock(&ref.Img, refBaseY, refBaseX, width+1, height+1, refScratch[:], width+1)
+	gatherCodedClampedRefBlock(&ref.Img, refBaseY, refBaseX, width+1, height+1, refScratch[:], width+1)
 	want, _ := dsp.SubpelVariance8x8(refScratch[:], width+1, xOffset, yOffset, srcScratch[:], 16)
 
 	got, ok := splitBlockSubpixelVarianceForQuarterMV(sourceImageFromPublic(src), &ref.Img, mbRow, mbCol, block, width, height, quarterRow, quarterCol)
