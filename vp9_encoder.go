@@ -8617,20 +8617,11 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 		// vp9_pt_energy_class[token]. The libvpx table
 		// vp9/common/vp9_entropy.c:95 reads
 		//   {0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5}
-		// for ZERO/ONE/TWO/THREE/FOUR/CAT1..CAT6/EOB, matching
-		// TokenForAbsCoeff's classification ranges below.
-		switch {
-		case absVal == 1:
-			e.modeScratch[raster] = 1
-		case absVal == 2:
-			e.modeScratch[raster] = 2
-		case absVal == 3 || absVal == 4:
-			e.modeScratch[raster] = 3
-		case absVal <= 10:
-			e.modeScratch[raster] = 4
-		default:
-			e.modeScratch[raster] = 5
-		}
+		// for ZERO/ONE/TWO/THREE/FOUR/CAT1..CAT6/EOB. Sourced as a
+		// named constant so the mapping is one named lookup pinned to
+		// libvpx, not an open-coded ladder that can drift.
+		token, _ := encoder.TokenForAbsCoeff(absVal)
+		e.modeScratch[raster] = encoder.PtEnergyClass[token]
 		c++
 		if c < maxEob {
 			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
@@ -9629,18 +9620,12 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCost(txSize common.TxSize,
 		}
 		absVal := vp9CoeffTokenAbsVal(coeff, dqv, txSize == common.Tx32x32)
 		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
-		switch {
-		case absVal == 1:
-			e.modeScratch[raster] = 1
-		case absVal == 2:
-			e.modeScratch[raster] = 2
-		case absVal == 3 || absVal == 4:
-			e.modeScratch[raster] = 3
-		case absVal <= 10:
-			e.modeScratch[raster] = 4
-		default:
-			e.modeScratch[raster] = 5
-		}
+		// Mirror libvpx vp9_rdopt.c:442 — token_cache[rc] =
+		// vp9_pt_energy_class[token]. Same named-table lookup as the
+		// keyframe path above; see internal/vp9/encoder/pt_energy_class.go
+		// for the byte-pinned port.
+		token, _ := encoder.TokenForAbsCoeff(absVal)
+		e.modeScratch[raster] = encoder.PtEnergyClass[token]
 		c++
 		if c < maxEob {
 			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
