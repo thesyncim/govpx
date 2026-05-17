@@ -3726,11 +3726,25 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 		countInter = &tmp
 	}
 
+	// libvpx vp9/encoder/vp9_bitstream.c:378-403 — write_modes_b services
+	// KEY_FRAME and intra-only frames through the same write_mb_modes_kf +
+	// pack_mb_tokens dispatch (the frame_is_intra_only(cm) predicate at
+	// :395-396). The govpx wire-side bitstream pass at
+	// :2883-2887 already routes both `isKey` and `intraOnly` through
+	// vp9ModeTreeKeyframeSource for the same reason. The count pass must
+	// match so the per-block coef-counts accumulator (WriteCoefSb at
+	// :6912/:7001) runs for intra-only frames too — the
+	// vp9ModeTreeKeyframe fallback path at :7024+ writes the keyframe
+	// block header but does not invoke WriteCoefSb, leaving
+	// FrameCounts.CoefBranchStats empty for intra-only frames.
+	// build_tree_distribution + update_coef_probs_common at
+	// vp9_bitstream.c:519-682 ingest those branch counts, so dropping the
+	// counts here starves the savings-search the same way the
+	// FuzzVP9OracleEncoderRuntimeControls deferred citation describes for
+	// other sparse-counts cases.
 	kind := vp9ModeTreeInterSource
-	if isKey {
+	if isKey || intraOnly {
 		kind = vp9ModeTreeKeyframeSource
-	} else if intraOnly {
-		kind = vp9ModeTreeKeyframe
 	}
 	miGridValid := e.collectVP9FrameTileCounts(width, height, miRows, miCols, tileInfo,
 		partitionProbs, seg, baseMi, txMode, kind, countKey, countInter)
