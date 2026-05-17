@@ -243,6 +243,114 @@ func TestForwardDCT32x32RampPinnedLibvpx(t *testing.T) {
 	}
 }
 
+// TestForwardDCT32x32RDPinnedLibvpxCOracle pins ForwardDCT32x32RD against
+// values produced by the libvpx v1.16.0 C oracle vpx_fdct32x32_rd_c
+// (vpx_dsp/fwd_txfm.c:735). The expected coefficients below were captured
+// from a direct CGO-free C harness linked against
+// internal/coracle/build/libvpx-v1.16.0-vpxdec-vp9/vpx_dsp/fwd_txfm.c.o
+// and must remain byte-for-byte identical to the libvpx C output.
+func TestForwardDCT32x32RDPinnedLibvpxCOracle(t *testing.T) {
+	// Corpus A: (i-512)/8 ramp, stride 32.
+	var ramp [1024]int16
+	for i := range ramp {
+		ramp[i] = int16((i - 512) / 8)
+	}
+	var gotRamp [1024]int16
+	ForwardDCT32x32RD(ramp[:], 32, &gotRamp)
+	wantRamp := map[int]int16{
+		0:    -8,
+		1:    -140,
+		2:    0,
+		3:    -12,
+		4:    1,
+		8:    -10,
+		16:   -8,
+		32:   -4640,
+		33:   -3,
+		64:   0,
+		128:  0,
+		256:  0,
+		512:  0,
+		1023: 0,
+	}
+	for idx, expected := range wantRamp {
+		if gotRamp[idx] != expected {
+			t.Fatalf("ramp fdct32x32_rd[%d] = %d, want %d", idx, gotRamp[idx], expected)
+		}
+	}
+
+	// Corpus B: constant 100, stride 32 — must concentrate in DC.
+	var constInput [1024]int16
+	for i := range constInput {
+		constInput[i] = 100
+	}
+	var gotConst [1024]int16
+	ForwardDCT32x32RD(constInput[:], 32, &gotConst)
+	if gotConst[0] != 12801 {
+		t.Fatalf("const100 fdct32x32_rd[0] = %d, want 12801", gotConst[0])
+	}
+	for i := 1; i < 1024; i++ {
+		if gotConst[i] != 0 {
+			t.Fatalf("const100 fdct32x32_rd[%d] = %d, want 0", i, gotConst[i])
+		}
+	}
+
+	// Corpus C: alternating-sign rows; energy should land at the row
+	// Nyquist (index 32).
+	var rowSign [1024]int16
+	for r := range 32 {
+		v := int16(50)
+		if r&1 == 1 {
+			v = -50
+		}
+		for c := range 32 {
+			rowSign[r*32+c] = v
+		}
+	}
+	var gotRowSign [1024]int16
+	ForwardDCT32x32RD(rowSign[:], 32, &gotRowSign)
+	wantRowSign := map[int]int16{
+		0:    0,
+		1:    0,
+		16:   0,
+		32:   283,
+		33:   0,
+		64:   0,
+		1023: 0,
+	}
+	for idx, expected := range wantRowSign {
+		if gotRowSign[idx] != expected {
+			t.Fatalf("rowsign fdct32x32_rd[%d] = %d, want %d", idx, gotRowSign[idx], expected)
+		}
+	}
+}
+
+// TestForwardDCT32x32RDDiffersFromPrecisionVariant verifies that the RD
+// variant produces meaningfully different output from the precision
+// vpx_fdct32x32_c on a non-degenerate residual. libvpx documents the RD
+// pipeline as a low-precision approximation (vpx_dsp/fwd_txfm.c:732-734).
+// The exact divergence count (64 mismatched indices on the (i-512)/8
+// ramp) was captured against the C oracle and is asserted here.
+func TestForwardDCT32x32RDDiffersFromPrecisionVariant(t *testing.T) {
+	var input [1024]int16
+	for i := range input {
+		input[i] = int16((i - 512) / 8)
+	}
+	var rd, precise [1024]int16
+	ForwardDCT32x32RD(input[:], 32, &rd)
+	ForwardDCT32x32(input[:], 32, &precise)
+	diff := 0
+	for i := range rd {
+		if rd[i] != precise[i] {
+			diff++
+		}
+	}
+	const want = 64
+	if diff != want {
+		t.Fatalf("rd vs precision divergence = %d coefficients, want %d", diff, want)
+	}
+}
+
 func TestForwardDCTCospiConstantsMatchLibvpx(t *testing.T) {
 	if fdctCospi26_64 != 4756 {
 		t.Fatalf("fdctCospi26_64 = %d, want 4756", fdctCospi26_64)

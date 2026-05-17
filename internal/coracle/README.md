@@ -7,13 +7,47 @@ scripts and are guarded with `//go:build ignore`.
 Main tools:
 
 - `vpx_oracle.c`: VP8 decoder checksum oracle.
-- `build_vpxenc.sh`: pinned stock `vpxenc` / `vpxdec`.
+- `build_vpxenc.sh`: pinned stock `vpxenc` / `vpxdec` (VP8 path).
 - `build_vpxdec_vp9.sh`: VP9-enabled `vpxdec` / `vpxenc` for Profile 0
   oracle tests.
+- `build_vpxenc_vp9_frameflags.sh`: VP9 per-frame flag encoder driver used
+  by byte-parity / scoreboard / BD-rate tests that need to push
+  `VPX_EFLAG_FORCE_KF` / `VP8_EFLAG_NO_REF_*` / `VP8_EFLAG_FORCE_*` and
+  runtime control transitions per frame.
 - `build_vpxenc_oracle.sh`: patched VP8 encoder trace oracle.
+- `build_vpxenc_frameflags.sh`: VP8 per-frame flag encoder driver (links
+  against the patched `build_vpxenc_oracle.sh` libvpx.a).
+- `build_libvpx_vp9.sh`: VP9-enabled libvpx + VP9 DSP oracle binary used
+  to regenerate the committed DSP-corpus testdata.
 - `oracle_compare.go`: JSON Lines trace comparator.
 
-Run the supported full gate from the repository root:
+## Building the oracle binaries
+
+Run any single script directly:
+
+```sh
+sh internal/coracle/build_vpxenc.sh
+sh internal/coracle/build_vpxdec_vp9.sh
+sh internal/coracle/build_vpxenc_vp9_frameflags.sh
+sh internal/coracle/build_vpxenc_oracle.sh
+sh internal/coracle/build_vpxenc_frameflags.sh
+sh internal/coracle/build_libvpx.sh
+sh internal/coracle/build_libvpx_vp9.sh
+```
+
+Each script is idempotent: it stamps the configure flags into the source
+tree under `internal/coracle/build/` and skips the rebuild when the
+stamp matches.
+
+Convenience targets (from the repository root):
+
+```sh
+make oracle-bins        # builds all oracle binaries in one shot
+make oracle-tools       # VP8 oracle + patched trace encoder + frameflags
+make vp9-vpxdec-tools   # VP9 vpxdec + vpxenc + vpxenc-vp9-frameflags
+```
+
+The supported full gate from the repository root:
 
 ```sh
 make verify-production
@@ -28,6 +62,63 @@ make verify-decoder-parity
 Those targets build the required pinned tools under `internal/coracle/build`,
 fetch required VP8 corpora and VP9 Profile 0 fixtures, set the `GOVPX_*`
 environment variables, and run the matching oracle tests.
+
+## Environment variables
+
+The Go test harness gates every oracle/byte-parity test on the
+`GOVPX_WITH_ORACLE=1` umbrella flag and resolves each binary through a
+matching `GOVPX_*_BIN` / `GOVPX_*` override. When a `GOVPX_*_BIN` env var
+is unset the helper falls back to `internal/coracle/build/<binary-name>`
+relative to the package source, so callers that run the build scripts
+without overrides get the default layout for free.
+
+Umbrella gate:
+
+| Variable             | Purpose                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `GOVPX_WITH_ORACLE`  | Must be `1` to enable oracle / byte-parity / scoreboard tests. Otherwise those tests t.Skip.  |
+
+Binary paths consumed by tests / helper packages:
+
+| Variable                                | Default binary                                  | Built by                                   | Used by                                                                                |
+| --------------------------------------- | ----------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `GOVPX_ORACLE`                          | `build/govpx-vpx-oracle`                        | `build_libvpx.sh`                          | VP8 decoder checksum oracle (`oracle_vpxdec_helpers_test.go`, `benchmarks/decode_test.go`). |
+| `GOVPX_ORACLE_BIN`                      | `build/govpx-vpx-oracle`                        | `build_libvpx.sh`                          | Override consumed by `build_libvpx.sh` when relocating the oracle binary.              |
+| `GOVPX_VPXENC`                          | `build/vpxenc`                                  | `build_vpxenc.sh`                          | VP8 vpxenc reference for byte-parity tests.                                            |
+| `GOVPX_VPXENC_BIN`                      | `build/vpxenc`                                  | `build_vpxenc.sh`                          | Override consumed by `build_vpxenc.sh`.                                                |
+| `GOVPX_VPXDEC`                          | `build/vpxdec`                                  | `build_vpxenc.sh`                          | VP8 vpxdec reference for output-parity tests.                                          |
+| `GOVPX_VPXDEC_BIN`                      | `build/vpxdec`                                  | `build_vpxenc.sh`                          | Override consumed by `build_vpxenc.sh`.                                                |
+| `GOVPX_VPXENC_ORACLE`                   | `build/vpxenc-oracle`                           | `build_vpxenc_oracle.sh`                   | Patched VP8 encoder trace oracle (JSONL).                                              |
+| `GOVPX_VPXENC_ORACLE_BIN`               | `build/vpxenc-oracle`                           | `build_vpxenc_oracle.sh`                   | Override consumed by `build_vpxenc_oracle.sh`.                                         |
+| `GOVPX_VPXENC_FRAMEFLAGS`               | `build/vpxenc-frameflags`                       | `build_vpxenc_frameflags.sh`               | VP8 per-frame flag driver used by byte-parity tests.                                   |
+| `GOVPX_VPXENC_FRAMEFLAGS_BIN`           | `build/vpxenc-frameflags`                       | `build_vpxenc_frameflags.sh`               | Override consumed by `build_vpxenc_frameflags.sh`.                                     |
+| `GOVPX_VPXDEC_VP9_BIN`                  | `build/vpxdec-vp9`                              | `build_vpxdec_vp9.sh`                      | VP9 vpxdec reference (`internal/coracle.VpxdecVP9Path`).                                |
+| `GOVPX_VPXENC_VP9_BIN`                  | `build/vpxenc-vp9`                              | `build_vpxdec_vp9.sh`                      | VP9 vpxenc reference (`internal/coracle.VpxencVP9Path`).                                |
+| `GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN`       | `build/vpxenc-vp9-frameflags`                   | `build_vpxenc_vp9_frameflags.sh`           | VP9 per-frame flag driver (`internal/coracle.VpxencVP9FrameFlagsPath`).                |
+| `GOVPX_VPX_TEMPORAL_SVC_ENCODER`        | `build/vpx_temporal_svc_encoder`                | `build_vpxenc.sh`                          | VP8 temporal SVC oracle.                                                               |
+| `GOVPX_VPX_TEMPORAL_SVC_ENCODER_BIN`    | `build/vpx_temporal_svc_encoder`                | `build_vpxenc.sh`                          | Override consumed by `build_vpxenc.sh`.                                                |
+| `GOVPX_VP9_DSP_ORACLE_BIN`              | `build/govpx-vp9-dsp-oracle`                    | `build_libvpx_vp9.sh`                      | VP9 DSP oracle (regenerates committed `internal/vp9/dsp/testdata`).                    |
+| `GOVPX_VP9_SPATIAL_SVC_ENCODER`         | (unset; tests Skip without it)                  | (manual build, libvpx examples tree)       | VP9 spatial SVC oracle.                                                                |
+
+Build-tree layout:
+
+| Variable                       | Purpose                                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| `GOVPX_CORACLE_BUILD_DIR`      | Override the `internal/coracle/build/` root used by every build script.                       |
+| `GOVPX_LIBVPX_PREFIX`          | Install prefix for `build_libvpx.sh`.                                                         |
+| `GOVPX_LIBVPX_VP9_PREFIX`      | Install prefix for `build_libvpx_vp9.sh`.                                                     |
+| `GOVPX_LIBVPX_LIBS`            | Link flags for `build_libvpx.sh` (`-lvpx -lm -pthread` by default).                            |
+| `GOVPX_LIBVPX_VP9_LIBS`        | Link flags for `build_libvpx_vp9.sh` (`-lvpx -lm -pthread` by default).                        |
+
+BD-rate gate (`make verify-bd-rate`) reads additional env vars:
+
+| Variable                             | Purpose                                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `GOVPX_BD_RATE_GATES`                | Must be `1` for the slow per-feature VP9 BD-rate gates to run.                                   |
+| `GOVPX_BD_RATE_BUILD_LIBVPX`         | When `1`, missing `vpxenc-vp9-frameflags` triggers a one-shot libvpx build.                       |
+| `GOVPX_BD_RATE_LIBVPX_REQUIRED`      | When `1`, missing libvpx oracle is `t.Fatal` instead of `t.Skip` (CI guard).                     |
+
+## VP8 decode helper
 
 The VP8 decode helper accepts IVF input:
 
