@@ -211,7 +211,7 @@ func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	}
 }
 
-func TestSetRealtimeTargetFPSChangeResetsAutospeedTiming(t *testing.T) {
+func TestSetRealtimeTargetFPSChangePreservesAutospeedTiming(t *testing.T) {
 	e := newTestEncoder(t)
 	e.autoSpeed = 12
 	e.avgPickModeTime = 9000
@@ -222,13 +222,11 @@ func TestSetRealtimeTargetFPSChangeResetsAutospeedTiming(t *testing.T) {
 		t.Fatalf("SetRealtimeTarget returned error: %v", err)
 	}
 
-	// FPS-change triggers govpx's resetAutoSpeedTiming (clears timers and
-	// transiently sets autoSpeed=0) and the tail applyChangeConfigSpeedReset
-	// then mirrors libvpx vp8_change_config's seed `cpi->Speed = oxcf.cpu_used`
-	// (newTestEncoder uses CpuUsed=8). libvpxCPUUsed still returns 4 because
-	// frameCount==0 (cold start before any encode_mb_row).
-	if e.autoSpeed != e.opts.CpuUsed || e.avgPickModeTime != 0 || e.avgEncodeTime != 0 || e.autoSpeedFrameStartNS != 0 {
-		t.Fatalf("autospeed state = speed:%d pick:%d encode:%d start:%d, want speed=%d pick=0 encode=0 start=0",
+	// libvpx routes fps changes through vp8_change_config, which reseeds
+	// cpi->Speed = oxcf.cpu_used but preserves avg_pick_mode_time /
+	// avg_encode_time. applyChangeConfigSpeedReset mirrors that tail.
+	if e.autoSpeed != e.opts.CpuUsed || e.avgPickModeTime != 9000 || e.avgEncodeTime != 18000 || e.autoSpeedFrameStartNS != 12345 {
+		t.Fatalf("autospeed state = speed:%d pick:%d encode:%d start:%d, want speed=%d pick=9000 encode=18000 start=12345",
 			e.autoSpeed, e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS, e.opts.CpuUsed)
 	}
 	if got := e.libvpxCPUUsed(); got != 4 {
@@ -483,10 +481,7 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 
 func TestSetRealtimeTargetFrameDropMode(t *testing.T) {
 	e := newTestEncoder(t)
-	e.rc.dropFrameAllowed = true
-	e.rc.dropFramesWaterMark = 75
-	e.opts.DropFrameAllowed = true
-	e.opts.DropFrameWaterMark = 75
+	e.setFrameDropFromThresh(75)
 
 	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 900}); err != nil {
 		t.Fatalf("bitrate-only SetRealtimeTarget returned error: %v", err)
@@ -502,6 +497,9 @@ func TestSetRealtimeTargetFrameDropMode(t *testing.T) {
 		t.Fatalf("disabled frame drop = rc:%t opts:%t mark:%d, want false/false/0",
 			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark)
 	}
+	// libvpx only enables drop via an explicit rc_dropframe_thresh; restore
+	// the threshold before re-enabling (equivalent to drop:75 config token).
+	e.opts.DropFrameWaterMark = 75
 	if err := e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropEnabled}); err != nil {
 		t.Fatalf("enable frame drop returned error: %v", err)
 	}
@@ -524,7 +522,7 @@ func TestSetFrameDropAllowed(t *testing.T) {
 		t.Fatalf("disabled frame drop = rc:%t opts:%t mark:%d, want false/false/0",
 			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark)
 	}
-	e.opts.DropFrameWaterMark = 0
+	e.opts.DropFrameWaterMark = defaultDropFramesWaterMark
 	if err := e.SetFrameDropAllowed(true); err != nil {
 		t.Fatalf("SetFrameDropAllowed(true) returned error: %v", err)
 	}

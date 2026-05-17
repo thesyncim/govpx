@@ -25,9 +25,7 @@ func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	e.refreshTemporalLayerCodingGeometry()
 	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 	e.opts.TemporalScalability = nextTemporal.config
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -63,14 +61,12 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.BufferSizeMs = cfg.BufferSizeMs
 	e.opts.BufferInitialSizeMs = cfg.BufferInitialSizeMs
 	e.opts.BufferOptimalSizeMs = cfg.BufferOptimalSizeMs
-	e.opts.DropFrameAllowed = cfg.DropFrameAllowed
-	e.opts.DropFrameWaterMark = cfg.DropFrameWaterMark
+	e.opts.DropFrameAllowed = e.rc.dropFramesWaterMark > 0
+	e.opts.DropFrameWaterMark = e.rc.dropFramesWaterMark
 	e.opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
 	e.opts.GFCBRBoostPct = cfg.GFCBRBoostPct
 	e.opts.TemporalScalability = nextTemporal.config
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -97,9 +93,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 		e.rc.lastQuantizer = qIndex
 		e.rc.lastInterQuantizer = qIndex
 	}
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -115,9 +109,7 @@ func (e *VP8Encoder) SetMaxIntraBitratePct(pct int) error {
 	}
 	e.rc.maxIntraBitratePct = pct
 	e.opts.MaxIntraBitratePct = pct
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -133,9 +125,7 @@ func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
 	}
 	e.rc.gfCBRBoostPct = pct
 	e.opts.GFCBRBoostPct = pct
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -150,9 +140,7 @@ func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.TokenPartitions = partitions
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -166,9 +154,7 @@ func (e *VP8Encoder) SetSharpness(sharpness int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.Sharpness = sharpness
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -183,9 +169,7 @@ func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.StaticThreshold = threshold
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -200,9 +184,7 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.ScreenContentMode = mode
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -232,16 +214,14 @@ func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 }
 
 // SetFrameDropAllowed enables or disables realtime rate-control frame
-// dropping without touching bitrate. When enabling, the drop watermark
-// defaults to EncoderOptions.DropFrameWaterMark or 60 if that is zero.
+// dropping without touching bitrate. It maps to libvpx rc_dropframe_thresh:
+// enabled applies EncoderOptions.DropFrameWaterMark, disabled writes 0.
 func (e *VP8Encoder) SetFrameDropAllowed(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
 	e.setFrameDropAllowed(enabled)
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -256,7 +236,7 @@ func (e *VP8Encoder) SetAutoAltRef(enabled bool) error {
 		return ErrClosed
 	}
 	e.opts.AutoAltRef = enabled
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -304,21 +284,19 @@ func (e *VP8Encoder) SetScalingMode(horiz ScalingMode, vert ScalingMode) error {
 	return nil
 }
 
+// setFrameDropFromThresh applies libvpx rc_dropframe_thresh semantics.
+func (e *VP8Encoder) setFrameDropFromThresh(thresh int) {
+	e.rc.applyLibvpxDropFrameThresh(thresh)
+	e.opts.DropFrameWaterMark = e.rc.dropFramesWaterMark
+	e.opts.DropFrameAllowed = e.rc.dropFramesWaterMark > 0
+}
+
 func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
-	e.rc.dropFrameAllowed = enabled
-	if enabled {
-		if e.opts.DropFrameWaterMark > 0 {
-			e.rc.dropFramesWaterMark = min(e.opts.DropFrameWaterMark, 100)
-		} else if e.rc.dropFramesWaterMark <= 0 {
-			e.rc.dropFramesWaterMark = defaultDropFramesWaterMark
-		}
-		if e.opts.DropFrameWaterMark <= 0 {
-			e.opts.DropFrameWaterMark = e.rc.dropFramesWaterMark
-		}
-	} else {
-		e.rc.dropFramesWaterMark = 0
+	thresh := e.opts.DropFrameWaterMark
+	if !enabled {
+		thresh = 0
 	}
-	e.opts.DropFrameAllowed = enabled
+	e.setFrameDropFromThresh(thresh)
 }
 
 func (e *VP8Encoder) refreshRuntimeCyclicRefreshConfig() {
@@ -414,13 +392,13 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		}
 	}
 	if target.FPS > 0 {
-		fpsChanged := target.FPS != e.opts.FPS
 		e.opts.FPS = target.FPS
 		e.opts.TimebaseNum = 1
 		e.opts.TimebaseDen = target.FPS
-		if fpsChanged {
-			e.resetAutoSpeedTiming()
-		}
+		// vpx_codec_enc_config_set stores g_timebase, but vp8_change_config
+		// calls vp8_new_framerate(cpi, cpi->framerate) without recomputing
+		// cpi->framerate from that new timebase.
+		e.timing = timingFromEncoderOptions(e.opts)
 	}
 	nextMinQuantizer := e.opts.MinQuantizer
 	nextMaxQuantizer := e.opts.MaxQuantizer
@@ -477,9 +455,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.refreshTemporalLayerCodingGeometry()
 		e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 		e.opts.TemporalScalability = nextTemporal.config
-		e.refreshRuntimeCyclicRefreshConfig()
-		e.forceNextLFDeltaUpdate()
-		e.applyChangeConfigSpeedReset()
+		e.applyVP8ChangeConfigRuntimeSideEffects()
 		return nil
 	}
 	nextRC := e.rc
@@ -498,9 +474,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	e.temporal = nextTemporal
 	e.refreshTemporalLayerCodingGeometry()
 	e.opts.TemporalScalability = nextTemporal.config
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -528,9 +502,7 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	if wasTemporal && !e.temporal.enabled {
 		e.restoreBaseLayerCodingStateAfterTemporalDisable(prevTemporal)
 	}
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -566,8 +538,7 @@ func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 	if deadline != previousDeadline {
 		e.interRDThreshBaselineGen++
 		e.interRDFrameRefSearchOrderValid = false
-		e.forceNextLFDeltaUpdate()
-		e.autoSpeed = e.opts.CpuUsed
+		e.applyVP8ChangeConfigRuntimeSideEffects()
 	}
 	e.refreshRuntimeCyclicRefreshConfig()
 	return nil
@@ -588,16 +559,9 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	e.configuredCPUUsedValid = true
 	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, e.configuredCPUUsed)
 	e.runtimePinnedCPUUsed = e.opts.Deadline == DeadlineRealtime && e.configuredCPUUsed < 0
-	// libvpx routes VP8E_SET_CPUUSED through vp8_change_config, whose tail
-	// assigns cpi->Speed = oxcf.cpu_used. It does not reset the accumulated
-	// picker threshold multipliers or realtime timing windows; the next frame's
-	// vp8_initialize_rd_consts re-derives the baseline thresholds from the new
-	// speed and keeps applying the live rd_thresh_mult[] state.
-	e.autoSpeed = e.opts.CpuUsed
 	e.interRDThreshBaselineGen++
 	e.interRDFrameRefSearchOrderValid = false
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -620,9 +584,7 @@ func (e *VP8Encoder) SetTuning(tuning Tuning) error {
 	}
 	e.opts.Tuning = tuning
 	e.activityMapValid = false
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -670,6 +632,25 @@ func libvpxSpeedFeatureCPUUsed(deadline Deadline, cpuUsed int) int {
 		return 4
 	}
 	return cpuUsed
+}
+
+func libvpxSpeedFeatureRecodeLoop(deadline Deadline, cpuUsed int) int {
+	switch deadline {
+	case DeadlineRealtime:
+		return 0
+	case DeadlineGoodQuality:
+		speed := libvpxSpeedFeatureCPUUsed(deadline, cpuUsed)
+		switch {
+		case speed > 3:
+			return 0
+		case speed > 2:
+			return 2
+		default:
+			return 1
+		}
+	default:
+		return 1
+	}
 }
 
 // libvpx vp8/encoder/rdopt.c:65 auto_speed_thresh table indexed by
@@ -877,6 +858,29 @@ func (e *VP8Encoder) resetAutoSpeedTiming() {
 // libvpx for the very first frame after the runtime control fires.
 func (e *VP8Encoder) applyChangeConfigSpeedReset() {
 	e.autoSpeed = e.opts.CpuUsed
+	e.applyChangeConfigSegmentEncodeBreakout()
+}
+
+// applyVP8ChangeConfigRuntimeSideEffects mirrors the shared body/tail effects
+// of libvpx update_extracfg / vpx_codec_enc_config_set -> vp8_change_config.
+func (e *VP8Encoder) applyVP8ChangeConfigRuntimeSideEffects() {
+	e.rc.applyVP8ChangeConfigQuantizerClamp()
+	e.rc.refreshDropFramesAllowed()
+	e.refreshRuntimeCyclicRefreshConfig()
+	e.forceNextLFDeltaUpdate()
+	e.applyChangeConfigSpeedReset()
+}
+
+// applyChangeConfigSegmentEncodeBreakout mirrors vp8_change_config's
+// segment_encode_breakout refresh when use_roi_static_threshold is false
+// (onyx_if.c:1560-1565).
+func (e *VP8Encoder) applyChangeConfigSegmentEncodeBreakout() {
+	if e.useROIStaticThreshold {
+		return
+	}
+	for i := range e.segmentEncodeBreakout {
+		e.segmentEncodeBreakout[i] = e.opts.StaticThreshold
+	}
 }
 
 // SetKeyFrameInterval changes the maximum GOP distance in frames. At
@@ -894,9 +898,7 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	e.opts.KeyFrameInterval = frames
 	// Mirror libvpx oxcf.key_freq for estimate_keyframe_frequency.
 	e.rc.keyFrameFrequency = frames
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -911,9 +913,7 @@ func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	e.opts.AdaptiveKeyFrames = enabled
 	e.rc.autoKeyFrames = enabled
 	e.keyFramesDisabled = !enabled
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -975,9 +975,7 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	// alone is enough to bypass the denoiser without disturbing any state
 	// outside the public Set surface.
 	e.opts.NoiseSensitivity = level
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 
@@ -995,9 +993,43 @@ func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error 
 	e.opts.ARNRMaxFrames = maxFrames
 	e.opts.ARNRStrength = strength
 	e.opts.ARNRType = filterType
-	e.refreshRuntimeCyclicRefreshConfig()
-	e.forceNextLFDeltaUpdate()
-	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigRuntimeSideEffects()
+	return nil
+}
+
+func (e *VP8Encoder) setARNRMaxFrames(maxFrames int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if maxFrames < 0 || maxFrames > maxARNRFrames {
+		return ErrInvalidConfig
+	}
+	e.opts.ARNRMaxFrames = maxFrames
+	e.applyVP8ChangeConfigRuntimeSideEffects()
+	return nil
+}
+
+func (e *VP8Encoder) setARNRStrength(strength int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if strength < 0 || strength > 6 {
+		return ErrInvalidConfig
+	}
+	e.opts.ARNRStrength = strength
+	e.applyVP8ChangeConfigRuntimeSideEffects()
+	return nil
+}
+
+func (e *VP8Encoder) setARNRType(filterType int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if filterType < 1 || filterType > 3 {
+		return ErrInvalidConfig
+	}
+	e.opts.ARNRType = filterType
+	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
 

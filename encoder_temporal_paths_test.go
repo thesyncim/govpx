@@ -458,17 +458,19 @@ func TestEncodeIntoForcedKeyHonorsNoUpdateEntropy(t *testing.T) {
 
 func TestEncodeNoUpdateEntropyCarriesAcrossDroppedFrame(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
-		Width:             64,
-		Height:            64,
-		FPS:               30,
-		RateControlMode:   RateControlCBR,
-		TargetBitrateKbps: 300,
-		MinQuantizer:      4,
-		MaxQuantizer:      56,
-		Deadline:          DeadlineRealtime,
-		CpuUsed:           -3,
-		KeyFrameInterval:  999,
-		Tuning:            TunePSNR,
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  300,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            -3,
+		KeyFrameInterval:   999,
+		Tuning:             TunePSNR,
+		DropFrameAllowed:   true,
+		DropFrameWaterMark: defaultDropFramesWaterMark,
 	})
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)

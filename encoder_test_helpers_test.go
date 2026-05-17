@@ -24,6 +24,7 @@ func newSizedTestEncoder(tb testing.TB, width int, height int) *VP8Encoder {
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
 		DropFrameAllowed:    true,
+		DropFrameWaterMark:  defaultDropFramesWaterMark,
 		Deadline:            DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
@@ -49,6 +50,7 @@ func newTemporalTestEncoder(tb testing.TB, temporal TemporalScalabilityConfig) *
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
 		DropFrameAllowed:    true,
+		DropFrameWaterMark:  defaultDropFramesWaterMark,
 		Deadline:            DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
@@ -75,6 +77,7 @@ func newTemporalRefreshFlagTestEncoder(tb testing.TB, temporal TemporalScalabili
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
 		DropFrameAllowed:    true,
+		DropFrameWaterMark:  defaultDropFramesWaterMark,
 		Deadline:            DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
@@ -136,6 +139,10 @@ func newEntropyRefreshTestEncoder(tb testing.TB, errorResilient bool) *VP8Encode
 
 func newLowBitrateDropTestEncoder(t *testing.T, dropFrameAllowed bool) *VP8Encoder {
 	t.Helper()
+	dropFrameWaterMark := 0
+	if dropFrameAllowed {
+		dropFrameWaterMark = defaultDropFramesWaterMark
+	}
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,
@@ -145,6 +152,7 @@ func newLowBitrateDropTestEncoder(t *testing.T, dropFrameAllowed bool) *VP8Encod
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
 		DropFrameAllowed:    dropFrameAllowed,
+		DropFrameWaterMark:  dropFrameWaterMark,
 		KeyFrameInterval:    120,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 0,

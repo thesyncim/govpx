@@ -184,6 +184,7 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	if activeWorst > vp8MaxQIndex {
 		activeWorst = vp8MaxQIndex
 	}
+	rc.activeWorstQuantizer = activeWorst
 	return activeBest, activeWorst
 }
 

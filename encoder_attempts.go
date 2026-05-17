@@ -211,7 +211,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	// is per-design coarse - the resulting Q drifts well below libvpx's at
 	// constrained bitrates. See libvpx vp8/encoder/onyx_if.c
 	// `recode_loop_test` and `set_speed_features` case 1/2/3.
-	allowRecode := e.libvpxInterRecodeLoopActive(boostedReferenceFrame)
+	allowRecode := false
 	rdRefProbsPreconfigured := false
 	cyclicRefreshQ := e.rc.currentQuantizer
 	for attempt := 0; ; attempt++ {
@@ -234,6 +234,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 			return result, nil
 		}
 		e.lastPredErrorMB = e.currentPredictionErrorMB(required)
+		println("ATTEMPT", e.frameCount, attempt, e.rc.currentQuantizer, result.ProjectedSizeBits, result.PickerProjectedSizeBytes, result.CoefSavingsBits, result.RefFrameSavingsBits, result.Size)
 		if !allowRecode || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
@@ -291,21 +292,15 @@ func (e *VP8Encoder) interRecodeNextRDRefFrameProbs(refreshGolden bool, refreshA
 // branch only. boostedReferenceFrame mirrors `(cm->refresh_golden_frame
 // || cm->refresh_alt_ref_frame)`.
 func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) bool {
-	switch e.opts.Deadline {
-	case DeadlineRealtime:
+	switch libvpxSpeedFeatureRecodeLoop(e.opts.Deadline, e.libvpxCPUUsed()) {
+	case 0:
 		return false
-	case DeadlineGoodQuality:
-		speed := e.libvpxCPUUsed()
-		switch {
-		case speed <= 2:
-			return true
-		case speed == 3:
-			return boostedReferenceFrame
-		default:
-			return false
-		}
-	default:
+	case 1:
 		return true
+	case 2:
+		return boostedReferenceFrame
+	default:
+		return false
 	}
 }
 
@@ -317,14 +312,8 @@ func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) boo
 // (vp8_special_case_for_forced_key_frame) is independent of recode_loop and
 // is gated separately at the call site.
 func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
-	switch e.opts.Deadline {
-	case DeadlineRealtime:
-		return false
-	case DeadlineGoodQuality:
-		return e.libvpxCPUUsed() <= 3
-	default:
-		return true
-	}
+	recodeLoop := libvpxSpeedFeatureRecodeLoop(e.opts.Deadline, e.libvpxCPUUsed())
+	return recodeLoop == 1 || recodeLoop == 2
 }
 
 // vp8DropEncodedframeOvershoot ports vp8/encoder/ratectrl.c
@@ -388,7 +377,7 @@ func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int,
 	// govpx does not surface multi-resolution force_drop_overshoot, so
 	// the inner OR collapses to the rcf+timing branch.
 	rcf := e.rc.rateCorrectionFactorForFrame(false, false)
-	framerate := outputFrameRate(e.timing)
+	framerate := float64(e.rc.outputFrameRate)
 	rcThresholdMet := rcf < 8.0*libvpxMinBPBFactor &&
 		framerate > 0 &&
 		float64(e.rc.framesSinceLastDropOvershoot) > framerate

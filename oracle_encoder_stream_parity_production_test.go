@@ -152,24 +152,32 @@ func TestOracleEncoderProductionRuntimeTransitions720p(t *testing.T) {
 	flags[8] = EncodeForceKeyFrame
 	flags[16] = EncodeForceKeyFrame
 	flags[24] = EncodeForceKeyFrame
+	applyConfigSet := func(t *testing.T, e *VP8Encoder, bitrate int, fps int, minQ int, maxQ int, drop int) {
+		t.Helper()
+		cfg := oracleRuntimeCurrentRateControlConfig(e)
+		cfg.TargetBitrateKbps = bitrate
+		cfg.MinQuantizer = minQ
+		cfg.MaxQuantizer = maxQ
+		cfg.DropFrameAllowed = drop > 0
+		cfg.DropFrameWaterMark = drop
+		mustRuntime(t, "SetRateControl(production-runtime)", e.SetRateControl(cfg))
+		e.opts.FPS = fps
+		e.opts.TimebaseNum = 1
+		e.opts.TimebaseDen = fps
+		e.timing = timingFromEncoderOptions(e.opts)
+	}
 	apply := map[int]func(*testing.T, *VP8Encoder){
 		8: func(t *testing.T, e *VP8Encoder) {
 			t.Helper()
-			mustRuntime(t, "SetRealtimeTarget(6000/24/q4-52/drop)", e.SetRealtimeTarget(RealtimeTarget{
-				BitrateKbps: 6000, FPS: 24, MinQuantizer: 4, MaxQuantizer: 52, FrameDrop: RealtimeFrameDropEnabled,
-			}))
+			applyConfigSet(t, e, 6000, 24, 4, 52, 60)
 		},
 		16: func(t *testing.T, e *VP8Encoder) {
 			t.Helper()
-			mustRuntime(t, "SetRealtimeTarget(9000/30/q2-56/nodrop)", e.SetRealtimeTarget(RealtimeTarget{
-				BitrateKbps: 9000, FPS: 30, MinQuantizer: 2, MaxQuantizer: 56, FrameDrop: RealtimeFrameDropDisabled,
-			}))
+			applyConfigSet(t, e, 9000, 30, 2, 56, 0)
 		},
 		24: func(t *testing.T, e *VP8Encoder) {
 			t.Helper()
-			mustRuntime(t, "SetRealtimeTarget(7000/30/q8-48/drop)", e.SetRealtimeTarget(RealtimeTarget{
-				BitrateKbps: 7000, FPS: 30, MinQuantizer: 8, MaxQuantizer: 48, FrameDrop: RealtimeFrameDropEnabled,
-			}))
+			applyConfigSet(t, e, 7000, 30, 8, 48, 60)
 		},
 	}
 

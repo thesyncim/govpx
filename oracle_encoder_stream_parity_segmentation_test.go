@@ -665,33 +665,18 @@ func TestOracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
 	driver := findVpxencFrameFlags(t)
 
 	const (
-		fps        = 30
-		targetKbps = 700
-		frames     = 10
-		width      = 65
-		height     = 33
+		fps           = 30
+		targetKbps    = 700
+		frames        = 10
+		defaultWidth  = 65
+		defaultHeight = 33
 	)
-	sources := make([]Image, frames)
-	for i := range sources {
-		sources[i] = encoderValidationSegmentedFrame(width, height, i)
-	}
-	baseOpts := EncoderOptions{
-		Width:             width,
-		Height:            height,
-		FPS:               fps,
-		RateControlMode:   RateControlCBR,
-		TargetBitrateKbps: targetKbps,
-		MinQuantizer:      4,
-		MaxQuantizer:      56,
-		KeyFrameInterval:  999,
-		Deadline:          DeadlineRealtime,
-		CpuUsed:           -3,
-		Tuning:            TunePSNR,
-	}
 
 	cases := []struct {
 		name                     string
 		pattern                  string
+		width                    int
+		height                   int
 		limit                    int
 		tokenPartitions          int
 		errorResilient           bool
@@ -703,10 +688,37 @@ func TestOracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
 		{name: "border1", pattern: "border1"},
 		{name: "border1-er2-token4", pattern: "border1", tokenPartitions: 2, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2", "--token-parts=2"}},
 		{name: "checker-er3-token8", pattern: "checker", tokenPartitions: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
+		{name: "border1-17x17", pattern: "border1", width: 17, height: 17},
+		{name: "checker-33x65", pattern: "checker", width: 33, height: 65},
+		{name: "left1-31x48-token4", pattern: "left1", width: 31, height: 48, tokenPartitions: 2, extraArgs: []string{"--token-parts=2"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			opts := baseOpts
+			width := tc.width
+			if width == 0 {
+				width = defaultWidth
+			}
+			height := tc.height
+			if height == 0 {
+				height = defaultHeight
+			}
+			sources := make([]Image, frames)
+			for i := range sources {
+				sources[i] = encoderValidationSegmentedFrame(width, height, i)
+			}
+			opts := EncoderOptions{
+				Width:             width,
+				Height:            height,
+				FPS:               fps,
+				RateControlMode:   RateControlCBR,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				KeyFrameInterval:  999,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           -3,
+				Tuning:            TunePSNR,
+			}
 			opts.TokenPartitions = tc.tokenPartitions
 			opts.ErrorResilient = tc.errorResilient
 			opts.ErrorResilientPartitions = tc.errorResilientPartitions

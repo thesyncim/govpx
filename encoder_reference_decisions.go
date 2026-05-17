@@ -521,7 +521,7 @@ func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 }
 
 func (e *VP8Encoder) libvpxMaxGFInterval() int {
-	maxInterval := max(int(outputFrameRate(e.timing)/2.0)+2, 12)
+	maxInterval := max(e.rc.outputFrameRate/2+2, 12)
 	if staticSceneMax := e.opts.KeyFrameInterval >> 1; staticSceneMax > 0 && maxInterval > staticSceneMax {
 		maxInterval = staticSceneMax
 	}

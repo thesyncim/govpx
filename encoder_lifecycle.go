@@ -61,6 +61,8 @@ func (e *VP8Encoder) Reset() {
 	e.activityProbeRDDiv = 0
 	e.activityProbeRDValid = false
 	e.roi.reset()
+	e.useROIStaticThreshold = false
+	e.applyChangeConfigSegmentEncodeBreakout()
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false

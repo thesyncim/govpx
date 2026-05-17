@@ -212,7 +212,7 @@ func TestRuntimeConfigChangeResendsROIMapAndData(t *testing.T) {
 	}
 }
 
-func TestROIMapStaticThresholdFallsBackToGlobalThreshold(t *testing.T) {
+func TestROIMapStaticThresholdUsesSegmentEncodeBreakout(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	e.opts.StaticThreshold = 123
 	roi := ROIMap{Enabled: true, Rows: 1, Cols: 1, SegmentID: []uint8{1}}
@@ -220,8 +220,17 @@ func TestROIMapStaticThresholdFallsBackToGlobalThreshold(t *testing.T) {
 	if err := e.SetROIMap(&roi); err != nil {
 		t.Fatalf("SetROIMap returned error: %v", err)
 	}
-	if got := e.interStaticThresholdForSegment(1); got != 123 {
-		t.Fatalf("static threshold without ROI thresholds = %d, want global 123", got)
+	// libvpx encodeframe.c reads segment_encode_breakout[segment_id] whenever
+	// segmentation is enabled; vp8_set_roimap seeds zeros when no thresholds
+	// are supplied.
+	if got := e.interStaticThresholdForSegment(1); got != 0 {
+		t.Fatalf("segment encode breakout without ROI thresholds = %d, want 0", got)
+	}
+	if err := e.SetStaticThreshold(77); err != nil {
+		t.Fatalf("SetStaticThreshold after ROI without threshold returned error: %v", err)
+	}
+	if got := e.interStaticThresholdForSegment(1); got != 77 {
+		t.Fatalf("segment encode breakout after non-ROI static threshold = %d, want 77", got)
 	}
 	roi.StaticThreshold[1] = 456
 	if err := e.SetROIMap(&roi); err != nil {
@@ -229,5 +238,11 @@ func TestROIMapStaticThresholdFallsBackToGlobalThreshold(t *testing.T) {
 	}
 	if got := e.interStaticThresholdForSegment(1); got != 456 {
 		t.Fatalf("static threshold with ROI threshold = %d, want 456", got)
+	}
+	if err := e.SetStaticThreshold(88); err != nil {
+		t.Fatalf("SetStaticThreshold after ROI threshold returned error: %v", err)
+	}
+	if got := e.interStaticThresholdForSegment(1); got != 456 {
+		t.Fatalf("ROI segment encode breakout after static threshold update = %d, want sticky ROI value 456", got)
 	}
 }

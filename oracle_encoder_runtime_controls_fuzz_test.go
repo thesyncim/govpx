@@ -476,10 +476,6 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 		minQ := [...]int{2, 4, 8}[r.pick(3)]
 		maxQ := [...]int{48, 52, 56}[r.pick(3)]
 		drop := [...]int{0, defaultDropFramesWaterMark}[r.pick(2)]
-		frameDrop := RealtimeFrameDropDisabled
-		if drop > 0 {
-			frameDrop = RealtimeFrameDropEnabled
-		}
 		return oracleRuntimeFuzzAction{
 			token: "bitrate:" + strconv.Itoa(bitrate) +
 				"+fps:" + strconv.Itoa(fps) +
@@ -489,13 +485,22 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			phase: oracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
-				mustRuntime(t, "SetRealtimeTarget", e.SetRealtimeTarget(RealtimeTarget{
-					BitrateKbps:  bitrate,
-					FPS:          fps,
-					MinQuantizer: minQ,
-					MaxQuantizer: maxQ,
-					FrameDrop:    frameDrop,
-				}))
+				// Mirror one vpx_codec_enc_config_set for the bundled
+				// bitrate/fps/minq/maxq/drop tokens (frameflags driver).
+				cfg := oracleRuntimeCurrentRateControlConfig(e)
+				cfg.TargetBitrateKbps = bitrate
+				cfg.MinQuantizer = minQ
+				cfg.MaxQuantizer = maxQ
+				cfg.DropFrameWaterMark = drop
+				cfg.DropFrameAllowed = drop > 0
+				mustRuntime(t, "SetRateControl(bundle)", e.SetRateControl(cfg))
+				// libvpx stores g_timebase in oxcf but vp8_change_config calls
+				// vp8_new_framerate(cpi, cpi->framerate) without recomputing
+				// cpi->framerate from the new timebase.
+				e.opts.FPS = fps
+				e.opts.TimebaseNum = 1
+				e.opts.TimebaseDen = fps
+				e.timing = timingFromEncoderOptions(e.opts)
 			},
 		}, 0, false
 	case 2:
@@ -556,7 +561,7 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 				// vpx_codec_encode applies the new deadline after runtime
 				// codec controls queued for this input frame. Apply CPU first
 				// so same-frame deadline+cpu fuzz cases mirror the frame-flags
-				// oracle driver instead of using a govpx-only ordering.
+				// driver instead of using a local-only ordering.
 				mustRuntime(t, "SetCPUUsed", e.SetCPUUsed(cpu))
 				mustRuntime(t, "SetDeadline", e.SetDeadline(deadline))
 			},
@@ -661,7 +666,9 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			phase: oracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
-				mustRuntime(t, "SetARNR", e.SetARNR(maxFrames, strength, filterType))
+				mustRuntime(t, "VP8E_SET_ARNR_MAXFRAMES", e.setARNRMaxFrames(maxFrames))
+				mustRuntime(t, "VP8E_SET_ARNR_STRENGTH", e.setARNRStrength(strength))
+				mustRuntime(t, "VP8E_SET_ARNR_TYPE", e.setARNRType(filterType))
 			},
 		}, 0, false
 	case 14:
@@ -702,7 +709,11 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			phase: oracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
-				mustRuntime(t, "SetFrameDropAllowed", e.SetFrameDropAllowed(enabled))
+				// Mirror vpx_codec_enc_config_set rc_dropframe_thresh only.
+				cfg := oracleRuntimeCurrentRateControlConfig(e)
+				cfg.DropFrameWaterMark = drop
+				cfg.DropFrameAllowed = drop > 0
+				mustRuntime(t, "SetRateControl(drop)", e.SetRateControl(cfg))
 			},
 		}, 0, false
 	case 18:
@@ -787,11 +798,31 @@ func oracleRuntimeCurrentDropConfig(e *VP8Encoder) (bool, int) {
 	if e == nil || !e.opts.DropFrameAllowed {
 		return false, 0
 	}
-	waterMark := e.opts.DropFrameWaterMark
-	if waterMark <= 0 {
-		waterMark = defaultDropFramesWaterMark
+	return true, e.opts.DropFrameWaterMark
+}
+
+func oracleRuntimeCurrentRateControlConfig(e *VP8Encoder) RateControlConfig {
+	if e == nil {
+		return RateControlConfig{}
 	}
-	return true, waterMark
+	return RateControlConfig{
+		Mode:                e.rc.mode,
+		TargetBitrateKbps:   e.rc.targetBitrateKbps,
+		MinBitrateKbps:      e.rc.minBitrateKbps,
+		MaxBitrateKbps:      e.rc.maxBitrateKbps,
+		MinQuantizer:        libvpxQIndexToPublicQuantizer(e.rc.minQuantizer),
+		MaxQuantizer:        libvpxQIndexToPublicQuantizer(e.rc.maxQuantizer),
+		CQLevel:             e.opts.CQLevel,
+		UndershootPct:       e.rc.undershootPct,
+		OvershootPct:        e.rc.overshootPct,
+		BufferSizeMs:        e.rc.bufferSizeMs,
+		BufferInitialSizeMs: e.rc.bufferInitialSizeMs,
+		BufferOptimalSizeMs: e.rc.bufferOptimalSizeMs,
+		DropFrameAllowed:    e.rc.dropFramesWaterMark > 0,
+		DropFrameWaterMark:  e.rc.dropFramesWaterMark,
+		MaxIntraBitratePct:  e.rc.maxIntraBitratePct,
+		GFCBRBoostPct:       e.rc.gfCBRBoostPct,
+	}
 }
 
 func oracleRuntimeShuffleActions(r *oracleRuntimeControlFuzzBytes, actions []oracleRuntimeFuzzAction) {

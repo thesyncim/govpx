@@ -599,6 +599,52 @@ func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
 	}
 }
 
+func TestSetRateControlBundledFPSLeavesLibvpxFramerate(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 300,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+	wantOutFPS := e.rc.outputFrameRate
+
+	cfg := RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        48,
+		BufferSizeMs:        e.rc.bufferSizeMs,
+		BufferInitialSizeMs: e.rc.bufferInitialSizeMs,
+		BufferOptimalSizeMs: e.rc.bufferOptimalSizeMs,
+		DropFrameWaterMark:  60,
+	}
+	if err := e.SetRateControl(cfg); err != nil {
+		t.Fatalf("SetRateControl(bundle): %v", err)
+	}
+	// Mirror fuzz/runtime enc_config_set: store new g_timebase only.
+	e.opts.FPS = 15
+	e.opts.TimebaseNum = 1
+	e.opts.TimebaseDen = 15
+	e.timing = timingFromEncoderOptions(e.opts)
+
+	if e.rc.outputFrameRate != wantOutFPS {
+		t.Fatalf("outputFrameRate = %d, want libvpx-preserved %d after enc_cfg fps token", e.rc.outputFrameRate, wantOutFPS)
+	}
+	if got := computeBitsPerFrame(e.rc.targetBandwidthBits, e.timing); got == e.rc.bitsPerFrame {
+		t.Fatalf("bitsPerFrame = %d matches g_timebase-only bpf %d, want cpi->framerate bpf", e.rc.bitsPerFrame, got)
+	}
+	if got := computeBitsPerFrame(e.rc.targetBandwidthBits, e.rc.libvpxRateControlTiming()); got != e.rc.bitsPerFrame {
+		t.Fatalf("bitsPerFrame = %d, want %d from outputFrameRate %d", e.rc.bitsPerFrame, got, wantOutFPS)
+	}
+}
+
 // TestSetRateControlPinsLibvpxCyclicRefreshMode asserts that the cyclic
 // refresh mode flag tracks libvpx's vp8_create_compressor gate: it is
 // computed once at construction and never recomputed by

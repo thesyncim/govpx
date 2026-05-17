@@ -276,7 +276,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
-			name: "frame-drop-allowed-toggle-default-watermark",
+			name: "frame-drop-allowed-toggle-stored-watermark",
 			fx:   panning64,
 			opts: func() EncoderOptions {
 				opts := baseOpts(panning64)
@@ -304,7 +304,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
-			name: "frame-drop-allow-legacy-bool",
+			name: "frame-drop-allow-legacy-bool-stored-watermark",
 			fx:   panning64,
 			opts: func() EncoderOptions {
 				opts := baseOpts(panning64)
@@ -312,6 +312,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				opts.BufferSizeMs = 500
 				opts.BufferInitialSizeMs = 100
 				opts.BufferOptimalSizeMs = 300
+				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
 			extraArgs: []string{"--target-bitrate=300", "--buf-sz=500", "--buf-initial-sz=100", "--buf-optimal-sz=300"},
@@ -334,6 +335,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				opts.BufferSizeMs = 500
 				opts.BufferInitialSizeMs = 100
 				opts.BufferOptimalSizeMs = 300
+				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
 			extraArgs: []string{"--target-bitrate=300", "--buf-sz=500", "--buf-initial-sz=100", "--buf-optimal-sz=300"},

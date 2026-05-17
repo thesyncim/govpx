@@ -118,6 +118,7 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
 		DropFrameAllowed:    true,
+		DropFrameWaterMark:  defaultDropFramesWaterMark,
 	}
 	temporal := TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}
 

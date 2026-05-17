@@ -96,10 +96,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	internalInvisible := packetInvisible && meta.internalInvisible
 	internalShowFrame := !internalInvisible
 	e.updateSourceFrameRateFromTimestamp(pts, duration, internalShowFrame)
-	// libvpx vp8/encoder/encodeframe.c:685-691 -- vp8_auto_select_speed runs
-	// once at the top of vp8_encode_frame for realtime+positive-cpu_used,
-	// evolving cpi->Speed from the prior frame's encode timer.
-	e.libvpxAutoSelectSpeed()
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
 	flags = e.applyFixedKeyFrameIntervalFlag(flags)
@@ -544,6 +540,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.activityMapValid = false
 	}
 	staticSegmentationAllowed := !temporalFrame.Enabled || temporalFrame.LayerID == 0
+	// libvpx runs vp8_auto_select_speed inside vp8_encode_frame, after the
+	// decimation and buffer-underrun drop gates have returned. Dropped frames
+	// therefore do not advance cpi->Speed or clear the timing averages.
+	e.libvpxAutoSelectSpeed()
 	e.beginAutoSpeedTiming()
 	if !keyFrame {
 		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, boostedReferenceFrame, staticSegmentationAllowed, sourceIsAltRef)

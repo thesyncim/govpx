@@ -47,22 +47,20 @@ type ROIMap struct {
 }
 
 type roiMapState struct {
-	enabled                bool
-	staticThresholdEnabled bool
-	updateMap              bool
-	updateData             bool
-	suppressCyclicRefresh  bool
-	rows                   int
-	cols                   int
-	segmentID              []uint8
-	deltaQuantizer         [vp8common.MaxMBSegments]int8
-	deltaLoopFilter        [vp8common.MaxMBSegments]int8
-	staticThreshold        [vp8common.MaxMBSegments]int
+	enabled               bool
+	updateMap             bool
+	updateData            bool
+	suppressCyclicRefresh bool
+	rows                  int
+	cols                  int
+	segmentID             []uint8
+	deltaQuantizer        [vp8common.MaxMBSegments]int8
+	deltaLoopFilter       [vp8common.MaxMBSegments]int8
+	staticThreshold       [vp8common.MaxMBSegments]int
 }
 
 func (r *roiMapState) disable() {
 	r.enabled = false
-	r.staticThresholdEnabled = false
 	r.updateMap = false
 	r.updateData = false
 	r.rows = 0
@@ -115,9 +113,6 @@ func (e *VP8Encoder) SetROIMap(m *ROIMap) error {
 		next.deltaQuantizer[i] = int8(roiQuantizerDeltaToQIndex(dq))
 		next.deltaLoopFilter[i] = int8(dlf)
 		next.staticThreshold[i] = st
-		if st != 0 {
-			next.staticThresholdEnabled = true
-		}
 		if dq != 0 || dlf != 0 || st != 0 {
 			next.enabled = true
 		}
@@ -141,6 +136,12 @@ func (e *VP8Encoder) SetROIMap(m *ROIMap) error {
 	next.updateMap = true
 	next.updateData = true
 	next.suppressCyclicRefresh = true
+	for i := range vp8common.MaxMBSegments {
+		e.segmentEncodeBreakout[i] = next.staticThreshold[i]
+		if next.staticThreshold[i] != 0 {
+			e.useROIStaticThreshold = true
+		}
+	}
 	e.roi = next
 	return nil
 }
@@ -180,8 +181,10 @@ func (e *VP8Encoder) roiSegmentationConfig() vp8enc.SegmentationConfig {
 }
 
 func (e *VP8Encoder) interStaticThresholdForSegment(segmentID uint8) int {
-	if e.roi.enabled && e.roi.staticThresholdEnabled && segmentID < vp8common.MaxMBSegments {
-		return e.roi.staticThreshold[segmentID]
+	// libvpx encodeframe.c: when segmentation_enabled always uses
+	// segment_encode_breakout[segment_id], regardless of use_roi_static_threshold.
+	if e.roi.enabled && segmentID < vp8common.MaxMBSegments {
+		return e.segmentEncodeBreakout[segmentID]
 	}
 	return e.opts.StaticThreshold
 }

@@ -265,13 +265,12 @@ type EncoderOptions struct {
 	// non-negative.
 	GFCBRBoostPct int
 
-	// DropFrameAllowed enables rate-control frame dropping.
+	// DropFrameAllowed enables rate-control frame dropping when
+	// DropFrameWaterMark is positive.
 	DropFrameAllowed bool
 	// DropFrameWaterMark is the percentage of optimal_buffer_level at
-	// which rate control begins dropping frames. When DropFrameAllowed
-	// is true this defaults to 60 if left zero; when DropFrameAllowed
-	// is false no frame drops fire regardless of this value. Mirrors
-	// libvpx's rc_dropframe_thresh / oxcf.drop_frames_water_mark.
+	// which rate control begins dropping frames. Zero disables dropping.
+	// Mirrors libvpx's rc_dropframe_thresh / oxcf.drop_frames_water_mark.
 	DropFrameWaterMark int
 
 	// TemporalScalability configures automatic temporal-layer scheduling.
@@ -558,9 +557,16 @@ type VP8Encoder struct {
 	activeMap        []uint8
 	activeMapEnabled bool
 	roi              roiMapState
-	activityMap      []uint32
-	activityAvg      uint32
-	activityMapValid bool
+	// segmentEncodeBreakout mirrors cpi->segment_encode_breakout. When
+	// segmentation is enabled libvpx encodeframe.c always reads
+	// segment_encode_breakout[segment_id] for x->encode_breakout.
+	segmentEncodeBreakout [vp8common.MaxMBSegments]int
+	// useROIStaticThreshold mirrors cpi->use_roi_static_threshold. vp8_set_roimap
+	// sets it to 1 when any threshold is non-zero and never clears it.
+	useROIStaticThreshold bool
+	activityMap           []uint32
+	activityAvg           uint32
+	activityMapValid      bool
 	// libvpx's TuneSSIM build_activity_map reuses MACROBLOCK.rdmult/rddiv
 	// left by the last encoded macroblock; vp8_initialize_rd_consts updates
 	// cpi->RDMULT/RDDIV but not the MACROBLOCK copies before the activity
@@ -1186,6 +1192,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
 	}
+	e.applyChangeConfigSegmentEncodeBreakout()
 	// libvpx vp8/encoder/ratectrl.c estimate_keyframe_frequency uses
 	// cpi->output_framerate plus cpi->oxcf.auto_key/key_freq for the
 	// first-keyframe bootstrap; seed the options that are not part of the

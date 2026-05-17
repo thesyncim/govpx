@@ -60,14 +60,13 @@ type RateControlConfig struct {
 	BufferInitialSizeMs int
 	BufferOptimalSizeMs int
 
-	// DropFrameAllowed enables rate-control frame dropping.
+	// DropFrameAllowed enables rate-control frame dropping when
+	// DropFrameWaterMark is positive.
 	DropFrameAllowed bool
 	// DropFrameWaterMark is the buffer-level percentage at which rate
-	// control begins dropping frames. Values >100 are clamped to 100.
-	// When DropFrameAllowed is true and this is zero it defaults to
-	// 60 (libvpx's typical realtime CBR knob). When DropFrameAllowed
-	// is false, no drops fire regardless of this value. Mirrors
-	// libvpx's oxcf.drop_frames_water_mark / rc_dropframe_thresh.
+	// control begins dropping frames. Values >100 are clamped to 100; zero
+	// disables dropping. Mirrors libvpx's oxcf.drop_frames_water_mark /
+	// rc_dropframe_thresh.
 	DropFrameWaterMark int
 
 	// MaxIntraBitratePct caps key-frame bitrate as a percentage of target.
@@ -266,7 +265,10 @@ type rateControlState struct {
 	goldenCorrectionFactor   float64
 	currentZbinOverQuant     int
 	activeBestQuantizer      int
-	activeWorstQChanged      bool
+	// activeWorstQuantizer mirrors libvpx cpi->active_worst_quality between
+	// vp8_change_config clamps and calc_pframe_target_size updates.
+	activeWorstQuantizer int
+	activeWorstQChanged  bool
 
 	// pass2ActiveWorstQOverride mirrors libvpx's
 	// `cpi->active_worst_quality` after vp8_second_pass runs
@@ -360,6 +362,67 @@ var libvpxQuantizerTranslation = [maxQuantizer + 1]int{
 
 const defaultDropFramesWaterMark = 60
 
+// applyLibvpxDropFrameThresh mirrors set_vp8e_config +
+// vp8_change_config drop fields (vp8_cx_iface.c:334-335, onyx_if.c:1634-1639):
+// oxcf->allow_df = (rc_dropframe_thresh > 0),
+// oxcf->drop_frames_water_mark = rc_dropframe_thresh,
+// cpi->drop_frames_allowed = allow_df && buffered_mode.
+func (rc *rateControlState) applyLibvpxDropFrameThresh(thresh int) {
+	if thresh > 100 {
+		thresh = 100
+	}
+	if thresh < 0 {
+		thresh = 0
+	}
+	rc.dropFramesWaterMark = thresh
+	rc.refreshDropFramesAllowed()
+}
+
+func libvpxDropFrameThreshFromConfig(cfg RateControlConfig) int {
+	if !cfg.DropFrameAllowed {
+		return 0
+	}
+	return cfg.DropFrameWaterMark
+}
+
+func (rc *rateControlState) refreshDropFramesAllowed() {
+	// allow_df = (rc_dropframe_thresh > 0)
+	// drop_frames_allowed = allow_df && buffered_mode
+	rc.dropFrameAllowed = rc.dropFramesWaterMark > 0 && rc.bufferOptimalBits > 0
+}
+
+// libvpxRateControlTiming returns a timingState keyed off cpi->framerate /
+// output_framerate, not the stored g_timebase. libvpx vp8_change_config calls
+// vp8_new_framerate(cpi, cpi->framerate) without recomputing framerate from a
+// new enc_cfg g_timebase, so per-frame bandwidth and framerate-gated drop
+// logic must use outputFrameRate even when EncoderOptions.FPS was updated.
+func (rc *rateControlState) libvpxRateControlTiming() timingState {
+	if rc.outputFrameRate <= 0 {
+		return timingState{}
+	}
+	return timingState{
+		timebaseNum:   1,
+		timebaseDen:   rc.outputFrameRate,
+		frameDuration: 1,
+		frameRate:     float64(rc.outputFrameRate),
+	}
+}
+
+// applyVP8ChangeConfigQuantizerClamp mirrors vp8_change_config active Q
+// clamps (onyx_if.c:1618-1632) after worst_allowed_q / best_allowed_q change.
+func (rc *rateControlState) applyVP8ChangeConfigQuantizerClamp() {
+	if rc.activeWorstQuantizer > rc.maxQuantizer {
+		rc.activeWorstQuantizer = rc.maxQuantizer
+	} else if rc.activeWorstQuantizer < rc.minQuantizer {
+		rc.activeWorstQuantizer = rc.minQuantizer
+	}
+	if rc.activeBestQuantizer < rc.minQuantizer {
+		rc.activeBestQuantizer = rc.minQuantizer
+	} else if rc.activeBestQuantizer > rc.maxQuantizer {
+		rc.activeBestQuantizer = rc.maxQuantizer
+	}
+}
+
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
 	if err := validateRateControlConfig(cfg); err != nil {
 		return err
@@ -384,25 +447,6 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 		rc.bufferInitialSizeMs = libvpxVBRBufferInitialMs
 		rc.bufferOptimalSizeMs = libvpxVBRBufferOptimalMs
 	}
-	rc.dropFrameAllowed = cfg.DropFrameAllowed
-	// Mirror libvpx vp8_cx_iface.c set_vp8e_config: oxcf->allow_df is
-	// (rc_dropframe_thresh > 0). govpx splits the toggle and the
-	// threshold so callers can opt into drop semantics with the libvpx
-	// default percentage (60) without rummaging through CLI parity. Any
-	// non-zero DropFrameWaterMark wins; zero with DropFrameAllowed=true
-	// inherits libvpx's current default of 60 from
-	// vpxenc.c (rc_dropframe_thresh defaults to 0 there, so users must
-	// pass --drop-frame to opt in; here we make the toggle alone enough).
-	rc.dropFramesWaterMark = cfg.DropFrameWaterMark
-	if rc.dropFrameAllowed && rc.dropFramesWaterMark <= 0 {
-		rc.dropFramesWaterMark = defaultDropFramesWaterMark
-	}
-	if rc.dropFramesWaterMark > 100 {
-		rc.dropFramesWaterMark = 100
-	}
-	if !rc.dropFrameAllowed {
-		rc.dropFramesWaterMark = 0
-	}
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
 	if initializing {
@@ -416,11 +460,13 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 		rc.keyFrameCorrectionFactor = 1.0
 		rc.goldenCorrectionFactor = 1.0
 		rc.activeBestQuantizer = rc.minQuantizer
+		rc.activeWorstQuantizer = rc.maxQuantizer
 		rc.totalActualBits = 0
+		rc.outputFrameRate = int(outputFrameRate(timing))
 	} else {
 		rc.activeBestQuantizer = clampQuantizerValue(rc.activeBestQuantizer, rc.minQuantizer, rc.maxQuantizer)
+		rc.applyVP8ChangeConfigQuantizerClamp()
 	}
-	rc.outputFrameRate = int(outputFrameRate(timing))
 	if rc.keyFrameCount == 0 && rc.priorKeyFrameDistance == ([keyFrameContextSize]int{}) {
 		// libvpx vp8_create_compressor seeds key_frame_count=1 and every
 		// prior_key_frame_distance slot to output_framerate. The first
@@ -434,6 +480,8 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
 		return err
 	}
+	// setBitrateKbps recomputes bufferOptimalBits; re-derive drop_frames_allowed.
+	rc.applyLibvpxDropFrameThresh(libvpxDropFrameThreshFromConfig(cfg))
 	if initializing {
 		rc.resetRollingBitAverages()
 	}
@@ -462,7 +510,11 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	// public bitrate field (targetBitrateKbps) keeps reporting the
 	// requested value while the buffer-model / per-frame-budget
 	// arithmetic uses the capped effective rate.
-	effectiveKbps := rc.libvpxClampToRawTargetRate(kbps, timing)
+	rcTiming := rc.libvpxRateControlTiming()
+	if rcTiming.frameRate <= 0 {
+		rcTiming = timing
+	}
+	effectiveKbps := rc.libvpxClampToRawTargetRate(kbps, rcTiming)
 	targetBits := effectiveKbps * 1000
 	if targetBits/1000 != effectiveKbps {
 		return ErrInvalidBitrate
@@ -472,7 +524,7 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	rc.targetBitrateKbps = kbps
 	rc.effectiveBitrateKbps = effectiveKbps
 	rc.targetBandwidthBits = targetBits
-	rc.bitsPerFrame = computeBitsPerFrame(targetBits, timing)
+	rc.bitsPerFrame = computeBitsPerFrame(targetBits, rcTiming)
 	if rc.bitsPerFrame <= 0 {
 		return ErrInvalidBitrate
 	}
@@ -499,6 +551,7 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	}
 	rc.clampBuffer()
 	rc.clampQuantizer()
+	rc.refreshDropFramesAllowed()
 	return nil
 }
 
