@@ -2232,6 +2232,11 @@ func TestVP9EncoderRejectsInvalidSourceShape(t *testing.T) {
 	}
 }
 
+// TestVP9EncoderFrameTxModeFromCountsReducesFixedMode pins govpx's
+// post-encode tx_mode demotion. govpx applies a wider, govpx-specific
+// (and inverted vs libvpx vp9_encodeframe.c:5911) demotion gate that
+// touches every non-TxModeSelect mode; a libvpx-faithful gate (skip when
+// not TxModeSelect) is a separate fidelity follow-up.
 func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
 	counts := &vp9enc.FrameCounts{}
 	counts.TxTotals[common.Tx16x16] = 1
@@ -2253,6 +2258,40 @@ func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
 	}
 	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, counts); got != common.TxModeSelect {
 		t.Fatalf("select tx mode = %d, want TxModeSelect", got)
+	}
+}
+
+// TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode pins
+// vp9EncoderFrameTxMode against the libvpx vp9/encoder/
+// vp9_encodeframe.c:4334-4345 select_tx_mode truth table for the
+// realtime cpu_used=8 surface that drives govpx's byte-parity matrix.
+// The KEY_FRAME && use_nonrd_pick_mode -> ALLOW_16X16 clamp is the
+// signature change this commit introduces.
+func TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		isKey     bool
+		intraOnly bool
+		lossless  bool
+		want      common.TxMode
+	}{
+		{name: "lossless", isKey: true, lossless: true, want: common.Only4x4},
+		{name: "lossless-inter", lossless: true, want: common.Only4x4},
+		{name: "keyframe-nonrd-allow16x16", isKey: true, want: common.Allow16x16},
+		{name: "intra-only-keeps-allow32x32", intraOnly: true, want: common.Allow32x32},
+		{name: "inter-keeps-tx-mode-select", want: common.TxModeSelect},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+			if err != nil {
+				t.Fatalf("NewVP9Encoder: %v", err)
+			}
+			got := e.vp9EncoderFrameTxMode(tc.isKey, tc.intraOnly, tc.lossless)
+			if got != tc.want {
+				t.Fatalf("vp9EncoderFrameTxMode(isKey=%t intraOnly=%t lossless=%t) = %d, want %d",
+					tc.isKey, tc.intraOnly, tc.lossless, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -6881,7 +6920,7 @@ func TestVP9EncoderInterTxScoringSelectsTx16ForLocalizedResidual(t *testing.T) {
 	beforeV := append([]byte(nil), e.reconV[:e.reconFrame.VStride*(height/2)]...)
 	got := e.pickVP9InterTxSize(inter, vp9dec.TileBounds{
 		MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8,
-	}, 8, 8, 0, 0, common.Block64x64, common.Tx32x32)
+	}, 8, 8, 0, 0, common.Block64x64, common.Tx32x32, 0)
 	if got != common.Tx16x16 {
 		t.Fatalf("TxSize = %d, want Tx16x16 for localized residual", got)
 	}

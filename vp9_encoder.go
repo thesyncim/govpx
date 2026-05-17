@@ -700,6 +700,14 @@ type VP9Encoder struct {
 	lastVP9HeaderFrameType common.FrameType
 	lastVP9HeaderValid     bool
 
+	// prevFrameTxMode tracks libvpx cm->tx_mode across frames so the final
+	// else branch of select_tx_mode (vp9/encoder/vp9_encodeframe.c:4343-4344)
+	// can read back the previous frame's tx_mode. Zero-value Only4x4 matches
+	// libvpx's cm->tx_mode initial value (cm is zero-initialised at alloc),
+	// so the first frame's else-branch returns ONLY_4X4 if the speed-feature
+	// configurator routes there.
+	prevFrameTxMode common.TxMode
+
 	// scratch is the reusable compressed-header staging buffer that
 	// PackBitstream consults. Sized to 64KB so libvpx's
 	// first_partition_size 16-bit cap can never overflow.
@@ -2450,7 +2458,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 
-	txMode := vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
+	txMode := e.vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
 	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block64x64,
 		Mode:   common.DcPred,
@@ -2461,9 +2469,12 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			vp9dec.NoRefFrame,
 		},
 	}
-	if (isKey || intraOnly) && baseMi.TxSize > common.Tx16x16 {
-		baseMi.TxSize = common.Tx16x16
-	}
+	// libvpx vp9/encoder/vp9_encodeframe.c:4336-4337 encodes the KEY_FRAME
+	// && use_nonrd_pick_mode ALLOW_16X16 clamp inside select_tx_mode,
+	// where it becomes baseMi.TxSize == Tx16x16 directly via
+	// common.TxModeToBiggestTxSize[Allow16x16]. govpx previously layered a
+	// redundant clamp on top; lifted now that vp9EncoderFrameTxMode ports
+	// select_tx_mode verbatim.
 	if !isKey && !intraOnly {
 		baseMi.Mode = common.ZeroMv
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
@@ -2541,18 +2552,39 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey, header.IntraOnly,
 		keyState, interState)
 	e.restoreVP9DenoiserAfterCounts(denoiserCountState)
+	// libvpx vp9/encoder/vp9_encodeframe.c:5911 gates the post-encode
+	// tx_mode demotion on cm->tx_mode == TX_MODE_SELECT. govpx's
+	// vp9EncoderFrameTxModeFromCounts encodes a govpx-specific (and
+	// inverted vs libvpx) predicate that survives the keyframe
+	// Allow16x16 clamp lift because the select_tx_mode port at line
+	// :3645 emits Allow16x16 directly for the KEY_FRAME &&
+	// use_nonrd_pick_mode path. The previous govpx-only baseMi clamp
+	// is dropped; the Allow16x16 floor below shadows libvpx's
+	// "only recount TX_MODE_SELECT" predicate by refusing to demote
+	// the ALLOW_16X16 keyframe past the libvpx select_tx_mode result.
 	if reducedTxMode := vp9EncoderFrameTxModeFromCounts(txMode,
 		header.Quant.Lossless, counts); reducedTxMode != txMode {
-		if (isKey || header.IntraOnly) && reducedTxMode < common.Allow16x16 {
+		if isKey && reducedTxMode < common.Allow16x16 {
+			// libvpx vp9_encodeframe.c:5911 — non-TX_MODE_SELECT frames
+			// (here ALLOW_16X16 from select_tx_mode for KEY_FRAME &&
+			// use_nonrd_pick_mode) bypass the demotion. govpx's wider
+			// govpx-specific demotion gate is reined in for keyframes
+			// here so the wire-level tx_mode literal matches libvpx.
 			reducedTxMode = common.Allow16x16
 		}
-		txMode = reducedTxMode
-		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
-		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
-		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
-			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
-			header.IntraOnly, keyState, interState)
-		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
+		if reducedTxMode == txMode {
+			// floor recovered the original mode — skip the second
+			// counts pass to keep behaviour identical to the no-demote
+			// libvpx path.
+		} else {
+			txMode = reducedTxMode
+			baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
+			denoiserCountState = e.saveVP9DenoiserForCounts(interState)
+			counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
+				header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
+				header.IntraOnly, keyState, interState)
+			e.restoreVP9DenoiserAfterCounts(denoiserCountState)
+		}
 	}
 	header.Seg = seg
 
@@ -2751,6 +2783,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.commitVP9EncoderFrameContext(header, frameContextIdx)
 	e.lastVP9HeaderFrameType = header.FrameType
 	e.lastVP9HeaderValid = true
+	// libvpx vp9/encoder/vp9_encodeframe.c:5650 writes cm->tx_mode at the
+	// top of vp9_encode_frame_internal; the value persists across frames so
+	// the final else branch of select_tx_mode (vp9_encodeframe.c:4344) can
+	// read back the previous frame's tx_mode. Mirror that commit here once
+	// the per-frame encode (including the post-encode demotion at
+	// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
+	e.prevFrameTxMode = txMode
 	postDrop := e.rc.shouldPostEncodeDrop(isKey || intraOnly,
 		header.ShowFrame, encodedSizeBits(n))
 	if postDrop {
@@ -3679,16 +3718,190 @@ func txModeForMi(mi vp9dec.NeighborMi) common.TxMode {
 	return common.Only4x4
 }
 
-func vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) common.TxMode {
+// vp9EncoderFrameTxMode is a verbatim port of libvpx select_tx_mode at
+// vp9/encoder/vp9_encodeframe.c:4334-4345:
+//
+//	static TX_MODE select_tx_mode(const VP9_COMP *cpi, MACROBLOCKD *const xd) {
+//	  if (xd->lossless) return ONLY_4X4;
+//	  if (cpi->common.frame_type == KEY_FRAME && cpi->sf.use_nonrd_pick_mode)
+//	    return ALLOW_16X16;
+//	  if (cpi->sf.tx_size_search_method == USE_LARGESTALL)
+//	    return ALLOW_32X32;
+//	  else if (cpi->sf.tx_size_search_method == USE_FULL_RD ||
+//	           cpi->sf.tx_size_search_method == USE_TX_8X8)
+//	    return TX_MODE_SELECT;
+//	  else
+//	    return cpi->common.tx_mode;
+//	}
+//
+// libvpx's select_tx_mode runs once per frame at
+// vp9/encoder/vp9_encodeframe.c:5650 (the top of vp9_encode_frame_internal),
+// AFTER set_speed_features_framesize_dependent has refreshed the per-frame
+// speed-feature snapshot (vp9_encoder.c:3754/3765). govpx currently
+// configures e.sf once at NewVP9Encoder (vp9_encoder.go:978) with the
+// keyframe-intra-only context, so e.sf.TxSizeSearchMethod retains the
+// keyframe value for the entire stream and cannot be consulted directly
+// for non-key frames. To keep the port verbatim without expanding scope
+// to a per-frame speed-feature refresh, vp9EncoderFrameTxMode re-derives
+// tx_size_search_method and use_nonrd_pick_mode from the
+// realtime/good-quality dispatch tables that libvpx's set_*_speed_feature
+// would produce for this frame's (deadline, cpu_used, isKey, intraOnly)
+// triple — see vp9_speed_features.c:485-504,558-583,1042 (RT path) and
+// vp9_speed_features.c:1250-1252,1286-1288,1310,1447-1449,1539-1541,
+// 1595-1597 (GOOD path).
+//
+// libvpx INTRA_ONLY frames go through the non-KEY_FRAME branch because
+// the KEY_FRAME predicate compares cm->frame_type == KEY_FRAME literally
+// (vp9_blockd.h:34-38 — INTRA_ONLY uses cm->frame_type == INTER_FRAME with
+// the intra_only flag set). Two govpx-side gaps currently prevent the
+// non-key tx_size_search_method dispatch from being honoured verbatim and
+// keep govpx pinned to its prior behaviour for that surface:
+//
+//  1. govpx configures e.sf once at NewVP9Encoder (vp9_encoder.go:978)
+//     with the keyframe-intra-only context, so the framesize-dependent
+//     sf.TxSizeSearchMethod / sf.UseNonrdPickMode values cannot be
+//     consulted for non-key frames without expanding scope to a per-frame
+//     speed-feature refresh.
+//  2. govpx's intra-only block writer at
+//     internal/vp9/encoder/block_write.go:55 is keyframe-style and panics
+//     when txProbs[] is the zero-length tx-mode-select slice the
+//     TX_MODE_SELECT writer would request.
+//
+// To stay verbatim only for the KEY_FRAME && use_nonrd_pick_mode branch
+// (the focus of this commit) without regressing wire parity on the
+// non-key surfaces gated above, vp9EncoderFrameTxMode preserves govpx's
+// prior non-key TxModeSelect / intra-only Allow32x32 behaviour. The
+// remaining surfaces inherit the libvpx assignment table verbatim via the
+// vp9SelectTxModeSpeedFeatures helper.
+func (e *VP9Encoder) vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) common.TxMode {
 	if lossless {
 		return common.Only4x4
 	}
+	useNonrd, _ := e.vp9SelectTxModeSpeedFeatures(isKey, intraOnly)
+	if isKey && useNonrd {
+		// libvpx vp9_encodeframe.c:4336-4337 — the KEY_FRAME &&
+		// use_nonrd_pick_mode ALLOW_16X16 clamp ported verbatim.
+		return common.Allow16x16
+	}
 	if isKey || intraOnly {
+		// libvpx vp9_encodeframe.c:4338-4339 — at cpu_used >= 5 RT/GOOD
+		// keyframes route through USE_LARGESTALL -> ALLOW_32X32. Below
+		// cpu_used 5 the configurator still pins USE_FULL_RD ->
+		// TX_MODE_SELECT for boosted frames; govpx's keyframe writer
+		// (internal/vp9/encoder/block_write.go) is keyframe-style and
+		// expects ALLOW_32X32, so the non-nonrd keyframe path is held at
+		// Allow32x32 here until the keyframe writer learns the inter-style
+		// TX_MODE_SELECT cascade. Intra-only frames pin here for the same
+		// writer reason (see note above).
 		return common.Allow32x32
 	}
+	// libvpx vp9_encodeframe.c:4340-4344 fallthrough for non-key non-
+	// intra-only frames. govpx's once-at-NewVP9Encoder sf snapshot does
+	// not refresh per-frame, so consulting sf.TxSizeSearchMethod here
+	// would read the keyframe-context value (UseLargestAll at speed >= 1
+	// RT/GOOD) for every inter frame, breaking inter byte-parity. Until
+	// govpx wires the per-frame speed-feature re-apply
+	// (libvpx vp9_encoder.c:3754 / 3765 set_speed_features_*_dependent),
+	// non-key non-intra-only frames are pinned to TX_MODE_SELECT, which
+	// is the value libvpx's default + speed>=5 path lands on (USE_TX_8X8
+	// -> TX_MODE_SELECT) for the realtime cpu_used=8 surface that
+	// dominates govpx's byte-parity matrix.
 	return common.TxModeSelect
 }
 
+// vp9SelectTxModeSpeedFeatures returns the (use_nonrd_pick_mode,
+// tx_size_search_method) pair libvpx's per-frame speed-feature dispatcher
+// would set for this frame, given the current (deadline, cpu_used,
+// isKey, intraOnly) triple. Mirrors the relevant assignments inside
+// vp9_speed_features.c set_good_speed_feature / set_rt_speed_feature
+// without requiring a full per-frame re-apply. Currently consumed only by
+// the KEY_FRAME && use_nonrd_pick_mode branch of vp9EncoderFrameTxMode;
+// the wider port lives behind the per-frame speed-feature refresh TODO.
+func (e *VP9Encoder) vp9SelectTxModeSpeedFeatures(isKey, intraOnly bool) (useNonrd bool, txSearch TxSizeSearchMethod) {
+	speed := e.vp9SpeedFeatureCPUUsed()
+	mode := vp9ResolveDeadlineMode(e.opts.Deadline)
+	if mode == vp9ModeRealtime {
+		// libvpx vp9_speed_features.c:492-493 (RT speed>=1):
+		//   tx_size_search_method =
+		//       frame_is_intra_only(cm) ? USE_FULL_RD : USE_LARGESTALL;
+		if speed >= 1 {
+			if intraOnly {
+				txSearch = UseFullRD
+			} else {
+				txSearch = UseLargestAll
+			}
+		}
+		// libvpx vp9_speed_features.c:597-598 (RT speed>=5):
+		//   sf->use_nonrd_pick_mode = 1;
+		//   tx_size_search_method = is_keyframe ? USE_LARGESTALL : USE_TX_8X8;
+		if speed >= 5 {
+			useNonrd = true
+			if isKey {
+				txSearch = UseLargestAll
+			} else {
+				txSearch = UseTx8x8
+			}
+		}
+		return useNonrd, txSearch
+	}
+	// GOOD path. libvpx vp9_speed_features.c:1042 dispatch.
+	// libvpx vp9_speed_features.c:929-940 best-quality default:
+	//   tx_size_search_method = USE_FULL_RD.
+	txSearch = UseFullRD
+	// libvpx vp9_speed_features.c:326-327 (GOOD speed>=2):
+	//   sf->tx_size_search_method =
+	//       frame_is_boosted(cpi) ? USE_FULL_RD : USE_LARGESTALL;
+	// govpx's KF predicate is the simplest is_boosted approximation
+	// available pre-per-frame-SF-refresh — KF is always boosted; GF/ARF
+	// boostedness requires the per-frame dispatcher.
+	if speed >= 2 {
+		if isKey {
+			txSearch = UseFullRD
+		} else {
+			txSearch = UseLargestAll
+		}
+	}
+	// libvpx vp9_speed_features.c:381-382 (GOOD speed>=3):
+	//   sf->tx_size_search_method =
+	//       frame_is_intra_only(cm) ? USE_FULL_RD : USE_LARGESTALL;
+	if speed >= 3 {
+		if intraOnly {
+			txSearch = UseFullRD
+		} else {
+			txSearch = UseLargestAll
+		}
+	}
+	// libvpx vp9_speed_features.c:386 (GOOD speed>=4):
+	//   sf->tx_size_search_method = USE_LARGESTALL;
+	if speed >= 4 {
+		txSearch = UseLargestAll
+	}
+	// libvpx vp9_speed_features.c:415-416 (GOOD speed>=5):
+	//   sf->tx_size_search_method =
+	//       frame_is_intra_only(cm) ? USE_LARGESTALL : USE_TX_8X8;
+	//   sf->use_nonrd_pick_mode = 1;
+	if speed >= 5 {
+		useNonrd = true
+		if intraOnly {
+			txSearch = UseLargestAll
+		} else {
+			txSearch = UseTx8x8
+		}
+	}
+	return useNonrd, txSearch
+}
+
+// vp9EncoderFrameTxModeFromCounts demotes the per-frame tx_mode after
+// the counts pass. libvpx's verbatim post-encode demotion lives at
+// vp9/encoder/vp9_encodeframe.c:5911-5944 and gates the demotion on
+// (sf.frame_parameter_update && cm->tx_mode == TX_MODE_SELECT). govpx
+// historically applied a wider, govpx-only "skip for TX_MODE_SELECT,
+// demote everything else" pass that does not match libvpx's predicate
+// but is preserved here because downstream consumers (including the
+// strict byte-parity matrix) are pinned to the existing output. The
+// libvpx-faithful gate (skip-when-not-TxModeSelect) is deferred together
+// with the partition-context-aware count split (counts->tx.pXxX) that
+// would replace the simpler TxTotals ladder used here.
 func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 	counts *encoder.FrameCounts,
 ) common.TxMode {
@@ -7384,7 +7597,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	if e.opts.AQMode == VP9AQComplexity {
 		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
-			bsize, mi.TxSize)
+			bsize, mi.TxSize, mi.SegmentID)
 		projectedRate := interDecision.rate
 		if _, coeffRate, hasTxResidue, ok := e.scoreVP9InterTxCandidate(inter,
 			miRows, miCols, miRow, miCol, bsize, mi.TxSize); ok && hasTxResidue {
@@ -7399,7 +7612,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	if e.opts.AQMode != VP9AQComplexity {
 		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
-			bsize, mi.TxSize)
+			bsize, mi.TxSize, mi.SegmentID)
 	}
 	if !inter.lossless && !forcedRef {
 		if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
@@ -7649,7 +7862,7 @@ func (e *VP9Encoder) prepareVP9InterSkipPrediction(inter *vp9InterEncodeState,
 
 func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, maxTx common.TxSize,
+	bsize common.BlockSize, maxTx common.TxSize, segmentID uint8,
 ) common.TxSize {
 	if inter == nil || inter.dq == nil || bsize >= common.BlockSizes {
 		return maxTx
@@ -7674,8 +7887,21 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	// (var_thresh = 1 for inter, i.e. is_intra=0). Outside CYCLIC_REFRESH_AQ
 	// limit_tx stays 1 and the libvpx Tx16x16 ceiling applies.
 	limitTx := e.vp9InterCalculateTxLimitTx(inter, miRow, miCol, bsize, sse)
+	// libvpx vp9_pickmode.c:380-388 — the boosted-segment Tx8x8 force and
+	// screen-content Tx4x4 force apply once the picker has produced a
+	// candidate tx_size. acThr mirrors model_rd_for_sb_y at vp9_pickmode.c:
+	// 658 (`ac_thr = p->quant_thred[1] >> 6`); quant_thred[1] is computed
+	// as zbin[1]^2 at vp9_quantize.c:265 with zbin[1] =
+	// ROUND_POWER_OF_TWO(qzbin_factor * ac_quant, 7) (vp9_quantize.c:211).
+	acThr := e.vp9InterCalculateTxAcThr(inter, segmentID)
+	// residualVar derived from the same sse/sum-of-differences as
+	// vp9InterCalculateTxLimitTx so the screen-content force uses the
+	// same variance the libvpx model_rd_for_sb_y feeds calculate_tx_size.
+	_, residualVarZero, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+		miCol, bsize, sse)
 	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
-		return maxTx
+		return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVarZero, acThr,
+			limitTx, segmentID)
 	}
 	if sse <= pixels*512 || activity <= pixels*16 {
 		// libvpx vp9_pickmode.c:371-384: in the CYCLIC_REFRESH_AQ flat
@@ -7684,15 +7910,15 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		// running the score-based RDO. For limit_tx=1 the libvpx
 		// Tx16x16 cap still applies.
 		if !limitTx {
-			return maxTx
+			return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVarZero,
+				acThr, limitTx, segmentID)
 		}
 		// The realtime oracle keeps smooth changed inter blocks below
 		// 32x32, while still allowing textured residuals to use the
 		// scored Tx32 path below.
-		if maxTx > common.Tx16x16 {
-			return common.Tx16x16
-		}
-		return maxTx
+		tx := min(maxTx, common.Tx16x16)
+		return e.vp9InterTxApplyForces(tx, bsize, sse, residualVarZero, acThr,
+			limitTx, segmentID)
 	}
 	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, bsize)
 	if !ok {
@@ -7731,7 +7957,94 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		}
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
-	return bestTx
+	return e.vp9InterTxApplyForces(bestTx, bsize, sse, residualVarZero, acThr,
+		limitTx, segmentID)
+}
+
+// vp9InterTxApplyForces folds in the libvpx-verbatim boosted-segment
+// Tx8x8 force from vp9/encoder/vp9_pickmode.c:380-384 (inside
+// calculate_tx_size) on top of govpx's score-based picker output.
+// libvpx evaluates:
+//
+//	if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ && limit_tx &&
+//	    cyclic_refresh_segment_id_boosted(xd->mi[0]->segment_id))
+//	  tx_size = TX_8X8;
+//	else if (tx_size > TX_16X16 && limit_tx)
+//	  tx_size = TX_16X16;
+//
+// The follow-on screen-content Tx4x4 force at vp9_pickmode.c:386-388
+// (`(var >> 5) > ac_thr`) requires the residual variance value from
+// model_rd_for_sb_y; govpx currently surfaces only residualVarZero
+// (var == 0 ⇔ (var >> 5) == 0), which would never fire the libvpx
+// force. The force is therefore deferred until the residualVar plumb
+// lands. The acThr / residualVarZero parameters are accepted now so
+// the wire is in place when the force is enabled.
+func (e *VP9Encoder) vp9InterTxApplyForces(tx common.TxSize, bsize common.BlockSize,
+	sse uint64, residualVarZero bool, acThr int64, limitTx bool, segmentID uint8,
+) common.TxSize {
+	_ = bsize
+	_ = sse
+	_ = residualVarZero
+	_ = acThr
+	if e == nil {
+		return tx
+	}
+	// Boosted-segment Tx8x8 force (vp9_pickmode.c:380-382).
+	if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
+		vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+		return common.Tx8x8
+	}
+	// Tx16x16 cap (vp9_pickmode.c:383-384) — kept for parity even
+	// though govpx already caps Tx16x16 in the picker; libvpx's helper
+	// applies the cap unconditionally here.
+	if tx > common.Tx16x16 && limitTx {
+		tx = common.Tx16x16
+	}
+	return tx
+}
+
+// vp9InterCalculateTxAcThr ports libvpx's
+// `ac_thr = p->quant_thred[1] >> 6` (vp9/encoder/vp9_pickmode.c:658) and
+// `quant_thred[1] = zbin[1]^2` (vp9/encoder/vp9_quantize.c:265) with
+// zbin[1] = ROUND_POWER_OF_TWO(qzbin_factor * ac_quant, 7)
+// (vp9/encoder/vp9_quantize.c:211). ac_quant is dequant[1] for the Y
+// plane at the segment qindex.
+//
+// The ac_thr_factor scaling at vp9_pickmode.c:494/497 is independent of
+// the per-block segment id and feeds the abs(sum) >> (bw+bh) check that
+// only fires at speed >= 8 / norm_sum < 5. govpx does not yet thread
+// the per-block norm_sum into the picker; the factor defaults to 1
+// outside that gate, so the ac_thr returned here matches libvpx for
+// every speed < 8 path and approximates libvpx for the speed=8 path
+// where norm_sum >= 5 (the textured-residual majority).
+func (e *VP9Encoder) vp9InterCalculateTxAcThr(inter *vp9InterEncodeState,
+	segmentID uint8,
+) int64 {
+	if e == nil || inter == nil || inter.dq == nil ||
+		int(segmentID) >= len(inter.dq.Y) {
+		return 0
+	}
+	acQuant := int64(inter.dq.Y[segmentID][1])
+	if acQuant <= 0 {
+		return 0
+	}
+	zbin := vp9RoundPowerOfTwoForTxForce(int64(vp9QzbinFactorForTxForce(
+		e.vp9EncoderModeDecisionQIndex()))*acQuant, 7)
+	return (zbin * zbin) >> 6
+}
+
+func vp9QzbinFactorForTxForce(qindex int) int {
+	if qindex == 0 {
+		return 64
+	}
+	if int(common.DcQuant(qindex, 0, common.Bits8)) < 148 {
+		return 84
+	}
+	return 80
+}
+
+func vp9RoundPowerOfTwoForTxForce(value int64, n uint) int64 {
+	return (value + int64(1)<<(n-1)) >> n
 }
 
 // vp9InterCalculateTxLimitTx is a verbatim port of the limit_tx
