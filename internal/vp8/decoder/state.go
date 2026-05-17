@@ -79,8 +79,21 @@ func parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet []byte, fra
 		firstPartitionEnd = len(packet)
 	}
 
+	// libvpx (vp8/decoder/decodeframe.c vp8_decode_frame) initializes the
+	// first-partition bool decoder with the full remaining packet from
+	// `data` to `data_end`, not just the declared first_partition_size:
+	//
+	//   vp8dx_start_decode(bc, data, (unsigned int)(data_end - data), …);
+	//
+	// Keeping bc bounded by first_partition_size would make govpx reject
+	// frames whose first-partition reader silently spills into the token
+	// partitions — exactly what the F4 fuzzer caught against vpxdec.
+	// Match libvpx: hand the bool decoder everything from HeaderSize on.
+	// firstPartitionEnd is still computed above for validation, and used
+	// downstream by ParsePartitionLayout to slice the token partitions.
+	_ = firstPartitionEnd
 	var br boolcoder.Decoder
-	if err := br.Init(packet[frame.HeaderSize:firstPartitionEnd]); err != nil {
+	if err := br.Init(packet[frame.HeaderSize:]); err != nil {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
 	}
 
