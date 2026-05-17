@@ -116,20 +116,61 @@ import (
 //     wider frame_width-1 (127) trips a different miCols path that
 //     amplifies the bitstream divergence on top.
 //
-//   - {1,1,2,0,3,1,1,0} — 128x64 frames=6 cpu=-8 (abs=8). govpx covers the
-//     cpu_used=8 speed-features path, yet frame 0 still diverges at byte 16
-//     because the compressed-header writer payload differs on
-//     content-rich keyframes: libvpx writes the full
-//     coef-update / tx-mode payload via write_compressed_header
-//     (vp9/encoder/vp9_bitstream.c:826-973) using
-//     vp9_cond_prob_diff_update results from the per-tile frame_counts,
-//     while govpx's WriteCompressedHeaderFromCounts emits a smaller subset
-//     and packs SPEED_FEATURES.coef_prob_appx_step=4 (the speed-8 fast
-//     path, vp9_speed_features.c:610) verbatim — the savings-search
-//     threshold then diverges at the first coef-prob context. The flat
-//     sources used by TestVP9EncoderVpxencOracleChecker64KeyframeByteParity
-//     emit predominantly all-zero counts so the writers agree there;
-//     panning content exposes the gap.
+//   - {1,1,2,0,3,1,1,0} — 128x64 frames=6 cpu=-8 (abs=8). flags=[0 256 0
+//     320 256 512]. Earlier diagnostic cited a keyframe compressed-header
+//     writer gap at byte 16; that gap has SINCE BEEN CLOSED — frame 0 now
+//     byte-MATCHES at len=5937 against the libvpx vpxenc-vp9-frameflags
+//     oracle. The remaining divergence is in the INTER frames:
+//
+//     frame 1 (NoUpdateEntropy): got_len=3782 want_len=2830 first_diff_bit=72
+//     frame 2 (default flags):   got_len=3903 want_len=2933 first_diff_bit=33
+//     frame 3 (NoUpdateEntropy|NoUpdateGolden): first_diff_bit=33
+//     frame 4 (NoUpdateEntropy): first_diff_bit=33
+//     frame 5 (ForceGolden):     first_diff_bit=33
+//
+//     Two distinct gaps surface:
+//
+//     (a) frame 1 first_diff_bit=72: decodes as the leading bit of
+//     FirstPartitionSize (the 16-bit literal at the tail of the
+//     inter uncompressed header; libvpx vp9_bitstream.c:1457). The
+//     16-bit value is govpx=5 (compSize ~5 bytes) vs libvpx=51
+//     (compSize ~51 bytes). govpx's WriteCompressedHeaderFromCounts
+//     emits a near-empty payload because the per-tile frame_counts
+//     govpx supplies are sparse (most coef branch slots all-zero),
+//     so update_coef_probs_common's savings-search finds nothing to
+//     emit. libvpx ingests denser coef counts from its per-block
+//     tokenisation pass and emits 51 bytes of cond_prob_diff_update
+//     payload. Despite the smaller compressed header, govpx's tile
+//     data is LARGER (3782-5 vs 2830-51 bytes) because the encoder
+//     encodes tokens against the stale (non-updated) probs, paying
+//     more bits per token.
+//
+//     (b) frames 2+ first_diff_bit=33: leading bit of write_interp_filter
+//     (libvpx vp9_bitstream.c:840-862): `cm->interp_filter ==
+//     SWITCHABLE` ? 1 : 0. libvpx emits 1 (kept SWITCHABLE), govpx
+//     emits 0 (demoted by fix_interp_filter at vp9_bitstream.c:864-885
+//     because c==1 — every block picked the same filter). libvpx's
+//     per-tile counts->switchable_interp[ctx][filter] histogram has
+//     c>1 on these panning sources; govpx's has c==1.
+//
+//     Both (a) and (b) trace to the same root: per-block mode/filter
+//     selection in the nonrd pickmode at RT speed 8 diverges between
+//     govpx (vp9_pick_inter_mode_nonrd.go) and libvpx's
+//     vp9_pick_inter_mode (vp9_pickmode.c:1731-2080). The
+//     cb_pred_filter_search chessboard (vp9_pickmode.c:1862-1869) +
+//     per-mode filter sweep + per-token tokenisation accumulator
+//     pipeline produce a different frame_counts → different compressed-
+//     header diff updates AND different filter histogram → cascading
+//     bitstream drift.
+//
+//     Closing this seed requires a verbatim port of the nonrd pickmode
+//     per-block mode+filter+tokenise pipeline (vp9_pickmode.c:1731-2080)
+//     plus the per-block coef counts accumulator (vp9_tokenize.c
+//     vp9_tokenize_sb / sum_intra_stats / count_segs paths). This is a
+//     substantial encoder-body port — not a header-writer fix — and is
+//     tracked separately from the closed compressed-header keyframe work.
+//     The KF compressed-header writer (the OLD cited gap) is verbatim
+//     against libvpx now and is NOT the remaining gap.
 //
 //   - {0,2,0,2,0,0,0,0} — 64x64 frames=8 cpu=0. Same KEY_FRAME
 //     per-block tx_size RD-search gap as #0 with frame count widened;
