@@ -216,7 +216,53 @@ type VP9MultiResolutionEncoder struct {
 	// path allocation-free.
 	results    [MaxMultiResLayers]VP9EncodeResult
 	resultErrs [MaxMultiResLayers]error
+
+	// resultSlab is a per-encoder backing slab returned by
+	// EncodeIntoWithFlagsResult / FlushIntoWithResult. It is sized
+	// to LayerCount at construction so the steady-state encode path
+	// does not allocate the output slice. Callers that need a
+	// detached slice must copy the returned slice before the next
+	// encode call mutates the underlying array.
+	resultSlab []VP9EncodeResult
+
+	// workers backs the persistent per-layer worker goroutines that
+	// drive layers 1..count-1 in the parallel (non share-motion-vectors)
+	// pipeline. Each worker is a long-lived goroutine spawned at
+	// construction and parked on its job channel between encode
+	// calls, so the steady-state encode path does not allocate the
+	// goroutine launch closure or the goroutine stack frame. Layer
+	// 0 always runs inline on the calling goroutine.
+	//
+	// workerWG is signalled by each worker after it finishes one job;
+	// the caller adds count-1 before fanning out the per-layer jobs
+	// and blocks on it before reading results. workerDone is the
+	// shutdown barrier Close blocks on after sending Shutdown to
+	// every worker channel.
+	workers    [MaxMultiResLayers]chan vp9MultiResolutionJob
+	workerWG   sync.WaitGroup
+	workerDone sync.WaitGroup
 }
+
+// vp9MultiResolutionJob carries the per-call inputs the persistent
+// per-layer worker goroutine needs to drive one frame. The encoder
+// dst buffer is layer-indexed so the worker can pick it up from
+// dsts[idx]; flags applies uniformly across layers. The kind field
+// distinguishes Encode (with a non-nil src image) from Flush
+// (lookahead drain) and Shutdown (worker exit on Close).
+type vp9MultiResolutionJob struct {
+	kind  vp9MultiResolutionJobKind
+	src   *image.YCbCr
+	dst   []byte
+	flags EncodeFlags
+}
+
+type vp9MultiResolutionJobKind uint8
+
+const (
+	vp9MultiResolutionJobEncode vp9MultiResolutionJobKind = iota
+	vp9MultiResolutionJobFlush
+	vp9MultiResolutionJobShutdown
+)
 
 // NewVP9MultiResolutionEncoder constructs a VP9 multi-resolution
 // encoder with one internal VP9Encoder per resolution.
@@ -252,6 +298,7 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 	mre := &VP9MultiResolutionEncoder{
 		count:              count,
 		shareMotionVectors: opts.ShareMotionVectors,
+		resultSlab:         make([]VP9EncodeResult, count),
 	}
 	for i := range count {
 		layer := opts.Layers[i]
@@ -301,7 +348,46 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 			mre.mvHintImport[i] = newVP9MVHintMap(mre.layerWidths[i], mre.layerHeights[i])
 		}
 	}
+	// Spawn one long-lived worker goroutine per non-layer-0 layer
+	// when share-motion-vectors is off; layer 0 always runs inline.
+	// The workers park on a 1-slot job channel between encode calls
+	// so the per-frame parallel path does not allocate the goroutine
+	// stack frame or the launch closure. Share-motion-vectors mode
+	// is strictly sequential (bottom-up MV propagation) and skips
+	// the workers entirely.
+	if !opts.ShareMotionVectors && count > 1 {
+		for i := 1; i < count; i++ {
+			mre.workers[i] = make(chan vp9MultiResolutionJob, 1)
+			mre.workerDone.Add(1)
+			go mre.runWorker(i)
+		}
+	}
 	return mre, nil
+}
+
+// runWorker drives layer idx in the parallel encode path. It parks
+// on the per-layer job channel between frames, drains one job per
+// wake, and signals completion via the shared workerWG. The
+// goroutine exits on a Shutdown job, which Close fans out before
+// blocking on workerDone.
+func (e *VP9MultiResolutionEncoder) runWorker(idx int) {
+	defer e.workerDone.Done()
+	for job := range e.workers[idx] {
+		switch job.kind {
+		case vp9MultiResolutionJobShutdown:
+			return
+		case vp9MultiResolutionJobEncode:
+			res, err := e.layers[idx].EncodeIntoWithFlagsResult(
+				job.src, job.dst, job.flags)
+			e.results[idx] = res
+			e.resultErrs[idx] = err
+		case vp9MultiResolutionJobFlush:
+			res, err := e.layers[idx].FlushIntoWithResult(job.dst)
+			e.results[idx] = res
+			e.resultErrs[idx] = err
+		}
+		e.workerWG.Done()
+	}
 }
 
 // vp9MultiResolutionLayerEncoderOptions builds the per-layer
@@ -481,26 +567,30 @@ func (e *VP9MultiResolutionEncoder) EncodeIntoWithFlagsResult(img *image.YCbCr,
 			}
 		}
 	} else {
-		// Each per-layer encoder runs on its own goroutine. The
-		// goroutines are spawned in parallel; the calling goroutine
+		// Each per-layer encoder runs on its own persistent worker
+		// goroutine spawned at construction. The calling goroutine
 		// participates as the worker for layer 0 so a single-layer
-		// configuration does not pay the cost of launching a goroutine.
-		var wg sync.WaitGroup
-		for i := 1; i < e.count; i++ {
-			wg.Add(1)
-			go func(idx int) {
-				defer wg.Done()
-				res, err := e.layers[idx].EncodeIntoWithFlagsResult(
-					e.scratch[idx], dsts[idx], flags)
-				e.results[idx] = res
-				e.resultErrs[idx] = err
-			}(i)
+		// configuration does not pay the cost of launching a worker.
+		// Fanning out via the per-layer job channel reuses the parked
+		// goroutine and avoids per-encode closure/stack-frame allocs.
+		if e.count > 1 {
+			e.workerWG.Add(e.count - 1)
+			for i := 1; i < e.count; i++ {
+				e.workers[i] <- vp9MultiResolutionJob{
+					kind:  vp9MultiResolutionJobEncode,
+					src:   e.scratch[i],
+					dst:   dsts[i],
+					flags: flags,
+				}
+			}
 		}
 		// Layer 0 (highest resolution) encodes inline.
 		res0, err0 := e.layers[0].EncodeIntoWithFlagsResult(img, dsts[0], flags)
 		e.results[0] = res0
 		e.resultErrs[0] = err0
-		wg.Wait()
+		if e.count > 1 {
+			e.workerWG.Wait()
+		}
 	}
 	// Collect: return the first non-nil error so the caller can
 	// distinguish encoder failure from a normal drop.
@@ -509,9 +599,15 @@ func (e *VP9MultiResolutionEncoder) EncodeIntoWithFlagsResult(img *image.YCbCr,
 			return nil, e.resultErrs[i]
 		}
 	}
-	out := make([]VP9EncodeResult, e.count)
-	copy(out, e.results[:e.count])
-	return out, nil
+	// Reuse the per-encoder slab so the steady-state encode path
+	// does not allocate the output slice. The slab is sized to
+	// LayerCount at construction; callers that need a detached
+	// slice must copy it before the next encode call mutates the
+	// underlying array.
+	for i := 0; i < e.count; i++ {
+		e.resultSlab[i] = e.results[i]
+	}
+	return e.resultSlab[:e.count:e.count], nil
 }
 
 // EncodeIntoWithResult encodes the next frame with no caller flags.
@@ -540,28 +636,41 @@ func (e *VP9MultiResolutionEncoder) FlushIntoWithResult(dsts [][]byte) ([]VP9Enc
 		e.results[i] = VP9EncodeResult{}
 		e.resultErrs[i] = nil
 	}
-	var wg sync.WaitGroup
-	for i := 1; i < e.count; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			res, err := e.layers[idx].FlushIntoWithResult(dsts[idx])
-			e.results[idx] = res
-			e.resultErrs[idx] = err
-		}(i)
+	// When persistent workers are present (ShareMotionVectors=false
+	// and count > 1) drive the parallel flush through them; otherwise
+	// fall back to a sequential drain. Share-motion-vectors mode is
+	// intrinsically sequential, so it never spawns workers.
+	if e.workers[1] != nil {
+		e.workerWG.Add(e.count - 1)
+		for i := 1; i < e.count; i++ {
+			e.workers[i] <- vp9MultiResolutionJob{
+				kind: vp9MultiResolutionJobFlush,
+				dst:  dsts[i],
+			}
+		}
+		res0, err0 := e.layers[0].FlushIntoWithResult(dsts[0])
+		e.results[0] = res0
+		e.resultErrs[0] = err0
+		e.workerWG.Wait()
+	} else {
+		for i := 0; i < e.count; i++ {
+			res, err := e.layers[i].FlushIntoWithResult(dsts[i])
+			e.results[i] = res
+			e.resultErrs[i] = err
+		}
 	}
-	res0, err0 := e.layers[0].FlushIntoWithResult(dsts[0])
-	e.results[0] = res0
-	e.resultErrs[0] = err0
-	wg.Wait()
 	for i := 0; i < e.count; i++ {
 		if e.resultErrs[i] != nil {
 			return nil, e.resultErrs[i]
 		}
 	}
-	out := make([]VP9EncodeResult, e.count)
-	copy(out, e.results[:e.count])
-	return out, nil
+	// Reuse the per-encoder slab so the steady-state flush path
+	// does not allocate the output slice. See EncodeIntoWithFlagsResult
+	// for the contract.
+	for i := 0; i < e.count; i++ {
+		e.resultSlab[i] = e.results[i]
+	}
+	return e.resultSlab[:e.count:e.count], nil
 }
 
 // Close releases every per-layer encoder. Subsequent encode calls
@@ -573,6 +682,18 @@ func (e *VP9MultiResolutionEncoder) Close() error {
 	if e.closed {
 		return nil
 	}
+	// Shut down persistent worker goroutines before releasing the
+	// per-layer encoders. Each worker exits on a Shutdown job; close
+	// the channel afterwards to break the range loop. workerDone
+	// blocks until every worker has returned so layer.Close() runs
+	// on a quiescent encoder.
+	for i := 1; i < e.count; i++ {
+		if e.workers[i] != nil {
+			e.workers[i] <- vp9MultiResolutionJob{kind: vp9MultiResolutionJobShutdown}
+			close(e.workers[i])
+		}
+	}
+	e.workerDone.Wait()
 	for i := 0; i < e.count; i++ {
 		if e.layers[i] != nil {
 			_ = e.layers[i].Close()

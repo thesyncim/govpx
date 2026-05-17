@@ -373,9 +373,6 @@ func TestVP9MultiResolutionEncoderParityVsManualEncoders(t *testing.T) {
 }
 
 func TestVP9MultiResolutionEncoderSteadyStateAlloc(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping alloc gate in -short mode")
-	}
 	enc, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
 		LayerCount: 2,
 		FPS:        30,
@@ -396,18 +393,15 @@ func TestVP9MultiResolutionEncoderSteadyStateAlloc(t *testing.T) {
 			t.Fatalf("warmup encode: %v", err)
 		}
 	}
-	// Steady-state. The per-call result slice and goroutine launch
-	// allocate a small fixed amount per encode; assert the count
-	// stays low. With LayerCount=2 we spawn one goroutine and a
-	// 2-element result slice.
-	// The per-call result slice plus the goroutine-launch closure
-	// allocate a small fixed amount; assert the count stays low.
-	const allowed = 8
+	// Steady-state. Persistent per-layer worker goroutines and a
+	// preallocated result slab eliminate the per-encode goroutine
+	// launch closure plus the output slice allocation; the encode
+	// path runs allocation-free in steady state.
 	allocs := testing.AllocsPerRun(8, func() {
 		_, _ = enc.EncodeIntoWithResult(src, dsts)
 	})
-	if allocs > allowed {
-		t.Fatalf("steady-state allocs = %v, want <= %d", allocs, allowed)
+	if allocs != 0 {
+		t.Fatalf("steady-state allocs = %v, want 0", allocs)
 	}
 }
 
