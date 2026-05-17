@@ -5989,15 +5989,25 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// — byte-exact with libvpx's "speed>=8 && !low_res &&
 		// content_state != kVeryHighSad" SAD-only branch. The low_res
 		// int-pro path (vp9_int_pro_motion_estimation +
-		// vp9_build_inter_predictors_sb) is gated off here because
-		// vp9_int_pro_motion_estimation reads refOff-(bw>>1) — 32
-		// pixels before the SB origin — and govpx's image.YCbCr
-		// reference planes carry no border (libvpx allocates the YV12
-		// buffer with VP9_ENC_BORDER_IN_PIXELS = 32 of padding around
-		// the visible plane; vpx_scale/yv12config.h:25). Wiring
-		// vp9GetEstimatedPred for low_res requires a per-encoder
-		// border-padded LAST plane, which is a follow-up substrate
-		// task. For the current deferred fuzz fixture (64x64 frame,
+		// vp9_build_inter_predictors_sb) is not yet wired here, but the
+		// border-padding substrate it requires is now in place
+		// (vp9_yv12_border.go: vp9YV12BorderBuffer +
+		// vp9YV12BuildBorderedPlane — verbatim port of libvpx's
+		// vpx_extend_frame_borders, vpx_scale/generic/yv12extend.c:
+		// 22-60 + 130-171). vp9_int_pro_motion_estimation reads
+		// refOff-(bw>>1) — 32 pixels before the SB origin — which on
+		// libvpx is satisfied by YV12's VP9_ENC_BORDER_IN_PIXELS=160
+		// per-side padding (vpx_scale/yv12config.h:26). Wiring the
+		// low_res int-pro branch will:
+		//   1. Build (or reuse) a per-encoder border-padded LAST
+		//      mirror via vp9YV12BuildBorderedPlane after each frame's
+		//      reconstruction.
+		//   2. Run vp9_int_pro_motion_estimation on that padded
+		//      buffer, with refOff shifted by (originY, originX).
+		//   3. Build the inter predictor at the resulting MV via
+		//      vp9_build_inter_predictors_sb (libvpx
+		//      vp9_encodeframe.c:1487).
+		// For the current deferred fuzz fixture (64x64 frame,
 		// Q-mode/RateControlQ) the inter picker bypasses
 		// vp9CBRVariancePartitionEnabled entirely
 		// (vp9FixedPublicQuantizer gate), so this function is never
