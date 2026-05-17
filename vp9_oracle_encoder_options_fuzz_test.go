@@ -86,29 +86,41 @@ func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptio
 //     fix-up, vpxenc emits 8.
 //
 //     Root cause is the libvpx set_good_speed_feature_framesize_independent
-//     speed >= 1 cascade at vp9/encoder/vp9_speed_features.c:272-317
-//     (intra_y_mode_mask[TX_16X16]=INTRA_DC_H_V, intra_uv_mode_mask[
-//     TX_32X32]=INTRA_DC_H_V, use_square_partition_only=!frame_is_intra_
-//     only, allow_txfm_domain_distortion, tx_domain_thresh,
-//     trellis_opt_tx_rd, less_rectangular_check, use_rd_breakout,
-//     mode_skip_start, recode_tolerance_low/high,
-//     use_accurate_subpel_search=USE_4_TAPS) plus the GOOD-mode dispatch
-//     at vp9_speed_features.c:1030 vp9_set_speed_features_framesize_
-//     independent → set_good_speed_feature_framesize_independent. govpx
-//     covers cpu_used=8 + DeadlineRealtime well (the existing seed corpus
-//     and the keyframe byte-parity unit tests both fix cpu_used=8 + rt);
-//     the GOOD speed=1 cascade lands only partial sf coverage in
-//     vp9_speed_features.go:1183-1237 (rd_ml_partition, allow_txfm_domain_
-//     distortion, intra mode masks) without the matching mode-picker /
-//     partition-picker / RD-tolerance plumbing the bitstream needs.
+//     speed >= 1 cascade at vp9/encoder/vp9_speed_features.c:272-317 plus
+//     the GOOD-mode dispatch at vp9_speed_features.c:1030
+//     vp9_set_speed_features_framesize_independent →
+//     set_good_speed_feature_framesize_independent. govpx covers cpu_used
+//     =8 + DeadlineRealtime well (the existing seed corpus and the
+//     keyframe byte-parity unit tests both fix cpu_used=8 + rt).
 //
-//     Closing this seed requires extending govpx's mode-decision code to
-//     honour the speed-1 GOOD-mode mode_skip_start gate (vp9_speed_
-//     features.c:301), the partition picker's use_square_partition_only=1
-//     trim on intra frames, and the trellis/tx-domain RD tolerance changes
-//     so the per-block coefficient choices match libvpx — a multi-stage
-//     speed-features + mode-picker port that is properly tracked as a
-//     non-cpu-used=8 GOOD-mode coverage gap, not a bitstream-writer bug.
+//     The GOOD speed=1 SF cascade itself IS now ported verbatim into
+//     vp9_speed_features.go:1183-1237 (intra_y_mode_mask[TX_16X16]=INTRA
+//     _DC_H_V, intra_uv_mode_mask[TX_32X32]=INTRA_DC_H_V,
+//     use_square_partition_only=!frame_is_intra_only,
+//     allow_txfm_domain_distortion, tx_domain_thresh, trellis_opt_tx_rd,
+//     less_rectangular_check, use_rd_breakout, mode_skip_start,
+//     recode_tolerance_low/high, use_accurate_subpel_search=USE_4_TAPS).
+//     The keyframe Y-mode picker now gates on sf->nonrd_keyframe instead
+//     of an invented intra_y_mode_bsize_mask fallback, so RD-path GOOD-
+//     mode keyframes evaluate all 10 modes per libvpx vp9_rdopt.c:1383
+//     rd_pick_intra_sby_mode (this turn).
+//
+//     The residual divergence is the keyframe RD partition picker.
+//     libvpx's rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667)
+//     recursively evaluates PARTITION_NONE / HORZ / VERT / SPLIT under RD
+//     cost for every superblock, with edge-clipped frames forcing
+//     PARTITION_SPLIT or PARTITION_VERT (vp9_encodeframe.c:3691-3703
+//     force_horz_split / force_vert_split). govpx's keyframe partition
+//     picker is the hand-coded vp9KeyframeSourceBlockSizeForRegion
+//     heuristic (vp9_encoder.go:4971) which commits to a deterministic
+//     block size per region without an RD comparison. For 16x208 the
+//     partition trees the two encoders pick differ at the very first SB
+//     because libvpx force-splits the right half (mi_col+mi_step >
+//     mi_cols) and recurses while govpx returns Block16x16 directly. The
+//     resulting partition-token stream diverges in the first tile-body
+//     byte (offset 20). Porting vp9_rd_pick_partition + ml_predict_var_rd
+//     _partitioning + ml_prune_rect_partition verbatim is a multi-agent
+//     turn project tracked as the follow-up to this seed.
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing.

@@ -9,15 +9,19 @@ import (
 
 // TestVP9IntraModeCoverageMatchesLibvpx pins govpx's keyframe-Y intra mode
 // iteration to libvpx's `rd_pick_intra_sby_mode` (vp9/encoder/vp9_rdopt.c:1383)
-// when the SPEED_FEATURES `intra_y_mode_bsize_mask` is INTRA_ALL — i.e. at
-// cpu_used 0-3 where libvpx's keyframe RD picker walks DC_PRED..TM_PRED with
-// no pruning. The test installs a counting instrumentation on the per-mode RD
+// when `sf->nonrd_keyframe == 0` — i.e. at cpu_used 0-4 GOOD-mode or speed
+// 0..4 RT where libvpx's keyframe RD picker walks DC_PRED..TM_PRED with no
+// pruning. The test installs a counting instrumentation on the per-mode RD
 // scorer to verify each of the 10 intra modes is evaluated at least once.
 //
-// At higher CPU-used speeds libvpx narrows the mask; govpx mirrors that
-// via the configurator-populated `IntraYModeBsizeMask`, and this gate is
-// also exercised below by setting the mask to INTRA_DC_H_V (the default
-// realtime narrow set) and asserting only DC/V/H are evaluated.
+// At cpu_used >= 5 realtime libvpx flips to the nonrd path
+// (`vp9_pick_intra_mode`, vp9_pickmode.c:1199) which walks DC..H_PRED only
+// (3 modes); govpx mirrors that by gating the picker on
+// `e.sf.NonrdKeyframe`. The vp9KeyframeIntraModeMask helper continues to
+// expose the `intra_y_mode_bsize_mask` consumer used by the (still
+// TODO'd) nonrd inter-frame intra picker — its narrowing semantics are
+// asserted directly below so the helper's contract stays bound to
+// libvpx pickmode.c:2578 byte-for-byte.
 func TestVP9IntraModeCoverageMatchesLibvpx(t *testing.T) {
 	const width, height = 32, 32
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

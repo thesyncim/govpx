@@ -6766,26 +6766,30 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 		e.cbRdmult = prevCbRdmult
 		return bestMode
 	}
-	// The candidate set follows libvpx's keyframe-RD picker. At cpu_used=0-3
-	// (`use_nonrd_pick_mode == 0`) libvpx's `rd_pick_intra_sby_mode` walks
-	// DC_PRED..TM_PRED unconditionally; at cpu_used>=5 (`nonrd_keyframe == 1`)
-	// libvpx's `vp9_pick_intra_mode` walks DC_PRED..H_PRED only. govpx
-	// expresses both via `e.sf.IntraYModeBsizeMask`: at speed 0 the
-	// configurator populates `IntraYModeBsizeMask = sfIntraAll`, so this
-	// loop evaluates all 10 modes; at speed >= 5 the configurator narrows
-	// the mask, so this loop honors the libvpx pruning byte-for-byte. The
-	// fallback `sfIntraDCHV` keeps the historical 3-mode behavior when the
-	// mask is uninitialized (e.g. unit-test paths that bypass the
-	// configurator), preserving baseline parity.
+	// The candidate set follows libvpx's keyframe-RD picker. At
+	// `sf.nonrd_keyframe == 0` (cpu_used<=4 GOOD or REALTIME, plus speed=0
+	// BEST) libvpx routes through `vp9_rd_pick_intra_mode_sb` →
+	// `rd_pick_intra_sby_mode` (vp9_rdopt.c:1383) which walks DC_PRED..
+	// TM_PRED unconditionally — there is no `intra_y_mode_(_bsize)_mask` gate
+	// on the keyframe Y picker. At `sf.nonrd_keyframe == 1` (cpu_used>=5
+	// REALTIME) libvpx routes through `vp9_pick_intra_mode` (vp9_pickmode.c
+	// :1199) which walks DC_PRED..H_PRED only (3 modes). govpx honours both
+	// by dispatching on `e.sf.NonrdKeyframe`: when 1, narrow to {DC, V, H};
+	// when 0, walk all 10. The previous mask-based fallback walked only the
+	// {DC, V, H} subset on GOOD speed=1 because the configurator did not
+	// populate `IntraYModeBsizeMask` for the GOOD path, which violated
+	// libvpx parity for cpu_used 0..4 GOOD-mode keyframes (see
+	// vp9OptionsSeedsDeferred regression_vp9_options_e03af0a9).
 	//
 	// libvpx: vp9/encoder/vp9_rdopt.c:1383 (rd_pick_intra_sby_mode loop)
 	// libvpx: vp9/encoder/vp9_pickmode.c:1199 (vp9_pick_intra_mode loop)
-	// libvpx: vp9/encoder/vp9_pickmode.c:2578 (intra_y_mode_bsize_mask gate)
-	mask := vp9KeyframeIntraModeMask(&e.sf, bsize)
-	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
-		if mask&(1<<uint(mode)) == 0 {
-			continue
-		}
+	// libvpx: vp9/encoder/vp9_encodeframe.c:4350-4365 (nonrd_keyframe
+	// dispatch between the two pickers)
+	maxMode := common.TmPred
+	if e.sf.NonrdKeyframe != 0 {
+		maxMode = common.HPred
+	}
+	for mode := common.DcPred + 1; mode <= maxMode; mode++ {
 		score, ok := e.scoreVP9KeyframeModeRD(key, mode, yModeCosts[mode],
 			rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi)
 		if ok && score < bestScore {
@@ -6797,11 +6801,17 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	return bestMode
 }
 
-// vp9KeyframeIntraModeMask returns the libvpx-faithful per-block-size intra Y
-// mode mask the keyframe picker should consult. When the configurator has set
-// `IntraYModeBsizeMask[bsize]` it is honored verbatim; otherwise a conservative
-// {DC,V,H} fallback preserves govpx's legacy 3-mode behavior used by tests
-// that construct an encoder without running the SPEED_FEATURES configurator.
+// vp9KeyframeIntraModeMask returns the libvpx `intra_y_mode_bsize_mask`
+// entry the nonrd inter-frame intra picker consults. The keyframe Y-mode
+// picker itself does NOT consult this mask — libvpx's keyframe RD path
+// (`rd_pick_intra_sby_mode`, vp9_rdopt.c:1383) walks all 10 modes
+// unconditionally, and the nonrd keyframe path (`vp9_pick_intra_mode`,
+// vp9_pickmode.c:1199) walks DC..H_PRED unconditionally; govpx mirrors
+// that dispatch via `e.sf.NonrdKeyframe` inside pickVP9KeyframeMode. This
+// helper survives for the nonrd inter-frame intra picker
+// (vp9_pickmode.c:2578) which the govpx nonrd picker still TODO-defers
+// inside the consumers file, and for the audit test pinning the
+// configurator-populated narrow mask semantics.
 //
 // libvpx: vp9/encoder/vp9_pickmode.c:2578 — `(1 << this_mode) &
 // cpi->sf.intra_y_mode_bsize_mask[bsize]`.
