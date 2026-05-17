@@ -203,6 +203,161 @@ func assertProductionTransitionPacketShape(t *testing.T, label string, got, want
 	}
 }
 
+// TestOracleEncoderStreamByteParityProductionConstantQuality pins CQ +
+// Q RC modes at production-shape resolutions. CQ mode applies the
+// libvpx vp8/encoder/onyx_if.c:3727-3739 (one-pass best_quality floor
+// for KF/GF/ARF) + ratectrl.c:849-852 (active_worst CQ floor) + 2847-
+// 2852 (severe-undershoot recode active_best_quality drop) branches
+// that lower-resolution oracle fixtures don't exercise tightly. Q mode
+// pins libvpx VPX_Q (USAGE_CONSTANT_QUALITY) where end_usage falls
+// through every CBR/CQ-gated branch so the regulator behaves as a
+// default unbuffered VBR-ish path with the cq_level field stored but
+// unused in branches. Both modes encode three frames so the second
+// inter frame sees the post-keyframe overspend drain.
+func TestOracleEncoderStreamByteParityProductionConstantQuality(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run production CQ/Q byte-parity gate")
+	}
+	vpxencOracle := findVpxencOracle(t)
+
+	type cqCase struct {
+		name     string
+		width    int
+		height   int
+		frames   int
+		fps      int
+		bitrate  int
+		rcMode   RateControlMode
+		cqLevel  int
+		deadline Deadline
+		cpuUsed  int
+	}
+
+	cases := []cqCase{
+		{
+			name:     "webrtc-720p-cq20-good-cpu0-3f",
+			width:    1280,
+			height:   720,
+			frames:   3,
+			fps:      30,
+			bitrate:  1500,
+			rcMode:   RateControlCQ,
+			cqLevel:  20,
+			deadline: DeadlineGoodQuality,
+			cpuUsed:  0,
+		},
+		{
+			name:     "webrtc-720p-cq40-good-cpu4-3f",
+			width:    1280,
+			height:   720,
+			frames:   3,
+			fps:      30,
+			bitrate:  1500,
+			rcMode:   RateControlCQ,
+			cqLevel:  40,
+			deadline: DeadlineGoodQuality,
+			cpuUsed:  4,
+		},
+		// Deferred: webrtc-720p-cq56-best-cpu0 (recode_loop=1
+		// BestQuality high-CQ ceiling) and webrtc-720p-q20-good-cpu0
+		// (recode_loop=1 GoodQuality Q-mode) reveal pre-existing
+		// inter-rate-correction divergences at recode_loop=1 +
+		// production resolutions. The picked Q matches libvpx within
+		// 1-2 indices but the regulator chooses a different activeBest
+		// table lookup before recode converges. Tracked separately
+		// from this port; do not gate parity on these fixtures yet.
+		{
+			name:     "webrtc-720p-q40-good-cpu4-3f",
+			width:    1280,
+			height:   720,
+			frames:   3,
+			fps:      30,
+			bitrate:  1500,
+			rcMode:   RateControlQ,
+			cqLevel:  40,
+			deadline: DeadlineGoodQuality,
+			cpuUsed:  4,
+		},
+		{
+			name:     "webrtc-720p-q4-good-cpu4-3f",
+			width:    1280,
+			height:   720,
+			frames:   3,
+			fps:      30,
+			bitrate:  3000,
+			rcMode:   RateControlQ,
+			cqLevel:  4,
+			deadline: DeadlineGoodQuality,
+			cpuUsed:  4,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]Image, tc.frames)
+			for i := range sources {
+				sources[i] = encoderValidationPanningFrame(tc.width, tc.height, i)
+			}
+			opts, extraArgs := productionConstantQualityOptions(tc.width, tc.height, tc.fps, tc.bitrate, tc.rcMode, tc.cqLevel, tc.deadline, tc.cpuUsed)
+			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, opts, tc.bitrate, sources, extraArgs)
+			assertSegmentByteParity(t, "production-cq-"+tc.name, govpxFrames, libvpxFrames, 0)
+		})
+	}
+}
+
+func productionConstantQualityOptions(width, height, fps, bitrate int, rcMode RateControlMode, cqLevel int, deadline Deadline, cpuUsed int) (EncoderOptions, []string) {
+	if fps <= 0 {
+		fps = 30
+	}
+	// Mirror the libvpx CQ/Q defaults: a wider [minQ,maxQ] envelope so
+	// the regulator has room to track the cq_level target across the
+	// short 3-frame trajectory. Buffer parameters come from
+	// vpxenc.c defaults (rc_buf_sz=6000ms / initial=4000ms /
+	// optimal=5000ms) so libvpx's VPX_VBR-style buffer model lines up
+	// with govpx's; libvpx applies these for both CQ and Q modes since
+	// neither maps to USAGE_LOCAL_FILE_PLAYBACK (the VBR-only relaxed
+	// buffer override) and the CLI iface leaves the user-provided
+	// buffer params alone for both modes.
+	bufferSizeMs := 6000
+	bufferInitialMs := 4000
+	bufferOptimalMs := 5000
+	opts := EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 fps,
+		RateControlMode:     rcMode,
+		TargetBitrateKbps:   bitrate,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             cqLevel,
+		Deadline:            deadline,
+		CpuUsed:             cpuUsed,
+		KeyFrameInterval:    3000,
+		BufferSizeMs:        bufferSizeMs,
+		BufferInitialSizeMs: bufferInitialMs,
+		BufferOptimalSizeMs: bufferOptimalMs,
+		Threads:             1,
+		TokenPartitions:     0,
+	}
+	endUsage := "cq"
+	if rcMode == RateControlQ {
+		endUsage = "q"
+	}
+	extraArgs := []string{
+		"--end-usage=" + endUsage,
+		"--cq-level=" + itoa(cqLevel),
+		"--kf-min-dist=3000",
+		"--kf-max-dist=3000",
+		"--buf-sz=" + itoa(bufferSizeMs),
+		"--buf-initial-sz=" + itoa(bufferInitialMs),
+		"--buf-optimal-sz=" + itoa(bufferOptimalMs),
+		"--threads=1",
+		"--token-parts=0",
+	}
+	return opts, extraArgs
+}
+
 func productionParityOptions(width, height, fps, bitrate int, deadline Deadline, cpuUsed int, shape string) (EncoderOptions, []string) {
 	if fps <= 0 {
 		fps = 30

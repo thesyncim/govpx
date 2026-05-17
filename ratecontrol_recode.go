@@ -250,10 +250,32 @@ func (rc *rateControlState) shouldRecodeFrameSize(actualBits int, undershootLimi
 	if targetBits <= 0 {
 		return false
 	}
+	// libvpx vp8/encoder/onyx_if.c:2842-2845 "Undershoot and below auto
+	// cq level": force a recode when the picked Q is above cq_target and
+	// projected size is below 7/8 of the per-frame target.
 	if q > rc.cqLevel && actualBits < (targetBits*7)>>3 {
 		return true
 	}
-	return !keyFrame && !goldenFrame && q > rc.cqLevel && actualBits < rc.minimumFrameBandwidthBits() && recode.qLow > rc.cqLevel
+	// libvpx vp8/encoder/onyx_if.c:2847-2852 "Severe undershoot and
+	// between auto and user cq level": when Q is above oxcf.cq_level,
+	// projected size is below min_frame_bandwidth, AND active_best_quality
+	// is still above oxcf.cq_level, libvpx force-recodes AND mutates
+	// `cpi->active_best_quality = cpi->oxcf.cq_level` so the next recode
+	// pass can pick a quantizer down at the CQ floor. govpx's
+	// recode.qLow is libvpx's active_best_quality equivalent (seeded from
+	// `libvpxActiveQuantizerBoundsForFrame` activeBest and used as the
+	// regulator's lower bound on every recode iteration), so mirror the
+	// mutation here. Without this, govpx's recode loop keeps qLow above
+	// cqLevel and the regulator picks a higher Q than libvpx for the
+	// next attempt on the same severely-undersized CQ frame.
+	if q > rc.cqLevel && actualBits < rc.minimumFrameBandwidthBits() && recode.qLow > rc.cqLevel {
+		recode.qLow = rc.cqLevel
+		if recode.regulateLow > rc.cqLevel {
+			recode.regulateLow = rc.cqLevel
+		}
+		return true
+	}
+	return false
 }
 
 func (rc *rateControlState) rateCorrectionFactorAfterFrameSize(actualBits int, keyFrame bool, macroblocks int, dampVar int, rateCorrectionFactor float64) float64 {

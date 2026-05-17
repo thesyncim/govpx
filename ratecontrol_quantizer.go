@@ -248,6 +248,19 @@ func (rc *rateControlState) libvpxActiveWorstQuantizerForFrame(keyFrame bool) in
 			activeWorst = rc.maxQuantizer - int((int64(qadjustmentRange)*int64(aboveBase))/int64(denom))
 		}
 	}
+	// libvpx vp8/encoder/ratectrl.c:849-852: at the end of
+	// `calc_pframe_target_size` for one-pass mode, an unconditional CQ
+	// floor lifts active_worst_quality up to cq_target_quality when it
+	// drops below it. Govpx's earlier-return branches (KF + !pass2,
+	// non-regulator / ni<=150 / unbuffered) already apply this floor; the
+	// buffered inter-ni>150 branch above can leave activeWorst at
+	// normalInterAvgQuantizer or the buffer-fullness-scaled value, both of
+	// which can fall below cqLevel after a long low-Q run. Without this
+	// floor the regulator's worst-Q ceiling diverges from libvpx for CQ
+	// mode once normalInterAvgQuantizer drifts under cq_target_quality.
+	if rc.cqFloorActive() && activeWorst < rc.cqLevel {
+		activeWorst = rc.cqLevel
+	}
 	return activeWorst
 }
 
