@@ -188,6 +188,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetDisableOvershootMaxQCBR":     {kind: "libvpx-control", helperTokens: []string{"disovershoot:"}},
 		"SetEnableTPL":                   {kind: "libvpx-vp9-tpl-control"},
 		"SetEnableKeyFrameFiltering":     {kind: "libvpx-control", helperTokens: []string{"--enable-keyframe-filtering"}},
+		"GetActiveMap":                   {kind: "libvpx-control", helperTokens: []string{"active:"}},
 		"TPLFrameDelta":                  {kind: "libvpx-vp9-tpl-control"},
 		"SetFrameDropAllowed":            {kind: "libvpx-config", helperTokens: []string{"drop:"}},
 		"SetFramePeriodicBoost":          {kind: "libvpx-control", helperTokens: []string{"periodicboost:"}},
