@@ -3971,6 +3971,16 @@ func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
 // (*VP9Encoder).vp9PickFilterLevel which dispatches across the three
 // libvpx LPF_PICK_METHOD modes; the static closed-form fallback is
 // reserved for the lossless / disabled paths.
+//
+// When sf.LpfPick selects LPF_PICK_FROM_FULL_IMAGE / SUBIMAGE the
+// final level is decided post-tile by vp9EncoderRunFullImagePicker,
+// which calls vp9SearchFilterLevel — and that search seeds filt_mid
+// from e.vp9LastFiltLevel (libvpx vp9_picklpf.c:90). Therefore the
+// pre-tile call here must NOT clobber e.vp9LastFiltLevel with the
+// from-Q placeholder; otherwise the search at cpu_used<5 starts at
+// the from-Q seed instead of the libvpx-correct last_filt_level
+// (which is 0 on a non-forced KEY_FRAME, libvpx vp9_encoder.c:3445).
+// Only the post-tile picker writes vp9LastFiltLevel in that case.
 func (e *VP9Encoder) vp9EncoderLoopFilterParams(qindex int, isKey, intraOnly, resetDeltas, lossless, segEnabled bool,
 	sharpness uint8, width, height int, txMode common.TxMode,
 ) vp9dec.LoopfilterParams {
@@ -3986,15 +3996,44 @@ func (e *VP9Encoder) vp9EncoderLoopFilterParams(qindex int, isKey, intraOnly, re
 	if isKey || intraOnly {
 		e.vp9LastFiltLevel = 0
 	}
-	level := uint8(e.vp9PickFilterLevel(e.sf.LpfPick, qindex, isKey, segEnabled,
-		width, height, txMode, false /* partialFrame */, nil /* sseFn */))
+	// Search-based methods need a placeholder filter_level for the
+	// uncompressed-header pre-write; the real level is decided post-
+	// tile against the reconstructed luma. Use the closed-form
+	// FROM_Q value as the placeholder so that the disable / lossless
+	// gates below (and the runFullImageSearch != 0 gate at line
+	// 2644) see the same coarse magnitude libvpx would emit. Do not
+	// update e.vp9LastFiltLevel here — the post-tile picker reads it
+	// as the search seed (libvpx vp9_picklpf.c:90) and the libvpx-
+	// correct seed is the just-reset value (0 on keyframes, the
+	// prior frame's level otherwise).
+	searchMethod := e.sf.LpfPick == LpfPickFromFullImage ||
+		e.sf.LpfPick == LpfPickFromSubImage
+	var level uint8
+	if searchMethod {
+		level = uint8(e.vp9PickLpfFromQ(qindex, isKey, segEnabled, width, height))
+	} else {
+		level = uint8(e.vp9PickFilterLevel(e.sf.LpfPick, qindex, isKey, segEnabled,
+			width, height, txMode, false /* partialFrame */, nil /* sseFn */))
+	}
 	if lossless {
 		level = 0
 	}
-	// libvpx vp9_encoder.c:3448 — `lf->last_filt_level = lf->filter_level`
-	// after the picker returns. We mirror that here so the next
-	// frame's picker reads the just-chosen level.
-	e.vp9LastFiltLevel = level
+	if !searchMethod {
+		// libvpx vp9_encoder.c:3448 — `lf->last_filt_level =
+		// lf->filter_level` after the picker returns. For
+		// non-search methods the picker is final here; for search
+		// methods the post-tile path (line 2692) refreshes
+		// vp9LastFiltLevel after the real search runs.
+		e.vp9LastFiltLevel = level
+	} else if lossless || level == 0 {
+		// Search-mode path where the post-tile picker will be gated
+		// off (the dispatcher requires header.Loopfilter.FilterLevel
+		// != 0 to run): the placeholder is final, so commit it to
+		// vp9LastFiltLevel just like the non-search branch.
+		// libvpx vp9_encoder.c:3429-3430 explicitly resets
+		// last_filt_level = 0 when lossless.
+		e.vp9LastFiltLevel = level
+	}
 	return vp9dec.LoopfilterParams{
 		FilterLevel:         level,
 		SharpnessLevel:      sharpness,

@@ -41,11 +41,17 @@ import (
 //     LpfPickFromFullImage search method
 //     (vp9/encoder/vp9_speed_features.c:set_good_speed_feature_framesize_*
 //     @ vp9_speed_features.c:140-280 best/good-quality branches set
-//     sf.lpf_pick = LPF_PICK_FROM_FULL_IMAGE) while govpx's
-//     vp9PickFilterLevel falls back to vp9PickLpfFromQ when sseFn is nil
-//     (vp9_picklpf.go:335). Govpx covers only the cpu_used=8 LPF_PICK_FROM_Q
-//     fast path today; the cpu_used<5 search path needs the
-//     search_filter_level loop wired through tile reconstruction.
+//     sf.lpf_pick = LPF_PICK_FROM_FULL_IMAGE). The LpfPickFromFullImage
+//     post-tile search seed contamination was fixed by aligning
+//     vp9EncoderLoopFilterParams with libvpx vp9_picklpf.c:90 (do NOT
+//     overwrite vp9LastFiltLevel with the from-Q placeholder when the
+//     search will run post-tile); the remaining divergence stems from
+//     the cpu_used=0 speed-features path govpx has not yet ported
+//     (vp9_speed_features.c:140-280). At cpu_used=0 libvpx picks a
+//     different partition_search_type / RD path than govpx's
+//     cpu_used=8-only verbatim port, so the reconstructed luma the
+//     picker scores diverges and the chosen filter_level diverges with
+//     it.
 //
 //   - {0,1,1,0,2,1,0,0} — 64x64 frames=6 cpu=-3 (abs=3). Same cpu_used!=8
 //     speed-features gap as #0 plus the realtime-cpu_used=3 branch of
