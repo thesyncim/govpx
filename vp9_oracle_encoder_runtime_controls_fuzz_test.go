@@ -62,31 +62,40 @@ import (
 //     anchor TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim — the
 //     speed-features cascade is NOT the root cause of this deferral.
 //
-//     The actual byte-9 divergence (filter_level=0 govpx vs 12 libvpx)
-//     stems from a downstream encoder-body gap at cpu_used=0:
-//     libvpx vp9_encodeframe.c:4334-4344 select_tx_mode picks
-//     TX_MODE_SELECT for KEY_FRAME at cpu_used=0 (use_nonrd_pick_mode==0,
-//     tx_size_search_method==USE_FULL_RD), but govpx's
-//     vp9EncoderFrameTxMode (vp9_encoder.go:3956-4013) pins KEY_FRAME to
-//     ALLOW_32X32 because govpx's keyframe block writer does not yet
-//     emit the TX_MODE_SELECT cascade. The divergent tx_mode flows into
-//     the per-block coefficient writer and inflates the bitstream
-//     (~3725 vs ~2726 bytes), and the loop-filter SSE picker (which
-//     scores the reconstructed luma at trial filter levels) then picks
-//     0 instead of 12 because govpx's reconstructed luma is much
-//     coarser at the larger tx sizes. byte-9 mismatch is therefore a
-//     symptom of the upstream tx_mode + keyframe-writer gap, not a
-//     speed-features cascade gap.
+//     The upstream libvpx select_tx_mode at vp9_encodeframe.c:4334-4344
+//     returns TX_MODE_SELECT for KEY_FRAME at cpu_used=0
+//     (use_nonrd_pick_mode==0, tx_size_search_method==USE_FULL_RD).
+//     govpx's vp9EncoderFrameTxMode now ports that branch verbatim — the
+//     keyframe writer plumbs the TxModeSelect-shaped tx_probs row via
+//     the existing keyframe-source path (writeVP9ModeBlock:6885+) and
+//     the vp9ModeTreeKeyframe fallback (commit 0dfca64). With the
+//     verbatim TX_MODE_SELECT routing in place the bitstream still
+//     diverges at byte 9 (filter_level=0 govpx vs 12 libvpx) because
+//     govpx's keyframe per-block tx_size decision is pinned to
+//     mi.TxSize = TxModeToBiggestTxSize[txMode] for the whole SB
+//     (prepareVP9KeyframeBlockResidue at vp9_encoder.go:7994 reads
+//     mi.TxSize verbatim, no RD search). libvpx's
+//     vp9_rd_pick_intra_mode_sb (vp9_rdopt.c:3950+) runs a per-block
+//     RD search over Tx32x32/Tx16x16/Tx8x8/Tx4x4 candidates and emits
+//     the picked size per block; the resulting reconstruction differs
+//     and the loop-filter SSE picker
+//     (vp9EncoderRunFullImagePicker -> vp9_picklpf.c) lands on a
+//     different filter_level. With the TX_MODE_SELECT pin lifted the
+//     bitstream length stays ~3724 bytes vs libvpx's ~2726 — the
+//     unblocker is now the missing per-block keyframe tx_size RD
+//     search rather than the writer cascade.
 //
-//     Closing this seed requires porting the libvpx KEY_FRAME
-//     TX_MODE_SELECT writer cascade into govpx's keyframe block writer
-//     (internal/vp9/encoder/block_write.go) and the matching encoder
-//     body (per-block tx_size search at speed=0 RT, libvpx
-//     vp9_encodeframe.c rd_pick_sb_modes path). Filed as the explicit
-//     handoff for the TX_MODE_SELECT keyframe-writer port.
+//     Closing this seed requires porting libvpx's
+//     vp9_rd_pick_intra_mode_sb (and its tx_size RD search subroutines
+//     super_block_yrd / rd_pick_intra4x4row, vp9_rdopt.c:3950-4250)
+//     into govpx's keyframe per-block picker so cur.TxSize is
+//     RD-optimal rather than capped at MaxTxsizeLookup[bsize]. The
+//     writer plumbing landed in 0dfca64 and the TxMode resolver
+//     verbatim port landed in this commit; both are prerequisites for
+//     the per-block RD search port.
 //
 //   - {0,1,1,0,2,1,0,0} — 64x64 frames=6 cpu=-3 (abs=3). Same KEY_FRAME
-//     TX_MODE_SELECT writer gap as #0 (vp9_encodeframe.c:4336-4344);
+//     per-block tx_size RD-search gap as #0 (vp9_rdopt.c:3950+);
 //     additionally, at RT speed=3 the libvpx configurator sets
 //     sf.lpf_pick=LPF_PICK_FROM_Q (vp9_speed_features.c:555) and
 //     sf.disable_split_mask=DISABLE_ALL_SPLIT, which alters the
@@ -98,9 +107,8 @@ import (
 //     handoff as #0.
 //
 //   - {1,0,0,1,0,0,1,0} — 128x64 frames=4 cpu=0. Same KEY_FRAME
-//     TX_MODE_SELECT writer gap as #0 (vp9_encodeframe.c:4336-4344
-//     select_tx_mode picks TX_MODE_SELECT but govpx pins ALLOW_32X32);
-//     the wider frame_width-1 (127) trips a different miCols path that
+//     per-block tx_size RD-search gap as #0 (vp9_rdopt.c:3950+); the
+//     wider frame_width-1 (127) trips a different miCols path that
 //     amplifies the bitstream divergence on top.
 //
 //   - {1,1,2,0,3,1,1,0} — 128x64 frames=6 cpu=-8 (abs=8). govpx covers the
@@ -119,11 +127,11 @@ import (
 //     panning content exposes the gap.
 //
 //   - {0,2,0,2,0,0,0,0} — 64x64 frames=8 cpu=0. Same KEY_FRAME
-//     TX_MODE_SELECT writer gap as #0 with frame count widened; once
-//     frame 0 KF parity holds the inter frames should follow because the
-//     runtime-controls fuzz only flips EncodeForce*/NoUpdate* flags that
-//     govpx already routes through vp9_set_reference_frame_flags /
-//     ext_refresh_frame_flags.
+//     per-block tx_size RD-search gap as #0 with frame count widened;
+//     once frame 0 KF parity holds the inter frames should follow
+//     because the runtime-controls fuzz only flips
+//     EncodeForce*/NoUpdate* flags that govpx already routes through
+//     vp9_set_reference_frame_flags / ext_refresh_frame_flags.
 //
 //   - {1,2,1,0,4,1,0,1} — 128x64 frames=8 cpu=-3. Triggers the seed-byte
 //     refPos generator (r.pick(5)==4) which OR's
@@ -149,16 +157,18 @@ import (
 //     materialises identically to baseline seed #0
 //     {0,0,0,0,0,0,0,0}: w=64 h=64 frames=4 cpu=0 flags=[0,0,0,0]. Frame 0
 //     KF diverges at byte 9 (filter_level=0 govpx vs 12 libvpx). Current
-//     observed delta: got_len=3725 want_len=2726 first_diff=9. The
-//     filter_level=0 vs 12 difference is a symptom of the upstream
-//     KEY_FRAME tx_mode gap described under seed #0
-//     (vp9_encodeframe.c:4336-4344 select_tx_mode returns TX_MODE_SELECT
-//     at cpu_used=0, but govpx pins ALLOW_32X32), not the speed-features
-//     cascade — the RT/GOOD cpu_used=0 cascade IS already verbatim per
-//     TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim and
-//     TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim. Same handoff as seed
-//     #0 (KEY_FRAME TX_MODE_SELECT writer port); do NOT close this entry
-//     until #0 closes.
+//     observed delta with the verbatim TX_MODE_SELECT routing in place:
+//     got_len=3724 want_len=2726 first_diff=9. The filter_level=0 vs 12
+//     difference reflects the keyframe per-block tx_size RD-search gap
+//     described under seed #0 (vp9_rdopt.c:3950+ vp9_rd_pick_intra_mode_sb
+//     unported in govpx — mi.TxSize is pinned at MaxTxsizeLookup[bsize]
+//     for the whole SB by prepareVP9KeyframeBlockResidue), not the
+//     speed-features cascade — the RT/GOOD cpu_used=0 cascade IS
+//     verbatim per TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim and
+//     TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim, and the upstream
+//     TX_MODE_SELECT routing is now also verbatim. Same handoff as
+//     seed #0 (per-block keyframe tx_size RD search); do NOT close this
+//     entry until #0 closes.
 //
 //   - {0x31} (single ASCII '1', from testdata/fuzz/
 //     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
@@ -170,12 +180,13 @@ import (
 //     frame (r.pick(4)==1). Frame 0 KF diverges at byte 16
 //     (got_len=7611 want_len=5324) and inter frames diverge at byte 4
 //     each. Same downstream encoder-body gap as seed #1 (cpu=-3 RT
-//     speed=3 path + KEY_FRAME TX_MODE_SELECT writer cascade at
-//     vp9_encodeframe.c:4336-4344). The RT speed=3 SPEED_FEATURES
-//     struct is already verbatim (TestVP9SetRtSpeedFeaturesCPUUsed3Verbatim
-//     or analogous), but the per-block tx_size search + the keyframe
-//     TX_MODE_SELECT writer remain unported. Same handoff as #1; do NOT
-//     close this entry until #1 closes.
+//     speed=3 path + per-block keyframe tx_size RD search at
+//     vp9_rdopt.c:3950+). The RT speed=3 SPEED_FEATURES struct is
+//     already verbatim (TestVP9SetRtSpeedFeaturesCPUUsed3Verbatim or
+//     analogous) and the keyframe TX_MODE_SELECT writer cascade is now
+//     in place — only the per-block keyframe tx_size RD search remains
+//     unported. Same handoff as #1; do NOT close this entry until #1
+//     closes.
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.

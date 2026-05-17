@@ -2271,22 +2271,55 @@ func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
 // predicate is literal at vp9_encodeframe.c:4336) — they pick up
 // USE_TX_8X8 from the RT cpu_used >= 5 leg
 // (vp9_speed_features.c:1541) and resolve to TX_MODE_SELECT.
+// Keyframes at cpu_used=0 (RT speed=0, use_nonrd_pick_mode=0,
+// tx_size_search_method=USE_FULL_RD) now route to TX_MODE_SELECT
+// per vp9_encodeframe.c:4340-4342 — the unified
+// write_mb_modes_kf at vp9_bitstream.c:344-376 services both
+// frame types from a single TxModeSelect-shaped tx_probs row.
 func TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
+		deadline  Deadline
+		cpuUsed   int8
 		isKey     bool
 		intraOnly bool
 		lossless  bool
 		want      common.TxMode
 	}{
-		{name: "lossless", isKey: true, lossless: true, want: common.Only4x4},
-		{name: "lossless-inter", lossless: true, want: common.Only4x4},
-		{name: "keyframe-nonrd-allow16x16", isKey: true, want: common.Allow16x16},
-		{name: "intra-only-uses-tx-mode-select", intraOnly: true, want: common.TxModeSelect},
-		{name: "inter-uses-tx-mode-select", want: common.TxModeSelect},
+		{name: "lossless", deadline: DeadlineRealtime, cpuUsed: vp9DefaultCPUUsed, isKey: true, lossless: true, want: common.Only4x4},
+		{name: "lossless-inter", deadline: DeadlineRealtime, cpuUsed: vp9DefaultCPUUsed, lossless: true, want: common.Only4x4},
+		{name: "keyframe-nonrd-allow16x16", deadline: DeadlineRealtime, cpuUsed: vp9DefaultCPUUsed, isKey: true, want: common.Allow16x16},
+		// libvpx vp9_speed_features.c:855 default sets
+		// sf.tx_size_search_method = USE_FULL_RD; the RT speed>=1 leg at
+		// :492-493 (and the GOOD speed>=2 leg at :326-327, :381-382)
+		// overrides it. At RT speed=0 the configurator leaves the default
+		// in place, so select_tx_mode at vp9_encodeframe.c:4340-4342
+		// returns TX_MODE_SELECT. This is the seed #0 surface the
+		// FuzzVP9OracleEncoderRuntimeControls fuzz exercises.
+		{name: "keyframe-rt-cpu0-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: 0, isKey: true, want: common.TxModeSelect},
+		// At RT speed>=1, sf.tx_size_search_method =
+		// frame_is_intra_only(cm) ? USE_FULL_RD : USE_LARGESTALL
+		// (vp9_speed_features.c:492-493). KEY_FRAME satisfies
+		// frame_is_intra_only (vp9_onyxc_int.h:363-365), so keyframes at
+		// RT speed=1..4 also see USE_FULL_RD -> TX_MODE_SELECT
+		// (vp9_encodeframe.c:4340-4342).
+		{name: "keyframe-rt-cpu1-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: 1, isKey: true, want: common.TxModeSelect},
+		// Non-key inter at RT speed=1: tx_size_search_method =
+		// USE_LARGESTALL -> ALLOW_32X32. Pinned at TX_MODE_SELECT in
+		// govpx's vp9EncoderFrameTxMode (libvpx fallthrough) to preserve
+		// byte parity against the established golden corpus — see the
+		// comment block in vp9_encoder.go documenting the inter pin.
+		{name: "inter-rt-cpu1-keeps-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: 1, want: common.TxModeSelect},
+		{name: "intra-only-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: vp9DefaultCPUUsed, intraOnly: true, want: common.TxModeSelect},
+		{name: "inter-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: vp9DefaultCPUUsed, want: common.TxModeSelect},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+			e, err := NewVP9Encoder(VP9EncoderOptions{
+				Width:    64,
+				Height:   64,
+				Deadline: tc.deadline,
+				CpuUsed:  tc.cpuUsed,
+			})
 			if err != nil {
 				t.Fatalf("NewVP9Encoder: %v", err)
 			}
@@ -2301,8 +2334,8 @@ func TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode(t *testing.T) {
 			}))
 			got := e.vp9EncoderFrameTxMode(tc.isKey, tc.intraOnly, tc.lossless)
 			if got != tc.want {
-				t.Fatalf("vp9EncoderFrameTxMode(isKey=%t intraOnly=%t lossless=%t) = %d, want %d",
-					tc.isKey, tc.intraOnly, tc.lossless, got, tc.want)
+				t.Fatalf("vp9EncoderFrameTxMode(isKey=%t intraOnly=%t lossless=%t cpuUsed=%d) = %d, want %d",
+					tc.isKey, tc.intraOnly, tc.lossless, tc.cpuUsed, got, tc.want)
 			}
 		})
 	}

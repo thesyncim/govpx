@@ -3984,42 +3984,36 @@ func txModeForMi(mi vp9dec.NeighborMi) common.TxMode {
 // libvpx's select_tx_mode runs once per frame at
 // vp9/encoder/vp9_encodeframe.c:5650 (the top of vp9_encode_frame_internal),
 // AFTER set_speed_features_framesize_dependent has refreshed the per-frame
-// speed-feature snapshot (vp9_encoder.c:3754/3765). govpx currently
-// configures e.sf once at NewVP9Encoder (vp9_encoder.go:978) with the
-// keyframe-intra-only context, so e.sf.TxSizeSearchMethod retains the
-// keyframe value for the entire stream and cannot be consulted directly
-// for non-key frames. To keep the port verbatim without expanding scope
-// to a per-frame speed-feature refresh, vp9EncoderFrameTxMode re-derives
-// tx_size_search_method and use_nonrd_pick_mode from the
-// realtime/good-quality dispatch tables that libvpx's set_*_speed_feature
-// would produce for this frame's (deadline, cpu_used, isKey, intraOnly)
-// triple — see vp9_speed_features.c:485-504,558-583,1042 (RT path) and
+// speed-feature snapshot (vp9_encoder.c:3754/3765). govpx mirrors that
+// protocol via the per-frame vp9ApplySpeedFeatures call at
+// encodeVP9FrameIntoWithFlagsResultInternal:2546, so e.sf carries the live
+// per-frame value at the time select_tx_mode runs. The
+// vp9SelectTxModeSpeedFeatures helper additionally precomputes the
+// (use_nonrd_pick_mode, tx_size_search_method) pair libvpx's
+// set_*_speed_feature would produce for the (deadline, cpu_used, isKey,
+// intraOnly) tuple so the use_nonrd_pick_mode predicate can be evaluated
+// independently of the live sf snapshot — see
+// vp9_speed_features.c:485-504,558-583,1042 (RT path) and
 // vp9_speed_features.c:1250-1252,1286-1288,1310,1447-1449,1539-1541,
 // 1595-1597 (GOOD path).
 //
 // libvpx INTRA_ONLY frames go through the non-KEY_FRAME branch because
 // the KEY_FRAME predicate compares cm->frame_type == KEY_FRAME literally
 // (vp9_blockd.h:34-38 — INTRA_ONLY uses cm->frame_type == INTER_FRAME with
-// the intra_only flag set). Two govpx-side gaps currently prevent the
-// non-key tx_size_search_method dispatch from being honoured verbatim and
-// keep govpx pinned to its prior behaviour for that surface:
+// the intra_only flag set). govpx now honours the libvpx
+// tx_size_search_method dispatch for both KEY_FRAME and intra-only via a
+// shared switch — the keyframe-source block writer at writeVP9ModeBlock:6885+
+// and the vp9ModeTreeKeyframe fallback (introduced in commit 0dfca64)
+// both plumb the TxModeSelect-shaped tx_probs row, so neither path
+// panics in WriteSelectedTxSize. write_mb_modes_kf at
+// vp9_bitstream.c:344-376 services both frame types via
+// frame_is_intra_only(cm) at vp9_bitstream.c:395-396.
 //
-//  1. govpx configures e.sf once at NewVP9Encoder (vp9_encoder.go:978)
-//     with the keyframe-intra-only context, so the framesize-dependent
-//     sf.TxSizeSearchMethod / sf.UseNonrdPickMode values cannot be
-//     consulted for non-key frames without expanding scope to a per-frame
-//     speed-feature refresh.
-//  2. govpx's intra-only block writer at
-//     internal/vp9/encoder/block_write.go:55 is keyframe-style and panics
-//     when txProbs[] is the zero-length tx-mode-select slice the
-//     TX_MODE_SELECT writer would request.
-//
-// To stay verbatim only for the KEY_FRAME && use_nonrd_pick_mode branch
-// (the focus of this commit) without regressing wire parity on the
-// non-key surfaces gated above, vp9EncoderFrameTxMode preserves govpx's
-// prior non-key TxModeSelect / intra-only Allow32x32 behaviour. The
-// remaining surfaces inherit the libvpx assignment table verbatim via the
-// vp9SelectTxModeSpeedFeatures helper.
+// The inter path (non-key non-intra-only) remains pinned at
+// TX_MODE_SELECT — a libvpx-faithful per-frame switch there would
+// surface USE_LARGESTALL -> ALLOW_32X32 at GOOD speed 3 / RT speed 1
+// inter, a deeper byte-parity excursion than this commit targets and
+// tracked as a separate follow-up.
 func (e *VP9Encoder) vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) common.TxMode {
 	if lossless {
 		return common.Only4x4
@@ -4034,32 +4028,29 @@ func (e *VP9Encoder) vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) comm
 		// below.
 		return common.Allow16x16
 	}
-	if isKey {
-		// libvpx vp9_encodeframe.c:4338-4339 — at cpu_used >= 5 RT/GOOD
-		// keyframes route through USE_LARGESTALL -> ALLOW_32X32. Below
-		// cpu_used 5 the configurator still pins USE_FULL_RD ->
-		// TX_MODE_SELECT for boosted frames; govpx's keyframe writer
-		// (internal/vp9/encoder/block_write.go) is keyframe-style and
-		// expects ALLOW_32X32, so the non-nonrd keyframe path is held at
-		// Allow32x32 here until the keyframe writer learns the inter-style
-		// TX_MODE_SELECT cascade.
-		return common.Allow32x32
-	}
-	if intraOnly {
-		// libvpx vp9_encodeframe.c:4340-4344 fallthrough for intra-only
-		// frames — `cm->frame_type == KEY_FRAME` is literal in libvpx
-		// and intra-only frames carry INTER_FRAME, so the dispatch
-		// reads sf.tx_size_search_method directly. The per-frame SF
-		// refresh (encodeVP9FrameIntoWithFlagsResultInternal ->
-		// vp9ApplySpeedFeatures) keeps e.sf.TxSizeSearchMethod
-		// tracking the live frame state, so consulting it here matches
-		// libvpx select_tx_mode verbatim. USE_TX_8X8 / USE_FULL_RD ->
-		// TX_MODE_SELECT, USE_LARGESTALL -> ALLOW_32X32. The block
-		// writer's vp9ModeTreeKeyframe fallback now plumbs the
-		// TxModeSelect-shaped tx_probs row so intra-only frames no
-		// longer panic in WriteSelectedTxSize (libvpx
-		// vp9_bitstream.c:344-376 write_mb_modes_kf services both
-		// keyframe and intra-only via frame_is_intra_only(cm)).
+	if isKey || intraOnly {
+		// libvpx vp9_encodeframe.c:4338-4344 fallthrough for KEY_FRAME
+		// and intra-only frames once the `use_nonrd_pick_mode` clamp
+		// above has been ruled out. libvpx's select_tx_mode reads
+		// sf.tx_size_search_method directly here:
+		//   USE_LARGESTALL                 -> ALLOW_32X32 (:4338-4339)
+		//   USE_FULL_RD or USE_TX_8X8      -> TX_MODE_SELECT (:4340-4342)
+		// Note: libvpx's `cm->frame_type == KEY_FRAME` predicate is
+		// literal — intra-only frames carry INTER_FRAME
+		// (vp9_blockd.h:34-38), but the dispatch is identical for both
+		// because (a) the use_nonrd_pick_mode clamp at :4336-4337 only
+		// fires on KEY_FRAME and we've already handled it above, and
+		// (b) the remaining body is frame-type-agnostic. The per-frame
+		// SF refresh (encodeVP9FrameIntoWithFlagsResultInternal ->
+		// vp9ApplySpeedFeatures) keeps e.sf.TxSizeSearchMethod tracking
+		// the live frame state, so reading it here is verbatim. The
+		// unified writer write_mb_modes_kf at vp9_bitstream.c:344-376
+		// services both KEY_FRAME and intra-only via
+		// frame_is_intra_only(cm) at vp9_bitstream.c:395-396; govpx's
+		// keyframe block writer at writeVP9ModeBlock:6885+ already
+		// plumbs the TxModeSelect-shaped tx_probs row (committed in
+		// 0dfca64 alongside the vp9ModeTreeKeyframe fallback) so the
+		// KEY_FRAME path no longer panics in WriteSelectedTxSize.
 		switch e.sf.TxSizeSearchMethod {
 		case UseLargestAll:
 			return common.Allow32x32
