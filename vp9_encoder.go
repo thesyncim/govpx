@@ -858,6 +858,36 @@ type VP9Encoder struct {
 	refFrames   [common.RefFrames]vp9ReferenceFrame
 	refSignBias [common.RefFrames]uint8
 
+	// lastBordered is the per-encoder border-padded mirror of the LAST_FRAME
+	// luma plane consumed by choose_partitioning's low_res inter-predictor
+	// path (vp9_int_pro_motion_estimation). Lazily allocated on first
+	// refreshVP9EncoderRefs after LAST is written, then reused across
+	// frames. The visible plane lives at (lastBordered.Border,
+	// lastBordered.Border); the surrounding vp9EncBorderInPixels are
+	// edge-replicated by vp9YV12BuildBorderedPlane.
+	//
+	// libvpx counterpart: the LAST_FRAME YV12_BUFFER_CONFIG always carries
+	// VP9_ENC_BORDER_IN_PIXELS=160 of padding on every plane
+	// (vpx_scale/yv12config.h:26, vp9/encoder/vp9_encoder.c:1297), maintained
+	// by vpx_extend_frame_borders_c after each frame's reconstruction
+	// (vp9/encoder/vp9_encoder.c:3102 / 3167 / 3424 / 3470).
+	lastBordered      vp9YV12BorderBuffer
+	lastBorderedValid bool
+
+	// intProSrcBordered is the per-encoder border-padded mirror of the
+	// current frame's source luma plane. choose_partitioning's int_pro
+	// reads up to (bw>>1) pixels before the SB origin on the source as
+	// well as the reference. Built lazily inside vp9EnsureSBPartitionChosen
+	// when the libvpx picker fires on an inter frame.
+	intProSrcBordered      vp9YV12BorderBuffer
+	intProSrcBorderedValid bool
+
+	// intProEstPred is the 64x64 luma predictor scratch built by
+	// vp9_build_inter_predictors_sb (vp9_reconinter.c:253-258) from the
+	// int_pro-resolved MV. Mirrors libvpx's xd->plane[0].dst.buf at
+	// vp9_encodeframe.c:1487 (which writes a 64x64 dst with stride 64).
+	intProEstPred [64 * 64]uint8
+
 	prevFrameMvs      []vp9MvRef
 	prevFrameMvRows   int
 	prevFrameMvCols   int
@@ -3397,6 +3427,38 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, fl
 			e.refFrames[slot].store(e.reconFrame)
 		}
 	}
+	// After the reconstruction has been stored into the ref slots, rebuild
+	// the border-padded LAST_FRAME mirror that choose_partitioning's low_res
+	// int_pro path reads against. Mirrors libvpx's post-reconstruction
+	// vpx_extend_frame_borders call (vp9/encoder/vp9_encoder.c:3424 /
+	// 3470 — extend_borders after the frame is reconstructed for the
+	// realtime path).
+	e.ensureLastBordered()
+}
+
+// ensureLastBordered (re)builds the encoder's border-padded LAST_FRAME luma
+// mirror from the current contents of e.refFrames[vp9LastRefSlot]. Called
+// at the end of refreshVP9EncoderRefs so the next frame's
+// choose_partitioning sees a libvpx-shaped padded LAST plane that
+// vp9_int_pro_motion_estimation can read up to (bw>>1) pixels before the
+// SB origin (libvpx vp9/encoder/vp9_mcomp.c:2317-2320).
+//
+// libvpx counterpart: vpx_extend_frame_borders_c
+// (vpx_scale/generic/yv12extend.c:130-171) invoked after each
+// reconstructed frame is stored into the YV12_BUFFER_CONFIG.
+func (e *VP9Encoder) ensureLastBordered() {
+	if !e.refFrames[vp9LastRefSlot].valid {
+		e.lastBorderedValid = false
+		return
+	}
+	plane, stride, w, h := vp9ReferenceVisiblePlane(&e.refFrames[vp9LastRefSlot], 0)
+	if len(plane) == 0 || stride <= 0 || w <= 0 || h <= 0 {
+		e.lastBorderedValid = false
+		return
+	}
+	vp9YV12BuildBorderedPlane(&e.lastBordered, plane, stride, w, h,
+		vp9EncBorderInPixels)
+	e.lastBorderedValid = true
 }
 
 func vp9EncoderRefreshRefSignBias(slot int, header *vp9dec.UncompressedHeader, flags EncodeFlags) uint8 {
@@ -3514,6 +3576,11 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 		}
 	}
 	e.varPartFrameValid = false
+	// Invalidate the per-frame border-padded source mirror so the next
+	// choose_partitioning inter call rebuilds it from the current frame's
+	// source plane. The padded LAST mirror (e.lastBordered) is rebuilt at
+	// end-of-frame inside refreshVP9EncoderRefs, not here.
+	e.intProSrcBorderedValid = false
 	// ML_BASED_PARTITION's per-SB context cache must be reset per frame
 	// (libvpx vp9_encodeframe.c:5314 — get_estimated_pred fills x->est_pred
 	// fresh for every SB on every frame). See vp9_nonrd_pick_partition.go.
@@ -5573,17 +5640,17 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 // keyframes at speed >= 6. libvpx unconditionally sets
 // `sf->partition_search_type = VAR_BASED_PARTITION` at speed 6+
 // (vp9/encoder/vp9_speed_features.c:667) and at speed 4 keyframe path
-// (vp9_speed_features.c:582). The gate is NOT rc_mode-specific; libvpx fires
+// (vp9_speed_features.c:582). The gate is NOT rc_mode-specific, NOT gated on
+// drop-frame-allowed, and NOT gated on a fixed public quantizer; libvpx fires
 // choose_partitioning at every keyframe whose `partition_search_type` is
-// VAR_BASED_PARTITION regardless of VPX_CBR / VPX_VBR / VPX_CQ
+// VAR_BASED_PARTITION regardless of VPX_CBR / VPX_VBR / VPX_CQ / VPX_Q
 // (vp9_encodeframe.c:5304-5311 dispatches on partition_search_type alone).
 //
 // libvpx: vp9/encoder/vp9_speed_features.c:582 / :667, vp9_encodeframe.c:5304.
 func (e *VP9Encoder) vp9CBRKeyframeVariancePartitionEnabled(key *vp9KeyframeEncodeState) bool {
 	return key != nil && key.dq != nil && key.hdr != nil &&
 		key.hdr.FrameType == common.KeyFrame && !key.lossless &&
-		e.rc.enabled && e.vp9RealtimeVariancePartitionEnabled() &&
-		!e.vp9FixedPublicQuantizer()
+		e.rc.enabled && e.vp9RealtimeVariancePartitionEnabled()
 }
 
 func vp9KeyframeVariancePartitionThreshold(yAcDequant int16, bsize common.BlockSize) uint64 {
@@ -5985,33 +6052,93 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		//   vp9_build_inter_predictors_sb(xd, mi_row, mi_col, BLOCK_64X64);
 		//   d = xd->plane[0].dst.buf;
 		//
-		// govpx currently passes the zero-MV LAST plane at the SB origin
-		// — byte-exact with libvpx's "speed>=8 && !low_res &&
-		// content_state != kVeryHighSad" SAD-only branch. The low_res
-		// int-pro path (vp9_int_pro_motion_estimation +
-		// vp9_build_inter_predictors_sb) is gated off here because
-		// vp9_int_pro_motion_estimation reads refOff-(bw>>1) — 32
-		// pixels before the SB origin — and govpx's image.YCbCr
-		// reference planes carry no border (libvpx allocates the YV12
-		// buffer with VP9_ENC_BORDER_IN_PIXELS = 32 of padding around
-		// the visible plane; vpx_scale/yv12config.h:25). Wiring
-		// vp9GetEstimatedPred for low_res requires a per-encoder
-		// border-padded LAST plane, which is a follow-up substrate
-		// task. For the current deferred fuzz fixture (64x64 frame,
-		// Q-mode/RateControlQ) the inter picker bypasses
-		// vp9CBRVariancePartitionEnabled entirely
-		// (vp9FixedPublicQuantizer gate), so this function is never
-		// called for inter frames in the failing seeds — the int-pro
-		// wiring would be a no-op there.
-		// libvpx ref: vp9_encodeframe.c:1450-1497.
+		// low_res predicate: libvpx vp9_encodeframe.c:1311.
+		lowRes := srcW <= 352 && srcH <= 288
 		if refSlot, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
 			refPx, refStride, refW, refH := vp9ReferenceVisiblePlane(
 				&e.refFrames[refSlot], 0)
 			if len(refPx) > 0 && refStride > 0 &&
 				x0 < refW && y0 < refH {
-				args.PlaneDst = refPx
-				args.PlaneDstOff = y0*refStride + x0
-				args.DstStride = refStride
+				wired := false
+				// libvpx vp9_encodeframe.c:1456-1458:
+				//   y_sad = vp9_int_pro_motion_estimation(cpi, x, bsize,
+				//                                         mi_row, mi_col,
+				//                                         &dummy_mv);
+				// Followed by vp9_build_inter_predictors_sb (line 1487)
+				// which lands the resulting MV's luma prediction in
+				// xd->plane[0].dst.buf. We fire this on low_res — the
+				// libvpx condition for entering the int_pro branch over
+				// the zero-MV sdf branch at speed >= 8
+				// (vp9_encodeframe.c:1451).
+				if lowRes && e.lastBorderedValid &&
+					e.lastBordered.W == refW && e.lastBordered.H == refH {
+					// Build the per-frame border-padded source mirror
+					// once per frame; reuse across SBs.
+					if !e.intProSrcBorderedValid ||
+						e.intProSrcBordered.W != srcW ||
+						e.intProSrcBordered.H != srcH {
+						vp9YV12BuildBorderedPlane(&e.intProSrcBordered,
+							src, srcStride, srcW, srcH,
+							vp9EncBorderInPixels)
+						e.intProSrcBorderedValid = true
+					}
+					// Wire int_pro motion search against the bordered
+					// LAST plane. The visible (mi_row, mi_col) origin
+					// inside the padded buffer is (Border+y0,
+					// Border+x0) so refOff - (bw>>1) stays inside the
+					// allocation for the BLOCK_64X64 worst case
+					// (libvpx vp9/encoder/vp9_mcomp.c:2317-2320).
+					srcOriginX := e.intProSrcBordered.OriginX()
+					srcOriginY := e.intProSrcBordered.OriginY()
+					refOriginX := e.lastBordered.OriginX()
+					refOriginY := e.lastBordered.OriginY()
+					srcStrideB := e.intProSrcBordered.Stride
+					refStrideB := e.lastBordered.Stride
+					estIn := &vp9GetEstimatedPredInterInput{
+						Bsize:         common.Block64x64,
+						Src:           e.intProSrcBordered.Pixels,
+						SrcOff:        (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
+						SrcStride:     srcStrideB,
+						LastRef:       e.lastBordered.Pixels,
+						LastRefOff:    (refOriginY+y0)*refStrideB + (refOriginX + x0),
+						LastRefStride: refStrideB,
+						Speed:         int(e.opts.CpuUsed),
+						// MvLimits: full-pel limits derived from the
+						// SB origin's distance to the bordered frame
+						// edges (mirrors libvpx's
+						// vp9_set_mv_search_range output for the
+						// BLOCK_64X64 SB at (mi_row, mi_col); see
+						// vp9_encoder.c set_mv_limits at the call
+						// site).
+						MvLimits: vp9MvLimits{
+							ColMin: -(x0 + vp9EncBorderInPixels),
+							ColMax: refW - x0 + vp9EncBorderInPixels,
+							RowMin: -(y0 + vp9EncBorderInPixels),
+							RowMax: refH - y0 + vp9EncBorderInPixels,
+						},
+					}
+					// vp9GetEstimatedPred dispatches to
+					// vp9GetEstimatedPredInter for !isKeyFrame, which
+					// runs int_pro motion search + ref-frame selection,
+					// then drives vp9BuildEstimatedPredLuma64x64 — the
+					// 64x64 luma BILINEAR convolve port of
+					// vp9_build_inter_predictors_sb (libvpx
+					// vp9_reconinter.c:253-258).
+					vp9GetEstimatedPred(false, estIn, e.intProEstPred[:])
+					args.PlaneDst = e.intProEstPred[:]
+					args.PlaneDstOff = 0
+					args.DstStride = 64
+					wired = true
+				}
+				if !wired {
+					// Fallback: byte-exact with libvpx's "speed>=8
+					// && !low_res && content_state != kVeryHighSad"
+					// zero-MV SAD-only branch — the predictor stays at
+					// the LAST plane at (mi_row, mi_col).
+					args.PlaneDst = refPx
+					args.PlaneDstOff = y0*refStride + x0
+					args.DstStride = refStride
+				}
 			}
 		}
 		// govpx doesn't yet plumb cpi->rc.high_source_sad through the
@@ -6200,16 +6327,23 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 // vp9CBRVariancePartitionEnabled mirrors libvpx's choose_partitioning gate
 // for inter frames. libvpx dispatches via partition_search_type ==
 // VAR_BASED_PARTITION (vp9/encoder/vp9_encodeframe.c:5304-5311); the gate is
-// NOT rc_mode-specific and is NOT gated on drop-frame-allowed. At speed >= 6
-// (vp9_speed_features.c:667) the configurator sets the type unconditionally.
+// NOT rc_mode-specific, NOT gated on drop-frame-allowed, and NOT gated on a
+// fixed public quantizer. At speed >= 6 (vp9_speed_features.c:667) the
+// configurator sets the type unconditionally regardless of VPX_CBR / VPX_VBR
+// / VPX_CQ / VPX_Q. The dispatch is purely on partition_search_type. The
+// !vp9FixedPublicQuantizer() predicate was previously here but has no libvpx
+// counterpart and is removed for verbatim-libvpx faithfulness; the remaining
+// predicates (inter != nil, dq != nil, !lossless, rc.enabled, RealtimeVar)
+// guard the govpx-internal preconditions that vp9EnsureSBPartitionChosen
+// inherits from libvpx's xd->dq / cm->frame_type / encode-state lifecycle.
 //
-// libvpx: vp9/encoder/vp9_speed_features.c:667, vp9_encodeframe.c:5304.
+// libvpx: vp9/encoder/vp9_speed_features.c:667, vp9_encodeframe.c:5304-5311.
 func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) bool {
 	if inter == nil || inter.dq == nil || inter.lossless ||
 		!e.rc.enabled || !e.vp9RealtimeVariancePartitionEnabled() {
 		return false
 	}
-	return !e.vp9FixedPublicQuantizer()
+	return true
 }
 
 // vp9VarianceAQRateControlFixedQ reports whether the rate-control

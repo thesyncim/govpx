@@ -24,6 +24,23 @@ const (
 	legacyPostProcessFlags = PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE
 )
 
+// VP8Decryptor mirrors libvpx v1.16.0 vpx_decrypt_cb (vpx/vpx_decoder.h).
+// The callback receives the encrypted byte slice and writes count
+// plaintext bytes into dst. state is the caller-supplied opaque value
+// from [DecoderOptions.DecryptorState]. Mirrors the callback shape
+// invoked by libvpx's VP8D_SET_DECRYPTOR control path.
+//
+// Implementations must not retain references to src or dst beyond the
+// call. govpx invokes the callback once per Decode with the full
+// packet bytes (a coarser granularity than libvpx's per-boolean-fill
+// invocation, which would force the boolean decoder's internal scratch
+// onto the heap under Go's escape-analysis rules and regress the
+// alloc-free hot path that TestDecoderHotPathAllocs guards). Callbacks
+// that ignore offsets (the common DRM-frame-key case) behave
+// identically to libvpx; callbacks that depend on per-fill granularity
+// must wrap the full-packet bytes themselves.
+type VP8Decryptor func(state any, src []byte, dst []byte, count int)
+
 // DecoderOptions configures a VP8 decoder.
 type DecoderOptions struct {
 	// Threads selects the decoder worker count. 0 and 1 use the serial
@@ -53,6 +70,17 @@ type DecoderOptions struct {
 	// dimensions when non-zero.
 	MaxWidth  int
 	MaxHeight int
+
+	// Decryptor, when non-nil, decrypts compressed packet bytes before
+	// the boolean decoder reads them. Mirrors libvpx's VP8D_SET_DECRYPTOR
+	// control (vp8/vp8_dx_iface.c vp8_set_decryptor); the callback is
+	// invoked by each VP8 partition's boolean decoder during fill()
+	// with the encrypted slice and a destination buffer to write the
+	// plaintext into. DecryptorState is passed back as the callback's
+	// first argument. Re-use the same callback + state across
+	// VP8Decoder instances when a per-decoder key is desired.
+	Decryptor      VP8Decryptor
+	DecryptorState any
 
 	// RejectResolutionChange, when true, makes Decode return
 	// [ErrFrameRejected] on a key frame whose dimensions differ from the
@@ -85,6 +113,8 @@ type VP8Decoder struct {
 	lastRef     vp8common.FrameBuffer
 	goldenRef   vp8common.FrameBuffer
 	altRef      vp8common.FrameBuffer
+
+	decryptedPacket []byte
 
 	mbRows             int
 	mbCols             int
@@ -131,6 +161,30 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	return d, nil
 }
 
+// decryptPacket applies the registered Decryptor callback to packet,
+// returning a plaintext slice for the bool-decoder pipeline. Mirrors
+// libvpx's VP8D_SET_DECRYPTOR contract (vp8/vp8_dx_iface.c
+// vp8_set_decryptor): the callback transforms encrypted compressed
+// data into plaintext before parsing. govpx applies the callback once
+// per Decode at packet entry rather than per boolean-decoder fill
+// window — see the [VP8Decryptor] doc for the rationale.
+//
+// When no decryptor is configured this returns the input slice
+// unchanged. The decrypted-buffer scratch lives on VP8Decoder so
+// repeated Decode calls do not allocate on the hot path.
+func (d *VP8Decoder) decryptPacket(packet []byte) []byte {
+	if d.opts.Decryptor == nil || len(packet) == 0 {
+		return packet
+	}
+	if cap(d.decryptedPacket) < len(packet) {
+		d.decryptedPacket = make([]byte, len(packet))
+	} else {
+		d.decryptedPacket = d.decryptedPacket[:len(packet)]
+	}
+	d.opts.Decryptor(d.opts.DecryptorState, packet, d.decryptedPacket, len(packet))
+	return d.decryptedPacket
+}
+
 // Decode decodes one raw VP8 frame payload. The first packet supplied to
 // a fresh or reset decoder must be a key frame; otherwise
 // [ErrNeedKeyFrame] is returned.
@@ -148,6 +202,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if d == nil || d.closed {
 		return ErrClosed
 	}
+	packet = d.decryptPacket(packet)
 	frame, info, err := peekVP8FrameHeader(packet)
 	if err != nil {
 		if d.shouldConcealMissingFrameTag(packet) {
@@ -333,6 +388,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if dst == nil {
 		return FrameInfo{}, ErrInvalidConfig
 	}
+	packet = d.decryptPacket(packet)
 	frame, info, err := peekVP8FrameHeader(packet)
 	if err != nil {
 		if d.shouldConcealMissingFrameTag(packet) {
