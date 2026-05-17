@@ -94,22 +94,48 @@ func requireVP9VpxencOracle(t *testing.T) {
 // partition_search_type to ML_BASED_PARTITION (libvpx
 // vp9/encoder/vp9_speed_features.c:825-826). encode_nonrd_sb_row then routes
 // ML_BASED_PARTITION through get_estimated_pred + nonrd_pick_partition
-// (libvpx vp9/encoder/vp9_encodeframe.c:5313-5321), neither of which govpx
-// has ported yet. With nonrd_pick_partition absent, govpx returns the
-// 64x64 / 32x32 root partition where libvpx's ML walker splits to 16x16,
-// which is observable as the BLOCK_32X32 vs BLOCK_16X16 SbType drift in
-// the inter-frame oracle packets for the lossless and checker fixtures
-// and as the row-1 byte-length drift in the no-alt-ref lookahead
-// fixture. Re-enable these tests once nonrd_pick_partition and its
-// dependent ML evaluators (libvpx vp9/encoder/vp9_encodeframe.c:4598
-// nonrd_pick_partition and vp9/encoder/vp9_ml.c) have been ported
-// verbatim.
+// (libvpx vp9/encoder/vp9_encodeframe.c:5103 get_estimated_pred and
+// vp9/encoder/vp9_encodeframe.c:5313-5321 case ML_BASED_PARTITION). With
+// nonrd_pick_partition absent govpx returns the 64x64 / 32x32 root
+// partition where libvpx's ML walker splits to 16x16, observable as the
+// BLOCK_32X32 vs BLOCK_16X16 SbType drift in the lossless and checker
+// inter packets and as the row-1 byte-length drift in the no-alt-ref
+// lookahead fixture.
+//
+// Port status:
+//
+//   - Phase A (ml_predict_var_partitioning NN data tables + nn_predict
+//     evaluator) is LANDED in vp9_partition_models.go (libvpx
+//     vp9/encoder/vp9_partition_models.h:610-735 vp9_var_part_nn* +
+//     vp9/encoder/vp9_encodeframe.c:2994-3038 nn_predict). The NN
+//     constants are byte-identical to libvpx so a future caller can
+//     consume the evaluator directly.
+//   - Phase B (get_estimated_pred: vp9_int_pro_motion_estimation +
+//     vp9_setup_pre_planes + vp9_build_inter_predictors_sb at
+//     BLOCK_64X64, libvpx vp9/encoder/vp9_encodeframe.c:5103-5198)
+//     is NOT yet ported. ml_predict_var_partitioning reads from
+//     x->est_pred which is populated only by get_estimated_pred.
+//   - Phase C (nonrd_pick_partition body + nonrd_pick_sb_modes +
+//     vp9_pick_inter_mode dispatch, libvpx
+//     vp9/encoder/vp9_encodeframe.c:4598-4855 and
+//     vp9/encoder/vp9_pickmode.c) is NOT yet ported. The govpx
+//     equivalent (pickVP9InterPartitionBlockSize) walks a different
+//     RD search and does not implement the recursive PC_TREE-based
+//     SPLIT/NONE/HORZ/VERT enumeration libvpx runs.
+//
+// Re-enable these tests once Phase B + Phase C land verbatim.
 func skipVP9MLBasedPartitionInterByteParity(t *testing.T) {
 	t.Helper()
 	t.Skip("ML_BASED_PARTITION (cpu_used=8, w*h<=352*288, inter) not yet " +
-		"ported: see libvpx vp9/encoder/vp9_speed_features.c:751-826 + " +
-		"vp9/encoder/vp9_encodeframe.c:5313-5321 nonrd_pick_partition + " +
-		"vp9/encoder/vp9_ml.c")
+		"ported: Phase A (NN tables + nn_predict) landed in " +
+		"vp9_partition_models.go; Phase B (get_estimated_pred, libvpx " +
+		"vp9/encoder/vp9_encodeframe.c:5103) and Phase C " +
+		"(nonrd_pick_partition body + nonrd_pick_sb_modes + " +
+		"vp9_pick_inter_mode, libvpx vp9/encoder/vp9_encodeframe.c:4598 + " +
+		"vp9/encoder/vp9_pickmode.c) still pending. See " +
+		"vp9/encoder/vp9_speed_features.c:751-826 for the speed-feature " +
+		"gate and vp9/encoder/vp9_encodeframe.c:5313-5321 for the " +
+		"dispatch.")
 }
 
 func appendVP9YCbCrI420(out []byte, img *image.YCbCr) []byte {
