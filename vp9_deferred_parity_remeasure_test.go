@@ -21,15 +21,32 @@ import (
 //
 // Measurement under
 // GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
-// (this commit): PASS=0/9 FAIL=9/9. Inter frames diverge at byte 9
+// (this commit): PASS=0/10 FAIL=10/10. Inter frames diverge at byte 9
 // (FirstPartitionSize literal) by 39-552 bytes. After task #119's port of
 // find_predictors's frame_mv table + the libvpx-exact mode_checked /
 // NEARESTMV dedup paths (vp9_pickmode.c:1710 + 2269-2299), the aggregate
 // per-seed size_delta flipped from +3900 bytes (pre-#119 baseline) to
 // -716 bytes (avg -80B/seed); individual seeds now under-shoot or
 // over-shoot libvpx by 42-502 bytes vs the previous uniform +30-552 B
-// over-shoot. Closure path: route the picker's mrdTxSize through to the
-// leaf commit so pickVP9InterTxSize stops overriding the picker's
+// over-shoot.
+//
+// Re-measurement (task #142, this commit) after Phase E1b/c keyframe
+// RD landings (a2f325c cost_coeffs port, d2baaf8 sub-8x8 4x4 rewire,
+// 8399e87 sub-8x8 intra picker, e95504e estimate_block_intra,
+// 7017378 block_yrd compare + breakout): aggregate per-seed
+// size_delta is now +2002 bytes (avg +200B/seed) across 10 seeds.
+// Sign flipped vs #119 and a new regression at frame 0 surfaces:
+// the previously byte-exact keyframe now diverges with got_len=3014
+// vs want_len=3040 first_byte_diff=17 across every seed (a uniform
+// -26 byte under-shoot of the compressed-header payload). See the
+// expanded citation at vp9RefControlsSeedsDeferred.
+//
+// Closure path: (a) audit pickVP9KeyframeBlockTxSize + the
+// sub-8x8 keyframe RD glue against vp9_rdopt.c:907-1023 +
+// 3604-3700 — the new keyframe deficit means the rate-RD scorer
+// is now sub-libvpx by 26 bytes worth of coef rate; (b) route the
+// picker's mrdTxSize through to the leaf commit so
+// pickVP9InterTxSize stops overriding the picker's
 // libvpx-faithful tx_size decision (vp9_encoder.go:8498/8513).
 func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
@@ -90,6 +107,15 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 // coef_prob_appx_step amplification); seed #3 (cpu=-8) at frame 1 byte 8;
 // seeds #5 and "2" alias hit structural ErrInvalidConfig / Conflicting
 // flags pending the set_ext_overrides resolution port.
+//
+// Re-measurement (task #142, this commit) after Phase E1b/c keyframe
+// RD landings: aggregate frame-0 size_delta across the 8 measurable
+// seeds is +8618 bytes (avg +1077 B/seed). Per-seed: #0 +1006,
+// #1 +997, #2 +2299, #3 -31, #4 +1006, #6 +1006, #7 +2288, #9 +47.
+// Seed #3 (cpu=-8 RT speed=8) is now within ±50 bytes; all others
+// remain >|500| bytes pending the compressed-header writer port.
+// First_byte_diff bytes unchanged from #119 baseline. See expanded
+// citation at vp9RuntimeControlsSeedsDeferred.
 //
 // Intentionally non-asserting — see RefControl sibling for rationale.
 func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {

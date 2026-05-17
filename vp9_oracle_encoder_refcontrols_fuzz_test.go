@@ -294,6 +294,62 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//    field through vp9InterModeDecision and updating the
 	//    consumers in prepareVP9InterBlockResidue
 	//    (vp9_encoder.go:8498/8513).
+	//
+	// Re-measurement (task #142, this commit) after the Phase E1b/c
+	// keyframe RD landings:
+	//
+	//   * a2f325c — cost_coeffs port in keyframe RD picker
+	//   * d2baaf8 — sub-8x8 4x4 RD picker rewired to cost_coeffs
+	//   * 8399e87 — rd_pick_intra_sub_8x8_y_mode port
+	//   * e95504e — estimate_block_intra port for nonrd intra fallback
+	//   * 7017378 — nonrd block_yrd compare + breakout fix
+	//   * 3f70f4c — find_predictors frame_mv + dedup (#119 baseline)
+	//
+	// Per-seed size_delta under
+	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
+	// (verified by TestVP9NonrdPickPartitionDeferredSeedsProgress):
+	//
+	//      af5570f5: +55, b9af55f0: -105, fda5b6b4: +204,
+	//      ffa55725: +43, 8ec0abe5: +304, 9c3e08e8: +483,
+	//      5feceb66: +65, 6b86b273: +549, d4735e3a: +380,
+	//      7902699b: +24.
+	//
+	//   Aggregate: +2002 bytes (avg +200B/seed) across 10 seeds.
+	//   The aggregate flipped sign vs the post-#119 -716 bytes and
+	//   widened (avg |delta| 221 vs 198 at #119).
+	//
+	//   NEW REGRESSION at frame 0 (keyframe): every seed now
+	//   diverges at frame 0 with got_len=3014 vs want_len=3040
+	//   first_byte_diff=17. Pre-#142 the keyframe matched
+	//   byte-exactly at 3040 (citation above). The cost_coeffs
+	//   rewire (a2f325c + d2baaf8) plus the sub-8x8 keyframe
+	//   intra picker (8399e87) shifted some per-block tx_size
+	//   pick (byte 17 in the uncompressed header is
+	//   FirstPartitionSize literal — keyframe compressed header
+	//   shortened by 26 bytes). Closure: audit
+	//   pickVP9KeyframeBlockTxSize (vp9_encoder.go) and the
+	//   rd_pick_intra_sub_8x8_y_mode glue paths against libvpx
+	//   vp9_rdopt.c:907-1023 + vp9_rdopt.c:3604-3700 — the
+	//   rate-RD cost is now sub-libvpx so the picker drops a
+	//   tx-coef block that libvpx still emits.
+	//
+	//   Default (no gates): got_len=3014 want_len=3040
+	//   first_byte_diff=17 — identical pattern to the gated
+	//   runs, confirming the regression is in the keyframe RD
+	//   path, not the inter partition gates.
+	//
+	//   Aggregate size_delta WITHOUT the Phase D opt-in
+	//   (NONRD_PICK_PARTITION unset) climbs to ~+34,735 bytes
+	//   (avg +3474 B/seed) — Phase D still buys an order of
+	//   magnitude reduction.
+	//
+	//   Gate-flip recommendation: NOT YET. Residual is ~200 B/seed
+	//   average, above the ±50 B/seed window for a green flip,
+	//   AND the new keyframe regression must close before any
+	//   seed un-defers. Flipping vp9NonrdPickPartitionEnabled to
+	//   ON would shorten the residual but would NOT close the
+	//   keyframe gap, so the fuzz gate would still SKIP every
+	//   seed.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {

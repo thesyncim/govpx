@@ -303,6 +303,56 @@ import (
 //	RuntimeControls seed. Closure requires the cost_coeffs rate
 //	proxy port and the set_ext_overrides resolution port.
 //
+// Re-measurement (task #142, this commit) after the Phase E1b/c
+// keyframe RD landings (a2f325c cost_coeffs, d2baaf8 sub-8x8 4x4
+// RD rewire, 8399e87 rd_pick_intra_sub_8x8_y_mode, e95504e
+// estimate_block_intra, 7017378 block_yrd compare + breakout):
+//
+//	PASS=0/8 MISMATCH=8/8 STRUCTURAL_REJECT=2/10 under the both
+//	partition gates active flag combo. Per-seed frame 0 deltas
+//	(got_len vs want_len, first_byte_diff):
+//
+//	  #0 af5570f5 cpu=0  64x64: 3732/2726 diff=9   (+1006)
+//	  #1 de6e098c cpu=-3 64x64: 3732/2735 diff=16  (+997)
+//	  #2 967aad53 cpu=0 128x64: 7612/5313 diff=9   (+2299)
+//	  #3 ac1b2597 cpu=-8 128x64: 5906/5937 diff=17 (-31)
+//	  #4 59794cac cpu=0  64x64: 3732/2726 diff=9   (+1006)
+//	  #5 STRUCTURAL_REJECT — set_ext_overrides Conflicting flags
+//	  #6 5feceb66 cpu=0  64x64: 3732/2726 diff=9   (+1006)
+//	  #7 6b86b273 cpu=-3 128x64: 7612/5324 diff=16 (+2288)
+//	  #8 STRUCTURAL_REJECT — set_ext_overrides Conflicting flags
+//	  #9 7902699b cpu=4 128x64: 5530/5483 diff=16  (+47)
+//
+//	Aggregate (8 measurable seeds): +8618 bytes (avg +1077 B/seed).
+//	Same first_byte_diff bytes as the pre-#142 baseline; the
+//	cost_coeffs port (a2f325c) shrank the per-seed delta from
+//	~+1006..+2298 only for the cpu=0 path subset (the +1006 figure
+//	now sits below the prior +2541 baseline for the same fixture),
+//	but the RT-mode and speed=3 paths (#1, #7) still under-shoot
+//	libvpx coef-update payloads because the
+//	WriteCompressedHeaderFromCounts savings-search uses govpx's
+//	approximate vp9_cond_prob_diff_update threshold, not libvpx's
+//	verbatim walk at vp9_bitstream.c:826-973. Seed #3 (cpu=-8 RT
+//	speed=8) is now WITHIN ±50 bytes — it has effectively closed
+//	but does not byte-match because the first_byte_diff lands on
+//	byte 17 (uncompressed header FirstPartitionSize literal); the
+//	-31 byte payload shift means the compressed header itself is
+//	off by 31 bytes pending the speed=8 RT compressed-header
+//	subset port (coef_prob_appx_step=4 fast path).
+//
+//	Default-flags (no partition gates) measurement is identical
+//	to the gated runs for these seeds: the divergence is in the
+//	per-block keyframe tx_size RD search + the compressed-header
+//	coef-update writer, not in the partition picker.
+//
+//	Conclusion (unchanged): gates flipping ON does not un-defer
+//	any RuntimeControls seed. The aggregate is well above the
+//	±50 B/seed window for a green flip recommendation. Closure
+//	requires (a) the full libvpx vp9_bitstream.c:826-973
+//	cond_prob_diff_update walk in
+//	WriteCompressedHeaderFromCounts, and (b) the
+//	set_ext_overrides resolution port (#5, #8).
+//
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{
