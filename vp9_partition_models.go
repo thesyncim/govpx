@@ -16,12 +16,10 @@ package govpx
 // trailing `f` literal suffix is C-only; Go float32 literals carry the
 // same IEEE-754 bit pattern by the language definition).
 //
-// At this revision the tables are unused: the live partition picker in
-// pickVP9InterPartitionBlockSize does not yet invoke vp9MlPredictVarPartitioning.
-// They are landed as Phase A of the ML_BASED_PARTITION port so the
-// follow-up nonrd_pick_partition port can wire them in without first
-// re-deriving the constants. See skipVP9MLBasedPartitionInterByteParity for
-// the test-side deferral citation.
+// Phase C (vp9_nonrd_pick_partition.go) wires vp9NNPredict via
+// vp9MLPredictVarPartitioning into the live partition picker
+// (pickVP9InterPartitionBlockSize) for the ML_BASED_PARTITION speed-
+// feature gate (libvpx vp9/encoder/vp9_speed_features.c:751-826).
 
 // vp9NNMaxHiddenLayers mirrors NN_MAX_HIDDEN_LAYERS
 // (vp9/encoder/vp9_partition_models.h:18).

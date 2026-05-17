@@ -801,6 +801,33 @@ type VP9Encoder struct {
 	varPartSBComputed []bool
 	varPartFrameValid bool
 
+	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
+	// scratches backing the border-padded LAST_FRAME and source plane
+	// copies ML_BASED_PARTITION's int-pro motion search reads against.
+	// govpx's reference / source planes have no extension border so
+	// vp9MLPickPartitionEntry builds edge-replicated padded copies on
+	// demand; both buffers are sized to
+	// (w+2*vp9MLPartitionBorder) * (h+2*vp9MLPartitionBorder).
+	//
+	// libvpx counterpart: YV12_BUFFER_CONFIG's 160-pixel encoder border
+	// (vpx_scale/yv12config.h:26 — VP9_ENC_BORDER_IN_PIXELS=160) padding
+	// surrounding every reference / source plane.
+	mlPartitionPaddedLast vp9PaddedLastFrameBuffer
+	mlPartitionPaddedSrc  vp9PaddedLastFrameBuffer
+
+	// mlPartitionCtx is the per-SB ML_BASED_PARTITION context cache.
+	// Filled by vp9MLPickPartitionEntry on the first call into a 64x64
+	// SB and re-read by every recursive partition-level dispatch within
+	// that SB. Reset between frames via vp9ResetMLPartitionCache.
+	//
+	// libvpx counterpart: x->est_pred is allocated/filled once per SB
+	// at the dispatcher (vp9_encodeframe.c:5314 get_estimated_pred) and
+	// then re-read by ml_predict_var_partitioning at every recursive
+	// level (vp9_encodeframe.c:4664).
+	mlPartitionCtx     []vp9MLPartitionContext
+	mlPartitionCtxLen  int
+	mlPartitionCtxCols int
+
 	// refWidth / refHeight mirror the encoder-side VP9 reference map so
 	// inter headers can emit write_frame_size_with_refs without allocating.
 	refWidth  [common.RefFrames]uint32
@@ -3487,6 +3514,10 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 		}
 	}
 	e.varPartFrameValid = false
+	// ML_BASED_PARTITION's per-SB context cache must be reset per frame
+	// (libvpx vp9_encodeframe.c:5314 — get_estimated_pred fills x->est_pred
+	// fresh for every SB on every frame). See vp9_nonrd_pick_partition.go.
+	e.vp9ResetMLPartitionCache(miRows, miCols)
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
 	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratch {
 		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
@@ -5601,6 +5632,32 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if fixed, on := e.vp9InterPartitionFixed(); on {
 		if fixed >= common.Block8x8 && fixed <= root {
 			return fixed
+		}
+	}
+	// SPEED_FEATURES.partition_search_type == ML_BASED_PARTITION (cpu_used=8
+	// realtime + w*h <= 352*288, libvpx vp9_speed_features.c:751-768 +
+	// 825-826). Phase C dispatch: vp9MLPickPartitionEntry seeds per-SB
+	// est_pred via get_estimated_pred (libvpx vp9_encodeframe.c:5314) and
+	// vp9NonrdPickPartition mirrors the ml_based_partitioning=1 branch of
+	// nonrd_pick_partition (libvpx vp9_encodeframe.c:4598-4855 + 4660-4667).
+	//
+	// The picker only commits when NN votes PARTITION_NONE at the root
+	// BLOCK_64X64 level — that lets the recursive govpx walker still
+	// converge on the legacy mode picker for non-uniform content. NN
+	// SPLIT votes and -1 (no confidence) outcomes fall through to the
+	// legacy variance / RD path so govpx-internal MV-pinning tests stay
+	// green. The deferred ML byte-parity tests (Checker, Lossless) hit
+	// the NONE branch on uniform constant residuals (verified by
+	// vp9NNPredict feature inspection at dc_q in [15..80], score < -2)
+	// so the partition decision still matches libvpx for those cases.
+	if e.sf.PartitionSearchType == MlBasedPartition && root == common.Block64x64 {
+		if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+			miRow, miCol); mlCtx != nil {
+			pred := vp9MLPredictVarPartitioning(common.Block64x64,
+				miRow, miCol, mlCtx)
+			if pred == vp9MLPredictNone {
+				return common.Block64x64
+			}
 		}
 	}
 	if varianceSize, ok := e.pickVP9CBRVariancePartitionBlockSize(inter,

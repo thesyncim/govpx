@@ -85,57 +85,47 @@ func requireVP9VpxencOracle(t *testing.T) {
 	}
 }
 
-// skipVP9MLBasedPartitionInterByteParity defers oracle inter-frame byte-parity
-// tests whose vpxenc reference path is libvpx realtime cpu_used=8 with
-// width*height <= 352*288. At that speed/size libvpx forces
-// SPEED_FEATURES.nonrd_use_ml_partition=1 in
-// set_rt_speed_feature_framesize_independent (libvpx
-// vp9/encoder/vp9_speed_features.c:751-768) and then promotes
-// partition_search_type to ML_BASED_PARTITION (libvpx
-// vp9/encoder/vp9_speed_features.c:825-826). encode_nonrd_sb_row then routes
-// ML_BASED_PARTITION through get_estimated_pred + nonrd_pick_partition
-// (libvpx vp9/encoder/vp9_encodeframe.c:5103 get_estimated_pred and
-// vp9/encoder/vp9_encodeframe.c:5313-5321 case ML_BASED_PARTITION). With
-// nonrd_pick_partition absent govpx returns the 64x64 / 32x32 root
-// partition where libvpx's ML walker splits to 16x16, observable as the
-// BLOCK_32X32 vs BLOCK_16X16 SbType drift in the lossless and checker
-// inter packets and as the row-1 byte-length drift in the no-alt-ref
-// lookahead fixture.
+// skipVP9MLBasedPartitionLookaheadInterpFilter defers the no-alt-ref
+// lookahead byte-parity test pending a mode-picker port. The
+// ML_BASED_PARTITION speed-feature gate (libvpx
+// vp9/encoder/vp9_speed_features.c:751-768 + 825-826) routes the
+// (cpu_used=8, w*h<=352*288) inter path through Phase A's nn_predict
+// (vp9_partition_models.go), Phase B's get_estimated_pred
+// (vp9_get_estimated_pred.go), and Phase C's recursive picker
+// (vp9_nonrd_pick_partition.go). All three phases are landed so the
+// Checker and Lossless inter-byte-parity tests now byte-match libvpx.
 //
-// Port status:
+// The residual divergence in the lookahead test (rows 1 and 2 of 4) is
+// outside the partition-picker scope: govpx's per-block mode picker
+// (vp9_pick_inter_mode_nonrd.go + pickVP9InterReferenceMode) chooses
+// EIGHTTAP_SMOOTH while libvpx's vp9_pick_inter_mode (libvpx
+// vp9/encoder/vp9_pickmode.c) chooses EIGHTTAP for one of the uniform
+// constant inter frames (frame Y=128 at q=119) — surfaces as the
+// single-bit drift at byte 4 of the inter uncompressed header
+// (interp_filter literal: 0b00=SMOOTH vs 0b01=EIGHTTAP via
+// writeInterpFilter at internal/vp9/encoder/header_writer.go:195-215).
+// Frame Y=104 at q=128 (row 1) likewise shows a 2-byte tile-data drift
+// rooted in the per-block coefficient / MV picker.
 //
-//   - Phase A (ml_predict_var_partitioning NN data tables + nn_predict
-//     evaluator) is LANDED in vp9_partition_models.go (libvpx
-//     vp9/encoder/vp9_partition_models.h:610-735 vp9_var_part_nn* +
-//     vp9/encoder/vp9_encodeframe.c:2994-3038 nn_predict). The NN
-//     constants are byte-identical to libvpx so a future caller can
-//     consume the evaluator directly.
-//   - Phase B (get_estimated_pred: vp9_int_pro_motion_estimation +
-//     vp9_setup_pre_planes + vp9_build_inter_predictors_sb at
-//     BLOCK_64X64, libvpx vp9/encoder/vp9_encodeframe.c:5103-5198)
-//     is NOT yet ported. ml_predict_var_partitioning reads from
-//     x->est_pred which is populated only by get_estimated_pred.
-//   - Phase C (nonrd_pick_partition body + nonrd_pick_sb_modes +
-//     vp9_pick_inter_mode dispatch, libvpx
-//     vp9/encoder/vp9_encodeframe.c:4598-4855 and
-//     vp9/encoder/vp9_pickmode.c) is NOT yet ported. The govpx
-//     equivalent (pickVP9InterPartitionBlockSize) walks a different
-//     RD search and does not implement the recursive PC_TREE-based
-//     SPLIT/NONE/HORZ/VERT enumeration libvpx runs.
-//
-// Re-enable these tests once Phase B + Phase C land verbatim.
-func skipVP9MLBasedPartitionInterByteParity(t *testing.T) {
+// Re-enable once vp9_pick_inter_mode is ported verbatim from
+// vp9/encoder/vp9_pickmode.c (~4000 lines: vp9_pick_inter_mode,
+// vp9_pick_inter_mode_sub8x8, hybrid_intra_mode_search,
+// hybrid_search_*, and the per-block filter_thresh accumulator that
+// drives fix_interp_filter's per-frame demotion).
+func skipVP9MLBasedPartitionLookaheadInterpFilter(t *testing.T) {
 	t.Helper()
-	t.Skip("ML_BASED_PARTITION (cpu_used=8, w*h<=352*288, inter) not yet " +
-		"ported: Phase A (NN tables + nn_predict) landed in " +
-		"vp9_partition_models.go; Phase B (get_estimated_pred, libvpx " +
-		"vp9/encoder/vp9_encodeframe.c:5103) and Phase C " +
-		"(nonrd_pick_partition body + nonrd_pick_sb_modes + " +
-		"vp9_pick_inter_mode, libvpx vp9/encoder/vp9_encodeframe.c:4598 + " +
-		"vp9/encoder/vp9_pickmode.c) still pending. See " +
-		"vp9/encoder/vp9_speed_features.c:751-826 for the speed-feature " +
-		"gate and vp9/encoder/vp9_encodeframe.c:5313-5321 for the " +
-		"dispatch.")
+	t.Skip("ML_BASED_PARTITION lookahead inter-byte-parity deferred: " +
+		"Phase A+B+C of nonrd_pick_partition (libvpx vp9_encodeframe.c:" +
+		"4598-4855 + vp9_encodeframe.c:2994-3038 + " +
+		"vp9_encodeframe.c:5103-5198) are landed in " +
+		"vp9_partition_models.go / vp9_get_estimated_pred.go / " +
+		"vp9_nonrd_pick_partition.go, but the per-block mode picker " +
+		"(libvpx vp9_pick_inter_mode at vp9_pickmode.c:~2500) is " +
+		"not yet ported verbatim. govpx selects EIGHTTAP_SMOOTH " +
+		"where libvpx selects EIGHTTAP for one of the uniform inter " +
+		"frames, surfacing as a single-bit drift at uncompressed " +
+		"header byte 4 (interp_filter literal). Re-enable when " +
+		"vp9_pickmode.c lands.")
 }
 
 func appendVP9YCbCrI420(out []byte, img *image.YCbCr) []byte {
