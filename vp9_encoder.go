@@ -12608,7 +12608,18 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 			encoder.ForwardHT16x16Into(e.residueScratch[:], 16, txType,
 				e.txCoeffScratch[:maxEob])
 		case common.Tx32x32:
-			encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
+			// libvpx vp9/encoder/vp9_encodemb.c:331-337,396 routes the
+			// 32x32 forward DCT through the rate-distortion-loop variant
+			// (vpx_fdct32x32_rd_c) whenever MACROBLOCK::use_lp32x32fdct is
+			// set, which mirrors the speed feature sf.use_lp32x32fdct. The
+			// RD variant is the FP-path companion in libvpx, so it only
+			// applies when this caller is on the fast (vp9_quantize_fp)
+			// branch.
+			if useFastQuant && e.sf.UseLp32x32Fdct != 0 {
+				encoder.ForwardDCT32x32RDInto(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
+			} else {
+				encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
+			}
 		default:
 			return false
 		}
