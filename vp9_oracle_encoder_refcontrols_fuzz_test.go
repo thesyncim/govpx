@@ -18,60 +18,54 @@ import (
 // each entry cites the libvpx file:line that drives the divergence so a
 // follow-up port has a concrete starting point.
 //
-// All 6 baseline RefControl seeds diverge at byte 16 of frame 0 (the first
-// keyframe), with govpx emitting a noticeably larger packet than libvpx
-// (got_len ~3973 vs want_len ~3040). Bytes 0..15 match exactly:
-// frame_type, sync code, color config, frame size, loopfilter, base qindex,
-// segmentation, tile config and refresh_frame_flags are all byte-identical.
-// The divergence is FirstPartitionSize: govpx writes a 2-byte compressed
-// header while libvpx writes 98 bytes of coef-update / tx-mode payload.
+// Progress (task #58): the keyframe variance-partition gate has been widened
+// to mirror libvpx exactly. After widening
+// vp9CBRKeyframeVariancePartitionEnabled to fire whenever
+// sf.PartitionSearchType == VarBasedPartition (libvpx
+// vp9/encoder/vp9_speed_features.c:582 + :667, vp9_encodeframe.c:5304), and
+// the same widening of vp9CBRVariancePartitionEnabled for inter frames,
+// every seed's keyframe (frame 0) now matches libvpx byte-exactly at
+// 3040 bytes and inter-frame divergence has shrunk from ~500-800 bytes
+// excess at byte 4 down to ~30-200 bytes at byte 9 (the
+// FirstPartitionSize literal).
 //
-// Root cause (same as vp9RuntimeControlsSeedsDeferred entry #3 at cpu=8):
+// Residual divergence: every failing inter frame has byte-identical
+// uncompressed-header fields (RefreshFrameFlags, Loopfilter, BaseQindex,
+// InterpFilter, Tile, etc.) but a different FirstPartitionSize literal.
+// That literal is the size of the writeCompressedHeader payload; the
+// payload's leading entropy-update sections are size-driven by the
+// per-frame Counts collected during tile encoding. govpx's
+// pickVP9CBRVariancePartitionBlockSize (vp9_encoder.go:5318) is a
+// simplified variance picker — it computes a single-level variance/SAD
+// gate plus one horizontal/vertical re-check, while libvpx's
+// choose_partitioning (vp9/encoder/vp9_encodeframe.c:1253) walks a full
+// 4-level v64x64 -> v32x32 -> v16x16 -> v8x8 variance tree, computes
+// avg+max+min per level, and forks the partition tree on (per-level)
+// thresholds[0..3] derived from set_vbp_thresholds
+// (vp9_encodeframe.c:573) with a per-resolution shift schedule
+// (vp9_encodeframe.c:615-633). Without the full tree port, inter SBs
+// emit a different leaf-count / tx_size distribution than libvpx,
+// driving the per-frame coef counts above and below libvpx's, so
+// update_coef_probs_common (vp9_bitstream.c:546-700) emits a different
+// number of vp9_prob_diff_update probe bits + payloads.
 //
-//   - libvpx's update_coef_probs (vp9/encoder/vp9_bitstream.c:684-700) is
-//     gated by `cpi->td.counts->tx.tx_totals[tx_size] <= 20`; the counts
-//     come from per-leaf `++td->counts->tx.tx_totals[mi->tx_size]` in
-//     update_stats (vp9/encoder/vp9_encodeframe.c:6124-6125). One increment
-//     per partition leaf (Y + UV planes). For a 64×64 keyframe under
-//     VAR_BASED_PARTITION at cpu_used=8 (sf->partition_search_type=
-//     VAR_BASED_PARTITION at vp9_speed_features.c:582 / 667), libvpx's
-//     choose_partitioning (vp9/encoder/vp9_encodeframe.c:5304-5311) splits
-//     the SB into many small leaves on high-variance content like the
-//     newVP9YCbCrFuzzPanning fixture, driving tx_totals above the 20
-//     threshold and triggering the full coef-update payload through
-//     update_coef_probs_common (vp9_bitstream.c:546-682) at every active
-//     tx size up to tx_mode_to_biggest_tx_size[tx_mode] (Tx32x32 for
-//     Allow32x32 keyframes).
+// Closing requires the verbatim port of:
 //
-//   - govpx's keyframe variance partition picker
-//     (vp9_encoder.go:5005-5058 pickVP9KeyframeVariancePartitionBlockSize)
-//     is gated on RateControlCBR via vp9CBRKeyframeVariancePartitionEnabled
-//     (vp9_encoder.go:5060); under RateControlQ — which every RefControl
-//     seed uses — govpx falls through to vp9KeyframeSourceBlockSizeForRegion,
-//     a coarse static-geometry picker that emits ~4 Block32x32 leaves on
-//     a 64×64 keyframe. That keeps TxTotals[Tx16x16]=8 (≤ 20), so
-//     WriteCoefProbsFromCounts (internal/vp9/encoder/coef_probs_counts.go:39-61)
-//     writes a single 0 "no-update" bit per tx size and returns. The
-//     compressed-header payload collapses to 2 bytes vs libvpx's 98 even
-//     though the per-band branch counts (56/144 nonzero slots at Tx16x16)
-//     would unlock dozens of vp9_prob_diff_update emissions if the
-//     tx_totals gate cleared.
+//   - libvpx choose_partitioning (vp9/encoder/vp9_encodeframe.c:1253-1640),
+//     including set_vbp_thresholds (vp9_encodeframe.c:573-635),
+//     fill_variance_8x8avg, fill_variance_tree, get_variance,
+//     and the avg_8x8 reference path. Pair with the keyframe-specific
+//     `is_key_frame` skip-pred-set-on-pred path
+//     (vp9_encodeframe.c:1390-1410).
 //
-// Closing these seeds requires porting libvpx's choose_partitioning
-// variance-based keyframe partition picker (vp9/encoder/vp9_encodeframe.c
-// choose_partitioning + nonrd_use_partition @ 5470 / 4854) to the
-// non-CBR rate-control branches so VAR_BASED_PARTITION fires at cpu_used=8
-// regardless of rc_mode. The follow-up port should be paired with widening
-// the WriteCompressedHeaderFromCounts coverage so the keyframe
-// coef-prob-update payload matches libvpx's update_coef_probs_common
-// emission for every active tx_size; on flat sources (the
-// TestVP9EncoderVpxencOracleChecker64KeyframeByteParity fixtures) the
-// writers agree today because the all-zero counts collapse both sides to
-// the no-update floor.
+//   - libvpx nonrd_use_partition (vp9/encoder/vp9_encodeframe.c:4854)
+//     so the picked partition is honoured the same way at speed 8.
 //
-// Reverting any entry here must be paired with the corresponding verbatim
-// libvpx port landing; this is the explicit handoff list for follow-up
-// work.
+// On flat fixtures (the TestVP9EncoderVpxencOracleChecker64KeyframeByteParity
+// path) the writers agree today because all-zero counts collapse both
+// sides to the no-update floor. Reverting any entry here must be paired
+// with the corresponding verbatim choose_partitioning port landing; this
+// is the explicit handoff list for follow-up work.
 var vp9RefControlsSeedsDeferred = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 0, 2, 0, 3, 0, 0},

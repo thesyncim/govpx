@@ -5096,10 +5096,22 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 	return splitSize, true
 }
 
+// vp9CBRKeyframeVariancePartitionEnabled mirrors libvpx's
+// vp9_set_variance_partition_thresholds / choose_partitioning enablement for
+// keyframes at speed >= 6. libvpx unconditionally sets
+// `sf->partition_search_type = VAR_BASED_PARTITION` at speed 6+
+// (vp9/encoder/vp9_speed_features.c:667) and at speed 4 keyframe path
+// (vp9_speed_features.c:582). The gate is NOT rc_mode-specific; libvpx fires
+// choose_partitioning at every keyframe whose `partition_search_type` is
+// VAR_BASED_PARTITION regardless of VPX_CBR / VPX_VBR / VPX_CQ
+// (vp9_encodeframe.c:5304-5311 dispatches on partition_search_type alone).
+//
+// libvpx: vp9/encoder/vp9_speed_features.c:582 / :667, vp9_encodeframe.c:5304.
 func (e *VP9Encoder) vp9CBRKeyframeVariancePartitionEnabled(key *vp9KeyframeEncodeState) bool {
 	return key != nil && key.dq != nil && key.hdr != nil &&
 		key.hdr.FrameType == common.KeyFrame && !key.lossless &&
-		e.rc.enabled && e.rc.mode == RateControlCBR && !e.vp9FixedPublicQuantizer()
+		e.rc.enabled && e.vp9RealtimeVariancePartitionEnabled() &&
+		!e.vp9FixedPublicQuantizer()
 }
 
 func vp9KeyframeVariancePartitionThreshold(yAcDequant int16, bsize common.BlockSize) uint64 {
@@ -5413,9 +5425,16 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 	return splitSize, true
 }
 
+// vp9CBRVariancePartitionEnabled mirrors libvpx's choose_partitioning gate
+// for inter frames. libvpx dispatches via partition_search_type ==
+// VAR_BASED_PARTITION (vp9/encoder/vp9_encodeframe.c:5304-5311); the gate is
+// NOT rc_mode-specific and is NOT gated on drop-frame-allowed. At speed >= 6
+// (vp9_speed_features.c:667) the configurator sets the type unconditionally.
+//
+// libvpx: vp9/encoder/vp9_speed_features.c:667, vp9_encodeframe.c:5304.
 func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) bool {
 	if inter == nil || inter.dq == nil || inter.lossless ||
-		!e.rc.enabled || e.rc.mode != RateControlCBR || !e.rc.dropFrameAllowed {
+		!e.rc.enabled || !e.vp9RealtimeVariancePartitionEnabled() {
 		return false
 	}
 	return !e.vp9FixedPublicQuantizer()
