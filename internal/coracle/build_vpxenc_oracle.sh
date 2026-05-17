@@ -84,10 +84,43 @@ if [ ! -f "$patch_stamp" ]; then
 #include <string.h>
 
 #include "vpx/vpx_encoder.h"
+#include "vpx_ports/vpx_timer.h"
 #include "vp8/common/blockd.h"
 #include "vp8/common/onyxc_int.h"
 #include "vp8/encoder/onyx_int.h"
 #include "vp8/encoder/bitstream.h"
+
+/* Per-process accumulator of microseconds spent inside oracle trace
+ * emit/capture functions. The enclosing encoder reads and clears this
+ * after each frame via govpx_oracle_trace_take_usec() and subtracts
+ * the result from the wall-clock duration that feeds the realtime
+ * auto-speed picker (vp8/encoder/rdopt.c:261 vp8_auto_select_speed,
+ * driven from vp8/encoder/onyx_if.c:5120-5165 in this oracle tree).
+ *
+ * Without this accounting, the fopen/fwrite/fflush latency on the
+ * trace channel inflates cpi->avg_encode_time / cpi->avg_pick_mode_time
+ * and shifts the libvpx Speed trajectory, so the traced binary's
+ * bitstream diverges from the untraced one for the same config. Each
+ * GOVPX_TRACE_BEGIN/END pair below brackets the body of an
+ * `enabled`-gated trace function with a vpx_usec_timer so the trace's
+ * own runtime is subtracted before duration enters the picker. */
+static int64_t govpx_oracle_trace_usec = 0;
+
+int64_t govpx_oracle_trace_take_usec(void) {
+    int64_t v = govpx_oracle_trace_usec;
+    govpx_oracle_trace_usec = 0;
+    return v;
+}
+
+#define GOVPX_TRACE_BEGIN()                              \
+    struct vpx_usec_timer govpx__trace_t;                \
+    vpx_usec_timer_start(&govpx__trace_t)
+#define GOVPX_TRACE_END()                                \
+    do {                                                 \
+        vpx_usec_timer_mark(&govpx__trace_t);            \
+        govpx_oracle_trace_usec +=                       \
+            vpx_usec_timer_elapsed(&govpx__trace_t);     \
+    } while (0)
 
 /* Adler-32 over a Y/U/V plane's visible region. Mirrors govpx's
  * planeAdler32 (encoder_oracle_trace.go) so reference checksums line up. */
@@ -223,6 +256,27 @@ typedef struct {
 
 static govpx_improved_mv_slot_t govpx_improved_mv_slots[4];
 
+/* Forward declaration: govpx_oracle_state lives below alongside the rest
+ * of the trace state struct. govpx_oracle_record_improved_mv runs on the
+ * per-MB hot path (vp8_mv_pred) and must early-out when the trace channel
+ * is disabled to avoid the timer-account overhead in the production
+ * binary; the early-out path needs to read the `enabled` flag, so the
+ * struct + variable are forward-declared here and defined below. */
+typedef struct govpx_oracle_state_struct govpx_oracle_state_t;
+struct govpx_oracle_state_struct {
+    FILE *out;
+    int initialized;
+    int enabled;
+    govpx_mb_row_t *mb_rows;
+    int mb_capacity;
+    int mb_cols;
+    govpx_inter_candidate_row_t *candidate_rows;
+    int candidate_capacity;
+    int candidate_count;
+    unsigned long long frame_index;
+};
+static govpx_oracle_state_t govpx_oracle_state;
+
 void govpx_oracle_record_improved_mv(int ref_frame, int near_sadidx,
                                      int mvp_row, int mvp_col, int sr) {
     if (ref_frame < 1 || ref_frame > 3) {
@@ -231,11 +285,28 @@ void govpx_oracle_record_improved_mv(int ref_frame, int near_sadidx,
          * outside [LAST_FRAME, ALTREF_FRAME]. */
         return;
     }
-    govpx_improved_mv_slots[ref_frame].valid = 1;
-    govpx_improved_mv_slots[ref_frame].near_sadidx = near_sadidx;
-    govpx_improved_mv_slots[ref_frame].mvp_row = mvp_row;
-    govpx_improved_mv_slots[ref_frame].mvp_col = mvp_col;
-    govpx_improved_mv_slots[ref_frame].sr = sr;
+    /* Only account when the trace channel is live; otherwise this is a
+     * pure memory write that we want to leave un-timed (the function is
+     * an unconditional path inside vp8_mv_pred, not a trace-only hook).
+     * Without this gate, building the oracle binary with trace OFF would
+     * still pay the timer cost on every NEWMV candidate. */
+    if (!govpx_oracle_state.enabled) {
+        govpx_improved_mv_slots[ref_frame].valid = 1;
+        govpx_improved_mv_slots[ref_frame].near_sadidx = near_sadidx;
+        govpx_improved_mv_slots[ref_frame].mvp_row = mvp_row;
+        govpx_improved_mv_slots[ref_frame].mvp_col = mvp_col;
+        govpx_improved_mv_slots[ref_frame].sr = sr;
+        return;
+    }
+    {
+        GOVPX_TRACE_BEGIN();
+        govpx_improved_mv_slots[ref_frame].valid = 1;
+        govpx_improved_mv_slots[ref_frame].near_sadidx = near_sadidx;
+        govpx_improved_mv_slots[ref_frame].mvp_row = mvp_row;
+        govpx_improved_mv_slots[ref_frame].mvp_col = mvp_col;
+        govpx_improved_mv_slots[ref_frame].sr = sr;
+        GOVPX_TRACE_END();
+    }
 }
 
 static void govpx_oracle_clear_improved_mv_slots(void) {
@@ -249,20 +320,9 @@ static void govpx_oracle_clear_improved_mv_slots(void) {
     }
 }
 
-typedef struct {
-    FILE *out;
-    int initialized;
-    int enabled;
-    govpx_mb_row_t *mb_rows;
-    int mb_capacity;
-    int mb_cols;
-    govpx_inter_candidate_row_t *candidate_rows;
-    int candidate_capacity;
-    int candidate_count;
-    unsigned long long frame_index;
-} govpx_oracle_state_t;
-
-static govpx_oracle_state_t govpx_oracle_state;
+/* govpx_oracle_state_t / govpx_oracle_state were forward-declared above so
+ * govpx_oracle_record_improved_mv (on the per-MB hot path) can early-out on
+ * the trace-disabled path before paying the timer-account overhead. */
 
 static void govpx_oracle_init(void) {
     const char *path;
@@ -371,8 +431,10 @@ void govpx_oracle_begin_attempt(void) {
     if (!govpx_oracle_state.enabled) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
     govpx_oracle_state.candidate_count = 0;
     govpx_oracle_clear_improved_mv_slots();
+    GOVPX_TRACE_END();
 }
 
 void govpx_oracle_capture_inter_candidate(
@@ -391,60 +453,64 @@ void govpx_oracle_capture_inter_candidate(
     if (!govpx_oracle_state.enabled || cpi == NULL) {
         return;
     }
-    govpx_oracle_ensure_candidate_capacity(
-        govpx_oracle_state.candidate_count + 1);
-    if (govpx_oracle_state.candidate_rows == NULL ||
-        govpx_oracle_state.candidate_count >=
-            govpx_oracle_state.candidate_capacity) {
-        return;
-    }
-    xd = &cpi->mb.e_mbd;
-    mbmi = &xd->mode_info_context->mbmi;
-    idx = govpx_oracle_state.candidate_count++;
-    row = &govpx_oracle_state.candidate_rows[idx];
-    memset(row, 0, sizeof(*row));
-    row->valid = 1;
-    row->mb_row = mb_row;
-    row->mb_col = mb_col;
-    row->picker = picker;
-    row->mode_index = mode_index;
-    row->mode = mbmi->mode;
-    row->ref_slot = ref_slot;
-    row->ref_frame = mbmi->ref_frame;
-    row->threshold = threshold;
-    row->best_score_before = best_score_before;
-    row->best_yrd_before = best_yrd_before;
-    row->best_sse_before = best_sse_before;
-    row->became_best = became_best;
-    row->loop_break = loop_break;
-    row->score = score;
-    row->yrd = yrd;
-    row->rate = rate;
-    row->rate_y = rate_y;
-    row->rate_uv = rate_uv;
-    row->distortion = distortion;
-    row->distortion_uv = distortion_uv;
-    row->sse = sse;
-    row->skip = loop_break;
-    if (row->ref_frame == INTRA_FRAME || row->mode == SPLITMV) {
-        row->mv_row = 0;
-        row->mv_col = 0;
-    } else {
-        row->mv_row = mbmi->mv.as_mv.row;
-        row->mv_col = mbmi->mv.as_mv.col;
-    }
-    row->improved_mv_near_sadidx = -1;
-    row->improved_mv_sr = -1;
-    if (row->mode == NEWMV && row->ref_frame >= 1 && row->ref_frame <= 3) {
-        slot = &govpx_improved_mv_slots[row->ref_frame];
-        if (slot->valid) {
-            row->improved_mv_start = 1;
-            row->improved_mv_near_sadidx = slot->near_sadidx;
-            row->improved_mv_row = slot->mvp_row;
-            row->improved_mv_col = slot->mvp_col;
-            row->improved_mv_sr = slot->sr;
+    GOVPX_TRACE_BEGIN();
+    do {
+        govpx_oracle_ensure_candidate_capacity(
+            govpx_oracle_state.candidate_count + 1);
+        if (govpx_oracle_state.candidate_rows == NULL ||
+            govpx_oracle_state.candidate_count >=
+                govpx_oracle_state.candidate_capacity) {
+            break;
         }
-    }
+        xd = &cpi->mb.e_mbd;
+        mbmi = &xd->mode_info_context->mbmi;
+        idx = govpx_oracle_state.candidate_count++;
+        row = &govpx_oracle_state.candidate_rows[idx];
+        memset(row, 0, sizeof(*row));
+        row->valid = 1;
+        row->mb_row = mb_row;
+        row->mb_col = mb_col;
+        row->picker = picker;
+        row->mode_index = mode_index;
+        row->mode = mbmi->mode;
+        row->ref_slot = ref_slot;
+        row->ref_frame = mbmi->ref_frame;
+        row->threshold = threshold;
+        row->best_score_before = best_score_before;
+        row->best_yrd_before = best_yrd_before;
+        row->best_sse_before = best_sse_before;
+        row->became_best = became_best;
+        row->loop_break = loop_break;
+        row->score = score;
+        row->yrd = yrd;
+        row->rate = rate;
+        row->rate_y = rate_y;
+        row->rate_uv = rate_uv;
+        row->distortion = distortion;
+        row->distortion_uv = distortion_uv;
+        row->sse = sse;
+        row->skip = loop_break;
+        if (row->ref_frame == INTRA_FRAME || row->mode == SPLITMV) {
+            row->mv_row = 0;
+            row->mv_col = 0;
+        } else {
+            row->mv_row = mbmi->mv.as_mv.row;
+            row->mv_col = mbmi->mv.as_mv.col;
+        }
+        row->improved_mv_near_sadidx = -1;
+        row->improved_mv_sr = -1;
+        if (row->mode == NEWMV && row->ref_frame >= 1 && row->ref_frame <= 3) {
+            slot = &govpx_improved_mv_slots[row->ref_frame];
+            if (slot->valid) {
+                row->improved_mv_start = 1;
+                row->improved_mv_near_sadidx = slot->near_sadidx;
+                row->improved_mv_row = slot->mvp_row;
+                row->improved_mv_col = slot->mvp_col;
+                row->improved_mv_sr = slot->sr;
+            }
+        }
+    } while (0);
+    GOVPX_TRACE_END();
 }
 
 /* Capture per-MB state. Called from encodeframe.c immediately after the
@@ -465,12 +531,14 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     if (!govpx_oracle_state.enabled) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
+    do {
     cm = &cpi->common;
     xd = &cpi->mb.e_mbd;
     govpx_oracle_state.mb_cols = cm->mb_cols;
     govpx_oracle_ensure_capacity(cm->mb_rows * cm->mb_cols);
     if (govpx_oracle_state.mb_rows == NULL) {
-        return;
+        break;
     }
     idx = mb_row * cm->mb_cols + mb_col;
     row = &govpx_oracle_state.mb_rows[idx];
@@ -542,6 +610,8 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
         row->improved_mv_sr = -1;
     }
     govpx_oracle_clear_improved_mv_slots();
+    } while (0);
+    GOVPX_TRACE_END();
 }
 
 /* Record the per-MB rate accumulator scalars at the same point libvpx
@@ -564,17 +634,21 @@ void govpx_oracle_record_mb_rate(struct VP8_COMP *cpi, int mb_row, int mb_col,
     if (!govpx_oracle_state.enabled) {
         return;
     }
-    cm = &cpi->common;
-    if (govpx_oracle_state.mb_rows == NULL) {
-        return;
-    }
-    idx = mb_row * cm->mb_cols + mb_col;
-    if (idx < 0 || idx >= cm->mb_rows * cm->mb_cols) {
-        return;
-    }
-    row = &govpx_oracle_state.mb_rows[idx];
-    row->mb_rate = mb_rate;
-    row->aggregated_rate = aggregated_rate;
+    GOVPX_TRACE_BEGIN();
+    do {
+        cm = &cpi->common;
+        if (govpx_oracle_state.mb_rows == NULL) {
+            break;
+        }
+        idx = mb_row * cm->mb_cols + mb_col;
+        if (idx < 0 || idx >= cm->mb_rows * cm->mb_cols) {
+            break;
+        }
+        row = &govpx_oracle_state.mb_rows[idx];
+        row->mb_rate = mb_rate;
+        row->aggregated_rate = aggregated_rate;
+    } while (0);
+    GOVPX_TRACE_END();
 }
 
 /* Emit per-frame and accumulated per-MB rows. Called from bitstream.c at
@@ -601,6 +675,7 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
     cm = &cpi->common;
     xd = &cpi->mb.e_mbd;
     out = govpx_oracle_state.out;
@@ -880,6 +955,7 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
     }
     fflush(out);
     govpx_oracle_state.frame_index++;
+    GOVPX_TRACE_END();
 }
 
 /* Per-frame recode-loop counter. Reset by govpx_oracle_emit_rate after the
@@ -906,6 +982,7 @@ void govpx_oracle_emit_dropped_frame(struct VP8_COMP *cpi,
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
     out = govpx_oracle_state.out;
     fprintf(out,
             "{\"type\":\"frame\","
@@ -926,10 +1003,19 @@ void govpx_oracle_emit_dropped_frame(struct VP8_COMP *cpi,
      * leak into the next non-dropped frame's recode row. */
     govpx_recode_iter_count = 0;
     govpx_oracle_state.frame_index++;
+    GOVPX_TRACE_END();
 }
 
 void govpx_oracle_recode_iter(void) {
-    govpx_recode_iter_count++;
+    if (!govpx_oracle_state.enabled) {
+        govpx_recode_iter_count++;
+        return;
+    }
+    {
+        GOVPX_TRACE_BEGIN();
+        govpx_recode_iter_count++;
+        GOVPX_TRACE_END();
+    }
 }
 
 /* Recompute the inter-frame ref-frame branch of vp8_estimate_entropy_savings
@@ -994,6 +1080,7 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
         govpx_recode_iter_count = 0;
         return;
     }
+    GOVPX_TRACE_BEGIN();
     cm = &cpi->common;
     out = govpx_oracle_state.out;
     /* Re-derive the entropy-savings breakdown so the oracle stream can
@@ -1079,6 +1166,7 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
     }
     fflush(out);
     govpx_recode_iter_count = 0;
+    GOVPX_TRACE_END();
 }
 
 /* Emit a "predictor" row capturing xd->dst.{y,u,v}_buffer for MB(0,0) of
@@ -1178,23 +1266,27 @@ void govpx_oracle_emit_predictor(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
-    if (!govpx_oracle_predictor_dump_enabled()) {
-        return;
-    }
-    cm = &cpi->common;
-    /* Inter frames only; MB row 0 by default, all rows if requested. */
-    if (cm->frame_type == KEY_FRAME) {
-        return;
-    }
-    if (!govpx_oracle_predictor_dump_all_rows() && mb_row != 0) {
-        return;
-    }
-    xd = &cpi->mb.e_mbd;
-    out = govpx_oracle_state.out;
-    govpx_oracle_emit_mb_planes(out, "predictor",
-                                govpx_oracle_state.frame_index,
-                                mb_row, mb_col, xd);
-    fflush(out);
+    GOVPX_TRACE_BEGIN();
+    do {
+        if (!govpx_oracle_predictor_dump_enabled()) {
+            break;
+        }
+        cm = &cpi->common;
+        /* Inter frames only; MB row 0 by default, all rows if requested. */
+        if (cm->frame_type == KEY_FRAME) {
+            break;
+        }
+        if (!govpx_oracle_predictor_dump_all_rows() && mb_row != 0) {
+            break;
+        }
+        xd = &cpi->mb.e_mbd;
+        out = govpx_oracle_state.out;
+        govpx_oracle_emit_mb_planes(out, "predictor",
+                                    govpx_oracle_state.frame_index,
+                                    mb_row, mb_col, xd);
+        fflush(out);
+    } while (0);
+    GOVPX_TRACE_END();
 }
 
 /* Reconstruction-output capture point: after the IDCT-add residual stage in
@@ -1210,22 +1302,26 @@ void govpx_oracle_emit_reconstructed(struct VP8_COMP *cpi, int mb_row, int mb_co
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
-    if (!govpx_oracle_predictor_dump_enabled()) {
-        return;
-    }
-    cm = &cpi->common;
-    if (cm->frame_type == KEY_FRAME) {
-        return;
-    }
-    if (!govpx_oracle_predictor_dump_all_rows() && mb_row != 0) {
-        return;
-    }
-    xd = &cpi->mb.e_mbd;
-    out = govpx_oracle_state.out;
-    govpx_oracle_emit_mb_planes(out, "reconstructed",
-                                govpx_oracle_state.frame_index,
-                                mb_row, mb_col, xd);
-    fflush(out);
+    GOVPX_TRACE_BEGIN();
+    do {
+        if (!govpx_oracle_predictor_dump_enabled()) {
+            break;
+        }
+        cm = &cpi->common;
+        if (cm->frame_type == KEY_FRAME) {
+            break;
+        }
+        if (!govpx_oracle_predictor_dump_all_rows() && mb_row != 0) {
+            break;
+        }
+        xd = &cpi->mb.e_mbd;
+        out = govpx_oracle_state.out;
+        govpx_oracle_emit_mb_planes(out, "reconstructed",
+                                    govpx_oracle_state.frame_index,
+                                    mb_row, mb_col, xd);
+        fflush(out);
+    } while (0);
+    GOVPX_TRACE_END();
 }
 
 /* Capture the LAST reference plane content at the start of an inter frame's
@@ -1247,12 +1343,14 @@ void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi) {
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
+    do {
     if (!govpx_oracle_predictor_dump_enabled()) {
-        return;
+        break;
     }
     cm = &cpi->common;
     if (cm->frame_type == KEY_FRAME) {
-        return;
+        break;
     }
     ref = &cm->yv12_fb[cm->lst_fb_idx];
     border = ref->border;
@@ -1308,6 +1406,8 @@ void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi) {
         uv_window_w, uv_window_h, ref->uv_stride);
     fprintf(out, "\"}\n");
     fflush(out);
+    } while (0);
+    GOVPX_TRACE_END();
 }
 
 /* R12-C: emit a per-iteration iteration_outcome row inside the libvpx
@@ -1331,6 +1431,7 @@ void govpx_oracle_emit_iteration_outcome(struct VP8_COMP *cpi, int mb_row,
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
     (void)cpi;
     out = govpx_oracle_state.out;
     fprintf(out,
@@ -1356,6 +1457,7 @@ void govpx_oracle_emit_iteration_outcome(struct VP8_COMP *cpi, int mb_row,
             best_rd_at_gate,
             rd_threshes_at_gate);
     fflush(out);
+    GOVPX_TRACE_END();
 }
 
 /* R12-C: emit a single picker_entry row capturing the libvpx fast inter
@@ -1394,6 +1496,7 @@ void govpx_oracle_emit_picker_entry(struct VP8_COMP *cpi, int mb_row,
     if (cpi == NULL) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
     x = &cpi->mb;
     out = govpx_oracle_state.out;
     mode_mv = mode_mv_sb[sign_bias];
@@ -1455,6 +1558,7 @@ void govpx_oracle_emit_picker_entry(struct VP8_COMP *cpi, int mb_row,
             x->mbs_tested_so_far,
             best_rd);
     fflush(out);
+    GOVPX_TRACE_END();
 }
 
 /* Emit a single per-trial-level row from vp8cx_pick_filter_level_fast. The
@@ -1473,6 +1577,7 @@ void govpx_oracle_emit_lf_trial(struct VP8_COMP *cpi, const char *phase,
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
+    GOVPX_TRACE_BEGIN();
     out = govpx_oracle_state.out;
     fprintf(out,
             "{\"type\":\"lf_trial\","
@@ -1485,6 +1590,7 @@ void govpx_oracle_emit_lf_trial(struct VP8_COMP *cpi, const char *phase,
             trial_level,
             trial_y_sse);
     fflush(out);
+    GOVPX_TRACE_END();
 }
 GOVPX_ORACLE_TU
 
@@ -1804,9 +1910,76 @@ def ensure_autospeed_boundary_shim(src):
         sys.stderr.write('build_vpxenc_oracle.sh: autospeed timer anchor missing in onyx_if.c\n')
         sys.exit(2)
     return src.replace(anchor, replacement, 1)
+def ensure_trace_take_usec_extern(src):
+    """Insert the govpx_oracle_trace_take_usec extern declaration after the
+    existing govpx oracle externs on already-patched trees. Idempotent."""
+    marker = 'extern int64_t govpx_oracle_trace_take_usec(void);'
+    if marker in src:
+        return src
+    anchor = ('extern void govpx_oracle_emit_dropped_frame(struct VP8_COMP *cpi,\n'
+              '                                            const char *reason);')
+    if anchor not in src:
+        sys.stderr.write('build_vpxenc_oracle.sh: emit_dropped_frame extern anchor missing\n')
+        sys.exit(2)
+    replacement = (anchor + '\n'
+                   '/* Returns the cumulative microseconds spent inside oracle trace\n'
+                   ' * emit/capture functions since the last call, then resets the\n'
+                   ' * accumulator. Used below to subtract trace overhead from the\n'
+                   ' * realtime-mode wall-clock duration before it feeds the auto-speed\n'
+                   ' * picker (vp8/encoder/rdopt.c:261 vp8_auto_select_speed), so the\n'
+                   ' * traced binary stays byte-identical to the untraced one. */\n'
+                   'extern int64_t govpx_oracle_trace_take_usec(void);')
+    return src.replace(anchor, replacement, 1)
+def ensure_trace_usec_subtraction(src):
+    """Convert the wall-clock duration math inside encode_frame_to_data_rate
+    so it subtracts the cumulative oracle-trace overhead before it feeds
+    avg_encode_time / avg_pick_mode_time. Idempotent."""
+    sentinel = '/* govpx oracle: subtract trace overhead from duration. */'
+    if sentinel in src:
+        return src
+    old = ('  if (cpi->compressor_speed == 2) {\n'
+           '    unsigned int duration, duration2;\n'
+           '    vpx_usec_timer_mark(&ticktimer);\n'
+           '\n'
+           '    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
+           '    duration2 = (unsigned int)((double)duration / 2);')
+    new = ('  if (cpi->compressor_speed == 2) {\n'
+           '    unsigned int duration, duration2;\n'
+           '    int64_t trace_usec;\n'
+           '    int64_t raw_duration;\n'
+           '    vpx_usec_timer_mark(&ticktimer);\n'
+           '\n'
+           '    ' + sentinel + '\n'
+           '    /* Subtract the cumulative microseconds spent inside oracle trace\n'
+           '     * emit/capture functions during this frame. Without this\n'
+           '     * subtraction, the trace channel\'s fopen/fwrite/fflush latency\n'
+           '     * inflates cpi->avg_encode_time / cpi->avg_pick_mode_time and\n'
+           '     * shifts the libvpx vp8_auto_select_speed trajectory, so the\n'
+           '     * traced oracle binary\'s bitstream diverges from the untraced\n'
+           '     * production binary for the same config. The accumulator is\n'
+           '     * always 0 when the trace channel is disabled (env var unset),\n'
+           '     * so this is a true no-op in the non-traced build, which keeps\n'
+           '     * vpxenc-frameflags\' byte-stream identical to a pristine\n'
+           '     * v1.16.0 encode. */\n'
+           '    raw_duration = vpx_usec_timer_elapsed(&ticktimer);\n'
+           '    trace_usec = govpx_oracle_trace_take_usec();\n'
+           '    if (trace_usec < 0) trace_usec = 0;\n'
+           '    if (raw_duration > trace_usec) {\n'
+           '      raw_duration -= trace_usec;\n'
+           '    } else {\n'
+           '      raw_duration = 0;\n'
+           '    }\n'
+           '    duration = (unsigned int)raw_duration;\n'
+           '    duration2 = (unsigned int)((double)duration / 2);')
+    if old not in src:
+        sys.stderr.write('build_vpxenc_oracle.sh: trace-usec subtract anchor missing in onyx_if.c\n')
+        sys.exit(2)
+    return src.replace(old, new, 1)
 sentinel = '/* govpx oracle: rate/recode emit hook. */'
 if sentinel in text:
     updated = ensure_autospeed_boundary_shim(strip_autospeed_shim(text))
+    updated = ensure_trace_take_usec_extern(updated)
+    updated = ensure_trace_usec_subtraction(updated)
     if updated != text:
         with io.open(path, 'w', encoding='utf-8') as f:
             f.write(updated)
@@ -1819,7 +1992,14 @@ decl = ('extern void govpx_oracle_begin_attempt(void);\n'
         'extern void govpx_oracle_recode_iter(void);\n'
         'extern void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q);\n'
         'extern void govpx_oracle_emit_dropped_frame(struct VP8_COMP *cpi,\n'
-        '                                            const char *reason);\n')
+        '                                            const char *reason);\n'
+        '/* Returns the cumulative microseconds spent inside oracle trace\n'
+        ' * emit/capture functions since the last call, then resets the\n'
+        ' * accumulator. Used below to subtract trace overhead from the\n'
+        ' * realtime-mode wall-clock duration before it feeds the auto-speed\n'
+        ' * picker (vp8/encoder/rdopt.c:261 vp8_auto_select_speed), so the\n'
+        ' * traced binary stays byte-identical to the untraced one. */\n'
+        'extern int64_t govpx_oracle_trace_take_usec(void);\n')
 ext_anchor = 'extern void vp8cx_init_quantizer(VP8_COMP *cpi);'
 if ext_anchor in text:
     text = text.replace(ext_anchor, ext_anchor + '\n' + decl, 1)
@@ -1961,6 +2141,14 @@ elif autospeed_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: autospeed timer anchor missing in onyx_if.c\n')
     sys.exit(2)
 text = ensure_autospeed_boundary_shim(text)
+# Subtract the cumulative oracle-trace overhead from the wall-clock
+# duration before it feeds avg_encode_time / avg_pick_mode_time. This
+# decouples vp8_auto_select_speed (vp8/encoder/rdopt.c:261) from the
+# trace channel's fopen/fwrite/fflush latency so the traced binary's
+# bitstream stays byte-identical to the untraced production binary for
+# the same config. The accumulator is always 0 in the non-traced
+# (GOVPX_ORACLE_TRACE_OUT unset) build, so this is a true no-op there.
+text = ensure_trace_usec_subtraction(text)
 
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
