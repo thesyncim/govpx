@@ -45,6 +45,34 @@ func TestVP9BlockYrdSkippableOnIdenticalPrediction(t *testing.T) {
 	}
 }
 
+func TestVP9BlockYrdSkippableWithUnknownSSEKeepsEobRate(t *testing.T) {
+	const bw, bh = 32, 32
+	var src [bw * bh]byte
+	var dst [bw * bh]byte
+	for i := range src {
+		src[i] = 128
+		dst[i] = 128
+	}
+	dequant := [2]int16{16, 17}
+	var scratch [16384]int16
+	res := vp9BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
+		bw, bh, common.Tx16x16, dequant, vp9BlockYrdUnknownSSE, scratch[:])
+	if !res.valid {
+		t.Fatalf("vp9BlockYrd returned invalid result on identical src/dst")
+	}
+	if !res.skippable {
+		t.Errorf("skippable = false, want true (zero src_diff)")
+	}
+	if res.dist != 0 {
+		t.Errorf("dist = %d, want 0 without finite SSE", res.dist)
+	}
+	const wantRate = 4 << encoder.VP9ProbCostShift
+	if res.rate != wantRate {
+		t.Errorf("rate = %d, want %d (eob_cost retained without finite SSE)",
+			res.rate, wantRate)
+	}
+}
+
 // TestVP9BlockYrdNonSkippableProducesPositiveRate exercises the
 // vp9_pickmode.c:830-849 non-skippable branch: a real residual must produce
 // rate > 0 from the SATD accumulation. We use a square-wave pattern so the

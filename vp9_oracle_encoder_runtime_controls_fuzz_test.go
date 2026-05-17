@@ -303,6 +303,57 @@ import (
 //	RuntimeControls seed. Closure requires the cost_coeffs rate
 //	proxy port and the set_ext_overrides resolution port.
 //
+// Re-measurement (task #148, this commit) after the following
+// landings since f5fe476 (#142):
+//
+//   - 838691b token-cost (vp9KeyframeCoeffBlockRateCost) reconcile
+//   - b87ff4d super_block_uvrd + rd_pick_intra_sbuv_mode port
+//   - 404c7dd intra-only coef counts pass via KeyframeSource
+//   - 7017378 nonrd block_yrd compare + breakout (already in #142)
+//   - Phase E1b/E1c/E3 chain (already in #142)
+//
+// Per-seed aggregate size_delta (sum across all frames) under the
+// three gate combos (verified by TestVP9DeferredSeedsRemeasureRuntimeControls):
+//
+//	Default (no opt-in):
+//	  #0 af5570f5: +2754, #1 de6e098c: +4141, #2 967aad53: +7038,
+//	  #3 ac1b2597: +5157, #4 59794cac: +6808, #6 5feceb66: +2754,
+//	  #7 6b86b273: +8971, #9 7902699b: +2806.
+//	  Aggregate: +40429 / avg +5053 per measurable seed
+//	  (#5/#8 STRUCTURAL_REJECT).
+//
+//	GOVPX_VP9_NONRD_PICK_PARTITION=1 (Phase D opt-in alone):
+//	  #0: +2754, #1: +4141, #2: +7038, #3: -262, #4: +6808,
+//	  #6: +2754, #7: +8971, #9: +2806.
+//	  Aggregate: +35010 / avg +4376 per measurable seed.
+//
+//	Both gates ON (NONRD_PICK_PARTITION=1 + LIBVPX_CHOOSE_PARTITIONING=1):
+//	  #0: +2754, #1: +4141, #2: +7038, #3: -262, #4: +6808,
+//	  #6: +2754, #7: +8971, #9: +2293.
+//	  Aggregate: +34497 / avg +4312 per measurable seed.
+//
+// Frame-0 size_delta (got_len - want_len) under both gates ON
+// (the comparable axis to f5fe476's frame-0 citation):
+//
+//	#0 +996, #1 +995, #2 +2276, #3 -31, #4 +996, #6 +996,
+//	#7 +2285, #9 +47.
+//
+// Comparison to f5fe476 (#142) frame-0 citation
+// (+1006/+997/+2299/-31/+1006/+1006/+2288/+47): seeds #0/#2/#4/#6
+// improved by ~10-23 bytes/seed (token-cost reconcile + super_block_uvrd
+// shaved a hair off the cost_coeffs proxy gap), seeds #1/#7 by 2-3
+// bytes, seeds #3/#9 unchanged. The structural cost_coeffs rate-proxy
+// gap (govpx SATD vs libvpx pareto8 per-token entropy walk at
+// vp9_rdopt.c:358) remains the dominant residual — seed #9 (cpu=4)
+// only moves on the inter-frame aggregate at choose-partitioning ON
+// (-513B from the picker honouring the libvpx VAR_BASED dispatch).
+//
+// Gate-flip recommendation: NOT YET. No seed byte-matches under any
+// combo. Frame-0 deltas remain in the +50 to +2285 byte range —
+// ~50x the +/-50B target. Closure requires the cost_coeffs rate
+// proxy port (already documented above) and the set_ext_overrides
+// resolution port for #5/#8 measurability.
+//
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{

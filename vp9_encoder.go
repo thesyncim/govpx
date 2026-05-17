@@ -6962,6 +6962,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		// rd_pick_intra_sub_8x8_y_mode which runs an independent
 		// DC..TM_PRED RD scan per 4x4 raster sub-block and stows the
 		// per-subblock pick in mic->bmi[i].as_mode.
+		useNonRDKeyframeMode := e.useVP9KeyframeNonRDIntraMode(reconBsize)
 		if reconBsize < common.Block8x8 {
 			e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur)
@@ -6969,8 +6970,11 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur)
 		}
-		uvMode := e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
-			miRow, miCol, reconBsize, &cur)
+		uvMode := common.DcPred
+		if !useNonRDKeyframeMode {
+			uvMode = e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
+				miRow, miCol, reconBsize, &cur)
+		}
 		segID := vp9EncoderMiSegmentID(&cur)
 		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 		hasResidue := false
@@ -6986,8 +6990,10 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			// per-block tx_size RD pick on top so mi.TxSize is RD-optimal
 			// across {Tx32x32, Tx16x16, Tx8x8, Tx4x4} subject to
 			// sf.TxSizeSearchDepth bounds, matching choose_tx_size_from_rd.
-			e.pickVP9KeyframeBlockTxSize(key, tile, miRows, miCols,
-				miRow, miCol, reconBsize, &cur, txMode)
+			if !useNonRDKeyframeMode {
+				e.pickVP9KeyframeBlockTxSize(key, tile, miRows, miCols,
+					miRow, miCol, reconBsize, &cur, txMode)
+			}
 			hasResidue = e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur, uvMode)
 			if hasResidue {
@@ -7560,6 +7566,44 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	// Inline save/restore (no defer) preserves the alloc-parity gate.
 	prevCbRdmult := e.cbRdmult
 	e.cbRdmult = rdmult
+	// The candidate set follows libvpx's keyframe hybrid picker. The RD arm
+	// (`vp9_rd_pick_intra_mode_sb` -> `rd_pick_intra_sby_mode`) walks
+	// DC_PRED..TM_PRED unconditionally; there is no
+	// `intra_y_mode_(_bsize)_mask` gate on the keyframe Y picker. The non-RD
+	// arm (`vp9_pick_intra_mode`) walks DC_PRED..H_PRED only. libvpx selects
+	// the non-RD arm when `sf.use_nonrd_pick_mode` is active and either
+	// `sf.nonrd_keyframe` is set or the block is at least BLOCK_16X16.
+	// govpx mirrors that with useVP9KeyframeNonRDIntraMode. The previous
+	// mask-based fallback walked only the {DC, V, H} subset on GOOD speed=1
+	// because the configurator did not populate `IntraYModeBsizeMask` for the
+	// GOOD path, which violated libvpx parity for cpu_used 0..4 GOOD-mode
+	// keyframes (see vp9OptionsSeedsDeferred regression_vp9_options_e03af0a9).
+	//
+	// libvpx: vp9/encoder/vp9_rdopt.c:1383 (rd_pick_intra_sby_mode loop)
+	// libvpx: vp9/encoder/vp9_pickmode.c:1199 (vp9_pick_intra_mode loop)
+	// libvpx: vp9/encoder/vp9_encodeframe.c:4350-4365 (hybrid dispatch
+	// between the two pickers)
+	if e.useVP9KeyframeNonRDIntraMode(bsize) {
+		bestMode := common.DcPred
+		bestScore, ok := e.scoreVP9KeyframeModeNonRD(key, bestMode,
+			yModeCosts[bestMode], rdmult, tile, miRows, miCols, miRow, miCol,
+			bsize, mi)
+		if !ok {
+			e.cbRdmult = prevCbRdmult
+			return bestMode
+		}
+		for mode := common.DcPred + 1; mode <= common.HPred; mode++ {
+			score, ok := e.scoreVP9KeyframeModeNonRD(key, mode,
+				yModeCosts[mode], rdmult, tile, miRows, miCols, miRow, miCol,
+				bsize, mi)
+			if ok && score < bestScore {
+				bestScore = score
+				bestMode = mode
+			}
+		}
+		e.cbRdmult = prevCbRdmult
+		return bestMode
+	}
 	bestMode := common.DcPred
 	bestScore, ok := e.scoreVP9KeyframeModeRD(key, bestMode,
 		yModeCosts[bestMode], rdmult, tile, miRows, miCols, miRow, miCol,
@@ -7568,30 +7612,7 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 		e.cbRdmult = prevCbRdmult
 		return bestMode
 	}
-	// The candidate set follows libvpx's keyframe-RD picker. At
-	// `sf.nonrd_keyframe == 0` (cpu_used<=4 GOOD or REALTIME, plus speed=0
-	// BEST) libvpx routes through `vp9_rd_pick_intra_mode_sb` →
-	// `rd_pick_intra_sby_mode` (vp9_rdopt.c:1383) which walks DC_PRED..
-	// TM_PRED unconditionally — there is no `intra_y_mode_(_bsize)_mask` gate
-	// on the keyframe Y picker. At `sf.nonrd_keyframe == 1` (cpu_used>=5
-	// REALTIME) libvpx routes through `vp9_pick_intra_mode` (vp9_pickmode.c
-	// :1199) which walks DC_PRED..H_PRED only (3 modes). govpx honours both
-	// by dispatching on `e.sf.NonrdKeyframe`: when 1, narrow to {DC, V, H};
-	// when 0, walk all 10. The previous mask-based fallback walked only the
-	// {DC, V, H} subset on GOOD speed=1 because the configurator did not
-	// populate `IntraYModeBsizeMask` for the GOOD path, which violated
-	// libvpx parity for cpu_used 0..4 GOOD-mode keyframes (see
-	// vp9OptionsSeedsDeferred regression_vp9_options_e03af0a9).
-	//
-	// libvpx: vp9/encoder/vp9_rdopt.c:1383 (rd_pick_intra_sby_mode loop)
-	// libvpx: vp9/encoder/vp9_pickmode.c:1199 (vp9_pick_intra_mode loop)
-	// libvpx: vp9/encoder/vp9_encodeframe.c:4350-4365 (nonrd_keyframe
-	// dispatch between the two pickers)
-	maxMode := common.TmPred
-	if e.sf.NonrdKeyframe != 0 {
-		maxMode = common.HPred
-	}
-	for mode := common.DcPred + 1; mode <= maxMode; mode++ {
+	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
 		score, ok := e.scoreVP9KeyframeModeRD(key, mode, yModeCosts[mode],
 			rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi)
 		if ok && score < bestScore {
@@ -7601,6 +7622,11 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	}
 	e.cbRdmult = prevCbRdmult
 	return bestMode
+}
+
+func (e *VP9Encoder) useVP9KeyframeNonRDIntraMode(bsize common.BlockSize) bool {
+	return e.sf.UseNonrdPickMode != 0 &&
+		(e.sf.NonrdKeyframe != 0 || bsize >= common.Block16x16)
 }
 
 // pickVP9KeyframeSub8x8YMode ports libvpx's rd_pick_intra_sub_8x8_y_mode
@@ -7804,7 +7830,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				initCtx := vp9dec.GetEntropyContext(common.Tx4x4,
 					tempa[jx:jx+1], templ[jy:jy+1])
 				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCost(
-					common.Tx4x4, dequant, coeffs, initCtx)
+					common.Tx4x4, mode, key.lossless, dequant, coeffs, initCtx)
 				// libvpx vp9_rdopt.c:1162, 1244 — tempa[idx] =
 				// templ[idy] = (eobs[block] > 0) ? 1 : 0.
 				eobFlag := uint8(0)
@@ -7883,6 +7909,109 @@ func (e *VP9Encoder) scoreVP9KeyframeModeRD(key *vp9KeyframeEncodeState,
 	distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRD(
 		key, mode, tile, miRows, miCols, miRow, miCol, bsize, mi)
 	if !ok {
+		return 0, false
+	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
+	if skippable {
+		rate += encoder.VP9CostBit(skipProb, 1)
+	} else {
+		rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
+	}
+	return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion), true
+}
+
+// scoreVP9KeyframeModeNonRD mirrors libvpx's realtime keyframe
+// vp9_pick_intra_mode scorer. It predicts each transform unit, scores the
+// residual with block_yrd's Hadamard + quantize_fp proxy, and compares the
+// resulting RD tuple under the caller-supplied rdmult.
+func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, rate, rdmult int, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
+) (uint64, bool) {
+	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
+		return 0, false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, false
+	}
+	planeData, stride := e.vp9EncoderReconPlane(0)
+	src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
+	if len(planeData) == 0 || stride <= 0 || len(src) == 0 || srcStride <= 0 {
+		return 0, false
+	}
+	rows := len(planeData) / stride
+	baseX := miCol * common.MiSize
+	baseY := miRow * common.MiSize
+	if baseX >= stride || baseY >= rows {
+		return 0, false
+	}
+	restoreW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	restoreH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if baseX+restoreW > stride {
+		restoreW = stride - baseX
+	}
+	if baseY+restoreH > rows {
+		restoreH = rows - baseY
+	}
+	if restoreW <= 0 || restoreH <= 0 || restoreW*restoreH > len(e.blockScratch) {
+		return 0, false
+	}
+	saved := e.blockScratch[:restoreW*restoreH]
+	for y := 0; y < restoreH; y++ {
+		copy(saved[y*restoreW:(y+1)*restoreW],
+			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	}
+
+	txSize := clampVP9TxSizeForBlock(mi.TxSize, bsize)
+	yrdTxSize := min(txSize, common.Tx16x16)
+	txBlockStep := 1 << uint(txSize)
+	bs := 4 << uint(txSize)
+	segID := vp9EncoderMiSegmentID(mi)
+	dequant := key.dq.Y[segID]
+	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	if max4x4W <= 0 || max4x4H <= 0 {
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+		return 0, false
+	}
+
+	var coeffRate int
+	var distortion uint64
+	skippable := false
+	visited := false
+	for rr := 0; rr < max4x4H; rr += txBlockStep {
+		for cc := 0; cc < max4x4W; cc += txBlockStep {
+			_, _, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, 0, mode,
+				txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc)
+			if !ok {
+				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					restoreW, restoreH, saved)
+				return 0, false
+			}
+			yrd := vp9BlockYrd(src, srcStride, x0, y0,
+				planeData, stride, x0, y0, bs, bs, yrdTxSize, dequant,
+				vp9BlockYrdUnknownSSE, e.vp9BlockYrdScratch[:])
+			if !yrd.valid {
+				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					restoreW, restoreH, saved)
+				return 0, false
+			}
+			coeffRate += yrd.rate
+			distortion += uint64(yrd.dist)
+			skippable = yrd.skippable
+			visited = true
+		}
+	}
+	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	if !visited {
 		return 0, false
 	}
 	var left *vp9dec.NeighborMi
@@ -8066,8 +8195,8 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 			// dispatches to vp9KeyframeCoeffBlockRateCost which
 			// indexes fc.CoefProbs[txSize][0][0] (planeType=0,
 			// is_inter=0) and walks the per-token entropy tree.
-			coeffRate += e.vp9KeyframeCoeffBlockRateCost(txSize, dequant,
-				coeffs, initCtx)
+			coeffRate += e.vp9KeyframeCoeffBlockRateCost(txSize, mode,
+				key.lossless, dequant, coeffs, initCtx)
 
 			// libvpx vp9_rdopt.c:786-792 — after the block,
 			// t_above[c..c+w]/t_left[r..r+h] = (eob > 0). govpx
@@ -8871,7 +9000,8 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 				// outer iteration; the per-block coeff_ctx is computed
 				// inside block_rd_txfm and is locally 0 at the SB
 				// corner with no above/left residue).
-				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs, 0)
+				rate += e.vp9KeyframeCoeffBlockRateCost(tx, mode,
+					key.lossless, dequant, coeffs, 0)
 			}
 		}
 		if !valid {
@@ -8936,9 +9066,18 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 // (vp9_rdopt.c:695). Callers compute initCtx via
 // vp9dec.GetEntropyContext on the per-block above/left context cache.
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
-	dequant [2]int16, coeffs []int16, initCtx int,
+	mode common.PredictionMode, lossless bool, dequant [2]int16,
+	coeffs []int16, initCtx int,
 ) int {
-	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 0, dequant, coeffs, initCtx)
+	if txSize >= common.TxSizes {
+		return 0
+	}
+	if int(mode) >= common.IntraModes {
+		mode = common.DcPred
+	}
+	scanOrder := common.GetScan(txSize, 0, 0, lossless, mode)
+	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 0, scanOrder,
+		dequant, coeffs, initCtx)
 }
 
 // vp9KeyframeUvCoeffBlockRateCost is the chroma sibling of
@@ -8948,7 +9087,11 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCost(txSize common.TxSize,
 	dequant [2]int16, coeffs []int16, initCtx int,
 ) int {
-	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 1, dequant, coeffs, initCtx)
+	if txSize >= common.TxSizes {
+		return 0
+	}
+	return e.vp9KeyframeCoeffBlockRateCostPlane(txSize, 1,
+		common.DefaultScanOrders[txSize], dequant, coeffs, initCtx)
 }
 
 // vp9KeyframeCoeffBlockRateCostPlane is the shared cost_coeffs walker
@@ -8956,7 +9099,8 @@ func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCost(txSize common.TxSize,
 // the chroma RD pick consumes the libvpx-faithful chroma coef-token
 // model fc.CoefProbs[txSize][planeType][is_inter=0].
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlane(txSize common.TxSize,
-	planeType int, dequant [2]int16, coeffs []int16, initCtx int,
+	planeType int, scanOrder common.ScanOrder, dequant [2]int16,
+	coeffs []int16, initCtx int,
 ) int {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txSize >= common.TxSizes || dequant[0] == 0 || dequant[1] == 0 ||
@@ -8964,8 +9108,11 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlane(txSize common.TxSize,
 		initCtx < 0 || initCtx > 2 || planeType < 0 || planeType > 1 {
 		return 0
 	}
-	scan := common.DefaultScanOrders[txSize].Scan
-	neighbors := common.DefaultScanOrders[txSize].Neighbors
+	scan := scanOrder.Scan
+	neighbors := scanOrder.Neighbors
+	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
+		return 0
+	}
 	bandTrans := vp9dec.BandTranslateForTxSize(txSize)
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0

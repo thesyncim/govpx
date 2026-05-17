@@ -133,6 +133,16 @@ func TestVP9EncoderVpxencOracleBlackKeyframeByteParity(t *testing.T) {
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
+func TestVP9EncoderVpxencOracleBlackRealtimeCPU5KeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	src := newVP9YCbCrForTest(64, 64, 0, 128, 128)
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
+		Deadline: DeadlineRealtime,
+		CpuUsed:  5,
+	}, []string{"--cpu-used=5"})
+}
+
 func TestVP9EncoderVpxencOracleMidgrayKeyframeByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 

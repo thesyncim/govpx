@@ -167,6 +167,8 @@ const (
 	vp9SkipTxfmAcOnly vp9SkipTxfmFlag = 2
 )
 
+const vp9BlockYrdUnknownSSE = uint64(1<<63 - 1)
+
 // vp9ModelRdForSbY ports model_rd_for_sb_y (vp9_pickmode.c:645-726) verbatim.
 // Inputs:
 //
@@ -613,10 +615,16 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 		}
 	}
 
-	// libvpx: vp9_pickmode.c:822-828 — *sse = (sseIn << 6) >> 2.
-	res.sse = int64(sseIn << 4) // (<<6)>>2 == <<4
+	// libvpx: vp9_pickmode.c:822-828 — *sse = (sseIn << 6) >> 2 only
+	// when the caller provided a finite SSE. The nonrd keyframe intra
+	// picker passes INT64_MAX, which intentionally bypasses the early
+	// skippable return so the caller can clobber the final rate itself.
+	sseKnown := sseIn < vp9BlockYrdUnknownSSE
+	if sseKnown {
+		res.sse = int64(sseIn << 4) // (<<6)>>2 == <<4
+	}
 
-	if skippable {
+	if skippable && sseKnown {
 		// libvpx: vp9_pickmode.c:821 sets `this_rdc->rate = 0;` then the
 		// skippable branch (vp9_pickmode.c:824-826) returns BEFORE the
 		// non-skippable second-pass rate accumulation and BEFORE the
@@ -676,7 +684,7 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	res.rate = (rate << (2 + encoder.VP9ProbCostShift)) +
 		(eobCost << encoder.VP9ProbCostShift)
 	res.dist = dist
-	res.skippable = false
+	res.skippable = skippable
 	res.valid = true
 	return res
 }
