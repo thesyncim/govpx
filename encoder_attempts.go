@@ -165,6 +165,8 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		// (alloccommon.c). The packet writer derives prob_skip_false from
 		// keyframe mode skip counts before emitting the header.
 		MBNoCoeffSkip: true,
+		HorizScale:    e.horizScale,
+		VertScale:     e.vertScale,
 	}
 	phase = e.phaseStart()
 	var prebuiltKeyCoefCounts *vp8enc.InterCoefficientTokenCounts

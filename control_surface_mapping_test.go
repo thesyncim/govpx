@@ -38,6 +38,7 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetRateControl":       {kind: "libvpx-config", helperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "undershoot:", "overshoot:", "bufsz:", "bufinit:", "bufopt:", "drop:"}},
 		"SetRealtimeTarget":    {kind: "libvpx-config", helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
 		"SetReferenceFrame":    {kind: "libvpx-control", helperTokens: []string{"setref:"}},
+		"SetScalingMode":       {kind: "libvpx-control"},
 		"SetScreenContentMode": {kind: "libvpx-control", helperTokens: []string{"screen:"}},
 		"SetSharpness":         {kind: "libvpx-control", helperTokens: []string{"sharpness:"}},
 		"SetStaticThreshold":   {kind: "libvpx-control", helperTokens: []string{"static:"}},
