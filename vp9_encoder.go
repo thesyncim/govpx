@@ -4071,12 +4071,91 @@ var vp9SwitchableInterpFilterOrder = [...]vp9dec.InterpFilter{
 	vp9dec.InterpEighttapSharp,
 }
 
+// vp9NonrdSwitchableInterpFilterOrder is the realtime (nonrd) per-mode
+// filter sweep. libvpx's vp9_pickmode.c::search_filter_ref iterates
+// filter_start..filter_end where filter_end is EIGHTTAP_SMOOTH (NOT
+// EIGHTTAP_SHARP) — the realtime path never evaluates EIGHTTAP_SHARP.
+//
+// libvpx: vp9/encoder/vp9_pickmode.c:1523-1525
+//
+//	INTERP_FILTER filter_start = force_smooth_filter ? EIGHTTAP_SMOOTH : EIGHTTAP;
+//	INTERP_FILTER filter_end = EIGHTTAP_SMOOTH;
+//	for (filter = filter_start; filter <= filter_end; ++filter) {
+var vp9NonrdSwitchableInterpFilterOrder = [...]vp9dec.InterpFilter{
+	vp9dec.InterpEighttap,
+	vp9dec.InterpEighttapSmooth,
+}
+
 var (
 	vp9EighttapInterpFilterOrder = [...]vp9dec.InterpFilter{vp9dec.InterpEighttap}
 	vp9SmoothInterpFilterOrder   = [...]vp9dec.InterpFilter{vp9dec.InterpEighttapSmooth}
 	vp9SharpInterpFilterOrder    = [...]vp9dec.InterpFilter{vp9dec.InterpEighttapSharp}
 	vp9BilinearInterpFilterOrder = [...]vp9dec.InterpFilter{vp9dec.InterpBilinear}
 )
+
+// vp9NonrdFilterRef mirrors libvpx's filter_ref derivation in
+// vp9_pickmode.c:1874-1880. filter_ref starts as cm->interp_filter; when
+// sf.default_interp_filter != BILINEAR, it is overwritten from the first
+// inter neighbour (above, then left). The result is consumed by the
+// per-mode filter gate at vp9_pickmode.c:2318-2330 and by the non-search
+// branch at :2330.
+//
+// libvpx: vp9/encoder/vp9_pickmode.c:1874-1880
+//
+//	filter_ref = cm->interp_filter;
+//	if (cpi->sf.default_interp_filter != BILINEAR) {
+//	  if (xd->above_mi && is_inter_block(xd->above_mi))
+//	    filter_ref = xd->above_mi->interp_filter;
+//	  else if (xd->left_mi && is_inter_block(xd->left_mi))
+//	    filter_ref = xd->left_mi->interp_filter;
+//	}
+func vp9NonrdFilterRef(frameInterp vp9dec.InterpFilter,
+	defaultInterpFilter vp9dec.InterpFilter,
+	above, left *vp9dec.NeighborMi,
+) vp9dec.InterpFilter {
+	filterRef := frameInterp
+	if defaultInterpFilter != vp9dec.InterpBilinear {
+		if above != nil && vp9NeighborIsInter(above) {
+			filterRef = vp9dec.InterpFilter(above.InterpFilter)
+		} else if left != nil && vp9NeighborIsInter(left) {
+			filterRef = vp9dec.InterpFilter(left.InterpFilter)
+		}
+	}
+	return filterRef
+}
+
+// vp9NonrdPredFilterSearch mirrors libvpx's pred_filter_search derivation
+// in vp9_pickmode.c:1732 and 1862-1869. The base value is
+// (cm->interp_filter == SWITCHABLE); when sf.cb_pred_filter_search is set,
+// it is refined by a chessboard pattern keyed on
+// (mi_row + mi_col) >> log2(mi_width(bsize)) + (current_video_frame & 1).
+// For non-SWITCHABLE frames cb_pred_filter_search forces it to 0.
+//
+// libvpx: vp9/encoder/vp9_pickmode.c:1862-1869
+//
+//	if (cpi->sf.cb_pred_filter_search) {
+//	  const int bsl = mi_width_log2_lookup[bsize];
+//	  pred_filter_search = cm->interp_filter == SWITCHABLE
+//	                           ? (((mi_row + mi_col) >> bsl) +
+//	                              get_chessboard_index(cm->current_video_frame)) &
+//	                                 0x1
+//	                           : 0;
+//	}
+func vp9NonrdPredFilterSearch(frameInterp vp9dec.InterpFilter,
+	cbPredFilterSearch int, miRow, miCol int,
+	bsize common.BlockSize, frameIndex int,
+) bool {
+	predFilterSearch := frameInterp == vp9dec.InterpSwitchable
+	if cbPredFilterSearch != 0 {
+		if frameInterp != vp9dec.InterpSwitchable {
+			return false
+		}
+		bsl := int(common.MiWidthLog2Lookup[bsize])
+		chess := frameIndex & 0x1
+		predFilterSearch = (((miRow+miCol)>>bsl)+chess)&0x1 != 0
+	}
+	return predFilterSearch
+}
 
 func vp9InterFrameInterpFilter(inter *vp9InterEncodeState) vp9dec.InterpFilter {
 	if inter == nil {
@@ -8499,7 +8578,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 
 	zeroDistortion := vp9BlockSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, scoreW, scoreH)
-	filters := vp9InterInterpFilterCandidates(inter)
+	allFilters := vp9InterInterpFilterCandidates(inter)
 	// libvpx: vp9/encoder/vp9_speed_features.c — sf->disable_filter_search_var_thresh
 	// prunes non-EIGHTTAP filters when source variance falls below the
 	// threshold.  govpx approximates "source variance" with the visible
@@ -8509,28 +8588,73 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	// so speeds where the SF is zero stay on the slow-path filter search
 	// (no slice reslice, no variance math).
 	if e.sf.DisableFilterSearchVarThresh > 0 && scoreW > 0 && scoreH > 0 &&
-		len(filters) > 1 {
+		len(allFilters) > 1 {
 		perPixel := uint(zeroDistortion / uint64(scoreW*scoreH))
 		if e.vp9InterSkipFilterSearch(perPixel) {
-			filters = filters[:1]
+			allFilters = allFilters[:1]
 		}
 	}
-	// libvpx nonrd_pickmode runs distortion for a single interpolation
-	// filter per mode (the default eighttap or the neighbor-derived
-	// filter_ref) and only enters the multi-filter walker when
-	// cb_pred_filter_search is set AND the MV has a non-zero subpel
-	// component. When sf.use_nonrd_pick_mode == 1 (RT speed >= 5) we
-	// mirror that fast path: rate-cost each candidate filter (so the
-	// bitstream's switchable-interp signal still tracks libvpx) but
-	// only compute prediction distortion once per (mode, mv) pair.
-	// predictVP9InterBlock + VpxConvolve8 dominate self-time, so
-	// collapsing the inner filter loop to one convolve cuts the inter-
-	// mode-pick CPU by ~3x for switchable-filter frames.
-	// libvpx: vp9/encoder/vp9_pickmode.c:2318-2330 (single-filter fast
-	// path), vp9_speed_features.c:601 (sf.use_nonrd_pick_mode = 1).
-	collapseFilters := e.sf.UseNonrdPickMode == 1
+
+	// libvpx: vp9_pickmode.c:1731-1880 — realtime (nonrd) per-mode filter
+	// selection.  filter_ref starts as cm->interp_filter and is overwritten
+	// from above/left inter neighbours when default_interp_filter != BILINEAR.
+	// pred_filter_search is (cm->interp_filter == SWITCHABLE), refined by a
+	// chessboard pattern when sf.cb_pred_filter_search is set.
+	//
+	// In the realtime path (sf.use_nonrd_pick_mode == 1), the per-mode
+	// candidate evaluation at vp9_pickmode.c:2318-2330 either:
+	//   (a) sweeps {EIGHTTAP, EIGHTTAP_SMOOTH} via search_filter_ref when
+	//       the MV is subpel AND pred_filter_search AND
+	//       (this_mode == NEWMV || filter_ref == SWITCHABLE), OR
+	//   (b) locks to filter = (filter_ref == SWITCHABLE) ? EIGHTTAP : filter_ref.
+	//
+	// govpx's slow (full RD) path keeps the libvpx vp9_rdopt.c three-filter
+	// sweep over {EIGHTTAP, EIGHTTAP_SMOOTH, EIGHTTAP_SHARP}.
+	useNonrd := e.sf.UseNonrdPickMode == 1
+	frameInterp := vp9InterFrameInterpFilter(inter)
+	filterRef := vp9NonrdFilterRef(frameInterp, e.sf.DefaultInterpFilter,
+		above, left)
+	predFilterSearch := vp9NonrdPredFilterSearch(frameInterp,
+		e.sf.CbPredFilterSearch, miRow, miCol, bsize, e.frameIndex)
+	// pickFilters returns the per-mode filter list following libvpx's
+	// vp9_pick_inter_mode realtime gate.  In the slow path (useNonrd ==
+	// false) it returns allFilters (the libvpx vp9_rd_pick_inter_mode_sb
+	// three-filter sweep).
+	pickFilters := func(mode common.PredictionMode, mv vp9dec.MV,
+		refIsLast bool,
+	) []vp9dec.InterpFilter {
+		if !useNonrd {
+			return allFilters
+		}
+		// libvpx: vp9_pickmode.c:2318-2330.  The realtime filter search
+		// fires only when (a) the MV has subpel bits, (b) pred_filter_search
+		// is on, (c) this_mode == NEWMV or filter_ref == SWITCHABLE, and
+		// (d) ref_frame is LAST (or one of the special GOLDEN cases — SVC
+		// or VBR — which govpx does not surface to this picker yet).
+		if vp9MvHasSubpel(mv) && predFilterSearch && refIsLast &&
+			(mode == common.NewMv || filterRef == vp9dec.InterpSwitchable) {
+			return vp9NonrdSwitchableInterpFilterOrder[:]
+		}
+		// libvpx: vp9_pickmode.c:2330 — single-filter fallback.
+		if filterRef == vp9dec.InterpSwitchable {
+			return vp9EighttapInterpFilterOrder[:]
+		}
+		switch filterRef {
+		case vp9dec.InterpEighttap:
+			return vp9EighttapInterpFilterOrder[:]
+		case vp9dec.InterpEighttapSmooth:
+			return vp9SmoothInterpFilterOrder[:]
+		case vp9dec.InterpEighttapSharp:
+			return vp9SharpInterpFilterOrder[:]
+		case vp9dec.InterpBilinear:
+			return vp9BilinearInterpFilterOrder[:]
+		default:
+			return vp9EighttapInterpFilterOrder[:]
+		}
+	}
+	refIsLast := refFrame == vp9dec.LastFrame
 	if modeAllowed(common.ZeroMv) {
-		for _, filter := range filters {
+		for _, filter := range pickFilters(common.ZeroMv, vp9dec.MV{}, refIsLast) {
 			consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
 				zeroDistortion)
 		}
@@ -8546,7 +8670,8 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		if !ok {
 			continue
 		}
-		if !vp9MvHasSubpel(mv) || collapseFilters {
+		filters := pickFilters(mode, mv, refIsLast)
+		if !vp9MvHasSubpel(mv) {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
 				miRow, miCol, bsize, mode, refFrame, mv, filters[0],
 			)
@@ -8572,7 +8697,8 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
 				miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
 				inter.refSignBias)
-			if !vp9MvHasSubpel(mv) || collapseFilters {
+			filters := pickFilters(common.NewMv, mv, refIsLast)
+			if !vp9MvHasSubpel(mv) {
 				distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
 					miRow, miCol, bsize, common.NewMv, refFrame, mv,
 					filters[0])

@@ -294,30 +294,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	//          vp9_pickmode.c:1875-1880 — when default_interp_filter != BILINEAR,
 	//   filter_ref is inherited from neighbour MIs.
 	frameInterp := vp9InterFrameInterpFilter(inter)
-	filterRef := frameInterp
-	if filterRef == vp9dec.InterpSwitchable {
-		// libvpx: vp9_pickmode.c:1875-1880 filter inheritance.
-		if above != nil && vp9NeighborIsInter(above) {
-			filterRef = vp9dec.InterpFilter(above.InterpFilter)
-		} else if left != nil && vp9NeighborIsInter(left) {
-			filterRef = vp9dec.InterpFilter(left.InterpFilter)
-		} else {
-			filterRef = vp9dec.InterpEighttap
-		}
-	}
+	filterRef := vp9NonrdFilterRef(frameInterp, e.sf.DefaultInterpFilter,
+		above, left)
 
 	// libvpx: vp9_pickmode.c:1732 int pred_filter_search = cm->interp_filter
-	//   == SWITCHABLE; further refined at 1862-1869 by cb_pred_filter_search.
-	// At speed 8 with cb_pred_filter_search=2, pred_filter_search collapses
-	// to 0 for half of the SBs (the chessboard pattern), and to 1 for the
-	// other half. govpx approximates this by gating on
-	// sf.CbPredFilterSearch: at value 2, never run the inner filter search;
-	// at value 1, run it always; at value 0, run it only when frame
-	// interp_filter is SWITCHABLE.
-	predFilterSearch := frameInterp == vp9dec.InterpSwitchable
-	if e.sf.CbPredFilterSearch >= 2 {
-		predFilterSearch = false
-	}
+	//   == SWITCHABLE; further refined at 1862-1869 by cb_pred_filter_search,
+	//   which keys a chessboard pattern off (mi_row + mi_col) >>
+	//   mi_width_log2_lookup[bsize] + (current_video_frame & 1). govpx ports
+	//   the chessboard verbatim so half the SBs run the per-mode filter sweep
+	//   and the other half fall through to the filter_ref shortcut.
+	predFilterSearch := vp9NonrdPredFilterSearch(frameInterp,
+		e.sf.CbPredFilterSearch, miRow, miCol, bsize, e.frameIndex)
 
 	// libvpx: vp9_pickmode.c:1759 unsigned int best_sse_sofar = UINT_MAX;
 	bestSseSoFar := uint64(1<<63 - 1)
@@ -455,19 +442,38 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 		}
 
-		// libvpx: vp9_pickmode.c:2318-2329 — pred_filter_search. When the
-		// MV has subpel bits and pred_filter_search is on, libvpx runs the
-		// search_filter_ref helper which evaluates all 3 filters. Otherwise
-		// it locks the filter to filter_ref (or EIGHTTAP if filter_ref ==
-		// SWITCHABLE) and runs a single inter prediction.
-		filters := []vp9dec.InterpFilter{filterRef}
-		if filterRef == vp9dec.InterpSwitchable {
-			filters = []vp9dec.InterpFilter{vp9dec.InterpEighttap}
-		}
-		if predFilterSearch && (thisMode == common.NewMv ||
-			filterRef == vp9dec.InterpSwitchable) &&
-			vp9MvHasSubpel(mv) {
-			filters = vp9SwitchableInterpFilterOrder[:]
+		// libvpx: vp9_pickmode.c:2318-2330 — pred_filter_search. When the
+		// MV has subpel bits and pred_filter_search is on and the ref is
+		// LAST (or one of the special GOLDEN cases — SVC or VBR — which
+		// govpx does not surface here), libvpx runs search_filter_ref
+		// which sweeps {EIGHTTAP, EIGHTTAP_SMOOTH} (filter_end =
+		// EIGHTTAP_SMOOTH; EIGHTTAP_SHARP is NOT evaluated in the realtime
+		// path). Otherwise libvpx locks to
+		// filter = (filter_ref == SWITCHABLE) ? EIGHTTAP : filter_ref.
+		//
+		// libvpx: vp9_pickmode.c:1523-1525 search_filter_ref filter loop.
+		// libvpx: vp9_pickmode.c:2330 mi->interp_filter fallback.
+		var filters []vp9dec.InterpFilter
+		switch {
+		case predFilterSearch && refFrame == vp9dec.LastFrame &&
+			(thisMode == common.NewMv || filterRef == vp9dec.InterpSwitchable) &&
+			vp9MvHasSubpel(mv):
+			filters = vp9NonrdSwitchableInterpFilterOrder[:]
+		case filterRef == vp9dec.InterpSwitchable:
+			filters = vp9EighttapInterpFilterOrder[:]
+		default:
+			switch filterRef {
+			case vp9dec.InterpEighttap:
+				filters = vp9EighttapInterpFilterOrder[:]
+			case vp9dec.InterpEighttapSmooth:
+				filters = vp9SmoothInterpFilterOrder[:]
+			case vp9dec.InterpEighttapSharp:
+				filters = vp9SharpInterpFilterOrder[:]
+			case vp9dec.InterpBilinear:
+				filters = vp9BilinearInterpFilterOrder[:]
+			default:
+				filters = vp9EighttapInterpFilterOrder[:]
+			}
 		}
 
 		// Per-candidate inner: evaluate distortion and rate.
