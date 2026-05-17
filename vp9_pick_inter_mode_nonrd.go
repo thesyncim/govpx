@@ -376,6 +376,62 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+
+	// libvpx: vp9_pickmode.c:1710 int_mv frame_mv[MB_MODE_COUNT][MAX_REF_FRAMES].
+	// Pre-compute the (mode, ref) MV table that find_predictors populates
+	// outside the main candidate loop (vp9_pickmode.c:2002-2012). The table
+	// holds:
+	//
+	//   frame_mv[ZEROMV][ref]    = 0      (libvpx vp9_pickmode.c:1280)
+	//   frame_mv[NEARESTMV][ref] = vp9_find_best_ref_mvs's nearestmv result
+	//   frame_mv[NEARMV][ref]    = vp9_find_best_ref_mvs's nearmv result
+	//   frame_mv[NEWMV][ref]     = INVALID_MV (filled by search_new_mv)
+	//
+	// govpx walks vp9FindInterMvRefsFields once per ref to populate
+	// NEAREST/NEAR; ZERO is constant; NEW is computed lazily inside the
+	// main loop via pickVP9InterMv. This eliminates the prior per-iteration
+	// vp9EncoderInterModeCandidateMv re-walk and surfaces the libvpx-exact
+	// dedup at lines 2269-2278 (mode_checked) and 2296-2299 (NEARESTMV).
+	var frameMv [common.MbModeCount][vp9dec.MaxRefFrames]vp9dec.MV
+	var frameMvValid [common.MbModeCount][vp9dec.MaxRefFrames]bool
+	for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
+		if !refSlotValid[r] {
+			continue
+		}
+		// libvpx: vp9_pickmode.c:1280 frame_mv[ZEROMV][ref] = 0.
+		frameMv[common.ZeroMv][r] = vp9dec.MV{}
+		frameMvValid[common.ZeroMv][r] = true
+		// libvpx: vp9_pickmode.c:1295-1297 vp9_find_best_ref_mvs ->
+		//   nearestmv = candidates[0]; nearmv = candidates[1].
+		// govpx vp9FindInterMvRefsFields returns refList[0..1] with
+		// NearMv-mode walk (no earlyBreak) — matches libvpx's
+		// candidates[0..1] post-clamp.
+		refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+			e.useVP9EncoderPrevFrameMvs(miRows, miCols),
+			e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
+			tile, miRows, miCols, miRow, miCol, bsize,
+			common.NearMv, r, inter.refSignBias, -1)
+		if refCount >= 1 {
+			mvN := refList[0]
+			vp9dec.LowerMvPrecision(&mvN, inter.allowHP)
+			frameMv[common.NearestMv][r] = mvN
+			frameMvValid[common.NearestMv][r] = true
+		}
+		if refCount >= 2 {
+			mvNear := refList[1]
+			vp9dec.LowerMvPrecision(&mvNear, inter.allowHP)
+			frameMv[common.NearMv][r] = mvNear
+			frameMvValid[common.NearMv][r] = true
+		}
+		// frame_mv[NEWMV][ref] is left invalid; search_new_mv fills it
+		// lazily inside the main loop when NEWMV is visited.
+	}
+
+	// libvpx: vp9_pickmode.c:1711 uint8_t mode_checked[MB_MODE_COUNT][MAX_REF_FRAMES].
+	// Tracks per-(mode, ref) which candidates have already been scored so
+	// the dedup at vp9_pickmode.c:2269-2278 can skip duplicate-MV
+	// candidates. memset to 0 at vp9_pickmode.c:1838.
+	var modeChecked [common.MbModeCount][vp9dec.MaxRefFrames]bool
 	interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols, tile,
 		miRows, miRow, miCol, bsize)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
@@ -512,7 +568,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// libvpx: vp9_pickmode.c:2259-2264 — search_new_mv issues
 		// vp9_single_motion_search for NEWMV and returns its rate cost.
 		// govpx invokes the existing pickVP9InterMv helper, which wraps the
-		// motion-search and returns the winning MV.
+		// motion-search and returns the winning MV. NEAREST/NEAR/ZERO read
+		// from the pre-computed frame_mv table (find_predictors-equivalent
+		// populated above).
 		var mv vp9dec.MV
 		var refMv vp9dec.MV
 		if thisMode == common.NewMv {
@@ -533,37 +591,69 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				continue
 			}
 			mv = gotMv
-			refMv, _ = e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-				miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
-				inter.refSignBias)
+			// libvpx vp9_pickmode.c:2302 mi->mv[0] = frame_mv[NEWMV][ref];
+			// frame_mv[NEWMV] is the NEW search winner. ref_mv (for
+			// inter_mode_cost) is frame_mv[NEARESTMV][ref] (libvpx
+			// uses MBMI_EXT->ref_mvs[ref][0] which equals nearestmv
+			// post-find_best_ref_mvs).
+			frameMv[common.NewMv][refFrame] = mv
+			frameMvValid[common.NewMv][refFrame] = true
+			if frameMvValid[common.NearestMv][refFrame] {
+				refMv = frameMv[common.NearestMv][refFrame]
+			}
 		} else if thisMode == common.NearestMv || thisMode == common.NearMv {
 			// libvpx: vp9_pickmode.c:2302 — mi->mv[0] is set from
-			// frame_mv[this_mode][ref_frame], which find_predictors filled
-			// with the nearest/near MV from the reference MV stack.
-			gotMv, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-				miRow, miCol, bsize, thisMode, refFrame, inter.allowHP,
-				inter.refSignBias)
-			if !ok {
+			// frame_mv[this_mode][ref_frame], which find_predictors
+			// filled with the nearest/near MV from the reference MV
+			// stack. NEAR mode requires refCount >= 2 (frameMvValid).
+			if !frameMvValid[thisMode][refFrame] {
 				continue
 			}
-			mv = gotMv
-			refMv = gotMv
+			mv = frameMv[thisMode][refFrame]
+			refMv = mv
 		} else {
 			// ZEROMV: libvpx: vp9_pickmode.c:1280 frame_mv[ZEROMV][ref] = 0.
 			mv = vp9dec.MV{}
 			refMv = vp9dec.MV{}
 		}
 
-		// libvpx: vp9_pickmode.c:2296-2299 — duplicate-MV dedup. NEARMV /
-		// NEARESTMV / NEWMV with the same MV as NEARESTMV is skipped to
-		// avoid re-scoring identical candidates. govpx mirrors the check.
-		if thisMode != common.NearestMv && bp.winnerSet &&
-			bp.winner.refFrame == refFrame {
-			if mv == bp.winner.mv[0] && mv == (vp9dec.MV{}) {
-				// libvpx's mode_checked dedup uses any matching prior mode
-				// with the same MV. govpx narrows to the (ZEROMV-equivalent)
-				// case because the per-ref winner is the only state we
-				// track without the full mode_checked[][] table.
+		// libvpx: vp9_pickmode.c:2269-2278 — mode_checked dedup. Walk
+		// inter_mv_mode in {NEARESTMV..NEWMV}: when a prior mode for
+		// the same ref has already been scored AND it has the same MV
+		// as this candidate AND that MV is zero, skip this candidate.
+		// This is the more permissive verbatim libvpx check vs the
+		// previous narrowed bp.winner-based dedup.
+		{
+			skipThisMv := false
+			for prior := common.NearestMv; prior <= common.NewMv; prior++ {
+				if prior == thisMode {
+					continue
+				}
+				if !modeChecked[prior][refFrame] {
+					continue
+				}
+				if !frameMvValid[prior][refFrame] {
+					continue
+				}
+				if frameMv[thisMode][refFrame] == frameMv[prior][refFrame] &&
+					frameMv[prior][refFrame] == (vp9dec.MV{}) {
+					skipThisMv = true
+					break
+				}
+			}
+			if skipThisMv {
+				continue
+			}
+		}
+
+		// libvpx: vp9_pickmode.c:2296-2299 — duplicate-NEARESTMV dedup.
+		//   if (this_mode != NEARESTMV && !comp_pred &&
+		//       frame_mv[this_mode][ref_frame].as_int ==
+		//           frame_mv[NEARESTMV][ref_frame].as_int)
+		//     continue;
+		// Verbatim port using the pre-computed frame_mv table.
+		if thisMode != common.NearestMv && frameMvValid[common.NearestMv][refFrame] {
+			if mv == frameMv[common.NearestMv][refFrame] {
 				continue
 			}
 		}
@@ -947,6 +1037,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				bp.winnerSet = true
 			}
 		}
+
+		// libvpx: vp9_pickmode.c:2458 mode_checked[this_mode][ref_frame] = 1.
+		// Tracks per-(mode, ref) that a candidate has been scored so the
+		// dedup at 2269-2278 can skip duplicate-MV candidates on subsequent
+		// iterations. Marked AFTER the inner filter loop so the candidate
+		// counts as scored when at least one filter sweep completed.
+		modeChecked[thisMode][refFrame] = true
 
 		// libvpx: vp9_pickmode.c:2484-2488 — best_early_term shortcut.
 		//   if (best_early_term && idx > 0 && !scene_change_detected) {

@@ -5,7 +5,6 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // CYCLIC_REFRESH_AQ — verbatim port of libvpx v1.16.0
@@ -933,13 +932,22 @@ func (cr *vp9CyclicRefreshState) segmentationParams(baseQIndex int) vp9dec.Segme
 		UpdateData: true,
 		AbsDelta:   false, // libvpx: vp9_aq_cyclicrefresh.c:642 — SEGMENT_DELTADATA.
 	}
+	// libvpx's vp9_choose_segmap_coding_method (vp9_segmentation.c:242-316)
+	// initialises seg->tree_probs / seg->pred_probs to MAX_PROB (255),
+	// then OVERWRITES them with the realized-mi_grid counts at
+	// encode_segmentation time (vp9_bitstream.c:773). libvpx's
+	// cyclic-refresh setup never touches tree_probs itself
+	// (vp9_aq_cyclicrefresh.c writes only feature_data / feature_mask).
+	// Match that contract: seed with MAX_PROB here and let the
+	// chooser populate the realized-grid probs via
+	// vp9ChooseSegmentMapCodingMethod when it runs in
+	// collectVP9EncodeFrameCounts.
 	for i := range vp9dec.SegTreeProbs {
 		seg.TreeProbs[i] = vp9dec.MaxProb
 	}
 	for i := range vp9dec.PredictionProbs {
 		seg.PredProbs[i] = vp9dec.MaxProb
 	}
-	cr.setSegmentTreeProbs(&seg)
 	// Compute deltas if the libvpx setup path didn't already populate
 	// them — keeps backwards compatibility with the prepareFrame-only
 	// caller path used today.
@@ -969,29 +977,6 @@ func (cr *vp9CyclicRefreshState) segmentationParams(baseQIndex int) vp9dec.Segme
 		seg.FeatureData[vp9CyclicRefreshSegmentBoost2][vp9dec.SegLvlAltQ] = int16(delta2)
 	}
 	return seg
-}
-
-func (cr *vp9CyclicRefreshState) setSegmentTreeProbs(seg *vp9dec.SegmentationParams) {
-	if cr == nil || seg == nil || !cr.apply || cr.miRows <= 0 || cr.miCols <= 0 {
-		return
-	}
-	n := cr.miRows * cr.miCols
-	if n <= 0 || len(cr.segMap) < n {
-		return
-	}
-	var counts [vp9dec.MaxSegments]uint32
-	for _, segmentID := range cr.segMap[:n] {
-		if segmentID < vp9dec.MaxSegments {
-			counts[segmentID]++
-		}
-	}
-	var branchCounts [vp9dec.SegTreeProbs][2]uint32
-	vp9enc.TreeProbsFromDistribution(common.SegmentTree[:],
-		branchCounts[:], counts[:])
-	for i := range seg.TreeProbs {
-		seg.TreeProbs[i] = vp9enc.GetBinaryProb(branchCounts[i][0],
-			branchCounts[i][1])
-	}
 }
 
 func absInt16(v int16) int16 {

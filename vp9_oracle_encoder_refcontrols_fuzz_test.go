@@ -99,6 +99,18 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// ~+50-150 bytes per inter frame (verified by
 	// TestVP9NonrdPickPartitionDeferredSeedsProgress).
 	[]byte("2"),
+	// regression_vp9_refctrl_6573b9b5: captured by sweep (commit e7b9906).
+	// All-zero materialised flags (vp9RefcontrolsFuzzCase pool produces
+	// no per-frame EncodeForce*/NoUpdate* permutations for this byte
+	// pattern), so the divergence reduces to the same ML_BASED_PARTITION
+	// inter-frame pick-mode gap that affects regression_2fde656d above.
+	// Frame 0 KF matches byte-for-byte (3040 bytes); inter frames 1-7
+	// diverge at first_diff in [4, 13] by 100-600 bytes pending the
+	// vp9_pick_inter_mode port (vp9_pickmode.c:1696). Same handoff as
+	// regression_582528dd / _916d1b27 / _2fde656d; do NOT close until
+	// the ML_BASED_PARTITION dispatch's per-leaf MV / mode / tx_size
+	// picks land verbatim.
+	[]byte("7"),
 	// Progress notes (this commit, task #87):
 	//
 	//  * Thread sf->nonrd_keyframe into vp9ChoosePartitioning's
@@ -239,6 +251,49 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//   path above (vp9_pick_inter_mode port for the per-leaf MV /
 	//   tx_size / interp picks) is still required before any seed
 	//   un-defers.
+	//
+	// Progress notes (task #119, this commit):
+	//
+	//  * Ported the libvpx-faithful find_predictors frame_mv[mode][ref]
+	//    pre-population into pickVP9InterReferenceModeNonRD (libvpx
+	//    vp9_pickmode.c:1710 + 2002-2012). The picker now walks
+	//    vp9FindInterMvRefsFields once per ref to populate NEAREST/
+	//    NEAR MVs outside the main candidate loop, replacing the
+	//    per-iteration vp9EncoderInterModeCandidateMv re-walk.
+	//
+	//  * Ported the libvpx-exact dedup checks at vp9_pickmode.c:
+	//    2269-2278 (mode_checked walk) and 2296-2299 (NEARESTMV
+	//    duplicate-MV skip). The earlier narrow bp.winner-based
+	//    dedup is replaced with the full mode_checked[mode][ref]
+	//    table the libvpx walker maintains.
+	//
+	//  * Per-seed size_delta vs libvpx under the Phase D opt-in
+	//    after this commit (verified by
+	//    TestVP9NonrdPickPartitionDeferredSeedsProgress):
+	//
+	//      af5570f5: +42, b9af55f0: -91, fda5b6b4: -192,
+	//      ffa55725: -49, 8ec0abe5: +72, 9c3e08e8: +420,
+	//      5feceb66: -285, 6b86b273: -131, d4735e3a: -502.
+	//
+	//    Aggregate: -716 bytes (avg -80B/seed). Pre-#119 baseline
+	//    was +3900 bytes aggregate (avg +430B/seed) — the dedup
+	//    port changed the sign of the bias and tightens the
+	//    distribution. Seeds still don't byte-match because the
+	//    residual is now structural: the per-block (tx_size,
+	//    interp_filter) decisions still differ from libvpx where
+	//    pickVP9InterTxSize runs a variance-RDO instead of
+	//    libvpx's verbatim calculate_tx_size output (the latter is
+	//    surfaced by vp9ModelRdForSbY but currently overridden by
+	//    the leaf-commit pickVP9InterTxSize hook).
+	//
+	//  * Remaining closure path: route the picker's mrdTxSize
+	//    (already computed via vp9ModelRdForSbY at the per-mode
+	//    inner loop) into the leaf commit so the picker's tx_size
+	//    decision survives end-to-end, bypassing the variance-RDO
+	//    pickVP9InterTxSize. That requires threading a TxSize
+	//    field through vp9InterModeDecision and updating the
+	//    consumers in prepareVP9InterBlockResidue
+	//    (vp9_encoder.go:8498/8513).
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {

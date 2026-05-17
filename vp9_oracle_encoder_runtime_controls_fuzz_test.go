@@ -116,20 +116,61 @@ import (
 //     wider frame_width-1 (127) trips a different miCols path that
 //     amplifies the bitstream divergence on top.
 //
-//   - {1,1,2,0,3,1,1,0} — 128x64 frames=6 cpu=-8 (abs=8). govpx covers the
-//     cpu_used=8 speed-features path, yet frame 0 still diverges at byte 16
-//     because the compressed-header writer payload differs on
-//     content-rich keyframes: libvpx writes the full
-//     coef-update / tx-mode payload via write_compressed_header
-//     (vp9/encoder/vp9_bitstream.c:826-973) using
-//     vp9_cond_prob_diff_update results from the per-tile frame_counts,
-//     while govpx's WriteCompressedHeaderFromCounts emits a smaller subset
-//     and packs SPEED_FEATURES.coef_prob_appx_step=4 (the speed-8 fast
-//     path, vp9_speed_features.c:610) verbatim — the savings-search
-//     threshold then diverges at the first coef-prob context. The flat
-//     sources used by TestVP9EncoderVpxencOracleChecker64KeyframeByteParity
-//     emit predominantly all-zero counts so the writers agree there;
-//     panning content exposes the gap.
+//   - {1,1,2,0,3,1,1,0} — 128x64 frames=6 cpu=-8 (abs=8). flags=[0 256 0
+//     320 256 512]. Earlier diagnostic cited a keyframe compressed-header
+//     writer gap at byte 16; that gap has SINCE BEEN CLOSED — frame 0 now
+//     byte-MATCHES at len=5937 against the libvpx vpxenc-vp9-frameflags
+//     oracle. The remaining divergence is in the INTER frames:
+//
+//     frame 1 (NoUpdateEntropy): got_len=3782 want_len=2830 first_diff_bit=72
+//     frame 2 (default flags):   got_len=3903 want_len=2933 first_diff_bit=33
+//     frame 3 (NoUpdateEntropy|NoUpdateGolden): first_diff_bit=33
+//     frame 4 (NoUpdateEntropy): first_diff_bit=33
+//     frame 5 (ForceGolden):     first_diff_bit=33
+//
+//     Two distinct gaps surface:
+//
+//     (a) frame 1 first_diff_bit=72: decodes as the leading bit of
+//     FirstPartitionSize (the 16-bit literal at the tail of the
+//     inter uncompressed header; libvpx vp9_bitstream.c:1457). The
+//     16-bit value is govpx=5 (compSize ~5 bytes) vs libvpx=51
+//     (compSize ~51 bytes). govpx's WriteCompressedHeaderFromCounts
+//     emits a near-empty payload because the per-tile frame_counts
+//     govpx supplies are sparse (most coef branch slots all-zero),
+//     so update_coef_probs_common's savings-search finds nothing to
+//     emit. libvpx ingests denser coef counts from its per-block
+//     tokenisation pass and emits 51 bytes of cond_prob_diff_update
+//     payload. Despite the smaller compressed header, govpx's tile
+//     data is LARGER (3782-5 vs 2830-51 bytes) because the encoder
+//     encodes tokens against the stale (non-updated) probs, paying
+//     more bits per token.
+//
+//     (b) frames 2+ first_diff_bit=33: leading bit of write_interp_filter
+//     (libvpx vp9_bitstream.c:840-862): `cm->interp_filter ==
+//     SWITCHABLE` ? 1 : 0. libvpx emits 1 (kept SWITCHABLE), govpx
+//     emits 0 (demoted by fix_interp_filter at vp9_bitstream.c:864-885
+//     because c==1 — every block picked the same filter). libvpx's
+//     per-tile counts->switchable_interp[ctx][filter] histogram has
+//     c>1 on these panning sources; govpx's has c==1.
+//
+//     Both (a) and (b) trace to the same root: per-block mode/filter
+//     selection in the nonrd pickmode at RT speed 8 diverges between
+//     govpx (vp9_pick_inter_mode_nonrd.go) and libvpx's
+//     vp9_pick_inter_mode (vp9_pickmode.c:1731-2080). The
+//     cb_pred_filter_search chessboard (vp9_pickmode.c:1862-1869) +
+//     per-mode filter sweep + per-token tokenisation accumulator
+//     pipeline produce a different frame_counts → different compressed-
+//     header diff updates AND different filter histogram → cascading
+//     bitstream drift.
+//
+//     Closing this seed requires a verbatim port of the nonrd pickmode
+//     per-block mode+filter+tokenise pipeline (vp9_pickmode.c:1731-2080)
+//     plus the per-block coef counts accumulator (vp9_tokenize.c
+//     vp9_tokenize_sb / sum_intra_stats / count_segs paths). This is a
+//     substantial encoder-body port — not a header-writer fix — and is
+//     tracked separately from the closed compressed-header keyframe work.
+//     The KF compressed-header writer (the OLD cited gap) is verbatim
+//     against libvpx now and is NOT the remaining gap.
 //
 //   - {0,2,0,2,0,0,0,0} — 64x64 frames=8 cpu=0. Same KEY_FRAME
 //     per-block tx_size RD-search gap as #0 with frame count widened;
@@ -138,19 +179,21 @@ import (
 //     EncodeForce*/NoUpdate* flags that govpx already routes through
 //     vp9_set_reference_frame_flags / ext_refresh_frame_flags.
 //
-//   - {1,2,1,0,4,1,0,1} — 128x64 frames=8 cpu=-3. Triggers the seed-byte
-//     refPos generator (r.pick(5)==4) which OR's
-//     EncodeNoReferenceGolden|EncodeNoReferenceAltRef onto the same frame
-//     where the per-frame action loop sets EncodeForceGoldenFrame at
-//     frame 4 (cumulative flags 576 = 0x240). govpx's
-//     vp9_set_reference_frame_flags rejects the EncodeForceGoldenFrame +
-//     EncodeNoUpdateGolden combination as ErrInvalidConfig (the no-update
-//     bit is implied when refresh_golden_frame is forced); libvpx's
-//     vp9_cx_iface.c:1657 ctrl_set_reference accepts the redundant flags
-//     and clears the no-update bit at vp9_encoder.c:set_ext_overrides.
-//     Closing this seed needs either the fuzz seed corpus to avoid the
-//     contradictory combination or a verbatim port of
-//     set_ext_overrides's resolution rules into govpx's flag validator.
+//   - {1,2,1,0,4,1,0,1} — 128x64 frames=8 cpu=-3. The materialiser now
+//     pre-resolves the FORCE_GF + NO_UPD_GF conflict (libvpx
+//     vp9_cx_iface.c:1394-1398 "Conflicting flags." rejection) the same
+//     way set_ext_overrides would — see normalizeVP9EncodeFlags — so
+//     frame 4 reaches the encoder body as 0x200 (EncodeForceGoldenFrame
+//     alone). With both sides receiving identical, libvpx-acceptable
+//     flags the divergence collapses to the SAME cpu=-3 RT speed=3
+//     keyframe per-block tx_size RD-search gap as seed #1
+//     (vp9_rdopt.c:3950+ choose_tx_size_from_rd cost_coeffs rate proxy).
+//     Frame 0 KF currently diverges with got_len=7611 want_len=5324
+//     first_diff=16; inter frames diverge at byte 4 each because the
+//     speed-3 compressed-header coef-update path still uses govpx's
+//     approximate vp9_cond_prob_diff_update savings threshold instead
+//     of libvpx's vp9_bitstream.c:826-973 verbatim walk. Same handoff
+//     as #1; do NOT close until #1 closes.
 //
 // Short-byte regression-corpus seeds resolving to one of the above cases via
 // vp9FuzzByteCursor wrap-around:
@@ -202,14 +245,41 @@ import (
 //     plus the refPos generator picks r.pick(5)==0 -> EncodeNoUpdateLast
 //     for frame 2 and the per-frame action loop picks r.pick(4)==2 ->
 //     EncodeForceGoldenFrame for every inter frame. Frame 2 stacks
-//     EncodeNoUpdateLast | EncodeForceGoldenFrame plus the kfPos-driven
-//     EncodeForceKeyFrame (cumulative flags 545 = 0x221). govpx's
-//     vp9_set_reference_frame_flags rejects EncodeForceGoldenFrame in
-//     combination with the implicit NoUpdateGolden derivation rule the
-//     same way it rejects seed #5 (vp9_cx_iface.c:1657 ctrl_set_reference
-//     accepts the redundant flags in libvpx and clears the no-update
-//     bit at vp9_encoder.c:set_ext_overrides). Same handoff as #5
-//     (set_ext_overrides resolution rules); do NOT close until #5 closes.
+//     EncodeNoUpdateLast | EncodeForceGoldenFrame | EncodeForceKeyFrame
+//     (cumulative flags 0x221). After this commit dropped the
+//     vp9_encoder.go:2399 `isKey && NoUpdate*` rejection (libvpx
+//     vp9_encoder.c:5444 / 856-858 force refresh_*_frame=1 on KEY_FRAME
+//     regardless of ext_refresh_*, so NoUpdate hints are silently
+//     ignored, not errored), seed 0x32 frames 0 and 2 (the two KEY_FRAMES)
+//     match byte-for-byte; inter frames 1, 3-7 still diverge at byte 4
+//     each because cpu=-8 RT speed=8 hits the compressed-header
+//     coef-update writer gap documented under seed #3
+//     (vp9_bitstream.c:826-973 write_compressed_header vs govpx's
+//     WriteCompressedHeaderFromCounts subset under
+//     SPEED_FEATURES.coef_prob_appx_step=4 fast path). Same handoff as
+//     #3; do NOT close this entry until #3 closes.
+//
+//   - {0x37} (single ASCII '7', from testdata/fuzz/
+//     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-
+//     6573b9b5 captured in commit e7b9906) — vp9FuzzByteCursor returns
+//     55%n for every pick(); 55 % 2 = 1, 55 % 3 = 1, 55 % 4 = 3,
+//     55 % 5 = 0, 55 % 6 = 1, etc. The case materialises to dims[1]=
+//     (128,64), frameCountPool[1]=6, cpuPool[3]=4, kfPos=1, refPos=1,
+//     plus the refPos generator picks r.pick(5)==0 -> EncodeNoUpdateLast
+//     on frame 1 and the per-frame action loop picks r.pick(4)==3 ->
+//     EncodeForceAltRefFrame for every inter frame. Frame 1 stacks
+//     EncodeForceKeyFrame | EncodeNoUpdateLast | EncodeForceAltRefFrame
+//     (cumulative flags 0x421). After dropping the
+//     vp9_encoder.go:2399 `isKey && NoUpdate*` rejection (see {0x32}
+//     entry) the encoder body now runs end-to-end at cpu=4 RT speed=4.
+//     The remaining divergence is the per-block keyframe tx_size RD
+//     search gap (vp9_rdopt.c:3950+ choose_tx_size_from_rd cost_coeffs
+//     rate proxy) plus the speed-4 compressed-header coef-update walk;
+//     frame 0 KF diverges at got_len=5890 want_len=5483 first_diff=16,
+//     frame 1 (the second KF) at first_diff=16, inter frames 2-5 at
+//     first_diff=[9,3,3,3]. Same handoff family as seeds #2 / #3 (wider
+//     dim + cpu>=4 RT speed compressed-header subset); do NOT close
+//     until those close.
 //
 // Re-measurement under
 // GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
@@ -245,7 +315,8 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	// Short-byte regression-corpus aliases of the above (see comment).
 	{0x30}, // regression_vp9_runtime_controls_582528dd — alias of #0
 	{0x31}, // regression_vp9_runtime_controls_916d1b27 — alias of #1 family
-	{0x32}, // regression_vp9_runtime_controls_2fde656d — alias of #5 family
+	{0x32}, // regression_vp9_runtime_controls_2fde656d — alias of #3 (cpu=-8 RT speed=8 compressed-header writer gap)
+	{0x37}, // regression_vp9_runtime_controls_6573b9b5 — alias of #2/#3 family (cpu=4 RT speed=4 KF+inter divergence)
 }
 
 func vp9RuntimeControlsSeedDeferred(data []byte) bool {
@@ -382,6 +453,21 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 		case 3:
 			flags[i] |= EncodeForceAltRefFrame
 		}
+	}
+	// libvpx vp9/vp9_cx_iface.c:1394-1398 rejects FORCE_GF + NO_UPD_GF and
+	// FORCE_ARF + NO_UPD_ARF on the same frame as "Conflicting flags." The
+	// vpxenc-vp9-frameflags oracle propagates that VPX_CODEC_INVALID_PARAM as
+	// an exit-status failure, so the materialiser would deadlock the parity
+	// comparator before ever exercising the encoder. govpx's
+	// normalizeVP9EncodeFlags (vp9_encoder.c:set_ext_overrides semantics:
+	// FORCE wins because vp9_apply_encoding_flags' upd mask treats FORCE_GF
+	// as "refresh all minus NO_UPD bits" and the conflict check would have
+	// rejected the input upstream) drops the NO_UPD_GF/NO_UPD_ARF bit when
+	// the matching FORCE_GF/FORCE_ARF bit is set. Apply the same resolution
+	// at materialisation so both encoders see identical, libvpx-acceptable
+	// flag schedules for every fuzz iteration.
+	for i := range flags {
+		flags[i] = normalizeVP9EncodeFlags(flags[i])
 	}
 
 	extraArgs := []string{
