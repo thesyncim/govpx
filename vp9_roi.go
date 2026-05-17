@@ -9,6 +9,12 @@ type vp9ROIMapState struct {
 	segmentID       []uint8
 	deltaQuantizer  [vp9dec.MaxSegments]int16
 	deltaLoopFilter [vp9dec.MaxSegments]int16
+	// skip mirrors libvpx's vpx_roi_map_t.skip[8] (vp9_encoder.h).  Each
+	// entry is 0 or 1; 1 activates SegLvlSkip on that segment.
+	skip [vp9dec.MaxSegments]int8
+	// refFrame mirrors libvpx's vpx_roi_map_t.ref_frame[8].  -1 disables
+	// the override; 0..3 select intra/last/golden/altref.
+	refFrame [vp9dec.MaxSegments]int8
 }
 
 func (r *vp9ROIMapState) disable() {
@@ -20,14 +26,26 @@ func (r *vp9ROIMapState) disable() {
 	}
 	r.deltaQuantizer = [vp9dec.MaxSegments]int16{}
 	r.deltaLoopFilter = [vp9dec.MaxSegments]int16{}
+	r.skip = [vp9dec.MaxSegments]int8{}
+	for i := range r.refFrame {
+		r.refFrame[i] = -1
+	}
 }
 
 // SetROIMap installs a VP9 region-of-interest map for subsequent inter frames.
 // VP9 ROI cells are 8x8 MI cells, so rows and cols must equal
 // ceil(height/8) and ceil(width/8). Key frames ignore the ROI map. Pass nil,
-// Enabled=false, nil SegmentID, or all-zero DeltaQuantizer/DeltaLoopFilter
-// values to disable ROI. VP9 does not support ROI StaticThreshold through this
-// control, so non-zero StaticThreshold values return ErrInvalidConfig.
+// Enabled=false, nil SegmentID, or an all-zero/no-override field set to
+// disable ROI. VP9 does not support ROI StaticThreshold through this control,
+// so non-zero StaticThreshold values return ErrInvalidConfig.
+//
+// Mirrors libvpx's vp9_set_roi_map (vp9/encoder/vp9_encoder.c:693): the
+// delta_q/delta_lf range is [-63, 63] and skip is in [0, 1].  The
+// ref_frame[] dimension is [-1, 3] in libvpx, but Go's zero value 0 also
+// means "no override" here to keep the existing govpx ROIMap callers (which
+// never initialised RefFrame) green; ref_frame values of -1 or 0 disable
+// the override and 1..3 select LAST/GOLDEN/ALTREF.  Callers that want to
+// force intra prediction per segment must use govpx segmentation directly.
 func (e *VP9Encoder) SetROIMap(m *ROIMap) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -46,17 +64,37 @@ func (e *VP9Encoder) SetROIMap(m *ROIMap) error {
 	var next vp9ROIMapState
 	next.rows = m.Rows
 	next.cols = m.Cols
+	// libvpx's ref_frame[] convention uses -1 as the "no override"
+	// sentinel; govpx accepts both -1 and 0 because Go's zero value is 0
+	// (existing ROIMap callers leave the array unset and expect ROI to
+	// stay off in that slot).  The state mirror stores -1 for "no
+	// override" to keep the encode-time check uniform.
+	for i := range next.refFrame {
+		next.refFrame[i] = -1
+	}
 	for i := range m.DeltaQuantizer {
 		dq := m.DeltaQuantizer[i]
 		dlf := m.DeltaLoopFilter[i]
 		st := m.StaticThreshold[i]
+		skip := m.Skip[i]
+		ref := m.RefFrame[i]
+		// libvpx ranges: delta_q/delta_lf ±63, skip [0,1], ref_frame
+		// [-1, 3] (vp9_encoder.c:699-704).  govpx widens the lower
+		// ref_frame bound to 0 (treated as -1 below).
 		if dq < -maxQuantizer || dq > maxQuantizer ||
-			dlf < -63 || dlf > 63 || st != 0 {
+			dlf < -63 || dlf > 63 || st != 0 ||
+			skip < 0 || skip > 1 ||
+			ref < -1 || ref > 3 {
 			return ErrInvalidConfig
 		}
 		next.deltaQuantizer[i] = int16(vp9ROIQuantizerDeltaToQIndex(dq))
 		next.deltaLoopFilter[i] = int16(dlf)
-		if dq != 0 || dlf != 0 {
+		next.skip[i] = int8(skip)
+		refOverride := ref >= 1
+		if refOverride {
+			next.refFrame[i] = int8(ref)
+		}
+		if dq != 0 || dlf != 0 || skip != 0 || refOverride {
 			next.enabled = true
 		}
 	}
@@ -113,6 +151,21 @@ func (r *vp9ROIMapState) segmentationParams() vp9dec.SegmentationParams {
 		if delta := r.deltaLoopFilter[i]; delta != 0 {
 			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltLf)
 			seg.FeatureData[i][vp9dec.SegLvlAltLf] = delta
+		}
+		// libvpx vp9_set_roi_map writes the skip and ref-frame overrides
+		// directly into the per-segment feature mask/data the same way
+		// alt-q and alt-lf are written above (vp9/encoder/vp9_encoder.c:
+		// 693-740 then carried to common/vp9_seg_common.h's per-segment
+		// SegLvl* indexing).  SegLvlSkip's feature_data is unused so it
+		// stays at zero; SegLvlRefFrame stores the reference index in
+		// feature_data (vp9_seg_common.h::seg_feature_data_signed: only
+		// AltQ/AltLf are signed, RefFrame/Skip are unsigned).
+		if r.skip[i] != 0 {
+			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlSkip)
+		}
+		if ref := r.refFrame[i]; ref >= 0 {
+			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlRefFrame)
+			seg.FeatureData[i][vp9dec.SegLvlRefFrame] = int16(ref)
 		}
 	}
 	return seg

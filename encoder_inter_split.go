@@ -385,7 +385,22 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	if errorPerBit <= 0 {
 		errorPerBit = libvpxErrorPerBit(ctx.qIndex)
 	}
-	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBitAndCostTables(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs, ctx.mvCosts)
+	// libvpx vp8_rd_pick_best_mbsegmentation runs the first BLOCK_8X8
+	// segmentation with x->mv_col_min/x->mv_col_max set to the wide
+	// MB-scope UMV window. Only the secondary segmentations
+	// (BLOCK_8X16/BLOCK_16X8/BLOCK_4X4) compose that window with
+	// [best_ref_mv ± MAX_FULL_PEL_VAL] (rdopt.c:1245-1248), and the
+	// window is restored after those return (rdopt.c:1297-1301). govpx
+	// must mirror that boundary to let BLOCK_8X8's per-sub-block
+	// diamond_search_sad reach MVs farther from best_ref_mv than
+	// MAX_FULL_PEL_VAL, matching libvpx byte-for-byte.
+	var bounds interFrameFullPixelBounds
+	if ctx.mode != nil && ctx.mode.Partition == 2 {
+		bounds = interFrameUMVOnlyFullPixelSearchBounds(ctx.mbRow, ctx.mbCol, mbRows, mbCols)
+	} else {
+		bounds = interFrameFullPixelSearchBounds(ctx.bestRefMV, ctx.mbRow, ctx.mbCol, mbRows, mbCols)
+	}
+	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorWithBounds(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs, ctx.mvCosts, bounds)
 	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBitAndCostTables(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.search, ctx.mvProbs, ctx.mvCosts); ok {
 		newMV = refinedMV
 	}

@@ -31,6 +31,37 @@ func interFrameFullPixelSearchBounds(bestRefMV vp8enc.MotionVector, mbRow int, m
 	return bounds
 }
 
+// interFrameUMVOnlyFullPixelSearchBounds mirrors libvpx's MB-scope UMV
+// window without the [bestRefMV ± MAX_FULL_PEL_VAL] intersection. libvpx's
+// SPLITMV picker (vp8/encoder/rdopt.c:1230 vp8_rd_pick_best_mbsegmentation)
+// runs the first BLOCK_8X8 segmentation with x->mv_col_min/x->mv_col_max
+// set to the wide MB-scope UMV window. Only the secondary segmentations
+// (BLOCK_8X16/BLOCK_16X8/BLOCK_4X4 at rdopt.c:1245-1248) intersect that
+// window with [best_ref_mv ± MAX_FULL_PEL_VAL], and the window is restored
+// at rdopt.c:1297-1301 after the secondary calls return. This helper feeds
+// the BLOCK_8X8 path so its per-sub-block diamond_search_sad sees the
+// full MB-scope UMV reach and can find MVs farther from best_ref_mv than
+// MAX_FULL_PEL_VAL, matching libvpx byte-for-byte.
+func interFrameUMVOnlyFullPixelSearchBounds(mbRow int, mbCol int, mbRows int, mbCols int) interFrameFullPixelBounds {
+	bounds := interFrameFullPixelBounds{
+		rowMin: -interFrameMaxFullPelVal,
+		rowMax: interFrameMaxFullPelVal,
+		colMin: -interFrameMaxFullPelVal,
+		colMax: interFrameMaxFullPelVal,
+	}
+	if mbRows > 0 {
+		umv := interFrameUMVBorderPixels - 16
+		bounds.rowMin = -((mbRow * 16) + umv)
+		bounds.rowMax = ((mbRows - 1 - mbRow) * 16) + umv
+	}
+	if mbCols > 0 {
+		umv := interFrameUMVBorderPixels - 16
+		bounds.colMin = -((mbCol * 16) + umv)
+		bounds.colMax = ((mbCols - 1 - mbCol) * 16) + umv
+	}
+	return bounds
+}
+
 func interFrameUMVFullPixelInRange(mv vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) bool {
 	if min(mbRows, mbCols) <= 0 {
 		return true

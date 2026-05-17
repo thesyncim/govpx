@@ -143,7 +143,7 @@ func TestVP9EncoderVpxencOracleMidgrayKeyframeByteParity(t *testing.T) {
 
 func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 	requireVP9VpxencOracle(t)
-	skipVP9MLBasedPartitionInterByteParity(t)
+	skipVP9MLBasedPartitionLookaheadInterpFilter(t)
 
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)
@@ -605,7 +605,9 @@ func TestVP9EncoderVpxencOracleChangedConstantInterByteParity(t *testing.T) {
 
 func TestVP9EncoderVpxencOracleCheckerInterByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
-	skipVP9MLBasedPartitionInterByteParity(t)
+	// Phase A+B+C of ML_BASED_PARTITION are landed (vp9_partition_models.go +
+	// vp9_get_estimated_pred.go + vp9_nonrd_pick_partition.go); this test
+	// now byte-matches libvpx without skip.
 
 	const width, height = 64, 64
 	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
@@ -660,7 +662,9 @@ func TestVP9EncoderVpxencOraclePublicQuantizerBandInterByteParity(t *testing.T) 
 
 func TestVP9EncoderVpxencOracleLosslessInterByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
-	skipVP9MLBasedPartitionInterByteParity(t)
+	// Phase A+B+C of ML_BASED_PARTITION are landed (vp9_partition_models.go +
+	// vp9_get_estimated_pred.go + vp9_nonrd_pick_partition.go); this test
+	// now byte-matches libvpx without skip.
 
 	const width, height = 64, 64
 	first := newVP9YCbCrForTest(width, height, 128, 128, 128)

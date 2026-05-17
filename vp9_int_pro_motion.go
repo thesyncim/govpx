@@ -15,12 +15,13 @@ import (
 //   - vp9_set_subpel_mv_search_range     (vp9/encoder/vp9_mcomp.c:51-67)
 //   - clamp_mv                           (vp9/common/vp9_mv.h:47-51)
 //
-// At this revision the helper is substrate-only — it has no live
-// caller. Phase C (nonrd_pick_partition, libvpx
-// vp9/encoder/vp9_encodeframe.c:4598-4855) will wire it into the
-// partition picker via vp9GetEstimatedPred. See
-// skipVP9MLBasedPartitionInterByteParity for the test-side deferral
-// citation.
+// Phase C (vp9_nonrd_pick_partition.go) wires this helper into
+// pickVP9InterPartitionBlockSize through vp9MLPickPartitionEntry +
+// vp9GetEstimatedPred for the ML_BASED_PARTITION dispatch (libvpx
+// vp9/encoder/vp9_encodeframe.c:5313-5321). Residual lookahead
+// inter-byte-parity drift is deferred by
+// skipVP9MLBasedPartitionLookaheadInterpFilter pending a verbatim port
+// of vp9_pick_inter_mode (libvpx vp9_pickmode.c).
 
 // vp9MvLimits mirrors libvpx's MvLimits struct
 // (vp9/encoder/vp9_block.h:50-55). All values are in 1/8-pel units

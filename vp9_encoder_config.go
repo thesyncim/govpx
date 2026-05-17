@@ -346,6 +346,76 @@ func (e *VP9Encoder) SetFrameParallelEncoderThreads(threads int) error {
 	return nil
 }
 
+// GetActiveMap snapshots the encoder's current 16x16 activity map into the
+// caller-supplied buffer.  Mirrors libvpx's vp9_get_active_map
+// (vp9/encoder/vp9_encoder.c:777) and the VP9E_GET_ACTIVEMAP codec-control
+// dispatch (vp9/vp9_cx_iface.c:1795).
+//
+// libvpx semantics:
+//
+//   - rows, cols must equal the encoder's 16x16 macroblock dimensions.
+//   - When the active map is disabled, every output byte is 1.
+//   - When the active map is enabled, output byte (mbR, mbC) is the OR of
+//     the four covered 8x8 MI cells: 1 if any MI is NOT
+//     AM_SEGMENT_ID_INACTIVE, 0 otherwise.  Cyclic-refresh segments
+//     therefore appear as active even though the AM segmentation does
+//     not assign them AM_SEGMENT_ID_ACTIVE explicitly.
+//
+// Returns ErrInvalidConfig when rows/cols mismatch the encoder dimensions
+// or activeMap is too short for rows*cols bytes.  Returns ErrClosed if
+// the encoder has been closed.
+func (e *VP9Encoder) GetActiveMap(activeMap []uint8, rows int, cols int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	expectedRows := encoderMacroblockRows(e.opts.Height)
+	expectedCols := encoderMacroblockCols(e.opts.Width)
+	if rows != expectedRows || cols != expectedCols {
+		return ErrInvalidConfig
+	}
+	if len(activeMap) < rows*cols {
+		return ErrInvalidConfig
+	}
+	dst := activeMap[:rows*cols]
+	if !e.activeMapEnabled {
+		// libvpx: memset(new_map_16x16, !cpi->active_map.enabled,
+		// rows * cols) — disabled active map reports every MB as
+		// active (byte == 1).
+		for i := range dst {
+			dst[i] = 1
+		}
+		return nil
+	}
+	// libvpx walks every 8x8 MI cell and OR's it into the covering 16x16
+	// MB; govpx's per-MI map lives in e.activeMap and tags inactive MIs
+	// with vp9ActiveMapSegmentInactive.  Initialise the output to 0
+	// (libvpx's !enabled byte) so the OR below builds up the active mask.
+	for i := range dst {
+		dst[i] = 0
+	}
+	miRows := e.activeMapMiRows
+	miCols := e.activeMapMiCols
+	if miRows <= 0 || miCols <= 0 {
+		return nil
+	}
+	if len(e.activeMap) < miRows*miCols {
+		return nil
+	}
+	for r := range miRows {
+		dstRowBase := (r >> 1) * cols
+		srcRowBase := r * miCols
+		for c := range miCols {
+			seg := e.activeMap[srcRowBase+c]
+			if seg != vp9ActiveMapSegmentInactive {
+				// libvpx: new_map_16x16[(r >> 1) * cols + (c >> 1)] |=
+				//   seg_map_8x8[r * mi_cols + c] != AM_SEGMENT_ID_INACTIVE
+				dst[dstRowBase+(c>>1)] |= 1
+			}
+		}
+	}
+	return nil
+}
+
 // SetActiveMap installs a VP9 per-16x16 activity map. Cells equal to 0 mark
 // inactive macroblocks; on inter frames, inactive 8x8 mode blocks code as
 // ZEROMV-LAST with skip=1. Blocks that already match LAST may remain in the

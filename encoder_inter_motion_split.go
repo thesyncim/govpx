@@ -24,12 +24,25 @@ func selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPe
 }
 
 func selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBitAndCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, searchCenter vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, stepParam int, fullSearchFallback bool, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) (vp8enc.MotionVector, int) {
-	centerRow := int(searchCenter.Row) & ^7
-	centerCol := int(searchCenter.Col) & ^7
-	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
 	mbRows := (src.Height + 15) >> 4
 	mbCols := (src.Width + 15) >> 4
 	bounds := interFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	return selectInterFrameSplitBlockFullPixelMotionVectorWithBounds(src, ref, mbRow, mbCol, block, width, height, searchCenter, bestRefMV, qIndex, errorPerBit, stepParam, fullSearchFallback, mvProbs, mvCosts, bounds)
+}
+
+// selectInterFrameSplitBlockFullPixelMotionVectorWithBounds is the
+// bounds-parametric form of the SPLITMV per-sub-block full-pel search. It
+// lets the BLOCK_8X8 path under libvpx's vp8_rd_pick_best_mbsegmentation
+// (vp8/encoder/rdopt.c:1230) use the wider MB-scope UMV window that
+// rdopt.c keeps unrestricted across the first BLOCK_8X8 call. The
+// secondary segmentations (BLOCK_8X16/BLOCK_16X8/BLOCK_4X4, rdopt.c:1245-
+// 1248) compose x->mv_col_min/max with [best_ref_mv ± MAX_FULL_PEL_VAL]
+// before re-entering rd_check_segment; those callers keep using the
+// default interFrameFullPixelSearchBounds.
+func selectInterFrameSplitBlockFullPixelMotionVectorWithBounds(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, searchCenter vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, stepParam int, fullSearchFallback bool, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, bounds interFrameFullPixelBounds) (vp8enc.MotionVector, int) {
+	centerRow := int(searchCenter.Row) & ^7
+	centerCol := int(searchCenter.Col) & ^7
+	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
 	best = bounds.clampEighth(best)
 	centerWalkCost := interMotionSplitBlockSearchCost(src, ref, mbRow, mbCol, block, width, height, best, bestRefMV, qIndex)
 	centerReturnCost, ok := interMotionSplitBlockFullPixelReturnCostWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, block, width, height, best, bestRefMV, errorPerBit, mvProbs, mvCosts)

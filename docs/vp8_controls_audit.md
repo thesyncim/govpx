@@ -8,7 +8,7 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 |----|------------------------------------------------------------------------|--------|
 | 1  | Decoder GETs: FrameCorrupted, LastReferenceUpdates, LastReferencesUsed | ✅      |
 | 2  | Encoder runtime SetAutoAltRef                                          | ✅      |
-| 3  | VP8E_SET_SCALEMODE / spatial resampler                                 | ⬜      |
+| 3  | VP8E_SET_SCALEMODE / spatial resampler                                 | ⏳      |
 | 4  | Burn down ~75 deferred VP8 fuzz seeds                                  | ⬜      |
 | 5  | ALT_LF segmentation                                                    | ✅      |
 | 6  | CBR golden-frame correction-factor branch                              | ⬜      |
@@ -25,3 +25,4 @@ Source: VP8 gap audit, started 2026-05-17. Branch: `vp8-encoder-decoder-controls
 - 2026-05-17 worktree branched from origin/main `4219a4c`.
 - 2026-05-17 rebased onto `0dfca64`; items 1+2 shipped (PR #19, merged to main).
 - 2026-05-17 item 5 (ALT_LF) verified already implemented; plan.md text stale.
+- 2026-05-17 item 3 phase 1: ported vpx_scale/generic kernels + Scale2D + ScaleFrame to internal/vp8/scale. Phase 2 is encoder integration (SetScalingMode + scale_and_extend_source + bitstream emission).
