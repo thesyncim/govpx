@@ -331,12 +331,11 @@ func vp9EncodeBreakoutTest(bsize common.BlockSize, dequant [2]int16,
 		// const unsigned int min_thresh = VPXMIN((unsigned int)x->encode_breakout << 4, max_thresh);
 		minThresh := min(uint64(encodeBreakout)<<4, maxThresh)
 		// thresh_ac = (dequant[1] * dequant[1]) >> 3;
-		threshAc = max(
+		threshAc = min(
 			// thresh_ac = clamp(thresh_ac, min_thresh, max_thresh);
-			uint64(int64(dequant[1])*int64(dequant[1]))>>3, minThresh)
-		if threshAc > maxThresh {
-			threshAc = maxThresh
-		}
+			max(
+
+				uint64(int64(dequant[1])*int64(dequant[1]))>>3, minThresh), maxThresh)
 		// thresh_ac >>= 8 - (bw_log2 + bh_log2);
 		shift := 8 - int(common.BWidthLog2Lookup[bsize]+common.BHeightLog2Lookup[bsize])
 		if shift > 0 {
