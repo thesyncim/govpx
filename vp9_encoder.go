@@ -716,6 +716,24 @@ type VP9Encoder struct {
 	// state that libvpx's decoder sees.
 	miGrid []vp9dec.NeighborMi
 
+	// varPartGrid is the per-SB choose_partitioning output grid (libvpx
+	// stamps these into xd->mi[]->sb_type via set_block_size /
+	// set_vt_partitioning). Indexed identically to miGrid:
+	// varPartGrid[row*miCols+col].SbType is the leaf block size at the
+	// 8x8 cell (row, col). Populated by vp9ChoosePartitioning on SB
+	// entry; consumed by pickVP9CBRVariancePartitionBlockSize /
+	// pickVP9KeyframeVariancePartitionBlockSize to derive the
+	// per-call partition decision. varPartSBComputed[(sbRow*sbCols+sbCol]]
+	// tracks which 64x64 superblocks have already been populated this
+	// frame so the picker fires once per SB.
+	//
+	// libvpx ref: vp9/encoder/vp9_encodeframe.c:1253-1763
+	// (choose_partitioning) writes the partition tree; nonrd_use_partition
+	// (vp9_encodeframe.c:4854) consumes it.
+	varPartGrid       []vp9dec.NeighborMi
+	varPartSBComputed []bool
+	varPartFrameValid bool
+
 	// refWidth / refHeight mirror the encoder-side VP9 reference map so
 	// inter headers can emit write_frame_size_with_refs without allocating.
 	refWidth  [common.RefFrames]uint32
@@ -3262,6 +3280,25 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 			e.miGrid[i] = vp9dec.NeighborMi{}
 		}
 	}
+	// varPartGrid / varPartSBComputed are allocated lazily inside
+	// vp9EnsureSBPartitionChosen so the steady-state encode path
+	// (which currently does not invoke the libvpx choose_partitioning
+	// port) pays no allocation cost. Reset the frame-validity flag
+	// and per-SB computed mask in place when state already exists.
+	if cap(e.varPartGrid) >= miGridLen {
+		e.varPartGrid = e.varPartGrid[:miGridLen]
+		for i := range e.varPartGrid {
+			e.varPartGrid[i] = vp9dec.NeighborMi{}
+		}
+	}
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	if cap(e.varPartSBComputed) >= sbCount {
+		e.varPartSBComputed = e.varPartSBComputed[:sbCount]
+		for i := range e.varPartSBComputed {
+			e.varPartSBComputed[i] = false
+		}
+	}
+	e.varPartFrameValid = false
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
 	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratch {
 		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
@@ -5047,6 +5084,19 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 	if !e.vp9CBRKeyframeVariancePartitionEnabled(key) {
 		return common.BlockInvalid, false
 	}
+	// Phase C wiring: when the libvpx choose_partitioning gate is
+	// enabled, populate the per-SB partition cache on first call into
+	// this SB and read the partition decision back from
+	// e.varPartGrid. Falls through to the legacy single-level picker
+	// below when the gate is off (default) so existing scoreboard
+	// tests stay green.
+	//
+	// libvpx ref: vp9/encoder/vp9_encodeframe.c:5470 nonrd_use_partition
+	// reads xd->mi[]->sb_type to drive the encode walk.
+	if vp9LibvpxChoosePartitioningEnabled &&
+		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, key, nil) {
+		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
+	}
 	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
 	if !ok || splitSize < common.Block8x8 {
 		return common.BlockInvalid, false
@@ -5354,11 +5404,210 @@ func (e *VP9Encoder) vp9InterPreferTexturedSplit(inter *vp9InterEncodeState,
 	return sse > pixels*512 && activity > pixels*128
 }
 
+// vp9ChoosePartitioningSBIndex returns the SB index for (miRow, miCol)
+// in e.varPartSBComputed. Mirrors libvpx's sb_offset computation
+// (vp9_encodeframe.c:1314): sb_offset = (mi_stride >> 3) * (mi_row >> 3)
+// + (mi_col >> 3). govpx flattens to (sbRow * sbCols + sbCol).
+func (e *VP9Encoder) vp9ChoosePartitioningSBIndex(miCols, miRow, miCol int) int {
+	sbCols := (miCols + 7) >> 3
+	sbRow := miRow >> 3
+	sbCol := miCol >> 3
+	return sbRow*sbCols + sbCol
+}
+
+// vp9EnsureSBPartitionChosen runs vp9ChoosePartitioning for the 64x64 SB
+// containing (miRow, miCol) iff it hasn't been computed this frame.
+// Writes the partition tree into e.varPartGrid and marks
+// e.varPartSBComputed[sbIdx] = true.
+//
+// libvpx ref: vp9_encodeframe.c:1253-1763 (choose_partitioning called
+// once per SB from encode_rtc_frame at line 5470).
+func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+) bool {
+	miGridLen := miRows * miCols
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	// Lazy alloc: first activation of the libvpx picker on this encoder
+	// instance grows the per-SB tracking slices to fit the current frame
+	// dimensions. Subsequent calls reuse the capacity.
+	if cap(e.varPartGrid) < miGridLen {
+		e.varPartGrid = make([]vp9dec.NeighborMi, miGridLen)
+	} else {
+		e.varPartGrid = e.varPartGrid[:miGridLen]
+		for i := range e.varPartGrid {
+			e.varPartGrid[i] = vp9dec.NeighborMi{}
+		}
+	}
+	if cap(e.varPartSBComputed) < sbCount {
+		e.varPartSBComputed = make([]bool, sbCount)
+	} else {
+		e.varPartSBComputed = e.varPartSBComputed[:sbCount]
+		for i := range e.varPartSBComputed {
+			e.varPartSBComputed[i] = false
+		}
+	}
+	sbMiRow := (miRow >> 3) << 3
+	sbMiCol := (miCol >> 3) << 3
+	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if sbIdx < 0 || sbIdx >= len(e.varPartSBComputed) {
+		return false
+	}
+	if e.varPartSBComputed[sbIdx] {
+		return true
+	}
+
+	args := vp9ChoosePartitioningArgs{
+		MiGrid:                 e.varPartGrid,
+		MiRows:                 miRows,
+		MiCols:                 miCols,
+		MiRow:                  sbMiRow,
+		MiCol:                  sbMiCol,
+		Speed:                  int(e.opts.CpuUsed),
+		VariancePartThreshMult: 1,
+	}
+	switch {
+	case key != nil && key.img != nil && key.dq != nil:
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+		if len(src) == 0 || srcStride <= 0 {
+			return false
+		}
+		x0 := sbMiCol * common.MiSize
+		y0 := sbMiRow * common.MiSize
+		if x0 >= srcW || y0 >= srcH {
+			return false
+		}
+		args.PlaneSrc = src
+		args.PlaneSrcOff = y0*srcStride + x0
+		args.SrcStride = srcStride
+		args.FrameWidth = srcW
+		args.FrameHeight = srcH
+		args.IsKeyFrame = true
+		args.BaseQIndex = e.vp9ChoosePartitioningBaseQIndex(key.dq)
+	case inter != nil && inter.img != nil && inter.dq != nil:
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+		if len(src) == 0 || srcStride <= 0 {
+			return false
+		}
+		x0 := sbMiCol * common.MiSize
+		y0 := sbMiRow * common.MiSize
+		if x0 >= srcW || y0 >= srcH {
+			return false
+		}
+		args.PlaneSrc = src
+		args.PlaneSrcOff = y0*srcStride + x0
+		args.SrcStride = srcStride
+		args.FrameWidth = srcW
+		args.FrameHeight = srcH
+		args.IsKeyFrame = false
+		args.BaseQIndex = e.vp9ChoosePartitioningBaseQIndex(inter.dq)
+		args.AvgFrameQIndexInter = int(e.rc.avgFrameQIndexInter)
+		// Inter predictor: zero-MV LAST reference plane (matches libvpx
+		// when vp9_int_pro_motion_estimation returns dummy_mv = {0,0}).
+		if refSlot, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
+			refPx, refStride, refW, refH := vp9ReferenceVisiblePlane(
+				&e.refFrames[refSlot], 0)
+			if len(refPx) > 0 && refStride > 0 &&
+				x0 < refW && y0 < refH {
+				args.PlaneDst = refPx
+				args.PlaneDstOff = y0*refStride + x0
+				args.DstStride = refStride
+			}
+		}
+		// govpx doesn't yet plumb cpi->rc.high_source_sad through the
+		// realtime path; it defaults to false here. When the
+		// scene-change detector is added at the rc level, set
+		// args.HighSourceSAD here.
+		// libvpx ref: vp9_encodeframe.c:1284 (force_64_split feeder).
+	default:
+		return false
+	}
+
+	vp9ChoosePartitioning(args)
+	e.varPartSBComputed[sbIdx] = true
+	e.varPartFrameValid = true
+	return true
+}
+
+// vp9ChoosePartitioningBaseQIndex extracts the qindex driving the AC
+// dequant lookup vp9SetVBPThresholds uses. Mirrors libvpx's
+// cm->base_qindex (set_vbp_thresholds caller at vp9_encodeframe.c:1379).
+func (e *VP9Encoder) vp9ChoosePartitioningBaseQIndex(dq *vp9dec.DequantTables) int {
+	if dq == nil {
+		return 0
+	}
+	yAC := dq.Y[0][1]
+	// Reverse-lookup: find the qindex whose AcQLookup8 entry matches yAC.
+	// govpx callers populate dq from the same AcQLookup table so a direct
+	// search is byte-exact. Falls back to scanning the table.
+	for q := range 256 {
+		if vp9YDequantAC(q) == yAC {
+			return q
+		}
+	}
+	return 0
+}
+
+// vp9VarPartDecisionFor reads e.varPartGrid[miRow*miCols+miCol].SbType
+// and returns the partition decision for the call at (miRow, miCol,
+// bsize). Returns (BlockInvalid, false) when the picker chose to claim
+// at bsize (or larger). Returns (horzSize, true), (vertSize, true), or
+// (splitSize, true) when the picker decided to subdivide.
+//
+// The mapping:
+//   - picked >= bsize: claim at bsize (libvpx wrote bsize at this cell).
+//   - picked == horzSize: horizontal split.
+//   - picked == vertSize: vertical split.
+//   - picked < horzSize && picked < vertSize: full split (4 quadrants).
+//
+// libvpx ref: vp9_encodeframe.c:nonrd_use_partition reads xd->mi[]->sb_type
+// at each cell to drive the recursive encode walk.
+func (e *VP9Encoder) vp9VarPartDecisionFor(miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (common.BlockSize, bool) {
+	if len(e.varPartGrid) == 0 || !e.varPartFrameValid {
+		return common.BlockInvalid, false
+	}
+	idx := miRow*miCols + miCol
+	if idx < 0 || idx >= len(e.varPartGrid) {
+		return common.BlockInvalid, false
+	}
+	picked := e.varPartGrid[idx].SbType
+	if picked == 0 || picked >= bsize {
+		// Picker claimed at bsize or larger — caller stays at bsize
+		// (no subdivision).
+		return common.BlockInvalid, false
+	}
+	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
+	if !ok {
+		return common.BlockInvalid, false
+	}
+	switch picked {
+	case horzSize:
+		return horzSize, true
+	case vertSize:
+		return vertSize, true
+	default:
+		return splitSize, true
+	}
+}
+
 func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 ) (common.BlockSize, bool) {
 	if !e.vp9CBRVariancePartitionEnabled(inter) {
 		return common.BlockInvalid, false
+	}
+	// Phase C wiring: when the libvpx choose_partitioning gate is
+	// enabled, populate the per-SB partition cache on first call into
+	// this SB and read the partition decision back from
+	// e.varPartGrid. Falls through to the legacy variance picker below
+	// when the gate is off (default) so existing parity tests stay green.
+	//
+	// libvpx ref: vp9/encoder/vp9_encodeframe.c:5470 nonrd_use_partition
+	// reads xd->mi[]->sb_type to drive the encode walk.
+	if vp9LibvpxChoosePartitioningEnabled &&
+		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, nil, inter) {
+		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
 	}
 	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
 	if !ok || splitSize < common.Block8x8 {

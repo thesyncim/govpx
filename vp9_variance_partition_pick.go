@@ -2,10 +2,20 @@ package govpx
 
 import (
 	"math"
+	"os"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
+
+// vp9LibvpxChoosePartitioningEnabled mirrors libvpx's
+// partition_search_type == VAR_BASED_PARTITION dispatch gate
+// (vp9/encoder/vp9_encodeframe.c:5470). govpx currently opts in via the
+// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 environment variable so the
+// new picker can be exercised against the deferred fuzz seeds without
+// flipping the default behavior of the existing scoreboard tests.
+// Once parity is validated, the gate moves to sf.PartitionSearchType.
+var vp9LibvpxChoosePartitioningEnabled = os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING") == "1"
 
 // vp9_variance_partition_pick.go is the Phase C verbatim port of libvpx
 // VP9's choose_partitioning picker body
