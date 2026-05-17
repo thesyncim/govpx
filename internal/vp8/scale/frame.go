@@ -54,7 +54,7 @@ func ScaleFrame(src, dst *Frame, tempArea []byte, tempHeight int,
 	// pixel two columns before it. The "+1" overlaps the last column
 	// with the previously-written value; mirror verbatim.
 	if dw < dst.YWidth {
-		for i := 0; i < dh; i++ {
+		for i := range dh {
 			row := dst.Y[i*dst.YStride:]
 			fill := row[dw-2]
 			for k := dw - 1; k < dst.YWidth; k++ {

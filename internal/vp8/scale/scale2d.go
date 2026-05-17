@@ -80,7 +80,7 @@ func Scale2D(
 		if srcHeight == dstHeight {
 			srcOff := 0
 			dstOff := 0
-			for k := 0; k < dstHeight; k++ {
+			for range dstHeight {
 				horizLineScale(src[srcOff:], srcWidth, dst[dstOff:])
 				srcOff += srcPitch
 				dstOff += dstPitch
@@ -105,7 +105,7 @@ func Scale2D(
 		}
 
 		bands := (dstHeight + destBandHeight - 1) / destBandHeight
-		for k := 0; k < bands; k++ {
+		for range bands {
 			for i := 0; i < sourceBandHeight; i++ {
 				lineSrcOff := srcOff + i*srcPitch
 				if lineSrcOff < 0 {

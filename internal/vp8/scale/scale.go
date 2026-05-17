@@ -76,7 +76,7 @@ func horizontalLine54(src []byte, srcWidth int, dst []byte) {
 // (vpx_scale/generic/gen_scalers.c:64-88). For each of destWidth
 // columns, sample 5 source rows and emit 4 output rows.
 func verticalBand54(src []byte, srcPitch int, dst []byte, dstPitch int, destWidth int) {
-	for i := 0; i < destWidth; i++ {
+	for range destWidth {
 		a := uint32(src[0])
 		b := uint32(src[srcPitch])
 		c := uint32(src[2*srcPitch])
@@ -112,7 +112,7 @@ func horizontalLine53(src []byte, srcWidth int, dst []byte) {
 // verticalBand53 ports vp8_vertical_band_5_3_scale_c
 // (vpx_scale/generic/gen_scalers.c:137-160).
 func verticalBand53(src []byte, srcPitch int, dst []byte, dstPitch int, destWidth int) {
-	for i := 0; i < destWidth; i++ {
+	for range destWidth {
 		a := uint32(src[0])
 		b := uint32(src[srcPitch])
 		c := uint32(src[2*srcPitch])
@@ -153,7 +153,7 @@ func verticalBand21(src []byte, dst []byte, destWidth int) {
 // The Go port takes (buf, mid) where libvpx takes a single source
 // pointer because Go does not allow negative slice indexing.
 func verticalBand21Interpolated(buf []byte, mid int, srcPitch int, dst []byte, destWidth int) {
-	for i := 0; i < destWidth; i++ {
+	for i := range destWidth {
 		temp := 8
 		temp += int(buf[mid+i-srcPitch]) * 3
 		temp += int(buf[mid+i]) * 10

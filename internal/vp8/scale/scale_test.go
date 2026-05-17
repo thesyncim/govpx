@@ -208,7 +208,7 @@ func TestVerticalBand21Interpolated(t *testing.T) {
 	copy(buf[8:12], below)
 	dst := make([]byte, 4)
 	verticalBand21Interpolated(buf, 4, 4, dst, 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		want := byte((3*int(above[i]) + 10*int(middle[i]) + 3*int(below[i]) + 8) >> 4)
 		if dst[i] != want {
 			t.Fatalf("verticalBand21Interpolated[%d] = %d, want %d", i, dst[i], want)
@@ -238,18 +238,18 @@ func TestScale2D_4to5_FullFrame(t *testing.T) {
 	// Compute reference: first horizontally scale every source row into a
 	// per-row buffer, then vertically scale 5 rows into 4 columns.
 	hScaled := make([]byte, dstPitch*srcH)
-	for r := 0; r < srcH; r++ {
+	for r := range srcH {
 		horizontalLine54(src[r*srcW:(r+1)*srcW], srcW, hScaled[r*dstPitch:(r+1)*dstPitch])
 	}
 	expected := make([]byte, dstPitch*dstH)
-	for col := 0; col < dstW; col++ {
+	for col := range dstW {
 		colSrc := make([]byte, srcH)
-		for r := 0; r < srcH; r++ {
+		for r := range srcH {
 			colSrc[r] = hScaled[r*dstPitch+col]
 		}
 		colDst := make([]byte, dstH)
 		verticalBand54(colSrc, 1, colDst, 1, 1)
-		for r := 0; r < dstH; r++ {
+		for r := range dstH {
 			expected[r*dstPitch+col] = colDst[r]
 		}
 	}
