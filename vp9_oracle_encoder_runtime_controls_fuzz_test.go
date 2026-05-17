@@ -240,6 +240,28 @@ import (
 //     dim + cpu>=4 RT speed compressed-header subset); do NOT close
 //     until those close.
 //
+// Re-measurement under
+// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
+// (verified by TestVP9DeferredSeedsRemeasureRuntimeControls):
+//
+//	PASS=0/9 FAIL=9/9. Seeds #0/#2/#4/#6 (cpu=0 panning content)
+//	diverge on frame 0 at first_byte_diff=9 by ~1000-2298 bytes —
+//	the cost_coeffs rate-proxy gap described under seed #0 is the
+//	sole remaining piece (choose_tx_size_from_rd already verbatim).
+//	Seeds #1/#7 (cpu=-3) diverge on frame 0 at first_byte_diff=16
+//	by ~989-2287 bytes — same gap amplified by RT speed=3
+//	coef_prob_appx_step. Seed #3 (cpu=-8) diverges on frame 1 by
+//	~123 bytes. Seeds #5 and "2" alias structurally cannot be
+//	measured because libvpx vpxenc-vp9-frameflags rejects the
+//	EncodeForceGoldenFrame|EncodeNoUpdateGolden combination as
+//	"Conflicting flags" and govpx rejects it as ErrInvalidConfig
+//	— pending the set_ext_overrides port
+//	(vp9_encoder.c:set_ext_overrides) regardless of partition gate.
+//
+//	Conclusion: gates flipping ON does not un-defer any
+//	RuntimeControls seed. Closure requires the cost_coeffs rate
+//	proxy port and the set_ext_overrides resolution port.
+//
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{

@@ -344,6 +344,139 @@ func TestVP9DefineGFGroupHandlesShortStatsBuffer(t *testing.T) {
 	}
 }
 
+// TestVP9DefineGFGroupLagInFramesFixtures locks in the libvpx
+// gop_coding_frames < lag_in_frames gate (vp9_firstpass.c:2696) for the
+// same lag values exercised by
+// TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard. Each row
+// asserts the alt-ref decision in the gf_group analyzer matches what the
+// oracle's --lag-in-frames=N / --auto-alt-ref=0 invocation produces:
+// alt-ref must remain disabled for every lag value the oracle uses,
+// because the oracle clamps auto-alt-ref off.
+func TestVP9DefineGFGroupLagInFramesFixtures(t *testing.T) {
+	cases := []struct {
+		name           string
+		lag            int
+		frames         int
+		framesToKey    int
+		framesSinceKey int
+		isKey          bool
+		// libvpx must always produce useAltRef=false when AllowAltRef=false.
+		wantUseAltRef bool
+		// libvpx baseline_gf_interval must be > 0 even at lag=1.
+		minBaselineGFInterval int
+	}{
+		// Matrix scoreboard lag=1 / 4-frame KF group: alt-ref disabled
+		// (LookaheadFrames==1 → AllowAltRef false in encoder; the gop
+		// loop also short-circuits because gop_coding_frames >=
+		// lag_in_frames=1 fires immediately).
+		{name: "lag1_kf4", lag: 1, frames: 4, framesToKey: 4, isKey: true, minBaselineGFInterval: 1},
+		// lag=2 / 5-frame KF group: same gating.
+		{name: "lag2_kf5", lag: 2, frames: 5, framesToKey: 5, isKey: true, minBaselineGFInterval: 1},
+		// lag=4 / 6-frame KF group: same gating; the larger lag would
+		// let alt-ref activate if AllowAltRef were set, but the oracle
+		// disables it.
+		{name: "lag4_kf6", lag: 4, frames: 6, framesToKey: 6, isKey: true, minBaselineGFInterval: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stats := synthPanningFirstPassStats(tc.frames)
+			in := defaultVP9GFGroupTestInputs(stats)
+			in.IsKeyFrame = tc.isKey
+			in.FramesToKey = tc.framesToKey
+			in.FramesSinceKey = tc.framesSinceKey
+			in.LagInFrames = tc.lag
+			// Matrix scoreboard passes --auto-alt-ref=0; mirror that.
+			in.AllowAltRef = false
+			gf := vp9DefineGFGroup(in)
+			if gf.UseAltRef != tc.wantUseAltRef {
+				t.Fatalf("%s: UseAltRef=%v, want %v",
+					tc.name, gf.UseAltRef, tc.wantUseAltRef)
+			}
+			if gf.BaselineGFInterval < tc.minBaselineGFInterval {
+				t.Fatalf("%s: BaselineGFInterval=%d < %d",
+					tc.name, gf.BaselineGFInterval, tc.minBaselineGFInterval)
+			}
+			// libvpx vp9_firstpass.c:2847 constrained_gf_group flag must
+			// fire whenever gop_coding_frames covers the entire KF
+			// distance (short clips fit into a single GF group).
+			if !gf.ConstrainedGFGroup && gf.GOPCodingFrames >= tc.framesToKey {
+				t.Fatalf("%s: ConstrainedGFGroup=false but gop_coding_frames(%d) >= frames_to_key(%d)",
+					tc.name, gf.GOPCodingFrames, tc.framesToKey)
+			}
+			// Layer-0 slot (KF/GF) must never carry an ARF update type
+			// when use_alt_ref is false (libvpx find_arf_order at
+			// depth>allowed_max_layer_depth emits LF_UPDATE leaves).
+			if gf.SourceAltRefPending {
+				t.Fatalf("%s: SourceAltRefPending=true with use_alt_ref=false",
+					tc.name)
+			}
+		})
+	}
+}
+
+// TestVP9DefineGFGroupLagEnablesAltRefAtLargeLag verifies libvpx's
+// "gop_coding_frames < lag_in_frames" predicate (vp9_firstpass.c:2696)
+// is the exact alt-ref gate: with a sufficiently large lag (>=8) and
+// matching min_gf_interval reach (vp9_firstpass.c:2697), the analyzer
+// flips use_alt_ref to true. This is the complement of the matrix
+// scoreboard cases which all disable alt-ref via --auto-alt-ref=0.
+func TestVP9DefineGFGroupLagEnablesAltRefAtLargeLag(t *testing.T) {
+	stats := synthPanningFirstPassStats(40)
+	in := defaultVP9GFGroupTestInputs(stats)
+	in.LagInFrames = 25
+	in.AllowAltRef = true
+	in.MinGFInterval = 4
+	in.MaxGFInterval = 16
+	in.StaticSceneMaxGFInterval = vp9MaxStaticGFGroupLength
+	gf := vp9DefineGFGroup(in)
+	if !gf.UseAltRef {
+		t.Fatalf("UseAltRef=false with lag=25, AllowAltRef=true, want true")
+	}
+	if !gf.SourceAltRefPending {
+		t.Fatalf("SourceAltRefPending=false with use_alt_ref=true, want true")
+	}
+	// libvpx vp9_firstpass.c:2921 baseline_gf_interval =
+	//   gop_coding_frames - source_alt_ref_pending.
+	if gf.BaselineGFInterval != gf.GOPCodingFrames-1 {
+		t.Fatalf("BaselineGFInterval=%d, want gop_coding_frames(%d)-1",
+			gf.BaselineGFInterval, gf.GOPCodingFrames)
+	}
+}
+
+// TestVP9CalcNormFrameScoreConfigMatchesLibvpxDefault confirms the
+// configurable vp9CalcNormFrameScoreConfig matches libvpx's documented
+// defaults (vbrbias=50, vbrmin_section=0, vbrmax_section=2000) when
+// zero-init inputs are passed: vbrbias=0 falls back to 50, vbrmax=0
+// falls back to 2000.
+func TestVP9CalcNormFrameScoreConfigMatchesLibvpxDefault(t *testing.T) {
+	row := VP9FirstPassFrameStats{
+		Weight:       1.0,
+		CodedError:   25000.0,
+		IntraSkipPct: 0.05,
+	}
+	// Defaults: 50 / 0 / 2000.
+	withDefaults := vp9CalcNormFrameScoreConfig(row, 1.0, 10000.0, 8,
+		50, 0, 2000)
+	// vbrbias=0 falls back to the libvpx default (50); vbrmin/max
+	// fallbacks at 0/0 must also collapse to libvpx defaults to keep the
+	// gf_group_err accumulation stable for callers that don't carry the
+	// oxcf knobs.
+	withFallbacks := vp9CalcNormFrameScoreConfig(row, 1.0, 10000.0, 8,
+		0, 0, 0)
+	if math.Abs(withDefaults-withFallbacks) > 1e-9 {
+		t.Fatalf("default(%g) != fallback(%g): zero-init inputs must mirror libvpx defaults",
+			withDefaults, withFallbacks)
+	}
+	// libvpx clamp lower bound at vbrmin/100 must apply; setting
+	// vbrmin_section=300 forces a 3.0 floor regardless of input.
+	floored := vp9CalcNormFrameScoreConfig(VP9FirstPassFrameStats{
+		Weight: 1.0, CodedError: 1,
+	}, 1e6, 10000.0, 8, 50, 300, 2000)
+	if floored < 3.0-1e-9 {
+		t.Fatalf("floored score=%g, want >= 3.0", floored)
+	}
+}
+
 // TestVP9GFGroupBoostBoundedByPlausibleRange asserts the produced boost
 // is bounded by the libvpx-documented [MIN_ARF_GF_BOOST, MAX_GF_BOOST]
 // range across a swept Q ladder. This locks in numerical stability for

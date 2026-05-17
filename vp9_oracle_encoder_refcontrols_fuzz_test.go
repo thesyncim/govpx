@@ -236,6 +236,21 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//        drop the env gate).
 	//    (c) Revert this deferred list entry-by-entry as each
 	//        seed's per-frame byte parity closes.
+	//
+	// Re-measurement under
+	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
+	// (verified by TestVP9DeferredSeedsRemeasureRefControl):
+	//
+	//   PASS=0/9 FAIL=9/9. Every seed still diverges at frame 1
+	//   (inter), first_byte_diff=9 (FirstPartitionSize literal) or
+	//   byte 4 for seed #5. Per-frame residual deltas at this gate
+	//   set: +39 to +552 bytes. The Phase D opt-in shrinks the
+	//   aggregate by ~88% vs Phase C but does NOT close any seed's
+	//   byte parity. Conclusion: vp9NonrdPickPartitionEnabled()
+	//   cannot be flipped to always-on yet — the residual closure
+	//   path above (vp9_pick_inter_mode port for the per-leaf MV /
+	//   tx_size / interp picks) is still required before any seed
+	//   un-defers.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
