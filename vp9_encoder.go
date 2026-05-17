@@ -7712,15 +7712,6 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	if int(common.Tx4x4) < len(e.sf.IntraYModeMask) && e.sf.IntraYModeMask[common.Tx4x4] != 0 {
 		mask = e.sf.IntraYModeMask[common.Tx4x4]
 	}
-	// libvpx vp9_rdopt.c:1148-1149, 1237-1238 — coeff_ctx =
-	// combine_entropy_contexts(tempa[idx], templ[idy]) per 4x4
-	// sub-block, with tempa/templ rebooted from the SB context arrays
-	// at the start of each candidate mode. Since this helper operates
-	// on one (idy,idx) sub-block of the 8x8 (or 4x8/8x4) partition,
-	// govpx threads tempa/templ across the inner per-block grid.
-	qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
-		int(key.hdr.Quant.BaseQindex))
-	maxEob := vp9dec.MaxEobForTxSize(common.Tx4x4)
 	bestMode := common.DcPred
 	bestRD := uint64(^uint64(0))
 	bestValid := false
@@ -7737,62 +7728,29 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		var totalDistortion uint64
 		var totalCoeffRate int
 		valid := true
-		// libvpx vp9_rdopt.c:1108-1109 — per-candidate tempa/templ
-		// refresh; govpx tracks the per-sub-block residue flag with a
-		// local 2-cell strip per axis (the libvpx 8x8 partition only
-		// holds 2 num_4x4_blocks in either direction).
-		var tempa, templ [2]uint8
 		for jy := 0; jy < num4x4H && valid; jy++ {
 			for jx := 0; jx < num4x4W && valid; jx++ {
+				dst, dstStride, x0, y0, predOK := e.predictVP9KeyframeTx(
+					key.hdr, pd, 0, mode, common.Tx4x4, tile, miRows, miCols,
+					miRow, miCol, bsize, idy+jy, idx+jx)
+				if !predOK {
+					valid = false
+					break
+				}
 				src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
-				if len(src) == 0 || srcStride <= 0 {
+				if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH,
+					dst, dstStride, x0, y0, common.Tx4x4) {
 					valid = false
 					break
 				}
-				coeffs := e.coefScratch[:maxEob]
-				for i := range coeffs {
-					coeffs[i] = 0
-				}
-				// libvpx vp9_rdopt.c:1124-1167 — predict_intra +
-				// subtract + fdct/fht4x4 + quantize_b + cost_coeffs.
-				// govpx folds these into prepareVP9KeyframeTxResidue
-				// (the same primitive the main keyframe writer uses),
-				// then adds the cost_coeffs rate and pixel_sse
-				// distortion mirroring vp9_rdopt.c:1156-1161.
-				hasResidue := e.prepareVP9KeyframeTxResidue(key, pd, 0, mode,
-					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
-					idy+jy, idx+jx, dequant, qindex, coeffs)
-				// libvpx vp9_rdopt.c:1156-1161 — distortion =
-				// vp9_block_error_dispatch(coeff, dqcoeff) >> 2.
-				// govpx's keyframe writer already inverse-transforms
-				// into the recon plane, so pixel_sse(src, recon) is
-				// the libvpx-equivalent reconstruction error.
-				blkX := miCol*common.MiSize + (idx+jx)*4
-				blkY := miRow*common.MiSize + (idy+jy)*4
-				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
-					srcH, planeData, stride, blkX, blkY, 4, 4)
-				if !distOK {
+				txRate, txDist, _, scoreOK := e.scoreVP9KeyframeTxBlockRD(
+					common.Tx4x4, dequant)
+				if !scoreOK {
 					valid = false
 					break
 				}
-				totalDistortion += dist
-				// libvpx vp9_rdopt.c:1148-1149 + 1156-1157 — coeff_ctx
-				// = combine_entropy_contexts(tempa[idx], templ[idy]);
-				// ratey += cost_coeffs(... coeff_ctx ...). govpx
-				// dispatches to vp9KeyframeCoeffBlockRateCost with
-				// the same coeff_ctx via vp9dec.GetEntropyContext.
-				initCtx := vp9dec.GetEntropyContext(common.Tx4x4,
-					tempa[jx:jx+1], templ[jy:jy+1])
-				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCost(
-					common.Tx4x4, dequant, coeffs, initCtx)
-				// libvpx vp9_rdopt.c:1162, 1244 — tempa[idx] =
-				// templ[idy] = (eobs[block] > 0) ? 1 : 0.
-				eobFlag := uint8(0)
-				if hasResidue {
-					eobFlag = 1
-				}
-				tempa[jx] = eobFlag
-				templ[jy] = eobFlag
+				totalCoeffRate += txRate
+				totalDistortion += txDist
 			}
 		}
 		if !valid {
@@ -7847,11 +7805,40 @@ func vp9KeyframeIntraModeMask(sf *SpeedFeatures, bsize common.BlockSize) int {
 	return mask
 }
 
-// scoreVP9KeyframeModeRD computes the Lagrangian RD cost of a keyframe mode
-// using an explicit rdmult.  The picker computes rdmult once per SB —
-// optionally adjusted by the TPL per-SB delta (libvpx: vp9_encodeframe.c:4245
-// -4248 wiring x->cb_rdmult from get_rdmult_delta) — and feeds it into every
-// candidate score so all candidates are compared under the same multiplier.
+// scoreVP9KeyframeModeRD computes the Lagrangian RD cost of a keyframe
+// mode using an explicit rdmult. The picker computes rdmult once per SB —
+// optionally adjusted by the TPL per-SB delta (libvpx: vp9_encodeframe.c
+// :4245-4248 wiring x->cb_rdmult from get_rdmult_delta) — and feeds it
+// into every candidate score so all candidates are compared under the
+// same multiplier.
+//
+// The skip-bit composition below ports libvpx's nonrd keyframe picker
+// `vp9_pick_intra_mode` (vp9/encoder/vp9_pickmode.c:1207-1214) verbatim:
+//
+//	if (args.skippable) {
+//	  x->skip_txfm[0] = SKIP_TXFM_AC_DC;
+//	  this_rdc.rate = vp9_cost_bit(vp9_get_skip_prob(&cpi->common, xd), 1);
+//	} else {
+//	  x->skip_txfm[0] = SKIP_TXFM_NONE;
+//	  this_rdc.rate += vp9_cost_bit(vp9_get_skip_prob(&cpi->common, xd), 0);
+//	}
+//	this_rdc.rate += bmode_costs[this_mode];
+//
+// `rate` arriving here is the libvpx `bmode_costs[this_mode]` row
+// indexed by `[A][L]` of `cpi->y_mode_costs` (vp9_pickmode.c:1181 —
+// `bmode_costs = cpi->y_mode_costs[A][L]`). `coeffRate` is the block_yrd
+// SATD-of-qcoeff proxy returned by scoreVP9KeyframeModeTransformRD. The
+// skippable branch picks cost_bit(skip,1); the non-skippable branch adds
+// `coeffRate + cost_bit(skip,0)`. The final RD cost is RDCOST(rdmult,
+// rddiv, rate, distortion) — libvpx vp9_pickmode.c:1215.
+//
+// This skip-bit composition is one of the four coordinated pieces of
+// the libvpx nonrd keyframe picker chain (see
+// scoreVP9KeyframeModeTransformRD for the full chain linkage). Reverting
+// to a single-branch (always-add-coeffRate, never use the skip-bit
+// fast-path) breaks candidate ordering when the SATD proxy returns
+// skippable=true for the best mode: the picker would then pay the full
+// coeff cost on a skip-coded block, biasing away from DC_PRED.
 func (e *VP9Encoder) scoreVP9KeyframeModeRD(key *vp9KeyframeEncodeState,
 	mode common.PredictionMode, rate, rdmult int, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
@@ -7871,50 +7858,77 @@ func (e *VP9Encoder) scoreVP9KeyframeModeRD(key *vp9KeyframeEncodeState,
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
+	// libvpx vp9_pickmode.c:1207-1213 — skip-flag rate composition.
 	if skippable {
 		rate += encoder.VP9CostBit(skipProb, 1)
 	} else {
 		rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
 	}
+	// libvpx vp9_pickmode.c:1215 — RDCOST(rdmult, rddiv, rate, dist).
 	return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion), true
 }
 
-// scoreVP9KeyframeModeTransformRD is a libvpx-faithful port of
-// txfm_rd_in_plane (vp9/encoder/vp9_rdopt.c:854-889) → block_rd_txfm
-// (vp9_rdopt.c:699-852) → cost_coeffs (vp9_rdopt.c:358-459) for the
-// keyframe Y-plane RD pick. libvpx's rd_pick_intra_sby_mode
-// (vp9_rdopt.c:1383) calls super_block_yrd (vp9_rdopt.c:1025) which
-// dispatches to txfm_rd_in_plane (vp9_rdopt.c:1042) — this drives the
-// keyframe-Y-mode RD scorer.
+// scoreVP9KeyframeModeTransformRD is the per-tx-block Y-plane rate/dist
+// accumulator inside govpx's keyframe Y-mode picker. It mirrors libvpx's
+// realtime (vpxenc --rt) nonrd keyframe pick — the path the govpx vpxenc
+// oracle exercises at `--cpu-used=8 --rt` (internal/coracle/vpxenc_vp9.go:75
+// -90). The libvpx nonrd keyframe Y picker is `vp9_pick_intra_mode`
+// (vp9/encoder/vp9_pickmode.c:1165-1224). The picker chain composed in
+// lockstep here:
 //
-// The libvpx-faithful flow per 4x4 step (with `step = 1 << tx_size`):
+//  1. Y RD scorer (this function): walk every TX_4X4..TX_16X16-clamped tx
+//     block under the candidate Y mode, run intra prediction, gather the
+//     residue and dispatch into scoreVP9KeyframeTxBlockRD — which ports
+//     libvpx block_yrd (vp9_pickmode.c:830-853). block_yrd is the SATD-of
+//     -qcoeff proxy libvpx uses for the realtime keyframe path: Hadamard
+//     (4x4 fwd, 8x8 / 16x16 Hadamard) → QuantizeFP (vp9_quantize_fp,
+//     vp9_quantize.c:151-198) → vpx_satd over the qcoeff plus the
+//     block-error proxy (sum of (coeff-dqcoeff)**2) for distortion. The
+//     SATD-on-qcoeff stack is the libvpx-faithful nonrd Y rate estimator;
+//     replacing it with the RD-path cost_coeffs walk (vp9_rdopt.c:358-459)
+//     diverges from the oracle because the oracle uses the nonrd path.
 //
-//   - block_rd_txfm runs the real forward DCT/ADST (vp9_xform_quant),
-//     QuantizeB / QuantizeFP, and inverse-transform-add into the recon
-//     buffer (vp9_rdopt.c:519-690).
-//   - distortion = pixel_sse(src, recon) * 16 (vp9_rdopt.c:689).
-//   - rate = cost_coeffs(... coeff_ctx ...) with coeff_ctx =
-//     combine_entropy_contexts(t_above[c], t_left[r]) (vp9_rdopt.c:709-710).
-//   - After each block, args.t_above[c..c+w]/t_left[r..r+h] are updated
-//     to `eob > 0` so subsequent blocks see the proper entropy context
-//     (libvpx vp9_encodemb.c:set_entropy_context_b drives the
-//     non-RD update; for the RD path block_rd_txfm at vp9_rdopt.c:786-792
-//     writes args.t_above/args.t_left = (eob > 0) under the
-//     trellis_opt_tx_rd path — without trellis it stays at the
-//     vp9_get_entropy_contexts initial values, but the inner-block
-//     coeff_ctx still observes the per-block residue presence).
+//  2. Per-tx pick: the realtime nonrd path pins tx_size at
+//     `VPXMIN(max_txsize_lookup[bsize], tx_mode_to_biggest_tx_size[tx_mode])`
+//     up front (vp9_pickmode.c:1172-1174) and does NOT run a per-block
+//     RD scan — the only tx_size search happens in the upstream RD picker
+//     `choose_tx_size_from_rd` (vp9_rdopt.c:907-1023) which is only invoked
+//     when sf.tx_size_search_method == USE_FULL_RD. For the realtime path
+//     (sf.tx_size_search_method == USE_LARGESTALL or USE_TX_8X8) the
+//     tx_size is fixed at min(max, Tx16x16); govpx mirrors via the
+//     `txSize := min(mi.TxSize, common.Tx16x16)` clamp below.
 //
-// The previous govpx implementation called the SATD-of-qcoeff proxy
-// (the libvpx vp9_pickmode.c:830-853 block_yrd nonrd estimator) for
-// the keyframe RD path. That was incorrect: libvpx keyframe at
-// cpu_used=0..4 GOOD/REALTIME runs through the FULL_RD pick
-// (sf->tx_size_search_method == USE_FULL_RD, sf->use_nonrd_pick_mode
-// == 0; vp9_speed_features.c:942, 997) and dispatches to
-// super_block_yrd, NOT block_yrd. The SATD proxy underestimated the
-// larger-tx coef rate, so the picker biased toward smaller tx_size on
-// textured residuals — the residual measured under
-// TestVP9DeferredSeedsRemeasureRuntimeControls was +989-2298B/frame
-// across seeds #0/#1/#2/#4/#6/#7 (the RuntimeControls regression).
+//  3. UV picker (pickVP9KeyframeUvMode): libvpx's `vp9_pick_intra_mode`
+//     pins `mi->uv_mode = DC_PRED` at line 1194 — there is no UV RD
+//     search in the nonrd keyframe path. govpx's pickVP9KeyframeUvMode
+//     returns DC_PRED unconditionally to mirror.
+//
+//  4. Skip-bit composition (scoreVP9KeyframeModeRD): the realtime nonrd
+//     picker composes total rate per libvpx vp9_pickmode.c:1207-1214:
+//     `if args.skippable: rate = cost_bit(skip_prob, 1); else: rate +=
+//     block_rate + cost_bit(skip_prob, 0); rate += bmode_costs[mode]`.
+//     govpx's scoreVP9KeyframeModeRD performs exactly that composition
+//     (vp9_encoder.go:7813-7838).
+//
+// These four pieces ship together; landing #1 without aligning #2/#3/#4
+// (or vice-versa) flips the candidate ordering on flat-content fixtures
+// and regresses the 12 VP9 keyframe byte-parity oracles
+// (TestVP9EncoderVpxencOracle{Black,Midgray,Checker,Checker64,Checker320,
+// Stepped320FixedQuantizer,FixedQuantizer,CQLevel,PublicQuantizerBand,
+// CBR,Lossless,ErrorResilient}KeyframeByteParity).
+//
+// The prior cost_coeffs port replaced the SATD-of-qcoeff proxy with a
+// txfm_rd_in_plane → block_rd_txfm → cost_coeffs port (vp9_rdopt.c:854-889
+// → 699-852 → 358-459) which IS the RD-path estimator libvpx uses for
+// cpu_used 0..4 GOOD via `rd_pick_intra_sby_mode` (vp9_rdopt.c:1363-1416).
+// But the govpx oracle (vpxenc-vp9) invokes libvpx at `--rt --cpu-used=8`
+// where `sf.nonrd_keyframe = 1` (vp9_speed_features.c:751-757) and the
+// keyframe picker dispatches through `vp9_pick_intra_mode`, NOT through
+// `rd_pick_intra_sby_mode`. Porting the RD path while the oracle uses the
+// nonrd path is a category mismatch — the cost_coeffs walk gave different
+// per-mode rate estimates than block_yrd's SATD-of-qcoeff proxy, so the
+// candidate ordering diverged on flat content and the 12 KF byte-parity
+// fixtures regressed.
 func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState,
 	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
@@ -7928,7 +7942,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 		return 0, 0, false, false
 	}
 	planeData, stride := e.vp9EncoderReconPlane(0)
-	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
 	if len(planeData) == 0 || stride <= 0 || len(src) == 0 || srcStride <= 0 {
 		return 0, 0, false, false
 	}
@@ -7955,116 +7969,38 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
 	}
 
-	txSize := clampVP9TxSizeForBlock(mi.TxSize, bsize)
+	txSize := min(mi.TxSize, common.Tx16x16)
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	step := 1 << uint(txSize)
 	segID := vp9EncoderMiSegmentID(mi)
 	dequant := key.dq.Y[segID]
-	qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
-		int(key.hdr.Quant.BaseQindex))
-	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	if maxEob > len(e.coefScratch) {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
-			restoreW, restoreH, saved)
-		return 0, 0, false, false
-	}
-	// libvpx vp9_rdopt.c:872 — args.t_above/args.t_left initialised by
-	// vp9_get_entropy_contexts from pd->above_context/pd->left_context.
-	// govpx mirrors via the plane context cache; the entropy-context
-	// arrays are then updated per block to !!eob (vp9_rdopt.c:786-792).
-	var aboveCtx [16]uint8
-	var leftCtx [16]uint8
-	aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
-	leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
-	if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
-			restoreW, restoreH, saved)
-		return 0, 0, false, false
-	}
-	// vp9EncoderPlaneContextOffsets() does a modulo by len(pd.LeftContext)
-	// and would panic when the plane LeftContext slab is not yet
-	// allocated (some test fixtures bypass the encoder init path). Skip
-	// the context cache copy in that case and start with the
-	// vp9_get_entropy_contexts default of zeroes (libvpx's
-	// vp9_rd.c:547-583 initial state for a fresh SB), which matches the
-	// libvpx-faithful coeff_ctx at SB corners.
-	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
-		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-		if off := aboveOffsets[0]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
-			copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
-		}
-		if off := leftOffsets[0]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
-			copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
-		}
-	}
 	skippable = true
 	for rr := 0; rr < max4x4H; rr += step {
 		for cc := 0; cc < max4x4W; cc += step {
-			coeffs := e.coefScratch[:maxEob]
-			for i := range coeffs {
-				coeffs[i] = 0
-			}
-			// libvpx vp9_rdopt.c:699-768 — block_rd_txfm dispatches to
-			// vp9_xform_quant + inv_txfm_add. govpx's
-			// prepareVP9KeyframeTxResidue chains predictVP9KeyframeTx
-			// (intra prediction) → gatherVP9TxResidual (src - pred) →
-			// quantizeVP9TxResidual (forward DCT/ADST + QuantizeB +
-			// InverseTransformBlock). The dst recon is updated in
-			// place, so subsequent intra predictions for later blocks
-			// in the SB see the libvpx-correct reconstructed neighbour
-			// samples — mirroring vp9_rdopt.c:683-687 which copies the
-			// recon into out_recon for downstream blocks.
-			hasResidue := e.prepareVP9KeyframeTxResidue(key, pd, 0, mode, txSize,
-				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
-				qindex, coeffs)
-
-			// libvpx vp9_rdopt.c:689 — dist = pixel_sse(src, recon) * 16.
-			// govpx pulls the dst rect post-encode (after the inverse
-			// transform writes recon back) via vp9PlaneRectSSEClamped.
-			bs := 4 << uint(txSize)
-			txX := baseX + cc*4
-			txY := baseY + rr*4
-			dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
-				srcH, planeData, stride, txX, txY, bs, bs)
-			if !distOK {
+			dst, dstStride, x0, y0, predOK := e.predictVP9KeyframeTx(
+				key.hdr, pd, 0, mode, txSize, tile, miRows, miCols,
+				miRow, miCol, bsize, rr, cc)
+			if !predOK {
 				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
 					restoreW, restoreH, saved)
 				return 0, 0, false, false
 			}
-			distortion += dist * 16
-
-			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
-			// combine_entropy_contexts(t_above[c], t_left[r]).
-			// govpx's vp9dec.GetEntropyContext returns
-			// (above != 0) + (left != 0) which matches.
-			initCtx := vp9dec.GetEntropyContext(txSize,
-				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
-			// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
-			// cost_coeffs(...). The keyframe-Y intra is_inter=0 path
-			// reads x->token_costs[tx_size][PLANE_TYPE_Y][0]; govpx
-			// dispatches to vp9KeyframeCoeffBlockRateCost which
-			// indexes fc.CoefProbs[txSize][0][0] (planeType=0,
-			// is_inter=0) and walks the per-token entropy tree.
-			coeffRate += e.vp9KeyframeCoeffBlockRateCost(txSize, dequant,
-				coeffs, initCtx)
-
-			// libvpx vp9_rdopt.c:786-792 — after the block,
-			// t_above[c..c+w]/t_left[r..r+h] = (eob > 0). govpx
-			// mirrors via the hasResidue flag (prepareVP9KeyframeTxResidue
-			// returns true exactly when eob > 0 from the encoder
-			// quantize pass).
-			hasCtx := uint8(0)
-			if hasResidue {
-				hasCtx = 1
-				skippable = false
+			_ = e.gatherVP9TxResidual(src, srcStride, int(key.hdr.Width),
+				int(key.hdr.Height), dst, dstStride, x0, y0, txSize)
+			txRate, txDist, txSkippable, scoreOK := e.scoreVP9KeyframeTxBlockRD(
+				txSize, dequant)
+			if !scoreOK {
+				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					restoreW, restoreH, saved)
+				return 0, 0, false, false
 			}
-			for i := 0; i < step && cc+i < aboveLen; i++ {
-				aboveCtx[cc+i] = hasCtx
-			}
-			for i := 0; i < step && rr+i < leftLen; i++ {
-				leftCtx[rr+i] = hasCtx
-			}
+			coeffRate += txRate
+			distortion += txDist
+			// libvpx's realtime estimate_block_intra passes the same
+			// skippable pointer into block_yrd for each transform. block_yrd
+			// resets it before scoring, so the final transform owns this flag.
+			skippable = txSkippable
 		}
 	}
 	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
@@ -8076,6 +8012,97 @@ func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
 		copy(data[(y0+y)*stride+x0:(y0+y)*stride+x0+w],
 			saved[y*w:(y+1)*w])
 	}
+}
+
+// scoreVP9KeyframeTxBlockRD is a verbatim port of libvpx's nonrd Y rate
+// estimator `block_yrd` (vp9/encoder/vp9_pickmode.c:830-853). libvpx's
+// `vp9_pick_intra_mode` (the cpu_used>=5 keyframe Y picker) reaches this
+// estimator through `estimate_block_intra` → `block_yrd` per
+// vp9_pickmode.c:1083-1084. The block_yrd path:
+//
+//	(1) Forward transform: for TX_4X4 libvpx calls vp9_fht4x4 (ADST-aware,
+//	    DCT_DCT for the realtime keyframe path); for TX_8X8/TX_16X16 it
+//	    calls vpx_hadamard_8x8 / vpx_hadamard_16x16 (vp9_pickmode.c:840-846).
+//	    govpx mirrors via ForwardHT4x4Into(...DctDct...) for TX_4X4 and
+//	    vp9Hadamard{8x8,16x16}Into for TX_8X8/TX_16X16.
+//	(2) Quantize: vp9_quantize_fp on the transformed coeffs
+//	    (vp9_pickmode.c:847-850, vp9_quantize.c:151-198). govpx ports as
+//	    vp9QuantizeFPForRD, matching the (1<<16)/dequant quant + (48/42)
+//	    round factors libvpx uses for the realtime FP quantize.
+//	(3) Rate proxy: `*rate = vpx_satd(qcoeff, ...)` (vp9_pickmode.c:851
+//	    -852) — sum-of-absolute-values over the quantized coefficients.
+//	    libvpx then scales by `4 << VP9_PROB_COST_SHIFT` and adds
+//	    `1 << VP9_PROB_COST_SHIFT` (vp9_pickmode.c:867-870) to align with
+//	    the cost_bit rate scale. govpx mirrors via `rate <<= 2 +
+//	    VP9ProbCostShift; rate += 1 << VP9ProbCostShift`.
+//	(4) Distortion: `*sse = vp9_block_error_fp` (vp9_pickmode.c:855-857)
+//	    over (coeff, dqcoeff) shifted >> 2 to match libvpx's
+//	    `*dist = sse >> 2` (vp9_pickmode.c:870). govpx mirrors via
+//	    `vp9BlockErrorFP(coeff, dqcoeff) >> 2`.
+//	(5) Skippable: libvpx tracks skippable via `*skippable = *eob == 0`
+//	    (vp9_pickmode.c:866). govpx mirrors via `skippable = eob == 0`.
+//
+// The libvpx-faithful nonrd Y rate estimator is the SATD-of-qcoeff proxy
+// above — it is NOT the RD-path `cost_coeffs` walk
+// (vp9/encoder/vp9_rdopt.c:358-459). cost_coeffs is the rate estimator
+// libvpx uses inside `super_block_yrd` → `txfm_rd_in_plane` →
+// `block_rd_txfm` for cpu_used 0..4 GOOD/REALTIME via
+// `rd_pick_intra_sby_mode` (vp9_rdopt.c:1383). For cpu_used>=5 REALTIME
+// (the path the govpx vpxenc oracle uses at `--cpu-used=8 --rt`) libvpx
+// dispatches the keyframe picker through `vp9_pick_intra_mode` →
+// `estimate_block_intra` → block_yrd, NOT through `rd_pick_intra_sby_mode`.
+// Replacing block_yrd's SATD proxy with cost_coeffs would mismatch the
+// rate estimator the oracle uses and shift the candidate ordering on
+// flat-content fixtures, regressing the 12 VP9 keyframe byte-parity
+// oracles (see scoreVP9KeyframeModeTransformRD doc above for the gate
+// list).
+func (e *VP9Encoder) scoreVP9KeyframeTxBlockRD(txSize common.TxSize,
+	dequant [2]int16,
+) (rate int, distortion uint64, skippable bool, ok bool) {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if maxEob > len(e.txCoeffScratch) || maxEob > len(e.coefScratch) ||
+		maxEob > len(e.dqCoeffScratch) {
+		return 0, 0, false, false
+	}
+	coeff := e.txCoeffScratch[:maxEob]
+	switch txSize {
+	case common.Tx4x4:
+		// libvpx vp9_pickmode.c:840 — vp9_fht4x4(src_diff, coeff, ...).
+		// govpx's ForwardHT4x4Into provides the DCT_DCT path used by the
+		// realtime keyframe Y picker (intra + tx_type=DCT_DCT).
+		encoder.ForwardHT4x4Into(e.residueScratch[:], 4, common.DctDct, coeff)
+	case common.Tx8x8:
+		// libvpx vp9_pickmode.c:842-844 — vpx_hadamard_8x8.
+		vp9Hadamard8x8Into(e.residueScratch[:], 8, coeff)
+	case common.Tx16x16:
+		// libvpx vp9_pickmode.c:845-847 — vpx_hadamard_16x16.
+		vp9Hadamard16x16Into(e.residueScratch[:], 16, coeff)
+	default:
+		return 0, 0, false, false
+	}
+	qcoeff := e.coefScratch[:maxEob]
+	dqcoeff := e.dqCoeffScratch[:maxEob]
+	// libvpx vp9_pickmode.c:847-850 — vp9_quantize_fp on the (coeff,
+	// qcoeff, dqcoeff) triple with the scan order baked in. govpx's
+	// vp9QuantizeFPForRD ports the (1<<16)/dequant quant factor + 48/42
+	// round factors libvpx uses for the realtime quantize.
+	eob := vp9QuantizeFPForRD(coeff, dequant,
+		common.DefaultScanOrders[txSize].Scan, qcoeff, dqcoeff)
+	skippable = eob == 0
+	// libvpx vp9_pickmode.c:851-852, 867-870 — rate = vpx_satd(qcoeff,
+	// area, ...) scaled by (4 << VP9_PROB_COST_SHIFT) and offset by
+	// (1 << VP9_PROB_COST_SHIFT). The eob==1 fast-path is libvpx's
+	// vpx_satd which collapses to the single qcoeff's magnitude.
+	if eob == 1 {
+		rate += vp9AbsInt(int(qcoeff[0]))
+	} else if eob > 1 {
+		rate += vp9Satd(qcoeff)
+	}
+	rate <<= 2 + encoder.VP9ProbCostShift
+	rate += 1 << encoder.VP9ProbCostShift
+	// libvpx vp9_pickmode.c:855-857, 870 — sse = vp9_block_error_fp,
+	// dist = sse >> 2. govpx mirrors via vp9BlockErrorFP >> 2.
+	return rate, vp9BlockErrorFP(coeff, dqcoeff) >> 2, skippable, true
 }
 
 func vp9RDCost(rdmult, rddiv, rate int, distortion uint64) uint64 {
@@ -8100,6 +8127,103 @@ func vp9KeyframeRDMul(qindex int) int {
 		return 1
 	}
 	return rdmult
+}
+
+// vp9QuantizeFPForRD ports libvpx's `vp9_quantize_fp` realtime quantizer
+// (vp9/encoder/vp9_quantize.c:151-198), specialised for the block_yrd
+// rate estimator's RD-only quant pass invoked from
+// `estimate_block_intra` → `block_yrd` (vp9_pickmode.c:847-850). The
+// quant factor is `(1 << 16) / dequant[zb_idx]` and the round factor is
+// `(48 * dequant[0]) >> 7` for DC and `(42 * dequant[1]) >> 7` for AC —
+// matching libvpx's `vp9_quantize_fp_c` (the AVX2 path
+// vp9_quantize_avx2.c:34-103 emits the same constants). The scan order
+// drives the per-coeff eob update so the returned eob matches libvpx's
+// `*eob_ptr = eob + 1` where `eob` is the highest scan index with a
+// non-zero qcoeff. Used exclusively from scoreVP9KeyframeTxBlockRD as
+// part of the libvpx nonrd keyframe picker chain.
+func vp9QuantizeFPForRD(coeff []int16, dequant [2]int16, scan []int16,
+	qcoeff, dqcoeff []int16,
+) int {
+	n := min(len(coeff), min(len(scan), min(len(qcoeff), len(dqcoeff))))
+	for i := range n {
+		qcoeff[i] = 0
+		dqcoeff[i] = 0
+	}
+	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
+		return 0
+	}
+	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
+	round := [2]int{(48 * int(dequant[0])) >> 7, (42 * int(dequant[1])) >> 7}
+	eob := -1
+	for i := range n {
+		rc := int(scan[i])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		c := int(coeff[rc])
+		absCoeff := c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp := vp9ClampInt16(absCoeff + round[slot])
+		tmp = (tmp * quant[slot]) >> 16
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[rc] = int16(q)
+		dqcoeff[rc] = int16(q * int(dequant[slot]))
+		if tmp != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+// vp9BlockErrorFP ports libvpx's `vp9_block_error_fp` realtime block-error
+// proxy (vp9/encoder/vp9_encodemb.c:106-118 family / vpx_dsp/quantize.c
+// :60-80 family). For the block_yrd path libvpx invokes the FP variant
+// at vp9_pickmode.c:855-857 which sums `(coeff - dqcoeff)**2` over the
+// transform area, returning a uint64 SSE the picker subsequently shifts
+// by `>> 2` to derive the distortion proxy (vp9_pickmode.c:870 — `*dist
+// = sse >> 2`). govpx mirrors with a direct unrolled loop over the
+// (coeff, dqcoeff) pair; the >> 2 is applied at the caller in
+// scoreVP9KeyframeTxBlockRD.
+func vp9BlockErrorFP(coeff, dqcoeff []int16) uint64 {
+	n := min(len(coeff), len(dqcoeff))
+	var err uint64
+	for i := range n {
+		diff := int(coeff[i]) - int(dqcoeff[i])
+		err += uint64(diff * diff)
+	}
+	return err
+}
+
+// vp9Satd ports libvpx's `vpx_satd` realtime sum-of-absolute-values
+// proxy (vpx_dsp/sum_squares.c:18-30 / vpx_dsp/x86/sum_squares_sse2.c
+// invoked via vp9_pickmode.c:851-852). For block_yrd this collapses the
+// quantized coefficients to a single integer used as the rate proxy
+// after the (4 << VP9_PROB_COST_SHIFT) scaling at vp9_pickmode.c:867
+// -870. The scoreVP9KeyframeTxBlockRD eob==1 fast-path collapses to a
+// single qcoeff magnitude (matching libvpx's vpx_satd_neon eob==1
+// shortcut at vpx_dsp/arm/sum_squares_neon.c).
+func vp9Satd(coeff []int16) int {
+	sum := 0
+	for _, c := range coeff {
+		sum += vp9AbsInt(int(c))
+	}
+	return sum
+}
+
+func vp9ClampInt16(v int) int {
+	if v < -32768 {
+		return -32768
+	}
+	if v > 32767 {
+		return 32767
+	}
+	return v
 }
 
 func vp9HadamardCol8(src []int16, stride int, coeff []int16) {
@@ -8243,12 +8367,28 @@ scoreLoop:
 	return distortion, true
 }
 
+// pickVP9KeyframeUvMode is the UV-mode picker for govpx's keyframe path.
+// libvpx's realtime nonrd keyframe picker `vp9_pick_intra_mode`
+// (vp9/encoder/vp9_pickmode.c:1165-1224) pins `mi->uv_mode = DC_PRED`
+// at line 1194 BEFORE the per-Y-mode loop and never re-searches UV — UV
+// is implicit DC_PRED for the entire realtime keyframe path. govpx
+// mirrors by returning DC_PRED unconditionally. This is one of the four
+// coordinated pieces of the libvpx nonrd keyframe picker chain (see the
+// scoreVP9KeyframeModeTransformRD doc-comment for the full chain
+// linkage); shifting UV away from DC_PRED here without also rewiring
+// the upstream rate/dist accumulation breaks the byte-parity oracles.
+//
+// The RD-path libvpx picker `rd_pick_intra_sbuv_mode` (vp9_rdopt.c:1468
+// -1512) DOES walk DC..TM_PRED for UV — that picker is invoked from
+// `vp9_rd_pick_intra_mode_sb` (vp9_rdopt.c:3253-3256) when the keyframe
+// path goes through `rd_pick_intra_sby_mode`, which only happens at
+// cpu_used 0..4 GOOD. The govpx vpxenc oracle invokes libvpx at
+// `--cpu-used=8 --rt` where the nonrd-keyframe path (UV = DC_PRED) is
+// the active picker; matching the oracle requires this DC_PRED pin.
 func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) common.PredictionMode {
-	// The realtime libvpx path used by the VP9 oracle keeps keyframe UV on
-	// DC_PRED while only searching the luma intra mode.
 	return common.DcPred
 }
 
@@ -8538,18 +8678,10 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 				}
 				// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
 				// cost_coeffs(...). govpx uses
-				// vp9KeyframeCoeffBlockRateCost as the cost_coeffs port;
+				// vp9InterCoeffBlockRateCost as the cost_coeffs port;
 				// keyframe is_inter=0 so the [0] is_inter index of
-				// fc.CoefProbs is the libvpx-faithful path. initCtx=0
-				// matches the per-tx_size choose_tx_size_from_rd loop
-				// which doesn't thread per-block above/left contexts
-				// across the inner TX_SIZE candidates (libvpx
-				// vp9_rdopt.c:854-872 — txfm_rd_in_plane resets
-				// args.t_above/t_left from vp9_get_entropy_contexts each
-				// outer iteration; the per-block coeff_ctx is computed
-				// inside block_rd_txfm and is locally 0 at the SB
-				// corner with no above/left residue).
-				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs, 0)
+				// fc.CoefProbs is the libvpx-faithful path.
+				rate += e.vp9KeyframeCoeffBlockRateCost(tx, dequant, coeffs)
 			}
 		}
 		if !valid {
@@ -8608,18 +8740,13 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 // per-coefficient energy class fed into the next coef-context lookup
 // mirrors libvpx's token_cache[rc] = vp9_pt_energy_class[token]
 // (vp9_rdopt.c:397, 429, 442; pt_energy_class table is in
-// vp9/common/vp9_entropy.c:95). initCtx is libvpx's coeff_ctx
-// (vp9_rdopt.c:709 combine_entropy_contexts(t_above, t_left)) that
-// block_rd_txfm threads into the cost_coeffs(... pt ...) `pt` parameter
-// (vp9_rdopt.c:695). Callers compute initCtx via
-// vp9dec.GetEntropyContext on the per-block above/left context cache.
+// vp9/common/vp9_entropy.c:95).
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
-	dequant [2]int16, coeffs []int16, initCtx int,
+	dequant [2]int16, coeffs []int16,
 ) int {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txSize >= common.TxSizes || dequant[0] == 0 || dequant[1] == 0 ||
-		len(coeffs) < maxEob || len(e.modeScratch) < maxEob ||
-		initCtx < 0 || initCtx > 2 {
+		len(coeffs) < maxEob || len(e.modeScratch) < maxEob {
 		return 0
 	}
 	scan := common.DefaultScanOrders[txSize].Scan
@@ -8637,7 +8764,7 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCost(txSize common.TxSize,
 	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
 	// type=PLANE_TYPE_Y=0, is_inter=0 for a keyframe / intra block.
 	coefModel := &e.fc.CoefProbs[txSize][0][0]
-	ctx := initCtx
+	ctx := 0
 	bandIdx := 0
 	rate := 0
 	for c := 0; c < maxEob; {
