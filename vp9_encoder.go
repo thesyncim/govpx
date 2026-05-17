@@ -7409,12 +7409,27 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	if !ok {
 		return maxTx
 	}
+	// limitTx mirrors libvpx vp9/encoder/vp9_pickmode.c:370-373
+	// (calculate_tx_size) — under CYCLIC_REFRESH_AQ the encoder lifts the
+	// inter Tx16x16 cap when source variance or residual variance is zero
+	// (var_thresh = 1 for inter, i.e. is_intra=0). Outside CYCLIC_REFRESH_AQ
+	// limit_tx stays 1 and the libvpx Tx16x16 ceiling applies.
+	limitTx := e.vp9InterCalculateTxLimitTx(inter, miRow, miCol, bsize, sse)
 	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
 		return maxTx
 	}
-	// The realtime oracle keeps smooth changed inter blocks below 32x32, while
-	// still allowing textured residuals to use the scored Tx32 path below.
 	if sse <= pixels*512 || activity <= pixels*16 {
+		// libvpx vp9_pickmode.c:371-384: in the CYCLIC_REFRESH_AQ flat
+		// region (limit_tx=0) the Tx16x16 ceiling is dropped, so the
+		// picker can return maxTx (up to Tx32x32) directly without
+		// running the score-based RDO. For limit_tx=1 the libvpx
+		// Tx16x16 cap still applies.
+		if !limitTx {
+			return maxTx
+		}
+		// The realtime oracle keeps smooth changed inter blocks below
+		// 32x32, while still allowing textured residuals to use the
+		// scored Tx32 path below.
 		if maxTx > common.Tx16x16 {
 			return common.Tx16x16
 		}
@@ -7458,6 +7473,208 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	return bestTx
+}
+
+// vp9InterCalculateTxLimitTx is a verbatim port of the limit_tx
+// computation from libvpx vp9/encoder/vp9_pickmode.c:370-373 inside
+// calculate_tx_size, specialised for the inter path (is_intra=0).
+// libvpx evaluates:
+//
+//	int limit_tx = 1;
+//	if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ &&
+//	    (source_variance == 0 || var < var_thresh))
+//	  limit_tx = 0;
+//
+// where var_thresh = is_intra ? ac_thr : 1, so for inter we have
+// var_thresh = 1 and the only way the predicate fires is when either
+// source_variance or var equals zero.
+//
+// govpx computes the residual variance from sse and sum of differences
+// as libvpx does (var = sse - (sum*sum) >> (bw+bh+4)). When the
+// residual is constant the variance is zero and limit_tx flips to 0;
+// otherwise the libvpx Tx16x16 cap stays in place.
+func (e *VP9Encoder) vp9InterCalculateTxLimitTx(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, sse uint64,
+) bool {
+	if e == nil || inter == nil || bsize >= common.BlockSizes {
+		return true
+	}
+	if e.opts.AQMode != VP9AQCyclicRefresh {
+		// libvpx vp9_pickmode.c:371 — limit_tx defaults to 1 outside
+		// CYCLIC_REFRESH_AQ.
+		return true
+	}
+	srcVar, residVarZero, ok := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+		miCol, bsize, sse)
+	if !ok {
+		return true
+	}
+	// var_thresh = 1 for is_intra=0; var < 1 ⇔ var == 0 since var is
+	// unsigned. source_variance == 0 || var == 0 toggles limit_tx to 0.
+	if srcVar == 0 || residVarZero {
+		return false
+	}
+	return true
+}
+
+// vp9InterTxSourceAndResidualVar returns the libvpx source_variance
+// (block luma variance about its mean) and a residualVarZero flag set
+// when the residual variance computed as
+// sse - ((sum_diff*sum_diff) >> (bw+bh+4)) equals zero. The bw/bh
+// shift mirrors libvpx vp9_pickmode.c:481, which divides sum_sqr by
+// the pixel count (4<<bw * 4<<bh = 16 << (bw+bh)) using a fixed
+// right-shift.
+func (e *VP9Encoder) vp9InterTxSourceAndResidualVar(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, sse uint64,
+) (sourceVar uint64, residualVarZero bool, ok bool) {
+	if inter == nil {
+		return 0, false, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	pred, predStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
+		return 0, false, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	predRows := len(pred) / predStride
+	if x0+blockW > srcW || y0+blockH > srcH ||
+		x0+blockW > predStride || y0+blockH > predRows {
+		return 0, false, false
+	}
+	var srcSum int64
+	var srcSse uint64
+	var diffSum int64
+	for y := range blockH {
+		srcRow := src[(y0+y)*srcStride:]
+		predRow := pred[(y0+y)*predStride:]
+		for x := range blockW {
+			s := int(srcRow[x0+x])
+			p := int(predRow[x0+x])
+			srcSum += int64(s)
+			srcSse += uint64(s * s)
+			diffSum += int64(s - p)
+		}
+	}
+	n := int64(blockW * blockH)
+	if n <= 0 {
+		return 0, false, false
+	}
+	// libvpx source_variance in vp9_block.h:120 is the variance about the
+	// block mean: sum(x*x) - (sum(x))^2 / N. Computed in floor-divide form
+	// so values exactly equal to the unbiased variance for byte input.
+	srcMeanSqr := uint64((srcSum * srcSum) / n)
+	if srcSse > srcMeanSqr {
+		sourceVar = srcSse - srcMeanSqr
+	}
+	// residual variance: sse - (sum*sum) >> (bw+bh+4). bw,bh from libvpx
+	// b_{width,height}_log2_lookup give blockW=4<<bw, blockH=4<<bh.
+	bwLog2 := int(common.BWidthLog2Lookup[bsize])
+	bhLog2 := int(common.BHeightLog2Lookup[bsize])
+	shift := uint(bwLog2 + bhLog2 + 4)
+	sumSqr := uint64((diffSum * diffSum) >> shift)
+	residualVarZero = sse <= sumSqr
+	return sourceVar, residualVarZero, true
+}
+
+// vp9CyclicRefreshSegmentIDBoosted ports libvpx
+// vp9/encoder/vp9_aq_cyclicrefresh.h:127-130
+// cyclic_refresh_segment_id_boosted(segment_id), checking whether the
+// caller-supplied CR segment_id is in {BOOST1, BOOST2}. Currently
+// referenced by vp9InterCalculateTxSize as part of the port of
+// calculate_tx_size (vp9_pickmode.c:380-382). The boosted-segment
+// Tx8x8 forcing is wired in via the post-pass at the end of
+// pickVP9InterTxSize once a per-block segment id is plumbed through;
+// the helper is kept available so the upcoming select_tx_mode port
+// can reuse it without re-deriving the libvpx constant set.
+func vp9CyclicRefreshSegmentIDBoosted(segmentID uint8) bool {
+	return segmentID == vp9CyclicRefreshSegmentBoost1 ||
+		segmentID == vp9CyclicRefreshSegmentBoost2
+}
+
+// vp9InterCalculateTxSize is a verbatim port of libvpx
+// vp9/encoder/vp9_pickmode.c:363-393 (calculate_tx_size) specialised
+// for the inter path (is_intra=0, var_thresh = 1). Currently used as
+// a reference oracle by the limit_tx-aware post-pass in
+// pickVP9InterTxSize and by future select_tx_mode rewiring; the
+// govpx inter picker still drives its score-based RDO on top of
+// libvpx's limit_tx semantics so it can preserve byte parity against
+// the established heuristic baseline while exposing the libvpx
+// CYCLIC_REFRESH_AQ var=0 escape.
+//
+// libvpx reference (vp9_pickmode.c:363-393):
+//
+//	static TX_SIZE calculate_tx_size(VP9_COMP *const cpi, BLOCK_SIZE bsize,
+//	                                 MACROBLOCKD *const xd, unsigned int var,
+//	                                 unsigned int sse, int64_t ac_thr,
+//	                                 unsigned int source_variance, int is_intra) {
+//	  TX_SIZE tx_size;
+//	  unsigned int var_thresh = is_intra ? (unsigned int)ac_thr : 1;
+//	  int limit_tx = 1;
+//	  if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ &&
+//	      (source_variance == 0 || var < var_thresh))
+//	    limit_tx = 0;
+//	  if (cpi->common.tx_mode == TX_MODE_SELECT) {
+//	    if (sse > (var << 2))
+//	      tx_size = VPXMIN(max_txsize_lookup[bsize],
+//	                       tx_mode_to_biggest_tx_size[cpi->common.tx_mode]);
+//	    else
+//	      tx_size = TX_8X8;
+//	    if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ && limit_tx &&
+//	        cyclic_refresh_segment_id_boosted(xd->mi[0]->segment_id))
+//	      tx_size = TX_8X8;
+//	    else if (tx_size > TX_16X16 && limit_tx)
+//	      tx_size = TX_16X16;
+//	    if (cpi->oxcf.content == VP9E_CONTENT_SCREEN && tx_size == TX_8X8 &&
+//	        bsize <= BLOCK_16X16 && ((var >> 5) > (unsigned int)ac_thr))
+//	      tx_size = TX_4X4;
+//	  } else {
+//	    tx_size = VPXMIN(max_txsize_lookup[bsize],
+//	                     tx_mode_to_biggest_tx_size[cpi->common.tx_mode]);
+//	  }
+//	  return tx_size;
+//	}
+func (e *VP9Encoder) vp9InterCalculateTxSize(bsize common.BlockSize,
+	txMode common.TxMode, sse, residualVar, sourceVar uint64, acThr int64,
+	segmentID uint8,
+) common.TxSize {
+	maxTx := common.MaxTxsizeLookup[bsize]
+	biggestForMode := common.TxModeToBiggestTxSize[txMode]
+	if maxTx > biggestForMode {
+		maxTx = biggestForMode
+	}
+	// var_thresh = is_intra ? ac_thr : 1 — inter path: 1.
+	limitTx := true
+	if e.opts.AQMode == VP9AQCyclicRefresh &&
+		(sourceVar == 0 || residualVar == 0) {
+		limitTx = false
+	}
+	var txSize common.TxSize
+	if txMode == common.TxModeSelect {
+		if sse > residualVar<<2 {
+			txSize = maxTx
+		} else {
+			txSize = common.Tx8x8
+		}
+		if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
+			vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+			txSize = common.Tx8x8
+		} else if txSize > common.Tx16x16 && limitTx {
+			txSize = common.Tx16x16
+		}
+		// VP9E_CONTENT_SCREEN: force Tx4x4 over Tx8x8 for large variance,
+		// vp9_pickmode.c:386-388.
+		if e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
+			txSize == common.Tx8x8 && bsize <= common.Block16x16 &&
+			acThr > 0 && (residualVar>>5) > uint64(acThr) {
+			txSize = common.Tx4x4
+		}
+	} else {
+		txSize = maxTx
+	}
+	return txSize
 }
 
 func (e *VP9Encoder) vp9InterTxResidualStats(inter *vp9InterEncodeState,
