@@ -9054,9 +9054,31 @@ func assertVP9StaticSegmentationHeaderForTest(t *testing.T,
 		t.Fatalf("segmentation flags = enabled:%v updateMap:%v updateData:%v absDelta:%v, want all true",
 			seg.Enabled, seg.UpdateMap, seg.UpdateData, seg.AbsDelta)
 	}
+	// libvpx's vp9_choose_segmap_coding_method
+	// (vp9/encoder/vp9_segmentation.c:242-316) runs unconditionally
+	// from encode_segmentation whenever seg->update_map is set
+	// (vp9_bitstream.c:773). It counts the realized mi_grid_visible
+	// and writes the chosen tree_probs via calc_segtree_probs
+	// (vp9_segmentation.c:104-118), so a fully-static map where every
+	// block falls in segID has two valid projections depending on
+	// whether the chooser picked temporal (t_unpred all-zero counts,
+	// every prob = 128) or spatial (no_pred_segcounts[segID]=N,
+	// projection over the realized counts).
+	var spatialCounts [vp9dec.MaxSegments]uint32
+	spatialCounts[segID] = 1
+	var spatialTree [vp9dec.SegTreeProbs]uint8
+	vp9CalcSegTreeProbs(spatialCounts, &spatialTree)
+	var temporalCounts [vp9dec.MaxSegments]uint32 // all zero -> get_binary_prob(0,0) = 128
+	var temporalTree [vp9dec.SegTreeProbs]uint8
+	vp9CalcSegTreeProbs(temporalCounts, &temporalTree)
+	wantTree := spatialTree
+	if seg.TemporalUpdate {
+		wantTree = temporalTree
+	}
 	for i := range vp9dec.SegTreeProbs {
-		if seg.TreeProbs[i] != vp9dec.MaxProb {
-			t.Fatalf("TreeProbs[%d] = %d, want MaxProb", i, seg.TreeProbs[i])
+		if seg.TreeProbs[i] != wantTree[i] {
+			t.Fatalf("TreeProbs[%d] = %d, want %d (temporal_update=%t, libvpx calc_segtree_probs over realized mi_grid)",
+				i, seg.TreeProbs[i], wantTree[i], seg.TemporalUpdate)
 		}
 	}
 	wantMask := uint32((1 << uint(vp9dec.SegLvlAltQ)) |
@@ -9132,10 +9154,25 @@ func assertVP9DecoderSegmentIDForTest(t *testing.T, d *VP9Decoder, segID uint8) 
 	if len(d.miGrid) == 0 {
 		t.Fatal("decoder MI grid is empty")
 	}
+	// On intra frames libvpx's ReadIntraFrameModeInfo stores
+	// segment_id in mi.seg_id_predicted (intra_driver.go:117). On
+	// inter frames with temporal_update=1 the libvpx decoder writes
+	// the predicted-bit (0/1) into seg_id_predicted instead
+	// (segment_driver.go:114, mirroring read_inter_segment_id in
+	// vp9_decodeframe.c). Now that the chooser runs unconditionally
+	// (mirroring vp9_bitstream.c:773), libvpx will pick
+	// temporal_update on inter frames whose predicted-bit cost
+	// undercuts spatial coding — accept either projection rather
+	// than insisting on the legacy intra-only "seg_id_predicted ==
+	// segID" shape.
 	for i, mi := range d.miGrid {
-		if mi.SegmentID != segID || mi.SegIDPredicted != segID {
-			t.Fatalf("miGrid[%d] segment = (%d,%d), want (%d,%d)",
-				i, mi.SegmentID, mi.SegIDPredicted, segID, segID)
+		if mi.SegmentID != segID {
+			t.Fatalf("miGrid[%d] SegmentID = %d, want %d",
+				i, mi.SegmentID, segID)
+		}
+		if mi.SegIDPredicted != segID && mi.SegIDPredicted > 1 {
+			t.Fatalf("miGrid[%d] SegIDPredicted = %d, want %d (intra) or 0/1 (inter temporal_update)",
+				i, mi.SegIDPredicted, segID)
 		}
 	}
 	if len(d.lastSegMap) == 0 {

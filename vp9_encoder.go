@@ -7119,8 +7119,43 @@ func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
 	return false
 }
 
+// vp9ActiveSegmentMapCodingChooser reports whether the segmentation
+// map-coding chooser should run for this frame.
+//
+// libvpx invokes vp9_choose_segmap_coding_method unconditionally from
+// encode_segmentation whenever seg->enabled && seg->update_map
+// (vp9/encoder/vp9_bitstream.c:773). That includes cyclic-refresh, ROI,
+// active-map, and every AQ mode that emits a per-block segment map.
+// Gating it to the active-map / non-ROI case was a govpx-only narrowing
+// that denied cyclic-AQ and ROI frames the cost-based temporal_update=1
+// choice and forced them down the spatial-coding path even when the
+// realized mi_grid would have predicted cheaper.
+//
+// vp9ChooseSegmentMapCodingMethod itself short-circuits when
+// seg.UpdateMap is false, so widening this gate to any frame that may
+// emit a dynamic segment map matches libvpx without false-positive
+// counting work on plain-Q frames.
 func (e *VP9Encoder) vp9ActiveSegmentMapCodingChooser() bool {
-	return e != nil && e.activeMapEnabled && !e.roi.enabled
+	if e == nil {
+		return false
+	}
+	// All dynamic segment-map producers: ROI, active-map, cyclic-AQ
+	// (when apply gate fires), variance-AQ (non-fixed-Q), plus the
+	// AQ modes whose segmentationParams always set UpdateMap=true
+	// (complexity, equator360, perceptual). Mirrors libvpx's blanket
+	// chooser invocation in encode_segmentation.
+	if e.vp9DynamicSegmentMapActive() {
+		return true
+	}
+	switch e.opts.AQMode {
+	case VP9AQComplexity, VP9AQEquator360, VP9AQPerceptual:
+		return true
+	}
+	// User-configured static segmentation that still emits a map.
+	if e.opts.Segmentation.Enabled && e.opts.Segmentation.UpdateMap {
+		return true
+	}
+	return false
 }
 
 func (e *VP9Encoder) vp9StaticSegmentIDForMap() uint8 {
