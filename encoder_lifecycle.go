@@ -60,6 +60,7 @@ func (e *VP8Encoder) Reset() {
 	e.activityProbeRDMult = 0
 	e.activityProbeRDDiv = 0
 	e.activityProbeRDValid = false
+	e.activityProbeAboveContextSeeded = false
 	e.roi.reset()
 	e.useROIStaticThreshold = false
 	e.applyChangeConfigSegmentEncodeBreakout()

@@ -594,6 +594,30 @@ type VP8Encoder struct {
 	activityProbeRDDiv   int
 	activityProbeRDValid bool
 
+	// activityProbeAboveContextSeeded mirrors libvpx's `xd->above_context !=
+	// NULL` semantics at the entry of mb_activity_measure's optimize hook:
+	//
+	//   vp8/encoder/encodemb.c:436-438 vp8_optimize_mby short-circuits when
+	//   xd->above_context is NULL. The VP8_COMP struct is zero-init at
+	//   allocation (onyx_if.c:1774 memset). The first encode_mb_row of the
+	//   first encoded frame assigns xd->above_context = cm->above_context
+	//   (encodeframe.c:357); subsequent encode_mb_rows (same-frame recodes
+	//   and every later frame) carry the non-NULL pointer.
+	//
+	// build_activity_map walks ALL macroblocks BEFORE encode_mb_row runs
+	// (encodeframe.c:731). The probe's mb_activity_measure→vp8_encode_intra
+	// path calls vp8_encode_intra16x16mby (which would invoke
+	// vp8_optimize_mby when x->optimize=1) only on DC16 edge MBs, so the
+	// activity SSE returned for the first frame's first attempt is biased
+	// by exactly the trellis-skipped reconstruction on those edge MBs.
+	//
+	// Mirror the gate here: the activity probe forces optimize=false when
+	// activityProbeAboveContextSeeded is false. The flag flips to true at
+	// the start of every frame's first encode_mb_row equivalent (the
+	// reconstructing key-frame / inter-frame coefficient pass), which
+	// matches the libvpx pointer's lifetime exactly.
+	activityProbeAboveContextSeeded bool
+
 	// libvpx dot-artifact suppression: count of MBs that have biased
 	// against ZEROMV-LAST this frame (capped at MBs/10), and the current
 	// frame's temporal layer ID. See vp8/encoder/pickinter.c

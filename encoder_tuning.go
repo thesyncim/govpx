@@ -69,7 +69,19 @@ func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	_ = vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, vp8enc.SegmentationConfig{}, &quants)
 	fastQuant := e.libvpxUseFastQuant()
-	optimize := e.libvpxOptimizeCoefficients()
+	// libvpx vp8/encoder/encodemb.c:436-438 vp8_optimize_mby short-circuits
+	// when xd->above_context == NULL. cm->above_context is allocated at
+	// frame-buffer setup but xd->above_context is assigned only inside
+	// encode_mb_row (vp8/encoder/encodeframe.c:357), which runs AFTER
+	// build_activity_map (encodeframe.c:731). The very first activity probe
+	// of the encoder's lifetime therefore runs with xd->above_context == NULL
+	// and skips the optimize trellis on its DC16 edge MBs. Every subsequent
+	// probe — same-frame recodes (which call build_activity_map again after
+	// the first attempt's encode_mb_row has already seeded above_context),
+	// every later frame's probes — sees a non-NULL pointer because libvpx
+	// never resets it. Mirror that gate here: force optimize=false on the
+	// first probe, leave libvpxOptimizeCoefficients() in place otherwise.
+	optimize := e.libvpxOptimizeCoefficients() && e.activityProbeAboveContextSeeded
 	activityRDMult, activityRDDiv := e.activityProbeRDConstants(qIndex, 0)
 
 	// libvpx's build_activity_map uses cm->new_fb_idx after
@@ -93,6 +105,14 @@ func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, 
 	// when ALT_ACT_MEASURE is enabled, regardless of the per-MB sum.
 	e.activityAvg = vp8ActivityAvgAltFixed
 	e.activityMapValid = true
+	// After the first probe runs, the next encode_mb_row equivalent will
+	// assign xd->above_context = cm->above_context (libvpx
+	// vp8/encoder/encodeframe.c:357). Subsequent probes (same-frame recodes
+	// and every later frame) therefore see a non-NULL pointer and run
+	// vp8_optimize_mby. Flip the seed flag here so the next call to
+	// prepareTuningActivityMap honors libvpxOptimizeCoefficients() without
+	// the NULL-context override.
+	e.activityProbeAboveContextSeeded = true
 	return nil
 }
 
