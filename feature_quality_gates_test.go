@@ -21,12 +21,11 @@ package govpx_test
 //
 // Findings recorded in commit "Add libvpx absolute BD-rate reference
 // curves to the quality-gate harness":
-//   - Standalone unfiltered AutoAltRef is a known one-pass-Q scheduling
-//     gap: libvpx does not emit a hidden ARF on this tiny fixture, while
-//     govpx's experimental one-hidden bootstrap still does. Keep it
-//     bounded until the AutoAltRef parity lane is closed.
-//   - ARNR on/off saves ~1.4% bitrate on textured/noisy content
-//     within govpx; gate requires ≤ -1%.
+//   - Standalone unfiltered AutoAltRef is neutral in the public-Q gate:
+//     libvpx leaves source_alt_ref_pending false here, so govpx must not
+//     emit a hidden bootstrap packet either.
+//   - ARNR on/off is measured in the realtime VBR lane where libvpx's
+//     one-pass ARF scheduler actually fires; gate requires ≤ -1%.
 //   - TPL on/off is neutral on the 64x64 sharp-edge fixture today even
 //     though the per-SB rdmult deltas fire; gate at ≤ +1% to catch
 //     regressions without inventing a savings claim for the tiny fixture.
@@ -172,12 +171,10 @@ func TestVP9FeatureBDRateAltRef(t *testing.T) {
 	}
 	t.Logf("AltRef BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
 	recordFeatureScoreboardRow("AltRef (panning)", res)
-	// libvpx one-pass Q does not emit a hidden ARF on this fixture; govpx's
-	// one-hidden bootstrap is still a known scheduling gap. Keep a finite
-	// ceiling around the measured +11% so `make verify-bd-rate` catches new
-	// blow-ups while the AutoAltRef parity lane closes.
+	// libvpx one-pass Q does not set source_alt_ref_pending on this fixture;
+	// govpx mirrors that by keeping standalone unfiltered AutoAltRef neutral.
 	if res.BDRate > 15.0 {
-		t.Errorf("AltRef on/off BD-rate=%.3f%% > 15%%: known AutoAltRef scheduling gap grew",
+		t.Errorf("AltRef on/off BD-rate=%.3f%% > 15%%: public-Q AutoAltRef should stay neutral",
 			res.BDRate)
 	}
 	if res.BDRate < -15.0 {
@@ -198,16 +195,25 @@ func TestVP9FeatureBDRateARNR(t *testing.T) {
 		FPS:                  30,
 		Frames:               12,
 		QLadder:              []int{16, 24, 32, 40},
+		RateLadderKbps:       []int{80, 160, 320, 640},
 		Lookahead:            8,
 		Source:               func(i int) *image.YCbCr { return gen(i) },
 		AllowDecoderFallback: true,
 		LibvpxReference:      true,
 		BuildLibvpx:          benchcmd.LibvpxBuildRequested(),
 		Baseline: func(o *govpx.VP9EncoderOptions) {
+			o.Deadline = govpx.DeadlineRealtime
+			o.CpuUsed = 4
+			o.RateControlModeSet = true
+			o.RateControlMode = govpx.RateControlVBR
 			o.AutoAltRef = true
 			o.ARNRMaxFrames = 0
 		},
 		Test: func(o *govpx.VP9EncoderOptions) {
+			o.Deadline = govpx.DeadlineRealtime
+			o.CpuUsed = 4
+			o.RateControlModeSet = true
+			o.RateControlMode = govpx.RateControlVBR
 			o.AutoAltRef = true
 			o.ARNRMaxFrames = 5
 			o.ARNRStrength = 3
@@ -434,9 +440,8 @@ func TestVP9FeatureBDRateAltRefAQ(t *testing.T) {
 	}
 	altRefAQGate := defaultLibvpxAbsoluteGate
 	// VP9E_SET_ALT_REF_AQ is stubbed in libvpx v1.16.0, so this absolute
-	// number reflects the shared AutoAltRef govpx-vs-libvpx gap rather than
-	// an AltRefAQ coding delta. Keep the cap just above the measured shared
-	// gap and ratchet it with the AutoAltRef lane.
+	// number reflects the public-Q encode gap rather than an AltRefAQ coding
+	// delta.
 	altRefAQGate.MaxBDRateOverLibvpxPct = 22.0
 	assertLibvpxAbsoluteGate(t, "AltRefAQ", res, altRefAQGate)
 }

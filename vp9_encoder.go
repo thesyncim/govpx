@@ -772,6 +772,13 @@ type VP9Encoder struct {
 	// Reset on every keyframe via ResetFrameContext.
 	frameContexts [common.FrameContexts]vp9dec.FrameContext
 	fc            vp9dec.FrameContext
+	// vp9NonrdModeCostFc mirrors the mode/MV/filter cost tables libvpx stores
+	// on VP9_COMP for the realtime nonrd path. vp9_initialize_rd_consts
+	// refreshes those tables on keyframes, on non-nonrd frames, and on
+	// current_video_frame&7 == 1; nonrd pickmode reuses the snapshot between
+	// refreshes.
+	vp9NonrdModeCostFc      vp9dec.FrameContext
+	vp9NonrdModeCostFcValid bool
 	// lastVP9HeaderFrameType feeds non-frame-parallel coefficient probability
 	// adaptation, which uses a distinct after-key update factor.
 	lastVP9HeaderFrameType common.FrameType
@@ -865,6 +872,8 @@ type VP9Encoder struct {
 	intraScratch          vp9dec.IntraPredictorScratch
 	modeScratch           [1024]byte
 	blockScratch          [64 * 64]byte
+	nonrdOrigPredScratch  [64 * 64]byte
+	nonrdBestPredScratch  [64 * 64]byte
 	partitionReconScratch []byte
 	// interPredictScratch is passed through the decoder-shared inter
 	// predictor so odd luma MVs can use the same chroma/subpel extension
@@ -2768,6 +2777,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			srcFrameAltRef, refreshGolden, refreshAlt)
 	}
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
+	e.updateVP9NonrdModeCostFrameContext(isKey || header.IntraOnly)
+	nonrdModeCostFc := e.vp9NonrdModeCostFrameContext()
 
 	txMode := e.vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
 	baseMi := vp9dec.NeighborMi{
@@ -2835,6 +2846,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			refMask:          vp9InterReferenceMask(flags),
 			allowHP:          header.AllowHighPrecisionMv,
 			selectFc:         e.fc,
+			modeCostFc:       nonrdModeCostFc,
+			modeCostFcValid:  true,
 			referenceMode:    referenceMode,
 			compoundAllowed:  compoundAllowed,
 			refSignBias:      refSignBias,
@@ -3280,6 +3293,21 @@ func (e *VP9Encoder) commitVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader
 		return
 	}
 	e.frameContexts[idx] = e.fc
+}
+
+func (e *VP9Encoder) updateVP9NonrdModeCostFrameContext(frameIsIntra bool) {
+	if !e.vp9NonrdModeCostFcValid || e.sf.UseNonrdPickMode == 0 ||
+		frameIsIntra || e.frameIndex&0x07 == 1 {
+		e.vp9NonrdModeCostFc = e.fc
+		e.vp9NonrdModeCostFcValid = true
+	}
+}
+
+func (e *VP9Encoder) vp9NonrdModeCostFrameContext() vp9dec.FrameContext {
+	if e.vp9NonrdModeCostFcValid {
+		return e.vp9NonrdModeCostFc
+	}
+	return e.fc
 }
 
 func (e *VP9Encoder) adaptVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader,
@@ -5372,6 +5400,8 @@ type vp9InterEncodeState struct {
 	refMask          uint8
 	allowHP          bool
 	selectFc         vp9dec.FrameContext
+	modeCostFc       vp9dec.FrameContext
+	modeCostFcValid  bool
 	referenceMode    vp9dec.ReferenceMode
 	compoundAllowed  bool
 	refSignBias      [vp9dec.MaxRefFrames]uint8
@@ -5394,6 +5424,16 @@ func vp9InterReferenceMode(inter *vp9InterEncodeState) vp9dec.ReferenceMode {
 		return vp9dec.SingleReference
 	}
 	return inter.referenceMode
+}
+
+func vp9InterModeCostFrameContext(inter *vp9InterEncodeState) *vp9dec.FrameContext {
+	if inter == nil {
+		return nil
+	}
+	if inter.modeCostFcValid {
+		return &inter.modeCostFc
+	}
+	return &inter.selectFc
 }
 
 func vp9InterSignBias(inter *vp9InterEncodeState) [vp9dec.MaxRefFrames]uint8 {
@@ -6030,6 +6070,9 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		return root
 	}
 	savedRef := inter.ref
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
 	full, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, root)
 	if !ok {
@@ -6939,6 +6982,10 @@ func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	child common.BlockSize, rowOff, colOff int,
 ) (uint64, bool) {
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+
 	childRows := int(common.Num8x8BlocksHighLookup[child])
 	childCols := int(common.Num8x8BlocksWideLookup[child])
 	var saved [64]vp9dec.NeighborMi
@@ -6969,6 +7016,10 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	child common.BlockSize,
 ) (uint64, bool) {
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+
 	stepMi := int(common.Num8x8BlocksWideLookup[child])
 	var saved [64]vp9dec.NeighborMi
 	rows, cols, ok := e.snapshotVP9MiRect(miRows, miCols, miRow, miCol,
@@ -11076,6 +11127,116 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStats(key *vp9KeyframeEncodeStat
 	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 ) (sse uint64, variance uint64, ok bool) {
+	return e.vp9NoReferenceIntraResidualStatsWithRestore(key, mode, txSize,
+		tile, miRows, miCols, miRow, miCol, bsize, true)
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsNoRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) (sse uint64, variance uint64, ok bool) {
+	return e.vp9NoReferenceIntraResidualStatsWithRestore(key, mode, txSize,
+		tile, miRows, miCols, miRow, miCol, bsize, false)
+}
+
+// vp9NoReferenceIntraResidualStatsScratchNoRestore mirrors the realtime
+// nonrd path where vp9_pick_inter_mode scores intra fallback against the
+// live prediction buffer (`pd->dst`) instead of the final reconstruction
+// plane. With ML_BASED_PARTITION that buffer is x->est_pred, populated by
+// get_estimated_pred before nonrd_pick_partition enters the leaf picker.
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchNoRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	scratch []byte, scratchStride, originMiRow, originMiCol int,
+) (sse uint64, variance uint64, ok bool) {
+	return e.vp9NoReferenceIntraResidualStatsScratchRefNoRestore(key, mode,
+		txSize, tile, miRows, miCols, miRow, miCol, bsize,
+		scratch, scratchStride, originMiRow, originMiCol,
+		scratch, scratchStride, originMiRow, originMiCol)
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchRefNoRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	scratch []byte, scratchStride, originMiRow, originMiCol int,
+	ref []byte, refStride, refOriginMiRow, refOriginMiCol int,
+) (sse uint64, variance uint64, ok bool) {
+	if key == nil || key.hdr == nil || key.img == nil || int(mode) >= common.IntraModes {
+		return 0, 0, false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || srcStride <= 0 || len(scratch) == 0 || scratchStride <= 0 ||
+		len(ref) == 0 || refStride <= 0 {
+		return 0, 0, false
+	}
+	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	step := 1 << uint(txSize)
+	bs := 4 << uint(txSize)
+	originX := originMiCol * common.MiSize
+	originY := originMiRow * common.MiSize
+	refOriginX := refOriginMiCol * common.MiSize
+	refOriginY := refOriginMiRow * common.MiSize
+	var sum int64
+	var count uint64
+	predOK := true
+residualLoop:
+	for rr := 0; rr < max4x4H; rr += step {
+		for cc := 0; cc < max4x4W; cc += step {
+			dst, dstStride, x0, y0, ok := e.predictVP9KeyframeTxGeneric(
+				key.hdr, pd, 0, mode, txSize, tile, miRows, miCols,
+				miRow, miCol, bsize, rr, cc,
+				scratch, scratchStride, ref, refStride,
+				originX, originY, refOriginX, refOriginY)
+			if !ok {
+				predOK = false
+				break residualLoop
+			}
+			copyW := bs
+			copyH := bs
+			if x0 >= srcW || y0 >= srcH {
+				continue
+			}
+			if x0+copyW > srcW {
+				copyW = srcW - x0
+			}
+			if y0+copyH > srcH {
+				copyH = srcH - y0
+			}
+			for y := 0; y < copyH; y++ {
+				srcRow := src[(y0+y)*srcStride+x0:]
+				dstRow := dst[y*dstStride:]
+				for x := 0; x < copyW; x++ {
+					diff := int(srcRow[x]) - int(dstRow[x])
+					sse += uint64(diff * diff)
+					sum += int64(diff)
+					count++
+				}
+			}
+		}
+	}
+	if !predOK {
+		return 0, 0, false
+	}
+	if count == 0 {
+		return 0, 0, false
+	}
+	meanSquare := uint64((sum * sum) / int64(count))
+	if sse >= meanSquare {
+		return sse, sse - meanSquare, true
+	}
+	return sse, meanSquare - sse, true
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsWithRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize, restore bool,
+) (sse uint64, variance uint64, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || int(mode) >= common.IntraModes {
 		return 0, 0, false
 	}
@@ -11103,13 +11264,19 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStats(key *vp9KeyframeEncodeStat
 	if baseY+restoreH > rows {
 		restoreH = rows - baseY
 	}
-	if restoreW <= 0 || restoreH <= 0 || restoreW*restoreH > len(e.blockScratch) {
+	if restoreW <= 0 || restoreH <= 0 {
 		return 0, 0, false
 	}
-	saved := e.blockScratch[:restoreW*restoreH]
-	for y := 0; y < restoreH; y++ {
-		copy(saved[y*restoreW:(y+1)*restoreW],
-			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	var saved []byte
+	if restore {
+		if restoreW*restoreH > len(e.blockScratch) {
+			return 0, 0, false
+		}
+		saved = e.blockScratch[:restoreW*restoreH]
+		for y := 0; y < restoreH; y++ {
+			copy(saved[y*restoreW:(y+1)*restoreW],
+				planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+		}
 	}
 
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
@@ -11152,7 +11319,9 @@ residualLoop:
 			}
 		}
 	}
-	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	if restore {
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	}
 	if !predOK {
 		return 0, 0, false
 	}
@@ -12067,7 +12236,19 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	}
 	srcOff := y0*srcStride + x0
 	refRows := len(ref) / refStride
+	refFullDx, refFullDy := 0, 0
+	refMvForRange := vp9dec.MV{}
+	if opts.refMvValid {
+		refMvForRange = opts.refMv
+		refFullDx = int(opts.refMv.Col) >> 3
+		refFullDy = int(opts.refMv.Row) >> 3
+	}
+	mvLimits := vp9EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
+	vp9SetFullpelMvSearchRange(&mvLimits, refMvForRange)
 	sadAt := func(dx, dy int) (uint64, bool) {
+		if !vp9FullpelMvIn(&mvLimits, dy, dx) {
+			return 0, false
+		}
 		refX := x0 + dx
 		refY := y0 + dy
 		bufX := refOriginX + refX
@@ -12081,11 +12262,6 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			refStride, blockW, blockH, ^uint64(0)), true
 	}
 
-	refFullDx, refFullDy := 0, 0
-	if opts.refMvValid {
-		refFullDx = int(opts.refMv.Col) >> 3
-		refFullDy = int(opts.refMv.Row) >> 3
-	}
 	sadPerBit := vp9SADPerBit16(e.vp9EncoderModeDecisionQIndex())
 	scoreMv := func(dx, dy int, sad uint64) uint64 {
 		return sad + uint64(vp9FullPelMVSADCost(dy, dx,
@@ -12121,6 +12297,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if opts.seedValid {
 		seedDx := int(opts.seed.Col) >> 3
 		seedDy := int(opts.seed.Row) >> 3
+		seedDy, seedDx = vp9ClampFullpelMV(&mvLimits, seedDy, seedDx)
 		if sad, ok := sadAt(seedDx, seedDy); ok {
 			bestSad = sad
 			bestScore = scoreMv(seedDx, seedDy, bestSad)
@@ -12184,66 +12361,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			scanMaxDy = searchCenterDy + searchRadius
 		}
 		if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
-			// libvpx: fast_dia_search -> bigdia_search with step_param forced
-			// to MAX_MVSEARCH_STEPS-1 at cpu_used=8. That maps to scale 0 in
-			// vp9_pattern_search_sad. Keep its CHECK_BETTER raw-SAD precheck
-			// and three-neighbour directional walk; scoring every neighbour
-			// from every center changes ties on periodic textures.
-			neighbors := [...]struct {
-				dx int
-				dy int
-			}{
-				{dx: -1, dy: 0},
-				{dx: 0, dy: 1},
-				{dx: 1, dy: 0},
-				{dx: 0, dy: -1},
-			}
-			checkBetter := func(site, dx, dy int, bestSite *int) {
-				if dx == bestDx && dy == bestDy {
-					return
-				}
-				sad, ok := sadAt(dx, dy)
-				if !ok {
-					return
-				}
-				if sad >= bestScore {
-					return
-				}
-				score := scoreMv(dx, dy, sad)
-				if score >= bestScore {
-					return
-				}
-				bestScore = score
-				bestSad = sad
-				*bestSite = site
-			}
-			bestSite := -1
-			for i, n := range neighbors {
-				checkBetter(i, bestDx+n.dx, bestDy+n.dy, &bestSite)
-			}
-			if bestSite != -1 {
-				k := bestSite
-				bestDx += neighbors[k].dx
-				bestDy += neighbors[k].dy
-				for {
-					next := [...]int{
-						(k + len(neighbors) - 1) % len(neighbors),
-						k,
-						(k + 1) % len(neighbors),
-					}
-					bestSite = -1
-					for _, site := range next {
-						n := neighbors[site]
-						checkBetter(site, bestDx+n.dx, bestDy+n.dy, &bestSite)
-					}
-					if bestSite == -1 {
-						break
-					}
-					k = bestSite
-					bestDx += neighbors[k].dx
-					bestDy += neighbors[k].dy
-				}
-			}
+			bestDx, bestDy, bestSad, bestScore = vp9FastDiamondPatternSearchSAD(
+				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
+				&mvLimits, sadAt, scoreMv)
 		} else {
 			// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
 			// step so the fan covers +/-searchRadius without exceeding it.
@@ -12312,14 +12432,212 @@ func vp9FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
 	return (cost*sadPerBit + 256) >> 9
 }
 
+const (
+	vp9MVMax = (1 << (10 + 1 + 2)) - 1
+)
+
+type vp9FullpelPatternCandidate struct {
+	row int
+	col int
+}
+
+var vp9MVSADComponentCosts = func() [vp9MVMax + 1]int {
+	var costs [vp9MVMax + 1]int
+	for i := 1; i <= vp9MVMax; i++ {
+		// libvpx: vp9_encoder.c cal_nmvsadcosts uses
+		//   (int)(256 * (2 * (log2f(8 * i) + .6))).
+		logv := float64(float32(math.Log2(float64(8 * i))))
+		costs[i] = int(256 * (2 * (logv + .6)))
+	}
+	return costs
+}()
+
+var vp9BigDiaPatternCandidates = [vp9MaxMvSearchSteps][8]vp9FullpelPatternCandidate{
+	{{0, -1}, {1, 0}, {0, 1}, {-1, 0}},
+	{{-1, -1}, {0, -2}, {1, -1}, {2, 0}, {1, 1}, {0, 2}, {-1, 1}, {-2, 0}},
+	{{-2, -2}, {0, -4}, {2, -2}, {4, 0}, {2, 2}, {0, 4}, {-2, 2}, {-4, 0}},
+	{{-4, -4}, {0, -8}, {4, -4}, {8, 0}, {4, 4}, {0, 8}, {-4, 4}, {-8, 0}},
+	{{-8, -8}, {0, -16}, {8, -8}, {16, 0}, {8, 8}, {0, 16}, {-8, 8}, {-16, 0}},
+	{{-16, -16}, {0, -32}, {16, -16}, {32, 0}, {16, 16}, {0, 32}, {-16, 16}, {-32, 0}},
+	{{-32, -32}, {0, -64}, {32, -32}, {64, 0}, {32, 32}, {0, 64}, {-32, 32}, {-64, 0}},
+	{{-64, -64}, {0, -128}, {64, -64}, {128, 0}, {64, 64}, {0, 128}, {-64, 64}, {-128, 0}},
+	{{-128, -128}, {0, -256}, {128, -128}, {256, 0}, {128, 128}, {0, 256}, {-128, 128}, {-256, 0}},
+	{{-256, -256}, {0, -512}, {256, -512}, {512, 0}, {256, 256}, {0, 512}, {-256, 256}, {-512, 0}},
+	{{-512, -512}, {0, -1024}, {512, -512}, {1024, 0}, {512, 512}, {0, 1024}, {-512, 512}, {-1024, 0}},
+}
+
+var vp9BigDiaPatternCandidateCounts = [vp9MaxMvSearchSteps]int{
+	4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+}
+
 func vp9MVSADComponentCost(v int) int {
 	if v < 0 {
 		v = -v
 	}
-	if v == 0 {
-		return 0
+	if v > vp9MVMax {
+		v = vp9MVMax
 	}
-	return int(256 * (2 * (math.Log2(float64(8*v)) + 0.6)))
+	return vp9MVSADComponentCosts[v]
+}
+
+func vp9SetFullpelMvSearchRange(limits *vp9MvLimits, ref vp9dec.MV) {
+	if limits == nil {
+		return
+	}
+	colMin := (int(ref.Col) >> 3) - vp9MaxFullPelVal
+	if int(ref.Col)&7 != 0 {
+		colMin++
+	}
+	rowMin := (int(ref.Row) >> 3) - vp9MaxFullPelVal
+	if int(ref.Row)&7 != 0 {
+		rowMin++
+	}
+	colMax := (int(ref.Col) >> 3) + vp9MaxFullPelVal
+	rowMax := (int(ref.Row) >> 3) + vp9MaxFullPelVal
+
+	colMin = max(colMin, (vp9MvLow>>3)+1)
+	rowMin = max(rowMin, (vp9MvLow>>3)+1)
+	colMax = min(colMax, (vp9MvUpp>>3)-1)
+	rowMax = min(rowMax, (vp9MvUpp>>3)-1)
+
+	if limits.ColMin < colMin {
+		limits.ColMin = colMin
+	}
+	if limits.ColMax > colMax {
+		limits.ColMax = colMax
+	}
+	if limits.RowMin < rowMin {
+		limits.RowMin = rowMin
+	}
+	if limits.RowMax > rowMax {
+		limits.RowMax = rowMax
+	}
+}
+
+func vp9FullpelMvIn(limits *vp9MvLimits, row, col int) bool {
+	if limits == nil {
+		return true
+	}
+	return col >= limits.ColMin && col <= limits.ColMax &&
+		row >= limits.RowMin && row <= limits.RowMax
+}
+
+func vp9FullpelCheckBounds(limits *vp9MvLimits, row, col, searchRange int) bool {
+	if limits == nil {
+		return true
+	}
+	return row-searchRange >= limits.RowMin &&
+		row+searchRange <= limits.RowMax &&
+		col-searchRange >= limits.ColMin &&
+		col+searchRange <= limits.ColMax
+}
+
+func vp9ClampFullpelMV(limits *vp9MvLimits, row, col int) (int, int) {
+	if limits == nil {
+		return row, col
+	}
+	if row < limits.RowMin {
+		row = limits.RowMin
+	} else if row > limits.RowMax {
+		row = limits.RowMax
+	}
+	if col < limits.ColMin {
+		col = limits.ColMin
+	} else if col > limits.ColMax {
+		col = limits.ColMax
+	}
+	return row, col
+}
+
+func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *vp9MvLimits,
+	sadAt func(dx, dy int) (uint64, bool),
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
+	searchParam := max(vp9MaxMvSearchSteps-2, stepParam)
+	if searchParam < 0 {
+		searchParam = 0
+	}
+	if searchParam >= vp9MaxMvSearchSteps {
+		searchParam = vp9MaxMvSearchSteps - 1
+	}
+	searchParamToSteps := [...]int{10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}
+	bestInitS := searchParamToSteps[searchParam]
+
+	br, bc := vp9ClampFullpelMV(limits, startDy, startDx)
+	bestSad := startSad
+	bestScore := startScore
+	if br != startDy || bc != startDx {
+		if sad, ok := sadAt(bc, br); ok {
+			bestSad = sad
+			bestScore = scoreMv(bc, br, sad)
+		}
+	}
+
+	checkBetter := func(s, site, row, col int, bestSite *int) {
+		if row == br && col == bc {
+			return
+		}
+		if !vp9FullpelCheckBounds(limits, br, bc, 1<<s) &&
+			!vp9FullpelMvIn(limits, row, col) {
+			return
+		}
+		sad, ok := sadAt(col, row)
+		if !ok {
+			return
+		}
+		if sad >= bestScore {
+			return
+		}
+		score := scoreMv(col, row, sad)
+		if score >= bestScore {
+			return
+		}
+		bestSad = sad
+		bestScore = score
+		*bestSite = site
+	}
+
+	k := -1
+	for s := bestInitS; s >= 0; s-- {
+		bestSite := -1
+		numCandidates := vp9BigDiaPatternCandidateCounts[s]
+		for i := 0; i < numCandidates; i++ {
+			c := vp9BigDiaPatternCandidates[s][i]
+			checkBetter(s, i, br+c.row, bc+c.col, &bestSite)
+		}
+		if bestSite != -1 {
+			c := vp9BigDiaPatternCandidates[s][bestSite]
+			br += c.row
+			bc += c.col
+			k = bestSite
+		}
+		for bestSite != -1 {
+			next := [3]int{
+				k - 1,
+				k,
+				k + 1,
+			}
+			if next[0] < 0 {
+				next[0] = numCandidates - 1
+			}
+			if next[2] == numCandidates {
+				next[2] = 0
+			}
+			bestSite = -1
+			for _, site := range next {
+				c := vp9BigDiaPatternCandidates[s][site]
+				checkBetter(s, site, br+c.row, bc+c.col, &bestSite)
+			}
+			if bestSite != -1 {
+				k = bestSite
+				c := vp9BigDiaPatternCandidates[s][k]
+				br += c.row
+				bc += c.col
+			}
+		}
+	}
+	return bc, br, bestSad, bestScore
 }
 
 func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
@@ -12347,8 +12665,8 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 			return 0
 		}
 		errorPerBit := e.vp9MVErrorPerBit(e.vp9EncoderModeDecisionQIndex())
-		return vp9SubpelMVErrorCost(&inter.selectFc, mv, refMv, allowHP,
-			errorPerBit)
+		return vp9SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
+			refMv, allowHP, errorPerBit)
 	}
 	if nonrdSubpelTree {
 		if variance, ok := e.vp9InterPredictionSubpelVariance(inter, miRow,
@@ -12593,7 +12911,7 @@ func vp9SubpelMVErrorCost(fc *vp9dec.FrameContext, mv, ref vp9dec.MV,
 	if fc == nil || errorPerBit <= 0 {
 		return 0
 	}
-	cost := encoder.MvCost(mv, ref, &fc.Nmvc, allowHP)
+	cost := encoder.MvCostWithHP(mv, ref, &fc.Nmvc, allowHP)
 	return uint64((int64(cost)*int64(errorPerBit) + (1 << 13)) >> 14)
 }
 
@@ -13349,7 +13667,7 @@ func vp9MvBitCost(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, allowHP bool) int {
 	//   vp9_mv_bit_cost(..., MV_COST_WEIGHT)
 	//   ROUND_POWER_OF_TWO(mv_cost(diff) * 108, 7)
 	const mvCostWeight = 108
-	raw := encoder.MvCost(mv, ref, ctx, allowHP)
+	raw := encoder.MvCostWithHP(mv, ref, ctx, allowHP)
 	return (raw*mvCostWeight + 64) >> 7
 }
 
@@ -13389,7 +13707,8 @@ func vp9SingleRefModeRateCost(fc *vp9dec.FrameContext,
 	above, left *vp9dec.NeighborMi, frameMode vp9dec.ReferenceMode,
 	refs vp9dec.CompoundFrameRefs, refFrame int8,
 ) int {
-	return vp9ReferenceModeRateCost(fc, above, left, frameMode, refs, false) +
+	return vp9IntraInterRateCost(fc, above, left, 1) +
+		vp9ReferenceModeRateCost(fc, above, left, frameMode, refs, false) +
 		vp9SingleRefRateCost(fc, above, left, refFrame)
 }
 
@@ -14045,14 +14364,29 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
 ) (dst []byte, stride, x0, y0 int, ok bool) {
 	planeData, stride := e.vp9EncoderReconPlane(plane)
-	if stride <= 0 || len(planeData) == 0 || int(mode) >= common.IntraModes {
+	return e.predictVP9KeyframeTxGeneric(hdr, pd, plane, mode, txSize, tile,
+		miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4,
+		planeData, stride, planeData, stride, 0, 0, 0, 0)
+}
+
+func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
+	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
+	dstData []byte, dstStride int, refData []byte, refStride int,
+	dstOriginX, dstOriginY, refOriginX, refOriginY int,
+) (dst []byte, stride, x0, y0 int, ok bool) {
+	stride = dstStride
+	if dstStride <= 0 || len(dstData) == 0 || refStride <= 0 ||
+		len(refData) == 0 || int(mode) >= common.IntraModes {
 		return nil, 0, 0, 0, false
 	}
 	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 	if planeBsize >= common.BlockSizes {
 		return nil, 0, 0, 0, false
 	}
-	rows := len(planeData) / stride
+	rows := len(dstData) / dstStride
+	refRows := len(refData) / refStride
 	alignedWidth := vp9AlignTo(int(hdr.Width), 8)
 	alignedHeight := vp9AlignTo(int(hdr.Height), 8)
 	planeWidth := alignedWidth >> pd.SubsamplingX
@@ -14061,9 +14395,15 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
 	x0 = baseX + blockCol4x4*4
 	y0 = baseY + blockRow4x4*4
+	localX := x0 - (dstOriginX >> pd.SubsamplingX)
+	localY := y0 - (dstOriginY >> pd.SubsamplingY)
+	refLocalX := x0 - (refOriginX >> pd.SubsamplingX)
+	refLocalY := y0 - (refOriginY >> pd.SubsamplingY)
 
 	bs := 4 << uint(txSize)
-	if x0+bs > stride || y0+bs > rows {
+	if localX < 0 || localY < 0 || refLocalX < 0 || refLocalY < 0 ||
+		localX+bs > dstStride || localY+bs > rows ||
+		refLocalX+bs > refStride || refLocalY+bs > refRows {
 		return nil, 0, 0, 0, false
 	}
 
@@ -14071,12 +14411,16 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	leftAvailable := blockCol4x4 != 0 || miCol > tile.MiColStart
 	left := e.intraScratch.Left[:bs]
 	if leftAvailable {
+		if refLocalX <= 0 {
+			return nil, 0, 0, 0, false
+		}
 		for i := range bs {
 			sy := y0 + i
 			if bounds.MbToBottomEdge < 0 && sy >= planeHeight {
 				sy = planeHeight - 1
 			}
-			left[i] = planeData[sy*stride+x0-1]
+			refY := sy - (refOriginY >> pd.SubsamplingY)
+			left[i] = refData[refY*refStride+refLocalX-1]
 		}
 	}
 
@@ -14086,18 +14430,21 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	}
 	upAvailable := blockRow4x4 != 0 || miRow > 0
 	if upAvailable {
-		edges.Above = planeData[(y0-1)*stride+x0:]
+		if refLocalY <= 0 {
+			return nil, 0, 0, 0, false
+		}
+		edges.Above = refData[(refLocalY-1)*refStride+refLocalX:]
 		if leftAvailable {
-			edges.AboveLeft = planeData[(y0-1)*stride+x0-1]
+			edges.AboveLeft = refData[(refLocalY-1)*refStride+refLocalX-1]
 		}
 	}
 	planeBlock4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 	txw := 1 << uint(txSize)
 	rightAvailable := blockCol4x4+txw < planeBlock4x4W
-	dst = planeData[y0*stride+x0:]
+	dst = dstData[localY*dstStride+localX:]
 	vp9dec.BuildIntraPredictorsWithScratch(vp9dec.BuildIntraPredictorsArgs{
 		Dst:            dst,
-		DstStride:      stride,
+		DstStride:      dstStride,
 		Mode:           mode,
 		TxSize:         txSize,
 		Edges:          edges,
@@ -14111,7 +14458,7 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 		MbToRightEdge:  bounds.MbToRightEdge,
 		MbToBottomEdge: bounds.MbToBottomEdge,
 	}, &e.intraScratch)
-	return dst, stride, x0, y0, true
+	return dst, dstStride, x0, y0, true
 }
 
 func (e *VP9Encoder) vp9EncoderTxDst(pd *vp9dec.MacroblockdPlane,

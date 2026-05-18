@@ -153,6 +153,8 @@ func encodeLibvpxBDOperatingPoint(binPath string, raw []byte, opts BDRateOptions
 //	govpx.VP9EncoderOptions.MinGFInterval     -> --min-gf-interval=N
 //	govpx.VP9EncoderOptions.MaxGFInterval     -> --max-gf-interval=N
 //	govpx.VP9EncoderOptions.DisableLoopfilter -> --disable-loopfilter=N
+//	govpx.VP9EncoderOptions.Deadline          -> --deadline={good,rt}
+//	govpx.VP9EncoderOptions.CpuUsed           -> --cpu-used=N
 //	govpx.RateControl{Q,VBR,CBR,CQ}           -> --end-usage={q,vbr,cbr,cq}
 //	govpx.VP9EncoderOptions.TargetBitrateKbps -> --target-bitrate=N
 //
@@ -174,6 +176,14 @@ func libvpxVP9FrameFlagsCLIArgs(opts BDRateOptions, t govpx.VP9EncoderOptions, q
 			endUsage = "q"
 		}
 	}
+	deadline := "good"
+	if t.Deadline == govpx.DeadlineRealtime {
+		deadline = "rt"
+	}
+	cpuUsed := int8(2)
+	if t.CpuUsed != 0 {
+		cpuUsed = t.CpuUsed
+	}
 	args := []string{
 		// libvpx token: --end-usage
 		"--end-usage=" + endUsage,
@@ -183,14 +193,12 @@ func libvpxVP9FrameFlagsCLIArgs(opts BDRateOptions, t govpx.VP9EncoderOptions, q
 		"--max-q=63",
 		// libvpx token: --tune
 		"--tune=psnr",
-		// Keep deadline at good-quality so feature toggles (AltRef,
-		// ARNR, TPL, AQ) actually exercise the high-quality VP9 path
-		// libvpx uses for its BD-rate measurements. The govpx harness
-		// uses lookahead-aware encoding so the cpu-used floor here
-		// matches govpx's BD-rate runs (which target a similar
-		// quality/speed budget).
-		"--deadline=good",
-		"--cpu-used=2",
+		// libvpx token: --deadline / --cpu-used. Defaults preserve the
+		// existing good-quality cpu-used=2 BD gate; callers that need a
+		// realtime speed-feature lane (for example one-pass VBR ARF)
+		// opt in through VP9EncoderOptions.
+		"--deadline=" + deadline,
+		"--cpu-used=" + strconv.Itoa(int(cpuUsed)),
 		// libvpx token: --kf-min-dist / --kf-max-dist (keyframe cadence
 		// matches the govpx BD-rate run's open-GOP default).
 		"--kf-min-dist=0",

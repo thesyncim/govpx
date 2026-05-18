@@ -75,14 +75,30 @@ func MvCost(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, allowHp bool) int {
 	dCol := int(mv.Col - ref.Col)
 	useHp := allowHp && useMvHpRef(ref)
 
+	return MvDiffCost(dRow, dCol, ctx, useHp)
+}
+
+// MvCostWithHP returns the libvpx encoder cost-table score for (mv-ref).
+// Unlike WriteMv/MvCost, this mirrors vp9_build_nmv_cost_table +
+// vp9_mv_bit_cost: the high-precision component is controlled by the
+// prebuilt table's usehp flag, not by use_mv_hp(ref).
+func MvCostWithHP(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, usehp bool) int {
+	dRow := int(mv.Row - ref.Row)
+	dCol := int(mv.Col - ref.Col)
+	return MvDiffCost(dRow, dCol, ctx, usehp)
+}
+
+// MvDiffCost mirrors libvpx's mv_cost(diff, mvjcost, mvcost), with the
+// component tables materialized on demand from ctx.
+func MvDiffCost(dRow, dCol int, ctx *vp9dec.NmvContext, usehp bool) int {
 	joint := mvJoint(dRow, dCol)
 	jenc := mvJointEncoding(joint)
 	cost := TreedCost(tables.MvJointTree[:], ctx.Joints[:], jenc.value, jenc.length)
 	if mvJointVertical(joint) {
-		cost += MvComponentCost(dRow, &ctx.Comps[0], useHp)
+		cost += MvComponentCost(dRow, &ctx.Comps[0], usehp)
 	}
 	if mvJointHorizontal(joint) {
-		cost += MvComponentCost(dCol, &ctx.Comps[1], useHp)
+		cost += MvComponentCost(dCol, &ctx.Comps[1], usehp)
 	}
 	return cost
 }

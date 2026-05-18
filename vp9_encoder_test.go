@@ -2056,10 +2056,15 @@ func TestVP9EncoderAutoAltRefLookaheadEmitsHiddenAltRef(t *testing.T) {
 	const width, height = 64, 64
 	const frames = 6
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:           width,
-		Height:          height,
-		LookaheadFrames: 4,
-		AutoAltRef:      true,
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            4,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  300,
+		LookaheadFrames:    4,
+		AutoAltRef:         true,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
@@ -2154,6 +2159,53 @@ func TestVP9EncoderAutoAltRefLookaheadEmitsHiddenAltRef(t *testing.T) {
 	}
 	if visible != frames {
 		t.Fatalf("visible decoded frames = %d, want %d", visible, frames)
+	}
+}
+
+func TestVP9EncoderAutoAltRefPublicQDoesNotEmitHiddenAltRef(t *testing.T) {
+	const width, height = 64, 64
+	const frames = 6
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 4,
+		AutoAltRef:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	dst := make([]byte, 65536)
+	results := make([]VP9EncodeResult, 0, frames)
+	for frame := range frames {
+		src := newVP9YCbCrForTest(width, height, uint8(80+frame*17), 128, 128)
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		results = append(results, result)
+	}
+	for {
+		result, err := e.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		results = append(results, result)
+	}
+	if got, want := len(results), frames; got != want {
+		t.Fatalf("auto-alt-ref public-Q packets = %d, want %d", got, want)
+	}
+	for i := range results {
+		if !results[i].ShowFrame {
+			t.Fatalf("public-Q packet %d hidden with refresh=%#x; libvpx source_alt_ref_pending stays false",
+				i, results[i].RefreshFrameFlags)
+		}
 	}
 }
 
@@ -7120,6 +7172,71 @@ func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
 	}
 }
 
+func TestVP9SingleRefModeRateCostIncludesIntraInterBit(t *testing.T) {
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+
+	got := vp9SingleRefModeRateCost(&fc, nil, nil, vp9dec.SingleReference,
+		vp9dec.CompoundFrameRefs{}, vp9dec.LastFrame)
+	want := vp9IntraInterRateCost(&fc, nil, nil, 1) +
+		vp9SingleRefRateCost(&fc, nil, nil, vp9dec.LastFrame)
+	if got != want {
+		t.Fatalf("single-ref LAST rate = %d, want intra/inter + single-ref %d",
+			got, want)
+	}
+}
+
+func TestVP9SubpelMVErrorCostUsesEncoderHPTable(t *testing.T) {
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+
+	mv := vp9dec.MV{Row: 135, Col: 13}
+	ref := vp9dec.MV{Row: 128, Col: 0}
+	const errorPerBit = 97
+
+	raw := vp9enc.MvCostWithHP(mv, ref, &fc.Nmvc, true)
+	want := uint64((int64(raw)*errorPerBit + (1 << 13)) >> 14)
+	if got := vp9SubpelMVErrorCost(&fc, mv, ref, true, errorPerBit); got != want {
+		t.Fatalf("subpel MV error cost = %d, want HP-table cost %d",
+			got, want)
+	}
+	if writerRaw := vp9enc.MvCost(mv, ref, &fc.Nmvc, true); writerRaw == raw {
+		t.Fatalf("test vector did not exercise HP-table-only cost: raw=%d",
+			raw)
+	}
+}
+
+func TestVP9NonrdModeCostFrameContextRefreshCadence(t *testing.T) {
+	var e VP9Encoder
+	e.sf.UseNonrdPickMode = 1
+
+	var frame1, frame2 vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&frame1)
+	vp9dec.ResetFrameContext(&frame2)
+	frame1.InterModeProbs[0][0] = 17
+	frame2.InterModeProbs[0][0] = 211
+
+	e.fc = frame1
+	e.frameIndex = 1
+	e.updateVP9NonrdModeCostFrameContext(false)
+	if got := e.vp9NonrdModeCostFrameContext().InterModeProbs[0][0]; got != 17 {
+		t.Fatalf("initial nonrd mode cost prob = %d, want 17", got)
+	}
+
+	e.fc = frame2
+	e.frameIndex = 2
+	e.updateVP9NonrdModeCostFrameContext(false)
+	if got := e.vp9NonrdModeCostFrameContext().InterModeProbs[0][0]; got != 17 {
+		t.Fatalf("frame 2 nonrd mode cost prob = %d, want cached 17", got)
+	}
+
+	e.frameIndex = 9
+	e.updateVP9NonrdModeCostFrameContext(false)
+	if got := e.vp9NonrdModeCostFrameContext().InterModeProbs[0][0]; got != 211 {
+		t.Fatalf("frame 9 nonrd mode cost prob = %d, want refreshed 211", got)
+	}
+}
+
 func TestVP9BlockSADNoLimitMatchesScalar(t *testing.T) {
 	const stride = 80
 	src := make([]byte, stride*80)
@@ -8932,10 +9049,15 @@ func TestVP9EncoderDenoiserInterSteadyStateAlloc(t *testing.T) {
 func TestVP9EncoderAutoAltRefLookaheadSteadyStateAlloc(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:           width,
-		Height:          height,
-		LookaheadFrames: 4,
-		AutoAltRef:      true,
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            4,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  300,
+		LookaheadFrames:    4,
+		AutoAltRef:         true,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
