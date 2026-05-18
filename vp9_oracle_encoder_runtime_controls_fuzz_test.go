@@ -507,6 +507,60 @@ import (
 //
 //	Handoff: same cost_coeffs rate-proxy port already cited under seed
 //	#0; nonrd_pick_sb_modes is NOT a closure path for these four seeds.
+//
+// Task #169 negative finding (tx_size leaf-commit verbatim port audit
+// for RuntimeControls seeds with first_byte_diff=9, nonrd cohort):
+//
+//	The byte-9 cohort that ROUTES THROUGH nonrd (seed #3 ac1b2597
+//	cpu=-8 and seed #8 d4735e3a cpu=-8) was the speed=8 ML_BASED_-
+//	PARTITION target of the task #169 hypothesis. Hypothesis:
+//	govpx's pickVP9InterTxSize score-based RDO under-picks Tx16x16
+//	at the ML leaves vs libvpx calculate_tx_size
+//	(vp9_pickmode.c:363-394), driving the byte-9 FirstPartitionSize
+//	literal divergence. Hypothesis rejected by empirical
+//	measurement on this branch:
+//
+//	  - HEAD (score-based RDO): seed #3 first_byte_diff=8
+//	    size_delta=-230; seed #8 first_byte_diff=9 size_delta=+172.
+//	  - Verbatim calculate_tx_size at the leaf-commit site
+//	    (pickVP9InterTxSize fast-path returning
+//	    vp9InterCalculateTxSize when UseNonrdPickMode!=0 +
+//	    GOVPX_VP9_NONRD_PICK_PARTITION=1): seed #3
+//	    first_byte_diff=8 size_delta=+1314 (WORSE by +1544B);
+//	    seed #8 first_byte_diff=9 size_delta=+1202 (WORSE by
+//	    +1030B).
+//
+//	Root cause: the (var, sse) inputs that govpx feeds into
+//	calculate_tx_size differ from libvpx because the upstream
+//	(mode, mv, filter) pick at vp9_pickmode.c:1696
+//	vp9_pick_inter_mode diverges (task #162 audit). On govpx's
+//	per-leaf predictor — landing on different motion vectors /
+//	interpolation filters than libvpx's pick on the same source
+//	— the residual variance ratio sse > (var << 2) at
+//	vp9_pickmode.c:374 flips the wrong way at a non-trivial
+//	fraction of the leaves, over-picking Tx16x16 vs libvpx. The
+//	Tx16x16 cap at vp9_pickmode.c:383-384 is already applied by
+//	govpx (vp9InterTxApplyForces), so the verbatim port leaves
+//	leaf-side Tx16x16 commits higher than libvpx, blowing up the
+//	per-tx coef branch-count distribution → longer
+//	update_coef_probs payload → byte-9 cluster widens.
+//
+//	Conclusion: the score-based RDO in pickVP9InterTxSize is
+//	govpx-specific but produces tx counts closer to libvpx's
+//	output than the verbatim calculate_tx_size port does (on
+//	govpx's upstream-divergent inputs). The closure path remains
+//	the upstream vp9_pick_inter_mode port at vp9_pickmode.c:1696
+//	(~4000 LOC), tracked as task #162. The
+//	vp9InterCalculateTxSize helper at vp9_encoder.go:10204 is
+//	retained as the verbatim reference oracle so the downstream
+//	port can re-wire it byte-for-byte once the upstream pick
+//	lands.
+//
+// Task #166 + #169 closure summary: both nonrd_pick_sb_modes (task
+// #166, RD-path seeds #0/#2/#4/#6) AND nonrd tx_size verbatim
+// (task #169, nonrd seeds #3/#8) are negative findings for the
+// byte-9 cohort. Both depend on the upstream (mode, mv, filter)
+// pick which is the actual divergence source.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 2, 1, 0, 0},

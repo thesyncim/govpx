@@ -631,6 +631,85 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// (Baseline before/after counts mirror task #159 — task #161 is
 	// an audit landing no writer code changes; the closure path
 	// remains the vp9_pick_inter_mode port at vp9_pickmode.c:1696.)
+	//
+	// Progress notes (task #169 — tx_size leaf-commit verbatim port
+	// audit, RefControl byte-9 cluster):
+	//
+	// Task hypothesis: govpx's pickVP9InterTxSize (vp9_encoder.go:9841)
+	// runs a score-based RDO over (Tx32x32, Tx16x16) at the ML_BASED_-
+	// PARTITION leaves which under-picks Tx16x16/Tx32x32 vs libvpx's
+	// calculate_tx_size (vp9_pickmode.c:363-394), driving the byte-9
+	// FirstPartitionSize literal divergence on 9 of the 10 RefControl
+	// deferred seeds (all but #5 — #5 diverges at byte 4 per task
+	// #159 / #167 audit) plus the 1 RuntimeControls seed (#8
+	// d4735e3a, cpu_used=-8 RT speed=8) with first_byte_diff=9.
+	// Hypothesis rejected by direct measurement.
+	//
+	// Method: route through libvpx-faithful calculate_tx_size at the
+	// leaf-commit site (pickVP9InterTxSize fast-path returning
+	// vp9InterCalculateTxSize when UseNonrdPickMode!=0 +
+	// GOVPX_VP9_NONRD_PICK_PARTITION=1) and remeasure the
+	// TestVP9DeferredSeedsRemeasureRefControl + RuntimeControls
+	// aggregates. The verbatim port computes residualVar from the
+	// SAME vp9InterTxSourceAndResidualVar helper that already feeds
+	// the AQ-force post-pass (vp9_pickmode.c:386-388 screen-content
+	// Tx4x4 force), and txMode=TxModeSelect for the speed=8 nonrd
+	// inter path (govpx vp9_encoder.go:4150-4155 + libvpx
+	// vp9_encodeframe.c:4340-4342).
+	//
+	// Result: the verbatim calculate_tx_size port INCREASES the
+	// aggregate size_delta on the RefControl deferred set from
+	// +446 (avg +44/seed) to +8776 (avg +877/seed) — i.e. 19.7x
+	// WORSE. Every seed regresses. Per-seed:
+	//
+	//   seed         before (HEAD)        candidate (verbatim port)
+	//   #0 af5570f5  fb9=9  sd=+44        fb9=9  sd=+795
+	//   #1 b9af55f0  fb9=9  sd=+71        fb9=9  sd=+630
+	//   #2 fda5b6b4  fb9=9  sd=+295       fb9=9  sd=+1161
+	//   #3 ffa55725  fb9=9  sd=+233       fb9=9  sd=+830
+	//   #4 8ec0abe5  fb9=9  sd=+132       fb9=9  sd=+690
+	//   #5 9c3e08e8  fb9=4  sd=-120       fb9=4  sd=+395
+	//   #6 5feceb66  fb9=9  sd=-138       fb9=9  sd=+1005
+	//   #7 6b86b273  fb9=9  sd=+48        fb9=8  sd=+1112
+	//   #8 d4735e3a  fb9=9  sd=-179       fb9=8  sd=+1178
+	//   #9 7902699b  fb9=9  sd=+60        fb9=9  sd=+980
+	//
+	// (fb9 = first_byte_diff for the first mismatching inter frame;
+	// sd = size_delta agg across all frames for that seed.
+	// Per-seed measurements from TestVP9DeferredSeedsRemeasureRef-
+	// Control gated on GOVPX_VP9_NONRD_PICK_PARTITION=1 +
+	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1.)
+	//
+	// Root cause: the (var, sse) inputs that govpx feeds into
+	// calculate_tx_size differ from libvpx because the upstream
+	// (mode, mv, filter) pick at libvpx vp9_pickmode.c:1696
+	// vp9_pick_inter_mode diverges (task #162 vp9_pick_inter_mode
+	// upstream gap). When run on govpx's per-leaf predictor —
+	// which lands on different motion vectors / interpolation
+	// filters than libvpx's pick on the same source — the
+	// residual variance ratio `sse > (var << 2)` at
+	// vp9_pickmode.c:374 flips the wrong way at a non-trivial
+	// fraction of the leaves, over-picking Tx16x16 vs libvpx
+	// (which runs calculate_tx_size on its OWN residual). The
+	// Tx16x16 cap at vp9_pickmode.c:383-384 / govpx
+	// vp9InterTxApplyForces is already applied, so the verbatim
+	// port floor-pushes more leaves into Tx16x16 than libvpx
+	// picks → larger per-tx coef branch-count distribution →
+	// longer update_coef_probs payload at the byte-9 cluster.
+	//
+	// Conclusion (NEGATIVE FINDING for this task): porting the
+	// libvpx calculate_tx_size kernel verbatim does NOT close the
+	// byte-9 cluster. The score-based RDO in pickVP9InterTxSize is
+	// govpx-specific but produces tx counts closer to libvpx's
+	// output on the same upstream (mode, mv, filter) divergence;
+	// replacing it with calculate_tx_size widens the gap because
+	// calculate_tx_size lands on different inputs than libvpx
+	// uses. The closure path remains the upstream
+	// vp9_pick_inter_mode port at vp9_pickmode.c:1696 (~4000
+	// LOC), tracked as task #162. The vp9InterCalculateTxSize
+	// helper (vp9_encoder.go:10204) is retained as the verbatim
+	// reference oracle so the downstream port can re-wire it
+	// byte-for-byte once the upstream pick lands.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
