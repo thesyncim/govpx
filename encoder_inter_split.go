@@ -341,7 +341,19 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	bestRate := 0
 	bestYRate := 0
 	bestDistortion := 0
-	bestTTEOB := 0
+	// lastTTEOB tracks the per-block-tteob from the LAST inner-loop iteration
+	// that actually called vp8_encode_inter_mb_segment (i.e. wasn't UMV-
+	// trapped and wasn't gated out before the call). libvpx returns this
+	// side-effect via `xd->eobs[i]` because rd_check_segment never restores
+	// the eobs after the winning mode is re-selected by `labels2mode`
+	// (rdopt.c:1152-1158): only the entropy contexts (t_above_b/t_left_b)
+	// are restored, the per-block eob registers retain the last call's
+	// values, and bsi->eobs[i] = xd->eobs[i] at rdopt.c:1180 then captures
+	// that stale snapshot for the segment_rd-wins path. calculate_final_rd_
+	// costs reads tteob back through those stale eobs (rdopt.c:1689-1697),
+	// so the SPLITMV skip-backout gate depends on the LAST-tested mode's
+	// tteob, not the RD-winning mode's. Track it independently here.
+	lastTTEOB := 0
 	var bestAbove [4]uint8
 	var bestLeft [4]uint8
 	bestHasContexts := false
@@ -354,12 +366,12 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		}
 		rate := splitSubMotionLabelRateWithProbs(candidateMode, ctx.subMVRefProbs)
 		rd, labelRate, labelYRate, distortion, tteob, nextAbove, nextLeft, hasContexts := ctx.candidateRD(block, mv, rate)
+		lastTTEOB = tteob
 		if rd < bestRD {
 			bestRD = rd
 			bestRate = labelRate
 			bestYRate = labelYRate
 			bestDistortion = distortion
-			bestTTEOB = tteob
 			bestMV = mv
 			bestMode = candidateMode
 			bestAbove = nextAbove
@@ -380,12 +392,20 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	// is disabled (labelMVThresh == 0) we keep the legacy behavior of
 	// always running the NEW4X4 search. We compare in RDCOST space so
 	// the threshold matches the libvpx rd_threshes scale.
+	//
+	// libvpx breaks out of the inner mode loop here BEFORE calling
+	// vp8_encode_inter_mb_segment for NEW4X4 (rdopt.c:1027 is inside the
+	// `if (this_mode == NEW4X4)` block and precedes the segment-encode
+	// call at 1135), so the lastTTEOB carry from ZERO4X4 (or the prior
+	// non-trapped mode) is what bsi->eobs sees. lastTTEOB stays untouched
+	// in this branch — _not_ assigned bestTTEOB — exactly matching that
+	// side-effect.
 	if ctx.labelMVThresh > 0 && bestRD < ctx.labelMVThresh {
 		if ctx.labelRD != nil && bestHasContexts {
 			ctx.labelRD.yAbove = bestAbove
 			ctx.labelRD.yLeft = bestLeft
 		}
-		return bestMV, bestMode, bestRD, bestRate, bestYRate, bestDistortion, bestTTEOB
+		return bestMV, bestMode, bestRD, bestRate, bestYRate, bestDistortion, lastTTEOB
 	}
 
 	errorPerBit := ctx.errorPerBit
@@ -419,12 +439,12 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		newRate += splitMotionVectorCost(delta, ctx.mvProbs)
 	}
 	newRD, labelRate, labelYRate, distortion, tteob, nextAbove, nextLeft, hasContexts := ctx.candidateRD(block, newMV, newRate)
+	lastTTEOB = tteob
 	if newRD < bestRD {
 		bestRD = newRD
 		bestRate = labelRate
 		bestYRate = labelYRate
 		bestDistortion = distortion
-		bestTTEOB = tteob
 		bestMV = newMV
 		bestMode = vp8common.New4x4
 		bestAbove = nextAbove
@@ -436,7 +456,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		ctx.labelRD.yLeft = bestLeft
 	}
 
-	return bestMV, bestMode, bestRD, bestRate, bestYRate, bestDistortion, bestTTEOB
+	return bestMV, bestMode, bestRD, bestRate, bestYRate, bestDistortion, lastTTEOB
 }
 
 func (ctx *splitMotionSubsetContext) candidateRD(block int, mv vp8enc.MotionVector, rate int) (int, int, int, int, int, [4]uint8, [4]uint8, bool) {

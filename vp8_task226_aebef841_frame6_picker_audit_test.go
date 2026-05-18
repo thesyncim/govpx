@@ -136,12 +136,18 @@ func TestVP8Task226Aebef841Frame6PickerAudit(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1")
 	}
-	// Skip-by-design: documentation-only audit pin. Live regression at
-	// FuzzOracleEncoderRuntimeControlTransitions/regression_general_
-	// 64x64_300kbps_sp0_f9_src0_aebef841 under matchLimit=6 tolerance.
-	// SPLITMV-GOLDEN per-Y-block predictor/residual divergence at frame 2
-	// MB(2,1) cascades to frame 6 byte mismatch via the recode-loop RCF.
-	// diag_aebef841_test.go (govpx_oracle_trace && diag) is the repro
-	// tracer that dumps /tmp/diag_aebef841_{govpx,libvpx}.jsonl.
-	t.Skip("documentation-only; SPLITMV-GOLDEN per-Y-block predictor/residual divergence at frame 2 MB(2,1) cascades to frame 6 byte mismatch (matchLimit=6 carveout)")
+	// CLOSED by task #237: the residual frame-6 divergence is not a Y
+	// predictor/residual gap. The root cause is that libvpx's
+	// rd_check_segment leaves xd->eobs[i] holding the LAST-iterated mode's
+	// per-block eob registers (rdopt.c:1124-1158 only restores entropy
+	// contexts after labels2mode re-installs the winner; the eobs registers
+	// retain whatever vp8_encode_inter_mb_segment wrote on the final inner-
+	// loop iteration). bsi->eobs[i] = xd->eobs[i] at rdopt.c:1180 captures
+	// that stale snapshot, and calculate_final_rd_costs reads tteob through
+	// those stale eobs (rdopt.c:1689-1697) when applying the SPLITMV skip-
+	// backout. govpx's per-label selectMotion previously returned the RD-
+	// winning mode's tteob; it now mirrors the libvpx side-effect via
+	// lastTTEOB. matchLimit dropped 6 -> 0 in
+	// oracleRuntimeControlFuzzMatchLimit.
+	t.Skip("closed by task #237; lastTTEOB port in encoder_inter_split.go selectMotion mirrors libvpx rdopt.c:1124-1180 xd->eobs side-effect")
 }

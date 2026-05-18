@@ -937,6 +937,55 @@ func (e *VP8Encoder) applyVP8ChangeConfigRuntimeSideEffects() {
 	e.forceNextLFDeltaUpdate()
 	e.applyChangeConfigSpeedReset()
 	e.applyVP8ChangeConfigResolutionChangeKeyFrame()
+	e.applyVP8ChangeConfigBaselineGFInterval()
+}
+
+// applyVP8ChangeConfigBaselineGFInterval mirrors libvpx
+// vp8/encoder/onyx_if.c:1541-1548 vp8_change_config baseline_gf_interval
+// reseed:
+//
+//	cpi->baseline_gf_interval =
+//	    cpi->oxcf.alt_freq ? cpi->oxcf.alt_freq : DEFAULT_GF_INTERVAL;
+//	// GF behavior for 1 pass CBR, used when error_resilience is off.
+//	if (!cpi->oxcf.error_resilient_mode &&
+//	    cpi->oxcf.end_usage == USAGE_STREAM_FROM_SERVER &&
+//	    cpi->oxcf.Mode == MODE_REALTIME)
+//	  cpi->baseline_gf_interval = cpi->gf_interval_onepass_cbr;
+//
+// libvpx invokes vp8_change_config from set_quality_mode at every
+// vp8e_encode call, so the OFE-driven oracle harness sees this reseed on
+// every frame. govpx mirrors that contract via the shared
+// applyVP8ChangeConfigRuntimeSideEffects helper -- every runtime control
+// setter (SetBitrateKbps, SetRateControl, SetMaxIntraBitratePct, etc.)
+// already invokes the helper, so the baseline_gf_interval refresh
+// propagates wherever libvpx's vp8_change_config would have fired.
+//
+// govpx does not surface alt_freq as an explicit option, so the libvpx
+// `cpi->oxcf.alt_freq ? alt_freq : DEFAULT_GF_INTERVAL` branch reduces to
+// libvpxDefaultGFInterval (7) for the alt_freq==0 cohort -- the only
+// cohort the oracle harness exercises.
+//
+// Task #235 (e6787af3) had elided this reseed under the assumption that
+// vp8_create_compressor's later override (onyx_if.c:1886) shadowed
+// vp8_change_config's line-1541 reset for any (CBR && !err && Mode<=2)
+// cohort. That holds at create-time, but every subsequent
+// vp8_change_config call (which set_quality_mode triggers per encode)
+// restores DEFAULT_GF_INTERVAL for the non-MODE_REALTIME branch, leaving
+// the create-time gf_interval_onepass_cbr value live only across the
+// brief window between vp8_create_compressor and the first set_quality_-
+// mode. The aebef841 64x64@30fps@300kbps fuzz seed's runtime-control
+// burst exercises that subsequent-change_config path and observed
+// govpx's baselineGFInterval frozen at goldenFrameCBRInterval=10 while
+// libvpx restored DEFAULT_GF_INTERVAL=7, drifting the gf_overspend
+// drain denominator and bumping Q+3 at frame 4. This helper restores
+// the libvpx-verbatim line-1541 reset.
+func (e *VP8Encoder) applyVP8ChangeConfigBaselineGFInterval() {
+	e.rc.baselineGFInterval = libvpxDefaultGFInterval
+	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient && e.opts.Deadline == DeadlineRealtime {
+		rows := encoderMacroblockRows(e.opts.Height)
+		cols := encoderMacroblockCols(e.opts.Width)
+		e.rc.baselineGFInterval = e.goldenFrameCBRInterval(rows, cols)
+	}
 }
 
 // applyVP8ChangeConfigResolutionChangeKeyFrame mirrors libvpx

@@ -52,7 +52,7 @@ func FuzzOracleEncoderRuntimeControlTransitions(f *testing.F) {
 	})
 }
 
-func oracleRuntimeControlFuzzMatchLimit(name string) int {
+func oracleRuntimeControlFuzzMatchLimit(_ string) int {
 	// Seed 77952f43 historically diverged at frame 8 inside the partially
 	// ported good-quality inter recode loop (govpx first_partition=58 vs
 	// libvpx=65). The recode-loop and change-config rate-model alignment
@@ -96,18 +96,17 @@ func oracleRuntimeControlFuzzMatchLimit(name string) int {
 	// `&& stats.rateUV == 0` clause from mbSkipCoeff) closes frames 0-8
 	// byte-exact. The matchLimit=4 carveout is removed.
 	//
-	// Task #218 follow-up (aebef841 carveout): the same SPLITMV skip-
-	// backout port surfaced a NEW residual divergence on the aebef841 seed
-	// at frame 6 (govpx=645 vs libvpx=762). Frames 0-5 remain byte-exact
-	// under the corrected gate, so the matchLimit=6 pin keeps the asserted
-	// prefix at the maximum currently green while the open follow-up
-	// threads the second-order picker delta (likely SPLITMV-vs-NEAREST RD
-	// score reshuffling now that the SPLITMV rate is no longer over-
-	// counted). Update this gate to limit=0 once the aebef841 frame 6+
-	// delta closes.
-	if strings.Contains(name, "regression_general_64x64_300kbps_sp0_f9_src0_aebef841") {
-		return 6
-	}
+	// Task #237 (CLOSED for aebef841): rd_check_segment's SPLITMV per-label
+	// inner loop leaves xd->eobs[i] holding the LAST-iterated mode's per-
+	// block eob registers (not the RD-winning mode's), because
+	// vp8/encoder/rdopt.c:1124-1158 restores only the entropy contexts after
+	// the winning mode is re-installed by labels2mode. bsi->eobs[i] =
+	// xd->eobs[i] at rdopt.c:1180 then captures that stale snapshot, and
+	// calculate_final_rd_costs reads tteob through those stale eobs
+	// (rdopt.c:1689-1697) when applying the SPLITMV skip-backout. govpx's
+	// selectMotion now mirrors that side-effect via lastTTEOB, dropping the
+	// matchLimit=6 carveout to 0 for byte-exact parity across all 9 frames
+	// on the aebef841 corpus.
 	return 0
 }
 
