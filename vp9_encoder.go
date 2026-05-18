@@ -2822,38 +2822,23 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		keyState, interState)
 	e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	// libvpx vp9/encoder/vp9_encodeframe.c:5911 gates the post-encode
-	// tx_mode demotion on cm->tx_mode == TX_MODE_SELECT. govpx's
-	// vp9EncoderFrameTxModeFromCounts encodes a govpx-specific (and
-	// inverted vs libvpx) predicate that survives the keyframe
-	// Allow16x16 clamp lift because the select_tx_mode port at line
-	// :3645 emits Allow16x16 directly for the KEY_FRAME &&
-	// use_nonrd_pick_mode path. The previous govpx-only baseMi clamp
-	// is dropped; the Allow16x16 floor below shadows libvpx's
-	// "only recount TX_MODE_SELECT" predicate by refusing to demote
-	// the ALLOW_16X16 keyframe past the libvpx select_tx_mode result.
+	// tx_mode demotion on cm->tx_mode == TX_MODE_SELECT. Only the
+	// TX_MODE_SELECT partition-context ladder fires here; every other
+	// tx_mode (including ALLOW_32X32 emitted by select_tx_mode for
+	// USE_LARGESTALL, e.g. RT speed 1-4 keyframes) is written verbatim
+	// with no demotion. vp9EncoderFrameTxModeFromCounts mirrors that
+	// gate exactly — it returns the original txMode unchanged for
+	// every non-TxModeSelect input, so a reducedTxMode != txMode here
+	// can only be the libvpx-faithful TX_MODE_SELECT ladder firing.
 	if reducedTxMode := vp9EncoderFrameTxModeFromCounts(txMode,
 		header.Quant.Lossless, e.sf.FrameParameterUpdate != 0, counts); reducedTxMode != txMode {
-		if isKey && reducedTxMode < common.Allow16x16 {
-			// libvpx vp9_encodeframe.c:5911 — non-TX_MODE_SELECT frames
-			// (here ALLOW_16X16 from select_tx_mode for KEY_FRAME &&
-			// use_nonrd_pick_mode) bypass the demotion. govpx's wider
-			// govpx-specific demotion gate is reined in for keyframes
-			// here so the wire-level tx_mode literal matches libvpx.
-			reducedTxMode = common.Allow16x16
-		}
-		if reducedTxMode == txMode {
-			// floor recovered the original mode — skip the second
-			// counts pass to keep behaviour identical to the no-demote
-			// libvpx path.
-		} else {
-			txMode = reducedTxMode
-			baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
-			denoiserCountState = e.saveVP9DenoiserForCounts(interState)
-			counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
-				header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
-				header.IntraOnly, keyState, interState)
-			e.restoreVP9DenoiserAfterCounts(denoiserCountState)
-		}
+		txMode = reducedTxMode
+		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
+		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
+		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
+			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
+			header.IntraOnly, keyState, interState)
+		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	}
 	header.Seg = seg
 

@@ -2292,32 +2292,30 @@ func TestVP9EncoderRejectsInvalidSourceShape(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderFrameTxModeFromCountsReducesFixedMode pins the
-// non-TxModeSelect (govpx-specific) branch of govpx's post-encode
-// tx_mode demotion that uses counts.TxTotals. This wider, govpx-only
-// (and inverted vs libvpx vp9_encodeframe.c:5911) demotion gate
-// touches every non-TxModeSelect mode and is preserved because the
-// strict byte-parity matrix is pinned to it. The libvpx-faithful
-// TxModeSelect partition-context ladder lives in
-// TestVP9EncoderFrameTxModeFromCountsLibvpxSelectLadder.
-func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
+// TestVP9EncoderFrameTxModeFromCountsBypassesNonSelect pins libvpx
+// vp9_encodeframe.c:5911 — the post-encode tx_mode demotion is gated
+// on `cm->tx_mode == TX_MODE_SELECT`, so any fixed tx_mode emitted by
+// select_tx_mode is written verbatim to the bitstream regardless of
+// counts. The libvpx-faithful TX_MODE_SELECT partition-context ladder
+// lives in TestVP9EncoderFrameTxModeFromCountsLibvpxSelectLadder.
+func TestVP9EncoderFrameTxModeFromCountsBypassesNonSelect(t *testing.T) {
 	counts := &vp9enc.FrameCounts{}
 	counts.TxTotals[common.Tx16x16] = 1
 	counts.TxTotals[common.Tx8x8] = 1
-	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Allow16x16 {
-		t.Fatalf("tx mode = %d, want Allow16x16", got)
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Allow32x32 {
+		t.Fatalf("non-select Allow32x32 should bypass demotion: got tx mode = %d, want Allow32x32", got)
 	}
 
 	counts = &vp9enc.FrameCounts{}
 	counts.TxTotals[common.Tx4x4] = 1
-	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Only4x4 {
-		t.Fatalf("tx mode = %d, want Only4x4", got)
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Allow32x32 {
+		t.Fatalf("non-select Allow32x32 should bypass demotion: got tx mode = %d, want Allow32x32", got)
 	}
 
 	counts = &vp9enc.FrameCounts{}
 	counts.TxTotals[common.Tx32x32] = 1
 	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Allow32x32 {
-		t.Fatalf("tx mode = %d, want Allow32x32", got)
+		t.Fatalf("non-select Allow32x32 with Tx32x32 hits: got tx mode = %d, want Allow32x32", got)
 	}
 }
 
