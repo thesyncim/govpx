@@ -48,6 +48,7 @@ var dispatch = map[string]classifier{
 	"FuzzEncoderReferenceControlSequences":       constantCase("refctrl"),
 	"FuzzEncoderTwoPassByteParity":               constantCase("twopass"),
 	"FuzzEncoderLongFixtureRateControl":          classifyLongFixtureRateControl,
+	"FuzzEncoderProductionStreamByteParity":      constantCase("option_grid"),
 	"FuzzDecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
 	// VP9 fuzz family — sibling targets registered here mirror their VP8
 	// counterparts. Classifiers reuse the same body shape so the resulting
