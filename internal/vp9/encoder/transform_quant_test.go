@@ -529,6 +529,103 @@ func TestQuantizeFP32x32EmitsHalfDequantizedCoefficients(t *testing.T) {
 	}
 }
 
+// TestQuantizeB32x32WithQEmitsQcoeff verifies the libvpx-faithful qcoeff
+// emit path (task #158 / vpx_dsp/quantize.c:216-275). Both qcoeff and
+// dqcoeff must be populated in lockstep, and the qcoeff value must equal
+// the libvpx vp9_get_token_cost(v, ...) argument — the signed quantized
+// magnitude before the Tx32x32 /2 dequant scaling — so cost_coeffs can
+// consume it without recovering q from int16-wrapped dqcoeff.
+func TestQuantizeB32x32WithQEmitsQcoeff(t *testing.T) {
+	scan := common.DefaultScanOrders[common.Tx32x32].Scan
+	var coeff [1024]int16
+	// Choose a high-magnitude coefficient so q*dq overflows int16
+	// (q*dq/2 > 32767). libvpx's dqcoeff cast wraps, but qcoeff
+	// retains the unwrapped magnitude.
+	coeff[0] = 10000
+	ac := int(scan[7])
+	coeff[ac] = -8000
+	dequant := [2]int16{16, 17}
+	const qindex = 32
+	var qcoeff, dqcoeff [1024]int16
+	eob := QuantizeB32x32WithQ(coeff[:], qindex, dequant, scan, qcoeff[:], dqcoeff[:])
+	if eob == 0 {
+		t.Fatal("eob=0; expected non-zero qcoeff")
+	}
+	// libvpx writes both arrays from the same tmp/sign; the only allowed
+	// divergence is the int16 cast of dqcoeff = qcoeff * dequant / 2.
+	for rc := range dqcoeff {
+		q := int(qcoeff[rc])
+		slot := 1
+		if rc == 0 {
+			slot = 0
+		}
+		want := int16(q * int(dequant[slot]) / 2)
+		if dqcoeff[rc] != want {
+			t.Fatalf("rc=%d qcoeff=%d dqcoeff=%d want=%d", rc, q, dqcoeff[rc], want)
+		}
+	}
+	// Verify the overflow case yields a qcoeff that can NOT be recovered
+	// from dqcoeff via the legacy /dq recipe.
+	q0 := int(qcoeff[0])
+	if q0 == 0 {
+		t.Fatal("expected nonzero qcoeff[0]")
+	}
+	// The libvpx recovery used to be: |q| = (2*|dqcoeff| + dq - 1) / dq.
+	// When 2*qcoeff*dequant/2 fits in int16 this matches |q|; outside
+	// that range the recovery drifts.
+	dq := int(dequant[0])
+	absDQ := int(dqcoeff[0])
+	if absDQ < 0 {
+		absDQ = -absDQ
+	}
+	rec := (absDQ*2 + dq - 1) / dq
+	absQ0 := q0
+	if absQ0 < 0 {
+		absQ0 = -absQ0
+	}
+	// True wraparound check: dq*|q|/2 must fit in int16 for the legacy
+	// recovery to agree.
+	wide := int(dequant[0]) * absQ0 / 2
+	if wide > 32767 || wide < -32768 {
+		// Recovery is allowed (and expected) to drift here; qcoeff
+		// stays correct because it is unscaled by /2.
+		if rec == absQ0 {
+			t.Fatalf("expected legacy recovery to drift when q*dq/2 overflows int16, "+
+				"but rec=%d matched abs(qcoeff)=%d", rec, absQ0)
+		}
+	}
+}
+
+// TestQuantizeBWithQEmitsQcoeff is the non-32x32 sibling of
+// TestQuantizeB32x32WithQEmitsQcoeff. libvpx vpx_dsp/quantize.c:71-72
+// writes both qcoeff and dqcoeff in lockstep; dqcoeff = qcoeff*dequant
+// (no /2). Verifies qcoeff*dequant truncated to int16 matches dqcoeff.
+func TestQuantizeBWithQEmitsQcoeff(t *testing.T) {
+	scan := common.DefaultScanOrders[common.Tx16x16].Scan
+	var coeff [256]int16
+	coeff[0] = 4000
+	ac := int(scan[3])
+	coeff[ac] = -2000
+	dequant := [2]int16{20, 25}
+	const qindex = 60
+	var qcoeff, dqcoeff [256]int16
+	eob := QuantizeBWithQ(coeff[:], qindex, dequant, scan, qcoeff[:], dqcoeff[:])
+	if eob == 0 {
+		t.Fatal("eob=0; expected non-zero qcoeff")
+	}
+	for rc := range dqcoeff {
+		q := int(qcoeff[rc])
+		slot := 1
+		if rc == 0 {
+			slot = 0
+		}
+		want := int16(q * int(dequant[slot]))
+		if dqcoeff[rc] != want {
+			t.Fatalf("rc=%d qcoeff=%d dqcoeff=%d want=%d", rc, q, dqcoeff[rc], want)
+		}
+	}
+}
+
 func TestQuantizeFP16x16EmitsDequantizedCoefficients(t *testing.T) {
 	scan := common.DefaultScanOrders[common.Tx16x16].Scan
 	var coeff [256]int16

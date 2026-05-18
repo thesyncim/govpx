@@ -1298,9 +1298,31 @@ func fdctBoolInt(v bool) int {
 // transforms. qindex is the segment-adjusted quantizer index; dequant is the
 // per-plane [DC, AC] dequant pair.
 func QuantizeB(coeff []int16, qindex int, dequant [2]int16, scan []int16, dqcoeff []int16) int {
+	return QuantizeBWithQ(coeff, qindex, dequant, scan, nil, dqcoeff)
+}
+
+// QuantizeBWithQ mirrors libvpx v1.16.0 vpx_quantize_b_c for 4x4/8x8/16x16
+// transforms and additionally writes the signed quantized coefficients into
+// qcoeff[] in raster order. libvpx's cost_coeffs (vp9_rdopt.c:367,392,405)
+// reads qcoeff directly; recovering q from dqcoeff via division loses
+// precision whenever q*dequant overflows int16 (the implicit int16 cast
+// in dqcoeff[rc] = int16(q * dq) wraps), so callers in the cost-coeffs
+// chain must consume qcoeff to stay byte-identical with libvpx.
+// libvpx: vpx_dsp/quantize.c:42-77 vpx_quantize_b_c (qcoeff_ptr + dqcoeff_ptr).
+// qcoeff may be nil when the caller only needs dqcoeff (legacy bitstream-
+// emit paths that immediately inverse-transform from dqcoeff).
+func QuantizeBWithQ(coeff []int16, qindex int, dequant [2]int16, scan []int16,
+	qcoeff, dqcoeff []int16,
+) int {
 	n := min(len(coeff), min(len(scan), len(dqcoeff)))
+	if qcoeff != nil && len(qcoeff) < n {
+		n = len(qcoeff)
+	}
 	for i := range n {
 		dqcoeff[i] = 0
+		if qcoeff != nil {
+			qcoeff[i] = 0
+		}
 	}
 	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
 		return 0
@@ -1337,6 +1359,12 @@ func QuantizeB(coeff []int16, qindex int, dequant [2]int16, scan []int16, dqcoef
 		if c < 0 {
 			q = -q
 		}
+		// libvpx vpx_dsp/quantize.c:71-72:
+		//   qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign;
+		//   dqcoeff_ptr[rc] = qcoeff_ptr[rc] * dequant_ptr[rc != 0];
+		if qcoeff != nil {
+			qcoeff[rc] = int16(q)
+		}
 		dqcoeff[rc] = int16(q * int(dequant[slot]))
 		if q != 0 {
 			eob = i
@@ -1347,10 +1375,33 @@ func QuantizeB(coeff []int16, qindex int, dequant [2]int16, scan []int16, dqcoef
 
 // QuantizeB32x32 mirrors libvpx v1.16.0 vpx_quantize_b_32x32_c.
 func QuantizeB32x32(coeff []int16, qindex int, dequant [2]int16, scan []int16, dqcoeff []int16) int {
+	return QuantizeB32x32WithQ(coeff, qindex, dequant, scan, nil, dqcoeff)
+}
+
+// QuantizeB32x32WithQ mirrors libvpx v1.16.0 vpx_quantize_b_32x32_c and
+// additionally writes the signed quantized coefficients into qcoeff[] in
+// raster order. See QuantizeBWithQ for the rationale — libvpx's cost_coeffs
+// reads qcoeff directly because the Tx32x32 dequant rule
+//
+//	dqcoeff[rc] = qcoeff[rc] * dequant[rc != 0] / 2
+//
+// (vpx_dsp/quantize.c:269) only fits in int16 for |q*dq/2| <= 32767, so
+// dqcoeff can wrap whenever q*dq exceeds 65534 (e.g. dq=1828, |q|>=36).
+// Recovering q from int16-wrapped dqcoeff drifts in exactly the high-
+// frequency Tx32x32 bands flagged by task #158.
+func QuantizeB32x32WithQ(coeff []int16, qindex int, dequant [2]int16, scan []int16,
+	qcoeff, dqcoeff []int16,
+) int {
 	const nCoeffs = 32 * 32
 	n := min(nCoeffs, min(len(coeff), min(len(scan), len(dqcoeff))))
+	if qcoeff != nil && len(qcoeff) < n {
+		n = len(qcoeff)
+	}
 	for i := range n {
 		dqcoeff[i] = 0
+		if qcoeff != nil {
+			qcoeff[i] = 0
+		}
 	}
 	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
 		return 0
@@ -1378,6 +1429,12 @@ func QuantizeB32x32(coeff []int16, qindex int, dequant [2]int16, scan []int16, d
 			params.quantShift[slot]) >> 15
 		if c < 0 {
 			q = -q
+		}
+		// libvpx vpx_dsp/quantize.c:261,269:
+		//   qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign;
+		//   dqcoeff_ptr[rc] = qcoeff_ptr[rc] * dequant_ptr[rc != 0] / 2;
+		if qcoeff != nil {
+			qcoeff[rc] = int16(q)
 		}
 		dqcoeff[rc] = int16(q * int(dequant[slot]) / 2)
 		if q != 0 {
@@ -1456,6 +1513,52 @@ func vp9RoundPowerOfTwo(v, n int) int {
 // to share scratch with the NEON kernel verbatim.
 func QuantizeFP(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
 	return quantizeFPDispatch(coeff, dequant, scan, dqcoeff)
+}
+
+// QuantizeFPWithQ mirrors libvpx's vp9_quantize_fp_c for non-32x32 transforms
+// and additionally writes the signed quantized coefficients into qcoeff[] in
+// raster order. See QuantizeBWithQ for the cost_coeffs rationale.
+// libvpx: vp9/encoder/vp9_quantize.c:26-56 vp9_quantize_fp_c (qcoeff_ptr +
+// dqcoeff_ptr both written from the same tmp/sign pair).
+func QuantizeFPWithQ(coeff []int16, dequant [2]int16, scan []int16,
+	qcoeff, dqcoeff []int16,
+) int {
+	n := min(len(coeff), min(len(scan), len(dqcoeff)))
+	if qcoeff != nil && len(qcoeff) < n {
+		n = len(qcoeff)
+	}
+	if n == 0 {
+		return 0
+	}
+	// libvpx: vp9/encoder/vp9_quantize.c:209-210 — derive fp tables from
+	// dequant the same way vp9_init_quantizer does:
+	//   quants->y_quant_fp[q][i] = (1 << 16) / quant;
+	//   quants->y_round_fp[q][i] = (qrounding_factor_fp * quant) >> 7;
+	// where qrounding_factor_fp = i == 0 ? 48 : 42 (non-q0, no sharpness).
+	roundFP := [2]int16{
+		int16((48 * int(dequant[0])) >> 7),
+		int16((42 * int(dequant[1])) >> 7),
+	}
+	quantFP := [2]int16{
+		int16((1 << 16) / int(dequant[0])),
+		int16((1 << 16) / int(dequant[1])),
+	}
+	var iscanBuf [1024]int16
+	iscan := iscanBuf[:n]
+	for i := range n {
+		rc := int(scan[i])
+		if rc >= 0 && rc < n {
+			iscan[rc] = int16(i + 1)
+		}
+	}
+	if qcoeff == nil {
+		var qcoeffBuf [1024]int16
+		qcoeff = qcoeffBuf[:n]
+		return quantizeFPLibvpxScalar(coeff, n, roundFP, quantFP, dequant,
+			scan, iscan, qcoeff, dqcoeff)
+	}
+	return quantizeFPLibvpxScalar(coeff, n, roundFP, quantFP, dequant,
+		scan, iscan, qcoeff, dqcoeff)
 }
 
 // QuantizeFPLibvpx is the verbatim Go entry point matching libvpx's
@@ -1596,6 +1699,18 @@ func QuantizeFP4x4(coeff *[16]int16, dequant [2]int16, scan []int16, dqcoeff *[1
 
 // QuantizeFP32x32 mirrors libvpx's vp9_quantize_fp_32x32_c.
 func QuantizeFP32x32(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
+	return QuantizeFP32x32WithQ(coeff, dequant, scan, nil, dqcoeff)
+}
+
+// QuantizeFP32x32WithQ mirrors libvpx's vp9_quantize_fp_32x32_c and
+// additionally writes the signed quantized coefficients into qcoeff[] in
+// raster order. See QuantizeBWithQ / QuantizeB32x32WithQ for the
+// cost_coeffs rationale (libvpx vp9_rdopt.c:367,405 reads qcoeff directly;
+// int16-wrapped dqcoeff loses information when q*dq overflows).
+// libvpx: vp9/encoder/vp9_quantize.c:92-123 vp9_quantize_fp_32x32_c.
+func QuantizeFP32x32WithQ(coeff []int16, dequant [2]int16, scan []int16,
+	qcoeff, dqcoeff []int16,
+) int {
 	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
 	round := [2]int{
 		(((48 * int(dequant[0])) >> 7) + 1) >> 1,
@@ -1603,6 +1718,9 @@ func QuantizeFP32x32(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []in
 	}
 	eob := -1
 	n := min(len(coeff), min(len(scan), len(dqcoeff)))
+	if qcoeff != nil && len(qcoeff) < n {
+		n = len(qcoeff)
+	}
 	for i := range n {
 		rc := int(scan[i])
 		slot := 0
@@ -1623,8 +1741,17 @@ func QuantizeFP32x32(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []in
 			if c < 0 {
 				q = -q
 			}
+			// libvpx vp9/encoder/vp9_quantize.c:116-117:
+			//   qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign;
+			//   dqcoeff_ptr[rc] = qcoeff_ptr[rc] * dequant_ptr[rc != 0] / 2;
+			if qcoeff != nil {
+				qcoeff[rc] = int16(q)
+			}
 			dqcoeff[rc] = int16(q * int(dequant[slot]) / 2)
 		} else {
+			if qcoeff != nil {
+				qcoeff[rc] = 0
+			}
 			dqcoeff[rc] = 0
 		}
 		if tmp != 0 {

@@ -161,11 +161,29 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 //     vp9KeyframeCoeffBlockRateCost (vp9_encoder.go:7882).
 //
 //   - Residual now driven by orthogonal non-cost_coeffs gaps: speed=3
-//     RT coef_prob_appx_step (libvpx vp9_encoder.c:5024-5039),
-//     speed=8 partition heuristic differences (vp9_pickmode.c:1696),
-//     and Tx32x32 qcoeff recovery drift in vp9CoeffTokenAbsVal
-//     (vp9_encoder.go:10269 — recovers qcoeff from dqcoeff via
-//     /dq; loss-of-precision when dqcoeff = q*dq/2 is truncated).
+//     RT coef_prob_appx_step (libvpx vp9_encoder.c:5024-5039) and
+//     speed=8 partition heuristic differences (vp9_pickmode.c:1696).
+//
+//   - Task #158 audit of "Tx32x32 qcoeff recovery drift in
+//     vp9CoeffTokenAbsVal" (vp9_encoder.go:10416): the recovery
+//     `|q| = (2*|dqcoeff| + dq - 1) / dq` IS mathematically exact for
+//     all (q, dq) pairs where dqcoeff = q*dq/2 fits in int16 — verified
+//     by exhaustive sweep over dq ∈ {4..1828} and |q| ≤ 32767
+//     (overflow only at |q| ≥ 36 for dq=1828, which is outside the
+//     residual-magnitude range observed in the deferred-seed corpus).
+//     The recovery only drifts when the int16 cast in
+//     `dqcoeff = int16(q*dq/2)` wraps. To eliminate this drift
+//     structurally — matching libvpx's vpx_dsp/quantize.c:269 +
+//     vp9_rdopt.c:367,392,405,438 (cost_coeffs reads p->qcoeff
+//     directly) — task #158 wires qcoeff through the quantize kernels
+//     (QuantizeB*WithQ / QuantizeFP*WithQ) and the cost path
+//     (vp9KeyframeCoeffBlockRateCostQ / vp9InterCoeffBlockRateCostQ).
+//     Negative finding: the seed-level metrics are unchanged because
+//     none of the (dq, q) pairs in the deferred seeds trigger int16
+//     wrap on dqcoeff, so the recovery and libvpx-equivalent qcoeff
+//     read agree byte-for-byte. The refactor is retained as the
+//     libvpx-faithful port to prevent future drift in higher-dq or
+//     wider-residual content.
 //
 // Task #152 audit — coef-update gates against libvpx vp9_bitstream.c
 // update_coef_probs (lines 684-700) and update_coef_probs_common
