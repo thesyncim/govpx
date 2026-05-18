@@ -1526,9 +1526,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// picker's verbatim state.
 				if refFrame == vp9dec.LastFrame &&
 					frameMv[thisMode][refFrame] == (vp9dec.MV{}) {
-					shift := uint(common.BWidthLog2Lookup[bsize]) +
-						uint(common.BHeightLog2Lookup[bsize])
-					sseZeromvNormalized = sseY >> shift
+					sseZeromvNormalized = vp9NonrdNormalizeSSE(sseY, bsize)
 				}
 
 				// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
@@ -2079,6 +2077,13 @@ func vp9NonrdAllowEncodeBreakout(lossless, sceneChangeDetected,
 	highNumBlocksWithMotion bool,
 ) bool {
 	return !lossless && !sceneChangeDetected && !highNumBlocksWithMotion
+}
+
+func vp9NonrdNormalizeSSE(sse uint64, bsize common.BlockSize) uint64 {
+	if bsize < common.Block4x4 || bsize >= common.BlockSizes {
+		return sse
+	}
+	return sse >> uint(common.NumPelsLog2Lookup[bsize])
 }
 
 func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,

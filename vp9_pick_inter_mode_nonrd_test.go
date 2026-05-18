@@ -201,6 +201,19 @@ func TestVP9NonrdIntraFallbackPrecheckScreenFlatBypassesInterGates(t *testing.T)
 	}
 }
 
+func TestVP9NonrdNormalizeSSEUsesPixelCount(t *testing.T) {
+	const sse = 4096
+	if got := vp9NonrdNormalizeSSE(sse, common.Block16x16); got != 16 {
+		t.Fatalf("16x16 normalized SSE = %d, want 16", got)
+	}
+	if got := vp9NonrdNormalizeSSE(sse, common.Block8x8); got != 64 {
+		t.Fatalf("8x8 normalized SSE = %d, want 64", got)
+	}
+	if got := vp9NonrdNormalizeSSE(sse, common.BlockSizes); got != sse {
+		t.Fatalf("invalid-block normalized SSE = %d, want %d", got, sse)
+	}
+}
+
 func TestVP9SourceVariancePerPixel(t *testing.T) {
 	const side = 16
 	buf := make([]byte, side*side)
