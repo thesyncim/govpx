@@ -108,6 +108,13 @@ type vp9MLPartitionContext struct {
 	// populated for this SB. Indexed row*64+col (stride 64).
 	estPred [64 * 64]uint8
 
+	// pickPred mirrors the live luma pd->dst surface used by libvpx while
+	// nonrd_pick_partition walks leaves with reuse_inter_pred_sby enabled.
+	// It starts as the current reconstructed SB window and is updated by
+	// pickmode candidate selection; intra fallback reads its left/above edges.
+	pickPred      [64 * 64]uint8
+	pickPredReady bool
+
 	// SB-aligned origin (the BLOCK_64X64 top-left mi-row/col).
 	sbMiRow int
 	sbMiCol int
@@ -136,6 +143,40 @@ type vp9MLPartitionContext struct {
 
 	// frameValid marks the per-frame slot as populated; reset every frame.
 	frameValid bool
+}
+
+type vp9MLPickPredSnapshot struct {
+	ctx   *vp9MLPartitionContext
+	pred  [64 * 64]uint8
+	ready bool
+	ok    bool
+}
+
+func (e *VP9Encoder) saveVP9MLPickPredSnapshot(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+) vp9MLPickPredSnapshot {
+	if !vp9NonrdPickPartitionEnabled() || e.sf.PartitionSearchType != MlBasedPartition {
+		return vp9MLPickPredSnapshot{}
+	}
+	ctx := e.vp9MLPickPartitionEntry(inter, miRows, miCols, miRow, miCol)
+	if ctx == nil {
+		return vp9MLPickPredSnapshot{}
+	}
+	snap := vp9MLPickPredSnapshot{
+		ctx:   ctx,
+		ready: ctx.pickPredReady,
+		ok:    true,
+	}
+	copy(snap.pred[:], ctx.pickPred[:])
+	return snap
+}
+
+func (e *VP9Encoder) restoreVP9MLPickPredSnapshot(snap vp9MLPickPredSnapshot) {
+	if !snap.ok || snap.ctx == nil {
+		return
+	}
+	copy(snap.ctx.pickPred[:], snap.pred[:])
+	snap.ctx.pickPredReady = snap.ready
 }
 
 // vp9MLPartitionBorder is the per-side edge-replication padding the ML
@@ -304,6 +345,7 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	ctx.sbMiCol = sbMiCol
 	ctx.baseQindex = inter.baseQindex
 	ctx.speed = speed
+	ctx.pickPredReady = false
 
 	// libvpx get_estimated_pred uses LAST_FRAME (with possible GOLDEN/ALTREF
 	// hijack) and runs vp9_int_pro_motion_estimation on a per-SB sub-bsize
@@ -316,6 +358,24 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	y0 := sbMiRow * common.MiSize
 	if x0 >= srcW || y0 >= srcH || x0 >= lastW || y0 >= lastH {
 		return nil
+	}
+	if recon, reconStride := e.vp9EncoderReconPlane(0); len(recon) != 0 &&
+		reconStride > 0 && len(recon)/reconStride > 0 {
+		reconRows := len(recon) / reconStride
+		for py := 0; py < 64; py++ {
+			sy := y0 + py
+			if sy >= reconRows {
+				sy = reconRows - 1
+			}
+			for px := 0; px < 64; px++ {
+				sx := x0 + px
+				if sx >= reconStride {
+					sx = reconStride - 1
+				}
+				ctx.pickPred[py*64+px] = recon[sy*reconStride+sx]
+			}
+		}
+		ctx.pickPredReady = true
 	}
 
 	paddedRef, paddedRefStride, refOriginY, refOriginX := vp9BuildPaddedPlane(
@@ -693,6 +753,9 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	if inter == nil {
 		return common.BlockInvalid, false
 	}
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
 
 	// libvpx vp9_encodeframe.c:4608 — const int ms =
 	// num_8x8_blocks_wide_lookup[bsize] / 2.

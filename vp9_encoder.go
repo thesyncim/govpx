@@ -872,6 +872,8 @@ type VP9Encoder struct {
 	intraScratch          vp9dec.IntraPredictorScratch
 	modeScratch           [1024]byte
 	blockScratch          [64 * 64]byte
+	nonrdOrigPredScratch  [64 * 64]byte
+	nonrdBestPredScratch  [64 * 64]byte
 	partitionReconScratch []byte
 	// interPredictScratch is passed through the decoder-shared inter
 	// predictor so odd luma MVs can use the same chroma/subpel extension
@@ -6068,6 +6070,9 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		return root
 	}
 	savedRef := inter.ref
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
 	full, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, root)
 	if !ok {
@@ -6977,6 +6982,10 @@ func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	child common.BlockSize, rowOff, colOff int,
 ) (uint64, bool) {
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+
 	childRows := int(common.Num8x8BlocksHighLookup[child])
 	childCols := int(common.Num8x8BlocksWideLookup[child])
 	var saved [64]vp9dec.NeighborMi
@@ -7007,6 +7016,10 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	child common.BlockSize,
 ) (uint64, bool) {
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+
 	stepMi := int(common.Num8x8BlocksWideLookup[child])
 	var saved [64]vp9dec.NeighborMi
 	rows, cols, ok := e.snapshotVP9MiRect(miRows, miCols, miRow, miCol,
@@ -11136,6 +11149,18 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchNoRestore(key *vp9Ke
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	scratch []byte, scratchStride, originMiRow, originMiCol int,
 ) (sse uint64, variance uint64, ok bool) {
+	return e.vp9NoReferenceIntraResidualStatsScratchRefNoRestore(key, mode,
+		txSize, tile, miRows, miCols, miRow, miCol, bsize,
+		scratch, scratchStride, originMiRow, originMiCol,
+		scratch, scratchStride, originMiRow, originMiCol)
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchRefNoRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	scratch []byte, scratchStride, originMiRow, originMiCol int,
+	ref []byte, refStride, refOriginMiRow, refOriginMiCol int,
+) (sse uint64, variance uint64, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || int(mode) >= common.IntraModes {
 		return 0, 0, false
 	}
@@ -11145,7 +11170,8 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchNoRestore(key *vp9Ke
 		return 0, 0, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
-	if len(src) == 0 || srcStride <= 0 || len(scratch) == 0 || scratchStride <= 0 {
+	if len(src) == 0 || srcStride <= 0 || len(scratch) == 0 || scratchStride <= 0 ||
+		len(ref) == 0 || refStride <= 0 {
 		return 0, 0, false
 	}
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
@@ -11154,6 +11180,8 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchNoRestore(key *vp9Ke
 	bs := 4 << uint(txSize)
 	originX := originMiCol * common.MiSize
 	originY := originMiRow * common.MiSize
+	refOriginX := refOriginMiCol * common.MiSize
+	refOriginY := refOriginMiRow * common.MiSize
 	var sum int64
 	var count uint64
 	predOK := true
@@ -11163,8 +11191,8 @@ residualLoop:
 			dst, dstStride, x0, y0, ok := e.predictVP9KeyframeTxGeneric(
 				key.hdr, pd, 0, mode, txSize, tile, miRows, miCols,
 				miRow, miCol, bsize, rr, cc,
-				scratch, scratchStride, scratch, scratchStride,
-				originX, originY)
+				scratch, scratchStride, ref, refStride,
+				originX, originY, refOriginX, refOriginY)
 			if !ok {
 				predOK = false
 				break residualLoop
@@ -14189,14 +14217,15 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	planeData, stride := e.vp9EncoderReconPlane(plane)
 	return e.predictVP9KeyframeTxGeneric(hdr, pd, plane, mode, txSize, tile,
 		miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4,
-		planeData, stride, planeData, stride, 0, 0)
+		planeData, stride, planeData, stride, 0, 0, 0, 0)
 }
 
 func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
 	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
-	dstData []byte, dstStride int, refData []byte, refStride int, originX, originY int,
+	dstData []byte, dstStride int, refData []byte, refStride int,
+	dstOriginX, dstOriginY, refOriginX, refOriginY int,
 ) (dst []byte, stride, x0, y0 int, ok bool) {
 	stride = dstStride
 	if dstStride <= 0 || len(dstData) == 0 || refStride <= 0 ||
@@ -14217,12 +14246,15 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
 	x0 = baseX + blockCol4x4*4
 	y0 = baseY + blockRow4x4*4
-	localX := x0 - (originX >> pd.SubsamplingX)
-	localY := y0 - (originY >> pd.SubsamplingY)
+	localX := x0 - (dstOriginX >> pd.SubsamplingX)
+	localY := y0 - (dstOriginY >> pd.SubsamplingY)
+	refLocalX := x0 - (refOriginX >> pd.SubsamplingX)
+	refLocalY := y0 - (refOriginY >> pd.SubsamplingY)
 
 	bs := 4 << uint(txSize)
-	if localX < 0 || localY < 0 || localX+bs > dstStride ||
-		localY+bs > rows || localX+bs > refStride || localY+bs > refRows {
+	if localX < 0 || localY < 0 || refLocalX < 0 || refLocalY < 0 ||
+		localX+bs > dstStride || localY+bs > rows ||
+		refLocalX+bs > refStride || refLocalY+bs > refRows {
 		return nil, 0, 0, 0, false
 	}
 
@@ -14230,7 +14262,7 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 	leftAvailable := blockCol4x4 != 0 || miCol > tile.MiColStart
 	left := e.intraScratch.Left[:bs]
 	if leftAvailable {
-		if localX <= 0 {
+		if refLocalX <= 0 {
 			return nil, 0, 0, 0, false
 		}
 		for i := range bs {
@@ -14238,8 +14270,8 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 			if bounds.MbToBottomEdge < 0 && sy >= planeHeight {
 				sy = planeHeight - 1
 			}
-			refY := sy - (originY >> pd.SubsamplingY)
-			left[i] = refData[refY*refStride+localX-1]
+			refY := sy - (refOriginY >> pd.SubsamplingY)
+			left[i] = refData[refY*refStride+refLocalX-1]
 		}
 	}
 
@@ -14249,12 +14281,12 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 	}
 	upAvailable := blockRow4x4 != 0 || miRow > 0
 	if upAvailable {
-		if localY <= 0 {
+		if refLocalY <= 0 {
 			return nil, 0, 0, 0, false
 		}
-		edges.Above = refData[(localY-1)*refStride+localX:]
+		edges.Above = refData[(refLocalY-1)*refStride+refLocalX:]
 		if leftAvailable {
-			edges.AboveLeft = refData[(localY-1)*refStride+localX-1]
+			edges.AboveLeft = refData[(refLocalY-1)*refStride+refLocalX-1]
 		}
 	}
 	planeBlock4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])

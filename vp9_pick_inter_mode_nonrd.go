@@ -298,6 +298,96 @@ func vp9InitBestPickmode(bp *vp9BestPickmode) {
 	bp.winnerSet = false
 }
 
+func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) bool {
+	if e.sf.ReuseInterPredSby == 0 || !vp9NonrdPickPartitionEnabled() ||
+		e.sf.PartitionSearchType != MlBasedPartition ||
+		bsize < common.Block8x8 || bsize >= common.BlockSizes {
+		return false
+	}
+
+	// libvpx: vp9_encodeframe.c:4608-4663 and :4673 —
+	// nonrd_pick_partition seeds ctx->pred_pixel_ready before calling
+	// nonrd_pick_sb_modes. The ML realtime lane reaches this helper
+	// through that recursive picker, with x->max/min_partition_size pinned
+	// to BLOCK_64X64/BLOCK_8X8 at vp9_encodeframe.c:5315-5316.
+	ms := int(common.Num8x8BlocksWideLookup[bsize]) / 2
+	forceHorzSplit := miRow+ms >= miRows
+	forceVertSplit := miCol+ms >= miCols
+	xss := e.planes[1].SubsamplingX
+	yss := e.planes[1].SubsamplingY
+
+	partitionNoneAllowed := !forceHorzSplit && !forceVertSplit
+	partitionHorzAllowed := !forceVertSplit && yss <= xss && bsize >= common.Block8x8
+	partitionVertAllowed := !forceHorzSplit && xss <= yss && bsize >= common.Block8x8
+	doSplit := bsize >= common.Block8x8
+
+	if e.sf.AutoMinMaxPartitionSize != AutoMinMaxNotInUse {
+		const maxPartitionSize = common.Block64x64
+		const minPartitionSize = common.Block8x8
+		partitionNoneAllowed = partitionNoneAllowed &&
+			bsize <= maxPartitionSize && bsize >= minPartitionSize
+		partitionHorzAllowed = partitionHorzAllowed &&
+			((bsize <= maxPartitionSize && bsize > minPartitionSize) ||
+				forceHorzSplit)
+		partitionVertAllowed = partitionVertAllowed &&
+			((bsize <= maxPartitionSize && bsize > minPartitionSize) ||
+				forceVertSplit)
+		doSplit = doSplit && bsize > minPartitionSize
+	}
+	if e.sf.UseSquarePartitionOnly != 0 {
+		partitionHorzAllowed = partitionHorzAllowed && forceHorzSplit
+		partitionVertAllowed = partitionVertAllowed && forceVertSplit
+	}
+	if partitionNoneAllowed && doSplit {
+		if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+			miRow, miCol); mlCtx != nil {
+			switch vp9MLPredictVarPartitioning(bsize, miRow, miCol, mlCtx) {
+			case vp9MLPredictNone:
+				doSplit = false
+			}
+		}
+	}
+	return !(partitionVertAllowed || partitionHorzAllowed || doSplit)
+}
+
+func (e *VP9Encoder) vp9NonrdLumaPredRect(miRow, miCol int,
+	bsize common.BlockSize,
+) (data []byte, stride, x, y, w, h int, ok bool) {
+	data, stride = e.vp9EncoderReconPlane(0)
+	if len(data) == 0 || stride <= 0 || bsize < 0 || bsize >= common.BlockSizes {
+		return nil, 0, 0, 0, 0, 0, false
+	}
+	rows := len(data) / stride
+	x = miCol * common.MiSize
+	y = miRow * common.MiSize
+	w = int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	h = int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	if x < 0 || y < 0 || w <= 0 || h <= 0 ||
+		x+w > stride || y+h > rows || w*h > len(e.nonrdOrigPredScratch) {
+		return nil, 0, 0, 0, 0, 0, false
+	}
+	return data, stride, x, y, w, h, true
+}
+
+func vp9CopyPredRectToScratch(scratch []byte, src []byte,
+	srcStride, x, y, w, h int,
+) {
+	for row := range h {
+		copy(scratch[row*w:(row+1)*w], src[(y+row)*srcStride+x:(y+row)*srcStride+x+w])
+	}
+}
+
+func vp9CopyPredRectFromScratch(dst []byte, dstStride, x, y, w, h int,
+	scratch []byte,
+) {
+	for row := range h {
+		copy(dst[(y+row)*dstStride+x:(y+row)*dstStride+x+w],
+			scratch[row*w:(row+1)*w])
+	}
+}
+
 func vp9NonrdModeRDThresh(qindex int, bsize common.BlockSize,
 	refFrame int8, mode common.PredictionMode, adaptiveRDThresh int,
 	bestModeSkipTxfm bool, biasGolden bool, framesSinceGolden int,
@@ -788,7 +878,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		miRows, miRow, miCol, bsize)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
-
 	// libvpx: vp9_encodeframe.c:4244-4248 — every SB's rd_pick_sb_modes call
 	// seeds x->cb_rdmult from get_rdmult_delta so per-mode RDCOST consumes
 	// a TPL-biased multiplier rather than the bare per-frame rd.RDMULT.
@@ -833,6 +922,43 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	bestSseSoFar := uint64(1<<63 - 1)
 	bestSet := false
 	var best vp9InterModeDecision
+
+	reuseInterPred := e.vp9NonrdReuseInterPredReady(inter, miRows, miCols,
+		miRow, miCol, bsize)
+	var reuseMLCtx *vp9MLPartitionContext
+	var livePred []byte
+	livePredStride, livePredX, livePredY := 0, 0, 0
+	if reuseInterPred {
+		reuseMLCtx = e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+			miRow, miCol)
+		if reuseMLCtx == nil || !reuseMLCtx.pickPredReady {
+			reuseInterPred = false
+		} else {
+			livePred = reuseMLCtx.pickPred[:]
+			livePredStride = 64
+			livePredX = (miCol - reuseMLCtx.sbMiCol) * common.MiSize
+			livePredY = (miRow - reuseMLCtx.sbMiRow) * common.MiSize
+		}
+	}
+	predPlane, predStride, predX, predY, predW, predH, predOK :=
+		e.vp9NonrdLumaPredRect(miRow, miCol, bsize)
+	if !predOK {
+		reuseInterPred = false
+	}
+	if reuseInterPred && (livePredX < 0 || livePredY < 0 ||
+		livePredX+predW > livePredStride ||
+		livePredY+predH > len(livePred)/livePredStride) {
+		reuseInterPred = false
+	}
+	if !reuseInterPred {
+		livePred = predPlane
+		livePredStride = predStride
+		livePredX = predX
+		livePredY = predY
+	}
+	origPredValid := false
+	bestPredValid := false
+	bestPredFromOrig := false
 
 	// libvpx: vp9_pickmode.c:1758 unsigned int sse_zeromv_normalized = UINT_MAX.
 	// Updated at vp9_pickmode.c:2350-2354 only when (ref_frame == LAST_FRAME &&
@@ -1618,6 +1744,19 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				}
 			}
 
+			scoredIntoOrig := false
+			if reuseInterPred {
+				if !origPredValid {
+					vp9CopyPredRectToScratch(e.nonrdOrigPredScratch[:],
+						predPlane, predStride, predX, predY, predW, predH)
+					vp9CopyPredRectFromScratch(livePred, livePredStride,
+						livePredX, livePredY, predW, predH,
+						e.nonrdOrigPredScratch[:])
+					origPredValid = true
+					scoredIntoOrig = true
+				}
+			}
+
 			// libvpx: vp9_pickmode.c:2460 if (this_rdc.rdcost <
 			//   best_rdc.rdcost || x->skip) {
 			//     best_rdc = this_rdc;
@@ -1646,6 +1785,21 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// site for the deferral note); the assignment is kept
 				// shape-equivalent.
 				bestEarlyTerm = false
+				if reuseInterPred {
+					if scoredIntoOrig {
+						bestPredFromOrig = true
+						bestPredValid = false
+					} else {
+						vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:],
+							predPlane, predStride, predX, predY, predW, predH)
+						bestPredFromOrig = false
+						bestPredValid = true
+					}
+				}
+			}
+			if reuseInterPred && origPredValid && !scoredIntoOrig {
+				vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
+					predW, predH, e.nonrdOrigPredScratch[:])
 			}
 		}
 
@@ -1723,9 +1877,22 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		if bestSet {
 			bestInterScore = best.score
 		}
+		var pickPred []byte
+		pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol := 0, 0, 0
+		if reuseInterPred && reuseMLCtx != nil {
+			pickPred = livePred
+			pickPredStride = livePredStride
+			pickPredOriginMiRow = reuseMLCtx.sbMiRow
+			pickPredOriginMiCol = reuseMLCtx.sbMiCol
+		}
+		const qidxSkipThresh = 115
+		skipEncode := e.sf.SkipEncodeSb != 0 && e.frameIndex > 1 &&
+			qindex < qidxSkipThresh
 		if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
 			miRows, miCols, miRow, miCol, bsize, qindex,
-			above, left, bestInterScore, forceSkipLowTempVar, xSkip); intraFires {
+			above, left, bestInterScore, forceSkipLowTempVar, xSkip,
+			pickPred, pickPredStride, pickPredOriginMiRow,
+			pickPredOriginMiCol, skipEncode); intraFires {
 			// libvpx: vp9_pickmode.c:2637-2647 — if intra wins, replace
 			// best_pickmode's mode/ref/tx/skip state with the intra entry.
 			best = vp9InterModeDecision{
@@ -1746,6 +1913,30 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			bp.bestIntraTxSize = intra.txSize
 			bp.bestModeSkipTxfm = 0
 		}
+	}
+	if bestSet && !best.intra && reuseInterPred && origPredValid {
+		// libvpx: vp9_pickmode.c:2888-2912 restores pd->dst to orig_dst,
+		// then copies best_pickmode.best_pred back when the inter winner was
+		// evaluated in a temporary PRED_BUFFER. If intra fallback overwrote
+		// orig_dst and the first candidate stayed best, the saved orig copy is
+		// the protected tmp buffer created at vp9_pickmode.c:2721-2740.
+		var predScratch []byte
+		if bestPredFromOrig {
+			predScratch = e.nonrdOrigPredScratch[:]
+		} else if bestPredValid {
+			predScratch = e.nonrdBestPredScratch[:]
+		}
+		if predScratch != nil {
+			vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
+				predW, predH, predScratch)
+			vp9CopyPredRectFromScratch(livePred, livePredStride, livePredX,
+				livePredY, predW, predH, predScratch)
+		}
+	} else if bestSet && best.intra && reuseInterPred {
+		vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:], livePred,
+			livePredStride, livePredX, livePredY, predW, predH)
+		vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
+			predW, predH, e.nonrdBestPredScratch[:])
 	}
 	if !bestSet {
 		return vp9InterModeDecision{}, false
@@ -1843,6 +2034,8 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	bsize common.BlockSize, qindex int,
 	above, left *vp9dec.NeighborMi,
 	bestInterScore uint64, forceSkipLowTempVar bool, xSkip bool,
+	pickPred []byte, pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol int,
+	skipEncode bool,
 ) (vp9InterIntraDecision, bool) {
 	if inter == nil || inter.img == nil {
 		return vp9InterIntraDecision{}, false
@@ -1993,15 +2186,24 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		var sse, variance uint64
 		if useSimpleIntraBlockYrd {
 			var ok bool
-			if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
-				miRow, miCol); mlCtx != nil {
-				// libvpx's ML_BASED_PARTITION path enters the leaf picker with
-				// pd->dst backed by x->est_pred. Intra fallback must score
-				// against that live scratch, including its left/above edges.
-				sse, variance, ok = e.vp9NoReferenceIntraResidualStatsScratchNoRestore(
-					&keyLike, thisMode, intraTxSize, tile, miRows, miCols,
-					miRow, miCol, bsize, mlCtx.estPred[:], 64,
-					mlCtx.sbMiRow, mlCtx.sbMiCol)
+			if len(pickPred) != 0 && pickPredStride > 0 {
+				// libvpx: compute_intra_yprediction reads and writes the live
+				// pd->dst surface that reuse_inter_pred_sby maintains for this
+				// SB. When x->skip_encode is set, libvpx takes the intra
+				// predictor reference edges from the source plane instead.
+				if skipEncode {
+					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+					sse, variance, ok = e.vp9NoReferenceIntraResidualStatsScratchRefNoRestore(
+						&keyLike, thisMode, intraTxSize, tile, miRows, miCols,
+						miRow, miCol, bsize, pickPred, pickPredStride,
+						pickPredOriginMiRow, pickPredOriginMiCol,
+						src, srcStride, 0, 0)
+				} else {
+					sse, variance, ok = e.vp9NoReferenceIntraResidualStatsScratchNoRestore(
+						&keyLike, thisMode, intraTxSize, tile, miRows, miCols,
+						miRow, miCol, bsize, pickPred, pickPredStride,
+						pickPredOriginMiRow, pickPredOriginMiCol)
+				}
 			}
 			if !ok {
 				sse, variance, ok = e.vp9NoReferenceIntraResidualStatsNoRestore(&keyLike,
