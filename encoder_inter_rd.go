@@ -339,8 +339,20 @@ func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
 	return e.skinMap[index] != 0
 }
 
+// fastZeroMVLastAdjustmentEligible mirrors libvpx vp8/encoder/pickinter.c
+// vp8_pick_inter_mode (line 756: `if (cpi->Speed < 12) calculate_zeromv_rd_adjustment(...)`)
+// guarded by the inner `if (cpi->lf_zeromv_pct > 40)` check at line 522. libvpx
+// suppresses the local-motion ZEROMV-LAST RD-adjustment entirely once
+// cpi->Speed >= 12 (RT autoSpeed evolves up to 16 per vp8_auto_select_speed
+// rdopt.c line 312, so the gate fires once the auto-selected Speed crosses
+// into the heavy-RT range where ZEROMV is already favored by rate-control).
+// govpx's libvpxCPUUsed() returns the actual evolving cpi->Speed in RT mode
+// via the autoSpeed field, so the < 12 check translates one-to-one.
 func (e *VP8Encoder) fastZeroMVLastAdjustmentEligible(mbRows int, mbCols int) bool {
 	if e.opts.ScreenContentMode != 0 {
+		return false
+	}
+	if e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 12 {
 		return false
 	}
 	required := mbRows * mbCols
