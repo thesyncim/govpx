@@ -107,6 +107,23 @@ func oracleRuntimeControlFuzzMatchLimit(_ string) int {
 	// selectMotion now mirrors that side-effect via lastTTEOB, dropping the
 	// matchLimit=6 carveout to 0 for byte-exact parity across all 9 frames
 	// on the aebef841 corpus.
+	//
+	// Task #259 (CLOSED for regression_general_e5f453c6): runtime-control
+	// script `arnrmax:0+arnrstrength:0+arnrtype:1` followed by repeated
+	// `cq:4+maxintra:0+gfboost:0` transitions (#240 capture, hypothesised
+	// #235-adjacent). Bisection of a1b1f62c..HEAD (frameflags-oracle and
+	// frameflags binaries both rebuilt from internal/coracle build scripts)
+	// shows the seed already passes byte-exact for all 10 frames at the
+	// capture commit a1b1f62c and at every commit through current HEAD --
+	// no code change required. The frame-5 mismatch reported in the #240
+	// capture message (got_len=906 want_len=960) reflects a stale oracle
+	// binary built before #235's CBR baseline_gf_interval and #236's
+	// b->zbin_extra fixes had been pulled into the libvpx oracle build
+	// tree; rebuilding via internal/coracle/build_vpxenc_frameflags{,_oracle}.sh
+	// against libvpx v1.16.0 yields a driver that agrees with govpx. The
+	// #235 baseline_gf_interval port (e72887d9, c89423ac) and the #236
+	// intra RD zbin_extra carry remain the active fixes for this cohort;
+	// the e5f453c6 seed is pinned as a runtime-control transition sentinel.
 	return 0
 }
 
