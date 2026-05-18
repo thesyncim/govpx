@@ -594,6 +594,23 @@ type VP8Encoder struct {
 	activityProbeRDDiv   int
 	activityProbeRDValid bool
 
+	// activityProbeStaleActZbinAdj mirrors libvpx's stale-act_zbin_adj
+	// carry across recode attempts and frames. vp8cx_frame_init_quantizer
+	// (vp8_quantize.c:433) resets cpi->mb.zbin_mode_boost to 0 at the head
+	// of every vp8_encode_frame call, but cpi->mb.act_zbin_adj is left at
+	// the value adjust_act_zbin (encodeframe.c:1071-1090) computed for the
+	// PREVIOUS attempt's last encoded MB (mb_rows-1, mb_cols-1). The next
+	// vp8cx_mb_init_quantizer call folds that stale value into
+	// b->zbin_extra via the ZBIN_EXTRA_Y macro, and the activity probe's
+	// vp8_quantize_mby then uses that bias for every MB it quantizes.
+	// govpx mirrors that pointer lifetime exactly: zero on cold start
+	// (matching VP8_COMP's calloc-zero init at onyx_if.c:1774), updated at
+	// the end of every encoded frame to the activity-mask adjustment of
+	// the last MB row's last column (so the next attempt / frame reads the
+	// same stale value). The reset to zero on Reset() keeps the cold-start
+	// trajectory deterministic.
+	activityProbeStaleActZbinAdj int
+
 	// activityProbeAboveContextSeeded mirrors libvpx's `xd->above_context !=
 	// NULL` semantics at the entry of mb_activity_measure's optimize hook:
 	//

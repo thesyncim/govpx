@@ -69,6 +69,25 @@ func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	_ = vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, vp8enc.SegmentationConfig{}, &quants)
 	fastQuant := e.libvpxUseFastQuant()
+	// libvpx vp8/encoder/vp8_quantize.c vp8cx_mb_init_quantizer (ZBIN_EXTRA_Y
+	// macro at :276-279) folds (zbin_over_quant + zbin_mode_boost +
+	// act_zbin_adj) into b->zbin_extra before build_activity_map runs.
+	// vp8cx_frame_init_quantizer (vp8_quantize.c:433) is invoked at the head
+	// of every vp8_encode_frame call (encodeframe.c:719); the recode loop in
+	// onyx_if.c re-enters vp8_encode_frame after updating
+	// cpi->mb.zbin_over_quant (onyx_if.c:4115-4140), and frame_init_quantizer
+	// resets cpi->mb.zbin_mode_boost to 0 (vp8_quantize.c:435) but
+	// cpi->mb.act_zbin_adj is left at the value stored by the previous
+	// attempt's last-MB adjust_act_zbin call (encodeframe.c:1071-1090). The
+	// activity probe's vp8_quantize_mby therefore observes a non-zero
+	// zbin_extra whenever (a) zbin_over_quant>0 from the rate controller, or
+	// (b) the previous attempt's last MB produced a non-zero act_zbin_adj.
+	// Both shifts the per-block quantize result, which moves the Walsh-DC
+	// and per-block IDCT-add recon written into xd->dst.y_buffer. Without
+	// folding both terms into govpx's activity probe quantize, the recon
+	// drifts from libvpx on every non-first recode that touches either.
+	zbinOverQuant := e.rc.currentZbinOverQuant
+	actZbinAdj := e.activityProbeStaleActZbinAdj
 	// libvpx vp8/encoder/encodemb.c:436-438 vp8_optimize_mby short-circuits
 	// when xd->above_context == NULL. cm->above_context is allocated at
 	// frame-buffer setup but xd->above_context is assigned only inside
@@ -93,7 +112,7 @@ func (e *VP8Encoder) prepareTuningActivityMap(src vp8enc.SourceImage, rows int, 
 	for row := range rows {
 		for col := range cols {
 			index := row*cols + col
-			e.activityMap[index] = e.ssimActivityMeasure(src, row, col, qIndex, &quants[0], fastQuant, optimize, activityRDMult, activityRDDiv)
+			e.activityMap[index] = e.ssimActivityMeasure(src, row, col, qIndex, zbinOverQuant, actZbinAdj, &quants[0], fastQuant, optimize, activityRDMult, activityRDDiv)
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
@@ -154,7 +173,7 @@ func setupIntraReconPlane(full []byte, origin int, stride int, width int, height
 // computing the activity, the function quantize+IDCT-rebuilds the residue
 // back into e.analysis.Img.Y so the next MB's prediction reads from the
 // reconstructed neighbors libvpx would have written there.
-func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, fastQuant bool, optimize bool, rdMult int, rdDiv int) uint32 {
+func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, zbinOverQuant int, actZbinAdj int, quant *vp8enc.MacroblockQuant, fastQuant bool, optimize bool, rdMult int, rdDiv int) uint32 {
 	useDC16 := (mbCol != 0 || mbRow != 0) && (mbCol == 0 || mbRow == 0)
 	img := &e.analysis.Img
 	refs := vp8dec.BuildIntraPredictorRefs(img, mbRow, mbCol, &e.reconstructScratch.Refs)
@@ -179,19 +198,21 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 		sse = macroblockLumaSSE(src, img, mbRow, mbCol, vp8enc.MotionVector{})
 		var coeffs vp8enc.MacroblockCoefficients
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
-			coefProbs: &e.coefProbs,
-			src:       src,
-			mbRow:     mbRow,
-			mbCol:     mbCol,
-			pred:      img,
-			quant:     quant,
-			qIndex:    qIndex,
-			rdMult:    rdMult,
-			rdDiv:     rdDiv,
-			intra:     true,
-			fastQuant: fastQuant,
-			optimize:  optimize,
-			coeffs:    &coeffs,
+			coefProbs:     &e.coefProbs,
+			src:           src,
+			mbRow:         mbRow,
+			mbCol:         mbCol,
+			pred:          img,
+			quant:         quant,
+			qIndex:        qIndex,
+			zbinOverQuant: zbinOverQuant,
+			actZbinAdj:    actZbinAdj,
+			rdMult:        rdMult,
+			rdDiv:         rdDiv,
+			intra:         true,
+			fastQuant:     fastQuant,
+			optimize:      optimize,
+			coeffs:        &coeffs,
 		})
 		var tokens vp8dec.MacroblockTokens
 		convertMacroblockCoefficients(&coeffs, false, &tokens)
@@ -225,7 +246,7 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := int(yAbove[a] + yLeft[l])
-			eob := quantizeEncodedBlockWithRDZbinAndActivity(&e.coefProbs, qIndex, 3, ctx, 0, 0, 0, 0, 0, rdMult, rdDiv, true, fastQuant, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+			eob := quantizeEncodedBlockWithRDZbinAndActivity(&e.coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, true, fastQuant, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
 			hasCoeffs := uint8(0)
 			if eob > 0 {
@@ -269,6 +290,48 @@ func (e *VP8Encoder) updateActivityProbeRDState(qIndex int, zbinOverQuant int, r
 	e.activityProbeRDMult = rdMult
 	e.activityProbeRDDiv = rdDiv
 	e.activityProbeRDValid = true
+	e.captureActivityProbeStaleActZbinAdj(rows, cols)
+}
+
+// captureActivityProbeAttemptCarry mirrors libvpx's per-attempt carry of
+// cpi->mb.rdmult / cpi->mb.rddiv / cpi->mb.act_zbin_adj across recode
+// iterations. After every encode_mb_row pass, vp8_activity_masking
+// (encodeframe.c:307) leaves x->rdmult at the activity-masked value of the
+// last MB. The next vp8_encode_frame call's vp8_initialize_rd_consts updates
+// cpi->RDMULT for the new Q but does NOT reset cpi->mb.rdmult; the activity
+// probe trellis (vp8_optimize_mby) reads mb->rdmult directly, so it sees
+// the stale activity-masked value from the previous attempt's last MB.
+// govpx must mirror that exact carry — not just at frame end (which is the
+// only place updateActivityProbeRDState fires today), but at every
+// completed attempt — so the next prepareTuningActivityMap call's trellis
+// scoring matches libvpx's.
+func (e *VP8Encoder) captureActivityProbeAttemptCarry(qIndex int, zbinOverQuant int, rows int, cols int) {
+	e.updateActivityProbeRDState(qIndex, zbinOverQuant, rows, cols)
+}
+
+// captureActivityProbeStaleActZbinAdj caches the libvpx-faithful value of
+// cpi->mb.act_zbin_adj left over from the last MB of the previous
+// vp8_encode_frame call. libvpx invokes adjust_act_zbin
+// (encodeframe.c:1071-1090) once per MB during encode_mb_row; after the
+// last MB (mb_rows-1, mb_cols-1) finishes, x->act_zbin_adj is the value
+// derived from that MB's activity. vp8cx_mb_init_quantizer
+// (vp8_quantize.c:291) then folds it into b->zbin_extra at the head of the
+// NEXT vp8_encode_frame call, before build_activity_map runs. The recode
+// loop and every later frame inherit the same bias.
+//
+// govpx must mirror this carry so the activity probe's quantize sees the
+// same zbin_extra bias libvpx does — without it, the probe's recon drifts
+// from libvpx on every non-first attempt that touches a non-flat last MB.
+func (e *VP8Encoder) captureActivityProbeStaleActZbinAdj(rows int, cols int) {
+	if !e.activityMapValid || rows <= 0 || cols <= 0 {
+		e.activityProbeStaleActZbinAdj = 0
+		return
+	}
+	if adj, ok := e.tunedZbinAdjustment(rows-1, cols-1); ok {
+		e.activityProbeStaleActZbinAdj = adj
+		return
+	}
+	e.activityProbeStaleActZbinAdj = 0
 }
 
 // tunedRDMultiplier mirrors libvpx's activity masking multiplier: textured

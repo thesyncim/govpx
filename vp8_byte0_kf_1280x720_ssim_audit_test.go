@@ -155,14 +155,20 @@ func TestVP8Byte0KF1280x720SSIMAudit(t *testing.T) {
 	}
 
 	// Pin the historical metrics so future regressions don't silently
-	// re-interpret what this audit captured.
-	wantFrame0GovpxLen := 125345
+	// re-interpret what this audit captured. Task #213 closed the activity
+	// probe recon divergence by porting libvpx's per-attempt
+	// cpi->mb.act_zbin_adj and cpi->mb.rdmult carry into govpx's
+	// prepareTuningActivityMap: with both stale-state pointers now mirrored
+	// exactly, the activity_map and downstream RD picks align byte-for-byte
+	// with libvpx on this seed (govpx frame 0 = 125346 bytes = libvpx;
+	// govpx frame 1 = 4327 bytes = libvpx; both SHA256 hashes match).
+	wantFrame0GovpxLen := 125346
 	wantFrame0LibvpxLen := 125346
-	wantFrame0GovpxFirstPart := 20570
+	wantFrame0GovpxFirstPart := 20575
 	wantFrame0LibvpxFirstPart := 20575
-	wantFrame1GovpxLen := 4331
+	wantFrame1GovpxLen := 4327
 	wantFrame1LibvpxLen := 4327
-	wantFrame1GovpxFirstPart := 1146
+	wantFrame1GovpxFirstPart := 1151
 	wantFrame1LibvpxFirstPart := 1151
 
 	if got := len(govpxFrames[0]); got != wantFrame0GovpxLen {

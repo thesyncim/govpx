@@ -40,6 +40,15 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
 		}
+		// libvpx leaves cpi->mb.act_zbin_adj and cpi->mb.rdmult at the
+		// last MB's vp8_activity_masking output across vp8_encode_frame
+		// calls; the next attempt's vp8cx_frame_init_quantizer reads the
+		// stale act_zbin_adj through ZBIN_EXTRA_Y when seeding
+		// b->zbin_extra for the activity probe, and vp8_optimize_mby
+		// reads mb->rdmult directly. Mirror that carry per-attempt (not
+		// per-frame) so the recode loop's next prepareTuningActivityMap
+		// call observes the same bias libvpx applies.
+		e.captureActivityProbeAttemptCarry(e.rc.currentQuantizer, e.rc.currentZbinOverQuant, rows, cols)
 		// libvpx VP8 MT helpers' mb->uv_mode_count / mb->ymode_count are
 		// NEVER zeroed between recode iterations
 		// (vp8/encoder/ethreading.c:478-486 vp8cx_init_mbrthread_data only
@@ -296,6 +305,12 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
+		// libvpx leaves cpi->mb.act_zbin_adj and cpi->mb.rdmult at the
+		// last MB's vp8_activity_masking output across vp8_encode_frame
+		// calls. Mirror that carry per-attempt so the recode loop's next
+		// prepareTuningActivityMap call observes the same bias libvpx
+		// applies.
+		e.captureActivityProbeAttemptCarry(e.rc.currentQuantizer, e.rc.currentZbinOverQuant, rows, cols)
 		// libvpx VP8 MT helpers' mb->uv_mode_count / mb->ymode_count are
 		// NEVER zeroed between recode iterations (helpers' state survives
 		// every vp8_encode_frame call). govpx mirrors the sticky semantics
