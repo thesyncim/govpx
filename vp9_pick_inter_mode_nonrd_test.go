@@ -165,12 +165,12 @@ func TestVP9NonrdAllowEncodeBreakoutSceneAndMotionGates(t *testing.T) {
 func TestVP9NonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T) {
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
-		true, true); !got {
+		true, true, false); !got {
 		t.Fatalf("scene-change precheck = false, want true")
 	}
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
-		true, false); got {
+		true, false, false); got {
 		t.Fatalf("non-scene precheck = true, want false")
 	}
 }
@@ -178,12 +178,81 @@ func TestVP9NonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T
 func TestVP9NonrdIntraFallbackPrecheckVeryHighSadBypassesLowTempSkip(t *testing.T) {
 	if got := vp9NonrdIntraFallbackPrecheck(30, 20, true,
 		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
-		false, false); got {
+		false, false, false); got {
 		t.Fatalf("low-temp precheck = true, want false")
 	}
 	if got := vp9NonrdIntraFallbackPrecheck(30, 20, true,
 		common.Block64x64, vp9ContentStateVeryHighSad,
-		false, false); !got {
+		false, false, false); !got {
 		t.Fatalf("very-high-SAD precheck = false, want true")
+	}
+}
+
+func TestVP9NonrdIntraFallbackPrecheckScreenFlatBypassesInterGates(t *testing.T) {
+	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
+		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		true, false, true); !got {
+		t.Fatalf("screen-flat precheck = false, want true")
+	}
+	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
+		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		true, false, false); got {
+		t.Fatalf("non-screen-flat precheck = true, want false")
+	}
+}
+
+func TestVP9SourceVariancePerPixel(t *testing.T) {
+	const side = 16
+	buf := make([]byte, side*side)
+	for i := range buf {
+		buf[i] = 128
+	}
+	if got := vp9SourceVariancePerPixel(buf, side, 0, 0, side, side,
+		common.Block16x16); got != 0 {
+		t.Fatalf("flat source variance = %d, want 0", got)
+	}
+
+	for i := range buf {
+		if i%2 == 0 {
+			buf[i] = 0
+		} else {
+			buf[i] = 255
+		}
+	}
+	if got := vp9SourceVariancePerPixel(buf, side, 0, 0, side, side,
+		common.Block16x16); got != 16256 {
+		t.Fatalf("checker source variance = %d, want 16256", got)
+	}
+}
+
+func TestVP9NonrdScreenZeroLastBias(t *testing.T) {
+	zeroMV := vp9dec.MV{}
+	if !vp9NonrdScreenZeroLastBias(true, true, false,
+		vp9dec.LastFrame, zeroMV, 0, 1) {
+		t.Fatalf("screen zero-LAST bias = false, want true")
+	}
+	cases := []struct {
+		name                    string
+		screen                  bool
+		sceneChangeDetected     bool
+		highNumBlocksWithMotion bool
+		refFrame                int8
+		mv                      vp9dec.MV
+		sourceVariance          uint
+		sseY                    uint64
+	}{
+		{name: "not screen", sceneChangeDetected: true, refFrame: vp9dec.LastFrame, sseY: 1},
+		{name: "no scene or high motion", screen: true, refFrame: vp9dec.LastFrame, sseY: 1},
+		{name: "non last", screen: true, sceneChangeDetected: true, refFrame: vp9dec.GoldenFrame, sseY: 1},
+		{name: "nonzero mv", screen: true, sceneChangeDetected: true, refFrame: vp9dec.LastFrame, mv: vp9dec.MV{Row: 1}, sseY: 1},
+		{name: "nonflat source", screen: true, sceneChangeDetected: true, refFrame: vp9dec.LastFrame, sourceVariance: 1, sseY: 1},
+		{name: "zero sse", screen: true, sceneChangeDetected: true, refFrame: vp9dec.LastFrame},
+	}
+	for _, tc := range cases {
+		if got := vp9NonrdScreenZeroLastBias(tc.screen, tc.sceneChangeDetected,
+			tc.highNumBlocksWithMotion, tc.refFrame, tc.mv,
+			tc.sourceVariance, tc.sseY); got {
+			t.Fatalf("%s: screen zero-LAST bias = true, want false", tc.name)
+		}
 	}
 }

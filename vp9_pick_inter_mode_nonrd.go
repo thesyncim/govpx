@@ -718,6 +718,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	useGoldenNonzeromv := refSlotValid[vp9dec.GoldenFrame] && !forceSkipLowTempVar
 	sceneChangeDetected := e.rc.highSourceSAD
 	highNumBlocksWithMotion := e.rc.highNumBlocksWithMotion
+	sourceVariance := ^uint(0)
+	if e.sf.ShortCircuitFlatBlocks != 0 || e.sf.LimitNewmvEarlyExit != 0 {
+		if v, ok := e.vp9NonrdSourceVariance(inter, miRow, miCol, bsize); ok {
+			sourceVariance = v
+		}
+	}
 
 	// libvpx: vp9_pickmode.c:2204-2228 — sf->reference_masking gate.
 	// libvpx's pred_mv_sad[ref] is the best SAD across the per-ref MV
@@ -1726,6 +1732,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
 				score := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
 					rate, finalDist)
+				if vp9NonrdScreenZeroLastBias(
+					e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+					sceneChangeDetected, highNumBlocksWithMotion, refFrame, mv,
+					sourceVariance, sseY) {
+					score <<= 2
+				}
 
 				// libvpx vp9_pickmode.c:2414-2422 — vp9_NEWMV_diff_bias.
 				// Gated on (rc_mode == VPX_CBR && speed >= 5 && content
@@ -1805,6 +1817,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				}
 				if distortion < bestSseSoFar {
 					bestSseSoFar = distortion
+				}
+				if vp9NonrdScreenZeroLastBias(
+					e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+					sceneChangeDetected, highNumBlocksWithMotion, refFrame, mv,
+					sourceVariance, distortion) {
+					cand.score <<= 2
 				}
 			}
 
@@ -1949,7 +1967,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			qindex < qidxSkipThresh
 		if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
 			miRows, miCols, miRow, miCol, bsize, qindex,
-			above, left, bestInterScore, forceSkipLowTempVar, xSkip,
+			above, left, sourceVariance, bestInterScore, forceSkipLowTempVar, xSkip,
 			pickPred, pickPredStride, pickPredOriginMiRow,
 			pickPredOriginMiCol, skipEncode); intraFires {
 			// libvpx: vp9_pickmode.c:2637-2647 — if intra wins, replace
@@ -2023,11 +2041,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	//     }
 	//   }
 	//
-	// govpx's source_variance is approximated by zero for now (the
-	// limit_newmv_early_exit speed-feature branch reads it but is gated by
-	// sf.LimitNewmvEarlyExit which is 0 for deferred-seed cpu_used values
-	// — verified in vp9_speed_features.go). When the source_variance
-	// pipeline lands the value is passed in verbatim.
 	if e.sf.AdaptiveRdThresh != 0 && bestSet && bsize >= common.Block8x8 {
 		bestRefFrame := bp.bestRefFrame
 		bestMode := bp.bestMode
@@ -2040,7 +2053,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					common.DcPred, common.VPred, common.HPred, common.TmPred,
 				}
 				for _, im := range intraModeList {
-					vp9UpdateThreshFreqFact(&e.rdThresh, 0, bsize,
+					vp9UpdateThreshFreqFact(&e.rdThresh, sourceVariance, bsize,
 						vp9dec.IntraFrame, bestModeIdx, im,
 						e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
 				}
@@ -2050,7 +2063,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						continue
 					}
 					for tm := common.NearestMv; tm <= common.NewMv; tm++ {
-						vp9UpdateThreshFreqFact(&e.rdThresh, 0, bsize,
+						vp9UpdateThreshFreqFact(&e.rdThresh, sourceVariance, bsize,
 							rf, bestModeIdx, tm,
 							e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
 					}
@@ -2068,11 +2081,54 @@ func vp9NonrdAllowEncodeBreakout(lossless, sceneChangeDetected,
 	return !lossless && !sceneChangeDetected && !highNumBlocksWithMotion
 }
 
+func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) (uint, bool) {
+	if inter == nil || inter.img == nil ||
+		bsize < common.Block4x4 || bsize >= common.BlockSizes {
+		return 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	if len(src) == 0 || srcStride <= 0 {
+		return 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	srcX := miCol * common.MiSize
+	srcY := miRow * common.MiSize
+	if srcX < 0 || srcY < 0 || srcX+blockW > srcW || srcY+blockH > srcH {
+		return 0, false
+	}
+	return vp9SourceVariancePerPixel(src, srcStride, srcX, srcY,
+		blockW, blockH, bsize), true
+}
+
+func vp9SourceVariancePerPixel(src []byte, srcStride, srcX, srcY, w, h int,
+	bsize common.BlockSize,
+) uint {
+	variance := vp9BlockSourceVariance128(src, srcStride, srcX, srcY, w, h)
+	shift := uint(common.NumPelsLog2Lookup[bsize])
+	if shift == 0 {
+		return uint(variance)
+	}
+	return uint((variance + (uint64(1) << (shift - 1))) >> shift)
+}
+
+func vp9NonrdScreenZeroLastBias(screen, sceneChangeDetected,
+	highNumBlocksWithMotion bool, refFrame int8, mv vp9dec.MV,
+	sourceVariance uint, sseY uint64,
+) bool {
+	return screen && (sceneChangeDetected || highNumBlocksWithMotion) &&
+		refFrame == vp9dec.LastFrame && mv == (vp9dec.MV{}) &&
+		sourceVariance == 0 && sseY > 0
+}
+
 func vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
 	forceSkipLowTempVar bool, bsize common.BlockSize,
-	contentState vp9ContentStateSB, xSkip, sceneChangeDetected bool,
+	contentState vp9ContentStateSB, xSkip, sceneChangeDetected,
+	screenFlat bool,
 ) bool {
-	if sceneChangeDetected {
+	if screenFlat || sceneChangeDetected {
 		return true
 	}
 	if xSkip {
@@ -2118,7 +2174,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, qindex int,
 	above, left *vp9dec.NeighborMi,
-	bestInterScore uint64, forceSkipLowTempVar bool, xSkip bool,
+	sourceVariance uint, bestInterScore uint64, forceSkipLowTempVar bool, xSkip bool,
 	pickPred []byte, pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol int,
 	skipEncode bool,
 ) (vp9InterIntraDecision, bool) {
@@ -2156,13 +2212,15 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		e.noiseEstimate.enabled, vp9NoiseEstimateExtractLevel(&e.noiseEstimate))
 	rdmult := e.activeRDMult(qindex)
 	interModeThresh := vp9RDCost(rdmult, vp9RDDivBits, intraCostPenalty, 0)
+	screenFlat := e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
+		sourceVariance == 0
 	if !vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh,
-		forceSkipLowTempVar, bsize, contentState, xSkip, e.rc.highSourceSAD) {
+		forceSkipLowTempVar, bsize, contentState, xSkip, e.rc.highSourceSAD,
+		screenFlat) {
 		// libvpx: the gate at vp9_pickmode.c:2527-2534 also fires when
-		// best_rdc.rdcost == INT64_MAX (no inter winner) OR for screen
-		// content with source_variance == 0. The caller passes
-		// bestInterScore < INT_MAX since we only invoke this helper when
-		// an inter winner exists; source_variance remains a separate gap.
+		// best_rdc.rdcost == INT64_MAX (no inter winner). The caller
+		// invokes this helper only after an inter winner exists, so that
+		// branch remains outside this helper.
 		return vp9InterIntraDecision{}, false
 	}
 
