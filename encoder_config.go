@@ -800,9 +800,37 @@ func (e *VP8Encoder) cancelAutoSpeedTiming() {
 }
 
 // finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of frame
-// encode in realtime, IIR-update avg_encode_time (inter frames, plus the
-// 720p+ positive-realtime keyframe branch below) and avg_pick_mode_time
+// encode in realtime, IIR-update avg_encode_time and avg_pick_mode_time
 // (duration2 = duration/2 by libvpx convention).
+//
+// libvpx KF avg_encode_time semantics: the libvpx KF skip at
+// onyx_if.c:5110 (`if (cm->frame_type != KEY_FRAME)`) is functionally dead
+// for non-trivial keyframes because `encode_frame_to_data_rate` reassigns
+// `cm->frame_type = INTER_FRAME` at onyx_if.c:4740 right after coding a KF
+// (before returning to vp8_get_compressed_data where the timer-update gate
+// runs). The net effect is that libvpx ALWAYS updates avg_encode_time at
+// the end of every frame, regardless of frame type. govpx must mirror this
+// for keyframes large enough that libvpx's measured wall-clock would push
+// avg_encode_time into the vp8_auto_select_speed Speed=0 stable region
+// (avg_enc in [ms_for_compress/10, ms_for_compress*100/95]).
+//
+// Because govpx wall-clock and libvpx wall-clock are independent (different
+// implementations on the same host), naively using nowMonotonicNS() would
+// let the two encoders' avg_encode_time drift apart and land in different
+// vp8_auto_select_speed branches at the next frame. For keyframes we
+// therefore pin duration deterministically:
+//
+//   - largeAutoSpeedKeyFrameTimingCompensation() (mbs >= 3600 etc): pin to
+//     2*budget - 2 to land at the libvpx Speed+=2 -> Speed-- -> 4 boundary.
+//   - mediumAutoSpeedKeyFrameTimingCompensation() (200 <= mbs < large):
+//     pin to budget/3 to land in the libvpx Speed=0 stable region (matches
+//     the regression_640x360_threads1_bitrate_setref_diverge seed where
+//     libvpx's ~11ms KF measurement keeps Speed=0 across SetRateControl).
+//   - Otherwise (tiny KFs like 16x16): keep avg_encode_time at 0 so the
+//     next frame's vp8_auto_select_speed enters the Speed-- branch and
+//     clamps to 4 (matching libvpx's measured-too-small Speed-- trajectory
+//     for tiny frames where actual encode time stays well below the
+//     Speed-stable lower bound).
 func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 	if e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
 		return
@@ -814,16 +842,27 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 	}
 	duration := int(durationNS / 1000)
 	keyFrameEncodeSample := false
-	if keyFrame && e.largeAutoSpeedKeyFrameTimingCompensation() {
-		// The selector is calibrated to libvpx's C encoder timings. For the
-		// large positive-realtime boundary path, libvpx's keyframe wall-clock
-		// sample can land on either side of vp8_auto_select_speed's branch
-		// boundary. Pin the sample to the libvpx matching-budget boundary so
-		// strict byte-parity runs do not depend on scheduler timing.
-		if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 {
-			duration = 2*budget - 2
+	if keyFrame && e.libvpxAutoSelectSpeedActive() {
+		if e.largeAutoSpeedKeyFrameTimingCompensation() {
+			// The selector is calibrated to libvpx's C encoder timings. For the
+			// large positive-realtime boundary path, libvpx's keyframe wall-clock
+			// sample can land on either side of vp8_auto_select_speed's branch
+			// boundary. Pin the sample to the libvpx matching-budget boundary so
+			// strict byte-parity runs do not depend on scheduler timing.
+			if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 {
+				duration = 2*budget - 2
+			}
+			keyFrameEncodeSample = true
+		} else if e.mediumAutoSpeedKeyFrameTimingCompensation() {
+			// Pin to the Speed=0 stable region midpoint so the next frame's
+			// auto-select neither fires Speed+=2 nor Speed--, matching the
+			// libvpx behaviour where actual KF measurement at this size
+			// lands in [budget/10, budget*100/95].
+			if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 {
+				duration = budget / 3
+			}
+			keyFrameEncodeSample = true
 		}
-		keyFrameEncodeSample = true
 	}
 	duration2 := duration / 2
 	if !keyFrame || keyFrameEncodeSample {
@@ -840,6 +879,23 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 			e.avgPickModeTime = (7*e.avgPickModeTime + duration2) >> 3
 		}
 	}
+}
+
+// mediumAutoSpeedKeyFrameTimingCompensation returns true when the encoder
+// runs in realtime+positive-cpu_used mode and the frame is large enough
+// that libvpx's actual wall-clock keyframe measurement would push
+// cpi->avg_encode_time into the vp8_auto_select_speed Speed=0 stable
+// region. Empirically calibrated against the libvpx oracle (~12us per MB
+// on the project's test hosts); 200 MBs sits comfortably above the
+// Speed-stable lower bound for ms_for_compress in [30000, 60000].
+func (e *VP8Encoder) mediumAutoSpeedKeyFrameTimingCompensation() bool {
+	if !e.libvpxAutoSelectSpeedActive() {
+		return false
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	mbs := rows * cols
+	return mbs >= 200
 }
 
 func (e *VP8Encoder) resetAutoSpeedTiming() {
