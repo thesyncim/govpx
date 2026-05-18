@@ -11765,9 +11765,19 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	// libvpx: vp9_speed_features.c:586 sf->use_altref_onepass = 0.
 	refFrameSet := refFrames
 	if len(refFrameSet) == len(refFramesAll) {
-		// Defer to the sibling-agent helper when we haven't already
+		// Defer to the speed-feature helper when we haven't already
 		// pruned to LAST-only above (it honors use_altref_onepass).
 		refFrameSet = e.vp9InterReferenceFramesEnabled()
+		hasEnabledRef := false
+		for _, refFrame := range refFrameSet {
+			if _, ok := e.vp9InterReferenceSlot(inter, refFrame); ok {
+				hasEnabledRef = true
+				break
+			}
+		}
+		if !hasEnabledRef {
+			refFrameSet = refFramesAll[:]
+		}
 	}
 	sourceAltRefUnfiltered := inter.isSrcFrameAltRef && e.opts.ARNRMaxFrames == 0
 	if sourceAltRefUnfiltered {

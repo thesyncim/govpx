@@ -189,22 +189,26 @@ func (e *VP9Encoder) vp9InterUsesNonrdPickmode() bool {
 }
 
 // vp9InterReferenceFramesEnabled reports the ref-frame fan the inter picker
-// should walk. libvpx's realtime nonrd_pickmode skips ALTREF on most blocks
-// when sf->use_altref_onepass == 0, but it still allows it through the
-// per-frame ref mask (set via encode flags) so the encoder can honour an
-// explicit "altref-only" request. govpx mirrors that by always returning the
-// full {LAST, GOLDEN, ALTREF} fan and letting vp9InterReferenceSlot's refMask
-// gate prune unallowed refs.
+// should walk. libvpx's realtime nonrd_pickmode skips ALTREF when
+// sf->use_altref_onepass == 0; the caller falls back to the full set if the
+// per-frame reference mask explicitly leaves only ALTREF available.
 //
-// libvpx: vp9_speed_features.c:586 sf->use_altref_onepass = 0 is consumed by
-// the partition driver, not by the inter mode picker itself.
+// libvpx: vp9_speed_features.c:586 sf->use_altref_onepass = 0.
 var vp9InterReferenceFramesAll = [...]int8{
 	vp9dec.LastFrame,
 	vp9dec.GoldenFrame,
 	vp9dec.AltrefFrame,
 }
 
+var vp9InterReferenceFramesNoAltref = [...]int8{
+	vp9dec.LastFrame,
+	vp9dec.GoldenFrame,
+}
+
 func (e *VP9Encoder) vp9InterReferenceFramesEnabled() []int8 {
+	if e != nil && e.sf.UseNonrdPickMode != 0 && e.sf.UseAltrefOnepass == 0 {
+		return vp9InterReferenceFramesNoAltref[:]
+	}
 	return vp9InterReferenceFramesAll[:]
 }
 
