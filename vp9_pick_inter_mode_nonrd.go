@@ -716,6 +716,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		maxUsableRef = vp9dec.LastFrame
 	}
 	useGoldenNonzeromv := refSlotValid[vp9dec.GoldenFrame] && !forceSkipLowTempVar
+	sceneChangeDetected := e.rc.highSourceSAD
+	highNumBlocksWithMotion := e.rc.highNumBlocksWithMotion
 
 	// libvpx: vp9_pickmode.c:2204-2228 — sf->reference_masking gate.
 	// libvpx's pred_mv_sad[ref] is the best SAD across the per-ref MV
@@ -1396,9 +1398,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		encodeBreakout := e.opts.StaticThreshold
 
 		// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test fires when
-		// cpi->allow_encode_breakout is set and !xd->lossless. govpx
-		// mirrors the gate.
-		allowEncodeBreakout := !inter.lossless
+		// cpi->allow_encode_breakout is set, !xd->lossless, and the current
+		// frame is not a scene/high-motion change.
+		allowEncodeBreakout := vp9NonrdAllowEncodeBreakout(inter.lossless,
+			sceneChangeDetected, highNumBlocksWithMotion)
 
 		// libvpx vp9_pickmode.c:2369-2374 — skip rate is the skip-bit cost
 		// from the per-frame skip probability; the unsigned skip pre-cost
@@ -1896,13 +1899,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//     break;
 		//   }
 		// govpx's bestEarlyTerm is always false until
-		// model_rd_for_sb_y_large lands (see declaration note); the gate
-		// preserves libvpx control-flow shape but cannot fire today.
-		// scene_change_detected is also tied to the noise_estimate /
-		// avg_source_sad substrate which govpx has not yet ported, so it's
-		// folded to false here (libvpx-conservative: assume no scene
-		// change so the gate stays equally permissive).
-		if bestEarlyTerm && idx > 0 &&
+		// model_rd_for_sb_y_large lands (see declaration note); the scene
+		// gate is still wired so the control flow stays aligned when that
+		// substrate starts producing early-term candidates.
+		if bestEarlyTerm && idx > 0 && !sceneChangeDetected &&
 			(!forceTestGfZeromv ||
 				modeChecked[common.ZeroMv][vp9dec.GoldenFrame]) {
 			xSkip = true
@@ -2062,6 +2062,32 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	return best, true
 }
 
+func vp9NonrdAllowEncodeBreakout(lossless, sceneChangeDetected,
+	highNumBlocksWithMotion bool,
+) bool {
+	return !lossless && !sceneChangeDetected && !highNumBlocksWithMotion
+}
+
+func vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
+	forceSkipLowTempVar bool, bsize common.BlockSize,
+	contentState vp9ContentStateSB, xSkip, sceneChangeDetected bool,
+) bool {
+	if sceneChangeDetected {
+		return true
+	}
+	if xSkip {
+		return false
+	}
+	if bestInterScore <= interModeThresh {
+		return false
+	}
+	if forceSkipLowTempVar && bsize >= common.Block32x32 &&
+		contentState != vp9ContentStateVeryHighSad {
+		return false
+	}
+	return true
+}
+
 // vp9NonrdEstimateIntraFallback ports the intra-fallback section inside
 // libvpx's vp9_pick_inter_mode (vp9_pickmode.c:2525-2648). It walks
 // intra_mode_list (DC_PRED, V_PRED, H_PRED, TM_PRED) and computes a
@@ -2114,9 +2140,6 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	if bsize > maxIntraBsize {
 		return vp9InterIntraDecision{}, false
 	}
-	if xSkip {
-		return vp9InterIntraDecision{}, false
-	}
 	contentState := vp9ContentStateInvalid
 	if state, ok := e.vp9SourceSADContentState(inter.img, miRows, miCols,
 		miRow, miCol); ok {
@@ -2133,16 +2156,13 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		e.noiseEstimate.enabled, vp9NoiseEstimateExtractLevel(&e.noiseEstimate))
 	rdmult := e.activeRDMult(qindex)
 	interModeThresh := vp9RDCost(rdmult, vp9RDDivBits, intraCostPenalty, 0)
-	if bestInterScore <= interModeThresh {
+	if !vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh,
+		forceSkipLowTempVar, bsize, contentState, xSkip, e.rc.highSourceSAD) {
 		// libvpx: the gate at vp9_pickmode.c:2527-2534 also fires when
 		// best_rdc.rdcost == INT64_MAX (no inter winner) OR for screen
-		// content / scene-change / very-high-sad SBs — those branches
-		// are conservatively skipped in govpx's simplified gate. The
-		// caller passes bestInterScore < INT_MAX since we only invoke
-		// this helper when an inter winner exists.
-		return vp9InterIntraDecision{}, false
-	}
-	if forceSkipLowTempVar && bsize >= common.Block32x32 {
+		// content with source_variance == 0. The caller passes
+		// bestInterScore < INT_MAX since we only invoke this helper when
+		// an inter winner exists; source_variance remains a separate gap.
 		return vp9InterIntraDecision{}, false
 	}
 

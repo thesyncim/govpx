@@ -138,3 +138,52 @@ func TestVP9NewmvDiffBiasLowvarInput(t *testing.T) {
 		}
 	}
 }
+
+func TestVP9NonrdAllowEncodeBreakoutSceneAndMotionGates(t *testing.T) {
+	cases := []struct {
+		name                    string
+		lossless                bool
+		sceneChangeDetected     bool
+		highNumBlocksWithMotion bool
+		want                    bool
+	}{
+		{name: "plain", want: true},
+		{name: "lossless", lossless: true},
+		{name: "scene change", sceneChangeDetected: true},
+		{name: "high motion", highNumBlocksWithMotion: true},
+	}
+	for _, tc := range cases {
+		got := vp9NonrdAllowEncodeBreakout(tc.lossless,
+			tc.sceneChangeDetected, tc.highNumBlocksWithMotion)
+		if got != tc.want {
+			t.Fatalf("%s: allowEncodeBreakout = %v, want %v",
+				tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestVP9NonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T) {
+	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
+		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		true, true); !got {
+		t.Fatalf("scene-change precheck = false, want true")
+	}
+	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
+		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		true, false); got {
+		t.Fatalf("non-scene precheck = true, want false")
+	}
+}
+
+func TestVP9NonrdIntraFallbackPrecheckVeryHighSadBypassesLowTempSkip(t *testing.T) {
+	if got := vp9NonrdIntraFallbackPrecheck(30, 20, true,
+		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		false, false); got {
+		t.Fatalf("low-temp precheck = true, want false")
+	}
+	if got := vp9NonrdIntraFallbackPrecheck(30, 20, true,
+		common.Block64x64, vp9ContentStateVeryHighSad,
+		false, false); !got {
+		t.Fatalf("very-high-SAD precheck = false, want true")
+	}
+}
