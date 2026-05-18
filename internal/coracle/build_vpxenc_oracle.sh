@@ -25,9 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-16-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v7-key-boundary-niavqi-forcemaxqp-rcf
-src_dir=$src_dir
-vpxenc_oracle_bin=$vpxenc_oracle_bin"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-18-task209-changeconfig-tail"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -1592,6 +1590,169 @@ void govpx_oracle_emit_lf_trial(struct VP8_COMP *cpi, const char *phase,
     fflush(out);
     GOVPX_TRACE_END();
 }
+
+/* govpx oracle: task #209 vp8_change_config tail diagnostic. Dumps cpi-level
+ * state at the END of every vp8_change_config call. Lets us correlate runtime
+ * control transitions (set_noise_sensitivity, set_cpu_used, ...) with the
+ * resulting cpi state divergence by diffing the JSON Lines stream against
+ * a govpx-side counterpart emitted from applyVP8ChangeConfigRuntimeSideEffects
+ * (under build tag govpx_oracle_trace). */
+void govpx_oracle_emit_change_config_tail(struct VP8_COMP *cpi) {
+    FILE *out;
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL ||
+        cpi == NULL) {
+        return;
+    }
+    GOVPX_TRACE_BEGIN();
+    out = govpx_oracle_state.out;
+    fprintf(out,
+            "{\"type\":\"change_config_tail\","
+            "\"frame_index\":%llu,"
+            "\"target_bandwidth\":%lld,"
+            "\"oxcf_target_bandwidth\":%lld,"
+            "\"per_frame_bandwidth\":%d,"
+            "\"av_per_frame_bandwidth\":%d,"
+            "\"min_frame_bandwidth\":%d,"
+            "\"framerate\":%f,"
+            "\"output_framerate\":%f,"
+            "\"oxcf_optimal_buffer_level\":%lld,"
+            "\"oxcf_maximum_buffer_size\":%lld,"
+            "\"oxcf_starting_buffer_level\":%lld,"
+            "\"buffer_level\":%lld,"
+            "\"bits_off_target\":%lld,"
+            "\"active_worst_quality\":%d,"
+            "\"active_best_quality\":%d,"
+            "\"worst_quality\":%d,"
+            "\"best_quality\":%d,"
+            "\"buffered_mode\":%d,"
+            "\"drop_frames_allowed\":%d,"
+            "\"cq_target_quality\":%d,"
+            "\"force_next_frame_intra\":%d,"
+            "\"oxcf_worst_allowed_q\":%d,"
+            "\"oxcf_best_allowed_q\":%d,"
+            "\"oxcf_cq_level\":%d,"
+            "\"oxcf_fixed_q\":%d,"
+            "\"oxcf_alt_q\":%d,"
+            "\"oxcf_key_q\":%d,"
+            "\"oxcf_gold_q\":%d,"
+            "\"oxcf_end_usage\":%d,"
+            "\"oxcf_mode\":%d,"
+            "\"oxcf_cpu_used\":%d,"
+            "\"oxcf_noise_sensitivity\":%d,"
+            "\"oxcf_allow_df\":%d,"
+            "\"oxcf_drop_frames_water_mark\":%d,"
+            "\"oxcf_width\":%d,"
+            "\"oxcf_height\":%d,"
+            "\"baseline_gf_interval\":%d,"
+            "\"max_gf_interval\":%d,"
+            "\"static_scene_max_gf_interval\":%d,"
+            "\"key_frame_frequency\":%d,"
+            "\"common_width\":%d,"
+            "\"common_height\":%d,"
+            "\"common_sharpness_level\":%d,"
+            "\"common_version\":%d,"
+            "\"common_multi_token_partition\":%d,"
+            "\"cpi_speed\":%d,"
+            "\"cpi_pass\":%d,"
+            "\"cpi_compressor_speed\":%d,"
+            "\"auto_worst_q\":%d,"
+            "\"ext_refresh_frame_flags_pending\":%d,"
+            "\"xd_mode_ref_lf_delta_enabled\":%d,"
+            "\"xd_mode_ref_lf_delta_update\":%d,"
+            "\"xd_ref_lf_deltas\":[%d,%d,%d,%d],"
+            "\"xd_mode_lf_deltas\":[%d,%d,%d,%d],"
+            "\"xd_last_ref_lf_deltas\":[%d,%d,%d,%d],"
+            "\"xd_last_mode_lf_deltas\":[%d,%d,%d,%d],"
+            "\"xd_update_mb_segmentation_map\":%d,"
+            "\"xd_update_mb_segmentation_data\":%d,"
+            "\"xd_segmentation_enabled\":%d,"
+            "\"alt_ref_source_null\":%d,"
+            "\"is_src_frame_alt_ref\":%d,"
+            "\"initial_width\":%d,"
+            "\"initial_height\":%d,"
+            "\"oxcf_allow_lag\":%d,"
+            "\"oxcf_lag_in_frames\":%d}\n",
+            govpx_oracle_state.frame_index,
+            (long long)cpi->target_bandwidth,
+            (long long)cpi->oxcf.target_bandwidth,
+            cpi->per_frame_bandwidth,
+            cpi->av_per_frame_bandwidth,
+            cpi->min_frame_bandwidth,
+            cpi->framerate,
+            cpi->output_framerate,
+            (long long)cpi->oxcf.optimal_buffer_level,
+            (long long)cpi->oxcf.maximum_buffer_size,
+            (long long)cpi->oxcf.starting_buffer_level,
+            (long long)cpi->buffer_level,
+            (long long)cpi->bits_off_target,
+            cpi->active_worst_quality,
+            cpi->active_best_quality,
+            cpi->worst_quality,
+            cpi->best_quality,
+            cpi->buffered_mode,
+            cpi->drop_frames_allowed,
+            cpi->cq_target_quality,
+            cpi->force_next_frame_intra,
+            cpi->oxcf.worst_allowed_q,
+            cpi->oxcf.best_allowed_q,
+            cpi->oxcf.cq_level,
+            cpi->oxcf.fixed_q,
+            cpi->oxcf.alt_q,
+            cpi->oxcf.key_q,
+            cpi->oxcf.gold_q,
+            (int)cpi->oxcf.end_usage,
+            (int)cpi->oxcf.Mode,
+            cpi->oxcf.cpu_used,
+            cpi->oxcf.noise_sensitivity,
+            cpi->oxcf.allow_df,
+            cpi->oxcf.drop_frames_water_mark,
+            cpi->oxcf.Width,
+            cpi->oxcf.Height,
+            cpi->baseline_gf_interval,
+            cpi->max_gf_interval,
+            cpi->twopass.static_scene_max_gf_interval,
+            cpi->key_frame_frequency,
+            cpi->common.Width,
+            cpi->common.Height,
+            cpi->common.sharpness_level,
+            cpi->common.version,
+            (int)cpi->common.multi_token_partition,
+            cpi->Speed,
+            cpi->pass,
+            cpi->compressor_speed,
+            cpi->auto_worst_q,
+            cpi->ext_refresh_frame_flags_pending,
+            cpi->mb.e_mbd.mode_ref_lf_delta_enabled,
+            cpi->mb.e_mbd.mode_ref_lf_delta_update,
+            (int)cpi->mb.e_mbd.ref_lf_deltas[0],
+            (int)cpi->mb.e_mbd.ref_lf_deltas[1],
+            (int)cpi->mb.e_mbd.ref_lf_deltas[2],
+            (int)cpi->mb.e_mbd.ref_lf_deltas[3],
+            (int)cpi->mb.e_mbd.mode_lf_deltas[0],
+            (int)cpi->mb.e_mbd.mode_lf_deltas[1],
+            (int)cpi->mb.e_mbd.mode_lf_deltas[2],
+            (int)cpi->mb.e_mbd.mode_lf_deltas[3],
+            (int)cpi->mb.e_mbd.last_ref_lf_deltas[0],
+            (int)cpi->mb.e_mbd.last_ref_lf_deltas[1],
+            (int)cpi->mb.e_mbd.last_ref_lf_deltas[2],
+            (int)cpi->mb.e_mbd.last_ref_lf_deltas[3],
+            (int)cpi->mb.e_mbd.last_mode_lf_deltas[0],
+            (int)cpi->mb.e_mbd.last_mode_lf_deltas[1],
+            (int)cpi->mb.e_mbd.last_mode_lf_deltas[2],
+            (int)cpi->mb.e_mbd.last_mode_lf_deltas[3],
+            cpi->mb.e_mbd.update_mb_segmentation_map,
+            cpi->mb.e_mbd.update_mb_segmentation_data,
+            cpi->mb.e_mbd.segmentation_enabled,
+            cpi->alt_ref_source == NULL ? 1 : 0,
+            cpi->is_src_frame_alt_ref,
+            cpi->initial_width,
+            cpi->initial_height,
+            cpi->oxcf.allow_lag,
+            cpi->oxcf.lag_in_frames);
+    fflush(out);
+    GOVPX_TRACE_END();
+}
 GOVPX_ORACLE_TU
 
 	# (2) Add extern declarations + the per-MB capture call to encodeframe.c.
@@ -1975,11 +2136,53 @@ def ensure_trace_usec_subtraction(src):
         sys.stderr.write('build_vpxenc_oracle.sh: trace-usec subtract anchor missing in onyx_if.c\n')
         sys.exit(2)
     return src.replace(old, new, 1)
+def ensure_change_config_tail_hook(src):
+    """Inject the govpx_oracle_emit_change_config_tail extern + call at the
+    very end of vp8_change_config (just before the closing brace of the
+    function body). Idempotent: skip if the sentinel is already there."""
+    sentinel = '/* govpx oracle: change_config_tail emit hook. */'
+    if sentinel in src:
+        return src
+    # 1. Add extern declaration after the existing oracle externs.
+    decl_anchor = 'extern int64_t govpx_oracle_trace_take_usec(void);'
+    if decl_anchor not in src:
+        sys.stderr.write('build_vpxenc_oracle.sh: trace_take_usec extern anchor missing for change_config_tail\n')
+        sys.exit(2)
+    decl_added = ('extern void govpx_oracle_emit_change_config_tail(\n'
+                  '    struct VP8_COMP *cpi);')
+    if decl_added not in src:
+        src = src.replace(decl_anchor,
+                          decl_anchor + '\n' + decl_added, 1)
+    # 2. Inject the call at the end of vp8_change_config. The unique
+    # anchor is the trailing "#if 0\n    /* Experimental RD Code */\n"
+    # block followed by "#endif\n}\n" which immediately closes
+    # vp8_change_config. The call goes between #endif and the closing }
+    # so the dump runs after every state mutation in the function.
+    tail_anchor = ('#if 0\n'
+                   '    /* Experimental RD Code */\n'
+                   '    cpi->frame_distortion = 0;\n'
+                   '    cpi->last_frame_distortion = 0;\n'
+                   '#endif\n'
+                   '}\n')
+    if tail_anchor not in src:
+        sys.stderr.write('build_vpxenc_oracle.sh: vp8_change_config tail anchor missing\n')
+        sys.exit(2)
+    tail_replacement = ('#if 0\n'
+                        '    /* Experimental RD Code */\n'
+                        '    cpi->frame_distortion = 0;\n'
+                        '    cpi->last_frame_distortion = 0;\n'
+                        '#endif\n'
+                        '\n'
+                        '  ' + sentinel + '\n'
+                        '  govpx_oracle_emit_change_config_tail(cpi);\n'
+                        '}\n')
+    return src.replace(tail_anchor, tail_replacement, 1)
 sentinel = '/* govpx oracle: rate/recode emit hook. */'
 if sentinel in text:
     updated = ensure_autospeed_boundary_shim(strip_autospeed_shim(text))
     updated = ensure_trace_take_usec_extern(updated)
     updated = ensure_trace_usec_subtraction(updated)
+    updated = ensure_change_config_tail_hook(updated)
     if updated != text:
         with io.open(path, 'w', encoding='utf-8') as f:
             f.write(updated)
@@ -2149,6 +2352,14 @@ text = ensure_autospeed_boundary_shim(text)
 # the same config. The accumulator is always 0 in the non-traced
 # (GOVPX_ORACLE_TRACE_OUT unset) build, so this is a true no-op there.
 text = ensure_trace_usec_subtraction(text)
+# Dump cpi-level state at the END of every vp8_change_config call.
+# Task #209 diagnostic: surfaces runtime-control transitions (e.g.
+# noise:0 -> update_extracfg -> vp8_change_config -> pick_quickcompress_mode
+# -> vp8_change_config) as a sequence of JSON Lines that can be diffed
+# against a govpx-side counterpart emitted from the tail of
+# applyVP8ChangeConfigRuntimeSideEffects. Gated on GOVPX_ORACLE_TRACE_OUT,
+# so this is a no-op when the env var is unset.
+text = ensure_change_config_tail_hook(text)
 
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
