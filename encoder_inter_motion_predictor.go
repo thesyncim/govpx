@@ -45,7 +45,33 @@ func (search interAnalysisSearchConfig) adjustedForImprovedMVStart(start interFr
 			stepParam = interFrameMaxMVSearchSteps - 1
 		}
 		search.fullPixelSearchParam = int8(stepParam)
-		search.fullPixelFurtherSteps = int8(libvpxInterFrameFurtherSteps(int(search.fullPixelSpeed), stepParam))
+		// libvpx rdopt.c:2086 (RD path, vp8_rd_pick_inter_mode NEWMV):
+		//
+		//   further_steps = (cpi->sf.max_step_search_steps - 1) - step_param;
+		//
+		// libvpx pickinter.c:1005-1008 (non-RD path, vp8_pick_inter_mode
+		// NEWMV):
+		//
+		//   further_steps = (cpi->Speed >= 8)
+		//       ? 0
+		//       : (cpi->sf.max_step_search_steps - 1 - step_param);
+		//
+		// govpx's fullPixelFinalRefine flag is the RD-vs-picker selector
+		// (set from interAnalysisUsesRDModeDecision in
+		// interAnalysisSearchConfig). The RD path is independent of
+		// cpi->Speed; only the pickinter path applies the Speed>=8 short-
+		// circuit. Routing the raw cpi->Speed through
+		// libvpxInterFrameFurtherSteps here would silently cap
+		// further_steps to 0 in the BestQuality+cpu_used>=8 RD-path cohort
+		// (sr>0 from improved_mv_pred), diverging frame-N MB modes from
+		// libvpx vp8_rd_pick_inter_mode (task #232 fuzz seed
+		// regression_option_grid_022b3ed5).
+		if search.fullPixelFinalRefine {
+			further := max(interFrameMaxMVSearchSteps-1-stepParam, 0)
+			search.fullPixelFurtherSteps = int8(further)
+		} else {
+			search.fullPixelFurtherSteps = int8(libvpxInterFrameFurtherSteps(int(search.fullPixelSpeed), stepParam))
+		}
 	}
 	return search
 }
