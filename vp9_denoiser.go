@@ -93,7 +93,8 @@ func (d *vp9DenoiserState) ensure(width, height int) {
 }
 
 func (d *vp9DenoiserState) active() bool {
-	return d != nil && d.allocated && d.sensitivity > 0
+	return d != nil && d.allocated && d.sensitivity > 0 &&
+		d.level > vp9DenoiserLowLow
 }
 
 func (e *VP9Encoder) prepareVP9DenoiserSource(img *image.YCbCr) *image.YCbCr {
@@ -102,10 +103,30 @@ func (e *VP9Encoder) prepareVP9DenoiserSource(img *image.YCbCr) *image.YCbCr {
 	}
 	e.denoiser.sensitivity = e.opts.NoiseSensitivity
 	e.denoiser.ensure(e.opts.Width, e.opts.Height)
+	if e.noiseEstimate.enabled {
+		e.denoiser.level = vp9DenoiserLevelForNoiseEstimate(
+			vp9NoiseEstimateExtractLevel(&e.noiseEstimate))
+	}
+	if e.denoiser.level <= vp9DenoiserLowLow {
+		return img
+	}
 	copyVP9LookaheadImage(&e.denoiser.source, img, e.opts.Width, e.opts.Height)
 	copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgIntra],
 		img, e.opts.Width, e.opts.Height)
 	return &e.denoiser.source
+}
+
+func vp9DenoiserLevelForNoiseEstimate(level vp9NoiseLevel) int8 {
+	switch level {
+	case vp9NoiseLevelLow:
+		return vp9DenoiserLow
+	case vp9NoiseLevelMedium:
+		return vp9DenoiserMedium
+	case vp9NoiseLevelHigh:
+		return vp9DenoiserHigh
+	default:
+		return vp9DenoiserLowLow
+	}
 }
 
 func (e *VP9Encoder) saveVP9DenoiserForCounts(inter *vp9InterEncodeState) bool {
@@ -162,6 +183,7 @@ func (e *VP9Encoder) applyVP9DenoiserToInterBlock(inter *vp9InterEncodeState,
 	decision vp9InterModeDecision,
 ) {
 	if e == nil || inter == nil || !e.denoiser.active() ||
+		e.denoiser.level <= vp9DenoiserLowLow ||
 		e.denoiser.reset ||
 		decision.isCompound || decision.refFrame <= vp9dec.IntraFrame ||
 		bsize >= common.BlockSizes {

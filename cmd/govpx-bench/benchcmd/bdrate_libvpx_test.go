@@ -66,6 +66,17 @@ func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
 			},
 			wants: []string{"--aq-mode=5", "--alt-ref-aq=1", "--frame-boost=1"},
 		},
+		{
+			name: "Cyclic refresh CBR",
+			apply: func(o *govpx.VP9EncoderOptions) {
+				o.RateControlModeSet = true
+				o.RateControlMode = govpx.RateControlCBR
+				o.TargetBitrateKbps = 320
+				o.AQMode = govpx.VP9AQCyclicRefresh
+			},
+			wants:  []string{"--end-usage=cbr", "--target-bitrate=320", "--aq-mode=3"},
+			absent: []string{"--cq-level="},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,12 +94,15 @@ func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
 					t.Errorf("unexpected %q in args: %s", a, line)
 				}
 			}
-			// CQ pin should always be present.
-			if !strings.Contains(line, "--cq-level=32") {
-				t.Errorf("missing --cq-level=32: %s", line)
+			if strings.Contains(line, "--end-usage=q") || strings.Contains(line, "--end-usage=cq") {
+				if !strings.Contains(line, "--cq-level=32") {
+					t.Errorf("missing --cq-level=32: %s", line)
+				}
+			} else if strings.Contains(line, "--cq-level=") {
+				t.Errorf("unexpected --cq-level for non-Q mode: %s", line)
 			}
-			if !strings.Contains(line, "--end-usage=q") {
-				t.Errorf("missing --end-usage=q: %s", line)
+			if !strings.Contains(line, "--end-usage=") {
+				t.Errorf("missing --end-usage: %s", line)
 			}
 		})
 	}

@@ -826,9 +826,9 @@ func (e *VP9Encoder) SetFramePeriodicBoost(enabled bool) error {
 	return nil
 }
 
-// SetAltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. When enabled,
-// alt-ref refresh frames apply extra AQ tightening through the active
-// quantizer bounds. Forwards to [VP9EncoderOptions.AltRefAQ].
+// SetAltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. In libvpx
+// v1.16.0 the VP9 alt-ref AQ implementation is a no-op, so this records
+// the control without changing coding decisions.
 func (e *VP9Encoder) SetAltRefAQ(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed

@@ -24,7 +24,7 @@ import (
 //
 // A missing helper binary returns ErrVpxencVP9FrameFlagsNotBuilt
 // (wrapped) so callers can either run -build-libvpx or t.Skip.
-func encodeBDLibvpxCurve(opts BDRateOptions, qs []int) ([]QualityPoint, error) {
+func encodeBDLibvpxCurve(opts BDRateOptions, ladder []bdOperatingPoint) ([]QualityPoint, error) {
 	binPath, err := resolveLibvpxVP9FrameFlagsBinary(opts.BuildLibvpx)
 	if err != nil {
 		return nil, err
@@ -56,11 +56,16 @@ func encodeBDLibvpxCurve(opts BDRateOptions, qs []int) ([]QualityPoint, error) {
 	if err != nil {
 		return nil, fmt.Errorf("write libvpx I420 input: %w", err)
 	}
-	pts := make([]QualityPoint, 0, len(qs))
-	for _, q := range qs {
-		pt, err := encodeLibvpxBDOperatingPoint(binPath, raw, opts, testOpts, q)
+	pts := make([]QualityPoint, 0, len(ladder))
+	for _, op := range ladder {
+		pointOpts := testOpts
+		pointOpts.CQLevel = op.Q
+		if op.TargetKbps > 0 {
+			pointOpts.TargetBitrateKbps = op.TargetKbps
+		}
+		pt, err := encodeLibvpxBDOperatingPoint(binPath, raw, opts, pointOpts, op.Q)
 		if err != nil {
-			return nil, fmt.Errorf("libvpx Q=%d: %w", q, err)
+			return nil, fmt.Errorf("libvpx Q=%d: %w", op.Q, err)
 		}
 		pts = append(pts, pt)
 	}
@@ -149,20 +154,29 @@ func encodeLibvpxBDOperatingPoint(binPath string, raw []byte, opts BDRateOptions
 //	govpx.VP9EncoderOptions.MaxGFInterval     -> --max-gf-interval=N
 //	govpx.VP9EncoderOptions.DisableLoopfilter -> --disable-loopfilter=N
 //	govpx.RateControl{Q,VBR,CBR,CQ}           -> --end-usage={q,vbr,cbr,cq}
-//	(BD-rate harness always pins end-usage=q + cq-level=Q so the libvpx
-//	curve sits on the same constant-quality anchor as govpx.)
+//	govpx.VP9EncoderOptions.TargetBitrateKbps -> --target-bitrate=N
 //
 // Feature flags not exercised by the current per-feature BD-rate gates
 // (segmentation, ROI map, temporal layers, render size, color tags,
 // runtime drop schedule, etc.) are intentionally not mapped here; add
 // new fields with a `// libvpx token:` citation when those gates land.
 func libvpxVP9FrameFlagsCLIArgs(opts BDRateOptions, t govpx.VP9EncoderOptions, q int) []string {
+	endUsage := "q"
+	if t.RateControlModeSet {
+		switch t.RateControlMode {
+		case govpx.RateControlVBR:
+			endUsage = "vbr"
+		case govpx.RateControlCBR:
+			endUsage = "cbr"
+		case govpx.RateControlCQ:
+			endUsage = "cq"
+		default:
+			endUsage = "q"
+		}
+	}
 	args := []string{
-		// end-usage=q matches govpx's RateControlQ so libvpx's qindex
-		// selection is constant-quality anchored at cq-level=Q.
-		"--end-usage=q",
-		// libvpx token: --cq-level
-		"--cq-level=" + strconv.Itoa(q),
+		// libvpx token: --end-usage
+		"--end-usage=" + endUsage,
 		// libvpx token: --min-q (4 is libvpx's good-quality floor)
 		"--min-q=4",
 		// libvpx token: --max-q
@@ -191,8 +205,12 @@ func libvpxVP9FrameFlagsCLIArgs(opts BDRateOptions, t govpx.VP9EncoderOptions, q
 		// counts are applied — matches govpx BD-rate's default).
 		"--frame-parallel=0",
 	}
-	// libvpx token: --target-bitrate (unused in end-usage=q, but
-	// vpxenc-vp9-frameflags requires a positive default).
+	if endUsage == "q" || endUsage == "cq" {
+		// libvpx token: --cq-level
+		args = append(args, "--cq-level="+strconv.Itoa(q))
+	}
+	// libvpx token: --target-bitrate. It is mostly validation ballast for
+	// end-usage=q, but it is the actual ladder axis for CBR gates.
 	target := t.TargetBitrateKbps
 	if target <= 0 {
 		target = 1000

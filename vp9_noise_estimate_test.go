@@ -502,3 +502,35 @@ func TestVP9NoiseEstimateRefreshEnabledFromEncoderOptions(t *testing.T) {
 		}
 	})
 }
+
+func TestVP9DenoiserUsesNoiseEstimateLowLowAsInactive(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              640,
+		Height:             360,
+		CpuUsed:            8,
+		Deadline:           DeadlineRealtime,
+		RateControlMode:    RateControlCBR,
+		RateControlModeSet: true,
+		TargetBitrateKbps:  2000,
+		NoiseSensitivity:   4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	if !e.noiseEstimate.enabled {
+		t.Fatal("noise estimate disabled; want enabled for VP9 temporal denoiser branch")
+	}
+	e.noiseEstimate.value = 0
+
+	src := newVP9YCbCrForTest(640, 360, 102, 98, 158)
+	if got := e.prepareVP9DenoiserSource(src); got != src {
+		t.Fatal("prepareVP9DenoiserSource returned denoiser source at LowLow; want caller source")
+	}
+	if got := e.denoiser.level; got != vp9DenoiserLowLow {
+		t.Fatalf("denoiser level = %d, want LowLow from noise estimate", got)
+	}
+	if e.denoiser.active() {
+		t.Fatal("denoiser active at LowLow noise estimate; want inactive")
+	}
+}

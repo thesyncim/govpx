@@ -274,26 +274,17 @@ func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshF
 	return activeBest, activeWorst
 }
 
-// applyVP9RefreshActiveBestBias applies the FramePeriodicBoost and
-// AltRefAQ active-best-Q biases on GF / ALTREF refresh frames.
+// applyVP9RefreshActiveBestBias applies the FramePeriodicBoost
+// active-best-Q bias on GF / ALTREF refresh frames.
 // FramePeriodicBoost mirrors VP9E_SET_FRAME_PERIODIC_BOOST: it biases
 // the active-best Q downward (lower quantizer, more bits) so the
 // regulated quantizer reaches a tighter target on the periodic
 // refresh frame.
 //
-// AltRefAQ mirrors VP9E_SET_ALT_REF_AQ. The libvpx semantic is a
-// per-segment adaptive quantizer on alt-ref frames that *raises* the
-// quantizer in regions which won't be reused much across the GOP,
-// trading a small dB drop on those segments for a meaningful bitrate
-// saving on the GOP as a whole. We don't carry the per-block reuse
-// map here; we approximate the net effect by biasing the alt-ref
-// active-best Q *upward* (higher quantizer, fewer bits) by a small
-// amount. That matches the libvpx sign: AltRefAQ is a bitrate-saving
-// feature, not a quality-boost feature. An older version of this
-// path inadvertently mirrored FramePeriodicBoost and biased the
-// alt-ref active-best Q downward, which spent extra bits on alt-ref
-// frames without recovering them elsewhere — measured as a +2.4%
-// BD-rate regression on panning content.
+// AltRefAQ deliberately does not participate here: libvpx v1.16.0 wires
+// VP9E_SET_ALT_REF_AQ through the control surface, but vp9_alt_ref_aq.c is
+// a stub. A prior govpx approximation biased alt-ref Q coarser and regressed
+// the BD-rate gate, so parity is to leave the stream unchanged.
 //
 // Intra-only frames and non-boosted inter frames are untouched.
 func (rc *vp9RateControlState) applyVP9RefreshActiveBestBias(activeBest int, intraOnly bool, refreshFlags uint8, best, worst int) int {
@@ -302,19 +293,6 @@ func (rc *vp9RateControlState) applyVP9RefreshActiveBestBias(activeBest int, int
 	}
 	if rc.framePeriodicBoost {
 		activeBest += vp9ComputeQDelta(best, worst, activeBest, 3, 4)
-	}
-	if rc.altRefAQ && refreshFlags&(1<<vp9AltRefSlot) != 0 {
-		// num/den > 1 biases active-best upward (coarser Q on
-		// alt-ref) so the AltRefAQ toggle actually saves bitrate.
-		// The (6, 5) ratio targets a +20% AC qstep bump on the
-		// alt-ref frame, which on panning content trades a tiny
-		// loss in alt-ref reconstruction for a measurable BD-rate
-		// saving when the alt-ref is reused as inter-prediction
-		// reference. Larger ratios (e.g. 5/4 or above) over-cost
-		// the alt-ref enough that the rest of the GOP can't
-		// compensate; smaller ratios (e.g. 9/8) leave the bitrate
-		// reduction within measurement noise.
-		activeBest += vp9ComputeQDelta(best, worst, activeBest, 6, 5)
 	}
 	if activeBest < best {
 		activeBest = best

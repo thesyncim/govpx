@@ -7374,7 +7374,12 @@ func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 
 func TestVP9EncoderInterTxScoringSelectsTx16ForLocalizedResidual(t *testing.T) {
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		Deadline: DeadlineGoodQuality,
+		CpuUsed:  0,
+	})
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.ensureVP9EncoderModeBuffers(8, 8)
 	e.prepareVP9EncoderOutputFrame(width, height)

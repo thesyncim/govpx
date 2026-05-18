@@ -179,8 +179,8 @@ func TestVP9EncoderPerceptualAQAcceptsConfiguration(t *testing.T) {
 
 func TestVP9EncoderPerceptualAQEncodesFrame(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:  64,
-		Height: 64,
+		Width:  256,
+		Height: 128,
 		FPS:    30,
 		AQMode: VP9AQPerceptual,
 	})
@@ -188,8 +188,8 @@ func TestVP9EncoderPerceptualAQEncodesFrame(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	// A non-flat checker pattern exercises both ZERO and AC coefficients.
-	src := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
-	dst := make([]byte, 65536)
+	src := newVP9CheckerYCbCrForTest(256, 128, 32, 224, 128, 128)
+	dst := make([]byte, 1<<20)
 	n, err := e.EncodeInto(src, dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
@@ -203,6 +203,34 @@ func TestVP9EncoderPerceptualAQEncodesFrame(t *testing.T) {
 	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
 	if !hdr.Seg.Enabled {
 		t.Fatal("segmentation header disabled; perceptual AQ expected to enable it")
+	}
+}
+
+func TestVP9EncoderPerceptualAQTinyFrameSuppressesNeutralSegmentation(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:  64,
+		Height: 64,
+		FPS:    30,
+		AQMode: VP9AQPerceptual,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	src := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	dst := make([]byte, 65536)
+	n, err := e.EncodeInto(src, dst)
+	if err != nil {
+		t.Fatalf("EncodeInto: %v", err)
+	}
+	if n <= 0 {
+		t.Fatalf("EncodeInto returned %d bytes", n)
+	}
+	if e.perceptualAQ.ready {
+		t.Fatal("perceptualAQ.ready = true for a frame too small to cluster")
+	}
+	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	if hdr.Seg.Enabled {
+		t.Fatal("segmentation header enabled; tiny perceptual AQ frame should be a no-op")
 	}
 }
 

@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"math"
+
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
@@ -261,6 +263,80 @@ func vp9InitBestPickmode(bp *vp9BestPickmode) {
 	bp.winnerSet = false
 }
 
+const (
+	vp9ThrNearestMv = 0
+	vp9ThrNearestA  = 1
+	vp9ThrNearestG  = 2
+	vp9ThrNewMv     = 4
+	vp9ThrNewA      = 5
+	vp9ThrNewG      = 6
+	vp9ThrNearMv    = 7
+	vp9ThrNearA     = 8
+	vp9ThrNearG     = 9
+	vp9ThrZeroMv    = 10
+	vp9ThrZeroG     = 11
+	vp9ThrZeroA     = 12
+)
+
+var vp9NonrdModeIdx = [vp9dec.MaxRefFrames][4]int{
+	{0, 0, 0, 0},
+	{vp9ThrNearestMv, vp9ThrNearMv, vp9ThrZeroMv, vp9ThrNewMv},
+	{vp9ThrNearestG, vp9ThrNearG, vp9ThrZeroG, vp9ThrNewG},
+	{vp9ThrNearestA, vp9ThrNearA, vp9ThrZeroA, vp9ThrNewA},
+}
+
+var vp9RDThreshBlockSizeFactor = [common.BlockSizes]int{
+	2, 3, 3, 4, 6, 6, 8, 12, 12, 16, 24, 24, 32,
+}
+
+func vp9NonrdModeRDThresh(qindex int, bsize common.BlockSize,
+	refFrame int8, mode common.PredictionMode, adaptiveRDThresh int,
+	bestModeSkipTxfm bool, biasGolden bool, framesSinceGolden int,
+) int64 {
+	if bsize < 0 || bsize >= common.BlockSizes ||
+		refFrame <= vp9dec.IntraFrame || refFrame >= vp9dec.MaxRefFrames ||
+		mode < common.NearestMv || mode > common.NewMv {
+		return 0
+	}
+	modeOffset := int(mode - common.NearestMv)
+	modeIndex := vp9NonrdModeIdx[refFrame][modeOffset]
+	threshMult := vp9NonrdThreshMult(modeIndex, adaptiveRDThresh)
+	if threshMult <= 0 {
+		return 0
+	}
+	dcQ := float64(vp9dec.VpxDcQuant(qindex, 0, vp9dec.BitDepth8)) / 4.0
+	threshFactor := int(math.Pow(dcQ, 1.25) * 5.12)
+	if threshFactor < 8 {
+		threshFactor = 8
+	}
+	t := int64(threshFactor) * int64(vp9RDThreshBlockSizeFactor[bsize])
+	thresh := int64(threshMult) * t / 4
+	if bestModeSkipTxfm {
+		thresh <<= 1
+	}
+	if biasGolden && refFrame == vp9dec.GoldenFrame && framesSinceGolden > 4 {
+		thresh <<= 3
+	}
+	return thresh
+}
+
+func vp9NonrdThreshMult(modeIndex int, adaptiveRDThresh int) int {
+	switch modeIndex {
+	case vp9ThrNearestMv, vp9ThrNearestG, vp9ThrNearestA:
+		if adaptiveRDThresh != 0 {
+			return 300
+		}
+		return 0
+	case vp9ThrNewMv, vp9ThrNewG, vp9ThrNewA,
+		vp9ThrNearMv, vp9ThrNearG, vp9ThrNearA:
+		return 1000
+	case vp9ThrZeroMv, vp9ThrZeroG, vp9ThrZeroA:
+		return 2000
+	default:
+		return 0
+	}
+}
+
 // vp9SearchFilterRef is the verbatim port of libvpx's search_filter_ref
 // (vp9_pickmode.c:1499-1584). It runs the inter predictor for each filter in
 // [filter_start, filter_end] (typically {EIGHTTAP, EIGHTTAP_SMOOTH} in the
@@ -494,15 +570,18 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// vp9_mv_pred (vp9_rd.c:588). When a ref's pred_mv_sad is more than 2x
 	// the dominant ref's, the entire ref is pruned.
 	//
-	// Phase E3 (GOVPX_VP9_NONRD_PICK_PARTITION=1): full vp9_mv_pred
-	// candidate-set SAD via vp9MvPredScanCandidates (see vp9_mv_pred.go).
-	// The third candidate (x->pred_mv[ref]) is included only at bsize <
-	// max_partition_size; libvpx sets max_partition_size = BLOCK_64X64 for
-	// the ML_BASED_PARTITION case (vp9_encodeframe.c:5315) and INT16_MAX
-	// for sizes >= max_partition_size (vp9_encodeframe.c:4216-4217), so it
-	// is skipped at root BLOCK_64X64. govpx does not yet surface
-	// x->pred_mv[ref] (the SB-level y_sad path that writes it lives in a
-	// future port), so the third candidate is always invalid here.
+	// Full vp9_mv_pred candidate-set SAD via vp9MvPredScanCandidates (see
+	// vp9_mv_pred.go) is needed in two places: as the integer-search seed
+	// for NEWMV (libvpx x->mv_best_ref_index) and, behind the Phase E3
+	// GOVPX_VP9_NONRD_PICK_PARTITION=1 opt-in, as the pred_mv_sad input to
+	// reference masking. The third candidate (x->pred_mv[ref]) is included
+	// only at bsize < max_partition_size; libvpx sets max_partition_size =
+	// BLOCK_64X64 for the ML_BASED_PARTITION case (vp9_encodeframe.c:5315)
+	// and INT16_MAX for sizes >= max_partition_size
+	// (vp9_encodeframe.c:4216-4217), so it is skipped at root BLOCK_64X64.
+	// govpx does not yet surface x->pred_mv[ref] (the SB-level y_sad path
+	// that writes it lives in a future port), so the third candidate is
+	// always invalid here.
 	//
 	// Legacy path (gate off): keep the (0,0)-offset SAD approximation so
 	// the cpu_used=8-default oracle parity tests (LosslessInter, Checker,
@@ -511,6 +590,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// libvpx: vp9_rd.c:599-601 num_mv_refs formula.
 	// libvpx: vp9_rd.c:602-606 candidate triple population.
 	useMvPredCandidateSet := vp9NonrdPickPartitionEnabled()
+	useMvPredSearchSeed := true
 	maxPartitionSize := e.sf.DefaultMaxPartitionSize
 	if maxPartitionSize == 0 {
 		// libvpx: vp9_speed_features.c:876 — default at speed 0 / cpu_used 0.
@@ -528,81 +608,77 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// uint64 sentinel.
 		predMvSad[r] = 1<<63 - 1
 	}
-	if e.sf.ReferenceMasking != 0 {
-		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
-		blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
-		blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-		x0 := miCol * common.MiSize
-		y0 := miRow * common.MiSize
-		if len(src) > 0 && srcStride > 0 && x0+blockW <= srcW && y0+blockH <= srcH {
-			for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
-				if !refSlotValid[r] {
-					continue
-				}
-				refSlot := refSlots[r]
-				inter.ref = &e.refFrames[refSlot]
-				refBuf, refStride, refW, refH := vp9ReferenceVisiblePlane(inter.ref, 0)
-				if len(refBuf) == 0 || refStride <= 0 {
-					continue
-				}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if len(src) > 0 && srcStride > 0 && x0+blockW <= srcW && y0+blockH <= srcH {
+		for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
+			if !refSlotValid[r] {
+				continue
+			}
+			refSlot := refSlots[r]
+			inter.ref = &e.refFrames[refSlot]
+			refBuf, refStride, refW, refH := vp9ReferenceVisiblePlane(inter.ref, 0)
+			if len(refBuf) == 0 || refStride <= 0 {
+				continue
+			}
 
-				if useMvPredCandidateSet {
-					// libvpx: vp9_rd.c:602-606 — populate pred_mv[0..2]
-					// from ref_mvs[ref][0], ref_mvs[ref][1],
-					// x->pred_mv[ref]. govpx derives ref_mvs[ref][0..1]
-					// from vp9FindInterMvRefsFields in its mode-
-					// independent shape: mode=NearMv sets earlyBreak=
-					// false in the scanner so we walk to the full
-					// 2-candidate list (NearestMv would short-circuit
-					// after the first match and normalize count=1,
-					// dropping the second candidate that vp9_mv_pred
-					// needs).
-					var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
-					refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
-						e.useVP9EncoderPrevFrameMvs(miRows, miCols),
-						e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
-						tile, miRows, miCols, miRow, miCol, bsize,
-						common.NearMv, r, inter.refSignBias, -1)
-					if refCount >= 1 {
-						candidates[0] = vp9MvPredInputCandidate{
-							mv:    refList[0],
-							valid: true,
-						}
+			if useMvPredSearchSeed || useMvPredCandidateSet {
+				// libvpx: vp9_rd.c:602-606 — populate pred_mv[0..2]
+				// from ref_mvs[ref][0], ref_mvs[ref][1],
+				// x->pred_mv[ref]. govpx derives ref_mvs[ref][0..1]
+				// from vp9FindInterMvRefsFields in its mode-independent
+				// shape: mode=NearMv sets earlyBreak=false in the scanner.
+				var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
+				refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+					e.useVP9EncoderPrevFrameMvs(miRows, miCols),
+					e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
+					tile, miRows, miCols, miRow, miCol, bsize,
+					common.NearMv, r, inter.refSignBias, -1)
+				if refCount >= 1 {
+					candidates[0] = vp9MvPredInputCandidate{
+						mv:    refList[0],
+						valid: true,
 					}
-					if refCount >= 2 {
-						candidates[1] = vp9MvPredInputCandidate{
-							mv:    refList[1],
-							valid: true,
-						}
+				}
+				if refCount >= 2 {
+					candidates[1] = vp9MvPredInputCandidate{
+						mv:    refList[1],
+						valid: true,
 					}
-					// libvpx: vp9_rd.c:606 — pred_mv[2] =
-					// x->pred_mv[ref_frame]. govpx does not surface
-					// x->pred_mv yet; candidates[2] stays valid=false
-					// which the kernel skips via the INT16_MAX shortcut.
+				}
+				// libvpx: vp9_rd.c:606 — pred_mv[2] =
+				// x->pred_mv[ref_frame]. govpx does not surface x->pred_mv
+				// yet; candidates[2] stays valid=false.
 
-					result := vp9MvPredScanCandidates(candidates[:], numMvRefs,
-						src, srcStride, x0, y0,
-						refBuf, refStride, x0, y0, refW, refH,
-						blockW, blockH)
-					if result.bestSad != ^uint64(0) {
+				result := vp9MvPredScanCandidates(candidates[:], numMvRefs,
+					src, srcStride, x0, y0,
+					refBuf, refStride, x0, y0, refW, refH,
+					blockW, blockH)
+				if result.bestSad != ^uint64(0) {
+					mvBestRefIndex[r] = result.bestIndex
+					maxMvContext[r] = result.maxMvContext
+					if useMvPredCandidateSet {
 						predMvSad[r] = result.bestSad
-						mvBestRefIndex[r] = result.bestIndex
-						maxMvContext[r] = result.maxMvContext
-						if result.bestIndex >= 0 &&
-							result.bestIndex < len(candidates) &&
-							candidates[result.bestIndex].valid {
-							mvPredSearchSeed[r] = candidates[result.bestIndex].mv
-							mvPredSearchSeedValid[r] = true
-						}
 					}
-				} else {
-					// Legacy (0,0)-offset SAD approximation.
-					if x0+blockW > refW || y0+blockH > refH {
-						continue
+					if result.bestIndex >= 0 &&
+						result.bestIndex < len(candidates) &&
+						candidates[result.bestIndex].valid {
+						mvPredSearchSeed[r] = candidates[result.bestIndex].mv
+						mvPredSearchSeedValid[r] = true
 					}
-					predMvSad[r] = vp9BlockSAD(src, srcStride, refBuf, refStride,
-						x0, y0, x0, y0, blockW, blockH, ^uint64(0))
 				}
+			}
+			if !useMvPredCandidateSet && e.sf.ReferenceMasking != 0 {
+				// Legacy (0,0)-offset SAD approximation for reference
+				// masking remains in place until the Phase E gate flips.
+				if x0+blockW > refW || y0+blockH > refH {
+					continue
+				}
+				predMvSad[r] = vp9BlockSAD(src, srcStride, refBuf, refStride,
+					x0, y0, x0, y0, blockW, blockH, ^uint64(0))
 			}
 		}
 	}
@@ -873,21 +949,57 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		var mv vp9dec.MV
 		var refMv vp9dec.MV
 		if thisMode == common.NewMv {
+			// libvpx: vp9_pickmode.c:2240-2257 mode_rd_thresh.
+			// The NEWMV slot is INVALID_MV until search_new_mv fills it,
+			// so libvpx treats it as non-zero and can skip the expensive
+			// motion search when an earlier mode is already below the mode
+			// threshold.
+			if bestSet {
+				modeRDThresh := vp9NonrdModeRDThresh(qindex, bsize,
+					refFrame, thisMode, e.sf.AdaptiveRdThresh,
+					bp.bestModeSkipTxfm != 0, e.sf.BiasGolden != 0,
+					0)
+				if modeRDThresh > 0 && best.score < uint64(modeRDThresh) {
+					continue
+				}
+			}
 			var gotMv vp9dec.MV
 			var ok bool
-			if useMvPredCandidateSet && mvPredSearchSeedValid[refFrame] {
-				gotMv, _, ok = e.pickVP9InterMvWithOptions(inter, miRows, miCols,
-					miRow, miCol, bsize, refFrame,
-					vp9InterMvSearchOptions{
-						seed:      mvPredSearchSeed[refFrame],
-						seedValid: true,
-					})
-			} else {
-				gotMv, _, ok = e.pickVP9InterMv(inter, miRows, miCols,
-					miRow, miCol, bsize, refFrame)
+			refMvOpt := vp9dec.MV{}
+			refMvValid := frameMvValid[common.NearestMv][refFrame]
+			if refMvValid {
+				refMvOpt = frameMv[common.NearestMv][refFrame]
 			}
+			mvOpts := vp9InterMvSearchOptions{
+				refMv:      refMvOpt,
+				refMvValid: refMvValid,
+			}
+			if mvPredSearchSeedValid[refFrame] {
+				mvOpts.seed = mvPredSearchSeed[refFrame]
+				mvOpts.seedValid = true
+			}
+			gotMv, _, ok = e.pickVP9InterMvWithOptions(inter, miRows, miCols,
+				miRow, miCol, bsize, refFrame, mvOpts)
 			if !ok {
 				continue
+			}
+			// libvpx combined_motion_search returns false after MV search when
+			// the NEWMV mode+MV signalling cost alone exceeds best_rdc_sofar:
+			//
+			//   rv = !(RDCOST(rdmult, rddiv, rate_mv + rate_mode, 0) >
+			//          best_rd_sofar)
+			//
+			// That prevents periodic-motion blocks from carrying an expensive
+			// NEWMV into the full candidate scoring when NEAREST/NEAR/ZERO has
+			// already won cheaply. govpx's vp9InterModeRateCost folds both the
+			// inter mode bit cost and MV bit cost, matching rate_mv+rate_mode.
+			if bestSet {
+				rateModeMv := vp9InterModeRateCost(&inter.selectFc,
+					interModeCtx, common.NewMv, gotMv, refMvOpt, inter.allowHP)
+				if vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+					rateModeMv, 0) > best.score {
+					continue
+				}
 			}
 			mv = gotMv
 			// libvpx vp9_pickmode.c:2302 mi->mv[0] = frame_mv[NEWMV][ref];
@@ -897,8 +1009,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// post-find_best_ref_mvs).
 			frameMv[common.NewMv][refFrame] = mv
 			frameMvValid[common.NewMv][refFrame] = true
-			if frameMvValid[common.NearestMv][refFrame] {
-				refMv = frameMv[common.NearestMv][refFrame]
+			if refMvValid {
+				refMv = refMvOpt
 			}
 		} else if thisMode == common.NearestMv || thisMode == common.NearMv {
 			// libvpx: vp9_pickmode.c:2302 — mi->mv[0] is set from
@@ -914,6 +1026,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// ZEROMV: libvpx: vp9_pickmode.c:1280 frame_mv[ZEROMV][ref] = 0.
 			mv = vp9dec.MV{}
 			refMv = vp9dec.MV{}
+		}
+		if thisMode != common.NewMv && bestSet && mv != (vp9dec.MV{}) {
+			modeRDThresh := vp9NonrdModeRDThresh(qindex, bsize,
+				refFrame, thisMode, e.sf.AdaptiveRdThresh,
+				bp.bestModeSkipTxfm != 0, e.sf.BiasGolden != 0,
+				0)
+			if modeRDThresh > 0 && best.score < uint64(modeRDThresh) {
+				continue
+			}
 		}
 
 		// libvpx: vp9_pickmode.c:2269-2278 — mode_checked dedup. Walk
@@ -1383,6 +1504,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					rate:           rate,
 					distortion:     distortion,
 					score:          e.vp9InterModeScore(distortion, rate, qindex),
+				}
+				if e.opts.RateControlModeSet &&
+					e.opts.RateControlMode == RateControlCBR &&
+					e.vp9SpeedFeatureCPUUsed() >= 5 &&
+					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
+					biased := vp9NewmvDiffBias(thisMode, cand.score, bsize,
+						int(mv.Row), int(mv.Col),
+						above, left,
+						refFrame == vp9dec.LastFrame,
+						false, false, false, false)
+					cand.score = biased.rdcost
 				}
 				if distortion < bestSseSoFar {
 					bestSseSoFar = distortion

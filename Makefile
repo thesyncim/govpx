@@ -82,11 +82,11 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci pre-commit fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci pre-commit fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality vp9-quality-smoke oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
-ci: fmtcheck pgo-check test test-purego vp9-decoder-conformance
+ci: fmtcheck pgo-check test test-purego vp9-decoder-conformance vp9-quality-smoke
 
 pre-commit: fmtcheck pgo-check
 
@@ -121,6 +121,19 @@ verify: ci
 verify-quality: vp9-vpxdec-tools
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -o $(CORACLE_BUILD)/govpx-bench ./cmd/govpx-bench
 	$(CORACLE_BUILD)/govpx-bench -quality-fixtures -quality-gate -libvpx-vpxenc-vp9="$(VPXENC_VP9)" -auto-libvpx=false
+
+# vp9-quality-smoke keeps CI from treating a generic green go test as
+# sufficient for VP9 encoder quality. It runs the canonical PSNR/SSIM
+# fixture gate plus a small libvpx-backed BD-rate subset covering the
+# recently brittle ARNR/AQ/CBR/loop-filter paths; `make verify-bd-rate`
+# remains the full per-feature sweep.
+vp9-quality-smoke: verify-quality
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+		GOVPX_BD_RATE_GATES=1 \
+		GOVPX_BD_RATE_BUILD_LIBVPX=1 \
+		GOVPX_BD_RATE_LIBVPX_REQUIRED=1 \
+		GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN="$(VPXENC_VP9_FRAMEFLAGS)" \
+		$(GO) test -count=1 -v -run 'TestVP9FeatureBDRate(ARNR|PerceptualAQ|CyclicRefresh|LoopFilter)$$' -timeout 360s .
 
 verify-production: ci oracle-test byte-parity scoreboard
 
