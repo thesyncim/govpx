@@ -266,12 +266,12 @@ import (
 //
 //     Per-frame counts.SwitchableInterp totals captured by
 //     TestVP9Seed8FilterHistogram for this seed:
-//       frame=1 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED (libvpx c>=2)
-//       frame=3 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED
-//       frame=4 c=1 totals=[E=1, S=0, H=0]  -- DEMOTED
-//       frame=5 c=1 totals=[E=1, S=0, H=0]  -- DEMOTED
-//       frame=6 c=2 totals=[E=1, S=1, H=0]  -- kept SWITCHABLE
-//       frame=7 c=2 totals=[E=4, S=35, H=0] -- kept SWITCHABLE
+//     frame=1 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED (libvpx c>=2)
+//     frame=3 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED
+//     frame=4 c=1 totals=[E=1, S=0, H=0]  -- DEMOTED
+//     frame=5 c=1 totals=[E=1, S=0, H=0]  -- DEMOTED
+//     frame=6 c=2 totals=[E=1, S=1, H=0]  -- kept SWITCHABLE
+//     frame=7 c=2 totals=[E=4, S=35, H=0] -- kept SWITCHABLE
 //
 //     Frame 1 fires switchable_interp count on only 2 inter blocks
 //     (vs libvpx, where the per-block filter sweep at vp9_pickmode.c:
