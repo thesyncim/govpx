@@ -485,6 +485,152 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// rdcost. The token-cost / cost_coeffs second-tier RD chain
 	// (task #151) is already in place; the remaining gap is at
 	// per-leaf pick, not at write-out.
+	//
+	// Progress notes (task #161 — compressed-header byte 1 bit-map audit):
+	//
+	// Per task #159 the compressed-header byte-0 (=0x7f) matches every
+	// seed but byte 1 diverges (govpx ∈ {0x9e, 0x9f}, libvpx ≡ 0x90).
+	// This task audits the libvpx vp9_bitstream.c:546-700 opening
+	// sequence + boolean-coder state and maps each input bit that
+	// arithmetic-codes into byte 1 of the compressed header.
+	//
+	// Bit-by-bit attribution (each entry is one vpx_write call, in
+	// emission order — boolean-coder mixes consecutive input bits into
+	// output bytes via the range / lowvalue / count carry, so the
+	// "byte 1" wire output is a function of ALL bits below up to the
+	// point the byte-flush fires inside vpx_write):
+	//
+	//   bit | libvpx site                       | prob | source
+	//   ----+-----------------------------------+------+--------------
+	//    0  | bitwriter.c:30 vpx_start_encode   |  128 | marker '0'
+	//    1  | vp9_bitstream.c:822 tx_mode lit   |  128 | (tx_mode>>1)&1
+	//    2  | vp9_bitstream.c:822 tx_mode lit   |  128 | tx_mode&1
+	//    3  | vp9_bitstream.c:824 tx_mode ext   |  128 | tx==SELECT
+	//   4-5 | vp9_bitstream.c:833-836 p8x8 cond_prob_diff_update
+	//        × TxSizeContexts (=2) — vp9_subexp.c:183 — emits 1 bit
+	//        at prob=252 per ctx (no-update path; update path emits
+	//        the same bit + 5..11 sub-exp bits via vp9_subexp.c:101
+	//        encode_term_subexp at prob=128).
+	//   6-9 | vp9_bitstream.c:839-843 p16x16 cond_prob_diff_update
+	//        × (TxSizeContexts × 2 branches = 4 slots) — same shape.
+	//  10-15| vp9_bitstream.c:846-850 p32x32 cond_prob_diff_update
+	//        × (TxSizeContexts × 3 branches = 6 slots) — same shape.
+	//   16  | vp9_bitstream.c:693 update_coef_probs (Tx4x4) enable
+	//        bit at prob=128 — either short-circuit (txTotals<=20 or
+	//        skipTx16Plus && tx>=Tx16x16) OR enters
+	//        update_coef_probs_common (vp9_bitstream.c:546).
+	//   17+ | vp9_bitstream.c:631-679 ONE_LOOP_REDUCED for Tx4x4 —
+	//        per-slot u-bit at prob=252 plus first-update sentinel
+	//        bit at prob=128 (line 661) + leading no-update run at
+	//        prob=252 (line 663) + sub-exp payload at prob=128 (line
+	//        668 → vp9_subexp.c:113).
+	//
+	// At realtime cpu=8 with tx_mode == TxModeSelect (forced by
+	// vp9_encoder.go:2650) and sf.tx_size_search_method == USE_TX_8X8
+	// (sf.UseFastCoefUpdates == OneLoopReduced, vp9_speed_features.c:611):
+	//
+	//   * Bits 0-3 (marker + tx_mode + extension) are constant per
+	//     seed — both encoders agree on these (uncompressed-header
+	//     audit at frame 0 byte parity confirms tx_mode plumbing).
+	//
+	//   * Bits 4-15 are the 12 tx_probs cond_prob_diff_update calls.
+	//     Each is a savings_search against counts->tx.p8x8/p16x16/
+	//     p32x32 (libvpx FRAME_COUNTS.tx). govpx's TxModeCounts (via
+	//     internal/vp9/encoder/tx_probs_counts.go:24-31) accumulates
+	//     the same shape; the per-block tx_size pick that feeds those
+	//     counters runs at vp9_encoder.go's nonrd / ml-partition leaf
+	//     commit. When the per-leaf tx_size pick diverges from libvpx
+	//     (per task #98 / #119 / #142 / #151 root cause: the
+	//     pickVP9InterTxSize variance-RDO is govpx-specific, NOT a
+	//     libvpx-verbatim port of calculate_tx_size), the tx_probs
+	//     counts in those 12 slots differ → the savings_search
+	//     produces different `s > 0` decisions on a different subset
+	//     of the 12 slots → the per-slot u-bit emitted via
+	//     vpx_write(..., 252) differs → arithmetic-coder state
+	//     diverges at the first such slot.
+	//
+	//   * Bit 16 (Tx4x4 update_coef_probs enable) — task #159's
+	//     CoefTxProbe walk confirmed txTotals[Tx4x4] matches libvpx
+	//     within ±2 every seed, so both sides agree this bit is
+	//     '1' (enters update_coef_probs_common) or both agree it is
+	//     '0' (short-circuit). NOT the divergence point.
+	//
+	//   * Bits 17+ (Tx4x4 ONE_LOOP_REDUCED per-slot bits) — these
+	//     depend on FrameCoefBranchStats[Tx4x4][i][j][k][l][m] which
+	//     comes from per-block WriteCoefBlock token branch recording
+	//     (coef_block.go:78-107). govpx's per-leaf quantization
+	//     output differs from libvpx (task #159 root cause), so the
+	//     branch counts differ → savings_search picks update on a
+	//     different (i,j,k,l,m) subset → the per-slot u-bit at
+	//     prob=252 diverges at the first such slot.
+	//
+	// Audit conclusion: the bitstream WRITER + savings_search ladder
+	// + sub-exp emit + boolean coder are libvpx-faithful end to end.
+	// Each of the following govpx files mirrors its libvpx counterpart
+	// line-by-line (verified under this task):
+	//
+	//   internal/vp9/bitstream/writer.go            <- vpx_dsp/bitwriter.{h,c}
+	//   internal/vp9/encoder/prob_update.go         <- vp9/encoder/vp9_subexp.c
+	//   internal/vp9/encoder/cost.go                <- vp9/encoder/vp9_cost.{h,c}
+	//   internal/vp9/encoder/tx_probs_counts.go     <- vp9_bitstream.c:819-853
+	//                                                  + vp9_entropymode.c:288-313
+	//   internal/vp9/encoder/coef_probs_counts.go   <- vp9_bitstream.c:546-700
+	//   internal/vp9/encoder/compressed_driver.go   <- vp9_bitstream.c:1331-1409
+	//
+	// The exact compressed-header BIT that diverges is the FIRST
+	// per-slot u-bit (vp9_subexp.c:191 vpx_write(w, 1, upd) or
+	// vp9_subexp.c:195 vpx_write(w, 0, upd) — both at prob=252)
+	// inside either:
+	//
+	//   (a) one of the 12 tx_probs cond_prob_diff_update calls
+	//       (vp9_bitstream.c:833-851), when govpx's per-frame
+	//       counts->tx.* histogram differs from libvpx's at that
+	//       slot, OR
+	//
+	//   (b) one of the per-slot u-bits inside Tx4x4
+	//       update_coef_probs_common ONE_LOOP_REDUCED
+	//       (vp9_bitstream.c:665 vpx_write(bc, u, upd)), when
+	//       govpx's FrameCoefBranchStats[Tx4x4] differs at that slot
+	//       from libvpx's frame_branch_ct[TX_4X4].
+	//
+	// Both (a) and (b) trace back to the same upstream root cause —
+	// per-leaf tx_size / MV / quantization picks diverge under the
+	// ML_BASED_PARTITION dispatch (task #98 closure path:
+	// vp9_pick_inter_mode port at vp9/encoder/vp9_pickmode.c:1696).
+	//
+	// Per-seed first_byte_diff (RefControl + RuntimeControls deferred
+	// seeds) at task #161 baseline — IDENTICAL to task #159; this
+	// audit lands no functional changes and no per-seed delta is
+	// expected:
+	//
+	//   RefControl (this file, vp9RefControlsSeedsDeferred):
+	//     #0 af5570f5    before=9  after=9
+	//     #1 b9af55f0    before=9  after=9
+	//     #2 fda5b6b4    before=9  after=9
+	//     #3 ffa55725    before=9  after=9
+	//     #4 8ec0abe5    before=9  after=9
+	//     #5 9c3e08e8    before=4  after=4
+	//     #6 5feceb66    before=9  after=9
+	//     #7 6b86b273    before=9  after=9
+	//     #8 d4735e3a    before=9  after=9
+	//     #9 7902699b    before=9  after=9
+	//
+	//   RuntimeControls (vp9_oracle_encoder_runtime_controls_fuzz_test.go,
+	//   vp9RuntimeControlsSeedsDeferred):
+	//     #0  before=9   after=9
+	//     #1  before=16  after=16
+	//     #2  before=9   after=9
+	//     #3  before=9   after=9
+	//     #4  before=4   after=4
+	//     #5  before=9   after=9
+	//     #6  before=9   after=9
+	//     #7  before=16  after=16
+	//     #8  before=4   after=4
+	//     #9  before=9   after=9
+	//
+	// (Baseline before/after counts mirror task #159 — task #161 is
+	// an audit landing no writer code changes; the closure path
+	// remains the vp9_pick_inter_mode port at vp9_pickmode.c:1696.)
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
