@@ -51,7 +51,7 @@ func applyARNRFilterForTest(t *testing.T, e *VP8Encoder, center []byte, back []b
 	}
 	cp := make([]byte, len(center))
 	copy(cp, center)
-	return e.applyARNRFilter(syntheticSource(e.opts.Width, e.opts.Height, cp), 0, distance)
+	return e.applyARNRFilter(syntheticSource(e.opts.Width, e.opts.Height, cp), distance)
 }
 
 // syntheticSource returns a SourceImage holding the given Y plane plus a

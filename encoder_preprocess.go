@@ -57,7 +57,7 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 	hiddenAltRefFrame := meta.internalInvisible &&
 		flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
 	if hiddenAltRefFrame && e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
-		if e.applyARNRFilter(src, flags, meta.arnrDistance) {
+		if e.applyARNRFilter(src, meta.arnrDistance) {
 			// The filtered output lives in `arnrScratch`, govpx's analogue
 			// of libvpx's `cpi->alt_ref_buffer`. Returning it here is the
 			// equivalent of libvpx's

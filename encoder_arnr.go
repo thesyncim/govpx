@@ -39,7 +39,7 @@ const maxARNRFrames = 15
 // libvpx fixed_divide reciprocal LUT - see arnrFixedDivide below - and
 // separate luma/chroma blocks with the 384-element per-MB scratch layout)
 // follows libvpx exactly.
-func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlags, distance int) bool {
+func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, distance int) bool {
 	maxFrames := min(e.opts.ARNRMaxFrames, maxARNRFrames)
 	if maxFrames <= 1 {
 		return false
@@ -56,14 +56,20 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlag
 	// buffer first so we have a stable read source and an output in the
 	// same place (libvpx writes filtered pixels into cpi->alt_ref_buffer).
 	copySourceToFrameBuffer(&e.arnrScratch, center)
-	// Whether the chroma planes participate matches the legacy gating
-	// (invisible alt-ref or strong filter strength). Luma always runs.
-	doChroma := flags&EncodeInvisibleFrame != 0 || e.opts.ARNRStrength > 4
+	// libvpx vp8_temporal_filter_iterate_c (vp8/encoder/temporal_filter.c
+	// :264-285) unconditionally applies the temporal filter to all three
+	// planes whenever filter_weight != 0. There is no chroma-skip gate in
+	// libvpx VP8: the alt-ref buffer's U and V are written by the per-MB
+	// normalization at :307-332 every time. Earlier govpx revisions
+	// carried a `doChroma := flags&EncodeInvisibleFrame != 0 ||
+	// ARNRStrength > 4` heuristic that skipped chroma; per task #233 and
+	// the libvpx-verbatim mandate that gate is removed, and chroma is
+	// always filtered to match vp8_temporal_filter_iterate_c byte-exactly.
 	refs, centerIdx, ok := e.arnrFilterRefs(distance, backward, forward)
 	if !ok {
 		return false
 	}
-	e.iterateTemporalFilter(center, strength, refs, centerIdx, doChroma)
+	e.iterateTemporalFilter(center, strength, refs, centerIdx)
 	e.arnrScratch.ExtendBorders()
 	return true
 }
@@ -171,8 +177,9 @@ func arnrViewFromSource(src vp8enc.SourceImage) arnrFrameView {
 // iterateTemporalFilter mirrors vp8_temporal_filter_iterate_c. It walks every
 // 16x16 luma macroblock (with colocated 8x8 chroma blocks) in the alt-ref
 // frame, picks per-frame filter weights by SAD-based error, and accumulates
-// libvpx's per-pixel weighted average across the included frames.
-func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength int, refs []arnrFrameView, centerIdx int, doChroma bool) {
+// libvpx's per-pixel weighted average across the included frames. libvpx
+// always processes Y + U + V on every MB; there is no chroma-skip gate.
+func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength int, refs []arnrFrameView, centerIdx int) {
 	mbCols := (center.Width + 15) >> 4
 	mbRows := (center.Height + 15) >> 4
 	// Bitwise OR is zero iff both are zero (mbCols/mbRows are non-
@@ -205,7 +212,9 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 		mbY := mbRow << 4
 		for mbCol := range mbCols {
 			mbX := mbCol << 4
-			processARNRMacroblock(&dst, refs, centerIdx, mbRow, mbCol, mbRows, mbCols, mbX, mbY, strength, doChroma, accumulator[:], count[:])
+			// libvpx VP8 unconditionally filters Y + U + V; always
+			// pass doChroma=true to match vp8_temporal_filter_iterate_c.
+			processARNRMacroblock(&dst, refs, centerIdx, mbRow, mbCol, mbRows, mbCols, mbX, mbY, strength, true, accumulator[:], count[:])
 		}
 	}
 }
@@ -213,6 +222,11 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 // processARNRMacroblock corresponds to the inner mb_col loop body in
 // vp8_temporal_filter_iterate_c: zero accumulators, search/weight every
 // reference, then normalize accumulator/count back into the output frame.
+// libvpx VP8 always processes Y + U + V on every MB (there is no chroma
+// gate in vp8_temporal_filter_iterate_c). The doChroma parameter exists
+// only for the shared VP9 16x16 fallback path (vp9_arnr.go), which is a
+// govpx-specific luma-only mode and intentionally non-libvpx-verbatim.
+// All VP8 callers MUST pass doChroma=true to match libvpx exactly.
 func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32) {
 	// Caller passes 384-element arrays for both accumulator and count.
 	// Pin both to len 384 with full cap so subsequent sub-slice exprs
@@ -226,12 +240,14 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 		count[i] = 0
 	}
 
-	// Pull the source 16x16 luma block (and 8x8 chroma blocks if they
-	// will be filtered) into contiguous scratch arrays so SAD and the
-	// per-pixel apply step both see a clean 16-byte stride. libvpx
-	// avoids this copy because cpi->frames[alt_ref_index] is stored in
-	// a contiguous YV12 buffer; for govpx this keeps the math identical
-	// while accommodating arbitrary input strides.
+	// Pull the source 16x16 luma block and 8x8 chroma blocks into
+	// contiguous scratch arrays so SAD and the per-pixel apply step both
+	// see a clean 16-byte stride. libvpx avoids this copy because
+	// cpi->frames[alt_ref_index] is stored in a contiguous YV12 buffer;
+	// for govpx this keeps the math identical while accommodating
+	// arbitrary input strides. libvpx vp8_temporal_filter_iterate_c
+	// always processes Y + U + V on every MB (there is no chroma gate);
+	// only the VP9 luma-only fallback may set doChroma=false.
 	var srcY [256]byte
 	gatherBlock(srcY[:], 16, dst.y, dst.yStride, mbX, mbY, dst.width, dst.height, 16)
 	mbUVX := mbX >> 1
@@ -292,7 +308,9 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 			// libvpx's vp8_temporal_filter_predictors_mb_c does
 			// `mv_row >>= 1; mv_col >>= 1;` on the 1/8-pel MV
 			// then dispatches subpixel_predict8x8 with
-			// (mv_col & 7, mv_row & 7).
+			// (mv_col & 7, mv_row & 7). VP8 always processes U + V
+			// whenever filter_weight != 0; VP9's luma-only fallback
+			// is the only path that may skip this branch.
 			mvSubUVX := mvSubX >> 1
 			mvSubUVY := mvSubY >> 1
 			var predU, predV [64]byte
