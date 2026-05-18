@@ -290,3 +290,131 @@ func TestInterHeaderRoundTripWithSizeMatch(t *testing.T) {
 		t.Errorf("InterpFilter = %d, want Switchable", got.InterpFilter)
 	}
 }
+
+// TestWriteFrameSizeWithRefsCascadeBitExact pins the exact bit sequence
+// writeFrameSizeWithRefs emits across the three per-slot "found" outcomes
+// libvpx supports (write_frame_size_with_refs at vp9/encoder/vp9_bitstream.c:
+// 1180-1212):
+//
+//   - slot 0 matches: emits a single 1 bit, breaks (no further found bits,
+//     no explicit width/height literal).
+//
+//   - slot 1 matches: emits 0, then 1, breaks. No explicit literal.
+//
+//   - slot 2 matches: emits 0, 0, then 1. No explicit literal.
+//
+//   - no slot matches: emits 0, 0, 0 followed by the 16-bit width-1 and
+//     16-bit height-1 literals.
+//
+// The libvpx loop terminates on the first found and never emits the
+// remaining cascade bits (vp9_bitstream.c:1201-1203). Each row below pins
+// the encoded prefix so a future refactor cannot accidentally re-introduce
+// a "remaining zero bits" emit (which would silently shift the inter
+// header by 1-2 bits and desynchronise every byte from refDims forward).
+func TestWriteFrameSizeWithRefsCascadeBitExact(t *testing.T) {
+	const (
+		width  = 320
+		height = 240
+	)
+
+	header := func() vp9dec.UncompressedHeader {
+		h := vp9dec.UncompressedHeader{
+			Width:  width,
+			Height: height,
+		}
+		// Render = (Width, Height) → render_size emits a single 0 bit.
+		h.Render = vp9dec.RenderSize{Width: width, Height: height}
+		return h
+	}
+
+	mkRefDims := func(matchSlot int) func(uint8) (uint32, uint32) {
+		return func(slot uint8) (uint32, uint32) {
+			if int(slot) == matchSlot {
+				return width, height
+			}
+			return 640, 480
+		}
+	}
+
+	bitPrefix := func(buf []byte, nbits int) string {
+		out := make([]byte, nbits)
+		for i := range nbits {
+			byteIdx := i / 8
+			bitIdx := 7 - (i % 8)
+			if buf[byteIdx]&(1<<bitIdx) != 0 {
+				out[i] = '1'
+			} else {
+				out[i] = '0'
+			}
+		}
+		return string(out)
+	}
+
+	cases := []struct {
+		name      string
+		matchSlot int
+		// wantPrefix is the exact bit sequence emitted by
+		// writeFrameSizeWithRefs (excluding the trailing render_size
+		// bit which is always 0 in these cases).
+		wantPrefix string
+		// wantBits is the total bit count writeFrameSizeWithRefs
+		// emits including the render_size bit.
+		wantBits int
+	}{
+		// matched on slot 0: 1 + render_size(0) = 2 bits total.
+		{"match_slot0", 0, "1", 2},
+		// matched on slot 1: 0,1 + render_size(0) = 3 bits.
+		{"match_slot1", 1, "01", 3},
+		// matched on slot 2: 0,0,1 + render_size(0) = 4 bits.
+		{"match_slot2", 2, "001", 4},
+		// no match: 0,0,0 + 16-bit width-1 + 16-bit height-1 +
+		// render_size(0) = 3 + 16 + 16 + 1 = 36 bits.
+		{"no_match", -1, "000", 36},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := header()
+			// Use distinct ref indices per slot so refDims is
+			// keyed by slot, not by ref index.
+			h.InterRef.RefIndex = [3]uint8{0, 1, 2}
+			h.InterRef.SignBias = [3]uint8{0, 0, 0}
+
+			var buf [16]byte
+			w := NewBitWriter(buf[:])
+			writeFrameSizeWithRefs(w, &h, mkRefDims(tc.matchSlot))
+			gotBits := w.BitsWritten()
+			if gotBits != tc.wantBits {
+				t.Fatalf("BitsWritten = %d, want %d (prefix=%q)",
+					gotBits, tc.wantBits, bitPrefix(buf[:], gotBits))
+			}
+			got := bitPrefix(buf[:], len(tc.wantPrefix))
+			if got != tc.wantPrefix {
+				t.Errorf("found-cascade prefix = %q, want %q (full=%q)",
+					got, tc.wantPrefix, bitPrefix(buf[:], gotBits))
+			}
+		})
+	}
+}
+
+// TestWriteFrameSizeWithRefsNilCallbackEmitsZeros guards the
+// refDims==nil path: govpx skips the dimension comparison when the
+// caller hasn't supplied a refDims hook, which is functionally
+// equivalent to libvpx's "every cfg is NULL, found stays 0" case
+// (vp9_bitstream.c:1186-1199). The result must be 3 zero bits and
+// then the explicit (width-1, height-1) literals.
+func TestWriteFrameSizeWithRefsNilCallbackEmitsZeros(t *testing.T) {
+	h := vp9dec.UncompressedHeader{Width: 320, Height: 240}
+	h.Render = vp9dec.RenderSize{Width: 320, Height: 240}
+
+	var buf [16]byte
+	w := NewBitWriter(buf[:])
+	writeFrameSizeWithRefs(w, &h, nil)
+	// 3 found=0 bits + 16-bit width-1 + 16-bit height-1 + 1
+	// render_size bit = 36 bits.
+	if got := w.BitsWritten(); got != 36 {
+		t.Fatalf("BitsWritten = %d, want 36", got)
+	}
+	if buf[0]&0xe0 != 0 {
+		t.Errorf("first three bits = %#x, want 0", buf[0]&0xe0)
+	}
+}

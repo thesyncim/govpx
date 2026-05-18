@@ -156,11 +156,35 @@ func writeUncompressedHeaderInter(w *BitWriter, h *vp9dec.UncompressedHeader,
 	return w.BytesWritten()
 }
 
-// writeFrameSizeWithRefs mirrors write_frame_size_with_refs.
+// writeFrameSizeWithRefs mirrors write_frame_size_with_refs
+// (libvpx v1.16.0 vp9/encoder/vp9_bitstream.c:1180-1212).
 // Walks the three ref slots, writing a 1-bit "found" flag per slot
 // (set when the ref dims match the current frame). The first set
 // flag wins; subsequent flags emit 0. If no flag sets, the explicit
 // (width-1, height-1) literals follow, then the render-flag bit.
+//
+// Task #167 audit: this routine was confirmed byte-exact with libvpx
+// for the RefControl seed #5 (9c3e08e8) byte-4 divergence — the
+// fuzz fixture has frame dims = LAST ref dims, so iteration 0 emits
+// a single 1 bit and breaks (matching libvpx). The proximate byte-4
+// divergence is bit 33 (write_interp_filter, vp9_bitstream.c:855-862,
+// filter demoted by fix_interp_filter from per-block switchable_interp
+// counts), the same root cause attributed by task #156 for the
+// RuntimeControls seed #8 case. The bit cascades are pinned by
+// TestWriteFrameSizeWithRefsCascadeBitExact in header_writer_test.go.
+//
+// Differences from libvpx that are intentional / structurally
+// equivalent (no observable wire effect under any sane encode):
+//
+//   - The SVC-fallback branch (vp9_bitstream.c:1189-1195) is omitted
+//     because govpx does not yet support SVC; when SVC lands the
+//     branch must be ported verbatim.
+//
+//   - The refDims==nil path treats every slot as "no buffer" (mirrors
+//     libvpx's cfg==NULL case where found retains its prior 0 value);
+//     all three found bits are 0 and the explicit literal follows.
+//     Production callers always supply a non-nil refDims so the
+//     branch is exercised only by unit tests / safety fallbacks.
 func writeFrameSizeWithRefs(w *BitWriter, h *vp9dec.UncompressedHeader,
 	refDims func(slot uint8) (uint32, uint32),
 ) {
