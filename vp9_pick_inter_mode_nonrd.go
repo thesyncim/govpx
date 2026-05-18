@@ -388,6 +388,41 @@ func vp9CopyPredRectFromScratch(dst []byte, dstStride, x, y, w, h int,
 	}
 }
 
+func (e *VP9Encoder) vp9NonrdPredMVSAD(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
+) (uint64, bool) {
+	if inter == nil || inter.img == nil || inter.ref == nil || !inter.ref.valid {
+		return 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	if len(src) == 0 || srcStride <= 0 {
+		return 0, false
+	}
+	ref, refStride, refOriginX, refOriginY, _, _, ok :=
+		e.vp9SubpelReferencePlane(refFrame, inter.ref)
+	if !ok || len(ref) == 0 || refStride <= 0 {
+		return 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0 < 0 || y0 < 0 || x0+blockW > srcW || y0+blockH > srcH {
+		return 0, false
+	}
+	fpRow := int(mv.Row) >> 3
+	fpCol := int(mv.Col) >> 3
+	refX := refOriginX + x0 + fpCol
+	refY := refOriginY + y0 + fpRow
+	refRows := len(ref) / refStride
+	if refX < 0 || refY < 0 || refX+blockW > refStride || refY+blockH > refRows {
+		return 0, false
+	}
+	return vp9BlockSADOffsets(src, y0*srcStride+x0, srcStride,
+		ref, refY*refStride+refX, refStride, blockW, blockH,
+		^uint64(0)), true
+}
+
 func vp9NonrdModeRDThresh(qindex int, bsize common.BlockSize,
 	refFrame int8, mode common.PredictionMode, adaptiveRDThresh int,
 	bestModeSkipTxfm bool, biasGolden bool, framesSinceGolden int,
@@ -674,6 +709,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			maxUsableRef = vp9dec.LastFrame
 		}
 	}
+	forceSkipLowTempVar := e.vp9VarPartForceSkipLowTempVar(miCols, miRow,
+		miCol, bsize)
+	if e.sf.ShortCircuitLowTempVar != 0 && forceSkipLowTempVar &&
+		(e.sf.ShortCircuitLowTempVar == 1 || e.sf.ShortCircuitLowTempVar == 3) {
+		maxUsableRef = vp9dec.LastFrame
+	}
+	useGoldenNonzeromv := refSlotValid[vp9dec.GoldenFrame] && !forceSkipLowTempVar
 
 	// libvpx: vp9_pickmode.c:2204-2228 — sf->reference_masking gate.
 	// libvpx's pred_mv_sad[ref] is the best SAD across the per-ref MV
@@ -1054,35 +1096,36 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// the same 2x threshold here. The mask is sticky across
 		// subsequent (ref, mode) iterations: once ref is skipped, all
 		// modes for that ref are skipped.
-		if e.sf.ReferenceMasking != 0 && refFrame > vp9dec.LastFrame &&
-			!(thisMode == common.ZeroMv && refFrame == vp9dec.LastFrame) {
-			if refFrame < vp9dec.AltrefFrame {
-				// LAST vs GOLDEN. libvpx: vp9_pickmode.c:2208-2214.
-				other := int8(vp9dec.LastFrame)
-				if refFrame == vp9dec.LastFrame {
-					other = vp9dec.GoldenFrame
+		frameMvZero := thisMode == common.ZeroMv ||
+			(frameMvValid[thisMode][refFrame] &&
+				frameMv[thisMode][refFrame] == (vp9dec.MV{}))
+		if e.sf.ReferenceMasking != 0 &&
+			!(frameMvZero && refFrame == vp9dec.LastFrame) {
+			if maxUsableRef < vp9dec.AltrefFrame {
+				if !forceSkipLowTempVar && maxUsableRef > vp9dec.LastFrame {
+					other := int8(vp9dec.LastFrame)
+					if refFrame == vp9dec.LastFrame {
+						other = vp9dec.GoldenFrame
+					}
+					if refSlotValid[other] &&
+						predMvSad[refFrame] > predMvSad[other]<<1 {
+						refFrameSkipMask |= 1 << uint(refFrame)
+					}
 				}
-				if refSlotValid[other] &&
-					predMvSad[refFrame] > predMvSad[other]<<1 {
-					refFrameSkipMask |= 1 << uint(refFrame)
-				}
-			} else {
-				// ALTREF. libvpx: vp9_pickmode.c:2215-2225.
-				ref1 := int8(vp9dec.LastFrame)
+			} else if !e.rc.isSrcFrameAltRef &&
+				!(frameMvZero && refFrame == vp9dec.AltrefFrame) {
+				ref1 := int8(vp9dec.GoldenFrame)
 				if refFrame == vp9dec.GoldenFrame {
-					ref1 = vp9dec.GoldenFrame
+					ref1 = vp9dec.LastFrame
 				}
-				ref2 := int8(vp9dec.LastFrame)
+				ref2 := int8(vp9dec.AltrefFrame)
 				if refFrame == vp9dec.AltrefFrame {
-					ref2 = vp9dec.AltrefFrame
+					ref2 = vp9dec.LastFrame
 				}
-				_ = ref1
-				_ = ref2
-				if refSlotValid[vp9dec.LastFrame] &&
-					predMvSad[refFrame] > predMvSad[vp9dec.LastFrame]<<1 {
-					refFrameSkipMask |= 1 << uint(refFrame)
-				} else if refSlotValid[vp9dec.GoldenFrame] &&
-					predMvSad[refFrame] > predMvSad[vp9dec.GoldenFrame]<<1 {
+				if (refSlotValid[ref1] &&
+					predMvSad[refFrame] > predMvSad[ref1]<<1) ||
+					(refSlotValid[ref2] &&
+						predMvSad[refFrame] > predMvSad[ref2]<<1) {
 					refFrameSkipMask |= 1 << uint(refFrame)
 				}
 			}
@@ -1237,6 +1280,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			frameMvValid[common.NewMv][refFrame] = true
 			if refMvValid {
 				refMv = refMvOpt
+			}
+			if useGoldenNonzeromv && refFrame == vp9dec.LastFrame {
+				if sad, ok := e.vp9NonrdPredMVSAD(inter, miRow, miCol,
+					bsize, refFrame, mv); ok {
+					predMvSad[vp9dec.LastFrame] = sad
+				}
 			}
 		} else if thisMode == common.NearestMv || thisMode == common.NearMv {
 			// libvpx: vp9_pickmode.c:2302 — mi->mv[0] is set from
@@ -1871,8 +1920,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// in. The gate matches the other Phase E opt-in entries
 	// (model_rd_for_sb_y substrate, pred_mv_sad candidate-set SAD).
 	if vp9NonrdPickPartitionEnabled() {
-		forceSkipLowTempVar := e.vp9VarPartForceSkipLowTempVar(miCols, miRow,
-			miCol, bsize)
 		bestInterScore := uint64(^uint64(0) >> 1)
 		if bestSet {
 			bestInterScore = best.score
