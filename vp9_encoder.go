@@ -2562,6 +2562,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		refreshFlags)
 	e.rc.preEncodeFrame(showFrame)
 	e.vp9TwoPassFrameTarget = 0
+	e.vp9UpdateNoiseEstimate(img, miRows, miCols, isKey || intraOnly)
 	if !isKey && !intraOnly && showFrame {
 		dropReason, dropFrame := e.rc.testDropInterFrame()
 		if dropFrame {
