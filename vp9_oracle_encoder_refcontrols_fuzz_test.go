@@ -356,6 +356,135 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//     RefControl aggregate size_delta improves from +858 to +446
 	//     bytes (avg +44B/seed) with the same 10/70 frame byte-match
 	//     count. Seed 9c3e08e8 moves from +292 to -120.
+	//
+	// Progress notes (task #159 — byte-9 cluster attribution):
+	//
+	// Re-measurement under both gates (GOVPX_VP9_NONRD_PICK_PARTITION=1
+	// + GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1) confirms the #151
+	// baseline holds verbatim: aggregate +446 / avg +44B/seed,
+	// PASS=0/10 FAIL=10/10. Per-seed (first_mismatch_frame=1 every
+	// seed; libvpx_first_partition_size_delta in []):
+	//
+	//   #0 af5570f5 first_byte_diff=9  size_delta=+44  comp_size_delta=[+17]
+	//   #1 b9af55f0 first_byte_diff=9  size_delta=+71  comp_size_delta=[+17]
+	//   #2 fda5b6b4 first_byte_diff=9  size_delta=+295 comp_size_delta=[+17]
+	//   #3 ffa55725 first_byte_diff=9  size_delta=+233 comp_size_delta=[+17]
+	//   #4 8ec0abe5 first_byte_diff=9  size_delta=+132 comp_size_delta=[+17]
+	//   #5 9c3e08e8 first_byte_diff=4  size_delta=-120 comp_size_delta=[+27]
+	//   #6 5feceb66 first_byte_diff=9  size_delta=-138 comp_size_delta=[+17]
+	//   #7 6b86b273 first_byte_diff=9  size_delta=+48  comp_size_delta=[+1]
+	//   #8 d4735e3a first_byte_diff=9  size_delta=-179 comp_size_delta=[+1]
+	//   #9 7902699b first_byte_diff=9  size_delta=+60  comp_size_delta=[+17]
+	//
+	// (govpx FirstPartitionSize - libvpx FirstPartitionSize, frame 1
+	// only — frame 0 is byte-exact every seed.)
+	//
+	// Per-seed per-section byte attribution inside the compressed
+	// header (govpx bw.Pos() snapshots at each WriteCompressedHeader
+	// sub-section; libvpx total in parentheses):
+	//
+	//   * 9 of 10 seeds (all but #5) diverge at byte 9 of the inter
+	//     frame, which is the FirstPartitionSize literal at the tail
+	//     of the 10-byte uncompressed header. The uncompressed
+	//     header itself is byte-exact across bytes 0-8 (10 bytes
+	//     verified, frame_marker / profile / reset / refresh-flags /
+	//     ref-index+sign-bias / found / render / interp / refresh /
+	//     frame_parallel / frame_context_idx / loopfilter / quant /
+	//     segmentation / tile_info all match libvpx wire-bits).
+	//
+	//   * Compressed header byte 0 = 0x7f matches govpx and libvpx
+	//     on every seed. The first compressed-header byte holding a
+	//     real divergence is byte 1 (govpx ∈ {0x9e, 0x9f}, libvpx
+	//     ≡ 0x90) — pure arithmetic-coder state divergence after
+	//     ~8 bits of agreement.
+	//
+	//   * Per-section bw.Pos() walk (frame 1 of each seed under both
+	//     gates ON, sourced from CompressedHeaderProbe in
+	//     internal/vp9/encoder/compressed_driver.go):
+	//
+	//       seed  after_txmode after_coef after_skip after_intermode after_nmv (=total)
+	//        #0      0           34         34         34              41
+	//        #1      0           85         87         88              98
+	//        #2      0           85         87         88              98
+	//        #3      0           85         87         88              98
+	//        #4      0           34         34         34              41
+	//        #5      0           93         94         94             106
+	//        #6      0           85         87         88              98
+	//        #7      0           55         55         55              65
+	//        #8      0           55         55         55              65
+	//        #9      0           34         34         34              41
+	//
+	//     Every Pos delta between (after_coef - after_txmode) is the
+	//     coef section's own byte length in govpx. Libvpx writes its
+	//     ENTIRE compressed header in roughly the same byte count as
+	//     govpx's coef section alone (#0/#4/#9 = 28 vs govpx 34;
+	//     #1/#2/#3/#6 = 85 vs govpx 85; #5 = 83 vs govpx 93; #7/#8
+	//     = 68 vs govpx 55). The +17 byte excess on the byte-9
+	//     cluster (and +1 on seeds #7/#8, +27 on seed #5) is
+	//     attributable entirely to the coef section payload — the
+	//     post-coef sections (skip / intermode / interp / intrainter /
+	//     refmode / ymode / partition / nmv) sum to ~7-13 bytes in
+	//     both encoders.
+	//
+	//   * Per-tx-size gate walk via CoefTxProbe (txTotals identical
+	//     across seeds modulo +/-2):
+	//
+	//       seed  txTotals=[4x4 8x8 16x16 32x32]
+	//        #0   [100 28  0  0]
+	//        #1   [101 27  0  0]
+	//        #5   [102 26  0  0]
+	//        #7   [100 28  0  0]
+	//
+	//     Tx16x16 / Tx32x32 hit `skipTx16Plus` gate (USE_TX_8X8 from
+	//     vp9_speed_features.c:581 at speed=8 non-key) — 1 zero bit
+	//     each. Tx4x4 + Tx8x8 walk the update_coef_probs_common
+	//     TWO_LOOP body. The +17 byte excess lives inside that body.
+	//
+	// Diagnosis: the coef section payload size is a function of the
+	// per-frame `Counts.CoefBranchStats[tx][i][j][k][l][m][b]`
+	// distribution govpx accumulates during tile encoding
+	// (internal/vp9/encoder/coef_block.go:78-107 records EOB / ZERO /
+	// pivot / unconstrained branches per block as each transform
+	// block is emitted). update_coef_probs_common runs
+	// vp9_prob_diff_update_savings_search against those branch counts
+	// vs the entering coef_probs row to decide which (band, ctx, node)
+	// slots emit an update bit-with-payload vs a no-update bit. When
+	// govpx and libvpx accumulate different branch distributions for
+	// the SAME (tx, plane, ref, band, ctx) bucket the savings search
+	// fires on different slots, producing a longer / shorter coef
+	// payload. Both writers use libvpx-faithful entropy code (the
+	// savings_search ladder, prob_diff_update emit, and the gate
+	// predicates were re-audited under this task and match libvpx
+	// vp9_bitstream.c:546-700 verbatim — see
+	// CompressedHeaderProbe / CoefTxProbe wired through
+	// WriteCompressedHeaderFromCounts /
+	// WriteCoefProbsFromCounts).
+	//
+	// Root cause (verbatim from task #98 / #142 / #151 follow-up):
+	// govpx and libvpx pick different per-leaf MV / tx_size /
+	// interp_filter / quantization for the same ML_BASED_PARTITION
+	// tree, which yields different per-block residual coefficients,
+	// which yields different per-tx-size token-tree branch counts.
+	// txTotals[tx_size] (the per-frame block-count totals that gate
+	// the update enable bit) DOES match libvpx within ±2 across
+	// seeds, so the partition + tx-size pick layout is in agreement;
+	// the divergence lives one level down at the per-block residual
+	// quantization output that feeds WriteCoefBlock's branch-count
+	// recorder.
+	//
+	// Verbatim closure path (negative finding — this task cannot
+	// close any seed at the bitstream-writer level): port libvpx
+	// vp9_pick_inter_mode (libvpx vp9/encoder/vp9_pickmode.c:1696,
+	// ~4000 LOC) so the per-leaf RD picks under nonrd_pick_partition
+	// match libvpx byte-exactly. The block_yrd /
+	// model_rd_for_sb_y / encode_breakout_test branches at
+	// vp9_pickmode.c:942-1696 are the unblocked sub-pieces; their
+	// govpx mirrors at pickVP9InterReferenceModeNonRD
+	// (vp9_pick_inter_mode_nonrd.go:174) are partial and currently
+	// run a govpx-specific cost ladder that diverges from libvpx's
+	// rdcost. The token-cost / cost_coeffs second-tier RD chain
+	// (task #151) is already in place; the remaining gap is at
+	// per-leaf pick, not at write-out.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {

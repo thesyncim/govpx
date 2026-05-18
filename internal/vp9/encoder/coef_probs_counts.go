@@ -51,12 +51,25 @@ func WriteCoefProbsFromCounts(bw *bitstream.Writer,
 		max = common.TxModeToBiggestTxSize[txMode]
 	}
 	for tx := common.Tx4x4; tx <= max; tx++ {
-		if (txTotals != nil && txTotals[tx] <= 20) ||
-			(skipTx16Plus && tx >= common.Tx16x16) {
+		gateClosed := (txTotals != nil && txTotals[tx] <= 20) ||
+			(skipTx16Plus && tx >= common.Tx16x16)
+		probeCoefTx(tx, txTotals, gateClosed, bw.Pos())
+		if gateClosed {
 			bw.WriteBit(0)
 			continue
 		}
 		updateCoefProbsTxSize(bw, &probs[tx], &counts[tx], stepsize, mode)
+	}
+}
+
+// CoefTxProbe optionally observes per-tx-size gate evaluation in
+// WriteCoefProbsFromCounts. Tests set this to attribute coef-section
+// growth to a specific tx_size. Production leaves it nil.
+var CoefTxProbe func(tx common.TxSize, txTotals *[common.TxSizes]uint32, gateClosed bool, pos int)
+
+func probeCoefTx(tx common.TxSize, txTotals *[common.TxSizes]uint32, gateClosed bool, pos int) {
+	if CoefTxProbe != nil {
+		CoefTxProbe(tx, txTotals, gateClosed, pos)
 	}
 }
 

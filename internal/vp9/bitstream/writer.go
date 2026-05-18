@@ -122,6 +122,13 @@ func (w *Writer) Stop() (int, error) {
 	return int(w.pos), nil
 }
 
+// Pos returns the number of fully-emitted bytes so far. This is an
+// approximate progress marker only — the boolean coder buffers bits in
+// (lowValue, count) that have not been emitted yet. Intended for
+// diagnostic probes that want to attribute output growth to a specific
+// writer call site (e.g. CompressedHeaderProbe in the encoder package).
+func (w *Writer) Pos() int { return int(w.pos) }
+
 // ErrBufferOverflow is returned by Stop when the destination buffer
 // passed to Start was too small to hold the encoded payload.
 var ErrBufferOverflow = errBufferOverflow{}
