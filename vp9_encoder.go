@@ -12174,16 +12174,14 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	allFilters := vp9InterInterpFilterCandidates(inter)
 	// libvpx: vp9/encoder/vp9_speed_features.c — sf->disable_filter_search_var_thresh
 	// prunes non-EIGHTTAP filters when source variance falls below the
-	// threshold.  govpx approximates "source variance" with the visible
-	// ZEROMV reference-distortion per pixel which monotonically tracks
-	// libvpx's per-block VARIANCE for ZEROMV — the same quantity its
-	// realtime path uses for the same gate.  Gated by the SF value > 0
-	// so speeds where the SF is zero stay on the slow-path filter search
-	// (no slice reslice, no variance math).
+	// threshold.  Mirror libvpx's source-only luma variance, not the
+	// zero-motion reference error: a flat source block should skip extra
+	// filter search even when the current reference is a poor predictor.
 	if e.sf.DisableFilterSearchVarThresh > 0 && scoreW > 0 && scoreH > 0 &&
 		len(allFilters) > 1 {
-		perPixel := uint(zeroDistortion / uint64(scoreW*scoreH))
-		if e.vp9InterSkipFilterSearch(perPixel) {
+		sourceVariance := vp9SourceVarianceAreaPerPixel(src, srcStride,
+			x0, y0, scoreW, scoreH)
+		if e.vp9InterSkipFilterSearch(sourceVariance) {
 			allFilters = allFilters[:1]
 		}
 	}
@@ -14066,6 +14064,15 @@ func vp9BlockSourceVariance128(src []byte, srcStride int, srcX, srcY, w, h int) 
 		return 0
 	}
 	return sse - meanSquares
+}
+
+func vp9SourceVarianceAreaPerPixel(src []byte, srcStride int, srcX, srcY, w, h int) uint {
+	if w <= 0 || h <= 0 {
+		return 0
+	}
+	variance := vp9BlockSourceVariance128(src, srcStride, srcX, srcY, w, h)
+	pixels := uint64(w * h)
+	return uint((variance + (pixels >> 1)) / pixels)
 }
 
 func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,
