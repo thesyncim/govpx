@@ -321,11 +321,49 @@ import (
 //     The remaining divergence is the per-block keyframe tx_size RD
 //     search gap (vp9_rdopt.c:3950+ choose_tx_size_from_rd cost_coeffs
 //     rate proxy) plus the speed-4 compressed-header coef-update walk;
-//     frame 0 KF diverges at got_len=5890 want_len=5483 first_diff=16,
+//     frame 0 KF diverges at got_len=5801 want_len=5483 first_diff=17,
 //     frame 1 (the second KF) at first_diff=16, inter frames 2-5 at
 //     first_diff=[9,3,3,3]. Same handoff family as seeds #2 / #3 (wider
 //     dim + cpu>=4 RT speed compressed-header subset); do NOT close
 //     until those close.
+//
+//     Task #168 byte-17 attribution (TestVP9Seed9Byte17Diag): frame 0
+//     bytes 0-16 are byte-exact; byte 17 = 0x00 in govpx, 0x10 in
+//     libvpx (xor 0x10 = stream bit 139). Bit accounting for a 128x64
+//     KF profile-0 with default loopfilter deltas (RefDeltas
+//     [1,0,-1,-1], ModeDeltas [0,0]), filter_level=3, base_qindex=74,
+//     and seg.enabled=0 places the 16-bit first_partition_size
+//     literal (libvpx vp9/encoder/vp9_bitstream.c:1441 pack_bitstream
+//     back-patched saved_wb / govpx
+//     internal/vp9/encoder/header_writer.go:155
+//     WriteLiteral(FirstPartitionSize, 16)) at stream bits 124-139,
+//     so bit 139 is the LSB of that 16-bit literal. govpx writes
+//     compressed_hdr_size=128 (0x0080); libvpx writes 129 (0x0081).
+//     uncompressed_hdr_size = ceil(140/8) = 18 bytes in both. Total
+//     frame size_delta=+318B (5801 vs 5483) is dominated by the
+//     encoded token stream that follows — both flow from the same
+//     upstream gap.
+//
+//     Closure path: the 1-byte compressed_hdr_size delta is downstream
+//     of the same per-leaf RD pick / branch-count distribution chain
+//     that drives the byte-9 cluster on the RefControl deferred seeds
+//     (see RefControl byte-9 cluster attribution in
+//     vp9_oracle_encoder_refcontrols_fuzz_test.go). The
+//     uncompressed-header writer
+//     (internal/vp9/encoder/header_writer.go:217 keyframe path and
+//     :155 first_partition_size literal) is verbatim libvpx
+//     vp9_bitstream.c:1258-1329 + :1441-1460. Task #168 confirms NO
+//     writer-level divergence at byte 17: byte 17 is a SHIFTED
+//     OBSERVATION of the byte-9 / byte-16 cluster — the
+//     first_partition_size literal lands on different byte boundaries
+//     depending on the surrounding uncompressed-header bit budget
+//     (128x64 + filter_level=3 + base_qindex=74 in seed #9 pushes the
+//     literal LSB into byte 17 bit 3 instead of byte 16 bit 3 as seen
+//     on seeds #1/#5/#7).
+//
+//     Negative finding for byte-17 closure: no port lands here without
+//     first closing the cost_coeffs RD chain at the per-leaf picker.
+//     Same upstream handoff as the byte-9 / byte-16 cluster.
 //
 // Re-measurement under
 // GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
