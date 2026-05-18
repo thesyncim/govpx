@@ -193,6 +193,21 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// non-stale act_zbin_adj (rdopt.c:1930 vp8_update_zbin_extra runs
 	// inside the inter candidate loop only when zbin_mode_boost_enabled
 	// is true) — future inter-side ports will tighten that residual.
+	//
+	// Task #274 re-measurement: PIN HOLDS at govpx=6116 / libvpx=6121
+	// (-5 bytes). First_partition_size is identical (2264 vs 2264) and
+	// the per-MB activity quartet (mb_activity, act_zbin_adj=2, rdmult,
+	// activity_avg) matches libvpx for every MB on frame 1 at threads=1
+	// (vp8_task210_mb_activity_tracer_test.go probe). All accepted-mode
+	// fields (mode, ref_frame, mv_row, mv_col, skip) for frame 1's MB(0,0)
+	// also match (NEWMV/LAST_FRAME, MV=(8,16), mb_rate=20474). The
+	// residual lives in the token (second) partition, not headers. The
+	// libvpx-port direction remains: mirror libvpx encodeframe.c:1191-1243
+	// post-pick adjust_act_zbin + vp8_update_zbin_extra refresh path so
+	// the accepted-mode quantize sees the post-pick-mode zbin_mode_boost
+	// applied to the same activity-masked act_zbin_adj govpx already
+	// computes. Until that port lands, the -5/-6 byte delta is the
+	// expected steady-state for this cohort.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463

@@ -43,10 +43,7 @@ func (e *VP9Encoder) vp9SceneDetectionOnePass(src *image.YCbCr,
 	if e.rc.mode == RateControlVBR {
 		thresh = 2.1
 	}
-	refThresh := uint64(float64(e.rc.avgSourceSAD[0]) * thresh)
-	if refThresh < minThresh {
-		refThresh = minThresh
-	}
+	refThresh := max(uint64(float64(e.rc.avgSourceSAD[0])*thresh), minThresh)
 	if avgSAD > refThresh &&
 		e.rc.framesSinceKey > 2 &&
 		zeroTemp < 3*(samples>>2) {

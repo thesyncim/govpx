@@ -182,6 +182,16 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// zbin_extra inside the candidate loop only when
 	// zbin_mode_boost_enabled is true at rdopt.c:1913-1930) — future
 	// inter-side ports will tighten that residual.
+	//
+	// Task #274 re-measurement: PIN HOLDS at govpx=6128 / libvpx=6134
+	// (-6 bytes). First_partition_size identical (2169 vs 2169), KF
+	// byte-identical. Frame-1 divergence remains confined to the token
+	// (second) partition, mirroring the Best/19981bff sibling cohort.
+	// The libvpx-port direction remains the post-pick
+	// encodeframe.c:1191-1243 adjust_act_zbin + vp8_update_zbin_extra
+	// refresh, which keeps b->zbin_extra in sync with the FINAL picked
+	// mode's zbin_mode_boost; pending that port the -6-byte delta is
+	// the expected steady-state for this cohort.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
