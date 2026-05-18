@@ -5805,10 +5805,17 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// already-recursive write walker without a separate PC_TREE substrate.
 	// Forced-edge splits (libvpx vp9_encodeframe.c:4617-4626) are honoured
 	// by vp9NonrdPickPartition for trailing rows/cols at the frame edge.
-	// On the -1 ("no confidence") branch the libvpx picker would RD-compare
+	// On the -1 ("no confidence") branch the libvpx picker RD-compares
 	// PARTITION_NONE against PARTITION_SPLIT (libvpx vp9_encodeframe.c:
-	// 4676-4746); govpx defers that compare to the legacy variance / RD
-	// picker below by returning BlockInvalid.
+	// 4676-4746); under the opt-in gate govpx now runs that compare via
+	// vp9NonrdPickPartitionRDFallback (task #149) — pickVP9InterReference-
+	// Mode supplies the PARTITION_NONE candidate (libvpx 4677 nonrd_pick_-
+	// sb_modes invoking vp9_pick_inter_mode at vp9_pickmode.c:1696) and
+	// scoreVP9InterPartitionSplit supplies the recursive PARTITION_SPLIT
+	// candidate (libvpx 4725 recursive nonrd_pick_partition call) plus
+	// the partition_cost rate (libvpx 4686 / 4715). When both candidates
+	// fail the dispatcher continues to the legacy variance / RD path
+	// below.
 	//
 	// The opt-in gate exists because the recursive walker shifts MV picks
 	// at sub-64x64 leaves into a libvpx-faithful schedule that disagrees
@@ -5825,6 +5832,13 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 					miRow, miCol); mlCtx != nil {
 					if picked, ok := e.vp9NonrdPickPartition(mlCtx, miRows,
 						miCols, miRow, miCol, root); ok {
+						return picked
+					}
+					// libvpx vp9_encodeframe.c:4675-4746 — NN=-1
+					// PARTITION_NONE vs PARTITION_SPLIT RDCOST compare.
+					if picked, ok := e.vp9NonrdPickPartitionRDFallback(
+						inter, tile, partitionProbs, miRows, miCols,
+						miRow, miCol, root); ok {
 						return picked
 					}
 				}

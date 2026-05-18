@@ -550,16 +550,21 @@ func vp9PredVariance(src []uint8, srcStride int, srcX, srcY int,
 //   - If only one axis triggers a forced split, we still funnel through the
 //     NN. The downstream caller honours the partition direction.
 //
-// Audit note (#147): the -1 branch above ("no confidence") is the residual
-// divergence vs libvpx for the deferred RefControl seeds (e.g. d4735e3a /
-// ASCII "2", 64x64@speed8). libvpx's nonrd_pick_partition lines 4675-4746
-// RD-compares PARTITION_NONE vs PARTITION_SPLIT (running nonrd_pick_sb_modes
-// for each candidate and picking by RDCOST). govpx instead falls back to the
-// legacy variance / RD picker which commits a single level. The full RD
-// compare requires the vp9_pick_inter_mode (vp9_pickmode.c:1696) port that
-// the deferred-seeds list already tracks — see vp9_oracle_encoder_refcontrols_-
-// fuzz_test.go:218-228. The leaf-density gap on flat panning sources at the
-// d4735e3a fixture is ~16 leaves (govpx) vs 256+ (libvpx) per task #138.
+// Task #149 update: the -1 branch ("no confidence") now invokes the
+// libvpx-faithful PARTITION_NONE vs PARTITION_SPLIT RDCOST compare ported
+// from vp9/encoder/vp9_encodeframe.c:4675-4746. The two candidates are
+// scored via pickVP9InterReferenceMode (PARTITION_NONE — libvpx's
+// nonrd_pick_sb_modes at vp9_encodeframe.c:4677 invoking
+// vp9_pick_inter_mode at vp9_pickmode.c:1696) and
+// scoreVP9InterPartitionSplit (PARTITION_SPLIT — libvpx's recursive
+// nonrd_pick_partition call at vp9_encodeframe.c:4725-4727) plus the
+// partition_cost token rate at vp9_encodeframe.c:4686 / 4715. The picker
+// commits to whichever candidate has the smaller RDCOST. Gated behind
+// GOVPX_VP9_NONRD_PICK_PARTITION=1 via the dispatcher in vp9_encoder.go
+// (see pickVP9InterPartitionBlockSize). When the gate is off, the
+// dispatcher never reaches this code path (the existing Phase C
+// BLOCK_64X64-NONE-only shortcut handles the default ML_BASED_PARTITION
+// case).
 //
 // libvpx ref: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition
 // with use_ml_based_partitioning=1.
@@ -599,7 +604,11 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 			}
 			return splitSize, true
 		default:
-			// -1: fall through to legacy picker.
+			// -1: defer to caller's RD-compare fallback (libvpx
+			// vp9_encodeframe.c:4675-4746). The dispatcher in
+			// pickVP9InterPartitionBlockSize invokes
+			// vp9NonrdPickPartitionRDFallback when this path returns
+			// (BlockInvalid, false).
 			return common.BlockInvalid, false
 		}
 	}
@@ -614,6 +623,180 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 	}
 
 	// No split possible (BLOCK_4X4 or smaller after auto_min_max). Commit.
+	return bsize, true
+}
+
+// vp9NonrdPickPartitionRDFallback ports the PARTITION_NONE vs
+// PARTITION_SPLIT RDCOST compare body of libvpx nonrd_pick_partition at
+// vp9/encoder/vp9_encodeframe.c:4675-4746. Invoked from the
+// pickVP9InterPartitionBlockSize dispatcher on the NN=-1 ("no
+// confidence") branch in vp9MLPredictVarPartitioning. The two candidates
+// are:
+//
+//   - PARTITION_NONE (libvpx vp9_encodeframe.c:4676-4707): one call to
+//     nonrd_pick_sb_modes at the current bsize. govpx's equivalent is
+//     pickVP9InterReferenceMode, which dispatches to
+//     pickVP9InterReferenceModeNonRD when sf->use_nonrd_pick_mode != 0
+//     (libvpx vp9_pickmode.c:1696 vp9_pick_inter_mode). The score is the
+//     RDCOST already returned by the picker (Lagrangian Rate + Dist).
+//     Adds cpi->partition_cost[pl][PARTITION_NONE] at line 4686.
+//
+//   - PARTITION_SPLIT (libvpx vp9_encodeframe.c:4713-4746): four
+//     recursive calls to nonrd_pick_partition at the split sub-bsize.
+//     govpx's equivalent is scoreVP9InterPartitionSplit which iterates
+//     pickVP9InterReferenceMode over the 4 sub-blocks and sums RDCOSTs.
+//     Adds cpi->partition_cost[pl][PARTITION_SPLIT] at line 4715.
+//
+// The picker commits to whichever candidate has the lower aggregate
+// RDCOST. On a tie (or scorer failure on the split candidate) we fall
+// through to BlockInvalid which routes the caller into the legacy
+// variance / RD path — matching libvpx's behaviour when sum_rdc.rdcost
+// >= best_rdc.rdcost (line 4738) leaves best_rdc holding the PARTITION_-
+// NONE candidate.
+//
+// libvpx call shape:
+//
+//	if (partition_none_allowed) {
+//	  nonrd_pick_sb_modes(cpi, ...);                          // 4677
+//	  this_rdc.rate += cpi->partition_cost[pl][PARTITION_NONE]; // 4686
+//	  this_rdc.rdcost = RDCOST(...);                            // 4687
+//	  best_rdc = this_rdc;                                      // 4690
+//	}
+//	if (do_split) {
+//	  sum_rdc.rate += cpi->partition_cost[pl][PARTITION_SPLIT]; // 4715
+//	  sum_rdc.rdcost = RDCOST(...);                             // 4716
+//	  for (i = 0; i < 4; ++i)                                   // 4718
+//	    nonrd_pick_partition(...);                              // 4725
+//	  if (sum_rdc.rdcost < best_rdc.rdcost) {                   // 4738
+//	    best_rdc = sum_rdc; pc_tree->partitioning = SPLIT;      // 4740
+//	  }
+//	}
+func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
+	inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (common.BlockSize, bool) {
+	if inter == nil {
+		return common.BlockInvalid, false
+	}
+
+	// libvpx vp9_encodeframe.c:4608 — const int ms =
+	// num_8x8_blocks_wide_lookup[bsize] / 2.
+	ms := int(common.Num8x8BlocksWideLookup[bsize]) / 2
+
+	// libvpx vp9_encodeframe.c:4614 — do_split = bsize >= BLOCK_8X8.
+	doSplit := bsize >= common.Block8x8
+
+	// libvpx vp9_encodeframe.c:4617-4618 — forced rectangular splits at
+	// edges. The RD compare only fires when both PARTITION_NONE and
+	// PARTITION_SPLIT are reachable; forced-edge cases are handled by
+	// vp9NonrdPickPartition's edge branch above.
+	forceHorzSplit := miRow+ms >= miRows
+	forceVertSplit := miCol+ms >= miCols
+	partitionNoneAllowed := !forceHorzSplit && !forceVertSplit
+	if !partitionNoneAllowed || !doSplit {
+		return common.BlockInvalid, false
+	}
+
+	splitSize, ok := vp9MLSplitSize(bsize)
+	if !ok {
+		return common.BlockInvalid, false
+	}
+
+	// libvpx vp9_encodeframe.c:4685 / 4714 —
+	// partition_plane_context(xd, mi_row, mi_col, bsize).
+	plCtx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
+		miRow, miCol, bsize)
+
+	// Source for partition rate-cost probabilities mirrors the legacy RD
+	// path at vp9_encoder.go:5892-5895 — prefer the pre-WriteCompressed-
+	// Header snapshot inter.selectFc so the prepass and write pass use
+	// the same probs.
+	rateCostProbs := partitionProbs
+	if inter != nil {
+		rateCostProbs = &inter.selectFc.PartitionProb
+	}
+
+	// libvpx vp9_encodeframe.c:4685 — `int hasRows = mi_row + ms <
+	// cm->mi_rows; int hasCols = mi_col + ms < cm->mi_cols;` is implicit
+	// in vp9PartitionRateCost via the hasRows / hasCols parameters; at
+	// the dispatcher level both are true (we early-returned above on
+	// force_horz_split / force_vert_split).
+	hasRows := miRow+ms < miRows
+	hasCols := miCol+ms < miCols
+
+	qindex := e.vp9EncoderModeDecisionQIndex()
+
+	// Snapshot the mi grid so the per-candidate scorers do not leak
+	// state across the NONE/SPLIT compare. libvpx's PC_TREE substrate
+	// achieves the same isolation; govpx mirrors with snapshotVP9MiRect.
+	rootRows := int(common.Num8x8BlocksHighLookup[bsize])
+	rootCols := int(common.Num8x8BlocksWideLookup[bsize])
+	var saved [64]vp9dec.NeighborMi
+	rows, cols, snapOK := e.snapshotVP9MiRect(miRows, miCols, miRow, miCol,
+		rootRows, rootCols, saved[:])
+	if !snapOK {
+		return common.BlockInvalid, false
+	}
+	defer e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols,
+		saved[:])
+
+	savedRef := inter.ref
+
+	// libvpx vp9_encodeframe.c:4676-4707 — PARTITION_NONE candidate.
+	// libvpx 4677: nonrd_pick_sb_modes(cpi, tile_data, x, mi_row, mi_col,
+	// &this_rdc, bsize, ctx);
+	// govpx equivalent: pickVP9InterReferenceMode (routes to
+	// vp9_pick_inter_mode_nonrd.go::pickVP9InterReferenceModeNonRD when
+	// sf->use_nonrd_pick_mode != 0). Returns vp9InterModeDecision.score
+	// which is the libvpx RDCOST(rdmult, rddiv, rate, dist).
+	noneDecision, noneOK := e.pickVP9InterReferenceMode(inter, tile,
+		miRows, miCols, miRow, miCol, bsize)
+	inter.ref = savedRef
+	if !noneOK {
+		// libvpx: this_rdc.rate == INT_MAX path (vp9_encodeframe.c:4684);
+		// best_rdc stays unset. Fall back to the legacy picker.
+		return common.BlockInvalid, false
+	}
+	// libvpx vp9_encodeframe.c:4686 — this_rdc.rate +=
+	// cpi->partition_cost[pl][PARTITION_NONE];
+	// libvpx 4687: this_rdc.rdcost = RDCOST(...).
+	noneRateCost := vp9PartitionRateCost(rateCostProbs, plCtx,
+		common.PartitionNone, hasRows, hasCols)
+	noneScore := e.vp9AddModeDecisionRate(noneDecision.score, noneRateCost,
+		qindex)
+
+	// Restore the mi grid (the NONE scorer wrote leaf decisions for the
+	// current bsize) before running the SPLIT scorer so the SPLIT scorer
+	// sees the pre-candidate state libvpx's PC_TREE substrate would.
+	e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
+
+	// libvpx vp9_encodeframe.c:4713-4746 — PARTITION_SPLIT candidate.
+	// libvpx 4715: sum_rdc.rate += cpi->partition_cost[pl][PARTITION_-
+	// SPLIT];
+	// libvpx 4718-4736: for (i = 0; i < 4; ++i) nonrd_pick_partition(...,
+	// subsize, &this_rdc, ...);
+	// govpx equivalent: scoreVP9InterPartitionSplit iterates
+	// pickVP9InterReferenceMode over the 4 sub-blocks and sums RDCOSTs.
+	splitScore, splitOK := e.scoreVP9InterPartitionSplit(inter, tile,
+		miRows, miCols, miRow, miCol, splitSize)
+	inter.ref = savedRef
+	if !splitOK {
+		// libvpx: sum of sub-block this_rdc.rate == INT_MAX path. With
+		// only NONE available, commit NONE.
+		return bsize, true
+	}
+	splitRateCost := vp9PartitionRateCost(rateCostProbs, plCtx,
+		common.PartitionSplit, hasRows, hasCols)
+	splitTotal := e.vp9AddModeDecisionRate(splitScore, splitRateCost, qindex)
+
+	// libvpx vp9_encodeframe.c:4738 — if (sum_rdc.rdcost <
+	// best_rdc.rdcost) pc_tree->partitioning = PARTITION_SPLIT.
+	if splitTotal < noneScore {
+		return splitSize, true
+	}
 	return bsize, true
 }
 
