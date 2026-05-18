@@ -160,7 +160,7 @@ func TestVP9SetNextFrameQIndexAppliesAndConsumes(t *testing.T) {
 			e.opts.NextFrameQIndexSet, e.opts.NextFrameQIndex,
 			e.rc.nextFrameQIndexSet, int(e.rc.nextFrameQIndex))
 	}
-	qindex := e.vp9EncoderFrameQIndex(false, false, 0, 64)
+	qindex := e.vp9EncoderFrameQIndex(false, false, 0, 1<<vp9LastRefSlot, 64)
 	if qindex != 123 {
 		t.Fatalf("qindex = %d, want 123", qindex)
 	}

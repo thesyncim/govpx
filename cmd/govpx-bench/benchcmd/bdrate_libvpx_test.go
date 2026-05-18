@@ -33,8 +33,11 @@ func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
 				o.AutoAltRef = true
 				o.LookaheadFrames = 8
 			},
-			wants:  []string{"--auto-alt-ref=1", "--lag-in-frames=8", "--aq-mode=0"},
-			absent: []string{"--arnr-maxframes=", "--alt-ref-aq=1"},
+			wants: []string{
+				"--auto-alt-ref=1", "--lag-in-frames=8", "--aq-mode=0",
+				"--arnr-maxframes=0", "--arnr-strength=0",
+			},
+			absent: []string{"--alt-ref-aq=1"},
 		},
 		{
 			name: "ARNR full",

@@ -365,7 +365,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 			flags := vp9FrameParallelDispatchFlags(inputs[idx].flags)
 			res, encErr := workerLocal.encodeVP9FrameIntoWithFlagsResult(
 				&scheduler.scratchInputs[idx], dstBuf, flags, false,
-				temporalFrame{LayerCount: 1})
+				temporalFrame{LayerCount: 1}, false)
 			scheduler.resultsBuf[idx] = append(scheduler.resultsBuf[idx][:0], res.Data...)
 			res.Data = scheduler.resultsBuf[idx]
 			scheduler.results[idx] = vp9FrameParallelResult{
@@ -417,7 +417,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	// framesSinceKey is unchanged for slot 0 (== parent's pre-batch value).
 	res0, err0 := e.encodeVP9FrameIntoWithFlagsResult(
 		&scheduler.scratchInputs[0], scheduler.scratchDst[0], flags0, false,
-		temporalFrame{LayerCount: 1})
+		temporalFrame{LayerCount: 1}, false)
 	scheduler.resultsBuf[0] = append(scheduler.resultsBuf[0][:0], res0.Data...)
 	res0.Data = scheduler.resultsBuf[0]
 	scheduler.results[0] = vp9FrameParallelResult{

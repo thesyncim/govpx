@@ -5259,11 +5259,11 @@ func TestVP9EncoderSetCQLevelUpdatesPublicQAndRateControl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder public-Q: %v", err)
 	}
-	beforeQ := publicQ.vp9EncoderPublicQModeQIndex(false, false, 0)
+	beforeQ := publicQ.vp9EncoderPublicQModeQIndex(false, false, 1<<vp9LastRefSlot)
 	if err := publicQ.SetCQLevel(20); err != nil {
 		t.Fatalf("public-Q SetCQLevel: %v", err)
 	}
-	afterQ := publicQ.vp9EncoderPublicQModeQIndex(false, false, 0)
+	afterQ := publicQ.vp9EncoderPublicQModeQIndex(false, false, 1<<vp9LastRefSlot)
 	if publicQ.opts.CQLevel != 20 || afterQ == beforeQ {
 		t.Fatalf("public-Q CQ update = opts:%d q:%d before:%d, want changed level 20",
 			publicQ.opts.CQLevel, afterQ, beforeQ)

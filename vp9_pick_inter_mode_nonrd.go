@@ -1040,8 +1040,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				refMvOpt = frameMv[common.NearestMv][refFrame]
 			}
 			mvOpts := vp9InterMvSearchOptions{
-				refMv:      refMvOpt,
-				refMvValid: refMvValid,
+				refMv:           refMvOpt,
+				refMvValid:      refMvValid,
+				nonrdSubpelTree: vp9NonrdPickPartitionEnabled(),
 			}
 			if mvPredSearchSeedValid[refFrame] {
 				mvOpts.seed = mvPredSearchSeed[refFrame]

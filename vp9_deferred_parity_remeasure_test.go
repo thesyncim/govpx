@@ -363,6 +363,25 @@ func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 	// residual is the cost_coeffs rate-proxy gap at
 	// vp9_rdopt.c:358) but are no longer structural rejects.
 
+	t.Run("RDKeyframeCPU0Neg3", func(t *testing.T) {
+		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {
+			return cpu == 0 || cpu == -3
+		})
+	})
+	t.Run("Speed8NonRD", func(t *testing.T) {
+		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {
+			return cpu == -8
+		})
+	})
+	t.Run("Speed4Realtime", func(t *testing.T) {
+		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {
+			return cpu == 4
+		})
+	})
+}
+
+func remeasureVP9RuntimeControlsSeedLane(t *testing.T, includeCPU func(int8) bool) {
+	t.Helper()
 	pass, fail, skipped := 0, 0, 0
 	_ = skipped // task #150: no seed is STRUCTURAL_REJECT after set_ext_overrides port.
 	aggSizeDelta := 0
@@ -371,6 +390,9 @@ func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 		sum := sha256.Sum256(seed)
 		label := fmt.Sprintf("runtimectrl-#%d-%s", idx, hex.EncodeToString(sum[:4]))
 		tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
+		if !includeCPU(tc.opts.CpuUsed) {
+			continue
+		}
 		t.Logf("%s w=%d h=%d frames=%d cpu=%d flags=%v",
 			label, tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)
 		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
@@ -408,7 +430,7 @@ func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 		}
 	}
 	t.Logf("RuntimeControls deferred-seed remeasure: PASS=%d MISMATCH=%d STRUCTURAL_REJECT=%d total=%d agg_size_delta=%+d avg_per_measurable=%+d",
-		pass, fail, skipped, len(vp9RuntimeControlsSeedsDeferred), aggSizeDelta,
+		pass, fail, skipped, measured, aggSizeDelta,
 		aggSizeDelta/max(1, measured))
 }
 

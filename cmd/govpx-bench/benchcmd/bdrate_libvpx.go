@@ -229,14 +229,16 @@ func libvpxVP9FrameFlagsCLIArgs(opts BDRateOptions, t govpx.VP9EncoderOptions, q
 		args = append(args, "--auto-alt-ref=0")
 	}
 	// libvpx token: --arnr-maxframes / --arnr-strength / --arnr-type
-	if t.ARNRMaxFrames > 0 {
-		args = append(args, "--arnr-maxframes="+strconv.Itoa(t.ARNRMaxFrames))
-	}
-	if t.ARNRStrength > 0 {
-		args = append(args, "--arnr-strength="+strconv.Itoa(t.ARNRStrength))
-	}
+	// govpx's zero values explicitly disable ARNR filtering; libvpx's
+	// codec defaults are maxframes=7 / strength=5, so the zero controls
+	// must be emitted rather than omitted.
+	args = append(args,
+		"--arnr-maxframes="+strconv.Itoa(t.ARNRMaxFrames),
+		"--arnr-strength="+strconv.Itoa(t.ARNRStrength))
 	if t.ARNRType > 0 {
 		args = append(args, "--arnr-type="+strconv.Itoa(t.ARNRType))
+	} else if t.ARNRMaxFrames > 0 || t.ARNRStrength > 0 {
+		args = append(args, "--arnr-type=3")
 	}
 	// libvpx token: --aq-mode (govpx VP9AQMode 0..5 maps 1:1 to libvpx
 	// AQ_MODE enum: NO_AQ=0, VARIANCE_AQ=1, COMPLEXITY_AQ=2,

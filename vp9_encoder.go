@@ -2331,7 +2331,7 @@ func (e *VP9Encoder) EncodeIntoWithFlagsResult(img *image.YCbCr, dst []byte, fla
 	if e.vp9ShouldEncodeKeyFrame(flags) {
 		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}
-	return e.encodeVP9FrameIntoWithFlagsResult(img, dst, flags, false, temporalFrame)
+	return e.encodeVP9FrameIntoWithFlagsResult(img, dst, flags, false, temporalFrame, false)
 }
 
 func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
@@ -2362,7 +2362,7 @@ func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, ds
 		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}
 	return e.encodeVP9FrameIntoWithFlagsResultInternal(img, dst, flags, false,
-		temporalFrame, true)
+		temporalFrame, true, false)
 }
 
 func (e *VP9Encoder) encodeVP9SpatialSVCBaseIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
@@ -2380,7 +2380,7 @@ func (e *VP9Encoder) encodeVP9SpatialSVCBaseIntoWithFlagsResult(img *image.YCbCr
 		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
 	}
 	return e.encodeVP9FrameIntoWithFlagsResultInternal(img, dst, flags, false,
-		temporalFrame, false)
+		temporalFrame, false, false)
 }
 
 // EncodeIntraOnlyFrameInto packs a hidden VP9 intra-only frame into dst.
@@ -2389,16 +2389,16 @@ func (e *VP9Encoder) encodeVP9SpatialSVCBaseIntoWithFlagsResult(img *image.YCbCr
 // must already be initialized by a coded frame. Use EncodeShowExistingFrameInto
 // to display a refreshed slot after this call.
 func (e *VP9Encoder) EncodeIntraOnlyFrameInto(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(img, dst, flags, true, temporalFrame{LayerID: 0, LayerCount: 1})
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(img, dst, flags, true, temporalFrame{LayerID: 0, LayerCount: 1}, false)
 	return len(result.Data), err
 }
 
-func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame) (result VP9EncodeResult, err error) {
+func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame, isSrcFrameAltRef bool) (result VP9EncodeResult, err error) {
 	return e.encodeVP9FrameIntoWithFlagsResultInternal(img, dst, flags,
-		forceIntraOnly, temporalFrame, false)
+		forceIntraOnly, temporalFrame, false, isSrcFrameAltRef)
 }
 
-func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame, forceFirstInterLayer bool) (result VP9EncodeResult, err error) {
+func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame, forceFirstInterLayer bool, isSrcFrameAltRef bool) (result VP9EncodeResult, err error) {
 	if e == nil || e.closed {
 		return VP9EncodeResult{}, ErrClosed
 	}
@@ -2491,9 +2491,20 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if isKey && e.vp9KeyFrameFilteringActive() {
 		img = e.applyVP9KeyFrameFilter(img)
 	}
-	e.rc.beginFrameWithRefresh(isKey || intraOnly, e.frameIndex,
-		vp9InterRefreshFrameFlags(flags))
 	showFrame := flags&EncodeInvisibleFrame == 0
+	srcFrameAltRef := isSrcFrameAltRef && showFrame && !isKey && !intraOnly
+	refreshFlags := uint8(0xff)
+	if !isKey {
+		refreshFlags = e.vp9InterRefreshFrameFlags(flags)
+		if srcFrameAltRef && flags&vp9ExternalRefreshCtlFlags == 0 {
+			// libvpx check_src_altref(): overlay/source-altref frames
+			// preserve LAST and become GOLDEN for subsequent frames.
+			refreshFlags &^= 1 << vp9LastRefSlot
+			refreshFlags |= 1 << vp9GoldenRefSlot
+		}
+	}
+	e.rc.beginFrameWithRefresh(isKey || intraOnly, e.frameIndex,
+		refreshFlags)
 	e.rc.preEncodeFrame(showFrame)
 	e.vp9TwoPassFrameTarget = 0
 	if !isKey && !intraOnly && showFrame {
@@ -2586,7 +2597,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// is available; alt-ref / hidden frames are excluded for parity
 	// with libvpx's restriction.
 	e.populateVP9TPLForFrame(!showFrame || flags&EncodeForceAltRefFrame != 0, img)
-	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
+	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags,
+		refreshFlags, macroblocks)
 	if e.rc.enabled {
 		e.vp9ModeDecisionQIndex = uint8(qindex)
 		e.vp9ModeDecisionQIndexSet = true
@@ -2601,13 +2613,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// per-SB cb_rdmult cache cleared inside vp9EncoderInitializeRDConsts
 	// matches libvpx's reset before each rd_pick_sb_modes invocation.
 	{
-		refreshFlags := uint8(0xff)
-		if !isKey {
-			refreshFlags = e.vp9InterRefreshFrameFlags(flags)
-		}
 		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
 		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
-		srcFrameAltRef := !showFrame || flags&EncodeForceAltRefFrame != 0
 		rdFrameType := vp9RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
 			refreshAlt)
 		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType)
@@ -2674,10 +2681,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		if flags&EncodeNoUpdateEntropy == 0 {
 			header.ResetFrameContext = 2
 		}
-		header.RefreshFrameFlags = e.vp9InterRefreshFrameFlags(flags)
+		header.RefreshFrameFlags = refreshFlags
 	} else {
 		header.FrameType = common.InterFrame
-		header.RefreshFrameFlags = e.vp9InterRefreshFrameFlags(flags)
+		header.RefreshFrameFlags = refreshFlags
 		header.FrameContextIdx = vp9InterFrameContextIdx(header.RefreshFrameFlags)
 		header.InterRef.RefIndex = [3]uint8{
 			vp9LastRefSlot,
@@ -2731,10 +2738,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// because the uncompressed-header writer omits the filter field for
 	// those (internal/vp9/encoder/header_writer.go:196).
 	if !isKey && !header.IntraOnly {
-		refreshFlags := e.vp9InterRefreshFrameFlags(flags)
 		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
 		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
-		srcFrameAltRef := !showFrame || flags&EncodeForceAltRefFrame != 0
 		header.InterpFilter = e.vp9DemoteSwitchableInterpFilter(
 			header.InterpFilter, isKey, header.IntraOnly,
 			srcFrameAltRef, refreshGolden, refreshAlt)
@@ -2801,19 +2806,20 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			referenceMode = vp9dec.ReferenceModeSelect
 		}
 		interState = &vp9InterEncodeState{
-			img:             img,
-			dq:              dq,
-			ref:             &e.refFrames[0],
-			refMask:         vp9InterReferenceMask(flags),
-			allowHP:         header.AllowHighPrecisionMv,
-			selectFc:        e.fc,
-			referenceMode:   referenceMode,
-			compoundAllowed: compoundAllowed,
-			refSignBias:     refSignBias,
-			compoundRefs:    compoundRefs,
-			interpFilter:    header.InterpFilter,
-			lossless:        header.Quant.Lossless,
-			baseQindex:      int(header.Quant.BaseQindex),
+			img:              img,
+			dq:               dq,
+			ref:              &e.refFrames[0],
+			refMask:          vp9InterReferenceMask(flags),
+			allowHP:          header.AllowHighPrecisionMv,
+			selectFc:         e.fc,
+			referenceMode:    referenceMode,
+			compoundAllowed:  compoundAllowed,
+			refSignBias:      refSignBias,
+			compoundRefs:     compoundRefs,
+			interpFilter:     header.InterpFilter,
+			lossless:         header.Quant.Lossless,
+			baseQindex:       int(header.Quant.BaseQindex),
+			isSrcFrameAltRef: srcFrameAltRef,
 		}
 	}
 	e.vp9ReuseStableSegmentationState(&seg, isKey || intraOnly, miRows, miCols,
@@ -3019,13 +3025,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// refresh/alt-ref flags used at the demotion site so the frame_type
 	// bucket is consistent across save / demote / update.
 	{
-		refreshFlags := uint8(0xff)
-		if !isKey {
-			refreshFlags = e.vp9InterRefreshFrameFlags(flags)
-		}
 		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
 		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
-		srcFrameAltRef := !showFrame || flags&EncodeForceAltRefFrame != 0
 		e.vp9UpdateFilterThreshesPostEncode(isKey, header.IntraOnly,
 			srcFrameAltRef, refreshGolden, refreshAlt, macroblocks)
 	}
@@ -3082,7 +3083,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
 		encodedSizeBits(n), e.vp9TemporalBufferConfig())
 	e.vp9FinishKeyFrameDistance(isKey)
-	e.frameIndex++
+	encodedFrameIndex := e.frameIndex
+	if header.ShowFrame {
+		e.frameIndex++
+	}
 	if isKey {
 		e.forceKeyFrame = false
 	}
@@ -3149,7 +3153,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			recodeLoopCount := e.vp9OracleRateSelectionTrace()
 		e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
 			Row:                  "vp9_frame",
-			FrameIndex:           e.frameIndex - 1,
+			FrameIndex:           encodedFrameIndex,
 			Flags:                uint32(flags),
 			KeyFrame:             isKey,
 			IntraOnly:            intraOnly,
@@ -4410,10 +4414,10 @@ func (e *VP9Encoder) vp9EncoderFrameInterpFilter(isKey, intraOnly, lossless bool
 //	else if (refresh_golden || refresh_alt_ref)           return GOLDEN_FRAME;
 //	else                                                  return LAST_FRAME;
 //
-// govpx tracks `is_src_frame_alt_ref` as (!showFrame ||
-// EncodeForceAltRefFrame); refresh_golden / refresh_alt_ref are decoded
-// from the libvpx-shaped refresh_frame_flags slot bits (vp9GoldenRefSlot
-// / vp9AltRefSlot at vp9_encoder.c:2773-2774).
+// govpx tracks `is_src_frame_alt_ref` on the visible lookahead entry that
+// supplied an earlier hidden ARF; refresh_golden / refresh_alt_ref are
+// decoded from the libvpx-shaped refresh_frame_flags slot bits
+// (vp9GoldenRefSlot / vp9AltRefSlot at vp9_encoder.c:2773-2774).
 func vp9GetFrameTypeForFilterThreshes(isKey, intraOnly, isSrcFrameAltRef,
 	refreshGolden, refreshAlt bool,
 ) int {
@@ -5301,19 +5305,20 @@ type vp9KeyframeEncodeState struct {
 }
 
 type vp9InterEncodeState struct {
-	img             *image.YCbCr
-	dq              *vp9dec.DequantTables
-	ref             *vp9ReferenceFrame
-	refMask         uint8
-	allowHP         bool
-	selectFc        vp9dec.FrameContext
-	referenceMode   vp9dec.ReferenceMode
-	compoundAllowed bool
-	refSignBias     [vp9dec.MaxRefFrames]uint8
-	compoundRefs    vp9dec.CompoundFrameRefs
-	interpFilter    vp9dec.InterpFilter
-	lossless        bool
-	counts          *encoder.FrameCounts
+	img              *image.YCbCr
+	dq               *vp9dec.DequantTables
+	ref              *vp9ReferenceFrame
+	refMask          uint8
+	allowHP          bool
+	selectFc         vp9dec.FrameContext
+	referenceMode    vp9dec.ReferenceMode
+	compoundAllowed  bool
+	refSignBias      [vp9dec.MaxRefFrames]uint8
+	compoundRefs     vp9dec.CompoundFrameRefs
+	interpFilter     vp9dec.InterpFilter
+	lossless         bool
+	counts           *encoder.FrameCounts
+	isSrcFrameAltRef bool
 	// baseQindex mirrors libvpx's cm->base_qindex for the current frame.
 	// Used by vp9ChoosePartitioning to drive set_vbp_thresholds without
 	// reverse-looking up from dq.Y[0][1] (which is wrong when
@@ -11123,6 +11128,12 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 		// pruned to LAST-only above (it honors use_altref_onepass).
 		refFrameSet = e.vp9InterReferenceFramesEnabled()
 	}
+	sourceAltRefUnfiltered := inter.isSrcFrameAltRef && e.opts.ARNRMaxFrames == 0
+	if sourceAltRefUnfiltered {
+		if _, ok := e.vp9InterReferenceSlot(inter, vp9dec.AltrefFrame); ok {
+			refFrameSet = refFramesAll[2:3]
+		}
+	}
 	bestSet := false
 	var best vp9InterModeDecision
 	// useNonrd: route the speed-feature-selected realtime path through
@@ -11179,6 +11190,9 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	// libvpx: vp9/encoder/vp9_speed_features.c:469 / 656 / 665,
 	// vp9/encoder/vp9_pickmode.c:1989.
 	if e.sf.UseNonrdPickMode == 1 && e.sf.UseCompoundNonrdPickmode == 0 {
+		return best, bestSet
+	}
+	if sourceAltRefUnfiltered {
 		return best, bestSet
 	}
 	if inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference &&
@@ -11469,8 +11483,18 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	// here verbatim matches libvpx's pickmode gate.
 	// libvpx: vp9_pickmode.c:2150 — if (!(cpi->sf.inter_mode_mask[bsize] & (1 << this_mode))) continue;
 	interModeMask := e.vp9InterModeMaskFor(bsize)
+	sourceAltRefUnfiltered := inter.isSrcFrameAltRef &&
+		e.opts.ARNRMaxFrames == 0 && refFrame == vp9dec.AltrefFrame
 	modeAllowed := func(mode common.PredictionMode) bool {
-		return interModeMask&(1<<uint(mode)) != 0
+		if interModeMask&(1<<uint(mode)) == 0 {
+			return false
+		}
+		if !sourceAltRefUnfiltered {
+			return true
+		}
+		return mode == common.ZeroMv ||
+			mode == common.NearestMv ||
+			mode == common.NearMv
 	}
 	bestSet := false
 	var best vp9InterModeDecision
@@ -11598,6 +11622,9 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		if !ok {
 			continue
 		}
+		if sourceAltRefUnfiltered && mv != (vp9dec.MV{}) {
+			continue
+		}
 		filters := pickFilters(mode, mv, refIsLast)
 		if !vp9MvHasSubpel(mv) {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
@@ -11677,10 +11704,11 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 }
 
 type vp9InterMvSearchOptions struct {
-	seed       vp9dec.MV
-	seedValid  bool
-	refMv      vp9dec.MV
-	refMvValid bool
+	seed            vp9dec.MV
+	seedValid       bool
+	refMv           vp9dec.MV
+	refMvValid      bool
+	nonrdSubpelTree bool
 }
 
 func (e *VP9Encoder) pickVP9InterMvWithOptions(inter *vp9InterEncodeState,
@@ -11929,7 +11957,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if e.vp9InterSubpelEnabled() {
 		mv, bestScore = e.refineVP9InterSubpelMv(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame, mv, bestSad, bestScore,
-			opts.refMv, opts.refMvValid)
+			opts.refMv, opts.refMvValid, opts.nonrdSubpelTree)
 	}
 	return mv, bestScore, true
 }
@@ -11969,7 +11997,7 @@ func vp9MVSADComponentCost(v int) int {
 func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	refFrame int8, best vp9dec.MV, bestSad, bestScore uint64,
-	refMv vp9dec.MV, refMvValid bool,
+	refMv vp9dec.MV, refMvValid bool, nonrdSubpelTree bool,
 ) (vp9dec.MV, uint64) {
 	// SPEED_FEATURES.mv.subpel_force_stop scales the min step:
 	// HALFPEL (sf 4), QUARTERPEL (2), EIGHTHPEL (1 with HP / 2 without).
@@ -11994,45 +12022,120 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		return vp9SubpelMVErrorCost(&inter.selectFc, mv, refMv, allowHP,
 			errorPerBit)
 	}
-	bestScore = bestSad + mvCost(best)
+	if dist, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
+		miRow, miCol, bsize, common.NewMv, refFrame, best,
+		vp9dec.InterpEighttap); ok {
+		bestScore = dist + mvCost(best)
+	} else {
+		bestScore = bestSad + mvCost(best)
+	}
+	if !nonrdSubpelTree {
+		bestScore = bestSad + mvCost(best)
+		iters := 0
+		for step := int16(4); step >= minStep; step >>= 1 {
+			if iters >= maxIters {
+				break
+			}
+			improved := true
+			for improved {
+				if iters >= maxIters {
+					break
+				}
+				improved = false
+				center := best
+				for row := center.Row - step; row <= center.Row+step; row += step {
+					for col := center.Col - step; col <= center.Col+step; col += step {
+						cand := vp9dec.MV{Row: row, Col: col}
+						vp9ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
+						vp9dec.LowerMvPrecision(&cand, allowHP)
+						if cand == best {
+							continue
+						}
+						sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
+							miRow, miCol, bsize, common.NewMv, refFrame, cand,
+							vp9dec.InterpEighttap, ^uint64(0))
+						if !ok {
+							continue
+						}
+						score := sad + mvCost(cand)
+						if score >= bestScore {
+							continue
+						}
+						best = cand
+						bestScore = score
+						bestSad = sad
+						improved = true
+					}
+				}
+				iters++
+			}
+		}
+		return best, bestScore
+	}
 	iters := 0
 	for step := int16(4); step >= minStep; step >>= 1 {
 		if iters >= maxIters {
 			break
 		}
-		improved := true
-		for improved {
-			if iters >= maxIters {
-				break
-			}
-			improved = false
-			center := best
-			for row := center.Row - step; row <= center.Row+step; row += step {
-				for col := center.Col - step; col <= center.Col+step; col += step {
-					cand := vp9dec.MV{Row: row, Col: col}
-					vp9ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
-					vp9dec.LowerMvPrecision(&cand, allowHP)
-					if cand == best {
-						continue
-					}
-					sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
-						miRow, miCol, bsize, common.NewMv, refFrame, cand,
-						vp9dec.InterpEighttap, ^uint64(0))
-					if !ok {
-						continue
-					}
-					score := sad + mvCost(cand)
-					if score >= bestScore {
-						continue
-					}
-					best = cand
-					bestScore = score
-					bestSad = sad
-					improved = true
-				}
-			}
-			iters++
+		center := best
+		type subpelProbe struct {
+			mv    vp9dec.MV
+			score uint64
+			ok    bool
 		}
+		probe := func(row, col int16) subpelProbe {
+			cand := vp9dec.MV{Row: row, Col: col}
+			vp9ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
+			vp9dec.LowerMvPrecision(&cand, allowHP)
+			if cand == center {
+				return subpelProbe{mv: cand, score: bestScore, ok: true}
+			}
+			dist, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
+				miRow, miCol, bsize, common.NewMv, refFrame, cand,
+				vp9dec.InterpEighttap)
+			if !ok {
+				return subpelProbe{}
+			}
+			return subpelProbe{mv: cand, score: dist + mvCost(cand), ok: true}
+		}
+		consider := func(p subpelProbe) {
+			if p.ok && p.score < bestScore {
+				best = p.mv
+				bestScore = p.score
+			}
+		}
+		left := probe(center.Row, center.Col-step)
+		right := probe(center.Row, center.Col+step)
+		up := probe(center.Row-step, center.Col)
+		down := probe(center.Row+step, center.Col)
+		consider(left)
+		consider(right)
+		consider(up)
+		consider(down)
+		leftScore, rightScore := uint64(math.MaxUint64), uint64(math.MaxUint64)
+		upScore, downScore := uint64(math.MaxUint64), uint64(math.MaxUint64)
+		if left.ok {
+			leftScore = left.score
+		}
+		if right.ok {
+			rightScore = right.score
+		}
+		if up.ok {
+			upScore = up.score
+		}
+		if down.ok {
+			downScore = down.score
+		}
+		diagRow := center.Row - step
+		if downScore < upScore {
+			diagRow = center.Row + step
+		}
+		diagCol := center.Col - step
+		if rightScore < leftScore {
+			diagCol = center.Col + step
+		}
+		consider(probe(diagRow, diagCol))
+		iters++
 	}
 	return best, bestScore
 }
@@ -12284,7 +12387,7 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 	if e.vp9ModeDecisionQIndexSet {
 		return int(e.vp9ModeDecisionQIndex)
 	}
-	return e.vp9EncoderFrameQIndex(true, false, 0, 1)
+	return e.vp9EncoderFrameQIndex(true, false, 0, 0xff, 1)
 }
 
 // vp9EncoderInitializeRDConsts is the libvpx-faithful entry point that
@@ -12393,7 +12496,7 @@ func (e *VP9Encoder) vp9EncoderClearCbRdmult() {
 	e.cbRdmult = 0
 }
 
-func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, macroblocks int) int {
+func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, refreshFlags uint8, macroblocks int) int {
 	if vp9OracleTraceBuild {
 		e.resetVP9OracleRateSelectionTrace()
 	}
@@ -12413,10 +12516,6 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
 		if e.rc.enabled {
-			refreshFlags := uint8(0xff)
-			if !isKey {
-				refreshFlags = e.vp9InterRefreshFrameFlags(flags)
-			}
 			if e.rc.mode == RateControlCBR {
 				if vp9OracleTraceBuild {
 					var activeBest int
@@ -12450,7 +12549,8 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 					e.frameIndex, macroblocks)
 			}
 		} else {
-			qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly, flags)
+			qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly,
+				refreshFlags)
 			if vp9OracleTraceBuild {
 				minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
 				e.recordVP9OracleRateSelectionTrace(
@@ -12463,7 +12563,7 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 	return qindex
 }
 
-func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, flags EncodeFlags) int {
+func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, refreshFlags uint8) int {
 	minQ, maxQ, cqLevel := vp9NormalizedPublicQuantizers(e.opts)
 	best := vp9PublicQuantizerToQIndex(minQ)
 	worst := vp9PublicQuantizerToQIndex(maxQ)
@@ -12475,15 +12575,10 @@ func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, flags En
 	num, den := 1, 1
 	if isKey || intraOnly {
 		num, den = 1, 4
-	} else if flags&vp9ExternalRefreshCtlFlags != 0 {
-		refresh := vp9InterRefreshFrameFlags(flags)
-		if refresh&(1<<vp9AltRefSlot) != 0 {
-			num, den = 2, 5
-		} else if refresh&(1<<vp9GoldenRefSlot) != 0 {
-			num, den = 1, 2
-		} else {
-			num, den = vp9PublicQModeInterRate(e.frameIndex)
-		}
+	} else if refreshFlags&(1<<vp9AltRefSlot) != 0 {
+		num, den = 2, 5
+	} else if refreshFlags&(1<<vp9GoldenRefSlot) != 0 {
+		num, den = 1, 2
 	} else {
 		num, den = vp9PublicQModeInterRate(e.frameIndex)
 	}

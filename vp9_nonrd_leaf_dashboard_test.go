@@ -19,9 +19,9 @@ import (
 // MV, filter, tx-size, qcoeff-count, and token-count deltas for the first
 // mismatching frame in each deferred seed.
 //
-// The two subtests deliberately split speed-8 nonrd RefControl seeds from the
-// mixed keyframe/RD-path RuntimeControls seeds so improvements in one lane do
-// not get mistaken for global closure.
+// The subtests deliberately split speed-8 nonrd RefControl seeds from
+// RuntimeControls RD/keyframe seeds, speed-8 nonrd seeds, and speed-4 realtime
+// seeds so improvements in one lane do not get mistaken for global closure.
 func TestVP9DeferredSeedsLeafDecisionDashboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 leaf-decision dashboard")
@@ -41,15 +41,43 @@ func TestVP9DeferredSeedsLeafDecisionDashboard(t *testing.T) {
 		}
 	})
 
-	t.Run("RuntimeControlsMixedRDNonRD", func(t *testing.T) {
-		for idx, seed := range vp9RuntimeControlsSeedsDeferred {
-			tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
-			sum := sha256.Sum256(seed)
-			label := fmt.Sprintf("runtimectrl-#%d-%s-cpu%d", idx,
-				hex.EncodeToString(sum[:4]), tc.opts.CpuUsed)
-			logVP9LeafDecisionCase(t, label, tc.opts, tc.sources, tc.flags, tc.extraArgs)
-		}
+	t.Run("RuntimeControlsRDKeyframeCPU0Neg3", func(t *testing.T) {
+		logVP9RuntimeLeafDecisionCases(t, func(cpu int8) bool {
+			return cpu == 0 || cpu == -3
+		})
 	})
+
+	t.Run("RuntimeControlsSpeed8NonRD", func(t *testing.T) {
+		logVP9RuntimeLeafDecisionCases(t, func(cpu int8) bool {
+			return cpu == -8
+		})
+	})
+
+	t.Run("RuntimeControlsSpeed4Realtime", func(t *testing.T) {
+		logVP9RuntimeLeafDecisionCases(t, func(cpu int8) bool {
+			return cpu == 4
+		})
+	})
+}
+
+func logVP9RuntimeLeafDecisionCases(t *testing.T, includeCPU func(int8) bool) {
+	t.Helper()
+	count := 0
+	for idx, seed := range vp9RuntimeControlsSeedsDeferred {
+		tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
+		if !includeCPU(tc.opts.CpuUsed) {
+			continue
+		}
+		count++
+		sum := sha256.Sum256(seed)
+		label := fmt.Sprintf("runtimectrl-#%d-%s-cpu%d", idx,
+			hex.EncodeToString(sum[:4]), tc.opts.CpuUsed)
+		logVP9LeafDecisionCase(t, label, tc.opts, tc.sources, tc.flags,
+			tc.extraArgs)
+	}
+	if count == 0 {
+		t.Log("no runtime-control seeds matched this dashboard lane")
+	}
 }
 
 func logVP9LeafDecisionCase(t *testing.T, label string, opts VP9EncoderOptions,

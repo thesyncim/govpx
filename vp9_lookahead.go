@@ -5,8 +5,9 @@ import "image"
 const vp9MaxLookaheadFrames = 25
 
 type vp9LookaheadEntry struct {
-	img   image.YCbCr
-	flags EncodeFlags
+	img            image.YCbCr
+	flags          EncodeFlags
+	isAltRefSource bool
 }
 
 func (e *VP9Encoder) initVP9Lookahead(width int, height int, depth int) {
@@ -110,8 +111,9 @@ func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst
 	}
 	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
 	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, emitFlags,
-		false, temporalFrame)
+		false, temporalFrame, entry.isAltRefSource)
 	entry.flags = 0
+	entry.isAltRefSource = false
 	return result, err
 }
 
@@ -171,8 +173,9 @@ func (e *VP9Encoder) FlushIntoWithResult(dst []byte) (VP9EncodeResult, error) {
 	}
 	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
 	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, emitFlags,
-		false, temporalFrame)
+		false, temporalFrame, entry.isAltRefSource)
 	entry.flags = 0
+	entry.isAltRefSource = false
 	return result, err
 }
 
@@ -190,19 +193,23 @@ func (e *VP9Encoder) encodeVP9AutoAltRefPendingAndQueueInto(img *image.YCbCr, ds
 	if entry, ok := e.popVP9Lookahead(false); ok {
 		copyVP9LookaheadImage(&e.autoAltRefPending.img, &entry.img, e.opts.Width, e.opts.Height)
 		e.autoAltRefPending.flags = entry.flags
+		e.autoAltRefPending.isAltRefSource = entry.isAltRefSource
 		e.autoAltRefPendingSet = true
 		entry.flags = 0
+		entry.isAltRefSource = false
 	}
 	return result, nil
 }
 
 func (e *VP9Encoder) encodeVP9AutoAltRefPendingInto(dst []byte) (VP9EncodeResult, error) {
 	result, err := e.encodeVP9FrameIntoWithFlagsResult(&e.autoAltRefPending.img, dst,
-		e.autoAltRefPending.flags, false, temporalFrame{LayerCount: 1})
+		e.autoAltRefPending.flags, false, temporalFrame{LayerCount: 1},
+		e.autoAltRefPending.isAltRefSource)
 	if err != nil {
 		return result, err
 	}
 	e.autoAltRefPending.flags = 0
+	e.autoAltRefPending.isAltRefSource = false
 	e.autoAltRefPendingSet = false
 	return result, nil
 }
@@ -216,11 +223,12 @@ func (e *VP9Encoder) maybeEncodeVP9AutoAltRefInto(dst []byte) (VP9EncodeResult, 
 	if !ok {
 		return VP9EncodeResult{}, false, nil
 	}
+	future.isAltRefSource = true
 	hiddenSrc := e.vp9AutoAltRefSourceImage(future)
 	result, err := e.encodeVP9FrameIntoWithFlagsResult(hiddenSrc, dst,
 		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|
 			EncodeNoUpdateGolden,
-		false, temporalFrame{LayerCount: 1})
+		false, temporalFrame{LayerCount: 1}, false)
 	if err != nil {
 		return result, true, err
 	}
@@ -230,9 +238,11 @@ func (e *VP9Encoder) maybeEncodeVP9AutoAltRefInto(dst []byte) (VP9EncodeResult, 
 	}
 	copyVP9LookaheadImage(&e.autoAltRefPending.img, &visible.img, e.opts.Width, e.opts.Height)
 	e.autoAltRefPending.flags = visible.flags
+	e.autoAltRefPending.isAltRefSource = visible.isAltRefSource
 	e.autoAltRefPendingSet = true
 	e.autoAltRefEmitted = true
 	visible.flags = 0
+	visible.isAltRefSource = false
 	return result, true, nil
 }
 
@@ -246,6 +256,7 @@ func (e *VP9Encoder) pushVP9Lookahead(img *image.YCbCr, flags EncodeFlags) error
 	entry := &e.lookahead[int(e.lookaheadWrite)]
 	copyVP9LookaheadImage(&entry.img, img, e.opts.Width, e.opts.Height)
 	entry.flags = flags
+	entry.isAltRefSource = false
 	e.lookaheadWrite++
 	if int(e.lookaheadWrite) >= len(e.lookahead) {
 		e.lookaheadWrite = 0
