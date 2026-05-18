@@ -768,6 +768,18 @@ type VP9Encoder struct {
 	// successfully committed frame.
 	forceKeyFrame bool
 
+	// deadlineModePreviousFrame mirrors VP9_COMP::deadline_mode_previous_frame.
+	// libvpx uses it in one-pass rate control to force a key frame after a
+	// GOOD/BEST <-> REALTIME mode transition, and in the realtime speed-feature
+	// cascade to force nonrd_keyframe on the transition frame.
+	//
+	// libvpx:
+	//   - vp9_ratectrl.c:2133,2310,2510 mode-change keyframe tests
+	//   - vp9_speed_features.c:863-866 nonrd_keyframe mode-change override
+	//   - vp9_ratectrl.c:2003,2024 postencode/drop latch
+	deadlineModePreviousFrame    vp9DeadlineMode
+	deadlineModePreviousFrameSet bool
+
 	// fc carries the per-frame entropy context across frames.
 	// Reset on every keyframe via ResetFrameContext.
 	frameContexts [common.FrameContexts]vp9dec.FrameContext
@@ -1220,6 +1232,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		svc:           vp9SVCDefault(),
 		refFrameFlags: vp9AllRefFlags,
 	}
+	e.vp9LatchDeadlineModePreviousFrame()
 	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,
 		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,
 		opts.Height, opts.VBRCorpusComplexity)
@@ -2568,6 +2581,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			}
 			e.vp9FinishKeyFrameDistance(false)
 			e.frameIndex++
+			e.vp9LatchDeadlineModePreviousFrame()
 			spatialLayerID, spatialLayerCount, interLayerDependency,
 				notRefForUpperSpatialLayer, scalabilityStructurePresent,
 				spatialScalabilityStructure := e.vp9SpatialResultFields()
@@ -3129,6 +3143,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if isKey {
 		e.forceKeyFrame = false
 	}
+	e.vp9LatchDeadlineModePreviousFrame()
 	// Consume the head TPL slab now that this frame has committed.  The
 	// pass refills the new tail on the next populate call.
 	if e.vp9TPLEnabled() {
@@ -3518,6 +3533,9 @@ func (e *VP9Encoder) vp9ShouldEncodeKeyFrame(flags EncodeFlags) bool {
 		return false
 	}
 	if flags&EncodeForceKeyFrame != 0 {
+		return true
+	}
+	if e.vp9DeadlineModeChanged() {
 		return true
 	}
 	return e.IsKeyFrameNext()
@@ -9725,15 +9743,14 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0
 	}
-	eob := 0
-	for i := range maxEob {
-		if coeffs[scan[i]] != 0 {
-			eob = i + 1
-		}
-	}
+	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
 	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
 	// type = planeType (0 = Y, 1 = UV); is_inter = 0 for keyframe/intra.
 	coefModel := &e.fc.CoefProbs[txSize][planeType][0]
+	if e.sf.UseFastCoefCosting != 0 {
+		return e.vp9CoeffBlockRateCostFastQ(txSize, coefModel, scanOrder,
+			dequant, coeffs, qcoeffs, initCtx)
+	}
 	ctx := initCtx
 	bandIdx := 0
 	rate := 0
@@ -9746,7 +9763,7 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 			return rate
 		}
 		rate += encoder.VP9CostBit(probs[0], 1)
-		for coeffs[scan[c]] == 0 {
+		for !vp9CoeffBlockHasCoeff(scan, c, coeffs, qcoeffs) {
 			rate += encoder.VP9CostBit(probs[1], 0)
 			e.modeScratch[scan[c]] = 0
 			c++
@@ -9760,12 +9777,6 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 		}
 		rate += encoder.VP9CostBit(probs[1], 1)
 		raster := scan[c]
-		coeff := coeffs[raster]
-		sign := 0
-		if coeff < 0 {
-			coeff = -coeff
-			sign = 1
-		}
 		dqv := dequant[1]
 		if c == 0 {
 			dqv = dequant[0]
@@ -9776,8 +9787,8 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 		// quantize kernels (QuantizeB*WithQ / QuantizeFP*WithQ) so that
 		// int16-wrap in dqcoeff (q*dq, or q*dq/2 for Tx32x32) cannot
 		// corrupt the recovered token magnitude.
-		absVal := vp9KeyframeCoeffMagnitude(qcoeffs, int(raster), coeff, dqv,
-			txSize == common.Tx32x32)
+		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, int(raster),
+			coeffs[raster], dqv, txSize == common.Tx32x32)
 		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
 		// libvpx vp9_rdopt.c:397, 429, 442 — token_cache[rc] =
 		// vp9_pt_energy_class[token]. The libvpx table
@@ -9792,6 +9803,88 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 		if c < maxEob {
 			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
 		}
+	}
+	return rate
+}
+
+var vp9CoeffCostBandCounts = [common.TxSizes][8]int{
+	{1, 2, 3, 4, 3, 16 - 13, 0},
+	{1, 2, 3, 4, 11, 64 - 21, 0},
+	{1, 2, 3, 4, 11, 256 - 21, 0},
+	{1, 2, 3, 4, 11, 1024 - 21, 0},
+}
+
+// vp9CoeffBlockRateCostFastQ ports the use_fast_coef_costing arm of libvpx's
+// cost_coeffs (vp9/encoder/vp9_rdopt.c:387-416). The fast arm advances through
+// band_counts rather than recomputing get_coef_context() for every non-zero AC
+// coefficient, and indexes the token-cost slab with [!prev_token][!prev_token].
+// govpx computes the same token costs on demand from fc.CoefProbs instead of
+// caching x->token_costs.
+func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
+	coefModel *[vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8,
+	scanOrder common.ScanOrder, dequant [2]int16, coeffs, qcoeffs []int16,
+	initCtx int,
+) int {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txSize >= common.TxSizes || coefModel == nil || dequant[0] == 0 ||
+		dequant[1] == 0 || len(coeffs) < maxEob || initCtx < 0 ||
+		initCtx > 2 {
+		return 0
+	}
+	if qcoeffs != nil && len(qcoeffs) < maxEob {
+		qcoeffs = nil
+	}
+	scan := scanOrder.Scan
+	if len(scan) < maxEob {
+		return 0
+	}
+	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
+	if eob == 0 {
+		return vp9CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
+			encoder.EobToken)
+	}
+
+	rate := 0
+	dcAbs, dcSign := vp9CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
+		dequant[0], txSize == common.Tx32x32)
+	prevToken, extraCost := vp9CoeffTokenExtraCost(dcAbs, dcSign)
+	rate += extraCost
+	rate += vp9CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
+		prevToken)
+
+	bandIdx := 1
+	bandLeft := vp9CoeffCostBandCounts[txSize][bandIdx]
+	for c := 1; c < eob; c++ {
+		raster := int(scan[c])
+		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, raster,
+			coeffs[raster], dequant[1], txSize == common.Tx32x32)
+		token, extra := vp9CoeffTokenExtraCost(absVal, sign)
+		ctx := 0
+		skipEOB := false
+		if prevToken == encoder.ZeroToken {
+			ctx = 1
+			skipEOB = true
+		}
+		rate += extra
+		rate += vp9CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:],
+			skipEOB, token)
+		prevToken = token
+		bandLeft--
+		if bandLeft == 0 {
+			bandIdx++
+			if bandIdx >= len(vp9CoeffCostBandCounts[txSize]) {
+				break
+			}
+			bandLeft = vp9CoeffCostBandCounts[txSize][bandIdx]
+		}
+	}
+	if bandLeft != 0 {
+		ctx := 0
+		if prevToken == encoder.ZeroToken {
+			ctx = 1
+		}
+		rate += vp9CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:], false,
+			encoder.EobToken)
 	}
 	return rate
 }
@@ -10781,13 +10874,13 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0
 	}
-	eob := 0
-	for i := range maxEob {
-		if coeffs[scan[i]] != 0 {
-			eob = i + 1
-		}
-	}
+	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
 	coefModel := &e.fc.CoefProbs[txSize][planeType][1]
+	if e.sf.UseFastCoefCosting != 0 {
+		return e.vp9CoeffBlockRateCostFastQ(txSize, coefModel,
+			common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
+			initCtx)
+	}
 	ctx := initCtx
 	bandIdx := 0
 	rate := 0
@@ -10800,7 +10893,7 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 			return rate
 		}
 		rate += encoder.VP9CostBit(probs[0], 1)
-		for coeffs[scan[c]] == 0 {
+		for !vp9CoeffBlockHasCoeff(scan, c, coeffs, qcoeffs) {
 			rate += encoder.VP9CostBit(probs[1], 0)
 			e.modeScratch[scan[c]] = 0
 			c++
@@ -10814,18 +10907,12 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 		}
 		rate += encoder.VP9CostBit(probs[1], 1)
 		raster := scan[c]
-		coeff := coeffs[raster]
-		sign := 0
-		if coeff < 0 {
-			coeff = -coeff
-			sign = 1
-		}
 		dqv := dequant[1]
 		if c == 0 {
 			dqv = dequant[0]
 		}
-		absVal := vp9KeyframeCoeffMagnitude(qcoeffs, int(raster), coeff, dqv,
-			txSize == common.Tx32x32)
+		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, int(raster),
+			coeffs[raster], dqv, txSize == common.Tx32x32)
 		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
 		// Mirror libvpx vp9_rdopt.c:442 — token_cache[rc] =
 		// vp9_pt_energy_class[token]. Same named-table lookup as the
@@ -10842,8 +10929,12 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 }
 
 func vp9CoeffTokenAbsVal(absCoeff, dqv int16, tx32 bool) int {
-	num := int(absCoeff)
-	den := int(dqv)
+	return vp9CoeffTokenAbsValInt(int(absCoeff), int(dqv), tx32)
+}
+
+func vp9CoeffTokenAbsValInt(absCoeff, dqv int, tx32 bool) int {
+	num := absCoeff
+	den := dqv
 	if den <= 0 {
 		return 0
 	}
@@ -10903,6 +10994,82 @@ func vp9CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
 	}
 	rate += encoder.VP9CostBit(128, sign)
 	return rate
+}
+
+func vp9CoeffTokenExtraCost(absVal, sign int) (token int, cost int) {
+	token, extra := encoder.TokenForAbsCoeff(absVal)
+	if token >= encoder.Category1Tok {
+		eb := encoder.VP9ExtraBits[token]
+		for i := eb.Len - 1; i >= 0; i-- {
+			bit := (extra >> uint(i)) & 1
+			cost += encoder.VP9CostBit(eb.Prob[eb.Len-1-i], bit)
+		}
+	}
+	if token != encoder.ZeroToken {
+		cost += encoder.VP9CostBit(128, sign)
+	}
+	return token, cost
+}
+
+func vp9CoeffTreeTokenCost(model []uint8, skipEOB bool, token int) int {
+	if len(model) < encoder.UnconstrainedNodes || token < 0 ||
+		token >= encoder.EntropyTokens || model[2] == 0 {
+		return 0
+	}
+	var full [encoder.EntropyNodes]uint8
+	full[0] = model[0]
+	full[1] = model[1]
+	full[2] = model[2]
+	tail := tables.Pareto8Full[model[2]-1]
+	for i := range tail {
+		full[3+i] = tail[i]
+	}
+	var costs [encoder.EntropyTokens]int
+	if skipEOB {
+		encoder.VP9CostTokensSkip(costs[:], full[:], encoder.CoefTree[:])
+	} else {
+		encoder.VP9CostTokens(costs[:], full[:], encoder.CoefTree[:])
+	}
+	return costs[token]
+}
+
+func vp9CoeffMagnitudeAndSign(qcoeffs []int16, raster int, dqcoeff int16,
+	dqv int16, tx32 bool,
+) (absVal int, sign int) {
+	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
+		q := int(qcoeffs[raster])
+		if q < 0 {
+			return -q, 1
+		}
+		return q, 0
+	}
+	coeff := int(dqcoeff)
+	if coeff < 0 {
+		coeff = -coeff
+		sign = 1
+	}
+	return vp9CoeffTokenAbsValInt(coeff, int(dqv), tx32), sign
+}
+
+func vp9CoeffBlockEOB(scan []int16, maxEob int, coeffs, qcoeffs []int16) int {
+	eob := 0
+	for i := range maxEob {
+		if vp9CoeffBlockHasCoeff(scan, i, coeffs, qcoeffs) {
+			eob = i + 1
+		}
+	}
+	return eob
+}
+
+func vp9CoeffBlockHasCoeff(scan []int16, pos int, coeffs, qcoeffs []int16) bool {
+	if pos < 0 || pos >= len(scan) {
+		return false
+	}
+	raster := int(scan[pos])
+	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
+		return qcoeffs[raster] != 0
+	}
+	return raster >= 0 && raster < len(coeffs) && coeffs[raster] != 0
 }
 
 func vp9TxSizeRateCost(probs []uint8, txSize, maxTxSize common.TxSize) int {

@@ -536,6 +536,18 @@ const (
 	vp9ContentFilm    vp9SpeedDispatchContent = 2
 )
 
+// vp9FrameContentType mirrors libvpx FRAME_CONTENT_TYPE.
+//
+// libvpx: vp9/encoder/vp9_firstpass.h:73-77.
+type vp9FrameContentType int
+
+const (
+	vp9FCNormal            vp9FrameContentType = 0
+	vp9FCGraphicsAnimation vp9FrameContentType = 1
+)
+
+const vp9FCAnimationThresh = 0.15
+
 // vp9MeshDensityLevels is the count of mesh-density rows in libvpx's
 // good_quality_mesh_patterns table.
 //
@@ -586,6 +598,8 @@ type vp9SpeedFrameContext struct {
 	avgFrameLowMotion   int
 	avgFrameQindexInter int
 	currentVideoFrame   int
+	frContentType       vp9FrameContentType
+	internalImageEdge   bool
 
 	// svc carries the per-frame SVC state libvpx reads via cpi->svc / cpi->use_svc
 	// from the speed-features dispatcher. Single-layer encoders see
@@ -693,6 +707,8 @@ func (e *VP9Encoder) vp9PerFrameSpeedContext(args vp9PerFrameSpeedContextArgs) v
 		avgFrameLowMotion:   100,
 		avgFrameQindexInter: int(e.rc.avgFrameQIndexInter),
 		currentVideoFrame:   e.frameIndex,
+		frContentType:       e.vp9FrameContentTypeForSpeedFeatures(),
+		internalImageEdge:   e.vp9InternalImageEdgeForSpeedFeatures(),
 		svc:                 e.svc,
 		// govpx's runtime resize always triggers a full re-allocation in
 		// applyVP9ResolutionChange(), so libvpx's external_resize (set only
@@ -714,6 +730,40 @@ func (e *VP9Encoder) vp9PerFrameSpeedContext(args vp9PerFrameSpeedContextArgs) v
 		disableOvershootMaxqCbr: e.rc.disableOvershootMaxQCBR,
 	}
 	return ctx
+}
+
+func (e *VP9Encoder) vp9FrameContentTypeForSpeedFeatures() vp9FrameContentType {
+	if e == nil || !e.twoPass.enabled() {
+		return vp9FCNormal
+	}
+	row := e.twoPass.statsForFrame()
+	if row.IntraSkipPct >= vp9FCAnimationThresh {
+		return vp9FCGraphicsAnimation
+	}
+	return vp9FCNormal
+}
+
+func (e *VP9Encoder) vp9InternalImageEdgeForSpeedFeatures() bool {
+	if e == nil || !e.twoPass.enabled() {
+		return false
+	}
+	row := e.twoPass.statsForFrame()
+	return row.InactiveZoneRows > 0 || row.InactiveZoneCols > 0
+}
+
+func (e *VP9Encoder) vp9DeadlineModeChanged() bool {
+	if e == nil || !e.deadlineModePreviousFrameSet || e.frameIndex == 0 {
+		return false
+	}
+	return vp9ResolveDeadlineMode(e.opts.Deadline) != e.deadlineModePreviousFrame
+}
+
+func (e *VP9Encoder) vp9LatchDeadlineModePreviousFrame() {
+	if e == nil {
+		return
+	}
+	e.deadlineModePreviousFrame = vp9ResolveDeadlineMode(e.opts.Deadline)
+	e.deadlineModePreviousFrameSet = true
 }
 
 // vp9ApplySpeedFeatures runs the libvpx framesize-independent and
@@ -1169,12 +1219,11 @@ func vp9SetGoodSpeedFeatureFramesizeDependent(e *VP9Encoder, sf *SpeedFeatures, 
 		}
 	}
 
-	// libvpx: vp9_speed_features.c:195-199. govpx does not track
-	// twopass.fr_content_type or vp9_internal_image_edge yet, so the
-	// disable_split_mask graphics-animation override is skipped. The branch is
-	// preserved as a TODO until twopass content classification lands.
-	// TODO: consumer requires vp9_internal_image_edge() and
-	// twopass.fr_content_type. libvpx: vp9_speed_features.c:195-199.
+	// libvpx: vp9_speed_features.c:195-199.
+	if speed >= 1 && e.twoPass.enabled() &&
+		(ctx.frContentType == vp9FCGraphicsAnimation || ctx.internalImageEdge) {
+		sf.DisableSplitMask = sfDisableCompoundSplit
+	}
 
 	if speed >= 4 {
 		// libvpx: vp9_speed_features.c:201-209.
@@ -1244,9 +1293,12 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 	sf.RdMlPartition.PruneRectThresh[2] = 325
 	sf.RdMlPartition.PruneRectThresh[3] = 250
 
-	// libvpx: vp9_speed_features.c:258-262. govpx lacks twopass.fr_content_type;
-	// non-graphics path matches the INT_MAX bucket.
-	sf.ExhaustiveSearchesThresh = math.MaxInt32
+	// libvpx: vp9_speed_features.c:258-262.
+	if ctx.frContentType == vp9FCGraphicsAnimation {
+		sf.ExhaustiveSearchesThresh = 1 << 22
+	} else {
+		sf.ExhaustiveSearchesThresh = math.MaxInt32
+	}
 
 	for i := range sfMaxMeshSteps {
 		sf.MeshPatterns[i] = vp9GoodQualityMeshPatterns[0][i]
@@ -1263,13 +1315,12 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 		sf.RdMlPartition.PruneRectThresh[2] = 225
 		sf.RdMlPartition.PruneRectThresh[3] = 225
 
-		// libvpx: vp9_speed_features.c:278-288 — twopass fork. govpx does not
-		// expose twopass.fr_content_type or vp9_internal_image_edge yet, so
-		// route through the non-graphics one-pass branch.
-		if vp9FrameIsIntraOnly(ctx) {
-			sf.UseSquarePartitionOnly = 0
+		// libvpx: vp9_speed_features.c:278-288.
+		if e.twoPass.enabled() &&
+			(ctx.frContentType == vp9FCGraphicsAnimation || ctx.internalImageEdge) {
+			sf.UseSquarePartitionOnly = boolToInt(!boosted)
 		} else {
-			sf.UseSquarePartitionOnly = 1
+			sf.UseSquarePartitionOnly = boolToInt(!vp9FrameIsIntraOnly(ctx))
 		}
 
 		sf.AllowTxfmDomainDistortion = 1
@@ -1303,8 +1354,12 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 		sf.RecodeToleranceLow = 15
 		sf.RecodeToleranceHigh = 30
 
-		// libvpx: vp9_speed_features.c:313-315 — graphics-animation fork.
-		sf.ExhaustiveSearchesThresh = math.MaxInt32
+		// libvpx: vp9_speed_features.c:313-315.
+		if ctx.frContentType == vp9FCGraphicsAnimation {
+			sf.ExhaustiveSearchesThresh = 1 << 23
+		} else {
+			sf.ExhaustiveSearchesThresh = math.MaxInt32
+		}
 		sf.UseAccurateSubpelSearch = Use4Taps
 	}
 
@@ -1345,8 +1400,12 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 		sf.RdMlPartition.PruneRectThresh[3] = -1
 		sf.Mv.SubpelSearchLevel = 0
 
-		// libvpx: vp9_speed_features.c:345-353 — graphics-animation mesh
-		// override. govpx doesn't track twopass.fr_content_type yet.
+		// libvpx: vp9_speed_features.c:345-353.
+		if ctx.frContentType == vp9FCGraphicsAnimation {
+			for i := range sfMaxMeshSteps {
+				sf.MeshPatterns[i] = vp9GoodQualityMeshPatterns[1][i]
+			}
+		}
 
 		sf.UseAccurateSubpelSearch = Use2Taps
 	}
@@ -1378,6 +1437,11 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 		sf.ModeSkipStart = 6
 		sf.IntraYModeMask[common.Tx32x32] = sfIntraDC
 		sf.IntraUvModeMask[common.Tx32x32] = sfIntraDC
+		if ctx.frContentType == vp9FCGraphicsAnimation {
+			for i := range sfMaxMeshSteps {
+				sf.MeshPatterns[i] = vp9GoodQualityMeshPatterns[2][i]
+			}
+		}
 	}
 
 	if speed >= 4 {
@@ -2032,10 +2096,9 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 	}
 
 	// libvpx: vp9_speed_features.c:863-866 — deadline switch nonrd_keyframe.
-	// govpx tracks the previous-frame deadline via opts.Deadline mutations; a
-	// dedicated previous-frame mode tracker is not wired yet.
-	// TODO: consumer requires VP9_COMP.deadline_mode_previous_frame. libvpx:
-	// vp9_speed_features.c:863-866.
+	if e.vp9DeadlineModeChanged() {
+		sf.NonrdKeyframe = 1
+	}
 
 	// libvpx: vp9_speed_features.c:868-870 — forced off for SVC lowres-part.
 	sf.SvcUseLowresPart = 0
