@@ -197,7 +197,19 @@ func (e *VP8Encoder) Reset() {
 	cfg := defaultRateControlConfig(e.opts)
 	_ = e.rc.applyConfig(cfg, e.timing)
 	e.rc.keyFrameFrequency = e.opts.KeyFrameInterval
-	e.rc.autoKeyFrames = e.opts.AdaptiveKeyFrames
+	// libvpx vp8/vp8_cx_iface.c:377-378 derives `cpi->oxcf.auto_key` as
+	// `kf_mode == VPX_KF_AUTO && kf_min_dist != kf_max_dist`. govpx's
+	// `EncoderOptions.KeyFrameInterval > 0` mirrors the `kf_max_dist`
+	// max-cadence cohort (kf_min_dist defaults to 0), so any non-zero
+	// interval is the libvpx auto_key=1 case. The bootstrap clamp inside
+	// `estimateKeyFrameFrequency` (ratectrl.c:1318-1323) only fires when
+	// `oxcf.auto_key && (1 + fps*2) > key_freq`; without mirroring
+	// auto_key here, govpx's first-keyframe `kf_bitrate_adjustment` uses
+	// the unclamped two-second estimate while libvpx clamps to
+	// `key_freq`, diverging the first inter frame's per-frame target
+	// (see task #202 regression seed
+	// regression_vbr_300kbps_kf30_splitmv_defbuf_rt_cpu0_fbab04f4).
+	e.rc.autoKeyFrames = !e.keyFramesDisabled && e.opts.KeyFrameInterval > 0
 	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, e.opts.TwoPassMinPct)
 	if e.rc.mode != RateControlCBR && len(e.opts.TwoPassStats) == 0 {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval

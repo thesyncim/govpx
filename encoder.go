@@ -1223,7 +1223,9 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// public rate-control config so early kf_bitrate_adjustment matches
 	// libvpx.
 	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
-	e.rc.autoKeyFrames = normalized.AdaptiveKeyFrames
+	// Mirror libvpx vp8_cx_iface.c:377-378 auto_key derivation. See the
+	// equivalent comment in encoder_lifecycle.go resetEncoderState.
+	e.rc.autoKeyFrames = !e.keyFramesDisabled && normalized.KeyFrameInterval > 0
 	e.keyFrameFrequency = normalized.KeyFrameInterval
 	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =
 	// av_per_frame_bandwidth * two_pass_vbrmin_section / 100; mirror

@@ -933,6 +933,9 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	e.opts.KeyFrameInterval = frames
 	// Mirror libvpx oxcf.key_freq for estimate_keyframe_frequency.
 	e.rc.keyFrameFrequency = frames
+	// Re-derive libvpx auto_key flag: auto_key=1 iff !keyFramesDisabled
+	// and the cadence is active (kf_max_dist != 0).
+	e.rc.autoKeyFrames = !e.keyFramesDisabled && frames > 0
 	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
@@ -946,8 +949,13 @@ func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 		return ErrClosed
 	}
 	e.opts.AdaptiveKeyFrames = enabled
-	e.rc.autoKeyFrames = enabled
 	e.keyFramesDisabled = !enabled
+	// libvpx auto_key derivation: VPX_KF_AUTO (i.e. !keyFramesDisabled)
+	// with kf_min_dist != kf_max_dist (KeyFrameInterval > 0). When the
+	// caller toggles AdaptiveKeyFrames=false it also disables keyframes
+	// entirely (matches VPX_KF_DISABLED), so auto_key becomes false; on
+	// re-enable, fall back to the cadence-based auto_key.
+	e.rc.autoKeyFrames = !e.keyFramesDisabled && e.opts.KeyFrameInterval > 0
 	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
