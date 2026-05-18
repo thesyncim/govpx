@@ -1079,6 +1079,21 @@ type VP9Encoder struct {
 	// per-frame rd.rdmult.
 	cbRdmult int
 
+	// rdThresh carries libvpx's RD-thresh / per-tile thresh_freq_fact
+	// state. Lazily allocated by vp9EncoderInitializeRDConsts on first
+	// frame init. Mirrors:
+	//
+	//   - RD_OPT::thresh_mult[MAX_MODES]               (vp9_rd.h:116)
+	//   - RD_OPT::threshes[1][BLOCK_SIZES][MAX_MODES]  (vp9_rd.h:119)
+	//   - TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES]
+	//                                                 (vp9_block.h)
+	//
+	// Single-tile collapse: deferred-seed runs are single-tile (Threads=1,
+	// Log2TileRows=0 default), so libvpx's per-tile state collapses to a
+	// single tile plane. Single-segment: deferred seeds disable
+	// segmentation, so [MAX_SEGMENTS=8] collapses to segment_id=0.
+	rdThresh vp9RDThreshState
+
 	// mvHints carries the per-SB64 motion-vector hint slab installed
 	// via importVP9MVHints. The multi-resolution encoder pipeline
 	// fills this from a previously-encoded lower-resolution layer's
@@ -12180,6 +12195,21 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	// it inline before each rd_pick_sb_modes invocation; we mirror that
 	// reset at the frame boundary so the first SB sees a clean state.
 	e.cbRdmult = 0
+
+	// Mode-RD-thresh state. libvpx vp9_rd.c:413-415: per-frame,
+	// vp9_set_rd_speed_thresholds + set_block_thresholds run at the
+	// vp9_initialize_rd_consts tail. The per-tile thresh_freq_fact is
+	// primed once (RD_THRESH_INIT_FACT) at tile birth and adapts across
+	// frames via update_thresh_freq_fact; libvpx never re-inits between
+	// frames inside an encode session.
+	//
+	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds (+sub8x8
+	// sibling not surfaced here — the sub-8x8 picker is govpx-deferred).
+	vp9SetRDSpeedThresholds(&e.rdThresh, e.sf.AdaptiveRdThresh)
+	vp9SetBlockThresholds(&e.rdThresh, qindex, 0)
+	if !e.rdThresh.initialised {
+		e.rdThresh.initFreqFact()
+	}
 }
 
 // vp9EncoderModeDecisionRDMult returns the active Lagrange multiplier the
