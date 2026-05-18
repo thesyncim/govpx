@@ -2292,32 +2292,114 @@ func TestVP9EncoderRejectsInvalidSourceShape(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderFrameTxModeFromCountsReducesFixedMode pins govpx's
-// post-encode tx_mode demotion. govpx applies a wider, govpx-specific
-// (and inverted vs libvpx vp9_encodeframe.c:5911) demotion gate that
-// touches every non-TxModeSelect mode; a libvpx-faithful gate (skip when
-// not TxModeSelect) is a separate fidelity follow-up.
+// TestVP9EncoderFrameTxModeFromCountsReducesFixedMode pins the
+// non-TxModeSelect (govpx-specific) branch of govpx's post-encode
+// tx_mode demotion that uses counts.TxTotals. This wider, govpx-only
+// (and inverted vs libvpx vp9_encodeframe.c:5911) demotion gate
+// touches every non-TxModeSelect mode and is preserved because the
+// strict byte-parity matrix is pinned to it. The libvpx-faithful
+// TxModeSelect partition-context ladder lives in
+// TestVP9EncoderFrameTxModeFromCountsLibvpxSelectLadder.
 func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
 	counts := &vp9enc.FrameCounts{}
 	counts.TxTotals[common.Tx16x16] = 1
 	counts.TxTotals[common.Tx8x8] = 1
-	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, counts); got != common.Allow16x16 {
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Allow16x16 {
 		t.Fatalf("tx mode = %d, want Allow16x16", got)
 	}
 
 	counts = &vp9enc.FrameCounts{}
 	counts.TxTotals[common.Tx4x4] = 1
-	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, counts); got != common.Only4x4 {
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Only4x4 {
 		t.Fatalf("tx mode = %d, want Only4x4", got)
 	}
 
 	counts = &vp9enc.FrameCounts{}
 	counts.TxTotals[common.Tx32x32] = 1
-	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, counts); got != common.Allow32x32 {
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, true, counts); got != common.Allow32x32 {
 		t.Fatalf("tx mode = %d, want Allow32x32", got)
 	}
-	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, counts); got != common.TxModeSelect {
-		t.Fatalf("select tx mode = %d, want TxModeSelect", got)
+}
+
+// TestVP9EncoderFrameTxModeFromCountsLibvpxSelectLadder pins the
+// verbatim libvpx vp9/encoder/vp9_encodeframe.c:5911-5944 demotion
+// ladder for TX_MODE_SELECT — partition-context counts
+// (counts.TxMode.{P8x8, P16x16, P32x32}) are bucketed into six
+// trackers and tested against the four libvpx demotion cascade
+// thresholds in order:
+//
+//   - ALLOW_8X8 (vp9_encodeframe.c:5930-5933)
+//   - ONLY_4X4 (vp9_encodeframe.c:5934-5937)
+//   - ALLOW_32X32 (vp9_encodeframe.c:5938-5939)
+//   - ALLOW_16X16 (vp9_encodeframe.c:5940-5943)
+//
+// Untouched-counts (all six trackers zero) hits the ALLOW_8X8 branch
+// first per the libvpx if/else chain — this is the "no statistics =
+// degenerate frame" libvpx behaviour and is intentional.
+func TestVP9EncoderFrameTxModeFromCountsLibvpxSelectLadder(t *testing.T) {
+	// ALLOW_8X8 — only 8x8 counters non-zero anywhere.
+	// libvpx vp9_encodeframe.c:5930-5933.
+	counts := &vp9enc.FrameCounts{}
+	counts.TxMode.P8x8[0][common.Tx8x8] = 5
+	counts.TxMode.P16x16[1][common.Tx8x8] = 2 // count8x8_lp != 0 OK
+	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, true, counts); got != common.Allow8x8 {
+		t.Fatalf("ALLOW_8X8 demotion: got tx_mode = %d, want Allow8x8", got)
+	}
+
+	// ONLY_4X4 — every non-4x4 counter zero.
+	// libvpx vp9_encodeframe.c:5934-5937.
+	counts = &vp9enc.FrameCounts{}
+	counts.TxMode.P32x32[0][common.Tx4x4] = 3
+	counts.TxMode.P16x16[1][common.Tx4x4] = 4
+	counts.TxMode.P8x8[0][common.Tx4x4] = 1
+	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, true, counts); got != common.Only4x4 {
+		t.Fatalf("ONLY_4X4 demotion: got tx_mode = %d, want Only4x4", got)
+	}
+
+	// ALLOW_32X32 — count8x8_lp == count16x16_lp == count4x4 == 0,
+	// but count16x16p16x16 != 0 (i.e. p16x16 picked 16x16) and
+	// count32x32 != 0. libvpx vp9_encodeframe.c:5938-5939.
+	counts = &vp9enc.FrameCounts{}
+	counts.TxMode.P32x32[0][common.Tx32x32] = 7
+	counts.TxMode.P16x16[1][common.Tx16x16] = 2
+	counts.TxMode.P8x8[0][common.Tx8x8] = 3 // count8x8_8x8p != 0 OK
+	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, true, counts); got != common.Allow32x32 {
+		t.Fatalf("ALLOW_32X32 demotion: got tx_mode = %d, want Allow32x32", got)
+	}
+
+	// ALLOW_16X16 — count32x32 == count8x8_lp == count4x4 == 0 but
+	// count16x16_lp != 0 (p32x32 picked 16x16). libvpx
+	// vp9_encodeframe.c:5940-5943.
+	counts = &vp9enc.FrameCounts{}
+	counts.TxMode.P32x32[0][common.Tx16x16] = 4 // count16x16_lp != 0
+	counts.TxMode.P16x16[1][common.Tx16x16] = 1
+	counts.TxMode.P8x8[0][common.Tx8x8] = 2 // count8x8_8x8p != 0 OK
+	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, true, counts); got != common.Allow16x16 {
+		t.Fatalf("ALLOW_16X16 demotion: got tx_mode = %d, want Allow16x16", got)
+	}
+
+	// No demotion — every bucket has a non-zero entry so the libvpx
+	// if/else chain at vp9_encodeframe.c:5930-5943 falls through and
+	// leaves cm->tx_mode at TX_MODE_SELECT.
+	counts = &vp9enc.FrameCounts{}
+	counts.TxMode.P32x32[0][common.Tx32x32] = 1
+	counts.TxMode.P32x32[0][common.Tx16x16] = 1 // count16x16_lp != 0
+	counts.TxMode.P32x32[0][common.Tx8x8] = 1   // count8x8_lp != 0
+	counts.TxMode.P32x32[0][common.Tx4x4] = 1   // count4x4 != 0
+	counts.TxMode.P16x16[0][common.Tx16x16] = 1
+	counts.TxMode.P8x8[0][common.Tx8x8] = 1
+	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, true, counts); got != common.TxModeSelect {
+		t.Fatalf("no-demotion fall-through: got tx_mode = %d, want TxModeSelect", got)
+	}
+
+	// frame_parameter_update=false — libvpx vp9_encodeframe.c:5846
+	// gates the entire post-encode demotion block on the speed
+	// feature. Even with degenerate (all-zero) partition counts the
+	// TxModeSelect input must pass through unchanged when the gate is
+	// off (matches RT speed>=4 path at vp9_speed_features.c:568).
+	counts = &vp9enc.FrameCounts{}
+	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, false, counts); got != common.TxModeSelect {
+		t.Fatalf("frame_parameter_update=false: got tx_mode = %d, want TxModeSelect", got)
 	}
 }
 
@@ -7268,8 +7350,15 @@ func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 		AllowHighPrecisionMv: interHeader.AllowHighPrecisionMv,
 		CompoundRefAllowed:   false,
 	})
-	if out.TxMode != common.TxModeSelect {
-		t.Fatalf("TxMode = %d, want TxModeSelect", out.TxMode)
+	// CpuUsed=-3 is GOOD speed=3 which keeps frame_parameter_update=1
+	// (vp9_speed_features.c:929), so the libvpx-faithful TX_MODE_SELECT
+	// post-encode demotion ladder at vp9_encodeframe.c:5911-5944 runs
+	// here. On this 8x8 checker pattern only Tx8x8 ever wins for the
+	// inter frame (count16x16_lp == count16x16_16x16p == count32x32 ==
+	// count4x4 == 0), so the ALLOW_8X8 leg at :5930-5933 fires and the
+	// frame_tx_mode literal is Allow8x8 instead of TxModeSelect.
+	if out.TxMode != common.Allow8x8 {
+		t.Fatalf("TxMode = %d, want Allow8x8 (libvpx vp9_encodeframe.c:5930-5933 demotion)", out.TxMode)
 	}
 
 	d := decodeVP9KeyInterForTest(t, key, inter)
