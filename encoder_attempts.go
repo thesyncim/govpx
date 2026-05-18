@@ -25,6 +25,17 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if traceEnabled {
 			e.incrementOracleTraceRecodeLoop()
 		}
+		// libvpx vp8/encoder/encodeframe.c:721-732 rebuilds the per-MB
+		// activity_map inside every vp8_encode_frame call. Each keyframe
+		// recode attempt therefore observes an activity_map keyed off the
+		// new cm->base_qindex. Mirror that here: the pre-loop call in
+		// encoder_frame.go seeded the first attempt; subsequent attempts
+		// rebuild against the recoded currentQuantizer.
+		if attempt > 0 && e.opts.Tuning == TuneSSIM {
+			if err := e.prepareTuningActivityMap(source, rows, cols); err != nil {
+				return keyFrameEncodeAttempt{}, err
+			}
+		}
 		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, flags, invisible, staticSegmentationAllowed, cyclicRefreshQ)
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
@@ -217,6 +228,19 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	for attempt := 0; ; attempt++ {
 		if traceEnabled {
 			e.incrementOracleTraceRecodeLoop()
+		}
+		// libvpx vp8/encoder/encodeframe.c:721-732 rebuilds the per-MB
+		// activity_map inside every vp8_encode_frame call. The activity
+		// probe reads cm->base_qindex (via vp8_initialize_rd_consts) and
+		// the new_fb_idx border state, so a recoded Q produces a fresh
+		// activity_map and therefore fresh per-MB act_zbin_adj / RD
+		// multiplier values. Mirror that here: the pre-loop call in
+		// encoder_frame.go seeds the first attempt; subsequent attempts
+		// rebuild against the recoded currentQuantizer.
+		if attempt > 0 && e.opts.Tuning == TuneSSIM {
+			if err := e.prepareTuningActivityMap(source, rows, cols); err != nil {
+				return interFrameEncodeAttempt{}, err
+			}
 		}
 		needProjectedSize := allowRecode || traceEnabled
 		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef, cyclicRefreshQ, needProjectedSize, rdRefProbsPreconfigured)

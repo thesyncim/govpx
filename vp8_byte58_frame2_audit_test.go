@@ -61,14 +61,21 @@ import (
 //     act_zbin_adj for the affected MB(s), which finally shifts one UV
 //     qcoeff between 3 and 4 at one MB's band-6 ctx-2 position.
 //
-// Pinning the exact MB/coefficient requires a libvpx-instrumented oracle
-// that emits per-MB act_zbin_adj and per-coefficient zbin_extra values;
-// vpxenc-oracle does not currently dump those, so this audit captures the
-// derivation above as a negative finding rather than landing a fix. The
-// downstream byte-2 cascade (frame 3 onward) flows from frame 2's
-// mis-emitted coef probability poisoning every subsequent inter frame's
-// coef-prob entropy state, which is why frames 3-5 widen the diff cluster
-// despite each individual frame's per-MB picks staying byte-identical.
+// Root cause (closed by task #201): govpx was building the per-MB
+// activity_map ONCE before the recode loop in encoder_frame.go, while
+// libvpx vp8/encoder/encodeframe.c:721-732 rebuilds it inside every
+// vp8_encode_frame call (i.e. on each recode attempt) keyed off the new
+// cm->base_qindex. When the recode loop reran the inter frame at a
+// different Q, libvpx produced a fresh activity_map (and therefore
+// fresh per-MB act_zbin_adj values) while govpx reused the stale map
+// from the first attempt. The activity-adjusted ZBIN on UV blocks
+// diverged on the recoded attempt by exactly one coefficient, which
+// tipped a single (THREE,FOUR)→(THREE+1,FOUR-1) token count on UV and
+// shifted the (b=2,band=6,ctx=2,node=5) coef prob from 156 to 159.
+// Fix: call prepareTuningActivityMap at the start of each recode
+// attempt in encoder_attempts.go (inter + key paths). The downstream
+// byte-2 cascade on frames 3+ also closes because the seed
+// regression_option_grid_a4ba465f cohort shared the same root cause.
 //
 // Cohort + decision graph captured here so a future fix knows the exact
 // trigger surface to bisect against:
@@ -112,9 +119,12 @@ import (
 //   - govpx encoder_inter_quantize.go:38-86 quantizeBlockWithZbinAndActivity
 //     (per-position ZBIN_EXTRA computation on line 64)
 //
-// Companion live regression: the seed
-// testdata/fuzz/FuzzEncoderProductionStreamByteParity/regression_option_grid_75578e9f
-// still surfaces the divergence on every fuzz run.
+// Closed by task #201 (per-recode activity_map rebuild): the byte 58 frame 2
+// coefficient probability divergence collapsed once govpx started rebuilding
+// the per-MB activity_map inside every recode attempt instead of once before
+// the recode loop, matching libvpx's vp8_encode_frame call cadence (the
+// activity probe runs per call). With that fix the entire 6-frame clip is
+// byte-MATCH for the same cohort, so this test now pins the closed state.
 func TestVP8Byte58Frame2DivergenceAudit(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the audit replay")
@@ -153,71 +163,37 @@ func TestVP8Byte58Frame2DivergenceAudit(t *testing.T) {
 	govpxFrames, counts := encodeFramesWithGovpxCapturingCountsTask183(t, opts, sources, 2)
 	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task183-byte58-audit", opts, 700, sources, extraArgs)
 
-	if len(govpxFrames) < 3 || len(libvpxFrames) < 3 {
-		t.Fatalf("expected ≥3 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+	if len(govpxFrames) < 6 || len(libvpxFrames) < 6 {
+		t.Fatalf("expected ≥6 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
 	}
 
-	// Pin the historical metrics so future regressions don't silently
-	// re-interpret what this audit captured.
-	wantFrame0Len := 11017
-	wantFrame1Len := 1820
-	wantFrame2Len := 1135
-	wantFrame2FirstDiff := 58
-	wantGovpxByte58 := byte(0x73)
-	wantLibvpxByte58 := byte(0x7f)
-	wantCoefBlock := 2
-	wantCoefBand := 6
-	wantCoefCtx := 2
-	wantCoefNode := 5
-	wantGovpxProb := uint8(156)
-	wantLibvpxProb := uint8(159)
-
-	if len(govpxFrames[0]) != wantFrame0Len || len(libvpxFrames[0]) != wantFrame0Len {
-		t.Fatalf("frame 0 len drift: govpx=%d libvpx=%d want=%d",
-			len(govpxFrames[0]), len(libvpxFrames[0]), wantFrame0Len)
-	}
-	if len(govpxFrames[1]) != wantFrame1Len || len(libvpxFrames[1]) != wantFrame1Len {
-		t.Fatalf("frame 1 len drift: govpx=%d libvpx=%d want=%d",
-			len(govpxFrames[1]), len(libvpxFrames[1]), wantFrame1Len)
-	}
-	if len(govpxFrames[2]) != wantFrame2Len || len(libvpxFrames[2]) != wantFrame2Len {
-		t.Fatalf("frame 2 len drift: govpx=%d libvpx=%d want=%d",
-			len(govpxFrames[2]), len(libvpxFrames[2]), wantFrame2Len)
-	}
-
-	// Frame 0/1 must remain byte-MATCH (the audit's pre-condition).
-	if !bytesEqualTask183(govpxFrames[0], libvpxFrames[0]) {
-		t.Fatalf("frame 0 no longer byte-MATCH; audit precondition broke")
-	}
-	if !bytesEqualTask183(govpxFrames[1], libvpxFrames[1]) {
-		t.Fatalf("frame 1 no longer byte-MATCH; audit precondition broke")
-	}
-
-	// Frame 2: divergence at byte 58.
-	g, l := govpxFrames[2], libvpxFrames[2]
-	firstDiff := -1
-	maxLen := len(g)
-	if len(l) < maxLen {
-		maxLen = len(l)
-	}
-	for i := 0; i < maxLen; i++ {
-		if g[i] != l[i] {
-			firstDiff = i
-			break
+	// Full byte-MATCH on every frame; before task #201 the frame 2 first
+	// partition diverged at byte 58 (govpx=0x73 vs libvpx=0x7f) due to a
+	// single UV coefficient (b=2 band=6 ctx=2 node=5) tipping across the
+	// activity-adjusted ZBIN boundary. Fix: rebuild activity_map per recode.
+	for i := 0; i < 6; i++ {
+		if !bytesEqualTask183(govpxFrames[i], libvpxFrames[i]) {
+			firstDiff := -1
+			maxLen := len(govpxFrames[i])
+			if len(libvpxFrames[i]) < maxLen {
+				maxLen = len(libvpxFrames[i])
+			}
+			for j := 0; j < maxLen; j++ {
+				if govpxFrames[i][j] != libvpxFrames[i][j] {
+					firstDiff = j
+					break
+				}
+			}
+			t.Fatalf("frame %d byte-MATCH regressed after task #201 fix: govpx_len=%d libvpx_len=%d first_diff=%d",
+				i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff)
 		}
 	}
-	if firstDiff != wantFrame2FirstDiff {
-		t.Fatalf("frame 2 first_diff drift: got=%d want=%d", firstDiff, wantFrame2FirstDiff)
-	}
-	if g[wantFrame2FirstDiff] != wantGovpxByte58 {
-		t.Fatalf("frame 2 byte 58 govpx drift: got=0x%02x want=0x%02x", g[wantFrame2FirstDiff], wantGovpxByte58)
-	}
-	if l[wantFrame2FirstDiff] != wantLibvpxByte58 {
-		t.Fatalf("frame 2 byte 58 libvpx drift: got=0x%02x want=0x%02x", l[wantFrame2FirstDiff], wantLibvpxByte58)
-	}
 
-	// Coef prob delta: parse both frames with the decoder and pin the
-	// single divergent slot.
+	// Decode coefficient probabilities for frames 0..2 and require zero
+	// divergent slots. Before task #201 there was exactly one delta at
+	// (b=2, band=6, ctx=2, node=5) gov=156 lib=159, driven by the
+	// (b=2,band=6,ctx=2) THREE/FOUR token distribution diverging by one
+	// shifted coefficient.
 	var govpxProbs tables.CoefficientProbs
 	var libvpxProbs tables.CoefficientProbs
 	prevQuant := vp8dec.QuantHeader{}
@@ -242,53 +218,35 @@ func TestVP8Byte58Frame2DivergenceAudit(t *testing.T) {
 		_ = lState
 	}
 
-	diffCount := 0
 	for b := 0; b < tables.BlockTypes; b++ {
 		for n := 0; n < tables.CoefBands; n++ {
 			for c := 0; c < tables.PrevCoefContexts; c++ {
 				for nd := 0; nd < tables.EntropyNodes; nd++ {
 					if govpxProbs[b][n][c][nd] != libvpxProbs[b][n][c][nd] {
-						diffCount++
-						if b != wantCoefBlock || n != wantCoefBand || c != wantCoefCtx || nd != wantCoefNode {
-							t.Fatalf("unexpected coef-prob delta at b=%d band=%d ctx=%d node=%d gov=%d lib=%d",
-								b, n, c, nd,
-								govpxProbs[b][n][c][nd], libvpxProbs[b][n][c][nd])
-						}
-						if govpxProbs[b][n][c][nd] != wantGovpxProb || libvpxProbs[b][n][c][nd] != wantLibvpxProb {
-							t.Fatalf("coef-prob slot drift at (b=%d band=%d ctx=%d node=%d): gov=%d lib=%d want_gov=%d want_lib=%d",
-								b, n, c, nd,
-								govpxProbs[b][n][c][nd], libvpxProbs[b][n][c][nd],
-								wantGovpxProb, wantLibvpxProb)
-						}
+						t.Fatalf("coef-prob delta after task #201 fix at b=%d band=%d ctx=%d node=%d gov=%d lib=%d",
+							b, n, c, nd, govpxProbs[b][n][c][nd], libvpxProbs[b][n][c][nd])
 					}
 				}
 			}
 		}
 	}
-	if diffCount != 1 {
-		t.Fatalf("expected exactly 1 coef-prob delta after frame 2; got %d", diffCount)
-	}
 
-	// Branch count fingerprint at (b=2,band=6,ctx=2) from the encoder's
-	// captured per-frame counts. Pinning this guards against a future
-	// quantizer/activity refactor silently re-balancing the THREE/FOUR
-	// token mix at this UV position.
 	if counts == nil {
 		t.Fatalf("encoder did not capture frame 2 token counts")
 	}
-	wantTokenThree := 50
-	wantTokenFour := 32
+	// After the fix the (b=2,band=6,ctx=2) THREE/FOUR mix matches libvpx
+	// (51/31) instead of the pre-fix 50/32. Pin the post-fix counts so a
+	// future quantizer/activity refactor cannot silently re-balance them.
+	wantTokenThree := 51
+	wantTokenFour := 31
 	if got := counts[2][6][2][tables.ThreeToken]; got != wantTokenThree {
 		t.Fatalf("token count drift at (b=2,band=6,ctx=2) ThreeToken: got=%d want=%d", got, wantTokenThree)
 	}
 	if got := counts[2][6][2][tables.FourToken]; got != wantTokenFour {
 		t.Fatalf("token count drift at (b=2,band=6,ctx=2) FourToken: got=%d want=%d", got, wantTokenFour)
 	}
-	t.Logf("task #183 pinned: frame 2 byte 58 divergence at coef (b=%d,band=%d,ctx=%d,node=%d) gov=%d lib=%d; "+
-		"govpx tokens at (b=2,band=6,ctx=2): Three=%d Four=%d; "+
-		"upstream act_zbin_adj per-MB activity bisection needed for verbatim fix",
-		wantCoefBlock, wantCoefBand, wantCoefCtx, wantCoefNode,
-		wantGovpxProb, wantLibvpxProb, wantTokenThree, wantTokenFour)
+	t.Logf("task #183 closed by task #201: 6-frame byte MATCH; (b=2,band=6,ctx=2) Three=%d Four=%d",
+		wantTokenThree, wantTokenFour)
 }
 
 // encodeFramesWithGovpxCapturingCountsTask183 encodes the supplied sources
