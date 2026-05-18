@@ -308,6 +308,132 @@ func TestRateControlPostDropFrameDoesNotUpdateLibvpxRollingBitAverages(t *testin
 	}
 }
 
+// TestRateControlPostEncodeRollingBitsEMAOverFrameSequence pins the
+// libvpx vp8/encoder/onyx_if.c lines 4541-4544 EMA update across a
+// small frame sequence. libvpx applies
+//
+//	rolling_target_bits = ROUND64_POWER_OF_TWO(rolling_target_bits*3 + this_frame_target, 2)
+//	rolling_actual_bits = ROUND64_POWER_OF_TWO(rolling_actual_bits*3 + projected_frame_size, 2)
+//
+// per encoded frame. We seed the averages at the per-frame
+// bandwidth, then drive four frames whose (actualBits, targetBits)
+// alternate over/undershoot. The expected values are computed by
+// hand using libvpx's (prev*3 + curr + 2) >> 2 formula (since
+// ROUND64_POWER_OF_TWO(v, 2) == (v + 2) >> 2). This locks the
+// write path against any reordering of the EMA's per-frame
+// arithmetic and guarantees the next frame's
+// estimate_max_q-equivalent (twoPassState.setRollingBits at
+// encoder_frame.go) sees the running average libvpx would.
+func TestRateControlPostEncodeRollingBitsEMAOverFrameSequence(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      8000,
+		rollingActualBits: 8000,
+		rollingTargetBits: 8000,
+	}
+
+	// Four-frame walk; each row is (sizeBytes, frameTargetBits).
+	// libvpx's projected_frame_size = sizeBytes * 8 in the EMA.
+	steps := []struct {
+		sizeBytes  int
+		targetBits int
+		wantActual int
+		wantTarget int
+	}{
+		// (8000*3 + 1000*8 + 2) >> 2 = 32002 >> 2 = 8000
+		// (8000*3 + 9000 + 2) >> 2 = 33002 >> 2 = 8250
+		{sizeBytes: 1000, targetBits: 9000, wantActual: 8000, wantTarget: 8250},
+		// (8000*3 + 1500*8 + 2) >> 2 = 36002 >> 2 = 9000
+		// (8250*3 + 7000 + 2) >> 2 = 31752 >> 2 = 7938
+		{sizeBytes: 1500, targetBits: 7000, wantActual: 9000, wantTarget: 7938},
+		// (9000*3 + 900*8 + 2) >> 2 = 34202 >> 2 = 8550
+		// (7938*3 + 8500 + 2) >> 2 = 32316 >> 2 = 8079
+		{sizeBytes: 900, targetBits: 8500, wantActual: 8550, wantTarget: 8079},
+		// (8550*3 + 1100*8 + 2) >> 2 = 34452 >> 2 = 8613
+		// (8079*3 + 8200 + 2) >> 2 = 32439 >> 2 = 8109
+		{sizeBytes: 1100, targetBits: 8200, wantActual: 8613, wantTarget: 8109},
+	}
+
+	for i, step := range steps {
+		rc.frameTargetBits = step.targetBits
+		rc.postEncodeFrameWithContext(step.sizeBytes, false, false, 0)
+		if rc.rollingActualBits != step.wantActual {
+			t.Fatalf("frame %d: rollingActualBits = %d, want %d", i, rc.rollingActualBits, step.wantActual)
+		}
+		if rc.rollingTargetBits != step.wantTarget {
+			t.Fatalf("frame %d: rollingTargetBits = %d, want %d", i, rc.rollingTargetBits, step.wantTarget)
+		}
+	}
+}
+
+// TestRateControlPostEncodeRollingBitsFeedsSetRollingBits pins the
+// end-to-end flow that closes the libvpx loop:
+//  1. encode_frame_to_data_rate tail (onyx_if.c:4541-4544) updates
+//     cpi->rolling_*_bits with the just-encoded frame's projected
+//     size and target.
+//  2. The next frame's start hits estimate_max_q (firstpass.c:920-941)
+//     which reads cpi->rolling_*_bits.
+//
+// govpx mirrors this with rc.updateRollingBitAverages (write) at
+// the postEncode hook, and twoPassState.setRollingBits (read) at
+// encoder_frame.go line 345 before frameTargetBitsWithAltRef. This
+// test runs the write step on the rateControlState and then
+// confirms that twoPassState.setRollingBits transports the
+// post-update values verbatim into the pass-2 estimator, so a
+// subsequent applyEstMaxQRollingRatioAdjustment sees the libvpx-
+// shaped ratio. Without the EMA write path, the pass-2 estimator
+// would keep observing the initial seed.
+func TestRateControlPostEncodeRollingBitsFeedsSetRollingBits(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      8000,
+		frameTargetBits:   8000,
+		rollingActualBits: 8000,
+		rollingTargetBits: 8000,
+	}
+
+	// Overspend: 1500 bytes = 12000 bits vs 8000 target.
+	rc.postEncodeFrameWithContext(1500, false, false, 0)
+	// (8000*3 + 12000 + 2) >> 2 = 36002 >> 2 = 9000
+	// (8000*3 + 8000  + 2) >> 2 = 32002 >> 2 = 8000
+	if rc.rollingActualBits != 9000 {
+		t.Fatalf("post-encode rollingActualBits = %d, want 9000", rc.rollingActualBits)
+	}
+	if rc.rollingTargetBits != 8000 {
+		t.Fatalf("post-encode rollingTargetBits = %d, want 8000", rc.rollingTargetBits)
+	}
+
+	// Now transport into twoPass and confirm the pass-2 estimator
+	// observes the freshly-updated EMA. This mirrors encoder_frame.go
+	// line 345's e.twoPass.setRollingBits(rc.rollingActualBits,
+	// rc.rollingTargetBits) call sequenced at the start of the next
+	// frame, just before frameTargetBitsWithAltRef.
+	ts := &twoPassState{
+		estMaxQCorrection:      1.0,
+		worstQuality:           127,
+		pass2ActiveWorstQ:      40,
+		pass2ActiveWorstQValid: true,
+	}
+	ts.setRollingBits(rc.rollingActualBits, rc.rollingTargetBits)
+	if ts.rollingActualBits != 9000 || ts.rollingTargetBits != 8000 {
+		t.Fatalf("transport: ts rolling actual:%d target:%d, want 9000/8000",
+			ts.rollingActualBits, ts.rollingTargetBits)
+	}
+
+	// rolling_actual/target = 9000/8000 = 1.125 > 1.05 so libvpx
+	// nudges est_max_qcorrection_factor up by +0.005.
+	ts.applyEstMaxQRollingRatioAdjustment()
+	if ts.estMaxQCorrection != 1.005 {
+		t.Fatalf("post-transport ratio step: factor=%v, want 1.005", ts.estMaxQCorrection)
+	}
+}
+
 func TestRateControlPostEncodeCarriesLibvpxNegativeBufferDebt(t *testing.T) {
 	rc := rateControlState{
 		mode:              RateControlCBR,
