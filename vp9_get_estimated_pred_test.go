@@ -92,18 +92,15 @@ func TestVp9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
 		}
 	}
 	estPred := make([]uint8, 64*64)
-	// MV in 1/8-pel: col=64 → full-pel offset = 64/16 = 4 (since
-	// SUBPEL_BITS=4). Use col=64 to get pre-offset = 4. (Reading
-	// libvpx: scaled_mv.col & SUBPEL_MASK gives subpel; >> SUBPEL_BITS
-	// gives full-pel.)
+	// MV in 1/8-pel: col=64 -> Q4 col=128 -> full-pel offset 8.
 	vp9BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, vp9MV{Row: 0, Col: 64})
-	// pre += (col >> 4) = 4 → ref[y][4..67] -> estPred[y][0..63].
+	// pre += (col_q4 >> 4) = 8 -> ref[y][8..71] -> estPred[y][0..63].
 	for y := range 64 {
 		for x := range 64 {
-			want := ref[y*stride+(x+4)]
+			want := ref[y*stride+(x+8)]
 			got := estPred[y*64+x]
 			if got != want {
-				t.Fatalf("est[%d,%d] = %d, want %d (ref[y][x+4])", y, x, got, want)
+				t.Fatalf("est[%d,%d] = %d, want %d (ref[y][x+8])", y, x, got, want)
 			}
 		}
 	}
@@ -342,6 +339,53 @@ func TestVp9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 	for y := range 64 {
 		for x := range 64 {
 			want := frame[(originY+y)*stride+(originX+x)]
+			got := estPred[y*64+x]
+			if got != want {
+				t.Fatalf("est[%d,%d] = %d, want %d", y, x, got, want)
+			}
+		}
+	}
+}
+
+func TestVp9GetEstimatedPredOrchestratorAppliesIntProMVScale(t *testing.T) {
+	stride := 256
+	src := make([]uint8, stride*stride)
+	ref := make([]uint8, stride*stride)
+	originX, originY := 96, 96
+	shiftX := 16
+	for y := -64; y < 128; y++ {
+		for x := -80; x < 160; x++ {
+			ref[(originY+y)*stride+(originX+x)] = uint8((x*17 + y*29 + x*y) & 0xFF)
+		}
+	}
+	for y := range 64 {
+		for x := range 64 {
+			src[(originY+y)*stride+(originX+x)] = ref[(originY+y)*stride+(originX+x+shiftX)]
+		}
+	}
+	srcOff := originY*stride + originX
+	in := &vp9GetEstimatedPredInterInput{
+		Bsize:         common.Block64x64,
+		Src:           src,
+		SrcOff:        srcOff,
+		SrcStride:     stride,
+		LastRef:       ref,
+		LastRefOff:    srcOff,
+		LastRefStride: stride,
+		Speed:         8,
+		MvLimits:      vp9MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+	}
+	estPred := make([]uint8, 64*64)
+	chosenRef, mv := vp9GetEstimatedPred(false, in, estPred)
+	if chosenRef != vp9RefLast {
+		t.Fatalf("chosenRef: got %v want LAST", chosenRef)
+	}
+	if mv.Row != 0 || mv.Col != int16(shiftX*8) {
+		t.Fatalf("int-pro MV: got (%d,%d) want (0,%d)", mv.Row, mv.Col, shiftX*8)
+	}
+	for y := range 64 {
+		for x := range 64 {
+			want := src[(originY+y)*stride+(originX+x)]
 			got := estPred[y*64+x]
 			if got != want {
 				t.Fatalf("est[%d,%d] = %d, want %d", y, x, got, want)

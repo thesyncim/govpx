@@ -286,14 +286,12 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//    surfaced by vp9ModelRdForSbY but currently overridden by
 	//    the leaf-commit pickVP9InterTxSize hook).
 	//
-	//  * Remaining closure path: route the picker's mrdTxSize
-	//    (already computed via vp9ModelRdForSbY at the per-mode
-	//    inner loop) into the leaf commit so the picker's tx_size
-	//    decision survives end-to-end, bypassing the variance-RDO
-	//    pickVP9InterTxSize. That requires threading a TxSize
-	//    field through vp9InterModeDecision and updating the
-	//    consumers in prepareVP9InterBlockResidue
-	//    (vp9_encoder.go:8498/8513).
+	//  * Remaining closure path: do not raw-carry mrdTxSize into the
+	//    leaf commit. The nonrd scorer caps / forces tx sizes before
+	//    some block_yrd scoring paths, so the next tx-size slice should
+	//    carry only a capped candidate through vp9InterTxApplyForces and
+	//    fall back to pickVP9InterTxSize when final segment / edge state
+	//    makes that candidate unsafe.
 	//
 	// Progress notes (task #148, this commit):
 	//
@@ -341,9 +339,23 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// Gate-flip recommendation: NOT YET. RefControl Phase D aggregate
 	// residual remains +200B/seed (above the +/-50B target) and
 	// keyframe byte parity is still RED on all 10 seeds. Same
-	// closure path as #142: route mrdTxSize through leaf commit
-	// (vp9_encoder.go:8498/8513) AND close the keyframe -26 byte
+	// closure path as #142: route a capped / force-checked tx-size
+	// candidate through leaf commit AND close the keyframe -26 byte
 	// first_byte_diff=17 regression.
+	//
+	// Progress notes (partition predictor fix):
+	//
+	//   * vp9BuildEstimatedPredLuma64x64 now converts int-pro MVs from
+	//     Q3 to Q4 before luma subpel / full-pel offset math, matching
+	//     libvpx's clamp_mv_to_umv_border_sb path for ss_x=ss_y=0.
+	//   * vp9MLPickPartitionEntry now uses the LAST reference buffer for
+	//     ML partition estimation even when EncodeNoReferenceLast masks
+	//     LAST out of the coding reference set, matching libvpx
+	//     get_ref_frame_buffer(cpi, LAST_FRAME).
+	//   * Under GOVPX_VP9_NONRD_PICK_PARTITION=1, the active deferred
+	//     RefControl aggregate size_delta improves from +858 to +446
+	//     bytes (avg +44B/seed) with the same 10/70 frame byte-match
+	//     count. Seed 9c3e08e8 moves from +292 to -120.
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {

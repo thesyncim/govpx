@@ -241,9 +241,9 @@ func (e *VP9Encoder) vp9ResetMLPartitionCache(miRows, miCols int) {
 // calls into nonrd_pick_partition (at 32x32 / 16x16 / 8x8) re-read the
 // same x->est_pred buffer.
 //
-// Returns nil when the SB cannot be ML-picked (missing LAST_FRAME, scaled
-// reference, etc.); the caller falls through to the legacy variance / RD
-// picker.
+// Returns nil when the SB cannot be ML-picked (missing LAST_FRAME buffer,
+// scaled reference, etc.); the caller falls through to the legacy variance /
+// RD picker.
 func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 ) *vp9MLPartitionContext {
@@ -284,8 +284,8 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	if len(src) == 0 || srcStride <= 0 {
 		return nil
 	}
-	lastSlot, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame)
-	if !ok {
+	lastSlot, ok := vp9EncoderReferenceSlot(vp9dec.LastFrame)
+	if !ok || !e.refFrames[lastSlot].valid {
 		return nil
 	}
 	lastRef, lastStride, lastW, lastH := vp9ReferenceVisiblePlane(&e.refFrames[lastSlot], 0)

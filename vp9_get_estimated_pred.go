@@ -265,10 +265,10 @@ func vp9GetEstimatedPredSubBsize(miRow, miCol, miRows, miCols int) common.BlockS
 //   - Single ref (no compound) — get_estimated_pred sets
 //     mi->ref_frame[1] = NO_REF_FRAME (vp9_encodeframe.c:5156).
 //
-// The MV is in 1/8-pel units (libvpx mv_q4 == raw mv when subsampling=0).
-// We compute the subpel x/y bits (mv.col & 15, mv.row & 15) and the
-// full-pel offset (mv.col >> 4, mv.row >> 4) and call InterPredictor —
-// govpx's port of inter_predictor inline (vp9/common/vp9_reconinter.h).
+// The MV is in 1/8-pel units. libvpx's
+// clamp_mv_to_umv_border_sb converts luma MVs to Q4 by doubling them
+// when subsampling is zero; the convolve path then derives subpel bits
+// from that Q4 MV.
 //
 // estPred must have at least 64*64 entries; the result is written
 // contiguously, row-major, with stride 64 (libvpx pins
@@ -285,10 +285,13 @@ func vp9BuildEstimatedPredLuma64x64(
 	mv vp9MV,
 ) {
 	// scaled_mv.row / scaled_mv.col == mv.row / mv.col in the
-	// no-scale, no-subsample luma path.
-	subpelX := int(mv.Col) & tables.SubpelMask
-	subpelY := int(mv.Row) & tables.SubpelMask
-	pre := refOff + int(mv.Row>>tables.SubpelBits)*refStride + int(mv.Col>>tables.SubpelBits)
+	// no-scale luma path after clamp_mv_to_umv_border_sb maps 1/8-pel
+	// MV units into Q4 (1/16-pel) units.
+	mvQ4Row := int(mv.Row) << 1
+	mvQ4Col := int(mv.Col) << 1
+	subpelX := mvQ4Col & tables.SubpelMask
+	subpelY := mvQ4Row & tables.SubpelMask
+	pre := refOff + (mvQ4Row>>tables.SubpelBits)*refStride + (mvQ4Col >> tables.SubpelBits)
 
 	// libvpx vp9_filter_kernels[BILINEAR] = &bilinear_filters
 	// (vp9_filter.c:79-84). InterPredictor dispatches to

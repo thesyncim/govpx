@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // TestVP9NonrdPickPartitionEnvGate confirms the env-gated dispatch wired
@@ -47,5 +48,39 @@ func TestVP9NonrdPickPartitionSplitSize(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("vp9MLSplitSize(%v) = %v, want %v", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestVP9MLPickPartitionEntryUsesLastBufferWhenLastRefMasked(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		CpuUsed: 8,
+	})
+	e.sf.PartitionSearchType = MlBasedPartition
+
+	ref := newVP9MotionYCbCrForTest(width, height)
+	src := shiftedVP9ReferenceYCbCrForTest(vp9ImageFromYCbCrForTest(ref), 0, 0)
+	e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
+	e.vp9ResetMLPartitionCache(8, 8)
+
+	var dq vp9dec.DequantTables
+	inter := &vp9InterEncodeState{
+		img:        src,
+		dq:         &dq,
+		refMask:    1 << uint(vp9dec.GoldenFrame),
+		baseQindex: e.vp9EncoderModeDecisionQIndex(),
+	}
+	ctx := e.vp9MLPickPartitionEntry(inter, 8, 8, 0, 0)
+	if ctx == nil {
+		t.Fatal("ML partition entry returned nil when LAST buffer exists but LAST coding ref is masked")
+	}
+	if !ctx.ready || !ctx.frameValid {
+		t.Fatalf("ML partition ctx ready/frameValid = %v/%v, want true/true",
+			ctx.ready, ctx.frameValid)
+	}
+	if ctx.sbMiRow != 0 || ctx.sbMiCol != 0 {
+		t.Fatalf("ML partition ctx SB = (%d,%d), want (0,0)", ctx.sbMiRow, ctx.sbMiCol)
 	}
 }
