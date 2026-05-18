@@ -123,6 +123,59 @@ import (
 //     iteration to find which mode/MV/rate diverges first. That's the
 //     specific libvpx-port that closes the gap.
 //
+// TASK #212 FOLLOW-UP (per-iter recode trace landed):
+//
+// With per-iter recode-loop trace rows on both sides
+// (oracleTraceRecodeIterRow + govpx_oracle_recode_iter_emit), the
+// per-iteration Q / projected_frame_size / rcf / q_low / q_high state
+// is now visible in /tmp/diag_govpx.jsonl and /tmp/diag_libvpx.jsonl.
+// Running TestDiagBb41d74Frame4 with the new trace shows:
+//
+//	iter  govpx_Q  govpx_proj  libvpx_Q  libvpx_proj  delta
+//	1     28       2360        28        2360         0   (exact)
+//	2     20       2769        20        2769         0   (exact)
+//	3     16       2767        16        2767         0   (exact)
+//	4     13       2879        13        2879         0   (exact)
+//	5     11       2842        11        2842         0   (exact)
+//	6     9        2956        9         2897         +59 (DIVERGES)
+//
+// Iters 1-5 are bit-exact: same Q trajectory, same projected_frame_size,
+// same rate_correction_factor, same q_low/q_high bounds. The recode-loop
+// STATE MACHINE is byte-faithful through iter 5.
+//
+// At iter 6 (Q=9), govpx's per-MB picker produces a 59-bit larger
+// projected_frame_size (2956 bits) than libvpx (2897 bits). With
+// libvpx's undershoot_limit = 2901, libvpx falls below
+// (2897 < 2901) → undershoot → recode → tighten q_high to 8 → next
+// iter Q=7. govpx falls above (2956 > 2901) → in-range → exit at Q=9.
+//
+// THIS IS NOT A RECODE-LOOP BUG. The recode-loop state machine matches
+// libvpx exactly. The divergence is in the per-MB picker (or its
+// coefficient entropy savings computation) at Q=9 specifically. At the
+// same Q with the same coding-context snapshot, the picker should
+// produce the same projected_frame_size — but at Q=9 it doesn't.
+//
+// Per-iter raw_rate / coef_savings / ref_frame_savings breakdown
+// (added to the recode_iter trace row by task #212) confirms the
+// divergence at iter 6 Q=9 is entirely in the picker's raw rate, not
+// the entropy savings:
+//
+//	iter 6 govpx Q=9 : raw_rate=3175, coef_savings=180,
+//	                   ref_frame_savings=39, projected=2956
+//	iter 6 libvpx Q=9: raw_rate=3116, coef_savings=180,
+//	                   ref_frame_savings=39, projected=2897
+//
+// Same Q, same savings, but raw_rate differs by 59 bits (govpx
+// over-counts by ~3.7 bits/MB across the 16 MBs of the 64x64 frame).
+//
+// NEXT STEP (task #213+): the per-MB MB rows currently only emit on
+// the FINAL accepted iter (Q=9 in govpx, Q=7 in libvpx — different
+// Qs, not directly comparable). To pin the per-MB picker bug at Q=9,
+// the libvpx oracle needs an intermediate-iter MB-row emit hook so
+// the same MBs at the same input Q=9 can be directly diffed on both
+// sides. The audit then reduces to per-MB pickinter / rdopt rate
+// accumulation parity at Q=9.
+//
 // LIBVPX SOURCE REFERENCES (v1.16.0):
 //
 //   - vp8/encoder/rdopt.c:1750-2270             vp8_rd_pick_inter_mode

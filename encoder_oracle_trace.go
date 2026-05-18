@@ -203,6 +203,66 @@ type oracleTraceRecodeRow struct {
 	Reason     string `json:"reason"`
 }
 
+// oracleTraceRecodeIterRow is the per-recode-iteration trace row. Emitted
+// once per encode pass inside the size_recode loop, AFTER the entropy-savings
+// subtraction so ProjectedFrameSize matches libvpx's `cpi->projected_frame_size`
+// at line 3983 of onyx_if.c. Fields capture the recode-loop state that drives
+// `recode_loop_test` and the post-test q_low / q_high / Q update path:
+//
+//   - Iter             : 1-indexed counter (mirrors libvpx loop_count semantics)
+//   - Q                : the Q just used by vp8_set_quantizer / encode pass
+//   - ProjectedFrameSize : post-savings bytes (matches libvpx's
+//     `cpi->projected_frame_size` after `vp8_estimate_entropy_savings`)
+//   - ThisFrameTarget  : `cpi->this_frame_target` (bits)
+//   - QLow / QHigh     : recode bounds at the END of this iteration (after
+//     the q_low / q_high tightening for this iter)
+//   - ActiveBest / ActiveWorst : the Q-range used by `vp8_regulate_q`
+//     (mirrors `cpi->active_best_quality` / `cpi->active_worst_quality`)
+//   - ActiveWorstQChanged : 1 if the relax-active-worst block ran this iter
+//   - OvershootSeen / UndershootSeen : recode-loop state flags (see libvpx
+//     `overshoot_seen` / `undershoot_seen` locals in `encode_frame_to_data_rate`)
+//   - ZbinOverQuant    : `cpi->mb.zbin_over_quant` after this iter's update
+//   - RateCorrectionFactor : the active rcf chosen by frame type/refresh
+//     class (matches libvpx's `cpi->rate_correction_factor` /
+//     `cpi->gf_rate_correction_factor` / `cpi->key_frame_rate_correction_factor`)
+//   - NextQ            : Q chosen for the NEXT encode pass (after recode);
+//     equals Q when the loop is about to exit (Loop=0 in libvpx terms)
+//   - Recoded          : true when the loop will iterate again (libvpx Loop=1)
+//   - OvershootLimit / UndershootLimit : `frame_over_shoot_limit` /
+//     `frame_under_shoot_limit` (bits). Captured to localize the gate edge
+//     condition when `recode_loop_test` flips state mid-loop.
+type oracleTraceRecodeIterRow struct {
+	Type                 string  `json:"type"`
+	FrameIndex           uint64  `json:"frame_index"`
+	Iter                 int     `json:"iter"`
+	Q                    int     `json:"q"`
+	ProjectedFrameSize   int     `json:"projected_frame_size"`
+	ThisFrameTarget      int     `json:"this_frame_target"`
+	QLow                 int     `json:"q_low"`
+	QHigh                int     `json:"q_high"`
+	ActiveBest           int     `json:"active_best"`
+	ActiveWorst          int     `json:"active_worst"`
+	ActiveWorstQChanged  int     `json:"active_worst_qchanged"`
+	OvershootSeen        int     `json:"overshoot_seen"`
+	UndershootSeen       int     `json:"undershoot_seen"`
+	ZbinOverQuant        int     `json:"zbin_over_quant"`
+	RateCorrectionFactor float64 `json:"rate_correction_factor"`
+	NextQ                int     `json:"next_q"`
+	Recoded              bool    `json:"recoded"`
+	OvershootLimit       int     `json:"overshoot_limit"`
+	UndershootLimit      int     `json:"undershoot_limit"`
+	// Pre-savings raw frame rate (libvpx `totalrate >> 8` at the end of
+	// vp8_encode_frame, encodeframe.c:941) and the per-component entropy
+	// savings subtracted from it (vp8_estimate_entropy_savings). Exposed
+	// at per-iter granularity so a Q-level picker divergence (the task
+	// #212 frame 4 iter 6 Q=9 finding) can be split into a picker
+	// raw-rate component vs a coef-prob / ref-frame entropy-savings
+	// component, both at the same input Q on both sides.
+	RawRate             int `json:"raw_rate"`
+	CoefSavingsBits     int `json:"coef_savings_bits"`
+	RefFrameSavingsBits int `json:"ref_frame_savings_bits"`
+}
+
 // oracleTraceMBRow is the per-macroblock oracle trace row.
 type oracleTraceMBRow struct {
 	Type       string        `json:"type"`
@@ -641,6 +701,74 @@ func (e *VP8Encoder) emitOracleRecodeTrace(summary oracleTraceRecodeSummary) {
 	}
 	if row.Reason == "" {
 		row.Reason = "size_recode"
+	}
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
+}
+
+// oracleTraceRecodeIterSummary captures per-recode-iteration recode-loop
+// state for parity diff against the libvpx-side per-iter emit hook. See
+// oracleTraceRecodeIterRow for field semantics.
+type oracleTraceRecodeIterSummary struct {
+	Iter                 int
+	Q                    int
+	ProjectedFrameSize   int
+	ThisFrameTarget      int
+	QLow                 int
+	QHigh                int
+	ActiveBest           int
+	ActiveWorst          int
+	ActiveWorstQChanged  bool
+	OvershootSeen        bool
+	UndershootSeen       bool
+	ZbinOverQuant        int
+	RateCorrectionFactor float64
+	NextQ                int
+	Recoded              bool
+	OvershootLimit       int
+	UndershootLimit      int
+	RawRate              int
+	CoefSavingsBits      int
+	RefFrameSavingsBits  int
+}
+
+// emitOracleRecodeIterTrace writes a single "recode_iter" row capturing the
+// recode-loop state at the end of one encode pass. Mirrors the libvpx-side
+// per-iter emit hook patched into encode_frame_to_data_rate by
+// internal/coracle/build_vpxenc_oracle.sh after the recode_loop_test branch
+// decision.
+func (e *VP8Encoder) emitOracleRecodeIterTrace(summary oracleTraceRecodeIterSummary) {
+	if !e.oracleTraceEnabled() {
+		return
+	}
+	row := oracleTraceRecodeIterRow{
+		Type:                 "recode_iter",
+		FrameIndex:           e.frameCount,
+		Iter:                 summary.Iter,
+		Q:                    summary.Q,
+		ProjectedFrameSize:   summary.ProjectedFrameSize,
+		ThisFrameTarget:      summary.ThisFrameTarget,
+		QLow:                 summary.QLow,
+		QHigh:                summary.QHigh,
+		ActiveBest:           summary.ActiveBest,
+		ActiveWorst:          summary.ActiveWorst,
+		ZbinOverQuant:        summary.ZbinOverQuant,
+		RateCorrectionFactor: summary.RateCorrectionFactor,
+		NextQ:                summary.NextQ,
+		Recoded:              summary.Recoded,
+		OvershootLimit:       summary.OvershootLimit,
+		UndershootLimit:      summary.UndershootLimit,
+		RawRate:              summary.RawRate,
+		CoefSavingsBits:      summary.CoefSavingsBits,
+		RefFrameSavingsBits:  summary.RefFrameSavingsBits,
+	}
+	if summary.ActiveWorstQChanged {
+		row.ActiveWorstQChanged = 1
+	}
+	if summary.OvershootSeen {
+		row.OvershootSeen = 1
+	}
+	if summary.UndershootSeen {
+		row.UndershootSeen = 1
 	}
 	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
