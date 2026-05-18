@@ -75,8 +75,22 @@ func frameFlagsForLibvpx(f EncodeFlags) uint32 {
 // findVpxencFrameFlags locates the companion encoder driver,
 // preferring the explicit env override and falling back to the
 // build dir produced by internal/coracle/build_vpxenc_frameflags.sh.
+//
+// The combined `vpxenc-frameflags-oracle` binary (per
+// internal/coracle/build_vpxenc_frameflags_oracle.sh) is preferred
+// when present so that tests setting GOVPX_ORACLE_TRACE_OUT pick up
+// the per-MB JSONL trace in the same encode pass. It is a strict
+// superset of the plain `vpxenc-frameflags` driver — same source
+// (vpxenc_frameflags.c) linked against the same patched libvpx.a, so
+// every --control-script / --frame-flags surface is identical.
 func findVpxencFrameFlags(t *testing.T) string {
 	t.Helper()
+	if v := os.Getenv("GOVPX_VPXENC_FRAMEFLAGS_ORACLE"); v != "" {
+		if _, err := os.Stat(v); err == nil {
+			return v
+		}
+		t.Fatalf("GOVPX_VPXENC_FRAMEFLAGS_ORACLE=%q not found", v)
+	}
 	if v := os.Getenv("GOVPX_VPXENC_FRAMEFLAGS"); v != "" {
 		if _, err := os.Stat(v); err == nil {
 			return v
@@ -84,6 +98,7 @@ func findVpxencFrameFlags(t *testing.T) string {
 		t.Fatalf("GOVPX_VPXENC_FRAMEFLAGS=%q not found", v)
 	}
 	candidates := []string{
+		"internal/coracle/build/vpxenc-frameflags-oracle",
 		"internal/coracle/build/vpxenc-frameflags",
 	}
 	for _, c := range candidates {
@@ -94,7 +109,37 @@ func findVpxencFrameFlags(t *testing.T) string {
 			}
 		}
 	}
-	t.Skip("vpxenc-frameflags binary not available; set GOVPX_VPXENC_FRAMEFLAGS or run internal/coracle/build_vpxenc_frameflags.sh")
+	t.Skip("vpxenc-frameflags binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE/GOVPX_VPXENC_FRAMEFLAGS or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
+	return ""
+}
+
+// findVpxencFrameFlagsOracle locates the combined VP8 encoder driver
+// that exposes BOTH per-frame --control-script / --frame-flags
+// scheduling AND the per-MB JSONL oracle trace gated by
+// GOVPX_ORACLE_TRACE_OUT. Tests that need the combined capability
+// (e.g. trace-aware byte-parity gates on noise:0 / golden-overwrite
+// seeds) should call this helper directly so a missing binary skips
+// rather than silently degrading to the non-trace driver.
+func findVpxencFrameFlagsOracle(t *testing.T) string {
+	t.Helper()
+	if v := os.Getenv("GOVPX_VPXENC_FRAMEFLAGS_ORACLE"); v != "" {
+		if _, err := os.Stat(v); err == nil {
+			return v
+		}
+		t.Fatalf("GOVPX_VPXENC_FRAMEFLAGS_ORACLE=%q not found", v)
+	}
+	candidates := []string{
+		"internal/coracle/build/vpxenc-frameflags-oracle",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			abs, err := filepath.Abs(c)
+			if err == nil {
+				return abs
+			}
+		}
+	}
+	t.Skip("vpxenc-frameflags-oracle binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
 	return ""
 }
 
