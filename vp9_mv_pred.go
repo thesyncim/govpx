@@ -284,9 +284,9 @@ type vp9NewmvDiffBiasResult struct {
 //	    this_rdc->rdcost = 7 * (this_rdc->rdcost >> 3);
 //	}
 //
-// The encoder now wires noise_estimate into the caller-side gate.
-// lowvar_highsumdiff / sb_is_skin remain explicit inputs because libvpx
-// derives them from x->lowvar_* and x->sb_is_skin.
+// The encoder wires noise_estimate and lowvar_highsumdiff into the
+// caller-side gate. sb_is_skin remains an explicit input because libvpx
+// derives it from x->sb_is_skin, which govpx does not surface for VP9 yet.
 func vp9NewmvDiffBias(thisMode common.PredictionMode, rdcost uint64,
 	bsize common.BlockSize, mvRow, mvCol int,
 	aboveMi, leftMi *vp9dec.NeighborMi,

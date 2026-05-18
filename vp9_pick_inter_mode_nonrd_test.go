@@ -121,3 +121,20 @@ func TestVP9NewmvDiffBiasNoiseInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestVP9NewmvDiffBiasLowvarInput(t *testing.T) {
+	cases := []struct {
+		state vp9ContentStateSB
+		want  bool
+	}{
+		{state: vp9ContentStateInvalid, want: false},
+		{state: vp9ContentStateLowSadLowSumdiff, want: false},
+		{state: vp9ContentStateLowVarHighSumdiff, want: true},
+	}
+	for _, tc := range cases {
+		if got := vp9NewmvDiffBiasLowvarInput(tc.state); got != tc.want {
+			t.Fatalf("vp9NewmvDiffBiasLowvarInput(%d) = %v, want %v",
+				tc.state, got, tc.want)
+		}
+	}
+}

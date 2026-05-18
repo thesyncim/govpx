@@ -920,6 +920,18 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		miRows, miRow, miCol, bsize)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	lowvarHighsumdiff := false
+	lowvarHighsumdiffSet := false
+	newmvDiffBiasInputs := func() (bool, bool, bool, bool) {
+		noiseEnabled, noiseAtLeastMedium := e.vp9NewmvDiffBiasNoiseInputs()
+		if !lowvarHighsumdiffSet {
+			if state, ok := e.vp9AvgSourceSAD(inter.img, miCols, miRow, miCol); ok {
+				lowvarHighsumdiff = vp9NewmvDiffBiasLowvarInput(state)
+			}
+			lowvarHighsumdiffSet = true
+		}
+		return noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, false
+	}
 	// libvpx: vp9_encodeframe.c:4244-4248 — every SB's rd_pick_sb_modes call
 	// seeds x->cb_rdmult from get_rdmult_delta so per-mode RDCOST consumes
 	// a TPL-biased multiplier rather than the bare per-frame rd.RDMULT.
@@ -1725,13 +1737,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					e.opts.RateControlMode == RateControlCBR &&
 					e.vp9SpeedFeatureCPUUsed() >= 5 &&
 					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
-					noiseEnabled, noiseAtLeastMedium :=
-						e.vp9NewmvDiffBiasNoiseInputs()
+					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
+						newmvDiffBiasInputs()
 					biased := vp9NewmvDiffBias(thisMode, score, bsize,
 						int(mv.Row), int(mv.Col),
 						above, left,
 						refFrame == vp9dec.LastFrame,
-						noiseEnabled, noiseAtLeastMedium, false, false)
+						noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
 					score = biased.rdcost
 				}
 
@@ -1779,13 +1791,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					e.opts.RateControlMode == RateControlCBR &&
 					e.vp9SpeedFeatureCPUUsed() >= 5 &&
 					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
-					noiseEnabled, noiseAtLeastMedium :=
-						e.vp9NewmvDiffBiasNoiseInputs()
+					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
+						newmvDiffBiasInputs()
 					biased := vp9NewmvDiffBias(thisMode, cand.score, bsize,
 						int(mv.Row), int(mv.Col),
 						above, left,
 						refFrame == vp9dec.LastFrame,
-						noiseEnabled, noiseAtLeastMedium, false, false)
+						noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
 					cand.score = biased.rdcost
 				}
 				if distortion < bestSseSoFar {
@@ -2363,6 +2375,10 @@ func (e *VP9Encoder) vp9NewmvDiffBiasNoiseInputs() (bool, bool) {
 		return false, false
 	}
 	return true, vp9NoiseEstimateExtractLevel(&e.noiseEstimate) >= vp9NoiseLevelMedium
+}
+
+func vp9NewmvDiffBiasLowvarInput(contentState vp9ContentStateSB) bool {
+	return contentState == vp9ContentStateLowVarHighSumdiff
 }
 
 // vp9NeighborIsInter mirrors libvpx's is_inter_block(MODE_INFO *mi) helper.
