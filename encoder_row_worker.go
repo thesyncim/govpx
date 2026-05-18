@@ -57,11 +57,26 @@ type rowEncoderState struct {
 	// 1126), which runs AFTER vp8_rd_pick_intra_mode. So each MB's
 	// picker quantize step reads zbin_extra computed from the PREVIOUS
 	// MB's post-pick act_zbin_adj
-	// (ZBIN_EXTRA_Y at vp8_quantize.c lines 276-279). This row worker
-	// carries pickerActZbinAdj across MBs within a row (reset to 0 at
-	// row start because each row worker initialises its own MACROBLOCK
-	// copy with act_zbin_adj=0). See encoder_reconstruct.go for the
-	// single-thread anchor.
+	// (ZBIN_EXTRA_Y at vp8_quantize.c lines 276-279).
+	//
+	// In the threaded path the carry survives both within a row AND
+	// across the rows a single worker handles (workerIndex,
+	// workerIndex+workerCount, workerIndex+2*workerCount, ...): libvpx
+	// neither the helper thread loop (ethreading.c:76-310) nor the main
+	// thread's encode_mb_row (encodeframe.c:316-575) touches
+	// b->zbin_extra or x->act_zbin_adj between rows.
+	//
+	// runThreadedKeyFrameWorker / runThreadedInterFrameWorker seed
+	// pickerActZbinAdj ONCE per worker dispatch:
+	//   - workerIndex == 0 ⇒ activityProbeStaleActZbinAdj (mirrors main
+	//     thread, whose b->zbin_extra was set by
+	//     vp8cx_frame_init_quantizer using the prev-attempt's last-MB
+	//     act_zbin_adj).
+	//   - workerIndex > 0  ⇒ 0 (mirrors helper threads' MB_ROW_COMP[i].mb
+	//     block[i].zbin_extra zero-init from
+	//     vp8cx_create_encoder_threads:521-523 memset plus setup_mbby_copy
+	//     copying the master's freshly zeroed act_zbin_adj).
+	// See encoder_reconstruct.go for the single-thread anchor.
 	pickerActZbinAdj int
 
 	// scratch is the row-private intra reconstruction scratch reused
@@ -317,6 +332,22 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	worker.reset(p.encoder, p.required, workerIndex > 0)
 	vp8enc.ResetInterCoefficientTokenRecords(&worker.interCoefTokenRecords, p.args.rows, threadedWorkerMacroblockCount(workerIndex, workerCount, p.args.rows, p.args.cols))
 	worker.enc.threadedHelperRowsActive = workerIndex > 0
+	// Same libvpx anchor as runThreadedKeyFrameWorker: workerIndex==0 maps
+	// to libvpx's main thread (b->zbin_extra seeded from prev-attempt's
+	// stale act_zbin_adj via vp8cx_frame_init_quantizer); workerIndex>0
+	// maps to libvpx helper threads (b->zbin_extra zero-init,
+	// act_zbin_adj=0 from setup_mbby_copy post-init_encode_frame_mb_context).
+	// The inter-frame picker does not currently thread pickerActZbinAdj
+	// through the per-MB candidate evaluation (the inter rdopt path reads
+	// b->zbin_extra after vp8_update_zbin_extra runs INSIDE the candidate
+	// loop at rdopt.c:1930 — see encoder_inter_modes_rd.go), but we keep
+	// the field consistent so future inter-side ports can read it without
+	// stitching.
+	if workerIndex == 0 {
+		worker.pickerActZbinAdj = worker.enc.activityProbeStaleActZbinAdj
+	} else {
+		worker.pickerActZbinAdj = 0
+	}
 	defer worker.finish()
 	var err error
 	for row := workerIndex; row < p.args.rows; row += workerCount {
@@ -350,6 +381,29 @@ func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {
 	worker := &p.workers[workerIndex]
 	worker.reset(p.encoder, p.required, workerIndex > 0)
 	worker.enc.threadedHelperRowsActive = workerIndex > 0
+	// libvpx vp8/encoder/ethreading.c thread_encoding_proc:
+	// helper workers (ithread = 0..encoding_thread_count-1) operate on
+	// MB_ROW_COMP[ithread].mb whose block[i].zbin_extra is zero-init
+	// (vpx_memalign + memset at vp8cx_create_encoder_threads:521-523) and
+	// whose act_zbin_adj was copied from the master's just-zeroed value
+	// (setup_mbby_copy at ethreading.c:374 runs AFTER
+	// init_encode_frame_mb_context sets x->act_zbin_adj=0 at
+	// encodeframe.c:588). Each helper thread carries that state across
+	// every row it handles (workerIndex+k*workerCount, k=0,1,2,...) — the
+	// row loop never resets b->zbin_extra or x->act_zbin_adj.
+	//
+	// The MAIN thread (mapped to workerIndex==0 here, which handles rows
+	// {0, workerCount, 2*workerCount, ...} — mirroring libvpx's
+	// `for (mb_row = 0; ...; mb_row += encoding_thread_count + 1)` at
+	// encodeframe.c:778-779) uses cpi->mb directly; its block[i].zbin_extra
+	// was just rewritten by vp8cx_frame_init_quantizer (encodeframe.c:719)
+	// using x->act_zbin_adj left over from the previous attempt's last MB.
+	// govpx mirrors that via activityProbeStaleActZbinAdj.
+	if workerIndex == 0 {
+		worker.pickerActZbinAdj = worker.enc.activityProbeStaleActZbinAdj
+	} else {
+		worker.pickerActZbinAdj = 0
+	}
 	defer worker.finish()
 	var err error
 	for row := workerIndex; row < p.keyArgs.rows; row += workerCount {
