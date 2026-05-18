@@ -41,8 +41,8 @@ const (
 //
 //	typedef enum noise_level { kLowLow, kLow, kMedium, kHigh } NOISE_LEVEL;
 //
-// govpx does not yet plumb the per-frame noise estimator
-// (cpi->noise_estimate) so callers default to vp9NoiseLevelLow.
+// The encoder wires this from cpi->noise_estimate for variance partitioning;
+// direct helper tests may still pass a fixed level explicitly.
 type vp9NoiseLevel int
 
 const (
@@ -104,8 +104,6 @@ func vp9ScalePartThreshSumdiff(thresholdBase int64, speed, width, height int,
 //   - isKeyFrame  = frame_is_intra_only(cm)
 //   - contentState= caller-provided CONTENT_STATE_SB
 //   - noiseLevel  = vp9_noise_estimate_extract_level(&cpi->noise_estimate)
-//     (govpx callers default to vp9NoiseLevelLow until noise
-//     estimate plumbing lands)
 //   - noiseEstimateEnabled = cpi->noise_estimate.enabled
 //   - avgFrameQIndexInter  = cpi->rc.avg_frame_qindex[INTER_FRAME]
 //   - disable16x16PartNonkey = cpi->sf.disable_16x16part_nonkey

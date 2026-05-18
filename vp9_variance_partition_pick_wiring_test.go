@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -110,6 +111,53 @@ func TestVP9ChoosePartitioningSBIndex(t *testing.T) {
 	}
 }
 
+func TestVP9EnsureSBPartitionChosenThreadsNoiseEstimate(t *testing.T) {
+	const width, height = 640, 480
+	const miRows, miCols = 60, 80
+	pick := func(enabled bool, value int) common.BlockSize {
+		t.Helper()
+		e, err := NewVP9Encoder(VP9EncoderOptions{
+			Width:   width,
+			Height:  height,
+			CpuUsed: 8,
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Encoder: %v", err)
+		}
+		defer e.Close()
+		e.sf.VariancePartThreshMult = 2
+		e.noiseEstimate.enabled = enabled
+		e.noiseEstimate.value = value
+
+		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		fillVP9NoisePartitionPatternForTest(src)
+		e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
+
+		var dq vp9dec.DequantTables
+		inter := &vp9InterEncodeState{
+			img:        src,
+			dq:         &dq,
+			refMask:    1 << uint(vp9dec.LastFrame),
+			baseQindex: 37,
+		}
+		if !e.vp9EnsureSBPartitionChosen(miRows, miCols, 0, 0, nil, inter) {
+			t.Fatal("vp9EnsureSBPartitionChosen returned false")
+		}
+		return e.varPartGrid[0].SbType
+	}
+
+	low := pick(false, 0)
+	high := pick(true, 300)
+	if low == common.Block64x64 {
+		t.Fatalf("noise-disabled partition = Block64x64, want split fixture")
+	}
+	if high != common.Block64x64 {
+		t.Fatalf("high-noise partition = %v, want Block64x64 from raised VBP thresholds",
+			high)
+	}
+}
+
 func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	const width, height = 160, 96
 	const miRows, miCols = 12, 20
@@ -179,5 +227,22 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	vp9GetEstimatedPred(false, &oldIn, oldShape)
 	if bytes.Equal(expected, oldShape) {
 		t.Fatal("test fixture is not sensitive to Block32x32 vs Block64x64 int-pro search")
+	}
+}
+
+func fillVP9NoisePartitionPatternForTest(img *image.YCbCr) {
+	for by := range 8 {
+		for bx := range 8 {
+			value := byte(128)
+			if (by+bx)&1 != 0 {
+				value = 130
+			}
+			for y := by * 8; y < by*8+8; y++ {
+				row := img.Y[y*img.YStride:]
+				for x := bx * 8; x < bx*8+8; x++ {
+					row[x] = value
+				}
+			}
+		}
 	}
 }

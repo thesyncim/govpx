@@ -6508,6 +6508,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar,
 		PartitionRefFrame:      vp9dec.LastFrame,
 		VarianceLow:            &e.varPartSBVarLow[sbIdx],
+		NoiseEstimateEnabled:   e.noiseEstimate.enabled,
+		NoiseLevel:             vp9NoiseEstimateExtractLevel(&e.noiseEstimate),
 		// libvpx vp9_encodeframe.c:1379 feeds set_vbp_thresholds with
 		// cpi->sf.variance_part_thresh_mult. The configurator sets this
 		// to 2 for resolutions w*h >= 640*360 (vp9_speed_features.c:813),
