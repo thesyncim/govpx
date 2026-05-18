@@ -591,28 +591,54 @@ func (e *VP8Encoder) libvpxStaticSceneMaxGFInterval() int {
 // fallback) avoids a spurious mid-section GF refresh at frame
 // DEFAULT_GF_INTERVAL when libvpx's section runs longer.
 func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
-	// libvpx onyx_if.c vp8_create_compressor line 1886 leaves
-	// cpi->baseline_gf_interval == gf_interval_onepass_cbr for ANY
-	// (CBR && !error_resilient) one-pass compressor — MODE_REALTIME,
-	// MODE_GOODQUALITY, and MODE_BESTQUALITY all qualify under the
-	// `cpi->oxcf.Mode <= 2` gate at line 1877. The prior split that
-	// gated this branch on `Deadline == DeadlineRealtime` only mirrored
-	// the vp8_change_config line-1547 override (which IS realtime-only)
-	// and missed the later vp8_create_compressor line-1886 override
-	// that fires for good/best CBR too. Result: at the 2nd KF the
-	// non-realtime CBR cohort observed libvpxDefaultGFInterval=7 while
-	// libvpx read gf_interval_onepass_cbr (=10 on the 256-frame
-	// kf30_700kbps good_cpum3 fixture), so the gf_overspend drain used
-	// a smaller denominator, drained 37 bits/frame faster, and bumped
-	// Q+1 by frame 37. Task #235.
+	// libvpx onyx_if.c vp8_create_compressor line 1886 sets
+	// cpi->baseline_gf_interval = gf_interval_onepass_cbr for any
+	// (Mode <= 2 && CBR && !error_resilient) compressor — this fires ONCE
+	// at the end of vp8_create_compressor. However, vpxenc subsequently
+	// drives every codec_control() call (e.g. --cpu-used=N → VP8E_SET_CPUUSED)
+	// through update_extracfg() → vp8_change_config(), and
+	// vp8_change_config (onyx_if.c:1540-1548) UNCONDITIONALLY re-seeds
+	// cpi->baseline_gf_interval = DEFAULT_GF_INTERVAL=7 and only overrides
+	// to gf_interval_onepass_cbr when Mode == MODE_REALTIME (line 1547).
+	// For MODE_GOODQUALITY / MODE_BESTQUALITY the post-create vp8_change_config
+	// reset wins, so the FIRST-keyframe value vp8_setup_key_frame reads is:
+	//
+	//   - realtime CBR (!ER):       gf_interval_onepass_cbr (cyclic-refresh
+	//                               derived, [6,40] clamp)
+	//   - good/best CBR (!ER):      DEFAULT_GF_INTERVAL = 7
+	//   - any error_resilient CBR:  DEFAULT_GF_INTERVAL = 7
+	//   - non-CBR:                  DEFAULT_GF_INTERVAL = 7
+	//
+	// AFTER the first CBR cliff (ratectrl.c:1030), libvpx writes
+	// `cpi->baseline_gf_interval = cpi->gf_interval_onepass_cbr` directly so
+	// subsequent forced keyframes read the live cliff interval regardless of
+	// Mode. The govpx baselineGFInterval field tracks that live cliff value;
+	// when it's set (>0) we use it for the next vp8_setup_key_frame read.
+	// The empirical confirmation captured in the task-263 trace: vpxenc's
+	// --cpu-used flag triggers update_extracfg → vp8_change_config, and the
+	// init_state diagnostic for 128x128 BestQuality CBR shows
+	// "baseline_gf_interval":7 (NOT 40) after that reset. Task #263 reverts
+	// the part of task #235 that extended the gf_interval_onepass_cbr seed
+	// to good/best CBR at first-KF time; the live-cliff carry it added stays
+	// intact for the mid-stream KF case task #235 originally closed.
 	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
 		if e.rc.onePassAutoGold {
 			return 1
 		}
+		if e.opts.Deadline == DeadlineRealtime {
+			if e.rc.baselineGFInterval > 0 {
+				return e.rc.baselineGFInterval
+			}
+			return e.goldenFrameCBRInterval(rows, cols)
+		}
+		// Non-realtime CBR: vp8_change_config reset baseline_gf_interval
+		// to DEFAULT_GF_INTERVAL at startup. The live cliff value (set by
+		// the post-encode cliff branch) wins once available; otherwise
+		// libvpx reads the post-change_config DEFAULT_GF_INTERVAL seed.
 		if e.rc.baselineGFInterval > 0 {
 			return e.rc.baselineGFInterval
 		}
-		return e.goldenFrameCBRInterval(rows, cols)
+		return libvpxDefaultGFInterval
 	}
 	if e.twoPass.enabled() && e.twoPass.gfGroupValid && e.twoPass.framesTillGFUpdate > 0 {
 		return e.twoPass.framesTillGFUpdate
