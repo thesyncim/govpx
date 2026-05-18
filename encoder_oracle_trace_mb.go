@@ -114,6 +114,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
 		return
 	}
+	activity, actZbinAdj, rdmult, activityAvg := e.oracleTraceActivityState(mbRow, mbCol)
 	row := oracleTraceMBRow{
 		Type:       "mb",
 		FrameIndex: e.frameCount,
@@ -131,6 +132,11 @@ func (e *VP8Encoder) emitOracleMBTrace(
 
 		MBRate:         mbRate,
 		AggregatedRate: aggregatedRate,
+
+		MBActivity:  activity,
+		ActZbinAdj:  actZbinAdj,
+		RDMult:      rdmult,
+		ActivityAvg: activityAvg,
 	}
 	if improvedStart.ok() {
 		row.ImprovedMVStart = true
@@ -197,6 +203,7 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
 		return
 	}
+	activity, actZbinAdj, rdmult, activityAvg := e.oracleTraceActivityState(mbRow, mbCol)
 	row := oracleTraceMBRow{
 		Type:       "mb",
 		FrameIndex: e.frameCount,
@@ -212,6 +219,11 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 
 		MBRate:         mbRate,
 		AggregatedRate: aggregatedRate,
+
+		MBActivity:  activity,
+		ActZbinAdj:  actZbinAdj,
+		RDMult:      rdmult,
+		ActivityAvg: activityAvg,
 	}
 	if mode.YMode == vp8common.BPred {
 		row.BModes = make([]string, len(mode.BModes))
@@ -298,6 +310,67 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 			eob[js] = 1
 		}
 	}
+}
+
+// oracleTraceActivityState mirrors libvpx v1.16.0 vp8/encoder/encodeframe.c
+// per-MB TuneSSIM activity-masking snapshot at the govpx_oracle_capture_mb
+// call site. Returns:
+//
+//   - mb_activity : cpi->mb_activity_map[idx]. Zero outside TuneSSIM (the
+//     map is allocated via vpx_calloc inside vp8_alloc_compressor_data
+//     at onyx_if.c:1188-1192 and never written outside build_activity_map).
+//   - act_zbin_adj: x->act_zbin_adj. Zero outside TuneSSIM (initialized at
+//     encodeframe.c:588 and only re-derived under tuning==SSIM at
+//     encodeframe.c:1106 / 1193 via adjust_act_zbin).
+//   - rdmult     : x->rdmult after vp8_activity_masking (line 307). Outside
+//     TuneSSIM this equals cpi->RDMULT (the base reassignment at
+//     encodeframe.c:406 with no subsequent activity scaling).
+//   - activity_avg: cpi->activity_avg. Defaults to 90<<12 from
+//     vp8_create_compressor (onyx_if.c:1906) and is overwritten by
+//     calc_av_activity (encodeframe.c:156 / 164) when build_activity_map
+//     runs under TuneSSIM.
+//
+// The base qindex for the rdmult derivation is e.interRDFrameBaseQIndex,
+// which mirrors libvpx's vp8_initialize_rd_consts(cm->base_qindex) seed
+// (rdopt.c:163-227 / encodeframe.c:721-722).
+func (e *VP8Encoder) oracleTraceActivityState(mbRow int, mbCol int) (mbActivity uint32, actZbinAdj int, rdmult uint32, activityAvg uint32) {
+	// libvpx onyx_if.c:1906 vp8_create_compressor seeds cpi->activity_avg
+	// at 90<<12. calc_av_activity overwrites it under TuneSSIM only.
+	const libvpxActivityAvgDefault uint32 = 90 << 12
+	activityAvg = libvpxActivityAvgDefault
+	if e.activityMapValid {
+		// e.activityAvg mirrors the post-calc_av_activity value (either the
+		// median path or the fixed 100000 under ALT_ACT_MEASURE=1).
+		activityAvg = e.activityAvg
+		if activity, ok := e.activityAt(mbRow, mbCol); ok {
+			mbActivity = activity
+		}
+		if adj, ok := e.tunedZbinAdjustment(mbRow, mbCol); ok {
+			actZbinAdj = adj
+		}
+	}
+	// Base cpi->RDMULT seed: vp8_initialize_rd_consts uses cm->base_qindex
+	// (rdopt.c:163-227, called from encodeframe.c:721-722). For TuneSSIM
+	// the per-MB x->rdmult is then scaled by vp8_activity_masking
+	// (encodeframe.c:307). PSNR tuning keeps x->rdmult == cpi->RDMULT.
+	//
+	// The qindex to consume is the *frame-level* base qindex active at
+	// encode_mb_row time. govpx tracks the regulator-chosen value in
+	// e.rc.currentQuantizer, which is set per-frame (keyframe or inter)
+	// before the macroblock loop runs. e.interRDFrameBaseQIndex is the
+	// inter-only snapshot taken at beginInterRDModeDecisionFrame and is
+	// stale on keyframes (initialized to 0 by encoder_lifecycle.go:182).
+	qIndex := vp8common.ClampQIndex(e.rc.currentQuantizer)
+	baseRDMult, _ := libvpxRDConstants(qIndex)
+	rdmultInt := baseRDMult
+	if e.activityMapValid {
+		rdmultInt = e.tunedRDMultiplier(baseRDMult, mbRow, mbCol)
+	}
+	if rdmultInt < 0 {
+		rdmultInt = 0
+	}
+	rdmult = uint32(rdmultInt)
+	return mbActivity, actZbinAdj, rdmult, activityAvg
 }
 
 // emitOracleLFTrial writes a single per-trial-level row for the fast

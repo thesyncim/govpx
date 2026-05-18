@@ -39,7 +39,7 @@ config_stamp="$build_dir/.govpx-vpxenc-frameflags-oracle-config"
 # Bump this whenever the dependent want_config strings in
 # build_vpxenc_oracle.sh / build_vpxenc_frameflags.sh change or when
 # the verification surface here changes.
-want_config="vpxenc-frameflags-oracle-2026-05-18-r2-task209-changeconfig-tail"
+want_config="vpxenc-frameflags-oracle-2026-05-19-task210-mb-activity"
 
 mkdir -p "$build_dir"
 

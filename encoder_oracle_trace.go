@@ -241,6 +241,25 @@ type oracleTraceMBRow struct {
 	// Bounds").
 	MBRate         int `json:"mb_rate"`
 	AggregatedRate int `json:"aggregated_rate"`
+
+	// TuneSSIM activity-masking diagnostic. Mirrors libvpx v1.16.0
+	// vp8/encoder/encodeframe.c:
+	//   - MBActivity  : cpi->mb_activity_map[idx], populated by
+	//     build_activity_map (line 225-289). Zero outside TuneSSIM.
+	//   - ActZbinAdj  : x->act_zbin_adj from adjust_act_zbin
+	//     (line 1074-1092). Zero outside TuneSSIM (line 588 base init).
+	//   - RDMult      : x->rdmult after vp8_activity_masking (line 307).
+	//     Equals cpi->RDMULT outside TuneSSIM (line 406 base assignment).
+	//   - ActivityAvg : cpi->activity_avg from calc_av_activity (line 156
+	//     / 164) at TuneSSIM. Defaults to 90<<12 from
+	//     vp8_create_compressor (onyx_if.c:1906) for PSNR runs.
+	// These were added in task #210 to localize the first diverging MB on
+	// the residual 1280x720 SSIM seeds (94eb71d5, 19981bff) where the
+	// per-MB tracer was missing the activity-masking quartet.
+	MBActivity  uint32 `json:"mb_activity"`
+	ActZbinAdj  int    `json:"act_zbin_adj"`
+	RDMult      uint32 `json:"rdmult"`
+	ActivityAvg uint32 `json:"activity_avg"`
 }
 
 // oracleTracePredictorRow captures the inter-prediction output for a single

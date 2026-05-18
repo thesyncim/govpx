@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-18-task209-changeconfig-tail"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task210-mb-activity"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -202,6 +202,27 @@ typedef struct {
      * all rows are processed. */
     int mb_rate;
     int aggregated_rate;
+    /* TuneSSIM activity-masking diagnostic. Captured at the same
+     * govpx_oracle_capture_mb call site as the rest of the per-MB state.
+     * Mirrors libvpx v1.16.0 vp8/encoder/encodeframe.c:
+     *   - mb_activity_map[idx]  : per-MB activity SSE filled by
+     *     build_activity_map (line 225-289). At ALT_ACT_MEASURE=1 the
+     *     TuneSSIM path stores `mb_activity_measure` (vp8_encode_intra
+     *     return) for each MB before the inter/intra loop runs.
+     *   - x->act_zbin_adj       : per-MB Y2 zbin-adjustment delta
+     *     produced by adjust_act_zbin (line 1074-1092). Recomputed
+     *     after the picker via vp8_activity_masking (line 293-314) /
+     *     vp8cx_encode_intra_macroblock (line 1106) /
+     *     vp8cx_encode_inter_macroblock (line 1193).
+     *   - x->rdmult             : per-MB RD multiplier seeded by
+     *     `x->rdmult = cpi->RDMULT` (line 406) and then activity-masked
+     *     by vp8_activity_masking (line 307) for TuneSSIM.
+     *   - cpi->activity_avg     : the average MB activity used by the
+     *     masking calc (line 156 / 164 depending on ALT_ACT_MEASURE). */
+    unsigned int mb_activity;
+    int act_zbin_adj;
+    unsigned int rdmult;
+    unsigned int activity_avg;
 } govpx_mb_row_t;
 
 typedef struct {
@@ -586,6 +607,30 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
         }
     }
     row->eob_sum = sum;
+    /* TuneSSIM activity-masking diagnostic snapshot. govpx_oracle_capture_mb
+     * fires at vp8/encoder/encodeframe.c after the per-MB picker has
+     * finished, so at this point:
+     *   - cpi->mb_activity_map[idx]   is populated by build_activity_map
+     *     (encodeframe.c:225-289) prior to the inter/intra loop.
+     *   - x->act_zbin_adj             has been re-derived by
+     *     adjust_act_zbin via vp8cx_encode_intra_macroblock (line 1106) /
+     *     vp8cx_encode_inter_macroblock (line 1193).
+     *   - x->rdmult                   has been activity-masked by
+     *     vp8_activity_masking (line 307) at encode_mb_row's per-MB head
+     *     when cpi->oxcf.tuning == VP8_TUNE_SSIM (line 423).
+     *   - cpi->activity_avg           is the frame-level average baked
+     *     by calc_av_activity (line 156 / 164). */
+    {
+        unsigned int *act_map_ptr = cpi->mb_activity_map;
+        unsigned int mb_activity_value = 0;
+        if (act_map_ptr != NULL) {
+            mb_activity_value = act_map_ptr[idx];
+        }
+        row->mb_activity = mb_activity_value;
+        row->act_zbin_adj = cpi->mb.act_zbin_adj;
+        row->rdmult = cpi->mb.rdmult;
+        row->activity_avg = cpi->activity_avg;
+    }
     /* Improved-MV trace: only NEWMV uses the vp8_mv_pred predictor; for
      * other modes the per-MB row keeps the pre-extension defaults that
      * mirror govpx's oracleTraceMBRow zero-state. The slot for the chosen
@@ -940,14 +985,22 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                     "\"improved_mv_col\":%d,"
                     "\"improved_mv_sr\":%d,"
                     "\"mb_rate\":%d,"
-                    "\"aggregated_rate\":%d}\n",
+                    "\"aggregated_rate\":%d,"
+                    "\"mb_activity\":%u,"
+                    "\"act_zbin_adj\":%d,"
+                    "\"rdmult\":%u,"
+                    "\"activity_avg\":%u}\n",
                     r->improved_mv_start ? "true" : "false",
                     r->improved_mv_near_sadidx,
                     r->improved_mv_row,
                     r->improved_mv_col,
                     r->improved_mv_sr,
                     r->mb_rate,
-                    r->aggregated_rate);
+                    r->aggregated_rate,
+                    r->mb_activity,
+                    r->act_zbin_adj,
+                    r->rdmult,
+                    r->activity_avg);
             r->valid = 0;
         }
     }
