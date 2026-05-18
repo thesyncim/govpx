@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+)
 
 // TestVP8SpeedFeaturesCascadeMirrorsLibvpx pins the verbatim mirror of
 // libvpx `vp8_set_speed_features` (vp8/encoder/onyx_if.c lines 768-1087)
@@ -336,6 +340,218 @@ func TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpx(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpxAllDeadlines pins the
+// libvpx rdopt.c NEWMV step_param/further_steps cascade
+// (vp8/encoder/rdopt.c:2034/2086) across every RD-on deadline+cpu_used
+// combination. This is the broader audit closure for task #232 (and
+// task #239): the picker-vs-RD split must hold not just for Realtime
+// cpu_used<=3 (covered by TestVP8SpeedFeaturesRDPathStepParamMirrors-
+// Libvpx above) but for the full RD-on surface:
+//
+//   - BestQuality + any cpu_used (Speed = cpu_used pass-through;
+//     libvpx onyx_if.c:1481-1484 sets compressor_speed=0 with no
+//     cpu_used clamp, and case 0 leaves first_step=0,
+//     max_step_search_steps=MAX_MVSEARCH_STEPS).
+//   - GoodQuality + cpu_used<=3 (sf->first_step=1 only when Speed>0;
+//     RD on per onyx_if.c:916 Speed>3 gate).
+//   - Realtime + cpu_used<=3 (already covered above, included here
+//     for the cross-deadline invariant check).
+//
+// Task #232 closure: the BestQuality+cpu_used>=8 cohort was the
+// regression site (regression_option_grid_022b3ed5). Speed stayed at
+// cpu_used (e.g. 8) but sf.RD=1, so the RD path was selected with
+// step_param=sf.first_step=0 and further_steps=max-1-step. Before the
+// #232 fix, adjustedForImprovedMVStart routed cpi->Speed through
+// libvpxInterFrameFurtherSteps (which applies pickinter.c:1005-1008's
+// Speed>=8 short-circuit), silently capping further_steps to 0 on
+// every MB with sr>0 from improved_mv_pred. This test pins the verbatim
+// rdopt.c:2086 formula for BestQuality+cpu>=8 plus every other RD-on
+// cohort.
+//
+// libvpx rdopt.c:2034: step_param = cpi->sf.first_step  (no speed_adjust)
+// libvpx rdopt.c:2086: further_steps = (sf->max_step_search_steps - 1) - step_param
+//
+// vs libvpx pickinter.c:932: step_param = sf->first_step + speed_adjust
+// vs libvpx pickinter.c:1005-1008: further_steps = Speed>=8 ? 0 : (max-1-step)
+//
+// govpx's interAnalysisSearchConfig() collapses both forms via
+// fullPixelFinalRefine (= e.interAnalysisUsesRDModeDecision()):
+//   - On RD: fullPixelSearchParam = first_step alone,
+//     fullPixelSpeedAdjust = 0,
+//     fullPixelFurtherSteps = max-1-first_step (no Speed cap;
+//     BestQuality forces furtherStepsSpeed=0 so even cpu>=8
+//     skips the Speed>=8 short-circuit; Good/Realtime cpu<=3
+//     naturally falls below the cap because speed<8).
+//   - On non-RD picker: fullPixelSearchParam = first_step + speed_adjust,
+//     fullPixelSpeedAdjust = speed_adjust,
+//     fullPixelFurtherSteps = (Speed>=8 ? 0 : max-1-step).
+func TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpxAllDeadlines(t *testing.T) {
+	type rdCase struct {
+		name        string
+		deadline    Deadline
+		cpuUsed     int
+		wantStep    int // libvpx rdopt.c:2034 = sf->first_step
+		wantFurther int // libvpx rdopt.c:2086 = max-1-step_param
+	}
+	// libvpx onyx_if.c case 0 (BestQuality, lines 891-894): first_step=0,
+	// max_step_search_steps=MAX_MVSEARCH_STEPS (=8). No cpu_used clamp
+	// (onyx_if.c:1481-1484), so Speed = cpu_used directly.
+	//
+	// libvpx onyx_if.c case 1/3 (GoodQuality, lines 895-..., not 916+
+	// where RD is turned off): first_step=1 iff Speed>0 (line 903).
+	// GoodQuality clamps cpu_used to [-5, 5] (libvpxEffectiveCPUUsed)
+	// before vp8_set_speed_features.
+	//
+	// libvpx onyx_if.c case 2 (Realtime): first_step=1 iff Speed>0
+	// (line 941). At Speed<=3, RD is still on (line 947 turns RD off at
+	// Speed>3).
+	cases := []rdCase{
+		// BestQuality: first_step=0 for all cpu_used. further=8-1-0=7.
+		// The cpu_used>=8 cohort is the task #232 regression site.
+		{name: "best-cpu-0", deadline: DeadlineBestQuality, cpuUsed: 0, wantStep: 0, wantFurther: 7},
+		{name: "best-cpu-4", deadline: DeadlineBestQuality, cpuUsed: 4, wantStep: 0, wantFurther: 7},
+		{name: "best-cpu-8", deadline: DeadlineBestQuality, cpuUsed: 8, wantStep: 0, wantFurther: 7},
+		{name: "best-cpu-12", deadline: DeadlineBestQuality, cpuUsed: 12, wantStep: 0, wantFurther: 7},
+		{name: "best-cpu-16", deadline: DeadlineBestQuality, cpuUsed: 16, wantStep: 0, wantFurther: 7},
+		// GoodQuality + cpu_used<=3 (RD on; libvpx clamps cpu_used to
+		// [-5, 5] before Speed translation, so cpu_used=0 → Speed=0,
+		// cpu_used=3 → Speed=3, cpu_used=-3 → Speed=-3<0 still uses
+		// case 1/3 cascade with Speed=cpu_used [-3], for which Speed>0
+		// is false → first_step=0).
+		{name: "good-cpu-0", deadline: DeadlineGoodQuality, cpuUsed: 0, wantStep: 0, wantFurther: 7},
+		{name: "good-cpu-1", deadline: DeadlineGoodQuality, cpuUsed: 1, wantStep: 1, wantFurther: 6},
+		{name: "good-cpu-2", deadline: DeadlineGoodQuality, cpuUsed: 2, wantStep: 1, wantFurther: 6},
+		{name: "good-cpu-3", deadline: DeadlineGoodQuality, cpuUsed: 3, wantStep: 1, wantFurther: 6},
+		{name: "good-cpu-neg3", deadline: DeadlineGoodQuality, cpuUsed: -3, wantStep: 0, wantFurther: 7},
+		// Realtime + cpu_used<=3 (already covered above; replicate the
+		// negative-cpu_used cases here for the cross-deadline check).
+		// At cpu_used=0, libvpxCPUUsed returns the cold-start sentinel
+		// 4 on a fresh encoder (e.frameCount==0), which is > 3 → RD OFF.
+		// Skip cpu_used=0 here and exercise the explicit-negative cohort
+		// where libvpxCPUUsed returns -cpu_used directly.
+		{name: "rt-cpu-neg1", deadline: DeadlineRealtime, cpuUsed: -1, wantStep: 1, wantFurther: 6},
+		{name: "rt-cpu-neg2", deadline: DeadlineRealtime, cpuUsed: -2, wantStep: 1, wantFurther: 6},
+		{name: "rt-cpu-neg3", deadline: DeadlineRealtime, cpuUsed: -3, wantStep: 1, wantFurther: 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tc.deadline, CpuUsed: tc.cpuUsed}}
+			if !e.interAnalysisUsesRDModeDecision() {
+				t.Fatalf("deadline=%v cpu_used=%d expected RD on but interAnalysisUsesRDModeDecision()=false", tc.deadline, tc.cpuUsed)
+			}
+			cfg := e.interAnalysisSearchConfig()
+			if got := int(cfg.fullPixelSearchParam); got != tc.wantStep {
+				t.Errorf("step_param = %d, want %d (libvpx rdopt.c:2034 = sf->first_step alone, no pickinter speed_adjust)", got, tc.wantStep)
+			}
+			if got := int(cfg.fullPixelFurtherSteps); got != tc.wantFurther {
+				t.Errorf("further_steps = %d, want %d (libvpx rdopt.c:2086 = max-1-step; no Speed>=8 short-circuit on RD path)", got, tc.wantFurther)
+			}
+			if got := int(cfg.fullPixelSpeedAdjust); got != 0 {
+				t.Errorf("speed_adjust = %d under RD, want 0 (libvpx rdopt.c does not apply pickinter speed_adjust)", got)
+			}
+			if !cfg.fullPixelFinalRefine {
+				t.Errorf("fullPixelFinalRefine = false under RD, want true (selects rdopt.c:2086 verbatim formula in adjustedForImprovedMVStart)")
+			}
+		})
+	}
+}
+
+// TestVP8SpeedFeaturesAdjustedImprovedMVStartMirrorsLibvpxBothPaths pins
+// the picker-vs-RD split applied by adjustedForImprovedMVStart after
+// vp8_mv_pred returns a non-zero sr. This is the task #232 fix surface:
+//
+//   - RD path (rdopt.c:2076/2086): if sr > step_param then
+//     step_param = sr; further_steps = max-1-step_param  (no Speed>=8 cap).
+//   - Picker path (pickinter.c:971/973/1005-1008): sr += speed_adjust;
+//     if sr > step_param then step_param = sr; further_steps =
+//     (Speed>=8 ? 0 : max-1-step_param).
+//
+// govpx's adjustedForImprovedMVStart switches on fullPixelFinalRefine
+// (= interAnalysisUsesRDModeDecision()) to pick the libvpx-correct
+// formula. This test exercises both branches at concrete sr values that
+// would bump step_param past the initial first_step, including the
+// BestQuality+cpu_used=8 cohort where the picker formula would
+// incorrectly cap further_steps to 0.
+func TestVP8SpeedFeaturesAdjustedImprovedMVStartMirrorsLibvpxBothPaths(t *testing.T) {
+	type adjCase struct {
+		name        string
+		deadline    Deadline
+		cpuUsed     int
+		sr          int // value returned by improved-MV predictor
+		wantStep    int // post-adjustedForImprovedMVStart step_param
+		wantFurther int // post-adjustedForImprovedMVStart further_steps
+		wantRD      bool
+	}
+	cases := []adjCase{
+		// BestQuality+cpu_used=8 (#232 regression cohort). RD path:
+		// step_param = sr (since fullPixelSpeedAdjust=0 under RD, and
+		// initial fullPixelSearchParam=first_step=0; any sr>0 bumps).
+		// further_steps = max(7-sr, 0). NO Speed>=8 short-circuit.
+		{name: "best-cpu-8-sr-1", deadline: DeadlineBestQuality, cpuUsed: 8, sr: 1, wantStep: 1, wantFurther: 6, wantRD: true},
+		{name: "best-cpu-8-sr-3", deadline: DeadlineBestQuality, cpuUsed: 8, sr: 3, wantStep: 3, wantFurther: 4, wantRD: true},
+		{name: "best-cpu-8-sr-5", deadline: DeadlineBestQuality, cpuUsed: 8, sr: 5, wantStep: 5, wantFurther: 2, wantRD: true},
+		{name: "best-cpu-8-sr-7", deadline: DeadlineBestQuality, cpuUsed: 8, sr: 7, wantStep: 7, wantFurther: 0, wantRD: true},
+		// BestQuality+cpu_used=0. RD path same as above.
+		{name: "best-cpu-0-sr-2", deadline: DeadlineBestQuality, cpuUsed: 0, sr: 2, wantStep: 2, wantFurther: 5, wantRD: true},
+		// GoodQuality+cpu_used=3 (RD on). step_param=first_step=1
+		// initially; sr+speed_adjust (=sr+0 under RD) bumps only if
+		// sr > 1.
+		{name: "good-cpu-3-sr-2", deadline: DeadlineGoodQuality, cpuUsed: 3, sr: 2, wantStep: 2, wantFurther: 5, wantRD: true},
+		{name: "good-cpu-3-sr-1", deadline: DeadlineGoodQuality, cpuUsed: 3, sr: 1, wantStep: 1, wantFurther: 6, wantRD: true},
+		// GoodQuality+cpu_used=0 (RD on, first_step=0). sr=2 bumps to 2.
+		{name: "good-cpu-0-sr-2", deadline: DeadlineGoodQuality, cpuUsed: 0, sr: 2, wantStep: 2, wantFurther: 5, wantRD: true},
+		// Realtime+cpu_used=-2 (RD on, Speed=2, first_step=1). sr=3
+		// bumps to 3.
+		{name: "rt-cpu-neg2-sr-3", deadline: DeadlineRealtime, cpuUsed: -2, sr: 3, wantStep: 3, wantFurther: 4, wantRD: true},
+		// Picker path: Realtime+cpu_used=-8 (Speed=8, RD off). Initial
+		// step_param = first_step+speed_adjust = 1+3 = 4. sr=2 →
+		// sr+speed_adjust=5 > 4 → step_param=5. further_steps =
+		// (Speed>=8 ? 0 : max-1-step) = 0.
+		{name: "rt-cpu-neg8-sr-2", deadline: DeadlineRealtime, cpuUsed: -8, sr: 2, wantStep: 5, wantFurther: 0, wantRD: false},
+		// Picker path: Realtime+cpu_used=-5 (Speed=5, RD off). Initial
+		// step_param = 1+1 = 2. sr=3 → sr+speed_adjust=4 > 2 →
+		// step_param=4. further_steps = max-1-4 = 3 (Speed<8 so no
+		// short-circuit).
+		{name: "rt-cpu-neg5-sr-3", deadline: DeadlineRealtime, cpuUsed: -5, sr: 3, wantStep: 4, wantFurther: 3, wantRD: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tc.deadline, CpuUsed: tc.cpuUsed}}
+			if got := e.interAnalysisUsesRDModeDecision(); got != tc.wantRD {
+				t.Fatalf("interAnalysisUsesRDModeDecision() = %v, want %v (deadline=%v cpu_used=%d)", got, tc.wantRD, tc.deadline, tc.cpuUsed)
+			}
+			cfg := e.interAnalysisSearchConfig()
+			start := newInterFrameSearchStart(vp8enc.MotionVector{}, tc.sr, 0)
+			adjusted := cfg.adjustedForImprovedMVStart(start)
+			if got := int(adjusted.fullPixelSearchParam); got != tc.wantStep {
+				t.Errorf("step_param = %d, want %d (libvpx %s)", got, tc.wantStep, libvpxFormulaForRD(tc.wantRD))
+			}
+			if got := int(adjusted.fullPixelFurtherSteps); got != tc.wantFurther {
+				t.Errorf("further_steps = %d, want %d (libvpx %s)", got, tc.wantFurther, libvpxFurtherFormulaForRD(tc.wantRD))
+			}
+		})
+	}
+}
+
+// libvpxFormulaForRD returns the libvpx source-line citation for the
+// step_param formula expected on the RD vs picker path. Used for
+// regression-test error messages.
+func libvpxFormulaForRD(rd bool) string {
+	if rd {
+		return "rdopt.c:2076: step_param = max(first_step, sr) with no speed_adjust"
+	}
+	return "pickinter.c:932/971/973: step_param = max(first_step+speed_adjust, sr+speed_adjust)"
+}
+
+// libvpxFurtherFormulaForRD returns the libvpx source-line citation for
+// the further_steps formula expected on the RD vs picker path.
+func libvpxFurtherFormulaForRD(rd bool) string {
+	if rd {
+		return "rdopt.c:2086: further_steps = max_step-1-step_param (no Speed>=8 cap)"
+	}
+	return "pickinter.c:1005-1008: further_steps = (Speed>=8 ? 0 : max_step-1-step_param)"
 }
 
 // TestVP8SpeedFeaturesNew1ModeCheckFreqMirrorsLibvpxSpeed10 pins the
