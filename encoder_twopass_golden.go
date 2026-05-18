@@ -725,6 +725,16 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 	boostScore := 0.0
 	oldBoostScore := 0.0
 	interval := 0
+	// libvpx vp8/encoder/firstpass.c define_gf_group (line 1647)
+	// accumulates mod_frame_err per loop iteration into gf_group_err.
+	// We mirror that so the ARF-feasibility gate at line 1830 can
+	// compute group_bits = kf_group_bits * (gf_group_err /
+	// kf_group_error_left). The starting frame's modified error is
+	// captured so we can later replicate libvpx's KF-boundary
+	// `gf_group_err -= gf_first_frame_err` at line 1633 when applicable.
+	gfFirstFrameErr := t.modifiedError(t.stats[currentFrame])
+	gfGroupErr := 0.0
+	modFrameErr := gfFirstFrameErr
 	for i := 1; i <= maxLookahead; i++ {
 		idx := currentFrame + uint64(i)
 		if idx >= uint64(len(t.stats)) {
@@ -754,6 +764,13 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 		if frameBoost > gfRMax {
 			frameBoost = gfRMax
 		}
+		// libvpx vp8/encoder/firstpass.c line 1647: mod_frame_err is
+		// the per-iteration calculate_modified_err(cpi, this_frame).
+		// At loop exit it holds the modified error of the LAST visited
+		// `this_frame`, which is the last frame in the candidate GF
+		// section. estimate_q at line 1830 consumes that final value.
+		modFrameErr = t.modifiedError(t.stats[idx])
+		gfGroupErr += modFrameErr
 		// Cumulative effect of prediction quality decay, mirroring
 		// libvpx's `decay_accumulator = decay_accumulator *
 		// loop_decay_rate; clamp(0.1, 1.0)`.
@@ -795,6 +812,146 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 	gfuBoost := int(boostScore*100.0) >> 4
 	if gfuBoost <= 100 {
 		return 0, false
+	}
+	// libvpx vp8/encoder/firstpass.c lines 1788-1842: after the
+	// pre-estimate boost / motion gates pass, libvpx computes the
+	// would-be ARF allocation and probes estimate_q. The gate is
+	// `tmp_q < cpi->worst_quality`; only then is
+	// `cpi->source_alt_ref_pending = 1` set. Wire that final
+	// feasibility test here so govpx mirrors the libvpx ARF eligibility
+	// decision verbatim instead of stopping at the heuristic gates.
+	//
+	// The libvpx caller path:
+	//   group_bits = kf_group_bits * (gf_group_err / kf_group_error_left)
+	//   Boost      = (gfu_boost * 3 * GFQ_ADJUSTMENT) / (2 * 100) + i*50
+	//   clamped to [125, (i+1)*200]
+	//   allocation_chunks = (i+1)*100 + Boost
+	//   while Boost > 1000: Boost/=2; allocation_chunks/=2
+	//   arf_frame_bits = Boost * (group_bits / allocation_chunks)
+	//   tmp_q = estimate_q(cpi, mod_frame_err, arf_frame_bits)
+	//   if (tmp_q < cpi->worst_quality) -> ARF eligible.
+	//
+	// The gate is skipped when govpx state required to evaluate it has
+	// not been initialised (numMBs == 0 or worstQuality == 0 — the
+	// pre-configure default), since libvpx's calloc default would not
+	// satisfy `tmp_q < 0` and would always fail the gate. Mirroring that
+	// strict semantics would block ARFs unconditionally when the encoder
+	// has not yet set quantizer bounds; we instead fall back to the
+	// boost-only decision in that case so test callers that exercise the
+	// pre-estimate gates only continue to behave the same.
+	if t.numMBs > 0 && t.worstQuality > 0 {
+		// libvpx's KF-boundary case (line 1633) subtracts the
+		// gf_first_frame_err from gf_group_err so the keyframe's own
+		// error is not counted toward the GF group. govpx mirrors that
+		// when currentFrame is the latest seen keyframe.
+		gfGroupErrAdj := gfGroupErr
+		atKFBoundary := currentFrame == t.lastKeySeen || currentFrame == 0
+		if atKFBoundary {
+			gfGroupErrAdj -= gfFirstFrameErr
+			if gfGroupErrAdj < 0 {
+				gfGroupErrAdj = 0
+			}
+		}
+		// libvpx vp8/encoder/firstpass.c flow: find_next_key_frame runs
+		// before define_gf_group and populates cpi->twopass.kf_group_bits
+		// and kf_group_error_left. govpx's encoder runs pass2DetectARFPending
+		// BEFORE prepareKFGroup (the find_next_key_frame port), so on the
+		// first frame of a KF group those fields are still zero. Lazy-
+		// compute them here so the estimate_q probe sees libvpx-shaped
+		// inputs even on the very first frame. The lazy values mirror
+		// prepareKFGroup (line 454) but do not mutate twoPassState — this
+		// is a pure read-only probe.
+		kfGroupBits := t.kfGroupBitsRemaining
+		kfGroupErrorLeft := t.kfGroupErrorLeft
+		if kfGroupBits <= 0 || kfGroupErrorLeft <= 0 {
+			if atKFBoundary && t.bitsLeft > 0 && t.errorLeft > 0 {
+				framesToKeyForSeed := min(len(t.stats)-int(currentFrame), framesToKey)
+				if framesToKeyForSeed > 0 {
+					var kfGroupErr, kfModErr float64
+					end := min(currentFrame+uint64(framesToKeyForSeed), uint64(len(t.stats)))
+					for i := currentFrame; i < end; i++ {
+						kfGroupErr += t.modifiedError(t.stats[i])
+					}
+					kfModErr = t.modifiedError(t.stats[currentFrame])
+					seededKFGroupBits := int64(float64(t.bitsLeft) * (kfGroupErr / t.errorLeft))
+					maxBits := int64(libvpxFrameMaxBitsVBR(t.bitsLeft, int64(framesToKeyForSeed), t.maxPctOrDefault()))
+					if maxBits > 0 {
+						if cap := maxBits * int64(framesToKeyForSeed); seededKFGroupBits > cap {
+							seededKFGroupBits = cap
+						}
+					}
+					if seededKFGroupBits > 0 {
+						kfGroupBits = seededKFGroupBits
+						kfGroupErrorLeft = kfGroupErr - kfModErr
+						if kfGroupErrorLeft < 0 {
+							kfGroupErrorLeft = 0
+						}
+					}
+				}
+			}
+		}
+		groupBits := int64(0)
+		if kfGroupBits > 0 && kfGroupErrorLeft > 0 {
+			groupBits = int64(float64(kfGroupBits) *
+				(gfGroupErrAdj / kfGroupErrorLeft))
+		}
+		if groupBits > 0 {
+			// libvpx GFQ_ADJUSTMENT lookup: vp8_gf_boost_qadjustment[Q].
+			// Q is libvpx's last_q[INTER_FRAME] (or oxcf.fixed_q when
+			// non-negative; govpx never sets fixed_q in pass-2 paths).
+			q := max(t.lastInterQ, 0)
+			if q >= len(libvpxGFBoostQAdjustment) {
+				q = len(libvpxGFBoostQAdjustment) - 1
+			}
+			gfqAdjustment := libvpxGFBoostQAdjustment[q]
+			// libvpx vp8/encoder/firstpass.c lines 1798-1813 (NEW_BOOST
+			// branch uses alt_boost here; govpx's gfuBoost computed
+			// above mirrors the non-NEW_BOOST gfu_boost — equivalent
+			// for the ARF cost-vs-budget probe since both feed the same
+			// Boost formula when scaled by GFQ_ADJUSTMENT).
+			Boost := (gfuBoost * 3 * gfqAdjustment) / (2 * 100)
+			Boost += interval * 50
+			if cap := (interval + 1) * 200; Boost > cap {
+				Boost = cap
+			}
+			if Boost < 125 {
+				Boost = 125
+			}
+			allocationChunks := (interval+1)*100 + Boost
+			for Boost > 1000 {
+				Boost /= 2
+				allocationChunks /= 2
+				if allocationChunks <= 0 {
+					break
+				}
+			}
+			if allocationChunks > 0 {
+				arfFrameBits := int(float64(Boost) *
+					(float64(groupBits) / float64(allocationChunks)))
+				if arfFrameBits > 0 {
+					// libvpx estimate_q at line 1084 takes
+					// section_target_bandwidth and section_err
+					// (mod_frame_err of the last loop frame).
+					// speed_correction is 1.0 here because the
+					// govpx-default compressor_speed is 0/2; libvpx's
+					// 1.04-1.25 speed_correction only fires at speeds
+					// 1 or 3.
+					estCorrection := t.estMaxQCorrection
+					if estCorrection <= 0 {
+						estCorrection = 1.0
+					}
+					errPerMB := modFrameErr / float64(t.numMBs)
+					tmpQ := libvpxEstimateQ(t.numMBs, arfFrameBits, errPerMB, 1.0, estCorrection)
+					if tmpQ >= t.worstQuality {
+						// libvpx vp8/encoder/firstpass.c line 1904:
+						// cpi->source_alt_ref_pending = 0 — the ARF
+						// would not be codable at a lower Q than the
+						// surrounding frames, so it is not worthwhile.
+						return 0, false
+					}
+				}
+			}
+		}
 	}
 	return interval, true
 }

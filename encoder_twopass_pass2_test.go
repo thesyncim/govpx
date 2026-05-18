@@ -292,6 +292,53 @@ func TestPass2NonKeyARFBoundarySeparatesHiddenAndVisibleTargets(t *testing.T) {
 	}
 }
 
+// TestPass2ARFPendingRejectedWhenBudgetForcesSaturatedQ pins the libvpx
+// vp8/encoder/firstpass.c define_gf_group ARF feasibility gate at line
+// 1830-1835:
+//
+//	tmp_q = estimate_q(cpi, mod_frame_err, (int)arf_frame_bits);
+//	if (tmp_q < cpi->worst_quality) { source_alt_ref_pending = 1; }
+//
+// The intent is "only ARF when we can code the hidden frame at a lower
+// Q than the surrounding frames". When the bit budget would force
+// estimate_q to saturate at worst_quality, the ARF is rejected even
+// though the boost / motion gates passed.
+//
+// Build a section that satisfies every pre-estimate gate (high intra/
+// coded ratio, high pcnt_inter, gfu_boost well above 100) but starve
+// the budget by configuring a tiny bits_left so the would-be
+// arf_frame_bits is also tiny. The estimate_q probe should then saturate
+// and the function should return pending=false.
+func TestPass2ARFPendingRejectedWhenBudgetForcesSaturatedQ(t *testing.T) {
+	const sectionLen = 16
+	stats := make([]FirstPassFrameStats, sectionLen)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:    20000,
+			CodedError:    200,
+			PcntInter:     0.95,
+			PcntMotion:    0.4,
+			PcntSecondRef: 0.0,
+			PcntNeutral:   0.0,
+			MVrAbs:        5,
+			MVcAbs:        5,
+			Count:         1,
+		}
+	}
+	var ts twoPassState
+	// 1 bit per frame -> the kf-group bit budget is effectively zero
+	// relative to err_per_mb, so estimate_q must saturate.
+	ts.configure(stats, 1, 100, 50, 200)
+	ts.configureFrameDims(64, 64)
+	// configureQuantizerBounds: lower worstQuality so even a moderate
+	// tmp_q lands at >= worstQuality and the gate trips.
+	ts.configureQuantizerBounds(0, 40)
+	_, pending := ts.pass2DetectARFPending(0, sectionLen, true, libvpxMinGFInterval+8)
+	if pending {
+		t.Fatalf("pass2DetectARFPending returned pending=true on starved budget; want false (estimate_q saturated >= worstQuality)")
+	}
+}
+
 func TestPass2AltRefPlanOnlyAtGFBoundary(t *testing.T) {
 	stats := make([]FirstPassFrameStats, 16)
 	for i := range stats {
