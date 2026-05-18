@@ -82,6 +82,21 @@ type BDRateOptionsVP8 struct {
 	// errVpxencVP8NotFound and the harness returns only the
 	// within-govpx curves.
 	LibvpxVpxenc string
+
+	// RateControlOverride pins the rate-control mode applied to both
+	// the govpx and the libvpx sides of the BD-rate run. When zero
+	// (the default) the harness picks RateControlCBR when
+	// RateLadderKbps is set and RateControlQ otherwise (matching the
+	// original behavior). Callers that want VBR (or CQ) wire it here
+	// — the harness can't distinguish a zero-value RateControlVBR set
+	// inside a Test callback from a fully unset RateControlMode, so
+	// the override channel is the only way to drive VBR on both sides
+	// of the comparison.
+	RateControlOverride govpx.RateControlMode
+	// RateControlOverrideSet must be true when RateControlOverride is
+	// authoritative (including the zero value, RateControlVBR). When
+	// false the harness picks the historical default.
+	RateControlOverrideSet bool
 }
 
 // ComputeBDRateVP8 runs the VP8 BD-rate harness and returns the result.
@@ -234,7 +249,12 @@ func encodeBDOperatingPointVP8(opts BDRateOptionsVP8, q int, targetKbps int, app
 		QuantizerRangeSet: true,
 		CQLevel:           q,
 	}
-	if len(opts.RateLadderKbps) > 0 {
+	if opts.RateControlOverrideSet {
+		encOpts.RateControlMode = opts.RateControlOverride
+		if encOpts.TargetBitrateKbps <= 0 {
+			encOpts.TargetBitrateKbps = 1000
+		}
+	} else if len(opts.RateLadderKbps) > 0 {
 		// CBR ladder: pin the rate axis explicitly.
 		encOpts.RateControlMode = govpx.RateControlCBR
 		if encOpts.TargetBitrateKbps <= 0 {
@@ -416,6 +436,9 @@ func encodeBDLibvpxVP8Curve(opts BDRateOptionsVP8, ladder []bdOperatingPoint) ([
 		Height: opts.Height,
 		FPS:    opts.FPS,
 	}
+	if opts.RateControlOverrideSet {
+		testOpts.RateControlMode = opts.RateControlOverride
+	}
 	if opts.Test != nil {
 		opts.Test(&testOpts)
 	}
@@ -424,8 +447,10 @@ func encodeBDLibvpxVP8Curve(opts BDRateOptionsVP8, ladder []bdOperatingPoint) ([
 	// runs sit on the same end-usage axis. Without this, an
 	// unset-callback Test path would leave RateControlMode at the
 	// zero value (RateControlVBR) and the libvpx side would run
-	// --end-usage=vbr against govpx's CBR/VPX_Q curve.
-	if testOpts.RateControlMode == govpx.RateControlVBR {
+	// --end-usage=vbr against govpx's CBR/VPX_Q curve. When the
+	// caller explicitly pinned RateControlOverride, that takes
+	// precedence (set above) and this defaulting is skipped.
+	if !opts.RateControlOverrideSet && testOpts.RateControlMode == govpx.RateControlVBR {
 		if len(opts.RateLadderKbps) > 0 {
 			testOpts.RateControlMode = govpx.RateControlCBR
 		} else {
@@ -649,6 +674,16 @@ func libvpxVP8BDCLIArgs(opts BDRateOptionsVP8, t govpx.EncoderOptions, op bdOper
 	// libvpx token: --token-parts
 	if t.TokenPartitions > 0 {
 		args = append(args, fmt.Sprintf("--token-parts=%d", t.TokenPartitions))
+	}
+	// libvpx token: --tune. Maps govpx.Tuning to the vpxenc CLI flag.
+	// TunePSNR is libvpx's default; emit only when the test path
+	// explicitly switched to SSIM so the libvpx default governs the
+	// PSNR-tuned baseline ladders.
+	switch t.Tuning {
+	case govpx.TuneSSIM:
+		args = append(args, "--tune=ssim")
+	default:
+		args = append(args, "--tune=psnr")
 	}
 	// libvpx token: --drop-frame
 	if t.DropFrameAllowed && t.DropFrameWaterMark > 0 {
