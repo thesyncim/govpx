@@ -121,23 +121,19 @@ func WriteCompressedHeaderFromCounts(dst []byte,
 			WriteTxModeProbsFromCounts(&bw, &args.Probs.TxProbs, &args.Counts.TxMode)
 		}
 	}
-	probeWriteCompressedHeaderSection("after_txmode", bw.Pos())
 
 	WriteCoefProbsFromCounts(&bw, &args.Probs.CoefProbs,
 		&args.Counts.CoefBranchStats, &args.Counts.TxTotals,
 		args.Lossless, args.TxMode, args.CoefStepsize,
 		args.CoefUpdateMode, args.SkipTx16PlusCoefUpdates)
-	probeWriteCompressedHeaderSection("after_coef", bw.Pos())
 
 	WriteSkipProbsFromCounts(&bw, &args.Probs.SkipProbs, &args.Counts.Skip)
-	probeWriteCompressedHeaderSection("after_skip", bw.Pos())
 
 	frameIsIntraOnly := args.IntraOnly
 	if !frameIsIntraOnly {
 		var interModeScratch [common.InterModes - 1][2]uint32
 		WriteInterModeProbsFromCounts(&bw, &args.Probs.InterModeProbs,
 			&args.Counts.InterMode, interModeScratch[:])
-		probeWriteCompressedHeaderSection("after_intermode", bw.Pos())
 
 		if args.InterpFilter == vp9dec.InterpSwitchable {
 			var interpScratch [vp9dec.SwitchableFilters - 1][2]uint32
@@ -146,45 +142,27 @@ func WriteCompressedHeaderFromCounts(dst []byte,
 				&args.Counts.SwitchableInterp,
 				interpScratch[:])
 		}
-		probeWriteCompressedHeaderSection("after_interp", bw.Pos())
 
 		WriteIntraInterProbsFromCounts(&bw, &args.Probs.IntraInterProb,
 			&args.Counts.IntraInter)
-		probeWriteCompressedHeaderSection("after_intrainter", bw.Pos())
 
 		writeFrameReferenceMode(&bw, args.ReferenceMode, args.CompoundRefAllowed)
 		WriteReferenceModeProbsFromCounts(&bw, &args.Probs.ReferenceModeProbs,
 			&args.Counts.ReferenceMode, args.ReferenceMode,
 			args.CompoundRefAllowed)
-		probeWriteCompressedHeaderSection("after_refmode", bw.Pos())
 
 		var yModeScratch [common.IntraModes - 1][2]uint32
 		WriteYModeProbsFromCounts(&bw, &args.Probs.YModeProb,
 			&args.Counts.YMode, yModeScratch[:])
-		probeWriteCompressedHeaderSection("after_ymode", bw.Pos())
 
 		var partitionScratch [common.PartitionTypes - 1][2]uint32
 		WritePartitionProbsFromCounts(&bw, &args.Probs.PartitionProb,
 			&args.Counts.Partition, partitionScratch[:])
-		probeWriteCompressedHeaderSection("after_partition", bw.Pos())
 
 		var mvScratch [vp9dec.MvClasses - 1][2]uint32
 		WriteNmvProbsFromCounts(&bw, &args.Probs.Nmvc, &args.Counts.Mv,
 			args.AllowHighPrecisionMv, mvScratch[:])
-		probeWriteCompressedHeaderSection("after_nmv", bw.Pos())
 	}
 
 	return bw.Stop()
-}
-
-// CompressedHeaderProbe optionally observes per-section byte offsets of
-// the compressed-header writer. Tests set this to attribute bitstream
-// growth to a specific section. Production code leaves it nil and the
-// probe is a no-op.
-var CompressedHeaderProbe func(section string, pos int)
-
-func probeWriteCompressedHeaderSection(section string, pos int) {
-	if CompressedHeaderProbe != nil {
-		CompressedHeaderProbe(section, pos)
-	}
 }
