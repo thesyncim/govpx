@@ -26,6 +26,137 @@ import (
 // distortion / rate-cost helpers for the per-candidate inner work. Deferrals
 // are flagged inline with TODO + libvpx citation so a follow-up agent can
 // fill them in.
+//
+// Task #162 structural inventory (block-by-block coverage map of libvpx
+// vp9_pickmode.c:1696-2488 vs this file):
+//
+//   - vp9_pickmode.c:1706    BEST_PICKMODE init_best_pickmode →
+//     this file:122 vp9InitBestPickmode
+//   - vp9_pickmode.c:1731-1880 filter_ref / pred_filter_search /
+//     cb_pred_filter_search → this file:457-470 via vp9NonrdFilterRef +
+//     vp9NonrdPredFilterSearch
+//   - vp9_pickmode.c:1779    thresh_skip_golden = 500 default →
+//     this file:550 const threshSkipGolden
+//   - vp9_pickmode.c:2002-2012 find_predictors pre-loop population →
+//     this file:389-420 (per-ref NEAR/NEAREST pre-fill via
+//     vp9FindInterMvRefsFields)
+//   - vp9_pickmode.c:2050-2082 ref/mode/comp_pred candidate set-up →
+//     this file:519-530 (numInterModes loop)
+//   - vp9_pickmode.c:2084-2128 ref-frame skip + CBR golden-skip +
+//     ref_frame_flags + inter_mode_mask gates → this file:525-563
+//   - vp9_pickmode.c:2204-2228 sf->reference_masking 2× pred_mv_sad
+//     ref skip → this file:565-608 (full vp9_mv_pred candidate-set SAD)
+//   - vp9_pickmode.c:2259-2264 search_new_mv NEWMV →
+//     this file:626-655 via pickVP9InterMv*
+//   - vp9_pickmode.c:2269-2278 mode_checked × zero-MV dedup →
+//     this file:678-699
+//   - vp9_pickmode.c:2296-2299 duplicate-NEARESTMV dedup →
+//     this file:707-711
+//   - vp9_pickmode.c:2318-2330 search_filter_ref filter sweep →
+//     this file:725-745
+//   - vp9_pickmode.c:2336    vp9_build_inter_predictors_sby + var/sse
+//     → this file:810-816 via vp9InterPredictionVarianceSSE
+//   - vp9_pickmode.c:2346    model_rd_for_sb_y → vp9_block_yrd.go:172-284
+//     vp9ModelRdForSbY (verbatim port including calculate_tx_size at
+//     vp9_pickmode.c:363-394)
+//   - vp9_pickmode.c:2350-2354 sse_zeromv_normalized for CBR gold skip
+//     → this file:825-829
+//   - vp9_pickmode.c:2358-2374 block_yrd / is_skippable + skip-vs-non-
+//     skip RDCOST compare → this file:871-966 (vp9BlockYrd ported at
+//     vp9_block_yrd.go:409-)
+//   - vp9_pickmode.c:2401-2410 ref_frame_cost + inter_mode_cost +
+//     skip_bit finalize → this file:971-980
+//   - vp9_pickmode.c:2414-2422 NEWMV_diff_bias (CBR speed>=5 non-screen)
+//     → this file:1039-1053 via vp9NewmvDiffBias
+//   - vp9_pickmode.c:2425-2435 encode_breakout_test + x->skip →
+//     this file:988-1024 (vp9EncodeBreakoutTest ported at
+//     vp9_block_yrd.go:286-)
+//   - vp9_pickmode.c:2460-2462 strict-< winner + best_early_term →
+//     this file:1110-1125
+//   - vp9_pickmode.c:2478-2480 x->skip outer-loop break → this file:
+//     1146-1150
+//   - vp9_pickmode.c:2484-2488 best_early_term shortcut → this file:
+//     1166-1171
+//   - vp9_pickmode.c:2525-2648 intra-fallback section → this file:
+//     1253-1414 vp9NonrdEstimateIntraFallback
+//
+// Structural gaps remaining (the only items NOT yet ported from
+// vp9_pickmode.c:1696-2488):
+//
+//   (A) vp9_pickmode.c:2240-2257 mode_rd_thresh + rd_less_than_thresh
+//       early-exit gate. Skips a candidate when
+//       (best_rdc.rdcost < (rd_threshes[mode_index] *
+//       thresh_freq_fact[bsize][mode_index] >> 5)) AND
+//       (frame_mv[this_mode][ref_frame].as_int != 0). Requires:
+//
+//         1. rd.go state: thresh_mult[MAX_MODES=30] +
+//            threshes[MAX_SEGMENTS][BLOCK_SIZES][MAX_MODES] +
+//            mode_idx[MAX_REF_FRAMES][4] +
+//            rd_thresh_block_size_factor[BLOCK_SIZES]
+//         2. vp9_set_rd_speed_thresholds at per-frame init
+//            (vp9_rd.c:693-745)
+//         3. set_block_thresholds (vp9_rd.c:355-385) after qindex
+//         4. Per-tile thresh_freq_fact init to RD_THRESH_INIT_FACT=32
+//         5. update_thresh_freq_fact at picker tail
+//            (vp9_pickmode.c:1130-1145)
+//         6. The gate at the picker's per-(ref, mode) head
+//
+//       Estimated byte impact on deferred RefControl seeds: ±30-100
+//       bytes per inter frame on the 9 seeds whose first_byte_diff
+//       sits at byte 9. The gate only fires when frame_mv is non-zero;
+//       for panning content with many small same-ref MVs it would
+//       prune NEW/NEAR early. Not closure-grade on its own — the
+//       cost_coeffs rate-proxy gap at vp9_rdopt.c:358 (#142/#151/#159)
+//       dominates the residual.
+//
+//   (B) vp9_pickmode.c:2176 const_motion[ref] && NEARMV skip.
+//       Confirmed NO-OP for the deferred seeds: const_motion[ref] is
+//       set by mv_refs_rt (vp9_pickmode.c:60-162) which runs ONLY when
+//       cm->use_prev_frame_mvs is FALSE. The deferred seeds run with
+//       prev_frame_mvs TRUE on every non-key frame (cm->last_show_frame
+//       && !cm->intra_only && same dims), so libvpx takes the
+//       vp9_find_mv_refs branch (vp9_pickmode.c:1287-1288). govpx
+//       matches that branch verbatim. Negative finding.
+//
+//   (C) vp9_pickmode.c:2152-2174 lag_in_frames>0 + VBR alt_ref_gf_group
+//       gates. Deferred seeds run with LagInFrames=0 one-pass realtime,
+//       gate never fires. Negative finding.
+//
+//   (D) vp9_pickmode.c:2178-2193 force_skip_low_temp_var gates. Requires
+//       sf.short_circuit_low_temp_var >= 1 which is set only under CBR
+//       realtime non-screen (vp9_speed_features.c:1907-1909). Deferred
+//       seeds run RateControlQ, gate never fires. Negative finding.
+//
+//   (E) vp9_pickmode.c:2195-2199 cpi->use_svc + svc_force_zero_mode.
+//       Deferred seeds are single-layer non-SVC. Negative finding.
+//
+//   (F) vp9_pickmode.c:2247-2249 bias_golden mode_rd_thresh boost.
+//       Requires sf.bias_golden (CBR non-screen only,
+//       vp9_speed_features.c:640). Q-mode seeds, gate never fires.
+//       Negative finding.
+//
+// Net: of 6 structural gaps, 5 (B-F) are CONFIRMED no-ops on the
+// deferred-seed configuration because they require CBR/SVC/VBR/AQ
+// subsystems govpx hasn't ported AND the deferred seeds don't
+// exercise. The single remaining non-trivial structural piece (A)
+// mode_rd_thresh is bounded at +/-30-100 bytes/inter-frame impact —
+// not closure-grade alone. Closure of the byte-9 / byte-16
+// RefControl + RuntimeControls clusters requires (A) AND the
+// cost_coeffs rate-proxy port at vp9_rdopt.c:358-459 in lockstep;
+// they must land together as a single closure unit.
+//
+// Tx-size leaf-commit threading was independently audited under
+// task #169 (see the deferred-seed remeasure docstring): two
+// candidate ports — verbatim calculate_tx_size at the leaf and
+// pickedTxSize plumbed through vp9InterModeDecision — both
+// REGRESSED aggregate size_delta by 19.7x because they land
+// calculate_tx_size on govpx's diverged upstream (mode, mv, filter)
+// pick state. The score-based pickVP9InterTxSize is govpx-specific
+// but produces tx counts CLOSER to libvpx's output under the
+// diverged upstream; the vp9InterTxApplyForces wrap (Tx16x16 cap +
+// boost + screen-content force at vp9_pickmode.c:380-388) already
+// runs and is libvpx-faithful. Closure depends on the upstream
+// (mode, mv, filter) pick converging first (this task's scope).
 
 // REF_MODE pairs a reference frame with a prediction mode.
 //
