@@ -63,7 +63,14 @@ func oracleRuntimeControlFuzzMatchLimit(name string) int {
 	// limit=7 tolerance to catch any regression in the matched suffix.
 	// This corpus enters the same partial good-quality inter recode area
 	// after a golden-reference overwrite. Frames 0-3 still pin the
-	// runtime-control setup before the known recode divergence.
+	// runtime-control setup before the known recode divergence. Task #187
+	// audit confirms (vp8_golden_overwrite_frame4_audit_test.go) that the
+	// libvpx golden-frame copy paths (vp8_set_reference,
+	// update_reference_frames, copy_buffer_to_{arf,gf}) and the post-task-#181
+	// last_*_lf_deltas zeroing are byte-faithful for frames 0-3; the residual
+	// gap belongs to the same per-MB picker state cohort as task #173 but
+	// expressed via the deadline:good cluster following the
+	// setref:golden:panning:8 control burst.
 	if strings.Contains(name, "regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74") {
 		return 4
 	}
