@@ -110,21 +110,27 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 // TestVP9DeferredSeedsRemeasureRuntimeControls is the sibling probe for the
 // vp9RuntimeControlsSeedsDeferred set.
 //
-// Measurement (task #151, post-b36888f tip) under
-// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1:
+// Measurement (task #150, this commit — set_ext_overrides port) at the
+// default gate (no opt-in):
 //
-//	PASS=0/8 measurable FAIL=8/8 (STRUCTURAL_REJECT=2 #5/#8). Seeds
+//	PASS=0/10 measurable FAIL=10/10 STRUCTURAL_REJECT=0/10. Seeds
 //	#0/#2/#4/#6 (cpu=0 panning content) diverge frame 0 at byte 9
-//	(post-cost_coeffs wiring residual — see "Status" note below);
-//	seeds #1/#7 (cpu=-3) at byte 16 (RT speed=3 coef_prob_appx_step
-//	amplification); seed #3 (cpu=-8) at byte 8; seed #9 (cpu=4) at
-//	byte 16.
+//	(cost_coeffs proxy gap); seeds #1/#5/#7 (cpu=-3, RT speed=3)
+//	at byte 16 (coef_prob_appx_step amplification); seed #3 (cpu=-8
+//	frame 1) at byte 9; seed #8 (cpu=-8 frame 1) at byte 4 (RT
+//	speed=8 compressed-header coef-update walk); seed #9 (cpu=4)
+//	at byte 17. Seeds #5 and #8 transitioned from STRUCTURAL_REJECT
+//	to MISMATCH after the libvpx vp9_apply_encoding_flags +
+//	set_ext_overrides routing landed (vp9_encoder.c:6812-6843 +
+//	vp9_encoder.c:4761-4775, plumbed in vp9_ext_overrides.go).
 //
-// Per-seed aggregate size_delta (sum across all frames):
+// Per-seed aggregate size_delta (sum across all frames) at default gate:
 //
-//	#0: +2754, #1: +4141, #2: +7038, #3: -230, #4: +6808,
-//	#6: +2754, #7: +8971, #9: +2296. Aggregate +34532 / avg +4316
-//	per measurable seed.
+//	#0: +2754, #1: +4141, #2: +7038, #3: +5462, #4: +6808,
+//	#5: +10609 (NEW — frame 0 KF cpu=-3, first_byte_diff=16),
+//	#6: +2754, #7: +8971,
+//	#8: +4185  (NEW — frame 1 inter cpu=-8, first_byte_diff=4),
+//	#9: +2854. Aggregate +55576 / avg +5557 per measurable seed.
 //
 // Frame-0 size_delta (comparable to f5fe476 / #142):
 //
@@ -172,29 +178,28 @@ func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 		os.Getenv("GOVPX_VP9_NONRD_PICK_PARTITION"),
 		os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING"))
 
-	// Seed indices that hit the set_ext_overrides structural-reject
-	// path (govpx returns ErrInvalidConfig, libvpx returns
-	// "Conflicting flags"). These are skipped here so the
-	// measurement test stays green — the underlying handoff is
-	// already documented under seed #5 and the "2" alias in the
-	// deferred list.
-	structuralReject := map[int]bool{
-		5: true, // {1,2,1,0,4,1,0,1} — EncodeForceGoldenFrame|EncodeNoUpdateGolden
-		8: true, // []byte("2") alias of seed #5 family
-	}
+	// Task #150: seeds #5 and #8 previously skipped here as
+	// STRUCTURAL_REJECT because the fuzz materialiser's
+	// normalizeVP9EncodeFlags resolution of the libvpx
+	// vp9/vp9_cx_iface.c:1394-1398 "Conflicting flags." rejection
+	// was the only place the FORCE_GF + NO_UPD_GF conflict was
+	// pre-resolved. With vp9_apply_encoding_flags (libvpx
+	// vp9/encoder/vp9_encoder.c:6812-6843) and set_ext_overrides
+	// (libvpx vp9/encoder/vp9_encoder.c:4761-4775) now ported
+	// verbatim via vp9_ext_overrides.go and the encoder body
+	// running the same ext_refresh_* -> refresh_*_frame routing
+	// libvpx uses, both seeds reach the per-frame encode loop and
+	// are measurable. They still mismatch byte-exact (the dominant
+	// residual is the cost_coeffs rate-proxy gap at
+	// vp9_rdopt.c:358) but are no longer structural rejects.
 
 	pass, fail, skipped := 0, 0, 0
+	_ = skipped // task #150: no seed is STRUCTURAL_REJECT after set_ext_overrides port.
 	aggSizeDelta := 0
 	measured := 0
 	for idx, seed := range vp9RuntimeControlsSeedsDeferred {
 		sum := sha256.Sum256(seed)
 		label := fmt.Sprintf("runtimectrl-#%d-%s", idx, hex.EncodeToString(sum[:4]))
-		if structuralReject[idx] {
-			t.Logf("%s STRUCTURAL_REJECT (set_ext_overrides handoff — see deferred list)",
-				label)
-			skipped++
-			continue
-		}
 		tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
 		t.Logf("%s w=%d h=%d frames=%d cpu=%d flags=%v",
 			label, tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)

@@ -858,6 +858,16 @@ type VP9Encoder struct {
 	refFrames   [common.RefFrames]vp9ReferenceFrame
 	refSignBias [common.RefFrames]uint8
 
+	// extRefresh mirrors the libvpx VP9_COMP ext_refresh_*_frame and
+	// refresh_*_frame state machine (vp9_encoder.h:650-660). It is
+	// populated by vp9ApplyEncodingFlags (libvpx vp9_encoder.c:6812-6843
+	// vp9_apply_encoding_flags) at EncodeIntoWithFlagsResult entry and
+	// latched onto the post-override refresh mask by setExtOverrides
+	// (libvpx vp9_encoder.c:4761-4775) at the start of each per-frame
+	// encode_frame_to_data_rate. See vp9_ext_overrides.go for the full
+	// citation chain.
+	extRefresh vp9ExtRefreshState
+
 	// lastBordered is the per-encoder border-padded mirror of the LAST_FRAME
 	// luma plane consumed by choose_partitioning's low_res inter-predictor
 	// path (vp9_int_pro_motion_estimation). Lazily allocated on first
@@ -2361,6 +2371,19 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if err := validateVP9EncodeFlags(flags); err != nil {
 		return VP9EncodeResult{}, err
 	}
+	// libvpx vp9/vp9_cx_iface.c:1408 vp9_apply_encoding_flags(cpi, flags)
+	// -> vp9/encoder/vp9_encoder.c:6812-6843 maps the EncodeFlags bitset
+	// onto cpi->ext_refresh_{last,golden,alt_ref}_frame via
+	// vp9_update_reference and cpi->ext_refresh_frame_context via
+	// vp9_update_entropy.
+	e.vp9ApplyEncodingFlags(flags)
+	// libvpx vp9/encoder/vp9_encoder.c:5284 set_ext_overrides runs at the
+	// start of encode_frame_to_data_rate. It copies cpi->ext_refresh_*
+	// onto cpi->refresh_{last,golden,alt_ref}_frame and
+	// cm->refresh_frame_context. govpx mirrors the latch here so the
+	// downstream RefreshFrameFlags computation and frame-context
+	// commitment read the post-override state.
+	e.setExtOverrides()
 	if forceIntraOnly {
 		if flags&EncodeForceKeyFrame != 0 {
 			return VP9EncodeResult{}, ErrInvalidConfig
@@ -3146,6 +3169,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			TileLog2Rows:         int(header.Tile.Log2TileRows),
 		})
 	}
+	// libvpx vp9/encoder/vp9_encoder.c:5567 clears
+	// cpi->ext_refresh_frame_flags_pending at the tail of
+	// encode_frame_to_data_rate, after the per-frame encode has committed.
+	// govpx mirrors this so the next frame defaults to the
+	// encoder-internal refresh decision unless the caller rearms it via
+	// vp9_apply_encoding_flags (i.e., passes a fresh EncodeFlags set).
+	e.vp9CommitExtOverridesAfterEncode()
 	return result, nil
 }
 
@@ -3296,6 +3326,16 @@ func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 }
 
 func (e *VP9Encoder) vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
+	// libvpx vp9/encoder/vp9_bitstream.c reads cpi->refresh_{last,golden,
+	// alt_ref}_frame to emit RefreshFrameFlags on inter frames. Those
+	// fields are written by set_ext_overrides (vp9_encoder.c:4761-4775)
+	// from cpi->ext_refresh_{last,golden,alt_ref}_frame when the
+	// caller-supplied vpx_enc_frame_flags_t armed
+	// ext_refresh_frame_flags_pending via vp9_apply_encoding_flags
+	// (vp9_encoder.c:6826-6838 -> vp9_update_reference at 2954-2959).
+	if mask, ok := e.vp9ExtOverrideRefreshMask(); ok {
+		return mask
+	}
 	refresh := vp9InterRefreshFrameFlags(flags)
 	if flags&vp9ExternalRefreshCtlFlags == 0 &&
 		e.rc.onePassVBRGoldenRefreshDue() {
