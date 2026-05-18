@@ -243,6 +243,100 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 //     tx_totals ladder, which is acknowledged as a govpx-specific
 //     divergence in that function's docstring.
 //
+// Task #154 audit — build_tree_distribution-equivalent path against
+// libvpx vp9_bitstream.c:519-543 (build_tree_distribution) +
+// vp9_treewriter.c:34-58 (vp9_tree_probs_from_distribution +
+// convert_distribution) + vp9_tokenize.c:344-418 (tokenize_b per-block
+// counts accumulation):
+//
+//   - WriteCoefBlock (internal/vp9/encoder/coef_block.go:51) and
+//     writeTokenForCoeff (internal/vp9/encoder/coef_encode.go:114) +
+//     writeTreeBitsWithCounts (coef_encode.go:158) record branch counts
+//     AT TOKEN-EMIT TIME, producing the same semantic data libvpx's
+//     tree_probs_from_distribution + eob_branch overwrite pair produce:
+//     [EOB_NODE][0] = EOB_TOKEN count, [EOB_NODE][1] = eob_branch count
+//     minus EOB_TOKEN count, [ZERO_NODE][0]/[1] = ZERO_TOKEN /
+//     non-ZERO non-EOB token counts, [PIVOT][0]/[1] = ONE_TOKEN /
+//     non-ONE non-EOB token counts, and the pareto tail nodes [3..10]
+//     follow the same convert_distribution propagation as libvpx via
+//     writeTreeBitsWithCounts walking the CoefConTree
+//     (coef_encode.go:23-32) sub-tree of the full vp9_coef_tree
+//     (vp9_tokenize.c:75-87).
+//
+//   - This equivalence is asserted byte-exact by
+//     TestWriteCoefBlockBranchStatsMatchDecoderPrefixCounts
+//     (internal/vp9/encoder/coef_block_test.go:140) which feeds the
+//     encoder's recorded stats into the decoder's
+//     tokenize_b-equivalent counts (vp9dec.DecodeCoefsWithCounts) and
+//     verifies the {EOB, ZERO, PIVOT} branch counts match the
+//     libvpx-style {neob, eob-neob}, {n0, n1+n2}, {n1, n2} mapping
+//     pinned at coef_block_test.go:317-323. The
+//     TestWriteCoefBlockBranchStatsAccumulateAcrossMultipleBlocks
+//     extension exercises the same identity across a 3-block sequence
+//     so the SUM(per-block contribution) ==
+//     build_tree_distribution(SUM(per-block token counts)) identity
+//     is regression-locked.
+//
+//   - WriteCoefProbsFromCounts (coef_probs_counts.go:39) +
+//     updateCoefProbsTxSize (coef_probs_counts.go:67) +
+//     updateCoefProbsTxSizeOneLoopReduced (coef_probs_counts.go:131)
+//     port libvpx's update_coef_probs + update_coef_probs_common
+//     verbatim (per #152's audit). The PIVOT-node savings search uses
+//     ProbDiffUpdateSavingsSearchModel (cost.go:127) keyed on the
+//     [PIVOT_NODE][0/1] pair plus the [3..10] tail; non-PIVOT nodes use
+//     ProbDiffUpdateSavingsSearch (cost.go:75). Both routes consume
+//     the wire-time-recorded branch counts directly with no
+//     intermediate tree_probs_from_distribution call — equivalent to
+//     libvpx's chain (vp9_bitstream.c:531-539) which fills branch_ct
+//     via convert_distribution then runs the same search.
+//
+//   - Per-block counts accumulation path audit: WriteCoefSb
+//     (internal/vp9/encoder/coef_sb.go:136) walks the
+//     vp9_foreach_transformed_block-equivalent loop (per plane,
+//     raster scan of tx-blocks, libvpx vp9_blockd.h
+//     foreach_transformed_block_in_plane). For each tx-block it
+//     computes initCtx via vp9dec.GetEntropyContext (mirroring
+//     libvpx get_entropy_context, vp9_blockd.h:222), picks scan via
+//     common.GetScan (mirroring libvpx get_scan, vp9_scan.h:42-52),
+//     and invokes WriteCoefBlock with the dequantized residue. The
+//     above/left entropy context bytes are stamped from (eob > 0)
+//     after each block (coef_sb.go:208-215), matching libvpx
+//     vp9_set_contexts at vp9_tokenize.c:417. Skip-block handling
+//     mirrors libvpx vp9_tokenize_sb (vp9_tokenize.c:478-482) —
+//     when mi->skip is set the encoder's foreach walk is replaced by
+//     reset_skip_context (govpx: vp9_encoder.go:7227-7230
+//     vp9dec.ResetSkipContext + early return). Token-class derivation
+//     from absolute coefficient magnitude
+//     (TokenForAbsCoeff at extra_bits.go) is the libvpx
+//     vp9_get_token_extra equivalent, and the pareto tail walks
+//     against tables.Pareto8Full[ctxTree[2]-1] match libvpx's
+//     vp9_pareto8_full[context_tree[PIVOT_NODE]-1] usage in
+//     pack_mb_tokens (vp9_bitstream.c:179) and add_token
+//     (vp9_tokenize.c:325).
+//
+//   - Verdict: govpx's build_tree_distribution-equivalent path,
+//     including the per-block coef-counts accumulation, the
+//     tree-distribution → branch-count semantic translation, the
+//     eob_branch slot overwrite, and the per-section update_coef_probs
+//     emitter, is libvpx-faithful. The byte-16 KF divergence cited at
+//     speed=3 RT therefore sits UPSTREAM of build_tree_distribution —
+//     in the per-block (TxSize, mode) RD picks and the resulting
+//     quantized-coefficient distribution feeding WriteCoefBlock. Per
+//     dump of seed #1/#5/#7 frame-0 KF counts: govpx records >0
+//     branch counts at every tx_size in {Tx16x16, Tx32x32}, with the
+//     internal consistency (ZERO_total = EOB[1] + slots-mid-zero-run)
+//     and (PIVOT_total = ZERO[1]) holding band-by-band. Pinning the
+//     ENCODED bytes byte-exact against libvpx requires the upstream
+//     RD/quant pipeline (Y/UV mode picker, tx_size picker, qcoeff
+//     domain) to match libvpx, which is the cost_coeffs / pareto8 RD
+//     proxy gap already documented above. Seeds #1/#5/#7 first_byte_diff
+//     remains at byte 16 (no movement after this audit); seeds
+//     #0/#2/#4/#6 remain at byte 9. Task #158's qcoeff emit port now
+//     eliminates Tx32x32 recovery drift in the cost_coeffs RD chain;
+//     the seed-level metrics nonetheless stay anchored to the upstream
+//     RD/quant divergence (which is what THIS audit isolates) until
+//     that path also pins to libvpx byte-for-byte.
+//
 // Intentionally non-asserting — see RefControl sibling for rationale.
 func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {

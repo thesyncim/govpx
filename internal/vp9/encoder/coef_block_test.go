@@ -302,6 +302,76 @@ func TestWriteCoefBlockBranchStatsIncludeParetoTail(t *testing.T) {
 	}
 }
 
+// TestWriteCoefBlockBranchStatsAccumulateAcrossMultipleBlocks pins the
+// task #154 negative finding: govpx's per-block branch-count
+// accumulation matches libvpx's build_tree_distribution output
+// (vp9/encoder/vp9_bitstream.c:519-543 — vp9_tree_probs_from_distribution
+// + eob_branch overwrite) when summed across multiple tx-blocks. The
+// per-block contract is already covered by
+// TestWriteCoefBlockBranchStatsMatchDecoderPrefixCounts; this extends it
+// to a 3-block sequence with mixed token classes so the
+// SUM(per-block contribution) = build_tree_distribution(SUM(per-block
+// token counts)) identity is regression-locked. Without this guard a
+// future refactor of WriteCoefBlock's record sites could drop the
+// summing semantics that the live encoder relies on at
+// internal/vp9/encoder/coef_sb.go:194-198 (the same stats pointer is
+// passed across every tx-block in the SB).
+func TestWriteCoefBlockBranchStatsAccumulateAcrossMultipleBlocks(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	scan := tables.DefaultScan4x4[:]
+	neigh := tables.DefaultScan4x4Neighbors[:]
+	dq := [2]int16{16, 24}
+
+	// Three blocks with distinct token-class shapes so the summed
+	// contributions exercise EOB, ZERO, ONE, and pareto-tail node
+	// slots:
+	//   Block 0: single ONE at DC, rest zero -> 1 ONE + EOB
+	//   Block 1: CAT1 at DC, ONE at AC, ZERO run, ONE at scan[4]
+	//   Block 2: all zero (EOB at scan[0])
+	type blockShape struct {
+		coeffs [16]int16
+	}
+	var blocks [3]blockShape
+	blocks[0].coeffs[scan[0]] = dq[0] // ONE
+	blocks[1].coeffs[scan[0]] = 5 * dq[0]
+	blocks[1].coeffs[scan[1]] = dq[1]
+	blocks[1].coeffs[scan[4]] = -dq[1]
+	// blocks[2] left zero.
+
+	var stats FrameCoefBranchStats
+	var counts vp9dec.CoefCounts
+	buf := make([]byte, 1024)
+
+	for bi := range blocks {
+		var bw bitstream.Writer
+		bw.Start(buf)
+		coeffs := blocks[bi].coeffs[:]
+		if err := WriteCoefBlock(&bw, WriteCoefBlockArgs{
+			TxSize:          common.Tx4x4,
+			DequantDC:       dq[0],
+			DequantAC:       dq[1],
+			Scan:            scan,
+			Neighbors:       neigh,
+			Coeffs:          coeffs,
+			Fc:              &fc,
+			CoefBranchStats: &stats,
+		}); err != nil {
+			t.Fatalf("block %d WriteCoefBlock: %v", bi, err)
+		}
+		size, _ := bw.Stop()
+
+		var r bitstream.Reader
+		if err := r.Init(buf[:size]); err != nil {
+			t.Fatalf("block %d Init: %v", bi, err)
+		}
+		dqcoeff := make([]int16, 16)
+		vp9dec.DecodeCoefsWithCounts(&r, common.Tx4x4, 0, 0, dq, 0,
+			scan, neigh, &fc, &counts, dqcoeff)
+	}
+
+	assertCoefPrefixStatsMatchDecoderCounts(t, &stats, &counts)
+}
+
 func assertCoefPrefixStatsMatchDecoderCounts(
 	t *testing.T, stats *FrameCoefBranchStats, counts *vp9dec.CoefCounts,
 ) {
