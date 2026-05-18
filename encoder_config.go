@@ -875,6 +875,30 @@ func (e *VP8Encoder) applyVP8ChangeConfigRuntimeSideEffects() {
 	e.refreshRuntimeCyclicRefreshConfig()
 	e.forceNextLFDeltaUpdate()
 	e.applyChangeConfigSpeedReset()
+	e.applyVP8ChangeConfigResolutionChangeKeyFrame()
+}
+
+// applyVP8ChangeConfigResolutionChangeKeyFrame mirrors libvpx
+// vp8/encoder/onyx_if.c:1689-1691:
+//
+//	if (last_w != cpi->oxcf.Width || last_h != cpi->oxcf.Height) {
+//	  cpi->force_next_frame_intra = 1;
+//	}
+//
+// The check lives in the shared vp8_change_config tail in libvpx, so the
+// govpx port keeps it on the shared side-effect helper. Every runtime
+// control setter that mutates Width or Height and then runs this tail will
+// force the next encoded frame to a key frame at the new size, matching
+// the libvpx contract for resize-on-config-set. The encoder already wires
+// the trigger from applyResolutionChange via forceKeyFrame; the assignment
+// here is defensive against future dimension-mutating paths that bypass
+// applyResolutionChange.
+func (e *VP8Encoder) applyVP8ChangeConfigResolutionChangeKeyFrame() {
+	if e.lastChangeConfigWidth != e.opts.Width || e.lastChangeConfigHeight != e.opts.Height {
+		e.forceKeyFrame = true
+	}
+	e.lastChangeConfigWidth = e.opts.Width
+	e.lastChangeConfigHeight = e.opts.Height
 }
 
 // applyChangeConfigSegmentEncodeBreakout mirrors vp8_change_config's

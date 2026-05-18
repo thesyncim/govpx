@@ -467,6 +467,24 @@ type VP8Encoder struct {
 	forceKeyFrame bool
 	frameCount    uint64
 
+	// lastChangeConfigWidth / lastChangeConfigHeight snapshot the dimensions
+	// last observed by the libvpx vp8_change_config tail. applyVP8Change
+	// ConfigRuntimeSideEffects compares them against e.opts.Width/Height to
+	// mirror libvpx's force_next_frame_intra resolution-change trigger
+	// (vp8/encoder/onyx_if.c:1689-1691):
+	//
+	//   if (last_w != cpi->oxcf.Width || last_h != cpi->oxcf.Height) {
+	//     cpi->force_next_frame_intra = 1;
+	//   }
+	//
+	// libvpx captures last_w / last_h at the entry of vp8_change_config and
+	// evaluates the comparison at the function's tail; govpx stores the
+	// most recent snapshot on the encoder so any path that mutates the
+	// configured Width / Height and then runs the shared side-effect tail
+	// is caught, not just applyResolutionChange.
+	lastChangeConfigWidth  int
+	lastChangeConfigHeight int
+
 	// horizScale and vertScale carry the libvpx pc->horiz_scale /
 	// pc->vert_scale pair set by VP8E_SET_SCALEMODE (vp8_set_internal_size
 	// in vp8/encoder/onyx_if.c:5416-5430). They flow into the keyframe
@@ -1172,6 +1190,12 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		baseSkipFalseProbs:     libvpxBaseSkipFalseProbs,
 		configuredCPUUsed:      configuredCPUUsed,
 		configuredCPUUsedValid: true,
+		// Seed the libvpx vp8_change_config last_w / last_h snapshot to the
+		// initial coded dimensions so the first runtime config side-effect
+		// pass with unchanged Width/Height does not spuriously promote the
+		// next frame to a key frame. See VP8Encoder.lastChangeConfigWidth.
+		lastChangeConfigWidth:  normalized.Width,
+		lastChangeConfigHeight: normalized.Height,
 	}
 	if err := e.reallocateForDimensions(normalized.Width, normalized.Height); err != nil {
 		return nil, err

@@ -278,6 +278,81 @@ func TestSetRealtimeTargetResizeOnClosedEncoderReturnsErrClosed(t *testing.T) {
 	}
 }
 
+// TestApplyVP8ChangeConfigRuntimeSideEffectsForcesKeyFrameOnResolutionChange
+// pins the libvpx vp8_change_config force_next_frame_intra trigger to the
+// shared runtime side-effect tail. Direct width/height mutation followed by
+// applyVP8ChangeConfigRuntimeSideEffects must promote the next frame to a
+// key frame even when applyResolutionChange is bypassed, mirroring
+// libvpx vp8/encoder/onyx_if.c:1689-1691.
+func TestApplyVP8ChangeConfigRuntimeSideEffectsForcesKeyFrameOnResolutionChange(t *testing.T) {
+	e := newResizeTestEncoder(t, 64, 64)
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	// Drive one key + one inter frame so forceKeyFrame is naturally false
+	// and the snapshot fields are stable.
+	for i := range 2 {
+		encodeOneFrame(t, e, dst, resizeTestFrame(64, 64, i), uint64(i))
+	}
+	if e.forceKeyFrame {
+		t.Fatalf("forceKeyFrame = true before resolution mutation, want false")
+	}
+	if e.lastChangeConfigWidth != 64 || e.lastChangeConfigHeight != 64 {
+		t.Fatalf("lastChangeConfig dims = %dx%d, want 64x64 after stable encode",
+			e.lastChangeConfigWidth, e.lastChangeConfigHeight)
+	}
+
+	// Simulate a future code path that hand-mutates Width/Height and then
+	// runs the shared vp8_change_config tail (the only structural shape we
+	// guarantee). The trigger must fire even without applyResolutionChange.
+	e.opts.Width = 80
+	e.opts.Height = 80
+	e.applyVP8ChangeConfigRuntimeSideEffects()
+
+	if !e.forceKeyFrame {
+		t.Fatalf("forceKeyFrame = false after direct W/H mutation + shared tail, want true")
+	}
+	if e.lastChangeConfigWidth != 80 || e.lastChangeConfigHeight != 80 {
+		t.Fatalf("lastChangeConfig dims after tail = %dx%d, want 80x80",
+			e.lastChangeConfigWidth, e.lastChangeConfigHeight)
+	}
+
+	// A second tail run with no further dimension change must not re-arm
+	// the trigger (mirrors libvpx: last_w == cpi->oxcf.Width => no force).
+	e.forceKeyFrame = false
+	e.applyVP8ChangeConfigRuntimeSideEffects()
+	if e.forceKeyFrame {
+		t.Fatalf("forceKeyFrame = true after no-op tail re-run, want false")
+	}
+}
+
+// TestApplyVP8ChangeConfigRuntimeSideEffectsNoForceWhenWidthHeightStable
+// covers the non-resize side of the libvpx mirror: every runtime control
+// that calls the shared tail without touching Width/Height (the common
+// case for SetBitrateKbps, SetCQLevel, SetCpuUsed, ...) must leave
+// forceKeyFrame untouched.
+func TestApplyVP8ChangeConfigRuntimeSideEffectsNoForceWhenWidthHeightStable(t *testing.T) {
+	e := newResizeTestEncoder(t, 64, 64)
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	encodeOneFrame(t, e, dst, resizeTestFrame(64, 64, 0), 0)
+	encodeOneFrame(t, e, dst, resizeTestFrame(64, 64, 1), 1)
+	if e.forceKeyFrame {
+		t.Fatalf("forceKeyFrame = true before tail call, want false")
+	}
+
+	// SetBitrateKbps routes through applyVP8ChangeConfigRuntimeSideEffects
+	// without touching Width / Height; the shared tail must not promote a
+	// key frame for a bitrate-only change.
+	if err := e.SetBitrateKbps(900); err != nil {
+		t.Fatalf("SetBitrateKbps: %v", err)
+	}
+	if e.forceKeyFrame {
+		t.Fatalf("forceKeyFrame = true after bitrate-only runtime control, want false")
+	}
+}
+
 func TestSetRealtimeTargetResizeRejectsWhileLookaheadNonEmpty(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,
