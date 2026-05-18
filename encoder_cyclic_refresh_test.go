@@ -479,6 +479,106 @@ func TestUpdateCyclicRefreshMapFromInterFrameMirrorsLibvpxStates(t *testing.T) {
 	}
 }
 
+// TestAssignInterFrameStaticSegmentsAggressiveDenoiseOverridesByConsecZeroLast
+// pins libvpx vp8/encoder/onyx_if.c cyclic_background_refresh lines 560-583:
+// when aggressive denoising is engaged AND the initial cyclic refresh budget
+// (block_count) is > 0, the per-MB seg map is re-derived from
+// consec_zero_last[i] > denoise_pars.consec_zerolast, overriding the
+// cyclic-refresh walker's seg-1 selection. The walker still runs first so
+// cyclic_refresh_mode_index advances; only the seg-IDs get overwritten.
+func TestAssignInterFrameStaticSegmentsAggressiveDenoiseOverridesByConsecZeroLast(t *testing.T) {
+	t.Parallel()
+	const rows, cols = 4, 5
+	count := rows * cols
+	e := &VP8Encoder{
+		opts: EncoderOptions{NoiseSensitivity: 3, ErrorResilient: true},
+	}
+	e.cyclicRefreshConfigured = true
+	e.rc.mode = RateControlCBR
+	// Q below qp_thresh=80; frames_since_key > 2*15=30.
+	e.rc.currentQuantizer = 50
+	e.rc.framesSinceKeyframe = 60
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
+	if !e.aggressiveDenoiseSegmentationActive() {
+		t.Fatalf("aggressiveDenoiseSegmentationActive=false, want true under test setup")
+	}
+	e.cyclicRefreshMap = make([]int8, count)
+	e.cyclicRefreshAttemptMap = make([]int8, count)
+	e.consecZeroLast = make([]uint8, count)
+	// Set three MBs above the consec_zerolast threshold (15) and others below.
+	threshold := e.denoiser.params.consecZeroLast
+	overIdx := map[int]bool{3: true, 7: true, 11: true}
+	for i := range count {
+		if overIdx[i] {
+			e.consecZeroLast[i] = uint8(threshold + 5)
+		} else {
+			e.consecZeroLast[i] = uint8(min(threshold, 255))
+		}
+	}
+	// Seed the cyclic refresh map so the walker would normally pick MB 0 first.
+	e.cyclicRefreshIndex = 0
+	modes := make([]vp8enc.InterFrameMacroblockMode, count)
+	src := vp8enc.SourceImage{Width: cols * 16, Height: rows * 16}
+	_ = e.assignInterFrameStaticSegmentsForQuantizer(src, rows, cols, modes, e.rc.currentQuantizer)
+	for i := range count {
+		want := uint8(0)
+		if overIdx[i] {
+			want = staticSegmentID
+		}
+		if uint8(modes[i].SegmentID) != want {
+			t.Fatalf("modes[%d].SegmentID = %d, want %d (aggressive-denoise override should follow consec_zero_last > threshold)", i, modes[i].SegmentID, want)
+		}
+	}
+}
+
+// TestAssignInterFrameStaticSegmentsAggressiveDenoiseSkippedWhenBudgetZero
+// pins the gate at libvpx onyx_if.c line 534: the aggressive-denoise override
+// only runs when block_count > 0 (i.e., the initial refresh budget for this
+// frame is positive). When screen-content-mode kills the budget, govpx must
+// leave seg IDs all zero just like libvpx (which skips into the no-walker
+// branch and inherits the memset).
+func TestAssignInterFrameStaticSegmentsAggressiveDenoiseSkippedWhenBudgetZero(t *testing.T) {
+	t.Parallel()
+	const rows, cols = 4, 5
+	count := rows * cols
+	e := &VP8Encoder{
+		opts: EncoderOptions{NoiseSensitivity: 3, ErrorResilient: true, ScreenContentMode: 1},
+	}
+	e.cyclicRefreshConfigured = true
+	e.rc.mode = RateControlCBR
+	// Drive screen-content stable-low-q branch: block_count = 0.
+	e.rc.currentQuantizer = 19
+	e.rc.framesSinceKeyframe = 300
+	e.lastInterSkipCount = count // 100% > 95% threshold
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
+	if !e.aggressiveDenoiseSegmentationActive() {
+		t.Fatalf("aggressive-denoise gate flipped off; this test relies on it being active")
+	}
+	refreshCount := e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, e.rc.currentQuantizer)
+	if refreshCount != 0 {
+		t.Fatalf("refreshCount = %d, want 0 (screen-content stable low-q kills budget)", refreshCount)
+	}
+	e.cyclicRefreshMap = make([]int8, count)
+	e.cyclicRefreshAttemptMap = make([]int8, count)
+	e.consecZeroLast = make([]uint8, count)
+	threshold := e.denoiser.params.consecZeroLast
+	for i := range count {
+		// Even with very-zero-last MBs, the override must not run because
+		// block_count == 0 at the libvpx gate.
+		e.consecZeroLast[i] = uint8(threshold + 5)
+	}
+	modes := make([]vp8enc.InterFrameMacroblockMode, count)
+	src := vp8enc.SourceImage{Width: cols * 16, Height: rows * 16}
+	_ = e.assignInterFrameStaticSegmentsForQuantizer(src, rows, cols, modes, e.rc.currentQuantizer)
+	for i := range count {
+		if modes[i].SegmentID != 0 {
+			t.Fatalf("modes[%d].SegmentID = %d, want 0 (aggressive-denoise override gated off when block_count==0)", i, modes[i].SegmentID)
+		}
+	}
+}
+
 func TestCyclicRefreshMaxMBsPerFrameMirrorsLibvpxLayerCadence(t *testing.T) {
 	if got := cyclicRefreshMaxMBsPerFrameForLayers(8, 8, 1); got != 3 {
 		t.Fatalf("one-layer cyclic refresh MBs = %d, want libvpx MBs/20", got)

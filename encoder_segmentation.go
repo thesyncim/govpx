@@ -337,11 +337,35 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 	if count <= 0 {
 		return 0
 	}
+	refreshCount := e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q)
+	var nextIndex int
 	if len(e.cyclicRefreshMap) < count || len(e.cyclicRefreshAttemptMap) < count {
-		return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q), nil, modes)
+		nextIndex = assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, refreshCount, nil, modes)
+	} else {
+		copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
+		nextIndex = assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, refreshCount, e.cyclicRefreshAttemptMap[:count], modes)
 	}
-	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
-	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q), e.cyclicRefreshAttemptMap[:count], modes)
+	// libvpx vp8/encoder/onyx_if.c cyclic_background_refresh lines 560-583:
+	// under aggressive denoising (and only when block_count > 0 selected at
+	// least one MB to walk, i.e. refreshCount > 0), the per-MB seg map is
+	// re-derived from consec_zero_last vs the per-mode threshold, overriding
+	// the cyclic-refresh-map walker's segment selection. The walker still
+	// ran above to decrement map entries and advance cyclic_refresh_mode_index.
+	if refreshCount > 0 && e.aggressiveDenoiseSegmentationActiveForQuantizer(q) {
+		threshold := e.denoiser.params.consecZeroLast
+		for index := range count {
+			zeroLast := 0
+			if index < len(e.consecZeroLast) {
+				zeroLast = int(e.consecZeroLast[index])
+			}
+			if zeroLast > threshold {
+				modes[index].SegmentID = staticSegmentID
+			} else {
+				modes[index].SegmentID = 0
+			}
+		}
+	}
+	return nextIndex
 }
 
 func (e *VP8Encoder) prepareInterFrameSkinMap(src vp8enc.SourceImage, rows int, cols int) {
