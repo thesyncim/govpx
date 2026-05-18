@@ -12737,10 +12737,7 @@ func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
-	searchParam := max(vp9MaxMvSearchSteps-2, stepParam)
-	if searchParam < 0 {
-		searchParam = 0
-	}
+	searchParam := max(max(vp9MaxMvSearchSteps-2, stepParam), 0)
 	if searchParam >= vp9MaxMvSearchSteps {
 		searchParam = vp9MaxMvSearchSteps - 1
 	}
@@ -12785,7 +12782,7 @@ func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
 	for s := bestInitS; s >= 0; s-- {
 		bestSite := -1
 		numCandidates := vp9BigDiaPatternCandidateCounts[s]
-		for i := 0; i < numCandidates; i++ {
+		for i := range numCandidates {
 			c := vp9BigDiaPatternCandidates[s][i]
 			checkBetter(s, i, br+c.row, bc+c.col, &bestSite)
 		}

@@ -362,12 +362,12 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	if recon, reconStride := e.vp9EncoderReconPlane(0); len(recon) != 0 &&
 		reconStride > 0 && len(recon)/reconStride > 0 {
 		reconRows := len(recon) / reconStride
-		for py := 0; py < 64; py++ {
+		for py := range 64 {
 			sy := y0 + py
 			if sy >= reconRows {
 				sy = reconRows - 1
 			}
-			for px := 0; px < 64; px++ {
+			for px := range 64 {
 				sx := x0 + px
 				if sx >= reconStride {
 					sx = reconStride - 1

@@ -25,8 +25,80 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned"
 jobs=${JOBS:-}
+
+# ----------------------------------------------------------------------------
+# Determinism hardening (task #264). Without these, the resulting vpxenc
+# binary embeds host-environment state that drifts across machine upgrades
+# and breaks the byte-exact pins this oracle backs. Sources of drift in
+# libvpx v1.16.0's configure / build/make/configure.sh:
+#
+#   1. Auto-detected toolchain triple ("arm64-darwin25-gcc"). The libvpx
+#      configure script at build/make/configure.sh:830-838 derives tgt_os
+#      via `uname` and bakes "darwin<N>" into config.mk (TOOLCHAIN +
+#      DIST_DIR) and into the version.sh-generated VERSION_STRING tail.
+#      Every macOS minor-rev (darwin23→24→25) flips the triple even though
+#      the resulting compiler flags are identical for darwin20..darwin25
+#      (configure.sh:994-997 collapses that range to "-arch arm64" only).
+#      We pin the triple per host ISA so the toolchain string in config.mk
+#      cannot drift on an OS upgrade.
+#
+#   2. macOS version-min flag. configure.sh:946-993 maps darwin<N>-gcc to
+#      a specific "-mmacosx-version-min=<X.Y>" for darwin <= 19, then
+#      drops the flag entirely for darwin20+. Pinning the triple to
+#      arm64-darwin20-gcc selects the no-min-version branch deterministically.
+#
+#   3. Build-time timestamps. libvpx v1.16.0 has no __DATE__/__TIME__
+#      macros in C source, but the Apple `ar` / `ranlib` toolchain stamps
+#      object archives with the current wall clock unless ZERO_AR_DATE is
+#      set. SOURCE_DATE_EPOCH=0 also neutralizes any future timestamping
+#      that an upstream libvpx point release could introduce.
+#
+#   4. Locale-dependent sort/awk ordering. version.sh / configure pipe
+#      through awk and sed; non-C locales can reorder ARCH_EXT_LIST etc.
+#      LC_ALL=C and TZ=UTC eliminate that envelope.
+#
+# Out of scope (intentional): CPU-extension drift. libvpx auto-detects and
+# compiles in NEON + (DOTPROD if assembler accepts it) + (I8MM if assembler
+# accepts it) on AArch64. The VP8 encoder path itself uses ONLY plain NEON
+# kernels (vp8/common/arm/neon/sixtappredict_neon.c is the only ARM TU it
+# touches; vp8/encoder pulls in vpx_dsp/arm/sad,variance,sse {.,_dotprod}
+# but those are integer-exact equivalents — dotprod/i8mm change cycle count,
+# not result). So VP8 byte output is invariant to FEAT_DotProd/FEAT_I8MM
+# presence on the build host. Disabling those extensions in configure
+# would drop the corresponding TUs from the link and change the binary
+# hash, which is undesirable since it would invalidate currently-pinned
+# byte-exact tests on M3+ hosts (the campaign's reference class) without
+# changing encoder output.
+# ----------------------------------------------------------------------------
+if [ -z "${GOVPX_ORACLE_TARGET:-}" ]; then
+	host_uname_s=$(uname -s 2>/dev/null || printf '')
+	host_uname_m=$(uname -m 2>/dev/null || printf '')
+	case "$host_uname_s/$host_uname_m" in
+		# Pin to the oldest valid versioned darwin target per ISA so the
+		# toolchain triple in config.mk does not drift with the host
+		# kernel's "uname -r" output. For arm64-darwin, the build/make
+		# configure.sh case-arm at lines 994-997 treats darwin20..darwin25
+		# identically (only "-arch arm64", no -mmacosx-version-min),
+		# so binaries built under any of those triples are functionally
+		# equivalent and the suffix is cosmetic. We pick darwin20 (Big
+		# Sur, the first macOS to support arm64) as the canonical floor.
+		# For x86_64-darwin we pin to darwin19 (Catalina) for the same
+		# reason; darwin19 sets -mmacosx-version-min=10.15 which is the
+		# minimum still ABI-compatible with current toolchains.
+		Darwin/arm64)     GOVPX_ORACLE_TARGET=arm64-darwin20-gcc ;;
+		Darwin/x86_64)    GOVPX_ORACLE_TARGET=x86_64-darwin19-gcc ;;
+		Linux/aarch64)    GOVPX_ORACLE_TARGET=arm64-linux-gcc ;;
+		Linux/arm64)      GOVPX_ORACLE_TARGET=arm64-linux-gcc ;;
+		Linux/x86_64)     GOVPX_ORACLE_TARGET=x86_64-linux-gcc ;;
+		*)                GOVPX_ORACLE_TARGET=generic-gnu ;;
+	esac
+fi
+export SOURCE_DATE_EPOCH=0
+export ZERO_AR_DATE=1
+export LC_ALL=C
+export TZ=UTC
 
 if [ -z "$jobs" ]; then
 	if command -v getconf >/dev/null 2>&1; then
@@ -3163,6 +3235,7 @@ if [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
 	(
 		cd "$src_dir"
 		./configure \
+			--target="$GOVPX_ORACLE_TARGET" \
 			--disable-docs \
 			--disable-unit-tests \
 			--disable-debug \
