@@ -254,6 +254,13 @@ func TestReconstructInterFrameGridUsesBilinearInterFilter(t *testing.T) {
 }
 
 func TestReconstructInterFrameGridMasksFullPixelVersionMV(t *testing.T) {
+	// libvpx v1.16.0 vp8/common/reconinter.c vp8_build_inter16x16_predictors_mb
+	// applies xd->fullpixel_mask ONLY to the derived chroma MV (lines 333-334);
+	// the luma MV is consumed as-is by subpixel_predict16x16. So with version=3
+	// (FullPixel=true, UseBilinear=true) and luma MV (Row:2, Col:2):
+	//   - Luma: bilinear-predicts at sub-pixel (2,2) from last.Y[16,16:]
+	//   - Chroma: derives mv +=1|sign / 2 → (1,1), then &^7 → (0,0), so chroma
+	//     becomes a clean 8x8 copy from last.U/V[8,8:].
 	img := blankImage(32, 32)
 	last := testImage(48, 48)
 	ref := blankImage(32, 32)
@@ -272,9 +279,12 @@ func TestReconstructInterFrameGridMasksFullPixelVersionMV(t *testing.T) {
 		t.Fatalf("ReconstructInterFrameGridWithConfig returned error: %v", err)
 	}
 
-	assertCopiedBlock(t, "Y full-pixel version", img.Y[16*img.YStride+16:], img.YStride, last.Y, last.YStride, 16, 16, 16, 16)
-	assertCopiedBlock(t, "U full-pixel version", img.U[8*img.UStride+8:], img.UStride, last.U, last.UStride, 8, 8, 8, 8)
-	assertCopiedBlock(t, "V full-pixel version", img.V[8*img.VStride+8:], img.VStride, last.V, last.VStride, 8, 8, 8, 8)
+	// Luma: bilinear sub-pixel predict; chroma: full-pixel copy.
+	wantY := make([]byte, 16*16)
+	dsp.BilinearPredict16x16(last.Y[16*last.YStride+16:], last.YStride, 2, 2, wantY, 16)
+	assertCopiedBlock(t, "Y full-pixel version (luma bilinear)", img.Y[16*img.YStride+16:], img.YStride, wantY, 16, 0, 0, 16, 16)
+	assertCopiedBlock(t, "U full-pixel version (chroma copy)", img.U[8*img.UStride+8:], img.UStride, last.U, last.UStride, 8, 8, 8, 8)
+	assertCopiedBlock(t, "V full-pixel version (chroma copy)", img.V[8*img.VStride+8:], img.VStride, last.V, last.VStride, 8, 8, 8, 8)
 }
 
 func TestReconstructInterFrameGridPredictsBorderSubpixelWholeMV(t *testing.T) {

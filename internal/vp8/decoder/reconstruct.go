@@ -375,7 +375,11 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	}
 	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
 	for block := range 16 {
-		mv := fullPixelMotionVector(mode.BlockMV[block], cfg)
+		// libvpx v1.16.0 vp8/common/reconinter.c build_inter4x4_predictors_mb
+		// does not apply xd->fullpixel_mask to luma per-block MVs; the mask is
+		// only applied to the derived chroma MV inside build_4x4uvmvs. Mirror
+		// that by consuming the bmi MV as-is for luma.
+		mv := mode.BlockMV[block]
 		mv = clampMotionVectorToUMVBorder(mv, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
 		blockRow := block >> 2
 		blockCol := block & 3
@@ -500,13 +504,6 @@ func splitChromaMotionVectorComponent(a int16, b int16, c int16, d int16) int {
 	// flips +4 to -4 when sum is negative.
 	mask := sum >> intSignShiftDec
 	return (sum + 4 + 8*mask) / 8
-}
-
-func fullPixelMotionVector(mv MotionVector, cfg InterPredictionConfig) MotionVector {
-	if !cfg.FullPixel {
-		return mv
-	}
-	return MotionVector{Row: int16(int(mv.Row) &^ 7), Col: int16(int(mv.Col) &^ 7)}
 }
 
 func fullPixelChromaMotionVector(row int, col int, cfg InterPredictionConfig) (int, int) {

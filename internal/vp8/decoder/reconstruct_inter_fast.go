@@ -143,10 +143,11 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 
 	mvRow := int(mode.MV.Row)
 	mvCol := int(mode.MV.Col)
-	if state.fullPixel {
-		mvRow &^= 7
-		mvCol &^= 7
-	}
+	// libvpx v1.16.0 vp8/common/reconinter.c vp8_build_inter16x16_predictors_mb
+	// applies xd->fullpixel_mask ONLY to the chroma MV (lines 333-334) after
+	// the +1|sign / divide-by-2 derivation. The luma MV is consumed as-is by
+	// subpixel_predict16x16. We mirror that here: leave mvRow/mvCol untouched
+	// for luma, and apply &^=7 only inside the chroma derivation below.
 	// Inline clampMotionVectorToUMVBorder using the cached coded
 	// dimensions (and the precomputed mbRows/mbCols). Identical to
 	// macroblockMotionVectorEdges -> clampUMVComponent.
