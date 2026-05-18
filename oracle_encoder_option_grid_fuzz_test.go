@@ -28,22 +28,41 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run option-grid byte-parity fuzz")
 	}
 	// Each seed is (resBucket, deadlineBucket, cpuBucket, rcBucket, featBucket,
-	// tokenPartBucket, threadsBucket, sharpBucket, tuneBucket, arnrBucket).
+	// tokenPartBucket, threadsBucket, sharpBucket, tuneBucket, arnrBucket,
+	// errorResBucket). The errorResBucket byte was added by task #251 to
+	// roll error_resilient independently of featBucket so the (error_res ×
+	// token_partitions × threads) product is exercised every iteration.
+	// 10-byte seeds remain valid; the cursor wraps to byte 0 for the 11th
+	// pick (no errorResBucket toggle).
 	seeds := [][]byte{
 		// Mirrors of canonical strict-gate cases at the smallest sizes,
 		// confirming the fuzzer's small-resolution path matches a known
 		// pass before exploration begins.
-		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // realtime cpu0 16x16 CBR
-		{1, 1, 1, 0, 0, 0, 0, 0, 0, 0}, // good cpu4 32x16 CBR
-		{2, 2, 2, 0, 0, 0, 0, 0, 0, 0}, // best cpu0 48x48 CBR
-		{3, 0, 1, 1, 0, 0, 0, 0, 0, 0}, // realtime cpu-3 64x64 VBR
-		{4, 0, 0, 0, 0, 2, 1, 0, 0, 0}, // realtime cpu0 96x96 CBR token=4 threads=2
-		{5, 1, 1, 0, 0, 0, 0, 1, 0, 0}, // good cpu4 128x128 sharpness=4
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // realtime cpu0 16x16 CBR
+		{1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0}, // good cpu4 32x16 CBR
+		{2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0}, // best cpu0 48x48 CBR
+		{3, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0}, // realtime cpu-3 64x64 VBR
+		{4, 0, 0, 0, 0, 2, 1, 0, 0, 0, 0}, // realtime cpu0 96x96 CBR token=4 threads=2
+		{5, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0}, // good cpu4 128x128 sharpness=4
 		// Production-resolution seeds (keyframe floor + scoreboard).
-		{7, 0, 1, 0, 0, 0, 1, 0, 0, 0},  // realtime 320x240 threads=2
-		{8, 0, 0, 0, 0, 0, 1, 0, 0, 0},  // realtime 640x360 threads=2
-		{9, 0, 0, 0, 0, 0, 2, 0, 0, 0},  // realtime 854x480 threads=4
-		{10, 0, 0, 0, 0, 0, 2, 0, 0, 0}, // realtime 1280x720 threads=4
+		{7, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0},  // realtime 320x240 threads=2
+		{8, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0},  // realtime 640x360 threads=2
+		{9, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0},  // realtime 854x480 threads=4
+		{10, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0}, // realtime 1280x720 threads=4
+		// task #251: error_resilient × token_partitions ∈ {1,2,4,8} ×
+		// threads ∈ {1,2,4} on the WebRTC-shaped panning fixtures. Each
+		// seed flips errorResBucket=1 so featBucket stays free to roll
+		// orthogonal toggles. Resolution buckets stay small to bound
+		// fuzz iteration time; the production-resolution coverage of
+		// this combo comes from the corpus the fuzzer mints itself.
+		{3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // RT cpu0 64x64 CBR token=1 thr=1 ER
+		{3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, // RT cpu0 64x64 CBR token=2 thr=1 ER
+		{3, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1}, // RT cpu0 64x64 CBR token=4 thr=1 ER
+		{3, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1}, // RT cpu0 64x64 CBR token=8 thr=1 ER
+		{3, 0, 0, 0, 0, 2, 1, 0, 0, 0, 1}, // RT cpu0 64x64 CBR token=4 thr=2 ER
+		{3, 0, 0, 0, 0, 3, 2, 0, 0, 0, 1}, // RT cpu0 64x64 CBR token=8 thr=4 ER
+		{4, 0, 0, 0, 0, 2, 1, 0, 0, 0, 1}, // RT cpu0 96x96 CBR token=4 thr=2 ER
+		{4, 0, 0, 0, 0, 3, 2, 0, 0, 0, 1}, // RT cpu0 96x96 CBR token=8 thr=4 ER
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -134,6 +153,13 @@ func newOptionGridFuzzCase(data []byte) optionGridFuzzCase {
 	sharpBucket := r.pick(len(sharpnessPool) + 1) // bucket 0 = leave default
 	tuneBucket := r.pick(3)                       // 0=default, 1=PSNR, 2=SSIM
 	arnrBucket := r.pick(4)                       // bucket 0 = disabled
+	// errorResBucket lets the fuzzer flip --error-resilient=1 independently
+	// of the screen-content / arnr feature buckets so the
+	// {token_partitions ∈ {1,2,4,8}} × {error_resilient on/off} ×
+	// {threads ∈ {1,2,4}} product is reachable on a single fuzz iteration
+	// — task #251 wire-image audit of vp8_pack_tokens_into_partitions
+	// (libvpx vp8/encoder/bitstream.c:292-318).
+	errorResBucket := r.pick(2)
 
 	c := optionGridFuzzCase{
 		width:      res.w,
@@ -176,6 +202,14 @@ func newOptionGridFuzzCase(data []byte) optionGridFuzzCase {
 		c.screenMode = 2
 		c.extraArgs = append(c.extraArgs, "--screen-content-mode=2")
 	case 3:
+		c.errorRes = true
+		c.extraArgs = append(c.extraArgs, "--error-resilient=1")
+	}
+	// errorResBucket toggles --error-resilient=1 independently of
+	// featBucket so the (error_resilient × token_partitions × threads)
+	// product is reachable on each fuzz iteration. featBucket==3 already
+	// turns errorRes on; in that case the bucket is idempotent.
+	if errorResBucket == 1 && !c.errorRes {
 		c.errorRes = true
 		c.extraArgs = append(c.extraArgs, "--error-resilient=1")
 	}
