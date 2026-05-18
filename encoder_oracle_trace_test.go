@@ -119,6 +119,13 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 			// not relevant to the per-frame / per-MB invariants this test
 			// exercises; ignore them here.
 			continue
+		case "recode_iter", "mb_iter_rate":
+			// Per-recode-iteration trace rows (and their per-MB
+			// rate mirrors) are emitted from the size_recode loop
+			// hook used by the libvpx oracle diff. They are not
+			// part of the per-frame / per-MB invariants this test
+			// exercises; ignore them here.
+			continue
 		default:
 			t.Fatalf("trace line %d has unexpected type %q", i, typ)
 		}
