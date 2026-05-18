@@ -20,8 +20,11 @@ import (
 // improve on; Test is the curve under measurement. Negative BD-rate
 // means Test saves bitrate at equal quality.
 type BDRateOptions struct {
-	// Codec selects which encoder to drive. Only "vp9" is currently
-	// wired; "vp8" returns an error.
+	// Codec selects which encoder to drive. "vp9" routes through
+	// ComputeBDRate; "vp8" callers should use ComputeBDRateVP8 with
+	// BDRateOptionsVP8 instead — ComputeBDRate keeps a Codec field
+	// for backwards-compatible callers but rejects non-"vp9" inputs
+	// with an error pointing at ComputeBDRateVP8.
 	Codec string
 
 	// Width and Height bound the visible frame dimensions. Must
@@ -198,8 +201,11 @@ func bdOperatingLadder(opts BDRateOptions) []bdOperatingPoint {
 }
 
 func validateBDRateOptions(opts BDRateOptions) error {
+	if opts.Codec == "vp8" {
+		return fmt.Errorf("bdrate: codec %q not handled by ComputeBDRate; use ComputeBDRateVP8 (BDRateOptionsVP8)", opts.Codec)
+	}
 	if opts.Codec != "vp9" {
-		return fmt.Errorf("bdrate: codec %q not supported (only vp9)", opts.Codec)
+		return fmt.Errorf("bdrate: codec %q not supported (vp9 via ComputeBDRate, vp8 via ComputeBDRateVP8)", opts.Codec)
 	}
 	if opts.Source == nil {
 		return errors.New("bdrate: Source callback required")
