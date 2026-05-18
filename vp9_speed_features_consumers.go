@@ -176,19 +176,9 @@ func (e *VP9Encoder) vp9InterCompoundEnabled() bool {
 }
 
 // vp9InterUsesNonrdPickmode reports whether the SPEED_FEATURES configurator
-// has selected libvpx's nonrd_pick_inter_mode path. govpx does not yet ship a
-// verbatim nonrd_pickmode.c port (TODO below), so this acts purely as a
-// candidate-pruner gate: when set, the picker skips ALTREF, drops compound,
-// pins the inter-mode mask to INTER_NEAREST_NEW_ZERO, and constrains the
-// motion search radius to the FAST_DIAMOND budget.
-//
-// TODO: port /private/tmp/libvpx-src/vp9/encoder/vp9_pickmode.c
-// vp9_pick_inter_mode (~3000 LOC) verbatim — currently we approximate the
-// behaviour by gating expensive RD branches with this flag. The verbatim port
-// is intentionally deferred because nonrd_pickmode depends on the realtime
-// MV-cost tables (cpi->dummy_cost) and the simple-model RD tables
-// (cpi->sf.simple_model_rd_from_var) which themselves require ports outside
-// the scope of this commit.
+// selected libvpx's vp9_pick_inter_mode realtime path. The caller dispatches
+// to the nonrd picker port when this is true and stays on the full-RD picker
+// otherwise.
 //
 // libvpx: vp9_speed_features.h:447 sf->use_nonrd_pick_mode.
 func (e *VP9Encoder) vp9InterUsesNonrdPickmode() bool {
@@ -208,8 +198,14 @@ func (e *VP9Encoder) vp9InterUsesNonrdPickmode() bool {
 //
 // libvpx: vp9_speed_features.c:586 sf->use_altref_onepass = 0 is consumed by
 // the partition driver, not by the inter mode picker itself.
+var vp9InterReferenceFramesAll = [...]int8{
+	vp9dec.LastFrame,
+	vp9dec.GoldenFrame,
+	vp9dec.AltrefFrame,
+}
+
 func (e *VP9Encoder) vp9InterReferenceFramesEnabled() []int8 {
-	return []int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame}
+	return vp9InterReferenceFramesAll[:]
 }
 
 // vp9InterPartitionVarBased reports whether the SPEED_FEATURES configurator

@@ -127,7 +127,7 @@ func vp9MvPredScanCandidates(
 	candidates []vp9MvPredInputCandidate, numMvRefs int,
 	src []byte, srcStride int, srcX, srcY int,
 	refY []byte, refYStride int, refAnchorX, refAnchorY int,
-	refW, refH int,
+	refOriginX, refOriginY, refRows int,
 	blockW, blockH int,
 ) vp9MvPredResult {
 	// libvpx: vp9_rd.c:590-593.
@@ -210,22 +210,20 @@ func vp9MvPredScanCandidates(
 		//                                          ref_y_ptr, ref_y_stride);
 		// In libvpx, ref_y_buffer is the YV12 buffer with a 160-pixel
 		// border, so fp_row / fp_col can be negative without indexing
-		// out of bounds. govpx's ref buffer is a frame-sized plane with
-		// no padding, so out-of-bounds candidates are skipped (libvpx's
-		// equivalent skip happens via the YV12 plane scaling, not the
-		// SAD kernel). The clamp matches the source-plane bounds check
-		// the existing reference-masking path uses.
-		refXLeft := refAnchorX + fpCol
-		refYTop := refAnchorY + fpRow
+		// out of bounds. govpx callers pass the same bordered-buffer shape:
+		// refOrigin{X,Y} is the visible-plane origin inside refY.
+		refXLeft := refOriginX + refAnchorX + fpCol
+		refYTop := refOriginY + refAnchorY + fpRow
 		if refXLeft < 0 || refYTop < 0 ||
-			refXLeft+blockW > refW || refYTop+blockH > refH {
+			refXLeft+blockW > refYStride || refYTop+blockH > refRows {
 			continue
 		}
 
 		// libvpx: vp9_rd.c:624 fn_ptr[bsize].sdf — size-specialized SAD.
 		// vp9BlockSAD dispatches to the same vpx_sad{NxM} kernels.
-		thisSad := vp9BlockSAD(src, srcStride, refY, refYStride,
-			srcX, srcY, refXLeft, refYTop, blockW, blockH, ^uint64(0))
+		thisSad := vp9BlockSADOffsets(src, srcY*srcStride+srcX,
+			srcStride, refY, refYTop*refYStride+refXLeft, refYStride,
+			blockW, blockH, ^uint64(0))
 
 		// libvpx: vp9_rd.c:629-632 — track best.
 		if thisSad < out.bestSad {

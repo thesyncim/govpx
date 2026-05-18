@@ -84,7 +84,25 @@ type vp9RateControlState struct {
 	rc2Frame              int8
 
 	framesSinceKey uint16
-	framesTillGF   uint8
+	// framesSinceGolden mirrors libvpx RATE_CONTROL::frames_since_golden.
+	// Realtime nonrd pickmode uses it to cap usable_ref_frame to LAST on
+	// the first frame after a golden/altref refresh.
+	framesSinceGolden uint16
+	framesTillGF      uint8
+	// altRefGFGroup mirrors libvpx RATE_CONTROL::alt_ref_gf_group.
+	// vp9_pick_inter_mode's usable_ref_frame and VBR/lag candidate gates
+	// read it to keep ARF groups from being treated like ordinary GF-only
+	// refresh intervals.
+	//
+	// libvpx: vp9_ratectrl.h:182 alt_ref_gf_group.
+	altRefGFGroup bool
+	// lastFrameIsSrcAltRef mirrors libvpx
+	// RATE_CONTROL::last_frame_is_src_altref, updated at one-pass
+	// postencode from is_src_frame_alt_ref.
+	//
+	// libvpx: vp9_ratectrl.h:183 last_frame_is_src_altref,
+	// vp9_ratectrl.c:1995 assignment.
+	lastFrameIsSrcAltRef bool
 
 	afRatioOnePassVBR   uint8
 	baselineGFInterval  uint8
@@ -726,6 +744,7 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	encodedBits := encodedSizeBits(sizeBytes)
 	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks)
 	rc.updateQHistory(qindex, intraOnly, refreshFlags, showFrame)
+	rc.lastFrameIsSrcAltRef = rc.isSrcFrameAltRef
 	rc.postOnePassVBRRefresh(refreshFlags)
 	rc.totalActualBits += int64(encodedBits)
 	if showFrame {

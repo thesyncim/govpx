@@ -56,7 +56,7 @@ func TestVP9MvPredScanCandidatesNearSameNearest(t *testing.T) {
 	// triggers and only one is scanned. The expected best_index = 0.
 	result := vp9MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
-		ref, stride, 0, 0, stride, refRows,
+		ref, stride, 0, 0, 0, 0, refRows,
 		w, h)
 	if result.bestIndex != 0 {
 		t.Errorf("bestIndex = %d, want 0 (libvpx near_same_nearest dedup)",
@@ -93,7 +93,7 @@ func TestVP9MvPredScanCandidatesZeroSeenDedup(t *testing.T) {
 	}
 	result := vp9MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
-		ref, stride, 0, 0, w, h,
+		ref, stride, 0, 0, 0, 0, h,
 		w, h)
 	if result.bestSad != 0 {
 		t.Errorf("bestSad = %d, want 0 (matched ref at fp_offset (0,0))",
@@ -125,7 +125,7 @@ func TestVP9MvPredScanCandidatesInvalidSkip(t *testing.T) {
 	}
 	result := vp9MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
-		ref, stride, 0, 0, w, h,
+		ref, stride, 0, 0, 0, 0, h,
 		w, h)
 	if result.bestSad != ^uint64(0) {
 		t.Errorf("bestSad = %d, want sentinel (no valid candidates scanned)",
@@ -150,7 +150,7 @@ func TestVP9MvPredScanCandidatesMaxMvContext(t *testing.T) {
 	}
 	result := vp9MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
-		ref, stride, 0, 0, w, h,
+		ref, stride, 0, 0, 0, 0, h,
 		w, h)
 	if result.maxMvContext != 3 {
 		t.Errorf("maxMvContext = %d, want 3 (max(|row|,|col|) >> 3 across candidates)",

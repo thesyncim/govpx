@@ -224,6 +224,7 @@ func (e *VP9Encoder) maybeEncodeVP9AutoAltRefInto(dst []byte) (VP9EncodeResult, 
 		return VP9EncodeResult{}, false, nil
 	}
 	future.isAltRefSource = true
+	e.rc.altRefGFGroup = true
 	hiddenSrc := e.vp9AutoAltRefSourceImage(future)
 	result, err := e.encodeVP9FrameIntoWithFlagsResult(hiddenSrc, dst,
 		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|

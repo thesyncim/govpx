@@ -63,6 +63,14 @@ var vp9VarOffs64 = [64]uint8{
 	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
 }
 
+// vp9PosShift16x16 mirrors libvpx vp9_pickmode.c:56-58.
+var vp9PosShift16x16 = [4][4]int{
+	{9, 10, 13, 14},
+	{11, 12, 15, 16},
+	{17, 18, 21, 22},
+	{19, 20, 23, 24},
+}
+
 // vp9MinMax8x8 is the verbatim port of libvpx's vpx_minmax_8x8_c
 // (vpx_dsp/avg.c:389-401). It returns (min, max) of |s[i,j] - d[i,j]|
 // over an 8x8 luma block. libvpx initializes min=255, max=0.
@@ -165,6 +173,10 @@ type vp9ChoosePartitioningArgs struct {
 	AvgFrameQIndexInter    int  // cpi->rc.avg_frame_qindex[INTER_FRAME]
 	BaseQIndex             int  // cm->base_qindex
 	ScreenContent          bool // cpi->oxcf.content == VP9E_CONTENT_SCREEN
+	ShortCircuitLowTempVar int  // cpi->sf.short_circuit_low_temp_var
+	PartitionRefFrame      int8 // ref_frame_partition
+	PartitionMV            vp9dec.MV
+	VarianceLow            *[25]uint8 // x->variance_low
 
 	// CYCLIC_REFRESH boost predicate. Mirrors libvpx's
 	// cyclic_refresh_segment_id_boosted(segment_id). govpx callers pass
@@ -534,7 +546,91 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	// (copy_partitioning, svc_use_lowres_part, short_circuit_low_temp_var,
 	// chroma_check). govpx callers run chroma decisions through the
 	// existing pipeline so no in-picker chroma_check is required here.
+	if a.ShortCircuitLowTempVar != 0 && a.VarianceLow != nil {
+		vp9SetLowTempVarFlag(a, &vt, thresholds)
+	}
 	return 0
+}
+
+func vp9SetLowTempVarFlag(a vp9ChoosePartitioningArgs, vt *vp9V64x64,
+	thresholds [4]int64,
+) {
+	if vt == nil || a.VarianceLow == nil {
+		return
+	}
+	if a.PartitionRefFrame != vp9dec.LastFrame {
+		return
+	}
+	mvThr := int16(4)
+	if a.FrameWidth > 640 {
+		mvThr = 8
+	}
+	if a.ShortCircuitLowTempVar != 1 &&
+		(a.PartitionMV.Col >= mvThr || a.PartitionMV.Col <= -mvThr ||
+			a.PartitionMV.Row >= mvThr || a.PartitionMV.Row <= -mvThr) {
+		return
+	}
+	root := vp9VarianceLowBlockSizeAt(a, a.MiRow, a.MiCol)
+	switch root {
+	case common.Block64x64:
+		if vt.PartVariances.None.Variance < int(thresholds[0]>>1) {
+			a.VarianceLow[0] = 1
+		}
+	case common.Block64x32:
+		for i := range 2 {
+			if vt.PartVariances.Horz[i].Variance < int(thresholds[0]>>2) {
+				a.VarianceLow[i+1] = 1
+			}
+		}
+	case common.Block32x64:
+		for i := range 2 {
+			if vt.PartVariances.Vert[i].Variance < int(thresholds[0]>>2) {
+				a.VarianceLow[i+3] = 1
+			}
+		}
+	default:
+		idx := [4][2]int{{0, 0}, {0, 4}, {4, 0}, {4, 4}}
+		for i := range 4 {
+			miRow := a.MiRow + idx[i][0]
+			miCol := a.MiCol + idx[i][1]
+			if a.MiRows <= miRow || a.MiCols <= miCol {
+				continue
+			}
+			sbType := vp9VarianceLowBlockSizeAt(a, miRow, miCol)
+			if sbType == common.Block32x32 {
+				threshold32x32 := thresholds[1] >> 1
+				if a.ShortCircuitLowTempVar == 1 ||
+					a.ShortCircuitLowTempVar == 3 {
+					threshold32x32 = (5 * thresholds[1]) >> 3
+				}
+				if vt.Split[i].PartVariances.None.Variance < int(threshold32x32) {
+					a.VarianceLow[i+5] = 1
+				}
+			} else if a.ShortCircuitLowTempVar >= 2 &&
+				(sbType == common.Block16x16 ||
+					sbType == common.Block32x16 ||
+					sbType == common.Block16x32) {
+				for j := range 4 {
+					if vt.Split[i].Split[j].PartVariances.None.Variance <
+						int(thresholds[2]>>8) {
+						a.VarianceLow[(i<<2)+j+9] = 1
+					}
+				}
+			}
+		}
+	}
+}
+
+func vp9VarianceLowBlockSizeAt(a vp9ChoosePartitioningArgs, miRow, miCol int) common.BlockSize {
+	if miRow < 0 || miCol < 0 || miRow >= a.MiRows || miCol >= a.MiCols ||
+		a.MiCols <= 0 {
+		return common.BlockInvalid
+	}
+	off := miRow*a.MiCols + miCol
+	if off < 0 || off >= len(a.MiGrid) {
+		return common.BlockInvalid
+	}
+	return a.MiGrid[off].SbType
 }
 
 // vp9ChoosePartitioningSBStride is the per-SB stride into the MI grid

@@ -3879,7 +3879,7 @@ func TestVP9EncoderInterPicksNewMvForTranslatedBlock(t *testing.T) {
 		width  = 128
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -3964,7 +3964,7 @@ func TestVP9EncoderInterPicksNewMvFor16x8Block(t *testing.T) {
 		width  = 32
 		height = 8
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -4088,7 +4088,7 @@ func TestVP9EncoderInterPartitionScoringRestoresFrameState(t *testing.T) {
 
 func TestVP9EncoderInterPartitionScoringUsesPriorChildContext(t *testing.T) {
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -4289,7 +4289,7 @@ func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
 		width  = 128
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -4329,7 +4329,7 @@ func TestVP9EncoderInterPicksQuarterPelMv(t *testing.T) {
 		width  = 128
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -4449,7 +4449,7 @@ func TestVP9EncoderInterReusesNearestMvCandidate(t *testing.T) {
 		width  = 192
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -4496,7 +4496,7 @@ func TestVP9EncoderInterUsesPreviousFrameMvRefs(t *testing.T) {
 		width  = 128
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
 	keySrc := newVP9MotionYCbCrForTest(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
@@ -8350,17 +8350,22 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		name   string
-		opts   VP9EncoderOptions
-		before func(*testing.T, *VP9Encoder)
+		name          string
+		opts          VP9EncoderOptions
+		before        func(*testing.T, *VP9Encoder)
+		wantMaxAllocs float64
 	}{
 		{
+			// Non-CBR threaded frames can run slowly enough that helper tile
+			// workers exhaust the idle-spin window and park on their start
+			// channels between frames; the runtime may allocate those sudogs.
 			name: "vbr",
 			opts: func() VP9EncoderOptions {
 				opts := baseCBR()
 				opts.RateControlMode = RateControlVBR
 				return opts
 			}(),
+			wantMaxAllocs: 4,
 		},
 		{
 			name: "cq",
@@ -8370,6 +8375,7 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 				opts.CQLevel = 20
 				return opts
 			}(),
+			wantMaxAllocs: 4,
 		},
 		{
 			name: "q",
@@ -8379,6 +8385,7 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 				opts.CQLevel = 20
 				return opts
 			}(),
+			wantMaxAllocs: 4,
 		},
 		{
 			name: "cyclic-aq",
@@ -8490,7 +8497,10 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 			// The threaded feature path keeps worker scratch behind pools. The
 			// fixed-P measurement window should stay effectively warm, with one
 			// refill of headroom for pool scheduling jitter.
-			wantMaxAllocs := 1.0
+			wantMaxAllocs := tc.wantMaxAllocs
+			if wantMaxAllocs == 0 {
+				wantMaxAllocs = 1.0
+			}
 			if allocs > wantMaxAllocs {
 				t.Fatalf("threaded feature path steady-state allocs = %f, want <= %f",
 					allocs, wantMaxAllocs)

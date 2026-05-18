@@ -788,6 +788,12 @@ func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool, refres
 	if showFrame {
 		rc.incrementFramesSinceKey()
 	}
+	if intraOnly ||
+		refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0 {
+		rc.framesSinceGolden = 0
+	} else if showFrame && rc.framesSinceGolden != ^uint16(0) {
+		rc.framesSinceGolden++
+	}
 }
 
 func (rc *vp9RateControlState) incrementFramesSinceKey() {

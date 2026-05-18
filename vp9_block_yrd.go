@@ -189,10 +189,10 @@ const vp9BlockYrdUnknownSSE = uint64(1<<63 - 1)
 // libvpx's calculate_tx_size + the quant_thred-based skip test are folded
 // in; the simplified path here omits the AQ_CYCLIC_REFRESH branch and the
 // VP9E_CONTENT_SCREEN branch because the realtime fuzz seeds disable both.
-// dc_thr/ac_thr derive from `dequant[0]*dequant[0] >> 6` and `>>6` (the
-// libvpx p->quant_thred initializer at vp9_quantize.c:265 sets quant_thred
-// = zbin*zbin == dequant*dequant for !use_quant_fp; the shift by 6 in
-// model_rd_for_sb_y normalizes it). govpx mirrors that constant exactly.
+// dc_thr/ac_thr derive from `zbin[0|1]^2 >> 6` (the libvpx p->quant_thred
+// initializer at vp9_quantize.c:264-265 sets quant_thred = zbin*zbin; the
+// shift by 6 in model_rd_for_sb_y normalizes it). govpx mirrors the qzbin
+// factor and ROUND_POWER_OF_TWO setup from vp9_quantize.c:209-211.
 //
 // The shifted-domain returned distortion is `sse << 4` when the Y-plane
 // is AC_DC-skippable; otherwise it is `(sse-var) << 4` plus the model_rd
@@ -205,16 +205,14 @@ const vp9BlockYrdUnknownSSE = uint64(1<<63 - 1)
 // bsize >= BLOCK_8X8 (the realtime picker never invokes mode decision
 // at sub-8x8). For BLOCK_4X4 the n_log2 == 4 path is still well-defined
 // but tx_size would clamp to TX_4X4 — not exercised here.
-func vp9ModelRdForSbY(bsize common.BlockSize, dequant [2]int16,
+func vp9ModelRdForSbY(bsize common.BlockSize, qindex int, dequant [2]int16,
 	varY, sseY uint64, isIntra int,
 ) (outRateSum int, outDistSum int64, skipTxfm vp9SkipTxfmFlag, txSize common.TxSize) {
 	// libvpx: dc_thr = p->quant_thred[0] >> 6; ac_thr = p->quant_thred[1] >> 6;
-	// quant_thred[i] = dequant[i]*dequant[i] (vp9_quantize.c:265 init in the
-	// !use_quant_fp path; nonrd_pickmode always runs with use_quant_fp).
+	// quant_thred[i] = zbin[i]*zbin[i] (vp9_quantize.c:264-265).
 	dcQuant := uint32(dequant[0])
 	acQuant := uint32(dequant[1])
-	dcThr := int64(dcQuant) * int64(dcQuant) >> 6
-	acThr := int64(acQuant) * int64(acQuant) >> 6
+	dcThr, acThr := vp9ModelRdQuantThresholds(qindex, dequant)
 
 	// libvpx: tx_size = calculate_tx_size(...). For TX_MODE_SELECT path:
 	//   tx_size = (sse > (var << 2)) ? min(max_txsize, biggest_tx) : TX_8X8;
@@ -281,6 +279,38 @@ func vp9ModelRdForSbY(bsize common.BlockSize, dequant [2]int16,
 	outRateSum += acRate
 	outDistSum += acDist << 4
 	return
+}
+
+func vp9ModelRdQuantThresholds(qindex int, dequant [2]int16) (dcThr, acThr int64) {
+	qzbinFactor := vp9ModelRdQzbinFactor(qindex)
+	for i, dq := range dequant {
+		dq64 := int64(dq)
+		if dq64 <= 0 {
+			continue
+		}
+		zbin := vp9ModelRdRoundPowerOfTwo(int64(qzbinFactor)*dq64, 7)
+		thr := (zbin * zbin) >> 6
+		if i == 0 {
+			dcThr = thr
+		} else {
+			acThr = thr
+		}
+	}
+	return dcThr, acThr
+}
+
+func vp9ModelRdQzbinFactor(qindex int) int {
+	if qindex == 0 {
+		return 64
+	}
+	if int(common.DcQuant(qindex, 0, common.Bits8)) < 148 {
+		return 84
+	}
+	return 80
+}
+
+func vp9ModelRdRoundPowerOfTwo(value int64, n uint) int64 {
+	return (value + int64(1)<<(n-1)) >> n
 }
 
 // vp9EncodeBreakoutTest ports encode_breakout_test (vp9_pickmode.c:942-1045)

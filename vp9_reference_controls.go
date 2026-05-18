@@ -19,6 +19,10 @@ func (e *VP9Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	e.refWidth[slot] = uint32(e.opts.Width)
 	e.refHeight[slot] = uint32(e.opts.Height)
 	e.refValid[slot] = true
+	e.subpelRefBorderedValid = false
+	if slot == vp9LastRefSlot {
+		e.ensureLastBordered()
+	}
 	return nil
 }
 

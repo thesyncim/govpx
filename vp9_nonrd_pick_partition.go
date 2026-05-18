@@ -350,8 +350,20 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	}
 	// Inter call path: vp9GetEstimatedPred handles the keyframe branch on
 	// isKeyFrame=true. Inter dispatch goes through the int-pro search +
-	// luma convolve.
-	vp9GetEstimatedPred(false, estIn, ctx.estPred[:])
+	// luma convolve. libvpx's get_estimated_pred also leaves SB-level
+	// side effects on MACROBLOCK: sb_use_mv_part / sb_mv*_part for
+	// combined_motion_search and pred_mv[LAST_FRAME] for vp9_mv_pred's
+	// third candidate. Cache those effects on the encoder so the later
+	// per-leaf pickmode calls observe the same state.
+	chosenRef, intProMV := vp9GetEstimatedPred(false, estIn, ctx.estPred[:])
+	if e.vp9EnsureVarPartSBMotionCaches(miRows, miCols) > idx {
+		e.varPartSBUseMvPart[idx] = true
+		e.varPartSBMvPart[idx] = intProMV
+		if chosenRef != vp9RefGolden {
+			e.varPartSBPredValid[idx] = true
+			e.varPartSBPredLast[idx] = intProMV
+		}
+	}
 	ctx.ready = true
 	return ctx
 }

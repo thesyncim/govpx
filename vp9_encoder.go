@@ -815,9 +815,16 @@ type VP9Encoder struct {
 	// libvpx ref: vp9/encoder/vp9_encodeframe.c:1253-1763
 	// (choose_partitioning) writes the partition tree; nonrd_use_partition
 	// (vp9_encodeframe.c:4854) consumes it.
-	varPartGrid       []vp9dec.NeighborMi
-	varPartSBComputed []bool
-	varPartFrameValid bool
+	varPartGrid                []vp9dec.NeighborMi
+	varPartSBComputed          []bool
+	varPartFrameValid          bool
+	varPartSBUseMvPart         []bool
+	varPartSBMvPart            []vp9dec.MV
+	varPartSBPredLast          []vp9dec.MV
+	varPartSBPredValid         []bool
+	varPartSBVarLow            [][25]uint8
+	varPartSBContentState      []vp9ContentStateSB
+	varPartSBContentStateValid []bool
 
 	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
 	// scratches backing the border-padded LAST_FRAME and source plane
@@ -901,6 +908,13 @@ type VP9Encoder struct {
 	// (vp9/encoder/vp9_encoder.c:3102 / 3167 / 3424 / 3470).
 	lastBordered      vp9YV12BorderBuffer
 	lastBorderedValid bool
+	// subpelRefBordered is the on-demand YV12-border mirror for non-LAST
+	// references that the nonrd subpel variance search scores against.
+	// LAST uses lastBordered so choose_partitioning and pickmode read the
+	// same padded allocation.
+	subpelRefBordered      vp9YV12BorderBuffer
+	subpelRefBorderedSlot  int
+	subpelRefBorderedValid bool
 
 	// intProSrcBordered is the per-encoder border-padded mirror of the
 	// current frame's source luma plane. choose_partitioning's int_pro
@@ -1130,6 +1144,14 @@ type VP9Encoder struct {
 	contentStateSbFdMiCols   int
 	contentStateSbFdMiRows   int
 	contentStateSbFdMiStride int
+
+	// lastSource mirrors libvpx's cpi->Last_Source /
+	// unscaled_last_source reach for realtime avg_source_sad. It stores the
+	// previous committed show-frame source, matching the
+	// vp9_lookahead_peek(..., -1) frame libvpx exposes to the speed >= 5/6
+	// source-SAD gates.
+	lastSource      image.YCbCr
+	lastSourceValid bool
 
 	// countArfFrameUsage / countLastgoldenFrameUsage mirror libvpx's
 	// cpi->count_arf_frame_usage / cpi->count_lastgolden_frame_usage.
@@ -2493,6 +2515,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	showFrame := flags&EncodeInvisibleFrame == 0
 	srcFrameAltRef := isSrcFrameAltRef && showFrame && !isKey && !intraOnly
+	e.rc.isSrcFrameAltRef = srcFrameAltRef
 	refreshFlags := uint8(0xff)
 	if !isKey {
 		refreshFlags = e.vp9InterRefreshFrameFlags(flags)
@@ -2820,6 +2843,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			lossless:         header.Quant.Lossless,
 			baseQindex:       int(header.Quant.BaseQindex),
 			isSrcFrameAltRef: srcFrameAltRef,
+			showFrame:        showFrame,
 		}
 	}
 	e.vp9ReuseStableSegmentationState(&seg, isKey || intraOnly, miRows, miCols,
@@ -3079,6 +3103,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}
 		e.twoPass.finishFrameWithActual(projected)
 	}
+	e.vp9CommitLastSource(img, header.ShowFrame, postDrop)
 	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
 		encodedSizeBits(n), e.vp9TemporalBufferConfig())
@@ -3515,6 +3540,9 @@ func (e *VP9Encoder) vp9RefDims(slot uint8) (uint32, uint32) {
 
 func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, flags EncodeFlags) {
 	refreshFlags := header.RefreshFrameFlags
+	if refreshFlags != 0 {
+		e.subpelRefBorderedValid = false
+	}
 	for slot := range e.refValid {
 		if refreshFlags&(1<<uint(slot)) == 0 {
 			continue
@@ -3674,6 +3702,39 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 		for i := range e.varPartSBComputed {
 			e.varPartSBComputed[i] = false
 		}
+	}
+	if cap(e.varPartSBUseMvPart) >= sbCount {
+		e.varPartSBUseMvPart = e.varPartSBUseMvPart[:sbCount]
+		for i := range e.varPartSBUseMvPart {
+			e.varPartSBUseMvPart[i] = false
+		}
+	}
+	if cap(e.varPartSBMvPart) >= sbCount {
+		e.varPartSBMvPart = e.varPartSBMvPart[:sbCount]
+	}
+	if cap(e.varPartSBPredValid) >= sbCount {
+		e.varPartSBPredValid = e.varPartSBPredValid[:sbCount]
+		for i := range e.varPartSBPredValid {
+			e.varPartSBPredValid[i] = false
+		}
+	}
+	if cap(e.varPartSBPredLast) >= sbCount {
+		e.varPartSBPredLast = e.varPartSBPredLast[:sbCount]
+	}
+	if cap(e.varPartSBVarLow) >= sbCount {
+		e.varPartSBVarLow = e.varPartSBVarLow[:sbCount]
+		for i := range e.varPartSBVarLow {
+			e.varPartSBVarLow[i] = [25]uint8{}
+		}
+	}
+	if cap(e.varPartSBContentStateValid) >= sbCount {
+		e.varPartSBContentStateValid = e.varPartSBContentStateValid[:sbCount]
+		for i := range e.varPartSBContentStateValid {
+			e.varPartSBContentStateValid[i] = false
+		}
+	}
+	if cap(e.varPartSBContentState) >= sbCount {
+		e.varPartSBContentState = e.varPartSBContentState[:sbCount]
 	}
 	e.varPartFrameValid = false
 	// Invalidate the per-frame border-padded source mirror so the next
@@ -5319,6 +5380,7 @@ type vp9InterEncodeState struct {
 	lossless         bool
 	counts           *encoder.FrameCounts
 	isSrcFrameAltRef bool
+	showFrame        bool
 	// baseQindex mirrors libvpx's cm->base_qindex for the current frame.
 	// Used by vp9ChoosePartitioning to drive set_vbp_thresholds without
 	// reverse-looking up from dq.Y[0][1] (which is wrong when
@@ -6150,6 +6212,131 @@ func (e *VP9Encoder) vp9ChoosePartitioningSBIndex(miCols, miRow, miCol int) int 
 	return sbRow*sbCols + sbCol
 }
 
+func (e *VP9Encoder) vp9EnsureVarPartSBMotionCaches(miRows, miCols int) int {
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	if sbCount <= 0 {
+		return 0
+	}
+	if cap(e.varPartSBUseMvPart) < sbCount {
+		e.varPartSBUseMvPart = make([]bool, sbCount)
+	} else if len(e.varPartSBUseMvPart) < sbCount {
+		tail := e.varPartSBUseMvPart[len(e.varPartSBUseMvPart):sbCount]
+		for i := range tail {
+			tail[i] = false
+		}
+		e.varPartSBUseMvPart = e.varPartSBUseMvPart[:sbCount]
+	}
+	if cap(e.varPartSBMvPart) < sbCount {
+		e.varPartSBMvPart = make([]vp9dec.MV, sbCount)
+	} else if len(e.varPartSBMvPart) < sbCount {
+		e.varPartSBMvPart = e.varPartSBMvPart[:sbCount]
+	}
+	if cap(e.varPartSBPredValid) < sbCount {
+		e.varPartSBPredValid = make([]bool, sbCount)
+	} else if len(e.varPartSBPredValid) < sbCount {
+		tail := e.varPartSBPredValid[len(e.varPartSBPredValid):sbCount]
+		for i := range tail {
+			tail[i] = false
+		}
+		e.varPartSBPredValid = e.varPartSBPredValid[:sbCount]
+	}
+	if cap(e.varPartSBPredLast) < sbCount {
+		e.varPartSBPredLast = make([]vp9dec.MV, sbCount)
+	} else if len(e.varPartSBPredLast) < sbCount {
+		e.varPartSBPredLast = e.varPartSBPredLast[:sbCount]
+	}
+	return sbCount
+}
+
+func (e *VP9Encoder) vp9VarPartSBMvPart(miCols, miRow, miCol int) (vp9dec.MV, bool) {
+	if e == nil {
+		return vp9dec.MV{}, false
+	}
+	sbMiRow := (miRow >> 3) << 3
+	sbMiCol := (miCol >> 3) << 3
+	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if idx < 0 || idx >= len(e.varPartSBUseMvPart) ||
+		idx >= len(e.varPartSBMvPart) || !e.varPartSBUseMvPart[idx] {
+		return vp9dec.MV{}, false
+	}
+	return e.varPartSBMvPart[idx], true
+}
+
+func (e *VP9Encoder) vp9VarPartSBPredMv(miCols, miRow, miCol int,
+	refFrame int8,
+) (vp9dec.MV, bool) {
+	if e == nil || refFrame != vp9dec.LastFrame {
+		return vp9dec.MV{}, false
+	}
+	sbMiRow := (miRow >> 3) << 3
+	sbMiCol := (miCol >> 3) << 3
+	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if idx < 0 || idx >= len(e.varPartSBPredValid) ||
+		idx >= len(e.varPartSBPredLast) || !e.varPartSBPredValid[idx] {
+		return vp9dec.MV{}, false
+	}
+	return e.varPartSBPredLast[idx], true
+}
+
+func (e *VP9Encoder) vp9VarPartForceSkipLowTempVar(miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) bool {
+	if e == nil || e.sf.ShortCircuitLowTempVar == 0 {
+		return false
+	}
+	sbMiRow := (miRow >> 3) << 3
+	sbMiCol := (miCol >> 3) << 3
+	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if idx < 0 || idx >= len(e.varPartSBVarLow) {
+		return false
+	}
+	varianceLow := e.varPartSBVarLow[idx]
+	i := (miRow & 0x7) >> 1
+	j := (miCol & 0x7) >> 1
+	switch bsize {
+	case common.Block64x64:
+		return varianceLow[0] != 0
+	case common.Block64x32:
+		if (miCol&0x7) == 0 && (miRow&0x7) == 0 {
+			return varianceLow[1] != 0
+		}
+		if (miCol&0x7) == 0 && (miRow&0x7) != 0 {
+			return varianceLow[2] != 0
+		}
+	case common.Block32x64:
+		if (miCol&0x7) == 0 && (miRow&0x7) == 0 {
+			return varianceLow[3] != 0
+		}
+		if (miCol&0x7) != 0 && (miRow&0x7) == 0 {
+			return varianceLow[4] != 0
+		}
+	case common.Block32x32:
+		if (miCol&0x7) == 0 && (miRow&0x7) == 0 {
+			return varianceLow[5] != 0
+		}
+		if (miCol&0x7) != 0 && (miRow&0x7) == 0 {
+			return varianceLow[6] != 0
+		}
+		if (miCol&0x7) == 0 && (miRow&0x7) != 0 {
+			return varianceLow[7] != 0
+		}
+		if (miCol&0x7) != 0 && (miRow&0x7) != 0 {
+			return varianceLow[8] != 0
+		}
+	case common.Block16x16:
+		return varianceLow[vp9PosShift16x16[i][j]] != 0
+	case common.Block32x16:
+		j2 := ((miCol + 2) & 0x7) >> 1
+		return varianceLow[vp9PosShift16x16[i][j]] != 0 &&
+			varianceLow[vp9PosShift16x16[i][j2]] != 0
+	case common.Block16x32:
+		i2 := ((miRow + 2) & 0x7) >> 1
+		return varianceLow[vp9PosShift16x16[i][j]] != 0 &&
+			varianceLow[vp9PosShift16x16[i2][j]] != 0
+	}
+	return false
+}
+
 // vp9EnsureSBPartitionChosen runs vp9ChoosePartitioning for the 64x64 SB
 // containing (miRow, miCol) iff it hasn't been computed this frame.
 // Writes the partition tree into e.varPartGrid and marks
@@ -6190,6 +6377,39 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		}
 		e.varPartSBComputed = e.varPartSBComputed[:sbCount]
 	}
+	if cap(e.varPartSBUseMvPart) < sbCount {
+		e.varPartSBUseMvPart = make([]bool, sbCount)
+	} else if len(e.varPartSBUseMvPart) < sbCount {
+		tail := e.varPartSBUseMvPart[len(e.varPartSBUseMvPart):sbCount]
+		for i := range tail {
+			tail[i] = false
+		}
+		e.varPartSBUseMvPart = e.varPartSBUseMvPart[:sbCount]
+	}
+	if cap(e.varPartSBMvPart) < sbCount {
+		e.varPartSBMvPart = make([]vp9dec.MV, sbCount)
+	} else if len(e.varPartSBMvPart) < sbCount {
+		e.varPartSBMvPart = e.varPartSBMvPart[:sbCount]
+	}
+	if cap(e.varPartSBPredValid) < sbCount {
+		e.varPartSBPredValid = make([]bool, sbCount)
+	} else if len(e.varPartSBPredValid) < sbCount {
+		tail := e.varPartSBPredValid[len(e.varPartSBPredValid):sbCount]
+		for i := range tail {
+			tail[i] = false
+		}
+		e.varPartSBPredValid = e.varPartSBPredValid[:sbCount]
+	}
+	if cap(e.varPartSBPredLast) < sbCount {
+		e.varPartSBPredLast = make([]vp9dec.MV, sbCount)
+	} else if len(e.varPartSBPredLast) < sbCount {
+		e.varPartSBPredLast = e.varPartSBPredLast[:sbCount]
+	}
+	if cap(e.varPartSBVarLow) < sbCount {
+		e.varPartSBVarLow = make([][25]uint8, sbCount)
+	} else if len(e.varPartSBVarLow) < sbCount {
+		e.varPartSBVarLow = e.varPartSBVarLow[:sbCount]
+	}
 	sbMiRow := (miRow >> 3) << 3
 	sbMiCol := (miCol >> 3) << 3
 	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
@@ -6199,14 +6419,20 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	if e.varPartSBComputed[sbIdx] {
 		return true
 	}
+	if sbIdx >= 0 && sbIdx < len(e.varPartSBVarLow) {
+		e.varPartSBVarLow[sbIdx] = [25]uint8{}
+	}
 
 	args := vp9ChoosePartitioningArgs{
-		MiGrid: e.varPartGrid,
-		MiRows: miRows,
-		MiCols: miCols,
-		MiRow:  sbMiRow,
-		MiCol:  sbMiCol,
-		Speed:  int(e.opts.CpuUsed),
+		MiGrid:                 e.varPartGrid,
+		MiRows:                 miRows,
+		MiCols:                 miCols,
+		MiRow:                  sbMiRow,
+		MiCol:                  sbMiCol,
+		Speed:                  int(e.opts.CpuUsed),
+		ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar,
+		PartitionRefFrame:      vp9dec.LastFrame,
+		VarianceLow:            &e.varPartSBVarLow[sbIdx],
 		// libvpx vp9_encodeframe.c:1379 feeds set_vbp_thresholds with
 		// cpi->sf.variance_part_thresh_mult. The configurator sets this
 		// to 2 for resolutions w*h >= 640*360 (vp9_speed_features.c:813),
@@ -6267,6 +6493,12 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// motivation.
 		args.BaseQIndex = inter.baseQindex
 		args.AvgFrameQIndexInter = int(e.rc.avgFrameQIndexInter)
+		args.UseSourceSAD = e.sf.UseSourceSad != 0
+		args.ScreenContent = e.opts.ScreenContentMode == int8(VP9ScreenContentScreen)
+		if contentState, ok := e.vp9SourceSADContentState(inter.img,
+			miRows, miCols, sbMiRow, sbMiCol); ok {
+			args.ContentState = contentState
+		}
 		// Inter predictor. libvpx vp9_encodeframe.c:1450-1497:
 		//   if (cpi->oxcf.speed >= 8 && !low_res &&
 		//       x->content_state_sb != kVeryHighSad) {
@@ -6325,14 +6557,15 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					subBsize := vp9GetEstimatedPredSubBsize(sbMiRow,
 						sbMiCol, miRows, miCols)
 					estIn := &vp9GetEstimatedPredInterInput{
-						Bsize:         subBsize,
-						Src:           e.intProSrcBordered.Pixels,
-						SrcOff:        (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
-						SrcStride:     srcStrideB,
-						LastRef:       e.lastBordered.Pixels,
-						LastRefOff:    (refOriginY+y0)*refStrideB + (refOriginX + x0),
-						LastRefStride: refStrideB,
-						Speed:         int(e.opts.CpuUsed),
+						Bsize:                  subBsize,
+						Src:                    e.intProSrcBordered.Pixels,
+						SrcOff:                 (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
+						SrcStride:              srcStrideB,
+						LastRef:                e.lastBordered.Pixels,
+						LastRefOff:             (refOriginY+y0)*refStrideB + (refOriginX + x0),
+						LastRefStride:          refStrideB,
+						Speed:                  int(e.opts.CpuUsed),
+						ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar != 0,
 						// MvLimits: full-pel limits derived from the
 						// SB origin's distance to the bordered frame
 						// edges (mirrors libvpx's
@@ -6354,7 +6587,31 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					// 64x64 luma BILINEAR convolve port of
 					// vp9_build_inter_predictors_sb (libvpx
 					// vp9_reconinter.c:253-258).
-					vp9GetEstimatedPred(false, estIn, e.intProEstPred[:])
+					chosenRef, intProMV := vp9GetEstimatedPred(false, estIn,
+						e.intProEstPred[:])
+					args.PartitionMV = intProMV
+					if chosenRef == vp9RefGolden {
+						args.PartitionRefFrame = vp9dec.GoldenFrame
+					} else {
+						args.PartitionRefFrame = vp9dec.LastFrame
+					}
+					if sbIdx >= 0 && sbIdx < len(e.varPartSBUseMvPart) {
+						// libvpx choose_partitioning stores the int-pro MV
+						// in x->sb_mv{row,col}_part and makes the later
+						// nonrd NEWMV search reuse it instead of running a
+						// fresh full-pel search (vp9_pickmode.c:217-224).
+						e.varPartSBUseMvPart[sbIdx] = true
+						e.varPartSBMvPart[sbIdx] = intProMV
+						if chosenRef != vp9RefGolden &&
+							sbIdx < len(e.varPartSBPredValid) {
+							// When LAST (or source-altref-as-LAST) wins
+							// the partition prepass, libvpx also writes
+							// x->pred_mv[LAST_FRAME] for vp9_mv_pred's
+							// optional third candidate.
+							e.varPartSBPredValid[sbIdx] = true
+							e.varPartSBPredLast[sbIdx] = intProMV
+						}
+					}
 					args.PlaneDst = e.intProEstPred[:]
 					args.PlaneDstOff = 0
 					args.DstStride = 64
@@ -9592,6 +9849,21 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	if !ok {
 		return common.DcPred, false
 	}
+	if interDecision.intra {
+		mi.Mode = interDecision.mode
+		mi.Mv = [2]vp9dec.MV{}
+		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
+		if interDecision.txSize < common.TxSizes {
+			mi.TxSize = interDecision.txSize
+		}
+		uvMode := interDecision.uvMode
+		if uvMode < common.DcPred || int(uvMode) >= common.IntraModes {
+			uvMode = interDecision.mode
+		}
+		return uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
+			miRows, miCols, miRow, miCol, bsize, mi, uvMode)
+	}
 	if e.opts.AQMode == VP9AQComplexity {
 		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 			bsize, mi.TxSize, mi.SegmentID)
@@ -9776,6 +10048,7 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	mi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	mi.InterpFilter = uint8(vp9dec.InterpEighttap)
 	var picked vp9InterModeDecision
+	pickedValid := false
 	if forcedRef {
 		refSlot, ok := e.vp9InterReferenceSlot(inter, forcedRefFrame)
 		if !ok {
@@ -9792,6 +10065,7 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 			mi.Mode = decision.mode
 			mi.Mv = decision.mv
 			mi.InterpFilter = uint8(decision.interpFilter)
+			pickedValid = true
 		}
 	} else if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, bsize); ok {
 		// libvpx: vp9/encoder/vp9_bitstream.c::write_modes_b reads the
@@ -9803,7 +10077,10 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		mi.Mv = cached.mv
 		mi.RefFrame = [2]int8{cached.refFrame, cached.secondRefFrame}
 		mi.InterpFilter = uint8(cached.interpFilter)
-		inter.ref = &e.refFrames[cached.refSlot]
+		if !cached.intra {
+			inter.ref = &e.refFrames[cached.refSlot]
+		}
+		pickedValid = true
 	} else if decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, bsize); ok {
 		picked = decision
@@ -9811,7 +10088,10 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		mi.Mv = decision.mv
 		mi.RefFrame = [2]int8{decision.refFrame, decision.secondRefFrame}
 		mi.InterpFilter = uint8(decision.interpFilter)
-		inter.ref = &e.refFrames[decision.refSlot]
+		if !decision.intra {
+			inter.ref = &e.refFrames[decision.refSlot]
+		}
+		pickedValid = true
 		// Commit the leaf decision so a subsequent same-frame visit at
 		// this (miRow, miCol, bsize) — the bitstream write pass — can
 		// skip the picker. libvpx encodes the decision once into
@@ -9823,6 +10103,16 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		inter.ref = &e.refFrames[refSlot]
 	} else {
 		return vp9InterModeDecision{}, false
+	}
+	if pickedValid && picked.intra {
+		mi.Mode = picked.mode
+		mi.Mv = [2]vp9dec.MV{}
+		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
+		if picked.txSize < common.TxSizes {
+			mi.TxSize = picked.txSize
+		}
+		return picked, true
 	}
 	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi) {
 		return vp9InterModeDecision{}, false
@@ -10036,27 +10326,9 @@ func (e *VP9Encoder) vp9InterCalculateTxAcThr(inter *vp9InterEncodeState,
 		int(segmentID) >= len(inter.dq.Y) {
 		return 0
 	}
-	acQuant := int64(inter.dq.Y[segmentID][1])
-	if acQuant <= 0 {
-		return 0
-	}
-	zbin := vp9RoundPowerOfTwoForTxForce(int64(vp9QzbinFactorForTxForce(
-		e.vp9EncoderModeDecisionQIndex()))*acQuant, 7)
-	return (zbin * zbin) >> 6
-}
-
-func vp9QzbinFactorForTxForce(qindex int) int {
-	if qindex == 0 {
-		return 64
-	}
-	if int(common.DcQuant(qindex, 0, common.Bits8)) < 148 {
-		return 84
-	}
-	return 80
-}
-
-func vp9RoundPowerOfTwoForTxForce(value int64, n uint) int64 {
-	return (value + int64(1)<<(n-1)) >> n
+	_, acThr := vp9ModelRdQuantThresholds(e.vp9EncoderModeDecisionQIndex(),
+		inter.dq.Y[segmentID])
+	return acThr
 }
 
 // vp9InterCalculateTxLimitTx is a verbatim port of the limit_tx
@@ -11011,6 +11283,7 @@ func (e *VP9Encoder) prepareVP9InterIntraBlockResidue(inter *vp9InterEncodeState
 }
 
 type vp9InterModeDecision struct {
+	intra          bool
 	refFrame       int8
 	secondRefFrame int8
 	refSlot        int
@@ -11019,6 +11292,8 @@ type vp9InterModeDecision struct {
 	mode           common.PredictionMode
 	mv             [2]vp9dec.MV
 	interpFilter   vp9dec.InterpFilter
+	txSize         common.TxSize
+	uvMode         common.PredictionMode
 	rate           int
 	distortion     uint64
 	score          uint64
@@ -11709,6 +11984,7 @@ type vp9InterMvSearchOptions struct {
 	refMv           vp9dec.MV
 	refMvValid      bool
 	nonrdSubpelTree bool
+	useMvPart       bool
 }
 
 func (e *VP9Encoder) pickVP9InterMvWithOptions(inter *vp9InterEncodeState,
@@ -11773,17 +12049,35 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return vp9dec.MV{}, 0, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
-	ref, refStride, refW, refH := vp9ReferenceVisiblePlane(inter.ref, 0)
+	ref, refStride, refOriginX, refOriginY, _, _, refOK :=
+		e.vp9SubpelReferencePlane(refFrame, inter.ref)
 	if len(src) == 0 || len(ref) == 0 || srcStride <= 0 || refStride <= 0 {
+		return vp9dec.MV{}, 0, false
+	}
+	if !refOK {
 		return vp9dec.MV{}, 0, false
 	}
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	if x0+blockW > srcW || y0+blockH > srcH ||
-		x0+blockW > refW || y0+blockH > refH {
+	if x0+blockW > srcW || y0+blockH > srcH {
 		return vp9dec.MV{}, 0, false
+	}
+	srcOff := y0*srcStride + x0
+	refRows := len(ref) / refStride
+	sadAt := func(dx, dy int) (uint64, bool) {
+		refX := x0 + dx
+		refY := y0 + dy
+		bufX := refOriginX + refX
+		bufY := refOriginY + refY
+		if bufX < 0 || bufY < 0 || bufX+blockW > refStride ||
+			bufY+blockH > refRows {
+			return 0, false
+		}
+		refOff := bufY*refStride + bufX
+		return vp9BlockSADOffsets(src, srcOff, srcStride, ref, refOff,
+			refStride, blockW, blockH, ^uint64(0)), true
 	}
 
 	refFullDx, refFullDy := 0, 0
@@ -11796,8 +12090,10 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return sad + uint64(vp9FullPelMVSADCost(dy, dx,
 			refFullDy, refFullDx, sadPerBit))
 	}
-	bestSad := vp9BlockSAD(src, srcStride, ref, refStride,
-		x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+	bestSad, ok := sadAt(0, 0)
+	if !ok {
+		return vp9dec.MV{}, 0, false
+	}
 	bestScore := scoreMv(0, 0, bestSad)
 	bestDx, bestDy := 0, 0
 	searchCenterDx, searchCenterDy := 0, 0
@@ -11807,13 +12103,10 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		if dx == bestDx && dy == bestDy {
 			return false
 		}
-		refX := x0 + dx
-		refY := y0 + dy
-		if refX < 0 || refY < 0 || refX+blockW > refW || refY+blockH > refH {
+		sad, ok := sadAt(dx, dy)
+		if !ok {
 			return false
 		}
-		sad := vp9BlockSAD(src, srcStride, ref, refStride,
-			x0, y0, refX, refY, blockW, blockH, ^uint64(0))
 		score := scoreMv(dx, dy, sad)
 		if score < bestScore {
 			bestScore = score
@@ -11827,11 +12120,8 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if opts.seedValid {
 		seedDx := int(opts.seed.Col) >> 3
 		seedDy := int(opts.seed.Row) >> 3
-		refX := x0 + seedDx
-		refY := y0 + seedDy
-		if refX >= 0 && refY >= 0 && refX+blockW <= refW && refY+blockH <= refH {
-			bestSad = vp9BlockSAD(src, srcStride, ref, refStride,
-				x0, y0, refX, refY, blockW, blockH, ^uint64(0))
+		if sad, ok := sadAt(seedDx, seedDy); ok {
+			bestSad = sad
 			bestScore = scoreMv(seedDx, seedDy, bestSad)
 			bestDx = seedDx
 			bestDy = seedDy
@@ -11842,104 +12132,140 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 	}
 
-	// MV-hint biasing: when a multi-resolution lower-resolution layer
-	// has supplied a scaled MV hint for this SB, evaluate it as an
-	// extra candidate before the (0,0)-centered fan. The hint can
-	// land outside the local 16-pixel radius (libvpx-style cross-
-	// resolution motion correlation regularly produces hints that
-	// exceed the realtime search radius); when that happens the
-	// search radius widens to encompass the hint so the refinement
-	// step can still walk a local fan around the winning candidate.
-	// When no hint is installed this branch is a nil-check.
-	//
-	// libvpx: SPEED_FEATURES.mv.search_method picks the
-	// fast-diamond / bigdia / NSTEP dispatcher (vp9_mcomp.c:2875). At
-	// cpu_used=8 the configurator pins FAST_DIAMOND, which caps the
-	// effective search radius to a 4-pel fan. Read that field here
-	// instead of always running the full 16-pel search.
-	searchRadius := e.vp9InterSearchRadius()
-	if refFrame == vp9dec.LastFrame {
-		if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
-			if !seededStart && eval(hintDx, hintDy) && searchFromSeed {
-				searchCenterDx = hintDx
-				searchCenterDy = hintDy
-			}
-			// Widen the search radius so the refinement loop can
-			// walk a small fan around the hint when it wins.
-			absDx := hintDx
-			if absDx < 0 {
-				absDx = -absDx
-			}
-			absDy := hintDy
-			if absDy < 0 {
-				absDy = -absDy
-			}
-			if absDx > searchRadius {
-				searchRadius = absDx
-			}
-			if absDy > searchRadius {
-				searchRadius = absDy
-			}
-		}
-	}
-
-	scanMinDx, scanMaxDx := -searchRadius, searchRadius
-	scanMinDy, scanMaxDy := -searchRadius, searchRadius
-	if searchFromSeed {
-		scanMinDx = searchCenterDx - searchRadius
-		scanMaxDx = searchCenterDx + searchRadius
-		scanMinDy = searchCenterDy - searchRadius
-		scanMaxDy = searchCenterDy + searchRadius
-	}
-	if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
-		// libvpx: fast_dia_search -> bigdia_search with step_param forced
-		// to MAX_MVSEARCH_STEPS-1 at cpu_used=8. That maps to scale 0 in
-		// vp9_pattern_search_sad, so the integer search repeatedly probes
-		// the four 1-pel diamond neighbours around the current best. It does
-		// not perform govpx's older broad square scan, which could jump to a
-		// farther periodic SAD minimum before the local refinement had a
-		// chance to settle.
-		neighbors := [...]struct {
-			dx int
-			dy int
-		}{
-			{dx: -1, dy: 0},
-			{dx: 0, dy: 1},
-			{dx: 1, dy: 0},
-			{dx: 0, dy: -1},
-		}
-		improved := true
-		for improved {
-			improved = false
-			centerDx, centerDy := bestDx, bestDy
-			for _, n := range neighbors {
-				if eval(centerDx+n.dx, centerDy+n.dy) {
-					improved = true
+	if !(opts.useMvPart && seededStart) {
+		// MV-hint biasing: when a multi-resolution lower-resolution layer
+		// has supplied a scaled MV hint for this SB, evaluate it as an
+		// extra candidate before the (0,0)-centered fan. The hint can
+		// land outside the local 16-pixel radius (libvpx-style cross-
+		// resolution motion correlation regularly produces hints that
+		// exceed the realtime search radius); when that happens the
+		// search radius widens to encompass the hint so the refinement
+		// step can still walk a local fan around the winning candidate.
+		// When no hint is installed this branch is a nil-check.
+		//
+		// libvpx: SPEED_FEATURES.mv.search_method picks the
+		// fast-diamond / bigdia / NSTEP dispatcher (vp9_mcomp.c:2875). At
+		// cpu_used=8 the configurator pins FAST_DIAMOND, which caps the
+		// effective search radius to a 4-pel fan. Read that field here
+		// instead of always running the full 16-pel search.
+		searchRadius := e.vp9InterSearchRadius()
+		if refFrame == vp9dec.LastFrame {
+			if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
+				if !seededStart && eval(hintDx, hintDy) && searchFromSeed {
+					searchCenterDx = hintDx
+					searchCenterDy = hintDy
+				}
+				// Widen the search radius so the refinement loop can
+				// walk a small fan around the hint when it wins.
+				absDx := hintDx
+				if absDx < 0 {
+					absDx = -absDx
+				}
+				absDy := hintDy
+				if absDy < 0 {
+					absDy = -absDy
+				}
+				if absDx > searchRadius {
+					searchRadius = absDx
+				}
+				if absDy > searchRadius {
+					searchRadius = absDy
 				}
 			}
 		}
-	} else {
-		// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
-		// step so the fan covers +/-searchRadius without exceeding it.
-		coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
-		for dy := scanMinDy; dy <= scanMaxDy; dy += coarseStep {
-			for dx := scanMinDx; dx <= scanMaxDx; dx += coarseStep {
-				eval(dx, dy)
-			}
+
+		scanMinDx, scanMaxDx := -searchRadius, searchRadius
+		scanMinDy, scanMaxDy := -searchRadius, searchRadius
+		if searchFromSeed {
+			scanMinDx = searchCenterDx - searchRadius
+			scanMaxDx = searchCenterDx + searchRadius
+			scanMinDy = searchCenterDy - searchRadius
+			scanMaxDy = searchCenterDy + searchRadius
 		}
-		for step := coarseStep >> 1; step >= 1; step >>= 1 {
-			improved := true
-			for improved {
-				improved = false
-				centerDx, centerDy := bestDx, bestDy
-				for dy := centerDy - step; dy <= centerDy+step; dy += step {
-					for dx := centerDx - step; dx <= centerDx+step; dx += step {
-						if dx < scanMinDx || dx > scanMaxDx ||
-							dy < scanMinDy || dy > scanMaxDy {
-							continue
-						}
-						if eval(dx, dy) {
-							improved = true
+		if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
+			// libvpx: fast_dia_search -> bigdia_search with step_param forced
+			// to MAX_MVSEARCH_STEPS-1 at cpu_used=8. That maps to scale 0 in
+			// vp9_pattern_search_sad. Keep its CHECK_BETTER raw-SAD precheck
+			// and three-neighbour directional walk; scoring every neighbour
+			// from every center changes ties on periodic textures.
+			neighbors := [...]struct {
+				dx int
+				dy int
+			}{
+				{dx: -1, dy: 0},
+				{dx: 0, dy: 1},
+				{dx: 1, dy: 0},
+				{dx: 0, dy: -1},
+			}
+			checkBetter := func(site, dx, dy int, bestSite *int) {
+				if dx == bestDx && dy == bestDy {
+					return
+				}
+				sad, ok := sadAt(dx, dy)
+				if !ok {
+					return
+				}
+				if sad >= bestScore {
+					return
+				}
+				score := scoreMv(dx, dy, sad)
+				if score >= bestScore {
+					return
+				}
+				bestScore = score
+				bestSad = sad
+				*bestSite = site
+			}
+			bestSite := -1
+			for i, n := range neighbors {
+				checkBetter(i, bestDx+n.dx, bestDy+n.dy, &bestSite)
+			}
+			if bestSite != -1 {
+				k := bestSite
+				bestDx += neighbors[k].dx
+				bestDy += neighbors[k].dy
+				for {
+					next := [...]int{
+						(k + len(neighbors) - 1) % len(neighbors),
+						k,
+						(k + 1) % len(neighbors),
+					}
+					bestSite = -1
+					for _, site := range next {
+						n := neighbors[site]
+						checkBetter(site, bestDx+n.dx, bestDy+n.dy, &bestSite)
+					}
+					if bestSite == -1 {
+						break
+					}
+					k = bestSite
+					bestDx += neighbors[k].dx
+					bestDy += neighbors[k].dy
+				}
+			}
+		} else {
+			// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
+			// step so the fan covers +/-searchRadius without exceeding it.
+			coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
+			for dy := scanMinDy; dy <= scanMaxDy; dy += coarseStep {
+				for dx := scanMinDx; dx <= scanMaxDx; dx += coarseStep {
+					eval(dx, dy)
+				}
+			}
+			for step := coarseStep >> 1; step >= 1; step >>= 1 {
+				improved := true
+				for improved {
+					improved = false
+					centerDx, centerDy := bestDx, bestDy
+					for dy := centerDy - step; dy <= centerDy+step; dy += step {
+						for dx := centerDx - step; dx <= centerDx+step; dx += step {
+							if dx < scanMinDx || dx > scanMaxDx ||
+								dy < scanMinDy || dy > scanMaxDy {
+								continue
+							}
+							if eval(dx, dy) {
+								improved = true
+							}
 						}
 					}
 				}
@@ -11981,7 +12307,8 @@ func vp9FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
 		jointCost = 600
 	}
 	cost := jointCost + vp9MVSADComponentCost(row) + vp9MVSADComponentCost(col)
-	return (cost*sadPerBit + 128) >> 8
+	// libvpx: mvsad_err_cost rounds by VP9_PROB_COST_SHIFT (9).
+	return (cost*sadPerBit + 256) >> 9
 }
 
 func vp9MVSADComponentCost(v int) int {
@@ -12022,12 +12349,19 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		return vp9SubpelMVErrorCost(&inter.selectFc, mv, refMv, allowHP,
 			errorPerBit)
 	}
-	if dist, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
-		miRow, miCol, bsize, common.NewMv, refFrame, best,
-		vp9dec.InterpEighttap); ok {
-		bestScore = dist + mvCost(best)
+	if nonrdSubpelTree {
+		if variance, ok := e.vp9InterPredictionSubpelVariance(inter, miRow,
+			miCol, bsize, refFrame, best); ok {
+			bestScore = variance + mvCost(best)
+		}
 	} else {
-		bestScore = bestSad + mvCost(best)
+		if dist, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
+			miRow, miCol, bsize, common.NewMv, refFrame, best,
+			vp9dec.InterpEighttap); ok {
+			bestScore = dist + mvCost(best)
+		} else {
+			bestScore = bestSad + mvCost(best)
+		}
 	}
 	if !nonrdSubpelTree {
 		bestScore = bestSad + mvCost(best)
@@ -12072,72 +12406,175 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		}
 		return best, bestScore
 	}
-	iters := 0
-	for step := int16(4); step >= minStep; step >>= 1 {
-		if iters >= maxIters {
-			break
+	return e.refineVP9InterSubpelMvTree(inter, miRows, miCols, miRow, miCol,
+		bsize, refFrame, best, bestScore, refMv, allowHP, mvCost)
+}
+
+func (e *VP9Encoder) refineVP9InterSubpelMvTree(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	refFrame int8, best vp9dec.MV, bestScore uint64, refMv vp9dec.MV, allowHP bool,
+	mvCost func(vp9dec.MV) uint64,
+) (vp9dec.MV, uint64) {
+	// Verbatim shape of libvpx vp9_find_best_sub_pixel_tree:
+	// vp9_mcomp.c:721-925. MVs are already in 1/8-pel units here.
+	umvLimits := vp9EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
+	var subpelLimits vp9MvLimits
+	vp9SetSubpelMvSearchRange(&subpelLimits, &umvLimits, &refMv)
+
+	round := 3 - int(e.sf.Mv.SubpelForceStop)
+	if !(allowHP && vp9UseMvHP(refMv)) && round == 3 {
+		round = 2
+	}
+	if round <= 0 {
+		return best, bestScore
+	}
+
+	scoreAt := func(row, col int) (uint64, bool) {
+		if col < subpelLimits.ColMin || col > subpelLimits.ColMax ||
+			row < subpelLimits.RowMin || row > subpelLimits.RowMax {
+			return 0, false
 		}
-		center := best
-		type subpelProbe struct {
-			mv    vp9dec.MV
-			score uint64
-			ok    bool
+		cand := vp9dec.MV{Row: int16(row), Col: int16(col)}
+		dist, ok := e.vp9InterPredictionSubpelVariance(inter, miRow, miCol,
+			bsize, refFrame, cand)
+		if !ok {
+			return 0, false
 		}
-		probe := func(row, col int16) subpelProbe {
-			cand := vp9dec.MV{Row: row, Col: col}
-			vp9ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
-			vp9dec.LowerMvPrecision(&cand, allowHP)
-			if cand == center {
-				return subpelProbe{mv: cand, score: bestScore, ok: true}
+		mvRate := mvCost(cand)
+		score := dist + mvRate
+		return score, true
+	}
+	checkBetter := func(row, col int) bool {
+		score, ok := scoreAt(row, col)
+		if !ok || score >= bestScore {
+			return false
+		}
+		bestScore = score
+		best.Row = int16(row)
+		best.Col = int16(col)
+		return true
+	}
+
+	br := int(best.Row)
+	bc := int(best.Col)
+	searchSteps := [...]struct {
+		row int
+		col int
+	}{
+		{0, -4}, {0, 4}, {-4, 0}, {4, 0},
+		{0, -2}, {0, 2}, {-2, 0}, {2, 0},
+		{0, -1}, {0, 1}, {-1, 0}, {1, 0},
+	}
+	hstep := 4
+	for iter := 0; iter < round; iter++ {
+		base := iter * 4
+		bestIdx := -1
+		costArray := [5]uint64{
+			math.MaxUint64, math.MaxUint64, math.MaxUint64,
+			math.MaxUint64, math.MaxUint64,
+		}
+		tr, tc := br, bc
+		for idx := range 4 {
+			tr = br + searchSteps[base+idx].row
+			tc = bc + searchSteps[base+idx].col
+			if score, ok := scoreAt(tr, tc); ok {
+				costArray[idx] = score
+				if score < bestScore {
+					bestIdx = idx
+					bestScore = score
+				}
 			}
-			dist, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
-				miRow, miCol, bsize, common.NewMv, refFrame, cand,
-				vp9dec.InterpEighttap)
-			if !ok {
-				return subpelProbe{}
+		}
+
+		kc := -hstep
+		if costArray[1] < costArray[0] {
+			kc = hstep
+		}
+		kr := -hstep
+		if costArray[3] < costArray[2] {
+			kr = hstep
+		}
+		tc = bc + kc
+		tr = br + kr
+		if score, ok := scoreAt(tr, tc); ok {
+			costArray[4] = score
+			if score < bestScore {
+				bestIdx = 4
+				bestScore = score
 			}
-			return subpelProbe{mv: cand, score: dist + mvCost(cand), ok: true}
 		}
-		consider := func(p subpelProbe) {
-			if p.ok && p.score < bestScore {
-				best = p.mv
-				bestScore = p.score
+
+		switch {
+		case bestIdx >= 0 && bestIdx < 4:
+			br += searchSteps[base+bestIdx].row
+			bc += searchSteps[base+bestIdx].col
+		case bestIdx == 4:
+			br = tr
+			bc = tc
+		}
+		if bestIdx != -1 {
+			best.Row = int16(br)
+			best.Col = int16(bc)
+		}
+
+		if e.sf.Mv.SubpelSearchLevel > 0 && bestIdx != -1 {
+			br0, bc0 := br, bc
+			if tr == br && tc != bc {
+				kc = bc - tc
+				if e.sf.Mv.SubpelSearchLevel == 1 && checkBetter(br0, bc0+kc) {
+					br, bc = int(best.Row), int(best.Col)
+				}
+			} else if tr != br && tc == bc {
+				kr = br - tr
+				if e.sf.Mv.SubpelSearchLevel == 1 && checkBetter(br0+kr, bc0) {
+					br, bc = int(best.Row), int(best.Col)
+				}
+			}
+			if e.sf.Mv.SubpelSearchLevel > 1 {
+				if checkBetter(br0+kr, bc0) {
+					br, bc = int(best.Row), int(best.Col)
+				}
+				if checkBetter(br0, bc0+kc) {
+					br, bc = int(best.Row), int(best.Col)
+				}
+				if br0 != br || bc0 != bc {
+					if checkBetter(br0+kr, bc0+kc) {
+						br, bc = int(best.Row), int(best.Col)
+					}
+				}
 			}
 		}
-		left := probe(center.Row, center.Col-step)
-		right := probe(center.Row, center.Col+step)
-		up := probe(center.Row-step, center.Col)
-		down := probe(center.Row+step, center.Col)
-		consider(left)
-		consider(right)
-		consider(up)
-		consider(down)
-		leftScore, rightScore := uint64(math.MaxUint64), uint64(math.MaxUint64)
-		upScore, downScore := uint64(math.MaxUint64), uint64(math.MaxUint64)
-		if left.ok {
-			leftScore = left.score
-		}
-		if right.ok {
-			rightScore = right.score
-		}
-		if up.ok {
-			upScore = up.score
-		}
-		if down.ok {
-			downScore = down.score
-		}
-		diagRow := center.Row - step
-		if downScore < upScore {
-			diagRow = center.Row + step
-		}
-		diagCol := center.Col - step
-		if rightScore < leftScore {
-			diagCol = center.Col + step
-		}
-		consider(probe(diagRow, diagCol))
-		iters++
+
+		hstep >>= 1
 	}
 	return best, bestScore
+}
+
+func vp9EncoderMvLimits(miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) vp9MvLimits {
+	const vp9InterpExtend = 4
+	miW := int(common.Num8x8BlocksWideLookup[bsize])
+	miH := int(common.Num8x8BlocksHighLookup[bsize])
+	return vp9MvLimits{
+		RowMin: -(((miRow + miH) * common.MiSize) + vp9InterpExtend),
+		ColMin: -(((miCol + miW) * common.MiSize) + vp9InterpExtend),
+		RowMax: (miRows-miRow)*common.MiSize + vp9InterpExtend,
+		ColMax: (miCols-miCol)*common.MiSize + vp9InterpExtend,
+	}
+}
+
+func vp9UseMvHP(ref vp9dec.MV) bool {
+	const kMvRefThresh = 64
+	row := int(ref.Row)
+	if row < 0 {
+		row = -row
+	}
+	col := int(ref.Col)
+	if col < 0 {
+		col = -col
+	}
+	return row < kMvRefThresh && col < kMvRefThresh
 }
 
 func (e *VP9Encoder) vp9MVErrorPerBit(qindex int) int {
@@ -12305,6 +12742,126 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSE(inter *vp9InterEncodeState,
 	variance, sse = vp9BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
 		x0, y0, x0, y0, scoreW, scoreH)
 	return variance, sse, true
+}
+
+func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
+	ref *vp9ReferenceFrame,
+) (pixels []uint8, stride, originX, originY, width, height int, ok bool) {
+	plane, planeStride, w, h := vp9ReferenceVisiblePlane(ref, 0)
+	if len(plane) == 0 || planeStride <= 0 || w <= 0 || h <= 0 {
+		return nil, 0, 0, 0, 0, 0, false
+	}
+	slot, slotOK := vp9EncoderReferenceSlot(refFrame)
+	if slotOK && slot == vp9LastRefSlot {
+		if !e.lastBorderedValid || e.lastBordered.W != w ||
+			e.lastBordered.H != h {
+			e.ensureLastBordered()
+		}
+		if e.lastBorderedValid && e.lastBordered.W == w &&
+			e.lastBordered.H == h {
+			return e.lastBordered.Pixels, e.lastBordered.Stride,
+				e.lastBordered.OriginX(), e.lastBordered.OriginY(),
+				w, h, true
+		}
+	}
+	if !slotOK {
+		return nil, 0, 0, 0, 0, 0, false
+	}
+	if !e.subpelRefBorderedValid || e.subpelRefBorderedSlot != slot ||
+		e.subpelRefBordered.W != w || e.subpelRefBordered.H != h {
+		vp9YV12BuildBorderedPlane(&e.subpelRefBordered, plane,
+			planeStride, w, h, vp9EncBorderInPixels)
+		e.subpelRefBorderedSlot = slot
+		e.subpelRefBorderedValid = true
+	}
+	return e.subpelRefBordered.Pixels, e.subpelRefBordered.Stride,
+		e.subpelRefBordered.OriginX(), e.subpelRefBordered.OriginY(),
+		w, h, true
+}
+
+func (e *VP9Encoder) vp9InterPredictionSubpelVariance(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
+) (uint64, bool) {
+	if inter == nil || inter.img == nil || inter.ref == nil || !inter.ref.valid {
+		return 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	pre, preStride, preOriginX, preOriginY, preW, preH, ok :=
+		e.vp9SubpelReferencePlane(refFrame, inter.ref)
+	if len(src) == 0 || len(pre) == 0 || srcStride <= 0 || preStride <= 0 {
+		return 0, false
+	}
+	if !ok {
+		return 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) {
+		return 0, false
+	}
+	preX := x0 + (int(mv.Col) >> 3)
+	preY := y0 + (int(mv.Row) >> 3)
+	bufX := preOriginX + preX
+	bufY := preOriginY + preY
+	if bufX < 0 || bufY < 0 || bufX+blockW+1 > preStride ||
+		bufY+blockH+1 > len(pre)/preStride ||
+		preX < -preOriginX || preY < -preOriginY ||
+		preX+blockW+1 > preW+preOriginX ||
+		preY+blockH+1 > preH+preOriginY {
+		return 0, false
+	}
+	srcOff := y0*srcStride + x0
+	preOff := bufY*preStride + bufX
+	xOffset := int(mv.Col) & 7
+	yOffset := int(mv.Row) & 7
+	var sse uint32
+	var variance uint32
+	switch bsize {
+	case common.Block64x64:
+		variance = vp9dsp.VpxSubPixelVariance64x64(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block64x32:
+		variance = vp9dsp.VpxSubPixelVariance64x32(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block32x64:
+		variance = vp9dsp.VpxSubPixelVariance32x64(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block32x32:
+		variance = vp9dsp.VpxSubPixelVariance32x32(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block32x16:
+		variance = vp9dsp.VpxSubPixelVariance32x16(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block16x32:
+		variance = vp9dsp.VpxSubPixelVariance16x32(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block16x16:
+		variance = vp9dsp.VpxSubPixelVariance16x16(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block16x8:
+		variance = vp9dsp.VpxSubPixelVariance16x8(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block8x16:
+		variance = vp9dsp.VpxSubPixelVariance8x16(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block8x8:
+		variance = vp9dsp.VpxSubPixelVariance8x8(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block8x4:
+		variance = vp9dsp.VpxSubPixelVariance8x4(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block4x8:
+		variance = vp9dsp.VpxSubPixelVariance4x8(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	case common.Block4x4:
+		variance = vp9dsp.VpxSubPixelVariance4x4(pre, preOff, preStride,
+			xOffset, yOffset, src, srcOff, srcStride, &sse)
+	default:
+		return 0, false
+	}
+	return uint64(variance), true
 }
 
 func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
@@ -12778,12 +13335,21 @@ func vp9InterModeRateCostN(fc *vp9dec.FrameContext, ctx int,
 			encoder.VP9CostBit(probs[1], 1) +
 			encoder.VP9CostBit(probs[2], 1)
 		for ref := 0; ref < nrefs; ref++ {
-			cost += encoder.MvCost(mv[ref], refMv[ref], &fc.Nmvc, allowHP)
+			cost += vp9MvBitCost(mv[ref], refMv[ref], &fc.Nmvc, allowHP)
 		}
 	default:
 		return 0
 	}
 	return cost
+}
+
+func vp9MvBitCost(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, allowHP bool) int {
+	// libvpx vp9_mcomp.c:80-84:
+	//   vp9_mv_bit_cost(..., MV_COST_WEIGHT)
+	//   ROUND_POWER_OF_TWO(mv_cost(diff) * 108, 7)
+	const mvCostWeight = 108
+	raw := encoder.MvCost(mv, ref, ctx, allowHP)
+	return (raw*mvCostWeight + 64) >> 7
 }
 
 func vp9AnyMvHasSubpel(mv [2]vp9dec.MV) bool {
@@ -12888,14 +13454,23 @@ func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
 	// size-specialized SAD path; the per-row early-exit only matters for
 	// limit-driven calls on sizes outside the wrapper table.
 	// libvpx: vpx_dsp/sad.c:24 — SAD() returns sum without limit check.
-	if sad, ok := vp9BlockSADNoLimit(src, srcStride, ref, refStride,
-		srcX, srcY, refX, refY, w, h); ok {
+	srcOff := srcY*srcStride + srcX
+	refOff := refY*refStride + refX
+	return vp9BlockSADOffsets(src, srcOff, srcStride, ref, refOff, refStride,
+		w, h, limit)
+}
+
+func vp9BlockSADOffsets(src []byte, srcOff, srcStride int,
+	ref []byte, refOff, refStride int, w, h int, limit uint64,
+) uint64 {
+	if sad, ok := vp9BlockSADNoLimitOffsets(src, srcOff, srcStride,
+		ref, refOff, refStride, w, h); ok {
 		return uint64(sad)
 	}
 	var sad uint64
 	for y := range h {
-		srcRow := src[(srcY+y)*srcStride+srcX:]
-		refRow := ref[(refY+y)*refStride+refX:]
+		srcRow := src[srcOff+y*srcStride:]
+		refRow := ref[refOff+y*refStride:]
 		for x := range w {
 			diff := int(srcRow[x]) - int(refRow[x])
 			if diff < 0 {
@@ -12985,6 +13560,13 @@ func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,
 ) (uint32, bool) {
 	srcOff := srcY*srcStride + srcX
 	refOff := refY*refStride + refX
+	return vp9BlockSADNoLimitOffsets(src, srcOff, srcStride, ref, refOff,
+		refStride, w, h)
+}
+
+func vp9BlockSADNoLimitOffsets(src []byte, srcOff, srcStride int,
+	ref []byte, refOff, refStride int, w, h int,
+) (uint32, bool) {
 	switch {
 	case w == 64 && h == 64:
 		return vp9dsp.VpxSad64x64(src, srcOff, srcStride, ref, refOff, refStride), true
