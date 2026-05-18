@@ -37,5 +37,8 @@ func TestVP9Seed8FilterHistogram(t *testing.T) {
 		}
 	}
 
+	ResetVP9SearchFilterRefProbes()
 	_ = encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
+	fires, flips := ProbeVP9SearchFilterRefFires()
+	t.Logf("search_filter_ref fires=%d flips=%d", fires, flips)
 }
