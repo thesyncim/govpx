@@ -241,7 +241,49 @@ type twoPassState struct {
 	// at zero when not configured (mirrors libvpx's calloc state).
 	keyFrameFrequency int
 	autoKey           bool
+	// endUsage mirrors libvpx's `cpi->oxcf.end_usage`
+	// (vp8/common/onyx.h END_USAGE enum). It selects which branch of
+	// libvpx's `frame_max_bits` (vp8/encoder/firstpass.c:316) the
+	// pass-2 allocator dispatches to: USAGE_STREAM_FROM_SERVER (CBR)
+	// takes the buffer-aware CBR branch, every other value takes the
+	// VBR branch. govpx mirrors this so two-pass + CBR runs
+	// libvpxFrameMaxBitsCBR at every libvpx call site (firstpass.c
+	// lines 1602, 2162, 2657), instead of unconditionally calling the
+	// VBR helper. Set by configureEndUsage from the encoder's
+	// `RateControlMode`.
+	endUsage vp8EndUsage
+	// avPerFrameBandwidth, bufferLevel, optimalBufferLevel mirror the
+	// libvpx fields read by the CBR branch of frame_max_bits:
+	// `cpi->av_per_frame_bandwidth`, `cpi->buffer_level`, and
+	// `cpi->oxcf.optimal_buffer_level`. They are pushed by the
+	// encoder via `setCBRBufferState` before each pass-2 frame's
+	// target-allocator call, in the same way `setRollingBits` pushes
+	// `rolling_actual_bits` / `rolling_target_bits`. Only consulted
+	// when endUsage == USAGE_STREAM_FROM_SERVER.
+	avPerFrameBandwidth int
+	bufferLevel         int
+	optimalBufferLevel  int
 }
+
+// vp8EndUsage mirrors libvpx's END_USAGE enum (vp8/common/onyx.h
+// lines 29-34). The enum value is what the pass-2 allocator reads
+// to dispatch frame_max_bits between the CBR and VBR branches.
+type vp8EndUsage int
+
+const (
+	// vp8EndUsageLocalFilePlayback is libvpx's USAGE_LOCAL_FILE_PLAYBACK
+	// (VBR). frame_max_bits takes the VBR branch.
+	vp8EndUsageLocalFilePlayback vp8EndUsage = 0
+	// vp8EndUsageStreamFromServer is libvpx's USAGE_STREAM_FROM_SERVER
+	// (CBR). frame_max_bits takes the buffer-aware CBR branch.
+	vp8EndUsageStreamFromServer vp8EndUsage = 1
+	// vp8EndUsageConstrainedQuality is libvpx's
+	// USAGE_CONSTRAINED_QUALITY. VBR branch.
+	vp8EndUsageConstrainedQuality vp8EndUsage = 2
+	// vp8EndUsageConstantQuality is libvpx's USAGE_CONSTANT_QUALITY.
+	// VBR branch.
+	vp8EndUsageConstantQuality vp8EndUsage = 3
+)
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
 	*t = twoPassState{worstQuality: vp8MaxQIndex}
@@ -427,6 +469,71 @@ func (t *twoPassState) applyEstMaxQRollingRatioAdjustment() {
 func (t *twoPassState) configureKeyFrameInterval(keyFrameFrequency int, autoKey bool) {
 	t.keyFrameFrequency = max(keyFrameFrequency, 0)
 	t.autoKey = autoKey
+}
+
+// configureEndUsage pushes the libvpx `cpi->oxcf.end_usage` enum into
+// the two-pass state. The CBR (USAGE_STREAM_FROM_SERVER) branch of
+// libvpx `frame_max_bits` (vp8/encoder/firstpass.c lines 326-351)
+// reads buffer state to derive a buffer-aware ceiling; every other
+// end_usage value takes the bits_left/frames_left VBR branch
+// (lines 352-362). Callers translate their RateControlMode into
+// the libvpx enum via libvpxVP8EndUsageFromRateControlMode.
+func (t *twoPassState) configureEndUsage(usage vp8EndUsage) {
+	t.endUsage = usage
+}
+
+// setCBRBufferState pushes the libvpx `cpi->av_per_frame_bandwidth`,
+// `cpi->buffer_level`, and `cpi->oxcf.optimal_buffer_level` values
+// into the two-pass state. These are the inputs the CBR branch of
+// libvpx `frame_max_bits` (vp8/encoder/firstpass.c lines 326-351)
+// reads to derive the buffer-aware per-frame maximum. The encoder
+// pushes the values from `rateControlState.bitsPerFrame`,
+// `rateControlState.bufferLevelBits`, and
+// `rateControlState.bufferOptimalBits` at the top of each pass-2
+// frame, mirroring the way `setRollingBits` pushes the rolling
+// actual/target accumulators. VBR runs ignore these fields.
+func (t *twoPassState) setCBRBufferState(avPerFrameBandwidth int, bufferLevel int, optimalBufferLevel int) {
+	t.avPerFrameBandwidth = avPerFrameBandwidth
+	t.bufferLevel = bufferLevel
+	t.optimalBufferLevel = optimalBufferLevel
+}
+
+// frameMaxBits ports libvpx's `frame_max_bits`
+// (vp8/encoder/firstpass.c lines 316-368) end_usage dispatch. It
+// returns the per-frame max-bits ceiling used by the pass-2
+// allocator at libvpx call sites (firstpass.c lines 1602, 2162,
+// 2657). CBR routes through libvpxFrameMaxBitsCBR; every other
+// end_usage takes the VBR branch through libvpxFrameMaxBitsVBR.
+//
+// `framesLeft` is libvpx's `total_stats.count - current_video_frame`
+// (the VBR denominator). It is consumed only by the VBR branch.
+func (t *twoPassState) frameMaxBits(framesLeft int64) int {
+	if t.endUsage == vp8EndUsageStreamFromServer {
+		return libvpxFrameMaxBitsCBR(t.avPerFrameBandwidth, t.maxPctOrDefault(), t.bufferLevel, t.optimalBufferLevel)
+	}
+	return libvpxFrameMaxBitsVBR(t.bitsLeft, framesLeft, t.maxPctOrDefault())
+}
+
+// libvpxVP8EndUsageFromRateControlMode translates a govpx
+// RateControlMode into the libvpx END_USAGE enum value the pass-2
+// allocator dispatches on. The mapping mirrors libvpx
+// vp8/vp8_cx_iface.c lines 341-349:
+//
+//	VPX_VBR -> USAGE_LOCAL_FILE_PLAYBACK
+//	VPX_CBR -> USAGE_STREAM_FROM_SERVER
+//	VPX_CQ  -> USAGE_CONSTRAINED_QUALITY
+//	VPX_Q   -> USAGE_CONSTANT_QUALITY
+func libvpxVP8EndUsageFromRateControlMode(mode RateControlMode) vp8EndUsage {
+	switch mode {
+	case RateControlCBR:
+		return vp8EndUsageStreamFromServer
+	case RateControlCQ:
+		return vp8EndUsageConstrainedQuality
+	case RateControlQ:
+		return vp8EndUsageConstantQuality
+	default:
+		return vp8EndUsageLocalFilePlayback
+	}
 }
 
 func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {
@@ -695,7 +802,13 @@ func (t *twoPassState) prepareKFGroup(frame uint64) {
 		return
 	}
 	kfGroupBits := int64(float64(t.bitsLeft) * (kfGroupErr / t.errorLeft))
-	maxBits := int64(libvpxFrameMaxBitsVBR(t.bitsLeft, int64(framesToKey), t.maxPctOrDefault()))
+	// libvpx vp8/encoder/firstpass.c:2657 in find_next_key_frame:
+	//   int max_bits = frame_max_bits(cpi);
+	// dispatches on cpi->oxcf.end_usage (firstpass.c:316-368). govpx
+	// routes through twoPassState.frameMaxBits so CBR runs the
+	// buffer-aware libvpxFrameMaxBitsCBR branch and VBR/CQ/Q run
+	// libvpxFrameMaxBitsVBR.
+	maxBits := int64(t.frameMaxBits(int64(framesToKey)))
 	if maxBits > 0 {
 		if cap := maxBits * int64(framesToKey); kfGroupBits > cap {
 			kfGroupBits = cap

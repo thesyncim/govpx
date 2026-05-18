@@ -343,6 +343,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// twopass state before frameTargetBitsWithAltRef invokes
 		// seedPass2ActiveWorstQ / dampedUpdatePass2ActiveWorstQ.
 		e.twoPass.setRollingBits(e.rc.rollingActualBits, e.rc.rollingTargetBits)
+		// libvpx vp8/encoder/firstpass.c frame_max_bits CBR branch
+		// (lines 326-351) reads `cpi->av_per_frame_bandwidth`,
+		// `cpi->buffer_level`, and `cpi->oxcf.optimal_buffer_level`
+		// at every pass-2 allocator call site (firstpass.c lines
+		// 1602, 2162, 2657). Push the current values from the rate
+		// controller so the CBR dispatch inside twoPassState.frameMaxBits
+		// sees the live buffer state for this frame.
+		e.twoPass.setCBRBufferState(e.rc.bitsPerFrame, e.rc.bufferLevelBits, e.rc.bufferOptimalBits)
 	}
 	pass2AltRefInterval, pass2AltRefPending := e.pass2AltRefPendingPlan(e.frameCount)
 	twoPassTargetBits := 0

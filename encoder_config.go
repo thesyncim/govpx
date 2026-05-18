@@ -66,6 +66,11 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
 	e.opts.GFCBRBoostPct = cfg.GFCBRBoostPct
 	e.opts.TemporalScalability = nextTemporal.config
+	// libvpx vp8/encoder/firstpass.c frame_max_bits (lines 316-368)
+	// dispatches on cpi->oxcf.end_usage. Push the updated mode into
+	// the two-pass state so a runtime RateControlMode change picks up
+	// the correct CBR/VBR branch on the next pass-2 allocation.
+	e.twoPass.configureEndUsage(libvpxVP8EndUsageFromRateControlMode(e.rc.mode))
 	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
@@ -1077,6 +1082,10 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
 	e.twoPass.configureErrorResilient(e.opts.ErrorResilient || e.opts.ErrorResilientPartitions)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	// libvpx frame_max_bits (vp8/encoder/firstpass.c:316-368) reads
+	// cpi->oxcf.end_usage; re-seed it here so a SetTwoPassStats call
+	// after a runtime RateControlMode change picks up the new dispatch.
+	e.twoPass.configureEndUsage(libvpxVP8EndUsageFromRateControlMode(e.rc.mode))
 	if e.frameCount == 0 {
 		e.rc.onePassAutoGold = false
 		e.rc.framesTillGFUpdateDue = 0

@@ -81,7 +81,13 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 	if gfGroupBits > t.kfGroupBitsRemaining {
 		gfGroupBits = t.kfGroupBitsRemaining
 	}
-	maxBits := int64(libvpxFrameMaxBitsVBR(t.bitsLeft, int64(remaining), t.maxPctOrDefault()))
+	// libvpx vp8/encoder/firstpass.c:1602 in define_gf_group:
+	//   int max_bits = frame_max_bits(cpi); /* Max for a single frame */
+	// dispatches on cpi->oxcf.end_usage (firstpass.c:316-368). govpx
+	// routes through twoPassState.frameMaxBits so CBR runs the
+	// buffer-aware libvpxFrameMaxBitsCBR branch and VBR/CQ/Q run
+	// libvpxFrameMaxBitsVBR.
+	maxBits := int64(t.frameMaxBits(int64(remaining)))
 	if maxBits > 0 {
 		if cap := maxBits * int64(gfInterval); gfGroupBits > cap {
 			gfGroupBits = cap
@@ -659,9 +665,15 @@ func (t *twoPassState) pass2VBRSectionLimits(frame uint64, defaultTargetBits int
 	sectionMin := int64(0)
 	sectionMax := int64(defaultTargetBits) * int64(maxPct) / 100
 	if t.enabled() && frame < uint64(len(t.stats)) {
+		// libvpx vp8/encoder/firstpass.c:2162 in assign_std_frame_bits:
+		//   int max_bits = frame_max_bits(cpi);
+		// dispatches on cpi->oxcf.end_usage (firstpass.c:316-368).
+		// govpx routes through twoPassState.frameMaxBits so CBR runs
+		// the buffer-aware libvpxFrameMaxBitsCBR branch and VBR/CQ/Q
+		// run libvpxFrameMaxBitsVBR.
 		framesLeft := int64(len(t.stats)) - int64(frame)
-		if vbrMax := libvpxFrameMaxBitsVBR(t.bitsLeft, framesLeft, maxPct); vbrMax > 0 {
-			sectionMax = int64(vbrMax)
+		if maxBits := t.frameMaxBits(framesLeft); maxBits > 0 {
+			sectionMax = int64(maxBits)
 		}
 	}
 	if sectionMax < sectionMin {
@@ -874,7 +886,12 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 					}
 					kfModErr = t.modifiedError(t.stats[currentFrame])
 					seededKFGroupBits := int64(float64(t.bitsLeft) * (kfGroupErr / t.errorLeft))
-					maxBits := int64(libvpxFrameMaxBitsVBR(t.bitsLeft, int64(framesToKeyForSeed), t.maxPctOrDefault()))
+					// libvpx vp8/encoder/firstpass.c:2657 in
+					// find_next_key_frame dispatches frame_max_bits on
+					// cpi->oxcf.end_usage. Mirror that here in the lazy
+					// kf-group seed probe so CBR and VBR see the same
+					// ceiling as the authoritative prepareKFGroup path.
+					maxBits := int64(t.frameMaxBits(int64(framesToKeyForSeed)))
 					if maxBits > 0 {
 						if cap := maxBits * int64(framesToKeyForSeed); seededKFGroupBits > cap {
 							seededKFGroupBits = cap

@@ -245,6 +245,11 @@ func (e *VP8Encoder) Reset() {
 	// re-seeding so prepareKFGroup / framesToKey see the same
 	// configured KF cadence as a cold-start encoder.
 	e.twoPass.configureKeyFrameInterval(e.opts.KeyFrameInterval, e.opts.AdaptiveKeyFrames && e.opts.KeyFrameInterval > 0)
+	// libvpx vp8/encoder/firstpass.c frame_max_bits (lines 316-368)
+	// dispatches on cpi->oxcf.end_usage; Reset() reseeds it to mirror
+	// NewVP8Encoder's cold-start configuration so two-pass + CBR/VBR
+	// dispatch stays aligned after a Reset.
+	e.twoPass.configureEndUsage(libvpxVP8EndUsageFromRateControlMode(e.rc.mode))
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.subMVRefProbs = libvpxDefaultSubMVRefProbs

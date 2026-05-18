@@ -151,3 +151,137 @@ func TestTwoPassKFGroupBitsReturnsZeroWhenBitsExhausted(t *testing.T) {
 		t.Fatalf("kfGroupBits with bits_left=0 = %d, want 0", got)
 	}
 }
+
+// TestTwoPassFrameMaxBitsDispatchesOnEndUsage pins the libvpx
+// vp8/encoder/firstpass.c frame_max_bits (lines 316-368) end_usage
+// dispatch. Two-pass + CBR (USAGE_STREAM_FROM_SERVER) must take the
+// buffer-aware libvpxFrameMaxBitsCBR branch; every other end_usage
+// must take the libvpxFrameMaxBitsVBR branch.
+//
+// Configure: bitsLeft=100000, framesLeft=100, maxPct=200,
+// avPerFrameBandwidth=1000, bufferLevel=2500, optimalBufferLevel=5000
+// (half buffer). VBR yields (100000/100)*200/100 = 2000; CBR at
+// half buffer yields 1000*200/100 * 0.5 = 1000 (above the 250 floor).
+// The dispatch is visible: VBR=2000, CBR=1000.
+func TestTwoPassFrameMaxBitsDispatchesOnEndUsage(t *testing.T) {
+	var ts twoPassState
+	ts.bitsLeft = 100000
+	ts.maxPct = 200
+	ts.setCBRBufferState(1000, 2500, 5000)
+	ts.configureEndUsage(vp8EndUsageLocalFilePlayback)
+	if got := ts.frameMaxBits(100); got != 2000 {
+		t.Fatalf("VBR end_usage frameMaxBits = %d, want 2000", got)
+	}
+	ts.configureEndUsage(vp8EndUsageStreamFromServer)
+	if got := ts.frameMaxBits(100); got != 1000 {
+		t.Fatalf("CBR end_usage frameMaxBits half-buffer = %d, want 1000", got)
+	}
+	ts.configureEndUsage(vp8EndUsageConstrainedQuality)
+	if got := ts.frameMaxBits(100); got != 2000 {
+		t.Fatalf("CQ end_usage frameMaxBits = %d, want VBR=2000", got)
+	}
+	ts.configureEndUsage(vp8EndUsageConstantQuality)
+	if got := ts.frameMaxBits(100); got != 2000 {
+		t.Fatalf("Q end_usage frameMaxBits = %d, want VBR=2000", got)
+	}
+}
+
+// TestLibvpxVP8EndUsageFromRateControlMode pins the libvpx
+// vp8/vp8_cx_iface.c lines 341-349 RateControlMode -> END_USAGE
+// mapping so the pass-2 allocator routes through the correct
+// frame_max_bits branch.
+func TestLibvpxVP8EndUsageFromRateControlMode(t *testing.T) {
+	cases := []struct {
+		mode RateControlMode
+		want vp8EndUsage
+	}{
+		{RateControlVBR, vp8EndUsageLocalFilePlayback},
+		{RateControlCBR, vp8EndUsageStreamFromServer},
+		{RateControlCQ, vp8EndUsageConstrainedQuality},
+		{RateControlQ, vp8EndUsageConstantQuality},
+	}
+	for _, c := range cases {
+		if got := libvpxVP8EndUsageFromRateControlMode(c.mode); got != c.want {
+			t.Fatalf("RateControlMode=%v -> end_usage=%d, want %d", c.mode, got, c.want)
+		}
+	}
+}
+
+// TestTwoPassPass2VBRSectionLimitsDispatchesOnEndUsage pins that
+// the assign_std_frame_bits call site (libvpx
+// vp8/encoder/firstpass.c:2162) routes through the end_usage
+// dispatch via pass2VBRSectionLimits. Under CBR the section ceiling
+// is the buffer-aware libvpxFrameMaxBitsCBR result; under VBR it is
+// the bits_left/frames_left libvpxFrameMaxBitsVBR result.
+func TestTwoPassPass2VBRSectionLimitsDispatchesOnEndUsage(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 10)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{CodedError: 1000, IntraError: 5000, PcntInter: 0.9}
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 0, 200)
+	ts.configureEndUsage(vp8EndUsageLocalFilePlayback)
+	_, vbrMax := ts.pass2VBRSectionLimits(0, 800)
+	if vbrMax != 2000 {
+		t.Fatalf("VBR pass2VBRSectionLimits sectionMax = %d, want 2000", vbrMax)
+	}
+	ts.configureEndUsage(vp8EndUsageStreamFromServer)
+	ts.setCBRBufferState(1000, 2500, 5000)
+	_, cbrMax := ts.pass2VBRSectionLimits(0, 800)
+	if cbrMax != 1000 {
+		t.Fatalf("CBR pass2VBRSectionLimits sectionMax (half buffer) = %d, want 1000", cbrMax)
+	}
+}
+
+// TestTwoPassPrepareKFGroupCapsKFGroupBitsViaCBR pins the libvpx
+// vp8/encoder/firstpass.c:2657 find_next_key_frame call site:
+//
+//	int max_bits = frame_max_bits(cpi);
+//	max_grp_bits = max_bits * frames_to_key;
+//	if (kf_group_bits > max_grp_bits) kf_group_bits = max_grp_bits;
+//
+// Under CBR with a tight buffer this cap is much lower than under
+// VBR. The test verifies that prepareKFGroup picks up the CBR
+// dispatch instead of pinning to libvpxFrameMaxBitsVBR.
+func TestTwoPassPrepareKFGroupCapsKFGroupBitsViaCBR(t *testing.T) {
+	// 10 frames, modErr 10 each so kfGroupErr = 100, errorLeft = 100.
+	// bits_left seeded by configure to total_bits - vbrmin*frames.
+	// With bitsPerFrame=2000, minPct=0, total=20000, bitsLeft=20000.
+	// kf_group_bits raw = 20000 * (100/100) = 20000.
+	// VBR: max_bits = (20000/10)*200/100 = 4000;
+	//   cap = 4000*10 = 40000 -> no clamp (20000 < 40000).
+	// CBR half-buffer: max_bits = 2000*200/100 * 0.5 = 2000;
+	//   cap = 2000*10 = 20000 -> equal to raw, no clamp at this scale.
+	// Tighten buffer to 1/8 of optimal:
+	//   max_bits = 2000*200/100 * 0.125 = 500;
+	//   min_floor = min(2000>>2, 4000>>2) = 500; 500 == 500 -> 500.
+	//   cap = 500*10 = 5000 -> kf_group_bits clamps to 5000.
+	stats := make([]FirstPassFrameStats, 10)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{IntraError: 5000, CodedError: 1000, PcntInter: 0.9}
+	}
+	// VBR run.
+	var tsVBR twoPassState
+	tsVBR.configure(stats, 2000, 50, 0, 200)
+	tsVBR.configureKeyFrameInterval(0, false)
+	tsVBR.configureEndUsage(vp8EndUsageLocalFilePlayback)
+	tsVBR.prepareKFGroup(0)
+	if !tsVBR.kfGroupValid {
+		t.Fatalf("VBR prepareKFGroup did not seed kfGroupValid")
+	}
+	vbrKFBits := tsVBR.kfGroupBitsRemaining
+	// CBR run with tight buffer.
+	var tsCBR twoPassState
+	tsCBR.configure(stats, 2000, 50, 0, 200)
+	tsCBR.configureKeyFrameInterval(0, false)
+	tsCBR.configureEndUsage(vp8EndUsageStreamFromServer)
+	tsCBR.setCBRBufferState(2000, 625, 5000)
+	tsCBR.prepareKFGroup(0)
+	if !tsCBR.kfGroupValid {
+		t.Fatalf("CBR prepareKFGroup did not seed kfGroupValid")
+	}
+	cbrKFBits := tsCBR.kfGroupBitsRemaining
+	if cbrKFBits >= vbrKFBits {
+		t.Fatalf("CBR find_next_key_frame cap not tighter than VBR: cbr=%d vbr=%d", cbrKFBits, vbrKFBits)
+	}
+}

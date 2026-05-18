@@ -1267,6 +1267,12 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// and framesToKey run the libvpx natural-KF walk with parity
 	// bounds.
 	e.twoPass.configureKeyFrameInterval(normalized.KeyFrameInterval, normalized.AdaptiveKeyFrames && normalized.KeyFrameInterval > 0)
+	// libvpx vp8/encoder/firstpass.c frame_max_bits (lines 316-368)
+	// dispatches on cpi->oxcf.end_usage. Translate govpx's
+	// RateControlMode into the libvpx END_USAGE enum so the pass-2
+	// allocator routes through the correct CBR/VBR branch at every
+	// libvpx call site (firstpass.c lines 1602, 2162, 2657).
+	e.twoPass.configureEndUsage(libvpxVP8EndUsageFromRateControlMode(e.rc.mode))
 	if err := e.ensureRowWorkerPool(normalized.Width, normalized.Height); err != nil {
 		return nil, err
 	}
