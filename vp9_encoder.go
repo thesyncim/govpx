@@ -6569,6 +6569,16 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// (vp9_encodeframe.c:1379). See keyframe branch above for
 		// motivation.
 		args.BaseQIndex = inter.baseQindex
+		if e.opts.AQMode == VP9AQCyclicRefresh &&
+			e.vp9HeaderScratch.Seg.Enabled {
+			segmentID := e.vp9PartitionSegmentID(sbMiRow, sbMiCol,
+				e.vp9StaticSegmentIDForMap(), inter.img, inter)
+			if vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+				args.CyclicRefreshSegmentIdBoosted = true
+				args.BaseQIndex = vp9dec.GetSegmentQindex(
+					&e.vp9HeaderScratch.Seg, int(segmentID), inter.baseQindex)
+			}
+		}
 		args.AvgFrameQIndexInter = int(e.rc.avgFrameQIndexInter)
 		args.UseSourceSAD = e.sf.UseSourceSad != 0
 		args.ScreenContent = e.opts.ScreenContentMode == int8(VP9ScreenContentScreen)

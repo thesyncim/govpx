@@ -179,8 +179,8 @@ type vp9ChoosePartitioningArgs struct {
 	VarianceLow            *[25]uint8 // x->variance_low
 
 	// CYCLIC_REFRESH boost predicate. Mirrors libvpx's
-	// cyclic_refresh_segment_id_boosted(segment_id). govpx callers pass
-	// false (CR_BOOST is not yet plumbed at the picker level).
+	// cyclic_refresh_segment_id_boosted(segment_id). When true, BaseQIndex
+	// is already the segment qindex from vp9_get_qindex().
 	CyclicRefreshSegmentIdBoosted bool
 }
 
@@ -277,10 +277,8 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	// govpx falls through to the unconditional set_vbp_thresholds branch.
 
 	// libvpx: vp9_encodeframe.c:1374-1380 — set_vbp_thresholds dispatch.
-	// The CR_BOOST branch is the same yAcDequant lookup with a per-segment
-	// qindex; govpx callers pass the post-CR qindex via BaseQIndex when
-	// CyclicRefreshSegmentIdBoosted is true.
-	_ = a.CyclicRefreshSegmentIdBoosted
+	// The CR_BOOST branch is represented by BaseQIndex already being the
+	// segment qindex when CyclicRefreshSegmentIdBoosted is true.
 
 	// libvpx: vp9_encodeframe.c:1383-1385 — screen-content 32x32
 	// threshold decrease on scene-change / force_64_split.

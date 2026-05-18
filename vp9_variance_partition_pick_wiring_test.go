@@ -131,7 +131,7 @@ func TestVP9EnsureSBPartitionChosenThreadsNoiseEstimate(t *testing.T) {
 
 		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
 		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
-		fillVP9NoisePartitionPatternForTest(src)
+		fillVP9Partition8x8AlternatingForTest(src, 130)
 		e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
 
 		var dq vp9dec.DequantTables
@@ -155,6 +155,63 @@ func TestVP9EnsureSBPartitionChosenThreadsNoiseEstimate(t *testing.T) {
 	if high != common.Block64x64 {
 		t.Fatalf("high-noise partition = %v, want Block64x64 from raised VBP thresholds",
 			high)
+	}
+}
+
+func TestVP9EnsureSBPartitionChosenUsesCyclicRefreshSegmentQ(t *testing.T) {
+	const width, height = 640, 480
+	const miRows, miCols = 60, 80
+	pick := func(segmentID uint8) common.BlockSize {
+		t.Helper()
+		e, err := NewVP9Encoder(VP9EncoderOptions{
+			Width:              width,
+			Height:             height,
+			CpuUsed:            8,
+			Deadline:           DeadlineRealtime,
+			RateControlMode:    RateControlCBR,
+			RateControlModeSet: true,
+			TargetBitrateKbps:  1000,
+			AQMode:             VP9AQCyclicRefresh,
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Encoder: %v", err)
+		}
+		defer e.Close()
+		e.sf.VariancePartThreshMult = 2
+		e.cyclicAQ.vp9CyclicRefreshAlloc(miRows, miCols)
+		e.cyclicAQ.enabled = true
+		e.cyclicAQ.apply = true
+		e.cyclicAQ.segMap[0] = segmentID
+		e.vp9HeaderScratch.Seg.Enabled = true
+		e.vp9HeaderScratch.Seg.FeatureMask[vp9CyclicRefreshSegmentBoost1] =
+			1 << uint(vp9dec.SegLvlAltQ)
+		e.vp9HeaderScratch.Seg.FeatureData[vp9CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = -37
+
+		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		fillVP9Partition8x8AlternatingForTest(src, 129)
+		e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
+
+		var dq vp9dec.DequantTables
+		inter := &vp9InterEncodeState{
+			img:        src,
+			dq:         &dq,
+			refMask:    1 << uint(vp9dec.LastFrame),
+			baseQindex: 37,
+		}
+		if !e.vp9EnsureSBPartitionChosen(miRows, miCols, 0, 0, nil, inter) {
+			t.Fatal("vp9EnsureSBPartitionChosen returned false")
+		}
+		return e.varPartGrid[0].SbType
+	}
+
+	base := pick(vp9CyclicRefreshSegmentBase)
+	boosted := pick(vp9CyclicRefreshSegmentBoost1)
+	if base != common.Block64x64 {
+		t.Fatalf("base CR segment partition = %v, want Block64x64 fixture", base)
+	}
+	if boosted == common.Block64x64 {
+		t.Fatalf("boosted CR segment partition = Block64x64, want split from segment qindex thresholds")
 	}
 }
 
@@ -230,12 +287,12 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	}
 }
 
-func fillVP9NoisePartitionPatternForTest(img *image.YCbCr) {
+func fillVP9Partition8x8AlternatingForTest(img *image.YCbCr, high byte) {
 	for by := range 8 {
 		for bx := range 8 {
 			value := byte(128)
 			if (by+bx)&1 != 0 {
-				value = 130
+				value = high
 			}
 			for y := by * 8; y < by*8+8; y++ {
 				row := img.Y[y*img.YStride:]
