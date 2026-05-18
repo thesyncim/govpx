@@ -206,13 +206,19 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsThreaded(args thread
 func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *threadedKeyRowsArgs, row int, abort *atomic.Int32) (int, error) {
 	rs.rowIndex = row
 	rs.leftTok = vp8enc.TokenContextPlanes{}
-	// libvpx workers initialise their MACROBLOCK copy via setup_mbby_copy;
-	// act_zbin_adj is part of the copy and carries the master's
-	// pre-encode_mb_row value (which is e.activityProbeStaleActZbinAdj
-	// in govpx terms — the stale carry from the previous attempt's
-	// last MB; see the long comment in encoder_reconstruct.go for the
-	// libvpx anchor).
-	rs.pickerActZbinAdj = rs.enc.activityProbeStaleActZbinAdj
+	// rs.pickerActZbinAdj is NOT reset here: libvpx's encode_mb_row
+	// (encodeframe.c:316-575) and helper thread loop (ethreading.c:76-310)
+	// only re-zero cm->left_context / mb_row_left_context at row entry —
+	// neither x->act_zbin_adj nor block[i].zbin_extra is touched between
+	// rows. So within a thread, the stale-zbin carry survives the
+	// row→row transition: MB(next_row, 0)'s picker sees b->zbin_extra
+	// derived from MB(prev_row, mb_cols-1)'s post-pick act_zbin_adj.
+	// runThreadedKeyFrameWorker seeds rs.pickerActZbinAdj once per worker
+	// dispatch: activityProbeStaleActZbinAdj for workerIndex==0 (mirrors
+	// libvpx's main thread, whose b->zbin_extra was set by
+	// vp8cx_frame_init_quantizer with the prev-attempt's stale value), and
+	// 0 for workerIndex>0 (mirrors helper threads' zero-init MB_ROW_COMP
+	// block[i].zbin_extra at vp8cx_create_encoder_threads).
 	rowRate := 0
 	// Mirrors libvpx vp8/encoder/ethreading.c: publish at trigger
 	// `(mb_col-1)%nsync == 0` (col ∈ {1, 1+nsync, 1+2*nsync, ...})

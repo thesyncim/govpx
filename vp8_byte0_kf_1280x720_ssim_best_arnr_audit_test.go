@@ -171,18 +171,35 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// stale BLOCK->zbin_extra carry into the per-MB intra RD picker
 	// (see encoder_reconstruct.go pickerActZbinAdj comment), which
 	// fixed the residual MB(0,69) B_PRED block-9 picker flip on the
-	// task #227 seed 19981bff (this exact config). After task #236
-	// govpx frame 0 lands within 5 bytes of libvpx (was 47 bytes
-	// apart) and frame 1 within 9 bytes (was 49). The pinned values
-	// track the post-task-#236 baseline so future regressions surface
-	// here.
-	wantFrame0GovpxLen := 145539
+	// task #227 seed 19981bff (this exact config). Task #236 left the
+	// frame-0 KF within +5 bytes and frame-1 within +3.
+	//
+	// Task #254 then closed the THREADED keyframe stale-carry: in
+	// libvpx's threaded path, worker 0 maps to the main thread whose
+	// b->zbin_extra was set by vp8cx_frame_init_quantizer using the
+	// previous attempt's last-MB act_zbin_adj, while helper workers
+	// (workerIndex>0) start with zero-init b->zbin_extra (their
+	// MB_ROW_COMP[i].mb is memset-zero at vp8cx_create_encoder_threads).
+	// Within a single thread the stale carry survives across all rows
+	// that thread handles (no per-row reset in either encode_mb_row at
+	// encodeframe.c:316-575 or the helper loop at ethreading.c:76-310).
+	// govpx previously RESET pickerActZbinAdj=activityProbeStaleActZbinAdj
+	// at EVERY row (including all helper rows), drifting by exactly the
+	// +5/+3-byte gap seen here. After task #254, frame 0 keyframe is
+	// byte-identical to libvpx (145534/20463, sha matches). Frame 1
+	// (inter) shifts to -5 bytes because the post-KF reconstruction is
+	// now byte-aligned with libvpx, so the inter picker sees libvpx's
+	// reference pixels but govpx's inter-side picker still uses
+	// non-stale act_zbin_adj (rdopt.c:1930 vp8_update_zbin_extra runs
+	// inside the inter candidate loop only when zbin_mode_boost_enabled
+	// is true) — future inter-side ports will tighten that residual.
+	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
-	wantFrame0GovpxFirstPart := 20470
+	wantFrame0GovpxFirstPart := 20463
 	wantFrame0LibvpxFirstPart := 20463
-	wantFrame1GovpxLen := 6124
+	wantFrame1GovpxLen := 6116
 	wantFrame1LibvpxLen := 6121
-	wantFrame1GovpxFirstPart := 2271
+	wantFrame1GovpxFirstPart := 2264
 	wantFrame1LibvpxFirstPart := 2264
 
 	if got := len(govpxFrames[0]); got != wantFrame0GovpxLen {
