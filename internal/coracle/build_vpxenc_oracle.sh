@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task210-mb-activity"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task215-thread-safety"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -80,6 +80,7 @@ if [ ! -f "$patch_stamp" ]; then
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "vpx/vpx_encoder.h"
 #include "vpx_ports/vpx_timer.h"
@@ -87,6 +88,31 @@ if [ ! -f "$patch_stamp" ]; then
 #include "vp8/common/onyxc_int.h"
 #include "vp8/encoder/onyx_int.h"
 #include "vp8/encoder/bitstream.h"
+
+/* Thread-safety lock for the global govpx_oracle_state. libvpx VP8 with
+ * --threads=N spawns N-1 helper threads in vp8/encoder/ethreading.c that
+ * each drive encode_mb_row on their own row stripe, and each of those
+ * threads invokes the oracle capture hooks (govpx_oracle_capture_mb,
+ * govpx_oracle_record_mb_rate, govpx_oracle_capture_inter_candidate)
+ * concurrently against this TU's shared state. Without the lock the
+ * realloc() inside govpx_oracle_ensure_candidate_capacity can race with a
+ * sibling thread's append + indexed write, free()ing a buffer another
+ * thread is reading and tripping the macOS scribble allocator
+ * ("pointer being freed was not allocated"). The lock is also held over
+ * mb_rows writes so the calloc-on-grow inside govpx_oracle_ensure_capacity
+ * cannot race; mb_rows is indexed by mb_row*mb_cols+mb_col so concurrent
+ * threads write disjoint slots, but the pointer + capacity store from
+ * any growth path still needs to be serialized against the readers.
+ *
+ * The flush paths (govpx_oracle_emit_*) run from the main thread only,
+ * after all mb-row helper threads have rejoined (vp8_pack_bitstream is
+ * called from encode_frame_to_data_rate post-encode), so they read the
+ * shared state without taking the lock. govpx_oracle_begin_attempt
+ * resets candidate_count to 0 from the main thread at the head of every
+ * recode-loop attempt (before the helper threads are dispatched), so it
+ * also runs in a thread-quiescent window; it still takes the lock to
+ * provide a fence/barrier against the previous frame's tail writers. */
+static pthread_mutex_t govpx_oracle_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* Per-process accumulator of microseconds spent inside oracle trace
  * emit/capture functions. The enclosing encoder reads and clears this
@@ -451,8 +477,10 @@ void govpx_oracle_begin_attempt(void) {
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     govpx_oracle_state.candidate_count = 0;
     govpx_oracle_clear_improved_mv_slots();
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
@@ -473,6 +501,7 @@ void govpx_oracle_capture_inter_candidate(
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     do {
         govpx_oracle_ensure_candidate_capacity(
             govpx_oracle_state.candidate_count + 1);
@@ -529,6 +558,7 @@ void govpx_oracle_capture_inter_candidate(
             }
         }
     } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
@@ -551,6 +581,7 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     do {
     cm = &cpi->common;
     xd = &cpi->mb.e_mbd;
@@ -654,6 +685,7 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     }
     govpx_oracle_clear_improved_mv_slots();
     } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
@@ -678,6 +710,7 @@ void govpx_oracle_record_mb_rate(struct VP8_COMP *cpi, int mb_row, int mb_col,
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     do {
         cm = &cpi->common;
         if (govpx_oracle_state.mb_rows == NULL) {
@@ -691,6 +724,7 @@ void govpx_oracle_record_mb_rate(struct VP8_COMP *cpi, int mb_row, int mb_col,
         row->mb_rate = mb_rate;
         row->aggregated_rate = aggregated_rate;
     } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
