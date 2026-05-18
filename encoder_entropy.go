@@ -9,14 +9,15 @@ import (
 
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	e.lastCodedFrameType = vp8common.KeyFrame
-	// libvpx VP8 MT helper-history accumulator roll-forward for keyframes:
-	// every KF MB feeds sum_intra_stats → x->ymode_count++ /
-	// uv_mode_count++ (vp8/encoder/encodeframe.c:1067), and
-	// vp8cx_init_mbrthread_data does not zero helpers' counts per frame,
-	// so the helper rows of the keyframe pre-load the bias that the next
-	// inter frame's update_mbintra_mode_probs consumes. See encoder.go
-	// mtHelperYModeCountAccum for context.
-	e.absorbKeyFrameMTHelperRowIntraCounts()
+	// libvpx VP8 MT helper-history accumulator: helpers' mb->ymode_count
+	// and mb->uv_mode_count are NOT zeroed between recode iterations
+	// (vp8/encoder/ethreading.c:478-486 only zeroes MAIN's ymode_count
+	// plus the helper-side coef_counts/MVcount/skip_true_count). govpx
+	// accumulates per attempt inside encodeKeyFrameWithQuantizerFeedback
+	// so the running mtHelperYModeCountAccum / mtHelperUVModeCountAccum
+	// already covers committed + rejected attempts; do NOT re-absorb here
+	// (that would double-count the final attempt's helper rows on top of
+	// the per-iteration accumulation).
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	e.resetKeyFrameModeProbs()
 	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
@@ -122,10 +123,11 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt, sh
 	// clear it; libvpx leaves force_maxqp set only until the next frame
 	// consumes it.
 	e.clearForceMaxQuantizer()
-	// libvpx VP8 MT helper-history accumulator roll-forward: see
-	// encoder.go mtHelperYModeCountAccum and the bias hand-off at the
-	// inter packet writer dispatch in encodeInterFrameAttempt.
-	e.absorbInterFrameMTHelperRowIntraCounts()
+	// libvpx VP8 MT helper-history accumulator: helpers' mode counts are
+	// accumulated per attempt inside encodeInterFrameWithQuantizerFeedback
+	// to mirror libvpx's sticky-across-iterations semantics. Do NOT
+	// re-absorb here (would double-count the final attempt's helper rows
+	// on top of the per-iteration accumulation).
 }
 
 // absorbKeyFrameMTHelperRowIntraCounts rolls libvpx's per-helper

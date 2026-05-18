@@ -40,6 +40,19 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
 		}
+		// libvpx VP8 MT helpers' mb->uv_mode_count / mb->ymode_count are
+		// NEVER zeroed between recode iterations
+		// (vp8/encoder/ethreading.c:478-486 vp8cx_init_mbrthread_data only
+		// zeroes helpers' coef_counts/skip_true_count/MVcount and MAIN's
+		// ymode_count; helpers' ymode_count and uv_mode_count survive).
+		// Each vp8_encode_frame call (one per recode iteration of the
+		// onyx_if.c:3844 do-loop) adds the helper rows' intra mode events
+		// on top of the carryover, and the final pack reads the running
+		// sum via encodeframe.c:840-843. govpx mirrors that sticky
+		// semantics by absorbing each attempt's helper-row branch counts
+		// here; rejected attempts still contribute, because libvpx
+		// helpers cannot un-do their per-MB increments.
+		e.absorbKeyFrameMTHelperRowIntraCounts()
 		// libvpx forced-key-frame special-case branch
 		// (encode_frame_to_data_rate around line 4065): when the encoder is
 		// emitting a forced KF and the ambient_err baseline from the prior
@@ -247,6 +260,14 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
+		// libvpx VP8 MT helpers' mb->uv_mode_count / mb->ymode_count are
+		// NEVER zeroed between recode iterations (helpers' state survives
+		// every vp8_encode_frame call). govpx mirrors the sticky semantics
+		// by absorbing each attempt's helper-row branch counts here;
+		// rejected attempts still contribute. See encoder.go
+		// mtHelperYModeCountAccum and the keyframe-side absorb in
+		// encodeKeyFrameWithQuantizerFeedback.
+		e.absorbInterFrameMTHelperRowIntraCounts()
 		// libvpx evaluates vp8_drop_encodedframe_overshoot inside the
 		// encode/recode do-loop, immediately after each vp8_encode_frame
 		// attempt and before the size-recode decision. A non-drop attempt
