@@ -71,6 +71,16 @@ func oracleRuntimeControlFuzzMatchLimit(name string) int {
 	// gap belongs to the same per-MB picker state cohort as task #173 but
 	// expressed via the deadline:good cluster following the
 	// setref:golden:panning:8 control burst.
+	//
+	// Task #211 (vp8_task211_bb41d74_recode_loop_audit_test.go) drills
+	// further: frame 4's recode loop converges to a DIFFERENT final
+	// quantizer (govpx q=9, libvpx q=7) which cascades into per-MB picker
+	// divergence (govpx silently skips SPLITMV at MB(0,0) because its
+	// bestYRD=45362 cuts off SPLITMV partition shapes that libvpx accepts
+	// at bestYRD=60198 — the q delta drives the RDMULT delta drives the
+	// YRD delta drives the SPLITMV cutoff). Closing the gap requires
+	// per-recode-iter projected_frame_size instrumentation on both sides
+	// to pin the first diverging iteration.
 	if strings.Contains(name, "regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74") {
 		return 4
 	}
