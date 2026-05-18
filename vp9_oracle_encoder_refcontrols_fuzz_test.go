@@ -710,6 +710,107 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// helper (vp9_encoder.go:10204) is retained as the verbatim
 	// reference oracle so the downstream port can re-wire it
 	// byte-for-byte once the upstream pick lands.
+	//
+	// Progress notes (task #171 — ml_predict_var_partitioning
+	// inputs / inference loop verbatim port audit, RefControl
+	// byte-9 cluster):
+	//
+	// Task hypothesis: the 9 of 10 RefControl deferred seeds at
+	// cpu_used=8 RT speed=8 byte-9 divergence is driven by
+	// ml_predict_var_partitioning (libvpx vp9/encoder/
+	// vp9_encodeframe.c:4530-4593) producing different NN votes
+	// than libvpx — i.e. the ML predictor's INPUTS (var, sad,
+	// sse for the 32x32 sub-blocks), or the NN coefficient
+	// tables, or the inference loop, diverge.
+	//
+	// Audit performed (vp9_ml_partition_audit_test.go):
+	//
+	//  (1) NN coefficient tables. Pinned vp9_var_part_nn_-
+	//      {weights,bias}_{64,32,16}_layer{0,1} byte-for-byte
+	//      against libvpx vp9/encoder/vp9_partition_models.h:
+	//      610-735 (TestVP9VarPartNNTablesByteExact). All 6
+	//      tables / 65 constants byte-identical.
+	//
+	//  (2) NN inference loop. vp9NNPredict (vp9_partition_-
+	//      models.go:207-254) mirrors libvpx nn_predict at
+	//      vp9_encodeframe.c:2994-3036 — sequential MAC chain,
+	//      ReLU on hidden, linear output. Pinned end-to-end
+	//      against the same float32 sequence on vp9_var_part_-
+	//      nnconfig_64 with a fixed feature vector
+	//      (TestVP9NNPredictVarPart64InferenceFixed). Byte-
+	//      identical.
+	//
+	//  (3) Feature extraction. vp9MLPredictVarPartitioning
+	//      (vp9_nonrd_pick_partition.go:372-493) mirrors
+	//      libvpx ml_predict_var_partitioning at
+	//      vp9_encodeframe.c:4530-4593. Verified the dc_q
+	//      input (VpxDcQuant byte-exact in dequant_test.go),
+	//      features[0] = log(dc_q*dc_q/256 + 1) (line 4555),
+	//      features[1] = log(var + 1) (line 4573), and
+	//      features[2..5] = factor * sub_var with the (var ==
+	//      0) ? 1.0f fast path (lines 4571-4583). Synthetic
+	//      uniform 64x64 source + estPred pair drives the
+	//      full path end-to-end (TestVP9MLPredictVarPartition-
+	//      ingSyntheticUniform). Matches reference forward
+	//      pass.
+	//
+	//  (4) Variance computation. vp9PredVariance (vp9_nonrd_-
+	//      pick_partition.go:499-523) mirrors libvpx
+	//      vpx_variance_NxN at vpx_dsp/variance.c:128-135 +
+	//      `variance` helper at lines 52-70. The early-return
+	//      `if sse <= meanSquares: return 0` clause is
+	//      mathematically a no-op under the libvpx integer
+	//      variance formula (Cauchy-Schwarz + truncation
+	//      direction guarantees sse >= (sum*sum)/N always, so
+	//      sse == meanSquares only when both are 0). Pinned
+	//      against an independent reference reproducing
+	//      libvpx's `*sse - (uint32_t)((int64_t)sum*sum / (W
+	//      *H))` exactly (TestVP9PredVarianceAgainstReference)
+	//      on 5 input pairs covering identical, shifted-
+	//      uniform, linear-ramp, and alternating patterns at
+	//      sizes 16x16 / 32x32 / 64x64. Byte-identical.
+	//
+	//  (5) est_pred buffer content. Built by
+	//      vp9BuildEstimatedPredLuma64x64 (vp9_get_estimated_-
+	//      pred.go:282-309) — verbatim port of libvpx
+	//      build_inter_predictors for BILINEAR + no-scale +
+	//      single-ref at vp9/common/vp9_reconinter.c:127-208.
+	//      Backed by the int-pro motion search at vp9_int_pro_-
+	//      motion.go (vp9_mcomp.c:2192-2399 verbatim port).
+	//      DSP kernels (VpxIntProRow / VpxIntProCol /
+	//      VpxVectorVar / VpxSad*) byte-exact against libvpx
+	//      vpx_dsp oracle (internal/vp9/dsp/oracle_test.go).
+	//
+	// Conclusion (NEGATIVE FINDING for this task): the ML
+	// predictor's INPUTS (dc_q / var / sub_var feature vector),
+	// the NN coefficient tables, and the nn_predict inference
+	// loop are all byte-exact verbatim ports of libvpx. None of
+	// the five components above can drift the per-SB partition
+	// vote distribution off libvpx's. The closure path remains
+	// the upstream vp9_pick_inter_mode port at vp9_pickmode.c:
+	// 1696 (~4000 LOC), tracked as task #162 — once the per-
+	// leaf (mode, mv, filter, tx_size) picks under the
+	// recursive walker land verbatim, the txTotals[*] +/-2
+	// drift recorded in task #159 will collapse to byte parity
+	// and the byte-9 cluster will close in a single closure
+	// event without any additional partition-layer port.
+	//
+	// Per-seed before/after (no functional changes landed in
+	// task #171 — audit-only):
+	//
+	//   #0 af5570f5  before fb9=9 sd=+44    after fb9=9 sd=+44
+	//   #1 b9af55f0  before fb9=9 sd=+71    after fb9=9 sd=+71
+	//   #2 fda5b6b4  before fb9=9 sd=+295   after fb9=9 sd=+295
+	//   #3 ffa55725  before fb9=9 sd=+233   after fb9=9 sd=+233
+	//   #4 8ec0abe5  before fb9=9 sd=+132   after fb9=9 sd=+132
+	//   #5 9c3e08e8  before fb9=4 sd=-120   after fb9=4 sd=-120
+	//   #6 5feceb66  before fb9=9 sd=-138   after fb9=9 sd=-138
+	//   #7 6b86b273  before fb9=9 sd=+48    after fb9=9 sd=+48
+	//   #8 d4735e3a  before fb9=9 sd=-179   after fb9=9 sd=-179
+	//   #9 7902699b  before fb9=9 sd=+60    after fb9=9 sd=+60
+	//
+	// Aggregate +446 / avg +44B per seed. Identical to task
+	// #170 baseline (no writer-code changes).
 }
 
 func vp9RefControlsSeedDeferred(data []byte) bool {
