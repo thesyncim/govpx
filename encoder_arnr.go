@@ -35,9 +35,10 @@ const maxARNRFrames = 15
 //     visible taps fall back to gatherBlock's edge-replication rather than
 //     libvpx's mirrored 16-pixel source-border extension.
 //
-// Everything else (per-pixel weighting, accumulator/count normalization with
-// (acc + count/2)/count, separate luma/chroma blocks, and the 384-element
-// per-MB scratch layout) follows libvpx exactly.
+// Everything else (per-pixel weighting, accumulator/count normalization via
+// libvpx fixed_divide reciprocal LUT - see arnrFixedDivide below - and
+// separate luma/chroma blocks with the 384-element per-MB scratch layout)
+// follows libvpx exactly.
 func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlags, distance int) bool {
 	maxFrames := min(e.opts.ARNRMaxFrames, maxARNRFrames)
 	if maxFrames <= 1 {
@@ -303,10 +304,13 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 	}
 
 	// Normalize accumulator/count into the output. libvpx uses a
-	// per-count fixed-divide LUT; the math here is the equivalent
-	// (accumulator + count/2 + count/2) / count which biases the result
-	// toward libvpx's rounded division. The center frame always
-	// contributes count >= 16, so divisions are well defined.
+	// per-count fixed-point reciprocal LUT (vp8/encoder/onyx_if.c:
+	// fixed_divide[i] = 0x80000 / i for i in [1, 512)) and computes
+	//     pval = (accumulator + count/2) * fixed_divide[count] >> 19
+	// which is equivalent to (accumulator + count/2) / count modulo a
+	// truncating-reciprocal rounding artifact (up to 1 LSB). govpx ports
+	// the LUT verbatim so the temporal filter output is byte-identical
+	// to vp8_temporal_filter_iterate_c.
 	writeARNRBlock(dst.y, dst.yStride, mbX, mbY, dst.width, dst.height, 16, accumulator[:256], count[:256])
 	if doChroma {
 		writeARNRBlock(dst.u, dst.uStride, mbUVX, mbUVY, uvW, uvH, 8, accumulator[256:320], count[256:320])
@@ -331,6 +335,27 @@ func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, s
 		}
 	}
 }
+
+// arnrFixedDivide ports libvpx cpi->fixed_divide table from
+// vp8/encoder/onyx_if.c (init_config):
+//
+//	cpi->fixed_divide[0] = 0;
+//	for (i = 1; i < 512; ++i) cpi->fixed_divide[i] = 0x80000 / i;
+//
+// vp8_temporal_filter_iterate_c reads this LUT during the per-pixel
+// normalization step. The reciprocal is precomputed as 0x80000/c (a
+// truncating integer divide) and re-applied with a right shift of 19,
+// so result = ((accumulator + count/2) * (0x80000 / count)) >> 19. For
+// most count values 0x80000 mod count is nonzero, so the LUT result
+// differs from native integer division by up to 1 LSB. Matching libvpx
+// exactly requires the same truncating reciprocal table.
+var arnrFixedDivide = func() [512]uint32 {
+	var t [512]uint32
+	for i := 1; i < 512; i++ {
+		t[i] = 0x80000 / uint32(i)
+	}
+	return t
+}()
 
 // writeARNRBlock writes the (size x size) accumulated/count pair back into
 // the destination plane, clipping to the visible area.
@@ -365,7 +390,15 @@ func writeARNRBlock(dst []byte, dstStride, dstX, dstY, dstW, dstH, size int, acc
 			if c == 0 {
 				continue
 			}
-			pval := min((accumulator[k]+c/2)/c, 255)
+			// libvpx fixed_divide LUT lookup. count[k] is bounded
+			// by max_frames(15) * max_modifier(16) * max_weight(2)
+			// = 480 < 512, so the index is always in range, but
+			// guard for safety.
+			if c >= uint32(len(arnrFixedDivide)) {
+				row[xx] = byte(min((accumulator[k]+c/2)/c, 255))
+				continue
+			}
+			pval := min((accumulator[k]+c>>1)*arnrFixedDivide[c]>>19, 255)
 			row[xx] = byte(pval)
 		}
 	}
