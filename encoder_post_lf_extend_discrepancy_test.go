@@ -79,6 +79,38 @@ import (
 //     method that commit 45ded7d5 finalised. The seed's live failure mode
 //     now sits upstream of this post-LF extend audit; bisect anchor commit
 //     for the new divergence is 592b8eda.
+//     NB(task 180): the #174 closure's fix recipe ("gate
+//     cfg.FeatureEnabled[MBLvlAltLF][seg] = data != 0 write on
+//     cm->filter_level > 0, mirroring libvpx vp8/encoder/onyx_if.c:3189
+//     vp8cx_set_alt_lf_level") was implemented and verified to be a
+//     no-op for THIS seed. A build-tagged probe in encoder_attempts.go
+//     dumped the live cfg.Segmentation at pack time for both frames 1
+//     and 2 and confirmed: ALT_LF[0..3] data is all zero and
+//     FeatureEnabled[ALT_LF][0..3] is all false on both frames, with
+//     ALT_Q[1]=-47 (cyclic refresh, baseQ=94 -> cyclic_refresh_q=Q/2
+//     gives q/2-q=-47 delta), TreeProbs all default-no-update, AbsDelta
+//     false, UpdateMap=true UpdateData=true, lfLevel=36. Gating the
+//     FeatureEnabled write on level>0 therefore changes nothing in cfg
+//     (data was already 0 and FeatureEnabled was already false). The
+//     proximal cause of frame 1's len=4058 first_part=782 vs libvpx
+//     len=3298 first_part=1387 is NOT the segmentation-header ALT_LF
+//     packing: the cfg packed by govpx is byte-for-byte identical to
+//     what libvpx would pack for the segmentation header alone. The
+//     divergence comes from MB modes / Q / per-MB residual choice. The
+//     SetRateControl(bitrate=300+fps=15+minq=4+maxq=52+drop=60) bundle
+//     at frame 1 (the SAME bundle libvpx ships through vp8_change_config
+//     onyx_if.c:1435-1735) takes a different code path through govpx's
+//     applyVP8ChangeConfigRuntimeSideEffects / applyVP8ChangeConfigRateModel
+//     / applyVP8ChangeConfigQuantizerClamp tail than libvpx's
+//     change-config closeout (vp8_new_framerate / buffer_level
+//     re-clamp / active_worst_quality re-bound, onyx_if.c:1606-1632).
+//     With baseQ=94 + cyclic_refresh_q=47 on the static segment, the
+//     active-Q boundary clamp + per-frame budget recompute likely
+//     drives govpx into a different RD pick on the SetReferenceFrame
+//     LAST=panning:9 reference content than libvpx does. Future work on
+//     this seed should bisect 592b8eda's ratecontrol.go / encoder_config.go
+//     tail more finely (raw_target_rate clamp, bits_off_target rescale,
+//     active_worst_quality bracket) instead of the segmentation header.
 //   - The same swap inside `refreshInterFrameReferencesFromAnalysis` /
 //     `refreshKeyFrameReferencesFromAnalysis` produces the identical
 //     net result (both wirings ultimately affect the buffer that
