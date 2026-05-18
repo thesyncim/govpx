@@ -1983,9 +1983,23 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		var distortion uint64
 		coeffRate := 0
 		skippable := false
+		var sse, variance uint64
 		if useSimpleIntraBlockYrd {
-			sse, variance, ok := e.vp9NoReferenceIntraResidualStats(&keyLike,
-				thisMode, intraTxSize, tile, miRows, miCols, miRow, miCol, bsize)
+			var ok bool
+			if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+				miRow, miCol); mlCtx != nil {
+				// libvpx's ML_BASED_PARTITION path enters the leaf picker with
+				// pd->dst backed by x->est_pred. Intra fallback must score
+				// against that live scratch, including its left/above edges.
+				sse, variance, ok = e.vp9NoReferenceIntraResidualStatsScratchNoRestore(
+					&keyLike, thisMode, intraTxSize, tile, miRows, miCols,
+					miRow, miCol, bsize, mlCtx.estPred[:], 64,
+					mlCtx.sbMiRow, mlCtx.sbMiCol)
+			}
+			if !ok {
+				sse, variance, ok = e.vp9NoReferenceIntraResidualStatsNoRestore(&keyLike,
+					thisMode, intraTxSize, tile, miRows, miCols, miRow, miCol, bsize)
+			}
 			if !ok {
 				continue
 			}

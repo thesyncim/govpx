@@ -11076,6 +11076,101 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStats(key *vp9KeyframeEncodeStat
 	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 ) (sse uint64, variance uint64, ok bool) {
+	return e.vp9NoReferenceIntraResidualStatsWithRestore(key, mode, txSize,
+		tile, miRows, miCols, miRow, miCol, bsize, true)
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsNoRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) (sse uint64, variance uint64, ok bool) {
+	return e.vp9NoReferenceIntraResidualStatsWithRestore(key, mode, txSize,
+		tile, miRows, miCols, miRow, miCol, bsize, false)
+}
+
+// vp9NoReferenceIntraResidualStatsScratchNoRestore mirrors the realtime
+// nonrd path where vp9_pick_inter_mode scores intra fallback against the
+// live prediction buffer (`pd->dst`) instead of the final reconstruction
+// plane. With ML_BASED_PARTITION that buffer is x->est_pred, populated by
+// get_estimated_pred before nonrd_pick_partition enters the leaf picker.
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchNoRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	scratch []byte, scratchStride, originMiRow, originMiCol int,
+) (sse uint64, variance uint64, ok bool) {
+	if key == nil || key.hdr == nil || key.img == nil || int(mode) >= common.IntraModes {
+		return 0, 0, false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || srcStride <= 0 || len(scratch) == 0 || scratchStride <= 0 {
+		return 0, 0, false
+	}
+	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	step := 1 << uint(txSize)
+	bs := 4 << uint(txSize)
+	originX := originMiCol * common.MiSize
+	originY := originMiRow * common.MiSize
+	var sum int64
+	var count uint64
+	predOK := true
+residualLoop:
+	for rr := 0; rr < max4x4H; rr += step {
+		for cc := 0; cc < max4x4W; cc += step {
+			dst, dstStride, x0, y0, ok := e.predictVP9KeyframeTxGeneric(
+				key.hdr, pd, 0, mode, txSize, tile, miRows, miCols,
+				miRow, miCol, bsize, rr, cc,
+				scratch, scratchStride, scratch, scratchStride,
+				originX, originY)
+			if !ok {
+				predOK = false
+				break residualLoop
+			}
+			copyW := bs
+			copyH := bs
+			if x0 >= srcW || y0 >= srcH {
+				continue
+			}
+			if x0+copyW > srcW {
+				copyW = srcW - x0
+			}
+			if y0+copyH > srcH {
+				copyH = srcH - y0
+			}
+			for y := 0; y < copyH; y++ {
+				srcRow := src[(y0+y)*srcStride+x0:]
+				dstRow := dst[y*dstStride:]
+				for x := 0; x < copyW; x++ {
+					diff := int(srcRow[x]) - int(dstRow[x])
+					sse += uint64(diff * diff)
+					sum += int64(diff)
+					count++
+				}
+			}
+		}
+	}
+	if !predOK {
+		return 0, 0, false
+	}
+	if count == 0 {
+		return 0, 0, false
+	}
+	meanSquare := uint64((sum * sum) / int64(count))
+	if sse >= meanSquare {
+		return sse, sse - meanSquare, true
+	}
+	return sse, meanSquare - sse, true
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsWithRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize, restore bool,
+) (sse uint64, variance uint64, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || int(mode) >= common.IntraModes {
 		return 0, 0, false
 	}
@@ -11103,13 +11198,19 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStats(key *vp9KeyframeEncodeStat
 	if baseY+restoreH > rows {
 		restoreH = rows - baseY
 	}
-	if restoreW <= 0 || restoreH <= 0 || restoreW*restoreH > len(e.blockScratch) {
+	if restoreW <= 0 || restoreH <= 0 {
 		return 0, 0, false
 	}
-	saved := e.blockScratch[:restoreW*restoreH]
-	for y := 0; y < restoreH; y++ {
-		copy(saved[y*restoreW:(y+1)*restoreW],
-			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	var saved []byte
+	if restore {
+		if restoreW*restoreH > len(e.blockScratch) {
+			return 0, 0, false
+		}
+		saved = e.blockScratch[:restoreW*restoreH]
+		for y := 0; y < restoreH; y++ {
+			copy(saved[y*restoreW:(y+1)*restoreW],
+				planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+		}
 	}
 
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
@@ -11152,7 +11253,9 @@ residualLoop:
 			}
 		}
 	}
-	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	if restore {
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	}
 	if !predOK {
 		return 0, 0, false
 	}
@@ -14045,14 +14148,28 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
 ) (dst []byte, stride, x0, y0 int, ok bool) {
 	planeData, stride := e.vp9EncoderReconPlane(plane)
-	if stride <= 0 || len(planeData) == 0 || int(mode) >= common.IntraModes {
+	return e.predictVP9KeyframeTxGeneric(hdr, pd, plane, mode, txSize, tile,
+		miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4,
+		planeData, stride, planeData, stride, 0, 0)
+}
+
+func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
+	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
+	dstData []byte, dstStride int, refData []byte, refStride int, originX, originY int,
+) (dst []byte, stride, x0, y0 int, ok bool) {
+	stride = dstStride
+	if dstStride <= 0 || len(dstData) == 0 || refStride <= 0 ||
+		len(refData) == 0 || int(mode) >= common.IntraModes {
 		return nil, 0, 0, 0, false
 	}
 	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 	if planeBsize >= common.BlockSizes {
 		return nil, 0, 0, 0, false
 	}
-	rows := len(planeData) / stride
+	rows := len(dstData) / dstStride
+	refRows := len(refData) / refStride
 	alignedWidth := vp9AlignTo(int(hdr.Width), 8)
 	alignedHeight := vp9AlignTo(int(hdr.Height), 8)
 	planeWidth := alignedWidth >> pd.SubsamplingX
@@ -14061,9 +14178,12 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
 	x0 = baseX + blockCol4x4*4
 	y0 = baseY + blockRow4x4*4
+	localX := x0 - (originX >> pd.SubsamplingX)
+	localY := y0 - (originY >> pd.SubsamplingY)
 
 	bs := 4 << uint(txSize)
-	if x0+bs > stride || y0+bs > rows {
+	if localX < 0 || localY < 0 || localX+bs > dstStride ||
+		localY+bs > rows || localX+bs > refStride || localY+bs > refRows {
 		return nil, 0, 0, 0, false
 	}
 
@@ -14071,12 +14191,16 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	leftAvailable := blockCol4x4 != 0 || miCol > tile.MiColStart
 	left := e.intraScratch.Left[:bs]
 	if leftAvailable {
+		if localX <= 0 {
+			return nil, 0, 0, 0, false
+		}
 		for i := range bs {
 			sy := y0 + i
 			if bounds.MbToBottomEdge < 0 && sy >= planeHeight {
 				sy = planeHeight - 1
 			}
-			left[i] = planeData[sy*stride+x0-1]
+			refY := sy - (originY >> pd.SubsamplingY)
+			left[i] = refData[refY*refStride+localX-1]
 		}
 	}
 
@@ -14086,18 +14210,21 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	}
 	upAvailable := blockRow4x4 != 0 || miRow > 0
 	if upAvailable {
-		edges.Above = planeData[(y0-1)*stride+x0:]
+		if localY <= 0 {
+			return nil, 0, 0, 0, false
+		}
+		edges.Above = refData[(localY-1)*refStride+localX:]
 		if leftAvailable {
-			edges.AboveLeft = planeData[(y0-1)*stride+x0-1]
+			edges.AboveLeft = refData[(localY-1)*refStride+localX-1]
 		}
 	}
 	planeBlock4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 	txw := 1 << uint(txSize)
 	rightAvailable := blockCol4x4+txw < planeBlock4x4W
-	dst = planeData[y0*stride+x0:]
+	dst = dstData[localY*dstStride+localX:]
 	vp9dec.BuildIntraPredictorsWithScratch(vp9dec.BuildIntraPredictorsArgs{
 		Dst:            dst,
-		DstStride:      stride,
+		DstStride:      dstStride,
 		Mode:           mode,
 		TxSize:         txSize,
 		Edges:          edges,
@@ -14111,7 +14238,7 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 		MbToRightEdge:  bounds.MbToRightEdge,
 		MbToBottomEdge: bounds.MbToBottomEdge,
 	}, &e.intraScratch)
-	return dst, stride, x0, y0, true
+	return dst, dstStride, x0, y0, true
 }
 
 func (e *VP9Encoder) vp9EncoderTxDst(pd *vp9dec.MacroblockdPlane,
