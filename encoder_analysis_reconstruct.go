@@ -183,7 +183,51 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		yLeft = leftTok.Y1
 		y2Left = leftTok.Y2
 	}
-	var staleY2Input [16]int16
+	// libvpx vp8/encoder/rdopt.c rd_pick_intra16x16mby_mode (rdopt.c:646-682)
+	// iterates the whole-block intra Y candidates DC_PRED .. TM_PRED in
+	// MB_PREDICTION_MODE enum order. Each candidate calls macro_block_yrd
+	// (rdopt.c:471-517) -> vp8_quantize_mby (vp8_quantize.c:99-107) which
+	// writes xd->block[24].qcoeff via x->quantize_b(&x->block[24], ...).
+	// The LAST iteration is TM_PRED, so after the loop xd->block[24] holds
+	// TM_PRED's Y2 quantize state.
+	//
+	// When B_PRED later wins (vp8_rd_pick_intra_mode rdopt.c:2397),
+	// rd_pick_intra4x4mby_modes calls rd_pick_intra4x4block per sub-block
+	// which only touches its own Y4x4 block, vp8cx_encode_intra_macroblock
+	// runs vp8_encode_intra4x4mby (encodeintra.c:70-78) which also doesn't
+	// touch Y2, and vp8_tokenize_mb (tokenize.c:353-380) skips the Y2
+	// tokenizer because has_y2_block=false. So xd->block[24].qcoeff is
+	// still TM_PRED's quantize when govpx_oracle_capture_mb fires at
+	// encodeframe.c:553.
+	//
+	// govpx's whole-block picker (predictBestWholeBlockIntraModeRDWithProbs*)
+	// iterates the same DC/V/H/TM candidates via wholeBlockYTransformRD
+	// (encoder_intra_pick.go:309-370) but the y2EOB/y2Q outputs are
+	// discarded. To make the oracle trace dump match libvpx byte-exact on
+	// the residual 1280x720 SSIM seed `regression_option_grid_19981bff`
+	// (FIRST_CANON_DIV idx=2 / MB(0,2) eob_sum=109 vs 108 on origin/main),
+	// rebuild TM_PRED's stale Y2 here using the same DC[0]-from-Y4x4 path
+	// that wholeBlockYTransformRD runs internally for TM_PRED's candidate
+	// scoring.
+	//
+	// The neighbor pixels feeding TM_PRED (refs.YAbove, refs.YLeft,
+	// refs.YTopLeft) are captured from the analysis frame BEFORE the
+	// per-sub-block B_PRED loop below starts writing reconstructed pixels
+	// into img.Y, mirroring libvpx's xd->dst.y_buffer state at MB head
+	// before rd_pick_intra16x16mby_mode starts (rdopt.c:660-662).
+	var staleTMPredY2Input [16]int16
+	if collectOracle {
+		var tmPred [16 * 16]byte
+		if vp8dec.PredictIntraY16x16(vp8common.TMPred, tmPred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+			var tmResiduals [16 * 16]int16
+			gatherMacroblockYResiduals4x4FromPredBuffer(src.Y, src.YStride, src.Width, src.Height, tmPred[:], 16, mbCol*16, mbRow*16, tmResiduals[:])
+			var tmDCTs [16 * 16]int16
+			vp8enc.ForwardDCT4x4Batch(tmResiduals[:], tmDCTs[:], 16)
+			for block := range 16 {
+				staleTMPredY2Input[block] = tmDCTs[block*16]
+			}
+		}
+	}
 	for block := range 16 {
 		blockOffset := analysisYBlockOffset(block, img.YStride)
 		if !predictAnalysisBPredBlock(mode.BModes[block], y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
@@ -193,9 +237,6 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		yCoord := mbRow*16 + (block>>2)*4
 		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		// Capture a local Y2-equivalent snapshot for direct helper callers.
-		// The encoder path overwrites this from picker state.
-		staleY2Input[block] = dct[0]
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(yAbove[a] + yLeft[l])
@@ -222,15 +263,23 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	}
 	coeffs.QCoeff[24] = [16]int16{}
 	coeffs.SetBlockEOB(24, 0)
-	// Direct helper callers do not carry the RD picker's mutable Y2 block
-	// state. The encoder path overwrites this with the picker-carried
-	// snapshot from the last whole-block candidate.
+	// Mirror libvpx's TM_PRED-derived stale Y2 snapshot for the oracle
+	// trace. The TM_PRED iteration of rd_pick_intra16x16mby_mode is the
+	// LAST whole-Y candidate, and xd->block[24].qcoeff retains TM_PRED's
+	// Y2 quantize state when B_PRED wins (see the long comment above the
+	// staleTMPredY2Input block for the libvpx call-chain reasoning). The
+	// pre-task-225 govpx implementation built this stale Y2 from each
+	// B_PRED winning sub-block's DCT[0], which produced a different value
+	// because B_PRED uses per-sub-block predictors (each 4x4 uses its
+	// own neighbors that include reconstructed previous sub-blocks)
+	// instead of TM_PRED's uniform whole-MB predictor (above + left +
+	// top-left lifted into a single MB-wide prediction).
 	if collectOracle {
 		var staleY2Coeff [16]int16
 		var staleY2Q [16]int16
 		var staleY2DQ [16]int16
 		intra := mode.RefFrame == vp8common.IntraFrame
-		vp8enc.ForwardWalsh4x4(staleY2Input[:], 4, &staleY2Coeff)
+		vp8enc.ForwardWalsh4x4(staleTMPredY2Input[:], 4, &staleY2Coeff)
 		staleEOB := min(max(quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
 		recordOracleStaleY2(coeffs, uint8(staleEOB), staleY2Q)
 	}
@@ -382,6 +431,29 @@ func applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens *vp8dec.MacroblockTokens,
 		}
 		offset := analysisYBlockOffset(block, yStride)
 		dsp.DCOnlyIDCT4x4Add(dc, y[offset:], yStride, y[offset:], yStride)
+	}
+}
+
+// gatherMacroblockYResiduals4x4FromPredBuffer computes the 16 4x4 Y
+// residuals (src - pred) into `out` (16 blocks of 16 int16) for the
+// macroblock at (mbBaseX, mbBaseY) in src coordinates, against a 16x16
+// pred buffer in its own local (0..15, 0..15) coordinate space with
+// stride `predStride`. Used to compute TM_PRED's stale Y2 input for
+// B_PRED MB oracle trace dumps without having to swap the analysis
+// frame's Y plane in place (vp8 task #225 / libvpx
+// rd_pick_intra16x16mby_mode TM_PRED iteration mirror).
+func gatherMacroblockYResiduals4x4FromPredBuffer(src []byte, srcStride int, width int, height int, pred []byte, predStride int, mbBaseX int, mbBaseY int, out []int16) {
+	for block := range 16 {
+		blockX := (block & 3) * 4
+		blockY := (block >> 2) * 4
+		dst := out[block*16 : block*16+16]
+		for row := range 4 {
+			sampleY := clampEncodeCoord(mbBaseY+blockY+row, height)
+			for col := range 4 {
+				sampleX := clampEncodeCoord(mbBaseX+blockX+col, width)
+				dst[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(blockY+row)*predStride+blockX+col]))
+			}
+		}
 	}
 }
 
