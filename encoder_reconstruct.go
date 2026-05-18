@@ -291,6 +291,29 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			// update (pickerActZbinAdj = actZbinAdj) doesn't race with
 			// the in-iter reads.
 			pickActZbinAdj := pickerActZbinAdj
+			// libvpx vp8/encoder/encodeframe.c line 427-438: when
+			// xd->segmentation_enabled is set (cyclic_refresh + KF, e.g.
+			// --error-resilient=1 enabling cyclic_refresh_mode_enabled
+			// via onyx_if.c line 1857), encode_mb_row calls
+			// vp8cx_mb_init_quantizer(cpi, x, ok_to_skip=1) on every
+			// MB BEFORE vp8cx_encode_intra_macroblock. With ok_to_skip=1
+			// and QIndex unchanged (KF all-seg-0 under cyclic_refresh
+			// — feature_data[MB_LVL_ALT_Q][0]=0 at onyx_if.c line 592),
+			// the function takes the `else if` branch at
+			// vp8_quantize.c line 387: it detects
+			// `last_act_zbin_adj != x->act_zbin_adj` (just set by
+			// vp8_activity_masking → adjust_act_zbin for THIS MB at
+			// encodeframe.c line 423) and REWRITES block[i].zbin_extra
+			// from THIS MB's act_zbin_adj. The picker
+			// (vp8_rd_pick_intra_mode) then quantizes with the just-
+			// refreshed zbin_extra — i.e., NOT the stale previous-MB
+			// value. Mirror that path here: when segmentation is
+			// enabled, the picker sees the current MB's actZbinAdj.
+			// Closes task #262 (cohort: 19981bff, 22f3d67c, 788d442c,
+			// 94eb71d5).
+			if segmentation.Enabled {
+				pickActZbinAdj = actZbinAdj
+			}
 			var above *vp8enc.KeyFrameMacroblockMode
 			var left *vp8enc.KeyFrameMacroblockMode
 			if row > 0 {

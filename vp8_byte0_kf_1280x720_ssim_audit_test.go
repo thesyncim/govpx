@@ -155,31 +155,36 @@ func TestVP8Byte0KF1280x720SSIMAudit(t *testing.T) {
 	}
 
 	// Pin the historical metrics so future regressions don't silently
-	// re-interpret what this audit captured. Task #213 had closed the
-	// activity-probe recon divergence by porting libvpx's per-attempt
-	// cpi->mb.act_zbin_adj / cpi->mb.rdmult carry into govpx's
-	// prepareTuningActivityMap, and at that point this seed matched
-	// libvpx byte-for-byte (125346/4327). Task #236 then ported
-	// libvpx's stale BLOCK->zbin_extra carry into the per-MB intra
-	// RD picker (see encoder_reconstruct.go pickerActZbinAdj comment;
-	// libvpx vp8/encoder/vp8_quantize.c ZBIN_EXTRA_Y at lines 276-279
-	// is updated only by vp8_update_zbin_extra inside
-	// vp8cx_encode_intra_macroblock AFTER the picker, so the picker
-	// quantize reads zbin_extra from the previous MB's act_zbin_adj).
-	// That fix flips a handful of MB picker decisions on this CBR /
-	// ARNR=2/1 seed, shifting the recode trajectory by a few bytes:
-	// the resulting bitstream is no longer byte-identical to libvpx,
-	// but the bypass on the previously-target task #236 cohort
-	// (seeds 19981bff + 788d442c) is gained in exchange. Re-pin the
-	// post-task-#236 baseline; libvpx still produces 125346/4327
-	// because libvpx's own behaviour is unchanged.
-	wantFrame0GovpxLen := 125358
+	// re-interpret what this audit captured. Task #213 originally
+	// closed the activity-probe recon divergence on this seed; task
+	// #236 then ported libvpx's stale BLOCK->zbin_extra carry into the
+	// per-MB intra RD picker, which flipped a handful of MB picker
+	// decisions on this CBR/ARNR=2/1 seed and shifted the recode
+	// trajectory by a few bytes (govpx 125358 vs libvpx 125346).
+	//
+	// Task #262 closes the residual divergence: libvpx
+	// vp8/encoder/encodeframe.c line 427-438 calls
+	// vp8cx_mb_init_quantizer(cpi, x, ok_to_skip=1) BEFORE the picker
+	// whenever xd->segmentation_enabled is set. For CBR (which enables
+	// cyclic_refresh_mode at onyx_if.c line 1857 via the
+	// (end_usage==USAGE_STREAM_FROM_SERVER && Mode<=2) clause) the
+	// KF cyclic_background_refresh call (onyx_if.c line 3779) sets
+	// xd->segmentation_enabled=1, so on every KF MB the
+	// vp8cx_mb_init_quantizer call refreshes block[i].zbin_extra from
+	// THIS MB's just-set x->act_zbin_adj (vp8_quantize.c line 387-407
+	// `else if (last_act_zbin_adj != act_zbin_adj)` branch). The
+	// picker then quantizes with the current MB's zbin_extra, NOT
+	// the stale prev-MB value the task #236 picker uses.
+	// encoder_reconstruct.go now honors that: when segmentation.Enabled
+	// the picker actZbinAdj is this MB's tunedZbinAdjustment value.
+	// Net result: byte-identical (125346/4327, sha matches).
+	wantFrame0GovpxLen := 125346
 	wantFrame0LibvpxLen := 125346
-	wantFrame0GovpxFirstPart := 20583
+	wantFrame0GovpxFirstPart := 20575
 	wantFrame0LibvpxFirstPart := 20575
-	wantFrame1GovpxLen := 4330
+	wantFrame1GovpxLen := 4327
 	wantFrame1LibvpxLen := 4327
-	wantFrame1GovpxFirstPart := 1139
+	wantFrame1GovpxFirstPart := 1151
 	wantFrame1LibvpxFirstPart := 1151
 
 	if got := len(govpxFrames[0]); got != wantFrame0GovpxLen {

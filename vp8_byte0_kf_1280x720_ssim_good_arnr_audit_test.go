@@ -310,30 +310,33 @@ func TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed(t *testing.T) {
 
 	// Task #213 originally confirmed byte parity on this seed; task #236
 	// then ported libvpx's stale BLOCK->zbin_extra carry into the per-MB
-	// intra RD picker (see encoder_reconstruct.go pickerActZbinAdj
-	// comment). That fix lands the cohort sister seeds (19981bff +
-	// 788d442c) byte-exactly but flipped a handful of MB picker decisions
+	// intra RD picker, which flipped a handful of MB picker decisions
 	// on this CBR/ARNR=2/1 cohort, shifting govpx away from libvpx by 53
-	// bytes on frame 0 and 63 bytes on frame 1.
+	// bytes on frame 0 and 63 bytes on frame 1. Task #254 tightened the
+	// threaded keyframe stale-carry across rows; on THIS seed it dropped
+	// frame 0 from +53 to +49 bytes (govpx 145545 vs libvpx 145496).
 	//
-	// Task #254 closed the threaded keyframe stale-carry across rows for
-	// the cohort sisters; on THIS seed (CBR + ARNR=2/1, threads=4,
-	// sc-mode=1) it tightens frame 0 from +53 to +49 bytes (govpx 145545
-	// vs libvpx 145496) and frame 1 from +57 to +61 bytes. The CBR
-	// recode trajectory amplifies a residual divergence at MB(0,69)
-	// block 9 (or thereabouts) that the threaded-row fix alone doesn't
-	// resolve — likely an additional zbin_extra refresh point inside the
-	// vp8cx_encode_intra_macroblock loop or a CBR-only sf flag that
-	// changes vp8_update_zbin_extra timing. Pin the post-#254 cascade
-	// state and drop SHA assertions; a follow-up audit can re-bisect
-	// the residual.
-	wantFrame0GovpxLen := 145545
+	// Task #262 closes the residual divergence: libvpx
+	// vp8/encoder/encodeframe.c line 427-438 calls
+	// vp8cx_mb_init_quantizer(cpi, x, ok_to_skip=1) BEFORE the picker
+	// on every MB whenever xd->segmentation_enabled is set. For CBR
+	// (which enables cyclic_refresh_mode at onyx_if.c line 1857) the
+	// KF cyclic_background_refresh call sets segmentation_enabled=1, so
+	// the picker's block[i].zbin_extra is refreshed from THIS MB's
+	// activity-driven x->act_zbin_adj via the vp8_quantize.c line 387-
+	// 407 `else if (last_act_zbin_adj != act_zbin_adj)` branch. The
+	// picker therefore quantizes with the current MB's zbin_extra, not
+	// the stale prev-MB value the task #236 picker uses. After threading
+	// segmentation.Enabled into the keyframe picker in
+	// encoder_reconstruct.go / encoder_row_threaded.go, this seed
+	// matches libvpx byte-for-byte on both frames again.
+	wantFrame0GovpxLen := 145496
 	wantFrame0LibvpxLen := 145496
-	wantFrame0GovpxFirstPart := 20474
+	wantFrame0GovpxFirstPart := 20441
 	wantFrame0LibvpxFirstPart := 20441
-	wantFrame1GovpxLen := 6385
+	wantFrame1GovpxLen := 6324
 	wantFrame1LibvpxLen := 6324
-	wantFrame1GovpxFirstPart := 2352
+	wantFrame1GovpxFirstPart := 2363
 	wantFrame1LibvpxFirstPart := 2363
 
 	if got := len(govpxFrames[0]); got != wantFrame0GovpxLen {
@@ -366,13 +369,13 @@ func TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed(t *testing.T) {
 	govpxSHA1 := sha256.Sum256(govpxFrames[1])
 	libvpxSHA1 := sha256.Sum256(libvpxFrames[1])
 
-	t.Logf("task #236 shifted: frame 0 govpx_len=%d libvpx_len=%d "+
+	t.Logf("task #262 closed: frame 0 govpx_len=%d libvpx_len=%d "+
 		"govpx_first_part=%d libvpx_first_part=%d "+
 		"govpx_sha=%s libvpx_sha=%s",
 		wantFrame0GovpxLen, wantFrame0LibvpxLen,
 		wantFrame0GovpxFirstPart, wantFrame0LibvpxFirstPart,
 		hex.EncodeToString(govpxSHA0[:8]), hex.EncodeToString(libvpxSHA0[:8]))
-	t.Logf("task #236 shifted: frame 1 govpx_len=%d libvpx_len=%d "+
+	t.Logf("task #262 closed: frame 1 govpx_len=%d libvpx_len=%d "+
 		"govpx_first_part=%d libvpx_first_part=%d "+
 		"govpx_sha=%s libvpx_sha=%s",
 		wantFrame1GovpxLen, wantFrame1LibvpxLen,

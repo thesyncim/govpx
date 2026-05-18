@@ -298,7 +298,27 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		// actZbinAdj computed above seeds pickerActZbinAdj for the next
 		// MB after this picker returns. See encoder_reconstruct.go for
 		// the libvpx anchor.
-		mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(args.src, segmentQIndex, zbinOverQuant, rs.pickerActZbinAdj, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
+		//
+		// libvpx vp8/encoder/encodeframe.c line 427-438: when
+		// xd->segmentation_enabled is set (cyclic refresh + KF, e.g.
+		// --error-resilient=1 enabling cyclic_refresh_mode_enabled via
+		// onyx_if.c line 1857), encode_mb_row calls
+		// vp8cx_mb_init_quantizer(cpi, x, ok_to_skip=1) on every MB
+		// BEFORE the picker. With QIndex unchanged (KF all seg 0 since
+		// feature_data[MB_LVL_ALT_Q][0]=0 at cyclic_background_refresh
+		// onyx_if.c line 592), the function takes the `else if` branch
+		// at vp8_quantize.c line 387, detects
+		// last_act_zbin_adj != act_zbin_adj (just set by
+		// vp8_activity_masking → adjust_act_zbin at encodeframe.c
+		// line 423 for THIS MB), and REWRITES block[i].zbin_extra from
+		// THIS MB's act_zbin_adj. The picker then quantizes with the
+		// just-refreshed value, NOT the stale prev-MB value. Mirror
+		// that here. Closes task #262.
+		pickActZbinAdj := rs.pickerActZbinAdj
+		if args.segmentation.Enabled {
+			pickActZbinAdj = actZbinAdj
+		}
+		mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(args.src, segmentQIndex, zbinOverQuant, pickActZbinAdj, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 	}
 	// Mirror libvpx encodeframe.c line 1106-1108 adjust_act_zbin:
 	// seed pickerActZbinAdj for the NEXT MB's picker now that we have
