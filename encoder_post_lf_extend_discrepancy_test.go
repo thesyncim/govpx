@@ -69,6 +69,16 @@ import (
 //     from len=684 to len=662 (libvpx target len=688) — i.e. it moves
 //     bytes WITHOUT closing the seed, and simultaneously breaks all 7
 //     odd-axis 33x17/17x33 fixtures in `TestOracleEncoderStreamByteParity`.
+//     NB(task 174): the 684 frame-2 baseline cited above was measured at
+//     HEAD commit a82b8e8c when frame 1 was at strict byte parity. Commit
+//     592b8eda ("vp8: align runtime controls with libvpx") reintroduced a
+//     frame-1 divergence on the same seed (govpx len=4058 first_part=782
+//     vs libvpx len=3298 first_part=1387) and pushed frame 2 to len=1509
+//     vs libvpx 688, after rewriting `segmentationConfigForLoopFilterLevel`
+//     from the base-LF strip helper into the `e.loopFilterSegmentLF`-tracking
+//     method that commit 45ded7d5 finalised. The seed's live failure mode
+//     now sits upstream of this post-LF extend audit; bisect anchor commit
+//     for the new divergence is 592b8eda.
 //   - The same swap inside `refreshInterFrameReferencesFromAnalysis` /
 //     `refreshKeyFrameReferencesFromAnalysis` produces the identical
 //     net result (both wirings ultimately affect the buffer that
