@@ -1290,12 +1290,26 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// first-keyframe time. Sentinel 0 defers gf_interval_onepass_cbr
 	// derivation to libvpxKeyFrameSetupGFInterval (rows/cols are not final
 	// until temporal config is settled).
-	if e.rc.mode == RateControlCBR && !normalized.ErrorResilient && len(normalized.TwoPassStats) == 0 {
+	// libvpx onyx_if.c:1876 gates the GF-interval seeding on
+	// `!cpi->oxcf.error_resilient_mode`, which is a bitmask so any of
+	// {VPX_ERROR_RESILIENT_DEFAULT=1, VPX_ERROR_RESILIENT_PARTITIONS=2}
+	// makes the predicate false. Mirror both bits here so the
+	// ErrorResilientPartitions-only path takes the same DEFAULT_GF_INTERVAL
+	// branch libvpx does.
+	if e.rc.mode == RateControlCBR && !normalized.ErrorResilient && !normalized.ErrorResilientPartitions && len(normalized.TwoPassStats) == 0 {
 		e.rc.baselineGFInterval = 0
 	} else {
 		e.rc.baselineGFInterval = libvpxDefaultGFInterval
 	}
-	e.cyclicRefreshConfigured = normalized.ErrorResilient ||
+	// libvpx onyx_if.c:1857-1860 enables cyclic_refresh_mode for
+	// `error_resilient_mode || (end_usage == USAGE_STREAM_FROM_SERVER &&
+	// Mode <= 2)`, where error_resilient_mode is the libvpx bitmask
+	// VPX_ERROR_RESILIENT_DEFAULT|VPX_ERROR_RESILIENT_PARTITIONS. Any bit
+	// makes the predicate true, so ErrorResilientPartitions=true alone
+	// (mask=2) is sufficient to enable the cyclic background refresh path
+	// and the segmentation header it emits (KF: seg_map=0,
+	// FeatureData[MB_LVL_ALT_Q][1]=Q/2-Q, TreeProbs default 255s).
+	e.cyclicRefreshConfigured = normalized.ErrorResilient || normalized.ErrorResilientPartitions ||
 		(e.rc.mode == RateControlCBR && len(normalized.TwoPassStats) == 0)
 	e.rtcExternalDisableCyclicRefresh = normalized.RTCExternalRateControl
 	if e.rc.mode == RateControlCQ {
