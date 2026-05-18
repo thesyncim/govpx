@@ -255,6 +255,11 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 		t.gfGroupErrorLeft = 0
 	}
 	t.framesTillGFUpdate = gfInterval
+	// libvpx vp8/encoder/firstpass.c define_gf_group sets
+	// cpi->baseline_gf_interval to the chosen GF group length here. The
+	// early-portion damped active_worst_quality update reads this value
+	// when gating the window (firstpass.c:2374).
+	t.baselineGFInterval = gfInterval
 	t.gfGroupValid = true
 	t.altExtraBits = int(altExtraPer)
 	t.gfRefreshTarget = int(gfTarget)

@@ -1,8 +1,21 @@
 package govpx
 
 type twoPassState struct {
-	stats             []FirstPassFrameStats
-	totalStats        FirstPassFrameStats
+	stats      []FirstPassFrameStats
+	totalStats FirstPassFrameStats
+	// totalLeftStats mirrors libvpx's `cpi->twopass.total_left_stats`
+	// (vp8/encoder/firstpass.c). vp8_init_second_pass seeds
+	// total_left_stats to a copy of total_stats (firstpass.c line 1230);
+	// vp8_second_pass then drains the current frame's FIRSTPASS_STATS
+	// via subtract_stats at the end of each pass-2 invocation
+	// (firstpass.c line 2398). The resulting value at the top of frame
+	// N is total - sum(frame[0..N-1]), i.e. the stats representing the
+	// still-unencoded tail of the clip. estimate_modemvcost /
+	// estimate_max_q / estimate_cq all read this pointer (firstpass.c
+	// lines 2325, 2338, 2349, 2381), so per-frame overhead and worst-Q
+	// estimates track the remaining-section averages rather than the
+	// full-sequence totals.
+	totalLeftStats    FirstPassFrameStats
 	bitsLeft          int64
 	errorLeft         float64
 	frameIndex        uint64
@@ -103,6 +116,18 @@ type twoPassState struct {
 	// before each frame's selectQuantizerForFrameKind call.
 	pass2ActiveWorstQ      int
 	pass2ActiveWorstQValid bool
+	// baselineGFInterval mirrors libvpx's `cpi->baseline_gf_interval`,
+	// the most recent GF/ARF group length set by define_gf_group. It is
+	// read by the early-portion-of-clip damped active_worst_quality
+	// update branch in libvpx vp8/encoder/firstpass.c vp8_second_pass
+	// (lines 2372-2393), where the window gate is
+	// `(current_video_frame + baseline_gf_interval) < total_stats.count`.
+	// libvpx's twopass struct is calloc'd, so the initial value is 0;
+	// the first define_gf_group call after find_next_key_frame
+	// overwrites it before the damped update can fire (the gate is also
+	// false at frame 0). Updated by defineGFGroup and the
+	// error-resilient GF seed.
+	baselineGFInterval int
 	// estMaxQCorrection mirrors libvpx's
 	// `cpi->twopass.est_max_qcorrection_factor`. Initialized to 1.0
 	// on the first pass-2 frame (libvpx vp8/encoder/firstpass.c
@@ -144,6 +169,12 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	if len(t.stats) == 0 {
 		return
 	}
+	// libvpx vp8/encoder/firstpass.c vp8_init_second_pass line 1230
+	// seeds total_left_stats to a copy of total_stats. Each pass-2 frame
+	// then drains the current frame's stats out of total_left_stats via
+	// subtract_stats (firstpass.c line 2398) so the section averages
+	// reflect the still-unencoded tail.
+	t.totalLeftStats = t.totalStats
 	t.vbrBiasPct = biasPct
 	if t.vbrBiasPct <= 0 {
 		t.vbrBiasPct = 50
@@ -391,6 +422,15 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 	if target < 1 {
 		target = 1
 	}
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass lines 2367-2393
+	// runs the early-portion-of-clip damped active_worst_quality update
+	// AFTER find_next_key_frame / define_gf_group / assign_std_frame_bits
+	// but BEFORE the trailing subtract_stats (line 2398). In govpx the
+	// equivalent point is here, just before we return the per-frame
+	// target — the GF/KF allocator state and baseline_gf_interval are
+	// already up to date, and finishFrame (which drains
+	// total_left_stats) has not yet run for this frame.
+	t.dampedUpdatePass2ActiveWorstQ(frame)
 	if target > int64(maxInt()) {
 		return maxInt()
 	}
@@ -495,6 +535,12 @@ func (t *twoPassState) seedErrorResilientGFGroup() {
 	t.gfRefreshTarget = 0
 	t.altRefTarget = 0
 	t.framesTillGFUpdate = max(t.framesToKeyRemaining, 1)
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass line 2252
+	// (error_resilient_mode branch) sets `cpi->baseline_gf_interval =
+	// cpi->twopass.frames_to_key`. Mirror that so the damped
+	// active_worst_quality window gate sees the libvpx
+	// baseline_gf_interval in error-resilient pass-2 mode.
+	t.baselineGFInterval = t.framesTillGFUpdate
 }
 
 // kfBitsTarget computes libvpx's kf_bits — the per-frame target for
@@ -657,16 +703,19 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	if sectionTargetBandwidth <= 0 {
 		return
 	}
-	// libvpx uses total_left_stats.coded_error / total_left_stats.count
-	// at this point. On frame 0, total_left_stats == total_stats (no
-	// frame has been subtracted yet). govpx caches the totals in
-	// t.totalStats; for the FIRST frame use those directly.
-	count := t.totalStats.Count
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass passes
+	// `&cpi->twopass.total_left_stats` to estimate_modemvcost
+	// (line 2325) and to estimate_max_q (line 2349). govpx mirrors this
+	// by reading t.totalLeftStats, which configure seeds equal to
+	// totalStats and finishFrame drains per frame. On frame 0 the
+	// rolled-down value still equals totalStats (no frame has been
+	// subtracted).
+	count := t.totalLeftStats.Count
 	if count <= 0 {
 		// Fall back to summing over the per-frame stats.
 		count = float64(len(t.stats))
 	}
-	codedError := t.totalStats.CodedError
+	codedError := t.totalLeftStats.CodedError
 	if codedError <= 0 {
 		// Sum the per-frame coded_error if the rolled total is
 		// missing. This guards against malformed pass-1 dumps.
@@ -692,7 +741,10 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	// The overhead term is normalized in bits*512 and decays with Q
 	// inside libvpxEstimateMaxQ, matching firstpass.c
 	// estimate_modemvcost / estimate_max_q.
-	overheadBits := libvpxEstimateModeMVCost(t.totalStats, t.numMBs)
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass line 2325 calls
+	// estimate_modemvcost with &cpi->twopass.total_left_stats. Mirror
+	// that pointer choice so overhead tracks the rolled-down totals.
+	overheadBits := libvpxEstimateModeMVCost(t.totalLeftStats, t.numMBs)
 	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, t.bestQuality, t.worstQuality), 0), vp8MaxQIndex)
 	t.pass2ActiveWorstQ = tmpQ
 	t.pass2ActiveWorstQValid = true
@@ -710,6 +762,158 @@ func (t *twoPassState) pass2ActiveWorstQOverride() (int, bool) {
 		return 0, false
 	}
 	return t.pass2ActiveWorstQ, true
+}
+
+// dampedUpdatePass2ActiveWorstQ ports the libvpx vp8/encoder/firstpass.c
+// vp8_second_pass early-portion-of-clip damped active_worst_quality
+// update branch (firstpass.c lines 2367-2393):
+//
+//	/* The last few frames of a clip almost always have to few or too many
+//	 * bits and for the sake of over exact rate control we don't want to make
+//	 * radical adjustments to the allowed quantizer range just to use up a
+//	 * few surplus bits or get beneath the target rate. */
+//	else if ((cpi->common.current_video_frame <
+//	          (((unsigned int)cpi->twopass.total_stats.count * 255) >> 8)) &&
+//	         ((cpi->common.current_video_frame + cpi->baseline_gf_interval) <
+//	          (unsigned int)cpi->twopass.total_stats.count)) {
+//	  if (frames_left < 1) frames_left = 1;
+//	  int64_t section_target_bandwidth = cpi->twopass.bits_left / frames_left;
+//	  section_target_bandwidth = VPXMIN(section_target_bandwidth, INT_MAX);
+//	  tmp_q = estimate_max_q(cpi, &cpi->twopass.total_left_stats,
+//	                         (int)section_target_bandwidth, overhead_bits);
+//	  /* Move active_worst_quality but in a damped way */
+//	  if (tmp_q > cpi->active_worst_quality) cpi->active_worst_quality++;
+//	  else if (tmp_q < cpi->active_worst_quality) cpi->active_worst_quality--;
+//	  cpi->active_worst_quality =
+//	      ((cpi->active_worst_quality * 3) + tmp_q + 2) / 4;
+//	}
+//
+// This branch is reached only when current_video_frame > 0 (it is the
+// `else if` from the `==0` seed branch at lines 2328-2365). It tracks
+// the regulator's worst-Q ceiling toward the rolling estimate over the
+// still-unencoded section so the regulator does not crash Q near the
+// end of a clip where a small overspend or underspend would otherwise
+// drive radical adjustments.
+//
+// Inputs mirror libvpx exactly:
+//   - cpi->common.current_video_frame == t.frameIndex (== frame on entry,
+//     since finishFrame for the previous frame has already advanced
+//     frameIndex to the current frame's index).
+//   - cpi->twopass.total_stats.count: rolled-up frame count from the
+//     pass-1 totals packet. Falls back to len(t.stats) when the totals
+//     packet was missing.
+//   - cpi->baseline_gf_interval == t.baselineGFInterval (set by
+//     defineGFGroup or seedErrorResilientGFGroup before this method is
+//     invoked).
+//   - cpi->twopass.bits_left == t.bitsLeft (live live).
+//   - estimate_max_q's section pointer is &cpi->twopass.total_left_stats
+//     (firstpass.c line 2381). govpx rolls down totalLeftStats per
+//     frame in finishFrame via subtractFirstPassStats, so this matches.
+//
+// Returns silently on any precondition failure (the regulator keeps the
+// previous active_worst_quality).
+func (t *twoPassState) dampedUpdatePass2ActiveWorstQ(frame uint64) {
+	if !t.pass2ActiveWorstQValid || t.numMBs <= 0 {
+		return
+	}
+	// libvpx vp8_second_pass: the `==0` branch handles the seed; the
+	// damped branch is the `else if` after it. Skip on frame 0 so the
+	// seed is preserved.
+	if frame == 0 {
+		return
+	}
+	// total_stats.count: prefer the configurator-seeded totalStats.Count
+	// (matches libvpx's accumulate_stats roll-up). Fall back to the
+	// per-frame stats slice length when the totals packet is absent or
+	// zero.
+	totalCount := int(t.totalStats.Count)
+	if totalCount <= 0 {
+		totalCount = len(t.stats)
+	}
+	if totalCount <= 0 {
+		return
+	}
+	// libvpx firstpass.c lines 2372-2375 window gate:
+	//
+	//   ((cpi->common.current_video_frame <
+	//     (((unsigned int)cpi->twopass.total_stats.count * 255) >> 8)) &&
+	//    ((cpi->common.current_video_frame + cpi->baseline_gf_interval) <
+	//     (unsigned int)cpi->twopass.total_stats.count))
+	//
+	// The first half gates the early 255/256 portion of the clip; the
+	// second half makes sure the current frame plus the upcoming GF
+	// span still leaves frames after it (i.e., we are not in the
+	// trailing GF group).
+	upperGate := (uint64(totalCount) * 255) >> 8
+	if frame >= upperGate {
+		return
+	}
+	if frame+uint64(t.baselineGFInterval) >= uint64(totalCount) {
+		return
+	}
+	// libvpx firstpass.c lines 2376-2382: section_target_bandwidth =
+	// bits_left / frames_left (with the frames_left>=1 floor), then
+	// estimate_max_q on total_left_stats. libvpx VPXMIN's the section
+	// bandwidth at INT_MAX but does NOT guard against <=0 — passes it
+	// directly to estimate_max_q, which then returns maxq_max_limit
+	// (libvpx firstpass.c line 1326: `if (target_norm_bits_per_mb <=
+	// 0) return MAXQ;`). Mirror that flow: do not short-circuit on
+	// stb<=0 here; let libvpxEstimateMaxQ produce maxqMaxLimit.
+	framesLeft := max(int64(totalCount)-int64(frame), 1)
+	if t.bitsLeft < 0 {
+		return
+	}
+	sectionTargetBandwidth := t.bitsLeft / framesLeft
+	// libvpx feeds estimate_max_q with &cpi->twopass.total_left_stats:
+	// rolled-down section totals reflecting the still-unencoded tail.
+	count := t.totalLeftStats.Count
+	if count <= 0 {
+		count = float64(int64(len(t.stats)) - int64(frame))
+	}
+	codedError := t.totalLeftStats.CodedError
+	if codedError <= 0 {
+		end := uint64(len(t.stats))
+		if frame < end {
+			for i := frame; i < end; i++ {
+				codedError += t.stats[i].CodedError
+			}
+		}
+	}
+	if min(codedError, count) <= 0 {
+		return
+	}
+	sectionErr := codedError / count
+	errPerMB := sectionErr / float64(t.numMBs)
+	estCorrection := t.estMaxQCorrection
+	if estCorrection <= 0 {
+		estCorrection = 1.0
+	}
+	sectionMQF := t.sectionMaxQFactor
+	if sectionMQF <= 0 {
+		sectionMQF = 1.0
+	}
+	overheadBits := libvpxEstimateModeMVCost(t.totalLeftStats, t.numMBs)
+	tmpQ := max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, t.bestQuality, t.worstQuality), 0)
+	if tmpQ > vp8MaxQIndex {
+		tmpQ = vp8MaxQIndex
+	}
+	// libvpx firstpass.c lines 2384-2392:
+	//   /* Move active_worst_quality but in a damped way */
+	//   if (tmp_q > cpi->active_worst_quality) cpi->active_worst_quality++;
+	//   else if (tmp_q < cpi->active_worst_quality) cpi->active_worst_quality--;
+	//   cpi->active_worst_quality =
+	//       ((cpi->active_worst_quality * 3) + tmp_q + 2) / 4;
+	aw := t.pass2ActiveWorstQ
+	if tmpQ > aw {
+		aw++
+	} else if tmpQ < aw {
+		aw--
+	}
+	aw = max((aw*3+tmpQ+2)/4, 0)
+	if aw > vp8MaxQIndex {
+		aw = vp8MaxQIndex
+	}
+	t.pass2ActiveWorstQ = aw
 }
 
 // computeKFBoost mirrors the libvpx vp8/encoder/firstpass.c

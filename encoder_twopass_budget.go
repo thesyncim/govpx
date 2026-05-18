@@ -59,6 +59,12 @@ func (t *twoPassState) finishFrame(actualBits int) {
 		if t.errorLeft < 0 {
 			t.errorLeft = 0
 		}
+		// libvpx vp8/encoder/firstpass.c vp8_second_pass line 2398 drains
+		// cpi->twopass.total_left_stats by the current frame's
+		// FIRSTPASS_STATS at the tail of each pass-2 call. Subsequent
+		// frames' estimate_modemvcost / estimate_max_q reads then see
+		// the still-unencoded section averages, matching libvpx.
+		subtractFirstPassStats(&t.totalLeftStats, t.stats[t.frameIndex])
 	}
 	// libvpx onyx_if.c Pass2Encode: bits_left -= 8 * size; bits_left +=
 	// (target_bandwidth * vbrmin_section/100) / framerate. The minimum

@@ -127,6 +127,63 @@ func accumulateFirstPassStats(section *FirstPassFrameStats, frame FirstPassFrame
 	section.Duration += frame.Duration
 }
 
+// subtractFirstPassStats mirrors libvpx vp8/encoder/firstpass.c
+// subtract_stats (firstpass.c lines 190-209): per-field subtraction of a
+// per-frame FIRSTPASS_STATS record from a running section accumulator.
+// vp8_second_pass calls this at end-of-frame on
+// cpi->twopass.total_left_stats (firstpass.c line 2398), draining the
+// just-encoded frame's stats so the next frame's estimate_modemvcost /
+// estimate_max_q reads see the still-unencoded tail's averages.
+//
+// libvpx reference:
+//
+//	static void subtract_stats(FIRSTPASS_STATS *section,
+//	                           FIRSTPASS_STATS *frame) {
+//	  section->frame                  -= frame->frame;
+//	  section->intra_error            -= frame->intra_error;
+//	  section->coded_error            -= frame->coded_error;
+//	  section->ssim_weighted_pred_err -= frame->ssim_weighted_pred_err;
+//	  section->pcnt_inter             -= frame->pcnt_inter;
+//	  section->pcnt_motion            -= frame->pcnt_motion;
+//	  section->pcnt_second_ref        -= frame->pcnt_second_ref;
+//	  section->pcnt_neutral           -= frame->pcnt_neutral;
+//	  section->MVr                    -= frame->MVr;
+//	  section->mvr_abs                -= frame->mvr_abs;
+//	  section->MVc                    -= frame->MVc;
+//	  section->mvc_abs                -= frame->mvc_abs;
+//	  section->MVrv                   -= frame->MVrv;
+//	  section->MVcv                   -= frame->MVcv;
+//	  section->mv_in_out_count        -= frame->mv_in_out_count;
+//	  section->new_mv_count           -= frame->new_mv_count;
+//	  section->count                  -= frame->count;
+//	  section->duration               -= frame->duration;
+//	}
+//
+// Field order matches libvpx verbatim.
+func subtractFirstPassStats(section *FirstPassFrameStats, frame FirstPassFrameStats) {
+	if section == nil {
+		return
+	}
+	section.Frame -= frame.Frame
+	section.IntraError -= frame.IntraError
+	section.CodedError -= frame.CodedError
+	section.SSIMWeightedPredErr -= frame.SSIMWeightedPredErr
+	section.PcntInter -= frame.PcntInter
+	section.PcntMotion -= frame.PcntMotion
+	section.PcntSecondRef -= frame.PcntSecondRef
+	section.PcntNeutral -= frame.PcntNeutral
+	section.MVr -= frame.MVr
+	section.MVrAbs -= frame.MVrAbs
+	section.MVc -= frame.MVc
+	section.MVcAbs -= frame.MVcAbs
+	section.MVrv -= frame.MVrv
+	section.MVcv -= frame.MVcv
+	section.MVInOutCount -= frame.MVInOutCount
+	section.NewMVCount -= frame.NewMVCount
+	section.Count -= frame.Count
+	section.Duration -= frame.Duration
+}
+
 // FinalizeFirstPassStats appends the libvpx-style terminal total-stats
 // record to a slice of per-frame [FirstPassFrameStats] records produced
 // by [VP8Encoder.CollectFirstPassStats]. Each per-frame entry is folded
