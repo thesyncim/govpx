@@ -2117,7 +2117,8 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	// (vp9_pickmode.c:2532) — i.e. inter is not "already good enough" to
 	// skip the intra sweep. govpx ports vp9_get_intra_cost_penalty
 	// verbatim from vp9_rd.c:778-794.
-	intraCostPenalty := vp9GetIntraCostPenalty(qindex, 0, bsize)
+	intraCostPenalty := vp9GetIntraCostPenalty(qindex, 0, bsize,
+		e.noiseEstimate.enabled, vp9NoiseEstimateExtractLevel(&e.noiseEstimate))
 	rdmult := e.activeRDMult(qindex)
 	interModeThresh := vp9RDCost(rdmult, vp9RDDivBits, intraCostPenalty, 0)
 	if bestInterScore <= interModeThresh {
@@ -2326,9 +2327,8 @@ var vp9NonrdIntraModeList = [4]common.PredictionMode{
 
 // vp9GetIntraCostPenalty ports vp9_get_intra_cost_penalty (vp9_rd.c:
 // 778-795) verbatim. The reduction factor halves the penalty for
-// BLOCK_16X16 and quarters it for BLOCK_8X8 / smaller. The noise_estimate
-// branch (kHigh suppresses the reduction) is conservatively folded to 0
-// here because govpx's noise_estimate substrate is not yet ported.
+// BLOCK_16X16 and quarters it for BLOCK_8X8 / smaller unless the live noise
+// estimate is kHigh.
 //
 // libvpx:
 //
@@ -2340,7 +2340,9 @@ var vp9NonrdIntraModeList = [4]common.PredictionMode{
 //	    reduction_fac = 0;
 //	  return (20 * vp9_dc_quant(qindex, qdelta, VPX_BITS_8)) >> reduction_fac;
 //	}
-func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize) int {
+func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize,
+	noiseEstimateEnabled bool, noiseLevel vp9NoiseLevel,
+) int {
 	reductionFac := 0
 	if bsize <= common.Block16x16 {
 		if bsize <= common.Block8x8 {
@@ -2348,6 +2350,9 @@ func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize) int {
 		} else {
 			reductionFac = 2
 		}
+	}
+	if noiseEstimateEnabled && noiseLevel == vp9NoiseLevelHigh {
+		reductionFac = 0
 	}
 	dcQ := int(vp9dec.VpxDcQuant(qindex, qdelta, vp9dec.BitDepth8))
 	return (20 * dcQ) >> reductionFac
