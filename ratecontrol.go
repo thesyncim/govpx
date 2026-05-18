@@ -284,6 +284,17 @@ type rateControlState struct {
 	pass2ActiveWorstQOverride int
 	pass2ActiveWorstQValid    bool
 
+	// thisKeyFrameForced mirrors libvpx's `cpi->this_key_frame_forced` for
+	// the active-best-quality clamp at vp8/encoder/onyx_if.c:3636-3642
+	// (pass-2 KEY_FRAME branch). When set, libvpx pins
+	// `active_best_quality` into the window [avg_frame_qindex >> 2,
+	// avg_frame_qindex * 7 / 8] so that a "forced" KF (one emitted because
+	// we hit the maximum key-frame interval, not because the codec chose
+	// it) keeps its quality close to the surrounding inter frames and does
+	// not pop. The encoder driver sets this flag before
+	// `selectQuantizerForFrameKind*`.
+	thisKeyFrameForced bool
+
 	// libvpx vp8/encoder/ratectrl.c one-pass GF/KF overspend bookkeeping.
 	kfOverspendBits        int
 	gfOverspendBits        int

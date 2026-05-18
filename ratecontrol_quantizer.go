@@ -119,6 +119,26 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 			// TODO: thread gfu_boost from twoPassState to pick the
 			// low-motion table when boost > 600.
 			activeBest = libvpxKeyFrameHighMotionMinQ[q]
+			// libvpx vp8/encoder/onyx_if.c:3636-3642 forced-key
+			// active-best clamp. When the current KF was emitted only
+			// because we hit the maximum key-frame interval (not
+			// scene-cut), libvpx pins active_best into
+			// [avg_frame_qindex >> 2, avg_frame_qindex * 7 / 8] to
+			// keep it close to the surrounding inter Q. govpx's
+			// pass-2 KF branch above always falls through to the
+			// high-motion lookup, so without this clamp a forced KF
+			// can sit at active_best=0 while the inter run is at
+			// avg_frame_qindex=40, causing the regulator to pick a
+			// Q lower than libvpx by ~10 qindices on every
+			// max-interval forced KF.
+			if pass2 && rc.thisKeyFrameForced && rc.avgFrameQuantizer > 0 {
+				avg := rc.avgFrameQuantizer
+				if activeBest > (avg*7)/8 {
+					activeBest = (avg * 7) / 8
+				} else if activeBest < (avg >> 2) {
+					activeBest = avg >> 2
+				}
+			}
 		case gfOrArf && rc.currentTemporalLayers <= 1:
 			if rc.framesSinceKeyframe > 1 && rc.avgFrameQuantizer < q {
 				q = rc.avgFrameQuantizer
@@ -128,6 +148,18 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 			}
 			q = clampQuantizerValue(q, 0, vp8MaxQIndex)
 			activeBest = libvpxGoldenFrameHighMotionMinQ[q]
+			// libvpx vp8/encoder/onyx_if.c:3677-3679 pass-2 CQ GF/ARF
+			// "slightly lower active best" lowering. After the
+			// gf_*_motion_minq lookup, pass-2 CQ refreshes drop
+			// active_best by a factor of 15/16 so the GF/ARF carries
+			// slightly more quality than the surrounding inter run.
+			// Gated on pass==2 in libvpx (the branch is inside the
+			// `cpi->pass == 2` arm at line 3667); govpx mirrors with
+			// pass2ActiveWorstQValid since that is govpx's pass-2
+			// surface.
+			if pass2 && rc.cqFloorActive() {
+				activeBest = activeBest * 15 / 16
+			}
 		default:
 			activeBest = libvpxInterMinQ[q]
 			if rc.cqFloorActive() && activeBest < rc.cqLevel {

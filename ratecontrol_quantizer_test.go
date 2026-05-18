@@ -727,3 +727,123 @@ func TestFrameSizeRecodeRetriesRegulatorUntilBoundsSatisfied(t *testing.T) {
 		t.Fatalf("recode correction factor = %.9f, want libvpx retry-updated factor near 1.091", recode.correctionFactor)
 	}
 }
+
+// TestActiveBestQuantizerForcedKeyFramePass2Clamp verifies the libvpx
+// onyx_if.c:3636-3642 forced-key sub-clamp. For a pass-2 KF emitted because
+// the maximum key-frame interval was hit (this_key_frame_forced=true),
+// active_best_quality must land in
+// [avg_frame_qindex >> 2, avg_frame_qindex * 7 / 8].
+func TestActiveBestQuantizerForcedKeyFramePass2Clamp(t *testing.T) {
+	// Case 1: kf_high_motion_minq[active_worst] would normally be below
+	// avg_frame_qindex >> 2; clamp lifts active_best to the lower bound.
+	rc := rateControlState{
+		mode:                      RateControlVBR,
+		minQuantizer:              0,
+		maxQuantizer:              127,
+		normalInterFrames:         151,
+		normalInterAvgQuantizer:   60,
+		pass2ActiveWorstQValid:    true,
+		pass2ActiveWorstQOverride: 60,
+		avgFrameQuantizer:         80,
+		thisKeyFrameForced:        true,
+	}
+	activeBest, _ := rc.libvpxActiveQuantizerBoundsForFrame(true, false, false)
+	// kf_high_motion_minq[60] == 6 from ratecontrol_tables.go, well below
+	// avg_frame_qindex>>2 == 80>>2 == 20. Expect lift to 20.
+	if activeBest != 20 {
+		t.Fatalf("forced-key pass2 KF active_best = %d, want lift to avg>>2 = 20", activeBest)
+	}
+
+	// Case 2: clamp upper bound. Synthesize a high active_worst that
+	// would push kf_high_motion_minq lookup above avg*7/8.
+	rc2 := rateControlState{
+		mode:                      RateControlVBR,
+		minQuantizer:              0,
+		maxQuantizer:              127,
+		normalInterFrames:         151,
+		normalInterAvgQuantizer:   100,
+		pass2ActiveWorstQValid:    true,
+		pass2ActiveWorstQOverride: 127,
+		avgFrameQuantizer:         24,
+		thisKeyFrameForced:        true,
+	}
+	activeBest2, _ := rc2.libvpxActiveQuantizerBoundsForFrame(true, false, false)
+	// kf_high_motion_minq[127] == 30 from ratecontrol_tables.go, above
+	// avg_frame_qindex*7/8 == 24*7/8 == 21. Expect clamp down to 21.
+	if activeBest2 != 21 {
+		t.Fatalf("forced-key pass2 KF active_best = %d, want clamp to avg*7/8 = 21", activeBest2)
+	}
+
+	// Case 3: forced-key flag NOT set; clamp must not fire. Confirms the
+	// clamp is gated correctly.
+	rc3 := rc
+	rc3.thisKeyFrameForced = false
+	activeBest3, _ := rc3.libvpxActiveQuantizerBoundsForFrame(true, false, false)
+	if activeBest3 != libvpxKeyFrameHighMotionMinQ[60] {
+		t.Fatalf("non-forced pass2 KF active_best = %d, want raw kf_high_motion_minq[60] = %d", activeBest3, libvpxKeyFrameHighMotionMinQ[60])
+	}
+
+	// Case 4: forced-key flag set but pass-2 surface inactive (one-pass);
+	// libvpx 3636-3642 is inside the `cpi->pass == 2` arm so the clamp
+	// must NOT fire in one-pass mode.
+	rc4 := rc
+	rc4.pass2ActiveWorstQValid = false
+	activeBest4, _ := rc4.libvpxActiveQuantizerBoundsForFrame(true, false, false)
+	// One-pass KF: libvpxActiveWorstQuantizerForFrame returns maxQuantizer
+	// (127), so kf_high_motion_minq[127] == 30 (unclamped).
+	if activeBest4 != libvpxKeyFrameHighMotionMinQ[127] {
+		t.Fatalf("forced-key one-pass KF active_best = %d, want raw kf_high_motion_minq[127] = %d (no clamp)", activeBest4, libvpxKeyFrameHighMotionMinQ[127])
+	}
+}
+
+// TestActiveBestQuantizerPass2CQGoldenFrame15Over16Lowering verifies the
+// libvpx onyx_if.c:3677-3679 "Constrained quality use slightly lower active
+// best" lowering. For pass-2 CQ GF/ARF frames, active_best is multiplied by
+// 15/16 after the gf_*_motion_minq lookup.
+func TestActiveBestQuantizerPass2CQGoldenFrame15Over16Lowering(t *testing.T) {
+	rc := rateControlState{
+		mode:                      RateControlCQ,
+		minQuantizer:              0,
+		maxQuantizer:              127,
+		cqLevel:                   30,
+		normalInterFrames:         151,
+		normalInterAvgQuantizer:   80,
+		pass2ActiveWorstQValid:    true,
+		pass2ActiveWorstQOverride: 80,
+		avgFrameQuantizer:         60,
+		framesSinceKeyframe:       10,
+	}
+	activeBest, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
+	// q is min(active_worst=80, avg_frame_qindex=60) = 60. cqFloor:
+	// q=60 already above cqLevel=30, so no lift. Then
+	// gf_high_motion_minq[60] = 23 from ratecontrol_tables.go (row
+	// 48-63: 17,17,18,18,19,19,20,20,21,21,22,22,23,23,24,24).
+	// 15/16 lowering: 23 * 15 / 16 = 21.
+	wantActiveBest := libvpxGoldenFrameHighMotionMinQ[60] * 15 / 16
+	if activeBest != wantActiveBest {
+		t.Fatalf("pass2 CQ GF active_best = %d, want gf_high_motion_minq[60]*15/16 = %d", activeBest, wantActiveBest)
+	}
+
+	// Without the CQ mode the 15/16 must not fire (VBR pass-2 GF).
+	rc2 := rc
+	rc2.mode = RateControlVBR
+	activeBest2, _ := rc2.libvpxActiveQuantizerBoundsForFrame(false, true, false)
+	if activeBest2 != libvpxGoldenFrameHighMotionMinQ[60] {
+		t.Fatalf("pass2 VBR GF active_best = %d, want raw gf_high_motion_minq[60] = %d", activeBest2, libvpxGoldenFrameHighMotionMinQ[60])
+	}
+
+	// One-pass CQ GF: libvpx 3677-3679 is inside the pass==2 arm; the
+	// 15/16 must not fire for one-pass.
+	rc3 := rc
+	rc3.pass2ActiveWorstQValid = false
+	rc3.pass2ActiveWorstQOverride = 0
+	activeBest3, _ := rc3.libvpxActiveQuantizerBoundsForFrame(false, true, false)
+	// One-pass inter: active_worst = maxQuantizer (127, since
+	// bufferOptimalBits is zero → unbuffered fallthrough). avg=60 <
+	// active_worst=127, so q=60. cqFloor lifts q to cqLevel only when
+	// q<cqLevel; q=60 > cqLevel=30 so no lift. gf_high_motion_minq[60] =
+	// 40, no 15/16 multiplier in one-pass.
+	if activeBest3 != libvpxGoldenFrameHighMotionMinQ[60] {
+		t.Fatalf("one-pass CQ GF active_best = %d, want raw gf_high_motion_minq[60] = %d (no 15/16)", activeBest3, libvpxGoldenFrameHighMotionMinQ[60])
+	}
+}

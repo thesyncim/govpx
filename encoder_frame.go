@@ -467,6 +467,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		goldenCBRRefresh = true
 		boostedReferenceFrame = boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	}
+	// libvpx vp8/encoder/onyx_if.c:3636-3642 pass-2 KF active-best clamp
+	// reads `cpi->this_key_frame_forced`. Push the encoder-tracked flag
+	// into the rate-control state before the bounds function so the clamp
+	// fires when a key-frame is emitted because we hit the maximum
+	// interval (not because the codec chose it).
+	e.rc.thisKeyFrameForced = e.thisKeyFrameForced
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 	// libvpx vp8/encoder/ratectrl.c vp8_regulate_q forces Q to
 	// `cpi->worst_quality` (the configured maxQuantizer) on the next frame
@@ -643,6 +649,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				e.rc.frameTargetBits = twoPassTargetBits
 				e.rc.frameTargetBits = e.rc.applyPass2CBRBufferAdjustment(e.rc.frameTargetBits, true)
 			}
+			e.rc.thisKeyFrameForced = e.thisKeyFrameForced
 			e.rc.selectQuantizerForFrameKindWithScreenContent(true, false, required, e.opts.ScreenContentMode)
 			// Same force_maxqp regulator gate as the primary path
 			// above: if the prior frame's overshoot drop set the flag,
