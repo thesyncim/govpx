@@ -217,6 +217,25 @@ func TestMvCostChargesComponentsAndHighPrecision(t *testing.T) {
 	}
 }
 
+func TestMvCostWithHPMirrorsLibvpxCostTableUseHP(t *testing.T) {
+	ctx := defaultNmvContextForEnc()
+	nearRef := vp9dec.MV{}
+	farRef := vp9dec.MV{Row: 64}
+	nearMv := vp9dec.MV{Row: 10}
+	farMv := vp9dec.MV{Row: 74}
+
+	want := MvCost(nearMv, nearRef, &ctx, true)
+	got := MvCostWithHP(farMv, farRef, &ctx, true)
+	if got != want {
+		t.Fatalf("MvCostWithHP with far ref = %d, want table cost %d",
+			got, want)
+	}
+	if writerCost := MvCost(farMv, farRef, &ctx, true); writerCost >= got {
+		t.Fatalf("writer-gated MvCost = %d, want below table cost %d",
+			writerCost, got)
+	}
+}
+
 func TestUseMvHpRefUsesEighthPelThreshold(t *testing.T) {
 	if !useMvHpRef(vp9dec.MV{Col: 63}) {
 		t.Fatal("useMvHpRef({Col:63}) = false, want true")

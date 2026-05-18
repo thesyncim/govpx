@@ -435,7 +435,8 @@ func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
 		// tuple without re-applying vp9_get_switchable_rate.)
 		// libvpx: vp9_pickmode.c:1539 pf_rate[filter] +=
 		//   vp9_get_switchable_rate(cpi, xd);
-		filterRate := rateY + vp9SwitchableInterpRateCost(&inter.selectFc,
+		filterRate := rateY + vp9SwitchableInterpRateCost(
+			vp9InterModeCostFrameContext(inter),
 			switchableCtx, filter)
 		// libvpx: vp9_pickmode.c:1540 cost = RDCOST(x->rdmult, x->rddiv,
 		//   pf_rate[filter], pf_dist[filter]);
@@ -1093,7 +1094,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// already won cheaply. govpx's vp9InterModeRateCost folds both the
 			// inter mode bit cost and MV bit cost, matching rate_mv+rate_mode.
 			if bestSet {
-				rateModeMv := vp9InterModeRateCost(&inter.selectFc,
+				rateModeMv := vp9InterModeRateCost(vp9InterModeCostFrameContext(inter),
 					interModeCtx, common.NewMv, gotMv, refMvOpt, inter.allowHP)
 				if vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
 					rateModeMv, 0) > best.score {
@@ -1474,10 +1475,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2405-2410 — finalize the
 				// (rate, dist) tuple by adding rate_mv + inter_mode_cost
 				// + ref_frame_cost + the chosen skip bit.
-				interModeBitCost := vp9InterModeRateCost(&inter.selectFc,
+				interModeBitCost := vp9InterModeRateCost(vp9InterModeCostFrameContext(inter),
 					interModeCtx, thisMode, mv, refMv, inter.allowHP)
-				interpFilterCost := vp9InterInterpFilterRateCost(inter,
-					&inter.selectFc, switchableCtx, filter)
+				interpFilterCost := 0
+				if vp9MvHasSubpel(mv) {
+					interpFilterCost = vp9InterInterpFilterRateCost(inter,
+						vp9InterModeCostFrameContext(inter), switchableCtx, filter)
+				}
 				rate := refRate + interModeBitCost + interpFilterCost + finalRate
 				if isSkip {
 					rate += skipBitOn
@@ -1579,11 +1583,14 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if !ok {
 					continue
 				}
-				rate := refRate +
-					vp9InterModeRateCost(&inter.selectFc, interModeCtx, thisMode,
-						mv, refMv, inter.allowHP) +
-					vp9InterInterpFilterRateCost(inter, &inter.selectFc,
-						switchableCtx, filter)
+				interModeBitCost := vp9InterModeRateCost(vp9InterModeCostFrameContext(inter),
+					interModeCtx, thisMode, mv, refMv, inter.allowHP)
+				interpFilterCost := 0
+				if vp9MvHasSubpel(mv) {
+					interpFilterCost = vp9InterInterpFilterRateCost(inter,
+						vp9InterModeCostFrameContext(inter), switchableCtx, filter)
+				}
+				rate := refRate + interModeBitCost + interpFilterCost
 				cand = vp9InterModeDecision{
 					refFrame:       refFrame,
 					secondRefFrame: vp9dec.NoRefFrame,
@@ -1900,7 +1907,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	// fc->y_mode_prob[1], and the nonrd intra fallback consumes that table
 	// directly at vp9_pickmode.c:2631.
 	var yModeCosts [common.IntraModes]int
-	encoder.VP9CostTokens(yModeCosts[:], inter.selectFc.YModeProb[1][:],
+	encoder.VP9CostTokens(yModeCosts[:], vp9InterModeCostFrameContext(inter).YModeProb[1][:],
 		common.IntraModeTree[:])
 
 	// libvpx vp9_pickmode.c:1232-1234 — ref_frame_cost[INTRA_FRAME] =

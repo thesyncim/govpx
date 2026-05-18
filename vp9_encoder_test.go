@@ -7120,6 +7120,51 @@ func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
 	}
 }
 
+func TestVP9SingleRefModeRateCostIncludesIntraInterBit(t *testing.T) {
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+
+	got := vp9SingleRefModeRateCost(&fc, nil, nil, vp9dec.SingleReference,
+		vp9dec.CompoundFrameRefs{}, vp9dec.LastFrame)
+	want := vp9IntraInterRateCost(&fc, nil, nil, 1) +
+		vp9SingleRefRateCost(&fc, nil, nil, vp9dec.LastFrame)
+	if got != want {
+		t.Fatalf("single-ref LAST rate = %d, want intra/inter + single-ref %d",
+			got, want)
+	}
+}
+
+func TestVP9NonrdModeCostFrameContextRefreshCadence(t *testing.T) {
+	var e VP9Encoder
+	e.sf.UseNonrdPickMode = 1
+
+	var frame1, frame2 vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&frame1)
+	vp9dec.ResetFrameContext(&frame2)
+	frame1.InterModeProbs[0][0] = 17
+	frame2.InterModeProbs[0][0] = 211
+
+	e.fc = frame1
+	e.frameIndex = 1
+	e.updateVP9NonrdModeCostFrameContext(false)
+	if got := e.vp9NonrdModeCostFrameContext().InterModeProbs[0][0]; got != 17 {
+		t.Fatalf("initial nonrd mode cost prob = %d, want 17", got)
+	}
+
+	e.fc = frame2
+	e.frameIndex = 2
+	e.updateVP9NonrdModeCostFrameContext(false)
+	if got := e.vp9NonrdModeCostFrameContext().InterModeProbs[0][0]; got != 17 {
+		t.Fatalf("frame 2 nonrd mode cost prob = %d, want cached 17", got)
+	}
+
+	e.frameIndex = 9
+	e.updateVP9NonrdModeCostFrameContext(false)
+	if got := e.vp9NonrdModeCostFrameContext().InterModeProbs[0][0]; got != 211 {
+		t.Fatalf("frame 9 nonrd mode cost prob = %d, want refreshed 211", got)
+	}
+}
+
 func TestVP9BlockSADNoLimitMatchesScalar(t *testing.T) {
 	const stride = 80
 	src := make([]byte, stride*80)

@@ -772,6 +772,13 @@ type VP9Encoder struct {
 	// Reset on every keyframe via ResetFrameContext.
 	frameContexts [common.FrameContexts]vp9dec.FrameContext
 	fc            vp9dec.FrameContext
+	// vp9NonrdModeCostFc mirrors the mode/MV/filter cost tables libvpx stores
+	// on VP9_COMP for the realtime nonrd path. vp9_initialize_rd_consts
+	// refreshes those tables on keyframes, on non-nonrd frames, and on
+	// current_video_frame&7 == 1; nonrd pickmode reuses the snapshot between
+	// refreshes.
+	vp9NonrdModeCostFc      vp9dec.FrameContext
+	vp9NonrdModeCostFcValid bool
 	// lastVP9HeaderFrameType feeds non-frame-parallel coefficient probability
 	// adaptation, which uses a distinct after-key update factor.
 	lastVP9HeaderFrameType common.FrameType
@@ -2768,6 +2775,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			srcFrameAltRef, refreshGolden, refreshAlt)
 	}
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
+	e.updateVP9NonrdModeCostFrameContext(isKey || header.IntraOnly)
+	nonrdModeCostFc := e.vp9NonrdModeCostFrameContext()
 
 	txMode := e.vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
 	baseMi := vp9dec.NeighborMi{
@@ -2835,6 +2844,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			refMask:          vp9InterReferenceMask(flags),
 			allowHP:          header.AllowHighPrecisionMv,
 			selectFc:         e.fc,
+			modeCostFc:       nonrdModeCostFc,
+			modeCostFcValid:  true,
 			referenceMode:    referenceMode,
 			compoundAllowed:  compoundAllowed,
 			refSignBias:      refSignBias,
@@ -3280,6 +3291,21 @@ func (e *VP9Encoder) commitVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader
 		return
 	}
 	e.frameContexts[idx] = e.fc
+}
+
+func (e *VP9Encoder) updateVP9NonrdModeCostFrameContext(frameIsIntra bool) {
+	if !e.vp9NonrdModeCostFcValid || e.sf.UseNonrdPickMode == 0 ||
+		frameIsIntra || e.frameIndex&0x07 == 1 {
+		e.vp9NonrdModeCostFc = e.fc
+		e.vp9NonrdModeCostFcValid = true
+	}
+}
+
+func (e *VP9Encoder) vp9NonrdModeCostFrameContext() vp9dec.FrameContext {
+	if e.vp9NonrdModeCostFcValid {
+		return e.vp9NonrdModeCostFc
+	}
+	return e.fc
 }
 
 func (e *VP9Encoder) adaptVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader,
@@ -5372,6 +5398,8 @@ type vp9InterEncodeState struct {
 	refMask          uint8
 	allowHP          bool
 	selectFc         vp9dec.FrameContext
+	modeCostFc       vp9dec.FrameContext
+	modeCostFcValid  bool
 	referenceMode    vp9dec.ReferenceMode
 	compoundAllowed  bool
 	refSignBias      [vp9dec.MaxRefFrames]uint8
@@ -5394,6 +5422,16 @@ func vp9InterReferenceMode(inter *vp9InterEncodeState) vp9dec.ReferenceMode {
 		return vp9dec.SingleReference
 	}
 	return inter.referenceMode
+}
+
+func vp9InterModeCostFrameContext(inter *vp9InterEncodeState) *vp9dec.FrameContext {
+	if inter == nil {
+		return nil
+	}
+	if inter.modeCostFcValid {
+		return &inter.modeCostFc
+	}
+	return &inter.selectFc
 }
 
 func vp9InterSignBias(inter *vp9InterEncodeState) [vp9dec.MaxRefFrames]uint8 {
@@ -13452,7 +13490,7 @@ func vp9MvBitCost(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, allowHP bool) int {
 	//   vp9_mv_bit_cost(..., MV_COST_WEIGHT)
 	//   ROUND_POWER_OF_TWO(mv_cost(diff) * 108, 7)
 	const mvCostWeight = 108
-	raw := encoder.MvCost(mv, ref, ctx, allowHP)
+	raw := encoder.MvCostWithHP(mv, ref, ctx, allowHP)
 	return (raw*mvCostWeight + 64) >> 7
 }
 
@@ -13492,7 +13530,8 @@ func vp9SingleRefModeRateCost(fc *vp9dec.FrameContext,
 	above, left *vp9dec.NeighborMi, frameMode vp9dec.ReferenceMode,
 	refs vp9dec.CompoundFrameRefs, refFrame int8,
 ) int {
-	return vp9ReferenceModeRateCost(fc, above, left, frameMode, refs, false) +
+	return vp9IntraInterRateCost(fc, above, left, 1) +
+		vp9ReferenceModeRateCost(fc, above, left, frameMode, refs, false) +
 		vp9SingleRefRateCost(fc, above, left, refFrame)
 }
 
