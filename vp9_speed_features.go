@@ -715,11 +715,8 @@ func (e *VP9Encoder) vp9PerFrameSpeedContext(args vp9PerFrameSpeedContextArgs) v
 		// when the resize *did not* realloc) is never observable here.
 		// libvpx: vp9_encoder.c:2153-2166.
 		externalResize: false,
-		// govpx's rate-control state does not yet surface cpi->last_frame_dropped
-		// to the configurator. Treat as false so libvpx's
-		// copy_partition_flag/max_copied_frame gates engage by default.
 		// libvpx: vp9_encoder.h cpi->last_frame_dropped.
-		lastFrameDropped: false,
+		lastFrameDropped: e.lastFrameDropped,
 		// govpx does not run libvpx's internal dynamic-resize loop, so
 		// cpi->resize_state == ORIG always.
 		resizeStateOrig: true,

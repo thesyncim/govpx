@@ -733,6 +733,16 @@ type VP9Encoder struct {
 	// vp9_speed_features.c:721,728,733,758.
 	maxCopiedFrame int
 
+	// lastFrameDropped mirrors VP9_COMP::last_frame_dropped. The realtime
+	// speed-feature cascade disables partition copy on the frame following a
+	// pre-encode or post-encode drop.
+	//
+	// libvpx:
+	//   - vp9_ratectrl.c:596,642 set after post/pre encode drops
+	//   - vp9_encoder.c:5529 clear after a coded frame
+	//   - vp9_speed_features.c:721-728 copy-partition gate
+	lastFrameDropped bool
+
 	// refFrameFlags mirrors cpi->ref_frame_flags, the bitmask of currently
 	// enabled reference frames. The speed-features dispatcher clears the
 	// VP9_GOLD_FLAG bit at speed 7 when SVC enables the long-term temporal
@@ -2556,6 +2566,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		dropReason, dropFrame := e.rc.testDropInterFrame()
 		if dropFrame {
 			e.rc.postDropFrame()
+			e.lastFrameDropped = true
 			e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
 			firstPassStats := e.twoPass.statsForFrame()
 			e.twoPass.finishFrame()
@@ -3120,6 +3131,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			header.RefreshFrameFlags, macroblocks,
 			e.vp9AltRefEnabledForRateControlStats())
 	}
+	e.lastFrameDropped = postDrop
 	if header.ShowFrame {
 		// libvpx vp9_twopass_postencode_update consumes the encoded bit
 		// count to drive vbr_bits_off_target. Feed it 0 on drops, the
