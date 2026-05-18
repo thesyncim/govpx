@@ -173,6 +173,7 @@ type vp9ChoosePartitioningArgs struct {
 	AvgFrameQIndexInter    int  // cpi->rc.avg_frame_qindex[INTER_FRAME]
 	BaseQIndex             int  // cm->base_qindex
 	ScreenContent          bool // cpi->oxcf.content == VP9E_CONTENT_SCREEN
+	ZeroTempSADSource      bool // x->zero_temp_sad_source
 	ShortCircuitLowTempVar int  // cpi->sf.short_circuit_low_temp_var
 	PartitionRefFrame      int8 // ref_frame_partition
 	PartitionMV            vp9dec.MV
@@ -247,15 +248,13 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 		a.FrameWidth, a.FrameHeight, a.IsKeyFrame, a.HighSourceSAD)
 
 	// libvpx: vp9_encodeframe.c:1283-1289 — scene_change_detected /
-	// force_64_split. govpx's use_source_sad path is not yet ported;
-	// approximate scene_change_detected with rc.high_source_sad only.
+	// force_64_split.
 	sceneChangeDetected := a.HighSourceSAD
 	// force_64_split also fires for screen content with motion; govpx
-	// doesn't yet plumb x->zero_temp_sad_source / compute_source_sad_onepass
-	// so we approximate at HighSourceSAD only. Screen content force_64
-	// fires through the same flag when scene change is detected.
+	// single-layer compute_source_sad_onepass is represented by UseSourceSAD
+	// plus a valid Last_Source feeding ZeroTempSADSource.
 	force64Split := sceneChangeDetected
-	if a.ScreenContent && a.UseSourceSAD {
+	if a.ScreenContent && a.UseSourceSAD && !a.ZeroTempSADSource {
 		force64Split = true
 	}
 

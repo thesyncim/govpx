@@ -235,6 +235,44 @@ func TestVP9UpdateContentStateSbFd(t *testing.T) {
 	e.vp9UpdateContentStateSbFd(len(e.contentStateSbFd), true)
 }
 
+// TestVP9AvgSourceSADStatsZeroTempSource pins libvpx avg_source_sad's
+// x->zero_temp_sad_source update: identical current and Last_Source 64x64
+// luma makes tmp_sad exactly zero.
+func TestVP9AvgSourceSADStatsZeroTempSource(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            6,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  1000,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	if e.sf.UseSourceSad == 0 {
+		t.Fatalf("UseSourceSad disabled at realtime speed 6")
+	}
+
+	src := newVP9YCbCrForTest(64, 64, 100, 128, 128)
+	e.vp9CommitLastSource(src, true, false)
+	stats, ok := e.vp9AvgSourceSADStats(src, 8, 0, 0)
+	if !ok {
+		t.Fatalf("vp9AvgSourceSADStats returned !ok")
+	}
+	if !stats.zeroTempSADSource {
+		t.Fatalf("zeroTempSADSource = false, want true for identical current/Last_Source")
+	}
+	if stats.contentState != vp9ContentStateLowSadLowSumdiff {
+		t.Fatalf("contentState = %v, want vp9ContentStateLowSadLowSumdiff", stats.contentState)
+	}
+	if got := e.vp9ReadContentStateSbFd(0); got != 1 {
+		t.Fatalf("contentStateSbFd[0] = %d, want 1 after low-SAD update", got)
+	}
+}
+
 // TestVP9ResetContentStateSbFd pins libvpx vp9_encoder.c:4079-4082: when the
 // caller invokes the reset hook (SVC/resize transition) every byte must be
 // zeroed regardless of prior content.

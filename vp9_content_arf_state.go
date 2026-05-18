@@ -223,25 +223,30 @@ func (e *VP9Encoder) vp9CommitLastSource(img *image.YCbCr, showFrame, dropped bo
 	e.lastSourceValid = true
 }
 
-// vp9AvgSourceSAD ports libvpx avg_source_sad (vp9_encodeframe.c:1201-1248)
-// for the 64x64 SB rooted at (miRow, miCol). The helper computes
-// x->content_state_sb and updates cpi->content_state_sb_fd exactly once per
-// SB through vp9SourceSADContentState below.
-func (e *VP9Encoder) vp9AvgSourceSAD(img *image.YCbCr, miCols, miRow, miCol int) (vp9ContentStateSB, bool) {
+type vp9AvgSourceSADResult struct {
+	contentState      vp9ContentStateSB
+	zeroTempSADSource bool
+}
+
+// vp9AvgSourceSADStats ports libvpx avg_source_sad
+// (vp9_encodeframe.c:1201-1248) for the 64x64 SB rooted at (miRow, miCol).
+// It computes x->content_state_sb, x->zero_temp_sad_source, and updates
+// cpi->content_state_sb_fd.
+func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol int) (vp9AvgSourceSADResult, bool) {
 	if e == nil || img == nil || e.sf.UseSourceSad == 0 || !e.lastSourceValid {
-		return vp9ContentStateInvalid, false
+		return vp9AvgSourceSADResult{}, false
 	}
 	if img.Rect.Dx() != e.opts.Width || img.Rect.Dy() != e.opts.Height ||
 		e.lastSource.Rect.Dx() != e.opts.Width ||
 		e.lastSource.Rect.Dy() != e.opts.Height {
-		return vp9ContentStateInvalid, false
+		return vp9AvgSourceSADResult{}, false
 	}
 	sbMiRow := miRow &^ 7
 	sbMiCol := miCol &^ 7
 	x0 := sbMiCol * 8
 	y0 := sbMiRow * 8
 	if x0 < 0 || y0 < 0 || x0+64 > e.opts.Width || y0+64 > e.opts.Height {
-		return vp9ContentStateInvalid, false
+		return vp9AvgSourceSADResult{}, false
 	}
 
 	tmpSad := vp9BlockSAD(img.Y, img.YStride, e.lastSource.Y,
@@ -274,7 +279,19 @@ func (e *VP9Encoder) vp9AvgSourceSAD(img *image.YCbCr, miCols, miRow, miCol int)
 
 	sbOffset := vp9SbOffsetForMi(sbMiRow, sbMiCol, miCols)
 	e.vp9UpdateContentStateSbFd(sbOffset, tmpSad < avgSourceSADThreshold2)
-	return contentState, true
+	return vp9AvgSourceSADResult{
+		contentState:      contentState,
+		zeroTempSADSource: tmpSad == 0,
+	}, true
+}
+
+// vp9AvgSourceSAD preserves the older content-state-only call surface.
+func (e *VP9Encoder) vp9AvgSourceSAD(img *image.YCbCr, miCols, miRow, miCol int) (vp9ContentStateSB, bool) {
+	stats, ok := e.vp9AvgSourceSADStats(img, miCols, miRow, miCol)
+	if !ok {
+		return vp9ContentStateInvalid, false
+	}
+	return stats.contentState, true
 }
 
 // vp9SourceSADContentState is the per-frame, per-SB cache for the
@@ -282,12 +299,20 @@ func (e *VP9Encoder) vp9AvgSourceSAD(img *image.YCbCr, miCols, miRow, miCol int)
 // computes it once before partitioning; every leaf mode pick in that SB reads
 // the same value.
 func (e *VP9Encoder) vp9SourceSADContentState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (vp9ContentStateSB, bool) {
-	if e == nil || img == nil || e.sf.UseSourceSad == 0 {
+	stats, ok := e.vp9SourceSADState(img, miRows, miCols, miRow, miCol)
+	if !ok {
 		return vp9ContentStateInvalid, false
+	}
+	return stats.contentState, true
+}
+
+func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (vp9AvgSourceSADResult, bool) {
+	if e == nil || img == nil || e.sf.UseSourceSad == 0 {
+		return vp9AvgSourceSADResult{}, false
 	}
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
 	if sbCount <= 0 {
-		return vp9ContentStateInvalid, false
+		return vp9AvgSourceSADResult{}, false
 	}
 	if cap(e.varPartSBContentStateValid) < sbCount {
 		e.varPartSBContentStateValid = make([]bool, sbCount)
@@ -303,22 +328,31 @@ func (e *VP9Encoder) vp9SourceSADContentState(img *image.YCbCr, miRows, miCols, 
 	} else if len(e.varPartSBContentState) < sbCount {
 		e.varPartSBContentState = e.varPartSBContentState[:sbCount]
 	}
+	if cap(e.varPartSBZeroTempSADSource) < sbCount {
+		e.varPartSBZeroTempSADSource = make([]bool, sbCount)
+	} else if len(e.varPartSBZeroTempSADSource) < sbCount {
+		e.varPartSBZeroTempSADSource = e.varPartSBZeroTempSADSource[:sbCount]
+	}
 	sbMiRow := miRow &^ 7
 	sbMiCol := miCol &^ 7
 	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
 	if idx < 0 || idx >= sbCount {
-		return vp9ContentStateInvalid, false
+		return vp9AvgSourceSADResult{}, false
 	}
 	if e.varPartSBContentStateValid[idx] {
-		return e.varPartSBContentState[idx], true
+		return vp9AvgSourceSADResult{
+			contentState:      e.varPartSBContentState[idx],
+			zeroTempSADSource: e.varPartSBZeroTempSADSource[idx],
+		}, true
 	}
-	contentState, ok := e.vp9AvgSourceSAD(img, miCols, sbMiRow, sbMiCol)
+	stats, ok := e.vp9AvgSourceSADStats(img, miCols, sbMiRow, sbMiCol)
 	if !ok {
-		return vp9ContentStateInvalid, false
+		return vp9AvgSourceSADResult{}, false
 	}
-	e.varPartSBContentState[idx] = contentState
+	e.varPartSBContentState[idx] = stats.contentState
+	e.varPartSBZeroTempSADSource[idx] = stats.zeroTempSADSource
 	e.varPartSBContentStateValid[idx] = true
-	return contentState, true
+	return stats, true
 }
 
 // vp9EnsureArfFrameUsage allocates cpi->count_arf_frame_usage and

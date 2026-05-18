@@ -127,6 +127,54 @@ func TestVP9ChoosePartitioningInterFlatProducesLeavesAtBlock64x64(t *testing.T) 
 	}
 }
 
+// TestVP9ChoosePartitioningScreenForceSplitHonorsZeroTempSADSource pins the
+// libvpx screen-content force_64_split gate: screen content with source SAD
+// enabled force-splits only when x->zero_temp_sad_source is false.
+func TestVP9ChoosePartitioningScreenForceSplitHonorsZeroTempSADSource(t *testing.T) {
+	const miRows, miCols = 8, 8
+	pick := func(zeroTemp bool) common.BlockSize {
+		t.Helper()
+		grid := make([]vp9dec.NeighborMi, miRows*miCols)
+		src := make([]uint8, 64*64)
+		dst := make([]uint8, 64*64)
+		for i := range src {
+			src[i] = 100
+			dst[i] = 100
+		}
+		rc := vp9ChoosePartitioning(vp9ChoosePartitioningArgs{
+			MiGrid:                 grid,
+			MiRows:                 miRows,
+			MiCols:                 miCols,
+			MiRow:                  0,
+			MiCol:                  0,
+			FrameWidth:             64,
+			FrameHeight:            64,
+			PlaneSrc:               src,
+			SrcStride:              64,
+			PlaneDst:               dst,
+			DstStride:              64,
+			IsKeyFrame:             false,
+			Speed:                  8,
+			VariancePartThreshMult: 1,
+			BaseQIndex:             37,
+			ScreenContent:          true,
+			UseSourceSAD:           true,
+			ZeroTempSADSource:      zeroTemp,
+		})
+		if rc != 0 {
+			t.Fatalf("vp9ChoosePartitioning rc = %d, want 0", rc)
+		}
+		return grid[0].SbType
+	}
+
+	if got := pick(true); got != common.Block64x64 {
+		t.Fatalf("zero-temp source SAD SbType = %v, want Block64x64", got)
+	}
+	if got := pick(false); got == common.Block64x64 {
+		t.Fatalf("moving screen source SbType = Block64x64, want split")
+	}
+}
+
 // TestVP9ChoosePartitioningInterHighVarianceForcesSplit pins the
 // force-split[0] path: a source with low-frequency block content
 // (uniform halves) against a flat predictor produces large per-8x8-avg

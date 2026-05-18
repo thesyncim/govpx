@@ -854,6 +854,7 @@ type VP9Encoder struct {
 	varPartSBVarLow            [][25]uint8
 	varPartSBContentState      []vp9ContentStateSB
 	varPartSBContentStateValid []bool
+	varPartSBZeroTempSADSource []bool
 
 	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
 	// scratches backing the border-padded LAST_FRAME and source plane
@@ -3796,6 +3797,9 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	if cap(e.varPartSBContentState) >= sbCount {
 		e.varPartSBContentState = e.varPartSBContentState[:sbCount]
 	}
+	if cap(e.varPartSBZeroTempSADSource) >= sbCount {
+		e.varPartSBZeroTempSADSource = e.varPartSBZeroTempSADSource[:sbCount]
+	}
 	e.varPartFrameValid = false
 	// Invalidate the per-frame border-padded source mirror so the next
 	// choose_partitioning inter call rebuilds it from the current frame's
@@ -6582,9 +6586,10 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		args.AvgFrameQIndexInter = int(e.rc.avgFrameQIndexInter)
 		args.UseSourceSAD = e.sf.UseSourceSad != 0
 		args.ScreenContent = e.opts.ScreenContentMode == int8(VP9ScreenContentScreen)
-		if contentState, ok := e.vp9SourceSADContentState(inter.img,
+		if sadState, ok := e.vp9SourceSADState(inter.img,
 			miRows, miCols, sbMiRow, sbMiCol); ok {
-			args.ContentState = contentState
+			args.ContentState = sadState.contentState
+			args.ZeroTempSADSource = sadState.zeroTempSADSource
 		}
 		// Inter predictor. libvpx vp9_encodeframe.c:1450-1497:
 		//   if (cpi->oxcf.speed >= 8 && !low_res &&
