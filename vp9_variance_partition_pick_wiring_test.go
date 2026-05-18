@@ -215,6 +215,48 @@ func TestVP9EnsureSBPartitionChosenUsesCyclicRefreshSegmentQ(t *testing.T) {
 	}
 }
 
+func TestVP9EnsureSBPartitionChosenThreadsHighSourceSAD(t *testing.T) {
+	const width, height = 64, 64
+	const miRows, miCols = 8, 8
+	pick := func(highSourceSAD bool) common.BlockSize {
+		t.Helper()
+		e, err := NewVP9Encoder(VP9EncoderOptions{
+			Width:   width,
+			Height:  height,
+			CpuUsed: 8,
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Encoder: %v", err)
+		}
+		defer e.Close()
+		e.sf.VariancePartThreshMult = 1
+		e.rc.highSourceSAD = highSourceSAD
+
+		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
+
+		var dq vp9dec.DequantTables
+		inter := &vp9InterEncodeState{
+			img:        src,
+			dq:         &dq,
+			refMask:    1 << uint(vp9dec.LastFrame),
+			baseQindex: 37,
+		}
+		if !e.vp9EnsureSBPartitionChosen(miRows, miCols, 0, 0, nil, inter) {
+			t.Fatal("vp9EnsureSBPartitionChosen returned false")
+		}
+		return e.varPartGrid[0].SbType
+	}
+
+	if got := pick(false); got != common.Block64x64 {
+		t.Fatalf("plain partition = %v, want Block64x64", got)
+	}
+	if got := pick(true); got == common.Block64x64 {
+		t.Fatalf("high-source-SAD partition = Block64x64, want force split")
+	}
+}
+
 func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	const width, height = 160, 96
 	const miRows, miCols = 12, 20

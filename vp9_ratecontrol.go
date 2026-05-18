@@ -104,6 +104,17 @@ type vp9RateControlState struct {
 	// vp9_ratectrl.c:1995 assignment.
 	lastFrameIsSrcAltRef bool
 
+	// avgSourceSAD / highSourceSAD / highNumBlocksWithMotion mirror the
+	// one-pass scene-detection state consumed by realtime partitioning,
+	// cyclic refresh, and drop gating.
+	//
+	// libvpx: vp9_ratectrl.h:178 avg_source_sad,
+	// vp9_ratectrl.h:181 high_num_blocks_with_motion,
+	// vp9_ratectrl.h:184 high_source_sad.
+	avgSourceSAD            [vp9MaxLookaheadFrames]uint64
+	highSourceSAD           bool
+	highNumBlocksWithMotion bool
+
 	afRatioOnePassVBR   uint8
 	baselineGFInterval  uint8
 	facActiveWorstInter uint16

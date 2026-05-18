@@ -1801,7 +1801,7 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		FrameIsIntraOnly:  false,
 		TemporalLayerID:   0,
 		ResizePending:     false,
-		HighSourceSad:     false,
+		HighSourceSad:     e.rc.highSourceSAD,
 		ScreenContent:     screen,
 		NoiseLevelMedium:  noiseMedium,
 		BaseQindex:        int(header.Quant.BaseQindex),
@@ -2563,8 +2563,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		refreshFlags)
 	e.rc.preEncodeFrame(showFrame)
 	e.vp9TwoPassFrameTarget = 0
+	e.vp9SceneDetectionOnePass(img, showFrame, miRows, miCols)
 	e.vp9UpdateNoiseEstimate(img, miRows, miCols, isKey || intraOnly)
-	if !isKey && !intraOnly && showFrame {
+	if !isKey && !intraOnly && showFrame && !e.rc.highSourceSAD {
 		dropReason, dropFrame := e.rc.testDropInterFrame()
 		if dropFrame {
 			e.rc.postDropFrame()
@@ -6720,10 +6721,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 				}
 			}
 		}
-		// govpx doesn't yet plumb cpi->rc.high_source_sad through the
-		// realtime path; it defaults to false here. When the
-		// scene-change detector is added at the rc level, set
-		// args.HighSourceSAD here.
+		args.HighSourceSAD = e.rc.highSourceSAD
 		// libvpx ref: vp9_encodeframe.c:1284 (force_64_split feeder).
 	default:
 		return false
