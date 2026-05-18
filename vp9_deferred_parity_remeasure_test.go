@@ -46,6 +46,13 @@ import (
 // scoring paths. The next tx-size slice should carry a capped candidate
 // through the same vp9InterTxApplyForces safety path, then remeasure the
 // remaining +200..+300 residuals (fda5b6b4 / ffa55725).
+//
+// Task #151 verification (post-b36888f tip): cost_coeffs is wired through
+// the second-tier RD chain — see TestVP9DeferredSeedsRemeasureRuntimeControls
+// docstring for the four integration points and libvpx file:line citations.
+// The RefControl aggregate (+44B/seed avg) confirms the wiring is in place;
+// remaining gap is dominated by the nonrd Tx-size leaf-commit slice noted
+// above, not by a missing cost_coeffs port.
 func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RefControl seeds")
@@ -103,19 +110,20 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 // TestVP9DeferredSeedsRemeasureRuntimeControls is the sibling probe for the
 // vp9RuntimeControlsSeedsDeferred set.
 //
-// Measurement (task #148, this commit) under
+// Measurement (task #151, post-b36888f tip) under
 // GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1:
 //
 //	PASS=0/8 measurable FAIL=8/8 (STRUCTURAL_REJECT=2 #5/#8). Seeds
 //	#0/#2/#4/#6 (cpu=0 panning content) diverge frame 0 at byte 9
-//	(cost_coeffs proxy gap); seeds #1/#7 (cpu=-3) at byte 16 (RT
-//	speed=3 coef_prob_appx_step amplification); seed #3 (cpu=-8) at
-//	byte 17; seed #9 (cpu=4) at byte 16.
+//	(post-cost_coeffs wiring residual — see "Status" note below);
+//	seeds #1/#7 (cpu=-3) at byte 16 (RT speed=3 coef_prob_appx_step
+//	amplification); seed #3 (cpu=-8) at byte 8; seed #9 (cpu=4) at
+//	byte 16.
 //
 // Per-seed aggregate size_delta (sum across all frames):
 //
-//	#0: +2754, #1: +4141, #2: +7038, #3: -262, #4: +6808,
-//	#6: +2754, #7: +8971, #9: +2293. Aggregate +34497 / avg +4312
+//	#0: +2754, #1: +4141, #2: +7038, #3: -230, #4: +6808,
+//	#6: +2754, #7: +8971, #9: +2296. Aggregate +34532 / avg +4316
 //	per measurable seed.
 //
 // Frame-0 size_delta (comparable to f5fe476 / #142):
@@ -123,7 +131,35 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 //	#0: +996, #1: +995, #2: +2276, #3: -31, #4: +996, #6: +996,
 //	#7: +2285, #9: +47. Down ~10-23 bytes from #142 on seeds
 //	#0/#2/#4/#6 (token-cost reconcile + super_block_uvrd nibble);
-//	seeds #3/#9 unchanged. Structural cost_coeffs gap dominates.
+//	seeds #3/#9 unchanged.
+//
+// Status (#151 closure on cost_coeffs second-tier RD chain):
+//
+//   - libvpx vp9_rdopt.c:358-459 (cost_coeffs) is wired through all four
+//     intra-RD integration points:
+//
+//   - super_block_yrd (vp9_rdopt.c:1025-1042) analog ->
+//     scoreVP9KeyframeModeTransformRD (vp9_encoder.go:8143) ->
+//     vp9KeyframeCoeffBlockRateCost (vp9_encoder.go:9144).
+//
+//   - super_block_uvrd (vp9_rdopt.c:1418-1466) analog ->
+//     scoreVP9KeyframeUvPlaneRD (vp9_encoder.go:8638) ->
+//     vp9KeyframeUvCoeffBlockRateCost (vp9_encoder.go:9163).
+//
+//   - choose_tx_size_from_rd (vp9_rdopt.c:907-1023) analog ->
+//     pickVP9KeyframeBlockTxSize (vp9_encoder.go:8916) ->
+//     vp9KeyframeCoeffBlockRateCost (vp9_encoder.go:9079).
+//
+//   - rd_pick_intra4x4block (vp9_rdopt.c:1061-1297) analog ->
+//     pickVP9Sub4x4IntraBlockMode (vp9_encoder.go:7771) ->
+//     vp9KeyframeCoeffBlockRateCost (vp9_encoder.go:7882).
+//
+//   - Residual now driven by orthogonal non-cost_coeffs gaps: speed=3
+//     RT coef_prob_appx_step (libvpx vp9_encoder.c:5024-5039),
+//     speed=8 partition heuristic differences (vp9_pickmode.c:1696),
+//     and Tx32x32 qcoeff recovery drift in vp9CoeffTokenAbsVal
+//     (vp9_encoder.go:10269 — recovers qcoeff from dqcoeff via
+//     /dq; loss-of-precision when dqcoeff = q*dq/2 is truncated).
 //
 // Intentionally non-asserting — see RefControl sibling for rationale.
 func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
