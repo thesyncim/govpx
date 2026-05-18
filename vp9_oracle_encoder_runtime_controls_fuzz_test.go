@@ -402,6 +402,73 @@ import (
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing; this is the explicit handoff list for follow-up work.
+//
+// Task #166 negative finding (nonrd_pick_sb_modes / speed=3 RT pipeline
+// audit for seeds #0/#2/#4/#6 first_byte_diff=9):
+//
+//	Hypothesis: govpx's nonrd_pick_sb_modes (libvpx vp9_encodeframe.c:
+//	4386-4453) + the partition-NONE/SPLIT compare body at
+//	vp9_encodeframe.c:4675-4746 differ from libvpx, causing the per-leaf
+//	RD picks to diverge → different TxTotals + coef counts → byte-9
+//	(filter_level) drift on the four RuntimeControls seeds #0/#2/#4/#6.
+//
+//	Verdict: NEGATIVE. The nonrd_pick_sb_modes / nonrd_pick_partition
+//	bodies do NOT execute on these four seeds, so no port of that code
+//	path can move their first_byte_diff or size_delta. Two-step proof:
+//
+//	  (1) The four cited seeds materialise as cpu_used=0 RT
+//	      (vp9OracleRuntimeFuzzCaseFromBytes resolves cpuPool[byte%4]=
+//	      cpuPool[0]=0 for #0/#2/#4/#6). Verified by
+//	      TestVP9DeferredSeedsRemeasureRuntimeControls output:
+//	      runtimectrl-#0-af5570f5 cpu=0,
+//	      runtimectrl-#2-967aad53 cpu=0,
+//	      runtimectrl-#4-59794cac cpu=0,
+//	      runtimectrl-#6-5feceb66 cpu=0 (alias of #0 via short-byte
+//	      cursor wrap).
+//
+//	  (2) libvpx vp9_speed_features.c:585-601 gates
+//	      sf->use_nonrd_pick_mode = 1 behind `if (speed >= 5)`. At
+//	      speed=abs(cpu_used)=0 (and at speed=3, the value the task
+//	      description cites for these seeds) use_nonrd_pick_mode stays
+//	      at 0 (the rt-mode init default at vp9_speed_features.c:444).
+//	      The dispatcher at vp9_encodeframe.c:5474-5477 then routes to
+//	      encode_rd_sb_row -> rd_pick_partition -> rd_pick_sb_modes ->
+//	      vp9_rd_pick_intra_mode_sb (vp9_encodeframe.c:1972-2104,
+//	      vp9_rdopt.c:3221-3271) — NOT nonrd_pick_sb_modes /
+//	      nonrd_pick_partition. govpx mirrors the gate verbatim:
+//	      vp9_speed_features.go:1677 sets UseNonrdPickMode = 1 only
+//	      inside the speed >= 5 block, and the keyframe leaf-RD path
+//	      at vp9_encoder.go:7137-7177 dispatches via
+//	      useVP9KeyframeNonRDIntraMode (which requires
+//	      sf.UseNonrdPickMode != 0) before any nonrd code is reached.
+//
+//	Empirical confirmation: TestVP9DeferredSeedsRemeasureRuntimeControls
+//	with GOVPX_VP9_NONRD_PICK_PARTITION=1 GOVPX_VP9_LIBVPX_CHOOSE_PARTI-
+//	TIONING=1 on this branch reproduces the exact same per-seed
+//	(got_len, want_len, first_byte_diff, size_delta) for seeds
+//	#0/#2/#4/#6 as the default-gate run:
+//
+//	  #0 af5570f5  got=3722 want=2726 first_byte_diff=9 size_delta=-951
+//	  #2 967aad53  got=7588 want=5313 first_byte_diff=9 size_delta=+1902
+//	  #4 59794cac  got=3722 want=2726 first_byte_diff=9 size_delta=-3003
+//	  #6 5feceb66  got=3722 want=2726 first_byte_diff=9 size_delta=-951
+//
+//	(The two gates flip seeds #3 +5462 -> -230 and #8 +4185 -> +172,
+//	confirming the gated code DOES execute for the speed >= 5 seeds and
+//	the gate plumbing is healthy — it just doesn't reach #0/#2/#4/#6.)
+//
+//	Root cause for these four seeds remains the RD-path cost_coeffs
+//	rate proxy at vp9_rdopt.c:358-459 already cited under seed #0's
+//	per-seed entry above (vp9KeyframeCoeffBlockRateCostQ vs libvpx's
+//	pareto8 token-cost walk). byte-9 = filter_level (LoopfilterParams.
+//	FilterLevel, 6-bit literal at offset 9 in the keyframe
+//	uncompressed header) is a downstream artifact of the per-leaf
+//	(mode, tx_size) picks at vp9_rdopt.c:907-1023 choose_tx_size_from_rd
+//	feeding into vp9PickFilterLevel (libvpx vp9_picklpf.c) via the
+//	reconstructed Y-plane SSE picker.
+//
+//	Handoff: same cost_coeffs rate-proxy port already cited under seed
+//	#0; nonrd_pick_sb_modes is NOT a closure path for these four seeds.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 2, 1, 0, 0},
