@@ -116,11 +116,30 @@ func (e *VP8Encoder) forceLFDeltaUpdates() bool {
 // later, so the force bit is carried by the lookahead entry rather than by
 // the next packet emitted from the queue.
 //
-// The same vp8_change_config path re-runs setup_features. If ROI
-// segmentation is currently enabled, libvpx marks both the segmentation map
-// and feature data for update on that next frame.
+// The same vp8_change_config path re-runs setup_features
+// (vp8/encoder/onyx_if.c:1558), which in turn memsets
+// xd->last_ref_lf_deltas and xd->last_mode_lf_deltas to zero
+// (vp8/encoder/onyx_if.c:396-399):
+//
+//	memset(cpi->mb.e_mbd.last_ref_lf_deltas, 0,
+//	       sizeof(cpi->mb.e_mbd.ref_lf_deltas));
+//	memset(cpi->mb.e_mbd.last_mode_lf_deltas, 0,
+//	       sizeof(cpi->mb.e_mbd.mode_lf_deltas));
+//
+// Mirror that reset here so the next pack_lf_deltas comparison in
+// computeLFDeltaUpdateBit sees the post-change_config baseline (all zero)
+// rather than the deltas signaled by the previous frame. Without this
+// reset, on a runtime-control transition we either suppress send_update
+// where libvpx emits it or emit deltas where libvpx writes zero updates,
+// diverging from libvpx byte-for-byte on the inter frame following the
+// control call (gap D on the noise:0 transition seed).
+//
+// If ROI segmentation is currently enabled, libvpx also marks both the
+// segmentation map and feature data for update on that next frame.
 func (e *VP8Encoder) forceNextLFDeltaUpdate() {
 	e.pendingLFDeltaUpdate = true
+	e.lastSignaledRefLFDeltas = [vp8common.MaxRefLFDeltas]int8{}
+	e.lastSignaledModeLFDeltas = [vp8common.MaxModeLFDeltas]int8{}
 	if e.roi.enabled {
 		e.roi.updateMap = true
 		e.roi.updateData = true
