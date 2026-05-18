@@ -246,18 +246,64 @@ import (
 //     for frame 2 and the per-frame action loop picks r.pick(4)==2 ->
 //     EncodeForceGoldenFrame for every inter frame. Frame 2 stacks
 //     EncodeNoUpdateLast | EncodeForceGoldenFrame | EncodeForceKeyFrame
-//     (cumulative flags 0x221). After this commit dropped the
+//     (cumulative flags 0x221). After commit 0fba532 dropped the
 //     vp9_encoder.go:2399 `isKey && NoUpdate*` rejection (libvpx
 //     vp9_encoder.c:5444 / 856-858 force refresh_*_frame=1 on KEY_FRAME
 //     regardless of ext_refresh_*, so NoUpdate hints are silently
 //     ignored, not errored), seed 0x32 frames 0 and 2 (the two KEY_FRAMES)
-//     match byte-for-byte; inter frames 1, 3-7 still diverge at byte 4
-//     each because cpu=-8 RT speed=8 hits the compressed-header
-//     coef-update writer gap documented under seed #3
-//     (vp9_bitstream.c:826-973 write_compressed_header vs govpx's
-//     WriteCompressedHeaderFromCounts subset under
-//     SPEED_FEATURES.coef_prob_appx_step=4 fast path). Same handoff as
-//     #3; do NOT close this entry until #3 closes.
+//     match byte-for-byte. Inter frames 1, 3-5, 7 still diverge.
+//
+//     Task #156 byte-4 root-cause audit (vp9_seed8_byte4_diag_test.go):
+//
+//     The proximate divergence is bit 33 of the uncompressed header --
+//     write_interp_filter (libvpx vp9_bitstream.c:855-862): libvpx emits
+//     1 (cm->interp_filter == SWITCHABLE) while govpx emits 0 (filter
+//     demoted to EIGHTTAP). The demotion is performed by
+//     fix_interp_filter (vp9_bitstream.c:864-885 / vp9_encoder.go:4541
+//     vp9FixInterpFilter) which is a verbatim port; the divergent input
+//     is the per-frame switchable_interp histogram supplied by
+//     collectVP9EncodeFrameCounts (vp9_encoder.go:2820).
+//
+//     Per-frame counts.SwitchableInterp totals captured by
+//     TestVP9Seed8FilterHistogram for this seed:
+//       frame=1 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED (libvpx c>=2)
+//       frame=3 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED
+//       frame=4 c=1 totals=[E=1, S=0, H=0]  -- DEMOTED
+//       frame=5 c=1 totals=[E=1, S=0, H=0]  -- DEMOTED
+//       frame=6 c=2 totals=[E=1, S=1, H=0]  -- kept SWITCHABLE
+//       frame=7 c=2 totals=[E=4, S=35, H=0] -- kept SWITCHABLE
+//
+//     Frame 1 fires switchable_interp count on only 2 inter blocks
+//     (vs libvpx, where the per-block filter sweep at vp9_pickmode.c:
+//     2318-2330 produces c>=2 -- minimum {EIGHTTAP, EIGHTTAP_SMOOTH}
+//     coverage from the LAST+NEWMV+subpel search_filter_ref path at
+//     vp9_pickmode.c:1518-1568). This points at the per-block mode +
+//     filter selection in the realtime nonrd picker
+//     (vp9_pick_inter_mode_nonrd.go pickVP9NonrdInterMode) under-firing
+//     vs libvpx's vp9_pick_inter_mode (vp9_pickmode.c:1731-2080), not at
+//     the uncompressed-header writer.
+//
+//     Negative finding: govpx's writeUncompressedHeaderInter +
+//     writeInterpFilter + vp9FixInterpFilter trio is a verbatim port of
+//     libvpx (internal/vp9/encoder/header_writer.go:114-157,195-215 and
+//     vp9_encoder.go:4541-4606). The first_byte_diff=4 result is not
+//     fixable by any header-writer edit; closing seed #8 requires
+//     porting the nonrd pickmode per-block filter pipeline so the
+//     per-frame switchable_interp histogram matches libvpx's. This is
+//     the SAME encoder-body port handoff cited under seed #3 case (b)
+//     above. Do NOT close this entry until that port lands.
+//
+//     The previous note attributed byte 4 to the compressed-header
+//     coef-update walk (vp9_bitstream.c:826-973). That citation is
+//     wrong -- byte 4 is uncompressed-header bit 33
+//     (write_interp_filter). The compressed-header coef-update walk
+//     is part of the residual size_delta but not the proximate cause
+//     of first_byte_diff=4: it lives further into the bitstream,
+//     after the rest of the uncompressed header (loopfilter,
+//     quantization, segmentation, tile_info) and the 16-bit
+//     FirstPartitionSize literal at the tail of
+//     writeUncompressedHeaderInter (libvpx vp9_bitstream.c:1457 /
+//     internal/vp9/encoder/header_writer.go:155).
 //
 //   - {0x37} (single ASCII '7', from testdata/fuzz/
 //     FuzzVP9OracleEncoderRuntimeControls/regression_vp9_runtime_controls_-

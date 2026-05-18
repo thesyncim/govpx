@@ -4274,13 +4274,14 @@ func (e *VP9Encoder) vp9SelectTxModeSpeedFeatures(isKey, intraOnly bool) (useNon
 // (e.g. RT speed>=4 — vp9_speed_features.c:568) libvpx leaves
 // cm->tx_mode untouched, so this function must too.
 //
-// The non-TxModeSelect branch is a govpx-specific (and inverted vs
-// libvpx) wider pass that demotes fixed tx_modes based on
-// counts.TxTotals. It is preserved here because downstream consumers
-// (including the strict byte-parity matrix) are pinned to the existing
-// output, and the libvpx-faithful gate at vp9_encodeframe.c:5911 only
-// fires when cm->tx_mode == TX_MODE_SELECT — every other tx_mode
-// bypasses the demotion entirely in libvpx.
+// libvpx vp9_encodeframe.c:5911 inner gate `cm->tx_mode == TX_MODE_SELECT`
+// means non-TxModeSelect frames bypass the demotion entirely; the
+// returned tx_mode is whatever select_tx_mode emitted at
+// vp9_encodeframe.c:5650 (lossless -> ONLY_4X4, USE_LARGESTALL ->
+// ALLOW_32X32, USE_FULL_RD/USE_TX_8X8 -> TX_MODE_SELECT, KEY_FRAME &&
+// use_nonrd_pick_mode -> ALLOW_16X16). This function reflects that gate
+// strictly: callers receive the unmodified txMode for every mode that
+// isn't TX_MODE_SELECT.
 func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 	frameParameterUpdate bool, counts *encoder.FrameCounts,
 ) common.TxMode {
@@ -4290,86 +4291,78 @@ func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 	if counts == nil {
 		return txMode
 	}
-	if txMode == common.TxModeSelect {
-		// libvpx vp9_encodeframe.c:5846 — the entire post-encode
-		// demotion block (including the TX_MODE_SELECT ladder at
-		// :5911-5944) is gated on cpi->sf.frame_parameter_update.
-		// vp9_speed_features.c:568 zeroes it at RT speed >= 4, and
-		// vp9_speed_features.c:929 sets it to 1 elsewhere.
-		if !frameParameterUpdate {
-			return txMode
-		}
-		// Verbatim port of libvpx vp9/encoder/vp9_encodeframe.c:5911-5944.
-		// Bucket the partition-context tx counts across the
-		// TX_SIZE_CONTEXTS == 2 contexts (vp9_entropymode.h:25), summing
-		// counts->tx.p32x32[i][T] + counts->tx.p16x16[i][T] +
-		// counts->tx.p8x8[i][T] into the six trackers libvpx uses to
-		// decide whether to collapse TX_MODE_SELECT into a fixed mode.
-		var count4x4, count8x8Lp, count8x8p8x8 uint32
-		var count16x16p16x16, count16x16Lp, count32x32 uint32
-		for i := range vp9dec.TxSizeContexts {
-			// libvpx vp9_encodeframe.c:5918-5920.
-			count4x4 += counts.TxMode.P32x32[i][common.Tx4x4]
-			count4x4 += counts.TxMode.P16x16[i][common.Tx4x4]
-			count4x4 += counts.TxMode.P8x8[i][common.Tx4x4]
-
-			// libvpx vp9_encodeframe.c:5922-5924.
-			count8x8Lp += counts.TxMode.P32x32[i][common.Tx8x8]
-			count8x8Lp += counts.TxMode.P16x16[i][common.Tx8x8]
-			count8x8p8x8 += counts.TxMode.P8x8[i][common.Tx8x8]
-
-			// libvpx vp9_encodeframe.c:5926-5928.
-			count16x16p16x16 += counts.TxMode.P16x16[i][common.Tx16x16]
-			count16x16Lp += counts.TxMode.P32x32[i][common.Tx16x16]
-			count32x32 += counts.TxMode.P32x32[i][common.Tx32x32]
-		}
-		// libvpx vp9_encodeframe.c:5930-5933 — ALLOW_8X8 demotion: no
-		// 4x4 anywhere, and no count larger than 8x8 anywhere. The
-		// matching reset_skip_tx_size(cm, TX_8X8) at libvpx
-		// vp9_encodeframe.c:5933 (defined at :4310-4321) is realised by
-		// the caller's baseMi.TxSize update + second counts pass.
-		if count4x4 == 0 && count16x16Lp == 0 && count16x16p16x16 == 0 &&
-			count32x32 == 0 {
-			return common.Allow8x8
-		}
-		// libvpx vp9_encodeframe.c:5934-5937 — ONLY_4X4 demotion: no
-		// 8x8 / 16x16 / 32x32 hits anywhere (only 4x4 was selected).
-		// reset_skip_tx_size(cm, TX_4X4) at :5937.
-		if count8x8p8x8 == 0 && count16x16p16x16 == 0 &&
-			count8x8Lp == 0 && count16x16Lp == 0 && count32x32 == 0 {
-			return common.Only4x4
-		}
-		// libvpx vp9_encodeframe.c:5938-5939 — ALLOW_32X32 demotion: no
-		// 4x4 anywhere and no "lp" demotion from the p32x32 sub-table
-		// (the largest max-tx context never picked a smaller size). No
-		// reset_skip_tx_size call (libvpx leaves mi tx_sizes alone since
-		// the new ceiling is still Tx32x32).
-		if count8x8Lp == 0 && count16x16Lp == 0 && count4x4 == 0 {
-			return common.Allow32x32
-		}
-		// libvpx vp9_encodeframe.c:5940-5943 — ALLOW_16X16 demotion:
-		// p32x32 only ever picked Tx16x16 (no 32x32, no 8x8 demotion
-		// from p32x32), and no 4x4 anywhere.
-		// reset_skip_tx_size(cm, TX_16X16) at :5942.
-		if count32x32 == 0 && count8x8Lp == 0 && count4x4 == 0 {
-			return common.Allow16x16
-		}
-		return common.TxModeSelect
+	// libvpx vp9_encodeframe.c:5911 — non-TxModeSelect frames bypass
+	// the demotion entirely. Mirrors the libvpx if-gate exactly: any
+	// fixed tx_mode (ONLY_4X4 / ALLOW_8X8 / ALLOW_16X16 / ALLOW_32X32)
+	// emitted by select_tx_mode (vp9_encodeframe.c:4334-4345) is
+	// written to the bitstream verbatim.
+	if txMode != common.TxModeSelect {
+		return txMode
 	}
-	for tx := common.Tx32x32; tx > common.Tx4x4; tx-- {
-		if counts.TxTotals[tx] == 0 {
-			continue
-		}
-		switch tx {
-		case common.Tx32x32:
-			return common.Allow32x32
-		case common.Tx16x16:
-			return common.Allow16x16
-		case common.Tx8x8:
-			return common.Allow8x8
-		}
+	// libvpx vp9_encodeframe.c:5846 — the entire post-encode
+	// demotion block (including the TX_MODE_SELECT ladder at
+	// :5911-5944) is gated on cpi->sf.frame_parameter_update.
+	// vp9_speed_features.c:568 zeroes it at RT speed >= 4, and
+	// vp9_speed_features.c:929 sets it to 1 elsewhere.
+	if !frameParameterUpdate {
+		return txMode
 	}
-	return common.Only4x4
+	// Verbatim port of libvpx vp9/encoder/vp9_encodeframe.c:5911-5944.
+	// Bucket the partition-context tx counts across the
+	// TX_SIZE_CONTEXTS == 2 contexts (vp9_entropymode.h:25), summing
+	// counts->tx.p32x32[i][T] + counts->tx.p16x16[i][T] +
+	// counts->tx.p8x8[i][T] into the six trackers libvpx uses to
+	// decide whether to collapse TX_MODE_SELECT into a fixed mode.
+	var count4x4, count8x8Lp, count8x8p8x8 uint32
+	var count16x16p16x16, count16x16Lp, count32x32 uint32
+	for i := range vp9dec.TxSizeContexts {
+		// libvpx vp9_encodeframe.c:5918-5920.
+		count4x4 += counts.TxMode.P32x32[i][common.Tx4x4]
+		count4x4 += counts.TxMode.P16x16[i][common.Tx4x4]
+		count4x4 += counts.TxMode.P8x8[i][common.Tx4x4]
+
+		// libvpx vp9_encodeframe.c:5922-5924.
+		count8x8Lp += counts.TxMode.P32x32[i][common.Tx8x8]
+		count8x8Lp += counts.TxMode.P16x16[i][common.Tx8x8]
+		count8x8p8x8 += counts.TxMode.P8x8[i][common.Tx8x8]
+
+		// libvpx vp9_encodeframe.c:5926-5928.
+		count16x16p16x16 += counts.TxMode.P16x16[i][common.Tx16x16]
+		count16x16Lp += counts.TxMode.P32x32[i][common.Tx16x16]
+		count32x32 += counts.TxMode.P32x32[i][common.Tx32x32]
+	}
+	// libvpx vp9_encodeframe.c:5930-5933 — ALLOW_8X8 demotion: no
+	// 4x4 anywhere, and no count larger than 8x8 anywhere. The
+	// matching reset_skip_tx_size(cm, TX_8X8) at libvpx
+	// vp9_encodeframe.c:5933 (defined at :4310-4321) is realised by
+	// the caller's baseMi.TxSize update + second counts pass.
+	if count4x4 == 0 && count16x16Lp == 0 && count16x16p16x16 == 0 &&
+		count32x32 == 0 {
+		return common.Allow8x8
+	}
+	// libvpx vp9_encodeframe.c:5934-5937 — ONLY_4X4 demotion: no
+	// 8x8 / 16x16 / 32x32 hits anywhere (only 4x4 was selected).
+	// reset_skip_tx_size(cm, TX_4X4) at :5937.
+	if count8x8p8x8 == 0 && count16x16p16x16 == 0 &&
+		count8x8Lp == 0 && count16x16Lp == 0 && count32x32 == 0 {
+		return common.Only4x4
+	}
+	// libvpx vp9_encodeframe.c:5938-5939 — ALLOW_32X32 demotion: no
+	// 4x4 anywhere and no "lp" demotion from the p32x32 sub-table
+	// (the largest max-tx context never picked a smaller size). No
+	// reset_skip_tx_size call (libvpx leaves mi tx_sizes alone since
+	// the new ceiling is still Tx32x32).
+	if count8x8Lp == 0 && count16x16Lp == 0 && count4x4 == 0 {
+		return common.Allow32x32
+	}
+	// libvpx vp9_encodeframe.c:5940-5943 — ALLOW_16X16 demotion:
+	// p32x32 only ever picked Tx16x16 (no 32x32, no 8x8 demotion
+	// from p32x32), and no 4x4 anywhere.
+	// reset_skip_tx_size(cm, TX_16X16) at :5942.
+	if count32x32 == 0 && count8x8Lp == 0 && count4x4 == 0 {
+		return common.Allow16x16
+	}
+	return common.TxModeSelect
 }
 
 // vp9EncoderFrameInterpFilter mirrors libvpx's frame-level interp_filter
@@ -7018,9 +7011,26 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			tile, miRows, miRow, miCol, bsize)
 		maxTxSize := common.MaxTxsizeLookup[bsize]
 		txCtx := vp9dec.GetTxSizeContext(above, left, maxTxSize)
+		// libvpx vp9/encoder/vp9_encodeframe.c:6109-6125 — post-encode
+		// tx_size commit. When (cm->tx_mode == TX_MODE_SELECT &&
+		// mi->sb_type >= BLOCK_8X8 && !(is_inter_block && mi->skip))
+		// the per-context tx_counts get incremented. Otherwise libvpx
+		// re-clamps mi->tx_size: for inter blocks to
+		// min(tx_mode_to_biggest_tx_size[tx_mode], max_txsize_lookup[bsize])
+		// (line 6117-6118), and for intra blocks to TX_4X4 when bsize <
+		// BLOCK_8X8 (line 6120). The re-clamped tx_size then feeds the
+		// unconditional tx_totals++ at line 6124.
 		if txMode == common.TxModeSelect && bsize >= common.Block8x8 &&
-			(!isInter || cur.Skip == 0) {
+			!(isInter && cur.Skip != 0) {
 			countVP9TxSize(counts, txCtx, maxTxSize, cur.TxSize)
+		} else {
+			// libvpx vp9_encodeframe.c:6114-6121 else-branch.
+			if isInter {
+				biggest := common.TxModeToBiggestTxSize[txMode]
+				cur.TxSize = min(biggest, maxTxSize)
+			} else if bsize < common.Block8x8 {
+				cur.TxSize = common.Tx4x4
+			}
 		}
 		countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
 		frameInterpFilter := vp9ModeTreeInterpFilter(kind, inter)
