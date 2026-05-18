@@ -1281,6 +1281,20 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
 		e.rc.onePassAutoGold = true
 	}
+	// libvpx onyx_if.c vp8_create_compressor (line 1818 then re-overridden
+	// at line 1886) leaves cpi->baseline_gf_interval == gf_interval_onepass_cbr
+	// for any (CBR && !error_resilient) one-pass compressor, regardless of
+	// MODE_REALTIME / MODE_GOODQUALITY / MODE_BESTQUALITY. All other one-pass
+	// cohorts retain DEFAULT_GF_INTERVAL. Mirror that initial seed here so
+	// vp8_setup_key_frame (ratectrl.c:269-273) reads the correct value at
+	// first-keyframe time. Sentinel 0 defers gf_interval_onepass_cbr
+	// derivation to libvpxKeyFrameSetupGFInterval (rows/cols are not final
+	// until temporal config is settled).
+	if e.rc.mode == RateControlCBR && !normalized.ErrorResilient && len(normalized.TwoPassStats) == 0 {
+		e.rc.baselineGFInterval = 0
+	} else {
+		e.rc.baselineGFInterval = libvpxDefaultGFInterval
+	}
 	e.cyclicRefreshConfigured = normalized.ErrorResilient ||
 		(e.rc.mode == RateControlCBR && len(normalized.TwoPassStats) == 0)
 	e.rtcExternalDisableCyclicRefresh = normalized.RTCExternalRateControl

@@ -323,13 +323,36 @@ type rateControlState struct {
 	lastBoost              int
 	currentGFInterval      int
 	framesTillGFUpdateDue  int
-	onePassAutoGold        bool
-	framesSinceGolden      int
-	keyFrameCount          int
-	keyFrameFrequency      int
-	autoKeyFrames          bool
-	outputFrameRate        int
-	priorKeyFrameDistance  [keyFrameContextSize]int
+	// baselineGFInterval mirrors libvpx's `cpi->baseline_gf_interval`
+	// (vp8/encoder/onyx_if.c:1541-1548 for vp8_change_config seed,
+	// vp8/encoder/onyx_if.c:1818/1886 for vp8_create_compressor seed,
+	// vp8/encoder/ratectrl.c:1030 for the 1-pass-CBR cliff reseed,
+	// vp8/encoder/ratectrl.c:269-273 read by vp8_setup_key_frame).
+	// libvpx flow for a non-error-resilient 1-pass CBR encoder:
+	//   vp8_change_config (init_config:1346) seeds baseline_gf_interval =
+	//     DEFAULT_GF_INTERVAL, then overrides to gf_interval_onepass_cbr
+	//     iff Mode == MODE_REALTIME (line 1547).
+	//   vp8_create_compressor then OVERWRITES to DEFAULT_GF_INTERVAL
+	//     unconditionally (line 1818), then re-overrides to
+	//     gf_interval_onepass_cbr for any Mode <= 2 && CBR &&
+	//     !error_resilient compressor (line 1886).
+	// Net effect for any (CBR && !error_resilient) compressor at the time
+	// vp8_setup_key_frame runs: baseline_gf_interval ==
+	// gf_interval_onepass_cbr (== govpx's goldenFrameCBRInterval). All
+	// other one-pass cohorts (VBR/CQ/Q, error-resilient CBR) observe
+	// DEFAULT_GF_INTERVAL.
+	// Sentinel 0 means "the helper hasn't been seeded yet; defer to the
+	// rows/cols-derived goldenFrameCBRInterval at first-KF time" — used
+	// for CBR cohorts at NewVP8Encoder / Reset / SetTwoPassStats time
+	// before macroblock dims are final.
+	baselineGFInterval    int
+	onePassAutoGold       bool
+	framesSinceGolden     int
+	keyFrameCount         int
+	keyFrameFrequency     int
+	autoKeyFrames         bool
+	outputFrameRate       int
+	priorKeyFrameDistance [keyFrameContextSize]int
 
 	// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats accumulates
 	// per-MB ref-frame usage across the GF section so calc_gf_params and

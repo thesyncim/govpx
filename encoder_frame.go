@@ -409,6 +409,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			gfInterval := e.goldenFrameCBRInterval(rows, cols)
 			e.rc.framesTillGFUpdateDue = gfInterval
 			e.rc.currentGFInterval = gfInterval
+			// libvpx ratectrl.c:1030 reseeds `baseline_gf_interval =
+			// gf_interval_onepass_cbr` on the auto-refresh path too. Keep
+			// the field in sync so the next vp8_setup_key_frame reads
+			// the live cliff interval rather than the stale init seed.
+			e.rc.baselineGFInterval = gfInterval
 			e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 		} else {
 			// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size: when
@@ -467,6 +472,17 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// and `goldenFrameCBROpportunity` fires every frame.
 		e.rc.framesTillGFUpdateDue = cbrOnePassGFCliffInterval
 		e.rc.currentGFInterval = cbrOnePassGFCliffInterval
+		// libvpx ratectrl.c:1030 sets `cpi->baseline_gf_interval =
+		// cpi->gf_interval_onepass_cbr` at every CBR cliff. This is the
+		// value vp8_setup_key_frame (ratectrl.c:269-273) reads for the
+		// next forced keyframe; without this propagation, a mid-stream
+		// 2nd keyframe re-runs with the stale init-time value (e.g.,
+		// libvpxDefaultGFInterval=7 for the non-realtime good/best CBR
+		// cohort) and the gf_overspend_bits / frames_till_gf_update_due
+		// drain (calc_pframe_target_size) uses the wrong denominator,
+		// inflating non_gf_bitrate_adjustment and shifting the regulated
+		// Q by 1 step at the next inter-recode. See task #235.
+		e.rc.baselineGFInterval = cbrOnePassGFCliffInterval
 	}
 	// In pass 2, the GF-boundary decision is made inside vp8_second_pass
 	// while computing this frame's target. That happens after the earlier

@@ -217,6 +217,17 @@ func (e *VP8Encoder) Reset() {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
 		e.rc.onePassAutoGold = true
 	}
+	// libvpx onyx_if.c vp8_create_compressor (line 1818 then re-overridden
+	// at line 1886) leaves cpi->baseline_gf_interval == gf_interval_onepass_cbr
+	// for any (CBR && !error_resilient) one-pass compressor. Reseed here
+	// so a Reset preserves the same first-keyframe contract NewVP8Encoder
+	// established (sentinel 0 defers gf_interval_onepass_cbr derivation
+	// to libvpxKeyFrameSetupGFInterval at first-KF time).
+	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient && len(e.opts.TwoPassStats) == 0 {
+		e.rc.baselineGFInterval = 0
+	} else {
+		e.rc.baselineGFInterval = libvpxDefaultGFInterval
+	}
 	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
 		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
 	e.runtimePreserveSegmentationUpdate = false

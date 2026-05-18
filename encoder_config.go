@@ -1157,6 +1157,16 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 			e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
 			e.rc.onePassAutoGold = true
 		}
+		// libvpx onyx_if.c vp8_create_compressor line 1886 leaves
+		// cpi->baseline_gf_interval == gf_interval_onepass_cbr for any
+		// (CBR && !error_resilient) one-pass compressor. SetTwoPassStats
+		// at frame 0 has the same effect as a fresh init for the active
+		// rc cohort, so mirror the seed here too.
+		if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient && len(e.opts.TwoPassStats) == 0 {
+			e.rc.baselineGFInterval = 0
+		} else {
+			e.rc.baselineGFInterval = libvpxDefaultGFInterval
+		}
 		e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
 			(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
 	}
