@@ -151,6 +151,17 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 	if useAltRef && altBoost > 0 {
 		gfuBoost = altBoost
 	}
+	// Publish the finalized `cpi->gfu_boost` (post-alt-ref reassignment
+	// at libvpx firstpass.c:1785) onto twoPassState so the pass-2
+	// active-best-quality path at libvpx onyx_if.c:3624-3674 can read
+	// it through `gfuBoostValue()` and select between
+	// kf_low_motion_minq / kf_high_motion_minq (>600) and between
+	// gf_low_motion_minq / gf_mid_motion_minq / gf_high_motion_minq
+	// (>1000 / <400). Mirror libvpx's calloc default (0) until the
+	// first define_gf_group runs by gating downstream consumers on
+	// `gfuBoostValid`.
+	t.gfuBoost = gfuBoost
+	t.gfuBoostValid = true
 	// libvpx alt branch (lines 2017-2046): if mod_frame_err < group
 	// avg, use a smaller alt_gf_bits computed from the frame's own
 	// error scaled by interval; if mod_frame_err >= group avg, ensure

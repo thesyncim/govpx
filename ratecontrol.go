@@ -284,6 +284,24 @@ type rateControlState struct {
 	pass2ActiveWorstQOverride int
 	pass2ActiveWorstQValid    bool
 
+	// gfuBoost / gfuBoostValid mirror libvpx's `cpi->gfu_boost` for the
+	// pass-2 active-best-quality branch at
+	// vp8/encoder/onyx_if.c:3624-3674. libvpx selects between
+	// `kf_low_motion_minq` and `kf_high_motion_minq` based on
+	// `cpi->gfu_boost > 600` (line 3626) for the KF branch, and between
+	// `gf_low_motion_minq` / `gf_mid_motion_minq` / `gf_high_motion_minq`
+	// based on `> 1000` / `< 400` thresholds (lines 3668-3674) for the
+	// GF/ARF branch. The encoder driver pushes the value from
+	// twoPassState.gfuBoostValue() before
+	// selectQuantizerForFrameKindWithAltRef so
+	// libvpxActiveQuantizerBoundsForFrame sees the libvpx-faithful
+	// boost. When gfuBoostValid is false (one-pass mode, or pass-2
+	// before the first define_gf_group has run) the regulator falls
+	// back to the conservative high-motion tables, matching libvpx's
+	// behaviour for calloc-zero `cpi->gfu_boost`.
+	gfuBoost      int
+	gfuBoostValid bool
+
 	// thisKeyFrameForced mirrors libvpx's `cpi->this_key_frame_forced` for
 	// the active-best-quality clamp at vp8/encoder/onyx_if.c:3636-3642
 	// (pass-2 KEY_FRAME branch). When set, libvpx pins

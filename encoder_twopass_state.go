@@ -215,6 +215,22 @@ type twoPassState struct {
 	lastAltBoost       int
 	lastAltBoostFBoost int
 	lastAltBoostBBoost int
+	// gfuBoost mirrors libvpx's `cpi->gfu_boost` after `define_gf_group`
+	// finalizes it (vp8/encoder/firstpass.c:1751 sets
+	// `cpi->gfu_boost = (int)(boost_score * 100.0) >> 4` from the
+	// prediction-quality walk, and line 1785 reassigns
+	// `cpi->gfu_boost = alt_boost` when an alt-ref is selected). The
+	// pass-2 active-best-quality branch at
+	// vp8/encoder/onyx_if.c:3624-3674 reads `cpi->gfu_boost` to choose
+	// between `kf_low_motion_minq` / `kf_high_motion_minq` (>600 cutoff)
+	// and between `gf_low_motion_minq` / `gf_mid_motion_minq` /
+	// `gf_high_motion_minq` (>1000 / <400 cutoffs). gfuBoostValid is
+	// false until the first `defineGFGroup` runs; before that the
+	// rate-control regulator falls back to the conservative high-motion
+	// tables (mirroring libvpx's calloc-zero `gfu_boost` which is
+	// always <=600 / <400, so the high-motion branch fires by default).
+	gfuBoost      int
+	gfuBoostValid bool
 	// rollingActualBits / rollingTargetBits mirror libvpx's
 	// `cpi->rolling_actual_bits` / `cpi->rolling_target_bits`, the short
 	// running average of recent frame size vs. target. libvpx maintains
@@ -1226,6 +1242,30 @@ func (t *twoPassState) pass2ActiveWorstQOverride() (int, bool) {
 		return 0, false
 	}
 	return t.pass2ActiveWorstQ, true
+}
+
+// gfuBoostValue returns the libvpx `cpi->gfu_boost` value finalized by
+// the most recent `defineGFGroup` call (or `seedErrorResilientGFGroup`,
+// which reuses the previous group's boost). The boolean second return
+// value is false until the pass-2 driver has executed at least one
+// GF-group definition; before then the rate-control regulator falls
+// back to the conservative high-motion tables, matching libvpx's
+// behaviour for the calloc-zero `cpi->gfu_boost` (which is never
+// greater than the >600 / >1000 thresholds, so the high-motion branch
+// always fires by default).
+//
+// Read by encoder_frame.go to plumb the value into rateControlState's
+// `gfuBoost` field before `selectQuantizerForFrameKindWithAltRef` so
+// `libvpxActiveQuantizerBoundsForFrame` selects between
+// `kf_low_motion_minq` / `kf_high_motion_minq` (libvpx onyx_if.c:3626
+// gfu_boost > 600 cutoff) and between
+// `gf_low_motion_minq` / `gf_mid_motion_minq` / `gf_high_motion_minq`
+// (libvpx onyx_if.c:3668-3674 gfu_boost > 1000 / < 400 cutoffs).
+func (t *twoPassState) gfuBoostValue() (int, bool) {
+	if !t.gfuBoostValid {
+		return 0, false
+	}
+	return t.gfuBoost, true
 }
 
 // dampedUpdatePass2ActiveWorstQ ports the libvpx vp8/encoder/firstpass.c

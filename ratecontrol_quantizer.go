@@ -111,14 +111,20 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 		q := clampQuantizerValue(activeWorst, 0, vp8MaxQIndex)
 		switch {
 		case keyFrame:
-			// libvpx pass-2 KF branch (onyx_if.c lines 3624-3642):
+			// libvpx pass-2 KF branch (onyx_if.c lines 3624-3630):
 			// kf_low_motion_minq when gfu_boost > 600, else
-			// kf_high_motion_minq. govpx does not track gfu_boost
-			// from the pass-2 driver here, so we use the high-motion
-			// table for both ni_frames>150 and pass-2 fallthrough.
-			// TODO: thread gfu_boost from twoPassState to pick the
-			// low-motion table when boost > 600.
-			activeBest = libvpxKeyFrameHighMotionMinQ[q]
+			// kf_high_motion_minq. The ni_frames>150 fallthrough that
+			// govpx also enters here matches libvpx's one-pass branch
+			// at line 3646, which unconditionally uses
+			// kf_high_motion_minq (the >600 split is pass-2 only). So
+			// only consult gfuBoost when the pass-2 driver has armed
+			// it (gfuBoostValid && pass2); otherwise stay on the
+			// conservative high-motion table.
+			if pass2 && rc.gfuBoostValid && rc.gfuBoost > 600 {
+				activeBest = libvpxKeyFrameLowMotionMinQ[q]
+			} else {
+				activeBest = libvpxKeyFrameHighMotionMinQ[q]
+			}
 			// libvpx vp8/encoder/onyx_if.c:3636-3642 forced-key
 			// active-best clamp. When the current KF was emitted only
 			// because we hit the maximum key-frame interval (not
@@ -147,7 +153,28 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 				q = rc.cqLevel
 			}
 			q = clampQuantizerValue(q, 0, vp8MaxQIndex)
-			activeBest = libvpxGoldenFrameHighMotionMinQ[q]
+			// libvpx vp8/encoder/onyx_if.c:3667-3674 pass-2 GF branch:
+			//   if (cpi->gfu_boost > 1000)        gf_low_motion_minq[Q]
+			//   else if (cpi->gfu_boost < 400)    gf_high_motion_minq[Q]
+			//   else                              gf_mid_motion_minq[Q]
+			// The matching one-pass arm at line 3683 unconditionally
+			// uses gf_high_motion_minq, so the >1000 / <400 split is
+			// pass-2 only. Match libvpx by gating on
+			// (pass2 && gfuBoostValid); on the ni_frames>150 one-pass
+			// fallthrough path stay on the conservative high-motion
+			// table.
+			if pass2 && rc.gfuBoostValid {
+				switch {
+				case rc.gfuBoost > 1000:
+					activeBest = libvpxGoldenFrameLowMotionMinQ[q]
+				case rc.gfuBoost < 400:
+					activeBest = libvpxGoldenFrameHighMotionMinQ[q]
+				default:
+					activeBest = libvpxGoldenFrameMidMotionMinQ[q]
+				}
+			} else {
+				activeBest = libvpxGoldenFrameHighMotionMinQ[q]
+			}
 			// libvpx vp8/encoder/onyx_if.c:3677-3679 pass-2 CQ GF/ARF
 			// "slightly lower active best" lowering. After the
 			// gf_*_motion_minq lookup, pass-2 CQ refreshes drop

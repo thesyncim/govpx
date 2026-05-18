@@ -378,6 +378,23 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.pass2ActiveWorstQOverride = q
 		e.rc.pass2ActiveWorstQValid = true
 	}
+	// libvpx vp8/encoder/onyx_if.c:3624-3674 reads `cpi->gfu_boost` in
+	// the pass-2 active-best-quality branch to choose between
+	// kf_low_motion_minq / kf_high_motion_minq (>600 cutoff) and between
+	// gf_low_motion_minq / gf_mid_motion_minq / gf_high_motion_minq
+	// (>1000 / <400 cutoffs). govpx's twoPassState finalizes
+	// `gfu_boost` inside defineGFGroup (after the alt_boost
+	// reassignment at firstpass.c:1785); push the value into
+	// rateControlState here so the regulator's
+	// libvpxActiveQuantizerBoundsForFrame picks the same low/mid/high
+	// table libvpx does. Without this, govpx's pass-2 KF/GF active-best
+	// floors always lock to the high-motion table even on calm clips
+	// where gfu_boost > 600 / > 1000, biasing the regulator's lower
+	// Q-bound a few qindices high relative to libvpx.
+	if b, ok := e.twoPass.gfuBoostValue(); ok {
+		e.rc.gfuBoost = b
+		e.rc.gfuBoostValid = true
+	}
 	// libvpx vp8/encoder/firstpass.c define_gf_group ARF-pending decision:
 	// when second-pass stats indicate the upcoming GF section is high
 	// motion / high-quality predicted, arm a hidden alt-ref so the
