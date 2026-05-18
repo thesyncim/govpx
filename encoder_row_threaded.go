@@ -249,7 +249,13 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	zbinOverQuant := 0
 	modeZbinOverQuant := zbinOverQuant
 	actZbinAdj := 0
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+	// libvpx vp8/encoder/encodeframe.c:405-406 sets x->rdmult = cpi->RDMULT
+	// once per MB (cpi->RDMULT computed from cm->base_qindex per
+	// rdopt.c:163-174). The per-MB segment delta-Q swap in
+	// vp8cx_mb_init_quantizer never touches x->rdmult, so the trellis
+	// optimize_b (encodemb.c:187) scores with the frame-level Q. Use
+	// args.qIndex (frame base), not segmentQIndex, for the rdMult input.
+	rdMult, rdDiv := libvpxRDConstantsWithZbin(args.qIndex, zbinOverQuant)
 	if e.activityMapValid {
 		modeZbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 		if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
@@ -469,7 +475,11 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		if args.modes[index].Mode == vp8common.BPred {
 			zbinOverQuant := e.rc.currentZbinOverQuant
 			actZbinAdj := 0
-			rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+			// libvpx encodeframe.c:405-406 + encodemb.c:187 (optimize_b):
+			// the trellis reads mb->rdmult = cpi->RDMULT (frame-level).
+			// ROI/cyclic refresh segment delta-Q never mutates x->rdmult,
+			// so rdMult derives from args.qIndex (base), not segmentQIndex.
+			rdMult, rdDiv := libvpxRDConstantsWithZbin(args.qIndex, zbinOverQuant)
 			if e.activityMapValid {
 				if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 					actZbinAdj = adjustment
@@ -518,7 +528,11 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		}
 		zbinOverQuant := e.rc.currentZbinOverQuant
 		actZbinAdj := 0
-		rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+		// Same libvpx anchor as the BPred branch above: trellis optimize_b
+		// uses mb->rdmult = cpi->RDMULT (frame-level), so the rdMult fed
+		// into buildPredictedMacroblockCoefficients uses args.qIndex (base)
+		// not segmentQIndex.
+		rdMult, rdDiv := libvpxRDConstantsWithZbin(args.qIndex, zbinOverQuant)
 		if e.activityMapValid {
 			if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 				actZbinAdj = adjustment

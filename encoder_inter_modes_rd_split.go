@@ -250,7 +250,19 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 	// SPLITMV returnrate is the RD picker's rate, not the later accepted
 	// coefficient rebuild's packet skip state. Libvpx keeps rd_inter4x4_uv's
 	// token rate here even when the accepted MB is ultimately packet-skipped.
-	mbSkipCoeff := shape.SegmentTTEOB+uvTTEOB == 0 && stats.rateUV == 0
+	//
+	// Task #218: libvpx vp8/encoder/rdopt.c:1700 calculate_final_rd_costs
+	// fires the per-MB skip backout strictly on `tteob == 0`, where for
+	// SPLITMV (has_y2_block=0) tteob counts Y blocks with eobs[i] > 0 plus
+	// the sum of UV eob counts. govpx's previous gate appended
+	// `&& stats.rateUV == 0`, which never holds because UV coefficient
+	// token rate always includes the per-block EOB-token cost (non-zero
+	// even for all-zero residuals — see coefficientBlockTokenRate's
+	// trailing EOB-token addition), silently suppressing the SPLITMV skip
+	// backout in govpx's picker and inflating every SPLITMV candidate's
+	// rate2 by `shape.SegmentYRate + stats.rateUV - skipBackout`. The
+	// verbatim libvpx path checks only tteob == 0.
+	mbSkipCoeff := shape.SegmentTTEOB+uvTTEOB == 0
 	if mbSkipCoeff {
 		rate2 -= shape.SegmentYRate + stats.rateUV
 		rateUV = 0
