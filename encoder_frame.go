@@ -577,6 +577,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// libvpx: cpi->frames_since_key++ on overshoot drop; mirror
 			// it so the next-keyframe distance heuristic stays aligned.
 			e.rc.framesSinceKeyframe++
+			// libvpx vp8/encoder/ratectrl.c:1575-1584 inside
+			// vp8_drop_encodedframe_overshoot writes force_maxqp /
+			// frames_since_last_drop_overshoot / rate_correction_factor to
+			// ALL layer_context entries when number_of_layers > 1; mirror
+			// that before saveTemporalLayerCodingState so the current
+			// layer's slot stays consistent with the cross-layer broadcast
+			// (saveTemporalLayerCodingState re-writes the meta.LayerID slot
+			// from the same cpi-level scalars, which agree).
+			e.propagateTemporalLayerOvershootDropState(temporalFrame)
 			e.saveTemporalLayerCodingState(temporalFrame)
 			e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
@@ -1160,5 +1169,44 @@ func (e *VP8Encoder) propagateTemporalLayerDroppedCodingState(meta temporalFrame
 		}
 		state := &e.temporal.codingState[layer]
 		state.BufferLevelBits = min(saturatingAdd(state.BufferLevelBits, state.BitsPerFrame), state.MaximumBufferBits)
+	}
+}
+
+// propagateTemporalLayerOvershootDropState mirrors libvpx
+// vp8/encoder/ratectrl.c lines 1575-1584 inside
+// vp8_drop_encodedframe_overshoot. When the post-encode overshoot drop
+// fires with number_of_layers > 1, libvpx broadcasts the freshly-set
+// force_maxqp / frames_since_last_drop_overshoot / rate_correction_factor
+// to EVERY layer's LAYER_CONTEXT (not just the current one), so each
+// layer's next encode sees max-Q and the cap'd rcf even if the dropped
+// frame ran at a different layer. govpx's `saveTemporalLayerCodingState`
+// only writes the meta.LayerID slot, so without this helper the other
+// layers' codingState retains stale ForceMaxQuantizer=false /
+// rate_correction_factor values; the next-same-layer frame restores those
+// stale values from the codingState and skips the libvpx max-Q gate.
+//
+// Loop covers 0..LayerCount-1 (including the current layer): libvpx
+// writes the current layer twice — first via the cpi-level `force_maxqp
+// = 1` write at line 1537 (already mirrored via setForceMaxQuantizer +
+// rc.framesSinceLastDropOvershoot=0 in vp8DropEncodedframeOvershoot), and
+// then again via the layer loop. The double-write is harmless because the
+// per-layer value matches the cpi-level value. govpx's
+// saveTemporalLayerCodingState (called after this helper) reads the same
+// cpi-level scalars for meta.LayerID, so for that slot the writes also
+// agree; the helper effectively only matters for the meta.LayerID != i
+// indices.
+func (e *VP8Encoder) propagateTemporalLayerOvershootDropState(meta temporalFrame) {
+	if !meta.Enabled {
+		return
+	}
+	rcf := e.rc.rateCorrectionFactorForFrame(false, false)
+	for layer := 0; layer < meta.LayerCount && layer < MaxTemporalLayers; layer++ {
+		if !e.temporal.codingValid[layer] {
+			continue
+		}
+		state := &e.temporal.codingState[layer]
+		state.ForceMaxQuantizer = true
+		state.FramesSinceLastDropOvershoot = 0
+		state.RateCorrectionFactor = rcf
 	}
 }
