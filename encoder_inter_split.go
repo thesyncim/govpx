@@ -193,10 +193,17 @@ func (ctx *splitMotionShapeContext) selectShape() splitMotionShapeResult {
 		segmentYRate += labelYRate
 		segmentDistortion += labelDistortion
 		segmentTTEOB += labelTTEOB
-		// libvpx: this_segment_rd += best_label_rd; if (this_segment_rd
-		// >= bsi->segment_rd) break;
+		// libvpx vp8/encoder/rdopt.c:1163-1165
+		//   this_segment_rd += best_label_rd;
+		//   if (this_segment_rd >= bsi->segment_rd) break;
+		// verbatim. segmentYRDCap is always positive at production callers
+		// (selectInterFrameSplitModeRDScore seeds it from
+		// best_mode.yrd / maxInt; selectInterFrameSplitMotionMode seeds it
+		// at maxInt), so the legacy `> 0` precondition was dead and is
+		// dropped here to keep the cutoff byte-faithful to libvpx in the
+		// (theoretical) cap==0 edge case.
 		segmentYRD = saturatingAddInt(segmentYRD, labelBestRD)
-		if ctx.segmentYRDCap > 0 && segmentYRD >= ctx.segmentYRDCap {
+		if segmentYRD >= ctx.segmentYRDCap {
 			mode.MV = mode.BlockMV[15]
 			return splitMotionShapeResult{Mode: mode, SegmentRate: segmentRate, SegmentYRate: segmentYRate, SegmentDistortion: segmentDistortion, SegmentTTEOB: segmentTTEOB, SegmentYRD: segmentYRD, Cutoff: true, OK: true}
 		}

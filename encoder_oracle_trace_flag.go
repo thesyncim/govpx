@@ -112,6 +112,31 @@ func (e *VP8Encoder) emitOracleDroppedFrameTrace(string) {}
 
 func (e *VP8Encoder) emitOracleRateAndRecodeTrace(vp8common.FrameType, int, int, int, int, int) {}
 
+type oracleTraceRecodeIterSummary struct {
+	Iter                 int
+	Q                    int
+	ProjectedFrameSize   int
+	ThisFrameTarget      int
+	QLow                 int
+	QHigh                int
+	ActiveBest           int
+	ActiveWorst          int
+	ActiveWorstQChanged  bool
+	OvershootSeen        bool
+	UndershootSeen       bool
+	ZbinOverQuant        int
+	RateCorrectionFactor float64
+	NextQ                int
+	Recoded              bool
+	OvershootLimit       int
+	UndershootLimit      int
+	RawRate              int
+	CoefSavingsBits      int
+	RefFrameSavingsBits  int
+}
+
+func (e *VP8Encoder) emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary) {}
+
 func makeOracleStaleY2Snapshot(uint8, [16]int16) staleY2Snapshot { return staleY2Snapshot{} }
 
 func oracleStaleY2SnapshotSet(staleY2Snapshot) bool { return false }

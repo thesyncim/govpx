@@ -45,14 +45,33 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	// (1=LAST, 2=GOLDEN, 3=ALTREF) and feeds it into
 	// vp8_rd_pick_best_mbsegmentation as bsi->mvthresh, which the per-label
 	// loop divides by label_count to gate NEW4X4 motion searches.
+	//
+	// libvpx vp8/encoder/rdopt.c:1986-2006 (vp8_rd_pick_inter_mode SPLITMV
+	// case) and rdopt.c:1199-1335 (vp8_rd_pick_best_mbsegmentation):
+	//   bsi.segment_rd = best_rd            (line 1210)
+	//   ...
+	//   if (this_segment_rd >= bsi->segment_rd) break;   (line 1165)
+	//   if (this_segment_rd <  bsi->segment_rd)          (line 1169)
+	//       bsi->segment_rd = this_segment_rd;
+	//   ...
+	//   tmp_rd = bsi.segment_rd
+	//   if (tmp_rd < best_mode.yrd) { /* accept */ }
+	//   else { this_rd = INT_MAX; disable_skip = 1; }
+	// govpx mirrors that ladder via ctx.bestYRD → bestSegmentYRD →
+	// shapeCtx.segmentYRDCap and the shape.SegmentYRD < bestSegmentYRD
+	// commit below. ctx.bestYRD is the outer-loop running best_mode.yrd
+	// (seeded as maxInt() in selectRDInterFrameModeDecision); the libvpx
+	// initial sentinel is INT_MAX so the empty-cap path is identical.
 	if ctx == nil {
 		return interSplitModeRDResult{}, false
 	}
 	bestSet := false
+	// libvpx seeds bsi.segment_rd = best_rd verbatim; no guard. ctx.bestYRD
+	// is INT_MAX (maxInt) until a non-SPLITMV mode commits a positive yrd,
+	// so the legacy `<= 0 → maxInt` guard is dead in practice and is
+	// dropped here to keep the SPLITMV cutoff byte-faithful to libvpx for
+	// the (theoretical) yrd==0 edge case.
 	bestSegmentYRD := ctx.bestYRD
-	if bestSegmentYRD <= 0 {
-		bestSegmentYRD = maxInt()
-	}
 	var bestMode vp8enc.InterFrameMacroblockMode
 	var bestShape splitMotionShapeResult
 	var splitSeeds splitMotionSearchSeeds

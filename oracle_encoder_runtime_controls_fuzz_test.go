@@ -81,6 +81,16 @@ func oracleRuntimeControlFuzzMatchLimit(name string) int {
 	// YRD delta drives the SPLITMV cutoff). Closing the gap requires
 	// per-recode-iter projected_frame_size instrumentation on both sides
 	// to pin the first diverging iteration.
+	//
+	// Task #212 (current open issue): recode-Q convergence on 0bb41d74 —
+	// continuation of the task #211 audit. Frames 0-3 remain byte-exact
+	// after today's wire-level closes (#172/#184/#192/#201/#183/#200/#202/
+	// #198/#173/#174/#206); the matchLimit=4 pin keeps the asserted
+	// prefix at the maximum currently green so any regression in the
+	// matched suffix is caught while the open #212 work threads
+	// projected_frame_size deltas through the recode regulator. Update
+	// this gate to limit=0 (or remove the pin) the moment #212 closes
+	// and frames 4-8 match byte-for-byte.
 	if strings.Contains(name, "regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74") {
 		return 4
 	}

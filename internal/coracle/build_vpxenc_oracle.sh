@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task210-mb-activity"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task212-recode-iter-v2"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -80,6 +80,7 @@ if [ ! -f "$patch_stamp" ]; then
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "vpx/vpx_encoder.h"
 #include "vpx_ports/vpx_timer.h"
@@ -87,6 +88,31 @@ if [ ! -f "$patch_stamp" ]; then
 #include "vp8/common/onyxc_int.h"
 #include "vp8/encoder/onyx_int.h"
 #include "vp8/encoder/bitstream.h"
+
+/* Thread-safety lock for the global govpx_oracle_state. libvpx VP8 with
+ * --threads=N spawns N-1 helper threads in vp8/encoder/ethreading.c that
+ * each drive encode_mb_row on their own row stripe, and each of those
+ * threads invokes the oracle capture hooks (govpx_oracle_capture_mb,
+ * govpx_oracle_record_mb_rate, govpx_oracle_capture_inter_candidate)
+ * concurrently against this TU's shared state. Without the lock the
+ * realloc() inside govpx_oracle_ensure_candidate_capacity can race with a
+ * sibling thread's append + indexed write, free()ing a buffer another
+ * thread is reading and tripping the macOS scribble allocator
+ * ("pointer being freed was not allocated"). The lock is also held over
+ * mb_rows writes so the calloc-on-grow inside govpx_oracle_ensure_capacity
+ * cannot race; mb_rows is indexed by mb_row*mb_cols+mb_col so concurrent
+ * threads write disjoint slots, but the pointer + capacity store from
+ * any growth path still needs to be serialized against the readers.
+ *
+ * The flush paths (govpx_oracle_emit_*) run from the main thread only,
+ * after all mb-row helper threads have rejoined (vp8_pack_bitstream is
+ * called from encode_frame_to_data_rate post-encode), so they read the
+ * shared state without taking the lock. govpx_oracle_begin_attempt
+ * resets candidate_count to 0 from the main thread at the head of every
+ * recode-loop attempt (before the helper threads are dispatched), so it
+ * also runs in a thread-quiescent window; it still takes the lock to
+ * provide a fence/barrier against the previous frame's tail writers. */
+static pthread_mutex_t govpx_oracle_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* Per-process accumulator of microseconds spent inside oracle trace
  * emit/capture functions. The enclosing encoder reads and clears this
@@ -451,8 +477,10 @@ void govpx_oracle_begin_attempt(void) {
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     govpx_oracle_state.candidate_count = 0;
     govpx_oracle_clear_improved_mv_slots();
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
@@ -473,6 +501,7 @@ void govpx_oracle_capture_inter_candidate(
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     do {
         govpx_oracle_ensure_candidate_capacity(
             govpx_oracle_state.candidate_count + 1);
@@ -529,6 +558,7 @@ void govpx_oracle_capture_inter_candidate(
             }
         }
     } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
@@ -551,6 +581,7 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     do {
     cm = &cpi->common;
     xd = &cpi->mb.e_mbd;
@@ -654,6 +685,7 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     }
     govpx_oracle_clear_improved_mv_slots();
     } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
@@ -678,6 +710,7 @@ void govpx_oracle_record_mb_rate(struct VP8_COMP *cpi, int mb_row, int mb_col,
         return;
     }
     GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
     do {
         cm = &cpi->common;
         if (govpx_oracle_state.mb_rows == NULL) {
@@ -691,6 +724,7 @@ void govpx_oracle_record_mb_rate(struct VP8_COMP *cpi, int mb_row, int mb_col,
         row->mb_rate = mb_rate;
         row->aggregated_rate = aggregated_rate;
     } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
 }
 
@@ -1067,6 +1101,119 @@ void govpx_oracle_recode_iter(void) {
         govpx_recode_iter_count++;
         GOVPX_TRACE_END();
     }
+}
+
+/* Per-iter recode-loop trace pre-capture. Stashes the Q used by the just
+ * starting encode pass plus the active-best/active-worst range at the top
+ * of the do-loop body so the post-iter emit can pair it with the post-encode
+ * projected_frame_size and the new Q chosen by the recode-loop body. The
+ * pre/post split mirrors govpx's encoder_attempts.go where preQ /
+ * preActiveBest / preActiveWorst / preRCF are snapshotted before
+ * updateQuantizerForProjectedFrameSize runs. */
+static int govpx_recode_iter_pre_q;
+static int govpx_recode_iter_pre_active_best;
+static int govpx_recode_iter_pre_active_worst;
+static double govpx_recode_iter_pre_rcf;
+static int govpx_recode_iter_pre_zbin;
+
+void govpx_oracle_recode_iter_capture_pre(struct VP8_COMP *cpi, int Q) {
+    if (!govpx_oracle_state.enabled) {
+        return;
+    }
+    govpx_recode_iter_pre_q = Q;
+    govpx_recode_iter_pre_active_best = cpi->active_best_quality;
+    govpx_recode_iter_pre_active_worst = cpi->active_worst_quality;
+    govpx_recode_iter_pre_zbin = cpi->mb.zbin_over_quant;
+    if (cpi->common.frame_type == KEY_FRAME) {
+        govpx_recode_iter_pre_rcf = cpi->key_frame_rate_correction_factor;
+    } else if (cpi->oxcf.number_of_layers == 1 && !cpi->gf_noboost_onepass_cbr &&
+               (cpi->common.refresh_alt_ref_frame ||
+                cpi->common.refresh_golden_frame)) {
+        govpx_recode_iter_pre_rcf = cpi->gf_rate_correction_factor;
+    } else {
+        govpx_recode_iter_pre_rcf = cpi->rate_correction_factor;
+    }
+}
+
+/* Forward-declare govpx_oracle_ref_frame_savings so the per-iter recode
+ * emit can call it. The definition lives later in this file with a
+ * static linkage; the forward declaration must match. */
+static int govpx_oracle_ref_frame_savings(struct VP8_COMP *cpi);
+
+void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
+                                   int q_low, int q_high,
+                                   int active_worst_qchanged,
+                                   int overshoot_seen,
+                                   int undershoot_seen,
+                                   int frame_over_shoot_limit,
+                                   int frame_under_shoot_limit,
+                                   int Loop) {
+    FILE *out;
+    int total_savings;
+    int ref_frame_savings;
+    int coef_savings;
+    int raw_rate;
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    GOVPX_TRACE_BEGIN();
+    out = govpx_oracle_state.out;
+    /* Decompose post-savings projected_frame_size into the raw picker
+     * rate, the coefficient-prob savings, and the ref-frame savings. The
+     * raw rate is reconstructed as projected_frame_size + total_savings;
+     * libvpx subtracts total_savings at onyx_if.c:3981 BEFORE this hook
+     * fires, so cpi->projected_frame_size already reflects the post-
+     * savings value. */
+    total_savings = vp8_estimate_entropy_savings(cpi);
+    ref_frame_savings = govpx_oracle_ref_frame_savings(cpi);
+    coef_savings = total_savings - ref_frame_savings;
+    raw_rate = cpi->projected_frame_size + total_savings;
+    fprintf(out,
+            "{\"type\":\"recode_iter\","
+            "\"frame_index\":%llu,"
+            "\"iter\":%d,"
+            "\"q\":%d,"
+            "\"projected_frame_size\":%d,"
+            "\"this_frame_target\":%d,"
+            "\"q_low\":%d,"
+            "\"q_high\":%d,"
+            "\"active_best\":%d,"
+            "\"active_worst\":%d,"
+            "\"active_worst_qchanged\":%d,"
+            "\"overshoot_seen\":%d,"
+            "\"undershoot_seen\":%d,"
+            "\"zbin_over_quant\":%d,"
+            "\"rate_correction_factor\":%f,"
+            "\"next_q\":%d,"
+            "\"recoded\":%s,"
+            "\"overshoot_limit\":%d,"
+            "\"undershoot_limit\":%d,"
+            "\"raw_rate\":%d,"
+            "\"coef_savings_bits\":%d,"
+            "\"ref_frame_savings_bits\":%d}\n",
+            govpx_oracle_state.frame_index,
+            govpx_recode_iter_count,
+            govpx_recode_iter_pre_q,
+            cpi->projected_frame_size,
+            cpi->this_frame_target,
+            q_low,
+            q_high,
+            govpx_recode_iter_pre_active_best,
+            govpx_recode_iter_pre_active_worst,
+            active_worst_qchanged,
+            overshoot_seen,
+            undershoot_seen,
+            govpx_recode_iter_pre_zbin,
+            govpx_recode_iter_pre_rcf,
+            new_q,
+            Loop ? "true" : "false",
+            frame_over_shoot_limit,
+            frame_under_shoot_limit,
+            raw_rate,
+            coef_savings,
+            ref_frame_savings);
+    fflush(out);
+    GOVPX_TRACE_END();
 }
 
 /* Recompute the inter-frame ref-frame branch of vp8_estimate_entropy_savings
@@ -2246,6 +2393,15 @@ if sentinel in text:
 # compiles.
 decl = ('extern void govpx_oracle_begin_attempt(void);\n'
         'extern void govpx_oracle_recode_iter(void);\n'
+        'extern void govpx_oracle_recode_iter_capture_pre(struct VP8_COMP *cpi, int Q);\n'
+        'extern void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,\n'
+        '                                          int q_low, int q_high,\n'
+        '                                          int active_worst_qchanged,\n'
+        '                                          int overshoot_seen,\n'
+        '                                          int undershoot_seen,\n'
+        '                                          int frame_over_shoot_limit,\n'
+        '                                          int frame_under_shoot_limit,\n'
+        '                                          int Loop);\n'
         'extern void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q);\n'
         'extern void govpx_oracle_emit_dropped_frame(struct VP8_COMP *cpi,\n'
         '                                            const char *reason);\n'
@@ -2277,6 +2433,7 @@ loop_anchor = ('  do {\n'
 loop_replacement = ('  do {\n'
                     '    /* govpx oracle: count recode-loop iterations. */\n'
                     '    govpx_oracle_recode_iter();\n'
+                    '    govpx_oracle_recode_iter_capture_pre(cpi, Q);\n'
                     '    govpx_oracle_begin_attempt();\n'
                     '    vpx_clear_system_state();\n'
                     '\n'
@@ -2285,6 +2442,32 @@ if loop_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: recode-loop anchor missing in onyx_if.c\n')
     sys.exit(2)
 text = text.replace(loop_anchor, loop_replacement, 1)
+# Anchor 2b: emit per-iter recode trace at the bottom of the do-loop body,
+# just before the `if (Loop == 1) { vp8_restore_coding_context(cpi); ... }`
+# branch. The Q variable holds the new Q chosen by the recode-loop body
+# (which equals the just-encoded Q when Loop=0), and q_low/q_high/active_*
+# reflect the post-update state used to clamp Q.
+iter_emit_anchor = ('    if (cpi->is_src_frame_alt_ref) Loop = 0;\n'
+                    '\n'
+                    '    if (Loop == 1) {\n')
+iter_emit_replacement = ('    if (cpi->is_src_frame_alt_ref) Loop = 0;\n'
+                         '\n'
+                         '    /* govpx oracle: emit per-iter recode trace. */\n'
+                         '    govpx_oracle_recode_iter_emit(cpi, Q,\n'
+                         '#if CONFIG_REALTIME_ONLY\n'
+                         '                                   Q, Q, 0,\n'
+                         '#else\n'
+                         '                                   q_low, q_high, active_worst_qchanged,\n'
+                         '#endif\n'
+                         '                                   overshoot_seen, undershoot_seen,\n'
+                         '                                   frame_over_shoot_limit, frame_under_shoot_limit,\n'
+                         '                                   Loop);\n'
+                         '\n'
+                         '    if (Loop == 1) {\n')
+if iter_emit_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: recode-iter emit anchor missing in onyx_if.c\n')
+    sys.exit(2)
+text = text.replace(iter_emit_anchor, iter_emit_replacement, 1)
 # Anchor 3: emit rate/recode rows immediately before vp8_pack_bitstream.
 pack_anchor = '  vp8_pack_bitstream(cpi, dest, dest_end, size);'
 if pack_anchor not in text:

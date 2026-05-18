@@ -84,7 +84,43 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if !e.libvpxKeyFrameRecodeLoopActive() {
 			return result, nil
 		}
-		if !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, true, false, required, &recode) {
+		preQ := e.rc.currentQuantizer
+		preZbin := e.rc.currentZbinOverQuant
+		preActiveBest := recode.activeBest
+		preActiveWorst := recode.activeWorst
+		preRCF := recode.correctionFactor
+		recoded := e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, true, false, required, &recode)
+		if traceEnabled {
+			targetBits := e.rc.frameTargetBits
+			if targetBits <= 0 {
+				targetBits = e.rc.bitsPerFrame
+			}
+			undershootLimit, overshootLimit := e.rc.frameSizeBoundsBits(true, false, targetBits)
+			rawRate := result.ProjectedSizeBits + result.CoefSavingsBits + result.RefFrameSavingsBits
+			e.emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary{
+				Iter:                 attempt + 1,
+				Q:                    preQ,
+				ProjectedFrameSize:   result.ProjectedSizeBits,
+				ThisFrameTarget:      targetBits,
+				QLow:                 recode.qLow,
+				QHigh:                recode.qHigh,
+				ActiveBest:           preActiveBest,
+				ActiveWorst:          preActiveWorst,
+				ActiveWorstQChanged:  recode.activeWorstQChanged,
+				OvershootSeen:        recode.overshootSeen,
+				UndershootSeen:       recode.undershootSeen,
+				ZbinOverQuant:        preZbin,
+				RateCorrectionFactor: preRCF,
+				NextQ:                e.rc.currentQuantizer,
+				Recoded:              recoded,
+				OvershootLimit:       overshootLimit,
+				UndershootLimit:      undershootLimit,
+				RawRate:              rawRate,
+				CoefSavingsBits:      result.CoefSavingsBits,
+				RefFrameSavingsBits:  result.RefFrameSavingsBits,
+			})
+		}
+		if !recoded {
 			return result, nil
 		}
 		if traceEnabled {
@@ -279,7 +315,50 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 			return result, nil
 		}
 		e.lastPredErrorMB = e.currentPredictionErrorMB(required)
-		if !allowRecode || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
+		preQ := e.rc.currentQuantizer
+		preZbin := e.rc.currentZbinOverQuant
+		preActiveBest := recode.activeBest
+		preActiveWorst := recode.activeWorst
+		preRCF := recode.correctionFactor
+		recoded := false
+		if allowRecode {
+			recoded = e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode)
+		}
+		if traceEnabled {
+			targetBits := e.rc.frameTargetBits
+			if targetBits <= 0 {
+				targetBits = e.rc.bitsPerFrame
+			}
+			undershootLimit, overshootLimit := e.rc.frameSizeBoundsBits(false, boostedReferenceFrame, targetBits)
+			// Decompose ProjectedSizeBits into raw_rate vs entropy_savings.
+			// raw_rate = result.ProjectedSizeBits + CoefSavingsBits + RefFrameSavingsBits
+			// (mirroring projectedFrameSizeBitsFromRateWithKnownCoefSavings's
+			// bits = max(rawRateBits - coefSavings - refFrameSavings, 0)).
+			rawRate := result.ProjectedSizeBits + result.CoefSavingsBits + result.RefFrameSavingsBits
+			e.emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary{
+				Iter:                 attempt + 1,
+				Q:                    preQ,
+				ProjectedFrameSize:   result.ProjectedSizeBits,
+				ThisFrameTarget:      targetBits,
+				QLow:                 recode.qLow,
+				QHigh:                recode.qHigh,
+				ActiveBest:           preActiveBest,
+				ActiveWorst:          preActiveWorst,
+				ActiveWorstQChanged:  recode.activeWorstQChanged,
+				OvershootSeen:        recode.overshootSeen,
+				UndershootSeen:       recode.undershootSeen,
+				ZbinOverQuant:        preZbin,
+				RateCorrectionFactor: preRCF,
+				NextQ:                e.rc.currentQuantizer,
+				Recoded:              recoded,
+				OvershootLimit:       overshootLimit,
+				UndershootLimit:      undershootLimit,
+				RawRate:              rawRate,
+				CoefSavingsBits:      result.CoefSavingsBits,
+				RefFrameSavingsBits:  result.RefFrameSavingsBits,
+			})
+		}
+		if !recoded {
 			return result, nil
 		}
 		if traceEnabled {
