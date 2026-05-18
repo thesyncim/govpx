@@ -50,6 +50,7 @@ var dispatch = map[string]classifier{
 	"FuzzEncoderLongFixtureRateControl":          classifyLongFixtureRateControl,
 	"FuzzEncoderProductionStreamByteParity":      constantCase("option_grid"),
 	"FuzzVP8EncoderOptions":                      classifyVP8EncoderOptions,
+	"FuzzVP8MultiResSVCByteParity":               classifyVP8MultiResSVC,
 	"FuzzDecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
 	// VP9 fuzz family — sibling targets registered here mirror their VP8
 	// counterparts. Classifiers reuse the same body shape so the resulting
@@ -170,6 +171,39 @@ func classifyVP8EncoderOptions(data []byte) (string, error) {
 		erLabel = "erfull"
 	}
 	return fmt.Sprintf("options_w%dh%d_%s_%s_%s_%s_%s", w, h, rc, dl, cpu, tokenLabel, erLabel), nil
+}
+
+// classifyVP8MultiResSVC mirrors vp8Task253FuzzCaseFromBytes verbatim
+// so each find lands with a name that encodes the shape+cpu+mode
+// dial it tripped.
+func classifyVP8MultiResSVC(data []byte) (string, error) {
+	r := bucketCursor{data: data}
+	shape := r.pick(3)
+	cpuPool := []string{"cpu0", "cpum3", "cpum8"}
+	cpu := cpuPool[r.pick(3)]
+	modeRaw := r.pick(4)
+	_ = r.next() // frames knob (logged separately via -v)
+	threadsByte := int(r.next())
+	erByte := int(r.next())
+	threads := "t0"
+	if threadsByte&1 == 1 {
+		threads = "t2"
+	}
+	er := ""
+	if erByte&1 == 1 {
+		er = "_er1"
+	}
+	switch shape {
+	case 0:
+		return fmt.Sprintf("multires_%s_%s%s", cpu, threads, er), nil
+	case 1:
+		mode := []string{"mode1", "mode2"}[modeRaw%2]
+		return fmt.Sprintf("svc2tl_%s_%s_%s%s", mode, cpu, threads, er), nil
+	case 2:
+		mode := []string{"mode5", "mode6"}[modeRaw%2]
+		return fmt.Sprintf("svc3tl_%s_%s_%s%s", mode, cpu, threads, er), nil
+	}
+	return "unknown_shape", nil
 }
 
 // classifyDecoderAgainstLibvpx tags fuzz finds by the structural shape
