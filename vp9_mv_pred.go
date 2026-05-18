@@ -284,14 +284,9 @@ type vp9NewmvDiffBiasResult struct {
 //	    this_rdc->rdcost = 7 * (this_rdc->rdcost >> 3);
 //	}
 //
-// govpx's encoder does not yet surface noise_estimate / lowvar_highsumdiff /
-// sb_is_skin (libvpx wires them through cpi->noise_estimate, x->lowvar_*,
-// x->sb_is_skin). The deferred RefControl seeds run with noise_estimate
-// disabled (cpi->oxcf.noise_sensitivity == 0 forces ne->enabled = 0) and
-// content == VP9E_CONTENT_DEFAULT, so the second/third clauses are unreachable
-// under those configurations. The verbatim port keeps the signature so the
-// future agents can wire ne/lowvar_highsumdiff/is_skin without re-touching
-// the kernel.
+// The encoder now wires noise_estimate into the caller-side gate.
+// lowvar_highsumdiff / sb_is_skin remain explicit inputs because libvpx
+// derives them from x->lowvar_* and x->sb_is_skin.
 func vp9NewmvDiffBias(thisMode common.PredictionMode, rdcost uint64,
 	bsize common.BlockSize, mvRow, mvCol int,
 	aboveMi, leftMi *vp9dec.NeighborMi,

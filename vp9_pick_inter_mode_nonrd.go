@@ -1725,15 +1725,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					e.opts.RateControlMode == RateControlCBR &&
 					e.vp9SpeedFeatureCPUUsed() >= 5 &&
 					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
-					// noise_estimate / lowvar_highsumdiff / sb_is_skin
-					// are not wired through govpx yet (cpi->noise_estimate
-					// disabled when oxcf.noise_sensitivity == 0); the
-					// kernel returns the unmodified rdcost in that case.
+					noiseEnabled, noiseAtLeastMedium :=
+						e.vp9NewmvDiffBiasNoiseInputs()
 					biased := vp9NewmvDiffBias(thisMode, score, bsize,
 						int(mv.Row), int(mv.Col),
 						above, left,
 						refFrame == vp9dec.LastFrame,
-						false, false, false, false)
+						noiseEnabled, noiseAtLeastMedium, false, false)
 					score = biased.rdcost
 				}
 
@@ -1781,11 +1779,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					e.opts.RateControlMode == RateControlCBR &&
 					e.vp9SpeedFeatureCPUUsed() >= 5 &&
 					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
+					noiseEnabled, noiseAtLeastMedium :=
+						e.vp9NewmvDiffBiasNoiseInputs()
 					biased := vp9NewmvDiffBias(thisMode, cand.score, bsize,
 						int(mv.Row), int(mv.Col),
 						above, left,
 						refFrame == vp9dec.LastFrame,
-						false, false, false, false)
+						noiseEnabled, noiseAtLeastMedium, false, false)
 					cand.score = biased.rdcost
 				}
 				if distortion < bestSseSoFar {
@@ -2356,6 +2356,13 @@ func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize,
 	}
 	dcQ := int(vp9dec.VpxDcQuant(qindex, qdelta, vp9dec.BitDepth8))
 	return (20 * dcQ) >> reductionFac
+}
+
+func (e *VP9Encoder) vp9NewmvDiffBiasNoiseInputs() (bool, bool) {
+	if e == nil || !e.noiseEstimate.enabled {
+		return false, false
+	}
+	return true, vp9NoiseEstimateExtractLevel(&e.noiseEstimate) >= vp9NoiseLevelMedium
 }
 
 // vp9NeighborIsInter mirrors libvpx's is_inter_block(MODE_INFO *mi) helper.

@@ -71,3 +71,53 @@ func TestVP9GetIntraCostPenaltyNoiseHighSuppressesSmallBlockReduction(t *testing
 		})
 	}
 }
+
+func TestVP9NewmvDiffBiasNoiseInputs(t *testing.T) {
+	cases := []struct {
+		name        string
+		ne          vp9NoiseEstimateState
+		wantEnabled bool
+		wantMedium  bool
+	}{
+		{
+			name: "disabled_high_value_stays_disabled",
+			ne: vp9NoiseEstimateState{
+				enabled: false,
+				thresh:  115,
+				value:   300,
+			},
+			wantEnabled: false,
+			wantMedium:  false,
+		},
+		{
+			name: "enabled_low_below_medium",
+			ne: vp9NoiseEstimateState{
+				enabled: true,
+				thresh:  115,
+				value:   90,
+			},
+			wantEnabled: true,
+			wantMedium:  false,
+		},
+		{
+			name: "enabled_medium_or_higher",
+			ne: vp9NoiseEstimateState{
+				enabled: true,
+				thresh:  115,
+				value:   116,
+			},
+			wantEnabled: true,
+			wantMedium:  true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &VP9Encoder{noiseEstimate: tc.ne}
+			gotEnabled, gotMedium := e.vp9NewmvDiffBiasNoiseInputs()
+			if gotEnabled != tc.wantEnabled || gotMedium != tc.wantMedium {
+				t.Fatalf("noise inputs = (%v,%v), want (%v,%v)",
+					gotEnabled, gotMedium, tc.wantEnabled, tc.wantMedium)
+			}
+		})
+	}
+}
