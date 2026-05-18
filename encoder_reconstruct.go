@@ -220,6 +220,41 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 
 	aboveTok := e.acquireReconstructAboveTok(cols)
 	totalRate := 0
+	// libvpx-stale BLOCK->zbin_extra carry: even though
+	// vp8/encoder/encodeframe.c vp8_activity_masking (line 433) runs at
+	// the head of every MB iteration and adjust_act_zbin (line 318, via
+	// vp8_activity_masking) updates x->act_zbin_adj to THIS MB's value
+	// before the picker, the BLOCK->zbin_extra fields read by
+	// vp8_regular_quantize_b_c (vp8_quantize.c line 75) are NOT
+	// refreshed at that point unless segmentation is enabled
+	// (encodeframe.c line 437 gates the vp8cx_mb_init_quantizer call).
+	// With segmentation off (the default and the case for this fix),
+	// b->zbin_extra is only re-derived by vp8_update_zbin_extra inside
+	// vp8cx_encode_intra_macroblock (encodeframe.c line 1126), which
+	// runs AFTER the picker has finished. As a result, each MB's
+	// picker quantize step observes b->zbin_extra computed from the
+	// PREVIOUS MB's post-pick x->act_zbin_adj
+	// (ZBIN_EXTRA_Y = (Y1dequant[Q][1] * (zbin_over_quant +
+	//                  zbin_mode_boost + act_zbin_adj)) >> 7 at
+	//  vp8_quantize.c lines 276-279). Mirror that staleness here:
+	// pickerActZbinAdj carries the previous MB's actZbinAdj forward
+	// into the next MB's picker; tunedZbinAdjustment(row, col) still
+	// supplies THIS MB's value for the encode-side reconstruct path.
+	//
+	// Initial value at MB(0,0) of an attempt: libvpx's
+	// vp8cx_frame_init_quantizer (vp8_quantize.c line 433) runs at the
+	// head of every vp8_encode_frame call and writes b->zbin_extra
+	// using x->act_zbin_adj at that moment, which is the value left
+	// over from the PREVIOUS attempt's last MB
+	// (init_encode_frame_mb_context resets x->act_zbin_adj=0 only
+	// AFTER vp8cx_frame_init_quantizer consumes it; across
+	// vp8_encode_frame boundaries x->act_zbin_adj is never touched).
+	// govpx already mirrors that carry in
+	// e.activityProbeStaleActZbinAdj (encoder_tuning.go
+	// captureActivityProbeStaleActZbinAdj sets it from
+	// tunedZbinAdjustment(rows-1, cols-1) after each completed
+	// attempt; encoder_lifecycle.go resets it to 0 at encoder reset).
+	pickerActZbinAdj := e.activityProbeStaleActZbinAdj
 	for row := range rows {
 		var leftTok vp8enc.TokenContextPlanes
 		for col := range cols {
@@ -249,6 +284,13 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				}
 				rdMult = e.tunedRDMultiplier(rdMult, row, col)
 			}
+			// libvpx-stale picker actZbinAdj: pickerActZbinAdj is the
+			// previous MB's post-pick adjustment, mirroring libvpx's
+			// b->zbin_extra carry described in the variable-decl
+			// comment above. Snapshot into a local so the post-iter
+			// update (pickerActZbinAdj = actZbinAdj) doesn't race with
+			// the in-iter reads.
+			pickActZbinAdj := pickerActZbinAdj
 			var above *vp8enc.KeyFrameMacroblockMode
 			var left *vp8enc.KeyFrameMacroblockMode
 			if row > 0 {
@@ -274,8 +316,13 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			if e.libvpxUseFastIntraPick() {
 				mode, projectedRate, ok = predictBestKeyFrameIntraModeFastWithRDConstants(src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 			} else {
-				mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(src, segmentQIndex, zbinOverQuant, actZbinAdj, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(src, segmentQIndex, zbinOverQuant, pickActZbinAdj, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 			}
+			// Mirror libvpx encodeframe.c line 1106-1108:
+			// adjust_act_zbin updates x->act_zbin_adj using THIS MB's
+			// activity before the encode-side quantize runs. Seed
+			// pickerActZbinAdj for the NEXT MB's picker.
+			pickerActZbinAdj = actZbinAdj
 			if !ok {
 				return 0, ErrInvalidConfig
 			}

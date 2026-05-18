@@ -166,19 +166,23 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	}
 
 	// Pin the historical metrics so future regressions don't silently
-	// re-interpret what this audit captured. Task #213's act_zbin_adj +
-	// rdmult per-attempt carry port shifted govpx's activity probe
-	// reconstruction toward libvpx but the residual mode-picker
-	// divergence on this BestQuality/ScreenContent cohort still leaves
-	// the frame-level byte counts apart. The pinned values track the
-	// post-task-213 baseline so future regressions surface here.
-	wantFrame0GovpxLen := 145487
+	// re-interpret what this audit captured. Task #213 closed the
+	// activity-probe recon divergence; task #236 then ported libvpx's
+	// stale BLOCK->zbin_extra carry into the per-MB intra RD picker
+	// (see encoder_reconstruct.go pickerActZbinAdj comment), which
+	// fixed the residual MB(0,69) B_PRED block-9 picker flip on the
+	// task #227 seed 19981bff (this exact config). After task #236
+	// govpx frame 0 lands within 5 bytes of libvpx (was 47 bytes
+	// apart) and frame 1 within 9 bytes (was 49). The pinned values
+	// track the post-task-#236 baseline so future regressions surface
+	// here.
+	wantFrame0GovpxLen := 145539
 	wantFrame0LibvpxLen := 145534
-	wantFrame0GovpxFirstPart := 20432
+	wantFrame0GovpxFirstPart := 20470
 	wantFrame0LibvpxFirstPart := 20463
-	wantFrame1GovpxLen := 6072
+	wantFrame1GovpxLen := 6124
 	wantFrame1LibvpxLen := 6121
-	wantFrame1GovpxFirstPart := 2276
+	wantFrame1GovpxFirstPart := 2271
 	wantFrame1LibvpxFirstPart := 2264
 
 	if got := len(govpxFrames[0]); got != wantFrame0GovpxLen {

@@ -206,6 +206,13 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsThreaded(args thread
 func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *threadedKeyRowsArgs, row int, abort *atomic.Int32) (int, error) {
 	rs.rowIndex = row
 	rs.leftTok = vp8enc.TokenContextPlanes{}
+	// libvpx workers initialise their MACROBLOCK copy via setup_mbby_copy;
+	// act_zbin_adj is part of the copy and carries the master's
+	// pre-encode_mb_row value (which is e.activityProbeStaleActZbinAdj
+	// in govpx terms — the stale carry from the previous attempt's
+	// last MB; see the long comment in encoder_reconstruct.go for the
+	// libvpx anchor).
+	rs.pickerActZbinAdj = rs.enc.activityProbeStaleActZbinAdj
 	rowRate := 0
 	// Mirrors libvpx vp8/encoder/ethreading.c: publish at trigger
 	// `(mb_col-1)%nsync == 0` (col ∈ {1, 1+nsync, 1+2*nsync, ...})
@@ -280,8 +287,17 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	if e.libvpxUseFastIntraPick() {
 		mode, projectedRate, ok = predictBestKeyFrameIntraModeFastWithRDConstants(args.src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 	} else {
-		mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(args.src, segmentQIndex, zbinOverQuant, actZbinAdj, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
+		// libvpx-stale picker actZbinAdj: pickerActZbinAdj holds the
+		// previous MB's post-pick value (or 0 at row start). The per-MB
+		// actZbinAdj computed above seeds pickerActZbinAdj for the next
+		// MB after this picker returns. See encoder_reconstruct.go for
+		// the libvpx anchor.
+		mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(args.src, segmentQIndex, zbinOverQuant, rs.pickerActZbinAdj, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
 	}
+	// Mirror libvpx encodeframe.c line 1106-1108 adjust_act_zbin:
+	// seed pickerActZbinAdj for the NEXT MB's picker now that we have
+	// THIS MB's activity-driven adjustment.
+	rs.pickerActZbinAdj = actZbinAdj
 	if !ok {
 		return 0, ErrInvalidConfig
 	}

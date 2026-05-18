@@ -49,6 +49,21 @@ type rowEncoderState struct {
 	// vp8/encoder/encodeframe.c encode_mb_row).
 	leftTok vp8enc.TokenContextPlanes
 
+	// pickerActZbinAdj is the libvpx-stale activity-driven zbin
+	// adjustment threaded into the per-MB RD picker. With segmentation
+	// disabled (the path mirrored here), libvpx's b->zbin_extra is
+	// only refreshed by vp8_update_zbin_extra inside
+	// vp8cx_encode_intra_macroblock (vp8/encoder/encodeframe.c line
+	// 1126), which runs AFTER vp8_rd_pick_intra_mode. So each MB's
+	// picker quantize step reads zbin_extra computed from the PREVIOUS
+	// MB's post-pick act_zbin_adj
+	// (ZBIN_EXTRA_Y at vp8_quantize.c lines 276-279). This row worker
+	// carries pickerActZbinAdj across MBs within a row (reset to 0 at
+	// row start because each row worker initialises its own MACROBLOCK
+	// copy with act_zbin_adj=0). See encoder_reconstruct.go for the
+	// single-thread anchor.
+	pickerActZbinAdj int
+
 	// scratch is the row-private intra reconstruction scratch reused
 	// across the row's MB columns. Mirrors libvpx MACROBLOCK *x's
 	// per-thread workspace from setup_mbby_copy.
