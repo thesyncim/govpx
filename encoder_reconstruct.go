@@ -232,7 +232,16 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			zbinOverQuant := 0
 			modeZbinOverQuant := zbinOverQuant
 			actZbinAdj := 0
-			rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+			// libvpx vp8/encoder/encodeframe.c:405-406 sets x->rdmult =
+			// cpi->RDMULT once per MB, where cpi->RDMULT was computed
+			// from cm->base_qindex (rdopt.c:163-174 vp8_initialize_rd_consts).
+			// The per-MB ROI/cyclic-refresh segment delta-Q swaps quant
+			// tables via vp8cx_mb_init_quantizer but does NOT mutate
+			// x->rdmult, so the trellis optimizer (encodemb.c:187
+			// optimize_b: rdmult = mb->rdmult * err_mult) scores with the
+			// frame-level Q. Compute rdMult from qIndex (base), not from
+			// segmentQIndex.
+			rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
 			if e.activityMapValid {
 				modeZbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 				if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
@@ -571,7 +580,13 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if modes[index].Mode == vp8common.BPred {
 					zbinOverQuant := e.rc.currentZbinOverQuant
 					actZbinAdj := 0
-					rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+					// libvpx encodeframe.c:405-406 + encodemb.c:187: optimize_b
+					// (trellis) reads mb->rdmult = cpi->RDMULT computed once per
+					// frame from cm->base_qindex (rdopt.c:163-174). ROI/cyclic
+					// refresh segment delta-Q never mutates x->rdmult, so the
+					// accepted-path rdMult uses qIndex (frame base), not the
+					// segment-adjusted segmentQIndex.
+					rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
 					if e.activityMapValid {
 						if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 							actZbinAdj = adjustment
@@ -626,7 +641,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 				zbinOverQuant := e.rc.currentZbinOverQuant
 				actZbinAdj := 0
-				rdMult, rdDiv := libvpxRDConstantsWithZbin(segmentQIndex, zbinOverQuant)
+				// Same libvpx anchor as the BPred branch above: trellis
+				// optimize_b uses mb->rdmult = cpi->RDMULT (frame-level),
+				// so the rdMult fed into buildPredictedMacroblockCoefficients
+				// uses qIndex (frame base) not segmentQIndex.
+				rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
 				if e.activityMapValid {
 					if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 						actZbinAdj = adjustment
