@@ -664,6 +664,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			} else {
 				e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
 			}
+			// libvpx vp8/encoder/onyx_if.c lines 4478-4513 update
+			// ni_frames / ni_tot_qi / ni_av_qi from the post-encode Q
+			// after each non-dropped frame. For govpx we record visible
+			// inter frames (hidden ARF frames are still visible to the
+			// regulator but are gated out by the refresh-altref check
+			// inside recordInterFrameQuantizer when number_of_layers<=1).
+			// The recorder feeds the firstpass.c lines 994-1006 maxq
+			// limit clamp on subsequent estimate_max_q calls.
+			e.twoPass.recordInterFrameQuantizer(finalQuantizer, false, attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef, int(temporalFrame.LayerCount), e.twoPass.enabled())
 			e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 			result.BufferLevelBits = e.rc.bufferLevelBits
 			e.forceKeyFrame = false

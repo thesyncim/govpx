@@ -158,6 +158,49 @@ type twoPassState struct {
 	// before the next picker call; otherwise it stays 0 (matching
 	// libvpx's calloc default).
 	sectionIntraRating int
+	// niFrames, niTotQi, niAvQi mirror libvpx's `cpi->ni_frames`,
+	// `cpi->ni_tot_qi` and `cpi->ni_av_qi` (vp8/encoder/onyx_int.h
+	// lines 242-244). They are the running count of "normal inter
+	// frames" (visible non-KEY frames that are neither golden-refresh
+	// nor altref-refresh, unless layered) and the cumulative / average
+	// Q observed over those frames. libvpx initializes them via
+	// vp8/encoder/onyx_if.c lines 1953-1955:
+	//     cpi->ni_av_qi  = cpi->oxcf.worst_allowed_q;
+	//     cpi->ni_tot_qi = 0;
+	//     cpi->ni_frames = 0;
+	// They are updated per encoded frame in onyx_if.c lines 4478-4513
+	// inside vp8_update_rate_correction_factors's tail (pass-2 branch
+	// is the simple cumulative average path, pass==1 / one-pass has
+	// damping for the first 150 frames). The first-frame pass-2 seed
+	// at firstpass.c line 2364 also overwrites ni_av_qi with tmp_q.
+	//
+	// These accumulators feed the libvpx firstpass.c lines 994-1006
+	// post-loop clamp inside estimate_max_q: once `ni_frames >
+	// (total_stats.count >> 8) && ni_frames > 150`, the maxq
+	// limits are narrowed to ni_av_qi ± 32 (bounded by best/worst
+	// quality). govpx records the same values so the long-fixture
+	// estimate_max_q calls converge on the libvpx-narrowed limits.
+	niFrames int
+	niTotQi  int
+	niAvQi   int
+	// maxqMinLimit, maxqMaxLimit mirror libvpx's
+	// `cpi->twopass.maxq_min_limit` / `cpi->twopass.maxq_max_limit`.
+	// They are the persistent Q-search bounds used by every
+	// estimate_max_q invocation (firstpass.c line 963). libvpx seeds
+	// them on the very first pass-2 frame:
+	//     cpi->twopass.maxq_max_limit = cpi->worst_quality;
+	//     cpi->twopass.maxq_min_limit = cpi->best_quality;
+	// (firstpass.c lines 2346-2347), runs estimate_max_q with those
+	// initial bounds, then narrows them around tmp_q:
+	//     maxq_max_limit = min(tmp_q + 32, worst_quality)
+	//     maxq_min_limit = max(tmp_q - 32, best_quality)
+	// (firstpass.c lines 2358-2361). On subsequent estimate_max_q
+	// invocations, the tail clamp at firstpass.c lines 994-1006
+	// re-narrows them around ni_av_qi ± 32 once the ni accumulators
+	// have settled. Govpx tracks these as state so the regulator
+	// reads the same Q-search bounds as libvpx.
+	maxqMinLimit int
+	maxqMaxLimit int
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
@@ -209,6 +252,25 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	// has not yet emitted any frames.
 	t.estMaxQCorrection = 1.0
 	t.sectionMaxQFactor = 1.0
+	// libvpx vp8/encoder/onyx_if.c lines 1953-1955 seed:
+	//   cpi->ni_av_qi  = cpi->oxcf.worst_allowed_q;
+	//   cpi->ni_tot_qi = 0;
+	//   cpi->ni_frames = 0;
+	// Mirror that so the firstpass.c lines 994-1006 ni-based maxq
+	// clamp evaluates with libvpx-shaped starting values. configure
+	// runs before configureQuantizerBounds has had a chance to push
+	// the real worst_quality; we therefore re-seed niAvQi in
+	// configureQuantizerBounds when that arrives.
+	t.niAvQi = t.worstQuality
+	t.niTotQi = 0
+	t.niFrames = 0
+	// libvpx vp8/encoder/firstpass.c lines 2346-2347 seed the persistent
+	// maxq_min_limit / maxq_max_limit to (best_quality, worst_quality)
+	// on the very first pass-2 frame, before the first estimate_max_q
+	// call. We mirror those defaults here so estimate_max_q reads the
+	// same bounds even when seedPass2ActiveWorstQ has not run yet.
+	t.maxqMinLimit = t.bestQuality
+	t.maxqMaxLimit = t.worstQuality
 }
 
 func (t *twoPassState) enabled() bool {
@@ -218,6 +280,22 @@ func (t *twoPassState) enabled() bool {
 func (t *twoPassState) configureQuantizerBounds(bestQuality int, worstQuality int) {
 	t.bestQuality = clampQuantizerValue(bestQuality, 0, vp8MaxQIndex)
 	t.worstQuality = max(clampQuantizerValue(worstQuality, 0, vp8MaxQIndex), t.bestQuality)
+	// libvpx vp8/encoder/onyx_if.c line 1953 seeds ni_av_qi to
+	// oxcf.worst_allowed_q. The encoder pushes those bounds via
+	// configureQuantizerBounds, which can happen after configure(); keep
+	// niAvQi in sync as long as no normal-inter frame has been observed
+	// yet (niFrames==0). Once frames have been recorded the running
+	// average wins.
+	if t.niFrames == 0 {
+		t.niAvQi = t.worstQuality
+	}
+	// libvpx firstpass.c lines 2346-2347 initial seed; re-apply when the
+	// regulator pushes new bounds before any estimate_max_q call has
+	// narrowed them. seedPass2ActiveWorstQ overwrites them post-call.
+	if t.niFrames == 0 && !t.pass2ActiveWorstQValid {
+		t.maxqMinLimit = t.bestQuality
+		t.maxqMaxLimit = t.worstQuality
+	}
 }
 
 func (t *twoPassState) configureErrorResilient(errorResilient bool) {
@@ -745,9 +823,149 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	// estimate_modemvcost with &cpi->twopass.total_left_stats. Mirror
 	// that pointer choice so overhead tracks the rolled-down totals.
 	overheadBits := libvpxEstimateModeMVCost(t.totalLeftStats, t.numMBs)
-	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, t.bestQuality, t.worstQuality), 0), vp8MaxQIndex)
+	// libvpx vp8/encoder/firstpass.c lines 2346-2347 reset
+	// maxq_max_limit/maxq_min_limit to (worst_quality, best_quality)
+	// before the first-frame estimate_max_q call. Mirror that here so
+	// the search bounds match libvpx on frame 0.
+	t.maxqMinLimit = t.bestQuality
+	t.maxqMaxLimit = t.worstQuality
+	// libvpx estimate_max_q (firstpass.c lines 994-1006) applies the
+	// ni-based narrowing inside the function itself. On the first pass-2
+	// frame ni_frames is 0, so the gate never fires and the limits stay
+	// at (best, worst). On subsequent invocations (the damped branch /
+	// the long-fixture rolling clamp) the gate may fire — applied via
+	// applyNiMaxQLimitClamp before the call.
+	minLimit, maxLimit := t.applyNiMaxQLimitClamp(t.maxqMinLimit, t.maxqMaxLimit)
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8MaxQIndex)
 	t.pass2ActiveWorstQ = tmpQ
 	t.pass2ActiveWorstQValid = true
+	// libvpx vp8/encoder/firstpass.c lines 2358-2364: after the first
+	// pass-2 estimate_max_q call, narrow the persistent maxq limits to
+	// tmp_q ± 32 (clamped by worst_quality / best_quality) and seed
+	// ni_av_qi to tmp_q. Subsequent estimate_max_q calls read these
+	// narrowed bounds, and the ni-based clamp inside estimate_max_q
+	// can narrow them further once ni_frames passes the 150 / count/256
+	// gate.
+	t.maxqMaxLimit = min(tmpQ+32, t.worstQuality)
+	t.maxqMinLimit = max(tmpQ-32, t.bestQuality)
+	t.niAvQi = tmpQ
+}
+
+// applyNiMaxQLimitClamp ports the libvpx vp8/encoder/firstpass.c
+// estimate_max_q tail clamp (lines 994-1006):
+//
+//	if ((cpi->ni_frames > ((int)cpi->twopass.total_stats.count >> 8)) &&
+//	    (cpi->ni_frames > 150)) {
+//	  cpi->twopass.maxq_max_limit = ((cpi->ni_av_qi + 32) < cpi->worst_quality)
+//	                                    ? (cpi->ni_av_qi + 32)
+//	                                    : cpi->worst_quality;
+//	  cpi->twopass.maxq_min_limit = ((cpi->ni_av_qi - 32) > cpi->best_quality)
+//	                                    ? (cpi->ni_av_qi - 32)
+//	                                    : cpi->best_quality;
+//	}
+//
+// Libvpx executes this inside estimate_max_q after the Q-search loop,
+// mutating cpi->twopass.maxq_{min,max}_limit. The mutated values are
+// then read by the next estimate_max_q call (line 963) and by the
+// regulator's active-worst-Q ceiling. govpx mirrors the mutation
+// semantics by applying the clamp on each estimate_max_q entry point
+// (seedPass2ActiveWorstQ / dampedUpdatePass2ActiveWorstQ): when the
+// gate fires the persistent maxqMin/MaxLimit fields are narrowed in
+// place and the narrowed bounds are returned for the immediate call.
+// When the gate is not yet met (ni_frames <= 150 or total_stats.count
+// is small relative to ni_frames) the limits are returned unchanged.
+//
+// The predicate uses cpi->twopass.total_stats.count (the original
+// pass-1 totals count, unrolled), not total_left_stats.count.
+func (t *twoPassState) applyNiMaxQLimitClamp(currentMinLimit, currentMaxLimit int) (int, int) {
+	totalCount := int(t.totalStats.Count)
+	// libvpx uses C signed-int shift right: (int)count >> 8 == count/256
+	// for non-negative counts; total_stats.count is unsigned in the
+	// pass-1 dump but bounded well within int range for realistic clips.
+	if t.niFrames <= (totalCount >> 8) {
+		return currentMinLimit, currentMaxLimit
+	}
+	if t.niFrames <= 150 {
+		return currentMinLimit, currentMaxLimit
+	}
+	// Narrow maxq_max_limit / maxq_min_limit around ni_av_qi ± 32,
+	// bounded by worst_quality / best_quality (libvpx ternary form).
+	var narrowedMax, narrowedMin int
+	narrowedMax = min(t.niAvQi+32, t.worstQuality)
+	narrowedMin = max(t.niAvQi-32, t.bestQuality)
+	// Mutate the persistent state so subsequent estimate_max_q reads
+	// see the narrowed bounds (libvpx-parity: the C code mutates
+	// cpi->twopass.maxq_{min,max}_limit in place).
+	t.maxqMaxLimit = narrowedMax
+	t.maxqMinLimit = narrowedMin
+	return narrowedMin, narrowedMax
+}
+
+// recordInterFrameQuantizer ports the libvpx vp8/encoder/onyx_if.c
+// ni_frames / ni_tot_qi / ni_av_qi update (lines 4478-4513). It runs
+// once per encoded frame inside vp8_update_rate_correction_factors's
+// tail. The update is gated on a "normal inter frame" predicate:
+//
+//	if ((cm->frame_type != KEY_FRAME) &&
+//	    ((cpi->oxcf.number_of_layers > 1) ||
+//	     (!cm->refresh_golden_frame && !cm->refresh_alt_ref_frame))) {
+//	  cpi->ni_frames++;
+//	  if (cpi->pass == 2) {
+//	    cpi->ni_tot_qi += Q;
+//	    cpi->ni_av_qi = ni_tot_qi / ni_frames;
+//	  } else {
+//	    if (cpi->ni_frames > 150) {
+//	      cpi->ni_tot_qi += Q;
+//	      cpi->ni_av_qi = ni_tot_qi / ni_frames;
+//	    } else {
+//	      cpi->ni_tot_qi += Q;
+//	      cpi->ni_av_qi = ((ni_tot_qi/ni_frames) + worst_quality + 1)/2;
+//	    }
+//	    if (Q > cpi->ni_av_qi) cpi->ni_av_qi = Q - 1;
+//	  }
+//	}
+//
+// Govpx threads only the pass-2 branch here; the one-pass damping is
+// not consumed by the estimate_max_q clamp on its own (the gate
+// itself requires ni_frames > 150) but keeping the damped average is
+// necessary for byte-exact one-pass behaviour where the clamp would
+// otherwise fire. Callers from the encoder loop must pass the
+// post-encode Q index (cpi->common.base_qindex) and the actual
+// frame-type / refresh flags.
+//
+// The keyFrame flag corresponds to cm->frame_type == KEY_FRAME.
+// numLayers mirrors cpi->oxcf.number_of_layers (0 or 1 means single
+// layer, the value is compared to 1).
+func (t *twoPassState) recordInterFrameQuantizer(Q int, keyFrame bool, refreshGolden bool, refreshAltRef bool, numLayers int, pass2 bool) {
+	if !t.enabled() {
+		return
+	}
+	if keyFrame {
+		return
+	}
+	if numLayers <= 1 && (refreshGolden || refreshAltRef) {
+		return
+	}
+	t.niFrames++
+	t.niTotQi += Q
+	if pass2 {
+		t.niAvQi = t.niTotQi / t.niFrames
+		return
+	}
+	// One-pass path: damp for the first 150 frames (libvpx onyx_if.c
+	// lines 4491-4502). After 150 frames the average is just the
+	// running mean.
+	if t.niFrames > 150 {
+		t.niAvQi = t.niTotQi / t.niFrames
+	} else {
+		t.niAvQi = ((t.niTotQi / t.niFrames) + t.worstQuality + 1) / 2
+	}
+	// libvpx onyx_if.c line 4512: floor ni_av_qi to Q-1 when the just-
+	// observed Q exceeds the running average. Prevents Q from
+	// progressively falling during difficult sections.
+	if Q > t.niAvQi {
+		t.niAvQi = Q - 1
+	}
 }
 
 // pass2ActiveWorstQOverride returns the libvpx-derived
@@ -893,10 +1111,14 @@ func (t *twoPassState) dampedUpdatePass2ActiveWorstQ(frame uint64) {
 		sectionMQF = 1.0
 	}
 	overheadBits := libvpxEstimateModeMVCost(t.totalLeftStats, t.numMBs)
-	tmpQ := max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, t.bestQuality, t.worstQuality), 0)
-	if tmpQ > vp8MaxQIndex {
-		tmpQ = vp8MaxQIndex
-	}
+	// libvpx vp8/encoder/firstpass.c estimate_max_q reads the persistent
+	// maxq_{min,max}_limit (line 963) and applies the ni-based tail
+	// clamp (lines 994-1006) to narrow them. Govpx mirrors the mutation:
+	// applyNiMaxQLimitClamp narrows the persistent fields in place when
+	// the gate fires (ni_frames > total/256 && ni_frames > 150) and
+	// returns the bounds for the immediate call.
+	minLimit, maxLimit := t.applyNiMaxQLimitClamp(t.maxqMinLimit, t.maxqMaxLimit)
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8MaxQIndex)
 	// libvpx firstpass.c lines 2384-2392:
 	//   /* Move active_worst_quality but in a damped way */
 	//   if (tmp_q > cpi->active_worst_quality) cpi->active_worst_quality++;
@@ -909,10 +1131,7 @@ func (t *twoPassState) dampedUpdatePass2ActiveWorstQ(frame uint64) {
 	} else if tmpQ < aw {
 		aw--
 	}
-	aw = max((aw*3+tmpQ+2)/4, 0)
-	if aw > vp8MaxQIndex {
-		aw = vp8MaxQIndex
-	}
+	aw = min(max((aw*3+tmpQ+2)/4, 0), vp8MaxQIndex)
 	t.pass2ActiveWorstQ = aw
 }
 
