@@ -64,11 +64,29 @@ const (
 	VP9AQPerceptual VP9AQMode = 5
 )
 
-func vp9CoefUpdateModeForFrame(isKey bool) encoder.CoefUpdateMode {
-	if isKey {
-		return encoder.CoefUpdateTwoLoop
+// vp9CoefUpdateModeForFrame selects libvpx's coefficient-probability update
+// emitter (TWO_LOOP vs ONE_LOOP_REDUCED) from SPEED_FEATURES.
+// use_fast_coef_updates. libvpx's update_coef_probs_common switches on this
+// field at vp9_bitstream.c:556. The default is TWO_LOOP
+// (vp9_speed_features.c:993); it is only flipped to ONE_LOOP_REDUCED at:
+//
+//   - GOOD speed >= 4 (vp9_speed_features.c:395) — any frame_type
+//   - REALTIME speed >= 4 / >= 5 (vp9_speed_features.c:579 / :611) —
+//     non-keyframes only (is_keyframe ? TWO_LOOP : ONE_LOOP_REDUCED)
+//
+// Previously this returned ONE_LOOP_REDUCED for ANY non-key frame regardless
+// of speed, which over-fired the one-loop emitter at REALTIME speed=3 (cpu=-3)
+// where libvpx still uses TWO_LOOP. The two emitters produce divergent wire
+// bits whenever any update fires because ONE_LOOP_REDUCED elides the no-update
+// run before the first slot. Consult e.sf directly so the per-frame
+// vp9ApplySpeedFeatures dispatch (vp9_encoder.go:2593) drives the mode.
+//
+// libvpx: vp9_bitstream.c:556 (switch (cpi->sf.use_fast_coef_updates)).
+func (e *VP9Encoder) vp9CoefUpdateModeForFrame() encoder.CoefUpdateMode {
+	if e != nil && e.sf.UseFastCoefUpdates == OneLoopReduced {
+		return encoder.CoefUpdateOneLoopReduced
 	}
-	return encoder.CoefUpdateOneLoopReduced
+	return encoder.CoefUpdateTwoLoop
 }
 
 // VP9ColorSpace mirrors libvpx's vpx_color_space_t — the 3-bit color
@@ -2873,8 +2891,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		CompoundRefAllowed:      compoundAllowed,
 		AllowHighPrecisionMv:    header.AllowHighPrecisionMv,
 		CoefStepsize:            e.vp9CoeffProbAppxStep(),
-		CoefUpdateMode:          vp9CoefUpdateModeForFrame(isKey),
-		SkipTx16PlusCoefUpdates: e.vp9SkipTx16PlusCoefUpdates(isKey),
+		CoefUpdateMode:          e.vp9CoefUpdateModeForFrame(),
+		SkipTx16PlusCoefUpdates: e.vp9SkipTx16PlusCoefUpdates(),
 		Probs:                   &e.fc,
 		Counts:                  counts,
 	})

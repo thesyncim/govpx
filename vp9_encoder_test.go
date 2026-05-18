@@ -742,12 +742,39 @@ func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
+	// applyInterFrameSF mirrors what vp9ApplySpeedFeatures does for an
+	// inter-frame at the top of encode_frame_to_data_rate. libvpx's
+	// vp9_bitstream.c:691-693 gate consults cpi->sf.tx_size_search_method
+	// directly, so the helper reflects whatever per-frame SF context the
+	// encoder last computed. Exercise the inter-frame branch explicitly
+	// (the framesize-independent dispatcher splits on is_keyframe at
+	// vp9_speed_features.c:579-581 / :611-613 and the configurator drops
+	// USE_TX_8X8 for keyframes).
+	applyInterFrameSF := func() {
+		ctx := e.vp9DefaultSpeedFrameContext()
+		ctx.frameType = common.InterFrame
+		ctx.intraOnly = false
+		e.vp9ApplySpeedFeatures(ctx)
+	}
+	// applyKeyFrameSF rebuilds the SF using the default (key-frame, intra-only)
+	// context. vp9RealtimeVariancePartitionEnabled is consumed by the keyframe
+	// var-partition gate (vp9_encoder.go:5753 vp9CBRKeyframeVariancePartitionEnabled),
+	// so it must be inspected with the same context.
+	applyKeyFrameSF := func() {
+		e.vp9ApplySpeedFeatures(e.vp9DefaultSpeedFrameContext())
+	}
+
+	applyInterFrameSF()
 	if got := e.vp9CoeffProbAppxStep(); got != 4 {
 		t.Fatalf("default coeff step = %d, want 4", got)
 	}
-	if !e.vp9SkipTx16PlusCoefUpdates(false) {
+	// libvpx RT speed >= 4 non-key sets tx_size_search_method = USE_TX_8X8
+	// (vp9_speed_features.c:581), so the compressed-header gate at
+	// vp9_bitstream.c:692 fires for default cpu_used=8 RT.
+	if !e.vp9SkipTx16PlusCoefUpdates() {
 		t.Fatal("default speed should skip tx16+ coef updates")
 	}
+	applyKeyFrameSF()
 	if !e.vp9RealtimeVariancePartitionEnabled() {
 		t.Fatal("default speed should enable realtime variance partition")
 	}
@@ -755,30 +782,37 @@ func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
 		t.Fatalf("SetDeadline(good): %v", err)
 	}
+	applyInterFrameSF()
 	// libvpx good-mode never sets coeff_prob_appx_step (only realtime speed 5
 	// does, vp9_speed_features.c:610), so the field stays at the best-quality
 	// default of 1.
 	if got := e.vp9CoeffProbAppxStep(); got != 1 {
 		t.Fatalf("good coeff step = %d, want 1", got)
 	}
-	// libvpx good-mode speed >= 4 sets use_fast_coef_updates = ONE_LOOP_REDUCED
-	// for inter frames (vp9_speed_features.c:395), so cpu_used=8 GOOD also
-	// requests the skip.
-	if !e.vp9SkipTx16PlusCoefUpdates(false) {
-		t.Fatal("good cpu8 should request tx16+ skip per libvpx speed >= 4")
+	// libvpx GOOD speed >= 1 sets tx_size_search_method = USE_LARGESTALL for
+	// inter frames (vp9_speed_features.c:492-493), and the speed >= 4 GOOD
+	// branch does NOT flip it to USE_TX_8X8 — only use_fast_coef_updates is
+	// flipped to ONE_LOOP_REDUCED (vp9_speed_features.c:395). The wire gate
+	// at vp9_bitstream.c:692 keys strictly on tx_size_search_method, so GOOD
+	// cpu8 must NOT request the skip even though the FAST_COEFF_UPDATE
+	// path runs.
+	if e.vp9SkipTx16PlusCoefUpdates() {
+		t.Fatal("good cpu8 should not request tx16+ skip per libvpx tx_size_search_method=USE_LARGESTALL")
 	}
 	// libvpx good-mode never selects VAR_BASED_PARTITION (it's an RT-only
 	// path).
+	applyKeyFrameSF()
 	if e.vp9RealtimeVariancePartitionEnabled() {
 		t.Fatal("good deadline should not use realtime variance partition")
 	}
 
-	// Going back through good-mode speed 0 (cpu_used=0) confirms the skip is
-	// gated by speed, not deadline.
+	// Going back through good-mode speed 0 (cpu_used=0) confirms the skip
+	// stays off (default USE_FULL_RD).
 	if err := e.SetCPUUsed(0); err != nil {
 		t.Fatalf("SetCPUUsed(0) good: %v", err)
 	}
-	if e.vp9SkipTx16PlusCoefUpdates(false) {
+	applyInterFrameSF()
+	if e.vp9SkipTx16PlusCoefUpdates() {
 		t.Fatal("good cpu0 should not request tx16+ skip")
 	}
 	if err := e.SetCPUUsed(8); err != nil {
@@ -791,12 +825,14 @@ func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 	if err := e.SetCPUUsed(5); err != nil {
 		t.Fatalf("SetCPUUsed(5): %v", err)
 	}
+	applyInterFrameSF()
 	if got := e.vp9CoeffProbAppxStep(); got != 4 {
 		t.Fatalf("rt cpu5 coeff step = %d, want 4", got)
 	}
-	if !e.vp9SkipTx16PlusCoefUpdates(false) {
+	if !e.vp9SkipTx16PlusCoefUpdates() {
 		t.Fatal("rt cpu5 should skip tx16+ coef updates")
 	}
+	applyKeyFrameSF()
 	if e.vp9RealtimeVariancePartitionEnabled() {
 		t.Fatal("rt cpu5 should not enable speed8 variance partition")
 	}
@@ -804,22 +840,25 @@ func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 	if err := e.SetCPUUsed(4); err != nil {
 		t.Fatalf("SetCPUUsed(4): %v", err)
 	}
+	applyInterFrameSF()
 	if got := e.vp9CoeffProbAppxStep(); got != 1 {
 		t.Fatalf("rt cpu4 coeff step = %d, want 1", got)
 	}
-	if !e.vp9SkipTx16PlusCoefUpdates(false) {
+	if !e.vp9SkipTx16PlusCoefUpdates() {
 		t.Fatal("rt cpu4 should still skip tx16+ coef updates")
 	}
 
 	if err := e.SetCPUUsed(0); err != nil {
 		t.Fatalf("SetCPUUsed(0): %v", err)
 	}
-	if e.vp9SkipTx16PlusCoefUpdates(false) {
+	applyInterFrameSF()
+	if e.vp9SkipTx16PlusCoefUpdates() {
 		t.Fatal("rt cpu0 should not skip tx16+ coef updates")
 	}
 	if err := e.SetCPUUsed(-9); err != nil {
 		t.Fatalf("SetCPUUsed(-9): %v", err)
 	}
+	applyKeyFrameSF()
 	if !e.vp9RealtimeVariancePartitionEnabled() {
 		t.Fatal("rt cpu-9 should use abs(cpu-used) speed")
 	}

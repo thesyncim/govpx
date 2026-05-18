@@ -1,7 +1,6 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
@@ -1126,27 +1125,29 @@ func (e *VP9Encoder) vp9CoeffProbAppxStep() int {
 	return e.sf.CoeffProbAppxStep
 }
 
-// vp9SkipTx16PlusCoefUpdates returns true when SPEED_FEATURES wants the inter
-// frames to skip TX_16X16+ coefficient probability updates. libvpx sets
-// use_fast_coef_updates = ONE_LOOP_REDUCED for non-key frames in the speed
-// >= 4 realtime branches (vp9_speed_features.c:579, 611) and the speed >= 4
-// good branch (vp9_speed_features.c:395).
+// vp9SkipTx16PlusCoefUpdates mirrors libvpx's update_coef_probs tx_size gate:
 //
-// libvpx: vp9_speed_features.c:579 / 611 / 395.
-func (e *VP9Encoder) vp9SkipTx16PlusCoefUpdates(isKey bool) bool {
-	if e == nil || isKey {
+//	if (cpi->td.counts->tx.tx_totals[tx_size] <= 20 ||
+//	    (tx_size >= TX_16X16 && cpi->sf.tx_size_search_method == USE_TX_8X8))
+//	  vpx_write_bit(w, 0);
+//
+// (libvpx vp9_bitstream.c:691-693). The gate is keyed strictly on
+// SPEED_FEATURES.tx_size_search_method == USE_TX_8X8, NOT on
+// use_fast_coef_updates. The two speed features are independent: they happen
+// to coincide at REALTIME speed >= 4 / >= 5 non-key frames
+// (vp9_speed_features.c:579+581 / 611+613) where both fire, but at GOOD
+// speed >= 4 only use_fast_coef_updates is flipped to ONE_LOOP_REDUCED
+// (vp9_speed_features.c:395) while tx_size_search_method stays at
+// USE_LARGESTALL (vp9_speed_features.c:387). Consult e.sf directly so the
+// per-frame vp9ApplySpeedFeatures dispatch (vp9_encoder.go:2593) drives the
+// gate.
+//
+// libvpx: vp9_bitstream.c:691-693 (the tx_size gate inside update_coef_probs).
+func (e *VP9Encoder) vp9SkipTx16PlusCoefUpdates() bool {
+	if e == nil {
 		return false
 	}
-	// libvpx re-runs the configurator each frame; recompute SF with an
-	// inter-frame context so the use_fast_coef_updates assignment matches
-	// libvpx for visible inter frames.
-	var sf SpeedFeatures
-	ctx := e.vp9DefaultSpeedFrameContext()
-	ctx.frameType = common.InterFrame
-	ctx.intraOnly = false
-	vp9SetSpeedFeaturesFramesizeIndependent(e, &sf, e.vp9SpeedFeatureCPUUsed(), ctx)
-	vp9SetSpeedFeaturesFramesizeDependent(e, &sf, e.vp9SpeedFeatureCPUUsed(), ctx)
-	return sf.UseFastCoefUpdates == OneLoopReduced
+	return e.sf.TxSizeSearchMethod == UseTx8x8
 }
 
 // vp9RealtimeVariancePartitionEnabled returns true when SPEED_FEATURES picks

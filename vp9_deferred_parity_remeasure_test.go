@@ -167,6 +167,64 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 //     (vp9_encoder.go:10269 — recovers qcoeff from dqcoeff via
 //     /dq; loss-of-precision when dqcoeff = q*dq/2 is truncated).
 //
+// Task #152 audit — coef-update gates against libvpx vp9_bitstream.c
+// update_coef_probs (lines 684-700) and update_coef_probs_common
+// (lines 546-682):
+//
+//   - WriteCoefProbsFromCounts (internal/vp9/encoder/coef_probs_counts.go:39)
+//     matches libvpx update_coef_probs verbatim: the per-tx-size gate
+//     `(txTotals[tx] <= 20) || (skipTx16Plus && tx >= Tx16x16)` ports
+//     `cpi->td.counts->tx.tx_totals[tx_size] <= 20 || (tx_size >= TX_16X16 &&
+//     cpi->sf.tx_size_search_method == USE_TX_8X8)` (vp9_bitstream.c:691-692).
+//
+//   - updateCoefProbsTxSize (coef_probs_counts.go:67) ports the TWO_LOOP
+//     case of update_coef_probs_common (vp9_bitstream.c:557-625) verbatim:
+//     dry-run accumulates totalSavings + updateCount over PLANE_TYPES x
+//     REF_TYPES x COEF_BANDS x BAND_COEFF_CONTEXTS x UNCONSTRAINED_NODES
+//     calling vp9_prob_diff_update_savings_search_model at PIVOT_NODE and
+//     vp9_prob_diff_update_savings_search elsewhere; emit pass mirrors the
+//     same walk under a single tx-size update bit.
+//
+//   - updateCoefProbsTxSizeOneLoopReduced (coef_probs_counts.go:131) ports
+//     the ONE_LOOP_REDUCED case (vp9_bitstream.c:628-680) verbatim with the
+//     noupdates_before_first elision when the first slot fires.
+//
+//   - Pre-fix: vp9CoefUpdateModeForFrame (vp9_encoder.go) returned
+//     OneLoopReduced for ANY non-key frame regardless of speed. This
+//     over-fired the one-loop emitter at REALTIME speed=3 (cpu=-3) where
+//     libvpx's vp9_bitstream.c:556 switch on cpi->sf.use_fast_coef_updates
+//     reads TWO_LOOP (vp9_speed_features.c:993 default; only flipped to
+//     ONE_LOOP_REDUCED at REALTIME speed >= 4 non-key at
+//     vp9_speed_features.c:579/611 and GOOD speed >= 4 at :395).
+//     Fix: read e.sf.UseFastCoefUpdates directly so the per-frame
+//     vp9ApplySpeedFeatures dispatch (vp9_encoder.go:2611) drives the mode.
+//
+//   - Pre-fix: vp9SkipTx16PlusCoefUpdates (vp9_encoder_config.go) gated
+//     on use_fast_coef_updates == OneLoopReduced. libvpx's
+//     vp9_bitstream.c:691-693 gate keys strictly on
+//     sf.tx_size_search_method == USE_TX_8X8 — semantically independent
+//     from use_fast_coef_updates. The two features happen to coincide at
+//     REALTIME speed >= 4 non-key (vp9_speed_features.c:579+581/611+613)
+//     but diverge at GOOD speed >= 4 where tx_size_search_method stays
+//     at USE_LARGESTALL (vp9_speed_features.c:387) while
+//     use_fast_coef_updates flips to ONE_LOOP_REDUCED (:395).
+//     Fix: read e.sf.TxSizeSearchMethod directly.
+//
+//   - Negative finding: the seed-level metrics are unchanged by the gate
+//     fix because at speed=3 RT inter frames in panning content the
+//     per-frame coef counts produce zero updates anyway, so TWO_LOOP and
+//     ONE_LOOP_REDUCED both emit a single 0 bit per tx-size — identical
+//     wire output. The byte-16 first_mismatch_position at speed=3
+//     keyframes is upstream of the gate (token-tree distribution
+//     diverges before the gate runs) — keyframes already use TWO_LOOP in
+//     both encoders. The libvpx-faithful TX_MODE_SELECT post-encode
+//     demotion at vp9_encodeframe.c:5911-5944 (partition-context tx
+//     counts ladder counts->tx.pXxX) is also still deferred — govpx's
+//     vp9EncoderFrameTxModeFromCounts (vp9_encoder.go:4275) leaves
+//     TxModeSelect unchanged and demotes only non-SELECT modes via a
+//     tx_totals ladder, which is acknowledged as a govpx-specific
+//     divergence in that function's docstring.
+//
 // Intentionally non-asserting — see RefControl sibling for rationale.
 func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
