@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -106,5 +107,77 @@ func TestVP9ChoosePartitioningSBIndex(t *testing.T) {
 	}
 	if got := e.vp9ChoosePartitioningSBIndex(16, 8, 8); got != 3 {
 		t.Errorf("sbIdx(16, 8, 8) = %d, want 3", got)
+	}
+}
+
+func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
+	const width, height = 160, 96
+	const miRows, miCols = 12, 20
+	const sbMiRow, sbMiCol = 8, 16
+
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		CpuUsed: 8,
+	})
+	e.sf.VariancePartThreshMult = 1
+
+	ref := newVP9MotionYCbCrForTest(width, height)
+	src := shiftedVP9ReferenceYCbCrForTest(vp9ImageFromYCbCrForTest(ref), 8, 0)
+	e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
+	e.ensureLastBordered()
+
+	var dq vp9dec.DequantTables
+	inter := &vp9InterEncodeState{
+		img:        src,
+		dq:         &dq,
+		refMask:    1 << uint(vp9dec.LastFrame),
+		baseQindex: e.vp9EncoderModeDecisionQIndex(),
+	}
+	if !e.vp9EnsureSBPartitionChosen(miRows, miCols, sbMiRow, sbMiCol, nil, inter) {
+		t.Fatal("vp9EnsureSBPartitionChosen returned false")
+	}
+
+	subBsize := vp9GetEstimatedPredSubBsize(sbMiRow, sbMiCol, miRows, miCols)
+	if subBsize != common.Block32x32 {
+		t.Fatalf("edge sub-bsize = %v, want Block32x32", subBsize)
+	}
+
+	x0 := sbMiCol * common.MiSize
+	y0 := sbMiRow * common.MiSize
+	srcOriginX := e.intProSrcBordered.OriginX()
+	srcOriginY := e.intProSrcBordered.OriginY()
+	refOriginX := e.lastBordered.OriginX()
+	refOriginY := e.lastBordered.OriginY()
+	srcStrideB := e.intProSrcBordered.Stride
+	refStrideB := e.lastBordered.Stride
+	estIn := &vp9GetEstimatedPredInterInput{
+		Bsize:         subBsize,
+		Src:           e.intProSrcBordered.Pixels,
+		SrcOff:        (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
+		SrcStride:     srcStrideB,
+		LastRef:       e.lastBordered.Pixels,
+		LastRefOff:    (refOriginY+y0)*refStrideB + (refOriginX + x0),
+		LastRefStride: refStrideB,
+		Speed:         int(e.opts.CpuUsed),
+		MvLimits: vp9MvLimits{
+			ColMin: -(x0 + vp9EncBorderInPixels),
+			ColMax: width - x0 + vp9EncBorderInPixels,
+			RowMin: -(y0 + vp9EncBorderInPixels),
+			RowMax: height - y0 + vp9EncBorderInPixels,
+		},
+	}
+	expected := make([]uint8, 64*64)
+	vp9GetEstimatedPred(false, estIn, expected)
+	if !bytes.Equal(e.intProEstPred[:], expected) {
+		t.Fatal("low-res edge predictor did not use edge-aware sub-bsize")
+	}
+
+	oldShape := make([]uint8, 64*64)
+	oldIn := *estIn
+	oldIn.Bsize = common.Block64x64
+	vp9GetEstimatedPred(false, &oldIn, oldShape)
+	if bytes.Equal(expected, oldShape) {
+		t.Fatal("test fixture is not sensitive to Block32x32 vs Block64x64 int-pro search")
 	}
 }

@@ -6165,7 +6165,9 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					// LAST plane. The visible (mi_row, mi_col) origin
 					// inside the padded buffer is (Border+y0,
 					// Border+x0) so refOff - (bw>>1) stays inside the
-					// allocation for the BLOCK_64X64 worst case
+					// allocation for the selected sub-bsize; the
+					// BLOCK_64X64 worst case still fits inside the
+					// encoder border
 					// (libvpx vp9/encoder/vp9_mcomp.c:2317-2320).
 					srcOriginX := e.intProSrcBordered.OriginX()
 					srcOriginY := e.intProSrcBordered.OriginY()
@@ -6173,8 +6175,10 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					refOriginY := e.lastBordered.OriginY()
 					srcStrideB := e.intProSrcBordered.Stride
 					refStrideB := e.lastBordered.Stride
+					subBsize := vp9GetEstimatedPredSubBsize(sbMiRow,
+						sbMiCol, miRows, miCols)
 					estIn := &vp9GetEstimatedPredInterInput{
-						Bsize:         common.Block64x64,
+						Bsize:         subBsize,
 						Src:           e.intProSrcBordered.Pixels,
 						SrcOff:        (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
 						SrcStride:     srcStrideB,
