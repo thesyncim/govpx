@@ -215,6 +215,18 @@ type twoPassState struct {
 	lastAltBoost       int
 	lastAltBoostFBoost int
 	lastAltBoostBBoost int
+	// rollingActualBits / rollingTargetBits mirror libvpx's
+	// `cpi->rolling_actual_bits` / `cpi->rolling_target_bits`, the short
+	// running average of recent frame size vs. target. libvpx maintains
+	// them inside the rate controller (onyx_if.c lines 4541-4544); govpx
+	// keeps the canonical copy in `rateControlState` and pushes the
+	// current values into the twopass state via `setRollingBits` at the
+	// top of each pass-2 frame, before any estimate_max_q-equivalent
+	// runs. estimate_max_q reads them to derive the rolling actual/target
+	// ratio that nudges `est_max_qcorrection_factor` by +/-0.005 per
+	// frame (firstpass.c lines 920-941).
+	rollingActualBits int
+	rollingTargetBits int
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
@@ -335,6 +347,56 @@ func (t *twoPassState) configureFrameDims(width int, height int) {
 func (t *twoPassState) configureGFIntervals(staticSceneMax int, maxGF int) {
 	t.staticSceneMaxGFInterval = staticSceneMax
 	t.maxGFInterval = maxGF
+}
+
+// setRollingBits pushes the rate controller's short rolling averages
+// of `actual_frame_size` and `this_frame_target` into the twopass
+// state. libvpx maintains `cpi->rolling_actual_bits` and
+// `cpi->rolling_target_bits` in onyx_if.c's
+// encode_frame_to_data_rate tail (vp8/encoder/onyx_if.c lines
+// 4541-4544); the next pass-2 frame's `estimate_max_q` then reads
+// them to compute the rolling actual/target ratio that nudges
+// `est_max_qcorrection_factor` by +/-0.005 (firstpass.c lines
+// 920-941). Callers should push the values returned by
+// `rateControlState.rollingActualBits` /
+// `rateControlState.rollingTargetBits` before
+// `frameTargetBitsWithAltRef` runs for the next frame.
+func (t *twoPassState) setRollingBits(actual int, target int) {
+	t.rollingActualBits = actual
+	t.rollingTargetBits = target
+}
+
+// applyEstMaxQRollingRatioAdjustment ports the rolling-ratio branch of
+// libvpx vp8/encoder/firstpass.c estimate_max_q (lines 920-941):
+//
+//	if ((cpi->rolling_target_bits > 0) &&
+//	    (cpi->active_worst_quality < cpi->worst_quality)) {
+//	  rolling_ratio = rolling_actual_bits / rolling_target_bits;
+//	  if (rolling_ratio < 0.95)
+//	    est_max_qcorrection_factor -= 0.005;
+//	  else if (rolling_ratio > 1.05)
+//	    est_max_qcorrection_factor += 0.005;
+//	  clamp(est_max_qcorrection_factor, 0.1, 10.0);
+//	}
+//
+// This is called from `seedPass2ActiveWorstQ` (firstpass.c line
+// 2349) and `dampedUpdatePass2ActiveWorstQ` (firstpass.c line 2381)
+// BEFORE the Q-search proper, mirroring the order inside libvpx's
+// estimate_max_q. The `active_worst_quality < worst_quality` half of
+// the gate uses the pre-update value of `pass2ActiveWorstQ`; on the
+// very first pass-2 frame govpx leaves pass2ActiveWorstQValid=false
+// (matching libvpx's `active_worst_quality == oxcf.worst_allowed_q`
+// at vp8_init_first_pass / vp8_new_framerate), so the gate is false
+// and the factor stays at its initial 1.0 — matching libvpx's
+// behaviour on frame 0.
+func (t *twoPassState) applyEstMaxQRollingRatioAdjustment() {
+	if t.rollingTargetBits <= 0 {
+		return
+	}
+	if !t.pass2ActiveWorstQValid || t.pass2ActiveWorstQ >= t.worstQuality {
+		return
+	}
+	t.estMaxQCorrection = libvpxEstimateMaxQRollingRatioAdjustment(t.estMaxQCorrection, t.rollingActualBits, t.rollingTargetBits)
 }
 
 func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {
@@ -820,6 +882,16 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	}
 	sectionErr := codedError / count
 	errPerMB := sectionErr / float64(t.numMBs)
+	// libvpx vp8/encoder/firstpass.c estimate_max_q lines 920-941:
+	// the rolling-ratio nudge to est_max_qcorrection_factor runs
+	// before the Q-search proper. Mirror that ordering so the per-Q
+	// rate model uses the just-updated factor on every estimate_max_q
+	// invocation. On the very first pass-2 frame the gate
+	// `active_worst_quality < worst_quality` is false (libvpx leaves
+	// active_worst at oxcf.worst_allowed_q; govpx leaves
+	// pass2ActiveWorstQValid=false until this routine sets it below),
+	// so the factor stays at its initial 1.0.
+	t.applyEstMaxQRollingRatioAdjustment()
 	estCorrection := t.estMaxQCorrection
 	if estCorrection <= 0 {
 		estCorrection = 1.0
@@ -1116,6 +1188,13 @@ func (t *twoPassState) dampedUpdatePass2ActiveWorstQ(frame uint64) {
 	}
 	sectionErr := codedError / count
 	errPerMB := sectionErr / float64(t.numMBs)
+	// libvpx vp8/encoder/firstpass.c estimate_max_q lines 920-941:
+	// the rolling-ratio nudge to est_max_qcorrection_factor runs at
+	// the head of every estimate_max_q invocation, including the
+	// damped per-frame call from vp8_second_pass at firstpass.c line
+	// 2381. Mirror that ordering so the per-Q rate model uses the
+	// just-updated factor.
+	t.applyEstMaxQRollingRatioAdjustment()
 	estCorrection := t.estMaxQCorrection
 	if estCorrection <= 0 {
 		estCorrection = 1.0

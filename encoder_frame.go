@@ -331,6 +331,18 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	if e.twoPass.enabled() {
 		e.twoPass.configureGFIntervals(e.libvpxStaticSceneMaxGFInterval(), e.libvpxMaxGFInterval())
+		// libvpx vp8/encoder/firstpass.c estimate_max_q lines 920-941
+		// reads `cpi->rolling_actual_bits` / `cpi->rolling_target_bits`
+		// at the top of every pass-2 frame's estimate_max_q call.
+		// libvpx maintains those in onyx_if.c's
+		// encode_frame_to_data_rate tail (onyx_if.c lines 4541-4544),
+		// so the next pass-2 frame sees the rolling averages updated
+		// with the previous frame's projected size and target. govpx
+		// keeps the canonical copy in `rateControlState`; mirror the
+		// libvpx flow by pushing the current averages into the
+		// twopass state before frameTargetBitsWithAltRef invokes
+		// seedPass2ActiveWorstQ / dampedUpdatePass2ActiveWorstQ.
+		e.twoPass.setRollingBits(e.rc.rollingActualBits, e.rc.rollingTargetBits)
 	}
 	pass2AltRefInterval, pass2AltRefPending := e.pass2AltRefPendingPlan(e.frameCount)
 	twoPassTargetBits := 0

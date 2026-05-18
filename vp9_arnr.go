@@ -1112,10 +1112,7 @@ func vp9TemporalFilterModIndex(sumDist, index, rounding, strength, filterWeight 
 		sumDist = 0xffff
 	}
 	modifier := (uint32(sumDist) * vp9TemporalFilterIndexMult[index]) >> 16
-	mod := (int(modifier) + rounding) >> uint(strength)
-	if mod > 16 {
-		mod = 16
-	}
+	mod := min((int(modifier)+rounding)>>uint(strength), 16)
 	return (16 - mod) * filterWeight
 }
 
