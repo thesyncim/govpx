@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task212-recode-iter-v2"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -1153,11 +1153,18 @@ void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
     int ref_frame_savings;
     int coef_savings;
     int raw_rate;
+    VP8_COMMON *cm;
+    int mb_row_loop;
+    int mb_col_loop;
+    int mb_total;
+    int mb_idx;
+    govpx_mb_row_t *mb_iter_row;
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
     GOVPX_TRACE_BEGIN();
     out = govpx_oracle_state.out;
+    cm = &cpi->common;
     /* Decompose post-savings projected_frame_size into the raw picker
      * rate, the coefficient-prob savings, and the ref-frame savings. The
      * raw rate is reconstructed as projected_frame_size + total_savings;
@@ -1212,6 +1219,55 @@ void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
             raw_rate,
             coef_savings,
             ref_frame_savings);
+    /* Task #218: emit per-MB rate snapshots for THIS iter from the still-live
+     * mb_rows[] buffer. The buffer holds the just-completed iter's chosen-
+     * mode rate per MB; the next iter's encode_mb_row overwrites the slots.
+     * Without this loop the per-MB rate is only visible for the FINAL
+     * accepted iter (Q=7 for the 0bb41d74 frame-4 seed), so the iter-6 Q=9
+     * govpx-vs-libvpx picker drift cannot be compared at the per-MB level.
+     * Mirrors the govpx-side emit appended at the bottom of
+     * emitOracleRecodeIterTrace in encoder_oracle_trace.go. */
+    if (govpx_oracle_state.mb_rows != NULL && cm->mb_rows > 0 && cm->mb_cols > 0) {
+        mb_total = cm->mb_rows * cm->mb_cols;
+        for (mb_row_loop = 0; mb_row_loop < cm->mb_rows; ++mb_row_loop) {
+            for (mb_col_loop = 0; mb_col_loop < cm->mb_cols; ++mb_col_loop) {
+                mb_idx = mb_row_loop * cm->mb_cols + mb_col_loop;
+                if (mb_idx < 0 || mb_idx >= mb_total) {
+                    continue;
+                }
+                mb_iter_row = &govpx_oracle_state.mb_rows[mb_idx];
+                if (!mb_iter_row->valid) {
+                    continue;
+                }
+                fprintf(out,
+                        "{\"type\":\"mb_iter_rate\","
+                        "\"frame_index\":%llu,"
+                        "\"iter\":%d,"
+                        "\"q\":%d,"
+                        "\"mb_row\":%d,"
+                        "\"mb_col\":%d,"
+                        "\"mode\":\"%s\","
+                        "\"ref_frame\":\"%s\","
+                        "\"mv_row\":%d,"
+                        "\"mv_col\":%d,"
+                        "\"skip\":%s,"
+                        "\"mb_rate\":%d,"
+                        "\"aggregated_rate\":%d}\n",
+                        govpx_oracle_state.frame_index,
+                        govpx_recode_iter_count,
+                        govpx_recode_iter_pre_q,
+                        mb_row_loop,
+                        mb_col_loop,
+                        govpx_oracle_mode_name(mb_iter_row->mode),
+                        govpx_oracle_ref_name(mb_iter_row->ref_frame),
+                        mb_iter_row->mv_row,
+                        mb_iter_row->mv_col,
+                        mb_iter_row->skip ? "true" : "false",
+                        mb_iter_row->mb_rate,
+                        mb_iter_row->aggregated_rate);
+            }
+        }
+    }
     fflush(out);
     GOVPX_TRACE_END();
 }

@@ -263,6 +263,39 @@ type oracleTraceRecodeIterRow struct {
 	RefFrameSavingsBits int `json:"ref_frame_savings_bits"`
 }
 
+// oracleTraceMBIterRateRow is a per-(iter, mb_row, mb_col) trace row capturing
+// the picker's chosen-mode rate at every recode iteration, not just the final
+// accepted iter. Mirrors task #218: at iter 6 Q=9 on the
+// regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74 seed, govpx's
+// per-MB picker reports raw_rate=3175 vs libvpx's raw_rate=3116 — a 59-bit
+// drift accumulated across the 16 MBs of the 64x64 frame. The standard
+// per-MB `mb` rows only fire for the accepted iter (govpx Q=9, libvpx Q=7
+// for this seed), so the same Q=9 picker output cannot be compared
+// directly. mb_iter_rate adds the missing iter dimension by emitting one
+// row per MB inside the recode-loop emit hook, just before the next
+// iteration's encode pass overwrites the per-MB rate slots.
+//
+// Mode / RefFrame / MV are captured for the picker's chosen candidate so
+// the diff can localize a "different-mode-picked" gap separately from a
+// "same-mode-different-rate" gap. The govpx-side emit fires from
+// emitOracleRecodeIterTrace; the libvpx-side mirror loops over
+// govpx_oracle_state.mb_rows[] inside govpx_oracle_recode_iter_emit.
+type oracleTraceMBIterRateRow struct {
+	Type           string `json:"type"`
+	FrameIndex     uint64 `json:"frame_index"`
+	Iter           int    `json:"iter"`
+	Q              int    `json:"q"`
+	MBRow          int    `json:"mb_row"`
+	MBCol          int    `json:"mb_col"`
+	Mode           string `json:"mode"`
+	RefFrame       string `json:"ref_frame"`
+	MVRow          int16  `json:"mv_row"`
+	MVCol          int16  `json:"mv_col"`
+	Skip           bool   `json:"skip"`
+	MBRate         int    `json:"mb_rate"`
+	AggregatedRate int    `json:"aggregated_rate"`
+}
+
 // oracleTraceMBRow is the per-macroblock oracle trace row.
 type oracleTraceMBRow struct {
 	Type       string        `json:"type"`
@@ -770,7 +803,34 @@ func (e *VP8Encoder) emitOracleRecodeIterTrace(summary oracleTraceRecodeIterSumm
 	if summary.UndershootSeen {
 		row.UndershootSeen = 1
 	}
-	emitOracleTraceRow(e.oracleTraceState().writer, &row)
+	state := e.oracleTraceState()
+	emitOracleTraceRow(state.writer, &row)
+	// Task #218: emit per-MB rate snapshots for THIS iter from the still-live
+	// mbBuffer. The buffer holds the just-completed iter's chosen-mode rate
+	// per MB; the next iter's encodeInterFrameAttempt /
+	// encodeKeyFrameAttempt resets it via resetOracleMBTraceBuffer. Without
+	// this loop the per-MB rate is only visible for the FINAL accepted iter,
+	// which can be at a different Q than the iter we want to compare on
+	// (govpx exits at Q=9, libvpx at Q=7 for the 0bb41d74 frame-4 seed).
+	for i := range state.mbBuffer {
+		mb := &state.mbBuffer[i]
+		iterRow := oracleTraceMBIterRateRow{
+			Type:           "mb_iter_rate",
+			FrameIndex:     mb.FrameIndex,
+			Iter:           summary.Iter,
+			Q:              summary.Q,
+			MBRow:          mb.MBRow,
+			MBCol:          mb.MBCol,
+			Mode:           mb.Mode,
+			RefFrame:       mb.RefFrame,
+			MVRow:          mb.MVRow,
+			MVCol:          mb.MVCol,
+			Skip:           mb.Skip,
+			MBRate:         mb.MBRate,
+			AggregatedRate: mb.AggregatedRate,
+		}
+		emitOracleTraceRow(state.writer, &iterRow)
+	}
 }
 
 // emitOracleDroppedFrameTrace writes a single per-frame trace row capturing
