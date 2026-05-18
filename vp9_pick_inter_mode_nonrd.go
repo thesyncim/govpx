@@ -1175,9 +1175,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//     if (frame_mv[this_mode][ref_frame].as_int != 0) continue;
 		//
 		// govpx single-tile no-row-MT: the row-MT branch is folded out (sf
-		// AdaptiveRdThreshRowMt=0 for deferred-seed configs). bias_golden is
-		// a CBR speed-features bit not surfaced in govpx (audit #162F
-		// confirmed it is a no-op on the deferred-seed Q-mode configs).
+		// AdaptiveRdThreshRowMt=0 for deferred-seed configs).
 		//
 		// The gate skips when best_rdc.rdcost is already below the
 		// scheduled threshold AND the candidate's frame_mv is non-zero.
@@ -1189,10 +1187,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//               ⇒ as_int != 0 in libvpx; treat as non-zero here.
 		if bsize >= common.Block8x8 {
 			modeIndex := vp9ModeIdxTable[refFrame][vp9ModeOffsetInter(thisMode)]
-			modeRdThresh := e.rdThresh.threshes[bsize][modeIndex]
-			if bp.bestModeSkipTxfm != 0 {
-				modeRdThresh = modeRdThresh << 1
-			}
+			modeRdThresh := vp9NonrdModeRdThreshold(
+				e.rdThresh.threshes[bsize][modeIndex],
+				bp.bestModeSkipTxfm != 0,
+				e.sf.BiasGolden != 0,
+				refFrame,
+				e.rc.framesSinceGolden)
 			bestRd := uint64(math.MaxUint64)
 			if bestSet {
 				bestRd = best.score
@@ -2077,6 +2077,19 @@ func vp9NonrdAllowEncodeBreakout(lossless, sceneChangeDetected,
 	highNumBlocksWithMotion bool,
 ) bool {
 	return !lossless && !sceneChangeDetected && !highNumBlocksWithMotion
+}
+
+func vp9NonrdModeRdThreshold(base int, bestModeSkipTxfm, biasGolden bool,
+	refFrame int8, framesSinceGolden uint16,
+) int {
+	modeRdThresh := base
+	if bestModeSkipTxfm {
+		modeRdThresh <<= 1
+	}
+	if biasGolden && refFrame == vp9dec.GoldenFrame && framesSinceGolden > 4 {
+		modeRdThresh <<= 3
+	}
+	return modeRdThresh
 }
 
 func vp9NonrdNormalizeSSE(sse uint64, bsize common.BlockSize) uint64 {

@@ -162,6 +162,34 @@ func TestVP9NonrdAllowEncodeBreakoutSceneAndMotionGates(t *testing.T) {
 	}
 }
 
+func TestVP9NonrdModeRdThresholdBiasGolden(t *testing.T) {
+	const base = 100
+	if got := vp9NonrdModeRdThreshold(base, false, false,
+		vp9dec.GoldenFrame, 5); got != base {
+		t.Fatalf("plain threshold = %d, want %d", got, base)
+	}
+	if got := vp9NonrdModeRdThreshold(base, true, false,
+		vp9dec.GoldenFrame, 5); got != base<<1 {
+		t.Fatalf("skip-txfm threshold = %d, want %d", got, base<<1)
+	}
+	if got := vp9NonrdModeRdThreshold(base, false, true,
+		vp9dec.GoldenFrame, 5); got != base<<3 {
+		t.Fatalf("bias-golden threshold = %d, want %d", got, base<<3)
+	}
+	if got := vp9NonrdModeRdThreshold(base, true, true,
+		vp9dec.GoldenFrame, 5); got != base<<4 {
+		t.Fatalf("combined threshold = %d, want %d", got, base<<4)
+	}
+	if got := vp9NonrdModeRdThreshold(base, false, true,
+		vp9dec.GoldenFrame, 4); got != base {
+		t.Fatalf("early-golden threshold = %d, want %d", got, base)
+	}
+	if got := vp9NonrdModeRdThreshold(base, false, true,
+		vp9dec.LastFrame, 5); got != base {
+		t.Fatalf("non-golden threshold = %d, want %d", got, base)
+	}
+}
+
 func TestVP9NonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T) {
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
