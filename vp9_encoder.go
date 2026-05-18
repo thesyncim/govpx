@@ -10959,6 +10959,34 @@ func vp9NoReferenceIntraModeCount(bsize common.BlockSize, screenContentMode int8
 	return 3
 }
 
+func (e *VP9Encoder) vp9InterIntraKeyframeState(inter *vp9InterEncodeState) vp9KeyframeEncodeState {
+	hdr := &vp9dec.UncompressedHeader{
+		Width:  uint32(e.opts.Width),
+		Height: uint32(e.opts.Height),
+		Quant:  e.vp9HeaderScratch.Quant,
+		Seg:    e.vp9HeaderScratch.Seg,
+	}
+	if e.vp9HeaderScratch.Width != 0 {
+		hdr.Width = e.vp9HeaderScratch.Width
+	}
+	if e.vp9HeaderScratch.Height != 0 {
+		hdr.Height = e.vp9HeaderScratch.Height
+	}
+	if inter != nil {
+		hdr.Quant.BaseQindex = int16(inter.baseQindex)
+		hdr.Quant.Lossless = inter.lossless
+		return vp9KeyframeEncodeState{
+			img:      inter.img,
+			hdr:      hdr,
+			dq:       inter.dq,
+			lossless: inter.lossless,
+			counts:   inter.counts,
+		}
+	}
+	hdr.Quant.BaseQindex = int16(e.vp9EncoderModeDecisionQIndex())
+	return vp9KeyframeEncodeState{hdr: hdr}
+}
+
 func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, maxTx common.TxSize, segmentID uint8,
@@ -10972,16 +11000,7 @@ func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 
-	hdr := vp9dec.UncompressedHeader{
-		Width:  uint32(e.opts.Width),
-		Height: uint32(e.opts.Height),
-	}
-	keyLike := vp9KeyframeEncodeState{
-		img:      inter.img,
-		hdr:      &hdr,
-		dq:       inter.dq,
-		lossless: inter.lossless,
-	}
+	keyLike := e.vp9InterIntraKeyframeState(inter)
 
 	sg := common.SizeGroupLookup[bsize]
 	var yModeCosts [common.IntraModes]int
@@ -11166,16 +11185,7 @@ func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,
 		rateBase = intraInterRate(above, left)
 	}
 
-	hdr := vp9dec.UncompressedHeader{
-		Width:  uint32(e.opts.Width),
-		Height: uint32(e.opts.Height),
-	}
-	keyLike := vp9KeyframeEncodeState{
-		img:      inter.img,
-		hdr:      &hdr,
-		dq:       inter.dq,
-		lossless: inter.lossless,
-	}
+	keyLike := e.vp9InterIntraKeyframeState(inter)
 	sg := common.SizeGroupLookup[bsize]
 	var yModeCosts [common.IntraModes]int
 	encoder.VP9CostTokens(yModeCosts[:], inter.selectFc.YModeProb[sg][:],
@@ -11268,16 +11278,7 @@ func (e *VP9Encoder) prepareVP9InterIntraBlockResidue(inter *vp9InterEncodeState
 	if inter == nil {
 		return false
 	}
-	hdr := vp9dec.UncompressedHeader{
-		Width:  uint32(e.opts.Width),
-		Height: uint32(e.opts.Height),
-	}
-	keyLike := vp9KeyframeEncodeState{
-		img:      inter.img,
-		hdr:      &hdr,
-		dq:       inter.dq,
-		lossless: inter.lossless,
-	}
+	keyLike := e.vp9InterIntraKeyframeState(inter)
 	return e.prepareVP9KeyframeBlockResidue(&keyLike, tile, miRows, miCols,
 		miRow, miCol, bsize, mi, uvMode)
 }

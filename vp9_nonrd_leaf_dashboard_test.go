@@ -176,8 +176,8 @@ func firstVP9LeafTraceDiff(got, want []vp9DecodedLeafTrace) string {
 		}
 		fields := vp9LeafTraceFieldDiffs(g, w)
 		if len(fields) != 0 {
-			return fmt.Sprintf("mi=(%d,%d) %s", key.row, key.col,
-				strings.Join(fields, " "))
+			return fmt.Sprintf("mi=(%d,%d) %s got=%s want=%s", key.row, key.col,
+				strings.Join(fields, " "), vp9LeafTraceBrief(g), vp9LeafTraceBrief(w))
 		}
 	}
 	return "none"
@@ -223,12 +223,13 @@ func vp9LeafTraceAggregateDelta(got, want []vp9DecodedLeafTrace) string {
 			skipDiff++
 		}
 	}
-	gotTokens, gotEOB, gotQCoeff := vp9LeafTraceTotals(got)
-	wantTokens, wantEOB, wantQCoeff := vp9LeafTraceTotals(want)
-	return fmt.Sprintf("leaves=%d/%d missing_govpx=%d extra_govpx=%d bsize=%d mode=%d ref=%d mv=%d filter=%d tx=%d skip=%d token_delta=%+d eob_delta=%+d qcoeff_delta=%+d",
+	gotTokens, gotEOB, gotQCoeff, gotQAbs := vp9LeafTraceTotals(got)
+	wantTokens, wantEOB, wantQCoeff, wantQAbs := vp9LeafTraceTotals(want)
+	return fmt.Sprintf("leaves=%d/%d missing_govpx=%d extra_govpx=%d bsize=%d mode=%d ref=%d mv=%d filter=%d tx=%d skip=%d token_delta=%+d eob_delta=%+d qcoeff_delta=%+d qabs_delta=%+d",
 		len(got), len(want), missingGovpx, extraGovpx, bsizeDiff, modeDiff,
 		refDiff, mvDiff, filterDiff, txDiff, skipDiff,
-		gotTokens-wantTokens, gotEOB-wantEOB, gotQCoeff-wantQCoeff)
+		gotTokens-wantTokens, gotEOB-wantEOB, gotQCoeff-wantQCoeff,
+		gotQAbs-wantQAbs)
 }
 
 func vp9LeafTraceByKey(rows []vp9DecodedLeafTrace) map[vp9LeafTraceKey]vp9DecodedLeafTrace {
@@ -292,21 +293,26 @@ func vp9LeafTraceFieldDiffs(got, want vp9DecodedLeafTrace) []string {
 	if got.QCoeffNonZero != want.QCoeffNonZero {
 		fields = append(fields, fmt.Sprintf("qcoeff:%d/%d", got.QCoeffNonZero, want.QCoeffNonZero))
 	}
+	if got.QCoeffAbsSum != want.QCoeffAbsSum {
+		fields = append(fields, fmt.Sprintf("qabs:%d/%d", got.QCoeffAbsSum, want.QCoeffAbsSum))
+	}
 	return fields
 }
 
-func vp9LeafTraceTotals(rows []vp9DecodedLeafTrace) (tokens, eob, qcoeff int) {
+func vp9LeafTraceTotals(rows []vp9DecodedLeafTrace) (tokens, eob, qcoeff, qabs int) {
 	for _, row := range rows {
 		tokens += row.TokenCount
 		eob += row.EOBTotal
 		qcoeff += row.QCoeffNonZero
+		qabs += row.QCoeffAbsSum
 	}
-	return tokens, eob, qcoeff
+	return tokens, eob, qcoeff, qabs
 }
 
 func vp9LeafTraceBrief(row vp9DecodedLeafTrace) string {
-	return fmt.Sprintf("bsize=%d mode=%d ref=(%d,%d) mv=(%d,%d)(%d,%d) filter=%d tx=%d skip=%d tokens=%d qcoeff=%d",
+	return fmt.Sprintf("bsize=%d mode=%d ref=(%d,%d) mv=(%d,%d)(%d,%d) filter=%d tx=%d skip=%d txblocks=%d eob=%d tokens=%d qcoeff=%d qabs=%d",
 		row.BSize, row.Mode, row.Ref0, row.Ref1, row.Mv0Row, row.Mv0Col,
 		row.Mv1Row, row.Mv1Col, row.InterpFilter, row.TxSize, row.Skip,
-		row.TokenCount, row.QCoeffNonZero)
+		row.TxBlockCount, row.EOBTotal, row.TokenCount, row.QCoeffNonZero,
+		row.QCoeffAbsSum)
 }
