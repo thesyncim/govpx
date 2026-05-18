@@ -3103,7 +3103,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.rc.postEncodeDropFrame()
 	} else {
 		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
-			header.RefreshFrameFlags, macroblocks)
+			header.RefreshFrameFlags, macroblocks,
+			e.vp9AltRefEnabledForRateControlStats())
 	}
 	if header.ShowFrame {
 		// libvpx vp9_twopass_postencode_update consumes the encoded bit

@@ -1322,6 +1322,56 @@ func TestVP9RateControlBoostedRefreshUpdatesLastBoostedQIndex(t *testing.T) {
 	}
 }
 
+func TestVP9RateControlAltRefDisabledLeavesFramesSinceGolden(t *testing.T) {
+	tests := []struct {
+		name          string
+		refreshFlags  uint8
+		showFrame     bool
+		altRefEnabled bool
+		start         uint16
+		want          uint16
+	}{
+		{
+			name:         "forced alt refresh with altref disabled leaves counter",
+			refreshFlags: 1 << vp9AltRefSlot,
+			showFrame:    true,
+			start:        3,
+			want:         3,
+		},
+		{
+			name:          "alt refresh with altref enabled resets counter",
+			refreshFlags:  1 << vp9AltRefSlot,
+			showFrame:     true,
+			altRefEnabled: true,
+			start:         3,
+			want:          0,
+		},
+		{
+			name:         "golden refresh resets counter",
+			refreshFlags: 1 << vp9GoldenRefSlot,
+			showFrame:    true,
+			start:        3,
+			want:         0,
+		},
+		{
+			name:      "ordinary shown inter increments counter",
+			showFrame: true,
+			start:     3,
+			want:      4,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rc := vp9RateControlState{framesSinceGolden: tt.start}
+			rc.updateQHistoryWithAltRef(80, false, tt.refreshFlags,
+				tt.showFrame, tt.altRefEnabled)
+			if got := rc.framesSinceGolden; got != tt.want {
+				t.Fatalf("framesSinceGolden = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestVP9EncoderOnePassVBRGoldenRefreshCadence(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{

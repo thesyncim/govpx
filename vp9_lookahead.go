@@ -274,6 +274,18 @@ func (e *VP9Encoder) vp9AutoAltRefOnePassEnabled() bool {
 	return e.sf.UseAltrefOnepass != 0
 }
 
+func (e *VP9Encoder) vp9AltRefEnabledForRateControlStats() bool {
+	if e == nil || !e.opts.AutoAltRef {
+		return false
+	}
+	// libvpx: vp9_encoder.h:1148 is_altref_enabled().
+	if vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeRealtime &&
+		e.opts.RateControlModeSet && e.opts.RateControlMode == RateControlCBR {
+		return false
+	}
+	return e.opts.LookaheadFrames >= vp9MinLookaheadForARFs
+}
+
 func (e *VP9Encoder) pushVP9Lookahead(img *image.YCbCr, flags EncodeFlags) error {
 	if !e.vp9LookaheadEnabled() {
 		return ErrInvalidConfig

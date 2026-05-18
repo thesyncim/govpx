@@ -766,6 +766,10 @@ func vp9RoundedRatio(num int64, den int64) int {
 }
 
 func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool, refreshFlags uint8, showFrame bool) {
+	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, false)
+}
+
+func (rc *vp9RateControlState) updateQHistoryWithAltRef(qindex int, intraOnly bool, refreshFlags uint8, showFrame bool, altRefEnabled bool) {
 	if qindex < 0 {
 		qindex = 0
 	} else if qindex > 255 {
@@ -788,10 +792,11 @@ func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool, refres
 	if showFrame {
 		rc.incrementFramesSinceKey()
 	}
-	if intraOnly ||
-		refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0 {
+	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+	if intraOnly || refreshGolden || (refreshAlt && altRefEnabled) {
 		rc.framesSinceGolden = 0
-	} else if showFrame && rc.framesSinceGolden != ^uint16(0) {
+	} else if showFrame && !refreshAlt && rc.framesSinceGolden != ^uint16(0) {
 		rc.framesSinceGolden++
 	}
 }
