@@ -46,39 +46,217 @@ func (t *twoPassState) kfGroupBits(frame uint64, framesToKey int, maxBitsPerFram
 	return groupBits
 }
 
-// framesToKey ports a simplified `cpi->twopass.frames_to_key` lookahead
-// from libvpx's vp8/encoder/firstpass.c find_next_key_frame: starting at
-// `frame`, walk forward until libvpxTestCandidateKeyFrame fires (with
-// the libvpx `i >= MIN_GF_INTERVAL` gate), or until the user-configured
-// keyFrameInterval is exhausted, or until end-of-stats. Returns the
-// number of frames remaining until the next predicted KF, including
-// the current frame at index `frame`. Returns 0 when stats are not
-// loaded or `frame` is past the end (libvpx falls back to default
-// targets in that case).
+// libvpxFindNextKeyFrameWalk ports the libvpx
+// vp8/encoder/firstpass.c find_next_key_frame walk verbatim
+// (firstpass.c lines 2533-2596 plus the post-loop centering at lines
+// 2603-2608). Returns the number of frames in the KF group starting
+// at index `start` — i.e., libvpx's `cpi->twopass.frames_to_key`. The
+// walk:
+//
+//  1. Initializes frames_to_key=1, i=0 (firstpass.c line 2523).
+//  2. Loops while `stats_in < stats_in_end`: at each iteration
+//     accumulates the current frame into kf_group_err, then advances
+//     this_frame via input_stats, then peeks next_frame via
+//     lookup_next_frame_stats.
+//  3. When auto_key is set and the lookahead succeeds (line 2553):
+//     a. If `i >= MIN_GF_INTERVAL` and test_candidate_kf fires for
+//     (last_frame, this_frame, next_frame), break (line 2555).
+//     b. Otherwise compute loop_decay_rate via
+//     get_prediction_decay_rate(next_frame), update the
+//     recent_loop_decay[i%8] ringbuffer, recompute
+//     decay_accumulator = prod(recent_loop_decay[0..8]).
+//     c. If detect_transition_to_still fires, break (line 2576).
+//     d. Otherwise frames_to_key++ and check `frames_to_key >= 2 *
+//     key_freq` (line 2588) to break.
+//  4. When auto_key is unset or lookahead is at EOF, frames_to_key++
+//     (line 2592).
+//  5. After the loop, if `auto_key && frames_to_key > key_freq`,
+//     halve frames_to_key (lines 2603-2608, centering rule).
+//
+// Returns 0 when stats are not loaded or `start` is past the end.
+//
+// This is the shared natural-KF walk consumed by both prepareKFGroup
+// (which seeds kf_group_bits / kf_group_err / section_max_qfactor)
+// and pass2AltRefPendingPlan via framesToKey (which previously
+// implemented a simplified, divergent walk).
+func libvpxFindNextKeyFrameWalk(stats []FirstPassFrameStats, start int, keyFrameFrequency int, autoKey bool) int {
+	if start < 0 || start >= len(stats) {
+		return 0
+	}
+	// libvpx initializes cpi->twopass.frames_to_key = 1 (line 2523) —
+	// the KF itself counts as one frame.
+	framesToKey := 1
+	recentLoopDecay := [8]float64{1, 1, 1, 1, 1, 1, 1, 1}
+	// libvpx's caller (vp8_second_pass) calls input_stats(this_frame)
+	// before invoking find_next_key_frame, which advances stats_in to
+	// point at stats[start+1]. find_next_key_frame's while gate is
+	// `cpi->twopass.stats_in < cpi->twopass.stats_in_end`. At iteration
+	// i, stats_in points to stats[start+1+i] when the gate is checked,
+	// and `this_frame` (before this iteration's input_stats) is
+	// stats[start+i]. Inside the loop, input_stats advances stats_in
+	// to stats[start+2+i] and reloads this_frame from stats[start+1+i].
+	// lookup_next_frame_stats then peeks at stats[start+2+i] without
+	// advancing, returning EOF when start+2+i >= n.
+	n := len(stats)
+	for i := 0; start+1+i < n; i++ {
+		// libvpx accumulates kf_group_err using this_frame
+		// (= stats[start+i]); we ignore the value here since the
+		// caller (prepareKFGroup) re-walks [start, start+framesToKey)
+		// to compute its own accumulators, and the framesToKey
+		// caller only needs the count.
+		_ = stats[start+i]
+		// post-advance this_frame index = start+1+i; next_frame index
+		// = start+2+i (only valid when start+2+i < n).
+		thisAfterIdx := start + 1 + i
+		nextLookupIdx := start + 2 + i
+		haveLookahead := autoKey && nextLookupIdx < n
+		if haveLookahead {
+			lastFrame := stats[start+i]
+			thisFrame := stats[thisAfterIdx]
+			nextFrame := stats[nextLookupIdx]
+			// libvpx firstpass.c line 2555: scene-cut break.
+			if i >= libvpxMinGFInterval &&
+				libvpxTestCandidateKFFrames(lastFrame, thisFrame, nextFrame, stats[nextLookupIdx+1:]) {
+				break
+			}
+			// libvpx firstpass.c line 2561: get_prediction_decay_rate.
+			loopDecayRate := libvpxGetPredictionDecayRate(nextFrame)
+			recentLoopDecay[i%8] = loopDecayRate
+			decayAccumulator := 1.0
+			for j := range recentLoopDecay {
+				decayAccumulator *= recentLoopDecay[j]
+			}
+			// libvpx firstpass.c line 2576: detect_transition_to_still
+			// peeks `still_interval` frames forward from stats_in
+			// (which after input_stats is at stats[start+2+i]) and
+			// resets the fpf position afterwards. Mirror that
+			// lookahead by passing the slice starting one position
+			// past next_frame.
+			stillInterval := keyFrameFrequency - i
+			var nextDecayRates []float64
+			if stillInterval > 0 {
+				nextDecayRates = collectDecayRates(stats, nextLookupIdx+1, stillInterval)
+			}
+			if libvpxDetectTransitionToStill(i, stillInterval, loopDecayRate, decayAccumulator, nextDecayRates) {
+				break
+			}
+			// libvpx firstpass.c line 2583: frames_to_key++.
+			framesToKey++
+			// libvpx firstpass.c line 2588: 2x clamp.
+			if keyFrameFrequency > 0 && framesToKey >= 2*keyFrameFrequency {
+				break
+			}
+		} else {
+			// libvpx firstpass.c line 2592: at EOF or with auto_key
+			// disabled, just bump frames_to_key.
+			framesToKey++
+		}
+	}
+	// libvpx post-loop centering (firstpass.c lines 2603-2608): when
+	// auto_key is set and frames_to_key exceeded the user max but
+	// stopped short of 2x, halve frames_to_key. The 2x cap was
+	// already applied inside the loop; this handles the (1x, 2x]
+	// range.
+	if autoKey && keyFrameFrequency > 0 && framesToKey > keyFrameFrequency {
+		framesToKey /= 2
+	}
+	return framesToKey
+}
+
+// libvpxTestCandidateKFFrames is the per-frame-pointer variant of
+// libvpxTestCandidateKeyFrame: instead of indexing stats by a single
+// position, the caller passes the (last, this, next) frames already
+// loaded and a tail slice starting at the frame after `next` for the
+// inner 16-frame boost walk. This matches libvpx's signature
+// `test_candidate_kf(cpi, last_frame, this_frame, next_frame)` and
+// the inner `lookup_next_frame_stats` lookahead (firstpass.c
+// lines 2401-2479).
+func libvpxTestCandidateKFFrames(lastFrame, thisFrame, nextFrame FirstPassFrameStats, lookahead []FirstPassFrameStats) bool {
+	if thisFrame.PcntSecondRef >= 0.10 || nextFrame.PcntSecondRef >= 0.10 {
+		return false
+	}
+	if !((thisFrame.PcntInter < 0.05) ||
+		(((thisFrame.PcntInter - thisFrame.PcntNeutral) < 0.25) &&
+			((thisFrame.IntraError / doubleDivideCheck(thisFrame.CodedError)) < 2.5) &&
+			((math.Abs(lastFrame.CodedError-thisFrame.CodedError)/doubleDivideCheck(thisFrame.CodedError) > 0.40) ||
+				(math.Abs(lastFrame.IntraError-thisFrame.IntraError)/doubleDivideCheck(thisFrame.IntraError) > 0.40) ||
+				((nextFrame.IntraError / doubleDivideCheck(nextFrame.CodedError)) > 3.5)))) {
+		return false
+	}
+	// libvpx test_candidate_kf inner walk (firstpass.c lines
+	// 2439-2470): loop i=0..16, start local_next_frame = *next_frame,
+	// then advance through subsequent frames via input_stats at the
+	// END of each iteration. Iteration 0 examines next_frame itself;
+	// iteration k+1 examines lookahead[k].
+	boostScore := 0.0
+	oldBoostScore := 0.0
+	decayAccumulator := 1.0
+	localNext := nextFrame
+	i := 0
+	for ; i < 16; i++ {
+		nextIIRatio := libvpxIIKFactor1 * localNext.IntraError / doubleDivideCheck(localNext.CodedError)
+		if nextIIRatio > libvpxRMax {
+			nextIIRatio = libvpxRMax
+		}
+		if localNext.PcntInter > 0.85 {
+			decayAccumulator *= localNext.PcntInter
+		} else {
+			decayAccumulator *= (0.85 + localNext.PcntInter) / 2.0
+		}
+		boostScore += decayAccumulator * nextIIRatio
+		if localNext.PcntInter < 0.05 ||
+			nextIIRatio < 1.5 ||
+			(((localNext.PcntInter - localNext.PcntNeutral) < 0.20) && nextIIRatio < 3.0) ||
+			((boostScore - oldBoostScore) < 0.5) ||
+			localNext.IntraError < 200 {
+			break
+		}
+		oldBoostScore = boostScore
+		// libvpx: `if (EOF == input_stats(cpi, &local_next_frame)) break;`
+		// The advance happens at the END of the iteration. Next
+		// iteration's local_next_frame is lookahead[i].
+		if i >= len(lookahead) {
+			break
+		}
+		localNext = lookahead[i]
+	}
+	return boostScore > 5.0 && i > 3
+}
+
+// collectDecayRates builds the per-frame prediction-decay-rate slice
+// for detect_transition_to_still's still_interval lookahead. Returns
+// up to `count` rates starting at `start`; the helper short-circuits
+// to a shorter slice when stats run out (libvpx's
+// detect_transition_to_still treats that as a non-trigger, matching
+// the existing libvpxDetectTransitionToStill behaviour when
+// `limit > len(nextDecayRates)`).
+func collectDecayRates(stats []FirstPassFrameStats, start int, count int) []float64 {
+	if count <= 0 || start < 0 {
+		return nil
+	}
+	end := min(start+count, len(stats))
+	if start >= end {
+		return nil
+	}
+	rates := make([]float64, end-start)
+	for i := start; i < end; i++ {
+		rates[i-start] = libvpxGetPredictionDecayRate(stats[i])
+	}
+	return rates
+}
+
+// framesToKey returns `cpi->twopass.frames_to_key` for the KF group
+// starting at `frame`. Wraps libvpxFindNextKeyFrameWalk so the
+// pass2AltRefPendingPlan caller (encoder_twopass_budget.go) and the
+// natural-KF reseed in prepareKFGroup share the same libvpx-verbatim
+// walker. keyFrameInterval is the user-configured
+// `cpi->key_frame_frequency`; when 0 the libvpx 2x and centering
+// clamps are disabled.
 func (t *twoPassState) framesToKey(frame uint64, keyFrameInterval int) int {
 	if !t.enabled() || frame >= uint64(len(t.stats)) {
 		return 0
 	}
-	maxLookahead := uint64(len(t.stats)) - frame
-	if keyFrameInterval > 0 && uint64(2*keyFrameInterval) < maxLookahead {
-		// libvpx breaks the loop when frames_to_key >= 2*key_freq.
-		maxLookahead = uint64(2 * keyFrameInterval)
-	}
-	for i := uint64(1); i < maxLookahead; i++ {
-		idx := frame + i
-		if idx >= uint64(len(t.stats)) {
-			break
-		}
-		// libvpx requires `i >= MIN_GF_INTERVAL` before firing the
-		// candidate-KF predicate; mirror that gate.
-		if int(i) >= libvpxMinGFInterval && libvpxTestCandidateKeyFrame(t.stats, int(idx)) {
-			return int(i) + 1
-		}
-		if keyFrameInterval > 0 && int(i) >= keyFrameInterval {
-			return int(i) + 1
-		}
-	}
-	return int(maxLookahead)
+	return libvpxFindNextKeyFrameWalk(t.stats, int(frame), keyFrameInterval, keyFrameInterval > 0)
 }
 
 func (t *twoPassState) markKeyFrame(frame uint64) {

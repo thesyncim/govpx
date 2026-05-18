@@ -156,14 +156,14 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 	// The seeds exercise the cross-product of (bitrate, kf-interval,
 	// arnr, threads, cpu, frames) on the firstPassOracleRampFrame
 	// fixture. Mid-stream KF-force coverage (kfPool index 3 → kf=4 on
-	// 8/12-frame clips, exercising libvpx vp8_second_pass's
-	// `frames_to_key == 0` branch at firstpass.c line 2237) is deferred
-	// pending the find_next_key_frame mid-stream re-seed bug: govpx's
-	// prepareKFGroup computes kfGroupErr over `len(stats) - frame`
-	// rather than the libvpx `frames_to_key` returned by
-	// find_next_key_frame, so a forced mid-stream KF re-seeds with the
-	// wrong denominator. Re-add the mid-stream kf=4 seeds once
-	// prepareKFGroup respects the configured KeyFrameInterval.
+	// 6/8/12-frame clips, exercising libvpx vp8_second_pass's
+	// `frames_to_key == 0` branch at firstpass.c line 2237) was
+	// previously deferred while govpx's prepareKFGroup computed
+	// kfGroupErr over `len(stats) - frame` rather than the libvpx
+	// `frames_to_key` returned by find_next_key_frame; task #192
+	// ported the libvpx walk verbatim (firstpass.c lines 2533-2596)
+	// so the mid-stream KF re-seed integrates over the same span
+	// libvpx uses. The kf=4 seeds (byte2=3) are re-enabled below.
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0, 0},
 		{1, 0, 0, 0, 0, 0},
@@ -171,6 +171,12 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 		{0, 0, 1, 0, 0, 0},
 		{0, 0, 0, 1, 0, 0},
 		{2, 0, 0, 0, 1, 0},
+		// kf=4 mid-stream KF-force seeds (kfPool index 3): exercise
+		// libvpx vp8_second_pass's `frames_to_key == 0` branch at
+		// firstpass.c line 2237 on 6/8/12-frame clips.
+		{0, 0, 3, 0, 0, 0},
+		{0, 0, 3, 0, 0, 1},
+		{0, 0, 3, 0, 0, 2},
 	}
 	for _, seed := range seeds {
 		f.Add(seed)

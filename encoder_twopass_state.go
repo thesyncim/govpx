@@ -227,6 +227,20 @@ type twoPassState struct {
 	// frame (firstpass.c lines 920-941).
 	rollingActualBits int
 	rollingTargetBits int
+	// keyFrameFrequency mirrors libvpx's `cpi->key_frame_frequency`
+	// and autoKey mirrors `cpi->oxcf.auto_key`. Used by prepareKFGroup
+	// (libvpx find_next_key_frame, firstpass.c lines 2533-2596) and by
+	// framesToKey to drive the natural-KF walk: the walk's
+	// test_candidate_kf and detect_transition_to_still gates only fire
+	// when auto_key is set, and the user-configured key_frame_frequency
+	// drives both the inner detect_transition_to_still still_interval
+	// argument (`key_frame_frequency - i`) and the outer `frames_to_key
+	// >= 2 * key_frame_frequency` early-out plus the post-loop
+	// centering rule (`if frames_to_key > key_frame_frequency:
+	// frames_to_key /= 2`). Set by configureKeyFrameInterval; remain
+	// at zero when not configured (mirrors libvpx's calloc state).
+	keyFrameFrequency int
+	autoKey           bool
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
@@ -397,6 +411,22 @@ func (t *twoPassState) applyEstMaxQRollingRatioAdjustment() {
 		return
 	}
 	t.estMaxQCorrection = libvpxEstimateMaxQRollingRatioAdjustment(t.estMaxQCorrection, t.rollingActualBits, t.rollingTargetBits)
+}
+
+// configureKeyFrameInterval pushes the encoder-level
+// `cpi->key_frame_frequency` and `cpi->oxcf.auto_key` into the
+// two-pass state. The natural-KF walk in prepareKFGroup / framesToKey
+// (firstpass.c find_next_key_frame, lines 2533-2596 plus the
+// post-loop centering at 2603-2608) reads both: the outer
+// `2 * key_frame_frequency` early-out, the
+// detect_transition_to_still still_interval argument
+// (`key_frame_frequency - i`), and the post-loop centering rule
+// (`if frames_to_key > key_frame_frequency: frames_to_key /= 2`) are
+// keyed off these values, and the inner test_candidate_kf and
+// transition_to_still gates only fire when auto_key is set.
+func (t *twoPassState) configureKeyFrameInterval(keyFrameFrequency int, autoKey bool) {
+	t.keyFrameFrequency = max(keyFrameFrequency, 0)
+	t.autoKey = autoKey
 }
 
 func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {
@@ -606,11 +636,28 @@ func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, de
 // gf-group state is also seeded so the very next frame at a GF
 // boundary picks up gf_group_bits = kf_group_bits.
 func (t *twoPassState) prepareKFGroup(frame uint64) {
-	framesToKey := len(t.stats) - int(frame)
+	// libvpx vp8/encoder/firstpass.c find_next_key_frame (lines
+	// 2533-2596 plus the post-loop centering at 2603-2608) walks the
+	// stats stream looking for `test_candidate_kf` scene cuts and
+	// transition-to-still breaks, clamped to `2 * key_frame_frequency`
+	// and centered with the `/= 2` rule. Previously govpx used the
+	// degenerate `len(stats) - frame` span, which under-budgeted the
+	// first KF group and over-budgeted subsequent ones on multi-KF
+	// streams (audit #6 in task #178). Route through the libvpx
+	// walker so the kf_group_err / kf_group_bits /
+	// section_intra_rating / section_max_qfactor accumulators
+	// integrate over the same span libvpx uses for the active KF
+	// group.
+	framesToKey := libvpxFindNextKeyFrameWalk(t.stats, int(frame), t.keyFrameFrequency, t.autoKey)
 	if framesToKey <= 0 {
 		t.kfGroupValid = false
 		t.gfGroupValid = false
 		return
+	}
+	// Defense in depth: clamp to remaining stats so any future drift
+	// in the walker can't index out of t.stats below.
+	if framesToKey > len(t.stats)-int(frame) {
+		framesToKey = len(t.stats) - int(frame)
 	}
 	var kfGroupErr, kfModErr float64
 	var sectionIntra, sectionCoded float64

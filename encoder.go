@@ -1236,6 +1236,13 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
 	e.twoPass.configureErrorResilient(normalized.ErrorResilient || normalized.ErrorResilientPartitions)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	// libvpx vp8_cx_iface.c sets cpi->oxcf.auto_key = (g_kf_mode ==
+	// VPX_KF_AUTO && key_max_dist != 0). govpx's AdaptiveKeyFrames
+	// mirrors VPX_KF_AUTO; key_max_dist > 0 mirrors the
+	// KeyFrameInterval > 0 gate. Pass both through so prepareKFGroup
+	// and framesToKey run the libvpx natural-KF walk with parity
+	// bounds.
+	e.twoPass.configureKeyFrameInterval(normalized.KeyFrameInterval, normalized.AdaptiveKeyFrames && normalized.KeyFrameInterval > 0)
 	if err := e.ensureRowWorkerPool(normalized.Width, normalized.Height); err != nil {
 		return nil, err
 	}

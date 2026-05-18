@@ -240,6 +240,11 @@ func (e *VP8Encoder) Reset() {
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
 	e.twoPass.configureErrorResilient(e.opts.ErrorResilient || e.opts.ErrorResilientPartitions)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	// libvpx vp8_cx_iface.c reseeds cpi->oxcf.auto_key and
+	// cpi->key_frame_frequency in init_config; Reset() mirrors that
+	// re-seeding so prepareKFGroup / framesToKey see the same
+	// configured KF cadence as a cold-start encoder.
+	e.twoPass.configureKeyFrameInterval(e.opts.KeyFrameInterval, e.opts.AdaptiveKeyFrames && e.opts.KeyFrameInterval > 0)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
