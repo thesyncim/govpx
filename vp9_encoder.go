@@ -12236,7 +12236,19 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	}
 	srcOff := y0*srcStride + x0
 	refRows := len(ref) / refStride
+	refFullDx, refFullDy := 0, 0
+	refMvForRange := vp9dec.MV{}
+	if opts.refMvValid {
+		refMvForRange = opts.refMv
+		refFullDx = int(opts.refMv.Col) >> 3
+		refFullDy = int(opts.refMv.Row) >> 3
+	}
+	mvLimits := vp9EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
+	vp9SetFullpelMvSearchRange(&mvLimits, refMvForRange)
 	sadAt := func(dx, dy int) (uint64, bool) {
+		if !vp9FullpelMvIn(&mvLimits, dy, dx) {
+			return 0, false
+		}
 		refX := x0 + dx
 		refY := y0 + dy
 		bufX := refOriginX + refX
@@ -12250,11 +12262,6 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			refStride, blockW, blockH, ^uint64(0)), true
 	}
 
-	refFullDx, refFullDy := 0, 0
-	if opts.refMvValid {
-		refFullDx = int(opts.refMv.Col) >> 3
-		refFullDy = int(opts.refMv.Row) >> 3
-	}
 	sadPerBit := vp9SADPerBit16(e.vp9EncoderModeDecisionQIndex())
 	scoreMv := func(dx, dy int, sad uint64) uint64 {
 		return sad + uint64(vp9FullPelMVSADCost(dy, dx,
@@ -12290,6 +12297,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if opts.seedValid {
 		seedDx := int(opts.seed.Col) >> 3
 		seedDy := int(opts.seed.Row) >> 3
+		seedDy, seedDx = vp9ClampFullpelMV(&mvLimits, seedDy, seedDx)
 		if sad, ok := sadAt(seedDx, seedDy); ok {
 			bestSad = sad
 			bestScore = scoreMv(seedDx, seedDy, bestSad)
@@ -12353,66 +12361,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			scanMaxDy = searchCenterDy + searchRadius
 		}
 		if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
-			// libvpx: fast_dia_search -> bigdia_search with step_param forced
-			// to MAX_MVSEARCH_STEPS-1 at cpu_used=8. That maps to scale 0 in
-			// vp9_pattern_search_sad. Keep its CHECK_BETTER raw-SAD precheck
-			// and three-neighbour directional walk; scoring every neighbour
-			// from every center changes ties on periodic textures.
-			neighbors := [...]struct {
-				dx int
-				dy int
-			}{
-				{dx: -1, dy: 0},
-				{dx: 0, dy: 1},
-				{dx: 1, dy: 0},
-				{dx: 0, dy: -1},
-			}
-			checkBetter := func(site, dx, dy int, bestSite *int) {
-				if dx == bestDx && dy == bestDy {
-					return
-				}
-				sad, ok := sadAt(dx, dy)
-				if !ok {
-					return
-				}
-				if sad >= bestScore {
-					return
-				}
-				score := scoreMv(dx, dy, sad)
-				if score >= bestScore {
-					return
-				}
-				bestScore = score
-				bestSad = sad
-				*bestSite = site
-			}
-			bestSite := -1
-			for i, n := range neighbors {
-				checkBetter(i, bestDx+n.dx, bestDy+n.dy, &bestSite)
-			}
-			if bestSite != -1 {
-				k := bestSite
-				bestDx += neighbors[k].dx
-				bestDy += neighbors[k].dy
-				for {
-					next := [...]int{
-						(k + len(neighbors) - 1) % len(neighbors),
-						k,
-						(k + 1) % len(neighbors),
-					}
-					bestSite = -1
-					for _, site := range next {
-						n := neighbors[site]
-						checkBetter(site, bestDx+n.dx, bestDy+n.dy, &bestSite)
-					}
-					if bestSite == -1 {
-						break
-					}
-					k = bestSite
-					bestDx += neighbors[k].dx
-					bestDy += neighbors[k].dy
-				}
-			}
+			bestDx, bestDy, bestSad, bestScore = vp9FastDiamondPatternSearchSAD(
+				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
+				&mvLimits, sadAt, scoreMv)
 		} else {
 			// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
 			// step so the fan covers +/-searchRadius without exceeding it.
@@ -12481,14 +12432,212 @@ func vp9FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
 	return (cost*sadPerBit + 256) >> 9
 }
 
+const (
+	vp9MVMax = (1 << (10 + 1 + 2)) - 1
+)
+
+type vp9FullpelPatternCandidate struct {
+	row int
+	col int
+}
+
+var vp9MVSADComponentCosts = func() [vp9MVMax + 1]int {
+	var costs [vp9MVMax + 1]int
+	for i := 1; i <= vp9MVMax; i++ {
+		// libvpx: vp9_encoder.c cal_nmvsadcosts uses
+		//   (int)(256 * (2 * (log2f(8 * i) + .6))).
+		logv := float64(float32(math.Log2(float64(8 * i))))
+		costs[i] = int(256 * (2 * (logv + .6)))
+	}
+	return costs
+}()
+
+var vp9BigDiaPatternCandidates = [vp9MaxMvSearchSteps][8]vp9FullpelPatternCandidate{
+	{{0, -1}, {1, 0}, {0, 1}, {-1, 0}},
+	{{-1, -1}, {0, -2}, {1, -1}, {2, 0}, {1, 1}, {0, 2}, {-1, 1}, {-2, 0}},
+	{{-2, -2}, {0, -4}, {2, -2}, {4, 0}, {2, 2}, {0, 4}, {-2, 2}, {-4, 0}},
+	{{-4, -4}, {0, -8}, {4, -4}, {8, 0}, {4, 4}, {0, 8}, {-4, 4}, {-8, 0}},
+	{{-8, -8}, {0, -16}, {8, -8}, {16, 0}, {8, 8}, {0, 16}, {-8, 8}, {-16, 0}},
+	{{-16, -16}, {0, -32}, {16, -16}, {32, 0}, {16, 16}, {0, 32}, {-16, 16}, {-32, 0}},
+	{{-32, -32}, {0, -64}, {32, -32}, {64, 0}, {32, 32}, {0, 64}, {-32, 32}, {-64, 0}},
+	{{-64, -64}, {0, -128}, {64, -64}, {128, 0}, {64, 64}, {0, 128}, {-64, 64}, {-128, 0}},
+	{{-128, -128}, {0, -256}, {128, -128}, {256, 0}, {128, 128}, {0, 256}, {-128, 128}, {-256, 0}},
+	{{-256, -256}, {0, -512}, {256, -512}, {512, 0}, {256, 256}, {0, 512}, {-256, 256}, {-512, 0}},
+	{{-512, -512}, {0, -1024}, {512, -512}, {1024, 0}, {512, 512}, {0, 1024}, {-512, 512}, {-1024, 0}},
+}
+
+var vp9BigDiaPatternCandidateCounts = [vp9MaxMvSearchSteps]int{
+	4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+}
+
 func vp9MVSADComponentCost(v int) int {
 	if v < 0 {
 		v = -v
 	}
-	if v == 0 {
-		return 0
+	if v > vp9MVMax {
+		v = vp9MVMax
 	}
-	return int(256 * (2 * (math.Log2(float64(8*v)) + 0.6)))
+	return vp9MVSADComponentCosts[v]
+}
+
+func vp9SetFullpelMvSearchRange(limits *vp9MvLimits, ref vp9dec.MV) {
+	if limits == nil {
+		return
+	}
+	colMin := (int(ref.Col) >> 3) - vp9MaxFullPelVal
+	if int(ref.Col)&7 != 0 {
+		colMin++
+	}
+	rowMin := (int(ref.Row) >> 3) - vp9MaxFullPelVal
+	if int(ref.Row)&7 != 0 {
+		rowMin++
+	}
+	colMax := (int(ref.Col) >> 3) + vp9MaxFullPelVal
+	rowMax := (int(ref.Row) >> 3) + vp9MaxFullPelVal
+
+	colMin = max(colMin, (vp9MvLow>>3)+1)
+	rowMin = max(rowMin, (vp9MvLow>>3)+1)
+	colMax = min(colMax, (vp9MvUpp>>3)-1)
+	rowMax = min(rowMax, (vp9MvUpp>>3)-1)
+
+	if limits.ColMin < colMin {
+		limits.ColMin = colMin
+	}
+	if limits.ColMax > colMax {
+		limits.ColMax = colMax
+	}
+	if limits.RowMin < rowMin {
+		limits.RowMin = rowMin
+	}
+	if limits.RowMax > rowMax {
+		limits.RowMax = rowMax
+	}
+}
+
+func vp9FullpelMvIn(limits *vp9MvLimits, row, col int) bool {
+	if limits == nil {
+		return true
+	}
+	return col >= limits.ColMin && col <= limits.ColMax &&
+		row >= limits.RowMin && row <= limits.RowMax
+}
+
+func vp9FullpelCheckBounds(limits *vp9MvLimits, row, col, searchRange int) bool {
+	if limits == nil {
+		return true
+	}
+	return row-searchRange >= limits.RowMin &&
+		row+searchRange <= limits.RowMax &&
+		col-searchRange >= limits.ColMin &&
+		col+searchRange <= limits.ColMax
+}
+
+func vp9ClampFullpelMV(limits *vp9MvLimits, row, col int) (int, int) {
+	if limits == nil {
+		return row, col
+	}
+	if row < limits.RowMin {
+		row = limits.RowMin
+	} else if row > limits.RowMax {
+		row = limits.RowMax
+	}
+	if col < limits.ColMin {
+		col = limits.ColMin
+	} else if col > limits.ColMax {
+		col = limits.ColMax
+	}
+	return row, col
+}
+
+func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *vp9MvLimits,
+	sadAt func(dx, dy int) (uint64, bool),
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
+	searchParam := max(vp9MaxMvSearchSteps-2, stepParam)
+	if searchParam < 0 {
+		searchParam = 0
+	}
+	if searchParam >= vp9MaxMvSearchSteps {
+		searchParam = vp9MaxMvSearchSteps - 1
+	}
+	searchParamToSteps := [...]int{10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}
+	bestInitS := searchParamToSteps[searchParam]
+
+	br, bc := vp9ClampFullpelMV(limits, startDy, startDx)
+	bestSad := startSad
+	bestScore := startScore
+	if br != startDy || bc != startDx {
+		if sad, ok := sadAt(bc, br); ok {
+			bestSad = sad
+			bestScore = scoreMv(bc, br, sad)
+		}
+	}
+
+	checkBetter := func(s, site, row, col int, bestSite *int) {
+		if row == br && col == bc {
+			return
+		}
+		if !vp9FullpelCheckBounds(limits, br, bc, 1<<s) &&
+			!vp9FullpelMvIn(limits, row, col) {
+			return
+		}
+		sad, ok := sadAt(col, row)
+		if !ok {
+			return
+		}
+		if sad >= bestScore {
+			return
+		}
+		score := scoreMv(col, row, sad)
+		if score >= bestScore {
+			return
+		}
+		bestSad = sad
+		bestScore = score
+		*bestSite = site
+	}
+
+	k := -1
+	for s := bestInitS; s >= 0; s-- {
+		bestSite := -1
+		numCandidates := vp9BigDiaPatternCandidateCounts[s]
+		for i := 0; i < numCandidates; i++ {
+			c := vp9BigDiaPatternCandidates[s][i]
+			checkBetter(s, i, br+c.row, bc+c.col, &bestSite)
+		}
+		if bestSite != -1 {
+			c := vp9BigDiaPatternCandidates[s][bestSite]
+			br += c.row
+			bc += c.col
+			k = bestSite
+		}
+		for bestSite != -1 {
+			next := [3]int{
+				k - 1,
+				k,
+				k + 1,
+			}
+			if next[0] < 0 {
+				next[0] = numCandidates - 1
+			}
+			if next[2] == numCandidates {
+				next[2] = 0
+			}
+			bestSite = -1
+			for _, site := range next {
+				c := vp9BigDiaPatternCandidates[s][site]
+				checkBetter(s, site, br+c.row, bc+c.col, &bestSite)
+			}
+			if bestSite != -1 {
+				k = bestSite
+				c := vp9BigDiaPatternCandidates[s][k]
+				br += c.row
+				bc += c.col
+			}
+		}
+	}
+	return bc, br, bestSad, bestScore
 }
 
 func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
