@@ -227,10 +227,31 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 	// `--kf-min-dist=0 --kf-max-dist=interval` to the govpx-side fixed
 	// KF schedule (mirrors libvpx vp8_cx_iface.c
 	// `cfg.kf_max_dist`-driven `cpi->key_frame_frequency` handling).
+	//
+	// Buffer-size flags must also be forwarded: govpx receives
+	// `BufferSizeMs / BufferInitialSizeMs / BufferOptimalSizeMs` via
+	// EncoderOptions, but libvpx vpxenc defaults to its own
+	// 6000/4000/5000ms envelope unless `--buf-sz / --buf-initial-sz /
+	// --buf-optimal-sz` are passed. Without forwarding, fuzz cohorts
+	// that select the tight-buf entry from `bufPool` ran govpx against
+	// a 600/400/500ms buffer while the libvpx oracle kept the default
+	// 6000/4000/5000ms one — making the two sides regulate Q against
+	// different `cpi->buffer_level` / `cpi->oxcf.optimal_buffer_level`
+	// states inside calc_pframe_target_size's percent_low buffer
+	// shrink (libvpx vp8/encoder/ratectrl.c lines 706-727). That
+	// mismatch was the sole driver of the b3ea8a0d ("0001") seed
+	// first_partition delta (govpx target=8048 → regulate_q Q=7 vs
+	// libvpx target=8524 → regulate_q Q=6 at the first inter frame).
+	// Pass the govpx-side buffer config through so libvpx sees the
+	// same envelope (mirrors libvpx vpxenc.c argument plumbing for
+	// `cfg.rc_buf_sz / rc_buf_initial_sz / rc_buf_optimal_sz`).
 	extra := []string{
 		"--end-usage=" + endUsage,
 		"--kf-min-dist=0",
 		"--kf-max-dist=" + strconv.Itoa(c.kfInterval),
+		"--buf-sz=" + strconv.Itoa(c.bufferMs),
+		"--buf-initial-sz=" + strconv.Itoa(c.bufferInitMs),
+		"--buf-optimal-sz=" + strconv.Itoa(c.bufferOptMs),
 	}
 	return opts, extra
 }
