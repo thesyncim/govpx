@@ -71,7 +71,7 @@ func TestVP9FramePeriodicBoostLowersActiveBestOnGFRefresh(t *testing.T) {
 	}
 }
 
-func TestVP9AltRefAQRaisesActiveBestOnAltRefRefresh(t *testing.T) {
+func TestVP9AltRefAQLeavesActiveBestOnAltRefRefresh(t *testing.T) {
 	rc := &vp9RateControlState{
 		enabled:      true,
 		mode:         RateControlVBR,
@@ -87,15 +87,14 @@ func TestVP9AltRefAQRaisesActiveBestOnAltRefRefresh(t *testing.T) {
 		t.Fatalf("AltRefAQ on golden-only refresh active-best = %d, want 150",
 			goldenBest)
 	}
-	// AltRef refresh: AltRefAQ biases active-best *upward* (coarser
-	// quantizer on alt-ref) so the feature actually saves bitrate.
-	// The older sign convention biased it downward, which spent
-	// extra bits on alt-ref and regressed BD-rate by ~+2.4%.
+	// libvpx v1.16.0 wires VP9E_SET_ALT_REF_AQ but leaves
+	// vp9_alt_ref_aq.c stubbed, so the control must not perturb the
+	// active-best quantizer.
 	altRefRefresh := uint8(1) << vp9AltRefSlot
 	altBest := rc.applyVP9RefreshActiveBestBias(150, false, altRefRefresh, 16,
 		200)
-	if altBest <= 150 {
-		t.Fatalf("AltRefAQ on alt-ref refresh active-best = %d, want > 150",
+	if altBest != 150 {
+		t.Fatalf("AltRefAQ on alt-ref refresh active-best = %d, want 150",
 			altBest)
 	}
 }
@@ -115,10 +114,7 @@ func TestVP9PeriodicBoostClampAtBest(t *testing.T) {
 	}
 }
 
-func TestVP9AltRefAQClampAtWorst(t *testing.T) {
-	// AltRefAQ biases the active-best Q *upward* (coarser quantizer
-	// on alt-ref) to save bitrate. When starting at the worst-Q
-	// boundary the bias clamps at worst.
+func TestVP9AltRefAQNoopAtWorst(t *testing.T) {
 	rc := &vp9RateControlState{
 		enabled:      true,
 		mode:         RateControlVBR,

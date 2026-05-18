@@ -1411,6 +1411,7 @@ func (d *VP9Decoder) Reset() {
 	if d == nil {
 		return
 	}
+	d.resetVP9DecodedLeafTrace()
 	d.resetVP9FrameContexts()
 	d.lastHeader = vp9dec.UncompressedHeader{}
 	d.lastHeaderValid = false
@@ -1478,6 +1479,7 @@ func (d *VP9Decoder) Close() error {
 		d.vp9TilePool.shutdown()
 		d.vp9TilePool = nil
 	}
+	d.disableVP9DecodedLeafTrace()
 	d.closed = true
 	return nil
 }

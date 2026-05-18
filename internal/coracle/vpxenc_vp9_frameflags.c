@@ -1621,7 +1621,8 @@ int main(int argc, char **argv) {
   int temporal_ref_layer[3] = {0, 0, 0};
   int temporal_tl0_pic_idx = 0;
   int temporal_tl0_valid = 0;
-  for (int frame_idx = 0; frame_idx <= frames; ++frame_idx) {
+  int flush_empty = 0;
+  for (int frame_idx = 0; frame_idx < frames || !flush_empty; ++frame_idx) {
     int have_input = frame_idx < frames;
     vpx_image_t *input_img = NULL;
     if (have_input) {
@@ -1855,6 +1856,9 @@ int main(int argc, char **argv) {
               bits_per_frame,
               (long long)buffer_level_bits, (long long)buffer_optimal_bits,
               temporal_layer_id, temporal_layer_count);
+    }
+    if (!have_input && !emitted_this_input) {
+      flush_empty = 1;
     }
   }
 

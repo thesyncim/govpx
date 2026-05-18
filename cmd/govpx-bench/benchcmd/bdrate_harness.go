@@ -44,6 +44,12 @@ type BDRateOptions struct {
 	// At least 4 points are required for the cubic BD-rate fit.
 	QLadder []int
 
+	// RateLadderKbps optionally pairs each QLadder point with a target
+	// bitrate. This is for rate-control features such as cyclic refresh
+	// that must run under CBR, where varying CQ alone collapses the RD
+	// curve to duplicate target rates.
+	RateLadderKbps []int
+
 	// Baseline / Test apply codec-specific tweaks (feature toggles)
 	// on top of the shared per-Q encoder configuration. Both
 	// callbacks receive a *VP9EncoderOptions pre-populated with
@@ -53,10 +59,9 @@ type BDRateOptions struct {
 	Test     func(opts *govpx.VP9EncoderOptions)
 
 	// Lookahead overrides the lookahead-frame count baked into the
-	// shared options. Zero leaves the harness default (8, the TPL
-	// minimum) so AutoAltRef / TPL toggles can be evaluated without
-	// further configuration. Set to a smaller value to compare
-	// realtime-style paths.
+	// shared options. Zero selects a zero-lag run; set a negative value
+	// to use the harness default (8, the TPL minimum) when a caller wants
+	// lookahead without spelling out the value.
 	Lookahead int
 
 	// AllowDecoderFallback enables an internal Q-derived PSNR proxy
@@ -120,21 +125,20 @@ func ComputeBDRate(t testing.TB, opts BDRateOptions) (BDRateResult, error) {
 	if opts.FPS == 0 {
 		opts.FPS = 30
 	}
-	if opts.Lookahead == 0 {
+	if opts.Lookahead < 0 {
 		opts.Lookahead = 8
 	}
-	qs := append([]int(nil), opts.QLadder...)
-	sort.Ints(qs)
-	baseline := make([]QualityPoint, 0, len(qs))
-	test := make([]QualityPoint, 0, len(qs))
-	for _, q := range qs {
-		bPt, err := encodeBDOperatingPoint(opts, q, opts.Baseline)
+	ladder := bdOperatingLadder(opts)
+	baseline := make([]QualityPoint, 0, len(ladder))
+	test := make([]QualityPoint, 0, len(ladder))
+	for _, op := range ladder {
+		bPt, err := encodeBDOperatingPoint(opts, op.Q, op.TargetKbps, opts.Baseline)
 		if err != nil {
-			return BDRateResult{}, fmt.Errorf("baseline Q=%d: %w", q, err)
+			return BDRateResult{}, fmt.Errorf("baseline Q=%d: %w", op.Q, err)
 		}
-		tPt, err := encodeBDOperatingPoint(opts, q, opts.Test)
+		tPt, err := encodeBDOperatingPoint(opts, op.Q, op.TargetKbps, opts.Test)
 		if err != nil {
-			return BDRateResult{}, fmt.Errorf("test Q=%d: %w", q, err)
+			return BDRateResult{}, fmt.Errorf("test Q=%d: %w", op.Q, err)
 		}
 		baseline = append(baseline, bPt)
 		test = append(test, tPt)
@@ -145,7 +149,7 @@ func ComputeBDRate(t testing.TB, opts BDRateOptions) (BDRateResult, error) {
 	}
 	psnr, err := BDPSNR(baseline, test)
 	if err != nil {
-		return BDRateResult{Reference: baseline, Govpx: test, BDRate: bd}, err
+		psnr = math.NaN()
 	}
 	result := BDRateResult{
 		Reference:           baseline,
@@ -156,7 +160,7 @@ func ComputeBDRate(t testing.TB, opts BDRateOptions) (BDRateResult, error) {
 		BDPSNRGovpxVsLibvpx: math.NaN(),
 	}
 	if opts.LibvpxReference {
-		libvpxPts, libvpxErr := encodeBDLibvpxCurve(opts, qs)
+		libvpxPts, libvpxErr := encodeBDLibvpxCurve(opts, ladder)
 		if libvpxErr != nil {
 			result.LibvpxErr = libvpxErr
 			return result, nil
@@ -174,6 +178,23 @@ func ComputeBDRate(t testing.TB, opts BDRateOptions) (BDRateResult, error) {
 		}
 	}
 	return result, nil
+}
+
+type bdOperatingPoint struct {
+	Q          int
+	TargetKbps int
+}
+
+func bdOperatingLadder(opts BDRateOptions) []bdOperatingPoint {
+	ops := make([]bdOperatingPoint, len(opts.QLadder))
+	for i, q := range opts.QLadder {
+		ops[i] = bdOperatingPoint{Q: q}
+		if len(opts.RateLadderKbps) == len(opts.QLadder) {
+			ops[i].TargetKbps = opts.RateLadderKbps[i]
+		}
+	}
+	sort.Slice(ops, func(i, j int) bool { return ops[i].Q < ops[j].Q })
+	return ops
 }
 
 func validateBDRateOptions(opts BDRateOptions) error {
@@ -202,6 +223,21 @@ func validateBDRateOptions(opts BDRateOptions) error {
 		}
 		seen[q] = struct{}{}
 	}
+	if len(opts.RateLadderKbps) > 0 {
+		if len(opts.RateLadderKbps) != len(opts.QLadder) {
+			return errors.New("bdrate: RateLadderKbps must match QLadder length")
+		}
+		seenRates := make(map[int]struct{}, len(opts.RateLadderKbps))
+		for _, kbps := range opts.RateLadderKbps {
+			if kbps <= 0 {
+				return fmt.Errorf("bdrate: RateLadderKbps entry %d must be positive", kbps)
+			}
+			if _, dup := seenRates[kbps]; dup {
+				return fmt.Errorf("bdrate: duplicate RateLadderKbps entry %d", kbps)
+			}
+			seenRates[kbps] = struct{}{}
+		}
+	}
 	if opts.Baseline == nil || opts.Test == nil {
 		return errors.New("bdrate: Baseline and Test callbacks required")
 	}
@@ -221,7 +257,10 @@ func validateBDRateOptions(opts BDRateOptions) error {
 // are drained via FlushIntoWithResult after all source frames are
 // fed in so hidden ALTREFs and pending reordered packets are
 // accounted for.
-func encodeBDOperatingPoint(opts BDRateOptions, q int, apply func(*govpx.VP9EncoderOptions)) (QualityPoint, error) {
+func encodeBDOperatingPoint(opts BDRateOptions, q int, targetKbps int, apply func(*govpx.VP9EncoderOptions)) (QualityPoint, error) {
+	if targetKbps <= 0 {
+		targetKbps = 1000
+	}
 	encOpts := govpx.VP9EncoderOptions{
 		Width:           opts.Width,
 		Height:          opts.Height,
@@ -235,12 +274,16 @@ func encodeBDOperatingPoint(opts BDRateOptions, q int, apply func(*govpx.VP9Enco
 		// public-Q mode's qindex selection.
 		RateControlModeSet: true,
 		RateControlMode:    govpx.RateControlQ,
-		TargetBitrateKbps:  1000, // unused by public-Q mode, but validation requires positive
+		TargetBitrateKbps:  targetKbps, // unused by public-Q mode, but validation requires positive
 		CQLevel:            q,
+		MinQuantizer:       4,
 		MaxQuantizer:       63,
 	}
 	if apply != nil {
 		apply(&encOpts)
+	}
+	if len(opts.RateLadderKbps) > 0 {
+		encOpts.TargetBitrateKbps = targetKbps
 	}
 	// Honor the harness lookahead override on top of whatever the
 	// feature toggle requested. Disabling TPL/AutoAltRef shouldn't

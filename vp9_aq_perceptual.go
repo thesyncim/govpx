@@ -112,10 +112,14 @@ func (s *vp9PerceptualAQState) configure(enabled bool) {
 // pass and inherit the previous show-frame segmentation, exactly as
 // libvpx does (vp9_disable_segmentation is also gated on show_frame).
 func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, showFrame bool) bool {
-	s.ready = false
-	if !s.enabled || img == nil || !showFrame {
+	if !s.enabled || img == nil {
+		s.ready = false
 		return false
 	}
+	if !showFrame {
+		return s.ready
+	}
+	s.ready = false
 	src, stride, width, height := vp9EncoderSourcePlane(img, 0)
 	if len(src) == 0 || stride <= 0 || width <= 0 || height <= 0 {
 		return false
@@ -184,13 +188,13 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 		// libvpx asserts k>=2 && k<=MAX_KMEANS_GROUPS and indexes
 		// arr[(size * (2*j+1))/(2*k)] which requires size >= k. Tiny
 		// frames (single SB) cannot be clustered into 8 groups; we
-		// fall back to all-zero deltas (no quantizer adjustment) so
-		// the segmentation header is emitted but exerts no effect.
-		// libvpx itself doesn't hit this path on real content because
-		// it sizes its kmeans_data_arr from cm->mb_rows * cm->mb_cols
-		// (~256 entries even for the smallest 64x64 frame) and would
-		// assert / crash here, so this is a Go-side guard for the
-		// govpx synthetic unit-test fixtures.
+		// suppress segmentation entirely rather than paying a neutral
+		// map/header. libvpx itself doesn't hit this path on real
+		// content because it sizes its kmeans_data_arr from
+		// cm->mb_rows * cm->mb_cols (~256 entries even for the
+		// smallest 64x64 frame) and would assert / crash here, so
+		// this is a Go-side guard for govpx synthetic unit-test
+		// fixtures.
 		for i := range s.kmeansCenters {
 			s.kmeansCenters[i] = 0
 			s.kmeansBoundaries[i] = math.Inf(1)
@@ -198,16 +202,8 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 		for i := range s.deltas {
 			s.deltas[i] = 0
 		}
-		if cap(s.segments) < sbCount {
-			s.segments = make([]uint8, sbCount)
-		} else {
-			s.segments = s.segments[:sbCount]
-		}
-		for i := range s.segments {
-			s.segments[i] = 0
-		}
-		s.ready = true
-		return true
+		s.segments = s.segments[:0]
+		return false
 	}
 
 	// libvpx: vp9_kmeans (vp9_encodeframe.c:5549). Sorts data,
@@ -249,17 +245,15 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 // libvpx: vp9/encoder/vp9_segmentation.c:22 vp9_enable_segmentation
 // sets enabled=update_map=update_data=1.
 func (s *vp9PerceptualAQState) segmentationParams(intraFrame bool) vp9dec.SegmentationParams {
+	if !s.ready {
+		return vp9dec.SegmentationParams{}
+	}
 	seg := vp9dec.SegmentationParams{
 		Enabled:   true,
 		UpdateMap: true,
 		AbsDelta:  false,
 	}
 	initVP9SegmentationProbDefaults(&seg)
-	if !s.ready {
-		// Show-frame ran prepareFrame and bailed (e.g. tiny frame).
-		// Fall back to neutral segmentation with no AltQ deltas.
-		return seg
-	}
 	if !intraFrame {
 		// Inter show-frame: libvpx rewrites segment data every show
 		// frame, but the decoder treats UpdateData=0 as "reuse last

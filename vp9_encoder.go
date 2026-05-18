@@ -485,9 +485,9 @@ type VP9EncoderOptions struct {
 	// a tighter target qindex.
 	FramePeriodicBoost bool
 
-	// AltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. When true,
-	// alt-ref refresh frames apply extra AQ tightening through the active
-	// quantizer bounds, biasing the selected qindex downward.
+	// AltRefAQ mirrors libvpx's VP9E_SET_ALT_REF_AQ control. In libvpx
+	// v1.16.0 the VP9 alt-ref AQ implementation is a stub, so govpx records
+	// the control but leaves coding decisions unchanged.
 	AltRefAQ bool
 
 	// PostEncodeDrop mirrors libvpx's VP9E_SET_POSTENCODE_DROP_CBR control.
@@ -9892,8 +9892,12 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	// (vp9_pickmode.c:668). residualVar == 0 retains the prior limit_tx
 	// semantics; the full uint64 value now feeds the (var >> 5) > ac_thr
 	// screen-content Tx4x4 force at vp9_pickmode.c:386-388.
-	_, residualVar, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+	sourceVar, residualVar, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
 		miCol, bsize, sse)
+	if e.vp9InterUsesNonrdPickmode() {
+		return e.vp9InterCalculateTxSize(bsize, common.TxModeSelect, sse,
+			residualVar, sourceVar, acThr, segmentID)
+	}
 	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
 		return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVar, acThr,
 			limitTx, segmentID)
@@ -11121,17 +11125,26 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	bestSet := false
 	var best vp9InterModeDecision
-	// useNonrd: when sf->use_nonrd_pick_mode is set AND the LAST-only
-	// short-circuit above did not prune to a single ref, route the
-	// multi-ref schedule through the verbatim libvpx ref_mode_set[12]
-	// loop in vp9_pick_inter_mode_nonrd.go. With LAST-only the existing
-	// single-ref path below is already libvpx-equivalent and runs the
-	// faster luma-only predictor; the nonrd port adds no value there.
+	// useNonrd: route the speed-feature-selected realtime path through
+	// the libvpx-shaped ref_mode_set[] loop in vp9_pick_inter_mode_nonrd.go.
+	// When the low-temporal-variance shortcut above has reduced the usable
+	// set to LAST-only, temporarily narrow inter.refMask so the nonrd picker
+	// sees the same usable_ref_frame scope libvpx would.
 	//
 	// libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
-	if useNonrd && len(refFrameSet) > 1 {
-		if decision, ok := e.pickVP9InterReferenceModeNonRD(inter, tile,
-			miRows, miCols, miRow, miCol, bsize); ok {
+	if useNonrd && len(refFrameSet) > 0 {
+		savedRefMask := inter.refMask
+		if len(refFrameSet) != len(refFramesAll) {
+			var narrowed uint8
+			for _, refFrame := range refFrameSet {
+				narrowed |= 1 << uint(refFrame)
+			}
+			inter.refMask &= narrowed
+		}
+		decision, ok := e.pickVP9InterReferenceModeNonRD(inter, tile,
+			miRows, miCols, miRow, miCol, bsize)
+		inter.refMask = savedRefMask
+		if ok {
 			best = decision
 			bestSet = true
 		}
@@ -11664,8 +11677,10 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 }
 
 type vp9InterMvSearchOptions struct {
-	seed      vp9dec.MV
-	seedValid bool
+	seed       vp9dec.MV
+	seedValid  bool
+	refMv      vp9dec.MV
+	refMvValid bool
 }
 
 func (e *VP9Encoder) pickVP9InterMvWithOptions(inter *vp9InterEncodeState,
@@ -11743,11 +11758,23 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return vp9dec.MV{}, 0, false
 	}
 
-	bestScore := vp9BlockSAD(src, srcStride, ref, refStride,
+	refFullDx, refFullDy := 0, 0
+	if opts.refMvValid {
+		refFullDx = int(opts.refMv.Col) >> 3
+		refFullDy = int(opts.refMv.Row) >> 3
+	}
+	sadPerBit := vp9SADPerBit16(e.vp9EncoderModeDecisionQIndex())
+	scoreMv := func(dx, dy int, sad uint64) uint64 {
+		return sad + uint64(vp9FullPelMVSADCost(dy, dx,
+			refFullDy, refFullDx, sadPerBit))
+	}
+	bestSad := vp9BlockSAD(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+	bestScore := scoreMv(0, 0, bestSad)
 	bestDx, bestDy := 0, 0
 	searchCenterDx, searchCenterDy := 0, 0
 	searchFromSeed := false
+	seededStart := false
 	eval := func(dx, dy int) bool {
 		if dx == bestDx && dy == bestDy {
 			return false
@@ -11757,10 +11784,12 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		if refX < 0 || refY < 0 || refX+blockW > refW || refY+blockH > refH {
 			return false
 		}
-		score := vp9BlockSAD(src, srcStride, ref, refStride,
-			x0, y0, refX, refY, blockW, blockH, bestScore)
+		sad := vp9BlockSAD(src, srcStride, ref, refStride,
+			x0, y0, refX, refY, blockW, blockH, ^uint64(0))
+		score := scoreMv(dx, dy, sad)
 		if score < bestScore {
 			bestScore = score
+			bestSad = sad
 			bestDx = dx
 			bestDy = dy
 			return true
@@ -11770,7 +11799,15 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if opts.seedValid {
 		seedDx := int(opts.seed.Col) >> 3
 		seedDy := int(opts.seed.Row) >> 3
-		if eval(seedDx, seedDy) {
+		refX := x0 + seedDx
+		refY := y0 + seedDy
+		if refX >= 0 && refY >= 0 && refX+blockW <= refW && refY+blockH <= refH {
+			bestSad = vp9BlockSAD(src, srcStride, ref, refStride,
+				x0, y0, refX, refY, blockW, blockH, ^uint64(0))
+			bestScore = scoreMv(seedDx, seedDy, bestSad)
+			bestDx = seedDx
+			bestDy = seedDy
+			seededStart = true
 			searchCenterDx = seedDx
 			searchCenterDy = seedDy
 			searchFromSeed = true
@@ -11795,7 +11832,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	searchRadius := e.vp9InterSearchRadius()
 	if refFrame == vp9dec.LastFrame {
 		if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
-			if eval(hintDx, hintDy) && searchFromSeed {
+			if !seededStart && eval(hintDx, hintDy) && searchFromSeed {
 				searchCenterDx = hintDx
 				searchCenterDy = hintDy
 			}
@@ -11818,26 +11855,6 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 	}
 
-	// Coarse fan: libvpx's bigdia_search at step_param == MAX_MVSEARCH_STEPS-2
-	// (FAST_DIAMOND) visits one bigdia ring around the center and then refines.
-	// We size the coarse step so the fan covers ±searchRadius without
-	// exceeding it. NSTEP / full-search keeps the original 8-pel coarse step.
-	//
-	// libvpx: vp9_mcomp.c:1624 fast_dia_search(MAX(MAX_MVSEARCH_STEPS-2,
-	// search_param), ...). With reduce_first_step_size = 1, the coarse step
-	// at NSTEP drops to half of the radius (vp9_speed_features.c:586).
-	coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
-	// libvpx at speed >= 7 sets sf.mv.search_method = FAST_DIAMOND with
-	// step_param = 10, which causes the BIGDIA pattern walker to skip
-	// the dense step=1 refinement. Stop at step=2 when FAST_DIAMOND is
-	// selected; NSTEP / BIGDIA / HEX keep the verbatim step=1 walk.
-	// libvpx: vp9/encoder/vp9_speed_features.c:702-703 (FAST_DIAMOND +
-	// step_param 10), vp9/encoder/vp9_mcomp.c:1014-1015
-	// (search_param_to_steps[10] = 0 → smallest scale only).
-	minStep := 1
-	if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
-		minStep = 2
-	}
 	scanMinDx, scanMaxDx := -searchRadius, searchRadius
 	scanMinDy, scanMaxDy := -searchRadius, searchRadius
 	if searchFromSeed {
@@ -11846,24 +11863,56 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		scanMinDy = searchCenterDy - searchRadius
 		scanMaxDy = searchCenterDy + searchRadius
 	}
-	for dy := scanMinDy; dy <= scanMaxDy; dy += coarseStep {
-		for dx := scanMinDx; dx <= scanMaxDx; dx += coarseStep {
-			eval(dx, dy)
+	if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
+		// libvpx: fast_dia_search -> bigdia_search with step_param forced
+		// to MAX_MVSEARCH_STEPS-1 at cpu_used=8. That maps to scale 0 in
+		// vp9_pattern_search_sad, so the integer search repeatedly probes
+		// the four 1-pel diamond neighbours around the current best. It does
+		// not perform govpx's older broad square scan, which could jump to a
+		// farther periodic SAD minimum before the local refinement had a
+		// chance to settle.
+		neighbors := [...]struct {
+			dx int
+			dy int
+		}{
+			{dx: -1, dy: 0},
+			{dx: 0, dy: 1},
+			{dx: 1, dy: 0},
+			{dx: 0, dy: -1},
 		}
-	}
-	for step := coarseStep >> 1; step >= minStep; step >>= 1 {
 		improved := true
 		for improved {
 			improved = false
 			centerDx, centerDy := bestDx, bestDy
-			for dy := centerDy - step; dy <= centerDy+step; dy += step {
-				for dx := centerDx - step; dx <= centerDx+step; dx += step {
-					if dx < scanMinDx || dx > scanMaxDx ||
-						dy < scanMinDy || dy > scanMaxDy {
-						continue
-					}
-					if eval(dx, dy) {
-						improved = true
+			for _, n := range neighbors {
+				if eval(centerDx+n.dx, centerDy+n.dy) {
+					improved = true
+				}
+			}
+		}
+	} else {
+		// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
+		// step so the fan covers +/-searchRadius without exceeding it.
+		coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
+		for dy := scanMinDy; dy <= scanMaxDy; dy += coarseStep {
+			for dx := scanMinDx; dx <= scanMaxDx; dx += coarseStep {
+				eval(dx, dy)
+			}
+		}
+		for step := coarseStep >> 1; step >= 1; step >>= 1 {
+			improved := true
+			for improved {
+				improved = false
+				centerDx, centerDy := bestDx, bestDy
+				for dy := centerDy - step; dy <= centerDy+step; dy += step {
+					for dx := centerDx - step; dx <= centerDx+step; dx += step {
+						if dx < scanMinDx || dx > scanMaxDx ||
+							dy < scanMinDy || dy > scanMaxDy {
+							continue
+						}
+						if eval(dx, dy) {
+							improved = true
+						}
 					}
 				}
 			}
@@ -11879,14 +11928,48 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	// early when forcestop == FULL_PEL.
 	if e.vp9InterSubpelEnabled() {
 		mv, bestScore = e.refineVP9InterSubpelMv(inter, miRows, miCols,
-			miRow, miCol, bsize, refFrame, mv, bestScore)
+			miRow, miCol, bsize, refFrame, mv, bestSad, bestScore,
+			opts.refMv, opts.refMvValid)
 	}
 	return mv, bestScore, true
 }
 
+func vp9SADPerBit16(qindex int) int {
+	if qindex < 0 {
+		qindex = 0
+	}
+	if qindex > vp9dec.MaxQ {
+		qindex = vp9dec.MaxQ
+	}
+	q := vp9ConvertQIndexToQ(qindex)
+	return int(0.0418*q + 2.4107)
+}
+
+func vp9FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
+	row := mvRow - refRow
+	col := mvCol - refCol
+	jointCost := 300
+	if row == 0 && col == 0 {
+		jointCost = 600
+	}
+	cost := jointCost + vp9MVSADComponentCost(row) + vp9MVSADComponentCost(col)
+	return (cost*sadPerBit + 128) >> 8
+}
+
+func vp9MVSADComponentCost(v int) int {
+	if v < 0 {
+		v = -v
+	}
+	if v == 0 {
+		return 0
+	}
+	return int(256 * (2 * (math.Log2(float64(8*v)) + 0.6)))
+}
+
 func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	refFrame int8, best vp9dec.MV, bestScore uint64,
+	refFrame int8, best vp9dec.MV, bestSad, bestScore uint64,
+	refMv vp9dec.MV, refMvValid bool,
 ) (vp9dec.MV, uint64) {
 	// SPEED_FEATURES.mv.subpel_force_stop scales the min step:
 	// HALFPEL (sf 4), QUARTERPEL (2), EIGHTHPEL (1 with HP / 2 without).
@@ -11903,6 +11986,15 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		return best, bestScore
 	}
 	maxIters := e.vp9InterSubpelIters()
+	mvCost := func(mv vp9dec.MV) uint64 {
+		if !refMvValid {
+			return 0
+		}
+		errorPerBit := e.vp9MVErrorPerBit(e.vp9EncoderModeDecisionQIndex())
+		return vp9SubpelMVErrorCost(&inter.selectFc, mv, refMv, allowHP,
+			errorPerBit)
+	}
+	bestScore = bestSad + mvCost(best)
 	iters := 0
 	for step := int16(4); step >= minStep; step >>= 1 {
 		if iters >= maxIters {
@@ -11923,14 +12015,19 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 					if cand == best {
 						continue
 					}
-					score, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
+					sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
 						miRow, miCol, bsize, common.NewMv, refFrame, cand,
-						vp9dec.InterpEighttap, bestScore)
-					if !ok || score >= bestScore {
+						vp9dec.InterpEighttap, ^uint64(0))
+					if !ok {
+						continue
+					}
+					score := sad + mvCost(cand)
+					if score >= bestScore {
 						continue
 					}
 					best = cand
 					bestScore = score
+					bestSad = sad
 					improved = true
 				}
 			}
@@ -11938,6 +12035,25 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		}
 	}
 	return best, bestScore
+}
+
+func (e *VP9Encoder) vp9MVErrorPerBit(qindex int) int {
+	rdmult := e.activeRDMult(qindex)
+	errorPerBit := rdmult >> 6
+	if errorPerBit <= 0 {
+		errorPerBit = 1
+	}
+	return errorPerBit
+}
+
+func vp9SubpelMVErrorCost(fc *vp9dec.FrameContext, mv, ref vp9dec.MV,
+	allowHP bool, errorPerBit int,
+) uint64 {
+	if fc == nil || errorPerBit <= 0 {
+		return 0
+	}
+	cost := encoder.MvCost(mv, ref, &fc.Nmvc, allowHP)
+	return uint64((int64(cost)*int64(errorPerBit) + (1 << 13)) >> 14)
 }
 
 func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,

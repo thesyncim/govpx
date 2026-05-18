@@ -45,8 +45,8 @@ type vp9RateControlState struct {
 	// framePeriodicBoost mirrors VP9E_SET_FRAME_PERIODIC_BOOST. When set,
 	// the active-best Q is reduced harder on periodic GF/ALTREF refreshes.
 	framePeriodicBoost bool
-	// altRefAQ mirrors VP9E_SET_ALT_REF_AQ. When set, the active-best Q
-	// drops further on alt-ref refresh frames.
+	// altRefAQ mirrors VP9E_SET_ALT_REF_AQ. libvpx v1.16.0 wires the
+	// control but its VP9 alt-ref AQ implementation is a no-op.
 	altRefAQ bool
 	// postEncodeDrop mirrors VP9E_SET_POSTENCODE_DROP_CBR. When set,
 	// inter frames overshooting the target while the buffer is below the

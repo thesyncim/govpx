@@ -1,0 +1,15 @@
+//go:build !govpx_oracle_trace
+
+package govpx
+
+func (d *VP9Decoder) enableVP9DecodedLeafTrace() {}
+
+func (d *VP9Decoder) disableVP9DecodedLeafTrace() {}
+
+func (d *VP9Decoder) resetVP9DecodedLeafTrace() {}
+
+func (d *VP9Decoder) vp9DecodedLeafTraceActive() bool { return false }
+
+func (d *VP9Decoder) vp9DecodedLeafTraceRows() []vp9DecodedLeafTrace { return nil }
+
+func (d *VP9Decoder) emitVP9DecodedLeafTrace(vp9DecodedLeafTrace) {}
