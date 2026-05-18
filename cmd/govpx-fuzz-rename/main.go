@@ -49,6 +49,7 @@ var dispatch = map[string]classifier{
 	"FuzzEncoderTwoPassByteParity":               constantCase("twopass"),
 	"FuzzEncoderLongFixtureRateControl":          classifyLongFixtureRateControl,
 	"FuzzEncoderProductionStreamByteParity":      constantCase("option_grid"),
+	"FuzzVP8EncoderOptions":                      classifyVP8EncoderOptions,
 	"FuzzDecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
 	// VP9 fuzz family — sibling targets registered here mirror their VP8
 	// counterparts. Classifiers reuse the same body shape so the resulting
@@ -118,6 +119,57 @@ func classifyLongFixtureRateControl(data []byte) (string, error) {
 	// otherwise-identical bucket tuples that diverge only on cpu_used.
 	cpu := []string{"cpum3", "cpu0", "cpum8"}[r.pick(3)]
 	return fmt.Sprintf("%s_%dkbps_kf%d_%s_%s_%s_%s", rc, kbps, kf, fixture, buf, deadline, cpu), nil
+}
+
+// classifyVP8EncoderOptions mirrors vp8EncoderOptionsFromFuzz in
+// oracle_encoder_options_fuzz_test.go. The byte layout is
+//
+//	[w_idx, h_idx, rc_idx, dl_idx, cpu_idx, minQ, maxQ, cq,
+//	 kf_lo, kf_hi, br_lo, br_hi, sharp, tokenparts, threads, noise, er]
+//
+// Empty / undersized seeds wrap to byte 0, mirroring vp9FuzzByteReader.next.
+// The regression suffix names the divergent shape so curated repros surface
+// in `git status` as e.g. `regression_options_w48h48_cq_best_cpu4_tokens4_erpart_2fde656d`.
+func classifyVP8EncoderOptions(data []byte) (string, error) {
+	r := bucketCursor{data: data}
+	if len(data) == 0 {
+		return "options_empty", nil
+	}
+	widthPool := []int{16, 32, 48, 64}
+	heightPool := []int{16, 32, 48, 64}
+	rcPool := []string{"cbr", "vbr", "cq", "q"}
+	dlPool := []string{"rt", "good", "best"}
+	cpuPool := []string{"cpu0", "cpum3", "cpu4", "cpu8"}
+	w := widthPool[r.pick(4)]
+	h := heightPool[r.pick(4)]
+	rc := rcPool[r.pick(4)]
+	dl := dlPool[r.pick(3)]
+	cpu := cpuPool[r.pick(4)]
+	// Skip minQ/maxQ/cq (3 bytes) — they reuse the existing case-name space.
+	_ = r.next()
+	_ = r.next()
+	_ = r.next()
+	// kfRaw (u16) and bitrate (u16): skip the 4 bytes.
+	_ = r.next()
+	_ = r.next()
+	_ = r.next()
+	_ = r.next()
+	_ = r.next() // sharpness
+	tokenParts := r.next() & 0x03
+	_ = r.next() // threads
+	_ = r.next() // noise
+	er := r.next()
+	tokenLabel := []string{"tokens1", "tokens2", "tokens4", "tokens8"}[tokenParts]
+	erLabel := "noer"
+	switch er & 0x03 {
+	case 1:
+		erLabel = "er"
+	case 2:
+		erLabel = "erpart"
+	case 3:
+		erLabel = "erfull"
+	}
+	return fmt.Sprintf("options_w%dh%d_%s_%s_%s_%s_%s", w, h, rc, dl, cpu, tokenLabel, erLabel), nil
 }
 
 // classifyDecoderAgainstLibvpx tags fuzz finds by the structural shape
