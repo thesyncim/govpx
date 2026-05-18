@@ -53,16 +53,17 @@ func FuzzOracleEncoderRuntimeControlTransitions(f *testing.F) {
 }
 
 func oracleRuntimeControlFuzzMatchLimit(name string) int {
-	// This runtime-control corpus reaches the partially ported good-quality
-	// inter recode loop after frame 6. Keep the regression guarding the
-	// matched prefix while the remaining recode bookkeeping is still being
-	// closed out.
-	if strings.Contains(name, "regression_general_64x64_300kbps_spm8_f9_src0_77952f43") {
-		return 7
-	}
-	// This corpus enters the same partial good-quality inter recode area after
-	// a golden-reference overwrite. Frames 0-3 still pin the runtime-control
-	// setup before the known recode divergence.
+	// Seed 77952f43 historically diverged at frame 8 inside the partially
+	// ported good-quality inter recode loop (govpx first_partition=58 vs
+	// libvpx=65). The recode-loop and change-config rate-model alignment
+	// shipped as commit 45ded7d5 ("vp8: land libvpx-aligned recode_loop +
+	// change-config rate-model + segmentation-method WIP") closed the
+	// remaining bookkeeping, so frames 0-8 now match byte-for-byte. The
+	// strict gate (limit=0, full-length match) replaces the previous
+	// limit=7 tolerance to catch any regression in the matched suffix.
+	// This corpus enters the same partial good-quality inter recode area
+	// after a golden-reference overwrite. Frames 0-3 still pin the
+	// runtime-control setup before the known recode divergence.
 	if strings.Contains(name, "regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74") {
 		return 4
 	}
