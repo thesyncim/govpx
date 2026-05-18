@@ -7134,6 +7134,26 @@ func TestVP9SingleRefModeRateCostIncludesIntraInterBit(t *testing.T) {
 	}
 }
 
+func TestVP9SubpelMVErrorCostUsesEncoderHPTable(t *testing.T) {
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+
+	mv := vp9dec.MV{Row: 135, Col: 13}
+	ref := vp9dec.MV{Row: 128, Col: 0}
+	const errorPerBit = 97
+
+	raw := vp9enc.MvCostWithHP(mv, ref, &fc.Nmvc, true)
+	want := uint64((int64(raw)*errorPerBit + (1 << 13)) >> 14)
+	if got := vp9SubpelMVErrorCost(&fc, mv, ref, true, errorPerBit); got != want {
+		t.Fatalf("subpel MV error cost = %d, want HP-table cost %d",
+			got, want)
+	}
+	if writerRaw := vp9enc.MvCost(mv, ref, &fc.Nmvc, true); writerRaw == raw {
+		t.Fatalf("test vector did not exercise HP-table-only cost: raw=%d",
+			raw)
+	}
+}
+
 func TestVP9NonrdModeCostFrameContextRefreshCadence(t *testing.T) {
 	var e VP9Encoder
 	e.sf.UseNonrdPickMode = 1

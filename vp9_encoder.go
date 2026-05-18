@@ -12488,8 +12488,8 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 			return 0
 		}
 		errorPerBit := e.vp9MVErrorPerBit(e.vp9EncoderModeDecisionQIndex())
-		return vp9SubpelMVErrorCost(&inter.selectFc, mv, refMv, allowHP,
-			errorPerBit)
+		return vp9SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
+			refMv, allowHP, errorPerBit)
 	}
 	if nonrdSubpelTree {
 		if variance, ok := e.vp9InterPredictionSubpelVariance(inter, miRow,
@@ -12734,7 +12734,7 @@ func vp9SubpelMVErrorCost(fc *vp9dec.FrameContext, mv, ref vp9dec.MV,
 	if fc == nil || errorPerBit <= 0 {
 		return 0
 	}
-	cost := encoder.MvCost(mv, ref, &fc.Nmvc, allowHP)
+	cost := encoder.MvCostWithHP(mv, ref, &fc.Nmvc, allowHP)
 	return uint64((int64(cost)*int64(errorPerBit) + (1 << 13)) >> 14)
 }
 
