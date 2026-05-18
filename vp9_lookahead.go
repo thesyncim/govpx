@@ -2,7 +2,10 @@ package govpx
 
 import "image"
 
-const vp9MaxLookaheadFrames = 25
+const (
+	vp9MaxLookaheadFrames  = 25
+	vp9MinLookaheadForARFs = 4
+)
 
 type vp9LookaheadEntry struct {
 	img            image.YCbCr
@@ -215,7 +218,8 @@ func (e *VP9Encoder) encodeVP9AutoAltRefPendingInto(dst []byte) (VP9EncodeResult
 }
 
 func (e *VP9Encoder) maybeEncodeVP9AutoAltRefInto(dst []byte) (VP9EncodeResult, bool, error) {
-	if !e.opts.AutoAltRef || e.autoAltRefEmitted || e.autoAltRefPendingSet ||
+	if !e.vp9AutoAltRefOnePassEnabled() ||
+		e.autoAltRefEmitted || e.autoAltRefPendingSet ||
 		e.frameIndex == 0 || e.vp9LookaheadSize() < e.opts.LookaheadFrames {
 		return VP9EncodeResult{}, false, nil
 	}
@@ -245,6 +249,29 @@ func (e *VP9Encoder) maybeEncodeVP9AutoAltRefInto(dst []byte) (VP9EncodeResult, 
 	visible.flags = 0
 	visible.isAltRefSource = false
 	return result, true, nil
+}
+
+func (e *VP9Encoder) vp9AutoAltRefOnePassEnabled() bool {
+	if e == nil || !e.opts.AutoAltRef {
+		return false
+	}
+	// libvpx: vp9_encoder.h:1149-1152 is_altref_enabled():
+	//   !(mode == REALTIME && rc_mode == VPX_CBR) &&
+	//   lag_in_frames >= MIN_LOOKAHEAD_FOR_ARFS &&
+	//   enable_auto_arf
+	if vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeRealtime &&
+		e.opts.RateControlModeSet && e.opts.RateControlMode == RateControlCBR {
+		return false
+	}
+	if e.opts.LookaheadFrames < vp9MinLookaheadForARFs {
+		return false
+	}
+	if !e.opts.RateControlModeSet || e.opts.RateControlMode != RateControlVBR {
+		return false
+	}
+	// libvpx one-pass scheduling sets rc->source_alt_ref_pending only when
+	// sf.use_altref_onepass is live; public-Q/good cpu-used 2 leaves it off.
+	return e.sf.UseAltrefOnepass != 0
 }
 
 func (e *VP9Encoder) pushVP9Lookahead(img *image.YCbCr, flags EncodeFlags) error {

@@ -42,6 +42,8 @@ func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
 		{
 			name: "ARNR full",
 			apply: func(o *govpx.VP9EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 4
 				o.AutoAltRef = true
 				o.LookaheadFrames = 8
 				o.ARNRMaxFrames = 5
@@ -49,7 +51,7 @@ func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
 				o.ARNRType = 3
 			},
 			wants: []string{
-				"--auto-alt-ref=1", "--arnr-maxframes=5",
+				"--deadline=rt", "--cpu-used=4", "--auto-alt-ref=1", "--arnr-maxframes=5",
 				"--arnr-strength=3", "--arnr-type=3",
 			},
 		},

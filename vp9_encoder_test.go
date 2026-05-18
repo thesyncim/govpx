@@ -2056,10 +2056,15 @@ func TestVP9EncoderAutoAltRefLookaheadEmitsHiddenAltRef(t *testing.T) {
 	const width, height = 64, 64
 	const frames = 6
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:           width,
-		Height:          height,
-		LookaheadFrames: 4,
-		AutoAltRef:      true,
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            4,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  300,
+		LookaheadFrames:    4,
+		AutoAltRef:         true,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
@@ -2154,6 +2159,53 @@ func TestVP9EncoderAutoAltRefLookaheadEmitsHiddenAltRef(t *testing.T) {
 	}
 	if visible != frames {
 		t.Fatalf("visible decoded frames = %d, want %d", visible, frames)
+	}
+}
+
+func TestVP9EncoderAutoAltRefPublicQDoesNotEmitHiddenAltRef(t *testing.T) {
+	const width, height = 64, 64
+	const frames = 6
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:           width,
+		Height:          height,
+		LookaheadFrames: 4,
+		AutoAltRef:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	dst := make([]byte, 65536)
+	results := make([]VP9EncodeResult, 0, frames)
+	for frame := range frames {
+		src := newVP9YCbCrForTest(width, height, uint8(80+frame*17), 128, 128)
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		results = append(results, result)
+	}
+	for {
+		result, err := e.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		results = append(results, result)
+	}
+	if got, want := len(results), frames; got != want {
+		t.Fatalf("auto-alt-ref public-Q packets = %d, want %d", got, want)
+	}
+	for i := range results {
+		if !results[i].ShowFrame {
+			t.Fatalf("public-Q packet %d hidden with refresh=%#x; libvpx source_alt_ref_pending stays false",
+				i, results[i].RefreshFrameFlags)
+		}
 	}
 }
 
@@ -8997,10 +9049,15 @@ func TestVP9EncoderDenoiserInterSteadyStateAlloc(t *testing.T) {
 func TestVP9EncoderAutoAltRefLookaheadSteadyStateAlloc(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:           width,
-		Height:          height,
-		LookaheadFrames: 4,
-		AutoAltRef:      true,
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            4,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  300,
+		LookaheadFrames:    4,
+		AutoAltRef:         true,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)

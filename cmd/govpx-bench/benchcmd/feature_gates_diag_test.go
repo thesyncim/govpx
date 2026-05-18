@@ -29,6 +29,7 @@ func TestVP9FeatureBDRateDiagnostics(t *testing.T) {
 		height   int
 		frames   int
 		qladder  []int
+		rladder  []int
 		hookA    func(*govpx.VP9EncoderOptions)
 		hookB    func(*govpx.VP9EncoderOptions)
 		lookhd   int
@@ -59,13 +60,22 @@ func TestVP9FeatureBDRateDiagnostics(t *testing.T) {
 			width:   64, height: 64,
 			frames:   12,
 			qladder:  []int{16, 24, 32, 40},
+			rladder:  []int{80, 160, 320, 640},
 			lookhd:   8,
 			fallback: true,
 			hookA: func(o *govpx.VP9EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 4
+				o.RateControlModeSet = true
+				o.RateControlMode = govpx.RateControlVBR
 				o.AutoAltRef = true
 				o.ARNRMaxFrames = 0
 			},
 			hookB: func(o *govpx.VP9EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 4
+				o.RateControlModeSet = true
+				o.RateControlMode = govpx.RateControlVBR
 				o.AutoAltRef = true
 				o.ARNRMaxFrames = 5
 				o.ARNRStrength = 3
@@ -161,6 +171,7 @@ func TestVP9FeatureBDRateDiagnostics(t *testing.T) {
 			Frames:               sc.frames,
 			Source:               func(i int) *image.YCbCr { return gen(i) },
 			QLadder:              sc.qladder,
+			RateLadderKbps:       sc.rladder,
 			Lookahead:            sc.lookhd,
 			Baseline:             sc.hookA,
 			Test:                 sc.hookB,
