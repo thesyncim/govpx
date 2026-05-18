@@ -201,6 +201,20 @@ type twoPassState struct {
 	// reads the same Q-search bounds as libvpx.
 	maxqMinLimit int
 	maxqMaxLimit int
+	// lastAltBoost mirrors the alt-ref boost produced by libvpx's
+	// `calc_arf_boost` (vp8/encoder/firstpass.c:1482-1578) on the most
+	// recent defineGFGroup call. lastAltBoostFBoost / lastAltBoostBBoost
+	// are the forward and backward sweep halves (firstpass.c:1531 and
+	// 1575 — the post-shift `(boost_score * 100) >> 4` values), so
+	// alt_boost == fBoost + bBoost. defineGFGroup uses these to
+	// reassign `cpi->gfu_boost = alt_boost` (firstpass.c:1785) and to
+	// drive the NEW_BOOST=1 ARF allocation formula at firstpass.c:1800
+	// (`Boost = (alt_boost * GFQ_ADJUSTMENT) / 100`). Tests read these
+	// to assert forward/backward sweep and alt_boost vs gf_boost
+	// differential parity with libvpx.
+	lastAltBoost       int
+	lastAltBoostFBoost int
+	lastAltBoostBBoost int
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {

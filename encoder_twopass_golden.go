@@ -118,6 +118,33 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 		q = len(libvpxGFBoostQAdjustment) - 1
 	}
 	gfqAdjustment := libvpxGFBoostQAdjustment[q]
+	// libvpx vp8/encoder/firstpass.c:1753-1786 (NEW_BOOST=1, the default
+	// per firstpass.c:62): compute the alt-ref boost from forward and
+	// backward sweeps centred on the post-GF-walk stats cursor, and when
+	// the alt-ref is selected reassign `cpi->gfu_boost = alt_boost`.
+	// govpx's stats cursor equivalent after the walk is `frame + 1 +
+	// gfInterval` (libvpx's `start_pos + i` after `input_stats` was
+	// called i times). `f_frames = b_frames = i - 1` per libvpx
+	// firstpass.c:1755.
+	altBoost := 0
+	fBoost := 0
+	bBoost := 0
+	if gfInterval > 1 {
+		cursor := int(frame) + 1 + gfInterval
+		fBoost, bBoost, altBoost = libvpxCalcARFBoost(t.stats, cursor, gfInterval-1, gfInterval-1, t.gfIntraErrMin)
+	}
+	t.lastAltBoostFBoost = fBoost
+	t.lastAltBoostBBoost = bBoost
+	t.lastAltBoost = altBoost
+	// libvpx firstpass.c:1785 — inside the ARF-selected branch only,
+	// `cpi->gfu_boost = alt_boost`. govpx mirrors that override here so
+	// the downstream alt_extra_bits guard and Boost formula see the
+	// alt_boost value (libvpx firstpass.c:1799-1800 selects
+	// `Boost = (alt_boost * GFQ_ADJUSTMENT) / 100` over the legacy
+	// `(gfu_boost * 3 * GFQ_ADJUSTMENT) / (2 * 100)`).
+	if useAltRef && altBoost > 0 {
+		gfuBoost = altBoost
+	}
 	// libvpx alt branch (lines 2017-2046): if mod_frame_err < group
 	// avg, use a smaller alt_gf_bits computed from the frame's own
 	// error scaled by interval; if mod_frame_err >= group avg, ensure
@@ -154,7 +181,14 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 		boost := int64(gfuBoost*gfqAdjustment) / 100
 		allocationChunks := int64(0)
 		if arf {
-			boost = int64(gfuBoost*3*gfqAdjustment) / (2 * 100)
+			// libvpx vp8/encoder/firstpass.c:1799-1803 (NEW_BOOST=1):
+			//   Boost = (alt_boost * GFQ_ADJUSTMENT) / 100;
+			// versus the NEW_BOOST=0 legacy formula
+			//   Boost = (gfu_boost * 3 * GFQ_ADJUSTMENT) / (2 * 100);
+			// `gfuBoost` here already equals `alt_boost` because
+			// defineGFGroup reassigned it above (firstpass.c:1785
+			// `cpi->gfu_boost = alt_boost`).
+			boost = int64(gfuBoost*gfqAdjustment) / 100
 			boost += int64(gfInterval * 50)
 			if cap := int64(gfInterval+1) * 200; boost > cap {
 				boost = cap
