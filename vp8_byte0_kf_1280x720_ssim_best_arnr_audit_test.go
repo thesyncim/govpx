@@ -376,16 +376,15 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// block predictor), which is what surfaces as the residual -5/-6 byte
 	// ARNR pin-hold on this and the task #227 cohort.
 	//
-	// Path forward: extend the per-MB inter-candidate trace (already
-	// emitted in oracle/govpx traces) with the per-mode RD breakdown for
-	// SPLITMV vs the simple-MV modes, and bisect which sub-component
-	// (split-partition cost, sub-block MV search range, sub-block MV
-	// reference, RDCOST tie-break) drives the picker flip for MB(0,0).
-	// Until that lands, the -5/-6 byte ARNR pin-hold remains, but its
-	// root cause is now confirmed to be in the inter-frame mode picker
-	// and NOT in the UV qcoeff / FDCT / residual / quantize pipeline.
+	// Path forward (HISTORICAL — see task #314 below for the corrected
+	// root cause and retracted hypotheses): extend the per-MB
+	// inter-candidate trace with the per-mode RD breakdown for SPLITMV
+	// vs the simple-MV modes, and bisect which sub-component (split-
+	// partition cost, sub-block MV search range, sub-block MV reference,
+	// RDCOST tie-break) drives the picker flip for MB(0,0).
 	//
-	// Task #298 SPLITMV RD bisect (LOCALIZES the picker divergence):
+	// Task #298 SPLITMV RD bisect (LOCALIZES the picker divergence,
+	// LATER RETRACTED — see task #314):
 	// the new TestVP8Task298SPLITMVRDBisect captures the per-mode
 	// inter_candidate trace for MB(0,0) frame 1 on both sides and
 	// surfaces the picker scoreboard. Key findings:
@@ -426,6 +425,38 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// FDCT and quantize on libvpx) for MB(0,0) frame 1's NEWMV candidate,
 	// then localize the first divergent (block, scan_pos) to either coeff
 	// (residual layer) or qcoeff (quantize layer).
+	//
+	// Task #314 corrected the chain (see feedback_vp8_arnr_investigation_chain
+	// for the full retraction set):
+	//
+	//   - The #297 "SPLITMV 664 vs 116" histogram was measured against
+	//     libvpx --threads=4 MT-LF state vs threads=1 govpx; libvpx's
+	//     own MT-LF produces a different frame-0 recon than ST-LF, so
+	//     the histogram is apples-to-oranges and DOES NOT prove a
+	//     SPLITMV picker divergence.
+	//   - The #298 NEWMV rate_y=34799 scoreboard was actually libvpx's
+	//     ZEROMV rate_y under the same threads=4 confusion. Retracted.
+	//   - The #304 "all-zero qcoeff means govpx is incorrect" framing is
+	//     wrong: libvpx threads=1 also produces all-zero qcoeff for that
+	//     MB. The picker quantize (#310) is byte-faithful.
+	//   - The #300 SPLITMV bounds port is libvpx-verbatim and correct on
+	//     its own merits but produces zero observed impact on this cohort.
+	//
+	// ACTUAL ROOT CAUSE (task #314): post-encode CHROMA trellis
+	// optimize_b for blockType=2 / PLANE_TYPE_UV makes different
+	// keep/drop decisions for ±1 chroma DC coefficients. Frame 1 of
+	// 19981bff: 2241/3600 MBs diverge, 2115 chroma-only, 85% DC-only,
+	// 1934 blocks govpx=+1 (keeps where libvpx drops), 1078 govpx=-1.
+	// Code layers: govpx
+	// quantizeEncodedBlockWithRDZbinAndActivity → optimizeQuantizedBlock
+	// vs libvpx vp8/encoder/encodemb.c:vp8_encode_inter16x16 →
+	// optimize_mb → optimize_b. The trellis core itself (#282) is
+	// byte-faithful — divergence is in the chroma input to the trellis
+	// or the chroma-specific dispatch gating. Task #316 bisects this.
+	// Cleared-candidate list (#282 / #284 / #286 / #288 / #290 / #292 /
+	// #294 / #299 / #303 / #307 / #309 / #310 / #312 / #313) — do NOT
+	// re-investigate. See feedback_vp8_arnr_investigation_chain for the
+	// full breakdown.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463

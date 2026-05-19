@@ -318,10 +318,40 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// these picker flips on the inter token partition, NOT a UV qcoeff
 	// / FDCT / residual / quantize pipeline bug.
 	//
-	// Path forward: bisect SPLITMV vs the simple-MV modes' per-mode RD
-	// breakdown (split-partition cost, sub-block MV search range, sub-
-	// block MV reference, RDCOST tie-break) to identify which sub-
-	// component drives the picker flip.
+	// Path forward (HISTORICAL — see task #314 below for the corrected
+	// root cause): bisect SPLITMV vs the simple-MV modes' per-mode RD
+	// breakdown to identify which sub-component drives the picker flip.
+	//
+	// Task #314 corrected the chain (see feedback_vp8_arnr_investigation_chain
+	// for the full retraction set):
+	//
+	//   - The #297 "SPLITMV 664 vs 116" histogram was measured against
+	//     libvpx --threads=4 MT-LF vs threads=1 govpx; libvpx's MT-LF
+	//     produces a different frame-0 recon than ST-LF, so the picker
+	//     histogram is apples-to-oranges. Retracted.
+	//   - The #298 picker-scoreboard rate_y comparison was misaligned
+	//     under the same threads=4 confusion. Retracted.
+	//   - The #304 "all-zero qcoeff means govpx is incorrect" framing
+	//     is wrong: libvpx threads=1 also produces all-zero qcoeff for
+	//     that MB. The picker quantize (#310) is byte-faithful.
+	//   - The #300 SPLITMV bounds port is libvpx-verbatim and correct
+	//     but produces zero observed impact on this cohort.
+	//
+	// ACTUAL ROOT CAUSE (task #314): post-encode CHROMA trellis
+	// optimize_b for blockType=2 / PLANE_TYPE_UV makes different
+	// keep/drop decisions for ±1 chroma DC coefficients. Frame 1 of
+	// 19981bff (sibling cohort): 2241/3600 MBs diverge, 2115
+	// chroma-only, 85% DC-only, 1934 blocks govpx=+1 (keeps where
+	// libvpx drops), 1078 govpx=-1. Code layers: govpx
+	// quantizeEncodedBlockWithRDZbinAndActivity → optimizeQuantizedBlock
+	// vs libvpx vp8/encoder/encodemb.c:vp8_encode_inter16x16 →
+	// optimize_mb → optimize_b (PLANE_TYPE_UV branch). The trellis core
+	// itself (#282) is byte-faithful — divergence is in the chroma
+	// input to the trellis or the chroma-specific dispatch gating.
+	// Task #316 bisects this. Cleared-candidate list (#282 / #284 /
+	// #286 / #288 / #290 / #292 / #294 / #299 / #303 / #307 / #309 /
+	// #310 / #312 / #313) — do NOT re-investigate. See
+	// feedback_vp8_arnr_investigation_chain for the full breakdown.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
