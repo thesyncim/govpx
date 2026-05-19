@@ -3,6 +3,8 @@ package govpx
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
@@ -138,6 +140,53 @@ func TestVP9CoeffTokenRateCostExtraBitsSweep(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestVP9CoeffBlockRateCostSlowSkipsEOBAfterZeroToken(t *testing.T) {
+	var e VP9Encoder
+	coefModel := &e.fc.CoefProbs[common.Tx4x4][0][0]
+	for band := 0; band < vp9dec.CoefBands; band++ {
+		for ctx := 0; ctx < vp9dec.CoefContexts; ctx++ {
+			(*coefModel)[band][ctx][0] = 128
+			(*coefModel)[band][ctx][1] = 128
+			(*coefModel)[band][ctx][2] = 128
+		}
+	}
+
+	scanOrder := common.DefaultScanOrders[common.Tx4x4]
+	coeffs := make([]int16, vp9dec.MaxEobForTxSize(common.Tx4x4))
+	qcoeffs := make([]int16, len(coeffs))
+	qcoeffs[scanOrder.Scan[1]] = 1
+
+	got := e.vp9KeyframeCoeffBlockRateCostPlaneQ(common.Tx4x4, 0, scanOrder,
+		[2]int16{4, 4}, coeffs, qcoeffs, 0)
+
+	var tokenCache [1024]uint8
+	tokenCache[0] = encoder.PtEnergyClass[encoder.ZeroToken]
+	pt := vp9dec.GetCoefContext(scanOrder.Neighbors, &tokenCache, 1)
+	oneToken, oneExtra := vp9CoeffTokenExtraCost(1, 0)
+	want := vp9CoeffTreeTokenCost((*coefModel)[0][0][:], false,
+		encoder.ZeroToken)
+	want += oneExtra + vp9CoeffTreeTokenCost((*coefModel)[1][pt][:],
+		true, oneToken)
+	tokenCache[scanOrder.Scan[1]] = encoder.PtEnergyClass[oneToken]
+	eobCtx := vp9dec.GetCoefContext(scanOrder.Neighbors, &tokenCache, 2)
+	want += vp9CoeffTreeTokenCost((*coefModel)[1][eobCtx][:], false,
+		encoder.EobToken)
+
+	overcharged := vp9CoeffTreeTokenCost((*coefModel)[0][0][:], false,
+		encoder.ZeroToken)
+	overcharged += oneExtra + vp9CoeffTreeTokenCost((*coefModel)[1][pt][:],
+		false, oneToken)
+	overcharged += vp9CoeffTreeTokenCost((*coefModel)[1][eobCtx][:], false,
+		encoder.EobToken)
+
+	if got != want {
+		t.Fatalf("slow cost = %d, want %d", got, want)
+	}
+	if got == overcharged {
+		t.Fatalf("slow cost charged full tree after ZERO token: got %d", got)
 	}
 }
 

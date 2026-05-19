@@ -9961,7 +9961,6 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
 		return 0
 	}
-	bandTrans := vp9dec.BandTranslateForTxSize(txSize)
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0
 	}
@@ -9973,60 +9972,8 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 		return e.vp9CoeffBlockRateCostFastQ(txSize, coefModel, scanOrder,
 			dequant, coeffs, qcoeffs, initCtx)
 	}
-	ctx := initCtx
-	bandIdx := 0
-	rate := 0
-	for c := 0; c < maxEob; {
-		band := int(bandTrans[bandIdx])
-		bandIdx++
-		probs := &coefModel[band][ctx]
-		if c == eob {
-			rate += encoder.VP9CostBit(probs[0], 0)
-			return rate
-		}
-		rate += encoder.VP9CostBit(probs[0], 1)
-		for !vp9CoeffBlockHasCoeff(scan, c, coeffs, qcoeffs) {
-			rate += encoder.VP9CostBit(probs[1], 0)
-			e.modeScratch[scan[c]] = 0
-			c++
-			if c >= maxEob {
-				return rate
-			}
-			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
-			band = int(bandTrans[bandIdx])
-			bandIdx++
-			probs = &coefModel[band][ctx]
-		}
-		rate += encoder.VP9CostBit(probs[1], 1)
-		raster := scan[c]
-		dqv := dequant[1]
-		if c == 0 {
-			dqv = dequant[0]
-		}
-		// libvpx vp9_rdopt.c:392-394,405-406 — vp9_get_token_cost(v, &t, ...)
-		// reads v = qcoeff[rc] directly. When qcoeffs is non-nil govpx
-		// consumes the libvpx-equivalent signed qcoeff value from the
-		// quantize kernels (QuantizeB*WithQ / QuantizeFP*WithQ) so that
-		// int16-wrap in dqcoeff (q*dq, or q*dq/2 for Tx32x32) cannot
-		// corrupt the recovered token magnitude.
-		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, int(raster),
-			coeffs[raster], dqv, txSize == common.Tx32x32)
-		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
-		// libvpx vp9_rdopt.c:397, 429, 442 — token_cache[rc] =
-		// vp9_pt_energy_class[token]. The libvpx table
-		// vp9/common/vp9_entropy.c:95 reads
-		//   {0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5}
-		// for ZERO/ONE/TWO/THREE/FOUR/CAT1..CAT6/EOB. Sourced as a
-		// named constant so the mapping is one named lookup pinned to
-		// libvpx, not an open-coded ladder that can drift.
-		token, _ := encoder.TokenForAbsCoeff(absVal)
-		e.modeScratch[raster] = encoder.PtEnergyClass[token]
-		c++
-		if c < maxEob {
-			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
-		}
-	}
-	return rate
+	return e.vp9CoeffBlockRateCostSlowQ(txSize, coefModel, scanOrder,
+		dequant, coeffs, qcoeffs, initCtx, eob)
 }
 
 var vp9CoeffCostBandCounts = [common.TxSizes][8]int{
@@ -10034,6 +9981,79 @@ var vp9CoeffCostBandCounts = [common.TxSizes][8]int{
 	{1, 2, 3, 4, 11, 64 - 21, 0},
 	{1, 2, 3, 4, 11, 256 - 21, 0},
 	{1, 2, 3, 4, 11, 1024 - 21, 0},
+}
+
+// vp9CoeffBlockRateCostSlowQ ports the non-fast arm of libvpx cost_coeffs
+// (vp9/encoder/vp9_rdopt.c:419-459). The second token-cost index is
+// `!previous_token`, which skips the EOB branch immediately after a zero
+// coefficient; charging the full tree there overstates sparse residuals and
+// can move RD mode decisions.
+func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
+	coefModel *[vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8,
+	scanOrder common.ScanOrder, dequant [2]int16, coeffs, qcoeffs []int16,
+	initCtx int, eob int,
+) int {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txSize >= common.TxSizes || coefModel == nil || dequant[0] == 0 ||
+		dequant[1] == 0 || len(coeffs) < maxEob || initCtx < 0 ||
+		initCtx > 2 {
+		return 0
+	}
+	if qcoeffs != nil && len(qcoeffs) < maxEob {
+		qcoeffs = nil
+	}
+	scan := scanOrder.Scan
+	neighbors := scanOrder.Neighbors
+	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
+		return 0
+	}
+	if eob <= 0 {
+		return vp9CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
+			encoder.EobToken)
+	}
+	if eob > maxEob {
+		eob = maxEob
+	}
+
+	dcAbs, dcSign := vp9CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
+		dequant[0], txSize == common.Tx32x32)
+	prevToken, extraCost := vp9CoeffTokenExtraCost(dcAbs, dcSign)
+	rate := extraCost + vp9CoeffTreeTokenCost(
+		(*coefModel)[0][initCtx][:], false, prevToken)
+	e.modeScratch[0] = encoder.PtEnergyClass[prevToken]
+
+	band := 1
+	bandLeft := vp9CoeffCostBandCounts[txSize][band]
+	for c := 1; c < eob; c++ {
+		if band >= vp9dec.CoefBands {
+			return rate
+		}
+		raster := int(scan[c])
+		dqv := dequant[1]
+		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, raster,
+			coeffs[raster], dqv, txSize == common.Tx32x32)
+		token, extra := vp9CoeffTokenExtraCost(absVal, sign)
+		pt := vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
+		rate += extra + vp9CoeffTreeTokenCost(
+			(*coefModel)[band][pt][:], prevToken == encoder.ZeroToken, token)
+		e.modeScratch[raster] = encoder.PtEnergyClass[token]
+		if bandLeft > 0 {
+			bandLeft--
+			if bandLeft == 0 {
+				band++
+				if band < len(vp9CoeffCostBandCounts[txSize]) {
+					bandLeft = vp9CoeffCostBandCounts[txSize][band]
+				}
+			}
+		}
+		prevToken = token
+	}
+	if bandLeft != 0 && band < vp9dec.CoefBands {
+		pt := vp9dec.GetCoefContext(neighbors, &e.modeScratch, eob)
+		rate += vp9CoeffTreeTokenCost((*coefModel)[band][pt][:], false,
+			encoder.EobToken)
+	}
+	return rate
 }
 
 // vp9CoeffBlockRateCostFastQ ports the use_fast_coef_costing arm of libvpx's
@@ -11091,8 +11111,6 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 		qcoeffs = nil
 	}
 	scan := common.DefaultScanOrders[txSize].Scan
-	neighbors := common.DefaultScanOrders[txSize].Neighbors
-	bandTrans := vp9dec.BandTranslateForTxSize(txSize)
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0
 	}
@@ -11103,51 +11121,9 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 			common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
 			initCtx)
 	}
-	ctx := initCtx
-	bandIdx := 0
-	rate := 0
-	for c := 0; c < maxEob; {
-		band := int(bandTrans[bandIdx])
-		bandIdx++
-		probs := &coefModel[band][ctx]
-		if c == eob {
-			rate += encoder.VP9CostBit(probs[0], 0)
-			return rate
-		}
-		rate += encoder.VP9CostBit(probs[0], 1)
-		for !vp9CoeffBlockHasCoeff(scan, c, coeffs, qcoeffs) {
-			rate += encoder.VP9CostBit(probs[1], 0)
-			e.modeScratch[scan[c]] = 0
-			c++
-			if c >= maxEob {
-				return rate
-			}
-			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
-			band = int(bandTrans[bandIdx])
-			bandIdx++
-			probs = &coefModel[band][ctx]
-		}
-		rate += encoder.VP9CostBit(probs[1], 1)
-		raster := scan[c]
-		dqv := dequant[1]
-		if c == 0 {
-			dqv = dequant[0]
-		}
-		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, int(raster),
-			coeffs[raster], dqv, txSize == common.Tx32x32)
-		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
-		// Mirror libvpx vp9_rdopt.c:442 — token_cache[rc] =
-		// vp9_pt_energy_class[token]. Same named-table lookup as the
-		// keyframe path above; see internal/vp9/encoder/pt_energy_class.go
-		// for the byte-pinned port.
-		token, _ := encoder.TokenForAbsCoeff(absVal)
-		e.modeScratch[raster] = encoder.PtEnergyClass[token]
-		c++
-		if c < maxEob {
-			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
-		}
-	}
-	return rate
+	return e.vp9CoeffBlockRateCostSlowQ(txSize, coefModel,
+		common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
+		initCtx, eob)
 }
 
 func vp9CoeffTokenAbsVal(absCoeff, dqv int16, tx32 bool) int {
