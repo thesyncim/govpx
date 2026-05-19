@@ -2,17 +2,10 @@ package govpx
 
 import (
 	"math"
-	"os"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
-
-// vp9LibvpxChoosePartitioningEnabled preserves the old explicit validation
-// override. Normal encode dispatch now mirrors libvpx directly through
-// partition_search_type == VAR_BASED_PARTITION; the env flag remains for
-// oracle diagnostics that need to report the historical gate setting.
-var vp9LibvpxChoosePartitioningEnabled = os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING") == "1"
 
 // vp9_variance_partition_pick.go is the Phase C verbatim port of libvpx
 // VP9's choose_partitioning picker body

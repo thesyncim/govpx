@@ -1480,13 +1480,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//
 		// libvpx: vp9_pickmode.c:2325 search_filter_ref(...).
 		if len(filters) > 1 && !useModelRD {
-			vp9SearchFilterRefProbeFire()
+			if vp9SearchFilterRefProbeBuild {
+				vp9SearchFilterRefProbeFire()
+			}
 			bestFilter, _, _, _, _, _, sfok := e.vp9SearchFilterRef(inter,
 				miRows, miCols, miRow, miCol, bsize, thisMode, refFrame, mv,
 				filters, switchableCtx, dequantY, qindex)
 			if sfok {
 				if bestFilter != vp9dec.InterpEighttap {
-					vp9SearchFilterRefProbeFlip()
+					if vp9SearchFilterRefProbeBuild {
+						vp9SearchFilterRefProbeFlip()
+					}
 				}
 				filters = []vp9dec.InterpFilter{bestFilter}
 			}

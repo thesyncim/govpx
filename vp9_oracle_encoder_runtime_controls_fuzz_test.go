@@ -267,8 +267,8 @@ import (
 //     is the per-frame switchable_interp histogram supplied by
 //     collectVP9EncodeFrameCounts (vp9_encoder.go:2820).
 //
-//     Per-frame counts.SwitchableInterp totals captured by
-//     TestVP9Seed8FilterHistogram for this seed:
+//     Per-frame counts.SwitchableInterp totals captured by the retired
+//     filter-histogram diagnostic for this seed:
 //     frame=1 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED (libvpx c>=2)
 //     frame=3 c=1 totals=[E=2, S=0, H=0]  -- DEMOTED
 //     frame=4 c=1 totals=[E=1, S=0, H=0]  -- DEMOTED

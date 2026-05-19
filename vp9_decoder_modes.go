@@ -437,7 +437,7 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 				miRow, miCol, reconBsize)
 		}
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		if d.vp9DecodedLeafTraceActive() {
+		if vp9DecodedLeafTraceBuild && d.vp9DecodedLeafTraceActive() {
 			d.emitVP9DecodedLeafTrace(vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi))
 		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
@@ -509,7 +509,7 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 			}
 		}
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		if d.vp9DecodedLeafTraceActive() {
+		if vp9DecodedLeafTraceBuild && d.vp9DecodedLeafTraceActive() {
 			d.emitVP9DecodedLeafTrace(vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi))
 		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
@@ -1047,7 +1047,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
-	traceActive := d.vp9DecodedLeafTraceActive()
+	traceActive := vp9DecodedLeafTraceBuild && d.vp9DecodedLeafTraceActive()
 	trace := vp9DecodedLeafTrace{}
 	if traceActive {
 		trace = vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi)

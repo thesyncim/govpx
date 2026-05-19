@@ -2,28 +2,13 @@ package govpx
 
 import (
 	"math"
-	"os"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// vp9NonrdPickPartitionOptIn preserves the historical Phase D oracle
-// diagnostic marker. The recursive ML walker now runs by default whenever
-// callers reach the libvpx speed-feature predicate:
-// sf.PartitionSearchType == MlBasedPartition. The env value remains cached so
-// tagged oracle dashboards can keep reporting old gate labels while default
-// encode dispatch follows libvpx.
-//
-// libvpx: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition,
-// with use_ml_based_partitioning = (sf->partition_search_type ==
-// ML_BASED_PARTITION) at line 4627-4628.
-var vp9NonrdPickPartitionOptIn = os.Getenv("GOVPX_VP9_NONRD_PICK_PARTITION") == "1"
-
 // vp9NonrdPickPartitionEnabled returns true for the default libvpx-aligned
-// nonrd path. Callers that need ML recursion still apply the speed-feature
-// predicate locally; this helper also gates the Phase E nonrd pickmode
-// substrates that are now safe to run without the historical env opt-in.
+// nonrd path. Callers still apply the speed-feature predicate locally.
 func vp9NonrdPickPartitionEnabled() bool {
 	return true
 }

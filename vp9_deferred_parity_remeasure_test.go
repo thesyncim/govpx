@@ -55,10 +55,6 @@ func TestVP9RefControlRegressionSeedsByteParity(t *testing.T) {
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
 
-	t.Logf("gate: GOVPX_VP9_NONRD_PICK_PARTITION=%q GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=%q",
-		os.Getenv("GOVPX_VP9_NONRD_PICK_PARTITION"),
-		os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING"))
-
 	pass, fail := 0, 0
 	aggSizeDelta := 0
 	for idx, seed := range vp9RefControlsRegressionSeeds {
@@ -398,10 +394,6 @@ func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RuntimeControls seeds")
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
-
-	t.Logf("gate: GOVPX_VP9_NONRD_PICK_PARTITION=%q GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=%q",
-		os.Getenv("GOVPX_VP9_NONRD_PICK_PARTITION"),
-		os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING"))
 
 	// Task #150: seeds #5 and #8 previously skipped here as
 	// STRUCTURAL_REJECT because the fuzz materialiser's

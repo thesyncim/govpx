@@ -31,6 +31,19 @@ architecture-tagged files, or common code used by both SIMD and pure-Go paths.
 Compile-only oracle-trace gate. Run it after moving tagged trace files,
 scoreboard helpers, or oracle-only instrumentation.
 
+## Test Hygiene
+
+Test consolidation must preserve behavior coverage, not just line coverage.
+When combining duplicated task, audit, fuzz, oracle, or regression files, carry
+each distinct seed, fixture, edge case, and assertion into the new suite before
+deleting the old file.
+
+Prefer normal Go test shapes: table tests for repeated contract checks,
+`t.Helper` helpers for shared setup, package-local tests beside internal
+implementation, `internal/testutil` for cross-package fixtures, and `testdata`
+for durable corpus files. Avoid environment-heavy recipes in ordinary test
+docs; put slow oracle/corpus wiring behind named Makefile gates.
+
 ## CI Gate
 
 `make ci`
@@ -95,6 +108,22 @@ oracle hooks, debug counters, tracing, or caller-owned buffer paths:
 ```sh
 go test ./... -run 'Alloc|Allocs' -count=1
 ```
+
+For disabled tracing or testing hooks, also collect compiler evidence from the
+touched package and confirm trace builds still compile:
+
+```sh
+go test -run '^$' -gcflags='github.com/thesyncim/govpx=-m=2' .
+go test -tags govpx_oracle_trace ./... -run '^$' -count=1
+```
+
+The disabled-path proof is the default production build: no
+`govpx_oracle_trace` tag and no `GOVPX_*` oracle or trace environment
+variables. Run allocation or benchmark checks on the touched encode/decode path
+in that shape first, then run the trace compile gate to prove the tagged
+instrumentation still builds. Put any external oracle or corpus wiring behind a
+named Makefile gate instead of copying long environment recipes into docs or
+PRs.
 
 For method-shape or ownership rewrites in hot code, collect compiler evidence
 before and after the edit with package-scoped `-gcflags` so the signal is not

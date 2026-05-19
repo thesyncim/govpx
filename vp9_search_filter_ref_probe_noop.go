@@ -6,6 +6,8 @@ package govpx
 // The trace-build counterpart in vp9_search_filter_ref_probe.go is gated
 // behind govpx_oracle_trace and used only by the seed #8 diagnostic test.
 
+const vp9SearchFilterRefProbeBuild = false
+
 func vp9SearchFilterRefProbeFire() {}
 
 func vp9SearchFilterRefProbeFlip() {}

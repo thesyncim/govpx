@@ -329,9 +329,16 @@ Plan:
   - `*_fuzz_test.go` for fuzz entrypoints and corpus regressions
   - `*_bench_test.go` for benchmarks and performance guards
   - `*_regression_test.go` for named bug regressions
+- Combine duplicate tests into idiomatic table tests or shared helper-driven
+  suites when they exercise the same contract. Preserve each distinct fixture,
+  seed, edge condition, oracle comparison, and regression assertion before
+  deleting the old one-off file.
 - Move reusable helpers into `internal/testutil` or `internal/vpx/testharness`.
 - Rename task/audit files into descriptive regression names or move them under
   a documented diagnostic area.
+- Delete shallow diagnostic tests that no longer protect behavior. If a task or
+  audit test found a real bug, keep the regression under a behavior name instead
+  of the task number.
 - Add build tags only where they reduce normal test noise without hiding CI
   coverage.
 - Collapse long, environment-heavy test recipes behind named Makefile gates.
@@ -348,6 +355,10 @@ Acceptance:
 - Normal validation docs use named commands instead of a pile of one-off
   environment variables.
 - Oracle tests are still present and documented.
+- Duplicate test files are gone where one table-driven suite or helper-backed
+  suite can carry the same coverage.
+- Every removed test has either an equivalent assertion in the new suite or a
+  documented reason it was stale diagnostic noise.
 - No temporary diagnostic test remains unexplained.
 - Root-level test files are reduced to public facade/API coverage; codec
   implementation tests live beside the internal code they exercise.
@@ -363,6 +374,10 @@ Plan:
 - Move instrumentation behind build tags, nil checks, concrete function
   pointers, or compile-time constants so disabled paths are allocation-free and
   effectively branch-free in hot loops.
+- Default builds must not keep global diagnostic function variables, env reads,
+  clocks, atomics, sync maps, interface dispatch, or nil-hook checks on encode
+  and decode hot paths. Use build-tagged files or const-false guards so the
+  compiler can erase disabled hooks.
 - Add focused allocation tests for public encode/decode hot paths that already
   claim zero or bounded allocations.
 - Add benchmark guards for representative VP8 and VP9 encode/decode paths.

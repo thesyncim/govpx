@@ -40,14 +40,10 @@ import (
 // with use_ml_based_partitioning=1.
 func TestVP9NonrdPickPartitionRegressionSeedsProgress(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to measure Phase D opt-in progress")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to measure nonrd partition progress")
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
-	if vp9NonrdPickPartitionEnabled() {
-		t.Logf("phase-D opt-in (GOVPX_VP9_NONRD_PICK_PARTITION=1) ACTIVE")
-	} else {
-		t.Logf("phase-D opt-in INACTIVE — measuring Phase C baseline")
-	}
+	t.Log("nonrd pick partition is enabled by the default VP9 speed-feature path")
 
 	type seedResult struct {
 		label         string

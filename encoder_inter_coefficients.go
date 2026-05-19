@@ -57,21 +57,7 @@ type predictedMacroblockCoefficientArgs struct {
 	// phaseStats, when non-nil, receives opt-in accepted-path coefficient
 	// pipeline counters for govpx-bench phase reports.
 	phaseStats *EncoderPhaseStats
-	// pretrellisUVTrace, when non-nil, enables emission of pre-trellis UV
-	// qcoeff/dqcoeff/coeff rows for blocks 16..23 on the accepted-path
-	// encode. Mirrors libvpx's govpx_oracle_emit_pretrellis_uv hook which
-	// splices into vp8_encode_inter16x16 between vp8_quantize_mb and
-	// optimize_mb. The encoder reference is plumbed via args so the
-	// call site can re-use the per-block coeff/qcoeff state without
-	// changing the wrapper-quantize signature. Gated by the
-	// govpx_oracle_trace build tag and by the encoder's
-	// pretrellisUVDump state so the production binary pays no cost.
-	pretrellisUVTrace *VP8Encoder
-	// pickerUVQuantizeTrace, when non-nil, enables candidate-path UV
-	// quantize rows from the inter RD picker. pickerUVQuantizeMode labels
-	// the predictor state that produced the UV residuals.
-	pickerUVQuantizeTrace *VP8Encoder
-	pickerUVQuantizeMode  vp8enc.InterFrameMacroblockMode
+	trace      predictedMacroblockCoefficientTrace
 }
 
 // interRDCoeffCacheState stages the picker's post-FDCT residual DCT
@@ -528,8 +514,14 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		var uvEOB [8]uint8
 		qUV := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[16][0])), 8*16)
 		vp8enc.FastQuantizeBlockBatch(uvDcts[:], &quant.UV, qUV, uvDQ[:], uvEOB[:], 8)
-		tracePickerUV := args.pickerUVQuantizeTrace != nil && args.pickerUVQuantizeTrace.oracleTracePickerUVQuantizeDumpEnabled()
-		zbinExtra := (int(quant.UV.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+		tracePickerUV := false
+		zbinExtra := 0
+		if oracleTraceBuild {
+			tracePickerUV = args.trace.pickerUVQuantizeEnabled()
+			if tracePickerUV {
+				zbinExtra = (int(quant.UV.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+			}
+		}
 		for block := range 4 {
 			dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
 			dqU := (*[16]int16)(uvDQ[block*16 : block*16+16])
@@ -541,7 +533,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			eob := int(uvEOB[block])
 			coeffs.SetBlockEOB(16+block, eob)
 			if tracePickerUV {
-				args.pickerUVQuantizeTrace.emitOraclePickerUVQuantizeTrace(mbRow, mbCol, 16+block, &args.pickerUVQuantizeMode, "fast", dct, &coeffs.QCoeff[16+block], dqU, &quant.UV, eob, zbinExtra, zbinOverQuant)
+				args.trace.emitPickerUVQuantize(mbRow, mbCol, 16+block, "fast", dct, &coeffs.QCoeff[16+block], dqU, &quant.UV, eob, zbinExtra, zbinOverQuant)
 			}
 			if collectStats {
 				stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
@@ -567,7 +559,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			eob = int(uvEOB[4+block])
 			coeffs.SetBlockEOB(20+block, eob)
 			if tracePickerUV {
-				args.pickerUVQuantizeTrace.emitOraclePickerUVQuantizeTrace(mbRow, mbCol, 20+block, &args.pickerUVQuantizeMode, "fast", dctV, &coeffs.QCoeff[20+block], dqV, &quant.UV, eob, zbinExtra, zbinOverQuant)
+				args.trace.emitPickerUVQuantize(mbRow, mbCol, 20+block, "fast", dctV, &coeffs.QCoeff[20+block], dqV, &quant.UV, eob, zbinExtra, zbinOverQuant)
 			}
 			if collectStats {
 				stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
@@ -589,10 +581,18 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		return stats
 	}
 
-	tracePretrellisUV := args.pretrellisUVTrace != nil && args.pretrellisUVTrace.oracleTracePretrellisUVDumpEnabled() && optimize && !fastQuant
-	traceChromaOptimizeB := args.pretrellisUVTrace != nil && args.pretrellisUVTrace.oracleTraceChromaOptimizeBDumpEnabled() && optimize && !fastQuant
-	tracePickerUV := args.pickerUVQuantizeTrace != nil && args.pickerUVQuantizeTrace.oracleTracePickerUVQuantizeDumpEnabled()
-	zbinExtra := (int(quant.UV.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+	tracePretrellisUV := false
+	traceChromaOptimizeB := false
+	tracePickerUV := false
+	zbinExtra := 0
+	if oracleTraceBuild {
+		tracePretrellisUV = args.trace.pretrellisUVEnabled(optimize, fastQuant)
+		traceChromaOptimizeB = args.trace.chromaOptimizeBEnabled(optimize, fastQuant)
+		tracePickerUV = args.trace.pickerUVQuantizeEnabled()
+		if tracePretrellisUV || tracePickerUV {
+			zbinExtra = (int(quant.UV.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+		}
+	}
 	// libvpx emits x->rdmult / x->rddiv in govpx_oracle_emit_chroma_optimize_b
 	// (internal/coracle/build_vpxenc_oracle.sh govpx_oracle_emit_chroma_
 	// optimize_b: rdmult_in = x->rdmult). After vp8_initialize_rd_consts
@@ -632,15 +632,15 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			// (which is then trellised) stays untouched.
 			var preQ, preDQ [16]int16
 			preEOB := quantizeBlockWithZbinAndActivity(dct, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
-			args.pretrellisUVTrace.emitOraclePretrellisUVTrace(mbRow, mbCol, 16+block, dct, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
+			args.trace.emitPretrellisUV(mbRow, mbCol, 16+block, dct, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
 		}
 		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
 		if tracePickerUV {
-			args.pickerUVQuantizeTrace.emitOraclePickerUVQuantizeTrace(mbRow, mbCol, 16+block, &args.pickerUVQuantizeMode, "regular", dct, &coeffs.QCoeff[16+block], &dq, &quant.UV, eob, zbinExtra, zbinOverQuant)
+			args.trace.emitPickerUVQuantize(mbRow, mbCol, 16+block, "regular", dct, &coeffs.QCoeff[16+block], &dq, &quant.UV, eob, zbinExtra, zbinOverQuant)
 		}
 		if traceChromaOptimizeB {
-			args.pretrellisUVTrace.emitOracleChromaOptimizeBTrace(mbRow, mbCol, 16+block, dct, &coeffs.QCoeff[16+block], &dq, &quant.UV.Dequant, eob, traceRDMult, traceRDDiv, intra)
+			args.trace.emitChromaOptimizeB(mbRow, mbCol, 16+block, dct, &coeffs.QCoeff[16+block], &dq, &quant.UV.Dequant, eob, traceRDMult, traceRDDiv, intra)
 		}
 		if collectStats {
 			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
@@ -665,15 +665,15 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		if tracePretrellisUV {
 			var preQ, preDQ [16]int16
 			preEOB := quantizeBlockWithZbinAndActivity(dctV, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
-			args.pretrellisUVTrace.emitOraclePretrellisUVTrace(mbRow, mbCol, 20+block, dctV, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
+			args.trace.emitPretrellisUV(mbRow, mbCol, 20+block, dctV, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
 		}
 		eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
 		if tracePickerUV {
-			args.pickerUVQuantizeTrace.emitOraclePickerUVQuantizeTrace(mbRow, mbCol, 20+block, &args.pickerUVQuantizeMode, "regular", dctV, &coeffs.QCoeff[20+block], &dq, &quant.UV, eob, zbinExtra, zbinOverQuant)
+			args.trace.emitPickerUVQuantize(mbRow, mbCol, 20+block, "regular", dctV, &coeffs.QCoeff[20+block], &dq, &quant.UV, eob, zbinExtra, zbinOverQuant)
 		}
 		if traceChromaOptimizeB {
-			args.pretrellisUVTrace.emitOracleChromaOptimizeBTrace(mbRow, mbCol, 20+block, dctV, &coeffs.QCoeff[20+block], &dq, &quant.UV.Dequant, eob, traceRDMult, traceRDDiv, intra)
+			args.trace.emitChromaOptimizeB(mbRow, mbCol, 20+block, dctV, &coeffs.QCoeff[20+block], &dq, &quant.UV.Dequant, eob, traceRDMult, traceRDDiv, intra)
 		}
 		if collectStats {
 			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)

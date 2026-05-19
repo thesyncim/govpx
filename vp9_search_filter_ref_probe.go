@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 )
 
+const vp9SearchFilterRefProbeBuild = true
+
 // Task #160 build-tag-gated probe counters: confirm vp9SearchFilterRef
 // invocation reachability and flip-rate on the {0x32} RuntimeControls seed.
 // In non-trace builds these symbols don't exist; the helper below compiles

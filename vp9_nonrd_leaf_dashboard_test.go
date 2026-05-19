@@ -29,10 +29,6 @@ func TestVP9DeferredSeedsLeafDecisionDashboard(t *testing.T) {
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
 
-	t.Logf("gate: GOVPX_VP9_NONRD_PICK_PARTITION=%q GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=%q",
-		os.Getenv("GOVPX_VP9_NONRD_PICK_PARTITION"),
-		os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING"))
-
 	t.Run("RefControlSpeed8NonRD", func(t *testing.T) {
 		for idx, seed := range vp9RefControlsRegressionSeeds {
 			tc := newVP9RefControlsFuzzCase(seed)

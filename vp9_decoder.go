@@ -2,8 +2,6 @@ package govpx
 
 import (
 	"errors"
-	"fmt"
-	"os"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -1150,12 +1148,6 @@ func (d *VP9Decoder) vp9CanPublishReconstructedFrame(hdr *vp9dec.UncompressedHea
 		return false
 	}
 	return vp9dec.SupportedOutputFormat(hdr)
-}
-
-func (d *VP9Decoder) traceVP9Unsupported(reason string) {
-	if os.Getenv("GOVPX_TRACE_UNSUPPORTED") != "" {
-		fmt.Fprintf(os.Stderr, "vp9 unsupported: %s\n", reason)
-	}
 }
 
 func (d *VP9Decoder) decodeVP9ShowExistingFrame(hdr *vp9dec.UncompressedHeader) error {

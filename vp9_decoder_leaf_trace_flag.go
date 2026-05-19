@@ -2,6 +2,8 @@
 
 package govpx
 
+const vp9DecodedLeafTraceBuild = false
+
 func (d *VP9Decoder) enableVP9DecodedLeafTrace() {}
 
 func (d *VP9Decoder) disableVP9DecodedLeafTrace() {}

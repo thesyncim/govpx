@@ -4,6 +4,8 @@ package govpx
 
 import "sync"
 
+const vp9DecodedLeafTraceBuild = true
+
 type vp9DecodedLeafTraceState struct {
 	rows []vp9DecodedLeafTrace
 }
