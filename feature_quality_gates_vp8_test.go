@@ -1239,11 +1239,13 @@ func TestVP8FeatureBDRate720pTokenParts4CBR(t *testing.T) {
 //     loop-filter tuning over a noisy sports-motion source. No pre-#370
 //     fixture engages NoiseSensitivity or Sharpness against the libvpx
 //     oracle, leaving the camera-noise / loop-filter axes unmonitored.
-//     ARNR (LookaheadFrames+AutoAltRef path) is intentionally excluded
-//     because the BD-rate harness's per-frame PSNR pairing assumes
-//     in-order frame emission, which the alt-ref scheduler breaks
-//     (hidden alt-ref packets shift the decoder/source index alignment).
-//     Wiring an alt-ref-aware fixture is a separate harness extension.
+//     ARNR (LookaheadFrames+AutoAltRef path) is covered separately by
+//     TestVP8FeatureBDRate720pARNRHeavyVBR after task #377 taught the
+//     BD-rate harness to skip hidden alt-ref packets in the per-frame
+//     PSNR pairing pass (PeekVP8StreamInfo show_frame check) and to
+//     pair visible packets to source frames by the encoder-echoed PTS,
+//     which is robust to the alt-ref scheduler's hidden/visible
+//     interleaving.
 
 // TestVP8FeatureBDRate1080pSportsCpu3CBR drives a 1080p sports-motion
 // fixture through a CBR ladder with cpu_used=-3 (slower good-quality
@@ -1721,4 +1723,88 @@ func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 			Test:           func(*govpx.EncoderOptions) {},
 		},
 		bpredGate)
+}
+
+// TestVP8FeatureBDRate720pARNRHeavyVBR drives a 720p panning fixture
+// through the full LookaheadFrames+AutoAltRef+ARNR* alt-ref filtering
+// path under a VBR ladder. This is the fixture #370 originally
+// scoped as F14 ("ARNR-heavy") but had to defer: the pre-#377
+// BD-rate harness paired per-frame PSNR by output-packet ordinal,
+// which collapses when the alt-ref scheduler interleaves hidden
+// alt-ref packets (libvpx VPX_FRAME_IS_INVISIBLE) with the deferred
+// visible frames they wrap. The post-#377 harness peeks each VP8
+// frame tag (PeekVP8StreamInfo) to skip hidden packets in PSNR
+// pairing while still counting their bytes in the rate axis, and
+// pairs visible packets to source frames by the encoder-echoed PTS
+// so hidden/visible interleaving is transparent to the cubic fit.
+//
+// Knob set is the libvpx good-quality ARNR-heavy recipe (matches
+// the `--good --lag-in-frames=16 --auto-alt-ref=1
+// --arnr-maxframes=7 --arnr-strength=3 --arnr-type=3` invocation
+// libvpx ships as the recommended VBR ARNR preset in
+// vp8/encoder/onyx_if.c temporal_filter defaults), so the gate
+// observes the full alt-ref temporal-filter path that pre-#377
+// fixtures left uncovered.
+//
+// Task #377 introduction: measured govpx-vs-libvpx BD-rate=-9.384%
+// BD-PSNR=+1.254 dB on the 720p panning VBR ladder
+// (800/1500/3000/6000 kbps, 24 frames). govpx beats libvpx by
+// 9.38% on this configuration; per-rung the govpx PSNR
+// (40.06 -> 48.57 dB) sits 0.47 to 0.24 dB above the libvpx
+// reference (39.59 -> 48.56 dB) while the produced rate matches
+// within ~1.2%. The win comes from the byte-exact ARNR temporal
+// filter (encoder_arnr.go applyARNRFilter mirrors libvpx
+// vp8_temporal_filter_prepare_c exactly) combined with the
+// post-#341 tteob==0 picker intra-skip path firing on the
+// alt-ref-filtered (denoised) source. Run-to-run determinism is
+// confirmed: back-to-back invocations produce byte-identical
+// curves (no median-of-N needed here — the alt-ref scheduler is
+// deterministic and we drive --good not --rt so vp8_auto_select_speed
+// is bypassed).
+//
+// Gate is set to the measured value plus +1.38% headroom for
+// cubic-fit jitter (MaxBDRateOverLibvpxPct = -8.0% — govpx must
+// continue to beat libvpx by at least 8% on this fixture) and the
+// standard -0.5 dB BD-PSNR floor. Mirrors the #357 retighten cadence
+// where 1080pStaticMotionVBR's -10.689% measured drove a -10.1%
+// gate (+0.59% headroom).
+func TestVP8FeatureBDRate720pARNRHeavyVBR(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+		frames = 24
+	)
+	arnrHeavyGate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: -8.0,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 720p panning ARNR-heavy (VBR ladder 800/1500/3000/6000 kbps, lookahead=16 auto-altref arnr-max=7/str=3/type=3)",
+		"VP8 720p panning ARNR-heavy (VBR 800/1500/3000/6000, lookahead=16 arnr=7/3/3)",
+		benchcmd.BDRateOptionsVP8{
+			Width:                  width,
+			Height:                 height,
+			FPS:                    30,
+			Frames:                 frames,
+			QLadder:                []int{16, 28, 40, 52},
+			RateLadderKbps:         []int{800, 1500, 3000, 6000},
+			RateControlOverride:    govpx.RateControlVBR,
+			RateControlOverrideSet: true,
+			Source:                 func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.LookaheadFrames = 16
+				o.AutoAltRef = true
+				o.ARNRMaxFrames = 7
+				o.ARNRStrength = 3
+				o.ARNRType = 3
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.LookaheadFrames = 16
+				o.AutoAltRef = true
+				o.ARNRMaxFrames = 7
+				o.ARNRStrength = 3
+				o.ARNRType = 3
+			},
+		},
+		arnrHeavyGate)
 }

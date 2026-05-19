@@ -368,10 +368,23 @@ func encodeBDOperatingPointVP8(opts BDRateOptionsVP8, q int, targetKbps int, app
 		}
 		return srcCache[i], nil
 	}
+	// packetRecord buffers one emitted VP8 packet plus the
+	// pairing metadata the per-frame PSNR pass needs. resultPTS is the
+	// encoder-echoed PTS (== the input source index govpx passes through
+	// EncodeInto as `uint64(i)`); show is the VP8 frame-tag show_frame
+	// bit from PeekVP8StreamInfo. Hidden packets (show=false) carry the
+	// alt-ref's source PTS (a future frame in the lookahead) while the
+	// matching deferred visible packet carries the original input PTS,
+	// so pairing on the resultPTS-of-visible-packets-only is robust to
+	// the alt-ref scheduler's hidden/visible interleaving (libvpx
+	// vp8/encoder/onyx_if.c vp8_get_compressed_data hidden ARF -> show
+	// frame fallback; analogous to VPX_FRAME_IS_INVISIBLE on the
+	// vpxenc CLI side).
 	type packetRecord struct {
-		data        []byte
-		sourceIndex int
-		dropped     bool
+		data      []byte
+		resultPTS uint64
+		dropped   bool
+		show      bool
 	}
 	emitted := []packetRecord{}
 	for i := 0; i < opts.Frames; i++ {
@@ -387,20 +400,34 @@ func encodeBDOperatingPointVP8(opts BDRateOptionsVP8, q int, targetKbps int, app
 			return QualityPoint{}, fmt.Errorf("EncodeInto frame %d: %w", i, err)
 		}
 		if result.Dropped {
-			emitted = append(emitted, packetRecord{sourceIndex: i, dropped: true})
+			emitted = append(emitted, packetRecord{resultPTS: uint64(i), dropped: true})
 			totalBytes += result.SizeBytes
 			continue
 		}
 		if len(result.Data) == 0 {
 			continue
 		}
+		// Peek the VP8 frame tag to extract show_frame without paying
+		// the full decode cost. Hidden alt-ref packets (show_frame=0)
+		// contribute bytes to the rate axis (they're carried in the
+		// IVF) but are intentionally excluded from PSNR pairing
+		// because the decoder produces no visible image for them.
+		info, infoErr := govpx.PeekVP8StreamInfo(result.Data)
+		if infoErr != nil {
+			return QualityPoint{}, fmt.Errorf("PeekVP8StreamInfo frame %d: %w", i, infoErr)
+		}
 		emitted = append(emitted, packetRecord{
-			data:        append([]byte(nil), result.Data...),
-			sourceIndex: i,
+			data:      append([]byte(nil), result.Data...),
+			resultPTS: result.PTS,
+			show:      info.ShowFrame,
 		})
 		totalBytes += result.SizeBytes
 	}
-	// Drain any lookahead (rarely engaged in pure-Q VP8 runs but harmless).
+	// Drain any lookahead. With LookaheadFrames+AutoAltRef the flush
+	// loop produces hidden ARF packets and their matching deferred
+	// visible packets interleaved; the PeekVP8StreamInfo pass below
+	// keeps hidden bytes in the rate count and pairs only visible
+	// packets back to their source PTS.
 	for {
 		result, err := enc.FlushInto(dst)
 		if errors.Is(err, govpx.ErrFrameNotReady) {
@@ -412,39 +439,52 @@ func encodeBDOperatingPointVP8(opts BDRateOptionsVP8, q int, targetKbps int, app
 		if result.Dropped || len(result.Data) == 0 {
 			continue
 		}
+		info, infoErr := govpx.PeekVP8StreamInfo(result.Data)
+		if infoErr != nil {
+			return QualityPoint{}, fmt.Errorf("PeekVP8StreamInfo flush pts=%d: %w", result.PTS, infoErr)
+		}
 		emitted = append(emitted, packetRecord{
-			data: append([]byte(nil), result.Data...),
-			// FlushInto cannot tag the source index (it was
-			// queued earlier); pair on visible-frame order.
-			sourceIndex: -1,
+			data:      append([]byte(nil), result.Data...),
+			resultPTS: result.PTS,
+			show:      info.ShowFrame,
 		})
 		totalBytes += result.SizeBytes
 	}
-	srcIdx := 0
 	for _, rec := range emitted {
 		if rec.dropped {
-			srcIdx++
 			continue
 		}
+		// Hidden packets must still be fed through the decoder so its
+		// reference buffers stay in sync for the next visible packet,
+		// but they contribute neither a NextFrame image nor a PSNR
+		// sample (mirrors VPX_FRAME_IS_INVISIBLE handling on the
+		// libvpx oracle side, which counts the hidden packet's bytes
+		// toward the rate axis but does not pair it for PSNR).
 		if err := dec.Decode(rec.data); err != nil {
 			return QualityPoint{}, fmt.Errorf("VP8Decoder.Decode: %w", err)
+		}
+		if !rec.show {
+			// Drain any speculative NextFrame state so subsequent
+			// visible packets see a clean queue.
+			dec.NextFrame()
+			continue
 		}
 		decoded, ok := dec.NextFrame()
 		if !ok {
 			continue
 		}
-		// Pair to source frame: prefer the packet's own sourceIndex
-		// when set (EncodeInto path); fall back to the running
-		// srcIdx for Flush-emitted frames whose source was queued.
-		srcIndex := rec.sourceIndex
-		if srcIndex < 0 {
-			srcIndex = srcIdx
-		}
-		if srcIndex >= len(srcCache) {
-			break
+		// Pair on the encoder-echoed PTS. govpx passes `uint64(i)` as
+		// the per-frame PTS on EncodeInto, and the encoder echoes it
+		// on both EncodeInto and FlushInto outputs (encoder_frame.go:
+		// result.PTS = pts). For visible packets this is the original
+		// input source index even when the alt-ref scheduler defers
+		// the show frame, so the pairing survives hidden/visible
+		// interleaving.
+		srcIndex := int(rec.resultPTS)
+		if srcIndex < 0 || srcIndex >= len(srcCache) {
+			continue
 		}
 		src, _ := feed(srcIndex)
-		srcIdx++
 		psnrSum += imagePSNR(govpxImageFromYCbCrVP8(src), decoded)
 		visibleCount++
 	}
