@@ -180,26 +180,76 @@ func addChromaResidual(tokens *MacroblockTokens, residual *MacroblockResidual, u
 }
 
 func addChromaResidualWithDequant(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, u []byte, uStride int, v []byte, vStride int) {
-	for i := range 4 {
-		if eob := tokens.EOB[16+i]; eob != 0 {
-			if eob == 1 && dequant != nil {
-				// libvpx v1.16.0 vp8/common/arm/neon/idct_blk_neon.c
-				// idct_dequant_0_2x_neon: a0 = ((q[0] * dq) + 4) >> 3 (int math).
-				dc := int32(tokens.QCoeff[16+i][0]) * int32(dequant.UV[0])
-				dsp.DCOnlyIDCT4x4AddInt32(dc, u[uvBlockOffset(i, uStride):], uStride, u[uvBlockOffset(i, uStride):], uStride)
-			} else {
-				addTransformBlock(eob, residual.Block(16+i), u[uvBlockOffset(i, uStride):], uStride)
-			}
-		}
-		if eob := tokens.EOB[20+i]; eob != 0 {
-			if eob == 1 && dequant != nil {
-				dc := int32(tokens.QCoeff[20+i][0]) * int32(dequant.UV[0])
-				dsp.DCOnlyIDCT4x4AddInt32(dc, v[uvBlockOffset(i, vStride):], vStride, v[uvBlockOffset(i, vStride):], vStride)
-			} else {
-				addTransformBlock(eob, residual.Block(20+i), v[uvBlockOffset(i, vStride):], vStride)
-			}
-		}
+	// libvpx v1.16.0 vp8/common/arm/neon/idct_blk_neon.c
+	// vp8_dequant_idct_add_uv_block_neon (lines 256-295) dispatches by PAIRS of
+	// chroma blocks: (16,17), (18,19), (20,21), (22,23). When BOTH EOBs in a
+	// pair are <= 1, idct_dequant_0_2x_neon is used (DC-only, the (int16_t)a0
+	// cast at line 27 is safe for realistic |q[0]*dq| <= ~32767*8). When ANY
+	// EOB in the pair is > 1, idct_dequant_full_2x_neon is used and the
+	// dequant multiplication wraps to int16 via vmulq_s16 (line 115). The
+	// wrap matters precisely when |q[0]*dq| >= 32768 — e.g. task #360
+	// frame-7 MB(1,1) chroma U-block-18 has q[0]=289 * UVDC=132 = 38148
+	// which wraps to int16 -27388, yielding all-zero post-clip pixels rather
+	// than the all-255 produced by an int32 DC-only path.
+	//
+	// Mirror libvpx's pair-based dispatch: when a partner block has EOB > 1,
+	// route the EOB==1 block through the full int16 IDCT path so its DC
+	// product wraps identically. Otherwise keep the int32 DC-only fast path
+	// (matches NEON's clean (int16_t)a0 cast for in-range a0).
+	addUChromaResidualPair(tokens, residual, dequant, 0, u, uStride)
+	addUChromaResidualPair(tokens, residual, dequant, 2, u, uStride)
+	addVChromaResidualPair(tokens, residual, dequant, 0, v, vStride)
+	addVChromaResidualPair(tokens, residual, dequant, 2, v, vStride)
+}
+
+func addUChromaResidualPair(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, base int, u []byte, uStride int) {
+	eob0 := tokens.EOB[16+base]
+	eob1 := tokens.EOB[16+base+1]
+	pairHasFull := eob0 > 1 || eob1 > 1
+	if eob0 != 0 {
+		addOneChromaBlock(tokens, residual, dequant, 16+base, base, pairHasFull, u, uStride)
 	}
+	if eob1 != 0 {
+		addOneChromaBlock(tokens, residual, dequant, 16+base+1, base+1, pairHasFull, u, uStride)
+	}
+}
+
+func addVChromaResidualPair(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, base int, v []byte, vStride int) {
+	eob0 := tokens.EOB[20+base]
+	eob1 := tokens.EOB[20+base+1]
+	pairHasFull := eob0 > 1 || eob1 > 1
+	if eob0 != 0 {
+		addOneChromaBlock(tokens, residual, dequant, 20+base, base, pairHasFull, v, vStride)
+	}
+	if eob1 != 0 {
+		addOneChromaBlock(tokens, residual, dequant, 20+base+1, base+1, pairHasFull, v, vStride)
+	}
+}
+
+func addOneChromaBlock(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, blockIndex int, subBlock int, pairHasFull bool, dst []byte, stride int) {
+	eob := tokens.EOB[blockIndex]
+	off := uvBlockOffset(subBlock, stride)
+	if pairHasFull && eob == 1 && dequant != nil {
+		// libvpx routes the entire pair through idct_dequant_full_2x_neon when
+		// any partner has EOB > 1. The full path's vmulq_s16(q, dq) wraps the
+		// dequantized coefficients to int16. Recompute a DC-only block with
+		// int16 multiplication (matching vmulq_s16) and route through the
+		// full IDCT, so |q[0]*dq| >= 32768 wraps identically. The pre-existing
+		// residual scratch only zeros block[0] when EOB==1, leaving stale
+		// AC slots — populate a fresh DC-only block here.
+		var block [16]int16
+		block[0] = tokens.QCoeff[blockIndex][0] * dequant.UV[0]
+		dsp.IDCT4x4Add(&block, dst[off:], stride, dst[off:], stride)
+		return
+	}
+	if eob == 1 && dequant != nil {
+		// DC-only NEON (idct_dequant_0_2x_neon) path: (int) math then
+		// (int16_t)a0 cast. For realistic |q*dq| this matches int32 precision.
+		dc := int32(tokens.QCoeff[blockIndex][0]) * int32(dequant.UV[0])
+		dsp.DCOnlyIDCT4x4AddInt32(dc, dst[off:], stride, dst[off:], stride)
+		return
+	}
+	addTransformBlock(eob, residual.Block(blockIndex), dst[off:], stride)
 }
 
 func PredictIntraY16x16(mode common.MBPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte, upAvailable bool, leftAvailable bool) bool {

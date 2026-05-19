@@ -166,31 +166,35 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 		count -= int(shift)
 		return bit
 	}
-	readBit := func() uint8 {
+	// readSignedCoeff mirrors libvpx v1.16.0 vp8/decoder/detokenize.c GetSigned
+	// (lines 58-79). The sign bit is encoded with probability 0.5 exactly, so
+	// libvpx hard-codes the range-normalization to a single left shift rather
+	// than dispatching through vp8_norm[range]. The two paths only diverge
+	// when the post-decision range is 128 (input range == 255 with sign bit
+	// 0): vp8_norm[128] = 0 leaves range/value/count unchanged whereas
+	// GetSigned unconditionally doubles range/value and decrements count.
+	// Mismatched state would cascade into later bool reads.
+	readSignedCoeff := func(coeff int) int16 {
 		rng0 := rng
 		split := (rng0 + 1) >> 1
 		if count < 0 {
 			fill()
 		}
-
 		bigsplit := uint64(split) << (valueSize - 8)
 		nextRange := split
-		bit := uint8(0)
+		var mask int16
 		if value >= bigsplit {
 			nextRange = rng0 - split
 			value -= bigsplit
-			bit = 1
+			mask = -1
 		}
-
-		shift := tables.BoolNorm[byte(nextRange)]
-		rng = nextRange << shift
-		value <<= shift
-		count -= int(shift)
-		return bit
-	}
-	readSignedCoeff := func(coeff int) int16 {
+		// Fixed single-bit normalization (matches libvpx GetSigned): the
+		// post-decision range is always in [64, 128] for a 0.5-probability
+		// split, so a one-bit shift is the correct normalization.
+		rng = nextRange << 1
+		value <<= 1
+		count--
 		v := int16(coeff)
-		mask := -int16(readBit())
 		return (v ^ mask) - mask
 	}
 	readTokenCategory := func(cat int) int {
