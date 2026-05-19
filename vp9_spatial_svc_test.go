@@ -701,11 +701,29 @@ func TestVP9SpatialSVCEncoderLayerRateControl(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SetLayerRateControl: %v", err)
 	}
+	if err := svc.SetLayerMaxIntraBitratePct(0, 180); err != nil {
+		t.Fatalf("SetLayerMaxIntraBitratePct: %v", err)
+	}
+	if err := svc.SetLayerMaxInterBitratePct(1, 220); err != nil {
+		t.Fatalf("SetLayerMaxInterBitratePct: %v", err)
+	}
+	if err := svc.SetLayerGFCBRBoostPct(1, 45); err != nil {
+		t.Fatalf("SetLayerGFCBRBoostPct: %v", err)
+	}
 	if err := svc.SetLayerBitrateKbps(2, 100); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerBitrateKbps invalid layer err = %v, want ErrInvalidConfig", err)
 	}
 	if err := svc.SetLayerRateControl(2, RateControlConfig{}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerRateControl invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerMaxIntraBitratePct(2, 100); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerMaxIntraBitratePct invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerMaxInterBitratePct(1, -1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerMaxInterBitratePct negative err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerGFCBRBoostPct(0, 45); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerGFCBRBoostPct on VBR layer err = %v, want ErrInvalidConfig", err)
 	}
 
 	base, err := svc.LayerEncoder(0)
@@ -720,7 +738,15 @@ func TestVP9SpatialSVCEncoderLayerRateControl(t *testing.T) {
 		base.opts.TargetBitrateKbps != 250 ||
 		base.opts.MinQuantizer != 6 ||
 		base.opts.MaxQuantizer != 50 ||
-		enh.opts.TargetBitrateKbps != 900 {
+		base.opts.MaxIntraBitratePct != 180 ||
+		base.rc.maxIntraBitratePct != 180 ||
+		base.opts.GFCBRBoostPct != 0 ||
+		base.rc.gfCBRBoostPct != 0 ||
+		enh.opts.TargetBitrateKbps != 900 ||
+		enh.opts.MaxInterBitratePct != 220 ||
+		enh.rc.maxInterBitratePct != 220 ||
+		enh.opts.GFCBRBoostPct != 45 ||
+		enh.rc.gfCBRBoostPct != 45 {
 		t.Fatalf("layer RC opts base=%+v enh=%+v", base.opts, enh.opts)
 	}
 
@@ -747,6 +773,15 @@ func TestVP9SpatialSVCEncoderLayerRateControl(t *testing.T) {
 	}
 	if err := svc.SetLayerRateControl(0, RateControlConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerRateControl after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerMaxIntraBitratePct(0, 300); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerMaxIntraBitratePct after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerMaxInterBitratePct(0, 300); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerMaxInterBitratePct after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerGFCBRBoostPct(0, 10); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerGFCBRBoostPct after close err = %v, want ErrClosed", err)
 	}
 }
 
@@ -999,6 +1034,9 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, VP9AQComplexity) }},
 		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},
 		{name: "SetLayerRateControlBuffer", fn: func() error { return svc.SetLayerRateControlBuffer(0, 320, 160, 240) }},
+		{name: "SetLayerMaxIntraBitratePct", fn: func() error { return svc.SetLayerMaxIntraBitratePct(0, 180) }},
+		{name: "SetLayerMaxInterBitratePct", fn: func() error { return svc.SetLayerMaxInterBitratePct(1, 220) }},
+		{name: "SetLayerGFCBRBoostPct", fn: func() error { return svc.SetLayerGFCBRBoostPct(0, 45) }},
 		{name: "SetLayerRealtimeTarget", fn: func() error {
 			return svc.SetLayerRealtimeTarget(0, RealtimeTarget{
 				BitrateKbps:  360,

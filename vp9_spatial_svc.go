@@ -614,6 +614,36 @@ func (e *VP9SpatialSVCEncoder) SetLayerBitrateKbps(layerID uint8, kbps int) erro
 	return layer.SetBitrateKbps(kbps)
 }
 
+// SetLayerMaxIntraBitratePct changes one spatial layer's VP9 key-frame
+// bitrate cap, matching [VP9Encoder.SetMaxIntraBitratePct].
+func (e *VP9SpatialSVCEncoder) SetLayerMaxIntraBitratePct(layerID uint8, pct int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetMaxIntraBitratePct(pct)
+}
+
+// SetLayerMaxInterBitratePct changes one spatial layer's VP9 inter-frame
+// bitrate cap, matching [VP9Encoder.SetMaxInterBitratePct].
+func (e *VP9SpatialSVCEncoder) SetLayerMaxInterBitratePct(layerID uint8, pct int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetMaxInterBitratePct(pct)
+}
+
+// SetLayerGFCBRBoostPct changes one spatial layer's VP9 CBR golden-frame
+// boost percentage, matching [VP9Encoder.SetGFCBRBoostPct].
+func (e *VP9SpatialSVCEncoder) SetLayerGFCBRBoostPct(layerID uint8, pct int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetGFCBRBoostPct(pct)
+}
+
 // SetLayerRateControl replaces one spatial layer's VP9 runtime-updatable
 // rate-control configuration, matching [VP9Encoder.SetRateControl].
 func (e *VP9SpatialSVCEncoder) SetLayerRateControl(layerID uint8, cfg RateControlConfig) error {

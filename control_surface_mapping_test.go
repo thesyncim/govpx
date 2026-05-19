@@ -425,7 +425,10 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"kfmin:", "kfmax:"},
 		},
-		"SetLayerLossless": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"lossless:"}},
+		"SetLayerGFCBRBoostPct":      {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"gfboost:"}},
+		"SetLayerMaxInterBitratePct": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"maxinter:"}},
+		"SetLayerMaxIntraBitratePct": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"maxintra:"}},
+		"SetLayerLossless":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"lossless:"}},
 		"SetLayerNoiseSensitivity": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"noise:"},
