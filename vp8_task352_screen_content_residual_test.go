@@ -62,6 +62,53 @@ import (
 //     both encoders, so cyclic refresh isn't the driver)
 //   - the active_map / x->active_ptr path
 //
+// Task #365 update (2026-05-19): per-iter rfct/prob_intra instrumentation
+// (added to encoder_attempts.go / encoder_oracle_trace.go and the libvpx
+// oracle patch in internal/coracle/build_vpxenc_oracle.sh) localized the
+// REAL divergence. govpx and libvpx are BYTE-IDENTICAL on (q, rfct_*,
+// pre/post_prob_*, projected_frame_size, raw_rate, rate_correction_factor)
+// for iters 1..22 — both follow the same Q=127→Q=95 descent with prob_intra
+// stuck at 1 and rfct_intra=0.
+//
+// At iter 23 (Q=94, prob_intra=1, prob_last=1, prob_golden=255, zbin=0
+// IDENTICAL on both sides), govpx's picker admits 18 intra MBs while
+// libvpx's admits zero. From iter 23 on, the two streams diverge:
+//   - govpx: raw_rate climbs 1430 → 16839 across iters 23..53; intra
+//     MB count 18 → 22; Q descends to 64 where projected_frame_size=16839
+//     finally lands in [undershoot_limit=12782, overshoot_limit=28761]
+//     and the recode loop EXITS (recoded=false). prob_intra still =1
+//     (22*255/3600 < 1, clamped).
+//   - libvpx: raw_rate stays near 693 through iter 50, then jumps as
+//     intra adoption cascades (iter 51 rfct_intra=1, iter 58 rfct=315,
+//     iter 59 rfct=1130, ...). Loop runs to iter 91 Q=26 with
+//     projected_frame_size=14186.
+//
+// So the equilibrium isn't a missing-intra-picks bug — it's a
+// govpx-INTRA-picker-MORE-AGGRESSIVE-than-libvpx bug at moderate Q.
+// At iter 23 Q=94, MB(5,2) (a representative example):
+//   - govpx picks DC_PRED+INTRA (rate=2526 from mb_iter_rate).
+//   - libvpx picks ZEROMV+GOLDEN (rate=42 from mb_iter_rate).
+// Both encoders use identical pre_prob_intra=1, prob_last=1, prob_golden=255
+// at iter 23 entry; the picker output diverges with no input divergence
+// from the perspective of the trace's captured state. Candidates for the
+// hidden per-MB driver (NOT prob_intra-related):
+//   - Per-MB rdmult/rddiv path divergence (activity-masking carry from
+//     captureActivityProbeAttemptCarry under default Tuning).
+//   - Y/UV mode-rate table drift (modeProbs.UVMode/YMode) — govpx's
+//     intra mode-rate may not be matching libvpx's mbmode_cost evolution
+//     across rejected recode iterations.
+//   - libvpx vp8/encoder/rdopt.c rd_pick_intermode threshold (rd_threshes)
+//     dynamic adjustment — libvpx tightens DC_PRED's threshold as
+//     adjacent ZEROMV-GOLDEN wins accumulate, suppressing DC_PRED's
+//     evaluation across iters 23..50; govpx's threshold dynamics may
+//     not match.
+//   - intra_rd_penalty constants (10 * dc_quant): identical formula on
+//     both sides, ruled out as driver.
+//
+// The per-iter rfct/prob instrumentation now in this binary lets the
+// next-step audit compare per-MB intra-vs-inter rate components at
+// iter 23 with a known-identical picker input state.
+//
 // Govpx's recode loop terminates at iter=53 q=64, projected_frame_size
 // stuck at 693 bytes (target ~20772). The rate_correction_factor hits
 // the 0.01 floor at iter 4 and stays clamped — the picker output is

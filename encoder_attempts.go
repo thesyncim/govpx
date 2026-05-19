@@ -350,6 +350,22 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 			// (mirroring projectedFrameSizeBitsFromRateWithKnownCoefSavings's
 			// bits = max(rawRateBits - coefSavings - refFrameSavings, 0)).
 			rawRate := result.ProjectedSizeBits + result.CoefSavingsBits + result.RefFrameSavingsBits
+			// Task #365: pin the per-iter rfct (count_mb_ref_frame_usage) and
+			// the prob_intra/last/gf evolution. Pre-* are the picker-side
+			// values consumed by vp8_calc_ref_frame_costs THIS iter; post-*
+			// are the rfct-derived values vp8_convert_rfct_to_prob computes
+			// at the end of vp8_encode_frame (encodeframe.c:969) which feed
+			// the NEXT iter's picker. The pre-* mirror the values stored in
+			// result.PreProb* by encodeInterFrameAttempt before defer restore.
+			rfctIntra, rfctLast, rfctGolden, rfctAlt := countInterFrameRefUsage(e.interFrameModes[:required])
+			postProbIntra := int(e.refProbIntra)
+			postProbLast := int(e.refProbLast)
+			postProbGolden := int(e.refProbGolden)
+			if pi, pl, pg, ok := refFrameProbsFromUsage(rfctIntra, rfctLast, rfctGolden, rfctAlt); ok {
+				postProbIntra = int(pi)
+				postProbLast = int(pl)
+				postProbGolden = int(pg)
+			}
 			e.emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary{
 				Iter:                 attempt + 1,
 				Q:                    preQ,
@@ -371,6 +387,16 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 				RawRate:              rawRate,
 				CoefSavingsBits:      result.CoefSavingsBits,
 				RefFrameSavingsBits:  result.RefFrameSavingsBits,
+				RfctIntra:            rfctIntra,
+				RfctLast:             rfctLast,
+				RfctGolden:           rfctGolden,
+				RfctAlt:              rfctAlt,
+				PreProbIntra:         result.PickerProbIntra,
+				PreProbLast:          result.PickerProbLast,
+				PreProbGolden:        result.PickerProbGolden,
+				PostProbIntra:        postProbIntra,
+				PostProbLast:         postProbLast,
+				PostProbGolden:       postProbGolden,
 			})
 		}
 		if !recoded {
@@ -706,6 +732,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			e.refProbGolden = previousRefProbGolden
 		}()
 	}
+	// Task #365: snapshot the picker-side prob_intra/last/gf used by THIS
+	// attempt's RD scoring (post-policy adjustments, pre-defer restore).
+	pickerProbIntra := int(e.refProbIntra)
+	pickerProbLast := int(e.refProbLast)
+	pickerProbGolden := int(e.refProbGolden)
 	var err error
 	projectedRate := 0
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
@@ -860,7 +891,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// onyx_if.c:3986 happens AFTER the overshoot drop, so the overshoot
 	// gate's "projected" input must be the raw picker rate in bytes.
 	pickerProjectedBytes := projectedRate >> 8
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, PickerProjectedSizeBytes: pickerProjectedBytes, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: cyclicRefreshEnabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, PickerProjectedSizeBytes: pickerProjectedBytes, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: cyclicRefreshEnabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex, PickerProbIntra: pickerProbIntra, PickerProbLast: pickerProbLast, PickerProbGolden: pickerProbGolden}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForProjectedFrameSize(projectedBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {

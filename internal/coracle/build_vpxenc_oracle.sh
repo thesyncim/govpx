@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize-task316-chroma-optimize-b"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize-task316-chroma-optimize-b-task365-recode-iter-rfct"
 jobs=${JOBS:-}
 
 # ----------------------------------------------------------------------------
@@ -1187,6 +1187,16 @@ static int govpx_recode_iter_pre_active_best;
 static int govpx_recode_iter_pre_active_worst;
 static double govpx_recode_iter_pre_rcf;
 static int govpx_recode_iter_pre_zbin;
+/* Task #365: capture the picker-side prob_intra/last/gf for the iter that
+ * is about to start, mirroring govpx's PickerProb* snapshot. The values
+ * fed into x->ref_frame_cost come from init_encode_frame_mb_context's
+ * vp8_calc_ref_frame_costs call (encodeframe.c:622-634), which reads
+ * cpi->prob_intra_coded / prob_last_coded / prob_gf_coded. The pre-iter
+ * snapshot must happen BEFORE encode_mb_row drives count_mb_ref_frame_usage,
+ * so capture in govpx_oracle_recode_iter_capture_pre. */
+static int govpx_recode_iter_pre_prob_intra;
+static int govpx_recode_iter_pre_prob_last;
+static int govpx_recode_iter_pre_prob_golden;
 
 void govpx_oracle_recode_iter_capture_pre(struct VP8_COMP *cpi, int Q) {
     if (!govpx_oracle_state.enabled) {
@@ -1196,6 +1206,9 @@ void govpx_oracle_recode_iter_capture_pre(struct VP8_COMP *cpi, int Q) {
     govpx_recode_iter_pre_active_best = cpi->active_best_quality;
     govpx_recode_iter_pre_active_worst = cpi->active_worst_quality;
     govpx_recode_iter_pre_zbin = cpi->mb.zbin_over_quant;
+    govpx_recode_iter_pre_prob_intra = cpi->prob_intra_coded;
+    govpx_recode_iter_pre_prob_last = cpi->prob_last_coded;
+    govpx_recode_iter_pre_prob_golden = cpi->prob_gf_coded;
     if (cpi->common.frame_type == KEY_FRAME) {
         govpx_recode_iter_pre_rcf = cpi->key_frame_rate_correction_factor;
     } else if (cpi->oxcf.number_of_layers == 1 && !cpi->gf_noboost_onepass_cbr &&
@@ -1247,6 +1260,39 @@ void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
     ref_frame_savings = govpx_oracle_ref_frame_savings(cpi);
     coef_savings = total_savings - ref_frame_savings;
     raw_rate = cpi->projected_frame_size + total_savings;
+    {
+        /* Task #365: per-iter rfct and prob_intra/last/gf snapshot. */
+        const int *rfct_emit = cpi->mb.count_mb_ref_frame_usage;
+        int rfct_intra = rfct_emit[INTRA_FRAME];
+        int rfct_last = rfct_emit[LAST_FRAME];
+        int rfct_golden = rfct_emit[GOLDEN_FRAME];
+        int rfct_alt = rfct_emit[ALTREF_FRAME];
+        /* Post-iter prob_intra is what vp8_convert_rfct_to_prob would
+         * produce from the just-completed iter's rfct counts (mirrors
+         * encodeframe.c:969). The mainline cpi->prob_intra_coded has
+         * already been updated by the convert hook when this emit runs,
+         * but recompute defensively in case the convert path was gated
+         * off (refresh_alt_ref_frame || refresh_golden_frame, multi-layer
+         * = no). */
+        int post_intra = cpi->prob_intra_coded;
+        int post_last = cpi->prob_last_coded;
+        int post_garf = cpi->prob_gf_coded;
+        {
+            int rf_inter_post = rfct_last + rfct_golden + rfct_alt;
+            int total_post = rfct_intra + rf_inter_post;
+            if (total_post > 0) {
+                post_intra = (rfct_intra * 255) / total_post;
+                if (post_intra == 0) post_intra = 1;
+                if (rf_inter_post > 0) {
+                    post_last = (rfct_last * 255) / rf_inter_post;
+                    if (post_last == 0) post_last = 1;
+                }
+                if (rfct_golden + rfct_alt > 0) {
+                    post_garf = (rfct_golden * 255) / (rfct_golden + rfct_alt);
+                    if (post_garf == 0) post_garf = 1;
+                }
+            }
+        }
     fprintf(out,
             "{\"type\":\"recode_iter\","
             "\"frame_index\":%llu,"
@@ -1269,7 +1315,17 @@ void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
             "\"undershoot_limit\":%d,"
             "\"raw_rate\":%d,"
             "\"coef_savings_bits\":%d,"
-            "\"ref_frame_savings_bits\":%d}\n",
+            "\"ref_frame_savings_bits\":%d,"
+            "\"rfct_intra\":%d,"
+            "\"rfct_last\":%d,"
+            "\"rfct_golden\":%d,"
+            "\"rfct_alt\":%d,"
+            "\"pre_prob_intra\":%d,"
+            "\"pre_prob_last\":%d,"
+            "\"pre_prob_golden\":%d,"
+            "\"post_prob_intra\":%d,"
+            "\"post_prob_last\":%d,"
+            "\"post_prob_golden\":%d}\n",
             govpx_oracle_state.frame_index,
             govpx_recode_iter_count,
             govpx_recode_iter_pre_q,
@@ -1290,7 +1346,13 @@ void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
             frame_under_shoot_limit,
             raw_rate,
             coef_savings,
-            ref_frame_savings);
+            ref_frame_savings,
+            rfct_intra, rfct_last, rfct_golden, rfct_alt,
+            govpx_recode_iter_pre_prob_intra,
+            govpx_recode_iter_pre_prob_last,
+            govpx_recode_iter_pre_prob_golden,
+            post_intra, post_last, post_garf);
+    }
     /* Task #218: emit per-MB rate snapshots for THIS iter from the still-live
      * mb_rows[] buffer. The buffer holds the just-completed iter's chosen-
      * mode rate per MB; the next iter's encode_mb_row overwrites the slots.

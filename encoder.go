@@ -1200,6 +1200,14 @@ type interFrameEncodeAttempt struct {
 	ZeroReference          bool
 	CyclicRefresh          bool
 	CyclicRefreshNextIndex int
+	// Task #365: snapshot the picker-side prob_intra/last/gf the
+	// per-MB RD pass consumed for this attempt (i.e. the values active
+	// before the recode-loop defer restored the pre-attempt snapshot).
+	// Used by the recode_iter trace to localize the first iter where
+	// libvpx's rfct[INTRA] > 0 while govpx stays at 0.
+	PickerProbIntra  int
+	PickerProbLast   int
+	PickerProbGolden int
 }
 
 // NewVP8Encoder creates a VP8 encoder with validated options. Allocations
