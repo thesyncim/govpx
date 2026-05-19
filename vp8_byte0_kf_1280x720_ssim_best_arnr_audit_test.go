@@ -222,15 +222,48 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// `quantizeBlockWithZbinAndActivity` (encoder_inter_quantize.go) IS
 	// equivalent to libvpx's `b->zbin_extra = (Y1dequant[Q][1] *
 	// (zbin_over_quant + zbin_mode_boost + act_zbin_adj)) >> 7` at the
-	// quantize-input boundary. The remaining UV-side divergence is in
-	// the **post-quantize trellis (optimize_b) path replay** — govpx's
-	// trellis keeps a non-zero qc at scan-position 2 of these blocks
-	// where libvpx's trellis zeroes it; that's a token-cost / RD-trunc
-	// tie-break gap in the trellis, NOT the zbin-extra refresh the task
-	// description hypothesized. Closing this needs the trellis-path
-	// audit (`optimize_b` lines 200-356) ported against a per-block
-	// libvpx token_costs[] dump — pending that probe, the -5/-6 byte
-	// delta is the expected steady-state for this cohort.
+	// quantize-input boundary.
+	//
+	// Task #282 re-diagnosis: a verbatim audit of govpx's
+	// optimizeQuantizedBlockWithRDConstants (encoder_inter_quantize.go)
+	// against libvpx's optimize_b (vp8/encoder/encodemb.c:200-356) found
+	// the trellis port byte-faithful — RDCOST + RDTRUNC tie-break,
+	// token_cost subtree elision, DefaultZigZag/DefaultInvZigZag,
+	// next-state propagation all line up. The implication: the cohort
+	// divergence at UV blocks 20/23 scan-pos 2 is NOT in the trellis
+	// itself; the trellis is faithfully preserving an UPSTREAM
+	// difference in its input. The candidates upstream are:
+	//
+	//   (1) MC predictor — vp8_build_inter16x16_predictors_mb
+	//       (reconinter.c:297-356) vs reconstructWholeMVInterMacroblockFast
+	//       (internal/vp8/decoder/reconstruct_inter_fast.go:127-291).
+	//       The chroma-MV derivation `(mvRow + 1 + sign(mvRow)) / 2`
+	//       and the `&= x->fullpixel_mask` gating must produce
+	//       byte-identical chroma planes; the chroma sub-pel filter
+	//       (sixtap_predict8x8 / bilinear_predict8x8) likewise.
+	//   (2) FDCT — vp8_short_fdct4x4_c (dct.c:15-53) vs
+	//       forwardDCT4x4Scalar (internal/vp8/encoder/dct.go:15-43) and
+	//       the NEON/SSE2 batch ports. Algebraically equivalent on
+	//       inspection, but a stride / batch-buffer drift would surface
+	//       as identical aggregate eobs with a single coeff flipped.
+	//   (3) Residual gather — gatherMacroblockUVResiduals4x4
+	//       (encoder_inter_residuals.go:38-58) vs libvpx
+	//       vp8_subtract_mbuv (encodemb.c:78-92): also algebraically
+	//       equivalent, but the `pred.U[uOff:]` slice ordering against
+	//       the analysis-image base must match libvpx's
+	//       `xd->dst.{u,v}_buffer + recon_uvoffset`.
+	//
+	// Task #284 charter: extend the oracle tracer with a pre-trellis UV
+	// hook (between vp8_regular_quantize_b and optimize_b on libvpx;
+	// between quantizeBlockWithZbinAndActivity and
+	// optimizeQuantizedBlockWithRDConstants on govpx) to dump qcoeff /
+	// dqcoeff / eob for blocks 16-23 on frame 1 of seed 19981bff, then
+	// walk upstream (qcoeff → dqcoeff → coeff → residual → predictor)
+	// to pin the actual divergence layer. Tracer extension blocks on
+	// libvpx oracle SHA pin (oracleSHAvpxencArm64Darwin in
+	// internal/coracle/oracle_sha_test.go) being rotated alongside the
+	// build_vpxenc_oracle.sh want_config bump. The -5/-6 byte delta
+	// is the steady state until that probe lands.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
