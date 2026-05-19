@@ -319,6 +319,16 @@ func TestVP9Avg4x4Avg8x8(t *testing.T) {
 	})
 }
 
+func TestVP9AvgClampedReplicatesVisibleEdge(t *testing.T) {
+	src := []uint8{10, 20, 30}
+	if got := vp9Avg4x4Clamped(src, 1, 0, 0, 1, 3); got != 23 {
+		t.Fatalf("vp9Avg4x4Clamped = %d, want 23", got)
+	}
+	if got := vp9Avg8x8Clamped(src, 1, 0, 0, 1, 3); got != 26 {
+		t.Fatalf("vp9Avg8x8Clamped = %d, want 26", got)
+	}
+}
+
 // TestVP9FillVariance4x4AvgKeyFrame pins fill_variance_4x4avg in its
 // keyframe form (d_avg forced to 128). Source is a constant 200 plane,
 // 8x8 region inside an 8x8 frame.
@@ -403,6 +413,26 @@ func TestVP9FillVariance4x4AvgClipToFrame(t *testing.T) {
 	// k=3: x4=4,y4=4 clipped.
 	if v8.Split[3].PartVariances.None.SumError != 0 {
 		t.Errorf("split[3] clipped")
+	}
+}
+
+func TestVP9FillVariance4x4AvgOddEdgeReplicates(t *testing.T) {
+	src := []uint8{10, 20, 30}
+	var v8 vp9V8x8
+	vp9FillVariance4x4Avg(src, 1, nil, 0, 0, 0, &v8, 1, 3, true)
+
+	got := v8.Split[0].PartVariances.None
+	if got.SumError != -105 {
+		t.Fatalf("split[0].SumError = %d, want -105", got.SumError)
+	}
+	if got.SumSquareError != 11025 {
+		t.Fatalf("split[0].SumSquareError = %d, want 11025",
+			got.SumSquareError)
+	}
+	if v8.Split[1].PartVariances.None.SumError != 0 ||
+		v8.Split[2].PartVariances.None.SumError != 0 ||
+		v8.Split[3].PartVariances.None.SumError != 0 {
+		t.Fatalf("out-of-frame 4x4 splits should stay zero")
 	}
 }
 

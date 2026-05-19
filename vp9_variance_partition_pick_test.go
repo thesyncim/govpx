@@ -34,6 +34,20 @@ func TestVP9MinMax8x8Diff(t *testing.T) {
 	}
 }
 
+func TestVP9ComputeMinmax8x8OddEdgeReplicates(t *testing.T) {
+	src := []uint8{1, 2, 3}
+	dst := []uint8{0, 0, 0}
+	mn, mx := vp9MinMax8x8Clamped(src, 1, dst, 1, 0, 0, 1, 3)
+	if mn != 1 || mx != 3 {
+		t.Fatalf("vp9MinMax8x8Clamped odd edge = (%d,%d), want (1,3)",
+			mn, mx)
+	}
+	got := vp9ComputeMinmax8x8(src, 1, dst, 1, 0, 0, 1, 3)
+	if got != 0 {
+		t.Fatalf("vp9ComputeMinmax8x8 odd edge = %d, want 0", got)
+	}
+}
+
 // TestVP9ComputeMinmax8x8Flat: identical source/predictor over a 16x16
 // region produces minmax_max == minmax_min == 0, so compute_minmax_8x8
 // returns 0. Mirrors libvpx vp9_encodeframe.c:679-712.

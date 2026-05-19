@@ -12495,6 +12495,15 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			refFrameSet = refFramesAll[2:3]
 		}
 	}
+	// libvpx's one-pass ARF group path promotes usable_ref_frame to ALTREF
+	// for VBR+lag ARNR frames (vp9_pickmode.c:1918-1939).
+	filteredAltRefGroup := e.opts.AutoAltRef && e.sf.UseAltrefOnepass != 0 &&
+		e.opts.ARNRMaxFrames > 1 && e.rc.altRefGFGroup
+	if filteredAltRefGroup {
+		if _, ok := e.vp9InterReferenceSlot(inter, vp9dec.AltrefFrame); ok {
+			refFrameSet = refFramesAll[2:3]
+		}
+	}
 	bestSet := false
 	var best vp9InterModeDecision
 	// useNonrd: route the speed-feature-selected realtime path through

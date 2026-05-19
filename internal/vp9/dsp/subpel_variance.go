@@ -79,13 +79,15 @@ func subPixelVarianceScalar(w, h int,
 	src []uint8, srcOff, srcStride, xOffset, yOffset int,
 	ref []uint8, refOff, refStride int, sse *uint32,
 ) uint32 {
-	fdata := make([]uint16, (h+1)*w)
-	temp := make([]uint8, h*w)
-	varFilterBlock2DBilFirstPass(src, srcOff, srcStride, fdata, h+1, w,
+	var fdata [65 * 64]uint16
+	var temp [64 * 64]uint8
+	fdataBlock := fdata[:(h+1)*w]
+	tempBlock := temp[:h*w]
+	varFilterBlock2DBilFirstPass(src, srcOff, srcStride, fdataBlock, h+1, w,
 		vp9BilinearFilters[xOffset])
-	varFilterBlock2DBilSecondPass(fdata, temp, 0, h, w,
+	varFilterBlock2DBilSecondPass(fdataBlock, tempBlock, 0, h, w,
 		vp9BilinearFilters[yOffset])
-	return varianceScalar(w, h, temp, 0, w, ref, refOff, refStride, sse)
+	return varianceScalar(w, h, tempBlock, 0, w, ref, refOff, refStride, sse)
 }
 
 // VpxSubPixelVariance{W}x{H} mirror libvpx's vpx_sub_pixel_variance{W}x{H}.

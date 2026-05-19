@@ -93,6 +93,45 @@ func vp9MinMax8x8(s []uint8, sp int, d []uint8, dp int) (min, max int) {
 	return min, max
 }
 
+// vp9MinMax8x8Clamped mirrors vpx_minmax_8x8 on edge-extended YV12 buffers
+// while reading from Go's raw visible source and predictor planes.
+func vp9MinMax8x8Clamped(s []uint8, sp int, d []uint8, dp int,
+	x0, y0, pixelsWide, pixelsHigh int,
+) (mn, mx int) {
+	mn = 255
+	mx = 0
+	if pixelsWide <= 0 || pixelsHigh <= 0 {
+		return mn, mx
+	}
+	maxX := pixelsWide - 1
+	maxY := pixelsHigh - 1
+	for r := range 8 {
+		y := y0 + r
+		if y > maxY {
+			y = maxY
+		}
+		srcRow := s[y*sp:]
+		dstRow := d[y*dp:]
+		for c := range 8 {
+			x := x0 + c
+			if x > maxX {
+				x = maxX
+			}
+			diff := int(srcRow[x]) - int(dstRow[x])
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff < mn {
+				mn = diff
+			}
+			if diff > mx {
+				mx = diff
+			}
+		}
+	}
+	return mn, mx
+}
+
 // vp9ComputeMinmax8x8 is the verbatim port of libvpx's compute_minmax_8x8
 // (vp9/encoder/vp9_encodeframe.c:679-712). Walks the 4 8x8 sub-blocks of
 // a 16x16 region, computing (max - min) of per-sub-block min/max ranges,
@@ -110,8 +149,8 @@ func vp9ComputeMinmax8x8(s []uint8, sp int, d []uint8, dp int,
 		x8Idx := x16Idx + ((k & 1) << 3)
 		y8Idx := y16Idx + ((k >> 1) << 3)
 		if x8Idx < pixelsWide && y8Idx < pixelsHigh {
-			mn, mx := vp9MinMax8x8(s[y8Idx*sp+x8Idx:], sp,
-				d[y8Idx*dp+x8Idx:], dp)
+			mn, mx := vp9MinMax8x8Clamped(s, sp, d, dp, x8Idx, y8Idx,
+				pixelsWide, pixelsHigh)
 			if (mx - mn) > minmaxMax {
 				minmaxMax = mx - mn
 			}

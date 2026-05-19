@@ -322,6 +322,26 @@ func vp9Avg4x4(src []uint8, stride int) int {
 	return (sum + 8) >> 4
 }
 
+// vp9Avg4x4Clamped matches libvpx's effective edge reads on a YV12 buffer
+// whose borders have already been extended; Go callers pass raw visible planes.
+func vp9Avg4x4Clamped(src []uint8, stride, x0, y0, pixelsWide, pixelsHigh int) int {
+	if pixelsWide <= 0 || pixelsHigh <= 0 {
+		return 0
+	}
+	sum := 0
+	maxX := pixelsWide - 1
+	maxY := pixelsHigh - 1
+	for r := range 4 {
+		y := min(y0+r, maxY)
+		row := src[y*stride:]
+		for c := range 4 {
+			x := min(x0+c, maxX)
+			sum += int(row[x])
+		}
+	}
+	return (sum + 8) >> 4
+}
+
 // vp9Avg8x8 computes the rounded average of an 8x8 luma block. Mirrors
 // libvpx's vpx_avg_8x8 (vpx_dsp/avg.c:13-22) — +32 before >>6 (64 pels).
 func vp9Avg8x8(src []uint8, stride int) int {
@@ -330,6 +350,25 @@ func vp9Avg8x8(src []uint8, stride int) int {
 		row := src[r*stride:]
 		sum += int(row[0]) + int(row[1]) + int(row[2]) + int(row[3]) +
 			int(row[4]) + int(row[5]) + int(row[6]) + int(row[7])
+	}
+	return (sum + 32) >> 6
+}
+
+// vp9Avg8x8Clamped is the 8x8 counterpart to vp9Avg4x4Clamped.
+func vp9Avg8x8Clamped(src []uint8, stride, x0, y0, pixelsWide, pixelsHigh int) int {
+	if pixelsWide <= 0 || pixelsHigh <= 0 {
+		return 0
+	}
+	sum := 0
+	maxX := pixelsWide - 1
+	maxY := pixelsHigh - 1
+	for r := range 8 {
+		y := min(y0+r, maxY)
+		row := src[y*stride:]
+		for c := range 8 {
+			x := min(x0+c, maxX)
+			sum += int(row[x])
+		}
 	}
 	return (sum + 32) >> 6
 }
@@ -355,10 +394,12 @@ func vp9FillVariance4x4Avg(src []uint8, srcStride int, dst []uint8, dstStride in
 		var sse uint32
 		var sum int32
 		if x4Idx < pixelsWide && y4Idx < pixelsHigh {
-			sAvg := vp9Avg4x4(src[y4Idx*srcStride+x4Idx:], srcStride)
+			sAvg := vp9Avg4x4Clamped(src, srcStride, x4Idx, y4Idx,
+				pixelsWide, pixelsHigh)
 			dAvg := 128
 			if !isKeyFrame {
-				dAvg = vp9Avg4x4(dst[y4Idx*dstStride+x4Idx:], dstStride)
+				dAvg = vp9Avg4x4Clamped(dst, dstStride, x4Idx, y4Idx,
+					pixelsWide, pixelsHigh)
 			}
 			diff := sAvg - dAvg
 			sum = int32(diff)
@@ -382,10 +423,12 @@ func vp9FillVariance8x8Avg(src []uint8, srcStride int, dst []uint8, dstStride in
 		var sse uint32
 		var sum int32
 		if x8Idx < pixelsWide && y8Idx < pixelsHigh {
-			sAvg := vp9Avg8x8(src[y8Idx*srcStride+x8Idx:], srcStride)
+			sAvg := vp9Avg8x8Clamped(src, srcStride, x8Idx, y8Idx,
+				pixelsWide, pixelsHigh)
 			dAvg := 128
 			if !isKeyFrame {
-				dAvg = vp9Avg8x8(dst[y8Idx*dstStride+x8Idx:], dstStride)
+				dAvg = vp9Avg8x8Clamped(dst, dstStride, x8Idx, y8Idx,
+					pixelsWide, pixelsHigh)
 			}
 			diff := sAvg - dAvg
 			sum = int32(diff)
