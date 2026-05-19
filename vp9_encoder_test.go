@@ -7986,6 +7986,82 @@ func TestVP9EncoderInterSub8x8DecisionPreservesBmiCounts(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterSub8x8FallbackPopulatesBmiForWrite(t *testing.T) {
+	var e VP9Encoder
+	inter := &vp9InterEncodeState{allowHP: true}
+	for _, bsize := range []common.BlockSize{
+		common.Block4x4,
+		common.Block4x8,
+		common.Block8x4,
+	} {
+		mi := vp9dec.NeighborMi{
+			SbType:   bsize,
+			RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame},
+		}
+		if !e.ensureVP9Sub8InterBmiForWrite(&mi, vp9dec.TileBounds{},
+			2, 2, 0, 0, bsize, inter) {
+			t.Fatalf("%d: ensureVP9Sub8InterBmiForWrite returned false", bsize)
+		}
+		if mi.Mode != common.ZeroMv || mi.Mv != ([2]vp9dec.MV{}) {
+			t.Fatalf("%d: fallback mode/mv = %d/%+v, want ZeroMv/zero",
+				bsize, mi.Mode, mi.Mv)
+		}
+		for i := range mi.Bmi {
+			if mi.Bmi[i].AsMode != common.ZeroMv ||
+				mi.Bmi[i].AsMv[0] != (vp9dec.MV{}) {
+				t.Fatalf("%d: Bmi[%d] = %+v, want ZeroMv/zero MV",
+					bsize, i, mi.Bmi[i])
+			}
+		}
+	}
+}
+
+func TestVP9EncoderInterSub8x8WriteModeFollowsBmi3(t *testing.T) {
+	var e VP9Encoder
+	mi := vp9dec.NeighborMi{
+		SbType:   common.Block4x8,
+		RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame},
+	}
+	mi.Bmi[0].AsMode = common.NearestMv
+	mi.Bmi[1].AsMode = common.NearMv
+	mi.Bmi[2].AsMode = common.ZeroMv
+	mi.Bmi[3].AsMode = common.NewMv
+	mi.Bmi[3].AsMv[0] = vp9dec.MV{Col: 8}
+	if !e.ensureVP9Sub8InterBmiForWrite(&mi, vp9dec.TileBounds{},
+		2, 2, 0, 0, common.Block4x8, &vp9InterEncodeState{}) {
+		t.Fatal("ensureVP9Sub8InterBmiForWrite returned false")
+	}
+	if mi.Mode != common.NewMv || mi.Mv != mi.Bmi[3].AsMv {
+		t.Fatalf("mode/mv = %d/%+v, want Bmi[3] NewMv/%+v",
+			mi.Mode, mi.Mv, mi.Bmi[3].AsMv)
+	}
+}
+
+func TestVP9EncoderInterSub8x8NewMvCountsPerBmi(t *testing.T) {
+	var e VP9Encoder
+	var counts vp9enc.FrameCounts
+	mi := vp9dec.NeighborMi{
+		SbType:   common.Block4x8,
+		RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame},
+	}
+	mi.Bmi[0].AsMode = common.NewMv
+	mi.Bmi[0].AsMv[0] = vp9dec.MV{Col: 8}
+	mi.Bmi[1].AsMode = common.NewMv
+	mi.Bmi[1].AsMv[0] = vp9dec.MV{Row: 8}
+	mi.Bmi[2] = mi.Bmi[0]
+	mi.Bmi[3] = mi.Bmi[1]
+
+	e.countVP9InterSub8NewMvs(&counts, vp9dec.TileBounds{}, 2, 2, 0, 0,
+		common.Block4x8, &mi, true, [vp9dec.MaxRefFrames]uint8{})
+
+	jointCol := vp9GetMvJoint(vp9dec.MV{Col: 8})
+	jointRow := vp9GetMvJoint(vp9dec.MV{Row: 8})
+	if counts.Mv.Joints[jointCol] != 1 || counts.Mv.Joints[jointRow] != 1 {
+		t.Fatalf("newmv joints = %+v, want one column-only and one row-only sub8 mv",
+			counts.Mv.Joints)
+	}
+}
+
 func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
 	const width, height = 128, 128
 	const x0, y0 = 64, 64
