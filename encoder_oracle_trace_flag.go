@@ -100,6 +100,11 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(int, int, *vp8enc.KeyFrameMacrobl
 
 func (e *VP8Encoder) emitOracleLFTrial(string, int, int) {}
 
+func (e *VP8Encoder) oracleTracePretrellisUVDumpEnabled() bool { return false }
+
+func (e *VP8Encoder) emitOraclePretrellisUVTrace(int, int, int, *[16]int16, *[16]int16, *[16]int16, int, int, int) {
+}
+
 func (e *VP8Encoder) emitOracleInterPredictorTrace(int, int, *vp8common.Image) {}
 
 func (e *VP8Encoder) emitOracleInterReconstructedTrace(int, int, *vp8common.Image) {}

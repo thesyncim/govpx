@@ -394,6 +394,33 @@ type oracleTraceLastRefWindowRow struct {
 	Hex        string `json:"hex"`
 }
 
+// oracleTracePretrellisUVRow records the pre-trellis qcoeff / dqcoeff /
+// coeff snapshot of a single UV block (16..23) on the accepted-path encode.
+// Mirrors the libvpx-side {"type":"pretrellis_uv_qcoeff",...} row emitted
+// by govpx_oracle_emit_pretrellis_uv (oracle_trace.c). Used to localize
+// the ARNR pin-hold (task #207 / #227) after the #282-#294 static-
+// inspection campaign exhausted candidate predictor / residual / quantize
+// / RC drift sources; the static audits confirmed the govpx ports of
+// vp8_subtract_mbuv / vp8_short_fdct8x4 / vp8_regular_quantize_b are
+// byte-faithful, so the surviving -5/-6-byte gap must surface as a per-
+// position qcoeff divergence at the trellis input. Gated by the
+// govpx_oracle_trace build tag on both sides; emission additionally
+// requires the encoder pretrellis-UV state to be enabled (mirrored as
+// GOVPX_ORACLE_PRETRELLIS_UV=1 on the libvpx side).
+type oracleTracePretrellisUVRow struct {
+	Type       string    `json:"type"`
+	FrameIndex uint64    `json:"frame_index"`
+	MBRow      int       `json:"mb_row"`
+	MBCol      int       `json:"mb_col"`
+	Block      int       `json:"block"`
+	EOB        int       `json:"eob"`
+	Coeff      [16]int16 `json:"coeff"`
+	QCoeff     [16]int16 `json:"qcoeff"`
+	DQCoeff    [16]int16 `json:"dqcoeff"`
+	ZbinExtra  int       `json:"zbin_extra"`
+	ZbinOQ     int       `json:"zbin_oq"`
+}
+
 // oracleTraceLFTrialRow records a single per-trial-level evaluation inside
 // the fast loop-filter picker (loopFilterPickContext.pickFast). Each row carries
 // the trial filter level and the resulting partial-frame Y SSE as scored
@@ -923,4 +950,49 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 	// total so the next frame's rate row sees the same cumulative value
 	// libvpx would.
 	state.totalByteCount += int64(sizeBytes)
+}
+
+// oracleTracePretrellisUVDumpEnabled reports whether the encoder is
+// configured to emit per-UV-block pre-trellis qcoeff rows on the accepted
+// path. Used by the per-MB UV quantize loop to skip the duplicate-quantize
+// + emit work when the harness is off.
+func (e *VP8Encoder) oracleTracePretrellisUVDumpEnabled() bool {
+	state := e.oracleTraceState()
+	return state != nil && state.writer != nil && state.pretrellisUVDump
+}
+
+// emitOraclePretrellisUVTrace writes a single
+// {"type":"pretrellis_uv_qcoeff",...} row for one UV block (16..23) on
+// the accepted-path encode. The caller is responsible for passing the
+// pre-trellis qcoeff/dqcoeff snapshot taken between
+// quantizeBlockWithZbinAndActivity and optimizeQuantizedBlockWithRDConstants
+// (mirroring the libvpx call site between vp8_quantize_mb and optimize_mb
+// inside vp8_encode_inter16x16). zbinExtra is the per-block zbin-extra used
+// by the regular quantizer (it changes across MBs via vp8_update_zbin_extra
+// when zbin_mode_boost_enabled is true, and via vp8cx_mb_init_quantizer on
+// segment-id transitions); zbinOQ is x->zbin_over_quant (the per-frame zbin
+// over-quant raised by the RC's zbin_over_quant adjustment). Both numerics
+// surface alongside the qcoeff payload so a divergence in the zbin path
+// shows up in the trace before the qcoeff diff is interpreted.
+func (e *VP8Encoder) emitOraclePretrellisUVTrace(mbRow int, mbCol int, block int, coeff *[16]int16, qcoeff *[16]int16, dqcoeff *[16]int16, eob int, zbinExtra int, zbinOQ int) {
+	if !e.oracleTracePretrellisUVDumpEnabled() {
+		return
+	}
+	if coeff == nil || qcoeff == nil || dqcoeff == nil {
+		return
+	}
+	row := oracleTracePretrellisUVRow{
+		Type:       "pretrellis_uv_qcoeff",
+		FrameIndex: e.frameCount,
+		MBRow:      mbRow,
+		MBCol:      mbCol,
+		Block:      block,
+		EOB:        eob,
+		Coeff:      *coeff,
+		QCoeff:     *qcoeff,
+		DQCoeff:    *dqcoeff,
+		ZbinExtra:  zbinExtra,
+		ZbinOQ:     zbinOQ,
+	}
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }

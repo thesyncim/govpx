@@ -13,6 +13,12 @@ type oracleTraceState struct {
 	writer               io.Writer
 	predictorDump        bool
 	predictorDumpAllRows bool
+	// pretrellisUVDump, when true, enables emission of
+	// {"type":"pretrellis_uv_qcoeff",...} rows from the per-MB UV
+	// quantize loop on the accepted-path encode. Mirrors the libvpx-side
+	// GOVPX_ORACLE_PRETRELLIS_UV environment-variable gate; both sides
+	// are off by default so the per-frame trace size stays bounded.
+	pretrellisUVDump bool
 
 	mbBuffer             []oracleTraceMBRow
 	interCandidateBuffer []oracleTraceInterCandidateRow
@@ -46,6 +52,20 @@ func (e *VP8Encoder) SetOracleTracePredictorDump(enabled bool, allRows bool) {
 	state := e.oracleTraceStateCreate()
 	state.predictorDump = enabled
 	state.predictorDumpAllRows = allRows
+}
+
+// SetOracleTracePretrellisUVDump enables per-UV-block pre-trellis
+// qcoeff/dqcoeff/coeff rows in oracle traces. Mirrors the libvpx-side
+// GOVPX_ORACLE_PRETRELLIS_UV environment-variable gate. Available only in
+// govpx_oracle_trace builds. Each enabled MB emits 8 rows (one per UV 4x4
+// block 16..23), so callers should restrict the recipient stream when
+// running on larger fixtures.
+func (e *VP8Encoder) SetOracleTracePretrellisUVDump(enabled bool) {
+	if e == nil {
+		return
+	}
+	state := e.oracleTraceStateCreate()
+	state.pretrellisUVDump = enabled
 }
 
 func (e *VP8Encoder) oracleTraceState() *oracleTraceState {

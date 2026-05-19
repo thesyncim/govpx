@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv"
 jobs=${JOBS:-}
 
 # ----------------------------------------------------------------------------
@@ -1736,6 +1736,161 @@ void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi) {
     GOVPX_TRACE_END();
 }
 
+/* Task #296: per-thread (mb_row, mb_col) context the
+ * govpx_oracle_emit_pretrellis_uv hook reads to label its rows. The
+ * encodeframe.c-side patch sets this immediately before each call to
+ * vp8_encode_inter16x16 / the intra UV paths and clears it after; the
+ * encodemb.c-side patch issues the emit call between vp8_quantize_mb and
+ * optimize_mb so qcoeff/dqcoeff/eob reflect the regular_quantize_b output
+ * before the trellis can mutate them. Single-threaded encodes pass through
+ * pthread_setspecific the same way as multi-threaded ones, so the hook is
+ * uniform across cpi->oxcf.threads. */
+static pthread_key_t govpx_pretrellis_ctx_key;
+static pthread_once_t govpx_pretrellis_ctx_once = PTHREAD_ONCE_INIT;
+typedef struct {
+    int mb_row;
+    int mb_col;
+    int valid;
+} govpx_pretrellis_ctx_t;
+static void govpx_pretrellis_ctx_destroy(void *p) { free(p); }
+static void govpx_pretrellis_ctx_make_key(void) {
+    (void)pthread_key_create(&govpx_pretrellis_ctx_key,
+                             govpx_pretrellis_ctx_destroy);
+}
+static govpx_pretrellis_ctx_t *govpx_pretrellis_ctx_get(int create) {
+    govpx_pretrellis_ctx_t *ctx;
+    (void)pthread_once(&govpx_pretrellis_ctx_once,
+                       govpx_pretrellis_ctx_make_key);
+    ctx = (govpx_pretrellis_ctx_t *)pthread_getspecific(
+        govpx_pretrellis_ctx_key);
+    if (ctx == NULL && create) {
+        ctx = (govpx_pretrellis_ctx_t *)calloc(1, sizeof(*ctx));
+        if (ctx != NULL) {
+            (void)pthread_setspecific(govpx_pretrellis_ctx_key, ctx);
+        }
+    }
+    return ctx;
+}
+
+void govpx_oracle_set_mb_ctx(int mb_row, int mb_col) {
+    govpx_pretrellis_ctx_t *ctx;
+    /* Always set even when trace disabled; cost is negligible (one TLS
+     * lookup + scalar writes). Keeping the path uniform avoids branching
+     * inside the encode loop. */
+    ctx = govpx_pretrellis_ctx_get(1);
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->mb_row = mb_row;
+    ctx->mb_col = mb_col;
+    ctx->valid = 1;
+}
+
+void govpx_oracle_clear_mb_ctx(void) {
+    govpx_pretrellis_ctx_t *ctx = govpx_pretrellis_ctx_get(0);
+    if (ctx != NULL) {
+        ctx->valid = 0;
+    }
+}
+
+/* Task #296: emit per-UV-block pre-trellis qcoeff/dqcoeff/eob. Called
+ * from encodemb.c's vp8_encode_inter16x16 (and the intra-UV path) AFTER
+ * vp8_quantize_mb has populated d->qcoeff/d->dqcoeff for blocks 16-23 via
+ * vp8_regular_quantize_b_c, but BEFORE optimize_mb's trellis can revise
+ * those coefficients. Eight rows are emitted per call (one per UV 4x4 block
+ * 16..23). Gated on GOVPX_ORACLE_TRACE_OUT being live AND
+ * GOVPX_ORACLE_PRETRELLIS_UV=1 so the per-frame trace size stays bounded
+ * when this hook is off. Output schema mirrors the govpx-side
+ * emitOraclePretrellisUVTrace in encoder_oracle_trace.go.
+ *
+ * Used to localize the task #207 / #227 ARNR pin-hold (-5/-6 bytes): the
+ * static-inspection campaign (#282/284/286/288/290/292/294) has exhausted
+ * all candidate predictor / residual / quantize / RC drift sources, so a
+ * dynamic per-MB qcoeff trace is needed to surface the first byte-exact
+ * divergence. Pre-trellis is the right capture point because:
+ *
+ *   - libvpx's optimize_b (encodemb.c:143-357) can flip individual qcoeff
+ *     positions after the regular quantizer; without the pre-trellis
+ *     snapshot we cannot distinguish "regular_quantize_b diverged" from
+ *     "regular_quantize_b matched but trellis diverged".
+ *   - The ARNR seeds (94eb71d5, 19981bff) drive --tune=ssim with --arnr-*
+ *     so x->optimize is true on every inter MB; the residual gap surfaces
+ *     in the optimize_b output even when the pre-trellis qcoeff is
+ *     identical, so we have to capture both halves of the pipeline.
+ */
+static int govpx_oracle_pretrellis_uv_enabled(void) {
+    static int cached = -1;
+    const char *env;
+    if (cached >= 0) {
+        return cached;
+    }
+    env = getenv("GOVPX_ORACLE_PRETRELLIS_UV");
+    cached = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    return cached;
+}
+
+void govpx_oracle_emit_pretrellis_uv(struct macroblock *x_arg) {
+    MACROBLOCK *x = x_arg;
+    MACROBLOCKD *xd;
+    FILE *out;
+    govpx_pretrellis_ctx_t *ctx;
+    int b, i;
+    int mb_row, mb_col;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (!govpx_oracle_pretrellis_uv_enabled()) {
+        return;
+    }
+    if (x == NULL) {
+        return;
+    }
+    GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
+    do {
+        ctx = govpx_pretrellis_ctx_get(0);
+        mb_row = (ctx != NULL && ctx->valid) ? ctx->mb_row : -1;
+        mb_col = (ctx != NULL && ctx->valid) ? ctx->mb_col : -1;
+        xd = &x->e_mbd;
+        out = govpx_oracle_state.out;
+        for (b = 16; b < 24; ++b) {
+            BLOCK *block = &x->block[b];
+            BLOCKD *blockd = &xd->block[b];
+            int eob = (int)(*blockd->eob);
+            fprintf(out,
+                    "{\"type\":\"pretrellis_uv_qcoeff\","
+                    "\"frame_index\":%llu,"
+                    "\"mb_row\":%d,\"mb_col\":%d,"
+                    "\"block\":%d,"
+                    "\"eob\":%d,"
+                    "\"coeff\":[",
+                    govpx_oracle_state.frame_index,
+                    mb_row, mb_col, b, eob);
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->coeff[i]);
+            }
+            fprintf(out, "],\"qcoeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->qcoeff[i]);
+            }
+            fprintf(out, "],\"dqcoeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->dqcoeff[i]);
+            }
+            fprintf(out, "],\"zbin_extra\":%d,\"zbin_oq\":%d}\n",
+                    (int)block->zbin_extra, (int)x->zbin_over_quant);
+        }
+        fflush(out);
+    } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
+    GOVPX_TRACE_END();
+}
+
 /* R12-C: emit a per-iteration iteration_outcome row inside the libvpx
  * fast inter picker mode_index loop. Each row captures (mb_row, mb_col,
  * mode_index, this_mode, this_ref_frame, mode_mv, gate, this_rd,
@@ -2094,6 +2249,8 @@ GOVPX_ORACLE_TU
 			print "extern void govpx_oracle_emit_predictor(struct VP8_COMP *cpi, int mb_row, int mb_col);"
 			print "extern void govpx_oracle_emit_reconstructed(struct VP8_COMP *cpi, int mb_row, int mb_col);"
 			print "extern void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi);"
+			print "extern void govpx_oracle_set_mb_ctx(int mb_row, int mb_col);"
+			print "extern void govpx_oracle_clear_mb_ctx(void);"
 			print $0
 			inserted_decl = 1
 			next
@@ -2267,6 +2424,99 @@ text = text.replace(ref_anchor, ref_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_PREDICTOR_PY
+
+	# (2.6) Task #296: thread (mb_row, mb_col) through to encodemb.c's
+	# vp8_encode_inter16x16 so the pretrellis-UV emit hook can label its
+	# JSON rows. The hook itself runs between vp8_quantize_mb and
+	# optimize_mb (encodemb.c lines 485-495). Two changes to encodeframe.c:
+	#   - wrap the inter/intra macroblock encode call with set/clear of
+	#     a TLS context (so each helper thread sees its own row/col),
+	#   - splice the emit call into vp8_encode_inter16x16 (encodemb.c).
+	# Both edits are guarded by sentinel strings so the patch is idempotent.
+	python3 - "$src_dir/vp8/encoder/encodeframe.c" <<'GOVPX_PRETRELLIS_UV_FRAME_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+sentinel = '/* govpx oracle: thread MB ctx for pretrellis-UV emit. */'
+if sentinel in text:
+    sys.exit(0)
+intra_anchor = ('      const int intra_rate_cost = vp8cx_encode_intra_macroblock(cpi, x, tp);\n')
+if intra_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pretrellis intra anchor missing in encodeframe.c\n')
+    sys.exit(2)
+intra_replacement = ('      ' + sentinel + '\n'
+                     '      govpx_oracle_set_mb_ctx(mb_row, mb_col);\n'
+                     '      const int intra_rate_cost = vp8cx_encode_intra_macroblock(cpi, x, tp);\n'
+                     '      govpx_oracle_clear_mb_ctx();\n')
+text = text.replace(intra_anchor, intra_replacement, 1)
+inter_anchor = ('      const int inter_rate_cost = vp8cx_encode_inter_macroblock(\n'
+                '          cpi, x, tp, recon_yoffset, recon_uvoffset, mb_row, mb_col);\n')
+if inter_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pretrellis inter anchor missing in encodeframe.c\n')
+    sys.exit(2)
+inter_replacement = ('      ' + sentinel + '\n'
+                     '      govpx_oracle_set_mb_ctx(mb_row, mb_col);\n'
+                     '      const int inter_rate_cost = vp8cx_encode_inter_macroblock(\n'
+                     '          cpi, x, tp, recon_yoffset, recon_uvoffset, mb_row, mb_col);\n'
+                     '      govpx_oracle_clear_mb_ctx();\n')
+text = text.replace(inter_anchor, inter_replacement, 1)
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_PRETRELLIS_UV_FRAME_PY
+
+	# Splice the pretrellis-UV emit call into vp8_encode_inter16x16 between
+	# vp8_quantize_mb and optimize_mb (encodemb.c v1.16.0 lines 485-495).
+	# Also instrument vp8_encode_intra16x16mbuv at the same point so the
+	# trace covers both inter and intra UV paths. Each splice is anchored
+	# on a unique three-line context window in v1.16.0.
+	python3 - "$src_dir/vp8/encoder/encodemb.c" <<'GOVPX_PRETRELLIS_UV_EMB_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+sentinel = '/* govpx oracle: emit pretrellis UV qcoeff before optimize_b. */'
+if sentinel in text:
+    sys.exit(0)
+extern_anchor = '#include "rdopt.h"\n'
+extern_decl = ('extern void govpx_oracle_emit_pretrellis_uv(MACROBLOCK *x);\n')
+if extern_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pretrellis encodemb extern anchor missing\n')
+    sys.exit(2)
+text = text.replace(extern_anchor, extern_anchor + extern_decl, 1)
+# Splice into vp8_encode_inter16x16 between vp8_quantize_mb and optimize_mb.
+inter_anchor = ('void vp8_encode_inter16x16(MACROBLOCK *x) {\n'
+                '  vp8_build_inter_predictors_mb(&x->e_mbd);\n'
+                '\n'
+                '  vp8_subtract_mb(x);\n'
+                '\n'
+                '  transform_mb(x);\n'
+                '\n'
+                '  vp8_quantize_mb(x);\n'
+                '\n'
+                '  if (x->optimize) optimize_mb(x);\n'
+                '}\n')
+inter_replacement = ('void vp8_encode_inter16x16(MACROBLOCK *x) {\n'
+                     '  vp8_build_inter_predictors_mb(&x->e_mbd);\n'
+                     '\n'
+                     '  vp8_subtract_mb(x);\n'
+                     '\n'
+                     '  transform_mb(x);\n'
+                     '\n'
+                     '  vp8_quantize_mb(x);\n'
+                     '\n'
+                     '  ' + sentinel + '\n'
+                     '  govpx_oracle_emit_pretrellis_uv(x);\n'
+                     '\n'
+                     '  if (x->optimize) optimize_mb(x);\n'
+                     '}\n')
+if inter_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pretrellis vp8_encode_inter16x16 anchor missing\n')
+    sys.exit(2)
+text = text.replace(inter_anchor, inter_replacement, 1)
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_PRETRELLIS_UV_EMB_PY
 
 	# (3) Add extern declaration + the per-frame emit call to bitstream.c.
 	# Anchor for extern: '#include "defaultcoefcounts.h"' (only place that

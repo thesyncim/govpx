@@ -57,6 +57,16 @@ type predictedMacroblockCoefficientArgs struct {
 	// phaseStats, when non-nil, receives opt-in accepted-path coefficient
 	// pipeline counters for govpx-bench phase reports.
 	phaseStats *EncoderPhaseStats
+	// pretrellisUVTrace, when non-nil, enables emission of pre-trellis UV
+	// qcoeff/dqcoeff/coeff rows for blocks 16..23 on the accepted-path
+	// encode. Mirrors libvpx's govpx_oracle_emit_pretrellis_uv hook which
+	// splices into vp8_encode_inter16x16 between vp8_quantize_mb and
+	// optimize_mb. The encoder reference is plumbed via args so the
+	// call site can re-use the per-block coeff/qcoeff state without
+	// changing the wrapper-quantize signature. Gated by the
+	// govpx_oracle_trace build tag and by the encoder's
+	// pretrellisUVDump state so the production binary pays no cost.
+	pretrellisUVTrace *VP8Encoder
 }
 
 // interRDCoeffCacheState stages the picker's post-FDCT residual DCT
@@ -566,12 +576,25 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		return stats
 	}
 
+	tracePretrellisUV := args.pretrellisUVTrace != nil && args.pretrellisUVTrace.oracleTracePretrellisUVDumpEnabled() && optimize && !fastQuant
+	zbinExtra := (int(quant.UV.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+
 	for block := range 4 {
 		dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
 		a, l := macroblockCoefficientUVContextIndex(16 + block)
 		ctx := 0
 		if needTokenContext {
 			ctx = int(uvAbove[a] + uvLeft[l])
+		}
+		if tracePretrellisUV {
+			// Take a pre-trellis snapshot mirroring libvpx's
+			// govpx_oracle_emit_pretrellis_uv hook which fires between
+			// vp8_quantize_mb and optimize_mb. We re-run the regular
+			// quantizer into a side buffer so the accepted-path qcoeff
+			// (which is then trellised) stays untouched.
+			var preQ, preDQ [16]int16
+			preEOB := quantizeBlockWithZbinAndActivity(dct, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
+			args.pretrellisUVTrace.emitOraclePretrellisUVTrace(mbRow, mbCol, 16+block, dct, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
 		}
 		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
@@ -594,6 +617,11 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		ctx = 0
 		if needTokenContext {
 			ctx = int(uvAbove[a] + uvLeft[l])
+		}
+		if tracePretrellisUV {
+			var preQ, preDQ [16]int16
+			preEOB := quantizeBlockWithZbinAndActivity(dctV, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
+			args.pretrellisUVTrace.emitOraclePretrellisUVTrace(mbRow, mbCol, 20+block, dctV, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
 		}
 		eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)

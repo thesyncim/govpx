@@ -16,6 +16,17 @@ import (
 // (Apple silicon) hosts across builds rooted in /tmp, /private/tmp, and
 // deeply nested parent directories.
 //
+// Task #296 (2026-05-19) rotated the vpxenc-oracle pin after extending
+// the trace patch with a pretrellis-UV qcoeff emit hook. The hook splices
+// into vp8_encode_inter16x16 between vp8_quantize_mb and optimize_mb
+// (encodemb.c:485-495 v1.16.0) and emits 8 JSON rows per MB labelled with
+// thread-local (mb_row, mb_col) coordinates set from encodeframe.c around
+// each call to vp8cx_encode_{intra,inter}_macroblock. Emission is gated
+// by GOVPX_ORACLE_PRETRELLIS_UV=1 on top of GOVPX_ORACLE_TRACE_OUT so the
+// untraced binary stays a no-op. Used to localize the task #207 / #227
+// ARNR pin-hold after the #282-#294 static-inspection campaign exhausted
+// candidate predictor / residual / quantize / RC drift sources.
+//
 // These pins exist to detect any future change in the build pipeline
 // (libvpx upgrade, configure flag change, toolchain rotation, new patch
 // stamp) that would silently shift the oracle binary hash. If this test
@@ -29,7 +40,7 @@ import (
 // success the cross-path invariance is enforced by the build script's
 // determinism flags, not by this test).
 const (
-	oracleSHAvpxencArm64Darwin = "9fa1dc28403b0268ff8f5cd7ea3a4c0ead8a21761b951af3c6aa9a405481bffe"
+	oracleSHAvpxencArm64Darwin = "87b899952ac66e08ecc66f3d5cdf7e336c29c05b4a2351c4af69c21b79884f7a"
 	oracleSHAlibvpxArm64Darwin = "4992f2bbfc1ce02640e20036286465c455650485a5378904dcc197cb2dda5523"
 )
 
