@@ -3656,14 +3656,14 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadUncompressedHeader inter: %v", err)
 	}
-	// libvpx vp9/encoder/vp9_encoder.c:2141 sets cm->interp_filter =
-	// cpi->sf.default_interp_filter, and the speed-features configurator
-	// (vp9/encoder/vp9_speed_features.c:1008) initialises that to
-	// SWITCHABLE. The per-block 3-filter RD search in
-	// pickVP9InterMode / pickVP9InterModeNonrd then selects the
-	// winning eighttap / smooth / sharp filter per MI.
-	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
-		t.Fatalf("inter header InterpFilter = %d, want Switchable",
+	// libvpx vp9/encoder/vp9_encoder.c:2141 starts from
+	// sf.default_interp_filter=SWITCHABLE, then fix_interp_filter
+	// (vp9_bitstream.c:864-885) demotes the frame header when exactly one
+	// concrete switchable filter appears in the counts. In this constant
+	// 96x80 inter case libvpx v1.16.0 emits EIGHTTAP after the nonrd picker
+	// collapses the histogram to that single filter.
+	if interHeader.InterpFilter != vp9dec.InterpEighttap {
+		t.Fatalf("inter header InterpFilter = %d, want Eighttap",
 			interHeader.InterpFilter)
 	}
 

@@ -543,6 +543,22 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	activeMap := w.activeMap
 	lookahead := w.lookahead
 	frameParallel := w.frameParallel
+	varPartGrid := w.varPartGrid
+	varPartSBComputed := w.varPartSBComputed
+	varPartSBUseMvPart := w.varPartSBUseMvPart
+	varPartSBMvPart := w.varPartSBMvPart
+	varPartSBPredLast := w.varPartSBPredLast
+	varPartSBPredValid := w.varPartSBPredValid
+	varPartSBVarLow := w.varPartSBVarLow
+	varPartSBContentState := w.varPartSBContentState
+	varPartSBContentStateValid := w.varPartSBContentStateValid
+	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	mlPartitionCtx := w.mlPartitionCtx
+	mlPartitionPaddedLast := w.mlPartitionPaddedLast
+	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
+	subpelRefBordered := w.subpelRefBordered
+	intProSrcBordered := w.intProSrcBordered
+	contentStateSbFd := w.contentStateSbFd
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -576,6 +592,24 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.activeMap = activeMap
 	w.lookahead = lookahead
 	w.frameParallel = frameParallel
+	w.varPartGrid = varPartGrid
+	w.varPartSBComputed = varPartSBComputed
+	w.varPartSBUseMvPart = varPartSBUseMvPart
+	w.varPartSBMvPart = varPartSBMvPart
+	w.varPartSBPredLast = varPartSBPredLast
+	w.varPartSBPredValid = varPartSBPredValid
+	w.varPartSBVarLow = varPartSBVarLow
+	w.varPartSBContentState = varPartSBContentState
+	w.varPartSBContentStateValid = varPartSBContentStateValid
+	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.mlPartitionCtx = mlPartitionCtx
+	w.mlPartitionPaddedLast = mlPartitionPaddedLast
+	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
+	w.subpelRefBordered = subpelRefBordered
+	w.subpelRefBorderedValid = false
+	w.intProSrcBordered = intProSrcBordered
+	w.intProSrcBorderedValid = false
+	w.contentStateSbFd = contentStateSbFd
 	// Drop helpers that must not be transitively driven by a clone.
 	w.vp9CountWorkers = nil
 	w.vp9CountCounts = nil
@@ -631,5 +665,16 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 			w.activeMap = w.activeMap[:len(src.activeMap)]
 		}
 		copy(w.activeMap, src.activeMap)
+	}
+	if len(src.contentStateSbFd) > 0 {
+		if cap(w.contentStateSbFd) < len(src.contentStateSbFd) {
+			w.contentStateSbFd = make([]uint8, len(src.contentStateSbFd))
+		} else {
+			w.contentStateSbFd = w.contentStateSbFd[:len(src.contentStateSbFd)]
+		}
+		copy(w.contentStateSbFd, src.contentStateSbFd)
+		w.contentStateSbFdMiCols = src.contentStateSbFdMiCols
+		w.contentStateSbFdMiRows = src.contentStateSbFdMiRows
+		w.contentStateSbFdMiStride = src.contentStateSbFdMiStride
 	}
 }

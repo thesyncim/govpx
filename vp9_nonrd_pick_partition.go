@@ -8,29 +8,24 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// vp9NonrdPickPartitionOptIn gates the Phase D recursive ML walker.
-// Default (env unset): keep Phase C NONE-only-at-BLOCK_64X64 shortcut so
-// the legacy MV-pinning tests (TestVP9EncoderInterPicks*Mv*) — which pin
-// values from govpx's pre-Phase-D variance / RD picker — stay green.
-// Opt-in (GOVPX_VP9_NONRD_PICK_PARTITION=1): full recursive walker that
-// honours NN PARTITION_NONE / PARTITION_SPLIT / forced-edge-split votes
-// at every ML-eligible recursion level (BLOCK_64X64, BLOCK_32X32,
-// BLOCK_16X16). Once the deferred RefControl seed byte-parity is
-// validated under this opt-in mode, the gate moves to
-// sf.PartitionSearchType == MlBasedPartition outright.
+// vp9NonrdPickPartitionOptIn preserves the historical Phase D oracle
+// diagnostic marker. The recursive ML walker now runs by default whenever
+// callers reach the libvpx speed-feature predicate:
+// sf.PartitionSearchType == MlBasedPartition. The env value remains cached so
+// tagged oracle dashboards can keep reporting old gate labels while default
+// encode dispatch follows libvpx.
 //
 // libvpx: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition,
 // with use_ml_based_partitioning = (sf->partition_search_type ==
 // ML_BASED_PARTITION) at line 4627-4628.
 var vp9NonrdPickPartitionOptIn = os.Getenv("GOVPX_VP9_NONRD_PICK_PARTITION") == "1"
 
-// vp9NonrdPickPartitionEnabled returns true when the Phase D opt-in env
-// gate is set. Wired into pickVP9InterPartitionBlockSize so the
-// ML_BASED_PARTITION dispatch can be tested against the deferred fuzz
-// seeds without flipping the default behaviour of the existing scoreboard
-// / MV-pinning tests.
+// vp9NonrdPickPartitionEnabled returns true for the default libvpx-aligned
+// nonrd path. Callers that need ML recursion still apply the speed-feature
+// predicate locally; this helper also gates the Phase E nonrd pickmode
+// substrates that are now safe to run without the historical env opt-in.
 func vp9NonrdPickPartitionEnabled() bool {
-	return vp9NonrdPickPartitionOptIn
+	return true
 }
 
 // vp9_nonrd_pick_partition.go ports the ML_BASED_PARTITION branch of libvpx
@@ -631,12 +626,9 @@ func vp9PredVariance(src []uint8, srcStride int, srcX, srcY int,
 // scoreVP9InterPartitionSplit (PARTITION_SPLIT — libvpx's recursive
 // nonrd_pick_partition call at vp9_encodeframe.c:4725-4727) plus the
 // partition_cost token rate at vp9_encodeframe.c:4686 / 4715. The picker
-// commits to whichever candidate has the smaller RDCOST. Gated behind
-// GOVPX_VP9_NONRD_PICK_PARTITION=1 via the dispatcher in vp9_encoder.go
-// (see pickVP9InterPartitionBlockSize). When the gate is off, the
-// dispatcher never reaches this code path (the existing Phase C
-// BLOCK_64X64-NONE-only shortcut handles the default ML_BASED_PARTITION
-// case).
+// commits to whichever candidate has the smaller RDCOST. The dispatcher in
+// vp9_encoder.go now reaches this path by default for ML_BASED_PARTITION,
+// matching libvpx's use_ml_based_partitioning predicate.
 //
 // libvpx ref: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition
 // with use_ml_based_partitioning=1.

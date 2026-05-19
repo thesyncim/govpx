@@ -7,22 +7,16 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// TestVP9NonrdPickPartitionEnvGate confirms the env-gated dispatch wired
-// into pickVP9InterPartitionBlockSize matches the documented contract:
-// vp9NonrdPickPartitionEnabled() reflects the cached
-// GOVPX_VP9_NONRD_PICK_PARTITION value resolved at package init.
+// TestVP9NonrdPickPartitionDefaultEnabled confirms the recursive nonrd
+// partition substrate is on by default. The historical env value is still
+// cached for oracle diagnostics, but encode dispatch now follows the
+// libvpx speed-feature predicates at the call sites.
 //
 // libvpx: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition body
 // with use_ml_based_partitioning=1 (libvpx vp9_encodeframe.c:4627-4628).
-func TestVP9NonrdPickPartitionEnvGate(t *testing.T) {
-	// The env value is resolved at init time so we can only observe the
-	// resolved cache here. Tests that need to flip the gate at runtime
-	// would have to thread an explicit override into
-	// vp9NonrdPickPartitionEnabled.
-	got := vp9NonrdPickPartitionEnabled()
-	if got != vp9NonrdPickPartitionOptIn {
-		t.Errorf("vp9NonrdPickPartitionEnabled() = %v, want cached %v",
-			got, vp9NonrdPickPartitionOptIn)
+func TestVP9NonrdPickPartitionDefaultEnabled(t *testing.T) {
+	if !vp9NonrdPickPartitionEnabled() {
+		t.Fatal("vp9NonrdPickPartitionEnabled() = false, want true")
 	}
 }
 

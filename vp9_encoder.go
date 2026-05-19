@@ -6020,20 +6020,15 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	}
 	// SPEED_FEATURES.partition_search_type == ML_BASED_PARTITION (cpu_used=8
 	// realtime + w*h <= 352*288, libvpx vp9_speed_features.c:751-768 +
-	// 825-826). Phase C dispatch: vp9MLPickPartitionEntry seeds per-SB
-	// est_pred via get_estimated_pred (libvpx vp9_encodeframe.c:5314) and
+	// 825-826). vp9MLPickPartitionEntry seeds per-SB est_pred via
+	// get_estimated_pred (libvpx vp9_encodeframe.c:5314) and
 	// vp9NonrdPickPartition mirrors the ml_based_partitioning=1 branch of
 	// nonrd_pick_partition (libvpx vp9_encodeframe.c:4598-4855 + 4660-4667).
 	//
-	// Default scope: the picker only commits when NN votes PARTITION_NONE
-	// at the root BLOCK_64X64 level. NN SPLIT votes and -1 (no confidence)
-	// outcomes fall through to the legacy variance / RD path so
-	// govpx-internal MV-pinning tests stay green.
-	//
-	// Phase D opt-in (GOVPX_VP9_NONRD_PICK_PARTITION=1): full recursive
-	// walker — NN runs at every ML-eligible recursion level (BLOCK_64X64,
-	// BLOCK_32X32, BLOCK_16X16). govpx's writeVP9ModesSb walker calls this
-	// dispatcher once per (miRow, miCol, bsize) region; when the picker
+	// The full recursive walker runs at every ML-eligible recursion level
+	// (BLOCK_64X64, BLOCK_32X32, BLOCK_16X16). govpx's writeVP9ModesSb
+	// walker calls this dispatcher once per (miRow, miCol, bsize) region;
+	// when the picker
 	// returns the same bsize the walker commits PARTITION_NONE, when it
 	// returns the PARTITION_SPLIT subsize the walker recurses 4 ways. That
 	// folds the libvpx recursive nonrd_pick_partition body onto govpx's
@@ -6052,13 +6047,9 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// fail the dispatcher continues to the legacy variance / RD path
 	// below.
 	//
-	// The opt-in gate exists because the recursive walker shifts MV picks
-	// at sub-64x64 leaves into a libvpx-faithful schedule that disagrees
-	// with the legacy variance-picker MV picks the existing
-	// TestVP9EncoderInterPicks*Mv* family pins. Closing those pins to
-	// libvpx-faithful values is tracked under task #98 follow-up; until
-	// then opt-in via env keeps both worlds available for the deferred
-	// RefControl seed validation work.
+	// The historical env gate is now retired: this dispatch follows
+	// sf.PartitionSearchType == ML_BASED_PARTITION directly, matching
+	// libvpx's use_ml_based_partitioning predicate.
 	if e.sf.PartitionSearchType == MlBasedPartition {
 		if vp9NonrdPickPartitionEnabled() {
 			if root == common.Block64x64 || root == common.Block32x32 ||
