@@ -138,6 +138,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		sceneCutKeyFrame = true
 		twoPassSceneCut = true
 	}
+	// Source-frame analysis hook (observation-only). A nil analyzer is
+	// the AnalysisOff path: one branch, no allocations, no interface
+	// dispatch. The hook reads the (preprocessed) source planes that
+	// the encoder is about to consume; its output is recorded in the
+	// per-encoder analysisStats buffer and never feeds back into any
+	// encode decision in this revision.
+	if e.analyzer != nil {
+		e.runSourceAnalysis(source, keyFrame)
+	}
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	goldenCBROpportunity := e.goldenFrameCBROpportunity(keyFrame, temporalReferenceControl, flags)
 	goldenCBRRefresh := goldenCBROpportunity && e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)

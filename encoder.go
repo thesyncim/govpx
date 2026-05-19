@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	vp8analysis "github.com/thesyncim/govpx/internal/vp8/analysis"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -361,6 +362,18 @@ type EncoderOptions struct {
 	// it between warmup and measured passes. Leave nil in normal builds
 	// to skip all clock reads and counter updates.
 	PhaseStats *EncoderPhaseStats
+
+	// Analysis configures the optional VP8 source-frame analyzer. The
+	// zero value disables analysis; the encoder takes the exact
+	// pre-analysis code path with no per-frame hook, no allocations,
+	// and no interface dispatch. When Mode is not [AnalysisOff], the
+	// configured analyzer runs once per frame and writes statistics
+	// into a per-encoder buffer accessible via
+	// [VP8Encoder.LastAnalysisStats]. Analyzer output is
+	// observation-only and never influences encode decisions in this
+	// revision; the produced bitstream is byte-identical to
+	// [AnalysisOff].
+	Analysis VP8AnalysisConfig
 }
 
 // EncodeResult is the value returned by [VP8Encoder.EncodeInto] and
@@ -1029,6 +1042,25 @@ type VP8Encoder struct {
 	// Threads=1 so picker / reconstruct hot paths can branch on a
 	// single nil-check before any threading code path executes.
 	rowWorkers *rowWorkerPool
+
+	// analyzer, when non-nil, is the active VP8 source-frame
+	// observation analyzer. It is nil when EncoderOptions.Analysis is
+	// the zero value or has Mode==AnalysisOff so the canonical encode
+	// path branches on a single nil-check before any analysis work
+	// happens. Observation must never feed analyzer output into encode
+	// decisions: the analyzer-disabled bitstream is the source of
+	// truth.
+	analyzer vp8analysis.Analyzer
+	// analysisInput is a per-encoder reusable [vp8analysis.FrameInput]
+	// scratch value. Storing it on the encoder lets the analysis hook
+	// fill it in place and pass &e.analysisInput to the interface
+	// dispatch without forcing a heap allocation on every frame.
+	analysisInput vp8analysis.FrameInput
+	// analysisStats is the per-encoder reusable [vp8analysis.Stats]
+	// buffer. Slice fields inside it are owned by the encoder so the
+	// observation hook only allocates the first time the analyzer
+	// needs to grow them; subsequent frames reuse capacity.
+	analysisStats vp8analysis.Stats
 }
 
 func (e *VP8Encoder) phaseStart() int64 {
@@ -1226,6 +1258,13 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Normalize the analysis configuration: in this revision the
+	// framework is observation-only, so ByteParityRequired is forced
+	// true regardless of caller intent. A nil analyzer means
+	// AnalysisOff and signals the encode path to skip the hook
+	// entirely.
+	normalized.Analysis = normalized.Analysis.Normalize()
+	analyzer := vp8analysis.New(normalized.Analysis)
 
 	cfg := defaultRateControlConfig(normalized)
 	e := &VP8Encoder{
@@ -1246,6 +1285,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		// next frame to a key frame. See VP8Encoder.lastChangeConfigWidth.
 		lastChangeConfigWidth:  normalized.Width,
 		lastChangeConfigHeight: normalized.Height,
+		analyzer:               analyzer,
 	}
 	if err := e.reallocateForDimensions(normalized.Width, normalized.Height); err != nil {
 		return nil, err

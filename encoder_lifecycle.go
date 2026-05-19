@@ -318,6 +318,7 @@ func (e *VP8Encoder) Close() error {
 		e.rowWorkers.shutdownPool()
 		e.rowWorkers = nil
 	}
+	_ = e.closeAnalysis()
 	e.closed = true
 	return nil
 }
