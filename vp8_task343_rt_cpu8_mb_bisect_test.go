@@ -26,6 +26,59 @@ import (
 // (estimateInterIntraModeRDScore in encoder_inter_modes_rd_intra.go)
 // is not exercised on this fixture.
 //
+// TASK #348 AUDIT (not a port; insight only):
+//
+// Per-MB tracing pinpointed the root cause at frame 2 MB(0,0), NOT at
+// frame 3 MB(0,1) as initially hypothesised. The picker enters MB(0,0)
+// with `mbs_tested_so_far=0` and `mode_test_hit_counts[]=0`, so the
+// rd_thresh state evolution is moot. Modes 0/1/4 (ZEROMV-LAST / DC_PRED
+// / ZEROMV-GOLDEN) produce identical sse/distortion on both encoders:
+// the LAST_FRAME reference buffer is byte-exact through frame 1 and
+// the ZEROMV predictions match exactly. The divergence is isolated to
+// mode 13 NEWMV-LAST, where govpx returns mv=(24,8) sse=3565 while
+// libvpx returns mv=(8,16) sse=2305 (per the oracle inter_candidate
+// trace). The motion search itself is producing different MVs.
+//
+// The inter_candidate trace fields `improved_mv_start` /
+// `improved_mv_row` / `improved_mv_col` / `improved_mv_sr` /
+// `improved_mv_near_sadidx` expose the divergent input: govpx fed
+// improvedMVStart=(6,16) sr=3 sadidx=3 into the HEX search, while
+// libvpx fed improvedMVStart=False (search begins from bestRefMV=(0,0)
+// with default sr). Different search-start → different MV converged.
+//
+// The `improvedMVPrediction` config field is set by
+// libvpxInterFrameImprovedMVPredictionForFeatureSpeed (encoder_inter_
+// speed.go) mirroring libvpx's `sf->improved_mv_pred` gate. libvpx's
+// gate fires off when `cpi->Speed > 6` (vp8/encoder/onyx_if.c:957/1009
+// inside `case 2`, with `Speed = cpi->Speed` re-aliased at line 888
+// before the switch). govpx's gate fires off when the autoSpeed it
+// reads via libvpxCPUUsed > 6. At cpu_used=8 RT frame 2 the live
+// libvpx cpi->Speed has auto-evolved to 9 (per the picker_entry trace's
+// `speed` field), but govpx's autoSpeed evolution lands at a value <= 6
+// (the task #278 inter-frame budget/3 wall-clock pin keeps duration in
+// the libvpx Speed=0 stable region, which inhibits the Speed+=2 branch
+// of vp8_auto_select_speed). The autoSpeed divergence drives the
+// improved_mv_pred gate divergence which drives the NEWMV MV
+// divergence which drives the bit-budget divergence which drives the
+// downstream q_index / rd_thresh cascades observed at frame 3+.
+//
+// A unconditional "disable improved_mv_pred for all realtime cpu_used"
+// rule (the naive port of `RT(cpi->Speed) > 6` always being true)
+// closes ~1.06% of the +6.94% BD-rate gap (measured: +6.94% → +5.88%),
+// but breaks byte-parity on the threads=4 cpu_used=0 RT VBR regression
+// in TestVP8Task272CampaignSentinel.corpus.regression_w854h480_threads
+// 4_vbr_inter_diverge -- where libvpx legitimately keeps improved_mv_
+// pred ENABLED because its cpi->Speed stayed at the cold-start 4 (the
+// raw cpi->Speed gate at onyx_if.c:957 fires only at cpi->Speed > 6,
+// not on the line-817-scoped `RT(cpi->Speed)`).
+//
+// A correct port requires aligning govpx's autoSpeed evolution to
+// libvpx's per-frame cpi->Speed evolution at large resolutions under
+// the task #278 inter-frame timing pin. That is a separate
+// vp8_auto_select_speed audit, not a single-line gate fix. Task #348
+// closes with the bisect insight + the structured next-step plan
+// recorded here; no port lands.
+//
 // libvpx fast-picker rate model (vp8/encoder/pickinter.c
 // vp8_pick_inter_mode + evaluate_inter_mode, lines 471-514, 843-1102):
 //

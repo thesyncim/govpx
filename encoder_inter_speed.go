@@ -264,6 +264,25 @@ func libvpxInterFrameImprovedMVPrediction(deadline Deadline, speed int) bool {
 }
 
 func libvpxInterFrameImprovedMVPredictionForFeatureSpeed(deadline Deadline, speed int) bool {
+	// libvpx vp8_set_speed_features (vp8/encoder/onyx_if.c:802/888/957/
+	// 1009): improved_mv_pred defaults to 1, then case 2 (realtime,
+	// Mode==2) gates it off when `Speed > 6`. The local Speed is reset to
+	// the raw cpi->Speed at line 888 BEFORE the case-2 cascade runs (the
+	// line-817 `RT(cpi->Speed) = cpi->Speed + 7` mapping is in scope only
+	// between lines 817-887 for the thresh_mult / mode_check_freq
+	// speed_map lookups), so the gate evaluates against the raw
+	// cpi->Speed. govpx mirrors this with `speed <= 6` where `speed` is
+	// the autoSpeed value flowing through libvpxCPUUsed -- which tracks
+	// libvpx's cpi->Speed evolution per vp8_auto_select_speed
+	// (rdopt.c:261-316), modulo the task #278 inter-frame wall-clock pin.
+	// Task #348 audit: a residual divergence at the task-343 720p RT
+	// cpu=8 fixture frame 2 MB(0,0) NEWMV traces back to govpx's
+	// autoSpeed staying in the Speed=0 stable region while libvpx's
+	// cpi->Speed auto-evolved to 9 — the line-957 gate sees different
+	// inputs on the two sides and improved_mv_pred ends up enabled on
+	// govpx but disabled on libvpx. Closing that gap requires aligning
+	// the autoSpeed evolution under the budget/3 wall-clock pin, not the
+	// improved_mv_pred gate semantics itself.
 	return deadline != DeadlineRealtime || speed <= 6
 }
 
