@@ -1328,6 +1328,91 @@ func TestVP9DecoderDecodesMultiTileModeFrame(t *testing.T) {
 	assertVP9NeutralFrame(t, frame, 1024, 64)
 }
 
+func TestVP9DecoderInvertTileDecodeOrderMatchesForwardOrder(t *testing.T) {
+	key := vp9MultiTileModePacketForTest(t, 1024, 64, 1,
+		[]common.PredictionMode{common.DcPred, common.VPred})
+	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 1)
+
+	for _, tc := range []struct {
+		name    string
+		opts    VP9DecoderOptions
+		packets [][]byte
+	}{
+		{
+			name:    "keyframe",
+			opts:    VP9DecoderOptions{InvertTileDecodeOrder: true},
+			packets: [][]byte{key},
+		},
+		{
+			name: "threaded inter fallback",
+			opts: VP9DecoderOptions{
+				Threads:               4,
+				InvertTileDecodeOrder: true,
+			},
+			packets: [][]byte{key, inter},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseOpts := VP9DecoderOptions{Threads: tc.opts.Threads}
+			want := vp9DecodeLastVisibleFrameWithOptionsForTest(t, baseOpts,
+				tc.packets...)
+			got := vp9DecodeLastVisibleFrameWithOptionsForTest(t, tc.opts,
+				tc.packets...)
+			assertVP9ImagesEqual(t, want, got)
+		})
+	}
+}
+
+func TestVP9DecoderSetInvertTileDecodeOrderTogglesRuntimeControl(t *testing.T) {
+	packet := vp9MultiTileModePacketForTest(t, 1024, 64, 1,
+		[]common.PredictionMode{common.DcPred, common.VPred})
+	want := vp9DecodeLastVisibleFrameForTest(t, packet)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.SetInvertTileDecodeOrder(true); err != nil {
+		t.Fatalf("SetInvertTileDecodeOrder(true): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode inverted: %v", err)
+	}
+	got, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame after inverted decode returned !ok")
+	}
+	assertVP9ImagesEqual(t, want, got)
+	if d.vp9TilePool == nil {
+		t.Fatal("threaded decoder did not initialise tile pool")
+	}
+	if got := d.vp9TilePool.lastTileJobs; got != 0 {
+		t.Fatalf("inverted decode used %d tile-worker jobs, want serial fallback", got)
+	}
+
+	if err := d.SetInvertTileDecodeOrder(false); err != nil {
+		t.Fatalf("SetInvertTileDecodeOrder(false): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode forward: %v", err)
+	}
+	got, ok = d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame after forward decode returned !ok")
+	}
+	assertVP9ImagesEqual(t, want, got)
+	if got := d.vp9TilePool.lastTileJobs; got != 2 {
+		t.Fatalf("forward decode used %d tile-worker jobs, want 2", got)
+	}
+
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := d.SetInvertTileDecodeOrder(true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("closed SetInvertTileDecodeOrder err = %v, want ErrClosed", err)
+	}
+}
+
 // TestVP9DecoderDecodesZeroResidueKeyframe drives a skip=0 keyframe
 // through the public decoder. The tile body carries all-zero
 // coefficient streams, so Decode must consume residual tokens before
@@ -4316,6 +4401,94 @@ func vp9StubPacketWithFrameParallelForTest(t *testing.T, width, height,
 				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
 				MiColStart: vp9DecoderTileOffset(tileCol, miCols, header.Tile.Log2TileCols),
 				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
+			}
+			e.writeVP9StubModesTileBounds(bw, miRows, miCols, tile,
+				&partitionProbs, &seg, baseMi)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PackBitstream: %v", err)
+	}
+	packet := make([]byte, n)
+	copy(packet, dest[:n])
+	return packet
+}
+
+func vp9MultiTileModePacketForTest(t *testing.T, width, height,
+	log2TileCols int, modes []common.PredictionMode,
+) []byte {
+	t.Helper()
+	if len(modes) == 0 {
+		t.Fatal("vp9MultiTileModePacketForTest requires at least one mode")
+	}
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	w := uint32(width)
+	h := uint32(height)
+	miCols := int((w + 7) >> 3)
+	miRows := int((h + 7) >> 3)
+	vp9dec.ResetFrameContext(&e.fc)
+	e.aboveSegCtx = make([]int8, alignToSb(miCols))
+	e.leftSegCtx = make([]int8, common.MiBlockSize)
+	e.miGrid = make([]vp9dec.NeighborMi, miRows*miCols)
+
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.KeyFrame,
+		ShowFrame:             true,
+		RefreshFrameFlags:     0xff,
+		Width:                 w,
+		Height:                h,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: true,
+		InterpFilter:          vp9dec.InterpEighttap,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth:   vp9dec.Bits8,
+			ColorSpace: common.CSUnknown,
+			ColorRange: common.CRStudioRange,
+		},
+	}
+	header.Quant.BaseQindex = 1
+	header.Tile.Log2TileCols = log2TileCols
+
+	var seg vp9dec.SegmentationParams
+	partitionProbs := tables.KfPartitionProbs
+	tileCols := 1 << uint(log2TileCols)
+	dest := make([]byte, 262144)
+	scratch := make([]byte, 262144)
+	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
+		Dest:    dest,
+		Scratch: scratch,
+		Header:  &header,
+		Comp: vp9enc.CompressedHeaderInputs{
+			Lossless:           false,
+			TxMode:             common.Only4x4,
+			IntraOnly:          true,
+			InterpFilter:       vp9dec.InterpEighttap,
+			ReferenceMode:      vp9dec.SingleReference,
+			CompoundRefAllowed: false,
+		},
+		TileRows: 1,
+		TileCols: tileCols,
+		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
+			tile := vp9dec.TileBounds{
+				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, header.Tile.Log2TileRows),
+				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
+				MiColStart: vp9DecoderTileOffset(tileCol, miCols, header.Tile.Log2TileCols),
+				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
+			}
+			baseMi := vp9dec.NeighborMi{
+				SbType: common.Block64x64,
+				Mode:   modes[tileCol%len(modes)],
+				TxSize: common.Tx4x4,
+				Skip:   1,
+				RefFrame: [2]int8{
+					vp9dec.IntraFrame,
+					vp9dec.NoRefFrame,
+				},
 			}
 			e.writeVP9StubModesTileBounds(bw, miRows, miCols, tile,
 				&partitionProbs, &seg, baseMi)

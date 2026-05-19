@@ -116,6 +116,11 @@ type VP9DecoderOptions struct {
 	// decoder parses loop-filter syntax and reconstructs the frame normally but
 	// skips the in-loop deblock pass before publishing or refreshing references.
 	SkipLoopFilter bool
+
+	// InvertTileDecodeOrder mirrors libvpx VP9_INVERT_TILE_DECODE_ORDER. When
+	// true, each tile row is reconstructed from the rightmost tile column back
+	// to the leftmost after the tile buffers have been parsed.
+	InvertTileDecodeOrder bool
 }
 
 // VP9FrameInfo describes one decoded VP9 packet. Quantizer is the raw
@@ -250,6 +255,7 @@ type VP9Decoder struct {
 
 	vp9LoopFilterPool *vp9DecoderLoopFilterPool
 	vp9TilePool       *vp9DecoderTileWorkerPool
+	vp9TileDescs      []vp9DecoderTileDesc
 
 	// rowMTSync is set on the per-tile-column decode worker when
 	// VP9D_SET_ROW_MT is active. parseVP9IntraModeTile and
@@ -559,6 +565,17 @@ func (d *VP9Decoder) SetSkipLoopFilter(enabled bool) error {
 		return ErrClosed
 	}
 	d.opts.SkipLoopFilter = enabled
+	return nil
+}
+
+// SetInvertTileDecodeOrder mirrors libvpx VP9_INVERT_TILE_DECODE_ORDER. When
+// enabled, subsequent multi-tile frames process each tile row from the rightmost
+// tile column to the leftmost tile column.
+func (d *VP9Decoder) SetInvertTileDecodeOrder(enabled bool) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	d.opts.InvertTileDecodeOrder = enabled
 	return nil
 }
 
@@ -1498,6 +1515,9 @@ func (d *VP9Decoder) Reset() {
 	}
 	if d.miGrid != nil {
 		d.miGrid = d.miGrid[:0]
+	}
+	if d.vp9TileDescs != nil {
+		d.vp9TileDescs = d.vp9TileDescs[:0]
 	}
 	if d.segMap != nil {
 		d.segMap = d.segMap[:0]

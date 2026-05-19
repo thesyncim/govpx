@@ -3,6 +3,8 @@ package govpx
 import (
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestVP9DecoderRejectsOutOfRangeDecodeTileFilters(t *testing.T) {
@@ -132,6 +134,48 @@ func TestVP9DecoderDecodeTileColFilterMasksOtherTiles(t *testing.T) {
 		for x := 512; x < 1024; x++ {
 			if got := frame.Y[y*frame.YStride+x]; got != 128 {
 				t.Fatalf("selected tile col 1 Y[%d,%d] = %d, want 128", y, x, got)
+			}
+		}
+	}
+}
+
+func TestVP9DecoderDecodeTileColFilterSelectsLogicalTileWithInvert(t *testing.T) {
+	packet := vp9MultiTileModePacketForTest(t, 1024, 64, 1,
+		[]common.PredictionMode{common.DcPred, common.VPred})
+
+	for _, invert := range []bool{false, true} {
+		d, err := NewVP9Decoder(VP9DecoderOptions{
+			InvertTileDecodeOrder: invert,
+		})
+		if err != nil {
+			t.Fatalf("invert=%v NewVP9Decoder: %v", invert, err)
+		}
+		if err := d.SetDecodeTileCol(1); err != nil {
+			t.Fatalf("invert=%v SetDecodeTileCol(1): %v", invert, err)
+		}
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("invert=%v Decode: %v", invert, err)
+		}
+		frame, ok := d.NextFrame()
+		if !ok {
+			t.Fatalf("invert=%v NextFrame returned !ok", invert)
+		}
+		if err := d.Close(); err != nil {
+			t.Fatalf("invert=%v Close: %v", invert, err)
+		}
+
+		for y := 0; y < frame.Height; y++ {
+			for x := range 512 {
+				if got := frame.Y[y*frame.YStride+x]; got != 128 {
+					t.Fatalf("invert=%v masked tile col 0 Y[%d,%d] = %d, want 128",
+						invert, y, x, got)
+				}
+			}
+			for x := 512; x < 1024; x++ {
+				if got := frame.Y[y*frame.YStride+x]; got != 127 {
+					t.Fatalf("invert=%v selected tile col 1 Y[%d,%d] = %d, want 127",
+						invert, y, x, got)
+				}
 			}
 		}
 	}

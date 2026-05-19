@@ -48,8 +48,12 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 		}
 		return nil
 	}
-	nTiles := tileRows * tileCols
-	offset := 0
+	descs, err := prepareVP9DecoderTileDescs(d.vp9TileDescs, tileData, *hdr,
+		miRows, miCols)
+	if err != nil {
+		return err
+	}
+	d.vp9TileDescs = descs
 	maps := vp9dec.IntraSegmentMaps{
 		CurrentFrameSegMap: d.segMap,
 		LastFrameSegMap:    d.lastSegMap,
@@ -57,44 +61,17 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	}
 
 	for tileRow := range tileRows {
-		for tileCol := range tileCols {
-			idx := tileRow*tileCols + tileCol
-			isLast := idx == nTiles-1
-			tileSize := len(tileData) - offset
-			if !isLast {
-				if len(tileData)-offset < 4 {
-					return ErrInvalidVP9Data
-				}
-				size := binary.BigEndian.Uint32(tileData[offset : offset+4])
-				offset += 4
-				if size > uint32(len(tileData)-offset) {
-					return ErrInvalidVP9Data
-				}
-				tileSize = int(size)
-			}
-			if tileSize < 0 || offset+tileSize > len(tileData) {
-				return ErrInvalidVP9Data
-			}
-
+		for tileColIter := range tileCols {
+			tileCol := d.vp9DecodeTileCol(tileColIter, tileCols)
 			if d.vp9TileFilterMasksTile(tileRow, tileCol, tileRows, tileCols) {
-				offset += tileSize
 				continue
 			}
-			tile := vp9dec.TileBounds{
-				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, hdr.Tile.Log2TileRows),
-				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, hdr.Tile.Log2TileRows),
-				MiColStart: vp9DecoderTileOffset(tileCol, miCols, hdr.Tile.Log2TileCols),
-				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, hdr.Tile.Log2TileCols),
-			}
-			if err := d.parseVP9IntraModeTile(tileData[offset:offset+tileSize],
-				hdr, comp, &maps, tile, miRows, miCols, partitionProbs); err != nil {
+			desc := descs[tileRow*tileCols+tileCol]
+			if err := d.parseVP9IntraModeTile(desc.data, hdr, comp, &maps,
+				desc.tile, miRows, miCols, partitionProbs); err != nil {
 				return err
 			}
-			offset += tileSize
 		}
-	}
-	if offset != len(tileData) {
-		return ErrInvalidVP9Data
 	}
 	if hdr.Seg.Enabled {
 		d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
@@ -177,8 +154,12 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 		}
 		return nil
 	}
-	nTiles := tileRows * tileCols
-	offset := 0
+	descs, err := prepareVP9DecoderTileDescs(d.vp9TileDescs, tileData, *hdr,
+		miRows, miCols)
+	if err != nil {
+		return err
+	}
+	d.vp9TileDescs = descs
 	maps := vp9dec.InterSegmentMaps{
 		IntraSegmentMaps: vp9dec.IntraSegmentMaps{
 			CurrentFrameSegMap: d.segMap,
@@ -188,44 +169,17 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 	}
 
 	for tileRow := range tileRows {
-		for tileCol := range tileCols {
-			idx := tileRow*tileCols + tileCol
-			isLast := idx == nTiles-1
-			tileSize := len(tileData) - offset
-			if !isLast {
-				if len(tileData)-offset < 4 {
-					return ErrInvalidVP9Data
-				}
-				size := binary.BigEndian.Uint32(tileData[offset : offset+4])
-				offset += 4
-				if size > uint32(len(tileData)-offset) {
-					return ErrInvalidVP9Data
-				}
-				tileSize = int(size)
-			}
-			if tileSize < 0 || offset+tileSize > len(tileData) {
-				return ErrInvalidVP9Data
-			}
-
+		for tileColIter := range tileCols {
+			tileCol := d.vp9DecodeTileCol(tileColIter, tileCols)
 			if d.vp9TileFilterMasksTile(tileRow, tileCol, tileRows, tileCols) {
-				offset += tileSize
 				continue
 			}
-			tile := vp9dec.TileBounds{
-				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, hdr.Tile.Log2TileRows),
-				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, hdr.Tile.Log2TileRows),
-				MiColStart: vp9DecoderTileOffset(tileCol, miCols, hdr.Tile.Log2TileCols),
-				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, hdr.Tile.Log2TileCols),
-			}
-			if err := d.parseVP9InterModeTile(tileData[offset:offset+tileSize],
-				hdr, comp, &maps, tile, miRows, miCols, partitionProbs); err != nil {
+			desc := descs[tileRow*tileCols+tileCol]
+			if err := d.parseVP9InterModeTile(desc.data, hdr, comp, &maps,
+				desc.tile, miRows, miCols, partitionProbs); err != nil {
 				return err
 			}
-			offset += tileSize
 		}
-	}
-	if offset != len(tileData) {
-		return ErrInvalidVP9Data
 	}
 	if hdr.Seg.Enabled {
 		d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
@@ -1883,6 +1837,67 @@ func (d *VP9Decoder) fillVP9DecoderMiGrid(miRows, miCols, r, c int,
 			row[c+cc] = mi
 		}
 	}
+}
+
+func prepareVP9DecoderTileDescs(dst []vp9DecoderTileDesc, tileData []byte,
+	hdr vp9dec.UncompressedHeader, miRows, miCols int,
+) ([]vp9DecoderTileDesc, error) {
+	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
+	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
+	nTiles := tileRows * tileCols
+	if cap(dst) < nTiles {
+		dst = make([]vp9DecoderTileDesc, nTiles)
+	} else {
+		dst = dst[:nTiles]
+	}
+
+	offset := 0
+	for tileRow := range tileRows {
+		for tileCol := range tileCols {
+			idx := tileRow*tileCols + tileCol
+			isLast := idx == nTiles-1
+			tileSize := len(tileData) - offset
+			if !isLast {
+				if len(tileData)-offset < 4 {
+					return nil, ErrInvalidVP9Data
+				}
+				size := binary.BigEndian.Uint32(tileData[offset : offset+4])
+				offset += 4
+				if size > uint32(len(tileData)-offset) {
+					return nil, ErrInvalidVP9Data
+				}
+				tileSize = int(size)
+			}
+			if tileSize < 0 || offset+tileSize > len(tileData) {
+				return nil, ErrInvalidVP9Data
+			}
+			dst[idx] = vp9DecoderTileDesc{
+				data: tileData[offset : offset+tileSize],
+				tile: vp9dec.TileBounds{
+					MiRowStart: vp9DecoderTileOffset(tileRow, miRows,
+						hdr.Tile.Log2TileRows),
+					MiRowEnd: vp9DecoderTileOffset(tileRow+1, miRows,
+						hdr.Tile.Log2TileRows),
+					MiColStart: vp9DecoderTileOffset(tileCol, miCols,
+						hdr.Tile.Log2TileCols),
+					MiColEnd: vp9DecoderTileOffset(tileCol+1, miCols,
+						hdr.Tile.Log2TileCols),
+				},
+			}
+			offset += tileSize
+		}
+	}
+	if offset != len(tileData) {
+		return nil, ErrInvalidVP9Data
+	}
+	return dst, nil
+}
+
+func (d *VP9Decoder) vp9DecodeTileCol(tileCol, tileCols int) int {
+	if d != nil && d.opts.InvertTileDecodeOrder {
+		return tileCols - tileCol - 1
+	}
+	return tileCol
 }
 
 func vp9DecoderTileOffset(idx, mis, log2 int) int {

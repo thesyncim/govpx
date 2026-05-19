@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"encoding/binary"
-
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -268,7 +266,8 @@ func (d *VP9Decoder) vp9DecoderTileThreadingEnabled(
 	hdr *vp9dec.UncompressedHeader, tileRows, tileCols int,
 ) bool {
 	return d != nil && d.vp9TilePool != nil && hdr != nil &&
-		tileRows == 1 && tileCols > 1 && !d.vp9TileFilterActive()
+		tileRows == 1 && tileCols > 1 && !d.vp9TileFilterActive() &&
+		!d.opts.InvertTileDecodeOrder
 }
 
 func (d *VP9Decoder) parseVP9IntraModeTilesThreaded(tileData []byte,
@@ -314,54 +313,13 @@ func (d *VP9Decoder) parseVP9InterModeTilesThreaded(tileData []byte,
 func (p *vp9DecoderTileWorkerPool) prepareTileDescs(tileData []byte,
 	hdr vp9dec.UncompressedHeader, miRows, miCols int,
 ) ([]vp9DecoderTileDesc, error) {
-	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
-	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
-	nTiles := tileRows * tileCols
-	if cap(p.tileDescs) < nTiles {
-		p.tileDescs = make([]vp9DecoderTileDesc, nTiles)
-	} else {
-		p.tileDescs = p.tileDescs[:nTiles]
+	descs, err := prepareVP9DecoderTileDescs(p.tileDescs, tileData, hdr,
+		miRows, miCols)
+	if err != nil {
+		return nil, err
 	}
-	offset := 0
-	for tileRow := range tileRows {
-		for tileCol := range tileCols {
-			idx := tileRow*tileCols + tileCol
-			isLast := idx == nTiles-1
-			tileSize := len(tileData) - offset
-			if !isLast {
-				if len(tileData)-offset < 4 {
-					return nil, ErrInvalidVP9Data
-				}
-				size := binary.BigEndian.Uint32(tileData[offset : offset+4])
-				offset += 4
-				if size > uint32(len(tileData)-offset) {
-					return nil, ErrInvalidVP9Data
-				}
-				tileSize = int(size)
-			}
-			if tileSize < 0 || offset+tileSize > len(tileData) {
-				return nil, ErrInvalidVP9Data
-			}
-			p.tileDescs[idx] = vp9DecoderTileDesc{
-				data: tileData[offset : offset+tileSize],
-				tile: vp9dec.TileBounds{
-					MiRowStart: vp9DecoderTileOffset(tileRow, miRows,
-						hdr.Tile.Log2TileRows),
-					MiRowEnd: vp9DecoderTileOffset(tileRow+1, miRows,
-						hdr.Tile.Log2TileRows),
-					MiColStart: vp9DecoderTileOffset(tileCol, miCols,
-						hdr.Tile.Log2TileCols),
-					MiColEnd: vp9DecoderTileOffset(tileCol+1, miCols,
-						hdr.Tile.Log2TileCols),
-				},
-			}
-			offset += tileSize
-		}
-	}
-	if offset != len(tileData) {
-		return nil, ErrInvalidVP9Data
-	}
-	return p.tileDescs, nil
+	p.tileDescs = descs
+	return descs, nil
 }
 
 func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
