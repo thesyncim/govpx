@@ -12,12 +12,14 @@ import (
 	"testing"
 )
 
-// vp9RuntimeControlsSeedsDeferred lists VP9 runtime-control fuzz seeds whose
-// strict byte parity is gated behind libvpx VP9 features govpx has not yet
-// ported. Mirrors VP8's longFixtureSeedsDeferred and
-// vp9LongFixtureSeedsDeferred convention so the fuzz gate stays green; each
-// entry cites the libvpx file:line that drives the divergence so a follow-up
-// port has a concrete starting point.
+// vp9RuntimeControlsSeedsDeferred lists the historical VP9 runtime-control
+// fuzz seeds that opened as byte-parity gaps against libvpx. Most entries are
+// still gated behind VP9 features govpx has not yet ported; the speed-8
+// entries that now byte-match live in vp9RuntimeControlsRegressionSeeds below
+// and are exempted by vp9RuntimeControlsSeedDeferred. Mirrors VP8's
+// longFixtureSeedsDeferred and vp9LongFixtureSeedsDeferred convention so the
+// fuzz gate stays green; each entry cites the libvpx file:line that drives the
+// divergence so a follow-up port has a concrete starting point.
 //
 // Two equivalence classes are listed: the 6 baseline {dimBucket, framesBucket,
 // cpuBucket, kfPos, refPos, action1, ...} seeds and additional short-byte
@@ -576,16 +578,17 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{0x38}, // regression_vp9_runtime_controls_55cc57e8 — cpu=0 keyframe cost_coeffs lane
 }
 
-// vp9RuntimeControlsSeedsClosed is the subset of the historical deferred list
-// that now byte-matches libvpx with no env flags. Keep it in the regular fuzz
-// seed corpus while the remaining cpu=0/-3 and speed-4 seeds stay deferred.
-var vp9RuntimeControlsSeedsClosed = [][]byte{
+// vp9RuntimeControlsRegressionSeeds is the subset of the historical deferred
+// list that now byte-matches libvpx with no env flags. Keep it in the regular
+// fuzz seed corpus while the remaining cpu=0/-3 and speed-4 seeds stay
+// deferred.
+var vp9RuntimeControlsRegressionSeeds = [][]byte{
 	{1, 1, 2, 0, 3, 1, 1, 0},
 	{0x32},
 }
 
 func vp9RuntimeControlsSeedDeferred(data []byte) bool {
-	for _, seed := range vp9RuntimeControlsSeedsClosed {
+	for _, seed := range vp9RuntimeControlsRegressionSeeds {
 		if bytes.Equal(data, seed) {
 			return false
 		}
@@ -625,7 +628,7 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 		{0, 2, 0, 2, 0, 0, 0, 0},
 		{1, 2, 1, 0, 4, 1, 0, 1},
 	}
-	seen := make(map[string]struct{}, len(seeds)+len(vp9RuntimeControlsSeedsClosed))
+	seen := make(map[string]struct{}, len(seeds)+len(vp9RuntimeControlsRegressionSeeds))
 	addSeed := func(seed []byte) {
 		key := string(seed)
 		if _, ok := seen[key]; ok {
@@ -637,7 +640,7 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 	for _, seed := range seeds {
 		addSeed(seed)
 	}
-	for _, seed := range vp9RuntimeControlsSeedsClosed {
+	for _, seed := range vp9RuntimeControlsRegressionSeeds {
 		addSeed(seed)
 	}
 

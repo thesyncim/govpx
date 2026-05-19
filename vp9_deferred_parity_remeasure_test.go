@@ -107,8 +107,58 @@ func TestVP9RefControlRegressionSeedsByteParity(t *testing.T) {
 	}
 }
 
+// TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity asserts byte parity
+// for the RuntimeControls speed-8 nonrd entries that graduated out of the
+// historical deferred list. The remaining cpu=0/-3 and speed-4 entries stay
+// covered by TestVP9DeferredSeedsRemeasureRuntimeControls as non-asserting
+// diagnostics.
+func TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to verify VP9 RuntimeControls speed-8 regression seeds")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	pass, fail := 0, 0
+	aggSizeDelta := 0
+	for idx, seed := range vp9RuntimeControlsRegressionSeeds {
+		sum := sha256.Sum256(seed)
+		label := fmt.Sprintf("runtimectrl-speed8-#%d-%s", idx, hex.EncodeToString(sum[:4]))
+		tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
+		if tc.opts.CpuUsed != -8 {
+			t.Fatalf("%s materialised cpu=%d, want speed-8 nonrd cpu=-8", label, tc.opts.CpuUsed)
+		}
+		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
+		want := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources,
+			tc.flags, tc.extraArgs)
+		seedDelta := seedSizeDelta(got, want)
+		aggSizeDelta += seedDelta
+		if seedByteIdentical(got, want) {
+			t.Logf("%s PASS (frames=%d size_delta=%+d)", label, len(got), seedDelta)
+			pass++
+			continue
+		}
+		fail++
+		firstMis := firstVP9MismatchingFrame(got, want)
+		if firstMis >= 0 && firstMis < len(got) && firstMis < len(want) {
+			t.Errorf("%s FAIL: first_mismatch_frame=%d got_len=%d want_len=%d first_byte_diff=%d size_delta=%+d",
+				label, firstMis, len(got[firstMis]), len(want[firstMis]),
+				firstVP9PacketDiffForTest(got[firstMis], want[firstMis]), seedDelta)
+		} else {
+			t.Errorf("%s FAIL: frame_count_mismatch got=%d want=%d size_delta=%+d",
+				label, len(got), len(want), seedDelta)
+		}
+	}
+	t.Logf("RuntimeControls speed-8 regression corpus: PASS=%d FAIL=%d total=%d agg_size_delta=%+d avg_per_seed=%+d",
+		pass, fail, len(vp9RuntimeControlsRegressionSeeds), aggSizeDelta,
+		aggSizeDelta/max(1, len(vp9RuntimeControlsRegressionSeeds)))
+	if fail != 0 || aggSizeDelta != 0 {
+		t.Fatalf("RuntimeControls speed-8 regression corpus lost byte parity: fail=%d agg_size_delta=%+d",
+			fail, aggSizeDelta)
+	}
+}
+
 // TestVP9DeferredSeedsRemeasureRuntimeControls is the sibling probe for the
-// vp9RuntimeControlsSeedsDeferred set.
+// remaining vp9RuntimeControlsSeedsDeferred set.
 //
 // Measurement (task #150, this commit — set_ext_overrides port) at the
 // default gate (no opt-in):
@@ -387,6 +437,9 @@ func remeasureVP9RuntimeControlsSeedLane(t *testing.T, includeCPU func(int8) boo
 	aggSizeDelta := 0
 	measured := 0
 	for idx, seed := range vp9RuntimeControlsSeedsDeferred {
+		if !vp9RuntimeControlsSeedDeferred(seed) {
+			continue
+		}
 		sum := sha256.Sum256(seed)
 		label := fmt.Sprintf("runtimectrl-#%d-%s", idx, hex.EncodeToString(sum[:4]))
 		tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
