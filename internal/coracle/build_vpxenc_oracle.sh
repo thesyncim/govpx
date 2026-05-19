@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map"
 jobs=${JOBS:-}
 
 # ----------------------------------------------------------------------------
@@ -3232,6 +3232,25 @@ GOVPX_PICKLPF_PY
 fi
 
 if [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
+	# Path-prefix maps (task #281). The current libvpx v1.16.0 VP8 toolchain
+	# does not surface __FILE__/__BASE_FILE__ strings in the linked
+	# vpxenc-oracle binary at -O3 (CHECK_MEM_ERROR format strings are
+	# present in source but get dead-coded out of the encoder-only TUs that
+	# link into vpxenc, and assert() bodies are stripped by --disable-debug
+	# via NDEBUG). Verified by `strings vpxenc-oracle | grep -E '\.c:'`
+	# returning empty across two builds from different parent directories.
+	#
+	# We still pass -ffile-prefix-map / -fdebug-prefix-map / -fmacro-prefix-map
+	# as defense-in-depth so any future upstream libvpx change that newly
+	# introduces a __FILE__-stamped string (or a debug-info path that the
+	# Apple linker is willing to embed under -O3) cannot silently
+	# reintroduce build-path drift into the oracle hash. Apple clang 21
+	# supports all three flags as no-ops when the path doesn't appear in
+	# the input. Verified to preserve the canonical task #264 oracle SHA
+	# 9fa1dc28403b0268ff8f5cd7ea3a4c0ead8a21761b951af3c6aa9a405481bffe on
+	# arm64-darwin (M-series) hosts across builds in /tmp, /private/tmp,
+	# and deeply nested paths.
+	prefix_map_cflags="-ffile-prefix-map=$src_dir=govpx-oracle -fdebug-prefix-map=$src_dir=govpx-oracle -fmacro-prefix-map=$src_dir=govpx-oracle"
 	(
 		cd "$src_dir"
 		./configure \
@@ -3247,7 +3266,8 @@ if [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
 			--enable-vp8_decoder \
 			--enable-postproc \
 			--enable-error-concealment \
-			--enable-vp8
+			--enable-vp8 \
+			--extra-cflags="$prefix_map_cflags"
 		make -j"$jobs"
 	)
 	printf '%s\n' "$want_config" > "$config_stamp"
