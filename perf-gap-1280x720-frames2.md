@@ -88,7 +88,7 @@ I did not reproduce an absolute wall-clock collapse in this checkout. The 2-fram
 Phase-timing command, with libvpx comparison and quality decode disabled so the numbers isolate govpx encode:
 
 ```sh
-go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key observed fields:
@@ -125,7 +125,7 @@ Key observed fields:
 For comparison, the 1-frame phase-timing run:
 
 ```sh
-go run ./ -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./ -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key observed fields:
@@ -150,7 +150,7 @@ Key observed fields:
 CPU profile command:
 
 ```sh
-go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -cpuprofile /tmp/govpx-1280x720-f2.cpu
+go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -cpuprofile /tmp/govpx-1280x720-f2.cpu
 go tool pprof -top /tmp/govpx-1280x720-f2.cpu
 ```
 

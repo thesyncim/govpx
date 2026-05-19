@@ -15,7 +15,6 @@ import (
 func TestComputeBDRateSmoke(t *testing.T) {
 	t.Parallel()
 	res, err := ComputeBDRate(t, BDRateOptions{
-		Codec:  "vp9",
 		Width:  64,
 		Height: 64,
 		FPS:    30,

@@ -40,7 +40,7 @@ go version go1.26.3 darwin/arm64
 git rev-parse --short HEAD: d5c5f47
 ```
 
-Focused govpx-only measurements used `-auto-libvpx=false -skip-quality
+Focused govpx-only measurements used `-auto-libvpx=false -encode-only
 -phase-timing -format json` so the counters describe the encoder path rather
 than libvpx comparison and quality decode work.
 

@@ -99,7 +99,7 @@ Focused govpx-only phase timing, with libvpx comparison and quality decode
 disabled:
 
 ```sh
-go run ./cmd/govpx-bench -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./cmd/govpx-bench -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key fields:
@@ -123,7 +123,7 @@ Key fields:
 ```
 
 ```sh
-go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key fields:
@@ -151,7 +151,7 @@ The two-frame CPU profile is too short for a stable flat profile, but it still
 shows one keyframe attempt and one inter-frame attempt:
 
 ```sh
-go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -cpuprofile /tmp/govpx-realtime-720p-f2-20260514.cpu
+go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -cpuprofile /tmp/govpx-realtime-720p-f2-20260514.cpu
 go tool pprof -top /tmp/govpx-realtime-720p-f2-20260514.cpu
 ```
 

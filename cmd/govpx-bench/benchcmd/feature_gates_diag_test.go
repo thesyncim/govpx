@@ -164,7 +164,6 @@ func TestVP9FeatureBDRateDiagnostics(t *testing.T) {
 	for _, sc := range scenarios {
 		gen := FeatureGateGenerator(sc.content, sc.width, sc.height)
 		res, err := ComputeBDRate(t, BDRateOptions{
-			Codec:                "vp9",
 			Width:                sc.width,
 			Height:               sc.height,
 			FPS:                  30,

@@ -72,7 +72,7 @@ real: 0.32 s
 Encode-only phase timings, with libvpx and quality decode disabled:
 
 ```sh
-go run ./cmd/govpx-bench -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./cmd/govpx-bench -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key fields:
@@ -95,7 +95,7 @@ Key fields:
 ```
 
 ```sh
-go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key fields:
@@ -129,7 +129,7 @@ The phase counters are the clearest evidence: the one-frame run has no inter wor
 For the exact two-frame encode-only profile:
 
 ```sh
-go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -cpuprofile /tmp/govpx-720p-f2.cpu
+go run ./cmd/govpx-bench -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -cpuprofile /tmp/govpx-720p-f2.cpu
 go tool pprof -top /tmp/govpx-720p-f2.cpu
 ```
 
@@ -145,7 +145,7 @@ The profile was short, with only 80 ms of samples, but it still showed both path
 To get a less noisy view of where steady-state inter time goes, I also profiled 20 frames with the same options:
 
 ```sh
-go run ./cmd/govpx-bench -width 1280 -height 720 -frames 20 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -cpuprofile /tmp/govpx-720p-f20.cpu
+go run ./cmd/govpx-bench -width 1280 -height 720 -frames 20 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -cpuprofile /tmp/govpx-720p-f20.cpu
 go tool pprof -top /tmp/govpx-720p-f20.cpu
 ```
 
@@ -172,7 +172,7 @@ Benchmark harness:
 - `cmd/govpx-bench/benchcmd/encode.go:53` does a warmup encode pass.
 - `cmd/govpx-bench/benchcmd/encode.go:59` resets the encoder.
 - `cmd/govpx-bench/benchcmd/encode.go:63` starts the measured encode pass.
-- `cmd/govpx-bench/benchcmd/encode.go:107` optionally runs quality decode/metrics after encode. `-skip-quality` removes this from focused timings.
+- `cmd/govpx-bench/benchcmd/encode.go:107` optionally runs quality decode/metrics after encode. `-encode-only` removes this from focused timings.
 
 Encoder path:
 

@@ -146,7 +146,6 @@ func TestVP9FeatureBDRateAltRef(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:                "vp9",
 		Width:                64,
 		Height:               64,
 		FPS:                  30,
@@ -189,7 +188,6 @@ func TestVP9FeatureBDRateARNR(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.TextureNoise, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:                "vp9",
 		Width:                64,
 		Height:               64,
 		FPS:                  30,
@@ -243,7 +241,6 @@ func TestVP9FeatureBDRateTPL(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.SharpEdgesContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:                "vp9",
 		Width:                64,
 		Height:               64,
 		FPS:                  30,
@@ -291,7 +288,6 @@ func TestVP9FeatureBDRateVarianceAQ(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.VarianceHeavyContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:                "vp9",
 		Width:                64,
 		Height:               64,
 		FPS:                  30,
@@ -331,7 +327,6 @@ func TestVP9FeatureBDRateEquator360AQ(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:           "vp9",
 		Width:           64,
 		Height:          64,
 		FPS:             30,
@@ -370,7 +365,6 @@ func TestVP9FeatureBDRatePerceptualAQ(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.PerceptualContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:           "vp9",
 		Width:           64,
 		Height:          64,
 		FPS:             30,
@@ -405,7 +399,6 @@ func TestVP9FeatureBDRateAltRefAQ(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:                "vp9",
 		Width:                64,
 		Height:               64,
 		FPS:                  30,
@@ -460,7 +453,6 @@ func TestVP9FeatureBDRateCyclicRefresh(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:                "vp9",
 		Width:                64,
 		Height:               64,
 		FPS:                  30,
@@ -530,7 +522,6 @@ func TestVP9FeatureBDRateLoopFilter(t *testing.T) {
 	}
 	gen := benchcmd.FeatureGateGenerator(benchcmd.TextureNoise, 64, 64)
 	res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
-		Codec:                "vp9",
 		Width:                64,
 		Height:               64,
 		FPS:                  30,

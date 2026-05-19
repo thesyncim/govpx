@@ -123,7 +123,7 @@ To isolate govpx encode work from reference comparison and quality decode:
 
 ```sh
 cd /Users/thesyncim/GolandProjects/govpx/cmd/govpx-bench
-go run ./ -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./ -width 1280 -height 720 -frames 1 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key fields:
@@ -157,7 +157,7 @@ Command:
 
 ```sh
 cd /Users/thesyncim/GolandProjects/govpx/cmd/govpx-bench
-go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -phase-timing -format json
+go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -phase-timing -format json
 ```
 
 Key fields:
@@ -200,7 +200,7 @@ Short two-frame profile:
 
 ```sh
 cd /Users/thesyncim/GolandProjects/govpx/cmd/govpx-bench
-go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -cpuprofile /tmp/govpx-1280x720-f2-current.cpu
+go run ./ -width 1280 -height 720 -frames 2 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -cpuprofile /tmp/govpx-1280x720-f2-current.cpu
 go tool pprof -top /tmp/govpx-1280x720-f2-current.cpu
 ```
 
@@ -220,7 +220,7 @@ inter-frame view:
 
 ```sh
 cd /Users/thesyncim/GolandProjects/govpx/cmd/govpx-bench
-go run ./ -width 1280 -height 720 -frames 20 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -skip-quality -cpuprofile /tmp/govpx-1280x720-f20-current.cpu
+go run ./ -width 1280 -height 720 -frames 20 -fps 30 -bitrate 2000 -mode realtime -auto-libvpx=false -encode-only -cpuprofile /tmp/govpx-1280x720-f20-current.cpu
 go tool pprof -top /tmp/govpx-1280x720-f20-current.cpu
 ```
 
@@ -245,7 +245,7 @@ Benchmark harness:
 - `cmd/govpx-bench/benchcmd/encode.go:53` runs a warmup encode over all frames.
 - `cmd/govpx-bench/benchcmd/encode.go:59` resets the encoder before measurement.
 - `cmd/govpx-bench/benchcmd/encode.go:63` starts the measured encode loop.
-- `cmd/govpx-bench/benchcmd/encode.go:107` runs quality decode/metrics unless `-skip-quality` is set.
+- `cmd/govpx-bench/benchcmd/encode.go:107` runs quality decode/metrics unless `-encode-only` is set.
 
 Encoder path:
 

@@ -272,26 +272,22 @@ func TestMeasuredEncodeQualityMetricsUsesMeasuredPackets(t *testing.T) {
 	}
 }
 
-func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
-	for _, flagName := range []string{"-encode-only", "-skip-quality"} {
-		t.Run(flagName, func(t *testing.T) {
-			fs := flag.NewFlagSet("bench", flag.ContinueOnError)
-			cfg := benchConfig{}
-			opts := defaultBenchCLIOptions()
-			registerBenchFlags(fs, &cfg, &opts)
-			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-phase-timing", "-suite=quick", "-suite-runs=2", "-auto-libvpx=false"}); err != nil {
-				t.Fatalf("Parse returned error: %v", err)
-			}
-			if !cfg.SkipQuality || !cfg.PhaseTiming {
-				t.Fatalf("SkipQuality/PhaseTiming = %v/%v, want true/true for %s", cfg.SkipQuality, cfg.PhaseTiming, flagName)
-			}
-			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 || cfg.CpuUsed != -4 {
-				t.Fatalf("parsed config = %dx%d frames=%d cpu=%d, want 32x24 frames=7 cpu=-4", cfg.Width, cfg.Height, cfg.Frames, cfg.CpuUsed)
-			}
-			if opts.format != "json" || opts.suite != "quick" || opts.suiteRuns != 2 || opts.autoCompare {
-				t.Fatalf("opts = %+v, want format=json suite=quick suiteRuns=2 autoCompare=false", opts)
-			}
-		})
+func TestRegisterBenchFlagsEncodeOnly(t *testing.T) {
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	cfg := benchConfig{}
+	opts := defaultBenchCLIOptions()
+	registerBenchFlags(fs, &cfg, &opts)
+	if err := fs.Parse([]string{"-encode-only", "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-phase-timing", "-suite=quick", "-suite-runs=2", "-auto-libvpx=false"}); err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if !cfg.SkipQuality || !cfg.PhaseTiming {
+		t.Fatalf("SkipQuality/PhaseTiming = %v/%v, want true/true", cfg.SkipQuality, cfg.PhaseTiming)
+	}
+	if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 || cfg.CpuUsed != -4 {
+		t.Fatalf("parsed config = %dx%d frames=%d cpu=%d, want 32x24 frames=7 cpu=-4", cfg.Width, cfg.Height, cfg.Frames, cfg.CpuUsed)
+	}
+	if opts.format != "json" || opts.suite != "quick" || opts.suiteRuns != 2 || opts.autoCompare {
+		t.Fatalf("opts = %+v, want format=json suite=quick suiteRuns=2 autoCompare=false", opts)
 	}
 }
 
