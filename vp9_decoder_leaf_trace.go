@@ -7,6 +7,7 @@ type vp9DecodedLeafTrace struct {
 	MICol         int
 	BSize         int
 	Mode          int
+	UvMode        int
 	Ref0          int
 	Ref1          int
 	Mv0Row        int

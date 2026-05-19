@@ -9088,6 +9088,8 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 		}
 	}
 	skippable = true
+	useTxDomainDistortion := e.vp9KeyframeUseTransformDomainDistortion(key,
+		miRows, miCols, miRow, miCol, bsize)
 	for rr := 0; rr < max4x4H; rr += step {
 		for cc := 0; cc < max4x4W; cc += step {
 			coeffs := e.coefScratch[:maxEob]
@@ -9111,20 +9113,25 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
 				qindex, coeffs, qcoeffs)
 
-			// libvpx vp9_rdopt.c:689 — dist = pixel_sse(src, recon) * 16.
-			// govpx pulls the dst rect post-encode (after the inverse
-			// transform writes recon back) via vp9PlaneRectSSEClamped.
-			bs := 4 << uint(txSize)
-			txX := baseX + cc*4
-			txY := baseY + rr*4
-			dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
-				srcH, planeData, stride, txX, txY, bs, bs)
-			if !distOK {
-				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
-					restoreW, restoreH, saved)
-				return 0, 0, false, false
+			if useTxDomainDistortion && hasResidue {
+				distortion += vp9TransformBlockError(e.txCoeffScratch[:maxEob],
+					e.dqCoeffScratch[:maxEob], txSize)
+			} else {
+				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,recon)*16
+				// when transform-domain distortion is disabled, or when eob=0
+				// makes dist_block fall through to the pixel path.
+				bs := 4 << uint(txSize)
+				txX := baseX + cc*4
+				txY := baseY + rr*4
+				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
+					srcH, planeData, stride, txX, txY, bs, bs)
+				if !distOK {
+					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+						restoreW, restoreH, saved)
+					return 0, 0, false, false
+				}
+				distortion += dist * 16
 			}
-			distortion += dist * 16
 
 			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
 			// combine_entropy_contexts(t_above[c], t_left[r]).
@@ -9172,13 +9179,49 @@ func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
 }
 
 func vp9TransformBlockErrorShifted(coeffs, dqcoeffs []int16) uint64 {
+	return vp9TransformBlockError(coeffs, dqcoeffs, common.Tx4x4)
+}
+
+func vp9TransformBlockError(coeffs, dqcoeffs []int16, txSize common.TxSize) uint64 {
 	n := min(len(coeffs), len(dqcoeffs))
 	var err uint64
 	for i := range n {
 		diff := int64(coeffs[i]) - int64(dqcoeffs[i])
 		err += uint64(diff * diff)
 	}
-	return err >> 2
+	if txSize != common.Tx32x32 {
+		err >>= 2
+	}
+	return err
+}
+
+func (e *VP9Encoder) vp9KeyframeUseTransformDomainDistortion(key *vp9KeyframeEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) bool {
+	if e == nil || e.sf.AllowTxfmDomainDistortion == 0 {
+		return false
+	}
+	if e.sf.TxDomainThresh <= 0 {
+		return true
+	}
+	if key == nil || key.img == nil || bsize >= common.BlockSizes {
+		return false
+	}
+	src, stride, width, height := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || stride <= 0 || width <= 0 || height <= 0 {
+		return false
+	}
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
+		return false
+	}
+	variance := vp9BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
+	scaled := float64(variance*256) /
+		float64(uint64(1)<<uint(common.NumPelsLog2Lookup[bsize]))
+	return math.Log(scaled+1.0) >= e.sf.TxDomainThresh
 }
 
 func vp9RDCost(rdmult, rddiv, rate int, distortion uint64) uint64 {
@@ -9462,12 +9505,15 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 	best := vp9KeyframeIntraRD{mode: common.DcPred}
 	bestRD := uint64(^uint64(0))
 	bestValid := false
+	useTxDomainDistortion := e.vp9KeyframeUseTransformDomainDistortion(key,
+		miRows, miCols, miRow, miCol, bsize)
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if uvMask&(1<<uint(mode)) == 0 {
 			continue
 		}
 		coeffRate, distortion, skippable, ok := e.scoreVP9KeyframeUvModeTransformRD(
-			key, mode, uvBsize, tile, miRows, miCols, miRow, miCol, mi)
+			key, mode, uvBsize, tile, miRows, miCols, miRow, miCol, mi,
+			useTxDomainDistortion)
 		if !ok {
 			continue
 		}
@@ -9523,6 +9569,7 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 func (e *VP9Encoder) scoreVP9KeyframeUvModeTransformRD(key *vp9KeyframeEncodeState,
 	mode common.PredictionMode, bsize common.BlockSize, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
+	useTxDomainDistortion bool,
 ) (coeffRate int, distortion uint64, skippable bool, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
 		return 0, 0, false, false
@@ -9531,7 +9578,8 @@ func (e *VP9Encoder) scoreVP9KeyframeUvModeTransformRD(key *vp9KeyframeEncodeSta
 	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
 		pd := &e.planes[plane]
 		pnRate, pnDist, pnSkip, planeOK := e.scoreVP9KeyframeUvPlaneRD(
-			key, pd, mode, plane, bsize, tile, miRows, miCols, miRow, miCol, mi)
+			key, pd, mode, plane, bsize, tile, miRows, miCols, miRow, miCol, mi,
+			useTxDomainDistortion)
 		if !planeOK {
 			// libvpx super_block_uvrd: pnrate == INT_MAX -> is_cost_valid = 0.
 			return 0, 0, false, false
@@ -9555,6 +9603,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode, plane int,
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
+	useTxDomainDistortion bool,
 ) (rate int, distortion uint64, skippable bool, ok bool) {
 	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 	if planeBsize >= common.BlockSizes {
@@ -9654,18 +9703,25 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
 				qindex, coeffs, qcoeffs)
 
-			// libvpx vp9_rdopt.c:689 — dist = pixel_sse(src, recon) * 16.
-			bs := 4 << uint(uvTxSize)
-			txX := baseX + cc*4
-			txY := baseY + rr*4
-			dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
-				srcH, planeData, stride, txX, txY, bs, bs)
-			if !distOK {
-				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
-					restoreW, restoreH, saved)
-				return 0, 0, false, false
+			if useTxDomainDistortion && hasResidue {
+				distortion += vp9TransformBlockError(e.txCoeffScratch[:maxEob],
+					e.dqCoeffScratch[:maxEob], uvTxSize)
+			} else {
+				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,recon)*16
+				// when transform-domain distortion is disabled, or when eob=0
+				// makes dist_block fall through to the pixel path.
+				bs := 4 << uint(uvTxSize)
+				txX := baseX + cc*4
+				txY := baseY + rr*4
+				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
+					srcH, planeData, stride, txX, txY, bs, bs)
+				if !distOK {
+					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+						restoreW, restoreH, saved)
+					return 0, 0, false, false
+				}
+				distortion += dist * 16
 			}
-			distortion += dist * 16
 
 			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
 			// combine_entropy_contexts(t_above[c], t_left[r]).
@@ -9952,6 +10008,8 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 	prevValid := false
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
+	useTxDomainDistortion := e.vp9KeyframeUseTransformDomainDistortion(key,
+		miRows, miCols, miRow, miCol, bsize)
 	for n := startTx; n >= endTx; n-- {
 		tx := common.TxSize(n)
 		// libvpx vp9_rdopt.c:1004-1009 — restore recon and run
@@ -9979,9 +10037,10 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 					coeffs[i] = 0
 					qcoeffs[i] = 0
 				}
-				if !e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode, tx, tile,
+				hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode, tx, tile,
 					miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
-					qindex, coeffs, qcoeffs) {
+					qindex, coeffs, qcoeffs)
+				if !hasResidue {
 					// No residue: the prediction matched src exactly (or
 					// quantization zeroed everything). libvpx's
 					// block_rd_txfm still computes dist via pixel_sse —
@@ -9989,15 +10048,22 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 					// zero-coeff EOB. Mirror by leaving rate/dist 0 for
 					// this 4x4 step.
 				}
-				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,dst)*16.
-				txX := baseX + cc*4
-				txY := baseY + rr*4
-				if dist, ok := vp9PlaneRectSSEClamped(src, srcStride, srcW,
-					srcH, planeData, stride, txX, txY, bs, bs); ok {
-					distortion += dist * 16
+				if useTxDomainDistortion && hasResidue {
+					distortion += vp9TransformBlockError(e.txCoeffScratch[:coeffBlockSlots],
+						e.dqCoeffScratch[:coeffBlockSlots], tx)
 				} else {
-					valid = false
-					break
+					// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,dst)*16
+					// when transform-domain distortion is disabled, or when eob=0
+					// makes dist_block fall through to the pixel path.
+					txX := baseX + cc*4
+					txY := baseY + rr*4
+					if dist, ok := vp9PlaneRectSSEClamped(src, srcStride, srcW,
+						srcH, planeData, stride, txX, txY, bs, bs); ok {
+						distortion += dist * 16
+					} else {
+						valid = false
+						break
+					}
 				}
 				// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
 				// cost_coeffs(...). govpx uses

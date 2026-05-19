@@ -1427,6 +1427,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	trace := vp9DecodedLeafTrace{}
 	if traceActive {
 		trace = vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi)
+		trace.UvMode = int(uvMode)
 	}
 	if isInter != 0 && !d.unsupportedReconstruct {
 		if !d.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize) {

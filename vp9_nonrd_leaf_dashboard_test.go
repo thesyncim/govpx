@@ -268,6 +268,9 @@ func vp9LeafTraceFieldDiffs(got, want vp9DecodedLeafTrace) []string {
 	if got.Mode != want.Mode {
 		fields = append(fields, fmt.Sprintf("mode:%d/%d", got.Mode, want.Mode))
 	}
+	if got.UvMode != want.UvMode {
+		fields = append(fields, fmt.Sprintf("uv:%d/%d", got.UvMode, want.UvMode))
+	}
 	if got.Ref0 != want.Ref0 || got.Ref1 != want.Ref1 {
 		fields = append(fields, fmt.Sprintf("ref:(%d,%d)/(%d,%d)",
 			got.Ref0, got.Ref1, want.Ref0, want.Ref1))
@@ -310,8 +313,8 @@ func vp9LeafTraceTotals(rows []vp9DecodedLeafTrace) (tokens, eob, qcoeff, qabs i
 }
 
 func vp9LeafTraceBrief(row vp9DecodedLeafTrace) string {
-	return fmt.Sprintf("bsize=%d mode=%d ref=(%d,%d) mv=(%d,%d)(%d,%d) filter=%d tx=%d skip=%d txblocks=%d eob=%d tokens=%d qcoeff=%d qabs=%d",
-		row.BSize, row.Mode, row.Ref0, row.Ref1, row.Mv0Row, row.Mv0Col,
+	return fmt.Sprintf("bsize=%d mode=%d uv=%d ref=(%d,%d) mv=(%d,%d)(%d,%d) filter=%d tx=%d skip=%d txblocks=%d eob=%d tokens=%d qcoeff=%d qabs=%d",
+		row.BSize, row.Mode, row.UvMode, row.Ref0, row.Ref1, row.Mv0Row, row.Mv0Col,
 		row.Mv1Row, row.Mv1Col, row.InterpFilter, row.TxSize, row.Skip,
 		row.TxBlockCount, row.EOBTotal, row.TokenCount, row.QCoeffNonZero,
 		row.QCoeffAbsSum)
