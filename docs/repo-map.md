@@ -1,7 +1,7 @@
 # govpx Repo Map
 
 Generated for Wave 0 of `docs/repo-tidy-plan.md` on 2026-05-19.
-Last updated for VP9 common border ownership moves on 2026-05-19.
+Last updated for hot-path Go-shape and allocation guard work on 2026-05-19.
 
 This document is the coordination map for splitting the current flat root
 package into a public facade plus codec-owned internal packages. It records the
@@ -268,10 +268,11 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
 | 4.5 | Boundary/dedupe/readability audit | `docs/repo-map.md`, `docs/architecture.md`, hard-to-read codec files, duplicated helper candidates | Repeat after move batches: verify VP8-only and VP9-only code is package-owned, shared helpers are genuinely mechanical, and hard code has pinned upstream anchors or concise invariants |
-| 4.75 | Go idiom and hot-path shape audit | hot encode/decode files, public facade/options files, allocation tests, benchmark docs | Current branch: six read-only scouts are mapping method-shape, inlining, escape-analysis, allocation, and benchmark evidence packets before any style-driven rewrite lands |
+| 4.75 | Go idiom and hot-path shape audit | hot encode/decode files, public facade/options files, allocation tests, benchmark docs | Current branch: VP9 full-pel MV limit operations and VP8 inter coefficient token row bookkeeping now live as methods on their concrete state owners; source-buffer copy/pad has explicit zero-allocation tests; DSP/protocol helpers remain free functions unless measurement says otherwise |
 | 5 | API cleanup | root public files, examples, docs | Current branch: removed the unreleased `RealtimeTarget.AllowFrameDrop` fallback and private legacy wrapper call shapes; continue removing stale public/internal compatibility aliases before release |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |
+| 6.75 | Dead code sweep | stale private helpers, old public names, compatibility wrappers, diagnostic leftovers | Triage before deletion; keep build-tagged/oracle/generated/fuzz/public-surface code only with a documented reason |
 | 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `UPSTREAM.md`, `plan.md` links | Current branch: README links to focused architecture/status/validation docs; parity notes stay out of the README |
 | 8 | Final sweep | stale shims, examples, `.gitignore`, `docs/repo-map.md` | Full production verification |
 

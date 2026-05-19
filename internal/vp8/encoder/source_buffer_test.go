@@ -77,6 +77,45 @@ func TestCopySourceToFrameBufferActiveLeavesInactiveMacroblocks(t *testing.T) {
 	}
 }
 
+func TestCopySourceToFrameBufferAllocatesZero(t *testing.T) {
+	const width, height = 64, 48
+	src := testSourceImage(width, height, 10, 80, 160)
+	var dst vp8common.FrameBuffer
+	if err := dst.Resize(width, height, 32, 32); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	CopySourceToFrameBuffer(&dst, src)
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		CopySourceToFrameBuffer(&dst, src)
+	})
+	if allocs != 0 {
+		t.Fatalf("CopySourceToFrameBuffer allocs = %v, want 0", allocs)
+	}
+}
+
+func TestCopySourceToFrameBufferActiveAllocatesZero(t *testing.T) {
+	const width, height = 64, 48
+	src := testSourceImage(width, height, 200, 100, 50)
+	var dst vp8common.FrameBuffer
+	if err := dst.Resize(width, height, 32, 32); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	activeMap := []uint8{
+		1, 0, 1, 1,
+		0, 1, 0, 1,
+		1, 1, 0, 0,
+	}
+	CopySourceToFrameBufferActive(&dst, src, activeMap, 3, 4)
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		CopySourceToFrameBufferActive(&dst, src, activeMap, 3, 4)
+	})
+	if allocs != 0 {
+		t.Fatalf("CopySourceToFrameBufferActive allocs = %v, want 0", allocs)
+	}
+}
+
 func testSourceImage(width int, height int, yBase byte, uBase byte, vBase byte) SourceImage {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1

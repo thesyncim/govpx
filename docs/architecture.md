@@ -96,6 +96,11 @@ RTP flow:
   binaries.
 - Root must not grow new codec algorithms while implementation moves are in
   progress.
+- Prefer methods when an existing concrete state object owns the operation
+  being performed, such as buffer lifetime, row bookkeeping, or motion-search
+  bounds. Keep pure arithmetic, DSP kernels, table lookups, and bitstream
+  syntax emitters as free functions unless inline/escape evidence and
+  benchmarks justify a receiver.
 - Hard-to-read codec code should carry either a short local invariant comment
   or a nearby docs link. Facts copied from libvpx must point at the pinned
   source file or line range used for the port.

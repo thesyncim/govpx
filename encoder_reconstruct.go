@@ -542,7 +542,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	// downstream invalidates the cache.
 	vp8enc.ResetInterCoefficientTokenCounts(&e.interCoefTokenCounts)
 	e.interCoefTokenCountsValid = false
-	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, rows, required)
+	e.interCoefTokenRecords.Reset(rows, required)
 	e.interCoefTokenRecordsValid = false
 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
@@ -574,7 +574,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	totalRate := 0
 	totalPredictionError := int64(0)
 	for row := range rows {
-		vp8enc.MarkInterCoefficientTokenRecordRowStart(&e.interCoefTokenRecords, row)
+		e.interCoefTokenRecords.MarkRowStart(row)
 		var leftTok vp8enc.TokenContextPlanes
 		for col := range cols {
 			index := row*cols + col
@@ -860,7 +860,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.improvedMVStart, projectedRate, totalRate)
 			}
 		}
-		vp8enc.MarkInterCoefficientTokenRecordRowEnd(&e.interCoefTokenRecords, row)
+		e.interCoefTokenRecords.MarkRowEnd(row)
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
 	e.analysis.ExtendBorders()

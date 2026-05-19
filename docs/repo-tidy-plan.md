@@ -334,12 +334,19 @@ Plan:
   a documented diagnostic area.
 - Add build tags only where they reduce normal test noise without hiding CI
   coverage.
+- Collapse long, environment-heavy test recipes behind named Makefile gates.
+  Docs and PRs should tell contributors which gate to run, not paste bespoke
+  libvpx/corpus environment blocks.
+- Keep focused package tests cheap enough for local work. Reserve oracle,
+  corpus, fuzz, quality, and production sweeps for clearly named gates.
 - Create a short `docs/validation.md` that says exactly which command proves
   which class of change.
 
 Acceptance:
 
 - A new contributor can choose the right test command in under a minute.
+- Normal validation docs use named commands instead of a pile of one-off
+  environment variables.
 - Oracle tests are still present and documented.
 - No temporary diagnostic test remains unexplained.
 - Root-level test files are reduced to public facade/API coverage; codec
@@ -368,6 +375,39 @@ Acceptance:
 - Existing no-allocation or bounded-allocation behavior is preserved.
 - Any performance regression is measured, explained, and explicitly approved.
 - Hot-path code does not import oracle/test packages.
+
+### Wave 6.75: Dead Code And Stale Surface Sweep
+
+Goal: remove code that only exists because the repo used to be a flat parity
+worktree.
+
+Plan:
+
+- Run dead-code analysis after package moves and API cleanup, when old root
+  call paths no longer keep helpers reachable accidentally.
+- Classify findings before deletion:
+  - private unreachable implementation helpers;
+  - stale tests and diagnostic fixtures;
+  - unreleased public names made obsolete by the final API;
+  - libvpx parity probes or trace hooks that are still useful under build tags.
+- Delete private unreachable code in focused packets with package-local tests.
+- Delete unreleased public stale names instead of adding aliases or deprecation
+  wrappers.
+- Keep generated data, oracle fixtures, and intentionally reflective/test-only
+  entry points when they are documented and covered by named validation gates.
+- Do not use dead-code output blindly for codec tables, architecture dispatch,
+  build-tagged files, fuzz seeds, or exported APIs that are part of the final
+  public surface.
+
+Acceptance:
+
+- Dead-code findings are triaged in `docs/repo-map.md` or the PR body before
+  deletion.
+- No stale compatibility wrappers, temporary aliases, or old internal call
+  shapes remain.
+- Any intentionally retained unreachable-looking code has a short reason:
+  build tags, generated corpus, oracle fixture, reflection, or public API.
+- `go test ./... -count=1` and `make ci` pass after each deletion batch.
 
 ### Wave 7: Documentation Rewrite
 

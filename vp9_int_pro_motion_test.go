@@ -30,6 +30,50 @@ func TestVp9ClampMVClampsBothAxes(t *testing.T) {
 	}
 }
 
+func TestVp9FullpelMvLimitsClampAndContain(t *testing.T) {
+	limits := &vp9MvLimits{ColMin: -2, ColMax: 3, RowMin: -4, RowMax: 5}
+	row, col := limits.clampFullpel(-10, 7)
+	if row != -4 || col != 3 {
+		t.Fatalf("clampFullpel outside max/min = (%d,%d), want (-4,3)", row, col)
+	}
+	if !limits.inFullpelRange(0, 0) {
+		t.Fatal("inFullpelRange rejected origin inside limits")
+	}
+	if limits.inFullpelRange(6, 0) {
+		t.Fatal("inFullpelRange accepted row above max")
+	}
+	if !limits.fullpelBoundsOK(0, 0, 2) {
+		t.Fatal("fullpelBoundsOK rejected centred search range")
+	}
+	if limits.fullpelBoundsOK(0, 0, 4) {
+		t.Fatal("fullpelBoundsOK accepted range crossing column max")
+	}
+
+	var nilLimits *vp9MvLimits
+	row, col = nilLimits.clampFullpel(-10, 7)
+	if row != -10 || col != 7 {
+		t.Fatalf("nil clampFullpel = (%d,%d), want passthrough (-10,7)", row, col)
+	}
+	if !nilLimits.inFullpelRange(1<<20, -(1<<20)) || !nilLimits.fullpelBoundsOK(0, 0, 1<<20) {
+		t.Fatal("nil limits should accept all fullpel candidates")
+	}
+}
+
+func TestVp9SetFullpelMvSearchRangePinsLibvpxFormula(t *testing.T) {
+	limits := &vp9MvLimits{ColMin: -2000, ColMax: 2000, RowMin: -2000, RowMax: 2000}
+	limits.setFullpelSearchRange(vp9MV{Row: 24, Col: -17})
+
+	want := vp9MvLimits{
+		ColMin: -1025,
+		ColMax: 1020,
+		RowMin: -1020,
+		RowMax: 1026,
+	}
+	if *limits != want {
+		t.Fatalf("setFullpelSearchRange = %+v, want %+v", *limits, want)
+	}
+}
+
 // TestVp9SetSubpelMvSearchRangePinsLibvpxFormula pins the
 // subpel-search-range formula at a representative midband ref MV.
 //

@@ -85,7 +85,9 @@ func (records *InterCoefficientTokenRecords) RowStartsForMerge() []uint32 {
 	return records.rowStarts()
 }
 
-func ResetInterCoefficientTokenRecords(records *InterCoefficientTokenRecords, rows int, macroblocks int) {
+// Reset prepares records for a frame with rows macroblock rows and enough
+// capacity for macroblocks accepted inter macroblocks.
+func (records *InterCoefficientTokenRecords) Reset(rows int, macroblocks int) {
 	if records == nil {
 		return
 	}
@@ -114,7 +116,8 @@ func ResetInterCoefficientTokenRecords(records *InterCoefficientTokenRecords, ro
 	}
 }
 
-func MarkInterCoefficientTokenRecordRowStart(records *InterCoefficientTokenRecords, row int) {
+// MarkRowStart records the current token offset for row.
+func (records *InterCoefficientTokenRecords) MarkRowStart(row int) {
 	if records == nil {
 		return
 	}
@@ -125,7 +128,8 @@ func MarkInterCoefficientTokenRecordRowStart(records *InterCoefficientTokenRecor
 	rowStarts[row] = uint32(len(records.Records))
 }
 
-func MarkInterCoefficientTokenRecordRowEnd(records *InterCoefficientTokenRecords, row int) {
+// MarkRowEnd records the token offset immediately after row.
+func (records *InterCoefficientTokenRecords) MarkRowEnd(row int) {
 	if records == nil {
 		return
 	}
@@ -139,7 +143,7 @@ func MarkInterCoefficientTokenRecordRowEnd(records *InterCoefficientTokenRecords
 // appendTokenUnchecked is the hot-path entry that packs+stores a coefficient
 // token without re-validating the inputs. Callers (e.g.
 // countBlockCoefficientTokensAndRecords) validate at function entry, and
-// ResetInterCoefficientTokenRecords preallocates the exact worst-case stream
+// Reset preallocates the exact worst-case stream
 // capacity for the accepted-MB walk.
 //
 // Records MUST be non-nil; the variant with the nil-tolerant entry is
@@ -160,7 +164,7 @@ func (records *InterCoefficientTokenRecords) appendTokenUnchecked(blockType int,
 	records.Records[index] = CoefficientTokenRecord(value)
 }
 
-func validPreparedCoefficientTokenRows(records *InterCoefficientTokenRecords, rows int) bool {
+func (records *InterCoefficientTokenRecords) validPreparedRows(rows int) bool {
 	if records == nil || rows < 0 || records.Rows != rows {
 		return false
 	}
@@ -184,7 +188,7 @@ func writePreparedInterCoefficientTokenGrid(w *BoolWriter, rows int, records *In
 	if w == nil || probs == nil {
 		return ErrInvalidPacketConfig
 	}
-	if !validPreparedCoefficientTokenRows(records, rows) {
+	if !records.validPreparedRows(rows) {
 		return ErrModeBufferTooSmall
 	}
 	rowStarts := records.rowStarts()
@@ -204,7 +208,7 @@ func writePreparedInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, p
 	if writers == nil || probs == nil || partitions != 2 && partitions != 4 && partitions != 8 {
 		return ErrModeBufferTooSmall
 	}
-	if !validPreparedCoefficientTokenRows(records, rows) {
+	if !records.validPreparedRows(rows) {
 		return ErrModeBufferTooSmall
 	}
 	rowStarts := records.rowStarts()

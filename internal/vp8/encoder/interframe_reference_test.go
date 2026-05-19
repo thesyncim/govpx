@@ -450,10 +450,10 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 func buildInterCoefficientTokenCachesForTest(t *testing.T, rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, counts *InterCoefficientTokenCounts, records *InterCoefficientTokenRecords) {
 	t.Helper()
 	ResetInterCoefficientTokenCounts(counts)
-	ResetInterCoefficientTokenRecords(records, rows, rows*cols)
+	records.Reset(rows, rows*cols)
 	above := make([]TokenContextPlanes, cols)
 	for row := range rows {
-		MarkInterCoefficientTokenRecordRowStart(records, row)
+		records.MarkRowStart(row)
 		left := TokenContextPlanes{}
 		for col := range cols {
 			index := row*cols + col
@@ -466,6 +466,6 @@ func buildInterCoefficientTokenCachesForTest(t *testing.T, rows int, cols int, m
 				t.Fatalf("AccumulateInterMacroblockTokenCountsAndRecords returned error: %v", err)
 			}
 		}
-		MarkInterCoefficientTokenRecordRowEnd(records, row)
+		records.MarkRowEnd(row)
 	}
 }

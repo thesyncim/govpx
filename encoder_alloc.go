@@ -148,7 +148,7 @@ func (e *VP8Encoder) reallocateForDimensions(width int, height int) error {
 	e.reconstructModes = resizeReconstructModeSlice(e.reconstructModes, mbCount)
 	e.reconstructTokens = resizeReconstructTokensSlice(e.reconstructTokens, mbCount)
 
-	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, mbRows, mbCount)
+	e.interCoefTokenRecords.Reset(mbRows, mbCount)
 
 	if err := e.initReferenceFrames(width, height); err != nil {
 		return err

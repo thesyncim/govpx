@@ -3,6 +3,11 @@
 Use the smallest gate that proves the class of change, then run the stricter
 gate before a safe-point commit when the touched code can affect codec behavior.
 
+Keep validation entry points boring. Prefer named Makefile targets and focused
+package tests over copying long environment-variable command lines into docs,
+PRs, or tickets. If a gate needs libvpx paths, corpus paths, or strict oracle
+settings, put that wiring behind a make target and document the target name.
+
 ## Local Gates
 
 `make pre-commit`
@@ -90,6 +95,22 @@ oracle hooks, debug counters, tracing, or caller-owned buffer paths:
 ```sh
 go test ./... -run 'Alloc|Allocs' -count=1
 ```
+
+For method-shape or ownership rewrites in hot code, collect compiler evidence
+before and after the edit with package-scoped `-gcflags` so the signal is not
+buried under standard-library diagnostics:
+
+```sh
+go test -run '^$' -gcflags='github.com/thesyncim/govpx=-m=2' .
+go test -run '^$' -gcflags='github.com/thesyncim/govpx/internal/vp8/encoder=-m=2' ./internal/vp8/encoder
+go test -run '^$' -gcflags='github.com/thesyncim/govpx/internal/vp9/encoder=-m=2' ./internal/vp9/encoder
+go test -run '^$' -gcflags='github.com/thesyncim/govpx/internal/vp9/decoder=-m=2' ./internal/vp9/decoder
+```
+
+Treat a method conversion as acceptable only when the receiver expresses real
+state ownership and the before/after evidence preserves inlining, escape
+behavior, and allocation contracts. Keep pure arithmetic, syntax writers, and
+DSP kernels as free functions unless measurement proves otherwise.
 
 Use representative benchmarks for measured performance work rather than
 assuming a change is free:

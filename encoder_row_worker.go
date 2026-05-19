@@ -109,7 +109,7 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int, preserveInterModeT
 	rs.totalPredictionError = 0
 	vp8enc.ResetInterCoefficientTokenCounts(&rs.keyFrameCoefTokenCounts)
 	vp8enc.ResetInterCoefficientTokenCounts(&rs.interCoefTokenCounts)
-	vp8enc.ResetInterCoefficientTokenRecords(&rs.interCoefTokenRecords, 0, 0)
+	rs.interCoefTokenRecords.Reset(0, 0)
 	if e == nil {
 		return
 	}
@@ -330,7 +330,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	}
 	worker := &p.workers[workerIndex]
 	worker.reset(p.encoder, p.required, workerIndex > 0)
-	vp8enc.ResetInterCoefficientTokenRecords(&worker.interCoefTokenRecords, p.args.rows, threadedWorkerMacroblockCount(workerIndex, workerCount, p.args.rows, p.args.cols))
+	worker.interCoefTokenRecords.Reset(p.args.rows, threadedWorkerMacroblockCount(workerIndex, workerCount, p.args.rows, p.args.cols))
 	worker.enc.threadedHelperRowsActive = workerIndex > 0
 	// Same libvpx anchor as runThreadedKeyFrameWorker: workerIndex==0 maps
 	// to libvpx's main thread (b->zbin_extra seeded from prev-attempt's

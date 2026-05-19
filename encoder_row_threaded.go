@@ -407,7 +407,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rowRate := 0
 	rowPredictionError := int64(0)
-	vp8enc.MarkInterCoefficientTokenRecordRowStart(&rs.interCoefTokenRecords, row)
+	rs.interCoefTokenRecords.MarkRowStart(row)
 	for col := range args.cols {
 		if col > 0 && (col-1)%pool.syncRange == 0 {
 			pool.publishRowColumn(row, col-1)
@@ -425,7 +425,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 		rowPredictionError += predictionError
 	}
 	rs.totalPredictionError += rowPredictionError
-	vp8enc.MarkInterCoefficientTokenRecordRowEnd(&rs.interCoefTokenRecords, row)
+	rs.interCoefTokenRecords.MarkRowEnd(row)
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
 	pool.publishRowColumn(row, args.cols+pool.syncRange)
 	return rowRate, nil
@@ -721,9 +721,9 @@ func (p *rowWorkerPool) mergeThreadedInterFrameCoefRecords(e *VP8Encoder, worker
 	if p == nil || e == nil || workerCount <= 0 || rows < 0 || cols < 0 || required < 0 {
 		return
 	}
-	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, rows, required)
+	e.interCoefTokenRecords.Reset(rows, required)
 	for row := range rows {
-		vp8enc.MarkInterCoefficientTokenRecordRowStart(&e.interCoefTokenRecords, row)
+		e.interCoefTokenRecords.MarkRowStart(row)
 		workerIndex := row % workerCount
 		if uint(workerIndex) >= uint(len(p.workers)) {
 			e.interCoefTokenRecordsValid = false
@@ -745,7 +745,7 @@ func (p *rowWorkerPool) mergeThreadedInterFrameCoefRecords(e *VP8Encoder, worker
 			return
 		}
 		e.interCoefTokenRecords.Records = append(e.interCoefTokenRecords.Records, workerRecords.Records[start:end]...)
-		vp8enc.MarkInterCoefficientTokenRecordRowEnd(&e.interCoefTokenRecords, row)
+		e.interCoefTokenRecords.MarkRowEnd(row)
 	}
 	e.interCoefTokenRecordsValid = true
 }

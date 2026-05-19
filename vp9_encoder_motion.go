@@ -57,7 +57,7 @@ func vp9MVSADComponentCost(v int) int {
 	return vp9MVSADComponentCosts[v]
 }
 
-func vp9SetFullpelMvSearchRange(limits *vp9MvLimits, ref vp9dec.MV) {
+func (limits *vp9MvLimits) setFullpelSearchRange(ref vp9dec.MV) {
 	if limits == nil {
 		return
 	}
@@ -91,7 +91,7 @@ func vp9SetFullpelMvSearchRange(limits *vp9MvLimits, ref vp9dec.MV) {
 	}
 }
 
-func vp9FullpelMvIn(limits *vp9MvLimits, row, col int) bool {
+func (limits *vp9MvLimits) inFullpelRange(row, col int) bool {
 	if limits == nil {
 		return true
 	}
@@ -99,7 +99,7 @@ func vp9FullpelMvIn(limits *vp9MvLimits, row, col int) bool {
 		row >= limits.RowMin && row <= limits.RowMax
 }
 
-func vp9FullpelCheckBounds(limits *vp9MvLimits, row, col, searchRange int) bool {
+func (limits *vp9MvLimits) fullpelBoundsOK(row, col, searchRange int) bool {
 	if limits == nil {
 		return true
 	}
@@ -109,7 +109,7 @@ func vp9FullpelCheckBounds(limits *vp9MvLimits, row, col, searchRange int) bool 
 		col+searchRange <= limits.ColMax
 }
 
-func vp9ClampFullpelMV(limits *vp9MvLimits, row, col int) (int, int) {
+func (limits *vp9MvLimits) clampFullpel(row, col int) (int, int) {
 	if limits == nil {
 		return row, col
 	}
@@ -138,7 +138,7 @@ func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
 	searchParamToSteps := [...]int{10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}
 	bestInitS := searchParamToSteps[searchParam]
 
-	br, bc := vp9ClampFullpelMV(limits, startDy, startDx)
+	br, bc := limits.clampFullpel(startDy, startDx)
 	bestSad := startSad
 	bestScore := startScore
 	if br != startDy || bc != startDx {
@@ -152,8 +152,8 @@ func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
 		if row == br && col == bc {
 			return
 		}
-		if !vp9FullpelCheckBounds(limits, br, bc, 1<<s) &&
-			!vp9FullpelMvIn(limits, row, col) {
+		if !limits.fullpelBoundsOK(br, bc, 1<<s) &&
+			!limits.inFullpelRange(row, col) {
 			return
 		}
 		sad, ok := sadAt(col, row)
@@ -220,7 +220,7 @@ func vp9NStepDiamondSearchSAD(startDx, startDy int,
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
 	searchParam := max(min(stepParam, vp9MaxMvSearchSteps-1), 0)
-	br, bc := vp9ClampFullpelMV(limits, startDy, startDx)
+	br, bc := limits.clampFullpel(startDy, startDx)
 	bestSad := startSad
 	bestScore := startScore
 	if br != startDy || bc != startDx {
@@ -251,7 +251,7 @@ func vp9NStepDiamondSearchSAD(startDx, startDy int,
 		for site, c := range vp9NStepRefineCandidates {
 			row := bestDy + c.row
 			col := bestDx + c.col
-			if !vp9FullpelMvIn(limits, row, col) {
+			if !limits.inFullpelRange(row, col) {
 				continue
 			}
 			sad, ok := sadAt(col, row)
@@ -290,7 +290,7 @@ func vp9NStepDiamondOnceSAD(startDx, startDy int,
 		for i, c := range vp9NStepDiamondCandidates {
 			row := br + c.row*step
 			col := bc + c.col*step
-			if !vp9FullpelMvIn(limits, row, col) {
+			if !limits.inFullpelRange(row, col) {
 				continue
 			}
 			sad, ok := sadAt(col, row)

@@ -146,7 +146,7 @@ func (e *VP8Encoder) Reset() {
 	e.reconstructScratch = vp8dec.IntraReconstructionScratch{}
 	vp8enc.ResetInterCoefficientTokenCounts(&e.interCoefTokenCounts)
 	e.interCoefTokenCountsValid = false
-	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, encoderMacroblockRows(e.opts.Height), encoderMacroblockCount(e.opts.Width, e.opts.Height))
+	e.interCoefTokenRecords.Reset(encoderMacroblockRows(e.opts.Height), encoderMacroblockCount(e.opts.Width, e.opts.Height))
 	e.interCoefTokenRecordsValid = false
 	// libvpx MT helper-history accumulator (encoder.go
 	// mtHelperYModeCountAccum). vp8cx_remove_encoder_threads frees the
