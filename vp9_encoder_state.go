@@ -208,25 +208,6 @@ func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
 	}
 }
 
-func (e *VP9Encoder) vp9LegacyInterRefSignBias(flags EncodeFlags) [3]uint8 {
-	var bias [3]uint8
-	mask := vp9InterReferenceMask(flags)
-	altUsable := mask&(1<<uint(vp9dec.AltrefFrame)) != 0 &&
-		e.refFrames[vp9AltRefSlot].valid
-	varUsable := false
-	for _, refFrame := range [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame} {
-		slot, ok := vp9EncoderReferenceSlot(refFrame)
-		if ok && mask&(1<<uint(refFrame)) != 0 && e.refFrames[slot].valid {
-			varUsable = true
-			break
-		}
-	}
-	if altUsable && varUsable {
-		bias[vp9AltRefSlot] = 1
-	}
-	return bias
-}
-
 func vp9EncoderTileInfo(miCols, threads int, log2TileRows int8) vp9dec.TileInfo {
 	minLog2, maxLog2 := vp9dec.TileNBits(miCols)
 	log2Cols := minLog2

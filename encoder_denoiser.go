@@ -721,17 +721,6 @@ func (e *VP8Encoder) copyDenoiserNoFilterMacroblock(source vp8enc.SourceImage, f
 	}
 }
 
-// copyDenoiserMacroblockSource copies the source macroblock pixels into the
-// running_avg[INTRA] buffer for blocks that the denoiser declines to filter
-// (intra and COPY decisions).
-func (e *VP8Encoder) copyDenoiserMacroblockSource(source vp8enc.SourceImage, avg *vp8common.FrameBuffer, yOff int, uOff int, vOff int, yAvgOff int, uAvgOff int, vAvgOff int, doYUV bool) {
-	copyMacroblockY(avg.Img.Y[yAvgOff:], avg.Img.YStride, source.Y[yOff:], source.YStride)
-	if doYUV {
-		copyMacroblock8x8(avg.Img.U[uAvgOff:], avg.Img.UStride, source.U[uOff:], source.UStride)
-		copyMacroblock8x8(avg.Img.V[vAvgOff:], avg.Img.VStride, source.V[vOff:], source.VStride)
-	}
-}
-
 func copyMacroblockY(dst []byte, dstStride int, src []byte, srcStride int) {
 	for r := range 16 {
 		copy(dst[r*dstStride:r*dstStride+16], src[r*srcStride:r*srcStride+16])

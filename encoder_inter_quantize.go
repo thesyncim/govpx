@@ -89,10 +89,6 @@ func quantizeOptimizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 	return quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, zbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, dqcoeff)
 }
 
-func quantizeOptimizedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, rdZbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, dqcoeff)
-}
-
 func quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, rdZbinOverQuant int, rdMult int, rdDiv int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	eob := quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, actZbinAdj, qcoeff, dqcoeff)
 	eob = optimizeQuantizedBlockWithRDConstants(coefProbs, qIndex, blockType, ctx, skipDC, rdZbinOverQuant, rdMult, rdDiv, intra, coeff, quant, qcoeff, eob)

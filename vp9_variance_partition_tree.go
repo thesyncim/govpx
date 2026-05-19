@@ -130,22 +130,6 @@ type vp9VarianceNode struct {
 	Split         [4]*vp9Var
 }
 
-// vp9TreeLevel mirrors libvpx's TREE_LEVEL enum
-// (vp9/encoder/vp9_encodeframe.c:391-395):
-//
-//	typedef enum {
-//	  V16X16,
-//	  V32X32,
-//	  V64X64,
-//	} TREE_LEVEL;
-type vp9TreeLevel int
-
-const (
-	vp9TreeLevelV16x16 vp9TreeLevel = iota
-	vp9TreeLevelV32x32
-	vp9TreeLevelV64x64
-)
-
 // vp9TreeToNode is the verbatim port of libvpx's tree_to_node
 // (vp9/encoder/vp9_encodeframe.c:397-437). It populates the
 // vp9VarianceNode dispatch view with pointers into one of the typed

@@ -161,19 +161,6 @@ func arnrViewFromImage(img *vp8common.Image) arnrFrameView {
 	}
 }
 
-func arnrViewFromSource(src vp8enc.SourceImage) arnrFrameView {
-	return arnrFrameView{
-		width:   src.Width,
-		height:  src.Height,
-		y:       src.Y,
-		u:       src.U,
-		v:       src.V,
-		yStride: src.YStride,
-		uStride: src.UStride,
-		vStride: src.VStride,
-	}
-}
-
 // iterateTemporalFilter mirrors vp8_temporal_filter_iterate_c. It walks every
 // 16x16 luma macroblock (with colocated 8x8 chroma blocks) in the alt-ref
 // frame, picks per-frame filter weights by SAD-based error, and accumulates

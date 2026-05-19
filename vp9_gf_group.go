@@ -623,34 +623,12 @@ func vp9GetARFLayers(multiLayerARF bool, maxLayers, codingFrameNum int) int {
 	return layers
 }
 
-// vp9CalcNormFrameScore ports libvpx calc_norm_frame_score for one row.
-// This is the same math as vp9TwoPassState.normalizedFrameScore but in a
-// pure form keyed on the per-call MB rows / params.
-//
-// Callers that have the libvpx oxcf->two_pass_vbrbias / vbrmin_section /
-// vbrmax_section threaded through vp9GFGroupInputs should prefer
-// vp9CalcNormFrameScoreFromInputs so the bias exponent and the [min,max]
-// clamp track libvpx exactly. The default-bias overload here keeps
-// pre-existing call sites compiling and uses libvpx's documented
-// defaults (bias=50, vbrmin_section=1, vbrmax_section=2000); the
-// vbrmin_section=1 value preserves the pre-existing 0.01 floor — libvpx
-// itself accepts vbrmin_section=0 via the configuration default, but
-// existing govpx consumers (TestVP9DefineGFGroup*) wrote against the
-// 0.01 floor and we keep that here as a backstop.
-//
-// libvpx: vp9/encoder/vp9_firstpass.c:285 calc_norm_frame_score
-func vp9CalcNormFrameScore(row VP9FirstPassFrameStats, meanModScore, avErr float64, mbRows int, params VP9ARFBoostParams) float64 {
-	return vp9CalcNormFrameScoreConfig(row, meanModScore, avErr, mbRows,
-		vp9DefaultTwoPassVBRBiasPct, 1, vp9DefaultVBRMaxSectionPct)
-}
-
-// vp9CalcNormFrameScoreConfig is the configurable variant of
-// vp9CalcNormFrameScore that honours libvpx's oxcf->two_pass_vbrbias /
-// vbrmin_section / vbrmax_section instead of the libvpx-default values.
-// All other behaviour matches calc_norm_frame_score (vp9_firstpass.c:285)
-// byte-for-byte. When vbrBiasPct <= 0 the libvpx default (50) is used;
-// when vbrMaxSection <= 0 the libvpx default (2000) is used; vbrMinSection
-// is taken as-is (libvpx's default is 0 → no lower clamp).
+// vp9CalcNormFrameScoreConfig ports libvpx calc_norm_frame_score
+// (vp9_firstpass.c:285) for one row, including oxcf->two_pass_vbrbias,
+// vbrmin_section, and vbrmax_section.
+// When vbrBiasPct <= 0 the libvpx default (50) is used; when
+// vbrMaxSection <= 0 the libvpx default (2000) is used. vbrMinSection is
+// taken as-is (libvpx's default is 0, meaning no lower clamp).
 func vp9CalcNormFrameScoreConfig(row VP9FirstPassFrameStats,
 	meanModScore, avErr float64, mbRows int,
 	vbrBiasPct, vbrMinSection, vbrMaxSection int,

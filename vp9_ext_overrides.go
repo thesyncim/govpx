@@ -93,30 +93,6 @@ type vp9ExtRefreshState struct {
 	refreshFrameContextLatched bool
 }
 
-// vp9ApplyEncodingFlagsError mirrors libvpx vp9/vp9_cx_iface.c:1393-1398:
-//
-//	if (((flags & VP8_EFLAG_NO_UPD_GF) && (flags & VP8_EFLAG_FORCE_GF)) ||
-//	    ((flags & VP8_EFLAG_NO_UPD_ARF) && (flags & VP8_EFLAG_FORCE_ARF))) {
-//	  ctx->base.err_detail = "Conflicting flags.";
-//	  return VPX_CODEC_INVALID_PARAM;
-//	}
-//
-// Callers that hold the libvpx interface contract (the runtime-controls
-// fuzz oracle, vpxenc-vp9-frameflags) reject the same way, so govpx
-// surfaces this as ErrInvalidConfig. Returning the error here lets callers
-// run normalizeVP9EncodeFlags ahead of the encoder body to pre-resolve the
-// conflict (matching the fuzz-materialiser convention at
-// vp9_oracle_encoder_runtime_controls_fuzz_test.go:508-522).
-func vp9ApplyEncodingFlagsError(flags EncodeFlags) error {
-	if flags&EncodeForceGoldenFrame != 0 && flags&EncodeNoUpdateGolden != 0 {
-		return ErrInvalidConfig
-	}
-	if flags&EncodeForceAltRefFrame != 0 && flags&EncodeNoUpdateAltRef != 0 {
-		return ErrInvalidConfig
-	}
-	return nil
-}
-
 // vp9ApplyEncodingFlags mirrors libvpx vp9/encoder/vp9_encoder.c:6812-6843
 // vp9_apply_encoding_flags. The libvpx body:
 //
@@ -266,16 +242,4 @@ func (e *VP9Encoder) vp9ExtOverrideRefreshMask() (uint8, bool) {
 		mask |= 1 << vp9AltRefSlot
 	}
 	return mask, true
-}
-
-// vp9ExtOverrideRefreshFrameContext returns the post-set_ext_overrides
-// cm->refresh_frame_context value when the caller armed it via
-// VP8_EFLAG_NO_UPD_ENTROPY (vp9_apply_encoding_flags →
-// vp9_update_entropy). Returns ok=false when no override is pending; the
-// caller falls back to the existing per-frame entropy-update decision.
-func (e *VP9Encoder) vp9ExtOverrideRefreshFrameContext() (bool, bool) {
-	if e == nil || !e.extRefresh.refreshFrameContextLatched {
-		return false, false
-	}
-	return e.extRefresh.refreshFrameContext, true
 }
