@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"image"
@@ -11,12 +10,11 @@ import (
 	"testing"
 )
 
-// vp9RefControlsSeedsDeferred lists VP9 reference-control fuzz seeds whose
-// strict byte parity is gated behind libvpx VP9 features govpx has not yet
-// ported. Mirrors VP8's longFixtureSeedsDeferred and
-// vp9RuntimeControlsSeedsDeferred convention so the fuzz gate stays green;
-// each entry cites the libvpx file:line that drives the divergence so a
-// follow-up port has a concrete starting point.
+// vp9RefControlsSeedsDeferred is now a formerly-deferred regression corpus.
+// After the default choose_partitioning and nonrd_pick_partition dispatch
+// closure, TestVP9DeferredSeedsRemeasureRefControl reports all 10 entries as
+// byte-exact against libvpx with no env flags. The historical audit notes
+// below are retained as the breadcrumb trail for the closed gap.
 //
 // Progress (task #58): the keyframe variance-partition gate has been widened
 // to mirror libvpx exactly. After widening
@@ -813,15 +811,6 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// #170 baseline (no writer-code changes).
 }
 
-func vp9RefControlsSeedDeferred(data []byte) bool {
-	for _, seed := range vp9RefControlsSeedsDeferred {
-		if bytes.Equal(data, seed) {
-			return true
-		}
-	}
-	return false
-}
-
 // FuzzVP9EncoderReferenceControlSequences mirrors
 // FuzzEncoderReferenceControlSequences (F8) for VP9: per-frame schedules mix
 // EncodeFlags-based reference-update bits (NoUpdateLast, NoUpdateGolden,
@@ -847,14 +836,23 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 		{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 		{0, 7, 0, 8, 0, 9, 0, 10},
 	}
-	for _, seed := range seeds {
+	seen := make(map[string]struct{}, len(seeds)+len(vp9RefControlsSeedsDeferred))
+	addSeed := func(seed []byte) {
+		key := string(seed)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
 		f.Add(seed)
+	}
+	for _, seed := range seeds {
+		addSeed(seed)
+	}
+	for _, seed := range vp9RefControlsSeedsDeferred {
+		addSeed(seed)
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if vp9RefControlsSeedDeferred(data) {
-			t.Skip("seed deferred: see vp9RefControlsSeedsDeferred for libvpx file:line citations")
-		}
 		tc := newVP9RefControlsFuzzCase(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-vp9-refctrl-" + hex.EncodeToString(sum[:4])
