@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"image"
+	"reflect"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -1205,6 +1206,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
 	stats := finalizedVP9TwoPassTestStats(100, 120, 90, 110)
+	activeOut := make([]uint8, 4)
 
 	tests := []struct {
 		name string
@@ -1273,6 +1275,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		}},
 		{name: "SetLayerNextFrameQIndex", fn: func() error { return svc.SetLayerNextFrameQIndex(0, 96) }},
 		{name: "SetLayerDeltaQUV", fn: func() error { return svc.SetLayerDeltaQUV(1, 4) }},
+		{name: "GetLayerActiveMap", fn: func() error { return svc.GetLayerActiveMap(0, activeOut, 2, 2) }},
 	}
 	for _, tc := range tests {
 		allocs := testing.AllocsPerRun(100, func() {
@@ -1313,6 +1316,13 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControls(t *testing.T) {
 		t.Fatalf("SetLayerActiveMap: %v", err)
 	}
 	activeMap[0] = 1
+	gotActive := make([]uint8, 4)
+	if err := svc.GetLayerActiveMap(0, gotActive, 2, 2); err != nil {
+		t.Fatalf("GetLayerActiveMap: %v", err)
+	}
+	if want := []uint8{0, 1, 1, 0}; !reflect.DeepEqual(gotActive, want) {
+		t.Fatalf("GetLayerActiveMap = %v, want %v", gotActive, want)
+	}
 	roi := ROIMap{
 		Enabled:   true,
 		Rows:      8,
@@ -1366,6 +1376,12 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerActiveMap(0, []uint8{1}, 1, 1); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerActiveMap wrong geometry err = %v, want ErrInvalidConfig", err)
 	}
+	if err := svc.GetLayerActiveMap(0, gotActive[:1], 2, 2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("GetLayerActiveMap short buffer err = %v, want ErrInvalidConfig", err)
+	}
+	if !reflect.DeepEqual(gotActive, []uint8{0, 1, 1, 0}) {
+		t.Fatalf("invalid GetLayerActiveMap mutated output to %v", gotActive)
+	}
 	if !base.activeMapEnabled || base.activeMap[0] != vp9ActiveMapSegmentInactive {
 		t.Fatal("invalid active-map update mutated base layer")
 	}
@@ -1390,9 +1406,15 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerDeadline(0, DeadlineRealtime); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerDeadline after close err = %v, want ErrClosed", err)
 	}
+	if err := svc.GetLayerActiveMap(0, gotActive, 2, 2); !errors.Is(err, ErrClosed) {
+		t.Fatalf("GetLayerActiveMap after close err = %v, want ErrClosed", err)
+	}
 	var nilSVC *VP9SpatialSVCEncoder
 	if err := nilSVC.SetLayerNoiseSensitivity(0, 0); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerNoiseSensitivity on nil err = %v, want ErrClosed", err)
+	}
+	if err := nilSVC.GetLayerActiveMap(0, gotActive, 2, 2); !errors.Is(err, ErrClosed) {
+		t.Fatalf("GetLayerActiveMap on nil err = %v, want ErrClosed", err)
 	}
 }
 

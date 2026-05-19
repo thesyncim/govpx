@@ -1016,6 +1016,18 @@ func (e *VP9SpatialSVCEncoder) SetLayerNextFrameQIndex(layerID uint8, qindex int
 	return layer.SetNextFrameQIndex(qindex)
 }
 
+// GetLayerActiveMap snapshots one spatial layer's VP9 active map into
+// activeMap, matching [VP9Encoder.GetActiveMap].
+func (e *VP9SpatialSVCEncoder) GetLayerActiveMap(layerID uint8,
+	activeMap []uint8, rows int, cols int,
+) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.GetActiveMap(activeMap, rows, cols)
+}
+
 // SetLayerActiveMap installs one spatial layer's VP9 active map, matching
 // [VP9Encoder.SetActiveMap].
 func (e *VP9SpatialSVCEncoder) SetLayerActiveMap(layerID uint8,
