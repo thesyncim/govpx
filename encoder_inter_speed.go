@@ -106,8 +106,27 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	// and the task #272 campaign sentinel + task #332 threads validation
 	// sentinel byte-parity hold.
 	hexSearchSpeed := e.libvpxRealtimeCPISpeedForHEXSearchGate()
+	// Task #362: the Speed > 4 (iterative_sub_pixel disable, libvpx
+	// onyx_if.c:954) and Speed >= 15 (half_pixel_search disable, line
+	// 1023) fractional sub-pel gates use the libvpx-realistic cpi->Speed
+	// (cpu_used+1 at cpu_used > 0 RT after frame 0) rather than the pin-
+	// suppressed e.autoSpeed. See libvpxRealtimeCPISpeedForSubPelSearch
+	// Gate comment for the rationale: clamping autoSpeed itself would
+	// cascade every other Speed-conditioned feature simultaneously (the
+	// task #350 audit established that at cpu_used=8 → ~+28923% BD-rate).
+	// The intermediate Speed > 8 gate (quarter_pixel_search disable, line
+	// 1012) was ported earlier under task #363 via
+	// libvpxRealtimeCPISpeedForQuarterPelGate — that helper returns the
+	// same libvpx-realistic Speed under the same guards, so its branch
+	// remains independent here. For cpu_used <= 0 RT / non-RT /
+	// pre-first-frame both helpers return speed unchanged so byte-parity
+	// sentinels and the cold-start keyframe encode stay on the existing
+	// dispatch.
+	subPelGateSpeed := e.libvpxRealtimeCPISpeedForSubPelSearchGate()
 	if hexSearchSpeed > 4 {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
+	}
+	if subPelGateSpeed > 4 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchStep
 	}
 	// Task #363: quarter_pixel_search disable (libvpx onyx_if.c:1012, the
@@ -121,7 +140,7 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	if e.libvpxRealtimeCPISpeedForQuarterPelGate() > 8 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchHalf
 	}
-	if speed >= 15 {
+	if subPelGateSpeed >= 15 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchSkip
 	}
 	return cfg
