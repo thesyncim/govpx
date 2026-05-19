@@ -307,8 +307,23 @@ func predictBestWholeBlockIntraModeRDWithProbsAndRDConstants(src vp8enc.SourceIm
 // Callers pass the coefficient probability base that the matching packet
 // writer will use for token-rate costing.
 func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, zbinOverQuant int, actZbinAdj int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (int, int, uint8, [16]int16) {
+	rate, dist, y2EOB, y2Q, _ := wholeBlockYTransformRDWithEOBs(src, pred, mbRow, mbCol, zbinOverQuant, actZbinAdj, aboveTok, leftTok, quant, coefProbs, fastQuant)
+	return rate, dist, y2EOB, y2Q
+}
+
+// wholeBlockYTransformRDWithEOBs mirrors wholeBlockYTransformRD but also
+// returns the per-Y-block AC-EOB indicator (libvpx's `eobs[i] > has_y2_block`
+// term in vp8/encoder/rdopt.c calculate_final_rd_costs at lines 1690-1692).
+// The returned yACEOBCount counts the number of Y blocks whose quantized
+// coefficient EOB is strictly greater than 1 — i.e. blocks that carry at
+// least one AC coefficient. The picker uses this to mirror libvpx's
+// rate2 -= rate_y + rate_uv backout when tteob == 0 (calculate_final_rd_costs
+// at lines 1700-1714). The legacy 4-return wholeBlockYTransformRD wraps
+// this helper so non-intra-in-inter-loop callers keep their existing
+// signature.
+func wholeBlockYTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, zbinOverQuant int, actZbinAdj int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (int, int, uint8, [16]int16, int) {
 	if coefProbs == nil {
-		return 0, 0, 0, [16]int16{}
+		return 0, 0, 0, [16]int16{}, 0
 	}
 	var dct [16]int16
 	var qcoeff [16]int16
@@ -331,6 +346,7 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 
 	rate := 0
 	mbblockError := 0
+	yACEOBCount := 0
 	// Whole-MB residual+DCT batch — mirrors libvpx vp8_transform_intra_mby's
 	// fdct8x4 chain. The per-block rate/distortion accumulation still runs
 	// serially because token-context (yAbove/yLeft) and the regular-quantize
@@ -356,6 +372,7 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 		hasCoeffs := uint8(0)
 		if eob > 1 {
 			hasCoeffs = 1
+			yACEOBCount++
 		}
 		yAbove[a] = hasCoeffs
 		yLeft[l] = hasCoeffs
@@ -366,7 +383,7 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 	rate += coefficientBlockTokenRate(coefProbs, 1, y2Ctx, 0, &y2Q, y2EOB)
 	y2Error := transformBlockError(&y2Coeff, &y2DQ)
 	distortion := ((mbblockError << 2) + y2Error) >> 4
-	return rate, distortion, uint8(y2EOB), y2Q
+	return rate, distortion, uint8(y2EOB), y2Q, yACEOBCount
 }
 
 func predictBestIntraChromaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (vp8common.MBPredictionMode, int, int, bool) {
@@ -386,8 +403,21 @@ func predictBestIntraChromaModeRDWithProbs(src vp8enc.SourceImage, qIndex int, z
 // changes which chroma mode wins on textured / flat macroblocks. When
 // rdMult <= 0 the libvpxRDConstantsWithZbin defaults are used.
 func predictBestIntraChromaModeRDWithProbsAndRDConstants(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, actZbinAdj int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interUVModeProbs []uint8, fastQuant bool, rdMult int, rdDiv int) (vp8common.MBPredictionMode, int, int, bool) {
+	mode, rate, dist, _, ok := predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(src, qIndex, zbinOverQuant, actZbinAdj, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, interUVModeProbs, fastQuant, rdMult, rdDiv)
+	return mode, rate, dist, ok
+}
+
+// predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs mirrors
+// predictBestIntraChromaModeRDWithProbsAndRDConstants but also returns
+// the sum of UV block EOBs for the winning UV mode (libvpx's
+// `uv_intra_tteob` per vp8/encoder/rdopt.c:1934-1943). Callers running
+// inside the inter-RD picker use this to mirror libvpx's tteob==0
+// rate2 backout (calculate_final_rd_costs at lines 1700-1714); the
+// 4-return wrapper above keeps the legacy keyframe-path callers
+// unchanged.
+func predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, actZbinAdj int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interUVModeProbs []uint8, fastQuant bool, rdMult int, rdDiv int) (vp8common.MBPredictionMode, int, int, int, bool) {
 	if quant == nil || coefProbs == nil {
-		return 0, 0, 0, false
+		return 0, 0, 0, 0, false
 	}
 	if rdMult <= 0 {
 		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
@@ -396,11 +426,12 @@ func predictBestIntraChromaModeRDWithProbsAndRDConstants(src vp8enc.SourceImage,
 	bestUVRate := 0
 	bestUVDist := 0
 	bestUVCost := 0
+	bestUVEOBSum := 0
 	for i, uvMode := range wholeBlockIntraUVModeCandidates {
 		if !predictAnalysisChroma(pred, mbRow, mbCol, uvMode, scratch) {
-			return 0, 0, 0, false
+			return 0, 0, 0, 0, false
 		}
-		tokenRate, dist := wholeBlockChromaTransformRD(src, pred, mbRow, mbCol, zbinOverQuant, actZbinAdj, aboveTok, leftTok, quant, coefProbs, fastQuant)
+		tokenRate, dist, uvEOBSum := wholeBlockChromaTransformRDWithEOBs(src, pred, mbRow, mbCol, zbinOverQuant, actZbinAdj, aboveTok, leftTok, quant, coefProbs, fastQuant)
 		rate := intraUVModeRateWithProbs(keyFrame, uvMode, interUVModeProbs) + tokenRate
 		cost := libvpxRDCost(rdMult, rdDiv, rate, dist)
 		if i == 0 || cost < bestUVCost {
@@ -408,17 +439,28 @@ func predictBestIntraChromaModeRDWithProbsAndRDConstants(src vp8enc.SourceImage,
 			bestUVRate = rate
 			bestUVDist = dist
 			bestUVCost = cost
+			bestUVEOBSum = uvEOBSum
 		}
 	}
-	return bestUVMode, bestUVRate, bestUVDist, true
+	return bestUVMode, bestUVRate, bestUVDist, bestUVEOBSum, true
 }
 
 // wholeBlockChromaTransformRD mirrors libvpx rdopt.c rd_pick_intra_mbuv_mode:
 // the predicted U/V blocks are transformed, quantized, token-costed, and
 // measured with transform-domain reconstruction error divided by four.
 func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, zbinOverQuant int, actZbinAdj int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (int, int) {
+	rate, dist, _ := wholeBlockChromaTransformRDWithEOBs(src, pred, mbRow, mbCol, zbinOverQuant, actZbinAdj, aboveTok, leftTok, quant, coefProbs, fastQuant)
+	return rate, dist
+}
+
+// wholeBlockChromaTransformRDWithEOBs mirrors wholeBlockChromaTransformRD
+// but also returns the sum of UV block EOBs (libvpx's `uv_intra_tteob`
+// term in vp8/encoder/rdopt.c lines 1934-1943). The picker uses this to
+// mirror libvpx's `tteob += uv_intra_tteob` aggregation when the MB's
+// reference frame is INTRA_FRAME (line 1697).
+func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, zbinOverQuant int, actZbinAdj int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (int, int, int) {
 	if pred == nil || quant == nil || coefProbs == nil {
-		return maxInt() / 4, maxInt() / 4
+		return maxInt() / 4, maxInt() / 4, 0
 	}
 	uvWidth, uvHeight := sourceImageUVDimensions(src)
 	var uvAbove [4]uint8
@@ -432,6 +474,7 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 
 	rate := 0
 	distortion := 0
+	uvEOBSum := 0
 	// Whole-UV residual+DCT batch — mirrors libvpx vp8_transform_mbuv's
 	// pair of fdct8x4 calls. Token-context updates and the
 	// regular-quantize zbin-zerorun keep the per-block accumulation
@@ -452,6 +495,7 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 		eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, &quant.UV, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
 		rate += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &qcoeff, eob)
 		distortion += transformBlockError(&dct, &dqcoeff)
+		uvEOBSum += eob
 		hasCoeffs := uint8(0)
 		if eob > 0 {
 			hasCoeffs = 1
@@ -459,7 +503,7 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 		uvAbove[a] = hasCoeffs
 		uvLeft[l] = hasCoeffs
 	}
-	return rate, distortion >> 2
+	return rate, distortion >> 2, uvEOBSum
 }
 
 // Ported from libvpx v1.16.0 vp8/encoder/rdopt.c rd_pick_intra4x4block (and

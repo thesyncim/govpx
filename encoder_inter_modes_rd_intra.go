@@ -97,8 +97,8 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
 		return interIntraModeRDResult{}, false
 	}
-	yRate, yDist, y2EOB, y2QCoeff := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, zbinOverQuant, actZbinAdj, aboveTok, leftTok, quant, pickerProbs, fastQuant)
-	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, actZbinAdj, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
+	yRate, yDist, y2EOB, y2QCoeff, yACEOBCount := wholeBlockYTransformRDWithEOBs(src, &e.analysis.Img, mbRow, mbCol, zbinOverQuant, actZbinAdj, aboveTok, leftTok, quant, pickerProbs, fastQuant)
+	uvMode, uvRate, uvDist, uvEOBSum, ok := predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(src, qIndex, zbinOverQuant, actZbinAdj, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
 	if !ok {
 		return interIntraModeRDResult{}, false
 	}
@@ -106,6 +106,32 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
 	uvTokenRate := uvRate - uvModeRate
 	rate := yRate + uvRate + modeRate + e.interIntraMacroblockModeRate()
+	// Port libvpx vp8/encoder/rdopt.c calculate_final_rd_costs (lines
+	// 1684-1714) tteob==0 rate2 backout for the intra-in-inter-loop path.
+	// libvpx computes:
+	//   has_y2_block = (mode != SPLITMV && mode != B_PRED)  // true here
+	//   tteob = eobs[Y2] + sum(eobs[0..15] > has_y2_block)
+	//   if ref_frame == INTRA_FRAME: tteob += uv_intra_tteob
+	// When tteob == 0 the picker drops rate_y + rate_uv from rate2 and
+	// adds the skip-flag delta in their place. Without this, govpx
+	// charges DC_PRED / V_PRED / H_PRED / TM_PRED the full coefficient
+	// rate even when every Y AC and every UV coefficient quantizes to
+	// zero — measured +20826-bit rate inflation on flat-Y screen-content
+	// MBs (1280x720 task #341 fixture, frame 1 MB(5,0) DC_PRED:
+	// govpx rate=20838 vs libvpx rate=1012), driving the picker to spend
+	// bits on NEWMV+LAST candidates whose `became_best=true` flip leaves
+	// libvpx with DC_PRED+all-zero coefficients. Mirror libvpx verbatim.
+	tteob := int(y2EOB) + yACEOBCount + uvEOBSum
+	mbSkipCoeff := tteob == 0
+	if mbSkipCoeff {
+		rate -= yRate + uvRate - uvModeRate
+		// libvpx also adjusts the skip-flag bit cost: line 1709-1712 adds
+		// (cost_bit(prob_skip_false, 1) - cost_bit(prob_skip_false, 0)) when
+		// the skip flag flips from 0 to 1. interIntraMacroblockModeRate
+		// already accounts for cost_bit(prob, 0); add the delta.
+		rate += e.interMacroblockSkipRate(true) - e.interMacroblockSkipRate(false)
+		uvTokenRate = 0
+	}
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate+uvModeRate, yDist)
 	if e.activityMapValid {
@@ -118,7 +144,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		staleY2 = makeOracleStaleY2Snapshot(uint8(y2EOB), y2QCoeff)
 	}
 	return interIntraModeRDResult{
-		mode:         vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode},
+		mode:         vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode, MBSkipCoeff: mbSkipCoeff},
 		score:        score,
 		yrd:          yrd,
 		rate:         rate,
