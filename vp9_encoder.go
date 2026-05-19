@@ -5931,13 +5931,16 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 	bestSize := common.BlockInvalid
 	bestScore := uint64(^uint64(0))
 	bestValid := false
+	// libvpx's rd_pick_partition restores entropy contexts between
+	// NONE/SPLIT/HORZ/VERT trials but not the reconstructed pixels left by
+	// rd_pick_sb_modes. Keep those candidate side effects during scoring,
+	// then restore the caller-visible recon state after the pick.
 	for _, cand := range [...]common.BlockSize{
 		common.Block8x8,
 		common.Block4x4,
 		common.Block8x4,
 		common.Block4x8,
 	} {
-		e.restoreVP9PartitionReconSnapshot(reconSnap)
 		rd, ok := e.scoreVP9KeyframeRDPartitionLeaf(key, tile, miRows, miCols,
 			miRow, miCol, cand, rdmult)
 		if !ok {
@@ -8418,11 +8421,24 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 	origMode := mi.Mode
 	origTx := mi.TxSize
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
+		if e.sf.UseNonrdPickMode != 0 {
+			if vp9ConditionalSkipIntra(mode, best.mode) {
+				continue
+			}
+			if bestValid && best.skippable {
+				break
+			}
+		}
 		mi.Mode = mode
 		var cand vp9KeyframeIntraRD
 		if e.sf.TxSizeSearchMethod == UseFullRD && e.vp9KeyframeRDRefinementEnabled() {
-			txRD, ok := e.chooseVP9KeyframeModeTxRD(key, mode, rdmult, tile,
-				miRows, miCols, miRow, miCol, bsize, mi, txMode)
+			refBestRD := uint64(^uint64(0))
+			if bestValid {
+				refBestRD = bestScore
+			}
+			txRD, ok := e.chooseVP9KeyframeModeTxRDWithBest(key, mode,
+				rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi,
+				txMode, refBestRD)
 			if !ok {
 				continue
 			}
@@ -8805,6 +8821,15 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRD(key *vp9KeyframeEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi, txMode common.TxMode,
 ) (vp9KeyframeTxRDResult, bool) {
+	return e.chooseVP9KeyframeModeTxRDWithBest(key, mode, rdmult, tile,
+		miRows, miCols, miRow, miCol, bsize, mi, txMode, ^uint64(0))
+}
+
+func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, rdmult int, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, txMode common.TxMode, refBestRD uint64,
+) (vp9KeyframeTxRDResult, bool) {
 	if key == nil || key.dq == nil || mi == nil || bsize < common.Block8x8 ||
 		bsize >= common.BlockSizes {
 		return vp9KeyframeTxRDResult{}, false
@@ -8850,11 +8875,13 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRD(key *vp9KeyframeEncodeState,
 	bestValid := false
 	prevScore := uint64(0)
 	prevValid := false
+	txRefBestRD := refBestRD
 	for n := startTx; n >= endTx; n-- {
 		tx := common.TxSize(n)
 		mi.TxSize = tx
-		distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRD(
-			key, mode, tile, miRows, miCols, miRow, miCol, bsize, mi)
+		distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRDWithBest(
+			key, mode, tile, miRows, miCols, miRow, miCol, bsize, mi,
+			txRefBestRD)
 		if !ok {
 			if e.sf.TxSizeSearchBreakout != 0 {
 				break
@@ -8881,6 +8908,9 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRD(key *vp9KeyframeEncodeState,
 			}
 			bestScore = score
 			bestValid = true
+		}
+		if score < txRefBestRD {
+			txRefBestRD = score
 		}
 		if e.sf.TxSizeSearchBreakout != 0 &&
 			((n < startTx && prevValid && score > prevScore) || skippable) {
@@ -9107,6 +9137,14 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) (distortion uint64, coeffRate int, skippable bool, ok bool) {
+	return e.scoreVP9KeyframeModeTransformRDWithBest(key, mode, tile,
+		miRows, miCols, miRow, miCol, bsize, mi, ^uint64(0))
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, refBestRD uint64,
+) (distortion uint64, coeffRate int, skippable bool, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
 		return 0, 0, false, false
 	}
@@ -9212,9 +9250,12 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
 				qindex, coeffs, qcoeffs)
 
+			var blockDist uint64
+			var blockSSE uint64
 			if useTxDomainDistortion && hasResidue {
-				distortion += vp9TransformBlockError(e.txCoeffScratch[:maxEob],
+				blockDist = vp9TransformBlockError(e.txCoeffScratch[:maxEob],
 					e.dqCoeffScratch[:maxEob], txSize)
+				blockSSE = vp9TransformBlockEnergy(e.txCoeffScratch[:maxEob], txSize)
 			} else {
 				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,recon)*16
 				// when transform-domain distortion is disabled, or when eob=0
@@ -9229,8 +9270,10 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 						restoreW, restoreH, saved)
 					return 0, 0, false, false
 				}
-				distortion += dist * 16
+				blockDist = dist * 16
+				blockSSE = vp9ResidualSSE(e.residueScratch[:bs*bs]) * 16
 			}
+			distortion += blockDist
 
 			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
 			// combine_entropy_contexts(t_above[c], t_left[r]).
@@ -9245,8 +9288,28 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState
 			// indexes fc.CoefProbs[txSize][0][0] (planeType=0,
 			// is_inter=0) and walks the per-token entropy tree reading
 			// v = qcoeff[rc] directly (vp9_rdopt.c:392,405).
-			coeffRate += e.vp9KeyframeCoeffBlockRateCostQ(txSize, mode,
+			blockRate := e.vp9KeyframeCoeffBlockRateCostQ(txSize, mode,
 				key.lossless, dequant, coeffs, qcoeffs, initCtx)
+			coeffRate += blockRate
+
+			// libvpx block_rd_txfm accumulates an early-exit RD using
+			// min(coded_rd, zero_rd) per transform block (vp9_rdopt.c:831-846).
+			// The final returned tuple still uses coded rate/distortion; this
+			// accumulator only decides whether later modes/tx sizes survive.
+			if refBestRD != ^uint64(0) {
+				rdCoded := vp9RDCost(e.cbRdmult, vp9RDDivBits, blockRate, blockDist)
+				rdZero := vp9RDCost(e.cbRdmult, vp9RDDivBits, 0, blockSSE)
+				blockRD := rdCoded
+				if rdZero < blockRD {
+					blockRD = rdZero
+				}
+				if blockRD > refBestRD {
+					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+						restoreW, restoreH, saved)
+					return 0, 0, false, false
+				}
+				refBestRD -= blockRD
+			}
 
 			// libvpx vp9_rdopt.c:786-792 — after the block,
 			// t_above[c..c+w]/t_left[r..r+h] = (eob > 0). govpx
@@ -9279,6 +9342,27 @@ func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
 
 func vp9TransformBlockErrorShifted(coeffs, dqcoeffs []int16) uint64 {
 	return vp9TransformBlockError(coeffs, dqcoeffs, common.Tx4x4)
+}
+
+func vp9TransformBlockEnergy(coeffs []int16, txSize common.TxSize) uint64 {
+	var energy uint64
+	for _, coeff := range coeffs {
+		v := int64(coeff)
+		energy += uint64(v * v)
+	}
+	if txSize != common.Tx32x32 {
+		energy >>= 2
+	}
+	return energy
+}
+
+func vp9ResidualSSE(residue []int16) uint64 {
+	var sse uint64
+	for _, diff := range residue {
+		v := int64(diff)
+		sse += uint64(v * v)
+	}
+	return sse
 }
 
 func vp9TransformBlockError(coeffs, dqcoeffs []int16, txSize common.TxSize) uint64 {
