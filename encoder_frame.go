@@ -378,6 +378,27 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.pass2ActiveWorstQOverride = q
 		e.rc.pass2ActiveWorstQValid = true
 	}
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass at lines 2310-2317
+	// updates `cpi->twopass.next_iiratio` from the lookup_next_frame_stats
+	// peek. vp8_initialize_rd_consts (rdopt.c:189-196) then lifts
+	// cpi->RDMULT by (RDMULT * rd_iifactor[next_iiratio]) >> 4 on
+	// `pass==2 && frame_type != KEY_FRAME`. The lift fires BEFORE the
+	// >1000 /100 split, so a raw RDMULT near the 1000 cutoff (e.g. 907)
+	// can cross into the /100 branch — a divergence that biases govpx's
+	// pass-2 inter-frame mode-cost lower than libvpx's. Mirror libvpx
+	// here: arm the rate controller's iiratio field for non-KF frames
+	// in pass 2 only. Forced KFs in pass 2 still keep the previous
+	// frame's value in libvpx (the load is unconditional) but
+	// vp8_initialize_rd_consts gates the lift on `frame_type !=
+	// KEY_FRAME`, so we mirror the same gate by suppressing
+	// passNextIIRatioValid on keyFrame.
+	e.rc.passNextIIRatioValid = false
+	if e.twoPass.enabled() && !keyFrame {
+		if iiRatio, ok := e.twoPass.nextIIRatioForFrame(e.frameCount); ok {
+			e.rc.passNextIIRatio = iiRatio
+			e.rc.passNextIIRatioValid = true
+		}
+	}
 	// libvpx vp8/encoder/onyx_if.c:3624-3674 reads `cpi->gfu_boost` in
 	// the pass-2 active-best-quality branch to choose between
 	// kf_low_motion_minq / kf_high_motion_minq (>600 cutoff) and between

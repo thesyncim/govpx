@@ -55,7 +55,7 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	variance, sse := macroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
 	rate := e.interIntraReferenceRate() + e.interIntraYModeRate(mbMode)
 	resultMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
-	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance)
+	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance)
 	if e.activityMapValid {
 		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, variance)
 	}
@@ -109,7 +109,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	// Hoist RD constants once: rdModeScoreWithZbin recomputes (rdMult, rdDiv)
 	// from qIndex/zbinOverQuant, both invariant across the 64-iteration
 	// {16 blocks} x {4 modes} inner cost loop.
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
 	if e.activityMapValid {
 		rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
 	}

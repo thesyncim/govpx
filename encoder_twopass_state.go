@@ -559,6 +559,37 @@ func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {
 	return t.stats[frame]
 }
 
+// nextIIRatioForFrame mirrors libvpx vp8_second_pass at
+// vp8/encoder/firstpass.c:2310-2317 which assigns
+// `cpi->twopass.next_iiratio = (unsigned int)(next_frame.intra_error /
+// DOUBLE_DIVIDE_CHECK(next_frame.coded_error))` after looking up the
+// upcoming FIRSTPASS_STATS record via lookup_next_frame_stats. libvpx
+// returns EOF for the last frame and leaves the previous value in place;
+// govpx mirrors that by returning ok=false when no lookahead stats are
+// available, so the caller leaves the rate controller's
+// `passNextIIRatioValid` flag untouched (libvpx's calloc-zero starting
+// state collapses the lift to a noop on the first frame, matching that
+// behaviour). The libvpx unsigned-int truncation is matched by Go's
+// uint conversion of a non-negative float64.
+func (t *twoPassState) nextIIRatioForFrame(frame uint64) (uint, bool) {
+	if !t.enabled() {
+		return 0, false
+	}
+	next := frame + 1
+	if next >= uint64(len(t.stats)) {
+		return 0, false
+	}
+	nextStats := t.stats[next]
+	if nextStats.IsTotal {
+		return 0, false
+	}
+	ratio := nextStats.IntraError / doubleDivideCheck(nextStats.CodedError)
+	if ratio < 0 {
+		return 0, true
+	}
+	return uint(ratio), true
+}
+
 func (t *twoPassState) shouldKeyFrame(frame uint64, framesSinceKeyFrame int, keyFrameInterval int) bool {
 	if !t.enabled() || frame == 0 || frame+1 >= uint64(len(t.stats)) {
 		return false

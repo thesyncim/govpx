@@ -266,9 +266,20 @@ func libvpxErrorPerBit(qIndex int) int {
 }
 
 func libvpxErrorPerBitWithZbin(qIndex int, zbinOverQuant int) int {
-	// vp8_initialize_rd_consts sets x->errorperbit from the raw RDMULT before
-	// large multipliers are divided by 100 and paired with RDDIV=1.
-	errorPerBit := libvpxRawRDMultiplierWithZbin(qIndex, zbinOverQuant) / 110
+	return libvpxErrorPerBitWithZbinAndIIRatio(qIndex, zbinOverQuant, -1)
+}
+
+// libvpxErrorPerBitWithZbinAndIIRatio ports vp8_initialize_rd_consts's
+// `cpi->mb.errorperbit = cpi->RDMULT / 110` (rdopt.c:198), evaluated AFTER
+// the pass-2 iiratio lift (rdopt.c:189-196) but BEFORE the >1000 /100 split
+// (rdopt.c:211). Pass iiRatio < 0 to skip the lift (one-pass / KEY_FRAME).
+func libvpxErrorPerBitWithZbinAndIIRatio(qIndex int, zbinOverQuant int, iiRatio int) int {
+	rdMult := libvpxRawRDMultiplierWithZbin(qIndex, zbinOverQuant)
+	if iiRatio >= 0 {
+		idx := min(iiRatio, 31)
+		rdMult += (rdMult * libvpxRDIIFactor[idx]) >> 4
+	}
+	errorPerBit := rdMult / 110
 	if errorPerBit == 0 {
 		return 1
 	}
@@ -303,7 +314,33 @@ func libvpxRawRDMultiplierWithZbin(qIndex int, zbinOverQuant int) int {
 }
 
 func libvpxRDConstantsWithZbin(qIndex int, zbinOverQuant int) (int, int) {
+	return libvpxRDConstantsWithZbinAndIIRatio(qIndex, zbinOverQuant, -1)
+}
+
+// libvpxRDIIFactor mirrors the `rd_iifactor[32]` table at
+// libvpx vp8/encoder/rdopt.c:134-136. vp8_initialize_rd_consts applies a
+// per-frame lift to cpi->RDMULT on pass==2 && !KEY_FRAME using
+// `(RDMULT * rd_iifactor[clamp(next_iiratio, 0, 31)]) >> 4` (rdopt.c:189-196).
+// The lift fires BEFORE the >1000 /100 split, so a raw RDMULT near the
+// 1000 cutoff (e.g. 907) can be lifted to ~1077 and cross into the /100
+// branch — a path govpx never reached without the iiratio plumbing.
+var libvpxRDIIFactor = [32]int{
+	4, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+}
+
+// libvpxRDConstantsWithZbinAndIIRatio ports vp8_initialize_rd_consts including
+// the pass==2 && !KEY_FRAME iiratio lift at rdopt.c:189-196. Pass iiRatio < 0
+// to skip the lift (single-pass or KEY_FRAME path). Otherwise iiRatio is the
+// libvpx `cpi->twopass.next_iiratio` value (clamped to [0, 31] internally,
+// matching the >31 branch at rdopt.c:190).
+func libvpxRDConstantsWithZbinAndIIRatio(qIndex int, zbinOverQuant int, iiRatio int) (int, int) {
 	rdMult := libvpxRawRDMultiplierWithZbin(qIndex, zbinOverQuant)
+	if iiRatio >= 0 {
+		idx := min(iiRatio, 31)
+		rdMult += (rdMult * libvpxRDIIFactor[idx]) >> 4
+	}
 	rdDiv := 100
 	if rdMult > 1000 {
 		rdDiv = 1

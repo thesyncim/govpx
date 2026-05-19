@@ -521,7 +521,9 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			// the trellis reads mb->rdmult = cpi->RDMULT (frame-level).
 			// ROI/cyclic refresh segment delta-Q never mutates x->rdmult,
 			// so rdMult derives from args.qIndex (base), not segmentQIndex.
-			rdMult, rdDiv := libvpxRDConstantsWithZbin(args.qIndex, zbinOverQuant)
+			// The pass-2 iiratio lift (rdopt.c:189-196) lands on cpi->RDMULT
+			// before optimize_b consumes it; route through the encoder helper.
+			rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(args.qIndex, zbinOverQuant)
 			if e.activityMapValid {
 				if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 					actZbinAdj = adjustment
@@ -586,8 +588,9 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		// Same libvpx anchor as the BPred branch above: trellis optimize_b
 		// uses mb->rdmult = cpi->RDMULT (frame-level), so the rdMult fed
 		// into buildPredictedMacroblockCoefficients uses args.qIndex (base)
-		// not segmentQIndex.
-		rdMult, rdDiv := libvpxRDConstantsWithZbin(args.qIndex, zbinOverQuant)
+		// not segmentQIndex. The pass-2 iiratio lift (rdopt.c:189-196)
+		// lands on the same cpi->RDMULT before optimize_b runs.
+		rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(args.qIndex, zbinOverQuant)
 		if e.activityMapValid {
 			if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 				actZbinAdj = adjustment
