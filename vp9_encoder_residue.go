@@ -1,0 +1,1175 @@
+package govpx
+
+import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vp9/tables"
+)
+
+// vp9PlaneRectSSEClamped returns the SSE between src and dst rectangles of
+// size (w,h) starting at (x0,y0) in BOTH planes (src has dim srcW x srcH,
+// dst has dim dstStride x dstRows). Clamps both src and dst coords to
+// extents to mirror libvpx's pixel_sse which uses sum_squares_visible
+// semantics. Returns false if dst access would be out-of-bounds at (x0,y0).
+func vp9PlaneRectSSEClamped(src []byte, srcStride, srcW, srcH int,
+	dst []byte, dstStride, x0, y0, w, h int,
+) (uint64, bool) {
+	if len(src) == 0 || srcStride <= 0 || len(dst) == 0 || dstStride <= 0 ||
+		w <= 0 || h <= 0 {
+		return 0, false
+	}
+	dstRows := len(dst) / dstStride
+	if x0 < 0 || y0 < 0 || x0 >= dstStride || y0 >= dstRows {
+		return 0, false
+	}
+	var sse uint64
+	for y := range h {
+		sy := y0 + y
+		if sy >= srcH {
+			sy = srcH - 1
+		}
+		dy := y0 + y
+		if dy >= dstRows {
+			dy = dstRows - 1
+		}
+		srcRow := src[sy*srcStride:]
+		dstRow := dst[dy*dstStride:]
+		for x := range w {
+			sx := x0 + x
+			if sx >= srcW {
+				sx = srcW - 1
+			}
+			dx := x0 + x
+			if dx >= dstStride {
+				dx = dstStride - 1
+			}
+			diff := int(srcRow[sx]) - int(dstRow[dx])
+			sse += uint64(diff * diff)
+		}
+	}
+	return sse, true
+}
+
+func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, uvMode common.PredictionMode,
+) bool {
+	hasResidue := false
+	segID := vp9EncoderMiSegmentID(mi)
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		e.clearVP9PlaneBlockCoeffs(plane, planeBsize)
+		txSize := mi.TxSize
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
+		}
+		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+			miRow, miCol, bsize, pd, planeBsize)
+		step := 1 << uint(txSize)
+		blockStep := 1 << uint(txSize<<1)
+		extraStep := ((full4x4W - max4x4W) >> txSize) * blockStep
+		blockIdx := 0
+		dequant := key.dq.Y[segID]
+		if plane > 0 {
+			dequant = key.dq.Uv[segID]
+		}
+		for rr := 0; rr < max4x4H; rr += step {
+			for cc := 0; cc < max4x4W; cc += step {
+				mode := uvMode
+				if plane == 0 {
+					mode = vp9dec.GetYMode(mi, blockIdx)
+				}
+				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
+				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
+					int(key.hdr.Quant.BaseQindex))
+				if e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
+					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
+					dequant, qindex, coeffs) {
+					hasResidue = true
+				}
+				blockIdx += blockStep
+			}
+			blockIdx += extraStep
+		}
+	}
+	return hasResidue
+}
+
+func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
+	forcedRefFrame int8, forcedRef bool,
+) (common.PredictionMode, bool) {
+	interDecision, ok := e.prepareVP9InterPredictionBlock(inter, miRows, miCols,
+		miRow, miCol, bsize, tile, mi, forcedRefFrame, forcedRef)
+	if !ok {
+		return common.DcPred, false
+	}
+	if interDecision.intra {
+		mi.Mode = interDecision.mode
+		mi.Mv = [2]vp9dec.MV{}
+		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
+		if interDecision.txSize < common.TxSizes {
+			mi.TxSize = interDecision.txSize
+		}
+		uvMode := interDecision.uvMode
+		if uvMode < common.DcPred || int(uvMode) >= common.IntraModes {
+			uvMode = interDecision.mode
+		}
+		return uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
+			miRows, miCols, miRow, miCol, bsize, mi, uvMode)
+	}
+	if e.opts.AQMode == VP9AQComplexity {
+		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
+			bsize, mi.TxSize, mi.SegmentID)
+		projectedRate := interDecision.rate
+		if _, coeffRate, hasTxResidue, ok := e.scoreVP9InterTxCandidate(inter,
+			miRows, miCols, miRow, miCol, bsize, mi.TxSize); ok && hasTxResidue {
+			projectedRate += coeffRate
+		}
+		e.applyVP9ComplexityAQSegment(inter, miRow, miCol, bsize, mi,
+			projectedRate)
+	}
+	if !forcedRef && e.vp9StaticThresholdBreakout(inter, miRows, miCols,
+		miRow, miCol, bsize, mi) {
+		return common.DcPred, false
+	}
+	if e.opts.AQMode != VP9AQComplexity {
+		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
+			bsize, mi.TxSize, mi.SegmentID)
+	}
+	if !inter.lossless && !forcedRef {
+		if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
+			miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {
+			mi.Mode = intra.mode
+			mi.Mv = [2]vp9dec.MV{}
+			mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+			mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
+			return intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
+				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
+		}
+	}
+	e.applyVP9DenoiserToInterBlock(inter, miRows, miCols, miRow, miCol,
+		bsize, interDecision)
+	hasResidue := false
+	segID := vp9EncoderMiSegmentID(mi)
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		e.clearVP9PlaneBlockCoeffs(plane, planeBsize)
+		txSize := mi.TxSize
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
+		}
+		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+			miRow, miCol, bsize, pd, planeBsize)
+		step := 1 << uint(txSize)
+		dequant := inter.dq.Y[segID]
+		if plane > 0 {
+			dequant = inter.dq.Uv[segID]
+		}
+		for rr := 0; rr < max4x4H; rr += step {
+			for cc := 0; cc < max4x4W; cc += step {
+				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
+				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				if e.prepareVP9InterTxResidue(inter, pd, plane, txSize,
+					miRow, miCol, rr, cc, dequant, coeffs) {
+					hasResidue = true
+				}
+			}
+		}
+	}
+	return common.DcPred, hasResidue
+}
+
+func (e *VP9Encoder) vp9StaticThresholdBreakout(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) bool {
+	threshold := e.opts.StaticThreshold
+	if threshold <= 0 || inter == nil || mi == nil || inter.dq == nil ||
+		inter.lossless || bsize < common.Block8x8 {
+		return false
+	}
+	refFrame := mi.RefFrame[0]
+	if refFrame <= vp9dec.IntraFrame || refFrame >= vp9dec.MaxRefFrames {
+		return false
+	}
+	if e.opts.SpatialScalability.Enabled && refFrame == vp9dec.GoldenFrame {
+		return false
+	}
+	mv := mi.Mv[0]
+	if mv.Row < -64 || mv.Row > 64 || mv.Col < -64 || mv.Col > 64 {
+		return false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	pred, predStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
+		return false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	predH := 0
+	if predStride > 0 {
+		predH = len(pred) / predStride
+	}
+	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+		!vp9VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
+		return false
+	}
+	segID := vp9EncoderMiSegmentID(mi)
+	threshAC, threshDC := vp9StaticThresholds(threshold, inter.dq.Y[segID],
+		bsize)
+	varY, sseY := vp9BlockDiffVarianceSSE(src, srcStride, pred, predStride,
+		x0, y0, x0, y0, blockW, blockH)
+	if varY > threshAC || sseY-varY > threshDC {
+		return false
+	}
+	return e.vp9StaticThresholdChromaBreakout(inter, miRow, miCol, bsize,
+		threshAC, threshDC)
+}
+
+func (e *VP9Encoder) vp9StaticThresholdChromaBreakout(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, threshAC, threshDC uint64,
+) bool {
+	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			return false
+		}
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+		pred, predStride := e.vp9EncoderReconPlane(plane)
+		if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
+			return false
+		}
+		blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+		predH := len(pred) / predStride
+		if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+			!vp9VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
+			return false
+		}
+		variance, sse := vp9BlockDiffVarianceSSE(src, srcStride, pred,
+			predStride, x0, y0, x0, y0, blockW, blockH)
+		if (variance<<2) > threshAC || sse-variance > threshDC {
+			return false
+		}
+	}
+	return true
+}
+
+func vp9StaticThresholds(threshold int, yDequant [2]int16,
+	bsize common.BlockSize,
+) (uint64, uint64) {
+	const maxThresh = uint64(36000)
+	minThresh := maxThresh
+	if threshold < int(maxThresh>>4) {
+		minThresh = uint64(threshold) << 4
+	}
+	yAC := int(yDequant[1])
+	threshAC := uint64(yAC*yAC) >> 3
+	if threshAC < minThresh {
+		threshAC = minThresh
+	} else if threshAC > maxThresh {
+		threshAC = maxThresh
+	}
+	shift := 8 - int(common.BWidthLog2Lookup[bsize]+common.BHeightLog2Lookup[bsize])
+	if shift > 0 {
+		threshAC >>= uint(shift)
+	}
+	yDC := int(yDequant[0])
+	return threshAC, uint64(yDC*yDC) >> 6
+}
+
+func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
+	forcedRefFrame int8, forcedRef bool,
+) (vp9InterModeDecision, bool) {
+	if mi == nil {
+		return vp9InterModeDecision{}, false
+	}
+	mi.Mode = common.ZeroMv
+	mi.Mv = [2]vp9dec.MV{}
+	mi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
+	mi.InterpFilter = uint8(vp9dec.InterpEighttap)
+	var picked vp9InterModeDecision
+	pickedValid := false
+	if forcedRef {
+		refSlot, ok := e.vp9InterReferenceSlot(inter, forcedRefFrame)
+		if !ok {
+			return vp9InterModeDecision{}, false
+		}
+		inter.ref = &e.refFrames[refSlot]
+		mi.RefFrame = [2]int8{forcedRefFrame, vp9dec.NoRefFrame}
+		if decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
+			miRow, miCol, bsize, forcedRefFrame, 0); ok {
+			picked = decision
+			picked.refFrame = forcedRefFrame
+			picked.secondRefFrame = vp9dec.NoRefFrame
+			picked.refSlot = refSlot
+			mi.Mode = decision.mode
+			mi.Mv = decision.mv
+			mi.Bmi = decision.bmi
+			mi.InterpFilter = uint8(decision.interpFilter)
+			pickedValid = true
+		}
+	} else if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, bsize); ok {
+		// libvpx: vp9/encoder/vp9_bitstream.c::write_modes_b reads the
+		// stored picker decision from mi[0]->mbmi without re-invoking
+		// the picker. The cache populated by the prior count pre-pass
+		// supplies the same decision for this leaf-write call site.
+		picked = cached
+		mi.Mode = cached.mode
+		mi.Mv = cached.mv
+		mi.Bmi = cached.bmi
+		mi.RefFrame = [2]int8{cached.refFrame, cached.secondRefFrame}
+		mi.InterpFilter = uint8(cached.interpFilter)
+		if !cached.intra {
+			inter.ref = &e.refFrames[cached.refSlot]
+		}
+		pickedValid = true
+	} else if decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+		miRow, miCol, bsize); ok {
+		picked = decision
+		mi.Mode = decision.mode
+		mi.Mv = decision.mv
+		mi.Bmi = decision.bmi
+		mi.RefFrame = [2]int8{decision.refFrame, decision.secondRefFrame}
+		mi.InterpFilter = uint8(decision.interpFilter)
+		if !decision.intra {
+			inter.ref = &e.refFrames[decision.refSlot]
+		}
+		pickedValid = true
+		// Commit the leaf decision so a subsequent same-frame visit at
+		// this (miRow, miCol, bsize) — the bitstream write pass — can
+		// skip the picker. libvpx encodes the decision once into
+		// mi_grid_visible during the encode walk; the bitstream pass
+		// reads it back without recomputation.
+		e.storeVP9LeafInterDecision(miRow, miCol, bsize, decision)
+	} else if refFrame, refSlot, ok := e.firstVP9InterReference(inter); ok {
+		mi.RefFrame[0] = refFrame
+		inter.ref = &e.refFrames[refSlot]
+	} else {
+		return vp9InterModeDecision{}, false
+	}
+	if pickedValid && picked.intra {
+		mi.Mode = picked.mode
+		mi.Mv = [2]vp9dec.MV{}
+		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
+		if picked.txSize < common.TxSizes {
+			mi.TxSize = picked.txSize
+		}
+		return picked, true
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi) {
+		return vp9InterModeDecision{}, false
+	}
+	return picked, true
+}
+
+func (e *VP9Encoder) prepareVP9InterSkipPrediction(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, forcedRefFrame int8, forcedRef bool,
+) bool {
+	if inter == nil || mi == nil {
+		return false
+	}
+	refFrame := mi.RefFrame[0]
+	if forcedRef {
+		refFrame = forcedRefFrame
+	}
+	refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
+	if !ok && !forcedRef {
+		refFrame, refSlot, ok = e.firstVP9InterReference(inter)
+	}
+	if !ok {
+		return false
+	}
+	mi.Mode = common.ZeroMv
+	mi.Mv = [2]vp9dec.MV{}
+	mi.RefFrame = [2]int8{refFrame, vp9dec.NoRefFrame}
+	mi.InterpFilter = uint8(vp9dec.InterpEighttap)
+	inter.ref = &e.refFrames[refSlot]
+	return e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi)
+}
+
+func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, maxTx common.TxSize, segmentID uint8,
+) common.TxSize {
+	if inter == nil || inter.dq == nil || bsize >= common.BlockSizes {
+		return maxTx
+	}
+	maxTx = clampVP9TxSizeForBlock(maxTx, bsize)
+	if maxTx < common.Tx8x8 {
+		return maxTx
+	}
+	if miRow+int(common.Num8x8BlocksHighLookup[bsize]) > miRows ||
+		miCol+int(common.Num8x8BlocksWideLookup[bsize]) > miCols {
+		return maxTx
+	}
+	sse, activity, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize)
+	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
+		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
+	if !ok {
+		return maxTx
+	}
+	// limitTx mirrors libvpx vp9/encoder/vp9_pickmode.c:370-373
+	// (calculate_tx_size) — under CYCLIC_REFRESH_AQ the encoder lifts the
+	// inter Tx16x16 cap when source variance or residual variance is zero
+	// (var_thresh = 1 for inter, i.e. is_intra=0). Outside CYCLIC_REFRESH_AQ
+	// limit_tx stays 1 and the libvpx Tx16x16 ceiling applies.
+	limitTx := e.vp9InterCalculateTxLimitTx(inter, miRow, miCol, bsize, sse)
+	// libvpx vp9_pickmode.c:380-388 — the boosted-segment Tx8x8 force and
+	// screen-content Tx4x4 force apply once the picker has produced a
+	// candidate tx_size. acThr mirrors model_rd_for_sb_y at vp9_pickmode.c:
+	// 658 (`ac_thr = p->quant_thred[1] >> 6`); quant_thred[1] is computed
+	// as zbin[1]^2 at vp9_quantize.c:265 with zbin[1] =
+	// ROUND_POWER_OF_TWO(qzbin_factor * ac_quant, 7) (vp9_quantize.c:211).
+	acThr := e.vp9InterCalculateTxAcThr(inter, segmentID)
+	// residualVar derived from the same sse/sum-of-differences as
+	// vp9InterCalculateTxLimitTx so the screen-content force uses the
+	// same variance the libvpx model_rd_for_sb_y feeds calculate_tx_size
+	// (vp9_pickmode.c:668). residualVar == 0 retains the prior limit_tx
+	// semantics; the full uint64 value now feeds the (var >> 5) > ac_thr
+	// screen-content Tx4x4 force at vp9_pickmode.c:386-388.
+	sourceVar, residualVar, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+		miCol, bsize, sse)
+	if e.vp9InterUsesNonrdPickmode() {
+		return e.vp9InterCalculateTxSize(bsize, common.TxModeSelect, sse,
+			residualVar, sourceVar, acThr, segmentID)
+	}
+	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
+		return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVar, acThr,
+			limitTx, segmentID)
+	}
+	if sse <= pixels*512 || activity <= pixels*16 {
+		// libvpx vp9_pickmode.c:371-384: in the CYCLIC_REFRESH_AQ flat
+		// region (limit_tx=0) the Tx16x16 ceiling is dropped, so the
+		// picker can return maxTx (up to Tx32x32) directly without
+		// running the score-based RDO. For limit_tx=1 the libvpx
+		// Tx16x16 cap still applies.
+		if !limitTx {
+			return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVar,
+				acThr, limitTx, segmentID)
+		}
+		// The realtime oracle keeps smooth changed inter blocks below
+		// 32x32, while still allowing textured residuals to use the
+		// scored Tx32 path below.
+		tx := min(maxTx, common.Tx16x16)
+		return e.vp9InterTxApplyForces(tx, bsize, sse, residualVar, acThr,
+			limitTx, segmentID)
+	}
+	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, bsize)
+	if !ok {
+		return maxTx
+	}
+	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	txCtx := vp9dec.GetTxSizeContext(above, left, maxTx)
+	txProbs := vp9TxProbsRow(&e.fc.TxProbs, maxTx, txCtx)
+	qindex := e.vp9EncoderModeDecisionQIndex()
+
+	bestTx := maxTx
+	bestScore := uint64(^uint64(0))
+	bestRate := int(^uint(0) >> 1)
+	minTx := max(maxTx-1, common.Tx4x4)
+	for txi := int(maxTx); txi >= int(minTx); txi-- {
+		tx := common.TxSize(txi)
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		distortion, coeffRate, hasResidue, ok := e.scoreVP9InterTxCandidate(inter,
+			miRows, miCols, miRow, miCol, bsize, tx)
+		if !ok {
+			continue
+		}
+		rate := 0
+		if hasResidue {
+			rate = coeffRate + vp9TxSizeRateCost(txProbs, tx, maxTx)
+		}
+		score := e.vp9ModeDecisionScore(distortion, rate, qindex)
+		if score < bestScore || (score == bestScore && rate < bestRate) {
+			bestScore = score
+			bestRate = rate
+			bestTx = tx
+		}
+	}
+	e.restoreVP9PartitionReconSnapshot(reconSnap)
+	return e.vp9InterTxApplyForces(bestTx, bsize, sse, residualVar, acThr,
+		limitTx, segmentID)
+}
+
+// vp9InterTxApplyForces folds in the libvpx-verbatim boosted-segment
+// Tx8x8 force from vp9/encoder/vp9_pickmode.c:380-384 (inside
+// calculate_tx_size) plus the VP9E_CONTENT_SCREEN Tx4x4 force at
+// vp9_pickmode.c:386-388 on top of govpx's score-based picker output.
+// libvpx evaluates:
+//
+//	if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ && limit_tx &&
+//	    cyclic_refresh_segment_id_boosted(xd->mi[0]->segment_id))
+//	  tx_size = TX_8X8;
+//	else if (tx_size > TX_16X16 && limit_tx)
+//	  tx_size = TX_16X16;
+//	// For screen-content force 4X4 tx_size over 8X8, for large variance.
+//	if (cpi->oxcf.content == VP9E_CONTENT_SCREEN && tx_size == TX_8X8 &&
+//	    bsize <= BLOCK_16X16 && ((var >> 5) > (unsigned int)ac_thr))
+//	  tx_size = TX_4X4;
+//
+// residualVar mirrors the libvpx `var` passed to calculate_tx_size by
+// model_rd_for_sb_y at vp9_pickmode.c:668 — the same residual variance
+// computed in vp9InterTxSourceAndResidualVar via
+// sse - ((sum*sum) >> (bw+bh+4)).
+func (e *VP9Encoder) vp9InterTxApplyForces(tx common.TxSize, bsize common.BlockSize,
+	sse uint64, residualVar uint64, acThr int64, limitTx bool, segmentID uint8,
+) common.TxSize {
+	_ = sse
+	if e == nil {
+		return tx
+	}
+	// Boosted-segment Tx8x8 force (vp9_pickmode.c:380-382).
+	if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
+		vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+		tx = common.Tx8x8
+	} else if tx > common.Tx16x16 && limitTx {
+		// Tx16x16 cap (vp9_pickmode.c:383-384) — kept for parity even
+		// though govpx already caps Tx16x16 in the picker; libvpx's
+		// helper applies the cap unconditionally here.
+		tx = common.Tx16x16
+	}
+	// Screen-content Tx4x4 force (vp9_pickmode.c:386-388). libvpx gates
+	// the force on (var >> 5) > (unsigned int)ac_thr — acThr is
+	// signed-int64 in govpx; cast through uint64 mirrors the libvpx
+	// unsigned compare. acThr <= 0 disables the force (govpx returns
+	// acThr == 0 when the quantizer plumbing is unavailable).
+	if e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
+		tx == common.Tx8x8 && bsize <= common.Block16x16 &&
+		acThr > 0 && (residualVar>>5) > uint64(acThr) {
+		tx = common.Tx4x4
+	}
+	return tx
+}
+
+// vp9InterCalculateTxAcThr ports libvpx's
+// `ac_thr = p->quant_thred[1] >> 6` (vp9/encoder/vp9_pickmode.c:658) and
+// `quant_thred[1] = zbin[1]^2` (vp9/encoder/vp9_quantize.c:265) with
+// zbin[1] = ROUND_POWER_OF_TWO(qzbin_factor * ac_quant, 7)
+// (vp9/encoder/vp9_quantize.c:211). ac_quant is dequant[1] for the Y
+// plane at the segment qindex.
+//
+// The ac_thr_factor scaling at vp9_pickmode.c:494/497 is independent of
+// the per-block segment id and feeds the abs(sum) >> (bw+bh) check that
+// only fires at speed >= 8 / norm_sum < 5. govpx does not yet thread
+// the per-block norm_sum into the picker; the factor defaults to 1
+// outside that gate, so the ac_thr returned here matches libvpx for
+// every speed < 8 path and approximates libvpx for the speed=8 path
+// where norm_sum >= 5 (the textured-residual majority).
+func (e *VP9Encoder) vp9InterCalculateTxAcThr(inter *vp9InterEncodeState,
+	segmentID uint8,
+) int64 {
+	if e == nil || inter == nil || inter.dq == nil ||
+		int(segmentID) >= len(inter.dq.Y) {
+		return 0
+	}
+	_, acThr := vp9ModelRdQuantThresholds(e.vp9EncoderModeDecisionQIndex(),
+		inter.dq.Y[segmentID])
+	return acThr
+}
+
+// vp9InterCalculateTxLimitTx is a verbatim port of the limit_tx
+// computation from libvpx vp9/encoder/vp9_pickmode.c:370-373 inside
+// calculate_tx_size, specialised for the inter path (is_intra=0).
+// libvpx evaluates:
+//
+//	int limit_tx = 1;
+//	if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ &&
+//	    (source_variance == 0 || var < var_thresh))
+//	  limit_tx = 0;
+//
+// where var_thresh = is_intra ? ac_thr : 1, so for inter we have
+// var_thresh = 1 and the only way the predicate fires is when either
+// source_variance or var equals zero.
+//
+// govpx computes the residual variance from sse and sum of differences
+// as libvpx does (var = sse - (sum*sum) >> (bw+bh+4)). When the
+// residual is constant the variance is zero and limit_tx flips to 0;
+// otherwise the libvpx Tx16x16 cap stays in place.
+func (e *VP9Encoder) vp9InterCalculateTxLimitTx(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, sse uint64,
+) bool {
+	if e == nil || inter == nil || bsize >= common.BlockSizes {
+		return true
+	}
+	if e.opts.AQMode != VP9AQCyclicRefresh {
+		// libvpx vp9_pickmode.c:371 — limit_tx defaults to 1 outside
+		// CYCLIC_REFRESH_AQ.
+		return true
+	}
+	srcVar, residVar, ok := e.vp9InterTxSourceAndResidualVar(inter, miRow,
+		miCol, bsize, sse)
+	if !ok {
+		return true
+	}
+	// var_thresh = 1 for is_intra=0; var < 1 ⇔ var == 0 since var is
+	// unsigned. source_variance == 0 || var == 0 toggles limit_tx to 0.
+	if srcVar == 0 || residVar == 0 {
+		return false
+	}
+	return true
+}
+
+// vp9InterTxSourceAndResidualVar returns the libvpx source_variance
+// (block luma variance about its mean) and the residual variance
+// computed as `sse - ((sum_diff*sum_diff) >> (bw+bh+4))`. The bw/bh
+// shift mirrors libvpx vp9_pickmode.c:481 / vpx_dsp variance.c
+// variance(), which divides sum_sqr by the pixel count (4<<bw * 4<<bh
+// = 16 << (bw+bh)) using a fixed right-shift. residualVar equals the
+// libvpx `var` value model_rd_for_sb_y passes into calculate_tx_size
+// at vp9_pickmode.c:668 — both the
+// `cyclic_refresh limit_tx` predicate (var < var_thresh) and the
+// screen-content Tx4x4 force (`(var >> 5) > ac_thr`) consume it.
+func (e *VP9Encoder) vp9InterTxSourceAndResidualVar(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, sse uint64,
+) (sourceVar uint64, residualVar uint64, ok bool) {
+	if inter == nil {
+		return 0, 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	pred, predStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
+		return 0, 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	predRows := len(pred) / predStride
+	if x0+blockW > srcW || y0+blockH > srcH ||
+		x0+blockW > predStride || y0+blockH > predRows {
+		return 0, 0, false
+	}
+	var srcSum int64
+	var srcSse uint64
+	var diffSum int64
+	for y := range blockH {
+		srcRow := src[(y0+y)*srcStride:]
+		predRow := pred[(y0+y)*predStride:]
+		for x := range blockW {
+			s := int(srcRow[x0+x])
+			p := int(predRow[x0+x])
+			srcSum += int64(s)
+			srcSse += uint64(s * s)
+			diffSum += int64(s - p)
+		}
+	}
+	n := int64(blockW * blockH)
+	if n <= 0 {
+		return 0, 0, false
+	}
+	// libvpx source_variance in vp9_block.h:120 is the variance about the
+	// block mean: sum(x*x) - (sum(x))^2 / N. Computed in floor-divide form
+	// so values exactly equal to the unbiased variance for byte input.
+	srcMeanSqr := uint64((srcSum * srcSum) / n)
+	if srcSse > srcMeanSqr {
+		sourceVar = srcSse - srcMeanSqr
+	}
+	// residual variance: sse - (sum*sum) >> (bw+bh+4). bw,bh from libvpx
+	// b_{width,height}_log2_lookup give blockW=4<<bw, blockH=4<<bh.
+	bwLog2 := int(common.BWidthLog2Lookup[bsize])
+	bhLog2 := int(common.BHeightLog2Lookup[bsize])
+	shift := uint(bwLog2 + bhLog2 + 4)
+	sumSqr := uint64((diffSum * diffSum) >> shift)
+	if sse > sumSqr {
+		residualVar = sse - sumSqr
+	}
+	return sourceVar, residualVar, true
+}
+
+// vp9CyclicRefreshSegmentIDBoosted ports libvpx
+// vp9/encoder/vp9_aq_cyclicrefresh.h:127-130
+// cyclic_refresh_segment_id_boosted(segment_id), checking whether the
+// caller-supplied CR segment_id is in {BOOST1, BOOST2}. Currently
+// referenced by vp9InterCalculateTxSize as part of the port of
+// calculate_tx_size (vp9_pickmode.c:380-382). The boosted-segment
+// Tx8x8 forcing is wired in via the post-pass at the end of
+// pickVP9InterTxSize once a per-block segment id is plumbed through;
+// the helper is kept available so the upcoming select_tx_mode port
+// can reuse it without re-deriving the libvpx constant set.
+func vp9CyclicRefreshSegmentIDBoosted(segmentID uint8) bool {
+	return segmentID == vp9CyclicRefreshSegmentBoost1 ||
+		segmentID == vp9CyclicRefreshSegmentBoost2
+}
+
+// vp9InterCalculateTxSize is a verbatim port of libvpx
+// vp9/encoder/vp9_pickmode.c:363-393 (calculate_tx_size) specialised
+// for the inter path (is_intra=0, var_thresh = 1). Currently used as
+// a reference oracle by the limit_tx-aware post-pass in
+// pickVP9InterTxSize and by future select_tx_mode rewiring; the
+// govpx inter picker still drives its score-based RDO on top of
+// libvpx's limit_tx semantics so it can preserve byte parity against
+// the established heuristic baseline while exposing the libvpx
+// CYCLIC_REFRESH_AQ var=0 escape.
+//
+// libvpx reference (vp9_pickmode.c:363-393):
+//
+//	static TX_SIZE calculate_tx_size(VP9_COMP *const cpi, BLOCK_SIZE bsize,
+//	                                 MACROBLOCKD *const xd, unsigned int var,
+//	                                 unsigned int sse, int64_t ac_thr,
+//	                                 unsigned int source_variance, int is_intra) {
+//	  TX_SIZE tx_size;
+//	  unsigned int var_thresh = is_intra ? (unsigned int)ac_thr : 1;
+//	  int limit_tx = 1;
+//	  if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ &&
+//	      (source_variance == 0 || var < var_thresh))
+//	    limit_tx = 0;
+//	  if (cpi->common.tx_mode == TX_MODE_SELECT) {
+//	    if (sse > (var << 2))
+//	      tx_size = VPXMIN(max_txsize_lookup[bsize],
+//	                       tx_mode_to_biggest_tx_size[cpi->common.tx_mode]);
+//	    else
+//	      tx_size = TX_8X8;
+//	    if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ && limit_tx &&
+//	        cyclic_refresh_segment_id_boosted(xd->mi[0]->segment_id))
+//	      tx_size = TX_8X8;
+//	    else if (tx_size > TX_16X16 && limit_tx)
+//	      tx_size = TX_16X16;
+//	    if (cpi->oxcf.content == VP9E_CONTENT_SCREEN && tx_size == TX_8X8 &&
+//	        bsize <= BLOCK_16X16 && ((var >> 5) > (unsigned int)ac_thr))
+//	      tx_size = TX_4X4;
+//	  } else {
+//	    tx_size = VPXMIN(max_txsize_lookup[bsize],
+//	                     tx_mode_to_biggest_tx_size[cpi->common.tx_mode]);
+//	  }
+//	  return tx_size;
+//	}
+func (e *VP9Encoder) vp9InterCalculateTxSize(bsize common.BlockSize,
+	txMode common.TxMode, sse, residualVar, sourceVar uint64, acThr int64,
+	segmentID uint8,
+) common.TxSize {
+	maxTx := common.MaxTxsizeLookup[bsize]
+	biggestForMode := common.TxModeToBiggestTxSize[txMode]
+	if maxTx > biggestForMode {
+		maxTx = biggestForMode
+	}
+	// var_thresh = is_intra ? ac_thr : 1 — inter path: 1.
+	limitTx := true
+	if e.opts.AQMode == VP9AQCyclicRefresh &&
+		(sourceVar == 0 || residualVar == 0) {
+		limitTx = false
+	}
+	var txSize common.TxSize
+	if txMode == common.TxModeSelect {
+		if sse > residualVar<<2 {
+			txSize = maxTx
+		} else {
+			txSize = common.Tx8x8
+		}
+		if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
+			vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+			txSize = common.Tx8x8
+		} else if txSize > common.Tx16x16 && limitTx {
+			txSize = common.Tx16x16
+		}
+		// VP9E_CONTENT_SCREEN: force Tx4x4 over Tx8x8 for large variance,
+		// vp9_pickmode.c:386-388.
+		if e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
+			txSize == common.Tx8x8 && bsize <= common.Block16x16 &&
+			acThr > 0 && (residualVar>>5) > uint64(acThr) {
+			txSize = common.Tx4x4
+		}
+	} else {
+		txSize = maxTx
+	}
+	return txSize
+}
+
+func (e *VP9Encoder) vp9InterTxResidualStats(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) (sse, activity uint64, ok bool) {
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	pred, predStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
+		return 0, 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	predRows := len(pred) / predStride
+	if x0+blockW > srcW || y0+blockH > srcH ||
+		x0+blockW > predStride || y0+blockH > predRows {
+		return 0, 0, false
+	}
+	for y := range blockH {
+		srcRow := src[(y0+y)*srcStride:]
+		predRow := pred[(y0+y)*predStride:]
+		for x := range blockW {
+			diff := int(srcRow[x0+x]) - int(predRow[x0+x])
+			sse += uint64(diff * diff)
+			if x > 0 {
+				leftDiff := int(srcRow[x0+x-1]) - int(predRow[x0+x-1])
+				activity += uint64(vp9AbsInt(diff - leftDiff))
+			}
+			if y > 0 {
+				upDiff := int(src[(y0+y-1)*srcStride+x0+x]) -
+					int(pred[(y0+y-1)*predStride+x0+x])
+				activity += uint64(vp9AbsInt(diff - upDiff))
+			}
+		}
+	}
+	return sse, activity, true
+}
+
+func vp9AbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize, lumaTx common.TxSize,
+) (distortion uint64, rate int, hasResidue bool, ok bool) {
+	if inter == nil || inter.dq == nil {
+		return 0, 0, false, false
+	}
+	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	var aboveCtx [vp9dec.MaxMbPlane][16]uint8
+	var leftCtx [vp9dec.MaxMbPlane][16]uint8
+	var aboveLen [vp9dec.MaxMbPlane]int
+	var leftLen [vp9dec.MaxMbPlane]int
+	for plane := range 1 {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		aboveLen[plane] = int(common.Num4x4BlocksWideLookup[planeBsize])
+		leftLen[plane] = int(common.Num4x4BlocksHighLookup[planeBsize])
+		if aboveLen[plane] > len(aboveCtx[plane]) || leftLen[plane] > len(leftCtx[plane]) {
+			return 0, 0, false, false
+		}
+		if off := aboveOffsets[plane]; off >= 0 && off+aboveLen[plane] <= len(pd.AboveContext) {
+			copy(aboveCtx[plane][:aboveLen[plane]], pd.AboveContext[off:off+aboveLen[plane]])
+		}
+		if off := leftOffsets[plane]; off >= 0 && off+leftLen[plane] <= len(pd.LeftContext) {
+			copy(leftCtx[plane][:leftLen[plane]], pd.LeftContext[off:off+leftLen[plane]])
+		}
+	}
+
+	for plane := range 1 {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		txSize := lumaTx
+		dequant := inter.dq.Y[0]
+		planeType := 0
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, lumaTx, pd)
+			dequant = inter.dq.Uv[0]
+			planeType = 1
+		}
+		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+			miRow, miCol, bsize, pd, planeBsize)
+		step := 1 << uint(txSize)
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob > len(e.coefScratch) {
+			return 0, 0, false, false
+		}
+		for rr := 0; rr < max4x4H; rr += step {
+			for cc := 0; cc < max4x4W; cc += step {
+				coeffs := e.coefScratch[:maxEob]
+				qcoeffs := e.qCoefScratch[:maxEob]
+				for i := range coeffs {
+					coeffs[i] = 0
+					qcoeffs[i] = 0
+				}
+				// libvpx vp9_rdopt.c:367,405 — cost_coeffs reads
+				// v = qcoeff[rc] (p->qcoeff). prepareVP9InterTxResidueWithQ
+				// emits qcoeff alongside dqcoeff so the cost path
+				// consumes the libvpx-equivalent magnitude verbatim
+				// instead of recovering q from int16-wrapped dqcoeff.
+				hasTxResidue := e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize,
+					miRow, miCol, rr, cc, dequant, coeffs, qcoeffs)
+				txDist, distOK := e.scoreVP9InterTxReconstruction(inter, pd, plane,
+					txSize, miRow, miCol, rr, cc)
+				if !distOK {
+					return 0, 0, false, false
+				}
+				distortion += txDist
+
+				initCtx := vp9dec.GetEntropyContext(txSize,
+					aboveCtx[plane][cc:cc+step], leftCtx[plane][rr:rr+step])
+				rate += e.vp9InterCoeffBlockRateCostQ(txSize, planeType,
+					dequant, coeffs, qcoeffs, initCtx)
+				hasCtx := uint8(0)
+				if hasTxResidue {
+					hasCtx = 1
+					hasResidue = true
+				}
+				for i := range step {
+					aboveCtx[plane][cc+i] = hasCtx
+					leftCtx[plane][rr+i] = hasCtx
+				}
+			}
+		}
+	}
+	return distortion, rate, hasResidue, true
+}
+
+func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol, blockRow4x4, blockCol4x4 int,
+) (uint64, bool) {
+	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4)
+	if !ok {
+		return 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+	if len(src) == 0 || srcStride <= 0 {
+		return 0, false
+	}
+	bs := 4 << uint(txSize)
+	var distortion uint64
+	for y := 0; y < bs && y0+y < srcH; y++ {
+		srcRow := src[(y0+y)*srcStride:]
+		dstRow := dst[y*stride:]
+		for x := 0; x < bs && x0+x < srcW; x++ {
+			diff := int(srcRow[x0+x]) - int(dstRow[x])
+			distortion += uint64(diff * diff)
+		}
+	}
+	return distortion, true
+}
+
+func (e *VP9Encoder) vp9InterCoeffBlockRateCost(txSize common.TxSize,
+	planeType int, dequant [2]int16, coeffs []int16, initCtx int,
+) int {
+	return e.vp9InterCoeffBlockRateCostQ(txSize, planeType, dequant, coeffs,
+		nil, initCtx)
+}
+
+// vp9InterCoeffBlockRateCostQ mirrors libvpx's cost_coeffs is_inter=1
+// path (vp9_rdopt.c:358-459). When qcoeffs is non-nil the per-coefficient
+// magnitude is read directly from qcoeffs[raster] — see
+// vp9KeyframeCoeffBlockRateCostPlaneQ for the rationale.
+func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
+	planeType int, dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
+) int {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 ||
+		dequant[0] == 0 || dequant[1] == 0 || len(coeffs) < maxEob ||
+		len(e.modeScratch) < maxEob || initCtx < 0 || initCtx > 2 {
+		return 0
+	}
+	if qcoeffs != nil && len(qcoeffs) < maxEob {
+		qcoeffs = nil
+	}
+	scan := common.DefaultScanOrders[txSize].Scan
+	for i := range e.modeScratch[:maxEob] {
+		e.modeScratch[i] = 0
+	}
+	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
+	coefModel := &e.fc.CoefProbs[txSize][planeType][1]
+	if e.sf.UseFastCoefCosting != 0 {
+		return e.vp9CoeffBlockRateCostFastQ(txSize, coefModel,
+			common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
+			initCtx)
+	}
+	return e.vp9CoeffBlockRateCostSlowQ(txSize, coefModel,
+		common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
+		initCtx, eob)
+}
+
+func vp9CoeffTokenAbsVal(absCoeff, dqv int16, tx32 bool) int {
+	return vp9CoeffTokenAbsValInt(int(absCoeff), int(dqv), tx32)
+}
+
+func vp9CoeffTokenAbsValInt(absCoeff, dqv int, tx32 bool) int {
+	num := absCoeff
+	den := dqv
+	if den <= 0 {
+		return 0
+	}
+	if tx32 {
+		return (num*2 + den - 1) / den
+	}
+	return num / den
+}
+
+// vp9KeyframeCoeffMagnitude returns the absolute quantized magnitude that
+// libvpx's vp9_get_token_cost(v, ...) (vp9/encoder/vp9_tokenize.h:113)
+// observes for the coefficient at raster index rc. libvpx reads
+// v = qcoeff[rc] (vp9_rdopt.c:392,405,423,438) — the signed quantized
+// value written by the quantize kernels (vpx_dsp/quantize.c:71-72,261;
+// vp9/encoder/vp9_quantize.c:50,116). When the quantize kernel has
+// already populated qcoeffs[] (via QuantizeB*WithQ / QuantizeFP*WithQ)
+// govpx consumes that value directly; the legacy
+// vp9CoeffTokenAbsVal(dqcoeff, dq, tx32) recovery is retained as the
+// nil-qcoeffs fallback for legacy callers and to confirm parity in unit
+// tests, but drifts whenever dqcoeff = q*dq (or q*dq/2 for Tx32x32) is
+// truncated by the int16 cast in the quantize kernel.
+func vp9KeyframeCoeffMagnitude(qcoeffs []int16, raster int, absDqcoeff, dqv int16,
+	tx32 bool,
+) int {
+	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
+		q := int(qcoeffs[raster])
+		if q < 0 {
+			q = -q
+		}
+		return q
+	}
+	return vp9CoeffTokenAbsVal(absDqcoeff, dqv, tx32)
+}
+
+func vp9CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
+	if absVal <= 0 || len(probs) < encoder.UnconstrainedNodes {
+		return 0
+	}
+	rate := 0
+	token, extra := encoder.TokenForAbsCoeff(absVal)
+	if token == encoder.OneToken {
+		rate += encoder.VP9CostBit(probs[2], 0)
+		rate += encoder.VP9CostBit(128, sign)
+		return rate
+	}
+	rate += encoder.VP9CostBit(probs[2], 1)
+	enc := encoder.CoefEncodings[token]
+	pareto := tables.Pareto8Full[probs[2]-1]
+	rate += encoder.TreedCost(encoder.CoefConTree[:], pareto[:],
+		int(enc.Value), int(enc.Len)-encoder.UnconstrainedNodes)
+	if token >= encoder.Category1Tok {
+		eb := encoder.VP9ExtraBits[token]
+		for i := eb.Len - 1; i >= 0; i-- {
+			bit := (extra >> uint(i)) & 1
+			rate += encoder.VP9CostBit(eb.Prob[eb.Len-1-i], bit)
+		}
+	}
+	rate += encoder.VP9CostBit(128, sign)
+	return rate
+}
+
+func vp9CoeffTokenExtraCost(absVal, sign int) (token int, cost int) {
+	token, extra := encoder.TokenForAbsCoeff(absVal)
+	if token >= encoder.Category1Tok {
+		eb := encoder.VP9ExtraBits[token]
+		for i := eb.Len - 1; i >= 0; i-- {
+			bit := (extra >> uint(i)) & 1
+			cost += encoder.VP9CostBit(eb.Prob[eb.Len-1-i], bit)
+		}
+	}
+	if token != encoder.ZeroToken {
+		cost += encoder.VP9CostBit(128, sign)
+	}
+	return token, cost
+}
+
+func vp9CoeffTreeTokenCost(model []uint8, skipEOB bool, token int) int {
+	if len(model) < encoder.UnconstrainedNodes || token < 0 ||
+		token >= encoder.EntropyTokens || model[2] == 0 {
+		return 0
+	}
+	var full [encoder.EntropyNodes]uint8
+	full[0] = model[0]
+	full[1] = model[1]
+	full[2] = model[2]
+	tail := tables.Pareto8Full[model[2]-1]
+	for i := range tail {
+		full[3+i] = tail[i]
+	}
+	var costs [encoder.EntropyTokens]int
+	if skipEOB {
+		encoder.VP9CostTokensSkip(costs[:], full[:], encoder.CoefTree[:])
+	} else {
+		encoder.VP9CostTokens(costs[:], full[:], encoder.CoefTree[:])
+	}
+	return costs[token]
+}
+
+func vp9CoeffMagnitudeAndSign(qcoeffs []int16, raster int, dqcoeff int16,
+	dqv int16, tx32 bool,
+) (absVal int, sign int) {
+	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
+		q := int(qcoeffs[raster])
+		if q < 0 {
+			return -q, 1
+		}
+		return q, 0
+	}
+	coeff := int(dqcoeff)
+	if coeff < 0 {
+		coeff = -coeff
+		sign = 1
+	}
+	return vp9CoeffTokenAbsValInt(coeff, int(dqv), tx32), sign
+}
+
+func vp9CoeffBlockEOB(scan []int16, maxEob int, coeffs, qcoeffs []int16) int {
+	eob := 0
+	for i := range maxEob {
+		if vp9CoeffBlockHasCoeff(scan, i, coeffs, qcoeffs) {
+			eob = i + 1
+		}
+	}
+	return eob
+}
+
+func vp9CoeffBlockHasCoeff(scan []int16, pos int, coeffs, qcoeffs []int16) bool {
+	if pos < 0 || pos >= len(scan) {
+		return false
+	}
+	raster := int(scan[pos])
+	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
+		return qcoeffs[raster] != 0
+	}
+	return raster >= 0 && raster < len(coeffs) && coeffs[raster] != 0
+}
+
+func vp9TxSizeRateCost(probs []uint8, txSize, maxTxSize common.TxSize) int {
+	if len(probs) == 0 || txSize >= common.TxSizes {
+		return 0
+	}
+	rate := 0
+	if txSize == common.Tx4x4 {
+		return encoder.VP9CostBit(probs[0], 0)
+	}
+	rate += encoder.VP9CostBit(probs[0], 1)
+	if maxTxSize < common.Tx16x16 || len(probs) < 2 {
+		return rate
+	}
+	if txSize == common.Tx8x8 {
+		return rate + encoder.VP9CostBit(probs[1], 0)
+	}
+	rate += encoder.VP9CostBit(probs[1], 1)
+	if maxTxSize < common.Tx32x32 || len(probs) < 3 {
+		return rate
+	}
+	if txSize == common.Tx16x16 {
+		return rate + encoder.VP9CostBit(probs[2], 0)
+	}
+	return rate + encoder.VP9CostBit(probs[2], 1)
+}
