@@ -1720,7 +1720,7 @@ func (d *VP9Decoder) reconstructVP9IntraPredictTx(
 			edges.AboveLeft = planeData[(y0-1)*stride+x0-1]
 		}
 	}
-	planeBlock4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	planeBlock4x4W := vp9IntraPredictWidth4x4(bsize, planeBsize, pd)
 	txw := 1 << uint(txSize)
 	rightAvailable := blockCol4x4+txw < planeBlock4x4W
 	dst = planeData[y0*stride+x0:]

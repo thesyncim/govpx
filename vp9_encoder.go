@@ -1026,6 +1026,12 @@ type VP9Encoder struct {
 	vp9LeafKeyframeDecisionsRows int
 	vp9LeafKeyframeDecisionsCols int
 	vp9LeafKeyframeDecisionsVer  uint32
+	// vp9KeyframePartitionDecisions mirrors libvpx's PC_TREE replay for
+	// keyframe partition choices across the count and write passes.
+	vp9KeyframePartitionDecisions     []vp9KeyframePartitionDecisionEntry
+	vp9KeyframePartitionDecisionsRows int
+	vp9KeyframePartitionDecisionsCols int
+	vp9KeyframePartitionDecisionsVer  uint32
 	// vp9RowMTSync is set when the worker is dispatched as a tile-column body
 	// with RowMT enabled. The pointer aliases an entry inside
 	// vp9TileWorkerPool.rowMTSyncs and lives for the duration of the per-frame
@@ -3816,6 +3822,7 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	e.vp9ResetMLPartitionCache(miRows, miCols)
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
 	e.ensureVP9LeafKeyframeDecisionCache(miRows, miCols)
+	e.ensureVP9KeyframePartitionDecisionCache(miRows, miCols)
 	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratch {
 		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
 	} else {
@@ -5720,21 +5727,32 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	if kind == vp9ModeTreeKeyframeSource {
+		if key != nil && key.counts == nil {
+			if cached, ok := e.lookupVP9KeyframePartitionDecision(miRow, miCol, root); ok {
+				return cached
+			}
+		}
+		commitKeyframeTarget := func(target common.BlockSize) common.BlockSize {
+			if key != nil && key.counts != nil {
+				e.storeVP9KeyframePartitionDecision(miRow, miCol, root, target)
+			}
+			return target
+		}
 		if e.opts.AQMode == VP9AQVariance && !e.vp9VarianceAQRateControlFixedQ() &&
 			key != nil && key.img != nil && e.vp9DynamicSegmentMapActive() {
 			if segmentSize, ok := e.pickVP9SegmentMapPartitionBlockSize(
 				miRows, miCols, miRow, miCol, root, key.img, nil); ok {
-				return segmentSize
+				return commitKeyframeTarget(segmentSize)
 			}
 		}
 		if varianceSize, ok := e.pickVP9KeyframeVariancePartitionBlockSize(key,
 			miRows, miCols, miRow, miCol, root); ok {
-			return varianceSize
+			return commitKeyframeTarget(varianceSize)
 		}
 		if e.sf.UseNonrdPickMode == 0 && e.vp9KeyframeRDRefinementEnabled() {
 			if textureSize, ok := e.pickVP9KeyframeTexturePartitionBlockSize(key,
-				miRows, miCols, miRow, miCol, root); ok {
-				return textureSize
+				tile, miRows, miCols, miRow, miCol, root); ok {
+				return commitKeyframeTarget(textureSize)
 			}
 		}
 		// Fixed-Q libvpx keeps neutral clipped keyframe edges at the coarse
@@ -5742,10 +5760,11 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		if e.vp9FixedPublicQuantizer() &&
 			vp9KeyframeEdgeBlockHasNonNeutralLuma(key, miRows, miCols,
 				miRow, miCol, root) {
-			return vp9KeyframeSquareBlockSizeForRegion(miRows, miCols,
-				miRow, miCol, root)
+			return commitKeyframeTarget(vp9KeyframeSquareBlockSizeForRegion(miRows, miCols,
+				miRow, miCol, root))
 		}
-		return vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
+		return commitKeyframeTarget(vp9KeyframeSourceBlockSizeForRegion(miRows, miCols,
+			miRow, miCol, root))
 	}
 	if kind == vp9ModeTreeInterSource && inter != nil {
 		if edgeSize, ok := vp9InterEdgeBlockSizeForRegion(miRows, miCols,
@@ -5841,7 +5860,7 @@ func vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol int,
 }
 
 func (e *VP9Encoder) pickVP9KeyframeTexturePartitionBlockSize(key *vp9KeyframeEncodeState,
-	miRows, miCols, miRow, miCol int, root common.BlockSize,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int, root common.BlockSize,
 ) (common.BlockSize, bool) {
 	if key == nil || key.img == nil || key.dq == nil || root <= common.Block4x4 ||
 		root >= common.BlockSizes {
@@ -5873,9 +5892,116 @@ func (e *VP9Encoder) pickVP9KeyframeTexturePartitionBlockSize(key *vp9KeyframeEn
 		return common.BlockInvalid, false
 	}
 	if variance > threshold {
+		if root == common.Block8x8 {
+			if sub8Size, ok := e.pickVP9KeyframeSub8x8RDPartitionBlockSize(key,
+				tile, miRows, miCols, miRow, miCol); ok {
+				return sub8Size, true
+			}
+		}
 		return splitSize, true
 	}
 	return common.BlockInvalid, false
+}
+
+type vp9KeyframeIntraRD struct {
+	mode          common.PredictionMode
+	rate          int
+	rateTokenOnly int
+	distortion    uint64
+	skippable     bool
+}
+
+func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+) (common.BlockSize, bool) {
+	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, common.Block8x8)
+	if !ok {
+		return common.BlockInvalid, false
+	}
+	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx, miRow, miCol,
+		common.Block8x8)
+	probs := tables.KfPartitionProbs
+	qindex := e.vp9EncoderModeDecisionQIndex()
+	rdmult := vp9KeyframeRDMul(qindex)
+	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, 1, 1, rdmult)
+	bsl := int(common.BWidthLog2Lookup[common.Block8x8])
+	hasRows := miRow < miRows
+	hasCols := miCol < miCols
+
+	bestSize := common.BlockInvalid
+	bestScore := uint64(^uint64(0))
+	bestValid := false
+	for _, cand := range [...]common.BlockSize{
+		common.Block4x4,
+		common.Block8x4,
+		common.Block4x8,
+	} {
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		rd, ok := e.scoreVP9KeyframeSub8x8LeafRD(key, tile, miRows, miCols,
+			miRow, miCol, cand, rdmult)
+		if !ok {
+			continue
+		}
+		partition := common.PartitionLookup[bsl][cand]
+		rate := rd.rate + vp9PartitionRateCost(&probs, ctx, partition, hasRows, hasCols)
+		score := vp9RDCost(rdmult, vp9RDDivBits, rate, rd.distortion)
+		if !bestValid || score < bestScore {
+			bestSize = cand
+			bestScore = score
+			bestValid = true
+		}
+	}
+	e.restoreVP9PartitionReconSnapshot(reconSnap)
+	if !bestValid {
+		return common.BlockInvalid, false
+	}
+	return bestSize, true
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeSub8x8LeafRD(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, rdmult int,
+) (vp9KeyframeIntraRD, bool) {
+	if key == nil || bsize >= common.Block8x8 {
+		return vp9KeyframeIntraRD{}, false
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		TxSize:       common.Tx4x4,
+		RefFrame:     [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame},
+		InterpFilter: uint8(vp9dec.SwitchableFilters),
+	}
+	prevCbRdmult := e.cbRdmult
+	e.cbRdmult = rdmult
+	yRD, ok := e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
+		miRow, miCol, bsize, &mi)
+	if !ok {
+		e.cbRdmult = prevCbRdmult
+		return vp9KeyframeIntraRD{}, false
+	}
+	uvRD, ok := e.pickVP9KeyframeUvModeRD(key, tile, miRows, miCols,
+		miRow, miCol, bsize, &mi)
+	e.cbRdmult = prevCbRdmult
+	if !ok {
+		return vp9KeyframeIntraRD{}, false
+	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
+	rate := yRD.rate + uvRD.rate + encoder.VP9CostBit(skipProb, 0)
+	if yRD.skippable && uvRD.skippable {
+		rate = yRD.rate + uvRD.rate - yRD.rateTokenOnly - uvRD.rateTokenOnly +
+			encoder.VP9CostBit(skipProb, 1)
+	}
+	return vp9KeyframeIntraRD{
+		mode:       mi.Mode,
+		rate:       rate,
+		distortion: yRD.distortion + uvRD.distortion,
+		skippable:  yRD.skippable && uvRD.skippable,
+	}, true
 }
 
 func (e *VP9Encoder) vp9KeyframeRDRefinementEnabled() bool {
@@ -7567,7 +7693,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		}
 		if !keyDecisionReplayed {
 			if bsize < common.Block8x8 {
-				e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
+				_, _ = e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
 					miRow, miCol, bsize, &cur)
 			} else {
 				cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
@@ -8283,12 +8409,12 @@ func (e *VP9Encoder) useVP9KeyframeNonRDIntraMode(bsize common.BlockSize) bool {
 func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
-) {
+) (vp9KeyframeIntraRD, bool) {
 	if key == nil || mi == nil {
-		return
+		return vp9KeyframeIntraRD{}, false
 	}
 	if bsize >= common.Block8x8 {
-		return
+		return vp9KeyframeIntraRD{}, false
 	}
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
@@ -8310,6 +8436,18 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 	// Pin tx_size at TX_4X4 for the sub-8x8 picker, matching libvpx
 	// rd_pick_intra4x4block:1088 — `xd->mi[0]->tx_size = TX_4X4`.
 	mi.TxSize = common.Tx4x4
+	pd := &e.planes[0]
+	var aboveCtx, leftCtx [2]uint8
+	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
+		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+		if off := aboveOffsets[0]; off >= 0 && off+2 <= len(pd.AboveContext) {
+			copy(aboveCtx[:], pd.AboveContext[off:off+2])
+		}
+		if off := leftOffsets[0]; off >= 0 && off+2 <= len(pd.LeftContext) {
+			copy(leftCtx[:], pd.LeftContext[off:off+2])
+		}
+	}
+	var total vp9KeyframeIntraRD
 	for idy := 0; idy < 2; idy += num4x4H {
 		for idx := 0; idx < 2; idx += num4x4W {
 			i := idy*2 + idx
@@ -8321,11 +8459,19 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 			probs := vp9dec.GetYModeProbs(mi, above, left, i)
 			var bmodeCosts [common.IntraModes]int
 			encoder.VP9CostTokens(bmodeCosts[:], probs, common.IntraModeTree[:])
-			bestMode := e.pickVP9Sub4x4IntraBlockMode(key, tile, miRows, miCols,
-				miRow, miCol, bsize, mi, idy, idx, bmodeCosts[:], rdmult)
+			bestMode, rd, ok := e.pickVP9Sub4x4IntraBlockMode(key, tile, miRows, miCols,
+				miRow, miCol, bsize, mi, idy, idx, bmodeCosts[:], rdmult,
+				aboveCtx[idx:idx+num4x4W], leftCtx[idy:idy+num4x4H])
+			if !ok {
+				e.cbRdmult = prevCbRdmult
+				return vp9KeyframeIntraRD{}, false
+			}
 			// Replicate best_mode into the bmi cells the sub-block
 			// decision covers (libvpx vp9_rdopt.c:1344-1348).
 			mi.Bmi[i].AsMode = bestMode
+			total.rate += rd.rate
+			total.rateTokenOnly += rd.rateTokenOnly
+			total.distortion += rd.distortion
 			for j := 1; j < num4x4H; j++ {
 				mi.Bmi[i+j*2].AsMode = bestMode
 			}
@@ -8340,6 +8486,8 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 	// bottom-right subblock's pick.
 	mi.Mode = mi.Bmi[3].AsMode
 	e.cbRdmult = prevCbRdmult
+	total.mode = mi.Mode
+	return total, true
 }
 
 // pickVP9Sub4x4IntraBlockMode ports libvpx's rd_pick_intra4x4block
@@ -8356,12 +8504,12 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
-	idy, idx int, bmodeCosts []int, rdmult int,
-) common.PredictionMode {
+	idy, idx int, bmodeCosts []int, rdmult int, aboveCtx, leftCtx []uint8,
+) (common.PredictionMode, vp9KeyframeIntraRD, bool) {
 	pd := &e.planes[0]
 	planeData, stride := e.vp9EncoderReconPlane(0)
 	if len(planeData) == 0 || stride <= 0 {
-		return common.DcPred
+		return common.DcPred, vp9KeyframeIntraRD{}, false
 	}
 	num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
 	num4x4H := int(common.Num4x4BlocksHighLookup[bsize])
@@ -8375,11 +8523,11 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	rectH := num4x4H * 4
 	rows := len(planeData) / stride
 	if baseX < 0 || baseY < 0 || baseX+rectW > stride || baseY+rectH > rows {
-		return common.DcPred
+		return common.DcPred, vp9KeyframeIntraRD{}, false
 	}
 	rectPixels := rectW * rectH
 	if rectPixels*2 > len(e.blockScratch) {
-		return common.DcPred
+		return common.DcPred, vp9KeyframeIntraRD{}, false
 	}
 	saved := e.blockScratch[:rectPixels]
 	bestDst := e.blockScratch[rectPixels : 2*rectPixels]
@@ -8407,6 +8555,14 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	bestMode := common.DcPred
 	bestRD := uint64(^uint64(0))
 	bestValid := false
+	bestBlockRD := vp9KeyframeIntraRD{}
+	var ta, tl, bestA, bestL [2]uint8
+	for i := 0; i < num4x4W && i < len(aboveCtx) && i < len(ta); i++ {
+		ta[i] = aboveCtx[i]
+	}
+	for i := 0; i < num4x4H && i < len(leftCtx) && i < len(tl); i++ {
+		tl[i] = leftCtx[i]
+	}
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if mask&(1<<mode) == 0 {
 			continue
@@ -8425,6 +8581,8 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		// local 2-cell strip per axis (the libvpx 8x8 partition only
 		// holds 2 num_4x4_blocks in either direction).
 		var tempa, templ [2]uint8
+		copy(tempa[:], ta[:])
+		copy(templ[:], tl[:])
 		for jy := 0; jy < num4x4H && valid; jy++ {
 			for jx := 0; jx < num4x4W && valid; jx++ {
 				src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
@@ -8477,11 +8635,19 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		if !bestValid || thisRD < bestRD {
 			bestRD = thisRD
 			bestMode = mode
+			bestBlockRD = vp9KeyframeIntraRD{
+				mode:          mode,
+				rate:          rate,
+				rateTokenOnly: totalCoeffRate,
+				distortion:    totalDistortion,
+			}
 			bestValid = true
 			for y := range rectH {
 				copy(bestDst[y*rectW:(y+1)*rectW],
 					planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+rectW])
 			}
+			copy(bestA[:], tempa[:])
+			copy(bestL[:], templ[:])
 		}
 	}
 	// Leave the best mode's reconstructed pixels on the recon plane (libvpx
@@ -8490,10 +8656,16 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	// the following 4x4 sub-block's intra neighbours.
 	if bestValid {
 		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, bestDst)
+		for i := 0; i < num4x4W && i < len(aboveCtx) && i < len(bestA); i++ {
+			aboveCtx[i] = bestA[i]
+		}
+		for i := 0; i < num4x4H && i < len(leftCtx) && i < len(bestL); i++ {
+			leftCtx[i] = bestL[i]
+		}
 	} else {
 		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
 	}
-	return bestMode
+	return bestMode, bestBlockRD, bestValid
 }
 
 // vp9KeyframeIntraModeMask returns the libvpx `intra_y_mode_bsize_mask`
@@ -9174,6 +9346,23 @@ scoreLoop:
 	return distortion, true
 }
 
+func vp9IntraPredictWidth4x4(bsize, planeBsize common.BlockSize,
+	pd *vp9dec.MacroblockdPlane,
+) int {
+	w := int(common.Num4x4BlocksWideLookup[planeBsize])
+	if pd == nil || bsize >= common.Block8x8 {
+		return w
+	}
+	sub8W := 2 >> pd.SubsamplingX
+	if sub8W < 1 {
+		sub8W = 1
+	}
+	if sub8W > w {
+		return sub8W
+	}
+	return w
+}
+
 // pickVP9KeyframeUvMode ports libvpx's rd_pick_intra_sbuv_mode
 // (vp9/encoder/vp9_rdopt.c:1468-1512) verbatim. For each UV intra mode
 // in DC_PRED..TM_PRED that passes the sf.intra_uv_mode_mask gate keyed on
@@ -9217,15 +9406,27 @@ func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) common.PredictionMode {
-	if key == nil || mi == nil {
+	rd, ok := e.pickVP9KeyframeUvModeRD(key, tile, miRows, miCols,
+		miRow, miCol, bsize, mi)
+	if !ok {
 		return common.DcPred
+	}
+	return rd.mode
+}
+
+func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) (vp9KeyframeIntraRD, bool) {
+	if key == nil || mi == nil {
+		return vp9KeyframeIntraRD{}, false
 	}
 	// libvpx vp9_rdopt.c:1540-1546 — rd_pick_intra_sbuv_mode receives the
 	// max(bsize, BLOCK_8X8) for sub-8x8 partitions because chroma is
 	// subsampled and the smallest legal UV block is 8x8 luma == 4x4 UV.
 	uvBsize := max(bsize, common.Block8x8)
 	if uvBsize >= common.BlockSizes {
-		return common.DcPred
+		return vp9KeyframeIntraRD{}, false
 	}
 	maxTxSize := common.MaxTxsizeLookup[uvBsize]
 	// libvpx vp9_rdopt.c:1482 — intra_uv_mode_mask[max_tx_size] gate. Fall
@@ -9258,14 +9459,14 @@ func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
 		rdmult = vp9KeyframeRDMul(qindex)
 	}
 
-	bestMode := common.DcPred
+	best := vp9KeyframeIntraRD{mode: common.DcPred}
 	bestRD := uint64(^uint64(0))
 	bestValid := false
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if uvMask&(1<<uint(mode)) == 0 {
 			continue
 		}
-		coeffRate, distortion, _, ok := e.scoreVP9KeyframeUvModeTransformRD(
+		coeffRate, distortion, skippable, ok := e.scoreVP9KeyframeUvModeTransformRD(
 			key, mode, uvBsize, tile, miRows, miCols, miRow, miCol, mi)
 		if !ok {
 			continue
@@ -9274,11 +9475,20 @@ func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
 		thisRD := vp9RDCost(rdmult, vp9RDDivBits, thisRate, distortion)
 		if !bestValid || thisRD < bestRD {
 			bestRD = thisRD
-			bestMode = mode
+			best = vp9KeyframeIntraRD{
+				mode:          mode,
+				rate:          thisRate,
+				rateTokenOnly: coeffRate,
+				distortion:    distortion,
+				skippable:     skippable,
+			}
 			bestValid = true
 		}
 	}
-	return bestMode
+	if !bestValid {
+		return vp9KeyframeIntraRD{}, false
+	}
+	return best, true
 }
 
 // scoreVP9KeyframeUvModeTransformRD ports libvpx's super_block_uvrd
@@ -9559,7 +9769,7 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 			edges.AboveLeft = planeData[(y0-1)*stride+x0-1]
 		}
 	}
-	planeBlock4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	planeBlock4x4W := vp9IntraPredictWidth4x4(bsize, planeBsize, pd)
 	txw := 1 << uint(txSize)
 	rightAvailable := blockCol4x4+txw < planeBlock4x4W
 
@@ -11853,6 +12063,13 @@ type vp9LeafKeyframeDecisionEntry struct {
 	bsize    common.BlockSize
 	decision vp9KeyframeModeDecision
 	valid    bool
+}
+
+type vp9KeyframePartitionDecisionEntry struct {
+	version uint32
+	root    common.BlockSize
+	target  common.BlockSize
+	valid   bool
 }
 
 // vp9LeafInterDecisionEntry stores one cached leaf-write inter-mode decision
@@ -14822,7 +15039,7 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 			edges.AboveLeft = refData[(refLocalY-1)*refStride+refLocalX-1]
 		}
 	}
-	planeBlock4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	planeBlock4x4W := vp9IntraPredictWidth4x4(bsize, planeBsize, pd)
 	txw := 1 << uint(txSize)
 	rightAvailable := blockCol4x4+txw < planeBlock4x4W
 	dst = dstData[localY*dstStride+localX:]
@@ -14964,6 +15181,72 @@ func (e *VP9Encoder) ensureVP9LeafKeyframeDecisionCache(miRows, miCols int) {
 			e.vp9LeafKeyframeDecisions[i] = vp9LeafKeyframeDecisionEntry{}
 		}
 		e.vp9LeafKeyframeDecisionsVer = 1
+	}
+}
+
+func (e *VP9Encoder) ensureVP9KeyframePartitionDecisionCache(miRows, miCols int) {
+	n := miRows * miCols * int(common.BlockSizes)
+	if cap(e.vp9KeyframePartitionDecisions) < n {
+		e.vp9KeyframePartitionDecisions = make([]vp9KeyframePartitionDecisionEntry, n)
+	} else {
+		e.vp9KeyframePartitionDecisions = e.vp9KeyframePartitionDecisions[:n]
+	}
+	e.vp9KeyframePartitionDecisionsRows = miRows
+	e.vp9KeyframePartitionDecisionsCols = miCols
+	e.vp9KeyframePartitionDecisionsVer++
+	if e.vp9KeyframePartitionDecisionsVer == 0 {
+		for i := range e.vp9KeyframePartitionDecisions {
+			e.vp9KeyframePartitionDecisions[i] = vp9KeyframePartitionDecisionEntry{}
+		}
+		e.vp9KeyframePartitionDecisionsVer = 1
+	}
+}
+
+func (e *VP9Encoder) lookupVP9KeyframePartitionDecision(miRow, miCol int,
+	root common.BlockSize,
+) (common.BlockSize, bool) {
+	if e.vp9KeyframePartitionDecisionsCols <= 0 ||
+		root < 0 || root >= common.BlockSizes {
+		return common.BlockInvalid, false
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9KeyframePartitionDecisionsRows ||
+		miCol >= e.vp9KeyframePartitionDecisionsCols {
+		return common.BlockInvalid, false
+	}
+	off := (miRow*e.vp9KeyframePartitionDecisionsCols+miCol)*int(common.BlockSizes) + int(root)
+	if off < 0 || off >= len(e.vp9KeyframePartitionDecisions) {
+		return common.BlockInvalid, false
+	}
+	entry := &e.vp9KeyframePartitionDecisions[off]
+	if !entry.valid || entry.version != e.vp9KeyframePartitionDecisionsVer ||
+		entry.root != root {
+		return common.BlockInvalid, false
+	}
+	return entry.target, true
+}
+
+func (e *VP9Encoder) storeVP9KeyframePartitionDecision(miRow, miCol int,
+	root, target common.BlockSize,
+) {
+	if e.vp9KeyframePartitionDecisionsCols <= 0 ||
+		root < 0 || root >= common.BlockSizes {
+		return
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9KeyframePartitionDecisionsRows ||
+		miCol >= e.vp9KeyframePartitionDecisionsCols {
+		return
+	}
+	off := (miRow*e.vp9KeyframePartitionDecisionsCols+miCol)*int(common.BlockSizes) + int(root)
+	if off < 0 || off >= len(e.vp9KeyframePartitionDecisions) {
+		return
+	}
+	e.vp9KeyframePartitionDecisions[off] = vp9KeyframePartitionDecisionEntry{
+		version: e.vp9KeyframePartitionDecisionsVer,
+		root:    root,
+		target:  target,
+		valid:   true,
 	}
 }
 
