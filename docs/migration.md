@@ -83,7 +83,7 @@ Files that should become root adapters or be merged into adapter files:
 | `vp9_decoder.go` | `VP9Decoder` public handle and methods after same-package split |
 | `vp9_firstpass.go` | Public VP9 first-pass stats/result surface only |
 | `vp8_rtp.go` | Public VP8 RTP wrappers over current `internal/vp8/rtp` implementation |
-| `vp9_rtp.go`, `vp9_superframe.go` | Public VP9 RTP/superframe wrappers over current `internal/vp9/rtp` implementation |
+| `vp9_rtp.go`, `vp9_superframe.go` | Public VP9 RTP/superframe wrappers over current `internal/vp9/rtp` and `internal/vp9/bitstream` implementation |
 
 Files that should move internal:
 
@@ -95,6 +95,7 @@ Files that should move internal:
 | root `vp9_*` encoder/AQ/TPL/rate-control/partition/search files | `internal/vp9/encoder` |
 | root `vp9_decoder*.go` private decode state | `internal/vp9/decoder` |
 | root RTP descriptor implementations | moved: `internal/vp8/rtp`, `internal/vp9/rtp`, and `internal/vpx/rtp` |
+| root VP9 superframe parser/writer implementation | moved: `internal/vp9/bitstream/superframe.go` |
 | oracle trace/probe/debug files | tagged package-local oracle suites or `internal/vpx/testharness` |
 
 ## Public Name Map

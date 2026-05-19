@@ -50,7 +50,7 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 | VP9 public encode/decode facade | public parts of `vp9_encoder.go`, `vp9_decoder.go`, `vp9_encoder_config.go`, VP9 first-pass/result/options types | Root facade forwarding to `internal/vp9/{encoder,decoder}` |
 | VP9 encoder implementation | `vp9_encoder.go`, `vp9_*` encoder/rate-control/AQ/TPL/partition files, VP9 encoder tests | `internal/vp9/encoder` |
 | VP9 decoder implementation | `vp9_decoder*.go`, `vp9_frame_parallel.go`, VP9 decoder tests | `internal/vp9/decoder` |
-| VP9 RTP and superframe helpers | root `vp9_rtp.go` facade, `internal/vp9/rtp/rtp.go`, `vp9_superframe.go`, related tests/fuzz | Root facade plus `internal/vp9/rtp` and shared `internal/vpx/rtp` mechanics |
+| VP9 RTP and superframe helpers | root `vp9_rtp.go` and `vp9_superframe.go` facades, `internal/vp9/rtp/rtp.go`, `internal/vp9/bitstream/superframe.go`, related tests/fuzz | Root facade plus `internal/vp9/{rtp,bitstream}` and shared `internal/vpx/rtp` mechanics |
 | Oracle/parity harness | `oracle_*_test.go`, `vp9_oracle_*_test.go`, `internal/coracle`, `cmd/scoreboard-report` | `internal/vpx/testharness`, `internal/coracle`, package-local oracle suites |
 | Diagnostics/audits | `vp8_task*_test.go`, `vp8_byte*_test.go`, `diag_*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename into regression suites or document as diagnostics |
 | Performance and quality gates | `feature_quality_gates*_test.go`, `benchmarks`, `cmd/govpx-bench`, `*_bench_test.go` | Package-local benches plus `cmd/govpx-bench` |
@@ -66,7 +66,7 @@ Existing internal codec packages are already substantial:
 | `internal/vp8/encoder` | VP8 packet writing, transforms, quantization, tokenization, motion helpers |
 | `internal/vp8/rtp` | VP8 RTP payload descriptor parse/pack and frame packetize/assemble logic; RFC 7741, not libvpx-derived |
 | `internal/vp8/mem`, `internal/vp8/scale`, `internal/vp8/tables` | VP8 support packages |
-| `internal/vp9/bitstream` | VP9 bit reader/writer |
+| `internal/vp9/bitstream` | VP9 bit reader/writer and superframe index parser/writer |
 | `internal/vp9/common` | VP9 constants, enums, quantization |
 | `internal/vp9/decoder` | VP9 parser, reconstruction, loop filter, tile/thread plumbing |
 | `internal/vp9/dsp` | VP9 scalar/SIMD kernels |
@@ -259,6 +259,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3 | VP9 decoder move | root `vp9_decoder*.go`, VP9 decoder tests, `internal/vp9/decoder/**` | Root keeps `VP9Decoder` facade |
 | 3 | VP9 encoder move | root `vp9_*` encoder/ratecontrol/AQ/TPL files, VP9 encoder tests, `internal/vp9/encoder/**` | Move after same-package split |
 | 3/4 | RTP ownership move | root `rtp.go`, `vp8_rtp.go`, `vp9_rtp.go`, `internal/vpx/{errors,rtp}/**`, `internal/vp{8,9}/rtp/**`, RTP tests/fuzz | Current branch: root files are public facade aliases/wrappers; descriptor logic lives in codec-owned internal packages; shared mechanics are fragment sizing and sentinel errors only |
+| 3 | VP9 superframe move | root `vp9_superframe.go`, `vp9_decoder.go` parser wrapper, `internal/vp9/bitstream/superframe.go`, superframe tests/fuzz | Current branch: root keeps public pack helpers; VP9 bitstream package owns parse/write mechanics |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
 | 5 | API cleanup | root public files, examples, docs | Remove unreleased compatibility aliases at wave end |
@@ -282,7 +283,7 @@ packet owner if they are created from an owned file.
 | VP9 encoder lane | `vp9_encoder*.go`, `vp9_*` encoder/ratecontrol/AQ/TPL/partition files, VP9 encoder tests, `internal/vp9/encoder/**` |
 | VP9 decoder lane | `vp9_decoder*.go`, `vp9_frame_parallel.go`, VP9 decoder tests, `internal/vp9/decoder/**` |
 | VP9 DSP/common lane | `internal/vp9/{bitstream,common,dsp,mem,tables}/**` |
-| VP9 RTP lane | root `vp9_rtp.go`, `vp9_superframe.go`, RTP/superframe tests, `internal/vp9/rtp/**` |
+| VP9 RTP/packet lane | root `vp9_rtp.go`, `vp9_superframe.go`, RTP/superframe tests, `internal/vp9/rtp/**`, `internal/vp9/bitstream/superframe.go` |
 | Oracle/test harness lane | root `oracle_*`, `vp9_oracle_*`, `internal/coracle/**`, `cmd/scoreboard-report/**`, new `internal/vpx/testharness/**` |
 | Benchmark/quality lane | `cmd/govpx-bench/**`, `benchmarks/**`, `feature_quality_gates*_test.go`, `cmd/govpx-bench/default.pgo*` |
 | Docs lane | `README.md`, `UPSTREAM.md`, `plan.md`, `docs/**`, example READMEs |

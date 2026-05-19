@@ -976,52 +976,6 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	return ErrVP9NotImplemented
 }
 
-type vp9SuperframeIndex struct {
-	frames [8][]byte
-	count  int
-}
-
-func vp9ParseSuperframe(packet []byte) (vp9SuperframeIndex, error) {
-	var sf vp9SuperframeIndex
-	if len(packet) == 0 {
-		return sf, ErrInvalidVP9Data
-	}
-	marker := packet[len(packet)-1]
-	if marker&0xe0 != 0xc0 {
-		return sf, nil
-	}
-
-	frames := int(marker&0x7) + 1
-	sizeBytes := int((marker>>3)&0x3) + 1
-	indexSize := 2 + frames*sizeBytes
-	if len(packet) < indexSize {
-		return sf, ErrInvalidVP9Data
-	}
-	indexStart := len(packet) - indexSize
-	if packet[indexStart] != marker {
-		return sf, ErrInvalidVP9Data
-	}
-
-	offset := 0
-	sizeOffset := indexStart + 1
-	for i := range frames {
-		frameSize := 0
-		for j := range sizeBytes {
-			frameSize |= int(packet[sizeOffset+i*sizeBytes+j]) << (8 * j)
-		}
-		if frameSize <= 0 || frameSize > indexStart-offset {
-			return sf, ErrInvalidVP9Data
-		}
-		sf.frames[i] = packet[offset : offset+frameSize]
-		offset += frameSize
-	}
-	if offset != indexStart {
-		return sf, ErrInvalidVP9Data
-	}
-	sf.count = frames
-	return sf, nil
-}
-
 // DecodeInto decodes one raw VP9 Profile 0 packet payload. If the packet is a
 // visible frame its decoded pixels are written into the caller-owned
 // planes of dst; for hidden frames dst is left untouched.
