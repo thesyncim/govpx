@@ -1088,7 +1088,6 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForErrorBinGate() int {
 	return realistic
 }
 
-<<<<<<< HEAD
 // libvpxRealtimeCPISpeedForZeroMVLastAdjGate returns the libvpx-realistic
 // cpi->Speed value used to evaluate the `Speed < 12` gate that fires
 // calculate_zeromv_rd_adjustment inside vp8_pick_inter_mode
@@ -1129,65 +1128,28 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForErrorBinGate() int {
 // non-realtime / cpu_used < 0 / cpu_used == 0 RT / pre-first-frame,
 // returns the actual libvpxCPUUsed() so existing semantics carry forward.
 func (e *VP8Encoder) libvpxRealtimeCPISpeedForZeroMVLastAdjGate() int {
-=======
+	speed := e.libvpxCPUUsed()
+	if e.opts.Deadline != DeadlineRealtime {
+		return speed
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed <= 0 {
+		return speed
+	}
+	if e.frameCount == 0 {
+		return speed
+	}
+	realistic := min(cpuUsed+1, 16)
+	if speed > realistic {
+		return speed
+	}
+	return realistic
+}
+
 // libvpxRealtimeCPISpeedForModeCheckFreqGate returns the libvpx-realistic
-// cpi->Speed value used to drive the speed_map lookups that populate
-// `cpi->mode_check_freq[mode_index]` inside vp8_set_speed_features case 2
-// (vp8/encoder/onyx_if.c lines 860-887). Task #378 targeted port — same
-// pattern as tasks #350/#361/#362/#363/#364.
-//
-// Audit context: at cpu_used > 0 RT, libvpx's vp8_auto_select_speed
-// (rdopt.c:261) drives cpi->Speed up to cpu_used+1 via the +4/+2
-// wall-clock branches because the budget is halved
-// (`ms_for_compress = base*(16-cpu)/16`). Per the task #343 720p RT
-// cpu=8 trace, cpi->Speed reaches 9 by frame 2. The Speed values fed
-// into the seven mode_check_freq_map_* tables in onyx_if.c lines
-// 866/869/873/879/882/885/887 then transition through the RT(N)=N+7
-// thresholds embedded in those tables:
-//
-//   - mode_check_freq_map_vhbpred: RT(0)=7 trips V/H/B-PRED → 2,
-//     RT(5)=12 trips → 4
-//   - mode_check_freq_map_near2:   RT(0)=7 trips NEAR2/3 → 2
-//   - mode_check_freq_map_new2:    RT(0)=7 trips NEW2/3 → 4
-//   - mode_check_freq_map_split1:  RT(1)=8 trips SPLIT1 → 2 (then 7)
-//   - mode_check_freq_map_split2:  RT(1)=8 trips SPLIT2/3 → 4 (then 15)
-//   - mode_check_freq_map_zn2 / map_new1: RT(10)=17 — out of reach for
-//     cpu_used in the production range; no transition.
-//
-// govpx's autoSpeed evolution stays in the libvpx Speed=0 stable region
-// (`avg_encode_time ≈ budget/3`) under the task #278 inter-frame timing
-// pin (interFrameAutoSpeedTimingCompensation), so e.autoSpeed lands at
-// 4-5 rather than the libvpx-realistic cpu_used+1 ≈ 9. The mode_check_freq
-// table therefore collapses to all-zeros on govpx (every mode tested
-// every macroblock) while libvpx subsamples NEAR/V/H/B-PRED/NEW2/SPLIT
-// modes — a residual contributor to the cpu>0 RT BD-rate gap.
-//
-// Cannot fix this by clamping e.autoSpeed itself: that cascades every
-// other Speed-conditioned feature in vp8_set_speed_features (search
-// method, fractional search, quarter-pixel, threshold maps, recode
-// loop) into their cpu_used+1 path simultaneously, which crashes BD-rate
-// down ~28923% on the cpu=8 RT 720p fixture (see task #350 audit).
-//
-// Targeted port: gate the mode_check_freq table refresh specifically on
-// the libvpx-realistic cpi->Speed, leaving every other Speed-feature
-// lookup on govpx's actual e.autoSpeed evolution. The realistic Speed
-// for cpu_used > 0 RT after frame 0 is cpu_used+1.
-//
-// Byte-parity guard: cpu_used <= 0 RT (the negative-Speed explicit path
-// and cpu_used == 0 RT, byte-parity-gated) returns the unchanged
-// libvpxCPUUsed(), keeping the threads=4 cpu=0 RT byte-parity sentinels
-// (regression_w854h480_threads4_vbr_inter_diverge,
-// regression_w1280h720_threads4_vbr_inter_diverge, task #272 campaign
-// sentinel, task #332 threads validation sentinel) on the existing
-// table. The pre-first-frame cold start (frameCount == 0) likewise
-// returns the actual speed so the keyframe encode stays on the task #278
-// wall-clock-pinned path.
-//
-// Returns the Speed value that should feed the seven mode_check_freq
-// speed_map lookups. For non-realtime / cpu_used <= 0 / pre-first-frame
-// returns libvpxCPUUsed() unchanged.
+// cpi->Speed for the speed_map lookups that populate mode_check_freq[]
+// (onyx_if.c:860-887). Task #378 targeted port.
 func (e *VP8Encoder) libvpxRealtimeCPISpeedForModeCheckFreqGate() int {
->>>>>>> 4911ca2d (vp8: route mode_check_freq table refresh through libvpx-realistic Speed (task #378))
 	speed := e.libvpxCPUUsed()
 	if e.opts.Deadline != DeadlineRealtime {
 		return speed
