@@ -147,7 +147,10 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	}
 
 	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task227-byte0-kf-1280x720-ssim-good-arnr-audit", opts, 700, sources, extraArgs)
+	// Task #349: --threads=4 audit cohort routed through the libvpx
+	// threading-quarantine wrapper. See the BestARNR audit's parallel
+	// comment block for context on the #297/#298/#304/#324 trap.
+	libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task227-byte0-kf-1280x720-ssim-good-arnr-audit", opts, 700, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 
 	if len(govpxFrames) < 2 || len(libvpxFrames) < 2 {
 		t.Fatalf("expected >=2 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -472,7 +475,9 @@ func TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed(t *testing.T) {
 	}
 
 	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task227-byte0-kf-1280x720-ssim-good-cbr-arnr-closed", opts, 700, sources, extraArgs)
+	// Task #349: --threads=4 audit cohort routed through the libvpx
+	// threading-quarantine wrapper.
+	libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task227-byte0-kf-1280x720-ssim-good-cbr-arnr-closed", opts, 700, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 
 	if len(govpxFrames) < 2 || len(libvpxFrames) < 2 {
 		t.Fatalf("expected >=2 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))

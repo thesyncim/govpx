@@ -109,7 +109,12 @@ func runVP8Task272CorpusSubtests(t *testing.T, vpxencOracle string) {
 				opts.ARNRMaxFrames, opts.ARNRStrength, opts.ARNRType, len(sources))
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs)
+			// Task #349: route through the libvpx threading
+			// non-determinism quarantine wrapper. Some seeds in
+			// this sentinel decode to threads>=2 cohorts; the
+			// wrapper is a no-op for serial seeds and a re-run
+			// SHA check for parallel seeds.
+			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 
 			assertVP8Task272StrictByteParity(t, name, govpxFrames, libvpxFrames)
 		})
@@ -223,7 +228,10 @@ func runVP8Task272AuditCohortSubtests(t *testing.T, vpxencOracle string) {
 			}
 			label := "task272-" + tc.name
 			govpxFrames := encodeFramesWithGovpx(t, tc.opts, sources)
-			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, label, tc.opts, tc.targetKbp, sources, tc.extraArgs)
+			// Task #349 quarantine: re-run wrapper catches any
+			// libvpx-side threading nondeterminism that would
+			// otherwise contaminate the strict byte comparison.
+			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, label, tc.opts, tc.targetKbp, sources, tc.extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 			assertVP8Task272StrictByteParity(t, tc.name, govpxFrames, libvpxFrames)
 		})
 	}

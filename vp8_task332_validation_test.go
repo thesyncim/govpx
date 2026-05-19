@@ -68,7 +68,12 @@ func TestVP8Task332ThreadsValidation(t *testing.T) {
 				sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
 			}
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task332-threads-validation", opts, 700, sources, extraArgs)
+			// Task #349 quarantine: at threads=2 and threads=4 the
+			// libvpx oracle is exposed to MT-LF non-determinism.
+			// The reproducibility wrapper makes any oracle-side
+			// flake visible as a test failure with a SHA log rather
+			// than letting it taint this cross-thread parity check.
+			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task332-threads-validation", opts, 700, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 			for i := range govpxFrames {
 				gs := sha256.Sum256(govpxFrames[i])
 				ls := sha256.Sum256(libvpxFrames[i])
