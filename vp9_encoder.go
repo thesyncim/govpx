@@ -5258,6 +5258,44 @@ func countVP9InterSub8Modes(counts *encoder.FrameCounts, seg *vp9dec.Segmentatio
 	}
 }
 
+func (e *VP9Encoder) countVP9InterSub8NewMvs(counts *encoder.FrameCounts,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, allowHP bool,
+	signBias [vp9dec.MaxRefFrames]uint8,
+) {
+	if counts == nil || mi == nil || bsize >= common.Block8x8 ||
+		mi.RefFrame[0] <= vp9dec.IntraFrame {
+		return
+	}
+	halves := 1
+	if mi.RefFrame[1] > vp9dec.IntraFrame {
+		halves = 2
+	}
+	var refMv [2]vp9dec.MV
+	for ref := 0; ref < halves; ref++ {
+		mv, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
+			miRow, miCol, bsize, common.NewMv, mi.RefFrame[ref], allowHP,
+			signBias)
+		if !ok {
+			mv = vp9dec.MV{}
+		}
+		refMv[ref] = mv
+	}
+	num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
+	num4x4H := int(common.Num4x4BlocksHighLookup[bsize])
+	for idy := 0; idy < 2; idy += num4x4H {
+		for idx := 0; idx < 2; idx += num4x4W {
+			j := idy*2 + idx
+			if mi.Bmi[j].AsMode != common.NewMv {
+				continue
+			}
+			for ref := 0; ref < halves; ref++ {
+				countVP9NewMv(counts, mi.Bmi[j].AsMv[ref], refMv[ref])
+			}
+		}
+	}
+}
+
 func countVP9InterIntraMode(counts *encoder.FrameCounts, bsize common.BlockSize,
 	mode common.PredictionMode,
 ) {
@@ -8014,6 +8052,12 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			}
 		}
 		isInter := cur.RefFrame[0] > vp9dec.IntraFrame
+		if isInter && bsize < common.Block8x8 {
+			if !e.ensureVP9Sub8InterBmiForWrite(&cur, tile, miRows, miCols,
+				miRow, miCol, bsize, inter) {
+				return
+			}
+		}
 		interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols,
 			tile, miRows, miRow, miCol, bsize)
 		maxTxSize := common.MaxTxsizeLookup[bsize]
@@ -8062,20 +8106,23 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			if bsize < common.Block8x8 {
 				countVP9InterSub8Modes(counts, seg, segID, bsize,
 					interModeCtx, &cur.Bmi)
+				e.countVP9InterSub8NewMvs(counts, tile, miRows, miCols,
+					miRow, miCol, bsize, &cur, inter != nil && inter.allowHP,
+					signBias)
 			} else {
 				countVP9InterMode(counts, seg, segID, bsize, interModeCtx, cur.Mode)
+				if cur.Mode == common.NewMv {
+					halves := 1
+					if isCompound {
+						halves = 2
+					}
+					for ref := 0; ref < halves; ref++ {
+						countVP9NewMv(counts, cur.Mv[ref], bestRefMv[ref])
+					}
+				}
 			}
 			if frameInterpFilter == vp9dec.InterpSwitchable {
 				countVP9SwitchableInterp(counts, above, left, cur.InterpFilter)
-			}
-			if cur.Mode == common.NewMv {
-				halves := 1
-				if isCompound {
-					halves = 2
-				}
-				for ref := 0; ref < halves; ref++ {
-					countVP9NewMv(counts, cur.Mv[ref], bestRefMv[ref])
-				}
 			}
 		} else {
 			countVP9InterIntraMode(counts, bsize, cur.Mode)
@@ -11441,8 +11488,7 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 
 func (e *VP9Encoder) prepareVP9InterSkipPrediction(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, mi *vp9dec.NeighborMi,
-	forcedRefFrame int8, forcedRef bool,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, forcedRefFrame int8, forcedRef bool,
 ) bool {
 	if inter == nil || mi == nil {
 		return false
@@ -13623,6 +13669,52 @@ func (e *VP9Encoder) fillVP9Sub8InterBmi(mi *vp9dec.NeighborMi,
 	mi.Mode = mi.Bmi[3].AsMode
 	mi.Mv = mi.Bmi[3].AsMv
 	return true
+}
+
+func vp9Sub8InterModeValid(mode common.PredictionMode) bool {
+	return mode >= common.NearestMv && mode <= common.NewMv
+}
+
+func vp9Sub8InterBmiValid(mi *vp9dec.NeighborMi) bool {
+	if mi == nil {
+		return false
+	}
+	for i := range mi.Bmi {
+		if !vp9Sub8InterModeValid(mi.Bmi[i].AsMode) {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *VP9Encoder) ensureVP9Sub8InterBmiForWrite(mi *vp9dec.NeighborMi,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, inter *vp9InterEncodeState,
+) bool {
+	if mi == nil {
+		return false
+	}
+	if bsize >= common.Block8x8 || mi.RefFrame[0] <= vp9dec.IntraFrame {
+		return true
+	}
+	if vp9Sub8InterBmiValid(mi) {
+		mi.Mode = mi.Bmi[3].AsMode
+		mi.Mv = mi.Bmi[3].AsMv
+		return true
+	}
+	mode := mi.Mode
+	if !vp9Sub8InterModeValid(mode) || mode == common.NewMv {
+		mode = common.ZeroMv
+	}
+	refFrame := mi.RefFrame[0]
+	signBias := [vp9dec.MaxRefFrames]uint8{}
+	allowHP := true
+	if inter != nil {
+		signBias = inter.refSignBias
+		allowHP = inter.allowHP
+	}
+	return e.fillVP9Sub8InterBmi(mi, tile, miRows, miCols, miRow, miCol,
+		bsize, mode, refFrame, allowHP, signBias)
 }
 
 func (e *VP9Encoder) vp9InterMvPredSearchSeed(inter *vp9InterEncodeState,
