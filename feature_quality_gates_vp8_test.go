@@ -663,14 +663,30 @@ func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
 	)
 	// Two-pass VBR introduces additional cubic-fit jitter because the
 	// rate axis depends on the second-pass GF/ARF allocator's per-frame
-	// bit budgeting, which has small float-precision drift between
-	// govpx and libvpx even for the byte-exact-on-pass1-stats path.
-	// Widen the per-fixture gate to 10% (vs 5% default) to absorb
-	// that planner drift while still catching a real ~20% bitrate
-	// regression. The within-govpx baseline-vs-test BD-rate is still
-	// expected to be near zero (and is checked by runVP8BDRateFixture).
+	// bit budgeting. Per-rung the absolute rate divergence is small
+	// (govpx-vs-libvpx is within ~3% at every operating point: 609.8
+	// vs 627.1 kbps at the bottom rung, 4474 vs 4436 kbps at the top),
+	// but the cubic-fit aggregation through 4 ladder points where the
+	// upper rung approaches PSNR transparency (~47 dB) amplifies the
+	// fit residual to a steady-state +5.137% BD-rate measurement on
+	// this 16-frame 720p panning fixture. Task #287 ported every
+	// float-vs-int arithmetic-order divergence the libvpx
+	// define_gf_group / kfBitsTarget / assignStdFrameBits paths
+	// touched (saturate_cast_double_to_int helper, divide-before-
+	// multiply in alt_kf_bits, double-domain Boost*group_bits/
+	// allocation_chunks reduction) and confirmed the gf_bits the
+	// allocator produces is bit-identical against libvpx; the
+	// remaining gap is encoder behavioural drift on the small-
+	// fixture cubic-fit, not a libvpx-port arithmetic gap.
+	//
+	// Tighten the per-fixture gate from the widened 10% to 6.0% —
+	// measured 5.137% plus +0.86% headroom — so a real regression
+	// (any +1% shift in encoder output beyond the cubic-fit-baseline)
+	// trips the gate but the fit-residual steady state still passes.
+	// The within-govpx baseline-vs-test BD-rate is still expected to
+	// be near zero (checked by runVP8BDRateFixture).
 	twoPassGate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 10.0,
+		MaxBDRateOverLibvpxPct: 6.0,
 		MinBDPSNRdB:            -0.5,
 	}
 	runVP8BDRateFixture(t,

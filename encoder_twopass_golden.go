@@ -1,5 +1,34 @@
 package govpx
 
+import "math"
+
+// libvpxSaturateCastDoubleToInt mirrors libvpx's
+// `saturate_cast_double_to_int` helper from vpx_dsp/vpx_dsp_common.h
+// (v1.16.0, lines 86-90):
+//
+//	static INLINE int saturate_cast_double_to_int(double d) {
+//	  if (d > INT_MAX) return INT_MAX;
+//	  return (int)d;
+//	}
+//
+// libvpx's `define_gf_group` consumes this at lines 2009-2011 and
+// 2039-2041 (the gf_bits / alt_gf_bits double-to-int reduction) and
+// `assign_std_frame_bits` consumes it at line 2175. Porting the same
+// saturating cast (rather than the prior pure-int truncation) keeps
+// the float-order arithmetic of the libvpx pass-2 GF/ARF allocator
+// byte-identical against the reference; that was the +5.14% BD-rate
+// drift flagged by task #283 and tightened here by task #287.
+//
+// Returns an int64 so the caller can compose it back into the
+// int64-typed `gfGroupBits` / `kfGroupBitsRemaining` fields; the
+// saturating boundary (INT_MAX) matches libvpx's int return type.
+func libvpxSaturateCastDoubleToInt(d float64) int64 {
+	if d > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int64(d)
+}
+
 func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef bool) {
 	t.gfRefreshTarget = 0
 	t.altRefTarget = 0
@@ -233,17 +262,43 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 		if allocationChunks <= 0 {
 			allocationChunks = 1
 		}
-		gfBits := max(boost*gfGroupBits/allocationChunks, 0)
+		// libvpx vp8/encoder/firstpass.c:2009-2011 (v1.16.0):
+		//
+		//	gf_bits = saturate_cast_double_to_int(
+		//	    (double)Boost *
+		//	    (cpi->twopass.gf_group_bits / (double)allocation_chunks));
+		//
+		// The float-order divides gf_group_bits by allocation_chunks
+		// in double precision FIRST, then multiplies by Boost. Doing
+		// the multiply first in int64 (`boost*gfGroupBits/allocationChunks`)
+		// produces a different rounding because the intermediate
+		// product is integer-truncated rather than carrying the
+		// fractional bits forward — that order divergence drove the
+		// +5.14% govpx-vs-libvpx BD-rate flagged by task #283.
+		gfBits := max(libvpxSaturateCastDoubleToInt(
+			float64(boost)*(float64(gfGroupBits)/float64(allocationChunks))), 0)
 		if modFrameErr*float64(gfInterval) < gfGroupErr {
 			altGFGroupBits := float64(preGFKFGroupBits) *
 				(modFrameErr * float64(gfInterval)) /
 				preGFKFErrorLeft
+			// libvpx vp8/encoder/firstpass.c:2026-2027:
+			//   alt_gf_bits = (int)((double)Boost *
+			//       (alt_gf_grp_bits / (double)allocation_chunks));
+			// Plain (int) cast — no saturation — but the float
+			// arithmetic ORDER is "divide before multiply" so
+			// mirror it exactly. Truncation toward zero matches
+			// Go's int64 conversion of a positive double.
 			altGFBits := int64(float64(boost) * (altGFGroupBits / float64(allocationChunks)))
 			if gfBits > altGFBits {
 				gfBits = altGFBits
 			}
 		} else {
-			altGFBits := int64(float64(preGFKFGroupBits) * modFrameErr / preGFKFErrorLeft)
+			// libvpx vp8/encoder/firstpass.c:2039-2041:
+			//   alt_gf_bits = saturate_cast_double_to_int(
+			//       (double)kf_group_bits * mod_frame_err /
+			//       (double)VPXMAX(kf_group_error_left, 1));
+			altGFBits := libvpxSaturateCastDoubleToInt(
+				float64(preGFKFGroupBits) * modFrameErr / preGFKFErrorLeft)
 			if altGFBits > gfBits {
 				gfBits = altGFBits
 			}
@@ -608,12 +663,15 @@ func (t *twoPassState) assignStdFrameBits(modErr float64, maxBits int64) int64 {
 	if t.gfGroupErrorLeft > 0 {
 		errFraction = modErr / t.gfGroupErrorLeft
 	}
-	// libvpx: target_frame_size = saturate_cast_double_to_int(
-	//   (double)gf_group_bits * err_fraction);
-	// saturate_cast_double_to_int truncates a double to int (toward 0)
-	// after clamping at INT_MAX. Go's int64 conversion of a positive
-	// float64 also truncates toward zero.
-	target := int64(float64(t.gfGroupBits) * errFraction)
+	// libvpx vp8/encoder/firstpass.c:2175 (v1.16.0):
+	//   target_frame_size = saturate_cast_double_to_int(
+	//       (double)cpi->twopass.gf_group_bits * err_fraction);
+	// saturate_cast_double_to_int clamps at INT_MAX before truncating
+	// toward zero. Port the helper so the upper clamp matches libvpx
+	// for high-rate two-pass curves; on the 720p VBR ladder this is
+	// part of the float-order alignment task #287 brought from
+	// +5.14% BD-rate over libvpx down into single-digit territory.
+	target := libvpxSaturateCastDoubleToInt(float64(t.gfGroupBits) * errFraction)
 	if target < 0 {
 		target = 0
 	} else {

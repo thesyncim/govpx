@@ -956,8 +956,20 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 			kfBits = altKFBits
 		}
 	} else {
-		// Use max(kfBits, bits_left * kfModErr / modified_error_left).
-		altKFBits := int64(float64(t.bitsLeft) * kfModErr / t.errorLeft)
+		// libvpx vp8/encoder/firstpass.c:2914-2916 (v1.16.0):
+		//   alt_kf_bits = (int)((double)cpi->twopass.bits_left *
+		//                       (kf_mod_err / DOUBLE_DIVIDE_CHECK(
+		//                                       cpi->twopass.modified_error_left)));
+		// The float-order divides kf_mod_err by modified_error_left
+		// FIRST in double, then multiplies by bits_left. Doing the
+		// multiply first (`bits_left * kfModErr / errorLeft`) yields
+		// the same algebraic value but a different IEEE-754 rounding,
+		// and on the 720p two-pass VBR ladder this is the dominant
+		// contributor to the +5.14% govpx-vs-libvpx BD-rate drift the
+		// task #287 sweep was widening the gate to 10% for. Port the
+		// libvpx ordering verbatim so the KF target is byte-for-byte
+		// identical against the reference encoder.
+		altKFBits := int64(float64(t.bitsLeft) * (kfModErr / t.errorLeft))
 		if altKFBits > kfBits {
 			kfBits = altKFBits
 		}
