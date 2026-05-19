@@ -518,6 +518,37 @@ func TestFirstPassMotionSearchReturnsLibvpxSSECost(t *testing.T) {
 	}
 }
 
+func TestFirstPassMotionSearchSkipsFullPelStats(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 200, 128, 128)
+	ref := testVP8Frame(t, 16, 16, 199, 128, 128)
+	source := sourceImageFromPublic(src)
+
+	var phase EncoderPhaseStats
+	stats := interFrameMotionSearchStats{phase: &phase}
+	bestRefMV := vp8enc.MotionVector{}
+	bounds := interFrameFullPixelSearchBounds(bestRefMV, 0, 0, 1, 1)
+	searcher := newFullPelMotionSearch(source, &ref.Img, 0, 0, bestRefMV, 20,
+		bounds, &vp8tables.DefaultMVContext, nil, 0, &stats)
+	searcher.firstPassMode = true
+	center := bounds.clampEighth(bestRefMV)
+	centerCost := searcher.walkCostNoStats(center, maxInt())
+
+	_ = searcher.firstPassSearchSites(center, centerCost,
+		libvpxFirstPassSearchStepParam)
+
+	if stats.fullPelSADCalls != 0 || stats.fullPelSADCandidates != 0 ||
+		stats.fullPelBatchCalls != 0 || stats.fullPelBoundsRejects != 0 ||
+		stats.fullPelEarlyBreaks != 0 {
+		t.Fatalf("first-pass full-pel stats = %+v, want zero", stats)
+	}
+	if phase.FullPelSADCalls != 0 || phase.FullPelSADCandidates != 0 ||
+		phase.FullPelBatchCalls != 0 || phase.FullPelBoundsRejects != 0 ||
+		phase.FullPelEarlyBreaks != 0 {
+		t.Fatalf("first-pass phase full-pel stats = %+v, want zero", phase)
+	}
+}
+
 // TestSimpleWeightLumaMatchesLibvpxTable spot-checks the weight_table
 // boundaries against vp8/encoder/firstpass.c weight_table[256]:
 //   - codes 0..32 pin to 0.02

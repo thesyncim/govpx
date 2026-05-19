@@ -632,7 +632,7 @@ func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 	// different MV than libvpx — observed as frame-3+ MV-stats drift on
 	// the F2 fuzz seed corpus (plan-§3 gap E Step 2).
 	searcher.firstPassMode = true
-	centerCost := searcher.walkCost(center, maxInt())
+	centerCost := searcher.walkCostNoStats(center, maxInt())
 	search := interAnalysisSearchConfig{
 		fullPixelSearchParam:  libvpxFirstPassSearchStepParam,
 		fullPixelFurtherSteps: interFrameMaxMVSearchSteps - 1 - libvpxFirstPassSearchStepParam,
@@ -672,7 +672,7 @@ func (s *fullPelMotionSearch) firstPassNstep(center vp8enc.MotionVector, centerW
 }
 
 func (s *fullPelMotionSearch) firstPassSearchSites(center vp8enc.MotionVector, centerWalkCost int, searchParam int) interFrameNstepSearchResult {
-	result := s.searchSites(center, centerWalkCost, interFrameNstepSites[:], 8, searchParam)
+	result := s.searchSitesNoStats(center, centerWalkCost, interFrameNstepSites[:], 8, searchParam)
 	result.cost = firstPassMotionSearchReturnCost(s.ctx.src, s.ctx.ref, s.ctx.mbRow, s.ctx.mbCol, result.mv, s.bestRefMV, s.qIndex)
 	return result
 }
