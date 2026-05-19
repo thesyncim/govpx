@@ -579,14 +579,28 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	tracePretrellisUV := args.pretrellisUVTrace != nil && args.pretrellisUVTrace.oracleTracePretrellisUVDumpEnabled() && optimize && !fastQuant
 	traceChromaOptimizeB := args.pretrellisUVTrace != nil && args.pretrellisUVTrace.oracleTraceChromaOptimizeBDumpEnabled() && optimize && !fastQuant
 	zbinExtra := (int(quant.UV.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
-	// libvpxRDConstantsWithZbin returns the (rdmult, rddiv) pair libvpx
-	// stores on x->rdmult / x->rddiv. The chroma optimize_b emit mirrors
-	// libvpx's snapshot of those scalars so the comparator can detect a
-	// pre-trellis rdmult/rddiv divergence in the same row as the qcoeff
-	// flip (task #316 schema parity).
+	// libvpx emits x->rdmult / x->rddiv in govpx_oracle_emit_chroma_optimize_b
+	// (internal/coracle/build_vpxenc_oracle.sh govpx_oracle_emit_chroma_
+	// optimize_b: rdmult_in = x->rdmult). After vp8_initialize_rd_consts
+	// computes cpi->RDMULT for the frame, encode_mb_row assigns
+	// x->rdmult = cpi->RDMULT (encodeframe.c:406), then vp8_activity_masking
+	// (encodeframe.c:307, SSIM-only) MUTATES x->rdmult per-MB to the
+	// activity-lifted value `(rdmult * (2*act + avg) + (a>>1)) / (act +
+	// 2*avg)`. So the value libvpx emits at optimize_b time IS the
+	// activity-lifted rdMult — which is `tunedRDMultiplier(rdMult, mbRow,
+	// mbCol)` on the govpx side, NOT the raw libvpxRDConstantsWithZbin
+	// output. Task #316's bisect reported govpx=326 vs libvpx=551 at
+	// MB(0,0); the 326/551 ratio resolves to MB(0,0)'s textured-block
+	// activity ratio (~1.69x), not a real rdmult divergence — it's a
+	// trace-emit asymmetry, with govpx emitting the pre-activity-masking
+	// value and libvpx emitting the post-activity-masking value.
+	//
+	// Task #319 fix: emit the activity-lifted value (which is the value
+	// actually consumed by optimizeQuantizedBlockWithRDConstants) so the
+	// post-trellis-bisect comparator sees the same scalar on both sides.
 	traceRDMult, traceRDDiv := 0, 0
 	if traceChromaOptimizeB {
-		traceRDMult, traceRDDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+		traceRDMult, traceRDDiv = rdMult, rdDiv
 	}
 
 	for block := range 4 {
