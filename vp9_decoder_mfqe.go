@@ -36,104 +36,6 @@ import (
 //       from cm->postproc_state.prev_mi (the previous frame's mi grid);
 //       on inter frames reads cm->mi (the current frame's).
 
-const (
-	// MFQE_PRECISION mirrors libvpx vp9_postproc.h: weights live in
-	// 4-bit fixed point ([0,16]).
-	vp9MFQEPrecision = 4
-	// libvpx vp9_mfqe.c:203 — squared MV-length cap (in 1/8-pel
-	// units) below which MFQE is admitted on an inter block. Equals
-	// roughly 1.25 integer pels.
-	vp9MFQEMvLenSquareThreshold = 100
-	// libvpx vp9_postproc.c:32-33 — the SB-level MFQE precondition
-	// from vp9_post_proc_frame. These are decoded at the postproc
-	// orchestrator level; pinned here so the assertions in tests
-	// can cite the same values.
-	vp9MFQEQDiffThreshold = 20  // libvpx vp9_postproc.c:32
-	vp9MFQELastQThreshold = 170 // libvpx vp9_postproc.c:33
-)
-
-// vp9MFQEDecision mirrors libvpx vp9_mfqe.c:198. Block must be inter
-// (mode >= NEARESTMV), at least 16x16, and have a small enough MV
-// (squared L2 ≤ 100 in 1/8-pel units).
-func vp9MFQEDecision(mi *vp9dec.NeighborMi, curBs common.BlockSize) bool {
-	row := int(mi.Mv[0].Row)
-	col := int(mi.Mv[0].Col)
-	mvLenSquare := row*row + col*col
-	return mi.Mode >= common.NearestMv &&
-		curBs >= common.Block16x16 &&
-		mvLenSquare <= vp9MFQEMvLenSquareThreshold
-}
-
-// vp9MFQEGetThr mirrors libvpx vp9_mfqe.c:147 — block-size-conditioned
-// SAD / vdiff thresholds for the mfqe_block test.
-func vp9MFQEGetThr(bs common.BlockSize, qdiff int) (sadThr int, vdiffThr int) {
-	adj := qdiff >> vp9MFQEPrecision
-	switch bs {
-	case common.Block16x16:
-		sadThr = 7 + adj
-	case common.Block32x32:
-		sadThr = 6 + adj
-	default: // Block64x64
-		sadThr = 5 + adj
-	}
-	vdiffThr = 125 + qdiff
-	return
-}
-
-// vp9MFQESum2D returns sum and sum-of-squares-of-diffs over a
-// width x height window. Mirrors the shape libvpx's vpx_variance kernel
-// returns, but with both metrics in a single pass so we can derive
-// vdiff (libvpx's "vpx_variance") and avoid an extra walk for SAD.
-func vp9MFQESum2D(a []byte, aStride int, b []byte, bStride int, width int, height int) (sum int, sse int, sad int) {
-	for r := range height {
-		aRow := a[r*aStride:]
-		bRow := b[r*bStride:]
-		for c := range width {
-			diff := int(aRow[c]) - int(bRow[c])
-			sum += diff
-			sse += diff * diff
-			if diff < 0 {
-				sad += -diff
-			} else {
-				sad += diff
-			}
-		}
-	}
-	return
-}
-
-// vp9MFQEBlockMetrics returns the libvpx-faithful (vdiff, sad) pair for
-// a square block of side `side`, with the rounding/normalisation libvpx
-// applies in vp9_mfqe.c:168-177:
-//
-//	BLOCK_16X16: (variance + 128)  >> 8,   (sad + 128)  >> 8
-//	BLOCK_32X32: (variance + 512)  >> 10,  (sad + 512)  >> 10
-//	BLOCK_64X64: (variance + 2048) >> 12,  (sad + 2048) >> 12
-func vp9MFQEBlockMetrics(side int, a []byte, aStride int, b []byte, bStride int) (vdiff int, sad int) {
-	sum, sse, sadRaw := vp9MFQESum2D(a, aStride, b, bStride, side, side)
-	// libvpx's vpx_variance == sse - ((int64)sum*sum / (w*h)).
-	// For square block of side `side`, divisor = side*side; shift =
-	// 2*log2(side).
-	pels := side * side
-	variance := sse - (sum*sum)/pels
-	var round int
-	var shift int
-	switch side {
-	case 16:
-		round = 128
-		shift = 8
-	case 32:
-		round = 512
-		shift = 10
-	default: // 64
-		round = 2048
-		shift = 12
-	}
-	vdiff = (variance + round) >> shift
-	sad = (sadRaw + round) >> shift
-	return
-}
-
 // vp9MFQEBlock mirrors libvpx vp9_mfqe.c:159 (mfqe_block). Computes the
 // vdiff / sad pair, evaluates the smoothness/lighting heuristic, and
 // either blends via apply_ifactor or copies the previous frame in.
@@ -150,15 +52,15 @@ func vp9MFQEBlock(bs common.BlockSize, qdiff int,
 	default: // Block64x64
 		side = 64
 	}
-	sadThr, vdiffThr := vp9MFQEGetThr(bs, qdiff)
-	vdiff, sad := vp9MFQEBlockMetrics(side, y, yStride, yd, ydStride)
+	sadThr, vdiffThr := vp9dec.MFQEThresholds(bs, qdiff)
+	vdiff, sad := vp9dec.MFQEBlockMetrics(side, y, yStride, yd, ydStride)
 
 	// libvpx vp9_mfqe.c:182 — "vdiff > sad * 3 means vdiff should not
 	// be too small, otherwise it might be a lighting change in smooth
 	// area. When there is a lighting change in smooth area, it is
 	// dangerous to do MFQE."
 	if sad > 1 && vdiff > sad*3 {
-		const weight = 1 << vp9MFQEPrecision
+		const weight = 1 << vp9dec.MFQEPrecision
 		denom := sadThr * vdiffThr
 		ifactor := weight
 		if denom > 0 {
@@ -233,7 +135,7 @@ func (d *VP9Decoder) vp9MFQEPartition(miGrid []vp9dec.NeighborMi, miStride int,
 			bsTmp = common.Block16x16
 		}
 		// Top horizontal half
-		if vp9MFQEDecision(mi, mfqeBs) {
+		if vp9dec.MFQEDecision(mi, mfqeBs) {
 			vp9MFQEBlock(bsTmp, qdiff,
 				y, u, v, yStride, uvStride,
 				yd, ud, vd, ydStride, uvdStride)
@@ -244,7 +146,7 @@ func (d *VP9Decoder) vp9MFQEPartition(miGrid []vp9dec.NeighborMi, miStride int,
 		// Bottom horizontal half — sample mi+miOffset rows down.
 		if idx2 := idx + miOffset*miStride; idx2 < len(miGrid) {
 			mi2 := &miGrid[idx2]
-			if vp9MFQEDecision(mi2, mfqeBs) {
+			if vp9dec.MFQEDecision(mi2, mfqeBs) {
 				vp9MFQEBlock(bsTmp, qdiff,
 					y[yOffset*yStride:], u[uvOffset*uvStride:], v[uvOffset*uvStride:], yStride, uvStride,
 					yd[yOffset*ydStride:], ud[uvOffset*uvdStride:], vd[uvOffset*uvdStride:], ydStride, uvdStride)
@@ -263,7 +165,7 @@ func (d *VP9Decoder) vp9MFQEPartition(miGrid []vp9dec.NeighborMi, miStride int,
 			bsTmp = common.Block16x16
 		}
 		// Left vertical half
-		if vp9MFQEDecision(mi, mfqeBs) {
+		if vp9dec.MFQEDecision(mi, mfqeBs) {
 			vp9MFQEBlock(bsTmp, qdiff,
 				y, u, v, yStride, uvStride,
 				yd, ud, vd, ydStride, uvdStride)
@@ -274,7 +176,7 @@ func (d *VP9Decoder) vp9MFQEPartition(miGrid []vp9dec.NeighborMi, miStride int,
 		// Right vertical half — sample mi+miOffset cols right.
 		if idx2 := idx + miOffset; idx2 < len(miGrid) {
 			mi2 := &miGrid[idx2]
-			if vp9MFQEDecision(mi2, mfqeBs) {
+			if vp9dec.MFQEDecision(mi2, mfqeBs) {
 				vp9MFQEBlock(bsTmp, qdiff,
 					y[yOffset:], u[uvOffset:], v[uvOffset:], yStride, uvStride,
 					yd[yOffset:], ud[uvOffset:], vd[uvOffset:], ydStride, uvdStride)
@@ -284,7 +186,7 @@ func (d *VP9Decoder) vp9MFQEPartition(miGrid []vp9dec.NeighborMi, miStride int,
 			}
 		}
 	case common.PartitionNone:
-		if vp9MFQEDecision(mi, curBs) {
+		if vp9dec.MFQEDecision(mi, curBs) {
 			vp9MFQEBlock(curBs, qdiff,
 				y, u, v, yStride, uvStride,
 				yd, ud, vd, ydStride, uvdStride)

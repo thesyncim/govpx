@@ -42,7 +42,8 @@ Root `govpx` owns only public surface area:
 - `bitstream`: VP9 bitstream helpers and superframe index parsing/writing;
 - `decoder`: VP9 uncompressed/compressed header parsing, stream-info peeking,
   mode and reference parsing, reconstruction, loop filter, tile/thread
-  plumbing, frame-context defaults, and probability adaptation counts;
+  plumbing, frame-context defaults, probability adaptation counts, and MFQE
+  decision metrics;
 - `encoder`: VP9 bitstream writer helpers, transform/quantization support,
   token and probability helpers used by the root encoder while it is being
   moved;
