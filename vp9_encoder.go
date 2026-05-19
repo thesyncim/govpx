@@ -5935,6 +5935,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 	var bestDistortion uint64
 	var bestDecision vp9KeyframeModeDecision
 	bestValid := false
+	doRect := true
 	// libvpx's rd_pick_partition restores entropy contexts between
 	// NONE/SPLIT/HORZ/VERT trials but not the reconstructed pixels left by
 	// rd_pick_sb_modes. Keep those candidate side effects during scoring,
@@ -5946,6 +5947,10 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 		common.Block4x8,
 	} {
 		partition := common.PartitionLookup[bsl][cand]
+		if !doRect && (partition == common.PartitionHorz ||
+			partition == common.PartitionVert) {
+			continue
+		}
 		partRate := vp9PartitionRateCost(&probs, ctx, partition, hasRows, hasCols)
 		refBestRD := uint64(^uint64(0))
 		if bestValid {
@@ -5955,9 +5960,13 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 			}
 			refBestRD = vp9RDCost(rdmult, vp9RDDivBits, refRate, bestDistortion)
 		}
+		prevBestScore := bestScore
 		rd, decision, ok := e.scoreVP9KeyframeRDPartitionLeaf(key, tile, miRows, miCols,
 			miRow, miCol, cand, rdmult, refBestRD)
 		if !ok {
+			if partition == common.PartitionSplit {
+				doRect = e.vp9KeyframeRDPartitionRectAllowedAfterSplit(bestDistortion)
+			}
 			continue
 		}
 		rate := rd.rate + partRate
@@ -5970,6 +5979,9 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 			bestDecision = decision
 			bestValid = true
 		}
+		if partition == common.PartitionSplit && score >= prevBestScore {
+			doRect = e.vp9KeyframeRDPartitionRectAllowedAfterSplit(bestDistortion)
+		}
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	if !bestValid {
@@ -5979,6 +5991,25 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 		e.storeVP9LeafKeyframeDecision(miRow, miCol, bestSize, bestDecision)
 	}
 	return bestSize, true
+}
+
+func (e *VP9Encoder) vp9KeyframeRDPartitionRectAllowedAfterSplit(bestDistortion uint64) bool {
+	if e.sf.LessRectangularCheck == 0 {
+		return true
+	}
+	distBreakoutThr := e.sf.PartitionSearchBreakoutThr.Dist
+	shift := 8 - (int(common.BWidthLog2Lookup[common.Block8x8]) +
+		int(common.BHeightLog2Lookup[common.Block8x8]))
+	if shift > 0 {
+		distBreakoutThr >>= uint(shift)
+	}
+	if common.Block8x8 > e.sf.UseSquareOnlyThreshHigh {
+		return false
+	}
+	if distBreakoutThr > 0 && bestDistortion < uint64(distBreakoutThr) {
+		return false
+	}
+	return true
 }
 
 func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeaf(key *vp9KeyframeEncodeState,
