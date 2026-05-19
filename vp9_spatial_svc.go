@@ -3,6 +3,7 @@ package govpx
 import (
 	"image"
 
+	vp9bits "github.com/thesyncim/govpx/internal/vp9/bitstream"
 	vp9rtp "github.com/thesyncim/govpx/internal/vp9/rtp"
 	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
 )
@@ -1318,31 +1319,5 @@ func appendVP9SpatialSVCSuperframeIndex(dst []byte, frameSizes *[VP9MaxSpatialLa
 	if frameSizes == nil || count < 1 || count > VP9MaxSpatialLayers {
 		return 0, ErrInvalidConfig
 	}
-	maxSize := 0
-	for i := range count {
-		size := frameSizes[i]
-		if size <= 0 || uint64(size) > uint64(^uint32(0)) {
-			return 0, ErrInvalidConfig
-		}
-		if size > maxSize {
-			maxSize = size
-		}
-	}
-	sizeBytes := vp9SuperframeSizeBytes(maxSize)
-	indexSize := 2 + count*sizeBytes
-	if len(dst) < indexSize {
-		return indexSize, ErrBufferTooSmall
-	}
-	marker := vp9SuperframeMarker(count, sizeBytes)
-	dst[0] = marker
-	off := 1
-	for i := range count {
-		size := frameSizes[i]
-		for j := range sizeBytes {
-			dst[off+j] = byte(size >> (8 * j))
-		}
-		off += sizeBytes
-	}
-	dst[off] = marker
-	return indexSize, nil
+	return vp9bits.PackSuperframeIndexInto(dst, frameSizes[:count])
 }

@@ -17,23 +17,23 @@ func SuperframeSize(frames ...[]byte) (int, error) {
 	if len(frames) == 0 || len(frames) > 8 {
 		return 0, vpxerrors.ErrInvalidConfig
 	}
-	maxSize := 0
+	var frameSizes [8]int
 	total := 0
 	maxInt := int(^uint(0) >> 1)
-	for _, frame := range frames {
+	for i, frame := range frames {
 		if len(frame) == 0 {
 			return 0, vpxerrors.ErrInvalidConfig
 		}
 		if uint64(len(frame)) > uint64(^uint32(0)) || total > maxInt-len(frame) {
 			return 0, vpxerrors.ErrInvalidConfig
 		}
-		if len(frame) > maxSize {
-			maxSize = len(frame)
-		}
+		frameSizes[i] = len(frame)
 		total += len(frame)
 	}
-	sizeBytes := SuperframeSizeBytes(maxSize)
-	indexSize := 2 + len(frames)*sizeBytes
+	indexSize, err := SuperframeIndexSize(frameSizes[:len(frames)])
+	if err != nil {
+		return 0, err
+	}
 	if total > maxInt-indexSize {
 		return 0, vpxerrors.ErrInvalidConfig
 	}
@@ -51,28 +51,18 @@ func PackSuperframeInto(dst []byte, frames ...[]byte) (int, error) {
 	if len(dst) < need {
 		return need, vpxerrors.ErrBufferTooSmall
 	}
-	maxSize := 0
+	var frameSizes [8]int
 	offset := 0
-	for _, frame := range frames {
-		if len(frame) > maxSize {
-			maxSize = len(frame)
-		}
+	for i, frame := range frames {
+		frameSizes[i] = len(frame)
 		copy(dst[offset:], frame)
 		offset += len(frame)
 	}
 
-	sizeBytes := SuperframeSizeBytes(maxSize)
-	marker := SuperframeMarker(len(frames), sizeBytes)
-	dst[offset] = marker
-	offset++
-	for _, frame := range frames {
-		size := len(frame)
-		for i := range sizeBytes {
-			dst[offset+i] = byte(size >> (8 * i))
-		}
-		offset += sizeBytes
+	_, err = PackSuperframeIndexInto(dst[offset:], frameSizes[:len(frames)])
+	if err != nil {
+		return 0, err
 	}
-	dst[offset] = marker
 	return need, nil
 }
 
@@ -88,6 +78,54 @@ func PackSuperframe(frames ...[]byte) ([]byte, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// SuperframeIndexSize returns the number of bytes needed to write a VP9
+// superframe index for frameSizes.
+func SuperframeIndexSize(frameSizes []int) (int, error) {
+	if len(frameSizes) == 0 || len(frameSizes) > 8 {
+		return 0, vpxerrors.ErrInvalidConfig
+	}
+	maxSize := 0
+	for _, size := range frameSizes {
+		if size <= 0 || uint64(size) > uint64(^uint32(0)) {
+			return 0, vpxerrors.ErrInvalidConfig
+		}
+		if size > maxSize {
+			maxSize = size
+		}
+	}
+	return 2 + len(frameSizes)*SuperframeSizeBytes(maxSize), nil
+}
+
+// PackSuperframeIndexInto writes the VP9 little-endian superframe index for
+// frameSizes into dst. It does not write frame payload bytes.
+func PackSuperframeIndexInto(dst []byte, frameSizes []int) (int, error) {
+	need, err := SuperframeIndexSize(frameSizes)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, vpxerrors.ErrBufferTooSmall
+	}
+	maxSize := 0
+	for _, size := range frameSizes {
+		if size > maxSize {
+			maxSize = size
+		}
+	}
+	sizeBytes := SuperframeSizeBytes(maxSize)
+	marker := SuperframeMarker(len(frameSizes), sizeBytes)
+	dst[0] = marker
+	off := 1
+	for _, size := range frameSizes {
+		for j := range sizeBytes {
+			dst[off+j] = byte(size >> (8 * j))
+		}
+		off += sizeBytes
+	}
+	dst[off] = marker
+	return need, nil
 }
 
 // ParseSuperframe parses a trailing VP9 superframe index. It returns Count

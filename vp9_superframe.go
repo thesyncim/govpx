@@ -32,11 +32,3 @@ func vp9ParseSuperframe(packet []byte) (vp9SuperframeIndex, error) {
 		count:  index.Count,
 	}, err
 }
-
-func vp9SuperframeSizeBytes(maxSize int) int {
-	return vp9bits.SuperframeSizeBytes(maxSize)
-}
-
-func vp9SuperframeMarker(frameCount, sizeBytes int) byte {
-	return vp9bits.SuperframeMarker(frameCount, sizeBytes)
-}
