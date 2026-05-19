@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp8analysis "github.com/thesyncim/govpx/internal/vp8/analysis"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
@@ -109,21 +110,73 @@ func (e *VP8Encoder) HintForceSkipCount() uint64 {
 // HintPickerBypassCount returns the cumulative number of macroblocks
 // where selectInterFrameModeDecision returned a synthesized
 // ZEROMV-LAST decision without invoking the picker.
-//
-// REMOVED from the encode path: the picker-bypass experiment
-// regressed encode wall-clock by 60-72% at 1080p / 4K (rate-control
-// recode loops kicked in because the synthesised predictionError
-// did not match what the picker would have produced; the encoder
-// re-encoded the frame to converge). The counter and method are
-// retained for documentation and as a starting point for a
-// future re-attempt that synthesises the picker's downstream state
-// (RD threshold multipliers, mode test counts, prediction error
-// distribution) along with the decision struct.
 func (e *VP8Encoder) HintPickerBypassCount() uint64 {
 	if e == nil {
 		return 0
 	}
 	return e.hintPickerBypassCount
+}
+
+// hintBypassPickerDecision synthesises a ZEROMV-LAST decision for
+// hint-flagged macroblocks, computing the real reconstruction-domain
+// SSE so the rate controller sees a value consistent with what the
+// picker would have produced. This is the fix for the earlier
+// bypass experiment that used the GPU's source-domain ZeroSAD and
+// triggered rate-control recodes (60-72% regression at 1080p / 4K).
+//
+// The cost is one macroblockLumaMotionVarianceSSE call (~1us per MB
+// at 4K) in exchange for skipping the picker's ~50 lines of setup +
+// 19 mode evaluations.
+func (e *VP8Encoder) hintBypassPickerDecision(
+	src vp8enc.SourceImage,
+	refs []interAnalysisReference, refCount int,
+	segmentID uint8, mbRow, mbCol, mbCols int,
+) (interFrameModeDecision, bool) {
+	if !e.opts.Analysis.UseEncodeHints || e.analyzer == nil {
+		return interFrameModeDecision{}, false
+	}
+	fa := &e.analysisOutput
+	if !fa.Observed || fa.MBCols != mbCols {
+		return interFrameModeDecision{}, false
+	}
+	idx := mbRow*mbCols + mbCol
+	if idx < 0 || idx >= len(fa.MB) {
+		return interFrameModeDecision{}, false
+	}
+	if fa.MB[idx].Flags&vp8analysis.FlagSkipLikely == 0 {
+		return interFrameModeDecision{}, false
+	}
+	// Find LAST. The bypass only emits ZEROMV-LAST, so a missing
+	// LAST reference disqualifies the MB and the picker runs
+	// normally.
+	var lastRef interAnalysisReference
+	found := false
+	for i := 0; i < refCount && i < len(refs); i++ {
+		if refs[i].Frame == vp8common.LastFrame && refs[i].Img != nil {
+			lastRef = refs[i]
+			found = true
+			break
+		}
+	}
+	if !found {
+		return interFrameModeDecision{}, false
+	}
+	// Compute the true reconstruction-domain SSE at MV=(0,0) so the
+	// decision's predictionError matches what the picker would
+	// have populated.
+	_, sse := macroblockLumaMotionVarianceSSE(src, lastRef.Img, mbRow, mbCol, vp8enc.MotionVector{})
+	e.hintPickerBypassCount++
+	return interFrameModeDecision{
+		useIntra: false,
+		interMode: vp8enc.InterFrameMacroblockMode{
+			RefFrame:  vp8common.LastFrame,
+			Mode:      vp8common.ZeroMV,
+			SegmentID: segmentID,
+		},
+		ref:             lastRef,
+		projectedRate:   500,
+		predictionError: int32(sse),
+	}, true
 }
 
 // closeAnalysis releases analyzer-held resources, if any. Called by

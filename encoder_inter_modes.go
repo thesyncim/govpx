@@ -79,6 +79,9 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	quant *vp8enc.MacroblockQuant,
 	sourceAltRefZeroMVOnly bool,
 ) (interFrameModeDecision, bool) {
+	if dec, ok := e.hintBypassPickerDecision(src, refs, refCount, segmentID, mbRow, mbCol, mbCols); ok {
+		return dec, true
+	}
 	if !e.interAnalysisUsesRDModeDecision() {
 		// Libvpx encodeframe.c resets x->rdmult/x->rddiv from the
 		// frame-level cpi->RDMULT/RDDIV before vp8cx_mb_init_quantizer()
