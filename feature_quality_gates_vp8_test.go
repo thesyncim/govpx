@@ -1133,8 +1133,21 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 	// Apple Silicon). With both mitigations the post-#341/#342
 	// +10.0% / -1.0 dB envelope holds across N>=3 audit runs on
 	// arm64-darwin and the #357 gate widen-to-+20% is rolled back.
+	//
+	// Task #382 retighten: with the #367 mitigations in place the
+	// fixture now measures govpx-vs-libvpx BD-rate=-0.817% /
+	// BD-PSNR=+0.000 dB on this arm64-darwin host (median-of-3 libvpx
+	// runs collapse to the govpx-aligned trajectory on every ladder
+	// rung). The post-#367 +10.0% envelope leaves ~10pp of dead
+	// headroom that masks any future regression in the negative-
+	// cpu_used / median-of-3 path. Tighten MaxBDRateOverLibvpxPct
+	// from +10.0% to +1.2% (observed -0.817% + 2.0pp positive-ceiling
+	// headroom per the task #357 retighten rule, rounded to one
+	// decimal). MinBDPSNRdB stays at -1.0 dB so a residual oracle-
+	// side cold-PSNR tail outside the BD-rate axis still has the
+	// post-#367 buffer.
 	realtimeCpu8Gate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 10.0,
+		MaxBDRateOverLibvpxPct: 1.2,
 		MinBDPSNRdB:            -1.0,
 	}
 	runVP8BDRateFixture(t,
@@ -1387,8 +1400,21 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 	// decisions). +10.0% / -1.0 dB envelope per the post-#341/#342
 	// /#367 project default; +3.7pp headroom over the observed
 	// +6.240% absorbs cubic-fit jitter on this short 16-frame ladder.
+	//
+	// Task #382 retighten: with #376's CpuUsed=-4 + LibvpxOracleRuns=3
+	// mitigation chain landed the fixture's BD-rate is deterministic
+	// at govpx-vs-libvpx +6.240% / -0.868 dB across runs. The #376
+	// +10.0% project-default ceiling carries +3.76pp of dead
+	// headroom over the steady-state value; tighten the BD-rate gate
+	// to +8.3% (observed +6.240% + 2.0pp positive-ceiling headroom
+	// per the task #357 retighten rule, rounded to one decimal). The
+	// BD-PSNR floor stays at -1.0 dB — the observed -0.868 dB sits
+	// near that band, and tightening PSNR further risks tripping the
+	// gate on cubic-fit jitter at the lower ladder rungs where
+	// libvpx's Speed=4 fast picker delivers a 0.7-1.2 dB PSNR-Y
+	// advantage that the rate axis trades against.
 	realtimeCpu4Gate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 10.0,
+		MaxBDRateOverLibvpxPct: 8.3,
 		MinBDPSNRdB:            -1.0,
 	}
 	runVP8BDRateFixture(t,
@@ -1702,8 +1728,20 @@ func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 	// that drives the gap materially higher (e.g. a B_PRED scoring
 	// path change that further inflates govpx's top-rung rate) trips
 	// immediately.
+	//
+	// Task #382 retighten: post-#367/#374/#376 the fixture still
+	// measures govpx-vs-libvpx BD-rate=+24.271% / BD-PSNR=+0.047 dB
+	// (no drift from the #368 baseline). The #368 +26.5% ceiling
+	// leaves +2.23pp of headroom over the steady state; tighten to
+	// +26.3% (observed +24.271% + 2.0pp positive-ceiling headroom
+	// per the task #357 retighten rule, rounded to one decimal). The
+	// rate-control state-machine drift documented in the #374 audit
+	// (frame-1 recode-loop trajectory split, govpx Q=65 vs libvpx
+	// Q=30) is what sets the +24.271% floor — any regression on the
+	// B_PRED scoring flow that drives the gap >2pp above this floor
+	// still trips the gate immediately.
 	bpredGate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 26.5,
+		MaxBDRateOverLibvpxPct: 26.3,
 		MinBDPSNRdB:            -0.5,
 	}
 	runVP8BDRateFixture(t,
