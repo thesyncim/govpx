@@ -814,6 +814,41 @@ func (e *VP9Encoder) SetMaxInterBitratePct(pct int) error {
 	return nil
 }
 
+// SetMaxIntraBitratePct mirrors libvpx's VP8E_SET_MAX_INTRA_BITRATE_PCT
+// control as consumed by the VP9 encoder. pct caps key-frame target bits at
+// pct% of the per-frame bandwidth budget. Zero disables the cap. Forwards to
+// [VP9EncoderOptions.MaxIntraBitratePct].
+func (e *VP9Encoder) SetMaxIntraBitratePct(pct int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if pct < 0 {
+		return ErrInvalidConfig
+	}
+	e.opts.MaxIntraBitratePct = pct
+	e.rc.maxIntraBitratePct = pct
+	return nil
+}
+
+// SetGFCBRBoostPct mirrors libvpx's VP8E_SET_GF_CBR_BOOST_PCT control as
+// consumed by the VP9 encoder. pct boosts golden-frame target bits in CBR mode
+// by pct% of the per-frame bandwidth budget. Zero disables the boost. Forwards
+// to [VP9EncoderOptions.GFCBRBoostPct].
+func (e *VP9Encoder) SetGFCBRBoostPct(pct int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if pct < 0 {
+		return ErrInvalidConfig
+	}
+	if pct != 0 && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
+		return ErrInvalidConfig
+	}
+	e.opts.GFCBRBoostPct = pct
+	e.rc.gfCBRBoostPct = pct
+	return nil
+}
+
 // SetMinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control.
 // interval must be in [0, vp9MaxGFInterval]; zero restores libvpx's
 // framerate-derived default. Forwards to

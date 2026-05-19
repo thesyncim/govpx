@@ -243,6 +243,22 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name:      "set-max-intra-bitrate-pct",
+			applyAt:   4,
+			scriptTok: "maxintra:200",
+			apply: func(t *testing.T, e *VP9Encoder) {
+				mustVP9Runtime(t, "SetMaxIntraBitratePct(200)", e.SetMaxIntraBitratePct(200))
+			},
+		},
+		{
+			name:      "set-gf-cbr-boost-pct",
+			applyAt:   4,
+			scriptTok: "gfboost:50",
+			apply: func(t *testing.T, e *VP9Encoder) {
+				mustVP9Runtime(t, "SetGFCBRBoostPct(50)", e.SetGFCBRBoostPct(50))
+			},
+		},
+		{
 			name:      "set-min-gf-interval",
 			applyAt:   4,
 			scriptTok: "mingf:8",
@@ -420,6 +436,16 @@ func TestVP9OracleEncoderRuntimeControlsAllocationGate(t *testing.T) {
 		{"SetMaxInterBitratePct", func(t *testing.T, e *VP9Encoder) {
 			if err := e.SetMaxInterBitratePct(200); err != nil {
 				t.Fatalf("SetMaxInterBitratePct: %v", err)
+			}
+		}},
+		{"SetMaxIntraBitratePct", func(t *testing.T, e *VP9Encoder) {
+			if err := e.SetMaxIntraBitratePct(200); err != nil {
+				t.Fatalf("SetMaxIntraBitratePct: %v", err)
+			}
+		}},
+		{"SetGFCBRBoostPct", func(t *testing.T, e *VP9Encoder) {
+			if err := e.SetGFCBRBoostPct(50); err != nil {
+				t.Fatalf("SetGFCBRBoostPct: %v", err)
 			}
 		}},
 		{"SetFramePeriodicBoost", func(t *testing.T, e *VP9Encoder) {

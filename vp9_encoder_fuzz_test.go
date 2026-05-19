@@ -241,7 +241,7 @@ func vp9EncoderOptionsFromFuzz(data []byte) VP9EncoderOptions {
 // returned error; panics are caught by the f.Fuzz wrapper.
 func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *vp9FuzzByteReader) {
 	t.Helper()
-	const numSetters = 38
+	const numSetters = 40
 	pick := int(r.next()) % numSetters
 	var err error
 	switch pick {
@@ -351,6 +351,10 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *vp9FuzzByteReade
 			LayerTargetBitrateKbps: [MaxTemporalLayers]int{200, 400, 800, 1200, 1600},
 		})
 		_ = layers
+	case 38:
+		err = e.SetMaxIntraBitratePct(int(r.nextU16() % 2000))
+	case 39:
+		err = e.SetGFCBRBoostPct(int(r.nextU16() % 2000))
 	}
 	if err != nil {
 		assertVP9FuzzEncoderRuntimeError(t, err)
