@@ -103,6 +103,7 @@ type VP8Decoder struct {
 	initialized     bool
 	ecActive        bool
 	frameCorrupt    bool
+	frameSuppress   bool
 	modesCorrupt    int
 	residualCorrupt int
 
@@ -248,7 +249,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	}
 
 	d.finishFrame(info, pts)
-	if !info.ShowFrame {
+	if !info.ShowFrame || d.frameSuppress {
 		d.frameReady = false
 		return nil
 	}
@@ -440,7 +441,15 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	}
 	frameInfo := d.finishFrame(info, pts)
 	d.frameReady = false
-	if !info.ShowFrame {
+	if !info.ShowFrame || d.frameSuppress {
+		if d.frameSuppress {
+			// Mirror libvpx vp8/decoder/onyxd_if.c swap_frame_buffers
+			// err=-1 path: the frame is decoded but vp8_get_frame yields
+			// no image, so the public ShowFrame bit is cleared in the
+			// returned FrameInfo to signal callers that dst was not
+			// written.
+			frameInfo.ShowFrame = false
+		}
 		return frameInfo, nil
 	}
 	output, err := d.outputFrameImage(info)
@@ -469,6 +478,7 @@ func (d *VP8Decoder) Reset() {
 	d.initialized = false
 	d.ecActive = false
 	d.frameCorrupt = false
+	d.frameSuppress = false
 	d.modesCorrupt = 0
 	d.residualCorrupt = -1
 	d.previousQuant = vp8dec.QuantHeader{}
@@ -514,6 +524,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, 
 		d.ecActive = true
 	}
 	d.frameCorrupt = false
+	d.frameSuppress = false
 	d.modesCorrupt = 0
 	d.residualCorrupt = -1
 	if err := d.parseState(packet, frame, errorConcealment); err != nil {
@@ -550,7 +561,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, 
 		return err
 	}
 	d.saveErrorConcealmentModes()
-	d.refreshReferences()
+	d.frameSuppress = d.refreshReferences()
 	if !d.frameCorrupt {
 		d.commitParsedState(info)
 	}
@@ -650,7 +661,7 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 	}
 	d.lastInfo = frameInfo
 	d.lastInfoValid = true
-	if info.ShowFrame {
+	if info.ShowFrame && !d.frameSuppress {
 		d.visibleFrames++
 	}
 	return frameInfo
@@ -1035,18 +1046,40 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 	return nil
 }
 
-func (d *VP8Decoder) refreshReferences() {
+// refreshReferences applies the per-frame reference buffer copy/refresh
+// flags parsed from the inter-frame header. Ported from libvpx v1.16.0
+// vp8/decoder/onyxd_if.c swap_frame_buffers (lines 213-268): the
+// CopyBufferToAltRef and CopyBufferToGolden fields are 2-bit literals
+// (range 0..3) but only values 0/1/2 are defined. Value 3 is invalid;
+// libvpx's swap_frame_buffers sets err=-1 in that case, which propagates
+// to vp8dx_receive_compressed_data (onyxd_if.c:339-342) — it sets
+// VPX_CODEC_ERROR and jumps to decode_exit *before* clearing
+// ready_for_new_data. The subsequent vp8dx_get_raw_frame (onyxd_if.c:380)
+// returns -1 because ready_for_new_data is still 1, so vp8_get_frame
+// yields no image: the frame is decoded but suppressed from output.
+//
+// refreshReferences returns true when the frame should be suppressed
+// (CopyBufferToAltRef or CopyBufferToGolden equals 3). Callers must skip
+// publishing the current frame via NextFrame/DecodeInto in that case.
+// Reference state remains unchanged for invalid copy values, mirroring
+// libvpx's behavior where the alias points at an unchanged buffer slot.
+func (d *VP8Decoder) refreshReferences() bool {
+	suppress := false
 	switch d.state.Refresh.CopyBufferToAltRef {
 	case 1:
 		copyExtendedFrameImage(&d.altRef.Img, &d.lastRef.Img)
 	case 2:
 		copyExtendedFrameImage(&d.altRef.Img, &d.goldenRef.Img)
+	case 3:
+		suppress = true
 	}
 	switch d.state.Refresh.CopyBufferToGolden {
 	case 1:
 		copyExtendedFrameImage(&d.goldenRef.Img, &d.lastRef.Img)
 	case 2:
 		copyExtendedFrameImage(&d.goldenRef.Img, &d.altRef.Img)
+	case 3:
+		suppress = true
 	}
 	if d.state.Refresh.RefreshLast {
 		copyExtendedFrameImage(&d.lastRef.Img, &d.current.Img)
@@ -1057,6 +1090,7 @@ func (d *VP8Decoder) refreshReferences() {
 	if d.state.Refresh.RefreshAltRef {
 		copyExtendedFrameImage(&d.altRef.Img, &d.current.Img)
 	}
+	return suppress
 }
 
 // referenceFrameBuffer maps the public reference selector to the decoder-owned
