@@ -822,6 +822,15 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerRateControlBuffer(0, 320, 160, 240); err != nil {
 		t.Fatalf("SetLayerRateControlBuffer: %v", err)
 	}
+	if err := svc.SetLayerPostEncodeDrop(0, true); err != nil {
+		t.Fatalf("SetLayerPostEncodeDrop: %v", err)
+	}
+	if err := svc.SetLayerDisableOvershootMaxQCBR(0, true); err != nil {
+		t.Fatalf("SetLayerDisableOvershootMaxQCBR: %v", err)
+	}
+	if err := svc.SetLayerNextFrameQIndex(0, 96); err != nil {
+		t.Fatalf("SetLayerNextFrameQIndex: %v", err)
+	}
 	if err := svc.SetLayerRealtimeTarget(0, RealtimeTarget{
 		BitrateKbps:  360,
 		FPS:          24,
@@ -869,6 +878,18 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerARNR(1, 3, 4, 2); err != nil {
 		t.Fatalf("SetLayerARNR: %v", err)
 	}
+	if err := svc.SetLayerMinGFInterval(1, 4); err != nil {
+		t.Fatalf("SetLayerMinGFInterval: %v", err)
+	}
+	if err := svc.SetLayerMaxGFInterval(1, 12); err != nil {
+		t.Fatalf("SetLayerMaxGFInterval: %v", err)
+	}
+	if err := svc.SetLayerFramePeriodicBoost(1, true); err != nil {
+		t.Fatalf("SetLayerFramePeriodicBoost: %v", err)
+	}
+	if err := svc.SetLayerAltRefAQ(1, true); err != nil {
+		t.Fatalf("SetLayerAltRefAQ: %v", err)
+	}
 
 	base, err := svc.LayerEncoder(0)
 	if err != nil {
@@ -889,6 +910,14 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		base.opts.BufferSizeMs != 320 ||
 		base.opts.BufferInitialSizeMs != 160 ||
 		base.opts.BufferOptimalSizeMs != 240 ||
+		!base.opts.PostEncodeDrop ||
+		!base.rc.postEncodeDrop ||
+		!base.opts.DisableOvershootMaxQCBR ||
+		!base.rc.disableOvershootMaxQCBR ||
+		!base.opts.NextFrameQIndexSet ||
+		base.opts.NextFrameQIndex != 96 ||
+		!base.rc.nextFrameQIndexSet ||
+		base.rc.nextFrameQIndex != 96 ||
 		base.opts.Tuning != TuneSSIM ||
 		!base.opts.Lossless ||
 		base.opts.ScreenContentMode != 1 ||
@@ -907,6 +936,14 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		enh.opts.ARNRMaxFrames != 3 ||
 		enh.opts.ARNRStrength != 4 ||
 		enh.opts.ARNRType != 2 ||
+		enh.opts.MinGFInterval != 4 ||
+		enh.rc.minGFInterval != 4 ||
+		enh.opts.MaxGFInterval != 12 ||
+		enh.rc.maxGFInterval != 12 ||
+		!enh.opts.FramePeriodicBoost ||
+		!enh.rc.framePeriodicBoost ||
+		!enh.opts.AltRefAQ ||
+		!enh.rc.altRefAQ ||
 		enh.opts.DropFrameAllowed ||
 		enh.opts.Lossless {
 		t.Fatalf("enhancement layer advanced controls missing/leaked: opts=%+v twoPass=%t",
@@ -937,11 +974,27 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerRateControlBuffer(1, 320, 160, 240); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerRateControlBuffer on VBR err = %v, want ErrInvalidConfig", err)
 	}
+	if err := svc.SetLayerPostEncodeDrop(1, true); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerPostEncodeDrop on VBR err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerDisableOvershootMaxQCBR(1, true); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerDisableOvershootMaxQCBR on VBR err = %v, want ErrInvalidConfig", err)
+	}
 	if err := svc.SetLayerTwoPassStats(0, stats); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerTwoPassStats on CBR err = %v, want ErrInvalidConfig", err)
 	}
 	if base.twoPass.enabled() {
 		t.Fatal("invalid base two-pass update enabled CBR layer")
+	}
+	if err := svc.SetLayerMinGFInterval(1, 13); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerMinGFInterval above max err = %v, want ErrInvalidConfig", err)
+	}
+	if enh.opts.MinGFInterval != 4 || enh.rc.minGFInterval != 4 {
+		t.Fatalf("invalid min-gf update mutated enhancement to opts=%d rc=%d",
+			enh.opts.MinGFInterval, enh.rc.minGFInterval)
+	}
+	if err := svc.SetLayerNextFrameQIndex(1, 300); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("SetLayerNextFrameQIndex invalid err = %v, want ErrInvalidQuantizer", err)
 	}
 	if err := svc.SetLayerCQLevel(2, 24); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerCQLevel invalid layer err = %v, want ErrInvalidConfig", err)
@@ -971,6 +1024,15 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if err := svc.SetLayerARNR(0, 3, 4, 2); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerARNR after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerMinGFInterval(0, 4); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerMinGFInterval after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerPostEncodeDrop(0, false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerPostEncodeDrop after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerNextFrameQIndex(0, 96); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerNextFrameQIndex after close err = %v, want ErrClosed", err)
 	}
 	if err := svc.SetLayerAQMode(0, VP9AQNone); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerAQMode after close err = %v, want ErrClosed", err)
@@ -1034,6 +1096,10 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, VP9AQComplexity) }},
 		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},
 		{name: "SetLayerRateControlBuffer", fn: func() error { return svc.SetLayerRateControlBuffer(0, 320, 160, 240) }},
+		{name: "SetLayerPostEncodeDrop", fn: func() error { return svc.SetLayerPostEncodeDrop(0, true) }},
+		{name: "SetLayerDisableOvershootMaxQCBR", fn: func() error {
+			return svc.SetLayerDisableOvershootMaxQCBR(0, true)
+		}},
 		{name: "SetLayerMaxIntraBitratePct", fn: func() error { return svc.SetLayerMaxIntraBitratePct(0, 180) }},
 		{name: "SetLayerMaxInterBitratePct", fn: func() error { return svc.SetLayerMaxInterBitratePct(1, 220) }},
 		{name: "SetLayerGFCBRBoostPct", fn: func() error { return svc.SetLayerGFCBRBoostPct(0, 45) }},
@@ -1065,6 +1131,11 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 			return svc.SetLayerAdaptiveKeyFrames(0, true)
 		}},
 		{name: "SetLayerARNR", fn: func() error { return svc.SetLayerARNR(1, 3, 4, 2) }},
+		{name: "SetLayerMinGFInterval", fn: func() error { return svc.SetLayerMinGFInterval(1, 4) }},
+		{name: "SetLayerMaxGFInterval", fn: func() error { return svc.SetLayerMaxGFInterval(1, 12) }},
+		{name: "SetLayerFramePeriodicBoost", fn: func() error { return svc.SetLayerFramePeriodicBoost(1, true) }},
+		{name: "SetLayerAltRefAQ", fn: func() error { return svc.SetLayerAltRefAQ(1, true) }},
+		{name: "SetLayerNextFrameQIndex", fn: func() error { return svc.SetLayerNextFrameQIndex(0, 96) }},
 	}
 	for _, tc := range tests {
 		allocs := testing.AllocsPerRun(100, func() {

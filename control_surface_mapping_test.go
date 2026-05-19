@@ -406,6 +406,7 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			helperTokens: []string{"copyref:"},
 		},
 		"SetLayerAdaptiveKeyFrames": {kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerAltRefAQ":          {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"altrefaq:"}},
 		"SetLayerAQMode":            {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"aq:"}},
 		"SetLayerBitrateKbps":       {kind: "vp9-spatial-svc-layer-control"},
 		"SetLayerActiveMap":         {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"active:"}},
@@ -413,10 +414,15 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 		"SetLayerCPUUsed":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cpu:"}},
 		"SetLayerCQLevel":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cq:"}},
 		"SetLayerDeadline":          {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"deadline:"}},
+		"SetLayerDisableOvershootMaxQCBR": {
+			kind:         "vp9-spatial-svc-layer-control",
+			helperTokens: []string{"disovershoot:"},
+		},
 		"SetLayerFrameDropAllowed": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"drop:"},
 		},
+		"SetLayerFramePeriodicBoost": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"periodicboost:"}},
 		"SetLayerKeyFrameInterval": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"kfmax:"},
@@ -426,14 +432,18 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			helperTokens: []string{"kfmin:", "kfmax:"},
 		},
 		"SetLayerGFCBRBoostPct":      {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"gfboost:"}},
+		"SetLayerMaxGFInterval":      {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"maxgf:"}},
 		"SetLayerMaxInterBitratePct": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"maxinter:"}},
 		"SetLayerMaxIntraBitratePct": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"maxintra:"}},
+		"SetLayerMinGFInterval":      {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"mingf:"}},
 		"SetLayerLossless":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"lossless:"}},
+		"SetLayerNextFrameQIndex":    {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"qonepass:"}},
 		"SetLayerNoiseSensitivity": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"noise:"},
 		},
-		"SetLayerRateControl": {kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerPostEncodeDrop": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"postdrop:"}},
+		"SetLayerRateControl":    {kind: "vp9-spatial-svc-layer-control"},
 		"SetLayerRateControlBuffer": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"bufsz:", "bufinit:", "bufopt:"},

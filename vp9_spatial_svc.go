@@ -697,6 +697,26 @@ func (e *VP9SpatialSVCEncoder) SetLayerFrameDropAllowed(layerID uint8, enabled b
 	return layer.SetFrameDropAllowed(enabled)
 }
 
+// SetLayerPostEncodeDrop enables or disables one spatial layer's VP9 CBR
+// post-encode drop path, matching [VP9Encoder.SetPostEncodeDrop].
+func (e *VP9SpatialSVCEncoder) SetLayerPostEncodeDrop(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetPostEncodeDrop(enabled)
+}
+
+// SetLayerDisableOvershootMaxQCBR changes one spatial layer's VP9 CBR
+// overshoot max-Q guard, matching [VP9Encoder.SetDisableOvershootMaxQCBR].
+func (e *VP9SpatialSVCEncoder) SetLayerDisableOvershootMaxQCBR(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetDisableOvershootMaxQCBR(enabled)
+}
+
 // SetLayerRateControlBuffer changes one spatial layer's VP9 CBR buffer model,
 // matching [VP9Encoder.SetRateControlBuffer].
 func (e *VP9SpatialSVCEncoder) SetLayerRateControlBuffer(layerID uint8,
@@ -843,6 +863,56 @@ func (e *VP9SpatialSVCEncoder) SetLayerARNR(layerID uint8,
 		return err
 	}
 	return layer.SetARNR(maxFrames, strength, filterType)
+}
+
+// SetLayerMinGFInterval changes one spatial layer's VP9 minimum golden-frame
+// interval, matching [VP9Encoder.SetMinGFInterval].
+func (e *VP9SpatialSVCEncoder) SetLayerMinGFInterval(layerID uint8, interval int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetMinGFInterval(interval)
+}
+
+// SetLayerMaxGFInterval changes one spatial layer's VP9 maximum golden-frame
+// interval, matching [VP9Encoder.SetMaxGFInterval].
+func (e *VP9SpatialSVCEncoder) SetLayerMaxGFInterval(layerID uint8, interval int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetMaxGFInterval(interval)
+}
+
+// SetLayerFramePeriodicBoost changes one spatial layer's VP9 periodic
+// golden-frame boost toggle, matching [VP9Encoder.SetFramePeriodicBoost].
+func (e *VP9SpatialSVCEncoder) SetLayerFramePeriodicBoost(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetFramePeriodicBoost(enabled)
+}
+
+// SetLayerAltRefAQ changes one spatial layer's VP9 alt-ref AQ toggle,
+// matching [VP9Encoder.SetAltRefAQ].
+func (e *VP9SpatialSVCEncoder) SetLayerAltRefAQ(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetAltRefAQ(enabled)
+}
+
+// SetLayerNextFrameQIndex changes one spatial layer's one-shot qindex
+// override, matching [VP9Encoder.SetNextFrameQIndex].
+func (e *VP9SpatialSVCEncoder) SetLayerNextFrameQIndex(layerID uint8, qindex int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetNextFrameQIndex(qindex)
 }
 
 // SetLayerActiveMap installs one spatial layer's VP9 active map, matching
