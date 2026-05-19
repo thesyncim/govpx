@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu"
@@ -185,16 +186,52 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
-    let base = mb_idx * 3u;
+    // Derive per-MB flags + search radius + static score on the GPU
+    // so the host readback path doesn't have to branch per MB. Bit
+    // layout of the flags u8 must match the Go AnalysisFlags constants:
+    //   bit0 FlagStatic, bit1 FlagFlat, bit2 FlagSkipLikely,
+    //   bit3 FlagHighMotion, bit4 FlagHighTexture.
+    var flags: u32 = 0u;
+    var radius: u32 = 0u;
+    var static_score: u32 = 0u;
+    if (params.have_prev != 0u) {
+        static_score = sad >> 2u;
+        if (static_score > 255u) { static_score = 255u; }
+        if (sad <= 32u) {
+            flags = flags | 1u;
+            radius = 1u;
+        } else if (sad >= 4096u) {
+            flags = flags | 8u;
+            radius = 8u;
+        } else {
+            radius = 4u;
+        }
+    }
+    if (dev < 256u) {
+        flags = flags | 2u;
+    }
+    if (tex > 1024u) {
+        flags = flags | 16u;
+    }
+    if ((flags & 1u) != 0u && (flags & 2u) != 0u) {
+        flags = flags | 4u;
+    }
+    let packed = (flags & 0xffu)
+               | ((radius & 0xffu) << 8u)
+               | ((static_score & 0xffffu) << 16u);
+
+    let base = mb_idx * 4u;
     out[base + 0u] = sad;
     out[base + 1u] = dev;
     out[base + 2u] = tex;
+    out[base + 3u] = packed;
 }
 `
 
 // mbStatsBytes is the size of one MB output record produced by the
-// kernel: three u32s (sad, variance-proxy, texture).
-const mbStatsBytes = 12
+// kernel: four u32s (sad, variance-proxy, texture, packed
+// flags|radius|staticScore).
+const mbStatsBytes = 16
 
 // workgroupSize matches @workgroup_size(64) in the WGSL kernel. The
 // host dispatches ceil(mb_total / workgroupSize) workgroups in the x
@@ -676,61 +713,61 @@ func (a *gpuAnalyzer) readResults(mbs []analysis.MacroblockAnalysis, mbCols, mbR
 		return
 	}
 	data := rng.Bytes()
-	for r := range mbRows {
-		base := r * mbCols
-		for c := range mbCols {
-			i := base + c
-			off := i * mbStatsBytes
-			sad := binary.LittleEndian.Uint32(data[off:])
-			variance := binary.LittleEndian.Uint32(data[off+4:])
-			texture := binary.LittleEndian.Uint32(data[off+8:])
-			mb := &mbs[i]
-			mb.MBX = int16(c)
-			mb.MBY = int16(r)
-			if havePrev {
-				mb.ZeroSAD = sad
-				mb.BestSAD = sad
-				mb.BestMVX = 0
-				mb.BestMVY = 0
-				score := min(sad>>2, 255)
-				mb.StaticScore = uint16(score)
-			} else {
-				mb.ZeroSAD = 0
-				mb.BestSAD = 0
-				mb.StaticScore = 0
-			}
-			mb.Variance = variance
-			tex := min(texture, 0xFFFF)
-			mb.Texture = uint16(tex)
-			mb.Flags = 0
-			mb.SearchRadius = 0
-			if variance < 256 {
-				mb.Flags |= analysis.FlagFlat
-				stats.BlocksFlat++
-			}
-			if texture > 1024 {
-				mb.Flags |= analysis.FlagHighTexture
-			}
-			if havePrev {
-				if sad <= 32 {
-					mb.Flags |= analysis.FlagStatic
-					stats.BlocksStatic++
-					mb.SearchRadius = 1
-				} else if sad >= 4096 {
-					mb.Flags |= analysis.FlagHighMotion
-					stats.BlocksHighMotion++
-					mb.SearchRadius = 8
-				} else {
-					mb.SearchRadius = 4
-				}
-				if mb.Flags&analysis.FlagStatic != 0 && mb.Flags&analysis.FlagFlat != 0 {
-					mb.Flags |= analysis.FlagSkipLikely
-					stats.BlocksSkipLikely++
-				}
-			}
+	// Reinterpret the readback bytes as a flat []uint32 to skip the
+	// per-field binary.LittleEndian.Uint32 call overhead in the
+	// per-MB loop. The GPU writes little-endian u32s; this view is
+	// valid on little-endian hosts (the platforms govpx targets).
+	words := unsafeBytesToUint32(data, int(outSize)/4)
+	mbCount := mbCols * mbRows
+	_ = havePrev // SAD already zero in shader when have_prev=0
+	for i := range mbCount {
+		off := i * 4 // 4 u32 words per MB
+		sad := words[off+0]
+		variance := words[off+1]
+		texture := words[off+2]
+		packed := words[off+3]
+		mb := &mbs[i]
+		mb.MBX = int16(i % mbCols)
+		mb.MBY = int16(i / mbCols)
+		mb.ZeroSAD = sad
+		mb.BestSAD = sad
+		mb.BestMVX = 0
+		mb.BestMVY = 0
+		mb.Variance = variance
+		tex := min(texture, 0xFFFF)
+		mb.Texture = uint16(tex)
+		flags := analysis.AnalysisFlags(packed & 0xff)
+		mb.Flags = flags
+		mb.SearchRadius = uint8((packed >> 8) & 0xff)
+		mb.StaticScore = uint16((packed >> 16) & 0xffff)
+		// Aggregate stats: five constant-bit tests, all in registers.
+		if flags&analysis.FlagStatic != 0 {
+			stats.BlocksStatic++
+		}
+		if flags&analysis.FlagFlat != 0 {
+			stats.BlocksFlat++
+		}
+		if flags&analysis.FlagSkipLikely != 0 {
+			stats.BlocksSkipLikely++
+		}
+		if flags&analysis.FlagHighMotion != 0 {
+			stats.BlocksHighMotion++
 		}
 	}
 	_ = a.stagingBuf.Unmap()
+}
+
+// unsafeBytesToUint32 reinterprets a []byte as a []uint32 without
+// copying. The caller guarantees the byte slice is at least 4*n bytes
+// and is properly aligned (it comes from a wgpu staging buffer that
+// is always 4-byte aligned). Saves the per-element
+// binary.LittleEndian.Uint32 call cost in the readback loop, which
+// is measurable at 4K where we iterate 32,400 times per frame.
+func unsafeBytesToUint32(b []byte, n int) []uint32 {
+	if len(b) < n*4 {
+		return nil
+	}
+	return unsafe.Slice((*uint32)(unsafe.Pointer(&b[0])), n)
 }
 
 func packLumaPlane(dst, src []byte, srcStride, width, height int) {

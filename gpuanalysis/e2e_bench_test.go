@@ -101,8 +101,9 @@ var e2eSizes = []struct {
 	name string
 	w, h int
 }{
+	{"360p", 640, 368}, // 360 rounded up to MB boundary
 	{"720p", 1280, 720},
-	{"1080p", 1920, 1088}, // rounded up to MB boundary
+	{"1080p", 1920, 1088}, // 1080 rounded up to MB boundary
 	{"4K", 3840, 2160},
 }
 
