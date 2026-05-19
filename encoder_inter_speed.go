@@ -369,6 +369,13 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 	context.totalMBs = e.interAnalysisMacroblockCount()
 	context.staticThreshold = e.opts.StaticThreshold
 	context.errorBins = &e.interModeSpeedErrorBins
+	// Task #364: feed the libvpx-realistic cpi->Speed only into the
+	// adaptive error-bin gate. The full multiplier table still tracks
+	// e.libvpxCPUUsed() / e.autoSpeed so the rest of the speed-feature
+	// cascade (search method, fractional search, quarter-pixel, recode
+	// loop, ...) keeps its current evolution. See
+	// libvpxRealtimeCPISpeedForErrorBinGate for the audit chain.
+	context.errorBinGateSpeed = e.libvpxRealtimeCPISpeedForErrorBinGate()
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	gen := e.interRDThreshBaselineGen
 	q32 := int32(qIndex)
@@ -682,6 +689,17 @@ type libvpxInterModeThresholdContext struct {
 	totalMBs        int
 	staticThreshold int
 	errorBins       *[1024]uint32
+	// errorBinGateSpeed overrides the cpi->Speed value that gates the
+	// adaptive error-bin RD threshold adjustment (libvpx onyx_if.c:957
+	// `if (Speed > 6)`). Task #364 audit: at cpu_used > 0 RT the wall-
+	// clock-driven libvpx cpi->Speed climbs to cpu_used+1 while govpx's
+	// timing-pinned e.autoSpeed stays at 4-5; clamping autoSpeed itself
+	// cascades every other Speed-conditioned feature simultaneously, so
+	// only this gate (and the (Speed-6) percentile scale inside the
+	// error_bins[] scan) consume the realistic Speed. When zero (default)
+	// the gate falls back to cpiSpeed for parity with non-RT callers and
+	// the existing -cpu_used negate-pass-through fixtures.
+	errorBinGateSpeed int
 }
 
 func libvpxInterModeThresholdMultipliers(deadline Deadline, speed int) [libvpxInterModeCount]int {
@@ -744,8 +762,26 @@ func libvpxInterModeThresholdMultipliersForCPISpeed(deadline Deadline, cpiSpeed 
 		mult[libvpxThrNearest2] >>= shift
 		mult[libvpxThrNear2] >>= shift
 	}
-	if deadline == DeadlineRealtime && cpiSpeed > 6 && context.errorBins != nil && context.totalMBs > 0 {
-		thresh := libvpxRealtimeAdaptiveInterModeThreshold(context.errorBins, context.totalMBs, cpiSpeed, context.staticThreshold)
+	// Task #364: gate the adaptive error-bin RD-threshold adjustment on
+	// the libvpx-realistic cpi->Speed when the caller supplies one via
+	// context.errorBinGateSpeed. libvpx's vp8_set_speed_features runs
+	// every frame on the wall-clock-evolved cpi->Speed (rdopt.c:163 →
+	// vp8_initialize_rd_consts → vp8_set_speed_features), so at
+	// cpu_used > 0 RT cpi->Speed climbs to cpu_used+1 and the line-957
+	// gate fires the error_bins[] scan that overwrites
+	// sf->thresh_mult[THR_NEW1/NEAREST1/NEAR1/...] proportionally to
+	// (cpi->Speed - 6). govpx's timing-pinned autoSpeed stays at 4-5
+	// (see libvpxRealtimeCPISpeedForErrorBinGate audit), so without the
+	// override the path is unreachable on the cpu>0 RT ladder. When
+	// errorBinGateSpeed is zero (the unset default used by good-quality,
+	// best-quality, and the negate-pass-through fixtures) the gate
+	// continues to read cpiSpeed for byte-parity.
+	gateSpeed := cpiSpeed
+	if context.errorBinGateSpeed != 0 {
+		gateSpeed = context.errorBinGateSpeed
+	}
+	if deadline == DeadlineRealtime && gateSpeed > 6 && context.errorBins != nil && context.totalMBs > 0 {
+		thresh := libvpxRealtimeAdaptiveInterModeThreshold(context.errorBins, context.totalMBs, gateSpeed, context.staticThreshold)
 		if context.refFrameCount > 1 {
 			mult[libvpxThrNew1] = thresh
 			mult[libvpxThrNearest1] = thresh >> 1

@@ -834,6 +834,68 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForImprovedMVPredGate() int {
 	return realistic
 }
 
+// libvpxRealtimeCPISpeedForErrorBinGate returns the libvpx-realistic
+// cpi->Speed value used to evaluate the `Speed > 6` gate that fires the
+// adaptive error-bin RD threshold adjustment inside vp8_set_speed_features
+// case 2 (vp8/encoder/onyx_if.c:957-1010). Task #364 audit:
+//
+// At cpu_used > 0 RT, libvpx's vp8_auto_select_speed (rdopt.c:261) drives
+// cpi->Speed up via the +4 / +2 wall-clock branches because the
+// budget is halved (`ms_for_compress = base*(16-cpu)/16`) while the
+// encoder still runs the same per-frame work for the first few frames.
+// Per the task #343 720p RT cpu=8 trace, cpi->Speed reaches 9 by frame 2,
+// at which point the line-957 gate fires the adaptive error-bin
+// threshold path that scans cpi->mb.error_bins[] and overwrites
+// sf->thresh_mult[THR_NEW1/NEAREST1/NEAR1/...] proportionally to
+// (cpi->Speed - 6). govpx's autoSpeed evolution stays in the Speed=0
+// stable region (`avg_encode_time ≈ budget/3`) under the task #278
+// inter-frame timing pin (interFrameAutoSpeedTimingCompensation), so
+// e.autoSpeed lands at 4-5 rather than the libvpx-realistic cpu_used+1
+// ≈ 9. That kept the adaptive error-bin threshold path disabled on
+// govpx for cpu_used > 0 RT, leaving libvpx's wider mode pool active and
+// driving picker churn that contributed to the residual BD-rate gap on
+// realtime cpu>0 ladders.
+//
+// Cannot fix this by clamping e.autoSpeed itself: that cascades all the
+// other Speed-conditioned features in vp8_set_speed_features (search
+// method, fractional search, quarter-pixel, threshold maps, recode
+// loop) into their cpu_used+1 path, which is far too aggressive for the
+// short-ladder BD-rate measurement (see
+// libvpxRealtimeCPISpeedForImprovedMVPredGate for the same anti-pattern
+// audit on the improved_mv_pred gate at task #350).
+//
+// Targeted port: gate the adaptive error-bin RD-threshold adjustment
+// specifically on the libvpx-realistic cpi->Speed, leaving every other
+// Speed-feature lookup on govpx's actual e.autoSpeed evolution. The
+// (Speed-6) scale factor inside libvpxRealtimeAdaptiveInterModeThreshold
+// also picks up the realistic Speed so the percentile bisection inside
+// the error_bins[] scan matches libvpx's per-frame trajectory.
+//
+// For cpu_used == 0 RT (the byte-parity-gated path) the realistic Speed
+// stays at 4 — below the Speed > 6 threshold, so the error-bin path
+// remains disabled, preserving the threads=4 cpu=0 RT byte-parity
+// sentinel and the existing autoSpeed=8 / cpu_used=-8 fixture asserts
+// in TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins.
+func (e *VP8Encoder) libvpxRealtimeCPISpeedForErrorBinGate() int {
+	speed := e.libvpxCPUUsed()
+	if e.opts.Deadline != DeadlineRealtime {
+		return speed
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed <= 0 {
+		return speed
+	}
+	if e.frameCount == 0 {
+		return speed
+	}
+	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	realistic := min(cpuUsed+1, 16)
+	if speed > realistic {
+		return speed
+	}
+	return realistic
+}
+
 func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
 	fps := e.opts.FPS
 	if fps <= 0 {
