@@ -384,6 +384,48 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// Until that lands, the -5/-6 byte ARNR pin-hold remains, but its
 	// root cause is now confirmed to be in the inter-frame mode picker
 	// and NOT in the UV qcoeff / FDCT / residual / quantize pipeline.
+	//
+	// Task #298 SPLITMV RD bisect (LOCALIZES the picker divergence):
+	// the new TestVP8Task298SPLITMVRDBisect captures the per-mode
+	// inter_candidate trace for MB(0,0) frame 1 on both sides and
+	// surfaces the picker scoreboard. Key findings:
+	//
+	//   govpx NEWMV: rate=20474 rate_y=7519 rate_uv=9298 dist=58282 yrd=73707 score=102349
+	//   libvpx NEWMV: rate=48796 rate_y=34799 rate_uv=10340 dist=55660 yrd=129509 score=160686
+	//   libvpx SPLITMV: rate=31708 rate_y=15344 rate_uv=10340 dist=55660 yrd=92730 score=123907
+	//
+	// govpx never reaches a "tested" SPLITMV/LAST row for MB(0,0):
+	// selectInterFrameSplitModeRDScore returns ok=false (the new
+	// trace probe surfaces this as outcome="splitmv_rd_dropout").
+	// libvpx's vp8_rd_pick_best_mbsegmentation succeeds because its
+	// bsi.segment_rd cap = best_mode.yrd = 129509 is loose enough for
+	// SPLITMV's per-label commit at segment_rd=92730 (<129509). govpx's
+	// bestYRD cap going into SPLITMV is the NEWMV picker yrd=73707 —
+	// LOWER than libvpx's 129509 by 55802, so SPLITMV's per-label
+	// shape.SegmentYRD (which is anchored by the same residual on the
+	// libvpx side at 92730) exceeds the cap and triggers the cutoff
+	// without any partition committing.
+	//
+	// The divergent component is rate_y (govpx 7519 vs libvpx 34799,
+	// delta=-27280; distortion delta is +2622 only). govpx's picker
+	// quantize for NEWMV at MB(0,0) is producing all-zero Y qcoeff
+	// (eob_sum=1 in the accepted-mode mb trace — the lone non-zero is
+	// at qcoeff[23][0], one UV slot), while libvpx's picker quantize
+	// for NEWMV is producing enough non-zero Y coefficients to yield
+	// rate_y=34799. Same MV=(8,16), same ref (frame 0 reconstruction is
+	// byte-identical per the SHA pin), same source — yet different
+	// qcoeff. Static inspection of the quantize formula
+	// (encoder_inter_quantize.go quantizeBlockWithZbinAndActivity line 64
+	// vs libvpx vp8_quantize.c:75 vp8_regular_quantize_b) is byte-faithful,
+	// so the upstream cause must surface in the actual residual /
+	// zbin_extra at picker time and requires a per-block picker-side
+	// Y qcoeff oracle trace similar to the task #296 pre-trellis UV hook.
+	// Task #299+ charter: extend the oracle tracer with a per-Y-block
+	// picker-side qcoeff dump (between buildPredictedMacroblockCoefficients
+	// FDCT and the per-block quantize on govpx; between macro_block_yrd's
+	// FDCT and quantize on libvpx) for MB(0,0) frame 1's NEWMV candidate,
+	// then localize the first divergent (block, scan_pos) to either coeff
+	// (residual layer) or qcoeff (quantize layer).
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463

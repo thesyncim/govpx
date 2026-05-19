@@ -78,10 +78,52 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		threshold := thresholds[modeIndex]
+		if traceEnabled && (mbMode == vp8common.SplitMV || mbMode == vp8common.NewMV) {
+			e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+				Picker: "rd", MBRow: mbRow, MBCol: mbCol,
+				ModeIndex: modeIndex, Mode: mbMode,
+				RefSlot:   libvpxFastRefFrameOrder[modeIndex],
+				Threshold: threshold, BestScoreBefore: bestScore, BestYRDBefore: bestYRD,
+				BestSSEBefore: oracleTraceInterCandidateUnknown,
+				Outcome:       "entered_loop",
+				Score:         oracleTraceInterCandidateUnknown, YRD: oracleTraceInterCandidateUnknown,
+				Rate: oracleTraceInterCandidateUnknown, RateY: oracleTraceInterCandidateUnknown, RateUV: oracleTraceInterCandidateUnknown,
+				Distortion: oracleTraceInterCandidateUnknown, DistortionUV: oracleTraceInterCandidateUnknown,
+				SSE: oracleTraceInterCandidateUnknown,
+			})
+		}
 		if threshold == libvpxInterModeThresholdDisabled {
+			if traceEnabled {
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker: "rd", MBRow: mbRow, MBCol: mbCol,
+					ModeIndex: modeIndex, Mode: mbMode,
+					RefSlot:   libvpxFastRefFrameOrder[modeIndex],
+					Threshold: threshold, BestScoreBefore: bestScore, BestYRDBefore: bestYRD,
+					BestSSEBefore: oracleTraceInterCandidateUnknown,
+					Outcome:       "skipped_disabled",
+					Score:         oracleTraceInterCandidateUnknown, YRD: oracleTraceInterCandidateUnknown,
+					Rate: oracleTraceInterCandidateUnknown, RateY: oracleTraceInterCandidateUnknown, RateUV: oracleTraceInterCandidateUnknown,
+					Distortion: oracleTraceInterCandidateUnknown, DistortionUV: oracleTraceInterCandidateUnknown,
+					SSE: oracleTraceInterCandidateUnknown,
+				})
+			}
 			continue
 		}
 		if bestSet && bestScore <= threshold {
+			if traceEnabled {
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker: "rd", MBRow: mbRow, MBCol: mbCol,
+					ModeIndex: modeIndex, Mode: mbMode,
+					RefSlot:   libvpxFastRefFrameOrder[modeIndex],
+					Threshold: threshold, BestScoreBefore: bestScore, BestYRDBefore: bestYRD,
+					BestSSEBefore: oracleTraceInterCandidateUnknown,
+					Outcome:       "skipped_threshold",
+					Score:         oracleTraceInterCandidateUnknown, YRD: oracleTraceInterCandidateUnknown,
+					Rate: oracleTraceInterCandidateUnknown, RateY: oracleTraceInterCandidateUnknown, RateUV: oracleTraceInterCandidateUnknown,
+					Distortion: oracleTraceInterCandidateUnknown, DistortionUV: oracleTraceInterCandidateUnknown,
+					SSE: oracleTraceInterCandidateUnknown,
+				})
+			}
 			continue
 		}
 		// Reset the scratch DCT cache before each candidate evaluation so
@@ -190,6 +232,19 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 
 		ref, refIndex, ok := interReferenceBySearchSlot(refs, refSearchOrder, refSlot)
 		if !ok {
+			if traceEnabled {
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker: "rd", MBRow: mbRow, MBCol: mbCol,
+					ModeIndex: modeIndex, Mode: mbMode, RefSlot: refSlot,
+					Threshold: threshold, BestScoreBefore: bestScore, BestYRDBefore: bestYRD,
+					BestSSEBefore: oracleTraceInterCandidateUnknown,
+					Outcome:       "skipped_no_ref",
+					Score:         oracleTraceInterCandidateUnknown, YRD: oracleTraceInterCandidateUnknown,
+					Rate: oracleTraceInterCandidateUnknown, RateY: oracleTraceInterCandidateUnknown, RateUV: oracleTraceInterCandidateUnknown,
+					Distortion: oracleTraceInterCandidateUnknown, DistortionUV: oracleTraceInterCandidateUnknown,
+					SSE: oracleTraceInterCandidateUnknown,
+				})
+			}
 			continue
 		}
 		refBiasSlot := interModeSignBiasSlotForReference(ref.Frame, signBias)
@@ -197,10 +252,36 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		// the bounds check on the [2]MotionVector slot array.
 		bestRefMV := modeMVs.best[refBiasSlot&1]
 		if !e.interRDModeTestAllowed(modeIndex) {
+			if traceEnabled {
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker: "rd", MBRow: mbRow, MBCol: mbCol,
+					ModeIndex: modeIndex, Mode: mbMode, RefSlot: refSlot, RefFrame: ref.Frame,
+					Threshold: threshold, BestScoreBefore: bestScore, BestYRDBefore: bestYRD,
+					BestSSEBefore: oracleTraceInterCandidateUnknown,
+					Outcome:       "skipped_freq",
+					Score:         oracleTraceInterCandidateUnknown, YRD: oracleTraceInterCandidateUnknown,
+					Rate: oracleTraceInterCandidateUnknown, RateY: oracleTraceInterCandidateUnknown, RateUV: oracleTraceInterCandidateUnknown,
+					Distortion: oracleTraceInterCandidateUnknown, DistortionUV: oracleTraceInterCandidateUnknown,
+					SSE: oracleTraceInterCandidateUnknown,
+				})
+			}
 			continue
 		}
 		e.recordInterRDModeTest(modeIndex)
 		if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, ref.Frame, mbMode) {
+			if traceEnabled {
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker: "rd", MBRow: mbRow, MBCol: mbCol,
+					ModeIndex: modeIndex, Mode: mbMode, RefSlot: refSlot, RefFrame: ref.Frame,
+					Threshold: threshold, BestScoreBefore: bestScore, BestYRDBefore: bestYRD,
+					BestSSEBefore: oracleTraceInterCandidateUnknown,
+					Outcome:       "skipped_altref_zeromv",
+					Score:         oracleTraceInterCandidateUnknown, YRD: oracleTraceInterCandidateUnknown,
+					Rate: oracleTraceInterCandidateUnknown, RateY: oracleTraceInterCandidateUnknown, RateUV: oracleTraceInterCandidateUnknown,
+					Distortion: oracleTraceInterCandidateUnknown, DistortionUV: oracleTraceInterCandidateUnknown,
+					SSE: oracleTraceInterCandidateUnknown,
+				})
+			}
 			continue
 		}
 		bestScoreBefore := bestScore
@@ -347,6 +428,22 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			// split scorer reports that same dropout as ok=false after the
 			// mode has been tested. Other ok=false paths here are pre-RD
 			// gates (near-zero/UMV/etc.) and must not mutate thresholds.
+			if traceEnabled {
+				outcome := "skipped_ok_false"
+				if mbMode == vp8common.SplitMV {
+					outcome = "splitmv_rd_dropout"
+				}
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker: "rd", MBRow: mbRow, MBCol: mbCol,
+					ModeIndex: modeIndex, Mode: mbMode, RefSlot: refSlot, RefFrame: ref.Frame,
+					Threshold: threshold, BestScoreBefore: bestScoreBefore, BestYRDBefore: bestYRDBefore,
+					BestSSEBefore: oracleTraceInterCandidateUnknown,
+					Outcome:       outcome,
+					Score:         score, YRD: yrd, Rate: rate, RateY: rateY, RateUV: rateUV,
+					Distortion: distortion, DistortionUV: distortionUV,
+					SSE: oracleTraceInterCandidateUnknown,
+				})
+			}
 			if mbMode == vp8common.SplitMV {
 				e.raiseInterRDThreshold(modeIndex)
 			}
