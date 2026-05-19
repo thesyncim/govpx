@@ -51,7 +51,22 @@ const (
 	// source frame but does not influence encode decisions. The
 	// output bitstream is byte-identical to VP8AnalysisOff.
 	VP8AnalysisObserveCPU = analysis.VP8AnalysisObserveCPU
+
+	// VP8AnalysisObserveGPU runs the GPU observation analyzer. The
+	// implementation lives in the public package
+	// github.com/thesyncim/govpx/gpuanalysis which the caller must
+	// blank-import to register the constructor; without that import,
+	// requesting this mode returns an error at NewVP8Encoder /
+	// NewVP8Decoder time. Output bitstream is byte-identical to
+	// VP8AnalysisOff.
+	VP8AnalysisObserveGPU = analysis.VP8AnalysisObserveGPU
 )
+
+// ErrVP8AnalysisGPUNotRegistered is returned by NewVP8Encoder when
+// the caller requests VP8AnalysisObserveGPU but no GPU constructor
+// has been registered. Blank-import "github.com/thesyncim/govpx/gpuanalysis"
+// to enable the GPU mode.
+var ErrVP8AnalysisGPUNotRegistered = analysis.ErrGPUAnalyzerNotRegistered
 
 // Per-macroblock analysis flags exported at the public package level.
 const (

@@ -28,6 +28,15 @@ const (
 	// source frame but must not influence any encode decision. The
 	// output bitstream is byte-identical to [VP8AnalysisOff].
 	VP8AnalysisObserveCPU
+
+	// VP8AnalysisObserveGPU runs the GPU observation analyzer. The
+	// implementation lives in a separate package
+	// (github.com/thesyncim/govpx/gpuanalysis) which the caller must
+	// blank-import to register the constructor. Without the import,
+	// requesting this mode returns an error at encoder construction
+	// time. Output bitstream is still byte-identical to
+	// [VP8AnalysisOff] because the analyzer is observation-only.
+	VP8AnalysisObserveGPU
 )
 
 // String returns a stable human-readable label for the mode.
@@ -37,6 +46,8 @@ func (m VP8AnalysisMode) String() string {
 		return "off"
 	case VP8AnalysisObserveCPU:
 		return "observe-cpu"
+	case VP8AnalysisObserveGPU:
+		return "observe-gpu"
 	default:
 		return "unknown"
 	}

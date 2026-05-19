@@ -25,6 +25,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -106,21 +107,63 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 `
 
+// Defaults; overridden by CLI flags so the probe can be run at any
+// frame size from CIF up to 4K.
 const (
-	frameW       = 256
-	frameH       = 256
-	mbCols       = frameW / 16
-	mbRows       = frameH / 16
-	mbCount      = mbCols * mbRows
-	widthWords   = frameW / 4
-	planeBytes   = uint64(frameW * frameH)
-	planeWords   = planeBytes / 4
-	outputBytes  = uint64(mbCount * 4)
 	uniformBytes = uint64(16) // 4 u32 fields, std140-padded
-	repeatCount  = 50         // number of dispatch+readback cycles to time
 )
 
+var (
+	frameW      = 256
+	frameH      = 256
+	repeatCount = 50
+
+	// Derived from frameW / frameH at runtime.
+	mbCols      int
+	mbRows      int
+	mbCount     int
+	widthWords  int
+	planeBytes  uint64
+	planeWords  uint64
+	outputBytes uint64
+)
+
+func deriveSizes() {
+	mbCols = frameW / 16
+	mbRows = frameH / 16
+	mbCount = mbCols * mbRows
+	widthWords = frameW / 4
+	planeBytes = uint64(frameW * frameH)
+	planeWords = planeBytes / 4
+	outputBytes = uint64(mbCount * 4)
+}
+
 func main() {
+	flag.IntVar(&frameW, "w", 256, "frame width in pixels (must be multiple of 16)")
+	flag.IntVar(&frameH, "h", 256, "frame height in pixels (must be multiple of 16)")
+	flag.IntVar(&repeatCount, "n", 50, "steady-state dispatch+readback cycles to time")
+	preset := flag.String("preset", "", "size preset: cif|vga|720p|1080p|4k (overrides -w/-h)")
+	flag.Parse()
+	switch *preset {
+	case "":
+		// keep -w/-h
+	case "cif":
+		frameW, frameH = 352, 288
+	case "vga":
+		frameW, frameH = 640, 480
+	case "720p":
+		frameW, frameH = 1280, 720
+	case "1080p":
+		frameW, frameH = 1920, 1088 // round up to MB boundary
+	case "4k":
+		frameW, frameH = 3840, 2160
+	default:
+		log.Fatalf("unknown preset %q", *preset)
+	}
+	if frameW%16 != 0 || frameH%16 != 0 {
+		log.Fatalf("frame size %dx%d not aligned to 16; round up", frameW, frameH)
+	}
+	deriveSizes()
 	if err := run(); err != nil {
 		log.Fatalf("FATAL: %v", err)
 	}

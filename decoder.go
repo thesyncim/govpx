@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	vp8analysis "github.com/thesyncim/govpx/internal/vp8/analysis"
 	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -87,6 +88,16 @@ type DecoderOptions struct {
 	// active stream. When false (the default) the decoder reallocates
 	// its internal frame buffers on the resolution-change key frame.
 	RejectResolutionChange bool
+
+	// Analysis configures the optional VP8 decoded-frame analyzer.
+	// The zero value disables analysis; the decoder takes the exact
+	// pre-analysis code path with no per-frame hook, no allocations,
+	// no interface dispatch. When Mode is not VP8AnalysisOff, the
+	// configured analyzer runs once per shown frame on the decoded
+	// luma plane. Output is recorded in a per-decoder buffer reached
+	// via [VP8Decoder.LastFrameAnalysis]. The analyzer is
+	// observation-only and never influences decoded output.
+	Analysis VP8AnalysisConfig
 }
 
 // VP8Decoder decodes raw VP8 frame payloads.
@@ -143,6 +154,16 @@ type VP8Decoder struct {
 	postprocScratch    []byte
 	postprocState      vp8dec.PostProcessState
 	reconstructScratch vp8dec.IntraReconstructionScratch
+
+	// analyzer, when non-nil, is the active VP8 decoded-frame
+	// observation analyzer. Nil when DecoderOptions.Analysis is the
+	// zero value or Mode==VP8AnalysisOff so the canonical decode path
+	// branches on a single nil-check before any analysis work
+	// happens.
+	analyzer       vp8analysis.Analyzer
+	analysisInput  vp8analysis.FrameInput
+	analysisOutput vp8analysis.FrameAnalysis
+	decodedFrames  uint64
 }
 
 // NewVP8Decoder creates a VP8 decoder with validated options. The zero
@@ -152,11 +173,17 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	if err := validateDecoderOptions(opts); err != nil {
 		return nil, err
 	}
+	opts.Analysis = opts.Analysis.Normalize()
+	analyzer, err := vp8analysis.NewOrError(opts.Analysis)
+	if err != nil {
+		return nil, err
+	}
 	d := &VP8Decoder{
 		opts:           opts,
 		needKey:        true,
 		coefProbs:      vp8tables.DefaultCoefProbs,
 		frameCoefProbs: vp8tables.DefaultCoefProbs,
+		analyzer:       analyzer,
 	}
 	vp8dec.ResetModeProbs(&d.modeProbs)
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
@@ -458,6 +485,13 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, err
 	}
 	copyVP8ImageToPublic(dst, output)
+	// Decoded-frame analysis hook (observation-only). Same nil-check
+	// pattern as the encoder: when no analyzer is configured this is
+	// one branch and zero work. The hook runs on the final dst image
+	// so the analyzer sees exactly what the caller will consume.
+	if d.analyzer != nil {
+		d.runDecodedAnalysis(dst, info)
+	}
 	return frameInfo, nil
 }
 
@@ -515,8 +549,62 @@ func (d *VP8Decoder) Close() error {
 		return ErrClosed
 	}
 	d.Reset()
+	if d.analyzer != nil {
+		_ = d.analyzer.Close()
+		d.analyzer = nil
+	}
 	d.closed = true
 	return nil
+}
+
+// runDecodedAnalysis fills the per-decoder analysisInput from the
+// decoded image and dispatches the configured analyzer. Same
+// observation-only contract as the encoder hook: the analyzer must
+// never mutate decoder state other than d.analysisInput / d.analysisOutput.
+func (d *VP8Decoder) runDecodedAnalysis(dst *Image, info StreamInfo) {
+	in := &d.analysisInput
+	in.Width = dst.Width
+	in.Height = dst.Height
+	in.YStride = dst.YStride
+	in.UStride = dst.UStride
+	in.VStride = dst.VStride
+	in.Y = dst.Y
+	in.U = dst.U
+	in.V = dst.V
+	in.FrameIndex = d.decodedFrames
+	in.KeyFrame = info.KeyFrame
+	d.decodedFrames++
+	d.analyzer.Observe(in, &d.analysisOutput)
+}
+
+// LastFrameAnalysis returns the most recent decoded-frame analysis
+// for this decoder, or nil if no analyzer is configured. Pointer is
+// stable across calls; contents are overwritten by the next decoded
+// frame.
+func (d *VP8Decoder) LastFrameAnalysis() *VP8FrameAnalysis {
+	if d == nil || d.analyzer == nil {
+		return nil
+	}
+	return &d.analysisOutput
+}
+
+// LastAnalysisStats returns a pointer to the embedded AnalysisStats
+// of the most recent decoded-frame analysis. Nil when no analyzer is
+// configured.
+func (d *VP8Decoder) LastAnalysisStats() *VP8AnalysisStats {
+	if d == nil || d.analyzer == nil {
+		return nil
+	}
+	return &d.analysisOutput.Stats
+}
+
+// AnalysisMode reports the decoder's configured analyzer mode.
+// Returns [VP8AnalysisOff] when no analyzer is configured.
+func (d *VP8Decoder) AnalysisMode() VP8AnalysisMode {
+	if d == nil || d.analyzer == nil {
+		return VP8AnalysisOff
+	}
+	return d.analyzer.Mode()
 }
 
 func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, info StreamInfo) error {

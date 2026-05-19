@@ -191,6 +191,14 @@ func (fa *FrameAnalysis) Reset() {
 // ensureMBCapacity grows fa.MB to exactly n entries, reusing the
 // underlying array when possible and zeroing the new tail.
 func (fa *FrameAnalysis) ensureMBCapacity(n int) {
+	fa.EnsureMBCapacity(n)
+}
+
+// EnsureMBCapacity is the exported variant of ensureMBCapacity. It
+// exists so the GPU analyzer in the public gpuanalysis package can
+// grow the caller-owned FrameAnalysis without re-implementing the
+// allocation strategy.
+func (fa *FrameAnalysis) EnsureMBCapacity(n int) {
 	if cap(fa.MB) >= n {
 		old := len(fa.MB)
 		fa.MB = fa.MB[:n]
@@ -234,14 +242,34 @@ type Analyzer interface {
 // analyzer as "do nothing" and skip the hook entirely so the off path
 // remains zero-cost (one nil check, no allocations, no interface
 // dispatch).
+//
+// For [VP8AnalysisObserveGPU] the GPU constructor must have been
+// registered via [RegisterGPUConstructor] from the gpuanalysis
+// package; without that registration New returns nil and the caller
+// can detect the case via the companion [NewOrError].
 func New(cfg Config) Analyzer {
+	a, _ := NewOrError(cfg)
+	return a
+}
+
+// NewOrError is the fallible variant of [New]. It is the entry point
+// the encoder uses so that VP8AnalysisObserveGPU without a registered
+// constructor surfaces a clear error at NewVP8Encoder time rather
+// than silently falling back to off.
+func NewOrError(cfg Config) (Analyzer, error) {
 	cfg = cfg.Normalize()
 	switch cfg.Mode {
 	case VP8AnalysisOff:
-		return nil
+		return nil, nil
 	case VP8AnalysisObserveCPU:
-		return newCPUObserveAnalyzer(cfg)
+		return newCPUObserveAnalyzer(cfg), nil
+	case VP8AnalysisObserveGPU:
+		ctor := gpuConstructorFor()
+		if ctor == nil {
+			return nil, ErrGPUAnalyzerNotRegistered
+		}
+		return ctor(cfg)
 	default:
-		return nil
+		return nil, nil
 	}
 }

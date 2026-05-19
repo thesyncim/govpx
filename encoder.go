@@ -1265,7 +1265,10 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// AnalysisOff and signals the encode path to skip the hook
 	// entirely.
 	normalized.Analysis = normalized.Analysis.Normalize()
-	analyzer := vp8analysis.New(normalized.Analysis)
+	analyzer, err := vp8analysis.NewOrError(normalized.Analysis)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := defaultRateControlConfig(normalized)
 	e := &VP8Encoder{
