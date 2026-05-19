@@ -1001,6 +1001,7 @@ type VP9Encoder struct {
 	dqScratch          vp9dec.DequantTables
 	frameCounts        encoder.FrameCounts
 	vp9HeaderScratch   vp9dec.UncompressedHeader
+	vp9InterIntraHdr   vp9dec.UncompressedHeader
 	vp9CountWorkers    []VP9Encoder
 	vp9CountCounts     []encoder.FrameCounts
 	vp9CountJobs       []vp9CountTileJob
@@ -11220,7 +11221,8 @@ func vp9NoReferenceIntraModeCount(bsize common.BlockSize, screenContentMode int8
 }
 
 func (e *VP9Encoder) vp9InterIntraKeyframeState(inter *vp9InterEncodeState) vp9KeyframeEncodeState {
-	hdr := &vp9dec.UncompressedHeader{
+	hdr := &e.vp9InterIntraHdr
+	*hdr = vp9dec.UncompressedHeader{
 		Width:  uint32(e.opts.Width),
 		Height: uint32(e.opts.Height),
 		Quant:  e.vp9HeaderScratch.Quant,
