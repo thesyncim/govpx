@@ -264,6 +264,21 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// internal/coracle/oracle_sha_test.go) being rotated alongside the
 	// build_vpxenc_oracle.sh want_config bump. The -5/-6 byte delta
 	// is the steady state until that probe lands.
+	//
+	// Task #286 NEON-disable audit: re-ran this pin with `-tags
+	// "govpx_oracle_trace purego"` to route every encoder path through
+	// the scalar reference (every SIMD dispatch file in
+	// internal/vp8/{dsp,encoder} carries `!purego` so the purego tag
+	// elides the NEON kernels — ForwardDCT4x4Batch, ForwardWalsh4x4,
+	// vp8_regular_quantize_b_simd, the fast_quant batch, the FDCT/IDCT
+	// per-block kernels, SAD/variance/subpixel, etc.). Result: the
+	// govpx frame-1 SHA was IDENTICAL between the NEON-on and
+	// NEON-off runs (Best=6b18859b0ed02b5c, Good=51aa383bd1489162),
+	// and frame-1 govpx lengths held at 6116 / 6128. The NEON ports
+	// are byte-faithful and are NOT the cause of the -5/-6 byte
+	// divergence — divergence lives in scalar-side encoder logic
+	// (candidate #2: picker-vs-accepted `act_zbin_adj` skew on the
+	// inter-side, or #3: `interRDCacheReusable` UV-RD reuse).
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463

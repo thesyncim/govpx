@@ -233,6 +233,18 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// (oracleSHAvpxencArm64Darwin in internal/coracle/oracle_sha_test.go)
 	// and the build_vpxenc_oracle.sh want_config string. The -5/-6 byte
 	// delta is the steady-state cohort budget until that probe lands.
+	//
+	// Task #286 NEON-disable audit: re-ran this pin with `-tags
+	// "govpx_oracle_trace purego"` to elide every NEON kernel in
+	// internal/vp8/{dsp,encoder} (each per-arch dispatch file is gated
+	// on `!purego`; the purego variant in *_other.go routes through
+	// the scalar reference). Result: frame-1 govpx SHA was IDENTICAL
+	// between the NEON-on and NEON-off runs (51aa383bd1489162), and
+	// frame-1 govpx len held at 6128. The NEON ports are byte-faithful
+	// and are NOT the cause of the -6 byte divergence — divergence
+	// lives in scalar-side encoder logic (candidate #2: picker-vs-
+	// accepted `act_zbin_adj` skew on inter-side, or #3:
+	// `interRDCacheReusable` UV-RD cache reuse).
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
