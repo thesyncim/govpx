@@ -97,7 +97,7 @@ harness utilities. Do not hide codec differences behind vague abstractions.
 - Never update parity baselines just to make tests pass.
 - Do not mix file moves, API redesign, and algorithm changes in one PR.
 - Run `gofmt` on edited Go files.
-- Do not mention assistant/tooling names in docs, commit messages, PR titles,
+- Do not mention automation product names in docs, commit messages, PR titles,
   code comments, or generated artifacts unless the repository already requires
   that exact product name.
 - Keep tracing, oracle hooks, debug counters, test-only plumbing, and build-tag
@@ -362,7 +362,7 @@ Do not change codec behavior unless the packet explicitly asks for it.
 Do not preserve bad legacy API or internal call shapes; this is unreleased.
 Keep tracing/test hooks zero-cost when disabled.
 Preserve allocation behavior and hot-path performance.
-Do not mention assistant/tooling names in docs, commits, comments, or artifacts.
+Do not mention automation product names in docs, commits, comments, or artifacts.
 Run gofmt on edited Go files.
 Run the packet acceptance commands and report exact results.
 At safe points, commit and push after verifying git status and gates.
