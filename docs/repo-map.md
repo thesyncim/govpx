@@ -223,20 +223,21 @@ Use these gates to choose validation depth:
 
 | Command | Covers | Required for |
 | --- | --- | --- |
-| `go test ./... -count=1` | Default pure-Go package tests across root, internal, commands, benchmarks | Minimum structural safe point |
-| `go test -tags purego ./... -count=1` | Scalar fallback build and tests | SIMD/dispatch moves; included in CI |
+| `make test` | Default pure-Go package tests across root, internal, commands, benchmarks | Minimum structural safe point |
+| `make test-purego` | Scalar fallback build and tests | SIMD/dispatch moves; included in CI |
+| `make test-trace` | Compile-only oracle-trace build across all packages | Trace/oracle helper moves; included in CI |
 | `make pre-commit` | `gofmt` check, fuzz seed naming check, PGO freshness/build check | Before commits that touch Go or benchmark hot-path sources |
-| `make ci` | `fmtcheck`, `pgo-check`, default tests, purego tests, VP9 decoder conformance, VP9 quality smoke | Codec/parity-sensitive packets |
+| `make ci` | `fmtcheck`, `pgo-check`, `test`, `test-purego`, `test-trace`, VP9 decoder conformance, VP9 quality smoke | Codec/parity-sensitive packets |
 | `make verify-decoder-parity` | `ci` plus VP8/VP9 decoder oracle tests | Decoder moves |
-| `make verify-bd-rate` | Slow VP9 BD-rate feature gates against libvpx | VP9 AQ/ARNR/TPL/loop-filter quality changes |
-| `make verify-bd-rate-vp8` | Slow VP8 BD-rate feature gates against libvpx | VP8 quality/rate-control changes |
-| `make verify-production` | `ci`, `oracle-test`, `byte-parity`, `scoreboard` | Final integration and behavior-sensitive waves |
+| `make test-bdrate-vp9` | Slow VP9 BD-rate feature gates against libvpx | VP9 AQ/ARNR/TPL/loop-filter quality changes |
+| `make test-bdrate-vp8` | Slow VP8 BD-rate feature gates against libvpx | VP8 quality/rate-control changes |
+| `make verify-production` | `ci`, `test-oracle`, `test-byte-parity`, `test-scoreboard` | Final integration and behavior-sensitive waves |
 
 Protected parity binaries live under `internal/coracle/build/` and are built
 by the Makefile targets. Required oracle/test-data environment is set by the
 targets; do not inline ad hoc paths in tests.
 
-Never use `scoreboard-update` or `GOVPX_UPDATE_BASELINES=1` as part of a tidy
+Never use `update-scoreboards` or `GOVPX_UPDATE_BASELINES=1` as part of a tidy
 move unless a separate, explicitly approved parity-baseline packet requires it.
 
 ## Proposed Move Ledger
@@ -266,7 +267,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3/4 | VP9 YV12 border move | root `vp9_yv12_border.go`, `vp9_yv12_border_test.go`, VP9 encoder border consumers, `internal/vp9/common/yv12_border.go` | Current branch: internal VP9 common owns libvpx-pinned YV12 border constants, edge extension, and padded-plane buffer mechanics used by VP9 encoder motion and partition paths |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
-| 4.5 | Boundary/dedupe/readability audit | `docs/repo-map.md`, `docs/architecture.md`, hard-to-read codec files, duplicated helper candidates | Repeat after move batches: verify VP8-only and VP9-only code is package-owned, shared helpers are genuinely mechanical, and hard code has pinned upstream anchors or concise invariants |
+| 4.5 | Boundary/naming/dedupe/readability audit | `docs/repo-map.md`, `docs/architecture.md`, hard-to-read codec files, duplicated helper candidates, misleading task/audit/grab-bag file names | Repeat after move batches: verify file names match ownership, VP8-only and VP9-only code is package-owned, shared helpers are genuinely mechanical, and hard code has pinned upstream anchors or concise invariants |
 | 4.75 | Go idiom and hot-path shape audit | hot encode/decode files, public facade/options files, allocation tests, benchmark docs | Current branch: VP9 full-pel MV limit operations and VP8 inter coefficient token row bookkeeping now live as methods on their concrete state owners; source-buffer copy/pad has explicit zero-allocation tests; DSP/protocol helpers remain free functions unless measurement says otherwise |
 | 5 | API cleanup | root public files, examples, docs | Current branch: removed the unreleased `RealtimeTarget.AllowFrameDrop` fallback and private legacy wrapper call shapes; continue removing stale public/internal compatibility aliases before release |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |

@@ -83,11 +83,11 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci pre-commit fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-bd-rate-vp8 verify-quality vp9-quality-smoke oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci pre-commit fmtcheck test test-purego test-trace test-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity test-bdrate-vp9 test-bdrate-vp8 test-quality test-oracle test-byte-parity fuzz-controls fuzz-rename test-decoder-oracle oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data test-scoreboard update-scoreboards vp9-dsp-oracle
 
 all: ci
 
-ci: fmtcheck pgo-check test test-purego vp9-decoder-conformance vp9-quality-smoke
+ci: fmtcheck pgo-check test test-purego test-trace test-conformance test-quality
 
 pre-commit: fmtcheck pgo-check
 
@@ -113,22 +113,13 @@ fuzz-rename:
 
 verify: ci
 
-# verify-quality runs the govpx-bench VP9 quality-gate fixture suite
-# (panning 360p / 2 Mbps + checker 360p / 600 kbps) against the pinned
-# libvpx vpxenc-vp9 reference. The bench exits non-zero when govpx
-# PSNR drops below 20 dB, SSIM below 0.70, or trails libvpx by more
-# than 2 dB PSNR / 0.03 SSIM. Tune those thresholds via -quality-min-psnr
-# etc. on the bench CLI when investigating regressions.
-verify-quality: vp9-vpxdec-tools
+# test-quality keeps CI from treating a generic green go test as sufficient
+# for VP9 encoder quality. It runs the canonical PSNR/SSIM fixture gate plus
+# a small libvpx-backed BD-rate subset covering brittle ARNR/AQ/CBR/loop-filter
+# paths; `make test-bdrate-vp9` remains the full per-feature sweep.
+test-quality: vp9-vpxdec-tools
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -o $(CORACLE_BUILD)/govpx-bench ./cmd/govpx-bench
 	$(CORACLE_BUILD)/govpx-bench -quality-fixtures -quality-gate -libvpx-vpxenc-vp9="$(VPXENC_VP9)" -auto-libvpx=false
-
-# vp9-quality-smoke keeps CI from treating a generic green go test as
-# sufficient for VP9 encoder quality. It runs the canonical PSNR/SSIM
-# fixture gate plus a small libvpx-backed BD-rate subset covering the
-# recently brittle ARNR/AQ/CBR/loop-filter paths; `make verify-bd-rate`
-# remains the full per-feature sweep.
-vp9-quality-smoke: verify-quality
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 		GOVPX_BD_RATE_GATES=1 \
 		GOVPX_BD_RATE_BUILD_LIBVPX=1 \
@@ -136,11 +127,11 @@ vp9-quality-smoke: verify-quality
 		GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN="$(VPXENC_VP9_FRAMEFLAGS)" \
 		$(GO) test -count=1 -v -run 'TestVP9FeatureBDRate(ARNR|PerceptualAQ|CyclicRefresh|LoopFilter)$$' -timeout 360s .
 
-verify-production: ci oracle-test byte-parity scoreboard
+verify-production: ci test-oracle test-byte-parity test-scoreboard
 
-verify-decoder-parity: ci decoder-oracle-test
+verify-decoder-parity: ci test-decoder-oracle
 
-# verify-bd-rate runs the slow per-feature VP9 BD-rate quality gates
+# test-bdrate-vp9 runs the slow per-feature VP9 BD-rate quality gates
 # under cmd/govpx-bench/benchcmd. The default short test mode skips
 # these because each measurement takes ~5-15s and the full sweep
 # adds ~30s. Run this target before merging any change that touches
@@ -156,7 +147,7 @@ verify-decoder-parity: ci decoder-oracle-test
 # missing; GOVPX_BD_RATE_LIBVPX_REQUIRED=1 elevates the libvpx
 # assertion from a soft-skip to t.Fatal so CI fails fast when the
 # oracle is unavailable.
-verify-bd-rate: $(VPXENC_VP9_FRAMEFLAGS)
+test-bdrate-vp9: $(VPXENC_VP9_FRAMEFLAGS)
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 		GOVPX_BD_RATE_GATES=1 \
 		GOVPX_BD_RATE_BUILD_LIBVPX=1 \
@@ -167,12 +158,12 @@ verify-bd-rate: $(VPXENC_VP9_FRAMEFLAGS)
 $(VPXENC_VP9_FRAMEFLAGS):
 	internal/coracle/build_vpxenc_vp9_frameflags.sh >/dev/null
 
-# verify-bd-rate-vp8 runs the VP8 BD-rate quality gates against
+# test-bdrate-vp8 runs the VP8 BD-rate quality gates against
 # the libvpx vpxenc oracle. Auto-builds vpxenc on demand so the
 # harness does not silently no-op when the binary is missing.
 # GOVPX_BD_RATE_LIBVPX_VP8_REQUIRED=1 elevates the libvpx
 # assertion from a soft-skip to t.Fatal.
-verify-bd-rate-vp8: $(VPXENC)
+test-bdrate-vp8: $(VPXENC)
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 		GOVPX_VPXENC_VP8_BIN="$(VPXENC)" \
 		GOVPX_BD_RATE_LIBVPX_VP8_REQUIRED=1 \
@@ -201,7 +192,10 @@ test-purego:
 	fi
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test -tags purego ./... -count=1
 
-vp9-decoder-conformance: vp9-vpxdec-tools fetch-vp9-test-data
+test-trace:
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test -tags govpx_oracle_trace ./... -run '^$$' -count=1
+
+test-conformance: vp9-vpxdec-tools fetch-vp9-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_VPXDEC_VP9_BIN="$(VPXDEC_VP9)" \
@@ -246,7 +240,7 @@ pgo-check:
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -pgo="$(PGO_PROFILE)" -o /tmp/govpx-bench-pgo-check ./cmd/govpx-bench
 	rm -f /tmp/govpx-bench-pgo-check
 
-oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
+test-oracle: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
@@ -282,7 +276,7 @@ BYTE_PARITY_TESTS := Test(OracleEncoder(StreamByteParity|CopyReferenceFrameParit
 FUZZTIME ?= 30s
 FUZZPARALLEL ?= 1
 
-byte-parity: oracle-tools vp9-vpxdec-tools fetch-test-data
+test-byte-parity: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
@@ -311,7 +305,7 @@ fuzz-controls: oracle-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	$(GO) test -tags govpx_oracle_trace . -run '^$$' -fuzz '^FuzzOracleEncoderRuntimeControlTransitions$$' -fuzztime '$(FUZZTIME)' -parallel '$(FUZZPARALLEL)' -timeout 30m
 
-scoreboard: oracle-tools vp9-vpxdec-tools fetch-test-data
+test-scoreboard: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
@@ -325,7 +319,7 @@ scoreboard: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	$(GO) run ./cmd/scoreboard-report -- -tags govpx_oracle_trace . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
 
-scoreboard-update: oracle-tools fetch-test-data
+update-scoreboards: oracle-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
@@ -339,7 +333,7 @@ scoreboard-update: oracle-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	$(GO) run ./cmd/scoreboard-report -- -tags govpx_oracle_trace . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
 
-decoder-oracle-test: oracle-tools vp9-vpxdec-tools fetch-vp8-test-data fetch-vp9-test-data
+test-decoder-oracle: oracle-tools vp9-vpxdec-tools fetch-vp8-test-data fetch-vp9-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \

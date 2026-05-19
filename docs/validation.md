@@ -16,17 +16,17 @@ Checks Go formatting, fuzz seed names, and the VP8 benchmark PGO source
 fingerprint. If it reports a PGO mismatch after touching tracked hot-path
 sources, run `make pgo-refresh` and rerun the gate.
 
-`go test ./... -count=1`
+`make test`
 
 Minimum gate for structural changes, same-package file splits, root facade
 changes, and internal package moves.
 
-`go test -tags purego ./... -count=1`
+`make test-purego`
 
 Verifies the scalar fallback build. Run this when touching DSP dispatch,
 architecture-tagged files, or common code used by both SIMD and pure-Go paths.
 
-`go test -tags govpx_oracle_trace ./... -run '^$' -count=1`
+`make test-trace`
 
 Compile-only oracle-trace gate. Run it after moving tagged trace files,
 scoreboard helpers, or oracle-only instrumentation.
@@ -49,8 +49,9 @@ docs; put slow oracle/corpus wiring behind named Makefile gates.
 `make ci`
 
 Runs formatting/fuzz-seed checks, PGO freshness, default `go test ./...`,
-purego `go test ./...`, VP9 decoder conformance smoke against pinned libvpx
-Profile 0 data, VP9 quality fixtures, and the small VP9 BD-rate smoke subset.
+purego `go test ./...`, trace-tag compile checks, VP9 decoder conformance
+smoke against pinned libvpx Profile 0 data, VP9 quality fixtures, and the small
+VP9 BD-rate smoke subset.
 
 Run `make ci` before committing changes that touch:
 
@@ -73,12 +74,25 @@ reconstruction, threading, reference, error-concealment, or postprocess changes.
 Runs `make ci`, oracle tests, byte-parity checks, and scoreboards. This is the
 final integration gate before the tidy branch is ready to leave draft.
 
-`make verify-bd-rate`
+`make test-oracle`
+
+Runs the libvpx-backed oracle regression suite. Use this for behavior-sensitive
+encoder/decoder changes when full production verification would be excessive.
+
+`make test-byte-parity`
+
+Runs strict byte-parity gates under the oracle trace build.
+
+`make test-scoreboard`
+
+Runs parity scoreboards through the report wrapper without updating baselines.
+
+`make test-bdrate-vp9`
 
 Runs the slower VP9 BD-rate feature sweep. Use it for VP9 AltRef, ARNR, TPL,
 AQ, loop-filter, and quality-affecting encode changes.
 
-`make verify-bd-rate-vp8`
+`make test-bdrate-vp8`
 
 Runs VP8 BD-rate quality gates against the pinned libvpx `vpxenc` oracle. Use it
 for VP8 quality, rate-control, loop-filter, AQ-like segmentation, denoise, ARNR,
@@ -153,7 +167,7 @@ before merging the final integration sweep.
 
 ## Baseline Rules
 
-Do not run `scoreboard-update`, set `GOVPX_UPDATE_BASELINES=1`, or update parity
-baselines just to make tests pass. Baseline changes require a separate explicit
-packet whose purpose is to update the baseline after the behavior change has
-been reviewed.
+Do not run `update-scoreboards`, set `GOVPX_UPDATE_BASELINES=1`, or update
+parity baselines just to make tests pass. Baseline changes require a separate
+explicit packet whose purpose is to update the baseline after the behavior
+change has been reviewed.

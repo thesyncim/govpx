@@ -8,6 +8,10 @@ library:
 - Keep `github.com/thesyncim/govpx` as the public import path.
 - Make the root package a small public facade, not the implementation home.
 - Separate VP8 and VP9 implementation ownership.
+- Make file names match ownership and behavior: root files should describe
+  public facade concepts, VP8-only files should live under VP8 packages, and
+  VP9-only files should live under VP9 packages unless a documented staging
+  reason remains.
 - Deduplicate shared VPx mechanics without forcing false VP8/VP9 symmetry.
 - Reduce huge files into reviewable units.
 - Delete legacy/compatibility scaffolding that only exists for old internal
@@ -187,6 +191,13 @@ Moves:
 Acceptance:
 
 - Root package no longer contains codec algorithm internals.
+- Root file names are facade names, not hidden implementation names. Any
+  remaining root file with `vp8`, `vp9`, encoder, decoder, rate-control, RTP,
+  trace, or oracle implementation content has a documented owner and move plan
+  in `docs/repo-map.md`.
+- VP8-only and VP9-only implementation files are split by codec ownership. A
+  file is shared only when the code inside is mechanically shared, tested
+  without oracle binaries, and does not hide codec-specific semantics.
 - Public examples are updated to the final API and compile.
 - `go test ./... -count=1` passes after each move batch.
 
@@ -221,14 +232,21 @@ Acceptance:
 
 ### Wave 4.5: Boundary And Readability Audit
 
-Goal: double-check that code now sits in the package that owns it, duplicate
-mechanics have not simply been moved around, and hard codec logic has enough
-upstream-anchored explanation to be reviewable.
+Goal: double-check that code now sits in the package that owns it, file names
+say what the code actually owns, duplicate mechanics have not simply been moved
+around, and hard codec logic has enough upstream-anchored explanation to be
+reviewable.
 
 Plan:
 
 - Re-scan root package files for VP8-only and VP9-only implementation code and
   turn each remaining cluster into a codec-owned move packet.
+- Re-scan file names for misleading ownership. Rename files during the same
+  package as a behavior-preserving move when the old name is a task number,
+  parity note, stale diagnostic label, or broad grab bag.
+- Split mixed VP8/VP9 files unless the shared code is a real public facade or
+  mechanical VPx helper. Do not keep a mixed file just because both codecs were
+  ported from nearby libvpx code.
 - Re-scan `internal/vp8`, `internal/vp9`, and `internal/vpx` for duplicated
   helpers. Move only mechanical duplication to `internal/vpx`; keep codec
   semantics in codec-owned packages.
@@ -244,6 +262,11 @@ Acceptance:
 
 - `docs/repo-map.md` lists the remaining root implementation clusters and their
   target package owners.
+- Every remaining mixed-codec or root implementation file has either been
+  split/renamed or carries a short documented reason in `docs/repo-map.md`.
+- VP8 and VP9 test files are named by behavior and codec ownership, not task
+  numbers or temporary parity investigations, unless they are explicitly
+  diagnostic-only and excluded from normal validation.
 - Any new shared helper package has focused unit tests and no oracle dependency.
 - New code comments explain non-obvious invariants, pointer/stride arithmetic,
   codec constraints, or libvpx parity anchors without narrating obvious Go.
