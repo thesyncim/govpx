@@ -13011,11 +13011,20 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	}
 
 	if modeAllowed(common.NewMv) {
-		if mv, _, ok := e.pickVP9InterMv(inter, miRows, miCols,
+		refMv, refMvOK := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
+			miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
+			inter.refSignBias)
+		mvOpts := vp9InterMvSearchOptions{
+			refMv:      refMv,
+			refMvValid: refMvOK,
+		}
+		if seed, ok := e.vp9InterMvPredSearchSeed(inter, tile, miRows, miCols,
 			miRow, miCol, bsize, refFrame); ok {
-			refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-				miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
-				inter.refSignBias)
+			mvOpts.seed = seed
+			mvOpts.seedValid = true
+		}
+		if mv, _, ok := e.pickVP9InterMvWithOptions(inter, miRows, miCols,
+			miRow, miCol, bsize, refFrame, mvOpts); ok {
 			filters := pickFilters(common.NewMv, mv, refIsLast)
 			if !vp9MvHasSubpel(mv) {
 				distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
@@ -13043,6 +13052,60 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		return vp9InterModeDecision{}, false
 	}
 	return best, true
+}
+
+func (e *VP9Encoder) vp9InterMvPredSearchSeed(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, refFrame int8,
+) (vp9dec.MV, bool) {
+	if inter == nil || inter.ref == nil || !inter.ref.valid ||
+		bsize < common.Block8x8 {
+		return vp9dec.MV{}, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	refBuf, refStride, refOriginX, refOriginY, _, _, refOK :=
+		e.vp9SubpelReferencePlane(refFrame, inter.ref)
+	if len(src) == 0 || len(refBuf) == 0 || srcStride <= 0 ||
+		refStride <= 0 || !refOK {
+		return vp9dec.MV{}, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0+blockW > srcW || y0+blockH > srcH {
+		return vp9dec.MV{}, false
+	}
+	refRows := len(refBuf) / refStride
+	var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
+	refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+		e.useVP9EncoderPrevFrameMvs(miRows, miCols),
+		e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
+		tile, miRows, miCols, miRow, miCol, bsize,
+		common.NearMv, refFrame, inter.refSignBias, -1)
+	if refCount >= 1 {
+		candidates[0] = vp9MvPredInputCandidate{mv: refList[0], valid: true}
+	}
+	if refCount >= 2 {
+		candidates[1] = vp9MvPredInputCandidate{mv: refList[1], valid: true}
+	}
+	if predMv, ok := e.vp9VarPartSBPredMv(miCols, miRow, miCol, refFrame); ok {
+		candidates[2] = vp9MvPredInputCandidate{mv: predMv, valid: true}
+	}
+	maxPartitionSize := e.sf.DefaultMaxPartitionSize
+	if maxPartitionSize == 0 {
+		maxPartitionSize = common.Block64x64
+	}
+	result := vp9MvPredScanCandidates(candidates[:],
+		vp9MvPredNumCandidates(bsize, maxPartitionSize),
+		src, srcStride, x0, y0,
+		refBuf, refStride, x0, y0, refOriginX, refOriginY, refRows,
+		blockW, blockH)
+	if result.bestIndex < 0 || result.bestIndex >= len(candidates) ||
+		!candidates[result.bestIndex].valid {
+		return vp9dec.MV{}, false
+	}
+	return candidates[result.bestIndex].mv, true
 }
 
 func vp9VisibleInterScoreBlock(x0, y0, blockW, blockH int,
