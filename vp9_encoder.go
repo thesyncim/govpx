@@ -1123,6 +1123,8 @@ type VP9Encoder struct {
 	lastQuantizerInternal int
 	lastQuantizerPublic   int
 	lastQuantizerValid    bool
+	lastLoopFilterLevel   uint8
+	lastLoopFilterValid   bool
 
 	// tpl carries the per-encoder TPL quality-pass state when EnableTPL
 	// is true.  Slabs are sized at construction or on resolution change.
@@ -2308,6 +2310,18 @@ func (e *VP9Encoder) LastQuantizer() (public int, internal int, ok bool) {
 	return e.lastQuantizerPublic, e.lastQuantizerInternal, true
 }
 
+// LastLoopFilterLevel mirrors libvpx's VP9E_GET_LOOPFILTER_LEVEL control. It
+// returns the final loop-filter level selected for the most recently committed
+// encoded frame. ok is false on a nil or closed encoder, and before any frame
+// has been committed; dropped or buffered-by-lookahead inputs leave the value
+// untouched.
+func (e *VP9Encoder) LastLoopFilterLevel() (level uint8, ok bool) {
+	if e == nil || e.closed || !e.lastLoopFilterValid {
+		return 0, false
+	}
+	return e.lastLoopFilterLevel, true
+}
+
 // IsKeyFrameNext reports whether the next call to EncodeInto would
 // emit a key frame. The first frame is always a key; subsequent
 // frames key on MaxKeyframeInterval boundaries.
@@ -3201,6 +3215,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.lastQuantizerInternal = qindex
 		e.lastQuantizerPublic = publicQuantizer
 		e.lastQuantizerValid = true
+		e.lastLoopFilterLevel = header.Loopfilter.FilterLevel
+		e.lastLoopFilterValid = true
 	}
 	result = VP9EncodeResult{
 		Data:                        resultData,

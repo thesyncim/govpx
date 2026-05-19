@@ -178,6 +178,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"FlushInto":                      {kind: "vp9-lookahead-api"},
 		"FlushIntoWithResult":            {kind: "vp9-lookahead-api"},
 		"ForceKeyFrame":                  {kind: "frame-flag-api"},
+		"LastLoopFilterLevel":            {kind: "libvpx-control"},
 		"IsKeyFrameNext":                 {kind: "metadata-api"},
 		"LastQuantizer":                  {kind: "metadata-api"},
 		"CopyReferenceFrame":             {kind: "libvpx-control", helperTokens: []string{"copyref:"}},

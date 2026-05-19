@@ -3640,6 +3640,92 @@ func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderLastLoopFilterLevel(t *testing.T) {
+	var nilEnc *VP9Encoder
+	if _, ok := nilEnc.LastLoopFilterLevel(); ok {
+		t.Fatal("nil LastLoopFilterLevel ok = true, want false")
+	}
+
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, Quantizer: 128})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if _, ok := e.LastLoopFilterLevel(); ok {
+		t.Fatal("pre-encode LastLoopFilterLevel ok = true, want false")
+	}
+
+	packet, err := e.Encode(newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	level, ok := e.LastLoopFilterLevel()
+	if !ok || level != h.Loopfilter.FilterLevel {
+		t.Fatalf("LastLoopFilterLevel = (%d, %t), want (%d, true)",
+			level, ok, h.Loopfilter.FilterLevel)
+	}
+
+	if err := e.SetDisableLoopfilter(VP9LoopfilterDisableAll); err != nil {
+		t.Fatalf("SetDisableLoopfilter: %v", err)
+	}
+	packet, err = e.Encode(newVP9MotionYCbCrForTest(64, 64))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	h, _ = parseVP9EncoderHeaderForTest(t, packet)
+	level, ok = e.LastLoopFilterLevel()
+	if !ok || level != 0 || h.Loopfilter.FilterLevel != 0 {
+		t.Fatalf("disabled LastLoopFilterLevel/header = (%d,%t)/%d, want 0/true/0",
+			level, ok, h.Loopfilter.FilterLevel)
+	}
+
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, ok := e.LastLoopFilterLevel(); ok {
+		t.Fatal("closed LastLoopFilterLevel ok = true, want false")
+	}
+}
+
+func TestVP9EncoderLastLoopFilterLevelIgnoresDroppedFrames(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		TargetBitrateKbps:  1,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		DropFrameAllowed:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithResult(src, dst); err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	want, ok := e.LastLoopFilterLevel()
+	if !ok {
+		t.Fatal("LastLoopFilterLevel after key ok = false, want true")
+	}
+
+	e.rc.bufferLevelBits = -e.rc.bitsPerFrame - 1
+	result, err := e.EncodeIntoWithResult(src, dst)
+	if err != nil {
+		t.Fatalf("dropped EncodeIntoWithResult: %v", err)
+	}
+	if !result.Dropped {
+		t.Fatal("second CBR frame was not dropped")
+	}
+	got, ok := e.LastLoopFilterLevel()
+	if !ok || got != want {
+		t.Fatalf("LastLoopFilterLevel after drop = (%d,%t), want (%d,true)",
+			got, ok, want)
+	}
+}
+
 func TestVP9EncoderSharpnessOptionAndRuntimeControl(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
