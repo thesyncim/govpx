@@ -43,8 +43,8 @@ type UncompressedHeader struct {
 // ReadUncompressedHeader drives the VP9 uncompressed header parse end
 // to end. Caller passes a fresh BitReader sitting at the start of the
 // frame, the previous frame's parser state (used as the seed for
-// fields the wire format preserves when their update bit is 0 — the
-// loopfilter and segmentation in particular), and a refDims function
+// fields the wire format preserves when their update bit is 0, unless
+// the new frame triggers vp9_setup_past_independence), and a refDims function
 // returning (width, height) of a ring-slot reference frame; refDims
 // is called for the three inter refs after the ref-index block is
 // read.
