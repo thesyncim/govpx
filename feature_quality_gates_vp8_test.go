@@ -466,12 +466,30 @@ func TestVP8FeatureBDRate720pSportsCBR(t *testing.T) {
 // fit operates on is the produced rate, not the target, so the rung
 // values are validation ballast as long as the actual produced rates
 // span enough range for a well-conditioned fit.
+//
+// Task #342 retightening: after the task #341 tteob==0 rate2 backout
+// port into estimateInterIntraModeRDScore, the per-MB inter-vs-intra
+// RD picker dropped the rate2 inflation for flat-Y inter-loop intra
+// candidates. On this static-then-motion fixture the static phase has
+// long stretches of flat-Y MBs where libvpx's tteob==0 backout fires;
+// govpx now matches that path, and the resulting BD-rate measurement
+// collapsed from -0.854% to -10.689% (-9.84pp improvement). Retighten
+// the per-fixture gate from the default +5.0% ceiling to -8.0% so
+// govpx is now required to beat libvpx by at least 8% on this fixture
+// (measured -10.689% plus +2.0% headroom for cubic-fit jitter). Any
+// future regression that loses the static-phase intra-skip flow on
+// this fixture (e.g. an inter-loop RD picker change that re-inflates
+// tteob==0 candidates) trips the gate immediately.
 func TestVP8FeatureBDRate1080pStaticMotionVBR(t *testing.T) {
 	const (
 		width  = 1920
 		height = 1080
 		frames = 12
 	)
+	staticMotionGate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: -8.0,
+		MinBDPSNRdB:            -0.5,
+	}
 	runVP8BDRateFixture(t,
 		"VP8 1080p static-then-motion (VBR ladder 300/600/1200/2400 kbps)",
 		"VP8 1080p static-then-motion (VBR 300/600/1200/2400)",
@@ -488,7 +506,7 @@ func TestVP8FeatureBDRate1080pStaticMotionVBR(t *testing.T) {
 			Baseline:               func(*govpx.EncoderOptions) {},
 			Test:                   func(*govpx.EncoderOptions) {},
 		},
-		defaultLibvpxVP8AbsoluteGate)
+		staticMotionGate)
 }
 
 // TestVP8FeatureBDRate720pGoodSSIM exercises the "tune=ssim"
