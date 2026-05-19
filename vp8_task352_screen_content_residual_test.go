@@ -88,6 +88,7 @@ import (
 // At iter 23 Q=94, MB(5,2) (a representative example):
 //   - govpx picks DC_PRED+INTRA (rate=2526 from mb_iter_rate).
 //   - libvpx picks ZEROMV+GOLDEN (rate=42 from mb_iter_rate).
+//
 // Both encoders use identical pre_prob_intra=1, prob_last=1, prob_golden=255
 // at iter 23 entry; the picker output diverges with no input divergence
 // from the perspective of the trace's captured state. Candidates for the
