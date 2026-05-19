@@ -121,6 +121,7 @@ type VP8Decoder struct {
 	mbCols             int
 	modes              []vp8dec.MacroblockMode
 	prevModes          []vp8dec.MacroblockMode
+	ecOverlaps         []vp8dec.ErrorConcealmentOverlap
 	tokens             []vp8dec.MacroblockTokens
 	tokenAbove         []vp8dec.EntropyContextPlanes
 	frameHeader        vp8dec.FrameHeader
@@ -537,7 +538,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, 
 		return err
 	}
 	if errorConcealment && d.modesCorrupt < d.mbRows*d.mbCols {
-		if err := vp8dec.EstimateMissingMotionVectors(d.modes, d.prevModes, d.mbRows, d.mbCols, d.modesCorrupt); err != nil {
+		if err := vp8dec.EstimateMissingMotionVectorsWithScratch(d.modes, d.prevModes, d.mbRows, d.mbCols, d.modesCorrupt, d.ecOverlaps); err != nil {
 			return ErrInvalidData
 		}
 		d.zeroCorruptMacroblockTokens(d.modesCorrupt)
@@ -737,7 +738,7 @@ func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (Fram
 	for i := range d.tokens {
 		d.tokens[i] = vp8dec.MacroblockTokens{}
 	}
-	if err := vp8dec.EstimateMissingMotionVectors(d.modes, d.prevModes, d.mbRows, d.mbCols, 0); err != nil {
+	if err := vp8dec.EstimateMissingMotionVectorsWithScratch(d.modes, d.prevModes, d.mbRows, d.mbCols, 0, d.ecOverlaps); err != nil {
 		return FrameInfo{}, ErrInvalidData
 	}
 	if err := d.reconstructFrame(StreamInfo{Profile: 0}); err != nil {
@@ -1208,6 +1209,14 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 		d.prevModes = make([]vp8dec.MacroblockMode, count)
 	} else {
 		d.prevModes = d.prevModes[:count]
+	}
+	// Persistent error-concealment overlap buffer (libvpx pbi->overlaps).
+	// Sized once per workspace resize so concealed inter frames don't
+	// allocate per Decode call (see TestDecodeErrorConcealmentAllocatesZero).
+	if cap(d.ecOverlaps) < count {
+		d.ecOverlaps = make([]vp8dec.ErrorConcealmentOverlap, count)
+	} else {
+		d.ecOverlaps = d.ecOverlaps[:count]
 	}
 	if cap(d.tokens) < count {
 		d.tokens = make([]vp8dec.MacroblockTokens, count)
