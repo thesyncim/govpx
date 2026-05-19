@@ -17,6 +17,9 @@ library:
   libvpx parity effort.
 - Preserve performance characteristics, allocation behavior, and zero-cost
   tracing/testing paths when optional instrumentation is disabled.
+- Use the cleaner package layout, tests, and oracle tooling to materially
+  improve libvpx parity and close important feature gaps before the tidy work is
+  considered done.
 
 ## Current shape
 
@@ -462,6 +465,45 @@ Checklist:
 - Update `docs/repo-map.md` with the final layout.
 - Commit and push the final integration safe point after all gates pass.
 
+### Wave 9: Parity And Feature Gap Closure
+
+Goal: turn the tidied codebase into a more complete codec by closing measured
+libvpx parity gaps and user-visible feature gaps that were too risky to address
+while the repo was still a flat parity worktree.
+
+Plan:
+
+- Use `docs/codec-status.md`, oracle scoreboards, fuzz regressions, BD-rate
+  gates, and upstream libvpx references to rank the remaining VP8 and VP9 gaps.
+- Pick a small number of high-value closures, not broad rewrites. Prefer gaps
+  that now have clean package ownership, focused tests, and a known libvpx
+  anchor.
+- Keep each closure packet narrow: one feature, one parity cluster, or one
+  quality/performance gap at a time.
+- For byte-parity work, preserve failing fixtures as regression rows and never
+  update baselines unless the packet explicitly owns a measured expected change.
+- For feature work, document the supported behavior in `docs/codec-status.md`
+  and add user-facing examples only after the API shape is final.
+- For quality work, report objective measurements such as byte parity, decoded
+  frame equality, BD-rate, PSNR/SSIM deltas, allocation counts, and hot-path
+  benchmarks as appropriate for the change.
+- Do not trade away allocation behavior, disabled tracing cost, or hot-path
+  speed without an explicit measurement and approval.
+
+Acceptance:
+
+- `docs/codec-status.md` no longer reads as a backlog dump; it identifies the
+  remaining unsupported features and the parity gaps that are intentionally
+  still open.
+- At least one material VP8 or VP9 parity/feature gap is closed with a clear
+  libvpx source anchor, regression coverage, and measured validation.
+- The final branch passes `go test ./... -count=1`, `make ci`,
+  `make verify-production`, and the relevant byte-parity, BD-rate, allocation,
+  or benchmark smoke gates for the closed gaps.
+- Any remaining large gap has an explicit reason it was not closed in this
+  tidy stack: missing oracle support, unacceptable measured tradeoff, scope
+  risk, or an intentionally unsupported libvpx feature.
+
 ## Subagent Packet Template
 
 Use this when assigning any packet:
@@ -502,7 +544,11 @@ allocation/performance checks, and risks.
   self-contained packets.
 - Wave 5 API cleanup, Wave 6.5 tracing/performance hygiene, and Wave 7 docs
   should stay close together.
-- Wave 8 is one integration owner.
+- Wave 8 is one integration owner and should leave the branch clean enough for
+  parity work.
+- Wave 9 is the final owner pass: use the cleaned structure and validation
+  gates to close measured parity and feature gaps, then run the full production
+  gates.
 
 ## Definition Of Done
 
@@ -521,5 +567,7 @@ allocation/performance checks, and risks.
   approved with measurements.
 - README is short; detailed docs live under `docs/`.
 - Validation commands are documented and green.
+- The cleanup produces measured parity or feature-coverage improvement, not
+  only a nicer tree layout.
 - The final branch passes `go test ./... -count=1`, `make ci`, and
   `make verify-production`.

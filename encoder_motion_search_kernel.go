@@ -371,3 +371,233 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 		Col: int16(bestCol * interFrameMVFullPixelStep),
 	}, bestCost
 }
+
+func hexSuperKernelNoStats(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
+	const padRing int = 2
+	const padRefine int = 1
+	hexDR := [6]int8{-1, 1, 2, 1, -1, -2}
+	hexDC := [6]int8{-2, -2, 0, 2, 2, 0}
+	nextCheckpointIdx := [6][3]int8{
+		{5, 0, 1},
+		{0, 1, 2},
+		{1, 2, 3},
+		{2, 3, 4},
+		{3, 4, 5},
+		{4, 5, 0},
+	}
+	neighborDR := [4]int8{0, -1, 1, 0}
+	neighborDC := [4]int8{-1, 0, 0, 1}
+
+	ctx := &s.ctx
+	bounds := s.bounds
+	refRow8 := s.refRow8
+	refCol8 := s.refCol8
+	costs := &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+
+	bestRow := int(best.Row) >> 3
+	bestCol := int(best.Col) >> 3
+
+	bestSite := -1
+	nextRow := bestRow
+	nextCol := bestCol
+	var sad4 [4]uint32
+	if boundsInteriorByPad(bounds, bestRow, bestCol, padRing, padRing) {
+		r0, c0 := bestRow+int(hexDR[0]), bestCol+int(hexDC[0])
+		r1, c1 := bestRow+int(hexDR[1]), bestCol+int(hexDC[1])
+		r2, c2 := bestRow+int(hexDR[2]), bestCol+int(hexDC[2])
+		r3, c3 := bestRow+int(hexDR[3]), bestCol+int(hexDC[3])
+		if ctx.fullPelSADFull4(r0, c0, r1, c1, r2, c2, r3, c3, &sad4) {
+			rows := [4]int{r0, r1, r2, r3}
+			cols := [4]int{c0, c1, c2, c3}
+			for i := range 4 {
+				sad := int(sad4[i])
+				if sad < bestCost {
+					cost := sad + fullPelMVSADCostInline(rows[i], cols[i], refRow8, refCol8, costs)
+					if cost < bestCost {
+						nextRow = rows[i]
+						nextCol = cols[i]
+						bestCost = cost
+						bestSite = i
+					}
+				}
+			}
+		} else {
+			for i := range 4 {
+				row := bestRow + int(hexDR[i])
+				col := bestCol + int(hexDC[i])
+				sad := ctx.fullPelSADFull(row, col)
+				if sad < bestCost {
+					cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+					if cost < bestCost {
+						nextRow = row
+						nextCol = col
+						bestCost = cost
+						bestSite = i
+					}
+				}
+			}
+		}
+		for i := 4; i < 6; i++ {
+			row := bestRow + int(hexDR[i])
+			col := bestCol + int(hexDC[i])
+			sad := ctx.fullPelSADFull(row, col)
+			if sad < bestCost {
+				cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+				if cost < bestCost {
+					nextRow = row
+					nextCol = col
+					bestCost = cost
+					bestSite = i
+				}
+			}
+		}
+	} else {
+		for i := range 6 {
+			row := bestRow + int(hexDR[i])
+			col := bestCol + int(hexDC[i])
+			if !bounds.containsFullPel(row, col) {
+				continue
+			}
+			sad := ctx.fullPelSADFull(row, col)
+			if sad < bestCost {
+				cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+				if cost < bestCost {
+					nextRow = row
+					nextCol = col
+					bestCost = cost
+					bestSite = i
+				}
+			}
+		}
+	}
+
+	if bestSite >= 0 {
+		bestRow = nextRow
+		bestCol = nextCol
+		k := bestSite
+		for j := 1; j < 127; j++ {
+			bestSite = -1
+			nextRow = bestRow
+			nextCol = bestCol
+			chk := nextCheckpointIdx[k]
+			if boundsInteriorByPad(bounds, bestRow, bestCol, padRing, padRing) {
+				for i := range 3 {
+					idx := int(chk[i])
+					row := bestRow + int(hexDR[idx])
+					col := bestCol + int(hexDC[idx])
+					sad := ctx.fullPelSADFull(row, col)
+					if sad < bestCost {
+						cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+						if cost < bestCost {
+							nextRow = row
+							nextCol = col
+							bestCost = cost
+							bestSite = i
+						}
+					}
+				}
+			} else {
+				for i := range 3 {
+					idx := int(chk[i])
+					row := bestRow + int(hexDR[idx])
+					col := bestCol + int(hexDC[idx])
+					if !bounds.containsFullPel(row, col) {
+						continue
+					}
+					sad := ctx.fullPelSADFull(row, col)
+					if sad < bestCost {
+						cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+						if cost < bestCost {
+							nextRow = row
+							nextCol = col
+							bestCost = cost
+							bestSite = i
+						}
+					}
+				}
+			}
+			if bestSite < 0 {
+				break
+			}
+			bestRow = nextRow
+			bestCol = nextCol
+			k += 5 + bestSite
+			if k >= 12 {
+				k -= 12
+			} else if k >= 6 {
+				k -= 6
+			}
+		}
+	}
+
+	for range 8 {
+		bestSite = -1
+		nextRow = bestRow
+		nextCol = bestCol
+		if boundsInteriorByPad(bounds, bestRow, bestCol, padRefine, padRefine) {
+			r0, c0 := bestRow+int(neighborDR[0]), bestCol+int(neighborDC[0])
+			r1, c1 := bestRow+int(neighborDR[1]), bestCol+int(neighborDC[1])
+			r2, c2 := bestRow+int(neighborDR[2]), bestCol+int(neighborDC[2])
+			r3, c3 := bestRow+int(neighborDR[3]), bestCol+int(neighborDC[3])
+			if ctx.fullPelSADFull4(r0, c0, r1, c1, r2, c2, r3, c3, &sad4) {
+				rows := [4]int{r0, r1, r2, r3}
+				cols := [4]int{c0, c1, c2, c3}
+				for i := range 4 {
+					sad := int(sad4[i])
+					if sad < bestCost {
+						cost := sad + fullPelMVSADCostInline(rows[i], cols[i], refRow8, refCol8, costs)
+						if cost < bestCost {
+							nextRow = rows[i]
+							nextCol = cols[i]
+							bestCost = cost
+							bestSite = i
+						}
+					}
+				}
+			} else {
+				for i := range 4 {
+					row := bestRow + int(neighborDR[i])
+					col := bestCol + int(neighborDC[i])
+					sad := ctx.fullPelSADFull(row, col)
+					if sad < bestCost {
+						cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+						if cost < bestCost {
+							nextRow = row
+							nextCol = col
+							bestCost = cost
+							bestSite = i
+						}
+					}
+				}
+			}
+		} else {
+			for i := range 4 {
+				row := bestRow + int(neighborDR[i])
+				col := bestCol + int(neighborDC[i])
+				if !bounds.containsFullPel(row, col) {
+					continue
+				}
+				sad := ctx.fullPelSADFull(row, col)
+				if sad < bestCost {
+					cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+					if cost < bestCost {
+						nextRow = row
+						nextCol = col
+						bestCost = cost
+						bestSite = i
+					}
+				}
+			}
+		}
+		if bestSite < 0 {
+			break
+		}
+		bestRow = nextRow
+		bestCol = nextCol
+	}
+
+	return vp8enc.MotionVector{
+		Row: int16(bestRow * interFrameMVFullPixelStep),
+		Col: int16(bestCol * interFrameMVFullPixelStep),
+	}, bestCost
+}

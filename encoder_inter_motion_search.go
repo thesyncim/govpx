@@ -180,6 +180,22 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTablesAndSt
 		best = bounds.clampEighth(best)
 	}
 	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, bestRefMV, qIndex, bounds, mvProbs, mvCosts, errorPerBit, stats)
+	if stats == nil {
+		bestWalkCost := searcher.walkCostNoStats(best, maxInt())
+		if bestWalkCost == 0 {
+			return best, searcher.costNoStats(best)
+		}
+		if search.fullPixelSearch == interAnalysisFullPixelSearchNstep {
+			return searcher.nstepNoStats(best, bestWalkCost, search)
+		}
+		if search.fullPixelSearch == interAnalysisFullPixelSearchDiamond {
+			return searcher.diamondNoStats(best, bestWalkCost, search)
+		}
+		if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
+			return searcher.hexNoStats(best, bestWalkCost)
+		}
+		return searcher.exhaustiveNoStats(best, bestWalkCost)
+	}
 	bestWalkCost := searcher.walkCost(best, maxInt())
 	if bestWalkCost == 0 {
 		return best, searcher.cost(best)
