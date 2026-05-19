@@ -592,6 +592,7 @@ func encodeBDLibvpxVP8Curve(opts BDRateOptionsVP8, ladder []bdOperatingPoint) ([
 //	govpx.EncoderOptions.ARNRType          -> --arnr-type=N
 //	govpx.EncoderOptions.LookaheadFrames   -> --lag-in-frames=N
 //	govpx.EncoderOptions.DropFrameWaterMark-> --drop-frame=N (when DropFrameAllowed)
+//	govpx.EncoderOptions.ScreenContentMode -> --screen-content-mode=N (1 or 2)
 //
 // Each `// libvpx token:` comment in the body anchors the field to the
 // CLI flag it drives.
@@ -800,6 +801,21 @@ func libvpxVP8BDCLIArgs(opts BDRateOptionsVP8, t govpx.EncoderOptions, op bdOper
 	} else {
 		args = append(args, "--drop-frame=0")
 	}
+	// libvpx token: --screen-content-mode. Maps govpx.EncoderOptions.
+	// ScreenContentMode to vpxenc's CLI surface (vpxenc.c:399-401
+	// `--screen-content-mode <int>` -> VP8E_SET_SCREEN_CONTENT_MODE codec
+	// control -> vp8_cx_iface.c:626 set_screen_content_mode). Without this
+	// the libvpx oracle runs with screen_content_mode=0 (the
+	// vp8_cx_iface.c:79 default) while govpx runs at whatever the test
+	// callback set on the EncoderOptions, so the BD-rate cross-comparison
+	// is encoder-vs-encoder on different content-mode axes. Govpx
+	// validates 0/1/2 via vp8_cx_iface.c:215 RANGE_CHECK_HI; mirror the
+	// range here so an out-of-band value surfaces as a libvpx CLI error
+	// the same way an in-process govpx call would surface a validation
+	// error.
+	if t.ScreenContentMode > 0 {
+		args = append(args, fmt.Sprintf("--screen-content-mode=%d", t.ScreenContentMode))
+	}
 	// libvpx token: --timebase
 	if opts.FPS > 0 {
 		args = append(args, fmt.Sprintf("--timebase=1/%d", opts.FPS))
@@ -884,6 +900,12 @@ func libvpxVP8BDCLIArgsTwoPass(opts BDRateOptionsVP8, t govpx.EncoderOptions, op
 		args = append(args, fmt.Sprintf("--drop-frame=%d", t.DropFrameWaterMark))
 	} else {
 		args = append(args, "--drop-frame=0")
+	}
+	// libvpx token: --screen-content-mode. Mirrors libvpxVP8BDCLIArgs so
+	// the two-pass VBR path also pins the libvpx oracle to the same
+	// screen_content_mode the govpx Test/Baseline callback set.
+	if t.ScreenContentMode > 0 {
+		args = append(args, fmt.Sprintf("--screen-content-mode=%d", t.ScreenContentMode))
 	}
 	if opts.FPS > 0 {
 		args = append(args, fmt.Sprintf("--timebase=1/%d", opts.FPS))
