@@ -713,6 +713,159 @@ func TestVP8FeatureBDRate480pVBR(t *testing.T) {
 		vbr480Gate)
 }
 
+// TestVP8FeatureBDRate480pSportsSSIMVBR (task #383, fixture F15) widens
+// the SSIM-tune coverage at a smaller resolution than the existing 720p
+// SSIM fixture (TestVP8FeatureBDRate720pGoodSSIM). It pairs the
+// high-motion sports source (textured background + fast foreground
+// "ball") with --tune=ssim under a single-pass VBR ladder, so the
+// activity-masking RD path is exercised against a non-CBR rate-control
+// axis. The 480p resolution complements F5 (720p) and F16 (1080p) to
+// give a spread of SSIM coverage across resolutions.
+func TestVP8FeatureBDRate480pSportsSSIMVBR(t *testing.T) {
+	const (
+		width  = 854
+		height = 480
+		frames = 16
+	)
+	// Task #383 initial measurement: BD-rate=-0.339% / BD-PSNR=+0.019 dB
+	// (govpx essentially at parity with libvpx on the 480p sports VBR
+	// SSIM ladder). Per #357 rules govpx trails by less than 1% in
+	// absolute terms, so set the ceiling at +1.7% (observed +|-0.339|
+	// plus +1.4% headroom for cubic-fit jitter on a 16-frame VBR ladder)
+	// and the BD-PSNR floor at -0.5 dB (standard).
+	ssim480Gate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 1.7,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 480p sports-motion tune=ssim (VBR ladder 500/1000/2000/4000 kbps)",
+		"VP8 480p sports (tune=ssim, VBR 500/1000/2000/4000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:                  width,
+			Height:                 height,
+			FPS:                    30,
+			Frames:                 frames,
+			QLadder:                []int{16, 28, 40, 52},
+			RateLadderKbps:         []int{500, 1000, 2000, 4000},
+			RateControlOverride:    govpx.RateControlVBR,
+			RateControlOverrideSet: true,
+			Source:                 func(i int) *image.YCbCr { return makeVP8SportsMotionFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.Tuning = govpx.TuneSSIM
+				o.Deadline = govpx.DeadlineGoodQuality
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.Tuning = govpx.TuneSSIM
+				o.Deadline = govpx.DeadlineGoodQuality
+			},
+		},
+		ssim480Gate)
+}
+
+// TestVP8FeatureBDRate1080pPanningSSIMCBR (task #383, fixture F16) fills
+// the larger-resolution SSIM-tune coverage cell (F5 covers 720p, this
+// covers 1080p). The 1080p panning source has the same MV pattern as
+// the F5 fixture but at 2.25x the pixel count, so cubic-fit jitter from
+// activity-masking on bigger frames is observable. CBR ladder mirrors
+// F5's ladder so the larger-resolution measurement is comparable.
+func TestVP8FeatureBDRate1080pPanningSSIMCBR(t *testing.T) {
+	const (
+		width  = 1920
+		height = 1080
+		frames = 12
+	)
+	// Task #383 initial measurement: BD-rate=+1.186% / BD-PSNR=+0.151 dB
+	// (govpx slightly trails libvpx on the 1080p panning CBR SSIM
+	// ladder, compared to govpx's -9.286% lead on the 720p panning SSIM
+	// fixture F5: at 1080p the activity-masking RD path encounters more
+	// MBs per frame and the cubic-fit jitter widens). Per #357 rules
+	// set the ceiling at +3.2% (observed +1.186% plus +2.0% headroom for
+	// cubic-fit jitter on the 12-frame 1080p ladder) and the BD-PSNR
+	// floor at -0.5 dB (standard).
+	ssim1080Gate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 3.2,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 1080p panning tune=ssim (CBR ladder 1500/3000/6000/12000 kbps)",
+		"VP8 1080p panning (tune=ssim, CBR 1500/3000/6000/12000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{1500, 3000, 6000, 12000},
+			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.Tuning = govpx.TuneSSIM
+				o.Deadline = govpx.DeadlineGoodQuality
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.Tuning = govpx.TuneSSIM
+				o.Deadline = govpx.DeadlineGoodQuality
+			},
+		},
+		ssim1080Gate)
+}
+
+// TestVP8FeatureBDRate360pScreenContentSSIMCBR (task #383, fixture F17)
+// combines --tune=ssim with --screen-content-mode=1 at 360p to exercise
+// the intersection of the activity-masking RD path with the
+// screen-content semantic gating (UV-delta-Q, cyclic-refresh,
+// buffer-debt floor, limit_q_cbr_inter floor). The existing 720p
+// screen-content CBR fixture
+// (TestVP8FeatureBDRate720pScreenContentCBR) runs at the libvpx default
+// --tune=psnr; this fixture additionally pins Tuning to TuneSSIM so the
+// libvpx oracle emits --tune=ssim alongside --screen-content-mode=1.
+func TestVP8FeatureBDRate360pScreenContentSSIMCBR(t *testing.T) {
+	const (
+		width  = 640
+		height = 360
+		frames = 16
+	)
+	// Task #383 initial measurement: BD-rate=+2.668% / BD-PSNR=+0.070 dB
+	// (govpx trails libvpx on the 360p screen-content tune=ssim CBR
+	// ladder). The pure-PSNR-tune sibling at 720p
+	// (TestVP8FeatureBDRate720pScreenContentCBR) sits at +9.704% with
+	// the gate set at +11.5%; this smaller-resolution SSIM-tune variant
+	// avoids the prob_intra_coded equilibrium that dominates the 720p
+	// residual (the 360p frame has 4x fewer MBs so the recode loop
+	// converges sooner). Per #357 rules set the ceiling at +4.7%
+	// (observed +2.668% plus +2.0% headroom for cubic-fit jitter on
+	// the sparse screen-content rate axis) and the BD-PSNR floor at
+	// -0.6 dB to match the 720p screen-content fixture (the same
+	// near-transparent upper-rung dynamic that drives the wider
+	// BD-PSNR slack there is present here, just at a smaller scale).
+	ssimScreen360Gate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 4.7,
+		MinBDPSNRdB:            -0.6,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 360p screen-content text tune=ssim (CBR ladder 300/600/1200/2400 kbps)",
+		"VP8 360p screen-content text (tune=ssim, CBR 300/600/1200/2400)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{300, 600, 1200, 2400},
+			Source:         func(i int) *image.YCbCr { return makeVP8ScreenTextWindowFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.Tuning = govpx.TuneSSIM
+				o.Deadline = govpx.DeadlineGoodQuality
+				o.ScreenContentMode = 1
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.Tuning = govpx.TuneSSIM
+				o.Deadline = govpx.DeadlineGoodQuality
+				o.ScreenContentMode = 1
+			},
+		},
+		ssimScreen360Gate)
+}
+
 // makeVP8MixedMotionFrame returns a deterministic frame that alternates
 // between a near-static panning phase (slow camera follow, no foreground)
 // and a high-motion phase (fast translation + foreground sweep) every
