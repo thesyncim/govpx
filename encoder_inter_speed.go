@@ -555,7 +555,17 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 		// `cpuUsedForFreq = -libvpxCPUUsed()` negate-pass-through path
 		// collapses Speed=0 to the cold-start default of 4 (see
 		// libvpxInterModeThresholdMultipliersForCPISpeed).
-		e.interModeCheckFreq = libvpxInterModeCheckFrequenciesForCPISpeed(e.opts.Deadline, e.libvpxCPUUsed())
+		//
+		// Task #378: the seven mode_check_freq_map_* speed_map lookups
+		// (vp8/encoder/onyx_if.c lines 860-887) consult the libvpx-realistic
+		// cpi->Speed (cpu_used+1 at cpu_used > 0 RT after frame 0) rather
+		// than the pin-suppressed e.autoSpeed. See
+		// libvpxRealtimeCPISpeedForModeCheckFreqGate comment for the
+		// rationale and the per-Speed transition trace. For cpu_used <= 0
+		// RT / non-RT / pre-first-frame the helper returns the actual
+		// libvpxCPUUsed() so existing semantics (and threads=4 cpu=0 RT
+		// byte-parity sentinels) carry forward unchanged.
+		e.interModeCheckFreq = libvpxInterModeCheckFrequenciesForCPISpeed(e.opts.Deadline, e.libvpxRealtimeCPISpeedForModeCheckFreqGate())
 	} else {
 		e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.opts.CpuUsed)
 	}
