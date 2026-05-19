@@ -548,8 +548,21 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	if !args.denoiseActive {
 		staticBreakout = staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
 	}
+	// libvpx anchor: vp8/encoder/encodeframe.c vp8cx_encode_inter_macroblock
+	// (line 1275-1281) runs vp8_encode_inter16x16 whenever x->skip == 0;
+	// libvpx sets x->skip = 1 in only two places in evaluate_inter_mode_rd:
+	//   (1) rdopt.c:1607-1608 — active_map_enabled && active_ptr[0] == 0
+	//   (2) rdopt.c:1620-1628 — static encode_breakout fires.
+	// The picker's downstream mbmi.mb_skip_coeff (from tteob==0 rate
+	// accounting at rdopt.c:1700) does NOT set x->skip and the encode-side
+	// vp8_encode_inter16x16 runs regardless, regenerating coefficients via
+	// the regular quantizer + optimize_mb trellis. Mirror that: only the
+	// real x->skip sources (inactive map + staticBreakout) gate the encode
+	// short-circuit, not the picker's MBSkipCoeff signal. Closes the
+	// BestARNR / GoodARNR ARNR pin holds (task #332).
+	isInactiveMB := e.interMacroblockInactive(row, col, args.cols)
 	breakoutSkip := args.modes[index].RefFrame != vp8common.IntraFrame &&
-		(args.modes[index].MBSkipCoeff || staticBreakout)
+		(isInactiveMB || staticBreakout)
 	if breakoutSkip {
 		clearMacroblockCoefficients(&args.coeffs[index])
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {

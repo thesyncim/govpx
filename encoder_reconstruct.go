@@ -690,8 +690,42 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if !denoiseActive {
 				staticBreakout = staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
 			}
+			// libvpx vp8/encoder/encodeframe.c vp8cx_encode_inter_macroblock
+			// (line 1275-1281): vp8_encode_inter16x16 runs whenever x->skip
+			// is 0. libvpx sets x->skip = 1 in exactly two places inside
+			// evaluate_inter_mode_rd:
+			//   (1) rdopt.c:1607-1608 — active_map_enabled && active_ptr[0]==0
+			//   (2) rdopt.c:1620-1628 — static encode_breakout (sse/var/uvsse
+			//                            triple threshold) fires.
+			// The picker's downstream mbmi.mb_skip_coeff signal (set from
+			// tteob==0 rate accounting in calculate_final_rd_costs at
+			// rdopt.c:1700) does NOT set x->skip and does NOT gate the
+			// encode-side vp8_encode_inter16x16 rebuild. The encode-side
+			// re-runs vp8_subtract_mb + transform_mb + vp8_quantize_mb +
+			// optimize_mb with the regular quantizer (post-pick switch at
+			// encodeframe.c:1176-1178) and trellis, which can yield non-
+			// zero coefficients even when the picker's fastquant /
+			// fastquant-for-pick reported tteob==0 (different b->zbin_extra
+			// carry, trellis KEEP decisions on small-magnitude tokens,
+			// SPLITMV per-subblock predictor rebuild). govpx's picker MB
+			// MBSkipCoeff conflated the inactive-map case (real libvpx
+			// x->skip=1) with the tteob==0 rate-adjustment case (libvpx
+			// leaves x->skip=0). Mirror libvpx faithfully by gating
+			// breakoutSkip only on the two real x->skip sources:
+			// inactiveMB (active-map) and staticBreakout (encode_breakout).
+			//
+			// Closes the BestARNR -5 / GoodARNR -6 byte pin holds at
+			// threads=1, threads=2, and threads=4 on the 19981bff /
+			// 22f3d67c / 788d442c cohort (task #332). Discovery: at
+			// threads=1, the entire picker scoreboard (mode/ref/mv) is
+			// byte-identical to libvpx for all 3600 frame-1 MBs; the only
+			// divergent state is MB(17,79) SPLITMV/LAST where govpx's
+			// picker tteob==0 short-circuit zeroed the qcoeff while
+			// libvpx's encode produced block-7 eob=13 from its regular
+			// trellis-optimized rebuild.
+			isInactiveMB := e.interMacroblockInactive(row, col, cols)
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
-				(modes[index].MBSkipCoeff || staticBreakout)
+				(isInactiveMB || staticBreakout)
 			if breakoutSkip {
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {

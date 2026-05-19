@@ -356,7 +356,7 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
 	wantFrame0LibvpxFirstPart := 20463
-	wantFrame1GovpxLen := 6128
+	wantFrame1GovpxLen := 6134
 	wantFrame1LibvpxLen := 6134
 	wantFrame1GovpxFirstPart := 2169
 	wantFrame1LibvpxFirstPart := 2169

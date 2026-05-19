@@ -575,15 +575,56 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	//   TestVP8Task324OptimizeBStructuralAudit
 	//   (vp8_task324_optimize_b_coeff_cost_audit_test.go). Cleared-
 	//   candidate list for the chroma optimize_b cost computation
-	//   extended: #282 / #299 / #319 / #322 / #324. Next investigation
-	//   surface is the per-MB inter-mode picker preference (NEWMV vs
-	//   SPLITMV with equivalent MV → different chroma predictor
-	//   builder) — track via a future #325+ picker-mode-bisect task.
+	//   extended: #282 / #299 / #319 / #322 / #324.
+	//
+	// Task #332 (BestARNR PIN CLOSED — 6121 == 6121):
+	//
+	//   The residual -5 byte ARNR pin-hold has been closed by porting
+	//   libvpx's vp8cx_encode_inter_macroblock dispatch gate verbatim.
+	//   The govpx-side breakoutSkip gate at encoder_reconstruct.go:693
+	//   was conflating libvpx's two real x->skip=1 sources with the
+	//   picker's downstream mbmi.mb_skip_coeff signal:
+	//
+	//     Pre-fix:  breakoutSkip = !intra && (picker.MBSkipCoeff ||
+	//                                          staticBreakout)
+	//     Post-fix: breakoutSkip = !intra && (interMacroblockInactive ||
+	//                                          staticBreakout)
+	//
+	//   libvpx vp8/encoder/rdopt.c evaluate_inter_mode_rd sets x->skip = 1
+	//   in exactly two places: rdopt.c:1607-1608 (active_map_enabled &&
+	//   active_ptr[0]==0) and rdopt.c:1620-1628 (static encode_breakout
+	//   sse/var/uvsse triple-threshold). The picker's later
+	//   mbmi.mb_skip_coeff signal (set from tteob==0 rate accounting in
+	//   calculate_final_rd_costs at rdopt.c:1700) DOES NOT set x->skip
+	//   and does NOT gate the encode-side rebuild. The encode-side
+	//   vp8_encode_inter16x16 (encodeframe.c:1275-1281) always runs when
+	//   x->skip == 0, regenerating coefficients via vp8_subtract_mb +
+	//   transform_mb + vp8_quantize_mb (regular_quantize_b post-pick
+	//   switch at encodeframe.c:1176-1178) + optimize_mb (trellis).
+	//
+	//   The picker may report tteob==0 — e.g. SPLITMV at MB(17,79) frame
+	//   1 of the 19981bff cohort, where the picker's lastTTEOB tracker
+	//   reflected the LAST-tested subblock mode rather than the chosen
+	//   shape — but the encode-side regular-quantizer + trellis rebuild
+	//   produces non-zero coefficients (block 7 eob=13 in the 19981bff
+	//   cohort). govpx's pre-fix gate short-circuited that entire encode
+	//   step via clearMacroblockCoefficients(coeffs[index]) → skip-coded
+	//   bitstream — a divergence visible at threads=1 (-6 bytes), threads
+	//   =4 (-5 bytes), threads=2 (no impact only because the specific MB
+	//   distribution dodged the divergent SPLITMV).
+	//
+	//   Closes the BestARNR -5 byte ARNR pin-hold and the GoodARNR -6
+	//   byte ARNR pin-hold byte-exactly across threads ∈ {1, 2, 4}. The
+	//   correct cleared-candidate list (#282 / #299 / #319 / #322 /
+	//   #324) WAS RIGHT — all those layers ARE byte-faithful, and the
+	//   missing piece was the picker→encode dispatch gate, not any cost
+	//   computation or trellis math. Validated by
+	//   TestVP8Task332ThreadsValidation across threads ∈ {1, 2, 4}.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
 	wantFrame0LibvpxFirstPart := 20463
-	wantFrame1GovpxLen := 6116
+	wantFrame1GovpxLen := 6121
 	wantFrame1LibvpxLen := 6121
 	wantFrame1GovpxFirstPart := 2264
 	wantFrame1LibvpxFirstPart := 2264
