@@ -14,11 +14,10 @@ import (
 // every entry in the formerly-deferred RefControl corpus. The corpus now
 // passes with the default VP9 encoder path and no opt-in gates, so this test
 // makes that closure explicit instead of leaving the old progress probe as
-// a non-asserting audit.
+// a logging-only audit.
 //
-// Measurement under GOVPX_VP9_NONRD_PICK_PARTITION=1 (the
-// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING gate is a no-op for these ML-based
-// RefControl seeds once nonrd_pick_partition is active):
+// Historical measurement while the ML nonrd partition path was still staged
+// behind an opt-in diagnostic gate:
 //
 //	PASS=0/10 FAIL=10/10 (10/70 frames byte-match, was 0/70). After
 //	task #146's port of the libvpx-faithful x->skip + bestEarlyTerm
@@ -106,8 +105,8 @@ func TestVP9RefControlRegressionSeedsByteParity(t *testing.T) {
 // TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity asserts byte parity
 // for the RuntimeControls speed-8 nonrd entries that graduated out of the
 // historical deferred list. The remaining cpu=0/-3 and speed-4 entries stay
-// covered by TestVP9DeferredSeedsRemeasureRuntimeControls as non-asserting
-// diagnostics.
+// covered by TestVP9DeferredSeedsRemeasureRuntimeControls as open-gap
+// diagnostics with explicit lane coverage checks.
 func TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to verify VP9 RuntimeControls speed-8 regression seeds")
@@ -388,7 +387,9 @@ func TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity(t *testing.T) {
 //     RD/quant divergence (which is what THIS audit isolates) until
 //     that path also pins to libvpx byte-for-byte.
 //
-// Intentionally non-asserting — see RefControl sibling for rationale.
+// TestVP9DeferredSeedsRemeasureRuntimeControls is a diagnostic for open
+// RuntimeControls gaps. It does not expect byte parity yet, but each lane must
+// keep materialising at least one seed so the diagnostic cannot silently rot.
 func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RuntimeControls seeds")
@@ -482,6 +483,12 @@ func remeasureVP9RuntimeControlsSeedLane(t *testing.T, includeCPU func(int8) boo
 	t.Logf("RuntimeControls deferred-seed remeasure: PASS=%d MISMATCH=%d STRUCTURAL_REJECT=%d total=%d agg_size_delta=%+d avg_per_measurable=%+d",
 		pass, fail, skipped, measured, aggSizeDelta,
 		aggSizeDelta/max(1, measured))
+	if measured == 0 {
+		t.Fatal("no deferred RuntimeControls seeds matched this lane")
+	}
+	if skipped != 0 {
+		t.Fatalf("deferred RuntimeControls lane has structural rejects: %d", skipped)
+	}
 }
 
 func seedByteIdentical(got, want [][]byte) bool {

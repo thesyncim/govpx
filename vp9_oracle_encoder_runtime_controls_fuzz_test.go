@@ -367,8 +367,7 @@ import (
 //     first closing the cost_coeffs RD chain at the per-leaf picker.
 //     Same upstream handoff as the byte-9 / byte-16 cluster.
 //
-// Re-measurement under
-// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
+// Historical re-measurement while the partition paths were still staged
 // (verified by TestVP9DeferredSeedsRemeasureRuntimeControls):
 //
 //	PASS=0/9 FAIL=9/9. Seeds #0/#2/#4/#6 (cpu=0 panning content)
@@ -408,17 +407,17 @@ import (
 //	  Aggregate: +40429 / avg +5053 per measurable seed
 //	  (#5/#8 STRUCTURAL_REJECT).
 //
-//	GOVPX_VP9_NONRD_PICK_PARTITION=1 (Phase D opt-in alone):
+//	ML nonrd partition path only:
 //	  #0: +2754, #1: +4141, #2: +7038, #3: -262, #4: +6808,
 //	  #6: +2754, #7: +8971, #9: +2806.
 //	  Aggregate: +35010 / avg +4376 per measurable seed.
 //
-//	Both gates ON (NONRD_PICK_PARTITION=1 + LIBVPX_CHOOSE_PARTITIONING=1):
+//	Both staged paths enabled (ML nonrd path + libvpx choose partitioning):
 //	  #0: +2754, #1: +4141, #2: +7038, #3: -262, #4: +6808,
 //	  #6: +2754, #7: +8971, #9: +2293.
 //	  Aggregate: +34497 / avg +4312 per measurable seed.
 //
-// Frame-0 size_delta (got_len - want_len) under both gates ON
+// Frame-0 size_delta (got_len - want_len) with both staged paths enabled
 // (the comparable axis to f5fe476's frame-0 citation):
 //
 //	#0 +996, #1 +995, #2 +2276, #3 -31, #4 +996, #6 +996,
@@ -483,8 +482,8 @@ import (
 //	      sf.UseNonrdPickMode != 0) before any nonrd code is reached.
 //
 //	Empirical confirmation: TestVP9DeferredSeedsRemeasureRuntimeControls
-//	with GOVPX_VP9_NONRD_PICK_PARTITION=1 GOVPX_VP9_LIBVPX_CHOOSE_PARTI-
-//	TIONING=1 on this branch reproduces the exact same per-seed
+//	with the staged partition paths enabled on this branch reproduces the
+//	exact same per-seed
 //	(got_len, want_len, first_byte_diff, size_delta) for seeds
 //	#0/#2/#4/#6 as the default-gate run:
 //
@@ -528,7 +527,7 @@ import (
 //	  - Verbatim calculate_tx_size at the leaf-commit site
 //	    (pickVP9InterTxSize fast-path returning
 //	    vp9InterCalculateTxSize when UseNonrdPickMode!=0 +
-//	    GOVPX_VP9_NONRD_PICK_PARTITION=1): seed #3
+//	    staged ML nonrd partition path): seed #3
 //	    first_byte_diff=8 size_delta=+1314 (WORSE by +1544B);
 //	    seed #8 first_byte_diff=9 size_delta=+1202 (WORSE by
 //	    +1030B).

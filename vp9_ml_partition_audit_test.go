@@ -17,8 +17,8 @@ import (
 // Cluster recap (vp9_oracle_encoder_refcontrols_fuzz_test.go):
 //
 //	9 of 10 RefControl deferred seeds diverge at byte 9 of the inter
-//	frame (FirstPartitionSize literal). Per-seed aggregate size_delta
-//	under GOVPX_VP9_NONRD_PICK_PARTITION=1 ranges -179..+295 bytes.
+//	frame (FirstPartitionSize literal). Historical ML nonrd measurements
+//	pinned per-seed aggregate size_delta in the -179..+295 byte range.
 //
 // Per-component audit (each component byte-exact against libvpx; if a
 // future regression breaks this layer one of these pins fires before the

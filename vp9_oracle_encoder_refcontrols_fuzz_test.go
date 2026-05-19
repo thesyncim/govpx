@@ -92,10 +92,10 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	// Same residual divergence profile as the rest of this list — inter
 	// frames diverge at byte 4-9 (the FirstPartitionSize literal + the
 	// per-frame entropy update payload) by 100-800 bytes pending the
-	// ML_BASED_PARTITION dispatch's vp9_pick_inter_mode port. Under
-	// GOVPX_VP9_NONRD_PICK_PARTITION=1 the size delta shrinks to
+	// ML_BASED_PARTITION dispatch's vp9_pick_inter_mode port. The
+	// staged ML nonrd partition path shrank the size delta to
 	// ~+50-150 bytes per inter frame (verified by
-	// TestVP9NonrdPickPartitionRegressionSeedsProgress).
+	// TestVP9RefControlRegressionSeedsByteParity).
 	[]byte("2"),
 	// regression_vp9_refctrl_6573b9b5: captured by sweep (commit e7b9906).
 	// All-zero materialised flags (vp9RefcontrolsFuzzCase pool produces
@@ -119,7 +119,7 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//    the keyframe walker. govpx previously defaulted
 	//    NonRdKeyframe=false, which overstamped the keyframe with
 	//    Block4x4 leaves and emitted a coarser entropy distribution
-	//    than libvpx. Under GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1
+	//    than libvpx. Under the staged libvpx choose-partitioning path
 	//    all 8 deferred seeds now produce a byte-exact keyframe
 	//    (3040 bytes), closing the prior -193 byte residual at
 	//    first_diff=17.
@@ -142,13 +142,14 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//    convolve (libvpx vp9_reconinter.c:253-258).
 	//  * vp9CBRVariancePartitionEnabled +
 	//    vp9CBRKeyframeVariancePartitionEnabled now bypass the
-	//    public-Q veto when GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1, so
-	//    the libvpx VAR_BASED_PARTITION dispatch fires on Q-mode too
+	//    public-Q veto when the staged libvpx choose-partitioning path
+	//    was enabled, so the libvpx VAR_BASED_PARTITION dispatch
+	//    fires on Q-mode too
 	//    (matches libvpx's rc-mode-agnostic dispatch at
 	//    vp9_encodeframe.c:5304-5311).
 	//
 	// Residual divergence (inter frames only) under
-	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1: 100-900 byte deltas at
+	// the staged libvpx choose-partitioning path: 100-900 byte deltas at
 	// bytes 4/8/9 across frames 1-7. This residual is NOT in the
 	// verbatim choose_partitioning port. Diagnosis (task #91): the
 	// inter gate vp9CBRVariancePartitionEnabled has been audited
@@ -197,22 +198,21 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//
 	//  * Recursive nonrd_pick_partition walker wired into
 	//    pickVP9InterPartitionBlockSize at every ML-eligible level
-	//    (BLOCK_64X64 / BLOCK_32X32 / BLOCK_16X16), behind the
-	//    GOVPX_VP9_NONRD_PICK_PARTITION=1 opt-in env gate. Default
-	//    behaviour keeps the Phase C BLOCK_64X64-NONE-only shortcut
+	//    (BLOCK_64X64 / BLOCK_32X32 / BLOCK_16X16). Default
+	//    behaviour then kept the Phase C BLOCK_64X64-NONE-only shortcut
 	//    so the legacy TestVP9EncoderInterPicks*Mv* family stays
 	//    green (those tests pin govpx's pre-Phase-D variance / RD
 	//    picker MV values which diverge from libvpx-faithful values
 	//    once the recursive walker honours NN SPLIT votes).
 	//
-	//  * Under GOVPX_VP9_NONRD_PICK_PARTITION=1 the per-frame size
+	//  * Under the staged ML nonrd partition path the per-frame size
 	//    delta vs libvpx shrinks ~88% on the 8 deferred seeds:
 	//      Phase C avg per-seed size_delta: +3300 bytes
-	//      Phase D opt-in avg per-seed:     +430 bytes
+	//      staged ML nonrd path avg per-seed:     +430 bytes
 	//    Keyframe (frame 0) still byte-matches; inter frames diverge
 	//    at byte 9 (FirstPartitionSize literal) by 20-100 bytes.
 	//    Measured by
-	//    TestVP9NonrdPickPartitionRegressionSeedsProgress.
+	//    TestVP9RefControlRegressionSeedsByteParity.
 	//
 	//  * Residual closure path: port libvpx vp9_pick_inter_mode
 	//    (vp9/encoder/vp9_pickmode.c:1696 ~4000 LOC) so the per-leaf
@@ -235,14 +235,13 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//    (c) Revert this deferred list entry-by-entry as each
 	//        seed's per-frame byte parity closes.
 	//
-	// Re-measurement under
-	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
+	// Re-measurement with both staged partition paths enabled
 	// (verified by TestVP9RefControlRegressionSeedsByteParity):
 	//
 	//   PASS=0/9 FAIL=9/9. Every seed still diverges at frame 1
 	//   (inter), first_byte_diff=9 (FirstPartitionSize literal) or
 	//   byte 4 for seed #5. Per-frame residual deltas at this gate
-	//   set: +39 to +552 bytes. The Phase D opt-in shrinks the
+	//   set: +39 to +552 bytes. The staged ML nonrd path shrinks the
 	//   aggregate by ~88% vs Phase C but does NOT close any seed's
 	//   byte parity. Conclusion: vp9NonrdPickPartitionEnabled()
 	//   cannot be flipped to always-on yet — the residual closure
@@ -265,9 +264,9 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//    dedup is replaced with the full mode_checked[mode][ref]
 	//    table the libvpx walker maintains.
 	//
-	//  * Per-seed size_delta vs libvpx under the Phase D opt-in
+	//  * Per-seed size_delta vs libvpx under the staged ML nonrd path
 	//    after this commit (verified by
-	//    TestVP9NonrdPickPartitionRegressionSeedsProgress):
+	//    TestVP9RefControlRegressionSeedsByteParity):
 	//
 	//      af5570f5: +42, b9af55f0: -91, fda5b6b4: -192,
 	//      ffa55725: -49, 8ec0abe5: +72, 9c3e08e8: +420,
@@ -310,15 +309,15 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//     5feceb66: +3158, 6b86b273: +4060, d4735e3a: +5022,
 	//     7902699b: +3121. Aggregate: +33735 / avg +3373 per seed.
 	//
-	//   GOVPX_VP9_NONRD_PICK_PARTITION=1 (Phase D opt-in alone):
+	//   Staged ML nonrd partition path only:
 	//     af5570f5: +55, b9af55f0: -105, fda5b6b4: +204,
 	//     ffa55725: +43, 8ec0abe5: +304, 9c3e08e8: +483,
 	//     5feceb66: +65, 6b86b273: +549, d4735e3a: +380,
 	//     7902699b: +24. Aggregate: +2002 / avg +200 per seed.
 	//
-	//   Both gates ON (NONRD_PICK_PARTITION=1 + LIBVPX_CHOOSE_PARTITIONING=1):
+	//   Both staged paths enabled (ML nonrd path + libvpx choose partitioning):
 	//     Identical to NONRD-only column on RefControl seeds —
-	//     LIBVPX_CHOOSE_PARTITIONING ON is a no-op once Phase D opt-in
+	//     The choose-partitioning path is a no-op once the staged ML nonrd path
 	//     fires because vp9RealtimeVariancePartitionEnabled() defers to
 	//     ML_BASED_PARTITION at cpu_used>=8 anyway (see #87 dispatch
 	//     notes above).
@@ -350,15 +349,14 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//     ML partition estimation even when EncodeNoReferenceLast masks
 	//     LAST out of the coding reference set, matching libvpx
 	//     get_ref_frame_buffer(cpi, LAST_FRAME).
-	//   * Under GOVPX_VP9_NONRD_PICK_PARTITION=1, the active deferred
+	//   * Under the staged ML nonrd partition path, the active deferred
 	//     RefControl aggregate size_delta improves from +858 to +446
 	//     bytes (avg +44B/seed) with the same 10/70 frame byte-match
 	//     count. Seed 9c3e08e8 moves from +292 to -120.
 	//
 	// Progress notes (task #159 — byte-9 cluster attribution):
 	//
-	// Re-measurement under both gates (GOVPX_VP9_NONRD_PICK_PARTITION=1
-	// + GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1) confirms the #151
+	// Re-measurement with both staged partition paths enabled confirms the #151
 	// baseline holds verbatim: aggregate +446 / avg +44B/seed,
 	// PASS=0/10 FAIL=10/10. Per-seed (first_mismatch_frame=1 every
 	// seed; libvpx_first_partition_size_delta in []):
@@ -646,7 +644,7 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	// Method: route through libvpx-faithful calculate_tx_size at the
 	// leaf-commit site (pickVP9InterTxSize fast-path returning
 	// vp9InterCalculateTxSize when UseNonrdPickMode!=0 +
-	// GOVPX_VP9_NONRD_PICK_PARTITION=1) and remeasure the
+	// the staged ML nonrd partition path) and remeasure the
 	// TestVP9RefControlRegressionSeedsByteParity + RuntimeControls
 	// aggregates. The verbatim port computes residualVar from the
 	// SAME vp9InterTxSourceAndResidualVar helper that already feeds
@@ -675,8 +673,8 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	// (fb9 = first_byte_diff for the first mismatching inter frame;
 	// sd = size_delta agg across all frames for that seed.
 	// Per-seed measurements from TestVP9DeferredSeedsRemeasureRef-
-	// Control gated on GOVPX_VP9_NONRD_PICK_PARTITION=1 +
-	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1.)
+	// Control gated on the staged ML nonrd partition path +
+	// the staged libvpx choose-partitioning path.)
 	//
 	// Root cause: the (var, sse) inputs that govpx feeds into
 	// calculate_tx_size differ from libvpx because the upstream

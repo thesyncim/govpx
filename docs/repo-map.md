@@ -158,9 +158,8 @@ Move out of public surface unless Wave 1 explicitly keeps them:
 - VP9 quality experiment helpers such as `VP9ComputeARFBoost`,
   `VP9DefaultARFBoostParams`, `VP9AdjustARNRFilter`, and
   `VP9TPLFrameDelta` unless a user-facing use case is documented.
-- Oracle/debug probes: `ProbeVP9SearchFilterRefFires`,
-  `ResetVP9SearchFilterRefProbes`, trace flags, leaf trace plumbing, and
-  scoreboard-only helpers.
+- Oracle/debug probes: trace flags, leaf trace plumbing, and scoreboard-only
+  helpers.
 - Any root-level trace writer setters that are only used by tagged oracle
   tests.
 

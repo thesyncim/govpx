@@ -118,8 +118,7 @@ import (
 //            set_ref_ptrs and before search_new_mv.
 //
 //       Empirical byte impact on the deferred-seed corpus with both
-//       gates on (GOVPX_VP9_NONRD_PICK_PARTITION=1 +
-//       GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1): zero — the per-seed
+//       gates on while the ML nonrd path was still staged: zero — the per-seed
 //       size_deltas and first_byte_diff values stay identical to the
 //       pre-port baseline (RefControl agg +446B, RuntimeControls
 //       agg +485B; see TestVP9DeferredSeedsRemeasure{RefControl,
@@ -1480,18 +1479,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//
 		// libvpx: vp9_pickmode.c:2325 search_filter_ref(...).
 		if len(filters) > 1 && !useModelRD {
-			if vp9SearchFilterRefProbeBuild {
-				vp9SearchFilterRefProbeFire()
-			}
 			bestFilter, _, _, _, _, _, sfok := e.vp9SearchFilterRef(inter,
 				miRows, miCols, miRow, miCol, bsize, thisMode, refFrame, mv,
 				filters, switchableCtx, dequantY, qindex)
 			if sfok {
-				if bestFilter != vp9dec.InterpEighttap {
-					if vp9SearchFilterRefProbeBuild {
-						vp9SearchFilterRefProbeFlip()
-					}
-				}
 				filters = []vp9dec.InterpFilter{bestFilter}
 			}
 		}
