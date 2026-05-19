@@ -590,16 +590,16 @@ func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
 // gates from SPEED_FEATURES, and returns the winning (ref, mode, mv, filter)
 // tuple as a vp9InterModeDecision.
 //
-// Differences from libvpx (Phase E1 ramp behind GOVPX_VP9_NONRD_PICK_PARTITION):
+// Differences from libvpx:
 //
 //   - libvpx tracks Lagrangian RD via x->rdmult / x->rddiv (vp9_rd.c::
 //     vp9_compute_rd_mult). govpx routes through the libvpx-faithful
 //     vp9RDCost macro that consumes activeRDMult(qindex) + vp9RDDivBits=7
 //     (same scale as libvpx). The picker now constructs (rate, dist)
 //     per candidate via the verbatim model_rd_for_sb_y port in
-//     vp9_block_yrd.go::vp9ModelRdForSbY (when the opt-in env gate is
-//     set) so the RDCOST comparison reproduces libvpx's quantizer-aware
-//     ordering rather than the previous SSE-only proxy.
+//     vp9_block_yrd.go::vp9ModelRdForSbY, so the RDCOST comparison
+//     reproduces libvpx's quantizer-aware ordering rather than the previous
+//     SSE-only proxy.
 //
 //   - libvpx's encode_breakout_test (vp9_pickmode.c:942) is ported in
 //     vp9_block_yrd.go::vp9EncodeBreakoutTest. The gate fires for non-
@@ -625,11 +625,9 @@ func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
 //     64x64 partition leaves on these seeds.
 //     TODO: port block_yrd full kernel (Phase E1b).
 //
-// The model_rd_for_sb_y substrate runs only when
-// vp9NonrdPickPartitionEnabled() returns true. Without the gate the
-// picker keeps the legacy SSE proxy path so the cpu_used=8-default
-// oracle parity tests (Lossless, Checker, Lookahead) stay byte-exact
-// during the Phase E ramp.
+// The model_rd_for_sb_y substrate now runs by default through
+// vp9NonrdPickPartitionEnabled(); the legacy SSE-only proxy remains in the
+// source as the fallback branch but is no longer selected by default.
 //
 // The pickVP9InterReferenceMode entry routes to this function when
 // e.sf.UseNonrdPickMode != 0 (cpu_used >= 5 realtime). At cpu_used < 5 the
@@ -1418,14 +1416,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		useSimpleBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
 			bsize < common.Block32x32
 
-		// useModelRD gates the libvpx-faithful model_rd_for_sb_y +
-		// block_yrd substrate. Behind the Phase E opt-in env (same
-		// GOVPX_VP9_NONRD_PICK_PARTITION=1 gate as the recursive walker)
-		// because the libvpx-faithful (rate, dist) tuple shape disagrees
-		// with the legacy SSE-only proxy on the lossless / cpu_used=8-
-		// default oracle parity tests until the full block_yrd is also
-		// ported. Once parity closes the gate flips and the legacy path
-		// retires.
+		// useModelRD selects the libvpx-faithful model_rd_for_sb_y +
+		// block_yrd substrate. The historical env gate is retired; the
+		// legacy SSE-only proxy remains below as a fallback branch.
 		useModelRD := vp9NonrdPickPartitionEnabled()
 
 		// segId for dequant lookup.
@@ -1925,10 +1918,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// inter-frame intra picker and choose modes outside libvpx's
 	// {DC_PRED,V_PRED,H_PRED,TM_PRED} nonrd fallback list.
 	//
-	// Gated behind GOVPX_VP9_NONRD_PICK_PARTITION=1 (Phase E1c opt-in)
-	// so default oracle parity tests stay byte-exact while Phase E ramps
-	// in. The gate matches the other Phase E opt-in entries
-	// (model_rd_for_sb_y substrate, pred_mv_sad candidate-set SAD).
+	// Runs by default with the other nonrd pickmode substrates
+	// (model_rd_for_sb_y and pred_mv_sad candidate-set SAD).
 	if vp9NonrdPickPartitionEnabled() {
 		bestInterScore := uint64(^uint64(0) >> 1)
 		if bestSet {

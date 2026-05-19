@@ -806,6 +806,18 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	reconYFull := w.reconYFull
 	reconUFull := w.reconUFull
 	reconVFull := w.reconVFull
+	varPartGrid := w.varPartGrid
+	varPartSBComputed := w.varPartSBComputed
+	varPartSBUseMvPart := w.varPartSBUseMvPart
+	varPartSBMvPart := w.varPartSBMvPart
+	varPartSBPredLast := w.varPartSBPredLast
+	varPartSBPredValid := w.varPartSBPredValid
+	varPartSBVarLow := w.varPartSBVarLow
+	varPartSBContentState := w.varPartSBContentState
+	varPartSBContentStateValid := w.varPartSBContentStateValid
+	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	subpelRefBordered := w.subpelRefBordered
+	intProSrcBordered := w.intProSrcBordered
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -829,6 +841,20 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.reconYFull = reconYFull
 	w.reconUFull = reconUFull
 	w.reconVFull = reconVFull
+	w.varPartGrid = varPartGrid
+	w.varPartSBComputed = varPartSBComputed
+	w.varPartSBUseMvPart = varPartSBUseMvPart
+	w.varPartSBMvPart = varPartSBMvPart
+	w.varPartSBPredLast = varPartSBPredLast
+	w.varPartSBPredValid = varPartSBPredValid
+	w.varPartSBVarLow = varPartSBVarLow
+	w.varPartSBContentState = varPartSBContentState
+	w.varPartSBContentStateValid = varPartSBContentStateValid
+	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.subpelRefBordered = subpelRefBordered
+	w.subpelRefBorderedValid = false
+	w.intProSrcBordered = intProSrcBordered
+	w.intProSrcBorderedValid = false
 	w.vp9CountWorkers = nil
 	w.vp9CountCounts = nil
 	w.vp9CountJobs = nil
@@ -860,6 +886,18 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	reconYFull := w.reconYFull
 	reconUFull := w.reconUFull
 	reconVFull := w.reconVFull
+	varPartGrid := w.varPartGrid
+	varPartSBComputed := w.varPartSBComputed
+	varPartSBUseMvPart := w.varPartSBUseMvPart
+	varPartSBMvPart := w.varPartSBMvPart
+	varPartSBPredLast := w.varPartSBPredLast
+	varPartSBPredValid := w.varPartSBPredValid
+	varPartSBVarLow := w.varPartSBVarLow
+	varPartSBContentState := w.varPartSBContentState
+	varPartSBContentStateValid := w.varPartSBContentStateValid
+	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	subpelRefBordered := w.subpelRefBordered
+	intProSrcBordered := w.intProSrcBordered
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -880,6 +918,20 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.reconYFull = reconYFull
 	w.reconUFull = reconUFull
 	w.reconVFull = reconVFull
+	w.varPartGrid = varPartGrid
+	w.varPartSBComputed = varPartSBComputed
+	w.varPartSBUseMvPart = varPartSBUseMvPart
+	w.varPartSBMvPart = varPartSBMvPart
+	w.varPartSBPredLast = varPartSBPredLast
+	w.varPartSBPredValid = varPartSBPredValid
+	w.varPartSBVarLow = varPartSBVarLow
+	w.varPartSBContentState = varPartSBContentState
+	w.varPartSBContentStateValid = varPartSBContentStateValid
+	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.subpelRefBordered = subpelRefBordered
+	w.subpelRefBorderedValid = false
+	w.intProSrcBordered = intProSrcBordered
+	w.intProSrcBorderedValid = false
 	w.vp9CountWorkers = nil
 	w.vp9CountCounts = nil
 	w.vp9CountJobs = nil
