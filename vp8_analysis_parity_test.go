@@ -329,9 +329,10 @@ func TestVP8AnalysisOffStatsNil(t *testing.T) {
 	}
 }
 
-// TestVP8AnalysisNormalizeForcesByteParity confirms the contract that
-// ByteParityRequired is forced true in this revision. A caller passing
-// false must observe the field set to true after Normalize.
+// TestVP8AnalysisNormalizeForcesByteParity confirms that without
+// UseEncodeHints, Normalize forces ByteParityRequired=true regardless
+// of caller intent — observation-only analyzers must never affect the
+// bitstream.
 func TestVP8AnalysisNormalizeForcesByteParity(t *testing.T) {
 	cfg := VP8AnalysisConfig{
 		Mode:               VP8AnalysisObserveCPU,
@@ -339,10 +340,29 @@ func TestVP8AnalysisNormalizeForcesByteParity(t *testing.T) {
 	}
 	normalized := cfg.Normalize()
 	if !normalized.ByteParityRequired {
-		t.Fatal("Normalize did not force ByteParityRequired=true")
+		t.Fatal("Normalize did not force ByteParityRequired=true when UseEncodeHints is false")
 	}
 	if normalized.AffectsEncodeDecisions() {
-		t.Fatal("AffectsEncodeDecisions must return false in this revision")
+		t.Fatal("AffectsEncodeDecisions must return false when UseEncodeHints is false")
+	}
+}
+
+// TestVP8AnalysisUseEncodeHintsDropsParity confirms that opting into
+// UseEncodeHints is the only way to set ByteParityRequired=false — and
+// that it is forced false automatically, so the caller cannot opt into
+// hint consumption while also requesting parity.
+func TestVP8AnalysisUseEncodeHintsDropsParity(t *testing.T) {
+	cfg := VP8AnalysisConfig{
+		Mode:               VP8AnalysisObserveCPU,
+		UseEncodeHints:     true,
+		ByteParityRequired: true, // caller asked for both; Normalize must resolve
+	}
+	normalized := cfg.Normalize()
+	if normalized.ByteParityRequired {
+		t.Fatal("Normalize did not drop ByteParityRequired when UseEncodeHints is true")
+	}
+	if !normalized.AffectsEncodeDecisions() {
+		t.Fatal("AffectsEncodeDecisions must return true when UseEncodeHints is true")
 	}
 }
 

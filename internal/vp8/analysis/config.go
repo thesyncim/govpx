@@ -61,11 +61,12 @@ type Config struct {
 	// Mode selects the analyzer. Defaults to [VP8AnalysisOff].
 	Mode VP8AnalysisMode
 
-	// ByteParityRequired guards against any analyzer that could change
-	// the encoded bitstream. In this revision the framework supports
-	// only observation, so ByteParityRequired is always honored; the
-	// field is plumbed through so future non-parity modes can be added
-	// without an API break. Forced to true by [Config.Normalize].
+	// ByteParityRequired guards against any analyzer or encoder hint
+	// consumer that could change the encoded bitstream. When true (the
+	// default), no analyzer output is permitted to influence encode
+	// decisions; the bitstream is byte-identical to a build without
+	// the hook at all. [Config.Normalize] forces it true unless
+	// [UseEncodeHints] is explicitly opted in.
 	ByteParityRequired bool
 
 	// CollectMotionHints requests per-macroblock zero-MV SAD and a
@@ -81,6 +82,22 @@ type Config struct {
 	// CollectComplexity requests per-macroblock variance / texture
 	// counters and the whole-frame AnalysisStats aggregates.
 	CollectComplexity bool
+
+	// UseEncodeHints opts the encoder into consuming analyzer output as
+	// a decision input. Setting it to true:
+	//
+	//   - implies [ByteParityRequired] = false (the encoded bitstream
+	//     WILL differ from the no-analysis baseline);
+	//   - causes the encoder to apply hint-driven optimizations such
+	//     as motion-search early-exit on macroblocks flagged
+	//     [FlagSkipLikely] / [FlagStatic];
+	//   - is documented in docs/vp8_gpu_hint_consumption.md.
+	//
+	// Quality impact is documented per-optimization in that file. The
+	// design intent is "non-noticeable quality loss for measurable
+	// encode speedup"; consumers SHOULD validate quality on their
+	// target corpus before flipping this on for production.
+	UseEncodeHints bool
 }
 
 // DefaultConfig returns the safe default configuration: analysis disabled,
@@ -92,19 +109,25 @@ func DefaultConfig() Config {
 	}
 }
 
-// Normalize fills in defaults and enforces invariants. In this revision the
-// only enforced invariant is that ByteParityRequired is forced to true,
-// because no non-parity code path exists yet. Returning a copy keeps Config
-// values shareable across goroutines without surprises.
+// Normalize fills in defaults and enforces invariants. The rule is:
+//
+//   - If UseEncodeHints is false, ByteParityRequired is forced true.
+//   - If UseEncodeHints is true, ByteParityRequired is forced false
+//     (parity cannot hold once hints feed decisions).
+//
+// Returning a copy keeps Config values shareable across goroutines without
+// surprises.
 func (c Config) Normalize() Config {
-	c.ByteParityRequired = true
+	if c.UseEncodeHints {
+		c.ByteParityRequired = false
+	} else {
+		c.ByteParityRequired = true
+	}
 	return c
 }
 
 // AffectsEncodeDecisions reports whether the configured mode is permitted
-// to influence encode decisions. In this revision it is always false; the
-// VP8 encoder uses this to assert that no observation result is wired into
-// any decision path.
+// to influence encode decisions. True only when [UseEncodeHints] is set.
 func (c Config) AffectsEncodeDecisions() bool {
-	return false
+	return c.UseEncodeHints
 }
