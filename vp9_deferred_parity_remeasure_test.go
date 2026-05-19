@@ -160,8 +160,13 @@ func TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity(t *testing.T) {
 // TestVP9DeferredSeedsRemeasureRuntimeControls is the sibling probe for the
 // remaining vp9RuntimeControlsSeedsDeferred set.
 //
-// Measurement (task #150, this commit — set_ext_overrides port) at the
-// default gate (no opt-in):
+// Current baseline (2026-05-19): the speed-8 nonrd entries seed #3 and the
+// {0x32} alias have graduated to
+// TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity. This remeasure skips
+// those closed entries and reports the remaining cpu=0/-3 plus speed-4 gaps.
+//
+// Historical measurement (task #150 — set_ext_overrides port) at the default
+// gate (no opt-in):
 //
 //	PASS=0/10 measurable FAIL=10/10 STRUCTURAL_REJECT=0/10. Seeds
 //	#0/#2/#4/#6 (cpu=0 panning content) diverge frame 0 at byte 9

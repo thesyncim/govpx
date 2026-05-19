@@ -122,7 +122,10 @@ import (
 //     320 256 512]. Earlier diagnostic cited a keyframe compressed-header
 //     writer gap at byte 16; that gap has SINCE BEEN CLOSED — frame 0 now
 //     byte-MATCHES at len=5937 against the libvpx vpxenc-vp9-frameflags
-//     oracle. The remaining divergence is in the INTER frames:
+//     oracle. Current closure status (2026-05-19): every frame byte-matches
+//     libvpx and this seed is guarded by
+//     TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity. Historical
+//     pre-closure inter-frame diagnostics:
 //
 //     frame 1 (NoUpdateEntropy): got_len=3782 want_len=2830 first_diff_bit=72
 //     frame 2 (default flags):   got_len=3903 want_len=2933 first_diff_bit=33
@@ -165,14 +168,12 @@ import (
 //     header diff updates AND different filter histogram → cascading
 //     bitstream drift.
 //
-//     Closing this seed requires a verbatim port of the nonrd pickmode
-//     per-block mode+filter+tokenise pipeline (vp9_pickmode.c:1731-2080)
-//     plus the per-block coef counts accumulator (vp9_tokenize.c
-//     vp9_tokenize_sb / sum_intra_stats / count_segs paths). This is a
-//     substantial encoder-body port — not a header-writer fix — and is
-//     tracked separately from the closed compressed-header keyframe work.
-//     The KF compressed-header writer (the OLD cited gap) is verbatim
-//     against libvpx now and is NOT the remaining gap.
+//     The historical diagnosis pointed at the nonrd pickmode per-block
+//     mode+filter+tokenise pipeline (vp9_pickmode.c:1731-2080) plus the
+//     per-block coef counts accumulator (vp9_tokenize.c vp9_tokenize_sb /
+//     sum_intra_stats / count_segs paths). That path is now sufficiently
+//     covered for this seed; keep the seed in vp9RuntimeControlsRegressionSeeds
+//     so future drift fails visibly.
 //
 //   - {0,2,0,2,0,0,0,0} — 64x64 frames=8 cpu=0. Same KEY_FRAME
 //     per-block tx_size RD-search gap as #0 with frame count widened;
@@ -289,11 +290,10 @@ import (
 //     writeInterpFilter + vp9FixInterpFilter trio is a verbatim port of
 //     libvpx (internal/vp9/encoder/header_writer.go:114-157,195-215 and
 //     vp9_encoder.go:4541-4606). The first_byte_diff=4 result is not
-//     fixable by any header-writer edit; closing seed #8 requires
-//     porting the nonrd pickmode per-block filter pipeline so the
-//     per-frame switchable_interp histogram matches libvpx's. This is
-//     the SAME encoder-body port handoff cited under seed #3 case (b)
-//     above. Do NOT close this entry until that port lands.
+//     fixable by any header-writer edit. Current closure status
+//     (2026-05-19): the {0x32} alias now byte-matches libvpx and is guarded
+//     by TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity; the diagnostic
+//     remains as the attribution trail for the closed byte-4 regression.
 //
 //     The previous note attributed byte 4 to the compressed-header
 //     coef-update walk (vp9_bitstream.c:826-973). That citation is
@@ -515,7 +515,8 @@ import (
 //
 //	The byte-9 cohort that ROUTES THROUGH nonrd (seed #3 ac1b2597
 //	cpu=-8 and seed #8 d4735e3a cpu=-8) was the speed=8 ML_BASED_-
-//	PARTITION target of the task #169 hypothesis. Hypothesis:
+//	PARTITION target of the task #169 hypothesis before the 2026-05-19
+//	regression-gate closure. Historical hypothesis:
 //	govpx's pickVP9InterTxSize score-based RDO under-picks Tx16x16
 //	at the ML leaves vs libvpx calculate_tx_size
 //	(vp9_pickmode.c:363-394), driving the byte-9 FirstPartitionSize

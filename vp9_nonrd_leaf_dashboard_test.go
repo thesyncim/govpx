@@ -17,11 +17,12 @@ import (
 // focused on actual block decisions. It compares govpx and libvpx packets
 // after decoding them through govpx's VP9 parser, then logs per-leaf mode,
 // MV, filter, tx-size, qcoeff-count, and token-count deltas for the first
-// mismatching frame in each deferred seed.
+// mismatching frame in each historical deferred or regression seed.
 //
 // The subtests deliberately split speed-8 nonrd RefControl seeds from
-// RuntimeControls RD/keyframe seeds, speed-8 nonrd seeds, and speed-4 realtime
-// seeds so improvements in one lane do not get mistaken for global closure.
+// RuntimeControls RD/keyframe seeds, closed speed-8 nonrd regression seeds,
+// and speed-4 realtime seeds so improvements in one lane do not get mistaken
+// for global closure.
 func TestVP9DeferredSeedsLeafDecisionDashboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 leaf-decision dashboard")
@@ -48,9 +49,7 @@ func TestVP9DeferredSeedsLeafDecisionDashboard(t *testing.T) {
 	})
 
 	t.Run("RuntimeControlsSpeed8NonRD", func(t *testing.T) {
-		logVP9RuntimeLeafDecisionCases(t, func(cpu int8) bool {
-			return cpu == -8
-		})
+		logVP9RuntimeLeafDecisionSeeds(t, vp9RuntimeControlsRegressionSeeds)
 	})
 
 	t.Run("RuntimeControlsSpeed4Realtime", func(t *testing.T) {
@@ -77,6 +76,18 @@ func logVP9RuntimeLeafDecisionCases(t *testing.T, includeCPU func(int8) bool) {
 	}
 	if count == 0 {
 		t.Log("no runtime-control seeds matched this dashboard lane")
+	}
+}
+
+func logVP9RuntimeLeafDecisionSeeds(t *testing.T, seeds [][]byte) {
+	t.Helper()
+	for idx, seed := range seeds {
+		tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
+		sum := sha256.Sum256(seed)
+		label := fmt.Sprintf("runtimectrl-regression-#%d-%s-cpu%d", idx,
+			hex.EncodeToString(sum[:4]), tc.opts.CpuUsed)
+		logVP9LeafDecisionCase(t, label, tc.opts, tc.sources, tc.flags,
+			tc.extraArgs)
 	}
 }
 

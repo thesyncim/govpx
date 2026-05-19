@@ -8,25 +8,25 @@ import (
 	"testing"
 )
 
-// TestVP9Seed8Byte4Diag dumps the first 32 bytes of every frame for seed #8
-// of vp9RuntimeControlsSeedsDeferred. Frame 1 is the first inter frame and
-// diverges at byte 4 with size_delta=+4185B (task #156). The dump confirms
-// the divergence is bit 33 (libvpx write_interp_filter): libvpx emits 1
-// (SWITCHABLE) while govpx emits 0 (filter demoted by fix_interp_filter
-// because counts.SwitchableInterp totals c==1, see
-// TestVP9Seed8FilterHistogram).
+// TestVP9Seed8Byte4Diag dumps the first 32 bytes of every frame for the
+// historical RuntimeControls seed #8 alias ({0x32}). The seed now lives in
+// vp9RuntimeControlsRegressionSeeds and byte-matches libvpx; the dump is kept
+// as the closure audit for the old task #156 byte-4 interp-filter divergence.
 func TestVP9Seed8Byte4Diag(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1")
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
-	seed := vp9RuntimeControlsSeedsDeferred[8]
+	seed := vp9RuntimeControlsRegressionSeeds[1]
 	tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
-	t.Logf("seed#8 w=%d h=%d frames=%d cpu=%d flags=%v",
+	t.Logf("runtime-speed8-alias w=%d h=%d frames=%d cpu=%d flags=%v",
 		tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)
 
 	got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 	want := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
+	if !seedByteIdentical(got, want) {
+		t.Fatalf("historical RuntimeControls speed-8 alias lost byte parity")
+	}
 
 	for i := 0; i < len(got) && i < len(want); i++ {
 		g := got[i]

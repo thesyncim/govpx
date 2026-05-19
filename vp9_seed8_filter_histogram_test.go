@@ -7,20 +7,20 @@ import (
 	"testing"
 )
 
-// TestVP9Seed8FilterHistogram runs seed #8 through govpx with a hook that
-// dumps the per-frame counts.SwitchableInterp histogram before
-// fix_interp_filter (libvpx vp9_bitstream.c:864-885) runs. Used to confirm
-// the byte-4 divergence in task #156 traces to a per-block filter
-// histogram disagreement (c==1 in govpx vs c>=2 in libvpx for frames 1, 3,
-// 4, 5 of the seed) rather than a header-writer bug.
+// TestVP9Seed8FilterHistogram runs the historical RuntimeControls seed #8
+// alias ({0x32}) through govpx with a hook that dumps the per-frame
+// counts.SwitchableInterp histogram before fix_interp_filter (libvpx
+// vp9_bitstream.c:864-885) runs. The seed now lives in
+// vp9RuntimeControlsRegressionSeeds; this diagnostic is retained as the
+// closure audit for the old task #156 byte-4 filter-histogram divergence.
 func TestVP9Seed8FilterHistogram(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1")
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
-	seed := vp9RuntimeControlsSeedsDeferred[8]
+	seed := vp9RuntimeControlsRegressionSeeds[1]
 	tc := vp9OracleRuntimeFuzzCaseFromBytes(seed)
-	t.Logf("seed#8 w=%d h=%d frames=%d cpu=%d flags=%v",
+	t.Logf("runtime-speed8-alias w=%d h=%d frames=%d cpu=%d flags=%v",
 		tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)
 
 	prev := vp9SwitchableInterpHistogramHook
