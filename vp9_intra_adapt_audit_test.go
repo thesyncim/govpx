@@ -49,7 +49,7 @@ func TestVP9IntraModeCoverageMatchesLibvpx(t *testing.T) {
 	key := newVP9KeyframeModeTestState(e, img, width, height)
 	mi := vp9dec.NeighborMi{SbType: common.Block32x32, TxSize: common.Tx16x16}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 4, MiColStart: 0, MiColEnd: 4}
-	_ = e.pickVP9KeyframeMode(key, tile, 4, 4, 0, 0, common.Block32x32, &mi)
+	_ = e.pickVP9KeyframeMode(key, tile, 4, 4, 0, 0, common.Block32x32, &mi, common.TxModeSelect)
 
 	// pickVP9KeyframeMode does not expose its iteration count, so we
 	// re-derive coverage by computing the per-mode score directly with
@@ -61,7 +61,7 @@ func TestVP9IntraModeCoverageMatchesLibvpx(t *testing.T) {
 	rdmult := vp9KeyframeRDMul(e.vp9EncoderModeDecisionQIndex())
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if _, ok := e.scoreVP9KeyframeModeRD(key, mode, 0, rdmult, tile,
-			4, 4, 0, 0, common.Block32x32, &mi); ok {
+			4, 4, 0, 0, common.Block32x32, &mi, common.TxModeSelect); ok {
 			evaluated++
 		}
 	}

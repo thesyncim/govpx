@@ -7765,7 +7765,7 @@ func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 	key := newVP9KeyframeModeTestState(e, img, 128, 64)
 	mi := vp9dec.NeighborMi{SbType: common.Block64x64, TxSize: common.Tx32x32}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 16}
-	got := e.pickVP9KeyframeMode(key, tile, 8, 16, 0, 8, common.Block64x64, &mi)
+	got := e.pickVP9KeyframeMode(key, tile, 8, 16, 0, 8, common.Block64x64, &mi, common.TxModeSelect)
 	if got != common.HPred {
 		t.Errorf("mode = %d, want HPred", got)
 	}
@@ -7799,7 +7799,7 @@ func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
 	key := newVP9KeyframeModeTestState(e, img, width, height)
 	mi := vp9dec.NeighborMi{SbType: common.Block64x64, TxSize: common.Tx32x32}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 16, MiColStart: 0, MiColEnd: 16}
-	got := e.pickVP9KeyframeMode(key, tile, 16, 16, 8, 8, common.Block64x64, &mi)
+	got := e.pickVP9KeyframeMode(key, tile, 16, 16, 8, 8, common.Block64x64, &mi, common.TxModeSelect)
 	if got != common.HPred {
 		t.Fatalf("mode = %d, want HPred from full-block score", got)
 	}
@@ -7818,7 +7818,7 @@ func TestVP9EncoderKeyframePicksHorizontalModeForTx16(t *testing.T) {
 	key := newVP9KeyframeModeTestState(e, img, 32, 16)
 	mi := vp9dec.NeighborMi{SbType: common.Block16x16, TxSize: common.Tx16x16}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 2, MiColStart: 0, MiColEnd: 4}
-	got := e.pickVP9KeyframeMode(key, tile, 2, 4, 0, 2, common.Block16x16, &mi)
+	got := e.pickVP9KeyframeMode(key, tile, 2, 4, 0, 2, common.Block16x16, &mi, common.TxModeSelect)
 	if got != common.HPred {
 		t.Errorf("mode = %d, want HPred", got)
 	}
