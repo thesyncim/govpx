@@ -388,8 +388,10 @@ func TestVP9RuntimeControlsSpeed8RegressionSeedsByteParity(t *testing.T) {
 //     that path also pins to libvpx byte-for-byte.
 //
 // TestVP9DeferredSeedsRemeasureRuntimeControls is a diagnostic for open
-// RuntimeControls gaps. It does not expect byte parity yet, but each lane must
-// keep materialising at least one seed so the diagnostic cannot silently rot.
+// RuntimeControls gaps. It does not expect byte parity yet, but each remaining
+// open lane must keep materialising at least one seed so the diagnostic cannot
+// silently rot. Speed-8 nonrd cases are guarded by the strict regression test
+// above because they have graduated out of the deferred corpus.
 func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RuntimeControls seeds")
@@ -414,11 +416,6 @@ func TestVP9DeferredSeedsRemeasureRuntimeControls(t *testing.T) {
 	t.Run("RDKeyframeCPU0Neg3", func(t *testing.T) {
 		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {
 			return cpu == 0 || cpu == -3
-		})
-	})
-	t.Run("Speed8NonRD", func(t *testing.T) {
-		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {
-			return cpu == -8
 		})
 	})
 	t.Run("Speed4Realtime", func(t *testing.T) {
@@ -489,6 +486,21 @@ func remeasureVP9RuntimeControlsSeedLane(t *testing.T, includeCPU func(int8) boo
 	if skipped != 0 {
 		t.Fatalf("deferred RuntimeControls lane has structural rejects: %d", skipped)
 	}
+}
+
+func firstVP9MismatchingFrame(got, want [][]byte) int {
+	n := min(len(got), len(want))
+	for i := 0; i < n; i++ {
+		g := sha256.Sum256(got[i])
+		w := sha256.Sum256(want[i])
+		if g != w {
+			return i
+		}
+	}
+	if len(got) != len(want) {
+		return n
+	}
+	return -1
 }
 
 func seedByteIdentical(got, want [][]byte) bool {

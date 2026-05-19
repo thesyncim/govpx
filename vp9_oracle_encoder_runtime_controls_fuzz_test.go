@@ -256,7 +256,7 @@ import (
 //     ignored, not errored), seed 0x32 frames 0 and 2 (the two KEY_FRAMES)
 //     match byte-for-byte. Inter frames 1, 3-5, 7 still diverge.
 //
-//     Task #156 byte-4 root-cause audit (vp9_seed8_byte4_diag_test.go):
+//     Task #156 byte-4 root-cause audit (retired byte-dump diagnostic):
 //
 //     The proximate divergence is bit 33 of the uncompressed header --
 //     write_interp_filter (libvpx vp9_bitstream.c:855-862): libvpx emits
@@ -329,7 +329,7 @@ import (
 //     dim + cpu>=4 RT speed compressed-header subset); do NOT close
 //     until those close.
 //
-//     Task #168 byte-17 attribution (TestVP9Seed9Byte17Diag): frame 0
+//     Task #168 byte-17 attribution (retired byte-dump diagnostic): frame 0
 //     bytes 0-16 are byte-exact; byte 17 = 0x00 in govpx, 0x10 in
 //     libvpx (xor 0x10 = stream bit 139). Bit accounting for a 128x64
 //     KF profile-0 with default loopfilter deltas (RefDeltas
