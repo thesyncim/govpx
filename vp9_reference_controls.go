@@ -58,6 +58,7 @@ func (d *VP9Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 		!src.validForEncode(d.width, d.height) {
 		return ErrInvalidConfig
 	}
+	d.releaseVP9ReferenceExternalFrame(slot)
 	d.refFrames[slot].store(src)
 	return nil
 }

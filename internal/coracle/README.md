@@ -9,7 +9,10 @@ Main tools:
 - `vpx_oracle.c`: VP8 decoder checksum oracle.
 - `build_vpxenc.sh`: pinned stock `vpxenc` / `vpxdec` (VP8 path).
 - `build_vpxdec_vp9.sh`: VP9-enabled `vpxdec` / `vpxenc` for Profile 0
-  oracle tests.
+  oracle tests. The `vpxdec` build is lightly patched to expose VP9 decoder
+  controls that stock `vpxdec` lacks CLI flags for, including
+  `VP9_SET_SKIP_LOOP_FILTER`, `VP9_INVERT_TILE_DECODE_ORDER`, and explicit
+  VP9 postprocess flag selection.
 - `build_vpxenc_vp9_frameflags.sh`: VP9 per-frame flag encoder driver used
   by byte-parity / scoreboard / BD-rate tests that need to push
   `VPX_EFLAG_FORCE_KF` / `VP8_EFLAG_NO_REF_*` / `VP8_EFLAG_FORCE_*` and

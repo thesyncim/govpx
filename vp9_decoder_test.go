@@ -52,6 +52,26 @@ func TestNewVP9DecoderRejectsBadOptions(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderEffectivePostProcessFlagsMatchLibvpxVP9Default(t *testing.T) {
+	if got, want := (VP9DecoderOptions{PostProcess: true}).effectivePostProcessFlags(),
+		PostProcessDeblock|PostProcessDemacroblock; got != want {
+		t.Fatalf("VP9 legacy postprocess flags = 0x%x, want 0x%x", got, want)
+	}
+	if got, want := (VP9DecoderOptions{
+		PostProcess:           true,
+		PostProcessNoiseLevel: 4,
+	}).effectivePostProcessFlags(),
+		PostProcessDeblock|PostProcessDemacroblock|PostProcessAddNoise; got != want {
+		t.Fatalf("VP9 legacy noise postprocess flags = 0x%x, want 0x%x", got, want)
+	}
+	if got, want := (VP9DecoderOptions{
+		PostProcess:      true,
+		PostProcessFlags: PostProcessMFQE,
+	}).effectivePostProcessFlags(), PostProcessMFQE; got != want {
+		t.Fatalf("VP9 explicit postprocess flags = 0x%x, want 0x%x", got, want)
+	}
+}
+
 func TestVP9DecoderPrepareIntraOnlyFrameContextResetSemantics(t *testing.T) {
 	d, _ := NewVP9Decoder(VP9DecoderOptions{})
 	d.frameContexts[0].SkipProbs[0] = 77

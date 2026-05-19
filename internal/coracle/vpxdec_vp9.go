@@ -107,10 +107,24 @@ func VpxdecVP9DecodeWebMI420(webm []byte) (raw []byte, diag []byte, err error) {
 // LoopFilterOpt mirror libvpx vpxdec's --row-mt and --lpf-opt CLI flags;
 // they expose the VP9D_SET_ROW_MT and VP9D_SET_LOOP_FILTER_OPT control
 // codes the govpx VP9 decoder also wires through SetRowMT / SetLoopFilterOpt.
+// SVCSpatialLayerSet mirrors --svc-decode-layer / VP9_DECODE_SVC_SPATIAL_LAYER.
+// SkipLoopFilter and InvertTileDecodeOrder use govpx's pinned vpxdec-vp9
+// helper patch to expose VP9_SET_SKIP_LOOP_FILTER and
+// VP9_INVERT_TILE_DECODE_ORDER for oracle tests.
+// PostProcessFlags, PostProcessNoiseLevel, and PostProcessDeblockingLevel use
+// the same patch to drive VP8_SET_POSTPROC against the VP9 decoder.
 type VpxdecVP9Options struct {
-	Threads       int
-	RowMT         bool
-	LoopFilterOpt bool
+	Threads                    int
+	RowMT                      bool
+	LoopFilterOpt              bool
+	SVCSpatialLayerSet         bool
+	SVCSpatialLayer            int
+	SkipLoopFilter             bool
+	InvertTileDecodeOrder      bool
+	PostProcess                bool
+	PostProcessFlags           int
+	PostProcessNoiseLevel      int
+	PostProcessDeblockingLevel int
 }
 
 // VpxdecVP9DecodeI420WithOptions is VpxdecVP9DecodeI420 with the additional
@@ -158,6 +172,27 @@ func vpxdecVP9DecodeI420(input []byte, tempPattern string, opts VpxdecVP9Options
 	}
 	if opts.LoopFilterOpt {
 		args = append(args, "--lpf-opt=1")
+	}
+	if opts.SVCSpatialLayerSet {
+		args = append(args, "--svc-decode-layer="+strconv.Itoa(opts.SVCSpatialLayer))
+	}
+	if opts.SkipLoopFilter {
+		args = append(args, "--skip-loop-filter=1")
+	}
+	if opts.InvertTileDecodeOrder {
+		args = append(args, "--invert-tile-decode-order=1")
+	}
+	if opts.PostProcess {
+		args = append(args, "--postproc")
+	}
+	if opts.PostProcessFlags != 0 {
+		args = append(args, "--vp9-postproc-flags="+strconv.Itoa(opts.PostProcessFlags))
+	}
+	if opts.PostProcessNoiseLevel != 0 {
+		args = append(args, "--vp9-postproc-noise-level="+strconv.Itoa(opts.PostProcessNoiseLevel))
+	}
+	if opts.PostProcessDeblockingLevel != 0 {
+		args = append(args, "--vp9-postproc-deblock-level="+strconv.Itoa(opts.PostProcessDeblockingLevel))
 	}
 	args = append(args, in.Name())
 	cmd := exec.Command(bin, args...)

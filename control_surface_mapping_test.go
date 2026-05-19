@@ -350,8 +350,10 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"LastReferenceUpdates":     {kind: "metadata-api"},
 		"NextFrame":                {kind: "decode-api"},
 		"Reset":                    {kind: "lifecycle"},
+		"SetByteAlignment":         {kind: "libvpx-decoder-control"},
 		"SetDecodeTileCol":         {kind: "libvpx-decoder-control"},
 		"SetDecodeTileRow":         {kind: "libvpx-decoder-control"},
+		"SetFrameBufferFunctions":  {kind: "libvpx-decoder-control"},
 		"SetInvertTileDecodeOrder": {kind: "libvpx-decoder-control"},
 		"SetLoopFilterOpt":         {kind: "libvpx-decoder-control"},
 		"SetReferenceFrame":        {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
@@ -366,6 +368,7 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 	fields := exportedFieldSet(t, VP9DecoderOptions{})
 	want := map[string]controlParityMapping{
+		"ByteAlignment":          {kind: "libvpx-decoder-control"},
 		"DecodeTileCol":          {kind: "libvpx-decoder-control"},
 		"DecodeTileColSet":       {kind: "libvpx-decoder-control"},
 		"DecodeTileRow":          {kind: "libvpx-decoder-control"},
@@ -376,6 +379,7 @@ func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 		"DecryptorState":         {kind: "libvpx-decoder-control"},
 		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
 		"ErrorResilient":         {kind: "compat-alias"},
+		"GetFrameBuffer":         {kind: "libvpx-decoder-control"},
 		"InvertTileDecodeOrder":  {kind: "libvpx-decoder-control"},
 		"MaxHeight":              {kind: "local-validation"},
 		"MaxWidth":               {kind: "local-validation"},
@@ -383,6 +387,7 @@ func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 		"PostProcessFlags":       {kind: "libvpx-decode-oracle"},
 		"PostProcessNoiseLevel":  {kind: "libvpx-decode-oracle"},
 		"RejectResolutionChange": {kind: "local-validation"},
+		"ReleaseFrameBuffer":     {kind: "libvpx-decoder-control"},
 		"SkipLoopFilter":         {kind: "libvpx-decoder-control"},
 		"SVCSpatialLayer":        {kind: "libvpx-decoder-control"},
 		"SVCSpatialLayerSet":     {kind: "libvpx-decoder-control"},

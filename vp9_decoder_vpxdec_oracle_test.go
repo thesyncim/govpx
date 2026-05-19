@@ -578,6 +578,85 @@ func TestVP9DecoderVpxdecOracleMatchesLoopFilteredKeyframe(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderVpxdecOracleMatchesSkipLoopFilterControl(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	ivf := vp9IVFForTest(64, 64, packet)
+	want, diag, err := coracle.VpxdecVP9DecodeI420WithOptions(ivf,
+		coracle.VpxdecVP9Options{SkipLoopFilter: true})
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 skip-loop-filter decode failed: %v\n%s",
+			err, diag)
+	}
+
+	got := vp9DecodeVisibleI420WithOptionsForTest(t,
+		VP9DecoderOptions{SkipLoopFilter: true}, packet)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for skip-loop-filter control\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+	if filtered := vp9DecodeVisibleI420ForTest(t, packet); bytes.Equal(got, filtered) {
+		t.Fatal("skip-loop-filter oracle output unexpectedly matched filtered decode")
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesPostProcessControls(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	ivf := vp9IVFForTest(64, 64, packet)
+	for _, tc := range []struct {
+		name string
+		lib  coracle.VpxdecVP9Options
+		gov  VP9DecoderOptions
+	}{
+		{
+			name: "legacy default",
+			lib:  coracle.VpxdecVP9Options{PostProcess: true},
+			gov:  VP9DecoderOptions{PostProcess: true},
+		},
+		{
+			name: "explicit deblock demacroblock",
+			lib: coracle.VpxdecVP9Options{
+				PostProcessFlags:           int(PostProcessDeblock | PostProcessDemacroblock),
+				PostProcessDeblockingLevel: 4,
+			},
+			gov: VP9DecoderOptions{
+				PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock,
+			},
+		},
+		{
+			name: "add noise",
+			lib: coracle.VpxdecVP9Options{
+				PostProcessFlags:      int(PostProcessAddNoise),
+				PostProcessNoiseLevel: 4,
+			},
+			gov: VP9DecoderOptions{
+				PostProcessFlags:      PostProcessAddNoise,
+				PostProcessNoiseLevel: 4,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want, diag, err := coracle.VpxdecVP9DecodeI420WithOptions(ivf, tc.lib)
+			if err != nil {
+				t.Fatalf("vpxdec-vp9 postprocess decode failed: %v\n%s",
+					err, diag)
+			}
+
+			got := vp9DecodeVisibleI420WithOptionsForTest(t, tc.gov, packet)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("I420 mismatch for VP9 postprocess %s\nlibvpx=%s\ngovpx=%s",
+					tc.name,
+					testutil.MD5Hex(md5.Sum(want)),
+					testutil.MD5Hex(md5.Sum(got)))
+			}
+		})
+	}
+}
+
 func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterResidualStream(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 
@@ -592,6 +671,28 @@ func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterResidualStream(t *testing
 	got := vp9DecodeVisibleI420ForTest(t, key, inter)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("I420 mismatch for loop-filtered inter residual stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesInvertTileDecodeOrderControl(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	packet := vp9MultiTileModePacketForTest(t, 1024, 64, 1,
+		[]common.PredictionMode{common.DcPred, common.VPred})
+	ivf := vp9IVFForTest(1024, 64, packet)
+	want, diag, err := coracle.VpxdecVP9DecodeI420WithOptions(ivf,
+		coracle.VpxdecVP9Options{InvertTileDecodeOrder: true})
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 invert-tile-order decode failed: %v\n%s",
+			err, diag)
+	}
+
+	got := vp9DecodeVisibleI420WithOptionsForTest(t,
+		VP9DecoderOptions{InvertTileDecodeOrder: true}, packet)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for inverted tile decode order control\nlibvpx=%s\ngovpx=%s",
 			testutil.MD5Hex(md5.Sum(want)),
 			testutil.MD5Hex(md5.Sum(got)))
 	}
@@ -892,6 +993,36 @@ func TestVP9DecoderVpxdecOracleMatchesDecodeIntoShowExistingStream(t *testing.T)
 	}
 }
 
+func TestVP9DecoderVpxdecOracleMatchesSVCSpatialLayerSuperframe(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	packet := vp9SVCStyleSuperframeForTest(t)
+	ivf := vp9IVFForTest(64, 64, packet)
+	for _, layer := range []int{0, 1} {
+		want, diag, err := coracle.VpxdecVP9DecodeI420WithOptions(ivf,
+			coracle.VpxdecVP9Options{
+				SVCSpatialLayerSet: true,
+				SVCSpatialLayer:    layer,
+			})
+		if err != nil {
+			t.Fatalf("vpxdec-vp9 svc layer %d decode failed: %v\n%s",
+				layer, err, diag)
+		}
+
+		got := vp9DecodeVisibleI420WithOptionsForTest(t,
+			VP9DecoderOptions{
+				SVCSpatialLayerSet: true,
+				SVCSpatialLayer:    uint8(layer),
+			}, packet)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("I420 mismatch for SVC spatial layer %d superframe\nlibvpx=%s len=%d\ngovpx=%s len=%d",
+				layer,
+				testutil.MD5Hex(md5.Sum(want)), len(want),
+				testutil.MD5Hex(md5.Sum(got)), len(got))
+		}
+	}
+}
+
 func requireVP9VpxdecOracle(t *testing.T) {
 	t.Helper()
 	if _, err := coracle.VpxdecVP9Path(); err != nil {
@@ -940,7 +1071,15 @@ func vp9IVFForTest(width, height int, packets ...[]byte) []byte {
 
 func vp9DecodeVisibleI420ForTest(t *testing.T, packets ...[]byte) []byte {
 	t.Helper()
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	return vp9DecodeVisibleI420WithOptionsForTest(t, VP9DecoderOptions{},
+		packets...)
+}
+
+func vp9DecodeVisibleI420WithOptionsForTest(t *testing.T,
+	opts VP9DecoderOptions, packets ...[]byte,
+) []byte {
+	t.Helper()
+	d, err := NewVP9Decoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
