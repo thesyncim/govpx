@@ -43,6 +43,16 @@ type SegmentationParams struct {
 	FeatureData [MaxSegments][SegLvlMax]int16
 }
 
+// ResetSegmentationFeatures mirrors the segmentation part of libvpx's
+// vp9_setup_past_independence. It clears every feature and restores delta-data
+// semantics, while leaving the next header free to set Enabled/UpdateMap/Data.
+func ResetSegmentationFeatures(seg *SegmentationParams) {
+	if seg == nil {
+		return
+	}
+	*seg = SegmentationParams{}
+}
+
 // ReadSegmentation mirrors setup_segmentation. Caller passes an
 // existing SegmentationParams; the parser preserves previous-frame
 // state when the corresponding update flag is 0. The non-update path

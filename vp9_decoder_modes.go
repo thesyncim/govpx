@@ -31,6 +31,9 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	for i := range d.segMap {
 		d.segMap[i] = 0
 	}
+	if vp9HeaderResetsPastIndependence(hdr) {
+		d.resetVP9SegmentationMapsForPastIndependence()
+	}
 
 	partitionProbs := &tables.KfPartitionProbs
 	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
@@ -157,6 +160,9 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 	for i := range d.segMap {
 		d.segMap[i] = 0
 	}
+	if vp9HeaderResetsPastIndependence(hdr) {
+		d.resetVP9SegmentationMapsForPastIndependence()
+	}
 
 	partitionProbs := &d.fc.PartitionProb
 	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
@@ -265,6 +271,20 @@ func (d *VP9Decoder) parseVP9InterModeTile(data []byte,
 		return ErrInvalidVP9Data
 	}
 	return nil
+}
+
+func vp9HeaderResetsPastIndependence(hdr *vp9dec.UncompressedHeader) bool {
+	return hdr != nil && (hdr.FrameType == common.KeyFrame ||
+		hdr.IntraOnly || hdr.ErrorResilientMode)
+}
+
+func (d *VP9Decoder) resetVP9SegmentationMapsForPastIndependence() {
+	for i := range d.segMap {
+		d.segMap[i] = 0
+	}
+	for i := range d.lastSegMap {
+		d.lastSegMap[i] = 0
+	}
 }
 
 func (d *VP9Decoder) readVP9IntraModeSb(r *bitstream.Reader,

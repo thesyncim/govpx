@@ -27,6 +27,19 @@ type LoopfilterParams struct {
 	ModeDeltas          [MaxModeLfDeltas]int8
 }
 
+// ResetLoopfilterDeltas mirrors libvpx's set_default_lf_deltas. It is part of
+// vp9_setup_past_independence: reset-style frames start from these deltas, and
+// setup_loopfilter only overwrites them when mode_ref_delta_update is set.
+func ResetLoopfilterDeltas(lf *LoopfilterParams) {
+	if lf == nil {
+		return
+	}
+	lf.ModeRefDeltaEnabled = true
+	lf.ModeRefDeltaUpdate = true
+	lf.RefDeltas = [MaxRefLfDeltas]int8{1, 0, -1, -1}
+	lf.ModeDeltas = [MaxModeLfDeltas]int8{0, 0}
+}
+
 // ReadLoopfilter parses the 6-bit filter level + 3-bit sharpness +
 // optional mode/ref delta block. Mirrors setup_loopfilter exactly:
 // when the delta-update bit is 0 the existing deltas are preserved, so

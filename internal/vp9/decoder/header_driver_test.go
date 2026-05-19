@@ -111,6 +111,76 @@ func TestReadUncompressedHeaderKeyframe(t *testing.T) {
 	}
 }
 
+func TestReadUncompressedHeaderPastIndependenceSeedsLoopfilterDeltas(t *testing.T) {
+	var pk bitPacker
+	writeProfile0KeyframeHeaderThroughFrameContext(&pk)
+	pk.writeLiteral(17, 6) // filter_level
+	pk.writeLiteral(3, 3)  // sharpness
+	pk.writeBit(1)         // mode_ref_delta_enabled
+	pk.writeBit(0)         // mode_ref_delta_update: preserve seeded defaults
+	writeMinimalQuantSegTileTrailer(&pk, false)
+
+	prev := UncompressedHeader{}
+	prev.Loopfilter.RefDeltas = [MaxRefLfDeltas]int8{9, 8, 7, 6}
+	prev.Loopfilter.ModeDeltas = [MaxModeLfDeltas]int8{5, 4}
+
+	var r BitReader
+	r.Init(pk.buf)
+	h, err := ReadUncompressedHeader(&r, &prev, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if !h.Loopfilter.ModeRefDeltaEnabled || h.Loopfilter.ModeRefDeltaUpdate {
+		t.Fatalf("loopfilter delta flags = enabled:%t update:%t, want enabled/no-update",
+			h.Loopfilter.ModeRefDeltaEnabled, h.Loopfilter.ModeRefDeltaUpdate)
+	}
+	if want := ([MaxRefLfDeltas]int8{1, 0, -1, -1}); h.Loopfilter.RefDeltas != want {
+		t.Fatalf("RefDeltas = %v, want defaults %v", h.Loopfilter.RefDeltas, want)
+	}
+	if want := ([MaxModeLfDeltas]int8{0, 0}); h.Loopfilter.ModeDeltas != want {
+		t.Fatalf("ModeDeltas = %v, want defaults %v", h.Loopfilter.ModeDeltas, want)
+	}
+}
+
+func TestReadUncompressedHeaderPastIndependenceClearsSegmentationFeatures(t *testing.T) {
+	var pk bitPacker
+	writeProfile0KeyframeHeaderThroughFrameContext(&pk)
+	pk.writeLiteral(0, 6) // filter_level
+	pk.writeLiteral(0, 3) // sharpness
+	pk.writeBit(0)        // mode_ref_delta_enabled
+	writeMinimalQuantSegTileTrailer(&pk, true)
+
+	prev := UncompressedHeader{}
+	prev.Seg.Enabled = true
+	prev.Seg.AbsDelta = true
+	prev.Seg.FeatureMask[2] = 1 << uint(SegLvlAltQ)
+	prev.Seg.FeatureData[2][SegLvlAltQ] = 99
+
+	var r BitReader
+	r.Init(pk.buf)
+	h, err := ReadUncompressedHeader(&r, &prev, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if !h.Seg.Enabled || h.Seg.UpdateMap || h.Seg.UpdateData {
+		t.Fatalf("segmentation flags = enabled:%t map:%t data:%t, want enabled/no updates",
+			h.Seg.Enabled, h.Seg.UpdateMap, h.Seg.UpdateData)
+	}
+	if h.Seg.AbsDelta {
+		t.Fatal("Seg.AbsDelta carried stale absolute mode, want default delta mode")
+	}
+	for segID, mask := range h.Seg.FeatureMask {
+		if mask != 0 {
+			t.Fatalf("FeatureMask[%d] = %b, want 0", segID, mask)
+		}
+		for feature, data := range h.Seg.FeatureData[segID] {
+			if data != 0 {
+				t.Fatalf("FeatureData[%d][%d] = %d, want 0", segID, feature, data)
+			}
+		}
+	}
+}
+
 func TestReadUncompressedHeaderShowExisting(t *testing.T) {
 	var pk bitPacker
 	pk.writeLiteral(common.VP9FrameMarker, 2)
@@ -129,6 +199,46 @@ func TestReadUncompressedHeaderShowExisting(t *testing.T) {
 	}
 	if !h.ShowExistingFrame || h.ExistingFrameSlot != 5 {
 		t.Errorf("show-existing flow wrong: %+v", h)
+	}
+}
+
+func writeProfile0KeyframeHeaderThroughFrameContext(pk *bitPacker) {
+	pk.writeLiteral(common.VP9FrameMarker, 2)
+	pk.writeBit(0) // profile bit 0
+	pk.writeBit(0) // profile bit 1
+	pk.writeBit(0) // show_existing_frame
+	pk.writeBit(0) // frame_type = KEY
+	pk.writeBit(1) // show_frame
+	pk.writeBit(0) // error_resilient_mode
+	pk.writeLiteral(uint32(common.VP9SyncCode0), 8)
+	pk.writeLiteral(uint32(common.VP9SyncCode1), 8)
+	pk.writeLiteral(uint32(common.VP9SyncCode2), 8)
+	pk.writeLiteral(uint32(common.CSBT601), 3)
+	pk.writeBit(uint32(common.CRStudioRange))
+	pk.writeLiteral(63, 16)
+	pk.writeLiteral(63, 16)
+	pk.writeBit(0) // render size matches frame size
+	pk.writeBit(1) // refresh_frame_context
+	pk.writeBit(0) // frame_parallel_decoding
+	pk.writeLiteral(0, common.FrameContextsLog2)
+}
+
+func writeMinimalQuantSegTileTrailer(pk *bitPacker, segEnabledNoUpdates bool) {
+	pk.writeLiteral(32, 8) // base_qindex
+	pk.writeBit(0)         // y dc delta
+	pk.writeBit(0)         // uv dc delta
+	pk.writeBit(0)         // uv ac delta
+	if segEnabledNoUpdates {
+		pk.writeBit(1) // segmentation enabled
+		pk.writeBit(0) // update_map
+		pk.writeBit(0) // update_data
+	} else {
+		pk.writeBit(0) // segmentation disabled
+	}
+	pk.writeBit(0) // log2_tile_rows = 0
+	pk.writeLiteral(0, 16)
+	for pk.bitPos&7 != 0 {
+		pk.writeBit(0)
 	}
 }
 

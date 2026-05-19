@@ -156,6 +156,11 @@ func ReadUncompressedHeader(r *BitReader, prev *UncompressedHeader,
 	}
 	h.FrameContextIdx = uint8(r.ReadLiteral(common.FrameContextsLog2))
 
+	if prev == nil || h.FrameType == common.KeyFrame || h.IntraOnly ||
+		h.ErrorResilientMode {
+		SetupPastIndependence(&h)
+	}
+
 	ReadLoopfilter(r, &h.Loopfilter)
 	ReadQuantization(r, &h.Quant)
 	ReadSegmentation(r, &h.Seg)
@@ -167,4 +172,17 @@ func ReadUncompressedHeader(r *BitReader, prev *UncompressedHeader,
 
 	h.FirstPartitionSize = uint16(r.ReadLiteral(16))
 	return h, nil
+}
+
+// SetupPastIndependence mirrors the header-state portion of libvpx
+// vp9_setup_past_independence. Reset-style frames must not inherit
+// loop-filter deltas or segment features from earlier frames; the following
+// loopfilter / segmentation parser then applies the current header's update
+// bits on top of these defaults.
+func SetupPastIndependence(h *UncompressedHeader) {
+	if h == nil {
+		return
+	}
+	ResetSegmentationFeatures(&h.Seg)
+	ResetLoopfilterDeltas(&h.Loopfilter)
 }
