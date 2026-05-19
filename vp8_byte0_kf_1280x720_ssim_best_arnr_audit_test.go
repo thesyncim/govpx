@@ -543,6 +543,42 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// covers this), the per-block dx = qcoeff*dequant - coeff distortion
 	// computation, or the shortcut |x|*dq vs |coeff| boundary check
 	// (encodemb.c:246-256 vs encoder_inter_quantize.go:259).
+	//
+	// Task #324 chroma optimize_b per-coefficient KEEP/DROP cost audit
+	// (NEGATIVE — RETRACTS the cost-computation-bug framing):
+	//
+	//   Re-run of the #316 chroma_optimize_b bisect on the BestARNR
+	//   19981bff cohort frame 1 captures 4720 shared
+	//   (mb_row, mb_col, block) triples between govpx and libvpx. Of
+	//   those:
+	//     * 0 triples have IDENTICAL `coeff` (FDCT residual input) AND
+	//       diverging post-trellis qcoeff.
+	//     * 4720 triples have DIVERGING `coeff` input.
+	//
+	//   This rules out optimize_b's per-coefficient KEEP_COST /
+	//   DROP_COST math (and by extension token_costs, dctValueBaseCost,
+	//   shortcut boundary, RDTRUNC tie-break) as the source of the ±1
+	//   DC keep/drop split. The cost computation is byte-faithful;
+	//   what is not byte-faithful is the `coeff` (transform residual)
+	//   FED INTO it. The actual ARNR pin-hold residual lives in the
+	//   per-MB MODE PICKER: of 960 shared frame-1 MBs in the trace,
+	//   588 (61.25%) have a diverging `mode` selection — e.g. govpx
+	//   NEWMV vs libvpx SPLITMV at MB(0,0) — both with effective
+	//   MV=(8,16)/LAST_FRAME but the NEWMV path uses
+	//   vp8_build_inter16x16_predictors_mbuv while SPLITMV uses
+	//   vp8_build_inter4x4_predictors_mbuv. The two chroma predictor
+	//   paths use different MV-derivation rounding and different
+	//   subpixel filter granularity, so chroma residuals drift even
+	//   when the source/reference frames are byte-identical.
+	//
+	//   Pinned by TestVP8Task324OptimizeBCoeffCostAuditRetraction +
+	//   TestVP8Task324OptimizeBStructuralAudit
+	//   (vp8_task324_optimize_b_coeff_cost_audit_test.go). Cleared-
+	//   candidate list for the chroma optimize_b cost computation
+	//   extended: #282 / #299 / #319 / #322 / #324. Next investigation
+	//   surface is the per-MB inter-mode picker preference (NEWMV vs
+	//   SPLITMV with equivalent MV → different chroma predictor
+	//   builder) — track via a future #325+ picker-mode-bisect task.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
