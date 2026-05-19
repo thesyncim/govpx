@@ -10,18 +10,15 @@ package govpx
 // per-frame state to emit (active_best_quality, active_worst_quality, q).
 // govpx's existing vbrQuantizer / vbrQuantizerWithBounds remain the
 // runtime path; this port is exercised through tests and is wired in
-// over time as the deferrals (extend_minq / extend_maxq /
-// last_qindex_of_arf_layer) are populated.
+// over time as the remaining deferrals are populated.
 //
 // Deferred fields cited inline:
-//   - kf_zeromotion_pct STATIC_MOTION_THRESH path in
-//     pick_kf_q_bound_two_pass (libvpx vp9_ratectrl.c:1378). Returns
-//     plain active_best_quality for non-static KFs.
 //   - last_qindex_of_arf_layer[] tracking (libvpx vp9_ratectrl.c:1554).
 //     We treat the per-layer-depth floor as 0 until the post-encode
 //     hook that updates this is ported.
 //   - extend_minq_fast (libvpx vp9_ratectrl.c twopass->extend_minq_fast).
 //     Defaults to 0.
+const vp9StaticMotionThresh = 95
 
 // vp9RCPickQAndBoundsTwoPassInputs aggregates the libvpx state the
 // two-pass Q picker reads.
@@ -100,13 +97,23 @@ func vp9RCPickQAndBoundsTwoPass(in vp9RCPickQAndBoundsTwoPassInputs, regulatedQ 
 
 	// libvpx: pick_kf_q_bound_two_pass / boost_frame / non-boost branches.
 	if in.IsIntraOnly {
-		// libvpx vp9_ratectrl.c:1363-1429 pick_kf_q_bound_two_pass —
-		// most of the per-resolution Q-delta logic depends on
-		// rc->avg_frame_qindex[KEY_FRAME] and the qindex tables. We
-		// approximate the active-best ceiling using the existing govpx
-		// KF active-quality helper, and let the caller apply the
-		// kf_zeromotion_pct branch (deferred).
-		activeBest = vp9KFActiveQuality(in.AvgFrameQIndexInter)
+		// libvpx vp9_ratectrl.c:1363-1429 pick_kf_q_bound_two_pass.
+		if in.ThisKeyFrameForced {
+			if in.LastKFGroupZeroMotionPct >= vp9StaticMotionThresh {
+				qindex := min(in.LastKFQIndex, in.LastBoostedQIndex)
+				activeBest = qindex
+				deltaQIndex := vp9ComputeQDelta(in.BestQuality, in.WorstQuality, qindex, 125, 100)
+				activeWorst = min(qindex+deltaQIndex, activeWorst)
+			} else {
+				qindex := in.LastBoostedQIndex
+				deltaQIndex := vp9ComputeQDelta(in.BestQuality, in.WorstQuality, qindex, 75, 100)
+				activeBest = max(qindex+deltaQIndex, in.BestQuality)
+			}
+		} else {
+			// The non-forced branch's per-resolution and kf_zeromotion_pct
+			// refinements remain behind the existing active-quality helper.
+			activeBest = vp9KFActiveQuality(in.AvgFrameQIndexInter)
+		}
 	} else if in.BoostFrame {
 		// libvpx vp9_ratectrl.c:1492-1531.
 		var q int
@@ -183,7 +190,7 @@ func vp9RCPickQAndBoundsTwoPass(in vp9RCPickQAndBoundsTwoPassInputs, regulatedQ 
 	var q int
 	switch {
 	case in.IsIntraOnly && in.ThisKeyFrameForced:
-		if in.LastKFGroupZeroMotionPct >= 95 {
+		if in.LastKFGroupZeroMotionPct >= vp9StaticMotionThresh {
 			q = min(in.LastKFQIndex, in.LastBoostedQIndex)
 		} else {
 			q = in.LastBoostedQIndex

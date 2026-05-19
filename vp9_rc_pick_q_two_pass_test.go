@@ -69,11 +69,32 @@ func TestVP9RCPickQAndBoundsTwoPassForcedKeyUsesLastBoostedOrLastKF(t *testing.T
 	if r.Q != in.LastBoostedQIndex {
 		t.Fatalf("q=%d, want last_boosted_qindex=%d", r.Q, in.LastBoostedQIndex)
 	}
+	wantActiveBest := max(in.LastBoostedQIndex+vp9ComputeQDelta(
+		in.BestQuality, in.WorstQuality, in.LastBoostedQIndex, 75, 100),
+		in.BestQuality)
+	if r.ActiveBest != wantActiveBest {
+		t.Fatalf("forced KF active_best=%d, want %d", r.ActiveBest, wantActiveBest)
+	}
+	if r.ActiveWorst != in.ActiveWorstQuality {
+		t.Fatalf("forced KF active_worst=%d, want unchanged %d",
+			r.ActiveWorst, in.ActiveWorstQuality)
+	}
+
 	in.LastKFGroupZeroMotionPct = 99 // >= 95 -> min(last_kf_qindex, last_boosted_qindex)
 	r = vp9RCPickQAndBoundsTwoPass(in, 100)
 	want := min(in.LastBoostedQIndex, in.LastKFQIndex)
 	if r.Q != want {
 		t.Fatalf("static-motion forced KF q=%d, want %d", r.Q, want)
+	}
+	if r.ActiveBest != want {
+		t.Fatalf("static-motion forced KF active_best=%d, want %d", r.ActiveBest, want)
+	}
+	wantActiveWorst := min(want+vp9ComputeQDelta(
+		in.BestQuality, in.WorstQuality, want, 125, 100),
+		in.ActiveWorstQuality)
+	if r.ActiveWorst != wantActiveWorst {
+		t.Fatalf("static-motion forced KF active_worst=%d, want %d",
+			r.ActiveWorst, wantActiveWorst)
 	}
 }
 
