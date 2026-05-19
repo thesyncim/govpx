@@ -315,10 +315,34 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// actZbinAdj parity on this exact cohort. The -5/-6 byte residual
 	// is NOT explained by an actZbinAdj skew.
 	//
-	// Remaining sharpest candidates (in walk order, per task #284):
-	//   #1 chroma sub-pel predictor — vp8_build_inter16x16_predictors_mb
-	//      vs reconstructWholeMVInterMacroblockFast (chroma-MV
-	//      derivation + sixtap/bilinear_predict8x8);
+	// Task #292 chroma sub-pel predictor audit (NEGATIVE result):
+	// per static inspection plus an exhaustive sub-pixel filter
+	// sweep (vp8_task292_chroma_subpel_audit_test.go), all four
+	// sub-components of govpx's chroma sub-pel predictor are
+	// byte-faithful to libvpx v1.16.0:
+	//   (a) chroma MV derivation `(mvRow + 1 + sign)/2 &
+	//       fullpixel_mask` — exhaustive sweep over mvRow ∈ [-256,
+	//       256] × {fullPixel=false,true} matches libvpx
+	//       vp8/common/reconinter.c:327-334 verbatim.
+	//   (b) UV plane base offset `(uvMVRow >> 3)*uvStride +
+	//       (uvMVCol >> 3)` — libvpx packs uv_stride = y_stride >>
+	//       1 (vpx_scale/generic/yv12config.c:62); govpx packs
+	//       identically (internal/vp8/common/frame.go:167-169) ⇒
+	//       byte-equivalent strides at 1280x720 border=32 yield
+	//       yStride=1344, uStride=672.
+	//   (c) Sixtap/bilinear/copy dispatch decision `(uvRow|uvCol)&7
+	//       == 0` matches libvpx `_16x16mv.as_int & 0x00070007 ==
+	//       0` exhaustively across all 8×8 sub-pixel positions.
+	//   (d) Filter kernel — SubPelFilters table (8×6) and
+	//       BilinearFilters table (8×2) match libvpx byte-exactly
+	//       (filter.c:15-31); the scalar kernels produce
+	//       byte-identical output to a fresh libvpx-from-source
+	//       reimplementation across every (xoffset, yoffset) ∈
+	//       [0..7]×[0..7] \ {(0,0)} for both sixtap and bilinear.
+	// The -5 byte ARNR pin-hold is NOT explained by a chroma
+	// sub-pel predictor divergence.
+	//
+	// Remaining sharpest candidate (in walk order, per task #284):
 	//   #3 residual gather slice ordering —
 	//      gatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
 	wantFrame0GovpxLen := 145534
