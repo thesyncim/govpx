@@ -577,7 +577,17 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	}
 
 	tracePretrellisUV := args.pretrellisUVTrace != nil && args.pretrellisUVTrace.oracleTracePretrellisUVDumpEnabled() && optimize && !fastQuant
+	traceChromaOptimizeB := args.pretrellisUVTrace != nil && args.pretrellisUVTrace.oracleTraceChromaOptimizeBDumpEnabled() && optimize && !fastQuant
 	zbinExtra := (int(quant.UV.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+	// libvpxRDConstantsWithZbin returns the (rdmult, rddiv) pair libvpx
+	// stores on x->rdmult / x->rddiv. The chroma optimize_b emit mirrors
+	// libvpx's snapshot of those scalars so the comparator can detect a
+	// pre-trellis rdmult/rddiv divergence in the same row as the qcoeff
+	// flip (task #316 schema parity).
+	traceRDMult, traceRDDiv := 0, 0
+	if traceChromaOptimizeB {
+		traceRDMult, traceRDDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	}
 
 	for block := range 4 {
 		dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
@@ -598,6 +608,9 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		}
 		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
+		if traceChromaOptimizeB {
+			args.pretrellisUVTrace.emitOracleChromaOptimizeBTrace(mbRow, mbCol, 16+block, dct, &coeffs.QCoeff[16+block], &dq, &quant.UV.Dequant, eob, traceRDMult, traceRDDiv, intra)
+		}
 		if collectStats {
 			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
 			stats.distortionUV += transformBlockError(dct, &dq)
@@ -625,6 +638,9 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		}
 		eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
+		if traceChromaOptimizeB {
+			args.pretrellisUVTrace.emitOracleChromaOptimizeBTrace(mbRow, mbCol, 20+block, dctV, &coeffs.QCoeff[20+block], &dq, &quant.UV.Dequant, eob, traceRDMult, traceRDDiv, intra)
+		}
 		if collectStats {
 			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
 			stats.distortionUV += transformBlockError(dctV, &dq)

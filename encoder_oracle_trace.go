@@ -394,6 +394,35 @@ type oracleTraceLastRefWindowRow struct {
 	Hex        string `json:"hex"`
 }
 
+// oracleTraceChromaOptimizeBRow records the POST-trellis qcoeff /
+// dqcoeff / dequant / coeff snapshot of a single UV block (16..23) on
+// the accepted-path encode, i.e. the state observed immediately after
+// optimize_b finishes for that block. Mirrors the libvpx-side
+// {"type":"chroma_optimize_b",...} row emitted by
+// govpx_oracle_emit_chroma_optimize_b (oracle_trace.c, splice in
+// vp8_encode_inter16x16 right after optimize_mb). Paired with the
+// pre-trellis snapshot (oracleTracePretrellisUVRow) so the bisect can
+// identify which scan_pos optimize_b flipped one way on libvpx and a
+// different way on govpx — the cohort of ±1 DC keep/drop divergences
+// pinpointed by task #314 (encoder qcoeff diff: 2241/3600 MBs on frame
+// 1, 2115 chroma-only, 85% DC-only). Gated by the govpx_oracle_trace
+// build tag plus GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1 on both sides.
+type oracleTraceChromaOptimizeBRow struct {
+	Type       string    `json:"type"`
+	FrameIndex uint64    `json:"frame_index"`
+	MBRow      int       `json:"mb_row"`
+	MBCol      int       `json:"mb_col"`
+	Block      int       `json:"block"`
+	EOB        int       `json:"eob"`
+	RDMult     int       `json:"rdmult"`
+	RDDiv      int       `json:"rddiv"`
+	Intra      int       `json:"intra"`
+	QCoeff     [16]int16 `json:"qcoeff"`
+	DQCoeff    [16]int16 `json:"dqcoeff"`
+	Dequant    [16]int16 `json:"dequant"`
+	Coeff      [16]int16 `json:"coeff"`
+}
+
 // oracleTracePretrellisUVRow records the pre-trellis qcoeff / dqcoeff /
 // coeff snapshot of a single UV block (16..23) on the accepted-path encode.
 // Mirrors the libvpx-side {"type":"pretrellis_uv_qcoeff",...} row emitted
@@ -959,6 +988,55 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 func (e *VP8Encoder) oracleTracePretrellisUVDumpEnabled() bool {
 	state := e.oracleTraceState()
 	return state != nil && state.writer != nil && state.pretrellisUVDump
+}
+
+// oracleTraceChromaOptimizeBDumpEnabled reports whether the encoder is
+// configured to emit per-UV-block POST-trellis qcoeff rows on the
+// accepted path. Mirrors GOVPX_ORACLE_CHROMA_OPTIMIZE_B on the libvpx
+// side; used to skip the per-block emit work when the harness is off.
+func (e *VP8Encoder) oracleTraceChromaOptimizeBDumpEnabled() bool {
+	state := e.oracleTraceState()
+	return state != nil && state.writer != nil && state.chromaOptimizeBDump
+}
+
+// emitOracleChromaOptimizeBTrace writes a single
+// {"type":"chroma_optimize_b",...} row for one UV block (16..23) on the
+// accepted-path encode. The caller must pass the post-trellis qcoeff /
+// dqcoeff snapshot taken immediately after
+// optimizeQuantizedBlockWithRDConstants finishes for that block (matching
+// the libvpx splice site, vp8_encode_inter16x16 right after optimize_mb).
+// rdmult/rddiv mirror x->rdmult / x->rddiv at the optimize_b entry; intra
+// is 1 when the MB picker picked an intra mode for this UV block. The
+// row's primary purpose is to surface (block, scan_pos) where libvpx
+// drops a ±1 qcoeff and govpx keeps it (or vice versa), localizing the
+// task #314 chroma trellis divergence to specific Viterbi positions.
+func (e *VP8Encoder) emitOracleChromaOptimizeBTrace(mbRow int, mbCol int, block int, coeff *[16]int16, qcoeff *[16]int16, dqcoeff *[16]int16, dequant *[16]int16, eob int, rdMult int, rdDiv int, intra bool) {
+	if !e.oracleTraceChromaOptimizeBDumpEnabled() {
+		return
+	}
+	if coeff == nil || qcoeff == nil || dqcoeff == nil || dequant == nil {
+		return
+	}
+	intraFlag := 0
+	if intra {
+		intraFlag = 1
+	}
+	row := oracleTraceChromaOptimizeBRow{
+		Type:       "chroma_optimize_b",
+		FrameIndex: e.frameCount,
+		MBRow:      mbRow,
+		MBCol:      mbCol,
+		Block:      block,
+		EOB:        eob,
+		RDMult:     rdMult,
+		RDDiv:      rdDiv,
+		Intra:      intraFlag,
+		QCoeff:     *qcoeff,
+		DQCoeff:    *dqcoeff,
+		Dequant:    *dequant,
+		Coeff:      *coeff,
+	}
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // emitOraclePretrellisUVTrace writes a single

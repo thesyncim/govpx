@@ -383,6 +383,58 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// partition cost, sub-block MV search range, sub-block MV reference,
 	// RDCOST tie-break) drives the picker flip for MB(0,0).
 	//
+	// Task #316 chroma optimize_b post-trellis bisect (LOCALIZES rdmult
+	// divergence at MB(0,0) frame 1): the new
+	// TestVP8Task316ChromaOptimizeBBisect captures the per-UV-block
+	// POST-trellis qcoeff / dqcoeff / dequant / coeff / rdmult / rddiv on
+	// both sides for frame 1 (oracle hook splices into
+	// vp8_encode_inter16x16 right after optimize_mb on libvpx; mirrored on
+	// the govpx side in reconstructMacroblockUVCoefficients after each
+	// quantizeEncodedBlockWithRDZbinAndActivity call). On the BestARNR
+	// cohort the bisect surfaces 4720 divergent UV blocks on frame 1 with
+	// the FIRST divergence at MB(0,0) block 16 in the rdmult layer:
+	//
+	//   govpx rdmult=326 vs libvpx rdmult=551 (ratio 0.591) — both sides
+	//   pass rddiv=1; both dequant arrays match byte-exactly
+	//   ([85,140,...,140]); coeff inputs differ (which is the downstream
+	//   residual reflecting the lower-rdmult preferred-distortion path).
+	//
+	// The directional bin counts line up with task #314's encoder-side
+	// qcoeff scoreboard (govpx KEEPS +1 DC where libvpx DROPS in 1934
+	// blocks; govpx KEEPS -1 DC where libvpx DROPS in 1078 blocks). Lower
+	// rdmult on govpx ⇒ rate matters less in RDCOST = (128 + rate*rdmult)
+	// >> 8 + rddiv*distortion ⇒ the trellis prefers to KEEP the ±1
+	// coefficient (preserving distortion) where libvpx's higher rdmult
+	// makes rate expensive enough to DROP it. 543 (DC keep gov) + 340
+	// (DC keep lib) = 883 DC keep/drop direction flips between the two
+	// trellises on frame 1's chroma blocks.
+	//
+	// Root cause candidates (task #317+ charter):
+	//   (1) base RDMULT pre-activity formula: libvpx uses
+	//       cpi->RDMULT = 2.80 * (DCQuant(base_qindex, y1dc_delta_q))^2
+	//       (vp8/encoder/rdopt.c:163-188 vp8_initialize_rd_consts),
+	//       capped at 160 then lifted by zbin_over_quant^2 factor. govpx
+	//       passes (qIndex, zbinOverQuant) to libvpxRDConstantsWithZbin
+	//       which currently uses qIndex==e.rc.currentQuantizer NOT
+	//       base_qindex, and y1dc_delta_q==0 always.
+	//   (2) per-MB vp8_activity_masking: libvpx scales
+	//       x->rdmult = base * b / a where a=act+2*avg, b=2*act+avg.
+	//       govpx mirrors this via tunedRDMultiplier(rdMult, row, col),
+	//       and activity_avg is pinned to 100000 (matches libvpx's
+	//       calc_av_activity ALT_ACT_MEASURE=1 path). The per-MB
+	//       activity at (0,0) already matches per task #210's
+	//       mb_activity quartet pin. The divergence is upstream of
+	//       vp8_activity_masking — in the base cpi->RDMULT computation
+	//       itself OR in how govpx propagates the picker-time rdMult
+	//       through to the accepted-path trellis.
+	//
+	// Phase 4 charter: trace cpi->RDMULT and DCQuant inputs at
+	// vp8_initialize_rd_consts entry on the libvpx side (add a JSON row
+	// emitted from rdopt.c:163 with (Qvalue, capped_q, zbin_over_quant,
+	// pass, frame_type, RDMULT_post, RDDIV_post)), mirror the same
+	// snapshot on the govpx side at libvpxRDConstantsWithZbin entry, and
+	// pin the input that produces the 326/551 ratio.
+	//
 	// Task #298 SPLITMV RD bisect (LOCALIZES the picker divergence,
 	// LATER RETRACTED — see task #314):
 	// the new TestVP8Task298SPLITMVRDBisect captures the per-mode

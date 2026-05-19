@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize-task316-chroma-optimize-b"
 jobs=${JOBS:-}
 
 # ----------------------------------------------------------------------------
@@ -1829,6 +1829,112 @@ static int govpx_oracle_pretrellis_uv_enabled(void) {
     return cached;
 }
 
+/* Task #316: chroma optimize_b post-trellis emit hook. Pairs with the
+ * existing pretrellis-UV hook to surface the Viterbi DROP/KEEP decisions
+ * libvpx's optimize_b makes for each UV block on the inter path. The two
+ * snapshots taken together identify the (block, scan_pos, value-before,
+ * value-after) tuples that diverge between govpx and libvpx — i.e. the
+ * positions where the chroma trellis flipped a coefficient one way on
+ * one side and a different way on the other.
+ *
+ * Gated on GOVPX_ORACLE_TRACE_OUT being live AND
+ * GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1 so the per-frame trace stays bounded
+ * when the hook is off. Schema mirrors govpx-side
+ * emitOracleChromaOptimizeBTrace in encoder_oracle_trace.go.
+ *
+ * Per task #314 evidence: the ARNR pin-hold residual lives in the
+ * post-encode chroma trellis (2241/3600 MBs diverge on encode-side
+ * qcoeff for frame 1; 2115 chroma-only; 85% are DC-only ±1 keep/drop
+ * splits). This hook surfaces which position each trellis flipped so
+ * the actual Viterbi divergence can be bisected.
+ */
+static int govpx_oracle_chroma_optimize_b_enabled(void) {
+    static int cached = -1;
+    const char *env;
+    if (cached >= 0) {
+        return cached;
+    }
+    env = getenv("GOVPX_ORACLE_CHROMA_OPTIMIZE_B");
+    cached = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    return cached;
+}
+
+void govpx_oracle_emit_chroma_optimize_b(struct macroblock *x_arg) {
+    MACROBLOCK *x = x_arg;
+    MACROBLOCKD *xd;
+    FILE *out;
+    govpx_pretrellis_ctx_t *ctx;
+    int b, i;
+    int mb_row, mb_col;
+    int rdmult_in;
+    int rddiv_in;
+    int intra_flag;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (!govpx_oracle_chroma_optimize_b_enabled()) {
+        return;
+    }
+    if (x == NULL) {
+        return;
+    }
+    GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
+    do {
+        ctx = govpx_pretrellis_ctx_get(0);
+        mb_row = (ctx != NULL && ctx->valid) ? ctx->mb_row : -1;
+        mb_col = (ctx != NULL && ctx->valid) ? ctx->mb_col : -1;
+        xd = &x->e_mbd;
+        out = govpx_oracle_state.out;
+        rdmult_in = x->rdmult;
+        rddiv_in = x->rddiv;
+        intra_flag = (xd->mode_info_context->mbmi.ref_frame == INTRA_FRAME)
+                         ? 1 : 0;
+        for (b = 16; b < 24; ++b) {
+            BLOCK *block = &x->block[b];
+            BLOCKD *blockd = &xd->block[b];
+            int eob = (int)(*blockd->eob);
+            fprintf(out,
+                    "{\"type\":\"chroma_optimize_b\","
+                    "\"frame_index\":%llu,"
+                    "\"mb_row\":%d,\"mb_col\":%d,"
+                    "\"block\":%d,"
+                    "\"eob\":%d,"
+                    "\"rdmult\":%d,"
+                    "\"rddiv\":%d,"
+                    "\"intra\":%d,"
+                    "\"qcoeff\":[",
+                    govpx_oracle_state.frame_index,
+                    mb_row, mb_col, b, eob, rdmult_in, rddiv_in, intra_flag);
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->qcoeff[i]);
+            }
+            fprintf(out, "],\"dqcoeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->dqcoeff[i]);
+            }
+            fprintf(out, "],\"dequant\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->dequant[i]);
+            }
+            fprintf(out, "],\"coeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->coeff[i]);
+            }
+            fprintf(out, "]}\n");
+        }
+        fflush(out);
+    } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
+    GOVPX_TRACE_END();
+}
+
 void govpx_oracle_emit_pretrellis_uv(struct macroblock *x_arg) {
     MACROBLOCK *x = x_arg;
     MACROBLOCKD *xd;
@@ -2646,15 +2752,25 @@ path = sys.argv[1]
 with io.open(path, 'r', encoding='utf-8') as f:
     text = f.read()
 sentinel = '/* govpx oracle: emit pretrellis UV qcoeff before optimize_b. */'
-if sentinel in text:
+post_sentinel = '/* govpx oracle: emit chroma optimize_b post-trellis qcoeff. */'
+if sentinel in text and post_sentinel in text:
     sys.exit(0)
 extern_anchor = '#include "rdopt.h"\n'
-extern_decl = ('extern void govpx_oracle_emit_pretrellis_uv(MACROBLOCK *x);\n')
-if extern_anchor not in text:
-    sys.stderr.write('build_vpxenc_oracle.sh: pretrellis encodemb extern anchor missing\n')
-    sys.exit(2)
-text = text.replace(extern_anchor, extern_anchor + extern_decl, 1)
-# Splice into vp8_encode_inter16x16 between vp8_quantize_mb and optimize_mb.
+extern_decl = ('extern void govpx_oracle_emit_pretrellis_uv(MACROBLOCK *x);\n'
+               'extern void govpx_oracle_emit_chroma_optimize_b(MACROBLOCK *x);\n')
+if 'extern void govpx_oracle_emit_pretrellis_uv(MACROBLOCK *x);' not in text:
+    if extern_anchor not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: pretrellis encodemb extern anchor missing\n')
+        sys.exit(2)
+    text = text.replace(extern_anchor, extern_anchor + extern_decl, 1)
+elif 'extern void govpx_oracle_emit_chroma_optimize_b(MACROBLOCK *x);' not in text:
+    text = text.replace(
+        'extern void govpx_oracle_emit_pretrellis_uv(MACROBLOCK *x);\n',
+        'extern void govpx_oracle_emit_pretrellis_uv(MACROBLOCK *x);\n'
+        'extern void govpx_oracle_emit_chroma_optimize_b(MACROBLOCK *x);\n',
+        1)
+# Splice into vp8_encode_inter16x16 between vp8_quantize_mb and optimize_mb,
+# plus a post-trellis emit immediately after optimize_mb.
 inter_anchor = ('void vp8_encode_inter16x16(MACROBLOCK *x) {\n'
                 '  vp8_build_inter_predictors_mb(&x->e_mbd);\n'
                 '\n'
@@ -2679,11 +2795,33 @@ inter_replacement = ('void vp8_encode_inter16x16(MACROBLOCK *x) {\n'
                      '  govpx_oracle_emit_pretrellis_uv(x);\n'
                      '\n'
                      '  if (x->optimize) optimize_mb(x);\n'
+                     '\n'
+                     '  ' + post_sentinel + '\n'
+                     '  if (x->optimize) govpx_oracle_emit_chroma_optimize_b(x);\n'
                      '}\n')
-if inter_anchor not in text:
-    sys.stderr.write('build_vpxenc_oracle.sh: pretrellis vp8_encode_inter16x16 anchor missing\n')
-    sys.exit(2)
-text = text.replace(inter_anchor, inter_replacement, 1)
+if inter_anchor in text:
+    text = text.replace(inter_anchor, inter_replacement, 1)
+else:
+    # Already-patched form (pretrellis hook landed): splice only the
+    # post-trellis emit by anchoring on the prior replacement.
+    inter_anchor_patched = ('void vp8_encode_inter16x16(MACROBLOCK *x) {\n'
+                            '  vp8_build_inter_predictors_mb(&x->e_mbd);\n'
+                            '\n'
+                            '  vp8_subtract_mb(x);\n'
+                            '\n'
+                            '  transform_mb(x);\n'
+                            '\n'
+                            '  vp8_quantize_mb(x);\n'
+                            '\n'
+                            '  ' + sentinel + '\n'
+                            '  govpx_oracle_emit_pretrellis_uv(x);\n'
+                            '\n'
+                            '  if (x->optimize) optimize_mb(x);\n'
+                            '}\n')
+    if inter_anchor_patched not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: pretrellis vp8_encode_inter16x16 anchor missing\n')
+        sys.exit(2)
+    text = text.replace(inter_anchor_patched, inter_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_PRETRELLIS_UV_EMB_PY

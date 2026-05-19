@@ -56,6 +56,9 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 	if _, ok := methods["SetOracleTracePretrellisUVDump"]; ok {
 		want["SetOracleTracePretrellisUVDump"] = controlParityMapping{kind: "oracle-trace"}
 	}
+	if _, ok := methods["SetOracleTraceChromaOptimizeBDump"]; ok {
+		want["SetOracleTraceChromaOptimizeBDump"] = controlParityMapping{kind: "oracle-trace"}
+	}
 	if _, ok := methods["SetOracleTraceWriter"]; ok {
 		want["SetOracleTraceWriter"] = controlParityMapping{kind: "oracle-trace"}
 	}

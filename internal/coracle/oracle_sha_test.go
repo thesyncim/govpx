@@ -44,6 +44,17 @@ import (
 // quantize swap) explains govpx rate_y=7519 vs libvpx rate_y=34799 at
 // MB(0,0) frame 1 NEWMV MV=(8,16) ref=LAST_FRAME.
 //
+// Task #316 (2026-05-19) rotated the pin again to land the chroma
+// optimize_b post-trellis emit hook. The hook splices into
+// vp8/encoder/encodemb.c:vp8_encode_inter16x16 right after the
+// optimize_mb call (so it observes the POST-trellis chroma qcoeff for
+// UV blocks 16..23), paired with the existing pretrellis-UV emit (same
+// function, before optimize_mb) to bisect the libvpx-vs-govpx Viterbi
+// flip on the task #207 / #227 ARNR pin-hold. Per task #314 evidence
+// the residual is post-encode chroma trellis ±1 DC drop divergence
+// (2241/3600 MBs diverge; 2115 chroma-only; 85% DC-only). Gated on
+// GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1 on top of GOVPX_ORACLE_TRACE_OUT.
+//
 // These pins exist to detect any future change in the build pipeline
 // (libvpx upgrade, configure flag change, toolchain rotation, new patch
 // stamp) that would silently shift the oracle binary hash. If this test
@@ -57,7 +68,7 @@ import (
 // success the cross-path invariance is enforced by the build script's
 // determinism flags, not by this test).
 const (
-	oracleSHAvpxencArm64Darwin = "e1abf8c9013ed17c45ac40d2579b7fe91468a6cbf6a0ee78d1c2631d02030e57"
+	oracleSHAvpxencArm64Darwin = "62be3f118d229c9d08f36b958181f1f85b3bb48919bfea5e8fa72ed87c8dadc3"
 	oracleSHAlibvpxArm64Darwin = "4992f2bbfc1ce02640e20036286465c455650485a5378904dcc197cb2dda5523"
 )
 

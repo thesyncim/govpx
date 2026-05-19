@@ -20,6 +20,14 @@ type oracleTraceState struct {
 	// are off by default so the per-frame trace size stays bounded.
 	pretrellisUVDump bool
 
+	// chromaOptimizeBDump, when true, enables emission of
+	// {"type":"chroma_optimize_b",...} rows from the per-MB UV optimize
+	// trellis on the accepted-path encode (one row per UV 4x4 block
+	// 16..23). Mirrors GOVPX_ORACLE_CHROMA_OPTIMIZE_B on the libvpx side;
+	// used to bisect post-trellis ±1 DC keep/drop divergences identified
+	// by task #314 between govpx and libvpx.
+	chromaOptimizeBDump bool
+
 	mbBuffer             []oracleTraceMBRow
 	interCandidateBuffer []oracleTraceInterCandidateRow
 	recodeLoopCount      int
@@ -66,6 +74,20 @@ func (e *VP8Encoder) SetOracleTracePretrellisUVDump(enabled bool) {
 	}
 	state := e.oracleTraceStateCreate()
 	state.pretrellisUVDump = enabled
+}
+
+// SetOracleTraceChromaOptimizeBDump enables per-UV-block post-trellis
+// qcoeff/dqcoeff/dequant/coeff rows in oracle traces. Mirrors the
+// libvpx-side GOVPX_ORACLE_CHROMA_OPTIMIZE_B environment-variable gate.
+// Available only in govpx_oracle_trace builds. Each enabled MB emits 8
+// rows (one per UV 4x4 block 16..23); callers should restrict the
+// recipient stream when running on larger fixtures.
+func (e *VP8Encoder) SetOracleTraceChromaOptimizeBDump(enabled bool) {
+	if e == nil {
+		return
+	}
+	state := e.oracleTraceStateCreate()
+	state.chromaOptimizeBDump = enabled
 }
 
 func (e *VP8Encoder) oracleTraceState() *oracleTraceState {
