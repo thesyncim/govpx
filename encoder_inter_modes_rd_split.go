@@ -62,6 +62,85 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	// commit below. ctx.bestYRD is the outer-loop running best_mode.yrd
 	// (seeded as maxInt() in selectRDInterFrameModeDecision); the libvpx
 	// initial sentinel is INT_MAX so the empty-cap path is identical.
+	//
+	// Task #303 audit (rules out cap semantic as the BestARNR/GoodARNR
+	// pin-hold root cause; relocates to upstream NEWMV picker quantize):
+	//
+	// Task #298 localized the BestARNR -5-byte and GoodARNR -6-byte ARNR
+	// pin-holds to a SPLITMV picker dropout at MB(0,0) frame 1: govpx's
+	// selectInterFrameSplitModeRDScore returns ok=false (no partition
+	// shape commits) while libvpx's vp8_rd_pick_best_mbsegmentation
+	// succeeds and SPLITMV wins the mode-loop. Task #298 narrowed the
+	// proximate cap value to govpx ctx.bestYRD = 73707 (NEWMV.yrd) vs
+	// libvpx best_mode.yrd = 129509, the gap being a 27280-bit deficit
+	// in govpx's NEWMV picker rate_y for the same MV (8,16) / same ref /
+	// same source — govpx's picker quantize emitting all-zero Y qcoeff
+	// while libvpx's emits enough non-zero Y to yield rate_y=34799.
+	//
+	// Task #303 charter was to fix the cap semantic itself, on the
+	// hypothesis that govpx applies a TIGHTER per-partition cap than
+	// libvpx. Direct cross-reference of the cap ladder against libvpx
+	// rdopt.c:1199-1335 + 1726-1748 + 1974-2006 confirms the semantic
+	// is already byte-faithful (task #217 audit standing):
+	//
+	//   - Cap value source (libvpx best_mode.yrd, set in update_best_mode
+	//     at rdopt.c:1734-1736): RDCOST(rdmult, rddiv, rate2 - rate_uv -
+	//     other_cost, distortion2 - distortion_uv) — uses the FINAL
+	//     accumulated rate2 from calculate_final_rd_costs (post skip-cost
+	//     backout). govpx ctx.bestYRD threads through
+	//     estimateInterResidualRDAccountingWithModeContext yrd field
+	//     (encoder_inter_rd.go:171) which uses the IDENTICAL formula
+	//     rdModeScoreWithZbin(qIndex, zbinOverQuant, rate2 - rateUV -
+	//     otherCost - refCost, distortion2 - distortionUV).
+	//
+	//   - Cap propagation (libvpx bsi.segment_rd = best_rd at rdopt.c:1210
+	//     seeded from best_mode.yrd, shrunk to this_segment_rd at line
+	//     1173 across shapes): govpx bestSegmentYRD := ctx.bestYRD seeded
+	//     from best_mode.yrd, shrunk to shape.SegmentYRD across shapes.
+	//
+	//   - Per-label cutoff (libvpx rdopt.c:1165 `this_segment_rd >=
+	//     bsi->segment_rd break`): govpx encoder_inter_split.go:207
+	//     `segmentYRD >= ctx.segmentYRDCap` returning Cutoff=true.
+	//
+	//   - Outer per-shape commit (libvpx rdopt.c:1169 `this_segment_rd <
+	//     bsi->segment_rd` → bsi update): govpx line 155
+	//     `shape.SegmentYRD < bestSegmentYRD` → bestSegmentYRD update +
+	//     bestShape/bestMode commit.
+	//
+	//   - Outer SPLITMV acceptance (libvpx rdopt.c:1996 `tmp_rd <
+	//     best_mode.yrd`): govpx returns ok=true when bestSet (== at
+	//     least one shape commit beat the initial cap = ctx.bestYRD),
+	//     ok=false otherwise. Libvpx's `else { this_rd = INT_MAX;
+	//     disable_skip = 1; }` branch makes this_rd lose to best_mode.rd
+	//     at the outer line-2235 best-mode update, functionally
+	//     equivalent to govpx's ok=false drop.
+	//
+	// The cap VALUE divergence (73707 vs 129509) is the cap of
+	// best_mode.yrd from the LATEST winning non-SPLITMV mode (NEWMV/LAST
+	// in both engines). Same MV, same ref, same source, same FDCT, same
+	// zbin/quant tables, same RDCOST formula — but different Y qcoeff
+	// after quantize, yielding different rate_y, yielding different yrd.
+	// That divergence is UPSTREAM of selectInterFrameSplitModeRDScore
+	// and cannot be remedied by any change to the cap semantic here.
+	//
+	// Loosening the cap (seeding bestSegmentYRD = maxInt(), or replacing
+	// the per-shape commit gate with a no-op) was empirically tested:
+	// SPLITMV's full segment_yrd = 92730 still exceeds ctx.bestYRD =
+	// 73707 (the running best whole-MB yrd from NEWMV), so any
+	// libvpx-faithful outer acceptance gate `bestShape.SegmentYRD <
+	// ctx.bestYRD` still drops SPLITMV. Dropping the outer gate too
+	// would diverge from libvpx semantics AND let SPLITMV win solely
+	// because its (lower) Y-rate gives a numerically smaller score
+	// than NEWMV's (higher) score=102349, which is itself a downstream
+	// echo of the same NEWMV picker quantize divergence.
+	//
+	// Conclusion: the cap semantic in this file is libvpx-faithful and
+	// the BestARNR/GoodARNR pin-hold cannot be closed without fixing the
+	// NEWMV picker Y quantize at MB(0,0) frame 1. Recharter to task
+	// #304+ for the per-Y-block picker-side qcoeff oracle trace required
+	// to localize the (residual layer | quantize layer) divergence —
+	// task #298's intended next step that was deferred while #303
+	// validated the cap.
 	if ctx == nil {
 		return interSplitModeRDResult{}, false
 	}
