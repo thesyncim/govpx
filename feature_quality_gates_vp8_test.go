@@ -1101,18 +1101,41 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 	//   run B: govpx-vs-libvpx BD-rate=+6.935%, BD-PSNR=-0.952 dB
 	//   run C: govpx-vs-libvpx BD-rate=+16.821%, BD-PSNR=-0.875 dB
 	// Libvpx produced PSNR at the 4 Mbps rung varied 42.858 -> 44.477
-	// dB across runs B and C on identical source. The +14.5pp BD-rate
-	// spread is realtime auto-speed variance, not encoder drift; the
-	// previous +10.0% / -1.0 dB gate sat right at the variance tail
-	// (run C tripped it). Widen the gate to +20.0% BD-rate / -1.2 dB
-	// BD-PSNR to absorb the observed libvpx-oracle variance tail
-	// while still catching a real ~25% rate regression or a major
-	// quality loss. Tightening this fixture is blocked on a libvpx-
-	// oracle determinism fix; until then the wide-gate is mandatory
-	// to keep the gate non-flaky.
+	// dB across runs B and C on identical source.
+	//
+	// Task #367 mitigation: libvpx vp8_auto_select_speed (rdopt.c:261)
+	// reads cpi->avg_encode_time, a vpx_usec_timer wall-clock
+	// measurement, and adapts cpi->Speed accordingly. Two consecutive
+	// vpxenc invocations on the same source produce different
+	// cpi->Speed trajectories and therefore different rate/PSNR for
+	// every operating point. Empirical task #367 audit at the
+	// previous CpuUsed=+8 setting (which engages auto-select) showed
+	// median-of-3 with the new harness shim still produced run-to-run
+	// BD-rate spreads of -6.7% / +13.4% / +672% across three audit
+	// runs (the 4 Mbps PSNR-Y rung varied 36.6 -> 42.9 -> 44.5 dB),
+	// confirming median-of-N alone cannot tame this scenario.
+	//
+	// libvpx's documented escape hatch is `--cpu-used=-N` (negative):
+	// per vp8/encoder/encodeframe.c:686-687, when oxcf.cpu_used < 0
+	// the encoder bypasses vp8_auto_select_speed and pins
+	// `cpi->Speed = -cpu_used` directly. That mode preserves the
+	// realtime deadline (compressor_speed=2 ratecontrol/speed-features
+	// cascade) but removes the wall-clock dependency. Govpx's
+	// libvpxAutoSelectSpeed mirrors this branch exactly
+	// (encoder_config.go:710-713: `if cpuUsed < 0 { e.autoSpeed =
+	// -cpuUsed; return }`), so flipping CpuUsed from +8 to -8 on both
+	// sides keeps the comparison apples-to-apples while making the
+	// per-point output deterministic.
+	//
+	// LibvpxOracleRuns=3 is kept as belt-and-suspenders against
+	// residual oracle-side variance from sources outside auto-select
+	// (e.g. MT-LF jitter, NEON kernel race in tiny accumulators on
+	// Apple Silicon). With both mitigations the post-#341/#342
+	// +10.0% / -1.0 dB envelope holds across N>=3 audit runs on
+	// arm64-darwin and the #357 gate widen-to-+20% is rolled back.
 	realtimeCpu8Gate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 20.0,
-		MinBDPSNRdB:            -1.2,
+		MaxBDRateOverLibvpxPct: 10.0,
+		MinBDPSNRdB:            -1.0,
 	}
 	runVP8BDRateFixture(t,
 		"VP8 720p panning realtime cpu=8 (CBR ladder 1000/2000/4000/8000 kbps)",
@@ -1127,12 +1150,23 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Deadline = govpx.DeadlineRealtime
-				o.CpuUsed = 8
+				// Task #367: pin Speed=8 via libvpx's documented
+				// negative-cpu_used escape (vp8/encoder/encodeframe.c
+				// :686-687); avoids vp8_auto_select_speed's
+				// wall-clock variance on both the govpx and the
+				// libvpx side of the comparison. Govpx mirrors the
+				// same branch at encoder_config.go:710-713.
+				o.CpuUsed = -8
 			},
 			Test: func(o *govpx.EncoderOptions) {
 				o.Deadline = govpx.DeadlineRealtime
-				o.CpuUsed = 8
+				o.CpuUsed = -8
 			},
+			// Task #367: belt-and-suspenders median-of-3 against
+			// residual oracle-side variance (NEON kernel race,
+			// MT-LF jitter on threads>=2, etc.) outside the
+			// auto-speed wall-clock path.
+			LibvpxOracleRuns: 3,
 		},
 		realtimeCpu8Gate)
 }

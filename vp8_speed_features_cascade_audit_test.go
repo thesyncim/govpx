@@ -629,13 +629,13 @@ func itoaPositive(v int) string {
 // byte-parity-gated cpu_used == 0 path are unchanged.
 func TestVP8Task361HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 	tests := []struct {
-		name            string
-		deadline        Deadline
-		cpuUsed         int
-		frameCount      uint64
-		wantGateSpeed   int
-		wantHexAfterRT  bool
-		wantStepFracRT  bool
+		name           string
+		deadline       Deadline
+		cpuUsed        int
+		frameCount     uint64
+		wantGateSpeed  int
+		wantHexAfterRT bool
+		wantStepFracRT bool
 	}{
 		{
 			// cpu_used=8 RT pre-first-frame: gate falls back to
@@ -652,15 +652,23 @@ func TestVP8Task361HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 		},
 		{
 			// cpu_used=8 RT after first frame: gate escalates to
-			// cpu_used+1=9. Speed > 4 is true → HEX+step fractional.
-			// Closes the residual cpu=8 RT BD-rate gap.
+			// cpu_used+1=9. Speed > 4 is true → HEX. The Step
+			// transition that task-361 originally coupled to the HEX
+			// gate is now owned by task-362's libvpxRealtime
+			// CPISpeedForSubPelSearchGate; once that lands the
+			// fractional path further escalates past Step to Half via
+			// task-363's libvpxRealtimeCPISpeedForQuarterPelGate
+			// (Speed > 8). So at cpu_used=8 frameCount=1 RT the final
+			// fractionalSearch is Half (not Step). This case still pins
+			// that the HEX gate itself fires; the post-Step transitions
+			// are pinned in the task-362 and task-363 audit cohorts.
 			name:           "rt-cpu8-post-first-frame",
 			deadline:       DeadlineRealtime,
 			cpuUsed:        8,
 			frameCount:     1,
 			wantGateSpeed:  9,
 			wantHexAfterRT: true,
-			wantStepFracRT: true,
+			wantStepFracRT: false,
 		},
 		{
 			// cpu_used=0 RT (byte-parity-gated path): gate falls back

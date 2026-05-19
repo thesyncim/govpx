@@ -112,6 +112,29 @@ type BDRateOptionsVP8 struct {
 	// only meaningful for VBR planning) — callers should not also set
 	// RateControlOverride to a non-VBR mode.
 	TwoPass bool
+
+	// LibvpxOracleRuns optionally re-invokes the libvpx oracle this many
+	// times per ladder point and uses the per-axis median (rate, PSNR)
+	// as the canonical operating point. Default 0/1 means a single
+	// invocation. Use >= 3 (odd, so the median is a real sample) for
+	// known-nondeterministic libvpx configurations like
+	// `--rt --cpu-used=>0`, where vp8_auto_select_speed (rdopt.c:261)
+	// drives cpi->Speed off wall-clock measurements and produces
+	// run-to-run variance in both rate and PSNR for the same source.
+	//
+	// The median is taken per-axis (rate and PSNR independently sorted),
+	// not as a paired point. This is intentional: the libvpx side is
+	// the reference distribution we're characterizing, not a paired
+	// sample. For ladders that *are* deterministic, leaving this at 0
+	// preserves the previous single-run behavior (zero cost).
+	//
+	// Task #367 enabled this for the RT cpu_used=8 BD-rate fixture
+	// after #357 widened its gate to +20.0% / -1.2 dB to absorb a
+	// 42.86 -> 44.48 dB run-to-run PSNR-Y spread driven entirely by
+	// libvpx's RT auto-speed wall-clock dependency. With N=3 median
+	// the spread collapses and the gate retightens toward the
+	// post-#341/#342 +10%/-1.0 dB envelope.
+	LibvpxOracleRuns int
 }
 
 // ComputeBDRateVP8 runs the VP8 BD-rate harness and returns the result.
@@ -558,13 +581,75 @@ func encodeBDLibvpxVP8Curve(opts BDRateOptionsVP8, ladder []bdOperatingPoint) ([
 		if op.TargetKbps > 0 {
 			pointOpts.TargetBitrateKbps = op.TargetKbps
 		}
-		pt, err := encodeLibvpxVP8BDOperatingPoint(binPath, raw, opts, pointOpts, op)
+		pt, err := encodeLibvpxVP8BDOperatingPointMedian(binPath, raw, opts, pointOpts, op)
 		if err != nil {
 			return nil, fmt.Errorf("libvpx VP8 Q=%d kbps=%d: %w", op.Q, op.TargetKbps, err)
 		}
 		pts = append(pts, pt)
 	}
 	return pts, nil
+}
+
+// encodeLibvpxVP8BDOperatingPointMedian wraps encodeLibvpxVP8BDOperatingPoint
+// with an optional N-run median band. When opts.LibvpxOracleRuns < 2 it
+// degrades to a single oracle invocation (the historical behavior). When
+// >= 2 it invokes the oracle that many times and returns the per-axis
+// median QualityPoint.
+//
+// Rationale: libvpx's VP8 `--rt --cpu-used=>0` path runs
+// vp8_auto_select_speed (rdopt.c:261) which makes per-frame cpi->Speed
+// decisions off vpx_usec_timer wall-clock measurements. Two consecutive
+// invocations of vpxenc on the same source therefore produce different
+// rate and PSNR even though `--threads=1` is in effect. The task #357
+// audit measured a 42.86 -> 44.48 dB PSNR-Y spread on a single rung,
+// which mapped to a +14.5 pp BD-rate spread (BD-rate=+2.30/+6.94/+16.82
+// across three back-to-back runs). The median-of-N collapses that
+// spread without changing the comparison semantics: we still compare
+// govpx-VP8 against the libvpx behavior under the configured cpu_used
+// value, but we characterize the libvpx distribution rather than a
+// single sample of it.
+//
+// The median is taken per-axis (rate and PSNR sorted independently) so
+// a slow run with high rate doesn't also bias the PSNR sample.
+//
+// For N=3 the median is the middle element; for N=2 it's the mean (so
+// the gate is still useful at the minimum quarantine setting). Higher
+// odd N is preferred when the variance budget allows.
+func encodeLibvpxVP8BDOperatingPointMedian(binPath string, raw []byte, opts BDRateOptionsVP8, t govpx.EncoderOptions, op bdOperatingPoint) (QualityPoint, error) {
+	runs := opts.LibvpxOracleRuns
+	if runs < 2 {
+		return encodeLibvpxVP8BDOperatingPoint(binPath, raw, opts, t, op)
+	}
+	rates := make([]float64, 0, runs)
+	psnrs := make([]float64, 0, runs)
+	for run := range runs {
+		pt, err := encodeLibvpxVP8BDOperatingPoint(binPath, raw, opts, t, op)
+		if err != nil {
+			return QualityPoint{}, fmt.Errorf("median run %d/%d: %w", run+1, runs, err)
+		}
+		rates = append(rates, pt.Rate)
+		psnrs = append(psnrs, pt.PSNR)
+	}
+	sort.Float64s(rates)
+	sort.Float64s(psnrs)
+	return QualityPoint{
+		Rate: medianFloat64Sorted(rates),
+		PSNR: medianFloat64Sorted(psnrs),
+	}, nil
+}
+
+// medianFloat64Sorted returns the median of a pre-sorted ascending
+// slice. For odd lengths it's the middle element; for even lengths it's
+// the mean of the two central elements. Caller MUST sort first.
+func medianFloat64Sorted(xs []float64) float64 {
+	n := len(xs)
+	if n == 0 {
+		return math.NaN()
+	}
+	if n%2 == 1 {
+		return xs[n/2]
+	}
+	return (xs[n/2-1] + xs[n/2]) / 2
 }
 
 // encodeLibvpxVP8BDOperatingPoint runs `vpxenc --codec=vp8 --psnr`
