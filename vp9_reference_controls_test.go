@@ -223,6 +223,63 @@ func TestVP9DecoderCopyReferenceFrameCopiesSelectedReference(t *testing.T) {
 	assertImagesEqual(t, "copied decoder GOLDEN reference", want, dst)
 }
 
+func TestVP9DecoderCopyCurrentFrameCopiesWithoutConsumingQueue(t *testing.T) {
+	const width, height = 33, 31
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder returned error: %v", err)
+	}
+	dst := newTestImage(width, height)
+	if err := d.CopyCurrentFrame(&dst); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("CopyCurrentFrame before decode error = %v, want ErrInvalidConfig", err)
+	}
+
+	key := vp9StubPacketForTest(t, width, height, 0, common.VPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe returned error: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("key NextFrame returned no frame")
+	}
+	if err := d.CopyCurrentFrame(&dst); err != nil {
+		t.Fatalf("CopyCurrentFrame after consumed NextFrame returned error: %v", err)
+	}
+	assertImagesEqual(t, "copied current VP9 frame", frame, dst)
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("CopyCurrentFrame re-queued NextFrame output")
+	}
+}
+
+func TestVP9DecoderCopyCurrentFrameAfterDecodeInto(t *testing.T) {
+	const width, height = 33, 31
+	packet := vp9StubPacketForTest(t, width, height, 0, common.VPred)
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder returned error: %v", err)
+	}
+	into := newTestImage(width, height)
+	if _, err := d.DecodeInto(packet, &into); err != nil {
+		t.Fatalf("DecodeInto returned error: %v", err)
+	}
+	copied := newTestImage(width, height)
+	if err := d.CopyCurrentFrame(&copied); err != nil {
+		t.Fatalf("CopyCurrentFrame after DecodeInto returned error: %v", err)
+	}
+	assertImagesEqual(t, "copied current VP9 DecodeInto frame", into, copied)
+
+	wrongSize := newTestImage(width+1, height)
+	if err := d.CopyCurrentFrame(&wrongSize); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("CopyCurrentFrame wrong-size error = %v, want ErrInvalidConfig", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := d.CopyCurrentFrame(&copied); !errors.Is(err, ErrClosed) {
+		t.Fatalf("closed CopyCurrentFrame error = %v, want ErrClosed", err)
+	}
+}
+
 func TestVP9DecoderReferenceFrameValidation(t *testing.T) {
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {

@@ -127,9 +127,15 @@ type VP9DecoderOptions struct {
 // VP9 base qindex in [0, 255]; show-existing packets do not carry a
 // quantizer and report zero.
 type VP9FrameInfo struct {
-	// Width and Height are the visible output dimensions.
+	// Width and Height are the coded luma dimensions.
 	Width  int
 	Height int
+	// RenderWidth and RenderHeight are the display dimensions carried by
+	// VP9's render-size syntax and exposed by libvpx VP9D_GET_DISPLAY_SIZE.
+	RenderWidth  int
+	RenderHeight int
+	// BitDepth is the VP9 bit depth reported by the uncompressed header.
+	BitDepth int
 
 	// KeyFrame reports whether the packet is a key frame.
 	KeyFrame bool
@@ -272,11 +278,14 @@ type VP9Decoder struct {
 }
 
 type vp9ReferenceFrame struct {
-	img   Image
-	y     []byte
-	u     []byte
-	v     []byte
-	valid bool
+	img          Image
+	renderWidth  int
+	renderHeight int
+	bitDepth     int
+	y            []byte
+	u            []byte
+	v            []byte
+	valid        bool
 }
 
 type vp9MvRef struct {
@@ -285,6 +294,16 @@ type vp9MvRef struct {
 }
 
 func (f *vp9ReferenceFrame) store(src Image) {
+	f.storeWithRender(src, src.Width, src.Height)
+}
+
+func (f *vp9ReferenceFrame) storeWithRender(src Image, renderWidth, renderHeight int) {
+	f.storeWithRenderAndBitDepth(src, renderWidth, renderHeight, int(vp9dec.Bits8))
+}
+
+func (f *vp9ReferenceFrame) storeWithRenderAndBitDepth(src Image,
+	renderWidth, renderHeight, bitDepth int,
+) {
 	f.y = ensureVP9PlaneCapacity(f.y, len(src.Y))
 	f.u = ensureVP9PlaneCapacity(f.u, len(src.U))
 	f.v = ensureVP9PlaneCapacity(f.v, len(src.V))
@@ -301,7 +320,24 @@ func (f *vp9ReferenceFrame) store(src Image) {
 		UStride: src.UStride,
 		VStride: src.VStride,
 	}
+	f.renderWidth = renderWidth
+	f.renderHeight = renderHeight
+	f.bitDepth = bitDepth
 	f.valid = true
+}
+
+func (f *vp9ReferenceFrame) renderSize() (int, int) {
+	if f.renderWidth > 0 && f.renderHeight > 0 {
+		return f.renderWidth, f.renderHeight
+	}
+	return f.img.Width, f.img.Height
+}
+
+func (f *vp9ReferenceFrame) bitDepthValue() int {
+	if f.bitDepth > 0 {
+		return f.bitDepth
+	}
+	return int(vp9dec.Bits8)
 }
 
 func ensureVP9PlaneCapacity(buf []byte, n int) []byte {
@@ -972,12 +1008,26 @@ func (d *VP9Decoder) vp9FrameInfoFromHeader(hdr *vp9dec.UncompressedHeader, pts 
 		ref := &d.refFrames[slot].img
 		info.Width = ref.Width
 		info.Height = ref.Height
+		info.RenderWidth, info.RenderHeight = d.refFrames[slot].renderSize()
+		info.BitDepth = d.refFrames[slot].bitDepthValue()
 		info.ShowFrame = true
 		return info, nil
 	}
 	info.Width = int(hdr.Width)
 	info.Height = int(hdr.Height)
+	info.RenderWidth, info.RenderHeight = vp9HeaderRenderSize(hdr)
+	info.BitDepth = int(hdr.BitDepthColor.BitDepth)
 	return info, nil
+}
+
+func vp9HeaderRenderSize(hdr *vp9dec.UncompressedHeader) (int, int) {
+	if hdr == nil {
+		return 0, 0
+	}
+	if hdr.Render.Width > 0 && hdr.Render.Height > 0 {
+		return int(hdr.Render.Width), int(hdr.Render.Height)
+	}
+	return int(hdr.Width), int(hdr.Height)
 }
 
 func (d *VP9Decoder) finishVP9FrameInfo(info VP9FrameInfo) {
@@ -1096,6 +1146,8 @@ func (d *VP9Decoder) concealVP9Frame(hdr *vp9dec.UncompressedHeader,
 	}
 	info.Width = ref.img.Width
 	info.Height = ref.img.Height
+	info.RenderWidth, info.RenderHeight = ref.renderSize()
+	info.BitDepth = ref.bitDepthValue()
 	info.KeyFrame = false
 	info.ShowFrame = true
 	info.ShowExistingFrame = false
@@ -1138,7 +1190,9 @@ func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 	flags := hdr.RefreshFrameFlags
 	for slot := range d.refFrames {
 		if flags&(1<<uint(slot)) != 0 {
-			d.refFrames[slot].store(d.lastFrame)
+			renderWidth, renderHeight := vp9HeaderRenderSize(hdr)
+			d.refFrames[slot].storeWithRenderAndBitDepth(d.lastFrame,
+				renderWidth, renderHeight, int(hdr.BitDepthColor.BitDepth))
 		}
 	}
 }
@@ -1451,6 +1505,16 @@ func (d *VP9Decoder) LastFrameSize() (width, height int) {
 	return d.width, d.height
 }
 
+// LastDisplaySize returns the VP9 render/display size for the most recently
+// decoded frame, mirroring libvpx VP9D_GET_DISPLAY_SIZE. It returns (0, 0)
+// before any successful frame metadata is available.
+func (d *VP9Decoder) LastDisplaySize() (width, height int) {
+	if d == nil || !d.lastInfoValid {
+		return 0, 0
+	}
+	return d.lastInfo.RenderWidth, d.lastInfo.RenderHeight
+}
+
 // LastFrameInfo returns metadata for the most recently decoded VP9 frame.
 // ok is false on a nil or closed decoder, and before the first successful
 // Decode/DecodeInto call.
@@ -1459,6 +1523,39 @@ func (d *VP9Decoder) LastFrameInfo() (VP9FrameInfo, bool) {
 		return VP9FrameInfo{}, false
 	}
 	return d.lastInfo, true
+}
+
+// LastFrameCorrupted reports whether the most recently decoded VP9 frame was
+// flagged as corrupted by the decoder. Mirrors libvpx's
+// VP8D_GET_FRAME_CORRUPTED getter on the VP9 decoder control map. ok is false
+// on a nil or closed decoder, and before the first successful Decode or
+// DecodeInto call.
+func (d *VP9Decoder) LastFrameCorrupted() (corrupted bool, ok bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return false, false
+	}
+	return d.lastInfo.Corrupted, true
+}
+
+// LastReferenceUpdates reports the VP9 reference-slot update bitmask from the
+// most recently decoded frame. Mirrors libvpx's VP8D_GET_LAST_REF_UPDATES
+// getter on the VP9 decoder control map. ok is false on a nil or closed
+// decoder, and before the first successful Decode or DecodeInto call.
+func (d *VP9Decoder) LastReferenceUpdates() (flags uint8, ok bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return 0, false
+	}
+	return d.lastInfo.RefreshFrameFlags, true
+}
+
+// LastBitDepth reports the VP9 bit depth from the most recently decoded frame,
+// mirroring libvpx VP9D_GET_BIT_DEPTH. ok is false on a nil or closed decoder,
+// and before the first successful Decode or DecodeInto call.
+func (d *VP9Decoder) LastBitDepth() (bitDepth int, ok bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return 0, false
+	}
+	return d.lastInfo.BitDepth, true
 }
 
 // NextFrame returns the most recent visible VP9 frame decoded by the

@@ -82,6 +82,22 @@ func (d *VP9Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 	return nil
 }
 
+// CopyCurrentFrame copies the most recently shown VP9 frame into dst without
+// consuming the decoder's NextFrame queue. This mirrors libvpx's
+// VP9_GET_REFERENCE control, which exposes the current show-frame buffer rather
+// than one of the LAST/GOLDEN/ALTREF reference slots.
+func (d *VP9Decoder) CopyCurrentFrame(dst *Image) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if dst == nil || !d.lastInfoValid || !d.lastInfo.ShowFrame ||
+		!dst.validForEncode(d.lastFrame.Width, d.lastFrame.Height) {
+		return ErrInvalidConfig
+	}
+	copyVP9ImageToPublic(dst, d.lastFrame)
+	return nil
+}
+
 func (d *VP9Decoder) vp9ReferenceFramesInitialized() bool {
 	return d.initialized && d.width > 0 && d.height > 0
 }
