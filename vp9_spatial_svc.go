@@ -781,6 +781,66 @@ func (e *VP9SpatialSVCEncoder) SetLayerLossless(layerID uint8, enabled bool) err
 	return layer.SetLossless(enabled)
 }
 
+// SetLayerColorSpace changes one spatial layer's VP9 bitstream color-space
+// tag, matching [VP9Encoder.SetColorSpace].
+func (e *VP9SpatialSVCEncoder) SetLayerColorSpace(layerID uint8, cs VP9ColorSpace) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetColorSpace(cs)
+}
+
+// SetLayerColorRange changes one spatial layer's VP9 bitstream color-range
+// tag, matching [VP9Encoder.SetColorRange].
+func (e *VP9SpatialSVCEncoder) SetLayerColorRange(layerID uint8, cr VP9ColorRange) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetColorRange(cr)
+}
+
+// SetLayerRenderSize changes one spatial layer's VP9 display-render size hint,
+// matching [VP9Encoder.SetRenderSize].
+func (e *VP9SpatialSVCEncoder) SetLayerRenderSize(layerID uint8, width, height int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetRenderSize(width, height)
+}
+
+// SetLayerTargetLevel changes one spatial layer's VP9 target level constraint,
+// matching [VP9Encoder.SetTargetLevel].
+func (e *VP9SpatialSVCEncoder) SetLayerTargetLevel(layerID uint8, level int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetTargetLevel(level)
+}
+
+// SetLayerDisableLoopfilter changes one spatial layer's VP9 loopfilter disable
+// mode, matching [VP9Encoder.SetDisableLoopfilter].
+func (e *VP9SpatialSVCEncoder) SetLayerDisableLoopfilter(layerID uint8, mode VP9DisableLoopfilter) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetDisableLoopfilter(mode)
+}
+
+// SetLayerDeltaQUV changes one spatial layer's VP9 chroma quantizer delta,
+// matching [VP9Encoder.SetDeltaQUV].
+func (e *VP9SpatialSVCEncoder) SetLayerDeltaQUV(layerID uint8, delta int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetDeltaQUV(delta)
+}
+
 // SetLayerScreenContentMode changes one spatial layer's VP9 content tuning,
 // matching [VP9Encoder.SetScreenContentMode].
 func (e *VP9SpatialSVCEncoder) SetLayerScreenContentMode(layerID uint8, mode int) error {

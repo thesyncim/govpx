@@ -845,6 +845,21 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerTuning(0, TuneSSIM); err != nil {
 		t.Fatalf("SetLayerTuning: %v", err)
 	}
+	if err := svc.SetLayerColorSpace(0, VP9ColorSpaceBT709); err != nil {
+		t.Fatalf("SetLayerColorSpace: %v", err)
+	}
+	if err := svc.SetLayerColorRange(0, VP9ColorRangeFull); err != nil {
+		t.Fatalf("SetLayerColorRange: %v", err)
+	}
+	if err := svc.SetLayerRenderSize(0, 30, 28); err != nil {
+		t.Fatalf("SetLayerRenderSize: %v", err)
+	}
+	if err := svc.SetLayerTargetLevel(0, 31); err != nil {
+		t.Fatalf("SetLayerTargetLevel: %v", err)
+	}
+	if err := svc.SetLayerDisableLoopfilter(0, VP9LoopfilterDisableInter); err != nil {
+		t.Fatalf("SetLayerDisableLoopfilter: %v", err)
+	}
 	if err := svc.SetLayerLossless(0, true); err != nil {
 		t.Fatalf("SetLayerLossless: %v", err)
 	}
@@ -890,6 +905,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerAltRefAQ(1, true); err != nil {
 		t.Fatalf("SetLayerAltRefAQ: %v", err)
 	}
+	if err := svc.SetLayerDeltaQUV(1, 4); err != nil {
+		t.Fatalf("SetLayerDeltaQUV: %v", err)
+	}
 
 	base, err := svc.LayerEncoder(0)
 	if err != nil {
@@ -919,6 +937,12 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		!base.rc.nextFrameQIndexSet ||
 		base.rc.nextFrameQIndex != 96 ||
 		base.opts.Tuning != TuneSSIM ||
+		base.opts.ColorSpace != VP9ColorSpaceBT709 ||
+		base.opts.ColorRange != VP9ColorRangeFull ||
+		base.opts.RenderWidth != 30 ||
+		base.opts.RenderHeight != 28 ||
+		base.opts.TargetLevel != 31 ||
+		base.opts.DisableLoopfilter != VP9LoopfilterDisableInter ||
 		!base.opts.Lossless ||
 		base.opts.ScreenContentMode != 1 ||
 		base.opts.Sharpness != 4 ||
@@ -944,6 +968,7 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		!enh.rc.framePeriodicBoost ||
 		!enh.opts.AltRefAQ ||
 		!enh.rc.altRefAQ ||
+		enh.opts.DeltaQUV != 4 ||
 		enh.opts.DropFrameAllowed ||
 		enh.opts.Lossless {
 		t.Fatalf("enhancement layer advanced controls missing/leaked: opts=%+v twoPass=%t",
@@ -954,6 +979,35 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if base.opts.Sharpness != 4 {
 		t.Fatalf("invalid sharpness mutated base layer to %d", base.opts.Sharpness)
+	}
+	if err := svc.SetLayerColorSpace(0, VP9ColorSpaceSRGB); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerColorSpace(SRGB) err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.ColorSpace != VP9ColorSpaceBT709 {
+		t.Fatalf("invalid color space mutated base layer to %d", base.opts.ColorSpace)
+	}
+	if err := svc.SetLayerColorRange(0, VP9ColorRange(2)); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerColorRange(2) err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerRenderSize(0, 640, 0); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerRenderSize invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.RenderWidth != 30 || base.opts.RenderHeight != 28 {
+		t.Fatalf("invalid render size mutated base layer to %dx%d",
+			base.opts.RenderWidth, base.opts.RenderHeight)
+	}
+	if err := svc.SetLayerTargetLevel(0, 12); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerTargetLevel(12) err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.TargetLevel != 31 {
+		t.Fatalf("invalid target level mutated base layer to %d", base.opts.TargetLevel)
+	}
+	if err := svc.SetLayerDisableLoopfilter(0, VP9DisableLoopfilter(3)); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerDisableLoopfilter invalid err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.DisableLoopfilter != VP9LoopfilterDisableInter {
+		t.Fatalf("invalid disable-loopfilter mutated base layer to %d",
+			base.opts.DisableLoopfilter)
 	}
 	if err := svc.SetLayerRealtimeTarget(1, RealtimeTarget{
 		Width:  32,
@@ -996,6 +1050,18 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerNextFrameQIndex(1, 300); !errors.Is(err, ErrInvalidQuantizer) {
 		t.Fatalf("SetLayerNextFrameQIndex invalid err = %v, want ErrInvalidQuantizer", err)
 	}
+	if err := svc.SetLayerDeltaQUV(0, 1); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("SetLayerDeltaQUV on lossless err = %v, want ErrInvalidQuantizer", err)
+	}
+	if base.opts.DeltaQUV != 0 {
+		t.Fatalf("invalid delta-q-uv mutated base layer to %d", base.opts.DeltaQUV)
+	}
+	if err := svc.SetLayerDeltaQUV(1, 16); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("SetLayerDeltaQUV invalid err = %v, want ErrInvalidQuantizer", err)
+	}
+	if enh.opts.DeltaQUV != 4 {
+		t.Fatalf("invalid delta-q-uv mutated enhancement layer to %d", enh.opts.DeltaQUV)
+	}
 	if err := svc.SetLayerCQLevel(2, 24); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerCQLevel invalid layer err = %v, want ErrInvalidConfig", err)
 	}
@@ -1033,6 +1099,15 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if err := svc.SetLayerNextFrameQIndex(0, 96); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerNextFrameQIndex after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerColorSpace(0, VP9ColorSpaceBT709); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerColorSpace after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerRenderSize(0, 30, 28); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerRenderSize after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerDeltaQUV(0, 0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerDeltaQUV after close err = %v, want ErrClosed", err)
 	}
 	if err := svc.SetLayerAQMode(0, VP9AQNone); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerAQMode after close err = %v, want ErrClosed", err)
@@ -1118,6 +1193,13 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerDeadline", fn: func() error { return svc.SetLayerDeadline(0, DeadlineRealtime) }},
 		{name: "SetLayerCPUUsed", fn: func() error { return svc.SetLayerCPUUsed(0, 4) }},
 		{name: "SetLayerTuning", fn: func() error { return svc.SetLayerTuning(0, TuneSSIM) }},
+		{name: "SetLayerColorSpace", fn: func() error { return svc.SetLayerColorSpace(0, VP9ColorSpaceBT709) }},
+		{name: "SetLayerColorRange", fn: func() error { return svc.SetLayerColorRange(0, VP9ColorRangeFull) }},
+		{name: "SetLayerRenderSize", fn: func() error { return svc.SetLayerRenderSize(0, 30, 28) }},
+		{name: "SetLayerTargetLevel", fn: func() error { return svc.SetLayerTargetLevel(0, 31) }},
+		{name: "SetLayerDisableLoopfilter", fn: func() error {
+			return svc.SetLayerDisableLoopfilter(0, VP9LoopfilterDisableInter)
+		}},
 		{name: "SetLayerLossless", fn: func() error { return svc.SetLayerLossless(0, true) }},
 		{name: "SetLayerScreenContentMode", fn: func() error { return svc.SetLayerScreenContentMode(0, 1) }},
 		{name: "SetLayerNoiseSensitivityZero", fn: func() error { return svc.SetLayerNoiseSensitivity(0, 0) }},
@@ -1136,6 +1218,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerFramePeriodicBoost", fn: func() error { return svc.SetLayerFramePeriodicBoost(1, true) }},
 		{name: "SetLayerAltRefAQ", fn: func() error { return svc.SetLayerAltRefAQ(1, true) }},
 		{name: "SetLayerNextFrameQIndex", fn: func() error { return svc.SetLayerNextFrameQIndex(0, 96) }},
+		{name: "SetLayerDeltaQUV", fn: func() error { return svc.SetLayerDeltaQUV(1, 4) }},
 	}
 	for _, tc := range tests {
 		allocs := testing.AllocsPerRun(100, func() {

@@ -411,13 +411,17 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 		"SetLayerBitrateKbps":       {kind: "vp9-spatial-svc-layer-control"},
 		"SetLayerActiveMap":         {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"active:"}},
 		"SetLayerARNR":              {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
+		"SetLayerColorRange":        {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"colorrange:"}},
+		"SetLayerColorSpace":        {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"colorspace:"}},
 		"SetLayerCPUUsed":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cpu:"}},
 		"SetLayerCQLevel":           {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"cq:"}},
 		"SetLayerDeadline":          {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"deadline:"}},
+		"SetLayerDeltaQUV":          {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"deltaquv:"}},
 		"SetLayerDisableOvershootMaxQCBR": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"disovershoot:"},
 		},
+		"SetLayerDisableLoopfilter": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"disableloopfilter:"}},
 		"SetLayerFrameDropAllowed": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"drop:"},
@@ -448,6 +452,7 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"bufsz:", "bufinit:", "bufopt:"},
 		},
+		"SetLayerRenderSize": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"rendersize:"}},
 		"SetLayerRealtimeTarget": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"},
@@ -472,6 +477,7 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"static:"},
 		},
+		"SetLayerTargetLevel":     {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"targetlevel:"}},
 		"SetInterLayerPrediction": {kind: "libvpx-vp9-svc-control", helperTokens: []string{"inter-layer-pred:"}},
 		"SetLayerTuning":          {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"tune:"}},
 		"SetLayerTwoPassStats":    {kind: "vp9-spatial-svc-layer-control"},
