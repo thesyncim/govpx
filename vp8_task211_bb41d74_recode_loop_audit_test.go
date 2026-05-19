@@ -7,11 +7,15 @@ import (
 	"testing"
 )
 
-// TestVP8Task211Bb41d74RecodeLoopAudit pins task #211: the residual
+// TestVP8Task211Bb41d74RecodeLoopAudit pins task #211: the historical
 // frame-4+ divergence on the
 // `regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74` fuzz seed of
-// FuzzOracleEncoderRuntimeControlTransitions (matchLimit=4 tolerance set
-// in oracle_encoder_runtime_controls_fuzz_test.go).
+// FuzzOracleEncoderRuntimeControlTransitions. The matchLimit=4 tolerance
+// that gated this seed was removed by task #218
+// (encoder_inter_modes_rd_split.go SPLITMV skip-backout `&& stats.rateUV
+// == 0` drop); oracleRuntimeControlFuzzMatchLimit now returns 0 and the
+// seed asserts byte-exact across all 9 frames. The historical analysis
+// below remains as a regression sentinel.
 //
 // SEED REPRODUCER:
 //
@@ -29,10 +33,12 @@ import (
 //	    frame 7: arnrmax:0+arnrstrength:0+arnrtype:1
 //	    frame 8: deadline:good+cpu:0
 //
-// CURRENT STATE (matchLimit=4 tolerance):
+// HISTORICAL STATE (matchLimit=4 tolerance, pre-#218):
 //   - frames 0-3: byte-MATCH (govpx and libvpx identical)
 //   - frame 4: govpx=409 bytes, libvpx=422 bytes (first byte mismatch)
 //   - frame 5-8: byte mismatch (logged, not asserted)
+//
+// CURRENT STATE (matchLimit=0, post-#218): all frames byte-MATCH.
 //
 // DIVERGENCE ROOT CAUSE (this audit):
 //
@@ -203,9 +209,9 @@ import (
 //
 // HARNESS REFERENCES:
 //
-//   - oracle_encoder_runtime_controls_fuzz_test.go:55-78
-//     oracleRuntimeControlFuzzMatchLimit pins this seed at matchLimit=4
-//     so frames 0-3 are asserted and 4-8 are logged-only.
+//   - oracle_encoder_runtime_controls_fuzz_test.go:55-128
+//     oracleRuntimeControlFuzzMatchLimit returns 0 (strict, all frames);
+//     the historical matchLimit=4 carveout was removed by task #218.
 //   - diag_bb41d74_test.go                      TestDiagBb41d74Frame4
 //     (build-tagged `govpx_oracle_trace && diag`) is the
 //     per-frame state probe that captured rdThreshMult/buffer/GF state
@@ -227,18 +233,12 @@ func TestVP8Task211Bb41d74RecodeLoopAudit(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1")
 	}
-	// Skip-by-design: this audit documents the recode-loop divergence on
-	// the bb41d74 seed for the next port iteration. The live failure
-	// surfaces from FuzzOracleEncoderRuntimeControlTransitions /
-	// regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74 under the
-	// matchLimit=4 tolerance pinned by oracleRuntimeControlFuzzMatchLimit.
-	//
-	// The diag_bb41d74_test.go file (build-tagged `diag`) is the
-	// in-flight probe that produced the per-frame rdThreshMult / buffer
-	// / GF-cadence state captured in the file comment above. Running it
-	// repeatedly is the next-step diagnostic for any continuation: it
-	// also writes /tmp/diag_libvpx.jsonl and /tmp/diag_govpx.jsonl with
-	// the full per-MB inter_candidate / rate / recode / frame oracle
-	// rows from both sides for direct diff.
-	t.Skip("documentation-only; live regression at FuzzOracleEncoderRuntimeControlTransitions/regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74 under matchLimit=4 tolerance; recode-loop divergence at frame 4 final_q=9 vs 7")
+	// Skip-by-design: this audit documents the historical recode-loop
+	// divergence on the bb41d74 seed. Task #218 closed the gap; the
+	// seed now passes byte-exact at matchLimit=0 inside
+	// FuzzOracleEncoderRuntimeControlTransitions / regression_general_
+	// 64x64_300kbps_spm8_f9_src0_0bb41d74. The diag_bb41d74_test.go
+	// file (build-tagged `diag`) remains available as a per-frame state
+	// probe should any future regression land on this cohort.
+	t.Skip("closed by task #218 (encoder_inter_modes_rd_split.go SPLITMV skip-backout); seed asserts strict byte-exact at matchLimit=0")
 }
