@@ -1,7 +1,8 @@
 # govpx Repo Map
 
 Generated for Wave 0 of `docs/repo-tidy-plan.md` on 2026-05-19.
-Last updated for hot-path Go-shape and allocation guard work on 2026-05-19.
+Last updated for VP8 file ownership naming and diagnostic-test cleanup on
+2026-05-19.
 
 This document is the coordination map for splitting the current flat root
 package into a public facade plus codec-owned internal packages. It records the
@@ -18,16 +19,16 @@ Tracked Go files, excluding ignored oracle build output:
 
 | Area | Go files |
 | --- | ---: |
-| Root package | 536 |
-| Root package tests | 371 |
-| Root package implementation/non-test files | 165 |
-| `internal/` | 493 |
+| Root package | 579 |
+| Root package tests | 389 |
+| Root package implementation/non-test files | 190 |
+| `internal/` | 516 |
 | `cmd/` | 41 |
 | `examples/` | 5 |
 | `benchmarks/` | 1 |
 
 Default `go list ./...` sees fewer root files because many parity and
-diagnostic files are behind build tags: 151 root source files, 242 root
+diagnostic files are behind build tags: 174 root source files, 264 root
 same-package tests, and 6 root external tests in the default build.
 
 Ignored local/generated output includes editor metadata, local Go caches,
@@ -52,7 +53,7 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 | VP9 decoder implementation | `vp9_decoder*.go`, VP9 decoder tests | `internal/vp9/decoder` |
 | VP9 RTP and superframe helpers | root `vp9_rtp.go` and `vp9_superframe.go` facades, `internal/vp9/rtp/rtp.go`, `internal/vp9/bitstream/superframe.go`, related tests/fuzz | Root facade plus `internal/vp9/{rtp,bitstream}` and shared `internal/vpx/rtp` mechanics |
 | Oracle/parity harness | `oracle_*_test.go`, `vp9_oracle_*_test.go`, `internal/coracle`, `cmd/scoreboard-report` | `internal/vpx/testharness`, `internal/coracle`, package-local oracle suites |
-| Diagnostics/audits | `vp8_task*_test.go`, `vp8_byte*_test.go`, `diag_*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename into regression suites or document as diagnostics |
+| Diagnostics/audits | `vp8_task*_test.go`, `vp8_byte*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename into regression suites or document as diagnostics; env-only log probes and always-skipped documentation tests are being deleted once covered by live parity/regression gates |
 | Performance and quality gates | `feature_quality_gates*_test.go`, `benchmarks`, `cmd/govpx-bench`, `*_bench_test.go` | Package-local benches plus `cmd/govpx-bench` |
 
 Existing internal codec packages are already substantial:
@@ -180,13 +181,14 @@ helpers (`Encode`, `EncodeWithFlags`, `EncodeIntraOnlyFrame`,
 
 ## Test Categories
 
-The repository has 586 `*_test.go` files. A filename/package heuristic gives:
+The repository has about 613 tracked `*_test.go` files after removing stale
+env-only diagnostics. A filename/package heuristic gives:
 
 | Category | Approx. count | Current locations |
 | --- | ---: | --- |
-| Unit and pure Go codec tests | 389 | root, `internal/vp8/*`, `internal/vp9/*`, `cmd/*` |
-| Oracle/parity tests | 138 | mostly root `oracle_*`, `vp9_oracle_*`, `*_vpxdec_oracle_*`, `*_vpxenc_oracle_*` |
-| Diagnostic/audit/bisect tests | 27 | root `vp8_task*`, `vp8_byte*`, `diag_*`, `*_audit_*`, `*_bisect_*` |
+| Unit and pure Go codec tests | ~390 | root, `internal/vp8/*`, `internal/vp9/*`, `cmd/*` |
+| Oracle/parity tests | ~118 | mostly root `oracle_*`, `vp9_oracle_*`, `*_vpxdec_oracle_*`, `*_vpxenc_oracle_*` |
+| Diagnostic/audit/bisect tests | 58 | root `vp8_task*`, `vp8_byte*`, `*_audit_*`, `*_bisect_*` |
 | Performance/quality tests | 18 | `feature_quality_gates*`, `*_bench_test.go`, `cmd/govpx-bench/benchcmd` |
 | Fuzz entrypoints/regressions | 12 | root fuzz files plus `internal/vp8` fuzz tests |
 | Named repro/regression tests | 2 | root repro files |
@@ -208,7 +210,6 @@ Important build tags:
 | --- | --- |
 | `govpx_oracle_trace` | Enables oracle trace, scoreboard, byte-parity, and parity fuzz code |
 | `!govpx_oracle_trace` | Keeps production no-op trace/probe paths compiled without trace dependencies |
-| `govpx_oracle_trace && diag` | Manual diagnostics only |
 | `purego` | Excludes architecture-specific assembly and uses scalar Go fallbacks |
 | `amd64 && !purego`, `arm64 && !purego` | Architecture-specific SIMD dispatch |
 | `ignore` | Generators and local C/oracle support files |
@@ -250,7 +251,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 2 | VP9 decoder split | `vp9_decoder.go`, `vp9_decoder_test.go`, new focused VP9 decoder files | Same package, no behavior change |
 | 2 | VP9 oracle scoreboard split | `vp9_oracle_stream_parity_scoreboard_test.go`, VP9 oracle helper files | Keep `govpx_oracle_trace` tags |
 | 2 | VP8 encoder oversized files | `vp8_encoder.go`, `vp8_encoder_config.go`, `vp8_encoder_runtime_controls_test.go`, `vp8_encoder_ratecontrol_paths_test.go` | Split public option shell from private config |
-| 2 | Root diagnostic naming | `vp8_task*_test.go`, `vp8_byte*_test.go`, `diag_*_test.go` | Rename only; no expectation changes |
+| 2 | Root diagnostic naming | `vp8_task*_test.go`, `vp8_byte*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename/delete only; no expectation changes |
 | 3 | VP8 decoder move | root `vp8_decoder*.go` private pieces, `internal/vp8/decoder/**` | Root keeps `VP8Decoder` facade |
 | 3 | VP8 encoder move | root `vp8_encoder*.go`, `ratecontrol*.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Root keeps `VP8Encoder` facade |
 | 3/4 | VP8 source-buffer move | root `vp8_encoder_source_buffer.go`, VP8 lookahead/preprocess/reference call sites, `internal/vp8/encoder/source_buffer.go` | Current branch: internal VP8 encoder owns source-to-frame copy, active-map partial copy, and visible-to-coded padding; root keeps public/internal image-view adapters only |
@@ -272,7 +273,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 5 | API cleanup | root public files, examples, docs | Current branch: removed the unreleased `RealtimeTarget.AllowFrameDrop` fallback and private legacy wrapper call shapes; continue removing stale public/internal compatibility aliases before release |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |
-| 6.75 | Dead code sweep | stale private helpers, old public names, compatibility wrappers, diagnostic leftovers | Triage before deletion; keep build-tagged/oracle/generated/fuzz/public-surface code only with a documented reason |
+| 6.75 | Dead code sweep | stale private helpers, old public names, compatibility wrappers, diagnostic leftovers | Current branch: removed env-only log probes, `diag`-tag tests, and always-skipped documentation tests whose live coverage now lives in fuzz/byte-parity gates; continue keeping build-tagged/oracle/generated/fuzz/public-surface code only with a documented reason |
 | 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `UPSTREAM.md`, `plan.md` links | Current branch: README links to focused architecture/status/validation docs; parity notes stay out of the README |
 | 8 | Final sweep | stale shims, examples, `.gitignore`, `docs/repo-map.md` | Full production verification |
 

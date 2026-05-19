@@ -13,8 +13,10 @@ git_cmd=${GIT:-git}
 		/^cmd\/govpx-bench\// { print; next }
 		/^internal\/cpu\// { print; next }
 		/^internal\/vp8\// { print; next }
-		/^encoder/ { print; next }
-		/^decoder/ { print; next }
+		/^vp8_encoder/ { print; next }
+		/^vp8_decoder/ { print; next }
+		/^ratecontrol/ { print; next }
+		$0 == "temporal.go" { print; next }
 		$0 == "codec.go" { print; next }
 		$0 == "errors.go" { print; next }
 		$0 == "image.go" { print; next }
