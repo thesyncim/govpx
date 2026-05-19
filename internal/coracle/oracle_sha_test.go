@@ -27,6 +27,23 @@ import (
 // ARNR pin-hold after the #282-#294 static-inspection campaign exhausted
 // candidate predictor / residual / quantize / RC drift sources.
 //
+// Task #310 (2026-05-19) rotated the pin again to land a per-MB
+// NEWMV-picker quantize trace. The hook splices into
+// vp8/encoder/rdopt.c:macro_block_yrd after the Y0..15 + Y2 quantize
+// loop completes (rdopt.c:494-499 v1.16.0) and before vp8_rdcost_mby
+// reads d->eobs, capturing 17 JSON rows per inter-mode candidate (Y
+// blocks 0..15 + Y2 block 24) with full pre-quantize state
+// (coeff[16], b->zbin[16], b->round[16], b->quant[16],
+// b->quant_shift[16], b->zrun_zbin_boost[16], d->dequant[16],
+// b->zbin_extra), post-quantize state (qcoeff[16], dqcoeff[16], eob),
+// MB-context (mbmi.mode/ref_frame/mv), and the libvpx quantize-fn path
+// taken ("regular" / "fast" via x->quantize_b pointer equality).
+// Gated on GOVPX_ORACLE_NEWMV_PICKER=1 on top of GOVPX_ORACLE_TRACE_OUT.
+// Localizes the task #304 BestARNR/GoodARNR rate_y gap by surfacing
+// which of (stale zbin_extra, row-15 predictor delta, fast vs regular
+// quantize swap) explains govpx rate_y=7519 vs libvpx rate_y=34799 at
+// MB(0,0) frame 1 NEWMV MV=(8,16) ref=LAST_FRAME.
+//
 // These pins exist to detect any future change in the build pipeline
 // (libvpx upgrade, configure flag change, toolchain rotation, new patch
 // stamp) that would silently shift the oracle binary hash. If this test
@@ -40,7 +57,7 @@ import (
 // success the cross-path invariance is enforced by the build script's
 // determinism flags, not by this test).
 const (
-	oracleSHAvpxencArm64Darwin = "87b899952ac66e08ecc66f3d5cdf7e336c29c05b4a2351c4af69c21b79884f7a"
+	oracleSHAvpxencArm64Darwin = "e1abf8c9013ed17c45ac40d2579b7fe91468a6cbf6a0ee78d1c2631d02030e57"
 	oracleSHAlibvpxArm64Darwin = "4992f2bbfc1ce02640e20036286465c455650485a5378904dcc197cb2dda5523"
 )
 

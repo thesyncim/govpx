@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize"
 jobs=${JOBS:-}
 
 # ----------------------------------------------------------------------------
@@ -1891,6 +1891,176 @@ void govpx_oracle_emit_pretrellis_uv(struct macroblock *x_arg) {
     GOVPX_TRACE_END();
 }
 
+/* Task #310: emit per-Y-block pre/post quantize state from the inter picker
+ * (libvpx's macro_block_yrd in vp8/encoder/rdopt.c). Called for every
+ * inter-mode candidate (NEWMV / NEAREST / NEAR / ZERO etc.) right after the
+ * Y0..15 + Y2 quantize loop completes, before vp8_rdcost_mby reads the
+ * eobs. Captures everything needed to reproduce libvpx's quantize result
+ * arithmetically:
+ *   pre  : coeff[0..15] (post-FDCT, pre-quantize), b->zbin_extra,
+ *          b->zbin[0..15], b->round[0..15], b->quant[0..15],
+ *          b->quant_shift[0..15], b->zrun_zbin_boost[0..15],
+ *          d->dequant[0..15]
+ *   post : d->qcoeff[0..15], eob, d->dqcoeff[0..15]
+ *   path : "regular" or "fast" based on x->quantize_b function pointer
+ *          (sf.use_fastquant_for_pick flips this for the picker, restored
+ *          to vp8_regular_quantize_b for encode in encodeframe.c:1166-1177).
+ *
+ * Gated on GOVPX_ORACLE_TRACE_OUT being live AND
+ * GOVPX_ORACLE_NEWMV_PICKER=1 to keep per-frame trace size bounded when
+ * the hook is off (a 17-block / candidate / MB dump is ~12 KB/MB and the
+ * picker tests ~10 candidates per MB).
+ *
+ * Used (task #310) to localize the BestARNR/GoodARNR rate_y gap diagnosed
+ * by task #304: govpx's NEWMV picker at MB(0,0) MV=(8,16) emits a
+ * correct-by-spec all-zero qcoeff for the Y plane (FDCT |AC| < zbin so
+ * regular_quantize_b's "if (x >= zbin)" never trips), giving rate_y=7519
+ * (= 17 * Y_EOB_token_cost). libvpx reports rate_y=34799 for the same
+ * MV+ref, implying its picker takes a different path. The hook surfaces
+ * which path (which quantize fn, what zbin_extra, what coeff) so the
+ * delta can be pinned to one of: stale b->zbin_extra from a prior
+ * mode's vp8cx_mb_init_quantizer skip; row-15 predictor byte
+ * differing (pre-quantize coeff diff); or a quantize fn swap.
+ */
+static int govpx_oracle_newmv_picker_enabled(void) {
+    static int cached = -1;
+    const char *env;
+    if (cached >= 0) {
+        return cached;
+    }
+    env = getenv("GOVPX_ORACLE_NEWMV_PICKER");
+    cached = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    return cached;
+}
+
+/* Forward declarations so the picker-quantize hook can compare the
+ * x->quantize_b function pointer against the two upstream variants and
+ * label the captured row. The compiler resolves these to the same symbols
+ * onyx_if.c / encodeframe.c assign at picker entry, so equality is
+ * pointer-exact (no PLT thunks involved on darwin static binaries). */
+extern void vp8_regular_quantize_b(BLOCK *b, BLOCKD *d);
+extern void vp8_fast_quantize_b(BLOCK *b, BLOCKD *d);
+
+void govpx_oracle_emit_picker_quantize(struct macroblock *x_arg) {
+    MACROBLOCK *x = x_arg;
+    MACROBLOCKD *xd;
+    FILE *out;
+    govpx_pretrellis_ctx_t *ctx;
+    int b, i;
+    int mb_row, mb_col;
+    int mode;
+    int ref_frame;
+    int mv_row, mv_col;
+    const char *quant_path;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (!govpx_oracle_newmv_picker_enabled()) {
+        return;
+    }
+    if (x == NULL) {
+        return;
+    }
+    GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
+    do {
+        ctx = govpx_pretrellis_ctx_get(0);
+        mb_row = (ctx != NULL && ctx->valid) ? ctx->mb_row : -1;
+        mb_col = (ctx != NULL && ctx->valid) ? ctx->mb_col : -1;
+        xd = &x->e_mbd;
+        out = govpx_oracle_state.out;
+        mode = (int)xd->mode_info_context->mbmi.mode;
+        ref_frame = (int)xd->mode_info_context->mbmi.ref_frame;
+        mv_row = (int)xd->mode_info_context->mbmi.mv.as_mv.row;
+        mv_col = (int)xd->mode_info_context->mbmi.mv.as_mv.col;
+        if (x->quantize_b == vp8_regular_quantize_b) {
+            quant_path = "regular";
+        } else if (x->quantize_b == vp8_fast_quantize_b) {
+            quant_path = "fast";
+        } else {
+            quant_path = "unknown";
+        }
+        /* Emit 17 rows: Y blocks 0..15 then Y2 (block 24). */
+        for (b = 0; b <= 16; ++b) {
+            int blk = (b < 16) ? b : 24;
+            BLOCK *block = &x->block[blk];
+            BLOCKD *blockd = &xd->block[blk];
+            int eob = (int)(*blockd->eob);
+            fprintf(out,
+                    "{\"type\":\"newmv_picker_quantize\","
+                    "\"frame_index\":%llu,"
+                    "\"mb_row\":%d,\"mb_col\":%d,"
+                    "\"block\":%d,"
+                    "\"mode\":\"%s\","
+                    "\"ref_frame\":%d,"
+                    "\"mv\":[%d,%d],"
+                    "\"quant_path\":\"%s\","
+                    "\"zbin_extra\":%d,"
+                    "\"zbin_oq\":%d,"
+                    "\"eob\":%d,"
+                    "\"pre\":{\"coeff\":[",
+                    govpx_oracle_state.frame_index,
+                    mb_row, mb_col, blk,
+                    govpx_oracle_mode_name(mode),
+                    ref_frame, mv_row, mv_col,
+                    quant_path,
+                    (int)block->zbin_extra,
+                    (int)x->zbin_over_quant,
+                    eob);
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->coeff[i]);
+            }
+            fprintf(out, "],\"zbin\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->zbin[i]);
+            }
+            fprintf(out, "],\"round\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->round[i]);
+            }
+            fprintf(out, "],\"quant\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->quant[i]);
+            }
+            fprintf(out, "],\"quant_shift\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->quant_shift[i]);
+            }
+            fprintf(out, "],\"zrun_zbin_boost\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->zrun_zbin_boost[i]);
+            }
+            fprintf(out, "],\"dequant\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->dequant[i]);
+            }
+            fprintf(out, "]},\"post\":{\"qcoeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->qcoeff[i]);
+            }
+            fprintf(out, "],\"dqcoeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->dqcoeff[i]);
+            }
+            fprintf(out, "]}}\n");
+        }
+        fflush(out);
+    } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
+    GOVPX_TRACE_END();
+}
+
 /* R12-C: emit a per-iteration iteration_outcome row inside the libvpx
  * fast inter picker mode_index loop. Each row captures (mb_row, mb_col,
  * mode_index, this_mode, this_ref_frame, mode_mv, gate, this_rd,
@@ -3113,6 +3283,37 @@ if rd_emit_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: rd_pick_inter_mode emit anchor missing\n')
     sys.exit(2)
 text = text.replace(rd_emit_anchor, rd_emit_replacement, 1)
+# Task #310: splice the picker-quantize emit hook into macro_block_yrd, the
+# helper inside rdopt.c that quantizes Y0..15 + Y2 for every inter-mode
+# candidate the RD picker tests. The hook fires AFTER both quantize loops
+# complete but BEFORE vp8_rdcost_mby reads d->qcoeff/eob, so the captured
+# state is exactly what feeds the rate_y the picker sees. The anchor is the
+# four-line "DC predication and Quantization of 2nd Order block" block in
+# v1.16.0 — unique in the file (the comment string appears only here).
+mbyrd_sentinel = '/* govpx oracle: emit NEWMV picker quantize trace. */'
+if mbyrd_sentinel not in text:
+    mbyrd_extern_anchor = 'static void macro_block_yrd(MACROBLOCK *mb, int *Rate, int *Distortion) {\n'
+    mbyrd_extern_decl = ('extern void govpx_oracle_emit_picker_quantize(MACROBLOCK *x);\n\n')
+    if mbyrd_extern_anchor not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: macro_block_yrd def anchor missing\n')
+        sys.exit(2)
+    text = text.replace(mbyrd_extern_anchor,
+                        mbyrd_extern_decl + mbyrd_extern_anchor, 1)
+    mbyrd_emit_anchor = ('  /* DC predication and Quantization of 2nd Order block */\n'
+                         '  mb->quantize_b(mb_y2, x_y2);\n'
+                         '\n'
+                         '  /* Distortion */\n')
+    mbyrd_emit_replacement = ('  /* DC predication and Quantization of 2nd Order block */\n'
+                              '  mb->quantize_b(mb_y2, x_y2);\n'
+                              '\n'
+                              '  ' + mbyrd_sentinel + '\n'
+                              '  govpx_oracle_emit_picker_quantize(mb);\n'
+                              '\n'
+                              '  /* Distortion */\n')
+    if mbyrd_emit_anchor not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: macro_block_yrd quantize anchor missing\n')
+        sys.exit(2)
+    text = text.replace(mbyrd_emit_anchor, mbyrd_emit_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_RDOPT_PY
