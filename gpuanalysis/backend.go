@@ -39,6 +39,18 @@ type Backend interface {
 	// "current" plane becomes "previous" for the next frame.
 	SwapPlanes()
 
+	// UploadReconstructedRef stores a reconstructed reference frame
+	// in a dedicated GPU buffer separate from the ping-pong planes.
+	// The encoder calls this after each frame's reconstruction so
+	// the next frame's analyzer can compute SAD in the
+	// reconstruction domain (which is what the encoder's own motion
+	// search uses), instead of source-vs-source SAD. Foundation for
+	// GPU motion search.
+	//
+	// Backends that have not yet implemented this return nil and
+	// the analyzer falls back to source-domain comparison.
+	UploadReconstructedRef(plane []byte, width, height int) error
+
 	// Close releases all GPU resources.
 	Close() error
 

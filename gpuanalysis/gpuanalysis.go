@@ -70,6 +70,20 @@ func (a *gpuAnalyzer) Close() error {
 	return err
 }
 
+// AcceptReconstructedRef implements
+// analysis.ReconstructedRefConsumer. The encoder calls this after
+// each frame's reconstruction so the next Observe call can compute
+// SAD against the encoder's reconstructed-LAST instead of the
+// previous source.
+func (a *gpuAnalyzer) AcceptReconstructedRef(plane []byte, width, height int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.backend == nil {
+		return nil
+	}
+	return a.backend.UploadReconstructedRef(plane, width, height)
+}
+
 // Observe fills out with per-MB analysis fields produced by the GPU
 // kernel. The analyzer must never mutate encoder state outside of
 // `out`; the byte-parity tests enforce this end-to-end.

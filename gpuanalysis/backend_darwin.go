@@ -395,6 +395,13 @@ type metalBackend struct {
 	allocWidth, allocHeight, allocPlaneBytes int
 	allocMBTotal                             int
 	aIsCur                                   bool
+	// reconstructedRef is a separate GPU buffer holding the encoder's
+	// previous reconstructed-LAST frame, populated via
+	// UploadReconstructedRef. Allocated lazily on first use.
+	reconstructedRef         uintptr
+	reconstructedRefContents unsafe.Pointer
+	reconstructedRefSize     int
+	reconstructedRefValid    bool
 }
 
 // newBackend instantiates a Metal backend. On non-darwin platforms
@@ -596,6 +603,55 @@ func (b *metalBackend) SwapPlanes() {
 	b.aIsCur = !b.aIsCur
 }
 
+// UploadReconstructedRef copies the given plane into a dedicated GPU
+// buffer (allocated lazily on first call). The plane is treated as a
+// packed width*height byte slice — callers must stride-fold before
+// invoking. Once uploaded the buffer is GPU-resident until the next
+// call or Close.
+//
+// Wrapped in an autorelease pool because Metal's buffer allocation
+// path can autorelease intermediate NSError objects on failure, and
+// the per-frame UploadReconstructedRef call now happens outside the
+// Dispatch path's pool.
+func (b *metalBackend) UploadReconstructedRef(plane []byte, width, height int) error {
+	planeBytes := width * height
+	if len(plane) < planeBytes {
+		return fmt.Errorf("UploadReconstructedRef: short plane: have %d, want %d", len(plane), planeBytes)
+	}
+	// Fast path: buffer already big enough, just memcpy. No Metal
+	// API calls, no need for an autorelease pool.
+	if b.reconstructedRefSize >= planeBytes && b.reconstructedRefContents != nil {
+		dstSlice := unsafe.Slice((*byte)(b.reconstructedRefContents), planeBytes)
+		copy(dstSlice, plane[:planeBytes])
+		b.reconstructedRefValid = true
+		return nil
+	}
+	var allocErr error
+	withAutoreleasePool(func() {
+		if b.reconstructedRef != 0 {
+			msgSend(b.reconstructedRef, sel("release"))
+			b.reconstructedRef = 0
+			b.reconstructedRefContents = nil
+		}
+		buf := msgSend(b.device, sel("newBufferWithLength:options:"),
+			uintptr(planeBytes), uintptr(mtlResourceStorageModeShared))
+		if buf == 0 {
+			allocErr = errors.New("newBufferWithLength (reconstructedRef) returned nil")
+			return
+		}
+		b.reconstructedRef = buf
+		b.reconstructedRefContents = unsafe.Pointer(msgSend(buf, sel("contents")))
+		b.reconstructedRefSize = planeBytes
+	})
+	if allocErr != nil {
+		return allocErr
+	}
+	dstSlice := unsafe.Slice((*byte)(b.reconstructedRefContents), planeBytes)
+	copy(dstSlice, plane[:planeBytes])
+	b.reconstructedRefValid = true
+	return nil
+}
+
 func (b *metalBackend) Close() error {
 	b.releaseBuffers()
 	for _, p := range []*uintptr{&b.pipeline, &b.function, &b.library, &b.queue, &b.device, &b.paramsBuf} {
@@ -609,7 +665,7 @@ func (b *metalBackend) Close() error {
 }
 
 func (b *metalBackend) releaseBuffers() {
-	for _, p := range []*uintptr{&b.planeA, &b.planeB, &b.outBuf} {
+	for _, p := range []*uintptr{&b.planeA, &b.planeB, &b.outBuf, &b.reconstructedRef} {
 		if *p != 0 {
 			msgSend(*p, sel("release"))
 			*p = 0
@@ -618,6 +674,9 @@ func (b *metalBackend) releaseBuffers() {
 	b.planeAContents = nil
 	b.planeBContents = nil
 	b.outContents = nil
+	b.reconstructedRefContents = nil
+	b.reconstructedRefSize = 0
+	b.reconstructedRefValid = false
 	b.allocWidth = 0
 	b.allocHeight = 0
 	b.allocPlaneBytes = 0

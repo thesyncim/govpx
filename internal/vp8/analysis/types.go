@@ -237,6 +237,23 @@ type Analyzer interface {
 	Close() error
 }
 
+// ReconstructedRefConsumer is an optional interface analyzers MAY
+// implement to receive the encoder's reconstructed-LAST plane after
+// each frame. Implementations that do (e.g. the GPU analyzer)
+// upload the plane to GPU memory so the next frame's Observe can
+// compute SAD against the encoder-relevant reference instead of
+// source-vs-source. Implementations that do not (e.g. the CPU
+// analyzer) compare source-vs-source.
+//
+// The plane is treated as a packed width*height byte slice with no
+// stride; the caller is responsible for stride-folding.
+//
+// The encoder calls this once per frame, after reconstruction is
+// complete and before the next EncodeInto call.
+type ReconstructedRefConsumer interface {
+	AcceptReconstructedRef(plane []byte, width, height int) error
+}
+
 // New constructs an [Analyzer] from a [Config]. The returned analyzer is
 // nil when cfg.Mode is [VP8AnalysisOff]; callers should treat a nil
 // analyzer as "do nothing" and skip the hook entirely so the off path

@@ -12,3 +12,11 @@ import "errors"
 func newBackend() (Backend, error) {
 	return nil, errors.New("gpuanalysis: no GPU backend implemented for this platform (darwin/Metal only at this revision)")
 }
+
+// stubBackendUploadReconstructedRef is here only to satisfy the
+// Backend interface signature on non-darwin platforms. Real backends
+// override UploadReconstructedRef. The stub is unreachable because
+// newBackend always errors out on non-darwin.
+var _ = stubBackendUploadReconstructedRef
+
+func stubBackendUploadReconstructedRef(_ []byte, _, _ int) error { return nil }

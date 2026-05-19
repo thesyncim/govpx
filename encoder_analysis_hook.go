@@ -179,6 +179,45 @@ func (e *VP8Encoder) hintBypassPickerDecision(
 	}, true
 }
 
+// pushReconstructedRefToAnalyzer hands e.lastRef's luma plane to the
+// analyzer's optional ReconstructedRefConsumer interface, if it
+// implements it. CPU analyzer does not; GPU analyzer does — it
+// uploads the plane into a dedicated GPU buffer so the next Observe
+// can compute SAD in the reconstruction domain (what the encoder's
+// motion search uses) instead of source-vs-source.
+//
+// Default path (no analyzer / no consumer) is a single type
+// assertion that resolves to nil; no per-frame allocation.
+func (e *VP8Encoder) pushReconstructedRefToAnalyzer() {
+	if e == nil || e.analyzer == nil {
+		return
+	}
+	consumer, ok := e.analyzer.(vp8analysis.ReconstructedRefConsumer)
+	if !ok {
+		return
+	}
+	plane := e.lastRef.Img.Y
+	w := e.lastRef.Img.Width
+	h := e.lastRef.Img.Height
+	stride := e.lastRef.Img.YStride
+	if w <= 0 || h <= 0 || len(plane) == 0 {
+		return
+	}
+	// Stride-fold if necessary so the backend sees a packed
+	// width*height buffer.
+	if stride == w {
+		_ = consumer.AcceptReconstructedRef(plane[:w*h], w, h)
+		return
+	}
+	// Allocate per-call scratch — this is the rare case; common
+	// reference layouts have stride == width.
+	scratch := make([]byte, w*h)
+	for y := range h {
+		copy(scratch[y*w:(y+1)*w], plane[y*stride:y*stride+w])
+	}
+	_ = consumer.AcceptReconstructedRef(scratch, w, h)
+}
+
 // closeAnalysis releases analyzer-held resources, if any. Called by
 // the encoder Close path so a non-nil analyzer can clean up. Safe to
 // call when no analyzer is configured.
