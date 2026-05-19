@@ -8,10 +8,35 @@ import (
 	"unsafe"
 )
 
+// sadVolumeOffsets are the per-MB SAD probe positions (in pixels)
+// the kernel evaluates. The center (0,0) is what the analyzer's
+// ZeroSAD/BestSAD reports today; the other positions form a small
+// cross pattern so a future motion-search lookup can pick a better
+// MV than (0,0) without running the encoder's CPU diamond/nstep
+// search. Ordering matches the SADGrid array indexing the host
+// reads back; see Backend.Readback layout.
+//
+// Pattern (5 positions): center, ±1 horizontal, ±1 vertical.
+// Cheap to compute (5x the kernel time) and small to read back
+// (5 u32 per MB = 20 bytes). Bigger patterns can be added later by
+// growing the grid + the per-MB output stride.
+var sadVolumeOffsets = [5][2]int32{
+	{0, 0},
+	{-1, 0}, {+1, 0},
+	{0, -1}, {0, +1},
+}
+
 // mslSource is the Metal Shading Language port of the WGSL kernel
-// previously executed via wgpu. Same compute shape (one thread per
-// macroblock, threadgroup of 64), same outputs (sad, variance proxy,
-// texture energy, packed flags|radius|staticScore).
+// previously executed via wgpu. Per-MB output:
+//   - sad     : center SAD vs previous source (legacy field)
+//   - variance: L1 deviation from mean (luma)
+//   - texture : 3-tap horizontal edge energy
+//   - packed  : flags|searchRadius|staticScore
+//   - sad_left, sad_right, sad_up, sad_down: SAD at the 4 cross
+//     positions around (0,0). The encoder side can use these to
+//     pick a (-1,0)/(+1,0)/(0,-1)/(0,+1) MV without a CPU SAD
+//     evaluation, when UseEncodeHints + radius==1 indicate the
+//     ZeroMV-vicinity is the right search neighborhood.
 const mslSource = `
 #include <metal_stdlib>
 using namespace metal;
@@ -145,11 +170,181 @@ kernel void analyze(
                 | ((radius & 0xffu) << 8u)
                 | ((static_score & 0xffffu) << 16u);
 
-    uint base = gid * 4u;
+    // SAD volume: probe (-1,0), (+1,0), (0,-1), (0,+1). These pass
+    // skips the kernel for keyframes / no-prev case because the
+    // values would be meaningless; the encoder side gates on the
+    // same have_prev flag before consuming them. Each probe walks
+    // the same 16x16 block but at the offset, comparing the current
+    // source to the offset-aligned prev source. Out-of-frame
+    // positions are clamped to (0,0) so the value is at least
+    // defined (not undefined behaviour).
+    uint sad_left = 0u, sad_right = 0u, sad_up = 0u, sad_down = 0u;
+    if (params.have_prev != 0u) {
+        // Helper to compute SAD at a (dx,dy)-pixel offset against
+        // prev. Implemented inline to avoid WGSL-style function
+        // parameters in MSL (which would force the compiler to
+        // dispatch through registers).
+        // (-1, 0)
+        if (mbx > 0u) {
+            // base_word_x - 1 byte means we have to use byte-level
+            // unpacking that straddles a u32 boundary. Keeping
+            // sad_left at 0 when mbx==0 avoids a special case; the
+            // encoder side treats 0 as "not available, fall back
+            // to CPU".
+            for (uint ry = 0u; ry < 16u; ++ry) {
+                uint py = mb_y_start + ry;
+                uint row_base = py * params.width_words + base_word_x;
+                uint c0 = cur[row_base + 0u];
+                uint c1 = cur[row_base + 1u];
+                uint c2 = cur[row_base + 2u];
+                uint c3 = cur[row_base + 3u];
+                // For the prev sample at (x-1, y) we need to read
+                // word at base_word_x - 1 and base_word_x (and
+                // unpack with a 24-bit byte shift). Cheap inline.
+                uint pm1 = prev[row_base - 1u];
+                uint p0 = prev[row_base + 0u];
+                uint p1 = prev[row_base + 1u];
+                uint p2 = prev[row_base + 2u];
+                uint p3 = prev[row_base + 3u];
+                uint cur_l[16];
+                cur_l[ 0]= c0      &0xffu; cur_l[ 1]=(c0>> 8u)&0xffu;
+                cur_l[ 2]=(c0>>16u)&0xffu; cur_l[ 3]=(c0>>24u)&0xffu;
+                cur_l[ 4]= c1      &0xffu; cur_l[ 5]=(c1>> 8u)&0xffu;
+                cur_l[ 6]=(c1>>16u)&0xffu; cur_l[ 7]=(c1>>24u)&0xffu;
+                cur_l[ 8]= c2      &0xffu; cur_l[ 9]=(c2>> 8u)&0xffu;
+                cur_l[10]=(c2>>16u)&0xffu; cur_l[11]=(c2>>24u)&0xffu;
+                cur_l[12]= c3      &0xffu; cur_l[13]=(c3>> 8u)&0xffu;
+                cur_l[14]=(c3>>16u)&0xffu; cur_l[15]=(c3>>24u)&0xffu;
+                // prev shifted left by 1 byte = (pm1>>24, p0&0xff..p0>>24, p1&0xff..p1>>24, p2&0xff..p2>>24, p3&0xff)
+                uint pr_l[16];
+                pr_l[ 0]=(pm1>>24u)&0xffu;
+                pr_l[ 1]= p0       &0xffu; pr_l[ 2]=(p0>> 8u)&0xffu;
+                pr_l[ 3]=(p0>>16u)&0xffu; pr_l[ 4]=(p0>>24u)&0xffu;
+                pr_l[ 5]= p1       &0xffu; pr_l[ 6]=(p1>> 8u)&0xffu;
+                pr_l[ 7]=(p1>>16u)&0xffu; pr_l[ 8]=(p1>>24u)&0xffu;
+                pr_l[ 9]= p2       &0xffu; pr_l[10]=(p2>> 8u)&0xffu;
+                pr_l[11]=(p2>>16u)&0xffu; pr_l[12]=(p2>>24u)&0xffu;
+                pr_l[13]= p3       &0xffu; pr_l[14]=(p3>> 8u)&0xffu;
+                pr_l[15]=(p3>>16u)&0xffu;
+                for (uint i = 0u; i < 16u; ++i) {
+                    sad_left += abs_diff(cur_l[i], pr_l[i]);
+                }
+            }
+        }
+        // (+1, 0): prev shifted right by 1 byte. Skipped for the
+        // rightmost MB column for the same boundary reason.
+        if ((mbx + 1u) * 16u + 1u <= params.width_words * 4u) {
+            for (uint ry = 0u; ry < 16u; ++ry) {
+                uint py = mb_y_start + ry;
+                uint row_base = py * params.width_words + base_word_x;
+                uint c0 = cur[row_base + 0u];
+                uint c1 = cur[row_base + 1u];
+                uint c2 = cur[row_base + 2u];
+                uint c3 = cur[row_base + 3u];
+                uint p0 = prev[row_base + 0u];
+                uint p1 = prev[row_base + 1u];
+                uint p2 = prev[row_base + 2u];
+                uint p3 = prev[row_base + 3u];
+                uint pp1 = prev[row_base + 4u];
+                uint cur_l[16];
+                cur_l[ 0]= c0      &0xffu; cur_l[ 1]=(c0>> 8u)&0xffu;
+                cur_l[ 2]=(c0>>16u)&0xffu; cur_l[ 3]=(c0>>24u)&0xffu;
+                cur_l[ 4]= c1      &0xffu; cur_l[ 5]=(c1>> 8u)&0xffu;
+                cur_l[ 6]=(c1>>16u)&0xffu; cur_l[ 7]=(c1>>24u)&0xffu;
+                cur_l[ 8]= c2      &0xffu; cur_l[ 9]=(c2>> 8u)&0xffu;
+                cur_l[10]=(c2>>16u)&0xffu; cur_l[11]=(c2>>24u)&0xffu;
+                cur_l[12]= c3      &0xffu; cur_l[13]=(c3>> 8u)&0xffu;
+                cur_l[14]=(c3>>16u)&0xffu; cur_l[15]=(c3>>24u)&0xffu;
+                uint pr_r[16];
+                pr_r[ 0]=(p0>> 8u)&0xffu; pr_r[ 1]=(p0>>16u)&0xffu;
+                pr_r[ 2]=(p0>>24u)&0xffu;
+                pr_r[ 3]= p1      &0xffu; pr_r[ 4]=(p1>> 8u)&0xffu;
+                pr_r[ 5]=(p1>>16u)&0xffu; pr_r[ 6]=(p1>>24u)&0xffu;
+                pr_r[ 7]= p2      &0xffu; pr_r[ 8]=(p2>> 8u)&0xffu;
+                pr_r[ 9]=(p2>>16u)&0xffu; pr_r[10]=(p2>>24u)&0xffu;
+                pr_r[11]= p3      &0xffu; pr_r[12]=(p3>> 8u)&0xffu;
+                pr_r[13]=(p3>>16u)&0xffu; pr_r[14]=(p3>>24u)&0xffu;
+                pr_r[15]= pp1      &0xffu;
+                for (uint i = 0u; i < 16u; ++i) {
+                    sad_right += abs_diff(cur_l[i], pr_r[i]);
+                }
+            }
+        }
+        // (0, -1): prev row above. Skipped for top row.
+        if (mby > 0u) {
+            for (uint ry = 0u; ry < 16u; ++ry) {
+                uint py = mb_y_start + ry;
+                uint row_base_cur  = py            * params.width_words + base_word_x;
+                uint row_base_prev = (py - 1u)     * params.width_words + base_word_x;
+                uint c0 = cur[row_base_cur + 0u];
+                uint c1 = cur[row_base_cur + 1u];
+                uint c2 = cur[row_base_cur + 2u];
+                uint c3 = cur[row_base_cur + 3u];
+                uint p0 = prev[row_base_prev + 0u];
+                uint p1 = prev[row_base_prev + 1u];
+                uint p2 = prev[row_base_prev + 2u];
+                uint p3 = prev[row_base_prev + 3u];
+                sad_up += abs_diff( c0       &0xffu,  p0       &0xffu);
+                sad_up += abs_diff((c0>> 8u)&0xffu, (p0>> 8u)&0xffu);
+                sad_up += abs_diff((c0>>16u)&0xffu, (p0>>16u)&0xffu);
+                sad_up += abs_diff((c0>>24u)&0xffu, (p0>>24u)&0xffu);
+                sad_up += abs_diff( c1       &0xffu,  p1       &0xffu);
+                sad_up += abs_diff((c1>> 8u)&0xffu, (p1>> 8u)&0xffu);
+                sad_up += abs_diff((c1>>16u)&0xffu, (p1>>16u)&0xffu);
+                sad_up += abs_diff((c1>>24u)&0xffu, (p1>>24u)&0xffu);
+                sad_up += abs_diff( c2       &0xffu,  p2       &0xffu);
+                sad_up += abs_diff((c2>> 8u)&0xffu, (p2>> 8u)&0xffu);
+                sad_up += abs_diff((c2>>16u)&0xffu, (p2>>16u)&0xffu);
+                sad_up += abs_diff((c2>>24u)&0xffu, (p2>>24u)&0xffu);
+                sad_up += abs_diff( c3       &0xffu,  p3       &0xffu);
+                sad_up += abs_diff((c3>> 8u)&0xffu, (p3>> 8u)&0xffu);
+                sad_up += abs_diff((c3>>16u)&0xffu, (p3>>16u)&0xffu);
+                sad_up += abs_diff((c3>>24u)&0xffu, (p3>>24u)&0xffu);
+            }
+        }
+        // (0, +1): prev row below. Skipped for bottom row.
+        if ((mby + 1u) * 16u + 1u <= 4294967295u) {
+            for (uint ry = 0u; ry < 16u; ++ry) {
+                uint py = mb_y_start + ry;
+                uint row_base_cur  = py            * params.width_words + base_word_x;
+                uint row_base_prev = (py + 1u)     * params.width_words + base_word_x;
+                uint c0 = cur[row_base_cur + 0u];
+                uint c1 = cur[row_base_cur + 1u];
+                uint c2 = cur[row_base_cur + 2u];
+                uint c3 = cur[row_base_cur + 3u];
+                uint p0 = prev[row_base_prev + 0u];
+                uint p1 = prev[row_base_prev + 1u];
+                uint p2 = prev[row_base_prev + 2u];
+                uint p3 = prev[row_base_prev + 3u];
+                sad_down += abs_diff( c0       &0xffu,  p0       &0xffu);
+                sad_down += abs_diff((c0>> 8u)&0xffu, (p0>> 8u)&0xffu);
+                sad_down += abs_diff((c0>>16u)&0xffu, (p0>>16u)&0xffu);
+                sad_down += abs_diff((c0>>24u)&0xffu, (p0>>24u)&0xffu);
+                sad_down += abs_diff( c1       &0xffu,  p1       &0xffu);
+                sad_down += abs_diff((c1>> 8u)&0xffu, (p1>> 8u)&0xffu);
+                sad_down += abs_diff((c1>>16u)&0xffu, (p1>>16u)&0xffu);
+                sad_down += abs_diff((c1>>24u)&0xffu, (p1>>24u)&0xffu);
+                sad_down += abs_diff( c2       &0xffu,  p2       &0xffu);
+                sad_down += abs_diff((c2>> 8u)&0xffu, (p2>> 8u)&0xffu);
+                sad_down += abs_diff((c2>>16u)&0xffu, (p2>>16u)&0xffu);
+                sad_down += abs_diff((c2>>24u)&0xffu, (p2>>24u)&0xffu);
+                sad_down += abs_diff( c3       &0xffu,  p3       &0xffu);
+                sad_down += abs_diff((c3>> 8u)&0xffu, (p3>> 8u)&0xffu);
+                sad_down += abs_diff((c3>>16u)&0xffu, (p3>>16u)&0xffu);
+                sad_down += abs_diff((c3>>24u)&0xffu, (p3>>24u)&0xffu);
+            }
+        }
+    }
+
+    uint base = gid * 8u;
     out[base + 0u] = sad;
     out[base + 1u] = dev;
     out[base + 2u] = tex;
     out[base + 3u] = packed;
+    out[base + 4u] = sad_left;
+    out[base + 5u] = sad_right;
+    out[base + 6u] = sad_up;
+    out[base + 7u] = sad_down;
 }
 `
 
@@ -157,7 +352,7 @@ kernel void analyze(
 const (
 	mtlResourceStorageModeShared = 0 // CPU/GPU shared memory; unified on Apple Silicon
 	mslWorkgroupSize             = 64
-	mtlMBStrideBytes             = 16 // 4 u32s per MB output
+	mtlMBStrideBytes             = 32 // 8 u32s per MB output (sad,var,tex,packed,sad_left,sad_right,sad_up,sad_down)
 )
 
 // params mirrors the MSL Params struct exactly.

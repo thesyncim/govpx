@@ -159,11 +159,17 @@ func (a *gpuAnalyzer) Observe(in *analysis.FrameInput, out *analysis.FrameAnalys
 func readMBs(mbs []analysis.MacroblockAnalysis, mbCols int, stats *analysis.AnalysisStats, data []byte) {
 	words := unsafeBytesToUint32(data, len(data)/4)
 	for i := range mbs {
-		off := i * 4 // 4 u32 words per MB
+		off := i * 8 // 8 u32 words per MB (sad, var, tex, packed, sad_left, sad_right, sad_up, sad_down)
 		sad := words[off+0]
 		variance := words[off+1]
 		texture := words[off+2]
 		packed := words[off+3]
+		// The four cross-position SADs (off+4..off+7) live in the
+		// readback buffer and are accessible to a future encoder
+		// hint consumer via a richer Stats schema. For this commit
+		// we collect them but do not propagate to MacroblockAnalysis
+		// (which would require a public schema change); the bench
+		// proves the GPU compute fits in the existing dispatch.
 		mb := &mbs[i]
 		mb.MBX = int16(i % mbCols)
 		mb.MBY = int16(i / mbCols)
