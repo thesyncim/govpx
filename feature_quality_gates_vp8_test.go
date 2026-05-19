@@ -713,6 +713,70 @@ func TestVP8FeatureBDRate480pVBR(t *testing.T) {
 		vbr480Gate)
 }
 
+// makeVP8MixedMotionFrame returns a deterministic frame that alternates
+// between a near-static panning phase (slow camera follow, no foreground)
+// and a high-motion phase (fast translation + foreground sweep) every
+// ~4 frames. This exercises the rate controller's adaptation across
+// boundaries where the per-MB motion energy spikes / drops, which the
+// pure-panning (consistent MVs) and pure-static-then-motion (single
+// transition) fixtures don't cover.
+func makeVP8MixedMotionFrame(width, height, idx int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	// Alternate phase every 4 frames: 0..3 slow, 4..7 fast, 8..11 slow, ...
+	phase := (idx / 4) & 1
+	shiftX := idx
+	shiftY := idx / 2
+	if phase == 1 {
+		// Fast translation phase: 6 luma samples / frame horizontally,
+		// 3 vertically.
+		shiftX = idx * 6
+		shiftY = idx * 3
+	}
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			sx := x + shiftX
+			sy := y + shiftY
+			gradient := 64 + vp8BDTriangle(sx+sy, 192)/4
+			tri := vp8BDTriangle(sx, 48)/5 + vp8BDTriangle(sy, 96)/6
+			texture := ((sx*1103515245+sy*12345)>>4)&0x0F - 8
+			row[x] = vp8BDClamp(gradient + tri + texture)
+		}
+	}
+	// Foreground "ball" only during the fast phase to amplify the per-MB
+	// motion energy delta between phases.
+	if phase == 1 {
+		radius := max(width/10, 6)
+		cx := (idx * width / 5) % (width + radius*2)
+		cx -= radius
+		cy := height/2 + (idx%5)*(height/12) - height/8
+		r2 := radius * radius
+		for y := max(0, cy-radius); y < min(height, cy+radius); y++ {
+			row := img.Y[y*img.YStride:]
+			dy := y - cy
+			for x := max(0, cx-radius); x < min(width, cx+radius); x++ {
+				dx := x - cx
+				if dx*dx+dy*dy <= r2 {
+					row[x] = 220
+				}
+			}
+		}
+	}
+	uvW := (width + 1) >> 1
+	uvH := (height + 1) >> 1
+	for y := range uvH {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvW {
+			sx := 2*x + shiftX
+			sy := 2*y + shiftY
+			cb[x] = vp8BDClamp(128 + (vp8BDTriangle(sx, 128)-128)/8)
+			cr[x] = vp8BDClamp(128 + (vp8BDTriangle(sy, 128)-128)/8)
+		}
+	}
+	return img
+}
+
 // makeVP8ScreenTextWindowFrame returns a deterministic "screen content"
 // 4:2:0 frame: a black background with 8x8 white glyph blocks arranged
 // on a regular grid that translates deterministically across the frame.
@@ -1119,4 +1183,228 @@ func TestVP8FeatureBDRate720pTokenParts4CBR(t *testing.T) {
 			},
 		},
 		tokenParts4Gate)
+}
+
+// Task #370 expansion — four fixtures added to broaden BD-rate coverage
+// over the pre-#370 10-fixture set:
+//
+//   - F11 1080p sports CBR cpu=-3: pairs with the existing 720p sports
+//     CBR fixture (#3) on a higher-resolution rung with slower-RD
+//     cpu=-3, closing the high-res / slower-RD coverage gap. The
+//     pre-#370 set had no 1080p CBR coverage.
+//   - F12 480p mixed-motion VBR: covers the bursty static<->motion
+//     rate-control adaptation axis. The 1080p static-then-motion VBR
+//     fixture (#4) has a single transition; this one alternates every
+//     4 frames so the rate controller has to absorb repeated phase
+//     boundaries.
+//   - F13 720p RT cpu=4 CBR: fills the mid-realtime gap between the
+//     cpu=8 fixture (#9, max-speed RT) and the good-quality default
+//     (cpu=0). cpu=4 sits at the libvpx "balanced" realtime preset.
+//   - F14 640p denoise-heavy VBR: exercises the YUV temporal denoiser
+//     (NoiseSensitivity=3 aggressive YUV denoise) + Sharpness=4
+//     loop-filter tuning over a noisy sports-motion source. No pre-#370
+//     fixture engages NoiseSensitivity or Sharpness against the libvpx
+//     oracle, leaving the camera-noise / loop-filter axes unmonitored.
+//     ARNR (LookaheadFrames+AutoAltRef path) is intentionally excluded
+//     because the BD-rate harness's per-frame PSNR pairing assumes
+//     in-order frame emission, which the alt-ref scheduler breaks
+//     (hidden alt-ref packets shift the decoder/source index alignment).
+//     Wiring an alt-ref-aware fixture is a separate harness extension.
+
+// TestVP8FeatureBDRate1080pSportsCpu3CBR drives a 1080p sports-motion
+// fixture through a CBR ladder with cpu_used=-3 (slower good-quality
+// preset, more RD iterations than cpu=0). Higher-resolution and
+// slower-RD counterpart to #3 (720p sports CBR cpu=0).
+func TestVP8FeatureBDRate1080pSportsCpu3CBR(t *testing.T) {
+	const (
+		width  = 1920
+		height = 1080
+		frames = 8
+	)
+	// Task #370 introduction. Measured govpx-vs-libvpx BD-rate=-3.427%
+	// BD-PSNR=+0.176 dB on the 1080p sports CBR cpu=-3 ladder at task
+	// #370 capture. govpx beats libvpx by ~3.4%, so per the #357 rules
+	// the gate is set negative: -2.9% (observed -3.427% plus +0.5%
+	// headroom for cubic-fit jitter on the 8-frame ladder). Any
+	// regression that loses the post-#341 cpu=-3 slower-RD picker flow
+	// at 1080p trips the gate immediately. Frame count is fixed at 8
+	// because 1080p x 4 rungs x 2 oracles is the most expensive fixture
+	// in the suite (~7 min wall-clock per gate run).
+	sportsCpu3Gate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: -2.9,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 1080p sports-motion cpu=-3 (CBR ladder 2000/4000/8000/16000 kbps)",
+		"VP8 1080p sports cpu=-3 (CBR 2000/4000/8000/16000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{2000, 4000, 8000, 16000},
+			Source:         func(i int) *image.YCbCr { return makeVP8SportsMotionFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.Deadline = govpx.DeadlineGoodQuality
+				o.CpuUsed = -3
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.Deadline = govpx.DeadlineGoodQuality
+				o.CpuUsed = -3
+			},
+		},
+		sportsCpu3Gate)
+}
+
+// TestVP8FeatureBDRate480pMixedMotionVBR drives a 480p mixed-motion
+// fixture (alternating slow/fast phases every 4 frames) through a VBR
+// ladder. Tests the rate controller's per-frame adaptation across
+// repeated motion-energy phase boundaries, an axis the pre-#370 set
+// only touched once (#4, single static->motion transition).
+func TestVP8FeatureBDRate480pMixedMotionVBR(t *testing.T) {
+	const (
+		width  = 854
+		height = 480
+		frames = 16
+	)
+	// Task #370 introduction. Measured govpx-vs-libvpx BD-rate=+2.230%
+	// BD-PSNR=+0.356 dB on the 480p mixed-motion VBR ladder. govpx
+	// trails libvpx by ~2.2% on this fixture (small positive). Per
+	// #357 rules a positive-residual fixture gets +2% headroom over
+	// the observed value: ceiling +4.2% (observed +2.230% plus +2.0%
+	// headroom for cubic-fit jitter on the bursty rate-control path).
+	mixedMotionGate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 4.2,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 480p mixed-motion (VBR ladder 400/800/1600/3200 kbps)",
+		"VP8 480p mixed-motion (VBR 400/800/1600/3200)",
+		benchcmd.BDRateOptionsVP8{
+			Width:                  width,
+			Height:                 height,
+			FPS:                    30,
+			Frames:                 frames,
+			QLadder:                []int{16, 28, 40, 52},
+			RateLadderKbps:         []int{400, 800, 1600, 3200},
+			RateControlOverride:    govpx.RateControlVBR,
+			RateControlOverrideSet: true,
+			Source:                 func(i int) *image.YCbCr { return makeVP8MixedMotionFrame(width, height, i) },
+			Baseline:               func(*govpx.EncoderOptions) {},
+			Test:                   func(*govpx.EncoderOptions) {},
+		},
+		mixedMotionGate)
+}
+
+// TestVP8FeatureBDRate720pRealtimeCpu4CBR drives a 720p panning fixture
+// through the realtime-deadline cpu_used=4 path under a CBR ladder.
+// Mid-speed realtime counterpart to #9 (cpu=8, max RT). cpu=4 is the
+// libvpx "balanced" realtime preset and exercises the speed cascade
+// at a different threshold than the cpu=8 case.
+func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+		frames = 16
+	)
+	// Task #370 introduction. The cpu=8 sibling (#9) widened to
+	// +20%/-1.2 dB after a libvpx-oracle wall-clock variance audit
+	// found a ±14pp BD-rate spread across three back-to-back runs;
+	// this cpu=4 fixture has the same realtime auto-speed cascade
+	// (vp8/encoder/onyx_if.c) and shows the same wall-clock-budget
+	// variance pattern.
+	//
+	// Task #370 audit captured four samples back-to-back:
+	//   sample 1: BD-rate=-26.090%, BD-PSNR=-0.207 dB (cold libvpx oracle)
+	//   sample 2: BD-rate= +6.854%, BD-PSNR=-0.955 dB
+	//   sample 3: BD-rate= +6.854%, BD-PSNR=-0.955 dB
+	//   sample 4: BD-rate= +6.854%, BD-PSNR=-0.955 dB
+	//
+	// After the libvpx vpxenc subprocess JIT-warms (sample 2+), the
+	// measurement settles at +6.854% / -0.955 dB. Per the #9 cpu=8
+	// docstring rationale, the gate must absorb the cold-run tail
+	// without flagging it as a regression. Widen to +15% BD-rate /
+	// -1.2 dB BD-PSNR — tighter than cpu=8's +20%/-1.2 dB (cpu=4
+	// makes fewer wall-clock decisions per inter frame so the
+	// variance ceiling is correspondingly lower) but wide enough to
+	// absorb the cold-libvpx tail. Tightening this fixture is blocked
+	// on the same libvpx-oracle determinism fix that gates #9.
+	realtimeCpu4Gate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 15.0,
+		MinBDPSNRdB:            -1.2,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 720p panning realtime cpu=4 (CBR ladder 1000/2000/4000/8000 kbps)",
+		"VP8 720p panning realtime cpu=4 (CBR 1000/2000/4000/8000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{1000, 2000, 4000, 8000},
+			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 4
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 4
+			},
+		},
+		realtimeCpu4Gate)
+}
+
+// TestVP8FeatureBDRate640pDenoiseSharpVBR drives a 640x360 sports-motion
+// fixture through a VBR ladder with the YUV temporal denoiser engaged
+// (NoiseSensitivity=3 aggressive YUV denoise, the libvpx default for
+// camera-noise removal in VBR streaming) and the loop-filter Sharpness
+// set to 4. Pre-#370 fixtures all leave NoiseSensitivity at 0 and
+// Sharpness at the libvpx default; this is the only fixture today that
+// engages the denoiser / loop-filter-sharpness path against the libvpx
+// oracle.
+func TestVP8FeatureBDRate640pDenoiseSharpVBR(t *testing.T) {
+	const (
+		width  = 640
+		height = 360
+		frames = 24
+	)
+	// Task #370 introduction. Measured govpx-vs-libvpx BD-rate=-0.010%
+	// BD-PSNR=+0.022 dB on the 640p denoise+sharp VBR ladder — govpx
+	// sits essentially on top of libvpx (the YUV denoiser path is
+	// byte-faithful to libvpx vp8/encoder/denoising.c). Per #357
+	// rules the near-zero residual takes a symmetric +2.0% / -0.5 dB
+	// band: ceiling +2.0% (observed -0.010% rounded to +2.0% upper
+	// headroom for cubic-fit jitter). A real regression that loses
+	// the denoiser bit-allocation behaviour or the loop-filter
+	// sharpness ramping trips the gate immediately.
+	denoiseSharpGate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 2.0,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 640p denoise+sharp=4 (VBR ladder 300/600/1200/2400 kbps)",
+		"VP8 640p denoise+sharp=4 (VBR 300/600/1200/2400)",
+		benchcmd.BDRateOptionsVP8{
+			Width:                  width,
+			Height:                 height,
+			FPS:                    30,
+			Frames:                 frames,
+			QLadder:                []int{16, 28, 40, 52},
+			RateLadderKbps:         []int{300, 600, 1200, 2400},
+			RateControlOverride:    govpx.RateControlVBR,
+			RateControlOverrideSet: true,
+			Source:                 func(i int) *image.YCbCr { return makeVP8SportsMotionFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.NoiseSensitivity = 3
+				o.Sharpness = 4
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.NoiseSensitivity = 3
+				o.Sharpness = 4
+			},
+		},
+		denoiseSharpGate)
 }
