@@ -703,6 +703,23 @@ func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
 	// trips the gate but the fit-residual steady state still passes.
 	// The within-govpx baseline-vs-test BD-rate is still expected to
 	// be near zero (checked by runVP8BDRateFixture).
+	//
+	// Task #344 (post-#341 audit): the measured value drifted to
+	// +5.503% after the intra-in-inter-loop tteob==0 rate2 backout
+	// landed (encoder_inter_modes_rd_intra.go: estimateInterIntraModeRDScore).
+	// Per-rung diff vs pre-#341 govpx:
+	//   target=1500: 609.795 -> 617.985 kbps  (+8.19, +1.34%) PSNR -0.002dB
+	//   target=3000: 1496.34 -> 1496.34 kbps  (byte-identical)
+	//   target=6000: 2931.81 -> 2931.81 kbps  (byte-identical)
+	//   target=12000: 4474.11 -> 4474.11 kbps (byte-identical)
+	// Only the lowest rung shifts because higher rungs hit the CQLevel
+	// Q-floor where the picker's mode choices collapse near-zero
+	// residual. The +1.34% bottom-rung rate shift amplifies through
+	// the 4-point cubic fit into a +0.37pp BD-rate move (5.137% ->
+	// 5.503%). The shift is intentional: #341 made the picker faithful
+	// to libvpx vp8/encoder/rdopt.c:1684-1714 (tteob==0 mode-backout),
+	// so the only correct action is to keep the 6.0% headroom and
+	// document the post-#341 steady state. Gate still passes by ~0.5%.
 	twoPassGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 6.0,
 		MinBDPSNRdB:            -0.5,
