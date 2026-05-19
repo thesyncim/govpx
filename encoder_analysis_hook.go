@@ -161,9 +161,15 @@ func (e *VP8Encoder) hintBypassPickerDecision(
 	if !found {
 		return interFrameModeDecision{}, false
 	}
-	// Compute the true reconstruction-domain SSE at MV=(0,0) so the
-	// decision's predictionError matches what the picker would
-	// have populated.
+	// The synthesized decision stays at MV=(0,0) — the cross-position
+	// SADLeft/Right/Up/Down from the GPU SAD volume could nominate a
+	// better MV, but using a non-zero MV here would require the
+	// downstream reconstruct+entropy path to emit NEWMV instead of
+	// ZEROMV, which is a much larger change that risks the same
+	// rate-control divergence we hit with picker-bypass v1.
+	// The SAD volume is collected and exposed on MacroblockAnalysis
+	// for a future encoder-side motion-search consumer; the
+	// current bypass uses just the ZeroSAD-converged decision.
 	_, sse := macroblockLumaMotionVarianceSSE(src, lastRef.Img, mbRow, mbCol, vp8enc.MotionVector{})
 	e.hintPickerBypassCount++
 	return interFrameModeDecision{
@@ -179,11 +185,19 @@ func (e *VP8Encoder) hintBypassPickerDecision(
 	}, true
 }
 
-// shouldPushReconstructedRef is the compile-time flag that gates
-// encoder->analyzer reconstructed-LAST upload. False until the GPU
-// kernel is rewritten to consume the reconstructed reference
-// buffer; flipping to true with the current kernel pays the upload
-// cost without the lookup benefit (regressed 720p in measurement).
+// shouldPushReconstructedRef gates encoder->analyzer reconstructed-LAST
+// upload. Currently false: the per-frame upload triggers a Metal
+// lifecycle SIGSEGV under sustained encode (e2e bench crashes on the
+// first GPU benchmark after several Off iterations). Root cause is
+// in the wgpu/goffi-equivalent purego runtime path under sustained
+// per-frame allocation; the autorelease-pool fast-path memcpy is
+// what works reliably. The infrastructure stays in place; flipping
+// this requires investigating the purego/Metal interaction.
+//
+// The encoder DOES populate the SAD-volume field on MacroblockAnalysis
+// from the kernel output (which compares against the source ping-pong
+// buffer), so downstream consumers can read the per-MB SAD cross
+// pattern even with the upload gated off.
 const shouldPushReconstructedRef = false
 
 // pushReconstructedRefToAnalyzer hands e.lastRef's luma plane to the

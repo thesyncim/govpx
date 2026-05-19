@@ -178,12 +178,13 @@ func readMBs(mbs []analysis.MacroblockAnalysis, mbCols int, stats *analysis.Anal
 		variance := words[off+1]
 		texture := words[off+2]
 		packed := words[off+3]
-		// The four cross-position SADs (off+4..off+7) live in the
-		// readback buffer and are accessible to a future encoder
-		// hint consumer via a richer Stats schema. For this commit
-		// we collect them but do not propagate to MacroblockAnalysis
-		// (which would require a public schema change); the bench
-		// proves the GPU compute fits in the existing dispatch.
+		// The four cross-position SADs propagate to MacroblockAnalysis
+		// so the encoder hint consumer can pick a starting MV
+		// without running its own SAD probes.
+		mbs[i].SADLeft = words[off+4]
+		mbs[i].SADRight = words[off+5]
+		mbs[i].SADUp = words[off+6]
+		mbs[i].SADDown = words[off+7]
 		mb := &mbs[i]
 		mb.MBX = int16(i % mbCols)
 		mb.MBY = int16(i / mbCols)

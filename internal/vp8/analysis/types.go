@@ -126,6 +126,21 @@ type MacroblockAnalysis struct {
 	// SearchRadius is a suggested integer-pel search radius derived
 	// from ZeroSAD and Variance. Observation only.
 	SearchRadius uint8
+
+	// SADLeft, SADRight, SADUp, SADDown are the cross-position SADs
+	// the GPU kernel computed against the previous reference (the
+	// reconstructed-LAST when [ReconstructedRefConsumer] is wired,
+	// otherwise the previous source). Populated only by the GPU
+	// observer. CPU observer leaves them at zero. Used by the
+	// encoder hint consumer to pick a better MV than (0,0) without
+	// running its own SAD probes.
+	//
+	// Zero when not populated, or when the MB is at the frame
+	// border in the relevant direction.
+	SADLeft  uint32
+	SADRight uint32
+	SADUp    uint32
+	SADDown  uint32
 }
 
 // AnalysisFlags carries coarse per-macroblock classifications produced
