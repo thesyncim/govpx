@@ -97,6 +97,21 @@ type BDRateOptionsVP8 struct {
 	// authoritative (including the zero value, RateControlVBR). When
 	// false the harness picks the historical default.
 	RateControlOverrideSet bool
+
+	// TwoPass selects the libvpx two-pass VBR planning path for both
+	// the govpx and libvpx sides of the BD-rate run. When set:
+	//   - The harness sweeps the source frames once through govpx
+	//     CollectFirstPassStats, finalizes the stats, and passes the
+	//     resulting slice through TwoPassStats on every Baseline/Test
+	//     EncoderOptions before the per-Q encode pass runs.
+	//   - The libvpx CLI is invoked with --passes=2 in two stages
+	//     (--pass=1 to populate fpf, then --pass=2 to read it back),
+	//     mirroring the two-pass workflow vpxenc itself runs when
+	//     given --passes=2 without an explicit --pass.
+	// TwoPass forces end-usage=vbr on both sides (libvpx two-pass is
+	// only meaningful for VBR planning) — callers should not also set
+	// RateControlOverride to a non-VBR mode.
+	TwoPass bool
 }
 
 // ComputeBDRateVP8 runs the VP8 BD-rate harness and returns the result.
@@ -113,15 +128,46 @@ func ComputeBDRateVP8(t testing.TB, opts BDRateOptionsVP8) (BDRateResult, error)
 	if opts.FPS == 0 {
 		opts.FPS = 30
 	}
+	// Two-pass: pre-compute the govpx first-pass stats once so the
+	// per-Q encode pass can pin TwoPassStats on every EncoderOptions
+	// without re-running pass 1. The stats are content-only (a govpx
+	// CollectFirstPassStats sweep) so they're independent of the
+	// per-Q ladder point and reusable across all Baseline/Test calls.
+	baselineApply := opts.Baseline
+	testApply := opts.Test
+	if opts.TwoPass {
+		stats, err := captureGovpxVP8FirstPassStats(opts)
+		if err != nil {
+			return BDRateResult{}, fmt.Errorf("vp8 two-pass first-pass capture: %w", err)
+		}
+		// Force VBR on both sides — libvpx two-pass is a VBR-planning
+		// pipeline; CBR/CQ paths do not consume the fpf.
+		opts.RateControlOverride = govpx.RateControlVBR
+		opts.RateControlOverrideSet = true
+		// Wrap the caller-supplied callbacks so TwoPassStats lands on
+		// every EncoderOptions before the harness builds the encoder.
+		baselineApply = func(o *govpx.EncoderOptions) {
+			if opts.Baseline != nil {
+				opts.Baseline(o)
+			}
+			o.TwoPassStats = stats
+		}
+		testApply = func(o *govpx.EncoderOptions) {
+			if opts.Test != nil {
+				opts.Test(o)
+			}
+			o.TwoPassStats = stats
+		}
+	}
 	ladder := bdOperatingLadderVP8(opts)
 	baseline := make([]QualityPoint, 0, len(ladder))
 	test := make([]QualityPoint, 0, len(ladder))
 	for _, op := range ladder {
-		bPt, err := encodeBDOperatingPointVP8(opts, op.Q, op.TargetKbps, opts.Baseline)
+		bPt, err := encodeBDOperatingPointVP8(opts, op.Q, op.TargetKbps, baselineApply)
 		if err != nil {
 			return BDRateResult{}, fmt.Errorf("vp8 baseline Q=%d kbps=%d: %w", op.Q, op.TargetKbps, err)
 		}
-		tPt, err := encodeBDOperatingPointVP8(opts, op.Q, op.TargetKbps, opts.Test)
+		tPt, err := encodeBDOperatingPointVP8(opts, op.Q, op.TargetKbps, testApply)
 		if err != nil {
 			return BDRateResult{}, fmt.Errorf("vp8 test Q=%d kbps=%d: %w", op.Q, op.TargetKbps, err)
 		}
@@ -389,6 +435,43 @@ func encodeBDOperatingPointVP8(opts BDRateOptionsVP8, q int, targetKbps int, app
 	return QualityPoint{Rate: kbps, PSNR: psnrSum / float64(visibleCount)}, nil
 }
 
+// captureGovpxVP8FirstPassStats runs the govpx VP8 encoder once over
+// every source frame collecting per-frame first-pass stats and returns
+// the finalized slice ready for TwoPassStats. The first pass is
+// content-only (no Q dependency) so the result is reused across every
+// Baseline/Test encode call in the ladder.
+func captureGovpxVP8FirstPassStats(opts BDRateOptionsVP8) ([]govpx.FirstPassFrameStats, error) {
+	encOpts := govpx.EncoderOptions{
+		Width:           opts.Width,
+		Height:          opts.Height,
+		FPS:             opts.FPS,
+		MinQuantizer:    4,
+		MaxQuantizer:    63,
+		RateControlMode: govpx.RateControlVBR,
+		// TargetBitrate must be positive for validation; first-pass
+		// collection ignores it.
+		TargetBitrateKbps: 1000,
+	}
+	enc, err := govpx.NewVP8Encoder(encOpts)
+	if err != nil {
+		return nil, fmt.Errorf("NewVP8Encoder(first-pass): %w", err)
+	}
+	defer enc.Close()
+	stats := make([]govpx.FirstPassFrameStats, opts.Frames)
+	for i := 0; i < opts.Frames; i++ {
+		src := opts.Source(i)
+		if src == nil {
+			return nil, fmt.Errorf("Source returned nil at %d", i)
+		}
+		s, err := enc.CollectFirstPassStats(govpxImageFromYCbCrVP8(src), uint64(i), 1, 0)
+		if err != nil {
+			return nil, fmt.Errorf("CollectFirstPassStats[%d]: %w", i, err)
+		}
+		stats[i] = s
+	}
+	return govpx.FinalizeFirstPassStats(stats), nil
+}
+
 // govpxImageFromYCbCrVP8 builds a govpx.Image view of the source YCbCr.
 // Mirrors govpxImageFromYCbCr (defined in bdrate_harness.go) but is
 // duplicated here so the VP8 path doesn't depend on a function whose
@@ -523,24 +606,50 @@ func encodeLibvpxVP8BDOperatingPoint(binPath string, raw []byte, opts BDRateOpti
 	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
 		return QualityPoint{}, err
 	}
-	args := libvpxVP8BDCLIArgs(opts, t, op)
-	args = append(args,
+	commonTail := []string{
 		"--ivf",
 		"--i420",
 		fmt.Sprintf("--width=%d", opts.Width),
 		fmt.Sprintf("--height=%d", opts.Height),
 		fmt.Sprintf("--fps=%d/1", opts.FPS),
 		fmt.Sprintf("--limit=%d", opts.Frames),
-		"--psnr",
-		"--output="+outPath,
+		"--output=" + outPath,
 		inPath,
-	)
-	cmd := exec.Command(binPath, args...)
+	}
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return QualityPoint{}, fmt.Errorf("libvpx vpxenc run: %w\nargs=%v\nstderr:\n%s",
-			err, args, stderr.Bytes())
+	if opts.TwoPass {
+		// Pass 1: populate the first-pass stats file. No PSNR is
+		// emitted in pass 1; output is still written but discarded.
+		fpfPath := filepath.Join(dir, "fpf.bin")
+		pass1Args := libvpxVP8BDCLIArgsTwoPass(opts, t, op, 1, fpfPath)
+		pass1Args = append(pass1Args, commonTail...)
+		cmd1 := exec.Command(binPath, pass1Args...)
+		cmd1.Stderr = &stderr
+		if err := cmd1.Run(); err != nil {
+			return QualityPoint{}, fmt.Errorf("libvpx vpxenc pass=1 run: %w\nargs=%v\nstderr:\n%s",
+				err, pass1Args, stderr.Bytes())
+		}
+		stderr.Reset()
+		// Pass 2: consume the fpf and emit the final IVF + PSNR.
+		pass2Args := libvpxVP8BDCLIArgsTwoPass(opts, t, op, 2, fpfPath)
+		pass2Args = append(pass2Args, "--psnr")
+		pass2Args = append(pass2Args, commonTail...)
+		cmd2 := exec.Command(binPath, pass2Args...)
+		cmd2.Stderr = &stderr
+		if err := cmd2.Run(); err != nil {
+			return QualityPoint{}, fmt.Errorf("libvpx vpxenc pass=2 run: %w\nargs=%v\nstderr:\n%s",
+				err, pass2Args, stderr.Bytes())
+		}
+	} else {
+		args := libvpxVP8BDCLIArgs(opts, t, op)
+		args = append(args, "--psnr")
+		args = append(args, commonTail...)
+		cmd := exec.Command(binPath, args...)
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return QualityPoint{}, fmt.Errorf("libvpx vpxenc run: %w\nargs=%v\nstderr:\n%s",
+				err, args, stderr.Bytes())
+		}
 	}
 	ivf, err := os.ReadFile(outPath)
 	if err != nil {
@@ -692,6 +801,90 @@ func libvpxVP8BDCLIArgs(opts BDRateOptionsVP8, t govpx.EncoderOptions, op bdOper
 		args = append(args, "--drop-frame=0")
 	}
 	// libvpx token: --timebase
+	if opts.FPS > 0 {
+		args = append(args, fmt.Sprintf("--timebase=1/%d", opts.FPS))
+	}
+	return args
+}
+
+// libvpxVP8BDCLIArgsTwoPass builds the vpxenc CLI argument list for the
+// two-pass VBR flow. Mirrors libvpxVP8BDCLIArgs but emits --passes=2,
+// --pass=N (1 or 2), --fpf=<path>, and forces --end-usage=vbr because
+// two-pass is a VBR-planning workflow. Other feature toggles
+// (cpu-used, lookahead, ARNR, tune, etc.) are inherited from the
+// single-pass mapper.
+func libvpxVP8BDCLIArgsTwoPass(opts BDRateOptionsVP8, t govpx.EncoderOptions, op bdOperatingPoint, pass int, fpfPath string) []string {
+	args := []string{"--codec=vp8", "--passes=2", fmt.Sprintf("--pass=%d", pass), "--fpf=" + fpfPath}
+	// libvpx two-pass requires end-usage=vbr (the fpf is consumed by
+	// the VBR planner; cbr/q paths do not use it).
+	args = append(args, "--end-usage=vbr")
+	args = append(args, "--min-q=4", "--max-q=63")
+	target := t.TargetBitrateKbps
+	if target <= 0 {
+		target = 1000
+	}
+	args = append(args, fmt.Sprintf("--target-bitrate=%d", target))
+	kfDist := t.KeyFrameInterval
+	if kfDist <= 0 {
+		kfDist = 120
+	}
+	args = append(args, fmt.Sprintf("--kf-min-dist=%d", kfDist), fmt.Sprintf("--kf-max-dist=%d", kfDist))
+	if t.Deadline == govpx.DeadlineRealtime {
+		args = append(args, "--rt")
+	} else {
+		args = append(args, "--good")
+	}
+	if t.CpuUsed != 0 {
+		args = append(args, fmt.Sprintf("--cpu-used=%d", t.CpuUsed))
+	}
+	if t.LookaheadFrames > 0 {
+		args = append(args, fmt.Sprintf("--lag-in-frames=%d", t.LookaheadFrames))
+	} else {
+		args = append(args, "--lag-in-frames=0")
+	}
+	if t.AutoAltRef {
+		args = append(args, "--auto-alt-ref=1")
+	} else {
+		args = append(args, "--auto-alt-ref=0")
+	}
+	if t.ARNRMaxFrames > 0 {
+		args = append(args, fmt.Sprintf("--arnr-maxframes=%d", t.ARNRMaxFrames))
+	}
+	if t.ARNRStrength > 0 {
+		args = append(args, fmt.Sprintf("--arnr-strength=%d", t.ARNRStrength))
+	}
+	if t.ARNRType > 0 {
+		args = append(args, fmt.Sprintf("--arnr-type=%d", t.ARNRType))
+	}
+	if t.NoiseSensitivity > 0 {
+		args = append(args, fmt.Sprintf("--noise-sensitivity=%d", t.NoiseSensitivity))
+	}
+	if t.Sharpness > 0 {
+		args = append(args, fmt.Sprintf("--sharpness=%d", t.Sharpness))
+	}
+	if t.StaticThreshold > 0 {
+		args = append(args, fmt.Sprintf("--static-thresh=%d", t.StaticThreshold))
+	}
+	if t.MaxIntraBitratePct > 0 {
+		args = append(args, fmt.Sprintf("--max-intra-rate=%d", t.MaxIntraBitratePct))
+	}
+	if t.GFCBRBoostPct > 0 {
+		args = append(args, fmt.Sprintf("--gf-cbr-boost=%d", t.GFCBRBoostPct))
+	}
+	if t.TokenPartitions > 0 {
+		args = append(args, fmt.Sprintf("--token-parts=%d", t.TokenPartitions))
+	}
+	switch t.Tuning {
+	case govpx.TuneSSIM:
+		args = append(args, "--tune=ssim")
+	default:
+		args = append(args, "--tune=psnr")
+	}
+	if t.DropFrameAllowed && t.DropFrameWaterMark > 0 {
+		args = append(args, fmt.Sprintf("--drop-frame=%d", t.DropFrameWaterMark))
+	} else {
+		args = append(args, "--drop-frame=0")
+	}
 	if opts.FPS > 0 {
 		args = append(args, fmt.Sprintf("--timebase=1/%d", opts.FPS))
 	}

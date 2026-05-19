@@ -555,3 +555,269 @@ func TestVP8FeatureBDRate480pVBR(t *testing.T) {
 		},
 		defaultLibvpxVP8AbsoluteGate)
 }
+
+// makeVP8ScreenTextWindowFrame returns a deterministic "screen content"
+// 4:2:0 frame: a black background with 8x8 white glyph blocks arranged
+// on a regular grid that translates deterministically across the frame.
+// The glyphs use a per-cell deterministic on/off pattern so the frame
+// has the sharp luma edges and uniform-region intra-block decisions
+// that characterize real screen captures (text editors, web pages,
+// presentations). The pattern translates by (+8,+0) per frame so motion
+// estimation can lock onto integer-pel offsets (the natural motion mode
+// for synthetic text scrolls) while the intra-mode-tree probabilities
+// the screen-content flag biases (DC/V_PRED dominant, sharp ac edges)
+// get exercised on every block.
+func makeVP8ScreenTextWindowFrame(width, height, idx int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	r := rand.New(rand.NewSource(int64(idx)*4099 + 31))
+	// Slightly textured dark-gray background so flat regions still
+	// carry enough residual energy that the encoder has to spend
+	// bits at low Q rungs. Pure black would let the encoder
+	// reconstruct losslessly and collapse the PSNR axis to 100 dB
+	// across the entire ladder, killing the BD-rate fit.
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			noise := r.Intn(7) - 3
+			row[x] = vp8BDClamp(28 + noise)
+		}
+	}
+	// Glyph grid: 8x8 blocks every 16 pixels, translating by 8 per
+	// frame so the next-frame predictor sees an integer-pel motion
+	// vector half the time and a fresh-coverage 50% the other half.
+	// Glyphs alternate between two near-white luma values per cell
+	// so the residual is not literally a constant and the encoder
+	// has to spend a few bits per active block.
+	const cell = 16
+	const glyph = 8
+	xoff := (idx * glyph) % cell
+	for gy := 0; gy < height; gy += cell {
+		for gx := 0; gx < width; gx += cell {
+			// Deterministic on/off per cell so glyphs form a stable
+			// pattern that motion-compensation can track without
+			// the frame degenerating to a flat tile.
+			cellHash := (gx/cell)*1103515245 + (gy/cell)*12345
+			on := cellHash&0x07 < 5
+			if !on {
+				continue
+			}
+			// Per-cell luma in a narrow [200..240] band: still
+			// pure-text-on-dark-background visually but enough
+			// inter-cell entropy that intra-mode-tree probabilities
+			// have real cost to spend.
+			lumaHi := byte(208 + (cellHash>>3)&0x1F)
+			lumaLo := byte(168 + (cellHash>>11)&0x1F)
+			x0 := gx + xoff
+			y0 := gy
+			for dy := range glyph {
+				y := y0 + dy
+				if y < 0 || y >= height {
+					continue
+				}
+				row := img.Y[y*img.YStride:]
+				for dx := range glyph {
+					x := x0 + dx
+					if x < 0 || x >= width {
+						continue
+					}
+					// Checker the glyph interior so it has real
+					// high-frequency content (the encoder must
+					// pay AC coeffs to reconstruct it).
+					if (dx^dy)&1 == 0 {
+						row[x] = lumaHi
+					} else {
+						row[x] = lumaLo
+					}
+				}
+			}
+		}
+	}
+	// Chroma: very mild deterministic tint so the U/V planes carry
+	// nonzero energy too.
+	uvW := (width + 1) >> 1
+	uvH := (height + 1) >> 1
+	for y := range uvH {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvW {
+			cb[x] = byte(128 + ((x+idx)*3)&0x03)
+			cr[x] = byte(128 + ((y+idx*2)*3)&0x03)
+		}
+	}
+	return img
+}
+
+// TestVP8FeatureBDRate720pTwoPassVBR drives a 720p translating panning
+// fixture through the VP8 two-pass VBR planning path. The harness
+// pre-computes govpx first-pass stats once over the source, finalizes
+// them, and pins TwoPassStats on every Baseline/Test EncoderOptions;
+// the libvpx side runs vpxenc with --passes=2 in two stages so both
+// curves sit on the same two-pass operating axis. This is the only
+// VP8 fixture today that exercises pass-1 stats accumulation and
+// pass-2 GF/ARF allocation against the libvpx reference.
+func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+		frames = 16
+	)
+	// Two-pass VBR introduces additional cubic-fit jitter because the
+	// rate axis depends on the second-pass GF/ARF allocator's per-frame
+	// bit budgeting, which has small float-precision drift between
+	// govpx and libvpx even for the byte-exact-on-pass1-stats path.
+	// Widen the per-fixture gate to 10% (vs 5% default) to absorb
+	// that planner drift while still catching a real ~20% bitrate
+	// regression. The within-govpx baseline-vs-test BD-rate is still
+	// expected to be near zero (and is checked by runVP8BDRateFixture).
+	twoPassGate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 10.0,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 720p panning two-pass (VBR ladder 1500/3000/6000/12000 kbps)",
+		"VP8 720p panning (two-pass VBR 1500/3000/6000/12000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{1500, 3000, 6000, 12000},
+			TwoPass:        true,
+			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Baseline:       func(*govpx.EncoderOptions) {},
+			Test:           func(*govpx.EncoderOptions) {},
+		},
+		twoPassGate)
+}
+
+// TestVP8FeatureBDRate720pScreenContentCBR drives a 720p screen-content
+// (synthetic-text-window) fixture through a CBR ladder with the libvpx
+// screen-content mode flag enabled on both sides. This exercises the
+// VP8 screen-content mode-tree probability bias (DC/V_PRED dominant
+// intra modes), the screen-content fast-decision intra-block path,
+// and the screen-content-specific ARNR strength tweak.
+func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+		frames = 12
+	)
+	// Screen content saturates the rate axis well below the ladder
+	// upper rungs (synthetic-text frames are sparser than camera
+	// content) so the produced-rate curve compresses near
+	// ~4 Mbps regardless of target. Widen the per-fixture gate to
+	// 25% (vs 5% default) to absorb the consequent cubic-fit jitter:
+	// the BD-PSNR is positive (govpx delivers higher quality at
+	// equal rate, by ~0.4 dB) so the absolute regression risk this
+	// gate is meant to detect is on the rate-not-quality side and
+	// 25% still catches a ~2x bitrate divergence.
+	screenContentGate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 25.0,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 720p screen-content text (CBR ladder 500/1000/2000/4000 kbps)",
+		"VP8 720p screen-content text (CBR 500/1000/2000/4000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{500, 1000, 2000, 4000},
+			Source:         func(i int) *image.YCbCr { return makeVP8ScreenTextWindowFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.ScreenContentMode = 1
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.ScreenContentMode = 1
+			},
+		},
+		screenContentGate)
+}
+
+// TestVP8FeatureBDRate720pRealtimeCpu8CBR drives a 720p panning fixture
+// through the realtime-deadline cpu_used=8 path under a CBR ladder.
+// Speed >= 8 disables further sub-pixel refinement steps and improved
+// MV prediction in libvpx; #275's existing fixtures cover lower
+// cpu-used values (the default 0). This is the realtime/cpu-8
+// coverage cell.
+func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+		frames = 16
+	)
+	// Realtime cpu=8 disables further sub-pixel refinement steps and
+	// the improved MV predictor, both of which materially shift the
+	// RD curve even between identical libvpx builds at different
+	// speed levels. The govpx byte-exact contract pins cpu_used=0
+	// (good); cpu_used=8 is a known-divergent operating point where
+	// govpx implements the libvpx-ported speed cascade but the cubic
+	// fit on this short ladder amplifies the per-frame Q drift. A
+	// 10% BD-rate band and -1.0 dB BD-PSNR floor catches a real ~20%
+	// rate regression or a major quality loss without flagging the
+	// expected ~7%/-1.0 dB spread on this fixture.
+	realtimeCpu8Gate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 10.0,
+		MinBDPSNRdB:            -1.0,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 720p panning realtime cpu=8 (CBR ladder 1000/2000/4000/8000 kbps)",
+		"VP8 720p panning realtime cpu=8 (CBR 1000/2000/4000/8000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{1000, 2000, 4000, 8000},
+			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 8
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 8
+			},
+		},
+		realtimeCpu8Gate)
+}
+
+// TestVP8FeatureBDRate720pTokenParts4CBR drives a 720p sports-motion
+// fixture through a CBR ladder with token-partitions=2 (vpxenc maps
+// 2 -> 4 token partitions). This exercises the parallel-tokens header
+// byte layout introduced in #251 and the per-partition arithmetic
+// encoder init: the resulting bitstream has 4 token partitions packed
+// after the first-partition header, and the libvpx reference must
+// match the per-partition byte budget.
+func TestVP8FeatureBDRate720pTokenParts4CBR(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+		frames = 12
+	)
+	runVP8BDRateFixture(t,
+		"VP8 720p sports-motion token-parts=4 (CBR ladder 1500/3000/6000/12000 kbps)",
+		"VP8 720p sports-motion token-parts=4 (CBR 1500/3000/6000/12000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{1500, 3000, 6000, 12000},
+			Source:         func(i int) *image.YCbCr { return makeVP8SportsMotionFrame(width, height, i) },
+			Baseline: func(o *govpx.EncoderOptions) {
+				// libvpx --token-parts=2 maps to TokenPartitions=2
+				// which is the 4-partition VP8 layout.
+				o.TokenPartitions = 2
+			},
+			Test: func(o *govpx.EncoderOptions) {
+				o.TokenPartitions = 2
+			},
+		},
+		defaultLibvpxVP8AbsoluteGate)
+}
