@@ -4,6 +4,8 @@ package govpx
 
 const vp9DecodedLeafTraceBuild = false
 
+type vp9DecodedLeafTraceState struct{}
+
 func (d *VP9Decoder) enableVP9DecodedLeafTrace() {}
 
 func (d *VP9Decoder) disableVP9DecodedLeafTrace() {}

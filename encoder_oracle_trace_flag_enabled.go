@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"strconv"
-	"sync"
 )
 
 const oracleTraceBuild = true
@@ -53,8 +52,6 @@ type oracleTraceInterCandidateFilter struct {
 	mbCol       int
 }
 
-var oracleTraceStates sync.Map
-
 // SetOracleTraceWriter enables oracle trace emission for this encoder. It is
 // available only in govpx_oracle_trace builds.
 func (e *VP8Encoder) SetOracleTraceWriter(w io.Writer) {
@@ -62,7 +59,7 @@ func (e *VP8Encoder) SetOracleTraceWriter(w io.Writer) {
 		return
 	}
 	if w == nil {
-		oracleTraceStates.Delete(e)
+		e.oracleTrace = nil
 		return
 	}
 	state := e.oracleTraceStateCreate()
@@ -125,23 +122,20 @@ func (e *VP8Encoder) oracleTraceState() *oracleTraceState {
 	if e == nil {
 		return nil
 	}
-	if state, ok := oracleTraceStates.Load(e); ok {
-		return state.(*oracleTraceState)
-	}
-	return nil
+	return e.oracleTrace
 }
 
 func (e *VP8Encoder) oracleTraceStateCreate() *oracleTraceState {
-	if state, ok := oracleTraceStates.Load(e); ok {
-		return state.(*oracleTraceState)
+	if e.oracleTrace != nil {
+		return e.oracleTrace
 	}
 	state := &oracleTraceState{}
-	actual, _ := oracleTraceStates.LoadOrStore(e, state)
-	return actual.(*oracleTraceState)
+	e.oracleTrace = state
+	return state
 }
 
 func (e *VP8Encoder) resetOracleTraceState() {
-	oracleTraceStates.Delete(e)
+	e.oracleTrace = nil
 }
 
 func (e *VP8Encoder) resetOracleTraceRecode() {

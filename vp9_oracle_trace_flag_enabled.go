@@ -5,7 +5,6 @@ package govpx
 import (
 	"encoding/json"
 	"io"
-	"sync"
 )
 
 const vp9OracleTraceBuild = true
@@ -63,8 +62,6 @@ type vp9OracleTraceState struct {
 	recodeLoopCount      int
 }
 
-var vp9OracleTraceStates sync.Map
-
 // SetVP9OracleTraceWriter enables VP9 encoder oracle trace emission. It is
 // available only in govpx_oracle_trace builds.
 func (e *VP9Encoder) SetVP9OracleTraceWriter(w io.Writer) {
@@ -72,7 +69,7 @@ func (e *VP9Encoder) SetVP9OracleTraceWriter(w io.Writer) {
 		return
 	}
 	if w == nil {
-		vp9OracleTraceStates.Delete(e)
+		e.oracleTrace = nil
 		return
 	}
 	state := e.vp9OracleTraceStateCreate()
@@ -83,23 +80,20 @@ func (e *VP9Encoder) vp9OracleTraceState() *vp9OracleTraceState {
 	if e == nil {
 		return nil
 	}
-	if state, ok := vp9OracleTraceStates.Load(e); ok {
-		return state.(*vp9OracleTraceState)
-	}
-	return nil
+	return e.oracleTrace
 }
 
 func (e *VP9Encoder) vp9OracleTraceStateCreate() *vp9OracleTraceState {
-	if state, ok := vp9OracleTraceStates.Load(e); ok {
-		return state.(*vp9OracleTraceState)
+	if e.oracleTrace != nil {
+		return e.oracleTrace
 	}
 	state := &vp9OracleTraceState{}
-	actual, _ := vp9OracleTraceStates.LoadOrStore(e, state)
-	return actual.(*vp9OracleTraceState)
+	e.oracleTrace = state
+	return state
 }
 
 func (e *VP9Encoder) resetVP9OracleTraceState() {
-	vp9OracleTraceStates.Delete(e)
+	e.oracleTrace = nil
 }
 
 func (e *VP9Encoder) resetVP9OracleRateSelectionTrace() {

@@ -11,6 +11,8 @@ const oracleTraceBuild = false
 
 const oracleTraceInterCandidateUnknown = -1
 
+type oracleTraceState struct{}
+
 type staleY2Snapshot struct{}
 
 type oracleTraceFrameSummary struct {

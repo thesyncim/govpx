@@ -192,8 +192,9 @@ var ErrVP9NotImplemented = vpxerrors.ErrVP9NotImplemented
 // holds the per-frame context (FrameContext, SegmentationParams,
 // LoopfilterParams, dequant tables) the parser needs across frames.
 type VP9Decoder struct {
-	opts   VP9DecoderOptions
-	closed bool
+	opts      VP9DecoderOptions
+	closed    bool
+	leafTrace *vp9DecodedLeafTraceState
 
 	// frameContexts mirrors VP9's four entropy-context slots. fc is the
 	// active scratch copy selected by frame_context_idx for the current

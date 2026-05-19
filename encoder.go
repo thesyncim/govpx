@@ -458,10 +458,11 @@ type EncodeResult struct {
 type VP8Encoder struct {
 	opts EncoderOptions
 
-	timing   timingState
-	sourceTS encoderSourceTimestampState
-	rc       rateControlState
-	temporal temporalState
+	timing      timingState
+	sourceTS    encoderSourceTimestampState
+	rc          rateControlState
+	temporal    temporalState
+	oracleTrace *oracleTraceState
 
 	closed        bool
 	forceKeyFrame bool
