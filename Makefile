@@ -83,7 +83,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci pre-commit fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-quality vp9-quality-smoke oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci pre-commit fmtcheck test test-purego vp9-decoder-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity verify-bd-rate verify-bd-rate-vp8 verify-quality vp9-quality-smoke oracle-test byte-parity fuzz-controls fuzz-rename decoder-oracle-test oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -166,6 +166,20 @@ verify-bd-rate: $(VPXENC_VP9_FRAMEFLAGS)
 
 $(VPXENC_VP9_FRAMEFLAGS):
 	internal/coracle/build_vpxenc_vp9_frameflags.sh >/dev/null
+
+# verify-bd-rate-vp8 runs the VP8 BD-rate quality gates against
+# the libvpx vpxenc oracle. Auto-builds vpxenc on demand so the
+# harness does not silently no-op when the binary is missing.
+# GOVPX_BD_RATE_LIBVPX_VP8_REQUIRED=1 elevates the libvpx
+# assertion from a soft-skip to t.Fatal.
+verify-bd-rate-vp8: $(VPXENC)
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+		GOVPX_VPXENC_VP8_BIN="$(VPXENC)" \
+		GOVPX_BD_RATE_LIBVPX_VP8_REQUIRED=1 \
+		$(GO) test -count=1 -v -run 'TestVP8FeatureQualityBDRate' -timeout 1200s . ./cmd/govpx-bench/benchcmd/
+
+$(VPXENC):
+	internal/coracle/build_vpxenc.sh >/dev/null
 
 # vp9-dsp-oracle rebuilds the VP9-decoder-only libvpx variant + the
 # DSP oracle binary, then regenerates the committed testdata corpus.
