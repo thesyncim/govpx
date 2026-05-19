@@ -1104,7 +1104,7 @@ func (e *VP9Encoder) updateVP9PartitionContextForChoice(miRow, miCol int,
 	bsl := int(common.BWidthLog2Lookup[root])
 	bs := (1 << uint(bsl)) / 4
 	vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx,
-		miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+		miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
 }
 
 func (e *VP9Encoder) scoreVP9InterPartitionNone(inter *vp9InterEncodeState,

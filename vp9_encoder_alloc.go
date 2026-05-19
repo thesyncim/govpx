@@ -130,11 +130,6 @@ func (e *VP9Encoder) EncodeShowExistingFrame(slot uint8) ([]byte, error) {
 	return dst[:n], nil
 }
 
-func alignToSb(miCols int) int {
-	const mask = common.MiBlockSize - 1
-	return (miCols + mask) &^ mask
-}
-
 // Close releases internal state and marks the encoder as no longer
 // usable. Subsequent Encode / EncodeInto calls return [ErrClosed].
 // Close is idempotent: calling it on an already-closed encoder returns

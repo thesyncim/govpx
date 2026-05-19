@@ -18,6 +18,12 @@ const (
 	MiMask = MiBlockSize - 1
 )
 
+// AlignToSB rounds a count of mode-info units up to the next 64x64
+// superblock boundary.
+func AlignToSB(miCount int) int {
+	return (miCount + MiMask) &^ MiMask
+}
+
 // BitstreamProfile is the 2-or-3-bit profile field in the uncompressed
 // header. Public VP9 support is profile 0 only; the other values are kept so
 // the parser can classify and reject valid non-profile0 packets cleanly.

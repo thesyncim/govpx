@@ -34,15 +34,15 @@ func vp9InterResidueFrameLoopFilterForTest(t *testing.T,
 
 	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	vp9dec.SetupBlockPlanes(&planes, 1, 1)
-	planes[0].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 0))
-	planes[0].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 0))
-	planes[1].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[1].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
-	planes[2].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[2].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[0].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 0))
+	planes[0].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 0))
+	planes[1].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[1].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[2].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[2].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
 
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	zeroCoeffs := make([]int16, 1024)
@@ -378,7 +378,7 @@ func vp9InterSingleNewMvFrameRefDimsForTest(t *testing.T,
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
@@ -526,7 +526,7 @@ func vp9InterMotionMvFrameLoopFilterRefDimsForTest(t *testing.T,
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
@@ -663,7 +663,7 @@ func vp9InterMvReuseFrameRefDimsForTest(t *testing.T,
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
@@ -807,7 +807,7 @@ func vp9InterSubpelMotionFrameForTest(t *testing.T, nearestReuse bool,
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
@@ -952,7 +952,7 @@ func vp9SetupCompoundHeaderRefsSignBiasForTest(header *vp9dec.UncompressedHeader
 ) ([vp9dec.MaxRefFrames]uint8, vp9dec.CompoundFrameRefs) {
 	header.InterRef.RefIndex = refIndex
 	header.InterRef.SignBias = headerSignBias
-	signBias := vp9FrameRefSignBias(header)
+	signBias := vp9dec.FrameRefSignBias(header)
 	return signBias, vp9dec.SetupCompoundReferenceMode(signBias)
 }
 
@@ -1037,7 +1037,7 @@ func vp9CompoundInterMotionRefsFrameModeSignBiasRefDimsForTest(t *testing.T,
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
@@ -1193,7 +1193,7 @@ func vp9CompoundInterMvReuseFrameRefDimsForTest(t *testing.T,
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)

@@ -461,7 +461,7 @@ func (e *VP9Encoder) useVP9EncoderPrevSegmentMap(miRows, miCols int) bool {
 }
 
 func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
-	miColsAligned := alignToSb(miCols)
+	miColsAligned := common.AlignToSB(miCols)
 	if cap(e.aboveSegCtx) < miColsAligned {
 		e.aboveSegCtx = make([]int8, miColsAligned)
 	} else {
@@ -563,8 +563,8 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	e.partitionReconScratchTop = 0
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
-		aboveLen := vp9PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
-		leftLen := vp9PlaneEntropyLen(common.MiBlockSize, pd.SubsamplingY)
+		aboveLen := vp9dec.PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
+		leftLen := vp9dec.PlaneEntropyLen(common.MiBlockSize, pd.SubsamplingY)
 		if cap(pd.AboveContext) < aboveLen {
 			pd.AboveContext = make([]uint8, aboveLen)
 		} else {

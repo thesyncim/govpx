@@ -728,7 +728,7 @@ func enrichVP9RateScoreboardRowFromPacket(t *testing.T, row *vp9RateScoreboardRo
 	row.InterpFilter = int(header.InterpFilter)
 	row.ReferenceMode = int(comp.ReferenceMode)
 	row.CompoundAllowed = header.FrameType != common.KeyFrame && !header.IntraOnly &&
-		vp9dec.CompoundReferenceAllowed(vp9FrameRefSignBias(&header))
+		vp9dec.CompoundReferenceAllowed(vp9dec.FrameRefSignBias(&header))
 	row.ReferenceMask = vp9ReferenceMaskFromLibvpxFrameFlags(row.Flags)
 	row.LoopFilterLevel = int(header.Loopfilter.FilterLevel)
 	row.TileLog2Cols = int(header.Tile.Log2TileCols)

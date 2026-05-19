@@ -2,6 +2,23 @@ package common
 
 import "testing"
 
+func TestAlignToSB(t *testing.T) {
+	for _, tc := range []struct {
+		miCount int
+		want    int
+	}{
+		{0, 0},
+		{1, MiBlockSize},
+		{MiBlockSize - 1, MiBlockSize},
+		{MiBlockSize, MiBlockSize},
+		{MiBlockSize + 1, 2 * MiBlockSize},
+	} {
+		if got := AlignToSB(tc.miCount); got != tc.want {
+			t.Fatalf("AlignToSB(%d) = %d, want %d", tc.miCount, got, tc.want)
+		}
+	}
+}
+
 // TestBlockGeometryConsistent checks that the four geometry lookups
 // (log2 width, log2 height, 4x4 counts, 8x8 counts) all agree with each
 // other. A typo in any one of them would make the partition tree

@@ -854,7 +854,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	if compEnd > len(packet) {
 		return ErrInvalidVP9Data
 	}
-	if !vp9SupportedOutputFormat(&hdr) {
+	if !vp9dec.SupportedOutputFormat(&hdr) {
 		d.lastHeader = hdr
 		d.lastHeaderValid = true
 		if !hdr.ShowExistingFrame {
@@ -880,7 +880,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 		KeyFrame:             hdr.FrameType == common.KeyFrame,
 		InterpFilter:         hdr.InterpFilter,
 		AllowHighPrecisionMv: hdr.AllowHighPrecisionMv,
-		CompoundRefAllowed:   vp9CompoundReferenceAllowed(&hdr),
+		CompoundRefAllowed:   vp9dec.CompoundReferenceAllowedForHeader(&hdr),
 	})
 	if cr.HasError() {
 		return ErrInvalidVP9Data
@@ -897,7 +897,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 		int(hdr.Loopfilter.FilterLevel))
 
 	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
-		d.unsupportedReconstruct = !vp9SupportedOutputFormat(&hdr)
+		d.unsupportedReconstruct = !vp9dec.SupportedOutputFormat(&hdr)
 		if !d.unsupportedReconstruct {
 			if err := d.prepareVP9OutputFrame(int(hdr.Width), int(hdr.Height)); err != nil {
 				return err
@@ -907,7 +907,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 			return err
 		}
 	} else {
-		d.unsupportedReconstruct = !vp9SupportedOutputFormat(&hdr)
+		d.unsupportedReconstruct = !vp9dec.SupportedOutputFormat(&hdr)
 		if !d.unsupportedReconstruct {
 			if err := d.prepareVP9OutputFrame(int(hdr.Width), int(hdr.Height)); err != nil {
 				return err
@@ -1101,19 +1101,9 @@ func (d *VP9Decoder) vp9FrameInfoFromHeader(hdr *vp9dec.UncompressedHeader, pts 
 	}
 	info.Width = int(hdr.Width)
 	info.Height = int(hdr.Height)
-	info.RenderWidth, info.RenderHeight = vp9HeaderRenderSize(hdr)
+	info.RenderWidth, info.RenderHeight = vp9dec.HeaderRenderSize(hdr)
 	info.BitDepth = int(hdr.BitDepthColor.BitDepth)
 	return info, nil
-}
-
-func vp9HeaderRenderSize(hdr *vp9dec.UncompressedHeader) (int, int) {
-	if hdr == nil {
-		return 0, 0
-	}
-	if hdr.Render.Width > 0 && hdr.Render.Height > 0 {
-		return int(hdr.Render.Width), int(hdr.Render.Height)
-	}
-	return int(hdr.Width), int(hdr.Height)
 }
 
 func (d *VP9Decoder) finishVP9FrameInfo(info VP9FrameInfo) {
@@ -1164,38 +1154,13 @@ func (d *VP9Decoder) vp9CanPublishReconstructedFrame(hdr *vp9dec.UncompressedHea
 	if hdr.ShowExistingFrame || d.unsupportedReconstruct {
 		return false
 	}
-	return vp9SupportedOutputFormat(hdr)
-}
-
-func vp9SupportedOutputFormat(hdr *vp9dec.UncompressedHeader) bool {
-	if hdr.Profile != common.Profile0 ||
-		hdr.BitDepthColor.BitDepth != vp9dec.Bits8 ||
-		hdr.BitDepthColor.SubsamplingX != 1 ||
-		hdr.BitDepthColor.SubsamplingY != 1 {
-		return false
-	}
-	return true
+	return vp9dec.SupportedOutputFormat(hdr)
 }
 
 func (d *VP9Decoder) traceVP9Unsupported(reason string) {
 	if os.Getenv("GOVPX_TRACE_UNSUPPORTED") != "" {
 		fmt.Fprintf(os.Stderr, "vp9 unsupported: %s\n", reason)
 	}
-}
-
-func vp9FrameRefSignBias(hdr *vp9dec.UncompressedHeader) [vp9dec.MaxRefFrames]uint8 {
-	var signBias [vp9dec.MaxRefFrames]uint8
-	for i := range common.RefsPerFrame {
-		signBias[vp9dec.LastFrame+i] = hdr.InterRef.SignBias[i]
-	}
-	return signBias
-}
-
-func vp9CompoundReferenceAllowed(hdr *vp9dec.UncompressedHeader) bool {
-	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
-		return false
-	}
-	return vp9dec.CompoundReferenceAllowed(vp9FrameRefSignBias(hdr))
 }
 
 func (d *VP9Decoder) decodeVP9ShowExistingFrame(hdr *vp9dec.UncompressedHeader) error {
@@ -1313,7 +1278,7 @@ func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 	flags := hdr.RefreshFrameFlags
 	for slot := range d.refFrames {
 		if flags&(1<<uint(slot)) != 0 {
-			renderWidth, renderHeight := vp9HeaderRenderSize(hdr)
+			renderWidth, renderHeight := vp9dec.HeaderRenderSize(hdr)
 			d.releaseVP9ReferenceExternalFrame(slot)
 			if d.frameExternal != nil {
 				d.refFrames[slot].storeExternalWithRenderAndBitDepth(d.lastFrame,

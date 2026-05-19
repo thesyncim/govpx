@@ -272,7 +272,7 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx,
-			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+			miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
 	}
 }
 

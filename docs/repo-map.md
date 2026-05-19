@@ -67,8 +67,8 @@ Existing internal codec packages are already substantial:
 | `internal/vp8/rtp` | VP8 RTP payload descriptor parse/pack and frame packetize/assemble logic; RFC 7741, not libvpx-derived |
 | `internal/vp8/mem`, `internal/vp8/scale`, `internal/vp8/tables` | VP8 support packages |
 | `internal/vp9/bitstream` | VP9 bit reader/writer and superframe index parser/writer |
-| `internal/vp9/common` | VP9 constants, enums, quantization, frame-buffer layout and alignment mechanics |
-| `internal/vp9/decoder` | VP9 parser, stream-info peeking, frame-context adaptation, MFQE decision metrics, reconstruction, loop filter, tile/thread plumbing |
+| `internal/vp9/common` | VP9 constants, enums, quantization, superblock alignment, frame-buffer layout and alignment mechanics |
+| `internal/vp9/decoder` | VP9 parser, stream-info peeking, header/tile helpers, frame-context adaptation, MFQE decision metrics, reconstruction, loop filter, tile/thread plumbing |
 | `internal/vp9/dsp` | VP9 scalar/SIMD kernels |
 | `internal/vp9/encoder` | VP9 bitstream writer and transform/quant helpers |
 | `internal/vp9/rtp` | VP9 RTP payload descriptor, scalability-structure, and frame packetize/assemble logic; RFC 9628, not libvpx-derived |
@@ -261,6 +261,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3 | VP9 frame-context adaptation move | root `vp9_decoder_adapt.go`, `vp9_decoder_threading.go`, `vp9_encoder_counts_bridge.go`, `internal/vp9/decoder/adapt.go` | Current branch: internal VP9 decoder owns adaptation count shapes, merge formulas, and frame-count accumulation helpers used by root decoder/encoder bridges |
 | 3/4 | VP9 frame-buffer layout move | root `vp9_decoder.go`, VP9 encoder reconstruction/loop-filter call sites, `internal/vp9/common/frame_layout.go` | Current branch: internal VP9 common owns border/stride/origin/alignment math shared by VP9 decoder and encoder reconstruction buffers |
 | 3 | VP9 MFQE metric move | root `vp9_decoder_mfqe.go`, `vp9_decoder_mfqe_test.go`, `internal/vp9/decoder/mfqe.go` | Current branch: internal VP9 decoder owns libvpx-pinned MFQE constants, thresholds, decisions, and block metrics; root keeps decoder-state walker glue |
+| 3 | VP9 header/tile helper move | root `vp9_decoder.go`, `vp9_decoder_modes.go`, encoder/decoder call sites, `internal/vp9/{common,decoder}` helper tests | Current branch: internal VP9 common owns MI superblock alignment; internal VP9 decoder owns header render/output/ref helpers, partition-context width, entropy-context lengths, and tile offsets |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
 | 5 | API cleanup | root public files, examples, docs | Remove unreleased compatibility aliases at wave end |

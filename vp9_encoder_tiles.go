@@ -424,9 +424,9 @@ func vp9EncoderTileBounds(tileRow, tileCol, miRows, miCols int,
 	tileInfo vp9dec.TileInfo,
 ) vp9dec.TileBounds {
 	return vp9dec.TileBounds{
-		MiRowStart: vp9DecoderTileOffset(tileRow, miRows, tileInfo.Log2TileRows),
-		MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, tileInfo.Log2TileRows),
-		MiColStart: vp9DecoderTileOffset(tileCol, miCols, tileInfo.Log2TileCols),
-		MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, tileInfo.Log2TileCols),
+		MiRowStart: vp9dec.TileOffset(tileRow, miRows, tileInfo.Log2TileRows),
+		MiRowEnd:   vp9dec.TileOffset(tileRow+1, miRows, tileInfo.Log2TileRows),
+		MiColStart: vp9dec.TileOffset(tileCol, miCols, tileInfo.Log2TileCols),
+		MiColEnd:   vp9dec.TileOffset(tileCol+1, miCols, tileInfo.Log2TileCols),
 	}
 }

@@ -144,7 +144,7 @@ func writeVP9InterResidueSbForTest(bw *bitstream.Writer, miRows, miCols, miRow, 
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(aboveSegCtx, leftSegCtx,
-			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+			miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
 	}
 	return nil
 }
@@ -234,7 +234,7 @@ func vp9CompoundInterSkipFrameForTest(t *testing.T) []byte {
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 
@@ -357,7 +357,7 @@ func vp9SegmentedAltrefInterSkipFrameUpdateForTest(t *testing.T, updateMap bool)
 		seg.UpdateData = false
 	}
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 
@@ -514,7 +514,7 @@ func vp9InterSkipFrameRefDimsWithFrameParallelForTest(t *testing.T,
 	vp9dec.ResetFrameContext(&fc)
 	var seg vp9dec.SegmentationParams
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 
@@ -567,10 +567,10 @@ func vp9InterSkipFrameRefDimsWithFrameParallelForTest(t *testing.T,
 		TileCols: 1 << uint(log2TileCols),
 		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
 			tile := vp9dec.TileBounds{
-				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, header.Tile.Log2TileRows),
-				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
-				MiColStart: vp9DecoderTileOffset(tileCol, miCols, header.Tile.Log2TileCols),
-				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
+				MiRowStart: vp9dec.TileOffset(tileRow, miRows, header.Tile.Log2TileRows),
+				MiRowEnd:   vp9dec.TileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
+				MiColStart: vp9dec.TileOffset(tileCol, miCols, header.Tile.Log2TileCols),
+				MiColEnd:   vp9dec.TileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
 			}
 			writeVP9InterSkipTileForTest(bw, miRows, miCols, tile,
 				aboveSegCtx, leftSegCtx, miGrid, &partitionProbs, &seg, &fc, mi)
@@ -675,7 +675,7 @@ func writeVP9InterSkipSbForTest(bw *bitstream.Writer, miRows, miCols, miRow, miC
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(aboveSegCtx, leftSegCtx,
-			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+			miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
 	}
 }
 

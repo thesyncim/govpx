@@ -74,7 +74,7 @@ func vp9SkipResidueKeyframeForTest(t *testing.T, width, height int,
 	coeffs := make([]int16, 1024)
 	coeffs[0] = dcCoeff
 	partitionProbs := tables.KfPartitionProbs
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	dest := make([]byte, 262144)
 	scratch := make([]byte, 262144)
@@ -159,7 +159,7 @@ func vp9InterFrameContextUpdatePacketForTest(t *testing.T, width, height int,
 	var counts vp9enc.FrameCounts
 	counts.Skip[0] = [2]uint32{1, 4096}
 	var seg vp9dec.SegmentationParams
-	aboveSegCtx := make([]int8, alignToSb(miColsForSize(w)))
+	aboveSegCtx := make([]int8, common.AlignToSB(miColsForSize(w)))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	miGrid := make([]vp9dec.NeighborMi, miColsForSize(w)*miColsForSize(h))
 	mi := vp9dec.NeighborMi{
@@ -337,15 +337,15 @@ func vp9ColumnResidueIntraFrameForMotionTest(t *testing.T,
 	}, &dq)
 	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	vp9dec.SetupBlockPlanes(&planes, 1, 1)
-	planes[0].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 0))
-	planes[0].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 0))
-	planes[1].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[1].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
-	planes[2].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[2].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[0].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 0))
+	planes[0].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 0))
+	planes[1].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[1].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[2].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[2].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
 
 	partitionProbs := tables.KfPartitionProbs
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
@@ -515,15 +515,15 @@ func vp9SegmentedAltQKeyframeForTest(t *testing.T) []byte {
 	}, &dq)
 	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	vp9dec.SetupBlockPlanes(&planes, 1, 1)
-	planes[0].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 0))
-	planes[0].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 0))
-	planes[1].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[1].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
-	planes[2].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[2].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[0].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 0))
+	planes[0].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 0))
+	planes[1].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[1].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[2].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[2].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
 
 	partitionProbs := tables.KfPartitionProbs
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
@@ -708,15 +708,15 @@ func vp9InterIntraFrameForTest(t *testing.T,
 	}, &dq)
 	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	vp9dec.SetupBlockPlanes(&planes, 1, 1)
-	planes[0].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 0))
-	planes[0].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 0))
-	planes[1].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[1].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
-	planes[2].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
-	planes[2].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[0].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 0))
+	planes[0].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 0))
+	planes[1].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[1].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[2].AboveContext = make([]uint8, vp9dec.PlaneEntropyLen(common.AlignToSB(miCols), 1))
+	planes[2].LeftContext = make([]uint8, vp9dec.PlaneEntropyLen(common.MiBlockSize, 1))
 
 	partitionProbs := fc.PartitionProb
-	aboveSegCtx := make([]int8, alignToSb(miCols))
+	aboveSegCtx := make([]int8, common.AlignToSB(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
 	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
 	zeroCoeffs := make([]int16, 1024)

@@ -234,7 +234,7 @@ func vp9StubPacketWithFrameParallelForTest(t *testing.T, width, height,
 	miCols := int((w + 7) >> 3)
 	miRows := int((h + 7) >> 3)
 	vp9dec.ResetFrameContext(&e.fc)
-	e.aboveSegCtx = make([]int8, alignToSb(miCols))
+	e.aboveSegCtx = make([]int8, common.AlignToSB(miCols))
 	e.leftSegCtx = make([]int8, common.MiBlockSize)
 	e.miGrid = make([]vp9dec.NeighborMi, miRows*miCols)
 
@@ -289,10 +289,10 @@ func vp9StubPacketWithFrameParallelForTest(t *testing.T, width, height,
 		TileCols: tileCols,
 		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
 			tile := vp9dec.TileBounds{
-				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, header.Tile.Log2TileRows),
-				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
-				MiColStart: vp9DecoderTileOffset(tileCol, miCols, header.Tile.Log2TileCols),
-				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
+				MiRowStart: vp9dec.TileOffset(tileRow, miRows, header.Tile.Log2TileRows),
+				MiRowEnd:   vp9dec.TileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
+				MiColStart: vp9dec.TileOffset(tileCol, miCols, header.Tile.Log2TileCols),
+				MiColEnd:   vp9dec.TileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
 			}
 			e.writeVP9StubModesTileBounds(bw, miRows, miCols, tile,
 				&partitionProbs, &seg, baseMi)
@@ -323,7 +323,7 @@ func vp9MultiTileModePacketForTest(t *testing.T, width, height,
 	miCols := int((w + 7) >> 3)
 	miRows := int((h + 7) >> 3)
 	vp9dec.ResetFrameContext(&e.fc)
-	e.aboveSegCtx = make([]int8, alignToSb(miCols))
+	e.aboveSegCtx = make([]int8, common.AlignToSB(miCols))
 	e.leftSegCtx = make([]int8, common.MiBlockSize)
 	e.miGrid = make([]vp9dec.NeighborMi, miRows*miCols)
 
@@ -367,10 +367,10 @@ func vp9MultiTileModePacketForTest(t *testing.T, width, height,
 		TileCols: tileCols,
 		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
 			tile := vp9dec.TileBounds{
-				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, header.Tile.Log2TileRows),
-				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
-				MiColStart: vp9DecoderTileOffset(tileCol, miCols, header.Tile.Log2TileCols),
-				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
+				MiRowStart: vp9dec.TileOffset(tileRow, miRows, header.Tile.Log2TileRows),
+				MiRowEnd:   vp9dec.TileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
+				MiColStart: vp9dec.TileOffset(tileCol, miCols, header.Tile.Log2TileCols),
+				MiColEnd:   vp9dec.TileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
 			}
 			baseMi := vp9dec.NeighborMi{
 				SbType: common.Block64x64,

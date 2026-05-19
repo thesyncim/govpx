@@ -31,7 +31,7 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	for i := range d.segMap {
 		d.segMap[i] = 0
 	}
-	if vp9HeaderResetsPastIndependence(hdr) {
+	if vp9dec.HeaderResetsPastIndependence(hdr) {
 		d.resetVP9SegmentationMapsForPastIndependence()
 	}
 
@@ -137,7 +137,7 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 	for i := range d.segMap {
 		d.segMap[i] = 0
 	}
-	if vp9HeaderResetsPastIndependence(hdr) {
+	if vp9dec.HeaderResetsPastIndependence(hdr) {
 		d.resetVP9SegmentationMapsForPastIndependence()
 	}
 
@@ -227,11 +227,6 @@ func (d *VP9Decoder) parseVP9InterModeTile(data []byte,
 	return nil
 }
 
-func vp9HeaderResetsPastIndependence(hdr *vp9dec.UncompressedHeader) bool {
-	return hdr != nil && (hdr.FrameType == common.KeyFrame ||
-		hdr.IntraOnly || hdr.ErrorResilientMode)
-}
-
 func (d *VP9Decoder) resetVP9SegmentationMapsForPastIndependence() {
 	for i := range d.segMap {
 		d.segMap[i] = 0
@@ -318,7 +313,7 @@ func (d *VP9Decoder) readVP9IntraModeSb(r *bitstream.Reader,
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(d.aboveSegCtx, d.leftSegCtx,
-			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+			miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
 	}
 	return true
 }
@@ -401,17 +396,9 @@ func (d *VP9Decoder) readVP9InterModeSb(r *bitstream.Reader,
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 		vp9dec.UpdatePartitionContext(d.aboveSegCtx, d.leftSegCtx,
-			miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+			miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
 	}
 	return true
-}
-
-func vp9PartitionContextUpdateWidth(halfBlock8x8 int) int {
-	width := 2 * halfBlock8x8
-	if width == 0 {
-		return 1
-	}
-	return width
 }
 
 func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
@@ -552,7 +539,7 @@ func (d *VP9Decoder) readVP9InterBlockModeInfo(r *bitstream.Reader,
 	above, left *vp9dec.NeighborMi,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 ) bool {
-	signBias := vp9FrameRefSignBias(hdr)
+	signBias := vp9dec.FrameRefSignBias(hdr)
 	refs := vp9dec.SetupCompoundReferenceMode(signBias)
 	d.readVP9RefFramesWithCounts(r, hdr, comp.ReferenceMode, signBias, refs,
 		segID, above, left, &mi.RefFrame)
@@ -1732,7 +1719,7 @@ func (d *VP9Decoder) vp9OutputPlane(plane int) ([]byte, int) {
 }
 
 func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
-	miColsAligned := alignToSb(miCols)
+	miColsAligned := common.AlignToSB(miCols)
 	if cap(d.aboveSegCtx) < miColsAligned {
 		d.aboveSegCtx = make([]int8, miColsAligned)
 	} else {
@@ -1771,8 +1758,8 @@ func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
-		aboveLen := vp9PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
-		leftLen := vp9PlaneEntropyLen(common.MiBlockSize, pd.SubsamplingY)
+		aboveLen := vp9dec.PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
+		leftLen := vp9dec.PlaneEntropyLen(common.MiBlockSize, pd.SubsamplingY)
 		if cap(pd.AboveContext) < aboveLen {
 			pd.AboveContext = make([]uint8, aboveLen)
 		} else {
@@ -1784,10 +1771,6 @@ func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 			pd.LeftContext = pd.LeftContext[:leftLen]
 		}
 	}
-}
-
-func vp9PlaneEntropyLen(miCount int, subsampling uint8) int {
-	return (miCount * 2) >> subsampling
 }
 
 func (d *VP9Decoder) resetVP9AboveEntropyContexts() {
@@ -1874,13 +1857,13 @@ func prepareVP9DecoderTileDescs(dst []vp9DecoderTileDesc, tileData []byte,
 			dst[idx] = vp9DecoderTileDesc{
 				data: tileData[offset : offset+tileSize],
 				tile: vp9dec.TileBounds{
-					MiRowStart: vp9DecoderTileOffset(tileRow, miRows,
+					MiRowStart: vp9dec.TileOffset(tileRow, miRows,
 						hdr.Tile.Log2TileRows),
-					MiRowEnd: vp9DecoderTileOffset(tileRow+1, miRows,
+					MiRowEnd: vp9dec.TileOffset(tileRow+1, miRows,
 						hdr.Tile.Log2TileRows),
-					MiColStart: vp9DecoderTileOffset(tileCol, miCols,
+					MiColStart: vp9dec.TileOffset(tileCol, miCols,
 						hdr.Tile.Log2TileCols),
-					MiColEnd: vp9DecoderTileOffset(tileCol+1, miCols,
+					MiColEnd: vp9dec.TileOffset(tileCol+1, miCols,
 						hdr.Tile.Log2TileCols),
 				},
 			}
@@ -1898,10 +1881,4 @@ func (d *VP9Decoder) vp9DecodeTileCol(tileCol, tileCols int) int {
 		return tileCols - tileCol - 1
 	}
 	return tileCol
-}
-
-func vp9DecoderTileOffset(idx, mis, log2 int) int {
-	sbCols := alignToSb(mis) >> common.MiBlockSizeLog2
-	offset := ((idx * sbCols) >> uint(log2)) << common.MiBlockSizeLog2
-	return min(offset, mis)
 }

@@ -398,7 +398,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	var interState *vp9InterEncodeState
 	compoundAllowed := false
 	referenceMode := vp9dec.SingleReference
-	refSignBias := vp9FrameRefSignBias(header)
+	refSignBias := vp9dec.FrameRefSignBias(header)
 	compoundRefs := vp9dec.SetupCompoundReferenceMode(refSignBias)
 	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
 		BaseQindex: int(header.Quant.BaseQindex),

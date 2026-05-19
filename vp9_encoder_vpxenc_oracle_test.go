@@ -1670,7 +1670,7 @@ func decodeVP9PacketTxCoeffsForOracleTest(t *testing.T, packet []byte) []vp9Orac
 		if bsize >= common.Block8x8 &&
 			(bsize == common.Block8x8 || partition != common.PartitionSplit) {
 			vp9dec.UpdatePartitionContext(d.aboveSegCtx, d.leftSegCtx,
-				miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+				miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
 		}
 	}
 	walk(0, 0, common.Block64x64)
@@ -1925,7 +1925,7 @@ func readVP9CompressedHeaderForOracleTest(t *testing.T, packet []byte,
 	var fc vp9dec.FrameContext
 	vp9dec.ResetFrameContext(&fc)
 	compoundAllowed := header.FrameType != common.KeyFrame && !header.IntraOnly &&
-		vp9dec.CompoundReferenceAllowed(vp9FrameRefSignBias(&header))
+		vp9dec.CompoundReferenceAllowed(vp9dec.FrameRefSignBias(&header))
 	comp := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
 		Lossless:             header.Quant.Lossless,
 		IntraOnly:            header.FrameType == common.KeyFrame || header.IntraOnly,

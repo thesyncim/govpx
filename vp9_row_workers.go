@@ -126,7 +126,7 @@ func (s *vp9RowEncoderState) reset(parent *VP9Encoder, miColsAligned int) {
 		}
 	}
 	for plane := range vp9dec.MaxMbPlane {
-		leftLen := vp9PlaneEntropyLen(vp9MiBlockSize(), parent.planes[plane].SubsamplingY)
+		leftLen := vp9dec.PlaneEntropyLen(vp9MiBlockSize(), parent.planes[plane].SubsamplingY)
 		if cap(s.planeLeftCtx[plane]) < leftLen {
 			s.planeLeftCtx[plane] = make([]uint8, leftLen)
 		} else {
