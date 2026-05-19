@@ -13346,6 +13346,11 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			bestDx, bestDy, bestSad, bestScore = vp9FastDiamondPatternSearchSAD(
 				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
 				&mvLimits, sadAt, scoreMv)
+		} else if e.sf.Mv.SearchMethod == SearchMethodNStep ||
+			e.sf.Mv.SearchMethod == SearchMethodMesh {
+			bestDx, bestDy, bestSad, bestScore = vp9NStepDiamondSearchSAD(
+				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
+				&mvLimits, sadAt, scoreMv)
 		} else {
 			// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
 			// step so the fan covers +/-searchRadius without exceeding it.
@@ -13619,6 +13624,127 @@ func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
 	return bc, br, bestSad, bestScore
 }
 
+func vp9NStepDiamondSearchSAD(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *vp9MvLimits,
+	sadAt func(dx, dy int) (uint64, bool),
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
+	searchParam := max(min(stepParam, vp9MaxMvSearchSteps-1), 0)
+	br, bc := vp9ClampFullpelMV(limits, startDy, startDx)
+	bestSad := startSad
+	bestScore := startScore
+	if br != startDy || bc != startDx {
+		if sad, ok := sadAt(bc, br); ok {
+			bestSad = sad
+			bestScore = scoreMv(bc, br, sad)
+		}
+	}
+	searchStartSad := bestSad
+	searchStartScore := bestScore
+	bestDx, bestDy := bc, br
+
+	furtherSteps := vp9MaxMvSearchSteps - 1 - searchParam
+	for n := 0; n <= furtherSteps; n++ {
+		candDx, candDy, candSad, candScore := vp9NStepDiamondOnceSAD(
+			bc, br, searchStartSad, searchStartScore, searchParam+n,
+			limits, sadAt, scoreMv)
+		if candScore < bestScore {
+			bestDx = candDx
+			bestDy = candDy
+			bestSad = candSad
+			bestScore = candScore
+		}
+	}
+
+	for i := 0; i < 8; i++ {
+		bestSite := -1
+		for site, c := range vp9NStepRefineCandidates {
+			row := bestDy + c.row
+			col := bestDx + c.col
+			if !vp9FullpelMvIn(limits, row, col) {
+				continue
+			}
+			sad, ok := sadAt(col, row)
+			if !ok || sad >= bestScore {
+				continue
+			}
+			score := scoreMv(col, row, sad)
+			if score < bestScore {
+				bestSad = sad
+				bestScore = score
+				bestSite = site
+			}
+		}
+		if bestSite == -1 {
+			break
+		}
+		c := vp9NStepRefineCandidates[bestSite]
+		bestDy += c.row
+		bestDx += c.col
+	}
+
+	return bestDx, bestDy, bestSad, bestScore
+}
+
+func vp9NStepDiamondOnceSAD(startDx, startDy int,
+	startSad, startScore uint64, searchParam int, limits *vp9MvLimits,
+	sadAt func(dx, dy int) (uint64, bool),
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
+	br, bc := startDy, startDx
+	bestSad := startSad
+	bestScore := startScore
+	firstStep := 1 << (vp9MaxMvSearchSteps - 1 - searchParam)
+	for step := firstStep; step >= 1; step >>= 1 {
+		bestSite := -1
+		for i, c := range vp9NStepDiamondCandidates {
+			row := br + c.row*step
+			col := bc + c.col*step
+			if !vp9FullpelMvIn(limits, row, col) {
+				continue
+			}
+			sad, ok := sadAt(col, row)
+			if !ok || sad >= bestScore {
+				continue
+			}
+			score := scoreMv(col, row, sad)
+			if score < bestScore {
+				bestSad = sad
+				bestScore = score
+				bestSite = i
+			}
+		}
+		if bestSite != -1 {
+			c := vp9NStepDiamondCandidates[bestSite]
+			br += c.row * step
+			bc += c.col * step
+		}
+	}
+	return bc, br, bestSad, bestScore
+}
+
+var vp9NStepDiamondCandidates = [...]vp9FullpelPatternCandidate{
+	{-1, 0},
+	{1, 0},
+	{0, -1},
+	{0, 1},
+	{-1, -1},
+	{-1, 1},
+	{1, -1},
+	{1, 1},
+}
+
+var vp9NStepRefineCandidates = [...]vp9FullpelPatternCandidate{
+	{-1, 0},
+	{0, -1},
+	{0, 1},
+	{1, 0},
+	{-1, -1},
+	{-1, 1},
+	{1, -1},
+	{1, 1},
+}
+
 func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	refFrame int8, best vp9dec.MV, bestSad, bestScore uint64,
@@ -13647,7 +13773,8 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		return vp9SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
 			refMv, allowHP, errorPerBit)
 	}
-	if nonrdSubpelTree {
+	useSubpelTree := nonrdSubpelTree || e.sf.Mv.SubpelSearchMethod == SubpelTree
+	if useSubpelTree {
 		if variance, ok := e.vp9InterPredictionSubpelVariance(inter, miRow,
 			miCol, bsize, refFrame, best); ok {
 			bestScore = variance + mvCost(best)
@@ -13661,7 +13788,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 			bestScore = bestSad + mvCost(best)
 		}
 	}
-	if !nonrdSubpelTree {
+	if !useSubpelTree {
 		bestScore = bestSad + mvCost(best)
 		iters := 0
 		for step := int16(4); step >= minStep; step >>= 1 {
