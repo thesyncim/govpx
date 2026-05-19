@@ -396,6 +396,83 @@ func TestVP8FeatureBDRateBaseline(t *testing.T) {
 // over QCIF (640x360 vs 176x144), panning content with consistent
 // motion vectors. Frame count kept at 16 so the libvpx oracle finishes
 // in a few seconds per ladder point.
+//
+// Task #353 audit (no port lands; gate stays at the default +5.0%
+// ceiling; pin the +1.111% steady state so the next audit cycle starts
+// from the same number):
+//
+//   - Pre-#341 BD-rate: +0.976%. Post-#341 BD-rate: +1.111% (+0.13pp).
+//     Both sit well inside the +5.0% gate ceiling (+3.9pp headroom).
+//
+//   - Per-rung rate / PSNR-Y:
+//
+//     target	govpx_rate / PSNR	libvpx_rate / PSNR
+//     300	  816.6 / 39.51	  821.1 / 39.34
+//     600	 1206.6 / 46.07	 1212.2 / 46.10
+//     1200	 1369.5 / 48.17	 1429.5 / 48.34
+//     2400	 1500.9 / 48.56	 1522.9 / 48.61
+//
+//     The top three rungs saturate near PSNR-Y ~48.5 dB. govpx undershoots
+//     libvpx in absolute kbps but PSNR barely moves; the cubic fit picks
+//     up the asymmetric saturation as a small positive BD-rate.
+//
+//   - Per-frame oracle bisect (vp8_task353_360p_panning_cbr_bisect_test.go,
+//     build-tag govpx_oracle_trace):
+//
+//     300 kbps: q=[10,106,106,106,106,...,104] vs libvpx
+//     q=[10,106,106,106,106,...,106] — 4 MB mismatches
+//     in frame 1, q-aligned through frame 7+ (the recode loop
+//     stays pinned at maxQ=106 saturating ladder rung).
+//     600 kbps: q=[4,97,93,86,...,50,11] vs libvpx [4,97,93,86,...,45,15]
+//     — byte-exact through frame 3, divergence at frame 7+
+//     (state-drift cascade from rd_threshes evolution).
+//     1200 kbps: govpx frame1 q=55 vs libvpx frame1 q=13; 884/920
+//     ref_frame mismatches frame 2.
+//     2400 kbps: govpx frame1 q=8 vs libvpx frame1 q=4.
+//
+//   - Frame 0 (keyframe) is byte-identical across all rungs: same q,
+//     same size (e.g. 71867 bytes at q=4), same Y2 DC coefficients,
+//     same b_modes, same eob arrays. The libvpx oracle trace dumps
+//     chroma qcoeff[16..23] as all-zero where govpx dumps the actual
+//     quantized coefficients — verified via dequant + eob to be a
+//     libvpx trace-emit artifact (libvpx clears the qcoeff buffer
+//     pre-quantize at the trace point), not a real stream divergence.
+//
+//   - Frame 1 (first inter) recode loop at 2400 kbps:
+//
+//     iter	q	projected_size  libvpx_projected_size
+//     1	70	  3678		  3674   (agree)
+//     2	23	 30686		  9019   (govpx 3.4x more bits at same Q)
+//     3	14	 32983		 18577   (libvpx q=6)
+//     4	 8	 43685		 67507   (govpx q=8 vs libvpx q=4)
+//
+//     At iter=1 (q=70) both encoders agree on residual cost. At iter=2
+//     (q=23) govpx encodes 3.4x more bits for the same Q. The picker
+//     converges on different mode/MV/skip subsets at non-extremal Q
+//     because the rd_threshes[] state from the keyframe + the
+//     cyclic-refresh segment-Q biases evolve slightly differently
+//     between the two encoders (same state-drift cascade family as
+//     task #343 / #344 — the RD picker is exquisitely sensitive to
+//     transient bytestream-bit-budget noise that the keyframe encode
+//     does not control).
+//
+//   - The audit hands back the same finding family as task #343
+//     (cpu_used=8 RT fast-picker, +6.94% pinned), task #344 (720p
+//     two-pass VBR, +5.503% pinned), and the post-#341 sweep on this
+//     fixture (+0.976% → +1.111%): the residual gap is steady-state
+//     state-drift cascading from the picker's exquisite Q-sensitivity
+//     at saturated near-min-Q operating points. No libvpx port closes
+//     it short of disabling cyclic refresh (which would re-introduce
+//     other byte-parity flakes) or porting the entire rd_thresh_mult
+//     evolution path (separate audit, not a single-fixture fix).
+//
+//   - +1.111% is well inside the +5.0% gate ceiling; the gate stays at
+//     defaultLibvpxVP8AbsoluteGate. A real regression on this fixture
+//     would land outside the +5% band immediately. Any future
+//     improvement that drops the BD-rate below +1.0% should retighten
+//     this fixture's per-gate (per task #342 policy: drop by 2pp below
+//     the measured steady state when an improvement crosses the
+//     >2pp-improvement threshold).
 func TestVP8FeatureBDRate360pPanningCBR(t *testing.T) {
 	const (
 		width  = 640
