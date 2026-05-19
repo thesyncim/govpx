@@ -2295,6 +2295,36 @@ func TestVP9EncoderAutoAltRefARNRFiltersHiddenSource(t *testing.T) {
 	}
 }
 
+func TestVP9SourceAltRefOverlayGateIncludesFilteredARNR(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  300,
+		LookaheadFrames:    4,
+		AutoAltRef:         true,
+		ARNRMaxFrames:      5,
+		ARNRStrength:       3,
+		ARNRType:           3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	inter := &vp9InterEncodeState{isSrcFrameAltRef: true}
+	if !e.vp9OnePassVBRSourceAltRefOverlay(inter) {
+		t.Fatal("filtered ARNR source-alt-ref overlay gate = false, want true")
+	}
+	e.opts.ARNRMaxFrames = 0
+	if !e.vp9OnePassVBRSourceAltRefOverlay(inter) {
+		t.Fatal("unfiltered source-alt-ref overlay gate = false, want true")
+	}
+	e.opts.RateControlModeSet = false
+	if e.vp9OnePassVBRSourceAltRefOverlay(inter) {
+		t.Fatal("public-Q source-alt-ref overlay gate = true, want false")
+	}
+}
+
 func TestVP9EncoderAutoAltRefARNRSteadyStateAlloc(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -7810,6 +7840,48 @@ func TestVP9EncoderKeyframeSub8x8DispatchUsesPartitionBSize(t *testing.T) {
 	}
 	if got.Bmi == ([4]vp9dec.Bmi{}) {
 		t.Fatalf("sub-8x8 keyframe dispatch left Bmi empty; want per-4x4 modes")
+	}
+}
+
+func TestVP9EncoderInterSub8x8DecisionPreservesBmiCounts(t *testing.T) {
+	var e VP9Encoder
+	mi := vp9dec.NeighborMi{
+		SbType:       common.Block4x8,
+		InterpFilter: uint8(vp9dec.InterpEighttap),
+		RefFrame:     [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame},
+	}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 2, MiColStart: 0, MiColEnd: 2}
+	if !e.fillVP9Sub8InterBmi(&mi, tile, 2, 2, 0, 0,
+		common.Block4x8, common.ZeroMv, vp9dec.LastFrame, true,
+		[vp9dec.MaxRefFrames]uint8{}) {
+		t.Fatal("fillVP9Sub8InterBmi returned false")
+	}
+	for i := range mi.Bmi {
+		if mi.Bmi[i].AsMode != common.ZeroMv ||
+			mi.Bmi[i].AsMv[0] != (vp9dec.MV{}) {
+			t.Fatalf("Bmi[%d] = %+v, want ZeroMv/zero MV", i, mi.Bmi[i])
+		}
+	}
+
+	decision := vp9InterModeDecision{
+		refFrame:       vp9dec.LastFrame,
+		secondRefFrame: vp9dec.NoRefFrame,
+		mode:           mi.Mode,
+		mv:             mi.Mv,
+		bmi:            mi.Bmi,
+		interpFilter:   vp9dec.InterpEighttap,
+	}
+	out := vp9InterModeDecisionMi(common.Block4x8, decision)
+	if out.Bmi != mi.Bmi {
+		t.Fatalf("vp9InterModeDecisionMi Bmi = %+v, want %+v", out.Bmi, mi.Bmi)
+	}
+
+	var counts vp9enc.FrameCounts
+	var seg vp9dec.SegmentationParams
+	countVP9InterSub8Modes(&counts, &seg, 0, common.Block4x8, 3, &out.Bmi)
+	zeroIdx := int(common.ZeroMv) - int(common.NearestMv)
+	if got := counts.InterMode[3][zeroIdx]; got != 2 {
+		t.Fatalf("Block4x8 sub-mode count = %d, want 2", got)
 	}
 }
 

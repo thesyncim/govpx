@@ -904,6 +904,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// the dedup at vp9_pickmode.c:2269-2278 can skip duplicate-MV
 	// candidates. memset to 0 at vp9_pickmode.c:1838.
 	var modeChecked [common.MbModeCount][vp9dec.MaxRefFrames]bool
+	sourceAltRefOverlay := e.vp9OnePassVBRSourceAltRefOverlay(inter)
 	interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols, tile,
 		miRows, miRow, miCol, bsize)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
@@ -1055,6 +1056,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 		if !refSlotValid[refFrame] {
 			continue
+		}
+		// libvpx: vp9_pickmode.c:2152-2156 — a source-alt-ref overlay
+		// in one-pass VBR/lag mode is coded only against ALTREF with a
+		// zero motion vector. The rule applies whether the hidden ARF was
+		// raw or ARNR-filtered.
+		if sourceAltRefOverlay {
+			mvZero := frameMvValid[thisMode][refFrame] &&
+				frameMv[thisMode][refFrame] == (vp9dec.MV{})
+			if refFrame != vp9dec.AltrefFrame || !mvZero {
+				continue
+			}
 		}
 
 		// libvpx: vp9_pickmode.c:2123-2126 — CBR golden-frame skip gate.
