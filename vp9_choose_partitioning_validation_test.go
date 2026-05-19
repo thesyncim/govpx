@@ -10,17 +10,15 @@ import (
 	"testing"
 )
 
-// TestVP9ChoosePartitioningGateDeferredSeeds drives each of the deferred
+// TestVP9ChoosePartitioningGateDeferredSeeds drives the formerly-deferred
 // FuzzVP9EncoderReferenceControlSequences seeds end-to-end under the same
-// pipeline the fuzz uses, so we can see per-seed PASS/FAIL under the gate
-// without going through go test fuzz seed-name mangling.
+// pipeline the fuzz uses, so we can see per-seed PASS/FAIL without going
+// through go test fuzz seed-name mangling.
 //
-// This is a manual validation harness for Phase C of the libvpx
-// choose_partitioning port — gated behind GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1
-// so it never runs in the default CI surface (the picker is still opt-in
-// behind GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 and currently produces a
-// divergent partition tree). Re-enable when the wiring is byte-aligned with
-// libvpx's nonrd_use_partition (vp9_encodeframe.c:5470).
+// This is a manual validation harness for the libvpx choose_partitioning port.
+// It remains gated behind GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 because it
+// requires the external libvpx oracle, but the encoder path itself now runs by
+// default through sf.PartitionSearchType == VAR_BASED_PARTITION.
 func TestVP9ChoosePartitioningGateDeferredSeeds(t *testing.T) {
 	if os.Getenv("GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE") != "1" {
 		t.Skip("set GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 to run the Phase C validation harness")
@@ -42,6 +40,8 @@ func TestVP9ChoosePartitioningGateDeferredSeeds(t *testing.T) {
 		{"baseline_7to10", []byte{0, 7, 0, 8, 0, 9, 0, 10}},
 		{"regression_582528dd", []byte("0")},
 		{"regression_916d1b27", []byte("1")},
+		{"regression_2fde656d", []byte("2")},
+		{"regression_6573b9b5", []byte("7")},
 	}
 	for _, s := range seeds {
 		s := s
