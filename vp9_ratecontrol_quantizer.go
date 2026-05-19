@@ -601,9 +601,21 @@ func vp9KFActiveQualityWithBoost(qindex, boost int) int {
 }
 
 func vp9GFActiveQuality(qindex int) int {
-	return vp9ActiveQuality(qindex, 2000, 400, 2000,
+	return vp9GFActiveQualityWithBoost(qindex, 2000)
+}
+
+func vp9GFActiveQualityWithBoost(qindex, boost int) int {
+	return vp9ActiveQuality(qindex, boost, 400, 2000,
 		0.0000015, -0.0009, 0.30,
 		0.0000021, -0.00125, 0.55)
+}
+
+func vp9GFLowMotionActiveQuality(qindex int) int {
+	return vp9MinQIndex(qindex, 0.0000015, -0.0009, 0.30)
+}
+
+func vp9GFHighMotionActiveQuality(qindex int) int {
+	return vp9MinQIndex(qindex, 0.0000021, -0.00125, 0.55)
 }
 
 func vp9ActiveQuality(qindex int, boost int, low int, high int, lowX3 float64, lowX2 float64, lowX1 float64, highX3 float64, highX2 float64, highX1 float64) int {

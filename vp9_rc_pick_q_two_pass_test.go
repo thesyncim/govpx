@@ -30,6 +30,7 @@ func defaultVP9TwoPassQInputs() vp9RCPickQAndBoundsTwoPassInputs {
 		IsCQ:                                 false,
 		ARFActiveBestQualityAdjustmentFactor: 1.0,
 		ARFIncreaseActiveBestQuality:         0,
+		GFUBoost:                             2000,
 		RFLevel:                              vp9RFLInterNormal,
 		LayerDepth:                           2,
 		MaxLayerDepth:                        1,
@@ -61,6 +62,34 @@ func TestVP9RCPickQAndBoundsTwoPassBoostFrameLowersActiveBest(t *testing.T) {
 	if boost.ActiveBest > nonBoost.ActiveBest {
 		t.Fatalf("boost active_best=%d > non-boost active_best=%d",
 			boost.ActiveBest, nonBoost.ActiveBest)
+	}
+}
+
+func TestVP9RCPickQAndBoundsTwoPassBoostFrameARFAdjustmentUsesMotionTables(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		increase int
+		hl       func(int) int
+	}{
+		{name: "high-motion", increase: 1, hl: vp9GFHighMotionActiveQuality},
+		{name: "low-motion", increase: -1, hl: vp9GFLowMotionActiveQuality},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := defaultVP9TwoPassQInputs()
+			in.BoostFrame = true
+			in.GFUBoost = 1200
+			in.ARFIncreaseActiveBestQuality = tc.increase
+			in.ARFActiveBestQualityAdjustmentFactor = 0.25
+
+			q := in.AvgFrameQIndexInter
+			base := vp9GFActiveQualityWithBoost(q, in.GFUBoost)
+			want := int(float64(base)*in.ARFActiveBestQualityAdjustmentFactor +
+				float64(tc.hl(q))*(1.0-in.ARFActiveBestQualityAdjustmentFactor))
+			r := vp9RCPickQAndBoundsTwoPass(in, 160)
+			if r.ActiveBest != want {
+				t.Fatalf("boost-frame active_best=%d, want %d", r.ActiveBest, want)
+			}
+		})
 	}
 }
 

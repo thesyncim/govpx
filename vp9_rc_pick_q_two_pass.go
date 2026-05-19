@@ -23,6 +23,7 @@ const (
 	vp9StaticKFGroupThresh  = 99
 	vp9SmallKFFramePixels   = 352 * 288
 	vp9DefaultKeyFrameBoost = 2000
+	vp9DefaultGFUBoost      = 2000
 )
 
 // vp9RCPickQAndBoundsTwoPassInputs aggregates the libvpx state the
@@ -75,6 +76,8 @@ type vp9RCPickQAndBoundsTwoPassInputs struct {
 	ARFActiveBestQualityAdjustmentFactor float64
 	// libvpx: rc->arf_increase_active_best_quality.
 	ARFIncreaseActiveBestQuality int
+	// libvpx: rc->gfu_boost or gf_group->gfu_boost[index] for multi-layer ARF.
+	GFUBoost int
 	// libvpx: gf_group->rf_level[gf_group_index].
 	RFLevel uint8
 	// libvpx: gf_group->layer_depth[gf_group_index].
@@ -151,20 +154,19 @@ func vp9RCPickQAndBoundsTwoPass(in vp9RCPickQAndBoundsTwoPassInputs, regulatedQ 
 		if in.IsCQ && q < in.CQLevel {
 			q = in.CQLevel
 		}
-		activeBest = vp9GFActiveQuality(q)
+		gfuBoost := in.GFUBoost
+		if gfuBoost == 0 {
+			gfuBoost = vp9DefaultGFUBoost
+		}
+		activeBest = vp9GFActiveQualityWithBoost(q, gfuBoost)
 		// libvpx vp9_ratectrl.c:1509-1515: arf_increase_active_best_quality
 		// branches use the high-motion / low-motion MINQ tables.
-		// Approximation: bias the active-best Q toward the GF-ARF
-		// active-quality result; sign convention follows libvpx.
 		arfActiveBestQHL := activeBest
 		switch in.ARFIncreaseActiveBestQuality {
 		case 1:
-			// libvpx uses arfgf_high_motion_minq[q]; we currently bias
-			// toward a slightly higher Q (less protected) since the
-			// table is monotonically non-decreasing.
-			arfActiveBestQHL = max(activeBest, vp9GFActiveQuality(q+8))
+			arfActiveBestQHL = vp9GFHighMotionActiveQuality(q)
 		case -1:
-			arfActiveBestQHL = min(activeBest, vp9GFActiveQuality(q-8))
+			arfActiveBestQHL = vp9GFLowMotionActiveQuality(q)
 		}
 		factor := in.ARFActiveBestQualityAdjustmentFactor
 		activeBest = int(float64(activeBest)*factor + float64(arfActiveBestQHL)*(1.0-factor))
