@@ -9374,10 +9374,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			if refBestRD != ^uint64(0) {
 				rdCoded := vp9RDCost(e.cbRdmult, vp9RDDivBits, blockRate, blockDist)
 				rdZero := vp9RDCost(e.cbRdmult, vp9RDDivBits, 0, blockSSE)
-				blockRD := rdCoded
-				if rdZero < blockRD {
-					blockRD = rdZero
-				}
+				blockRD := min(rdZero, rdCoded)
 				if blockRD > refBestRD {
 					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
 						restoreW, restoreH, saved)
@@ -9654,10 +9651,7 @@ func vp9IntraPredictWidth4x4(bsize, planeBsize common.BlockSize,
 	if pd == nil || bsize >= common.Block8x8 {
 		return w
 	}
-	sub8W := 2 >> pd.SubsamplingX
-	if sub8W < 1 {
-		sub8W = 1
-	}
+	sub8W := max(2>>pd.SubsamplingX, 1)
 	if sub8W > w {
 		return sub8W
 	}
@@ -13656,7 +13650,7 @@ func vp9NStepDiamondSearchSAD(startDx, startDy int,
 		}
 	}
 
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		bestSite := -1
 		for site, c := range vp9NStepRefineCandidates {
 			row := bestDy + c.row

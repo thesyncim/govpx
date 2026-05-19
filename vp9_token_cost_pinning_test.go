@@ -146,8 +146,8 @@ func TestVP9CoeffTokenRateCostExtraBitsSweep(t *testing.T) {
 func TestVP9CoeffBlockRateCostSlowSkipsEOBAfterZeroToken(t *testing.T) {
 	var e VP9Encoder
 	coefModel := &e.fc.CoefProbs[common.Tx4x4][0][0]
-	for band := 0; band < vp9dec.CoefBands; band++ {
-		for ctx := 0; ctx < vp9dec.CoefContexts; ctx++ {
+	for band := range vp9dec.CoefBands {
+		for ctx := range vp9dec.CoefContexts {
 			(*coefModel)[band][ctx][0] = 128
 			(*coefModel)[band][ctx][1] = 128
 			(*coefModel)[band][ctx][2] = 128
