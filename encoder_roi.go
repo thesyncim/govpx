@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	vp8analysis "github.com/thesyncim/govpx/internal/vp8/analysis"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
@@ -187,6 +188,45 @@ func (e *VP8Encoder) interStaticThresholdForSegment(segmentID uint8) int {
 		return e.segmentEncodeBreakout[segmentID]
 	}
 	return e.opts.StaticThreshold
+}
+
+// interStaticThresholdForSegmentMB is the per-MB hint-aware variant of
+// interStaticThresholdForSegment. When the GPU analyzer has flagged
+// this MB as [vp8analysis.FlagSkipLikely] AND the caller opted into
+// VP8AnalysisConfig.UseEncodeHints, the threshold is inflated to a
+// value larger than any plausible MB SSE so that
+// staticInterRDEncodeBreakoutDistortion / staticInterFastEncodeBreakout
+// take the skip path for that MB. This is the second documented
+// hint-driven optimization (see docs/vp8_gpu_hint_consumption.md #3):
+// route hint-flagged MBs into the encoder's existing
+// static-encode-breakout path so transform / quantize / tokenize are
+// skipped, not just mode decision.
+//
+// On the canonical path (UseEncodeHints=false) the function returns
+// the same value as interStaticThresholdForSegment with one extra
+// branch — no heap, no atomic, no GPU cost.
+func (e *VP8Encoder) interStaticThresholdForSegmentMB(segmentID uint8, mbRow, mbCol, mbCols int) int {
+	base := e.interStaticThresholdForSegment(segmentID)
+	if !e.opts.Analysis.UseEncodeHints || e.analyzer == nil {
+		return base
+	}
+	fa := &e.analysisOutput
+	if !fa.Observed || fa.MBCols != mbCols {
+		return base
+	}
+	idx := mbRow*mbCols + mbCol
+	if idx < 0 || idx >= len(fa.MB) {
+		return base
+	}
+	if fa.MB[idx].Flags&vp8analysis.FlagSkipLikely == 0 {
+		return base
+	}
+	// Inflate to a value larger than any plausible 16x16 SSE
+	// (max 16*16*255*255 < 2^26). 1<<28 leaves plenty of headroom
+	// and is comfortably below max int on 64-bit.
+	const hintSkipThreshold = 1 << 28
+	e.hintForceSkipCount++
+	return hintSkipThreshold
 }
 
 func (e *VP8Encoder) assignKeyFrameROISegments(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode) bool {

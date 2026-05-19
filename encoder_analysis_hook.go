@@ -96,6 +96,16 @@ func (e *VP8Encoder) HintMissCount() uint64 {
 	return e.hintMissCount
 }
 
+// HintForceSkipCount returns the cumulative number of macroblocks
+// routed into the encoder's static-encode-breakout path via
+// interStaticThresholdForSegmentMB. Zero on the canonical path.
+func (e *VP8Encoder) HintForceSkipCount() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.hintForceSkipCount
+}
+
 // closeAnalysis releases analyzer-held resources, if any. Called by
 // the encoder Close path so a non-nil analyzer can clean up. Safe to
 // call when no analyzer is configured.

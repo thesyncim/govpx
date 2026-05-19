@@ -220,4 +220,3 @@ func TestVP8AnalysisHintWireUpFires(t *testing.T) {
 	t.Logf("hint wire-up active: %d early exits / %d misses across %d frames",
 		hits, enc.HintMissCount(), frames)
 }
-

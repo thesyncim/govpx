@@ -1057,6 +1057,10 @@ type VP8Encoder struct {
 	// before reaching them.
 	hintEarlyExitCount uint64
 	hintMissCount      uint64
+	// hintForceSkipCount counts MBs routed into the encoder's existing
+	// static-encode-breakout path via interStaticThresholdForSegmentMB.
+	// Zero on the canonical path.
+	hintForceSkipCount uint64
 	// analysisInput is a per-encoder reusable [vp8analysis.FrameInput]
 	// scratch value. Storing it on the encoder lets the analysis hook
 	// fill it in place and pass &e.analysisInput to the interface
