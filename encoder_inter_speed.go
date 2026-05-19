@@ -97,7 +97,15 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
 		cfg.fractionalSearch = interAnalysisFractionalSearchStep
 	}
-	if speed > 8 {
+	// Task #363: quarter_pixel_search disable (libvpx onyx_if.c:1012, the
+	// `Speed > 8` gate) consults the libvpx-realistic cpi->Speed
+	// (cpu_used+1 at cpu_used > 0 RT after the cold-start frame) rather
+	// than the pin-suppressed e.autoSpeed. Same targeted-gate pattern as
+	// task #350's improved_mv_pred port — clamping autoSpeed itself
+	// would cascade every other Speed-conditioned feature into the
+	// cpu_used+1 path simultaneously and crater BD-rate. See
+	// libvpxRealtimeCPISpeedForQuarterPelGate comment for rationale.
+	if e.libvpxRealtimeCPISpeedForQuarterPelGate() > 8 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchHalf
 	}
 	if speed >= 15 {

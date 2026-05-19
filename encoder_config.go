@@ -834,6 +834,68 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForImprovedMVPredGate() int {
 	return realistic
 }
 
+// libvpxRealtimeCPISpeedForQuarterPelGate returns the libvpx-realistic
+// cpi->Speed value used to evaluate the `Speed > 8` gate that disables
+// `sf->quarter_pixel_search` inside vp8_set_speed_features case 2
+// (vp8/encoder/onyx_if.c:1012). Task #363 targeted port — same pattern
+// as task #350's improved_mv_pred gate.
+//
+// libvpx onyx_if.c:1012 disables quarter_pixel_search at Speed > 8, which
+// in turn drops `find_fractional_mv_step` from vp8_find_best_sub_pixel_step
+// (quarter-pel) down to vp8_find_best_half_pixel_step (half-pel only) via
+// the dispatch at lines 1064-1071. govpx mirrors this as the
+// interAnalysisFractionalSearchStep → interAnalysisFractionalSearchHalf
+// transition inside interAnalysisSearchConfig.
+//
+// At cpu_used > 0 RT, vp8_auto_select_speed drives cpi->Speed toward
+// cpu_used+1 via the +4 / +2 wall-clock branches (task #343 720p RT
+// cpu=8 trace observes cpi_speed=9 by frame 2 — past the Speed > 8
+// gate). govpx's autoSpeed evolution stays in the libvpx Speed=0 stable
+// region under the task #278 inter-frame budget/3 wall-clock pin, so
+// e.autoSpeed lands at 4-5 rather than the libvpx-realistic cpu_used+1
+// ≈ 9. That keeps quarter_pixel_search enabled on govpx while libvpx
+// has it disabled at the same fixture — leaving a per-MB fractional
+// search work asymmetry across the line-1012 gate.
+//
+// Cannot fix this by clamping e.autoSpeed itself: that cascades every
+// other Speed-conditioned feature in vp8_set_speed_features into the
+// cpu_used+1 path simultaneously (HEX search, fractional skip,
+// improved_mv_pred, adaptive RD-thresh) and craters BD-rate (~+28923%
+// on the cpu=8 RT 720p fixture per task #350 audit).
+//
+// Targeted port: gate quarter_pixel_search specifically on the
+// libvpx-realistic cpi->Speed (cpu_used+1 capped at 16 for cpu>0 RT
+// after the cold-start frame). Leaves every other Speed-feature
+// lookup on govpx's actual e.autoSpeed evolution unchanged. For
+// cpu_used=0 RT (the byte-parity-gated path) the realistic Speed
+// stays at the libvpxCPUUsed() value — below the Speed > 8 threshold,
+// so quarter_pixel_search remains enabled, preserving the threads=4
+// cpu=0 RT byte-parity sentinel.
+//
+// Returns the Speed value that should feed the `Speed > 8` gate. For
+// non-realtime / cpu_used < 0 / cpu_used == 0 RT / frame 0 cold-start,
+// returns the actual libvpxCPUUsed() so the existing semantics carry
+// forward unchanged.
+func (e *VP8Encoder) libvpxRealtimeCPISpeedForQuarterPelGate() int {
+	speed := e.libvpxCPUUsed()
+	if e.opts.Deadline != DeadlineRealtime {
+		return speed
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed <= 0 {
+		return speed
+	}
+	if e.frameCount == 0 {
+		return speed
+	}
+	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	realistic := min(cpuUsed+1, 16)
+	if speed > realistic {
+		return speed
+	}
+	return realistic
+}
+
 func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
 	fps := e.opts.FPS
 	if fps <= 0 {
