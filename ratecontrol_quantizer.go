@@ -70,13 +70,6 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 	}
 }
 
-// libvpxActiveQuantizerBounds is the legacy two-argument entry point. ARF
-// refresh callers should use libvpxActiveQuantizerBoundsForFrame so the
-// returned bounds honor libvpx's `cm->refresh_alt_ref_frame` branch.
-func (rc *rateControlState) libvpxActiveQuantizerBounds(keyFrame bool, goldenFrame bool) (int, int) {
-	return rc.libvpxActiveQuantizerBoundsForFrame(keyFrame, goldenFrame, false)
-}
-
 // libvpxActiveQuantizerBoundsForFrame ports the active-best/worst-Q selection
 // at `vp8/encoder/onyx_if.c:3616-3750`. The ARF refresh case follows the
 // single-layer GF branch (`cm->refresh_golden_frame ||

@@ -134,11 +134,6 @@ type RealtimeTarget struct {
 	// bandwidth-estimation updates that should not accidentally
 	// disable dropping.
 	FrameDrop RealtimeFrameDropMode
-	// AllowFrameDrop is a legacy fallback used only when FrameDrop is
-	// [RealtimeFrameDropUnchanged]; if true, it enables realtime frame
-	// dropping. Prefer FrameDrop in new code — it can disable dropping
-	// and makes the intent explicit. Kept for source compatibility.
-	AllowFrameDrop bool
 }
 
 type timingState struct {

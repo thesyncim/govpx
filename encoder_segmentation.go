@@ -936,12 +936,6 @@ func (e *VP8Encoder) checkDotArtifactCandidate(src vp8enc.SourceImage, lastRef *
 	return true
 }
 
-// checkDotArtifactCandidateY is retained for back-compat and forwards to the
-// full Y+UV check.
-func (e *VP8Encoder) checkDotArtifactCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int) bool {
-	return e.checkDotArtifactCandidate(src, lastRef, mbRow, mbCol, mbRows, mbCols)
-}
-
 func dotArtifactCornerCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int) bool {
 	if lastRef == nil || src.Y == nil {
 		return false

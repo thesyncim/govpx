@@ -418,11 +418,9 @@ var vp9QuantizerToQIndex = [maxQuantizer + 1]int{
 // (rate*(1+qindex/32)).  They now route through the libvpx-faithful
 // Lagrangian RDCOST macro (vp9/encoder/vp9_rd.h:29-30) using the per-SB
 // cb_rdmult cache when primed, falling back to the per-frame rd.rdmult,
-// then to a freshly-computed rdmult for the supplied qindex.  The
-// qindex argument is kept for source compatibility with the call sites
-// that previously passed e.vp9EncoderModeDecisionQIndex(); when neither
-// cb_rdmult nor rd.rdmult is populated the qindex still seeds the
-// libvpx inter-frame multiplier table.
+// then to a freshly-computed rdmult for the supplied qindex. When neither
+// cb_rdmult nor rd.rdmult is populated, qindex seeds the libvpx inter-frame
+// multiplier table.
 //
 // libvpx: vp9/encoder/vp9_rd.h:29-30 (RDCOST) and vp9/encoder/vp9_rd.c
 // vp9_compute_rd_mult_based_on_qindex.

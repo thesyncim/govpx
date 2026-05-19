@@ -304,7 +304,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				3: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
-					mustRuntime(t, "SetRealtimeTarget(AllowFrameDrop)", e.SetRealtimeTarget(RealtimeTarget{AllowFrameDrop: true}))
+					mustRuntime(t, "SetRealtimeTarget(FrameDropEnabled)", e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropEnabled}))
 				},
 			},
 		},

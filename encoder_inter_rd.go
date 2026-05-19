@@ -244,7 +244,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 		if e.fastZeroMVLastAdjustmentEligible(mbRows, mbCols) {
 			adj = fastZeroMVLastRDAdjustment(mbRow, mbCol, above, left, aboveLeft)
 		}
-		if e.checkDotArtifactCandidateY(src, ref, mbRow, mbCol, mbRows, mbCols) {
+		if e.checkDotArtifactCandidate(src, ref, mbRow, mbCol, mbRows, mbCols) {
 			// libvpx dot_artifact override applies AFTER the pickmode_mv_bias
 			// multiply, so the final multiplier is 1.5x — discard the bias.
 			adj = 150
@@ -286,7 +286,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 		if e.fastZeroMVLastAdjustmentEligible(mbRows, mbCols) {
 			adj = fastZeroMVLastRDAdjustment(mbRow, mbCol, above, left, aboveLeft)
 		}
-		if e.checkDotArtifactCandidateY(src, ref, mbRow, mbCol, mbRows, mbCols) {
+		if e.checkDotArtifactCandidate(src, ref, mbRow, mbCol, mbRows, mbCols) {
 			adj = 150
 			pickmodeMVBias = 100
 		}

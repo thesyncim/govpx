@@ -174,8 +174,8 @@ Current method families:
 | `VP9Decoder` | VP8-like decode methods plus tile filters, row-MT, loop-filter options, byte alignment, external frame buffers, SVC spatial layer filtering |
 
 Wave 5 should make `EncodeInto`, `DecodeInto`, and `FlushInto` mean
-caller-owned output consistently. VP9 currently has legacy allocation helpers
-(`Encode`, `EncodeWithFlags`, `EncodeIntraOnlyFrame`,
+caller-owned output consistently. VP9 currently has allocating convenience
+helpers (`Encode`, `EncodeWithFlags`, `EncodeIntraOnlyFrame`,
 `EncodeShowExistingFrame`) and an argument order mismatch
 (`VP9Encoder.EncodeInto(img, dst)` vs `VP8Encoder.EncodeInto(dst, src, ...)`).
 
@@ -265,7 +265,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3 | VP9 inter MV/bounds helper move | root `vp9_decoder*.go`, VP9 encoder prediction/reconstruction call sites, `internal/vp9/decoder/inter_mv_refs.go` | Current branch: internal VP9 decoder owns libvpx-pinned inter MV reference lookup, previous-frame MV records, inter mode candidate selection, reconstruction support checks, and MI-bound geometry helpers |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
-| 5 | API cleanup | root public files, examples, docs | Remove unreleased compatibility aliases at wave end |
+| 5 | API cleanup | root public files, examples, docs | Current branch: removed the unreleased `RealtimeTarget.AllowFrameDrop` fallback and private legacy wrapper call shapes; continue removing stale public/internal compatibility aliases before release |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |
 | 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `UPSTREAM.md`, `plan.md` links | Current branch: README links to focused architecture/status/validation docs; parity notes stay out of the README |

@@ -74,7 +74,7 @@ func selectInterFrameSplitMotionModeWithSearchThresholdAndLabelRD(src vp8enc.Sou
 // `this_segment_rd` in rd_check_segment), Cutoff is true when the
 // accumulator reached the SegmentYRDCap mid-shape and the per-label loop
 // abandoned the shape early. OK is false only when the input arguments are
-// invalid (mirrors the legacy bool return for back-compat callers).
+// invalid.
 type splitMotionShapeResult struct {
 	Mode              vp8enc.InterFrameMacroblockMode
 	SegmentRate       int

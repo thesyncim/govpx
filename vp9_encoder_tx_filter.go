@@ -592,25 +592,6 @@ func vp9EncoderFrameAllowHighPrecisionMv(isKey, intraOnly bool) bool {
 	return !isKey && !intraOnly
 }
 
-// vp9EncoderLoopFilterLevel returns the closed-form LPF_PICK_FROM_Q
-// level. Retained for backward-compatible call sites; the encoder
-// path now goes through (*VP9Encoder).vp9PickFilterLevel which
-// dispatches on e.sf.LpfPick (libvpx vp9_picklpf.c:159-203).
-func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
-	q := int(vp9dec.VpxAcQuant(qindex, 0, vp9dec.BitDepth8))
-	level := (q*20723 + 1015158 + (1 << 17)) >> 18
-	if isKey {
-		level -= 4
-	}
-	if level < 0 {
-		return 0
-	}
-	if level > vp9dec.MaxLoopFilter {
-		return vp9dec.MaxLoopFilter
-	}
-	return uint8(level)
-}
-
 // vp9EncoderLoopFilterParams builds the per-frame Loopfilter header
 // fields. The filter level is now selected by
 // (*VP9Encoder).vp9PickFilterLevel which dispatches across the three

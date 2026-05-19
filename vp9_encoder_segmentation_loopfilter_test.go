@@ -246,7 +246,7 @@ func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 	h, _ := parseVP9EncoderHeaderForTest(t, packet)
-	want := vp9EncoderLoopFilterLevel(128, true)
+	want := vp9LoopFilterLevelFromQuantizerForTest(128, true)
 	if h.Loopfilter.FilterLevel != want {
 		t.Fatalf("FilterLevel = %d, want q-derived %d", h.Loopfilter.FilterLevel, want)
 	}
@@ -265,6 +265,21 @@ func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	if h.Loopfilter.ModeDeltas != wantMode {
 		t.Fatalf("ModeDeltas = %v, want %v", h.Loopfilter.ModeDeltas, wantMode)
 	}
+}
+
+func vp9LoopFilterLevelFromQuantizerForTest(qindex int, isKey bool) uint8 {
+	q := int(vp9dec.VpxAcQuant(qindex, 0, vp9dec.BitDepth8))
+	level := (q*20723 + 1015158 + (1 << 17)) >> 18
+	if isKey {
+		level -= 4
+	}
+	if level < 0 {
+		return 0
+	}
+	if level > vp9dec.MaxLoopFilter {
+		return vp9dec.MaxLoopFilter
+	}
+	return uint8(level)
 }
 
 func TestVP9EncoderLastLoopFilterLevel(t *testing.T) {

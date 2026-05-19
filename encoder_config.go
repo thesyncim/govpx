@@ -438,10 +438,6 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.setFrameDropAllowed(true)
 	case RealtimeFrameDropDisabled:
 		e.setFrameDropAllowed(false)
-	case RealtimeFrameDropUnchanged:
-		if target.AllowFrameDrop {
-			e.setFrameDropAllowed(true)
-		}
 	}
 	nextTemporal := e.temporal
 	if target.BitrateKbps > 0 {

@@ -1027,7 +1027,7 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 	}
 	state := e.oracleTraceState()
 	keyFrame := frameType == vp8common.KeyFrame
-	activeBest, activeWorst := e.rc.libvpxActiveQuantizerBounds(keyFrame, false)
+	activeBest, activeWorst := e.rc.libvpxActiveQuantizerBoundsForFrame(keyFrame, false, false)
 	e.emitOracleRateTrace(oracleTraceRateSummary{
 		FrameType:              frameType,
 		QIndex:                 finalQuantizer,

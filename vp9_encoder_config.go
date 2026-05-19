@@ -55,8 +55,7 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		target.MaxQuantizer > maxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	frameDropRequested := target.FrameDrop != RealtimeFrameDropUnchanged ||
-		target.AllowFrameDrop
+	frameDropRequested := target.FrameDrop != RealtimeFrameDropUnchanged
 	if frameDropRequested && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
 		return ErrInvalidConfig
 	}
@@ -124,10 +123,6 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			nextRC.setFrameDropAllowed(true, e.opts.DropFrameWaterMark)
 		case RealtimeFrameDropDisabled:
 			nextRC.setFrameDropAllowed(false, e.opts.DropFrameWaterMark)
-		case RealtimeFrameDropUnchanged:
-			if target.AllowFrameDrop {
-				nextRC.setFrameDropAllowed(true, e.opts.DropFrameWaterMark)
-			}
 		}
 	}
 

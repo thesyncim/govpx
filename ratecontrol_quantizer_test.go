@@ -399,7 +399,7 @@ func TestRateControlActiveQuantizerBoundsUseLibvpxWarmupTables(t *testing.T) {
 		goldenCorrectionFactor:   1.0,
 	}
 
-	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(false, false)
+	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(false, false, false)
 	if activeBest != 80 || activeWorst != 106 {
 		t.Fatalf("active bounds = %d/%d, want libvpx inter_minq[106]/worst 80/106", activeBest, activeWorst)
 	}
@@ -422,19 +422,19 @@ func TestRateControlActiveQuantizerBoundsUseLibvpxCBRFullBufferClamp(t *testing.
 	}
 
 	rc.bufferLevelBits = 1000
-	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(false, false)
+	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(false, false, false)
 	if activeBest != 57 || activeWorst != 80 {
 		t.Fatalf("optimal-buffer active bounds = %d/%d, want inter_minq[80]/ni_av_qi 57/80", activeBest, activeWorst)
 	}
 
 	rc.bufferLevelBits = 1500
-	activeBest, activeWorst = rc.libvpxActiveQuantizerBounds(false, false)
+	activeBest, activeWorst = rc.libvpxActiveQuantizerBoundsForFrame(false, false, false)
 	if activeBest != 27 || activeWorst != 70 {
 		t.Fatalf("mid-full-buffer active bounds = %d/%d, want libvpx scaled CBR bounds 27/70", activeBest, activeWorst)
 	}
 
 	rc.bufferLevelBits = 2000
-	activeBest, activeWorst = rc.libvpxActiveQuantizerBounds(false, false)
+	activeBest, activeWorst = rc.libvpxActiveQuantizerBoundsForFrame(false, false, false)
 	if activeBest != 4 || activeWorst != 60 {
 		t.Fatalf("full-buffer active bounds = %d/%d, want best-quality floor and active-worst q60", activeBest, activeWorst)
 	}
@@ -450,7 +450,7 @@ func TestRateControlCQActiveQuantizerBoundsRespectCQLevel(t *testing.T) {
 		normalInterAvgQuantizer: 51,
 	}
 
-	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(false, false)
+	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(false, false, false)
 	if activeBest != 43 || activeWorst != 51 {
 		t.Fatalf("CQ active bounds = %d/%d, want cq-level floor 43/51", activeBest, activeWorst)
 	}
@@ -466,7 +466,7 @@ func TestRateControlQActiveQuantizerBoundsDoNotUseCQFloor(t *testing.T) {
 		normalInterAvgQuantizer: 51,
 	}
 
-	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(false, false)
+	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(false, false, false)
 	wantBest := libvpxInterMinQ[51]
 	if wantBest >= rc.cqLevel {
 		t.Fatalf("test fixture invalid: inter_minq[51] = %d, want below CQ level %d", wantBest, rc.cqLevel)
