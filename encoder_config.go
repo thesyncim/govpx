@@ -774,6 +774,63 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	}
 }
 
+// libvpxRealtimeCPISpeedForHEXSearchGate returns the libvpx-realistic
+// cpi->Speed value used to evaluate the `Speed > 4` gate that switches
+// `sf->search_method = HEX` and `sf->iterative_sub_pixel = 0` inside
+// vp8_set_speed_features case 2 (vp8/encoder/onyx_if.c lines 951-955).
+// Task #361 audit (parallel of #350):
+//
+// At cpu_used > 0 RT, libvpx's vp8_auto_select_speed drives cpi->Speed
+// up to cpu_used+1 via the +4 / +2 wall-clock branches because the
+// budget is halved (`ms_for_compress = base*(16-cpu)/16`). The
+// task #343 720p RT cpu=8 trace shows cpi->Speed reaching 9 by frame 2,
+// at which point the line-951 gate fires search_method=HEX and
+// iterative_sub_pixel=0 (the line-1064 find_fractional_mv_step dispatch
+// falls through to vp8_find_best_sub_pixel_step). govpx's autoSpeed
+// evolution stays in the Speed=0 stable region under the task #278
+// inter-frame timing pin (interFrameAutoSpeedTimingCompensation), so
+// e.autoSpeed lands at 4-5 rather than the libvpx-realistic
+// cpu_used+1 ≈ 9. That leaves NSTEP+iterative on govpx while libvpx
+// runs HEX+step — a residual contributor to the cpu=8 RT BD-rate gap.
+//
+// Cannot fix this by clamping e.autoSpeed itself (see
+// libvpxRealtimeCPISpeedForImprovedMVPredGate comment): cascading every
+// Speed-conditioned feature simultaneously craters BD-rate by ~28923%.
+//
+// Targeted port (mirroring task #350): gate search_method/iterative_sub_pixel
+// specifically on the libvpx-realistic cpi->Speed, leaving every other
+// Speed-feature lookup on govpx's actual e.autoSpeed evolution. The
+// realistic Speed for cpu_used > 0 RT after frame 0 is cpu_used+1.
+// For cpu_used == 0 RT (the byte-parity-gated path, including the
+// task #272 campaign sentinel and the task #332 threads validation
+// sentinel regression_w854h480_threads4_vbr_inter_diverge), the
+// realistic Speed stays at 4 — below the Speed > 4 threshold, so
+// search_method remains NSTEP and iterative_sub_pixel stays on,
+// preserving the byte-parity sentinels.
+//
+// Returns the Speed value that should feed the `Speed > 4` gate. For
+// non-realtime / cpu_used < 0 / cpu_used == 0 RT / pre-first-frame,
+// returns the actual libvpxCPUUsed() so existing semantics carry forward.
+func (e *VP8Encoder) libvpxRealtimeCPISpeedForHEXSearchGate() int {
+	speed := e.libvpxCPUUsed()
+	if e.opts.Deadline != DeadlineRealtime {
+		return speed
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed <= 0 {
+		return speed
+	}
+	if e.frameCount == 0 {
+		return speed
+	}
+	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	realistic := min(cpuUsed+1, 16)
+	if speed > realistic {
+		return speed
+	}
+	return realistic
+}
+
 // libvpxRealtimeCPISpeedForImprovedMVPredGate returns the libvpx-realistic
 // cpi->Speed value used to evaluate the `Speed > 6` gate that turns off
 // `sf->improved_mv_pred` inside vp8_set_speed_features case 2

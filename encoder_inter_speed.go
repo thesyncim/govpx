@@ -93,7 +93,20 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg
 	}
-	if speed > 4 {
+	// Task #361: search_method=HEX / iterative_sub_pixel=0 gate uses the
+	// libvpx-realistic cpi->Speed (cpu_used+1 at cpu_used > 0 RT after
+	// frame 0) rather than the pin-suppressed e.autoSpeed. See
+	// libvpxRealtimeCPISpeedForHEXSearchGate comment for the rationale:
+	// clamping autoSpeed itself would cascade every other Speed-conditioned
+	// feature simultaneously and crater BD-rate. Targeting only this gate
+	// matches the audit-observed Speed=9 → Speed > 4 transition without
+	// disturbing the rest of the speed cascade. The cpu_used == 0 RT path
+	// (byte-parity gate) keeps the realistic Speed at libvpxCPUUsed()=4,
+	// below the Speed > 4 threshold, so NSTEP+iterative are preserved
+	// and the task #272 campaign sentinel + task #332 threads validation
+	// sentinel byte-parity hold.
+	hexSearchSpeed := e.libvpxRealtimeCPISpeedForHEXSearchGate()
+	if hexSearchSpeed > 4 {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
 		cfg.fractionalSearch = interAnalysisFractionalSearchStep
 	}
