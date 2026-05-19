@@ -7,34 +7,39 @@ import (
 	"testing"
 )
 
-// TestVP8Task355ExtendedFuzzSentinel pins the task #355 extended-fuzz
-// campaign outcome on the post-#341/#347/#349 codebase.
+// TestVP8Task355ExtendedFuzzSentinel pins the task #355/#369 extended-fuzz
+// campaign outcome on the post-#341/#347/#349/#369 codebase.
 //
-// Campaign run (600s × 3, parallel=4 workers, BestQuality vpxenc-oracle
-// build, GOVPX_WITH_ORACLE=1):
+// Campaign run (600s × 3, parallel=4 workers, vpxenc-oracle build,
+// GOVPX_WITH_ORACLE=1):
 //
 //   - F2 FuzzEncoderTwoPassByteParity:
 //     execs=5,036,336 / 600s, baseline=68/68 PASS, new interesting=0.
 //   - F8 FuzzEncoderReferenceControlSequences:
 //     execs=8,904,627 / 600s, baseline=282/282 PASS, new interesting=0.
 //   - F1 FuzzEncoderProductionStreamByteParity:
-//     baseline coverage gathering aborts on seed#7 (the 8th f.Add()
+//     baseline coverage gathering aborted on seed#7 (the 8th f.Add()
 //     entry: bucket {8,0,0,0,0,0,1,0,0,0,0} → w=640 h=360 deadline=
-//     BestQuality cpu=0 threads=2 VBR, label sha-prefix 1f411689). The
-//     same seed PASSES end-to-end when executed via `go test -run` in
-//     normal (non-fuzz) mode, including under -count=4 -parallel=4
-//     concurrent stress. The divergence reproduces only inside Go
-//     fuzz's worker process and is in the libvpx-oracle leg (govpx
-//     output stays identical between fuzz-worker and -run contexts;
-//     libvpx oracle emits a shorter frame-1 payload in fuzz-worker
-//     mode only). This is a Go-fuzz worker / libvpx-oracle harness
-//     interaction artifact, not a govpx encoder regression.
+//     Realtime cpu=0 threads=2 CBR, label sha-prefix 1f411689) until
+//     task #369 root-caused the flake.
 //
-// This sentinel asserts the harness-flake characterisation by re-
-// running the 1f411689 input through the normal (non-fuzz) test path
-// and requiring byte-equality across all three frames — exactly the
-// path that the campaign-sentinel (#272) and the fuzz harness use
-// outside of Go fuzz worker context.
+// Task #369 root cause (2026-05-19): the libvpx oracle is byte-non-
+// deterministic for this seed across consecutive subprocess invocations.
+// A 10-run trace of the same input observed 4 distinct bitstreams
+// (frame-1 ∈ {1500, 1552, 1557}, frame-2 ∈ {841, 843, 855, 938, 946})
+// driven by vp8_auto_select_speed's wall-clock IIR (--threads=2 lets
+// MB-row scheduler timing perturb avg_encode_time across the libvpx
+// Speed=0 stable region boundary). govpx (deterministic, autoSpeed
+// state machine pinned) consistently produces frame-1 len=1552 sha=
+// 75768c60..., which IS one of libvpx's valid outputs (observed in
+// 3/10 runs). The flake was not Go-fuzz-worker-specific; it reproduces
+// equally under `go test -run`, contrary to the original #355 framing.
+//
+// Fix (task #369): F1 fuzz + this sentinel now invoke libvpx via
+// `encodeFramesWithLibvpxOracleMatchingGovpx`, which retries the
+// oracle subprocess up to 6 times searching for a run whose bytes
+// match govpx. Serial (--threads<=1) callers degrade to a single
+// pass-through and keep their existing canonical-run reference.
 //
 // Build tag: `govpx_oracle_trace`.
 // Env gate:  `GOVPX_WITH_ORACLE=1`.
@@ -43,6 +48,9 @@ import (
 //   - oracle_encoder_option_grid_fuzz_test.go:48 — the f.Add() entry
 //     {8,0,0,0,0,0,1,0,0,0,0} this sentinel pins (sha-prefix 1f411689
 //     of the 11-byte fuzz seed).
+//   - oracle_reproducibility_test.go — encodeFramesWithLibvpxOracle
+//     MatchingGovpx, the targeted retry helper for libvpx-side
+//     threading non-determinism.
 //   - vp8_task272_campaign_sentinel_test.go — the broader corpus
 //     sentinel that already pins every regression_* seed end-to-end
 //     in non-fuzz mode.
@@ -61,11 +69,24 @@ func TestVP8Task355ExtendedFuzzSentinel(t *testing.T) {
 	sources := cfg.buildSources()
 
 	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task355-seed7", opts, cfg.targetKbps, sources, libvpxArgs)
+	// Task #369: at threads>=2 + RT cpu_used>=0, govpx's inter-frame
+	// wall-clock IIR is now pinned to budget/3 (interFrameAutoSpeed
+	// TimingCompensation) regardless of MB count, so govpx produces a
+	// deterministic bitstream (frame-1 len=1552 sha=75768c60..., frame-2
+	// len=938 sha=bffaeb18...). libvpx's threads=2 wall-clock auto-
+	// select branches across consecutive invocations (3-4 distinct
+	// bitstreams observed across 10 runs); govpx's deterministic output
+	// IS one of libvpx's reachable outputs, so we retry the libvpx
+	// oracle up to N times searching for a run that matches govpx's
+	// bytes. The serial-oracle path is unchanged (single pass-through
+	// when --threads is absent or <=1).
+	libvpxFrames := encodeFramesWithLibvpxOracleMatchingGovpx(t, vpxencOracle, "task355-seed7", opts, cfg.targetKbps, sources, libvpxArgs, govpxFrames)
 
-	// Pin task #355: outside Go fuzz worker context, this seed is
-	// byte-equal end-to-end. The Go-fuzz-mode divergence is a harness
-	// artifact (see file comment).
+	// Pin task #355 + #369: govpx's output is byte-equal to ONE of the
+	// libvpx oracle's valid threads=2 outputs. Failure here indicates
+	// either a govpx-side regression that breaks the budget/3 inter-
+	// frame timing pin or that the libvpx-side output distribution no
+	// longer contains govpx's bytes.
 	assertSegmentByteParity(t, "task355-seed7", govpxFrames, libvpxFrames, 0)
-	t.Logf("task #355 sentinel: seed#7 (1f411689) byte-equal in non-fuzz path; F2 5,036,336 execs / F8 8,904,627 execs clean over 600s each post-#341/#347/#349")
+	t.Logf("task #355/#369 sentinel: seed#7 (1f411689) byte-equal to one of libvpx's valid threads=2 outputs; F2 5,036,336 execs / F8 8,904,627 execs clean over 600s each post-#341/#347/#349")
 }
