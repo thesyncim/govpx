@@ -263,7 +263,7 @@ func countVP9NewMv(counts *encoder.FrameCounts, mv, refMv vp9dec.MV) {
 }
 
 func vp9IncEncoderMv(mv vp9dec.MV, counts *encoder.NmvContextCounts) {
-	joint := vp9GetMvJoint(mv)
+	joint := vp9dec.GetMvJoint(mv)
 	counts.Joints[joint]++
 	if joint == tables.MvJointHzVnz || joint == tables.MvJointHnzVnz {
 		vp9IncEncoderMvComponent(mv.Row, &counts.Comps[0])
@@ -282,7 +282,7 @@ func vp9IncEncoderMvComponent(v int16, counts *encoder.NmvComponentCounts) {
 	}
 	counts.Sign[sign]++
 	z := zv - 1
-	cls, offset := vp9GetMvClass(z)
+	cls, offset := vp9dec.GetMvClass(z)
 	counts.Classes[cls]++
 	d := offset >> 3
 	f := (offset >> 1) & 3

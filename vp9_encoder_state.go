@@ -85,7 +85,7 @@ func (e *VP9Encoder) adaptVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader,
 	}
 	pre := &e.frameContexts[idx]
 	bridge := vp9FrameCountsFromEncoder(counts)
-	adaptVP9FrameContextWithCounts(&e.fc, pre, &bridge, hdr, txMode,
+	vp9dec.AdaptFrameContextWithCounts(&e.fc, pre, &bridge, hdr, txMode,
 		e.lastVP9HeaderValid && e.lastVP9HeaderFrameType == common.KeyFrame)
 }
 

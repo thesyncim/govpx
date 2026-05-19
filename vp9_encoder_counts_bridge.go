@@ -6,8 +6,8 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// vp9FrameCountsFromEncoder produces a decoder-shaped vp9FrameCounts from
-// the encoder's FrameCounts so the shared adaptVP9FrameContextWithCounts
+// vp9FrameCountsFromEncoder produces a decoder-shaped FrameCounts from
+// the encoder's FrameCounts so the decoder-owned AdaptFrameContextWithCounts
 // helper can drive non-frame-parallel adaptation on the encoder side.
 //
 // All mode / inter / mv / tx / skip / partition fields map 1:1. The
@@ -18,8 +18,8 @@ import (
 // and 2. This mirrors the encoder-side test in
 // internal/vp9/encoder/coef_block_test.go which asserts the inverse
 // equality.
-func vp9FrameCountsFromEncoder(src *encoder.FrameCounts) vp9FrameCounts {
-	var dst vp9FrameCounts
+func vp9FrameCountsFromEncoder(src *encoder.FrameCounts) vp9dec.FrameCounts {
+	var dst vp9dec.FrameCounts
 	if src == nil {
 		return dst
 	}
@@ -39,10 +39,10 @@ func vp9FrameCountsFromEncoder(src *encoder.FrameCounts) vp9FrameCounts {
 }
 
 // vp9TxCountsFromEncoder lifts encoder.TxModeCounts into the
-// decoder-shaped vp9TxCounts. Both shapes are the per-context histogram
+// decoder-shaped TxCounts. Both shapes are the per-context histogram
 // of selected tx sizes for the 8x8 / 16x16 / 32x32 max-tx sub-tables.
-func vp9TxCountsFromEncoder(src encoder.TxModeCounts) vp9TxCounts {
-	var dst vp9TxCounts
+func vp9TxCountsFromEncoder(src encoder.TxModeCounts) vp9dec.TxCounts {
+	var dst vp9dec.TxCounts
 	for ctx := range vp9dec.TxSizeContexts {
 		dst.P8x8[ctx][0] = src.P8x8[ctx][0]
 		dst.P8x8[ctx][1] = src.P8x8[ctx][1]
@@ -58,10 +58,10 @@ func vp9TxCountsFromEncoder(src encoder.TxModeCounts) vp9TxCounts {
 }
 
 // vp9NmvCountsFromEncoder lifts encoder.NmvContextCounts into the
-// decoder-shaped vp9NmvContextCounts. Joints + per-axis component slabs
+// decoder-shaped NmvContextCounts. Joints + per-axis component slabs
 // have identical shape on both sides.
-func vp9NmvCountsFromEncoder(src encoder.NmvContextCounts) vp9NmvContextCounts {
-	var dst vp9NmvContextCounts
+func vp9NmvCountsFromEncoder(src encoder.NmvContextCounts) vp9dec.NmvContextCounts {
+	var dst vp9dec.NmvContextCounts
 	dst.Joints = src.Joints
 	for i := range 2 {
 		dst.Comps[i].Sign = src.Comps[i].Sign

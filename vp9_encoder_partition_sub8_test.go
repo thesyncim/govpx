@@ -344,8 +344,8 @@ func TestVP9EncoderInterSub8x8NewMvCountsPerBmi(t *testing.T) {
 	e.countVP9InterSub8NewMvs(&counts, vp9dec.TileBounds{}, 2, 2, 0, 0,
 		common.Block4x8, &mi, true, [vp9dec.MaxRefFrames]uint8{})
 
-	jointCol := vp9GetMvJoint(vp9dec.MV{Col: 8})
-	jointRow := vp9GetMvJoint(vp9dec.MV{Row: 8})
+	jointCol := vp9dec.GetMvJoint(vp9dec.MV{Col: 8})
+	jointRow := vp9dec.GetMvJoint(vp9dec.MV{Row: 8})
 	if counts.Mv.Joints[jointCol] != 1 || counts.Mv.Joints[jointRow] != 1 {
 		t.Fatalf("newmv joints = %+v, want one column-only and one row-only sub8 mv",
 			counts.Mv.Joints)

@@ -279,7 +279,7 @@ type VP9Decoder struct {
 	prevFrameMvRows     int
 	prevFrameMvCols     int
 	usePrevFrameMvs     bool
-	counts              vp9FrameCounts
+	counts              vp9dec.FrameCounts
 
 	// width and height carry the most recent decoded frame dimensions.
 	// They stay zero until the first successful frame parse.
@@ -869,7 +869,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 
 	frameContextIdx := d.prepareVP9FrameContext(&hdr)
 	if !hdr.FrameParallelDecoding {
-		d.counts = vp9FrameCounts{}
+		d.counts = vp9dec.FrameCounts{}
 	}
 	var cr bitstream.Reader
 	if err := cr.Init(packet[uncSize:compEnd]); err != nil {
