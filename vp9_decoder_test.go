@@ -1453,6 +1453,63 @@ func TestVP9DecoderAppliesLoopFilterKeyframe(t *testing.T) {
 	assertVP9PlaneFilled(t, "V", filtered.V, filtered.VStride, 32, 32, 128)
 }
 
+func TestVP9DecoderSkipLoopFilterMatchesUnfilteredReconstruction(t *testing.T) {
+	unfilteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 0)
+	filteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+
+	unfiltered := vp9DecodeLastVisibleFrameForTest(t, unfilteredPacket)
+	filtered := vp9DecodeLastVisibleFrameForTest(t, filteredPacket)
+	skipped := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+		VP9DecoderOptions{SkipLoopFilter: true}, filteredPacket)
+
+	if bytes.Equal(appendVP9YForTest(nil, filtered), appendVP9YForTest(nil, skipped)) {
+		t.Fatal("SkipLoopFilter output still matches loop-filtered luma")
+	}
+	assertVP9ImagesEqual(t, unfiltered, skipped)
+}
+
+func TestVP9DecoderSetSkipLoopFilterTogglesRuntimeControl(t *testing.T) {
+	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	filtered := vp9DecodeLastVisibleFrameForTest(t, packet)
+	unfiltered := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+		VP9DecoderOptions{SkipLoopFilter: true}, packet)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.SetSkipLoopFilter(true); err != nil {
+		t.Fatalf("SetSkipLoopFilter(true): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode with skip-loop-filter: %v", err)
+	}
+	got, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame after skip-loop-filter returned !ok")
+	}
+	assertVP9ImagesEqual(t, unfiltered, got)
+
+	if err := d.SetSkipLoopFilter(false); err != nil {
+		t.Fatalf("SetSkipLoopFilter(false): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode after clearing skip-loop-filter: %v", err)
+	}
+	got, ok = d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame after clearing skip-loop-filter returned !ok")
+	}
+	assertVP9ImagesEqual(t, filtered, got)
+
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := d.SetSkipLoopFilter(true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("closed SetSkipLoopFilter err = %v, want ErrClosed", err)
+	}
+}
+
 func TestVP9DecoderThreadedLoopFilterMatchesSerial(t *testing.T) {
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 32)

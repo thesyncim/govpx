@@ -111,6 +111,11 @@ type VP9DecoderOptions struct {
 	// libvpx's pipelined loop-filter optimisation. When false, the deblock
 	// pass runs serially even on a threaded decoder. Requires Threads > 1.
 	DecoderLoopFilterOpt bool
+
+	// SkipLoopFilter mirrors libvpx VP9_SET_SKIP_LOOP_FILTER. When true, the
+	// decoder parses loop-filter syntax and reconstructs the frame normally but
+	// skips the in-loop deblock pass before publishing or refreshing references.
+	SkipLoopFilter bool
 }
 
 // VP9FrameInfo describes one decoded VP9 packet. Quantizer is the raw
@@ -546,6 +551,17 @@ func (d *VP9Decoder) SetLoopFilterOpt(enabled bool) error {
 	return nil
 }
 
+// SetSkipLoopFilter mirrors libvpx VP9_SET_SKIP_LOOP_FILTER. When enabled,
+// subsequent frames skip the in-loop deblock pass even if their headers carry a
+// non-zero loop-filter level.
+func (d *VP9Decoder) SetSkipLoopFilter(enabled bool) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	d.opts.SkipLoopFilter = enabled
+	return nil
+}
+
 // Decode is the VP9 entry point. It is equivalent to DecodeWithPTS
 // with a zero presentation timestamp.
 func (d *VP9Decoder) Decode(packet []byte) error {
@@ -726,7 +742,8 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) erro
 			return err
 		}
 	}
-	if !d.unsupportedReconstruct && hdr.Loopfilter.FilterLevel != 0 {
+	if !d.unsupportedReconstruct && hdr.Loopfilter.FilterLevel != 0 &&
+		!d.opts.SkipLoopFilter {
 		if !d.applyVP9LoopFilter(&hdr) {
 			d.traceVP9Unsupported("loopfilter")
 			d.unsupportedReconstruct = true
