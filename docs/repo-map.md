@@ -263,7 +263,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 5 | API cleanup | root public files, examples, docs | Remove unreleased compatibility aliases at wave end |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |
-| 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `UPSTREAM.md`, `plan.md` links | Separate user docs from parity notes |
+| 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `UPSTREAM.md`, `plan.md` links | Current branch: README links to focused architecture/status/validation docs; parity notes stay out of the README |
 | 8 | Final sweep | stale shims, examples, `.gitignore`, `docs/repo-map.md` | Full production verification |
 
 ## No-Overlap Ownership Table

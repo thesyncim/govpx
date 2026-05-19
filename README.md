@@ -197,32 +197,14 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 See `examples/webrtc-vp8` for a VP8 separate-module demo that streams govpx
 VP8 through pion/webrtc to a browser.
 
-## Validation
+## More
 
-Fast local checks:
-
-```sh
-make pre-commit                  # fmt + PGO freshness check
-make ci                          # fmt + tests + purego tests
-go test ./... -count=1
-go test -tags purego ./... -count=1
-go vet ./...
-```
-
-Oracle checks:
-
-```sh
-make verify-decoder-parity   # decoder-only oracle checks
-make verify-production       # supported encoder + decoder oracle checks
-```
-
-`verify-production` builds pinned libvpx tools, fetches conformance data,
-and runs the supported oracle checks. VP9 oracle coverage is Profile 0 only.
-Use `make verify-decoder-parity` for decoder-only changes.
-
-Oracle trace and scoreboard code lives behind the `govpx_oracle_trace`
-build tag or in `*_test.go` files. `UPSTREAM.md` documents the exact
-scope.
+- `docs/api.md`: public API guide and option families.
+- `docs/architecture.md`: package ownership and data flow.
+- `docs/codec-status.md`: supported VP8/VP9 scope and out-of-scope features.
+- `docs/validation.md`: local, CI, oracle, fuzz, allocation, and performance
+  gates.
+- `UPSTREAM.md`: pinned libvpx baseline and compatibility scope.
 
 ## Benchmarking
 

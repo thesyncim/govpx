@@ -37,7 +37,7 @@ func PeekStreamInfo(packet []byte) (StreamInfo, error) {
 }
 
 // StreamInfoFromFrameHeader converts an already-parsed VP8 frame header into
-// parser-visible stream metadata.
+// public stream metadata.
 func StreamInfoFromFrameHeader(header FrameHeader) StreamInfo {
 	return StreamInfo{
 		Width:              header.Width,
