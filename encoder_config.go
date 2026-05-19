@@ -687,6 +687,21 @@ func (e *VP8Encoder) libvpxAutoSelectSpeedActive() bool {
 // for realtime+positive-cpu_used. Cold start (avg_pick_mode_time==0):
 // Speed=4. Otherwise raise/lower based on the (1e6/framerate)*(16-cpu)/16
 // ms budget vs cumulative timer state, capped at [4,16].
+//
+// Note (task #350 audit): govpx's e.autoSpeed evolution under the task
+// #278 inter-frame budget/3 wall-clock pin stays in the libvpx Speed=0
+// stable region (avg_encode_time ≈ budget/3). At cpu_used > 0 RT
+// libvpx's actual wall-clock would drive cpi->Speed up to cpu_used+1
+// via the budget-halving (`ms_for_compress = base*(16-cpu)/16`) +
+// auto-select +2/+4 branches. Clamping e.autoSpeed itself cascades
+// every Speed-conditioned feature in vp8_set_speed_features into the
+// cpu_used+1 path simultaneously, which is far too aggressive on a
+// short-ladder BD-rate measurement. The targeted port lives in
+// libvpxRealtimeCPISpeedForImprovedMVPredGate: that helper feeds the
+// libvpx-realistic Speed only into the improved_mv_pred gate, leaving
+// every other speed-feature lookup on the pin-suppressed
+// e.autoSpeed value. See libvpxInterFrameImprovedMVPredictionFor
+// FeatureSpeed caller in encoder_inter_speed.go.
 func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	if e.opts.Deadline != DeadlineRealtime {
 		return
@@ -757,6 +772,66 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 		e.avgPickModeTime = 0
 		e.avgEncodeTime = 0
 	}
+}
+
+// libvpxRealtimeCPISpeedForImprovedMVPredGate returns the libvpx-realistic
+// cpi->Speed value used to evaluate the `Speed > 6` gate that turns off
+// `sf->improved_mv_pred` inside vp8_set_speed_features case 2
+// (vp8/encoder/onyx_if.c:957). Task #350 audit:
+//
+// At cpu_used > 0 RT, libvpx's vp8_auto_select_speed (rdopt.c:261) drives
+// cpi->Speed up via the +4 / +2 wall-clock branches because the
+// budget is halved (`ms_for_compress = base*(16-cpu)/16`) while the
+// encoder still runs the same per-frame work for the first few frames.
+// Per the task #343 720p RT cpu=8 trace, cpi->Speed reaches 9 by frame 2
+// (libvpx picker_entry trace `cpi_speed` field), at which point the
+// line-957 gate fires improved_mv_pred=0. govpx's autoSpeed evolution
+// stays in the Speed=0 stable region (`avg_encode_time ≈ budget/3`)
+// under the task #278 inter-frame timing pin
+// (interFrameAutoSpeedTimingCompensation), so e.autoSpeed lands at 4-5
+// rather than the libvpx-realistic cpu_used+1 ≈ 9. That kept
+// improved_mv_pred enabled on govpx, driving the +6.31% BD-rate gap.
+//
+// Cannot fix this by clamping e.autoSpeed itself: that cascades all the
+// other Speed-conditioned features in vp8_set_speed_features (search
+// method, fractional search, quarter-pixel, threshold maps, recode
+// loop) into their cpu_used+1 path, which is far too aggressive for the
+// short-ladder BD-rate measurement and crashes the curve down ~30000%
+// (the cascade saturates the +28923%/-4.15 dB regime that disables
+// every speed feature simultaneously, far outside the test's 4-rung
+// PSNR-sample resolution).
+//
+// Targeted port: gate improved_mv_pred specifically on the libvpx-
+// realistic cpi->Speed, leaving every other Speed-feature lookup on
+// govpx's actual e.autoSpeed evolution. The realistic Speed for
+// cpu_used > 0 RT after frame 0 is cpu_used+1 (audit-observed
+// trajectory at cpu=8 → cpi_speed=9 at frame 2). For cpu_used=0 RT
+// (the byte-parity-gated path) the realistic Speed stays at 4 — below
+// the Speed > 6 threshold, so improved_mv_pred remains enabled,
+// preserving the threads=4 cpu=0 RT byte-parity sentinel
+// (regression_w854h480_threads4_vbr_inter_diverge).
+//
+// Returns the Speed value that should feed the `Speed > 6` gate. For
+// non-realtime / cpu_used < 0 / cpu_used == 0 RT, returns the actual
+// libvpxCPUUsed() so the existing semantics carry forward unchanged.
+func (e *VP8Encoder) libvpxRealtimeCPISpeedForImprovedMVPredGate() int {
+	speed := e.libvpxCPUUsed()
+	if e.opts.Deadline != DeadlineRealtime {
+		return speed
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed <= 0 {
+		return speed
+	}
+	if e.frameCount == 0 {
+		return speed
+	}
+	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	realistic := min(cpuUsed+1, 16)
+	if speed > realistic {
+		return speed
+	}
+	return realistic
 }
 
 func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
