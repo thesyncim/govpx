@@ -345,6 +345,45 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// Remaining sharpest candidate (in walk order, per task #284):
 	//   #3 residual gather slice ordering —
 	//      gatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
+	//
+	// Task #297 pre-trellis UV bisect (RELOCATES the root cause): the new
+	// per-UV-block oracle tracer (task #296) on both sides now lets us
+	// surface the first divergent (mb_row, mb_col, block, scan_pos) on
+	// frame 1 of this seed. The bisect (TestVP8Task297PretrellisUVBisect)
+	// surfaces MB(0,0) block 16 scan_pos 0 in the COEFF (post-FDCT) layer
+	// — i.e. the divergence is BEFORE the regular quantizer, with both
+	// sides reporting identical UV.Dequant[1]/zbin_over_quant/act_zbin_adj
+	// (=2) tuples but DIFFERENT zbin_extra (gov=6 vs lib=2). Walking back
+	// upstream via the same trace's accepted-mode rows reveals the actual
+	// upstream cause: libvpx codes MB(0,0) frame 1 as `SPLITMV` (split-MV,
+	// zbin_mode_boost=0) while govpx codes it as `NEWMV` (whole-block MV,
+	// zbin_mode_boost=MV_ZBIN_BOOST=4). The (4 vs 0) zbin_mode_boost gap
+	// explains the (6 vs 2) zbin_extra gap byte-for-byte. The accepted-MV
+	// for both sides matches (8,16) per task #277, so this is not a motion-
+	// search divergence — it is a SPLITMV-vs-NEWMV mode-pick divergence in
+	// the inter-frame RD picker (selectInterFrameSplitModeRDScore vs
+	// libvpx rd_pick_inter_mode SPLITMV gating).
+	//
+	// Per-frame mode histogram on this cohort's frame 1 (filtered to the
+	// 960 main-thread MBs whose mb_row/mb_col label survives libvpx's
+	// pthread_setspecific limitation):
+	//   govpx: 3482 NEARESTMV + 116 SPLITMV + 2 NEWMV (out of 3600)
+	//   libvpx: 295 NEARESTMV + 664 SPLITMV + 1 NEWMV (out of 960 labeled)
+	// libvpx picks SPLITMV ~6x more often than govpx. Each SPLITMV pick
+	// flip costs/saves several bytes through the per-subblock MV coding
+	// rate budget AND the cleaner UV residual (the SPLITMV per-subblock
+	// predictor is strictly closer to the source than the NEWMV whole-
+	// block predictor), which is what surfaces as the residual -5/-6 byte
+	// ARNR pin-hold on this and the task #227 cohort.
+	//
+	// Path forward: extend the per-MB inter-candidate trace (already
+	// emitted in oracle/govpx traces) with the per-mode RD breakdown for
+	// SPLITMV vs the simple-MV modes, and bisect which sub-component
+	// (split-partition cost, sub-block MV search range, sub-block MV
+	// reference, RDCOST tie-break) drives the picker flip for MB(0,0).
+	// Until that lands, the -5/-6 byte ARNR pin-hold remains, but its
+	// root cause is now confirmed to be in the inter-frame mode picker
+	// and NOT in the UV qcoeff / FDCT / residual / quantize pipeline.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463

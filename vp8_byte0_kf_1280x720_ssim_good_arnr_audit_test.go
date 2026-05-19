@@ -296,6 +296,32 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// Remaining sharpest candidate (in walk order, per task #284):
 	//   #3 residual gather slice ordering —
 	//      gatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
+	//
+	// Task #297 pre-trellis UV bisect (RELOCATES the root cause): same
+	// finding as the Best/19981bff sibling pin. The pre-trellis UV trace
+	// (task #296) on this Good/788d442c cohort surfaces the first
+	// divergent (mb_row, mb_col, block, scan_pos) on frame 1 at
+	// MB(0,0) block 16 scan_pos 0 in the COEFF layer (post-FDCT), with
+	// gov_coeff=-48 vs lib_coeff=-46 AND gov_zbin_extra=6 vs
+	// lib_zbin_extra=2. Walking back via the same trace's accepted-mode
+	// rows shows libvpx codes MB(0,0) frame 1 as `SPLITMV`
+	// (zbin_mode_boost=0) while govpx codes it as `NEWMV`
+	// (zbin_mode_boost=MV_ZBIN_BOOST=4). The frame-wide mode histogram
+	// (filtered to the 960 main-thread MBs whose mb_row/mb_col label
+	// survives libvpx's pthread_setspecific limitation) confirms:
+	//   govpx: 116 SPLITMV (out of 3600)
+	//   libvpx: 664 SPLITMV (out of 960 labeled)
+	// libvpx picks SPLITMV ~6x more often. The root cause is in govpx's
+	// inter-frame SPLITMV mode picker (selectInterFrameSplitModeRDScore)
+	// — it under-picks SPLITMV relative to libvpx rd_pick_inter_mode for
+	// this cohort. The -6 byte ARNR pin-hold is the cumulative effect of
+	// these picker flips on the inter token partition, NOT a UV qcoeff
+	// / FDCT / residual / quantize pipeline bug.
+	//
+	// Path forward: bisect SPLITMV vs the simple-MV modes' per-mode RD
+	// breakdown (split-partition cost, sub-block MV search range, sub-
+	// block MV reference, RDCOST tie-break) to identify which sub-
+	// component drives the picker flip.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
