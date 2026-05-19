@@ -143,22 +143,61 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 }
 
 func AddMacroblockResidual(tokens *MacroblockTokens, residual *MacroblockResidual, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
+	AddMacroblockResidualWithDequant(tokens, residual, nil, y, yStride, u, uStride, v, vStride)
+}
+
+// AddMacroblockResidualWithDequant adds the dequantized residual onto the
+// already-predicted Y/U/V samples. When dequant is non-nil and a DC-only
+// (eob==1) block is encountered, the DC product is recomputed in int32
+// precision instead of relying on the int16 residual buffer. This mirrors
+// libvpx v1.16.0 NEON idct_dequant_0_2x_neon which performs
+// ((q[0] * dq) + 4) >> 3 in int precision and only truncates to int16 after
+// the shift, so wide chroma DC coefficients (e.g. 334 * 132 = 44088) survive
+// the dequantize-add path without int16 wraparound. When dequant is nil the
+// historical int16 path is used (preserves callers that have already
+// dequantized through a wider intermediate or that operate on encoder-side
+// coefficient ranges which never overflow).
+//
+// For Y blocks the DC dequant value is dequant.Y1DC[0] when the MB uses the
+// Y2 second-order transform (Y1DC[0]==1 in that mode, so the addition is
+// equivalent to keeping the Walsh-derived DC) and dequant.Y1[0] when the MB
+// is a 4x4 block layout (B_PRED / SPLITMV) where qcoeff[0] carries the
+// per-block DC directly. The 4x4 fix is wired through the BPred and SplitMV
+// callers; for non-4x4 Y blocks Y1DC[0] is 1 by construction so the wider
+// product never differs from the int16 product.
+func AddMacroblockResidualWithDequant(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
 	for i := range 16 {
 		if tokens.EOB[i] == 0 {
 			continue
 		}
 		addTransformBlock(tokens.EOB[i], residual.Block(i), y[yBlockOffset(i, yStride):], yStride)
 	}
-	addChromaResidual(tokens, residual, u, uStride, v, vStride)
+	addChromaResidualWithDequant(tokens, residual, dequant, u, uStride, v, vStride)
 }
 
 func addChromaResidual(tokens *MacroblockTokens, residual *MacroblockResidual, u []byte, uStride int, v []byte, vStride int) {
+	addChromaResidualWithDequant(tokens, residual, nil, u, uStride, v, vStride)
+}
+
+func addChromaResidualWithDequant(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, u []byte, uStride int, v []byte, vStride int) {
 	for i := range 4 {
-		if tokens.EOB[16+i] != 0 {
-			addTransformBlock(tokens.EOB[16+i], residual.Block(16+i), u[uvBlockOffset(i, uStride):], uStride)
+		if eob := tokens.EOB[16+i]; eob != 0 {
+			if eob == 1 && dequant != nil {
+				// libvpx v1.16.0 vp8/common/arm/neon/idct_blk_neon.c
+				// idct_dequant_0_2x_neon: a0 = ((q[0] * dq) + 4) >> 3 (int math).
+				dc := int32(tokens.QCoeff[16+i][0]) * int32(dequant.UV[0])
+				dsp.DCOnlyIDCT4x4AddInt32(dc, u[uvBlockOffset(i, uStride):], uStride, u[uvBlockOffset(i, uStride):], uStride)
+			} else {
+				addTransformBlock(eob, residual.Block(16+i), u[uvBlockOffset(i, uStride):], uStride)
+			}
 		}
-		if tokens.EOB[20+i] != 0 {
-			addTransformBlock(tokens.EOB[20+i], residual.Block(20+i), v[uvBlockOffset(i, vStride):], vStride)
+		if eob := tokens.EOB[20+i]; eob != 0 {
+			if eob == 1 && dequant != nil {
+				dc := int32(tokens.QCoeff[20+i][0]) * int32(dequant.UV[0])
+				dsp.DCOnlyIDCT4x4AddInt32(dc, v[uvBlockOffset(i, vStride):], vStride, v[uvBlockOffset(i, vStride):], vStride)
+			} else {
+				addTransformBlock(eob, residual.Block(20+i), v[uvBlockOffset(i, vStride):], vStride)
+			}
 		}
 	}
 }
@@ -221,7 +260,7 @@ func ReconstructWholeBlockIntraMacroblock(mode *MacroblockMode, tokens *Macroblo
 		return true
 	}
 	TransformMacroblockTokens(tokens, dequant, false, scratch)
-	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
+	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
 	return true
 }
 
@@ -425,7 +464,7 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		return true
 	}
 	TransformMacroblockTokens(tokens, dequant, true, scratch)
-	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
+	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
 	return true
 }
 
@@ -575,11 +614,16 @@ func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTok
 		if ok := predictIntraY4x4Block(mode.BModes[block], y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block); !ok {
 			return false
 		}
-		if tokens.EOB[block] != 0 {
-			addTransformBlock(tokens.EOB[block], scratch.Block(block), y[yBlockOffset(block, yStride):], yStride)
+		if eob := tokens.EOB[block]; eob != 0 {
+			if eob == 1 {
+				dc := int32(tokens.QCoeff[block][0]) * int32(dequant.Y1[0])
+				dsp.DCOnlyIDCT4x4AddInt32(dc, y[yBlockOffset(block, yStride):], yStride, y[yBlockOffset(block, yStride):], yStride)
+			} else {
+				addTransformBlock(eob, scratch.Block(block), y[yBlockOffset(block, yStride):], yStride)
+			}
 		}
 	}
-	addChromaResidual(tokens, scratch, u, uStride, v, vStride)
+	addChromaResidualWithDequant(tokens, scratch, dequant, u, uStride, v, vStride)
 	return true
 }
 

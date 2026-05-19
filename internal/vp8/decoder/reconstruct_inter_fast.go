@@ -286,6 +286,6 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 		return true
 	}
 	TransformMacroblockTokens(tokens, dequant, false, scratch)
-	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
+	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
 	return true
 }

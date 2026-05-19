@@ -17,6 +17,31 @@ func DCOnlyIDCT4x4Add(inputDC int16, pred []byte, predStride int, dst []byte, ds
 	dcOnlyIDCT4x4AddSIMD(inputDC, pred, predStride, dst, dstStride)
 }
 
+// DCOnlyIDCT4x4AddInt32 is the int32-precision DC-only fast path used by the
+// decoder DC-only chroma/luma residual adds when QCoeff * Dequant may overflow
+// the int16 range. It mirrors libvpx v1.16.0
+// vp8/common/arm/neon/idct_blk_neon.c idct_dequant_0_2x_neon, which performs
+// the multiply-shift in int precision before broadcasting the result to a
+// signed-16-bit NEON vector. The narrow-to-int16 happens after the (>>3)
+// shift, which keeps the lane value in a far smaller magnitude than the raw
+// product, so a coefficient like 334 * 132 = 44088 does NOT wrap.
+//
+// The non-NEON scalar libvpx path DOES wrap (it passes the raw product
+// through a `short input_dc` argument), but vpxdec on arm64 dispatches to
+// the NEON variant, so byte-exact parity requires mirroring the NEON
+// semantics here.
+func DCOnlyIDCT4x4AddInt32(inputDC int32, pred []byte, predStride int, dst []byte, dstStride int) {
+	a1 := int((inputDC + 4) >> 3)
+	for y := range 4 {
+		dstRow := dst[y*dstStride : y*dstStride+4 : y*dstStride+4]
+		predRow := pred[y*predStride : y*predStride+4 : y*predStride+4]
+		dstRow[0] = ClipPixel(a1 + int(predRow[0]))
+		dstRow[1] = ClipPixel(a1 + int(predRow[1]))
+		dstRow[2] = ClipPixel(a1 + int(predRow[2]))
+		dstRow[3] = ClipPixel(a1 + int(predRow[3]))
+	}
+}
+
 // idct4x4AddScalar is the canonical scalar port of libvpx
 // vp8/common/idctllm.c vp8_short_idct4x4llm_c. SIMD ports must produce
 // byte-identical output for the encoder/decoder coefficient range.
