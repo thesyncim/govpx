@@ -106,17 +106,11 @@ func vp9MinMax8x8Clamped(s []uint8, sp int, d []uint8, dp int,
 	maxX := pixelsWide - 1
 	maxY := pixelsHigh - 1
 	for r := range 8 {
-		y := y0 + r
-		if y > maxY {
-			y = maxY
-		}
+		y := min(y0+r, maxY)
 		srcRow := s[y*sp:]
 		dstRow := d[y*dp:]
 		for c := range 8 {
-			x := x0 + c
-			if x > maxX {
-				x = maxX
-			}
+			x := min(x0+c, maxX)
 			diff := int(srcRow[x]) - int(dstRow[x])
 			if diff < 0 {
 				diff = -diff

@@ -1408,3 +1408,204 @@ func TestVP8FeatureBDRate640pDenoiseSharpVBR(t *testing.T) {
 		},
 		denoiseSharpGate)
 }
+
+// makeVP8BPredEdgeGridFrame returns a deterministic 720p 4:2:0 frame
+// designed to make the VP8 picker pick B_PRED heavily. B_PRED (the
+// per-4x4-block intra-prediction tree) competes with the 16x16 intra
+// modes (DC/V/H/TM) when each 4x4 block has its own dominant edge
+// direction so no single 16x16-pred mode covers the whole MB cheaply,
+// but the B_PRED 10-mode 4x4 tree (B_VE/HE/LD/RD/VR/VL/HU/HD plus
+// DC/TM) can match the local gradient per block.
+//
+// Frame design: alternating bands of textured edge cells and flat
+// regions. The edge bands carry rendered 4x4 directional gradients
+// (8 directions cycling across cells) at low contrast so the picker
+// considers B_PRED on those MBs but the residual is small. The flat
+// bands stay near-uniform so most MBs in the frame are flat-Y and
+// satisfy the tteob==0 condition that #347's port targets (libvpx
+// vp8/encoder/rdopt.c:1687-1714 B_PRED rate2 backout). The whole
+// pattern shifts by 1 pixel diagonally per frame: motion estimation
+// finds tiny residual at integer-pel offsets so inter zero-MV is not
+// free, but the rate-control loop has room to operate without
+// saturating min-Q.
+func makeVP8BPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	// Mild background noise so flat areas still carry nonzero residual.
+	r := rand.New(rand.NewSource(int64(idx)*9973 + 113))
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			noise := r.Intn(3) - 1
+			row[x] = vp8BDClamp(112 + noise)
+		}
+	}
+	// Per-frame whole-pel shift: diagonal 1 pixel per frame.
+	xoff := idx
+	yoff := idx
+	const block = 4
+	// 8 directional edge templates indexed by direction code.
+	renderBlock := func(dir, x0, y0 int, lumaHi, lumaLo byte) {
+		for dy := range block {
+			y := y0 + dy
+			if y < 0 || y >= height {
+				continue
+			}
+			row := img.Y[y*img.YStride:]
+			for dx := range block {
+				x := x0 + dx
+				if x < 0 || x >= width {
+					continue
+				}
+				var on bool
+				switch dir & 0x07 {
+				case 0: // horizontal step (top half hi)
+					on = dy < 2
+				case 1: // vertical step (left half hi)
+					on = dx < 2
+				case 2: // +diagonal (LD)
+					on = dx+dy < 3
+				case 3: // -diagonal (RD)
+					on = dx >= dy
+				case 4: // 22.5deg variant (VR)
+					on = 2*dx+dy < 5
+				case 5: // 22.5deg variant (VL)
+					on = 2*dx-dy < 3
+				case 6: // 22.5deg variant (HU)
+					on = dx+2*dy < 5
+				case 7: // 22.5deg variant (HD)
+					on = dx-2*dy < 1
+				}
+				if on {
+					row[x] = lumaHi
+				} else {
+					row[x] = lumaLo
+				}
+			}
+		}
+	}
+	// Edge bands: every other 64-pixel-tall horizontal strip carries
+	// the textured directional grid; the other strips are flat. This
+	// roughly halves the residual energy vs the full-frame grid and
+	// brings the encoder into a mid-to-high Q operating range at the
+	// chosen CBR ladder so the B_PRED tteob==0 backout has a chance
+	// to fire on the flat bands.
+	const bandHeight = 64
+	for gy := 0; gy < height; gy += block {
+		// Inside an edge band? bandIdx = gy/bandHeight; even => edges
+		// (textured), odd => flat (skip rendering, background noise
+		// stays).
+		if (gy/bandHeight)&1 != 0 {
+			continue
+		}
+		for gx := 0; gx < width; gx += block {
+			cx := gx / block
+			cy := gy / block
+			dir := (cx*3 + cy*5) & 0x07
+			hash := cx*1103515245 + cy*12345
+			// Low luma contrast: the directional pattern is visible
+			// (so B_PRED is the natural intra winner per block) but
+			// the residual amplitude at mid-Q quantizes near zero on
+			// many MBs, which is exactly the tteob==0 regime that
+			// #347 targets.
+			lumaHi := byte(128 + (hash>>3)&0x0F)
+			lumaLo := byte(112 - (hash>>11)&0x0F)
+			renderBlock(dir, gx+xoff, gy+yoff, lumaHi, lumaLo)
+		}
+	}
+	uvW := (width + 1) >> 1
+	uvH := (height + 1) >> 1
+	for y := range uvH {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvW {
+			cb[x] = byte(128 + ((x+idx)*3)&0x07)
+			cr[x] = byte(128 + ((y+idx*2)*3)&0x07)
+		}
+	}
+	return img
+}
+
+// TestVP8FeatureBDRate720pBPredEdgeGridCBR drives a synthetic
+// B_PRED-heavy fixture through a CBR ladder. The 720p directional-edge
+// grid is designed so each 16x16 MB contains 4 different per-4x4-block
+// edge directions, making the per-block intra-mode tree (B_PRED) the
+// natural intra winner over the 16x16-uniform DC/V/H/TM modes. Combined
+// with the 1px/frame diagonal motion (small inter residual but nonzero)
+// and the mid-bitrate CBR ladder (500/1000/2000/4000 kbps), the picker
+// exercises the inter-vs-B_PRED RD comparison heavily, including the
+// per-MB call into predictBestBPredLumaModeRDWithRDConstantsAndEOBs
+// that #347 added (B_PRED-in-inter tteob==0 rate2 backout, libvpx
+// rdopt.c:1687-1714).
+//
+// Task #368 baseline: the fixture measures govpx-vs-libvpx
+// BD-rate=+24.271% / BD-PSNR=+0.047 dB on the 1280x720 CBR ladder
+// 500/1000/2000/4000 kbps over 12 frames. Per-rung govpx_rate vs
+// libvpx_rate:
+//
+//	target  govpx_rate / PSNR  libvpx_rate / PSNR
+//	500     1783.1 / 37.67     1791.2 / 37.34
+//	1000    3436.9 / 43.08     3429.5 / 43.06
+//	2000    4305.9 / 43.80     4248.3 / 43.66
+//	4000    5340.3 / 45.17     4815.5 / 44.35
+//
+// The bottom three rungs are within ~1% on rate; the top rung diverges
+// (govpx +10.9% over libvpx) at slightly higher PSNR-Y (+0.83 dB). The
+// cubic fit aggregates the upper-rung asymmetry into a +24.271% BD-rate
+// at +0.047 dB BD-PSNR. The +0.047 dB BD-PSNR (govpx slightly ahead
+// on quality) confirms the gap is a rate-axis divergence: govpx
+// spends ~11% more bits at the top rung for ~0.8 dB more PSNR than
+// libvpx delivers at its own top rung, and the BD-rate cubic-fit
+// interprets the asymmetric quality-vs-bitrate trade as a rate cost.
+//
+// #347 port impact on this fixture: zero measurable BD-rate change.
+// The B_PRED tteob==0 backout that #347 lands requires bPredEOBCount +
+// uvEOBSum == 0 (every Y AC quantum and every UV quantum on a B_PRED
+// candidate falls to zero). The directional 4x4 edges in this fixture
+// ensure the B_PRED candidate always carries non-zero AC residual
+// before quantization, so the tteob==0 condition never fires here
+// either. Probe verification: replacing `tteob := bPredEOBCount +
+// uvEOBSum` with `tteob := 1 + uvEOBSum` (force the backout off)
+// produces byte-identical encode bytes/PSNR across all four ladder
+// rungs. The #347 port remains quality-neutral on synthetic
+// B_PRED-favorable content under the chosen ladder; what this fixture
+// *does* exercise is the broader B_PRED-in-inter RD path
+// (predictBestBPredLumaModeRDWithRDConstantsAndEOBs's per-block 4x4
+// picker, the bPredEOBCount return path, and the estimateInterIntra
+// ModeRDScore B_PRED branch's scoring against the inter candidates),
+// so any regression on the B_PRED scoring flow trips the gate.
+//
+// Gate: MaxBDRateOverLibvpxPct = +26.5% (measured +24.271% plus +2.0%
+// cubic-fit jitter headroom plus +0.23% rounding). MinBDPSNRdB = -0.5
+// dB (measured +0.047 dB, ample headroom on the BD-PSNR axis).
+func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+		frames = 12
+	)
+	// Task #368: B_PRED-favorable synthetic fixture, measured
+	// govpx-vs-libvpx BD-rate=+24.271%, BD-PSNR=+0.047 dB. Gate sized
+	// to the measurement plus cubic-fit headroom so any regression
+	// that drives the gap materially higher (e.g. a B_PRED scoring
+	// path change that further inflates govpx's top-rung rate) trips
+	// immediately.
+	bpredGate := benchcmd.LibvpxAbsoluteGate{
+		MaxBDRateOverLibvpxPct: 26.5,
+		MinBDPSNRdB:            -0.5,
+	}
+	runVP8BDRateFixture(t,
+		"VP8 720p B_PRED edge grid (CBR ladder 500/1000/2000/4000 kbps)",
+		"VP8 720p B_PRED edge grid (CBR 500/1000/2000/4000)",
+		benchcmd.BDRateOptionsVP8{
+			Width:          width,
+			Height:         height,
+			FPS:            30,
+			Frames:         frames,
+			QLadder:        []int{16, 28, 40, 52},
+			RateLadderKbps: []int{500, 1000, 2000, 4000},
+			Source:         func(i int) *image.YCbCr { return makeVP8BPredEdgeGridFrame(width, height, i) },
+			Baseline:       func(*govpx.EncoderOptions) {},
+			Test:           func(*govpx.EncoderOptions) {},
+		},
+		bpredGate)
+}
