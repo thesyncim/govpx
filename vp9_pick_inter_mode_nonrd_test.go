@@ -190,6 +190,57 @@ func TestVP9NonrdModeRdThresholdBiasGolden(t *testing.T) {
 	}
 }
 
+func TestVP9NonrdForceLastReference(t *testing.T) {
+	cases := []struct {
+		name                   string
+		shortCircuitLowTempVar int
+		useNonrdPickMode       bool
+		forceSkipLowTempVar    bool
+		want                   bool
+	}{
+		{name: "level1 force", shortCircuitLowTempVar: 1, useNonrdPickMode: true, forceSkipLowTempVar: true, want: true},
+		{name: "level3 force", shortCircuitLowTempVar: 3, useNonrdPickMode: true, forceSkipLowTempVar: true, want: true},
+		{name: "level2 does not force ref fan", shortCircuitLowTempVar: 2, useNonrdPickMode: true, forceSkipLowTempVar: true},
+		{name: "no low temp block", shortCircuitLowTempVar: 3, useNonrdPickMode: true},
+		{name: "not nonrd", shortCircuitLowTempVar: 3, forceSkipLowTempVar: true},
+	}
+	for _, tc := range cases {
+		if got := vp9NonrdForceLastReference(tc.shortCircuitLowTempVar,
+			tc.useNonrdPickMode, tc.forceSkipLowTempVar); got != tc.want {
+			t.Fatalf("%s: forceLastReference = %v, want %v",
+				tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestVP9VarPartForceSkipLowTempVarOK(t *testing.T) {
+	e := &VP9Encoder{}
+	e.sf.ShortCircuitLowTempVar = 3
+	if force, ok := e.vp9VarPartForceSkipLowTempVarOK(8, 0, 0,
+		common.Block32x32); ok || force {
+		t.Fatalf("missing cache force=%v ok=%v, want false/false", force, ok)
+	}
+
+	e.varPartSBVarLow = make([][25]uint8, 1)
+	e.varPartSBComputed = make([]bool, 1)
+	if force, ok := e.vp9VarPartForceSkipLowTempVarOK(8, 0, 0,
+		common.Block32x32); ok || force {
+		t.Fatalf("uncomputed cache force=%v ok=%v, want false/false", force, ok)
+	}
+
+	e.varPartSBComputed[0] = true
+	if force, ok := e.vp9VarPartForceSkipLowTempVarOK(8, 0, 0,
+		common.Block32x32); !ok || force {
+		t.Fatalf("computed non-low cache force=%v ok=%v, want false/true", force, ok)
+	}
+
+	e.varPartSBVarLow[0][5] = 1
+	if force, ok := e.vp9VarPartForceSkipLowTempVarOK(8, 0, 0,
+		common.Block32x32); !ok || !force {
+		t.Fatalf("computed low cache force=%v ok=%v, want true/true", force, ok)
+	}
+}
+
 func TestVP9NonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T) {
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, vp9ContentStateLowSadLowSumdiff,

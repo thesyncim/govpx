@@ -6361,60 +6361,69 @@ func (e *VP9Encoder) vp9VarPartSBPredMv(miCols, miRow, miCol int,
 func (e *VP9Encoder) vp9VarPartForceSkipLowTempVar(miCols, miRow, miCol int,
 	bsize common.BlockSize,
 ) bool {
+	forceSkip, _ := e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol,
+		bsize)
+	return forceSkip
+}
+
+func (e *VP9Encoder) vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (forceSkip bool, ok bool) {
 	if e == nil || e.sf.ShortCircuitLowTempVar == 0 {
-		return false
+		return false, false
 	}
 	sbMiRow := (miRow >> 3) << 3
 	sbMiCol := (miCol >> 3) << 3
 	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
-	if idx < 0 || idx >= len(e.varPartSBVarLow) {
-		return false
+	if idx < 0 || idx >= len(e.varPartSBVarLow) ||
+		idx >= len(e.varPartSBComputed) || !e.varPartSBComputed[idx] {
+		return false, false
 	}
 	varianceLow := e.varPartSBVarLow[idx]
 	i := (miRow & 0x7) >> 1
 	j := (miCol & 0x7) >> 1
 	switch bsize {
 	case common.Block64x64:
-		return varianceLow[0] != 0
+		return varianceLow[0] != 0, true
 	case common.Block64x32:
 		if (miCol&0x7) == 0 && (miRow&0x7) == 0 {
-			return varianceLow[1] != 0
+			return varianceLow[1] != 0, true
 		}
 		if (miCol&0x7) == 0 && (miRow&0x7) != 0 {
-			return varianceLow[2] != 0
+			return varianceLow[2] != 0, true
 		}
 	case common.Block32x64:
 		if (miCol&0x7) == 0 && (miRow&0x7) == 0 {
-			return varianceLow[3] != 0
+			return varianceLow[3] != 0, true
 		}
 		if (miCol&0x7) != 0 && (miRow&0x7) == 0 {
-			return varianceLow[4] != 0
+			return varianceLow[4] != 0, true
 		}
 	case common.Block32x32:
 		if (miCol&0x7) == 0 && (miRow&0x7) == 0 {
-			return varianceLow[5] != 0
+			return varianceLow[5] != 0, true
 		}
 		if (miCol&0x7) != 0 && (miRow&0x7) == 0 {
-			return varianceLow[6] != 0
+			return varianceLow[6] != 0, true
 		}
 		if (miCol&0x7) == 0 && (miRow&0x7) != 0 {
-			return varianceLow[7] != 0
+			return varianceLow[7] != 0, true
 		}
 		if (miCol&0x7) != 0 && (miRow&0x7) != 0 {
-			return varianceLow[8] != 0
+			return varianceLow[8] != 0, true
 		}
 	case common.Block16x16:
-		return varianceLow[vp9PosShift16x16[i][j]] != 0
+		return varianceLow[vp9PosShift16x16[i][j]] != 0, true
 	case common.Block32x16:
 		j2 := ((miCol + 2) & 0x7) >> 1
 		return varianceLow[vp9PosShift16x16[i][j]] != 0 &&
-			varianceLow[vp9PosShift16x16[i][j2]] != 0
+			varianceLow[vp9PosShift16x16[i][j2]] != 0, true
 	case common.Block16x32:
 		i2 := ((miRow + 2) & 0x7) >> 1
 		return varianceLow[vp9PosShift16x16[i][j]] != 0 &&
-			varianceLow[vp9PosShift16x16[i2][j]] != 0
+			varianceLow[vp9PosShift16x16[i2][j]] != 0, true
 	}
-	return false
+	return false, false
 }
 
 // vp9EnsureSBPartitionChosen runs vp9ChoosePartitioning for the 64x64 SB
@@ -11740,20 +11749,24 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	// reference-mode picking entirely. Additionally
 	// sf.short_circuit_low_temp_var (3 at speed 8 CBR non-screen) short-
 	// circuits non-LAST refs on low-temporal-variance blocks via
-	// force_skip_low_temp_var. govpx doesn't yet track per-SB temporal
-	// variance, so the closest faithful approximation when both
-	// UseNonrdPickMode == 1 and ShortCircuitLowTempVar >= 1 (both set
-	// together for CBR realtime non-screen) is to restrict the single-
-	// ref loop to LAST_FRAME — but only when LAST is actually one of
-	// the enabled refs for this frame. Frames that explicitly mask out
-	// LAST (e.g. EncodeNoReferenceLast for altref-only inter) must keep
-	// the full ref set so a fallback ref can still be picked.
+	// force_skip_low_temp_var. govpx caches libvpx's per-SB variance_low
+	// map from choose_partitioning and applies the LAST-only fan from that
+	// exact signal when it exists; before the cache is available it keeps the
+	// historical LAST-only fallback for the threaded warm path. Frames that
+	// explicitly mask out LAST (e.g. EncodeNoReferenceLast for altref-only
+	// inter) must keep the full ref set so a fallback ref can still be picked.
 	// libvpx: vp9/encoder/vp9_pickmode.c:1962-1985 (usable_ref_frame),
 	// vp9_speed_features.c:774 (ShortCircuitLowTempVar = 3 at speed 8
 	// CBR non-screen).
 	refFramesAll := [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame}
 	refFrames := refFramesAll[:]
-	if e.sf.ShortCircuitLowTempVar >= 1 && e.sf.UseNonrdPickMode == 1 {
+	forceSkipLowTempVar, forceSkipLowTempKnown :=
+		e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol, bsize)
+	if !forceSkipLowTempKnown && e.sf.ShortCircuitLowTempVar >= 1 {
+		forceSkipLowTempVar = true
+	}
+	if vp9NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
+		e.sf.UseNonrdPickMode != 0, forceSkipLowTempVar) {
 		if _, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
 			refFrames = refFramesAll[:1]
 		}

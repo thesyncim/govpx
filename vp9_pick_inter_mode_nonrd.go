@@ -711,8 +711,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	}
 	forceSkipLowTempVar := e.vp9VarPartForceSkipLowTempVar(miCols, miRow,
 		miCol, bsize)
-	if e.sf.ShortCircuitLowTempVar != 0 && forceSkipLowTempVar &&
-		(e.sf.ShortCircuitLowTempVar == 1 || e.sf.ShortCircuitLowTempVar == 3) {
+	if vp9NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
+		e.sf.UseNonrdPickMode != 0, forceSkipLowTempVar) {
 		maxUsableRef = vp9dec.LastFrame
 	}
 	useGoldenNonzeromv := refSlotValid[vp9dec.GoldenFrame] && !forceSkipLowTempVar
@@ -2090,6 +2090,13 @@ func vp9NonrdModeRdThreshold(base int, bestModeSkipTxfm, biasGolden bool,
 		modeRdThresh <<= 3
 	}
 	return modeRdThresh
+}
+
+func vp9NonrdForceLastReference(shortCircuitLowTempVar int,
+	useNonrdPickMode, forceSkipLowTempVar bool,
+) bool {
+	return useNonrdPickMode && forceSkipLowTempVar &&
+		(shortCircuitLowTempVar == 1 || shortCircuitLowTempVar == 3)
 }
 
 func vp9NonrdNormalizeSSE(sse uint64, bsize common.BlockSize) uint64 {
