@@ -896,6 +896,79 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForQuarterPelGate() int {
 	return realistic
 }
 
+// libvpxRealtimeCPISpeedForSubPelSearchGate returns the libvpx-realistic
+// cpi->Speed value used to evaluate the remaining fractional sub-pixel
+// refinement gates inside vp8_set_speed_features case 2 that are NOT
+// covered by libvpxRealtimeCPISpeedForQuarterPelGate (which already
+// owns the Speed > 8 quarter_pixel_search disable at
+// vp8/encoder/onyx_if.c:1012): the `Speed > 4` iterative_sub_pixel
+// disable (line 954, Iterative → Step transition in govpx's
+// interAnalysisFractionalSearchMethod) and the `Speed >= 15`
+// half_pixel_search disable (line 1023, Half → Skip transition).
+// Task #362 targeted port — same pattern as task #350's improved_mv_pred
+// gate and task #363's quarter-pel gate.
+//
+// Audit context: at cpu_used > 0 RT, libvpx's vp8_auto_select_speed
+// (rdopt.c:261) drives cpi->Speed up via the +4 / +2 wall-clock branches
+// to roughly cpu_used+1 within the first frames (audit-observed at
+// cpu_used=8 → cpi->Speed=9 at frame 2 per the task #343 per-frame
+// trace). govpx's autoSpeed evolution stays in the libvpx Speed=0 stable
+// region under the task #278 inter-frame wall-clock pin
+// (avg_encode_time ≈ budget/3), so e.autoSpeed lands at 4-5. For the
+// Step transition specifically, autoSpeed >= 5 fires the existing
+// `speed > 4` branch, so the Iterative → Step promotion was already
+// happening; this gate is a no-op there. For the Skip transition,
+// cpu_used+1 only reaches 15 at cpu_used >= 14 — production fixtures
+// at cpu_used=8 RT land at realistic Speed=9 and stay on Half, matching
+// libvpx's strict `Speed >= 15` requirement (task #247
+// TestVP8Task247ExtremeCPUUsedHalfPixelStaysEnabled).
+//
+// Cannot clamp e.autoSpeed itself: task #350 audit established that
+// raising autoSpeed to cpu_used+1 cascades every Speed-conditioned
+// feature in vp8_set_speed_features into the cpu_used+1 path
+// simultaneously (search method, fractional search, quarter-pixel,
+// threshold maps, recode loop), which crashed BD-rate to +28923% on the
+// cpu=8 RT 720p fixture. The targeted port keeps every other speed-
+// feature lookup on the pin-suppressed e.autoSpeed value and routes
+// only the fractional sub-pel search gates through the libvpx-realistic
+// Speed.
+//
+// Byte-parity guard: cpu_used <= 0 RT (the negative-Speed explicit path
+// and cpu_used == 0 RT) returns the unchanged libvpxCPUUsed(), keeping
+// the threads=4 cpu=0 RT byte-parity sentinel
+// (regression_w854h480_threads4_vbr_inter_diverge,
+// regression_w1280h720_threads4_vbr_inter_diverge) on the existing
+// fractional dispatch. The pre-first-frame cold start (frameCount == 0)
+// likewise returns the actual speed so the keyframe encode stays on the
+// task #278 wall-clock-pinned path.
+//
+// Returns the Speed value that should feed the Speed > 4 / >= 15
+// fractional gates. The Speed > 8 quarter-pel gate is owned by
+// libvpxRealtimeCPISpeedForQuarterPelGate (task #363) — both helpers
+// return the same value but stay independent so future task-specific
+// audits can adjust one threshold without touching the others. For
+// non-realtime / cpu_used <= 0 / pre-first-frame returns
+// libvpxCPUUsed() unchanged.
+func (e *VP8Encoder) libvpxRealtimeCPISpeedForSubPelSearchGate() int {
+	speed := e.libvpxCPUUsed()
+	if e.opts.Deadline != DeadlineRealtime {
+		return speed
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed <= 0 {
+		return speed
+	}
+	if e.frameCount == 0 {
+		return speed
+	}
+	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	realistic := min(cpuUsed+1, 16)
+	if speed > realistic {
+		return speed
+	}
+	return realistic
+}
+
 func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
 	fps := e.opts.FPS
 	if fps <= 0 {
