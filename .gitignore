@@ -3,3 +3,4 @@
 .claude/
 internal/coracle/build/
 .scoreboard.log
+/gpu-analysis-probe
