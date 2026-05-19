@@ -1,11 +1,14 @@
 # govpx Repo Map
 
 Generated for Wave 0 of `docs/repo-tidy-plan.md` on 2026-05-19.
+Last updated for the first Wave 3/4 boundary move on 2026-05-19.
 
 This document is the coordination map for splitting the current flat root
 package into a public facade plus codec-owned internal packages. It records the
 current shape, protected validation gates, and no-overlap work packets for the
-next waves.
+next waves. The RTP rows now reflect the code move landed on the
+`codex/repo-tidy` branch; the rest of the inventory remains the Wave 0
+baseline unless a row says otherwise.
 
 ## Snapshot
 
@@ -43,11 +46,11 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 | VP8 public encode/decode facade | `encoder.go`, `decoder.go`, public parts of `encoder_config.go`, `ratecontrol.go` | Root facade forwarding to `internal/vp8/{encoder,decoder}` |
 | VP8 encoder implementation | `encoder_*.go`, `ratecontrol_*.go`, VP8-specific parts of `encoder_config.go`, root encoder tests | `internal/vp8/encoder` |
 | VP8 decoder implementation | `decoder.go` plus existing `internal/vp8/decoder` internals | `internal/vp8/decoder` |
-| VP8 RTP helpers | `vp8_rtp.go`, `vp8_rtp_test.go`, `vp8_rtp_fuzz_test.go` | Root facade plus `internal/vp8/rtp` and shared `internal/vpx/rtp` mechanics |
+| VP8 RTP helpers | root `vp8_rtp.go` facade, `internal/vp8/rtp/rtp.go`, `vp8_rtp_test.go`, `vp8_rtp_fuzz_test.go` | Root facade plus `internal/vp8/rtp` and shared `internal/vpx/rtp` mechanics |
 | VP9 public encode/decode facade | public parts of `vp9_encoder.go`, `vp9_decoder.go`, `vp9_encoder_config.go`, VP9 first-pass/result/options types | Root facade forwarding to `internal/vp9/{encoder,decoder}` |
 | VP9 encoder implementation | `vp9_encoder.go`, `vp9_*` encoder/rate-control/AQ/TPL/partition files, VP9 encoder tests | `internal/vp9/encoder` |
 | VP9 decoder implementation | `vp9_decoder*.go`, `vp9_frame_parallel.go`, VP9 decoder tests | `internal/vp9/decoder` |
-| VP9 RTP and superframe helpers | `vp9_rtp.go`, `vp9_superframe.go`, related tests/fuzz | Root facade plus `internal/vp9/rtp` and shared `internal/vpx/rtp` mechanics |
+| VP9 RTP and superframe helpers | root `vp9_rtp.go` facade, `internal/vp9/rtp/rtp.go`, `vp9_superframe.go`, related tests/fuzz | Root facade plus `internal/vp9/rtp` and shared `internal/vpx/rtp` mechanics |
 | Oracle/parity harness | `oracle_*_test.go`, `vp9_oracle_*_test.go`, `internal/coracle`, `cmd/scoreboard-report` | `internal/vpx/testharness`, `internal/coracle`, package-local oracle suites |
 | Diagnostics/audits | `vp8_task*_test.go`, `vp8_byte*_test.go`, `diag_*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename into regression suites or document as diagnostics |
 | Performance and quality gates | `feature_quality_gates*_test.go`, `benchmarks`, `cmd/govpx-bench`, `*_bench_test.go` | Package-local benches plus `cmd/govpx-bench` |
@@ -61,13 +64,17 @@ Existing internal codec packages are already substantial:
 | `internal/vp8/decoder` | VP8 parser, reconstruction, loop filter, postprocess, threading |
 | `internal/vp8/dsp` | VP8 scalar/SIMD kernels |
 | `internal/vp8/encoder` | VP8 packet writing, transforms, quantization, tokenization, motion helpers |
+| `internal/vp8/rtp` | VP8 RTP payload descriptor parse/pack and frame packetize/assemble logic; RFC 7741, not libvpx-derived |
 | `internal/vp8/mem`, `internal/vp8/scale`, `internal/vp8/tables` | VP8 support packages |
 | `internal/vp9/bitstream` | VP9 bit reader/writer |
 | `internal/vp9/common` | VP9 constants, enums, quantization |
 | `internal/vp9/decoder` | VP9 parser, reconstruction, loop filter, tile/thread plumbing |
 | `internal/vp9/dsp` | VP9 scalar/SIMD kernels |
 | `internal/vp9/encoder` | VP9 bitstream writer and transform/quant helpers |
+| `internal/vp9/rtp` | VP9 RTP payload descriptor, scalability-structure, and frame packetize/assemble logic; RFC 9628, not libvpx-derived |
 | `internal/vp9/mem`, `internal/vp9/tables` | VP9 support packages |
+| `internal/vpx/errors` | Shared sentinel errors used by internal packages and re-exported by the root facade |
+| `internal/vpx/rtp` | Codec-neutral RTP fragment type and overflow-safe packetization-size helpers |
 
 ## Largest Files
 
@@ -251,7 +258,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3 | VP8 encoder move | root `encoder*.go`, `ratecontrol*.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Root keeps `VP8Encoder` facade |
 | 3 | VP9 decoder move | root `vp9_decoder*.go`, VP9 decoder tests, `internal/vp9/decoder/**` | Root keeps `VP9Decoder` facade |
 | 3 | VP9 encoder move | root `vp9_*` encoder/ratecontrol/AQ/TPL files, VP9 encoder tests, `internal/vp9/encoder/**` | Move after same-package split |
-| 4 | RTP shared mechanics | `rtp.go`, `vp8_rtp.go`, `vp9_rtp.go`, RTP tests/fuzz, new `internal/vpx/rtp/**`, `internal/vp{8,9}/rtp/**` | Share packetization scaffolding only |
+| 3/4 | RTP ownership move | root `rtp.go`, `vp8_rtp.go`, `vp9_rtp.go`, `internal/vpx/{errors,rtp}/**`, `internal/vp{8,9}/rtp/**`, RTP tests/fuzz | Current branch: root files are public facade aliases/wrappers; descriptor logic lives in codec-owned internal packages; shared mechanics are fragment sizing and sentinel errors only |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
 | 5 | API cleanup | root public files, examples, docs | Remove unreleased compatibility aliases at wave end |
@@ -271,11 +278,11 @@ packet owner if they are created from an owned file.
 | VP8 encoder lane | root `encoder*.go`, `ratecontrol*.go`, VP8 encoder/root rate-control tests, `internal/vp8/encoder/**` |
 | VP8 decoder lane | root `decoder*.go`, VP8 decoder tests, `internal/vp8/decoder/**` |
 | VP8 DSP/common lane | `internal/vp8/{boolcoder,common,dsp,mem,scale,tables}/**` |
-| VP8 RTP lane | `vp8_rtp.go`, `vp8_rtp_test.go`, `vp8_rtp_fuzz_test.go`, future `internal/vp8/rtp/**` |
+| VP8 RTP lane | root `vp8_rtp.go`, `vp8_rtp_test.go`, `vp8_rtp_fuzz_test.go`, `internal/vp8/rtp/**` |
 | VP9 encoder lane | `vp9_encoder*.go`, `vp9_*` encoder/ratecontrol/AQ/TPL/partition files, VP9 encoder tests, `internal/vp9/encoder/**` |
 | VP9 decoder lane | `vp9_decoder*.go`, `vp9_frame_parallel.go`, VP9 decoder tests, `internal/vp9/decoder/**` |
 | VP9 DSP/common lane | `internal/vp9/{bitstream,common,dsp,mem,tables}/**` |
-| VP9 RTP lane | `vp9_rtp.go`, `vp9_superframe.go`, RTP/superframe tests, future `internal/vp9/rtp/**` |
+| VP9 RTP lane | root `vp9_rtp.go`, `vp9_superframe.go`, RTP/superframe tests, `internal/vp9/rtp/**` |
 | Oracle/test harness lane | root `oracle_*`, `vp9_oracle_*`, `internal/coracle/**`, `cmd/scoreboard-report/**`, new `internal/vpx/testharness/**` |
 | Benchmark/quality lane | `cmd/govpx-bench/**`, `benchmarks/**`, `feature_quality_gates*_test.go`, `cmd/govpx-bench/default.pgo*` |
 | Docs lane | `README.md`, `UPSTREAM.md`, `plan.md`, `docs/**`, example READMEs |

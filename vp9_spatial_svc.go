@@ -1,6 +1,11 @@
 package govpx
 
-import "image"
+import (
+	"image"
+
+	vp9rtp "github.com/thesyncim/govpx/internal/vp9/rtp"
+	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
+)
 
 // VP9SpatialSVCEncoderOptions configures a VP9 spatial-SVC access-unit
 // encoder. Layer options are ordered from base layer to highest spatial layer;
@@ -63,11 +68,11 @@ func (r VP9SpatialSVCEncodeResult) RTPPacketizationSize(mtu int) (int, int, erro
 		if err != nil {
 			return 0, 0, err
 		}
-		packets, err = rtpAddPayloadSize(packets, layerPackets)
+		packets, err = vpxrtp.AddPayloadSize(packets, layerPackets)
 		if err != nil {
 			return 0, 0, err
 		}
-		payloadBytes, err = rtpAddPayloadSize(payloadBytes, layerBytes)
+		payloadBytes, err = vpxrtp.AddPayloadSize(payloadBytes, layerBytes)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -189,7 +194,7 @@ func (r VP9SpatialSVCEncodeResult) vp9SpatialSVCRTPFrame(
 	}
 	desc := layer.RTPPayloadDescriptor()
 	if layerID == 0 {
-		if !r.ScalabilityStructure.isZero() {
+		if !vp9rtp.ScalabilityStructureIsZero(r.ScalabilityStructure) {
 			desc.ScalabilityStructurePresent = true
 			desc.ScalabilityStructure = r.ScalabilityStructure
 		}
