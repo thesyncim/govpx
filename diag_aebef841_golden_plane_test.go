@@ -30,8 +30,8 @@ import (
 //
 // Post-#237 state: NO mismatch at any probed frame. Retained as a
 // regression probe for future SPLITMV / reference-handling work — any
-// reintroduced drift in encoder_reconstruct.go,
-// encoder_reference_buffers.go, internal/vp8/common/loopfilter*, or
+// reintroduced drift in vp8_encoder_reconstruct.go,
+// vp8_encoder_reference_buffers.go, internal/vp8/common/loopfilter*, or
 // the post-frame YV12 border-extend path will surface here as a
 // non-zero "REF MISMATCH" log line and a DIAG249_RESULT mismatch=true
 // summary the parent agent can grep.
@@ -160,7 +160,7 @@ func TestDiagAebef841GoldenPlane(t *testing.T) {
 		t.Logf("FIRST REF MISMATCH frame=%d ref=%s — GOLDEN/LAST/ALTREF reference content diverges BEFORE the picker runs",
 			firstMismatchFrame, firstMismatchRef)
 	} else {
-		t.Logf("NO REF MISMATCH at any probed frame — reference plane content is byte-identical between govpx and libvpx; SPLITMV-GOLDEN per-Y-block divergence is NOT due to reference image content. Pivot to label-RD picker (encoder_inter_split.go labelRD.rateDistortion).")
+		t.Logf("NO REF MISMATCH at any probed frame — reference plane content is byte-identical between govpx and libvpx; SPLITMV-GOLDEN per-Y-block divergence is NOT due to reference image content. Pivot to label-RD picker (vp8_encoder_inter_split.go labelRD.rateDistortion).")
 	}
 	// Spot-check first GOLDEN ref mismatch (if any) by dumping the 16x16
 	// Y window around MB(2,1) (rows 16..31, cols 32..47).

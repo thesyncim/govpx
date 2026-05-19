@@ -250,10 +250,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 	// AFTER vp8cx_frame_init_quantizer consumes it; across
 	// vp8_encode_frame boundaries x->act_zbin_adj is never touched).
 	// govpx already mirrors that carry in
-	// e.activityProbeStaleActZbinAdj (encoder_tuning.go
+	// e.activityProbeStaleActZbinAdj (vp8_encoder_tuning.go
 	// captureActivityProbeStaleActZbinAdj sets it from
 	// tunedZbinAdjustment(rows-1, cols-1) after each completed
-	// attempt; encoder_lifecycle.go resets it to 0 at encoder reset).
+	// attempt; vp8_encoder_lifecycle.go resets it to 0 at encoder reset).
 	pickerActZbinAdj := e.activityProbeStaleActZbinAdj
 	for row := range rows {
 		var leftTok vp8enc.TokenContextPlanes

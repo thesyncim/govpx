@@ -1297,7 +1297,7 @@ func (t *twoPassState) pass2ActiveWorstQOverride() (int, bool) {
 // greater than the >600 / >1000 thresholds, so the high-motion branch
 // always fires by default).
 //
-// Read by encoder_frame.go to plumb the value into rateControlState's
+// Read by vp8_encoder_frame.go to plumb the value into rateControlState's
 // `gfuBoost` field before `selectQuantizerForFrameKindWithAltRef` so
 // `libvpxActiveQuantizerBoundsForFrame` selects between
 // `kf_low_motion_minq` / `kf_high_motion_minq` (libvpx onyx_if.c:3626

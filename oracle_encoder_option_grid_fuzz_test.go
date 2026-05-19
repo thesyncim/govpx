@@ -87,7 +87,7 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 		govpxFrames := encodeFramesWithGovpx(t, opts, sources)
 		// Task #369: govpx is now deterministic across host load at
 		// threads>=2 thanks to the inter-frame budget/3 wall-clock pin
-		// (interFrameAutoSpeedTimingCompensation, encoder_config.go).
+		// (interFrameAutoSpeedTimingCompensation, vp8_encoder_config.go).
 		// The libvpx oracle is still byte-flaky at threads>=2 for
 		// several VP8 configs (notably the 1f411689 seed#7 cohort:
 		// 640x360 RT cpu_used=0 threads=2 CBR, where libvpx cycles

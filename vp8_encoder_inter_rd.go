@@ -349,7 +349,7 @@ func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
 // into the heavy-RT range where ZEROMV is already favored by rate-control).
 //
 // The Speed-conditioned half of this gate is delegated to
-// libvpxRealtimeCPISpeedForZeroMVLastAdjGate (encoder_config.go), which
+// libvpxRealtimeCPISpeedForZeroMVLastAdjGate (vp8_encoder_config.go), which
 // returns the libvpx-realistic cpi->Speed (matching the targeted-gate
 // pattern of tasks #350 / #361 / #363 / #364). The downstream effect on
 // encode_breakout sensitivity is documented in that helper's comment:

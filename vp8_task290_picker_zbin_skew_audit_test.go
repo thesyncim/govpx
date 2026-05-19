@@ -24,16 +24,16 @@ import (
 // consult tunedZbinAdjustment(mbRow, mbCol) for the per-MB value in
 // every inter-frame RD picker subroutine:
 //
-//   - encoder_inter_rd.go:85-90 — estimateInterResidualRDAccounting
+//   - vp8_encoder_inter_rd.go:85-90 — estimateInterResidualRDAccounting
 //     WithModeContext (the main inter-residual scorer used by every
 //     non-INTRA, non-SPLITMV candidate in selectRDInterFrameModeDecision).
-//   - encoder_inter_modes_rd_intra.go:23-28 — estimateInterIntraModeRDScore
+//   - vp8_encoder_inter_modes_rd_intra.go:23-28 — estimateInterIntraModeRDScore
 //     (the INTRA candidate scorer at mode_index==0).
-//   - encoder_inter_modes_rd_split.go:81-85 — selectInterFrameSplitModeRDScore
+//   - vp8_encoder_inter_modes_rd_split.go:81-85 — selectInterFrameSplitModeRDScore
 //     (SPLITMV picker label sweep init).
-//   - encoder_inter_modes_rd_split.go:203-208 — split-mode RD accounting after
+//   - vp8_encoder_inter_modes_rd_split.go:203-208 — split-mode RD accounting after
 //     the label sweep.
-//   - encoder_inter_modes_fast_helpers.go:91-95 — the fast picker
+//   - vp8_encoder_inter_modes_fast_helpers.go:91-95 — the fast picker
 //     (selectFastInterFrameModeDecision, not on this cohort but listed
 //     for completeness).
 //
@@ -46,16 +46,16 @@ import (
 //	  }
 //	}
 //
-// The accepted-path mirrors the SAME expression at encoder_reconstruct.go:269
+// The accepted-path mirrors the SAME expression at vp8_encoder_reconstruct.go:269
 // (KF intra), :652 (inter B_PRED intra), :713 (inter non-B_PRED). Since
 // e.activityMap is built ONCE per frame in prepareTuningActivityMap()
 // BEFORE encode_mb_row starts (no in-row mutation), tunedZbinAdjustment
-// (encoder_tuning.go:426) returns the SAME value for any given (row, col)
+// (vp8_encoder_tuning.go:426) returns the SAME value for any given (row, col)
 // regardless of when in the encode loop it is called.
 //
 // Therefore picker and accepted-path observe BYTE-IDENTICAL actZbinAdj for
 // every MB. The interRDCoeffCache's reusability check at
-// encoder_inter_coefficients.go:178 (`c.actZbinAdj == args.actZbinAdj`)
+// vp8_encoder_inter_coefficients.go:178 (`c.actZbinAdj == args.actZbinAdj`)
 // further confirms this: if the picker stored a different actZbinAdj than
 // the accepted-path requested, the cache would refuse to fire and the
 // accepted-path would re-FDCT from scratch — task #288 already verified
@@ -84,7 +84,7 @@ import (
 //	   including the chroma-MV derivation
 //	   `(mvRow + 1 + sign(mvRow)) / 2 & fullpixel_mask`.
 //	#3 residual gather slice ordering — gatherMacroblockUVResiduals4x4
-//	   (encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
+//	   (vp8_encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
 //	   (encodemb.c:78-92).
 //
 // References:
@@ -98,8 +98,8 @@ import (
 //     zbin_mode_boost combined with THIS MB's act_zbin_adj).
 //   - vp8_byte0_kf_1280x720_ssim_best_arnr_audit_test.go (BestQuality pin).
 //   - vp8_byte0_kf_1280x720_ssim_good_arnr_audit_test.go (GoodQuality pin).
-//   - encoder_inter_rd.go (picker actZbinAdj call site).
-//   - encoder_reconstruct.go (accepted-path actZbinAdj call site).
+//   - vp8_encoder_inter_rd.go (picker actZbinAdj call site).
+//   - vp8_encoder_reconstruct.go (accepted-path actZbinAdj call site).
 func TestVP8Task290PickerAcceptedZbinAdjParity(t *testing.T) {
 	// Code-inspection style: assert that tunedZbinAdjustment returns a
 	// deterministic per-MB value once the activity map is built, so any

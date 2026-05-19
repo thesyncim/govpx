@@ -252,7 +252,7 @@ func TestOracleSplitMVDecisionMatchRate(t *testing.T) {
 }
 
 // splitMVDecision is the subset of an oracle "mb" trace row used for SPLITMV
-// match-rate computation. Field names mirror encoder_oracle_trace.go's
+// match-rate computation. Field names mirror vp8_encoder_oracle_trace.go's
 // oracleTraceMBRow SPLITMV fields.
 type splitMVDecision struct {
 	Mode       string

@@ -83,7 +83,7 @@ import (
 //	yStride=roundUp(coded+2*border, align=32),
 //	uStride=roundUp(uvWidth+2*uvBorder, align=32)). For 1280x720
 //	with border=32 (the encoder's reference allocator,
-//	encoder_loopfilter.go:11-22), both yield yStride=1344,
+//	vp8_encoder_loopfilter.go:11-22), both yield yStride=1344,
 //	uStride=672 == yStride>>1. govpx
 //	(internal/vp8/decoder/reconstruct_inter_fast.go:216-244)
 //	computes:
@@ -146,7 +146,7 @@ import (
 //	xd->subpixel_predict8x8 = vp8_sixtap_predict8x8). govpx
 //	consults cfg.UseBilinear which the encoder passes as the
 //	zero-value (UseBilinear=false) at
-//	encoder_analysis_reconstruct.go:366-368, matching libvpx's
+//	vp8_encoder_analysis_reconstruct.go:366-368, matching libvpx's
 //	version-0 default.
 //
 // (d) Sub-pel filter kernel:
@@ -185,7 +185,7 @@ import (
 // the remaining unexamined candidate per task #284's walk order is:
 //
 //	#3 residual gather slice ordering — gatherMacroblockUVResiduals4x4
-//	   (encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
+//	   (vp8_encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
 //	   (encodemb.c:33-41) interaction with vp8_setup_block_ptrs
 //	   (encodeframe.c:973-996) where block 20..23 (V plane) src_diff
 //	   offsets sit at base+320 with 8-pitch storage.
@@ -214,8 +214,8 @@ import (
 //     scalar kernels).
 //   - internal/vp8/tables/filter.go:5-31 (filter tables).
 //   - internal/vp8/common/frame.go:154-200 (yStride/uStride layout).
-//   - encoder_loopfilter.go:11-22 (reference frame border=32 setup).
-//   - encoder_analysis_reconstruct.go:361-369
+//   - vp8_encoder_loopfilter.go:11-22 (reference frame border=32 setup).
+//   - vp8_encoder_analysis_reconstruct.go:361-369
 //     (reconstructInterAnalysisMacroblock dispatch).
 //   - vp8_byte0_kf_1280x720_ssim_best_arnr_audit_test.go (BestQuality
 //     pin).

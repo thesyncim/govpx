@@ -46,7 +46,7 @@ import (
 //     (vp8cx_mb_init_quantizer call under xd->segmentation_enabled).
 //   - libvpx v1.16.0 vp8/encoder/onyx_if.c:3779
 //     (cyclic_background_refresh flips segmentation_enabled on every CBR KF).
-//   - encoder_reconstruct.go buildReconstructingKeyFrameCoefficients
+//   - vp8_encoder_reconstruct.go buildReconstructingKeyFrameCoefficients
 //     (govpx picker honors per-MB tunedZbinAdjustment when segmentation
 //     is enabled — picked up by both CBR and VBR seeds in this cohort).
 func TestVP8Task268Bucket1KFParity(t *testing.T) {

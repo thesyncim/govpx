@@ -12,7 +12,7 @@ import (
 // `regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74` fuzz seed of
 // FuzzOracleEncoderRuntimeControlTransitions. The matchLimit=4 tolerance
 // that gated this seed was removed by task #218
-// (encoder_inter_modes_rd_split.go SPLITMV skip-backout `&& stats.rateUV
+// (vp8_encoder_inter_modes_rd_split.go SPLITMV skip-backout `&& stats.rateUV
 // == 0` drop); oracleRuntimeControlFuzzMatchLimit now returns 0 and the
 // seed asserts byte-exact across all 9 frames. The historical analysis
 // below remains as a regression sentinel.
@@ -75,7 +75,7 @@ import (
 //
 // SPECIFIC GAP (where the next port has to land):
 //
-//   - In govpx's RD picker (encoder_inter_modes_rd.go:79+
+//   - In govpx's RD picker (vp8_encoder_inter_modes_rd.go:79+
 //     selectRDInterFrameModeDecision), the SPLITMV candidates (mode_index
 //     16, 17, 18) are silently skipped at MB(0,0) of frame 4 because
 //     `selectInterFrameSplitModeRDScore` returns ok=false (no partition
@@ -121,7 +121,7 @@ import (
 //     in encode_frame_to_data_rate's recode loop body (after
 //     vp8_encode_frame returns, before vp8_estimate_entropy_savings
 //     subtracts from projected_frame_size). The govpx-side equivalent
-//     point is encoder_attempts.go after each attempt's encode pass
+//     point is vp8_encoder_attempts.go after each attempt's encode pass
 //     completes and before the recode regulator runs.
 //
 //   - Once the first diverging iteration's projected_frame_size is
@@ -195,13 +195,13 @@ import (
 //
 // GOVPX SOURCE REFERENCES:
 //
-//   - encoder_inter_modes_rd.go:25-450          selectRDInterFrameModeDecision
-//   - encoder_inter_speed.go:270-617            interModeRDThresholds*
-//   - encoder_inter_speed.go:446-489            resetInterRDThresholdMultipliers / beginInterRDModeDecisionFrame
-//   - encoder_inter_speed.go:539-588            lower/raise inter RD threshold helpers
-//   - encoder_reconstruct.go:86-110             libvpxFastInterModeOrder /
+//   - vp8_encoder_inter_modes_rd.go:25-450          selectRDInterFrameModeDecision
+//   - vp8_encoder_inter_speed.go:270-617            interModeRDThresholds*
+//   - vp8_encoder_inter_speed.go:446-489            resetInterRDThresholdMultipliers / beginInterRDModeDecisionFrame
+//   - vp8_encoder_inter_speed.go:539-588            lower/raise inter RD threshold helpers
+//   - vp8_encoder_reconstruct.go:86-110             libvpxFastInterModeOrder /
 //     libvpxFastRefFrameOrder / libvpxInterModeCount
-//   - encoder_inter_modes_refs.go:8-40          interReferenceSearchOrder /
+//   - vp8_encoder_inter_modes_refs.go:8-40          interReferenceSearchOrder /
 //     interReferenceBySearchSlot
 //   - ratecontrol_recode.go:23-200              frameSizeRecodeQuantizer*
 //   - ratecontrol_postencode.go:325-410         updateRateCorrectionFactor /
@@ -240,5 +240,5 @@ func TestVP8Task211Bb41d74RecodeLoopAudit(t *testing.T) {
 	// 64x64_300kbps_spm8_f9_src0_0bb41d74. The diag_bb41d74_test.go
 	// file (build-tagged `diag`) remains available as a per-frame state
 	// probe should any future regression land on this cohort.
-	t.Skip("closed by task #218 (encoder_inter_modes_rd_split.go SPLITMV skip-backout); seed asserts strict byte-exact at matchLimit=0")
+	t.Skip("closed by task #218 (vp8_encoder_inter_modes_rd_split.go SPLITMV skip-backout); seed asserts strict byte-exact at matchLimit=0")
 }

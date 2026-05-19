@@ -27,7 +27,7 @@ import (
 // DIVERGENCE ROOT CAUSE:
 //
 // Task #218 (e331af27) ported the verbatim libvpx SPLITMV skip-backout gate
-// (encoder_inter_modes_rd_split.go:265 dropped `&& stats.rateUV == 0`).
+// (vp8_encoder_inter_modes_rd_split.go:265 dropped `&& stats.rateUV == 0`).
 // The fix matches vp8/encoder/rdopt.c:1700 calculate_final_rd_costs but
 // surfaced a second-order picker delta at MB(2,1) frame 2 SPLITMV-GOLDEN
 // that propagates to frame 6.
@@ -77,7 +77,7 @@ import (
 // produce same Y residual. libvpx's vp8_encode_inter_mb_segment emits
 // src_diff[block 2]=[169,105,105,105,...] producing coeff[DC]=968 and
 // quantize eob=16. govpx's selectShape → selectMotion →
-// labelRD.rateDistortion path (encoder_inter_split.go:509) uses
+// labelRD.rateDistortion path (vp8_encoder_inter_split.go:509) uses
 // predictSplitMotionBlock4x4 + fillSplitMotionResidual4x4 with the same
 // (block, MV, ref) inputs but produces all-zero qcoeffs and eob=0 for
 // every Y block (SegmentTTEOB=0).
@@ -115,13 +115,13 @@ import (
 //
 // GOVPX SOURCE REFERENCES:
 //
-//   - encoder_inter_modes_rd_split.go:42-196   selectInterFrameSplitModeRDScore
-//   - encoder_inter_modes_rd_split.go:198-291  estimateInterSplitResidualRDAccounting
-//   - encoder_inter_split.go:140-213           splitMotionShapeContext.selectShape
-//   - encoder_inter_split.go:329-440           selectMotion
-//   - encoder_inter_split.go:509-554           labelRD.rateDistortion
-//   - encoder_inter_split.go:556-605           predictSplitMotionBlock4x4
-//   - encoder_inter_split.go:630-640           fillSplitMotionResidual4x4
+//   - vp8_encoder_inter_modes_rd_split.go:42-196   selectInterFrameSplitModeRDScore
+//   - vp8_encoder_inter_modes_rd_split.go:198-291  estimateInterSplitResidualRDAccounting
+//   - vp8_encoder_inter_split.go:140-213           splitMotionShapeContext.selectShape
+//   - vp8_encoder_inter_split.go:329-440           selectMotion
+//   - vp8_encoder_inter_split.go:509-554           labelRD.rateDistortion
+//   - vp8_encoder_inter_split.go:556-605           predictSplitMotionBlock4x4
+//   - vp8_encoder_inter_split.go:630-640           fillSplitMotionResidual4x4
 //
 // HARNESS REFERENCES:
 //
@@ -153,5 +153,5 @@ func TestVP8Task226Aebef841Frame6PickerAudit(t *testing.T) {
 	// winning mode's tteob; it now mirrors the libvpx side-effect via
 	// lastTTEOB. matchLimit dropped 6 -> 0 in
 	// oracleRuntimeControlFuzzMatchLimit.
-	t.Skip("closed by task #237; lastTTEOB port in encoder_inter_split.go selectMotion mirrors libvpx rdopt.c:1124-1180 xd->eobs side-effect")
+	t.Skip("closed by task #237; lastTTEOB port in vp8_encoder_inter_split.go selectMotion mirrors libvpx rdopt.c:1124-1180 xd->eobs side-effect")
 }

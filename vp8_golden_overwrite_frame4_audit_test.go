@@ -69,10 +69,10 @@ import (
 //  1. vp8_set_reference (vp8/encoder/onyx_if.c:2443-2462). libvpx
 //     copies the user-supplied YV12 buffer into cm->yv12_fb[ref_fb_idx]
 //     keyed off the selector (LAST/GOLDEN/ALTREF -> lst/gld/alt_fb_idx).
-//     govpx SetReferenceFrame (encoder_reference_controls.go:17)
+//     govpx SetReferenceFrame (vp8_encoder_reference_controls.go:17)
 //     dispatches through referenceAliasGroup so a write to ReferenceGolden
 //     also propagates to ReferenceLast / ReferenceAltRef when the
-//     post-keyframe alias map (encoder_reference_buffers.go:19-21) is
+//     post-keyframe alias map (vp8_encoder_reference_buffers.go:19-21) is
 //     still in effect. Frame 1 of this seed fires the
 //     setref:golden:panning:8 path immediately after the keyframe (all
 //     three alias bits are true at that point) — govpx writes panning[8]
@@ -90,7 +90,7 @@ import (
 //     copy_buffer_to_arf / copy_buffer_to_gf flags. govpx mirrors the
 //     index swap as a yv12 buffer COPY in
 //     refreshInterFrameReferencesFromAnalysis
-//     (encoder_reference_buffers.go:67-88), which is observationally
+//     (vp8_encoder_reference_buffers.go:67-88), which is observationally
 //     equivalent up to extend-borders / stride invariants. The frame 1
 //     byte-MATCH (which exercises refresh_last_frame=1 + golden/alt
 //     unchanged) and frame 2 byte-MATCH (which runs after the deadline
@@ -123,7 +123,7 @@ import (
 //     (vp8/encoder/onyx_if.c:1539). vp8_change_config zeroes the
 //     pending-refresh-flags signal on every invocation. govpx clears
 //     the per-frame refresh-mask state via `armExternalRefreshMask`
-//     at encode entry (encoder_frame.go:108) and re-derives from
+//     at encode entry (vp8_encoder_frame.go:108) and re-derives from
 //     `flags` each frame; no cross-frame carryover. The frame-3 ARNR
 //     control burst (which fires vp8_change_config 3x between encodes)
 //     is therefore idempotent on this field. Frame 3 byte-MATCH
@@ -132,7 +132,7 @@ import (
 //  6. cpi->alt_ref_source = NULL / cpi->is_src_frame_alt_ref = 0
 //     (vp8/encoder/onyx_if.c:1718-1719). vp8_change_config resets the
 //     alt-ref source pointer on every invocation. govpx tracks
-//     altRefSourcePTS/altRefSourceValid (encoder.go:665-666) only
+//     altRefSourcePTS/altRefSourceValid (vp8_encoder.go:665-666) only
 //     when lookahead is enabled. This seed runs with
 //     EncoderOptions.LagInFrames = 0 (oracleRuntimeBaseFuzzOptions),
 //     so lookaheadEnabled() returns false and altRefSourceValid is
@@ -201,17 +201,17 @@ import (
 //
 // REFERENCES (govpx):
 //
-//   - encoder_reference_controls.go:17         SetReferenceFrame
-//   - encoder_reference_controls.go:32         setReferenceFrameNow
-//   - encoder_reference_controls.go:220        referenceAliasGroup
-//   - encoder_reference_buffers.go:67-88       refreshInterFrameReferencesFromAnalysis
-//   - encoder_reference_buffers.go:108-129     copyInterFrameReferences (copy_buffer_to_*)
-//   - encoder_config.go:526                    SetDeadline
-//   - encoder_config.go:553                    SetCPUUsed
-//   - encoder_config.go:868                    applyVP8ChangeConfigRuntimeSideEffects
-//   - encoder_config.go:861                    applyChangeConfigSpeedReset
-//   - encoder_config.go:992-1040               SetARNR / setARNR{Max,Strength,Type}
-//   - encoder_loopfilter.go:122                forceNextLFDeltaUpdate (task #181 zeroed last_*)
+//   - vp8_encoder_reference_controls.go:17         SetReferenceFrame
+//   - vp8_encoder_reference_controls.go:32         setReferenceFrameNow
+//   - vp8_encoder_reference_controls.go:220        referenceAliasGroup
+//   - vp8_encoder_reference_buffers.go:67-88       refreshInterFrameReferencesFromAnalysis
+//   - vp8_encoder_reference_buffers.go:108-129     copyInterFrameReferences (copy_buffer_to_*)
+//   - vp8_encoder_config.go:526                    SetDeadline
+//   - vp8_encoder_config.go:553                    SetCPUUsed
+//   - vp8_encoder_config.go:868                    applyVP8ChangeConfigRuntimeSideEffects
+//   - vp8_encoder_config.go:861                    applyChangeConfigSpeedReset
+//   - vp8_encoder_config.go:992-1040               SetARNR / setARNR{Max,Strength,Type}
+//   - vp8_encoder_loopfilter.go:122                forceNextLFDeltaUpdate (task #181 zeroed last_*)
 //   - ratecontrol.go:414                       applyVP8ChangeConfigQuantizerClamp
 //   - ratecontrol.go:429                       applyVP8ChangeConfigRateModel
 //
@@ -227,7 +227,7 @@ func TestVP8GoldenOverwriteFrame4DivergenceAudit(t *testing.T) {
 	}
 	// Skip-by-design: this audit documents the historical divergence on
 	// the 0bb41d74 seed for task #187. The gap was closed by task #218
-	// (encoder_inter_modes_rd_split.go SPLITMV skip-backout port); the
+	// (vp8_encoder_inter_modes_rd_split.go SPLITMV skip-backout port); the
 	// seed now asserts strict byte-exact at matchLimit=0 inside
 	// FuzzOracleEncoderRuntimeControlTransitions /
 	// regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74.

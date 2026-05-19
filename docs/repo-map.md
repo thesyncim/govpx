@@ -43,9 +43,9 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 | Cluster | Current files | Target owner |
 | --- | --- | --- |
 | Public shared surface | `codec.go`, `errors.go`, `image.go`, `rtp.go`, `streaminfo.go`, `temporal.go`, `doc.go` | Root facade; stream-info parsing now delegates to codec-owned decoder packages |
-| VP8 public encode/decode facade | `encoder.go`, `decoder.go`, public parts of `encoder_config.go`, `ratecontrol.go` | Root facade forwarding to `internal/vp8/{encoder,decoder}` |
-| VP8 encoder implementation | `encoder_*.go`, `ratecontrol_*.go`, VP8-specific parts of `encoder_config.go`, root encoder tests | `internal/vp8/encoder` |
-| VP8 decoder implementation | `decoder.go` plus existing `internal/vp8/decoder` internals | `internal/vp8/decoder` |
+| VP8 public encode/decode facade | `vp8_encoder.go`, `vp8_decoder.go`, public parts of `vp8_encoder_config.go`, `ratecontrol.go` | Root facade forwarding to `internal/vp8/{encoder,decoder}` |
+| VP8 encoder implementation | `vp8_encoder_*.go`, `ratecontrol_*.go`, VP8-specific parts of `vp8_encoder_config.go`, root VP8 encoder tests | `internal/vp8/encoder` |
+| VP8 decoder implementation | `vp8_decoder.go` plus existing `internal/vp8/decoder` internals | `internal/vp8/decoder` |
 | VP8 RTP helpers | root `vp8_rtp.go` facade, `internal/vp8/rtp/rtp.go`, `vp8_rtp_test.go`, `vp8_rtp_fuzz_test.go` | Root facade plus `internal/vp8/rtp` and shared `internal/vpx/rtp` mechanics |
 | VP9 public encode/decode facade | public parts of `vp9_encoder.go`, `vp9_decoder.go`, `vp9_encoder_config.go`, VP9 first-pass/result/options types | Root facade forwarding to `internal/vp9/{encoder,decoder}` |
 | VP9 encoder implementation | `vp9_encoder*.go`, `vp9_*` encoder/rate-control/AQ/TPL/partition/threading files, VP9 encoder tests | `internal/vp9/encoder` |
@@ -87,11 +87,11 @@ Largest hand-authored root implementation files:
 | 2,123 | `vp9_speed_features.go` | Move as VP9 encoder config/speed feature ownership |
 | 1,847 | `vp9_decoder.go` | Split public facade from decoder state/lifecycle before move |
 | 1,547 | `vp9_decoder_modes.go` | Move with VP9 decoder internals |
-| 1,726 | `encoder_config.go` | Split public VP8 options from private normalized config |
-| 1,486 | `encoder_twopass_state.go` | Move with VP8 encoder two-pass internals |
-| 1,360 | `encoder.go` | Split VP8 public type/methods from encoder state |
+| 1,726 | `vp8_encoder_config.go` | Split public VP8 options from private normalized config |
+| 1,486 | `vp8_encoder_twopass_state.go` | Move with VP8 encoder two-pass internals |
+| 1,360 | `vp8_encoder.go` | Split VP8 public type/methods from encoder state |
 | 1,343 | `vp9_spatial_svc.go` | Keep public SVC facade small; move implementation helpers |
-| 1,301 | `encoder_frame.go` | Move with VP8 encoder frame encode path |
+| 1,301 | `vp8_encoder_frame.go` | Move with VP8 encoder frame encode path |
 
 Largest root test files:
 
@@ -103,7 +103,7 @@ Largest root test files:
 | 5,323 | `oracle_encoder_stream_parity_runtime_controls_test.go` | Split runtime-control matrix from helpers |
 | 1,956 | `feature_quality_gates_vp8_test.go` | Move quality gates near benchmark/validation ownership |
 | 1,938 | `vp9_encoder_vpxenc_oracle_test.go` | Split VP9 vpxenc parity cases |
-| 1,771 | `encoder_runtime_controls_test.go` | Move with VP8 encoder runtime-control tests |
+| 1,771 | `vp8_encoder_runtime_controls_test.go` | Move with VP8 encoder runtime-control tests |
 | 1,706 | `vp9_spatial_svc_test.go` | Split SVC public API and implementation cases |
 
 Largest internal codec files are already below the 2,500-line implementation
@@ -249,11 +249,11 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 2 | VP9 encoder split | `vp9_encoder.go`, new `vp9_encoder_*.go`, focused `vp9_encoder_*_test.go` | Same package, no behavior change |
 | 2 | VP9 decoder split | `vp9_decoder.go`, `vp9_decoder_test.go`, new focused VP9 decoder files | Same package, no behavior change |
 | 2 | VP9 oracle scoreboard split | `vp9_oracle_stream_parity_scoreboard_test.go`, VP9 oracle helper files | Keep `govpx_oracle_trace` tags |
-| 2 | VP8 encoder oversized files | `encoder.go`, `encoder_config.go`, `encoder_runtime_controls_test.go`, `encoder_ratecontrol_paths_test.go` | Split public option shell from private config |
+| 2 | VP8 encoder oversized files | `vp8_encoder.go`, `vp8_encoder_config.go`, `vp8_encoder_runtime_controls_test.go`, `vp8_encoder_ratecontrol_paths_test.go` | Split public option shell from private config |
 | 2 | Root diagnostic naming | `vp8_task*_test.go`, `vp8_byte*_test.go`, `diag_*_test.go` | Rename only; no expectation changes |
-| 3 | VP8 decoder move | root `decoder*.go` private pieces, `internal/vp8/decoder/**` | Root keeps `VP8Decoder` facade |
-| 3 | VP8 encoder move | root `encoder*.go`, `ratecontrol*.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Root keeps `VP8Encoder` facade |
-| 3/4 | VP8 source-buffer move | root `encoder_source_buffer.go`, VP8 lookahead/preprocess/reference call sites, `internal/vp8/encoder/source_buffer.go` | Current branch: internal VP8 encoder owns source-to-frame copy, active-map partial copy, and visible-to-coded padding; root keeps public/internal image-view adapters only |
+| 3 | VP8 decoder move | root `vp8_decoder*.go` private pieces, `internal/vp8/decoder/**` | Root keeps `VP8Decoder` facade |
+| 3 | VP8 encoder move | root `vp8_encoder*.go`, `ratecontrol*.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Root keeps `VP8Encoder` facade |
+| 3/4 | VP8 source-buffer move | root `vp8_encoder_source_buffer.go`, VP8 lookahead/preprocess/reference call sites, `internal/vp8/encoder/source_buffer.go` | Current branch: internal VP8 encoder owns source-to-frame copy, active-map partial copy, and visible-to-coded padding; root keeps public/internal image-view adapters only |
 | 3 | VP9 decoder move | root `vp9_decoder*.go`, VP9 decoder tests, `internal/vp9/decoder/**` | Root keeps `VP9Decoder` facade |
 | 3 | VP9 encoder move | root `vp9_*` encoder/ratecontrol/AQ/TPL files, VP9 encoder tests, `internal/vp9/encoder/**` | Move after same-package split |
 | 3/4 | RTP ownership move | root `rtp.go`, `vp8_rtp.go`, `vp9_rtp.go`, `internal/vpx/{errors,rtp}/**`, `internal/vp{8,9}/rtp/**`, RTP tests/fuzz | Current branch: root files are public facade aliases/wrappers; descriptor logic lives in codec-owned internal packages; shared mechanics cover payload sizing, fragment sizing, packet buffer checks, marker placement, frame assembly copy loops, and sentinel errors only |
@@ -284,8 +284,8 @@ packet owner if they are created from an owned file.
 | Owner lane | Exclusive paths |
 | --- | --- |
 | Public facade lane | `codec.go`, `errors.go`, `image.go`, `rtp.go`, `streaminfo.go`, `temporal.go`, `doc.go`, future `options.go`, `vp8.go`, `vp9.go`, `example_test.go` |
-| VP8 encoder lane | root `encoder*.go`, `ratecontrol*.go`, VP8 encoder/root rate-control tests, `internal/vp8/encoder/**` |
-| VP8 decoder lane | root `decoder*.go`, VP8 decoder tests, `internal/vp8/decoder/**` |
+| VP8 encoder lane | root `vp8_encoder*.go`, `ratecontrol*.go`, VP8 encoder/root rate-control tests, `internal/vp8/encoder/**` |
+| VP8 decoder lane | root `vp8_decoder*.go`, VP8 decoder tests, `internal/vp8/decoder/**` |
 | VP8 DSP/common lane | `internal/vp8/{boolcoder,common,dsp,mem,scale,tables}/**` |
 | VP8 RTP lane | root `vp8_rtp.go`, `vp8_rtp_test.go`, `vp8_rtp_fuzz_test.go`, `internal/vp8/rtp/**` |
 | VP9 encoder lane | `vp9_encoder*.go`, `vp9_*` encoder/ratecontrol/AQ/TPL/partition files, VP9 encoder tests, `internal/vp9/encoder/**` |

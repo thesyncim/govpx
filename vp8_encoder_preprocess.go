@@ -47,7 +47,7 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 	// every subsequent encode-pass read of `cpi->Source` consumes the filtered
 	// output rather than the raw lookahead frame. govpx schedules the hidden
 	// ARF emission with the EncodeInvisibleFrame|EncodeForceAltRefFrame flag
-	// pair (see `autoAltRefHiddenFlags` in encoder_altref_driver.go), so the
+	// pair (see `autoAltRefHiddenFlags` in vp8_encoder_altref_driver.go), so the
 	// same flag pair gates the filter here. Without the gate, ARNR runs on
 	// every popped frame including the keyframe, which mutates the source
 	// before the keyframe encode reads it and pushes Y reconstruction off

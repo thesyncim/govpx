@@ -365,7 +365,7 @@ func (e *VP8Encoder) oracleTraceActivityState(mbRow int, mbCol int) (mbActivity 
 	// e.rc.currentQuantizer, which is set per-frame (keyframe or inter)
 	// before the macroblock loop runs. e.interRDFrameBaseQIndex is the
 	// inter-only snapshot taken at beginInterRDModeDecisionFrame and is
-	// stale on keyframes (initialized to 0 by encoder_lifecycle.go:182).
+	// stale on keyframes (initialized to 0 by vp8_encoder_lifecycle.go:182).
 	qIndex := vp8common.ClampQIndex(e.rc.currentQuantizer)
 	baseRDMult, _ := libvpxRDConstants(qIndex)
 	rdmultInt := baseRDMult

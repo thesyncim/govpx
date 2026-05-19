@@ -231,7 +231,7 @@ func TestOracleInterDecisionMatchRate(t *testing.T) {
 }
 
 // mbDecision is the subset of an oracle "mb" trace row used for match-rate
-// computation. Field names mirror encoder_oracle_trace.go::oracleTraceMBRow.
+// computation. Field names mirror vp8_encoder_oracle_trace.go::oracleTraceMBRow.
 type mbDecision struct {
 	Mode      string
 	RefFrame  string

@@ -431,7 +431,7 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 //
 // libvpx applies no Speed/cpu_used gate at this read site, and the two
 // downstream consumers — pickinter.c:507 (evaluate_inter_mode ZEROMV-LAST
-// rd_adj=100 reset, mirrored at encoder_inter_rd.go:251,291) and
+// rd_adj=100 reset, mirrored at vp8_encoder_inter_rd.go:251,291) and
 // pickinter.c:1230 (denoiser increase_denoising guard) — are also Speed-
 // agnostic. The only gate on libvpx VP8 skin consumption is
 // !cpi->oxcf.screen_content_mode, which the ScreenContentMode branch below

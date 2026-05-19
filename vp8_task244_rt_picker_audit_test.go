@@ -36,16 +36,16 @@ import (
 //
 // GOVPX MIRRORS:
 //
-//	encoder_config.go libvpxCPUUsed: negative-cpu RT falls back to
+//	vp8_encoder_config.go libvpxCPUUsed: negative-cpu RT falls back to
 //	  libvpxSpeedFeatureCPUUsed → -cpu_used (positive), matching libvpx's
 //	  encodeframe.c:686-687 pin.
-//	encoder_inter_speed.go interAnalysisSearchConfig: builds the fast-
+//	vp8_encoder_inter_speed.go interAnalysisSearchConfig: builds the fast-
 //	  picker search config from libvpxCPUUsed(). All four pickinter.c
 //	  gates above mirror in: libvpxInterFrameSpeedAdjust (line 929),
 //	  libvpxInterFrameFurtherSteps (line 1006), the speed>4/>8/>=15
 //	  hex/half/skip cascade (onyx_if.c Mode==2 lines 953/1012/1023), and
 //	  libvpxInterFrameImprovedMVPredictionForFeatureSpeed (Speed>6 gate).
-//	encoder_inter_rd.go fastZeroMVLastAdjustmentEligible: gates the
+//	vp8_encoder_inter_rd.go fastZeroMVLastAdjustmentEligible: gates the
 //	  pickinter.c:756 (cpi->Speed < 12) zeromv_rd_adjustment cutoff via
 //	  libvpxCPUUsed() >= 12, matching the Speed=12 cutoff exactly for
 //	  cpu_used = -12.

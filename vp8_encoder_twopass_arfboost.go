@@ -83,7 +83,7 @@ package govpx
 // branch always behaves as `flash_detected == 0` and the decay /
 // break-out logic collapses to the unconditional path. The verbatim
 // flash plumbing is recoverable by surfacing the detect_flash helper
-// from encoder_twopass_stats.go's `libvpxTestCandidateKeyFrame` family
+// from vp8_encoder_twopass_stats.go's `libvpxTestCandidateKeyFrame` family
 // if a future corpus exposes it.
 //
 // Returned values are libvpx-identical: f_boost = (forward_score*100)>>4,

@@ -7,7 +7,7 @@ import (
 )
 
 // frameRow returns a JSON Lines-encoded "frame" row matching the schema in
-// encoder_oracle_trace.go. Helper kept inside the test file so the test does
+// vp8_encoder_oracle_trace.go. Helper kept inside the test file so the test does
 // not depend on the encoder package and CompareOracleTraces stays
 // reader-only.
 func frameRow(frameIndex int, qIndex int, refreshLast bool, yAdler uint32) string {
@@ -25,7 +25,7 @@ func frameRowFull(frameIndex int, qIndex int, frameType string, refreshLast bool
 // frameRowLF is the full-control variant that also threads the LF-delta
 // fields (sharpness, ref/mode deltas, enabled/update flags) so tests can
 // exercise the libvpx-side oracle's per-frame loop-filter delta rows. The
-// schema mirrors oracleTraceFrameRow in encoder_oracle_trace.go.
+// schema mirrors oracleTraceFrameRow in vp8_encoder_oracle_trace.go.
 func frameRowLF(frameIndex int, qIndex int, frameType string, refreshLast bool, yAdler uint32, refreshEntropyProbs bool, defaultCoefReset bool, sharpness int, refLFDeltas [4]int, modeLFDeltas [4]int, modeRefDeltaEnabled bool, modeRefDeltaUpdate bool) string {
 	return strings.Join([]string{
 		"{\"type\":\"frame\"",
@@ -55,7 +55,7 @@ func frameRowLF(frameIndex int, qIndex int, frameType string, refreshLast bool, 
 }
 
 // rateRow returns a JSON Lines-encoded "rate" row matching the schema in
-// encoder_oracle_trace.go (oracleTraceRateRow). The helper takes the rare
+// vp8_encoder_oracle_trace.go (oracleTraceRateRow). The helper takes the rare
 // fields likely to vary in tests; the rest stay at deterministic defaults
 // so the comparator's union-of-keys diff stays focused on the field under
 // test.
@@ -85,7 +85,7 @@ func rateRowFull(frameIndex, qIndex, activeWorst, bufferLevel, projected, frameT
 }
 
 // recodeRow returns a JSON Lines-encoded "recode" row matching the schema
-// in encoder_oracle_trace.go (oracleTraceRecodeRow).
+// in vp8_encoder_oracle_trace.go (oracleTraceRecodeRow).
 func recodeRow(frameIndex, loopCount, finalQ int, reason string) string {
 	return strings.Join([]string{
 		"{\"type\":\"recode\"",
@@ -641,7 +641,7 @@ func TestCompareOracleTracesDetectsLoopFilterDeltaDivergence(t *testing.T) {
 
 // mbRowImprovedMVJSON emits an "mb" row with the improved-MV predictor
 // fields populated. Mirrors the schema in oracleTraceMBRow
-// (encoder_oracle_trace.go) and the libvpx-side emit in
+// (vp8_encoder_oracle_trace.go) and the libvpx-side emit in
 // build_vpxenc_oracle.sh.
 func mbRowImprovedMVJSON(frameIndex, mbRow, mbCol int, mode, ref string, mvRow, mvCol int, skip bool, eobSum int, improvedStart bool, improvedNearSAD, improvedRow, improvedCol, improvedSR int) string {
 	return strings.Join([]string{
@@ -775,7 +775,7 @@ func TestCompareOracleTracesDetectsKeyFrameIntraModeDivergence(t *testing.T) {
 // digests (coef_probs_adler, ymode_probs_adler, uv_mode_probs_adler,
 // mv_probs_adler) and the per-frame reference probabilities
 // (prob_intra_coded, prob_last_coded, prob_gf_coded). The schema mirrors
-// oracleTraceFrameRow in encoder_oracle_trace.go and the libvpx-side row
+// oracleTraceFrameRow in vp8_encoder_oracle_trace.go and the libvpx-side row
 // in build_vpxenc_oracle.sh. Other frame-level fields stay at deterministic
 // defaults so the comparator's union-of-keys diff focuses on the
 // probability-state fields under test.

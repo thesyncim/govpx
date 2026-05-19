@@ -92,7 +92,7 @@ func TestVP8Task362SubPelSearchGateColdStartUnchanged(t *testing.T) {
 // cascade gates at vp8/encoder/onyx_if.c:954/1012/1023.
 //
 // Note: govpx's e.autoSpeed seeds at cpu_used on frame 0 (see
-// libvpxAutoSelectSpeed cold-start branch in encoder_config.go:715),
+// libvpxAutoSelectSpeed cold-start branch in vp8_encoder_config.go:715),
 // then evolves under the task #278 inter-frame wall-clock pin. The
 // gate's job is to override that pin-suppressed value with the libvpx-
 // realistic cpu_used+1 trajectory specifically for the fractional sub-

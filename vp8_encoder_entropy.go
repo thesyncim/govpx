@@ -134,7 +134,7 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt, sh
 // `mb_row_ei[i].mb.ymode_count` / `uv_mode_count` accumulation forward
 // after a successful MT keyframe commit. Mirrors libvpx
 // vp8/encoder/encodeframe.c:1067 sum_intra_stats (called for every KF
-// MB via vp8cx_encode_intra_macroblock). See encoder.go
+// MB via vp8cx_encode_intra_macroblock). See vp8_encoder.go
 // mtHelperYModeCountAccum and absorbInterFrameMTHelperRowIntraCounts
 // for the common accumulator semantics.
 func (e *VP8Encoder) absorbKeyFrameMTHelperRowIntraCounts() {
@@ -165,7 +165,7 @@ func (e *VP8Encoder) absorbKeyFrameMTHelperRowIntraCounts() {
 
 // absorbInterFrameMTHelperRowIntraCounts rolls libvpx's per-helper
 // `mb_row_ei[i].mb.ymode_count` / `uv_mode_count` accumulation forward
-// after a successful MT inter frame commit. See encoder.go
+// after a successful MT inter frame commit. See vp8_encoder.go
 // mtHelperYModeCountAccum and the InterFramePacket.YModeCountBias bias
 // hand-off; called from commitInterFrameAttempt.
 //

@@ -18,7 +18,7 @@ import (
 //
 // govpx mirrors that with VP8Encoder.lastChangeConfigWidth/Height: the
 // snapshot is consulted only in applyVP8ChangeConfigResolutionChangeKeyFrame
-// (encoder_config.go), and the cached rate-control frameWidth/frameHeight
+// (vp8_encoder_config.go), and the cached rate-control frameWidth/frameHeight
 // (rateControlState.libvpxClampToRawTargetRate) is updated to the NEW
 // dimensions via setFrameDimensions inside applyResolutionChange BEFORE
 // applyVP8ChangeConfigRuntimeSideEffects runs. This audit walks a
@@ -217,7 +217,7 @@ func TestVP8Task245ChangeConfigConsumerThreeStageResize(t *testing.T) {
 // rateControlState.frameWidth/frameHeight that
 // libvpxClampToRawTargetRate consults; applyResolutionChange refreshes
 // those via setFrameDimensions BEFORE applyVP8ChangeConfigRuntimeSideEffects
-// runs the rate-model recompute (encoder_alloc.go:101).
+// runs the rate-model recompute (vp8_encoder_alloc.go:101).
 //
 // The audit drives a resize from a small frame at a high target bitrate
 // to a smaller frame, and asserts the cached frame dims update to the

@@ -12,14 +12,14 @@ import (
 // between govpx (18072 rows on BestARNR frame 1) and libvpx (28800 rows
 // = 3600 MBs * 8 chroma blocks). The 10728-row gap = 1341 MBs * 8 blocks
 // is fully explained by govpx's `breakoutSkip` short-circuit at
-// encoder_reconstruct.go:693-696:
+// vp8_encoder_reconstruct.go:693-696:
 //
 //	breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
 //	    (modes[index].MBSkipCoeff || staticBreakout)
 //	if breakoutSkip { clearMacroblockCoefficients(&coeffs[index]); }
 //
 // `modes[index].MBSkipCoeff` is set true by the picker
-// (encoder_inter_rd.go:158 `mbSkipCoeff := stats.tteob == 0`) whenever
+// (vp8_encoder_inter_rd.go:158 `mbSkipCoeff := stats.tteob == 0`) whenever
 // the picker's whole-MB token-tail EOB sum is zero — i.e. every block
 // quantized to all-zero coefficients in the picker's RD pass.
 //
@@ -163,20 +163,20 @@ import (
 //   - vp8/vp8_cx_iface.c:66 0 default static_thresh
 //
 // govpx mirror:
-//   - encoder_reconstruct.go:693-696 breakoutSkip → skip chroma encode
-//   - encoder_inter_rd.go:158 mbSkipCoeff = stats.tteob == 0
-//   - encoder_inter_modes_rd.go:502 mode.MBSkipCoeff = mbSkipCoeff ||
+//   - vp8_encoder_reconstruct.go:693-696 breakoutSkip → skip chroma encode
+//   - vp8_encoder_inter_rd.go:158 mbSkipCoeff = stats.tteob == 0
+//   - vp8_encoder_inter_modes_rd.go:502 mode.MBSkipCoeff = mbSkipCoeff ||
 //     mode.MBSkipCoeff (propagates picker decision to accepted-mode)
-//   - encoder_inter_breakout.go:35-52 staticInterRDEncodeBreakoutDistortion
+//   - vp8_encoder_inter_breakout.go:35-52 staticInterRDEncodeBreakoutDistortion
 //     (gated on encodeBreakout > 0 = StaticThreshold > 0; off for the
 //     BestARNR cohort)
-//   - encoder_inter_quantize.go optimizeQuantizedBlockWithRDConstants
+//   - vp8_encoder_inter_quantize.go optimizeQuantizedBlockWithRDConstants
 //     (eob==0 fast-exit is functionally byte-equivalent to libvpx's
 //     "run optimize_b on zero qcoeff" no-op path)
 func TestVP8Task331ChromaResidualUpstreamAuditIterationCountGap(t *testing.T) {
 	// Pin the picker's MBSkipCoeff-via-tteob==0 semantics on the
 	// `stats.tteob` boundary. estimateInterResidualRDAccounting at
-	// encoder_inter_rd.go:158 computes:
+	// vp8_encoder_inter_rd.go:158 computes:
 	//   mbSkipCoeff := stats.tteob == 0
 	// This is fed to interFrameModeDecision and back to the accepted
 	// path via mode.MBSkipCoeff. The breakoutSkip short-circuit gates

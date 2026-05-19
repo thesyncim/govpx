@@ -92,7 +92,7 @@ func oracleRuntimeControlFuzzMatchLimit(_ string) int {
 	// this gate to limit=0 (or remove the pin) the moment #212 closes
 	// and frames 4-8 match byte-for-byte.
 	// Task #218 (CLOSED for 0bb41d74): the bb41d74 frame-4 SPLITMV skip-
-	// backout port (encoder_inter_modes_rd_split.go: drop the spurious
+	// backout port (vp8_encoder_inter_modes_rd_split.go: drop the spurious
 	// `&& stats.rateUV == 0` clause from mbSkipCoeff) closes frames 0-8
 	// byte-exact. The matchLimit=4 carveout is removed.
 	//

@@ -23,7 +23,7 @@ import (
 // `rd_threshes[mode_index]` per MB from `rd_thresh_mult[]`, with
 // frame-level resets routed through vp8_initialize_rd_consts and
 // vp8_set_speed_features in onyx_if.c. govpx mirrors that mutation
-// state machine in encoder_reconstruct.go (interModeRDThresholds*,
+// state machine in vp8_encoder_reconstruct.go (interModeRDThresholds*,
 // raise/lowerInterRDThreshold*, beginInterRDModeDecisionFrame). This
 // test is the parity sentinel for that state machine: any divergence
 // in the per-frame `rd_threshes` evolution surfaces as a `threshold`

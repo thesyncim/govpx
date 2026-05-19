@@ -286,7 +286,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	}
 	var mode vp8enc.KeyFrameMacroblockMode
 	var projectedRate int
-	// See encoder_reconstruct.go: libvpx's use_fastquant_for_pick only
+	// See vp8_encoder_reconstruct.go: libvpx's use_fastquant_for_pick only
 	// swaps x->quantize_b in the inter macroblock path; KF intra picking
 	// uses the speed-feature default (regular when improved_quant==1).
 	// Match that here with libvpxUseFastQuant.
@@ -296,7 +296,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		// libvpx-stale picker actZbinAdj: pickerActZbinAdj holds the
 		// previous MB's post-pick value (or 0 at row start). The per-MB
 		// actZbinAdj computed above seeds pickerActZbinAdj for the next
-		// MB after this picker returns. See encoder_reconstruct.go for
+		// MB after this picker returns. See vp8_encoder_reconstruct.go for
 		// the libvpx anchor.
 		//
 		// libvpx vp8/encoder/encodeframe.c line 427-438: when

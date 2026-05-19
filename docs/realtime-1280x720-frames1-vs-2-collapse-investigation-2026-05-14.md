@@ -202,25 +202,25 @@ smaller for `frames=2` even though the wall times are similar.
   warm up the encoder, reset it, then measure the encode loop.
 - `cmd/govpx-bench/benchcmd/libvpx.go:86` to `cmd/govpx-bench/benchcmd/libvpx.go:94`
   choose wall timing unless parsed `vpxenc` timing is available.
-- `encoder_reference_decisions.go:405` to `encoder_reference_decisions.go:420`
+- `vp8_encoder_reference_decisions.go:405` to `vp8_encoder_reference_decisions.go:420`
   make frame zero a keyframe.
-- `encoder_frame.go:498` to `encoder_frame.go:500` enter
+- `vp8_encoder_frame.go:498` to `vp8_encoder_frame.go:500` enter
   `encodeInterFrameWithQuantizerFeedback` for non-keyframes.
-- `encoder_attempts.go:566` to `encoder_attempts.go:587` time and run inter
+- `vp8_encoder_attempts.go:566` to `vp8_encoder_attempts.go:587` time and run inter
   reconstruction/coefficient building.
-- `encoder_attempts.go:591` to `encoder_attempts.go:598` time loop-filter
+- `vp8_encoder_attempts.go:591` to `vp8_encoder_attempts.go:598` time loop-filter
   level selection.
-- `encoder_reconstruct.go:468` to `encoder_reconstruct.go:502` walk the
+- `vp8_encoder_reconstruct.go:468` to `vp8_encoder_reconstruct.go:502` walk the
   inter-frame macroblock grid and call `selectInterFrameModeDecision`. For
   1280x720 this is 80 by 45 macroblocks, or 3,600 decisions.
-- `encoder_inter_modes.go:82` to `encoder_inter_modes.go:96` select the
+- `vp8_encoder_inter_modes.go:82` to `vp8_encoder_inter_modes.go:96` select the
   realtime fast inter-mode picker when RD mode decision is disabled.
-- `encoder_inter_modes_fast.go:215` to `encoder_inter_modes_fast.go:244`
+- `vp8_encoder_inter_modes_fast.go:215` to `vp8_encoder_inter_modes_fast.go:244`
   invoke `interFrameMotionVectorSearch.selectFast()` for `NewMV` candidates.
-- `encoder_inter_motion_subpel.go:301` to
-  `encoder_inter_motion_subpel.go:320` call `dsp.SubpelVariance16x16` for
+- `vp8_encoder_inter_motion_subpel.go:301` to
+  `vp8_encoder_inter_motion_subpel.go:320` call `dsp.SubpelVariance16x16` for
   sub-pixel candidates.
-- `encoder_inter_motion_subpel.go:328` starts the iterative half-pel and
+- `vp8_encoder_inter_motion_subpel.go:328` starts the iterative half-pel and
   quarter-pel refinement path.
 
 ## Suggested Fixes

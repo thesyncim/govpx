@@ -76,7 +76,7 @@ type rowEncoderState struct {
 	//     block[i].zbin_extra zero-init from
 	//     vp8cx_create_encoder_threads:521-523 memset plus setup_mbby_copy
 	//     copying the master's freshly zeroed act_zbin_adj).
-	// See encoder_reconstruct.go for the single-thread anchor.
+	// See vp8_encoder_reconstruct.go for the single-thread anchor.
 	pickerActZbinAdj int
 
 	// scratch is the row-private intra reconstruction scratch reused
@@ -340,7 +340,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	// The inter-frame picker does not currently thread pickerActZbinAdj
 	// through the per-MB candidate evaluation (the inter rdopt path reads
 	// b->zbin_extra after vp8_update_zbin_extra runs INSIDE the candidate
-	// loop at rdopt.c:1930 — see encoder_inter_modes_rd.go), but we keep
+	// loop at rdopt.c:1930 — see vp8_encoder_inter_modes_rd.go), but we keep
 	// the field consistent so future inter-side ports can read it without
 	// stitching.
 	if workerIndex == 0 {

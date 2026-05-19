@@ -407,7 +407,7 @@ const (
 	vp8MaxQIndex                    = 127
 
 	// libvpx vp8/encoder/onyx_int.h GF interval defaults.
-	// libvpxMinGFInterval is declared in encoder_firstpass.go.
+	// libvpxMinGFInterval is declared in vp8_encoder_firstpass.go.
 	libvpxDefaultGFInterval = 7
 	keyFrameContextSize     = 5
 )

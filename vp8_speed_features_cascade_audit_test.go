@@ -25,13 +25,13 @@ import (
 // libvpx field → govpx mirror (libvpx v1.16.0, onyx_if.c line):
 //
 //	sf->optimize_coefficients (line 929 set to 0 in case 2)
-//	  → e.libvpxOptimizeCoefficients()       (encoder_inter_speed.go:122)
+//	  → e.libvpxOptimizeCoefficients()       (vp8_encoder_inter_speed.go:122)
 //
 //	sf->recode_loop           (line 930 set to 0 in case 2)
-//	  → libvpxSpeedFeatureRecodeLoop()       (encoder_config.go:644)
+//	  → libvpxSpeedFeatureRecodeLoop()       (vp8_encoder_config.go:644)
 //
 //	sf->auto_filter           (lines 931/944/948/952)
-//	  → !e.loopFilterUsesFastSearch()        (encoder_loopfilter.go:204)
+//	  → !e.loopFilterUsesFastSearch()        (vp8_encoder_loopfilter.go:204)
 //
 //	sf->iterative_sub_pixel,
 //	sf->quarter_pixel_search,
@@ -40,31 +40,31 @@ import (
 //	                          (lines 932/954/1012/1023 + dispatch
 //	                           lines 1064-1071)
 //	  → e.interAnalysisSearchConfig().fractionalSearch
-//	                                           (encoder_inter_speed.go:67)
+//	                                           (vp8_encoder_inter_speed.go:67)
 //
 //	sf->search_method         (lines 933/953)
 //	  → e.interAnalysisSearchConfig().fullPixelSearch (NSTEP vs HEX)
 //
 //	sf->improved_quant        (line 936)
-//	  → !e.libvpxUseFastQuant()              (encoder_inter_speed.go:133,
+//	  → !e.libvpxUseFastQuant()              (vp8_encoder_inter_speed.go:133,
 //	                                          fast quant fires when
 //	                                          improved_quant==0)
 //
 //	sf->use_fastquant_for_pick(line 939)
-//	  → e.libvpxUseFastQuantForPick()        (encoder_inter_speed.go:144)
+//	  → e.libvpxUseFastQuantForPick()        (vp8_encoder_inter_speed.go:144)
 //
 //	sf->no_skip_block4x4_search(line 940)
-//	  → e.interAnalysisNoSkipBlock4x4Search()(encoder_inter_speed.go:217)
+//	  → e.interAnalysisNoSkipBlock4x4Search()(vp8_encoder_inter_speed.go:217)
 //
 //	sf->first_step            (line 941)
-//	  → libvpxInterFrameFirstStepForFeatureSpeed (encoder_inter_speed.go:233)
+//	  → libvpxInterFrameFirstStepForFeatureSpeed (vp8_encoder_inter_speed.go:233)
 //
 //	sf->RD                    (line 947)
-//	  → e.interAnalysisUsesRDModeDecision()  (encoder_inter_speed.go:111)
+//	  → e.interAnalysisUsesRDModeDecision()  (vp8_encoder_inter_speed.go:111)
 //
 //	sf->improved_mv_pred      (line 1009 in case 2 Speed > 6 block)
 //	  → libvpxInterFrameImprovedMVPredictionForFeatureSpeed
-//	                                           (encoder_inter_speed.go:266)
+//	                                           (vp8_encoder_inter_speed.go:266)
 //
 // The test is exhaustive across cpi->Speed in {3, 4, 5, 6, 7, 8, 9, 10,
 // 11, 12, 14, 15} and asserts every govpx mirror returns the
@@ -563,7 +563,7 @@ func libvpxFurtherFormulaForRD(rd bool) string {
 // testing NEW1 even after raising other thresholds.
 //
 // govpx mirror: libvpxInterModeCheckFrequenciesForCPISpeed
-// (encoder_inter_speed.go:780) substitutes new1Speed=16 when
+// (vp8_encoder_inter_speed.go:780) substitutes new1Speed=16 when
 // deadline==DeadlineRealtime && speed==10.
 func TestVP8SpeedFeaturesNew1ModeCheckFreqMirrorsLibvpxSpeed10(t *testing.T) {
 	// At Speed=10 (RT cpu_used=-10), new1Speed lookup uses 16 (= RT(9)).

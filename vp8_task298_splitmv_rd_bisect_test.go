@@ -50,7 +50,7 @@ import (
 // commit any partition and selectInterFrameSplitModeRDScore returns
 // ok=false (outcome="splitmv_rd_dropout" surfaced by the new trace
 // probes), so govpx never tests SPLITMV/LAST. The root cause is in
-// govpx's picker-side Y quantize for NEWMV: see encoder_inter_rd.go:132
+// govpx's picker-side Y quantize for NEWMV: see vp8_encoder_inter_rd.go:132
 // (estimateInterResidualRDAccountingWithModeContext call to
 // buildPredictedMacroblockCoefficientsInternal) vs libvpx rdopt.c:1647
 // (macro_block_yrd). The downstream divergence is correctly localized

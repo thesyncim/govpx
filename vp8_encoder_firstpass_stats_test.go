@@ -8,7 +8,7 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// Computation walkthrough (see encoder_firstpass.go for line refs):
+// Computation walkthrough (see vp8_encoder_firstpass.go for line refs):
 //   - 32x32 image -> 4 macroblocks (2x2)
 //   - intrapenalty = 256
 //   - intra_error = sum(vp8_encode_intra-style predictor SSE + 256) >> 8
@@ -301,7 +301,7 @@ func TestFirstPassGoldenDoesNotResetOnAllIntraFallback(t *testing.T) {
 // TestFirstPassStatsRegression32x32 pins the per-frame FirstPassFrameStats
 // for a deterministic 32x32 (4 macroblock) clip. The expected values were
 // captured from this implementation against the libvpx vp8_first_pass
-// formulas (see encoder_firstpass.go). Any change to the first-pass scoring
+// formulas (see vp8_encoder_firstpass.go). Any change to the first-pass scoring
 // must update these constants explicitly.
 //
 // libvpx references for each pinned field (vp8/encoder/firstpass.c):
@@ -383,7 +383,7 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 		newMVCount          float64
 	}
 	// Pinned values captured from the libvpx-aligned implementation in
-	// encoder_firstpass.go. Update these in lock-step with the formulas
+	// vp8_encoder_firstpass.go. Update these in lock-step with the formulas
 	// above when libvpx-parity work touches the first-pass scoring.
 	want := []expect{
 		// Frame 0: no LAST yet, so all motion-related fields are zero.

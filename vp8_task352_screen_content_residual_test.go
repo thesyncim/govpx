@@ -63,7 +63,7 @@ import (
 //   - the active_map / x->active_ptr path
 //
 // Task #365 update (2026-05-19): per-iter rfct/prob_intra instrumentation
-// (added to encoder_attempts.go / encoder_oracle_trace.go and the libvpx
+// (added to vp8_encoder_attempts.go / vp8_encoder_oracle_trace.go and the libvpx
 // oracle patch in internal/coracle/build_vpxenc_oracle.sh) localized the
 // REAL divergence. govpx and libvpx are BYTE-IDENTICAL on (q, rfct_*,
 // pre/post_prob_*, projected_frame_size, raw_rate, rate_correction_factor)

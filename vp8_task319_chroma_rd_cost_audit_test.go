@@ -32,7 +32,7 @@ import (
 //	  - blockPlaneRDMultiplier(2) == 2 against libvpx UV_RD_MULT.
 //	  - tunedRDMultiplier (the activity-masking lift) against
 //	    vp8_activity_masking's formula.
-//	The trace-emit fix lives in encoder_inter_coefficients.go (the
+//	The trace-emit fix lives in vp8_encoder_inter_coefficients.go (the
 //	traceChromaOptimizeB block emits the threaded `rdMult` value, not
 //	the raw libvpxRDConstantsWithZbin output).
 //
@@ -50,13 +50,13 @@ import (
 //     per-MB lift: x->rdmult = (rdmult * (2*act + avg) + (a>>1)) / (act + 2*avg).
 //
 // govpx mirror:
-//   - encoder_token_cost.go:291-313 libvpxRDConstantsWithZbin
+//   - vp8_encoder_token_cost.go:291-313 libvpxRDConstantsWithZbin
 //     — pre-applies the >1000 split.
-//   - encoder_inter_coeff_rate.go:24-33 blockPlaneRDMultiplier
+//   - vp8_encoder_inter_coeff_rate.go:24-33 blockPlaneRDMultiplier
 //     — switch returning {Y2:16, UV:2, default:4}.
-//   - encoder_tuning.go:340-363 tunedRDMultiplier
+//   - vp8_encoder_tuning.go:340-363 tunedRDMultiplier
 //     — SSIM activity lift, deterministic per (mbRow, mbCol).
-//   - encoder_inter_quantize.go:158-182 optimizeQuantizedBlockWithRDConstants
+//   - vp8_encoder_inter_quantize.go:158-182 optimizeQuantizedBlockWithRDConstants
 //     — rdMult *= blockPlaneRDMultiplier(blockType); intra (rdMult*9)>>4.
 //
 // The audit walks the full govpx chroma-RDCOST input chain for every qindex

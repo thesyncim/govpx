@@ -1,7 +1,7 @@
 // Package coracle hosts the libvpx oracle helpers and trace comparator. This
 // file provides a stream-based comparator that walks the per-frame and per-MB
 // JSON Lines emitted by govpx's encoder oracle (see
-// ../../encoder_oracle_trace.go) alongside the equivalent stream produced by
+// ../../vp8_encoder_oracle_trace.go) alongside the equivalent stream produced by
 // the patched libvpx vpxenc (see build_vpxenc.sh) and reports field-level
 // divergences. The comparator is read-only and pure Go; it is independent of
 // cgo and the libvpx build, so it can be unit-tested against synthetic JSONL
@@ -74,7 +74,7 @@ type CompareOptions struct {
 
 // CompareOracleTraces walks the two JSON Lines streams in lockstep and
 // reports the first MaxDivergences mismatches. The streams are expected to
-// follow the schema documented in ../../encoder_oracle_trace.go: per
+// follow the schema documented in ../../vp8_encoder_oracle_trace.go: per
 // encoded frame both sides emit a {"type":"rate", ...} row, optionally a
 // {"type":"recode", ...} row when the recode loop ran more than once,
 // then a {"type":"frame", ...} row, and finally zero or more

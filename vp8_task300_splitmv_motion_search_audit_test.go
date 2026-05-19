@@ -26,7 +26,7 @@ import (
 //     before BLOCK_8X16, BLOCK_16X8 and BLOCK_4X4 and restored afterwards
 //     (rdopt.c:1297-1301).
 //
-// Before task #300, govpx's selectMotion in encoder_inter_split.go applied
+// Before task #300, govpx's selectMotion in vp8_encoder_inter_split.go applied
 // the speed-mode intersection unconditionally for partitions 0, 1 and 3 even
 // in best mode. On the 1280x720 SSIM-best screen-content cohort (sibling
 // pins #297 / #293 / #299 ARNR audit), bestRefMV at MB(0,0) frame 1 is the
@@ -182,7 +182,7 @@ func testTask300BoundsFrameOrigin(t *testing.T) {
 }
 
 // task300SubsetBoundsAtPartition mirrors the bounds selection inside
-// selectMotion (encoder_inter_split.go) so the test can probe each branch
+// selectMotion (vp8_encoder_inter_split.go) so the test can probe each branch
 // in isolation. Keeping this helper close to the production logic makes
 // future bounds-rule changes mechanically detectable.
 func task300SubsetBoundsAtPartition(ctx *splitMotionSubsetContext, mbRows int, mbCols int) interFrameFullPixelBounds {
@@ -195,7 +195,7 @@ func task300SubsetBoundsAtPartition(ctx *splitMotionSubsetContext, mbRows int, m
 // task300_assertion is a compile-time check that splitMotionSubsetContext.
 // compressorSpeed exists at the offset where selectMotion reads it. The
 // field is consumed only inside selectMotion at the per-label bounds
-// selection — see encoder_inter_split.go. A reflect-style assertion would
+// selection — see vp8_encoder_inter_split.go. A reflect-style assertion would
 // rely on reflect plus introspection on private types; a simple struct
 // literal pinned here is enough to guarantee the field's presence at the
 // type level.

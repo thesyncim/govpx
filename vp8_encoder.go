@@ -729,7 +729,7 @@ type VP8Encoder struct {
 	// alternate-reference driver. Emitting a hidden ARF in EncodeInto does
 	// not pop the lookahead, leaving it at capacity; the user's source frame
 	// is stashed here and flushed into the lookahead on the next call. The
-	// stash is populated/consumed exclusively by encoder_altref_driver.go.
+	// stash is populated/consumed exclusively by vp8_encoder_altref_driver.go.
 	autoAltRefStashValid    bool
 	autoAltRefStashFrame    vp8common.FrameBuffer
 	autoAltRefStashPTS      uint64
@@ -1275,7 +1275,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// libvpx.
 	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
 	// Mirror libvpx vp8_cx_iface.c:377-378 auto_key derivation. See the
-	// equivalent comment in encoder_lifecycle.go resetEncoderState.
+	// equivalent comment in vp8_encoder_lifecycle.go resetEncoderState.
 	e.rc.autoKeyFrames = !e.keyFramesDisabled && normalized.KeyFrameInterval > 0
 	e.keyFrameFrequency = normalized.KeyFrameInterval
 	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =

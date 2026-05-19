@@ -11,7 +11,7 @@ package dsp
 // The wrappers pull the slice base pointers via unsafe.SliceData so the
 // dispatch stays inlineable and free of the runtime.panicBounds + stack
 // frame the compiler emits for &src[0] / &ref[0]. Callers in the motion
-// search hot path (encoder_reconstruct.go) always pass non-empty slices
+// search hot path (vp8_encoder_reconstruct.go) always pass non-empty slices
 // shaped to cover the read window, matching the implicit contract of
 // the underlying SSE2/AVX2 kernels.
 

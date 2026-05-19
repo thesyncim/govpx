@@ -64,7 +64,7 @@ import (
 //	confirmed that experiment with a fresh probe: threading the stale-
 //	previous-MB actZbinAdj through `predictBestKeyFrameIntraModeWith
 //	RDConstants` in `buildReconstructingKeyFrameCoefficientsWithSegmentation
-//	Serial` (encoder_reconstruct.go) shifts 94eb71d5 frame 0 from 20570 to
+//	Serial` (vp8_encoder_reconstruct.go) shifts 94eb71d5 frame 0 from 20570 to
 //	20583 (opposite-direction overshoot of libvpx 20575 by +8 bytes) and
 //	shifts frame 1 from 1146 to 1132 (worsening from -5 to -19). The port
 //	is libvpx-faithful to encodeframe.c:1099-1108 (picker runs BEFORE
@@ -175,7 +175,7 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// re-interpret what this audit captured. Task #213 closed the
 	// activity-probe recon divergence; task #236 then ported libvpx's
 	// stale BLOCK->zbin_extra carry into the per-MB intra RD picker
-	// (see encoder_reconstruct.go pickerActZbinAdj comment), which
+	// (see vp8_encoder_reconstruct.go pickerActZbinAdj comment), which
 	// fixed the residual MB(0,69) B_PRED block-9 picker flip on the
 	// task #227 seed 19981bff (this exact config). Task #236 left the
 	// frame-0 KF within +5 bytes and frame-1 within +3.
@@ -225,13 +225,13 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// tuples for these MBs and identical Y2 qcoeff[24] (eob=16, exact
 	// values), which implies the per-block luma DC pre-Walsh inputs
 	// match — so the inline ZBIN_EXTRA_Y formula at
-	// `quantizeBlockWithZbinAndActivity` (encoder_inter_quantize.go) IS
+	// `quantizeBlockWithZbinAndActivity` (vp8_encoder_inter_quantize.go) IS
 	// equivalent to libvpx's `b->zbin_extra = (Y1dequant[Q][1] *
 	// (zbin_over_quant + zbin_mode_boost + act_zbin_adj)) >> 7` at the
 	// quantize-input boundary.
 	//
 	// Task #282 re-diagnosis: a verbatim audit of govpx's
-	// optimizeQuantizedBlockWithRDConstants (encoder_inter_quantize.go)
+	// optimizeQuantizedBlockWithRDConstants (vp8_encoder_inter_quantize.go)
 	// against libvpx's optimize_b (vp8/encoder/encodemb.c:200-356) found
 	// the trellis port byte-faithful — RDCOST + RDTRUNC tie-break,
 	// token_cost subtree elision, DefaultZigZag/DefaultInvZigZag,
@@ -253,7 +253,7 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	//       inspection, but a stride / batch-buffer drift would surface
 	//       as identical aggregate eobs with a single coeff flipped.
 	//   (3) Residual gather — gatherMacroblockUVResiduals4x4
-	//       (encoder_inter_residuals.go:38-58) vs libvpx
+	//       (vp8_encoder_inter_residuals.go:38-58) vs libvpx
 	//       vp8_subtract_mbuv (encodemb.c:78-92): also algebraically
 	//       equivalent, but the `pred.U[uOff:]` slice ordering against
 	//       the analysis-image base must match libvpx's
@@ -305,17 +305,17 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// + symbol-reference audit (vp8_task290_picker_zbin_skew_audit_test.go)
 	// disproves that hypothesis: every RD picker subroutine consults
 	// tunedZbinAdjustment(mbRow, mbCol) at entry —
-	// estimateInterResidualRDAccountingWithModeContext (encoder_inter_rd.go:85-90),
-	// estimateInterIntraModeRDScore (encoder_inter_modes_rd_intra.go:23-28),
-	// selectInterFrameSplitModeRDScore (encoder_inter_modes_rd_split.go:81-85),
+	// estimateInterResidualRDAccountingWithModeContext (vp8_encoder_inter_rd.go:85-90),
+	// estimateInterIntraModeRDScore (vp8_encoder_inter_modes_rd_intra.go:23-28),
+	// selectInterFrameSplitModeRDScore (vp8_encoder_inter_modes_rd_split.go:81-85),
 	// selectInterFrameSplitModeRDScore's accounting tail
-	// (encoder_inter_modes_rd_split.go:203-208) — and the accepted-path
-	// at encoder_reconstruct.go:652/713 uses the same expression. The
+	// (vp8_encoder_inter_modes_rd_split.go:203-208) — and the accepted-path
+	// at vp8_encoder_reconstruct.go:652/713 uses the same expression. The
 	// activity map is built once per frame in prepareTuningActivityMap
 	// before encode_mb_row starts and is never mutated in-row, so
 	// tunedZbinAdjustment is deterministic per (mbRow, mbCol) across
 	// picker and accepted-path calls. interRDCacheReusable's
-	// `actZbinAdj` equality check (encoder_inter_coefficients.go:178)
+	// `actZbinAdj` equality check (vp8_encoder_inter_coefficients.go:178)
 	// would refuse to fire if the two diverged — task #288's cache-off
 	// SHA-equality experiment additionally confirms picker/accepted
 	// actZbinAdj parity on this exact cohort. The -5/-6 byte residual
@@ -427,7 +427,7 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	//   activity quartet (mb_activity, act_zbin_adj, rdmult, activity_avg)
 	//   already pinned this match for every MB on frame 1.
 	//
-	//   Fix landed in task #319: encoder_inter_coefficients.go
+	//   Fix landed in task #319: vp8_encoder_inter_coefficients.go
 	//   traceChromaOptimizeB branch now emits the threaded `rdMult` /
 	//   `rdDiv` values (which the caller already wraps with
 	//   tunedRDMultiplier(libvpxRDConstantsWithZbin, row, col)) so the
@@ -477,7 +477,7 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// rate_y=34799. Same MV=(8,16), same ref (frame 0 reconstruction is
 	// byte-identical per the SHA pin), same source — yet different
 	// qcoeff. Static inspection of the quantize formula
-	// (encoder_inter_quantize.go quantizeBlockWithZbinAndActivity line 64
+	// (vp8_encoder_inter_quantize.go quantizeBlockWithZbinAndActivity line 64
 	// vs libvpx vp8_quantize.c:75 vp8_regular_quantize_b) is byte-faithful,
 	// so the upstream cause must surface in the actual residual /
 	// zbin_extra at picker time and requires a per-block picker-side
@@ -548,7 +548,7 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// table that govpx's `coefficientTokenCost` reads (#316's bisect
 	// covers this), the per-block dx = qcoeff*dequant - coeff distortion
 	// computation, or the shortcut |x|*dq vs |coeff| boundary check
-	// (encodemb.c:246-256 vs encoder_inter_quantize.go:259).
+	// (encodemb.c:246-256 vs vp8_encoder_inter_quantize.go:259).
 	//
 	// Task #324 chroma optimize_b per-coefficient KEEP/DROP cost audit
 	// (NEGATIVE — RETRACTS the cost-computation-bug framing):
@@ -587,7 +587,7 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	//
 	//   The residual -5 byte ARNR pin-hold has been closed by porting
 	//   libvpx's vp8cx_encode_inter_macroblock dispatch gate verbatim.
-	//   The govpx-side breakoutSkip gate at encoder_reconstruct.go:693
+	//   The govpx-side breakoutSkip gate at vp8_encoder_reconstruct.go:693
 	//   was conflating libvpx's two real x->skip=1 sources with the
 	//   picker's downstream mbmi.mb_skip_coeff signal:
 	//

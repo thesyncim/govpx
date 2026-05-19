@@ -323,7 +323,7 @@ func TestRateControlPostDropFrameDoesNotUpdateLibvpxRollingBitAverages(t *testin
 // write path against any reordering of the EMA's per-frame
 // arithmetic and guarantees the next frame's
 // estimate_max_q-equivalent (twoPassState.setRollingBits at
-// encoder_frame.go) sees the running average libvpx would.
+// vp8_encoder_frame.go) sees the running average libvpx would.
 func TestRateControlPostEncodeRollingBitsEMAOverFrameSequence(t *testing.T) {
 	rc := rateControlState{
 		mode:              RateControlCBR,
@@ -379,7 +379,7 @@ func TestRateControlPostEncodeRollingBitsEMAOverFrameSequence(t *testing.T) {
 //
 // govpx mirrors this with rc.updateRollingBitAverages (write) at
 // the postEncode hook, and twoPassState.setRollingBits (read) at
-// encoder_frame.go line 345 before frameTargetBitsWithAltRef. This
+// vp8_encoder_frame.go line 345 before frameTargetBitsWithAltRef. This
 // test runs the write step on the rateControlState and then
 // confirms that twoPassState.setRollingBits transports the
 // post-update values verbatim into the pass-2 estimator, so a
@@ -410,7 +410,7 @@ func TestRateControlPostEncodeRollingBitsFeedsSetRollingBits(t *testing.T) {
 	}
 
 	// Now transport into twoPass and confirm the pass-2 estimator
-	// observes the freshly-updated EMA. This mirrors encoder_frame.go
+	// observes the freshly-updated EMA. This mirrors vp8_encoder_frame.go
 	// line 345's e.twoPass.setRollingBits(rc.rollingActualBits,
 	// rc.rollingTargetBits) call sequenced at the start of the next
 	// frame, just before frameTargetBitsWithAltRef.

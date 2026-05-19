@@ -65,7 +65,7 @@ import (
 //     update_extracfg-driven Mode reset to BESTQUALITY).
 //
 // govpx source references:
-//   - encoder_config.go:873 applyVP8ChangeConfigRuntimeSideEffects
+//   - vp8_encoder_config.go:873 applyVP8ChangeConfigRuntimeSideEffects
 //   - internal/coracle/build_vpxenc_oracle.sh: oracle_trace.c TU
 //   - ensure_change_config_tail_hook anchor patch.
 func TestVP8Task209ChangeConfigTailAudit(t *testing.T) {

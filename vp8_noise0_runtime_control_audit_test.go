@@ -21,7 +21,7 @@ import (
 // calling `e.denoiser.reset()` whenever the runtime sensitivity went
 // to 0, which libvpx never does (the buffers and per-MB FILTER/COPY
 // state stay alive). That fix lands the SetNoiseSensitivity sticky
-// regression test (encoder_denoiser_active_test.go) at strict parity,
+// regression test (vp8_encoder_denoiser_active_test.go) at strict parity,
 // but the production 640x360 seed still fails at frame 1.
 //
 // This audit pins what the residual divergence ISN'T and, by
@@ -146,11 +146,11 @@ import (
 //     cpi->mb.MVcount aggregated by per-MB picks
 //
 // govpx source references:
-//   - encoder_config.go:967 SetNoiseSensitivity
-//   - encoder_config.go:868 applyVP8ChangeConfigRuntimeSideEffects
-//   - encoder_config.go:861 applyChangeConfigSpeedReset
-//   - encoder_loopfilter.go:122 forceNextLFDeltaUpdate (LF delta state)
-//   - encoder_loopfilter.go:89 computeLFDeltaUpdateBit (bitstream emit)
+//   - vp8_encoder_config.go:967 SetNoiseSensitivity
+//   - vp8_encoder_config.go:868 applyVP8ChangeConfigRuntimeSideEffects
+//   - vp8_encoder_config.go:861 applyChangeConfigSpeedReset
+//   - vp8_encoder_loopfilter.go:122 forceNextLFDeltaUpdate (LF delta state)
+//   - vp8_encoder_loopfilter.go:89 computeLFDeltaUpdateBit (bitstream emit)
 func TestVP8RuntimeNoiseSensitivity0SideEffectAudit(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1")

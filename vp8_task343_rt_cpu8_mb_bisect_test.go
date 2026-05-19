@@ -23,7 +23,7 @@ import (
 // porting the tteob==0 rate2 backout into the intra-in-inter-loop RD
 // picker. The RT cpu=8 path uses the FAST picker (Speed>=8 disables the
 // RD path entirely via vp8_set_speed_features), so the #341 fix
-// (estimateInterIntraModeRDScore in encoder_inter_modes_rd_intra.go)
+// (estimateInterIntraModeRDScore in vp8_encoder_inter_modes_rd_intra.go)
 // is not exercised on this fixture.
 //
 // TASK #348 AUDIT (not a port; insight only):
@@ -91,7 +91,7 @@ import (
 // via check_for_encode_breakout (line 449) based on SSE thresholds.
 // Govpx already mirrors this exactly in
 // estimateFastInterModeScoreHot / estimateFastIntraModeScore
-// (encoder_inter_rd.go:264, encoder_inter_modes_fast_helpers.go:38).
+// (vp8_encoder_inter_rd.go:264, vp8_encoder_inter_modes_fast_helpers.go:38).
 //
 // AUDIT FINDING (this task):
 //
@@ -106,7 +106,7 @@ import (
 //     libvpx tests only modes 0/1). libvpx's rd_threshes early-skip gate
 //     at pickinter.c:780 (`if (best_rd <= x->rd_threshes[mode_index])
 //     continue`) cuts the loop short faster than govpx's
-//     `bestScore <= threshold` gate at encoder_inter_modes_fast.go:688.
+//     `bestScore <= threshold` gate at vp8_encoder_inter_modes_fast.go:688.
 //     The state difference is in the dynamic rd_threshes[] evolution,
 //     not in the per-mode scoring math.
 //  2. The extra candidates govpx tests (mode 13 NEWMV-LAST, mode 4/14

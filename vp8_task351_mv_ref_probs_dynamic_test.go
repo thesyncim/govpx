@@ -21,7 +21,7 @@ import (
 //     aboveLeft neighbour MV configuration.
 //
 //  2. interPredictionModeRate(mode, counts) at
-//     encoder_inter_rate.go:227-262 reads
+//     vp8_encoder_inter_rate.go:227-262 reads
 //     vp8tables.InterModeContexts[counts.X][i]
 //     which is byte-identical to libvpx vp8_mv_ref_probs at
 //     common/findnearmv.c:150-159:
@@ -33,13 +33,13 @@ import (
 //
 //  3. The dynamic counts thread through every fast-picker and RD-picker
 //     rate site via:
-//     - encoder_inter_modes_refs.go:79 modeMVs.counts (cached once for
+//     - vp8_encoder_inter_modes_refs.go:79 modeMVs.counts (cached once for
 //     the primary ref via interModeMVSlots, matching libvpx
 //     rdopt.c:1813-1820's single vp8_find_near_mvs_bias for
 //     ref_frame_map[1])
-//     - encoder_inter_rate.go:145 InterFrameModeCounts(...) for the
+//     - vp8_encoder_inter_rate.go:145 InterFrameModeCounts(...) for the
 //     RD path
-//     - encoder_inter_modes_rd_split.go:182 ctx.modeCounts for the
+//     - vp8_encoder_inter_modes_rd_split.go:182 ctx.modeCounts for the
 //     SPLITMV partition overhead
 //
 // REPRODUCTION of the +293 cost-unit gap reported in #343 cell B
@@ -60,7 +60,7 @@ import (
 //
 //   - libvpx's rd_threshes[] early-skip gate cuts the candidate loop
 //     short faster than govpx's bestScore<=threshold gate
-//     (pickinter.c:780 vs encoder_inter_modes_fast.go:688)
+//     (pickinter.c:780 vs vp8_encoder_inter_modes_fast.go:688)
 //   - this drives a different MB-mode at MB(0,0) and earlier MBs at
 //     frame 3, which feeds DIFFERENT above/left/aboveLeft refframe/
 //     mv state into the vp8_find_near_mvs call for MB(0,1)
@@ -93,7 +93,7 @@ import (
 //   - libvpx v1.16.0 vp8/encoder/rdopt.c:797-803 vp8_cost_mv_ref
 //   - govpx internal/vp8/encoder/interframe_motion.go:75-133
 //     findNearInterMotionVectors
-//   - govpx encoder_inter_rate.go:227-262 interPredictionModeRate
+//   - govpx vp8_encoder_inter_rate.go:227-262 interPredictionModeRate
 //   - govpx vp8_task299_zeromv_mode_cost_audit_test.go (sibling pin)
 //   - govpx vp8_task343_rt_cpu8_mb_bisect_test.go (state-drift bisect)
 func TestVP8Task351MVRefProbsDynamicSentinel(t *testing.T) {

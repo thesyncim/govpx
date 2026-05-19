@@ -310,7 +310,7 @@ func TestVP8Task247ExtremeCPUUsedHalfPixelStaysEnabled(t *testing.T) {
 // last finite limit and returns the final value (INT_MAX-bounded entry in
 // libvpx, libvpxSpeedMapMax sentinel in govpx).
 //
-// Specifically (libvpx onyx_if.c:700-735, govpx encoder_inter_speed.go
+// Specifically (libvpx onyx_if.c:700-735, govpx vp8_encoder_inter_speed.go
 // :843-873). All gates expressed in terms of continuous Speed
 // (= cpi->Speed + 7 in realtime):
 //

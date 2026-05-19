@@ -313,7 +313,7 @@ func TestEncodeIntoMultiResolutionAllocatesZero(t *testing.T) {
 // makeMultiResAllocFrame mirrors cmd/govpx-bench/main.go::makeBenchmarkFrame
 // so the alloc regression guard touches the same picker / rate-control paths
 // as the bench harness that originally exposed the per-frame allocations.
-// Keeping this helper local to encoder_test.go avoids importing the bench
+// Keeping this helper local to vp8_encoder_test.go avoids importing the bench
 // package and the resulting test-only dependency cycle.
 func makeMultiResAllocFrame(width int, height int, index int) Image {
 	uvWidth := (width + 1) >> 1

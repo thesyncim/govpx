@@ -159,7 +159,7 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// Pin the historical metrics so future fix-commits surface their effect
 	// through this audit. Task #213 closed the companion 22f3d67c CBR cohort
 	// byte-exactly; task #236 then ported libvpx's stale BLOCK->zbin_extra
-	// carry into the per-MB intra RD picker (see encoder_reconstruct.go
+	// carry into the per-MB intra RD picker (see vp8_encoder_reconstruct.go
 	// pickerActZbinAdj comment), which fixed the residual MB(0,69) B_PRED
 	// block-9 picker flip on the task #227 cohort (seeds 19981bff +
 	// 788d442c — this exact GoodQuality/VBR config is the 788d442c seed
@@ -197,7 +197,7 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// when eob<=1 in `vp8_dequant_idct_add_*_block_c`, plus the Y luma
 	// eob_adjust bump in `vp8_inverse_transform_mby`). The audit confirms
 	// that the inline ZBIN_EXTRA_Y formula at
-	// `quantizeBlockWithZbinAndActivity` (encoder_inter_quantize.go) is
+	// `quantizeBlockWithZbinAndActivity` (vp8_encoder_inter_quantize.go) is
 	// algebraically identical to libvpx's `b->zbin_extra` precomputed by
 	// `vp8_update_zbin_extra` (vp8_quantize.c:410-428): both use
 	// `(Y1dequant[Q][1] * (zbin_over_quant + zbin_mode_boost +
@@ -205,7 +205,7 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// (MV_ZBIN_BOOST=4 for NEWMV/NEARESTMV/NEARMV cohorts here).
 	//
 	// Task #282 re-diagnosis: a verbatim audit of govpx's
-	// optimizeQuantizedBlockWithRDConstants (encoder_inter_quantize.go)
+	// optimizeQuantizedBlockWithRDConstants (vp8_encoder_inter_quantize.go)
 	// against libvpx's optimize_b (vp8/encoder/encodemb.c:200-356) found
 	// the trellis port byte-faithful. The cohort-specific UV blocks
 	// 20/23 scan-pos 2 (raster zigzag rc=4) divergence — pattern
@@ -223,7 +223,7 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	//       forwardDCT4x4Scalar (internal/vp8/encoder/dct.go:15-43) and
 	//       the NEON / SSE2 batch ports.
 	//   (3) Residual gather — gatherMacroblockUVResiduals4x4
-	//       (encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
+	//       (vp8_encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
 	//       (encodemb.c:78-92).
 	//
 	// Task #284 charter: extend the oracle tracer with a pre-trellis UV
@@ -269,18 +269,18 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// (vp8_task290_picker_zbin_skew_audit_test.go) disproves this:
 	// every RD picker subroutine reads tunedZbinAdjustment(mbRow, mbCol)
 	// at entry — estimateInterResidualRDAccountingWithModeContext
-	// (encoder_inter_rd.go:85-90), estimateInterIntraModeRDScore
-	// (encoder_inter_modes_rd_intra.go:23-28),
+	// (vp8_encoder_inter_rd.go:85-90), estimateInterIntraModeRDScore
+	// (vp8_encoder_inter_modes_rd_intra.go:23-28),
 	// selectInterFrameSplitModeRDScore +
-	// estimateSplitInterResidualRD (encoder_inter_modes_rd_split.go:81-85
+	// estimateSplitInterResidualRD (vp8_encoder_inter_modes_rd_split.go:81-85
 	// and :203-208) — and the accepted-path at
-	// encoder_reconstruct.go:652/713 uses the same expression. The
+	// vp8_encoder_reconstruct.go:652/713 uses the same expression. The
 	// activity map is built once per frame in prepareTuningActivityMap
 	// before encode_mb_row starts (no in-row mutation), so
 	// tunedZbinAdjustment(row, col) returns the SAME value for any
 	// (row, col) regardless of when in the encode loop it is invoked.
 	// interRDCacheReusable's `actZbinAdj` equality check
-	// (encoder_inter_coefficients.go:178) would refuse to fire if the
+	// (vp8_encoder_inter_coefficients.go:178) would refuse to fire if the
 	// picker stored a different actZbinAdj than the accepted-path
 	// requested — task #288's cache-off SHA-equality experiment
 	// additionally confirms picker/accepted actZbinAdj parity on this
@@ -503,7 +503,7 @@ func TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed(t *testing.T) {
 	// picker therefore quantizes with the current MB's zbin_extra, not
 	// the stale prev-MB value the task #236 picker uses. After threading
 	// segmentation.Enabled into the keyframe picker in
-	// encoder_reconstruct.go / encoder_row_threaded.go, this seed
+	// vp8_encoder_reconstruct.go / vp8_encoder_row_threaded.go, this seed
 	// matches libvpx byte-for-byte on both frames again.
 	wantFrame0GovpxLen := 145496
 	wantFrame0LibvpxLen := 145496

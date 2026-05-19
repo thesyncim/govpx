@@ -11,7 +11,7 @@ import (
 // keep/drop step. Libvpx caches this in `dct_value_cost[2048*2]` and indexes
 // it by `vp8_dct_value_cost_ptr + x` where x is the signed quantized
 // coefficient (vp8/encoder/encodemb.c:233 and :290). Govpx ports the table
-// inside dctValueBaseCostLUT (encoder_inter_quantize.go:411-429).
+// inside dctValueBaseCostLUT (vp8_encoder_inter_quantize.go:411-429).
 //
 // The libvpx algorithm in vp8/encoder/tokenize.c fill_value_tokens
 // (commented out at lines 39-98 — the generator that produced the embedded

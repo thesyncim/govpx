@@ -202,7 +202,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	//
 	// govpx's whole-block picker (predictBestWholeBlockIntraModeRDWithProbs*)
 	// iterates the same DC/V/H/TM candidates via wholeBlockYTransformRD
-	// (encoder_intra_pick.go:309-370) but the y2EOB/y2Q outputs are
+	// (vp8_encoder_intra_pick.go:309-370) but the y2EOB/y2Q outputs are
 	// discarded. To make the oracle trace dump match libvpx byte-exact on
 	// the residual 1280x720 SSIM seed `regression_option_grid_19981bff`
 	// (FIRST_CANON_DIV idx=2 / MB(0,2) eob_sum=109 vs 108 on origin/main),

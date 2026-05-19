@@ -476,7 +476,7 @@ func encodeBDOperatingPointVP8(opts BDRateOptionsVP8, q int, targetKbps int, app
 		}
 		// Pair on the encoder-echoed PTS. govpx passes `uint64(i)` as
 		// the per-frame PTS on EncodeInto, and the encoder echoes it
-		// on both EncodeInto and FlushInto outputs (encoder_frame.go:
+		// on both EncodeInto and FlushInto outputs (vp8_encoder_frame.go:
 		// result.PTS = pts). For visible packets this is the original
 		// input source index even when the alt-ref scheduler defers
 		// the show frame, so the pairing survives hidden/visible

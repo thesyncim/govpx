@@ -89,7 +89,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	//     accumulated rate2 from calculate_final_rd_costs (post skip-cost
 	//     backout). govpx ctx.bestYRD threads through
 	//     estimateInterResidualRDAccountingWithModeContext yrd field
-	//     (encoder_inter_rd.go:171) which uses the IDENTICAL formula
+	//     (vp8_encoder_inter_rd.go:171) which uses the IDENTICAL formula
 	//     rdModeScoreWithZbin(qIndex, zbinOverQuant, rate2 - rateUV -
 	//     otherCost - refCost, distortion2 - distortionUV).
 	//
@@ -99,7 +99,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	//     from best_mode.yrd, shrunk to shape.SegmentYRD across shapes.
 	//
 	//   - Per-label cutoff (libvpx rdopt.c:1165 `this_segment_rd >=
-	//     bsi->segment_rd break`): govpx encoder_inter_split.go:207
+	//     bsi->segment_rd break`): govpx vp8_encoder_inter_split.go:207
 	//     `segmentYRD >= ctx.segmentYRDCap` returning Cutoff=true.
 	//
 	//   - Outer per-shape commit (libvpx rdopt.c:1169 `this_segment_rd <

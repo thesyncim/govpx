@@ -973,7 +973,7 @@ func (e *VP8Encoder) emitOracleRecodeIterTrace(summary oracleTraceRecodeIterSumm
 }
 
 // emitOracleDroppedFrameTrace writes a single per-frame trace row capturing
-// a drop decision. Called from the encoder's CBR drop branch in encoder.go
+// a drop decision. Called from the encoder's CBR drop branch in vp8_encoder.go
 // after rc.postDropFrame() has committed the buffer accounting and
 // e.forceMaxQuantizer has been set, so BufferLevel and ForceMaxQP reflect
 // the post-drop state the next frame will see (matching libvpx's emission

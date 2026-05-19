@@ -86,20 +86,20 @@ macroblock grid, or 3,600 macroblock decisions.
 
 ## govpx source path
 
-- `encoder_reference_decisions.go:405` makes `e.frameCount == 0` a keyframe.
-- `encoder_frame.go:518` sends non-keyframes to
+- `vp8_encoder_reference_decisions.go:405` makes `e.frameCount == 0` a keyframe.
+- `vp8_encoder_frame.go:518` sends non-keyframes to
   `encodeInterFrameWithQuantizerFeedback`.
-- `encoder_reconstruct.go:480` to `encoder_reconstruct.go:502` walks the
+- `vp8_encoder_reconstruct.go:480` to `vp8_encoder_reconstruct.go:502` walks the
   inter-frame macroblock grid and begins a mode decision for each macroblock.
-- `encoder_inter_modes.go:82` to `encoder_inter_modes.go:96` selects the
+- `vp8_encoder_inter_modes.go:82` to `vp8_encoder_inter_modes.go:96` selects the
   realtime fast inter-mode picker when RD mode decision is disabled.
-- `encoder_inter_modes_fast.go:215` to `encoder_inter_modes_fast.go:244`
+- `vp8_encoder_inter_modes_fast.go:215` to `vp8_encoder_inter_modes_fast.go:244`
   evaluates `NEWMV` by calling `interFrameMotionVectorSearch.selectFast()`.
-- `encoder_inter_motion_subpel.go:301` to
-  `encoder_inter_motion_subpel.go:320` calls `dsp.SubpelVariance16x16` for
+- `vp8_encoder_inter_motion_subpel.go:301` to
+  `vp8_encoder_inter_motion_subpel.go:320` calls `dsp.SubpelVariance16x16` for
   quarter-pel candidates.
-- `encoder_inter_motion_subpel.go:323` to
-  `encoder_inter_motion_subpel.go:328` documents the half-pel then quarter-pel
+- `vp8_encoder_inter_motion_subpel.go:323` to
+  `vp8_encoder_inter_motion_subpel.go:328` documents the half-pel then quarter-pel
   refinement as the libvpx iterative sub-pixel path.
 
 ## libvpx source mapping

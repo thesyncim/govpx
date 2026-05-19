@@ -16,7 +16,7 @@ import (
 //
 // EXISTING INFRASTRUCTURE (no new code needed):
 //
-//   - encoder_oracle_trace_mb.go            govpx-side per-MB row emitter
+//   - vp8_encoder_oracle_trace_mb.go            govpx-side per-MB row emitter
 //     under //go:build govpx_oracle_trace.
 //     Emits one oracleTraceMBRow per
 //     encoded MB capturing
@@ -118,16 +118,16 @@ import (
 //     vp8_change_config, so the assignment is idempotent across
 //     control-driven vp8_change_config calls. govpx's
 //     ratecontrol_golden.go consumes BaselineGFInterval from
-//     framesTillGFUpdateDue (encoder_frame.go:208) which receives the
+//     framesTillGFUpdateDue (vp8_encoder_frame.go:208) which receives the
 //     same constant each frame.
 //
 //   - vp8/encoder/ethreading.c:485-486 mbs_tested_so_far /
 //     mbs_zero_last_dot_suppress reset for helper-thread MACROBLOCKs in
 //     vp8cx_init_mbrthread_data. govpx mirrors this in
-//     encoder_row_worker.go:91 (rowEncoderState.reset preserves
+//     vp8_encoder_row_worker.go:91 (rowEncoderState.reset preserves
 //     interModeTestHitCounts but expects mbs_tested_so_far reset via the
 //     subsequent beginInterRDModeDecisionFrame). Confirmed by
-//     encoder_threading_test.go TestVP8ThreadedHelperResetsBetweenFrames
+//     vp8_encoder_threading_test.go TestVP8ThreadedHelperResetsBetweenFrames
 //     (line 664+).
 //
 //   - vp8/encoder/ethreading.c:319-435 setup_mbby_copy does NOT copy or
@@ -138,7 +138,7 @@ import (
 //     persists ACROSS FRAMES from whatever the array was when the
 //     helper thread was first dispatched (typically all-zero from the
 //     cpi allocation, but it grows monotonically thereafter).
-//     govpx's rowEncoderState.reset (encoder_row_worker.go:88-92)
+//     govpx's rowEncoderState.reset (vp8_encoder_row_worker.go:88-92)
 //     mirrors this verbatim: preservedModeTestHits is reassigned after
 //     `rs.enc = *e` so the helper's existing counter survives the
 //     main-encoder snapshot copy. THIS IS THE LIBVPX BEHAVIOUR.
@@ -146,7 +146,7 @@ import (
 //   - vp8/encoder/encodeframe.c:858-860 helper-lane error_bins merge:
 //     `cpi->mb.error_bins[c_idx] += cpi->mb_row_ei[i].mb.error_bins[c_idx]`.
 //     The merge accumulates each helper's contribution onto the
-//     main-lane bin. govpx mirrors this in encoder_row_threaded.go:690
+//     main-lane bin. govpx mirrors this in vp8_encoder_row_threaded.go:690
 //     (mergeThreadedInterFrameState). The main-lane error_bins is then
 //     consumed by the next frame's vp8_set_speed_features only at
 //     Speed>=7 (case 2: branch onyx_if.c:957-1010), so the merge is
@@ -205,21 +205,21 @@ import (
 //
 // govpx source references:
 //
-//   - encoder_oracle_trace_mb.go            per-MB tracer emit functions
-//   - encoder_oracle_trace_flag.go          no-op stubs (default build)
-//   - encoder_oracle_trace.go               trace state + writer wiring
-//   - encoder_inter_speed.go:446-489        beginInterRDModeDecisionFrame
+//   - vp8_encoder_oracle_trace_mb.go            per-MB tracer emit functions
+//   - vp8_encoder_oracle_trace_flag.go          no-op stubs (default build)
+//   - vp8_encoder_oracle_trace.go               trace state + writer wiring
+//   - vp8_encoder_inter_speed.go:446-489        beginInterRDModeDecisionFrame
 //     (mode_test_hit_counts +
 //     mbs_tested_so_far reset)
-//   - encoder_row_worker.go:70-103          helper-worker reset (preserves
+//   - vp8_encoder_row_worker.go:70-103          helper-worker reset (preserves
 //     interModeTestHitCounts)
-//   - encoder_row_threaded.go:680-710       mergeThreadedInterFrameState
+//   - vp8_encoder_row_threaded.go:680-710       mergeThreadedInterFrameState
 //     (error_bins / mbsZeroLastDotSuppress
 //     accumulation)
-//   - encoder_frame.go:126                  mbsZeroLastDotSuppress = 0 at
+//   - vp8_encoder_frame.go:126                  mbsZeroLastDotSuppress = 0 at
 //     per-frame begin
 //   - ratecontrol.go:416                    applyVP8ChangeConfigQuantizerClamp
-//   - encoder_config.go:868                 applyVP8ChangeConfigRuntimeSideEffects
+//   - vp8_encoder_config.go:868                 applyVP8ChangeConfigRuntimeSideEffects
 //   - internal/coracle/oracle_compare.go    JSONL diff engine
 //   - internal/coracle/build_vpxenc_oracle.sh
 //     libvpx patch script (per-MB

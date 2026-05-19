@@ -192,7 +192,7 @@ func resetLifecycleParseScript(data []byte) ([]resetLifecycleSegment, EncoderOpt
 		{64, 64},
 	}
 	// Negative cpu_used only: libvpx's positive-cpu_used realtime
-	// auto-select-speed path is wall-clock driven (encoder_reset_parity_test.go
+	// auto-select-speed path is wall-clock driven (vp8_encoder_reset_parity_test.go
 	// TestEncoderResetCBRBytesMatchColdStart documents the same gating), so
 	// two equal encoders on a loaded fuzzer can cross a Speed threshold on
 	// different host loads and diverge. Pin to deterministic speeds.

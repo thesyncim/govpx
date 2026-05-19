@@ -8,7 +8,7 @@ import (
 )
 
 // viterbiTestRegularBlockQuant mirrors testRegularBlockQuant in
-// encoder_reconstruct_test.go but is duplicated locally so this file does not
+// vp8_encoder_reconstruct_test.go but is duplicated locally so this file does not
 // share symbols with the parallel tests.
 func viterbiTestRegularBlockQuant(qIndex int, dequantValue int16) vp8enc.BlockQuant {
 	var dequant [16]int16

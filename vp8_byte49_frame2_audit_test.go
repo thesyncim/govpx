@@ -60,7 +60,7 @@ import (
 //   - govpx commit 2accbaaa "vp8: rebuild SSIM activity_map per recode
 //     attempt (tasks #183/#201)" — closes both this seed and the task
 //     #183 160x96 audit (regression_option_grid_75578e9f)
-//   - govpx encoder_attempts.go encodeInterFrameWithQuantizerFeedback —
+//   - govpx vp8_encoder_attempts.go encodeInterFrameWithQuantizerFeedback —
 //     the recode-attempt loop with the in-loop prepareTuningActivityMap
 //
 // Companion: TestVP8Byte58Frame2DivergenceAudit captures the historical

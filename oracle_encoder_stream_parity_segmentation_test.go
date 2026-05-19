@@ -24,7 +24,7 @@ import (
 //  2. CyclicRefresh as a stand-alone knob. govpx does not expose a
 //     CyclicRefresh option on EncoderOptions — cyclic refresh is
 //     implicit-on whenever RateControlCBR + a non-zero base quantizer
-//     selects it (encoder.go cyclicRefreshSegmentationConfig path).
+//     selects it (vp8_encoder.go cyclicRefreshSegmentationConfig path).
 //     The default-CBR cases throughout the base parity matrix and the
 //     fixtures below all run with cyclic refresh active; there is no
 //     "cyclic-refresh=N" libvpx vpxenc switch to mirror. The

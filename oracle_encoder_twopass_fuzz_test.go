@@ -49,7 +49,7 @@ type firstPassLooseTolerances struct {
 // computing MV-SAD costs with sad_per_bit derived from qIndex=26,
 // while libvpx's vp8_first_pass leaves x->sadperbit16 at the calloc
 // zero-init because vp8cx_initialize_me_consts is never called before
-// the first-pass loop — see firstPassMode in encoder_motion_search.go).
+// the first-pass loop — see firstPassMode in vp8_encoder_motion_search.go).
 // With that fixed, every FIRSTPASS_STATS field matches byte-for-byte
 // across the current seed corpus, so the ceiling collapses to a thin
 // floating-point-noise floor. Bumping the floor catches any future

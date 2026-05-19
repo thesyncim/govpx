@@ -22,7 +22,7 @@ import (
 //     per-field summation).
 //
 // The pinned per-frame and total values are tied to the libvpx first-pass
-// model in encoder_firstpass.go: predictor-residual intra scoring and fixed
+// model in vp8_encoder_firstpass.go: predictor-residual intra scoring and fixed
 // pass-1 q=26. Any change to first-pass scoring or to the section accumulator
 // must update them in lock-step with the oracle gate.
 func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
@@ -142,7 +142,7 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 	}
 
 	// Pinned per-frame values captured from the libvpx-aligned
-	// implementation in encoder_firstpass.go. Each value follows the
+	// implementation in vp8_encoder_firstpass.go. Each value follows the
 	// formulas documented there:
 	//   - IntraError      = sum_mb(vp8_encode_intra-style predictor SSE + intrapenalty) >> 8
 	//   - CodedError      = sum_mb(min(intra, motion_error)) >> 8
@@ -285,7 +285,7 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 }
 
 // Pinned values for TestFirstPassY4MCorpusSectionAccumulators. These
-// follow the libvpx-aligned implementation in encoder_firstpass.go (the same
+// follow the libvpx-aligned implementation in vp8_encoder_firstpass.go (the same
 // formulas TestFirstPassStatsRegression32x32 pins for its 32x32 ramp clip).
 // Update them in lock-step when the first-pass scoring or section accumulator
 // changes.

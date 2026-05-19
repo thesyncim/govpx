@@ -247,7 +247,7 @@ func collectDecayRates(stats []FirstPassFrameStats, start int, count int) []floa
 
 // framesToKey returns `cpi->twopass.frames_to_key` for the KF group
 // starting at `frame`. Wraps libvpxFindNextKeyFrameWalk so the
-// pass2AltRefPendingPlan caller (encoder_twopass_budget.go) and the
+// pass2AltRefPendingPlan caller (vp8_encoder_twopass_budget.go) and the
 // natural-KF reseed in prepareKFGroup share the same libvpx-verbatim
 // walker. keyFrameInterval is the user-configured
 // `cpi->key_frame_frequency`; when 0 the libvpx 2x and centering

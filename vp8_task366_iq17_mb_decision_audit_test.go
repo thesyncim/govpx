@@ -41,7 +41,7 @@ package govpx
 //    and rd_threshes[i] = thresh_mult[i] * q (when rdmult<=1000) or
 //    thresh_mult[i] * q / 100 (when rdmult>1000). govpx's
 //    libvpxInterModeRDThresholdsFromMultipliers in
-//    encoder_inter_speed.go:657-674 mirrors this verbatim
+//    vp8_encoder_inter_speed.go:657-674 mirrors this verbatim
 //    (TestLibvpxInterModeRDThresholdsScaleLikeInitializeRDConsts pins
 //    both branches). The thresh_mult lookup itself is per-speed and
 //    Q-INDEPENDENT, so at the same iQ and same Speed both encoders
@@ -51,7 +51,7 @@ package govpx
 //
 //    libvpx sets x->errorperbit = (cpi->RDMULT / 110), with the RAW
 //    RDMULT BEFORE the /100 split. govpx's libvpxErrorPerBitWithZbin in
-//    encoder_token_cost.go:268-275 uses libvpxRawRDMultiplierWithZbin
+//    vp8_encoder_token_cost.go:268-275 uses libvpxRawRDMultiplierWithZbin
 //    (the pre-split value) divided by 110. At iQ=17 raw RDMULT=1010,
 //    errorperbit=9 on both sides. Byte-exact, no gap.
 //
@@ -59,7 +59,7 @@ package govpx
 //
 //    libvpx: rdmult = mb->rdmult * plane_rd_mult[type]; intra ref_frame
 //    further lifts by *9>>4. govpx's optimizeQuantizedBlockWithRDConstants
-//    at encoder_inter_quantize.go:179-182 mirrors both lifts (verified by
+//    at vp8_encoder_inter_quantize.go:179-182 mirrors both lifts (verified by
 //    TestVP8Task319ChromaRDCostAudit). Inter MBs (the iQ=17 frame 3 case)
 //    skip the intra penalty on both sides. No port gap here.
 //

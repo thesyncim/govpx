@@ -133,12 +133,12 @@ import (
 //
 // govpx source references:
 //
-//   - encoder_config.go (finishAutoSpeedTiming)  KF avg_encode_time pin
-//   - encoder_config.go (applyChangeConfigSpeedReset)
-//   - encoder_config.go (libvpxAutoSelectSpeed)
-//   - encoder_config.go (libvpxCPUUsed)          consumed by
+//   - vp8_encoder_config.go (finishAutoSpeedTiming)  KF avg_encode_time pin
+//   - vp8_encoder_config.go (applyChangeConfigSpeedReset)
+//   - vp8_encoder_config.go (libvpxAutoSelectSpeed)
+//   - vp8_encoder_config.go (libvpxCPUUsed)          consumed by
 //     libvpxOptimizeCoefficients / libvpxUseFastQuant downstream
-//   - encoder_inter_speed.go (interAnalysisUsesRDModeDecision)
+//   - vp8_encoder_inter_speed.go (interAnalysisUsesRDModeDecision)
 //     govpx's sf->RD analogue keyed off libvpxCPUUsed
 //
 // task references:

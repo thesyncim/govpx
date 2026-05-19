@@ -176,16 +176,16 @@ Benchmark harness:
 
 Encoder path:
 
-- `encoder_frame.go:483` enters `encodeInterFrameWithQuantizerFeedback` when the frame is not a keyframe.
-- `encoder_attempts.go:566` starts the measured inter reconstruction phase.
-- `encoder_attempts.go:576` to `encoder_attempts.go:584` call the inter coefficient/reconstruction builders.
-- `encoder_attempts.go:597` runs loop-filter level selection for the inter attempt.
-- `encoder_reconstruct.go:468` starts the serial macroblock loop; 1280x720 is 80 columns by 45 rows, or 3600 macroblocks.
-- `encoder_reconstruct.go:502` calls `selectInterFrameModeDecision` for each macroblock.
-- `encoder_inter_modes.go:82` selects the realtime fast picker when RD mode decision is disabled.
-- `encoder_inter_modes_fast.go:215` enters the `NewMV` branch and calls `interFrameMotionVectorSearch.selectFast`.
-- `encoder_inter_motion_subpel.go:301` calls `dsp.SubpelVariance16x16` for quarter-pel candidates.
-- `encoder_inter_motion_subpel.go:328` performs iterative half-pel then quarter-pel refinement.
+- `vp8_encoder_frame.go:483` enters `encodeInterFrameWithQuantizerFeedback` when the frame is not a keyframe.
+- `vp8_encoder_attempts.go:566` starts the measured inter reconstruction phase.
+- `vp8_encoder_attempts.go:576` to `vp8_encoder_attempts.go:584` call the inter coefficient/reconstruction builders.
+- `vp8_encoder_attempts.go:597` runs loop-filter level selection for the inter attempt.
+- `vp8_encoder_reconstruct.go:468` starts the serial macroblock loop; 1280x720 is 80 columns by 45 rows, or 3600 macroblocks.
+- `vp8_encoder_reconstruct.go:502` calls `selectInterFrameModeDecision` for each macroblock.
+- `vp8_encoder_inter_modes.go:82` selects the realtime fast picker when RD mode decision is disabled.
+- `vp8_encoder_inter_modes_fast.go:215` enters the `NewMV` branch and calls `interFrameMotionVectorSearch.selectFast`.
+- `vp8_encoder_inter_motion_subpel.go:301` calls `dsp.SubpelVariance16x16` for quarter-pel candidates.
+- `vp8_encoder_inter_motion_subpel.go:328` performs iterative half-pel then quarter-pel refinement.
 
 Libvpx reporting path:
 

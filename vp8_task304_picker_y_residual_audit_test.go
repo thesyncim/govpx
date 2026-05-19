@@ -73,7 +73,7 @@ import (
 //
 //     (c) A subtle quantize-formula divergence that I have not yet
 //     localized despite verbatim comparison of the porting at
-//     encoder_inter_quantize.go:64 vs vp8_quantize.c:75.
+//     vp8_encoder_inter_quantize.go:64 vs vp8_quantize.c:75.
 //
 //  7. Next step (task #305+): extend build_vpxenc_oracle.sh to emit a
 //     per-Y-block "macro_block_yrd_y_qcoeff" trace row from inside

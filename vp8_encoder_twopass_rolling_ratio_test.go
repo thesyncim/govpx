@@ -212,7 +212,7 @@ func TestApplyEstMaxQRollingRatioNoOpInTrailingClip(t *testing.T) {
 
 // TestSetRollingBitsStoresValues pins the simple field-update
 // semantics of setRollingBits. The encoder calls this from
-// encoder_frame.go before frameTargetBitsWithAltRef so the next
+// vp8_encoder_frame.go before frameTargetBitsWithAltRef so the next
 // pass-2 frame's estimate_max_q-equivalents see the latest rolling
 // stats.
 func TestSetRollingBitsStoresValues(t *testing.T) {

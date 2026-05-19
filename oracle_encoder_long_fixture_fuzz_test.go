@@ -44,7 +44,7 @@ import (
 //     vp8/encoder/onyx_if.c:3407-3409 and runs decide_key_frame inside
 //     the recode loop at vp8/encoder/onyx_if.c:3991-3994). With
 //     AdaptiveKeyFrames=true govpx's existing decide_key_frame port
-//     (encoder_entropy_savings.go libvpxDecideKeyFrame) and the
+//     (vp8_encoder_entropy_savings.go libvpxDecideKeyFrame) and the
 //     estimate_keyframe_frequency auto_key clamp at
 //     ratecontrol_postencode.go:282 (mirroring libvpx
 //     vp8/encoder/ratectrl.c:1321) line up byte-for-byte with libvpx
@@ -252,7 +252,7 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 	// a non-first keyframe unless the caller overrides it. The govpx
 	// side, however, honours `EncoderOptions.KeyFrameInterval` and
 	// schedules a forced KF at frame N*interval (see
-	// `applyFixedKeyFrameIntervalFlag` in encoder_reference_decisions.go).
+	// `applyFixedKeyFrameIntervalFlag` in vp8_encoder_reference_decisions.go).
 	// Without aligning the libvpx oracle's kf-max-dist with
 	// `KeyFrameInterval`, the seeds with `kf=30` produce a govpx
 	// keyframe at frame 30 while the oracle stays on inter, diverging

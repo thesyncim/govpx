@@ -29,7 +29,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		// activity_map inside every vp8_encode_frame call. Each keyframe
 		// recode attempt therefore observes an activity_map keyed off the
 		// new cm->base_qindex. Mirror that here: the pre-loop call in
-		// encoder_frame.go seeded the first attempt; subsequent attempts
+		// vp8_encoder_frame.go seeded the first attempt; subsequent attempts
 		// rebuild against the recoded currentQuantizer.
 		if attempt > 0 && e.opts.Tuning == TuneSSIM {
 			if err := e.prepareTuningActivityMap(source, rows, cols); err != nil {
@@ -293,7 +293,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		// the new_fb_idx border state, so a recoded Q produces a fresh
 		// activity_map and therefore fresh per-MB act_zbin_adj / RD
 		// multiplier values. Mirror that here: the pre-loop call in
-		// encoder_frame.go seeds the first attempt; subsequent attempts
+		// vp8_encoder_frame.go seeds the first attempt; subsequent attempts
 		// rebuild against the recoded currentQuantizer.
 		if attempt > 0 && e.opts.Tuning == TuneSSIM {
 			if err := e.prepareTuningActivityMap(source, rows, cols); err != nil {
@@ -315,7 +315,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		// NEVER zeroed between recode iterations (helpers' state survives
 		// every vp8_encode_frame call). govpx mirrors the sticky semantics
 		// by absorbing each attempt's helper-row branch counts here;
-		// rejected attempts still contribute. See encoder.go
+		// rejected attempts still contribute. See vp8_encoder.go
 		// mtHelperYModeCountAccum and the keyframe-side absorb in
 		// encodeKeyFrameWithQuantizerFeedback.
 		e.absorbInterFrameMTHelperRowIntraCounts()
@@ -496,7 +496,7 @@ func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
 //
 // The inner drop test requires `pred_err_mb > thresh_pred_err_mb` and
 // `pred_err_mb > 2 * cpi->last_pred_err_mb`. govpx's
-// encoder_reconstruct.go accumulates the per-MB residual sum into
+// vp8_encoder_reconstruct.go accumulates the per-MB residual sum into
 // `framePredictionError` and the inter recode loop writes back
 // `lastPredErrorMB` after every non-drop attempt, mirroring libvpx
 // onyx_if.c:3982-3983. This matters when the size-recode loop runs: libvpx
@@ -510,7 +510,7 @@ func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
 // (vp8/encoder/encodeframe.c:946) — NOT the final packed bitstream
 // size. libvpx applies the entropy-savings subtraction at
 // onyx_if.c:3986, AFTER vp8_drop_encodedframe_overshoot consumes the
-// value. The caller in encoder_frame.go therefore forwards
+// value. The caller in vp8_encoder_frame.go therefore forwards
 // `attempt.PickerProjectedSizeBytes`, which mirrors the pre-savings
 // picker total. Comparing the packed size here under-feeds the gate
 // (the packed size is dominated by coef tokens and shrinks well below
@@ -856,7 +856,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		Scratch:    &e.partScratch,
 	}
 	// Threaded reconstruction at workerCount >= 2 inherits libvpx VP8 MT's
-	// ymode_count / uv_mode_count helper-history bias. See encoder.go
+	// ymode_count / uv_mode_count helper-history bias. See vp8_encoder.go
 	// `mtHelperYModeCountAccum` for the libvpx reference; the accumulator
 	// covers helper-thread rows from every prior MT inter frame and is
 	// rolled forward post-commit by absorbContext below in
@@ -869,7 +869,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// to the packet writer so it can skip its own count/context/QCoeff walks.
 	// The caches are only valid after a successful single-threaded
 	// reconstruction pass; threaded reconstructions do not populate them
-	// (see encoder_row_threaded.go) and the writer falls back in that case.
+	// (see vp8_encoder_row_threaded.go) and the writer falls back in that case.
 	if e.interCoefTokenCountsValid {
 		packet.PrebuiltCoefCounts = &e.interCoefTokenCounts
 	}

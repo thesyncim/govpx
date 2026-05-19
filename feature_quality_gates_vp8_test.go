@@ -1062,7 +1062,7 @@ func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
 	//
 	// Task #344 (post-#341 audit): the measured value drifted to
 	// +5.503% after the intra-in-inter-loop tteob==0 rate2 backout
-	// landed (encoder_inter_modes_rd_intra.go: estimateInterIntraModeRDScore).
+	// landed (vp8_encoder_inter_modes_rd_intra.go: estimateInterIntraModeRDScore).
 	// Per-rung diff vs pre-#341 govpx:
 	//   target=1500: 609.795 -> 617.985 kbps  (+8.19, +1.34%) PSNR -0.002dB
 	//   target=3000: 1496.34 -> 1496.34 kbps  (byte-identical)
@@ -1130,8 +1130,8 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// (vp8_quantize.c:469), cyclic-refresh MB-budget scaling
 	// (onyx_if.c:509-528), buffer-debt floor (onyx_if.c:4533), and the
 	// limit_q_cbr_inter Q-decrease floor (ratectrl.c:1297-1300) — are
-	// all faithfully ported (encoder_reconstruct.go:62-73,
-	// encoder_segmentation.go:502-521, ratecontrol_postencode.go:318-323,
+	// all faithfully ported (vp8_encoder_reconstruct.go:62-73,
+	// vp8_encoder_segmentation.go:502-521, ratecontrol_postencode.go:318-323,
 	// ratecontrol_postencode.go:313-316 + ratecontrol_quantizer.go:65-66
 	// + ratecontrol_recode.go:201). All four sites fire in govpx with the
 	// same gating libvpx uses, so the residual gap is NOT a missing port.
@@ -1275,7 +1275,7 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 	// realtime deadline (compressor_speed=2 ratecontrol/speed-features
 	// cascade) but removes the wall-clock dependency. Govpx's
 	// libvpxAutoSelectSpeed mirrors this branch exactly
-	// (encoder_config.go:710-713: `if cpuUsed < 0 { e.autoSpeed =
+	// (vp8_encoder_config.go:710-713: `if cpuUsed < 0 { e.autoSpeed =
 	// -cpuUsed; return }`), so flipping CpuUsed from +8 to -8 on both
 	// sides keeps the comparison apples-to-apples while making the
 	// per-point output deterministic.
@@ -1321,7 +1321,7 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 				// :686-687); avoids vp8_auto_select_speed's
 				// wall-clock variance on both the govpx and the
 				// libvpx side of the comparison. Govpx mirrors the
-				// same branch at encoder_config.go:710-713.
+				// same branch at vp8_encoder_config.go:710-713.
 				o.CpuUsed = -8
 			},
 			Test: func(o *govpx.EncoderOptions) {
@@ -1590,7 +1590,7 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 				// :686-687); avoids vp8_auto_select_speed's wall-clock
 				// variance on both the govpx and the libvpx side of the
 				// comparison. Govpx mirrors the same branch at
-				// encoder_config.go:710-713.
+				// vp8_encoder_config.go:710-713.
 				o.CpuUsed = -4
 			},
 			Test: func(o *govpx.EncoderOptions) {
@@ -1899,7 +1899,7 @@ func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 // (40.06 -> 48.57 dB) sits 0.47 to 0.24 dB above the libvpx
 // reference (39.59 -> 48.56 dB) while the produced rate matches
 // within ~1.2%. The win comes from the byte-exact ARNR temporal
-// filter (encoder_arnr.go applyARNRFilter mirrors libvpx
+// filter (vp8_encoder_arnr.go applyARNRFilter mirrors libvpx
 // vp8_temporal_filter_prepare_c exactly) combined with the
 // post-#341 tteob==0 picker intra-skip path firing on the
 // alt-ref-filtered (denoised) source. Run-to-run determinism is

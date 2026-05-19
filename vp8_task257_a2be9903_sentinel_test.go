@@ -55,19 +55,19 @@ import (
 // Each recoded Q therefore observes a fresh activity_map (and fresh
 // per-MB act_zbin_adj values that feed ZBIN_EXTRA_UV at
 // vp8_quantize.c:281). govpx previously built the activity_map ONCE
-// in encoder_frame.go before the recode loop, reusing the stale map
+// in vp8_encoder_frame.go before the recode loop, reusing the stale map
 // across attempts; on the SSIM-tuned (good cpu0 TuneSSIM) cohorts that
 // recode, the stale map shifted UV act_zbin_adj just enough to tip a
 // single UV coefficient across the ZBIN boundary, cascading into the
 // (b=2,band=6,ctx=2) UV coef-prob update slot and propagating into
 // every subsequent frame's entropy state.
 //
-// Fix (encoder_attempts.go, commit 2accbaaa): invoke
+// Fix (vp8_encoder_attempts.go, commit 2accbaaa): invoke
 // prepareTuningActivityMap at the top of each recode attempt
 // (attempt > 0 && Tuning==TuneSSIM) in both
 // encodeKeyFrameWithQuantizerFeedback and
 // encodeInterFrameWithQuantizerFeedback. The pre-loop call in
-// encoder_frame.go still seeds the first attempt; the new in-loop call
+// vp8_encoder_frame.go still seeds the first attempt; the new in-loop call
 // covers all subsequent attempts, matching libvpx's per-
 // vp8_encode_frame cadence.
 //
@@ -96,9 +96,9 @@ import (
 //   - libvpx v1.16.0 vp8/encoder/encodeframe.c:1105-1108  intra adjust_act_zbin
 //   - libvpx v1.16.0 vp8/encoder/encodeframe.c:1191-1194  inter adjust_act_zbin
 //   - libvpx v1.16.0 vp8/encoder/vp8_quantize.c:276-289   ZBIN_EXTRA_* macros
-//   - govpx encoder_attempts.go (attempt > 0 SSIM-recode activity_map
+//   - govpx vp8_encoder_attempts.go (attempt > 0 SSIM-recode activity_map
 //     rebuild — closed by commit 2accbaaa)
-//   - govpx encoder_tuning.go:47-97                       prepareTuningActivityMap
+//   - govpx vp8_encoder_tuning.go:47-97                       prepareTuningActivityMap
 //   - task #183 (commit e12867e8)                         regression_option_grid_75578e9f
 //     capture (sibling 160x96 SSIM seed sharing root cause)
 //   - task #194 (commit e12867e8)                         a4ba465f seed capture

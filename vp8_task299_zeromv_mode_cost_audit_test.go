@@ -66,8 +66,8 @@ import (
 //     (mbsplit_tree + cost_mv_ref(SPLITMV, mdcounts))
 //   - libvpx v1.16.0 vp8/encoder/rdopt.c:1816,1834 mdcounts cached for
 //     ref_frame_map[1] then reused for every this_ref_frame iteration
-//   - govpx encoder_inter_rate.go:227-262 interPredictionModeRate
-//   - govpx encoder_inter_modes_refs.go:79 modeMVs.counts caching
+//   - govpx vp8_encoder_inter_rate.go:227-262 interPredictionModeRate
+//   - govpx vp8_encoder_inter_modes_refs.go:79 modeMVs.counts caching
 func TestVP8Task299ZeroMVModeCostAuditSentinel(t *testing.T) {
 	t.Run("InterModeContextsMatchesLibvpx", testTask299InterModeContextsMatchesLibvpx)
 	t.Run("MVRefTreeMatchesLibvpx", testTask299MVRefTreeMatchesLibvpx)

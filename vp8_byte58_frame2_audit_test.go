@@ -43,14 +43,14 @@ import (
 //     act_zbin_adj)) >> 7).
 //
 //   - govpx mirrors the per-MB act_zbin_adj via
-//     VP8Encoder.tunedZbinAdjustment / encoder_tuning.go:343 and the
+//     VP8Encoder.tunedZbinAdjustment / vp8_encoder_tuning.go:343 and the
 //     ZBIN_EXTRA_UV math via quantizeBlockWithZbinAndActivity
-//     (encoder_inter_quantize.go:64). Both pipelines compute the same
+//     (vp8_encoder_inter_quantize.go:64). Both pipelines compute the same
 //     formula symbolically.
 //
 //   - The residual divergence therefore lives in the per-MB activity
 //     value going INTO the act_zbin_adj formula. govpx's
-//     ssimActivityMeasure (encoder_tuning.go:137) ports
+//     ssimActivityMeasure (vp8_encoder_tuning.go:137) ports
 //     libvpx's mb_activity_measure / vp8_encode_intra (the ALT_ACT_MEASURE
 //     path, encodeframe.c:1031 onward in v1.16.0): predict intra,
 //     vpx_get_mb_ss of (src - predictor), then quantize+IDCT-rebuild into
@@ -62,7 +62,7 @@ import (
 //     qcoeff between 3 and 4 at one MB's band-6 ctx-2 position.
 //
 // Root cause (closed by task #201): govpx was building the per-MB
-// activity_map ONCE before the recode loop in encoder_frame.go, while
+// activity_map ONCE before the recode loop in vp8_encoder_frame.go, while
 // libvpx vp8/encoder/encodeframe.c:721-732 rebuilds it inside every
 // vp8_encode_frame call (i.e. on each recode attempt) keyed off the new
 // cm->base_qindex. When the recode loop reran the inter frame at a
@@ -73,7 +73,7 @@ import (
 // tipped a single (THREE,FOUR)→(THREE+1,FOUR-1) token count on UV and
 // shifted the (b=2,band=6,ctx=2,node=5) coef prob from 156 to 159.
 // Fix: call prepareTuningActivityMap at the start of each recode
-// attempt in encoder_attempts.go (inter + key paths). The downstream
+// attempt in vp8_encoder_attempts.go (inter + key paths). The downstream
 // byte-2 cascade on frames 3+ also closes because the seed
 // regression_option_grid_a4ba465f cohort shared the same root cause.
 //
@@ -113,10 +113,10 @@ import (
 //   - libvpx v1.16.0 vp8/encoder/bitstream.c:669-676 prob_update_savings
 //   - govpx internal/vp8/encoder/probability_tokens.go:174
 //     coefficientProbabilityUpdatesFromTokenCounts
-//   - govpx encoder_tuning.go:47-97 prepareTuningActivityMap +
+//   - govpx vp8_encoder_tuning.go:47-97 prepareTuningActivityMap +
 //     ssimActivityMeasure
-//   - govpx encoder_tuning.go:322-362 tunedZbinAdjustment
-//   - govpx encoder_inter_quantize.go:38-86 quantizeBlockWithZbinAndActivity
+//   - govpx vp8_encoder_tuning.go:322-362 tunedZbinAdjustment
+//   - govpx vp8_encoder_inter_quantize.go:38-86 quantizeBlockWithZbinAndActivity
 //     (per-position ZBIN_EXTRA computation on line 64)
 //
 // Closed by task #201 (per-recode activity_map rebuild): the byte 58 frame 2

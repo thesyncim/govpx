@@ -121,7 +121,7 @@ type temporalState struct {
 // regardless of layer).
 type temporalLayerCodingState struct {
 	// FilterLevel mirrors LAYER_CONTEXT.filter_level. The LF picker
-	// (encoder_loopfilter.go pickFull / pickFast) uses the previous
+	// (vp8_encoder_loopfilter.go pickFull / pickFast) uses the previous
 	// frame's filter_level as the bracket midpoint, and that bracket
 	// midpoint chains across frames at the same temporal layer in
 	// libvpx. Without per-layer tracking the L1/L2 LF picker seeds with
@@ -203,7 +203,7 @@ type temporalLayerCodingState struct {
 	ForceMaxQuantizer bool
 
 	// LastFramePercentIntra mirrors LAYER_CONTEXT.last_frame_percent_intra.
-	// Feeds decide_key_frame (encoder_scenecut.go) and the auto_gold
+	// Feeds decide_key_frame (vp8_encoder_scenecut.go) and the auto_gold
 	// branch of calc_pframe_target_size.
 	LastFramePercentIntra int
 

@@ -82,10 +82,10 @@ import (
 //
 // govpx source references:
 //
-//   - encoder_intra_pick.go:498-597 predictBestBPredLumaModeRD /
+//   - vp8_encoder_intra_pick.go:498-597 predictBestBPredLumaModeRD /
 //     predictBestBPredLumaModeRDWithRDConstants (govpx's port of
 //     rd_pick_intra4x4block + rd_pick_intra4x4mby_modes).
-//   - encoder_analysis_reconstruct.go:74-114 predictAnalysisBPredBlock
+//   - vp8_encoder_analysis_reconstruct.go:74-114 predictAnalysisBPredBlock
 //     (govpx's port of vp8_intra4x4_predict's above/left/topleft setup;
 //     does the moral-equivalent of intra_prediction_down_copy by reading
 //     above[16:20] for the rightmost-column blocks instead of replicating

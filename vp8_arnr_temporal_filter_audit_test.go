@@ -49,7 +49,7 @@ import (
 //
 //  1. vp8_temporal_filter_apply_c integer formula.
 //     libvpx vp8/encoder/temporal_filter.c:70-108 vs govpx
-//     applyTemporalFilterScalar in encoder_arnr.go. The per-pixel
+//     applyTemporalFilterScalar in vp8_encoder_arnr.go. The per-pixel
 //     modifier ladder is verbatim:
 //
 //     rounding   = strength > 0 ? 1 << (strength - 1) : 0
@@ -66,7 +66,7 @@ import (
 //
 //  2. vp8_temporal_filter_prepare_c blur-window switch.
 //     libvpx vp8/encoder/temporal_filter.c:368-418 vs govpx
-//     arnrFilterWindow in encoder_arnr.go. case 1 (backward), case 2
+//     arnrFilterWindow in vp8_encoder_arnr.go. case 1 (backward), case 2
 //     (forward), case 3/default (centered) each map identically
 //     across (num_frames_back, num_frames_fwd, max_frames) triples.
 //     Even-length centered window asymmetry (libvpx temporal_filter.c
@@ -77,7 +77,7 @@ import (
 //
 //  3. fixed_divide reciprocal LUT.
 //     libvpx vp8/encoder/onyx_if.c:1381-1383 vs govpx arnrFixedDivide
-//     in encoder_arnr.go. Table entries 1..511 are 0x80000 / i
+//     in vp8_encoder_arnr.go. Table entries 1..511 are 0x80000 / i
 //     (truncating integer divide); entry 0 is 0. Used by govpx
 //     writeARNRBlock as the per-pixel normalization step
 //     `pval = (accumulator[k] + (count[k]>>1)) * fixed_divide[count[k]] >> 19`
@@ -87,7 +87,7 @@ import (
 //  4. ARNRType validation range.
 //     libvpx vp8/vp8_cx_iface.c rejects arnr_type outside [1, 3] via
 //     RANGE_CHECK in validate_config. govpx normalizeOpts in
-//     encoder_lifecycle.go rejects `ARNRType < 1 || ARNRType > 3`
+//     vp8_encoder_lifecycle.go rejects `ARNRType < 1 || ARNRType > 3`
 //     with ErrInvalidConfig. The downstream switch in
 //     arnrFilterWindow can therefore not see an out-of-range case
 //     0/4+ — the upstream gate is the equivalent of libvpx's
@@ -95,7 +95,7 @@ import (
 //
 //  5. ARNRMaxFrames gate.
 //     libvpx onyx_if.c:4867 fires `vp8_temporal_filter_prepare_c` when
-//     `arnr_max_frames > 0`; govpx encoder_preprocess.go fires when
+//     `arnr_max_frames > 0`; govpx vp8_encoder_preprocess.go fires when
 //     `ARNRMaxFrames > 1`. The semantic gap is a no-op: when
 //     max_frames == 1 libvpx's vp8_temporal_filter_iterate_c runs
 //     with frame_count=1, alt_ref_index=0, so the sole frame iterated

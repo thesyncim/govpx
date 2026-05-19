@@ -57,8 +57,8 @@ import (
 //	    is skipped. Subsequent activity probes (same-frame recodes, next
 //	    frame's first attempt) see the non-NULL pointer carried over.
 //
-//	    govpx ports this via activityProbeMBContextSeeded (encoder.go) ⇒
-//	    prepareTuningActivityMap (encoder_tuning.go) gates `optimize` on the
+//	    govpx ports this via activityProbeMBContextSeeded (vp8_encoder.go) ⇒
+//	    prepareTuningActivityMap (vp8_encoder_tuning.go) gates `optimize` on the
 //	    flag; first probe runs with optimize=false. However, frame 0 of this
 //	    seed RECODES, and the COMMITTED attempt's activity probe sees the
 //	    flag already flipped to true (just like libvpx's recode attempts).
@@ -109,8 +109,8 @@ import (
 //     vp8cx_encode_intra_macroblock (picker BEFORE update_zbin_extra)
 //   - libvpx v1.16.0 vp8/encoder/encodemb.c:436-438 vp8_optimize_mby
 //     above_context==NULL short-circuit
-//   - govpx encoder_tuning.go prepareTuningActivityMap + ssimActivityMeasure
-//   - govpx encoder_reconstruct.go buildReconstructingKeyFrameCoefficientsWithSegmentationSerial
+//   - govpx vp8_encoder_tuning.go prepareTuningActivityMap + ssimActivityMeasure
+//   - govpx vp8_encoder_reconstruct.go buildReconstructingKeyFrameCoefficientsWithSegmentationSerial
 //     (keyframe intra picker call site)
 func TestVP8Byte0KF1280x720SSIMAudit(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
@@ -175,7 +175,7 @@ func TestVP8Byte0KF1280x720SSIMAudit(t *testing.T) {
 	// `else if (last_act_zbin_adj != act_zbin_adj)` branch). The
 	// picker then quantizes with the current MB's zbin_extra, NOT
 	// the stale prev-MB value the task #236 picker uses.
-	// encoder_reconstruct.go now honors that: when segmentation.Enabled
+	// vp8_encoder_reconstruct.go now honors that: when segmentation.Enabled
 	// the picker actZbinAdj is this MB's tunedZbinAdjustment value.
 	// Net result: byte-identical (125346/4327, sha matches).
 	wantFrame0GovpxLen := 125346

@@ -17,7 +17,7 @@ import (
 //	vp8/encoder/onyx_if.c:4862-4903 redirects to `&cpi->alt_ref_buffer`
 //	(the temporal-filter output) whenever
 //	`oxcf.arnr_max_frames > 0 && source_alt_ref_pending`. govpx's
-//	preprocessSource (encoder_preprocess.go:57-71) redirects through
+//	preprocessSource (vp8_encoder_preprocess.go:57-71) redirects through
 //	`e.arnrScratch.Img` under the gate
 //	`ARNRMaxFrames > 1 && lookaheadEnabled() && hiddenAltRefFrame`.
 //	The two gates differ in their first conjunct (`> 0` vs `> 1`), so
@@ -47,13 +47,13 @@ import (
 //     leaving `cpi->Source = &cpi->source->img` (the raw lookahead entry's
 //     image). The picker reads the raw input frame.
 //
-//  2. govpx preprocessSource (encoder_preprocess.go:57-71) gate is
+//  2. govpx preprocessSource (vp8_encoder_preprocess.go:57-71) gate is
 //     `hiddenAltRefFrame && ARNRMaxFrames > 1 && lookaheadEnabled()`. For
 //     this cohort:
 //     - `hiddenAltRefFrame` requires the `EncodeInvisibleFrame |
 //     EncodeForceAltRefFrame` flag pair, which only fires when the
 //     auto-alt-ref driver schedules a hidden ARF emission
-//     (encoder_altref_driver.go), gated on
+//     (vp8_encoder_altref_driver.go), gated on
 //     `e.opts.AutoAltRef && lookaheadEnabled() && !error_resilient`.
 //     - `ARNRMaxFrames > 1` is false (cohort sets ARNRMaxFrames=1).
 //     - `lookaheadEnabled()` requires `opts.LookaheadFrames > 0`; the
@@ -63,7 +63,7 @@ import (
 //     `source` unchanged, so the picker reads the raw input frame.
 //
 //  3. Even if both gates had fired with maxFrames=1, applyARNRFilter
-//     (encoder_arnr.go:42-46) hard-rejects `maxFrames <= 1` before
+//     (vp8_encoder_arnr.go:42-46) hard-rejects `maxFrames <= 1` before
 //     writing the scratch, matching libvpx's `vp8_temporal_filter_iterate_c`
 //     identity behavior at strength=1, mv=0, single frame
 //     (vp8/encoder/temporal_filter.c:80-108: per-pixel `src_byte ==
@@ -98,9 +98,9 @@ import (
 //     window selection)
 //   - libvpx v1.16.0 vp8/vp8_cx_iface.c:326-332 (lag_in_frames forced to
 //     zero for one-pass)
-//   - govpx encoder_preprocess.go:57-71 (mirror gate)
-//   - govpx encoder_arnr.go:42-75 (maxFrames<=1 short-circuit)
-//   - govpx encoder_lookahead.go:47-49 (lookaheadEnabled gate)
+//   - govpx vp8_encoder_preprocess.go:57-71 (mirror gate)
+//   - govpx vp8_encoder_arnr.go:42-75 (maxFrames<=1 short-circuit)
+//   - govpx vp8_encoder_lookahead.go:47-49 (lookaheadEnabled gate)
 func TestVP8Task307PickerSourceBufferAudit(t *testing.T) {
 	t.Run("BestARNRCohortGateClosed", testTask307BestARNRCohortGateClosed)
 	t.Run("GoodARNRCohortGateClosed", testTask307GoodARNRCohortGateClosed)
@@ -140,7 +140,7 @@ func testTask307BestARNRCohortGateClosed(t *testing.T) {
 	if e.opts.ARNRMaxFrames > 1 {
 		t.Fatalf("expected ARNRMaxFrames<=1, got %d", e.opts.ARNRMaxFrames)
 	}
-	// The preprocessSource gate at encoder_preprocess.go:59 is
+	// The preprocessSource gate at vp8_encoder_preprocess.go:59 is
 	// `hiddenAltRefFrame && ARNRMaxFrames > 1 && lookaheadEnabled()`.
 	// All three sub-gates must be false for picker source = raw source.
 	src := sourceImageFromImage(encoderValidationPanningFrame(1280, 720, 1))

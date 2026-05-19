@@ -13,24 +13,24 @@ import "testing"
 // libvpx field → govpx mirror (libvpx v1.16.0, file:line):
 //
 //	cpi->mb.mbs_tested_so_far = 0      (onyx_if.c:783)
-//	  → e.interMBsTestedSoFar = 0      (encoder_inter_speed.go:479,
+//	  → e.interMBsTestedSoFar = 0      (vp8_encoder_inter_speed.go:479,
 //	                                    inside beginInterRDModeDecisionFrame)
 //
 //	cpi->mb.mbs_zero_last_dot_suppress = 0  (onyx_if.c:784)
-//	  → e.mbsZeroLastDotSuppress = 0   (encoder_frame.go:126,
+//	  → e.mbsZeroLastDotSuppress = 0   (vp8_encoder_frame.go:126,
 //	                                    per inter frame before MB picker)
 //
 //	memset(cpi->mb.error_bins, 0, ...) (onyx_if.c:1025, case 2 body)
 //	  → e.interModeSpeedErrorBins =
-//	      e.interModeErrorBins         (encoder_inter_speed.go:480)
+//	      e.interModeErrorBins         (vp8_encoder_inter_speed.go:480)
 //	    e.interModeErrorBins =
-//	      [1024]uint32{}               (encoder_inter_speed.go:481)
+//	      [1024]uint32{}               (vp8_encoder_inter_speed.go:481)
 //
 //	x->mode_test_hit_counts[i] = 0     (rdopt.c:204, fired immediately
 //	                                    after vp8_set_speed_features
 //	                                    returns)
 //	  → e.interModeTestHitCounts =
-//	      [libvpxInterModeCount]int{}  (encoder_inter_speed.go:478)
+//	      [libvpxInterModeCount]int{}  (vp8_encoder_inter_speed.go:478)
 //
 // The test seeds non-zero values into each mirror, runs
 // beginInterRDModeDecisionFrame, and asserts every field returns to
@@ -80,14 +80,14 @@ func TestVP8SpeedFeaturesPerFrameStateResetMirror(t *testing.T) {
 	}
 
 	// mbsZeroLastDotSuppress is reset in EncodeImage's inter-frame
-	// preamble (encoder_frame.go:126), not in beginInterRDModeDecisionFrame
+	// preamble (vp8_encoder_frame.go:126), not in beginInterRDModeDecisionFrame
 	// — verify the mirror exists at the package level by exercising the
 	// reset directly. Keeping it adjacent to the other resets so a
 	// future refactor that moves the reset point trips this test.
 	if e.mbsZeroLastDotSuppress != 7 {
 		t.Errorf("mbsZeroLastDotSuppress = %d before frame-preamble reset, want 7 (test setup)", e.mbsZeroLastDotSuppress)
 	}
-	e.mbsZeroLastDotSuppress = 0 // emulate encoder_frame.go:126 reset
+	e.mbsZeroLastDotSuppress = 0 // emulate vp8_encoder_frame.go:126 reset
 	if e.mbsZeroLastDotSuppress != 0 {
 		t.Errorf("mbsZeroLastDotSuppress = %d, want 0 after per-frame reset", e.mbsZeroLastDotSuppress)
 	}

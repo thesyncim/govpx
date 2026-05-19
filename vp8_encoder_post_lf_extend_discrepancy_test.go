@@ -36,16 +36,16 @@ import (
 //
 // govpx implementation (this branch):
 //
-//   - `applyReconstructionLoopFilter` (encoder_loopfilter.go:758-796) ends
+//   - `applyReconstructionLoopFilter` (vp8_encoder_loopfilter.go:758-796) ends
 //     with `e.analysis.ExtendBorders()` — a SYMMETRIC extend from the coded
 //     edge (16-aligned), NOT from the visible edge. The coded-but-invisible
 //     MB-padded rows/cols retain the LF-modified reconstruction samples.
 //   - `refreshInterFrameReferencesFromAnalysis` / `refreshKeyFrameReferencesFromAnalysis`
-//     / `copyInterFrameReferences` (encoder_reference_buffers.go) copy
+//     / `copyInterFrameReferences` (vp8_encoder_reference_buffers.go) copy
 //     `e.analysis` to `e.current` / `e.lastRef` / `e.goldenRef` / `e.altRef`
 //     and call `ExtendBorders()` again on each (still symmetric).
 //   - `vp8enc.CopySourceToFrameBuffer*` (internal/vp8/encoder/source_buffer.go) and
-//     `setReferenceFrameNow` (encoder_reference_controls.go) use
+//     `setReferenceFrameNow` (vp8_encoder_reference_controls.go) use
 //     `vp8enc.PadFrameVisibleToCoded` + `ExtendBorders`. The two-step is
 //     byte-equivalent to libvpx's single-pass `vp8_copy_and_extend_frame`
 //     (because pad-then-symmetric-extend produces the same visible-edge
@@ -83,7 +83,7 @@ import (
 //     cfg.FeatureEnabled[MBLvlAltLF][seg] = data != 0 write on
 //     cm->filter_level > 0, mirroring libvpx vp8/encoder/onyx_if.c:3189
 //     vp8cx_set_alt_lf_level") was implemented and verified to be a
-//     no-op for THIS seed. A build-tagged probe in encoder_attempts.go
+//     no-op for THIS seed. A build-tagged probe in vp8_encoder_attempts.go
 //     dumped the live cfg.Segmentation at pack time for both frames 1
 //     and 2 and confirmed: ALT_LF[0..3] data is all zero and
 //     FeatureEnabled[ALT_LF][0..3] is all false on both frames, with
@@ -108,7 +108,7 @@ import (
 //     active-Q boundary clamp + per-frame budget recompute likely
 //     drives govpx into a different RD pick on the SetReferenceFrame
 //     LAST=panning:9 reference content than libvpx does. Future work on
-//     this seed should bisect 592b8eda's ratecontrol.go / encoder_config.go
+//     this seed should bisect 592b8eda's ratecontrol.go / vp8_encoder_config.go
 //     tail more finely (raw_target_rate clamp, bits_off_target rescale,
 //     active_worst_quality bracket) instead of the segmentation header.
 //   - The same swap inside `refreshInterFrameReferencesFromAnalysis` /
@@ -118,8 +118,8 @@ import (
 //     ac2d9ea1 (see task 0xac2d9ea137dbcf3b0 sidechain).
 //   - The 33x17 fixtures pass coincidentally because govpx has
 //     COMPENSATING workarounds downstream of the post-LF extend
-//     (see encoder_inter_rate.go:655-666 `splitBlockSADBlock` and
-//     encoder_inter_rate.go:711-720 `splitBlockSubpixelSADBlock`,
+//     (see vp8_encoder_inter_rate.go:655-666 `splitBlockSADBlock` and
+//     vp8_encoder_inter_rate.go:711-720 `splitBlockSubpixelSADBlock`,
 //     both of which clamp reference reads to the visible extent
 //     mirroring libvpx's effective post-extend state without
 //     actually overwriting the live reconstruction). Flipping the
@@ -140,7 +140,7 @@ import (
 // libvpx's visible-extent semantics so the downstream clamps can be
 // removed):
 //
-//  1. Replace `analysis.ExtendBorders()` at encoder_loopfilter.go:786
+//  1. Replace `analysis.ExtendBorders()` at vp8_encoder_loopfilter.go:786
 //     and :794 with `analysis.ExtendBordersFromVisible()`.
 //  2. Mirror the same swap in
 //     `refreshKeyFrameReferencesFromAnalysis` /
@@ -156,7 +156,7 @@ import (
 //     PR for source-vs-reference symmetry).
 //  4. Re-evaluate the visible-clamp fast paths in
 //     `splitBlockSADBlock` / `splitBlockSubpixelSADBlock`
-//     (encoder_inter_rate.go) — once the live reference buffer
+//     (vp8_encoder_inter_rate.go) — once the live reference buffer
 //     already reflects visible-extend, the clamps become identity
 //     ops on inputs in the visible window and a libvpx-faithful
 //     no-op overall.
@@ -211,7 +211,7 @@ func TestPostLoopFilterExtendDivergesFromLibvpxOnOddAxisFrames(t *testing.T) {
 	populate(fbCoded)
 	populate(fbVisible)
 
-	// govpx-current (encoder_loopfilter.go:794): symmetric extend from the
+	// govpx-current (vp8_encoder_loopfilter.go:794): symmetric extend from the
 	// coded edge — preserves the 0xAA sentinel in the coded-but-invisible
 	// region.
 	fbCoded.ExtendBorders()
@@ -225,7 +225,7 @@ func TestPostLoopFilterExtendDivergesFromLibvpxOnOddAxisFrames(t *testing.T) {
 	// Check the coded-but-invisible cell at (Width, 0) — adjacent to the
 	// visible right edge. govpx-current must hold codedPad; libvpx-
 	// faithful must hold visibleEdge. (If these ever coincide the
-	// downstream clamp workarounds in encoder_inter_rate.go can be
+	// downstream clamp workarounds in vp8_encoder_inter_rate.go can be
 	// reconsidered.)
 	codedCell := func(fb *vp8common.FrameBuffer) byte {
 		// Img.Y starts at the first coded sample (yOff = border*stride +

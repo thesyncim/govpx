@@ -10,7 +10,7 @@ import (
 )
 
 // TestVP8Task332ThreadsValidation validates that the task #332 fix
-// (encoder_reconstruct.go breakoutSkip gate change) yields byte-exact
+// (vp8_encoder_reconstruct.go breakoutSkip gate change) yields byte-exact
 // frame 1 parity vs libvpx on the BestARNR / GoodARNR ARNR cohorts at
 // threads=1, threads=2, AND threads=4. The pre-fix gate
 //

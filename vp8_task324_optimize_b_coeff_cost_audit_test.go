@@ -57,7 +57,7 @@ import (
 //     chroma predictor, uv MV = avg(4 sub-luma-MVs) with /8 rounding)
 //
 // govpx mirror:
-//   - encoder_inter_quantize.go:158-378 optimizeQuantizedBlockWithRDConstants
+//   - vp8_encoder_inter_quantize.go:158-378 optimizeQuantizedBlockWithRDConstants
 //
 // The cleared-candidate list for the chroma optimize_b cost computation
 // (#282 trellis byte-faithfulness, #299 token costs, #319 rdMult/rdDiv,

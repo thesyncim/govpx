@@ -8,7 +8,7 @@ import (
 )
 
 // TestVP8Task220AltActMeasureBranchAudit pins task #220: the line-by-line
-// audit of govpx's ssimActivityMeasure (encoder_tuning.go:182-270) against
+// audit of govpx's ssimActivityMeasure (vp8_encoder_tuning.go:182-270) against
 // libvpx v1.16.0 mb_activity_measure (vp8/encoder/encodeframe.c:91-111)
 // ALT_ACT_MEASURE=1 branch.
 //
@@ -32,16 +32,16 @@ import (
 //	  return mb_activity;
 //	}
 //
-// GOVPX MIRROR (encoder_tuning.go:182-270 ssimActivityMeasure):
+// GOVPX MIRROR (vp8_encoder_tuning.go:182-270 ssimActivityMeasure):
 //
-//   - encoder_tuning.go:183
+//   - vp8_encoder_tuning.go:183
 //     `useDC16 := (mbCol != 0 || mbRow != 0) && (mbCol == 0 || mbRow == 0)`
 //     IS the boolean expansion of libvpx's
 //     `use_dc_pred = (mb_col || mb_row) && (!mb_col || !mb_row)`. In C
 //     `mb_col` (an int) used as a truthy expression is `mb_col != 0`, and
 //     `!mb_col` is `mb_col == 0`. The govpx form is verbatim.
 //
-//   - encoder_tuning.go:189-230 DC16 path:
+//   - vp8_encoder_tuning.go:189-230 DC16 path:
 //     · PredictIntraY16x16(DCPred, ...) writes the 16x16 DC predictor into
 //     e.analysis.Img.Y at the current MB. This mirrors libvpx
 //     vp8_encode_intra16x16mby's vp8_build_intra_predictors_mby_s call
@@ -58,12 +58,12 @@ import (
 //     reconstructAnalysisMacroblock mirror vp8_transform_intra_mby +
 //     vp8_quantize_mby + (optimize_mby if optimize) +
 //     vp8_inverse_transform_mby, which rebuild the MB's recon pixels in
-//     place. (encoder_tuning.go's reuse of the production helpers is the
+//     place. (vp8_encoder_tuning.go's reuse of the production helpers is the
 //     site task #210's per-MB tracer pinpoints as the source of the
 //     residual mb_activity divergence at MB (0,47) of seed 94eb71d5 and
 //     MB (1,1) of seed 19981bff — see "POST-AUDIT" below.)
 //
-//   - encoder_tuning.go:231-265 B_DC_PRED 4x4 path:
+//   - vp8_encoder_tuning.go:231-265 B_DC_PRED 4x4 path:
 //     · For each of 16 sub-blocks, predictAnalysisBPredBlock writes the
 //     B_DC_PRED predictor into the recon buffer, bPredBlockSSE
 //     accumulates (src - predictor)², then fillPredictedResidual4x4 +
@@ -77,11 +77,11 @@ import (
 //     predictor)² together. The govpx 4x4 loop accumulates `sse` across
 //     all 16 sub-blocks before returning.
 //
-//   - encoder_tuning.go:266-269: `if sse < vp8ActivityAvgMin: sse =
+//   - vp8_encoder_tuning.go:266-269: `if sse < vp8ActivityAvgMin: sse =
 //     vp8ActivityAvgMin`. Mirrors libvpx's
 //     `if (mb_activity < VP8_ACTIVITY_AVG_MIN) mb_activity =
 //     VP8_ACTIVITY_AVG_MIN`.
-//     vp8ActivityAvgMin is defined as 64 in encoder_tuning.go, matching
+//     vp8ActivityAvgMin is defined as 64 in vp8_encoder_tuning.go, matching
 //     libvpx's `#define VP8_ACTIVITY_AVG_MIN (64)` at
 //     vp8/encoder/encodeframe.c:59.
 //
@@ -112,7 +112,7 @@ import (
 //	├──────────────────────────────┼────────────────────────────────┤
 //	│ #define ALT_ACT_MEASURE 1    │ no compile gate; the branch    │
 //	│ (encodeframe.c:94)           │ is taken unconditionally       │
-//	│                              │ (encoder_tuning.go:25-49 docs) │
+//	│                              │ (vp8_encoder_tuning.go:25-49 docs) │
 //	├──────────────────────────────┼────────────────────────────────┤
 //	│ use_dc_pred =                │ useDC16 :=                     │
 //	│   (mb_col || mb_row) &&      │   (mbCol != 0 || mbRow != 0) &&│
@@ -135,7 +135,7 @@ import (
 //	│     VP8_ACTIVITY_AVG_MIN;    │                                │
 //	├──────────────────────────────┼────────────────────────────────┤
 //	│ #define VP8_ACTIVITY_AVG_MIN │ const vp8ActivityAvgMin = 64   │
-//	│   (64) (encodeframe.c:59)    │ (encoder_tuning.go const block)│
+//	│   (64) (encodeframe.c:59)    │ (vp8_encoder_tuning.go const block)│
 //	└──────────────────────────────┴────────────────────────────────┘
 //
 // CONCLUSION: govpx's ssimActivityMeasure mirrors libvpx's ALT_ACT_MEASURE=1
@@ -157,11 +157,11 @@ import (
 // divergence is downstream in the recon helpers ssimActivityMeasure reuses
 // from the production encode path:
 //
-//   - buildPredictedMacroblockCoefficients (encoder_inter_coefficients.go:158)
-//   - convertMacroblockCoefficients         (encoder_convert.go:52)
-//   - reconstructAnalysisMacroblock          (encoder_analysis_reconstruct.go:346)
+//   - buildPredictedMacroblockCoefficients (vp8_encoder_inter_coefficients.go:158)
+//   - convertMacroblockCoefficients         (vp8_encoder_convert.go:52)
+//   - reconstructAnalysisMacroblock          (vp8_encoder_analysis_reconstruct.go:346)
 //   - applyLibvpxY2EobAdjustToAnalysisMacroblock
-//     (encoder_analysis_reconstruct.go:371)
+//     (vp8_encoder_analysis_reconstruct.go:371)
 //
 // These are exercised when, at the END of a given MB's activity probe
 // (after SSE has already been accumulated), the quantize + 2nd-order Walsh
@@ -200,7 +200,7 @@ import (
 //     with the inverse-walsh output. govpx mirrors this by clearing the
 //     Y residual blocks (decoder/reconstruct.go:100), writing Walsh-DC
 //     into out.DQCoeff[block*16] (idem:104-107), and zeroing
-//     coeffs.QCoeff[block][0]=0 at encoder_inter_coefficients.go:396 so
+//     coeffs.QCoeff[block][0]=0 at vp8_encoder_inter_coefficients.go:396 so
 //     dequantizeInto's `out[0] += qcoeff[0]*dequant[0]` (decoder/
 //     reconstruct.go:599) collapses to 0 and preserves the Walsh-DC.
 //     The AUDIT confirms this dance is byte-equivalent to libvpx's
@@ -208,7 +208,7 @@ import (
 //
 //   - libvpx vp8/encoder/encodemb.c:358-388 check_reset_2nd_coeffs:
 //     ported to govpx as resetLibvpxSmallSecondOrderCoefficients
-//     (encoder_inter_quantize.go:448) and gated on blockType==1 &&
+//     (vp8_encoder_inter_quantize.go:448) and gated on blockType==1 &&
 //     skipDC==0 in quantizeEncodedBlockWithRDZbinAndActivity:120-121.
 //     Matches libvpx exactly.
 //
@@ -242,19 +242,19 @@ import (
 //
 // GOVPX SOURCE REFERENCES:
 //
-//   - encoder_tuning.go:25-141            prepareTuningActivityMap
-//   - encoder_tuning.go:182-270           ssimActivityMeasure (this audit)
-//   - encoder_tuning.go:144-172           setupIntraReconImage (border 127/129)
-//   - encoder_analysis_reconstruct.go:116-129  bPredBlockSSE
-//   - encoder_analysis_reconstruct.go:293-302  addQuantizedBlockResidual
-//   - encoder_analysis_reconstruct.go:346-357  reconstructAnalysisMacroblock
-//   - encoder_analysis_reconstruct.go:371-386  applyLibvpxY2EobAdjustToAnalysisMacroblock
-//   - encoder_inter_coefficients.go:158-486    buildPredictedMacroblockCoefficients*
-//   - encoder_inter_coefficients.go:396        Y-block DC zero (Walsh-DC overwrite mirror)
-//   - encoder_inter_quantize.go:114-126        quantizeEncodedBlockWithRDZbinAndActivity
-//   - encoder_inter_quantize.go:448-           resetLibvpxSmallSecondOrderCoefficients
-//   - encoder_convert.go:52-75                 convertMacroblockCoefficients (EOB max(1) for !is4x4)
-//   - encoder_inter_rate.go:449-492            macroblockLumaSSE
+//   - vp8_encoder_tuning.go:25-141            prepareTuningActivityMap
+//   - vp8_encoder_tuning.go:182-270           ssimActivityMeasure (this audit)
+//   - vp8_encoder_tuning.go:144-172           setupIntraReconImage (border 127/129)
+//   - vp8_encoder_analysis_reconstruct.go:116-129  bPredBlockSSE
+//   - vp8_encoder_analysis_reconstruct.go:293-302  addQuantizedBlockResidual
+//   - vp8_encoder_analysis_reconstruct.go:346-357  reconstructAnalysisMacroblock
+//   - vp8_encoder_analysis_reconstruct.go:371-386  applyLibvpxY2EobAdjustToAnalysisMacroblock
+//   - vp8_encoder_inter_coefficients.go:158-486    buildPredictedMacroblockCoefficients*
+//   - vp8_encoder_inter_coefficients.go:396        Y-block DC zero (Walsh-DC overwrite mirror)
+//   - vp8_encoder_inter_quantize.go:114-126        quantizeEncodedBlockWithRDZbinAndActivity
+//   - vp8_encoder_inter_quantize.go:448-           resetLibvpxSmallSecondOrderCoefficients
+//   - vp8_encoder_convert.go:52-75                 convertMacroblockCoefficients (EOB max(1) for !is4x4)
+//   - vp8_encoder_inter_rate.go:449-492            macroblockLumaSSE
 //   - internal/vp8/decoder/reconstruct.go:97-143  TransformMacroblockTokens
 //   - internal/vp8/decoder/reconstruct.go:145-153 AddMacroblockResidual
 //   - internal/vp8/decoder/reconstruct.go:597-607 dequantizeInto
@@ -265,14 +265,14 @@ import (
 //   - task #210 (commit 2629cd53)  per-MB activity-masking quartet tracer
 //     (captured the residual divergence
 //     #220 is pinning the branch-audit for)
-//   - task #213 (referenced in encoder_tuning.go:92-95 GOVPX_TASK213_TRACE
+//   - task #213 (referenced in vp8_encoder_tuning.go:92-95 GOVPX_TASK213_TRACE
 //     env-var probe for actZbinAdj/zbinOverQuant carry-over)
 func TestVP8Task220AltActMeasureBranchAudit(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to enable the task #220 ALT_ACT_MEASURE branch-audit anchor")
 	}
 	// Documentation-only audit. The byte-level branch-match between
-	// govpx's ssimActivityMeasure (encoder_tuning.go:182) and libvpx's
+	// govpx's ssimActivityMeasure (vp8_encoder_tuning.go:182) and libvpx's
 	// mb_activity_measure ALT_ACT_MEASURE=1 path (vp8/encoder/
 	// encodeframe.c:91-111) is captured exhaustively in the comment block
 	// above. The residual numeric divergence pinned by task #210 lives

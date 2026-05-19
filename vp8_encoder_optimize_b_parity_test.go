@@ -129,7 +129,7 @@ func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, bloc
 //     vp8_init_de_quantizer -> vp8_setup_key_frame.
 //
 // govpx mirror:
-//   - encoder_token_cost.go coefficientTokenCost / coefTokenCostElided —
+//   - vp8_encoder_token_cost.go coefficientTokenCost / coefTokenCostElided —
 //     selects between the full-tree path and the EOB-elided path with the
 //     same `pt == 0 && band > coefElisionBandThreshold[blockType&3]`
 //     predicate (coefElisionBandThreshold[2] = 0 for UV).
@@ -232,7 +232,7 @@ func TestVP8Task326ChromaTokenCostsUVElisionSelector(t *testing.T) {
 //
 //	internal/vp8/encoder/tokenize.go tokenUVContextIndex (bitstream-final
 //	  context lookup).
-//	encoder_inter_coeff_rate.go macroblockCoefficientUVContextIndex (RD
+//	vp8_encoder_inter_coeff_rate.go macroblockCoefficientUVContextIndex (RD
 //	  trellis seed lookup).
 //
 // Task #316's chroma optimize_b post-trellis qcoeff bisect already

@@ -22,7 +22,7 @@ import (
 // remainder of the clip. Within a single process, govpx produced 3 distinct
 // bitstreams for the same input across 50 reruns (db163449844d85c6,
 // 6abca426c800e43c, bfe404c8fa570088). The fix
-// (interFrameAutoSpeedTimingCompensation in encoder_config.go) pins
+// (interFrameAutoSpeedTimingCompensation in vp8_encoder_config.go) pins
 // inter-frame durations to budget/3 for the same MB-count gate used by
 // medium-keyframe compensation, mirroring the existing project strategy of
 // trading "libvpx-verbatim wall-clock" for "libvpx-stable region" once the

@@ -16,7 +16,7 @@ import "testing"
 //
 // govpx's libvpxActiveQuantizerBoundsForFrame must consult
 // rateControlState.gfuBoost (plumbed from twoPassState.gfuBoostValue via
-// encoder_frame.go) to select between libvpxKeyFrameLowMotionMinQ and
+// vp8_encoder_frame.go) to select between libvpxKeyFrameLowMotionMinQ and
 // libvpxKeyFrameHighMotionMinQ at the exact `> 600` threshold. The
 // transition at the boundary (boost == 600 falls to high; boost == 601
 // rises to low) must mirror libvpx's strict `>` comparison.

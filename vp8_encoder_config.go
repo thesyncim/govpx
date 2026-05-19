@@ -697,7 +697,7 @@ func (e *VP8Encoder) libvpxAutoSelectSpeedActive() bool {
 // libvpx-realistic Speed only into the improved_mv_pred gate, leaving
 // every other speed-feature lookup on the pin-suppressed
 // e.autoSpeed value. See libvpxInterFrameImprovedMVPredictionFor
-// FeatureSpeed caller in encoder_inter_speed.go.
+// FeatureSpeed caller in vp8_encoder_inter_speed.go.
 func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	if e.opts.Deadline != DeadlineRealtime {
 		return
