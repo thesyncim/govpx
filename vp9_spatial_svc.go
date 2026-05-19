@@ -134,6 +134,36 @@ func (r VP9SpatialSVCEncodeResult) PacketizeRTP(mtu int) ([]RTPPayloadFragment, 
 	return out[:n], nil
 }
 
+// LastLayerQuantizers mirrors libvpx's
+// VP9E_GET_LAST_QUANTIZER_SVC_LAYERS control. It returns the public 0..63
+// quantizer, internal VP9 qindex, and validity flag for each configured spatial
+// layer's most recently committed encoded frame. Entries above the configured
+// layer count, nil encoders, closed encoders, and layers that have not committed
+// a frame report ok=false.
+func (e *VP9SpatialSVCEncoder) LastLayerQuantizers() (
+	public [VP9MaxSpatialLayers]int,
+	internal [VP9MaxSpatialLayers]int,
+	ok [VP9MaxSpatialLayers]bool,
+) {
+	if e == nil || e.closed {
+		return public, internal, ok
+	}
+	for i := 0; i < int(e.layerCount); i++ {
+		layer := e.layers[i]
+		if layer == nil {
+			continue
+		}
+		pub, q, valid := layer.LastQuantizer()
+		if !valid {
+			continue
+		}
+		public[i] = pub
+		internal[i] = q
+		ok[i] = true
+	}
+	return public, internal, ok
+}
+
 func (r VP9SpatialSVCEncodeResult) vp9SpatialSVCLayerCount() (int, error) {
 	if r.LayerCount == 0 || r.LayerCount > VP9MaxSpatialLayers {
 		return 0, ErrInvalidConfig

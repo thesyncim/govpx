@@ -397,6 +397,7 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 		"EncodeIntoWithResult": {kind: "vp9-spatial-svc-superframe-api"},
 		"ForceKeyFrame":        {kind: "frame-flag-api"},
 		"IsKeyFrameNext":       {kind: "metadata-api"},
+		"LastLayerQuantizers":  {kind: "libvpx-vp9-svc-control"},
 		"LayerEncoder":         {kind: "vp9-spatial-svc-layer-control"},
 		"CopyLayerReferenceFrame": {
 			kind:         "vp9-spatial-svc-layer-control",

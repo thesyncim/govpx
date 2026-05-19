@@ -108,6 +108,68 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 	assertVP9FilledFrameWithin(t, frame, 64, 64, 90, 100, 110, 0)
 }
 
+func TestVP9SpatialSVCEncoderLastLayerQuantizers(t *testing.T) {
+	var nilSVC *VP9SpatialSVCEncoder
+	_, _, ok := nilSVC.LastLayerQuantizers()
+	for i, valid := range ok {
+		if valid {
+			t.Fatalf("nil LastLayerQuantizers ok[%d] = true, want false", i)
+		}
+	}
+
+	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount: 2,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			{Width: 32, Height: 32, Quantizer: 64},
+			{Width: 64, Height: 64, Quantizer: 128},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	public, internal, ok := svc.LastLayerQuantizers()
+	for i, valid := range ok {
+		if valid || public[i] != 0 || internal[i] != 0 {
+			t.Fatalf("pre-encode quantizer[%d] = (%d,%d,%t), want zeros/false",
+				i, public[i], internal[i], valid)
+		}
+	}
+
+	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
+		newVP9YCbCrForTest(32, 32, 90, 100, 110),
+		newVP9YCbCrForTest(64, 64, 120, 130, 140),
+	}, make([]byte, 1<<20))
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult: %v", err)
+	}
+	public, internal, ok = svc.LastLayerQuantizers()
+	for i := 0; i < int(result.LayerCount); i++ {
+		if !ok[i] ||
+			public[i] != result.Layers[i].Quantizer ||
+			internal[i] != result.Layers[i].InternalQuantizer {
+			t.Fatalf("quantizer[%d] = (%d,%d,%t), want (%d,%d,true)",
+				i, public[i], internal[i], ok[i], result.Layers[i].Quantizer,
+				result.Layers[i].InternalQuantizer)
+		}
+	}
+	for i := int(result.LayerCount); i < VP9MaxSpatialLayers; i++ {
+		if ok[i] || public[i] != 0 || internal[i] != 0 {
+			t.Fatalf("unused quantizer[%d] = (%d,%d,%t), want zeros/false",
+				i, public[i], internal[i], ok[i])
+		}
+	}
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	_, _, ok = svc.LastLayerQuantizers()
+	for i, valid := range ok {
+		if valid {
+			t.Fatalf("closed LastLayerQuantizers ok[%d] = true, want false", i)
+		}
+	}
+}
+
 func TestVP9SpatialSVCEncoderIndependentLayers(t *testing.T) {
 	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
