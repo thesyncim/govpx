@@ -361,6 +361,8 @@ func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 		"DecodeTileRowSet":       {kind: "libvpx-decoder-control"},
 		"DecoderLoopFilterOpt":   {kind: "libvpx-decoder-control"},
 		"DecoderRowMT":           {kind: "libvpx-decoder-control"},
+		"Decryptor":              {kind: "libvpx-decoder-control"},
+		"DecryptorState":         {kind: "libvpx-decoder-control"},
 		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
 		"ErrorResilient":         {kind: "compat-alias"},
 		"MaxHeight":              {kind: "local-validation"},

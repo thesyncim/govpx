@@ -119,10 +119,6 @@ func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
 				t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
 			}
 			got, err := decodeVP9IVFVisibleI420(ivf)
-			if (errors.Is(err, ErrVP9NotImplemented) || errors.Is(err, ErrInvalidVP9Data)) &&
-				os.Getenv("GOVPX_VP9_TEST_DATA_STRICT") != "1" {
-				t.Skipf("%s is a valid official VP90 IVF stream but needs unsupported VP9 decoder features", filepath.Base(path))
-			}
 			if err != nil {
 				t.Fatalf("Decode VP90 IVF returned error: %v", err)
 			}
@@ -155,10 +151,6 @@ func TestVP9DecoderOfficialIVFTestDataThreadedMatchesSerial(t *testing.T) {
 			}
 			want, err := decodeVP9IVFVisibleI420WithOptions(ivf,
 				VP9DecoderOptions{})
-			if (errors.Is(err, ErrVP9NotImplemented) || errors.Is(err, ErrInvalidVP9Data)) &&
-				os.Getenv("GOVPX_VP9_TEST_DATA_STRICT") != "1" {
-				t.Skipf("%s is a valid official VP90 IVF stream but needs unsupported VP9 decoder features", filepath.Base(path))
-			}
 			if err != nil {
 				t.Fatalf("serial Decode VP90 IVF returned error: %v", err)
 			}

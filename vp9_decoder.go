@@ -13,6 +13,11 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
+// VP9Decryptor mirrors libvpx v1.16.0 VPXD_SET_DECRYPTOR for VP9.
+// It is an alias of VP8Decryptor because libvpx uses the same
+// vpx_decrypt_cb callback shape for both codecs.
+type VP9Decryptor = VP8Decryptor
+
 // VP9DecoderOptions configures a VP9 decoder. Mirrors the VP8 shape
 // so call sites can switch codecs by swapping the constructor.
 //
@@ -58,6 +63,16 @@ type VP9DecoderOptions struct {
 	// Zero means no cap.
 	MaxWidth  int
 	MaxHeight int
+
+	// Decryptor, when non-nil, decrypts compressed VP9 packet bytes before
+	// superframe-index parsing, uncompressed-header parsing, compressed-header
+	// parsing, tile-size reads, and tile token parsing. Mirrors libvpx's
+	// VPXD_SET_DECRYPTOR control for VP9. govpx applies it once per Decode at
+	// packet entry, matching the existing VP8 decoder contract while keeping
+	// the VP9 parse/reconstruct hot path allocation-free after scratch growth.
+	// DecryptorState is passed back as the callback's first argument.
+	Decryptor      VP9Decryptor
+	DecryptorState any
 
 	// RejectResolutionChange, when true, makes Decode reject a coded
 	// frame whose dimensions differ from the active stream.
@@ -226,6 +241,8 @@ type VP9Decoder struct {
 	width  int
 	height int
 
+	decryptedPacket []byte
+
 	vp9LoopFilterPool *vp9DecoderLoopFilterPool
 	vp9TilePool       *vp9DecoderTileWorkerPool
 
@@ -371,6 +388,19 @@ func (opts VP9DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
 
 func (opts VP9DecoderOptions) effectiveErrorConcealment() bool {
 	return opts.ErrorConcealment || opts.ErrorResilient
+}
+
+func (d *VP9Decoder) decryptVP9Packet(packet []byte) []byte {
+	if d.opts.Decryptor == nil || len(packet) == 0 {
+		return packet
+	}
+	if cap(d.decryptedPacket) < len(packet) {
+		d.decryptedPacket = make([]byte, len(packet))
+	} else {
+		d.decryptedPacket = d.decryptedPacket[:len(packet)]
+	}
+	d.opts.Decryptor(d.opts.DecryptorState, packet, d.decryptedPacket, len(packet))
+	return d.decryptedPacket
 }
 
 // SetSVCSpatialLayer enables libvpx-style VP9 spatial-SVC superframe
@@ -537,6 +567,11 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if d == nil || d.closed {
 		return ErrClosed
 	}
+	packet = d.decryptVP9Packet(packet)
+	return d.decodeVP9PacketWithPTS(packet, pts)
+}
+
+func (d *VP9Decoder) decodeVP9PacketWithPTS(packet []byte, pts uint64) error {
 	sf, err := vp9ParseSuperframe(packet)
 	if err != nil {
 		if len(packet) == 0 && d.opts.effectiveErrorConcealment() &&
@@ -786,6 +821,7 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	if dst == nil {
 		return VP9FrameInfo{}, ErrInvalidConfig
 	}
+	packet = d.decryptVP9Packet(packet)
 	sf, err := vp9ParseSuperframe(packet)
 	if err != nil {
 		if len(packet) == 0 && d.opts.effectiveErrorConcealment() &&
@@ -838,7 +874,7 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	if !dst.validForEncode(info.Width, info.Height) {
 		return VP9FrameInfo{}, ErrInvalidConfig
 	}
-	if err := d.DecodeWithPTS(packet, pts); err != nil {
+	if err := d.decodeVP9PacketWithPTS(packet, pts); err != nil {
 		return VP9FrameInfo{}, err
 	}
 	if d.lastInfoValid {
