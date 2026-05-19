@@ -845,23 +845,22 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	// SPLIT];
 	// libvpx 4718-4736: for (i = 0; i < 4; ++i) nonrd_pick_partition(...,
 	// subsize, &this_rdc, ...);
-	// govpx equivalent: scoreVP9InterPartitionSplit iterates
-	// pickVP9InterReferenceMode over the 4 sub-blocks and sums RDCOSTs.
-	splitScore, splitOK := e.scoreVP9InterPartitionSplit(inter, tile,
-		miRows, miCols, miRow, miCol, splitSize)
+	// govpx equivalent: scoreVP9InterPartitionSplit recursively scores the
+	// split subtree, sums child rate/distortion, and adds this level's split
+	// partition token.
+	splitRD, splitOK := e.scoreVP9InterPartitionSplit(inter, tile,
+		rateCostProbs, miRows, miCols, miRow, miCol, bsize, splitSize,
+		hasRows, hasCols, qindex)
 	inter.ref = savedRef
 	if !splitOK {
 		// libvpx: sum of sub-block this_rdc.rate == INT_MAX path. With
 		// only NONE available, commit NONE.
 		return bsize, true
 	}
-	splitRateCost := vp9PartitionRateCost(rateCostProbs, plCtx,
-		common.PartitionSplit, hasRows, hasCols)
-	splitTotal := e.vp9AddModeDecisionRate(splitScore, splitRateCost, qindex)
 
 	// libvpx vp9_encodeframe.c:4738 — if (sum_rdc.rdcost <
 	// best_rdc.rdcost) pc_tree->partitioning = PARTITION_SPLIT.
-	if splitTotal < noneScore {
+	if splitRD.score < noneScore {
 		return splitSize, true
 	}
 	return bsize, true

@@ -6281,7 +6281,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	miRows, miCols, miRow, miCol int, root common.BlockSize,
 ) common.BlockSize {
-	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(root)
+	horzSize, vertSize, splitSize, ok := vp9InterRDPartitionSizes(root)
 	if !ok {
 		return root
 	}
@@ -6426,13 +6426,6 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		return root
 	}
 
-	bsl := int(common.BWidthLog2Lookup[root])
-	bs := (1 << uint(bsl)) / 4
-	hasRows := miRow+bs < miRows
-	hasCols := miCol+bs < miCols
-	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
-		miRow, miCol, root)
-	qindex := e.vp9EncoderModeDecisionQIndex()
 	// Cost partition tokens against inter.selectFc.PartitionProb, the
 	// pre-WriteCompressedHeader snapshot of e.fc.PartitionProb that
 	// inter.selectFc captures at the start of encodeVP9FrameInto*. The
@@ -6456,14 +6449,21 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if inter != nil {
 		rateCostProbs = &inter.selectFc.PartitionProb
 	}
+	bsl := int(common.BWidthLog2Lookup[root])
+	bs := (1 << uint(bsl)) / 4
+	hasRows := miRow+bs < miRows
+	hasCols := miCol+bs < miCols
+	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
+		miRow, miCol, root)
+	qindex := e.vp9EncoderModeDecisionQIndex()
 	bestSize := root
 	bestScore := e.vp9AddModeDecisionRate(full.score,
 		vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionNone,
 			hasRows, hasCols), qindex)
 
 	if hasRows {
-		if score, ok := e.scoreVP9InterPartitionPair(inter, tile, miRows, miCols,
-			miRow, miCol, horzSize, bs, 0); ok {
+		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
+			miRows, miCols, miRow, miCol, horzSize, bs, 0); ok {
 			score = e.vp9AddModeDecisionRate(score,
 				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionHorz,
 					hasRows, hasCols), qindex)
@@ -6474,8 +6474,8 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		}
 	}
 	if hasCols {
-		if score, ok := e.scoreVP9InterPartitionPair(inter, tile, miRows, miCols,
-			miRow, miCol, vertSize, 0, bs); ok {
+		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
+			miRows, miCols, miRow, miCol, vertSize, 0, bs); ok {
 			score = e.vp9AddModeDecisionRate(score,
 				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionVert,
 					hasRows, hasCols), qindex)
@@ -6486,8 +6486,8 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		}
 	}
 	if hasRows && hasCols {
-		if score, ok := e.scoreVP9InterPartitionSplit(inter, tile, miRows, miCols,
-			miRow, miCol, splitSize); ok {
+		if score, ok := e.scoreVP9InterPartitionSplitShallow(inter, tile,
+			miRows, miCols, miRow, miCol, splitSize); ok {
 			score = e.vp9AddModeDecisionRate(score,
 				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionSplit,
 					hasRows, hasCols), qindex)
@@ -7310,7 +7310,286 @@ func vp9RealtimeVariancePartitionThreshold64(yAcDequant int16, width, height int
 	return base
 }
 
-func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
+type vp9InterPartitionRD struct {
+	target     common.BlockSize
+	rate       int
+	distortion uint64
+	score      uint64
+}
+
+func vp9InterRDPartitionSizes(root common.BlockSize) (common.BlockSize, common.BlockSize, common.BlockSize, bool) {
+	switch root {
+	case common.Block64x64, common.Block32x32, common.Block16x16:
+		return common.SubsizeLookup[common.PartitionHorz][root],
+			common.SubsizeLookup[common.PartitionVert][root],
+			common.SubsizeLookup[common.PartitionSplit][root],
+			true
+	case common.Block8x8:
+		return common.Block8x4, common.Block4x8, common.Block4x4, true
+	default:
+		return common.BlockInvalid, common.BlockInvalid, common.BlockInvalid, false
+	}
+}
+
+func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9InterPartitionRD, bool) {
+	decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+		miRow, miCol, bsize)
+	if !ok {
+		return vp9InterPartitionRD{}, false
+	}
+	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize,
+		vp9InterModeDecisionMi(bsize, decision))
+	return vp9InterPartitionRD{
+		target:     bsize,
+		rate:       decision.rate,
+		distortion: decision.distortion,
+		score:      decision.score,
+	}, true
+}
+
+func (e *VP9Encoder) updateVP9PartitionContextForChoice(miRow, miCol int,
+	root common.BlockSize, partition common.PartitionType, subsize common.BlockSize,
+) {
+	if root < common.Block8x8 {
+		return
+	}
+	if root != common.Block8x8 && partition == common.PartitionSplit {
+		return
+	}
+	bsl := int(common.BWidthLog2Lookup[root])
+	bs := (1 << uint(bsl)) / 4
+	vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx,
+		miRow, miCol, subsize, vp9PartitionContextUpdateWidth(bs))
+}
+
+func (e *VP9Encoder) scoreVP9InterPartitionNone(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int, root common.BlockSize,
+	hasRows, hasCols bool, qindex int,
+) (vp9InterPartitionRD, bool) {
+	rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+		miRow, miCol, root)
+	if !ok {
+		return vp9InterPartitionRD{}, false
+	}
+	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
+		miRow, miCol, root)
+	rd.rate += vp9PartitionRateCost(rateCostProbs, ctx,
+		common.PartitionNone, hasRows, hasCols)
+	rd.score = e.vp9InterModeScore(rd.distortion, rd.rate, qindex)
+	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
+		common.PartitionNone, root)
+	return rd, true
+}
+
+func (e *VP9Encoder) scoreVP9InterPartitionRect(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int, root, child common.BlockSize,
+	partition common.PartitionType, rowOff, colOff int,
+	hasRows, hasCols bool, qindex int,
+) (vp9InterPartitionRD, bool) {
+	first, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+		miRow, miCol, child)
+	if !ok {
+		return vp9InterPartitionRD{}, false
+	}
+	rate := first.rate
+	distortion := first.distortion
+	if child >= common.Block8x8 {
+		second, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+			miRow+rowOff, miCol+colOff, child)
+		if !ok {
+			return vp9InterPartitionRD{}, false
+		}
+		rate += second.rate
+		distortion += second.distortion
+	}
+	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
+		miRow, miCol, root)
+	rate += vp9PartitionRateCost(rateCostProbs, ctx, partition, hasRows, hasCols)
+	e.updateVP9PartitionContextForChoice(miRow, miCol, root, partition, child)
+	return vp9InterPartitionRD{
+		target:     child,
+		rate:       rate,
+		distortion: distortion,
+		score:      e.vp9InterModeScore(distortion, rate, qindex),
+	}, true
+}
+
+func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int, root, child common.BlockSize,
+	hasRows, hasCols bool, qindex int,
+) (vp9InterPartitionRD, bool) {
+	rate := 0
+	var distortion uint64
+	if child < common.Block8x8 {
+		rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+			miRow, miCol, child)
+		if !ok {
+			return vp9InterPartitionRD{}, false
+		}
+		rate += rd.rate
+		distortion += rd.distortion
+	} else {
+		stepMi := int(common.Num8x8BlocksWideLookup[child])
+		for rowOff := 0; rowOff <= stepMi; rowOff += stepMi {
+			for colOff := 0; colOff <= stepMi; colOff += stepMi {
+				if miRow+rowOff >= miRows || miCol+colOff >= miCols {
+					continue
+				}
+				rd, ok := e.pickVP9InterPartitionRD(inter, tile, rateCostProbs,
+					miRows, miCols, miRow+rowOff, miCol+colOff, child)
+				if !ok {
+					return vp9InterPartitionRD{}, false
+				}
+				rate += rd.rate
+				distortion += rd.distortion
+			}
+		}
+	}
+	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
+		miRow, miCol, root)
+	rate += vp9PartitionRateCost(rateCostProbs, ctx,
+		common.PartitionSplit, hasRows, hasCols)
+	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
+		common.PartitionSplit, child)
+	return vp9InterPartitionRD{
+		target:     child,
+		rate:       rate,
+		distortion: distortion,
+		score:      e.vp9InterModeScore(distortion, rate, qindex),
+	}, true
+}
+
+func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int, root common.BlockSize,
+) (vp9InterPartitionRD, bool) {
+	if root < common.Block8x8 {
+		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+			miRow, miCol, root)
+	}
+	horzSize, vertSize, splitSize, ok := vp9InterRDPartitionSizes(root)
+	if !ok {
+		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+			miRow, miCol, root)
+	}
+
+	bsl := int(common.BWidthLog2Lookup[root])
+	bs := (1 << uint(bsl)) / 4
+	hasRows := miRow+bs < miRows
+	hasCols := miCol+bs < miCols
+	qindex := e.vp9EncoderModeDecisionQIndex()
+	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, root)
+	if !ok {
+		return vp9InterPartitionRD{}, false
+	}
+	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
+	savedRef := inter.ref
+	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	ctxSnap, ctxOK := e.snapshotVP9PartitionContexts(miRow, miCol, root)
+	var miSaved [64]vp9dec.NeighborMi
+	miRowsSaved, miColsSaved, miOK := e.snapshotVP9MiRect(miRows, miCols,
+		miRow, miCol, int(common.Num8x8BlocksHighLookup[root]),
+		int(common.Num8x8BlocksWideLookup[root]), miSaved[:])
+	if !ctxOK || !miOK {
+		e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		inter.ref = savedRef
+		return vp9InterPartitionRD{}, false
+	}
+	restoreBase := func() {
+		e.restoreVP9MiRect(miRows, miCols, miRow, miCol,
+			miRowsSaved, miColsSaved, miSaved[:])
+		e.restoreVP9PartitionContexts(ctxSnap)
+		e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+		e.restoreVP9PartitionReconSnapshotPixels(reconSnap)
+		inter.ref = savedRef
+	}
+
+	bestSet := false
+	var best vp9InterPartitionRD
+	consider := func(score func() (vp9InterPartitionRD, bool)) {
+		restoreBase()
+		rd, ok := score()
+		if ok && (!bestSet || rd.score < best.score ||
+			(rd.score == best.score && rd.rate < best.rate)) {
+			best = rd
+			bestSet = true
+		}
+	}
+	consider(func() (vp9InterPartitionRD, bool) {
+		return e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, root, hasRows, hasCols, qindex)
+	})
+	if hasRows && hasCols {
+		consider(func() (vp9InterPartitionRD, bool) {
+			return e.scoreVP9InterPartitionSplit(inter, tile, rateCostProbs,
+				miRows, miCols, miRow, miCol, root, splitSize,
+				hasRows, hasCols, qindex)
+		})
+	}
+	if hasRows {
+		consider(func() (vp9InterPartitionRD, bool) {
+			return e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
+				miRows, miCols, miRow, miCol, root, horzSize,
+				common.PartitionHorz, bs, 0, hasRows, hasCols, qindex)
+		})
+	}
+	if hasCols {
+		consider(func() (vp9InterPartitionRD, bool) {
+			return e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
+				miRows, miCols, miRow, miCol, root, vertSize,
+				common.PartitionVert, 0, bs, hasRows, hasCols, qindex)
+		})
+	}
+	if !bestSet {
+		restoreBase()
+		e.partitionReconScratchTop = reconSnap.top
+		return vp9InterPartitionRD{}, false
+	}
+
+	restoreBase()
+	var committed vp9InterPartitionRD
+	switch best.target {
+	case root:
+		committed, ok = e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, root, hasRows, hasCols, qindex)
+	case splitSize:
+		committed, ok = e.scoreVP9InterPartitionSplit(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, root, splitSize,
+			hasRows, hasCols, qindex)
+	case horzSize:
+		committed, ok = e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, root, horzSize,
+			common.PartitionHorz, bs, 0, hasRows, hasCols, qindex)
+	case vertSize:
+		committed, ok = e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, root, vertSize,
+			common.PartitionVert, 0, bs, hasRows, hasCols, qindex)
+	default:
+		ok = false
+	}
+	if !ok {
+		restoreBase()
+		e.partitionReconScratchTop = reconSnap.top
+		return vp9InterPartitionRD{}, false
+	}
+	e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+	e.partitionReconScratchTop = reconSnap.top
+	return committed, true
+}
+
+func (e *VP9Encoder) scoreVP9InterPartitionPairShallow(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	child common.BlockSize, rowOff, colOff int,
 ) (uint64, bool) {
@@ -7334,6 +7613,10 @@ func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
 	}
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, child,
 		vp9InterModeDecisionMi(child, first))
+	if child < common.Block8x8 {
+		e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
+		return first.score, true
+	}
 	second, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow+rowOff, miCol+colOff, child)
 	if !ok {
@@ -7344,7 +7627,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
 	return first.score + second.score, true
 }
 
-func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
+func (e *VP9Encoder) scoreVP9InterPartitionSplitShallow(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	child common.BlockSize,
 ) (uint64, bool) {
@@ -7427,6 +7710,55 @@ func (e *VP9Encoder) restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols i
 	}
 }
 
+type vp9PartitionContextSnapshot struct {
+	aboveStart int
+	aboveLen   int
+	leftStart  int
+	leftLen    int
+	above      [common.MiBlockSize]int8
+	left       [common.MiBlockSize]int8
+}
+
+func (e *VP9Encoder) snapshotVP9PartitionContexts(miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9PartitionContextSnapshot, bool) {
+	var snap vp9PartitionContextSnapshot
+	if miRow < 0 || miCol < 0 || bsize >= common.BlockSizes {
+		return snap, false
+	}
+	width := int(common.Num8x8BlocksWideLookup[bsize])
+	height := int(common.Num8x8BlocksHighLookup[bsize])
+	if width <= 0 || height <= 0 ||
+		width > len(snap.above) || height > len(snap.left) {
+		return snap, false
+	}
+	snap.aboveStart = miCol
+	snap.aboveLen = min(width, len(e.aboveSegCtx)-miCol)
+	snap.leftStart = miRow & common.MiMask
+	snap.leftLen = min(height, len(e.leftSegCtx)-snap.leftStart)
+	if snap.aboveLen <= 0 || snap.leftLen <= 0 {
+		return snap, false
+	}
+	copy(snap.above[:snap.aboveLen],
+		e.aboveSegCtx[snap.aboveStart:snap.aboveStart+snap.aboveLen])
+	copy(snap.left[:snap.leftLen],
+		e.leftSegCtx[snap.leftStart:snap.leftStart+snap.leftLen])
+	return snap, true
+}
+
+func (e *VP9Encoder) restoreVP9PartitionContexts(snap vp9PartitionContextSnapshot) {
+	if snap.aboveLen > 0 && snap.aboveStart >= 0 &&
+		snap.aboveStart+snap.aboveLen <= len(e.aboveSegCtx) {
+		copy(e.aboveSegCtx[snap.aboveStart:snap.aboveStart+snap.aboveLen],
+			snap.above[:snap.aboveLen])
+	}
+	if snap.leftLen > 0 && snap.leftStart >= 0 &&
+		snap.leftStart+snap.leftLen <= len(e.leftSegCtx) {
+		copy(e.leftSegCtx[snap.leftStart:snap.leftStart+snap.leftLen],
+			snap.left[:snap.leftLen])
+	}
+}
+
 type vp9PartitionReconPlaneSnapshot struct {
 	x, y, w, h int
 	off        int
@@ -7501,7 +7833,7 @@ func (e *VP9Encoder) saveVP9PartitionReconSnapshot(miRow, miCol int,
 	return snap, true
 }
 
-func (e *VP9Encoder) restoreVP9PartitionReconSnapshot(snap vp9PartitionReconSnapshot) {
+func (e *VP9Encoder) restoreVP9PartitionReconSnapshotPixels(snap vp9PartitionReconSnapshot) {
 	for plane := range vp9dec.MaxMbPlane {
 		p := snap.planes[plane]
 		if p.w == 0 || p.h == 0 {
@@ -7516,6 +7848,10 @@ func (e *VP9Encoder) restoreVP9PartitionReconSnapshot(snap vp9PartitionReconSnap
 				e.partitionReconScratch[p.off+y*p.w:p.off+(y+1)*p.w])
 		}
 	}
+}
+
+func (e *VP9Encoder) restoreVP9PartitionReconSnapshot(snap vp9PartitionReconSnapshot) {
+	e.restoreVP9PartitionReconSnapshotPixels(snap)
 }
 
 func (e *VP9Encoder) releaseVP9PartitionReconSnapshot(snap vp9PartitionReconSnapshot) {
@@ -8560,7 +8896,7 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 			cand = vp9KeyframeIntraRD{
 				mode:          mode,
 				rate:          yModeCosts[mode] + txRD.rate,
-				rateTokenOnly: txRD.rate,
+				rateTokenOnly: txRD.rateTokenOnly,
 				distortion:    txRD.distortion,
 				skippable:     txRD.skippable,
 			}
@@ -13227,6 +13563,19 @@ func (e *VP9Encoder) pickVP9Sub8InterMode(inter *vp9InterEncodeState,
 				rate:           rate,
 				distortion:     distortion,
 				score:          e.vp9InterModeScore(distortion, rate, qindex),
+			}
+			if e.sf.UseNonrdPickMode == 0 {
+				if rdDist, rdRate, hasResidue, ok := e.scoreVP9InterTxCandidate(
+					inter, miRows, miCols, miRow, miCol, bsize,
+					common.Tx4x4); ok {
+					if !hasResidue {
+						rdRate = 0
+					}
+					cand.distortion = rdDist
+					cand.rate = rate + rdRate
+					cand.score = e.vp9InterModeScore(cand.distortion,
+						cand.rate, qindex)
+				}
 			}
 			if !bestSet || cand.score < best.score ||
 				(cand.score == best.score && cand.rate < best.rate) {
