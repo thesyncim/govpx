@@ -8,13 +8,10 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// vp9LibvpxChoosePartitioningEnabled mirrors libvpx's
-// partition_search_type == VAR_BASED_PARTITION dispatch gate
-// (vp9/encoder/vp9_encodeframe.c:5470). govpx currently opts in via the
-// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 environment variable so the
-// new picker can be exercised against the deferred fuzz seeds without
-// flipping the default behavior of the existing scoreboard tests.
-// Once parity is validated, the gate moves to sf.PartitionSearchType.
+// vp9LibvpxChoosePartitioningEnabled preserves the old explicit validation
+// override. Normal encode dispatch now mirrors libvpx directly through
+// partition_search_type == VAR_BASED_PARTITION; the env flag remains for
+// oracle diagnostics that need to report the historical gate setting.
 var vp9LibvpxChoosePartitioningEnabled = os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING") == "1"
 
 // vp9_variance_partition_pick.go is the Phase C verbatim port of libvpx
@@ -178,6 +175,8 @@ type vp9ChoosePartitioningArgs struct {
 	PartitionRefFrame      int8 // ref_frame_partition
 	PartitionMV            vp9dec.MV
 	VarianceLow            *[25]uint8 // x->variance_low
+	VarianceTree           *vp9V64x64
+	VarianceTreeLowRes     *[16]vp9V16x16
 
 	// CYCLIC_REFRESH boost predicate. Mirrors libvpx's
 	// cyclic_refresh_segment_id_boosted(segment_id). When true, BaseQIndex
@@ -218,8 +217,16 @@ type vp9ChoosePartitioningArgs struct {
 //nolint:gocyclo // verbatim libvpx body
 func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	// libvpx: vp9_encodeframe.c:1258-1289 — scalar locals.
-	var vt vp9V64x64
-	var vt2 [16]vp9V16x16 // allocated when low_res && threshold_4x4avg < INT64_MAX
+	vt := a.VarianceTree
+	if vt == nil {
+		vt = new(vp9V64x64)
+	}
+	*vt = vp9V64x64{}
+	vt2 := a.VarianceTreeLowRes
+	if vt2 == nil {
+		vt2 = new([16]vp9V16x16)
+	}
+	*vt2 = [16]vp9V16x16{}
 	var forceSplit [21]int
 	var maxVar32x32 int
 	minVar32x32 := math.MaxInt32
@@ -464,7 +471,7 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	}
 	// libvpx: vp9_encodeframe.c:1677-1694 — 64x64 aggregation.
 	if forceSplit[0] == 0 {
-		vp9FillVarianceTreeV64x64(&vt)
+		vp9FillVarianceTreeV64x64(vt)
 		vp9GetVariance(&vt.PartVariances.None)
 		if !isKeyFrame && noiseLevel >= vp9NoiseLevelMedium &&
 			vt.PartVariances.None.Variance > (9*avg32x32)>>5 {
@@ -482,7 +489,7 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 		!vp9SetVTPartitioning(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
 			common.Block64x64, common.Block16x16, thresholds[0],
 			forceSplit[0] != 0, isKeyFrame,
-			vp9SetVTPartitioningArgs{V64: &vt}, chromaOK) {
+			vp9SetVTPartitioningArgs{V64: vt}, chromaOK) {
 		for i := range 4 {
 			x32Idx := (i & 1) << 2
 			y32Idx := (i >> 1) << 2
@@ -544,7 +551,7 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	// chroma_check). govpx callers run chroma decisions through the
 	// existing pipeline so no in-picker chroma_check is required here.
 	if a.ShortCircuitLowTempVar != 0 && a.VarianceLow != nil {
-		vp9SetLowTempVarFlag(a, &vt, thresholds)
+		vp9SetLowTempVarFlag(a, vt, thresholds)
 	}
 	return 0
 }

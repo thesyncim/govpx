@@ -855,6 +855,8 @@ type VP9Encoder struct {
 	varPartSBContentState      []vp9ContentStateSB
 	varPartSBContentStateValid []bool
 	varPartSBZeroTempSADSource []bool
+	varPartTreeScratch         vp9V64x64
+	varPartTreeLowResScratch   [16]vp9V16x16
 
 	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
 	// scratches backing the border-padded LAST_FRAME and source plane
@@ -5896,7 +5898,7 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 	//
 	// libvpx ref: vp9/encoder/vp9_encodeframe.c:5470 nonrd_use_partition
 	// reads xd->mi[]->sb_type to drive the encode walk.
-	if vp9LibvpxChoosePartitioningEnabled &&
+	if e.vp9RealtimeVariancePartitionEnabled() &&
 		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, key, nil) {
 		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
 	}
@@ -6522,6 +6524,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar,
 		PartitionRefFrame:      vp9dec.LastFrame,
 		VarianceLow:            &e.varPartSBVarLow[sbIdx],
+		VarianceTree:           &e.varPartTreeScratch,
+		VarianceTreeLowRes:     &e.varPartTreeLowResScratch,
 		NoiseEstimateEnabled:   e.noiseEstimate.enabled,
 		NoiseLevel:             vp9NoiseEstimateExtractLevel(&e.noiseEstimate),
 		// libvpx vp9_encodeframe.c:1379 feeds set_vbp_thresholds with
@@ -6841,7 +6845,7 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 	//
 	// libvpx ref: vp9/encoder/vp9_encodeframe.c:5470 nonrd_use_partition
 	// reads xd->mi[]->sb_type to drive the encode walk.
-	if vp9LibvpxChoosePartitioningEnabled &&
+	if e.vp9RealtimeVariancePartitionEnabled() &&
 		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, nil, inter) {
 		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
 	}
