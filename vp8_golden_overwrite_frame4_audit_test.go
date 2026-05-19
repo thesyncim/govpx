@@ -170,8 +170,9 @@ import (
 //     active_worst / active_best Q regulation across multiple
 //     inter frames is the suspect class — task #172 closure
 //     (commit 45ded7d5) closed the recode-loop bookkeeping for the
-//     ARNR-free sibling 77952f43, but the residual gap on 0bb41d74
-//     remains under matchLimit=4 tolerance.
+//     ARNR-free sibling 77952f43; the residual gap on 0bb41d74 was
+//     subsequently closed by task #218 and the seed now asserts
+//     byte-exact at matchLimit=0.
 //
 // The residual gap therefore belongs to the same class as task #173
 // (per-MB picker state at Speed boundaries across recode loop
@@ -224,13 +225,11 @@ func TestVP8GoldenOverwriteFrame4DivergenceAudit(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1")
 	}
-	// Skip-by-design: this test exists as documentation pinning the
-	// residual divergence on the 0bb41d74 seed for task #187. The
-	// active failure surfaces from
+	// Skip-by-design: this audit documents the historical divergence on
+	// the 0bb41d74 seed for task #187. The gap was closed by task #218
+	// (encoder_inter_modes_rd_split.go SPLITMV skip-backout port); the
+	// seed now asserts strict byte-exact at matchLimit=0 inside
 	// FuzzOracleEncoderRuntimeControlTransitions /
-	// regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74 under
-	// matchLimit=4, so the regression harness is already in place;
-	// running another encode here would duplicate state without
-	// exercising additional surface.
-	t.Skip("documentation-only; live regression at FuzzOracleEncoderRuntimeControlTransitions/regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74 under matchLimit=4 tolerance")
+	// regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74.
+	t.Skip("closed by task #218; seed asserts strict byte-exact at matchLimit=0")
 }

@@ -17,10 +17,13 @@ import (
 // including production resolutions and Threads ≥ 2 — picking up bitstream-
 // affecting changes that the hand-picked strict-gate matrix would miss.
 //
-// At production resolutions (≥640×360) keyframe parity is asserted strictly
-// (matchLimit=1) and inter-frame mismatches are logged per the §5 "matched-
-// prefix length as scoreboard" convention. Below 320×240 the assertion is
-// full-strict, matching the strict gate. Divergences land in
+// Every fuzz iteration asserts full byte-exact parity (matchLimit=0) across
+// all frames at every resolution. The matchLimit=1 keyframe-only floor and
+// matched-prefix scoreboard convention used during the §5 cascade are now
+// retired — the autospeed determinism work (#361-#369), the libvpx-oracle
+// reproducibility retry (#355/#369), and the matchLimit tightening sweep
+// (#384) closed the residual production-resolution slack, so the gate is
+// uniformly strict. Divergences land in
 // testdata/fuzz/FuzzEncoderProductionStreamByteParity and replay as ordinary
 // go test regressions.
 func FuzzEncoderProductionStreamByteParity(f *testing.F) {

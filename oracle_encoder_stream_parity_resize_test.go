@@ -118,21 +118,17 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 	}
 
 	// coldSegLimit is the strict-match prefix length for each
-	// per-segment cold-start parity comparison. Most cases require the
-	// full segment budget (matchLimit=0 -> strict). The exceptions are
-	// pre-existing baseline parity gaps that the base oracle parity
-	// matrix does not cover at the same (deadline, cpu_used, rc-mode,
-	// resolution) tuple — when this resize matrix surfaces them for
-	// the first time, we pin the longest known-good prefix here so the
-	// per-frame status logs stay visible and any regression past the
-	// pin is still a failure.
+	// per-segment cold-start parity comparison. The map is empty:
+	// every cold-segment compare runs at matchLimit=0 (strict, full
+	// segment budget). Historical exceptions (32x32 s1 first-partition
+	// drift, 64x64 vbr good-quality+cpu0 cold-seg2 frame 7) were all
+	// closed by the dctValueBaseCost sign-split trellis fix
+	// (encoder_inter_quantize.go) and remain pinned strict here as
+	// regression sentinels. New per-segment slack requires an explicit
+	// entry plus a task pinning the root cause; do not relax silently.
 	//
 	// Naming convention: <pair-name>/<combo-name>/<segment>.
 	// segment is "s1" for segment one or "s2" for segment two.
-	// 64x64 vbr good-quality+cpu0 cold-seg2 frame 7 has a residual
-	// 1-byte first-partition drift that survives the dctValueBaseCost
-	// sign-split trellis fix (encoder_inter_quantize.go). The 32x32 s1
-	// limits previously here were lifted by that fix.
 	coldSegLimit := map[string]int{}
 
 	// resizeSeg2KeyKnownDivergent marks <pair-name>/<combo-name> tuples

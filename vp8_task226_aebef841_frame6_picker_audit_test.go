@@ -9,8 +9,10 @@ import (
 
 // TestVP8Task226Aebef841Frame6PickerAudit pins task #226: residual frame-6
 // divergence on regression_general_64x64_300kbps_sp0_f9_src0_aebef841 fuzz
-// seed of FuzzOracleEncoderRuntimeControlTransitions (matchLimit=6 carveout
-// in oracle_encoder_runtime_controls_fuzz_test.go).
+// seed of FuzzOracleEncoderRuntimeControlTransitions. The matchLimit=6
+// carveout that historically gated this seed was removed by task #237;
+// oracleRuntimeControlFuzzMatchLimit now returns 0 and the seed asserts
+// byte-exact across all 9 frames (closed-state regression sentinel).
 //
 // SEED REPRODUCER:
 //
@@ -18,8 +20,9 @@ import (
 //	9 frames. Frame 1: rtc:0+deadline:good+cpu:0. Frame 2:
 //	setref:golden:panning:8+maxintra:0+gfboost:0+cq:4+...
 //
-// CURRENT STATE (matchLimit=6 carveout): frames 0-5 byte-MATCH, frame 6
-// govpx=645 vs libvpx=762 MISMATCH, frames 7-8 byte-MATCH.
+// HISTORICAL STATE (matchLimit=6 carveout, pre-#237): frames 0-5 byte-MATCH,
+// frame 6 govpx=645 vs libvpx=762 MISMATCH, frames 7-8 byte-MATCH.
+// CURRENT STATE (matchLimit=0, post-#237): all frames byte-MATCH.
 //
 // DIVERGENCE ROOT CAUSE:
 //
@@ -122,7 +125,8 @@ import (
 //
 // HARNESS REFERENCES:
 //
-//   - oracle_encoder_runtime_controls_fuzz_test.go (matchLimit=6 carveout)
+//   - oracle_encoder_runtime_controls_fuzz_test.go (matchLimit=6 carveout
+//     removed by #237; helper now returns 0)
 //   - diag_aebef841_test.go (govpx_oracle_trace && diag) repro tracer.
 //
 // TASK REFERENCES:
