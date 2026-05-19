@@ -432,7 +432,10 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 			helperTokens: []string{"drop:"},
 		},
 		"SetLayerFrameParallelDecoding": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"frame-parallel:"}},
-		"SetLayerFramePeriodicBoost":    {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"periodicboost:"}},
+		"SetLayerFrameParallelEncoderThreads": {
+			kind: "vp9-spatial-svc-layer-control",
+		},
+		"SetLayerFramePeriodicBoost": {kind: "vp9-spatial-svc-layer-control", helperTokens: []string{"periodicboost:"}},
 		"SetLayerKeyFrameInterval": {
 			kind:         "vp9-spatial-svc-layer-control",
 			helperTokens: []string{"kfmax:"},

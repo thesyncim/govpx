@@ -698,6 +698,17 @@ func (e *VP9SpatialSVCEncoder) SetLayerFrameParallelDecoding(layerID uint8, enab
 	return layer.SetFrameParallelDecoding(enabled)
 }
 
+// SetLayerFrameParallelEncoderThreads changes one spatial layer's VP9
+// frame-parallel encoder thread setting, matching
+// [VP9Encoder.SetFrameParallelEncoderThreads].
+func (e *VP9SpatialSVCEncoder) SetLayerFrameParallelEncoderThreads(layerID uint8, threads int) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetFrameParallelEncoderThreads(threads)
+}
+
 // SetLayerFrameDropAllowed enables or disables one spatial layer's VP9 CBR
 // frame dropping, matching [VP9Encoder.SetFrameDropAllowed].
 func (e *VP9SpatialSVCEncoder) SetLayerFrameDropAllowed(layerID uint8, enabled bool) error {

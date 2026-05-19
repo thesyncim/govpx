@@ -892,6 +892,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerFrameParallelDecoding(0, false); err != nil {
 		t.Fatalf("SetLayerFrameParallelDecoding: %v", err)
 	}
+	if err := svc.SetLayerFrameParallelEncoderThreads(0, 1); err != nil {
+		t.Fatalf("SetLayerFrameParallelEncoderThreads: %v", err)
+	}
 	if err := svc.SetLayerRTCExternalRateControl(0, true); err != nil {
 		t.Fatalf("SetLayerRTCExternalRateControl: %v", err)
 	}
@@ -959,6 +962,7 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		base.opts.DisableLoopfilter != VP9LoopfilterDisableInter ||
 		!base.opts.FrameParallelDecodingSet ||
 		base.opts.FrameParallelDecoding ||
+		base.opts.FrameParallelEncoderThreads != 1 ||
 		!base.opts.RTCExternalRateControl ||
 		!base.opts.RowMT ||
 		!base.opts.Lossless ||
@@ -1030,6 +1034,13 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if err := svc.SetLayerFrameParallelDecoding(2, true); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerFrameParallelDecoding invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+	if err := svc.SetLayerFrameParallelEncoderThreads(0, 2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerFrameParallelEncoderThreads(2) err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.FrameParallelEncoderThreads != 1 {
+		t.Fatalf("invalid frame-parallel encoder threads mutated base layer to %d",
+			base.opts.FrameParallelEncoderThreads)
 	}
 	singleThreadSVC, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
@@ -1144,6 +1155,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerFrameParallelDecoding(0, true); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerFrameParallelDecoding after close err = %v, want ErrClosed", err)
 	}
+	if err := svc.SetLayerFrameParallelEncoderThreads(0, 0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerFrameParallelEncoderThreads after close err = %v, want ErrClosed", err)
+	}
 	if err := svc.SetLayerRowMT(0, false); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerRowMT after close err = %v, want ErrClosed", err)
 	}
@@ -1217,6 +1231,9 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, VP9AQComplexity) }},
 		{name: "SetLayerFrameParallelDecoding", fn: func() error {
 			return svc.SetLayerFrameParallelDecoding(0, false)
+		}},
+		{name: "SetLayerFrameParallelEncoderThreads", fn: func() error {
+			return svc.SetLayerFrameParallelEncoderThreads(0, 1)
 		}},
 		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},
 		{name: "SetLayerRateControlBuffer", fn: func() error { return svc.SetLayerRateControlBuffer(0, 320, 160, 240) }},
