@@ -2,6 +2,8 @@ package govpx
 
 import (
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 // TestEnsureLastBorderedInvalidWhenNoLastRef pins the early-return path:
@@ -53,9 +55,9 @@ func TestEnsureLastBorderedReplicatesEdge(t *testing.T) {
 		t.Fatalf("lastBordered dims: got (%d,%d), want (%d,%d)",
 			e.lastBordered.W, e.lastBordered.H, w, h)
 	}
-	if e.lastBordered.Border != vp9EncBorderInPixels {
+	if e.lastBordered.Border != common.VP9EncBorderInPixels {
 		t.Fatalf("lastBordered.Border = %d, want %d",
-			e.lastBordered.Border, vp9EncBorderInPixels)
+			e.lastBordered.Border, common.VP9EncBorderInPixels)
 	}
 	stride := e.lastBordered.Stride
 	originX := e.lastBordered.OriginX()

@@ -216,6 +216,37 @@ Acceptance:
 - Public VP8 and VP9 behavior stays independently testable.
 - Shared helpers have unit tests that do not require oracle binaries.
 
+### Wave 4.5: Boundary And Readability Audit
+
+Goal: double-check that code now sits in the package that owns it, duplicate
+mechanics have not simply been moved around, and hard codec logic has enough
+upstream-anchored explanation to be reviewable.
+
+Plan:
+
+- Re-scan root package files for VP8-only and VP9-only implementation code and
+  turn each remaining cluster into a codec-owned move packet.
+- Re-scan `internal/vp8`, `internal/vp9`, and `internal/vpx` for duplicated
+  helpers. Move only mechanical duplication to `internal/vpx`; keep codec
+  semantics in codec-owned packages.
+- Check hard-to-read codec paths against the pinned libvpx sources already
+  tracked by the repo or referenced by `UPSTREAM.md`. Add short Go-style
+  comments for local invariants, and put longer explanations in
+  `docs/architecture.md`, `docs/codec-status.md`, or `docs/validation.md`.
+- Keep comments factual and tied to local code paths or pinned upstream source
+  locations. Do not turn comments into parity journals or speculative design
+  notes.
+
+Acceptance:
+
+- `docs/repo-map.md` lists the remaining root implementation clusters and their
+  target package owners.
+- Any new shared helper package has focused unit tests and no oracle dependency.
+- New code comments explain non-obvious invariants, pointer/stride arithmetic,
+  codec constraints, or libvpx parity anchors without narrating obvious Go.
+- The audit leaves an explicit list of rejected dedupe candidates where sharing
+  would force false VP8/VP9 symmetry.
+
 ### Wave 5: API Cleanup
 
 Goal: make the public API boring and discoverable.
@@ -375,6 +406,9 @@ allocation/performance checks, and risks.
   decoder, VP9 encoder.
 - Wave 4 dedupe should happen after the relevant code is moved, otherwise
   helpers will be dragged across packages twice.
+- Wave 4.5 should run repeatedly as move batches land: it is the cleanup pass
+  that catches duplicated mechanics, misplaced codec-only code, and hard code
+  that needs upstream-anchored explanation.
 - Wave 5 API cleanup, Wave 6.5 tracing/performance hygiene, and Wave 7 docs
   should stay close together.
 - Wave 8 is one integration owner.

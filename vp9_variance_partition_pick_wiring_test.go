@@ -308,10 +308,10 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 		LastRefStride: refStrideB,
 		Speed:         int(e.opts.CpuUsed),
 		MvLimits: vp9MvLimits{
-			ColMin: -(x0 + vp9EncBorderInPixels),
-			ColMax: width - x0 + vp9EncBorderInPixels,
-			RowMin: -(y0 + vp9EncBorderInPixels),
-			RowMax: height - y0 + vp9EncBorderInPixels,
+			ColMin: -(x0 + common.VP9EncBorderInPixels),
+			ColMax: width - x0 + common.VP9EncBorderInPixels,
+			RowMin: -(y0 + common.VP9EncBorderInPixels),
+			RowMax: height - y0 + common.VP9EncBorderInPixels,
 		},
 	}
 	expected := make([]uint8, 64*64)

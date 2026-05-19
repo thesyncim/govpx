@@ -568,14 +568,13 @@ func (e *VP9Encoder) refineVP9InterSubpelMvTree(inter *vp9InterEncodeState,
 func vp9EncoderMvLimits(miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,
 ) vp9MvLimits {
-	const vp9InterpExtend = 4
 	miW := int(common.Num8x8BlocksWideLookup[bsize])
 	miH := int(common.Num8x8BlocksHighLookup[bsize])
 	return vp9MvLimits{
-		RowMin: -(((miRow + miH) * common.MiSize) + vp9InterpExtend),
-		ColMin: -(((miCol + miW) * common.MiSize) + vp9InterpExtend),
-		RowMax: (miRows-miRow)*common.MiSize + vp9InterpExtend,
-		ColMax: (miCols-miCol)*common.MiSize + vp9InterpExtend,
+		RowMin: -(((miRow + miH) * common.MiSize) + common.VP9InterpExtend),
+		ColMin: -(((miCol + miW) * common.MiSize) + common.VP9InterpExtend),
+		RowMax: (miRows-miRow)*common.MiSize + common.VP9InterpExtend,
+		ColMax: (miCols-miCol)*common.MiSize + common.VP9InterpExtend,
 	}
 }
 
@@ -784,8 +783,8 @@ func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
 	}
 	if !e.subpelRefBorderedValid || e.subpelRefBorderedSlot != slot ||
 		e.subpelRefBordered.W != w || e.subpelRefBordered.H != h {
-		vp9YV12BuildBorderedPlane(&e.subpelRefBordered, plane,
-			planeStride, w, h, vp9EncBorderInPixels)
+		common.YV12BuildBorderedPlane(&e.subpelRefBordered, plane,
+			planeStride, w, h, common.VP9EncBorderInPixels)
 		e.subpelRefBorderedSlot = slot
 		e.subpelRefBorderedValid = true
 	}

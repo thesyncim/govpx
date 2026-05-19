@@ -1,6 +1,6 @@
-package govpx
+package common
 
-// vp9_yv12_border.go ports the YV12 frame-border substrate from libvpx
+// This file ports the YV12 frame-border substrate from libvpx
 // v1.16.0. Constants and the edge-replication body are verbatim ports
 // of the libvpx headers / sources cited inline below.
 //
@@ -53,16 +53,16 @@ package govpx
 // border, but on the encoder side libvpx provisions the full 160
 // pixels so all hot paths share one allocation.
 const (
-	vp9Vp8BorderInPixels   = 32
-	vp9InnerBorderInPixels = 96
-	vp9InterpExtend        = 4
-	vp9EncBorderInPixels   = 160
-	vp9DecBorderInPixels   = 32
+	VP8BorderInPixels      = 32
+	VP9InnerBorderInPixels = 96
+	VP9InterpExtend        = 4
+	VP9EncBorderInPixels   = 160
+	VP9DecBorderInPixels   = 32
 )
 
-// vp9YV12BorderBuffer is a per-encoder scratch backing a border-padded
+// YV12BorderBuffer is a per-encoder scratch backing a border-padded
 // copy of one luma (or chroma) plane. Callers fill it via
-// vp9YV12BuildBorderedPlane after each frame's reconstruction, then
+// YV12BuildBorderedPlane after each frame's reconstruction, then
 // hand the (Pixels, Stride, OriginX, OriginY) tuple to consumers that
 // need to read pixels outside the visible plane.
 //
@@ -70,10 +70,10 @@ const (
 // / v_buffer pointer, which always points at the (border, border)
 // origin inside a (stride x (height+2*border)) allocation
 // (vpx_scale/yv12config.h:29-65 + vpx_scale/generic/yv12extend.c:130-171).
-type vp9YV12BorderBuffer struct {
+type YV12BorderBuffer struct {
 	// Pixels holds the full (stride x rows) padded plane. The
 	// visible plane lives at (OriginX, OriginY); the surrounding
-	// `border` pixels on every side are edge-replicated.
+	// Border pixels on every side are edge-replicated.
 	Pixels []uint8
 
 	// Stride is the row pitch of Pixels in bytes (== W + 2*Border).
@@ -84,7 +84,7 @@ type vp9YV12BorderBuffer struct {
 	H int
 
 	// Border is the per-side padding width in pixels. Always
-	// vp9EncBorderInPixels for encoder-side allocations; the field is
+	// VP9EncBorderInPixels for encoder-side allocations; the field is
 	// kept explicit so consumers can derive the absolute origin.
 	Border int
 }
@@ -92,14 +92,14 @@ type vp9YV12BorderBuffer struct {
 // OriginX / OriginY return the (col, row) coordinate of the visible
 // plane's top-left pixel inside the Pixels buffer. Always equal to
 // Border for a libvpx-shaped allocation.
-func (b *vp9YV12BorderBuffer) OriginX() int { return b.Border }
-func (b *vp9YV12BorderBuffer) OriginY() int { return b.Border }
+func (b *YV12BorderBuffer) OriginX() int { return b.Border }
+func (b *YV12BorderBuffer) OriginY() int { return b.Border }
 
 // Rows returns the total number of rows in the padded buffer
 // (== H + 2*Border).
-func (b *vp9YV12BorderBuffer) Rows() int { return b.H + 2*b.Border }
+func (b *YV12BorderBuffer) Rows() int { return b.H + 2*b.Border }
 
-// vp9ExtendPlane is a verbatim port of libvpx's static extend_plane
+// extendPlane is a verbatim port of libvpx's static extend_plane
 // (vpx_scale/generic/yv12extend.c:22-60). It writes the
 // `extend_left`-wide left border and `extend_right`-wide right border
 // of every visible row with the row's leftmost / rightmost pixel, then
@@ -137,7 +137,7 @@ func (b *vp9YV12BorderBuffer) Rows() int { return b.H + 2*b.Border }
 // plane's top-left pixel relative to the slice base, and the four
 // per-direction offsets (dst_ptr1 etc.) are reconstructed by index
 // arithmetic into pixels[].
-func vp9ExtendPlane(pixels []uint8, srcOff, srcStride, width, height,
+func extendPlane(pixels []uint8, srcOff, srcStride, width, height,
 	extendTop, extendLeft, extendBottom, extendRight int,
 ) {
 	linesize := extendLeft + extendRight + width
@@ -191,7 +191,7 @@ func vp9ExtendPlane(pixels []uint8, srcOff, srcStride, width, height,
 	}
 }
 
-// vp9YV12BuildBorderedPlane (re)allocates buf to host a libvpx-shaped
+// YV12BuildBorderedPlane (re)allocates buf to host a libvpx-shaped
 // bordered copy of `plane` (width x height visible pixels, planeStride
 // row pitch), then fills the visible body and the surrounding border
 // of `border` pixels on every side. Edge replication matches libvpx's
@@ -212,7 +212,7 @@ func vp9ExtendPlane(pixels []uint8, srcOff, srcStride, width, height,
 // The function returns the underlying Pixels slice, its Stride, and
 // the (originX, originY) coordinate of the visible plane's top-left
 // inside Pixels (== border, border).
-func vp9YV12BuildBorderedPlane(buf *vp9YV12BorderBuffer,
+func YV12BuildBorderedPlane(buf *YV12BorderBuffer,
 	plane []uint8, planeStride, width, height, border int,
 ) (pixels []uint8, stride, originX, originY int) {
 	stride = width + 2*border
@@ -247,7 +247,7 @@ func vp9YV12BuildBorderedPlane(buf *vp9YV12BorderBuffer,
 	// uncropped image.YCbCr planes have y_height == y_crop_height and
 	// y_width == y_crop_width so the bottom / right extents collapse
 	// to plain `border`.
-	vp9ExtendPlane(buf.Pixels, dstOriginOff, stride, width, height,
+	extendPlane(buf.Pixels, dstOriginOff, stride, width, height,
 		border, border, border, border)
 
 	return buf.Pixels, stride, border, border

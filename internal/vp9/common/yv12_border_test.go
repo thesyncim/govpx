@@ -1,10 +1,10 @@
-package govpx
+package common
 
 import (
 	"testing"
 )
 
-// Pinning tests for vp9_yv12_border.go. All reference values are
+// Pinning tests for the YV12 border substrate. All reference values are
 // hand-derived from the libvpx v1.16.0 C bodies at
 // vpx_scale/generic/yv12extend.c:22-60 (extend_plane) and lines 130-171
 // (vpx_extend_frame_borders_c).
@@ -18,11 +18,11 @@ func TestVp9YV12BorderConstantsMatchLibvpx(t *testing.T) {
 		got  int
 		want int
 	}{
-		{"VP8BORDERINPIXELS", vp9Vp8BorderInPixels, 32},
-		{"VP9INNERBORDERINPIXELS", vp9InnerBorderInPixels, 96},
-		{"VP9_INTERP_EXTEND", vp9InterpExtend, 4},
-		{"VP9_ENC_BORDER_IN_PIXELS", vp9EncBorderInPixels, 160},
-		{"VP9_DEC_BORDER_IN_PIXELS", vp9DecBorderInPixels, 32},
+		{"VP8BORDERINPIXELS", VP8BorderInPixels, 32},
+		{"VP9INNERBORDERINPIXELS", VP9InnerBorderInPixels, 96},
+		{"VP9_INTERP_EXTEND", VP9InterpExtend, 4},
+		{"VP9_ENC_BORDER_IN_PIXELS", VP9EncBorderInPixels, 160},
+		{"VP9_DEC_BORDER_IN_PIXELS", VP9DecBorderInPixels, 32},
 	}
 	for _, tc := range cases {
 		if tc.got != tc.want {
@@ -69,7 +69,7 @@ func TestVp9ExtendPlaneLeftRightBorder(t *testing.T) {
 
 	// srcOff = 2 (visible plane's top-left at column 2).
 	// width=4, height=4, extendTop=0, extendBottom=0, extendLeft=2, extendRight=2.
-	vp9ExtendPlane(pixels, 2, stride, 4, 4, 0, 2, 0, 2)
+	extendPlane(pixels, 2, stride, 4, 4, 0, 2, 0, 2)
 
 	for y := range rows {
 		var got [8]uint8
@@ -97,7 +97,7 @@ func TestVp9ExtendPlaneTopBottomBorder(t *testing.T) {
 		pixels[3*stride+x] = uint8(30 + x)
 	}
 	// srcOff = 2*stride + 0 (visible plane top-left = (row=2, col=0)).
-	vp9ExtendPlane(pixels, 2*stride, stride, 4, 2, 2, 0, 2, 0)
+	extendPlane(pixels, 2*stride, stride, 4, 2, 2, 0, 2, 0)
 
 	wantTop := [4]uint8{20, 21, 22, 23}
 	wantBot := [4]uint8{30, 31, 32, 33}
@@ -135,8 +135,8 @@ func TestVp9YV12BuildBorderedPlaneFullExtension(t *testing.T) {
 		}
 	}
 
-	var buf vp9YV12BorderBuffer
-	pixels, stride, originX, originY := vp9YV12BuildBorderedPlane(&buf, src, w, w, h, border)
+	var buf YV12BorderBuffer
+	pixels, stride, originX, originY := YV12BuildBorderedPlane(&buf, src, w, w, h, border)
 
 	if stride != w+2*border {
 		t.Fatalf("stride: got %d want %d", stride, w+2*border)
@@ -223,7 +223,7 @@ func TestVp9YV12BuildBorderedPlaneFullExtension(t *testing.T) {
 }
 
 // TestVp9YV12BuildBorderedPlaneReusesBuffer verifies the lazy-alloc /
-// reuse pattern: calling vp9YV12BuildBorderedPlane twice on the same
+// reuse pattern: calling YV12BuildBorderedPlane twice on the same
 // buf with the same dimensions reuses the underlying slice (no
 // reallocation).
 func TestVp9YV12BuildBorderedPlaneReusesBuffer(t *testing.T) {
@@ -233,10 +233,10 @@ func TestVp9YV12BuildBorderedPlaneReusesBuffer(t *testing.T) {
 	for i := range src {
 		src[i] = uint8(i & 0xFF)
 	}
-	var buf vp9YV12BorderBuffer
-	_, _, _, _ = vp9YV12BuildBorderedPlane(&buf, src, w, w, h, border)
+	var buf YV12BorderBuffer
+	_, _, _, _ = YV12BuildBorderedPlane(&buf, src, w, w, h, border)
 	first := buf.Pixels
-	_, _, _, _ = vp9YV12BuildBorderedPlane(&buf, src, w, w, h, border)
+	_, _, _, _ = YV12BuildBorderedPlane(&buf, src, w, w, h, border)
 	second := buf.Pixels
 	// Same backing array => unsafe.SliceData would match; compare by
 	// length & cap & a sentinel byte to keep the test stdlib-only.
@@ -262,13 +262,13 @@ func TestVp9YV12BuildBorderedPlaneReusesBuffer(t *testing.T) {
 // negative-reach offset must be >= 0.
 func TestVp9YV12BuildBorderedPlaneSatisfiesIntProReach(t *testing.T) {
 	w, h := 64, 64
-	border := vp9DecBorderInPixels // 32 — the int_pro minimum.
+	border := VP9DecBorderInPixels // 32 — the int_pro minimum.
 	src := make([]uint8, w*h)
 	for i := range src {
 		src[i] = 128
 	}
-	var buf vp9YV12BorderBuffer
-	pixels, stride, originX, originY := vp9YV12BuildBorderedPlane(&buf, src, w, w, h, border)
+	var buf YV12BorderBuffer
+	pixels, stride, originX, originY := YV12BuildBorderedPlane(&buf, src, w, w, h, border)
 
 	// SB at visible plane's top-left.
 	bw := 64

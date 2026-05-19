@@ -50,8 +50,8 @@ Root `govpx` owns only public surface area:
   moved;
 - `rtp`: VP9 RTP payload descriptor, scalability-structure, packetization, and
   assembly;
-- `dsp`, `common`, and `tables`: VP9 support code, frame-buffer layout
-  mechanics, and kernels.
+- `dsp`, `common`, and `tables`: VP9 support code, frame-buffer layout,
+  YV12 border padding, and kernels.
 
 `internal/vpx` is deliberately small. It is for true cross-codec mechanics only:
 shared sentinel storage, RTP fragment sizing, future buffer/rate-control value
@@ -96,6 +96,9 @@ RTP flow:
   binaries.
 - Root must not grow new codec algorithms while implementation moves are in
   progress.
+- Hard-to-read codec code should carry either a short local invariant comment
+  or a nearby docs link. Facts copied from libvpx must point at the pinned
+  source file or line range used for the port.
 - Public APIs should use explicit Go names and small value types. Because the
   project is unreleased, bad or obsolete names should be removed rather than
   preserved with alternate spellings.

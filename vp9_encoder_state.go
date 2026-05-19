@@ -387,8 +387,8 @@ func (e *VP9Encoder) ensureLastBordered() {
 		e.lastBorderedValid = false
 		return
 	}
-	vp9YV12BuildBorderedPlane(&e.lastBordered, plane, stride, w, h,
-		vp9EncBorderInPixels)
+	common.YV12BuildBorderedPlane(&e.lastBordered, plane, stride, w, h,
+		common.VP9EncBorderInPixels)
 	e.lastBorderedValid = true
 }
 

@@ -1,7 +1,7 @@
 # govpx Repo Map
 
 Generated for Wave 0 of `docs/repo-tidy-plan.md` on 2026-05-19.
-Last updated for VP9 decoder helper ownership moves on 2026-05-19.
+Last updated for VP9 common border ownership moves on 2026-05-19.
 
 This document is the coordination map for splitting the current flat root
 package into a public facade plus codec-owned internal packages. It records the
@@ -67,7 +67,7 @@ Existing internal codec packages are already substantial:
 | `internal/vp8/rtp` | VP8 RTP payload descriptor parse/pack and frame packetize/assemble logic; RFC 7741, not libvpx-derived |
 | `internal/vp8/mem`, `internal/vp8/scale`, `internal/vp8/tables` | VP8 support packages |
 | `internal/vp9/bitstream` | VP9 bit reader/writer and superframe index parser/writer |
-| `internal/vp9/common` | VP9 constants, enums, quantization, superblock alignment, frame-buffer layout and alignment mechanics |
+| `internal/vp9/common` | VP9 constants, enums, quantization, superblock alignment, frame-buffer layout/alignment mechanics, and YV12 border padding |
 | `internal/vp9/decoder` | VP9 parser, stream-info peeking, header/tile helpers, inter MV-ref lookup, reconstruction bounds helpers, frame-context adaptation, MFQE decision metrics, reconstruction, loop filter, tile/thread plumbing |
 | `internal/vp9/dsp` | VP9 scalar/SIMD kernels |
 | `internal/vp9/encoder` | VP9 bitstream writer and transform/quant helpers |
@@ -263,8 +263,10 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3 | VP9 MFQE metric move | root `vp9_decoder_mfqe.go`, `vp9_decoder_mfqe_test.go`, `internal/vp9/decoder/mfqe.go` | Current branch: internal VP9 decoder owns libvpx-pinned MFQE constants, thresholds, decisions, and block metrics; root keeps decoder-state walker glue |
 | 3 | VP9 header/tile helper move | root `vp9_decoder.go`, `vp9_decoder_modes.go`, encoder/decoder call sites, `internal/vp9/{common,decoder}` helper tests | Current branch: internal VP9 common owns MI superblock alignment; internal VP9 decoder owns header render/output/ref helpers, partition-context width, entropy-context lengths, and tile offsets |
 | 3 | VP9 inter MV/bounds helper move | root `vp9_decoder*.go`, VP9 encoder prediction/reconstruction call sites, `internal/vp9/decoder/inter_mv_refs.go` | Current branch: internal VP9 decoder owns libvpx-pinned inter MV reference lookup, previous-frame MV records, inter mode candidate selection, reconstruction support checks, and MI-bound geometry helpers |
+| 3/4 | VP9 YV12 border move | root `vp9_yv12_border.go`, `vp9_yv12_border_test.go`, VP9 encoder border consumers, `internal/vp9/common/yv12_border.go` | Current branch: internal VP9 common owns libvpx-pinned YV12 border constants, edge extension, and padded-plane buffer mechanics used by VP9 encoder motion and partition paths |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
+| 4.5 | Boundary/dedupe/readability audit | `docs/repo-map.md`, `docs/architecture.md`, hard-to-read codec files, duplicated helper candidates | Repeat after move batches: verify VP8-only and VP9-only code is package-owned, shared helpers are genuinely mechanical, and hard code has pinned upstream anchors or concise invariants |
 | 5 | API cleanup | root public files, examples, docs | Current branch: removed the unreleased `RealtimeTarget.AllowFrameDrop` fallback and private legacy wrapper call shapes; continue removing stale public/internal compatibility aliases before release |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |

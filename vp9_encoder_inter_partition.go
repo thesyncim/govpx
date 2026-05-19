@@ -655,9 +655,9 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					if !e.intProSrcBorderedValid ||
 						e.intProSrcBordered.W != srcW ||
 						e.intProSrcBordered.H != srcH {
-						vp9YV12BuildBorderedPlane(&e.intProSrcBordered,
+						common.YV12BuildBorderedPlane(&e.intProSrcBordered,
 							src, srcStride, srcW, srcH,
-							vp9EncBorderInPixels)
+							common.VP9EncBorderInPixels)
 						e.intProSrcBorderedValid = true
 					}
 					// Wire int_pro motion search against the bordered
@@ -694,10 +694,10 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 						// vp9_encoder.c set_mv_limits at the call
 						// site).
 						MvLimits: vp9MvLimits{
-							ColMin: -(x0 + vp9EncBorderInPixels),
-							ColMax: refW - x0 + vp9EncBorderInPixels,
-							RowMin: -(y0 + vp9EncBorderInPixels),
-							RowMax: refH - y0 + vp9EncBorderInPixels,
+							ColMin: -(x0 + common.VP9EncBorderInPixels),
+							ColMax: refW - x0 + common.VP9EncBorderInPixels,
+							RowMin: -(y0 + common.VP9EncBorderInPixels),
+							RowMax: refH - y0 + common.VP9EncBorderInPixels,
 						},
 					}
 					// vp9GetEstimatedPred dispatches to

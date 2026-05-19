@@ -126,7 +126,7 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//
 	// Progress notes (task #95, this commit):
 	//
-	//  * YV12 border substrate landed in vp9_yv12_border.go: verbatim
+	//  * YV12 border substrate lives in internal/vp9/common: verbatim
 	//    port of libvpx's extend_plane + vpx_extend_frame_borders
 	//    (vpx_scale/generic/yv12extend.c:22-60 + 130-171).
 	//  * Per-encoder lastBordered lifecycle wired into the end-of-frame

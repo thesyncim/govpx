@@ -240,21 +240,21 @@ type VP9Encoder struct {
 	// path (vp9_int_pro_motion_estimation). Lazily allocated on first
 	// refreshVP9EncoderRefs after LAST is written, then reused across
 	// frames. The visible plane lives at (lastBordered.Border,
-	// lastBordered.Border); the surrounding vp9EncBorderInPixels are
-	// edge-replicated by vp9YV12BuildBorderedPlane.
+	// lastBordered.Border); the surrounding common.VP9EncBorderInPixels are
+	// edge-replicated by common.YV12BuildBorderedPlane.
 	//
 	// libvpx counterpart: the LAST_FRAME YV12_BUFFER_CONFIG always carries
 	// VP9_ENC_BORDER_IN_PIXELS=160 of padding on every plane
 	// (vpx_scale/yv12config.h:26, vp9/encoder/vp9_encoder.c:1297), maintained
 	// by vpx_extend_frame_borders_c after each frame's reconstruction
 	// (vp9/encoder/vp9_encoder.c:3102 / 3167 / 3424 / 3470).
-	lastBordered      vp9YV12BorderBuffer
+	lastBordered      common.YV12BorderBuffer
 	lastBorderedValid bool
 	// subpelRefBordered is the on-demand YV12-border mirror for non-LAST
 	// references that the nonrd subpel variance search scores against.
 	// LAST uses lastBordered so choose_partitioning and pickmode read the
 	// same padded allocation.
-	subpelRefBordered      vp9YV12BorderBuffer
+	subpelRefBordered      common.YV12BorderBuffer
 	subpelRefBorderedSlot  int
 	subpelRefBorderedValid bool
 
@@ -263,7 +263,7 @@ type VP9Encoder struct {
 	// reads up to (bw>>1) pixels before the SB origin on the source as
 	// well as the reference. Built lazily inside vp9EnsureSBPartitionChosen
 	// when the libvpx picker fires on an inter frame.
-	intProSrcBordered      vp9YV12BorderBuffer
+	intProSrcBordered      common.YV12BorderBuffer
 	intProSrcBorderedValid bool
 
 	// intProEstPred is the 64x64 luma predictor scratch built by
