@@ -81,7 +81,15 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 		}
 	}
 	cfg.fullPixelFurtherSteps = int8(libvpxInterFrameFurtherSteps(furtherStepsSpeed, int(cfg.fullPixelSearchParam)))
-	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPredictionForFeatureSpeed(e.opts.Deadline, speed)
+	// Task #350: improved_mv_pred uses the libvpx-realistic cpi->Speed
+	// (cpu_used+1 at cpu_used > 0 RT after frame 0) rather than the pin-
+	// suppressed e.autoSpeed. See libvpxRealtimeCPISpeedForImprovedMVPred
+	// Gate comment for the rationale: clamping autoSpeed itself would
+	// cascade every other Speed-conditioned feature simultaneously and
+	// crater BD-rate (~+28923% on the cpu=8 RT 720p fixture). Targeting
+	// only this gate matches the audit-observed Speed=9 → Speed > 6
+	// transition without disturbing the rest of the speed cascade.
+	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPredictionForFeatureSpeed(e.opts.Deadline, e.libvpxRealtimeCPISpeedForImprovedMVPredGate())
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg
 	}
