@@ -179,6 +179,13 @@ func (e *VP8Encoder) hintBypassPickerDecision(
 	}, true
 }
 
+// shouldPushReconstructedRef is the compile-time flag that gates
+// encoder->analyzer reconstructed-LAST upload. False until the GPU
+// kernel is rewritten to consume the reconstructed reference
+// buffer; flipping to true with the current kernel pays the upload
+// cost without the lookup benefit (regressed 720p in measurement).
+const shouldPushReconstructedRef = false
+
 // pushReconstructedRefToAnalyzer hands e.lastRef's luma plane to the
 // analyzer's optional ReconstructedRefConsumer interface, if it
 // implements it. CPU analyzer does not; GPU analyzer does — it
@@ -188,6 +195,11 @@ func (e *VP8Encoder) hintBypassPickerDecision(
 //
 // Default path (no analyzer / no consumer) is a single type
 // assertion that resolves to nil; no per-frame allocation.
+//
+// Stride-fold uses the encoder-owned scratch buffer
+// (e.reconstructedRefScratch), allocated once per encoder lifetime
+// and reused. Without this, the per-call scratch alloc at 4K
+// (~8 MB) regressed the bench by 5-7%.
 func (e *VP8Encoder) pushReconstructedRefToAnalyzer() {
 	if e == nil || e.analyzer == nil {
 		return
@@ -203,19 +215,20 @@ func (e *VP8Encoder) pushReconstructedRefToAnalyzer() {
 	if w <= 0 || h <= 0 || len(plane) == 0 {
 		return
 	}
-	// Stride-fold if necessary so the backend sees a packed
-	// width*height buffer.
 	if stride == w {
 		_ = consumer.AcceptReconstructedRef(plane[:w*h], w, h)
 		return
 	}
-	// Allocate per-call scratch — this is the rare case; common
-	// reference layouts have stride == width.
-	scratch := make([]byte, w*h)
-	for y := range h {
-		copy(scratch[y*w:(y+1)*w], plane[y*stride:y*stride+w])
+	needed := w * h
+	if cap(e.reconstructedRefScratch) < needed {
+		e.reconstructedRefScratch = make([]byte, needed)
+	} else {
+		e.reconstructedRefScratch = e.reconstructedRefScratch[:needed]
 	}
-	_ = consumer.AcceptReconstructedRef(scratch, w, h)
+	for y := range h {
+		copy(e.reconstructedRefScratch[y*w:(y+1)*w], plane[y*stride:y*stride+w])
+	}
+	_ = consumer.AcceptReconstructedRef(e.reconstructedRefScratch, w, h)
 }
 
 // closeAnalysis releases analyzer-held resources, if any. Called by

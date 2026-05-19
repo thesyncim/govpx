@@ -990,15 +990,16 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.thisKeyFrameForced = false
 	e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
 	e.finishAutoSpeedTiming(true)
-	// Push the reconstructed-LAST to the analyzer's optional
-	// ReconstructedRefConsumer is DISABLED here pending an
-	// encoder-owned scratch buffer for stride-folding. The naive
-	// per-frame scratch allocation (8 MB at 4K when stride != width)
-	// regressed the bench by 5-7%. The Backend.UploadReconstructedRef
-	// API + the gpuanalysis.AcceptReconstructedRef bridge are in
-	// place; the follow-up that wires it needs to thread a reusable
-	// scratch through the encoder.
-	// e.pushReconstructedRefToAnalyzer()  // see encoder_analysis_hook.go
+	// Push the reconstructed-LAST to the analyzer is gated on the
+	// kernel being updated to actually consume it. The upload
+	// infrastructure (Backend.UploadReconstructedRef +
+	// ReconstructedRefConsumer + encoder scratch buffer) is in
+	// place; flipping shouldPushReconstructedRef to true once the
+	// MSL kernel is rebound to read reconstructedRef instead of
+	// the source-ping-pong prev buffer activates it.
+	if shouldPushReconstructedRef {
+		e.pushReconstructedRefToAnalyzer()
+	}
 	e.frameCount++
 	finishSourceAltRef()
 	return result, nil

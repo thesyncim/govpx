@@ -1065,6 +1065,10 @@ type VP8Encoder struct {
 	// returned a synthesised ZEROMV-LAST decision without entering the
 	// picker at all. Zero on the canonical path.
 	hintPickerBypassCount uint64
+	// reconstructedRefScratch is the stride-folding scratch buffer
+	// used by pushReconstructedRefToAnalyzer. Allocated lazily once
+	// per encoder lifetime; never freed mid-stream.
+	reconstructedRefScratch []byte
 	// analysisInput is a per-encoder reusable [vp8analysis.FrameInput]
 	// scratch value. Storing it on the encoder lets the analysis hook
 	// fill it in place and pass &e.analysisInput to the interface
