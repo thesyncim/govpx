@@ -554,11 +554,23 @@ func predictBestBPredLumaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuan
 // x->rddiv, rate, distortion)`), so the tune-ssim B_PRED picker resolves to
 // different per-sub-block intra modes than the default-rdmult path.
 func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, actZbinAdj int, keyFrame bool, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, bestRD int, coefProbs *vp8tables.CoefficientProbs, interBModeProbs []uint8, fastQuant bool, rdMult int, rdDiv int) ([16]vp8common.BPredictionMode, int, int, bool) {
+	modes, rate, dist, _, ok := predictBestBPredLumaModeRDWithRDConstantsAndEOBs(src, qIndex, zbinOverQuant, actZbinAdj, keyFrame, mbRow, mbCol, above, left, aboveTok, leftTok, quant, pred, scratch, bestRD, coefProbs, interBModeProbs, fastQuant, rdMult, rdDiv)
+	return modes, rate, dist, ok
+}
+
+// predictBestBPredLumaModeRDWithRDConstantsAndEOBs mirrors
+// predictBestBPredLumaModeRDWithRDConstants but additionally returns the
+// count of 4x4 Y blocks whose final selected EOB is strictly greater than
+// zero. This count is libvpx's `sum(eobs[0..15] > has_y2_block)` for the
+// B_PRED (has_y2_block=0) branch of vp8/encoder/rdopt.c:1687-1714. Callers
+// inside the inter-RD picker use it to compute tteob and trigger the
+// tteob==0 rate2 backout for B_PRED intra-in-inter candidates.
+func predictBestBPredLumaModeRDWithRDConstantsAndEOBs(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, actZbinAdj int, keyFrame bool, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, bestRD int, coefProbs *vp8tables.CoefficientProbs, interBModeProbs []uint8, fastQuant bool, rdMult int, rdDiv int) ([16]vp8common.BPredictionMode, int, int, int, bool) {
 	if quant == nil {
-		return [16]vp8common.BPredictionMode{}, 0, 0, false
+		return [16]vp8common.BPredictionMode{}, 0, 0, 0, false
 	}
 	if coefProbs == nil {
-		return [16]vp8common.BPredictionMode{}, 0, 0, false
+		return [16]vp8common.BPredictionMode{}, 0, 0, 0, false
 	}
 	if rdMult <= 0 {
 		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
@@ -578,6 +590,7 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 	totalRate := 0
 	totalDist := 0
 	totalBlockRD := int64(0)
+	bPredEOBCount := 0
 	for block := range 16 {
 		bestMode := vp8common.BDCPred
 		bestEOB := 0
@@ -588,7 +601,7 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 		for i, candidate := range bPredIntraModeCandidates {
 			var candidatePred [16]byte
 			if !predictAnalysisBPredBlock(candidate, candidatePred[:], 4, y, pred.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
-				return [16]vp8common.BPredictionMode{}, 0, 0, false
+				return [16]vp8common.BPredictionMode{}, 0, 0, 0, false
 			}
 			var input [16]int16
 			var dct [16]int16
@@ -624,6 +637,7 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 		hasCoeffs := uint8(0)
 		if bestEOB > 0 {
 			hasCoeffs = 1
+			bPredEOBCount++
 		}
 		tokenAbove[block&3] = hasCoeffs
 		tokenLeft[(block&0x0c)>>2] = hasCoeffs
@@ -634,10 +648,10 @@ func predictBestBPredLumaModeRDWithRDConstants(src vp8enc.SourceImage, qIndex in
 		// It does not compare RDCOST(sum(rate), sum(distortion)).
 		totalBlockRD += int64(bestCost)
 		if bestRD > 0 && totalBlockRD >= int64(bestRD) {
-			return [16]vp8common.BPredictionMode{}, 0, 0, false
+			return [16]vp8common.BPredictionMode{}, 0, 0, 0, false
 		}
 	}
-	return modes, totalRate, totalDist, true
+	return modes, totalRate, totalDist, bPredEOBCount, true
 }
 
 func bPredAnalysisAboveMode(keyFrame bool, above *vp8enc.KeyFrameMacroblockMode, modes [16]vp8common.BPredictionMode, block int) vp8common.BPredictionMode {

@@ -41,7 +41,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
 	}
 	if mbMode == vp8common.BPred {
-		bModes, bRate, bDist, ok := predictBestBPredLumaModeRDWithRDConstants(src, qIndex, zbinOverQuant, actZbinAdj, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, e.modeProbs.BMode[:], fastQuant, rdMult, rdDiv)
+		bModes, bRate, bDist, bPredEOBCount, ok := predictBestBPredLumaModeRDWithRDConstantsAndEOBs(src, qIndex, zbinOverQuant, actZbinAdj, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, e.modeProbs.BMode[:], fastQuant, rdMult, rdDiv)
 		if !ok {
 			return interIntraModeRDResult{}, false
 		}
@@ -63,7 +63,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		if bestRD > 0 && yrd >= bestRD {
 			return interIntraModeRDResult{}, false
 		}
-		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, actZbinAdj, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
+		uvMode, uvRate, uvDist, uvEOBSum, ok := predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(src, qIndex, zbinOverQuant, actZbinAdj, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
 		if !ok {
 			return interIntraModeRDResult{}, false
 		}
@@ -74,13 +74,32 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 			yrd = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, yRate+uvModeRate, bDist)
 		}
 		rate := yRate + uvRate + e.interIntraMacroblockModeRate()
+		// Port libvpx vp8/encoder/rdopt.c calculate_final_rd_costs (lines
+		// 1684-1714) tteob==0 rate2 backout for the B_PRED intra-in-inter
+		// path. libvpx computes:
+		//   has_y2_block = (mode != SPLITMV && mode != B_PRED)  // false here
+		//   tteob = sum(eobs[0..15] > has_y2_block) = sum(eobs[0..15] > 0)
+		//   if ref_frame == INTRA_FRAME: tteob += uv_intra_tteob
+		// When tteob == 0 the picker drops rate_y + rate_uv from rate2
+		// and adds the skip-flag delta. This is the B_PRED twin of the
+		// DC/V/H/TM backout below; mirror libvpx verbatim so future
+		// content that exercises B_PRED-with-all-zero-AC (synthetic
+		// high-frequency-edge low-motion sequences) matches libvpx's
+		// rate book-keeping.
+		tteob := bPredEOBCount + uvEOBSum
+		mbSkipCoeff := tteob == 0
+		if mbSkipCoeff {
+			rate -= bRate + uvRate - uvModeRate
+			rate += e.interMacroblockSkipRate(true) - e.interMacroblockSkipRate(false)
+			uvTokenRate = 0
+		}
 		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		if e.activityMapValid {
 			score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		}
 		distortion := bDist + uvDist
 		return interIntraModeRDResult{
-			mode:         vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes},
+			mode:         vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes, MBSkipCoeff: mbSkipCoeff},
 			score:        score,
 			yrd:          yrd,
 			rate:         rate,
