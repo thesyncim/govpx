@@ -313,6 +313,7 @@ func encodeBDOperatingPointVP8(opts BDRateOptionsVP8, q int, targetKbps int, app
 		Height:            opts.Height,
 		FPS:               opts.FPS,
 		TargetBitrateKbps: targetKbps,
+		Deadline:          govpx.DeadlineGoodQuality,
 		MinQuantizer:      4,
 		MaxQuantizer:      63,
 		QuantizerRangeSet: true,
@@ -508,6 +509,7 @@ func captureGovpxVP8FirstPassStats(opts BDRateOptionsVP8) ([]govpx.FirstPassFram
 		Width:           opts.Width,
 		Height:          opts.Height,
 		FPS:             opts.FPS,
+		Deadline:        govpx.DeadlineGoodQuality,
 		MinQuantizer:    4,
 		MaxQuantizer:    63,
 		RateControlMode: govpx.RateControlVBR,
@@ -578,9 +580,10 @@ func encodeBDLibvpxVP8Curve(opts BDRateOptionsVP8, ladder []bdOperatingPoint) ([
 		return nil, err
 	}
 	testOpts := govpx.EncoderOptions{
-		Width:  opts.Width,
-		Height: opts.Height,
-		FPS:    opts.FPS,
+		Width:    opts.Width,
+		Height:   opts.Height,
+		FPS:      opts.FPS,
+		Deadline: govpx.DeadlineGoodQuality,
 	}
 	if opts.RateControlOverrideSet {
 		testOpts.RateControlMode = opts.RateControlOverride

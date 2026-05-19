@@ -66,6 +66,31 @@ func TestComputeBDRateVP8Smoke(t *testing.T) {
 	}
 }
 
+func TestEncodeBDOperatingPointVP8DefaultsDeadlineGoodQuality(t *testing.T) {
+	t.Parallel()
+	seen := false
+	_, err := encodeBDOperatingPointVP8(BDRateOptionsVP8{
+		Width:  64,
+		Height: 64,
+		FPS:    30,
+		Frames: 4,
+		Source: func(i int) *image.YCbCr {
+			return bdSmokeFrame(64, 64, i)
+		},
+	}, 32, 200, func(o *govpx.EncoderOptions) {
+		seen = true
+		if o.Deadline != govpx.DeadlineGoodQuality {
+			t.Fatalf("default VP8 BD-rate Deadline = %v, want DeadlineGoodQuality to match vpxenc --good", o.Deadline)
+		}
+	})
+	if err != nil {
+		t.Fatalf("encodeBDOperatingPointVP8: %v", err)
+	}
+	if !seen {
+		t.Fatalf("apply callback was not called")
+	}
+}
+
 // TestComputeBDRateVP8Validation exercises the input-validation paths
 // in ComputeBDRateVP8 to make sure degenerate inputs return errors
 // rather than panicking deep in the encode pass.
