@@ -7557,7 +7557,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		uvMode := common.DcPred
 		keyDecisionReplayed := false
 		if key.counts == nil {
-			if cached, ok := e.lookupVP9LeafKeyframeDecision(miRow, miCol, reconBsize); ok {
+			if cached, ok := e.lookupVP9LeafKeyframeDecision(miRow, miCol, bsize); ok {
 				cur.Mode = cached.mode
 				cur.Bmi = cached.bmi
 				cur.TxSize = cached.txSize
@@ -7566,9 +7566,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			}
 		}
 		if !keyDecisionReplayed {
-			if reconBsize < common.Block8x8 {
+			if bsize < common.Block8x8 {
 				e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
-					miRow, miCol, reconBsize, &cur)
+					miRow, miCol, bsize, &cur)
 			} else {
 				cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
 					miRow, miCol, reconBsize, &cur, txMode)
@@ -7584,7 +7584,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if segmentSkip {
 			cur.Skip = 1
 			if key.counts != nil {
-				e.storeVP9LeafKeyframeDecision(miRow, miCol, reconBsize,
+				e.storeVP9LeafKeyframeDecision(miRow, miCol, bsize,
 					vp9KeyframeModeDecision{
 						mode:   cur.Mode,
 						bmi:    cur.Bmi,
@@ -7602,12 +7602,12 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			// per-block tx_size RD pick on top so mi.TxSize is RD-optimal
 			// across {Tx32x32, Tx16x16, Tx8x8, Tx4x4} subject to
 			// sf.TxSizeSearchDepth bounds, matching choose_tx_size_from_rd.
-			if !useNonRDKeyframeMode && !keyDecisionReplayed {
+			if !useNonRDKeyframeMode && !keyDecisionReplayed && bsize >= common.Block8x8 {
 				e.pickVP9KeyframeBlockTxSize(key, tile, miRows, miCols,
 					miRow, miCol, reconBsize, &cur, txMode)
 			}
 			if key.counts != nil {
-				e.storeVP9LeafKeyframeDecision(miRow, miCol, reconBsize,
+				e.storeVP9LeafKeyframeDecision(miRow, miCol, bsize,
 					vp9KeyframeModeDecision{
 						mode:   cur.Mode,
 						bmi:    cur.Bmi,
@@ -7615,6 +7615,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 						uvMode: uvMode,
 					})
 			}
+			// libvpx vp9_encodeframe.c:6057-6060 initializes every intra
+			// block as skipped before vp9_encode_intra_block_plane tokenizes
+			// it; the transform path clears mi->skip when any plane emits
+			// non-zero coefficients. Mirror that state transition here so
+			// keyframe blocks with no residual write the skip bit instead of
+			// a zero-coefficient block body.
+			cur.Skip = 1
 			hasResidue = e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur, uvMode)
 			if hasResidue {
@@ -8370,10 +8377,12 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	if baseX < 0 || baseY < 0 || baseX+rectW > stride || baseY+rectH > rows {
 		return common.DcPred
 	}
-	if rectW*rectH > len(e.blockScratch) {
+	rectPixels := rectW * rectH
+	if rectPixels*2 > len(e.blockScratch) {
 		return common.DcPred
 	}
-	saved := e.blockScratch[:rectW*rectH]
+	saved := e.blockScratch[:rectPixels]
+	bestDst := e.blockScratch[rectPixels : 2*rectPixels]
 	for y := range rectH {
 		copy(saved[y*rectW:(y+1)*rectW],
 			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+rectW])
@@ -8418,7 +8427,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		var tempa, templ [2]uint8
 		for jy := 0; jy < num4x4H && valid; jy++ {
 			for jx := 0; jx < num4x4W && valid; jx++ {
-				src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+				src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
 				if len(src) == 0 || srcStride <= 0 {
 					valid = false
 					break
@@ -8431,29 +8440,16 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				}
 				// libvpx vp9_rdopt.c:1124-1167 — predict_intra +
 				// subtract + fdct/fht4x4 + quantize_b + cost_coeffs.
-				// govpx folds these into prepareVP9KeyframeTxResidueWithQ
-				// (the same primitive the main keyframe writer uses,
-				// plus the libvpx p->qcoeff output the cost_coeffs port
-				// consumes verbatim — vp9_rdopt.c:367),
-				// then adds the cost_coeffs rate and pixel_sse
-				// distortion mirroring vp9_rdopt.c:1156-1161.
+				// govpx folds these into prepareVP9KeyframeTxResidueWithQ,
+				// then scores the transform-domain reconstruction error
+				// against txCoeffScratch/dqCoeffScratch just like
+				// vp9_block_error(coeff, dqcoeff, 16, &unused) >> 2 at
+				// vp9_rdopt.c:1261-1263.
 				hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode,
 					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
 					idy+jy, idx+jx, dequant, qindex, coeffs, qcoeffs)
-				// libvpx vp9_rdopt.c:1156-1161 — distortion =
-				// vp9_block_error_dispatch(coeff, dqcoeff) >> 2.
-				// govpx's keyframe writer already inverse-transforms
-				// into the recon plane, so pixel_sse(src, recon) is
-				// the libvpx-equivalent reconstruction error.
-				blkX := miCol*common.MiSize + (idx+jx)*4
-				blkY := miRow*common.MiSize + (idy+jy)*4
-				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
-					srcH, planeData, stride, blkX, blkY, 4, 4)
-				if !distOK {
-					valid = false
-					break
-				}
-				totalDistortion += dist
+				totalDistortion += vp9TransformBlockErrorShifted(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob])
 				// libvpx vp9_rdopt.c:1148-1149 + 1156-1157 — coeff_ctx
 				// = combine_entropy_contexts(tempa[idx], templ[idy]);
 				// ratey += cost_coeffs(... coeff_ctx ...). govpx
@@ -8482,20 +8478,20 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 			bestRD = thisRD
 			bestMode = mode
 			bestValid = true
+			for y := range rectH {
+				copy(bestDst[y*rectW:(y+1)*rectW],
+					planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+rectW])
+			}
 		}
 	}
-	// Leave the best mode's prediction on the recon plane (libvpx
-	// vp9_rdopt.c:1292-1294 — `memcpy(dst_init + idy * dst_stride,
-	// best_dst + idy * 8, num_4x4_blocks_wide * 4);`). Restore the
-	// snapshot first so the trailing candidate's prediction is wiped,
-	// then re-predict at the best mode so neighbouring sub-blocks see
-	// the chosen reconstruction.
-	vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
-	for jy := range num4x4H {
-		for jx := range num4x4W {
-			e.predictVP9KeyframeTx(key.hdr, pd, 0, bestMode, common.Tx4x4,
-				tile, miRows, miCols, miRow, miCol, bsize, idy+jy, idx+jx)
-		}
+	// Leave the best mode's reconstructed pixels on the recon plane (libvpx
+	// vp9_rdopt.c:1292-1294 copies best_dst, which already includes the
+	// inverse-transform add for the winning mode). This is important for
+	// the following 4x4 sub-block's intra neighbours.
+	if bestValid {
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, bestDst)
+	} else {
+		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
 	}
 	return bestMode
 }
@@ -9001,6 +8997,16 @@ func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
 		copy(data[(y0+y)*stride+x0:(y0+y)*stride+x0+w],
 			saved[y*w:(y+1)*w])
 	}
+}
+
+func vp9TransformBlockErrorShifted(coeffs, dqcoeffs []int16) uint64 {
+	n := min(len(coeffs), len(dqcoeffs))
+	var err uint64
+	for i := range n {
+		diff := int64(coeffs[i]) - int64(dqcoeffs[i])
+		err += uint64(diff * diff)
+	}
+	return err >> 2
 }
 
 func vp9RDCost(rdmult, rddiv, rate int, distortion uint64) uint64 {

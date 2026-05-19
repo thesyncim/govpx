@@ -7771,6 +7771,48 @@ func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderKeyframeSub8x8DispatchUsesPartitionBSize(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlQ,
+		TargetBitrateKbps:  700,
+		CQLevel:            32,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	img := newVP9PanningYCbCrForRateTest(width, height, 0)
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.ensureVP9EncoderModeBuffers(8, 8)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	key := newVP9KeyframeModeTestState(e, img, width, height)
+	key.hdr.Quant.BaseQindex = int16(e.vp9EncoderModeDecisionQIndex())
+	baseMi := vp9dec.NeighborMi{
+		SbType:   common.Block4x4,
+		TxSize:   common.Tx4x4,
+		RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame},
+	}
+	var seg vp9dec.SegmentationParams
+	var bw bitstream.Writer
+	bw.Start(e.scratch[:])
+	e.writeVP9ModeBlock(&bw, 8, 8, 0, 0, common.Block4x4,
+		vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8},
+		&seg, baseMi, common.TxModeSelect, vp9ModeTreeKeyframeSource, key, nil)
+	_, _ = bw.Stop()
+
+	got := e.miGrid[0]
+	if got.SbType != common.Block4x4 || got.TxSize != common.Tx4x4 {
+		t.Fatalf("mi = %+v, want Block4x4/Tx4x4", got)
+	}
+	if got.Bmi == ([4]vp9dec.Bmi{}) {
+		t.Fatalf("sub-8x8 keyframe dispatch left Bmi empty; want per-4x4 modes")
+	}
+}
+
 func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
 	const width, height = 128, 128
 	const x0, y0 = 64, 64
