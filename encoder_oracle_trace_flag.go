@@ -143,6 +143,16 @@ type oracleTraceRecodeIterSummary struct {
 	RawRate              int
 	CoefSavingsBits      int
 	RefFrameSavingsBits  int
+	RfctIntra            int
+	RfctLast             int
+	RfctGolden           int
+	RfctAlt              int
+	PreProbIntra         int
+	PreProbLast          int
+	PreProbGolden        int
+	PostProbIntra        int
+	PostProbLast         int
+	PostProbGolden       int
 }
 
 func (e *VP8Encoder) emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary) {}

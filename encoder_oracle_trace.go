@@ -261,6 +261,20 @@ type oracleTraceRecodeIterRow struct {
 	RawRate             int `json:"raw_rate"`
 	CoefSavingsBits     int `json:"coef_savings_bits"`
 	RefFrameSavingsBits int `json:"ref_frame_savings_bits"`
+	// Task #365: per-iter rfct (count_mb_ref_frame_usage) and the
+	// pre-iter prob_intra/last/gf used by the picker's vp8_calc_ref_frame_costs.
+	// These pin which iteration first admits an intra candidate against the
+	// inherited prob_intra=1 equilibrium that #352 localized.
+	RfctIntra      int `json:"rfct_intra"`
+	RfctLast       int `json:"rfct_last"`
+	RfctGolden     int `json:"rfct_golden"`
+	RfctAlt        int `json:"rfct_alt"`
+	PreProbIntra   int `json:"pre_prob_intra"`
+	PreProbLast    int `json:"pre_prob_last"`
+	PreProbGolden  int `json:"pre_prob_golden"`
+	PostProbIntra  int `json:"post_prob_intra"`
+	PostProbLast   int `json:"post_prob_last"`
+	PostProbGolden int `json:"post_prob_golden"`
 }
 
 // oracleTraceMBIterRateRow is a per-(iter, mb_row, mb_col) trace row capturing
@@ -818,6 +832,16 @@ type oracleTraceRecodeIterSummary struct {
 	RawRate              int
 	CoefSavingsBits      int
 	RefFrameSavingsBits  int
+	RfctIntra            int
+	RfctLast             int
+	RfctGolden           int
+	RfctAlt              int
+	PreProbIntra         int
+	PreProbLast          int
+	PreProbGolden        int
+	PostProbIntra        int
+	PostProbLast         int
+	PostProbGolden       int
 }
 
 // emitOracleRecodeIterTrace writes a single "recode_iter" row capturing the
@@ -849,6 +873,16 @@ func (e *VP8Encoder) emitOracleRecodeIterTrace(summary oracleTraceRecodeIterSumm
 		RawRate:              summary.RawRate,
 		CoefSavingsBits:      summary.CoefSavingsBits,
 		RefFrameSavingsBits:  summary.RefFrameSavingsBits,
+		RfctIntra:            summary.RfctIntra,
+		RfctLast:             summary.RfctLast,
+		RfctGolden:           summary.RfctGolden,
+		RfctAlt:              summary.RfctAlt,
+		PreProbIntra:         summary.PreProbIntra,
+		PreProbLast:          summary.PreProbLast,
+		PreProbGolden:        summary.PreProbGolden,
+		PostProbIntra:        summary.PostProbIntra,
+		PostProbLast:         summary.PostProbLast,
+		PostProbGolden:       summary.PostProbGolden,
 	}
 	if summary.ActiveWorstQChanged {
 		row.ActiveWorstQChanged = 1
