@@ -889,6 +889,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerAQMode(1, VP9AQComplexity); err != nil {
 		t.Fatalf("SetLayerAQMode: %v", err)
 	}
+	if err := svc.SetLayerAutoAltRef(0, false); err != nil {
+		t.Fatalf("SetLayerAutoAltRef(false): %v", err)
+	}
 	if err := svc.SetLayerFrameParallelDecoding(0, false); err != nil {
 		t.Fatalf("SetLayerFrameParallelDecoding: %v", err)
 	}
@@ -921,6 +924,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if err := svc.SetLayerEnableKeyFrameFiltering(1, true); err != nil {
 		t.Fatalf("SetLayerEnableKeyFrameFiltering: %v", err)
+	}
+	if err := svc.SetLayerEnableTPL(0, false); err != nil {
+		t.Fatalf("SetLayerEnableTPL(false): %v", err)
 	}
 	if err := svc.SetLayerDeltaQUV(1, 4); err != nil {
 		t.Fatalf("SetLayerDeltaQUV: %v", err)
@@ -963,6 +969,8 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		!base.opts.FrameParallelDecodingSet ||
 		base.opts.FrameParallelDecoding ||
 		base.opts.FrameParallelEncoderThreads != 1 ||
+		base.opts.AutoAltRef ||
+		base.opts.EnableTPL ||
 		!base.opts.RTCExternalRateControl ||
 		!base.opts.RowMT ||
 		!base.opts.Lossless ||
@@ -1041,6 +1049,18 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if base.opts.FrameParallelEncoderThreads != 1 {
 		t.Fatalf("invalid frame-parallel encoder threads mutated base layer to %d",
 			base.opts.FrameParallelEncoderThreads)
+	}
+	if err := svc.SetLayerAutoAltRef(0, true); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerAutoAltRef(true) err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.AutoAltRef {
+		t.Fatal("invalid auto-alt-ref update mutated base layer")
+	}
+	if err := svc.SetLayerEnableTPL(0, true); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerEnableTPL(true) err = %v, want ErrInvalidConfig", err)
+	}
+	if base.opts.EnableTPL {
+		t.Fatal("invalid TPL update mutated base layer")
 	}
 	singleThreadSVC, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
@@ -1158,6 +1178,12 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerFrameParallelEncoderThreads(0, 0); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerFrameParallelEncoderThreads after close err = %v, want ErrClosed", err)
 	}
+	if err := svc.SetLayerAutoAltRef(0, false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerAutoAltRef after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerEnableTPL(0, false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerEnableTPL after close err = %v, want ErrClosed", err)
+	}
 	if err := svc.SetLayerRowMT(0, false); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerRowMT after close err = %v, want ErrClosed", err)
 	}
@@ -1229,6 +1255,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetInterLayerPrediction", fn: func() error { return svc.SetInterLayerPrediction(true) }},
 		{name: "SetLayerCQLevel", fn: func() error { return svc.SetLayerCQLevel(1, 24) }},
 		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, VP9AQComplexity) }},
+		{name: "SetLayerAutoAltRefFalse", fn: func() error { return svc.SetLayerAutoAltRef(0, false) }},
 		{name: "SetLayerFrameParallelDecoding", fn: func() error {
 			return svc.SetLayerFrameParallelDecoding(0, false)
 		}},
@@ -1290,6 +1317,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerEnableKeyFrameFiltering", fn: func() error {
 			return svc.SetLayerEnableKeyFrameFiltering(1, true)
 		}},
+		{name: "SetLayerEnableTPLFalse", fn: func() error { return svc.SetLayerEnableTPL(0, false) }},
 		{name: "SetLayerNextFrameQIndex", fn: func() error { return svc.SetLayerNextFrameQIndex(0, 96) }},
 		{name: "SetLayerDeltaQUV", fn: func() error { return svc.SetLayerDeltaQUV(1, 4) }},
 		{name: "GetLayerActiveMap", fn: func() error { return svc.GetLayerActiveMap(0, activeOut, 2, 2) }},

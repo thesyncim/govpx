@@ -687,6 +687,17 @@ func (e *VP9SpatialSVCEncoder) SetLayerAQMode(layerID uint8, mode VP9AQMode) err
 	return layer.SetAQMode(mode)
 }
 
+// SetLayerAutoAltRef changes one spatial layer's VP9 auto-alt-ref toggle,
+// matching [VP9Encoder.SetAutoAltRef]. Enabling remains invalid for
+// synchronous spatial SVC layers because they have no lookahead queue.
+func (e *VP9SpatialSVCEncoder) SetLayerAutoAltRef(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetAutoAltRef(enabled)
+}
+
 // SetLayerFrameParallelDecoding changes one spatial layer's VP9
 // frame-parallel decoding signal, matching
 // [VP9Encoder.SetFrameParallelDecoding].
@@ -1015,6 +1026,17 @@ func (e *VP9SpatialSVCEncoder) SetLayerEnableKeyFrameFiltering(layerID uint8, en
 		return err
 	}
 	return layer.SetEnableKeyFrameFiltering(enabled)
+}
+
+// SetLayerEnableTPL changes one spatial layer's VP9 TPL toggle, matching
+// [VP9Encoder.SetEnableTPL]. Enabling remains invalid for synchronous spatial
+// SVC layers because TPL requires auto-alt-ref lookahead.
+func (e *VP9SpatialSVCEncoder) SetLayerEnableTPL(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetEnableTPL(enabled)
 }
 
 // SetLayerNextFrameQIndex changes one spatial layer's one-shot qindex
