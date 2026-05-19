@@ -8,15 +8,16 @@ import (
 // runSourceAnalysis is the implementation of the VP8 source-frame
 // analysis hook. The caller (encodeSourceInto) guards entry on a nil
 // e.analyzer check so this function is only reached when an analyzer
-// is active; the byte-parity rule for AnalysisOff is enforced at the
-// call site, not here.
+// is active; the byte-parity rule for VP8AnalysisOff is enforced at
+// the call site, not here.
 //
-// The function reuses e.analysisInput and e.analysisStats; it does not
-// allocate per frame for already-grown stats buffers.
+// The function reuses e.analysisInput and e.analysisOutput; it does
+// not allocate per frame once the analysis MB array has reached the
+// frame's macroblock count.
 //
 // Observation-only contract: this function and any analyzer reachable
 // from it may not call back into the encoder, mutate encoder state
-// other than e.analysisInput / e.analysisStats, or perform work that
+// other than e.analysisInput / e.analysisOutput, or perform work that
 // could leak into encode decisions. Reviewers should treat any change
 // that lifts these constraints as a behavior change requiring the
 // byte-parity tests in vp8_analysis_parity_test.go to be re-run on a
@@ -33,7 +34,7 @@ func (e *VP8Encoder) runSourceAnalysis(source vp8enc.SourceImage, keyFrame bool)
 	in.V = source.V
 	in.FrameIndex = e.frameCount
 	in.KeyFrame = keyFrame
-	e.analyzer.Observe(in, &e.analysisStats)
+	e.analyzer.Observe(in, &e.analysisOutput)
 }
 
 // closeAnalysis releases analyzer-held resources, if any. Called by

@@ -4,8 +4,8 @@
 // Scope contract: in this initial revision the framework is observation-only.
 // Analyzers may inspect source planes and record statistics, but no analyzer
 // output is permitted to influence VP8 encode decisions. The encoder must
-// produce a byte-identical bitstream whether [AnalysisOff] or
-// [AnalysisObserveCPU] is selected.
+// produce a byte-identical bitstream whether [VP8AnalysisOff] or
+// [VP8AnalysisObserveCPU] is selected.
 //
 // Future revisions may introduce non-parity modes (for example GPU-assisted
 // SAD or motion hints that participate in mode decision). Such modes must be
@@ -13,28 +13,29 @@
 // is true.
 package analysis
 
-// AnalysisMode selects which analyzer the VP8 encoder runs per source frame.
-type AnalysisMode int
+// VP8AnalysisMode selects which analyzer the VP8 encoder runs per source
+// frame.
+type VP8AnalysisMode int
 
 const (
-	// AnalysisOff disables analysis entirely. The encoder takes the
+	// VP8AnalysisOff disables analysis entirely. The encoder takes the
 	// exact pre-analysis code path: no per-frame hook is invoked, no
 	// frame-input descriptor is built, and no statistics are recorded.
-	AnalysisOff AnalysisMode = iota
+	VP8AnalysisOff VP8AnalysisMode = iota
 
-	// AnalysisObserveCPU runs the CPU observation analyzer. It computes
-	// optional motion / complexity / skip statistics on the source
-	// frame but must not influence any encode decision. The output
-	// bitstream is byte-identical to [AnalysisOff].
-	AnalysisObserveCPU
+	// VP8AnalysisObserveCPU runs the CPU observation analyzer. It
+	// computes optional motion / complexity / skip statistics on the
+	// source frame but must not influence any encode decision. The
+	// output bitstream is byte-identical to [VP8AnalysisOff].
+	VP8AnalysisObserveCPU
 )
 
 // String returns a stable human-readable label for the mode.
-func (m AnalysisMode) String() string {
+func (m VP8AnalysisMode) String() string {
 	switch m {
-	case AnalysisOff:
+	case VP8AnalysisOff:
 		return "off"
-	case AnalysisObserveCPU:
+	case VP8AnalysisObserveCPU:
 		return "observe-cpu"
 	default:
 		return "unknown"
@@ -46,26 +47,28 @@ func (m AnalysisMode) String() string {
 // The zero value disables analysis. Use [DefaultConfig] to obtain a value
 // with the safe defaults applied (off + byte-parity required).
 type Config struct {
-	// Mode selects the analyzer. Defaults to [AnalysisOff].
-	Mode AnalysisMode
+	// Mode selects the analyzer. Defaults to [VP8AnalysisOff].
+	Mode VP8AnalysisMode
 
 	// ByteParityRequired guards against any analyzer that could change
 	// the encoded bitstream. In this revision the framework supports
 	// only observation, so ByteParityRequired is always honored; the
 	// field is plumbed through so future non-parity modes can be added
-	// without an API break. Defaults to true after [Config.Normalize].
+	// without an API break. Forced to true by [Config.Normalize].
 	ByteParityRequired bool
 
-	// CollectMotionHints requests per-macroblock motion hint candidates
-	// (best-effort, observation-only). When false the analyzer may skip
-	// the search entirely.
+	// CollectMotionHints requests per-macroblock zero-MV SAD and a
+	// rough low-radius best-MV estimate. The CPU observer caches the
+	// previous source luma plane to compute these without consulting
+	// encoder reconstruction buffers.
 	CollectMotionHints bool
 
-	// CollectSkipMap requests a per-macroblock skip-candidate bitmap.
+	// CollectSkipMap requests a per-macroblock skip-likely flag in the
+	// FrameAnalysis MB array.
 	CollectSkipMap bool
 
-	// CollectComplexity requests scalar frame-complexity counters
-	// (variance proxies, edge energy).
+	// CollectComplexity requests per-macroblock variance / texture
+	// counters and the whole-frame AnalysisStats aggregates.
 	CollectComplexity bool
 }
 
@@ -73,7 +76,7 @@ type Config struct {
 // byte parity required.
 func DefaultConfig() Config {
 	return Config{
-		Mode:               AnalysisOff,
+		Mode:               VP8AnalysisOff,
 		ByteParityRequired: true,
 	}
 }

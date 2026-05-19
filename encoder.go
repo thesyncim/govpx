@@ -1056,11 +1056,12 @@ type VP8Encoder struct {
 	// fill it in place and pass &e.analysisInput to the interface
 	// dispatch without forcing a heap allocation on every frame.
 	analysisInput vp8analysis.FrameInput
-	// analysisStats is the per-encoder reusable [vp8analysis.Stats]
-	// buffer. Slice fields inside it are owned by the encoder so the
-	// observation hook only allocates the first time the analyzer
-	// needs to grow them; subsequent frames reuse capacity.
-	analysisStats vp8analysis.Stats
+	// analysisOutput is the per-encoder reusable
+	// [vp8analysis.FrameAnalysis] buffer. The MB slice inside it is
+	// owned by the encoder so the observation hook only allocates the
+	// first time the analyzer needs to grow it; subsequent frames
+	// reuse the capacity.
+	analysisOutput vp8analysis.FrameAnalysis
 }
 
 func (e *VP8Encoder) phaseStart() int64 {
