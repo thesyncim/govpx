@@ -20,6 +20,12 @@ type errorConcealmentMacroblockOverlap struct {
 	blocks [16]errorConcealmentBlockOverlap
 }
 
+// ErrorConcealmentOverlap is an opaque scratch element for the
+// per-macroblock overlap list used by EstimateMissingMotionVectorsWithScratch.
+// Callers should not depend on the field layout; only the size is part of
+// the API. This mirrors libvpx's pbi->overlaps array (MB_OVERLAP[]).
+type ErrorConcealmentOverlap = errorConcealmentMacroblockOverlap
+
 func PrepareErrorConcealmentModes(modes []MacroblockMode) {
 	for i := range modes {
 		mode := &modes[i]
@@ -33,6 +39,15 @@ func PrepareErrorConcealmentModes(modes []MacroblockMode) {
 }
 
 func EstimateMissingMotionVectors(modes []MacroblockMode, prevModes []MacroblockMode, rows int, cols int, firstCorrupt int) error {
+	return EstimateMissingMotionVectorsWithScratch(modes, prevModes, rows, cols, firstCorrupt, nil)
+}
+
+// EstimateMissingMotionVectorsWithScratch mirrors libvpx's persistent
+// `pbi->overlaps` buffer (vp8_alloc_overlap_lists): the caller passes in a
+// scratch buffer (typically resized once per frame-buffer alloc) so that
+// concealment doesn't allocate per frame. When scratch is nil or too small,
+// the function falls back to a fresh allocation.
+func EstimateMissingMotionVectorsWithScratch(modes []MacroblockMode, prevModes []MacroblockMode, rows int, cols int, firstCorrupt int, scratch []errorConcealmentMacroblockOverlap) error {
 	if rows < 0 || cols < 0 {
 		return ErrModeBufferTooSmall
 	}
@@ -50,7 +65,15 @@ func EstimateMissingMotionVectors(modes []MacroblockMode, prevModes []Macroblock
 		return nil
 	}
 
-	overlaps := make([]errorConcealmentMacroblockOverlap, required)
+	var overlaps []errorConcealmentMacroblockOverlap
+	if cap(scratch) >= required {
+		overlaps = scratch[:required]
+		for i := range overlaps {
+			overlaps[i] = errorConcealmentMacroblockOverlap{}
+		}
+	} else {
+		overlaps = make([]errorConcealmentMacroblockOverlap, required)
+	}
 	for mbRow := range rows {
 		for mbCol := range cols {
 			index := mbRow*cols + mbCol

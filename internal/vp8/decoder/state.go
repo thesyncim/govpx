@@ -72,7 +72,22 @@ func parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet []byte, fra
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrInvalidFrameHeader
 	}
 	firstPartitionEnd := frame.HeaderSize + frame.FirstPartitionSize
-	if frame.FirstPartitionSize <= 0 || firstPartitionEnd < frame.HeaderSize || firstPartitionEnd > len(packet) {
+	// libvpx (vp8/decoder/decodeframe.c) only rejects the first-partition
+	// length when it overflows or exceeds the remaining packet bytes:
+	//
+	//   if (!pbi->ec_active && (data + first_partition_length_in_bytes > data_end ||
+	//                           data + first_partition_length_in_bytes < data)) {
+	//     vpx_internal_error(&pc->error, VPX_CODEC_CORRUPT_FRAME,
+	//                        "Truncated packet or corrupt partition 0 length");
+	//   }
+	//
+	// A first_partition_length_in_bytes of zero is legal — the bool
+	// decoder is initialized over (data_end - data) regardless, and the
+	// remaining state-header bits come from the token partitions below.
+	// Treating zero as an error caused the F4 fuzzer to find an
+	// acceptance disagreement where libvpx decoded the keyframe and
+	// govpx rejected it (task #381).
+	if frame.FirstPartitionSize < 0 || firstPartitionEnd < frame.HeaderSize || firstPartitionEnd > len(packet) {
 		if !errorConcealment || frame.FirstPartitionSize < 0 || firstPartitionEnd < frame.HeaderSize {
 			return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrTruncatedStateHeader
 		}
