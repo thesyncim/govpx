@@ -69,7 +69,7 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
 		}
 		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
-		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
 		blockStep := 1 << uint(txSize<<1)
@@ -173,7 +173,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
 		}
 		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
-		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
 		dequant := inter.dq.Y[segID]
@@ -892,7 +892,7 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 			dequant = inter.dq.Uv[0]
 			planeType = 1
 		}
-		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
 		maxEob := vp9dec.MaxEobForTxSize(txSize)

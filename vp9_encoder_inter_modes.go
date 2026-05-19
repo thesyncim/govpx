@@ -252,7 +252,7 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchRefNoRestore(key *vp
 		len(ref) == 0 || refStride <= 0 {
 		return 0, 0, false
 	}
-	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	step := 1 << uint(txSize)
 	bs := 4 << uint(txSize)
@@ -357,7 +357,7 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsWithRestore(key *vp9Keyfram
 		}
 	}
 
-	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	step := 1 << uint(txSize)
 	bs := 4 << uint(txSize)
@@ -1473,7 +1473,7 @@ func (e *VP9Encoder) vp9InterMvPredSearchSeed(inter *vp9InterEncodeState,
 	}
 	refRows := len(refBuf) / refStride
 	var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
-	refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+	refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
 		e.useVP9EncoderPrevFrameMvs(miRows, miCols),
 		e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 		tile, miRows, miCols, miRow, miCol, bsize,
@@ -1776,7 +1776,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 	}
 	mv := vp9dec.MV{Row: int16(bestDy * 8), Col: int16(bestDx * 8)}
-	vp9ClampMvRef(&mv, miRows, miCols, miRow, miCol, bsize)
+	vp9dec.ClampMvRef(&mv, miRows, miCols, miRow, miCol, bsize)
 	vp9dec.LowerMvPrecision(&mv, inter.allowHP)
 	// SPEED_FEATURES.mv.subpel_force_stop == FULL_PEL — libvpx skips
 	// vp9_find_best_sub_pixel_tree* entirely. govpx mirrors that gate here.

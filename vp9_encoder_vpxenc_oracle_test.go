@@ -1622,7 +1622,7 @@ func decodeVP9PacketTxCoeffsForOracleTest(t *testing.T, packet []byte) []vp9Orac
 			Above:    above,
 			Left:     left,
 		}, mi)
-		reconBsize := vp9ModeInfoDecodeBSize(bsize)
+		reconBsize := vp9dec.ModeInfoDecodeBSize(bsize)
 		if mi.Skip != 0 {
 			aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 			vp9dec.ResetSkipContext(d.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
@@ -1700,7 +1700,7 @@ func collectVP9PacketResidueCoeffsForOracleTest(t *testing.T, d *VP9Decoder,
 		}
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
-		num4x4W, num4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols, miRow, miCol,
+		num4x4W, num4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols, miRow, miCol,
 			bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
 		blockStep := 1 << uint(txSize<<1)

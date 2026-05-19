@@ -746,7 +746,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 	bs := 4 << uint(txSize)
 	segID := vp9EncoderMiSegmentID(mi)
 	dequant := key.dq.Y[segID]
-	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	if max4x4W <= 0 || max4x4H <= 0 {
 		vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
@@ -909,7 +909,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 	}
 
 	txSize := clampVP9TxSizeForBlock(mi.TxSize, bsize)
-	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	step := 1 << uint(txSize)
 	segID := vp9EncoderMiSegmentID(mi)
@@ -1228,7 +1228,7 @@ func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState
 	if planeBsize >= common.BlockSizes {
 		return 0, false
 	}
-	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	planeData, stride := e.vp9EncoderReconPlane(plane)
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
@@ -1544,7 +1544,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 	// libvpx vp9_blockd.h get_uv_tx_size — caps the chroma tx_size at the
 	// luma mi tx_size but never exceeds the chroma plane's own max.
 	uvTxSize := vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
-	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	step := 1 << uint(uvTxSize)
 	segID := vp9EncoderMiSegmentID(mi)
@@ -1705,7 +1705,7 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 		return 0, false
 	}
 
-	bounds := vp9BlockBoundsEdges(miRows, miCols, miRow, miCol, bsize)
+	bounds := vp9dec.BlockBoundsEdgesForMI(miRows, miCols, miRow, miCol, bsize)
 	leftAvailable := blockCol4x4 != 0 || miCol > tile.MiColStart
 	left := e.intraScratch.Left[:bs]
 	if leftAvailable {
@@ -1910,7 +1910,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 	bestValid := false
 	prevScore := uint64(0)
 	prevValid := false
-	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	useTxDomainDistortion := e.vp9KeyframeUseTransformDomainDistortion(key,
 		miRows, miCols, miRow, miCol, bsize)

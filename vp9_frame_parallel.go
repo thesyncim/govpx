@@ -56,7 +56,7 @@ type vp9FrameParallelScheduler struct {
 	// vp9RunFrameParallelBatch call. libvpx pattern: cpi->common.prev_mvs is
 	// a fixed CPI-owned buffer; vp9_alloc_context_buffers
 	// (vp9_alloccommon.c:160) allocates once and reuses for every frame.
-	parentPrevFrameMvsSnapshot   []vp9MvRef
+	parentPrevFrameMvsSnapshot   []vp9dec.MvRef
 	parentPrevSegmentMapSnapshot []uint8
 
 	wg sync.WaitGroup
@@ -157,7 +157,7 @@ func (s *vp9FrameParallelScheduler) ensureCapacity(workers int, dstSize int, wid
 	miRows := (height + 7) >> 3
 	need := miRows * miCols
 	if cap(s.parentPrevFrameMvsSnapshot) < need {
-		s.parentPrevFrameMvsSnapshot = make([]vp9MvRef, need)
+		s.parentPrevFrameMvsSnapshot = make([]vp9dec.MvRef, need)
 	}
 	if cap(s.parentPrevSegmentMapSnapshot) < need {
 		s.parentPrevSegmentMapSnapshot = make([]uint8, need)
@@ -394,7 +394,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	parentPrevFrameMvCols := e.prevFrameMvCols
 	parentPrevFrameMvsLen := len(e.prevFrameMvs)
 	if cap(scheduler.parentPrevFrameMvsSnapshot) < parentPrevFrameMvsLen {
-		scheduler.parentPrevFrameMvsSnapshot = make([]vp9MvRef, parentPrevFrameMvsLen)
+		scheduler.parentPrevFrameMvsSnapshot = make([]vp9dec.MvRef, parentPrevFrameMvsLen)
 	}
 	parentPrevFrameMvs := scheduler.parentPrevFrameMvsSnapshot[:parentPrevFrameMvsLen]
 	copy(parentPrevFrameMvs, e.prevFrameMvs)
@@ -446,7 +446,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	e.prevFrameMvRows = parentPrevFrameMvRows
 	e.prevFrameMvCols = parentPrevFrameMvCols
 	if cap(e.prevFrameMvs) < len(parentPrevFrameMvs) {
-		e.prevFrameMvs = make([]vp9MvRef, len(parentPrevFrameMvs))
+		e.prevFrameMvs = make([]vp9dec.MvRef, len(parentPrevFrameMvs))
 	} else {
 		e.prevFrameMvs = e.prevFrameMvs[:len(parentPrevFrameMvs)]
 	}
@@ -644,7 +644,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	// shared with the parent.
 	if len(src.prevFrameMvs) > 0 {
 		if cap(w.prevFrameMvs) < len(src.prevFrameMvs) {
-			w.prevFrameMvs = make([]vp9MvRef, len(src.prevFrameMvs))
+			w.prevFrameMvs = make([]vp9dec.MvRef, len(src.prevFrameMvs))
 		} else {
 			w.prevFrameMvs = w.prevFrameMvs[:len(src.prevFrameMvs)]
 		}

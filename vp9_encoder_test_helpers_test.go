@@ -366,7 +366,7 @@ func predictedVP9ReferenceYCbCrForTest(t *testing.T, ref Image, mv vp9dec.MV) *i
 				Mv: [2]vp9dec.MV{mv},
 			}
 			if !d.reconstructVP9InterPredictBlock(&hdr, &mi,
-				miRow, miCol, vp9ModeInfoDecodeBSize(bsize)) {
+				miRow, miCol, vp9dec.ModeInfoDecodeBSize(bsize)) {
 				t.Fatalf("reconstruct predictor block at mi %d,%d failed", miRow, miCol)
 			}
 		}

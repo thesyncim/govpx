@@ -7,10 +7,11 @@ parsers, bitstream mechanics, RTP payload handling, DSP, and reusable internal
 state live under `internal/`.
 
 The cleanup is in progress. On the current tidy branch, VP8/VP9 RTP mechanics,
-VP9 superframe parse/write helpers, and VP8/VP9 stream-info peeking are already
-owned by internal codec packages and exposed through root facade functions.
-Large parts of the VP8 and VP9 encoder/decoder implementations still live in
-the root package until their move batches are split, tested, and committed.
+VP9 superframe parse/write helpers, VP8/VP9 stream-info peeking, and several
+VP9 decoder helper families are already owned by internal codec packages and
+exposed through root facade functions. Large parts of the VP8 and VP9
+encoder/decoder implementations still live in the root package until their move
+batches are split, tested, and committed.
 
 ## Package Ownership
 
@@ -41,9 +42,9 @@ Root `govpx` owns only public surface area:
 
 - `bitstream`: VP9 bitstream helpers and superframe index parsing/writing;
 - `decoder`: VP9 uncompressed/compressed header parsing, stream-info peeking,
-  mode and reference parsing, reconstruction, loop filter, tile/thread
-  plumbing, frame-context defaults, header/tile geometry helpers, probability
-  adaptation counts, and MFQE decision metrics;
+  mode and reference parsing, inter MV reference lookup, reconstruction, loop
+  filter, tile/thread plumbing, frame-context defaults, header/tile geometry
+  helpers, probability adaptation counts, and MFQE decision metrics;
 - `encoder`: VP9 bitstream writer helpers, transform/quantization support,
   token and probability helpers used by the root encoder while it is being
   moved;

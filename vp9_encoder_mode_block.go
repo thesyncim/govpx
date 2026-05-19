@@ -34,7 +34,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	counts := vp9EncodeCountsForState(key, inter)
 	if kind == vp9ModeTreeInterSkip || kind == vp9ModeTreeInterSource {
-		reconBsize := vp9ModeInfoDecodeBSize(bsize)
+		reconBsize := vp9dec.ModeInfoDecodeBSize(bsize)
 		hasResidue := false
 		uvMode := common.DcPred
 		segID := vp9EncoderMiSegmentID(&cur)
@@ -137,7 +137,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
 			miRow, miCol, bsize, &cur, inter != nil && inter.allowHP,
 			vp9InterSignBias(inter))
-		countVP9IntraInter(counts, seg, segID, above, left, vp9BoolInt(isInter))
+		countVP9IntraInter(counts, seg, segID, above, left, vp9dec.BoolInt(isInter))
 		if isInter {
 			frameMode := vp9InterReferenceMode(inter)
 			compoundRefs := vp9InterCompoundRefs(inter)
@@ -208,7 +208,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			_ = encoder.WriteCoefSb(bw, encoder.WriteCoefSbArgs{
 				BSize:        reconBsize,
 				MiTxSize:     cur.TxSize,
-				IsInter:      vp9BoolInt(isInter),
+				IsInter:      vp9dec.BoolInt(isInter),
 				Lossless:     inter.lossless,
 				Mi:           &cur,
 				MiRows:       miRows,
@@ -234,7 +234,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		return
 	}
 	if kind == vp9ModeTreeKeyframeSource && key != nil {
-		reconBsize := vp9ModeInfoDecodeBSize(bsize)
+		reconBsize := vp9dec.ModeInfoDecodeBSize(bsize)
 		// libvpx vp9_rdopt.c:3239-3252 — vp9_rd_pick_intra_mode_sb
 		// dispatches the Y-mode picker on bsize: BLOCK_8X8+ routes
 		// through rd_pick_intra_sby_mode (the per-MI mode picker), while

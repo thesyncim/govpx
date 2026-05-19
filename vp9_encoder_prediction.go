@@ -43,7 +43,7 @@ func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
 	// libvpx: vp9/common/vp9_mvref_common.c — find_mv_refs_idx reads the
 	// flat fields off VP9_COMMON/MACROBLOCKD without an intermediate
 	// composite.
-	refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+	refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
 		e.useVP9EncoderPrevFrameMvs(miRows, miCols),
 		e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 		tile, miRows, miCols, miRow, miCol, bsize, mode, refFrame,
@@ -55,7 +55,7 @@ func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
 	} else if refCount == 0 {
 		return vp9dec.MV{}, false
 	}
-	mv := vp9InterModeMvCandidate(refList, refCount, mode)
+	mv := vp9dec.InterModeMvCandidate(refList, refCount, mode)
 	vp9dec.LowerMvPrecision(&mv, allowHP)
 	return mv, true
 }
@@ -68,7 +68,7 @@ func (e *VP9Encoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 	signBias [vp9dec.MaxRefFrames]uint8,
 	block int,
 ) ([2]vp9dec.MV, int) {
-	return vp9FindInterMvRefsFields(e.miGrid,
+	return vp9dec.FindInterMvRefsFields(e.miGrid,
 		e.useVP9EncoderPrevFrameMvs(miRows, miCols),
 		e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 		tile, miRows, miCols, miRow, miCol, bsize, mode, refFrame,
@@ -557,7 +557,7 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 		return nil, 0, 0, 0, false
 	}
 
-	bounds := vp9BlockBoundsEdges(miRows, miCols, miRow, miCol, bsize)
+	bounds := vp9dec.BlockBoundsEdgesForMI(miRows, miCols, miRow, miCol, bsize)
 	leftAvailable := blockCol4x4 != 0 || miCol > tile.MiColStart
 	left := e.intraScratch.Left[:bs]
 	if leftAvailable {

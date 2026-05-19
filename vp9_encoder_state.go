@@ -411,13 +411,13 @@ func (e *VP9Encoder) refreshVP9EncoderMvRefs(isKey bool, miRows, miCols int) {
 	}
 	need := miRows * miCols
 	if cap(e.prevFrameMvs) < need {
-		e.prevFrameMvs = make([]vp9MvRef, need)
+		e.prevFrameMvs = make([]vp9dec.MvRef, need)
 	} else {
 		e.prevFrameMvs = e.prevFrameMvs[:need]
 	}
 	for i := range need {
 		mi := e.miGrid[i]
-		e.prevFrameMvs[i] = vp9MvRef{RefFrame: mi.RefFrame, Mv: mi.Mv}
+		e.prevFrameMvs[i] = vp9dec.MvRef{RefFrame: mi.RefFrame, Mv: mi.Mv}
 	}
 	e.prevFrameMvRows = miRows
 	e.prevFrameMvCols = miCols

@@ -272,7 +272,7 @@ type VP9Encoder struct {
 	// vp9_encodeframe.c:1487 (which writes a 64x64 dst with stride 64).
 	intProEstPred [64 * 64]uint8
 
-	prevFrameMvs      []vp9MvRef
+	prevFrameMvs      []vp9dec.MvRef
 	prevFrameMvRows   int
 	prevFrameMvCols   int
 	prevFrameMvsValid bool

@@ -6,6 +6,8 @@ import (
 	"image"
 	"runtime"
 	"testing"
+
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // TestVP9FrameParallelValidation pins constructor-time gating on the
@@ -291,7 +293,7 @@ func encodeVP9FrameParallelSerialReference(t *testing.T, width, height int, fram
 // path restores this snapshot between inter frames so it matches the
 // parallel batch entry state.
 type vp9PerFrameMvSnapshot struct {
-	prevFrameMvs              []vp9MvRef
+	prevFrameMvs              []vp9dec.MvRef
 	prevFrameMvRows           int
 	prevFrameMvCols           int
 	prevFrameMvsValid         bool
@@ -304,7 +306,7 @@ type vp9PerFrameMvSnapshot struct {
 
 func captureVP9PerFrameMvSnapshot(e *VP9Encoder) vp9PerFrameMvSnapshot {
 	var snap vp9PerFrameMvSnapshot
-	snap.prevFrameMvs = append([]vp9MvRef(nil), e.prevFrameMvs...)
+	snap.prevFrameMvs = append([]vp9dec.MvRef(nil), e.prevFrameMvs...)
 	snap.prevFrameMvRows = e.prevFrameMvRows
 	snap.prevFrameMvCols = e.prevFrameMvCols
 	snap.prevFrameMvsValid = e.prevFrameMvsValid
@@ -318,7 +320,7 @@ func captureVP9PerFrameMvSnapshot(e *VP9Encoder) vp9PerFrameMvSnapshot {
 
 func restoreVP9PerFrameMvSnapshot(e *VP9Encoder, snap vp9PerFrameMvSnapshot) {
 	if cap(e.prevFrameMvs) < len(snap.prevFrameMvs) {
-		e.prevFrameMvs = make([]vp9MvRef, len(snap.prevFrameMvs))
+		e.prevFrameMvs = make([]vp9dec.MvRef, len(snap.prevFrameMvs))
 	} else {
 		e.prevFrameMvs = e.prevFrameMvs[:len(snap.prevFrameMvs)]
 	}

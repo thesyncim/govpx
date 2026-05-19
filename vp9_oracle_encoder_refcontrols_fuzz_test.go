@@ -255,7 +255,7 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//  * Ported the libvpx-faithful find_predictors frame_mv[mode][ref]
 	//    pre-population into pickVP9InterReferenceModeNonRD (libvpx
 	//    vp9_pickmode.c:1710 + 2002-2012). The picker now walks
-	//    vp9FindInterMvRefsFields once per ref to populate NEAREST/
+	//    vp9dec.FindInterMvRefsFields once per ref to populate NEAREST/
 	//    NEAR MVs outside the main candidate loop, replacing the
 	//    per-iteration vp9EncoderInterModeCandidateMv re-walk.
 	//

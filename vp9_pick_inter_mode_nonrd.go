@@ -41,7 +41,7 @@ import (
 //     this file:550 const threshSkipGolden
 //   - vp9_pickmode.c:2002-2012 find_predictors pre-loop population →
 //     this file:389-420 (per-ref NEAR/NEAREST pre-fill via
-//     vp9FindInterMvRefsFields)
+//     vp9dec.FindInterMvRefsFields)
 //   - vp9_pickmode.c:2050-2082 ref/mode/comp_pred candidate set-up →
 //     this file:519-530 (numInterModes loop)
 //   - vp9_pickmode.c:2084-2128 ref-frame skip + CBR golden-skip +
@@ -788,10 +788,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx: vp9_rd.c:602-606 — populate pred_mv[0..2]
 				// from ref_mvs[ref][0], ref_mvs[ref][1],
 				// x->pred_mv[ref]. govpx derives ref_mvs[ref][0..1]
-				// from vp9FindInterMvRefsFields in its mode-independent
+				// from vp9dec.FindInterMvRefsFields in its mode-independent
 				// shape: mode=NearMv sets earlyBreak=false in the scanner.
 				var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
-				refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+				refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
 					e.useVP9EncoderPrevFrameMvs(miRows, miCols),
 					e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 					tile, miRows, miCols, miRow, miCol, bsize,
@@ -859,7 +859,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	//   frame_mv[NEARMV][ref]    = vp9_find_best_ref_mvs's nearmv result
 	//   frame_mv[NEWMV][ref]     = INVALID_MV (filled by search_new_mv)
 	//
-	// govpx walks vp9FindInterMvRefsFields once per ref to populate
+	// govpx walks vp9dec.FindInterMvRefsFields once per ref to populate
 	// NEAREST/NEAR; ZERO is constant; NEW is computed lazily inside the
 	// main loop via pickVP9InterMv. This eliminates the prior per-iteration
 	// vp9EncoderInterModeCandidateMv re-walk and surfaces the libvpx-exact
@@ -875,10 +875,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		frameMvValid[common.ZeroMv][r] = true
 		// libvpx: vp9_pickmode.c:1295-1297 vp9_find_best_ref_mvs ->
 		//   nearestmv = candidates[0]; nearmv = candidates[1].
-		// govpx vp9FindInterMvRefsFields returns refList[0..1] with
+		// govpx vp9dec.FindInterMvRefsFields returns refList[0..1] with
 		// NearMv-mode walk (no earlyBreak) — matches libvpx's
 		// candidates[0..1] post-clamp.
-		refList, refCount := vp9FindInterMvRefsFields(e.miGrid,
+		refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
 			e.useVP9EncoderPrevFrameMvs(miRows, miCols),
 			e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 			tile, miRows, miCols, miRow, miCol, bsize,

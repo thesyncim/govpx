@@ -395,7 +395,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 				for row := center.Row - step; row <= center.Row+step; row += step {
 					for col := center.Col - step; col <= center.Col+step; col += step {
 						cand := vp9dec.MV{Row: row, Col: col}
-						vp9ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
+						vp9dec.ClampMvRef(&cand, miRows, miCols, miRow, miCol, bsize)
 						vp9dec.LowerMvPrecision(&cand, allowHP)
 						if cand == best {
 							continue
