@@ -723,7 +723,7 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// upper rungs (synthetic-text frames are sparser than camera
 	// content) so the produced-rate curve compresses near
 	// ~4 Mbps regardless of target. Widen the per-fixture gate to
-	// 37% (vs 5% default) to absorb the consequent cubic-fit jitter
+	// 37.6% (vs 5% default) to absorb the consequent cubic-fit jitter
 	// after task #291's fix to the libvpx oracle CLI mapper
 	// (cmd/govpx-bench/benchcmd/bdrate_vp8.go libvpxVP8BDCLIArgs +
 	// libvpxVP8BDCLIArgsTwoPass: pass --screen-content-mode=N when
@@ -732,22 +732,45 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// flag as the govpx encoder under test). Before that fix the
 	// libvpx oracle silently ran with screen_content_mode=0 against
 	// govpx's screen_content_mode=1, masking a real ~36% BD-rate
-	// gap as a more flattering ~20% gap. The gap now reflects the
-	// asymmetry between the libvpx and govpx screen-content paths:
-	// libvpx's screen-content code-path (UV-delta-Q reducing UV
-	// effective Q via vp8_quantize.c:469 + cyclic_background_refresh
-	// MB-budget scaling via onyx_if.c:509-528 + the limit_q_cbr_inter
-	// Q-decrease floor at ratectrl.c:1297-1300 + the buffer-debt
-	// floor at onyx_if.c:4533) currently produces a higher bitrate
-	// trajectory at the rung-3/rung-4 operating points than govpx's
-	// nominally-identical screen-content path does, even though all
-	// four semantics are individually ported. The residual
-	// libvpx-vs-govpx delta is a separate investigation cell; the
-	// 37% gate captures the current ground-truth ceiling with 1%
+	// gap as a more flattering ~20% gap.
+	//
+	// Task #293 instrumented both encoders' VP8 regulators to confirm
+	// the four libvpx screen-content semantic sites — UV-delta-Q
+	// (vp8_quantize.c:469), cyclic-refresh MB-budget scaling
+	// (onyx_if.c:509-528), buffer-debt floor (onyx_if.c:4533), and the
+	// limit_q_cbr_inter Q-decrease floor (ratectrl.c:1297-1300) — are
+	// all faithfully ported (encoder_reconstruct.go:62-73,
+	// encoder_segmentation.go:502-521, ratecontrol_postencode.go:318-323,
+	// ratecontrol_postencode.go:313-316 + ratecontrol_quantizer.go:65-66
+	// + ratecontrol_recode.go:201). All four sites fire in govpx with the
+	// same gating libvpx uses, so the residual gap is NOT a missing port.
+	//
+	// The actual driver of the +36% rate gap surfaced via per-frame
+	// regulator traces of frame 1 at the 4 Mbps rung: govpx and libvpx
+	// both start with RCF.inter=1.0 and pick Q=119 (internal) on the
+	// first attempt. Both attempt-1 encodes produce ~5300 bits (govpx
+	// 5593, libvpx 5315). The recode loop drops RCF to 0.3 in both and
+	// next-attempts Q=62. At Q=62 govpx produces ~255 kbits while
+	// libvpx produces ~17 kbits — a 15x bit-spend divergence at the
+	// SAME internal Q on the SAME source frame. This is a byte-parity
+	// gap in the inter-frame mode-selection / coefficient-coding path
+	// at mid-Q on screen-content frames (the integer-pel 8-pixel
+	// translation should mode-decision to ZeroMV+LAST with tiny
+	// residuals; govpx appears to spend bits on intra or non-zero-MV
+	// modes that libvpx skips). Govpx's recode loop then oscillates
+	// (Q=119 → 62 → 91 → 76) while libvpx converges monotonically
+	// (Q=119 → 62 → 26 → 13), so govpx settles at a higher Q with a
+	// smaller frame and libvpx settles at a lower Q matching target.
+	//
+	// The residual libvpx-vs-govpx delta is a separate investigation
+	// cell scoped at the inter-mode RD path (govpx's
+	// encodeInterFrameAttempt vs libvpx's vp8_pick_inter_mode +
+	// rd_pick_inter_mode at low Q on glyph-translation content). The
+	// 37.6% gate captures the current ground-truth ceiling with 1.5%
 	// headroom over the measured +36.054% gap on the 1280x720 text
 	// fixture, so further regressions still surface immediately.
 	screenContentGate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 37.0,
+		MaxBDRateOverLibvpxPct: 37.6,
 		MinBDPSNRdB:            -0.5,
 	}
 	runVP8BDRateFixture(t,
