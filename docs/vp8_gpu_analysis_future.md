@@ -45,16 +45,21 @@ path without any visible behavior change.
 
 ## Library / backend options
 
-### Option A — `gogpu/wgpu` (or similar pure-Go WebGPU runtimes)
+### Option A — [`gogpu/wgpu`](https://github.com/gogpu/wgpu) (or similar pure-Go WebGPU runtimes)
 
 - **Selling point**: pure Go, no CGO, single-binary distribution. Lowest
-  packaging risk for our consumers.
+  packaging risk for our consumers; `gogpu/wgpu` ships as a Go module with
+  no native runtime dependency, which is the best match for govpx's "no C
+  compiler required" baseline.
 - **Reality check**: pure-Go WebGPU stacks are early. Compute shader support,
   validation tooling, and driver stability vary by platform. Apple Silicon in
   particular is the place we most want acceleration and the place most pure-Go
-  stacks have least mileage.
-- **Best use today**: WGSL compute prototyping. Build the kernel, validate
-  parity against the CPU observer on a small corpus, then re-evaluate.
+  stacks have least mileage. The maturity of `gogpu/wgpu`'s compute path on
+  macOS/Metal needs to be validated against the simulcast benchmark before we
+  bet a product on it.
+- **Best use today**: WGSL compute prototyping. Build the SAD / variance
+  kernel, validate parity against the CPU observer on a small corpus, then
+  re-evaluate.
 - **Risks**: hidden allocation behavior, GC pressure from descriptor / bind
   group churn, compute submission overhead larger than the work itself for
   small layers.
@@ -96,8 +101,12 @@ path without any visible behavior change.
 1. **Today**: keep `internal/vp8/analysis` CPU-only, observation-only, byte
    parity guaranteed. This patch.
 2. **Prototype**: implement a batched SAD + variance kernel in WGSL and run
-   it under Option B (`go-webgpu/webgpu`). Validate per-MB output against
-   the CPU observer on a representative VP8 corpus.
+   it under Option A ([`gogpu/wgpu`](https://github.com/gogpu/wgpu)) first,
+   because its no-native-dependency profile matches our distribution
+   constraints. Fall back to Option B if Option A's compute path turns out
+   to be too immature on macOS. Either way, validate per-MB output against
+   the CPU observer on a representative VP8 corpus before doing anything
+   else.
 3. **Measure**: compare end-to-end VP8 simulcast cost (currently exercised
    by `BenchmarkVP8EncodeSimulcastObserveCPU`) with the prototype. Decide
    whether the per-frame submission overhead is small enough to justify a
