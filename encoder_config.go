@@ -1048,10 +1048,11 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 
 // interFrameAutoSpeedTimingCompensation returns true when the encoder
 // runs in realtime+positive-cpu_used mode and the frame is large enough
-// that govpx's per-inter-frame wall-clock measurement would (under host
-// contention) push avg_encode_time across the vp8_auto_select_speed
-// branch boundaries before the next frame's auto-select runs, steering
-// the picker dispatch into a different `libvpxCPUUsed()` value.
+// (or threaded enough) that govpx's per-inter-frame wall-clock
+// measurement would (under host contention) push avg_encode_time across
+// the vp8_auto_select_speed branch boundaries before the next frame's
+// auto-select runs, steering the picker dispatch into a different
+// `libvpxCPUUsed()` value.
 //
 // Task #278 reproduced this with seed#8 of FuzzEncoderProductionStream
 // ByteParity (854×480 RT threads=4 cpu_used=0): under no host load the
@@ -1064,16 +1065,31 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 // chose a different mode set producing `6abca426c800e43c` or
 // `bfe404c8fa570088`.
 //
-// The 1500-MB gate captures the production resolutions that the byte-
-// parity gate exercises with threads >= 2 (854×480 = 1620 MBs, 1280×720
-// = 3600 MBs) without disturbing the smaller fuzz seeds (16×16 .. 640×360
-// = 900 MBs) whose libvpx-reference outputs were captured before any
-// inter-frame compensation existed and which remain deterministic under
-// load already (their wall-clock measurements are too small to cross the
-// libvpx auto-select branch boundary).
+// Task #369 (2026-05-19) extended this to threads>=2 below the 1500-MB
+// gate: F1 fuzz seed#7 (640×360 = 920 MBs RT cpu_used=0 threads=2 CBR,
+// sha-prefix 1f411689) reproduced govpx-side frame-2 flake under host
+// load (parallel subprocess spawns from the libvpx oracle retry-on-
+// quarantine path). At threads >= 2, the row-worker pool's scheduling
+// interleaves with `nowMonotonicNS()` reads inside `finishAutoSpeed
+// Timing()` and the IIR avg_encode_time can cross the libvpx Speed=0
+// stable boundary at any MB count, not just at MBs >= 1500. The
+// threads >= 2 branch of this gate pins per-inter-frame duration to
+// budget/3 (same strategy as the >=1500-MB branch and the medium-KF
+// pin), making the next frame's auto-select land in the Speed=0 stable
+// region deterministically regardless of scheduler pressure.
+//
+// The threads<=1 + MBs<1500 case still skips the pin because (a) the
+// existing canonical libvpx-reference outputs at those small resolutions
+// were captured against real wall-clock and (b) the serial encoder has
+// no thread-scheduling perturbation source, so its inter-frame
+// wall-clock is dominated by inline encode work and stays well below
+// the libvpx auto-select branch boundary on any reasonable host load.
 func (e *VP8Encoder) interFrameAutoSpeedTimingCompensation() bool {
 	if !e.libvpxAutoSelectSpeedActive() {
 		return false
+	}
+	if e.opts.Threads >= 2 {
+		return true
 	}
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
