@@ -187,11 +187,28 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// (-6 bytes). First_partition_size identical (2169 vs 2169), KF
 	// byte-identical. Frame-1 divergence remains confined to the token
 	// (second) partition, mirroring the Best/19981bff sibling cohort.
-	// The libvpx-port direction remains the post-pick
-	// encodeframe.c:1191-1243 adjust_act_zbin + vp8_update_zbin_extra
-	// refresh, which keeps b->zbin_extra in sync with the FINAL picked
-	// mode's zbin_mode_boost; pending that port the -6-byte delta is
-	// the expected steady-state for this cohort.
+	//
+	// Task #277 diagnosis: extended the per-MB oracle tracer to compare
+	// qcoeff[][] payloads between govpx and libvpx on frame 1 after
+	// filtering libvpx's post-encode mutations (per-block memset(q, 0, 4)
+	// when eob<=1 in `vp8_dequant_idct_add_*_block_c`, plus the Y luma
+	// eob_adjust bump in `vp8_inverse_transform_mby`). The audit confirms
+	// that the inline ZBIN_EXTRA_Y formula at
+	// `quantizeBlockWithZbinAndActivity` (encoder_inter_quantize.go) is
+	// algebraically identical to libvpx's `b->zbin_extra` precomputed by
+	// `vp8_update_zbin_extra` (vp8_quantize.c:410-428): both use
+	// `(Y1dequant[Q][1] * (zbin_over_quant + zbin_mode_boost +
+	// act_zbin_adj)) >> 7` with the FINAL picked mode's zbin_mode_boost
+	// (MV_ZBIN_BOOST=4 for NEWMV/NEARESTMV/NEARMV cohorts here). The
+	// remaining cohort-specific divergence sits in the **trellis
+	// (optimize_b) path replay** for UV blocks 20 / 23: govpx's trellis
+	// leaves a non-zero qc at scan-position 2 (raster zigzag rc=4) where
+	// libvpx's trellis zeroes it, even though the pre-trellis quantize
+	// output and all token-cost inputs match. That's a RD-cost / RDTRUNC
+	// tie-break gap in optimize_b — NOT the post-pick zbin-extra refresh
+	// the task description hypothesized. Pending the trellis-tie-break
+	// audit, the -6-byte delta is the expected steady-state for this
+	// cohort.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463

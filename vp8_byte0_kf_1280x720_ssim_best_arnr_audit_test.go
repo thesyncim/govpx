@@ -201,13 +201,36 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 	// (vp8_task210_mb_activity_tracer_test.go probe). All accepted-mode
 	// fields (mode, ref_frame, mv_row, mv_col, skip) for frame 1's MB(0,0)
 	// also match (NEWMV/LAST_FRAME, MV=(8,16), mb_rate=20474). The
-	// residual lives in the token (second) partition, not headers. The
-	// libvpx-port direction remains: mirror libvpx encodeframe.c:1191-1243
-	// post-pick adjust_act_zbin + vp8_update_zbin_extra refresh path so
-	// the accepted-mode quantize sees the post-pick-mode zbin_mode_boost
-	// applied to the same activity-masked act_zbin_adj govpx already
-	// computes. Until that port lands, the -5/-6 byte delta is the
-	// expected steady-state for this cohort.
+	// residual lives in the token (second) partition, not headers.
+	//
+	// Task #277 diagnosis: extended the per-MB oracle tracer to compare
+	// qcoeff[][] payloads between govpx and libvpx on frame 1, filtering
+	// out the benign post-encode mutations that libvpx's
+	// vp8_dequant_idct_add_*_block / vp8_inverse_transform_mby eob_adjust
+	// inject into the capture state (per-block memset(q, 0, 4) for
+	// eob<=1, plus the inverse-Walsh DC-bump that flips Y luma eobs
+	// from 0 to 1 when the Y2 inverse-Walsh DC slot is non-zero). After
+	// that filter, frame 1 still shows ~519 MBs with bitstream-relevant
+	// qcoeff divergences clustered on UV V0/V3 (blocks 20 / 23) at scan
+	// positions whose zigzag raster index is in {4, 8}; the most common
+	// pattern is `gov.qcoeff[blk][4]=1, lvp.qcoeff[blk][4]=0` with both
+	// eobs[blk]=3. Both govpx and libvpx report identical
+	// (zbin_over_quant, zbin_mode_boost=MV_ZBIN_BOOST=4, act_zbin_adj=2)
+	// tuples for these MBs and identical Y2 qcoeff[24] (eob=16, exact
+	// values), which implies the per-block luma DC pre-Walsh inputs
+	// match — so the inline ZBIN_EXTRA_Y formula at
+	// `quantizeBlockWithZbinAndActivity` (encoder_inter_quantize.go) IS
+	// equivalent to libvpx's `b->zbin_extra = (Y1dequant[Q][1] *
+	// (zbin_over_quant + zbin_mode_boost + act_zbin_adj)) >> 7` at the
+	// quantize-input boundary. The remaining UV-side divergence is in
+	// the **post-quantize trellis (optimize_b) path replay** — govpx's
+	// trellis keeps a non-zero qc at scan-position 2 of these blocks
+	// where libvpx's trellis zeroes it; that's a token-cost / RD-trunc
+	// tie-break gap in the trellis, NOT the zbin-extra refresh the task
+	// description hypothesized. Closing this needs the trellis-path
+	// audit (`optimize_b` lines 200-356) ported against a per-block
+	// libvpx token_costs[] dump — pending that probe, the -5/-6 byte
+	// delta is the expected steady-state for this cohort.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463
