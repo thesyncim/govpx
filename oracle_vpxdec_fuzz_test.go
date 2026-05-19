@@ -121,22 +121,22 @@ func findVpxdecForFuzz(t *testing.T) string {
 // failure mid-stream; partial output is still returned for the frames
 // decoded before the error.
 func decodeIVFGovpxBestEffort(data []byte) ([][]byte, error) {
-	header, err := testutil.ParseIVFHeader(data)
-	if err != nil {
+	if _, err := testutil.ParseIVFHeader(data); err != nil {
 		return nil, err
 	}
 	offset, err := testutil.FirstIVFFrameOffset(data)
 	if err != nil {
 		return nil, err
 	}
-	dec, err := NewVP8Decoder(DecoderOptions{
-		MaxWidth:  header.Width,
-		MaxHeight: header.Height,
-	})
+	// MaxWidth/MaxHeight cap is not bound by the IVF container width:
+	// fuzz mutations routinely break the IVF<->VP8 dimension agreement
+	// and libvpx's vpxdec sizes its output from the VP8 key-frame header
+	// (not the IVF header), so leave the cap unbounded and let the
+	// decoder pick output dimensions per-frame.
+	dec, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		return nil, err
 	}
-	dst := newTestImage(header.Width, header.Height)
 	var frames [][]byte
 	for frameIndex := 0; offset < len(data); frameIndex++ {
 		frame, next, err := testutil.NextIVFFrame(data, offset, frameIndex)
@@ -144,10 +144,18 @@ func decodeIVFGovpxBestEffort(data []byte) ([][]byte, error) {
 			return frames, err
 		}
 		offset = next
-		if _, err := dec.DecodeInto(frame.Data, &dst); err != nil {
+		if err := dec.Decode(frame.Data); err != nil {
 			return frames, err
 		}
-		frames = append(frames, packTightI420(&dst))
+		// Mirror libvpx's vpxdec: only emit raw I420 for visible frames.
+		// Hidden frames (ShowFrame == false, e.g. alt-refs) update the
+		// reference buffers but produce no output sample. Pull via
+		// NextFrame() which consumes only visible frames.
+		img, ok := dec.NextFrame()
+		if !ok {
+			continue
+		}
+		frames = append(frames, packTightI420(&img))
 	}
 	return frames, nil
 }

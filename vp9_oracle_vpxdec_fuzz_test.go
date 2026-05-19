@@ -115,8 +115,17 @@ func decodeVP9IVFGovpxBestEffort(data []byte) ([][]byte, error) {
 			return frames, err
 		}
 		offset = next
-		if _, err := d.DecodeInto(frame.Data, &dst); err != nil {
+		info, err := d.DecodeInto(frame.Data, &dst)
+		if err != nil {
 			return frames, err
+		}
+		// Mirror libvpx's vpxdec: only emit raw I420 for visible frames.
+		// VP9 hidden frames (show_frame == false, e.g. ALTREF) do not
+		// produce a raw output sample, and DecodeInto leaves dst
+		// untouched; collecting stale dst contents would fork the fuzz
+		// comparator from vpxdec which writes only show_frame=1 planes.
+		if !info.ShowFrame {
+			continue
 		}
 		frames = append(frames, packTightI420(&dst))
 	}
