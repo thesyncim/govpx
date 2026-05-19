@@ -34,36 +34,26 @@ import (
 //     to fuzz seed (no longer skipped).
 //
 //   - {0x31, 0x39} = []byte("19") (VBR 300kbps splitmv kf=30 tight-buf
-//     good-quality): opened 2026-05-19 by the task #335 fuzz sweep. The fuzz
-//     harness passes --kf-min-dist=0 --kf-max-dist=KeyFrameInterval which
-//     sets libvpx's oxcf->auto_key = 1 (vp8_cx_iface.c:377-378). Under
-//     compressor_speed != 2 (good/best quality), libvpx then runs
-//     decide_key_frame (onyx_if.c:2713) inside the recode loop and inserts
-//     an unscheduled intra recode at frame 107 of the splitmv quadrant pan
-//     when this_frame_percent_intra crosses the line 2750-2773 thresholds
-//     against last_frame_percent_intra. govpx's equivalent
-//     `shouldRecodeInterAttemptAsKeyFrame` (encoder_reference_decisions.go:
-//     198-211) is gated behind EncoderOptions.AdaptiveKeyFrames, which the
-//     long-fixture fuzz does not enable; the gap therefore manifests as
-//     govpx holding inter at frame 107 while libvpx forces a KF, scrambling
-//     cumulative RC state for every later frame
-//     (matched-prefix=107/256). Closing this seed requires either
-//     enabling AdaptiveKeyFrames implicitly when KeyFrameInterval > 0 (and
-//     porting the full recode + buffer-state regulate_q chain that
-//     decide_key_frame triggers, libvpx onyx_if.c:3994-4068) or routing
-//     the long-fixture fuzz through libvpx's fixed_kf_cntr path
-//     (kf_min_dist == kf_max_dist), which itself diverges on
-//     estimate_keyframe_frequency's auto_key clamp at ratectrl.c:1321 and
-//     requires its own RC-bootstrap port. The corpus seed is captured at
-//     testdata/fuzz/FuzzEncoderLongFixtureRateControl/
-//     regression_vbr_300kbps_kf30_splitmv_tightbuf_aeeeb411 so the next
-//     port revision exercises it directly.
+//     good-quality): closed 2026-05-19 by task #337. The fuzz harness
+//     now flips `EncoderOptions.AdaptiveKeyFrames=true` in buildOpts
+//     so govpx walks the same libvpx auto_key=1 control path the C
+//     oracle is configured for (`--kf-min-dist=0
+//     --kf-max-dist=KeyFrameInterval` flips libvpx
+//     `oxcf->auto_key = 1` at vp8/vp8_cx_iface.c:377-378, which routes
+//     KF scheduling through the modulo cadence at
+//     vp8/encoder/onyx_if.c:3407-3409 and runs decide_key_frame inside
+//     the recode loop at vp8/encoder/onyx_if.c:3991-3994). With
+//     AdaptiveKeyFrames=true govpx's existing decide_key_frame port
+//     (encoder_entropy_savings.go libvpxDecideKeyFrame) and the
+//     estimate_keyframe_frequency auto_key clamp at
+//     ratecontrol_postencode.go:282 (mirroring libvpx
+//     vp8/encoder/ratectrl.c:1321) line up byte-for-byte with libvpx
+//     across all 256 frames of the seed. Promoted to fuzz seed (no
+//     longer skipped).
 //
 // The list and helper are kept as substrate so future deferrals have a
 // drop-in landing point.
-var longFixtureSeedsDeferred = [][]byte{
-	{0x31, 0x39}, // task #335: VBR 300kbps splitmv kf=30 tight-buf good-quality auto_key gap
-}
+var longFixtureSeedsDeferred = [][]byte{}
 
 func longFixtureSeedDeferred(data []byte) bool {
 	for _, seed := range longFixtureSeedsDeferred {
@@ -237,6 +227,21 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 		BufferSizeMs:        c.bufferMs,
 		BufferInitialSizeMs: c.bufferInitMs,
 		BufferOptimalSizeMs: c.bufferOptMs,
+		// Task #337: the libvpx oracle below passes
+		// `--kf-min-dist=0 --kf-max-dist=KeyFrameInterval`, which flips
+		// libvpx `oxcf->auto_key = 1` at vp8/vp8_cx_iface.c:377-378.
+		// Under auto_key=1 libvpx schedules KFs via the internal
+		// `frames_since_key % key_frame_frequency == 0` cadence at
+		// vp8/encoder/onyx_if.c:3407-3409 (and skips the wrapper-level
+		// fixed_kf_cntr at vp8/vp8_cx_iface.c:938-944, which only runs
+		// when `kf_min_dist == kf_max_dist`). It also runs
+		// `decide_key_frame` inside the recode loop at
+		// vp8/encoder/onyx_if.c:3991-3994. govpx mirrors that auto_key
+		// path under `EncoderOptions.AdaptiveKeyFrames=true`; flip it
+		// on here so the fuzz harness drives the same libvpx control
+		// path it asks the C oracle to use. With this in place the
+		// previously deferred aeeeb411 seed (task #335) is closed.
+		AdaptiveKeyFrames: true,
 	}
 	endUsage := "cbr"
 	if c.rcMode == RateControlVBR {

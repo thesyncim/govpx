@@ -195,6 +195,34 @@ func (e *VP8Encoder) updateGFActiveMap(refreshGolden bool, modes []vp8enc.InterF
 	e.rc.gfActiveCount = active
 }
 
+// shouldRecodeInterAttemptAsKeyFrame ports the libvpx auto-key recode
+// gate at vp8/encoder/onyx_if.c:3991-3994:
+//
+//	if (cpi->pass != 2 && cpi->oxcf.auto_key &&
+//	    cm->frame_type != KEY_FRAME && cpi->compressor_speed != 2) {
+//	  if (decide_key_frame(cpi)) { ... continue; }
+//	}
+//
+// libvpx derives `cpi->oxcf.auto_key` at vp8/vp8_cx_iface.c:377-378 as
+// `kf_mode == VPX_KF_AUTO && kf_min_dist != kf_max_dist`. govpx exposes
+// the auto_key=1 wrapper-level path via `EncoderOptions.AdaptiveKeyFrames`:
+// when AdaptiveKeyFrames=true the KF cadence runs the modulo path
+// (mirrors libvpx onyx_if.c:3407-3409 with auto_key=1) and the recode
+// loop here runs decide_key_frame; when AdaptiveKeyFrames=false the
+// govpx encoder takes the libvpx `kf_min_dist == kf_max_dist` wrapper
+// fixed_kf_cntr path (vp8_cx_iface.c:938-944) which has auto_key=0 and
+// therefore must NOT run decide_key_frame, otherwise govpx inserts
+// unscheduled KFs that libvpx never schedules. Other pre-conditions are
+// mirrored verbatim: `pass != 2` → `!e.twoPass.enabled()`,
+// `compressor_speed != 2` → `interAnalysisCompressorSpeed() != 2`.
+// Temporal scalability and invisible (alt-ref) frames stay excluded —
+// libvpx does not exercise the auto-key recode in those cohorts.
+//
+// Task #337 closure note: the long-fixture fuzz harness was running
+// govpx with AdaptiveKeyFrames=false but driving libvpx with
+// `--kf-min-dist=0 --kf-max-dist=KeyFrameInterval` (auto_key=1). The
+// gate was correct; the harness now sets AdaptiveKeyFrames=true so it
+// drives the same libvpx control path it asks the C oracle to use.
 func (e *VP8Encoder) shouldRecodeInterAttemptAsKeyFrame(required int, refreshGoldenFrame bool, temporalEnabled bool, invisible bool) (int, bool) {
 	if !e.opts.AdaptiveKeyFrames ||
 		e.twoPass.enabled() ||
