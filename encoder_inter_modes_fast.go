@@ -144,6 +144,15 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
 
 	for modeIndex := range len(libvpxFastInterModeOrder) {
+		// Hint-driven early-exit (gated on VP8AnalysisConfig.UseEncodeHints).
+		// ZEROMV-LAST is libvpxFastInterModeOrder[0]. If the GPU analyzer
+		// flagged this macroblock as FlagStatic (ZeroSAD <= 32 against the
+		// previous source frame), and the first mode (ZEROMV-LAST) has
+		// already been accepted as best, skip evaluating remaining modes
+		// entirely. See docs/vp8_gpu_hint_consumption.md.
+		if modeIndex > 0 && bestSet && e.hintSkipsRemainingInterModes(mbRow, mbCol, mbCols) {
+			break
+		}
 		threshold := thresholds[modeIndex]
 		if threshold == libvpxInterModeThresholdDisabled {
 			continue
@@ -402,6 +411,15 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
 
 	for modeIndex := range len(libvpxFastInterModeOrder) {
+		// Hint-driven early-exit (gated on VP8AnalysisConfig.UseEncodeHints).
+		// ZEROMV-LAST is libvpxFastInterModeOrder[0]. If the GPU analyzer
+		// flagged this macroblock as FlagStatic (ZeroSAD <= 32 against the
+		// previous source frame), and the first mode (ZEROMV-LAST) has
+		// already been accepted as best, skip evaluating remaining modes
+		// entirely. See docs/vp8_gpu_hint_consumption.md.
+		if modeIndex > 0 && bestSet && e.hintSkipsRemainingInterModes(mbRow, mbCol, mbCols) {
+			break
+		}
 		threshold := thresholds[modeIndex]
 		if threshold == libvpxInterModeThresholdDisabled {
 			continue

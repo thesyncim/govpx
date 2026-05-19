@@ -37,6 +37,65 @@ func (e *VP8Encoder) runSourceAnalysis(source vp8enc.SourceImage, keyFrame bool)
 	e.analyzer.Observe(in, &e.analysisOutput)
 }
 
+// hintSkipsRemainingInterModes reports whether the per-MB analysis
+// hint for (mbRow, mbCol) authorises the encoder to commit to the
+// first inter mode (ZEROMV-LAST) and skip evaluating the rest. It
+// returns true only when ALL of the following hold:
+//
+//   - VP8AnalysisConfig.UseEncodeHints is set (explicit opt-in to
+//     parity-breaking optimizations);
+//   - an analyzer is configured and has produced output for the
+//     current frame;
+//   - the analyzer's per-MB record has the FlagStatic bit set.
+//
+// The cost of this check on the canonical path (UseEncodeHints == false)
+// is one cached-load + branch — no per-MB allocation, no lookups.
+func (e *VP8Encoder) hintSkipsRemainingInterModes(mbRow, mbCol, mbCols int) bool {
+	if !e.opts.Analysis.UseEncodeHints || e.analyzer == nil {
+		return false
+	}
+	fa := &e.analysisOutput
+	if !fa.Observed {
+		return false
+	}
+	if fa.MBCols != mbCols {
+		return false
+	}
+	idx := mbRow*mbCols + mbCol
+	if idx < 0 || idx >= len(fa.MB) {
+		return false
+	}
+	hit := fa.MB[idx].Flags&vp8analysis.FlagStatic != 0
+	if hit {
+		e.hintEarlyExitCount++
+	} else {
+		e.hintMissCount++
+	}
+	return hit
+}
+
+// HintEarlyExitCount returns the cumulative number of macroblocks
+// where hintSkipsRemainingInterModes returned true since the last
+// Reset. Used by hint-driven bench tests to verify the wire-up is
+// actually firing.
+func (e *VP8Encoder) HintEarlyExitCount() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.hintEarlyExitCount
+}
+
+// HintMissCount returns the cumulative number of macroblocks where
+// hintSkipsRemainingInterModes was consulted but returned false.
+// Together with HintEarlyExitCount this gives the hit-rate for the
+// hint-driven optimization.
+func (e *VP8Encoder) HintMissCount() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.hintMissCount
+}
+
 // closeAnalysis releases analyzer-held resources, if any. Called by
 // the encoder Close path so a non-nil analyzer can clean up. Safe to
 // call when no analyzer is configured.

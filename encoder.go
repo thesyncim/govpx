@@ -1051,6 +1051,12 @@ type VP8Encoder struct {
 	// decisions: the analyzer-disabled bitstream is the source of
 	// truth.
 	analyzer vp8analysis.Analyzer
+	// hintEarlyExitCount and hintMissCount are diagnostics maintained
+	// by hintSkipsRemainingInterModes. They are zero on the canonical
+	// path (UseEncodeHints=false) because the check short-circuits
+	// before reaching them.
+	hintEarlyExitCount uint64
+	hintMissCount      uint64
 	// analysisInput is a per-encoder reusable [vp8analysis.FrameInput]
 	// scratch value. Storing it on the encoder lets the analysis hook
 	// fill it in place and pass &e.analysisInput to the interface
