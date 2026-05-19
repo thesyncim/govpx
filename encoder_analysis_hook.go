@@ -106,6 +106,26 @@ func (e *VP8Encoder) HintForceSkipCount() uint64 {
 	return e.hintForceSkipCount
 }
 
+// HintPickerBypassCount returns the cumulative number of macroblocks
+// where selectInterFrameModeDecision returned a synthesized
+// ZEROMV-LAST decision without invoking the picker.
+//
+// REMOVED from the encode path: the picker-bypass experiment
+// regressed encode wall-clock by 60-72% at 1080p / 4K (rate-control
+// recode loops kicked in because the synthesised predictionError
+// did not match what the picker would have produced; the encoder
+// re-encoded the frame to converge). The counter and method are
+// retained for documentation and as a starting point for a
+// future re-attempt that synthesises the picker's downstream state
+// (RD threshold multipliers, mode test counts, prediction error
+// distribution) along with the decision struct.
+func (e *VP8Encoder) HintPickerBypassCount() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.hintPickerBypassCount
+}
+
 // closeAnalysis releases analyzer-held resources, if any. Called by
 // the encoder Close path so a non-nil analyzer can clean up. Safe to
 // call when no analyzer is configured.
