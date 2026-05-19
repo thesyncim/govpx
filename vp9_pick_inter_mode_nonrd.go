@@ -733,24 +733,19 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	//
 	// Full vp9_mv_pred candidate-set SAD via vp9MvPredScanCandidates (see
 	// vp9_mv_pred.go) is needed in two places: as the integer-search seed
-	// for NEWMV (libvpx x->mv_best_ref_index) and, behind the Phase E3
-	// GOVPX_VP9_NONRD_PICK_PARTITION=1 opt-in, as the pred_mv_sad input to
-	// reference masking. The third candidate (x->pred_mv[ref]) is included
-	// only at bsize < max_partition_size; libvpx sets max_partition_size =
-	// BLOCK_64X64 for the ML_BASED_PARTITION case (vp9_encodeframe.c:5315)
-	// and INT16_MAX for sizes >= max_partition_size
-	// (vp9_encodeframe.c:4216-4217), so it is skipped at root BLOCK_64X64.
-	// govpx does not yet surface x->pred_mv[ref] (the SB-level y_sad path
-	// that writes it lives in a future port), so the third candidate is
-	// always invalid here.
-	//
-	// Legacy path (gate off): keep the (0,0)-offset SAD approximation so
-	// the cpu_used=8-default oracle parity tests (LosslessInter, Checker,
-	// Lookahead) stay byte-exact while Phase E ramps in.
+	// for NEWMV (libvpx x->mv_best_ref_index) and as the pred_mv_sad input
+	// to reference masking. The third candidate (x->pred_mv[ref]) is
+	// included only at bsize < max_partition_size; libvpx sets
+	// max_partition_size = BLOCK_64X64 for the ML_BASED_PARTITION case
+	// (vp9_encodeframe.c:5315) and INT16_MAX for sizes >=
+	// max_partition_size (vp9_encodeframe.c:4216-4217), so it is skipped at
+	// root BLOCK_64X64. choose_partitioning seeds LAST via its int-pro
+	// prepass; govpx caches that per SB and feeds it back here when
+	// available.
 	//
 	// libvpx: vp9_rd.c:599-601 num_mv_refs formula.
 	// libvpx: vp9_rd.c:602-606 candidate triple population.
-	useMvPredCandidateSet := vp9NonrdPickPartitionEnabled()
+	useMvPredCandidateSet := e.sf.ReferenceMasking != 0
 	useMvPredSearchSeed := true
 	maxPartitionSize := e.sf.DefaultMaxPartitionSize
 	if maxPartitionSize == 0 {
@@ -843,19 +838,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						mvPredSearchSeedValid[r] = true
 					}
 				}
-			}
-			if !useMvPredCandidateSet && e.sf.ReferenceMasking != 0 {
-				// Legacy (0,0)-offset SAD approximation for reference
-				// masking remains in place until the Phase E gate flips.
-				refVisible, visibleStride, refW, refH := vp9ReferenceVisiblePlane(inter.ref, 0)
-				if len(refVisible) == 0 || visibleStride <= 0 {
-					continue
-				}
-				if x0+blockW > refW || y0+blockH > refH {
-					continue
-				}
-				predMvSad[r] = vp9BlockSAD(src, srcStride, refVisible, visibleStride,
-					x0, y0, x0, y0, blockW, blockH, ^uint64(0))
 			}
 		}
 	}
