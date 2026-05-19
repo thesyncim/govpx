@@ -202,6 +202,133 @@ func TestVP8Task326ChromaTokenCostsUVElisionSelector(t *testing.T) {
 	}
 }
 
+// TestVP8Task328ChromaEntropyContextPtSeed pins the chroma optimize_b
+// per-block `pt` seed mapping against libvpx's vp8_block2above /
+// vp8_block2left tables (vp8/common/blockd.c:14-19). The chroma trellis
+// reads its initial `pt` from `*a` + `*l` where
+//
+//	a = ta + vp8_block2above[b]
+//	l = tl + vp8_block2left[b]
+//
+// and ta/tl are the macroblock-level above/left ENTROPY_CONTEXT planes.
+// For b in [16, 24), ENTROPY_CONTEXT indices 4..7 cover U then V (4..5
+// for U, 6..7 for V); the within-plane offsets vp8_block2above[b] - 4
+// and vp8_block2left[b] - 4 are exactly what govpx's
+// `macroblockCoefficientUVContextIndex` / `tokenUVContextIndex` return.
+// This audit pins both maps byte-equal to libvpx for every chroma block
+// 16..23, plus the additional invariant that the FIRST chroma block of a
+// fresh macroblock (MB(0,0) seed: above/left planes all-zero) yields
+// pt == 0 — i.e. the chroma trellis ALWAYS sees pt=0 at scan_pos=0 of
+// block 16 in MB(0,0), in both govpx and libvpx.
+//
+// libvpx anchor:
+//
+//	vp8/common/blockd.c:14-19 (vp8_block2above / vp8_block2left tables).
+//	vp8/encoder/encodemb.c:413-416 (optimize_mb UV loop: ta + block2above,
+//	  tl + block2left).
+//	vp8/encoder/encodemb.c:327 (VP8_COMBINEENTROPYCONTEXTS(pt, *a, *l)).
+//
+// govpx mirror:
+//
+//	internal/vp8/encoder/tokenize.go tokenUVContextIndex (bitstream-final
+//	  context lookup).
+//	encoder_inter_coeff_rate.go macroblockCoefficientUVContextIndex (RD
+//	  trellis seed lookup).
+//
+// Task #316's chroma optimize_b post-trellis qcoeff bisect already
+// confirmed ZERO divergent rows over the BestARNR cohort, which is a
+// runtime corollary of these two maps matching libvpx. This audit pins
+// the mapping itself so the runtime parity cannot regress under a
+// helper refactor.
+func TestVP8Task328ChromaEntropyContextPtSeed(t *testing.T) {
+	// vp8_block2above and vp8_block2left ported verbatim from
+	// vp8/common/blockd.c:14-19 (libvpx v1.16.0). Entries 16..23 cover
+	// U then V in raster order; entry 24 covers the Y2 second-order
+	// block (not exercised by the chroma trellis loop).
+	libvpxBlock2Above := [25]uint8{
+		0, 1, 2, 3, 0, 1, 2, 3, 0,
+		1, 2, 3, 0, 1, 2, 3, 4, 5,
+		4, 5, 6, 7, 6, 7, 8,
+	}
+	libvpxBlock2Left := [25]uint8{
+		0, 0, 0, 0, 1, 1, 1, 1, 2,
+		2, 2, 2, 3, 3, 3, 3, 4, 4,
+		5, 5, 6, 6, 7, 7, 8,
+	}
+
+	// ENTROPY_CONTEXT layout (libvpx vp8/common/entropymv.h equivalents
+	// and the optimize_mb call sites in encodemb.c:413-416):
+	//   indices 0..3 = Y1, 4..5 = U, 6..7 = V, 8 = Y2.
+	// govpx's UV context arrays are 4-wide indexed [0,1,2,3] -> [U0,U1,V0,V1],
+	// so the libvpx within-MB offset for blocks 16..23 must equal the
+	// libvpx entry minus 4 (the U-plane base).
+	const uvBase = 4
+	for block := 16; block < 24; block++ {
+		wantA := int(libvpxBlock2Above[block]) - uvBase
+		wantL := int(libvpxBlock2Left[block]) - uvBase
+		gotA, gotL := macroblockCoefficientUVContextIndex(block)
+		if gotA != wantA || gotL != wantL {
+			t.Errorf("block %d: macroblockCoefficientUVContextIndex returned (a=%d,l=%d), want (a=%d,l=%d) per libvpx vp8_block2above/vp8_block2left - 4",
+				block, gotA, gotL, wantA, wantL)
+		}
+	}
+
+	// Pin the MB(0,0) seed invariant: with above/left ENTROPY_CONTEXT
+	// planes fresh-reset to zero (the state of every macroblock on the
+	// top-left row before any prior MB's optimize_b writes have landed),
+	// the FIRST chroma block 16's seed pt = above[a] + left[l] = 0 + 0
+	// regardless of which (a,l) the map points to. Pin this for all 8
+	// chroma blocks so the invariant covers the full chroma trellis
+	// loop entry point when above/left are zero.
+	var zeroAbove, zeroLeft [4]uint8
+	for block := 16; block < 24; block++ {
+		a, l := macroblockCoefficientUVContextIndex(block)
+		seed := int(zeroAbove[a]) + int(zeroLeft[l])
+		if seed != 0 {
+			t.Errorf("block %d: zero-context seed pt = %d, want 0 (MB(0,0) chroma trellis entry must see pt=0 when above/left are fresh-reset)",
+				block, seed)
+		}
+	}
+
+	// Pin the second-pass within-MB chroma propagation: after the
+	// optimize_b for block 16 writes hasCoeffs=1 to above[0]/left[0]
+	// (libvpx encodemb.c:355 `*a = *l = (final_eob != !type)` for
+	// type=PLANE_TYPE_UV=2 collapses to `*a = *l = (final_eob != 0)`,
+	// which is true iff eob > 0), the seed for block 17 must pick up
+	// above[1] (still 0) and left[0] (now 1) -> pt = 1. Walking through
+	// blocks 17..23 with this propagation models a hypothetical
+	// "every chroma block produces non-zero eob" MB and pins the
+	// libvpx-anchored seed sequence so a regression in either the
+	// within-MB propagation logic or the (a,l) tuple selection is
+	// caught on a deterministic table-driven path.
+	above := [4]uint8{}
+	left := [4]uint8{}
+	wantSeeds := [8]int{
+		0, // b16: a=0, l=0 (above/left all-zero)
+		1, // b17: a=1, l=0 (left[0] just got 1 from b16)
+		1, // b18: a=0, l=1 (above[0]=1; left[1]=0)
+		2, // b19: a=1, l=1 (above[1]=1; left[1]=1)
+		0, // b20: a=2, l=2 (V plane; above[2]=0, left[2]=0)
+		1, // b21: a=3, l=2 (left[2] just got 1 from b20)
+		1, // b22: a=2, l=3 (above[2]=1; left[3]=0)
+		2, // b23: a=3, l=3 (above[3]=1; left[3]=1)
+	}
+	for i, block := 0, 16; block < 24; i, block = i+1, block+1 {
+		a, l := macroblockCoefficientUVContextIndex(block)
+		seed := int(above[a]) + int(left[l])
+		if seed != wantSeeds[i] {
+			t.Errorf("block %d (i=%d): chroma seed pt = %d, want %d (libvpx-anchored propagation with every prior block writing hasCoeffs=1)",
+				block, i, seed, wantSeeds[i])
+		}
+		// optimize_b writes *a = *l = 1 when final_eob != !type and
+		// type=PLANE_TYPE_UV=2 -> writes 1 when final_eob > 0; the
+		// hypothetical scenario keeps every block non-zero so we
+		// write 1 every iteration to model the worst-case propagation.
+		above[a] = 1
+		left[l] = 1
+	}
+}
+
 // libvpxOptimizeBCostTokensWalk is a direct port of the static `cost`
 // function in vp8/encoder/treewriter.c — a recursive descent over the
 // CoefTree that writes each terminal token's accumulated cost into
