@@ -185,6 +185,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetAQMode":                      {kind: "libvpx-control", helperTokens: []string{"aq:"}},
 		"SetARNR":                        {kind: "libvpx-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
 		"SetActiveMap":                   {kind: "libvpx-control", helperTokens: []string{"active:"}},
+		"SetAutoAltRef":                  {kind: "libvpx-control", helperTokens: []string{"autoaltref:"}},
 		"SetBitrateKbps":                 {kind: "libvpx-config", helperTokens: []string{"bitrate:"}},
 		"SetCPUUsed":                     {kind: "libvpx-control", helperTokens: []string{"cpu:"}},
 		"SetCQLevel":                     {kind: "libvpx-control", helperTokens: []string{"cq:"}},

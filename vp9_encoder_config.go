@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"image"
+
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
@@ -274,6 +276,45 @@ func (e *VP9Encoder) SetAQMode(mode VP9AQMode) error {
 	e.opts = nextOpts
 	e.cyclicAQ.configure(mode == VP9AQCyclicRefresh, e.opts.Width, e.opts.Height)
 	e.perceptualAQ.configure(mode == VP9AQPerceptual)
+	return nil
+}
+
+// SetAutoAltRef enables or disables VP9 automatic alternate-reference
+// scheduling for subsequent lookahead frames. Mirrors libvpx's
+// VP8E_SET_ENABLEAUTOALTREF control for VP9 while preserving govpx's queued
+// lookahead contract: pending lookahead frames or staged frame-parallel results
+// must be drained before toggling because those frames were queued under the
+// previous scheduling policy.
+func (e *VP9Encoder) SetAutoAltRef(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if e.opts.AutoAltRef == enabled {
+		return nil
+	}
+	if e.vp9LookaheadSize() != 0 || e.autoAltRefPendingSet ||
+		(e.frameParallel != nil && e.frameParallel.hasPendingResults()) {
+		return ErrFrameNotReady
+	}
+	nextOpts := e.opts
+	nextOpts.AutoAltRef = enabled
+	if err := validateVP9EncoderOptions(nextOpts); err != nil {
+		return err
+	}
+	e.opts = nextOpts
+	if !enabled {
+		e.autoAltRefPending = vp9LookaheadEntry{}
+		return nil
+	}
+	if e.vp9LookaheadEnabled() && len(e.autoAltRefPending.img.Y) == 0 {
+		rect := image.Rect(0, 0, e.opts.Width, e.opts.Height)
+		e.autoAltRefPending.img = *image.NewYCbCr(rect,
+			image.YCbCrSubsampleRatio420)
+	}
+	if e.opts.ARNRMaxFrames > 1 && e.vp9LookaheadEnabled() &&
+		len(e.vp9ARNRScratch.Y) == 0 {
+		e.ensureVP9ARNRScratch()
+	}
 	return nil
 }
 
