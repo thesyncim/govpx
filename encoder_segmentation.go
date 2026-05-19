@@ -368,6 +368,27 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 	return nextIndex
 }
 
+// prepareInterFrameSkinMap mirrors libvpx vp8/encoder/pickinter.c:699-703
+// (vp8_pick_inter_mode):
+//
+//	x->is_skin = 0;
+//	if (!cpi->oxcf.screen_content_mode) {
+//	  int block_index = mb_row * cpi->common.mb_cols + mb_col;
+//	  x->is_skin = cpi->skin_map[block_index];
+//	}
+//
+// libvpx applies no Speed/cpu_used gate at this read site, and the two
+// downstream consumers — pickinter.c:507 (evaluate_inter_mode ZEROMV-LAST
+// rd_adj=100 reset, mirrored at encoder_inter_rd.go:251,291) and
+// pickinter.c:1230 (denoiser increase_denoising guard) — are also Speed-
+// agnostic. The only gate on libvpx VP8 skin consumption is
+// !cpi->oxcf.screen_content_mode, which the ScreenContentMode branch below
+// already mirrors verbatim (task #338).
+//
+// Confirmation pin (task #380): no Speed-gated branch exists in libvpx
+// v1.16.0 vp8/encoder/pickinter.c for the skin-detect short-circuit; do
+// not add one. Any future Speed gate here would be a heuristic divergence
+// from the libvpx reference.
 func (e *VP8Encoder) prepareInterFrameSkinMap(src vp8enc.SourceImage, rows int, cols int) {
 	count := rows * cols
 	if count <= 0 || len(e.skinMap) < count {
