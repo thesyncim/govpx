@@ -573,9 +573,23 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{0x31}, // regression_vp9_runtime_controls_916d1b27 — alias of #1 family
 	{0x32}, // regression_vp9_runtime_controls_2fde656d — alias of #3 (cpu=-8 RT speed=8 compressed-header writer gap)
 	{0x37}, // regression_vp9_runtime_controls_6573b9b5 — alias of #2/#3 family (cpu=4 RT speed=4 KF+inter divergence)
+	{0x38}, // regression_vp9_runtime_controls_55cc57e8 — cpu=0 keyframe cost_coeffs lane
+}
+
+// vp9RuntimeControlsSeedsClosed is the subset of the historical deferred list
+// that now byte-matches libvpx with no env flags. Keep it in the regular fuzz
+// seed corpus while the remaining cpu=0/-3 and speed-4 seeds stay deferred.
+var vp9RuntimeControlsSeedsClosed = [][]byte{
+	{1, 1, 2, 0, 3, 1, 1, 0},
+	{0x32},
 }
 
 func vp9RuntimeControlsSeedDeferred(data []byte) bool {
+	for _, seed := range vp9RuntimeControlsSeedsClosed {
+		if bytes.Equal(data, seed) {
+			return false
+		}
+	}
 	for _, seed := range vp9RuntimeControlsSeedsDeferred {
 		if bytes.Equal(data, seed) {
 			return true
@@ -611,8 +625,20 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 		{0, 2, 0, 2, 0, 0, 0, 0},
 		{1, 2, 1, 0, 4, 1, 0, 1},
 	}
-	for _, seed := range seeds {
+	seen := make(map[string]struct{}, len(seeds)+len(vp9RuntimeControlsSeedsClosed))
+	addSeed := func(seed []byte) {
+		key := string(seed)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
 		f.Add(seed)
+	}
+	for _, seed := range seeds {
+		addSeed(seed)
+	}
+	for _, seed := range vp9RuntimeControlsSeedsClosed {
+		addSeed(seed)
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
