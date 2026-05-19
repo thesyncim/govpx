@@ -54,6 +54,19 @@ func vp8Task253FirstByteDiff(a, b []byte) int {
 // This file plants the gate: three small fixtures exercise the three
 // target shapes against govpx-internal byte-stability (the same bytes
 // every run, no oracle binary required).
+//
+// Task #358 verification (post-#341/#347 RD picker changes):
+// The intra-in-inter tteob==0 rate2 backout (commit 09a4cc91) and the
+// frame-2 MB(0,0) NEWMV rd_thresh pin (commit 5f9805a3) both modify
+// the inter-mode RD picker path that SVC base+enhancement layers
+// traverse at cpu_used=-3. All three fixtures here
+// (multires-2layer-simulcast cpu=-3, svc-2layer-2temporal cpu=-3,
+// svc-2temporal-cpu-3) re-pin clean post-#341/#347: simulcast +
+// SVC + temporal-layer paths remain byte-deterministic. The runtime
+// SetTemporalLayerID override path (TestVP8Task253TemporalLayerIDOverride)
+// and the per-encoder independence path
+// (TestVP8Task253MultiResIndependentEncoders) also re-verify clean.
+// No regression introduced by the #341/#347 RD changes.
 
 // vp8Task253MultiResLayer is one rendition of a VP8 simulcast cluster.
 // Fields mirror the WebRTC simulcast example in examples/webrtc-vp8.
