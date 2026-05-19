@@ -17,8 +17,10 @@ func (e *VP8Encoder) resetOracleMBTraceBuffer() {
 	state.interCandidateBuffer = state.interCandidateBuffer[:0]
 }
 
-// flushOracleMBTraceBuffer writes the buffered per-MB rows to the configured
-// writer in scan order and clears the buffer.
+// flushOracleMBTraceBuffer writes the buffered accepted-path rows to the
+// configured writer in scan order and clears the buffer. Inter-candidate rows
+// normally flush from emitOracleRecodeIterTrace with iter/Q; the candidate loop
+// below remains as a fallback for direct trace tests and non-loop captures.
 func (e *VP8Encoder) flushOracleMBTraceBuffer() {
 	if !e.oracleTraceEnabled() {
 		return
@@ -26,6 +28,10 @@ func (e *VP8Encoder) flushOracleMBTraceBuffer() {
 	state := e.oracleTraceState()
 	w := state.writer
 	for i := range state.interCandidateBuffer {
+		candidate := &state.interCandidateBuffer[i]
+		if !state.interCandidateTraceAllowed(candidate.FrameIndex, candidate.Iter, candidate.MBRow, candidate.MBCol) {
+			continue
+		}
 		emitOracleTraceRow(w, &state.interCandidateBuffer[i])
 	}
 	for i := range state.mbBuffer {

@@ -55,6 +55,12 @@ import (
 // (2241/3600 MBs diverge; 2115 chroma-only; 85% DC-only). Gated on
 // GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1 on top of GOVPX_ORACLE_TRACE_OUT.
 //
+// Task #373 (2026-05-19) rotated the vpxenc-oracle pin to carry
+// per-recode-iter inter_candidate rows. Candidate rows now gain iter/q
+// fields when emitted from the recode-loop hook, and can be scoped with
+// GOVPX_ORACLE_INTER_CANDIDATE_{FRAME,ITER,MB_ROW,MB_COL} so large
+// 720p bisections can target a single MB/iter without multi-GB traces.
+//
 // These pins exist to detect any future change in the build pipeline
 // (libvpx upgrade, configure flag change, toolchain rotation, new patch
 // stamp) that would silently shift the oracle binary hash. If this test
@@ -68,7 +74,7 @@ import (
 // success the cross-path invariance is enforced by the build script's
 // determinism flags, not by this test).
 const (
-	oracleSHAvpxencArm64Darwin = "62be3f118d229c9d08f36b958181f1f85b3bb48919bfea5e8fa72ed87c8dadc3"
+	oracleSHAvpxencArm64Darwin = "94e3f4da3939c0813d6fd2c9c52ff697ad8ceaf8fc2c1b653a11871dd5de2abc"
 	oracleSHAlibvpxArm64Darwin = "4992f2bbfc1ce02640e20036286465c455650485a5378904dcc197cb2dda5523"
 )
 

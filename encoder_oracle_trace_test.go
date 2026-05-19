@@ -180,6 +180,7 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		}
 		for _, key := range []string{
 			"frame_index", "mb_row", "mb_col",
+			"iter", "q",
 			"picker", "mode_index", "mode", "ref_slot", "ref_frame",
 			"threshold", "best_score_before", "best_yrd_before", "best_sse_before",
 			"outcome", "became_best", "loop_break",
@@ -192,6 +193,12 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 			if _, ok := row[key]; !ok {
 				t.Fatalf("candidate[%d] missing field %q", i, key)
 			}
+		}
+		if got := row["iter"].(float64); got < 1 {
+			t.Fatalf("candidate[%d].iter = %v, want per-recode-iter candidate row", i, got)
+		}
+		if got := row["q"].(float64); got < 0 {
+			t.Fatalf("candidate[%d].q = %v, want non-negative quantizer", i, got)
 		}
 	}
 
@@ -276,6 +283,103 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		if !ok || len(firstBlock) != 16 {
 			t.Fatalf("mb[%d].qcoeff[0] shape = %T/%d, want 16 coefficients", i, qcoeff[0], len(firstBlock))
 		}
+	}
+}
+
+func TestOracleTraceRecodeIterEmitsInterCandidates(t *testing.T) {
+	requireOracleTraceBuild(t)
+	var buf bytes.Buffer
+	e := &VP8Encoder{frameCount: 7}
+	e.SetOracleTraceWriter(&buf)
+	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+		Picker:          "rd",
+		MBRow:           2,
+		MBCol:           3,
+		ModeIndex:       1,
+		Mode:            vp8common.DCPred,
+		RefFrame:        vp8common.IntraFrame,
+		Threshold:       0,
+		BestScoreBefore: 123,
+		BestYRDBefore:   456,
+		BestSSEBefore:   789,
+		Score:           42,
+		YRD:             40,
+		Rate:            12,
+		RateY:           10,
+		RateUV:          2,
+		Distortion:      30,
+		DistortionUV:    4,
+		SSE:             35,
+	})
+	e.emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary{Iter: 23, Q: 94})
+	e.flushOracleMBTraceBuffer()
+
+	lines := splitNonEmptyLines(buf.Bytes())
+	if len(lines) != 2 {
+		t.Fatalf("trace rows = %d, want recode_iter + one inter_candidate\n%s", len(lines), buf.String())
+	}
+	var candidate map[string]any
+	if err := json.Unmarshal(lines[1], &candidate); err != nil {
+		t.Fatalf("candidate row invalid JSON: %v\n%s", err, lines[1])
+	}
+	if got := candidate["type"]; got != "inter_candidate" {
+		t.Fatalf("row[1].type = %v, want inter_candidate", got)
+	}
+	if got := candidate["iter"]; got != float64(23) {
+		t.Fatalf("candidate.iter = %v, want 23", got)
+	}
+	if got := candidate["q"]; got != float64(94) {
+		t.Fatalf("candidate.q = %v, want 94", got)
+	}
+	if got := candidate["mb_row"]; got != float64(2) {
+		t.Fatalf("candidate.mb_row = %v, want 2", got)
+	}
+	if got := candidate["mode"]; got != "DC_PRED" {
+		t.Fatalf("candidate.mode = %v, want DC_PRED", got)
+	}
+}
+
+func TestOracleTraceInterCandidateFilterScopesIterRows(t *testing.T) {
+	requireOracleTraceBuild(t)
+	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_FRAME", "7")
+	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_ITER", "23")
+	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_MB_ROW", "2")
+	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_MB_COL", "3")
+
+	var buf bytes.Buffer
+	e := &VP8Encoder{frameCount: 7}
+	e.SetOracleTraceWriter(&buf)
+	for _, col := range []int{3, 4} {
+		e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+			Picker:    "rd",
+			MBRow:     2,
+			MBCol:     col,
+			ModeIndex: 1,
+			Mode:      vp8common.DCPred,
+			RefFrame:  vp8common.IntraFrame,
+		})
+	}
+	e.emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary{Iter: 23, Q: 94})
+
+	candidateRows := 0
+	for i, line := range splitNonEmptyLines(buf.Bytes()) {
+		var row map[string]any
+		if err := json.Unmarshal(line, &row); err != nil {
+			t.Fatalf("trace line %d invalid JSON: %v", i, err)
+		}
+		if row["type"] != "inter_candidate" {
+			continue
+		}
+		candidateRows++
+		if row["mb_col"] != float64(3) {
+			t.Fatalf("filtered candidate mb_col = %v, want only col 3", row["mb_col"])
+		}
+		if row["iter"] != float64(23) || row["q"] != float64(94) {
+			t.Fatalf("filtered candidate iter/q = %v/%v, want 23/94", row["iter"], row["q"])
+		}
+	}
+	if candidateRows != 1 {
+		t.Fatalf("candidate rows = %d, want exactly one filtered row\n%s", candidateRows, buf.String())
 	}
 }
 

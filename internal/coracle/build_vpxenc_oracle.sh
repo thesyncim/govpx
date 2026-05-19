@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize-task316-chroma-optimize-b-task365-recode-iter-rfct"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize-task316-chroma-optimize-b-task365-recode-iter-rfct-task373-inter-candidate-iter"
 jobs=${JOBS:-}
 
 # ----------------------------------------------------------------------------
@@ -390,6 +390,11 @@ struct govpx_oracle_state_struct {
     govpx_inter_candidate_row_t *candidate_rows;
     int candidate_capacity;
     int candidate_count;
+    int candidate_filter_enabled;
+    int candidate_filter_frame;
+    int candidate_filter_iter;
+    int candidate_filter_mb_row;
+    int candidate_filter_mb_col;
     unsigned long long frame_index;
 };
 static govpx_oracle_state_t govpx_oracle_state;
@@ -437,6 +442,21 @@ static void govpx_oracle_clear_improved_mv_slots(void) {
     }
 }
 
+static int govpx_oracle_env_int(const char *name) {
+    const char *value;
+    char *endptr;
+    long parsed;
+    value = getenv(name);
+    if (value == NULL || value[0] == '\0') {
+        return -1;
+    }
+    parsed = strtol(value, &endptr, 10);
+    if (endptr == value || *endptr != '\0' || parsed < 0) {
+        return -1;
+    }
+    return (int)parsed;
+}
+
 /* govpx_oracle_state_t / govpx_oracle_state were forward-declared above so
  * govpx_oracle_record_improved_mv (on the per-MB hot path) can early-out on
  * the trace-disabled path before paying the timer-account overhead. */
@@ -461,6 +481,19 @@ static void govpx_oracle_init(void) {
         return;
     }
     govpx_oracle_state.enabled = 1;
+    govpx_oracle_state.candidate_filter_frame =
+        govpx_oracle_env_int("GOVPX_ORACLE_INTER_CANDIDATE_FRAME");
+    govpx_oracle_state.candidate_filter_iter =
+        govpx_oracle_env_int("GOVPX_ORACLE_INTER_CANDIDATE_ITER");
+    govpx_oracle_state.candidate_filter_mb_row =
+        govpx_oracle_env_int("GOVPX_ORACLE_INTER_CANDIDATE_MB_ROW");
+    govpx_oracle_state.candidate_filter_mb_col =
+        govpx_oracle_env_int("GOVPX_ORACLE_INTER_CANDIDATE_MB_COL");
+    govpx_oracle_state.candidate_filter_enabled =
+        govpx_oracle_state.candidate_filter_frame >= 0 ||
+        govpx_oracle_state.candidate_filter_iter >= 0 ||
+        govpx_oracle_state.candidate_filter_mb_row >= 0 ||
+        govpx_oracle_state.candidate_filter_mb_col >= 0;
 }
 
 static void govpx_oracle_ensure_capacity(int needed) {
@@ -632,6 +665,100 @@ void govpx_oracle_capture_inter_candidate(
     } while (0);
     pthread_mutex_unlock(&govpx_oracle_lock);
     GOVPX_TRACE_END();
+}
+
+static int govpx_oracle_inter_candidate_allowed(int iter, int mb_row, int mb_col) {
+    if (!govpx_oracle_state.candidate_filter_enabled) {
+        return 1;
+    }
+    if (govpx_oracle_state.candidate_filter_frame >= 0 &&
+        (unsigned long long)govpx_oracle_state.candidate_filter_frame !=
+            govpx_oracle_state.frame_index) {
+        return 0;
+    }
+    if (govpx_oracle_state.candidate_filter_iter >= 0 &&
+        govpx_oracle_state.candidate_filter_iter != iter) {
+        return 0;
+    }
+    if (govpx_oracle_state.candidate_filter_mb_row >= 0 &&
+        govpx_oracle_state.candidate_filter_mb_row != mb_row) {
+        return 0;
+    }
+    if (govpx_oracle_state.candidate_filter_mb_col >= 0 &&
+        govpx_oracle_state.candidate_filter_mb_col != mb_col) {
+        return 0;
+    }
+    return 1;
+}
+
+static void govpx_oracle_emit_inter_candidate_row(
+    FILE *out, govpx_inter_candidate_row_t *r, int iter, int q) {
+    if (!govpx_oracle_inter_candidate_allowed(iter, r->mb_row, r->mb_col)) {
+        return;
+    }
+    fprintf(out,
+            "{\"type\":\"inter_candidate\","
+            "\"frame_index\":%llu,",
+            govpx_oracle_state.frame_index);
+    if (iter > 0) {
+        fprintf(out, "\"iter\":%d,\"q\":%d,", iter, q);
+    }
+    fprintf(out,
+            "\"mb_row\":%d,\"mb_col\":%d,"
+            "\"picker\":\"%s\","
+            "\"mode_index\":%d,"
+            "\"mode\":\"%s\","
+            "\"ref_slot\":%d,"
+            "\"ref_frame\":\"%s\","
+            "\"threshold\":%d,"
+            "\"best_score_before\":%d,"
+            "\"best_yrd_before\":%d,"
+            "\"best_sse_before\":%lld,"
+            "\"outcome\":\"tested\","
+            "\"became_best\":%s,"
+            "\"loop_break\":%s,"
+            "\"score\":%d,"
+            "\"yrd\":%d,"
+            "\"rate\":%d,"
+            "\"rate_y\":%d,"
+            "\"rate_uv\":%d,"
+            "\"distortion\":%d,"
+            "\"distortion_uv\":%d,"
+            "\"sse\":%lld,"
+            "\"skip\":%s,"
+            "\"mv_row\":%d,\"mv_col\":%d,"
+            "\"improved_mv_start\":%s,"
+            "\"improved_mv_near_sadidx\":%d,"
+            "\"improved_mv_row\":%d,"
+            "\"improved_mv_col\":%d,"
+            "\"improved_mv_sr\":%d}\n",
+            r->mb_row, r->mb_col,
+            r->picker != NULL ? r->picker : "",
+            r->mode_index,
+            govpx_oracle_mode_name(r->mode),
+            r->ref_slot,
+            govpx_oracle_ref_name(r->ref_frame),
+            r->threshold,
+            r->best_score_before,
+            r->best_yrd_before,
+            r->best_sse_before,
+            r->became_best ? "true" : "false",
+            r->loop_break ? "true" : "false",
+            r->score,
+            r->yrd,
+            r->rate,
+            r->rate_y,
+            r->rate_uv,
+            r->distortion,
+            r->distortion_uv,
+            r->sse,
+            r->skip ? "true" : "false",
+            r->mv_row, r->mv_col,
+            r->improved_mv_start ? "true" : "false",
+            r->improved_mv_near_sadidx,
+            r->improved_mv_row,
+            r->improved_mv_col,
+            r->improved_mv_sr);
 }
 
 /* Capture per-MB state. Called from encodeframe.c immediately after the
@@ -931,72 +1058,16 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             cpi->prob_last_coded,
             cpi->prob_gf_coded,
             frame_size);
-    /* Flush inter-candidate rows captured during mode picking. */
+    /* Fallback flush for inter-candidate rows captured outside the recode-iter
+     * hook. Normal inter-frame traces are emitted by govpx_oracle_recode_iter_emit
+     * with iter/Q and leave this buffer empty by the time the frame row lands. */
     for (i = 0; i < govpx_oracle_state.candidate_count; ++i) {
         govpx_inter_candidate_row_t *r =
             &govpx_oracle_state.candidate_rows[i];
         if (!r->valid) {
             continue;
         }
-        fprintf(out,
-                "{\"type\":\"inter_candidate\","
-                "\"frame_index\":%llu,"
-                "\"mb_row\":%d,\"mb_col\":%d,"
-                "\"picker\":\"%s\","
-                "\"mode_index\":%d,"
-                "\"mode\":\"%s\","
-                "\"ref_slot\":%d,"
-                "\"ref_frame\":\"%s\","
-                "\"threshold\":%d,"
-                "\"best_score_before\":%d,"
-                "\"best_yrd_before\":%d,"
-                "\"best_sse_before\":%lld,"
-                "\"outcome\":\"tested\","
-                "\"became_best\":%s,"
-                "\"loop_break\":%s,"
-                "\"score\":%d,"
-                "\"yrd\":%d,"
-                "\"rate\":%d,"
-                "\"rate_y\":%d,"
-                "\"rate_uv\":%d,"
-                "\"distortion\":%d,"
-                "\"distortion_uv\":%d,"
-                "\"sse\":%lld,"
-                "\"skip\":%s,"
-                "\"mv_row\":%d,\"mv_col\":%d,"
-                "\"improved_mv_start\":%s,"
-                "\"improved_mv_near_sadidx\":%d,"
-                "\"improved_mv_row\":%d,"
-                "\"improved_mv_col\":%d,"
-                "\"improved_mv_sr\":%d}\n",
-                govpx_oracle_state.frame_index,
-                r->mb_row, r->mb_col,
-                r->picker != NULL ? r->picker : "",
-                r->mode_index,
-                govpx_oracle_mode_name(r->mode),
-                r->ref_slot,
-                govpx_oracle_ref_name(r->ref_frame),
-                r->threshold,
-                r->best_score_before,
-                r->best_yrd_before,
-                r->best_sse_before,
-                r->became_best ? "true" : "false",
-                r->loop_break ? "true" : "false",
-                r->score,
-                r->yrd,
-                r->rate,
-                r->rate_y,
-                r->rate_uv,
-                r->distortion,
-                r->distortion_uv,
-                r->sse,
-                r->skip ? "true" : "false",
-                r->mv_row, r->mv_col,
-                r->improved_mv_start ? "true" : "false",
-                r->improved_mv_near_sadidx,
-                r->improved_mv_row,
-                r->improved_mv_col,
-                r->improved_mv_sr);
+        govpx_oracle_emit_inter_candidate_row(out, r, 0, 0);
         r->valid = 0;
     }
     govpx_oracle_state.candidate_count = 0;
@@ -1243,7 +1314,9 @@ void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
     int mb_col_loop;
     int mb_total;
     int mb_idx;
+    int candidate_loop;
     govpx_mb_row_t *mb_iter_row;
+    govpx_inter_candidate_row_t *candidate_iter_row;
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
         return;
     }
@@ -1402,6 +1475,25 @@ void govpx_oracle_recode_iter_emit(struct VP8_COMP *cpi, int new_q,
             }
         }
     }
+    /* Task #373/#374: emit inter-candidate rows for THIS recode iter before
+     * govpx_oracle_begin_attempt resets candidate_count for the next pass.
+     * The accepted-frame flush remains as a fallback, but real traced inter
+     * frames should carry iter/Q here so candidate-rate divergences can be
+     * compared at the exact Q where the recode trajectories split. */
+    for (candidate_loop = 0;
+         candidate_loop < govpx_oracle_state.candidate_count;
+         ++candidate_loop) {
+        candidate_iter_row =
+            &govpx_oracle_state.candidate_rows[candidate_loop];
+        if (!candidate_iter_row->valid) {
+            continue;
+        }
+        govpx_oracle_emit_inter_candidate_row(
+            out, candidate_iter_row, govpx_recode_iter_count,
+            govpx_recode_iter_pre_q);
+        candidate_iter_row->valid = 0;
+    }
+    govpx_oracle_state.candidate_count = 0;
     fflush(out);
     GOVPX_TRACE_END();
 }

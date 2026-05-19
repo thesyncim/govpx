@@ -4,6 +4,8 @@ package govpx
 
 import (
 	"io"
+	"os"
+	"strconv"
 	"sync"
 )
 
@@ -30,9 +32,19 @@ type oracleTraceState struct {
 
 	mbBuffer             []oracleTraceMBRow
 	interCandidateBuffer []oracleTraceInterCandidateRow
+	candidateFilter      oracleTraceInterCandidateFilter
 	recodeLoopCount      int
 	recodeReason         string
 	totalByteCount       int64
+}
+
+type oracleTraceInterCandidateFilter struct {
+	initialized bool
+	enabled     bool
+	frame       int
+	iter        int
+	mbRow       int
+	mbCol       int
 }
 
 var oracleTraceStates sync.Map
@@ -49,6 +61,7 @@ func (e *VP8Encoder) SetOracleTraceWriter(w io.Writer) {
 	}
 	state := e.oracleTraceStateCreate()
 	state.writer = w
+	state.initInterCandidateFilter()
 }
 
 // SetOracleTracePredictorDump enables predictor-plane rows in oracle traces.
@@ -144,4 +157,62 @@ func (e *VP8Encoder) oracleTraceMBBufferLenForTest() int {
 		return len(state.mbBuffer)
 	}
 	return 0
+}
+
+func (state *oracleTraceState) initInterCandidateFilter() {
+	if state == nil || state.candidateFilter.initialized {
+		return
+	}
+	filter := oracleTraceInterCandidateFilter{
+		initialized: true,
+		frame:       -1,
+		iter:        -1,
+		mbRow:       -1,
+		mbCol:       -1,
+	}
+	filter.frame = oracleTraceEnvInt("GOVPX_ORACLE_INTER_CANDIDATE_FRAME")
+	filter.iter = oracleTraceEnvInt("GOVPX_ORACLE_INTER_CANDIDATE_ITER")
+	filter.mbRow = oracleTraceEnvInt("GOVPX_ORACLE_INTER_CANDIDATE_MB_ROW")
+	filter.mbCol = oracleTraceEnvInt("GOVPX_ORACLE_INTER_CANDIDATE_MB_COL")
+	filter.enabled = filter.frame >= 0 || filter.iter >= 0 || filter.mbRow >= 0 || filter.mbCol >= 0
+	state.candidateFilter = filter
+}
+
+func oracleTraceEnvInt(name string) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return -1
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+func (state *oracleTraceState) interCandidateTraceAllowed(frame uint64, iter int, mbRow int, mbCol int) bool {
+	if state == nil {
+		return false
+	}
+	filter := state.candidateFilter
+	if !filter.initialized {
+		state.initInterCandidateFilter()
+		filter = state.candidateFilter
+	}
+	if !filter.enabled {
+		return true
+	}
+	if filter.frame >= 0 && uint64(filter.frame) != frame {
+		return false
+	}
+	if filter.iter >= 0 && filter.iter != iter {
+		return false
+	}
+	if filter.mbRow >= 0 && filter.mbRow != mbRow {
+		return false
+	}
+	if filter.mbCol >= 0 && filter.mbCol != mbCol {
+		return false
+	}
+	return true
 }

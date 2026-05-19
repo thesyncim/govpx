@@ -157,6 +157,16 @@ GOVPX_ORACLE_TRACE_OUT=/tmp/libvpx.jsonl \
   internal/coracle/build/vpxenc-oracle --codec=vp8 input.y4m -o /tmp/out.ivf
 ```
 
+For large recode-loop forensics, scope per-iteration inter-candidate rows with
+any combination of:
+
+```sh
+GOVPX_ORACLE_INTER_CANDIDATE_FRAME=2
+GOVPX_ORACLE_INTER_CANDIDATE_ITER=23
+GOVPX_ORACLE_INTER_CANDIDATE_MB_ROW=5
+GOVPX_ORACLE_INTER_CANDIDATE_MB_COL=2
+```
+
 Compare traces in Go with:
 
 ```go

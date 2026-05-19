@@ -484,6 +484,8 @@ type oracleTraceLFTrialRow struct {
 type oracleTraceInterCandidateRow struct {
 	Type       string `json:"type"`
 	FrameIndex uint64 `json:"frame_index"`
+	Iter       int    `json:"iter,omitempty"`
+	Q          int    `json:"q,omitempty"`
 	MBRow      int    `json:"mb_row"`
 	MBCol      int    `json:"mb_col"`
 
@@ -921,6 +923,21 @@ func (e *VP8Encoder) emitOracleRecodeIterTrace(summary oracleTraceRecodeIterSumm
 		}
 		emitOracleTraceRow(state.writer, &iterRow)
 	}
+	// Task #373/#374: emit every inter-candidate row for THIS iter before the
+	// next attempt resets the candidate buffer. The accepted-frame flush keeps
+	// a fallback path for direct unit tests and non-loop captures, but real
+	// traced inter frames should carry iter/Q here so recode-loop candidate
+	// scoring can be diffed at the exact Q where the trajectories split.
+	for i := range state.interCandidateBuffer {
+		candidate := state.interCandidateBuffer[i]
+		candidate.Iter = summary.Iter
+		candidate.Q = summary.Q
+		if !state.interCandidateTraceAllowed(candidate.FrameIndex, candidate.Iter, candidate.MBRow, candidate.MBCol) {
+			continue
+		}
+		emitOracleTraceRow(state.writer, &candidate)
+	}
+	state.interCandidateBuffer = state.interCandidateBuffer[:0]
 }
 
 // emitOracleDroppedFrameTrace writes a single per-frame trace row capturing
