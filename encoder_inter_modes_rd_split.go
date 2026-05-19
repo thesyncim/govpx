@@ -175,12 +175,12 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 		var labelRD splitMotionLabelRDEvaluator
 		labelRD.init(zbinOverQuant, actZbinAdj, ctx.aboveTok, ctx.leftTok, fastQuant, false)
 		if e.activityMapValid {
-			rdMult, rdDiv := libvpxRDConstantsWithZbin(ctx.qIndex, zbinOverQuant)
+			rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(ctx.qIndex, zbinOverQuant)
 			rdMult = e.tunedRDMultiplier(rdMult, ctx.mbRow, ctx.mbCol)
 			labelRD.setRDConstants(rdMult, rdDiv)
 		}
 		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, ctx.modeCounts)
-		overheadRD := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, overheadRate, 0)
+		overheadRD := e.rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, overheadRate, 0)
 		if e.activityMapValid {
 			overheadRD = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, overheadRate, 0)
 		}
@@ -349,8 +349,8 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 		rate2 += skipBackout
 		otherCost += skipBackout
 	}
-	rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2, distortion2)
-	yrd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
+	rd := e.rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2, distortion2)
+	yrd := e.rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
 	if e.activityMapValid {
 		rd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, rate2, distortion2)
 		yrd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)

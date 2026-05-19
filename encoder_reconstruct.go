@@ -656,8 +656,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					// frame from cm->base_qindex (rdopt.c:163-174). ROI/cyclic
 					// refresh segment delta-Q never mutates x->rdmult, so the
 					// accepted-path rdMult uses qIndex (frame base), not the
-					// segment-adjusted segmentQIndex.
-					rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+					// segment-adjusted segmentQIndex. The pass-2 iiratio lift
+					// at rdopt.c:189-196 also lands on cpi->RDMULT before
+					// optimize_b consumes it; route through the encoder helper
+					// so the lifted value propagates.
+					rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
 					if e.activityMapValid {
 						if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 							actZbinAdj = adjustment
@@ -751,8 +754,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				// Same libvpx anchor as the BPred branch above: trellis
 				// optimize_b uses mb->rdmult = cpi->RDMULT (frame-level),
 				// so the rdMult fed into buildPredictedMacroblockCoefficients
-				// uses qIndex (frame base) not segmentQIndex.
-				rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+				// uses qIndex (frame base) not segmentQIndex. The pass-2
+				// iiratio lift at rdopt.c:189-196 lands on the same
+				// cpi->RDMULT before optimize_b consumes it.
+				rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
 				if e.activityMapValid {
 					if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
 						actZbinAdj = adjustment

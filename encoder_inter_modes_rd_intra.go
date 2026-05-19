@@ -37,7 +37,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	// libvpx's tuned-rdmult winners.
 	rdMult, rdDiv := 0, 0
 	if e.activityMapValid {
-		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+		rdMult, rdDiv = e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
 		rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
 	}
 	if mbMode == vp8common.BPred {
@@ -56,7 +56,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		// best_yrd survives the in-loop bail. Mirror libvpx's reject
 		// gate here so those candidates are dropped before they reach
 		// the became_best comparison in the inter RD picker.
-		yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate, bDist)
+		yrd := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate, bDist)
 		if e.activityMapValid {
 			yrd = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, yRate, bDist)
 		}
@@ -69,7 +69,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		}
 		uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
 		uvTokenRate := uvRate - uvModeRate
-		yrd = rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+uvModeRate, bDist)
+		yrd = e.rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+uvModeRate, bDist)
 		if e.activityMapValid {
 			yrd = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, yRate+uvModeRate, bDist)
 		}
@@ -93,7 +93,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 			rate += e.interMacroblockSkipRate(true) - e.interMacroblockSkipRate(false)
 			uvTokenRate = 0
 		}
-		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
+		score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		if e.activityMapValid {
 			score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		}
@@ -151,8 +151,8 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		rate += e.interMacroblockSkipRate(true) - e.interMacroblockSkipRate(false)
 		uvTokenRate = 0
 	}
-	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
-	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate+uvModeRate, yDist)
+	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
+	yrd := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate+uvModeRate, yDist)
 	if e.activityMapValid {
 		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		yrd = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, yRate+modeRate+uvModeRate, yDist)

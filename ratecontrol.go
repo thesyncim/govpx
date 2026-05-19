@@ -284,6 +284,22 @@ type rateControlState struct {
 	pass2ActiveWorstQOverride int
 	pass2ActiveWorstQValid    bool
 
+	// passNextIIRatio mirrors libvpx's `cpi->twopass.next_iiratio` set
+	// at the top of vp8_second_pass (firstpass.c:2310-2317) as
+	// `(unsigned int)(next_frame.intra_error / DOUBLE_DIVIDE_CHECK(
+	// next_frame.coded_error))`. vp8_initialize_rd_consts reads this
+	// value to apply the RDMULT lift at vp8/encoder/rdopt.c:189-196
+	// when pass==2 && !KEY_FRAME. The encoder pushes the per-frame
+	// value via setPassNextIIRatioForFrame before
+	// libvpxRDConstantsWithZbinForFrame is consulted. When
+	// passNextIIRatioValid is false (single-pass, KEY_FRAME, or before
+	// pass-2 setup ran) the lift is skipped, matching the libvpx
+	// initialization (cpi->twopass.next_iiratio is calloc-zero on the
+	// first frame, and the >1000 split logic ignores the lift when
+	// frame_type == KEY_FRAME).
+	passNextIIRatio      uint
+	passNextIIRatioValid bool
+
 	// gfuBoost / gfuBoostValid mirror libvpx's `cpi->gfu_boost` for the
 	// pass-2 active-best-quality branch at
 	// vp8/encoder/onyx_if.c:3624-3674. libvpx selects between

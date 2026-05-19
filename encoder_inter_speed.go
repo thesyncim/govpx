@@ -428,6 +428,16 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 		}
 	}
 	var baseline [libvpxInterModeCount]int
+	// Mirror libvpx vp8_initialize_rd_consts (rdopt.c:189-237): on pass==2 &&
+	// !KEY_FRAME the iiratio lift can flip rdDiv from 100 to 1, which in turn
+	// switches the rd_threshes formula from `mult * q` to `mult * q / 100`.
+	// Pass the rate-controller's per-frame iiratio (-1 when not armed) so
+	// the threshold derivation observes the same lifted RDMULT as the
+	// per-MB rdMult/rdDiv pair libvpxRDConstantsWithZbinForFrame produces.
+	iiRatio := -1
+	if e.rc.passNextIIRatioValid {
+		iiRatio = int(e.rc.passNextIIRatio)
+	}
 	if e.libvpxAutoSelectSpeedActive() {
 		// libvpx vp8_initialize_rd_consts (rdopt.c:163, called from
 		// vp8_encode_frame each frame after vp8_auto_select_speed has run)
@@ -439,9 +449,9 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 		// fed through libvpxSpeedFeatureCPUUsed) collides on autoSpeed=0
 		// because `-0` is non-negative and is interpreted as "raw cpu_used 0"
 		// (the cold-start default of 4) rather than the actual Speed=0.
-		baseline = libvpxInterModeRDThresholdsForCPISpeed(qIndex, zbinOverQuant, e.opts.Deadline, e.libvpxCPUUsed(), context)
+		baseline = libvpxInterModeRDThresholdsForCPISpeedWithIIRatio(qIndex, zbinOverQuant, iiRatio, e.opts.Deadline, e.libvpxCPUUsed(), context)
 	} else {
-		baseline = libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, e.opts.Deadline, e.opts.CpuUsed, context)
+		baseline = libvpxInterModeRDThresholdsForContextWithIIRatio(qIndex, zbinOverQuant, iiRatio, e.opts.Deadline, e.opts.CpuUsed, context)
 	}
 	// Pick the first invalid/stale slot, else replace slot 0 (LRU is fine
 	// here — at most 4 distinct (qIndex, refSig) pairs per frame so
@@ -686,8 +696,14 @@ func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadlin
 // SpeedFeatureCPUUsed translation — `-0 = 0` collides with the "raw
 // cpu_used 0 → 4 default" mapping.
 func libvpxInterModeRDThresholdsForContext(qIndex int, zbinOverQuant int, deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
+	return libvpxInterModeRDThresholdsForContextWithIIRatio(qIndex, zbinOverQuant, -1, deadline, speed, context)
+}
+
+// libvpxInterModeRDThresholdsForContextWithIIRatio is libvpxInterModeRDThresholdsForContext
+// plumbed with the vp8_initialize_rd_consts pass-2 iiratio lift sentinel.
+func libvpxInterModeRDThresholdsForContextWithIIRatio(qIndex int, zbinOverQuant int, iiRatio int, deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	multipliers := libvpxInterModeThresholdMultipliersForContext(deadline, speed, context)
-	return libvpxInterModeRDThresholdsFromMultipliers(qIndex, zbinOverQuant, multipliers)
+	return libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex, zbinOverQuant, iiRatio, multipliers)
 }
 
 // libvpxInterModeRDThresholdsForCPISpeed mirrors
@@ -697,14 +713,31 @@ func libvpxInterModeRDThresholdsForContext(qIndex int, zbinOverQuant int, deadli
 // autoSpeed=0 because `-0` is not negative and is interpreted as "raw
 // cpu_used 0" by libvpxSpeedFeatureCPUUsed.
 func libvpxInterModeRDThresholdsForCPISpeed(qIndex int, zbinOverQuant int, deadline Deadline, cpiSpeed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
+	return libvpxInterModeRDThresholdsForCPISpeedWithIIRatio(qIndex, zbinOverQuant, -1, deadline, cpiSpeed, context)
+}
+
+// libvpxInterModeRDThresholdsForCPISpeedWithIIRatio is libvpxInterModeRDThresholdsForCPISpeed
+// plumbed with the vp8_initialize_rd_consts pass-2 iiratio lift sentinel.
+func libvpxInterModeRDThresholdsForCPISpeedWithIIRatio(qIndex int, zbinOverQuant int, iiRatio int, deadline Deadline, cpiSpeed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	multipliers := libvpxInterModeThresholdMultipliersForCPISpeed(deadline, cpiSpeed, context)
-	return libvpxInterModeRDThresholdsFromMultipliers(qIndex, zbinOverQuant, multipliers)
+	return libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex, zbinOverQuant, iiRatio, multipliers)
 }
 
 func libvpxInterModeRDThresholdsFromMultipliers(qIndex int, zbinOverQuant int, multipliers [libvpxInterModeCount]int) [libvpxInterModeCount]int {
+	return libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex, zbinOverQuant, -1, multipliers)
+}
+
+// libvpxInterModeRDThresholdsFromMultipliersWithIIRatio threads the
+// vp8_initialize_rd_consts pass-2 iiratio lift (rdopt.c:189-196) into the
+// rd_threshes derivation at rdopt.c:211-237. The lift can push the raw
+// RDMULT across the >1000 cutoff, flipping rdDiv from 100 to 1 and
+// switching the threshold formula from `mult * q` to `mult * q / 100`.
+// Pass iiRatio < 0 (the libvpxRDConstantsWithZbin sentinel) to skip the
+// lift on the single-pass / KEY_FRAME path.
+func libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex int, zbinOverQuant int, iiRatio int, multipliers [libvpxInterModeCount]int) [libvpxInterModeCount]int {
 	qValue := min(vp8common.DCQuant(qIndex, 0), 160)
 	q := max(int(math.Pow(float64(qValue), 1.25)), 8)
-	_, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	_, rdDiv := libvpxRDConstantsWithZbinAndIIRatio(qIndex, zbinOverQuant, iiRatio)
 	var thresholds [libvpxInterModeCount]int
 	for i, mult := range multipliers {
 		if mult == libvpxInterModeThresholdDisabled {

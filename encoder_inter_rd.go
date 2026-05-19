@@ -104,7 +104,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	otherCost := e.interMacroblockSkipRate(false)
 	if !ctx.suppressStaticBreakout {
 		if breakout, predictionDist := staticInterRDEncodeBreakoutDistortion(ctx.src, &e.analysis.Img, ctx.mbRow, ctx.mbCol, ctx.quant, e.interStaticThresholdForSegment(ctx.segmentID)); breakout {
-			rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, 500, predictionDist)
+			rd := e.rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, 500, predictionDist)
 			if e.activityMapValid {
 				rd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, 500, predictionDist)
 			}
@@ -167,8 +167,8 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		rate2 += skipBackout
 		otherCost += skipBackout
 	}
-	rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2, distortion2)
-	yrd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
+	rd := e.rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2, distortion2)
+	yrd := e.rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
 	if e.activityMapValid {
 		rd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, rate2, distortion2)
 		yrd = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
@@ -213,7 +213,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 	}
 	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mode.MV, ctx)
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
+	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
 	if e.activityMapValid {
 		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, modeRate, variance)
 	}
@@ -274,7 +274,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 	}
 	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mv, ctx)
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
+	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
 	if e.activityMapValid {
 		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, modeRate, variance)
 	}
