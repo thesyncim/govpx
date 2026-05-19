@@ -257,13 +257,34 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// divergence. Cache stays enabled to preserve the perf
 	// short-circuit.
 	//
-	// Remaining sharpest candidates (in walk order):
-	//   #2 picker-vs-accepted `act_zbin_adj` skew on the inter side —
-	//      tunedZbinAdjustment() is consulted in the accepted-path call
-	//      but NOT inside selectRDInterFrameModeDecision's candidate
-	//      loop, so the picker scores with actZbinAdj=0 while the
-	//      accepted path scores with the activity-tuned value when the
-	//      activity-map gate fires;
+	// Task #290 picker-vs-accepted act_zbin_adj skew audit (NEGATIVE
+	// result): the prior brief asserted "tunedZbinAdjustment() is
+	// consulted in the accepted-path call but NOT inside
+	// selectRDInterFrameModeDecision's candidate loop, so the picker
+	// scores with actZbinAdj=0 while the accepted path scores with the
+	// activity-tuned value". Code-inspection + symbol-reference audit
+	// (vp8_task290_picker_zbin_skew_audit_test.go) disproves this:
+	// every RD picker subroutine reads tunedZbinAdjustment(mbRow, mbCol)
+	// at entry — estimateInterResidualRDAccountingWithModeContext
+	// (encoder_inter_rd.go:85-90), estimateInterIntraModeRDScore
+	// (encoder_inter_modes_rd_intra.go:23-28),
+	// selectInterFrameSplitModeRDScore +
+	// estimateSplitInterResidualRD (encoder_inter_modes_rd_split.go:81-85
+	// and :203-208) — and the accepted-path at
+	// encoder_reconstruct.go:652/713 uses the same expression. The
+	// activity map is built once per frame in prepareTuningActivityMap
+	// before encode_mb_row starts (no in-row mutation), so
+	// tunedZbinAdjustment(row, col) returns the SAME value for any
+	// (row, col) regardless of when in the encode loop it is invoked.
+	// interRDCacheReusable's `actZbinAdj` equality check
+	// (encoder_inter_coefficients.go:178) would refuse to fire if the
+	// picker stored a different actZbinAdj than the accepted-path
+	// requested — task #288's cache-off SHA-equality experiment
+	// additionally confirms picker/accepted actZbinAdj parity on this
+	// cohort. The -6 byte residual is NOT explained by an actZbinAdj
+	// skew.
+	//
+	// Remaining sharpest candidates (in walk order, per task #284):
 	//   #1 chroma sub-pel predictor — vp8_build_inter16x16_predictors_mb
 	//      vs reconstructWholeMVInterMacroblockFast;
 	//   #3 residual gather slice ordering —
