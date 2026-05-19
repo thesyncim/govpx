@@ -11853,14 +11853,13 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	//
 	// libvpx: vp9/encoder/vp9_speed_features.c:469 / 656 / 665,
 	// vp9/encoder/vp9_pickmode.c:1989.
-	if e.sf.UseNonrdPickMode == 1 && e.sf.UseCompoundNonrdPickmode == 0 {
+	if !e.vp9InterCompoundEnabled() {
 		return best, bestSet
 	}
 	if sourceAltRefUnfiltered {
 		return best, bestSet
 	}
-	if inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference &&
-		e.vp9InterCompoundEnabled() {
+	if inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference {
 		for _, varRef := range inter.compoundRefs.CompVarRef {
 			refFrame, refSlot, secondRefFrame, secondRefSlot, ok :=
 				e.vp9CompoundReferencePair(inter, varRef)

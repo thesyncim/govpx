@@ -161,18 +161,17 @@ func (e *VP9Encoder) vp9InterSubpelIters() int {
 
 // vp9InterCompoundEnabled gates whether the mode picker walks the
 // compound-reference pairs. libvpx's nonrd_pickmode drops the compound search
-// when sf->use_compound_nonrd_pickmode == 0, but govpx is still on the rd
-// path; gating compound off there silently breaks all explicit compound-mode
-// tests. Until vp9_pick_inter_mode (the nonrd entry) is ported verbatim, the
-// gate must be a no-op so the rd compound branch keeps firing.
-//
-// TODO: when nonrd_pickmode.c is ported, return false at speed 8 here so the
-// fast nonrd entry takes the compound-skip shortcut.
+// when sf->use_compound_nonrd_pickmode == 0. The full-RD path keeps compound
+// enabled so explicit compound-mode tests and non-realtime modes still walk
+// the RD compound branch.
 //
 // libvpx: vp9_pickmode.c — sf->use_compound_nonrd_pickmode is read inside
 // vp9_pick_inter_mode (the nonrd entry), not in vp9_rd_pick_inter_mode_sb.
 func (e *VP9Encoder) vp9InterCompoundEnabled() bool {
-	return true
+	if e == nil {
+		return true
+	}
+	return e.sf.UseNonrdPickMode == 0 || e.sf.UseCompoundNonrdPickmode != 0
 }
 
 // vp9InterUsesNonrdPickmode reports whether the SPEED_FEATURES configurator

@@ -28,3 +28,18 @@ func TestVP9InterReferenceFramesEnabledUseAltrefOnepass(t *testing.T) {
 		t.Fatalf("onepass-altref refs = %v, want LAST/GOLDEN/ALTREF", got)
 	}
 }
+
+func TestVP9InterCompoundEnabledNonrdGate(t *testing.T) {
+	e := &VP9Encoder{}
+	if !e.vp9InterCompoundEnabled() {
+		t.Fatalf("full-RD compound gate = false, want true")
+	}
+	e.sf.UseNonrdPickMode = 1
+	if e.vp9InterCompoundEnabled() {
+		t.Fatalf("nonrd compound gate = true, want false")
+	}
+	e.sf.UseCompoundNonrdPickmode = 1
+	if !e.vp9InterCompoundEnabled() {
+		t.Fatalf("enabled nonrd compound gate = false, want true")
+	}
+}
