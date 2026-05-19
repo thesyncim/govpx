@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
 // FuzzDecoderAgainstLibvpx closes plan-§3 F4 (G9): the govpx VP8 decoder
@@ -165,6 +166,17 @@ func decodeIVFGovpxBestEffort(data []byte) ([][]byte, error) {
 // per-frame concatenated I420 planes for every frame vpxdec emitted.
 // vpxdec's non-zero exit on malformed input is surfaced as the error;
 // any frames written before the failure are still returned.
+//
+// Slicing notes (task #308): vpxdec's per-frame raw I420 size is derived
+// from the *VP8 key-frame header* (width/height encoded in packet bytes
+// 6-9), NOT the IVF file header's width/height fields. The IVF header
+// dims are attacker-controlled metadata that the fuzzer mutates freely;
+// using them to size the raw slicer caused false acceptance disagreements
+// when a mutation set IVF height to a different value than the VP8 KF
+// height (e.g. seed f4f81f7d: IVF height 7708 vs VP8 KF height 28 — the
+// slicer's expected per-frame size dwarfed the raw output and returned
+// zero frames while govpx correctly decoded two). Walk per-frame VP8
+// headers to compute libvpx-faithful expected sizes.
 func decodeIVFLibvpxBestEffort(t *testing.T, vpxdec string, data []byte) ([][]byte, error) {
 	dir := t.TempDir()
 	ivfPath := filepath.Join(dir, "fuzz.ivf")
@@ -180,21 +192,72 @@ func decodeIVFLibvpxBestEffort(t *testing.T, vpxdec string, data []byte) ([][]by
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		return nil, readErr
 	}
-	header, headerErr := testutil.ParseIVFHeader(data)
-	if headerErr != nil {
+	if _, headerErr := testutil.ParseIVFHeader(data); headerErr != nil {
 		// vpxdec also won't produce frames from an unparseable IVF header;
 		// the outcome is "no frames" regardless.
 		return nil, runErr
 	}
-	frameSize := i420FrameSize(header.Width, header.Height)
-	if frameSize <= 0 || len(raw) < frameSize {
-		return nil, runErr
-	}
-	var frames [][]byte
-	for off := 0; off+frameSize <= len(raw); off += frameSize {
-		frames = append(frames, append([]byte(nil), raw[off:off+frameSize]...))
-	}
+	sizes := vp8PerFrameI420Sizes(data)
+	frames := sliceRawByPerFrameSizes(raw, sizes)
 	return frames, runErr
+}
+
+// vp8PerFrameI420Sizes walks every IVF frame in data and returns the
+// expected per-frame raw I420 size that libvpx's vpxdec would emit when
+// run with --i420. Sizes are computed from the VP8 key-frame header
+// dimensions, mirroring vpxdec's `vpx_img_plane_width/height` walk in
+// write_image_file. Inter frames inherit the most recent key-frame
+// dimensions (VP8 has no in-band resize outside keyframes). Frames whose
+// header is unparseable or whose dims are zero contribute a zero entry;
+// the slicer treats those as "no raw output expected for this frame".
+func vp8PerFrameI420Sizes(data []byte) []int {
+	offset, err := testutil.FirstIVFFrameOffset(data)
+	if err != nil {
+		return nil
+	}
+	var sizes []int
+	curWidth, curHeight := 0, 0
+	for frameIndex := 0; offset < len(data); frameIndex++ {
+		frame, next, err := testutil.NextIVFFrame(data, offset, frameIndex)
+		if err != nil {
+			return sizes
+		}
+		offset = next
+		header, headerErr := vp8dec.ParseFrameHeader(frame.Data)
+		if headerErr != nil {
+			// Unparseable frame: libvpx will reject the stream from
+			// here on. Stop accumulating expected sizes — anything
+			// beyond this point won't appear in the raw output.
+			return sizes
+		}
+		if header.KeyFrame() {
+			curWidth = header.Width
+			curHeight = header.Height
+		}
+		sizes = append(sizes, i420FrameSize(curWidth, curHeight))
+	}
+	return sizes
+}
+
+// sliceRawByPerFrameSizes walks raw output and chops it into frames
+// using the expected per-frame sizes from vp8PerFrameI420Sizes. It
+// returns one slice per fully-present frame; once raw is exhausted, it
+// stops (vpxdec wrote fewer frames than the IVF claimed, e.g. because
+// of mid-stream rejection).
+func sliceRawByPerFrameSizes(raw []byte, sizes []int) [][]byte {
+	var frames [][]byte
+	off := 0
+	for _, size := range sizes {
+		if size <= 0 {
+			continue
+		}
+		if off+size > len(raw) {
+			break
+		}
+		frames = append(frames, append([]byte(nil), raw[off:off+size]...))
+		off += size
+	}
+	return frames
 }
 
 // packTightI420 copies the visible Y/U/V planes from img into a single
