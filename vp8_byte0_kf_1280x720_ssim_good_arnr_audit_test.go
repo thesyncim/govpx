@@ -242,9 +242,32 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 	// between the NEON-on and NEON-off runs (51aa383bd1489162), and
 	// frame-1 govpx len held at 6128. The NEON ports are byte-faithful
 	// and are NOT the cause of the -6 byte divergence — divergence
-	// lives in scalar-side encoder logic (candidate #2: picker-vs-
-	// accepted `act_zbin_adj` skew on inter-side, or #3:
-	// `interRDCacheReusable` UV-RD cache reuse).
+	// lives in scalar-side encoder logic.
+	//
+	// Task #288 interRDCacheReusable disable audit (NEGATIVE result):
+	// applied Option A — forced interRDCacheReusable to return false
+	// unconditionally so the accepted path re-runs predictor + residual
+	// gather + FDCT + quant from scratch (libvpx contract — no
+	// cross-picker-accepted UV-DCT cache). Result: frame-1 govpx SHA
+	// BYTE-IDENTICAL between cache-on and cache-off runs
+	// (51aa383bd1489162), len held at 6128. The picker-stamped
+	// post-FDCT DCTs already match the accepted-path re-FDCT
+	// byte-exactly for the cohort that satisfies the cache parity
+	// check; the UV-RD cache is NOT the source of the -6 byte
+	// divergence. Cache stays enabled to preserve the perf
+	// short-circuit.
+	//
+	// Remaining sharpest candidates (in walk order):
+	//   #2 picker-vs-accepted `act_zbin_adj` skew on the inter side —
+	//      tunedZbinAdjustment() is consulted in the accepted-path call
+	//      but NOT inside selectRDInterFrameModeDecision's candidate
+	//      loop, so the picker scores with actZbinAdj=0 while the
+	//      accepted path scores with the activity-tuned value when the
+	//      activity-map gate fires;
+	//   #1 chroma sub-pel predictor — vp8_build_inter16x16_predictors_mb
+	//      vs reconstructWholeMVInterMacroblockFast;
+	//   #3 residual gather slice ordering —
+	//      gatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
 	wantFrame0GovpxLen := 145534
 	wantFrame0LibvpxLen := 145534
 	wantFrame0GovpxFirstPart := 20463

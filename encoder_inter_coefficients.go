@@ -140,6 +140,29 @@ func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
 // against catching a picker run on a non-matching MB. The MB-position
 // match guards against accidental cross-MB reuse if the picker scratch
 // outlives a frame.
+//
+// Task #288 audit (negative): the task brief hypothesised that omissions
+// from this cache key (splitPartition / splitPartitionValid / rdMult /
+// rdDiv / predictor identity) leaked picker-vs-accepted drift through as
+// identical-aggregate-eob single-coeff flips on UV blocks 20/23 scan-pos
+// 2 (the #284 ARNR-audit fingerprint). The recommended remediation was
+// Option A: force-disable the cache (return false unconditionally) so the
+// accepted path re-runs predictor + residual gather + FDCT + quant from
+// scratch, matching the libvpx vp8_encode_inter16x16 contract.
+//
+// Empirical result with Option A applied: BOTH ARNR audit pins
+// (TestVP8Byte0KF1280x720SSIMBestARNRAudit and *GoodARNRAudit) emitted
+// BYTE-IDENTICAL output to the cache-enabled run — same frame-1 govpx
+// SHA (Best=6b18859b0ed02b5c, Good=51aa383bd1489162) and same byte deltas
+// (-5 / -6 vs libvpx). This refutes the cache-divergence hypothesis: the
+// post-FDCT DCT outputs are already byte-identical between the picker's
+// cached snapshot and the accepted path's re-FDCT for the cohort that
+// reaches the cache hit. The -5/-6 byte ARNR divergence lives elsewhere
+// (sharpest remaining candidates per #286: picker-vs-accepted
+// `act_zbin_adj` skew on the inter side, or upstream chroma sub-pel
+// predictor / `gatherMacroblockUVResiduals4x4` slice ordering vs libvpx
+// `vp8_subtract_mbuv`). The cache stays enabled to preserve the perf
+// short-circuit it provides.
 func interRDCacheReusable(c *interRDCoeffCacheState, args *predictedMacroblockCoefficientArgs) bool {
 	if c == nil || !c.valid {
 		return false
