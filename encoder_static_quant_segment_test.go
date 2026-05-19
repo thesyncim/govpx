@@ -25,7 +25,17 @@ func TestStaticInterRDEncodeBreakoutUsesChromaGate(t *testing.T) {
 	}
 }
 
-func TestStaticInterEncodeBreakoutUsesPickinterChromaGate(t *testing.T) {
+func TestStaticInterEncodeBreakoutUsesLibvpxChromaGates(t *testing.T) {
+	// libvpx splits the chroma-SSE gate in encode_breakout across its two
+	// pickers (task #333):
+	//   - rdopt.c:1627 (RD path) compares against `threshold` (=
+	//     max(yAC^2>>4, x->encode_breakout)).
+	//   - pickinter.c:463 (fast path) compares against `x->encode_breakout`
+	//     directly.
+	// The chroma source is set to a value that produces chroma_sse * 2 = 800,
+	// which is BELOW the RD-path threshold (yAC^2>>4 at quant 80 is well above
+	// 800) but ABOVE the fast-path encode_breakout limit of 1. Confirm both
+	// gates apply per their respective libvpx behaviour.
 	ref := testVP8Frame(t, 16, 16, 128, 90, 170)
 	src := testImage(16, 16)
 	fillImage(src, 128, 90, 170)
@@ -34,11 +44,15 @@ func TestStaticInterEncodeBreakoutUsesPickinterChromaGate(t *testing.T) {
 	_, lumaSSE := macroblockLumaMotionVarianceSSE(sourceImageFromPublic(src), &ref.Img, 0, 0, mode.MV)
 
 	src.U[0] = 92
-	if staticInterRDEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &quant, 1) {
-		t.Fatalf("RD static breakout = true, want pickinter encode_breakout chroma gate to reject")
-	}
+	// Fast picker — encode_breakout = 1, chroma SSE > 0, so reject.
 	if staticInterFastEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, &quant, 1, lumaSSE) {
 		t.Fatalf("fast static breakout = true, want pickinter encode_breakout chroma gate to reject")
+	}
+	// RD picker — threshold = max(yAC^2>>4, 1). At quant=80, yAC^2>>4 is
+	// well above 800 so the RD chroma gate ACCEPTS the breakout here (per
+	// libvpx rdopt.c:1627), matching libvpx behaviour.
+	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &quant, 1) {
+		t.Fatalf("RD static breakout = false, want libvpx rdopt threshold chroma gate to accept low-residual")
 	}
 }
 

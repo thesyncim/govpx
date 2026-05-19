@@ -544,10 +544,10 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		}
 	}
 
-	staticBreakout := false
-	if !args.denoiseActive {
-		staticBreakout = staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
-	}
+	// libvpx vp8/encoder/rdopt.c:1607-1635 runs encode_breakout regardless
+	// of denoiser state — the denoiser fires AFTER best mode is chosen
+	// (rdopt.c:2298, vp8_denoiser_denoise_mb) and never resets x->skip.
+	staticBreakout := staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
 	// libvpx anchor: vp8/encoder/encodeframe.c vp8cx_encode_inter_macroblock
 	// (line 1275-1281) runs vp8_encode_inter16x16 whenever x->skip == 0;
 	// libvpx sets x->skip = 1 in only two places in evaluate_inter_mode_rd:

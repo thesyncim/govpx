@@ -199,6 +199,17 @@ func parseCandidateRateRows(t *testing.T, trace []byte) []candidateRateRow {
 		if typ != "inter_candidate" {
 			continue
 		}
+		// The libvpx oracle (internal/coracle/build_vpxenc_oracle.sh
+		// rd_emit_anchor / pickinter emit_anchor) emits an inter_candidate
+		// row only when the candidate's RD score evaluates to a finite
+		// value (this_rd != INT_MAX). govpx records extra pre-RD outcomes
+		// (`skipped_no_ref`, `skipped_threshold`, etc.) for diagnostics.
+		// Restrict the rate scoreboard to libvpx's emission contract so
+		// the per-frame match metric is computed on the same candidate
+		// set on both sides.
+		if outcome, _ := row["outcome"].(string); outcome != "tested" {
+			continue
+		}
 		out := candidateRateRow{
 			FrameIndex: traceInt64Field(row, "frame_index"),
 			MBRow:      int(traceInt64Field(row, "mb_row")),

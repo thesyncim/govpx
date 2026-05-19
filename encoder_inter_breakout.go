@@ -48,7 +48,12 @@ func staticInterRDEncodeBreakoutDistortion(src vp8enc.SourceImage, pred *vp8comm
 		return false, 0
 	}
 	chromaSSE := macroblockChromaSSE(src, pred, mbRow, mbCol)
-	return chromaSSE*2 < encodeBreakout, lumaSSE + chromaSSE
+	// libvpx vp8/encoder/rdopt.c:1627 — the UV-SSE breakout compare uses
+	// `threshold` (= max(yAC^2>>4, x->encode_breakout)), NOT the raw
+	// encode_breakout. The fast picker (pickinter.c:463) compares against
+	// `x->encode_breakout` instead; that asymmetry is intentional in libvpx
+	// and govpx mirrors it in staticInterFastEncodeBreakout below.
+	return chromaSSE*2 < threshold, lumaSSE + chromaSSE
 }
 
 func staticInterFastEncodeBreakout(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, quant *vp8enc.MacroblockQuant, encodeBreakout int, lumaSSE int) bool {

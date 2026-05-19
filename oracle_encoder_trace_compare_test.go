@@ -384,6 +384,20 @@ func projectOracleInterCandidateTrace(t *testing.T, trace []byte) []byte {
 		if typ, _ := row["type"].(string); typ != "inter_candidate" {
 			continue
 		}
+		// The libvpx oracle patch (internal/coracle/build_vpxenc_oracle.sh,
+		// rd_emit_anchor / pickinter emit_anchor) emits an inter_candidate
+		// row only after the candidate is actually RD-tested (this_rd !=
+		// INT_MAX in rdopt.c, and distortion2 != INT_MAX in pickinter.c).
+		// It does not emit rows for early-exits like `skipped_no_ref`,
+		// `skipped_threshold`, `skipped_freq`, `skipped_disabled`,
+		// `skipped_altref_zeromv`, `skipped_ok_false`,
+		// `splitmv_rd_dropout`, or the `entered_loop` pre-flight markers
+		// govpx records for richer diagnostics. Drop the extra govpx rows
+		// here so the trace compare is apples-to-apples against libvpx's
+		// emission contract.
+		if outcome, _ := row["outcome"].(string); outcome != "tested" {
+			continue
+		}
 		projected := make(map[string]any, len(keep))
 		for field := range keep {
 			if v, ok := row[field]; ok {
