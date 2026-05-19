@@ -1,10 +1,16 @@
 package govpx
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
+
+// planeTypeUV mirrors libvpx vp8/common/blockd.h:47 `#define PLANE_TYPE_UV 2`.
+// Used by task #326 chroma audit and the per-block UV cohort tests below.
+const planeTypeUV = 2
 
 // TestOptimizeBSignedBaseCost guards the per-sign branch of
 // dctValueBaseCost. Libvpx's vp8/encoder/tokenize.c fill_value_tokens
@@ -96,6 +102,104 @@ func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, bloc
 	}
 	libvpxOptimizeBCostTokensWalk(out[:], probs, vp8tables.CoefTree[:], start, 0)
 	return out
+}
+
+// TestVP8Task326ChromaTokenCostsUVAudit pins
+// `mb->token_costs[PLANE_TYPE_UV][band][prev_token][to_token]` byte-for-byte
+// against a fresh libvpx re-derivation of `fill_token_costs` restricted to
+// the chroma plane (`blockType == 2`). This is the focused chroma-keep-cost
+// audit angle of task #324's per-coefficient cost bisect, specifically
+// targeting the value the chroma `optimize_b` trellis reads on every
+// keep-vs-drop decision via
+// `mb->token_costs[type][band][pt][tokens[next][...].token]` at
+// vp8/encoder/encodemb.c:222-223 / 274-278 / 334-335.
+//
+// libvpx anchor:
+//   - vp8/encoder/rdopt.c:112-132 fill_token_costs — selects between
+//     vp8_cost_tokens (start=0, full tree) and vp8_cost_tokens2 (start=2,
+//     EOB tree edge elided, leaves the EOB slot at the calloc'd 0 seed)
+//     based on `k == 0 && j > (i == 0)`. For UV (i=2 != 0), the predicate
+//     reduces to `pt == 0 && band > 0` — band 0 stays at the full-tree
+//     fill, every band ≥ 1 with pt==0 is filled by vp8_cost_tokens2.
+//   - vp8/encoder/treewriter.c vp8_cost_tokens — recursive tree walker that
+//     writes each terminal token's accumulated subtree cost into the row.
+//   - vp8/common/entropy.c vp8_default_coef_probs — the seed table from
+//     which cpi->lfc_n / cpi->lfc_g / cpi->lfc_a (and cm->fc.coef_probs)
+//     are initialized at every keyframe via vp8_default_coef_probs ->
+//     vp8_init_de_quantizer -> vp8_setup_key_frame.
+//
+// govpx mirror:
+//   - encoder_token_cost.go coefficientTokenCost / coefTokenCostElided —
+//     selects between the full-tree path and the EOB-elided path with the
+//     same `pt == 0 && band > coefElisionBandThreshold[blockType&3]`
+//     predicate (coefElisionBandThreshold[2] = 0 for UV).
+//   - vp8tables.DefaultCoefProbs — the keyframe seed, matches libvpx
+//     vp8_default_coef_probs byte-for-byte (separately pinned via the
+//     decoder coef-probs tests).
+//
+// The audit enumerates every chroma cell in the 8 (band) × 3 (prev_token) ×
+// 12 (to_token) matrix (288 cells total), compares govpx's
+// `coefficientTokenCost(p, token, blockType=2, band, pt)` against a
+// fresh recursive walk of libvpx's CoefTree using the matching elision
+// branch, and reports the first divergent cell with full context if any
+// drift is found. The pre-fix baseline (task #316 chroma trellis ±1 DC
+// drop investigation) had no token_costs UV divergence — this test pins
+// that property as a permanent gate so the chroma keep-cost cannot
+// regress under future cost-tree walker refactors.
+//
+// The per-cell expected values are derived from libvpx by calling
+// `libvpxOptimizeBFillTokenCostsRow` (shared with the
+// TestOptimizeBTokenCostsMatchLibvpxFillTokenCosts gate above) directly
+// with the same chroma probs row.
+func TestVP8Task326ChromaTokenCostsUVAudit(t *testing.T) {
+	const blockType = planeTypeUV
+	probs := &vp8tables.DefaultCoefProbs
+	var divergent []string
+	for band := range vp8tables.CoefBands {
+		for pt := range vp8tables.PrevCoefContexts {
+			p := probs[blockType][band][pt]
+			wantCosts := libvpxOptimizeBFillTokenCostsRow(&p, blockType, band, pt)
+			for token := range vp8tables.MaxEntropyTokens {
+				got := coefficientTokenCost(p, token, blockType, band, pt)
+				if got == wantCosts[token] {
+					continue
+				}
+				divergent = append(divergent, fmt.Sprintf(
+					"UV cell (band=%d, prev_token=%d, to_token=%d): govpx=%d libvpx=%d delta=%+d",
+					band, pt, token, got, wantCosts[token], got-wantCosts[token]))
+			}
+		}
+	}
+	if len(divergent) > 0 {
+		t.Fatalf("task #326 chroma token_costs UV divergence (%d cells):\n  %s",
+			len(divergent), strings.Join(divergent, "\n  "))
+	}
+	t.Logf("task #326 pinned: token_costs[PLANE_TYPE_UV=2][0..7][0..2][0..11] byte-equal vs libvpx fill_token_costs over DefaultCoefProbs (288 cells)")
+}
+
+// TestVP8Task326ChromaTokenCostsUVElisionSelector pins the predicate that
+// selects between the full-tree fill (vp8_cost_tokens) and the EOB-elided
+// fill (vp8_cost_tokens2) for the chroma plane. libvpx's fill_token_costs
+// branch is `k == 0 && j > (i == 0)`; for i=PLANE_TYPE_UV=2 this reduces
+// to `pt == 0 && band > 0`. govpx mirrors this via
+// `coefElisionBandThreshold[blockType&3]` = 0 for blockType ∈ {1,2,3}.
+// Task #326 audit pins coefElisionBandThreshold[2] == 0 explicitly so a
+// future refactor cannot accidentally re-introduce a per-blockType
+// asymmetry on the chroma plane.
+func TestVP8Task326ChromaTokenCostsUVElisionSelector(t *testing.T) {
+	if got := coefElisionBandThreshold[planeTypeUV]; got != 0 {
+		t.Fatalf("coefElisionBandThreshold[PLANE_TYPE_UV=2] = %d, want 0 (libvpx fill_token_costs: k==0 && j > (i==0) reduces to band > 0 for i=2)", got)
+	}
+	// Also pin the per-blockType table against libvpx's branch verbatim:
+	//   i=0 (Y after Y2): elide when band > 1
+	//   i=1 (Y2):         elide when band > 0
+	//   i=2 (UV):         elide when band > 0
+	//   i=3 (Y with DC):  elide when band > 0
+	want := [4]int{1, 0, 0, 0}
+	if coefElisionBandThreshold != want {
+		t.Fatalf("coefElisionBandThreshold = %v, want %v (libvpx fill_token_costs k==0 && j > (i==0))",
+			coefElisionBandThreshold, want)
+	}
 }
 
 // libvpxOptimizeBCostTokensWalk is a direct port of the static `cost`
