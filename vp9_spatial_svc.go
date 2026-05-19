@@ -687,6 +687,17 @@ func (e *VP9SpatialSVCEncoder) SetLayerAQMode(layerID uint8, mode VP9AQMode) err
 	return layer.SetAQMode(mode)
 }
 
+// SetLayerFrameParallelDecoding changes one spatial layer's VP9
+// frame-parallel decoding signal, matching
+// [VP9Encoder.SetFrameParallelDecoding].
+func (e *VP9SpatialSVCEncoder) SetLayerFrameParallelDecoding(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetFrameParallelDecoding(enabled)
+}
+
 // SetLayerFrameDropAllowed enables or disables one spatial layer's VP9 CBR
 // frame dropping, matching [VP9Encoder.SetFrameDropAllowed].
 func (e *VP9SpatialSVCEncoder) SetLayerFrameDropAllowed(layerID uint8, enabled bool) error {
@@ -913,6 +924,26 @@ func (e *VP9SpatialSVCEncoder) SetLayerAdaptiveKeyFrames(layerID uint8, enabled 
 	return layer.SetAdaptiveKeyFrames(enabled)
 }
 
+// SetLayerRTCExternalRateControl changes one spatial layer's VP9 external RTC
+// rate-control toggle, matching [VP9Encoder.SetRTCExternalRateControl].
+func (e *VP9SpatialSVCEncoder) SetLayerRTCExternalRateControl(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetRTCExternalRateControl(enabled)
+}
+
+// SetLayerRowMT changes one spatial layer's VP9 row-multithreading toggle,
+// matching [VP9Encoder.SetRowMT].
+func (e *VP9SpatialSVCEncoder) SetLayerRowMT(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetRowMT(enabled)
+}
+
 // SetLayerARNR changes one spatial layer's VP9 auto-alt-ref temporal filtering
 // controls, matching [VP9Encoder.SetARNR].
 func (e *VP9SpatialSVCEncoder) SetLayerARNR(layerID uint8,
@@ -963,6 +994,16 @@ func (e *VP9SpatialSVCEncoder) SetLayerAltRefAQ(layerID uint8, enabled bool) err
 		return err
 	}
 	return layer.SetAltRefAQ(enabled)
+}
+
+// SetLayerEnableKeyFrameFiltering changes one spatial layer's VP9 key-frame
+// filtering toggle, matching [VP9Encoder.SetEnableKeyFrameFiltering].
+func (e *VP9SpatialSVCEncoder) SetLayerEnableKeyFrameFiltering(layerID uint8, enabled bool) error {
+	layer, err := e.layerEncoder(layerID)
+	if err != nil {
+		return err
+	}
+	return layer.SetEnableKeyFrameFiltering(enabled)
 }
 
 // SetLayerNextFrameQIndex changes one spatial layer's one-shot qindex

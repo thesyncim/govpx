@@ -796,6 +796,7 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 			MinQuantizer:        4,
 			MaxQuantizer:        56,
 			MaxKeyframeInterval: 128,
+			Threads:             2,
 		}
 	}
 	vbrLayer := func(width, height, kbps int) VP9EncoderOptions {
@@ -887,6 +888,15 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerAQMode(1, VP9AQComplexity); err != nil {
 		t.Fatalf("SetLayerAQMode: %v", err)
 	}
+	if err := svc.SetLayerFrameParallelDecoding(0, false); err != nil {
+		t.Fatalf("SetLayerFrameParallelDecoding: %v", err)
+	}
+	if err := svc.SetLayerRTCExternalRateControl(0, true); err != nil {
+		t.Fatalf("SetLayerRTCExternalRateControl: %v", err)
+	}
+	if err := svc.SetLayerRowMT(0, true); err != nil {
+		t.Fatalf("SetLayerRowMT: %v", err)
+	}
 	if err := svc.SetLayerTwoPassStats(1, stats); err != nil {
 		t.Fatalf("SetLayerTwoPassStats: %v", err)
 	}
@@ -904,6 +914,9 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 	if err := svc.SetLayerAltRefAQ(1, true); err != nil {
 		t.Fatalf("SetLayerAltRefAQ: %v", err)
+	}
+	if err := svc.SetLayerEnableKeyFrameFiltering(1, true); err != nil {
+		t.Fatalf("SetLayerEnableKeyFrameFiltering: %v", err)
 	}
 	if err := svc.SetLayerDeltaQUV(1, 4); err != nil {
 		t.Fatalf("SetLayerDeltaQUV: %v", err)
@@ -943,6 +956,10 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		base.opts.RenderHeight != 28 ||
 		base.opts.TargetLevel != 31 ||
 		base.opts.DisableLoopfilter != VP9LoopfilterDisableInter ||
+		!base.opts.FrameParallelDecodingSet ||
+		base.opts.FrameParallelDecoding ||
+		!base.opts.RTCExternalRateControl ||
+		!base.opts.RowMT ||
 		!base.opts.Lossless ||
 		base.opts.ScreenContentMode != 1 ||
 		base.opts.Sharpness != 4 ||
@@ -968,6 +985,7 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		!enh.rc.framePeriodicBoost ||
 		!enh.opts.AltRefAQ ||
 		!enh.rc.altRefAQ ||
+		!enh.opts.EnableKeyFrameFiltering ||
 		enh.opts.DeltaQUV != 4 ||
 		enh.opts.DropFrameAllowed ||
 		enh.opts.Lossless {
@@ -1008,6 +1026,25 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if base.opts.DisableLoopfilter != VP9LoopfilterDisableInter {
 		t.Fatalf("invalid disable-loopfilter mutated base layer to %d",
 			base.opts.DisableLoopfilter)
+	}
+	if err := svc.SetLayerFrameParallelDecoding(2, true); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerFrameParallelDecoding invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+	singleThreadSVC, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+		LayerCount: 2,
+		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+			{Width: 32, Height: 32, TargetBitrateKbps: 300},
+			{Width: 64, Height: 64, TargetBitrateKbps: 700},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder(single thread): %v", err)
+	}
+	if err := singleThreadSVC.SetLayerRowMT(0, true); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetLayerRowMT with Threads<=1 err = %v, want ErrInvalidConfig", err)
+	}
+	if err := singleThreadSVC.Close(); err != nil {
+		t.Fatalf("singleThreadSVC.Close: %v", err)
 	}
 	if err := svc.SetLayerRealtimeTarget(1, RealtimeTarget{
 		Width:  32,
@@ -1103,6 +1140,12 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	if err := svc.SetLayerColorSpace(0, VP9ColorSpaceBT709); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerColorSpace after close err = %v, want ErrClosed", err)
 	}
+	if err := svc.SetLayerFrameParallelDecoding(0, true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerFrameParallelDecoding after close err = %v, want ErrClosed", err)
+	}
+	if err := svc.SetLayerRowMT(0, false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetLayerRowMT after close err = %v, want ErrClosed", err)
+	}
 	if err := svc.SetLayerRenderSize(0, 30, 28); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetLayerRenderSize after close err = %v, want ErrClosed", err)
 	}
@@ -1143,6 +1186,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 			MinQuantizer:        4,
 			MaxQuantizer:        56,
 			MaxKeyframeInterval: 128,
+			Threads:             2,
 		}
 	}
 	vbrLayer := func(width, height, kbps int) VP9EncoderOptions {
@@ -1169,6 +1213,9 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetInterLayerPrediction", fn: func() error { return svc.SetInterLayerPrediction(true) }},
 		{name: "SetLayerCQLevel", fn: func() error { return svc.SetLayerCQLevel(1, 24) }},
 		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, VP9AQComplexity) }},
+		{name: "SetLayerFrameParallelDecoding", fn: func() error {
+			return svc.SetLayerFrameParallelDecoding(0, false)
+		}},
 		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},
 		{name: "SetLayerRateControlBuffer", fn: func() error { return svc.SetLayerRateControlBuffer(0, 320, 160, 240) }},
 		{name: "SetLayerPostEncodeDrop", fn: func() error { return svc.SetLayerPostEncodeDrop(0, true) }},
@@ -1212,11 +1259,18 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerAdaptiveKeyFrames", fn: func() error {
 			return svc.SetLayerAdaptiveKeyFrames(0, true)
 		}},
+		{name: "SetLayerRTCExternalRateControl", fn: func() error {
+			return svc.SetLayerRTCExternalRateControl(0, true)
+		}},
+		{name: "SetLayerRowMT", fn: func() error { return svc.SetLayerRowMT(0, true) }},
 		{name: "SetLayerARNR", fn: func() error { return svc.SetLayerARNR(1, 3, 4, 2) }},
 		{name: "SetLayerMinGFInterval", fn: func() error { return svc.SetLayerMinGFInterval(1, 4) }},
 		{name: "SetLayerMaxGFInterval", fn: func() error { return svc.SetLayerMaxGFInterval(1, 12) }},
 		{name: "SetLayerFramePeriodicBoost", fn: func() error { return svc.SetLayerFramePeriodicBoost(1, true) }},
 		{name: "SetLayerAltRefAQ", fn: func() error { return svc.SetLayerAltRefAQ(1, true) }},
+		{name: "SetLayerEnableKeyFrameFiltering", fn: func() error {
+			return svc.SetLayerEnableKeyFrameFiltering(1, true)
+		}},
 		{name: "SetLayerNextFrameQIndex", fn: func() error { return svc.SetLayerNextFrameQIndex(0, 96) }},
 		{name: "SetLayerDeltaQUV", fn: func() error { return svc.SetLayerDeltaQUV(1, 4) }},
 	}
