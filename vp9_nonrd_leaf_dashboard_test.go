@@ -33,7 +33,7 @@ func TestVP9DeferredSeedsLeafDecisionDashboard(t *testing.T) {
 		os.Getenv("GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING"))
 
 	t.Run("RefControlSpeed8NonRD", func(t *testing.T) {
-		for idx, seed := range vp9RefControlsSeedsDeferred {
+		for idx, seed := range vp9RefControlsRegressionSeeds {
 			tc := newVP9RefControlsFuzzCase(seed)
 			sum := sha256.Sum256(seed)
 			label := fmt.Sprintf("refctrl-#%d-%s", idx, hex.EncodeToString(sum[:4]))

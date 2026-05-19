@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// vp9RefControlsSeedsDeferred is now a formerly-deferred regression corpus.
+// vp9RefControlsRegressionSeeds is the formerly-deferred RefControl corpus.
 // After the default choose_partitioning and nonrd_pick_partition dispatch
-// closure, TestVP9DeferredSeedsRemeasureRefControl reports all 10 entries as
+// closure, TestVP9RefControlRegressionSeedsByteParity reports all 10 entries as
 // byte-exact against libvpx with no env flags. The historical audit notes
 // below are retained as the breadcrumb trail for the closed gap.
 //
@@ -70,7 +70,7 @@ import (
 // sides to the no-update floor. Reverting any entry here must be paired
 // with the corresponding verbatim choose_partitioning port landing; this
 // is the explicit handoff list for follow-up work.
-var vp9RefControlsSeedsDeferred = [][]byte{
+var vp9RefControlsRegressionSeeds = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 0, 2, 0, 3, 0, 0},
 	{1, 2, 3, 4, 5, 6, 0, 0},
@@ -95,7 +95,7 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// ML_BASED_PARTITION dispatch's vp9_pick_inter_mode port. Under
 	// GOVPX_VP9_NONRD_PICK_PARTITION=1 the size delta shrinks to
 	// ~+50-150 bytes per inter frame (verified by
-	// TestVP9NonrdPickPartitionDeferredSeedsProgress).
+	// TestVP9NonrdPickPartitionRegressionSeedsProgress).
 	[]byte("2"),
 	// regression_vp9_refctrl_6573b9b5: captured by sweep (commit e7b9906).
 	// All-zero materialised flags (vp9RefcontrolsFuzzCase pool produces
@@ -212,7 +212,7 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//    Keyframe (frame 0) still byte-matches; inter frames diverge
 	//    at byte 9 (FirstPartitionSize literal) by 20-100 bytes.
 	//    Measured by
-	//    TestVP9NonrdPickPartitionDeferredSeedsProgress.
+	//    TestVP9NonrdPickPartitionRegressionSeedsProgress.
 	//
 	//  * Residual closure path: port libvpx vp9_pick_inter_mode
 	//    (vp9/encoder/vp9_pickmode.c:1696 ~4000 LOC) so the per-leaf
@@ -237,7 +237,7 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//
 	// Re-measurement under
 	// GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING=1 GOVPX_VP9_NONRD_PICK_PARTITION=1
-	// (verified by TestVP9DeferredSeedsRemeasureRefControl):
+	// (verified by TestVP9RefControlRegressionSeedsByteParity):
 	//
 	//   PASS=0/9 FAIL=9/9. Every seed still diverges at frame 1
 	//   (inter), first_byte_diff=9 (FirstPartitionSize literal) or
@@ -267,7 +267,7 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//
 	//  * Per-seed size_delta vs libvpx under the Phase D opt-in
 	//    after this commit (verified by
-	//    TestVP9NonrdPickPartitionDeferredSeedsProgress):
+	//    TestVP9NonrdPickPartitionRegressionSeedsProgress):
 	//
 	//      af5570f5: +42, b9af55f0: -91, fda5b6b4: -192,
 	//      ffa55725: -49, 8ec0abe5: +72, 9c3e08e8: +420,
@@ -302,7 +302,7 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	//   * Phase E1b/E1c/E3 chain (already in #142)
 	//
 	// Per-seed aggregate size_delta (sum across all frames) under the
-	// three gate combos (verified by TestVP9DeferredSeedsRemeasureRefControl):
+	// three gate combos (verified by TestVP9RefControlRegressionSeedsByteParity):
 	//
 	//   Default (no opt-in):
 	//     af5570f5: +2541, b9af55f0: +3021, fda5b6b4: +3529,
@@ -601,7 +601,7 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// audit lands no functional changes and no per-seed delta is
 	// expected:
 	//
-	//   RefControl (this file, vp9RefControlsSeedsDeferred):
+	//   RefControl (this file, vp9RefControlsRegressionSeeds):
 	//     #0 af5570f5    before=9  after=9
 	//     #1 b9af55f0    before=9  after=9
 	//     #2 fda5b6b4    before=9  after=9
@@ -647,7 +647,7 @@ var vp9RefControlsSeedsDeferred = [][]byte{
 	// leaf-commit site (pickVP9InterTxSize fast-path returning
 	// vp9InterCalculateTxSize when UseNonrdPickMode!=0 +
 	// GOVPX_VP9_NONRD_PICK_PARTITION=1) and remeasure the
-	// TestVP9DeferredSeedsRemeasureRefControl + RuntimeControls
+	// TestVP9RefControlRegressionSeedsByteParity + RuntimeControls
 	// aggregates. The verbatim port computes residualVar from the
 	// SAME vp9InterTxSourceAndResidualVar helper that already feeds
 	// the AQ-force post-pass (vp9_pickmode.c:386-388 screen-content
@@ -836,7 +836,7 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 		{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 		{0, 7, 0, 8, 0, 9, 0, 10},
 	}
-	seen := make(map[string]struct{}, len(seeds)+len(vp9RefControlsSeedsDeferred))
+	seen := make(map[string]struct{}, len(seeds)+len(vp9RefControlsRegressionSeeds))
 	addSeed := func(seed []byte) {
 		key := string(seed)
 		if _, ok := seen[key]; ok {
@@ -848,7 +848,7 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 	for _, seed := range seeds {
 		addSeed(seed)
 	}
-	for _, seed := range vp9RefControlsSeedsDeferred {
+	for _, seed := range vp9RefControlsRegressionSeeds {
 		addSeed(seed)
 	}
 

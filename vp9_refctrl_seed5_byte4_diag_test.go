@@ -9,7 +9,7 @@ import (
 )
 
 // TestVP9RefCtrlSeed5Byte4Diag dumps the first 32 bytes of every frame for
-// seed #5 of vp9RefControlsSeedsDeferred ({0, 7, 0, 8, 0, 9, 0, 10}). The
+// seed #5 of vp9RefControlsRegressionSeeds ({0, 7, 0, 8, 0, 9, 0, 10}). The
 // seed materialises a 64x64 6-frame fixture where frame 1 diverges from
 // libvpx at byte 4. This diagnostic confirms (or refutes) attribution of
 // the divergence to write_frame_size_with_refs (libvpx vp9_bitstream.c:
@@ -27,7 +27,7 @@ func TestVP9RefCtrlSeed5Byte4Diag(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1")
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
-	seed := vp9RefControlsSeedsDeferred[5]
+	seed := vp9RefControlsRegressionSeeds[5]
 	tc := newVP9RefControlsFuzzCase(seed)
 	t.Logf("refctrl_seed#5 w=%d h=%d frames=%d cpu=%d flags=%v",
 		tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)

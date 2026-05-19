@@ -10,14 +10,11 @@ import (
 	"testing"
 )
 
-// TestVP9DeferredSeedsRemeasureRefControl re-measures strict byte-parity for
-// every entry in vp9RefControlsSeedsDeferred under whichever opt-in env gates
-// are active. Reports a per-seed PASS/FAIL plus aggregate size_delta and
-// counts so the caller can decide whether to flip the gate default to ON and
-// un-defer individual seeds. Intentionally non-asserting (always passes) so
-// it can run in the gate without forcing the not-yet-libvpx-faithful
-// divergences to fail — siblings TestVP9NonrdPickPartitionDeferredSeedsProgress
-// and the fuzz harness itself enforce the actual gating.
+// TestVP9RefControlRegressionSeedsByteParity asserts strict byte-parity for
+// every entry in the formerly-deferred RefControl corpus. The corpus now
+// passes with the default VP9 encoder path and no opt-in gates, so this test
+// makes that closure explicit instead of leaving the old progress probe as
+// a non-asserting audit.
 //
 // Measurement under GOVPX_VP9_NONRD_PICK_PARTITION=1 (the
 // GOVPX_VP9_LIBVPX_CHOOSE_PARTITIONING gate is a no-op for these ML-based
@@ -50,12 +47,11 @@ import (
 // Task #151 verification (post-b36888f tip): cost_coeffs is wired through
 // the second-tier RD chain — see TestVP9DeferredSeedsRemeasureRuntimeControls
 // docstring for the four integration points and libvpx file:line citations.
-// The RefControl aggregate (+44B/seed avg) confirms the wiring is in place;
-// remaining gap is dominated by the nonrd Tx-size leaf-commit slice noted
-// above, not by a missing cost_coeffs port.
-func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
+// Current closure baseline (2026-05-19): PASS=10 FAIL=0 total=10
+// agg_size_delta=+0 with GOVPX_WITH_ORACLE=1 and no VP9 opt-in env gates.
+func TestVP9RefControlRegressionSeedsByteParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RefControl seeds")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to verify VP9 RefControl regression seeds")
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
 
@@ -65,7 +61,7 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 
 	pass, fail := 0, 0
 	aggSizeDelta := 0
-	for idx, seed := range vp9RefControlsSeedsDeferred {
+	for idx, seed := range vp9RefControlsRegressionSeeds {
 		sum := sha256.Sum256(seed)
 		label := fmt.Sprintf("refctrl-#%d-%s", idx, hex.EncodeToString(sum[:4]))
 		tc := newVP9RefControlsFuzzCase(seed)
@@ -102,9 +98,13 @@ func TestVP9DeferredSeedsRemeasureRefControl(t *testing.T) {
 				label, len(got), len(want), seedDelta)
 		}
 	}
-	t.Logf("RefControl deferred-seed remeasure: PASS=%d FAIL=%d total=%d agg_size_delta=%+d avg_per_seed=%+d",
-		pass, fail, len(vp9RefControlsSeedsDeferred), aggSizeDelta,
-		aggSizeDelta/max(1, len(vp9RefControlsSeedsDeferred)))
+	t.Logf("RefControl regression corpus: PASS=%d FAIL=%d total=%d agg_size_delta=%+d avg_per_seed=%+d",
+		pass, fail, len(vp9RefControlsRegressionSeeds), aggSizeDelta,
+		aggSizeDelta/max(1, len(vp9RefControlsRegressionSeeds)))
+	if fail != 0 || aggSizeDelta != 0 {
+		t.Fatalf("RefControl regression corpus lost byte parity: fail=%d agg_size_delta=%+d",
+			fail, aggSizeDelta)
+	}
 }
 
 // TestVP9DeferredSeedsRemeasureRuntimeControls is the sibling probe for the

@@ -9,18 +9,18 @@ import (
 	"testing"
 )
 
-// TestVP9NonrdPickPartitionDeferredSeedsProgress measures the byte-parity
-// progress on the 8 deferred RefControl seeds under
-// GOVPX_VP9_NONRD_PICK_PARTITION=1 (Phase D opt-in). Reports per-seed:
+// TestVP9NonrdPickPartitionRegressionSeedsProgress preserves the historical
+// progress dashboard for the now-closed RefControl regression corpus. It
+// reports per-seed:
 //   - keyframe byte parity (frame 0)
 //   - per-frame size delta vs libvpx
 //   - count of frames that newly byte-match
 //
 // Skipped unless GOVPX_WITH_ORACLE=1 and the vpxenc-vp9-frameflags binary is
-// available. Intentionally a non-asserting test (always passes) so it can run
-// in the gate without forcing the not-yet-libvpx-faithful divergences to
-// fail. The deferred seeds remain SKIP'd in the fuzz harness until parity is
-// closed.
+// available. The strict closure gate lives in
+// TestVP9RefControlRegressionSeedsByteParity; this dashboard remains
+// non-asserting so it can keep logging the same per-seed measurements when
+// experimenting with partition gates.
 //
 // Baseline data (commit before this test landed):
 //
@@ -38,7 +38,7 @@ import (
 //
 // libvpx ref: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition
 // with use_ml_based_partitioning=1.
-func TestVP9NonrdPickPartitionDeferredSeedsProgress(t *testing.T) {
+func TestVP9NonrdPickPartitionRegressionSeedsProgress(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to measure Phase D opt-in progress")
 	}
@@ -56,11 +56,11 @@ func TestVP9NonrdPickPartitionDeferredSeedsProgress(t *testing.T) {
 		firstMismatch int
 		sizeDelta     int
 	}
-	results := make([]seedResult, 0, len(vp9RefControlsSeedsDeferred))
-	for _, seed := range vp9RefControlsSeedsDeferred {
+	results := make([]seedResult, 0, len(vp9RefControlsRegressionSeeds))
+	for _, seed := range vp9RefControlsRegressionSeeds {
 		tc := newVP9RefControlsFuzzCase(seed)
 		sum := sha256.Sum256(seed)
-		label := "deferred-" + hex.EncodeToString(sum[:4])
+		label := "regression-" + hex.EncodeToString(sum[:4])
 
 		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 		want := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources,
@@ -93,6 +93,6 @@ func TestVP9NonrdPickPartitionDeferredSeedsProgress(t *testing.T) {
 		totalMatch += r.matchedFrames
 		totalFrames += r.totalFrames
 	}
-	t.Logf("phase-D opt-in deferred-seeds: %d/%d frames byte-match",
+	t.Logf("phase-D opt-in regression-seeds: %d/%d frames byte-match",
 		totalMatch, totalFrames)
 }
