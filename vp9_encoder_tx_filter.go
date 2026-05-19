@@ -720,7 +720,7 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
 	if hdr.Loopfilter.FilterLevel == 0 {
 		return true
 	}
-	layout := vp9FrameBufferLayout(int(hdr.Width), int(hdr.Height))
+	layout := common.NewFrameLayout(int(hdr.Width), int(hdr.Height))
 	vp9dec.LoopFilterFrameInit(&e.lfi, &hdr.Loopfilter, seg,
 		int(hdr.Loopfilter.FilterLevel))
 	d := VP9Decoder{
@@ -729,9 +729,9 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
 		frameYFull:   e.reconYFull,
 		frameUFull:   e.reconUFull,
 		frameVFull:   e.reconVFull,
-		frameYOrigin: layout.yOrigin,
-		frameUOrigin: layout.uvOrigin,
-		frameVOrigin: layout.uvOrigin,
+		frameYOrigin: layout.YOrigin,
+		frameUOrigin: layout.UVOrigin,
+		frameVOrigin: layout.UVOrigin,
 		lastFrame:    e.reconFrame,
 	}
 	miRows := int((hdr.Height + 7) >> 3)

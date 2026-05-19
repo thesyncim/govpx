@@ -1691,8 +1691,8 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 		return 0, false
 	}
 	rows := len(planeData) / stride
-	alignedWidth := vp9AlignTo(int(key.hdr.Width), 8)
-	alignedHeight := vp9AlignTo(int(key.hdr.Height), 8)
+	alignedWidth := common.Align(int(key.hdr.Width), 8)
+	alignedHeight := common.Align(int(key.hdr.Height), 8)
 	planeWidth := alignedWidth >> pd.SubsamplingX
 	planeHeight := alignedHeight >> pd.SubsamplingY
 	baseX := (miCol * common.MiSize) >> pd.SubsamplingX

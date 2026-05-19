@@ -48,7 +48,8 @@ Root `govpx` owns only public surface area:
   moved;
 - `rtp`: VP9 RTP payload descriptor, scalability-structure, packetization, and
   assembly;
-- `dsp`, `common`, and `tables`: VP9 support code and kernels.
+- `dsp`, `common`, and `tables`: VP9 support code, frame-buffer layout
+  mechanics, and kernels.
 
 `internal/vpx` is deliberately small. It is for true cross-codec mechanics only:
 shared sentinel storage, RTP fragment sizing, future buffer/rate-control value

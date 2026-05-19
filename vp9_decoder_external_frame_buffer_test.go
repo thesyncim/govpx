@@ -310,6 +310,6 @@ func (p *vp9ExternalFrameBufferPoolForTest) assertAllReleased(t *testing.T) {
 }
 
 func vp9ExternalFrameMinSizeForTest(width, height, alignment int) int {
-	layout := vp9DecoderFrameBufferLayout(width, height, alignment)
-	return layout.yFullLen + 2*layout.uvFullLen + 31
+	layout := common.NewDecoderFrameLayout(width, height, alignment)
+	return layout.YFullLen + 2*layout.UVFullLen + 31
 }

@@ -431,7 +431,7 @@ func vp9PickLpfYSSE(src []byte, srcStride int,
 func (e *VP9Encoder) vp9PickLpfBuildSSECallback(hdr *vp9dec.UncompressedHeader,
 	seg *vp9dec.SegmentationParams, img *image.YCbCr, ufBackupY []byte,
 ) vp9PickLpfFilterLevelSSEFunc {
-	layout := vp9FrameBufferLayout(int(hdr.Width), int(hdr.Height))
+	layout := common.NewFrameLayout(int(hdr.Width), int(hdr.Height))
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
 	srcY, srcStride, srcW, srcH := vp9EncoderSourcePlane(img, 0)
@@ -441,7 +441,7 @@ func (e *VP9Encoder) vp9PickLpfBuildSSECallback(hdr *vp9dec.UncompressedHeader,
 			// frame_filter_level == 0 (vp9_loopfilter.c:1473). The
 			// SSE is then unfiltered-recon vs source.
 			return vp9PickLpfYSSE(srcY, srcStride,
-				e.reconYFull[layout.yOrigin:], layout.yStride,
+				e.reconYFull[layout.YOrigin:], layout.YStride,
 				srcW, srcH)
 		}
 		// Build LoopFilterInfoN for the trial level.
@@ -454,9 +454,9 @@ func (e *VP9Encoder) vp9PickLpfBuildSSECallback(hdr *vp9dec.UncompressedHeader,
 			frameYFull:   e.reconYFull,
 			frameUFull:   e.reconUFull,
 			frameVFull:   e.reconVFull,
-			frameYOrigin: layout.yOrigin,
-			frameUOrigin: layout.uvOrigin,
-			frameVOrigin: layout.uvOrigin,
+			frameYOrigin: layout.YOrigin,
+			frameUOrigin: layout.UVOrigin,
+			frameVOrigin: layout.UVOrigin,
 			lastFrame:    e.reconFrame,
 		}
 		// libvpx: vp9_picklpf.c:54-60 — y_only=1 trial filter. The
@@ -483,15 +483,15 @@ func (e *VP9Encoder) vp9PickLpfBuildSSECallback(hdr *vp9dec.UncompressedHeader,
 			// derail the search. Instead, restore the backup and
 			// return a deliberately-large SSE so the level is
 			// rejected.
-			copy(e.reconYFull[layout.yOrigin:], ufBackupY)
+			copy(e.reconYFull[layout.YOrigin:], ufBackupY)
 			return int64(1) << 62
 		}
 		sse := vp9PickLpfYSSE(srcY, srcStride,
-			e.reconYFull[layout.yOrigin:], layout.yStride,
+			e.reconYFull[layout.YOrigin:], layout.YStride,
 			srcW, srcH)
 		// libvpx: vp9_picklpf.c:73 — re-instate the unfiltered Y plane
 		// from cpi->last_frame_uf.
-		copy(e.reconYFull[layout.yOrigin:], ufBackupY)
+		copy(e.reconYFull[layout.YOrigin:], ufBackupY)
 		return sse
 	}
 }
@@ -529,14 +529,14 @@ func (e *VP9Encoder) vp9EncoderRunFullImagePicker(
 	// Build the production sseFn against the recon buffer. libvpx:
 	// vp9_picklpf.c:99-100 — copy the unfiltered recon into
 	// last_frame_uf before any try_filter_frame call.
-	layout := vp9FrameBufferLayout(int(hdr.Width), int(hdr.Height))
-	yVisibleLen := layout.yStride * layout.yHeight
+	layout := common.NewFrameLayout(int(hdr.Width), int(hdr.Height))
+	yVisibleLen := layout.YStride * layout.YHeight
 	if cap(e.vp9LpfReconYBackup) < yVisibleLen {
 		e.vp9LpfReconYBackup = make([]byte, yVisibleLen)
 	} else {
 		e.vp9LpfReconYBackup = e.vp9LpfReconYBackup[:yVisibleLen]
 	}
-	copy(e.vp9LpfReconYBackup, e.reconYFull[layout.yOrigin:layout.yOrigin+yVisibleLen])
+	copy(e.vp9LpfReconYBackup, e.reconYFull[layout.YOrigin:layout.YOrigin+yVisibleLen])
 	sseFn := e.vp9PickLpfBuildSSECallback(hdr, seg, img, e.vp9LpfReconYBackup)
 	// libvpx: vp9_picklpf.c:201 — `method == LPF_PICK_FROM_SUBIMAGE`
 	// is the partial_frame flag fed to search_filter_level. The sub-

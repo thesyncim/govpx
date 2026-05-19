@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"unsafe"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -1394,23 +1393,23 @@ func (d *VP9Decoder) prepareVP9OutputFrameWithExternal(width, height int,
 		return d.prepareVP9ExternalOutputFrame(width, height)
 	}
 
-	layout := vp9DecoderFrameBufferLayout(width, height, d.opts.ByteAlignment)
-	align := vp9DecoderFrameBufferAlignment(d.opts.ByteAlignment)
+	layout := common.NewDecoderFrameLayout(width, height, d.opts.ByteAlignment)
+	align := common.DecoderFrameAlignment(d.opts.ByteAlignment)
 	d.frameYFull = ensureVP9AlignedPlaneCapacityWithAlignment(d.frameYFull,
-		layout.yFullLen, align)
+		layout.YFullLen, align)
 	d.frameUFull = ensureVP9AlignedPlaneCapacityWithAlignment(d.frameUFull,
-		layout.uvFullLen, align)
+		layout.UVFullLen, align)
 	d.frameVFull = ensureVP9AlignedPlaneCapacityWithAlignment(d.frameVFull,
-		layout.uvFullLen, align)
-	layout = vp9DecoderFrameBufferLayoutForPlanes(width, height,
+		layout.UVFullLen, align)
+	layout = common.NewDecoderFrameLayoutForPlanes(width, height,
 		d.opts.ByteAlignment, d.frameYFull, d.frameUFull, d.frameVFull)
 	d.installVP9OutputFrameLayout(width, height, layout)
 	return nil
 }
 
 func (d *VP9Decoder) prepareVP9ExternalOutputFrame(width, height int) error {
-	layout := vp9DecoderFrameBufferLayout(width, height, d.opts.ByteAlignment)
-	minSize := layout.yFullLen + 2*layout.uvFullLen + 31
+	layout := common.NewDecoderFrameLayout(width, height, d.opts.ByteAlignment)
+	minSize := layout.YFullLen + 2*layout.UVFullLen + 31
 	buffer, err := d.opts.GetFrameBuffer(minSize)
 	if err != nil {
 		return ErrInvalidConfig
@@ -1418,15 +1417,15 @@ func (d *VP9Decoder) prepareVP9ExternalOutputFrame(width, height int) error {
 	if len(buffer.Data) < minSize {
 		return ErrInvalidConfig
 	}
-	baseOff := vp9AlignmentPadding(buffer.Data, 32)
-	if len(buffer.Data)-baseOff < layout.yFullLen+2*layout.uvFullLen {
+	baseOff := common.AlignmentPadding(buffer.Data, 32)
+	if len(buffer.Data)-baseOff < layout.YFullLen+2*layout.UVFullLen {
 		return ErrInvalidConfig
 	}
 	base := buffer.Data[baseOff:]
-	d.frameYFull = base[:layout.yFullLen]
-	d.frameUFull = base[layout.yFullLen : layout.yFullLen+layout.uvFullLen]
-	d.frameVFull = base[layout.yFullLen+layout.uvFullLen : layout.yFullLen+2*layout.uvFullLen]
-	layout = vp9DecoderFrameBufferLayoutForPlanes(width, height,
+	d.frameYFull = base[:layout.YFullLen]
+	d.frameUFull = base[layout.YFullLen : layout.YFullLen+layout.UVFullLen]
+	d.frameVFull = base[layout.YFullLen+layout.UVFullLen : layout.YFullLen+2*layout.UVFullLen]
+	layout = common.NewDecoderFrameLayoutForPlanes(width, height,
 		d.opts.ByteAlignment, d.frameYFull, d.frameUFull, d.frameVFull)
 	d.frameExternal = &vp9ExternalFrameLease{buffer: buffer, refs: 1}
 	d.installVP9OutputFrameLayout(width, height, layout)
@@ -1434,26 +1433,26 @@ func (d *VP9Decoder) prepareVP9ExternalOutputFrame(width, height int) error {
 }
 
 func (d *VP9Decoder) installVP9OutputFrameLayout(width, height int,
-	layout vp9FrameLayout,
+	layout common.FrameLayout,
 ) {
 	fillVP9Plane(d.frameYFull, 128)
 	fillVP9Plane(d.frameUFull, 128)
 	fillVP9Plane(d.frameVFull, 128)
-	d.frameYOrigin = layout.yOrigin
-	d.frameUOrigin = layout.uOrigin
-	d.frameVOrigin = layout.vOrigin
-	d.frameY = d.frameYFull[layout.yOrigin:]
-	d.frameU = d.frameUFull[layout.uOrigin:]
-	d.frameV = d.frameVFull[layout.vOrigin:]
+	d.frameYOrigin = layout.YOrigin
+	d.frameUOrigin = layout.UOrigin
+	d.frameVOrigin = layout.VOrigin
+	d.frameY = d.frameYFull[layout.YOrigin:]
+	d.frameU = d.frameUFull[layout.UOrigin:]
+	d.frameV = d.frameVFull[layout.VOrigin:]
 	d.lastFrame = Image{
 		Width:   width,
 		Height:  height,
 		Y:       d.frameY,
 		U:       d.frameU,
 		V:       d.frameV,
-		YStride: layout.yStride,
-		UStride: layout.uvStride,
-		VStride: layout.uvStride,
+		YStride: layout.YStride,
+		UStride: layout.UVStride,
+		VStride: layout.UVStride,
 	}
 }
 
@@ -1681,78 +1680,6 @@ func (d *VP9Decoder) prepareVP9PostProcessModes(rows, cols int) {
 	}
 }
 
-type vp9FrameLayout struct {
-	yStride   int
-	uvStride  int
-	yWidth    int
-	yHeight   int
-	uvWidth   int
-	uvHeight  int
-	yOrigin   int
-	uvOrigin  int
-	uOrigin   int
-	vOrigin   int
-	yFullLen  int
-	uvFullLen int
-}
-
-func vp9FrameBufferLayout(width, height int) vp9FrameLayout {
-	return vp9DecoderFrameBufferLayout(width, height, 0)
-}
-
-func vp9DecoderFrameBufferLayout(width, height, byteAlignment int) vp9FrameLayout {
-	const border = 32 // VP9_DEC_BORDER_IN_PIXELS in libvpx vpx_scale/yv12config.h.
-	alignedWidth := vp9AlignTo(width, 8)
-	alignedHeight := vp9AlignTo(height, 8)
-	yStride := vp9AlignTo(alignedWidth+2*border, 32)
-	uvWidth := alignedWidth >> 1
-	uvHeight := alignedHeight >> 1
-	uvStride := yStride >> 1
-	uvBorder := border >> 1
-	yOrigin := border*yStride + border
-	uvOrigin := uvBorder*uvStride + uvBorder
-	uOrigin := uvOrigin
-	vOrigin := uvOrigin
-	extraAlignment := 0
-	if byteAlignment > 0 {
-		yAlignedOrigin := vp9AlignTo(yOrigin, byteAlignment)
-		uvAlignedOrigin := vp9AlignTo(uvOrigin, byteAlignment)
-		extraAlignment = byteAlignment
-		yOrigin = yAlignedOrigin
-		uvOrigin = uvAlignedOrigin
-		uOrigin = uvAlignedOrigin
-		vOrigin = uvAlignedOrigin
-	}
-	return vp9FrameLayout{
-		yStride:   yStride,
-		uvStride:  uvStride,
-		yWidth:    alignedWidth,
-		yHeight:   alignedHeight,
-		uvWidth:   uvWidth,
-		uvHeight:  uvHeight,
-		yOrigin:   yOrigin,
-		uvOrigin:  uvOrigin,
-		uOrigin:   uOrigin,
-		vOrigin:   vOrigin,
-		yFullLen:  yStride*(alignedHeight+2*border) + extraAlignment,
-		uvFullLen: uvStride*(uvHeight+2*uvBorder) + extraAlignment,
-	}
-}
-
-func vp9DecoderFrameBufferLayoutForPlanes(width, height, byteAlignment int,
-	yFull, uFull, vFull []byte,
-) vp9FrameLayout {
-	layout := vp9DecoderFrameBufferLayout(width, height, byteAlignment)
-	if byteAlignment <= 0 {
-		return layout
-	}
-	layout.yOrigin = vp9AlignOffsetForSlice(yFull, layout.yOrigin, byteAlignment)
-	layout.uOrigin = vp9AlignOffsetForSlice(uFull, layout.uOrigin, byteAlignment)
-	layout.vOrigin = vp9AlignOffsetForSlice(vFull, layout.vOrigin, byteAlignment)
-	layout.uvOrigin = layout.uOrigin
-	return layout
-}
-
 func ensureVP9AlignedPlaneCapacity(buf []byte, n int) []byte {
 	return ensureVP9AlignedPlaneCapacityWithAlignment(buf, n, 32)
 }
@@ -1762,64 +1689,19 @@ func ensureVP9AlignedPlaneCapacityWithAlignment(buf []byte, n, align int) []byte
 		return mem.NewAligned(n, align)
 	}
 	buf = buf[:n]
-	if !vp9ByteSliceAligned(buf, align) {
+	if !common.ByteSliceAligned(buf, align) {
 		return mem.NewAligned(n, align)
 	}
 	return buf
-}
-
-func vp9DecoderFrameBufferAlignment(byteAlignment int) int {
-	if byteAlignment > 0 {
-		return byteAlignment
-	}
-	return 32
-}
-
-func vp9ByteSliceAligned(buf []byte, align int) bool {
-	if align <= 1 || len(buf) == 0 {
-		return true
-	}
-	return uintptr(unsafe.Pointer(&buf[0]))%uintptr(align) == 0
 }
 
 func vp9ImagePlanesAligned(img Image, align int) bool {
 	if align <= 1 {
 		return true
 	}
-	return vp9ByteSliceAligned(img.Y, align) &&
-		vp9ByteSliceAligned(img.U, align) &&
-		vp9ByteSliceAligned(img.V, align)
-}
-
-func vp9AlignmentPadding(buf []byte, align int) int {
-	if align <= 1 || len(buf) == 0 {
-		return 0
-	}
-	ptr := uintptr(unsafe.Pointer(&buf[0]))
-	rem := ptr % uintptr(align)
-	if rem == 0 {
-		return 0
-	}
-	return int(uintptr(align) - rem)
-}
-
-func vp9AlignOffsetForSlice(buf []byte, off, align int) int {
-	if align <= 1 || len(buf) == 0 {
-		return off
-	}
-	ptr := uintptr(unsafe.Pointer(&buf[0])) + uintptr(off)
-	rem := ptr % uintptr(align)
-	if rem == 0 {
-		return off
-	}
-	return off + int(uintptr(align)-rem)
-}
-
-func vp9AlignTo(v, align int) int {
-	if align <= 1 {
-		return v
-	}
-	return (v + align - 1) &^ (align - 1)
+	return common.ByteSliceAligned(img.Y, align) &&
+		common.ByteSliceAligned(img.U, align) &&
+		common.ByteSliceAligned(img.V, align)
 }
 
 func fillVP9Plane(buf []byte, value byte) {

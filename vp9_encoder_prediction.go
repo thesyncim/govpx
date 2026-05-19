@@ -537,8 +537,8 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 	}
 	rows := len(dstData) / dstStride
 	refRows := len(refData) / refStride
-	alignedWidth := vp9AlignTo(int(hdr.Width), 8)
-	alignedHeight := vp9AlignTo(int(hdr.Height), 8)
+	alignedWidth := common.Align(int(hdr.Width), 8)
+	alignedHeight := common.Align(int(hdr.Height), 8)
 	planeWidth := alignedWidth >> pd.SubsamplingX
 	planeHeight := alignedHeight >> pd.SubsamplingY
 	baseX := (miCol * common.MiSize) >> pd.SubsamplingX

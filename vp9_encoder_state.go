@@ -608,25 +608,25 @@ func (e *VP9Encoder) vp9EncoderPlaneContextOffsets(miRow, miCol int) (
 }
 
 func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
-	layout := vp9FrameBufferLayout(width, height)
-	e.reconYFull = ensureVP9AlignedPlaneCapacity(e.reconYFull, layout.yFullLen)
-	e.reconUFull = ensureVP9AlignedPlaneCapacity(e.reconUFull, layout.uvFullLen)
-	e.reconVFull = ensureVP9AlignedPlaneCapacity(e.reconVFull, layout.uvFullLen)
+	layout := common.NewFrameLayout(width, height)
+	e.reconYFull = ensureVP9AlignedPlaneCapacity(e.reconYFull, layout.YFullLen)
+	e.reconUFull = ensureVP9AlignedPlaneCapacity(e.reconUFull, layout.UVFullLen)
+	e.reconVFull = ensureVP9AlignedPlaneCapacity(e.reconVFull, layout.UVFullLen)
 	fillVP9Plane(e.reconYFull, 128)
 	fillVP9Plane(e.reconUFull, 128)
 	fillVP9Plane(e.reconVFull, 128)
-	e.reconY = e.reconYFull[layout.yOrigin:]
-	e.reconU = e.reconUFull[layout.uvOrigin:]
-	e.reconV = e.reconVFull[layout.uvOrigin:]
+	e.reconY = e.reconYFull[layout.YOrigin:]
+	e.reconU = e.reconUFull[layout.UVOrigin:]
+	e.reconV = e.reconVFull[layout.UVOrigin:]
 	e.reconFrame = Image{
 		Width:   width,
 		Height:  height,
 		Y:       e.reconY,
 		U:       e.reconU,
 		V:       e.reconV,
-		YStride: layout.yStride,
-		UStride: layout.uvStride,
-		VStride: layout.uvStride,
+		YStride: layout.YStride,
+		UStride: layout.UVStride,
+		VStride: layout.UVStride,
 	}
 }
 

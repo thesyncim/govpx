@@ -67,7 +67,7 @@ Existing internal codec packages are already substantial:
 | `internal/vp8/rtp` | VP8 RTP payload descriptor parse/pack and frame packetize/assemble logic; RFC 7741, not libvpx-derived |
 | `internal/vp8/mem`, `internal/vp8/scale`, `internal/vp8/tables` | VP8 support packages |
 | `internal/vp9/bitstream` | VP9 bit reader/writer and superframe index parser/writer |
-| `internal/vp9/common` | VP9 constants, enums, quantization |
+| `internal/vp9/common` | VP9 constants, enums, quantization, frame-buffer layout and alignment mechanics |
 | `internal/vp9/decoder` | VP9 parser, stream-info peeking, frame-context adaptation, reconstruction, loop filter, tile/thread plumbing |
 | `internal/vp9/dsp` | VP9 scalar/SIMD kernels |
 | `internal/vp9/encoder` | VP9 bitstream writer and transform/quant helpers |
@@ -259,6 +259,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3 | VP9 superframe move | root `vp9_superframe.go`, `vp9_decoder.go` parser wrapper, `internal/vp9/bitstream/superframe.go`, superframe tests/fuzz | Current branch: root keeps public pack helpers; VP9 bitstream package owns parse/write mechanics |
 | 3 | Stream-info parser move | root `streaminfo.go`, `internal/vp8/decoder/streaminfo.go`, `internal/vp9/decoder/streaminfo.go`, stream-info tests | Current branch: root keeps public structs and peek functions; VP8/VP9 decoder packages own parser-visible metadata extraction |
 | 3 | VP9 frame-context adaptation move | root `vp9_decoder_adapt.go`, `vp9_decoder_threading.go`, `vp9_encoder_counts_bridge.go`, `internal/vp9/decoder/adapt.go` | Current branch: internal VP9 decoder owns adaptation count shapes, merge formulas, and frame-count accumulation helpers used by root decoder/encoder bridges |
+| 3/4 | VP9 frame-buffer layout move | root `vp9_decoder.go`, VP9 encoder reconstruction/loop-filter call sites, `internal/vp9/common/frame_layout.go` | Current branch: internal VP9 common owns border/stride/origin/alignment math shared by VP9 decoder and encoder reconstruction buffers |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
 | 5 | API cleanup | root public files, examples, docs | Remove unreleased compatibility aliases at wave end |
