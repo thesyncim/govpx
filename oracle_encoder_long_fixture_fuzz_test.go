@@ -33,9 +33,37 @@ import (
 //     fixes, and the upstream SPLITMV BLOCK_8X8 search-window port. Promoted
 //     to fuzz seed (no longer skipped).
 //
+//   - {0x31, 0x39} = []byte("19") (VBR 300kbps splitmv kf=30 tight-buf
+//     good-quality): opened 2026-05-19 by the task #335 fuzz sweep. The fuzz
+//     harness passes --kf-min-dist=0 --kf-max-dist=KeyFrameInterval which
+//     sets libvpx's oxcf->auto_key = 1 (vp8_cx_iface.c:377-378). Under
+//     compressor_speed != 2 (good/best quality), libvpx then runs
+//     decide_key_frame (onyx_if.c:2713) inside the recode loop and inserts
+//     an unscheduled intra recode at frame 107 of the splitmv quadrant pan
+//     when this_frame_percent_intra crosses the line 2750-2773 thresholds
+//     against last_frame_percent_intra. govpx's equivalent
+//     `shouldRecodeInterAttemptAsKeyFrame` (encoder_reference_decisions.go:
+//     198-211) is gated behind EncoderOptions.AdaptiveKeyFrames, which the
+//     long-fixture fuzz does not enable; the gap therefore manifests as
+//     govpx holding inter at frame 107 while libvpx forces a KF, scrambling
+//     cumulative RC state for every later frame
+//     (matched-prefix=107/256). Closing this seed requires either
+//     enabling AdaptiveKeyFrames implicitly when KeyFrameInterval > 0 (and
+//     porting the full recode + buffer-state regulate_q chain that
+//     decide_key_frame triggers, libvpx onyx_if.c:3994-4068) or routing
+//     the long-fixture fuzz through libvpx's fixed_kf_cntr path
+//     (kf_min_dist == kf_max_dist), which itself diverges on
+//     estimate_keyframe_frequency's auto_key clamp at ratectrl.c:1321 and
+//     requires its own RC-bootstrap port. The corpus seed is captured at
+//     testdata/fuzz/FuzzEncoderLongFixtureRateControl/
+//     regression_vbr_300kbps_kf30_splitmv_tightbuf_aeeeb411 so the next
+//     port revision exercises it directly.
+//
 // The list and helper are kept as substrate so future deferrals have a
 // drop-in landing point.
-var longFixtureSeedsDeferred = [][]byte{}
+var longFixtureSeedsDeferred = [][]byte{
+	{0x31, 0x39}, // task #335: VBR 300kbps splitmv kf=30 tight-buf good-quality auto_key gap
+}
 
 func longFixtureSeedDeferred(data []byte) bool {
 	for _, seed := range longFixtureSeedsDeferred {
@@ -227,6 +255,19 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 	// `--kf-min-dist=0 --kf-max-dist=interval` to the govpx-side fixed
 	// KF schedule (mirrors libvpx vp8_cx_iface.c
 	// `cfg.kf_max_dist`-driven `cpi->key_frame_frequency` handling).
+	//
+	// Note (task #335): kf-min-dist=0 also flips libvpx's
+	// `oxcf->auto_key` to 1 at vp8_cx_iface.c:377-378, which under
+	// compressor_speed != 2 (good/best quality) runs `decide_key_frame`
+	// (onyx_if.c:2713 / line 3991) inside the recode loop and can
+	// insert unscheduled intra recodes whenever the committed
+	// inter-mode intra-percentage crosses libvpx's thresholds. govpx's
+	// equivalent is gated behind EncoderOptions.AdaptiveKeyFrames,
+	// which the long-fixture fuzz does not enable, so for content with
+	// strong scene cuts (splitmv quadrant pan + tight VBR buffer) the
+	// two encoders make different KF decisions late in the sequence.
+	// See longFixtureSeedsDeferred for the aeeeb411 ("19") seed that
+	// surfaces this gap.
 	//
 	// Buffer-size flags must also be forwarded: govpx receives
 	// `BufferSizeMs / BufferInitialSizeMs / BufferOptimalSizeMs` via
