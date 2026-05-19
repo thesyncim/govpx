@@ -136,10 +136,10 @@ func (s *vp9RowEncoderState) reset(parent *VP9Encoder, miColsAligned int) {
 			}
 		}
 	}
-	if cap(s.partitionReconScratch) < vp9MaxPartitionReconScratch {
-		s.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
+	if cap(s.partitionReconScratch) < vp9MaxPartitionReconScratchStack {
+		s.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratchStack)
 	} else {
-		s.partitionReconScratch = s.partitionReconScratch[:vp9MaxPartitionReconScratch]
+		s.partitionReconScratch = s.partitionReconScratch[:vp9MaxPartitionReconScratchStack]
 	}
 	if cap(s.interPredictScratch) < vp9MaxPartitionReconScratch {
 		s.interPredictScratch = make([]byte, vp9MaxPartitionReconScratch)

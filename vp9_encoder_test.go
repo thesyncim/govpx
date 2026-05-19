@@ -4218,6 +4218,107 @@ func TestVP9EncoderInterPartitionScoringRestoresFrameState(t *testing.T) {
 	}
 }
 
+func TestVP9PartitionReconSnapshotStacksNestedSaves(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.ensureVP9EncoderModeBuffers(8, 8)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	visibleRecon := func() []byte {
+		out := make([]byte, 0, width*height+(width/2)*(height/2)*2)
+		for y := range height {
+			row := e.reconY[y*e.reconFrame.YStride:]
+			out = append(out, row[:width]...)
+		}
+		chromaW := (width + 1) >> 1
+		chromaH := (height + 1) >> 1
+		for y := range chromaH {
+			row := e.reconU[y*e.reconFrame.UStride:]
+			out = append(out, row[:chromaW]...)
+		}
+		for y := range chromaH {
+			row := e.reconV[y*e.reconFrame.VStride:]
+			out = append(out, row[:chromaW]...)
+		}
+		return out
+	}
+	fillVisibleRecon := func(seed byte) {
+		for y := range height {
+			row := e.reconY[y*e.reconFrame.YStride:]
+			for x := range width {
+				row[x] = byte(int(seed) + (x*3+y*5)&0xff)
+			}
+		}
+		chromaW := (width + 1) >> 1
+		chromaH := (height + 1) >> 1
+		for y := range chromaH {
+			uRow := e.reconU[y*e.reconFrame.UStride:]
+			vRow := e.reconV[y*e.reconFrame.VStride:]
+			for x := range chromaW {
+				uRow[x] = byte(int(seed) + 17 + (x*7+y*11)&0xff)
+				vRow[x] = byte(int(seed) + 29 + (x*13+y*3)&0xff)
+			}
+		}
+	}
+	fillReconBlock := func(miRow, miCol int, bsize common.BlockSize, seed byte) {
+		for plane := range vp9dec.MaxMbPlane {
+			pd := &e.planes[plane]
+			planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+			if planeBsize >= common.BlockSizes {
+				continue
+			}
+			data, stride := e.vp9EncoderReconPlane(plane)
+			x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+			y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+			w := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+			h := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+			for y := range h {
+				row := data[(y0+y)*stride+x0:]
+				for x := range w {
+					row[x] = byte(int(seed) + plane*31 + (x*5+y*9)&0xff)
+				}
+			}
+		}
+	}
+
+	fillVisibleRecon(11)
+	original := visibleRecon()
+	outer, ok := e.saveVP9PartitionReconSnapshot(0, 0, common.Block64x64)
+	if !ok {
+		t.Fatal("save outer snapshot failed")
+	}
+	fillReconBlock(0, 0, common.Block16x16, 37)
+	afterOuterMutation := visibleRecon()
+	inner, ok := e.saveVP9PartitionReconSnapshot(0, 0, common.Block16x16)
+	if !ok {
+		t.Fatal("save inner snapshot failed")
+	}
+	if inner.top != outer.end {
+		t.Fatalf("inner snapshot top = %d, want outer end %d", inner.top, outer.end)
+	}
+	fillReconBlock(0, 0, common.Block16x16, 93)
+
+	e.restoreVP9PartitionReconSnapshot(inner)
+	if !bytes.Equal(visibleRecon(), afterOuterMutation) {
+		t.Fatal("inner restore did not preserve the outer mutation")
+	}
+	e.releaseVP9PartitionReconSnapshot(inner)
+	if e.partitionReconScratchTop != outer.end {
+		t.Fatalf("scratch top after inner release = %d, want %d",
+			e.partitionReconScratchTop, outer.end)
+	}
+	e.restoreVP9PartitionReconSnapshot(outer)
+	if !bytes.Equal(visibleRecon(), original) {
+		t.Fatal("outer restore was overwritten by nested snapshot data")
+	}
+	e.releaseVP9PartitionReconSnapshot(outer)
+	if e.partitionReconScratchTop != 0 {
+		t.Fatalf("scratch top after outer release = %d, want 0",
+			e.partitionReconScratchTop)
+	}
+}
+
 func TestVP9EncoderInterPartitionScoringUsesPriorChildContext(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})

@@ -15,13 +15,18 @@ import (
 )
 
 const (
-	vp9EncoderTxCoeffSlots      = 1024
-	vp9EncoderBlockCoeffSlots   = 256 * vp9EncoderTxCoeffSlots
-	vp9MinEncodeIntoBuffer      = 64
-	vp9MaxPartitionReconScratch = 64*64 + 2*32*32
-	vp9DefaultMinQuantizer      = 4
-	vp9DefaultMaxQuantizer      = 56
-	vp9DefaultCQLevel           = 32
+	vp9EncoderTxCoeffSlots           = 1024
+	vp9EncoderBlockCoeffSlots        = 256 * vp9EncoderTxCoeffSlots
+	vp9MinEncodeIntoBuffer           = 64
+	vp9MaxPartitionReconScratch      = 64*64 + 2*32*32
+	vp9MaxPartitionReconScratchStack = vp9MaxPartitionReconScratch +
+		32*32 + 2*16*16 +
+		16*16 + 2*8*8 +
+		8*8 + 2*4*4 +
+		4*4
+	vp9DefaultMinQuantizer = 4
+	vp9DefaultMaxQuantizer = 56
+	vp9DefaultCQLevel      = 32
 	// vp9DefaultBaseQIndex pins the packet-path default to the first-frame
 	// base_qindex emitted by pinned libvpx vpxenc-vp9 with the repo's realtime
 	// CQ oracle knobs (--end-usage=q --cq-level=32 --min-q=4 --max-q=56).
@@ -894,12 +899,13 @@ type VP9Encoder struct {
 	// planes carries coefficient entropy contexts for source-backed frames.
 	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 
-	intraScratch          vp9dec.IntraPredictorScratch
-	modeScratch           [1024]byte
-	blockScratch          [64 * 64]byte
-	nonrdOrigPredScratch  [64 * 64]byte
-	nonrdBestPredScratch  [64 * 64]byte
-	partitionReconScratch []byte
+	intraScratch             vp9dec.IntraPredictorScratch
+	modeScratch              [1024]byte
+	blockScratch             [64 * 64]byte
+	nonrdOrigPredScratch     [64 * 64]byte
+	nonrdBestPredScratch     [64 * 64]byte
+	partitionReconScratch    []byte
+	partitionReconScratchTop int
 	// interPredictScratch is passed through the decoder-shared inter
 	// predictor so odd luma MVs can use the same chroma/subpel extension
 	// path as the real decoder without per-block allocations after warmup.
@@ -3830,11 +3836,12 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
 	e.ensureVP9LeafKeyframeDecisionCache(miRows, miCols)
 	e.ensureVP9KeyframePartitionDecisionCache(miRows, miCols)
-	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratch {
-		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratch)
+	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratchStack {
+		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratchStack)
 	} else {
-		e.partitionReconScratch = e.partitionReconScratch[:vp9MaxPartitionReconScratch]
+		e.partitionReconScratch = e.partitionReconScratch[:vp9MaxPartitionReconScratchStack]
 	}
+	e.partitionReconScratchTop = 0
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		aboveLen := vp9PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
@@ -5946,6 +5953,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 	if !ok {
 		return common.BlockInvalid, false
 	}
+	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx, miRow, miCol,
 		common.Block8x8)
 	probs := tables.KfPartitionProbs
@@ -6371,6 +6379,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if !ok {
 		return root
 	}
+	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
 	savedRef := inter.ref
 	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
 		miRow, miCol)
@@ -7425,6 +7434,8 @@ type vp9PartitionReconPlaneSnapshot struct {
 
 type vp9PartitionReconSnapshot struct {
 	planes [vp9dec.MaxMbPlane]vp9PartitionReconPlaneSnapshot
+	top    int
+	end    int
 }
 
 func (e *VP9Encoder) saveVP9PartitionReconSnapshot(miRow, miCol int,
@@ -7432,6 +7443,8 @@ func (e *VP9Encoder) saveVP9PartitionReconSnapshot(miRow, miCol int,
 ) (vp9PartitionReconSnapshot, bool) {
 	var snap vp9PartitionReconSnapshot
 	total := 0
+	base := e.partitionReconScratchTop
+	snap.top = base
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -7460,15 +7473,20 @@ func (e *VP9Encoder) saveVP9PartitionReconSnapshot(miRow, miCol int,
 			return snap, false
 		}
 		snap.planes[plane] = vp9PartitionReconPlaneSnapshot{
-			x: x, y: y, w: w, h: h, off: total,
+			x: x, y: y, w: w, h: h, off: base + total,
 		}
 		total += w * h
 	}
-	if cap(e.partitionReconScratch) < total {
-		e.partitionReconScratch = make([]byte, total)
-	} else {
-		e.partitionReconScratch = e.partitionReconScratch[:total]
+	need := base + total
+	snap.end = need
+	if cap(e.partitionReconScratch) < need {
+		next := make([]byte, need)
+		copy(next, e.partitionReconScratch[:min(base, len(e.partitionReconScratch))])
+		e.partitionReconScratch = next
+	} else if len(e.partitionReconScratch) < need {
+		e.partitionReconScratch = e.partitionReconScratch[:need]
 	}
+	e.partitionReconScratchTop = need
 	for plane := range vp9dec.MaxMbPlane {
 		p := snap.planes[plane]
 		if p.w == 0 || p.h == 0 {
@@ -7497,6 +7515,12 @@ func (e *VP9Encoder) restoreVP9PartitionReconSnapshot(snap vp9PartitionReconSnap
 			copy(data[(p.y+y)*stride+p.x:(p.y+y)*stride+p.x+p.w],
 				e.partitionReconScratch[p.off+y*p.w:p.off+(y+1)*p.w])
 		}
+	}
+}
+
+func (e *VP9Encoder) releaseVP9PartitionReconSnapshot(snap vp9PartitionReconSnapshot) {
+	if e.partitionReconScratchTop == snap.end {
+		e.partitionReconScratchTop = snap.top
 	}
 }
 
@@ -11177,6 +11201,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	if !ok {
 		return maxTx
 	}
+	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
