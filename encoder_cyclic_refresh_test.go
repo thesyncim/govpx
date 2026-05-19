@@ -398,6 +398,58 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshMapEligibility(t *testin
 	}
 }
 
+func TestCyclicRefreshRecodeReusesMutatedSegmentMap(t *testing.T) {
+	const rows, cols = 4, 10
+	count := rows * cols
+	e := &VP8Encoder{
+		opts:                    EncoderOptions{RateControlMode: RateControlCBR, ScreenContentMode: 1},
+		cyclicRefreshConfigured: true,
+		cyclicRefreshMap:        make([]int8, count),
+		cyclicRefreshAttemptMap: make([]int8, count),
+		cyclicRefreshIndex:      0,
+		lastInterSkipCount:      0,
+	}
+	e.rc.mode = RateControlCBR
+	e.rc.framesSinceKeyframe = 2
+	state := newInterFrameCyclicRefreshRecodeState(127)
+	modes := make([]vp8enc.InterFrameMacroblockMode, count)
+	src := vp8enc.SourceImage{Width: cols * 16, Height: rows * 16}
+
+	segmentation, enabled := e.interFrameCyclicRefreshSegmentationForRecode(&state, false)
+	if !enabled || !segmentation.Enabled {
+		t.Fatalf("cyclic segmentation disabled, want enabled")
+	}
+	next := e.prepareInterFrameCyclicRefreshSegmentsForRecode(&state, src, rows, cols, modes)
+	if next != 4 || modes[0].SegmentID != staticSegmentID {
+		t.Fatalf("initial cyclic refresh next/seg0 = %d/%d, want 4/%d", next, modes[0].SegmentID, staticSegmentID)
+	}
+
+	modes[0] = vp8enc.InterFrameMacroblockMode{SegmentID: 0, RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV}
+	modes[1] = vp8enc.InterFrameMacroblockMode{SegmentID: staticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
+	e.updateInterFrameCyclicRefreshAttemptMapForRecode(&state, rows, cols, modes)
+	if got := e.cyclicRefreshAttemptMap[0]; got != 1 {
+		t.Fatalf("attempt refresh map[0] after cleared non-LAST segment = %d, want dirty 1", got)
+	}
+	if got := e.cyclicRefreshAttemptMap[1]; got != -1 {
+		t.Fatalf("attempt refresh map[1] after refreshed segment = %d, want cooldown -1", got)
+	}
+
+	next = e.prepareInterFrameCyclicRefreshSegmentsForRecode(&state, src, rows, cols, modes)
+	if next != 4 || modes[0].SegmentID != 0 {
+		t.Fatalf("second recode next/seg0 = %d/%d, want reused 4/0", next, modes[0].SegmentID)
+	}
+	modes[0] = vp8enc.InterFrameMacroblockMode{SegmentID: 0, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
+	e.updateInterFrameCyclicRefreshAttemptMapForRecode(&state, rows, cols, modes)
+	if got := e.cyclicRefreshAttemptMap[0]; got != 0 {
+		t.Fatalf("attempt refresh map[0] after later LAST/ZEROMV = %d, want candidate 0", got)
+	}
+
+	e.commitLiveCyclicRefreshMap(rows, cols, state.nextIndex)
+	if e.cyclicRefreshIndex != 4 || e.cyclicRefreshMap[0] != 0 || e.cyclicRefreshMap[1] != -1 {
+		t.Fatalf("committed cyclic refresh index/map[0:2] = %d/%v, want 4/[0 -1]", e.cyclicRefreshIndex, e.cyclicRefreshMap[:2])
+	}
+}
+
 func TestCyclicRefreshStaticClassificationPopulatesSkinMapOnly(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               160,

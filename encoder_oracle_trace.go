@@ -464,6 +464,38 @@ type oracleTracePretrellisUVRow struct {
 	ZbinOQ     int       `json:"zbin_oq"`
 }
 
+// oracleTracePickerUVQuantizeRow records the inter RD picker's UV quantize
+// state immediately after the rd_inter16x16_uv-equivalent quantize pass and
+// before the picker computes rd_cost_mbuv. It is the candidate-path sibling of
+// pretrellis_uv_qcoeff, carrying the mode/ref/MV that produced the predictor.
+type oracleTracePickerUVQuantizeRow struct {
+	Type       string `json:"type"`
+	FrameIndex uint64 `json:"frame_index"`
+	Iter       int    `json:"iter,omitempty"`
+	Q          int    `json:"q,omitempty"`
+	MBRow      int    `json:"mb_row"`
+	MBCol      int    `json:"mb_col"`
+	Block      int    `json:"block"`
+	Mode       string `json:"mode"`
+	RefFrame   string `json:"ref_frame"`
+	MVRow      int16  `json:"mv_row"`
+	MVCol      int16  `json:"mv_col"`
+	QuantPath  string `json:"quant_path"`
+	EOB        int    `json:"eob"`
+	ZbinExtra  int    `json:"zbin_extra"`
+	ZbinOQ     int    `json:"zbin_oq"`
+
+	Coeff         [16]int16 `json:"coeff"`
+	QCoeff        [16]int16 `json:"qcoeff"`
+	DQCoeff       [16]int16 `json:"dqcoeff"`
+	Zbin          [16]int16 `json:"zbin"`
+	Round         [16]int16 `json:"round"`
+	Quant         [16]int16 `json:"quant"`
+	QuantShift    [16]int16 `json:"quant_shift"`
+	ZrunZbinBoost [16]int16 `json:"zrun_zbin_boost"`
+	Dequant       [16]int16 `json:"dequant"`
+}
+
 // oracleTraceLFTrialRow records a single per-trial-level evaluation inside
 // the fast loop-filter picker (loopFilterPickContext.pickFast). Each row carries
 // the trial filter level and the resulting partial-frame Y SSE as scored
@@ -1048,6 +1080,52 @@ func (e *VP8Encoder) oracleTracePretrellisUVDumpEnabled() bool {
 func (e *VP8Encoder) oracleTraceChromaOptimizeBDumpEnabled() bool {
 	state := e.oracleTraceState()
 	return state != nil && state.writer != nil && state.chromaOptimizeBDump
+}
+
+func (e *VP8Encoder) oracleTracePickerUVQuantizeDumpEnabled() bool {
+	state := e.oracleTraceState()
+	return state != nil && state.writer != nil && state.pickerUVQuantizeDump
+}
+
+func (e *VP8Encoder) emitOraclePickerUVQuantizeTrace(mbRow int, mbCol int, block int, mode *vp8enc.InterFrameMacroblockMode, quantPath string, coeff *[16]int16, qcoeff *[16]int16, dqcoeff *[16]int16, quant *vp8enc.BlockQuant, eob int, zbinExtra int, zbinOQ int) {
+	if !e.oracleTracePickerUVQuantizeDumpEnabled() {
+		return
+	}
+	if mode == nil || coeff == nil || qcoeff == nil || dqcoeff == nil || quant == nil {
+		return
+	}
+	state := e.oracleTraceState()
+	iter := state.recodeLoopCount
+	if !state.interCandidateTraceAllowed(e.frameCount, iter, mbRow, mbCol) {
+		return
+	}
+	row := oracleTracePickerUVQuantizeRow{
+		Type:          "picker_uv_quantize",
+		FrameIndex:    e.frameCount,
+		Iter:          iter,
+		Q:             e.rc.currentQuantizer,
+		MBRow:         mbRow,
+		MBCol:         mbCol,
+		Block:         block,
+		Mode:          oracleTraceModeName(mode.Mode),
+		RefFrame:      oracleTraceRefName(mode.RefFrame),
+		MVRow:         mode.MV.Row,
+		MVCol:         mode.MV.Col,
+		QuantPath:     quantPath,
+		EOB:           eob,
+		ZbinExtra:     zbinExtra,
+		ZbinOQ:        zbinOQ,
+		Coeff:         *coeff,
+		QCoeff:        *qcoeff,
+		DQCoeff:       *dqcoeff,
+		Zbin:          quant.Zbin,
+		Round:         quant.Round,
+		Quant:         quant.Quant,
+		QuantShift:    quant.QuantShift,
+		ZrunZbinBoost: quant.ZbinBoost,
+		Dequant:       quant.Dequant,
+	}
+	emitOracleTraceRow(state.writer, &row)
 }
 
 // emitOracleChromaOptimizeBTrace writes a single

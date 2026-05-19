@@ -339,6 +339,57 @@ func TestOracleTraceRecodeIterEmitsInterCandidates(t *testing.T) {
 	}
 }
 
+func TestOracleTracePickerUVQuantizeRow(t *testing.T) {
+	requireOracleTraceBuild(t)
+	var buf bytes.Buffer
+	e := &VP8Encoder{}
+	e.SetOracleTraceWriter(&buf)
+	e.SetOracleTracePickerUVQuantizeDump(true)
+	e.incrementOracleTraceRecodeLoop()
+	e.rc.currentQuantizer = 94
+
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.GoldenFrame,
+		Mode:     vp8common.ZeroMV,
+		MV:       vp8enc.MotionVector{Row: -4, Col: 8},
+	}
+	var coeff, qcoeff, dqcoeff [16]int16
+	coeff[0] = 23
+	qcoeff[0] = 1
+	dqcoeff[0] = 149
+	var quant vp8enc.BlockQuant
+	quant.Zbin[0] = 55
+	quant.Round[0] = 33
+	quant.Quant[0] = -17873
+	quant.QuantShift[0] = 1024
+	quant.ZbinBoost[2] = 9
+	quant.Dequant[0] = 149
+
+	e.emitOraclePickerUVQuantizeTrace(5, 2, 16, &mode, "regular", &coeff, &qcoeff, &dqcoeff, &quant, 1, 13, 0)
+
+	lines := splitNonEmptyLines(buf.Bytes())
+	if len(lines) != 1 {
+		t.Fatalf("trace rows = %d, want 1", len(lines))
+	}
+	var row map[string]any
+	if err := json.Unmarshal(lines[0], &row); err != nil {
+		t.Fatalf("trace row invalid JSON: %v", err)
+	}
+	if row["type"] != "picker_uv_quantize" || row["iter"] != float64(1) || row["q"] != float64(94) {
+		t.Fatalf("picker UV row header = %#v", row)
+	}
+	if row["mode"] != "ZEROMV" || row["ref_frame"] != "GOLDEN_FRAME" || row["quant_path"] != "regular" {
+		t.Fatalf("picker UV row mode/ref/path = %v/%v/%v", row["mode"], row["ref_frame"], row["quant_path"])
+	}
+	if row["zbin_extra"] != float64(13) {
+		t.Fatalf("zbin_extra = %v, want 13", row["zbin_extra"])
+	}
+	q := row["qcoeff"].([]any)
+	if q[0] != float64(1) {
+		t.Fatalf("qcoeff[0] = %v, want 1", q[0])
+	}
+}
+
 func TestOracleTraceInterCandidateFilterScopesIterRows(t *testing.T) {
 	requireOracleTraceBuild(t)
 	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_FRAME", "7")

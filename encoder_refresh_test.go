@@ -79,7 +79,8 @@ func TestEncodeInterFrameAttemptSuppressesAltRefCopyBufferOnHiddenARF(t *testing
 
 	// Hidden ARF: invisible frame that forces an ARF refresh.
 	flags := EncodeForceAltRefFrame | EncodeInvisibleFrame
-	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, flags, false, false, false, false, e.rc.currentQuantizer, true, false)
+	cyclicRefresh := newInterFrameCyclicRefreshRecodeState(e.rc.currentQuantizer)
+	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, flags, false, false, false, false, &cyclicRefresh, true, false)
 	if err != nil {
 		t.Fatalf("encodeInterFrameAttempt(hidden ARF) returned error: %v", err)
 	}
@@ -119,7 +120,8 @@ func TestEncodeInterFrameAttemptPreservesAltRefCopyOnDeferredShowFrame(t *testin
 
 	// Drive a CBR golden refresh on the deferred show frame so that the
 	// pre-existing CopyBufferToAltRef=2 path fires just like libvpx.
-	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, 0, false, true, false, false, e.rc.currentQuantizer, true, false)
+	cyclicRefresh := newInterFrameCyclicRefreshRecodeState(e.rc.currentQuantizer)
+	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, 0, false, true, false, false, &cyclicRefresh, true, false)
 	if err != nil {
 		t.Fatalf("encodeInterFrameAttempt(deferred show) returned error: %v", err)
 	}

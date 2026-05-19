@@ -1200,6 +1200,7 @@ type interFrameEncodeAttempt struct {
 	ZeroReference          bool
 	CyclicRefresh          bool
 	CyclicRefreshNextIndex int
+	CyclicRefreshMapLive   bool
 	// Task #365: snapshot the picker-side prob_intra/last/gf the
 	// per-MB RD pass consumed for this attempt (i.e. the values active
 	// before the recode-loop defer restored the pre-attempt snapshot).

@@ -282,7 +282,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	// `recode_loop_test` and `set_speed_features` case 1/2/3.
 	allowRecode := e.libvpxInterRecodeLoopActive(boostedReferenceFrame)
 	rdRefProbsPreconfigured := false
-	cyclicRefreshQ := e.rc.currentQuantizer
+	cyclicRefresh := newInterFrameCyclicRefreshRecodeState(e.rc.currentQuantizer)
 	for attempt := 0; ; attempt++ {
 		if traceEnabled {
 			e.incrementOracleTraceRecodeLoop()
@@ -301,7 +301,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 			}
 		}
 		needProjectedSize := allowRecode || traceEnabled
-		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef, cyclicRefreshQ, needProjectedSize, rdRefProbsPreconfigured)
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef, &cyclicRefresh, needProjectedSize, rdRefProbsPreconfigured)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
@@ -624,7 +624,7 @@ func (e *VP8Encoder) currentPredictionErrorMB(macroblocks int) int {
 	return int(e.framePredictionError / int64(macroblocks))
 }
 
-func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool, cyclicRefreshQ int, needProjectedSize bool, rdRefProbsPreconfigured bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool, cyclicRefresh *interFrameCyclicRefreshRecodeState, needProjectedSize bool, rdRefProbsPreconfigured bool) (interFrameEncodeAttempt, error) {
 	e.phaseCountAttempt(false)
 	e.framePredictionError = 0
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
@@ -688,8 +688,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if roiSegmentation.Enabled {
 		segmentation = roiSegmentation
 	} else if staticSegmentationAllowed {
-		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(cfg.RefreshGolden, cyclicRefreshQ)
-		cyclicRefreshEnabled = segmentation.Enabled
+		segmentation, cyclicRefreshEnabled = e.interFrameCyclicRefreshSegmentationForRecode(cyclicRefresh, cfg.RefreshGolden)
 	}
 	if segmentation.Enabled {
 		cfg.Segmentation = segmentation
@@ -762,7 +761,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 				return interFrameEncodeAttempt{}, ErrInvalidConfig
 			}
 		} else {
-			cyclicRefreshNextIndex = e.assignInterFrameStaticSegmentsForQuantizer(source, rows, cols, e.interFrameModes[:required], cyclicRefreshQ)
+			cyclicRefreshNextIndex = e.prepareInterFrameCyclicRefreshSegmentsForRecode(cyclicRefresh, source, rows, cols, e.interFrameModes[:required])
 		}
 		if e.rowWorkers != nil {
 			projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
@@ -779,6 +778,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	e.phaseEnd(encoderPhaseInterReconstruct, phase)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
+	}
+	cyclicRefreshMapLive := false
+	if cyclicRefreshEnabled && !roiSegmentation.Enabled {
+		e.updateInterFrameCyclicRefreshAttemptMapForRecode(cyclicRefresh, rows, cols, e.interFrameModes[:required])
+		cyclicRefreshMapLive = cyclicRefresh != nil && cyclicRefresh.mapLive
 	}
 	phase = e.phaseStart()
 	loopFilterSource := source
@@ -821,7 +825,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		if e.runtimePreserveSegmentationUpdate && e.runtimePreservedSegmentation.Enabled {
 			preserved := e.runtimePreservedSegmentation
 			if !e.rtcExternalDisableCyclicRefresh && !e.cyclicRefreshConfigured {
-				preserved = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(cyclicRefreshQ)
+				if cyclicRefresh != nil {
+					preserved = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(cyclicRefresh.q)
+				} else {
+					preserved = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(e.rc.currentQuantizer)
+				}
 			}
 			preserved.UpdateMap = true
 			preserved.UpdateData = true
@@ -891,7 +899,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// onyx_if.c:3986 happens AFTER the overshoot drop, so the overshoot
 	// gate's "projected" input must be the raw picker rate in bytes.
 	pickerProjectedBytes := projectedRate >> 8
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, PickerProjectedSizeBytes: pickerProjectedBytes, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: cyclicRefreshEnabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex, PickerProbIntra: pickerProbIntra, PickerProbLast: pickerProbLast, PickerProbGolden: pickerProbGolden}, nil
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, PickerProjectedSizeBytes: pickerProjectedBytes, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: cyclicRefreshEnabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex, CyclicRefreshMapLive: cyclicRefreshMapLive, PickerProbIntra: pickerProbIntra, PickerProbLast: pickerProbLast, PickerProbGolden: pickerProbGolden}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForProjectedFrameSize(projectedBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {

@@ -332,6 +332,58 @@ func (e *VP8Encoder) assignInterFrameStaticSegments(src vp8enc.SourceImage, rows
 	return e.assignInterFrameStaticSegmentsForQuantizer(src, rows, cols, modes, e.rc.currentQuantizer)
 }
 
+type interFrameCyclicRefreshRecodeState struct {
+	segmentation vp8enc.SegmentationConfig
+	initialized  bool
+	seeded       bool
+	enabled      bool
+	mapLive      bool
+	nextIndex    int
+	q            int
+}
+
+func newInterFrameCyclicRefreshRecodeState(q int) interFrameCyclicRefreshRecodeState {
+	return interFrameCyclicRefreshRecodeState{q: q}
+}
+
+func (e *VP8Encoder) interFrameCyclicRefreshSegmentationForRecode(state *interFrameCyclicRefreshRecodeState, refreshGolden bool) (vp8enc.SegmentationConfig, bool) {
+	if state == nil {
+		segmentation := e.cyclicRefreshSegmentationConfig(refreshGolden)
+		return segmentation, segmentation.Enabled
+	}
+	if !state.initialized {
+		state.initialized = true
+		state.nextIndex = e.cyclicRefreshIndex
+		state.segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(refreshGolden, state.q)
+		state.enabled = state.segmentation.Enabled
+	}
+	return state.segmentation, state.enabled
+}
+
+func (e *VP8Encoder) prepareInterFrameCyclicRefreshSegmentsForRecode(state *interFrameCyclicRefreshRecodeState, src vp8enc.SourceImage, rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) int {
+	if state == nil {
+		return e.assignInterFrameStaticSegments(src, rows, cols, modes)
+	}
+	if !state.seeded {
+		state.nextIndex = e.assignInterFrameStaticSegmentsForQuantizer(src, rows, cols, modes, state.q)
+		state.seeded = true
+		return state.nextIndex
+	}
+	return state.nextIndex
+}
+
+func (e *VP8Encoder) updateInterFrameCyclicRefreshAttemptMapForRecode(state *interFrameCyclicRefreshRecodeState, rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) {
+	if state == nil || !state.enabled {
+		return
+	}
+	count := rows * cols
+	if count <= 0 || len(e.cyclicRefreshAttemptMap) < count || len(modes) < count {
+		return
+	}
+	updateCyclicRefreshMapFromInterFrame(modes[:count], e.cyclicRefreshAttemptMap[:count])
+	state.mapLive = true
+}
+
 func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.SourceImage, rows int, cols int, modes []vp8enc.InterFrameMacroblockMode, q int) int {
 	count := rows * cols
 	if count <= 0 {
@@ -410,6 +462,22 @@ func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, mode
 	if len(e.cyclicRefreshMap) >= count && len(e.cyclicRefreshAttemptMap) >= count && len(modes) >= count {
 		copy(e.cyclicRefreshMap[:count], e.cyclicRefreshAttemptMap[:count])
 		updateCyclicRefreshMapFromInterFrame(modes[:count], e.cyclicRefreshMap[:count])
+	}
+	nextIndex %= count
+	if nextIndex < 0 {
+		nextIndex += count
+	}
+	e.cyclicRefreshIndex = nextIndex
+}
+
+func (e *VP8Encoder) commitLiveCyclicRefreshMap(rows int, cols int, nextIndex int) {
+	count := rows * cols
+	if count <= 0 {
+		e.cyclicRefreshIndex = 0
+		return
+	}
+	if len(e.cyclicRefreshMap) >= count && len(e.cyclicRefreshAttemptMap) >= count {
+		copy(e.cyclicRefreshMap[:count], e.cyclicRefreshAttemptMap[:count])
 	}
 	nextIndex %= count
 	if nextIndex < 0 {

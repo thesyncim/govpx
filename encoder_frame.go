@@ -648,7 +648,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.FrameTargetBits = e.rc.frameTargetBits
 			e.forceKeyFrame = false
 			if attempt.CyclicRefresh {
-				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+				if attempt.CyclicRefreshMapLive {
+					e.commitLiveCyclicRefreshMap(rows, cols, attempt.CyclicRefreshNextIndex)
+				} else {
+					e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+				}
 			}
 			e.updateActivityProbeRDState(int(attempt.Config.BaseQIndex), e.rc.currentZbinOverQuant, rows, cols)
 			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
@@ -767,7 +771,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.BufferLevelBits = e.rc.bufferLevelBits
 			e.forceKeyFrame = false
 			if attempt.CyclicRefresh {
-				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+				if attempt.CyclicRefreshMapLive {
+					e.commitLiveCyclicRefreshMap(rows, cols, attempt.CyclicRefreshNextIndex)
+				} else {
+					e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+				}
 			}
 			e.updateActivityProbeRDState(finalQuantizer, e.rc.currentZbinOverQuant, rows, cols)
 			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])

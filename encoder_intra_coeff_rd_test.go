@@ -159,6 +159,79 @@ func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	}
 }
 
+func TestPredictBestIntraChromaModeRDEOBsUseFinalTrialState(t *testing.T) {
+	quant := testRegularMacroblockQuant(t, 20)
+	probs := vp8tables.DefaultCoefProbs
+	const mbRow = 1
+	const mbCol = 1
+
+	for seed := range 4096 {
+		src := testImage(32, 32)
+		fillImage(src, 128, 128, 128)
+		for row := range 16 {
+			for col := range 16 {
+				src.U[row*src.UStride+col] = byte(32 + ((seed*17 + row*29 + col*43) & 0xbf))
+				src.V[row*src.VStride+col] = byte(224 - ((seed*31 + row*11 + col*37) & 0xbf))
+			}
+		}
+		newPred := func() *vp8common.FrameBuffer {
+			pred := testVP8Frame(t, 32, 32, 128, 128, 128)
+			for row := range 16 {
+				for col := range 16 {
+					pred.Img.U[row*pred.Img.UStride+col] = byte(48 + ((seed*13 + row*7 + col*23) & 0x7f))
+					pred.Img.V[row*pred.Img.VStride+col] = byte(208 - ((seed*19 + row*17 + col*5) & 0x7f))
+				}
+			}
+			pred.ExtendBorders()
+			return &pred
+		}
+
+		bestMode := vp8common.DCPred
+		bestRate := 0
+		bestDist := 0
+		bestCost := 0
+		bestEOBSum := 0
+		liveEOBSum := 0
+		for i, uvMode := range wholeBlockIntraUVModeCandidates {
+			pred := newPred()
+			var scratch vp8dec.IntraReconstructionScratch
+			if !predictAnalysisChroma(&pred.Img, mbRow, mbCol, uvMode, &scratch) {
+				t.Fatalf("predictAnalysisChroma(%v) returned false", uvMode)
+			}
+			tokenRate, dist, eobSum := wholeBlockChromaTransformRDWithEOBs(sourceImageFromPublic(src), &pred.Img, mbRow, mbCol, 0, 0, nil, nil, &quant, &probs, false)
+			liveEOBSum = eobSum
+			rate := intraUVModeRate(false, uvMode) + tokenRate
+			cost := rdModeScoreWithZbin(20, 0, rate, dist)
+			if i == 0 || cost < bestCost {
+				bestMode = uvMode
+				bestRate = rate
+				bestDist = dist
+				bestCost = cost
+				bestEOBSum = eobSum
+			}
+		}
+		if bestEOBSum == liveEOBSum {
+			continue
+		}
+
+		pred := newPred()
+		var scratch vp8dec.IntraReconstructionScratch
+		gotMode, gotRate, gotDist, gotEOBSum, ok := predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(sourceImageFromPublic(src), 20, 0, 0, false, mbRow, mbCol, nil, nil, &quant, &pred.Img, &scratch, &probs, nil, false, 0, 0)
+		if !ok {
+			t.Fatalf("predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs returned ok=false")
+		}
+		if gotMode != bestMode || gotRate != bestRate || gotDist != bestDist {
+			t.Fatalf("best UV RD = mode:%v rate:%d dist:%d, want mode:%v rate:%d dist:%d", gotMode, gotRate, gotDist, bestMode, bestRate, bestDist)
+		}
+		if gotEOBSum != liveEOBSum {
+			t.Fatalf("UV EOB sum = %d, want live final-trial EOB sum %d, not winning-mode EOB sum %d", gotEOBSum, liveEOBSum, bestEOBSum)
+		}
+		return
+	}
+
+	t.Fatalf("test fixture did not find a UV-mode case where winning EOB and final-trial EOB differ")
+}
+
 func TestCoefficientBlockTokenRateUsesEntropyCosts(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var zero [16]int16

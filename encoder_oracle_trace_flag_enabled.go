@@ -29,6 +29,12 @@ type oracleTraceState struct {
 	// used to bisect post-trellis ±1 DC keep/drop divergences identified
 	// by task #314 between govpx and libvpx.
 	chromaOptimizeBDump bool
+	// pickerUVQuantizeDump, when true, enables emission of
+	// {"type":"picker_uv_quantize",...} rows from the inter RD picker's
+	// rd_inter16x16_uv equivalent. Mirrors the libvpx-side
+	// GOVPX_ORACLE_NEWMV_PICKER gate and is further scoped by the inter
+	// candidate frame/iter/MB filters when present.
+	pickerUVQuantizeDump bool
 
 	mbBuffer             []oracleTraceMBRow
 	interCandidateBuffer []oracleTraceInterCandidateRow
@@ -61,6 +67,7 @@ func (e *VP8Encoder) SetOracleTraceWriter(w io.Writer) {
 	}
 	state := e.oracleTraceStateCreate()
 	state.writer = w
+	state.pickerUVQuantizeDump = oracleTraceEnvBool("GOVPX_ORACLE_NEWMV_PICKER")
 	state.initInterCandidateFilter()
 }
 
@@ -101,6 +108,17 @@ func (e *VP8Encoder) SetOracleTraceChromaOptimizeBDump(enabled bool) {
 	}
 	state := e.oracleTraceStateCreate()
 	state.chromaOptimizeBDump = enabled
+}
+
+// SetOracleTracePickerUVQuantizeDump enables per-UV-block quantize rows from
+// the inter RD picker. This mirrors GOVPX_ORACLE_NEWMV_PICKER on the libvpx
+// side and is available only in govpx_oracle_trace builds.
+func (e *VP8Encoder) SetOracleTracePickerUVQuantizeDump(enabled bool) {
+	if e == nil {
+		return
+	}
+	state := e.oracleTraceStateCreate()
+	state.pickerUVQuantizeDump = enabled
 }
 
 func (e *VP8Encoder) oracleTraceState() *oracleTraceState {
@@ -188,6 +206,11 @@ func oracleTraceEnvInt(name string) int {
 		return -1
 	}
 	return n
+}
+
+func oracleTraceEnvBool(name string) bool {
+	value := os.Getenv(name)
+	return value != "" && value != "0"
 }
 
 func (state *oracleTraceState) interCandidateTraceAllowed(frame uint64, iter int, mbRow int, mbCol int) bool {

@@ -61,6 +61,14 @@ import (
 // GOVPX_ORACLE_INTER_CANDIDATE_{FRAME,ITER,MB_ROW,MB_COL} so large
 // 720p bisections can target a single MB/iter without multi-GB traces.
 //
+// Task #384 (2026-05-19) rotated the pin again to land the matching
+// UV-side picker quantize trace for inter-mode candidates. With
+// GOVPX_ORACLE_NEWMV_PICKER=1, the oracle now emits picker_uv_quantize
+// rows from rd_inter16x16_uv after vp8_quantize_mbuv, sharing the same
+// frame/iter/MB scoping as inter_candidate rows. This closes the
+// frame-1/frame-2 recode bisection gap where Y candidate rates matched
+// but UV EOB/quantizer state still decided tteob skip backout.
+//
 // These pins exist to detect any future change in the build pipeline
 // (libvpx upgrade, configure flag change, toolchain rotation, new patch
 // stamp) that would silently shift the oracle binary hash. If this test
@@ -74,7 +82,7 @@ import (
 // success the cross-path invariance is enforced by the build script's
 // determinism flags, not by this test).
 const (
-	oracleSHAvpxencArm64Darwin = "94e3f4da3939c0813d6fd2c9c52ff697ad8ceaf8fc2c1b653a11871dd5de2abc"
+	oracleSHAvpxencArm64Darwin = "ded03c16223fd9d6d5df02536d333fe76537e73597012363bda55a30fb2a14c0"
 	oracleSHAlibvpxArm64Darwin = "4992f2bbfc1ce02640e20036286465c455650485a5378904dcc197cb2dda5523"
 )
 

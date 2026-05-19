@@ -409,12 +409,14 @@ func predictBestIntraChromaModeRDWithProbsAndRDConstants(src vp8enc.SourceImage,
 
 // predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs mirrors
 // predictBestIntraChromaModeRDWithProbsAndRDConstants but also returns
-// the sum of UV block EOBs for the winning UV mode (libvpx's
-// `uv_intra_tteob` per vp8/encoder/rdopt.c:1934-1943). Callers running
-// inside the inter-RD picker use this to mirror libvpx's tteob==0
-// rate2 backout (calculate_final_rd_costs at lines 1700-1714); the
-// 4-return wrapper above keeps the legacy keyframe-path callers
-// unchanged.
+// the live UV-block EOB sum left by libvpx's rd_pick_intra_mbuv_mode
+// loop (uv_intra_tteob in vp8/encoder/rdopt.c). libvpx records the
+// winning mode/rate/distortion but does not restore x->e_mbd.eobs for
+// that winner before summing uv_intra_tteob; the EOB state is whatever
+// the final UV trial left behind. Callers running inside the inter-RD
+// picker use this to mirror libvpx's tteob==0 rate2 backout
+// (calculate_final_rd_costs at lines 1700-1714); the 4-return wrapper
+// above keeps the legacy keyframe-path callers unchanged.
 func predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, actZbinAdj int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interUVModeProbs []uint8, fastQuant bool, rdMult int, rdDiv int) (vp8common.MBPredictionMode, int, int, int, bool) {
 	if quant == nil || coefProbs == nil {
 		return 0, 0, 0, 0, false
@@ -426,12 +428,13 @@ func predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(src vp8enc.Sourc
 	bestUVRate := 0
 	bestUVDist := 0
 	bestUVCost := 0
-	bestUVEOBSum := 0
+	liveUVEOBSum := 0
 	for i, uvMode := range wholeBlockIntraUVModeCandidates {
 		if !predictAnalysisChroma(pred, mbRow, mbCol, uvMode, scratch) {
 			return 0, 0, 0, 0, false
 		}
 		tokenRate, dist, uvEOBSum := wholeBlockChromaTransformRDWithEOBs(src, pred, mbRow, mbCol, zbinOverQuant, actZbinAdj, aboveTok, leftTok, quant, coefProbs, fastQuant)
+		liveUVEOBSum = uvEOBSum
 		rate := intraUVModeRateWithProbs(keyFrame, uvMode, interUVModeProbs) + tokenRate
 		cost := libvpxRDCost(rdMult, rdDiv, rate, dist)
 		if i == 0 || cost < bestUVCost {
@@ -439,10 +442,9 @@ func predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(src vp8enc.Sourc
 			bestUVRate = rate
 			bestUVDist = dist
 			bestUVCost = cost
-			bestUVEOBSum = uvEOBSum
 		}
 	}
-	return bestUVMode, bestUVRate, bestUVDist, bestUVEOBSum, true
+	return bestUVMode, bestUVRate, bestUVDist, liveUVEOBSum, true
 }
 
 // wholeBlockChromaTransformRD mirrors libvpx rdopt.c rd_pick_intra_mbuv_mode:

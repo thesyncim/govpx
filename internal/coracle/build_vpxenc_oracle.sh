@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize-task316-chroma-optimize-b-task365-recode-iter-rfct-task373-inter-candidate-iter"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-19-task218-mb-iter-rate-v2-task264-host-pinned-task281-prefix-map-task296-pretrellis-uv-task310-newmv-picker-quantize-task316-chroma-optimize-b-task365-recode-iter-rfct-task373-inter-candidate-iter-task384-picker-uv-quant"
 jobs=${JOBS:-}
 
 # ----------------------------------------------------------------------------
@@ -2040,6 +2040,10 @@ void govpx_oracle_emit_chroma_optimize_b(struct macroblock *x_arg) {
         ctx = govpx_pretrellis_ctx_get(0);
         mb_row = (ctx != NULL && ctx->valid) ? ctx->mb_row : -1;
         mb_col = (ctx != NULL && ctx->valid) ? ctx->mb_col : -1;
+        if (!govpx_oracle_inter_candidate_allowed(
+                govpx_recode_iter_count, mb_row, mb_col)) {
+            break;
+        }
         xd = &x->e_mbd;
         out = govpx_oracle_state.out;
         rdmult_in = x->rdmult;
@@ -2229,6 +2233,10 @@ void govpx_oracle_emit_picker_quantize(struct macroblock *x_arg) {
         ctx = govpx_pretrellis_ctx_get(0);
         mb_row = (ctx != NULL && ctx->valid) ? ctx->mb_row : -1;
         mb_col = (ctx != NULL && ctx->valid) ? ctx->mb_col : -1;
+        if (!govpx_oracle_inter_candidate_allowed(
+                govpx_recode_iter_count, mb_row, mb_col)) {
+            break;
+        }
         xd = &x->e_mbd;
         out = govpx_oracle_state.out;
         mode = (int)xd->mode_info_context->mbmi.mode;
@@ -2314,6 +2322,133 @@ void govpx_oracle_emit_picker_quantize(struct macroblock *x_arg) {
                         (int)blockd->dqcoeff[i]);
             }
             fprintf(out, "]}}\n");
+        }
+        fflush(out);
+    } while (0);
+    pthread_mutex_unlock(&govpx_oracle_lock);
+    GOVPX_TRACE_END();
+}
+
+void govpx_oracle_emit_picker_uv_quantize(struct macroblock *x_arg) {
+    MACROBLOCK *x = x_arg;
+    MACROBLOCKD *xd;
+    FILE *out;
+    govpx_pretrellis_ctx_t *ctx;
+    int b, i;
+    int mb_row, mb_col;
+    int mode;
+    int ref_frame;
+    int mv_row, mv_col;
+    const char *quant_path;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (!govpx_oracle_newmv_picker_enabled()) {
+        return;
+    }
+    if (x == NULL) {
+        return;
+    }
+    GOVPX_TRACE_BEGIN();
+    pthread_mutex_lock(&govpx_oracle_lock);
+    do {
+        ctx = govpx_pretrellis_ctx_get(0);
+        mb_row = (ctx != NULL && ctx->valid) ? ctx->mb_row : -1;
+        mb_col = (ctx != NULL && ctx->valid) ? ctx->mb_col : -1;
+        if (!govpx_oracle_inter_candidate_allowed(
+                govpx_recode_iter_count, mb_row, mb_col)) {
+            break;
+        }
+        xd = &x->e_mbd;
+        out = govpx_oracle_state.out;
+        mode = (int)xd->mode_info_context->mbmi.mode;
+        ref_frame = (int)xd->mode_info_context->mbmi.ref_frame;
+        mv_row = (int)xd->mode_info_context->mbmi.mv.as_mv.row;
+        mv_col = (int)xd->mode_info_context->mbmi.mv.as_mv.col;
+        if (x->quantize_b == vp8_regular_quantize_b) {
+            quant_path = "regular";
+        } else if (x->quantize_b == vp8_fast_quantize_b) {
+            quant_path = "fast";
+        } else {
+            quant_path = "unknown";
+        }
+        for (b = 16; b < 24; ++b) {
+            BLOCK *block = &x->block[b];
+            BLOCKD *blockd = &xd->block[b];
+            int eob = (int)(*blockd->eob);
+            fprintf(out,
+                    "{\"type\":\"picker_uv_quantize\","
+                    "\"frame_index\":%llu,"
+                    "\"iter\":%d,"
+                    "\"q\":%d,"
+                    "\"mb_row\":%d,\"mb_col\":%d,"
+                    "\"block\":%d,"
+                    "\"mode\":\"%s\","
+                    "\"ref_frame\":\"%s\","
+                    "\"mv_row\":%d,\"mv_col\":%d,"
+                    "\"quant_path\":\"%s\","
+                    "\"eob\":%d,"
+                    "\"zbin_extra\":%d,"
+                    "\"zbin_oq\":%d,"
+                    "\"coeff\":[",
+                    govpx_oracle_state.frame_index,
+                    govpx_recode_iter_count,
+                    x->q_index,
+                    mb_row, mb_col, b,
+                    govpx_oracle_mode_name(mode),
+                    govpx_oracle_ref_name(ref_frame),
+                    mv_row, mv_col,
+                    quant_path,
+                    eob,
+                    (int)block->zbin_extra,
+                    (int)x->zbin_over_quant);
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->coeff[i]);
+            }
+            fprintf(out, "],\"qcoeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->qcoeff[i]);
+            }
+            fprintf(out, "],\"dqcoeff\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->dqcoeff[i]);
+            }
+            fprintf(out, "],\"zbin\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->zbin[i]);
+            }
+            fprintf(out, "],\"round\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->round[i]);
+            }
+            fprintf(out, "],\"quant\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->quant[i]);
+            }
+            fprintf(out, "],\"quant_shift\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->quant_shift[i]);
+            }
+            fprintf(out, "],\"zrun_zbin_boost\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)block->zrun_zbin_boost[i]);
+            }
+            fprintf(out, "],\"dequant\":[");
+            for (i = 0; i < 16; ++i) {
+                fprintf(out, "%s%d", i == 0 ? "" : ",",
+                        (int)blockd->dequant[i]);
+            }
+            fprintf(out, "]}\n");
         }
         fflush(out);
     } while (0);
@@ -3606,6 +3741,29 @@ if mbyrd_sentinel not in text:
         sys.stderr.write('build_vpxenc_oracle.sh: macro_block_yrd quantize anchor missing\n')
         sys.exit(2)
     text = text.replace(mbyrd_emit_anchor, mbyrd_emit_replacement, 1)
+uvrd_sentinel = '/* govpx oracle: emit picker UV quantize trace. */'
+if uvrd_sentinel not in text:
+    uvrd_extern_anchor = ('static int rd_inter16x16_uv(VP8_COMP *cpi, MACROBLOCK *x, int *rate,\n'
+                          '                            int *distortion, int fullpixel) {\n')
+    uvrd_extern_decl = ('extern void govpx_oracle_emit_picker_uv_quantize(MACROBLOCK *x);\n\n')
+    if uvrd_extern_anchor not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: rd_inter16x16_uv def anchor missing\n')
+        sys.exit(2)
+    text = text.replace(uvrd_extern_anchor,
+                        uvrd_extern_decl + uvrd_extern_anchor, 1)
+    uvrd_emit_anchor = ('  vp8_quantize_mbuv(x);\n'
+                        '\n'
+                        '  *rate = rd_cost_mbuv(x);\n')
+    uvrd_emit_replacement = ('  vp8_quantize_mbuv(x);\n'
+                             '\n'
+                             '  ' + uvrd_sentinel + '\n'
+                             '  govpx_oracle_emit_picker_uv_quantize(x);\n'
+                             '\n'
+                             '  *rate = rd_cost_mbuv(x);\n')
+    if uvrd_emit_anchor not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: rd_inter16x16_uv quantize anchor missing\n')
+        sys.exit(2)
+    text = text.replace(uvrd_emit_anchor, uvrd_emit_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_RDOPT_PY

@@ -187,23 +187,15 @@ import (
 // updated by predictAnalysisMacroblock per-MB; libvpx writes to
 // xd->dst.y_buffer after each accepted MB.
 //
-// Per-MB rate-and-score forensics at iter 23 q=94 (which the trace does
-// NOT preserve — inter_candidate rows are emitted only for the
-// final-accepted attempt) require extending emitOracleInterCandidateTrace
-// with a recode_iter field and dropping the per-attempt reset gate. That
-// instrumentation is the next-step blocker for verbatim libvpx port.
-//
-// Open candidates (require per-iter candidate-rate trace to discriminate):
-//  1. xd->dst vs e.analysis.Img neighbor-pixel drift specifically at
-//     left-edge MBs (col=1,2). All 18 govpx-flipped MBs are at col<=2;
-//     this is the strongest correlation seen in the audit.
-//  2. UV picker (rd_pick_intra_mbuv_mode in libvpx vs
-//     predictBestIntraChromaModeRD in govpx) re-running per Y mode in
-//     govpx vs once per MB in libvpx (uv_intra_done local cache).
-//  3. The intra-only Y2 walsh path interaction with per-iter Q changes —
-//     the Q=95→Q=94 transition crosses an internal threshold in either
-//     libvpx's macro_block_yrd or govpx's wholeBlockYTransformRDWithEOBs
-//     that the prior tasks (#341, #352) haven't audited.
+// Task #384 closure: per-recode-iter inter_candidate tracing showed the
+// original MB(5,2) split came from cyclic-refresh maps being re-seeded on
+// rejected recode attempts instead of carrying libvpx's live
+// segmentation_map/cyclic_refresh_map mutations forward. After that fix
+// moved the first mismatch to MB(4,53), picker UV quant tracing isolated
+// a second libvpx state leak: rd_pick_intra_mbuv_mode selects the best UV
+// mode/rate/distortion but leaves x->e_mbd.eobs from the final UV trial,
+// and uv_intra_tteob sums that live state. Mirroring both behaviors makes
+// this 12-frame screen-content fixture mode/ref/MV-clean again.
 //
 // This test is logging-only (always passes); it pins the localization
 // state on stdout and to /tmp/govpx_task352_summary.log.

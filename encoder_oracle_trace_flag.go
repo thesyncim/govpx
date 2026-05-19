@@ -110,6 +110,11 @@ func (e *VP8Encoder) oracleTraceChromaOptimizeBDumpEnabled() bool { return false
 func (e *VP8Encoder) emitOracleChromaOptimizeBTrace(int, int, int, *[16]int16, *[16]int16, *[16]int16, *[16]int16, int, int, int, bool) {
 }
 
+func (e *VP8Encoder) oracleTracePickerUVQuantizeDumpEnabled() bool { return false }
+
+func (e *VP8Encoder) emitOraclePickerUVQuantizeTrace(int, int, int, *vp8enc.InterFrameMacroblockMode, string, *[16]int16, *[16]int16, *[16]int16, *vp8enc.BlockQuant, int, int, int) {
+}
+
 func (e *VP8Encoder) emitOracleInterPredictorTrace(int, int, *vp8common.Image) {}
 
 func (e *VP8Encoder) emitOracleInterReconstructedTrace(int, int, *vp8common.Image) {}

@@ -117,6 +117,8 @@ BD-rate gate (`make verify-bd-rate`) reads additional env vars:
 | `GOVPX_BD_RATE_GATES`                | Must be `1` for the slow per-feature VP9 BD-rate gates to run.                                   |
 | `GOVPX_BD_RATE_BUILD_LIBVPX`         | When `1`, missing `vpxenc-vp9-frameflags` triggers a one-shot libvpx build.                       |
 | `GOVPX_BD_RATE_LIBVPX_REQUIRED`      | When `1`, missing libvpx oracle is `t.Fatal` instead of `t.Skip` (CI guard).                     |
+| `GOVPX_VPXENC_VP8_BIN`               | Optional VP8 `vpxenc` path for the VP8 BD-rate gates.                                            |
+| `GOVPX_BD_RATE_LIBVPX_VP8_REQUIRED`  | When `1`, missing VP8 `vpxenc` is `t.Fatal` instead of `t.Skip` for VP8 BD-rate gates.            |
 
 ## VP8 decode helper
 
@@ -166,6 +168,11 @@ GOVPX_ORACLE_INTER_CANDIDATE_ITER=23
 GOVPX_ORACLE_INTER_CANDIDATE_MB_ROW=5
 GOVPX_ORACLE_INTER_CANDIDATE_MB_COL=2
 ```
+
+Set `GOVPX_ORACLE_NEWMV_PICKER=1` to include picker-side quantize rows for
+NEWMV luma (`newmv_picker_quantize`) and inter-candidate UV
+(`picker_uv_quantize`). The frame/iter/MB filters above apply to these rows as
+well, which keeps recode-loop traces small enough for single-MB bisection.
 
 Compare traces in Go with:
 
