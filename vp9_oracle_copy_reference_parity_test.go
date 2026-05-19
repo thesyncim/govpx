@@ -15,54 +15,10 @@ import (
 
 func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 reference-copy parity gate")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 copy-reference parity gate")
 	}
 	requireVP9VpxencFrameFlagsOracle(t)
 
-	runVP9OracleCopyReferenceFrameStrictParity(t)
-
-	t.Run("post-inter-refresh-scoreboard", func(t *testing.T) {
-		const width, height, frames = 64, 64, 5
-		opts := vp9OracleCBROptions(width, height, 650)
-		sources := newVP9OracleTransitionSources(width, height, frames)
-		script := emptyCopyReferenceScript(len(sources))
-		script[3] = "copyref:last+copyref:golden+copyref:altref"
-		probes := map[int][]copyReferenceProbe{
-			3: {
-				{ref: ReferenceLast, name: "last"},
-				{ref: ReferenceGolden, name: "golden"},
-				{ref: ReferenceAltRef, name: "altref"},
-			},
-		}
-
-		extraArgs := vp9OracleCBRArgs(650, 600, 400, 500, 0)
-		want := captureLibvpxVP9CopyReferenceChecksums(t,
-			"vp9-copyref-post-inter", width, height, sources, nil, script,
-			extraArgs)
-		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
-			nil, probes)
-		if !reflect.DeepEqual(got, want) {
-			t.Logf("VP9 post-inter CopyReferenceFrame scoreboard\n govpx: %s\nlibvpx: %s",
-				formatCopyReferenceChecksums(got),
-				formatCopyReferenceChecksums(want))
-			if os.Getenv("GOVPX_VP9_COPYREF_POST_INTER_STRICT") == "1" {
-				t.Fatalf("strict VP9 post-inter CopyReferenceFrame mismatch")
-			}
-		}
-	})
-}
-
-func TestVP9OracleCopyReferenceFrameStrictParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 strict reference-copy parity gate")
-	}
-	requireVP9VpxencFrameFlagsOracle(t)
-
-	runVP9OracleCopyReferenceFrameStrictParity(t)
-}
-
-func runVP9OracleCopyReferenceFrameStrictParity(t *testing.T) {
-	t.Helper()
 	t.Run("refreshed-references", func(t *testing.T) {
 		const width, height, frames = 64, 64, 5
 		opts := vp9OracleCBROptions(width, height, 650)
@@ -112,6 +68,33 @@ func runVP9OracleCopyReferenceFrameStrictParity(t *testing.T) {
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
 			sets, probes)
 		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
+	t.Run("post-inter-refresh-scoreboard", func(t *testing.T) {
+		const width, height, frames = 64, 64, 5
+		opts := vp9OracleCBROptions(width, height, 650)
+		sources := newVP9OracleTransitionSources(width, height, frames)
+		script := emptyCopyReferenceScript(len(sources))
+		script[3] = "copyref:last+copyref:golden+copyref:altref"
+		probes := map[int][]copyReferenceProbe{
+			3: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+		}
+
+		extraArgs := vp9OracleCBRArgs(650, 600, 400, 500, 0)
+		want := captureLibvpxVP9CopyReferenceChecksums(t,
+			"vp9-copyref-post-inter", width, height, sources, nil, script,
+			extraArgs)
+		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
+			nil, probes)
+		if !reflect.DeepEqual(got, want) {
+			t.Logf("VP9 post-inter CopyReferenceFrame scoreboard\n govpx: %s\nlibvpx: %s",
+				formatCopyReferenceChecksums(got),
+				formatCopyReferenceChecksums(want))
+		}
 	})
 }
 
