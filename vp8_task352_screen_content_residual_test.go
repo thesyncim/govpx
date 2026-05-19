@@ -133,6 +133,78 @@ import (
 //   - encode_mb_row's first-row vs first-col speed-feature gates
 //     that suppress some inter candidates on the top frame edge.
 //
+// Task #373 audit (2026-05-19): per-MB iter-23 trace replay (q=94) on
+// /tmp/govpx_task352_screen_content.jsonl confirms govpx admits DC_PRED on
+// exactly 18 MBs at iter 23 q=94, ALL at the LEFT edge of the frame
+// (mb_col in {1, 2}, mb_row in {5, 8-13, 19-21, 28-29, 36-37, 41-44}).
+// libvpx admits ZERO intra MBs at iter 23. At iter 22 (q=95) both encoders
+// agree on ZEROMV+GOLDEN for all 3600 MBs (e.g. MB(5,2) aggregated_rate=
+// 35274 byte-identical on both sides). The flip is between Q=95 and Q=94
+// on govpx alone.
+//
+// Per-mode rd_threshes audit (final iter, MB(5,2) inter_candidate trace):
+//
+//	mode_index govpx_threshold libvpx_threshold mode             ref
+//	0          0               0                ZEROMV           LAST
+//	1          0               0                DC_PRED          INTRA
+//	2          0               0                NEARESTMV        LAST
+//	3          0               0                NEARMV           LAST
+//	4          0               0                ZEROMV           GOLDEN
+//	5          0               0                NEARESTMV        GOLDEN
+//	...
+//	10         6144 (govpx)    1708 (libvpx)    V_PRED           INTRA
+//	11         6144 (govpx)    1708 (libvpx)    H_PRED           INTRA
+//	12         6144 (govpx)    -                TM_PRED          INTRA
+//	13         6144 (govpx)    1852 (libvpx)    NEWMV            LAST
+//	14         6144 (govpx)    1852 (libvpx)    NEWMV            GOLDEN
+//	16-18      4075-8150       -                SPLITMV          *
+//	19         3260            -                B_PRED           INTRA
+//
+// The V/H/TM_PRED threshold gap (6144 vs 1708) means govpx is MORE
+// permissive (3.6x lower-best-rd needed to clear gate) but that's a
+// SUPPRESSING factor (govpx gates harder), so it can't explain admitting
+// DC_PRED. The DC_PRED threshold itself is 0 on BOTH sides (per libvpx
+// sf->thresh_mult[THR_DC]=0 and rd_baseline_thresh[THR_DC]=0; the post-MB
+// rd_thresh_mult raise rewrites rd_threshes[THR_DC] = (0>>7) * mult = 0,
+// so DC_PRED can never be rd_threshes-gated). DC_PRED is therefore
+// evaluated by BOTH encoders; the divergence is in the per-candidate
+// rate/score computation, NOT in the gate.
+//
+// Final-iter MB(5,2) candidate scoreboard (q=64 govpx, q=26 libvpx):
+//
+//	                    govpx           libvpx          delta
+//	DC_PRED rate:       46626 bits      61175 bits      -14549 (govpx LOWER)
+//	DC_PRED rate_y:     42647           58373           -15726
+//	DC_PRED distortion: 5881            1542            +4339 (govpx HIGHER)
+//	DC_PRED score:      24138           5605            +18533
+//	DC_PRED yrd:        22038           5132            +16906
+//
+// At the FINAL iter the rate values are at different Q so not directly
+// comparable. But the relative trend (govpx LOWER rate, HIGHER distortion
+// on DC_PRED) suggests the Y prediction reconstruction path may produce
+// different neighbor-pixel context than libvpx's xd->dst-buffer-driven
+// vp8_build_intra_predictors_mby_s. govpx uses e.analysis.Img which is
+// updated by predictAnalysisMacroblock per-MB; libvpx writes to
+// xd->dst.y_buffer after each accepted MB.
+//
+// Per-MB rate-and-score forensics at iter 23 q=94 (which the trace does
+// NOT preserve — inter_candidate rows are emitted only for the
+// final-accepted attempt) require extending emitOracleInterCandidateTrace
+// with a recode_iter field and dropping the per-attempt reset gate. That
+// instrumentation is the next-step blocker for verbatim libvpx port.
+//
+// Open candidates (require per-iter candidate-rate trace to discriminate):
+//  1. xd->dst vs e.analysis.Img neighbor-pixel drift specifically at
+//     left-edge MBs (col=1,2). All 18 govpx-flipped MBs are at col<=2;
+//     this is the strongest correlation seen in the audit.
+//  2. UV picker (rd_pick_intra_mbuv_mode in libvpx vs
+//     predictBestIntraChromaModeRD in govpx) re-running per Y mode in
+//     govpx vs once per MB in libvpx (uv_intra_done local cache).
+//  3. The intra-only Y2 walsh path interaction with per-iter Q changes —
+//     the Q=95→Q=94 transition crosses an internal threshold in either
+//     libvpx's macro_block_yrd or govpx's wholeBlockYTransformRDWithEOBs
+//     that the prior tasks (#341, #352) haven't audited.
+//
 // This test is logging-only (always passes); it pins the localization
 // state on stdout and to /tmp/govpx_task352_summary.log.
 //
