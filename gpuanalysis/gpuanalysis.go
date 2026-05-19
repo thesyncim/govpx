@@ -32,10 +32,25 @@ func init() {
 	analysis.RegisterGPUConstructor(newAnalyzer)
 }
 
-// sadShaderWGSL is the same kernel as cmd/gpu-analysis-probe but
-// parameterised so the host can drive any frame size; only the
-// uniform block and the dispatch shape change between calls.
-const sadShaderWGSL = `
+// analysisShaderWGSL is the GPU analysis kernel.
+//
+// Design: one workgroup of @workgroup_size(64) processes 64 independent
+// macroblocks in parallel; each thread owns one MB end-to-end. No
+// workgroup_barrier(), no shared memory, no inter-thread coordination
+// — that maps directly onto an Apple GPU SIMD-group of 32 lanes (one
+// workgroup spans two SIMD-groups) and avoids the dispatch / barrier
+// overhead a "16-threads-per-MB cooperative" kernel pays.
+//
+// Each thread does TWO passes over its MB:
+//  1. accumulate sum (for the mean), SAD (vs previous source),
+//     3-tap horizontal-texture energy.
+//  2. read the same 256 pixels again and accumulate the sum of
+//     absolute deviations from the just-computed mean (this is the
+//     "variance" proxy the CPU observer also emits).
+//
+// Output layout: a flat array<u32> with three u32s per MB (sad,
+// variance, texture). No struct padding overhead in storage memory.
+const analysisShaderWGSL = `
 @group(0) @binding(0) var<storage, read> cur: array<u32>;
 @group(0) @binding(1) var<storage, read> prev: array<u32>;
 @group(0) @binding(2) var<storage, read_write> out: array<u32>;
@@ -43,59 +58,159 @@ const sadShaderWGSL = `
 struct Params {
     width_words: u32,
     mb_cols: u32,
-    mb_rows: u32,
-    _pad: u32,
+    mb_total: u32,
+    have_prev: u32,
 }
 @group(0) @binding(3) var<uniform> params: Params;
 
-fn abs_diff(a: u32, b: u32) -> u32 {
+fn abs_diff_u32(a: u32, b: u32) -> u32 {
     if (a > b) { return a - b; }
     return b - a;
 }
 
-@compute @workgroup_size(1)
+@compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let mbx = gid.x;
-    let mby = gid.y;
-    if (mbx >= params.mb_cols || mby >= params.mb_rows) {
+    let mb_idx = gid.x;
+    if (mb_idx >= params.mb_total) {
         return;
     }
+    let mbx = mb_idx % params.mb_cols;
+    let mby = mb_idx / params.mb_cols;
+    let base_word_x = mbx * 4u;
+    let mb_y_start = mby * 16u;
 
     var sad: u32 = 0u;
-    let mb_y_pixel_start = mby * 16u;
-    let mb_x_pixel_start = mbx * 16u;
+    var sum: u32 = 0u;
+    var tex: u32 = 0u;
 
+    // Pass 1: sum, sad, texture.
     for (var ry: u32 = 0u; ry < 16u; ry = ry + 1u) {
-        let py = mb_y_pixel_start + ry;
-        for (var rxw: u32 = 0u; rxw < 4u; rxw = rxw + 1u) {
-            let word_x = (mb_x_pixel_start / 4u) + rxw;
-            let idx = py * params.width_words + word_x;
-            let a = cur[idx];
-            let b = prev[idx];
-            let a0 =  a        & 0xffu;
-            let a1 = (a >>  8u) & 0xffu;
-            let a2 = (a >> 16u) & 0xffu;
-            let a3 = (a >> 24u) & 0xffu;
-            let b0 =  b        & 0xffu;
-            let b1 = (b >>  8u) & 0xffu;
-            let b2 = (b >> 16u) & 0xffu;
-            let b3 = (b >> 24u) & 0xffu;
-            sad = sad + abs_diff(a0, b0) + abs_diff(a1, b1)
-                      + abs_diff(a2, b2) + abs_diff(a3, b3);
+        let row_base = (mb_y_start + ry) * params.width_words + base_word_x;
+        let c0 = cur[row_base + 0u];
+        let c1 = cur[row_base + 1u];
+        let c2 = cur[row_base + 2u];
+        let c3 = cur[row_base + 3u];
+
+        var l: array<u32, 16>;
+        l[ 0] =  c0         & 0xffu;
+        l[ 1] = (c0 >>  8u) & 0xffu;
+        l[ 2] = (c0 >> 16u) & 0xffu;
+        l[ 3] = (c0 >> 24u) & 0xffu;
+        l[ 4] =  c1         & 0xffu;
+        l[ 5] = (c1 >>  8u) & 0xffu;
+        l[ 6] = (c1 >> 16u) & 0xffu;
+        l[ 7] = (c1 >> 24u) & 0xffu;
+        l[ 8] =  c2         & 0xffu;
+        l[ 9] = (c2 >>  8u) & 0xffu;
+        l[10] = (c2 >> 16u) & 0xffu;
+        l[11] = (c2 >> 24u) & 0xffu;
+        l[12] =  c3         & 0xffu;
+        l[13] = (c3 >>  8u) & 0xffu;
+        l[14] = (c3 >> 16u) & 0xffu;
+        l[15] = (c3 >> 24u) & 0xffu;
+
+        for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+            sum = sum + l[i];
+        }
+        for (var i: u32 = 1u; i < 15u; i = i + 1u) {
+            let left = i32(l[i-1u]);
+            let center = i32(l[i]);
+            let right = i32(l[i+1u]);
+            let delta = left - 2 * center + right;
+            if (delta < 0) {
+                tex = tex + u32(-delta);
+            } else {
+                tex = tex + u32(delta);
+            }
+        }
+
+        if (params.have_prev != 0u) {
+            let p0 = prev[row_base + 0u];
+            let p1 = prev[row_base + 1u];
+            let p2 = prev[row_base + 2u];
+            let p3 = prev[row_base + 3u];
+            sad = sad + abs_diff_u32(l[ 0],  p0        & 0xffu);
+            sad = sad + abs_diff_u32(l[ 1], (p0 >>  8u) & 0xffu);
+            sad = sad + abs_diff_u32(l[ 2], (p0 >> 16u) & 0xffu);
+            sad = sad + abs_diff_u32(l[ 3], (p0 >> 24u) & 0xffu);
+            sad = sad + abs_diff_u32(l[ 4],  p1        & 0xffu);
+            sad = sad + abs_diff_u32(l[ 5], (p1 >>  8u) & 0xffu);
+            sad = sad + abs_diff_u32(l[ 6], (p1 >> 16u) & 0xffu);
+            sad = sad + abs_diff_u32(l[ 7], (p1 >> 24u) & 0xffu);
+            sad = sad + abs_diff_u32(l[ 8],  p2        & 0xffu);
+            sad = sad + abs_diff_u32(l[ 9], (p2 >>  8u) & 0xffu);
+            sad = sad + abs_diff_u32(l[10], (p2 >> 16u) & 0xffu);
+            sad = sad + abs_diff_u32(l[11], (p2 >> 24u) & 0xffu);
+            sad = sad + abs_diff_u32(l[12],  p3        & 0xffu);
+            sad = sad + abs_diff_u32(l[13], (p3 >>  8u) & 0xffu);
+            sad = sad + abs_diff_u32(l[14], (p3 >> 16u) & 0xffu);
+            sad = sad + abs_diff_u32(l[15], (p3 >> 24u) & 0xffu);
         }
     }
 
-    out[mby * params.mb_cols + mbx] = sad;
+    let mean = sum / 256u;
+
+    // Pass 2: sum of absolute deviations from mean (variance proxy).
+    var dev: u32 = 0u;
+    for (var ry: u32 = 0u; ry < 16u; ry = ry + 1u) {
+        let row_base = (mb_y_start + ry) * params.width_words + base_word_x;
+        let c0 = cur[row_base + 0u];
+        let c1 = cur[row_base + 1u];
+        let c2 = cur[row_base + 2u];
+        let c3 = cur[row_base + 3u];
+        var l: array<u32, 16>;
+        l[ 0] =  c0         & 0xffu;
+        l[ 1] = (c0 >>  8u) & 0xffu;
+        l[ 2] = (c0 >> 16u) & 0xffu;
+        l[ 3] = (c0 >> 24u) & 0xffu;
+        l[ 4] =  c1         & 0xffu;
+        l[ 5] = (c1 >>  8u) & 0xffu;
+        l[ 6] = (c1 >> 16u) & 0xffu;
+        l[ 7] = (c1 >> 24u) & 0xffu;
+        l[ 8] =  c2         & 0xffu;
+        l[ 9] = (c2 >>  8u) & 0xffu;
+        l[10] = (c2 >> 16u) & 0xffu;
+        l[11] = (c2 >> 24u) & 0xffu;
+        l[12] =  c3         & 0xffu;
+        l[13] = (c3 >>  8u) & 0xffu;
+        l[14] = (c3 >> 16u) & 0xffu;
+        l[15] = (c3 >> 24u) & 0xffu;
+        for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+            let v = l[i];
+            if (v >= mean) {
+                dev = dev + (v - mean);
+            } else {
+                dev = dev + (mean - v);
+            }
+        }
+    }
+
+    let base = mb_idx * 3u;
+    out[base + 0u] = sad;
+    out[base + 1u] = dev;
+    out[base + 2u] = tex;
 }
 `
 
+// mbStatsBytes is the size of one MB output record produced by the
+// kernel: three u32s (sad, variance-proxy, texture).
+const mbStatsBytes = 12
+
+// workgroupSize matches @workgroup_size(64) in the WGSL kernel. The
+// host dispatches ceil(mb_total / workgroupSize) workgroups in the x
+// dimension; out-of-range threads are short-circuited by the
+// shader's first check.
+const workgroupSize = 64
+
 // gpuAnalyzer is the registered [analysis.Analyzer] implementation.
 //
-// Buffers are allocated lazily on first Observe and re-allocated only
-// when the input frame size grows. Steady-state encoding therefore
-// pays only the dispatch + readback latency measured by
-// cmd/gpu-analysis-probe (~150-250 us per frame on M4 Max regardless
-// of frame size, in this revision).
+// Buffer strategy: two source planes are kept GPU-resident in a
+// ping-pong configuration. Each frame uploads exactly one plane
+// (the current source), then dispatches a kernel that reads the
+// just-uploaded plane plus the OTHER plane (which still holds the
+// previous frame). This halves the per-frame upload work versus the
+// "upload both planes every frame" pattern the probe used, and
+// removes the host-side memcpy that used to maintain a prevY shadow.
 //
 // All wgpu objects are released on Close. A failed initialisation
 // returns the error to the caller of NewOrError; the encoder
@@ -113,8 +228,9 @@ type gpuAnalyzer struct {
 	plLayout *wgpu.PipelineLayout
 	pipeline *wgpu.ComputePipeline
 
-	curBuf, prevBuf, outBuf, stagingBuf, uniformBuf *wgpu.Buffer
-	bindGroup                                       *wgpu.BindGroup
+	planeA, planeB                   *wgpu.Buffer
+	outBuf, stagingBuf, uniformBuf   *wgpu.Buffer
+	bindGroupAasCur, bindGroupBasCur *wgpu.BindGroup
 
 	// allocated buffer geometry; zero before first Observe.
 	allocWidth     int
@@ -123,12 +239,15 @@ type gpuAnalyzer struct {
 	allocOutSize   uint64
 	allocMBCount   int
 
-	// Reusable host-side scratch for the packed luma plane (stride is
-	// folded out before upload so the shader can use a packed u32
-	// layout).
-	curPacked  []byte
-	prevPacked []byte
+	// Host-side scratch reused per frame.
+	packedScratch []byte // for stride-folding when YStride != width
+	uniformBytes  [16]byte
+	readbackBuf   []byte // scratch for the staging readback
 
+	// Ping-pong state: aIsCur=true means planeA holds the current
+	// source and planeB will receive the next frame's source after
+	// a swap. prevValid is false until two frames have been observed.
+	aIsCur          bool
 	prevValid       bool
 	prevPlaneWidth  int
 	prevPlaneHeight int
@@ -168,7 +287,7 @@ func (a *gpuAnalyzer) initDevice() error {
 
 func (a *gpuAnalyzer) initPipeline() error {
 	shader, err := a.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{
-		Label: "gpuanalysis-sad", WGSL: sadShaderWGSL,
+		Label: "gpuanalysis-kernel", WGSL: analysisShaderWGSL,
 	})
 	if err != nil {
 		return fmt.Errorf("CreateShaderModule: %w", err)
@@ -207,6 +326,11 @@ func (a *gpuAnalyzer) initPipeline() error {
 // ensureBuffers grows the GPU buffers if the frame size has grown.
 // Shrinking is intentionally a no-op so a stream that resizes down
 // keeps the larger buffer rather than churning.
+//
+// The new buffer layout is ping-pong: planeA and planeB rotate roles
+// each frame. Two bind groups are pre-built — one binds (A=cur, B=prev),
+// the other (B=cur, A=prev) — so the dispatch path can pick the right
+// one without rebuilding bind groups per frame.
 func (a *gpuAnalyzer) ensureBuffers(width, height int) error {
 	if width <= a.allocWidth && height <= a.allocHeight {
 		return nil
@@ -216,30 +340,30 @@ func (a *gpuAnalyzer) ensureBuffers(width, height int) error {
 	mbCols := (width + 15) >> 4
 	mbRows := (height + 15) >> 4
 	mbCount := mbCols * mbRows
-	outSize := uint64(mbCount * 4)
+	outSize := uint64(mbCount) * mbStatsBytes
 
-	cur, err := a.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "gpuanalysis-cur", Size: planeSize,
+	planeA, err := a.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "gpuanalysis-planeA", Size: planeSize,
 		Usage: wgpu.BufferUsageStorage | wgpu.BufferUsageCopyDst,
 	})
 	if err != nil {
-		return fmt.Errorf("create cur: %w", err)
+		return fmt.Errorf("create planeA: %w", err)
 	}
-	prev, err := a.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "gpuanalysis-prev", Size: planeSize,
+	planeB, err := a.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "gpuanalysis-planeB", Size: planeSize,
 		Usage: wgpu.BufferUsageStorage | wgpu.BufferUsageCopyDst,
 	})
 	if err != nil {
-		cur.Release()
-		return fmt.Errorf("create prev: %w", err)
+		planeA.Release()
+		return fmt.Errorf("create planeB: %w", err)
 	}
 	out, err := a.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "gpuanalysis-out", Size: outSize,
 		Usage: wgpu.BufferUsageStorage | wgpu.BufferUsageCopySrc,
 	})
 	if err != nil {
-		cur.Release()
-		prev.Release()
+		planeA.Release()
+		planeB.Release()
 		return fmt.Errorf("create out: %w", err)
 	}
 	staging, err := a.device.CreateBuffer(&wgpu.BufferDescriptor{
@@ -247,8 +371,8 @@ func (a *gpuAnalyzer) ensureBuffers(width, height int) error {
 		Usage: wgpu.BufferUsageCopyDst | wgpu.BufferUsageMapRead,
 	})
 	if err != nil {
-		cur.Release()
-		prev.Release()
+		planeA.Release()
+		planeB.Release()
 		out.Release()
 		return fmt.Errorf("create staging: %w", err)
 	}
@@ -257,65 +381,83 @@ func (a *gpuAnalyzer) ensureBuffers(width, height int) error {
 		Usage: wgpu.BufferUsageUniform | wgpu.BufferUsageCopyDst,
 	})
 	if err != nil {
-		cur.Release()
-		prev.Release()
+		planeA.Release()
+		planeB.Release()
 		out.Release()
 		staging.Release()
 		return fmt.Errorf("create uniform: %w", err)
 	}
-	bindGroup, err := a.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-		Label: "gpuanalysis-bg", Layout: a.bgLayout,
+	bgAasCur, err := a.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
+		Label: "gpuanalysis-bg-AasCur", Layout: a.bgLayout,
 		Entries: []wgpu.BindGroupEntry{
-			{Binding: 0, Buffer: cur, Size: planeSize},
-			{Binding: 1, Buffer: prev, Size: planeSize},
+			{Binding: 0, Buffer: planeA, Size: planeSize},
+			{Binding: 1, Buffer: planeB, Size: planeSize},
 			{Binding: 2, Buffer: out, Size: outSize},
 			{Binding: 3, Buffer: uniform, Size: 16},
 		},
 	})
 	if err != nil {
-		cur.Release()
-		prev.Release()
+		planeA.Release()
+		planeB.Release()
 		out.Release()
 		staging.Release()
 		uniform.Release()
-		return fmt.Errorf("create bind group: %w", err)
+		return fmt.Errorf("create bind group A: %w", err)
+	}
+	bgBasCur, err := a.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
+		Label: "gpuanalysis-bg-BasCur", Layout: a.bgLayout,
+		Entries: []wgpu.BindGroupEntry{
+			{Binding: 0, Buffer: planeB, Size: planeSize},
+			{Binding: 1, Buffer: planeA, Size: planeSize},
+			{Binding: 2, Buffer: out, Size: outSize},
+			{Binding: 3, Buffer: uniform, Size: 16},
+		},
+	})
+	if err != nil {
+		bgAasCur.Release()
+		planeA.Release()
+		planeB.Release()
+		out.Release()
+		staging.Release()
+		uniform.Release()
+		return fmt.Errorf("create bind group B: %w", err)
 	}
 
-	a.curBuf = cur
-	a.prevBuf = prev
+	a.planeA = planeA
+	a.planeB = planeB
 	a.outBuf = out
 	a.stagingBuf = staging
 	a.uniformBuf = uniform
-	a.bindGroup = bindGroup
+	a.bindGroupAasCur = bgAasCur
+	a.bindGroupBasCur = bgBasCur
 	a.allocWidth = width
 	a.allocHeight = height
 	a.allocPlaneSize = planeSize
 	a.allocOutSize = outSize
 	a.allocMBCount = mbCount
-
-	// Host-side packed scratch (the analyzer copies stride-folded
-	// luma into this buffer so the shader can index plane[idx]
-	// without dealing with arbitrary YStride values).
-	if cap(a.curPacked) < int(planeSize) {
-		a.curPacked = make([]byte, planeSize)
-	} else {
-		a.curPacked = a.curPacked[:planeSize]
-	}
-	if cap(a.prevPacked) < int(planeSize) {
-		a.prevPacked = make([]byte, planeSize)
-	} else {
-		a.prevPacked = a.prevPacked[:planeSize]
-	}
+	a.aIsCur = true
 	a.prevValid = false
 	a.prevPlaneWidth = 0
 	a.prevPlaneHeight = 0
+
+	// Host-side scratches reused across frames.
+	if cap(a.packedScratch) < int(planeSize) {
+		a.packedScratch = make([]byte, planeSize)
+	}
+	if cap(a.readbackBuf) < int(outSize) {
+		a.readbackBuf = make([]byte, outSize)
+	}
 	return nil
 }
 
 func (a *gpuAnalyzer) releaseBuffers() {
-	if a.bindGroup != nil {
-		a.bindGroup.Release()
-		a.bindGroup = nil
+	if a.bindGroupAasCur != nil {
+		a.bindGroupAasCur.Release()
+		a.bindGroupAasCur = nil
+	}
+	if a.bindGroupBasCur != nil {
+		a.bindGroupBasCur.Release()
+		a.bindGroupBasCur = nil
 	}
 	if a.uniformBuf != nil {
 		a.uniformBuf.Release()
@@ -329,13 +471,13 @@ func (a *gpuAnalyzer) releaseBuffers() {
 		a.outBuf.Release()
 		a.outBuf = nil
 	}
-	if a.prevBuf != nil {
-		a.prevBuf.Release()
-		a.prevBuf = nil
+	if a.planeB != nil {
+		a.planeB.Release()
+		a.planeB = nil
 	}
-	if a.curBuf != nil {
-		a.curBuf.Release()
-		a.curBuf = nil
+	if a.planeA != nil {
+		a.planeA.Release()
+		a.planeA = nil
 	}
 	a.allocWidth = 0
 	a.allocHeight = 0
@@ -382,14 +524,16 @@ func (a *gpuAnalyzer) Close() error {
 	return nil
 }
 
-// Observe fills out with per-MB SAD against the previous frame and
-// writes mirror metadata (MBX/MBY, frame coords, raster, flags).
+// Observe fills out with the per-MB analysis fields produced by the
+// GPU kernel: SAD vs previous source, variance, texture, plus the
+// derived flags / SearchRadius / StaticScore.
 //
-// In this revision the GPU shader produces only ZeroSAD/BestSAD;
-// Variance / Texture / Flags / SearchRadius fields are deliberately
-// not computed by GPU yet so we keep the kernel small and the
-// per-frame round-trip the load-bearing measurement. Future revisions
-// can fold variance into the same dispatch.
+// Ping-pong buffer strategy: each frame uploads its source luma plane
+// into the buffer that ISN'T currently holding the previous frame's
+// pixels, then dispatches a kernel reading both. After dispatch the
+// roles swap so the just-uploaded buffer becomes "prev" next frame.
+// Net effect: one plane upload per frame instead of two, and zero
+// host-side prev-luma memcpy.
 func (a *gpuAnalyzer) Observe(in *analysis.FrameInput, out *analysis.FrameAnalysis) {
 	if in == nil || out == nil {
 		return
@@ -415,54 +559,78 @@ func (a *gpuAnalyzer) Observe(in *analysis.FrameInput, out *analysis.FrameAnalys
 	out.Stats = analysis.AnalysisStats{BlocksTotal: mbCount}
 
 	if err := a.ensureBuffers(width, height); err != nil {
-		// Initialise raster coords even on failure so consumers
-		// always see a coherent FrameAnalysis.
 		fillRaster(out.MB[:mbCount], mbCols)
 		out.Stats.AnalysisTimeNS = int64(time.Since(start))
 		return
 	}
 
-	// Pack the source luma plane stride-out into a contiguous
-	// width*height buffer for the shader.
-	packLumaPlane(a.curPacked, in.Y, in.YStride, width, height)
-
-	canCompareToPrev := !in.KeyFrame && a.prevValid &&
+	// Decide whether prev is comparable. If not, the shader is told
+	// have_prev=0 and the SAD work is skipped on-GPU. Variance and
+	// texture are still computed.
+	havePrev := a.prevValid && !in.KeyFrame &&
 		a.prevPlaneWidth == width && a.prevPlaneHeight == height
-	if canCompareToPrev {
-		if err := a.dispatch(width, height, mbCols, mbRows); err != nil {
-			// Soft-fall back: leave SADs zero, fill raster.
-			fillRaster(out.MB[:mbCount], mbCols)
-			out.Stats.AnalysisTimeNS = int64(time.Since(start))
-			a.snapshotPrev(in, width, height)
-			return
-		}
-		a.readResults(out.MB[:mbCount], mbCols, mbRows, &out.Stats)
-	} else {
-		// First frame or keyframe: no SAD against prev, just fill
-		// the raster.
-		fillRaster(out.MB[:mbCount], mbCols)
-	}
 
-	a.snapshotPrev(in, width, height)
+	if err := a.dispatch(in, width, height, mbCols, mbRows, havePrev); err != nil {
+		fillRaster(out.MB[:mbCount], mbCols)
+		out.Stats.AnalysisTimeNS = int64(time.Since(start))
+		return
+	}
+	a.readResults(out.MB[:mbCount], mbCols, mbRows, &out.Stats, havePrev)
+
+	// Swap ping-pong: the buffer we just uploaded becomes "prev".
+	a.aIsCur = !a.aIsCur
+	a.prevValid = true
+	a.prevPlaneWidth = width
+	a.prevPlaneHeight = height
 	out.Stats.AnalysisTimeNS = int64(time.Since(start))
 }
 
-// dispatch submits one compute pass that compares curPacked vs
-// prevPacked and writes per-MB SAD into out.
-func (a *gpuAnalyzer) dispatch(width, height, mbCols, mbRows int) error {
+// dispatch uploads the current source plane into the active buffer
+// (planeA when aIsCur, planeB otherwise), writes the uniform block,
+// and submits one compute pass that produces per-MB MBStats records.
+func (a *gpuAnalyzer) dispatch(in *analysis.FrameInput, width, height, mbCols, mbRows int, havePrev bool) error {
 	widthWords := width / 4
 	q := a.device.Queue()
-	if err := q.WriteBuffer(a.curBuf, 0, a.curPacked[:width*height]); err != nil {
-		return fmt.Errorf("write cur: %w", err)
+
+	// Pick the upload target and the bind group.
+	var dstBuf *wgpu.Buffer
+	var bg *wgpu.BindGroup
+	if a.aIsCur {
+		dstBuf = a.planeA
+		bg = a.bindGroupAasCur
+	} else {
+		dstBuf = a.planeB
+		bg = a.bindGroupBasCur
 	}
-	if err := q.WriteBuffer(a.prevBuf, 0, a.prevPacked[:width*height]); err != nil {
-		return fmt.Errorf("write prev: %w", err)
+
+	// Upload current source. Fold stride only when needed; many
+	// callers pass YStride == Width so we can write straight from
+	// in.Y without the packed-scratch copy.
+	planeSize := width * height
+	var uploadSrc []byte
+	if in.YStride == width {
+		uploadSrc = in.Y[:planeSize]
+	} else {
+		packLumaPlane(a.packedScratch[:planeSize], in.Y, in.YStride, width, height)
+		uploadSrc = a.packedScratch[:planeSize]
 	}
-	uniformData := make([]byte, 16)
-	binary.LittleEndian.PutUint32(uniformData[0:], uint32(widthWords))
-	binary.LittleEndian.PutUint32(uniformData[4:], uint32(mbCols))
-	binary.LittleEndian.PutUint32(uniformData[8:], uint32(mbRows))
-	if err := q.WriteBuffer(a.uniformBuf, 0, uniformData); err != nil {
+	if err := q.WriteBuffer(dstBuf, 0, uploadSrc); err != nil {
+		return fmt.Errorf("write cur plane: %w", err)
+	}
+
+	// Uniform block: reuse the array scratch on the analyzer rather
+	// than allocating per frame. Layout matches the shader's Params
+	// struct exactly: width_words, mb_cols, mb_total, have_prev.
+	mbTotal := mbCols * mbRows
+	binary.LittleEndian.PutUint32(a.uniformBytes[0:], uint32(widthWords))
+	binary.LittleEndian.PutUint32(a.uniformBytes[4:], uint32(mbCols))
+	binary.LittleEndian.PutUint32(a.uniformBytes[8:], uint32(mbTotal))
+	var hp uint32
+	if havePrev {
+		hp = 1
+	}
+	binary.LittleEndian.PutUint32(a.uniformBytes[12:], hp)
+	if err := q.WriteBuffer(a.uniformBuf, 0, a.uniformBytes[:]); err != nil {
 		return fmt.Errorf("write uniform: %w", err)
 	}
 
@@ -475,12 +643,13 @@ func (a *gpuAnalyzer) dispatch(width, height, mbCols, mbRows int) error {
 		return fmt.Errorf("begin compute pass: %w", err)
 	}
 	pass.SetPipeline(a.pipeline)
-	pass.SetBindGroup(0, a.bindGroup, nil)
-	pass.Dispatch(uint32(mbCols), uint32(mbRows), 1)
+	pass.SetBindGroup(0, bg, nil)
+	dispatchX := uint32((mbTotal + workgroupSize - 1) / workgroupSize)
+	pass.Dispatch(dispatchX, 1, 1)
 	if err := pass.End(); err != nil {
 		return fmt.Errorf("end pass: %w", err)
 	}
-	outSize := uint64(mbCols*mbRows) * 4
+	outSize := uint64(mbCols*mbRows) * mbStatsBytes
 	encoder.CopyBufferToBuffer(a.outBuf, 0, a.stagingBuf, 0, outSize)
 	cmd, err := encoder.Finish()
 	if err != nil {
@@ -492,10 +661,10 @@ func (a *gpuAnalyzer) dispatch(width, height, mbCols, mbRows int) error {
 	return nil
 }
 
-func (a *gpuAnalyzer) readResults(mbs []analysis.MacroblockAnalysis, mbCols, mbRows int, stats *analysis.AnalysisStats) {
+func (a *gpuAnalyzer) readResults(mbs []analysis.MacroblockAnalysis, mbCols, mbRows int, stats *analysis.AnalysisStats, havePrev bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	outSize := uint64(mbCols*mbRows) * 4
+	outSize := uint64(mbCols*mbRows) * mbStatsBytes
 	if err := a.stagingBuf.Map(ctx, wgpu.MapModeRead, 0, outSize); err != nil {
 		fillRaster(mbs, mbCols)
 		return
@@ -508,43 +677,60 @@ func (a *gpuAnalyzer) readResults(mbs []analysis.MacroblockAnalysis, mbCols, mbR
 	}
 	data := rng.Bytes()
 	for r := range mbRows {
+		base := r * mbCols
 		for c := range mbCols {
-			i := r*mbCols + c
-			sad := binary.LittleEndian.Uint32(data[i*4:])
+			i := base + c
+			off := i * mbStatsBytes
+			sad := binary.LittleEndian.Uint32(data[off:])
+			variance := binary.LittleEndian.Uint32(data[off+4:])
+			texture := binary.LittleEndian.Uint32(data[off+8:])
 			mb := &mbs[i]
 			mb.MBX = int16(c)
 			mb.MBY = int16(r)
-			mb.ZeroSAD = sad
-			mb.BestSAD = sad
-			mb.BestMVX = 0
-			mb.BestMVY = 0
-			score := min(sad>>2, 255)
-			mb.StaticScore = uint16(score)
+			if havePrev {
+				mb.ZeroSAD = sad
+				mb.BestSAD = sad
+				mb.BestMVX = 0
+				mb.BestMVY = 0
+				score := min(sad>>2, 255)
+				mb.StaticScore = uint16(score)
+			} else {
+				mb.ZeroSAD = 0
+				mb.BestSAD = 0
+				mb.StaticScore = 0
+			}
+			mb.Variance = variance
+			tex := min(texture, 0xFFFF)
+			mb.Texture = uint16(tex)
 			mb.Flags = 0
 			mb.SearchRadius = 0
-			if sad <= 32 {
-				mb.Flags |= analysis.FlagStatic
-				stats.BlocksStatic++
-				mb.SearchRadius = 1
-			} else if sad >= 4096 {
-				mb.Flags |= analysis.FlagHighMotion
-				stats.BlocksHighMotion++
-				mb.SearchRadius = 8
-			} else {
-				mb.SearchRadius = 4
+			if variance < 256 {
+				mb.Flags |= analysis.FlagFlat
+				stats.BlocksFlat++
+			}
+			if texture > 1024 {
+				mb.Flags |= analysis.FlagHighTexture
+			}
+			if havePrev {
+				if sad <= 32 {
+					mb.Flags |= analysis.FlagStatic
+					stats.BlocksStatic++
+					mb.SearchRadius = 1
+				} else if sad >= 4096 {
+					mb.Flags |= analysis.FlagHighMotion
+					stats.BlocksHighMotion++
+					mb.SearchRadius = 8
+				} else {
+					mb.SearchRadius = 4
+				}
+				if mb.Flags&analysis.FlagStatic != 0 && mb.Flags&analysis.FlagFlat != 0 {
+					mb.Flags |= analysis.FlagSkipLikely
+					stats.BlocksSkipLikely++
+				}
 			}
 		}
 	}
 	_ = a.stagingBuf.Unmap()
-}
-
-func (a *gpuAnalyzer) snapshotPrev(in *analysis.FrameInput, width, height int) {
-	// curPacked already holds the stride-folded luma plane; copy it
-	// into prevPacked for next frame.
-	copy(a.prevPacked[:width*height], a.curPacked[:width*height])
-	a.prevValid = true
-	a.prevPlaneWidth = width
-	a.prevPlaneHeight = height
 }
 
 func packLumaPlane(dst, src []byte, srcStride, width, height int) {
