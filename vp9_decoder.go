@@ -12,6 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 )
 
 // VP9Decryptor mirrors libvpx v1.16.0 VPXD_SET_DECRYPTOR for VP9.
@@ -77,18 +78,12 @@ type VP9DecoderOptions struct {
 	// ErrorConcealment enables libvpx-style concealment for corrupt interframes
 	// after a clean frame has initialized references.
 	ErrorConcealment bool
-	// ErrorResilient is kept as a compatibility alias for ErrorConcealment.
-	ErrorResilient bool
-	// PostProcess enables the legacy libvpx-style VP9 postprocess chain
-	// (Deblock | Demacroblock, plus AddNoise when PostProcessNoiseLevel > 0).
-	// Prefer PostProcessFlags for new code.
-	PostProcess bool
 	// PostProcessFlags selects individual libvpx-style postprocess filters.
-	// Zero disables postprocessing unless PostProcess is set.
+	// Zero disables postprocessing.
 	PostProcessFlags PostProcessFlag
 	// PostProcessNoiseLevel enables libvpx-style additive luma noise when
-	// PostProcess is true or PostProcessAddNoise is set. Zero disables
-	// additive noise; valid range is [0, 16].
+	// PostProcessAddNoise is set. Zero disables additive noise; valid range is
+	// [0, 16].
 	PostProcessNoiseLevel int
 
 	// MaxWidth and MaxHeight cap the accepted frame dimensions.
@@ -193,7 +188,7 @@ type VP9FrameInfo struct {
 
 // ErrVP9NotImplemented is returned by VP9Decoder.Decode for valid VP9
 // packets outside the implemented profile 0 reconstruction surface.
-var ErrVP9NotImplemented = errors.New("govpx: VP9 packet outside implemented profile 0 scope")
+var ErrVP9NotImplemented = vpxerrors.ErrVP9NotImplemented
 
 // VP9Decoder is the public entry point for VP9 stream decoding. The
 // internal/vp9 package carries the parser and DSP kernels; this type
@@ -501,20 +496,11 @@ func validateVP9ByteAlignment(alignment int) error {
 }
 
 func (opts VP9DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
-	flags := opts.PostProcessFlags
-	if flags == 0 && opts.PostProcess {
-		flags = legacyVP9PostProcessFlags
-		if opts.PostProcessNoiseLevel > 0 {
-			flags |= PostProcessAddNoise
-		}
-	}
-	return flags
+	return opts.PostProcessFlags
 }
 
-const legacyVP9PostProcessFlags = PostProcessDeblock | PostProcessDemacroblock
-
 func (opts VP9DecoderOptions) effectiveErrorConcealment() bool {
-	return opts.ErrorConcealment || opts.ErrorResilient
+	return opts.ErrorConcealment
 }
 
 func (d *VP9Decoder) decryptVP9Packet(packet []byte) []byte {

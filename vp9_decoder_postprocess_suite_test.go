@@ -8,7 +8,7 @@ import (
 )
 
 func TestVP9DecoderPostProcessOutputsPostFrame(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{PostProcess: true})
+	d, err := NewVP9Decoder(VP9DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestVP9DecoderPostProcessAddNoiseChangesOnlyLuma(t *testing.T) {
 
 func TestVP9DecoderPostProcessSteadyStateAlloc(t *testing.T) {
 	d, err := NewVP9Decoder(VP9DecoderOptions{
-		PostProcess:           true,
+		PostProcessFlags:      PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise,
 		PostProcessNoiseLevel: 4,
 	})
 	if err != nil {
@@ -143,8 +143,8 @@ func TestVP9DecoderPostProcessFlagsRoundTripIndividually(t *testing.T) {
 				PostProcessMFQE | PostProcessAddNoise,
 			PostProcessNoiseLevel: 2,
 		}},
-		{name: "LegacyPostProcess", opts: VP9DecoderOptions{
-			PostProcess:           true,
+		{name: "DeblockDemacroblockNoise", opts: VP9DecoderOptions{
+			PostProcessFlags:      PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise,
 			PostProcessNoiseLevel: 1,
 		}},
 	}
@@ -358,7 +358,7 @@ func TestVP9DecoderErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
 }
 
 func TestVP9DecoderErrorConcealmentConcealsMissingFrame(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{ErrorResilient: true})
+	d, err := NewVP9Decoder(VP9DecoderOptions{ErrorConcealment: true})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}

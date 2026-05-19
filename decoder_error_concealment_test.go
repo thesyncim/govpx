@@ -21,8 +21,8 @@ func TestDecodeRejectsMissingTokenPartition(t *testing.T) {
 	}
 }
 
-func TestDecodeErrorResilientConcealsCorruptInterFrame(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
+func TestDecodeErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -121,8 +121,8 @@ func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	}
 }
 
-func TestDecodeErrorResilientConcealmentDoesNotCommitProbabilityUpdates(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
+func TestDecodeErrorConcealmentDoesNotCommitProbabilityUpdates(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -185,8 +185,8 @@ func TestCommitParsedStateHonorsModeProbabilityRefreshFlag(t *testing.T) {
 	}
 }
 
-func TestDecodeIntoErrorResilientConcealsCorruptInterFrame(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
+func TestDecodeIntoErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestDecodeErrorConcealmentAllocatesZero(t *testing.T) {
 }
 
 func TestDecodePostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true, PostProcess: true})
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true, PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestDecodePostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
 }
 
 func TestDecodeIntoPostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true, PostProcess: true})
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true, PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}

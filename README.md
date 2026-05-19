@@ -110,7 +110,7 @@ returns no more data.
 | --- | --- |
 | Decode one packet | `Decode`, then `NextFrame` |
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
-| Configure VP9 decode recovery/postprocess | `VP9DecoderOptions.ErrorConcealment`, `VP9DecoderOptions.ErrorResilient`, `VP9DecoderOptions.PostProcess`, `VP9DecoderOptions.PostProcessFlags`, `VP9DecoderOptions.PostProcessNoiseLevel` |
+| Configure VP9 decode recovery/postprocess | `VP9DecoderOptions.ErrorConcealment`, `VP9DecoderOptions.PostProcessFlags`, `VP9DecoderOptions.PostProcessNoiseLevel` |
 | Select VP9 decoded spatial-SVC layer | `SetSVCSpatialLayer`, `ClearSVCSpatialLayer` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |

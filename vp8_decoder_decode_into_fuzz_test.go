@@ -66,7 +66,6 @@ func assertVP8FuzzDecodeError(t *testing.T, err error) {
 	t.Helper()
 	switch {
 	case errors.Is(err, ErrInvalidData):
-	case errors.Is(err, ErrUnsupportedFeature):
 	case errors.Is(err, ErrNeedKeyFrame):
 	case errors.Is(err, ErrFrameNotReady):
 	case errors.Is(err, ErrFrameRejected):

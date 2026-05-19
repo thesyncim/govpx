@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"errors"
-
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
@@ -642,12 +640,6 @@ func (r VP9EncodeResult) RTPPayloadDescriptor() VP9RTPPayloadDescriptor {
 	}
 	return desc
 }
-
-// ErrVP9EncoderNotImplemented is retained for callers that already branch on
-// this sentinel.
-//
-// Deprecated: Encode and EncodeInto no longer return this error.
-var ErrVP9EncoderNotImplemented = errors.New("govpx: VP9 encoder path unavailable")
 
 const (
 	// VP9MaxSegments is the number of segment IDs available in a VP9 profile 0

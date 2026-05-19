@@ -238,7 +238,7 @@ func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
 
 	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc", ivf)
-	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcess: true})
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	assertFrameChecksumsEqual(t, "postprocess Decode", got, want)
 	gotFlags := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	assertFrameChecksumsEqual(t, "postprocess flags Decode", gotFlags, want)
@@ -252,7 +252,7 @@ func TestOracleLibvpxPostProcessMatchesProfile3Decoder(t *testing.T) {
 	ivf := mustDecodeHex(t, libvpxProfile3IVFHex)
 
 	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc", ivf)
-	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcess: true})
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	assertFrameChecksumsEqual(t, "profile3 postprocess Decode", got, want)
 }
 
@@ -276,7 +276,7 @@ func TestOracleLibvpxPostProcessLegacyNoiseMatchesDecoder(t *testing.T) {
 	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
 
 	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc-all-noise", ivf)
-	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcess: true, PostProcessNoiseLevel: 4})
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE, PostProcessNoiseLevel: 4})
 	assertFrameChecksumsEqual(t, "legacy postprocess addnoise Decode", got, want)
 }
 

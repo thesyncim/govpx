@@ -73,7 +73,6 @@ docs/
   api.md
   codec-status.md
   validation.md
-  migration.md
 ```
 
 The root package should expose stable user APIs and forward to internal
@@ -136,9 +135,6 @@ Goal: decide what users should see before moving implementation.
 Outputs:
 
 - Draft `docs/api.md` with the intended stable API shape.
-- Draft `docs/migration.md` only for project-internal coordination. It should
-  map old names to new names for subagents and reviewers, not promise external
-  compatibility.
 - Small root-package facade plan: which files stay public, which become
   adapters, which move internal.
 
@@ -320,8 +316,6 @@ Docs:
 - `docs/architecture.md`: package layout, public/internal boundaries, data flow.
 - `docs/codec-status.md`: exact VP8/VP9 scope and unsupported features.
 - `docs/validation.md`: local, CI, oracle, fuzz, and performance gates.
-- `docs/migration.md`: internal cleanup map from old API names to final API
-  names. No deprecation policy is needed until the first release.
 - `UPSTREAM.md`: keep as authoritative libvpx baseline and scope source.
 - `plan.md`: keep as the high-level tracker, not as user documentation.
 

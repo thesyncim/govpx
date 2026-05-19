@@ -2,7 +2,6 @@ package govpx
 
 import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
@@ -91,11 +90,8 @@ type FrameInfo struct {
 // frame. It allocates nothing and is safe to call on every received
 // packet. Returns [ErrInvalidData] when the frame tag is malformed.
 func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
-	header, err := vp8dec.ParseFrameHeader(packet)
-	if err != nil {
-		return StreamInfo{}, ErrInvalidData
-	}
-	return streamInfoFromFrameHeader(header), nil
+	info, err := vp8dec.PeekStreamInfo(packet)
+	return streamInfoFromInternal(info), err
 }
 
 func peekVP8FrameHeader(packet []byte) (vp8dec.FrameHeader, StreamInfo, error) {
@@ -103,17 +99,17 @@ func peekVP8FrameHeader(packet []byte) (vp8dec.FrameHeader, StreamInfo, error) {
 	if err != nil {
 		return vp8dec.FrameHeader{}, StreamInfo{}, ErrInvalidData
 	}
-	return header, streamInfoFromFrameHeader(header), nil
+	return header, streamInfoFromInternal(vp8dec.StreamInfoFromFrameHeader(header)), nil
 }
 
-func streamInfoFromFrameHeader(header vp8dec.FrameHeader) StreamInfo {
+func streamInfoFromInternal(info vp8dec.StreamInfo) StreamInfo {
 	return StreamInfo{
-		Width:              header.Width,
-		Height:             header.Height,
-		Profile:            header.Profile,
-		KeyFrame:           header.KeyFrame(),
-		ShowFrame:          header.ShowFrame,
-		FirstPartitionSize: header.FirstPartitionSize,
+		Width:              info.Width,
+		Height:             info.Height,
+		Profile:            info.Profile,
+		KeyFrame:           info.KeyFrame,
+		ShowFrame:          info.ShowFrame,
+		FirstPartitionSize: info.FirstPartitionSize,
 	}
 }
 
@@ -152,134 +148,27 @@ type VP9StreamInfo struct {
 // Superframe fields. Returns [ErrInvalidVP9Data] for malformed packets and
 // [ErrVP9NotImplemented] for non-profile0 packets.
 func PeekVP9StreamInfo(packet []byte) (VP9StreamInfo, error) {
-	sf, err := vp9ParseSuperframe(packet)
-	if err != nil {
-		return VP9StreamInfo{}, err
-	}
-	frame := packet
-	info := VP9StreamInfo{SuperframeFrames: 1}
-	if sf.count != 0 {
-		frame = sf.frames[0]
-		info.Superframe = true
-		info.SuperframeFrames = sf.count
-	}
-	if err := peekVP9FrameStreamInfo(frame, &info); err != nil {
-		return VP9StreamInfo{}, err
-	}
-	return info, nil
+	info, err := vp9dec.PeekStreamInfo(packet)
+	return vp9StreamInfoFromInternal(info), err
 }
 
-func peekVP9FrameStreamInfo(packet []byte, info *VP9StreamInfo) error {
-	if len(packet) == 0 {
-		return ErrInvalidVP9Data
+func vp9StreamInfoFromInternal(info vp9dec.StreamInfo) VP9StreamInfo {
+	return VP9StreamInfo{
+		Width:                  info.Width,
+		Height:                 info.Height,
+		Profile:                info.Profile,
+		KeyFrame:               info.KeyFrame,
+		ShowFrame:              info.ShowFrame,
+		ShowExistingFrame:      info.ShowExistingFrame,
+		ExistingFrameSlot:      info.ExistingFrameSlot,
+		IntraOnly:              info.IntraOnly,
+		ErrorResilient:         info.ErrorResilient,
+		RefreshFrameFlags:      info.RefreshFrameFlags,
+		Quantizer:              info.Quantizer,
+		FirstPartitionSize:     info.FirstPartitionSize,
+		FrameSizeFromReference: info.FrameSizeFromReference,
+		FrameSizeReference:     info.FrameSizeReference,
+		Superframe:             info.Superframe,
+		SuperframeFrames:       info.SuperframeFrames,
 	}
-	var r vp9dec.BitReader
-	r.Init(packet)
-	if err := vp9dec.ReadFrameMarker(&r); err != nil {
-		return ErrInvalidVP9Data
-	}
-	profile := vp9dec.ReadProfile(&r)
-	if profile >= common.MaxProfiles {
-		return ErrInvalidVP9Data
-	}
-	if profile != common.Profile0 {
-		return ErrVP9NotImplemented
-	}
-	info.Profile = int(profile)
-
-	info.ShowExistingFrame = r.ReadBit() != 0
-	if info.ShowExistingFrame {
-		info.ExistingFrameSlot = uint8(r.ReadLiteral(3))
-		info.ShowFrame = true
-		return vp9PeekCheck(&r)
-	}
-
-	frameType := common.FrameType(r.ReadBit())
-	info.KeyFrame = frameType == common.KeyFrame
-	info.ShowFrame = r.ReadBit() != 0
-	info.ErrorResilient = r.ReadBit() != 0
-
-	if info.KeyFrame {
-		if !vp9dec.ReadSyncCode(&r) {
-			return ErrInvalidVP9Data
-		}
-		if _, err := vp9dec.ReadBitdepthColorspaceSampling(&r, profile); err != nil {
-			return ErrInvalidVP9Data
-		}
-		width, height := vp9dec.ReadFrameSize(&r)
-		info.Width, info.Height = int(width), int(height)
-		_ = vp9dec.ReadRenderSize(&r, width, height)
-		info.RefreshFrameFlags = 0xff
-		return finishVP9StreamInfoPeek(&r, info)
-	}
-
-	if !info.ShowFrame {
-		info.IntraOnly = r.ReadBit() != 0
-	}
-	if !info.ErrorResilient {
-		_ = r.ReadLiteral(2) // reset_frame_context
-	}
-	if info.IntraOnly {
-		if !vp9dec.ReadSyncCode(&r) {
-			return ErrInvalidVP9Data
-		}
-		info.RefreshFrameFlags = uint8(r.ReadLiteral(common.RefFrames))
-		width, height := vp9dec.ReadFrameSize(&r)
-		info.Width, info.Height = int(width), int(height)
-		_ = vp9dec.ReadRenderSize(&r, width, height)
-		return finishVP9StreamInfoPeek(&r, info)
-	}
-
-	info.RefreshFrameFlags = uint8(r.ReadLiteral(common.RefFrames))
-	_ = vp9dec.ReadInterRefBlock(&r)
-	for i := range 3 {
-		if r.ReadBit() != 0 {
-			info.FrameSizeFromReference = true
-			info.FrameSizeReference = i
-			_ = vp9dec.ReadRenderSize(&r, 0, 0)
-			_ = r.ReadBit() // allow_high_precision_mv
-			_ = vp9dec.ReadInterpFilter(&r)
-			return finishVP9StreamInfoPeek(&r, info)
-		}
-	}
-	width, height := vp9dec.ReadFrameSize(&r)
-	info.Width, info.Height = int(width), int(height)
-	_ = vp9dec.ReadRenderSize(&r, width, height)
-	_ = r.ReadBit() // allow_high_precision_mv
-	_ = vp9dec.ReadInterpFilter(&r)
-	return finishVP9StreamInfoPeek(&r, info)
-}
-
-func finishVP9StreamInfoPeek(r *vp9dec.BitReader, info *VP9StreamInfo) error {
-	if !info.ErrorResilient {
-		_ = r.ReadBit() // refresh_frame_context
-		_ = r.ReadBit() // frame_parallel_decoding
-	}
-	_ = r.ReadLiteral(common.FrameContextsLog2)
-
-	var lf vp9dec.LoopfilterParams
-	vp9dec.ReadLoopfilter(r, &lf)
-	var q vp9dec.QuantizationParams
-	vp9dec.ReadQuantization(r, &q)
-	info.Quantizer = int(q.BaseQindex)
-	var seg vp9dec.SegmentationParams
-	vp9dec.ReadSegmentation(r, &seg)
-
-	if info.Width == 0 {
-		return vp9PeekCheck(r)
-	}
-	miCols := (info.Width + common.MiSize - 1) >> common.MiSizeLog2
-	var tile vp9dec.TileInfo
-	if err := vp9dec.ReadTileInfo(r, miCols, &tile); err != nil {
-		return ErrInvalidVP9Data
-	}
-	info.FirstPartitionSize = int(r.ReadLiteral(16))
-	return vp9PeekCheck(r)
-}
-
-func vp9PeekCheck(r *vp9dec.BitReader) error {
-	if r.HasError() {
-		return ErrInvalidVP9Data
-	}
-	return nil
 }

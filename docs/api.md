@@ -393,5 +393,4 @@ summary, and links. Detailed behavior belongs in:
 - `docs/api.md` for public API examples and option families;
 - `docs/architecture.md` for package ownership and data flow;
 - `docs/codec-status.md` for VP8/VP9 scope and unsupported features;
-- `docs/validation.md` for local, CI, oracle, fuzz, and performance gates;
-- `docs/migration.md` for internal cleanup coordination.
+- `docs/validation.md` for local, CI, oracle, fuzz, and performance gates.

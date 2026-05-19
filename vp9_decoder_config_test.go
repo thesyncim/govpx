@@ -32,8 +32,8 @@ func TestNewVP9DecoderRejectsBadOptions(t *testing.T) {
 	cases := []VP9DecoderOptions{
 		{Threads: -1},
 		{SVCSpatialLayerSet: true, SVCSpatialLayer: uint8(VP9RTPMaxSpatialLayers)},
-		{PostProcess: true, PostProcessNoiseLevel: -1},
-		{PostProcess: true, PostProcessNoiseLevel: 17},
+		{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: -1},
+		{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: 17},
 		{PostProcessNoiseLevel: 4},
 		{PostProcessFlags: PostProcessDeblock, PostProcessNoiseLevel: 4},
 		{PostProcessFlags: PostProcessFlag(1 << 12)},
@@ -49,19 +49,18 @@ func TestNewVP9DecoderRejectsBadOptions(t *testing.T) {
 }
 
 func TestVP9DecoderEffectivePostProcessFlagsMatchLibvpxVP9Default(t *testing.T) {
-	if got, want := (VP9DecoderOptions{PostProcess: true}).effectivePostProcessFlags(),
+	if got, want := (VP9DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock}).effectivePostProcessFlags(),
 		PostProcessDeblock|PostProcessDemacroblock; got != want {
-		t.Fatalf("VP9 legacy postprocess flags = 0x%x, want 0x%x", got, want)
+		t.Fatalf("VP9 default postprocess flags = 0x%x, want 0x%x", got, want)
 	}
 	if got, want := (VP9DecoderOptions{
-		PostProcess:           true,
+		PostProcessFlags:      PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise,
 		PostProcessNoiseLevel: 4,
 	}).effectivePostProcessFlags(),
 		PostProcessDeblock|PostProcessDemacroblock|PostProcessAddNoise; got != want {
-		t.Fatalf("VP9 legacy noise postprocess flags = 0x%x, want 0x%x", got, want)
+		t.Fatalf("VP9 noise postprocess flags = 0x%x, want 0x%x", got, want)
 	}
 	if got, want := (VP9DecoderOptions{
-		PostProcess:      true,
 		PostProcessFlags: PostProcessMFQE,
 	}).effectivePostProcessFlags(), PostProcessMFQE; got != want {
 		t.Fatalf("VP9 explicit postprocess flags = 0x%x, want 0x%x", got, want)

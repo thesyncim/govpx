@@ -615,7 +615,7 @@ func TestVP9DecoderVpxdecOracleMatchesPostProcessControls(t *testing.T) {
 		{
 			name: "legacy default",
 			lib:  coracle.VpxdecVP9Options{PostProcess: true},
-			gov:  VP9DecoderOptions{PostProcess: true},
+			gov:  VP9DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock},
 		},
 		{
 			name: "explicit deblock demacroblock",

@@ -47,7 +47,7 @@ func TestOracleLibvpxDecoderReferenceControls(t *testing.T) {
 		apply := decoderReferenceControlApply(controlFrame, ReferenceLast, 8, "last", &govpxCopies)
 
 		want, libvpxCopies := runLibvpxChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-postproc-controls-copylog", script, ivf)
-		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{PostProcess: true}, apply)
+		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls postprocess", got, want)
 		assertFrameChecksumsEqual(t, "decoder copy-reference controls postprocess", govpxCopies, libvpxCopies)
 	})

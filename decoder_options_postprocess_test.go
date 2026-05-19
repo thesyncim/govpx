@@ -16,8 +16,8 @@ func TestNewVP8DecoderValidation(t *testing.T) {
 
 func TestNewVP8DecoderRejectsInvalidPostProcessNoise(t *testing.T) {
 	tests := []DecoderOptions{
-		{PostProcess: true, PostProcessNoiseLevel: -1},
-		{PostProcess: true, PostProcessNoiseLevel: 17},
+		{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: -1},
+		{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: 17},
 		{PostProcessNoiseLevel: 4},
 		{PostProcessFlags: PostProcessDeblock, PostProcessNoiseLevel: 4},
 	}
@@ -50,8 +50,8 @@ func TestDecoderOptionsEffectivePostProcessFlags(t *testing.T) {
 		want PostProcessFlag
 	}{
 		{name: "off", opts: DecoderOptions{}, want: 0},
-		{name: "legacy", opts: DecoderOptions{PostProcess: true}, want: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE},
-		{name: "legacy-noise", opts: DecoderOptions{PostProcess: true, PostProcessNoiseLevel: 4}, want: PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE},
+		{name: "default chain", opts: DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE}, want: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE},
+		{name: "default chain noise", opts: DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE, PostProcessNoiseLevel: 4}, want: PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE},
 		{name: "flags", opts: DecoderOptions{PostProcessFlags: PostProcessDeblock}, want: PostProcessDeblock},
 	}
 	for _, tc := range tests {
@@ -139,7 +139,7 @@ func TestDecodeOutputsLoopFilteredKeyFrame(t *testing.T) {
 }
 
 func TestDecodePostProcessOutputsPostFrame(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{PostProcess: true})
+	d, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestDecodePostProcessFlagsMFQEOnlyOutputPostFrame(t *testing.T) {
 }
 
 func TestDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{PostProcess: true})
+	d, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -269,11 +269,11 @@ func TestDecodePostProcessFlagAddNoiseChangesOnlyLuma(t *testing.T) {
 
 func TestDecodePostProcessNoiseChangesOnlyLuma(t *testing.T) {
 	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
-	plain, err := NewVP8Decoder(DecoderOptions{PostProcess: true})
+	plain, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder plain returned error: %v", err)
 	}
-	noisy, err := NewVP8Decoder(DecoderOptions{PostProcess: true, PostProcessNoiseLevel: 4})
+	noisy, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE, PostProcessNoiseLevel: 4})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder noisy returned error: %v", err)
 	}

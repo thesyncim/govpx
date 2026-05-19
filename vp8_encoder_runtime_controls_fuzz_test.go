@@ -220,7 +220,6 @@ func assertVP8FuzzRuntimeControlError(t *testing.T, err error) {
 	case errors.Is(err, ErrInvalidQuantizer):
 	case errors.Is(err, ErrBufferTooSmall):
 	case errors.Is(err, ErrFrameNotReady):
-	case errors.Is(err, ErrUnsupportedFeature):
 	case errors.Is(err, ErrClosed):
 	default:
 		t.Fatalf("VP8 runtime call returned unexpected error: %v", err)

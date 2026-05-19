@@ -20,8 +20,7 @@ const (
 	// PostProcessMFQE enables multi-frame quality enhancement.
 	PostProcessMFQE
 
-	allPostProcessFlags    = PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE
-	legacyPostProcessFlags = PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE
+	allPostProcessFlags = PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE
 )
 
 // VP8Decryptor mirrors libvpx v1.16.0 vpx_decrypt_cb (vpx/vpx_decoder.h).
@@ -52,18 +51,12 @@ type DecoderOptions struct {
 	// ErrorConcealment enables libvpx-style concealment for corrupt interframes
 	// after a clean keyframe has initialized references.
 	ErrorConcealment bool
-	// ErrorResilient is kept as a compatibility alias for ErrorConcealment.
-	ErrorResilient bool
-	// PostProcess enables the legacy libvpx-style postprocess chain
-	// (Deblock | Demacroblock | MFQE, plus AddNoise when
-	// PostProcessNoiseLevel > 0). Prefer PostProcessFlags for new code.
-	PostProcess bool
 	// PostProcessFlags selects individual libvpx-style postprocess filters.
-	// Zero disables postprocessing unless PostProcess is set.
+	// Zero disables postprocessing.
 	PostProcessFlags PostProcessFlag
 	// PostProcessNoiseLevel enables libvpx-style additive luma noise when
-	// PostProcess is true or PostProcessAddNoise is set. Zero disables
-	// additive noise; valid range is [0, 16].
+	// PostProcessAddNoise is set. Zero disables additive noise; valid range is
+	// [0, 16].
 	PostProcessNoiseLevel int
 
 	// MaxWidth and MaxHeight reject key frames larger than the configured
@@ -592,18 +585,11 @@ func validateDecoderOptions(opts DecoderOptions) error {
 }
 
 func (opts DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
-	flags := opts.PostProcessFlags
-	if flags == 0 && opts.PostProcess {
-		flags = legacyPostProcessFlags
-		if opts.PostProcessNoiseLevel > 0 {
-			flags |= PostProcessAddNoise
-		}
-	}
-	return flags
+	return opts.PostProcessFlags
 }
 
 func (opts DecoderOptions) effectiveErrorConcealment() bool {
-	return opts.ErrorConcealment || opts.ErrorResilient
+	return opts.ErrorConcealment
 }
 
 func missingFrameConcealmentInfo() StreamInfo {

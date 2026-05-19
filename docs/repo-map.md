@@ -42,7 +42,7 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 
 | Cluster | Current files | Target owner |
 | --- | --- | --- |
-| Public shared surface | `codec.go`, `errors.go`, `image.go`, `rtp.go`, `streaminfo.go`, `temporal.go`, `doc.go` | Root facade |
+| Public shared surface | `codec.go`, `errors.go`, `image.go`, `rtp.go`, `streaminfo.go`, `temporal.go`, `doc.go` | Root facade; stream-info parsing now delegates to codec-owned decoder packages |
 | VP8 public encode/decode facade | `encoder.go`, `decoder.go`, public parts of `encoder_config.go`, `ratecontrol.go` | Root facade forwarding to `internal/vp8/{encoder,decoder}` |
 | VP8 encoder implementation | `encoder_*.go`, `ratecontrol_*.go`, VP8-specific parts of `encoder_config.go`, root encoder tests | `internal/vp8/encoder` |
 | VP8 decoder implementation | `decoder.go` plus existing `internal/vp8/decoder` internals | `internal/vp8/decoder` |
@@ -68,7 +68,7 @@ Existing internal codec packages are already substantial:
 | `internal/vp8/mem`, `internal/vp8/scale`, `internal/vp8/tables` | VP8 support packages |
 | `internal/vp9/bitstream` | VP9 bit reader/writer and superframe index parser/writer |
 | `internal/vp9/common` | VP9 constants, enums, quantization |
-| `internal/vp9/decoder` | VP9 parser, reconstruction, loop filter, tile/thread plumbing |
+| `internal/vp9/decoder` | VP9 parser, stream-info peeking, reconstruction, loop filter, tile/thread plumbing |
 | `internal/vp9/dsp` | VP9 scalar/SIMD kernels |
 | `internal/vp9/encoder` | VP9 bitstream writer and transform/quant helpers |
 | `internal/vp9/rtp` | VP9 RTP payload descriptor, scalability-structure, and frame packetize/assemble logic; RFC 9628, not libvpx-derived |
@@ -122,7 +122,7 @@ Keep as public facade concepts:
 - Shared errors: `ErrInvalidData`, `ErrNeedKeyFrame`, `ErrFrameNotReady`,
   `ErrBufferTooSmall`, `ErrFrameRejected`, `ErrInvalidConfig`,
   `ErrInvalidBitrate`, `ErrInvalidQuantizer`, `ErrClosed`,
-  `ErrUnsupportedFeature`, `ErrInvalidVP9Data`, `ErrVP9NotImplemented`.
+  `ErrInvalidVP9Data`, `ErrVP9NotImplemented`.
 - Shared image/buffer values: `Image`, `RTPPayloadFragment`.
 - Constructors: `NewVP8Encoder`, `NewVP9Encoder`, `NewVP8Decoder`,
   `NewVP9Decoder`.
@@ -161,11 +161,8 @@ Move out of public surface unless Wave 1 explicitly keeps them:
 - Oracle/debug probes: `ProbeVP9SearchFilterRefFires`,
   `ResetVP9SearchFilterRefProbes`, trace flags, leaf trace plumbing, and
   scoreboard-only helpers.
-- Deprecated parity scaffolding: `ErrVP9EncoderNotImplemented` and any
-  root-level trace writer setters that are only used by tagged oracle tests.
-- Compatibility aliases called out by docs or code comments, especially
-  `DecoderOptions.ErrorResilient`, `DecoderOptions.PostProcess`,
-  `VP9DecoderOptions.ErrorResilient`, and `VP9DecoderOptions.PostProcess`.
+- Any root-level trace writer setters that are only used by tagged oracle
+  tests.
 
 Current method families:
 
@@ -247,7 +244,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 
 | Wave | Packet | Owned paths | Notes |
 | --- | --- | --- | --- |
-| 1 | Public facade draft | `docs/api.md`, `docs/migration.md`, `doc.go`, `README.md` only if documenting | Decide final user surface before API changes |
+| 1 | Public facade draft | `docs/api.md`, `doc.go`, `README.md` only if documenting | Decide final user surface before API changes |
 | 1 | Root facade file plan | `docs/repo-map.md`, future `options.go`, `vp8.go`, `vp9.go` plan only | No code moves yet |
 | 2 | VP9 encoder split | `vp9_encoder.go`, new `vp9_encoder_*.go`, focused `vp9_encoder_*_test.go` | Same package, no behavior change |
 | 2 | VP9 decoder split | `vp9_decoder.go`, `vp9_decoder_test.go`, new focused VP9 decoder files | Same package, no behavior change |
@@ -260,12 +257,13 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 3 | VP9 encoder move | root `vp9_*` encoder/ratecontrol/AQ/TPL files, VP9 encoder tests, `internal/vp9/encoder/**` | Move after same-package split |
 | 3/4 | RTP ownership move | root `rtp.go`, `vp8_rtp.go`, `vp9_rtp.go`, `internal/vpx/{errors,rtp}/**`, `internal/vp{8,9}/rtp/**`, RTP tests/fuzz | Current branch: root files are public facade aliases/wrappers; descriptor logic lives in codec-owned internal packages; shared mechanics are fragment sizing and sentinel errors only |
 | 3 | VP9 superframe move | root `vp9_superframe.go`, `vp9_decoder.go` parser wrapper, `internal/vp9/bitstream/superframe.go`, superframe tests/fuzz | Current branch: root keeps public pack helpers; VP9 bitstream package owns parse/write mechanics |
+| 3 | Stream-info parser move | root `streaminfo.go`, `internal/vp8/decoder/streaminfo.go`, `internal/vp9/decoder/streaminfo.go`, stream-info tests | Current branch: root keeps public structs and peek functions; VP8/VP9 decoder packages own parser-visible metadata extraction |
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
 | 5 | API cleanup | root public files, examples, docs | Remove unreleased compatibility aliases at wave end |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |
-| 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `docs/migration.md`, `UPSTREAM.md`, `plan.md` links | Separate user docs from parity notes |
+| 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `UPSTREAM.md`, `plan.md` links | Separate user docs from parity notes |
 | 8 | Final sweep | stale shims, examples, `.gitignore`, `docs/repo-map.md` | Full production verification |
 
 ## No-Overlap Ownership Table
@@ -295,7 +293,7 @@ the stricter gate for both lanes.
 ## Immediate Safe Next Steps
 
 1. Land this Wave 0 map and the repo tidy plan as documentation only.
-2. Draft `docs/api.md` and `docs/migration.md` without code changes.
+2. Draft `docs/api.md` without code changes.
 3. Split `vp9_encoder.go` in package `govpx` before moving any VP9 encoder
    code. This is the largest review risk and the only hand-authored
    implementation file currently above 2,500 lines.
