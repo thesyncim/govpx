@@ -247,6 +247,39 @@ Acceptance:
 - The audit leaves an explicit list of rejected dedupe candidates where sharing
   would force false VP8/VP9 symmetry.
 
+### Wave 4.75: Go Idiom And Hot-Path Shape Audit
+
+Goal: make the implementation read and compile like idiomatic Go without
+trading away codec hot-path behavior.
+
+Plan:
+
+- Audit hot encode/decode paths for functions that should become methods on
+  existing concrete state types because the receiver clarifies ownership or
+  helps the compiler keep state concrete.
+- Keep free functions where they are better for inlining, pure arithmetic,
+  table lookups, DSP kernels, or avoiding receiver-induced escapes.
+- Prefer concrete types, small value structs, and direct calls in hot paths.
+  Avoid interface dispatch, closure captures, heap allocations, and oversized
+  receiver copies unless benchmarks and escape analysis prove they are harmless.
+- Use `go test -gcflags=-m` and focused allocation/benchmark checks to verify
+  any method-shape or ownership rewrite that touches encode/decode loops.
+- Document accepted non-obvious shapes in code only when a future cleanup would
+  likely break inlining, stack allocation, or libvpx parity. Keep comments
+  short and factual.
+
+Acceptance:
+
+- Every method-shape cleanup packet lists the hot functions touched, the
+  before/after escape or inlining evidence, and the allocation/benchmark gates
+  run.
+- Public APIs follow ordinary Go naming and zero-value expectations where the
+  codec semantics allow it.
+- Hot-path code still avoids disabled tracing/test hooks, interface dispatch,
+  unexpected heap allocations, and avoidable branches.
+- No method conversion is accepted solely for style if it worsens inlining,
+  escape behavior, allocation profiles, or review clarity.
+
 ### Wave 5: API Cleanup
 
 Goal: make the public API boring and discoverable.
@@ -409,6 +442,9 @@ allocation/performance checks, and risks.
 - Wave 4.5 should run repeatedly as move batches land: it is the cleanup pass
   that catches duplicated mechanics, misplaced codec-only code, and hard code
   that needs upstream-anchored explanation.
+- Wave 4.75 should run in parallel with the package moves. Use scouts to map
+  candidate method-shape and escape-analysis changes, then land only measured,
+  self-contained packets.
 - Wave 5 API cleanup, Wave 6.5 tracing/performance hygiene, and Wave 7 docs
   should stay close together.
 - Wave 8 is one integration owner.

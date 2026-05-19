@@ -261,7 +261,7 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 
 	copyFrameImage(&e.firstPassLastRef.Img, &e.firstPassNewRef.Img)
 	e.firstPassLastRef.ExtendBorders()
-	copySourceToFrameBuffer(&e.firstPassLastSource, srcImg)
+	vp8enc.CopySourceToFrameBuffer(&e.firstPassLastSource, srcImg)
 
 	// Special case for the first frame (libvpx firstpass.c): copy LAST into
 	// GF as a second reference.
@@ -306,7 +306,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	hasLastSource := e.firstPassCount > 0 && e.firstPassLastSource.Img.Width == src.Width && e.firstPassLastSource.Img.Height == src.Height
 	hasGolden := e.firstPassCount > 1 && e.firstPassGoldenRef.Img.Width == src.Width && e.firstPassGoldenRef.Img.Height == src.Height
 	qIndex := libvpxFirstPassQIndex
-	copySourceToFrameBuffer(&e.firstPassNewRef, src)
+	vp8enc.CopySourceToFrameBuffer(&e.firstPassNewRef, src)
 	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	_ = vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, vp8enc.SegmentationConfig{}, &quants)

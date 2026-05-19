@@ -471,7 +471,7 @@ func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, 
 	cp := make([]byte, len(center))
 	copy(cp, center)
 	src := syntheticSource(w, h, cp)
-	copySourceToFrameBuffer(&e.arnrScratch, src)
+	vp8enc.CopySourceToFrameBuffer(&e.arnrScratch, src)
 	if err := e.pushLookahead(syntheticSource(w, h, back), 0, 1, 0); err != nil {
 		t.Fatalf("pushLookahead[back]: %v", err)
 	}

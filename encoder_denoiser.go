@@ -508,7 +508,7 @@ func (e *VP8Encoder) initDenoiserAvgFromKeyFrame(source vp8enc.SourceImage) {
 		return
 	}
 	for i := range e.denoiser.runningAvg {
-		copySourceToFrameBuffer(&e.denoiser.runningAvg[i], source)
+		vp8enc.CopySourceToFrameBuffer(&e.denoiser.runningAvg[i], source)
 	}
 	for i := range e.denoiser.state {
 		e.denoiser.state[i] = denoiserStateNoFilter

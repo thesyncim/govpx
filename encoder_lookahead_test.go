@@ -212,7 +212,7 @@ func TestLookaheadActiveMapPartialCopyOnPush(t *testing.T) {
 			row[x] = sentinel
 		}
 	}
-	copySourceToFrameBufferActive(dstBuf, sourceFromTestImage(src), mask, mbRows, mbCols)
+	vp8enc.CopySourceToFrameBufferActive(dstBuf, sourceFromTestImage(src), mask, mbRows, mbCols)
 
 	dst := &dstBuf.Img
 	// Active MB (row 0, col 0): luma must equal the source pixel.
@@ -262,7 +262,7 @@ func TestLookaheadActiveMapPartialCopyMultipleRuns(t *testing.T) {
 	}
 	src := testImage(width, height)
 	fillImage(src, 200, 100, 50)
-	copySourceToFrameBufferActive(dstBuf, sourceFromTestImage(src), mask, mbRows, mbCols)
+	vp8enc.CopySourceToFrameBufferActive(dstBuf, sourceFromTestImage(src), mask, mbRows, mbCols)
 	dst := &dstBuf.Img
 	check := func(xStart int, xEnd int, want byte, label string) {
 		for y := range 16 {

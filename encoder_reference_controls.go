@@ -1,8 +1,11 @@
 package govpx
 
-import "slices"
+import (
+	"slices"
 
-import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+)
 
 // SetReferenceFrame replaces ref with src. ref must be ReferenceLast,
 // ReferenceGolden, or ReferenceAltRef; src must match the encoder
@@ -34,7 +37,7 @@ func (e *VP8Encoder) setReferenceFrameNow(ref ReferenceFrame, src Image) {
 	for _, aliasedRef := range refs {
 		fb, _ := e.referenceFrameBuffer(aliasedRef)
 		copyPublicImageToVP8(&fb.Img, src)
-		padFrameVisibleToCoded(&fb.Img)
+		vp8enc.PadFrameVisibleToCoded(&fb.Img)
 		fb.ExtendBorders()
 	}
 }

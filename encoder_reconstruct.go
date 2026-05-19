@@ -480,7 +480,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	denoiseActive := e.opts.NoiseSensitivity > 0 && e.denoiser.allocated
 	coeffSource := src
 	if denoiseActive {
-		copySourceToFrameBuffer(&e.denoiser.source, src)
+		vp8enc.CopySourceToFrameBuffer(&e.denoiser.source, src)
 		coeffSource = codedSourceImageFromVP8(&e.denoiser.source.Img)
 	}
 
@@ -567,7 +567,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	coeffSource := src
 	decisionSource := src
 	if denoiseActive {
-		copySourceToFrameBuffer(&e.denoiser.source, src)
+		vp8enc.CopySourceToFrameBuffer(&e.denoiser.source, src)
 		coeffSource = codedSourceImageFromVP8(&e.denoiser.source.Img)
 		decisionSource = coeffSource
 	}

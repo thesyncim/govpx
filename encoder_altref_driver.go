@@ -1,5 +1,7 @@
 package govpx
 
+import vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+
 // libvpx vp8/encoder/onyx_int.h DEFAULT_GF_INTERVAL.
 const autoAltRefDefaultSectionInterval = 7
 
@@ -175,7 +177,7 @@ func (e *VP8Encoder) autoAltRefStashInput(src Image, pts uint64, duration uint64
 		}
 	}
 	flags = e.consumeForceKeyFrameForInput(flags)
-	copySourceToFrameBuffer(&e.autoAltRefStashFrame, sourceImageFromImage(src))
+	vp8enc.CopySourceToFrameBuffer(&e.autoAltRefStashFrame, sourceImageFromImage(src))
 	e.autoAltRefStashPTS = pts
 	e.autoAltRefStashDuration = duration
 	if e.autoAltRefStashDuration == 0 {

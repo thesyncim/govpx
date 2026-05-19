@@ -55,7 +55,7 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, distance int) bo
 	// The center frame is the alt-ref source. Copy it into the scratch
 	// buffer first so we have a stable read source and an output in the
 	// same place (libvpx writes filtered pixels into cpi->alt_ref_buffer).
-	copySourceToFrameBuffer(&e.arnrScratch, center)
+	vp8enc.CopySourceToFrameBuffer(&e.arnrScratch, center)
 	// libvpx vp8_temporal_filter_iterate_c (vp8/encoder/temporal_filter.c
 	// :264-285) unconditionally applies the temporal filter to all three
 	// planes whenever filter_weight != 0. There is no chroma-skip gate in

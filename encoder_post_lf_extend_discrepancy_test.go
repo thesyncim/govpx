@@ -44,9 +44,9 @@ import (
 //     / `copyInterFrameReferences` (encoder_reference_buffers.go) copy
 //     `e.analysis` to `e.current` / `e.lastRef` / `e.goldenRef` / `e.altRef`
 //     and call `ExtendBorders()` again on each (still symmetric).
-//   - `copySourceToFrameBuffer*` (encoder_source_buffer.go) and
+//   - `vp8enc.CopySourceToFrameBuffer*` (internal/vp8/encoder/source_buffer.go) and
 //     `setReferenceFrameNow` (encoder_reference_controls.go) use
-//     `padFrameVisibleToCoded` + `ExtendBorders`. The two-step is
+//     `vp8enc.PadFrameVisibleToCoded` + `ExtendBorders`. The two-step is
 //     byte-equivalent to libvpx's single-pass `vp8_copy_and_extend_frame`
 //     (because pad-then-symmetric-extend produces the same visible-edge
 //     replication everywhere outside the visible region).
@@ -149,8 +149,8 @@ import (
 //     so every per-buffer "ExtendBorders" after a `copyFrameImage`
 //     becomes visible-extend.
 //  3. Mirror the swap in `setReferenceFrameNow` and the source-side
-//     `copySourceToFrameBuffer*` (replacing
-//     `padFrameVisibleToCoded` + `ExtendBorders` with
+//     `vp8enc.CopySourceToFrameBuffer*` (replacing
+//     `vp8enc.PadFrameVisibleToCoded` + `ExtendBorders` with
 //     `ExtendBordersFromVisible`; the two are byte-equivalent today so
 //     this is purely a clarity edit, but it should land in the same
 //     PR for source-vs-reference symmetry).

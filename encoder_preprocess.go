@@ -70,7 +70,7 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 		}
 	}
 	if e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
-		copySourceToFrameBuffer(&e.arnrLastSource, source)
+		vp8enc.CopySourceToFrameBuffer(&e.arnrLastSource, source)
 		e.arnrLastReady = true
 	} else {
 		e.arnrLastReady = false

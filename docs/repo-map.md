@@ -63,7 +63,7 @@ Existing internal codec packages are already substantial:
 | `internal/vp8/common` | VP8 shared frame, quantizer, loop-filter, border helpers |
 | `internal/vp8/decoder` | VP8 parser, reconstruction, loop filter, postprocess, threading |
 | `internal/vp8/dsp` | VP8 scalar/SIMD kernels |
-| `internal/vp8/encoder` | VP8 packet writing, transforms, quantization, tokenization, motion helpers |
+| `internal/vp8/encoder` | VP8 packet writing, transforms, quantization, tokenization, motion helpers, and source-buffer copy/padding mechanics |
 | `internal/vp8/rtp` | VP8 RTP payload descriptor parse/pack and frame packetize/assemble logic; RFC 7741, not libvpx-derived |
 | `internal/vp8/mem`, `internal/vp8/scale`, `internal/vp8/tables` | VP8 support packages |
 | `internal/vp9/bitstream` | VP9 bit reader/writer and superframe index parser/writer |
@@ -253,6 +253,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 2 | Root diagnostic naming | `vp8_task*_test.go`, `vp8_byte*_test.go`, `diag_*_test.go` | Rename only; no expectation changes |
 | 3 | VP8 decoder move | root `decoder*.go` private pieces, `internal/vp8/decoder/**` | Root keeps `VP8Decoder` facade |
 | 3 | VP8 encoder move | root `encoder*.go`, `ratecontrol*.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Root keeps `VP8Encoder` facade |
+| 3/4 | VP8 source-buffer move | root `encoder_source_buffer.go`, VP8 lookahead/preprocess/reference call sites, `internal/vp8/encoder/source_buffer.go` | Current branch: internal VP8 encoder owns source-to-frame copy, active-map partial copy, and visible-to-coded padding; root keeps public/internal image-view adapters only |
 | 3 | VP9 decoder move | root `vp9_decoder*.go`, VP9 decoder tests, `internal/vp9/decoder/**` | Root keeps `VP9Decoder` facade |
 | 3 | VP9 encoder move | root `vp9_*` encoder/ratecontrol/AQ/TPL files, VP9 encoder tests, `internal/vp9/encoder/**` | Move after same-package split |
 | 3/4 | RTP ownership move | root `rtp.go`, `vp8_rtp.go`, `vp9_rtp.go`, `internal/vpx/{errors,rtp}/**`, `internal/vp{8,9}/rtp/**`, RTP tests/fuzz | Current branch: root files are public facade aliases/wrappers; descriptor logic lives in codec-owned internal packages; shared mechanics cover payload sizing, fragment sizing, packet buffer checks, marker placement, frame assembly copy loops, and sentinel errors only |
@@ -267,6 +268,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 4 | Shared validation/options helpers | new `internal/vpx/{buffers,ratecontrol}/**`, related tests | Mechanical helpers only; keep codec semantics separate |
 | 4 | Shared test harness | `internal/testutil/**`, new `internal/vpx/testharness/**`, oracle helper tests | No hot-path imports from oracle/test packages |
 | 4.5 | Boundary/dedupe/readability audit | `docs/repo-map.md`, `docs/architecture.md`, hard-to-read codec files, duplicated helper candidates | Repeat after move batches: verify VP8-only and VP9-only code is package-owned, shared helpers are genuinely mechanical, and hard code has pinned upstream anchors or concise invariants |
+| 4.75 | Go idiom and hot-path shape audit | hot encode/decode files, public facade/options files, allocation tests, benchmark docs | Current branch: six read-only scouts are mapping method-shape, inlining, escape-analysis, allocation, and benchmark evidence packets before any style-driven rewrite lands |
 | 5 | API cleanup | root public files, examples, docs | Current branch: removed the unreleased `RealtimeTarget.AllowFrameDrop` fallback and private legacy wrapper call shapes; continue removing stale public/internal compatibility aliases before release |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |

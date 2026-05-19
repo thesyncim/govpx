@@ -31,9 +31,9 @@ Root `govpx` owns only public surface area:
 - `decoder`: VP8 frame header parsing, partition parsing, reconstruction,
   loop filter, postprocess, error concealment, reference metadata, and
   stream-info extraction;
-- `encoder`: VP8 bool writer, key/inter packet generation, transform,
-  quantization, motion search helpers, probability mechanics, and token
-  emission;
+- `encoder`: VP8 bool writer, key/inter packet generation, source-buffer
+  copy/padding, transform, quantization, motion search helpers, probability
+  mechanics, and token emission;
 - `rtp`: VP8 RTP payload descriptor parsing, packing, packetization, and
   assembly;
 - `dsp`, `common`, `mem`, `scale`, and `tables`: VP8 support code and kernels.
