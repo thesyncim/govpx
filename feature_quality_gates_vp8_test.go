@@ -824,6 +824,23 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// than encoder behavioural drift. Further BD-rate tightening would
 	// require porting the libvpx coefficient-rate / token-cost ladder
 	// quirks that drive the residual rate gap below 10%.
+	//
+	// Task #352 bisect (vp8_task352_screen_content_residual_test.go)
+	// extends the task #341 per-MB probe across frames 2-11 and pins
+	// the residual divergence-seed at frame 2 MB(0,1). Frame 1 stays
+	// byte-exact (0 mismatches); frame 2 has 1326/3600 MB mode
+	// mismatches (1220 with govpx ZEROMV+GOLDEN where libvpx picks
+	// intra). Root cause: prob_intra_coded self-reinforcing
+	// equilibrium — govpx ends frame 2 with prob_intra_coded=1
+	// (vp8_convert_rfct_to_prob clamps to 1 when intra count is 0)
+	// while libvpx evolves to 87 across 91 recode iterations. The
+	// govpx recode loop hits rate_correction_factor=0.01 floor at
+	// iter 4 with frame_size=693 bytes (target ~20772) and stays
+	// clamped because every Q produces the same all-skip
+	// ZEROMV-GOLDEN pattern at prob_intra=1. The libvpx-side
+	// mechanism that admits intra candidates against prob_intra=1
+	// (breaking out of the equilibrium) is not yet localized; see
+	// the task #352 docstring for the next-step audit plan.
 	screenContentGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 11.5,
 		MinBDPSNRdB:            -0.6,
