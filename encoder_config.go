@@ -1088,6 +1088,65 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForErrorBinGate() int {
 	return realistic
 }
 
+// libvpxRealtimeCPISpeedForZeroMVLastAdjGate returns the libvpx-realistic
+// cpi->Speed value used to evaluate the `Speed < 12` gate that fires
+// calculate_zeromv_rd_adjustment inside vp8_pick_inter_mode
+// (vp8/encoder/pickinter.c:756). Task #379 audit:
+//
+// libvpx's evaluate_inter_mode (pickinter.c:503-510) scales this_rd by
+// rd_adj/100 when (this_mode == ZEROMV && ref_frame == LAST_FRAME &&
+// closest_reference_frame == LAST_FRAME). The rd_adj value originates at
+// vp8_pick_inter_mode line 580 (= 100) and is lowered to 80/90 by
+// calculate_zeromv_rd_adjustment when the line-756 `cpi->Speed < 12` gate
+// is open AND `cpi->lf_zeromv_pct > 40` AND the neighbor MBs exhibit
+// small motion. Suppressing the local-motion bias at higher Speed leaves
+// the rate-control-driven ZEROMV preference intact (comment at line 753:
+// "At such speed settings, ZEROMV is already heavily favored.").
+//
+// The downstream encode_breakout sensitivity flows from rd_adj into
+// check_for_encode_breakout: the encode_breakout decision keys off the
+// luma/chroma SSE thresholds (pickinter.c:455-467), but the picker only
+// commits to the breakout-flagged mode if its scaled this_rd wins the
+// best_rd comparison. Lowering rd_adj to 80 makes ZEROMV-LAST 20% more
+// likely to be selected and to skip residual encoding via the static
+// encode_breakout path; suppressing the lower at Speed >= 12 removes
+// that extra encode_breakout sensitivity once Speed is already biased
+// toward ZEROMV by the rate-control / threshold-multiplier path.
+//
+// Mirrors the targeted-gate pattern of libvpxRealtimeCPISpeedFor*Gate
+// (tasks #350 / #361 / #363 / #364): govpx's autoSpeed evolution under
+// the task #278 inter-frame timing pin (interFrameAutoSpeedTimingCompensation)
+// lands at 4-5 rather than the libvpx-realistic cpu_used+1 for
+// cpu_used > 0 RT. The static cpi->Speed < 12 cutoff is already well
+// above either trajectory for the common cpu range and only fires for
+// cpu_used <= -12 RT (libvpxSpeedFeatureCPUUsed returns -cpu_used there),
+// so this helper is byte-parity-safe for all cpu_used in [-11, +16] but
+// surfaces the libvpx-realistic Speed for any future audit / regression
+// that needs to inspect the gate's effective input.
+//
+// Returns the Speed value that should feed the `Speed < 12` gate. For
+// non-realtime / cpu_used < 0 / cpu_used == 0 RT / pre-first-frame,
+// returns the actual libvpxCPUUsed() so existing semantics carry forward.
+func (e *VP8Encoder) libvpxRealtimeCPISpeedForZeroMVLastAdjGate() int {
+	speed := e.libvpxCPUUsed()
+	if e.opts.Deadline != DeadlineRealtime {
+		return speed
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed <= 0 {
+		return speed
+	}
+	if e.frameCount == 0 {
+		return speed
+	}
+	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	realistic := min(cpuUsed+1, 16)
+	if speed > realistic {
+		return speed
+	}
+	return realistic
+}
+
 func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
 	fps := e.opts.FPS
 	if fps <= 0 {
