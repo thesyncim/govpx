@@ -181,6 +181,7 @@ func (ctx *splitMotionShapeContext) selectShape() splitMotionShapeResult {
 		labelRD:            ctx.labelRD,
 		quant:              ctx.quant,
 		coefProbs:          ctx.coefProbs,
+		compressorSpeed:    ctx.compressor,
 		fullSearchFallback: splitMotionSubsetFullSearchFallback(ctx.compressor),
 	}
 	for subset := range labelCount {
@@ -305,6 +306,14 @@ type splitMotionSubsetContext struct {
 	stepParam          int
 	fullSearchFallback bool
 	qIndex             int
+	// compressorSpeed mirrors cpi->compressor_speed at the call site of
+	// rd_check_segment. libvpx best-mode (==0) keeps the wide MB-scope UMV
+	// window across all four segmentation shapes (rdopt.c:1220-1226); the
+	// secondary [best_ref_mv ± MAX_FULL_PEL_VAL] intersection (rdopt.c:
+	// 1245-1248) only fires inside the `else` (compressor_speed != 0)
+	// branch. Plumbing this lets selectMotion pick the correct bounds for
+	// the per-label diamond search depending on speed.
+	compressorSpeed int
 	// errorPerBit is the activity-masked x->errorperbit value libvpx
 	// vp8_activity_masking computes per MB. Zero means the caller did not
 	// thread the activity lift in; helpers default to libvpxErrorPerBit
@@ -412,17 +421,31 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	if errorPerBit <= 0 {
 		errorPerBit = libvpxErrorPerBit(ctx.qIndex)
 	}
-	// libvpx vp8_rd_pick_best_mbsegmentation runs the first BLOCK_8X8
-	// segmentation with x->mv_col_min/x->mv_col_max set to the wide
-	// MB-scope UMV window. Only the secondary segmentations
-	// (BLOCK_8X16/BLOCK_16X8/BLOCK_4X4) compose that window with
-	// [best_ref_mv ± MAX_FULL_PEL_VAL] (rdopt.c:1245-1248), and the
-	// window is restored after those return (rdopt.c:1297-1301). govpx
-	// must mirror that boundary to let BLOCK_8X8's per-sub-block
-	// diamond_search_sad reach MVs farther from best_ref_mv than
-	// MAX_FULL_PEL_VAL, matching libvpx byte-for-byte.
+	// libvpx vp8_rd_pick_best_mbsegmentation (vp8/encoder/rdopt.c:1199-
+	// 1303) runs each rd_check_segment call inside one of two branches:
+	//
+	//   * Best mode (cpi->compressor_speed == 0, rdopt.c:1220-1226):
+	//     all four segmentations (BLOCK_16X8/8X16/8X8/4X4) execute back-
+	//     to-back with x->mv_col_min/x->mv_col_max untouched at their
+	//     wide MB-scope UMV window. The [best_ref_mv ± MAX_FULL_PEL_VAL]
+	//     intersection block (rdopt.c:1233-1248) lives in the `else`
+	//     speed-mode branch and is never reached here.
+	//
+	//   * Speed mode (compressor_speed != 0, rdopt.c:1227-1302): the
+	//     first BLOCK_8X8 call runs against the wide UMV window, then
+	//     mv_col_min/max are tightened to the intersection with
+	//     [best_ref_mv ± MAX_FULL_PEL_VAL] before BLOCK_8X16/16X8/4X4
+	//     and restored afterwards (rdopt.c:1297-1301).
+	//
+	// govpx mirrors both shapes: in best mode every partition uses the
+	// wide UMV window; in speed mode only partition 2 (BLOCK_8X8) does,
+	// and the secondary partitions intersect with bestRefMV±MAX_FULL_PEL_
+	// VAL. Prior to task #300 the intersection fired in best mode too,
+	// truncating the SPLITMV per-label diamond search at MB(0,0) frame 1
+	// for partitions 0/1/3 on the 1280x720 SSIM-best cohort and biasing
+	// the picker away from SPLITMV.
 	var bounds interFrameFullPixelBounds
-	if ctx.mode != nil && ctx.mode.Partition == 2 {
+	if ctx.compressorSpeed == 0 || (ctx.mode != nil && ctx.mode.Partition == 2) {
 		bounds = interFrameUMVOnlyFullPixelSearchBounds(ctx.mbRow, ctx.mbCol, mbRows, mbCols)
 	} else {
 		bounds = interFrameFullPixelSearchBounds(ctx.bestRefMV, ctx.mbRow, ctx.mbCol, mbRows, mbCols)
