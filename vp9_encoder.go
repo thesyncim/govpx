@@ -3953,6 +3953,7 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	kind := vp9ModeTreeInterSource
 	if isKey || intraOnly {
 		kind = vp9ModeTreeKeyframeSource
+		e.resetVP9LeafKeyframeDecisionCache()
 	}
 	miGridValid := e.collectVP9FrameTileCounts(width, height, miRows, miCols, tileInfo,
 		partitionProbs, seg, baseMi, txMode, kind, countKey, countInter)
@@ -5930,6 +5931,9 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 
 	bestSize := common.BlockInvalid
 	bestScore := uint64(^uint64(0))
+	bestRate := 0
+	var bestDistortion uint64
+	var bestDecision vp9KeyframeModeDecision
 	bestValid := false
 	// libvpx's rd_pick_partition restores entropy contexts between
 	// NONE/SPLIT/HORZ/VERT trials but not the reconstructed pixels left by
@@ -5941,17 +5945,29 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 		common.Block8x4,
 		common.Block4x8,
 	} {
-		rd, ok := e.scoreVP9KeyframeRDPartitionLeaf(key, tile, miRows, miCols,
-			miRow, miCol, cand, rdmult)
+		partition := common.PartitionLookup[bsl][cand]
+		partRate := vp9PartitionRateCost(&probs, ctx, partition, hasRows, hasCols)
+		refBestRD := uint64(^uint64(0))
+		if bestValid {
+			refRate := bestRate
+			if partition == common.PartitionHorz || partition == common.PartitionVert {
+				refRate -= partRate
+			}
+			refBestRD = vp9RDCost(rdmult, vp9RDDivBits, refRate, bestDistortion)
+		}
+		rd, decision, ok := e.scoreVP9KeyframeRDPartitionLeaf(key, tile, miRows, miCols,
+			miRow, miCol, cand, rdmult, refBestRD)
 		if !ok {
 			continue
 		}
-		partition := common.PartitionLookup[bsl][cand]
-		rate := rd.rate + vp9PartitionRateCost(&probs, ctx, partition, hasRows, hasCols)
+		rate := rd.rate + partRate
 		score := vp9RDCost(rdmult, vp9RDDivBits, rate, rd.distortion)
 		if !bestValid || score < bestScore {
 			bestSize = cand
 			bestScore = score
+			bestRate = rate
+			bestDistortion = rd.distortion
+			bestDecision = decision
 			bestValid = true
 		}
 	}
@@ -5959,15 +5975,18 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 	if !bestValid {
 		return common.BlockInvalid, false
 	}
+	if key.counts != nil {
+		e.storeVP9LeafKeyframeDecision(miRow, miCol, bestSize, bestDecision)
+	}
 	return bestSize, true
 }
 
 func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeaf(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, rdmult int,
-) (vp9KeyframeIntraRD, bool) {
+	bsize common.BlockSize, rdmult int, refBestRD uint64,
+) (vp9KeyframeIntraRD, vp9KeyframeModeDecision, bool) {
 	if key == nil || bsize > common.Block8x8 {
-		return vp9KeyframeIntraRD{}, false
+		return vp9KeyframeIntraRD{}, vp9KeyframeModeDecision{}, false
 	}
 	mi := vp9dec.NeighborMi{
 		SbType:       bsize,
@@ -5981,20 +6000,20 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeaf(key *vp9KeyframeEncodeState
 	var ok bool
 	if bsize < common.Block8x8 {
 		yRD, ok = e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
-			miRow, miCol, bsize, &mi)
+			miRow, miCol, bsize, &mi, refBestRD)
 	} else {
 		yRD, ok = e.pickVP9KeyframeYModeRD(key, tile, miRows, miCols,
-			miRow, miCol, bsize, &mi, common.TxModeSelect, rdmult)
+			miRow, miCol, bsize, &mi, common.TxModeSelect, rdmult, refBestRD)
 	}
 	if !ok {
 		e.cbRdmult = prevCbRdmult
-		return vp9KeyframeIntraRD{}, false
+		return vp9KeyframeIntraRD{}, vp9KeyframeModeDecision{}, false
 	}
 	uvRD, ok := e.pickVP9KeyframeUvModeRD(key, tile, miRows, miCols,
 		miRow, miCol, bsize, &mi)
 	e.cbRdmult = prevCbRdmult
 	if !ok {
-		return vp9KeyframeIntraRD{}, false
+		return vp9KeyframeIntraRD{}, vp9KeyframeModeDecision{}, false
 	}
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
@@ -6007,12 +6026,18 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeaf(key *vp9KeyframeEncodeState
 		rate = yRD.rate + uvRD.rate - yRD.rateTokenOnly - uvRD.rateTokenOnly +
 			encoder.VP9CostBit(skipProb, 1)
 	}
+	decision := vp9KeyframeModeDecision{
+		mode:   mi.Mode,
+		bmi:    mi.Bmi,
+		txSize: mi.TxSize,
+		uvMode: uvRD.mode,
+	}
 	return vp9KeyframeIntraRD{
 		mode:       mi.Mode,
 		rate:       rate,
 		distortion: yRD.distortion + uvRD.distortion,
 		skippable:  yRD.skippable && uvRD.skippable,
-	}, true
+	}, decision, true
 }
 
 func (e *VP9Encoder) vp9KeyframeRDRefinementEnabled() bool {
@@ -7693,19 +7718,17 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		useNonRDKeyframeMode := e.useVP9KeyframeNonRDIntraMode(reconBsize)
 		uvMode := common.DcPred
 		keyDecisionReplayed := false
-		if key.counts == nil {
-			if cached, ok := e.lookupVP9LeafKeyframeDecision(miRow, miCol, bsize); ok {
-				cur.Mode = cached.mode
-				cur.Bmi = cached.bmi
-				cur.TxSize = cached.txSize
-				uvMode = cached.uvMode
-				keyDecisionReplayed = true
-			}
+		if cached, ok := e.lookupVP9LeafKeyframeDecision(miRow, miCol, bsize); ok {
+			cur.Mode = cached.mode
+			cur.Bmi = cached.bmi
+			cur.TxSize = cached.txSize
+			uvMode = cached.uvMode
+			keyDecisionReplayed = true
 		}
 		if !keyDecisionReplayed {
 			if bsize < common.Block8x8 {
 				_, _ = e.pickVP9KeyframeSub8x8YMode(key, tile, miRows, miCols,
-					miRow, miCol, bsize, &cur)
+					miRow, miCol, bsize, &cur, ^uint64(0))
 			} else {
 				cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
 					miRow, miCol, reconBsize, &cur, txMode)
@@ -8399,7 +8422,7 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi, txMode common.TxMode,
-	rdmult int,
+	rdmult int, refBestRD uint64,
 ) (vp9KeyframeIntraRD, bool) {
 	if key == nil || mi == nil || bsize < common.Block8x8 ||
 		bsize >= common.BlockSizes {
@@ -8416,7 +8439,7 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 
 	best := vp9KeyframeIntraRD{mode: common.DcPred}
 	bestTx := mi.TxSize
-	bestScore := uint64(^uint64(0))
+	bestScore := refBestRD
 	bestValid := false
 	origMode := mi.Mode
 	origTx := mi.TxSize
@@ -8432,13 +8455,9 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 		mi.Mode = mode
 		var cand vp9KeyframeIntraRD
 		if e.sf.TxSizeSearchMethod == UseFullRD && e.vp9KeyframeRDRefinementEnabled() {
-			refBestRD := uint64(^uint64(0))
-			if bestValid {
-				refBestRD = bestScore
-			}
 			txRD, ok := e.chooseVP9KeyframeModeTxRDWithBest(key, mode,
 				rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi,
-				txMode, refBestRD)
+				txMode, bestScore)
 			if !ok {
 				continue
 			}
@@ -8504,7 +8523,7 @@ func (e *VP9Encoder) useVP9KeyframeNonRDIntraMode(bsize common.BlockSize) bool {
 // 4x4 raster cell.
 func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, refBestRD uint64,
 ) (vp9KeyframeIntraRD, bool) {
 	if key == nil || mi == nil {
 		return vp9KeyframeIntraRD{}, false
@@ -8544,6 +8563,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 		}
 	}
 	var total vp9KeyframeIntraRD
+	totalRD := uint64(0)
 	for idy := 0; idy < 2; idy += num4x4H {
 		for idx := 0; idx < 2; idx += num4x4W {
 			i := idy*2 + idx
@@ -8555,13 +8575,27 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 			probs := vp9dec.GetYModeProbs(mi, above, left, i)
 			var bmodeCosts [common.IntraModes]int
 			encoder.VP9CostTokens(bmodeCosts[:], probs, common.IntraModeTree[:])
+			remainingRD := uint64(^uint64(0))
+			if refBestRD != ^uint64(0) {
+				if totalRD >= refBestRD {
+					e.cbRdmult = prevCbRdmult
+					return vp9KeyframeIntraRD{}, false
+				}
+				remainingRD = refBestRD - totalRD
+			}
 			bestMode, rd, ok := e.pickVP9Sub4x4IntraBlockMode(key, tile, miRows, miCols,
 				miRow, miCol, bsize, mi, idy, idx, bmodeCosts[:], rdmult,
-				aboveCtx[idx:idx+num4x4W], leftCtx[idy:idy+num4x4H])
+				aboveCtx[idx:idx+num4x4W], leftCtx[idy:idy+num4x4H], remainingRD)
 			if !ok {
 				e.cbRdmult = prevCbRdmult
 				return vp9KeyframeIntraRD{}, false
 			}
+			thisRD := vp9RDCost(rdmult, vp9RDDivBits, rd.rate, rd.distortion)
+			if remainingRD != ^uint64(0) && thisRD >= remainingRD {
+				e.cbRdmult = prevCbRdmult
+				return vp9KeyframeIntraRD{}, false
+			}
+			totalRD += thisRD
 			// Replicate best_mode into the bmi cells the sub-block
 			// decision covers (libvpx vp9_rdopt.c:1344-1348).
 			mi.Bmi[i].AsMode = bestMode
@@ -8573,6 +8607,10 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 			}
 			for j := 1; j < num4x4W; j++ {
 				mi.Bmi[i+j].AsMode = bestMode
+			}
+			if refBestRD != ^uint64(0) && totalRD >= refBestRD {
+				e.cbRdmult = prevCbRdmult
+				return vp9KeyframeIntraRD{}, false
 			}
 		}
 	}
@@ -8601,6 +8639,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 	idy, idx int, bmodeCosts []int, rdmult int, aboveCtx, leftCtx []uint8,
+	rdThresh uint64,
 ) (common.PredictionMode, vp9KeyframeIntraRD, bool) {
 	pd := &e.planes[0]
 	planeData, stride := e.vp9EncoderReconPlane(0)
@@ -8649,7 +8688,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		int(key.hdr.Quant.BaseQindex))
 	maxEob := vp9dec.MaxEobForTxSize(common.Tx4x4)
 	bestMode := common.DcPred
-	bestRD := uint64(^uint64(0))
+	bestRD := rdThresh
 	bestValid := false
 	bestBlockRD := vp9KeyframeIntraRD{}
 	var ta, tl, bestA, bestL [2]uint8
@@ -8725,6 +8764,11 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				}
 				tempa[jx] = eobFlag
 				templ[jy] = eobFlag
+				if vp9RDCost(rdmult, vp9RDDivBits, totalCoeffRate,
+					totalDistortion) >= bestRD {
+					valid = false
+					break
+				}
 			}
 		}
 		if !valid {
@@ -8732,7 +8776,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		}
 		rate += totalCoeffRate
 		thisRD := vp9RDCost(rdmult, vp9RDDivBits, rate, totalDistortion)
-		if !bestValid || thisRD < bestRD {
+		if thisRD < bestRD {
 			bestRD = thisRD
 			bestMode = mode
 			bestBlockRD = vp9KeyframeIntraRD{
@@ -15424,6 +15468,10 @@ func (e *VP9Encoder) ensureVP9LeafKeyframeDecisionCache(miRows, miCols int) {
 	}
 	e.vp9LeafKeyframeDecisionsRows = miRows
 	e.vp9LeafKeyframeDecisionsCols = miCols
+	e.resetVP9LeafKeyframeDecisionCache()
+}
+
+func (e *VP9Encoder) resetVP9LeafKeyframeDecisionCache() {
 	e.vp9LeafKeyframeDecisionsVer++
 	if e.vp9LeafKeyframeDecisionsVer == 0 {
 		for i := range e.vp9LeafKeyframeDecisions {
