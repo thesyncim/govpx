@@ -1608,9 +1608,54 @@ func makeVP8BPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
 // ModeRDScore B_PRED branch's scoring against the inter candidates),
 // so any regression on the B_PRED scoring flow trips the gate.
 //
+// Task #374 per-frame audit (1280x720 12 frames @ 4000kbps CBR top rung):
+//
+//	frame  govpx_bytes  govpx_qidx  libvpx_bytes  libvpx_qidx  Δbytes
+//	    0       199968           4        199968            4      +0
+//	    1          377          65          1619           30   -1242
+//	    2         1496          27           897           28    +599
+//	    3         2934          28          3580           21    -646
+//	    4         4832          26          5965           25   -1133
+//	    5         5182          21          2073           29   +3109
+//	    6         5227          23          1056           24   +4171
+//	    7        10465          18          2165           26   +8300
+//	    8         6270          22          2834           26   +3436
+//	    9         9781          18          3928           22   +5853
+//	   10        10803          17          5409           18   +5394
+//	   11         9682          16          9017           18    +665
+//	TOTAL govpx=267017 libvpx=238511 Δ=+28506 (+11.95%)
+//
+// Frame 0 is byte-identical, confirming the byte-exact KF contract is
+// intact under this content. The divergence begins at frame 1 (the
+// first post-keyframe inter frame). govpx's regulator picks initial
+// Q=124 (correctionFactor=1.0, target=74489 bits, activeBest=4,
+// activeWorst=127); the recode loop produces 5682 bits, then bisects
+// to Q=65 producing 86868 projected bits, which falls within the CBR
+// undershoot/overshoot envelope and is accepted. libvpx's recode loop
+// converges to Q=30 instead, packing 1619 bytes vs govpx's 377 bytes.
+// The Q=30 vs Q=65 split is NOT a B_PRED scoring divergence — same
+// target, same activeBest/activeWorst, same minQuantizer, same
+// bufferLevel/bufferOptimal at the regulator-entry boundary, same
+// inter rate_correction_factor (1.0 at first inter frame). The split
+// sits inside the recode-loop bisection trajectory: after the
+// undershoot at Q=124, govpx's correctionFactor settles at ≈0.30
+// before regulator re-walks to Q=65, while libvpx must drive the
+// factor lower and the regulator further down toward Q=30. The
+// subsequent frame Q-drift (govpx 1-8 qindices below libvpx on
+// frames 5-11) is the cascade of the bigger frame-1 buffer surplus
+// — govpx has ~1.2 KB more in the buffer after frame 1, which the
+// CBR bufferAdjustedFrameTargetBits formula spends as lower Q on
+// later frames.
+//
 // Gate: MaxBDRateOverLibvpxPct = +26.5% (measured +24.271% plus +2.0%
 // cubic-fit jitter headroom plus +0.23% rounding). MinBDPSNRdB = -0.5
-// dB (measured +0.047 dB, ample headroom on the BD-PSNR axis).
+// dB (measured +0.047 dB, ample headroom on the BD-PSNR axis). Audit
+// concludes: the +24.271% gap is a rate-control state-machine drift
+// (frame 1 recode-loop trajectory divergence), not a B_PRED scoring
+// regression. The B_PRED-in-inter RD path matches libvpx; the
+// regression-detection contract is preserved (any change to B_PRED
+// scoring that meaningfully shifts the top-rung Q distribution would
+// trip the gate well before the +26.5% ceiling).
 func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 	const (
 		width  = 1280
