@@ -84,6 +84,34 @@ package govpx
 //     allowed to run at threads=4 with the controlled re-run (the "expected
 //     trap" mode that gates future regressions in the quarantine wrapper
 //     itself).
+//
+// Task #359 production-stream stress (2026-05-19, arm64-darwin)
+// -------------------------------------------------------------
+// The quarantine wrapper was stress-exercised against the production-stream
+// audit surfaces at threads >= 2 under GOVPX_ORACLE_THREADS_QUARANTINE=strict:
+//
+//   - TestVP8Task332ThreadsValidation x 10 (threads ∈ {1, 2, 4}; cpu=0,
+//     deadline=best, tune=ssim, screen-content=1, arnr-strength=1,
+//     1280x720 panning, 700 kbps VBR).
+//   - TestVP8Byte0KF1280x720SSIMBestARNRAudit x 10 (threads=4).
+//   - TestVP8Byte0KF1280x720SSIMGoodARNRAudit x 10 (threads=4).
+//
+// Result: zero quarantine SHA divergence across 50 oracle invocation pairs
+// (the wrapper runs the oracle TWICE per call). Every cohort's byte-exact
+// pins held (Task332: frame-1 govpx_len=6527@threads=2, =6121@threads=4;
+// BestARNR sha=98605076ba6b99bf, GoodARNR sha=9e329638c61787a7, both
+// matching libvpx). No new govpx-side or oracle-side non-determinism was
+// surfaced for THESE cohorts at this hardware + this oracle SHA pin
+// (62be3f118d229c9d08f36b958181f1f85b3bb48919bfea5e8fa72ed87c8dadc3).
+//
+// Interpretation: the threading-non-determinism that bit #297/#298/#304/
+// #324 was scenario-specific (cpu_used=8 RT panning), not pervasive across
+// every threads >= 2 invocation. The Task332/BestARNR/GoodARNR cohorts
+// happen to be reproducible on arm64-darwin at the current oracle SHA, so
+// the wrapper here is a silent sentinel — but the contract still holds:
+// any future regression that introduces oracle-side flakiness in these
+// cohorts will surface as a SHA-divergence test failure rather than as a
+// silent byte-comparison drift.
 
 import (
 	"crypto/sha256"
