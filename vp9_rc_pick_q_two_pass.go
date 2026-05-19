@@ -18,7 +18,12 @@ package govpx
 //     hook that updates this is ported.
 //   - extend_minq_fast (libvpx vp9_ratectrl.c twopass->extend_minq_fast).
 //     Defaults to 0.
-const vp9StaticMotionThresh = 95
+const (
+	vp9StaticMotionThresh   = 95
+	vp9StaticKFGroupThresh  = 99
+	vp9SmallKFFramePixels   = 352 * 288
+	vp9DefaultKeyFrameBoost = 2000
+)
 
 // vp9RCPickQAndBoundsTwoPassInputs aggregates the libvpx state the
 // two-pass Q picker reads.
@@ -55,6 +60,13 @@ type vp9RCPickQAndBoundsTwoPassInputs struct {
 	LastQIndexOfMaxLayerDepth int
 	// libvpx: twopass->last_kfgroup_zeromotion_pct.
 	LastKFGroupZeroMotionPct int
+	// libvpx: twopass->kf_zeromotion_pct.
+	KFZeroMotionPct int
+	// libvpx: rc->kf_boost.
+	KeyFrameBoost int
+	// libvpx: cm->width / cm->height.
+	FrameWidth  int
+	FrameHeight int
 	// libvpx: get_active_cq_level_two_pass(...).
 	CQLevel int
 	// libvpx: cpi->oxcf.rc_mode == VPX_CQ.
@@ -110,9 +122,23 @@ func vp9RCPickQAndBoundsTwoPass(in vp9RCPickQAndBoundsTwoPassInputs, regulatedQ 
 				activeBest = max(qindex+deltaQIndex, in.BestQuality)
 			}
 		} else {
-			// The non-forced branch's per-resolution and kf_zeromotion_pct
-			// refinements remain behind the existing active-quality helper.
-			activeBest = vp9KFActiveQuality(in.AvgFrameQIndexInter)
+			qAdjFactorNum := 1050
+			keyFrameBoost := in.KeyFrameBoost
+			if keyFrameBoost == 0 {
+				keyFrameBoost = vp9DefaultKeyFrameBoost
+			}
+			activeBest = vp9KFActiveQualityWithBoost(activeWorst, keyFrameBoost)
+			if in.KFZeroMotionPct >= vp9StaticKFGroupThresh {
+				activeBest /= 4
+			}
+			activeBest = min(activeWorst, max(1, activeBest))
+			if in.FrameWidth > 0 && in.FrameHeight > 0 &&
+				in.FrameWidth*in.FrameHeight <= vp9SmallKFFramePixels {
+				qAdjFactorNum -= 250
+			}
+			qAdjFactorNum -= in.KFZeroMotionPct
+			activeBest += vp9ComputeQDelta(in.BestQuality, in.WorstQuality,
+				activeBest, qAdjFactorNum, 1000)
 		}
 	} else if in.BoostFrame {
 		// libvpx vp9_ratectrl.c:1492-1531.

@@ -22,6 +22,10 @@ func defaultVP9TwoPassQInputs() vp9RCPickQAndBoundsTwoPassInputs {
 		ExtendMinQFast:                       0,
 		LastQIndexOfMaxLayerDepth:            0,
 		LastKFGroupZeroMotionPct:             0,
+		KFZeroMotionPct:                      0,
+		KeyFrameBoost:                        2000,
+		FrameWidth:                           640,
+		FrameHeight:                          360,
 		CQLevel:                              0,
 		IsCQ:                                 false,
 		ARFActiveBestQualityAdjustmentFactor: 1.0,
@@ -95,6 +99,34 @@ func TestVP9RCPickQAndBoundsTwoPassForcedKeyUsesLastBoostedOrLastKF(t *testing.T
 	if r.ActiveWorst != wantActiveWorst {
 		t.Fatalf("static-motion forced KF active_worst=%d, want %d",
 			r.ActiveWorst, wantActiveWorst)
+	}
+}
+
+func TestVP9RCPickQAndBoundsTwoPassNonForcedKeyUsesZeroMotionAndSmallFrameAdjustments(t *testing.T) {
+	in := defaultVP9TwoPassQInputs()
+	in.IsIntraOnly = true
+	in.ThisKeyFrameForced = false
+	in.ActiveWorstQuality = 180
+	in.FrameWidth = 352
+	in.FrameHeight = 288
+	in.KFZeroMotionPct = 99
+
+	r := vp9RCPickQAndBoundsTwoPass(in, 100)
+	wantActiveBest := vp9KFActiveQualityWithBoost(in.ActiveWorstQuality,
+		in.KeyFrameBoost)
+	wantActiveBest /= 4
+	wantActiveBest = min(in.ActiveWorstQuality, max(1, wantActiveBest))
+	wantActiveBest += vp9ComputeQDelta(in.BestQuality, in.WorstQuality,
+		wantActiveBest, 1050-250-in.KFZeroMotionPct, 1000)
+	if r.ActiveBest != wantActiveBest {
+		t.Fatalf("non-forced KF active_best=%d, want %d", r.ActiveBest, wantActiveBest)
+	}
+	if r.Q != r.ActiveBest {
+		t.Fatalf("non-forced KF q=%d, want active_best=%d", r.Q, r.ActiveBest)
+	}
+	if r.ActiveWorst != in.ActiveWorstQuality {
+		t.Fatalf("non-forced KF active_worst=%d, want %d",
+			r.ActiveWorst, in.ActiveWorstQuality)
 	}
 }
 

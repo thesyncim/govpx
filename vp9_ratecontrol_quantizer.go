@@ -591,7 +591,11 @@ func vp9InterMINQ(qindex int) int {
 }
 
 func vp9KFActiveQuality(qindex int) int {
-	return vp9ActiveQuality(qindex, 2000, 300, 4800,
+	return vp9KFActiveQualityWithBoost(qindex, 2000)
+}
+
+func vp9KFActiveQualityWithBoost(qindex, boost int) int {
+	return vp9ActiveQuality(qindex, boost, 300, 4800,
 		0.000001, -0.0004, 0.150,
 		0.0000021, -0.00125, 0.45)
 }

@@ -51,13 +51,12 @@ package govpx
 //   P-frames; deeper ALTREF layers (gf_group layer_depth > 1) are out
 //   of scope until the lookahead supports multi-source ARF buffers.
 //
-//   TODO: kf_zeromotion_pct accumulator and the STATIC_MOTION_THRESH
-//   path in pick_kf_q_bound_two_pass.
+//   TODO: kf_zeromotion_pct accumulator.
 //   libvpx: vp9/encoder/vp9_firstpass.c find_next_key_frame +
 //          vp9/encoder/vp9_ratectrl.c:1598 STATIC_MOTION_THRESH path.
-//   The Q picker port currently surfaces LastKFGroupZeroMotionPct as an
-//   input but the encoder always passes 0 because find_next_key_frame
-//   isn't yet ported.
+//   The Q picker port consumes LastKFGroupZeroMotionPct and KFZeroMotionPct,
+//   but the encoder still passes zero because find_next_key_frame isn't yet
+//   ported.
 //
 //   PORTED: vbr_corpus_complexity consumer.
 //   libvpx: vp9/encoder/vp9_firstpass.c:1647-1682 (init_second_pass
