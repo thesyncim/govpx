@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"math"
@@ -7,12 +7,11 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// Rate–distortion mode-threshold state ported verbatim from libvpx v1.16.0
-// (vp9/encoder/vp9_rd.{c,h} + vp9/encoder/vp9_pickmode.c). Closure unit for
-// task #170: implement the mode_rd_thresh / rd_less_than_thresh early-exit
-// gate at libvpx vp9_pickmode.c:2240-2257 plus the supporting per-frame and
-// per-tile state vp9_set_rd_speed_thresholds / set_block_thresholds /
-// update_thresh_freq_fact.
+// Rate-distortion mode-threshold state ported from libvpx v1.16.0
+// (vp9/encoder/vp9_rd.{c,h} + vp9/encoder/vp9_pickmode.c). It implements
+// the mode_rd_thresh / rd_less_than_thresh early-exit gate at libvpx
+// vp9_pickmode.c:2240-2257 plus the supporting per-frame and per-tile state
+// vp9_set_rd_speed_thresholds / set_block_thresholds / update_thresh_freq_fact.
 //
 // The state lives on VP9Encoder as a single non-MT tile (govpx single-tile
 // realtime configuration) and is allocated lazily at first frame init. The
@@ -32,14 +31,14 @@ const (
 	vp9RDThreshInc      = 1
 )
 
-// vp9ThrModes mirrors libvpx's THR_MODES enum (vp9_rd.h:53-93). The numeric
+// ThrMode mirrors libvpx's THR_MODES enum (vp9_rd.h:53-93). The numeric
 // ordering matters: it is used as an index into thresh_mult[] and
 // thresh_freq_fact[][], and the mode_idx[ref][INTER_OFFSET(mode)] table at
 // vp9_pickmode.c:1098-1103 expects exactly these slots.
-type vp9ThrModes uint8
+type ThrMode uint8
 
 const (
-	vp9ThrNearestMV vp9ThrModes = iota
+	vp9ThrNearestMV ThrMode = iota
 	vp9ThrNearestA
 	vp9ThrNearestG
 
@@ -93,7 +92,7 @@ var vp9RDThreshBlockSizeFactor = [common.BlockSizes]uint8{
 	2, 3, 3, 4, 6, 6, 8, 12, 12, 16, 24, 24, 32,
 }
 
-// vp9ModeIdxTable mirrors libvpx's static mode_idx[MAX_REF_FRAMES][4] table
+// ModeIdxTable mirrors libvpx's static mode_idx[MAX_REF_FRAMES][4] table
 // at vp9_pickmode.c:1098-1103. Index 0 is INTRA_FRAME (DC/V/H/TM); 1..3 are
 // LAST/GOLDEN/ALTREF for the inter modes NEAREST/NEAR/ZERO/NEW
 // (INTER_OFFSET ordering).
@@ -102,31 +101,31 @@ var vp9RDThreshBlockSizeFactor = [common.BlockSizes]uint8{
 //	{ THR_NEARESTMV, THR_NEARMV, THR_ZEROMV, THR_NEWMV },
 //	{ THR_NEARESTG, THR_NEARG, THR_ZEROG, THR_NEWG },
 //	{ THR_NEARESTA, THR_NEARA, THR_ZEROA, THR_NEWA },
-var vp9ModeIdxTable = [vp9dec.MaxRefFrames][4]vp9ThrModes{
+var ModeIdxTable = [vp9dec.MaxRefFrames][4]ThrMode{
 	{vp9ThrDC, vp9ThrVPred, vp9ThrHPred, vp9ThrTM},
 	{vp9ThrNearestMV, vp9ThrNearMV, vp9ThrZeroMV, vp9ThrNewMV},
 	{vp9ThrNearestG, vp9ThrNearG, vp9ThrZeroG, vp9ThrNewG},
 	{vp9ThrNearestA, vp9ThrNearA, vp9ThrZeroA, vp9ThrNewA},
 }
 
-// vp9ModeOffsetInter maps an inter prediction-mode value (NEARESTMV..NEWMV)
+// ModeOffsetInter maps an inter prediction-mode value (NEARESTMV..NEWMV)
 // to the [0,3] offset libvpx's mode_idx table expects. Mirrors
 // INTER_OFFSET(mode) at vp9_pickmode.c:2240 (defined in vp9_blockd.h).
 //
 // NEARESTMV=10, NEARMV=11, ZEROMV=12, NEWMV=13 (common.enums) ⇒ offset 0..3.
-func vp9ModeOffsetInter(mode common.PredictionMode) int {
+func ModeOffsetInter(mode common.PredictionMode) int {
 	return int(mode) - int(common.NearestMv)
 }
 
-// vp9RDThreshState carries the per-frame and per-tile state for the
-// mode_rd_thresh gate. Single-tile single-segment configuration matches the
-// deferred-seed environment (Q-mode realtime no-SVC), so we collapse libvpx's
-// [MAX_SEGMENTS][BLOCK_SIZES][MAX_MODES] threshes to a single segment plane
-// and libvpx's per-tile thresh_freq_fact to a single tile plane.
+// RDThreshState carries the per-frame and per-tile state for the
+// mode_rd_thresh gate. govpx's current realtime encoder is single-tile and
+// single-segment for this path, so libvpx's
+// [MAX_SEGMENTS][BLOCK_SIZES][MAX_MODES] threshes collapse to a single segment
+// plane and libvpx's per-tile thresh_freq_fact collapses to one tile plane.
 //
 // libvpx: vp9/encoder/vp9_rd.h:111-130 RD_OPT + vp9/encoder/vp9_block.h
 // TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES].
-type vp9RDThreshState struct {
+type RDThreshState struct {
 	// threshMult mirrors RD_OPT::thresh_mult[MAX_MODES]
 	// (vp9_rd.h:116).
 	threshMult [vp9MaxModes]int
@@ -146,7 +145,23 @@ type vp9RDThreshState struct {
 	initialised bool
 }
 
-// vp9RDThreshInitFreqFact primes thresh_freq_fact to RD_THRESH_INIT_FACT
+// Initialized reports whether thresh_freq_fact has been primed for the current
+// encode session.
+func (s *RDThreshState) Initialized() bool {
+	return s.initialised
+}
+
+// Threshold returns the RD threshold for bsize/mode.
+func (s *RDThreshState) Threshold(bsize common.BlockSize, mode ThrMode) int {
+	return s.threshes[bsize][mode]
+}
+
+// ThreshFreqFact returns the adaptive frequency factor for bsize/mode.
+func (s *RDThreshState) ThreshFreqFact(bsize common.BlockSize, mode ThrMode) int {
+	return s.threshFreqFact[bsize][mode]
+}
+
+// InitFreqFact primes thresh_freq_fact to RD_THRESH_INIT_FACT
 // for every (bsize, mode) slot, mirroring libvpx's tile-data birth init
 // at vp9_encodeframe.c:5421-5427.
 //
@@ -156,7 +171,7 @@ type vp9RDThreshState struct {
 //	    ...
 //	  }
 //	}
-func (s *vp9RDThreshState) initFreqFact() {
+func (s *RDThreshState) InitFreqFact() {
 	for i := range s.threshFreqFact {
 		for j := range s.threshFreqFact[i] {
 			s.threshFreqFact[i][j] = vp9RDThreshInitFact
@@ -165,7 +180,7 @@ func (s *vp9RDThreshState) initFreqFact() {
 	s.initialised = true
 }
 
-// setRDSpeedThresholds is the verbatim port of libvpx's
+// SetRDSpeedThresholds is the verbatim port of libvpx's
 // vp9_set_rd_speed_thresholds.
 //
 // libvpx: vp9/encoder/vp9_rd.c:693-745
@@ -193,8 +208,8 @@ func (s *vp9RDThreshState) initFreqFact() {
 //	}
 //
 // `mode == BEST` is a libvpx-only quality preset that govpx does not surface
-// (deferred seeds are realtime), so the BEST=-500 leg collapses to 0.
-func (rd *vp9RDThreshState) setRDSpeedThresholds(adaptiveRdThresh int) {
+// for this encoder path, so the BEST=-500 leg collapses to 0.
+func (rd *RDThreshState) SetRDSpeedThresholds(adaptiveRdThresh int) {
 	// Reset all entries to 0 (govpx never runs BEST).
 	for i := range rd.threshMult {
 		rd.threshMult[i] = 0
@@ -269,9 +284,9 @@ func vp9ComputeRDThreshFactor(qindex int) int {
 	return v
 }
 
-// setBlockThresholds is the verbatim port of libvpx's set_block_thresholds.
-// Single-segment collapse: deferred-seed configurations run without
-// segmentation, so libvpx's seg_id loop reduces to segment_id=0.
+// SetBlockThresholds is the verbatim port of libvpx's set_block_thresholds.
+// Single-segment collapse: govpx does not enable segmentation for this path,
+// so libvpx's seg_id loop reduces to segment_id=0.
 //
 // libvpx: vp9/encoder/vp9_rd.c:355-385
 //
@@ -302,7 +317,7 @@ func vp9ComputeRDThreshFactor(qindex int) int {
 // govpx does not surface the sub-8x8 RD picker (vp9_pick_inter_mode_sub8x8),
 // so the bsize<Block8x8 branch is omitted; only the bsize>=Block8x8 branch
 // is populated for the realtime nonrd picker.
-func (rd *vp9RDThreshState) setBlockThresholds(baseQindex, yDcDeltaQ int) {
+func (rd *RDThreshState) SetBlockThresholds(baseQindex, yDcDeltaQ int) {
 	qindex := min(max(baseQindex+yDcDeltaQ, 0), vp9dec.MaxQ)
 	q := vp9ComputeRDThreshFactor(qindex)
 	for bsize := range common.BlockSizes {
@@ -330,7 +345,7 @@ func (rd *vp9RDThreshState) setBlockThresholds(baseQindex, yDcDeltaQ int) {
 	}
 }
 
-// vp9RDLessThanThresh is the verbatim port of libvpx's rd_less_than_thresh
+// RDLessThanThresh is the verbatim port of libvpx's rd_less_than_thresh
 // (vp9_rd.h:193-196).
 //
 //	static INLINE int rd_less_than_thresh(int64_t best_rd, int thresh,
@@ -344,7 +359,7 @@ func (rd *vp9RDThreshState) setBlockThresholds(baseQindex, yDcDeltaQ int) {
 // best_rd < thresh*fact>>5 so the comparison is valid when best_rd has not
 // overflowed int64 — which it can't because score = (R*rdmult)>>9 + (D<<7)
 // with R, rdmult, D bounded.
-func vp9RDLessThanThresh(bestRd uint64, thresh, threshFact int) bool {
+func RDLessThanThresh(bestRd uint64, thresh, threshFact int) bool {
 	if thresh == math.MaxInt32 {
 		return true
 	}
@@ -362,11 +377,10 @@ func vp9RDLessThanThresh(bestRd uint64, thresh, threshFact int) bool {
 	return bestRd < uint64(lhs)
 }
 
-// updateThreshFreqFact is the verbatim port of libvpx's
+// UpdateThreshFreqFact is the verbatim port of libvpx's
 // update_thresh_freq_fact (vp9_pickmode.c:1148-1163), the non-row-MT branch.
-// row-MT is not surfaced in govpx (single-tile single-row encode for
-// deferred seeds), so the row-MT sibling at vp9_pickmode.c:1130-1146 is
-// omitted.
+// row-MT is not surfaced in govpx for this path, so the row-MT sibling at
+// vp9_pickmode.c:1130-1146 is omitted.
 //
 //	static INLINE void update_thresh_freq_fact(
 //	    VP9_COMP *cpi, TileDataEnc *tile_data, unsigned int source_variance,
@@ -384,11 +398,11 @@ func vp9RDLessThanThresh(bestRd uint64, thresh, threshFact int) bool {
 //	                        cpi->sf.adaptive_rd_thresh * RD_THRESH_MAX_FACT);
 //	  }
 //	}
-func (rd *vp9RDThreshState) updateThreshFreqFact(sourceVariance uint, bsize common.BlockSize,
-	refFrame int8, bestModeIdx vp9ThrModes, mode common.PredictionMode,
+func (rd *RDThreshState) UpdateThreshFreqFact(sourceVariance uint, bsize common.BlockSize,
+	refFrame int8, bestModeIdx ThrMode, mode common.PredictionMode,
 	limitNewMvEarlyExit, adaptiveRdThresh int,
 ) {
-	thrModeIdx := vp9ModeIdxTable[refFrame][vp9ModeOffsetInterOrIntra(mode)]
+	thrModeIdx := ModeIdxTable[refFrame][ModeOffsetInterOrIntra(mode)]
 	fact := &rd.threshFreqFact[bsize][thrModeIdx]
 	if thrModeIdx == bestModeIdx {
 		*fact -= *fact >> 4
@@ -405,10 +419,10 @@ func (rd *vp9RDThreshState) updateThreshFreqFact(sourceVariance uint, bsize comm
 	*fact = v
 }
 
-// vp9ModeOffsetInterOrIntra mirrors libvpx's mode_offset (vp9_pickmode.c:1108-1120).
+// ModeOffsetInterOrIntra mirrors libvpx's mode_offset (vp9_pickmode.c:1108-1120).
 // For inter modes (>= NEARESTMV) it returns INTER_OFFSET(mode); for intra
 // modes it maps {DC,V,H,TM}→{0,1,2,3}; anything else returns -1.
-func vp9ModeOffsetInterOrIntra(mode common.PredictionMode) int {
+func ModeOffsetInterOrIntra(mode common.PredictionMode) int {
 	if mode >= common.NearestMv {
 		return int(mode) - int(common.NearestMv)
 	}

@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"testing"
@@ -11,10 +11,10 @@ import (
 // vp9_set_rd_speed_thresholds with adaptive_rd_thresh != 0. Spot-checks the
 // libvpx vp9_rd.c:703-744 column-by-column adjustments.
 func TestVP9SetRDSpeedThresholdsAdaptive(t *testing.T) {
-	var rd vp9RDThreshState
-	rd.setRDSpeedThresholds(4)
+	var rd RDThreshState
+	rd.SetRDSpeedThresholds(4)
 	cases := []struct {
-		mode vp9ThrModes
+		mode ThrMode
 		want int
 		why  string
 	}{
@@ -60,8 +60,8 @@ func TestVP9SetRDSpeedThresholdsAdaptive(t *testing.T) {
 // adaptive_rd_thresh == 0: NEARESTMV/G/A reset to 0, all other adjustments
 // apply uniformly.
 func TestVP9SetRDSpeedThresholdsNonAdaptive(t *testing.T) {
-	var rd vp9RDThreshState
-	rd.setRDSpeedThresholds(0)
+	var rd RDThreshState
+	rd.SetRDSpeedThresholds(0)
 	if got := rd.threshMult[vp9ThrNearestMV]; got != 0 {
 		t.Errorf("threshMult[NEARESTMV] non-adaptive = %d, want 0", got)
 	}
@@ -80,23 +80,23 @@ func TestVP9SetRDSpeedThresholdsNonAdaptive(t *testing.T) {
 // (vp9_pickmode.c:1098-1103).
 func TestVP9ModeIdxTableMatchesLibvpx(t *testing.T) {
 	// INTRA_FRAME row.
-	if vp9ModeIdxTable[vp9dec.IntraFrame][0] != vp9ThrDC {
+	if ModeIdxTable[vp9dec.IntraFrame][0] != vp9ThrDC {
 		t.Errorf("mode_idx[INTRA][DC] = %d, want THR_DC=%d",
-			vp9ModeIdxTable[vp9dec.IntraFrame][0], vp9ThrDC)
+			ModeIdxTable[vp9dec.IntraFrame][0], vp9ThrDC)
 	}
-	if vp9ModeIdxTable[vp9dec.IntraFrame][1] != vp9ThrVPred {
+	if ModeIdxTable[vp9dec.IntraFrame][1] != vp9ThrVPred {
 		t.Errorf("mode_idx[INTRA][V] mismatch")
 	}
-	if vp9ModeIdxTable[vp9dec.IntraFrame][2] != vp9ThrHPred {
+	if ModeIdxTable[vp9dec.IntraFrame][2] != vp9ThrHPred {
 		t.Errorf("mode_idx[INTRA][H] mismatch")
 	}
-	if vp9ModeIdxTable[vp9dec.IntraFrame][3] != vp9ThrTM {
+	if ModeIdxTable[vp9dec.IntraFrame][3] != vp9ThrTM {
 		t.Errorf("mode_idx[INTRA][TM] mismatch")
 	}
 	// LAST_FRAME row: NEAREST/NEAR/ZERO/NEW.
-	want := [4]vp9ThrModes{vp9ThrNearestMV, vp9ThrNearMV, vp9ThrZeroMV, vp9ThrNewMV}
+	want := [4]ThrMode{vp9ThrNearestMV, vp9ThrNearMV, vp9ThrZeroMV, vp9ThrNewMV}
 	for i, w := range want {
-		if got := vp9ModeIdxTable[vp9dec.LastFrame][i]; got != w {
+		if got := ModeIdxTable[vp9dec.LastFrame][i]; got != w {
 			t.Errorf("mode_idx[LAST][%d] = %d, want %d", i, got, w)
 		}
 	}
@@ -106,12 +106,12 @@ func TestVP9ModeIdxTableMatchesLibvpx(t *testing.T) {
 // fills the bsize>=BLOCK_8X8 rows with finite values; sub-8x8 rows stay zero
 // (govpx does not surface the sub-8x8 picker).
 func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
-	var rd vp9RDThreshState
-	rd.setRDSpeedThresholds(4)
-	rd.setBlockThresholds(64, 0)
+	var rd RDThreshState
+	rd.SetRDSpeedThresholds(4)
+	rd.SetBlockThresholds(64, 0)
 
-	// Sub-8x8 rows should be zero (libvpx populates thresh_mult_sub8x8 there;
-	// govpx-deferred).
+	// Sub-8x8 rows stay zero because govpx does not run the sub-8x8 RD
+	// picker here.
 	for b := range common.Block8x8 {
 		for i := range vp9MaxModes {
 			if rd.threshes[b][i] != 0 {
@@ -138,15 +138,15 @@ func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
 // TestVP9RDLessThanThreshFires verifies the gate's fire condition.
 func TestVP9RDLessThanThreshFires(t *testing.T) {
 	// bestRd=10, thresh=100, fact=32 ⇒ rhs = 100*32>>5 = 100. 10<100 → true.
-	if !vp9RDLessThanThresh(10, 100, 32) {
+	if !RDLessThanThresh(10, 100, 32) {
 		t.Error("expected fire when bestRd=10 < thresh*fact>>5=100")
 	}
 	// bestRd=1000 same params ⇒ 1000<100 false.
-	if vp9RDLessThanThresh(1000, 100, 32) {
+	if RDLessThanThresh(1000, 100, 32) {
 		t.Error("expected no fire when bestRd=1000 >= 100")
 	}
 	// INT_MAX thresh always fires (libvpx vp9_rd.h:195).
-	if !vp9RDLessThanThresh(1<<62, 1<<31-1, 32) {
+	if !RDLessThanThresh(1<<62, 1<<31-1, 32) {
 		t.Error("expected fire for INT_MAX thresh")
 	}
 }
@@ -154,11 +154,11 @@ func TestVP9RDLessThanThreshFires(t *testing.T) {
 // TestVP9UpdateThreshFreqFactBestMode verifies the best-mode branch reduces
 // freq_fact by fact>>4 (libvpx vp9_pickmode.c:1154).
 func TestVP9UpdateThreshFreqFactBestMode(t *testing.T) {
-	var rd vp9RDThreshState
-	rd.initFreqFact()
+	var rd RDThreshState
+	rd.InitFreqFact()
 	// Pre: NEARESTMV fact = 32; update with this_mode == best_mode_idx.
-	bestModeIdx := vp9ModeIdxTable[vp9dec.LastFrame][0] // NEARESTMV slot.
-	rd.updateThreshFreqFact(100, common.Block16x16,
+	bestModeIdx := ModeIdxTable[vp9dec.LastFrame][0] // NEARESTMV slot.
+	rd.UpdateThreshFreqFact(100, common.Block16x16,
 		vp9dec.LastFrame, bestModeIdx, common.NearestMv, 0, 4)
 	// fact -= fact>>4 → 32 - 2 = 30.
 	if got := rd.threshFreqFact[common.Block16x16][bestModeIdx]; got != 30 {
@@ -170,14 +170,14 @@ func TestVP9UpdateThreshFreqFactBestMode(t *testing.T) {
 // caps freq_fact at adaptive_rd_thresh * RD_THRESH_MAX_FACT (libvpx
 // vp9_pickmode.c:1159-1162).
 func TestVP9UpdateThreshFreqFactLoser(t *testing.T) {
-	var rd vp9RDThreshState
-	rd.initFreqFact()
+	var rd RDThreshState
+	rd.InitFreqFact()
 	// adaptive_rd_thresh=4, cap=4*64=256. Pre: NEARMV fact=32. Update with
 	// mode!=best (best is NEWMV, this is NEAR).
-	bestModeIdx := vp9ModeIdxTable[vp9dec.LastFrame][3] // NEWMV slot.
-	rd.updateThreshFreqFact(100, common.Block16x16,
+	bestModeIdx := ModeIdxTable[vp9dec.LastFrame][3] // NEWMV slot.
+	rd.UpdateThreshFreqFact(100, common.Block16x16,
 		vp9dec.LastFrame, bestModeIdx, common.NearMv, 0, 4)
-	nearIdx := vp9ModeIdxTable[vp9dec.LastFrame][1] // NEAR slot.
+	nearIdx := ModeIdxTable[vp9dec.LastFrame][1] // NEAR slot.
 	if got := rd.threshFreqFact[common.Block16x16][nearIdx]; got != 33 {
 		t.Errorf("freq_fact after loser update = %d, want 33 (32+1)", got)
 	}

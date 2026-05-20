@@ -25,9 +25,8 @@ import (
 // libvpx control-flow shape — the (ref, mode) cross-product schedule, the
 // ref_frame_skip_mask short-circuit, the inter_mode_mask gate, and the
 // best_early_term shortcut — and reuses govpx's existing predictor /
-// distortion / rate-cost helpers for the per-candidate inner work. Deferrals
-// are flagged inline with TODO + libvpx citation so a follow-up patch can
-// fill them in.
+// distortion / rate-cost helpers for the per-candidate inner work. Missing
+// subsystems are called out inline with TODO + libvpx citations.
 //
 // Structural inventory (block-by-block coverage map of libvpx
 // vp9_pickmode.c:1696-2488 vs the split nonrd picker files):
@@ -80,118 +79,10 @@ import (
 //   - vp9_pickmode.c:2525-2648 intra-fallback section →
 //     vp9NonrdEstimateIntraFallback in vp9_pick_inter_mode_nonrd_intra.go
 //
-// Structural gaps remaining (the only items NOT yet ported from
-// vp9_pickmode.c:1696-2488):
-//
-//   (A) vp9_pickmode.c:2240-2257 mode_rd_thresh + rd_less_than_thresh
-//       early-exit gate. Skips a candidate when
-//       (best_rdc.rdcost < (rd_threshes[mode_index] *
-//       thresh_freq_fact[bsize][mode_index] >> 5)) AND
-//       (frame_mv[this_mode][ref_frame].as_int != 0).
-//
-//       PORTED verbatim from libvpx:
-//
-//         1. rd state: thresh_mult[MAX_MODES=30] + threshes[1]
-//            [BLOCK_SIZES][MAX_MODES] (single-segment collapse) +
-//            mode_idx[MAX_REF_FRAMES][4] +
-//            rd_thresh_block_size_factor[BLOCK_SIZES] all live in
-//            vp9_rd_thresh.go (vp9RDThreshState).
-//         2. vp9_set_rd_speed_thresholds (vp9_rd.c:693-745) ⇒
-//            vp9RDThreshState.setRDSpeedThresholds; called from
-//            vp9EncoderInitializeRDConsts at every frame init.
-//         3. set_block_thresholds (vp9_rd.c:355-385) ⇒
-//            vp9RDThreshState.setBlockThresholds; called from
-//            vp9EncoderInitializeRDConsts after the qindex resolves.
-//         4. Per-tile thresh_freq_fact init to RD_THRESH_INIT_FACT=32
-//            ⇒ vp9RDThreshState.initFreqFact (one-shot at first
-//            frame init, matching libvpx vp9_encodeframe.c:5421-5427
-//            tile-data birth).
-//         5. update_thresh_freq_fact at picker tail
-//            (vp9_pickmode.c:1148-1163, non-row-MT branch) ⇒
-//            vp9RDThreshState.updateThreshFreqFact; called from the inter
-//            and intra best-mode update tail at the bottom of
-//            pickVP9InterReferenceModeNonRD before return.
-//         6. The gate at the picker's per-(ref, mode) head ⇒ inline
-//            block in pickVP9InterReferenceModeNonRD right after
-//            set_ref_ptrs and before search_new_mv.
-//
-//       Empirical byte impact on the deferred-seed corpus with both
-//       gates on while the ML nonrd path was still staged: zero — the per-seed
-//       size_deltas and first_byte_diff values stay identical to the
-//       pre-port baseline (RefControl agg +446B, RuntimeControls
-//       agg +485B; see TestVP9DeferredSeedsRemeasure{RefControl,
-//       RuntimeControls} under tags=govpx_oracle_trace). The gate
-//       skips candidates the existing govpx score function would have
-//       evaluated and discarded as losers anyway, so the structural
-//       port preserves byte parity without changing winners. This
-//       matches the libvpx-side intent (gate is an optimisation, not
-//       a correctness primitive).
-//
-//       Status: gap (A) is now structurally closed — the libvpx
-//       picker shape at vp9_pickmode.c:1696-2488 is fully ported.
-//       The residual byte divergence on the deferred seeds is driven
-//       by downstream paths (block_yrd SATD rate vs libvpx's
-//       cost_coeffs in the FULL RD picker — which the realtime nonrd
-//       path does NOT use; cost_coeffs IS already wired through the
-//       intra RD chain.
-//
-//   (B) vp9_pickmode.c:2176 const_motion[ref] && NEARMV skip.
-//       Confirmed NO-OP for the deferred seeds: const_motion[ref] is
-//       set by mv_refs_rt (vp9_pickmode.c:60-162) which runs ONLY when
-//       cm->use_prev_frame_mvs is FALSE. The deferred seeds run with
-//       prev_frame_mvs TRUE on every non-key frame (cm->last_show_frame
-//       && !cm->intra_only && same dims), so libvpx takes the
-//       vp9_find_mv_refs branch (vp9_pickmode.c:1287-1288). govpx
-//       matches that branch verbatim. Negative finding.
-//
-//   (C) vp9_pickmode.c:2152-2174 lag_in_frames>0 + VBR alt_ref_gf_group
-//       gates. Deferred seeds run with LagInFrames=0 one-pass realtime,
-//       gate never fires. Negative finding.
-//
-//   (D) vp9_pickmode.c:2178-2193 force_skip_low_temp_var gates. Requires
-//       sf.short_circuit_low_temp_var >= 1 which is set only under CBR
-//       realtime non-screen (vp9_speed_features.c:1907-1909). Deferred
-//       seeds run RateControlQ, gate never fires. Negative finding.
-//
-//   (E) vp9_pickmode.c:2195-2199 cpi->use_svc + svc_force_zero_mode.
-//       Deferred seeds are single-layer non-SVC. Negative finding.
-//
-//   (F) vp9_pickmode.c:2247-2249 bias_golden mode_rd_thresh boost.
-//       Requires sf.bias_golden (CBR non-screen only,
-//       vp9_speed_features.c:640). Q-mode seeds, gate never fires.
-//       Negative finding.
-//
-// Net: of 6 structural gaps, 5 (B-F) are CONFIRMED no-ops on the
-// deferred-seed configuration because they require CBR/SVC/VBR/AQ
-// subsystems govpx hasn't ported AND the deferred seeds don't
-// exercise. Gap (A) mode_rd_thresh is now PORTED verbatim but
-// produces zero byte impact on the deferred
-// seeds because it skips candidates the picker's score function
-// would have evaluated and discarded as losers anyway. The byte-9 /
-// byte-16 RefControl + RuntimeControls clusters therefore remain
-// open with their pre-port size_deltas intact; the residual is
-// driven by orthogonal upstream paths (the rate component
-// downstream of the picker, the partition decision under cpu_used=8
-// ML, and the cpu=-8 RT speed=8 compressed-header coef-update walk
-// at byte 4) — not by the gate itself. Closure depends on landing
-// the inter-RD chain's full rate path (cost_coeffs in the full RD
-// picker — NOT the realtime nonrd path which uses block_yrd
-// verbatim and is already libvpx-faithful) AND/OR resolving the
-// upstream (mode, mv, filter) divergence cited by the deferred-seed
-// remeasure notes.
-//
-// Tx-size leaf-commit threading was independently audited by the
-// deferred-seed remeasure docstring: two
-// candidate ports — verbatim calculate_tx_size at the leaf and
-// pickedTxSize plumbed through vp9InterModeDecision — both
-// REGRESSED aggregate size_delta by 19.7x because they land
-// calculate_tx_size on govpx's diverged upstream (mode, mv, filter)
-// pick state. The score-based pickVP9InterTxSize is govpx-specific
-// but produces tx counts CLOSER to libvpx's output under the
-// diverged upstream; the vp9InterTxApplyForces wrap (Tx16x16 cap +
-// boost + screen-content force at vp9_pickmode.c:380-388) already
-// runs and is libvpx-faithful. Closure depends on the upstream
-// (mode, mv, filter) pick converging first (this task's scope).
+// The mode_rd_thresh state and rd_less_than_thresh gate are owned by
+// internal/vp9/encoder.RDThreshState. govpx keeps the same per-frame setup as
+// libvpx and collapses libvpx's segment/tile arrays to the single
+// segment/tile path currently used by this encoder.
 
 // REF_MODE pairs a reference frame with a prediction mode.
 //
@@ -790,9 +681,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// the gate prunes the whole ref when the prior LAST/ZEROMV
 		// prediction was good enough. govpx tracks sseZeromvNormalized
 		// the same way; the gate only fires under CBR (thresh_skip_golden
-		// = 500 default, vp9_pickmode.c:1779) — the deferred-seed
-		// configurations run RateControlMode = RateControlQ so it's a
-		// no-op there, but the shape is part of the libvpx-faithful
+		// = 500 default, vp9_pickmode.c:1779). It is a no-op for Q mode,
+		// but the shape is part of the libvpx-faithful
 		// candidate filter. SVC's thresh_svc_skip_golden branch is not
 		// surfaced (govpx is single-layer); single-layer uses the
 		// non-SVC 500 default.
@@ -878,8 +768,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//    || (!cpi->sf.adaptive_rd_thresh_row_mt && rd_less_than_thresh(...)))
 		//     if (frame_mv[this_mode][ref_frame].as_int != 0) continue;
 		//
-		// govpx single-tile no-row-MT: the row-MT branch is folded out (sf
-		// AdaptiveRdThreshRowMt=0 for deferred-seed configs).
+		// govpx single-tile no-row-MT: the row-MT branch is folded out.
 		//
 		// The gate skips when best_rdc.rdcost is already below the
 		// scheduled threshold AND the candidate's frame_mv is non-zero.
@@ -890,9 +779,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//   - NEWMV   ⇒ INVALID_MV (libvpx vp9_pickmode.c:1279)
 		//               ⇒ as_int != 0 in libvpx; treat as non-zero here.
 		if bsize >= common.Block8x8 {
-			modeIndex := vp9ModeIdxTable[refFrame][vp9ModeOffsetInter(thisMode)]
+			modeIndex := encoder.ModeIdxTable[refFrame][encoder.ModeOffsetInter(thisMode)]
 			modeRdThresh := vp9NonrdModeRdThreshold(
-				e.rdThresh.threshes[bsize][modeIndex],
+				e.rdThresh.Threshold(bsize, modeIndex),
 				bp.bestModeSkipTxfm != 0,
 				e.sf.BiasGolden != 0,
 				refFrame,
@@ -901,8 +790,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			if bestSet {
 				bestRd = best.score
 			}
-			thresholdFires := vp9RDLessThanThresh(bestRd, modeRdThresh,
-				e.rdThresh.threshFreqFact[bsize][modeIndex])
+			thresholdFires := encoder.RDLessThanThresh(bestRd, modeRdThresh,
+				e.rdThresh.ThreshFreqFact(bsize, modeIndex))
 			if thresholdFires {
 				// frame_mv non-zero check. For NEWMV the MV has not yet
 				// been searched (search_new_mv runs below at line 2259);
@@ -1150,7 +1039,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		var dequantU, dequantV [2]int16
 		if inter.dq != nil {
 			// Realtime nonrd uses the SB segment id (0 when segmentation
-			// is off, which matches the deferred-seed configurations).
+			// is off).
 			dequantY = inter.dq.Y[0]
 			dequantU = inter.dq.Uv[0]
 			dequantV = inter.dq.Uv[0]
@@ -1380,10 +1269,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 
 				// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test
 				// override. Fires only when allow_encode_breakout, not
-				// lossless, encode_breakout > 0, and motion-low. For the
-				// deferred-seed configurations encode_breakout == 0 so
-				// the gate falls through unless var==0 && sse==0 (a true
-				// near-perfect prediction).
+				// lossless, encode_breakout > 0, and motion-low. When
+				// encode_breakout is zero, the gate falls through unless
+				// var==0 && sse==0 (a true near-perfect prediction).
 				if allowEncodeBreakout && (encodeBreakout > 0 ||
 					(varY == 0 && sseY == 0)) {
 					varU, sseU, varV, sseV, uvOk := e.vp9NonrdUVVarianceSSE(
@@ -1713,8 +1601,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// libvpx: vp9_pickmode.c:2714-2750 — update thresh_freq_fact when
 	// sf.adaptive_rd_thresh fires. For inter winners walk
 	// ref_frame ∈ {LAST..GOLDEN}, mode ∈ {NEARESTMV..NEWMV} and update via
-	// update_thresh_freq_fact (the non-row-MT branch; govpx is single-row
-	// for the deferred-seed configs).
+	// update_thresh_freq_fact (the non-row-MT branch).
 	//
 	//   if (cpi->sf.adaptive_rd_thresh) {
 	//     THR_MODES best_mode_idx =
@@ -1736,15 +1623,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		bestRefFrame := bp.bestRefFrame
 		bestMode := bp.bestMode
 		if bestRefFrame >= vp9dec.IntraFrame && bestRefFrame < vp9dec.MaxRefFrames &&
-			vp9ModeOffsetInterOrIntra(bestMode) >= 0 {
-			bestModeIdx := vp9ModeIdxTable[bestRefFrame][vp9ModeOffsetInterOrIntra(bestMode)]
+			encoder.ModeOffsetInterOrIntra(bestMode) >= 0 {
+			bestModeIdx := encoder.ModeIdxTable[bestRefFrame][encoder.ModeOffsetInterOrIntra(bestMode)]
 			if bestRefFrame == vp9dec.IntraFrame {
 				// libvpx walks intra_mode_list = {DC, V, H, TM}.
 				intraModeList := [...]common.PredictionMode{
 					common.DcPred, common.VPred, common.HPred, common.TmPred,
 				}
 				for _, im := range intraModeList {
-					e.rdThresh.updateThreshFreqFact(sourceVariance, bsize,
+					e.rdThresh.UpdateThreshFreqFact(sourceVariance, bsize,
 						vp9dec.IntraFrame, bestModeIdx, im,
 						e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
 				}
@@ -1754,7 +1641,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						continue
 					}
 					for tm := common.NearestMv; tm <= common.NewMv; tm++ {
-						e.rdThresh.updateThreshFreqFact(sourceVariance, bsize,
+						e.rdThresh.UpdateThreshFreqFact(sourceVariance, bsize,
 							rf, bestModeIdx, tm,
 							e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
 					}

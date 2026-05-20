@@ -453,11 +453,11 @@ type VP9Encoder struct {
 	//   - TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES]
 	//                                                 (vp9_block.h)
 	//
-	// Single-tile collapse: deferred-seed runs are single-tile (Threads=1,
-	// Log2TileRows=0 default), so libvpx's per-tile state collapses to a
-	// single tile plane. Single-segment: deferred seeds disable
-	// segmentation, so [MAX_SEGMENTS=8] collapses to segment_id=0.
-	rdThresh vp9RDThreshState
+	// Single-tile collapse: govpx's current realtime encoder path is
+	// single-tile, so libvpx's per-tile state collapses to a single tile
+	// plane. Single-segment: segmentation is disabled for this path, so
+	// [MAX_SEGMENTS=8] collapses to segment_id=0.
+	rdThresh encoder.RDThreshState
 
 	// mvHints carries the per-SB64 motion-vector hint slab installed
 	// via importVP9MVHints. The multi-resolution encoder pipeline

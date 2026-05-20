@@ -149,11 +149,11 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	// frames inside an encode session.
 	//
 	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds (+sub8x8
-	// sibling not surfaced here — the sub-8x8 picker is govpx-deferred).
-	e.rdThresh.setRDSpeedThresholds(e.sf.AdaptiveRdThresh)
-	e.rdThresh.setBlockThresholds(qindex, 0)
-	if !e.rdThresh.initialised {
-		e.rdThresh.initFreqFact()
+	// sibling not surfaced here).
+	e.rdThresh.SetRDSpeedThresholds(e.sf.AdaptiveRdThresh)
+	e.rdThresh.SetBlockThresholds(qindex, 0)
+	if !e.rdThresh.Initialized() {
+		e.rdThresh.InitFreqFact()
 	}
 }
 

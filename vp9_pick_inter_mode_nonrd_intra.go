@@ -251,14 +251,14 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			contentState != encoder.ContentStateVeryHighSad {
 			continue
 		}
-		modeOffset := vp9ModeOffsetInterOrIntra(thisMode)
+		modeOffset := encoder.ModeOffsetInterOrIntra(thisMode)
 		if modeOffset < 0 {
 			continue
 		}
-		modeIndex := vp9ModeIdxTable[vp9dec.IntraFrame][modeOffset]
-		modeRdThresh := e.rdThresh.threshes[bsize][modeIndex]
-		if vp9RDLessThanThresh(bestInterScore, modeRdThresh,
-			e.rdThresh.threshFreqFact[bsize][modeIndex]) &&
+		modeIndex := encoder.ModeIdxTable[vp9dec.IntraFrame][modeOffset]
+		modeRdThresh := e.rdThresh.Threshold(bsize, modeIndex)
+		if encoder.RDLessThanThresh(bestInterScore, modeRdThresh,
+			e.rdThresh.ThreshFreqFact(bsize, modeIndex)) &&
 			e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
 			continue
 		}
