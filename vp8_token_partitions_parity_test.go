@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// TestVP8TokenPartitionsErrorResilientByteParity is the strict
-// regression gate for task #251 — the wire-image audit of libvpx
-// `vp8_pack_tokens_into_partitions` (libvpx v1.16.0
+// TestVP8TokenPartitionsErrorResilientByteParity is the strict regression gate
+// for the wire image emitted by libvpx `vp8_pack_tokens_into_partitions`
+// (libvpx v1.16.0
 // vp8/encoder/bitstream.c:292-318) crossed with the error-resilient
 // surface that flips per-partition entropy-context init at
 // vp8/encoder/onyx_if.c:3944-3948 (libvpx error_resilient_mode →
@@ -34,7 +34,7 @@ import (
 // offset pointing at the first divergent partition.
 func TestVP8TokenPartitionsErrorResilientByteParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run task #251 byte-parity gate")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run the token-partition byte-parity gate")
 	}
 	vpxencOracle := findVpxencOracle(t)
 

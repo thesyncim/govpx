@@ -11,8 +11,8 @@ import (
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// TestVP8Frame2Byte58DivergenceParity pins task #183: the byte-58 of frame 2
-// divergence captured by FuzzEncoderProductionStreamByteParity seed
+// TestVP8Frame2Byte58DivergenceParity pins the byte-58 frame-2 divergence
+// captured by FuzzEncoderProductionStreamByteParity seed
 // `regression_option_grid_75578e9f` (bytes "21200000"). Frame 2 of a
 // 160x96 / good / cpu0 / CBR / tune=SSIM / arnr=1/2/1 clip diverges
 // from the libvpx oracle at byte 58 within the entropy-coded first
@@ -61,7 +61,7 @@ import (
 //     act_zbin_adj for the affected MB(s), which finally shifts one UV
 //     qcoeff between 3 and 4 at one MB's band-6 ctx-2 position.
 //
-// Root cause (closed by task #201): govpx was building the per-MB
+// Root cause: govpx was building the per-MB
 // activity_map ONCE before the recode loop in vp8_encoder_frame.go, while
 // libvpx vp8/encoder/encodeframe.c:721-732 rebuilds it inside every
 // vp8_encode_frame call (i.e. on each recode attempt) keyed off the new
@@ -119,7 +119,7 @@ import (
 //   - govpx vp8_encoder_inter_quantize.go:38-86 quantizeBlockWithZbinAndActivity
 //     (per-position ZBIN_EXTRA computation on line 64)
 //
-// Closed by task #201 (per-recode activity_map rebuild): the byte 58 frame 2
+// Closed by the per-recode activity_map rebuild: the byte 58 frame 2
 // coefficient probability divergence collapsed once govpx started rebuilding
 // the per-MB activity_map inside every recode attempt instead of once before
 // the recode loop, matching libvpx's vp8_encode_frame call cadence (the
@@ -127,7 +127,7 @@ import (
 // byte-MATCH for the same cohort, so this test now pins the closed state.
 func TestVP8Frame2Byte58DivergenceParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the audit replay")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run the byte-58 frame-2 parity replay")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -161,13 +161,13 @@ func TestVP8Frame2Byte58DivergenceParity(t *testing.T) {
 	}
 
 	govpxFrames, counts := encodeFramesWithGovpxCapturingFrame2Counts(t, opts, sources, 2)
-	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task183-byte58-audit", opts, 700, sources, extraArgs)
+	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "vp8-byte58-frame2-activity-map", opts, 700, sources, extraArgs)
 
 	if len(govpxFrames) < 6 || len(libvpxFrames) < 6 {
 		t.Fatalf("expected ≥6 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
 	}
 
-	// Full byte-MATCH on every frame; before task #201 the frame 2 first
+	// Full byte-MATCH on every frame; before the per-recode rebuild the frame 2 first
 	// partition diverged at byte 58 (govpx=0x73 vs libvpx=0x7f) due to a
 	// single UV coefficient (b=2 band=6 ctx=2 node=5) tipping across the
 	// activity-adjusted ZBIN boundary. Fix: rebuild activity_map per recode.
@@ -184,13 +184,13 @@ func TestVP8Frame2Byte58DivergenceParity(t *testing.T) {
 					break
 				}
 			}
-			t.Fatalf("frame %d byte-MATCH regressed after task #201 fix: govpx_len=%d libvpx_len=%d first_diff=%d",
+			t.Fatalf("frame %d byte-MATCH regressed after activity-map rebuild: govpx_len=%d libvpx_len=%d first_diff=%d",
 				i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff)
 		}
 	}
 
 	// Decode coefficient probabilities for frames 0..2 and require zero
-	// divergent slots. Before task #201 there was exactly one delta at
+	// divergent slots. Before the activity-map rebuild there was exactly one delta at
 	// (b=2, band=6, ctx=2, node=5) gov=156 lib=159, driven by the
 	// (b=2,band=6,ctx=2) THREE/FOUR token distribution diverging by one
 	// shifted coefficient.
@@ -223,7 +223,7 @@ func TestVP8Frame2Byte58DivergenceParity(t *testing.T) {
 			for c := 0; c < tables.PrevCoefContexts; c++ {
 				for nd := 0; nd < tables.EntropyNodes; nd++ {
 					if govpxProbs[b][n][c][nd] != libvpxProbs[b][n][c][nd] {
-						t.Fatalf("coef-prob delta after task #201 fix at b=%d band=%d ctx=%d node=%d gov=%d lib=%d",
+						t.Fatalf("coef-prob delta after activity-map rebuild at b=%d band=%d ctx=%d node=%d gov=%d lib=%d",
 							b, n, c, nd, govpxProbs[b][n][c][nd], libvpxProbs[b][n][c][nd])
 					}
 				}
@@ -245,7 +245,7 @@ func TestVP8Frame2Byte58DivergenceParity(t *testing.T) {
 	if got := counts[2][6][2][tables.FourToken]; got != wantTokenFour {
 		t.Fatalf("token count drift at (b=2,band=6,ctx=2) FourToken: got=%d want=%d", got, wantTokenFour)
 	}
-	t.Logf("task #183 closed by task #201: 6-frame byte MATCH; (b=2,band=6,ctx=2) Three=%d Four=%d",
+	t.Logf("byte-58 frame-2 parity pinned: 6-frame byte MATCH; (b=2,band=6,ctx=2) Three=%d Four=%d",
 		wantTokenThree, wantTokenFour)
 }
 

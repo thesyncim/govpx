@@ -26,10 +26,10 @@ import (
 // ref_frame_skip_mask short-circuit, the inter_mode_mask gate, and the
 // best_early_term shortcut — and reuses govpx's existing predictor /
 // distortion / rate-cost helpers for the per-candidate inner work. Deferrals
-// are flagged inline with TODO + libvpx citation so a follow-up agent can
+// are flagged inline with TODO + libvpx citation so a follow-up patch can
 // fill them in.
 //
-// Task #162 structural inventory (block-by-block coverage map of libvpx
+// Structural inventory (block-by-block coverage map of libvpx
 // vp9_pickmode.c:1696-2488 vs the split nonrd picker files):
 //
 //   - vp9_pickmode.c:1706    BEST_PICKMODE init_best_pickmode →
@@ -89,7 +89,7 @@ import (
 //       thresh_freq_fact[bsize][mode_index] >> 5)) AND
 //       (frame_mv[this_mode][ref_frame].as_int != 0).
 //
-//       PORTED (task #170) verbatim from libvpx:
+//       PORTED verbatim from libvpx:
 //
 //         1. rd state: thresh_mult[MAX_MODES=30] + threshes[1]
 //            [BLOCK_SIZES][MAX_MODES] (single-segment collapse) +
@@ -133,7 +133,7 @@ import (
 //       by downstream paths (block_yrd SATD rate vs libvpx's
 //       cost_coeffs in the FULL RD picker — which the realtime nonrd
 //       path does NOT use; cost_coeffs IS already wired through the
-//       intra RD chain per task #151 closure).
+//       intra RD chain.
 //
 //   (B) vp9_pickmode.c:2176 const_motion[ref] && NEARMV skip.
 //       Confirmed NO-OP for the deferred seeds: const_motion[ref] is
@@ -164,8 +164,8 @@ import (
 // Net: of 6 structural gaps, 5 (B-F) are CONFIRMED no-ops on the
 // deferred-seed configuration because they require CBR/SVC/VBR/AQ
 // subsystems govpx hasn't ported AND the deferred seeds don't
-// exercise. Gap (A) mode_rd_thresh is now PORTED verbatim (task
-// #170, this commit) but produces zero byte impact on the deferred
+// exercise. Gap (A) mode_rd_thresh is now PORTED verbatim but
+// produces zero byte impact on the deferred
 // seeds because it skips candidates the picker's score function
 // would have evaluated and discarded as losers anyway. The byte-9 /
 // byte-16 RefControl + RuntimeControls clusters therefore remain
@@ -177,10 +177,11 @@ import (
 // the inter-RD chain's full rate path (cost_coeffs in the full RD
 // picker — NOT the realtime nonrd path which uses block_yrd
 // verbatim and is already libvpx-faithful) AND/OR resolving the
-// upstream (mode, mv, filter) divergence cited under task #169.
+// upstream (mode, mv, filter) divergence cited by the deferred-seed
+// remeasure notes.
 //
-// Tx-size leaf-commit threading was independently audited under
-// task #169 (see the deferred-seed remeasure docstring): two
+// Tx-size leaf-commit threading was independently audited by the
+// deferred-seed remeasure docstring: two
 // candidate ports — verbatim calculate_tx_size at the leaf and
 // pickedTxSize plumbed through vp9InterModeDecision — both
 // REGRESSED aggregate size_delta by 19.7x because they land
@@ -864,7 +865,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		inter.ref = &e.refFrames[refSlots[refFrame]]
 
 		// libvpx: vp9_pickmode.c:2240-2257 mode_rd_thresh + rd_less_than_thresh
-		// early-exit gate. Verbatim port — task #170 closure step.
+		// early-exit gate.
 		//
 		//   mode_index = mode_idx[ref_frame][INTER_OFFSET(this_mode)];
 		//   mode_rd_thresh = best_pickmode.best_mode_skip_txfm
@@ -929,8 +930,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 
 		// libvpx: vp9_pickmode.c:2401 ref_frame_cost[ref_frame] is the
 		// per-ref bitcost contribution. govpx computes this through
-		// vp9SingleRefModeRateCost.
-		refRate := vp9SingleRefModeRateCost(&inter.selectFc, above, left,
+		// encoder.SingleRefModeRateCost.
+		refRate := encoder.SingleRefModeRateCost(&inter.selectFc, above, left,
 			inter.referenceMode, inter.compoundRefs, refFrame)
 
 		// libvpx: vp9_pickmode.c:2259-2264 — search_new_mv issues
@@ -983,10 +984,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			//
 			// That prevents periodic-motion blocks from carrying an expensive
 			// NEWMV into the full candidate scoring when NEAREST/NEAR/ZERO has
-			// already won cheaply. govpx's vp9InterModeRateCost folds both the
+			// already won cheaply. encoder.InterModeRateCost folds both the
 			// inter mode bit cost and MV bit cost, matching rate_mv+rate_mode.
 			if bestSet {
-				rateModeMv := vp9InterModeRateCost(vp9InterModeCostFrameContext(inter),
+				rateModeMv := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
 					interModeCtx, common.NewMv, gotMv, refMvOpt, inter.allowHP)
 				if encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
 					rateModeMv, 0) > best.score {
@@ -1363,7 +1364,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2405-2410 — finalize the
 				// (rate, dist) tuple by adding rate_mv + inter_mode_cost
 				// + ref_frame_cost + the chosen skip bit.
-				interModeBitCost := vp9InterModeRateCost(vp9InterModeCostFrameContext(inter),
+				interModeBitCost := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
 					interModeCtx, thisMode, mv, refMv, inter.allowHP)
 				interpFilterCost := 0
 				if vp9MvHasSubpel(mv) {
@@ -1475,7 +1476,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if !ok {
 					continue
 				}
-				interModeBitCost := vp9InterModeRateCost(vp9InterModeCostFrameContext(inter),
+				interModeBitCost := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
 					interModeCtx, thisMode, mv, refMv, inter.allowHP)
 				interpFilterCost := 0
 				if vp9MvHasSubpel(mv) {

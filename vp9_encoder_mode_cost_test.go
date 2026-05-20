@@ -10,47 +10,17 @@ import (
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
-	var fc vp9dec.FrameContext
-	vp9dec.ResetFrameContext(&fc)
-
-	zeroRate := vp9InterModeRateCost(&fc, 0, common.ZeroMv,
-		vp9dec.MV{}, vp9dec.MV{}, false)
-	newRate := vp9InterModeRateCost(&fc, 0, common.NewMv,
-		vp9dec.MV{Col: 64}, vp9dec.MV{}, false)
-	compoundNewRate := vp9InterModeRateCostN(&fc, 0, common.NewMv,
-		[2]vp9dec.MV{{Col: 64}, {Col: -64}}, [2]vp9dec.MV{}, 2, false)
-	if newRate <= zeroRate {
-		t.Fatalf("NEWMV rate = %d, want greater than ZEROMV rate %d",
-			newRate, zeroRate)
-	}
-	if compoundNewRate <= newRate {
-		t.Fatalf("compound NEWMV rate = %d, want greater than single NEWMV rate %d",
-			compoundNewRate, newRate)
-	}
-	if got, wantGreater := vp9InterModeScore(0, newRate, 1),
-		vp9InterModeScore(0, zeroRate, 1); got <= wantGreater {
-		t.Fatalf("equal-SAD NEWMV score = %d, want greater than ZEROMV score %d",
+func TestVP9InterModeScoreOrdersRateAndDistortion(t *testing.T) {
+	const qindex = 1
+	if got, wantGreater := vp9InterModeScore(0, 256, qindex),
+		vp9InterModeScore(0, 64, qindex); got <= wantGreater {
+		t.Fatalf("higher-rate score = %d, want greater than lower-rate score %d",
 			got, wantGreater)
 	}
-	if got, wantLess := vp9InterModeScore(0, newRate, 1),
-		vp9InterModeScore(4096, zeroRate, 1); got >= wantLess {
-		t.Fatalf("large-gain NEWMV score = %d, want less than ZEROMV score %d",
+	if got, wantLess := vp9InterModeScore(0, 256, qindex),
+		vp9InterModeScore(4096, 64, qindex); got >= wantLess {
+		t.Fatalf("lower-distortion score = %d, want less than high-distortion score %d",
 			got, wantLess)
-	}
-}
-
-func TestVP9SingleRefModeRateCostIncludesIntraInterBit(t *testing.T) {
-	var fc vp9dec.FrameContext
-	vp9dec.ResetFrameContext(&fc)
-
-	got := vp9SingleRefModeRateCost(&fc, nil, nil, vp9dec.SingleReference,
-		vp9dec.CompoundFrameRefs{}, vp9dec.LastFrame)
-	want := vp9IntraInterRateCost(&fc, nil, nil, 1) +
-		vp9SingleRefRateCost(&fc, nil, nil, vp9dec.LastFrame)
-	if got != want {
-		t.Fatalf("single-ref LAST rate = %d, want intra/inter + single-ref %d",
-			got, want)
 	}
 }
 

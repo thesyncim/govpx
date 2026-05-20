@@ -28,7 +28,7 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	decision, ok := e.pickVP9InterIntraModeCore(inter, tile, miRows, miCols,
 		miRow, miCol, bsize, txSize,
 		func(above, left *vp9dec.NeighborMi) int {
-			return vp9IntraInterRateCost(&inter.selectFc, above, left, 0)
+			return encoder.IntraInterRateCost(&inter.selectFc, above, left, 0)
 		})
 	if !ok {
 		return vp9InterIntraDecision{}, false
@@ -40,7 +40,7 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	interAdjusted := interScore + e.vp9ModeDecisionRateScore(
-		vp9IntraInterRateCost(&inter.selectFc, above, left, 1), qindex)
+		encoder.IntraInterRateCost(&inter.selectFc, above, left, 1), qindex)
 	if decision.score >= interAdjusted {
 		return vp9InterIntraDecision{}, false
 	}
@@ -136,7 +136,7 @@ func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
 	encoder.VP9CostTokens(yModeCosts[:], inter.selectFc.YModeProb[sg][:],
 		common.IntraModeTree[:])
 	qindex := e.vp9EncoderModeDecisionQIndex()
-	rateBase := vp9IntraInterRateCost(&inter.selectFc, above, left, 0)
+	rateBase := encoder.IntraInterRateCost(&inter.selectFc, above, left, 0)
 	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
 	modeCount := vp9NoReferenceIntraModeCount(bsize, e.opts.ScreenContentMode)
 
@@ -720,7 +720,7 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 				continue
 			}
 			inter.ref = &e.refFrames[refSlot]
-			refRate := vp9SingleRefModeRateCost(&inter.selectFc, above, left,
+			refRate := encoder.SingleRefModeRateCost(&inter.selectFc, above, left,
 				inter.referenceMode, inter.compoundRefs, refFrame)
 			decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
 				miRow, miCol, bsize, refFrame, refRate)
@@ -756,7 +756,7 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			if !ok {
 				continue
 			}
-			refRate, ok := vp9CompoundRefRateCost(&inter.selectFc, above, left,
+			refRate, ok := encoder.CompoundRefRateCost(&inter.selectFc, above, left,
 				inter.referenceMode, inter.compoundRefs, inter.refSignBias,
 				[2]int8{refFrame, secondRefFrame})
 			if !ok {
@@ -869,7 +869,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 		filter vp9dec.InterpFilter, distortion uint64,
 	) {
 		rate := refRate +
-			vp9InterModeRateCostN(&inter.selectFc, interModeCtx, mode,
+			encoder.InterModeRateCostN(&inter.selectFc, interModeCtx, mode,
 				mv, refMv, 2, inter.allowHP) +
 			vp9InterInterpFilterRateCost(inter, &inter.selectFc, switchableCtx, filter)
 		cand := vp9InterModeDecision{
@@ -1056,7 +1056,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		filter vp9dec.InterpFilter, distortion uint64,
 	) {
 		rate := refRate +
-			vp9InterModeRateCost(&inter.selectFc, interModeCtx, mode,
+			encoder.InterModeRateCost(&inter.selectFc, interModeCtx, mode,
 				mv, refMv, inter.allowHP) +
 			vp9InterInterpFilterRateCost(inter, &inter.selectFc, switchableCtx, filter)
 		cand := vp9InterModeDecision{
@@ -1315,7 +1315,7 @@ func (e *VP9Encoder) pickVP9Sub8InterMode(inter *vp9InterEncodeState,
 		for idy := 0; idy < 2; idy += num4x4H {
 			for idx := 0; idx < 2; idx += num4x4W {
 				j := idy*2 + idx
-				modeRate += vp9InterModeRateCost(&inter.selectFc,
+				modeRate += encoder.InterModeRateCost(&inter.selectFc,
 					interModeCtx, base.Bmi[j].AsMode,
 					base.Bmi[j].AsMv[0], vp9dec.MV{}, inter.allowHP)
 			}

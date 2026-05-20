@@ -197,7 +197,7 @@ const BlockYrdUnknownSSE = uint64(1<<63 - 1)
 // is AC_DC-skippable; otherwise it is `(sse-var) << 4` plus the model_rd
 // AC contribution `(dist << 4)`. Rates are in libvpx prob-cost units
 // (bits << VP9_PROB_COST_SHIFT), matching the units the rest of the
-// picker rate-cost helpers (vp9InterModeRateCost, ref_frame_cost, ...)
+// picker rate-cost helpers (InterModeRateCost, ref_frame_cost, ...)
 // emit.
 //
 // Block-size note: callers pass bsize directly; this function expects

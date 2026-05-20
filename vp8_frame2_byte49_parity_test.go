@@ -10,8 +10,8 @@ import (
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// TestVP8Byte49Frame2DivergenceClosure pins task #200: the byte-49 of frame 2
-// divergence captured by FuzzEncoderProductionStreamByteParity seed
+// TestVP8Byte49Frame2DivergenceClosure pins the byte-49 frame-2 divergence
+// captured by FuzzEncoderProductionStreamByteParity seed
 // `regression_option_grid_a438fec8` (bytes "1200000"). Frame 2 of a
 // 128x128 / best / cpu=4 / CBR / tune=SSIM clip diverged from the libvpx
 // oracle at byte 49 within the entropy-coded first partition until the
@@ -20,8 +20,8 @@ import (
 //
 // Pre-fix signature (now closed) — frame 2 first_diff=49, gov=0xf6 lib=0xf7,
 // single coef-prob slot delta at (b=2,band=6,ctx=2,node=5) gov=180 lib=184.
-// Same UV act_zbin_adj cascade as task #183 (160x96 cohort, byte 58, slot
-// gov=156 lib=159). The recoded activity_map rebuild collapses both
+// Same UV act_zbin_adj cascade as the companion 160x96 cohort (byte 58,
+// slot gov=156 lib=159). The recoded activity_map rebuild collapses both
 // cascades by feeding the next attempt fresh per-MB act_zbin_adj values
 // keyed off the recoded base_qindex, matching libvpx's encodeframe.c:721-
 // 732 cadence inside the onyx_if.c:3962-3968 recode do-loop.
@@ -67,7 +67,7 @@ import (
 // 160x96 cohort.
 func TestVP8Byte49Frame2DivergenceClosure(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the audit replay")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run the byte-49 frame-2 parity replay")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -95,7 +95,7 @@ func TestVP8Byte49Frame2DivergenceClosure(t *testing.T) {
 	}
 
 	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task200-byte49-closure", opts, 700, sources, extraArgs)
+	libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "vp8-byte49-frame2-activity-map", opts, 700, sources, extraArgs)
 
 	if len(govpxFrames) < 6 || len(libvpxFrames) < 6 {
 		t.Fatalf("expected 6 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -131,7 +131,7 @@ func TestVP8Byte49Frame2DivergenceClosure(t *testing.T) {
 	// Coef-prob fingerprint: pin that the (b=2,band=6,ctx=2,node=5) slot
 	// the historical divergence lived on now matches between govpx and
 	// libvpx. A regression on the SSIM activity-map recode path almost
-	// always re-opens this slot first (see task #183 audit).
+	// always re-opens this slot first (see the companion 160x96 parity test).
 	var govpxProbs tables.CoefficientProbs
 	var libvpxProbs tables.CoefficientProbs
 	prevQuant := vp8dec.QuantHeader{}
@@ -191,5 +191,5 @@ func TestVP8Byte49Frame2DivergenceClosure(t *testing.T) {
 	if diffCount != 0 {
 		t.Fatalf("expected 0 coef-prob deltas after frame 2; got %d", diffCount)
 	}
-	t.Logf("task #200 closure pinned: 128x128/best/cpu=4/CBR/SSIM byte-49 frame 2 divergence closed by commit 2accbaaa (SSIM activity_map recode-rebuild)")
+	t.Logf("byte-49 frame-2 parity pinned: 128x128/best/cpu=4/CBR/SSIM divergence closed by SSIM activity_map recode-rebuild")
 }

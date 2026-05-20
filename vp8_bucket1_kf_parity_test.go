@@ -10,11 +10,11 @@ import (
 	"testing"
 )
 
-// TestVP8Bucket1KFParity pins byte-exact parity on the three
-// task-268 cohort-A bucket-1 fuzz seeds (1280×720 SSIM KF). Task #267
-// scoreboard reported a "+33 first_part / +49 total" KF divergence for
-// these seeds; task #262 (vp8: refresh KF picker zbin_extra under
-// segmentation_enabled) closes the residual gap.
+// TestVP8Bucket1KFParity pins byte-exact parity on the three bucket-1 fuzz
+// seeds for the 1280x720 SSIM keyframe path. The parity scoreboard reported a
+// "+33 first_part / +49 total" keyframe divergence for these seeds; refreshing
+// the keyframe picker zbin_extra under segmentation_enabled closes the
+// residual gap.
 //
 // Cohort:
 //   - 1280×720, GoodQuality or BestQuality (NOT realtime), cpu_used=0
@@ -31,15 +31,15 @@ import (
 //	"A1"   -> 788d442c : deadline=Good, rc=CBR, er=true
 //
 // All three share sc=1, tune=SSIM, threads=4, token-parts=1, arnr=1/*/*.
-// Historic KF size triples (pre task #262):
+// Historic keyframe size triples before segmentation-enabled zbin refresh:
 //
 //	seed       govpx_total libvpx_total  first_part_Δ  total_Δ
 //	19981bff   145546      145497        +33           +49
 //	22f3d67c   145545      145496        +33           +49
 //	788d442c   145546      145497        +33           +49
 //
-// Current state (post task #262 / commit 36e2a2a4): all three full
-// streams are byte-identical end-to-end (KF + inter).
+// Current state: all three full streams are byte-identical end-to-end
+// (keyframe + inter).
 //
 // References:
 //   - libvpx v1.16.0 vp8/encoder/encodeframe.c:427-438
@@ -51,7 +51,7 @@ import (
 //     is enabled — picked up by both CBR and VBR seeds in this cohort).
 func TestVP8Bucket1KFParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run task #268 byte-parity pin")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run the bucket-1 keyframe parity pin")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -74,7 +74,7 @@ func TestVP8Bucket1KFParity(t *testing.T) {
 			sources := cfg.buildSources()
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task268-"+tc.label, opts, cfg.targetKbps, sources, libvpxArgs)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "bucket1-kf-"+tc.label, opts, cfg.targetKbps, sources, libvpxArgs)
 			if len(govpxFrames) < 2 || len(libvpxFrames) < 2 {
 				t.Fatalf("expected ≥2 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
 			}
@@ -109,7 +109,7 @@ func TestVP8Bucket1KFParity(t *testing.T) {
 
 			kfSHA := sha256.Sum256(gKF)
 			intSHA := sha256.Sum256(gInt)
-			t.Logf("task #268 %s pinned: KF=%dB first_part=%d sha=%s inter=%dB sha=%s",
+			t.Logf("bucket-1 keyframe parity %s pinned: KF=%dB first_part=%d sha=%s inter=%dB sha=%s",
 				tc.label, tc.wantKFLen, tc.wantKFFirstPart,
 				hex.EncodeToString(kfSHA[:8]), tc.wantInterLen,
 				hex.EncodeToString(intSHA[:8]))

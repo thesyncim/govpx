@@ -196,8 +196,8 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 
 	// libvpx vp9_pickmode.c:1232-1234 — ref_frame_cost[INTRA_FRAME] =
 	// vp9_cost_bit(intra_inter_p, 0). govpx ports the same via
-	// vp9IntraInterRateCost with isInter=0.
-	refRateIntra := vp9IntraInterRateCost(&inter.selectFc, above, left, 0)
+	// encoder.IntraInterRateCost with isInter=0.
+	refRateIntra := encoder.IntraInterRateCost(&inter.selectFc, above, left, 0)
 
 	// libvpx vp9_pickmode.c:1718-1720 — skip-cost contribution. The
 	// per-mode (rate, dist) tuple adds skip-on or skip-off depending on
