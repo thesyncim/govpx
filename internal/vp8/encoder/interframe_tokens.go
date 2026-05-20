@@ -99,16 +99,7 @@ func validInterCoefficientTokenMode(mode *InterFrameMacroblockMode) bool {
 	default:
 		return false
 	}
-	return isWholeInterMacroblockMode(mode.Mode) || validSplitMVMode(mode)
-}
-
-func isWholeInterMacroblockMode(mode common.MBPredictionMode) bool {
-	switch mode {
-	case common.ZeroMV, common.NearestMV, common.NearMV, common.NewMV:
-		return true
-	default:
-		return false
-	}
+	return common.IsWholeInterMacroblockMode(mode.Mode) || validSplitMVMode(mode)
 }
 
 func interModeUses4x4Tokens(mode common.MBPredictionMode) bool {

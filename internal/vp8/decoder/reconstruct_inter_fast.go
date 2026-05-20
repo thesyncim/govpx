@@ -134,7 +134,7 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	// Validation gates are intentionally kept identical to the
 	// pre-existing ReconstructWholeMVInterMacroblock to ensure
 	// byte-identical behavior on inputs the slow path would reject.
-	if mode.RefFrame == common.IntraFrame || mode.Is4x4 || !isWholeMacroblockInterMode(mode.Mode) {
+	if mode.RefFrame == common.IntraFrame || mode.Is4x4 || !common.IsWholeInterMacroblockMode(mode.Mode) {
 		return false
 	}
 	if mode.Mode == common.ZeroMV && !mode.MV.IsZero() {

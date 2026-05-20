@@ -140,7 +140,7 @@ func keyFrameLeftBlockMode(cur *KeyFrameMacroblockMode, left *KeyFrameMacroblock
 		if left.YMode == common.BPred {
 			return left.BModes[block+3]
 		}
-		return blockModeFromMacroblockMode(left.YMode)
+		return common.BlockModeFromMacroblockMode(left.YMode)
 	}
 	return cur.BModes[block-1]
 }
@@ -153,22 +153,9 @@ func keyFrameAboveBlockMode(cur *KeyFrameMacroblockMode, above *KeyFrameMacroblo
 		if above.YMode == common.BPred {
 			return above.BModes[block+12]
 		}
-		return blockModeFromMacroblockMode(above.YMode)
+		return common.BlockModeFromMacroblockMode(above.YMode)
 	}
 	return cur.BModes[block-4]
-}
-
-func blockModeFromMacroblockMode(mode common.MBPredictionMode) common.BPredictionMode {
-	switch mode {
-	case common.VPred:
-		return common.BVEPred
-	case common.HPred:
-		return common.BHEPred
-	case common.TMPred:
-		return common.BTMPred
-	default:
-		return common.BDCPred
-	}
 }
 
 func initKeyFrameYModeTokens() [5]TreeToken {

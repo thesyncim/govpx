@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
+	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -80,7 +81,7 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 	}
 
 	for i := 16; i < 24; i++ {
-		a, l := uvContextIndex(i)
+		a, l := common.UVTokenContextIndex(i)
 		ctx := int(getUVContext(above, a) + getUVContext(left, l))
 		nonzeros := DecodeBlockCoeffs(br, probs, 2, ctx, 0, &out.QCoeff[i])
 		hasCoeffs := uint8(0)
@@ -217,19 +218,6 @@ func clearMacroblockTokensIfNeeded(out *MacroblockTokens) {
 		return
 	}
 	clearMacroblockTokens(out)
-}
-
-func uvContextIndex(block int) (int, int) {
-	base := 0
-	if block > 19 {
-		base = 2
-	}
-	a := base + (block & 1)
-	l := base
-	if (block & 3) > 1 {
-		l++
-	}
-	return a, l
 }
 
 func getUVContext(ctx *EntropyContextPlanes, index int) uint8 {

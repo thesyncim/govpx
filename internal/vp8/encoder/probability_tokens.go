@@ -317,7 +317,7 @@ func countCoefficientMacroblockTokensAndRecords(is4x4 bool, above *TokenContextP
 
 	for block := 16; block < 24; block++ {
 		eob := coeffs.BlockEOB(block, 0)
-		a, l := tokenUVContextIndex(block)
+		a, l := common.UVTokenContextIndex(block)
 		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
 		if ctx >= tables.PrevCoefContexts {
 			return ErrInvalidPacketConfig

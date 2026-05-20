@@ -89,7 +89,7 @@ func writeCoefficientMacroblockTokensWithEOBs(w *BoolWriter, probs *tables.Coeff
 
 	for block := 16; block < 24; block++ {
 		eob := int(coeffs.EOB[block])
-		a, l := tokenUVContextIndex(block)
+		a, l := common.UVTokenContextIndex(block)
 		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
 		if ctx >= tables.PrevCoefContexts {
 			return ErrInvalidPacketConfig
@@ -340,7 +340,7 @@ func UpdateTokenContextPlanesFromCoefficients(above *TokenContextPlanes, left *T
 	}
 	for block := 16; block < 24; block++ {
 		eob := coeffs.BlockEOB(block, 0)
-		a, l := tokenUVContextIndex(block)
+		a, l := common.UVTokenContextIndex(block)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
 			hasCoeffs = 1
@@ -348,19 +348,6 @@ func UpdateTokenContextPlanesFromCoefficients(above *TokenContextPlanes, left *T
 		setTokenUVContext(above, a, hasCoeffs)
 		setTokenUVContext(left, l, hasCoeffs)
 	}
-}
-
-func tokenUVContextIndex(block int) (int, int) {
-	base := 0
-	if block > 19 {
-		base = 2
-	}
-	a := base + (block & 1)
-	l := base
-	if (block & 3) > 1 {
-		l++
-	}
-	return a, l
 }
 
 func getTokenUVContext(ctx *TokenContextPlanes, index int) uint8 {

@@ -518,15 +518,6 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	return true
 }
 
-func isWholeMacroblockInterMode(mode common.MBPredictionMode) bool {
-	switch mode {
-	case common.ZeroMV, common.NearestMV, common.NearMV, common.NewMV:
-		return true
-	default:
-		return false
-	}
-}
-
 func referencePlane(visible []byte, full []byte, origin int, border int) ([]byte, int, int) {
 	if len(full) == 0 {
 		return visible, 0, 0

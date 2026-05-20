@@ -336,7 +336,7 @@ func keyFrameLeftBlockMode(cur *MacroblockMode, left *MacroblockMode, block int)
 		if left.Mode == common.BPred {
 			return left.BModes[block+3]
 		}
-		return blockModeFromMacroblockMode(left.Mode)
+		return common.BlockModeFromMacroblockMode(left.Mode)
 	}
 	return cur.BModes[block-1]
 }
@@ -349,22 +349,9 @@ func keyFrameAboveBlockMode(cur *MacroblockMode, above *MacroblockMode, block in
 		if above.Mode == common.BPred {
 			return above.BModes[block+12]
 		}
-		return blockModeFromMacroblockMode(above.Mode)
+		return common.BlockModeFromMacroblockMode(above.Mode)
 	}
 	return cur.BModes[block-4]
-}
-
-func blockModeFromMacroblockMode(mode common.MBPredictionMode) common.BPredictionMode {
-	switch mode {
-	case common.VPred:
-		return common.BVEPred
-	case common.HPred:
-		return common.BHEPred
-	case common.TMPred:
-		return common.BTMPred
-	default:
-		return common.BDCPred
-	}
 }
 
 func addMotionVectors(a MotionVector, b MotionVector) MotionVector {
