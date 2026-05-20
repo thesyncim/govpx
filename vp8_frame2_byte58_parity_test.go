@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
@@ -129,7 +131,7 @@ func TestVP8Frame2Byte58DivergenceParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the byte-58 frame-2 parity replay")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	opts := EncoderOptions{
 		Width:             160,

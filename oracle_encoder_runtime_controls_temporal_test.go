@@ -7,13 +7,15 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime temporal-control byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30

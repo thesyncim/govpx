@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleReconstructionAdler32Match locks in the byte-identity reconstruction
@@ -17,7 +18,7 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle reconstruction comparison")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64

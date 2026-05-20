@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8ChromaOptimizeBlockParity runs the BestARNR audit with the
@@ -51,7 +53,7 @@ func TestVP8ChromaOptimizeBlockParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run chroma optimize_b parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cohorts := []struct {
 		name          string

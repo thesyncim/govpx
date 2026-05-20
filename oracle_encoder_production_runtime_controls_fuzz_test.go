@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // FuzzOracleEncoderProductionRuntimeControls drives the same per-frame
@@ -41,7 +43,7 @@ func FuzzOracleEncoderProductionRuntimeControls(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		driver := findVpxencFrameFlags(t)
+		driver := coracletest.VpxencFrameFlags(t)
 		tc := oracleProductionRuntimeControlFuzzCaseFromBytes(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-prod-runtime-controls-" + tc.name + "-" + hex.EncodeToString(sum[:4])

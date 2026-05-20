@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleInterDecisionMatchRate captures per-MB picker decisions for govpx
@@ -23,7 +25,7 @@ func TestOracleInterDecisionMatchRate(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle MB decision match scoreboard")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64

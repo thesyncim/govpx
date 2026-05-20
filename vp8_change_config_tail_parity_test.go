@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8ChangeConfigTailParity pins task #209's diagnostic finding:
@@ -72,7 +74,7 @@ func TestVP8ChangeConfigTailParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 	const (
 		w          = 640
 		h          = 360

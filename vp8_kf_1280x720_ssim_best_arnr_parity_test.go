@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8KF1280x720SSIMBestARNRParity pins fuzz seed
@@ -120,7 +122,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the BestQuality ARNR parity replay")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	opts := EncoderOptions{
 		Width:             1280,

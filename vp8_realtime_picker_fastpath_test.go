@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8RealtimePickerCPUFastpathParity pins task #244: the RT-mode
@@ -75,7 +77,7 @@ func TestVP8RealtimePickerCPUFastpathParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the audit replay")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cases := []struct {
 		name    string

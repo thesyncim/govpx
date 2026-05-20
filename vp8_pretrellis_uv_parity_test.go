@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8PretrellisUVParity runs the BestARNR / GoodARNR audit
@@ -49,7 +51,7 @@ func TestVP8PretrellisUVParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run pre-trellis UV parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cohorts := []struct {
 		name          string

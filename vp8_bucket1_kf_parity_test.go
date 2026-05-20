@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8Bucket1KFParity pins byte-exact parity on the three bucket-1 fuzz
@@ -53,7 +55,7 @@ func TestVP8Bucket1KFParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the bucket-1 keyframe parity pin")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cases := []struct {
 		label           string

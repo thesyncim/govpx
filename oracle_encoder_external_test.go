@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -33,8 +34,8 @@ func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
 	if !ok {
 		return
 	}
-	oracle := findChecksumOracle(t)
-	vpxenc := findVpxenc(t)
+	oracle := coracletest.ChecksumOracle(t)
+	vpxenc := coracletest.Vpxenc(t)
 	paths := findExternalEncoderTestData(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no encoder source files found under %s", root)
@@ -73,7 +74,7 @@ func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
 
 			got := encodeGopvxValidationCorpus(t, tc, clip.frames)
 			gotChecksums := decodeIVFChecksums(t, got.ivf)
-			wantChecksums := runLibvpxChecksumOracle(t, oracle, got.ivf)
+			wantChecksums := coracletest.RunVP8ChecksumOracle(t, oracle, got.ivf)
 			assertFrameChecksumsEqual(t, "external govpx encode decoded by libvpx", gotChecksums, wantChecksums)
 			assertGopvxEncoderValidationFeatures(t, got.ivf, tc)
 			assertEncoderValidationQuality(t, "external govpx", got.quality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
@@ -81,7 +82,7 @@ func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
 
 			libvpxIVF := encodeLibvpxValidationCorpus(t, vpxenc, tc, clip.frames)
 			libvpxGotChecksums := decodeIVFChecksums(t, libvpxIVF)
-			libvpxWantChecksums := runLibvpxChecksumOracle(t, oracle, libvpxIVF)
+			libvpxWantChecksums := coracletest.RunVP8ChecksumOracle(t, oracle, libvpxIVF)
 			assertFrameChecksumsEqual(t, "external libvpx encode decoded by govpx", libvpxGotChecksums, libvpxWantChecksums)
 			libvpxQuality := qualityMetricsForIVF(t, libvpxIVF, clip.frames)
 			libvpxOutputKbps := encoderValidationOutputKbps(len(libvpxIVF)-testutil.IVFFileHeaderSize-len(clip.frames)*testutil.IVFFrameHeaderSize, tc.fps, len(clip.frames))

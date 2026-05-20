@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8NewMVPickerQuantizeTraceRows compares the libvpx-side NEWMV picker
@@ -21,7 +23,7 @@ func TestVP8NewMVPickerQuantizeTraceRows(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the NEWMV picker quantize trace comparison")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	opts := EncoderOptions{
 		Width:             1280,

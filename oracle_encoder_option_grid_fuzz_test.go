@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // FuzzEncoderProductionStreamByteParity runs an option-grid fuzz against the
@@ -72,7 +74,7 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		vpxencOracle := findVpxencOracle(t)
+		vpxencOracle := coracletest.VpxencOracle(t)
 		cfg := newOptionGridFuzzCase(data)
 		opts, libvpxArgs := cfg.buildOpts()
 		sources := cfg.buildSources()

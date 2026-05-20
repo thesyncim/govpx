@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // frameFlagsForLibvpx mirrors the bit layout of the govpx
@@ -74,50 +74,6 @@ func frameFlagsForLibvpx(f EncodeFlags) uint32 {
 	return out
 }
 
-// findVpxencFrameFlags locates the companion encoder driver,
-// preferring the explicit env override and falling back to the
-// build dir produced by internal/coracle/build_vpxenc_frameflags.sh.
-//
-// The combined `vpxenc-frameflags-oracle` binary (per
-// internal/coracle/build_vpxenc_frameflags_oracle.sh) is preferred
-// when present so that tests setting GOVPX_ORACLE_TRACE_OUT pick up
-// the per-MB JSONL trace in the same encode pass. It is a strict
-// superset of the plain `vpxenc-frameflags` driver — same source
-// (vpxenc_frameflags.c) linked against the same patched libvpx.a, so
-// every --control-script / --frame-flags surface is identical.
-func findVpxencFrameFlags(t *testing.T) string {
-	t.Helper()
-	path, err := coracle.VpxencFrameFlagsPath()
-	if err == nil {
-		return path
-	}
-	if errors.Is(err, coracle.ErrVpxencFrameFlagsNotBuilt) {
-		t.Skip("vpxenc-frameflags binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE/GOVPX_VPXENC_FRAMEFLAGS or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
-	}
-	t.Fatalf("VpxencFrameFlagsPath: %v", err)
-	return ""
-}
-
-// findVpxencFrameFlagsOracle locates the combined VP8 encoder driver
-// that exposes BOTH per-frame --control-script / --frame-flags
-// scheduling AND the per-MB JSONL oracle trace gated by
-// GOVPX_ORACLE_TRACE_OUT. Tests that need the combined capability
-// (e.g. trace-aware byte-parity gates on noise:0 / golden-overwrite
-// seeds) should call this helper directly so a missing binary skips
-// rather than silently degrading to the non-trace driver.
-func findVpxencFrameFlagsOracle(t *testing.T) string {
-	t.Helper()
-	path, err := coracle.VpxencFrameFlagsOraclePath()
-	if err == nil {
-		return path
-	}
-	if errors.Is(err, coracle.ErrVpxencFrameFlagsOracleNotBuilt) {
-		t.Skip("vpxenc-frameflags-oracle binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
-	}
-	t.Fatalf("VpxencFrameFlagsOraclePath: %v", err)
-	return ""
-}
-
 // TestOracleEncoderStreamByteParityFrameFlags exercises per-frame
 // VP8 flag scheduling — the EncodeForceKeyFrame /
 // EncodeNoUpdateLast / EncodeNoUpdateGolden / EncodeNoUpdateAltRef /
@@ -135,7 +91,7 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -372,7 +328,7 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run force-key API byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30

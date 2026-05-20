@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8Panning360pMBParity performs per-MB localization of any
@@ -49,7 +51,7 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run 360p panning CBR MB parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 640

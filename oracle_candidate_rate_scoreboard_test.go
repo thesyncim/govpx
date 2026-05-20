@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // candidateRateScoreboardSnapshot is the per-fixture summary persisted to
@@ -52,7 +54,7 @@ func TestOracleCandidateRateScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace scoreboard")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64

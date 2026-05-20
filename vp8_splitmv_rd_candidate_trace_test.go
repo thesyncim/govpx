@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8SplitMVRDCandidateTrace compares govpx and libvpx inter-candidate
@@ -22,7 +24,7 @@ func TestVP8SplitMVRDCandidateTrace(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run SPLITMV RD parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	opts := EncoderOptions{
 		Width:             1280,

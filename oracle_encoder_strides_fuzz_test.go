@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -43,7 +44,7 @@ func FuzzEncoderRandomStrides(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		vpxencOracle := findVpxencOracle(t)
+		vpxencOracle := coracletest.VpxencOracle(t)
 
 		dim, padded, tight := newStridesFuzzImage(data)
 		if dim.w == 0 {

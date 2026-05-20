@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // FuzzOracleEncoderRuntimeControlTransitions compares generated runtime-control
@@ -34,7 +36,7 @@ func FuzzOracleEncoderRuntimeControlTransitions(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		driver := findVpxencFrameFlags(t)
+		driver := coracletest.VpxencFrameFlags(t)
 		tc := oracleRuntimeControlFuzzCaseFromBytes(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-runtime-controls-" + tc.name + "-" + hex.EncodeToString(sum[:4])

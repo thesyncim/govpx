@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleEncoderStreamByteParityResize pins byte-parity across a
@@ -51,7 +53,7 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -267,7 +269,7 @@ func TestOracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder resize-control byte-parity gate")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -356,7 +358,7 @@ func TestOracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize byte-parity gate")
 	}
-	frameFlagsDriver := findVpxencFrameFlags(t)
+	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps          = 30
@@ -427,7 +429,7 @@ func TestOracleEncoderStreamByteParityRuntimeResizePostFrameCrosses(t *testing.T
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize post-frame byte-parity gate")
 	}
-	frameFlagsDriver := findVpxencFrameFlags(t)
+	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps          = 30
@@ -517,7 +519,7 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize control byte-parity gate")
 	}
-	frameFlagsDriver := findVpxencFrameFlags(t)
+	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps          = 30

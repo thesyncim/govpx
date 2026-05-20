@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8InterCandidateStatePropagation pins the negative
@@ -86,7 +88,7 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #313 inter-candidate state propagation audit")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	type candidateRow struct {
 		Mode       string

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleCBRDropFrameScoreboard pins govpx-vs-libvpx parity on the CBR
@@ -47,7 +48,7 @@ func TestOracleCBRDropFrameScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle CBR drop-frame scoreboard")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	fixtures := []cbrDropFixtureSpec{
 		{

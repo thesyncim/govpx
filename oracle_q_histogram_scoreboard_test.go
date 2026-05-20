@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleEncoderQHistogramScoreboard captures per-fixture Q histograms for
@@ -25,7 +27,7 @@ func TestOracleEncoderQHistogramScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle Q histogram scoreboard")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		fps        = 30

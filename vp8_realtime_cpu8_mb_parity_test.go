@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8RealtimeCPU8MBParity performs the per-MB localization of any
@@ -148,7 +150,7 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run RT cpu=8 MB parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 1280

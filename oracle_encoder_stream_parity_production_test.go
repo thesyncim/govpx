@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleEncoderStreamByteParityProductionShortRuns pins the production
@@ -16,7 +18,7 @@ func TestOracleEncoderStreamByteParityProductionShortRuns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production byte-parity gate")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	type productionCase struct {
 		name       string
@@ -129,7 +131,7 @@ func TestOracleEncoderProductionRuntimeTransitions720p(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production runtime-transition oracle")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		width   = 1280
@@ -226,7 +228,7 @@ func TestOracleEncoderStreamByteParityProductionConstantQuality(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production CQ/Q byte-parity gate")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	type cqCase struct {
 		name     string

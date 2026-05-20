@@ -53,9 +53,11 @@ VP9 have similarly named concepts.
 
 `internal/coracle` contains pinned libvpx build scripts, oracle binary
 discovery, process wrappers, trace projection/comparison, and scoreboarding
-helpers. Production codec packages must not import oracle or test-harness
-packages. Root-package tests may call coracle helpers, but new oracle mechanics
-should not be added to root.
+helpers. The `internal/coracle/coracletest` package is the test-facing harness
+for resolving libvpx tools and running VP8 oracle processes. Production codec
+packages must not import oracle or test-harness packages. Root-package tests
+may call coracle harness helpers, but new oracle mechanics should not be added
+to root.
 
 ## Data Flow
 

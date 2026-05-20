@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
@@ -17,7 +18,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e := newTestEncoder(t)
 	src := testImage(16, 16)
@@ -38,7 +39,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 2 {
 		t.Fatalf("oracle frame count = %d, want 2", len(oracleFrames))
 	}
@@ -57,7 +58,7 @@ func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	for _, tc := range temporalOracleTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,7 +91,7 @@ func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 
 			govpxFrames := decodeFrameSequence(t, basePackets...)
 			ivf := makeIVF(16, 16, 30, 1, basePackets)
-			oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+			oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 			if len(oracleFrames) != len(govpxFrames) {
 				t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
 			}
@@ -108,7 +109,7 @@ func TestOracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	for _, tc := range temporalOracleTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,7 +137,7 @@ func TestOracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 
 			govpxFrames := decodeFrameSequence(t, packets...)
 			ivf := makeIVF(16, 16, 30, 1, packets)
-			oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+			oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 			if len(oracleFrames) != len(govpxFrames) {
 				t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
 			}
@@ -154,8 +155,8 @@ func TestOracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx temporal SVC oracle tests")
 	}
-	oracle := findChecksumOracle(t)
-	svcEncoder := findVpxTemporalSVCEncoder(t)
+	oracle := coracletest.ChecksumOracle(t)
+	svcEncoder := coracletest.VpxTemporalSVCEncoder(t)
 
 	const (
 		width      = 64
@@ -192,7 +193,7 @@ func TestOracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 			t.Fatalf("ReadFile %s returned error: %v", ivfPath, err)
 		}
 		govpxChecksums := decodeIVFChecksums(t, ivf)
-		libvpxChecksums := runLibvpxChecksumOracle(t, oracle, ivf)
+		libvpxChecksums := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 		assertFrameChecksumsEqual(t, fmt.Sprintf("libvpx temporal SVC layer %d decoded by govpx", layer), govpxChecksums, libvpxChecksums)
 		if layer == 0 && len(govpxChecksums) != frameCount/2 {
 			t.Fatalf("base layer checksum count = %d, want %d", len(govpxChecksums), frameCount/2)

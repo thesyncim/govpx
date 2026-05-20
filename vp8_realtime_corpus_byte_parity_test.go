@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8RealtimeCorpusMatchesLibvpxBytes is the realtime corpus byte-parity gate.
@@ -53,7 +55,7 @@ func TestVP8RealtimeCorpusMatchesLibvpxBytes(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the corpus byte-parity test")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	t.Run("corpus", func(t *testing.T) {
 		runVP8RealtimeCorpusByteParitySubtests(t, vpxencOracle)

@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8ScreenContentResidualParity extends the task #341 per-MB
@@ -209,7 +211,7 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run screen-content residual parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 1280

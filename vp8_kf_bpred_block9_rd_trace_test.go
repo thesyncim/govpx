@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8KFBPredBlock9TraceLocalizesRDCostDrift pins the per-macroblock trace localization
@@ -103,7 +105,7 @@ func TestVP8KFBPredBlock9TraceLocalizesRDCostDrift(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED block-9 RD trace")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cases := []struct {
 		name       string

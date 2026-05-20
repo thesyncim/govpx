@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleRecodeRowParity gates the libvpx VP8 recode loop semantics by
@@ -18,7 +19,7 @@ func TestOracleRecodeRowParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle recode comparison")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64

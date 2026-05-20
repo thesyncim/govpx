@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8ThreadsValidation validates that the task #332 fix
@@ -31,7 +33,7 @@ func TestVP8ThreadsValidation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run task #332 threads validation")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 	for _, threads := range []int{1, 2, 4} {
 		t.Run("threads="+strconv.Itoa(threads), func(t *testing.T) {
 			opts := EncoderOptions{

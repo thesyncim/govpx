@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 type frameFlagsQuantizerLogEntry struct {
@@ -34,7 +36,7 @@ func TestOracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -83,7 +85,7 @@ func TestOracleEncoderQuantizerMetadataParityDropControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30

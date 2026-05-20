@@ -8,13 +8,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestOracleFirstPassStatsCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run first-pass oracle comparison")
 	}
-	vpxenc := findVpxenc(t)
+	vpxenc := coracletest.Vpxenc(t)
 
 	const (
 		width      = 32

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // firstPassLooseTolerances captures per-field |Δ| ceilings that the
@@ -183,8 +185,8 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		vpxenc := findVpxenc(t)
-		vpxencOracle := findVpxencOracle(t)
+		vpxenc := coracletest.Vpxenc(t)
+		vpxencOracle := coracletest.VpxencOracle(t)
 		cfg := newTwoPassFuzzCase(data)
 		opts := cfg.buildOpts()
 

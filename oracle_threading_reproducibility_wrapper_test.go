@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8OracleReproducibilityWrapperHandlesParallelArgs exercises the
@@ -41,7 +43,7 @@ func TestVP8OracleReproducibilityWrapperHandlesParallelArgs(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx-oracle threading reproducibility wrapper")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	width, height := 96, 96
 	frames := 3

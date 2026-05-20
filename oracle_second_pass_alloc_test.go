@@ -44,6 +44,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 const secondPassAllocBaselinePath = "testdata/second_pass_alloc_baseline.json"
@@ -90,8 +92,8 @@ func TestOracleSecondPassAllocationCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run second-pass allocation oracle compare")
 	}
-	vpxenc := findVpxenc(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxenc := coracletest.Vpxenc(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		rampWidth      = 32

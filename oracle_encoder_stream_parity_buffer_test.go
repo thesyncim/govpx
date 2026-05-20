@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleEncoderStreamByteParityBuffer widens the strict byte-parity
@@ -32,7 +34,7 @@ func TestOracleEncoderStreamByteParityBuffer(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -266,7 +268,7 @@ func TestOracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps    = 30
@@ -389,7 +391,7 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame control-cross byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -557,7 +559,7 @@ func TestOracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run RTC external-rate-control byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps    = 30

@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleEncoderStreamByteParitySegmentation widens the strict
@@ -42,7 +44,7 @@ func TestOracleEncoderStreamByteParitySegmentation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -277,7 +279,7 @@ func TestOracleEncoderStreamByteParityROIMap(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -322,7 +324,7 @@ func TestOracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -367,7 +369,7 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -463,7 +465,7 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -594,7 +596,7 @@ func TestOracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -662,7 +664,7 @@ func TestOracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps           = 30
@@ -740,7 +742,7 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
-	driver := findVpxencFrameFlags(t)
+	driver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30

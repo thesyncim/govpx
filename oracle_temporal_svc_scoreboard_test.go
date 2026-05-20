@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // temporalSVCLayerSummary captures the per-layer rate-control parity
@@ -94,7 +96,7 @@ func TestOracleTemporalSVCParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run temporal SVC parity scoreboard")
 	}
-	svcEncoder := findVpxTemporalSVCEncoder(t)
+	svcEncoder := coracletest.VpxTemporalSVCEncoder(t)
 
 	type fixtureSpec struct {
 		Name             string

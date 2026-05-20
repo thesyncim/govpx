@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleEncoderStreamByteParityResetFlushTransitions pins encoder-lifetime
@@ -20,8 +22,8 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run reset/flush byte-parity gate")
 	}
-	vpxencOracle := findVpxencOracle(t)
-	frameFlagsDriver := findVpxencFrameFlags(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
+	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -240,7 +242,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 	})
 
 	t.Run("reset-after-twopass-warmup-matches-cold-second-pass", func(t *testing.T) {
-		vpxenc := findVpxenc(t)
+		vpxenc := coracletest.Vpxenc(t)
 		const frames = 8
 		warm := make([]Image, 4)
 		for i := range warm {
@@ -580,8 +582,8 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass stream byte-parity gate")
 	}
-	vpxenc := findVpxenc(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxenc := coracletest.Vpxenc(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 32
@@ -802,8 +804,8 @@ func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass control-cross byte-parity gate")
 	}
-	vpxenc := findVpxenc(t)
-	vpxencOracle := findVpxencOracle(t)
+	vpxenc := coracletest.Vpxenc(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		fps        = 30

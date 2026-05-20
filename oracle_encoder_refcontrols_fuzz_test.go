@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // FuzzEncoderReferenceControlSequences closes plan-§3 F8 / G10 from
@@ -42,7 +44,7 @@ func FuzzEncoderReferenceControlSequences(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		driver := findVpxencFrameFlags(t)
+		driver := coracletest.VpxencFrameFlags(t)
 		tc := newRefControlsFuzzCase(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-refctrl-" + hex.EncodeToString(sum[:4])

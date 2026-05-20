@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleInterModeDistributionScoreboard captures per-fixture inter-frame
@@ -39,7 +41,7 @@ func TestOracleInterModeDistributionScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle inter-mode distribution scoreboard")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	type fixtureKind int
 	const (

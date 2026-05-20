@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,13 +11,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64
@@ -72,7 +72,7 @@ func TestOracleEncoderTraceCandidateRowsPresent(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64
@@ -140,7 +140,7 @@ func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64
@@ -199,19 +199,6 @@ func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
 			}
 		})
 	}
-}
-
-func findVpxencOracle(t *testing.T) string {
-	t.Helper()
-	path, err := coracle.VpxencOraclePath()
-	if err == nil {
-		return path
-	}
-	if errors.Is(err, coracle.ErrVpxencOracleNotBuilt) {
-		t.Skip("set GOVPX_VPXENC_ORACLE to the patched libvpx vpxenc oracle binary")
-	}
-	t.Fatalf("VpxencOraclePath: %v", err)
-	return ""
 }
 
 func captureGovpxEncoderTrace(t *testing.T, opts EncoderOptions, sources []Image) []byte {

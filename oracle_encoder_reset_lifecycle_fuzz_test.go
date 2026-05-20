@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // FuzzEncoderResetLifecycle surfaces Reset state-leak bugs of the
@@ -125,7 +127,7 @@ func FuzzEncoderResetLifecycle(f *testing.F) {
 		// Reset cold encoder receives them via NewVP8Encoder at
 		// init time. Gate the libvpx arm to segments whose
 		// effective opts equal opts.
-		driver := findVpxencFrameFlags(t)
+		driver := coracletest.VpxencFrameFlags(t)
 		for i, seg := range segs {
 			if len(seg.frames) == 0 {
 				continue

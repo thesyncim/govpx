@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls is the infrastructure smoke
@@ -33,7 +35,7 @@ import (
 // 64x64, single-threaded — so it can run on every govpx_oracle_trace
 // build without slowing down the parity gate.
 func TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls(t *testing.T) {
-	driver := findVpxencFrameFlagsOracle(t)
+	driver := coracletest.VpxencFrameFlagsOracle(t)
 
 	const (
 		width      = 64

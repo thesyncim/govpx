@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8GovpxDeterminismThreads4 is the regression sentinel for the
@@ -103,7 +105,7 @@ func TestVP8LibvpxOracleDeterminismThreads4(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle determinism check")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 	width, height := 854, 480
 	frames := 3
 	sources := make([]Image, frames)

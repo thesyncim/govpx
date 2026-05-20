@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 const loopFilterMatchRateBaselinePath = "testdata/loop_filter_match_rate_baseline.json"
@@ -73,7 +75,7 @@ func TestOracleLoopFilterHeaderMatchRate(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run loop-filter header oracle scoreboard")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	const (
 		width      = 64

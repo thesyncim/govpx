@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP8MBActivitySeedsMatchLibvpx drives the two residual 1280x720
@@ -51,7 +53,7 @@ func TestVP8MBActivitySeedsMatchLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run per-MB activity parity")
 	}
-	vpxencOracle := findVpxencOracle(t)
+	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cases := []struct {
 		name       string

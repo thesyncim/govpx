@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
@@ -12,7 +13,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testin
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e := newSizedTestEncoder(t, 16, 32)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
@@ -40,7 +41,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testin
 	}
 
 	ivf := makeIVF(16, 32, 30, 1, [][]byte{key.Data, inter.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	got := decodeIVFChecksums(t, ivf)
 	assertFrameChecksumsEqual(t, "B_PRED candidate interframe", got, oracleFrames)
 }
@@ -49,7 +50,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T)
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
@@ -87,7 +88,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T)
 	}
 
 	ivf := makeIVF(16, 128, 30, 1, [][]byte{key.Data, inter.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 2 {
 		t.Fatalf("oracle frame count = %d, want 2", len(oracleFrames))
 	}
@@ -99,7 +100,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e := newTestEncoder(t)
 	src := testImage(16, 16)
@@ -145,7 +146,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{invisible.Data, visible.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 1 {
 		t.Fatalf("oracle frame count = %d, want one visible frame", len(oracleFrames))
 	}
@@ -159,7 +160,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e := newTestEncoder(t)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
@@ -198,7 +199,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, lastInter.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data, lastInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -215,7 +216,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testi
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e := newTestEncoder(t)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
@@ -249,7 +250,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testi
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, secondInter.Data, goldenInter.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, secondInter.Data, goldenInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -266,7 +267,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
@@ -321,7 +322,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, packets)
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, packets...)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -338,7 +339,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e := newTestEncoder(t)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
@@ -375,7 +376,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, altInter.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, altRefreshData, altInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -392,7 +393,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t 
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := findChecksumOracle(t)
+	oracle := coracletest.ChecksumOracle(t)
 
 	e := newTestEncoder(t)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
@@ -436,7 +437,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t 
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, inter.Data, altInter.Data})
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, altRefreshData, inter.Data, altInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))

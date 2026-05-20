@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -21,7 +22,7 @@ func TestOracleBenchWorkloadProductionGaps(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production bench gap checks")
 	}
-	vpxenc := findVpxenc(t)
+	vpxenc := coracletest.Vpxenc(t)
 
 	cases := []struct {
 		name            string
