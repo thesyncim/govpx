@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 // TestVP8ChromaRDCostStructure pins govpx's chroma (PLANE_TYPE_UV,
@@ -27,14 +28,14 @@ import (
 //
 //	This audit re-derives the chroma rdMult/rdDiv from first principles
 //	and pins:
-//	  - libvpxRDConstantsWithZbin (the base RDMULT) against
+//	  - vp8enc.RDConstantsWithZbin (the base RDMULT) against
 //	    vp8_initialize_rd_consts.
 //	  - blockPlaneRDMultiplier(2) == 2 against libvpx UV_RD_MULT.
 //	  - tunedRDMultiplier (the activity-masking lift) against
 //	    vp8_activity_masking's formula.
 //	The trace-emit fix lives in vp8_encoder_inter_coefficients.go (the
 //	traceChromaOptimizeB block emits the threaded `rdMult` value, not
-//	the raw libvpxRDConstantsWithZbin output).
+//	the raw vp8enc.RDConstantsWithZbin output).
 //
 // libvpx anchor:
 //   - vp8/encoder/rdopt.c:163-225 vp8_initialize_rd_consts — computes
@@ -50,7 +51,7 @@ import (
 //     per-MB lift: x->rdmult = (rdmult * (2*act + avg) + (a>>1)) / (act + 2*avg).
 //
 // govpx mirror:
-//   - vp8_encoder_rd_cost.go libvpxRDConstantsWithZbin
+//   - vp8_encoder_rd_cost.go vp8enc.RDConstantsWithZbin
 //     — pre-applies the >1000 split.
 //   - vp8_encoder_inter_coeff_rate.go:24-33 blockPlaneRDMultiplier
 //     — switch returning {Y2:16, UV:2, default:4}.
@@ -64,7 +65,7 @@ import (
 // compares the result against a fresh re-derivation of libvpx's formulas
 // (RD_MULT_BASE), pinning the post-`>1000` split (rdMult, rdDiv) AND the
 // post-`*err_mult` chroma trellis rdMult. Any future drift in
-// libvpxRawRDMultiplierWithZbin, libvpxRDConstantsWithZbin, or
+// vp8enc.RawRDMultiplierWithZbin, vp8enc.RDConstantsWithZbin, or
 // blockPlaneRDMultiplier(2) trips this gate.
 func TestVP8ChromaRDCostStructure(t *testing.T) {
 	for qIndex := 4; qIndex <= 56; qIndex++ {
@@ -81,13 +82,13 @@ func TestVP8ChromaRDCostStructure(t *testing.T) {
 		// (vp8/encoder/encodemb.c:137).
 		wantChromaTrellisRDMult := wantRDMult * 2
 
-		gotRDMult, gotRDDiv := libvpxRDConstantsWithZbin(qIndex, 0)
+		gotRDMult, gotRDDiv := vp8enc.RDConstantsWithZbin(qIndex, 0)
 		if gotRDMult != wantRDMult {
-			t.Errorf("qIndex=%d: libvpxRDConstantsWithZbin rdMult=%d, want %d (vp8_initialize_rd_consts)",
+			t.Errorf("qIndex=%d: vp8enc.RDConstantsWithZbin rdMult=%d, want %d (vp8_initialize_rd_consts)",
 				qIndex, gotRDMult, wantRDMult)
 		}
 		if gotRDDiv != wantRDDiv {
-			t.Errorf("qIndex=%d: libvpxRDConstantsWithZbin rdDiv=%d, want %d (vp8_initialize_rd_consts > 1000 split)",
+			t.Errorf("qIndex=%d: vp8enc.RDConstantsWithZbin rdDiv=%d, want %d (vp8_initialize_rd_consts > 1000 split)",
 				qIndex, gotRDDiv, wantRDDiv)
 		}
 		gotPlaneMult := blockPlaneRDMultiplier(2)

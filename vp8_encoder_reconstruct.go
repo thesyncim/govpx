@@ -276,7 +276,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			// optimize_b: rdmult = mb->rdmult * err_mult) scores with the
 			// frame-level Q. Compute rdMult from qIndex (base), not from
 			// segmentQIndex.
-			rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+			rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qIndex, zbinOverQuant)
 			if e.activityMapValid {
 				modeZbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 				if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {

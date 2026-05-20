@@ -304,8 +304,8 @@ func govpxOptimizeBStateCaptured(
 				rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
 				rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
 			}
-			rdCost0 := libvpxRDCost(rdmult, rdDiv, rate0, error0)
-			rdCost1 := libvpxRDCost(rdmult, rdDiv, rate1, error1)
+			rdCost0 := vp8enc.RDCost(rdmult, rdDiv, rate0, error0)
+			rdCost1 := vp8enc.RDCost(rdmult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
 				rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
 				rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
@@ -378,8 +378,8 @@ func govpxOptimizeBStateCaptured(
 					rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
 				}
 			}
-			rdCost0 = libvpxRDCost(rdmult, rdDiv, rate0, error0)
-			rdCost1 = libvpxRDCost(rdmult, rdDiv, rate1, error1)
+			rdCost0 = vp8enc.RDCost(rdmult, rdDiv, rate0, error0)
+			rdCost1 = vp8enc.RDCost(rdmult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
 				rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
 				rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
@@ -431,8 +431,8 @@ func govpxOptimizeBStateCaptured(
 	p := (*coefProbs)[blockType][band][ctx]
 	rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, ctx)
 	rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, ctx)
-	rdCost0 := libvpxRDCost(rdmult, rdDiv, rate0, error0)
-	rdCost1 := libvpxRDCost(rdmult, rdDiv, rate1, error1)
+	rdCost0 := vp8enc.RDCost(rdmult, rdDiv, rate0, error0)
+	rdCost1 := vp8enc.RDCost(rdmult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {
 		rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
 		rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
@@ -492,7 +492,7 @@ func TestVP8OptimizeBlockDPStateChromaDCOne(t *testing.T) {
 	const qIndex = 56 // BestARNR MaxQuantizer, mid-cohort
 	const ctx = 0
 
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, 0)
+	rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qIndex, 0)
 
 	// Synthesize the exact chroma DC ±1 keep/drop shortcut input:
 	// coeff[0] small, dequant=large, qcoeff[0] = ±1. Captures the
@@ -652,7 +652,7 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 
 	mismatchCount := 0
 	for _, f := range fixtures {
-		rdMult, rdDiv := libvpxRDConstantsWithZbin(f.qIndex, 0)
+		rdMult, rdDiv := vp8enc.RDConstantsWithZbin(f.qIndex, 0)
 		var dequant [16]int16
 		for i := range dequant {
 			dequant[i] = f.dequant
@@ -747,7 +747,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 								var coeff, qcoeff [16]int16
 								coeff[0] = coeffMag * sign
 								qcoeff[0] = sign
-								rdMult, rdDiv := libvpxRDConstantsWithZbin(qi, 0)
+								rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qi, 0)
 								var dequant [16]int16
 								for k := range dequant {
 									dequant[k] = dcq(qi)
@@ -794,7 +794,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 						coeff[rc] = sgn * int16(15+5*pos)
 						qcoeff[rc] = sgn
 					}
-					rdMult, rdDiv := libvpxRDConstantsWithZbin(qi, 0)
+					rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qi, 0)
 					var dequant [16]int16
 					for k := range dequant {
 						dequant[k] = dcq(qi)

@@ -268,7 +268,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	// vp8cx_mb_init_quantizer never touches x->rdmult, so the trellis
 	// optimize_b (encodemb.c:187) scores with the frame-level Q. Use
 	// args.qIndex (frame base), not segmentQIndex, for the rdMult input.
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(args.qIndex, zbinOverQuant)
+	rdMult, rdDiv := vp8enc.RDConstantsWithZbin(args.qIndex, zbinOverQuant)
 	if e.activityMapValid {
 		modeZbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 		if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {

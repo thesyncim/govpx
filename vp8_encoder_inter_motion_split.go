@@ -11,7 +11,7 @@ func selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(src vp8enc.Source
 }
 
 func selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, searchCenter vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, stepParam int, fullSearchFallback bool, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
-	return selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, searchCenter, bestRefMV, qIndex, libvpxErrorPerBit(qIndex), stepParam, fullSearchFallback, mvProbs)
+	return selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, searchCenter, bestRefMV, qIndex, vp8enc.ErrorPerBit(qIndex), stepParam, fullSearchFallback, mvProbs)
 }
 
 // selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBit
@@ -151,7 +151,7 @@ func splitMotionFullSearchFallbackNeeded(returnCost int, width int, height int) 
 }
 
 func interMotionSplitBlockFullPixelReturnCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) (int, bool) {
-	return interMotionSplitBlockFullPixelReturnCostWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, mv, bestRefMV, libvpxErrorPerBit(qIndex), mvProbs)
+	return interMotionSplitBlockFullPixelReturnCostWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, mv, bestRefMV, vp8enc.ErrorPerBit(qIndex), mvProbs)
 }
 
 func interMotionSplitBlockFullPixelReturnCostWithErrorPerBit(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) (int, bool) {
@@ -218,7 +218,7 @@ func fullSearchInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTa
 }
 
 func refineInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, best vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int, bool) {
-	return refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, best, bestRefMV, qIndex, libvpxErrorPerBit(qIndex), search, mvProbs)
+	return refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, best, bestRefMV, qIndex, vp8enc.ErrorPerBit(qIndex), search, mvProbs)
 }
 
 // refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBit threads the

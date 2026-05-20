@@ -13,12 +13,12 @@ func rdBlockScoreWithZbin(qIndex int, zbinOverQuant int, planeMultiplier int, in
 	if planeMultiplier <= 0 {
 		planeMultiplier = 1
 	}
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qIndex, zbinOverQuant)
 	rdMult *= planeMultiplier
 	if intra {
 		rdMult = (rdMult * 9) >> 4
 	}
-	return libvpxRDCost(rdMult, rdDiv, rate, distortion)
+	return vp8enc.RDCost(rdMult, rdDiv, rate, distortion)
 }
 
 func blockPlaneRDMultiplier(blockType int) int {

@@ -56,7 +56,7 @@ func TestEstimateInterResidualRDScoreUsesLibvpxStaticBreakoutRate(t *testing.T) 
 	if !ok || !rdLoopSkip {
 		t.Fatalf("static breakout score ok=%t rdLoopSkip=%t, want true/true", ok, rdLoopSkip)
 	}
-	if want := rdModeScoreWithZbin(20, 0, 500, 0); score != want {
+	if want := vp8enc.RDModeScoreWithZbin(20, 0, 500, 0); score != want {
 		t.Fatalf("static breakout RD score = %d, want libvpx rate-500 score %d", score, want)
 	}
 
@@ -187,10 +187,10 @@ func TestEstimateInterResidualRDAccountingReturnsLibvpxRate2AndYRD(t *testing.T)
 	if acct.rate2 != wantRate2 || acct.otherCost != wantOtherCost || acct.refCost != wantRefCost {
 		t.Fatalf("rate2/other/ref = %d/%d/%d, want %d/%d/%d", acct.rate2, acct.otherCost, acct.refCost, wantRate2, wantOtherCost, wantRefCost)
 	}
-	if wantRD := rdModeScoreWithZbin(20, e.rc.currentZbinOverQuant, acct.rate2, acct.distortion2); acct.rd != wantRD {
+	if wantRD := vp8enc.RDModeScoreWithZbin(20, e.rc.currentZbinOverQuant, acct.rate2, acct.distortion2); acct.rd != wantRD {
 		t.Fatalf("rd = %d, want %d", acct.rd, wantRD)
 	}
-	wantYRD := rdModeScoreWithZbin(20, e.rc.currentZbinOverQuant, acct.rate2-acct.rateUV-acct.otherCost-acct.refCost, acct.distortion2-acct.distortionUV)
+	wantYRD := vp8enc.RDModeScoreWithZbin(20, e.rc.currentZbinOverQuant, acct.rate2-acct.rateUV-acct.otherCost-acct.refCost, acct.distortion2-acct.distortionUV)
 	if acct.yrd != wantYRD {
 		t.Fatalf("yrd = %d, want %d", acct.yrd, wantYRD)
 	}
@@ -225,7 +225,7 @@ func TestEstimateInterResidualRDAccountingEmptyCoeffSkipBacksOutTokenRates(t *te
 	if acct.rate2 != wantRate2 || acct.rateUV != 0 || acct.otherCost != e.interMacroblockSkipRate(true) {
 		t.Fatalf("skip accounting rate2/rateUV/other = %d/%d/%d, want %d/0/%d", acct.rate2, acct.rateUV, acct.otherCost, wantRate2, e.interMacroblockSkipRate(true))
 	}
-	if wantRD := rdModeScoreWithZbin(20, e.rc.currentZbinOverQuant, wantRate2, acct.distortion2); acct.rd != wantRD {
+	if wantRD := vp8enc.RDModeScoreWithZbin(20, e.rc.currentZbinOverQuant, wantRate2, acct.distortion2); acct.rd != wantRD {
 		t.Fatalf("skip accounting rd = %d, want %d", acct.rd, wantRD)
 	}
 }
@@ -336,12 +336,12 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 		t.Fatalf("predictBestIntraChromaModeRD mode=%v ok=false", uvMode)
 	}
 	rate := yRate + uvRate + intraYModeRate(false, vp8common.DCPred) + e.interIntraMacroblockModeRate()
-	want := rdModeScoreWithZbin(20, 0, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(20)
+	want := vp8enc.RDModeScoreWithZbin(20, 0, rate, yDist+uvDist) + vp8enc.InterIntraRDPenalty(20)
 	if result.score != want {
 		t.Fatalf("inter-intra RD score = %d, want %d with libvpx penalty", result.score, want)
 	}
 	uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
-	wantYRD := rdModeScoreWithZbin(20, 0, yRate+intraYModeRate(false, vp8common.DCPred)+uvModeRate, yDist)
+	wantYRD := vp8enc.RDModeScoreWithZbin(20, 0, yRate+intraYModeRate(false, vp8common.DCPred)+uvModeRate, yDist)
 	if result.yrd != wantYRD {
 		t.Fatalf("inter-intra YRD = %d, want libvpx Y plus UV-mode RD %d", result.yrd, wantYRD)
 	}
@@ -381,12 +381,12 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 		t.Fatalf("live Y mode rate still matches default, test fixture is ineffective")
 	}
 	rate := yRate + uvRate + liveYModeRate + e.interIntraMacroblockModeRate()
-	want := rdModeScoreWithZbin(20, 0, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(20)
+	want := vp8enc.RDModeScoreWithZbin(20, 0, rate, yDist+uvDist) + vp8enc.InterIntraRDPenalty(20)
 	if result.score != want {
 		t.Fatalf("inter-intra RD score = %d, want %d from live Y/UV mode probabilities", result.score, want)
 	}
 	uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
-	wantYRD := rdModeScoreWithZbin(20, 0, yRate+liveYModeRate+uvModeRate, yDist)
+	wantYRD := vp8enc.RDModeScoreWithZbin(20, 0, yRate+liveYModeRate+uvModeRate, yDist)
 	if result.yrd != wantYRD {
 		t.Fatalf("inter-intra YRD = %d, want %d from live Y and UV-mode probabilities", result.yrd, wantYRD)
 	}
@@ -420,12 +420,12 @@ func TestEstimateInterIntraBPredYRDExcludesUVTokensAndRefCosts(t *testing.T) {
 	}
 	yRate := bRate + intraYModeRate(false, vp8common.BPred)
 	uvModeRate := intraUVModeRateWithProbs(false, uvMode, e.modeProbs.UVMode[:])
-	wantYRD := rdModeScoreWithZbin(20, 0, yRate+uvModeRate, bDist)
+	wantYRD := vp8enc.RDModeScoreWithZbin(20, 0, yRate+uvModeRate, bDist)
 	if result.yrd != wantYRD {
 		t.Fatalf("BPred YRD = %d, want libvpx Y plus UV-mode RD %d", result.yrd, wantYRD)
 	}
 	rate := yRate + uvRate + e.interIntraMacroblockModeRate()
-	want := rdModeScoreWithZbin(20, 0, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(20)
+	want := vp8enc.RDModeScoreWithZbin(20, 0, rate, bDist+uvDist) + vp8enc.InterIntraRDPenalty(20)
 	if result.score != want {
 		t.Fatalf("BPred RD score = %d, want %d with UV/ref costs and penalty", result.score, want)
 	}
@@ -528,12 +528,12 @@ func TestSplitSubMotionLabelSearchCostUsesLibvpxDefaultSubMVRefProb(t *testing.T
 
 	got := splitSubMotionLabelSearchCost(vp8common.Above4x4, qIndex)
 	wantRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, vp8enc.DefaultSubMVRefProbs)
-	want := (wantRate*libvpxSADPerBit4(qIndex) + 128) >> 8
+	want := (wantRate*vp8enc.SADPerBit4(qIndex) + 128) >> 8
 	if got != want {
 		t.Fatalf("ABOVE4X4 search cost = %d, want libvpx default cost %d", got, want)
 	}
 	contextualRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, vp8tables.SubMVRefProb3[4])
-	contextual := (contextualRate*libvpxSADPerBit4(qIndex) + 128) >> 8
+	contextual := (contextualRate*vp8enc.SADPerBit4(qIndex) + 128) >> 8
 	if got == contextual {
 		t.Fatalf("ABOVE4X4 search cost matched contextual bitstream cost %d; want libvpx RD default cost", got)
 	}

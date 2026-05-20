@@ -3,6 +3,8 @@ package govpx
 import (
 	"errors"
 	"testing"
+
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 func TestSetTuningValidation(t *testing.T) {
@@ -87,17 +89,17 @@ func TestTuneSSIMActivityMapAdjustsRDCost(t *testing.T) {
 
 	qIndex, zbinOverQuant := 20, 10
 	rate, distortion := 100, 1000
-	baseline := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, distortion)
+	baseline := vp8enc.RDModeScoreWithZbin(qIndex, zbinOverQuant, rate, distortion)
 
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, e.tunedZbinOverQuant(zbinOverQuant, 0, 0))
-	wantFlat := libvpxRDCost(e.tunedRDMultiplier(rdMult, 0, 0), rdDiv, rate, distortion)
+	rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qIndex, e.tunedZbinOverQuant(zbinOverQuant, 0, 0))
+	wantFlat := vp8enc.RDCost(e.tunedRDMultiplier(rdMult, 0, 0), rdDiv, rate, distortion)
 	if got := e.tunedRDModeScoreWithZbin(qIndex, e.tunedZbinOverQuant(zbinOverQuant, 0, 0), 0, 0, rate, distortion); got != wantFlat {
 		t.Fatalf("flat tuned RD = %d, want %d", got, wantFlat)
 	}
 	busy := e.tunedRDModeScoreWithZbin(qIndex, e.tunedZbinOverQuant(zbinOverQuant, 0, 1), 0, 1, rate, distortion)
 	if wantBusy := func() int {
-		rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, e.tunedZbinOverQuant(zbinOverQuant, 0, 1))
-		return libvpxRDCost(e.tunedRDMultiplier(rdMult, 0, 1), rdDiv, rate, distortion)
+		rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qIndex, e.tunedZbinOverQuant(zbinOverQuant, 0, 1))
+		return vp8enc.RDCost(e.tunedRDMultiplier(rdMult, 0, 1), rdDiv, rate, distortion)
 	}(); busy != wantBusy {
 		t.Fatalf("busy tuned RD = %d, want %d", busy, wantBusy)
 	}
@@ -119,7 +121,7 @@ func TestTuneSSIMActivityMapAdjustsRDCost(t *testing.T) {
 
 func TestActivityRDConstantsCarryLastMacroblock(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 16)
-	baseMult, baseDiv := libvpxRDConstantsWithZbin(4, 0)
+	baseMult, baseDiv := vp8enc.RDConstantsWithZbin(4, 0)
 	if baseMult != 179 || baseDiv != 100 {
 		t.Fatalf("q4 RD constants = %d/%d, want 179/100", baseMult, baseDiv)
 	}
@@ -141,7 +143,7 @@ func TestUpdateActivityRDStateUsesBottomRightActivityMask(t *testing.T) {
 	e.activityAvg = 100000
 	e.activityMapValid = true
 
-	baseMult, baseDiv := libvpxRDConstantsWithZbin(4, 0)
+	baseMult, baseDiv := vp8enc.RDConstantsWithZbin(4, 0)
 	e.updateActivityProbeRDState(4, 0, 1, 2)
 
 	wantMult := e.tunedRDMultiplier(baseMult, 0, 1)

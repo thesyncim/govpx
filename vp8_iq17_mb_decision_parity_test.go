@@ -23,8 +23,8 @@ package govpx
 //      iQ=16: capped_q=18, RDMULT=(int)(2.80*18*18)=907  → /=100 NOT taken
 //      iQ=17: capped_q=19, RDMULT=(int)(2.80*19*19)=1010 → /=100 taken
 //
-//    govpx's libvpxRDConstantsWithZbin(17,0) returns (10,1) and
-//    libvpxRDConstantsWithZbin(16,0) returns (907,100), byte-exact with
+//    govpx's vp8enc.RDConstantsWithZbin(17,0) returns (10,1) and
+//    vp8enc.RDConstantsWithZbin(16,0) returns (907,100), byte-exact with
 //    libvpx (verified by TestLibvpxRDConstantsByteExactSweep across the
 //    whole QIndex range). The boundary itself is NOT a port gap — both
 //    encoders see the same RDMULT/RDDIV pair at every Q.
@@ -50,8 +50,8 @@ package govpx
 // 3. errorperbit derivation (rdopt.c:198)
 //
 //    libvpx sets x->errorperbit = (cpi->RDMULT / 110), with the RAW
-//    RDMULT BEFORE the /100 split. govpx's libvpxErrorPerBitWithZbin in
-//    vp8_encoder_rd_cost.go uses libvpxRawRDMultiplierWithZbin
+//    RDMULT BEFORE the /100 split. govpx's vp8enc.ErrorPerBitWithZbin in
+//    vp8_encoder_rd_cost.go uses vp8enc.RawRDMultiplierWithZbin
 //    (the pre-split value) divided by 110. At iQ=17 raw RDMULT=1010,
 //    errorperbit=9 on both sides. Byte-exact, no gap.
 //
@@ -113,31 +113,32 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 // TestVP8RDConstsIQ17Boundary pins the RDMULT/RDDIV pair at
-// the iQ=16→17 boundary. Any change in libvpxRDConstantsWithZbin that
+// the iQ=16→17 boundary. Any change in vp8enc.RDConstantsWithZbin that
 // shifts the >1000 split flips this pin. The pin uses the ground-truth
 // rdconst=2.80 * dc_qlookup[iQ]^2 formula from libvpx
 // vp8/encoder/rdopt.c:163-187 (single-pass, zbinOverQuant=0).
 func TestVP8RDConstsIQ17Boundary(t *testing.T) {
 	// iQ=16 sits BELOW the >1000 split: rdMult is the raw value,
 	// rdDiv stays at 100.
-	if gotMult, gotDiv := libvpxRDConstantsWithZbin(16, 0); gotMult != 907 || gotDiv != 100 {
-		t.Errorf("libvpxRDConstantsWithZbin(16,0) = (%d,%d), want (907,100) — iQ=16 must stay below the rdMult>1000 split", gotMult, gotDiv)
+	if gotMult, gotDiv := vp8enc.RDConstantsWithZbin(16, 0); gotMult != 907 || gotDiv != 100 {
+		t.Errorf("vp8enc.RDConstantsWithZbin(16,0) = (%d,%d), want (907,100) — iQ=16 must stay below the rdMult>1000 split", gotMult, gotDiv)
 	}
 	// iQ=17 is the FIRST qindex that crosses the >1000 split.
 	// rdMult drops 100×, rdDiv flips to 1.
-	if gotMult, gotDiv := libvpxRDConstantsWithZbin(17, 0); gotMult != 10 || gotDiv != 1 {
-		t.Errorf("libvpxRDConstantsWithZbin(17,0) = (%d,%d), want (10,1) — iQ=17 must cross the rdMult>1000 split", gotMult, gotDiv)
+	if gotMult, gotDiv := vp8enc.RDConstantsWithZbin(17, 0); gotMult != 10 || gotDiv != 1 {
+		t.Errorf("vp8enc.RDConstantsWithZbin(17,0) = (%d,%d), want (10,1) — iQ=17 must cross the rdMult>1000 split", gotMult, gotDiv)
 	}
 	// Raw RDMULT at iQ=17 must be 1010 = (int)(2.80 * 19 * 19), the
 	// pre-divide value that feeds x->errorperbit derivation.
-	if gotRaw := libvpxRawRDMultiplierWithZbin(17, 0); gotRaw != 1010 {
-		t.Errorf("libvpxRawRDMultiplierWithZbin(17,0) = %d, want 1010 — pre-divide RDMULT must match (int)(2.80*19*19)", gotRaw)
+	if gotRaw := vp8enc.RawRDMultiplierWithZbin(17, 0); gotRaw != 1010 {
+		t.Errorf("vp8enc.RawRDMultiplierWithZbin(17,0) = %d, want 1010 — pre-divide RDMULT must match (int)(2.80*19*19)", gotRaw)
 	}
-	if gotRaw := libvpxRawRDMultiplierWithZbin(16, 0); gotRaw != 907 {
-		t.Errorf("libvpxRawRDMultiplierWithZbin(16,0) = %d, want 907 — pre-divide RDMULT must match (int)(2.80*18*18)", gotRaw)
+	if gotRaw := vp8enc.RawRDMultiplierWithZbin(16, 0); gotRaw != 907 {
+		t.Errorf("vp8enc.RawRDMultiplierWithZbin(16,0) = %d, want 907 — pre-divide RDMULT must match (int)(2.80*18*18)", gotRaw)
 	}
 	// dc_qlookup[16]=18, dc_qlookup[17]=19 — verify the source table
 	// row that drives the boundary.
@@ -193,10 +194,10 @@ func TestVP8RDIifactorTableBoundaryValues(t *testing.T) {
 		t.Errorf("iQ=16 / next_iiratio=2 lifted RDMULT = %d, want %d (= 907 + (907*3>>4)=907+170)", got, want)
 	}
 
-	// Verify govpx CURRENTLY skips the lift: libvpxRDConstantsWithZbin
+	// Verify govpx CURRENTLY skips the lift: vp8enc.RDConstantsWithZbin
 	// returns the un-lifted pair at iQ=16. When the port lands the
 	// signature changes and this assertion needs updating.
-	if gotMult, gotDiv := libvpxRDConstantsWithZbin(16, 0); gotMult != 907 || gotDiv != 100 {
-		t.Errorf("pre-port libvpxRDConstantsWithZbin(16,0) = (%d,%d), want un-lifted (907,100); update when the rd_iifactor port lands", gotMult, gotDiv)
+	if gotMult, gotDiv := vp8enc.RDConstantsWithZbin(16, 0); gotMult != 907 || gotDiv != 100 {
+		t.Errorf("pre-port vp8enc.RDConstantsWithZbin(16,0) = (%d,%d), want un-lifted (907,100); update when the rd_iifactor port lands", gotMult, gotDiv)
 	}
 }

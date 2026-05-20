@@ -170,7 +170,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 	}
 
 	if rdMult <= 0 || rdDiv <= 0 {
-		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+		rdMult, rdDiv = vp8enc.RDConstantsWithZbin(qIndex, zbinOverQuant)
 	}
 	rdMult *= blockPlaneRDMultiplier(blockType)
 	if intra {
@@ -215,8 +215,8 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 				rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 			}
 
-			rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
-			rdCost1 := libvpxRDCost(rdMult, rdDiv, rate1, error1)
+			rdCost0 := vp8enc.RDCost(rdMult, rdDiv, rate0, error0)
+			rdCost1 := vp8enc.RDCost(rdMult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
 				rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
 				rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
@@ -291,8 +291,8 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 				}
 			}
 
-			rdCost0 = libvpxRDCost(rdMult, rdDiv, rate0, error0)
-			rdCost1 = libvpxRDCost(rdMult, rdDiv, rate1, error1)
+			rdCost0 = vp8enc.RDCost(rdMult, rdDiv, rate0, error0)
+			rdCost1 = vp8enc.RDCost(rdMult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
 				rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
 				rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
@@ -347,8 +347,8 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 	p := (*coefProbs)[blockType][band][ctx]
 	rate0 += vp8enc.CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, ctx)
 	rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, ctx)
-	rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
-	rdCost1 := libvpxRDCost(rdMult, rdDiv, rate1, error1)
+	rdCost0 := vp8enc.RDCost(rdMult, rdDiv, rate0, error0)
+	rdCost1 := vp8enc.RDCost(rdMult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {
 		rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
 		rdCost1 = vp8enc.RDTrunc(rdMult, rate1)

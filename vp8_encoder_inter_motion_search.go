@@ -90,7 +90,7 @@ type interFrameMotionVectorSearch struct {
 	mbRows  int
 	mbCols  int
 	qIndex  int
-	// errorPerBit, when non-zero, overrides libvpxErrorPerBit(qIndex) for
+	// errorPerBit, when non-zero, overrides vp8enc.ErrorPerBit(qIndex) for
 	// the sub-pel refinement. Populated by per-MB picker dispatches that
 	// apply libvpx's vp8_activity_masking errorperbit adjustment when
 	// TuneSSIM is active; otherwise zero (default keeps the libvpx

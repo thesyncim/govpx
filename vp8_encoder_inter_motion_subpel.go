@@ -18,7 +18,7 @@ type interFrameSubpixelSearch struct {
 	mbCol   int
 	qIndex  int
 	// errorPerBit, when non-zero, overrides the libvpx-default
-	// libvpxErrorPerBit(qIndex) used to scale motion-vector rate into the
+	// vp8enc.ErrorPerBit(qIndex) used to scale motion-vector rate into the
 	// fractional-search cost. TuneSSIM's per-MB vp8_activity_masking call in
 	// libvpx (vp8/encoder/encodeframe.c) re-derives x->errorperbit from the
 	// activity-adjusted x->rdmult before each MB's NEWMV search; mirroring
@@ -41,7 +41,7 @@ func (s *interFrameSubpixelSearch) effectiveErrorPerBit() int {
 	if s.errorPerBit > 0 {
 		return s.errorPerBit
 	}
-	return libvpxErrorPerBit(s.qIndex)
+	return vp8enc.ErrorPerBit(s.qIndex)
 }
 
 type subpelCandidateEval struct {

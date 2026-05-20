@@ -367,7 +367,7 @@ func (e *VP8Encoder) oracleTraceActivityState(mbRow int, mbCol int) (mbActivity 
 	// inter-only snapshot taken at beginInterRDModeDecisionFrame and is
 	// stale on keyframes (initialized to 0 by vp8_encoder_lifecycle.go:182).
 	qIndex := vp8common.ClampQIndex(e.rc.currentQuantizer)
-	baseRDMult, _ := libvpxRDConstants(qIndex)
+	baseRDMult, _ := vp8enc.RDConstants(qIndex)
 	rdmultInt := baseRDMult
 	if e.activityMapValid {
 		rdmultInt = e.tunedRDMultiplier(baseRDMult, mbRow, mbCol)

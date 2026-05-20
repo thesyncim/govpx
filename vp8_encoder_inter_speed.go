@@ -725,12 +725,12 @@ func libvpxInterModeRDThresholdsForCPISpeedWithIIRatio(qIndex int, zbinOverQuant
 // rd_threshes derivation at rdopt.c:211-237. The lift can push the raw
 // RDMULT across the >1000 cutoff, flipping rdDiv from 100 to 1 and
 // switching the threshold formula from `mult * q` to `mult * q / 100`.
-// Pass iiRatio < 0 (the libvpxRDConstantsWithZbin sentinel) to skip the
+// Pass iiRatio < 0 (the vp8enc.RDConstantsWithZbin sentinel) to skip the
 // lift on the single-pass / KEY_FRAME path.
 func libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex int, zbinOverQuant int, iiRatio int, multipliers [libvpxInterModeCount]int) [libvpxInterModeCount]int {
 	qValue := min(vp8common.DCQuant(qIndex, 0), 160)
 	q := max(int(math.Pow(float64(qValue), 1.25)), 8)
-	_, rdDiv := libvpxRDConstantsWithZbinAndIIRatio(qIndex, zbinOverQuant, iiRatio)
+	_, rdDiv := vp8enc.RDConstantsWithZbinAndIIRatio(qIndex, zbinOverQuant, iiRatio)
 	var thresholds [libvpxInterModeCount]int
 	for i, mult := range multipliers {
 		if mult == libvpxInterModeThresholdDisabled {

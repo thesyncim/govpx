@@ -131,7 +131,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			}
 			modeRate := libvpxInterFastBpredModeCostWithProbs(bMode, e.modeProbs.BMode[:])
 			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
-			modeCost := libvpxRDCost(rdMult, rdDiv, modeRate, modeDist)
+			modeCost := vp8enc.RDCost(rdMult, rdDiv, modeRate, modeDist)
 			if modeCost < bestCost {
 				bestMode = bMode
 				bestRate = modeRate
@@ -170,7 +170,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		}
 	}
 	variance, sse := macroblockLumaVarianceSSEFromPredictor(src, mbRow, mbCol, &predictor)
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, libvpxRDCost(rdMult, rdDiv, rate, variance), variance, sse, rate, true
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, vp8enc.RDCost(rdMult, rdDiv, rate, variance), variance, sse, rate, true
 }
 
 func macroblockLumaVarianceSSEFromPredictor(src vp8enc.SourceImage, mbRow int, mbCol int, pred *[256]byte) (int, int) {

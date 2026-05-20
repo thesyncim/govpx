@@ -20,7 +20,7 @@ import (
 //   - vp8/encoder/encodemb.c:325-342 finalizer pt + rd_cost
 func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	// Sentinel A: distortion-dominant DC, low rdmult; trellis must keep.
-	// At qIndex=4, libvpxRDConstantsWithZbin returns (rdMult=15, rdDiv=100).
+	// At qIndex=4, vp8enc.RDConstantsWithZbin returns (rdMult=15, rdDiv=100).
 	// After UV_RD_MULT=2, rdMult=30 with rdDiv=100. Distortion=(85-100)^2=225
 	// for a DC coefficient where coeff[0]=100, dequant=85, qcoeff[0]=1
 	// (keep case) vs coeff[0]^2=10000 (drop case). Drop is 44.4x more
@@ -37,7 +37,7 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	}
 
 	// Sentinel B: rate-dominant DC, high rdmult; trellis must drop.
-	// At qIndex=127, libvpxRDConstantsWithZbin returns rdMult about 3611, rdDiv=1.
+	// At qIndex=127, vp8enc.RDConstantsWithZbin returns rdMult about 3611, rdDiv=1.
 	// After UV_RD_MULT=2, rdMult is about 7223 with rdDiv=1. Coefficient
 	// coeff[0]=11, dequant=100, qcoeff[0]=1; distortion(keep)=(100-11)^2
 	// =7921, distortion(drop)=11^2=121. Drop saves rate but adds 7800

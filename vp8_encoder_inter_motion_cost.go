@@ -89,7 +89,7 @@ func (c *fullPelSearchCtx) sourceSADPtr() (*byte, int) {
 }
 
 func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol8 int, qIndex int) int {
-	return c.fullPelSADFull(row, col) + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
+	return c.fullPelSADFull(row, col) + vp8enc.FullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
 }
 
 func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
@@ -146,7 +146,7 @@ func (c *fullPelSearchCtx) fullPelSADFull4(row0 int, col0 int, row1 int, col1 in
 }
 
 func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, refRow8 int, refCol8 int, qIndex int) int {
-	mvCost := libvpxFullPelMVSADCost16FromDeltas(mvRow>>3, mvCol>>3, refRow8, refCol8, qIndex)
+	mvCost := vp8enc.FullPelMVSADCost16FromDeltas(mvRow>>3, mvCol>>3, refRow8, refCol8, qIndex)
 	sadLimit := limit - mvCost
 	if sadLimit < 0 {
 		return limit + 1
@@ -218,17 +218,17 @@ func refFullPelYSlice(ref *vp8common.Image, refBaseY int, refBaseX int, width in
 // libvpx mvsad_err_cost — picking against (0,0) inflates the cost of motion
 // far from a strong predictor and biases NEWMV away from correct candidates.
 func interMotionSearchVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) int {
-	return vp8enc.MotionVectorSADCost(mv, bestRefMV, libvpxSADPerBit16(qIndex))
+	return vp8enc.MotionVectorSADCost(mv, bestRefMV, vp8enc.SADPerBit16(qIndex))
 }
 
 func interMotionSplitBlockSearchVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) int {
-	return vp8enc.MotionVectorSADCost(mv, bestRefMV, libvpxSADPerBit4(qIndex))
+	return vp8enc.MotionVectorSADCost(mv, bestRefMV, vp8enc.SADPerBit4(qIndex))
 }
 
 // interMotionSearchErrorVectorCost charges sub-pel MV bits against bestRefMV
 // (libvpx find_best_sub_pixel_step_iteratively in mcomp.c).
 func interMotionSearchErrorVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
-	return interMotionSearchErrorVectorCostWithErrorPerBit(mv, bestRefMV, libvpxErrorPerBit(qIndex), mvProbs)
+	return interMotionSearchErrorVectorCostWithErrorPerBit(mv, bestRefMV, vp8enc.ErrorPerBit(qIndex), mvProbs)
 }
 
 // interMotionSearchErrorVectorCostWithErrorPerBit is the explicit-rate variant

@@ -275,32 +275,32 @@ func (e *VP8Encoder) tunedRDModeScoreWithZbin(qIndex int, zbinOverQuant int, mbR
 	}
 	rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
 	rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
-	return libvpxRDCost(rdMult, rdDiv, rate, distortion)
+	return vp8enc.RDCost(rdMult, rdDiv, rate, distortion)
 }
 
 // rdModeScoreWithZbin is the encoder-aware analog of the package-level
 // rdModeScoreWithZbin: it threads the pass-2 iiratio lift from
 // vp8_initialize_rd_consts (rdopt.c:189-196) through the bare
-// libvpxRDCost shape used by the inter-frame mode picker. When the
+// vp8enc.RDCost shape used by the inter-frame mode picker. When the
 // encoder is in single-pass (or on a KEY_FRAME) the lift collapses to
 // the same value the bare helper produces.
 func (e *VP8Encoder) rdModeScoreWithZbin(qIndex int, zbinOverQuant int, rate int, distortion int) int {
 	rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
-	return libvpxRDCost(rdMult, rdDiv, rate, distortion)
+	return vp8enc.RDCost(rdMult, rdDiv, rate, distortion)
 }
 
 func (e *VP8Encoder) activityProbeRDConstants(qIndex int, zbinOverQuant int) (int, int) {
 	if e.activityProbeRDValid {
 		return e.activityProbeRDMult, e.activityProbeRDDiv
 	}
-	return libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	return vp8enc.RDConstantsWithZbin(qIndex, zbinOverQuant)
 }
 
 // libvpxRDConstantsWithZbinForFrame ports vp8_initialize_rd_consts including
 // the pass==2 && !KEY_FRAME iiratio lift at rdopt.c:189-196. When the encoder
 // is mid-pass-2 on a non-KEY_FRAME and rateControlState.passNextIIRatioValid is
 // armed, the lift uses `cpi->twopass.next_iiratio` (clamped to [0, 31]).
-// Otherwise the helper collapses to the bare libvpxRDConstantsWithZbin.
+// Otherwise the helper collapses to the bare vp8enc.RDConstantsWithZbin.
 //
 // The per-frame iiratio value is set by setPassNextIIRatioForFrame at the top
 // of pass-2 setup (mirroring vp8_second_pass at firstpass.c:2310-2317). Hot
@@ -312,7 +312,7 @@ func (e *VP8Encoder) libvpxRDConstantsWithZbinForFrame(qIndex int, zbinOverQuant
 	if e.rc.passNextIIRatioValid {
 		iiRatio = int(e.rc.passNextIIRatio)
 	}
-	return libvpxRDConstantsWithZbinAndIIRatio(qIndex, zbinOverQuant, iiRatio)
+	return vp8enc.RDConstantsWithZbinAndIIRatio(qIndex, zbinOverQuant, iiRatio)
 }
 
 func (e *VP8Encoder) updateActivityProbeRDState(qIndex int, zbinOverQuant int, rows int, cols int) {
@@ -399,9 +399,9 @@ func (e *VP8Encoder) tunedRDMultiplier(rdMult int, mbRow int, mbCol int) int {
 // vp8_activity_masking. After scaling x->rdmult by (act + 2*avg) /
 // (2*act + avg), libvpx recomputes x->errorperbit = x->rdmult * 100 /
 // (110 * x->rddiv) and floors it at 1. The recompute leans on the same rdMult
-// / rdDiv split the existing libvpxRDConstantsWithZbin() helper produces, so
+// / rdDiv split the existing vp8enc.RDConstantsWithZbin() helper produces, so
 // the activity-adjusted rdMult divided by 110 collapses to the same
-// rawRDMultiplier / 110 ratio that libvpxErrorPerBit derives on the
+// rawRDMultiplier / 110 ratio that vp8enc.ErrorPerBit derives on the
 // PSNR-tuned path — only with the activity-masked raw multiplier.
 //
 // Callers pass qIndex (the base, not segment-adjusted, frame qindex libvpx
@@ -410,7 +410,7 @@ func (e *VP8Encoder) tunedRDMultiplier(rdMult int, mbRow int, mbCol int) int {
 // refinement with the frame-level rd-constant pair, mirroring the libvpx
 // vp8_initialize_rd_consts(cm->base_qindex) → vp8_activity_masking flow.
 //
-// Returns the libvpx-default libvpxErrorPerBit(qIndex) when activity masking
+// Returns the libvpx-default vp8enc.ErrorPerBit(qIndex) when activity masking
 // is inactive so the PSNR path stays unchanged.
 func (e *VP8Encoder) tunedErrorPerBit(qIndex int, mbRow int, mbCol int) int {
 	iiRatio := -1
@@ -418,12 +418,12 @@ func (e *VP8Encoder) tunedErrorPerBit(qIndex int, mbRow int, mbCol int) int {
 		iiRatio = int(e.rc.passNextIIRatio)
 	}
 	if !e.activityMapValid {
-		return libvpxErrorPerBitWithZbinAndIIRatio(qIndex, 0, iiRatio)
+		return vp8enc.ErrorPerBitWithZbinAndIIRatio(qIndex, 0, iiRatio)
 	}
-	rdMult, rdDiv := libvpxRDConstantsWithZbinAndIIRatio(qIndex, 0, iiRatio)
+	rdMult, rdDiv := vp8enc.RDConstantsWithZbinAndIIRatio(qIndex, 0, iiRatio)
 	tuned := e.tunedRDMultiplier(rdMult, mbRow, mbCol)
 	if rdDiv <= 0 {
-		return libvpxErrorPerBitWithZbinAndIIRatio(qIndex, 0, iiRatio)
+		return vp8enc.ErrorPerBitWithZbinAndIIRatio(qIndex, 0, iiRatio)
 	}
 	// x->rdmult * 100 / (110 * x->rddiv), floored at 1 to match libvpx's
 	// errorperbit += (errorperbit == 0) post-fix.

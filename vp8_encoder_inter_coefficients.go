@@ -602,7 +602,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	// activity-lifted value `(rdmult * (2*act + avg) + (a>>1)) / (act +
 	// 2*avg)`. So the value libvpx emits at optimize_b time IS the
 	// activity-lifted rdMult — which is `tunedRDMultiplier(rdMult, mbRow,
-	// mbCol)` on the govpx side, NOT the raw libvpxRDConstantsWithZbin
+	// mbCol)` on the govpx side, NOT the raw vp8enc.RDConstantsWithZbin
 	// output. Task #316's bisect reported govpx=326 vs libvpx=551 at
 	// MB(0,0); the 326/551 ratio resolves to MB(0,0)'s textured-block
 	// activity ratio (~1.69x), not a real rdmult divergence — it's a

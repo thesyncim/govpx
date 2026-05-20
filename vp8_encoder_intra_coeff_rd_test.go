@@ -201,7 +201,7 @@ func TestPredictBestIntraChromaModeRDEOBsUseFinalTrialState(t *testing.T) {
 			tokenRate, dist, eobSum := wholeBlockChromaTransformRDWithEOBs(sourceImageFromPublic(src), &pred.Img, mbRow, mbCol, 0, 0, nil, nil, &quant, &probs, false)
 			liveEOBSum = eobSum
 			rate := intraUVModeRate(false, uvMode) + tokenRate
-			cost := rdModeScoreWithZbin(20, 0, rate, dist)
+			cost := vp8enc.RDModeScoreWithZbin(20, 0, rate, dist)
 			if i == 0 || cost < bestCost {
 				bestMode = uvMode
 				bestRate = rate
@@ -365,36 +365,36 @@ func TestLibvpxRDConstantsMatchSinglePassInitializeRDConsts(t *testing.T) {
 		{qIndex: 127, rdMult: 690, rdDiv: 1, errBit: 627},
 	}
 	for _, tt := range tests {
-		rdMult, rdDiv := libvpxRDConstants(tt.qIndex)
+		rdMult, rdDiv := vp8enc.RDConstants(tt.qIndex)
 		if rdMult != tt.rdMult || rdDiv != tt.rdDiv {
 			t.Fatalf("q=%d rd = %d/%d, want %d/%d", tt.qIndex, rdMult, rdDiv, tt.rdMult, tt.rdDiv)
 		}
-		if got := libvpxErrorPerBit(tt.qIndex); got != tt.errBit {
+		if got := vp8enc.ErrorPerBit(tt.qIndex); got != tt.errBit {
 			t.Fatalf("q=%d errorperbit = %d, want %d", tt.qIndex, got, tt.errBit)
 		}
 	}
 
-	if got := rdModeScore(4, 512, 10); got != 1358 {
+	if got := vp8enc.RDModeScore(4, 512, 10); got != 1358 {
 		t.Fatalf("rdModeScore low q = %d, want libvpx RDCOST 1358", got)
 	}
-	if got := rdModeScore(40, 512, 100); got != 176 {
+	if got := vp8enc.RDModeScore(40, 512, 100); got != 176 {
 		t.Fatalf("rdModeScore mid q = %d, want libvpx RDCOST 176", got)
 	}
 }
 
 func TestLibvpxRDConstantsUseZbinOverQuant(t *testing.T) {
-	baseMult, baseDiv := libvpxRDConstants(127)
-	overMult, overDiv := libvpxRDConstantsWithZbin(127, 128)
+	baseMult, baseDiv := vp8enc.RDConstants(127)
+	overMult, overDiv := vp8enc.RDConstantsWithZbin(127, 128)
 	if overMult != 989 || overDiv != 1 {
 		t.Fatalf("q127 zbin-over-quant rd = %d/%d, want 989/1", overMult, overDiv)
 	}
 	if overMult <= baseMult || overDiv != baseDiv {
 		t.Fatalf("zbin-over-quant rd = %d/%d, base %d/%d, want larger multiplier with same divider", overMult, overDiv, baseMult, baseDiv)
 	}
-	if got := rdModeScoreWithZbin(127, 128, 512, 100); got != 2078 {
+	if got := vp8enc.RDModeScoreWithZbin(127, 128, 512, 100); got != 2078 {
 		t.Fatalf("zbin-over-quant rdModeScore = %d, want libvpx RDCOST 2078", got)
 	}
-	if got := libvpxErrorPerBitWithZbin(127, 128); got != 899 {
+	if got := vp8enc.ErrorPerBitWithZbin(127, 128); got != 899 {
 		t.Fatalf("zbin-over-quant errorperbit = %d, want 899", got)
 	}
 }
@@ -404,7 +404,7 @@ func TestLibvpxRDConstantsUseZbinOverQuant(t *testing.T) {
 // single-pass / non-zbin-over-quant branch) across the entire QIndex range
 // [0..127]. The reference was generated from a 1:1 reimplementation of the
 // libvpx formula in C against vp8/common/quant_common.c dc_qlookup; any
-// divergence between this table and govpx's libvpxRDConstantsWithZbin is a
+// divergence between this table and govpx's vp8enc.RDConstantsWithZbin is a
 // regression in the per-Q RDMULT/RDDIV derivation (task #323 audit gate).
 func TestLibvpxRDConstantsByteExactSweep(t *testing.T) {
 	// Each row is (rdMult, rdDiv) for qIndex=row_index produced by libvpx's
@@ -443,9 +443,9 @@ func TestLibvpxRDConstantsByteExactSweep(t *testing.T) {
 		{638, 1}, {664, 1}, {690, 1},
 	}
 	for q := range vp8common.QIndexRange {
-		rdMult, rdDiv := libvpxRDConstants(q)
+		rdMult, rdDiv := vp8enc.RDConstants(q)
 		if rdMult != libvpxRD[q][0] || rdDiv != libvpxRD[q][1] {
-			t.Fatalf("qIndex=%d libvpxRDConstants=%d/%d want libvpx=%d/%d", q, rdMult, rdDiv, libvpxRD[q][0], libvpxRD[q][1])
+			t.Fatalf("qIndex=%d vp8enc.RDConstants=%d/%d want libvpx=%d/%d", q, rdMult, rdDiv, libvpxRD[q][0], libvpxRD[q][1])
 		}
 	}
 
@@ -473,9 +473,9 @@ func TestLibvpxRDConstantsByteExactSweep(t *testing.T) {
 		{127, 0, 690, 1}, {127, 8, 698, 1}, {127, 32, 753, 1}, {127, 64, 828, 1}, {127, 128, 989, 1},
 	}
 	for _, tt := range zbinTests {
-		rdMult, rdDiv := libvpxRDConstantsWithZbin(tt.qIndex, tt.zbinOverQuant)
+		rdMult, rdDiv := vp8enc.RDConstantsWithZbin(tt.qIndex, tt.zbinOverQuant)
 		if rdMult != tt.rdMult || rdDiv != tt.rdDiv {
-			t.Fatalf("qIndex=%d zbin=%d libvpxRDConstantsWithZbin=%d/%d want libvpx=%d/%d",
+			t.Fatalf("qIndex=%d zbin=%d vp8enc.RDConstantsWithZbin=%d/%d want libvpx=%d/%d",
 				tt.qIndex, tt.zbinOverQuant, rdMult, rdDiv, tt.rdMult, tt.rdDiv)
 		}
 	}
@@ -501,10 +501,10 @@ func TestLibvpxSADPerBitLUTsMatchInitializeMEConsts(t *testing.T) {
 		{qIndex: 126, want16: 14, want4: 20},
 	}
 	for _, tt := range tests {
-		if got := libvpxSADPerBit16(tt.qIndex); got != tt.want16 {
+		if got := vp8enc.SADPerBit16(tt.qIndex); got != tt.want16 {
 			t.Fatalf("q=%d sad_per_bit16 = %d, want %d", tt.qIndex, got, tt.want16)
 		}
-		if got := libvpxSADPerBit4(tt.qIndex); got != tt.want4 {
+		if got := vp8enc.SADPerBit4(tt.qIndex); got != tt.want4 {
 			t.Fatalf("q=%d sad_per_bit4 = %d, want %d", tt.qIndex, got, tt.want4)
 		}
 	}
@@ -522,8 +522,8 @@ func TestLibvpxFullPelMVSADCost16MatchesMotionVectorSADCost(t *testing.T) {
 		{mv: vp8enc.MotionVector{Row: 4096, Col: -4096}, ref: vp8enc.MotionVector{}, q: 126},
 	}
 	for _, tt := range tests {
-		got := libvpxFullPelMVSADCost16FromDeltas(int(tt.mv.Row)>>3, int(tt.mv.Col)>>3, int(tt.ref.Row)>>3, int(tt.ref.Col)>>3, tt.q)
-		want := vp8enc.MotionVectorSADCost(tt.mv, tt.ref, libvpxSADPerBit16(tt.q))
+		got := vp8enc.FullPelMVSADCost16FromDeltas(int(tt.mv.Row)>>3, int(tt.mv.Col)>>3, int(tt.ref.Row)>>3, int(tt.ref.Col)>>3, tt.q)
+		want := vp8enc.MotionVectorSADCost(tt.mv, tt.ref, vp8enc.SADPerBit16(tt.q))
 		if got != want {
 			t.Fatalf("mv=%+v ref=%+v q=%d full-pel SAD cost = %d, want %d", tt.mv, tt.ref, tt.q, got, want)
 		}
@@ -701,11 +701,11 @@ func TestEstimateFastInterModeScoreUsesLibvpxPickInterDistortion(t *testing.T) {
 		t.Fatalf("variance/sse = %d/%d, want flat luma offset with zero variance and nonzero SSE", variance, sse)
 	}
 	rate := e.interMotionModeRate(&mode, nil, nil, nil, 0, 0, 1, 1)
-	want := rdModeScore(qIndex, rate, variance)
+	want := vp8enc.RDModeScore(qIndex, rate, variance)
 	if got != want {
 		t.Fatalf("fast inter score = %d, want rate plus luma variance %d", got, want)
 	}
-	if sseScore := rdModeScore(qIndex, rate, sse); got == sseScore {
+	if sseScore := vp8enc.RDModeScore(qIndex, rate, sse); got == sseScore {
 		t.Fatalf("fast inter score used SSE %d, want libvpx variance distortion", sse)
 	}
 }

@@ -316,7 +316,7 @@ type splitMotionSubsetContext struct {
 	compressorSpeed int
 	// errorPerBit is the activity-masked x->errorperbit value libvpx
 	// vp8_activity_masking computes per MB. Zero means the caller did not
-	// thread the activity lift in; helpers default to libvpxErrorPerBit
+	// thread the activity lift in; helpers default to vp8enc.ErrorPerBit
 	// (qIndex), matching the PSNR-tuned baseline.
 	errorPerBit   int
 	left          *vp8enc.InterFrameMacroblockMode
@@ -419,7 +419,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 
 	errorPerBit := ctx.errorPerBit
 	if errorPerBit <= 0 {
-		errorPerBit = libvpxErrorPerBit(ctx.qIndex)
+		errorPerBit = vp8enc.ErrorPerBit(ctx.qIndex)
 	}
 	// libvpx vp8_rd_pick_best_mbsegmentation (vp8/encoder/rdopt.c:1199-
 	// 1303) runs each rd_check_segment call inside one of two branches:
@@ -493,7 +493,7 @@ func (ctx *splitMotionSubsetContext) candidateRD(block int, mv vp8enc.MotionVect
 }
 
 func splitMotionLabelRDScore(qIndex int, rate int, distortion int) int {
-	return rdModeScoreWithZbin(qIndex, 0, rate, distortion)
+	return vp8enc.RDModeScoreWithZbin(qIndex, 0, rate, distortion)
 }
 
 type splitMotionLabelRDEvaluator struct {
@@ -544,9 +544,9 @@ func (ev *splitMotionLabelRDEvaluator) score(qIndex int, rate int, distortion in
 		if ev != nil {
 			zbinOverQuant = ev.zbinOverQuant
 		}
-		return rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, distortion)
+		return vp8enc.RDModeScoreWithZbin(qIndex, zbinOverQuant, rate, distortion)
 	}
-	return libvpxRDCost(ev.rdMult, ev.rdDiv, rate, distortion)
+	return vp8enc.RDCost(ev.rdMult, ev.rdDiv, rate, distortion)
 }
 
 func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector, labelRate int) (int, int, int, int, [4]uint8, [4]uint8, bool) {
@@ -810,7 +810,7 @@ func libvpxSplitMVStepParamFromSeedDistance(sr int) int8 {
 
 func splitSubMotionLabelSearchCost(mode vp8common.BPredictionMode, qIndex int) int {
 	cost := splitSubMotionLabelRate(mode)
-	return (cost*libvpxSADPerBit4(qIndex) + 128) >> 8
+	return (cost*vp8enc.SADPerBit4(qIndex) + 128) >> 8
 }
 
 // interSplitMVRDDecision mirrors libvpx's RATE_DISTORTION accounting after a
@@ -958,8 +958,8 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 	totalDist := decision.YDist + decision.UVDist
 	decision.TotalRate = decision.YRate + decision.UVRate + otherCost + refCost
 	decision.Rate2 = decision.TotalRate
-	decision.RD = rdModeScoreWithZbin(qIndex, zbinOverQuant, decision.TotalRate, totalDist)
-	decision.YRD = rdModeScoreWithZbin(qIndex, zbinOverQuant, decision.YRate, decision.YDist)
+	decision.RD = vp8enc.RDModeScoreWithZbin(qIndex, zbinOverQuant, decision.TotalRate, totalDist)
+	decision.YRD = vp8enc.RDModeScoreWithZbin(qIndex, zbinOverQuant, decision.YRate, decision.YDist)
 	return decision, true
 }
 

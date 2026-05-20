@@ -62,7 +62,7 @@ func boundsInteriorByPad(b interFrameFullPixelBounds, row int, col int, padRow i
 		col-padCol > b.colMin && col+padCol < b.colMax
 }
 
-// fullPelMVSADCostInline mirrors libvpxFullPelMVSADCost16FromDeltas
+// fullPelMVSADCostInline mirrors vp8enc.FullPelMVSADCost16FromDeltas
 // but reads the pinned per-q SAD-cost table directly so the inner
 // loop avoids the function-call overhead and table-lookup helper.
 // Branchless |delta| then symmetric 255 cap keeps both lookups
@@ -122,7 +122,7 @@ func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost 
 	bounds := s.bounds
 	refRow8 := s.refRow8
 	refCol8 := s.refCol8
-	costs := &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+	costs := &vp8enc.FullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
 
 	var local fullPelLocalStats
 
@@ -392,7 +392,7 @@ func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, be
 	bounds := s.bounds
 	refRow8 := s.refRow8
 	refCol8 := s.refCol8
-	costs := &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+	costs := &vp8enc.FullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
 
 	bestRow := int(best.Row) >> 3
 	bestCol := int(best.Col) >> 3

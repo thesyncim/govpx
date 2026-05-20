@@ -116,7 +116,7 @@ type fullPelMotionSearch struct {
 
 func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, errorPerBit int, stats *interFrameMotionSearchStats) fullPelMotionSearch {
 	if errorPerBit <= 0 {
-		errorPerBit = libvpxErrorPerBit(qIndex)
+		errorPerBit = vp8enc.ErrorPerBit(qIndex)
 	}
 	return fullPelMotionSearch{
 		ctx:         newFullPelSearchCtx(src, ref, mbRow, mbCol),
@@ -299,9 +299,9 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 	refCol8 := s.refCol8
 	var costs *[256]int
 	if s.firstPassMode {
-		costs = &libvpxFirstPassFullPelMVSADComponentCost16
+		costs = &vp8enc.FirstPassFullPelMVSADComponentCost16
 	} else {
-		costs = &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+		costs = &vp8enc.FullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
 	}
 	var local fullPelLocalStats
 	var sad4 [4]uint32
@@ -429,9 +429,9 @@ func (s *fullPelMotionSearch) searchSitesNoStats(center vp8enc.MotionVector, cen
 	refCol8 := s.refCol8
 	var costs *[256]int
 	if s.firstPassMode {
-		costs = &libvpxFirstPassFullPelMVSADComponentCost16
+		costs = &vp8enc.FirstPassFullPelMVSADComponentCost16
 	} else {
-		costs = &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+		costs = &vp8enc.FullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
 	}
 	var sad4 [4]uint32
 	for range totalSteps {
@@ -547,9 +547,9 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 	refCol8 := s.refCol8
 	var costs *[256]int
 	if s.firstPassMode {
-		costs = &libvpxFirstPassFullPelMVSADComponentCost16
+		costs = &vp8enc.FirstPassFullPelMVSADComponentCost16
 	} else {
-		costs = &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+		costs = &vp8enc.FullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
 	}
 	var local fullPelLocalStats
 	var sad4 [4]uint32
@@ -659,9 +659,9 @@ func (s *fullPelMotionSearch) refineNoStats(start vp8enc.MotionVector, searchRan
 	refCol8 := s.refCol8
 	var costs *[256]int
 	if s.firstPassMode {
-		costs = &libvpxFirstPassFullPelMVSADComponentCost16
+		costs = &vp8enc.FirstPassFullPelMVSADComponentCost16
 	} else {
-		costs = &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
+		costs = &vp8enc.FullPelMVSADComponentCost16[vp8common.ClampQIndex(s.qIndex)]
 	}
 	var sad4 [4]uint32
 	for range searchRange {
@@ -751,7 +751,7 @@ func (s *fullPelMotionSearch) exhaustive(best vp8enc.MotionVector, bestWalkCost 
 			s.stats.recordFullPelSAD(1, false)
 			sad := ctx.fullPelSADFull(row, col)
 			if sad < bestWalkCost {
-				cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, s.qIndex)
+				cost := sad + vp8enc.FullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, s.qIndex)
 				if cost < bestWalkCost {
 					bestRow = row
 					bestCol = col
@@ -779,7 +779,7 @@ func (s *fullPelMotionSearch) exhaustiveNoStats(best vp8enc.MotionVector, bestWa
 			}
 			sad := ctx.fullPelSADFull(row, col)
 			if sad < bestWalkCost {
-				cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, s.qIndex)
+				cost := sad + vp8enc.FullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, s.qIndex)
 				if cost < bestWalkCost {
 					bestRow = row
 					bestCol = col
