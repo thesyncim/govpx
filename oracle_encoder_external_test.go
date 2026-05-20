@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -42,7 +43,7 @@ func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
 
 	maxFrames := externalEncoderTestFrameLimit(t)
 	for _, path := range paths {
-		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
 			clip, ok := readExternalEncoderClip(t, path, maxFrames)
 			if !ok {
 				t.Skipf("%s is not a supported 8-bit 4:2:0 source clip", path)

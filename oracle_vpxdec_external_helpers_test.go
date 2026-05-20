@@ -1,100 +1,30 @@
 package govpx
 
 import (
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 func findVP8IVFTestData(t *testing.T, root string) []string {
 	t.Helper()
-	limit := externalIVFTestLimit(t)
-	info, err := os.Stat(root)
+	paths, err := coracle.FindVP8IVFTestData(root, externalIVFTestLimit(t), false)
 	if err != nil {
-		t.Fatalf("stat %s: %v", root, err)
-	}
-	var paths []string
-	if info.Mode().IsRegular() {
-		if !isInvalidVP8IVFTestDataName(root) && isVP8IVFTestData(t, root) {
-			paths = append(paths, root)
-		}
-		return paths
-	}
-	if !info.IsDir() {
-		t.Fatalf("%s is not a regular file or directory", root)
-	}
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".ivf") || isInvalidVP8IVFTestDataName(path) {
-			return nil
-		}
-		if isVP8IVFTestData(t, path) {
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk %s: %v", root, err)
-	}
-	sort.Strings(paths)
-	if limit > 0 && len(paths) > limit {
-		return paths[:limit]
+		t.Fatalf("FindVP8IVFTestData(%q): %v", root, err)
 	}
 	return paths
 }
 
 func findInvalidVP8IVFTestData(t *testing.T, root string) []string {
 	t.Helper()
-	limit := externalInvalidIVFTestLimit(t)
-	info, err := os.Stat(root)
+	paths, err := coracle.FindVP8IVFTestData(root, externalInvalidIVFTestLimit(t), true)
 	if err != nil {
-		t.Fatalf("stat %s: %v", root, err)
-	}
-	var paths []string
-	if info.Mode().IsRegular() {
-		if isInvalidVP8IVFTestDataName(root) && isVP8IVFTestData(t, root) {
-			paths = append(paths, root)
-		}
-		return paths
-	}
-	if !info.IsDir() {
-		t.Fatalf("%s is not a regular file or directory", root)
-	}
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".ivf") || !isInvalidVP8IVFTestDataName(path) {
-			return nil
-		}
-		if isVP8IVFTestData(t, path) {
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk %s: %v", root, err)
-	}
-	sort.Strings(paths)
-	if limit > 0 && len(paths) > limit {
-		return paths[:limit]
+		t.Fatalf("FindVP8IVFTestData(%q, invalid): %v", root, err)
 	}
 	return paths
-}
-
-func isInvalidVP8IVFTestDataName(path string) bool {
-	return strings.HasPrefix(strings.ToLower(filepath.Base(path)), "invalid-")
 }
 
 func externalIVFTestDataRoot(t *testing.T, skipMessage string) (string, bool) {
@@ -129,54 +59,22 @@ func externalInvalidIVFTestDataRoot(t *testing.T) (string, bool) {
 
 func externalIVFTestLimit(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("GOVPX_TEST_DATA_LIMIT")
-	if raw == "" {
-		return 0
-	}
-	limit, err := strconv.Atoi(raw)
-	if err != nil || limit < 0 {
-		t.Fatalf("GOVPX_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
-	}
-	return limit
+	return mustNonNegativeEnvInt(t, "GOVPX_TEST_DATA_LIMIT")
 }
 
 func externalInvalidIVFTestLimit(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("GOVPX_INVALID_TEST_DATA_LIMIT")
-	if raw == "" {
-		return 0
-	}
-	limit, err := strconv.Atoi(raw)
-	if err != nil || limit < 0 {
-		t.Fatalf("GOVPX_INVALID_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
-	}
-	return limit
+	return mustNonNegativeEnvInt(t, "GOVPX_INVALID_TEST_DATA_LIMIT")
 }
 
 func externalIVFTestMinimum(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("GOVPX_TEST_DATA_MIN")
-	if raw == "" {
-		return 0
-	}
-	minimum, err := strconv.Atoi(raw)
-	if err != nil || minimum < 0 {
-		t.Fatalf("GOVPX_TEST_DATA_MIN = %q, want a non-negative integer", raw)
-	}
-	return minimum
+	return mustNonNegativeEnvInt(t, "GOVPX_TEST_DATA_MIN")
 }
 
 func externalInvalidIVFTestMinimum(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("GOVPX_INVALID_TEST_DATA_MIN")
-	if raw == "" {
-		return 0
-	}
-	minimum, err := strconv.Atoi(raw)
-	if err != nil || minimum < 0 {
-		t.Fatalf("GOVPX_INVALID_TEST_DATA_MIN = %q, want a non-negative integer", raw)
-	}
-	return minimum
+	return mustNonNegativeEnvInt(t, "GOVPX_INVALID_TEST_DATA_MIN")
 }
 
 func assertExternalIVFTestDataMinimum(t *testing.T, paths []string) {
@@ -195,46 +93,13 @@ func assertExternalInvalidIVFTestDataMinimum(t *testing.T, paths []string) {
 	}
 }
 
-func isVP8IVFTestData(t *testing.T, path string) bool {
+func mustNonNegativeEnvInt(t *testing.T, name string) int {
 	t.Helper()
-	file, err := os.Open(path)
+	value, _, err := coracle.NonNegativeEnvInt(name)
 	if err != nil {
-		t.Fatalf("Open %s returned error: %v", path, err)
+		t.Fatal(err)
 	}
-	defer file.Close()
-	header := make([]byte, testutil.IVFFileHeaderSize)
-	if _, err := io.ReadFull(file, header); err != nil {
-		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
-			t.Fatalf("%s is not valid IVF data: %v", path, testutil.ErrInvalidIVF)
-		}
-		t.Fatalf("ReadFull %s returned error: %v", path, err)
-	}
-	hdr, err := testutil.ParseIVFHeader(header)
-	if err == nil {
-		// ParseIVFHeader now accepts VP80 and VP90 fourcc tags. The
-		// VP8 oracle path is byte-parity-tested against the libvpx
-		// VP8 reference; VP90 streams have a different bitstream
-		// shape and aren't compatible with VP8Decode/Encode flows.
-		return hdr.FourCC == [4]byte{'V', 'P', '8', '0'}
-	}
-	if errors.Is(err, testutil.ErrUnsupportedFourCC) {
-		return false
-	}
-	t.Fatalf("%s is not valid VP8 IVF data: %v", path, err)
-	return false
-}
-
-func safeIVFTestName(root string, path string) string {
-	name, err := filepath.Rel(root, path)
-	if err != nil || name == "." {
-		name = filepath.Base(path)
-	}
-	name = strings.TrimSuffix(name, filepath.Ext(name))
-	name = strings.ReplaceAll(name, string(os.PathSeparator), "_")
-	if name == "" {
-		return "ivf"
-	}
-	return name
+	return value
 }
 
 func decodeFrameSequence(t *testing.T, packets ...[]byte) []Image {

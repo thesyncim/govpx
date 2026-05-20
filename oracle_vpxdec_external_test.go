@@ -2,9 +2,9 @@ package govpx
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
@@ -25,7 +25,7 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -60,7 +60,7 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -98,7 +98,7 @@ func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	assertExternalInvalidIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
 			if err := runLibvpxChecksumOracleFileExpectError(t, oracle, path); err == nil {
 				t.Fatalf("libvpx oracle decoded invalid VP8 IVF without error")
 			}
@@ -153,35 +153,5 @@ func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 			assertFrameChecksumsEqual(t, "Decode", got, want)
 			assertFrameChecksumsEqual(t, "DecodeInto", gotInto, want)
 		})
-	}
-}
-
-func TestFindVP8IVFTestData(t *testing.T) {
-	dir := t.TempDir()
-	vp8Path := filepath.Join(dir, "vp8.ivf")
-	if err := os.WriteFile(vp8Path, makeIVF(16, 16, 30, 1, [][]byte{{1}}), 0o600); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	vp9Path := filepath.Join(dir, "vp9.ivf")
-	vp9 := makeIVF(16, 16, 30, 1, [][]byte{{1}})
-	copy(vp9[8:12], []byte("VP90"))
-	if err := os.WriteFile(vp9Path, vp9, 0o600); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("not ivf"), 0o600); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-
-	paths := findVP8IVFTestData(t, dir)
-	if len(paths) != 1 || paths[0] != vp8Path {
-		t.Fatalf("paths = %v, want [%s]", paths, vp8Path)
-	}
-}
-
-func TestExternalIVFTestMinimum(t *testing.T) {
-	t.Setenv("GOVPX_TEST_DATA_MIN", "3")
-
-	if got := externalIVFTestMinimum(t); got != 3 {
-		t.Fatalf("minimum = %d, want 3", got)
 	}
 }
