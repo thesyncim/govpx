@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// FuzzDecoderErrorConcealment builds a tiny VP8 stream from the fuzz []byte
+// FuzzVP8DecoderErrorConcealment builds a tiny VP8 stream from the fuzz []byte
 // (key + a handful of inter frames), then corrupts a random byte range
 // (offset + length drawn from the fuzz bytes) of one of the inter packets and
 // decodes the result with ErrorConcealment=true.
@@ -22,7 +22,7 @@ import (
 // The existing TestDecodeErrorConcealment* tests pin specific corruption
 // scenarios; this fuzz harness expands the coverage to arbitrary offsets and
 // lengths drawn from the fuzz corpus.
-func FuzzDecoderErrorConcealment(f *testing.F) {
+func FuzzVP8DecoderErrorConcealment(f *testing.F) {
 	seeds := [][]byte{
 		nil,
 		{},

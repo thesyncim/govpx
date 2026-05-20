@@ -16,14 +16,14 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
-// FuzzDecoderAgainstLibvpx feeds govpx and libvpx the same mutated
+// FuzzVP8DecoderAgainstLibvpx feeds govpx and libvpx the same mutated
 // libvpx-encoded IVF corpus. The decoders must either both reject the stream
 // or both accept it and produce identical I420 frames.
 //
 // Fuzz mutations include bit flips, byte deletes/inserts, header field
 // corruption, and partition-size truncation. Divergent inputs land in
-// testdata/fuzz/FuzzDecoderAgainstLibvpx and replay as regression tests.
-func FuzzDecoderAgainstLibvpx(f *testing.F) {
+// testdata/fuzz/FuzzVP8DecoderAgainstLibvpx and replay as regression tests.
+func FuzzVP8DecoderAgainstLibvpx(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run decoder-vs-libvpx fuzz")
 	}

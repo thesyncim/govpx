@@ -10,13 +10,13 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestDecoderThreadingPipelinedMatchesSerial verifies that the libvpx-style
+// TestVP8DecoderThreadingPipelinedMatchesSerial verifies that the libvpx-style
 // row-pipeline path produces byte-identical output to the serial decoder
 // across the libvpx-authored smoke corpus (profiles 0-3, all token
 // partition layouts, sharpness, and the error-resilient stream). Pixel
 // parity is the hard constraint for R10-G; if any frame's Y/U/V planes
 // differ between Threads=0 and Threads>=2 the test fails.
-func TestDecoderThreadingPipelinedMatchesSerial(t *testing.T) {
+func TestVP8DecoderThreadingPipelinedMatchesSerial(t *testing.T) {
 	cases := libvpxAuthoredDecodeCases()
 	cases = append(cases, decodeFixtureCase{name: "govpx", ivfHex: govpxBaselineIVFHex, checksums: govpxBaselineChecksums[:]})
 
@@ -31,14 +31,14 @@ func TestDecoderThreadingPipelinedMatchesSerial(t *testing.T) {
 				if err != nil {
 					t.Fatalf("serial NewVP8Decoder: %v", err)
 				}
-				serialFrames := decodePlanes(t, serial, frames, len(tc.checksums))
+				serialFrames := decodeVP8Planes(t, serial, frames, len(tc.checksums))
 
 				// Threaded run.
 				threaded, err := NewVP8Decoder(DecoderOptions{Threads: threads})
 				if err != nil {
 					t.Fatalf("threaded NewVP8Decoder(threads=%d): %v", threads, err)
 				}
-				threadedFrames := decodePlanes(t, threaded, frames, len(tc.checksums))
+				threadedFrames := decodeVP8Planes(t, threaded, frames, len(tc.checksums))
 
 				if len(serialFrames) != len(threadedFrames) {
 					t.Fatalf("frame count mismatch: serial=%d threaded=%d", len(serialFrames), len(threadedFrames))
@@ -79,11 +79,11 @@ func TestDecoderThreadingPipelinedMatchesSerial(t *testing.T) {
 	}
 }
 
-// TestDecoderThreadingDecodeIntoMatchesSerial mirrors the parity test for
+// TestVP8DecoderThreadingDecodeIntoMatchesSerial mirrors the parity test for
 // the DecodeInto path, which copies into a caller-provided destination
 // image. This exercises the threaded recon+LF pipeline followed by the
 // public DecodeInto copy.
-func TestDecoderThreadingDecodeIntoMatchesSerial(t *testing.T) {
+func TestVP8DecoderThreadingDecodeIntoMatchesSerial(t *testing.T) {
 	cases := libvpxAuthoredDecodeCases()
 
 	for _, tc := range cases {
@@ -124,11 +124,11 @@ func TestDecoderThreadingDecodeIntoMatchesSerial(t *testing.T) {
 	}
 }
 
-// decodePlanes drives Decode/NextFrame across all input frames and returns
+// decodeVP8Planes drives Decode/NextFrame across all input frames and returns
 // dense (no-stride) copies of the Y/U/V planes for each emitted frame. We
 // take dense copies because the decoder reuses its internal frame buffers
 // across calls; comparing two sequences therefore needs per-frame snapshots.
-func decodePlanes(t testing.TB, d *VP8Decoder, frames [][]byte, want int) []capturedFramePlanes {
+func decodeVP8Planes(t testing.TB, d *VP8Decoder, frames [][]byte, want int) []capturedFramePlanes {
 	t.Helper()
 	out := make([]capturedFramePlanes, 0, want)
 	for i, frame := range frames {
@@ -144,14 +144,14 @@ func decodePlanes(t testing.TB, d *VP8Decoder, frames [][]byte, want int) []capt
 	return out
 }
 
-// TestDecoderThreadingExternalCorpusMatchesSerial walks the external libvpx
+// TestVP8DecoderThreadingExternalCorpusMatchesSerial walks the external libvpx
 // conformance corpus (58 valid VP80 vectors + the four I420
 // vp80-03-segmentation-* fixtures) and asserts the threaded decoder
 // produces byte-identical Y/U/V planes to the serial decoder for every
 // frame. It opt-in runs when GOVPX_TEST_DATA_PATH points at the corpus
 // directory; the libvpx oracle is not required (we compare two govpx
 // runs against each other, not against libvpx checksums).
-func TestDecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
+func TestVP8DecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 	root := os.Getenv("GOVPX_TEST_DATA_PATH")
 	if root == "" {
 		t.Skip("set GOVPX_TEST_DATA_PATH to a VP8 IVF conformance corpus")
@@ -182,8 +182,8 @@ func TestDecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 			if err != nil {
 				t.Fatalf("threaded NewVP8Decoder: %v", err)
 			}
-			serialFrames := decodePlanes(t, serial, frames, len(frames))
-			threadedFrames := decodePlanes(t, threaded, frames, len(frames))
+			serialFrames := decodeVP8Planes(t, serial, frames, len(frames))
+			threadedFrames := decodeVP8Planes(t, threaded, frames, len(frames))
 			if len(serialFrames) != len(threadedFrames) {
 				t.Fatalf("frame count mismatch: serial=%d threaded=%d", len(serialFrames), len(threadedFrames))
 			}
@@ -198,10 +198,10 @@ func TestDecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 	}
 }
 
-// BenchmarkDecoderThreading measures the per-frame decode latency for the
+// BenchmarkVP8DecoderThreading measures the per-frame decode latency for the
 // largest VP8 conformance vector available locally and contrasts the
 // serial path with Threads=2/4. Skipped when the corpus is not present.
-func BenchmarkDecoderThreading(b *testing.B) {
+func BenchmarkVP8DecoderThreading(b *testing.B) {
 	root := os.Getenv("GOVPX_TEST_DATA_PATH")
 	if root == "" {
 		root = "internal/coracle/build/test-data/vp8"

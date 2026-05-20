@@ -12,7 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// FuzzVP9DecoderAgainstLibvpx mirrors FuzzDecoderAgainstLibvpx (F4) for VP9:
+// FuzzVP9DecoderAgainstLibvpx mirrors FuzzVP8DecoderAgainstLibvpx (F4) for VP9:
 // the govpx VP9 decoder is fed bytes mutated from a real libvpx VP9-encoded IVF
 // corpus, and the same bytes are fed to libvpx's vpxdec-vp9. The two decoders
 // must agree — either both accept and produce identical I420 per frame, or both

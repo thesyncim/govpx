@@ -11,7 +11,7 @@ import (
 // resulting packet and asserts the roundtrip preserves dimensions and
 // produces a non-empty visible frame.
 //
-// The complementary FuzzDecoderMalformedPackets fuzzes the rejection
+// The complementary FuzzVP8DecoderMalformedPackets fuzzes the rejection
 // path; this one fuzzes the happy path and pins the post-decode shape
 // so a regression on output strides, plane sizing, or FrameInfo
 // dimensions surfaces immediately.

@@ -11,13 +11,13 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestFuzzDecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes exercises the dimension-mismatch decoder path: synthesize the f4f81f7d2e022caf-family mutation (IVF
+// TestFuzzVP8DecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes exercises the dimension-mismatch decoder path: synthesize the f4f81f7d2e022caf-family mutation (IVF
 // header height flipped to 0x1e1c=7708 while the VP8 key-frame body is
 // untouched) and run both decoders through the fuzz harness's
 // best-effort wrappers. Before #308 this disagreed with libvpx_frames=0
 // (slicer wanted 10.4 MB/frame) and govpx_frames=2. After #308 both
 // sides report 2 frames and byte-identical I420.
-func TestFuzzDecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes(t *testing.T) {
+func TestFuzzVP8DecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run decoder-vs-libvpx dimension mismatch parity")
 	}

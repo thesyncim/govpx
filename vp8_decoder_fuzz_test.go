@@ -2,7 +2,7 @@ package govpx
 
 import "testing"
 
-func FuzzDecoderMalformedPackets(f *testing.F) {
+func FuzzVP8DecoderMalformedPackets(f *testing.F) {
 	// Handcrafted seeds cover protocol edges: partition0 size greater
 	// than the remaining payload, oversized first_part_size, key frames
 	// with version > 3, width/height boundaries, and targeted bit flips

@@ -51,7 +51,7 @@ var dispatch = map[string]classifier{
 	"FuzzEncoderProductionStreamByteParity":      constantCase("option_grid"),
 	"FuzzVP8EncoderOptions":                      classifyVP8EncoderOptions,
 	"FuzzVP8MultiResSVCByteParity":               classifyVP8MultiResSVC,
-	"FuzzDecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
+	"FuzzVP8DecoderAgainstLibvpx":                classifyDecoderAgainstLibvpx,
 	// VP9 fuzz family — sibling targets registered here mirror their VP8
 	// counterparts. Classifiers reuse the same body shape so the resulting
 	// regression filenames carry the same scoreboard semantics.
@@ -65,8 +65,8 @@ var dispatch = map[string]classifier{
 	"FuzzVP9EncoderRandomStrides":              constantCase("vp9_strides"),
 	"FuzzVP9EncoderReferenceControlSequences":  constantCase("vp9_refctrl"),
 	"FuzzEncoderFrameFlags":                    constantCase("frame_flags"),
-	"FuzzDecoderThreaded":                      constantCase("threaded"),
-	"FuzzDecoderErrorConcealment":              constantCase("error_concealment"),
+	"FuzzVP8DecoderThreaded":                   constantCase("threaded"),
+	"FuzzVP8DecoderErrorConcealment":           constantCase("error_concealment"),
 	"FuzzExtendBorders":                        constantCase("extend_borders"),
 }
 

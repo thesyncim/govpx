@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// FuzzDecoderThreaded drives concurrent VP8 decodes of a stream synthesised
+// FuzzVP8DecoderThreaded drives concurrent VP8 decodes of a stream synthesised
 // from the fuzz []byte across N goroutines (N drawn from a fuzz byte) and
 // asserts that all goroutines produce identical Y/U/V planes when fed the
 // same packets. Race conditions surface naturally under `go test -race`,
@@ -17,7 +17,7 @@ import (
 // owns its own *VP8Decoder so the test isolates the read-only packet bytes
 // from the per-decoder mutable state. The first decoder's planes are taken
 // as the reference; the rest must match byte-for-byte.
-func FuzzDecoderThreaded(f *testing.F) {
+func FuzzVP8DecoderThreaded(f *testing.F) {
 	seeds := [][]byte{
 		nil,
 		{},
@@ -47,20 +47,20 @@ func FuzzDecoderThreaded(f *testing.F) {
 		// Worker count drawn from the first fuzz byte; clamped to [2, 8] so the
 		// concurrent path actually exercises N>=2 most of the time. A degenerate
 		// 1-goroutine setting is allowed via an explicit seed.
-		workers := decoderThreadedFuzzWorkerCount(data)
+		workers := vp8DecoderThreadedFuzzWorkerCount(data)
 
 		// Build two small streams from the fuzz bytes so the harness covers
 		// "same packets" (all workers must produce identical output) and a
 		// quick keyframe-only stream as a smoke baseline. Encoding can fail
 		// for some inputs (encoder rejects config or drops frames); that is
 		// not interesting here.
-		packets := decoderThreadedFuzzBuildStream(t, width, height, data)
+		packets := vp8DecoderThreadedFuzzBuildStream(t, width, height, data)
 		if len(packets) == 0 {
 			return
 		}
 
 		// Reference decode on the calling goroutine.
-		reference, ok := decoderThreadedFuzzDecodeAll(t, width, height, packets)
+		reference, ok := vp8DecoderThreadedFuzzDecodeAll(t, width, height, packets)
 		if !ok {
 			return
 		}
@@ -81,7 +81,7 @@ func FuzzDecoderThreaded(f *testing.F) {
 						t.Errorf("worker %d panicked: %v", w, r)
 					}
 				}()
-				got, ok := decoderThreadedFuzzDecodeAll(t, width, height, packets)
+				got, ok := vp8DecoderThreadedFuzzDecodeAll(t, width, height, packets)
 				if !ok {
 					return
 				}
@@ -117,7 +117,7 @@ func FuzzDecoderThreaded(f *testing.F) {
 	})
 }
 
-func decoderThreadedFuzzWorkerCount(data []byte) int {
+func vp8DecoderThreadedFuzzWorkerCount(data []byte) int {
 	if len(data) == 0 {
 		return 2
 	}
@@ -132,10 +132,10 @@ func decoderThreadedFuzzWorkerCount(data []byte) int {
 	return n
 }
 
-// decoderThreadedFuzzBuildStream encodes 1..4 frames of fuzz-derived content
+// vp8DecoderThreadedFuzzBuildStream encodes 1..4 frames of fuzz-derived content
 // into VP8 packets. Returns nil on encoder failure so the fuzz body skips
 // the iteration without a t.Fatal.
-func decoderThreadedFuzzBuildStream(t *testing.T, width, height int, data []byte) [][]byte {
+func vp8DecoderThreadedFuzzBuildStream(t *testing.T, width, height int, data []byte) [][]byte {
 	t.Helper()
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               width,
@@ -182,7 +182,7 @@ func decoderThreadedFuzzBuildStream(t *testing.T, width, height int, data []byte
 	return out
 }
 
-func decoderThreadedFuzzDecodeAll(t *testing.T, width, height int, packets [][]byte) ([]capturedFramePlanes, bool) {
+func vp8DecoderThreadedFuzzDecodeAll(t *testing.T, width, height int, packets [][]byte) ([]capturedFramePlanes, bool) {
 	t.Helper()
 	d, err := NewVP8Decoder(DecoderOptions{MaxWidth: width, MaxHeight: height})
 	if err != nil {
