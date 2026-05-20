@@ -314,39 +314,3 @@ func scatterV8x8AMD64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows 
 		}
 	}
 }
-
-func gatherV8x8PairAMD64(tmp *[8 * 16]byte, u []byte, v []byte, stride int) {
-	dst := tmp[:]
-	for i := range 8 {
-		uw := binary.LittleEndian.Uint64(u[i*stride : i*stride+8])
-		vw := binary.LittleEndian.Uint64(v[i*stride : i*stride+8])
-		dst[0*16+i] = byte(uw)
-		dst[1*16+i] = byte(uw >> 8)
-		dst[2*16+i] = byte(uw >> 16)
-		dst[3*16+i] = byte(uw >> 24)
-		dst[4*16+i] = byte(uw >> 32)
-		dst[5*16+i] = byte(uw >> 40)
-		dst[6*16+i] = byte(uw >> 48)
-		dst[7*16+i] = byte(uw >> 56)
-		dst[0*16+8+i] = byte(vw)
-		dst[1*16+8+i] = byte(vw >> 8)
-		dst[2*16+8+i] = byte(vw >> 16)
-		dst[3*16+8+i] = byte(vw >> 24)
-		dst[4*16+8+i] = byte(vw >> 32)
-		dst[5*16+8+i] = byte(vw >> 40)
-		dst[6*16+8+i] = byte(vw >> 48)
-		dst[7*16+8+i] = byte(vw >> 56)
-	}
-}
-
-func scatterV8x8PairAMD64(u []byte, v []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
-	src := tmp[:]
-	for i := range 8 {
-		urow := u[i*stride : i*stride+8]
-		vrow := v[i*stride : i*stride+8]
-		for r := range nrows {
-			urow[first+r] = src[(first+r)*16+i]
-			vrow[first+r] = src[(first+r)*16+8+i]
-		}
-	}
-}

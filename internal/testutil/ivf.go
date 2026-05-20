@@ -156,6 +156,19 @@ func IVFFramePayloads(data []byte) ([][]byte, error) {
 	return out, nil
 }
 
+// IVFFramePayloadViews returns each frame payload as a slice backed by data.
+func IVFFramePayloadViews(data []byte) ([][]byte, error) {
+	frames, err := IVFFrames(data)
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]byte, len(frames))
+	for i := range frames {
+		out[i] = frames[i].Data
+	}
+	return out, nil
+}
+
 // IVFFramePayloadSizeSummary counts payload bytes and frames without copying.
 func IVFFramePayloadSizeSummary(data []byte) (total int, frames int, err error) {
 	offset, err := FirstIVFFrameOffset(data)

@@ -84,6 +84,22 @@ func TestIVFFramePayloadsReturnsCopies(t *testing.T) {
 	}
 }
 
+func TestIVFFramePayloadViewsAliasInput(t *testing.T) {
+	data := makeIVF(16, 16, 30, 1, [][]byte{{1, 2}, {3, 4, 5}})
+	payloads, err := IVFFramePayloadViews(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloadViews returned error: %v", err)
+	}
+	if len(payloads) != 2 || string(payloads[0]) != string([]byte{1, 2}) ||
+		string(payloads[1]) != string([]byte{3, 4, 5}) {
+		t.Fatalf("payloads = %v, want [[1 2] [3 4 5]]", payloads)
+	}
+	payloads[0][0] = 99
+	if data[IVFFileHeaderSize+IVFFrameHeaderSize] != 99 {
+		t.Fatalf("payload view does not alias input data")
+	}
+}
+
 func TestIVFFramePayloadSizeSummary(t *testing.T) {
 	data := makeIVF(16, 16, 30, 1, [][]byte{{1, 2}, {3, 4, 5}})
 	total, frames, err := IVFFramePayloadSizeSummary(data)

@@ -5,6 +5,7 @@ package encoder
 import (
 	"math/rand"
 	"testing"
+	"unsafe"
 )
 
 func TestForwardWHT4x4NEONMatchesScalarConstant(t *testing.T) {
@@ -62,6 +63,10 @@ func BenchmarkForwardWHT4x4NEON(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		forwardWHT4x4NEONTest(input[:], 4, output[:])
 	}
+}
+
+func forwardWHT4x4NEONTest(input []int16, stride int, output []int16) {
+	forwardWHT4x4NEON(unsafe.SliceData(input), stride, unsafe.SliceData(output))
 }
 
 // Test-only thin wrapper that always hits the SIMD path.

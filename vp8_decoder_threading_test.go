@@ -148,7 +148,7 @@ func TestVP8DecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
-			frames, err := ivfFramesForThreadingParity(ivf)
+			frames, err := testutil.IVFFramePayloadViews(ivf)
 			if err != nil {
 				t.Fatalf("collect frames: %v", err)
 			}
@@ -211,7 +211,7 @@ func BenchmarkVP8DecoderThreading(b *testing.B) {
 			b.Logf("ReadFile %s: %v", name, err)
 			continue
 		}
-		frames, err := ivfFramesForThreadingParity(ivf)
+		frames, err := testutil.IVFFramePayloadViews(ivf)
 		if err != nil {
 			b.Logf("collect frames %s: %v", name, err)
 			continue

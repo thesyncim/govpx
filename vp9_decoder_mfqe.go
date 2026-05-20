@@ -8,10 +8,7 @@ import (
 )
 
 // VP9 MFQE port — Multiframe Quality Enhancement, verbatim from libvpx
-// v1.16.0 vp9/common/vp9_mfqe.c. This module replaces the legacy
-// vp9MFQEWalker (which routed through VP8's mfqe_block kernel and used
-// the wrong SAD / variance / decision thresholds). The libvpx VP9
-// implementation has:
+// v1.16.0 vp9/common/vp9_mfqe.c. The libvpx VP9 implementation has:
 //
 //   - libvpx: vp9/common/vp9_mfqe.c:198  mfqe_decision
 //       mi->mode >= NEARESTMV && cur_bs >= BLOCK_16X16 &&
@@ -217,10 +214,9 @@ func (d *VP9Decoder) vp9MFQEPartition(miGrid []vp9dec.NeighborMi, miStride int,
 	}
 }
 
-// vp9MFQEFaithfulWalker is the libvpx-faithful replacement for the
-// legacy vp9MFQEWalker. It walks 64x64 SBs across the visible MI grid
-// (libvpx vp9_mfqe.c:343 vp9_mfqe) and recurses into the partition
-// tree per SB.
+// vp9MFQEFaithfulWalker walks 64x64 SBs across the visible MI grid
+// (libvpx vp9_mfqe.c:343 vp9_mfqe) and recurses into the partition tree per
+// SB.
 //
 // libvpx swaps src/dst roles vs the legacy VP8 walker: dst (== libvpx's
 // post_proc_buffer) holds the *previous* MFQE-blended frame, src

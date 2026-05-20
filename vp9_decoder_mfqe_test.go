@@ -66,8 +66,6 @@ func TestVP9MFQEFaithfulWalkerSeedsDstWithCurrent(t *testing.T) {
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned no frame")
 	}
-	miCols := width >> 3
-	miRows := height >> 3
 	// Stamp every MI with an intra mode (DcPred < NearestMv) — the
 	// libvpx mfqe_decision rejects all of these.
 	for i := range d.miGrid {
@@ -75,8 +73,6 @@ func TestVP9MFQEFaithfulWalkerSeedsDstWithCurrent(t *testing.T) {
 		d.miGrid[i].Mode = common.DcPred
 		d.miGrid[i].Mv[0] = vp9dec.MV{}
 	}
-	_ = miRows
-	_ = miCols
 	if err := d.prepareVP9PostProcess(width, height); err != nil {
 		t.Fatalf("prepareVP9PostProcess: %v", err)
 	}
@@ -101,6 +97,48 @@ func TestVP9MFQEFaithfulWalkerSeedsDstWithCurrent(t *testing.T) {
 				t.Fatalf("(%d,%d) Y = %d, want 200 (seeded src, no MFQE)",
 					x, y, got)
 			}
+		}
+	}
+}
+
+func TestVP9MFQEPartitionVisitsSplitLeaves(t *testing.T) {
+	const (
+		width    = 64
+		height   = 64
+		yStride  = 64
+		uvStride = 32
+	)
+	var d VP9Decoder
+	miGrid := make([]vp9dec.NeighborMi, (height/8)*(width/8))
+	for i := range miGrid {
+		miGrid[i].SbType = common.Block32x32
+		miGrid[i].Mode = common.NearestMv
+	}
+
+	srcY := make([]byte, yStride*height)
+	dstY := make([]byte, yStride*height)
+	srcU := make([]byte, uvStride*(height/2))
+	srcV := make([]byte, uvStride*(height/2))
+	dstU := make([]byte, uvStride*(height/2))
+	dstV := make([]byte, uvStride*(height/2))
+	for _, origin := range [][2]int{{0, 0}, {32, 0}, {0, 32}, {32, 32}} {
+		for y := 0; y < 16; y++ {
+			row := dstY[(origin[1]+y)*yStride+origin[0]:]
+			for x := 0; x < 16; x++ {
+				row[x] = 16
+			}
+		}
+	}
+
+	d.vp9MFQEPartition(miGrid, width/8, 0, 0, common.Block64x64, 40,
+		0, 0,
+		srcY, srcU, srcV, yStride, uvStride,
+		dstY, dstU, dstV, yStride, uvStride)
+
+	for _, origin := range [][2]int{{0, 0}, {32, 0}, {0, 32}, {32, 32}} {
+		got := dstY[origin[1]*yStride+origin[0]]
+		if got == 16 {
+			t.Fatalf("split leaf at (%d,%d) was not blended", origin[0], origin[1])
 		}
 	}
 }

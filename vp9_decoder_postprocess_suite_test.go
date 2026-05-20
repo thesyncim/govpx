@@ -172,6 +172,28 @@ func TestVP9DecoderPostProcessFlagsRoundTripIndividually(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderPostProcessMFQEHandlesPartialSuperblocks(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{
+		PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock |
+			PostProcessMFQE | PostProcessAddNoise,
+		PostProcessNoiseLevel: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	packet := vp9StubPacketForTest(t, 48, 40, 0, common.DcPred)
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned no frame")
+	}
+	if frame.Width != 48 || frame.Height != 40 {
+		t.Fatalf("frame = %dx%d, want 48x40", frame.Width, frame.Height)
+	}
+}
+
 func TestVP9DecoderPostProcessDeblockAndDemacroblockChangeOutput(t *testing.T) {
 	// vp9ColumnResidueKeyframeForMotionLoopFilterTest produces a keyframe
 	// with a non-zero filter_level so the postprocess deblock chain has a

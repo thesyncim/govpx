@@ -96,8 +96,3 @@ func quantizeFPDispatch(coeff []int16, dequant [2]int16, scan []int16, dqcoeff [
 
 //go:noescape
 func forwardWHT4x4NEON(input *int16, stride int, output *int16)
-
-// Test helper (unconditional SIMD entry):
-func forwardWHT4x4NEONTest(input []int16, stride int, output []int16) {
-	forwardWHT4x4NEON(unsafe.SliceData(input), stride, unsafe.SliceData(output))
-}
