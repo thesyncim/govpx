@@ -5,13 +5,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 func findVP8IVFTestData(t *testing.T, root string) []string {
 	t.Helper()
-	paths, err := coracle.FindVP8IVFTestData(root, externalIVFTestLimit(t), false)
+	paths, err := testutil.FindVP8IVFTestData(root, externalIVFTestLimit(t), false)
 	if err != nil {
 		t.Fatalf("FindVP8IVFTestData(%q): %v", root, err)
 	}
@@ -20,7 +19,7 @@ func findVP8IVFTestData(t *testing.T, root string) []string {
 
 func findInvalidVP8IVFTestData(t *testing.T, root string) []string {
 	t.Helper()
-	paths, err := coracle.FindVP8IVFTestData(root, externalInvalidIVFTestLimit(t), true)
+	paths, err := testutil.FindVP8IVFTestData(root, externalInvalidIVFTestLimit(t), true)
 	if err != nil {
 		t.Fatalf("FindVP8IVFTestData(%q, invalid): %v", root, err)
 	}
@@ -95,7 +94,7 @@ func assertExternalInvalidIVFTestDataMinimum(t *testing.T, paths []string) {
 
 func mustNonNegativeEnvInt(t *testing.T, name string) int {
 	t.Helper()
-	value, _, err := coracle.NonNegativeEnvInt(name)
+	value, _, err := testutil.NonNegativeEnvInt(name)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,16 +14,16 @@ import (
 )
 
 func TestVP9DecoderDefaultProfile0WebMCorpusMinimumMatchesList(t *testing.T) {
-	if got := coracle.DefaultVP9Profile0WebMTestNameCount(); got != coracle.DefaultVP9Profile0WebMTestMinimum {
+	if got := testutil.DefaultVP9Profile0WebMTestNameCount(); got != testutil.DefaultVP9Profile0WebMTestMinimum {
 		t.Fatalf("default VP9 Profile 0 WebM corpus list = %d, minimum = %d",
-			got, coracle.DefaultVP9Profile0WebMTestMinimum)
+			got, testutil.DefaultVP9Profile0WebMTestMinimum)
 	}
 }
 
 func TestVP9DecoderDefaultIVFCorpusMinimumMatchesList(t *testing.T) {
-	if got := coracle.DefaultVP9IVFTestNameCount(); got != coracle.DefaultVP9IVFTestDataMinimum {
+	if got := testutil.DefaultVP9IVFTestNameCount(); got != testutil.DefaultVP9IVFTestDataMinimum {
 		t.Fatalf("default VP90 IVF corpus list = %d, minimum = %d",
-			got, coracle.DefaultVP9IVFTestDataMinimum)
+			got, testutil.DefaultVP9IVFTestDataMinimum)
 	}
 }
 
@@ -40,7 +40,7 @@ func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
 	assertExternalVP9IVFTestDataMinimum(t, root, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -75,7 +75,7 @@ func TestVP9DecoderOfficialIVFTestDataThreadedMatchesSerial(t *testing.T) {
 	assertExternalVP9IVFTestDataMinimum(t, root, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -117,7 +117,7 @@ func TestVP9DecoderOfficialProfile0WebMTestDataMatchesLibvpx(t *testing.T) {
 	assertExternalVP9Profile0WebMTestDataMinimum(t, root, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			webm, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -156,12 +156,12 @@ func TestVP9DecoderOfficialProfileWebMTestDataReturnsUnsupported(t *testing.T) {
 	assertExternalVP9ProfileWebMTestDataMinimum(t, root, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			webm, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
-			packets, err := coracle.ExtractVP9WebMPackets(webm)
+			packets, err := testutil.ExtractVP9WebMPackets(webm)
 			if err != nil {
 				t.Fatalf("extract VP9 WebM packets returned error: %v", err)
 			}
@@ -207,7 +207,7 @@ func TestVP9DecoderOfficialInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	assertExternalVP9InvalidIVFTestDataMinimum(t, root, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -229,12 +229,12 @@ func externalVP9IVFTestDataRoot(t *testing.T) (string, bool) {
 		return root, true
 	}
 	if externalVP9DefaultTestDataExists() {
-		return coracle.DefaultVP9ExternalTestDataDir, true
+		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
 	if os.Getenv("GOVPX_VP9_TEST_DATA_REQUIRED") == "1" {
-		t.Fatalf("GOVPX_VP9_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_TEST_DATA_PATH nor %s is present", coracle.DefaultVP9ExternalTestDataDir)
+		t.Fatalf("GOVPX_VP9_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_TEST_DATA_PATH nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
-	t.Skipf("set GOVPX_VP9_TEST_DATA_PATH to official VP90 IVF data or run make fetch-vp9-test-data to populate %s", coracle.DefaultVP9ExternalTestDataDir)
+	t.Skipf("set GOVPX_VP9_TEST_DATA_PATH to official VP90 IVF data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
 	return "", false
 }
 
@@ -249,12 +249,12 @@ func externalVP9InvalidIVFTestDataRoot(t *testing.T) (string, bool) {
 		return root, true
 	}
 	if externalVP9DefaultTestDataExists() {
-		return coracle.DefaultVP9ExternalTestDataDir, true
+		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
 	if os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED") == "1" {
-		t.Fatalf("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_INVALID_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", coracle.DefaultVP9ExternalTestDataDir)
+		t.Fatalf("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_INVALID_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
-	t.Skipf("set GOVPX_VP9_INVALID_TEST_DATA_PATH to invalid official VP90 IVF data or run make fetch-vp9-test-data to populate %s", coracle.DefaultVP9ExternalTestDataDir)
+	t.Skipf("set GOVPX_VP9_INVALID_TEST_DATA_PATH to invalid official VP90 IVF data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
 	return "", false
 }
 
@@ -269,15 +269,15 @@ func externalVP9Profile0WebMTestDataRoot(t *testing.T) (string, bool) {
 		return root, true
 	}
 	if externalVP9DefaultTestDataExists() {
-		return coracle.DefaultVP9ExternalTestDataDir, true
+		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
 	profile0Minimum, _ := externalVP9IVFMinimumFromEnv(t,
 		"GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN")
 	if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
 		profile0Minimum > 0 {
-		t.Fatalf("VP9 Profile 0 WebM test data is required but neither GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", coracle.DefaultVP9ExternalTestDataDir)
+		t.Fatalf("VP9 Profile 0 WebM test data is required but neither GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
-	t.Skipf("set GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH to official VP9 Profile 0 WebM data or run make fetch-vp9-test-data to populate %s", coracle.DefaultVP9ExternalTestDataDir)
+	t.Skipf("set GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH to official VP9 Profile 0 WebM data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
 	return "", false
 }
 
@@ -292,24 +292,24 @@ func externalVP9ProfileWebMTestDataRoot(t *testing.T) (string, bool) {
 		return root, true
 	}
 	if externalVP9DefaultTestDataExists() {
-		return coracle.DefaultVP9ExternalTestDataDir, true
+		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
 	profileMinimum, _ := externalVP9IVFMinimumFromEnv(t, "GOVPX_VP9_PROFILE_TEST_DATA_MIN")
 	if os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") == "1" ||
 		profileMinimum > 0 {
-		t.Fatalf("VP9 profile WebM test data is required but neither GOVPX_VP9_PROFILE_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", coracle.DefaultVP9ExternalTestDataDir)
+		t.Fatalf("VP9 profile WebM test data is required but neither GOVPX_VP9_PROFILE_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
-	t.Skipf("set GOVPX_VP9_PROFILE_TEST_DATA_PATH to official VP9 profile WebM data or run make fetch-vp9-test-data to populate %s", coracle.DefaultVP9ExternalTestDataDir)
+	t.Skipf("set GOVPX_VP9_PROFILE_TEST_DATA_PATH to official VP9 profile WebM data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
 	return "", false
 }
 
 func externalVP9DefaultTestDataExists() bool {
-	return coracle.DefaultVP9TestDataExists()
+	return testutil.DefaultVP9TestDataExists()
 }
 
 func findVP9IVFTestData(t *testing.T, root string, invalid bool) []string {
 	t.Helper()
-	paths, err := coracle.FindVP9IVFTestData(root, externalVP9IVFTestLimit(t, invalid), invalid)
+	paths, err := testutil.FindVP9IVFTestData(root, externalVP9IVFTestLimit(t, invalid), invalid)
 	if err != nil {
 		t.Fatalf("FindVP9IVFTestData(%q): %v", root, err)
 	}
@@ -318,7 +318,7 @@ func findVP9IVFTestData(t *testing.T, root string, invalid bool) []string {
 
 func findVP9Profile0WebMTestData(t *testing.T, root string) []string {
 	t.Helper()
-	paths, err := coracle.FindVP9Profile0WebMTestData(root, externalVP9Profile0WebMTestLimit(t))
+	paths, err := testutil.FindVP9Profile0WebMTestData(root, externalVP9Profile0WebMTestLimit(t))
 	if err != nil {
 		t.Fatalf("FindVP9Profile0WebMTestData(%q): %v", root, err)
 	}
@@ -327,7 +327,7 @@ func findVP9Profile0WebMTestData(t *testing.T, root string) []string {
 
 func findVP9ProfileWebMTestData(t *testing.T, root string) []string {
 	t.Helper()
-	paths, err := coracle.FindVP9ProfileWebMTestData(root, externalVP9ProfileWebMTestLimit(t))
+	paths, err := testutil.FindVP9ProfileWebMTestData(root, externalVP9ProfileWebMTestLimit(t))
 	if err != nil {
 		t.Fatalf("FindVP9ProfileWebMTestData(%q): %v", root, err)
 	}
@@ -363,25 +363,25 @@ func externalVP9IVFTestMinimum(t *testing.T, root string) int {
 	if err != nil || !info.IsDir() {
 		return 0
 	}
-	return coracle.DefaultVP9IVFTestDataMinimum
+	return testutil.DefaultVP9IVFTestDataMinimum
 }
 
 func externalVP9InvalidIVFTestMinimum(t *testing.T, root string) int {
 	t.Helper()
 	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_INVALID_TEST_DATA_MIN",
-		coracle.DefaultVP9InvalidIVFTestDataMinimum)
+		testutil.DefaultVP9InvalidIVFTestDataMinimum)
 }
 
 func externalVP9Profile0WebMTestMinimum(t *testing.T, root string) int {
 	t.Helper()
 	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN",
-		coracle.DefaultVP9Profile0WebMTestMinimum)
+		testutil.DefaultVP9Profile0WebMTestMinimum)
 }
 
 func externalVP9ProfileWebMTestMinimum(t *testing.T, root string) int {
 	t.Helper()
 	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_PROFILE_TEST_DATA_MIN",
-		coracle.DefaultVP9ProfileWebMTestMinimum)
+		testutil.DefaultVP9ProfileWebMTestMinimum)
 }
 
 func externalVP9CorpusMinimum(t *testing.T, root, envName string, defaultMinimum int) int {
@@ -399,7 +399,7 @@ func externalVP9CorpusMinimum(t *testing.T, root, envName string, defaultMinimum
 
 func externalVP9IVFMinimumFromEnv(t *testing.T, name string) (int, bool) {
 	t.Helper()
-	value, set, err := coracle.NonNegativeEnvInt(name)
+	value, set, err := testutil.NonNegativeEnvInt(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func externalVP9IVFMinimumFromEnv(t *testing.T, name string) (int, bool) {
 
 func mustCoracleEnvInt(t *testing.T, name string) int {
 	t.Helper()
-	value, _, err := coracle.NonNegativeEnvInt(name)
+	value, _, err := testutil.NonNegativeEnvInt(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func decodeVP9IVFVisibleI420WithOptions(ivf []byte, opts VP9DecoderOptions) (out
 			err = closeErr
 		}
 	}()
-	if !coracle.VP9IVFHeaderLooksValid(ivf) {
+	if !testutil.VP9IVFHeaderLooksValid(ivf) {
 		return nil, testutil.ErrInvalidIVF
 	}
 	offset := testutil.IVFFileHeaderSize
@@ -498,7 +498,7 @@ func decodeVP9IVFVisibleI420WithOptions(ivf []byte, opts VP9DecoderOptions) (out
 }
 
 func decodeVP9WebMVisibleI420(webm []byte) ([]byte, error) {
-	packets, err := coracle.ExtractVP9WebMPackets(webm)
+	packets, err := testutil.ExtractVP9WebMPackets(webm)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +526,7 @@ func decodeVP9IVFExpectErrorForTest(ivf []byte) error {
 	if err != nil {
 		return err
 	}
-	if !coracle.VP9IVFHeaderLooksValid(ivf) {
+	if !testutil.VP9IVFHeaderLooksValid(ivf) {
 		return testutil.ErrInvalidIVF
 	}
 	offset := testutil.IVFFileHeaderSize

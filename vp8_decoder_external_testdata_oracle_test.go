@@ -6,7 +6,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -28,7 +27,7 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -63,7 +62,7 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
@@ -101,7 +100,7 @@ func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	assertExternalInvalidIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			if err := coracletest.RunVP8ChecksumOracleFileExpectError(t, oracle, path); err == nil {
 				t.Fatalf("libvpx oracle decoded invalid VP8 IVF without error")
 			}

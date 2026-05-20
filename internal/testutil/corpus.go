@@ -1,4 +1,4 @@
-package coracle
+package testutil
 
 import (
 	"errors"
@@ -10,8 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 const (
@@ -225,11 +223,11 @@ func IsVP8IVFTestData(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	hdr, err := testutil.ParseIVFHeader(header)
+	hdr, err := ParseIVFHeader(header)
 	if err == nil {
-		return hdr.FourCC == testutil.IVFFourCCVP8, nil
+		return hdr.FourCC == IVFFourCCVP8, nil
 	}
-	if errors.Is(err, testutil.ErrUnsupportedFourCC) {
+	if errors.Is(err, ErrUnsupportedFourCC) {
 		return false, nil
 	}
 	return false, fmt.Errorf("%s is not valid VP8 IVF data: %w", path, err)
@@ -244,9 +242,9 @@ func IsVP9IVFTestData(path string) (bool, error) {
 }
 
 func VP9IVFHeaderLooksValid(data []byte) bool {
-	return len(data) >= testutil.IVFFileHeaderSize &&
+	return len(data) >= IVFFileHeaderSize &&
 		data[0] == 'D' && data[1] == 'K' && data[2] == 'I' && data[3] == 'F' &&
-		data[6] == byte(testutil.IVFFileHeaderSize) && data[7] == 0 &&
+		data[6] == byte(IVFFileHeaderSize) && data[7] == 0 &&
 		data[8] == 'V' && data[9] == 'P' && data[10] == '9' && data[11] == '0'
 }
 
@@ -256,10 +254,10 @@ func readIVFHeader(path string) ([]byte, error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer file.Close()
-	header := make([]byte, testutil.IVFFileHeaderSize)
+	header := make([]byte, IVFFileHeaderSize)
 	if _, err := io.ReadFull(file, header); err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("%s is not valid IVF data: %w", path, testutil.ErrInvalidIVF)
+			return nil, fmt.Errorf("%s is not valid IVF data: %w", path, ErrInvalidIVF)
 		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}

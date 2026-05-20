@@ -1,4 +1,4 @@
-package coracle
+package testutil
 
 import (
 	"bytes"

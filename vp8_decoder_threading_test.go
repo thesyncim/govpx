@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -143,7 +142,7 @@ func TestVP8DecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 		t.Fatalf("no VP8 IVF files found under %s", root)
 	}
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)

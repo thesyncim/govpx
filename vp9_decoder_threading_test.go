@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -24,7 +23,7 @@ func TestVP9DecoderThreadingOfficialIVFMatchesSerial(t *testing.T) {
 	assertExternalVP9IVFTestDataMinimum(t, root, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
@@ -59,12 +58,12 @@ func TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial(t *testing.T) {
 	assertExternalVP9Profile0WebMTestDataMinimum(t, root, paths)
 
 	for _, path := range paths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			webm, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
-			packets, err := coracle.ExtractVP9WebMPackets(webm)
+			packets, err := testutil.ExtractVP9WebMPackets(webm)
 			if err != nil {
 				t.Fatalf("extract VP9 WebM packets: %v", err)
 			}
@@ -107,12 +106,12 @@ func TestVP9DecoderThreadingOfficialProfile0TileColumnsUseWorkers(t *testing.T) 
 	}
 
 	for _, path := range tiledPaths {
-		t.Run(coracle.SafeCorpusTestName(root, path), func(t *testing.T) {
+		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
 			webm, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
-			packets, err := coracle.ExtractVP9WebMPackets(webm)
+			packets, err := testutil.ExtractVP9WebMPackets(webm)
 			if err != nil {
 				t.Fatalf("extract VP9 WebM packets: %v", err)
 			}
@@ -316,7 +315,7 @@ func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want i
 }
 
 func vp9IVFFramesForThreadingParity(ivf []byte) ([][]byte, error) {
-	if !coracle.VP9IVFHeaderLooksValid(ivf) {
+	if !testutil.VP9IVFHeaderLooksValid(ivf) {
 		return nil, testutil.ErrInvalidIVF
 	}
 	offset := testutil.IVFFileHeaderSize

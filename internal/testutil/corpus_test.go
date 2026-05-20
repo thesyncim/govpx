@@ -1,25 +1,23 @@
-package coracle
+package testutil
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 func TestFindVP8IVFTestDataFiltersByFourCCAndInvalidPrefix(t *testing.T) {
 	dir := t.TempDir()
 	vp8Path := filepath.Join(dir, "vp8.ivf")
-	if err := os.WriteFile(vp8Path, testIVF(testutil.IVFFourCCVP8), 0o600); err != nil {
+	if err := os.WriteFile(vp8Path, testIVF(IVFFourCCVP8), 0o600); err != nil {
 		t.Fatalf("WriteFile VP8 returned error: %v", err)
 	}
 	vp9Path := filepath.Join(dir, "vp9.ivf")
-	if err := os.WriteFile(vp9Path, testIVF(testutil.IVFFourCCVP9), 0o600); err != nil {
+	if err := os.WriteFile(vp9Path, testIVF(IVFFourCCVP9), 0o600); err != nil {
 		t.Fatalf("WriteFile VP9 returned error: %v", err)
 	}
 	invalidPath := filepath.Join(dir, "invalid-vp8.ivf")
-	if err := os.WriteFile(invalidPath, testIVF(testutil.IVFFourCCVP8), 0o600); err != nil {
+	if err := os.WriteFile(invalidPath, testIVF(IVFFourCCVP8), 0o600); err != nil {
 		t.Fatalf("WriteFile invalid VP8 returned error: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("not ivf"), 0o600); err != nil {
@@ -45,11 +43,11 @@ func TestFindVP8IVFTestDataFiltersByFourCCAndInvalidPrefix(t *testing.T) {
 func TestFindVP9CorpusTestData(t *testing.T) {
 	dir := t.TempDir()
 	vp9Path := filepath.Join(dir, "vp90-2-05-resize.ivf")
-	if err := os.WriteFile(vp9Path, testIVF(testutil.IVFFourCCVP9), 0o600); err != nil {
+	if err := os.WriteFile(vp9Path, testIVF(IVFFourCCVP9), 0o600); err != nil {
 		t.Fatalf("WriteFile VP9 returned error: %v", err)
 	}
 	vp8Path := filepath.Join(dir, "vp8.ivf")
-	if err := os.WriteFile(vp8Path, testIVF(testutil.IVFFourCCVP8), 0o600); err != nil {
+	if err := os.WriteFile(vp8Path, testIVF(IVFFourCCVP8), 0o600); err != nil {
 		t.Fatalf("WriteFile VP8 returned error: %v", err)
 	}
 	webmPath := filepath.Join(dir, "vp90-2-01-sharpness-1.webm")
@@ -85,16 +83,16 @@ func TestFindVP9CorpusTestData(t *testing.T) {
 }
 
 func TestNonNegativeEnvInt(t *testing.T) {
-	t.Setenv("GOVPX_TEST_LIMIT_FOR_CORACLE", "3")
-	value, set, err := NonNegativeEnvInt("GOVPX_TEST_LIMIT_FOR_CORACLE")
+	t.Setenv("GOVPX_TEST_LIMIT_FOR_TESTUTIL", "3")
+	value, set, err := NonNegativeEnvInt("GOVPX_TEST_LIMIT_FOR_TESTUTIL")
 	if err != nil {
 		t.Fatalf("NonNegativeEnvInt returned error: %v", err)
 	}
 	if !set || value != 3 {
 		t.Fatalf("NonNegativeEnvInt = %d,%v, want 3,true", value, set)
 	}
-	t.Setenv("GOVPX_TEST_LIMIT_FOR_CORACLE", "-1")
-	if _, _, err := NonNegativeEnvInt("GOVPX_TEST_LIMIT_FOR_CORACLE"); err == nil {
+	t.Setenv("GOVPX_TEST_LIMIT_FOR_TESTUTIL", "-1")
+	if _, _, err := NonNegativeEnvInt("GOVPX_TEST_LIMIT_FOR_TESTUTIL"); err == nil {
 		t.Fatalf("NonNegativeEnvInt accepted a negative value")
 	}
 }
@@ -108,7 +106,7 @@ func TestSafeCorpusTestName(t *testing.T) {
 }
 
 func testIVF(fourCC [4]byte) []byte {
-	return testutil.BuildIVF(testutil.IVFHeader{
+	return BuildIVF(IVFHeader{
 		FourCC:              fourCC,
 		Width:               16,
 		Height:              16,
