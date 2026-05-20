@@ -7,7 +7,7 @@ import (
 )
 
 // TestReadUncompressedHeaderKeyframe synthesizes a minimal profile-0
-// keyframe header end-to-end and round-trips it through the driver.
+// keyframe header end-to-end and round-trips it through the parser.
 // This validates the full state-machine ordering: frame marker →
 // profile → show_existing_frame=0 → frame_type=KEY → show_frame=1 →
 // error_resilient=0 → sync code → bitdepth/colorspace/sampling →

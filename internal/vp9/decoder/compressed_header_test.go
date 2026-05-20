@@ -10,7 +10,7 @@ import (
 // TestReadCompressedHeaderLosslessKeyframe writes the minimal
 // compressed-header bitstream for a lossless keyframe: TxMode forced
 // to Only4x4 (no tx-mode read), one coef-probs skip bit, then three
-// skip-probs no-update bits. Confirms the driver consumes exactly
+// skip-probs no-update bits. Confirms the parser consumes exactly
 // that and leaves every FrameContext slot untouched.
 func TestReadCompressedHeaderLosslessKeyframe(t *testing.T) {
 	buf := make([]byte, 64)
@@ -55,7 +55,7 @@ func TestReadCompressedHeaderLosslessKeyframe(t *testing.T) {
 
 // TestReadCompressedHeaderInterFrameSelectMode writes a compressed
 // header for an inter frame with TxMode = TxModeSelect, no probability
-// updates anywhere along the long inter path. Confirms the driver
+// updates anywhere along the long inter path. Confirms the parser
 // walks every fragment without panicking.
 func TestReadCompressedHeaderInterFrameSelectMode(t *testing.T) {
 	buf := make([]byte, 512)

@@ -302,9 +302,9 @@ func TestWriteCoefBlockBranchStatsIncludeParetoTail(t *testing.T) {
 	}
 }
 
-// TestWriteCoefBlockBranchStatsAccumulateAcrossMultipleBlocks pins the
-// task #154 negative finding: govpx's per-block branch-count
-// accumulation matches libvpx's build_tree_distribution output
+// TestWriteCoefBlockBranchStatsAccumulateAcrossMultipleBlocks pins that
+// govpx's per-block branch-count accumulation matches libvpx's
+// build_tree_distribution output
 // (vp9/encoder/vp9_bitstream.c:519-543 — vp9_tree_probs_from_distribution
 // + eob_branch overwrite) when summed across multiple tx-blocks. The
 // per-block contract is already covered by

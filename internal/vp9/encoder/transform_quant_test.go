@@ -530,7 +530,7 @@ func TestQuantizeFP32x32EmitsHalfDequantizedCoefficients(t *testing.T) {
 }
 
 // TestQuantizeB32x32WithQEmitsQcoeff verifies the libvpx-faithful qcoeff
-// emit path (task #158 / vpx_dsp/quantize.c:216-275). Both qcoeff and
+// emit path from vpx_dsp/quantize.c:216-275. Both qcoeff and
 // dqcoeff must be populated in lockstep, and the qcoeff value must equal
 // the libvpx vp9_get_token_cost(v, ...) argument — the signed quantized
 // magnitude before the Tx32x32 /2 dequant scaling — so cost_coeffs can
