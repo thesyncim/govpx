@@ -1,4 +1,4 @@
-package govpx
+package dsp
 
 import (
 	"image"
@@ -7,17 +7,17 @@ import (
 
 // TestVP9PolyphaseFilterTableSumsTo128 pins every phase row's sum to
 // 128 so the combined two-pass rounding shift stays consistent with
-// vp9MultiResolutionPolyphaseShift. A typo in any row would visibly
+// polyphaseShift. A typo in any row would visibly
 // shift the output DC level.
 func TestVP9PolyphaseFilterTableSumsTo128(t *testing.T) {
-	for phase, taps := range vp9MultiResolutionPolyphaseFilters {
+	for phase, taps := range polyphaseFilters {
 		var sum int
 		for _, tap := range taps {
 			sum += int(tap)
 		}
-		if sum != 1<<vp9MultiResolutionPolyphaseShift {
+		if sum != 1<<polyphaseShift {
 			t.Errorf("phase %d taps sum to %d, want %d",
-				phase, sum, 1<<vp9MultiResolutionPolyphaseShift)
+				phase, sum, 1<<polyphaseShift)
 		}
 	}
 }
@@ -26,7 +26,7 @@ func TestVP9PolyphaseFilterTableSumsTo128(t *testing.T) {
 // row (tap index 3 = 128, all other taps = 0). libvpx vp9_resize.c
 // places the kernel center at tap index 3.
 func TestVP9PolyphaseFilterIdentityRow(t *testing.T) {
-	row := vp9MultiResolutionPolyphaseFilters[0]
+	row := polyphaseFilters[0]
 	for i, v := range row {
 		want := int16(0)
 		if i == 3 {
@@ -51,8 +51,8 @@ func TestVP9PolyphaseFilterPlaneFlatField(t *testing.T) {
 		src[i] = 200
 	}
 	dst := make([]byte, dstW*dstH)
-	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(dstW, srcH))
-	vp9MultiResolutionPolyphaseFilterPlane(dst, dstW, dstW, dstH,
+	scratch := make([]int32, PolyphaseScratchSize(dstW, srcH))
+	PolyphaseFilterPlane(dst, dstW, dstW, dstH,
 		src, srcW, srcW, srcH, scratch)
 	for i, v := range dst {
 		if v != 200 {
@@ -77,8 +77,8 @@ func TestVP9PolyphaseFilterPlaneEdgeReplication(t *testing.T) {
 	}
 	dstW := 8
 	dst := make([]byte, dstW*srcH)
-	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(dstW, srcH))
-	vp9MultiResolutionPolyphaseFilterPlane(dst, dstW, dstW, srcH,
+	scratch := make([]int32, PolyphaseScratchSize(dstW, srcH))
+	PolyphaseFilterPlane(dst, dstW, dstW, srcH,
 		src, srcW, srcW, srcH, scratch)
 	// The 8-tap polyphase kernel rings on a hard step edge by a
 	// bounded amount; the resampled values stay near [50, 200] +/-
@@ -107,8 +107,8 @@ func TestVP9PolyphaseFilterPlaneMonotoneRamp(t *testing.T) {
 	}
 	dstW := 8
 	dst := make([]byte, dstW*srcH)
-	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(dstW, srcH))
-	vp9MultiResolutionPolyphaseFilterPlane(dst, dstW, dstW, srcH,
+	scratch := make([]int32, PolyphaseScratchSize(dstW, srcH))
+	PolyphaseFilterPlane(dst, dstW, dstW, srcH,
 		src, srcW, srcW, srcH, scratch)
 	for i := 1; i < dstW; i++ {
 		if dst[i] < dst[i-1] {
@@ -134,8 +134,8 @@ func TestVP9PolyphaseDownscaleI420FlatField(t *testing.T) {
 		src.Cr[i] = 80
 	}
 	dst := image.NewYCbCr(image.Rect(0, 0, dstW, dstH), image.YCbCrSubsampleRatio420)
-	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(dstW, srcH))
-	vp9MultiResolutionPolyphaseDownscaleI420(dst, src, dstW, dstH, scratch)
+	scratch := make([]int32, PolyphaseScratchSize(dstW, srcH))
+	PolyphaseDownscaleI420(dst, src, dstW, dstH, scratch)
 
 	for i, v := range dst.Y {
 		if v != 96 {
@@ -183,8 +183,8 @@ func TestVP9PolyphaseDownscaleI420PreservesDetailVsBilinear(t *testing.T) {
 	}
 
 	dstPoly := image.NewYCbCr(image.Rect(0, 0, dstW, dstH), image.YCbCrSubsampleRatio420)
-	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(dstW, srcH))
-	vp9MultiResolutionPolyphaseDownscaleI420(dstPoly, src, dstW, dstH, scratch)
+	scratch := make([]int32, PolyphaseScratchSize(dstW, srcH))
+	PolyphaseDownscaleI420(dstPoly, src, dstW, dstH, scratch)
 	polyVar := varianceI420Y(dstPoly)
 
 	// Reference bilinear: every pair of pixels averages to ~128, so
@@ -235,13 +235,13 @@ func varianceI420Y(img *image.YCbCr) int64 {
 // dstWidth × srcHeight int32 entries. Zero-sized inputs return zero so
 // the caller doesn't allocate.
 func TestVP9PolyphaseScratchSizeBound(t *testing.T) {
-	if got := vp9MultiResolutionPolyphaseScratchSize(16, 32); got != 16*32 {
+	if got := PolyphaseScratchSize(16, 32); got != 16*32 {
 		t.Errorf("scratch size for (16, 32) = %d, want %d", got, 16*32)
 	}
-	if got := vp9MultiResolutionPolyphaseScratchSize(0, 32); got != 0 {
+	if got := PolyphaseScratchSize(0, 32); got != 0 {
 		t.Errorf("scratch size for (0, 32) = %d, want 0", got)
 	}
-	if got := vp9MultiResolutionPolyphaseScratchSize(-1, 32); got != 0 {
+	if got := PolyphaseScratchSize(-1, 32); got != 0 {
 		t.Errorf("scratch size for (-1, 32) = %d, want 0", got)
 	}
 }

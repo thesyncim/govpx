@@ -3,6 +3,8 @@ package govpx
 import (
 	"image"
 	"sync"
+
+	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 )
 
 // MaxMultiResLayers is the maximum number of resolutions supported by the
@@ -335,7 +337,7 @@ func NewVP9MultiResolutionEncoder(opts VP9MultiResolutionEncoderOptions) (*VP9Mu
 		srcHeight := mre.layerHeights[0]
 		dstWidth := mre.layerWidths[1]
 		mre.resizeScratch = make([]int32,
-			vp9MultiResolutionPolyphaseScratchSize(dstWidth, srcHeight))
+			vp9dsp.PolyphaseScratchSize(dstWidth, srcHeight))
 	}
 	// Pre-allocate MV-hint slabs when share-motion-vectors is on.
 	// Producer slab i is sized to layer i's SB grid; consumer slab
@@ -524,7 +526,7 @@ func (e *VP9MultiResolutionEncoder) EncodeIntoWithFlagsResult(img *image.YCbCr,
 	// scratch slab is shared across layers; the per-layer encode
 	// goroutines below get an already-downscaled YCbCr.
 	for i := 1; i < e.count; i++ {
-		vp9MultiResolutionDownscaleI420(e.scratch[i], img,
+		vp9dsp.PolyphaseDownscaleI420(e.scratch[i], img,
 			e.layerWidths[i], e.layerHeights[i],
 			e.resizeScratch)
 	}
@@ -705,23 +707,3 @@ func (e *VP9MultiResolutionEncoder) Close() error {
 
 // Codec reports the codec this encoder targets.
 func (e *VP9MultiResolutionEncoder) Codec() Codec { return CodecVP9 }
-
-// vp9MultiResolutionDownscaleI420 downscales src into dst at the
-// destination's declared visible width/height using the libvpx-
-// aligned 8-tap 16-phase polyphase resampler in vp9_resize.go. The
-// scratch slab carries the horizontal-pass intermediate so the
-// vertical pass can read 32-bit unrounded coefficients and apply the
-// combined two-pass rounding shift in one place. The caller must
-// supply scratch with at least vp9MultiResolutionPolyphaseScratchSize
-// (dstWidth, srcHeight) int32 entries; the multi-resolution encoder
-// allocates one slab once at construction.
-//
-// Parity note: the previous implementation used a 2-tap bilinear
-// filter which over-smoothed the downscaled image. The 8-tap
-// polyphase filter mirrors libvpx vp9_resize.c's interpolation
-// kernel and preserves significantly more high-frequency detail.
-func vp9MultiResolutionDownscaleI420(dst *image.YCbCr, src *image.YCbCr,
-	dstWidth, dstHeight int, scratch []int32,
-) {
-	vp9MultiResolutionPolyphaseDownscaleI420(dst, src, dstWidth, dstHeight, scratch)
-}

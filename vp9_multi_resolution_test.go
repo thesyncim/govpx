@@ -4,6 +4,8 @@ import (
 	"errors"
 	"image"
 	"testing"
+
+	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 )
 
 // newVP9MultiResLayerOptions returns a deterministic layer-options
@@ -297,8 +299,8 @@ func TestVP9MultiResolutionEncoderParityVsManualEncoders(t *testing.T) {
 	scratch := image.NewYCbCr(image.Rect(0, 0, width1, height1),
 		image.YCbCrSubsampleRatio420)
 	resizeScratch := make([]int32,
-		vp9MultiResolutionPolyphaseScratchSize(width1, height0))
-	vp9MultiResolutionDownscaleI420(scratch, src, width1, height1, resizeScratch)
+		vp9dsp.PolyphaseScratchSize(width1, height0))
+	vp9dsp.PolyphaseDownscaleI420(scratch, src, width1, height1, resizeScratch)
 
 	ref0, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:  width0,
@@ -411,8 +413,8 @@ func TestVP9MultiResolutionDownscalePlaneFlatField(t *testing.T) {
 		src[i] = 128
 	}
 	dst := make([]byte, 4*4)
-	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(4, 8))
-	vp9MultiResolutionPolyphaseFilterPlane(dst, 4, 4, 4, src, 8, 8, 8, scratch)
+	scratch := make([]int32, vp9dsp.PolyphaseScratchSize(4, 8))
+	vp9dsp.PolyphaseFilterPlane(dst, 4, 4, 4, src, 8, 8, 8, scratch)
 	for i, b := range dst {
 		if b != 128 {
 			t.Fatalf("dst[%d] = %d, want 128", i, b)
@@ -433,8 +435,8 @@ func TestVP9MultiResolutionDownscalePlaneLinearGradient(t *testing.T) {
 	}
 	dstW := 4
 	dst := make([]byte, dstW*srcH)
-	scratch := make([]int32, vp9MultiResolutionPolyphaseScratchSize(dstW, srcH))
-	vp9MultiResolutionPolyphaseFilterPlane(dst, dstW, dstW, srcH, src, srcW, srcW, srcH, scratch)
+	scratch := make([]int32, vp9dsp.PolyphaseScratchSize(dstW, srcH))
+	vp9dsp.PolyphaseFilterPlane(dst, dstW, dstW, srcH, src, srcW, srcW, srcH, scratch)
 	for i := 1; i < dstW; i++ {
 		if dst[i] < dst[i-1] {
 			t.Fatalf("downscaled gradient regressed at %d: %v", i, dst)

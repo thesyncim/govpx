@@ -1,27 +1,27 @@
-package govpx
+package dsp
 
 import "image"
 
-// vp9MultiResolutionPolyphasePhases is the phase count of the
+// polyphasePhases is the phase count of the
 // libvpx-style polyphase resampler. Mirrors libvpx's
 // SUBPEL_SHIFTS / vp9_resize.c phase resolution.
-const vp9MultiResolutionPolyphasePhases = 16
+const polyphasePhases = 16
 
-// vp9MultiResolutionPolyphaseTaps is the per-phase filter length.
+// polyphaseTaps is the per-phase filter length.
 // libvpx vp9_resize.c uses a symmetric polyphase resampler whose
 // kernel is 8 taps wide. The govpx implementation picks 8 taps too:
 // a 5-tap kernel is not sufficient to span libvpx's resize impulse
 // response at the 16-phase sub-pixel resolution, and an 8-tap kernel
 // matches the rest of govpx's VP9 sub-pixel infrastructure.
-const vp9MultiResolutionPolyphaseTaps = 8
+const polyphaseTaps = 8
 
-// vp9MultiResolutionPolyphaseShift is the rounding shift applied
+// polyphaseShift is the rounding shift applied
 // after summing the 8-tap, 16-phase polyphase output. Matches the
 // 128-scaled coefficient table below: each phase row sums to 128,
 // so a 7-bit shift restores the 8-bit output range.
-const vp9MultiResolutionPolyphaseShift = 7
+const polyphaseShift = 7
 
-// vp9MultiResolutionPolyphaseFilters is the 16-phase, 8-tap
+// polyphaseFilters is the 16-phase, 8-tap
 // downscale polyphase filter bank derived from libvpx vp9_resize.c's
 // 0.625 (i.e. "filteredinterp_filters625") preset. Every row sums to
 // 128. Phase 0 is the identity row (centered on tap index 3); higher
@@ -33,7 +33,7 @@ const vp9MultiResolutionPolyphaseShift = 7
 // loss against avoiding a five-table arena that varies with the
 // caller's exact downscale ratio; in practice the multi-resolution
 // pyramid stays in the 0.5-0.75 zone where this preset was tuned.
-var vp9MultiResolutionPolyphaseFilters = [vp9MultiResolutionPolyphasePhases][vp9MultiResolutionPolyphaseTaps]int16{
+var polyphaseFilters = [polyphasePhases][polyphaseTaps]int16{
 	{0, 0, 0, 128, 0, 0, 0, 0},
 	{-1, 2, -6, 127, 9, -3, 1, -1},
 	{-2, 5, -12, 124, 18, -7, 3, -1},
@@ -52,7 +52,7 @@ var vp9MultiResolutionPolyphaseFilters = [vp9MultiResolutionPolyphasePhases][vp9
 	{-1, 1, -3, 9, 127, -6, 2, -1},
 }
 
-// vp9MultiResolutionResize plans a 1-D polyphase walk: for each output
+// polyphaseTap plans a 1-D polyphase walk: for each output
 // pixel at coordinate `outPos`, compute the source center as
 // `(outPos + 0.5) * srcLen / dstLen - 0.5` in 16-phase fixed point,
 // then return (integer source index of tap 0, phase index 0..15).
@@ -61,7 +61,7 @@ var vp9MultiResolutionPolyphaseFilters = [vp9MultiResolutionPolyphasePhases][vp9
 // largest coefficient at phase 0), so the leftmost tap sits at
 // (center - 3) in source coordinates. The caller clamps that index
 // against the source plane edges (replicate-edge sampling).
-func vp9MultiResolutionPolyphaseTap(outPos, dstLen, srcLen int) (firstSrc int, phase int) {
+func polyphaseTap(outPos, dstLen, srcLen int) (firstSrc int, phase int) {
 	// Fixed-point ratio with 16-phase resolution: each source pixel
 	// is divided into 16 phases. The "+8" before the multiply is the
 	// 0.5 source-pixel offset (in 16ths) that aligns the kernel
@@ -73,9 +73,9 @@ func vp9MultiResolutionPolyphaseTap(outPos, dstLen, srcLen int) (firstSrc int, p
 	//
 	// Then phase = pos & 15, center = pos >> 4. The leftmost tap is
 	// center - 3 because the kernel is centered at tap index 3.
-	numerator := int64(outPos)*int64(srcLen)*int64(vp9MultiResolutionPolyphasePhases) +
-		int64(srcLen)*int64(vp9MultiResolutionPolyphasePhases>>1) -
-		int64(dstLen)*int64(vp9MultiResolutionPolyphasePhases>>1)
+	numerator := int64(outPos)*int64(srcLen)*int64(polyphasePhases) +
+		int64(srcLen)*int64(polyphasePhases>>1) -
+		int64(dstLen)*int64(polyphasePhases>>1)
 	pos := numerator / int64(dstLen)
 	// Round phase toward the canonical sub-pixel slot.
 	if numerator < 0 && numerator%int64(dstLen) != 0 {
@@ -83,13 +83,13 @@ func vp9MultiResolutionPolyphaseTap(outPos, dstLen, srcLen int) (firstSrc int, p
 		// negative source-center positions (small output edge).
 		pos -= 1
 	}
-	phase = int(pos & (vp9MultiResolutionPolyphasePhases - 1))
+	phase = int(pos & (polyphasePhases - 1))
 	center := int(pos >> 4)
 	firstSrc = center - 3
 	return firstSrc, phase
 }
 
-// vp9MultiResolutionPolyphaseFilterPlane resamples one 8-bit plane
+// PolyphaseFilterPlane resamples one 8-bit plane
 // from (srcWidth, srcHeight) into (dstWidth, dstHeight) using the
 // 8-tap 16-phase polyphase filter. Edges are handled by replicate
 // padding (libvpx's resize replicates the boundary samples too).
@@ -98,10 +98,10 @@ func vp9MultiResolutionPolyphaseTap(outPos, dstLen, srcLen int) (firstSrc int, p
 // produces an intermediate plane of width dstWidth × height srcHeight
 // in the caller-supplied scratch slab, then a vertical pass walks the
 // intermediate into the destination. The scratch slab must be at
-// least dstWidth * srcHeight int16 entries (the horizontal output
+// least dstWidth * srcHeight int32 entries (the horizontal output
 // keeps 7 fractional bits so the vertical pass sums them at full
 // precision before the second shift).
-func vp9MultiResolutionPolyphaseFilterPlane(dst []byte, dstStride int,
+func PolyphaseFilterPlane(dst []byte, dstStride int,
 	dstWidth, dstHeight int,
 	src []byte, srcStride int,
 	srcWidth, srcHeight int,
@@ -119,10 +119,10 @@ func vp9MultiResolutionPolyphaseFilterPlane(dst []byte, dstStride int,
 		srcRow := src[y*srcStride:]
 		dstRow := scratch[y*dstWidth:]
 		for x := range dstWidth {
-			firstSrc, phase := vp9MultiResolutionPolyphaseTap(x, dstWidth, srcWidth)
-			taps := &vp9MultiResolutionPolyphaseFilters[phase]
+			firstSrc, phase := polyphaseTap(x, dstWidth, srcWidth)
+			taps := &polyphaseFilters[phase]
 			var acc int32
-			for t := range vp9MultiResolutionPolyphaseTaps {
+			for t := range polyphaseTaps {
 				idx := firstSrc + t
 				if idx < 0 {
 					idx = 0
@@ -139,15 +139,15 @@ func vp9MultiResolutionPolyphaseFilterPlane(dst []byte, dstStride int,
 	// from srcHeight to dstHeight, applying the polyphase filter and
 	// the combined two-pass rounding shift. The intermediate samples
 	// are 128-scaled; the combined shift is 2 * shift = 14 bits.
-	const combinedShift = 2 * vp9MultiResolutionPolyphaseShift
+	const combinedShift = 2 * polyphaseShift
 	const round = 1 << (combinedShift - 1)
 	for y := range dstHeight {
-		firstSrc, phase := vp9MultiResolutionPolyphaseTap(y, dstHeight, srcHeight)
-		taps := &vp9MultiResolutionPolyphaseFilters[phase]
+		firstSrc, phase := polyphaseTap(y, dstHeight, srcHeight)
+		taps := &polyphaseFilters[phase]
 		dstRow := dst[y*dstStride:]
 		for x := range dstWidth {
 			var acc int64
-			for t := range vp9MultiResolutionPolyphaseTaps {
+			for t := range polyphaseTaps {
 				idx := firstSrc + t
 				if idx < 0 {
 					idx = 0
@@ -167,14 +167,14 @@ func vp9MultiResolutionPolyphaseFilterPlane(dst []byte, dstStride int,
 	}
 }
 
-// vp9MultiResolutionPolyphaseDownscaleI420 downscales src into dst at
+// PolyphaseDownscaleI420 downscales src into dst at
 // the destination's declared visible width/height using the libvpx-
 // aligned 8-tap 16-phase polyphase filter. Scratch carries the
 // horizontal-pass intermediate; one slab is reused across the three
 // planes. The caller-supplied scratch must hold at least
 // dstWidth*srcHeight int32 entries — the luma horizontal pass is the
 // largest, so chroma reuses the same slab.
-func vp9MultiResolutionPolyphaseDownscaleI420(dst *image.YCbCr, src *image.YCbCr,
+func PolyphaseDownscaleI420(dst *image.YCbCr, src *image.YCbCr,
 	dstWidth, dstHeight int, scratch []int32,
 ) {
 	if dst == nil || src == nil {
@@ -186,7 +186,7 @@ func vp9MultiResolutionPolyphaseDownscaleI420(dst *image.YCbCr, src *image.YCbCr
 		return
 	}
 
-	vp9MultiResolutionPolyphaseFilterPlane(dst.Y, dst.YStride,
+	PolyphaseFilterPlane(dst.Y, dst.YStride,
 		dstWidth, dstHeight,
 		src.Y, src.YStride, srcWidth, srcHeight,
 		scratch)
@@ -196,22 +196,22 @@ func vp9MultiResolutionPolyphaseDownscaleI420(dst *image.YCbCr, src *image.YCbCr
 	dstChromaW := (dstWidth + 1) >> 1
 	dstChromaH := (dstHeight + 1) >> 1
 
-	vp9MultiResolutionPolyphaseFilterPlane(dst.Cb, dst.CStride,
+	PolyphaseFilterPlane(dst.Cb, dst.CStride,
 		dstChromaW, dstChromaH,
 		src.Cb, src.CStride, srcChromaW, srcChromaH,
 		scratch)
-	vp9MultiResolutionPolyphaseFilterPlane(dst.Cr, dst.CStride,
+	PolyphaseFilterPlane(dst.Cr, dst.CStride,
 		dstChromaW, dstChromaH,
 		src.Cr, src.CStride, srcChromaW, srcChromaH,
 		scratch)
 }
 
-// vp9MultiResolutionPolyphaseScratchSize returns the int32 entries the
+// PolyphaseScratchSize returns the int32 entries the
 // scratch slab must hold to satisfy a given (dstWidth, srcHeight)
 // luma pair. Chroma reuses the same slab because the I420 chroma
 // plane shrinks by 2x in each axis and so cannot exceed the luma
 // scratch footprint.
-func vp9MultiResolutionPolyphaseScratchSize(dstWidth, srcHeight int) int {
+func PolyphaseScratchSize(dstWidth, srcHeight int) int {
 	if dstWidth <= 0 || srcHeight <= 0 {
 		return 0
 	}
