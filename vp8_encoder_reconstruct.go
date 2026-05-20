@@ -514,7 +514,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 // commit in libvpx's encode_mb_row order (vp8/encoder/encodeframe.c). The
 // per-MB token contexts (aboveTok / leftTok in this function) are committed
 // to the row state only after the chosen mode's residual has been encoded,
-// via updateInterAnalysisTokenContext — mirroring libvpx's deferred
+// via updateInterAnalysisTokenContextAndCount — mirroring libvpx's deferred
 // "*a/*l" ENTROPY_CONTEXT assignment after vp8_encode_inter16x16 /
 // vp8_encode_intra4x4mby. Recode-loop interactions: encodeInterFrame{,
 // WithQuantizerFeedback} re-enters this function on every recode attempt;
@@ -875,30 +875,13 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	return totalRate, nil
 }
 
-func updateInterAnalysisTokenContext(above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) {
-	if skipped {
-		vp8enc.ResetTokenContextPlanes(above, left, is4x4)
-		return
-	}
-	vp8enc.UpdateTokenContextPlanesFromCoefficients(above, left, is4x4, coeffs)
-}
-
-func (e *VP8Encoder) acceptedInterFrameRDProjectedRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, coeffs *vp8enc.MacroblockCoefficients, ref interAnalysisReference, mbRow int, mbCol int, mbRows int, mbCols int, is4x4 bool) int {
-	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, e.interReferenceFrameRateForReference(ref))
-	if mode.MBSkipCoeff {
-		return modeRate + e.interMacroblockSkipRate(true)
-	}
-	return modeRate + e.interMacroblockSkipRate(false) + macroblockCoefficientTokenRateWithContext(e.pickerCoefProbs(), is4x4, aboveTok, leftTok, coeffs)
-}
-
-// updateInterAnalysisTokenContextAndCount mirrors updateInterAnalysisTokenContext
-// but also accumulates per-MB coefficient token counts into the encoder's
-// Lane D cache so InterFramePacket.Write can skip its own count walk. The
-// context-plane updates produced by AccumulateInterMacroblockTokenCounts are
-// identical to UpdateTokenContextPlanesFromCoefficients for accepted MBs;
-// skipped MBs reset the planes the same way the count walk does. Returns an
-// error mirroring the count walk's validation so the caller can fail closed
-// (the same way buildInterCoefficientTokenCounts would).
+// updateInterAnalysisTokenContextAndCount updates inter token contexts and
+// accumulates per-MB coefficient token counts into the encoder's Lane D cache
+// so InterFramePacket.Write can skip its own count walk. The context-plane
+// updates produced by AccumulateInterMacroblockTokenCounts are identical to
+// UpdateTokenContextPlanesFromCoefficients for accepted MBs; skipped MBs reset
+// the planes the same way the count walk does. Returns an error mirroring the
+// count walk's validation so the caller can fail closed.
 func updateInterAnalysisTokenContextAndCount(counts *vp8enc.InterCoefficientTokenCounts, records *vp8enc.InterCoefficientTokenRecords, above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) error {
 	if skipped {
 		vp8enc.ResetTokenContextPlanes(above, left, is4x4)

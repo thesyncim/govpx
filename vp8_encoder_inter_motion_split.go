@@ -67,14 +67,6 @@ type splitFullPixelSearchResult struct {
 	num00      uint8
 }
 
-func nstepInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8, bounds interFrameFullPixelBounds, stepParam int) (vp8enc.MotionVector, int) {
-	return nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, center, centerWalkCost, centerReturnCost, bestRefMV, qIndex, libvpxErrorPerBit(qIndex), mvProbs, bounds, stepParam)
-}
-
-func nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBit(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, bounds interFrameFullPixelBounds, stepParam int) (vp8enc.MotionVector, int) {
-	return nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, block, width, height, center, centerWalkCost, centerReturnCost, bestRefMV, qIndex, errorPerBit, mvProbs, nil, bounds, stepParam)
-}
-
 func nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, bounds interFrameFullPixelBounds, stepParam int) (vp8enc.MotionVector, int) {
 	stepParam = min(max(stepParam, 0), interFrameMaxMVSearchSteps-1)
 	furtherSteps := (interFrameMaxMVSearchSteps - 1) - stepParam
@@ -97,14 +89,6 @@ func nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(
 		}
 	}
 	return best, bestCost
-}
-
-func diamondNstepInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8, bounds interFrameFullPixelBounds, searchParam int) splitFullPixelSearchResult {
-	return diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, center, centerWalkCost, centerReturnCost, bestRefMV, qIndex, libvpxErrorPerBit(qIndex), mvProbs, bounds, searchParam)
-}
-
-func diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBit(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, bounds interFrameFullPixelBounds, searchParam int) splitFullPixelSearchResult {
-	return diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, block, width, height, center, centerWalkCost, centerReturnCost, bestRefMV, qIndex, errorPerBit, mvProbs, nil, bounds, searchParam)
 }
 
 func diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, bounds interFrameFullPixelBounds, searchParam int) splitFullPixelSearchResult {
@@ -193,14 +177,6 @@ func splitMotionSegmentationSSEShift(width int, height int) int {
 	default:
 		return 0
 	}
-}
-
-func fullSearchInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8, bounds interFrameFullPixelBounds, distance int) splitFullPixelSearchResult {
-	return fullSearchInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBit(src, ref, mbRow, mbCol, block, width, height, center, bestRefMV, qIndex, libvpxErrorPerBit(qIndex), mvProbs, bounds, distance)
-}
-
-func fullSearchInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBit(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, bounds interFrameFullPixelBounds, distance int) splitFullPixelSearchResult {
-	return fullSearchInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, block, width, height, center, bestRefMV, qIndex, errorPerBit, mvProbs, nil, bounds, distance)
 }
 
 func fullSearchInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, bounds interFrameFullPixelBounds, distance int) splitFullPixelSearchResult {
@@ -402,10 +378,6 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 		return vp8enc.MotionVector{}, 0, false
 	}
 	return finalMV, bestCost, true
-}
-
-func splitBlockSubpixelMotionSearchCandidateCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) (int, bool) {
-	return splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, row, col, bestRefMV, errorPerBit, mvProbs, nil)
 }
 
 func splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) (int, bool) {

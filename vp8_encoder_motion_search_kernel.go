@@ -95,7 +95,7 @@ func fullPelMVSADCostInline(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, co
 //     the per-candidate `containsFullPel` test.
 //
 // Returned cost is the SAD+MV-SAD-cost walk cost; the variance is
-// re-computed by the caller via interMotionFullPixelSearchReturnCost.
+// re-computed by the caller after the walk.
 func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
 	// Site tables in libvpx hex_search order. The 6-point ring and
 	// the three-of-six next-checkpoint slices use ±2 magnitudes; the

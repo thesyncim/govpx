@@ -40,8 +40,8 @@ package govpx
 //    libvpx then computes q = (int)pow(Qvalue, 1.25), q = max(q, 8),
 //    and rd_threshes[i] = thresh_mult[i] * q (when rdmult<=1000) or
 //    thresh_mult[i] * q / 100 (when rdmult>1000). govpx's
-//    libvpxInterModeRDThresholdsFromMultipliers in
-//    vp8_encoder_inter_speed.go:657-674 mirrors this verbatim
+//    libvpxInterModeRDThresholdsFromMultipliersWithIIRatio in
+//    vp8_encoder_inter_speed.go mirrors this verbatim
 //    (TestLibvpxInterModeRDThresholdsScaleLikeInitializeRDConsts pins
 //    both branches). The thresh_mult lookup itself is per-speed and
 //    Q-INDEPENDENT, so at the same iQ and same Speed both encoders

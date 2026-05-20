@@ -18,10 +18,11 @@ import (
 // rd_pick_intra4x4block (rdopt.c): only the chosen mode's contexts are
 // committed to the per-MB row state. The commit happens later in
 // buildReconstructingInterFrameCoefficientsWithSegmentation via
-// updateInterAnalysisTokenContext after the winning mode's residual has been
-// reconstructed, mirroring libvpx's encode_mb_row "*a/*l" assignment after
-// vp8_encode_inter16x16 / vp8_encode_intra4x4mby. The RD picker therefore
-// never mutates the caller's aboveTok/leftTok during candidate evaluation.
+// updateInterAnalysisTokenContextAndCount after the winning mode's residual
+// has been reconstructed, mirroring libvpx's encode_mb_row "*a/*l" assignment
+// after vp8_encode_inter16x16 / vp8_encode_intra4x4mby. The RD picker
+// therefore never mutates the caller's aboveTok/leftTok during candidate
+// evaluation.
 func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,

@@ -214,15 +214,6 @@ func refFullPelYSlice(ref *vp8common.Image, refBaseY int, refBaseX int, width in
 	return ref.YFull[off:], true
 }
 
-func interMotionFullPixelSearchReturnCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
-	return interMotionFullPixelSearchReturnCostWithErrorPerBitAndCostTables(src, ref, mbRow, mbCol, mv, bestRefMV, libvpxErrorPerBit(qIndex), mvProbs, nil)
-}
-
-func interMotionFullPixelSearchReturnCostWithErrorPerBitAndCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) int {
-	variance, _ := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
-	return variance + interMotionSearchErrorVectorCostWithErrorPerBitAndCostTables(mv, bestRefMV, errorPerBit, mvProbs, mvCosts)
-}
-
 // interMotionSearchVectorCost charges full-pel MV bits against bestRefMV like
 // libvpx mvsad_err_cost — picking against (0,0) inflates the cost of motion
 // far from a strong predictor and biases NEWMV away from correct candidates.
@@ -263,26 +254,16 @@ func interMotionSearchErrorVectorCostWithErrorPerBitAndCostTables(mv vp8enc.Moti
 	return vp8enc.MotionVectorErrorCost(mv, bestRefMV, mvProbs, errorPerBit)
 }
 
-// interMotionSubpelCandidateVectorCost charges the sub-pel MV bits like the
-// MVC macro inside libvpx's vp8_find_best_sub_pixel_step{_iteratively}: the
-// 1/4-pel index is built from (mv>>1) - (ref>>1) — i.e. each operand is
-// arithmetic-shifted to 1/4-pel before subtraction — and the lookup is
-// signed (no clamp-to-zero). This matches the CHECK_BETTER candidate cost
-// shape exactly when bestRefMV is fractional in 1/8-pel, which the
-// mv_err_cost / vp8_mv_bit_cost variants used for the central cost do not.
-// See MotionVectorSubpelSearchCost for the full derivation.
-func interMotionSubpelCandidateVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
-	return interMotionSubpelCandidateVectorCostWithErrorPerBit(mv, bestRefMV, libvpxErrorPerBit(qIndex), mvProbs)
-}
-
-// interMotionSubpelCandidateVectorCostWithErrorPerBit accepts an
-// activity-masked errorPerBit (libvpx vp8_activity_masking lifts both
-// x->rdmult and x->errorperbit per MB). errorPerBit ≤ 0 floors to 1, matching
-// libvpx's `errorperbit += (errorperbit == 0)` post-clamp.
-func interMotionSubpelCandidateVectorCostWithErrorPerBit(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
-	return interMotionSubpelCandidateVectorCostWithErrorPerBitAndCostTables(mv, bestRefMV, errorPerBit, mvProbs, nil)
-}
-
+// interMotionSubpelCandidateVectorCostWithErrorPerBitAndCostTables charges
+// the sub-pel MV bits like the MVC macro inside libvpx's
+// vp8_find_best_sub_pixel_step{_iteratively}: the 1/4-pel index is built from
+// (mv>>1) - (ref>>1), and the lookup is signed. This matches the CHECK_BETTER
+// candidate cost shape exactly when bestRefMV is fractional in 1/8-pel, which
+// the mv_err_cost / vp8_mv_bit_cost variants used for the central cost do not.
+// The function accepts an activity-masked errorPerBit (libvpx
+// vp8_activity_masking lifts both x->rdmult and x->errorperbit per MB);
+// errorPerBit <= 0 floors to 1, matching libvpx's `errorperbit +=
+// (errorperbit == 0)` post-clamp.
 func interMotionSubpelCandidateVectorCostWithErrorPerBitAndCostTables(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) int {
 	if mvProbs == nil && mvCosts == nil {
 		return 0

@@ -700,11 +700,7 @@ func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadlin
 // libvpxInterModeRDThresholdsForContext computes per-mode RD thresholds. The
 // `speed` parameter is interpreted via libvpxSpeedFeatureCPUUsed (raw
 // configured cpu_used or `-autoSelectedSpeed` sentinel for the negate-pass-
-// through realtime path). For the explicit autoSpeed=0 case (post-
-// vp8_change_config Speed reset, before the next vp8_auto_select_speed cold-
-// start fires) use libvpxInterModeRDThresholdsForCPISpeed which bypasses the
-// SpeedFeatureCPUUsed translation — `-0 = 0` collides with the "raw
-// cpu_used 0 → 4 default" mapping.
+// through realtime path).
 func libvpxInterModeRDThresholdsForContext(qIndex int, zbinOverQuant int, deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	return libvpxInterModeRDThresholdsForContextWithIIRatio(qIndex, zbinOverQuant, -1, deadline, speed, context)
 }
@@ -716,25 +712,12 @@ func libvpxInterModeRDThresholdsForContextWithIIRatio(qIndex int, zbinOverQuant 
 	return libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex, zbinOverQuant, iiRatio, multipliers)
 }
 
-// libvpxInterModeRDThresholdsForCPISpeed mirrors
-// libvpxInterModeRDThresholdsForContext but with cpiSpeed already in hand.
-// See libvpxInterModeThresholdMultipliersForCPISpeed for the rationale: the
-// legacy negate-pass-through `-libvpxCPUUsed()` argument collides on
-// autoSpeed=0 because `-0` is not negative and is interpreted as "raw
-// cpu_used 0" by libvpxSpeedFeatureCPUUsed.
-func libvpxInterModeRDThresholdsForCPISpeed(qIndex int, zbinOverQuant int, deadline Deadline, cpiSpeed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
-	return libvpxInterModeRDThresholdsForCPISpeedWithIIRatio(qIndex, zbinOverQuant, -1, deadline, cpiSpeed, context)
-}
-
-// libvpxInterModeRDThresholdsForCPISpeedWithIIRatio is libvpxInterModeRDThresholdsForCPISpeed
-// plumbed with the vp8_initialize_rd_consts pass-2 iiratio lift sentinel.
+// libvpxInterModeRDThresholdsForCPISpeedWithIIRatio derives thresholds from
+// an already-selected cpi speed and threads the vp8_initialize_rd_consts
+// pass-2 iiratio lift sentinel.
 func libvpxInterModeRDThresholdsForCPISpeedWithIIRatio(qIndex int, zbinOverQuant int, iiRatio int, deadline Deadline, cpiSpeed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	multipliers := libvpxInterModeThresholdMultipliersForCPISpeed(deadline, cpiSpeed, context)
 	return libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex, zbinOverQuant, iiRatio, multipliers)
-}
-
-func libvpxInterModeRDThresholdsFromMultipliers(qIndex int, zbinOverQuant int, multipliers [libvpxInterModeCount]int) [libvpxInterModeCount]int {
-	return libvpxInterModeRDThresholdsFromMultipliersWithIIRatio(qIndex, zbinOverQuant, -1, multipliers)
 }
 
 // libvpxInterModeRDThresholdsFromMultipliersWithIIRatio threads the

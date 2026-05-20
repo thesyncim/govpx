@@ -680,8 +680,8 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 // trials operate on stack-local copies of ENTROPY_CONTEXT and only the
 // chosen mode's context is committed to the row state. Pre-populating the
 // caller's aboveTok/leftTok with distinctive sentinels and then driving the
-// RD picker must leave those structs untouched on return — the deferred
-// updateInterAnalysisTokenContext in
+// RD picker must leave those structs untouched on return; the deferred
+// updateInterAnalysisTokenContextAndCount call in
 // buildReconstructingInterFrameCoefficientsWithSegmentation owns the commit.
 func TestSelectRDInterFrameModeDecisionUsesTempTokenContext(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
