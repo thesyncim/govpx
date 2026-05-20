@@ -679,8 +679,8 @@ func (rc *vp9RateControlState) beginFrameWithRefresh(isKey bool, frameIndex int,
 		rc.frameTargetBits = rc.keyFrameTargetBits(frameIndex)
 		return
 	}
-	if rc.mode == RateControlCBR && vp9BoostedInterRefresh(refreshFlags) {
-		rc.frameTargetBits = rc.boostedInterFrameTargetBits()
+	if rc.mode == RateControlCBR {
+		rc.frameTargetBits = rc.onePassCBRInterFrameTargetBits(refreshFlags)
 		return
 	}
 	rc.frameTargetBits = rc.interFrameTargetBits()

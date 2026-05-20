@@ -268,17 +268,35 @@ func TestVP9OnePassCBRKeyFrameTargetBitsMatchesLibvpx(t *testing.T) {
 	}
 }
 
-func TestVP9ApplyVP9GFCBRBoostAddsTarget(t *testing.T) {
+func TestVP9OnePassCBRInterFrameTargetBitsMatchesLibvpx(t *testing.T) {
 	rc := &vp9RateControlState{
-		mode:          RateControlCBR,
-		bitsPerFrame:  1000,
-		gfCBRBoostPct: 40,
+		mode:               RateControlCBR,
+		bitsPerFrame:       1000,
+		bufferOptimalBits:  10_000,
+		bufferLevelBits:    8_700,
+		undershootPct:      100,
+		overshootPct:       100,
+		baselineGFInterval: 10,
 	}
-	if got := rc.applyVP9GFCBRBoost(800); got != 1200 {
-		t.Fatalf("gfboost = %d, want 1200", got)
+	// diff=1300, one_pct_bits=101, pct_low=12:
+	// target = 1000 - 1000*12/200 = 940.
+	if got := rc.onePassCBRInterFrameTargetBits(0); got != 940 {
+		t.Fatalf("buffer-adjusted target = %d, want 940", got)
 	}
-	rc.mode = RateControlVBR
-	if got := rc.applyVP9GFCBRBoost(800); got != 800 {
-		t.Fatalf("non-CBR gfboost = %d, want 800", got)
+	rc.bufferLevelBits = 12_500
+	// diff=-2500, pct_high=24: target = 1000 + 1000*24/200 = 1120.
+	if got := rc.onePassCBRInterFrameTargetBits(0); got != 1120 {
+		t.Fatalf("overshoot-adjusted target = %d, want 1120", got)
+	}
+	rc.bufferLevelBits = 10_000
+	rc.gfCBRBoostPct = 40
+	// gf_cbr_boost_pct redistributes a 10-frame group:
+	// non-refresh: 1000*10*100 / (10*100+140-100) = 961
+	if got := rc.onePassCBRInterFrameTargetBits(0); got != 961 {
+		t.Fatalf("non-golden GF CBR target = %d, want 961", got)
+	}
+	// golden refresh: 1000*10*140 / 1040 = 1346.
+	if got := rc.onePassCBRInterFrameTargetBits(1 << vp9GoldenRefSlot); got != 1346 {
+		t.Fatalf("golden GF CBR target = %d, want 1346", got)
 	}
 }

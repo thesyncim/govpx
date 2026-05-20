@@ -1273,6 +1273,7 @@ func vp9OracleCBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFra
 		fmt.Sprintf("--buf-initial-sz=%d", bufInitialMs),
 		fmt.Sprintf("--buf-optimal-sz=%d", bufOptimalMs),
 		fmt.Sprintf("--drop-frame=%d", dropFrame),
+		"--exact-fps-timebase",
 	}
 }
 

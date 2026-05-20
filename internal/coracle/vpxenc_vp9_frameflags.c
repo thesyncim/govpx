@@ -16,8 +16,67 @@
 #include "vpx/vpx_codec.h"
 #include "vpx/vpx_encoder.h"
 #include "vpx/vpx_image.h"
+#include "vpx/internal/vpx_codec_internal.h"
+#include "vp9/encoder/vp9_encoder.h"
 
 #define VP9_FOURCC 0x30395056
+
+// Prefix of libvpx v1.16.0 vp9/vp9_cx_iface.c:vpx_codec_alg_priv.
+// The frameflags helper is a pinned oracle binary, so it can inspect this
+// private layout to report rc.this_frame_target instead of estimating it.
+struct govpx_vp9_extracfg {
+  int cpu_used;
+  unsigned int enable_auto_alt_ref;
+  unsigned int noise_sensitivity;
+  unsigned int sharpness;
+  unsigned int static_thresh;
+  unsigned int tile_columns;
+  unsigned int tile_rows;
+  unsigned int enable_tpl_model;
+  unsigned int enable_keyframe_filtering;
+  unsigned int arnr_max_frames;
+  unsigned int arnr_strength;
+  unsigned int min_gf_interval;
+  unsigned int max_gf_interval;
+  vp8e_tuning tuning;
+  unsigned int cq_level;
+  unsigned int rc_max_intra_bitrate_pct;
+  unsigned int rc_max_inter_bitrate_pct;
+  unsigned int gf_cbr_boost_pct;
+  unsigned int lossless;
+  unsigned int target_level;
+  unsigned int frame_parallel_decoding_mode;
+  AQ_MODE aq_mode;
+  int alt_ref_aq;
+  unsigned int frame_periodic_boost;
+  vpx_bit_depth_t bit_depth;
+  vp9e_tune_content content;
+  vpx_color_space_t color_space;
+  vpx_color_range_t color_range;
+  int render_width;
+  int render_height;
+  unsigned int row_mt;
+  unsigned int motion_vector_unit_test;
+  int delta_q_uv;
+};
+
+struct govpx_vp9_codec_alg_priv_prefix {
+  vpx_codec_priv_t base;
+  vpx_codec_enc_cfg_t cfg;
+  struct govpx_vp9_extracfg extra_cfg;
+  vpx_codec_pts_t pts_offset;
+  unsigned char pts_offset_initialized;
+  VP9EncoderConfig oxcf;
+  VP9_COMP *cpi;
+};
+
+static int vp9_current_frame_target_bits(vpx_codec_ctx_t *ctx, int fallback) {
+  if (!ctx || !ctx->priv) return fallback;
+  struct govpx_vp9_codec_alg_priv_prefix *priv =
+      (struct govpx_vp9_codec_alg_priv_prefix *)ctx->priv;
+  if (!priv->cpi) return fallback;
+  return priv->cpi->rc.this_frame_target;
+}
 
 static void mem_put_le16(void *vmem, int val) {
   unsigned char *mem = (unsigned char *)vmem;
@@ -1180,6 +1239,7 @@ int main(int argc, char **argv) {
   int render_height = 0;
   int target_level = -1;
   int disable_loopfilter = -1;
+  int exact_fps_timebase = 0;
   enum vpx_rc_mode end_usage = VPX_Q;
 
   for (int i = 1; i < argc; ++i) {
@@ -1337,6 +1397,8 @@ int main(int argc, char **argv) {
       control_script_csv = v;
     } else if ((v = flag_value(a, "--copy-ref-log"))) {
       copy_ref_log_path = v;
+    } else if (strcmp(a, "--exact-fps-timebase") == 0) {
+      exact_fps_timebase = 1;
     } else if (strcmp(a, "--disable-warning-prompt") == 0) {
     } else {
       fprintf(stderr, "unknown argument: %s\n", a);
@@ -1389,8 +1451,8 @@ int main(int argc, char **argv) {
   cfg.g_w = (unsigned)width;
   cfg.g_h = (unsigned)height;
   cfg.g_profile = 0;
-  cfg.g_timebase.num = 1;
-  cfg.g_timebase.den = 1000;
+  cfg.g_timebase.num = exact_fps_timebase ? (int)fps_den : 1;
+  cfg.g_timebase.den = exact_fps_timebase ? (int)fps_num : 1000;
   cfg.g_threads = 1;
   cfg.g_error_resilient = (unsigned)error_resilient;
   cfg.g_lag_in_frames = (unsigned)lag_in_frames;
@@ -1596,7 +1658,8 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
   }
-  write_ivf_file_header(out, width, height, 1, 1000, frames);
+  write_ivf_file_header(out, width, height, cfg.g_timebase.num,
+                        cfg.g_timebase.den, frames);
 
   int img_width = width;
   int img_height = height;
@@ -1611,7 +1674,8 @@ int main(int argc, char **argv) {
   plane_buf_capacity = frame_size;
 
   vpx_codec_pts_t pts = 0;
-  int frame_duration = (fps_den * 1000) / fps_num;
+  int frame_duration =
+      exact_fps_timebase ? 1 : (fps_den * 1000) / fps_num;
   if (frame_duration <= 0) frame_duration = 1;
   int bits_per_frame = (target_kbps * 1000 * fps_den) / fps_num;
   int64_t buffer_size_bits = (int64_t)target_kbps * buffer_size_ms;
@@ -1657,6 +1721,10 @@ int main(int argc, char **argv) {
       }
       if (fps_schedule && fps_schedule[frame_idx] > 0) {
         fps_num = fps_schedule[frame_idx];
+        if (exact_fps_timebase) {
+          cfg.g_timebase.num = (int)fps_den;
+          cfg.g_timebase.den = (int)fps_num;
+        }
         config_changed = 1;
       }
       if (buf_size_schedule && buf_size_schedule[frame_idx] >= 0) {
@@ -1682,7 +1750,8 @@ int main(int argc, char **argv) {
       if (config_changed && vpx_codec_enc_config_set(&ctx, &cfg)) {
         die_codec_msg(&ctx, "vpx_codec_enc_config_set");
       }
-      frame_duration = (fps_den * 1000) / fps_num;
+      frame_duration =
+          exact_fps_timebase ? 1 : (fps_den * 1000) / fps_num;
       if (frame_duration <= 0) frame_duration = 1;
       bits_per_frame = (target_kbps * 1000 * fps_den) / fps_num;
       buffer_size_bits = (int64_t)target_kbps * buffer_size_ms;
@@ -1780,6 +1849,8 @@ int main(int argc, char **argv) {
       }
       emitted_this_input = 1;
       ++total_emitted;
+      int frame_target_bits =
+          vp9_current_frame_target_bits(&ctx, bits_per_frame);
       if (show_frame) buffer_level_bits += bits_per_frame;
       buffer_level_bits -= (int64_t)pkt->data.frame.sz * 8;
       if (buffer_level_bits > buffer_size_bits) buffer_level_bits = buffer_size_bits;
@@ -1819,13 +1890,15 @@ int main(int argc, char **argv) {
                 (pkt->data.frame.flags & VPX_FRAME_IS_KEY) ? "true" : "false",
                 show_frame ? "true" : "false", cfg.g_w, cfg.g_h, qindex,
                 pkt->data.frame.sz, pkt->data.frame.sz * 8, target_kbps,
-                bits_per_frame,
+                frame_target_bits,
                 (long long)buffer_level_bits, (long long)buffer_optimal_bits,
                 temporal_layer_id, temporal_layer_count, temporal_tl0,
                 temporal_sync ? "true" : "false");
       }
     }
     if (trace && have_input && !emitted_this_input && lag_in_frames == 0) {
+      int frame_target_bits =
+          vp9_current_frame_target_bits(&ctx, bits_per_frame);
       buffer_level_bits += bits_per_frame;
       if (buffer_level_bits > buffer_size_bits) buffer_level_bits = buffer_size_bits;
       int temporal_layer_id = 0;
@@ -1853,7 +1926,7 @@ int main(int argc, char **argv) {
               "\"tl0_pic_idx\":0,"
               "\"temporal_layer_sync\":false}\n",
               frame_idx, frame_flags, cfg.g_w, cfg.g_h, target_kbps,
-              bits_per_frame,
+              frame_target_bits,
               (long long)buffer_level_bits, (long long)buffer_optimal_bits,
               temporal_layer_id, temporal_layer_count);
     }

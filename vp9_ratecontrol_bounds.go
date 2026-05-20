@@ -72,24 +72,6 @@ func (rc *vp9RateControlState) applyVP9MaxInterBound(target int) int {
 	return target
 }
 
-// applyVP9GFCBRBoost boosts a golden-frame target by gf_cbr_boost_pct% of
-// the per-frame bandwidth in CBR mode. Mirrors libvpx's
-// VP9E_SET_GF_CBR_BOOST_PCT control.
-func (rc *vp9RateControlState) applyVP9GFCBRBoost(target int) int {
-	if rc == nil || rc.mode != RateControlCBR || rc.bitsPerFrame <= 0 ||
-		rc.gfCBRBoostPct <= 0 {
-		return target
-	}
-	boost := percentOf(rc.bitsPerFrame, rc.gfCBRBoostPct)
-	if boost <= 0 {
-		return target
-	}
-	if target > maxInt()-boost {
-		return maxInt()
-	}
-	return target + boost
-}
-
 // vp9OvershootCeil computes the per-frame ceiling used by
 // applyVP9OvershootBound. Public for parity tests.
 func vp9OvershootCeil(bitsPerFrame, overshootPct int) int {

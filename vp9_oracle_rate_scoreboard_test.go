@@ -54,6 +54,7 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 		"--buf-initial-sz=400",
 		"--buf-optimal-sz=500",
 		"--drop-frame=0",
+		"--exact-fps-timebase",
 	}
 
 	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)

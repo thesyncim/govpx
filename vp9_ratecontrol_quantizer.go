@@ -93,18 +93,6 @@ func (rc *vp9RateControlState) interFrameTargetBits() int {
 	return rc.applyVP9MaxInterBound(target)
 }
 
-// boostedInterFrameTargetBits applies the libvpx VP9 GF CBR boost on top of
-// the per-frame bandwidth target, used for golden-frame refresh frames in
-// CBR mode. Non-CBR refresh boosting is handled by
-// onePassVBRInterFrameTargetBits.
-func (rc *vp9RateControlState) boostedInterFrameTargetBits() int {
-	target := rc.perFrameBandwidthTargetBits()
-	target = rc.applyVP9GFCBRBoost(target)
-	target = rc.applyVP9OvershootBound(target)
-	target = rc.applyVP9MaxInterBound(target)
-	return target
-}
-
 func (rc *vp9RateControlState) perFrameBandwidthTargetBits() int {
 	target := rc.bitsPerFrame
 	target = rc.applyVP9UndershootBound(target)
@@ -113,6 +101,70 @@ func (rc *vp9RateControlState) perFrameBandwidthTargetBits() int {
 		return vp9FrameOverhead
 	}
 	return target
+}
+
+// onePassCBRInterFrameTargetBits ports libvpx
+// vp9_calc_pframe_target_size_one_pass_cbr for the non-SVC path. The CBR
+// target is the average frame bandwidth adjusted by the current buffer level;
+// gf_cbr_boost_pct redistributes that budget between golden-refresh frames
+// and ordinary inter frames before the buffer adjustment.
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:2154-2203.
+func (rc *vp9RateControlState) onePassCBRInterFrameTargetBits(refreshFlags uint8) int {
+	if rc == nil {
+		return vp9FrameOverhead
+	}
+	minTarget := rc.bitsPerFrame >> 4
+	if minTarget < vp9FrameOverhead {
+		minTarget = vp9FrameOverhead
+	}
+	target := int64(rc.bitsPerFrame)
+	interval := int64(rc.baselineGFInterval)
+	if interval <= 0 {
+		interval = (vp9MinGFInterval + vp9MaxGFInterval) >> 1
+	}
+	if rc.gfCBRBoostPct > 0 && interval > 0 {
+		afRatioPct := int64(rc.gfCBRBoostPct + 100)
+		den := interval*100 + afRatioPct - 100
+		if den > 0 {
+			mul := int64(100)
+			if refreshFlags&(1<<vp9GoldenRefSlot) != 0 {
+				mul = afRatioPct
+			}
+			target = int64(rc.bitsPerFrame) * interval * mul / den
+		}
+	}
+	diff := int64(rc.bufferOptimalBits) - int64(rc.bufferLevelBits)
+	onePctBits := int64(1 + rc.bufferOptimalBits/100)
+	if onePctBits <= 0 {
+		onePctBits = 1
+	}
+	if diff > 0 {
+		pctLow := diff / onePctBits
+		if pctLow > int64(rc.undershootPct) {
+			pctLow = int64(rc.undershootPct)
+		}
+		target -= target * pctLow / 200
+	} else if diff < 0 {
+		pctHigh := -diff / onePctBits
+		if pctHigh > int64(rc.overshootPct) {
+			pctHigh = int64(rc.overshootPct)
+		}
+		target += target * pctHigh / 200
+	}
+	if rc.maxInterBitratePct > 0 && rc.bitsPerFrame > 0 {
+		maxRate := int64(rc.bitsPerFrame) * int64(rc.maxInterBitratePct) / 100
+		if target > maxRate {
+			target = maxRate
+		}
+	}
+	if target > int64(maxInt()) {
+		target = int64(maxInt())
+	}
+	if int(target) < minTarget {
+		return minTarget
+	}
+	return int(target)
 }
 
 func (rc *vp9RateControlState) setOnePassVBRFrameTarget(intraOnly bool, refreshFlags uint8) {

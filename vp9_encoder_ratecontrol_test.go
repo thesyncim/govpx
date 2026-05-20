@@ -748,20 +748,22 @@ func TestVP9EncoderCBRFrameTargetMatchesLibvpx(t *testing.T) {
 			t.Fatalf("NewVP9Encoder target %d: %v", targetKbps, err)
 		}
 		dst := make([]byte, 65536)
-		// libvpx: vp9_calc_iframe_target_size_one_pass_cbr returns
-		// starting_buffer_level/2 on the very first video frame.
 		wantKeyTarget := targetKbps * bufferInitialSizeMs / 2
-		wantInterTarget := targetKbps * 1000 / fps
 		for i := range 3 {
+			want := 0
+			if i == 0 {
+				// libvpx: vp9_calc_iframe_target_size_one_pass_cbr returns
+				// starting_buffer_level/2 on the very first video frame.
+				want = wantKeyTarget
+			} else {
+				want = e.rc.onePassCBRInterFrameTargetBits(
+					e.vp9InterRefreshFrameFlags(0))
+			}
 			src := newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
 			result, err := e.EncodeIntoWithResult(src, dst)
 			if err != nil {
 				t.Fatalf("EncodeIntoWithResult target %d frame %d: %v",
 					targetKbps, i, err)
-			}
-			want := wantInterTarget
-			if i == 0 {
-				want = wantKeyTarget
 			}
 			if result.FrameTargetBits != want {
 				t.Fatalf("target %d frame %d target bits = %d, want %d",
