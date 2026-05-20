@@ -3,12 +3,12 @@
 package govpx
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
 	"math"
 	"os"
+	"slices"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 // TestOracleRecodeRowParity gates the libvpx VP8 recode loop semantics by
@@ -47,8 +47,14 @@ func TestOracleRecodeRowParity(t *testing.T) {
 	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "recode-vbr-tight", opts, targetKbps, sources, []string{"--end-usage=vbr"})
 
-	gRows := oracleTraceRecodeRowsByFrame(t, govpxTrace)
-	lRows := oracleTraceRecodeRowsByFrame(t, libvpxTrace)
+	gRows, err := coracle.TraceRowsByFrame(govpxTrace, "recode")
+	if err != nil {
+		t.Fatalf("parse govpx recode rows: %v", err)
+	}
+	lRows, err := coracle.TraceRowsByFrame(libvpxTrace, "recode")
+	if err != nil {
+		t.Fatalf("parse libvpx recode rows: %v", err)
+	}
 	if len(gRows) == 0 && len(lRows) == 0 {
 		t.Skipf("no recode rows on either side; fixture needs tightening")
 	}
@@ -68,7 +74,7 @@ func TestOracleRecodeRowParity(t *testing.T) {
 		frameIndices = append(frameIndices, fi)
 	}
 	// Sort for stable output.
-	sortInt64s(frameIndices)
+	slices.Sort(frameIndices)
 
 	for _, fi := range frameIndices {
 		g, gOK := gRows[fi]
@@ -90,49 +96,16 @@ func TestOracleRecodeRowParity(t *testing.T) {
 		if gReason != lReason {
 			t.Errorf("frame %d recode reason govpx=%q libvpx=%q", fi, gReason, lReason)
 		}
-		gFinal := traceFloat(g["final_q"])
-		lFinal := traceFloat(l["final_q"])
+		gFinal := coracle.TraceFloat(g["final_q"])
+		lFinal := coracle.TraceFloat(l["final_q"])
 		if math.Abs(gFinal-lFinal) > 2 {
 			t.Errorf("frame %d recode final_q govpx=%v libvpx=%v exceeds 2 qindex", fi, gFinal, lFinal)
 		}
-		gLoop := traceFloat(g["loop_count"])
-		lLoop := traceFloat(l["loop_count"])
+		gLoop := coracle.TraceFloat(g["loop_count"])
+		lLoop := coracle.TraceFloat(l["loop_count"])
 		if math.Abs(gLoop-lLoop) > 1 {
 			t.Errorf("frame %d recode loop_count govpx=%v libvpx=%v exceeds 1", fi, gLoop, lLoop)
 		}
 	}
 	t.Logf("recode rows matched=%d asymmetric=%d (govpx_total=%d libvpx_total=%d)", matched, asymmetric, len(gRows), len(lRows))
-}
-
-// oracleTraceRecodeRowsByFrame indexes recode rows by frame_index. If a frame
-// has multiple recode rows we keep the last one (final iteration).
-func oracleTraceRecodeRowsByFrame(t *testing.T, trace []byte) map[int64]map[string]any {
-	t.Helper()
-	out := make(map[int64]map[string]any)
-	scan := bufio.NewScanner(bytes.NewReader(trace))
-	scan.Buffer(make([]byte, 0, 1<<16), 1<<22)
-	for scan.Scan() {
-		var row map[string]any
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
-		}
-		if typ, _ := row["type"].(string); typ != "recode" {
-			continue
-		}
-		fi := int64(traceFloat(row["frame_index"]))
-		out[fi] = row
-	}
-	if err := scan.Err(); err != nil {
-		t.Fatalf("scan trace: %v", err)
-	}
-	return out
-}
-
-func sortInt64s(s []int64) {
-	// Insertion sort: trace fixtures have small frame counts.
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j-1] > s[j]; j-- {
-			s[j-1], s[j] = s[j], s[j-1]
-		}
-	}
 }

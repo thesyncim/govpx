@@ -3,12 +3,11 @@
 package govpx
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
 	"math"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 // TestOracleReconstructionAdler32Match locks in the byte-identity reconstruction
@@ -87,8 +86,14 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 			govpxTrace := captureGovpxEncoderTrace(t, opts, cfg.fixture.sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "recon-adler-"+cfg.name, opts, targetKbps, cfg.fixture.sources, []string{"--end-usage=cbr"})
 
-			gFrames := oracleTraceFrameRows(t, govpxTrace)
-			lFrames := oracleTraceFrameRows(t, libvpxTrace)
+			gFrames, err := coracle.TraceFrameRows(govpxTrace)
+			if err != nil {
+				t.Fatalf("parse govpx trace frames: %v", err)
+			}
+			lFrames, err := coracle.TraceFrameRows(libvpxTrace)
+			if err != nil {
+				t.Fatalf("parse libvpx trace frames: %v", err)
+			}
 			if len(gFrames) != frames {
 				t.Fatalf("[%s] govpx frame rows = %d, want %d", cfg.name, len(gFrames), frames)
 			}
@@ -110,8 +115,8 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 				if g["q_index"] != l["q_index"] {
 					t.Errorf("[%s] frame %d q_index govpx=%v libvpx=%v", cfg.name, i, g["q_index"], l["q_index"])
 				}
-				gSize := traceFloat(g["size_bytes"])
-				lSize := traceFloat(l["size_bytes"])
+				gSize := coracle.TraceFloat(g["size_bytes"])
+				lSize := coracle.TraceFloat(l["size_bytes"])
 				if lSize <= 0 {
 					t.Errorf("[%s] frame %d libvpx size_bytes = %v, want >0", cfg.name, i, l["size_bytes"])
 					continue
@@ -121,42 +126,5 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// oracleTraceFrameRows returns frame rows in trace order.
-func oracleTraceFrameRows(t *testing.T, trace []byte) []map[string]any {
-	t.Helper()
-	var rows []map[string]any
-	scan := bufio.NewScanner(bytes.NewReader(trace))
-	scan.Buffer(make([]byte, 0, 1<<16), 1<<22)
-	for scan.Scan() {
-		var row map[string]any
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
-		}
-		if typ, _ := row["type"].(string); typ == "frame" {
-			rows = append(rows, row)
-		}
-	}
-	if err := scan.Err(); err != nil {
-		t.Fatalf("scan trace: %v", err)
-	}
-	return rows
-}
-
-func traceFloat(v any) float64 {
-	switch x := v.(type) {
-	case float64:
-		return x
-	case int:
-		return float64(x)
-	case int64:
-		return float64(x)
-	case json.Number:
-		f, _ := x.Float64()
-		return f
-	default:
-		return 0
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 // chromaSubpelBaselineCase records per-fixture Adler32 / size drift between
@@ -94,8 +96,14 @@ func TestOracleChromaSubpelScoreboard(t *testing.T) {
 		}
 		govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 		libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "chroma-subpel-"+cfg.name, opts, targetKbps, sources, []string{"--end-usage=cbr"})
-		gFrames := oracleTraceFrameRows(t, govpxTrace)
-		lFrames := oracleTraceFrameRows(t, libvpxTrace)
+		gFrames, err := coracle.TraceFrameRows(govpxTrace)
+		if err != nil {
+			t.Fatalf("[%s] parse govpx frame rows: %v", cfg.name, err)
+		}
+		lFrames, err := coracle.TraceFrameRows(libvpxTrace)
+		if err != nil {
+			t.Fatalf("[%s] parse libvpx frame rows: %v", cfg.name, err)
+		}
 		if len(gFrames) != frames || len(lFrames) != frames {
 			t.Fatalf("[%s] frame rows govpx=%d libvpx=%d want %d", cfg.name, len(gFrames), len(lFrames), frames)
 		}
@@ -121,8 +129,8 @@ func TestOracleChromaSubpelScoreboard(t *testing.T) {
 			yMatch := g["y_adler32"] == l["y_adler32"]
 			uMatch := g["u_adler32"] == l["u_adler32"]
 			vMatch := g["v_adler32"] == l["v_adler32"]
-			gQ, lQ := traceFloat(g["q_index"]), traceFloat(l["q_index"])
-			gSize, lSize := traceFloat(g["size_bytes"]), traceFloat(l["size_bytes"])
+			gQ, lQ := coracle.TraceFloat(g["q_index"]), coracle.TraceFloat(l["q_index"])
+			gSize, lSize := coracle.TraceFloat(g["size_bytes"]), coracle.TraceFloat(l["size_bytes"])
 			var sizePct float64
 			if lSize > 0 {
 				sizePct = 100.0 * (gSize - lSize) / lSize

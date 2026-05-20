@@ -65,7 +65,7 @@ func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
 		t.Fatalf("CompareOracleTraces returned error: %v", err)
 	}
 	if len(div) != 0 {
-		t.Fatalf("projected encoder decision trace diverged:\n%s", formatOracleTraceDivergences(div))
+		t.Fatalf("projected encoder decision trace diverged:\n%s", coracle.FormatDivergences(div))
 	}
 }
 
@@ -194,7 +194,7 @@ func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
 			}
 			if len(div) != 0 {
 				t.Fatalf("projected inter-candidate trace diverged:\n%s\ngovpx first rows:\n%s\nlibvpx first rows:\n%s",
-					formatOracleTraceDivergences(div),
+					coracle.FormatDivergences(div),
 					formatFirstOracleTraceRows(govpxProjected, 14),
 					formatFirstOracleTraceRows(libvpxProjected, 14))
 			}
@@ -456,7 +456,10 @@ func TestProjectOracleInterCandidateTraceKeepsStagedFields(t *testing.T) {
 
 func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, wantPicker string) {
 	t.Helper()
-	rows := oracleTraceRowsOfType(t, trace, "inter_candidate")
+	rows, err := coracle.TraceRowsOfType(trace, "inter_candidate")
+	if err != nil {
+		t.Fatalf("parse %s inter_candidate rows: %v", side, err)
+	}
 	if len(rows) == 0 {
 		t.Fatalf("%s trace has no inter_candidate rows", side)
 	}
@@ -489,51 +492,6 @@ func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, 
 	}
 }
 
-func oracleTraceRowsOfType(t *testing.T, trace []byte, wantType string) []map[string]any {
-	t.Helper()
-	var rows []map[string]any
-	scan := bufio.NewScanner(bytes.NewReader(trace))
-	for scan.Scan() {
-		var row map[string]any
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
-		}
-		if typ, _ := row["type"].(string); typ == wantType {
-			rows = append(rows, row)
-		}
-	}
-	if err := scan.Err(); err != nil {
-		t.Fatalf("scan trace: %v", err)
-	}
-	return rows
-}
-
-func formatOracleTraceDivergences(div []coracle.Divergence) string {
-	var buf bytes.Buffer
-	for _, d := range div {
-		buf.WriteString("row=")
-		buf.WriteString(strconv.Itoa(d.RowIndex))
-		buf.WriteString(" kind=")
-		buf.WriteString(d.RowKind)
-		buf.WriteString(" frame=")
-		buf.WriteString(strconv.FormatInt(d.FrameIndex, 10))
-		if d.MBRow >= 0 || d.MBCol >= 0 {
-			buf.WriteString(" mb=")
-			buf.WriteString(strconv.Itoa(d.MBRow))
-			buf.WriteByte(',')
-			buf.WriteString(strconv.Itoa(d.MBCol))
-		}
-		buf.WriteString(" field=")
-		buf.WriteString(d.Field)
-		buf.WriteString(" govpx=")
-		buf.WriteString(strconv.Quote(toTraceValueString(d.Govpx)))
-		buf.WriteString(" libvpx=")
-		buf.WriteString(strconv.Quote(toTraceValueString(d.Libvpx)))
-		buf.WriteByte('\n')
-	}
-	return buf.String()
-}
-
 func formatFirstOracleTraceRows(trace []byte, limit int) string {
 	var buf bytes.Buffer
 	lines := splitNonEmptyLines(trace)
@@ -547,12 +505,4 @@ func formatFirstOracleTraceRows(trace []byte, limit int) string {
 		buf.WriteByte('\n')
 	}
 	return buf.String()
-}
-
-func toTraceValueString(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "<invalid>"
-	}
-	return string(b)
 }

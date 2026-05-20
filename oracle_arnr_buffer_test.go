@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 // TestOracleARNRBufferAdler instruments the ARNR alt-ref buffer parity gap.
@@ -78,8 +80,14 @@ func TestOracleARNRBufferAdler(t *testing.T) {
 	// trace.
 	libvpxTrace := captureLibvpxARNRTwoPassEncoderTrace(t, vpxencOracle, "arnr-vbr-2pass", opts, targetKbps, sources)
 
-	gFrames := oracleTraceFrameRows(t, govpxTrace)
-	lFrames := oracleTraceFrameRows(t, libvpxTrace)
+	gFrames, err := coracle.TraceFrameRows(govpxTrace)
+	if err != nil {
+		t.Fatalf("parse govpx frame rows: %v", err)
+	}
+	lFrames, err := coracle.TraceFrameRows(libvpxTrace)
+	if err != nil {
+		t.Fatalf("parse libvpx frame rows: %v", err)
+	}
 
 	gIdx, gFrame := findOracleARFFrame(gFrames)
 	lIdx, lFrame := findOracleARFFrame(lFrames)
@@ -99,12 +107,12 @@ func TestOracleARNRBufferAdler(t *testing.T) {
 		return
 	}
 
-	gY := int64(traceFloat(gFrame["y_adler32"]))
-	lY := int64(traceFloat(lFrame["y_adler32"]))
-	gU := int64(traceFloat(gFrame["u_adler32"]))
-	lU := int64(traceFloat(lFrame["u_adler32"]))
-	gV := int64(traceFloat(gFrame["v_adler32"]))
-	lV := int64(traceFloat(lFrame["v_adler32"]))
+	gY := int64(coracle.TraceFloat(gFrame["y_adler32"]))
+	lY := int64(coracle.TraceFloat(lFrame["y_adler32"]))
+	gU := int64(coracle.TraceFloat(gFrame["u_adler32"]))
+	lU := int64(coracle.TraceFloat(lFrame["u_adler32"]))
+	gV := int64(coracle.TraceFloat(gFrame["v_adler32"]))
+	lV := int64(coracle.TraceFloat(lFrame["v_adler32"]))
 	t.Logf("ARNR frame: govpx_trace_index=%d libvpx_trace_index=%d", gIdx, lIdx)
 	t.Logf("ARNR frame: govpx_frame_index=%v libvpx_frame_index=%v", gFrame["frame_index"], lFrame["frame_index"])
 	t.Logf("ARNR frame: govpx_y=%d libvpx_y=%d delta=%d match=%v", gY, lY, gY-lY, gY == lY)
@@ -124,7 +132,7 @@ func findOracleARFFrame(rows []map[string]any) (int, map[string]any) {
 	getPTS := func(row map[string]any) (int64, bool) {
 		for _, key := range []string{"pts", "source_pts", "src_pts", "timestamp"} {
 			if v, ok := row[key]; ok {
-				return int64(traceFloat(v)), true
+				return int64(coracle.TraceFloat(v)), true
 			}
 		}
 		return 0, false

@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -14,6 +13,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 // TestOracleCBRDropFrameScoreboard pins govpx-vs-libvpx parity on the CBR
@@ -419,15 +420,13 @@ func summarizeDropTrace(t *testing.T, trace []byte, totalFrames int) ([]int, map
 	dropForceMaxQP := make(map[int]bool)
 	bufferByFrame := make(map[int]int64, totalFrames)
 	qByFrame := make(map[int]int, totalFrames)
-	scan := bufio.NewScanner(bytes.NewReader(trace))
-	scan.Buffer(make([]byte, 0, 1<<16), 1<<22)
-	for scan.Scan() {
-		var row map[string]any
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			t.Fatalf("trace row not valid JSON: %v\n%s", err, scan.Bytes())
-		}
+	rows, err := coracle.TraceRows(trace)
+	if err != nil {
+		t.Fatalf("parse drop trace: %v", err)
+	}
+	for _, row := range rows {
 		typ, _ := row["type"].(string)
-		idx := int(traceFloat(row["frame_index"]))
+		idx := int(coracle.TraceFloat(row["frame_index"]))
 		switch typ {
 		case "frame":
 			dropped, _ := row["dropped"].(bool)
@@ -436,24 +435,21 @@ func summarizeDropTrace(t *testing.T, trace []byte, totalFrames int) ([]int, map
 				fm, _ := row["force_maxqp"].(bool)
 				dropForceMaxQP[idx] = fm
 				if v, ok := row["buffer_level"]; ok {
-					bufferByFrame[idx] = int64(traceFloat(v))
+					bufferByFrame[idx] = int64(coracle.TraceFloat(v))
 				}
 				qByFrame[idx] = -1
 				continue
 			}
 			if v, ok := row["q_index"]; ok {
-				qByFrame[idx] = int(traceFloat(v))
+				qByFrame[idx] = int(coracle.TraceFloat(v))
 			}
 		case "rate":
 			// Latest rate row for the frame's idx wins; vp8_pack_bitstream
 			// emits a single rate row per frame just before pack.
 			if v, ok := row["buffer_level"]; ok {
-				bufferByFrame[idx] = int64(traceFloat(v))
+				bufferByFrame[idx] = int64(coracle.TraceFloat(v))
 			}
 		}
-	}
-	if err := scan.Err(); err != nil {
-		t.Fatalf("scan trace: %v", err)
 	}
 	sort.Ints(dropIdx)
 	postDrop := make([]int, 0, len(dropIdx))
