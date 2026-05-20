@@ -105,7 +105,7 @@ func (e *VP9Encoder) prepareVP9DenoiserSource(img *image.YCbCr) *image.YCbCr {
 	e.denoiser.ensure(e.opts.Width, e.opts.Height)
 	if e.noiseEstimate.enabled {
 		e.denoiser.level = vp9DenoiserLevelForNoiseEstimate(
-			vp9NoiseEstimateExtractLevel(&e.noiseEstimate))
+			e.noiseEstimate.extractLevel())
 	}
 	if e.denoiser.level <= vp9DenoiserLowLow {
 		return img

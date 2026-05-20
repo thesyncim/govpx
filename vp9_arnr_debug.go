@@ -5,20 +5,13 @@ package govpx
 import (
 	"fmt"
 	"os"
-	"sync"
 )
 
 const vp9ARNRDebugBuild = true
 
-var (
-	vp9ARNRDebugOnce sync.Once
-	vp9ARNRDebugFlag bool
-)
+var vp9ARNRDebugFlag = os.Getenv("GOVPX_VP9_ARNR_DEBUG") == "1"
 
 func vp9ARNRDebugEnabled() bool {
-	vp9ARNRDebugOnce.Do(func() {
-		vp9ARNRDebugFlag = os.Getenv("GOVPX_VP9_ARNR_DEBUG") == "1"
-	})
 	return vp9ARNRDebugFlag
 }
 

@@ -1979,7 +1979,7 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 			//	  if (noise_level >= kMedium) sf->short_circuit_low_temp_var = 2;
 			//	}
 			if e.noiseEstimate.enabled && ctx.width >= 1280 && ctx.height >= 720 {
-				noiseLevel := vp9NoiseEstimateExtractLevel(&e.noiseEstimate)
+				noiseLevel := e.noiseEstimate.extractLevel()
 				if noiseLevel >= vp9NoiseLevelMedium {
 					sf.ShortCircuitLowTempVar = 2
 				}

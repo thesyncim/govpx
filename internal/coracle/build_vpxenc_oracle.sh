@@ -1134,7 +1134,7 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                 if (r->b_modes_valid) {
                     /* R12-C: emit per-sub-block intra mode picks for
                      * inter-frame B_PRED MBs so the diag harness can compare
-                     * govpx's pickFastBPredLumaModeKF / fast picker against
+                     * govpx's fast BPred keyframe picker against
                      * libvpx's pick_intra4x4mby_modes / rd_pick_intra4x4mby
                      * at the col-7 right-edge MBs on 128x128 frame 1. */
                     fprintf(out, ",\"b_modes\":[");

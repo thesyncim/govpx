@@ -48,7 +48,7 @@ type vp9NoiseEstimateState struct {
 	numFramesEstimate int
 }
 
-// vp9NoiseEstimateInit ports libvpx's vp9_noise_estimate_init verbatim
+// init ports libvpx's vp9_noise_estimate_init verbatim
 // (vp9/encoder/vp9_noise_estimate.c:33-50):
 //
 //	void vp9_noise_estimate_init(NOISE_ESTIMATE *const ne, int width, int height) {
@@ -69,7 +69,7 @@ type vp9NoiseEstimateState struct {
 //	  ne->num_frames_estimate = 15;
 //	  ne->adapt_thresh = (3 * ne->thresh) >> 1;
 //	}
-func vp9NoiseEstimateInit(ne *vp9NoiseEstimateState, width, height int) {
+func (ne *vp9NoiseEstimateState) init(width, height int) {
 	if ne == nil {
 		return
 	}
@@ -95,7 +95,7 @@ func vp9NoiseEstimateInit(ne *vp9NoiseEstimateState, width, height int) {
 	ne.adaptThresh = (3 * ne.thresh) >> 1
 }
 
-// vp9NoiseEstimateExtractLevel ports libvpx's vp9_noise_estimate_extract_level
+// extractLevel ports libvpx's vp9_noise_estimate_extract_level
 // verbatim (vp9/encoder/vp9_noise_estimate.c:94-107):
 //
 //	NOISE_LEVEL vp9_noise_estimate_extract_level(NOISE_ESTIMATE *const ne) {
@@ -112,7 +112,7 @@ func vp9NoiseEstimateInit(ne *vp9NoiseEstimateState, width, height int) {
 //	  }
 //	  return noise_level;
 //	}
-func vp9NoiseEstimateExtractLevel(ne *vp9NoiseEstimateState) vp9NoiseLevel {
+func (ne *vp9NoiseEstimateState) extractLevel() vp9NoiseLevel {
 	if ne == nil {
 		return vp9NoiseLevelLowLow
 	}
@@ -388,6 +388,6 @@ func (e *VP9Encoder) vp9UpdateNoiseEstimate(img *image.YCbCr, miRows, miCols int
 	if ne.count == ne.numFramesEstimate {
 		ne.numFramesEstimate = 30
 		ne.count = 0
-		ne.level = vp9NoiseEstimateExtractLevel(ne)
+		ne.level = ne.extractLevel()
 	}
 }

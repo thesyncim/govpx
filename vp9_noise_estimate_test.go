@@ -52,7 +52,7 @@ func TestVP9NoiseEstimateInitVerbatim(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var ne vp9NoiseEstimateState
-			vp9NoiseEstimateInit(&ne, tc.width, tc.height)
+			ne.init(tc.width, tc.height)
 			if ne.enabled {
 				t.Errorf("enabled = true, want false (libvpx vp9_noise_estimate.c:34)")
 			}
@@ -114,7 +114,7 @@ func TestVP9NoiseEstimateExtractLevelVerbatim(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ne := vp9NoiseEstimateState{value: tc.value, thresh: thresh}
-			got := vp9NoiseEstimateExtractLevel(&ne)
+			got := ne.extractLevel()
 			if got != tc.want {
 				t.Errorf("extract_level(value=%d,thresh=%d) = %d, want %d",
 					tc.value, thresh, got, tc.want)
@@ -415,7 +415,7 @@ func TestVP9NoiseEstimateConsumerShortCircuitLowTempVar(t *testing.T) {
 			defer e.Close()
 
 			// Seed the noise estimate state. The thresh has been set by
-			// vp9NoiseEstimateInit based on width/height; override the
+			// vp9NoiseEstimateState.init based on width/height; override the
 			// dynamic fields directly to reach each consumer branch.
 			e.noiseEstimate.enabled = tc.neEnabled
 			e.noiseEstimate.value = tc.neValue
