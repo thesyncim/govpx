@@ -315,7 +315,7 @@ func firstPassPlaneMatches(a []byte, aStride int, b []byte, bStride int, width i
 // must update these constants explicitly.
 //
 // libvpx references for each pinned field (vp8/encoder/firstpass.c):
-//   - intra_error: macroblockMeanLumaSSE + intrapenalty
+//   - intra_error: vp8enc.MacroblockMeanLumaSSE + intrapenalty
 //   - coded_error: min(intra, motion_error) per MB, motion_error from
 //     first_pass_motion_search (zero-MV + NSTEP diamond + new_mv_mode_penalty)
 //   - ssim_weighted_pred_err: coded_error * simple_weight(source) (>=0.1)

@@ -319,7 +319,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 		for col := range cols {
 			intraErrorForMB, ok := e.reconstructFirstPassIntraMacroblock(src, row, col, qIndex, &quants[0], &dequant)
 			if !ok {
-				intraErrorForMB = macroblockMeanLumaSSE(src, row, col)
+				intraErrorForMB = vp8enc.MacroblockMeanLumaSSE(src, row, col)
 			}
 			intra := intraErrorForMB + intraPenalty
 			intraError += int64(intra)
