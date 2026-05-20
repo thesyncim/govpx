@@ -58,21 +58,19 @@ import (
 //     vp9SearchFilterRef in vp9_pick_inter_mode_nonrd_filter.go
 //   - vp9_pickmode.c:2336    vp9_build_inter_predictors_sby + var/sse
 //     → vp9InterPredictionVarianceSSE
-//   - vp9_pickmode.c:2346    model_rd_for_sb_y → vp9_block_yrd.go:172-284
-//     vp9ModelRdForSbY (verbatim port including calculate_tx_size at
+//   - vp9_pickmode.c:2346    model_rd_for_sb_y →
+//     internal/vp9/encoder.ModelRdForSbY (verbatim port including calculate_tx_size at
 //     vp9_pickmode.c:363-394)
 //   - vp9_pickmode.c:2350-2354 sse_zeromv_normalized for CBR gold skip
 //     → pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2358-2374 block_yrd / is_skippable + skip-vs-non-
-//     skip RDCOST compare → pickVP9InterReferenceModeNonRD (vp9BlockYrd at
-//     vp9_block_yrd.go:409-)
+//     skip RDCOST compare → pickVP9InterReferenceModeNonRD (encoder.BlockYrd)
 //   - vp9_pickmode.c:2401-2410 ref_frame_cost + inter_mode_cost +
 //     skip_bit finalize → pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2414-2422 NEWMV_diff_bias (CBR speed>=5 non-screen)
 //     → vp9NewmvDiffBias
 //   - vp9_pickmode.c:2425-2435 encode_breakout_test + x->skip →
-//     pickVP9InterReferenceModeNonRD (vp9EncodeBreakoutTest at
-//     vp9_block_yrd.go:286-)
+//     pickVP9InterReferenceModeNonRD (encoder.EncodeBreakoutTest)
 //   - vp9_pickmode.c:2460-2462 strict-< winner + best_early_term →
 //     pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2478-2480 x->skip outer-loop break →
@@ -310,12 +308,12 @@ func (bp *vp9BestPickmode) reset() {
 //     vp9RDCost macro that consumes activeRDMult(qindex) + vp9RDDivBits=7
 //     (same scale as libvpx). The picker now constructs (rate, dist)
 //     per candidate via the verbatim model_rd_for_sb_y port in
-//     vp9_block_yrd.go::vp9ModelRdForSbY, so the RDCOST comparison
+//     internal/vp9/encoder.ModelRdForSbY, so the RDCOST comparison
 //     reproduces libvpx's quantizer-aware ordering rather than the previous
 //     SSE-only proxy.
 //
 //   - libvpx's encode_breakout_test (vp9_pickmode.c:942) is ported in
-//     vp9_block_yrd.go::vp9EncodeBreakoutTest. The gate fires for non-
+//     internal/vp9/encoder.EncodeBreakoutTest. The gate fires for non-
 //     lossless candidates when (cpi->oxcf.encode_breakout > 0 &&
 //     motion_low) OR (var==0 && sse==0) (a true perfect match). The
 //     deferred RefControl seed configurations run with
@@ -1234,11 +1232,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2346 model_rd_for_sb_y — produces
 				// (rate_y, dist_y) in libvpx's prob-cost / shifted-domain
 				// distortion units. govpx ports the kernel in
-				// vp9_block_yrd.go::vp9ModelRdForSbY. The kernel also
+				// internal/vp9/encoder.ModelRdForSbY. The kernel also
 				// produces tx_size via calculate_tx_size (libvpx
 				// vp9_pickmode.c:660-680); block_yrd consumes
 				// min(tx_size, TX_16X16).
-				rateY, distY, _, mrdTxSize := vp9ModelRdForSbY(bsize, qindex,
+				rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(bsize, qindex,
 					dequantY, varY, sseY, 0)
 
 				// libvpx vp9_pickmode.c:2358-2374 — when block_yrd runs
@@ -1255,7 +1253,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				//     the skip-comparison runs against sse_y << 4.
 				//
 				//   - For (!use_simple_block_yrd || bsize >= BLOCK_32X32):
-				//     vp9BlockYrd is called with tx_size =
+				//     encoder.BlockYrd is called with tx_size =
 				//     min(mrdTxSize, TX_16X16) (vp9_pickmode.c:2361). The
 				//     result.rate/result.dist replace (rateY, distY); the
 				//     skip comparison runs against result.sse (which is
@@ -1289,27 +1287,27 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						// the full block (vp9VisibleInterScoreBlock check
 						// inside vp9InterPredictionVarianceSSE), so the
 						// edge clamp is a no-op here.
-						byrd := vp9BlockYrd(src, srcStride, x0, y0,
+						byrd := encoder.BlockYrd(src, srcStride, x0, y0,
 							dst, dstStride, x0, y0,
 							blockW, blockH, txClamp, dequantY, sseY,
 							e.vp9BlockYrdScratch[:])
-						if byrd.valid {
-							thisSse = uint64(byrd.sse)
-							if byrd.skippable {
+						if byrd.Valid {
+							thisSse = uint64(byrd.SSE)
+							if byrd.Skippable {
 								// libvpx vp9_pickmode.c:2363-2364 —
 								// is_skippable forces rate = skip-bit
 								// cost (added below) and dist = sse;
 								// the post-compare is then skipped.
 								finalRate = 0
-								finalDist = uint64(byrd.sse)
+								finalDist = uint64(byrd.SSE)
 								blockYrdFired = true
 							} else {
 								// libvpx vp9_pickmode.c:2365-2374 — the
 								// non-skippable branch runs the RDCOST
 								// compare with block_yrd's refined (rate,
 								// dist) and the model_rd-derived sseY.
-								finalRate = byrd.rate
-								finalDist = uint64(byrd.dist)
+								finalRate = byrd.Rate
+								finalDist = uint64(byrd.Dist)
 								// blockYrdFired stays false: the RDCOST
 								// compare below still runs.
 							}
@@ -1322,7 +1320,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// comparison. When use_simple_block_yrd is set and bsize
 				// is small, block_yrd returns sse=INT_MAX which makes the
 				// skip branch unreachable; govpx mirrors by skipping the
-				// compare. When vp9BlockYrd fired with skippable=true the
+				// compare. When encoder.BlockYrd fired with skippable=true the
 				// is_skippable branch already locked finalRate/finalDist
 				// to the skip override (rate=0, dist=sse) — leave the
 				// post-compare alone.
@@ -1391,7 +1389,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						inter, miRows, miCols, miRow, miCol, bsize, thisMode,
 						refFrame, mv, filter)
 					if uvOk {
-						fired, ebDist, _ := vp9EncodeBreakoutTest(bsize,
+						fired, ebDist, _ := encoder.EncodeBreakoutTest(bsize,
 							dequantY, mv.Row, mv.Col, varY, sseY,
 							[2][2]int16{dequantU, dequantV},
 							varU, sseU, varV, sseV,

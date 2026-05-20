@@ -1,10 +1,9 @@
-package govpx
+package encoder
 
 import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // TestVP9BlockYrdSkippableOnIdenticalPrediction pins the libvpx
@@ -27,21 +26,21 @@ func TestVP9BlockYrdSkippableOnIdenticalPrediction(t *testing.T) {
 	}
 	dequant := [2]int16{16, 17} // libvpx Y-plane dequant at qindex 64.
 	var scratch [16384]int16
-	res := vp9BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
+	res := BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
 		bw, bh, common.Tx16x16, dequant, 0, scratch[:])
-	if !res.valid {
-		t.Fatalf("vp9BlockYrd returned invalid result on identical src/dst")
+	if !res.Valid {
+		t.Fatalf("BlockYrd returned invalid result on identical src/dst")
 	}
-	if !res.skippable {
+	if !res.Skippable {
 		t.Errorf("skippable = false, want true (zero src_diff)")
 	}
-	if res.dist != 0 {
-		t.Errorf("dist = %d, want 0 (sse=0 -> dist = sse<<4 = 0)", res.dist)
+	if res.Dist != 0 {
+		t.Errorf("dist = %d, want 0 (sse=0 -> dist = sse<<4 = 0)", res.Dist)
 	}
-	if res.rate != 0 {
+	if res.Rate != 0 {
 		t.Errorf("rate = %d, want 0 (libvpx vp9_pickmode.c:821 sets rate=0 "+
 			"and returns at :826 before the eob_cost finalization)",
-			res.rate)
+			res.Rate)
 	}
 }
 
@@ -55,21 +54,21 @@ func TestVP9BlockYrdSkippableWithUnknownSSEKeepsEobRate(t *testing.T) {
 	}
 	dequant := [2]int16{16, 17}
 	var scratch [16384]int16
-	res := vp9BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
-		bw, bh, common.Tx16x16, dequant, vp9BlockYrdUnknownSSE, scratch[:])
-	if !res.valid {
-		t.Fatalf("vp9BlockYrd returned invalid result on identical src/dst")
+	res := BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
+		bw, bh, common.Tx16x16, dequant, BlockYrdUnknownSSE, scratch[:])
+	if !res.Valid {
+		t.Fatalf("BlockYrd returned invalid result on identical src/dst")
 	}
-	if !res.skippable {
+	if !res.Skippable {
 		t.Errorf("skippable = false, want true (zero src_diff)")
 	}
-	if res.dist != 0 {
-		t.Errorf("dist = %d, want 0 without finite SSE", res.dist)
+	if res.Dist != 0 {
+		t.Errorf("dist = %d, want 0 without finite SSE", res.Dist)
 	}
-	const wantRate = 4 << encoder.VP9ProbCostShift
-	if res.rate != wantRate {
+	const wantRate = 4 << VP9ProbCostShift
+	if res.Rate != wantRate {
 		t.Errorf("rate = %d, want %d (eob_cost retained without finite SSE)",
-			res.rate, wantRate)
+			res.Rate, wantRate)
 	}
 }
 
@@ -101,20 +100,20 @@ func TestVP9BlockYrdNonSkippableProducesPositiveRate(t *testing.T) {
 	// the dist scale (sse << 4) but the skippable test below is what we
 	// pin.
 	const sseY = uint64(32 * 32 * 128 * 128) // worst-case approximation
-	res := vp9BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
+	res := BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
 		bw, bh, common.Tx16x16, dequant, sseY, scratch[:])
-	if !res.valid {
-		t.Fatalf("vp9BlockYrd returned invalid result on square-wave residual")
+	if !res.Valid {
+		t.Fatalf("BlockYrd returned invalid result on square-wave residual")
 	}
-	if res.skippable {
+	if res.Skippable {
 		t.Errorf("skippable = true, want false (residual is non-zero AC)")
 	}
-	if res.rate <= 0 {
-		t.Errorf("rate = %d, want > 0 (non-skippable residual)", res.rate)
+	if res.Rate <= 0 {
+		t.Errorf("rate = %d, want > 0 (non-skippable residual)", res.Rate)
 	}
 	// libvpx vp9_pickmode.c:823 sse = (sseIn << 6) >> 2 = sseIn << 4.
-	if res.sse != int64(sseY<<4) {
-		t.Errorf("sse = %d, want %d (sseIn << 4)", res.sse, int64(sseY<<4))
+	if res.SSE != int64(sseY<<4) {
+		t.Errorf("sse = %d, want %d (sseIn << 4)", res.SSE, int64(sseY<<4))
 	}
 }
 
@@ -138,19 +137,19 @@ func TestVP9BlockYrdRateScaling(t *testing.T) {
 	dequant := [2]int16{16, 17}
 	var scratch [16384]int16
 	const sseY = uint64(72 * 72) // (200-128)^2
-	res := vp9BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
+	res := BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
 		bw, bh, common.Tx16x16, dequant, sseY, scratch[:])
-	if !res.valid {
-		t.Fatalf("vp9BlockYrd returned invalid result on impulse residual")
+	if !res.Valid {
+		t.Fatalf("BlockYrd returned invalid result on impulse residual")
 	}
 	// The rate scale is `(raw_satd << 11) + (eob_cost << 9)`. Even when
 	// raw_satd == 0 the eob_cost term is non-zero (one bit per tx unit).
 	// For BLOCK_32X32 + TX_16X16, eob_cost = 4, so the minimum rate is
 	// 4 << 9 = 2048.
-	const wantMinRate = 4 << encoder.VP9ProbCostShift
-	if res.rate < wantMinRate {
+	const wantMinRate = 4 << VP9ProbCostShift
+	if res.Rate < wantMinRate {
 		t.Errorf("rate = %d, want >= %d (eob_cost term lower bound)",
-			res.rate, wantMinRate)
+			res.Rate, wantMinRate)
 	}
 }
 
@@ -162,9 +161,9 @@ func TestVP9BlockErrorFPZero(t *testing.T) {
 		900, -1000, 1100, -1200, 1300, -1400, 1500, -1600}
 	dqcoeff := make([]int16, len(coeff))
 	copy(dqcoeff, coeff)
-	got := vp9BlockErrorFP(coeff, dqcoeff)
+	got := BlockErrorFP(coeff, dqcoeff)
 	if got != 0 {
-		t.Errorf("vp9BlockErrorFP(coeff,coeff) = %d, want 0 "+
+		t.Errorf("BlockErrorFP(coeff,coeff) = %d, want 0 "+
 			"(libvpx vp9_rdopt.c:340-341 — diff=0 -> error += 0)", got)
 	}
 }
@@ -180,8 +179,8 @@ func TestVP9BlockErrorFPSingleNonZero(t *testing.T) {
 	dqcoeff[0] = 3
 	// libvpx: diff = coeff[0]-dqcoeff[0] = 7; error = 49.
 	const want = uint64(49)
-	if got := vp9BlockErrorFP(coeff, dqcoeff); got != want {
-		t.Errorf("vp9BlockErrorFP = %d, want %d "+
+	if got := BlockErrorFP(coeff, dqcoeff); got != want {
+		t.Errorf("BlockErrorFP = %d, want %d "+
 			"(hand-computed: diff=7, diff*diff=49)", got, want)
 	}
 }
@@ -219,8 +218,8 @@ func TestVP9BlockErrorFPHandComputed16(t *testing.T) {
 		-1100, 1480, -2050, 2500, -2900, 3450, -4001, 4499,
 	}
 	const want = uint64(28208)
-	if got := vp9BlockErrorFP(coeff, dqcoeff); got != want {
-		t.Errorf("vp9BlockErrorFP = %d, want %d "+
+	if got := BlockErrorFP(coeff, dqcoeff); got != want {
+		t.Errorf("BlockErrorFP = %d, want %d "+
 			"(hand-computed sum of diff*diff over 16 elements)",
 			got, want)
 	}
@@ -234,8 +233,8 @@ func TestVP9BlockErrorFPSymmetry(t *testing.T) {
 		0, 1, -1, 2, -2, 3, -3, 4}
 	dqcoeff := []int16{100, -400, 800, -1000, 1200, -1400, 1600, -1800,
 		1, 0, 1, -2, 2, -3, 3, -4}
-	a := vp9BlockErrorFP(coeff, dqcoeff)
-	b := vp9BlockErrorFP(dqcoeff, coeff)
+	a := BlockErrorFP(coeff, dqcoeff)
+	b := BlockErrorFP(dqcoeff, coeff)
 	if a != b {
 		t.Errorf("symmetry broken: f(c,dq)=%d, f(dq,c)=%d "+
 			"(diff*diff is sign-invariant; libvpx vp9_rdopt.c:341)", a, b)
@@ -263,8 +262,8 @@ func TestVP9BlockErrorFPLargeBlock(t *testing.T) {
 	}
 	// diff = ±64 (|diff|=64 every slot); diff^2 = 4096; n * 4096 = 1048576.
 	const want = uint64(256) * 64 * 64
-	if got := vp9BlockErrorFP(coeff, dqcoeff); got != want {
-		t.Errorf("vp9BlockErrorFP(256 elems, |diff|=64) = %d, want %d",
+	if got := BlockErrorFP(coeff, dqcoeff); got != want {
+		t.Errorf("BlockErrorFP(256 elems, |diff|=64) = %d, want %d",
 			got, want)
 	}
 }
@@ -285,8 +284,8 @@ func TestVP9BlockErrorFPMaxInt16Diff(t *testing.T) {
 	}
 	// diff = -65535; diff*diff = 4294836225; n=256 -> 1099478073600.
 	const want = uint64(256) * uint64(65535) * uint64(65535)
-	if got := vp9BlockErrorFP(coeff, dqcoeff); got != want {
-		t.Errorf("vp9BlockErrorFP(INT16_MIN vs INT16_MAX, n=256) = %d, "+
+	if got := BlockErrorFP(coeff, dqcoeff); got != want {
+		t.Errorf("BlockErrorFP(INT16_MIN vs INT16_MAX, n=256) = %d, "+
 			"want %d (libvpx int64_t headroom check)", got, want)
 	}
 }
@@ -305,7 +304,7 @@ func TestVP9BlockErrorFPMatchesInt64Reference(t *testing.T) {
 		8, -16, 16, -24, 32, -40, 40, -40, 48, -56, 56, -56, 64, -72, 72, -80,
 		80, -88, 96, -104, 104, -112, 112, -112, 128, -128, 136, -144, 144, -152, 160, -160,
 	}
-	want := vp9BlockErrorFP(coeff, dqcoeff)
+	want := BlockErrorFP(coeff, dqcoeff)
 	// Mirror libvpx vp9_rdopt.c:334-345 with int64_t error / int diff.
 	var reference int64
 	for j := range coeff {
@@ -331,9 +330,9 @@ func TestVP9BlockErrorFPCallSiteShift(t *testing.T) {
 	// Hand: diffs = 4,-2,8,2,-4,6,0,-6,2,-2,4,-4,-2,2,8,-8
 	// squares = 16,4,64,4,16,36,0,36,4,4,16,16,4,4,64,64 -> sum = 352
 	const wantRaw = uint64(352)
-	got := vp9BlockErrorFP(coeff, dqcoeff)
+	got := BlockErrorFP(coeff, dqcoeff)
 	if got != wantRaw {
-		t.Errorf("raw vp9BlockErrorFP = %d, want %d", got, wantRaw)
+		t.Errorf("raw BlockErrorFP = %d, want %d", got, wantRaw)
 	}
 	// libvpx vp9_pickmode.c:845 — caller applies >> 2 (floor division by 4).
 	const wantShifted = wantRaw >> 2 // 88

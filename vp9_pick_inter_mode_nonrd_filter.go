@@ -3,6 +3,7 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func vp9NonrdModeRDThresh(qindex int, bsize common.BlockSize,
@@ -96,7 +97,7 @@ func vp9NonrdThreshMult(modeIndex vp9ThrModes, adaptiveRDThresh int) int {
 //   - use_model_yrd_large is FALSE for the deferred RuntimeControls seed #8
 //     (VBR, base_qindex non-zero but rc_mode != VPX_CBR — see vp9_pickmode.c:
 //     2045-2048). The large-block model_rd kernel is gated to that path
-//     specifically; this helper invokes the plain vp9ModelRdForSbY mirror.
+//     specifically; this helper invokes the plain encoder.ModelRdForSbY mirror.
 //     When the use_model_yrd_large port lands it will be wired here behind
 //     the same large_block + CBR + base_qindex gate.
 //
@@ -132,7 +133,7 @@ func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
 			continue
 		}
 		// libvpx: vp9_pickmode.c:1530-1537 model_rd_for_sb_y(_large).
-		rateY, distY, _, mrdTxSize := vp9ModelRdForSbY(bsize, qindex, dequant,
+		rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(bsize, qindex, dequant,
 			varY, sseY, 0)
 		// libvpx: vp9_pickmode.c:1538 curr_rate[filter] = pf_rate[filter];
 		// (curr_rate captures the pre-switchable rate so the caller can

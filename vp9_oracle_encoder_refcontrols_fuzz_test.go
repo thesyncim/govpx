@@ -280,7 +280,7 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	//    interp_filter) decisions still differ from libvpx where
 	//    pickVP9InterTxSize runs a variance-RDO instead of
 	//    libvpx's verbatim calculate_tx_size output (the latter is
-	//    surfaced by vp9ModelRdForSbY but currently overridden by
+	//    surfaced by encoder.ModelRdForSbY but currently overridden by
 	//    the leaf-commit pickVP9InterTxSize hook).
 	//
 	//  * Remaining closure path: do not raw-carry mrdTxSize into the

@@ -592,7 +592,7 @@ func (e *VP9Encoder) vp9InterCalculateTxAcThr(inter *vp9InterEncodeState,
 		int(segmentID) >= len(inter.dq.Y) {
 		return 0
 	}
-	_, acThr := vp9ModelRdQuantThresholds(e.vp9EncoderModeDecisionQIndex(),
+	_, acThr := encoder.ModelRdQuantThresholds(e.vp9EncoderModeDecisionQIndex(),
 		inter.dq.Y[segmentID])
 	return acThr
 }

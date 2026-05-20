@@ -303,7 +303,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			if !ok {
 				continue
 			}
-			rateY, distY, _, _ := vp9ModelRdForSbY(bsize, qindex, dequantY,
+			rateY, distY, _, _ := encoder.ModelRdForSbY(bsize, qindex, dequantY,
 				variance, sse, 1)
 			coeffRate = rateY
 			distortion = uint64(distY)

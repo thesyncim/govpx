@@ -1,10 +1,9 @@
-package govpx
+package encoder
 
 import (
 	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9_block_yrd.go ports the libvpx v1.16.0 substrate the realtime nonrd
@@ -29,9 +28,9 @@ import (
 // quantizer-step model_rd produces. Folding model_rd_for_sb_y into the
 // picker closes that ordering gap.
 
-// vp9RateTabQ10 ports rate_tab_q10 (vp9_rd.c:462-471) verbatim — the
+// rateTabQ10 ports rate_tab_q10 (vp9_rd.c:462-471) verbatim — the
 // normalized rate table indexed by the 4-msb bucket of xsq_q10.
-var vp9RateTabQ10 = [...]int{
+var rateTabQ10 = [...]int{
 	65536, 6086, 5574, 5275, 5063, 4899, 4764, 4651, 4553, 4389, 4255, 4142, 4044,
 	3958, 3881, 3811, 3748, 3635, 3538, 3453, 3376, 3307, 3244, 3186, 3133, 3037,
 	2952, 2877, 2809, 2747, 2690, 2638, 2589, 2501, 2423, 2353, 2290, 2232, 2179,
@@ -42,9 +41,9 @@ var vp9RateTabQ10 = [...]int{
 	16, 12, 10, 8, 6, 5, 3, 2, 1, 1, 1, 0, 0,
 }
 
-// vp9DistTabQ10 ports dist_tab_q10 (vp9_rd.c:480-489) verbatim — the
+// distTabQ10 ports dist_tab_q10 (vp9_rd.c:480-489) verbatim — the
 // normalized distortion table indexed by the same bucket.
-var vp9DistTabQ10 = [...]int{
+var distTabQ10 = [...]int{
 	0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 5,
 	6, 7, 7, 8, 9, 11, 12, 13, 15, 16, 17, 18, 21,
 	24, 26, 29, 31, 34, 36, 39, 44, 49, 54, 59, 64, 69,
@@ -55,9 +54,9 @@ var vp9DistTabQ10 = [...]int{
 	1006, 1010, 1013, 1015, 1017, 1018, 1020, 1022, 1022, 1023, 1023, 1023, 1024,
 }
 
-// vp9XsqIqQ10 ports xsq_iq_q10 (vp9_rd.c:490-503) — the bucket-edge table
+// xsqIqQ10 ports xsq_iq_q10 (vp9_rd.c:490-503) — the bucket-edge table
 // used to convert the bucket index back to xsq_q10 for interpolation.
-var vp9XsqIqQ10 = [...]int{
+var xsqIqQ10 = [...]int{
 	0, 4, 8, 12, 16, 20, 24, 28, 32,
 	40, 48, 56, 64, 72, 80, 88, 96, 112,
 	128, 144, 160, 176, 192, 208, 224, 256, 288,
@@ -72,16 +71,16 @@ var vp9XsqIqQ10 = [...]int{
 	180192, 196576, 212960, 229344, 245728,
 }
 
-// vp9MaxXsqQ10 ports MAX_XSQ_Q10 (vp9_rd.c:516).
-const vp9MaxXsqQ10 = 245727
+// maxXsqQ10 ports MAX_XSQ_Q10 (vp9_rd.c:516).
+const maxXsqQ10 = 245727
 
-// vp9GetMsb ports get_msb (vpx_ports/bitops.h:39-42 / 69-85) — returns
+// getMsb ports get_msb (vpx_ports/bitops.h:39-42 / 69-85) — returns
 // floor(log2(n)). Caller guarantees n > 0.
-func vp9GetMsb(n uint32) int {
+func getMsb(n uint32) int {
 	return 31 - bits.LeadingZeros32(n)
 }
 
-// vp9ModelRdNorm ports model_rd_norm (vp9_rd.c:505-514) verbatim.
+// ModelRdNorm ports model_rd_norm (vp9_rd.c:505-514) verbatim.
 //
 //	static void model_rd_norm(int xsq_q10, int *r_q10, int *d_q10) {
 //	  const int tmp = (xsq_q10 >> 2) + 8;
@@ -93,21 +92,21 @@ func vp9GetMsb(n uint32) int {
 //	  *r_q10 = (rate_tab_q10[xq] * b_q10 + rate_tab_q10[xq + 1] * a_q10) >> 10;
 //	  *d_q10 = (dist_tab_q10[xq] * b_q10 + dist_tab_q10[xq + 1] * a_q10) >> 10;
 //	}
-func vp9ModelRdNorm(xsqQ10 int) (rQ10, dQ10 int) {
+func ModelRdNorm(xsqQ10 int) (rQ10, dQ10 int) {
 	tmp := (xsqQ10 >> 2) + 8
 	// get_msb is undefined for n == 0; libvpx callers guarantee xsq_q10 >= 0
 	// (and 0 is handled in vp9_model_rd_from_var_lapndz before invoking us).
-	k := vp9GetMsb(uint32(tmp)) - 3
+	k := getMsb(uint32(tmp)) - 3
 	xq := (k << 3) + ((tmp >> k) & 0x7)
 	const oneQ10 = 1 << 10
-	aQ10 := ((xsqQ10 - vp9XsqIqQ10[xq]) << 10) >> (2 + k)
+	aQ10 := ((xsqQ10 - xsqIqQ10[xq]) << 10) >> (2 + k)
 	bQ10 := oneQ10 - aQ10
-	rQ10 = (vp9RateTabQ10[xq]*bQ10 + vp9RateTabQ10[xq+1]*aQ10) >> 10
-	dQ10 = (vp9DistTabQ10[xq]*bQ10 + vp9DistTabQ10[xq+1]*aQ10) >> 10
+	rQ10 = (rateTabQ10[xq]*bQ10 + rateTabQ10[xq+1]*aQ10) >> 10
+	dQ10 = (distTabQ10[xq]*bQ10 + distTabQ10[xq+1]*aQ10) >> 10
 	return
 }
 
-// vp9ModelRDFromVarLapndz ports vp9_model_rd_from_var_lapndz (vp9_rd.c:518-539):
+// ModelRDFromVarLapndz ports vp9_model_rd_from_var_lapndz (vp9_rd.c:518-539):
 //
 //	void vp9_model_rd_from_var_lapndz(unsigned int var, unsigned int n_log2,
 //	                                  unsigned int qstep, int *rate,
@@ -126,21 +125,21 @@ func vp9ModelRdNorm(xsqQ10 int) (rQ10, dQ10 int) {
 //	  }
 //	}
 //
-// VP9_PROB_COST_SHIFT == 9 (govpx encoder.VP9ProbCostShift). The shift
+// VP9_PROB_COST_SHIFT == 9 (govpx VP9ProbCostShift). The shift
 // `10 - 9 == 1` lines up with libvpx.
-func vp9ModelRDFromVarLapndz(varN uint32, nLog2 uint, qstep uint32) (rate int, dist int64) {
+func ModelRDFromVarLapndz(varN uint32, nLog2 uint, qstep uint32) (rate int, dist int64) {
 	if varN == 0 {
 		return 0, 0
 	}
 	xsqQ1064 := ((uint64(qstep) * uint64(qstep)) << (nLog2 + 10)) + uint64(varN>>1)
 	xsqQ1064 /= uint64(varN)
 	var xsqQ10 int
-	if xsqQ1064 > vp9MaxXsqQ10 {
-		xsqQ10 = vp9MaxXsqQ10
+	if xsqQ1064 > maxXsqQ10 {
+		xsqQ10 = maxXsqQ10
 	} else {
 		xsqQ10 = int(xsqQ1064)
 	}
-	rQ10, dQ10 := vp9ModelRdNorm(xsqQ10)
+	rQ10, dQ10 := ModelRdNorm(xsqQ10)
 	// libvpx ROUND_POWER_OF_TWO(x, n) == (x + (1<<(n-1))) >> n. VP9_PROB_COST_SHIFT==9
 	// so n == 10 - 9 == 1; the +1 rounding adds 1 before shifting right by 1.
 	const probCostShift = 9
@@ -154,22 +153,22 @@ func vp9ModelRDFromVarLapndz(varN uint32, nLog2 uint, qstep uint32) (rate int, d
 	return
 }
 
-// vp9SkipTxfmFlag mirrors libvpx's SKIP_TXFM_* enum (vp9_blockd.h):
+// SkipTxfmFlag mirrors libvpx's SKIP_TXFM_* enum (vp9_blockd.h):
 //
 //	SKIP_TXFM_NONE   = 0
 //	SKIP_TXFM_AC_DC  = 1
 //	SKIP_TXFM_AC_ONLY = 2
-type vp9SkipTxfmFlag uint8
+type SkipTxfmFlag uint8
 
 const (
-	vp9SkipTxfmNone   vp9SkipTxfmFlag = 0
-	vp9SkipTxfmAcDc   vp9SkipTxfmFlag = 1
-	vp9SkipTxfmAcOnly vp9SkipTxfmFlag = 2
+	SkipTxfmNone   SkipTxfmFlag = 0
+	SkipTxfmAcDc   SkipTxfmFlag = 1
+	SkipTxfmAcOnly SkipTxfmFlag = 2
 )
 
-const vp9BlockYrdUnknownSSE = uint64(1<<63 - 1)
+const BlockYrdUnknownSSE = uint64(1<<63 - 1)
 
-// vp9ModelRdForSbY ports model_rd_for_sb_y (vp9_pickmode.c:645-726) verbatim.
+// ModelRdForSbY ports model_rd_for_sb_y (vp9_pickmode.c:645-726) verbatim.
 // Inputs:
 //
 //   - bsize: block size.
@@ -205,14 +204,14 @@ const vp9BlockYrdUnknownSSE = uint64(1<<63 - 1)
 // bsize >= BLOCK_8X8 (the realtime picker never invokes mode decision
 // at sub-8x8). For BLOCK_4X4 the n_log2 == 4 path is still well-defined
 // but tx_size would clamp to TX_4X4 — not exercised here.
-func vp9ModelRdForSbY(bsize common.BlockSize, qindex int, dequant [2]int16,
+func ModelRdForSbY(bsize common.BlockSize, qindex int, dequant [2]int16,
 	varY, sseY uint64, isIntra int,
-) (outRateSum int, outDistSum int64, skipTxfm vp9SkipTxfmFlag, txSize common.TxSize) {
+) (outRateSum int, outDistSum int64, skipTxfm SkipTxfmFlag, txSize common.TxSize) {
 	// libvpx: dc_thr = p->quant_thred[0] >> 6; ac_thr = p->quant_thred[1] >> 6;
 	// quant_thred[i] = zbin[i]*zbin[i] (vp9_quantize.c:264-265).
 	dcQuant := uint32(dequant[0])
 	acQuant := uint32(dequant[1])
-	dcThr, acThr := vp9ModelRdQuantThresholds(qindex, dequant)
+	dcThr, acThr := ModelRdQuantThresholds(qindex, dequant)
 
 	// libvpx: tx_size = calculate_tx_size(...). For TX_MODE_SELECT path:
 	//   tx_size = (sse > (var << 2)) ? min(max_txsize, biggest_tx) : TX_8X8;
@@ -243,20 +242,20 @@ func vp9ModelRdForSbY(bsize common.BlockSize, qindex int, dequant [2]int16,
 	sseTx := sseY >> uint(numBlkLog2)
 	varTx := varY >> uint(numBlkLog2)
 
-	skipTxfm = vp9SkipTxfmNone
+	skipTxfm = SkipTxfmNone
 	skipDc := false
 	// libvpx vp9_pickmode.c:682-689 — ac quantizable to zero?
 	if varTx < uint64(acThr) || varY == 0 {
-		skipTxfm = vp9SkipTxfmAcOnly
+		skipTxfm = SkipTxfmAcOnly
 		// dc quantizable to zero?
 		if sseTx-varTx < uint64(dcThr) || sseY == varY {
-			skipTxfm = vp9SkipTxfmAcDc
+			skipTxfm = SkipTxfmAcDc
 		}
 	} else if sseTx-varTx < uint64(dcThr) || sseY == varY {
 		skipDc = true
 	}
 
-	if skipTxfm == vp9SkipTxfmAcDc {
+	if skipTxfm == SkipTxfmAcDc {
 		// libvpx vp9_pickmode.c:692-696 — full Y skip.
 		outRateSum = 0
 		outDistSum = int64(sseY << 4)
@@ -266,7 +265,7 @@ func vp9ModelRdForSbY(bsize common.BlockSize, qindex int, dequant [2]int16,
 	nLog2 := uint(common.NumPelsLog2Lookup[bsize])
 	if !skipDc {
 		// libvpx: vp9_model_rd_from_var_lapndz(sse - var, n_log2, dc_quant >> 3, ...);
-		dcRate, dcDist := vp9ModelRDFromVarLapndz(uint32(sseY-varY), nLog2, dcQuant>>3)
+		dcRate, dcDist := ModelRDFromVarLapndz(uint32(sseY-varY), nLog2, dcQuant>>3)
 		outRateSum = dcRate >> 1
 		outDistSum = dcDist << 3
 	} else {
@@ -275,20 +274,20 @@ func vp9ModelRdForSbY(bsize common.BlockSize, qindex int, dequant [2]int16,
 	}
 
 	// libvpx: vp9_model_rd_from_var_lapndz(var, n_log2, ac_quant >> 3, ...);
-	acRate, acDist := vp9ModelRDFromVarLapndz(uint32(varY), nLog2, acQuant>>3)
+	acRate, acDist := ModelRDFromVarLapndz(uint32(varY), nLog2, acQuant>>3)
 	outRateSum += acRate
 	outDistSum += acDist << 4
 	return
 }
 
-func vp9ModelRdQuantThresholds(qindex int, dequant [2]int16) (dcThr, acThr int64) {
-	qzbinFactor := vp9ModelRdQzbinFactor(qindex)
+func ModelRdQuantThresholds(qindex int, dequant [2]int16) (dcThr, acThr int64) {
+	qzbinFactor := modelRdQzbinFactor(qindex)
 	for i, dq := range dequant {
 		dq64 := int64(dq)
 		if dq64 <= 0 {
 			continue
 		}
-		zbin := vp9ModelRdRoundPowerOfTwo(int64(qzbinFactor)*dq64, 7)
+		zbin := modelRdRoundPowerOfTwo(int64(qzbinFactor)*dq64, 7)
 		thr := (zbin * zbin) >> 6
 		if i == 0 {
 			dcThr = thr
@@ -299,7 +298,7 @@ func vp9ModelRdQuantThresholds(qindex int, dequant [2]int16) (dcThr, acThr int64
 	return dcThr, acThr
 }
 
-func vp9ModelRdQzbinFactor(qindex int) int {
+func modelRdQzbinFactor(qindex int) int {
 	if qindex == 0 {
 		return 64
 	}
@@ -309,11 +308,11 @@ func vp9ModelRdQzbinFactor(qindex int) int {
 	return 80
 }
 
-func vp9ModelRdRoundPowerOfTwo(value int64, n uint) int64 {
+func modelRdRoundPowerOfTwo(value int64, n uint) int64 {
 	return (value + int64(1)<<(n-1)) >> n
 }
 
-// vp9EncodeBreakoutTest ports encode_breakout_test (vp9_pickmode.c:942-1045)
+// EncodeBreakoutTest ports encode_breakout_test (vp9_pickmode.c:942-1045)
 // verbatim. Inputs are the per-candidate (var_y, sse_y, mv, dequant), plus
 // the per-frame encode_breakout knob (libvpx x->encode_breakout — seeded
 // from cpi->oxcf.encode_breakout / segment_encode_breakout in
@@ -350,7 +349,7 @@ func vp9ModelRdRoundPowerOfTwo(value int64, n uint) int64 {
 //	}
 //
 // Returns (true, rate_override, dist_override) when the breakout fires.
-func vp9EncodeBreakoutTest(bsize common.BlockSize, dequant [2]int16,
+func EncodeBreakoutTest(bsize common.BlockSize, dequant [2]int16,
 	mvRow, mvCol int16, varY, sseY uint64,
 	uvDequant [2][2]int16, varU, sseU, varV, sseV uint64,
 	encodeBreakout int, sbIsSkin bool, interModeBitCost int,
@@ -409,15 +408,15 @@ func vp9EncodeBreakoutTest(bsize common.BlockSize, dequant [2]int16,
 	return true, distOverride, rateOverride
 }
 
-// vp9BlockYrdMaxTxUnits bounds the per-call eob array. BLOCK_64X64 with
+// blockYrdMaxTxUnits bounds the per-call eob array. BLOCK_64X64 with
 // TX_4X4 produces 256 tx units; libvpx clamps tx_size to TX_16X16 in the
 // realtime nonrd path (vp9/encoder/vp9_pickmode.c:2361) so the actual cap
 // is 16, but we size for the worst case so the function stays usable from
 // future callers (e.g. the block_yrd at vp9_pickmode.c:1083 / 2610 which
 // passes the un-clamped mi->tx_size).
-const vp9BlockYrdMaxTxUnits = 256
+const blockYrdMaxTxUnits = 256
 
-// vp9BlockYrdResult bundles the libvpx block_yrd outputs:
+// BlockYrdResult bundles the libvpx block_yrd outputs:
 //   - rate, dist: refined (rate, dist) tuple after Hadamard + quantize_fp +
 //     SATD scoring. Both in libvpx's prob-cost / shifted-distortion units
 //     (rate is bits << VP9_PROB_COST_SHIFT, dist is sum-of-squared-error
@@ -428,15 +427,15 @@ const vp9BlockYrdMaxTxUnits = 256
 //     SKIP_TXFM_AC_DC bit and forces this_rdc.dist = sse in that case.
 //   - sse: the shifted-domain sum-of-squares the picker compares against
 //     RDCOST(0, sse) for the skip-vs-non-skip override.
-type vp9BlockYrdResult struct {
-	rate      int
-	dist      int64
-	sse       int64
-	skippable bool
-	valid     bool
+type BlockYrdResult struct {
+	Rate      int
+	Dist      int64
+	SSE       int64
+	Skippable bool
+	Valid     bool
 }
 
-// vp9BlockYrd ports libvpx v1.16.0 block_yrd (vp9/encoder/vp9_pickmode.c:728-854)
+// BlockYrd ports libvpx v1.16.0 block_yrd (vp9/encoder/vp9_pickmode.c:728-854)
 // verbatim. It refines the (rate, dist) tuple model_rd_for_sb_y produces by
 // running the actual Hadamard + quantize_fp + SATD path on the Y-plane
 // residual, mirroring the realtime nonrd kernel that scores BLOCK_32X32+
@@ -496,12 +495,12 @@ type vp9BlockYrdResult struct {
 //     the caller's bw/bh (it always passes the visible block extents); a
 //     follow-up port can surface the edge clamp explicitly if a fuzz seed
 //     ever hits a sub-tile-edge inter block at BLOCK_32X32+.
-func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
+func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	dst []byte, dstStride int, dstX, dstY int,
 	bw, bh int, txSize common.TxSize, dequant [2]int16,
 	sseIn uint64, residueScratch []int16,
-) vp9BlockYrdResult {
-	var res vp9BlockYrdResult
+) BlockYrdResult {
+	var res BlockYrdResult
 
 	// libvpx asserts tx_size != TX_32X32 (vp9_pickmode.c:764). govpx clamps
 	// at the call site (txSize is always min(mi->tx_size, TX_16X16)); fall
@@ -560,7 +559,7 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	// using vp9_init_quantizer's recipe. nonrd_pickmode runs with
 	// sf->use_quant_fp=1, so these are the same tables the realtime tokenizer
 	// later consumes. qrounding_factor_fp == 64 at q==0; otherwise 48 (dc)
-	// and 42 (ac). govpx routes through encoder.QuantizeFPLibvpx which
+	// and 42 (ac). govpx routes through QuantizeFPLibvpx which
 	// already takes (roundFP, quantFP, dequant) so we mirror the recipe
 	// inline.
 	var roundFP, quantFP [2]int16
@@ -599,10 +598,10 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	// First pass: Hadamard / fdct4x4 + quantize_fp. libvpx:
 	// vp9_pickmode.c:781-819. The eobs cap is bounded by the realtime
 	// schedule: BLOCK_64X64 + TX_4X4 -> 256 tx units, which fits the
-	// vp9BlockYrdMaxTxUnits ceiling below. govpx clamps tx_size <=
+	// blockYrdMaxTxUnits ceiling below. govpx clamps tx_size <=
 	// TX_16X16 (vp9_pickmode.c:2361) so the realistic max is 16.
 	txIdx := 0
-	var eobsBuf [vp9BlockYrdMaxTxUnits]int
+	var eobsBuf [blockYrdMaxTxUnits]int
 	if maxTxUnits > len(eobsBuf) {
 		return res
 	}
@@ -623,17 +622,17 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 			// libvpx: vp9_pickmode.c:796-813 — Hadamard dispatch by tx_size.
 			switch txSize {
 			case common.Tx16x16:
-				vp9Hadamard16x16Into(srcDiff[srcOff:], bw, coeffSlot)
+				hadamard16x16Into(srcDiff[srcOff:], bw, coeffSlot)
 			case common.Tx8x8:
-				vp9Hadamard8x8Into(srcDiff[srcOff:], bw, coeffSlot)
+				hadamard8x8Into(srcDiff[srcOff:], bw, coeffSlot)
 			default:
 				// libvpx: vp9_pickmode.c:809 — x->fwd_txfm4x4 is the forward
-				// 4x4 DCT (vpx_fdct4x4). govpx's encoder.ForwardDCT4x4Into
+				// 4x4 DCT (vpx_fdct4x4). govpx's ForwardDCT4x4Into
 				// is the verbatim libvpx port.
-				encoder.ForwardDCT4x4Into(srcDiff[srcOff:], bw, coeffSlot)
+				ForwardDCT4x4Into(srcDiff[srcOff:], bw, coeffSlot)
 			}
 			// libvpx: vp9_pickmode.c:799-811 — vp9_quantize_fp_c.
-			eob := encoder.QuantizeFPLibvpx(coeffSlot, nCoeffs, roundFP, quantFP,
+			eob := QuantizeFPLibvpx(coeffSlot, nCoeffs, roundFP, quantFP,
 				dequant, scan, iscan, qcoeffSlot, dqcoeffSlot)
 			eobsBuf[txIdx] = eob
 			// libvpx: vp9_pickmode.c:814 *skippable &= (*eob == 0);
@@ -649,9 +648,9 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	// when the caller provided a finite SSE. The nonrd keyframe intra
 	// picker passes INT64_MAX, which intentionally bypasses the early
 	// skippable return so the caller can clobber the final rate itself.
-	sseKnown := sseIn < vp9BlockYrdUnknownSSE
+	sseKnown := sseIn < BlockYrdUnknownSSE
 	if sseKnown {
-		res.sse = int64(sseIn << 4) // (<<6)>>2 == <<4
+		res.SSE = int64(sseIn << 4) // (<<6)>>2 == <<4
 	}
 
 	if skippable && sseKnown {
@@ -664,11 +663,11 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 		// comment at line 851 refers to the caller (vp9_pickmode.c:2364
 		// overwrites this_rdc.rate with vp9_cost_bit(skip_prob, 1)). So
 		// block_yrd's output on the skippable path is rate=0, dist=*sse.
-		res.dist = res.sse
-		res.skippable = true
-		res.rate = 0
+		res.Dist = res.SSE
+		res.Skippable = true
+		res.Rate = 0
 		_ = eobCost // unused on the skippable branch — see libvpx note above.
-		res.valid = true
+		res.Valid = true
 		return res
 	}
 
@@ -705,21 +704,21 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 		// libvpx: vp9_pickmode.c:845 — vp9_block_error_fp(coeff, dqcoeff, n) >> 2.
 		// The >> 2 is caller-side (the helper itself returns the raw
 		// sum-of-squared-diffs — libvpx vp9_rdopt.c:334-345).
-		dist += int64(vp9BlockErrorFP(coeffSlot, dqcoeffSlot)) >> 2
+		dist += int64(BlockErrorFP(coeffSlot, dqcoeffSlot)) >> 2
 	}
 
 	// libvpx: vp9_pickmode.c:852-853 — final rate scaling.
 	//   this_rdc.rate <<= (2 + VP9_PROB_COST_SHIFT);
 	//   this_rdc.rate += (eob_cost << VP9_PROB_COST_SHIFT);
-	res.rate = (rate << (2 + encoder.VP9ProbCostShift)) +
-		(eobCost << encoder.VP9ProbCostShift)
-	res.dist = dist
-	res.skippable = skippable
-	res.valid = true
+	res.Rate = (rate << (2 + VP9ProbCostShift)) +
+		(eobCost << VP9ProbCostShift)
+	res.Dist = dist
+	res.Skippable = skippable
+	res.Valid = true
 	return res
 }
 
-// vp9BlockErrorFP ports libvpx vp9_rdopt.c:334-345 verbatim:
+// BlockErrorFP ports libvpx vp9_rdopt.c:334-345 verbatim:
 //
 //	int64_t vp9_block_error_fp_c(const tran_low_t *coeff,
 //	                             const tran_low_t *dqcoeff,
@@ -746,7 +745,7 @@ func vp9BlockYrd(src []byte, srcStride int, srcX, srcY int,
 // historical scoreVP9KeyframeTxBlockRD caller (vp9_encoder.go) was
 // removed when the keyframe RD picker switched to cost_coeffs (commit
 // a2f325c); this helper remains as the verbatim block_yrd dependency.
-func vp9BlockErrorFP(coeff, dqcoeff []int16) uint64 {
+func BlockErrorFP(coeff, dqcoeff []int16) uint64 {
 	n := min(len(coeff), len(dqcoeff))
 	var err uint64
 	for i := range n {

@@ -300,7 +300,7 @@ type VP9Encoder struct {
 	txCoeffScratch [1024]int16
 	qCoeffScratch  [1024]int16
 	dqCoeffScratch [1024]int16
-	// vp9BlockYrdScratch backs vp9BlockYrd's src_diff + per-tx-unit
+	// vp9BlockYrdScratch backs encoder.BlockYrd's src_diff + per-tx-unit
 	// coeff/qcoeff/dqcoeff scratch. Sized for the realtime nonrd worst
 	// case: BLOCK_64X64 + TX_16X16 = 4096 src_diff + 16 tx units × 256
 	// coeffs × 3 (coeff/qcoeff/dqcoeff) = 16384 int16. libvpx clamps
