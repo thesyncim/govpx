@@ -1776,7 +1776,7 @@ func vp9SADPerBit16(qindex int) int {
 	if qindex > vp9dec.MaxQ {
 		qindex = vp9dec.MaxQ
 	}
-	q := vp9ConvertQIndexToQ(qindex)
+	q := encoder.ConvertQIndexToQ(qindex)
 	return int(0.0418*q + 2.4107)
 }
 

@@ -5,7 +5,7 @@ package encoder
 //
 // libvpx: vp9/encoder/vp9_ratectrl.c:1468 vp9_rc_pick_q_and_bounds_two_pass
 //
-// This function consumes the GF group decision produced by vp9DefineGFGroup
+// This function consumes the GF group decision produced by DefineGFGroup
 // (rf_level, layer_depth, gf_group.max_layer_depth, gfu_boost) and the
 // per-frame state to emit (active_best_quality, active_worst_quality, q).
 // govpx's existing vbrQuantizer / vbrQuantizerWithBounds remain the

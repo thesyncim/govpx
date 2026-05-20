@@ -36,7 +36,7 @@ import "github.com/thesyncim/govpx/internal/vp9/encoder"
 //   - vp9_rc_pick_q_and_bounds_two_pass
 //                                   libvpx: vp9/encoder/vp9_ratectrl.c:1468
 //   - compute_arf_boost             libvpx: vp9/encoder/vp9_firstpass.c:1936
-//     (already ported in 54d68f7; re-exported through vp9DefineGFGroup)
+//     (already ported in 54d68f7; re-exported through encoder.DefineGFGroup)
 //
 // rc.gfuBoost is now fed at every GF boundary by refreshVP9GFGroupIfDue
 // (this file), which activates the AltRef adaptive-strength path in
@@ -117,14 +117,14 @@ type vp9TwoPassState struct {
 	meanModScore        float64
 	frameIndex          uint64
 	currentTargetBits   int
-	// gfGroup is the currently-active vp9GFGroup decision produced by
-	// vp9DefineGFGroup. framesTillGFUpdate counts down to the next
+	// gfGroup is the currently-active encoder.GFGroup decision produced by
+	// encoder.DefineGFGroup. framesTillGFUpdate counts down to the next
 	// boundary; when it hits zero we recompute the GF group and refresh
 	// rc.gfuBoost.
 	//
 	// libvpx: vp9/encoder/vp9_firstpass.c:2761 define_gf_group +
 	//        vp9/encoder/vp9_ratectrl.h RATE_CONTROL::gfu_boost
-	gfGroup             vp9GFGroup
+	gfGroup             encoder.GFGroup
 	gfGroupActive       bool
 	framesTillGFUpdate  int
 	gfGroupStartShowIdx int
@@ -191,7 +191,7 @@ func (e *VP9Encoder) prepareVP9SecondPassFrameTarget(intraOnly bool, refreshFlag
 	e.rc.setOnePassVBRFrameTarget(intraOnly, refreshFlags)
 }
 
-// refreshVP9GFGroupIfDue (re)runs vp9DefineGFGroup at every GF boundary
+// refreshVP9GFGroupIfDue (re)runs encoder.DefineGFGroup at every GF boundary
 // and refreshes rc.gfuBoost so the downstream ARNR adaptive-strength
 // path is fed.
 //
@@ -207,7 +207,7 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 		return
 	}
 	in := e.buildVP9GFGroupInputs(isKey)
-	gf := vp9DefineGFGroup(in)
+	gf := encoder.DefineGFGroup(in)
 	e.twoPass.gfGroup = gf
 	e.twoPass.gfGroupActive = true
 	e.twoPass.gfGroupStartShowIdx = in.GFStartShowIdx
@@ -226,9 +226,9 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 }
 
 // buildVP9GFGroupInputs snapshots the encoder + RC state into the pure
-// inputs vp9DefineGFGroup consumes. Mirrors libvpx's VP9_COMP / RATE_CONTROL
+// inputs encoder.DefineGFGroup consumes. Mirrors libvpx's VP9_COMP / RATE_CONTROL
 // / TWO_PASS field reads at the define_gf_group call site.
-func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
+func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) encoder.GFGroupInputs {
 	mbRows := (e.opts.Height + 15) >> 4
 	if mbRows <= 0 {
 		mbRows = 1
@@ -242,8 +242,8 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
 		maxGF = encoder.MaxGFInterval
 	}
 	staticMax := maxGF
-	if staticMax < vp9MaxStaticGFGroupLength {
-		staticMax = min(maxGF*4, vp9MaxStaticGFGroupLength)
+	if staticMax < encoder.MaxStaticGFGroupLength {
+		staticMax = min(maxGF*4, encoder.MaxStaticGFGroupLength)
 	}
 	framesToKey := e.opts.MaxKeyframeInterval - int(e.framesSinceKey)
 	if framesToKey <= 0 {
@@ -254,7 +254,7 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
 	}
 	startShowIdx := int(e.twoPass.frameIndex)
 	avErr := e.twoPass.distributionAverageError()
-	return vp9GFGroupInputs{
+	return encoder.GFGroupInputs{
 		IsKeyFrame:               isKey,
 		SourceAltRefActive:       false,
 		FramesToKey:              framesToKey,
@@ -278,13 +278,13 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
 		KFGroupBits:              int64(e.rc.bitsPerFrame) * int64(framesToKey),
 		KFGroupErrorLeft:         e.twoPass.normalizedScoreLeft,
 		FrameMaxBits:             e.rc.maxFrameBandwidth,
-		GFMaxTotalBoost:          vp9MaxGFBoost,
+		GFMaxTotalBoost:          encoder.MaxGFBoost,
 		CurrentVideoFrame:        e.frameIndex,
 		MeanModScore:             e.twoPass.meanModScore,
 		AvErr:                    avErr,
 		Stats:                    e.twoPass.stats,
 		GFStartShowIdx:           startShowIdx,
-		BoostParams:              VP9DefaultARFBoostParams(mbRows),
+		BoostParams:              encoder.DefaultARFBoostParams(mbRows),
 		VBRCorpusComplexity:      e.opts.VBRCorpusComplexity,
 		TwoPassVBRBiasPct:        e.twoPass.vbrBiasPct,
 		TwoPassVBRMinSection:     e.twoPass.minPct,

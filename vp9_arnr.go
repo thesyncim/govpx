@@ -1,6 +1,10 @@
 package govpx
 
-import "image"
+import (
+	"image"
+
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 func (e *VP9Encoder) vp9AutoAltRefSourceImage(center *vp9LookaheadEntry) *image.YCbCr {
 	if center == nil {
@@ -104,7 +108,7 @@ func (e *VP9Encoder) applyVP9KeyFrameFilter(img *image.YCbCr) *image.YCbCr {
 	// libvpx applies adjust_arnr_filter's adaptive strength when gfu_boost
 	// is populated; govpx mirrors that for parity with the alt-ref pass.
 	if e.rc.gfuBoost > 0 {
-		adj := VP9AdjustARNRFilter(VP9AdjustARNRFilterInput{
+		adj := vp9enc.AdjustARNRFilter(vp9enc.AdjustARNRFilterInput{
 			LookaheadDepth:         int(e.lookaheadCount),
 			Distance:               -1,
 			GroupBoost:             int(e.rc.gfuBoost),
@@ -187,7 +191,7 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	// the one-pass DEFAULT_GF_BOOST seed (libvpx vp9_ratectrl.c:2082).
 	// Both feeds are now wired (NewVP9Encoder seeds DEFAULT_GF_BOOST
 	// when LookaheadFrames>0; refreshVP9GFGroupIfDue refreshes it from
-	// vp9DefineGFGroup at each GF boundary when two-pass stats are
+	// encoder.DefineGFGroup at each GF boundary when two-pass stats are
 	// available). The legacy non-adaptive branch is retained for
 	// streams that explicitly request gfuBoost=0 (e.g. zero-lag
 	// realtime CBR) and for the non-default ARNRType=1/2 directions
@@ -195,7 +199,7 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	var backward, forward, strength int
 	useAdaptive := e.rc.gfuBoost > 0
 	if useAdaptive {
-		adj := VP9AdjustARNRFilter(VP9AdjustARNRFilterInput{
+		adj := vp9enc.AdjustARNRFilter(vp9enc.AdjustARNRFilterInput{
 			LookaheadDepth:         int(e.lookaheadCount),
 			Distance:               distance,
 			GroupBoost:             int(e.rc.gfuBoost),

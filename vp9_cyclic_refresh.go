@@ -541,7 +541,7 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshSetup(args vp9CyclicRefreshSetu
 	// libvpx: vp9_aq_cyclicrefresh.c:631 — thresh_rate_sb.
 	cr.threshRateSb = (int64(args.Sb64TargetRate) << 8) << 2
 	// libvpx: vp9_aq_cyclicrefresh.c:635 — thresh_dist_sb.
-	q := vp9ConvertQIndexToQ(args.BaseQindex)
+	q := encoder.ConvertQIndexToQ(args.BaseQindex)
 	cr.threshDistSb = int64(q*q) << 2
 	// libvpx: vp9_aq_cyclicrefresh.c:659 — compute_deltaq for BOOST1.
 	cr.qindexDelta[0] = 0

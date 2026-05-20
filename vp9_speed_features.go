@@ -1316,9 +1316,15 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 		// libvpx: vp9_speed_features.c:278-288.
 		if e.twoPass.enabled() &&
 			(ctx.frContentType == vp9FCGraphicsAnimation || ctx.internalImageEdge) {
-			sf.UseSquarePartitionOnly = boolToInt(!boosted)
+			sf.UseSquarePartitionOnly = 0
+			if !boosted {
+				sf.UseSquarePartitionOnly = 1
+			}
 		} else {
-			sf.UseSquarePartitionOnly = boolToInt(!vp9FrameIsIntraOnly(ctx))
+			sf.UseSquarePartitionOnly = 0
+			if !vp9FrameIsIntraOnly(ctx) {
+				sf.UseSquarePartitionOnly = 1
+			}
 		}
 
 		sf.AllowTxfmDomainDistortion = 1

@@ -575,7 +575,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	// libvpx: vp9/encoder/vp9_ratectrl.c:2082 (one-pass VBR set) and
 	// vp9_ratectrl.h:31 DEFAULT_GF_BOOST.
 	if opts.LookaheadFrames > 0 {
-		e.rc.gfuBoost = uint16(vp9DefaultGFBoost)
+		e.rc.gfuBoost = uint16(encoder.DefaultGFBoost)
 	}
 	e.cyclicAQ.configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.perceptualAQ.configure(opts.AQMode == VP9AQPerceptual)

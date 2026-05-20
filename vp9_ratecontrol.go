@@ -134,7 +134,7 @@ type vp9RateControlState struct {
 	//   - NewVP9Encoder seeds DEFAULT_GF_BOOST when LookaheadFrames>0
 	//     (vp9_encoder.go), mirroring libvpx vp9_ratectrl.c:2082.
 	//   - refreshVP9GFGroupIfDue (vp9_twopass.go) refreshes from
-	//     vp9DefineGFGroup at each GF boundary when two-pass stats are
+	//     encoder.DefineGFGroup at each GF boundary when two-pass stats are
 	//     available, mirroring libvpx vp9_firstpass.c:2761 define_gf_group.
 	//
 	// libvpx: vp9/encoder/vp9_ratectrl.h RATE_CONTROL::gfu_boost
