@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -194,10 +195,10 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 			if len(line) == 0 || line[0] != '{' {
 				continue
 			}
-			if !bytesContains(line, []byte(`"frame_index":1,"mb_row":0,"mb_col":0`)) {
+			if !bytes.Contains(line, []byte(`"frame_index":1,"mb_row":0,"mb_col":0`)) {
 				continue
 			}
-			if bytesContains(line, []byte(`"type":"newmv_picker_quantize"`)) {
+			if bytes.Contains(line, []byte(`"type":"newmv_picker_quantize"`)) {
 				var r struct {
 					Block     int    `json:"block"`
 					Mode      string `json:"mode"`
@@ -224,7 +225,7 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 				}
 				continue
 			}
-			if bytesContains(line, []byte(`"type":"inter_candidate"`)) {
+			if bytes.Contains(line, []byte(`"type":"inter_candidate"`)) {
 				var r struct {
 					Mode       string `json:"mode"`
 					RefFrame   string `json:"ref_frame"`

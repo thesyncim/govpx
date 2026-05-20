@@ -10,81 +10,13 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-// TestVP8PickerYResidualParity reproduces the BestARNR cohort
-// (seed 19981bff, 1280x720 BestQuality/cpu0/VBR/screen-content=1/SSIM/
-// ARNR=1/1/2) and, after encoding frame 0 (KF), DIRECTLY INSPECTS the
-// encoder's internal state at the picker entry for MB(0,0) frame 1's
-// NEWMV MV=(8,16) candidate.
-//
-// Task #304 findings:
-//
-//  1. The 16x16 predictor for MV=(8,16) at MB(0,0) is the integer-pel
-//     copy from e.lastRef.Img.Y[mb_y+1 .. mb_y+17, mb_x+2 .. mb_x+18].
-//     Rows 0..14 are byte-identical to libvpx's pre.y_buffer at the
-//     same offset, per the libvpx oracle's "last_ref_window" trace
-//     (frame 1, plane "y", width=1312, height=48, border_top=32,
-//     border_left=32). The libvpx trace window only covers visible
-//     rows 0..15 (height=48 = border 32 + 16 visible rows), so the
-//     predictor's row 15 (which reads visible row 16) is NOT in the
-//     comparison window; it is bounded by the available visible
-//     CodedHeight of the same frame buffer that produced rows 0..14.
-//
-//  2. The 16x16 source at MB(0,0) frame 1 is the panning fixture's
-//     deterministic pixel formula, same on both sides.
-//
-//  3. The residual (src - pred) has 247/256 non-zero values, with SSE
-//     = 48000 (variance 47868). encode_breakout (threshold = (dequant[1]^2)>>4
-//     = 2232 at Q=106) does NOT fire because SSE >> threshold.
-//
-//  4. After ForwardDCT4x4Batch on the 16 4x4 Y residuals, the maximum
-//     |AC| coefficient across all 16 Y blocks is 87 (block 15, raster
-//     pos 9). The picker's zbin threshold at AC scan_pos 0 (rc=1,
-//     zeroRun=0) at Q=106 is Zbin[1]+ZbinBoost[0]+zbin_extra = 118+0+8
-//     = 126. Higher scan positions add ZbinBoost which only increases
-//     the threshold further. ALL 256 AC FDCT coefficients fall below
-//     their respective per-scan-position zbin thresholds, so the
-//     regular quantizer correctly produces all-zero Y qcoeff for every
-//     block (per-block eob=0, sum eob=0).
-//
-//  5. govpx's picker for NEWMV MV=(8,16) is therefore producing the
-//     mathematically correct output for the inputs it receives — all-
-//     zero Y qcoeff yields rate_y = 17 * Y_EOB_token_cost ≈ 7519, which
-//     matches the per-mode inter_candidate trace EXACTLY.
-//
-//  6. The libvpx oracle's NEWMV picker for the same MV reports rate_y
-//     = 34799 (much higher) and dist=55660 (slightly lower than govpx's
-//     58282). Lower distortion + higher rate_y are consistent only with
-//     libvpx producing NON-ZERO qcoeff for some Y blocks. Given the
-//     byte-identical predictor (rows 0..14) and the byte-identical
-//     panning source, this implies one of:
-//
-//     (a) libvpx's predictor differs at row 15 (the row past the
-//     captured last_ref_window). The KF byte-exact pin guarantees
-//     the encoded bitstream matches, but the LOOP-FILTERED
-//     reconstruction bytes outside the captured window are not
-//     directly verified.
-//
-//     (b) libvpx's macro_block_yrd quantize uses subtly different
-//     parameters (e.g., a stale b->zbin_extra from a prior mode
-//     iteration that bypassed vp8_update_zbin_extra). The
-//     rdopt.c:1930 vp8_update_zbin_extra call is gated by
-//     x->zbin_mode_boost_enabled which is 1 for this fixture, so
-//     static inspection does not surface a divergence here.
-//
-//     (c) A subtle quantize-formula divergence that I have not yet
-//     localized despite verbatim comparison of the porting at
-//     vp8_encoder_inter_quantize.go:64 vs vp8_quantize.c:75.
-//
-//  7. Next step (task #305+): extend build_vpxenc_oracle.sh to emit a
-//     per-Y-block "macro_block_yrd_y_qcoeff" trace row from inside
-//     libvpx's macro_block_yrd (rdopt.c:494-499) dumping (coeff[16],
-//     qcoeff[16], dqcoeff[16], eob, zbin_extra, dequant[0..1], Round[1],
-//     Quant[1], QuantShift[1], ZbinBoost[0..15]) for MB(0,0) frame 1
-//     NEWMV. Compare against govpx's identical dump from this test.
-//     The first divergent value pinpoints the actual root cause.
-func TestVP8PickerYResidualParity(t *testing.T) {
+// TestVP8NewMVPickerResidualQuantization inspects the BestQuality ARNR cohort
+// at frame 1 MB(0,0) for the NEWMV MV=(8,16) candidate. It verifies the source,
+// predictor, residual, FDCT, and zbin state that feed picker-side Y
+// quantization, then logs the per-block EOB shape used by the RD estimate.
+func TestVP8NewMVPickerResidualQuantization(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #304 picker Y residual audit")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run the NEWMV picker residual quantization check")
 	}
 
 	opts := EncoderOptions{
@@ -191,7 +123,7 @@ func TestVP8PickerYResidualParity(t *testing.T) {
 	qIndex := frame1QIndex
 	zbinOverQuant := enc.rc.currentZbinOverQuant
 	zbinModeBoost := 4 // MV_ZBIN_BOOST for NEWMV
-	// activity probe at MB(0,0) — task #210 trace shows act_zbin_adj=2
+	// Activity adjustment at MB(0,0) feeds the picker zbin threshold.
 	actZbinAdj := 0
 	if enc.activityMapValid {
 		if adj, ok := enc.tunedZbinAdjustment(mbRow, mbCol); ok {
@@ -250,7 +182,7 @@ func TestVP8PickerYResidualParity(t *testing.T) {
 		*dctBlock = saved
 	}
 
-	t.Logf("=== task #304 picker Y residual audit ===")
+	t.Logf("=== NEWMV picker Y residual quantization ===")
 	t.Logf("opts: 1280x720 BestARNR cohort, frame 1 MB(0,0) NEWMV MV=(%d,%d) ref=LAST_FRAME", mvRow, mvCol)
 	t.Logf("phase: (mv_row|mv_col)&7 = %d → integer-pel (vp8_copy_mem16x16 path)", (int(mvRow)|int(mvCol))&7)
 	t.Logf("predictor base in lastRef.Y: row=%d col=%d stride=%d border=%d", predBaseY, predBaseX, lastStride, enc.lastRef.Img.YBorder)

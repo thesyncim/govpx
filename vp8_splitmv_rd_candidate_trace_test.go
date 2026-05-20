@@ -13,53 +13,11 @@ import (
 	"testing"
 )
 
-// TestVP8SPLITMVRDParity re-runs the BestARNR audit cohort
-// (seed 19981bff, 1280x720 BestQuality/cpu0/VBR/screen-content=1/SSIM/
-// ARNR=1/1/2) with the per-MB inter_candidate oracle trace enabled on
-// BOTH sides (govpx via SetOracleTraceWriter; libvpx via the vpxenc-oracle
-// trace path), then extracts the per-mode RD-candidate scores at MB(0,0)
-// frame 1 and surfaces the SPLITMV vs NEWMV picker delta.
-//
-// Task #297 already pinned the upstream cause of the -5 byte ARNR pin-hold
-// to the inter mode picker (govpx picks NEWMV, libvpx picks SPLITMV at
-// MB(0,0) frame 1; the resulting zbin_mode_boost gap (4 vs 0) propagates
-// through zbin_extra to UV qcoeff at scan_pos 0 of block 16). This test
-// dumps the candidate RD scoreboard so the SPLITMV-vs-NEWMV picker
-// divergence can be localized to the RATE or DISTORTION component of the
-// SPLITMV RD score.
-//
-// Task #298 finding: govpx's NEWMV picker RD score at MB(0,0) frame 1 is
-// score=102349 / yrd=73707 / rate=20474 / rate_y=7519 / dist=58282.
-// libvpx's NEWMV picker RD score at MB(0,0) frame 1 is
-// score=160686 / yrd=129509 / rate=48796 / rate_y=34799 / dist=55660.
-// The dominant gap is rate_y (govpx 7519 vs libvpx 34799, delta=-27280;
-// distortion delta is only +2622). The picker's NEWMV rate_y in govpx
-// is 5x SMALLER than libvpx for the same MV=(8,16), same ref (frame 0
-// reconstruction which is byte-identical), same source frame. govpx's
-// picker quantize for NEWMV is producing all-zero Y qcoeff (see
-// {"type":"mb","frame_index":1,"mb_row":0,"mb_col":0,"mode":"NEWMV"...,
-// "qcoeff":[[0,0,...0],...,[0,0,...0]],"eob_sum":1}) while libvpx's
-// picker quantize for NEWMV is producing enough non-zero Y coefficients
-// to yield rate_y=34799 (libvpx ultimately accepts SPLITMV with the same
-// resulting all-zero qcoeff). The Y rate disparity floods downstream:
-// govpx's NEWMV yrd=73707 caps SPLITMV's segment_yrd commit in
-// vp8_rd_pick_best_mbsegmentation (libvpx rdopt.c:1996 `if (tmp_rd <
-// best_mode.yrd)` and govpx selectInterFrameSplitModeRDScore line 155
-// `if shape.SegmentYRD < bestSegmentYRD`). With the cap at 73707
-// (vs 129509 in libvpx), SPLITMV's per-label search at MB(0,0) cannot
-// commit any partition and selectInterFrameSplitModeRDScore returns
-// ok=false (outcome="splitmv_rd_dropout" surfaced by the new trace
-// probes), so govpx never tests SPLITMV/LAST. The root cause is in
-// govpx's picker-side Y quantize for NEWMV: see vp8_encoder_inter_rd.go:132
-// (estimateInterResidualRDAccountingWithModeContext call to
-// buildPredictedMacroblockCoefficientsInternal) vs libvpx rdopt.c:1647
-// (macro_block_yrd). The downstream divergence is correctly localized
-// but the actual cause of the picker quantize disparity (same residual
-// + same zbin → different qcoeff) is still upstream of static
-// inspection — it requires a per-block picker-side Y qcoeff oracle
-// trace similar to the task #296 pre-trellis UV hook, which is the
-// next step.
-func TestVP8SPLITMVRDParity(t *testing.T) {
+// TestVP8SplitMVRDCandidateTrace compares govpx and libvpx inter-candidate
+// rows for the BestQuality ARNR cohort whose frame 1 MB(0,0) mode decision
+// distinguishes SPLITMV from NEWMV. It keeps the trace context in test logs and
+// asserts that the expected candidate rows are present on both sides.
+func TestVP8SplitMVRDCandidateTrace(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run SPLITMV RD parity")
 	}
@@ -162,13 +120,6 @@ func TestVP8SPLITMVRDParity(t *testing.T) {
 	}
 
 	t.Logf("govpx trace bytes=%d libvpx trace bytes=%d", govpxTrace.Len(), len(libvpxTrace))
-	if err := os.WriteFile("/tmp/298-govpx-best.jsonl", govpxTrace.Bytes(), 0o644); err == nil {
-		t.Logf("wrote /tmp/298-govpx-best.jsonl")
-	}
-	if err := os.WriteFile("/tmp/298-libvpx-best.jsonl", libvpxTrace, 0o644); err == nil {
-		t.Logf("wrote /tmp/298-libvpx-best.jsonl")
-	}
-
 	gRows := parseSplitMVInterCandidateRows(govpxTrace.Bytes(), 1, 0, 0)
 	lRows := parseSplitMVInterCandidateRows(libvpxTrace, 1, 0, 0)
 	t.Logf("MB(0,0) frame 1 candidates: govpx=%d libvpx=%d", len(gRows), len(lRows))
@@ -206,6 +157,10 @@ func TestVP8SPLITMVRDParity(t *testing.T) {
 	// Locate the SPLITMV (LAST ref) and NEWMV (LAST ref) candidates by mode+ref on both sides.
 	splitGov, splitLib := pickRow(gRows, "SPLITMV", "LAST_FRAME"), pickRow(lRows, "SPLITMV", "LAST_FRAME")
 	newGov, newLib := pickRow(gRows, "NEWMV", "LAST_FRAME"), pickRow(lRows, "NEWMV", "LAST_FRAME")
+	if splitGov == nil || splitLib == nil || newGov == nil || newLib == nil {
+		t.Fatalf("missing MB(0,0) frame 1 LAST_FRAME candidates: govpx split=%v new=%v libvpx split=%v new=%v",
+			splitGov != nil, newGov != nil, splitLib != nil, newLib != nil)
+	}
 
 	if splitGov != nil && newGov != nil {
 		t.Logf("govpx MB(0,0) frame 1 SPLITMV vs NEWMV: split.score=%d new.score=%d delta=%d (split-new=%d)",

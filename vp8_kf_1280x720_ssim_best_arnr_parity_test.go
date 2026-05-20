@@ -443,7 +443,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	//
 	// Task #298 SPLITMV RD bisect (LOCALIZES the picker divergence,
 	// LATER RETRACTED — see task #314):
-	// the new TestVP8SPLITMVRDParity captures the per-mode
+	// TestVP8SplitMVRDCandidateTrace captures the per-mode
 	// inter_candidate trace for MB(0,0) frame 1 on both sides and
 	// surfaces the picker scoreboard. Key findings:
 	//
