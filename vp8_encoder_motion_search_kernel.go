@@ -96,7 +96,7 @@ func fullPelMVSADCostInline(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, co
 //
 // Returned cost is the SAD+MV-SAD-cost walk cost; the variance is
 // re-computed by the caller via interMotionFullPixelSearchReturnCost.
-func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
+func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
 	// Site tables in libvpx hex_search order. The 6-point ring and
 	// the three-of-six next-checkpoint slices use ±2 magnitudes; the
 	// four-neighbour refine uses ±1. Encoded as flat arrays so the
@@ -372,7 +372,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 	}, bestCost
 }
 
-func hexSuperKernelNoStats(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
+func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
 	const padRing int = 2
 	const padRefine int = 1
 	hexDR := [6]int8{-1, 1, 2, 1, -1, -2}

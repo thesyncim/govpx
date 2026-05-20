@@ -818,11 +818,11 @@ func (s *fullPelMotionSearch) exhaustiveNoStats(best vp8enc.MotionVector, bestWa
 // against a pinned per-q table, and the ±2 and ±1 site neighbourhoods
 // are batched through the x4 SAD primitive when the centre is interior.
 func (s *fullPelMotionSearch) hex(best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
-	return hexSuperKernel(s, best, bestCost)
+	return s.hexSuperKernel(best, bestCost)
 }
 
 func (s *fullPelMotionSearch) hexNoStats(best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
-	return hexSuperKernelNoStats(s, best, bestCost)
+	return s.hexSuperKernelNoStats(best, bestCost)
 }
 
 // interFrameNstepSites and interFrameDiamondSites are package-level
