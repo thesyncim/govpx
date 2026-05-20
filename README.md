@@ -28,8 +28,6 @@ architecture-specific assembly and selects the Go fallbacks under
 `internal/vp8/dsp`, `internal/vp8/encoder`, `internal/vp9/dsp`, and
 `internal/vp9/encoder`.
 
-New assembly/SIMD work is deferred until VP9 parity work stabilizes.
-
 ## Decode
 
 ```go
@@ -174,8 +172,7 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   on `EncodeInto` (VP8) or `EncodeIntoWithFlags` (VP9) for a one-frame request.
 - VP9 `EncodeIntoWithFlags` is Profile-0-only and supports the VP9-compatible
   keyframe, visibility, reference, and entropy hints documented by
-  `EncodeFlags`. Remaining Profile 0 encoder gaps are implementation status,
-  not scope expansion.
+  `EncodeFlags`.
 - `EncodeIntraOnlyFrameInto` plus `EncodeShowExistingFrameInto` covers the VP9
   hidden intra-only refresh / show-existing packet pattern used by payload-level
   refresh flows.
@@ -190,8 +187,9 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   `LAST` / `GOLDEN` / `ALTREF` references are invalidated, and the next
   encoded frame is forced to be a key frame at the new size. Mirrors
   libvpx's `vpx_codec_enc_config_set` with a new width / height. The
-  spatial resampler (`VP8E_SET_SCALEMODE`, `rc_resize_*`) is out of
-  scope. The decoder also handles key-frame resolution change; see
+  VP8 `SetScalingMode` writes keyframe scale bits and forces a keyframe, but
+  govpx does not run libvpx's internal source resampler or `rc_resize_*`
+  watermarks. The decoder also handles key-frame resolution change; see
   `DecoderOptions.RejectResolutionChange`.
 
 See `examples/webrtc-vp8` for a VP8 separate-module demo that streams govpx
@@ -199,7 +197,7 @@ VP8 through pion/webrtc to a browser.
 
 ## More
 
-- `docs/api.md`: planned API cleanup draft and option families.
+- `docs/api.md`: public API guide and examples.
 - `docs/architecture.md`: package ownership and data flow.
 - `docs/codec-status.md`: supported VP8/VP9 scope and out-of-scope features.
 - `docs/validation.md`: local, CI, oracle, fuzz, allocation, and performance

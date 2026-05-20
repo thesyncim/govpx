@@ -21,9 +21,10 @@ of scope. Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`.
 
 ## Optimization Scope
 
-Assembly and SIMD optimization is deferred until the VP9 encoder reaches full
-Profile 0 parity. Until then, prioritize correct scalar behavior, oracle
-coverage, and public API compatibility.
+Architecture-specific kernels exist for selected hot paths, and the `purego`
+build tag selects scalar fallbacks. New optimization work must preserve scalar
+correctness, oracle coverage, allocation behavior, and public API
+compatibility.
 
 ## Gates
 
