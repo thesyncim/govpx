@@ -388,7 +388,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	e.vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame, miRows, miCols, macroblocks, header)
 	if e.opts.AQMode == VP9AQPerceptual {
-		e.perceptualAQ.prepareFrame(img, int(header.Quant.BaseQindex), showFrame)
+		e.perceptualAQ.PrepareFrame(img, int(header.Quant.BaseQindex), showFrame)
 	}
 	seg := e.vp9EncoderSegmentationParams(isKey || intraOnly,
 		int(header.Quant.BaseQindex))

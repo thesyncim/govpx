@@ -121,8 +121,8 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 		}
 		return segID, true
 	}
-	if e.opts.AQMode == VP9AQPerceptual && e.perceptualAQ.ready {
-		segID := e.perceptualAQ.segmentIDForBlock(miRow, miCol)
+	if e.opts.AQMode == VP9AQPerceptual && e.perceptualAQ.Ready {
+		segID := e.perceptualAQ.SegmentIDForBlock(miRow, miCol)
 		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
 			return vp9ActiveMapSegmentInactive, true
 		}

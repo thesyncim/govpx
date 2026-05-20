@@ -16,7 +16,7 @@ type VP9Encoder struct {
 	rc           vp9RateControlState
 	twoPass      vp9TwoPassState
 	cyclicAQ     encoder.CyclicRefreshState
-	perceptualAQ vp9PerceptualAQState
+	perceptualAQ encoder.PerceptualAQState
 	vp9OracleTraceHolder
 	// spatialScalabilityLocked is set for encoders owned by
 	// VP9SpatialSVCEncoder; the parent owns spatial layer metadata.
@@ -578,7 +578,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		e.rc.gfuBoost = uint16(encoder.DefaultGFBoost)
 	}
 	e.cyclicAQ.Configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
-	e.perceptualAQ.configure(opts.AQMode == VP9AQPerceptual)
+	e.perceptualAQ.Configure(opts.AQMode == VP9AQPerceptual)
 	e.tpl.configure(opts.EnableTPL, opts.Width, opts.Height, opts.LookaheadFrames)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)

@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 // VP9 perceptual adaptive quantization (AQ_MODE=PERCEPTUAL_AQ).
 //
@@ -38,19 +38,19 @@ const (
 	// libvpx: vp9/encoder/vp9_encoder.h:519 #define MAX_KMEANS_GROUPS 8.
 	// build_kmeans_segmentation hardcodes cpi->kmeans_ctr_num = 8 at
 	// vp9_encodeframe.c:3518.
-	vp9PerceptualAQClusters = 8
+	perceptualAQClusters = 8
 	// libvpx: vp9/encoder/vp9_encodeframe.c:5568 for (itr = 0; itr < 10; ++itr).
-	vp9PerceptualAQIterations = 10
+	perceptualAQIterations = 10
 	// libvpx: vp9/encoder/vp9_encoder.c:5199 const int block_size = 16.
-	vp9PerceptualAQMBSize = 16
+	perceptualAQMBSize = 16
 	// libvpx: vp9/encoder/vp9_segmentation.c:70 const double var_diff_scale = 4.0.
-	vp9PerceptualAQVarDiffScale = 4.0
+	perceptualAQVarDiffScale = 4.0
 	// libvpx: 64x64 SB is BLOCK_64X64. mi_block_size is 8 (MI_BLOCK_SIZE),
 	// which corresponds to 8 * 8 = 64 luma pixels per SB side, i.e. 4 MBs.
-	vp9PerceptualAQSBSizeInMB = 4
+	perceptualAQSBSizeInMB = 4
 )
 
-// vp9PerceptualAQState holds the per-frame Wiener-variance + k-means
+// PerceptualAQState holds the per-frame Wiener-variance + k-means
 // state. Renamed govpx-side, but the fields map 1:1 onto libvpx:
 //
 //	mbWienerVariance  <-> cpi->mb_wiener_variance       (vp9_encoder.h)
@@ -62,9 +62,9 @@ const (
 // segments holds the per-SB segment_id assignment computed by
 // wiener_var_segment (vp9_encodeframe.c:3560), keyed by mi_row/mi_col
 // stepped by MI_BLOCK_SIZE = 8.
-type vp9PerceptualAQState struct {
-	enabled bool
-	ready   bool
+type PerceptualAQState struct {
+	Enabled bool
+	Ready   bool
 
 	mbRows int
 	mbCols int
@@ -79,18 +79,18 @@ type vp9PerceptualAQState struct {
 	sbRows   int
 	segments []uint8
 
-	kmeansCenters    [vp9PerceptualAQClusters]float64
-	kmeansBoundaries [vp9PerceptualAQClusters]float64
+	kmeansCenters    [perceptualAQClusters]float64
+	kmeansBoundaries [perceptualAQClusters]float64
 
 	// Per-segment AltQ deltas; populated from
 	// vp9_perceptual_aq_mode_setup (vp9_segmentation.c:63).
 	deltas [vp9dec.MaxSegments]int16
 }
 
-// configure enables or disables perceptual AQ at construction time.
-func (s *vp9PerceptualAQState) configure(enabled bool) {
-	s.enabled = enabled
-	s.ready = false
+// Configure enables or disables perceptual AQ at construction time.
+func (s *PerceptualAQState) Configure(enabled bool) {
+	s.Enabled = enabled
+	s.Ready = false
 	if !enabled {
 		s.mbWienerVariance = nil
 		s.kmeansData = nil
@@ -98,7 +98,7 @@ func (s *vp9PerceptualAQState) configure(enabled bool) {
 	}
 }
 
-// prepareFrame runs the libvpx PERCEPTUAL_AQ pipeline for one show
+// PrepareFrame runs the libvpx PERCEPTUAL_AQ pipeline for one show
 // frame:
 //   - set_mb_wiener_variance      (vp9_encoder.c:5178)
 //   - build_kmeans_segmentation   (vp9_encodeframe.c:3509)
@@ -111,24 +111,27 @@ func (s *vp9PerceptualAQState) configure(enabled bool) {
 // callers pass `showFrame` so non-displayed alt-ref frames skip the
 // pass and inherit the previous show-frame segmentation, exactly as
 // libvpx does (vp9_disable_segmentation is also gated on show_frame).
-func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, showFrame bool) bool {
-	if !s.enabled || img == nil {
-		s.ready = false
+func (s *PerceptualAQState) PrepareFrame(img *image.YCbCr, baseQIndex int, showFrame bool) bool {
+	if !s.Enabled || img == nil {
+		s.Ready = false
 		return false
 	}
 	if !showFrame {
-		return s.ready
+		return s.Ready
 	}
-	s.ready = false
-	src, stride, width, height := vp9EncoderSourcePlane(img, 0)
+	s.Ready = false
+	src := img.Y
+	stride := img.YStride
+	width := img.Rect.Dx()
+	height := img.Rect.Dy()
 	if len(src) == 0 || stride <= 0 || width <= 0 || height <= 0 {
 		return false
 	}
 	// libvpx: mb_rows/mb_cols come from vp9_set_mb_size
 	// (vp9_alloccommon.c:29). With 8-pixel MI alignment, this rounds
 	// each dimension up to a 16-pixel multiple.
-	mbCols := (width + vp9PerceptualAQMBSize - 1) / vp9PerceptualAQMBSize
-	mbRows := (height + vp9PerceptualAQMBSize - 1) / vp9PerceptualAQMBSize
+	mbCols := (width + perceptualAQMBSize - 1) / perceptualAQMBSize
+	mbRows := (height + perceptualAQMBSize - 1) / perceptualAQMBSize
 	if mbCols <= 0 || mbRows <= 0 {
 		return false
 	}
@@ -144,14 +147,14 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 	// every (mb_row, mb_col), Hadamard-transforms the 16x16 block
 	// against a zero predictor, zeros the DC, sorts |AC|, picks the
 	// median, runs a Wiener filter, and stores the result.
-	vp9PerceptualSetMBWienerVariance(src, stride, width, height,
+	perceptualSetMBWienerVariance(src, stride, width, height,
 		mbRows, mbCols, s.mbWienerVariance)
 
 	// libvpx: build_kmeans_segmentation (vp9_encodeframe.c:3509).
 	// Aggregates the per-MB variances over each 64x64 SB (4x4 MBs),
 	// divides by the count to get the per-SB mean, then pushes
 	// log_wiener_var(mean) into the kmeans data array.
-	sbStep := vp9PerceptualAQSBSizeInMB
+	sbStep := perceptualAQSBSizeInMB
 	sbCols := (mbCols + sbStep - 1) / sbStep
 	sbRows := (mbRows + sbStep - 1) / sbStep
 	s.sbRows = sbRows
@@ -181,10 +184,10 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 			// libvpx: vp9_encodeframe.c:3535 wiener_variance /= ...
 			mean := sum / n
 			// libvpx: vp9_encodeframe.c:3543 log_wiener_var(...)
-			s.kmeansData = append(s.kmeansData, vp9PerceptualLogWienerVar(mean))
+			s.kmeansData = append(s.kmeansData, perceptualLogWienerVar(mean))
 		}
 	}
-	if len(s.kmeansData) < vp9PerceptualAQClusters {
+	if len(s.kmeansData) < perceptualAQClusters {
 		// libvpx asserts k>=2 && k<=MAX_KMEANS_GROUPS and indexes
 		// arr[(size * (2*j+1))/(2*k)] which requires size >= k. Tiny
 		// frames (single SB) cannot be clustered into 8 groups; we
@@ -208,11 +211,11 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 
 	// libvpx: vp9_kmeans (vp9_encodeframe.c:5549). Sorts data,
 	// quantile-initializes centers, runs 10 Lloyd iterations.
-	vp9PerceptualKMeans(s.kmeansData, &s.kmeansCenters, &s.kmeansBoundaries)
+	perceptualKMeans(s.kmeansData, &s.kmeansCenters, &s.kmeansBoundaries)
 
 	// libvpx: vp9_perceptual_aq_mode_setup (vp9_segmentation.c:63).
 	// Note bit_depth fixed to 8: govpx only encodes 8-bit profile 0.
-	vp9PerceptualAQModeSetup(s.kmeansCenters[:], baseQIndex, s.deltas[:])
+	perceptualAQModeSetup(s.kmeansCenters[:], baseQIndex, s.deltas[:])
 
 	// libvpx: wiener_var_segment (vp9_encodeframe.c:3560) is called
 	// once per BLOCK_64X64 SB inside encode_rd_sb. We materialize the
@@ -225,17 +228,17 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 	}
 	for sbRow := range sbRows {
 		for sbCol := range sbCols {
-			s.segments[sbRow*sbCols+sbCol] = vp9PerceptualWienerVarSegment(
+			s.segments[sbRow*sbCols+sbCol] = perceptualWienerVarSegment(
 				s.mbWienerVariance, mbCols, mbRows,
 				sbRow*sbStep, sbCol*sbStep,
 				&s.kmeansBoundaries)
 		}
 	}
-	s.ready = true
+	s.Ready = true
 	return true
 }
 
-// segmentationParams returns the segmentation header VP9AQPerceptual
+// SegmentationParams returns the segmentation header VP9AQPerceptual
 // emits. libvpx (vp9_perceptual_aq_mode_setup -> vp9_enable_segmentation)
 // rebuilds the segment data on every show frame, so UpdateData is
 // always set when the AQ pass is ready for the current frame. Non-show
@@ -244,8 +247,8 @@ func (s *vp9PerceptualAQState) prepareFrame(img *image.YCbCr, baseQIndex int, sh
 //
 // libvpx: vp9/encoder/vp9_segmentation.c:22 vp9_enable_segmentation
 // sets enabled=update_map=update_data=1.
-func (s *vp9PerceptualAQState) segmentationParams(intraFrame bool) vp9dec.SegmentationParams {
-	if !s.ready {
+func (s *PerceptualAQState) SegmentationParams(intraFrame bool) vp9dec.SegmentationParams {
+	if !s.Ready {
 		return vp9dec.SegmentationParams{}
 	}
 	seg := vp9dec.SegmentationParams{
@@ -253,7 +256,7 @@ func (s *vp9PerceptualAQState) segmentationParams(intraFrame bool) vp9dec.Segmen
 		UpdateMap: true,
 		AbsDelta:  false,
 	}
-	initVP9SegmentationProbDefaults(&seg)
+	initSegmentationProbDefaults(&seg)
 	if !intraFrame {
 		// Inter show-frame: libvpx rewrites segment data every show
 		// frame, but the decoder treats UpdateData=0 as "reuse last
@@ -274,13 +277,13 @@ func (s *vp9PerceptualAQState) segmentationParams(intraFrame bool) vp9dec.Segmen
 	return seg
 }
 
-// segmentIDForBlock returns the cluster index assigned to the
+// SegmentIDForBlock returns the cluster index assigned to the
 // superblock containing (miRow, miCol). libvpx assigns segments at
 // BLOCK_64X64 granularity via wiener_var_segment
 // (vp9_encodeframe.c:3560). MI_BLOCK_SIZE is 8, so each SB spans 8 MI
 // rows/cols = 64 luma pixels = 4 MBs per side.
-func (s *vp9PerceptualAQState) segmentIDForBlock(miRow, miCol int) uint8 {
-	if !s.ready || len(s.segments) == 0 {
+func (s *PerceptualAQState) SegmentIDForBlock(miRow, miCol int) uint8 {
+	if !s.Ready || len(s.segments) == 0 {
 		return 0
 	}
 	sbRow := miRow >> 3
@@ -300,7 +303,19 @@ func (s *vp9PerceptualAQState) segmentIDForBlock(miRow, miCol int) uint8 {
 	return s.segments[sbRow*s.sbCols+sbCol]
 }
 
-// vp9PerceptualWienerVarSegment ports wiener_var_segment
+func initSegmentationProbDefaults(seg *vp9dec.SegmentationParams) {
+	if seg == nil {
+		return
+	}
+	for i := range vp9dec.SegTreeProbs {
+		seg.TreeProbs[i] = vp9dec.MaxProb
+	}
+	for i := range vp9dec.PredictionProbs {
+		seg.PredProbs[i] = vp9dec.MaxProb
+	}
+}
+
+// perceptualWienerVarSegment ports wiener_var_segment
 // (vp9_encodeframe.c:3560). For the 64x64 SB at (mbRowStart,
 // mbColStart) in MB coordinates, look up each MB's group via
 // vp9_get_group_idx and return the majority cluster.
@@ -309,24 +324,24 @@ func (s *vp9PerceptualAQState) segmentIDForBlock(miRow, miCol int) uint8 {
 // libvpx: vp9_encodeframe.c:3573 int8_t max_count, max_index = -1
 // libvpx: vp9_encodeframe.c:3580 for (col = ...) ++seg_hist[segment_id]
 // libvpx: vp9_encodeframe.c:3589 pick the max-count cluster
-func vp9PerceptualWienerVarSegment(mbVar []int64, mbCols, mbRows,
+func perceptualWienerVarSegment(mbVar []int64, mbCols, mbRows,
 	mbRowStart, mbColStart int,
-	boundaries *[vp9PerceptualAQClusters]float64,
+	boundaries *[perceptualAQClusters]float64,
 ) uint8 {
-	mbRowEnd := min(mbRowStart+vp9PerceptualAQSBSizeInMB, mbRows)
-	mbColEnd := min(mbColStart+vp9PerceptualAQSBSizeInMB, mbCols)
-	var segHist [vp9PerceptualAQClusters]int
+	mbRowEnd := min(mbRowStart+perceptualAQSBSizeInMB, mbRows)
+	mbColEnd := min(mbColStart+perceptualAQSBSizeInMB, mbCols)
+	var segHist [perceptualAQClusters]int
 	for r := mbRowStart; r < mbRowEnd; r++ {
 		for c := mbColStart; c < mbColEnd; c++ {
 			wv := mbVar[r*mbCols+c]
-			idx := vp9PerceptualGroupIndex(
-				vp9PerceptualLogWienerVar(wv), boundaries)
+			idx := perceptualGroupIndex(
+				perceptualLogWienerVar(wv), boundaries)
 			segHist[idx]++
 		}
 	}
 	maxCount := -1
 	maxIndex := 0
-	for i := range vp9PerceptualAQClusters {
+	for i := range perceptualAQClusters {
 		// libvpx uses strict `seg_hist[idx] > max_count` so ties go
 		// to the lower-index cluster.
 		if segHist[i] > maxCount {
@@ -337,7 +352,7 @@ func vp9PerceptualWienerVarSegment(mbVar []int64, mbCols, mbRows,
 	return uint8(maxIndex)
 }
 
-// vp9PerceptualAQModeSetup ports vp9_perceptual_aq_mode_setup
+// perceptualAQModeSetup ports vp9_perceptual_aq_mode_setup
 // (vp9_segmentation.c:63). Translates the k-means centers into
 // per-segment AltQ deltas, anchored at the middle cluster
 // (seg_counts/2) with delta_q = 0.
@@ -352,11 +367,11 @@ func vp9PerceptualWienerVarSegment(mbVar []int64, mbCols, mbRows,
 // We hardcode bit_depth = 8 to match govpx's 8-bit-only encoder.
 // vp9_convert_qindex_to_q at 8 bits returns ac_quant_lookup[q] / 4.0
 // (vp9_ratectrl.c:181).
-func vp9PerceptualAQModeSetup(centers []float64, baseQIndex int, deltas []int16) {
+func perceptualAQModeSetup(centers []float64, baseQIndex int, deltas []int16) {
 	for i := range deltas {
 		deltas[i] = 0
 	}
-	if len(centers) < vp9PerceptualAQClusters {
+	if len(centers) < perceptualAQClusters {
 		return
 	}
 	if baseQIndex < 0 {
@@ -365,8 +380,8 @@ func vp9PerceptualAQModeSetup(centers []float64, baseQIndex int, deltas []int16)
 	if baseQIndex > 255 {
 		baseQIndex = 255
 	}
-	baseQStep := vp9PerceptualQIndexToQStep(baseQIndex)
-	mid := vp9PerceptualAQClusters / 2
+	baseQStep := perceptualQIndexToQStep(baseQIndex)
+	mid := perceptualAQClusters / 2
 	midCtr := centers[mid]
 	// libvpx: for (i = 0; i < seg_counts/2; ++i) (vp9_segmentation.c:79).
 	for i := range mid {
@@ -378,8 +393,8 @@ func vp9PerceptualAQModeSetup(centers []float64, baseQIndex int, deltas []int16)
 			// initial quantile picks land in an empty cluster.
 			wienerVarDiff = 0
 		}
-		targetQStep := baseQStep / (1.0 + wienerVarDiff/vp9PerceptualAQVarDiffScale)
-		targetQIndex := vp9PerceptualQStepToQIndex(targetQStep)
+		targetQStep := baseQStep / (1.0 + wienerVarDiff/perceptualAQVarDiffScale)
+		targetQIndex := perceptualQStepToQIndex(targetQStep)
 		deltas[i] = int16(targetQIndex - baseQIndex)
 	}
 	// libvpx: vp9_segmentation.c:89 set segment i=mid to delta=0.
@@ -388,27 +403,27 @@ func vp9PerceptualAQModeSetup(centers []float64, baseQIndex int, deltas []int16)
 	// the iterator starts at mid (=4) and the body recomputes a
 	// non-negative diff; the i=mid case yields delta=0 (already set
 	// above) and is overwritten with the same value.
-	for i := mid; i < vp9PerceptualAQClusters; i++ {
+	for i := mid; i < perceptualAQClusters; i++ {
 		wienerVarDiff := centers[i] - midCtr
 		if wienerVarDiff < 0 {
 			wienerVarDiff = 0
 		}
-		targetQStep := baseQStep * (1.0 + wienerVarDiff/vp9PerceptualAQVarDiffScale)
-		targetQIndex := vp9PerceptualQStepToQIndex(targetQStep)
+		targetQStep := baseQStep * (1.0 + wienerVarDiff/perceptualAQVarDiffScale)
+		targetQIndex := perceptualQStepToQIndex(targetQStep)
 		deltas[i] = int16(targetQIndex - baseQIndex)
 	}
 }
 
-// vp9PerceptualLogWienerVar ports log_wiener_var
+// perceptualLogWienerVar ports log_wiener_var
 // (vp9_encodeframe.c:3505): log2(1 + wiener_variance).
-func vp9PerceptualLogWienerVar(variance int64) float64 {
+func perceptualLogWienerVar(variance int64) float64 {
 	if variance < 0 {
 		variance = 0
 	}
 	return math.Log(1.0+float64(variance)) / math.Log(2.0)
 }
 
-// vp9PerceptualSetMBWienerVariance ports set_mb_wiener_variance
+// perceptualSetMBWienerVariance ports set_mb_wiener_variance
 // (vp9_encoder.c:5178) over the source luma plane.
 //
 // libvpx subtracts a zero predictor (effectively casting u8 to s16),
@@ -423,10 +438,10 @@ func vp9PerceptualLogWienerVar(variance int64) float64 {
 // govpx's image.YCbCr has no implicit border, so we replicate the last
 // in-frame sample at the right/bottom edges. For all in-frame MBs the
 // data path is bitwise identical to libvpx.
-func vp9PerceptualSetMBWienerVariance(src []byte, stride, width, height,
+func perceptualSetMBWienerVariance(src []byte, stride, width, height,
 	mbRows, mbCols int, mbVariance []int64,
 ) {
-	const block = vp9PerceptualAQMBSize
+	const block = perceptualAQMBSize
 	const coeffCount = block * block
 	var srcDiff [coeffCount]int16
 	var coeff [coeffCount]int32
@@ -443,9 +458,9 @@ func vp9PerceptualSetMBWienerVariance(src []byte, stride, width, height,
 			if y0+h > height {
 				h = height - y0
 			}
-			vp9PerceptualGatherMBBlock(src, stride, x0, y0, w, h, srcDiff[:])
+			perceptualGatherMBBlock(src, stride, x0, y0, w, h, srcDiff[:])
 			// libvpx: vpx_hadamard_16x16 + coeff[0] = 0.
-			vp9PerceptualHadamard16x16(srcDiff[:], block, coeff[:])
+			perceptualHadamard16x16(srcDiff[:], block, coeff[:])
 			coeff[0] = 0
 			// libvpx: for (idx = 1; idx < coeff_count; ++idx) abs(coeff)
 			for i := 1; i < coeffCount; i++ {
@@ -485,12 +500,12 @@ func vp9PerceptualSetMBWienerVariance(src []byte, stride, width, height,
 	}
 }
 
-// vp9PerceptualGatherMBBlock copies a 16x16 region from the luma
+// perceptualGatherMBBlock copies a 16x16 region from the luma
 // plane into a 16x16 int16 buffer. Out-of-frame samples are replicated
 // from the last in-frame row/col to mimic libvpx's source-buffer
 // border-padding.
-func vp9PerceptualGatherMBBlock(src []byte, stride, x0, y0, w, h int, dst []int16) {
-	const block = vp9PerceptualAQMBSize
+func perceptualGatherMBBlock(src []byte, stride, x0, y0, w, h int, dst []int16) {
+	const block = perceptualAQMBSize
 	for y := range block {
 		srcY := y0 + y
 		if y >= h {
@@ -507,10 +522,10 @@ func vp9PerceptualGatherMBBlock(src []byte, stride, x0, y0, w, h int, dst []int1
 	}
 }
 
-// vp9PerceptualHadamardCol8 ports libvpx's hadamard_col8
+// perceptualHadamardCol8 ports libvpx's hadamard_col8
 // (vpx_dsp/avg.c:199): the 8-point column pass used in 8x8 and 16x16
 // Hadamard.
-func vp9PerceptualHadamardCol8(src []int16, srcStride int, dst []int16) {
+func perceptualHadamardCol8(src []int16, srcStride int, dst []int16) {
 	b0 := src[0*srcStride] + src[1*srcStride]
 	b1 := src[0*srcStride] - src[1*srcStride]
 	b2 := src[2*srcStride] + src[3*srcStride]
@@ -539,12 +554,12 @@ func vp9PerceptualHadamardCol8(src []int16, srcStride int, dst []int16) {
 	dst[5] = c3 - c7
 }
 
-// vp9PerceptualHadamard8x8 ports vpx_hadamard_8x8_c (vpx_dsp/avg.c:231).
-func vp9PerceptualHadamard8x8(src []int16, srcStride int, coeff []int32) {
+// perceptualHadamard8x8 ports vpx_hadamard_8x8_c (vpx_dsp/avg.c:231).
+func perceptualHadamard8x8(src []int16, srcStride int, coeff []int32) {
 	var buffer [64]int16
 	var buffer2 [64]int16
 	for idx := range 8 {
-		vp9PerceptualHadamardCol8(src[idx:], srcStride, buffer[idx*8:idx*8+8])
+		perceptualHadamardCol8(src[idx:], srcStride, buffer[idx*8:idx*8+8])
 	}
 	for idx := range 8 {
 		col := [8]int16{
@@ -557,18 +572,18 @@ func vp9PerceptualHadamard8x8(src []int16, srcStride int, coeff []int32) {
 			buffer[48+idx],
 			buffer[56+idx],
 		}
-		vp9PerceptualHadamardCol8(col[:], 1, buffer2[idx*8:idx*8+8])
+		perceptualHadamardCol8(col[:], 1, buffer2[idx*8:idx*8+8])
 	}
 	for idx := range 64 {
 		coeff[idx] = int32(buffer2[idx])
 	}
 }
 
-// vp9PerceptualHadamard16x16 ports vpx_hadamard_16x16_c (vpx_dsp/avg.c:257).
-func vp9PerceptualHadamard16x16(src []int16, srcStride int, coeff []int32) {
+// perceptualHadamard16x16 ports vpx_hadamard_16x16_c (vpx_dsp/avg.c:257).
+func perceptualHadamard16x16(src []int16, srcStride int, coeff []int32) {
 	for idx := range 4 {
 		offset := (idx>>1)*8*srcStride + (idx&1)*8
-		vp9PerceptualHadamard8x8(src[offset:], srcStride, coeff[idx*64:idx*64+64])
+		perceptualHadamard8x8(src[offset:], srcStride, coeff[idx*64:idx*64+64])
 	}
 	for idx := range 64 {
 		a0 := coeff[idx]
@@ -588,7 +603,7 @@ func vp9PerceptualHadamard16x16(src []int16, srcStride int, coeff []int32) {
 	}
 }
 
-// vp9PerceptualKMeans ports vp9_kmeans (vp9_encodeframe.c:5549) for
+// perceptualKMeans ports vp9_kmeans (vp9_encodeframe.c:5549) for
 // k = MAX_KMEANS_GROUPS = 8 with 10 iterations. The values slice is
 // sorted in-place (libvpx: qsort + compare_kmeans_data ascending).
 //
@@ -598,15 +613,15 @@ func vp9PerceptualHadamard16x16(src []int16, srcStride int, coeff []int32) {
 //	5565  ctr_ls[j] = arr[(size * (2*j+1)) / (2*k)].value;
 //	5568  for (itr = 0; itr < 10; ++itr) { ... }
 //	5604  compute_boundary_ls(...)
-func vp9PerceptualKMeans(values []float64,
-	centers, boundaries *[vp9PerceptualAQClusters]float64,
+func perceptualKMeans(values []float64,
+	centers, boundaries *[perceptualAQClusters]float64,
 ) {
 	sort.Float64s(values)
 	size := len(values)
-	if size < vp9PerceptualAQClusters {
+	if size < perceptualAQClusters {
 		return
 	}
-	k := vp9PerceptualAQClusters
+	k := perceptualAQClusters
 	// libvpx: initialize the center points by quantile picks.
 	for j := range k {
 		idx := (size * (2*j + 1)) / (2 * k)
@@ -616,10 +631,10 @@ func vp9PerceptualKMeans(values []float64,
 		centers[j] = values[idx]
 	}
 	// libvpx: 10 Lloyd iterations.
-	for range vp9PerceptualAQIterations {
-		vp9PerceptualComputeBoundaries(centers, boundaries)
-		var sums [vp9PerceptualAQClusters]float64
-		var counts [vp9PerceptualAQClusters]int
+	for range perceptualAQIterations {
+		perceptualComputeBoundaries(centers, boundaries)
+		var sums [perceptualAQClusters]float64
+		var counts [perceptualAQClusters]int
 		// libvpx note: because both data and centers are sorted
 		// ascending, the group index for successive samples can only
 		// increase, so the group cursor is only reset to zero between
@@ -642,68 +657,68 @@ func vp9PerceptualKMeans(values []float64,
 		}
 	}
 	// libvpx: final compute_boundary_ls after the iteration loop.
-	vp9PerceptualComputeBoundaries(centers, boundaries)
+	perceptualComputeBoundaries(centers, boundaries)
 }
 
-// vp9PerceptualComputeBoundaries ports compute_boundary_ls
+// perceptualComputeBoundaries ports compute_boundary_ls
 // (vp9_encodeframe.c:5528): the boundary array stores per-cluster
 // midpoints with the last entry pinned to DBL_MAX (math.Inf(+1)
 // in Go) so any oversize value lands in the highest cluster.
-func vp9PerceptualComputeBoundaries(centers,
-	boundaries *[vp9PerceptualAQClusters]float64,
+func perceptualComputeBoundaries(centers,
+	boundaries *[perceptualAQClusters]float64,
 ) {
-	for j := range vp9PerceptualAQClusters - 1 {
+	for j := range perceptualAQClusters - 1 {
 		boundaries[j] = (centers[j] + centers[j+1]) / 2.0
 	}
-	boundaries[vp9PerceptualAQClusters-1] = math.Inf(1)
+	boundaries[perceptualAQClusters-1] = math.Inf(1)
 }
 
-// vp9PerceptualGroupIndex ports vp9_get_group_idx
+// perceptualGroupIndex ports vp9_get_group_idx
 // (vp9_encodeframe.c:5538). The libvpx loop is a linear scan with
 // `value >= boundary_ls[group_idx]` and breaks at k-1.
-func vp9PerceptualGroupIndex(value float64,
-	boundaries *[vp9PerceptualAQClusters]float64,
+func perceptualGroupIndex(value float64,
+	boundaries *[perceptualAQClusters]float64,
 ) int {
 	groupIdx := 0
 	for value >= boundaries[groupIdx] {
 		groupIdx++
-		if groupIdx == vp9PerceptualAQClusters-1 {
+		if groupIdx == perceptualAQClusters-1 {
 			break
 		}
 	}
 	return groupIdx
 }
 
-// vp9PerceptualQIndexToQStep ports vp9_convert_qindex_to_q
+// perceptualQIndexToQStep ports vp9_convert_qindex_to_q
 // (vp9_ratectrl.c:170) at 8-bit profile 0: ac_quant_lookup[qindex]/4.
-func vp9PerceptualQIndexToQStep(qindex int) float64 {
+func perceptualQIndexToQStep(qindex int) float64 {
 	if qindex < 0 {
 		qindex = 0
 	}
 	if qindex > 255 {
 		qindex = 255
 	}
-	return float64(vp9PerceptualAcQuant8[qindex]) / 4.0
+	return float64(perceptualAcQuant8[qindex]) / 4.0
 }
 
-// vp9PerceptualQStepToQIndex ports vp9_convert_q_to_qindex
+// perceptualQStepToQIndex ports vp9_convert_q_to_qindex
 // (vp9_ratectrl.c:185). libvpx linearly scans 0..QINDEX_RANGE looking
 // for the first index whose qstep is >= q_val; if none is found it
 // clamps to QINDEX_RANGE-1.
-func vp9PerceptualQStepToQIndex(qstep float64) int {
+func perceptualQStepToQIndex(qstep float64) int {
 	const qindexRange = 256
 	for i := range qindexRange {
-		if vp9PerceptualQIndexToQStep(i) >= qstep {
+		if perceptualQIndexToQStep(i) >= qstep {
 			return i
 		}
 	}
 	return qindexRange - 1
 }
 
-// vp9PerceptualAcQuant8 is libvpx's ac_qlookup[256] (8-bit Profile 0)
+// perceptualAcQuant8 is libvpx's ac_qlookup[256] (8-bit Profile 0)
 // from vp9/common/vp9_quant_common.c. The value at index i is the AC
 // quantizer step at qindex=i.
-var vp9PerceptualAcQuant8 = [256]int16{
+var perceptualAcQuant8 = [256]int16{
 	4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
 	20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
 	33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,

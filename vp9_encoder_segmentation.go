@@ -168,7 +168,7 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		return seg
 	}
 	if e.opts.AQMode == VP9AQPerceptual {
-		seg := e.perceptualAQ.segmentationParams(intraFrame)
+		seg := e.perceptualAQ.SegmentationParams(intraFrame)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
