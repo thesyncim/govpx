@@ -699,6 +699,57 @@ func TestLoopFilterTrialLumaSSEStatsMatchesNoStatsPath(t *testing.T) {
 	}
 }
 
+func TestLoopFilterPickNoStatsAllocatesZero(t *testing.T) {
+	const width, height = 64, 64
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	required := rows * cols
+
+	src := testImage(width, height)
+	for r := range height {
+		for c := range width {
+			src.Y[r*src.YStride+c] = byte(48 + (r*3+c*13)%144)
+			src.U[(r/2)*src.UStride+(c/2)] = 128
+			src.V[(r/2)*src.VStride+(c/2)] = 128
+		}
+	}
+
+	e := newSizedTestEncoder(t, width, height)
+	e.rc.currentQuantizer = 48
+	for r := 0; r < e.analysis.Img.CodedHeight; r++ {
+		for c := 0; c < e.analysis.Img.CodedWidth; c++ {
+			e.analysis.Img.Y[r*e.analysis.Img.YStride+c] = byte(64 + (r*5+c*7)%128)
+		}
+	}
+	for i := range e.analysis.Img.U {
+		e.analysis.Img.U[i] = 128
+	}
+	for i := range e.analysis.Img.V {
+		e.analysis.Img.V[i] = 128
+	}
+	for i := range required {
+		e.reconstructModes[i] = vp8dec.MacroblockMode{
+			Mode:     vp8common.DCPred,
+			UVMode:   vp8common.DCPred,
+			RefFrame: vp8common.LastFrame,
+		}
+	}
+
+	ctx := e.newLoopFilterPickContext(sourceImageFromPublic(src), vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
+	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
+	allocs := testing.AllocsPerRun(50, func() {
+		if _, err := ctx.pickFastNoStats(24, minLevel); err != nil {
+			t.Fatalf("pickFastNoStats: %v", err)
+		}
+		if _, err := ctx.pickFullNoStats(24, minLevel); err != nil {
+			t.Fatalf("pickFullNoStats: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("loop-filter no-stats pick allocs = %f, want 0", allocs)
+	}
+}
+
 func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	const width, height = 64, 128
 	rows := (height + 15) / 16

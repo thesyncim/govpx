@@ -760,17 +760,6 @@ func average2x2Clamped(plane []byte, stride int, width int, height int, y int, x
 	return (sum + 2) >> 2
 }
 
-func computeSkinBlock(y int, u int, v int, consecZeroLast int, currentMotionMagnitude int) bool {
-	if consecZeroLast > 60 && currentMotionMagnitude == 0 {
-		return false
-	}
-	motion := 1
-	if consecZeroLast > 25 && currentMotionMagnitude == 0 {
-		motion = 0
-	}
-	return skinPixel(y, u, v, motion)
-}
-
 func skinPixel(y int, cb int, cr int, motion int) bool {
 	if y < skinYLow || y > skinYHigh {
 		return false

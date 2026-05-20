@@ -294,8 +294,9 @@ func vp9StubPacketWithFrameParallelForTest(t *testing.T, width, height,
 				MiColStart: vp9dec.TileOffset(tileCol, miCols, header.Tile.Log2TileCols),
 				MiColEnd:   vp9dec.TileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
 			}
-			e.writeVP9StubModesTileBounds(bw, miRows, miCols, tile,
-				&partitionProbs, &seg, baseMi)
+			e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,
+				&partitionProbs, &seg, baseMi, txModeForMi(baseMi),
+				vp9ModeTreeKeyframe, nil, nil)
 			return nil
 		},
 	})
@@ -382,8 +383,9 @@ func vp9MultiTileModePacketForTest(t *testing.T, width, height,
 					vp9dec.NoRefFrame,
 				},
 			}
-			e.writeVP9StubModesTileBounds(bw, miRows, miCols, tile,
-				&partitionProbs, &seg, baseMi)
+			e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,
+				&partitionProbs, &seg, baseMi, txModeForMi(baseMi),
+				vp9ModeTreeKeyframe, nil, nil)
 			return nil
 		},
 	})

@@ -308,15 +308,6 @@ func vp9CoefBranchStats(counts *encoder.FrameCounts) *encoder.FrameCoefBranchSta
 	return &counts.CoefBranchStats
 }
 
-func (e *VP9Encoder) writeVP9StubModesTileBounds(bw *bitstream.Writer, miRows, miCols int,
-	tile vp9dec.TileBounds,
-	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
-) {
-	e.writeVP9ModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg,
-		baseMi, txModeForMi(baseMi), vp9ModeTreeKeyframe, nil, nil)
-}
-
 func (e *VP9Encoder) writeVP9FrameTiles(output []byte, miRows, miCols int,
 	tileInfo vp9dec.TileInfo,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,

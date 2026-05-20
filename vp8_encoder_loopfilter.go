@@ -265,42 +265,28 @@ func (e *VP8Encoder) installLoopFilterSegmentLF(segmentation vp8enc.Segmentation
 
 func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
+	if stats := e.opts.PhaseStats; stats != nil {
+		return ctx.pickFastStats(seedLevel, minLevel, stats)
+	}
+	return ctx.pickFastNoStats(seedLevel, minLevel)
+}
+
+func (ctx *loopFilterPickContext) pickFastNoStats(seedLevel uint8, minLevel int) (uint8, error) {
+	e := ctx.encoder
 	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
 	ssErr := [vp8common.MaxLoopFilter + 1]int{}
 	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
-	var score func(level int) int
-	if stats := e.opts.PhaseStats; stats != nil {
-		score = func(level int) int {
-			if ssSet[level] {
-				return ssErr[level]
-			}
-			err := ctx.trialLumaSSEPartialStats(level, stats)
-			ssErr[level] = err
-			ssSet[level] = true
-			return err
-		}
-	} else {
-		score = func(level int) int {
-			if ssSet[level] {
-				return ssErr[level]
-			}
-			err := ctx.trialLumaSSEPartial(level)
-			ssErr[level] = err
-			ssSet[level] = true
-			return err
-		}
-	}
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
-	bestErr := score(level)
+	bestErr := ctx.cachedPartialLumaSSE(level, &ssErr, &ssSet)
 	if traceEnabled {
 		e.emitOracleLFTrial("seed", level, bestErr)
 	}
 
 	filtLevel := level - loopFilterSearchStep(level)
 	for filtLevel >= minLevel {
-		filtErr := score(filtLevel)
+		filtErr := ctx.cachedPartialLumaSSE(filtLevel, &ssErr, &ssSet)
 		if traceEnabled {
 			e.emitOracleLFTrial("down", filtLevel, filtErr)
 		}
@@ -317,7 +303,55 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 	if bestLevel == level {
 		bestErr -= bestErr >> 10
 		for filtLevel < maxLevel {
-			filtErr := score(filtLevel)
+			filtErr := ctx.cachedPartialLumaSSE(filtLevel, &ssErr, &ssSet)
+			if traceEnabled {
+				e.emitOracleLFTrial("up", filtLevel, filtErr)
+			}
+			if filtErr < bestErr {
+				bestErr = filtErr - (filtErr >> 10)
+				bestLevel = filtLevel
+			} else {
+				break
+			}
+			filtLevel += loopFilterSearchStep(filtLevel)
+		}
+	}
+	return uint8(clampLoopFilterPickLevel(bestLevel, minLevel, maxLevel)), nil
+}
+
+func (ctx *loopFilterPickContext) pickFastStats(seedLevel uint8, minLevel int, stats *EncoderPhaseStats) (uint8, error) {
+	e := ctx.encoder
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
+	ssErr := [vp8common.MaxLoopFilter + 1]int{}
+	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
+	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
+	bestLevel := level
+	bestErr := ctx.cachedPartialLumaSSEStats(level, &ssErr, &ssSet, stats)
+	if traceEnabled {
+		e.emitOracleLFTrial("seed", level, bestErr)
+	}
+
+	filtLevel := level - loopFilterSearchStep(level)
+	for filtLevel >= minLevel {
+		filtErr := ctx.cachedPartialLumaSSEStats(filtLevel, &ssErr, &ssSet, stats)
+		if traceEnabled {
+			e.emitOracleLFTrial("down", filtLevel, filtErr)
+		}
+		if filtErr < bestErr {
+			bestErr = filtErr
+			bestLevel = filtLevel
+		} else {
+			break
+		}
+		filtLevel -= loopFilterSearchStep(filtLevel)
+	}
+
+	filtLevel = level + loopFilterSearchStep(filtLevel)
+	if bestLevel == level {
+		bestErr -= bestErr >> 10
+		for filtLevel < maxLevel {
+			filtErr := ctx.cachedPartialLumaSSEStats(filtLevel, &ssErr, &ssSet, stats)
 			if traceEnabled {
 				e.emitOracleLFTrial("up", filtLevel, filtErr)
 			}
@@ -335,6 +369,14 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 
 func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
+	if stats := e.opts.PhaseStats; stats != nil {
+		return ctx.pickFullStats(seedLevel, minLevel, stats)
+	}
+	return ctx.pickFullNoStats(seedLevel, minLevel)
+}
+
+func (ctx *loopFilterPickContext) pickFullNoStats(seedLevel uint8, minLevel int) (uint8, error) {
+	e := ctx.encoder
 	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	if ctx.fullFrameConfig.SegmentationEnabled {
 		e.loopFilterSegmentLF = ctx.fullFrameConfig.SegmentLF
@@ -349,62 +391,20 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
 	residentLevel := -1
 	bestLumaLevel := -1
-	preserveBestBeforeTrial := func(nextLevel int, bestLevel int) {
-		if bestLevel <= 0 || nextLevel == bestLevel || ssSet[nextLevel] {
-			return
-		}
-		if residentLevel == bestLevel && bestLumaLevel != bestLevel {
-			copyFrameImageLuma(&e.loopFilterBest.Img, &e.loopFilterPick.Img)
-			bestLumaLevel = bestLevel
-		}
-	}
-	score := func(level int) int {
-		if ssSet[level] {
-			return ssErr[level]
-		}
-		trialErr := ctx.trialLumaSSEFull(level)
-		ssErr[level] = trialErr
-		ssSet[level] = true
-		if level != 0 {
-			residentLevel = level
-		}
-		if traceEnabled {
-			e.emitOracleLFTrial("full", level, trialErr)
-		}
-		return trialErr
-	}
-	if stats := e.opts.PhaseStats; stats != nil {
-		score = func(level int) int {
-			if ssSet[level] {
-				return ssErr[level]
-			}
-			trialErr := ctx.trialLumaSSEFullStats(level, stats)
-			ssErr[level] = trialErr
-			ssSet[level] = true
-			if level != 0 {
-				residentLevel = level
-			}
-			if traceEnabled {
-				e.emitOracleLFTrial("full", level, trialErr)
-			}
-			return trialErr
-		}
-	}
 
-	bestErr := score(filtMid)
+	bestErr := ctx.cachedFullLumaSSE(filtMid, &ssErr, &ssSet, &residentLevel)
+	if traceEnabled {
+		e.emitOracleLFTrial("full", filtMid, bestErr)
+	}
 	filtBest := filtMid
 	filtDirection := 0
 	for filterStep > 0 {
 		// Mirror libvpx vp8/encoder/picklpf.c vp8cx_pick_filter_level
-		// (Bias = (best_err >> (15 - (filt_mid / 8))) * filter_step). The
-		// shift saturates at zero (filt_mid/8 >= 15 only when filt_mid >=
-		// 120, which is above MAX_LOOP_FILTER=63), so it always preserves
-		// some bias against raising the filter level. govpx's full picker
-		// previously hard-coded bias=0, which silently dropped libvpx's
-		// "prefer lower filter level" tie-breaker and steered the picker
-		// to a different filt_best on inter frames where multiple trials
-		// score within the bias delta of best_err (e.g. the 128x128 panning
-		// CBR cpu8 fixture frame 1: govpx picked level 11, libvpx 5).
+		// (Bias = (best_err >> (15 - (filt_mid / 8))) * filter_step), then
+		// scale that bias by section_intra_rating / 20 when the intra
+		// rating is below 20. One-pass and realtime paths can therefore
+		// use zero bias because libvpx's calloc'd two-pass state leaves
+		// section_intra_rating at zero.
 		bias := loopFilterFullPickerBias(bestErr, filtMid, filterStep, e.twoPass.sectionIntraRating)
 		filtHigh := min(filtMid+filterStep, maxLevel)
 		filtLow := max(filtMid-filterStep, minLevel)
@@ -432,7 +432,7 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 		// per-iter bounds check on both lookups.
 		if filtDirection == 0 && filtLow != filtMid && filtHigh != filtMid &&
 			!ssSet[filtLow&63] && !ssSet[filtHigh&63] && e.canParallelLFTrials() {
-			preserveBestBeforeTrial(filtLow, filtBest)
+			ctx.preserveBestLoopFilterLumaBeforeTrial(filtLow, filtBest, &ssSet, residentLevel, &bestLumaLevel)
 			filtErrLow, filtErrHigh := ctx.dispatchLFTrialPair(filtLow, filtHigh)
 			// ssErr/ssSet are [MaxLoopFilter+1=64]; mask with 63 to elide
 			// the bounds check on the indexed writes (matches the read
@@ -471,8 +471,12 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 			}
 		} else {
 			if filtDirection <= 0 && filtLow != filtMid {
-				preserveBestBeforeTrial(filtLow, filtBest)
-				filtErr := score(filtLow)
+				ctx.preserveBestLoopFilterLumaBeforeTrial(filtLow, filtBest, &ssSet, residentLevel, &bestLumaLevel)
+				freshTrial := !ssSet[filtLow]
+				filtErr := ctx.cachedFullLumaSSE(filtLow, &ssErr, &ssSet, &residentLevel)
+				if traceEnabled && freshTrial {
+					e.emitOracleLFTrial("full", filtLow, filtErr)
+				}
 				if filtErr-bias < bestErr {
 					if filtErr < bestErr {
 						bestErr = filtErr
@@ -481,8 +485,12 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 				}
 			}
 			if filtDirection >= 0 && filtHigh != filtMid {
-				preserveBestBeforeTrial(filtHigh, filtBest)
-				filtErr := score(filtHigh)
+				ctx.preserveBestLoopFilterLumaBeforeTrial(filtHigh, filtBest, &ssSet, residentLevel, &bestLumaLevel)
+				freshTrial := !ssSet[filtHigh]
+				filtErr := ctx.cachedFullLumaSSE(filtHigh, &ssErr, &ssSet, &residentLevel)
+				if traceEnabled && freshTrial {
+					e.emitOracleLFTrial("full", filtHigh, filtErr)
+				}
 				if filtErr < bestErr-bias {
 					bestErr = filtErr
 					filtBest = filtHigh
@@ -514,6 +522,174 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 		}
 	}
 	return uint8(filtBest), nil
+}
+
+func (ctx *loopFilterPickContext) pickFullStats(seedLevel uint8, minLevel int, stats *EncoderPhaseStats) (uint8, error) {
+	e := ctx.encoder
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	if ctx.fullFrameConfig.SegmentationEnabled {
+		e.loopFilterSegmentLF = ctx.fullFrameConfig.SegmentLF
+	}
+	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
+	filtMid := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
+	filterStep := 4
+	if filtMid >= 16 {
+		filterStep = filtMid / 4
+	}
+	ssErr := [vp8common.MaxLoopFilter + 1]int{}
+	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
+	residentLevel := -1
+	bestLumaLevel := -1
+
+	bestErr := ctx.cachedFullLumaSSEStats(filtMid, &ssErr, &ssSet, &residentLevel, stats)
+	if traceEnabled {
+		e.emitOracleLFTrial("full", filtMid, bestErr)
+	}
+	filtBest := filtMid
+	filtDirection := 0
+	for filterStep > 0 {
+		bias := loopFilterFullPickerBias(bestErr, filtMid, filterStep, e.twoPass.sectionIntraRating)
+		filtHigh := min(filtMid+filterStep, maxLevel)
+		filtLow := max(filtMid-filterStep, minLevel)
+
+		if filtDirection == 0 && filtLow != filtMid && filtHigh != filtMid &&
+			!ssSet[filtLow&63] && !ssSet[filtHigh&63] && e.canParallelLFTrials() {
+			ctx.preserveBestLoopFilterLumaBeforeTrial(filtLow, filtBest, &ssSet, residentLevel, &bestLumaLevel)
+			filtErrLow, filtErrHigh := ctx.dispatchLFTrialPair(filtLow, filtHigh)
+			ssErr[filtLow&63] = filtErrLow
+			ssSet[filtLow&63] = true
+			ssErr[filtHigh&63] = filtErrHigh
+			ssSet[filtHigh&63] = true
+			if filtHigh != 0 {
+				residentLevel = filtHigh
+			}
+			if traceEnabled {
+				e.emitOracleLFTrial("full", filtLow, filtErrLow)
+				e.emitOracleLFTrial("full", filtHigh, filtErrHigh)
+			}
+			if filtErrLow-bias < bestErr {
+				if filtErrLow < bestErr {
+					bestErr = filtErrLow
+				}
+				filtBest = filtLow
+				if filtBest > 0 && bestLumaLevel != filtBest {
+					copyFrameImageLuma(&e.loopFilterBest.Img, &e.loopFilterPickAlt.Img)
+					bestLumaLevel = filtBest
+				}
+			}
+			if filtErrHigh < bestErr-bias {
+				bestErr = filtErrHigh
+				filtBest = filtHigh
+			}
+		} else {
+			if filtDirection <= 0 && filtLow != filtMid {
+				ctx.preserveBestLoopFilterLumaBeforeTrial(filtLow, filtBest, &ssSet, residentLevel, &bestLumaLevel)
+				freshTrial := !ssSet[filtLow]
+				filtErr := ctx.cachedFullLumaSSEStats(filtLow, &ssErr, &ssSet, &residentLevel, stats)
+				if traceEnabled && freshTrial {
+					e.emitOracleLFTrial("full", filtLow, filtErr)
+				}
+				if filtErr-bias < bestErr {
+					if filtErr < bestErr {
+						bestErr = filtErr
+					}
+					filtBest = filtLow
+				}
+			}
+			if filtDirection >= 0 && filtHigh != filtMid {
+				ctx.preserveBestLoopFilterLumaBeforeTrial(filtHigh, filtBest, &ssSet, residentLevel, &bestLumaLevel)
+				freshTrial := !ssSet[filtHigh]
+				filtErr := ctx.cachedFullLumaSSEStats(filtHigh, &ssErr, &ssSet, &residentLevel, stats)
+				if traceEnabled && freshTrial {
+					e.emitOracleLFTrial("full", filtHigh, filtErr)
+				}
+				if filtErr < bestErr-bias {
+					bestErr = filtErr
+					filtBest = filtHigh
+				}
+			}
+		}
+		if filtBest == filtMid {
+			filterStep /= 2
+			filtDirection = 0
+		} else {
+			if filtBest < filtMid {
+				filtDirection = -1
+			} else {
+				filtDirection = 1
+			}
+			filtMid = filtBest
+		}
+	}
+	if filtBest > 0 {
+		switch {
+		case residentLevel == filtBest:
+			e.loopFilterPickReady = true
+			e.loopFilterPickLevel = uint8(filtBest)
+			e.loopFilterPickBest = false
+		case bestLumaLevel == filtBest:
+			e.loopFilterPickReady = true
+			e.loopFilterPickLevel = uint8(filtBest)
+			e.loopFilterPickBest = true
+		}
+	}
+	return uint8(filtBest), nil
+}
+
+func (ctx *loopFilterPickContext) preserveBestLoopFilterLumaBeforeTrial(nextLevel int, bestLevel int, ssSet *[vp8common.MaxLoopFilter + 1]bool, residentLevel int, bestLumaLevel *int) {
+	if bestLevel <= 0 || nextLevel == bestLevel || ssSet[nextLevel] {
+		return
+	}
+	if residentLevel == bestLevel && *bestLumaLevel != bestLevel {
+		copyFrameImageLuma(&ctx.encoder.loopFilterBest.Img, &ctx.encoder.loopFilterPick.Img)
+		*bestLumaLevel = bestLevel
+	}
+}
+
+func (ctx *loopFilterPickContext) cachedPartialLumaSSE(level int, ssErr *[vp8common.MaxLoopFilter + 1]int, ssSet *[vp8common.MaxLoopFilter + 1]bool) int {
+	if ssSet[level] {
+		return ssErr[level]
+	}
+	err := ctx.trialLumaSSEPartial(level)
+	ssErr[level] = err
+	ssSet[level] = true
+	return err
+}
+
+func (ctx *loopFilterPickContext) cachedPartialLumaSSEStats(level int, ssErr *[vp8common.MaxLoopFilter + 1]int, ssSet *[vp8common.MaxLoopFilter + 1]bool, stats *EncoderPhaseStats) int {
+	if ssSet[level] {
+		return ssErr[level]
+	}
+	err := ctx.trialLumaSSEPartialStats(level, stats)
+	ssErr[level] = err
+	ssSet[level] = true
+	return err
+}
+
+func (ctx *loopFilterPickContext) cachedFullLumaSSE(level int, ssErr *[vp8common.MaxLoopFilter + 1]int, ssSet *[vp8common.MaxLoopFilter + 1]bool, residentLevel *int) int {
+	if ssSet[level] {
+		return ssErr[level]
+	}
+	trialErr := ctx.trialLumaSSEFull(level)
+	ssErr[level] = trialErr
+	ssSet[level] = true
+	if level != 0 {
+		*residentLevel = level
+	}
+	return trialErr
+}
+
+func (ctx *loopFilterPickContext) cachedFullLumaSSEStats(level int, ssErr *[vp8common.MaxLoopFilter + 1]int, ssSet *[vp8common.MaxLoopFilter + 1]bool, residentLevel *int, stats *EncoderPhaseStats) int {
+	if ssSet[level] {
+		return ssErr[level]
+	}
+	trialErr := ctx.trialLumaSSEFullStats(level, stats)
+	ssErr[level] = trialErr
+	ssSet[level] = true
+	if level != 0 {
+		*residentLevel = level
+	}
+	return trialErr
 }
 
 // loopFilterFullPickerBias mirrors libvpx vp8/encoder/picklpf.c

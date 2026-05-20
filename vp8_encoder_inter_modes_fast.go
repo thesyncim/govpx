@@ -15,8 +15,9 @@ type fastInterRefSlot struct {
 }
 
 // selectFastInterFrameModeDecision mirrors libvpx vp8/encoder/pickinter.c
-// vp8_pick_inter_mode (the non-RD fast picker used by good-cpu>=4 and
-// realtime). The fast picker scores each mode_index candidate by
+// vp8_pick_inter_mode (the non-RD fast picker used when speed features set
+// sf.RD=0, including good-cpu>=4 and realtime Speed>3). The fast picker scores
+// each mode_index candidate by
 // `RDCOST(rdmult, rddiv, rate2, distortion2)` where distortion2 is
 // `vpx_variance16x16(src, predictor)` — pixel-domain variance of the
 // motion-compensated residual.

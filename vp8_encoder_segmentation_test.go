@@ -176,7 +176,13 @@ func computeSkinMapReference(src vp8enc.SourceImage, rows int, cols int, consecZ
 				y := average2x2Clamped(src.Y, src.YStride, src.Width, src.Height, row*16+7, col*16+7)
 				u := average2x2Clamped(src.U, src.UStride, uvWidth, uvHeight, row*8+3, col*8+3)
 				v := average2x2Clamped(src.V, src.VStride, uvWidth, uvHeight, row*8+3, col*8+3)
-				skin = computeSkinBlock(y, u, v, consecutive, 0)
+				if consecutive <= 60 {
+					motion := 1
+					if consecutive > 25 {
+						motion = 0
+					}
+					skin = skinPixel(y, u, v, motion)
+				}
 			}
 			if skin {
 				skinMap[index] = 1

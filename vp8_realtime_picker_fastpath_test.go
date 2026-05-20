@@ -12,7 +12,7 @@ import (
 // vp8_pick_inter_mode fast-path gates for cpu_used = -12, -8, -4. These are
 // the negative-cpu_used values that bypass vp8_auto_select_speed in libvpx
 // encodeframe.c:686-687 and pin cpi->Speed = -cpu_used (positive 12, 8, 4
-// respectively). At Speed >= 5 the libvpx RT picker is the SOLE mode-
+// respectively). At Speed > 3 the libvpx RT picker is the SOLE mode-
 // decision path (sf->RD = 0 in onyx_if.c:946-949 Mode==2 branch), so any
 // gate divergence in pickinter.c surfaces as immediate byte mismatch.
 //

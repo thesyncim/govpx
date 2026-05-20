@@ -101,10 +101,6 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.currentFrameIsGFRefresh = false
 }
 
-func (t *twoPassState) chargeAltRefFrameBits(actualBits int) {
-	t.chargeAltRefFrameBitsWithProjection(actualBits, actualBits)
-}
-
 func (t *twoPassState) chargeAltRefFrameBitsWithProjection(actualBits int, projectedBits int) {
 	if !t.enabled() {
 		return

@@ -67,7 +67,7 @@ func TestTwoPassAltRefBitChargeDoesNotAdvanceStats(t *testing.T) {
 	initialError := ts.errorLeft
 	frame0Error := ts.modifiedError(stats[0])
 
-	ts.chargeAltRefFrameBits(123)
+	ts.chargeAltRefFrameBitsWithProjection(123, 123)
 	if ts.frameIndex != 0 {
 		t.Fatalf("frameIndex after hidden ARF charge = %d, want 0", ts.frameIndex)
 	}
