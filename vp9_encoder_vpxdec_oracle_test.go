@@ -3,7 +3,6 @@ package govpx
 import (
 	"bytes"
 	"crypto/md5"
-	"errors"
 	"image"
 	"testing"
 
@@ -19,16 +18,10 @@ import (
 // internal/coracle/build_vpxdec_vp9.sh). This is a structural acceptance
 // gate: vpxdec parses the frame without error.
 //
-// Gated by ErrVpxdecVP9NotBuilt — the test skips on CI hosts that
-// haven't run the build script yet, mirroring how the VP8 oracle
-// tests stay green when the matching binary is missing.
+// The coracletest resolver skips on CI hosts that have not built the pinned
+// libvpx VP9 decoder yet.
 func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
@@ -656,12 +649,7 @@ func TestVP9EncoderVpxdecOracleMatchesEighthPelMotion(t *testing.T) {
 // encoder's WriteModesTile dispatches per SB; libvpx must accept the
 // resulting multi-SB tile body.
 func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 128, 64), image.YCbCrSubsampleRatio420)
@@ -708,12 +696,7 @@ func assertVP9EncoderVpxdecI420Match(t *testing.T, width, height int, packets ..
 // loop in WriteModesTile steps mi_row by MiBlockSize across the two rows;
 // libvpx must accept the per-row left_seg_context reset.
 func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 128})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 128), image.YCbCrSubsampleRatio420)
@@ -744,12 +727,7 @@ func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
 // against a 256x192 keyframe: a 4x3 SB grid. This exercises the SB walker
 // against a fuller mi grid and entropy-context propagation across both axes.
 func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
 	img := image.NewYCbCr(image.Rect(0, 0, 256, 192), image.YCbCrSubsampleRatio420)
@@ -782,12 +760,7 @@ func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 // decoder may force SPLIT/HORZ/VERT decisions from has_rows /
 // has_cols instead of reading the full tree.
 func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	cases := []struct {
 		name          string
@@ -833,12 +806,7 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
 // against the second frame produced by the encoder: a visible LAST/ZeroMv
 // skipped inter frame emitted after the keyframe.
 func TestVP9EncoderVpxdecOracleAcceptsPublicInterSkip(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
@@ -875,12 +843,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPublicInterSkip(t *testing.T) {
 // non-intra inter tile shape the public decoder now parses: one
 // LAST/ZeroMv skipped block referencing the prior keyframe.
 func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterSkipFrameForTest(t, 64, 64)
@@ -907,12 +870,7 @@ func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
 // public second-frame inter skip path covered on the same edge-clipped
 // dimensions as keyframes.
 func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedPublicInterSkip(t *testing.T) {
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
-	}
+	coracletest.VpxdecVP9(t)
 
 	cases := []struct {
 		name          string

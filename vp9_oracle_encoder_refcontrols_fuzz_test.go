@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"image"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
@@ -42,9 +41,7 @@ var vp9RefControlParitySeeds = [][]byte{
 // also supports. Gated by GOVPX_WITH_ORACLE=1 plus a built
 // vpxenc-vp9-frameflags binary.
 func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 ref-control sequence fuzz")
-	}
+	coracletest.SkipWithoutOracle(f, "VP9 ref-control sequence fuzz")
 	coracletest.VpxencVP9FrameFlags(f)
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0, 0, 0, 0},

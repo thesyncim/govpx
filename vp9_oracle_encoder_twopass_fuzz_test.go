@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"image"
-	"os"
 	"strconv"
 	"testing"
 
@@ -28,9 +27,7 @@ import (
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 two-pass byte-parity fuzz")
-	}
+	coracletest.SkipWithoutOracle(f, "VP9 two-pass byte-parity fuzz")
 	coracletest.VpxencVP9(f)
 	// Each seed is (bitrateBucket, kfBucket, threadsBucket, cpuBucket, framesBucket).
 	seeds := [][]byte{

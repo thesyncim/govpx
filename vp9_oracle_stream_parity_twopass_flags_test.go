@@ -13,9 +13,7 @@ import (
 )
 
 func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 two-pass byte-parity scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 two-pass byte-parity scoreboard")
 	coracletest.VpxencVP9(t)
 
 	const width, height, frames = 64, 64, 6
@@ -93,9 +91,7 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 two-pass constant byte-parity scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 two-pass constant byte-parity scoreboard")
 	coracletest.VpxencVP9(t)
 
 	const width, height, frames = 64, 64, 4
@@ -173,9 +169,7 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 frame-flag byte-parity matrix")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 frame-flag byte-parity matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
@@ -291,9 +285,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 control-cross byte-parity matrix")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 control-cross byte-parity matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const frames = 6

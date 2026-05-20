@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"image"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
@@ -21,9 +20,7 @@ import (
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderRandomStrides(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 random-strides fuzz")
-	}
+	coracletest.SkipWithoutOracle(f, "VP9 random-strides fuzz")
 	coracletest.VpxencVP9(f)
 	// Each seed is (dimBucket, yPadBucket, uPadBucket, vPadBucket, uvAlignBucket).
 	seeds := [][]byte{

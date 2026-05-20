@@ -34,9 +34,7 @@ import (
 // deltas without failing so the test acts as a structured oracle
 // that future parity work can ratchet.
 func TestVP9OracleEncoderControlTransitions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 control transition byte-parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 control transition byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const (
@@ -303,9 +301,7 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 // expresses the invariant that the second-stream packets must match a
 // cold-start encoding when run independently against the oracle.
 func TestVP9OracleEncoderResetTransitions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 reset/lifetime byte-parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 reset/lifetime byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const (

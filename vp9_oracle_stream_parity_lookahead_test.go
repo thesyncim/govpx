@@ -13,9 +13,7 @@ import (
 )
 
 func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 temporal byte-parity scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 temporal byte-parity scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
@@ -64,9 +62,7 @@ func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 lookahead flush byte-parity scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 lookahead flush byte-parity scoreboard")
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
@@ -133,9 +129,7 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 auto-alt-ref visibility scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 auto-alt-ref visibility scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames, lag = 64, 64, 16, 4
@@ -201,9 +195,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 }
 
 func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 auto-alt-ref ARNR byte-parity matrix")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 auto-alt-ref ARNR byte-parity matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	type autoAltRefCase struct {

@@ -12,14 +12,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 spatial SVC oracle scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 spatial SVC oracle scoreboard")
 	spatialSVC := findVP9SpatialSVCEncoder(t)
 
 	const frames = 4

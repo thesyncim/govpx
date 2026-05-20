@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"image"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -15,9 +14,7 @@ import (
 )
 
 func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 copy-reference parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 copy-reference parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	t.Run("refreshed-references", func(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"image"
-	"os"
 	"strconv"
 	"testing"
 
@@ -154,9 +153,7 @@ func vp9OptionsSeedDeferred(data []byte) bool {
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary. Without the
 // binary the fuzzer t.Skips cleanly so plain `go test` runs are green.
 func FuzzVP9OracleEncoderOptions(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 option-validation oracle fuzz")
-	}
+	coracletest.SkipWithoutOracle(f, "VP9 option-validation oracle fuzz")
 	coracletest.VpxencVP9(f)
 	// Seeds mirror FuzzVP9EncoderOptions shape but biased toward configs
 	// the libvpx CLI accepts AND that the govpx VP9 encoder can keyframe
@@ -278,7 +275,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 
 // tryVP9LibvpxKeyFrameBytes runs vpxenc-vp9 for one keyframe at the fuzzed
 // options and returns the keyframe IVF payload, or nil if the CLI rejects the
-// shape / the binary is unbuilt. Mirrors the VP8 sibling
+// shape. Mirrors the VP8 sibling
 // tryLibvpxKeyFrameBytes by threading every fuzzed knob with a vpxenc-vp9
 // CLI mapping so libvpx sees the same effective config govpx does. The
 // VpxencVP9EncodeI420 helper pins a deterministic baseline (--rt --cpu-used=8
@@ -288,9 +285,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 // so the overrides below replace each pin.
 func tryVP9LibvpxKeyFrameBytes(t *testing.T, opts VP9EncoderOptions, src *image.YCbCr) []byte {
 	t.Helper()
-	if _, err := coracle.VpxencVP9Path(); err != nil {
-		return nil
-	}
+	coracletest.VpxencVP9(t)
 	raw := appendVP9YCbCrI420(nil, src)
 	extra := vp9LibvpxOracleArgsFromOptions(opts)
 	ivf, _, err := coracle.VpxencVP9EncodeI420(raw, opts.Width, opts.Height, 1, extra...)

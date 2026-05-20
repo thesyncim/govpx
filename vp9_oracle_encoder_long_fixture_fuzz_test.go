@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"image"
-	"os"
 	"strconv"
 	"testing"
 
@@ -95,9 +94,7 @@ func vp9LongFixtureSeedDeferred(data []byte) bool {
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 long-fixture RC fuzz")
-	}
+	coracletest.SkipWithoutOracle(f, "VP9 long-fixture RC fuzz")
 	coracletest.VpxencVP9(f)
 	// Each seed is (rcBucket, bitrateBucket, kfBucket, deadlineBucket, cpuBucket).
 	seeds := [][]byte{

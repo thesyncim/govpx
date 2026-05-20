@@ -5,7 +5,6 @@ package govpx
 import (
 	"bytes"
 	"image"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
@@ -23,9 +22,7 @@ import (
 // seed corpus is built lazily from vpxenc-vp9 so it always reflects whatever
 // the current oracle emits for a small synthetic clip.
 func FuzzVP9DecoderAgainstLibvpx(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 decoder-vs-libvpx fuzz")
-	}
+	coracletest.SkipWithoutOracle(f, "VP9 decoder-vs-libvpx fuzz")
 	coracletest.VpxdecVP9(f)
 	coracletest.VpxencVP9(f)
 

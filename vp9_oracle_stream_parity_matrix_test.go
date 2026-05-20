@@ -13,9 +13,7 @@ import (
 )
 
 func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 stream byte-parity matrix")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 stream byte-parity matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	type streamFixture struct {

@@ -5,16 +5,13 @@ package govpx
 import (
 	"fmt"
 	"image"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 selected stream byte-parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 selected stream byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	type selectedCase struct {
@@ -345,9 +342,7 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 }
 
 func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 pinned runtime-control byte-parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 pinned runtime-control byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
@@ -934,9 +929,7 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 }
 
 func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 threaded 720p byte-parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 threaded 720p byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, defaultFrames = 1280, 720, 2
@@ -1291,9 +1284,7 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 }
 
 func TestVP9OraclePinnedNewModeStrictByteParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 new-mode byte-parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 new-mode byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	type pinnedCase struct {

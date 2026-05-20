@@ -20,9 +20,7 @@ import (
 )
 
 func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 rate-behavior scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 rate-behavior scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
@@ -109,9 +107,7 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleQHistogramScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 Q histogram scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 Q histogram scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -245,9 +241,7 @@ func TestVP9OracleQHistogramScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 CBR buffer matrix scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 CBR buffer matrix scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -338,9 +332,7 @@ func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 CBR keyframe variance scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 CBR keyframe variance scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 4
@@ -384,9 +376,7 @@ func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 rate drop-pressure scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 rate drop-pressure scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 32

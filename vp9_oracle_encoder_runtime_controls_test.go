@@ -29,9 +29,7 @@ import (
 // at non-pinned controls are logged with the per-frame scoreboard rows to
 // steer follow-up parity work.
 func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-controls byte-parity gate")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 runtime-controls byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const (

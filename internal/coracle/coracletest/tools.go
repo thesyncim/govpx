@@ -2,10 +2,20 @@ package coracletest
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
 )
+
+// SkipWithoutOracle skips t unless the slow oracle gates are explicitly
+// enabled for the local run.
+func SkipWithoutOracle(t testing.TB, name string) {
+	t.Helper()
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
+	}
+}
 
 // ChecksumOracle resolves the VP8 checksum oracle binary or skips the test
 // when the pinned libvpx v1.16.0 helper has not been built.

@@ -25,9 +25,7 @@ func TestVP9ChoosePartitioningGateDeferredSeeds(t *testing.T) {
 	if os.Getenv("GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE") != "1" {
 		t.Skip("set GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 to run the Phase C validation harness")
 	}
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 choose_partitioning validation")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 choose_partitioning validation")
 	coracletest.VpxencVP9FrameFlags(t)
 	type seedSpec struct {
 		name string

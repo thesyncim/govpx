@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"image"
-	"os"
 	"strconv"
 	"testing"
 
@@ -74,9 +73,7 @@ func vp9RuntimeControlsSeedDeferred(data []byte) bool {
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9-frameflags binary.
 func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-control oracle fuzz")
-	}
+	coracletest.SkipWithoutOracle(f, "VP9 runtime-control oracle fuzz")
 	coracletest.VpxencVP9FrameFlags(f)
 	seeds := [][]byte{
 		// (dimBucket, framesBucket, cpuBucket, kfFlagPos, refFlagPos, action1, action2, ...)

@@ -15,9 +15,7 @@ import (
 )
 
 func TestVP9OracleFrameFlagTransitionScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 frame-flag transition scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 frame-flag transition scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 8
@@ -111,9 +109,7 @@ func TestVP9OracleFrameFlagTransitionScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleFrameFlagReferenceUpdateMatrixScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 reference/update matrix scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 reference/update matrix scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
@@ -160,9 +156,7 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleOddSizeFrameFlagTransitionScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 odd-size transition scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 odd-size transition scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 65, 63, 7
@@ -246,9 +240,7 @@ func TestVP9OracleRuntimeControlTransitionScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeControlBitrateQuantizerScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime bitrate/Q scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 runtime bitrate/Q scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 8
@@ -305,9 +297,7 @@ func TestVP9OracleRuntimeControlBitrateQuantizerScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeControlTransitionParityScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-control transition parity scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 runtime-control transition parity scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
@@ -339,9 +329,7 @@ func TestVP9OracleRuntimeControlTransitionParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-control matrix scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 runtime-control matrix scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -665,9 +653,7 @@ func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleConstructionControlMatrixScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 construction-control matrix scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 construction-control matrix scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
@@ -775,9 +761,7 @@ func TestVP9OracleConstructionControlMatrixScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleTileThreadControlScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 tile/thread control scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 tile/thread control scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 1024, 64, 6
@@ -862,9 +846,7 @@ func TestVP9OracleTemporalControlTransitionScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 temporal flag-pattern scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 temporal flag-pattern scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -911,9 +893,7 @@ func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleTemporalPatternMatrixScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 temporal pattern matrix scoreboard")
-	}
+	coracletest.SkipWithoutOracle(t, "VP9 temporal pattern matrix scoreboard")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
