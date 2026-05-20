@@ -3,6 +3,7 @@
 package govpx
 
 import (
+	"reflect"
 	"testing"
 	"unsafe"
 )
@@ -13,15 +14,32 @@ func TestDisabledTraceStateZeroSize(t *testing.T) {
 		size uintptr
 	}{
 		{name: "vp8 oracle state", size: unsafe.Sizeof(oracleTraceState{})},
+		{name: "vp8 oracle holder", size: unsafe.Sizeof(oracleTraceHolder{})},
 		{name: "vp8 stale y2 snapshot", size: unsafe.Sizeof(staleY2Snapshot{})},
 		{name: "vp8 coefficient trace", size: unsafe.Sizeof(predictedMacroblockCoefficientTrace{})},
-		{name: "vp9 decoded leaf row", size: unsafe.Sizeof(vp9DecodedLeafTrace{})},
-		{name: "vp9 decoded leaf state", size: unsafe.Sizeof(vp9DecodedLeafTraceState{})},
 		{name: "vp9 oracle state", size: unsafe.Sizeof(vp9OracleTraceState{})},
+		{name: "vp9 oracle holder", size: unsafe.Sizeof(vp9OracleTraceHolder{})},
 	}
 	for _, tc := range cases {
 		if tc.size != 0 {
 			t.Fatalf("%s size = %d, want 0 in default builds", tc.name, tc.size)
+		}
+	}
+}
+
+func TestDisabledTraceFieldsNotInProductionStructs(t *testing.T) {
+	cases := []struct {
+		name  string
+		typ   reflect.Type
+		field string
+	}{
+		{name: "VP8Encoder", typ: reflect.TypeOf(VP8Encoder{}), field: "oracleTrace"},
+		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "oracleTrace"},
+		{name: "VP9Decoder", typ: reflect.TypeOf(VP9Decoder{}), field: "leafTrace"},
+	}
+	for _, tc := range cases {
+		if _, ok := tc.typ.FieldByName(tc.field); ok {
+			t.Fatalf("%s exposes %s in default builds", tc.name, tc.field)
 		}
 	}
 }
@@ -54,19 +72,6 @@ func TestDisabledTraceHelpersAreNoops(t *testing.T) {
 	coefTrace.emitPretrellisUV(0, 0, 0, nil, nil, nil, 0, 0, 0)
 	coefTrace.emitChromaOptimizeB(0, 0, 0, nil, nil, nil, nil, 0, 0, 0, false)
 	coefTrace.emitPickerUVQuantize(0, 0, 0, "", nil, nil, nil, nil, 0, 0, 0)
-
-	var vp9d VP9Decoder
-	if vp9DecodedLeafTraceBuild {
-		t.Fatal("vp9DecodedLeafTraceBuild = true in default build")
-	}
-	if vp9d.vp9DecodedLeafTraceActive() {
-		t.Fatal("VP9 decoded-leaf trace active in default build")
-	}
-	row := vp9DecodedLeafTraceForMI(nil, 0, 0, nil)
-	vp9DecodedLeafTraceSetUVMode(&row, 0)
-	vp9DecodedLeafTraceAddCoeffSummary(&row, 1, 16, []int16{1, -2, 0})
-	vp9DecodedLeafTraceSetSkip(&row, 1)
-	vp9d.emitVP9DecodedLeafTrace(row)
 
 	var vp9e VP9Encoder
 	if vp9OracleTraceBuild {

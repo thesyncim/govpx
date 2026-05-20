@@ -13,6 +13,8 @@ const oracleTraceInterCandidateUnknown = -1
 
 type oracleTraceState struct{}
 
+type oracleTraceHolder struct{}
+
 type staleY2Snapshot struct{}
 
 type oracleTraceFrameSummary struct {

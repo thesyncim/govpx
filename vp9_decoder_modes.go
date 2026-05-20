@@ -438,9 +438,6 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 				miRow, miCol, reconBsize)
 		}
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		if vp9DecodedLeafTraceBuild && d.vp9DecodedLeafTraceActive() {
-			d.emitVP9DecodedLeafTrace(vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi))
-		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 		return true
 	}
@@ -510,9 +507,6 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 			}
 		}
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		if vp9DecodedLeafTraceBuild && d.vp9DecodedLeafTraceActive() {
-			d.emitVP9DecodedLeafTrace(vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi))
-		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 		return true
 	}
@@ -1048,12 +1042,6 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
-	traceActive := vp9DecodedLeafTraceBuild && d.vp9DecodedLeafTraceActive()
-	trace := vp9DecodedLeafTrace{}
-	if traceActive {
-		trace = vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi)
-		vp9DecodedLeafTraceSetUVMode(&trace, uvMode)
-	}
 	if isInter != 0 && !d.unsupportedReconstruct {
 		if !d.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize) {
 			return false
@@ -1112,9 +1100,6 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs,
 					coefCounts, coeffs)
 				eobTotal += eob
-				if traceActive {
-					vp9DecodedLeafTraceAddCoeffSummary(&trace, eob, maxEob, coeffs)
-				}
 				if isInter == 0 && !d.unsupportedReconstruct {
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
 						mode, txSize, tile, miRow, miCol, bsize, rr, cc)
@@ -1155,10 +1140,6 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	}
 	if isInter != 0 && mi.SbType >= common.Block8x8 && eobTotal == 0 {
 		mi.Skip = 1
-	}
-	if traceActive {
-		vp9DecodedLeafTraceSetSkip(&trace, mi.Skip)
-		d.emitVP9DecodedLeafTrace(trace)
 	}
 	return true
 }

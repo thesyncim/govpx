@@ -192,9 +192,8 @@ var ErrVP9NotImplemented = vpxerrors.ErrVP9NotImplemented
 // holds the per-frame context (FrameContext, SegmentationParams,
 // LoopfilterParams, dequant tables) the parser needs across frames.
 type VP9Decoder struct {
-	opts      VP9DecoderOptions
-	closed    bool
-	leafTrace *vp9DecodedLeafTraceState
+	opts   VP9DecoderOptions
+	closed bool
 
 	// frameContexts mirrors VP9's four entropy-context slots. fc is the
 	// active scratch copy selected by frame_context_idx for the current
@@ -1757,7 +1756,6 @@ func (d *VP9Decoder) Reset() {
 	if d == nil {
 		return
 	}
-	d.resetVP9DecodedLeafTrace()
 	d.resetVP9FrameContexts()
 	d.lastHeader = vp9dec.UncompressedHeader{}
 	d.lastHeaderValid = false
@@ -1831,7 +1829,6 @@ func (d *VP9Decoder) Close() error {
 		d.vp9TilePool.shutdown()
 		d.vp9TilePool = nil
 	}
-	d.disableVP9DecodedLeafTrace()
 	d.closed = true
 	return nil
 }

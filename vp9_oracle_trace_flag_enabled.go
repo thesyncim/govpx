@@ -62,6 +62,10 @@ type vp9OracleTraceState struct {
 	recodeLoopCount      int
 }
 
+type vp9OracleTraceHolder struct {
+	oracleTrace *vp9OracleTraceState
+}
+
 // SetVP9OracleTraceWriter enables VP9 encoder oracle trace emission. It is
 // available only in govpx_oracle_trace builds.
 func (e *VP9Encoder) SetVP9OracleTraceWriter(w io.Writer) {

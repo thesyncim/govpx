@@ -17,7 +17,7 @@ type VP9Encoder struct {
 	twoPass      vp9TwoPassState
 	cyclicAQ     vp9CyclicRefreshState
 	perceptualAQ vp9PerceptualAQState
-	oracleTrace  *vp9OracleTraceState
+	vp9OracleTraceHolder
 	// spatialScalabilityLocked is set for encoders owned by
 	// VP9SpatialSVCEncoder; the parent owns spatial layer metadata.
 	spatialScalabilityLocked bool

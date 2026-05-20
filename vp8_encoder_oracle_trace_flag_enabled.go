@@ -43,6 +43,10 @@ type oracleTraceState struct {
 	totalByteCount       int64
 }
 
+type oracleTraceHolder struct {
+	oracleTrace *oracleTraceState
+}
+
 type oracleTraceInterCandidateFilter struct {
 	initialized bool
 	enabled     bool

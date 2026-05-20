@@ -6,6 +6,8 @@ const vp9OracleTraceBuild = false
 
 type vp9OracleTraceState struct{}
 
+type vp9OracleTraceHolder struct{}
+
 type vp9OracleFrameSummary struct {
 	Row                  string
 	FrameIndex           int
