@@ -278,7 +278,7 @@ func TestLibvpxCalcARFBoostDifferentialVsGFBoost(t *testing.T) {
 		frame      = 0
 		gfInterval = 6
 	)
-	gfBoost := computeGFUBoost(stats, frame, gfInterval, true, 0)
+	gfBoost := computeGFUBoost(stats, frame, gfInterval, 0)
 	cursor := int(frame) + 1 + gfInterval
 	_, _, altBoost := libvpxCalcARFBoost(stats, cursor, gfInterval-1, gfInterval-1, 0)
 	if altBoost <= gfBoost {

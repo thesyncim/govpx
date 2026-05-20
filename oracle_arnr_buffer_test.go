@@ -65,8 +65,8 @@ func TestOracleARNRBufferAdler(t *testing.T) {
 		sources[i] = encoderValidationPanningFrame(width, height, i)
 	}
 
-	// Govpx pass 1: collect first-pass stats so the two-pass scheduler
-	// (pass2MaybeArmAltRefPending) has the libvpx-faithful inputs.
+	// Govpx pass 1: collect first-pass stats so the two-pass scheduler has
+	// the libvpx-faithful inputs.
 	govpxStats := captureGovpxFirstPassStats(t, opts, sources)
 
 	// Govpx pass 2: encode with the collected stats; the auto-ARF driver

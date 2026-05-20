@@ -278,7 +278,7 @@ func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, sbRows int) {
 		// Steady-state: re-arm per-row scratch but reuse the goroutines.
 		for i := range p.rowWorkerPools {
 			if pool := p.rowWorkerPools[i]; pool != nil {
-				pool.reset(&p.workers[i], 0)
+				pool.reset(&p.workers[i])
 			}
 		}
 		return
@@ -301,7 +301,7 @@ func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, sbRows int) {
 	for i := 0; i < p.workerCount; i++ {
 		p.rowWorkerPools[i] = newVP9RowWorkerPool(rowThreads)
 		if p.rowWorkerPools[i] != nil {
-			p.rowWorkerPools[i].reset(&p.workers[i], 0)
+			p.rowWorkerPools[i].reset(&p.workers[i])
 		}
 	}
 	p.rowMTThreadCount = rowThreads

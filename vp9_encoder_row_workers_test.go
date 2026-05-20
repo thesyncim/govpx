@@ -175,7 +175,7 @@ func TestVP9RowWorkerPoolReleaseFreesScratch(t *testing.T) {
 	// Synthesize a parent encoder shell so reset has the plane subsampling
 	// it needs.
 	parent := &VP9Encoder{}
-	pool.reset(parent, 256)
+	pool.reset(parent)
 	for i := range pool.workers {
 		if len(pool.workers[i].leftSegCtx) == 0 {
 			t.Fatalf("worker %d leftSegCtx empty after reset", i)

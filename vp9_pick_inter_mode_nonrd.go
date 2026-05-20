@@ -628,7 +628,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// always 0; folded as a constant to preserve the libvpx shape at
 	// vp9_pickmode.c:2479 / 2485.
 	forceTestGfZeromv := false
-	_ = forceTestGfZeromv // referenced symbolically in the early-break gate.
 
 	// libvpx: vp9_pickmode.c:1751 int best_early_term = 0. Set at
 	// vp9_pickmode.c:2462 only when the winning candidate flowed through
@@ -1204,8 +1203,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						}
 					}
 				}
-				_ = blockYrdFired
-
 				// libvpx vp9_pickmode.c:2366-2374 — skip-vs-non-skip RDCOST
 				// comparison. When use_simple_block_yrd is set and bsize
 				// is small, block_yrd returns sse=INT_MAX which makes the

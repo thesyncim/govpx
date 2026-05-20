@@ -2,12 +2,6 @@ package govpx
 
 import "math"
 
-func (e *VP8Encoder) pass2MaybeArmAltRefPending(currentFrame uint64, currentPTS uint64, keyFrame bool) {
-	_ = keyFrame
-	interval, pending := e.pass2AltRefPendingPlan(currentFrame)
-	e.pass2ArmAltRefPending(currentPTS, interval, pending)
-}
-
 func (e *VP8Encoder) pass2AltRefPendingPlan(currentFrame uint64) (int, bool) {
 	if !e.twoPass.enabled() {
 		return 0, false

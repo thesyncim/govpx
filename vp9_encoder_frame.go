@@ -628,7 +628,6 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 				// rather than corrupting the stream.
 				return VP9EncodeResult{}, ErrInvalidVP9Data
 			}
-			_ = rewSize
 		}
 		// libvpx: vp9_encoder.c:3448 — `lf->last_filt_level =
 		// lf->filter_level` after the picker returns. We refresh the

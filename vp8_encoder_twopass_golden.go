@@ -147,7 +147,7 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 	// to look up GFQ_ADJUSTMENT is libvpx's `last_q[INTER_FRAME]`, which
 	// is 0 before any inter frame has been encoded — for short clips with
 	// a single KF that means Q=0 and GFQ_ADJUSTMENT=80.
-	gfuBoost := computeGFUBoost(t.stats, frame, gfInterval, keyFrameAtBoundary, t.gfIntraErrMin)
+	gfuBoost := computeGFUBoost(t.stats, frame, gfInterval, t.gfIntraErrMin)
 	q := max(t.lastInterQ, 0)
 	if q >= len(libvpxGFBoostQAdjustment) {
 		q = len(libvpxGFBoostQAdjustment) - 1
@@ -540,7 +540,7 @@ func (t *twoPassState) detectGFTransitionToStill(frame uint64, interval int, loo
 // returned value is `(boost_score * 100) >> 4` matching libvpx's
 // scaling at line 1751 (`cpi->gfu_boost = (int)(boost_score *
 // 100.0) >> 4`).
-func computeGFUBoost(stats []FirstPassFrameStats, frame uint64, gfInterval int, keyFrameAtBoundary bool, gfIntraErrMin float64) int {
+func computeGFUBoost(stats []FirstPassFrameStats, frame uint64, gfInterval int, gfIntraErrMin float64) int {
 	const (
 		iiFactor    = 1.5
 		gfRMax      = 48.0
@@ -608,7 +608,6 @@ func computeGFUBoost(stats []FirstPassFrameStats, frame uint64, gfInterval int, 
 		}
 		oldBoostScore = boostScore
 	}
-	_ = keyFrameAtBoundary // currently unused but reserved for ARF gating
 	gfuBoost := int(boostScore*100.0) >> 4
 	return gfuBoost
 }
@@ -720,7 +719,6 @@ func (t *twoPassState) maxPctOrDefault() int {
 func (t *twoPassState) pass2VBRSectionLimits(frame uint64, defaultTargetBits int) (int64, int64) {
 	// libvpx defaults: rc_2pass_vbr_minsection_pct=0,
 	// rc_2pass_vbr_maxsection_pct=400.
-	minPct := max(t.minPct, 0)
 	maxPct := t.maxPct
 	if maxPct <= 0 {
 		maxPct = 400
@@ -748,7 +746,6 @@ func (t *twoPassState) pass2VBRSectionLimits(frame uint64, defaultTargetBits int
 	if sectionMax < sectionMin {
 		sectionMax = sectionMin
 	}
-	_ = minPct
 	return sectionMin, sectionMax
 }
 
@@ -1042,22 +1039,20 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 	return interval, true
 }
 
-// pass2MaybeArmAltRefPending wires the libvpx
-// vp8/encoder/firstpass.c `define_gf_group` ARF-pending decision into
-// the encoder. It runs at a GF-group boundary (framesTillAltRefFrame ==
-// 0 and ARF not already pending or active) and, when the second-pass
-// stats indicate a high-motion section ahead, calls
-// `scheduleAltRefSource` so the auto-ARF driver can emit the hidden
-// alt-ref at the predicted offset.
+// pass2AltRefPendingPlan wires the libvpx vp8/encoder/firstpass.c
+// `define_gf_group` ARF-pending decision into the encoder. It runs at a
+// GF-group boundary (framesTillAltRefFrame == 0 and ARF not already pending or
+// active), and pass2ArmAltRefPending calls scheduleAltRefSource so the auto-ARF
+// driver can emit the hidden alt-ref at the predicted offset.
 //
 // libvpx fires this from `vp8_second_pass`, which runs on every
 // non-hidden frame including the keyframe (find_next_key_frame zeros
 // `frames_till_gf_update_due` so the same `if (frames_till_gf_update_due
 // == 0)` predicate triggers `define_gf_group` from inside Pass2Encode
-// for the keyframe). govpx mirrors that by allowing the arming call to
-// fire on `keyFrame == true`; the keyframe-path lifecycle update inside
-// `resetGoldenFrameStats` no longer clobbers the schedule (it now
-// matches libvpx's `update_golden_frame_stats`, which leaves
+// for the keyframe). govpx mirrors that by not special-casing keyframes in the
+// caller; the keyframe-path lifecycle update inside `resetGoldenFrameStats` no
+// longer clobbers the schedule (it now matches libvpx's
+// `update_golden_frame_stats`, which leaves
 // `source_alt_ref_pending` intact). Without arming on the keyframe the
 // hidden ARF would slip by one frame relative to libvpx.
 //

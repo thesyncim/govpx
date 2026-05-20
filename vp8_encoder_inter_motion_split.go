@@ -141,7 +141,6 @@ func diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCost
 			returnCost = maxInt()
 		}
 	}
-	_ = qIndex
 	return splitFullPixelSearchResult{mv: best, walkCost: bestWalkCost, returnCost: returnCost, num00: uint8(num00)}
 }
 

@@ -112,7 +112,7 @@ type vp9RowEncoderState struct {
 // reset arms the row encoder state for a fresh frame on the given
 // dimensions. It allocates per-row scratch lazily; subsequent calls
 // reuse the cached capacity so steady-state encodes do not allocate.
-func (s *vp9RowEncoderState) reset(parent *VP9Encoder, miColsAligned int) {
+func (s *vp9RowEncoderState) reset(parent *VP9Encoder) {
 	if s == nil {
 		return
 	}
@@ -147,7 +147,6 @@ func (s *vp9RowEncoderState) reset(parent *VP9Encoder, miColsAligned int) {
 		s.interPredictScratch = s.interPredictScratch[:vp9MaxPartitionReconScratch]
 	}
 	s.counts = encoder.FrameCounts{}
-	_ = miColsAligned
 }
 
 // release drops the row state arrays. Called when SetRowMT(false) flips
@@ -313,12 +312,12 @@ func (p *vp9RowWorkerPool) dispatch(rows []int, job vp9RowWorkerJob) error {
 // reset arms each per-row state for a fresh frame on the given parent
 // encoder. It is called by the tile-column dispatcher before
 // dispatch() so the workers see freshly-zeroed scratch.
-func (p *vp9RowWorkerPool) reset(parent *VP9Encoder, miColsAligned int) {
+func (p *vp9RowWorkerPool) reset(parent *VP9Encoder) {
 	if p == nil {
 		return
 	}
 	for i := range p.workers {
-		p.workers[i].reset(parent, miColsAligned)
+		p.workers[i].reset(parent)
 	}
 }
 

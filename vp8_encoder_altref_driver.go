@@ -27,8 +27,8 @@ const autoAltRefHiddenFlags = EncodeForceAltRefFrame |
 // (`update_golden_frame_stats`) gated on `cpi->oxcf.fixed_q >= 0`. Govpx does
 // not support libvpx's fixed-Q mode, so in one-pass mode the hidden ARF stream
 // must stay empty for byte parity with vpxenc. The schedule+emit cycle is
-// therefore gated on `twoPass.enabled()`; the two-pass arming path lives in
-// `pass2MaybeArmAltRefPending`.
+// therefore gated on `twoPass.enabled()`; the two-pass arming path is split
+// between `pass2AltRefPendingPlan` and `pass2ArmAltRefPending`.
 func (e *VP8Encoder) autoAltRefDriverEnabled() bool {
 	if !e.opts.AutoAltRef {
 		return false
@@ -78,9 +78,9 @@ func (e *VP8Encoder) autoAltRefMaybeSchedule() {
 	}
 	if e.twoPass.enabled() {
 		// In two-pass mode the GF/ARF section decision is made from
-		// FIRSTPASS_STATS in pass2MaybeArmAltRefPending. Do not let the
-		// one-pass default interval fallback arm an ARF that libvpx's
-		// second-pass planner rejected.
+		// FIRSTPASS_STATS in pass2AltRefPendingPlan. Do not let the one-pass
+		// default interval fallback arm an ARF that libvpx's second-pass
+		// planner rejected.
 		return
 	}
 	if e.sourceAltRefPending {

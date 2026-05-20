@@ -163,9 +163,9 @@ func TestPass2ARFPendingTriggersFromHighMotionSection(t *testing.T) {
 		t.Fatalf("ARF interval = %d, want >= MIN_GF_INTERVAL=%d", interval, libvpxMinGFInterval)
 	}
 
-	// Wire the encoder side: pass2MaybeArmAltRefPending should call
-	// scheduleAltRefSource so sourceAltRefPending and
-	// framesTillAltRefFrame both transition to "armed" state.
+	// Wire the encoder side: the pass-2 ARF plan should call
+	// scheduleAltRefSource so sourceAltRefPending and framesTillAltRefFrame
+	// both transition to "armed" state.
 	enc := &VP8Encoder{
 		opts: EncoderOptions{
 			AutoAltRef:       true,
@@ -174,7 +174,8 @@ func TestPass2ARFPendingTriggersFromHighMotionSection(t *testing.T) {
 		},
 	}
 	enc.twoPass = ts
-	enc.pass2MaybeArmAltRefPending(0, 0, false)
+	interval, pending = enc.pass2AltRefPendingPlan(0)
+	enc.pass2ArmAltRefPending(0, interval, pending)
 	if !enc.sourceAltRefPending {
 		t.Fatalf("sourceAltRefPending = false after high-motion section, want true")
 	}
