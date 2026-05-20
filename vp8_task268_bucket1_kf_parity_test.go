@@ -88,10 +88,10 @@ func TestVP8Task268Bucket1KFParity(t *testing.T) {
 			if got := len(lKF); got != tc.wantKFLen {
 				t.Fatalf("libvpx KF len drift: got=%d want=%d", got, tc.wantKFLen)
 			}
-			if got := decodeFirstPartitionSize(gKF); got != tc.wantKFFirstPart {
+			if got, _ := parseVP8FramePartitionSizes(gKF); got != tc.wantKFFirstPart {
 				t.Fatalf("govpx KF first_partition drift: got=%d want=%d", got, tc.wantKFFirstPart)
 			}
-			if got := decodeFirstPartitionSize(lKF); got != tc.wantKFFirstPart {
+			if got, _ := parseVP8FramePartitionSizes(lKF); got != tc.wantKFFirstPart {
 				t.Fatalf("libvpx KF first_partition drift: got=%d want=%d", got, tc.wantKFFirstPart)
 			}
 			if !bytes.Equal(gKF, lKF) {

@@ -377,16 +377,16 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 		t.Fatalf("frame 1 libvpx len drift: got=%d want=%d", got, wantFrame1LibvpxLen)
 	}
 
-	if got := decodeFirstPartitionSize(govpxFrames[0]); got != wantFrame0GovpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(govpxFrames[0]); got != wantFrame0GovpxFirstPart {
 		t.Fatalf("frame 0 govpx first_partition_size drift: got=%d want=%d", got, wantFrame0GovpxFirstPart)
 	}
-	if got := decodeFirstPartitionSize(libvpxFrames[0]); got != wantFrame0LibvpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(libvpxFrames[0]); got != wantFrame0LibvpxFirstPart {
 		t.Fatalf("frame 0 libvpx first_partition_size drift: got=%d want=%d", got, wantFrame0LibvpxFirstPart)
 	}
-	if got := decodeFirstPartitionSize(govpxFrames[1]); got != wantFrame1GovpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(govpxFrames[1]); got != wantFrame1GovpxFirstPart {
 		t.Fatalf("frame 1 govpx first_partition_size drift: got=%d want=%d", got, wantFrame1GovpxFirstPart)
 	}
-	if got := decodeFirstPartitionSize(libvpxFrames[1]); got != wantFrame1LibvpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(libvpxFrames[1]); got != wantFrame1LibvpxFirstPart {
 		t.Fatalf("frame 1 libvpx first_partition_size drift: got=%d want=%d", got, wantFrame1LibvpxFirstPart)
 	}
 
@@ -402,155 +402,6 @@ func TestVP8Byte0KF1280x720SSIMGoodARNRAudit(t *testing.T) {
 		wantFrame0GovpxFirstPart, wantFrame0LibvpxFirstPart,
 		hex.EncodeToString(govpxSHA0[:8]), hex.EncodeToString(libvpxSHA0[:8]))
 	t.Logf("task #227 pinned: frame 1 govpx_len=%d libvpx_len=%d "+
-		"govpx_first_part=%d libvpx_first_part=%d "+
-		"govpx_sha=%s libvpx_sha=%s",
-		wantFrame1GovpxLen, wantFrame1LibvpxLen,
-		wantFrame1GovpxFirstPart, wantFrame1LibvpxFirstPart,
-		hex.EncodeToString(govpxSHA1[:8]), hex.EncodeToString(libvpxSHA1[:8]))
-}
-
-// TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed pins task #213's confirmation
-// for fuzz seed regression_option_grid_22f3d67c: the same 1280x720 / Good /
-// cpu=0 / threads=4 / token=1 / SSIM / sc=1 frame layout as the VBR variant
-// pinned above, but with RateControl=CBR + ARNR=1/2/1 instead of VBR +
-// ARNR=1/1/2. Task #213's activityProbeStaleActZbinAdj + per-attempt rdmult
-// carry CLOSED this seed byte-exactly. Pinning keeps the regression detect-
-// able if a future change re-opens the CBR side of the cohort while leaving
-// the VBR variant (788d442c) unchanged.
-//
-// Cohort decode (seed bytes "A120"):
-//
-//   - Resolution: 1280x720
-//   - Deadline:   GoodQuality
-//   - CpuUsed:    0
-//   - RateControl CBR
-//   - Feature:    screen-content-mode=1
-//   - TokenPart:  1
-//   - Threads:    4
-//   - Tuning:     TuneSSIM
-//   - ARNR:       maxframes=1, strength=2, type=1
-//
-// Companion live regression:
-//
-//	testdata/fuzz/FuzzEncoderProductionStreamByteParity/regression_option_grid_22f3d67c
-func TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #227 closed-cohort confirmation")
-	}
-	vpxencOracle := findVpxencOracle(t)
-
-	opts := EncoderOptions{
-		Width:             1280,
-		Height:            720,
-		FPS:               30,
-		RateControlMode:   RateControlCBR,
-		TargetBitrateKbps: 700,
-		MinQuantizer:      4,
-		MaxQuantizer:      56,
-		KeyFrameInterval:  999,
-		Deadline:          DeadlineGoodQuality,
-		CpuUsed:           0,
-		Tuning:            TuneSSIM,
-		ScreenContentMode: 1,
-		TokenPartitions:   1,
-		Threads:           4,
-		ARNRMaxFrames:     1,
-		ARNRStrength:      2,
-		ARNRType:          1,
-	}
-	extraArgs := libvpxEndUsageArgs([]string{
-		"--end-usage=cbr",
-		"--screen-content-mode=1",
-		"--token-parts=1",
-		"--threads=4",
-		"--tune=ssim",
-		"--arnr-maxframes=1",
-		"--arnr-strength=2",
-		"--arnr-type=1",
-	})
-
-	sources := make([]Image, 2)
-	for i := range sources {
-		sources[i] = encoderValidationPanningFrame(1280, 720, i)
-	}
-
-	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	// Task #349: --threads=4 audit cohort routed through the libvpx
-	// threading-quarantine wrapper.
-	libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task227-byte0-kf-1280x720-ssim-good-cbr-arnr-closed", opts, 700, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
-
-	if len(govpxFrames) < 2 || len(libvpxFrames) < 2 {
-		t.Fatalf("expected >=2 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
-	}
-
-	// Task #213 originally confirmed byte parity on this seed; task #236
-	// then ported libvpx's stale BLOCK->zbin_extra carry into the per-MB
-	// intra RD picker, which flipped a handful of MB picker decisions
-	// on this CBR/ARNR=2/1 cohort, shifting govpx away from libvpx by 53
-	// bytes on frame 0 and 63 bytes on frame 1. Task #254 tightened the
-	// threaded keyframe stale-carry across rows; on THIS seed it dropped
-	// frame 0 from +53 to +49 bytes (govpx 145545 vs libvpx 145496).
-	//
-	// Task #262 closes the residual divergence: libvpx
-	// vp8/encoder/encodeframe.c line 427-438 calls
-	// vp8cx_mb_init_quantizer(cpi, x, ok_to_skip=1) BEFORE the picker
-	// on every MB whenever xd->segmentation_enabled is set. For CBR
-	// (which enables cyclic_refresh_mode at onyx_if.c line 1857) the
-	// KF cyclic_background_refresh call sets segmentation_enabled=1, so
-	// the picker's block[i].zbin_extra is refreshed from THIS MB's
-	// activity-driven x->act_zbin_adj via the vp8_quantize.c line 387-
-	// 407 `else if (last_act_zbin_adj != act_zbin_adj)` branch. The
-	// picker therefore quantizes with the current MB's zbin_extra, not
-	// the stale prev-MB value the task #236 picker uses. After threading
-	// segmentation.Enabled into the keyframe picker in
-	// vp8_encoder_reconstruct.go / vp8_encoder_row_threaded.go, this seed
-	// matches libvpx byte-for-byte on both frames again.
-	wantFrame0GovpxLen := 145496
-	wantFrame0LibvpxLen := 145496
-	wantFrame0GovpxFirstPart := 20441
-	wantFrame0LibvpxFirstPart := 20441
-	wantFrame1GovpxLen := 6324
-	wantFrame1LibvpxLen := 6324
-	wantFrame1GovpxFirstPart := 2363
-	wantFrame1LibvpxFirstPart := 2363
-
-	if got := len(govpxFrames[0]); got != wantFrame0GovpxLen {
-		t.Fatalf("frame 0 govpx len drift: got=%d want=%d", got, wantFrame0GovpxLen)
-	}
-	if got := len(libvpxFrames[0]); got != wantFrame0LibvpxLen {
-		t.Fatalf("frame 0 libvpx len drift: got=%d want=%d", got, wantFrame0LibvpxLen)
-	}
-	if got := len(govpxFrames[1]); got != wantFrame1GovpxLen {
-		t.Fatalf("frame 1 govpx len drift: got=%d want=%d", got, wantFrame1GovpxLen)
-	}
-	if got := len(libvpxFrames[1]); got != wantFrame1LibvpxLen {
-		t.Fatalf("frame 1 libvpx len drift: got=%d want=%d", got, wantFrame1LibvpxLen)
-	}
-	if got := decodeFirstPartitionSize(govpxFrames[0]); got != wantFrame0GovpxFirstPart {
-		t.Fatalf("frame 0 govpx first_partition_size drift: got=%d want=%d", got, wantFrame0GovpxFirstPart)
-	}
-	if got := decodeFirstPartitionSize(libvpxFrames[0]); got != wantFrame0LibvpxFirstPart {
-		t.Fatalf("frame 0 libvpx first_partition_size drift: got=%d want=%d", got, wantFrame0LibvpxFirstPart)
-	}
-	if got := decodeFirstPartitionSize(govpxFrames[1]); got != wantFrame1GovpxFirstPart {
-		t.Fatalf("frame 1 govpx first_partition_size drift: got=%d want=%d", got, wantFrame1GovpxFirstPart)
-	}
-	if got := decodeFirstPartitionSize(libvpxFrames[1]); got != wantFrame1LibvpxFirstPart {
-		t.Fatalf("frame 1 libvpx first_partition_size drift: got=%d want=%d", got, wantFrame1LibvpxFirstPart)
-	}
-
-	govpxSHA0 := sha256.Sum256(govpxFrames[0])
-	libvpxSHA0 := sha256.Sum256(libvpxFrames[0])
-	govpxSHA1 := sha256.Sum256(govpxFrames[1])
-	libvpxSHA1 := sha256.Sum256(libvpxFrames[1])
-
-	t.Logf("task #262 closed: frame 0 govpx_len=%d libvpx_len=%d "+
-		"govpx_first_part=%d libvpx_first_part=%d "+
-		"govpx_sha=%s libvpx_sha=%s",
-		wantFrame0GovpxLen, wantFrame0LibvpxLen,
-		wantFrame0GovpxFirstPart, wantFrame0LibvpxFirstPart,
-		hex.EncodeToString(govpxSHA0[:8]), hex.EncodeToString(libvpxSHA0[:8]))
-	t.Logf("task #262 closed: frame 1 govpx_len=%d libvpx_len=%d "+
 		"govpx_first_part=%d libvpx_first_part=%d "+
 		"govpx_sha=%s libvpx_sha=%s",
 		wantFrame1GovpxLen, wantFrame1LibvpxLen,

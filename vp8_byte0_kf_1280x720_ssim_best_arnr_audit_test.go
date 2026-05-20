@@ -648,16 +648,16 @@ func TestVP8Byte0KF1280x720SSIMBestARNRAudit(t *testing.T) {
 		t.Fatalf("frame 1 libvpx len drift: got=%d want=%d", got, wantFrame1LibvpxLen)
 	}
 
-	if got := decodeFirstPartitionSize(govpxFrames[0]); got != wantFrame0GovpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(govpxFrames[0]); got != wantFrame0GovpxFirstPart {
 		t.Fatalf("frame 0 govpx first_partition_size drift: got=%d want=%d", got, wantFrame0GovpxFirstPart)
 	}
-	if got := decodeFirstPartitionSize(libvpxFrames[0]); got != wantFrame0LibvpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(libvpxFrames[0]); got != wantFrame0LibvpxFirstPart {
 		t.Fatalf("frame 0 libvpx first_partition_size drift: got=%d want=%d", got, wantFrame0LibvpxFirstPart)
 	}
-	if got := decodeFirstPartitionSize(govpxFrames[1]); got != wantFrame1GovpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(govpxFrames[1]); got != wantFrame1GovpxFirstPart {
 		t.Fatalf("frame 1 govpx first_partition_size drift: got=%d want=%d", got, wantFrame1GovpxFirstPart)
 	}
-	if got := decodeFirstPartitionSize(libvpxFrames[1]); got != wantFrame1LibvpxFirstPart {
+	if got, _ := parseVP8FramePartitionSizes(libvpxFrames[1]); got != wantFrame1LibvpxFirstPart {
 		t.Fatalf("frame 1 libvpx first_partition_size drift: got=%d want=%d", got, wantFrame1LibvpxFirstPart)
 	}
 

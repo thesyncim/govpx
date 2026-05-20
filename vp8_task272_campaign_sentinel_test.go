@@ -27,12 +27,10 @@ import (
 // against the libvpx-vpxenc-oracle binary, asserting strict per-frame
 // bytes.Equal across the seed's full encoded clip.
 //
-// It also re-runs the byte-exact audit-test cohort that lived as standalone
-// audit tests prior to closure (TestVP8Byte0KF1280x720SSIMAudit,
-// TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed, TestVP8Byte49Frame2DivergenceClosure,
-// TestVP8Byte58Frame2DivergenceAudit) — these audit configurations are
-// byte-exact end-to-end today and become subtests under the sentinel so a
-// single test invocation proves the campaign-closure state.
+// It also re-runs the byte-exact audit cohorts that were promoted into the
+// sentinel after closure. These configurations are byte-exact end-to-end
+// today and stay here as named subtests so a single invocation proves the
+// campaign-closure state without keeping duplicate standalone audit files.
 //
 // If any subtest fails, the sentinel reports the seed/config label, frame
 // index, govpx-vs-libvpx length pair, first-byte-diff offset and the
@@ -122,12 +120,9 @@ func runVP8Task272CorpusSubtests(t *testing.T, vpxencOracle string) {
 }
 
 // runVP8Task272AuditCohortSubtests re-runs the byte-exact audit-test
-// cohort. Only audits whose existing pin asserts identical govpx/libvpx
-// frame lengths across every frame are included; audits with documented
-// open inter-gaps (e.g. TestVP8Byte0KF1280x720SSIMBestARNRAudit,
-// TestVP8Byte0KF1280x720SSIMGoodARNRAudit which pin Δ=5/6-byte inter
-// drifts) are left to their own test files since they are not yet
-// byte-closed and do not belong in the byte-exact campaign sentinel.
+// cohort. Only compact closure cohorts live here; longer investigative audits
+// with detailed failure history stay in their own test files so this sentinel
+// remains a fast, readable campaign gate.
 func runVP8Task272AuditCohortSubtests(t *testing.T, vpxencOracle string) {
 	type auditCase struct {
 		name      string
@@ -141,8 +136,8 @@ func runVP8Task272AuditCohortSubtests(t *testing.T, vpxencOracle string) {
 			// Companion live regression:
 			//   regression_option_grid_94eb71d5 (seed bytes "A1200000")
 			// 1280x720 / GoodQuality / cpu=0 / CBR / TuneSSIM / arnr=1/0/1.
-			// Closed by task #213 (activityProbeStaleActZbinAdj) — pinned
-			// in TestVP8Byte0KF1280x720SSIMAudit.
+			// Closed by task #213 (activityProbeStaleActZbinAdj) and
+			// retained here as a compact campaign-closure subtest.
 			name: "ssim-audit-1280x720-cbr-cpu0",
 			opts: EncoderOptions{
 				Width: 1280, Height: 720, FPS: 30,
@@ -161,8 +156,8 @@ func runVP8Task272AuditCohortSubtests(t *testing.T, vpxencOracle string) {
 			// Companion live regression:
 			//   regression_option_grid_22f3d67c (seed bytes "A120")
 			// 1280x720 / GoodQuality / cpu=0 / threads=4 / token=1 / sc=1
-			// / TuneSSIM / CBR / arnr=1/2/1. Closed by task #262 — pinned
-			// in TestVP8Byte0KF1280x720SSIMGoodCBRArnrClosed.
+			// / TuneSSIM / CBR / arnr=1/2/1. Closed by task #262 and
+			// retained here as a compact campaign-closure subtest.
 			name: "ssim-good-cbr-arnr-closed-1280x720-threads4",
 			opts: EncoderOptions{
 				Width: 1280, Height: 720, FPS: 30,
