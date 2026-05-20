@@ -24,9 +24,9 @@ ownership under internal packages.
 
 ## Active Passes
 
-Current lane split: this session owns VP9 cleanup work. VP8 cleanup work is
-handled in a separate lane except for already-landed shared harness changes or
-explicit cross-codec mechanics under `internal/vpx`.
+Current lane split: this session owns VP8 and VP9 cleanup work again. Parallel
+lanes may still take narrow packets, but every safe point must keep the
+cross-codec package boundaries, tests, and documentation coherent.
 
 1. Inventory and guardrails: maintain file clusters, large-file exceptions,
    protected gates, and no-overlap ownership notes.

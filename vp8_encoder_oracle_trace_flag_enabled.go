@@ -25,8 +25,8 @@ type oracleTraceState struct {
 	// {"type":"chroma_optimize_b",...} rows from the per-MB UV optimize
 	// trellis on the accepted-path encode (one row per UV 4x4 block
 	// 16..23). Mirrors GOVPX_ORACLE_CHROMA_OPTIMIZE_B on the libvpx side;
-	// used to bisect post-trellis ±1 DC keep/drop divergences identified
-	// by task #314 between govpx and libvpx.
+	// used to bisect post-trellis DC keep/drop divergences between govpx
+	// and libvpx.
 	chromaOptimizeBDump bool
 	// pickerUVQuantizeDump, when true, enables emission of
 	// {"type":"picker_uv_quantize",...} rows from the inter RD picker's

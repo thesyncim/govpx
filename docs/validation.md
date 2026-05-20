@@ -115,7 +115,7 @@ no `govpx_oracle_trace` tag and no `GOVPX_*` oracle or trace environment
 variables. Then compile the trace-tag build:
 
 ```sh
-go test . -run 'TestDisabledTrace' -count=1
+go test . -run 'TestOracleTraceDisabled' -count=1
 go test -tags govpx_oracle_trace ./... -run '^$' -count=1
 ```
 

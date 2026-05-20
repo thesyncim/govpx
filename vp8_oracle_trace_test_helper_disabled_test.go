@@ -2,4 +2,5 @@
 
 package govpx
 
-func enableOracleTraceForTest(*VP8Encoder) {}
+func enableOracleTraceForTest(*VP8Encoder) {
+}

@@ -14,7 +14,7 @@ var (
 	disabledTraceFloatSink float64
 )
 
-func TestDisabledTraceStateZeroSize(t *testing.T) {
+func TestOracleTraceDisabledStateTypesHaveZeroSize(t *testing.T) {
 	cases := []struct {
 		name string
 		size uintptr
@@ -33,7 +33,7 @@ func TestDisabledTraceStateZeroSize(t *testing.T) {
 	}
 }
 
-func TestDisabledTraceFieldsNotInProductionStructs(t *testing.T) {
+func TestOracleTraceDisabledFieldsAbsentFromProductionStructs(t *testing.T) {
 	cases := []struct {
 		name  string
 		typ   reflect.Type
@@ -50,14 +50,32 @@ func TestDisabledTraceFieldsNotInProductionStructs(t *testing.T) {
 	}
 }
 
-func TestDisabledTraceHelpersDoNotAllocate(t *testing.T) {
+func TestOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) {
+	typ := reflect.TypeOf(&VP8Encoder{})
+	methods := []string{
+		"SetOracleTraceWriter",
+		"SetOracleTracePredictorDump",
+		"SetOracleTracePretrellisUVDump",
+		"SetOracleTraceChromaOptimizeBDump",
+		"SetOracleTracePickerUVQuantizeDump",
+	}
+	for _, name := range methods {
+		if _, ok := typ.MethodByName(name); ok {
+			t.Fatalf("VP8Encoder exposes %s in default builds", name)
+		}
+	}
+}
+
+func TestOracleTraceDisabledHelpersAllocateZero(t *testing.T) {
 	var vp8 VP8Encoder
 	var vp9 VP9Encoder
+	var vp9d VP9Decoder
 	coefTrace := newPretrellisUVTrace(&vp8)
 	pickerTrace := newPickerUVQuantizeTrace(&vp8, nil)
 
 	allocs := testing.AllocsPerRun(1000, func() {
 		disabledTraceBoolSink = oracleTraceBuild && vp8.oracleTraceEnabled()
+		enableOracleTraceForTest(&vp8)
 		vp8.resetOracleTraceState()
 		vp8.resetOracleTraceRecode()
 		vp8.incrementOracleTraceRecodeLoop()
@@ -67,6 +85,10 @@ func TestDisabledTraceHelpersDoNotAllocate(t *testing.T) {
 		vp8.resetOracleMBTraceBuffer()
 		vp8.flushOracleMBTraceBuffer()
 		vp8.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{})
+		vp8.emitFastPickerIntraCandidateTrace(0, 0, 0, 0, 0, 0, false, 0, 0, 0, 0, nil)
+		vp8.emitFastPickerInterCandidateTrace(0, 0, 0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0, nil, interFrameSearchStart{})
+		vp8.emitOracleMBTrace(0, 0, nil, nil, interFrameSearchStart{}, 0, 0)
+		vp8.emitOracleKeyFrameMBTrace(0, 0, nil, nil, 0, 0)
 		vp8.emitOracleLFTrial("test", 0, 0)
 		vp8.emitOracleInterPredictorTrace(0, 0, nil)
 		vp8.emitOracleInterReconstructedTrace(0, 0, nil)
@@ -75,6 +97,12 @@ func TestDisabledTraceHelpersDoNotAllocate(t *testing.T) {
 		vp8.emitOracleDroppedFrameTrace("test")
 		vp8.emitOracleRateAndRecodeTrace(0, 0, 0, 0, 0, 0)
 		vp8.emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary{})
+		staleY2 := makeOracleStaleY2Snapshot(0, [16]int16{})
+		disabledTraceBoolSink = disabledTraceBoolSink || oracleStaleY2SnapshotSet(staleY2)
+		applyOracleStaleY2Snapshot(nil, staleY2)
+		recordOracleY1DCEOB1(nil, 0, 0)
+		recordOracleStaleY2(nil, 0, [16]int16{})
+		disabledTraceIntSink += int(libvpxY1DCWouldQuantizeNonzero(0, nil, 0, 0, 0, false))
 
 		disabledTraceBoolSink = coefTrace.pretrellisUVEnabled(true, false)
 		disabledTraceBoolSink = coefTrace.chromaOptimizeBEnabled(true, false)
@@ -92,17 +120,19 @@ func TestDisabledTraceHelpersDoNotAllocate(t *testing.T) {
 		disabledTraceFloatSink += correction
 		disabledTraceBoolSink = disabledTraceBoolSink || recode
 		vp9.emitVP9OracleFrameTrace(vp9OracleFrameSummary{})
+		vp9d.traceVP9Unsupported("test")
 	})
 	if allocs != 0 {
 		t.Fatalf("disabled trace helpers allocated %v times per run, want 0", allocs)
 	}
 }
 
-func TestDisabledTraceHelpersAreNoops(t *testing.T) {
+func TestOracleTraceDisabledHelpersAreNoops(t *testing.T) {
 	var vp8 VP8Encoder
 	if oracleTraceBuild {
 		t.Fatal("oracleTraceBuild = true in default build")
 	}
+	enableOracleTraceForTest(&vp8)
 	if vp8.oracleTraceEnabled() {
 		t.Fatal("VP8 oracle trace active in default build")
 	}
@@ -120,12 +150,13 @@ func TestDisabledTraceHelpersAreNoops(t *testing.T) {
 	if coefTrace.chromaOptimizeBEnabled(true, false) {
 		t.Fatal("chroma optimize trace enabled in default build")
 	}
-	if coefTrace.pickerUVQuantizeEnabled() {
+	pickerTrace := newPickerUVQuantizeTrace(&vp8, nil)
+	if pickerTrace.pickerUVQuantizeEnabled() {
 		t.Fatal("picker UV quantize trace enabled in default build")
 	}
 	coefTrace.emitPretrellisUV(0, 0, 0, nil, nil, nil, 0, 0, 0)
 	coefTrace.emitChromaOptimizeB(0, 0, 0, nil, nil, nil, nil, 0, 0, 0, false)
-	coefTrace.emitPickerUVQuantize(0, 0, 0, "", nil, nil, nil, nil, 0, 0, 0)
+	pickerTrace.emitPickerUVQuantize(0, 0, 0, "", nil, nil, nil, nil, 0, 0, 0)
 
 	var vp9e VP9Encoder
 	if vp9OracleTraceBuild {
@@ -139,4 +170,6 @@ func TestDisabledTraceHelpersAreNoops(t *testing.T) {
 		t.Fatalf("VP9 rate trace = (%d,%d,%f,%t,%d), want zero values",
 			best, worst, correction, recode, loop)
 	}
+	var vp9d VP9Decoder
+	vp9d.traceVP9Unsupported("test")
 }
