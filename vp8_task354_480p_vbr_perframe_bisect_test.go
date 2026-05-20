@@ -71,18 +71,11 @@ package govpx_test
 // the 4-rung ladder; any same-Q MB-decision narrowing on the ARNR
 // chain will close it without touching rate control.
 //
-// Set GOVPX_TASK354_RUN=1 to re-run the bisect (govpx side always
-// runs; libvpx side runs only when GOVPX_VPXENC_VP8_BIN is set, and
-// per-frame Q is dumped only when GOVPX_VPXDEC_VP8_BIN is also set).
+// The libvpx side of this fixture is enforced by the VP8 BD-rate gate.
+// This file keeps the cheap govpx-side per-frame pin in the default suite.
 
 import (
-	"bytes"
-	"fmt"
 	"image"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/thesyncim/govpx"
@@ -165,119 +158,6 @@ func runVP8Panning480pGovpx(t *testing.T, target int) (sizes []int, internalQs [
 	return sizes, internalQs, kbps
 }
 
-func runVP8Panning480pLibvpx(t *testing.T, target int) (sizes []int, qIndices []int, kbps float64) {
-	t.Helper()
-	binPath := os.Getenv("GOVPX_VPXENC_VP8_BIN")
-	if binPath == "" {
-		t.Skip("GOVPX_VPXENC_VP8_BIN not set; skipping libvpx side")
-	}
-	const (
-		width  = 854
-		height = 480
-		frames = 16
-		fps    = 30
-	)
-	dir, err := os.MkdirTemp("", "task354-*")
-	if err != nil {
-		t.Fatalf("mktemp: %v", err)
-	}
-	defer os.RemoveAll(dir)
-	inPath := filepath.Join(dir, "in.i420")
-	outPath := filepath.Join(dir, "out.ivf")
-	f, err := os.Create(inPath)
-	if err != nil {
-		t.Fatalf("create input: %v", err)
-	}
-	for i := range frames {
-		src := makeVP8Task354PanningFrame(width, height, i)
-		for y := range height {
-			row := src.Y[y*src.YStride:]
-			if _, err := f.Write(row[:width]); err != nil {
-				t.Fatalf("write Y: %v", err)
-			}
-		}
-		uvW := width >> 1
-		uvH := height >> 1
-		for y := range uvH {
-			row := src.Cb[y*src.CStride:]
-			if _, err := f.Write(row[:uvW]); err != nil {
-				t.Fatalf("write Cb: %v", err)
-			}
-		}
-		for y := range uvH {
-			row := src.Cr[y*src.CStride:]
-			if _, err := f.Write(row[:uvW]); err != nil {
-				t.Fatalf("write Cr: %v", err)
-			}
-		}
-	}
-	f.Close()
-	args := []string{
-		"--codec=vp8",
-		"--passes=1",
-		"--end-usage=vbr",
-		"--min-q=4", "--max-q=63",
-		fmt.Sprintf("--target-bitrate=%d", target),
-		"--kf-min-dist=120", "--kf-max-dist=120",
-		"--good",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--tune=psnr",
-		"--drop-frame=0",
-		"--psnr",
-		"--ivf",
-		"--i420",
-		fmt.Sprintf("--width=%d", width),
-		fmt.Sprintf("--height=%d", height),
-		fmt.Sprintf("--fps=%d/1", fps),
-		fmt.Sprintf("--limit=%d", frames),
-		"--output=" + outPath,
-		inPath,
-	}
-	var stderr bytes.Buffer
-	cmd := exec.Command(binPath, args...)
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("vpxenc: %v\nstderr=%s", err, stderr.String())
-	}
-	data, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatalf("read out: %v", err)
-	}
-	sizes, err = parseIVFSizesTask354(data)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if dec := os.Getenv("GOVPX_VPXDEC_VP8_BIN"); dec != "" {
-		statsPath := filepath.Join(dir, "stats.csv")
-		dcmd := exec.Command(dec, "--codec=vp8", "--noblit", "--framestats="+statsPath, outPath)
-		var derr bytes.Buffer
-		dcmd.Stderr = &derr
-		if err := dcmd.Run(); err == nil {
-			if statsData, err := os.ReadFile(statsPath); err == nil {
-				lines := strings.Split(strings.TrimSpace(string(statsData)), "\n")
-				// header line: "bytes,qp"; subsequent lines are per-frame.
-				for _, line := range lines[1:] {
-					parts := strings.Split(line, ",")
-					if len(parts) >= 2 {
-						var q int
-						fmt.Sscanf(parts[1], "%d", &q)
-						qIndices = append(qIndices, q)
-					}
-				}
-			}
-		} else {
-			t.Logf("vpxdec failed: %v\nstderr=%s", err, derr.String())
-		}
-	}
-	totalBytes := 0
-	for _, s := range sizes {
-		totalBytes += s
-	}
-	kbps = float64(totalBytes) * 8 * float64(fps) / float64(frames) / 1000.0
-	return sizes, qIndices, kbps
-}
-
 // TestTask354_480pVBR_GovpxPerFramePin verifies the govpx-side per-
 // frame (size, iQ) pin at the target=1000 kbps rung. Any deviation
 // flags either an MB-decision improvement that's narrowing the +0.645%
@@ -306,35 +186,6 @@ func TestTask354_480pVBR_GovpxPerFramePin(t *testing.T) {
 			t.Errorf("f%d govpx iQ=%d want %d (re-pin if narrowing toward libvpx)",
 				row.frame, iqs[row.frame], row.govpxIQ)
 		}
-	}
-}
-
-// TestTask354_480pVBR_PerFrameBisect re-runs the full govpx-vs-libvpx
-// per-frame bisect across all 4 ladder rungs and prints the comparison
-// table. Requires GOVPX_VPXENC_VP8_BIN; logs only (no asserts beyond
-// what the govpx pin above covers) so this case is for follow-up audit
-// use, not gate enforcement. Set GOVPX_TASK354_RUN=1 to opt in.
-func TestTask354_480pVBR_PerFrameBisect(t *testing.T) {
-	if os.Getenv("GOVPX_TASK354_RUN") != "1" {
-		t.Skip("set GOVPX_TASK354_RUN=1 to run")
-	}
-	for _, target := range []int{500, 1000, 2000, 4000} {
-		gSizes, gIQs, gKbps := runVP8Panning480pGovpx(t, target)
-		lSizes, lQs, lKbps := runVP8Panning480pLibvpx(t, target)
-		t.Logf("=== target=%d kbps:  govpx_kbps=%.3f libvpx_kbps=%.3f delta=%.3f ===",
-			target, gKbps, lKbps, gKbps-lKbps)
-		var b strings.Builder
-		fmt.Fprintf(&b, "    f# govpx libvpx  d_govpx-libvpx  iQ_govpx  iQ_libvpx\n")
-		n := min(len(lSizes), len(gSizes))
-		for i := range n {
-			lq := -1
-			if i < len(lQs) {
-				lq = lQs[i]
-			}
-			fmt.Fprintf(&b, "    %2d %5d %5d %+5d            %3d        %3d\n",
-				i, gSizes[i], lSizes[i], gSizes[i]-lSizes[i], gIQs[i], lq)
-		}
-		t.Log(b.String())
 	}
 }
 
@@ -402,28 +253,4 @@ func govpxImageFromYCbCrTask354(src *image.YCbCr) govpx.Image {
 		UStride: src.CStride,
 		VStride: src.CStride,
 	}
-}
-
-func parseIVFSizesTask354(ivf []byte) ([]int, error) {
-	const fileHeader = 32
-	const frameHeader = 12
-	if len(ivf) < fileHeader {
-		return nil, fmt.Errorf("short IVF")
-	}
-	offset := fileHeader
-	out := []int{}
-	for offset < len(ivf) {
-		if offset+frameHeader > len(ivf) {
-			return nil, fmt.Errorf("truncated frame header")
-		}
-		sz := int(uint32(ivf[offset]) | uint32(ivf[offset+1])<<8 |
-			uint32(ivf[offset+2])<<16 | uint32(ivf[offset+3])<<24)
-		offset += frameHeader
-		if offset+sz > len(ivf) {
-			return nil, fmt.Errorf("truncated payload")
-		}
-		out = append(out, sz)
-		offset += sz
-	}
-	return out, nil
 }
