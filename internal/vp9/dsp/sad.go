@@ -31,17 +31,6 @@ func sad(src []uint8, srcOff, srcStride int,
 	return s
 }
 
-// compAvgPred mirrors vpx_comp_avg_pred_c — averaging the second
-// prediction with the reference. Used by the *_avg SAD variants.
-func compAvgPred(compPred, secondPred []uint8, w, h int, ref []uint8, refOff, refStride int) {
-	for y := range h {
-		refRow := refOff + y*refStride
-		for x := range w {
-			compPred[y*w+x] = uint8((int(secondPred[y*w+x]) + int(ref[refRow+x]) + 1) >> 1)
-		}
-	}
-}
-
 // The size-specialized SAD wrappers. Names match libvpx's
 // vpx_sad{W}x{H}_c. Each is a simple delegate to the parametric sad —
 // the Go compiler specializes the inner loops per call site through
@@ -85,9 +74,4 @@ func VpxSad4x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStrid
 }
 func VpxSad4x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	return sad4x4(src, srcOff, srcStride, ref, refOff, refStride)
-}
-
-// VpxCompAvgPred is the public wrapper for vpx_comp_avg_pred_c.
-func VpxCompAvgPred(compPred, secondPred []uint8, w, h int, ref []uint8, refOff, refStride int) {
-	compAvgPred(compPred, secondPred, w, h, ref, refOff, refStride)
 }

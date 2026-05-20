@@ -63,17 +63,6 @@ var ScanOrders = [TxSizes][TxTypes]ScanOrder{
 	},
 }
 
-// GetCoefContext maps a coefficient index c to a 0..2 context bin using
-// the (above, left) entries of token_cache addressed by neighbors. This
-// is the body of libvpx's get_coef_context, expressed as a function so
-// the inlining decision is the Go compiler's. Returns int to match
-// libvpx's return type even though only values 0..2 actually appear.
-func GetCoefContext(neighbors, tokenCache []int16, c int) int {
-	above := tokenCache[neighbors[MaxNeighbors*c+0]]
-	left := tokenCache[neighbors[MaxNeighbors*c+1]]
-	return int((1 + above + left) >> 1)
-}
-
 // IntraModeToTxType mirrors libvpx's intra_mode_to_tx_type_lookup —
 // each Y intra mode picks the (vertical, horizontal) ADST/DCT pair
 // used for that block's transform + scan. Inter blocks and chroma

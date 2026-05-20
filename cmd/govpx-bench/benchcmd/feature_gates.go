@@ -1,11 +1,9 @@
 package benchcmd
 
 import (
-	"fmt"
 	"image"
 	"math/rand"
 	"os"
-	"strings"
 )
 
 // FeatureGateContent labels which synthetic content generator to drive
@@ -268,29 +266,6 @@ func clampByte(v int) byte {
 		return 255
 	}
 	return byte(v)
-}
-
-// FormatFeatureGateNumbers renders a result table for the gate test
-// summary. Used by the diagnostic test that prints observed numbers
-// so reviewers can see what the gates are protecting.
-func FormatFeatureGateNumbers(rows [][3]string) string {
-	if len(rows) == 0 {
-		return "(no rows)"
-	}
-	var sb strings.Builder
-	widths := [3]int{}
-	for _, r := range rows {
-		for i, c := range r {
-			if len(c) > widths[i] {
-				widths[i] = len(c)
-			}
-		}
-	}
-	for _, r := range rows {
-		fmt.Fprintf(&sb, "  %-*s | %-*s | %s\n",
-			widths[0], r[0], widths[1], r[1], r[2])
-	}
-	return sb.String()
 }
 
 // FeatureGatesEnabled reports whether the slow per-feature BD-rate

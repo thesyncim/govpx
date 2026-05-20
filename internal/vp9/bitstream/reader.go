@@ -167,14 +167,3 @@ func (r *Reader) fill() {
 	r.value = value
 	r.count = count
 }
-
-// FindEnd rewinds the buffer pointer back to the byte after the last bit
-// actually consumed, matching vpx_reader_find_end. Used by the decoder
-// when walking from header into tile data.
-func (r *Reader) FindEnd() int {
-	for r.count > 8 && r.count < valueBits {
-		r.count -= 8
-		r.pos--
-	}
-	return r.pos
-}

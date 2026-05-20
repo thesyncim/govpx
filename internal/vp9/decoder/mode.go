@@ -15,18 +15,6 @@ func ReadIntraMode(r *bitstream.Reader, probs []uint8) common.PredictionMode {
 	return common.PredictionMode(r.ReadTree(common.IntraModeTree[:], probs))
 }
 
-// ReadIntraModeY mirrors read_intra_mode_y. Caller looks up
-// fc.YModeProb[size_group] before calling.
-func ReadIntraModeY(r *bitstream.Reader, yModeProb [common.IntraModes - 1]uint8) common.PredictionMode {
-	return ReadIntraMode(r, yModeProb[:])
-}
-
-// ReadIntraModeUv mirrors read_intra_mode_uv. The probability row
-// depends on the previously-decoded Y mode.
-func ReadIntraModeUv(r *bitstream.Reader, uvModeProb [common.IntraModes - 1]uint8) common.PredictionMode {
-	return ReadIntraMode(r, uvModeProb[:])
-}
-
 // ReadInterMode mirrors read_inter_mode. Returns the absolute
 // PredictionMode (NEARESTMV..NEWMV), having added the NEARESTMV
 // offset that the InterModeTree leaves omit.

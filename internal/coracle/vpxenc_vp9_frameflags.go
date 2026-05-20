@@ -65,20 +65,12 @@ type VpxencVP9FrameSize struct {
 	Height int
 }
 
-// VpxencVP9FrameFlagsEncodeI420WithFrameSizes encodes a concatenated raw I420
-// stream whose frame dimensions are listed in frameSizes. Dimension changes are
-// passed to the helper as VP9 runtime resize controls before the matching input
-// frame. invisibleFrames is indexed by input frame and clears VP9 show_frame in
-// the helper output for visibility oracle tests.
-func VpxencVP9FrameFlagsEncodeI420WithFrameSizes(raw []byte, frameSizes []VpxencVP9FrameSize, frameFlags []uint32, invisibleFrames []bool, extraArgs ...string) (ivf []byte, diag []byte, err error) {
-	ivf, _, diag, err = runVpxencVP9FrameFlagsI420WithFrameSizes(raw,
-		frameSizes, frameFlags, invisibleFrames, false, extraArgs...)
-	return ivf, diag, err
-}
-
-// VpxencVP9FrameFlagsTraceI420WithFrameSizes is
-// [VpxencVP9FrameFlagsEncodeI420WithFrameSizes] plus the helper's JSONL
-// per-frame rate trace.
+// VpxencVP9FrameFlagsTraceI420WithFrameSizes encodes a concatenated raw I420
+// stream whose frame dimensions are listed in frameSizes, returning both the
+// IVF stream and the helper's JSONL per-frame rate trace. Dimension changes
+// are passed to the helper as VP9 runtime resize controls before the matching
+// input frame. invisibleFrames is indexed by input frame and clears VP9
+// show_frame in the helper output for visibility oracle tests.
 func VpxencVP9FrameFlagsTraceI420WithFrameSizes(raw []byte, frameSizes []VpxencVP9FrameSize, frameFlags []uint32, invisibleFrames []bool, extraArgs ...string) (ivf []byte, trace []byte, diag []byte, err error) {
 	return runVpxencVP9FrameFlagsI420WithFrameSizes(raw, frameSizes,
 		frameFlags, invisibleFrames, true, extraArgs...)

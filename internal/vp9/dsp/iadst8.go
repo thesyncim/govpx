@@ -120,7 +120,3 @@ func iht8x8_64AddScalar(input []int16, dest []uint8, stride int, txType int) {
 		iht8x8_64Add(iadst8, iadst8, input, dest, stride)
 	}
 }
-
-// Iadst8 is exported for the DSP oracle so test harnesses can probe the
-// 1-D kernel directly. Application code drives it through Iht8x8_64Add.
-func Iadst8(input, output []int16) { iadst8(input, output) }

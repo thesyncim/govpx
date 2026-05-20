@@ -221,6 +221,3 @@ func iht16x16_256AddScalar(input []int16, dest []uint8, stride int, txType int) 
 		iht16x16_256Add(txType, input, dest, stride)
 	}
 }
-
-// Iadst16 is exported for oracle harnesses.
-func Iadst16(input, output []int16) { iadst16(input, output) }
