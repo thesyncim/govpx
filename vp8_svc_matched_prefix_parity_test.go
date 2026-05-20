@@ -11,7 +11,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestVP8SVCMatchedPrefixFloorsD59809a7 pins the matched-prefix floor
+// TestVP8MultiResSVCPreservesMatchedPrefixFloor pins the matched-prefix floor
 // for the FuzzVP8MultiResSVCByteParity regression seed
 //
 //	testdata/fuzz/FuzzVP8MultiResSVCByteParity/regression_svc2tl_mode1_cpu0_t2_er1_d59809a7
@@ -48,7 +48,7 @@ import (
 //     the corpus seed this test re-runs.
 //   - vp8_multires_svc_fuzz_test.go (runVP8TemporalSVCFuzzCase) — the
 //     dispatcher whose floor=1 stays in place for generic discovery.
-func TestVP8SVCMatchedPrefixFloorsD59809a7(t *testing.T) {
+func TestVP8MultiResSVCPreservesMatchedPrefixFloor(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the SVC matched-prefix pin")
 	}

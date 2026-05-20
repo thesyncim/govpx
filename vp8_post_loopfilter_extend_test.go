@@ -11,7 +11,7 @@ import (
 // libvpx's `vp8_yv12_extend_frame_borders` for frames whose visible
 // dimensions are not a multiple of 16. The test is intentionally a probe
 // rather than an assertion of byte parity: it observes the divergence so
-// that future agents converging the pipeline can find the affected sites
+// that future work converging the pipeline can find the affected sites
 // quickly.
 //
 // libvpx reference (v1.16.0):
@@ -69,9 +69,9 @@ import (
 //     from len=684 to len=662 (libvpx target len=688) — i.e. it moves
 //     bytes WITHOUT closing the seed, and simultaneously breaks all 7
 //     odd-axis 33x17/17x33 fixtures in `TestOracleEncoderStreamByteParity`.
-//     NB(task 174): the 684 frame-2 baseline cited above was measured at
-//     HEAD commit a82b8e8c when frame 1 was at strict byte parity. Commit
-//     592b8eda ("vp8: align runtime controls with libvpx") reintroduced a
+//     Historical note: the 684 frame-2 baseline cited above was measured at
+//     commit a82b8e8c when frame 1 was at strict byte parity. Commit 592b8eda
+//     ("vp8: align runtime controls with libvpx") reintroduced a
 //     frame-1 divergence on the same seed (govpx len=4058 first_part=782
 //     vs libvpx len=3298 first_part=1387) and pushed frame 2 to len=1509
 //     vs libvpx 688, after rewriting `segmentationConfigForLoopFilterLevel`
@@ -79,8 +79,8 @@ import (
 //     method that commit 45ded7d5 finalised. The seed's live failure mode
 //     now sits upstream of this post-LF extend audit; bisect anchor commit
 //     for the new divergence is 592b8eda.
-//     NB(task 180): the #174 closure's fix recipe ("gate
-//     cfg.FeatureEnabled[MBLvlAltLF][seg] = data != 0 write on
+//     Follow-up note: gating
+//     cfg.FeatureEnabled[MBLvlAltLF][seg] = data != 0 on
 //     cm->filter_level > 0, mirroring libvpx vp8/encoder/onyx_if.c:3189
 //     vp8cx_set_alt_lf_level") was implemented and verified to be a
 //     no-op for THIS seed. A build-tagged probe in vp8_encoder_attempts.go
@@ -114,8 +114,7 @@ import (
 //   - The same swap inside `refreshInterFrameReferencesFromAnalysis` /
 //     `refreshKeyFrameReferencesFromAnalysis` produces the identical
 //     net result (both wirings ultimately affect the buffer that
-//     becomes LAST/GOLDEN/ALTREF the same way) — verified by agent
-//     ac2d9ea1 (see task 0xac2d9ea137dbcf3b0 sidechain).
+//     becomes LAST/GOLDEN/ALTREF the same way).
 //   - The 33x17 fixtures pass coincidentally because govpx has
 //     COMPENSATING workarounds downstream of the post-LF extend
 //     (see vp8_encoder_inter_rate.go:655-666 `splitBlockSADBlock` and

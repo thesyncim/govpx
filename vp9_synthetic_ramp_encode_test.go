@@ -70,18 +70,17 @@ func vp9SyntheticRampOptions(width, height, bitrateKbps int) VP9EncoderOptions {
 	}
 }
 
-// TestVP9SyntheticRampEncoderNoPanic feeds the synthetic ramp through the
-// 640x360 / 2 Mbps realtime-CBR config that previously emitted a malformed
-// bitstream from writeVP9FrameTiles. The test must complete without
-// panicking, every emitted packet must decode cleanly, and the first two
-// frames -- key + first inter -- must reach a non-trivial PSNR. The
-// synthetic ramp is pseudo-random per-pixel content with no real motion
-// (every pixel rolls by index*7) so subsequent inter frames intentionally
-// degrade in PSNR; the floor is set against the first two frames where the
-// rate controller has not yet starved residue coding.
-func TestVP9SyntheticRampEncoderNoPanic(t *testing.T) {
+// TestVP9SyntheticRampRealtimeCBREncodesDecodableFrames feeds the synthetic
+// ramp through the 640x360 / 2 Mbps realtime-CBR config that previously emitted
+// a malformed bitstream from writeVP9FrameTiles. Every emitted packet must
+// decode cleanly, and the first two frames -- key + first inter -- must reach a
+// non-trivial PSNR. The synthetic ramp is pseudo-random per-pixel content with
+// no real motion (every pixel rolls by index*7) so subsequent inter frames
+// intentionally degrade in PSNR; the floor is set against the first two frames
+// where the rate controller has not yet starved residue coding.
+func TestVP9SyntheticRampRealtimeCBREncodesDecodableFrames(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping VP9 synthetic-ramp panic repro in -short mode")
+		t.Skip("skipping VP9 synthetic-ramp realtime encode test in -short mode")
 	}
 	const (
 		width       = 640
