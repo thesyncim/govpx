@@ -12,31 +12,6 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// vp9FuzzByteCursor mirrors oracleRuntimeControlFuzzBytes for the
-// VP9 fuzz family. Defined separately so it can live alongside
-// govpx_oracle_trace-tagged VP9 fuzzers without dragging in the VP8
-// runtime-control machinery.
-type vp9FuzzByteCursor struct {
-	data []byte
-	pos  int
-}
-
-func (r *vp9FuzzByteCursor) next() byte {
-	if len(r.data) == 0 {
-		return 0
-	}
-	b := r.data[r.pos%len(r.data)]
-	r.pos++
-	return b
-}
-
-func (r *vp9FuzzByteCursor) pick(n int) int {
-	if n <= 1 {
-		return 0
-	}
-	return int(r.next()) % n
-}
-
 // encodeVP9FramesWithGovpx mirrors encodeFramesWithGovpx for VP9: it constructs
 // a fresh VP9Encoder, encodes every source frame with the supplied flags, and
 // returns the per-frame VP9 packet payloads (copied).

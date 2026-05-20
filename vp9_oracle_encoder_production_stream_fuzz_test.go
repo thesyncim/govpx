@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzVP9EncoderProductionStreamByteParity mirrors
@@ -68,7 +69,7 @@ type vp9OptionGridFuzzCase struct {
 }
 
 func newVP9OptionGridFuzzCase(data []byte) vp9OptionGridFuzzCase {
-	r := vp9FuzzByteCursor{data: data}
+	r := testutil.NewByteCursor(data)
 	resPool := [...]struct {
 		w, h, frames int
 	}{
@@ -86,14 +87,14 @@ func newVP9OptionGridFuzzCase(data []byte) vp9OptionGridFuzzCase {
 
 	// Skip deadlineBucket / rcBucket / featBucket consumption (1, 2, 3, 4) so
 	// the seeds still land on the configuration they document.
-	res := resPool[r.pick(len(resPool))]
-	_ = r.pick(3)
-	cpu := cpuPool[r.pick(len(cpuPool))]
-	_ = r.pick(2)
-	_ = r.pick(2)
-	threads := threadPool[r.pick(len(threadPool))]
-	tileCols := tilePool[r.pick(len(tilePool))]
-	cqLevel := qPool[r.pick(len(qPool))]
+	res := resPool[r.Pick(len(resPool))]
+	_ = r.Pick(3)
+	cpu := cpuPool[r.Pick(len(cpuPool))]
+	_ = r.Pick(2)
+	_ = r.Pick(2)
+	threads := threadPool[r.Pick(len(threadPool))]
+	tileCols := tilePool[r.Pick(len(tilePool))]
+	cqLevel := qPool[r.Pick(len(qPool))]
 
 	c := vp9OptionGridFuzzCase{
 		width:    res.w,

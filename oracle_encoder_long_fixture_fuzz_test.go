@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // longFixtureSeedsDeferred lists fuzz-corpus seed payloads whose strict byte
@@ -162,7 +163,7 @@ type longFixtureFuzzCase struct {
 }
 
 func newLongFixtureFuzzCase(data []byte) longFixtureFuzzCase {
-	r := oracleRuntimeControlFuzzBytes{data: data}
+	r := testutil.NewByteCursor(data)
 
 	rcPool := [...]RateControlMode{RateControlCBR, RateControlVBR}
 	kbpsPool := [...]int{300, 700, 1200}
@@ -183,13 +184,13 @@ func newLongFixtureFuzzCase(data []byte) longFixtureFuzzCase {
 	deadlinePool := [...]Deadline{DeadlineRealtime, DeadlineGoodQuality}
 	cpuPool := [...]int{-3, 0, -8}
 
-	rc := rcPool[r.pick(len(rcPool))]
-	kbps := kbpsPool[r.pick(len(kbpsPool))]
-	kf := kfPool[r.pick(len(kfPool))]
-	buf := bufPool[r.pick(len(bufPool))]
-	fx := fixturePool[r.pick(len(fixturePool))]
-	deadline := deadlinePool[r.pick(len(deadlinePool))]
-	cpu := strictByteParityCPUUsed(deadline, cpuPool[r.pick(len(cpuPool))])
+	rc := rcPool[r.Pick(len(rcPool))]
+	kbps := kbpsPool[r.Pick(len(kbpsPool))]
+	kf := kfPool[r.Pick(len(kfPool))]
+	buf := bufPool[r.Pick(len(bufPool))]
+	fx := fixturePool[r.Pick(len(fixturePool))]
+	deadline := deadlinePool[r.Pick(len(deadlinePool))]
+	cpu := strictByteParityCPUUsed(deadline, cpuPool[r.Pick(len(cpuPool))])
 
 	c := longFixtureFuzzCase{
 		width:          64,

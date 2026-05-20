@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzOracleEncoderProductionRuntimeControls drives the same per-frame
@@ -71,7 +72,7 @@ func FuzzOracleEncoderProductionRuntimeControls(f *testing.F) {
 // bytes feed the per-frame action selector through the shared
 // oracleRuntimeRandomFuzzAction infrastructure.
 func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeControlFuzzCase {
-	r := oracleRuntimeControlFuzzBytes{data: data}
+	r := testutil.NewByteCursor(data)
 	dims := [...]struct {
 		w int
 		h int
@@ -84,16 +85,16 @@ func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeC
 	speeds := [...]int{0, -3, -8}
 	targets := [...]int{300, 700, 1200}
 
-	dim := dims[r.pick(len(dims))]
-	threads := threadPool[r.pick(len(threadPool))]
-	framesBucket := r.pick(3)
+	dim := dims[r.Pick(len(dims))]
+	threads := threadPool[r.Pick(len(threadPool))]
+	framesBucket := r.Pick(3)
 	frames := 2 + framesBucket
 	if dim.w >= 1280 && frames > 3 {
 		frames = 3
 	}
-	cpuUsed := speeds[r.pick(len(speeds))]
-	kind := r.pick(2)
-	targetKbps := targets[r.pick(len(targets))]
+	cpuUsed := speeds[r.Pick(len(speeds))]
+	kind := r.Pick(2)
+	targetKbps := targets[r.Pick(len(targets))]
 
 	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, cpuUsed)
 	opts.Threads = threads
@@ -104,7 +105,7 @@ func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeC
 	copyRefLog := false
 
 	for frame := 1; frame < frames; frame++ {
-		actionCount := 1 + r.pick(3)
+		actionCount := 1 + r.Pick(3)
 		actions := make([]oracleRuntimeFuzzAction, 0, actionCount)
 		haveConfig := false
 		for range actionCount {

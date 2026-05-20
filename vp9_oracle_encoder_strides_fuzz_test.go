@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzVP9EncoderRandomStrides mirrors FuzzEncoderRandomStrides for VP9: callers
@@ -71,7 +72,7 @@ type vp9StridesFuzzDim struct {
 // via newVP9YCbCrForTest so the libvpx oracle's identical-content premise
 // holds.
 func newVP9StridesFuzzImage(data []byte) (vp9StridesFuzzDim, *image.YCbCr, *image.YCbCr, bool) {
-	r := vp9FuzzByteCursor{data: data}
+	r := testutil.NewByteCursor(data)
 	if len(data) == 0 {
 		return vp9StridesFuzzDim{}, nil, nil, false
 	}
@@ -81,11 +82,11 @@ func newVP9StridesFuzzImage(data []byte) (vp9StridesFuzzDim, *image.YCbCr, *imag
 		{128, 128},
 		{160, 96},
 	}
-	dim := dimPool[r.pick(len(dimPool))]
-	yPad := int(r.next() & 0x1f) // 0..31
-	uPad := int(r.next() & 0x0f) // 0..15
-	_ = int(r.next() & 0x0f)     // consume the vPad byte to keep seed mapping stable
-	uvExtra := int(r.next() & 0x01)
+	dim := dimPool[r.Pick(len(dimPool))]
+	yPad := int(r.Next() & 0x1f) // 0..31
+	uPad := int(r.Next() & 0x0f) // 0..15
+	_ = int(r.Next() & 0x0f)     // consume the vPad byte to keep seed mapping stable
+	uvExtra := int(r.Next() & 0x01)
 
 	uvW := (dim.w + 1) >> 1
 	uvH := (dim.h + 1) >> 1

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzEncoderFrameFlags drives randomized per-frame [EncodeFlags] schedules
@@ -100,7 +101,7 @@ var encoderFrameFlagsFuzzFlagPool = []EncodeFlags{
 }
 
 func encoderFrameFlagsFuzzCaseFromBytes(data []byte) encoderFrameFlagsFuzzCase {
-	r := oracleRuntimeControlFuzzBytes{data: data}
+	r := testutil.NewByteCursor(data)
 
 	dims := [...]struct {
 		w int
@@ -113,10 +114,10 @@ func encoderFrameFlagsFuzzCaseFromBytes(data []byte) encoderFrameFlagsFuzzCase {
 	speeds := [...]int{0, -3, -8}
 	targets := [...]int{300, 700, 1200}
 
-	dim := dims[r.pick(len(dims))]
-	cpuUsed := speeds[r.pick(len(speeds))]
-	targetKbps := targets[r.pick(len(targets))]
-	frames := 4 + r.pick(5) // 4..8 frames
+	dim := dims[r.Pick(len(dims))]
+	cpuUsed := speeds[r.Pick(len(speeds))]
+	targetKbps := targets[r.Pick(len(targets))]
+	frames := 4 + r.Pick(5) // 4..8 frames
 
 	// Threads is fixed at the single-threaded default. Threads>=2 on the VP8
 	// encoder produces non-deterministic byte output (goroutine scheduling
@@ -126,14 +127,14 @@ func encoderFrameFlagsFuzzCaseFromBytes(data []byte) encoderFrameFlagsFuzzCase {
 	// path with fixed inputs.
 	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, cpuUsed)
 	opts.TargetBitrateKbps = targetKbps
-	sources := oracleRuntimeFuzzSources(dim.w, dim.h, frames, r.pick(2))
+	sources := oracleRuntimeFuzzSources(dim.w, dim.h, frames, r.Pick(2))
 
 	flags := make([]EncodeFlags, frames)
 	// Frame 0 is always the initial keyframe; libvpx forces it regardless of
 	// flags. Leave flags[0]=0 to match the existing parity harness and avoid
 	// duplicate force-kf bits.
 	for i := 1; i < frames; i++ {
-		flags[i] = encoderFrameFlagsFuzzFlagPool[r.pick(len(encoderFrameFlagsFuzzFlagPool))]
+		flags[i] = encoderFrameFlagsFuzzFlagPool[r.Pick(len(encoderFrameFlagsFuzzFlagPool))]
 	}
 
 	return encoderFrameFlagsFuzzCase{

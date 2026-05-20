@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // vp9RefControlParitySeeds pins reference-control schedules that exercise
@@ -90,9 +91,9 @@ type vp9RefControlsFuzzCase struct {
 // EncodeFlags ref-update / no-reference / force-* bits supported by both
 // govpx VP9 and the vpxenc-vp9-frameflags driver.
 func newVP9RefControlsFuzzCase(data []byte) vp9RefControlsFuzzCase {
-	r := vp9FuzzByteCursor{data: data}
+	r := testutil.NewByteCursor(data)
 	framesPool := [...]int{6, 8, 10}
-	frames := framesPool[r.pick(len(framesPool))]
+	frames := framesPool[r.Pick(len(framesPool))]
 	const (
 		width  = 64
 		height = 64
@@ -118,7 +119,7 @@ func newVP9RefControlsFuzzCase(data []byte) vp9RefControlsFuzzCase {
 	flags := make([]EncodeFlags, frames)
 
 	for frame := 1; frame < frames; frame++ {
-		switch r.pick(11) {
+		switch r.Pick(11) {
 		case 0:
 			// No-op frame.
 		case 1, 2:

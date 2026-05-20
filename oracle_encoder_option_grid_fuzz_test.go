@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzEncoderProductionStreamByteParity runs an option-grid fuzz against the
@@ -137,7 +138,7 @@ type optionGridFuzzCase struct {
 }
 
 func newOptionGridFuzzCase(data []byte) optionGridFuzzCase {
-	r := oracleRuntimeControlFuzzBytes{data: data}
+	r := testutil.NewByteCursor(data)
 
 	resPool := [...]struct {
 		w, h, frames int
@@ -160,23 +161,23 @@ func newOptionGridFuzzCase(data []byte) optionGridFuzzCase {
 	threadPool := [...]int{0, 2, 4}
 	sharpnessPool := [...]int{0, 4, 7}
 
-	res := resPool[r.pick(len(resPool))]
-	deadline := deadlinePool[r.pick(len(deadlinePool))]
-	cpuUsed := cpuPool[r.pick(len(cpuPool))]
-	rcBucket := r.pick(len(rcPool))
-	featBucket := r.pick(8)
-	tokenParts := r.pick(4)
-	threads := threadPool[r.pick(len(threadPool))]
-	sharpBucket := r.pick(len(sharpnessPool) + 1) // bucket 0 = leave default
-	tuneBucket := r.pick(3)                       // 0=default, 1=PSNR, 2=SSIM
-	arnrBucket := r.pick(4)                       // bucket 0 = disabled
+	res := resPool[r.Pick(len(resPool))]
+	deadline := deadlinePool[r.Pick(len(deadlinePool))]
+	cpuUsed := cpuPool[r.Pick(len(cpuPool))]
+	rcBucket := r.Pick(len(rcPool))
+	featBucket := r.Pick(8)
+	tokenParts := r.Pick(4)
+	threads := threadPool[r.Pick(len(threadPool))]
+	sharpBucket := r.Pick(len(sharpnessPool) + 1) // bucket 0 = leave default
+	tuneBucket := r.Pick(3)                       // 0=default, 1=PSNR, 2=SSIM
+	arnrBucket := r.Pick(4)                       // bucket 0 = disabled
 	// errorResBucket lets the fuzzer flip --error-resilient=1 independently
 	// of the screen-content / arnr feature buckets so the
 	// {token_partitions ∈ {1,2,4,8}} × {error_resilient on/off} ×
 	// {threads ∈ {1,2,4}} product is reachable on a single fuzz iteration
 	// — task #251 wire-image audit of vp8_pack_tokens_into_partitions
 	// (libvpx vp8/encoder/bitstream.c:292-318).
-	errorResBucket := r.pick(2)
+	errorResBucket := r.Pick(2)
 
 	c := optionGridFuzzCase{
 		width:      res.w,
@@ -255,8 +256,8 @@ func newOptionGridFuzzCase(data []byte) optionGridFuzzCase {
 		// Cap arnr to small values; large frames+strength explodes wall
 		// time and is exercised by dedicated arnr strict-gate cases.
 		c.arnrMax = arnrBucket
-		c.arnrStr = r.pick(4)
-		c.arnrType = 1 + r.pick(3)
+		c.arnrStr = r.Pick(4)
+		c.arnrType = 1 + r.Pick(3)
 		c.extraArgs = append(c.extraArgs,
 			"--arnr-maxframes="+strconv.Itoa(c.arnrMax),
 			"--arnr-strength="+strconv.Itoa(c.arnrStr),

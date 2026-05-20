@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzVP8MultiResSVCByteParity exercises the previously uncovered VP8
@@ -87,14 +88,14 @@ type vp8SVCFuzzCase struct {
 }
 
 func vp8SVCFuzzCaseFromBytes(data []byte) vp8SVCFuzzCase {
-	r := oracleRuntimeControlFuzzBytes{data: data}
-	shape := int(r.next()) % 3
+	r := testutil.NewByteCursor(data)
+	shape := int(r.Next()) % 3
 	cpuPool := [...]int{0, -3, -8}
-	cpuUsed := cpuPool[int(r.next())%len(cpuPool)]
-	mode := int(r.next()) % 4 // bounded per-shape below
-	framesByte := int(r.next())
-	threadsByte := int(r.next())
-	erByte := int(r.next())
+	cpuUsed := cpuPool[int(r.Next())%len(cpuPool)]
+	mode := int(r.Next()) % 4 // bounded per-shape below
+	framesByte := int(r.Next())
+	threadsByte := int(r.Next())
+	erByte := int(r.Next())
 	// Bound frame count tightly; long fuzz runs blow the wall budget.
 	switch shape {
 	case 0:

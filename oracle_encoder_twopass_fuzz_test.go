@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // firstPassLooseTolerances captures per-field |Δ| ceilings that the
@@ -304,7 +305,7 @@ type twoPassFuzzCase struct {
 }
 
 func newTwoPassFuzzCase(data []byte) twoPassFuzzCase {
-	r := oracleRuntimeControlFuzzBytes{data: data}
+	r := testutil.NewByteCursor(data)
 
 	kbpsPool := [...]int{300, 500, 700}
 	// kfPool: indices 0-2 retain the long-interval coverage (no mid-stream
@@ -321,15 +322,15 @@ func newTwoPassFuzzCase(data []byte) twoPassFuzzCase {
 	c := twoPassFuzzCase{
 		width:      32,
 		height:     32,
-		targetKbps: kbpsPool[r.pick(len(kbpsPool))],
+		targetKbps: kbpsPool[r.Pick(len(kbpsPool))],
 		deadline:   DeadlineGoodQuality,
-		cpuUsed:    cpuPool[r.pick(len(cpuPool))],
-		kfInterval: kfPool[r.pick(len(kfPool))],
-		arnrMax:    arnrMaxPool[r.pick(len(arnrMaxPool))],
+		cpuUsed:    cpuPool[r.Pick(len(cpuPool))],
+		kfInterval: kfPool[r.Pick(len(kfPool))],
+		arnrMax:    arnrMaxPool[r.Pick(len(arnrMaxPool))],
 		arnrStr:    3,
 		arnrType:   3,
-		threads:    threadPool[r.pick(len(threadPool))],
-		frames:     framesPool[r.pick(len(framesPool))],
+		threads:    threadPool[r.Pick(len(threadPool))],
+		frames:     framesPool[r.Pick(len(framesPool))],
 	}
 	c.sources = make([]Image, c.frames)
 	for i := range c.sources {

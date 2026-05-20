@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzEncoderReferenceControlSequences closes plan-§3 F8 / G10 from
@@ -64,14 +65,14 @@ func FuzzEncoderReferenceControlSequences(f *testing.F) {
 // SET, COPY, and EncodeFlags ref-update operations. Each fuzz byte
 // past the prefix picks one operation kind from the focused pool.
 func newRefControlsFuzzCase(data []byte) oracleRuntimeControlFuzzCase {
-	r := oracleRuntimeControlFuzzBytes{data: data}
+	r := testutil.NewByteCursor(data)
 	const (
 		width   = 64
 		height  = 64
 		bitrate = 700
 	)
 	framesPool := [...]int{6, 8, 10}
-	frames := framesPool[r.pick(len(framesPool))]
+	frames := framesPool[r.Pick(len(framesPool))]
 	opts := oracleRuntimeBaseFuzzOptions(width, height, bitrate, 0)
 	sources := oracleRuntimeFuzzSources(width, height, frames, 0)
 	flags := make([]EncodeFlags, frames)
@@ -82,18 +83,18 @@ func newRefControlsFuzzCase(data []byte) oracleRuntimeControlFuzzCase {
 	refs := [...]ReferenceFrame{ReferenceLast, ReferenceGolden, ReferenceAltRef}
 
 	for frame := 1; frame < frames; frame++ {
-		switch r.pick(11) {
+		switch r.Pick(11) {
 		case 0:
 			// No-op frame.
 		case 1, 2, 3:
 			// SetReferenceFrame.
-			idx := r.pick(len(refs))
-			imageIndex := 8 + r.pick(8)
+			idx := r.Pick(len(refs))
+			imageIndex := 8 + r.Pick(8)
 			script[frame] = "setref:" + refNames[idx] + ":panning:" + strconv.Itoa(imageIndex)
 			apply[frame] = setReferencePanningApply(refs[idx], imageIndex, refNames[idx])
 		case 4, 5, 6:
 			// CopyReferenceFrame.
-			idx := r.pick(len(refs))
+			idx := r.Pick(len(refs))
 			script[frame] = "copyref:" + refNames[idx]
 			capturedIdx := idx
 			capturedName := refNames[idx]

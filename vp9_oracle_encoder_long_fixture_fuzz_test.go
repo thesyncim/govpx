@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // vp9LongFixtureSeedsDeferred lists VP9 fuzz-corpus seed payloads whose strict
@@ -155,7 +156,7 @@ type vp9LongFixtureFuzzCase struct {
 }
 
 func newVP9LongFixtureFuzzCase(data []byte) vp9LongFixtureFuzzCase {
-	r := vp9FuzzByteCursor{data: data}
+	r := testutil.NewByteCursor(data)
 	rcPool := [...]RateControlMode{RateControlCBR, RateControlVBR}
 	kbpsPool := [...]int{300, 700, 1200}
 	kfPool := [...]int{999, 30, 60}
@@ -166,11 +167,11 @@ func newVP9LongFixtureFuzzCase(data []byte) vp9LongFixtureFuzzCase {
 		width:      64,
 		height:     64,
 		frames:     256,
-		rcMode:     rcPool[r.pick(len(rcPool))],
-		targetKbps: kbpsPool[r.pick(len(kbpsPool))],
-		kfInterval: kfPool[r.pick(len(kfPool))],
-		deadline:   deadlinePool[r.pick(len(deadlinePool))],
-		cpuUsed:    cpuPool[r.pick(len(cpuPool))],
+		rcMode:     rcPool[r.Pick(len(rcPool))],
+		targetKbps: kbpsPool[r.Pick(len(kbpsPool))],
+		kfInterval: kfPool[r.Pick(len(kfPool))],
+		deadline:   deadlinePool[r.Pick(len(deadlinePool))],
+		cpuUsed:    cpuPool[r.Pick(len(cpuPool))],
 	}
 	endUsage := "cbr"
 	if c.rcMode == RateControlVBR {

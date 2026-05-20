@@ -11,12 +11,13 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // vp9RuntimeControlsSeedsDeferred lists runtime-control schedules that still
 // measure open VP9 parity gaps. The seed shape is
 // (dimBucket, framesBucket, cpuBucket, kfFlagPos, refFlagPos, action...),
-// and one-byte entries are corpus aliases produced by vp9FuzzByteCursor
+// and one-byte entries are corpus aliases produced by testutil.ByteCursor
 // wrap-around. Speed-8 entries that already match libvpx live in
 // vp9RuntimeControlsSpeed8ParitySeeds so the main fuzz target still exercises
 // them while open lanes remain visible through
@@ -128,7 +129,7 @@ type vp9OracleRuntimeFuzzCase struct {
 // runtime-control case. Each byte selects a bucket index off a wrapping
 // cursor so even short seeds yield a fully-specified case.
 func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
-	r := vp9FuzzByteCursor{data: data}
+	r := testutil.NewByteCursor(data)
 	dims := [...]struct {
 		w int
 		h int
@@ -139,11 +140,11 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 	frameCountPool := [...]int{4, 6, 8}
 	cpuPool := [...]int{0, -3, -8, 4}
 
-	dim := dims[r.pick(len(dims))]
-	frames := frameCountPool[r.pick(len(frameCountPool))]
-	cpuUsed := cpuPool[r.pick(len(cpuPool))]
-	kfPos := r.pick(frames)
-	refPos := r.pick(frames)
+	dim := dims[r.Pick(len(dims))]
+	frames := frameCountPool[r.Pick(len(frameCountPool))]
+	cpuUsed := cpuPool[r.Pick(len(cpuPool))]
+	kfPos := r.Pick(frames)
+	refPos := r.Pick(frames)
 
 	opts := VP9EncoderOptions{
 		Width:               dim.w,
@@ -170,7 +171,7 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 		flags[kfPos] |= EncodeForceKeyFrame
 	}
 	if refPos > 0 && refPos < frames {
-		switch r.pick(5) {
+		switch r.Pick(5) {
 		case 0:
 			flags[refPos] |= EncodeNoUpdateLast
 		case 1:
@@ -186,7 +187,7 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 	// Per-frame action permutations are encoded into remaining bytes. We
 	// keep this bounded so a single fuzz iteration stays cheap at 720p.
 	for i := 1; i < frames; i++ {
-		switch r.pick(4) {
+		switch r.Pick(4) {
 		case 1:
 			flags[i] |= EncodeNoUpdateEntropy
 		case 2:

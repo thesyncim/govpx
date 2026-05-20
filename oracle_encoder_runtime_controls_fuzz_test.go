@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzOracleEncoderRuntimeControlTransitions compares generated runtime-control
@@ -140,27 +141,6 @@ type oracleRuntimeControlFuzzCase struct {
 	copyRefLog bool
 }
 
-type oracleRuntimeControlFuzzBytes struct {
-	data []byte
-	pos  int
-}
-
-func (r *oracleRuntimeControlFuzzBytes) next() byte {
-	if len(r.data) == 0 {
-		return 0
-	}
-	b := r.data[r.pos%len(r.data)]
-	r.pos++
-	return b
-}
-
-func (r *oracleRuntimeControlFuzzBytes) pick(n int) int {
-	if n <= 1 {
-		return 0
-	}
-	return int(r.next()) % n
-}
-
 func oracleRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeControlFuzzCase {
 	if string(data) == "02000y0" {
 		return oracleRuntimeFPSBitrateReproFuzzCase()
@@ -169,11 +149,11 @@ func oracleRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeControlFuzz
 		return oracleRuntimeKeyFrameIntervalZeroReproFuzzCase()
 	}
 	if bytes.Equal(data, oracleRuntimeFullPermutationSeed) {
-		r := oracleRuntimeControlFuzzBytes{data: data[1:]}
+		r := testutil.NewByteCursor(data[1:])
 		return oracleRuntimeFullControlPermutationFuzzCase(&r)
 	}
-	r := oracleRuntimeControlFuzzBytes{data: data}
-	switch r.pick(3) {
+	r := testutil.NewByteCursor(data)
+	switch r.Pick(3) {
 	case 1:
 		return oracleRuntimeTemporalFuzzCase(&r)
 	case 2:
@@ -313,7 +293,7 @@ const (
 	oracleRuntimeFuzzCodecPhase
 )
 
-func oracleRuntimeGeneralFuzzCase(r *oracleRuntimeControlFuzzBytes) oracleRuntimeControlFuzzCase {
+func oracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
 	dims := [...]struct {
 		w int
 		h int
@@ -324,18 +304,18 @@ func oracleRuntimeGeneralFuzzCase(r *oracleRuntimeControlFuzzBytes) oracleRuntim
 	}
 	speeds := [...]int{0, -3, -8}
 	targets := [...]int{300, 700, 1200}
-	dim := dims[r.pick(len(dims))]
-	targetKbps := targets[r.pick(len(targets))]
-	frames := 6 + r.pick(5)
-	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, speeds[r.pick(len(speeds))])
-	sources := oracleRuntimeFuzzSources(dim.w, dim.h, frames, r.pick(2))
+	dim := dims[r.Pick(len(dims))]
+	targetKbps := targets[r.Pick(len(targets))]
+	frames := 6 + r.Pick(5)
+	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, speeds[r.Pick(len(speeds))])
+	sources := oracleRuntimeFuzzSources(dim.w, dim.h, frames, r.Pick(2))
 	flags := make([]EncodeFlags, frames)
 	script := runtimeControlScript(frames, nil)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
 	copyRefLog := false
 
 	for frame := 1; frame < frames; frame++ {
-		actionCount := 1 + r.pick(4)
+		actionCount := 1 + r.Pick(4)
 		actions := make([]oracleRuntimeFuzzAction, 0, actionCount)
 		haveConfig := false
 		for range actionCount {
@@ -372,12 +352,12 @@ func oracleRuntimeGeneralFuzzCase(r *oracleRuntimeControlFuzzBytes) oracleRuntim
 	}
 }
 
-func oracleRuntimeFullControlPermutationFuzzCase(r *oracleRuntimeControlFuzzBytes) oracleRuntimeControlFuzzCase {
+func oracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
 	targets := [...]int{300, 700, 1200}
 	targetKbps := 700
 	frames := 32
-	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3, -8}[r.pick(3)])
-	sources := oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.pick(2))
+	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3, -8}[r.Pick(3)])
+	sources := oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.Pick(2))
 	flags := make([]EncodeFlags, frames)
 	script := runtimeControlScript(frames, nil)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
@@ -474,16 +454,16 @@ func oracleRuntimeFullControlPermutationFuzzCase(r *oracleRuntimeControlFuzzByte
 	}
 }
 
-func oracleRuntimeFullPermutationActionReader(kind int) oracleRuntimeControlFuzzBytes {
+func oracleRuntimeFullPermutationActionReader(kind int) testutil.ByteCursor {
 	switch kind {
 	case 3, 4:
-		return oracleRuntimeControlFuzzBytes{data: []byte{2}}
+		return testutil.NewByteCursor([]byte{2})
 	case 8:
-		return oracleRuntimeControlFuzzBytes{data: []byte{}}
+		return testutil.NewByteCursor([]byte{})
 	case 17, 19:
-		return oracleRuntimeControlFuzzBytes{data: []byte{1}}
+		return testutil.NewByteCursor([]byte{1})
 	default:
-		return oracleRuntimeControlFuzzBytes{data: []byte{0}}
+		return testutil.NewByteCursor([]byte{0})
 	}
 }
 
@@ -524,21 +504,21 @@ func oracleRuntimeTemporalDisableFuzzAction(targetKbps int) oracleRuntimeFuzzAct
 	}
 }
 
-func oracleRuntimeShuffleInts(r *oracleRuntimeControlFuzzBytes, values []int) {
+func oracleRuntimeShuffleInts(r *testutil.ByteCursor, values []int) {
 	for i := len(values) - 1; i > 0; i-- {
-		j := r.pick(i + 1)
+		j := r.Pick(i + 1)
 		values[i], values[j] = values[j], values[i]
 	}
 }
 
-func oracleRuntimeRandomFuzzAction(r *oracleRuntimeControlFuzzBytes, targets []int) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
-	return oracleRuntimeFuzzActionForKind(r, r.pick(18), targets)
+func oracleRuntimeRandomFuzzAction(r *testutil.ByteCursor, targets []int) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
+	return oracleRuntimeFuzzActionForKind(r, r.Pick(18), targets)
 }
 
-func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, targets []int) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
+func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []int) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
 	switch kind {
 	case 0:
-		value := targets[r.pick(len(targets))]
+		value := targets[r.Pick(len(targets))]
 		return oracleRuntimeFuzzAction{
 			token: "bitrate:" + strconv.Itoa(value),
 			phase: oracleRuntimeFuzzConfigPhase,
@@ -548,11 +528,11 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			},
 		}, 0, false
 	case 1:
-		bitrate := targets[r.pick(len(targets))]
-		fps := [...]int{15, 24, 30}[r.pick(3)]
-		minQ := [...]int{2, 4, 8}[r.pick(3)]
-		maxQ := [...]int{48, 52, 56}[r.pick(3)]
-		drop := [...]int{0, defaultDropFramesWaterMark}[r.pick(2)]
+		bitrate := targets[r.Pick(len(targets))]
+		fps := [...]int{15, 24, 30}[r.Pick(3)]
+		minQ := [...]int{2, 4, 8}[r.Pick(3)]
+		maxQ := [...]int{48, 52, 56}[r.Pick(3)]
+		drop := [...]int{0, defaultDropFramesWaterMark}[r.Pick(2)]
 		return oracleRuntimeFuzzAction{
 			token: "bitrate:" + strconv.Itoa(bitrate) +
 				"+fps:" + strconv.Itoa(fps) +
@@ -597,17 +577,17 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 	case 5:
 		refNames := [...]string{"last", "golden", "altref"}
 		refs := [...]ReferenceFrame{ReferenceLast, ReferenceGolden, ReferenceAltRef}
-		idx := r.pick(len(refs))
-		imageIndex := 8 + r.pick(8)
+		idx := r.Pick(len(refs))
+		imageIndex := 8 + r.Pick(8)
 		return oracleRuntimeFuzzAction{
 			token: "setref:" + refNames[idx] + ":panning:" + strconv.Itoa(imageIndex),
 			phase: oracleRuntimeFuzzCodecPhase,
 			apply: setReferencePanningApply(refs[idx], imageIndex, refNames[idx]),
 		}, 0, false
 	case 6:
-		staticThreshold := [...]int{0, 1, 500}[r.pick(3)]
-		screenMode := [...]int{0, 1, 2}[r.pick(3)]
-		sharpness := [...]int{0, 4, 7}[r.pick(3)]
+		staticThreshold := [...]int{0, 1, 500}[r.Pick(3)]
+		screenMode := [...]int{0, 1, 2}[r.Pick(3)]
+		sharpness := [...]int{0, 4, 7}[r.Pick(3)]
 		return oracleRuntimeFuzzAction{
 			token: "static:" + strconv.Itoa(staticThreshold) +
 				"+screen:" + strconv.Itoa(screenMode) +
@@ -621,14 +601,14 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			},
 		}, 0, false
 	case 7:
-		good := r.pick(2) == 0
+		good := r.Pick(2) == 0
 		deadlineToken := "rt"
 		deadline := DeadlineRealtime
-		cpu := [...]int{0, -3, -8}[r.pick(3)]
+		cpu := [...]int{0, -3, -8}[r.Pick(3)]
 		if good {
 			deadlineToken = "good"
 			deadline = DeadlineGoodQuality
-			cpu = [...]int{0, 4, 8}[r.pick(3)]
+			cpu = [...]int{0, 4, 8}[r.Pick(3)]
 		}
 		return oracleRuntimeFuzzAction{
 			token: "deadline:" + deadlineToken + "+cpu:" + strconv.Itoa(cpu),
@@ -645,7 +625,7 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 		}, 0, false
 	case 8:
 		var flag EncodeFlags
-		switch r.pick(6) {
+		switch r.Pick(6) {
 		case 0:
 			flag = EncodeForceKeyFrame
 		case 1:
@@ -661,11 +641,11 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 		}
 		return oracleRuntimeFuzzAction{}, flag, false
 	case 9:
-		bitrate := targets[r.pick(len(targets))]
-		minQ := [...]int{2, 4, 8}[r.pick(3)]
-		maxQ := [...]int{48, 52, 56}[r.pick(3)]
-		undershoot := [...]int{50, 75, 100}[r.pick(3)]
-		overshoot := [...]int{50, 75, 100}[r.pick(3)]
+		bitrate := targets[r.Pick(len(targets))]
+		minQ := [...]int{2, 4, 8}[r.Pick(3)]
+		maxQ := [...]int{48, 52, 56}[r.Pick(3)]
+		undershoot := [...]int{50, 75, 100}[r.Pick(3)]
+		overshoot := [...]int{50, 75, 100}[r.Pick(3)]
 		return oracleRuntimeFuzzAction{
 			token: "endusage:cbr+bitrate:" + strconv.Itoa(bitrate) +
 				"+minq:" + strconv.Itoa(minQ) +
@@ -693,7 +673,7 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			},
 		}, 0, false
 	case 10:
-		tuneName := [...]string{"psnr", "ssim"}[r.pick(2)]
+		tuneName := [...]string{"psnr", "ssim"}[r.Pick(2)]
 		tuning := TunePSNR
 		if tuneName == "ssim" {
 			tuning = TuneSSIM
@@ -707,7 +687,7 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			},
 		}, 0, false
 	case 11:
-		partitions := r.pick(4)
+		partitions := r.Pick(4)
 		return oracleRuntimeFuzzAction{
 			token: "token:" + strconv.Itoa(partitions),
 			phase: oracleRuntimeFuzzCodecPhase,
@@ -765,7 +745,7 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 	case 15:
 		refNames := [...]string{"last", "golden", "altref"}
 		refs := [...]ReferenceFrame{ReferenceLast, ReferenceGolden, ReferenceAltRef}
-		idx := r.pick(len(refs))
+		idx := r.Pick(len(refs))
 		return oracleRuntimeFuzzAction{
 			token: "copyref:" + refNames[idx],
 			phase: oracleRuntimeFuzzCodecPhase,
@@ -776,7 +756,7 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			},
 		}, 0, true
 	case 16:
-		enabled := r.pick(2) == 1
+		enabled := r.Pick(2) == 1
 		drop := 0
 		if enabled {
 			drop = 60
@@ -804,7 +784,7 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 			},
 		}, 0, false
 	case 19:
-		enabled := r.pick(2) == 1
+		enabled := r.Pick(2) == 1
 		disabled := 1
 		if enabled {
 			disabled = 0
@@ -824,8 +804,8 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 		}, 0, false
 	default:
 		modes := [...]RateControlMode{RateControlCBR}
-		mode := modes[r.pick(len(modes))]
-		bitrate := targets[r.pick(len(targets))]
+		mode := modes[r.Pick(len(modes))]
+		bitrate := targets[r.Pick(len(targets))]
 		cqLevel := runtimeRateControlModeCQLevel(mode)
 		return oracleRuntimeFuzzAction{
 			token: runtimeRateControlModeControlToken(mode, bitrate),
@@ -858,8 +838,8 @@ func oracleRuntimeFuzzActionForKind(r *oracleRuntimeControlFuzzBytes, kind int, 
 	}
 }
 
-func oracleRuntimeRealtimeDeadlineFuzzAction(r *oracleRuntimeControlFuzzBytes) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
-	cpu := [...]int{0, -3, -8}[r.pick(3)]
+func oracleRuntimeRealtimeDeadlineFuzzAction(r *testutil.ByteCursor) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
+	cpu := [...]int{0, -3, -8}[r.Pick(3)]
 	return oracleRuntimeFuzzAction{
 		token: "deadline:rt+cpu:" + strconv.Itoa(cpu),
 		phase: oracleRuntimeFuzzCodecPhase,
@@ -902,9 +882,9 @@ func oracleRuntimeCurrentRateControlConfig(e *VP8Encoder) RateControlConfig {
 	}
 }
 
-func oracleRuntimeShuffleActions(r *oracleRuntimeControlFuzzBytes, actions []oracleRuntimeFuzzAction) {
+func oracleRuntimeShuffleActions(r *testutil.ByteCursor, actions []oracleRuntimeFuzzAction) {
 	for i := len(actions) - 1; i > 0; i-- {
-		j := r.pick(i + 1)
+		j := r.Pick(i + 1)
 		actions[i], actions[j] = actions[j], actions[i]
 	}
 }
@@ -937,10 +917,10 @@ func oracleRuntimeInstallFuzzActions(script []string, apply map[int]func(*testin
 	}
 }
 
-func oracleRuntimeTemporalFuzzCase(r *oracleRuntimeControlFuzzBytes) oracleRuntimeControlFuzzCase {
+func oracleRuntimeTemporalFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
 	targetKbps := 700
 	frames := 8
-	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3}[r.pick(2)])
+	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3}[r.Pick(2)])
 	script := temporalScalabilityEnableDisableScript(frames)
 	apply := map[int]func(*testing.T, *VP8Encoder){
 		2: func(t *testing.T, e *VP8Encoder) {
@@ -969,20 +949,20 @@ func oracleRuntimeTemporalFuzzCase(r *oracleRuntimeControlFuzzBytes) oracleRunti
 		name:       "temporal",
 		opts:       opts,
 		targetKbps: targetKbps,
-		sources:    oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.pick(2)),
+		sources:    oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.Pick(2)),
 		flags:      temporalScalabilityEnableDisableFlags(frames),
 		script:     script,
 		apply:      apply,
 	}
 }
 
-func oracleRuntimeInvalidNoopFuzzCase(r *oracleRuntimeControlFuzzBytes) oracleRuntimeControlFuzzCase {
+func oracleRuntimeInvalidNoopFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
 	targetKbps := 700
 	frames := 8
 	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, 0)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
 	for frame := 1; frame < frames; frame++ {
-		switch r.pick(7) {
+		switch r.Pick(7) {
 		case 0:
 			apply[frame] = func(t *testing.T, e *VP8Encoder) {
 				t.Helper()

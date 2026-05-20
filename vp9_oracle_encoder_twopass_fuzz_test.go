@@ -11,6 +11,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzVP9EncoderTwoPassByteParity mirrors FuzzEncoderTwoPassByteParity for
@@ -93,7 +94,7 @@ type vp9TwoPassFuzzCase struct {
 }
 
 func newVP9TwoPassFuzzCase(data []byte) vp9TwoPassFuzzCase {
-	r := vp9FuzzByteCursor{data: data}
+	r := testutil.NewByteCursor(data)
 	kbpsPool := [...]int{300, 500, 700}
 	kfPool := [...]int{30, 60, 120}
 	threadPool := [...]int{0, 2}
@@ -103,11 +104,11 @@ func newVP9TwoPassFuzzCase(data []byte) vp9TwoPassFuzzCase {
 	c := vp9TwoPassFuzzCase{
 		width:      32,
 		height:     32,
-		targetKbps: kbpsPool[r.pick(len(kbpsPool))],
-		kfInterval: kfPool[r.pick(len(kfPool))],
-		threads:    threadPool[r.pick(len(threadPool))],
-		cpuUsed:    cpuPool[r.pick(len(cpuPool))],
-		frames:     framesPool[r.pick(len(framesPool))],
+		targetKbps: kbpsPool[r.Pick(len(kbpsPool))],
+		kfInterval: kfPool[r.Pick(len(kfPool))],
+		threads:    threadPool[r.Pick(len(threadPool))],
+		cpuUsed:    cpuPool[r.Pick(len(cpuPool))],
+		frames:     framesPool[r.Pick(len(framesPool))],
 	}
 	c.extraArgs = []string{
 		"--cpu-used=" + strconv.Itoa(c.cpuUsed),
