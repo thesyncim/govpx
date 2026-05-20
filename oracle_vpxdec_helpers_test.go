@@ -1,7 +1,6 @@
 package govpx
 
 import (
-	"encoding/binary"
 	"errors"
 	"os"
 	"os/exec"
@@ -18,32 +17,13 @@ func makeSingleFrameIVF(width int, height int, den uint32, num uint32, frame []b
 }
 
 func makeIVF(width int, height int, den uint32, num uint32, frames [][]byte) []byte {
-	const (
-		fileHeaderSize  = 32
-		frameHeaderSize = 12
-	)
-	size := fileHeaderSize
-	for _, frame := range frames {
-		size += frameHeaderSize + len(frame)
-	}
-	out := make([]byte, size)
-	copy(out[0:4], []byte("DKIF"))
-	binary.LittleEndian.PutUint16(out[4:6], 0)
-	binary.LittleEndian.PutUint16(out[6:8], fileHeaderSize)
-	copy(out[8:12], []byte("VP80"))
-	binary.LittleEndian.PutUint16(out[12:14], uint16(width))
-	binary.LittleEndian.PutUint16(out[14:16], uint16(height))
-	binary.LittleEndian.PutUint32(out[16:20], den)
-	binary.LittleEndian.PutUint32(out[20:24], num)
-	binary.LittleEndian.PutUint32(out[24:28], uint32(len(frames)))
-	offset := fileHeaderSize
-	for i, frame := range frames {
-		binary.LittleEndian.PutUint32(out[offset:offset+4], uint32(len(frame)))
-		binary.LittleEndian.PutUint64(out[offset+4:offset+12], uint64(i))
-		copy(out[offset+frameHeaderSize:], frame)
-		offset += frameHeaderSize + len(frame)
-	}
-	return out
+	return testutil.BuildIVF(testutil.IVFHeader{
+		FourCC:              testutil.IVFFourCCVP8,
+		Width:               width,
+		Height:              height,
+		TimebaseDenominator: den,
+		TimebaseNumerator:   num,
+	}, frames)
 }
 
 func findChecksumOracle(t *testing.T) string {

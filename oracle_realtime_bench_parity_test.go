@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestOracleBenchWorkloadProductionGaps pins the public govpx-bench workloads
@@ -389,28 +391,9 @@ func realtimeBenchNoiseFrame(width, height, index int) Image {
 
 func parseIVFFramePayloadSizes(t *testing.T, data []byte) (int, int) {
 	t.Helper()
-	const (
-		fileHeaderSize  = 32
-		frameHeaderSize = 12
-	)
-	if len(data) < fileHeaderSize || string(data[:4]) != "DKIF" {
-		t.Fatalf("invalid IVF header")
-	}
-	total := 0
-	frames := 0
-	offset := fileHeaderSize
-	for offset < len(data) {
-		if offset+frameHeaderSize > len(data) {
-			t.Fatalf("truncated IVF frame header")
-		}
-		size := int(binary.LittleEndian.Uint32(data[offset:]))
-		offset += frameHeaderSize
-		if size < 0 || offset+size > len(data) {
-			t.Fatalf("truncated IVF payload size=%d offset=%d len=%d", size, offset, len(data))
-		}
-		total += size
-		frames++
-		offset += size
+	total, frames, err := testutil.IVFFramePayloadSizeSummary(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloadSizeSummary: %v", err)
 	}
 	return total, frames
 }

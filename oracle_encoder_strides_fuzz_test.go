@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzEncoderRandomStrides closes plan-§3 F6 / G7 from the VP8
@@ -84,8 +86,8 @@ type stridesFuzzDim struct {
 // determinism so the libvpx oracle's identical-content premise
 // holds.
 func newStridesFuzzImage(data []byte) (stridesFuzzDim, Image, Image) {
-	r := vp9FuzzByteReader{data: data}
-	if r.remaining() == 0 {
+	r := testutil.NewByteCursor(data)
+	if r.Remaining() == 0 {
 		return stridesFuzzDim{}, Image{}, Image{}
 	}
 	dimPool := [...]stridesFuzzDim{
@@ -95,12 +97,12 @@ func newStridesFuzzImage(data []byte) (stridesFuzzDim, Image, Image) {
 		{64, 64},
 		{96, 96},
 	}
-	dim := dimPool[int(r.next())%len(dimPool)]
-	yPad := int(r.next() & 0x1f)   // 0..31
-	uPad := int(r.next() & 0x0f)   // 0..15
-	vPad := int(r.next() & 0x0f)   // 0..15
-	uExtra := int(r.next() & 0x01) // odd alignment
-	vExtra := int(r.next() & 0x01)
+	dim := dimPool[int(r.Next())%len(dimPool)]
+	yPad := int(r.Next() & 0x1f)   // 0..31
+	uPad := int(r.Next() & 0x0f)   // 0..15
+	vPad := int(r.Next() & 0x0f)   // 0..15
+	uExtra := int(r.Next() & 0x01) // odd alignment
+	vExtra := int(r.Next() & 0x01)
 
 	uvW := (dim.w + 1) >> 1
 	uvH := (dim.h + 1) >> 1

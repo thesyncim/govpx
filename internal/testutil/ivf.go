@@ -1,10 +1,20 @@
 package testutil
 
-import "encoding/binary"
+import (
+	"bytes"
+	"encoding/binary"
+)
 
 const (
 	IVFFileHeaderSize  = 32
 	IVFFrameHeaderSize = 12
+)
+
+var (
+	// IVFFourCCVP8 is the IVF stream fourcc used by VP8 payloads.
+	IVFFourCCVP8 = [4]byte{'V', 'P', '8', '0'}
+	// IVFFourCCVP9 is the IVF stream fourcc used by VP9 payloads.
+	IVFFourCCVP9 = [4]byte{'V', 'P', '9', '0'}
 )
 
 var (
@@ -44,7 +54,7 @@ func ParseIVFHeader(data []byte) (IVFHeader, error) {
 
 	var fourcc [4]byte
 	copy(fourcc[:], data[8:12])
-	if fourcc != [4]byte{'V', 'P', '8', '0'} && fourcc != [4]byte{'V', 'P', '9', '0'} {
+	if fourcc != IVFFourCCVP8 && fourcc != IVFFourCCVP9 {
 		return IVFHeader{}, ErrUnsupportedFourCC
 	}
 
@@ -115,6 +125,55 @@ func CountIVFFrames(data []byte) (int, error) {
 	return count, nil
 }
 
+// IVFFrames returns every frame header and payload slice in data.
+func IVFFrames(data []byte) ([]IVFFrame, error) {
+	offset, err := FirstIVFFrameOffset(data)
+	if err != nil {
+		return nil, err
+	}
+	var frames []IVFFrame
+	for i := 0; offset < len(data); i++ {
+		frame, next, err := NextIVFFrame(data, offset, i)
+		if err != nil {
+			return nil, err
+		}
+		frames = append(frames, frame)
+		offset = next
+	}
+	return frames, nil
+}
+
+// IVFFramePayloads returns copies of each frame payload in data.
+func IVFFramePayloads(data []byte) ([][]byte, error) {
+	frames, err := IVFFrames(data)
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]byte, len(frames))
+	for i := range frames {
+		out[i] = bytes.Clone(frames[i].Data)
+	}
+	return out, nil
+}
+
+// IVFFramePayloadSizeSummary counts payload bytes and frames without copying.
+func IVFFramePayloadSizeSummary(data []byte) (total int, frames int, err error) {
+	offset, err := FirstIVFFrameOffset(data)
+	if err != nil {
+		return 0, 0, err
+	}
+	for offset < len(data) {
+		frame, next, err := NextIVFFrame(data, offset, frames)
+		if err != nil {
+			return 0, 0, err
+		}
+		total += len(frame.Data)
+		frames++
+		offset = next
+	}
+	return total, frames, nil
+}
+
 type errString string
 
 func (e errString) Error() string {
@@ -149,5 +208,21 @@ func WriteIVFFrame(payload []byte, pts uint64) []byte {
 	binary.LittleEndian.PutUint32(out[0:4], uint32(len(payload)))
 	binary.LittleEndian.PutUint64(out[4:12], pts)
 	copy(out[12:], payload)
+	return out
+}
+
+// BuildIVF writes one IVF stream with monotonically increasing frame
+// timestamps starting at zero.
+func BuildIVF(h IVFHeader, payloads [][]byte) []byte {
+	h.FrameCount = uint32(len(payloads))
+	size := IVFFileHeaderSize
+	for _, payload := range payloads {
+		size += IVFFrameHeaderSize + len(payload)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, WriteIVFHeader(h)...)
+	for i, payload := range payloads {
+		out = append(out, WriteIVFFrame(payload, uint64(i))...)
+	}
 	return out
 }

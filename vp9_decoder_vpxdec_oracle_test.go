@@ -1054,19 +1054,13 @@ func vp9ShowExistingOracleStreamForTest(t *testing.T, width, height int) ([][]by
 }
 
 func vp9IVFForTest(width, height int, packets ...[]byte) []byte {
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
+	return testutil.BuildIVF(testutil.IVFHeader{
+		FourCC:              testutil.IVFFourCCVP9,
 		Width:               width,
 		Height:              height,
 		TimebaseDenominator: 30,
 		TimebaseNumerator:   1,
-		FrameCount:          uint32(len(packets)),
-	}
-	out := testutil.WriteIVFHeader(header)
-	for i, packet := range packets {
-		out = append(out, testutil.WriteIVFFrame(packet, uint64(i))...)
-	}
-	return out
+	}, packets)
 }
 
 func vp9DecodeVisibleI420ForTest(t *testing.T, packets ...[]byte) []byte {

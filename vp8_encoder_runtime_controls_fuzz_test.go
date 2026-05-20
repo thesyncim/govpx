@@ -1,9 +1,10 @@
 package govpx
 
 import (
-	"encoding/binary"
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzVP8EncoderRuntimeControls mirrors FuzzVP9EncoderRuntimeControls on the
@@ -69,7 +70,7 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 			img.V[i] = 128
 		}
 
-		r := vp8FuzzByteReader{data: data}
+		r := testutil.NewByteCursor(data)
 		// Warm the encoder with one encode first so runtime controls hit
 		// the in-flight path rather than the cold-start branches.
 		if _, err := e.EncodeInto(dst, img, 0, 1, 0); err != nil {
@@ -77,11 +78,11 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 		}
 		const maxControls = 24
 		for i := range maxControls {
-			if r.remaining() == 0 {
+			if r.Remaining() == 0 {
 				break
 			}
 			applyVP8FuzzRuntimeControl(t, e, &r, img)
-			if r.remaining() == 0 {
+			if r.Remaining() == 0 {
 				break
 			}
 			if _, err := e.EncodeInto(dst, img, uint64(i+1), 1, 0); err != nil {
@@ -91,118 +92,91 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 	})
 }
 
-// vp8FuzzByteReader is a small deterministic byte stream consumer used by the
-// VP8 runtime-controls fuzz. It treats the input as a circular buffer so very
-// short fuzz inputs still exercise every Set* path.
-type vp8FuzzByteReader struct {
-	data []byte
-	pos  int
-}
-
-func (r *vp8FuzzByteReader) remaining() int {
-	return len(r.data) - r.pos
-}
-
-func (r *vp8FuzzByteReader) next() byte {
-	if len(r.data) == 0 {
-		return 0
-	}
-	b := r.data[r.pos%len(r.data)]
-	r.pos++
-	return b
-}
-
-func (r *vp8FuzzByteReader) nextU16() uint16 {
-	lo := r.next()
-	hi := r.next()
-	return binary.LittleEndian.Uint16([]byte{lo, hi})
-}
-
 // applyVP8FuzzRuntimeControl invokes one of the encoder's Set* methods chosen
 // by the next fuzz byte. Every method must surface bad arguments as a
 // returned error; panics are caught by the f.Fuzz wrapper.
-func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *vp8FuzzByteReader, src Image) {
+func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *testutil.ByteCursor, src Image) {
 	t.Helper()
 	const numSetters = 23
-	pick := int(r.next()) % numSetters
+	pick := int(r.Next()) % numSetters
 	var err error
 	switch pick {
 	case 0:
-		err = e.SetBitrateKbps(int(r.nextU16()))
+		err = e.SetBitrateKbps(int(r.U16LE()))
 	case 1:
 		err = e.SetRateControl(RateControlConfig{
-			Mode:                []RateControlMode{RateControlCBR, RateControlVBR, RateControlCQ, RateControlQ}[r.next()%4],
-			TargetBitrateKbps:   50 + int(r.nextU16()%3950),
-			MinQuantizer:        int(r.next() % 64),
-			MaxQuantizer:        int(r.next() % 64),
-			CQLevel:             int(r.next() % 64),
-			UndershootPct:       int(r.next() % 101),
-			OvershootPct:        int(r.next() % 101),
-			BufferSizeMs:        100 + int(r.nextU16()%9000),
-			BufferInitialSizeMs: 100 + int(r.nextU16()%9000),
-			BufferOptimalSizeMs: 100 + int(r.nextU16()%9000),
+			Mode:                []RateControlMode{RateControlCBR, RateControlVBR, RateControlCQ, RateControlQ}[r.Next()%4],
+			TargetBitrateKbps:   50 + int(r.U16LE()%3950),
+			MinQuantizer:        int(r.Next() % 64),
+			MaxQuantizer:        int(r.Next() % 64),
+			CQLevel:             int(r.Next() % 64),
+			UndershootPct:       int(r.Next() % 101),
+			OvershootPct:        int(r.Next() % 101),
+			BufferSizeMs:        100 + int(r.U16LE()%9000),
+			BufferInitialSizeMs: 100 + int(r.U16LE()%9000),
+			BufferOptimalSizeMs: 100 + int(r.U16LE()%9000),
 		})
 	case 2:
-		err = e.SetCQLevel(int(r.next() % 64))
+		err = e.SetCQLevel(int(r.Next() % 64))
 	case 3:
-		err = e.SetMaxIntraBitratePct(int(r.nextU16() % 2000))
+		err = e.SetMaxIntraBitratePct(int(r.U16LE() % 2000))
 	case 4:
-		err = e.SetGFCBRBoostPct(int(r.nextU16() % 2000))
+		err = e.SetGFCBRBoostPct(int(r.U16LE() % 2000))
 	case 5:
-		err = e.SetTokenPartitions(int(r.next() % 4))
+		err = e.SetTokenPartitions(int(r.Next() % 4))
 	case 6:
-		err = e.SetSharpness(int(r.next() % 8))
+		err = e.SetSharpness(int(r.Next() % 8))
 	case 7:
-		err = e.SetStaticThreshold(int(r.nextU16() % 1024))
+		err = e.SetStaticThreshold(int(r.U16LE() % 1024))
 	case 8:
-		err = e.SetScreenContentMode(int(r.next() % 4))
+		err = e.SetScreenContentMode(int(r.Next() % 4))
 	case 9:
-		err = e.SetRTCExternalRateControl(r.next()&1 == 1)
+		err = e.SetRTCExternalRateControl(r.Next()&1 == 1)
 	case 10:
-		err = e.SetFrameDropAllowed(r.next()&1 == 1)
+		err = e.SetFrameDropAllowed(r.Next()&1 == 1)
 	case 11:
-		err = e.SetDeadline([]Deadline{DeadlineRealtime, DeadlineGoodQuality, DeadlineBestQuality}[r.next()%3])
+		err = e.SetDeadline([]Deadline{DeadlineRealtime, DeadlineGoodQuality, DeadlineBestQuality}[r.Next()%3])
 	case 12:
-		err = e.SetCPUUsed(int(int8(r.next()%33)) - 16)
+		err = e.SetCPUUsed(int(int8(r.Next()%33)) - 16)
 	case 13:
-		err = e.SetTuning(Tuning(r.next() % 4))
+		err = e.SetTuning(Tuning(r.Next() % 4))
 	case 14:
-		err = e.SetKeyFrameInterval(int(r.next()))
+		err = e.SetKeyFrameInterval(int(r.Next()))
 	case 15:
-		err = e.SetAdaptiveKeyFrames(r.next()&1 == 1)
+		err = e.SetAdaptiveKeyFrames(r.Next()&1 == 1)
 	case 16:
-		err = e.SetNoiseSensitivity(int(r.next() % 8))
+		err = e.SetNoiseSensitivity(int(r.Next() % 8))
 	case 17:
-		err = e.SetARNR(int(r.next()%17), int(r.next()%8), int(r.next()%4))
+		err = e.SetARNR(int(r.Next()%17), int(r.Next()%8), int(r.Next()%4))
 	case 18:
 		// Pick one of the three valid reference selectors so the parity
 		// path is reached; bit selector with multiple bits set must be
 		// rejected by SetReferenceFrame.
 		ref := []ReferenceFrame{ReferenceLast, ReferenceGolden, ReferenceAltRef,
-			ReferenceFrame(r.next())}[r.next()%4]
+			ReferenceFrame(r.Next())}[r.Next()%4]
 		err = e.SetReferenceFrame(ref, src)
 	case 19:
 		err = e.SetRealtimeTarget(RealtimeTarget{
-			BitrateKbps:  int(r.nextU16() % 4000),
-			MinQuantizer: int(r.next() % 64),
-			MaxQuantizer: int(r.next() % 64),
+			BitrateKbps:  int(r.U16LE() % 4000),
+			MinQuantizer: int(r.Next() % 64),
+			MaxQuantizer: int(r.Next() % 64),
 		})
 	case 20:
-		rows := int(r.next()%32) + 1
-		cols := int(r.next()%32) + 1
+		rows := int(r.Next()%32) + 1
+		cols := int(r.Next()%32) + 1
 		amap := make([]uint8, rows*cols)
 		for i := range amap {
-			amap[i] = r.next() & 1
+			amap[i] = r.Next() & 1
 		}
 		err = e.SetActiveMap(amap, rows, cols)
 	case 21:
 		err = e.SetTemporalScalability(TemporalScalabilityConfig{
-			Enabled:                r.next()&1 == 1,
-			Mode:                   TemporalLayeringMode(r.next() % 5),
+			Enabled:                r.Next()&1 == 1,
+			Mode:                   TemporalLayeringMode(r.Next() % 5),
 			LayerTargetBitrateKbps: [MaxTemporalLayers]int{200, 400, 800, 1200, 1600},
 		})
 	case 22:
-		err = e.SetTemporalLayerID(int(r.next() % 5))
+		err = e.SetTemporalLayerID(int(r.Next() % 5))
 	}
 	if err != nil {
 		assertVP8FuzzRuntimeControlError(t, err)

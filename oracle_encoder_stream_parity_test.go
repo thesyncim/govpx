@@ -3,9 +3,7 @@
 package govpx
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -13,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 func strictByteParityCPUUsed(deadline Deadline, cpuUsed int) int {
@@ -1550,20 +1550,9 @@ func parseVP8FramePartitionSizes(p []byte) (firstPart int, isKeyframe bool) {
 // per-frame headers, returning the raw VP8 frame payload bytes.
 func parseIVFFramePayloads(t *testing.T, data []byte) [][]byte {
 	t.Helper()
-	if len(data) < 32 || string(data[:4]) != "DKIF" {
-		t.Fatalf("ivf: missing DKIF magic (have %d bytes, prefix=%q)", len(data), data[:min(len(data), 4)])
-	}
-	pos := 32
-	var out [][]byte
-	for pos+12 <= len(data) {
-		size := binary.LittleEndian.Uint32(data[pos : pos+4])
-		pos += 12
-		end := pos + int(size)
-		if end > len(data) {
-			t.Fatalf("ivf: frame size %d at pos %d overflows %d-byte buffer", size, pos-12, len(data))
-		}
-		out = append(out, bytes.Clone(data[pos:end]))
-		pos = end
+	out, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
 	}
 	return out
 }

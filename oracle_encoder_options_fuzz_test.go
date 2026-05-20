@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzVP8EncoderOptions closes plan-§3 F7 / G8 from the VP8
@@ -41,13 +43,11 @@ func FuzzVP8EncoderOptions(f *testing.F) {
 		nil,
 		{},
 		{0x00},
-		// Plausible 32×16 CBR config. The 17th byte is the
-		// errorRes byte added by task #251 (bit 0 = ErrorResilient,
-		// bit 1 = ErrorResilientPartitions). Legacy seeds explicitly
-		// set it to 0x00 so the wrap-around at byte[0] (which would
-		// otherwise resurrect the seed's first byte as the er field)
-		// does not silently flip a different path on top of the
-		// originally-intended axis.
+		// Plausible 32×16 CBR config. The 17th byte is the errorRes
+		// byte (bit 0 = ErrorResilient, bit 1 = ErrorResilientPartitions).
+		// Legacy seeds explicitly set it to 0x00 so cursor wrap-around
+		// at byte[0] does not silently flip a different path on top of
+		// the originally-intended axis.
 		{0x00, 0x20, 0x00, 0x10, 0x00, 0x1e, 0x02, 0xbc, 0x00, 0x00, 0x04, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00},
 		// Out-of-range.
 		{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
@@ -80,12 +80,11 @@ func FuzzVP8EncoderOptions(f *testing.F) {
 		{0x03, 0x03, 0x02, 0x00, 0x01, 0x04, 0x38, 0x1e, 0x2c, 0x01, 0xb6, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00},
 		// 48x48 CQ cq20 with sharpness=4 good cpu=4.
 		{0x02, 0x02, 0x02, 0x01, 0x02, 0x04, 0x38, 0x14, 0x2c, 0x01, 0xb6, 0x03, 0x04, 0x00, 0x01, 0x00, 0x00},
-		// task #251: explicit error-resilient × token-partitions
-		// keyframe parity seeds. Each row toggles the new er byte
-		// while keeping the rest of the configuration shaped like an
-		// established passing seed, so the (errorRes × tokens) cross
-		// gets a baseline keyframe parity assertion every fuzz
-		// invocation.
+		// Explicit error-resilient × token-partitions keyframe parity
+		// seeds. Each row toggles the er byte while keeping the rest
+		// of the configuration shaped like an established passing seed,
+		// so the (errorRes × tokens) cross gets a baseline keyframe
+		// parity assertion every fuzz invocation.
 		// 64x64 CBR good cpu=0 ErrorResilient=true tokens=1 (no split).
 		{0x03, 0x03, 0x00, 0x01, 0x00, 0x04, 0x38, 0x00, 0x2c, 0x01, 0xb6, 0x03, 0x00, 0x00, 0x01, 0x00, 0x01},
 		// 64x64 CBR good cpu=0 ErrorResilient=true tokens=2.
@@ -153,8 +152,8 @@ func FuzzVP8EncoderOptions(f *testing.F) {
 }
 
 func vp8EncoderOptionsFromFuzz(data []byte) (EncoderOptions, bool) {
-	r := vp9FuzzByteReader{data: data}
-	if r.remaining() == 0 {
+	r := testutil.NewByteCursor(data)
+	if r.Remaining() == 0 {
 		return EncoderOptions{}, false
 	}
 	widthPool := [...]int{16, 32, 48, 64}
@@ -163,22 +162,22 @@ func vp8EncoderOptionsFromFuzz(data []byte) (EncoderOptions, bool) {
 	deadlinePool := [...]Deadline{DeadlineRealtime, DeadlineGoodQuality, DeadlineBestQuality}
 	cpuPool := [...]int{0, -3, 4, 8}
 
-	w := widthPool[int(r.next())%len(widthPool)]
-	h := heightPool[int(r.next())%len(heightPool)]
-	rc := rcPool[int(r.next())%len(rcPool)]
-	deadline := deadlinePool[int(r.next())%len(deadlinePool)]
-	cpu := cpuPool[int(r.next())%len(cpuPool)]
-	minQ := int(r.next() & 0x7f)
-	maxQ := int(r.next() & 0x7f)
-	cq := int(r.next() & 0x7f)
-	kfRaw := r.nextU16()
-	bitrate := int(r.nextU16()&0x1fff) + 50
-	sharp := int(r.next() & 0x07)
-	tokenParts := int(r.next() & 0x03)
-	threads := int(r.next() & 0x07)
-	noise := int(r.next() & 0x07)
-	// task #251 wire-image audit: bit 0 of the errorRes byte toggles
-	// EncoderOptions.ErrorResilient (libvpx VPX_ERROR_RESILIENT_DEFAULT)
+	w := widthPool[int(r.Next())%len(widthPool)]
+	h := heightPool[int(r.Next())%len(heightPool)]
+	rc := rcPool[int(r.Next())%len(rcPool)]
+	deadline := deadlinePool[int(r.Next())%len(deadlinePool)]
+	cpu := cpuPool[int(r.Next())%len(cpuPool)]
+	minQ := int(r.Next() & 0x7f)
+	maxQ := int(r.Next() & 0x7f)
+	cq := int(r.Next() & 0x7f)
+	kfRaw := r.U16LE()
+	bitrate := int(r.U16LE()&0x1fff) + 50
+	sharp := int(r.Next() & 0x07)
+	tokenParts := int(r.Next() & 0x03)
+	threads := int(r.Next() & 0x07)
+	noise := int(r.Next() & 0x07)
+	// Bit 0 of the errorRes byte toggles EncoderOptions.ErrorResilient
+	// (libvpx VPX_ERROR_RESILIENT_DEFAULT)
 	// independently of TokenPartitions so each fuzz iteration can land
 	// at any (token_partitions ∈ {1,2,4,8}, error_resilient ∈ {0,1}) pair.
 	// Bit 1 toggles ErrorResilientPartitions (VPX_ERROR_RESILIENT_PARTITIONS,
@@ -186,7 +185,7 @@ func vp8EncoderOptionsFromFuzz(data []byte) (EncoderOptions, bool) {
 	// and exercises the independent_coef_context_savings branch). On
 	// 16-byte seeds the cursor wraps and this lands at byte 0, which
 	// preserves the legacy 16-byte seeds' behaviour (ErrorResilient=false).
-	errorResByte := r.next()
+	errorResByte := r.Next()
 	errorRes := errorResByte&0x01 != 0
 	errorResPart := errorResByte&0x02 != 0
 
@@ -322,8 +321,8 @@ func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 	if opts.Threads > 0 {
 		args = append(args, "--threads="+strconv.Itoa(opts.Threads))
 	}
-	// task #251: mirror error_resilient toggles to the libvpx CLI. The
-	// libvpx control takes a bitmask: 1=VPX_ERROR_RESILIENT_DEFAULT,
+	// Mirror error_resilient toggles to the libvpx CLI. The libvpx
+	// control takes a bitmask: 1=VPX_ERROR_RESILIENT_DEFAULT,
 	// 2=VPX_ERROR_RESILIENT_PARTITIONS, 3=both (libvpx vpx_encoder.h:1117
 	// and vp8/encoder/bitstream.c:1334 multi_token_partition splice).
 	if opts.ErrorResilient || opts.ErrorResilientPartitions {

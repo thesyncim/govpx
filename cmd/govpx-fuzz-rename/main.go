@@ -128,7 +128,7 @@ func classifyLongFixtureRateControl(data []byte) (string, error) {
 //	[w_idx, h_idx, rc_idx, dl_idx, cpu_idx, minQ, maxQ, cq,
 //	 kf_lo, kf_hi, br_lo, br_hi, sharp, tokenparts, threads, noise, er]
 //
-// Empty / undersized seeds wrap to byte 0, mirroring vp9FuzzByteReader.next.
+// Empty / undersized seeds wrap to byte 0, mirroring testutil.ByteCursor.Next.
 // The regression suffix names the divergent shape so curated repros surface
 // in `git status` as e.g. `regression_options_w48h48_cq_best_cpu4_tokens4_erpart_2fde656d`.
 func classifyVP8EncoderOptions(data []byte) (string, error) {

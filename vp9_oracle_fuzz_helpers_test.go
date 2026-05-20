@@ -175,18 +175,9 @@ func encodeVP9FramesWithLibvpxFrameFlagsOracle(t *testing.T, sources []*image.YC
 // parseVP9IVFFrames extracts every IVF frame payload from data.
 func parseVP9IVFFrames(t *testing.T, data []byte) [][]byte {
 	t.Helper()
-	offset, err := testutil.FirstIVFFrameOffset(data)
+	out, err := testutil.IVFFramePayloads(data)
 	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
-	var out [][]byte
-	for i := 0; offset < len(data); i++ {
-		fr, next, err := testutil.NextIVFFrame(data, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		offset = next
-		out = append(out, append([]byte(nil), fr.Data...))
+		t.Fatalf("IVFFramePayloads: %v", err)
 	}
 	return out
 }

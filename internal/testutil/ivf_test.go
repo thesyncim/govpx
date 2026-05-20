@@ -2,7 +2,6 @@ package testutil
 
 import (
 	"crypto/md5"
-	"encoding/binary"
 	"errors"
 	"testing"
 )
@@ -69,6 +68,33 @@ func TestCountIVFFrames(t *testing.T) {
 	}
 }
 
+func TestIVFFramePayloadsReturnsCopies(t *testing.T) {
+	data := makeIVF(16, 16, 30, 1, [][]byte{{1, 2}, {3, 4, 5}})
+	payloads, err := IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads returned error: %v", err)
+	}
+	if len(payloads) != 2 || string(payloads[0]) != string([]byte{1, 2}) ||
+		string(payloads[1]) != string([]byte{3, 4, 5}) {
+		t.Fatalf("payloads = %v, want [[1 2] [3 4 5]]", payloads)
+	}
+	payloads[0][0] = 99
+	if data[IVFFileHeaderSize+IVFFrameHeaderSize] == 99 {
+		t.Fatalf("payload aliases input data")
+	}
+}
+
+func TestIVFFramePayloadSizeSummary(t *testing.T) {
+	data := makeIVF(16, 16, 30, 1, [][]byte{{1, 2}, {3, 4, 5}})
+	total, frames, err := IVFFramePayloadSizeSummary(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloadSizeSummary returned error: %v", err)
+	}
+	if total != 5 || frames != 2 {
+		t.Fatalf("summary = %d/%d, want 5/2", total, frames)
+	}
+}
+
 func TestParseIVFRejectsUnsupportedFourCC(t *testing.T) {
 	data := makeIVF(16, 16, 30, 1, [][]byte{{1}})
 	// VP80 and VP90 are both accepted; pick an unrelated fourcc to
@@ -110,27 +136,11 @@ func TestMD5Plane(t *testing.T) {
 }
 
 func makeIVF(width int, height int, den uint32, num uint32, frames [][]byte) []byte {
-	size := IVFFileHeaderSize
-	for _, frame := range frames {
-		size += IVFFrameHeaderSize + len(frame)
-	}
-	data := make([]byte, size)
-	copy(data[0:4], []byte("DKIF"))
-	binary.LittleEndian.PutUint16(data[4:6], 0)
-	binary.LittleEndian.PutUint16(data[6:8], IVFFileHeaderSize)
-	copy(data[8:12], []byte("VP80"))
-	binary.LittleEndian.PutUint16(data[12:14], uint16(width))
-	binary.LittleEndian.PutUint16(data[14:16], uint16(height))
-	binary.LittleEndian.PutUint32(data[16:20], den)
-	binary.LittleEndian.PutUint32(data[20:24], num)
-	binary.LittleEndian.PutUint32(data[24:28], uint32(len(frames)))
-
-	offset := IVFFileHeaderSize
-	for i, frame := range frames {
-		binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(frame)))
-		binary.LittleEndian.PutUint64(data[offset+4:offset+12], uint64(i))
-		copy(data[offset+IVFFrameHeaderSize:], frame)
-		offset += IVFFrameHeaderSize + len(frame)
-	}
-	return data
+	return BuildIVF(IVFHeader{
+		FourCC:              IVFFourCCVP8,
+		Width:               width,
+		Height:              height,
+		TimebaseDenominator: den,
+		TimebaseNumerator:   num,
+	}, frames)
 }
