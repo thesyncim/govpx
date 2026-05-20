@@ -91,7 +91,7 @@ import (
 //       thresh_freq_fact[bsize][mode_index] >> 5)) AND
 //       (frame_mv[this_mode][ref_frame].as_int != 0).
 //
-//       PORTED (task #170, this commit) verbatim from libvpx:
+//       PORTED (task #170) verbatim from libvpx:
 //
 //         1. rd state: thresh_mult[MAX_MODES=30] + threshes[1]
 //            [BLOCK_SIZES][MAX_MODES] (single-segment collapse) +
@@ -99,10 +99,10 @@ import (
 //            rd_thresh_block_size_factor[BLOCK_SIZES] all live in
 //            vp9_rd_thresh.go (vp9RDThreshState).
 //         2. vp9_set_rd_speed_thresholds (vp9_rd.c:693-745) ⇒
-//            vp9SetRDSpeedThresholds; called from
+//            vp9RDThreshState.setRDSpeedThresholds; called from
 //            vp9EncoderInitializeRDConsts at every frame init.
 //         3. set_block_thresholds (vp9_rd.c:355-385) ⇒
-//            vp9SetBlockThresholds; called from
+//            vp9RDThreshState.setBlockThresholds; called from
 //            vp9EncoderInitializeRDConsts after the qindex resolves.
 //         4. Per-tile thresh_freq_fact init to RD_THRESH_INIT_FACT=32
 //            ⇒ vp9RDThreshState.initFreqFact (one-shot at first
@@ -110,8 +110,8 @@ import (
 //            tile-data birth).
 //         5. update_thresh_freq_fact at picker tail
 //            (vp9_pickmode.c:1148-1163, non-row-MT branch) ⇒
-//            vp9UpdateThreshFreqFact; called from the inter and intra
-//            best-mode update tail at the bottom of
+//            vp9RDThreshState.updateThreshFreqFact; called from the inter
+//            and intra best-mode update tail at the bottom of
 //            pickVP9InterReferenceModeNonRD before return.
 //         6. The gate at the picker's per-(ref, mode) head ⇒ inline
 //            block in pickVP9InterReferenceModeNonRD right after
@@ -1745,7 +1745,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					common.DcPred, common.VPred, common.HPred, common.TmPred,
 				}
 				for _, im := range intraModeList {
-					vp9UpdateThreshFreqFact(&e.rdThresh, sourceVariance, bsize,
+					e.rdThresh.updateThreshFreqFact(sourceVariance, bsize,
 						vp9dec.IntraFrame, bestModeIdx, im,
 						e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
 				}
@@ -1755,7 +1755,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						continue
 					}
 					for tm := common.NearestMv; tm <= common.NewMv; tm++ {
-						vp9UpdateThreshFreqFact(&e.rdThresh, sourceVariance, bsize,
+						e.rdThresh.updateThreshFreqFact(sourceVariance, bsize,
 							rf, bestModeIdx, tm,
 							e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
 					}

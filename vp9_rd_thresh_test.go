@@ -12,7 +12,7 @@ import (
 // libvpx vp9_rd.c:703-744 column-by-column adjustments.
 func TestVP9SetRDSpeedThresholdsAdaptive(t *testing.T) {
 	var rd vp9RDThreshState
-	vp9SetRDSpeedThresholds(&rd, 4)
+	rd.setRDSpeedThresholds(4)
 	cases := []struct {
 		mode vp9ThrModes
 		want int
@@ -61,7 +61,7 @@ func TestVP9SetRDSpeedThresholdsAdaptive(t *testing.T) {
 // apply uniformly.
 func TestVP9SetRDSpeedThresholdsNonAdaptive(t *testing.T) {
 	var rd vp9RDThreshState
-	vp9SetRDSpeedThresholds(&rd, 0)
+	rd.setRDSpeedThresholds(0)
 	if got := rd.threshMult[vp9ThrNearestMV]; got != 0 {
 		t.Errorf("threshMult[NEARESTMV] non-adaptive = %d, want 0", got)
 	}
@@ -107,8 +107,8 @@ func TestVP9ModeIdxTableMatchesLibvpx(t *testing.T) {
 // (govpx does not surface the sub-8x8 picker).
 func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
 	var rd vp9RDThreshState
-	vp9SetRDSpeedThresholds(&rd, 4)
-	vp9SetBlockThresholds(&rd, 64, 0)
+	rd.setRDSpeedThresholds(4)
+	rd.setBlockThresholds(64, 0)
 
 	// Sub-8x8 rows should be zero (libvpx populates thresh_mult_sub8x8 there;
 	// govpx-deferred).
@@ -158,7 +158,7 @@ func TestVP9UpdateThreshFreqFactBestMode(t *testing.T) {
 	rd.initFreqFact()
 	// Pre: NEARESTMV fact = 32; update with this_mode == best_mode_idx.
 	bestModeIdx := vp9ModeIdxTable[vp9dec.LastFrame][0] // NEARESTMV slot.
-	vp9UpdateThreshFreqFact(&rd, 100, common.Block16x16,
+	rd.updateThreshFreqFact(100, common.Block16x16,
 		vp9dec.LastFrame, bestModeIdx, common.NearestMv, 0, 4)
 	// fact -= fact>>4 → 32 - 2 = 30.
 	if got := rd.threshFreqFact[common.Block16x16][bestModeIdx]; got != 30 {
@@ -175,7 +175,7 @@ func TestVP9UpdateThreshFreqFactLoser(t *testing.T) {
 	// adaptive_rd_thresh=4, cap=4*64=256. Pre: NEARMV fact=32. Update with
 	// mode!=best (best is NEWMV, this is NEAR).
 	bestModeIdx := vp9ModeIdxTable[vp9dec.LastFrame][3] // NEWMV slot.
-	vp9UpdateThreshFreqFact(&rd, 100, common.Block16x16,
+	rd.updateThreshFreqFact(100, common.Block16x16,
 		vp9dec.LastFrame, bestModeIdx, common.NearMv, 0, 4)
 	nearIdx := vp9ModeIdxTable[vp9dec.LastFrame][1] // NEAR slot.
 	if got := rd.threshFreqFact[common.Block16x16][nearIdx]; got != 33 {

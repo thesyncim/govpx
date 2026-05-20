@@ -151,8 +151,8 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	//
 	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds (+sub8x8
 	// sibling not surfaced here — the sub-8x8 picker is govpx-deferred).
-	vp9SetRDSpeedThresholds(&e.rdThresh, e.sf.AdaptiveRdThresh)
-	vp9SetBlockThresholds(&e.rdThresh, qindex, 0)
+	e.rdThresh.setRDSpeedThresholds(e.sf.AdaptiveRdThresh)
+	e.rdThresh.setBlockThresholds(qindex, 0)
 	if !e.rdThresh.initialised {
 		e.rdThresh.initFreqFact()
 	}

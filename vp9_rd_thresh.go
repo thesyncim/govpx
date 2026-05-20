@@ -168,7 +168,7 @@ func (s *vp9RDThreshState) initFreqFact() {
 	s.initialised = true
 }
 
-// vp9SetRDSpeedThresholds is the verbatim port of libvpx's
+// setRDSpeedThresholds is the verbatim port of libvpx's
 // vp9_set_rd_speed_thresholds.
 //
 // libvpx: vp9/encoder/vp9_rd.c:693-745
@@ -197,7 +197,7 @@ func (s *vp9RDThreshState) initFreqFact() {
 //
 // `mode == BEST` is a libvpx-only quality preset that govpx does not surface
 // (deferred seeds are realtime), so the BEST=-500 leg collapses to 0.
-func vp9SetRDSpeedThresholds(rd *vp9RDThreshState, adaptiveRdThresh int) {
+func (rd *vp9RDThreshState) setRDSpeedThresholds(adaptiveRdThresh int) {
 	// Reset all entries to 0 (govpx never runs BEST).
 	for i := range rd.threshMult {
 		rd.threshMult[i] = 0
@@ -272,7 +272,7 @@ func vp9ComputeRDThreshFactor(qindex int) int {
 	return v
 }
 
-// vp9SetBlockThresholds is the verbatim port of libvpx's set_block_thresholds.
+// setBlockThresholds is the verbatim port of libvpx's set_block_thresholds.
 // Single-segment collapse: deferred-seed configurations run without
 // segmentation, so libvpx's seg_id loop reduces to segment_id=0.
 //
@@ -305,7 +305,7 @@ func vp9ComputeRDThreshFactor(qindex int) int {
 // govpx does not surface the sub-8x8 RD picker (vp9_pick_inter_mode_sub8x8),
 // so the bsize<Block8x8 branch is omitted; only the bsize>=Block8x8 branch
 // is populated for the realtime nonrd picker.
-func vp9SetBlockThresholds(rd *vp9RDThreshState, baseQindex, yDcDeltaQ int) {
+func (rd *vp9RDThreshState) setBlockThresholds(baseQindex, yDcDeltaQ int) {
 	qindex := min(max(baseQindex+yDcDeltaQ, 0), vp9dec.MaxQ)
 	q := vp9ComputeRDThreshFactor(qindex)
 	for bsize := range common.BlockSizes {
@@ -365,7 +365,7 @@ func vp9RDLessThanThresh(bestRd uint64, thresh, threshFact int) bool {
 	return bestRd < uint64(lhs)
 }
 
-// vp9UpdateThreshFreqFact is the verbatim port of libvpx's
+// updateThreshFreqFact is the verbatim port of libvpx's
 // update_thresh_freq_fact (vp9_pickmode.c:1148-1163), the non-row-MT branch.
 // row-MT is not surfaced in govpx (single-tile single-row encode for
 // deferred seeds), so the row-MT sibling at vp9_pickmode.c:1130-1146 is
@@ -387,7 +387,7 @@ func vp9RDLessThanThresh(bestRd uint64, thresh, threshFact int) bool {
 //	                        cpi->sf.adaptive_rd_thresh * RD_THRESH_MAX_FACT);
 //	  }
 //	}
-func vp9UpdateThreshFreqFact(rd *vp9RDThreshState, sourceVariance uint, bsize common.BlockSize,
+func (rd *vp9RDThreshState) updateThreshFreqFact(sourceVariance uint, bsize common.BlockSize,
 	refFrame int8, bestModeIdx vp9ThrModes, mode common.PredictionMode,
 	limitNewMvEarlyExit, adaptiveRdThresh int,
 ) {
