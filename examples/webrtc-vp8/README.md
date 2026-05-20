@@ -1,6 +1,6 @@
 # govpx WebRTC VP8 demo
 
-End-to-end demo of govpx's VP8 stack at full power:
+End-to-end demo of govpx's VP8 realtime stack:
 
 - **Three simulcast encoders** running in parallel: 320x180, 640x360,
   1280x720, each with libwebrtc-style CBR + thread / cpu-used defaults.
@@ -118,9 +118,10 @@ roughly seven seconds.
 
 ## What this proves
 
-- `govpx`'s VP8 encoder is realtime-capable today: three independent
-  simulcast streams up to 1280x720 hold 30 fps on one machine in
-  pure Go.
+- `govpx`'s VP8 realtime APIs can drive three independent simulcast streams.
+  On the development host used for this fixture, the 1280x720 top rendition
+  holds 30 fps in pure Go; measure on the Go version, CPU, and build tags that
+  match your workload.
 - Every public VP8 runtime control (`SetBitrateKbps`,
   `SetScreenContentMode`, `SetNoiseSensitivity`, `SetROIMap`,
   `SetActiveMap`, `ForceKeyFrame`, etc.) takes effect mid-stream

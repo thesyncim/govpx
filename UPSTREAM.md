@@ -15,10 +15,9 @@ Compatibility targets are VP8 codec bitstreams, VP9 Profile 0 codec
 bitstreams, and RTP/WebRTC payload bodies for both codecs. The libvpx C ABI is
 not a compatibility target.
 
-VP9 support means full Profile 0 support only: 8-bit 4:2:0 raw packets and
-valid Profile 0 superframes. Profiles 1-3, alpha, high bit depth, and
-non-4:2:0 chroma are out of scope. Valid non-Profile-0 VP9 packets return
-`ErrVP9NotImplemented`.
+VP9 scope is Profile 0 only: 8-bit 4:2:0 raw packets and valid Profile 0
+superframes. Profiles 1-3, alpha, high bit depth, and non-4:2:0 chroma are out
+of scope. Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`.
 
 ## Optimization Scope
 

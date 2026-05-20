@@ -36,7 +36,8 @@ Out of scope:
 
 Supported public scope:
 
-- full VP9 Profile 0 raw packet decode and encode;
+- VP9 Profile 0 raw packet decode and encode paths validated by the current
+  gates;
 - valid VP9 Profile 0 superframe parsing, packing, and decode;
 - planar 8-bit 4:2:0 `Image` input/output;
 - caller-owned decode and encode buffer paths through `DecodeInto` and
@@ -65,6 +66,10 @@ Out of scope:
 
 Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`. Malformed VP9
 packets return `ErrInvalidVP9Data`.
+
+The VP9 encoder is still under active parity work. Treat remaining encoder
+quality and feature gaps as implementation status, not as permission to expand
+the public scope beyond Profile 0.
 
 ## Validation Source
 

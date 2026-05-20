@@ -6,7 +6,7 @@
     "commit": "1024874c5919305883187e2953de8fcb4c3d7fa6",
     "source_url": "https://chromium.googlesource.com/webm/libvpx/+/refs/tags/v1.16.0"
   },
-  "codec_scope": "VP8 plus VP9 full profile 0 only",
+  "codec_scope": "VP8 plus VP9 profile 0 only",
   "included_directories": [
     "vp8/common",
     "vp8/decoder",

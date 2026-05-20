@@ -3,16 +3,16 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 and full VP9 Profile 0 support for raw VPx payloads.
+Pure-Go VP8 plus VP9 Profile 0 codec APIs for raw VPx payloads.
 
 govpx is for Go programs that need VP8 or VP9 Profile 0 support without
 cgo and without a libvpx runtime dependency. It produces and consumes raw VP8
 frame payloads and raw VP9 Profile 0 packets for RTP/WebRTC-compatible
 transport.
 
-`UPSTREAM.md` is the authoritative scope statement: VP9 support is full
-Profile 0 only, RTP/WebRTC payload compatibility is in scope for both VP8 and
-VP9, and validation uses pinned libvpx v1.16.0 as the oracle.
+`UPSTREAM.md` is the authoritative scope statement: VP9 scope is Profile 0
+only, RTP/WebRTC payload compatibility is in scope for both VP8 and VP9, and
+validation uses pinned libvpx v1.16.0 as the oracle.
 
 ## Install
 
@@ -28,7 +28,7 @@ architecture-specific assembly and selects the Go fallbacks under
 `internal/vp8/dsp`, `internal/vp8/encoder`, `internal/vp9/dsp`, and
 `internal/vp9/encoder`.
 
-New assembly/SIMD work is deferred until full VP9 encoder parity.
+New assembly/SIMD work is deferred until VP9 parity work stabilizes.
 
 ## Decode
 
@@ -122,7 +122,7 @@ returns no more data.
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |
-| Toggle VP8 frame dropping only | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
+| Toggle frame dropping | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
 | Runtime rate-control replacement | `SetRateControl` |
 | Two-pass encode | `CollectFirstPassStats`, `govpx.FinalizeFirstPassStats`, `SetTwoPassStats` |
 | Reference buffer control | `SetReferenceFrame`, `CopyReferenceFrame` |
@@ -199,7 +199,7 @@ VP8 through pion/webrtc to a browser.
 
 ## More
 
-- `docs/api.md`: public API guide and option families.
+- `docs/api.md`: planned API cleanup draft and option families.
 - `docs/architecture.md`: package ownership and data flow.
 - `docs/codec-status.md`: supported VP8/VP9 scope and out-of-scope features.
 - `docs/validation.md`: local, CI, oracle, fuzz, allocation, and performance

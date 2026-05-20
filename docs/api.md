@@ -7,6 +7,11 @@ package becomes a small wrapper over codec-owned internal packages.
 The project is not released yet, so this document names the preferred final
 API rather than preserving old spellings or internal staging shapes.
 
+This is not a compatibility promise and not every snippet reflects the current
+checked-in API during the cleanup waves. Use the package documentation and
+README for the API that compiles today; use this file to coordinate the final
+shape.
+
 ## Grounding And Style
 
 This draft is grounded in the current govpx public surface and the pinned

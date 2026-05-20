@@ -7,10 +7,10 @@
 // SDP, signaling, sequence/loss handling, and transport policy stay
 // caller-owned.
 //
-// VP9 scope is full profile 0 support only: 8-bit 4:2:0 raw packets and valid
-// superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
-// non-4:2:0 chroma variants are out of scope. Valid non-profile-0 VP9 packets
-// return [ErrVP9NotImplemented].
+// VP9 scope is profile 0 only: 8-bit 4:2:0 raw packets and valid superframes.
+// VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and non-4:2:0 chroma
+// variants are out of scope. Valid non-profile-0 VP9 packets return
+// [ErrVP9NotImplemented].
 //
 // govpx targets two main consumers: low-latency realtime senders (WebRTC,
 // SFU edges, screen capture) and offline encoders that want a pure-Go
@@ -74,8 +74,9 @@
 //
 // Sentinel errors live in this package: [ErrInvalidData], [ErrNeedKeyFrame],
 // [ErrFrameNotReady], [ErrBufferTooSmall], [ErrFrameRejected],
-// [ErrInvalidConfig], [ErrInvalidBitrate], [ErrInvalidQuantizer], and
-// [ErrClosed]. Compare with errors.Is.
+// [ErrInvalidConfig], [ErrInvalidBitrate], [ErrInvalidQuantizer],
+// [ErrInvalidVP9Data], [ErrVP9NotImplemented], and [ErrClosed]. Compare with
+// errors.Is.
 //
 // The zero value of [EncoderOptions] is not a valid configuration: Width,
 // Height, FPS (or TimebaseNum/Den), and TargetBitrateKbps must be set. The

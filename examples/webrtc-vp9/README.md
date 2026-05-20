@@ -45,13 +45,12 @@ Flags:
 
 ## Performance note
 
-This branch's VP9 encoder is not yet realtime: a single 3-layer SVC
-access unit at 160/320/640 takes ~1 s on a current M-series laptop
-(see `docs/realtime_perf_gap.md`). The demo defaults are tuned for that
-budget; the browser still receives RTP and visibly decodes whatever
-top layer is configured, just at a low framerate. As the encoder gets
-faster the same demo will scale up — bump `-fps` to whatever your host
-can sustain.
+The VP9 encoder is not yet a realtime SVC path. The demo defaults are tuned for
+the current in-tree performance gates; the browser still receives RTP and
+visibly decodes whatever top layer is configured, just at a low framerate. See
+`docs/validation.md` for benchmark commands and `docs/codec-status.md` for the
+current feature scope. As the encoder gets faster the same demo will scale up;
+bump `-fps` to whatever your host can sustain.
 
 ## How it works
 
