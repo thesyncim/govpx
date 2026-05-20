@@ -134,7 +134,7 @@ import (
 //     that suppress some inter candidates on the top frame edge.
 //
 // Task #373 audit (2026-05-19): per-MB iter-23 trace replay (q=94) on
-// /tmp/govpx_task352_screen_content.jsonl confirms govpx admits DC_PRED on
+// /tmp/govpx_screen_content_residual_screen_content.jsonl confirms govpx admits DC_PRED on
 // exactly 18 MBs at iter 23 q=94, ALL at the LEFT edge of the frame
 // (mb_col in {1, 2}, mb_row in {5, 8-13, 19-21, 28-29, 36-37, 41-44}).
 // libvpx admits ZERO intra MBs at iter 23. At iter 22 (q=95) both encoders
@@ -198,7 +198,7 @@ import (
 // this 12-frame screen-content fixture mode/ref/MV-clean again.
 //
 // This test is logging-only (always passes); it pins the localization
-// state on stdout and to /tmp/govpx_task352_summary.log.
+// state on stdout and to /tmp/govpx_screen_content_residual_summary.log.
 //
 // To run:
 //
@@ -206,7 +206,7 @@ import (
 //	  go test -tags govpx_oracle_trace -run TestVP8ScreenContentResidualParity -v
 func TestVP8ScreenContentResidualParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #352 screen-content residual bisect")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run screen-content residual parity")
 	}
 	requireOracleTraceBuild(t)
 	vpxencOracle := findVpxencOracle(t)
@@ -221,7 +221,7 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 	ycbcrSources := make([]*image.YCbCr, frameCount)
 	govpxSources := make([]Image, frameCount)
 	for i := range ycbcrSources {
-		yc := task341MakeScreenTextWindowFrame(width, height, i)
+		yc := makeScreenTextWindowFrame(width, height, i)
 		ycbcrSources[i] = yc
 		govpxSources[i] = Image{
 			Width:   width,
@@ -267,10 +267,10 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 
 	// libvpx side via the patched vpxenc-oracle.
 	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "task352.yuv")
-	ivfPath := filepath.Join(dir, "task352.ivf")
-	libvpxTracePath := filepath.Join(dir, "task352.jsonl")
-	task341WriteI420(t, yuvPath, govpxSources)
+	yuvPath := filepath.Join(dir, "screen_content_residual.yuv")
+	ivfPath := filepath.Join(dir, "screen_content_residual.ivf")
+	libvpxTracePath := filepath.Join(dir, "screen_content_residual.jsonl")
+	writeScreenContentI420(t, yuvPath, govpxSources)
 
 	args := []string{
 		"--codec=vp8",
@@ -310,15 +310,15 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 		t.Fatalf("read libvpx trace: %v", err)
 	}
 
-	govpxOut := "/tmp/govpx_task352_screen_content.jsonl"
-	libvpxOut := "/tmp/libvpx_task352_screen_content.jsonl"
+	govpxOut := "/tmp/govpx_screen_content_residual_screen_content.jsonl"
+	libvpxOut := "/tmp/libvpx_screen_content_residual_screen_content.jsonl"
 	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
 	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("task352 govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
+	t.Logf("screen_content_residual govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
 		govpxOut, libvpxOut, govpxTraceBuf.Len(), len(libvpxTrace))
 
 	// Open a summary log we can read after the test.
-	summaryPath := "/tmp/govpx_task352_summary.log"
+	summaryPath := "/tmp/govpx_screen_content_residual_summary.log"
 	summary, err := os.Create(summaryPath)
 	if err != nil {
 		t.Fatalf("create summary: %v", err)
@@ -332,8 +332,8 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 
 	// Walk all 12 frames; emit per-frame divergence summary.
 	for frameIdx := uint64(0); frameIdx < frameCount; frameIdx++ {
-		gRows := task210ParseMBRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
-		lRows := task210ParseMBRowsForFrame(libvpxTrace, frameIdx)
+		gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
+		lRows := parseMBActivityRowsForFrame(libvpxTrace, frameIdx)
 
 		gByKey := map[[2]int]map[string]any{}
 		lByKey := map[[2]int]map[string]any{}
@@ -396,7 +396,7 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 				firstLib = l
 			}
 		}
-		logf("task352 frame%d mbs=%d mode_mm=%d ref_mm=%d mv_mm=%d",
+		logf("screen_content_residual frame%d mbs=%d mode_mm=%d ref_mm=%d mv_mm=%d",
 			frameIdx, len(keys), modeMismatches, refMismatches, mvMismatches)
 
 		if modeMismatches == 0 && refMismatches == 0 && mvMismatches == 0 {
@@ -419,38 +419,38 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 		}
 		sort.Slice(refHist, func(i, j int) bool { return refHist[i].count > refHist[j].count })
 		for _, e := range modeHist {
-			logf("task352 frame%d MODE_HIST govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
+			logf("screen_content_residual frame%d MODE_HIST govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
 		}
 		for _, e := range refHist {
-			logf("task352 frame%d REF_HIST  govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
+			logf("screen_content_residual frame%d REF_HIST  govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
 		}
 		if firstDiv[0] >= 0 {
-			logf("task352 frame%d FIRST_DIV mb=(%d,%d):", frameIdx, firstDiv[0], firstDiv[1])
+			logf("screen_content_residual frame%d FIRST_DIV mb=(%d,%d):", frameIdx, firstDiv[0], firstDiv[1])
 			for _, f := range []string{"mode", "ref_frame", "mv_row", "mv_col", "uv_mode", "skip", "eob_sum", "mb_rate", "mb_activity", "act_zbin_adj", "rdmult"} {
 				gv := firstGov[f]
 				lv := firstLib[f]
 				marker := ""
-				if !task210FieldsEqual(gv, lv) {
+				if !mbTraceFieldsEqual(gv, lv) {
 					marker = " <DIFF>"
 				}
 				logf("  %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
 			// Dump candidate scoreboard to summary file too.
-			task352DumpInterCandidateScoreboardToFile(summary, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
-			task341LogInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			dumpScreenContentResidualInterCandidateScoreboard(summary, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		}
 
 		// Once we've found the first divergent frame, stop dumping
 		// scoreboards (the downstream frames inherit the divergence).
-		logf("task352 FIRST_DIVERGENT_FRAME=%d", frameIdx)
+		logf("screen_content_residual FIRST_DIVERGENT_FRAME=%d", frameIdx)
 		break
 	}
 }
 
-func task352DumpInterCandidateScoreboardToFile(w *os.File, gov, lib []byte, frameIdx uint64, mb [2]int) {
-	gCands := task341ParseInterCandidatesForMB(gov, frameIdx, mb)
-	lCands := task341ParseInterCandidatesForMB(lib, frameIdx, mb)
-	fmt.Fprintf(w, "task352 frame%d MB(%d,%d) inter_candidate scoreboard: govpx=%d libvpx=%d\n",
+func dumpScreenContentResidualInterCandidateScoreboard(w *os.File, gov, lib []byte, frameIdx uint64, mb [2]int) {
+	gCands := parseScreenContentInterCandidatesForMB(gov, frameIdx, mb)
+	lCands := parseScreenContentInterCandidatesForMB(lib, frameIdx, mb)
+	fmt.Fprintf(w, "screen_content_residual frame%d MB(%d,%d) inter_candidate scoreboard: govpx=%d libvpx=%d\n",
 		frameIdx, mb[0], mb[1], len(gCands), len(lCands))
 	gByIdx := map[int]map[string]any{}
 	lByIdx := map[int]map[string]any{}
@@ -487,7 +487,7 @@ func task352DumpInterCandidateScoreboardToFile(w *os.File, gov, lib []byte, fram
 				lv = l[f]
 			}
 			marker := ""
-			if gok && lok && !task210FieldsEqual(gv, lv) {
+			if gok && lok && !mbTraceFieldsEqual(gv, lv) {
 				marker = " <DIFF>"
 			}
 			fmt.Fprintf(w, "    %-15s govpx=%v libvpx=%v%s\n", f, gv, lv, marker)

@@ -37,7 +37,7 @@ import (
 
 func TestVP8ARNRPickerParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #314 ARNR picker bisect")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run ARNR picker parity")
 	}
 	vpxencOracle := findVpxencOracle(t)
 	requireOracleTraceBuild(t)
@@ -81,16 +81,16 @@ func TestVP8ARNRPickerParity(t *testing.T) {
 	}
 	enc.Close()
 
-	persistGovpx := "/tmp/task314_govpx_inter_candidate.jsonl"
+	persistGovpx := "/tmp/arnr_picker_govpx_inter_candidate.jsonl"
 	if err := os.WriteFile(persistGovpx, govpxTraceBuf.Bytes(), 0o644); err == nil {
-		t.Logf("task314: persisted govpx trace to %s (%d bytes)", persistGovpx, govpxTraceBuf.Len())
+		t.Logf("arnr_picker: persisted govpx trace to %s (%d bytes)", persistGovpx, govpxTraceBuf.Len())
 	}
 
 	// --- libvpx side ---------------------------------------------------
 	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "task314.yuv")
-	ivfPath := filepath.Join(dir, "task314.ivf")
-	libvpxTracePath := filepath.Join(dir, "task314.jsonl")
+	yuvPath := filepath.Join(dir, "arnr_picker.yuv")
+	ivfPath := filepath.Join(dir, "arnr_picker.ivf")
+	libvpxTracePath := filepath.Join(dir, "arnr_picker.jsonl")
 	writeEncoderValidationI420(t, yuvPath, sources)
 
 	args := []string{
@@ -133,16 +133,16 @@ func TestVP8ARNRPickerParity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile %s: %v", libvpxTracePath, err)
 	}
-	persistLibvpx := "/tmp/task314_libvpx_inter_candidate.jsonl"
+	persistLibvpx := "/tmp/arnr_picker_libvpx_inter_candidate.jsonl"
 	_ = os.WriteFile(persistLibvpx, libvpxTrace, 0o644)
-	t.Logf("task314: persisted libvpx trace to %s (%d bytes)", persistLibvpx, len(libvpxTrace))
+	t.Logf("arnr_picker: persisted libvpx trace to %s (%d bytes)", persistLibvpx, len(libvpxTrace))
 
 	// --- parse + bisect ------------------------------------------------
 	govpxBest := collectVP8ARNRPickerBecameBest(t, govpxTraceBuf.Bytes())
 	libvpxBest := collectVP8ARNRPickerBecameBest(t, libvpxTrace)
 
-	t.Logf("task314: govpx frame-1 became_best MBs = %d", len(govpxBest))
-	t.Logf("task314: libvpx frame-1 became_best MBs = %d", len(libvpxBest))
+	t.Logf("arnr_picker: govpx frame-1 became_best MBs = %d", len(govpxBest))
+	t.Logf("arnr_picker: libvpx frame-1 became_best MBs = %d", len(libvpxBest))
 
 	mbRows := opts.Height / 16
 	mbCols := opts.Width / 16
@@ -176,7 +176,7 @@ func TestVP8ARNRPickerParity(t *testing.T) {
 scan:
 	for row := 0; row < mbRows; row++ {
 		for col := 0; col < mbCols; col++ {
-			key := task314MBKey{row: row, col: col}
+			key := arnrPickerMBKey{row: row, col: col}
 			g, gOK := govpxBest[key]
 			l, lOK := libvpxBest[key]
 			if !gOK && !lOK {
@@ -239,7 +239,7 @@ scan:
 	}
 
 	if !fd.Found {
-		t.Logf("task314: NO divergent became_best MB found across frame 1 (%d MBs scanned)", len(govpxBest))
+		t.Logf("arnr_picker: NO divergent became_best MB found across frame 1 (%d MBs scanned)", len(govpxBest))
 		return
 	}
 
@@ -273,12 +273,12 @@ scan:
 	}
 }
 
-type task314MBKey struct {
+type arnrPickerMBKey struct {
 	row int
 	col int
 }
 
-type task314Row struct {
+type arnrPickerTraceRow struct {
 	FrameIndex   int    `json:"frame_index"`
 	MBRow        int    `json:"mb_row"`
 	MBCol        int    `json:"mb_col"`
@@ -296,9 +296,9 @@ type task314Row struct {
 	Type         string `json:"type"`
 }
 
-func collectVP8ARNRPickerBecameBest(t *testing.T, trace []byte) map[task314MBKey]task314Row {
+func collectVP8ARNRPickerBecameBest(t *testing.T, trace []byte) map[arnrPickerMBKey]arnrPickerTraceRow {
 	t.Helper()
-	out := make(map[task314MBKey]task314Row)
+	out := make(map[arnrPickerMBKey]arnrPickerTraceRow)
 	scan := bufio.NewScanner(bytes.NewReader(trace))
 	scan.Buffer(make([]byte, 1<<20), 1<<24)
 	for scan.Scan() {
@@ -316,14 +316,14 @@ func collectVP8ARNRPickerBecameBest(t *testing.T, trace []byte) map[task314MBKey
 			!bytes.Contains(line, []byte(`"frame_index":1}`)) {
 			continue
 		}
-		var r task314Row
+		var r arnrPickerTraceRow
 		if err := json.Unmarshal(line, &r); err != nil {
 			continue
 		}
 		if r.FrameIndex != 1 {
 			continue
 		}
-		key := task314MBKey{row: r.MBRow, col: r.MBCol}
+		key := arnrPickerMBKey{row: r.MBRow, col: r.MBCol}
 		// If multiple became_best=true rows exist for a single MB
 		// (libvpx emits one per "this candidate beat the running
 		// best"), the final one is the actually chosen mode.
@@ -332,9 +332,9 @@ func collectVP8ARNRPickerBecameBest(t *testing.T, trace []byte) map[task314MBKey
 	return out
 }
 
-func collectVP8ARNRPickerAllCandidates(t *testing.T, trace []byte, mbRow int, mbCol int) []task314Row {
+func collectVP8ARNRPickerAllCandidates(t *testing.T, trace []byte, mbRow int, mbCol int) []arnrPickerTraceRow {
 	t.Helper()
-	var out []task314Row
+	var out []arnrPickerTraceRow
 	scan := bufio.NewScanner(bytes.NewReader(trace))
 	scan.Buffer(make([]byte, 1<<20), 1<<24)
 	for scan.Scan() {
@@ -348,7 +348,7 @@ func collectVP8ARNRPickerAllCandidates(t *testing.T, trace []byte, mbRow int, mb
 		if !bytes.Contains(line, []byte(`"frame_index":1,`)) {
 			continue
 		}
-		var r task314Row
+		var r arnrPickerTraceRow
 		if err := json.Unmarshal(line, &r); err != nil {
 			continue
 		}

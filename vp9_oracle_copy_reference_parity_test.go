@@ -25,7 +25,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 		sources := newVP9OracleTransitionSources(width, height, frames)
 		script := emptyCopyReferenceScript(len(sources))
 		script[1] = "copyref:last+copyref:golden+copyref:altref"
-		probes := map[int][]copyReferenceProbe{
+		checks := map[int][]copyReferenceCheck{
 			1: {
 				{ref: ReferenceLast, name: "last"},
 				{ref: ReferenceGolden, name: "golden"},
@@ -38,7 +38,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 			"vp9-copyref-refresh", width, height, sources, nil, script,
 			extraArgs)
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
-			nil, probes)
+			nil, checks)
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
 
@@ -55,7 +55,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 			2: {{ref: ReferenceGolden, name: "golden", panningIndex: 9}},
 			3: {{ref: ReferenceAltRef, name: "altref", panningIndex: 10}},
 		}
-		probes := map[int][]copyReferenceProbe{
+		checks := map[int][]copyReferenceCheck{
 			1: {{ref: ReferenceLast, name: "last"}},
 			2: {{ref: ReferenceGolden, name: "golden"}},
 			3: {{ref: ReferenceAltRef, name: "altref"}},
@@ -66,7 +66,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 			"vp9-copyref-setref-odd", width, height, sources, nil, script,
 			extraArgs)
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
-			sets, probes)
+			sets, checks)
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
 
@@ -76,7 +76,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 		sources := newVP9OracleTransitionSources(width, height, frames)
 		script := emptyCopyReferenceScript(len(sources))
 		script[3] = "copyref:last+copyref:golden+copyref:altref"
-		probes := map[int][]copyReferenceProbe{
+		checks := map[int][]copyReferenceCheck{
 			3: {
 				{ref: ReferenceLast, name: "last"},
 				{ref: ReferenceGolden, name: "golden"},
@@ -89,7 +89,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 			"vp9-copyref-post-inter", width, height, sources, nil, script,
 			extraArgs)
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
-			nil, probes)
+			nil, checks)
 		if !reflect.DeepEqual(got, want) {
 			t.Logf("VP9 post-inter CopyReferenceFrame scoreboard\n govpx: %s\nlibvpx: %s",
 				formatCopyReferenceChecksums(got),
@@ -131,7 +131,7 @@ func captureLibvpxVP9CopyReferenceChecksums(t *testing.T, name string,
 func captureGovpxVP9CopyReferenceChecksums(t *testing.T,
 	opts VP9EncoderOptions, sources []*image.YCbCr, flags []EncodeFlags,
 	sets map[int][]copyReferenceSet,
-	probes map[int][]copyReferenceProbe,
+	checks map[int][]copyReferenceCheck,
 ) []copyReferenceChecksum {
 	t.Helper()
 	if len(sources) == 0 {
@@ -165,13 +165,13 @@ func captureGovpxVP9CopyReferenceChecksums(t *testing.T,
 					i, set.name, err)
 			}
 		}
-		for _, probe := range probes[i] {
+		for _, check := range checks[i] {
 			dst := testImage(width, height)
-			if err := enc.CopyReferenceFrame(probe.ref, &dst); err != nil {
+			if err := enc.CopyReferenceFrame(check.ref, &dst); err != nil {
 				t.Fatalf("frame %d CopyReferenceFrame(%s): %v",
-					i, probe.name, err)
+					i, check.name, err)
 			}
-			out = append(out, copyReferenceImageChecksum(i, probe.name, dst))
+			out = append(out, copyReferenceImageChecksum(i, check.name, dst))
 		}
 		var frameFlags EncodeFlags
 		if i < len(flags) {

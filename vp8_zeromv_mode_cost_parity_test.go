@@ -242,7 +242,7 @@ func testVP8ZeroMVPerModeCostMatchesOracleAllContexts(t *testing.T) {
 						vp8tables.InterModeContexts[c3][3],
 					}
 					for _, mode := range modes {
-						want := task299ExpectedModeRefCost(p, mode)
+						want := expectedModeRefCost(p, mode)
 						got := interPredictionModeRate(mode, counts)
 						if got != want {
 							t.Fatalf("ct=(%d,%d,%d,%d) mode=%v rate = %d, want %d",
@@ -255,7 +255,7 @@ func testVP8ZeroMVPerModeCostMatchesOracleAllContexts(t *testing.T) {
 	}
 }
 
-func task299ExpectedModeRefCost(p [4]uint8, mode vp8common.MBPredictionMode) int {
+func expectedModeRefCost(p [4]uint8, mode vp8common.MBPredictionMode) int {
 	switch mode {
 	case vp8common.ZeroMV:
 		return boolBitCost(p[0], 0)

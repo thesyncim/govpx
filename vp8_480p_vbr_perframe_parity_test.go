@@ -81,22 +81,22 @@ import (
 	"github.com/thesyncim/govpx"
 )
 
-// task354PerFrameRow pins one (frame_index, govpx_size, govpx_iQ) row
+// vp8480pVBRPerFrameRow pins one (frame_index, govpx_size, govpx_iQ) row
 // from the per-frame bisect at target=1000 kbps. The govpx side is the
 // authoritative pin because the libvpx side requires vpxenc/vpxdec
 // binaries on PATH; the libvpx values are documented in the file
 // header and re-derived from --framestats when the binary is wired up.
-type task354PerFrameRow struct {
+type vp8480pVBRPerFrameRow struct {
 	frame     int
 	govpxSize int
 	govpxIQ   int
 }
 
-// task354_1000kbpsPin pins the govpx side of the per-frame bisect at
+// vp8480pVBR1000KbpsPin pins the govpx side of the per-frame bisect at
 // target=1000 kbps. Any drift here (size or Q) flags either an
 // improvement (narrowing toward the libvpx column in the header table)
 // or a regression, both of which warrant a fresh pin/audit.
-var task354_1000kbpsPin = []task354PerFrameRow{
+var vp8480pVBR1000KbpsPin = []vp8480pVBRPerFrameRow{
 	{frame: 0, govpxSize: 127426, govpxIQ: 4},
 	{frame: 1, govpxSize: 189, govpxIQ: 127},
 	{frame: 2, govpxSize: 1158, govpxIQ: 13},
@@ -169,15 +169,15 @@ func TestVP8VBR480pPerFrameParity(t *testing.T) {
 		t.Skip("short mode")
 	}
 	sizes, iqs, kbps := runVP8Panning480pGovpx(t, 1000)
-	if len(sizes) != len(task354_1000kbpsPin) {
-		t.Fatalf("got %d frames, want %d", len(sizes), len(task354_1000kbpsPin))
+	if len(sizes) != len(vp8480pVBR1000KbpsPin) {
+		t.Fatalf("got %d frames, want %d", len(sizes), len(vp8480pVBR1000KbpsPin))
 	}
 	const wantKbps = 2187.0
 	const kbpsTol = 0.5
 	if diff := kbps - wantKbps; diff > kbpsTol || diff < -kbpsTol {
 		t.Errorf("target=1000 govpx kbps=%.3f want %.3f (tol ±%.1f)", kbps, wantKbps, kbpsTol)
 	}
-	for _, row := range task354_1000kbpsPin {
+	for _, row := range vp8480pVBR1000KbpsPin {
 		if sizes[row.frame] != row.govpxSize {
 			t.Errorf("f%d govpx size=%d want %d (re-pin if narrowing toward libvpx)",
 				row.frame, sizes[row.frame], row.govpxSize)
@@ -198,11 +198,11 @@ func makeVP8VBRPanningFrame(width, height, idx int) *image.YCbCr {
 		for x := range width {
 			sx := x + xoff
 			sy := y + yoff
-			gradient := 64 + task354Triangle(sx+sy, 256)/4
-			triX := task354Triangle(sx, 64) / 4
-			triY := task354Triangle(sy, 64) / 4
+			gradient := 64 + vp8480pVBRTriangle(sx+sy, 256)/4
+			triX := vp8480pVBRTriangle(sx, 64) / 4
+			triY := vp8480pVBRTriangle(sy, 64) / 4
 			texture := ((sx*1103515245+sy*12345)>>4)&0x0F - 8
-			row[x] = task354Clamp(gradient + triX + triY + texture)
+			row[x] = vp8480pVBRClamp(gradient + triX + triY + texture)
 		}
 	}
 	uvW := width >> 1
@@ -213,14 +213,14 @@ func makeVP8VBRPanningFrame(width, height, idx int) *image.YCbCr {
 		for x := range uvW {
 			sx := 2*x + xoff
 			sy := 2*y + yoff
-			cb[x] = task354Clamp(128 + (task354Triangle(sx, 128)-128)/8)
-			cr[x] = task354Clamp(128 + (task354Triangle(sy, 128)-128)/8)
+			cb[x] = vp8480pVBRClamp(128 + (vp8480pVBRTriangle(sx, 128)-128)/8)
+			cr[x] = vp8480pVBRClamp(128 + (vp8480pVBRTriangle(sy, 128)-128)/8)
 		}
 	}
 	return img
 }
 
-func task354Triangle(x, period int) int {
+func vp8480pVBRTriangle(x, period int) int {
 	if period <= 0 {
 		period = 32
 	}
@@ -232,7 +232,7 @@ func task354Triangle(x, period int) int {
 	return (period - r) * 255 / half
 }
 
-func task354Clamp(v int) byte {
+func vp8480pVBRClamp(v int) byte {
 	if v < 0 {
 		return 0
 	}

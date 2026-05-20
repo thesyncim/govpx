@@ -61,7 +61,7 @@ import (
 // next step.
 func TestVP8SPLITMVRDParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #298 SPLITMV RD bisect")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run SPLITMV RD parity")
 	}
 	requireOracleTraceBuild(t)
 	vpxencOracle := findVpxencOracle(t)
@@ -119,9 +119,9 @@ func TestVP8SPLITMVRDParity(t *testing.T) {
 
 	// libvpx side.
 	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "task298.yuv")
-	ivfPath := filepath.Join(dir, "task298.ivf")
-	libvpxTracePath := filepath.Join(dir, "task298.jsonl")
+	yuvPath := filepath.Join(dir, "splitmv_rd.yuv")
+	ivfPath := filepath.Join(dir, "splitmv_rd.ivf")
+	libvpxTracePath := filepath.Join(dir, "splitmv_rd.jsonl")
 	writeEncoderValidationI420(t, yuvPath, sources)
 	deadlineArg := "--best"
 	args := []string{
@@ -169,8 +169,8 @@ func TestVP8SPLITMVRDParity(t *testing.T) {
 		t.Logf("wrote /tmp/298-libvpx-best.jsonl")
 	}
 
-	gRows := task298ParseInterCandidateRows(govpxTrace.Bytes(), 1, 0, 0)
-	lRows := task298ParseInterCandidateRows(libvpxTrace, 1, 0, 0)
+	gRows := parseSplitMVInterCandidateRows(govpxTrace.Bytes(), 1, 0, 0)
+	lRows := parseSplitMVInterCandidateRows(libvpxTrace, 1, 0, 0)
 	t.Logf("MB(0,0) frame 1 candidates: govpx=%d libvpx=%d", len(gRows), len(lRows))
 
 	// Pull the SPLITMV/LAST candidate from each side, including
@@ -235,7 +235,7 @@ func TestVP8SPLITMVRDParity(t *testing.T) {
 	}
 }
 
-type task298InterCandidateRow struct {
+type splitMVInterCandidateRow struct {
 	FrameIndex   uint64 `json:"frame_index"`
 	MBRow        int    `json:"mb_row"`
 	MBCol        int    `json:"mb_col"`
@@ -258,8 +258,8 @@ type task298InterCandidateRow struct {
 	Outcome      string `json:"outcome"`
 }
 
-func task298ParseInterCandidateRows(buf []byte, wantFrameIndex uint64, wantMBRow int, wantMBCol int) []task298InterCandidateRow {
-	out := []task298InterCandidateRow{}
+func parseSplitMVInterCandidateRows(buf []byte, wantFrameIndex uint64, wantMBRow int, wantMBCol int) []splitMVInterCandidateRow {
+	out := []splitMVInterCandidateRow{}
 	for _, line := range bytes.Split(buf, []byte("\n")) {
 		if len(line) == 0 || line[0] != '{' {
 			continue
@@ -267,7 +267,7 @@ func task298ParseInterCandidateRows(buf []byte, wantFrameIndex uint64, wantMBRow
 		if !bytes.Contains(line, []byte(`"type":"inter_candidate"`)) {
 			continue
 		}
-		var r task298InterCandidateRow
+		var r splitMVInterCandidateRow
 		if err := json.Unmarshal(line, &r); err != nil {
 			continue
 		}
@@ -279,7 +279,7 @@ func task298ParseInterCandidateRows(buf []byte, wantFrameIndex uint64, wantMBRow
 	return out
 }
 
-func pickRow(rows []task298InterCandidateRow, mode, ref string) *task298InterCandidateRow {
+func pickRow(rows []splitMVInterCandidateRow, mode, ref string) *splitMVInterCandidateRow {
 	for i := range rows {
 		if rows[i].Mode == mode && rows[i].RefFrame == ref {
 			return &rows[i]

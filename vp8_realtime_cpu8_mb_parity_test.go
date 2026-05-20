@@ -145,7 +145,7 @@ import (
 //	  go test -tags govpx_oracle_trace -run TestVP8RealtimeCPU8MBParity -v
 func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #343 RT cpu=8 MB bisect")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run RT cpu=8 MB parity")
 	}
 	requireOracleTraceBuild(t)
 	vpxencOracle := findVpxencOracle(t)
@@ -166,7 +166,7 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 	ycbcrSources := make([]*image.YCbCr, frameCount)
 	govpxSources := make([]Image, frameCount)
 	for i := range ycbcrSources {
-		yc := task343MakePanningFrame(width, height, i)
+		yc := makeRealtimeCPU8PanningFrame(width, height, i)
 		ycbcrSources[i] = yc
 		govpxSources[i] = Image{
 			Width:   width,
@@ -211,10 +211,10 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 
 	// libvpx side via the patched vpxenc-oracle.
 	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "task343.yuv")
-	ivfPath := filepath.Join(dir, "task343.ivf")
-	libvpxTracePath := filepath.Join(dir, "task343.jsonl")
-	task341WriteI420(t, yuvPath, govpxSources)
+	yuvPath := filepath.Join(dir, "realtime_cpu8.yuv")
+	ivfPath := filepath.Join(dir, "realtime_cpu8.ivf")
+	libvpxTracePath := filepath.Join(dir, "realtime_cpu8.jsonl")
+	writeScreenContentI420(t, yuvPath, govpxSources)
 
 	args := []string{
 		"--codec=vp8",
@@ -253,11 +253,11 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 		t.Fatalf("read libvpx trace: %v", err)
 	}
 
-	govpxOut := "/tmp/govpx_task343_rt_cpu8.jsonl"
-	libvpxOut := "/tmp/libvpx_task343_rt_cpu8.jsonl"
+	govpxOut := "/tmp/govpx_realtime_cpu8_rt_cpu8.jsonl"
+	libvpxOut := "/tmp/libvpx_realtime_cpu8_rt_cpu8.jsonl"
 	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
 	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("task343 govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
+	t.Logf("realtime_cpu8 govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
 		govpxOut, libvpxOut, govpxTraceBuf.Len(), len(libvpxTrace))
 
 	// Probe across all 16 frames so each rung's worst-case rate divergence
@@ -265,9 +265,9 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 	// frame's wall-clock measurements feed back into autoSpeed.
 	frameProbeList := []uint64{0, 1, 2, 3, 7, 15}
 	for _, frameIdx := range frameProbeList {
-		gRows := task210ParseMBRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
-		lRows := task210ParseMBRowsForFrame(libvpxTrace, frameIdx)
-		t.Logf("task343 frame%d govpx_mb_rows=%d libvpx_mb_rows=%d", frameIdx, len(gRows), len(lRows))
+		gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
+		lRows := parseMBActivityRowsForFrame(libvpxTrace, frameIdx)
+		t.Logf("realtime_cpu8 frame%d govpx_mb_rows=%d libvpx_mb_rows=%d", frameIdx, len(gRows), len(lRows))
 
 		gByKey := map[[2]int]map[string]any{}
 		lByKey := map[[2]int]map[string]any{}
@@ -332,7 +332,7 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 				firstLib = l
 			}
 		}
-		t.Logf("task343 frame%d mode_mismatches=%d ref_mismatches=%d mv_mismatches=%d total_mbs=%d",
+		t.Logf("realtime_cpu8 frame%d mode_mismatches=%d ref_mismatches=%d mv_mismatches=%d total_mbs=%d",
 			frameIdx, modeMismatches, refMismatches, mvMismatches, len(keys))
 
 		type histEntry struct {
@@ -350,50 +350,50 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 		}
 		sort.Slice(refHist, func(i, j int) bool { return refHist[i].count > refHist[j].count })
 		for _, e := range modeHist {
-			t.Logf("task343 frame%d MODE_HIST govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
+			t.Logf("realtime_cpu8 frame%d MODE_HIST govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
 		}
 		for _, e := range refHist {
-			t.Logf("task343 frame%d REF_HIST  govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
+			t.Logf("realtime_cpu8 frame%d REF_HIST  govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
 		}
 		if firstDiv[0] >= 0 {
-			t.Logf("task343 frame%d FIRST_DIV mb=(%d,%d):", frameIdx, firstDiv[0], firstDiv[1])
+			t.Logf("realtime_cpu8 frame%d FIRST_DIV mb=(%d,%d):", frameIdx, firstDiv[0], firstDiv[1])
 			for _, f := range []string{"mode", "ref_frame", "mv_row", "mv_col", "uv_mode", "skip", "eob_sum", "mb_rate", "mb_activity", "act_zbin_adj", "rdmult"} {
 				gv := firstGov[f]
 				lv := firstLib[f]
 				marker := ""
-				if !task210FieldsEqual(gv, lv) {
+				if !mbTraceFieldsEqual(gv, lv) {
 					marker = " <DIFF>"
 				}
 				t.Logf("  %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
 			// Inter-candidate scoreboard for FIRST_DIV.
-			task341LogInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		} else {
-			t.Logf("task343 frame%d NO_DIV — all MBs match (mode, ref, mv)", frameIdx)
+			t.Logf("realtime_cpu8 frame%d NO_DIV — all MBs match (mode, ref, mv)", frameIdx)
 		}
 
 		// Frame-level rate/Q probe to surface autoSpeed/rate-control drift.
-		gFrame := task343ParseFrameRow(govpxTraceBuf.Bytes(), frameIdx)
-		lFrame := task343ParseFrameRow(libvpxTrace, frameIdx)
+		gFrame := parseRealtimeCPU8FrameRow(govpxTraceBuf.Bytes(), frameIdx)
+		lFrame := parseRealtimeCPU8FrameRow(libvpxTrace, frameIdx)
 		if gFrame != nil && lFrame != nil {
 			for _, f := range []string{"q_index", "base_q_index", "loop_filter_level", "auto_speed", "projected_frame_size"} {
 				gv := gFrame[f]
 				lv := lFrame[f]
 				marker := ""
-				if !task210FieldsEqual(gv, lv) {
+				if !mbTraceFieldsEqual(gv, lv) {
 					marker = " <DIFF>"
 				}
-				t.Logf("task343 frame%d FRAME %-22s govpx=%v libvpx=%v%s", frameIdx, f, gv, lv, marker)
+				t.Logf("realtime_cpu8 frame%d FRAME %-22s govpx=%v libvpx=%v%s", frameIdx, f, gv, lv, marker)
 			}
 		}
 	}
 }
 
-// task343MakePanningFrame is a verbatim copy of makeVP8PanningFrame from
+// makeRealtimeCPU8PanningFrame is a verbatim copy of makeVP8PanningFrame from
 // feature_quality_gates_vp8_test.go (which lives in package govpx_test
 // and is not accessible from this package-internal probe). Sync any
 // updates with feature_quality_gates_vp8_test.go:162.
-func task343MakePanningFrame(width, height, idx int) *image.YCbCr {
+func makeRealtimeCPU8PanningFrame(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	xoff := idx * 2
 	yoff := idx
@@ -402,11 +402,11 @@ func task343MakePanningFrame(width, height, idx int) *image.YCbCr {
 		for x := range width {
 			sx := x + xoff
 			sy := y + yoff
-			gradient := 64 + task343Triangle(sx+sy, 256)/4
-			triX := task343Triangle(sx, 64) / 4
-			triY := task343Triangle(sy, 64) / 4
+			gradient := 64 + realtimeCPU8Triangle(sx+sy, 256)/4
+			triX := realtimeCPU8Triangle(sx, 64) / 4
+			triY := realtimeCPU8Triangle(sy, 64) / 4
 			texture := ((sx*1103515245+sy*12345)>>4)&0x0F - 8
-			row[x] = task343Clamp(gradient + triX + triY + texture)
+			row[x] = realtimeCPU8Clamp(gradient + triX + triY + texture)
 		}
 	}
 	uvW := (width + 1) >> 1
@@ -417,14 +417,14 @@ func task343MakePanningFrame(width, height, idx int) *image.YCbCr {
 		for x := range uvW {
 			sx := 2*x + xoff
 			sy := 2*y + yoff
-			cb[x] = task343Clamp(128 + (task343Triangle(sx, 128)-128)/8)
-			cr[x] = task343Clamp(128 + (task343Triangle(sy, 128)-128)/8)
+			cb[x] = realtimeCPU8Clamp(128 + (realtimeCPU8Triangle(sx, 128)-128)/8)
+			cr[x] = realtimeCPU8Clamp(128 + (realtimeCPU8Triangle(sy, 128)-128)/8)
 		}
 	}
 	return img
 }
 
-func task343Triangle(x, period int) int {
+func realtimeCPU8Triangle(x, period int) int {
 	if period <= 0 {
 		period = 32
 	}
@@ -436,7 +436,7 @@ func task343Triangle(x, period int) int {
 	return (period - r) * 255 / half
 }
 
-func task343Clamp(v int) byte {
+func realtimeCPU8Clamp(v int) byte {
 	if v < 0 {
 		return 0
 	}
@@ -446,7 +446,7 @@ func task343Clamp(v int) byte {
 	return byte(v)
 }
 
-func task343ParseFrameRow(trace []byte, frameIdx uint64) map[string]any {
+func parseRealtimeCPU8FrameRow(trace []byte, frameIdx uint64) map[string]any {
 	for _, line := range bytes.Split(trace, []byte{'\n'}) {
 		if len(line) == 0 {
 			continue

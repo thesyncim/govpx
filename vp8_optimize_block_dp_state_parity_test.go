@@ -8,10 +8,10 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// task329TokenState mirrors libvpx's vp8_token_state from
+// optimizeBTokenState mirrors libvpx's vp8_token_state from
 // vp8/encoder/encodemb.c:127-132 — a five-field struct (rate, error,
 // next, token, qc) per (position, drop-or-keep) slot in the trellis.
-type task329TokenState struct {
+type optimizeBTokenState struct {
 	Rate  int
 	Error int
 	Next  int
@@ -19,7 +19,7 @@ type task329TokenState struct {
 	QC    int
 }
 
-// task329LibvpxOptimizeBVerbatim re-implements libvpx
+// libvpxOptimizeBVerbatim re-implements libvpx
 // vp8/encoder/encodemb.c:143-357 optimize_b ABOVE the path[] DP state
 // arrays for a controlled (coeff, dequant, qcoeff, eob) input. It
 // returns the full DP state and the post-loop (best, finalEOB,
@@ -34,7 +34,7 @@ type task329TokenState struct {
 // The DP-state oracle is verbatim libvpx — no govpx helpers — so any
 // drift between the oracle and govpx's optimize_b indicates a govpx
 // transition-logic divergence.
-func task329LibvpxOptimizeBVerbatim(
+func libvpxOptimizeBVerbatim(
 	coefProbs *vp8tables.CoefficientProbs,
 	blockType int,
 	ctx int,
@@ -46,7 +46,7 @@ func task329LibvpxOptimizeBVerbatim(
 	dequant *[16]int16,
 	qcoeffIn *[16]int16,
 	eobIn int,
-) ([17][2]task329TokenState, [2]uint32, int, int, [16]int16) {
+) ([17][2]optimizeBTokenState, [2]uint32, int, int, [16]int16) {
 	// rdmult = mb->rdmult * err_mult; intra adjustment.
 	errMult := []int{4, 16, 2, 4}[blockType]
 	rdmult := rdMult * errMult
@@ -55,7 +55,7 @@ func task329LibvpxOptimizeBVerbatim(
 	}
 	rddiv := rdDiv
 
-	var tokens [17][2]task329TokenState
+	var tokens [17][2]optimizeBTokenState
 	var bestMask [2]uint32
 
 	// Local copy of qcoeff so the verbatim oracle does not mutate
@@ -66,7 +66,7 @@ func task329LibvpxOptimizeBVerbatim(
 	eob := min(eobIn, 16)
 
 	// Initialize sentinel tokens[eob][0..1].
-	tokens[eob][0] = task329TokenState{Next: 16, Token: vp8tables.DCTEOBToken}
+	tokens[eob][0] = optimizeBTokenState{Next: 16, Token: vp8tables.DCTEOBToken}
 	tokens[eob][1] = tokens[eob][0]
 	next := eob
 
@@ -272,19 +272,19 @@ func govpxOptimizeBStateCaptured(
 	dequant *[16]int16,
 	qcoeffIn *[16]int16,
 	eobIn int,
-) ([17][2]task329TokenState, [2]uint32, int, int, [16]int16) {
+) ([17][2]optimizeBTokenState, [2]uint32, int, int, [16]int16) {
 	rdmult := rdMult * blockPlaneRDMultiplier(blockType)
 	if intra {
 		rdmult = (rdmult * 9) >> 4
 	}
 
-	var tokens [17][2]task329TokenState
+	var tokens [17][2]optimizeBTokenState
 	var bestMask [2]uint32
 	var qcoeff [16]int16
 	copy(qcoeff[:], qcoeffIn[:])
 	eob := min(eobIn, 16)
 
-	tokens[eob][0] = task329TokenState{Next: 16, Token: vp8tables.DCTEOBToken}
+	tokens[eob][0] = optimizeBTokenState{Next: 16, Token: vp8tables.DCTEOBToken}
 	tokens[eob][1] = tokens[eob][0]
 	next := eob
 
@@ -511,7 +511,7 @@ func TestVP8OptimizeBlockDPStateChromaDCOne(t *testing.T) {
 		qcoeff[0] = sign
 
 		// Oracle DP state.
-		oTokens, oBestMask, oBest, oEOB, oQ := task329LibvpxOptimizeBVerbatim(
+		oTokens, oBestMask, oBest, oEOB, oQ := libvpxOptimizeBVerbatim(
 			&vp8tables.DefaultCoefProbs, blockType, ctx, 0,
 			rdMult, rdDiv, false, &coeff, &dequant, &qcoeff, 1)
 
@@ -662,7 +662,7 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 		coeff := f.coeffs
 		qcoeff := f.qcoeff
 
-		oTokens, oBestMask, oBest, oEOB, oQ := task329LibvpxOptimizeBVerbatim(
+		oTokens, oBestMask, oBest, oEOB, oQ := libvpxOptimizeBVerbatim(
 			probs, blockType, f.ctx, 0, rdMult, rdDiv, false,
 			&coeff, &dequant, &qcoeff, f.eob)
 
@@ -754,7 +754,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 								}
 								var quant vp8enc.BlockQuant
 								vp8enc.InitRegularBlockQuant(qi, &dequant, &quant)
-								oTokens, _, _, oEOB, oQ := task329LibvpxOptimizeBVerbatim(
+								oTokens, _, _, oEOB, oQ := libvpxOptimizeBVerbatim(
 									probs, plane.blockType, ctx, plane.skipDC,
 									rdMult, rdDiv, intra, &coeff, &dequant, &qcoeff, 1)
 								gTokens, _, _, gEOB, gQ := govpxOptimizeBStateCaptured(
@@ -801,7 +801,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 					}
 					var quant vp8enc.BlockQuant
 					vp8enc.InitRegularBlockQuant(qi, &dequant, &quant)
-					oTokens, _, _, oEOB, oQ := task329LibvpxOptimizeBVerbatim(
+					oTokens, _, _, oEOB, oQ := libvpxOptimizeBVerbatim(
 						probs, plane.blockType, ctx, plane.skipDC,
 						rdMult, rdDiv, intra, &coeff, &dequant, &qcoeff, 16)
 					gTokens, _, _, gEOB, gQ := govpxOptimizeBStateCaptured(

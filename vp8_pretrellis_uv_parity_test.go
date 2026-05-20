@@ -46,7 +46,7 @@ import (
 // re-verified here; this probe ONLY surfaces the per-block trace.
 func TestVP8PretrellisUVParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #297 pre-trellis UV bisect")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run pre-trellis UV parity")
 	}
 	requireOracleTraceBuild(t)
 	vpxencOracle := findVpxencOracle(t)
@@ -231,20 +231,20 @@ func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string
 	if err := os.WriteFile(libvpxOutPath, libvpxTrace, 0o644); err != nil {
 		t.Logf("write libvpx trace dump %s: %v", libvpxOutPath, err)
 	}
-	t.Logf("task297 seed=%s govpx_trace=%s libvpx_trace=%s",
+	t.Logf("pretrellis_uv seed=%s govpx_trace=%s libvpx_trace=%s",
 		seedHash, govpxOutPath, libvpxOutPath)
 
-	gRows := task297ParsePretrellisUVRows(govpxTraceBuf.Bytes(), 1)
-	lRows := task297ParsePretrellisUVRows(libvpxTrace, 1)
-	t.Logf("task297 seed=%s frame1 govpx_rows=%d libvpx_rows=%d",
+	gRows := parsePretrellisUVRows(govpxTraceBuf.Bytes(), 1)
+	lRows := parsePretrellisUVRows(libvpxTrace, 1)
+	t.Logf("pretrellis_uv seed=%s frame1 govpx_rows=%d libvpx_rows=%d",
 		seedHash, len(gRows), len(lRows))
 
 	// Group by (mb_row, mb_col, block).
 	type rowKey struct {
 		mbRow, mbCol, block int
 	}
-	gByKey := map[rowKey]task297PretrellisRow{}
-	lByKey := map[rowKey]task297PretrellisRow{}
+	gByKey := map[rowKey]pretrellisUVTraceRow{}
+	lByKey := map[rowKey]pretrellisUVTraceRow{}
 	keys := []rowKey{}
 	for _, r := range gRows {
 		k := rowKey{r.MBRow, r.MBCol, r.Block}
@@ -350,11 +350,11 @@ func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string
 	}
 
 	if len(divs) == 0 {
-		t.Logf("task297 seed=%s frame1: ZERO divergent pre-trellis UV rows across %d shared (mb_row,mb_col,block) triples — divergence is downstream of pre-trellis quantize (trellis or coding context)", seedHash, len(keys))
+		t.Logf("pretrellis_uv seed=%s frame1: ZERO divergent pre-trellis UV rows across %d shared (mb_row,mb_col,block) triples — divergence is downstream of pre-trellis quantize (trellis or coding context)", seedHash, len(keys))
 		return
 	}
 
-	t.Logf("task297 seed=%s frame1 total_divergent_blocks=%d (first 12 below)", seedHash, len(divs))
+	t.Logf("pretrellis_uv seed=%s frame1 total_divergent_blocks=%d (first 12 below)", seedHash, len(divs))
 	limit := len(divs)
 	if limit > 12 {
 		limit = 12
@@ -372,12 +372,12 @@ func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string
 	}
 
 	first := divs[0]
-	t.Logf("task297 seed=%s FIRST_DIVERGENCE mb_row=%d mb_col=%d block=%d scan_pos=%d layer=%s gov=%d lib=%d",
+	t.Logf("pretrellis_uv seed=%s FIRST_DIVERGENCE mb_row=%d mb_col=%d block=%d scan_pos=%d layer=%s gov=%d lib=%d",
 		seedHash, first.key.mbRow, first.key.mbCol, first.key.block,
 		first.scanPos, first.layer, first.govVal, first.libVal)
 }
 
-type task297PretrellisRow struct {
+type pretrellisUVTraceRow struct {
 	FrameIndex uint64    `json:"frame_index"`
 	MBRow      int       `json:"mb_row"`
 	MBCol      int       `json:"mb_col"`
@@ -390,8 +390,8 @@ type task297PretrellisRow struct {
 	ZbinOQ     int       `json:"zbin_oq"`
 }
 
-func task297ParsePretrellisUVRows(buf []byte, wantFrameIndex uint64) []task297PretrellisRow {
-	out := []task297PretrellisRow{}
+func parsePretrellisUVRows(buf []byte, wantFrameIndex uint64) []pretrellisUVTraceRow {
+	out := []pretrellisUVTraceRow{}
 	for _, line := range bytes.Split(buf, []byte("\n")) {
 		if len(line) == 0 || line[0] != '{' {
 			continue
@@ -419,7 +419,7 @@ func task297ParsePretrellisUVRows(buf []byte, wantFrameIndex uint64) []task297Pr
 		if r.FrameIndex != wantFrameIndex {
 			continue
 		}
-		row := task297PretrellisRow{
+		row := pretrellisUVTraceRow{
 			FrameIndex: r.FrameIndex,
 			MBRow:      r.MBRow,
 			MBCol:      r.MBCol,

@@ -244,7 +244,7 @@ func TestVP8ARNRIterateByteExact(t *testing.T) {
 	}
 
 	for _, strength := range []int{1, 3, 5} {
-		t.Run("strength_"+task252Itoa(strength), func(t *testing.T) {
+		t.Run("strength_"+itoaDecimal(strength), func(t *testing.T) {
 			cy, cu, cv := mkCenter()
 			centerView := arnrFrameView{
 				width:   width,
@@ -323,7 +323,7 @@ func compareARNRIterationBytes(t *testing.T, plane string, got []byte, gotStride
 	}
 }
 
-func task252Itoa(v int) string {
+func itoaDecimal(v int) string {
 	if v == 0 {
 		return "0"
 	}

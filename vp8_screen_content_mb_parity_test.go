@@ -45,7 +45,7 @@ import (
 //	  go test -tags govpx_oracle_trace -run TestVP8ScreenContentMBParity -v
 func TestVP8ScreenContentMBParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #341 screen-content MB bisect")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run screen-content MB parity")
 	}
 	requireOracleTraceBuild(t)
 	vpxencOracle := findVpxencOracle(t)
@@ -63,7 +63,7 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 	ycbcrSources := make([]*image.YCbCr, frameCount)
 	govpxSources := make([]Image, frameCount)
 	for i := range ycbcrSources {
-		yc := task341MakeScreenTextWindowFrame(width, height, i)
+		yc := makeScreenTextWindowFrame(width, height, i)
 		ycbcrSources[i] = yc
 		govpxSources[i] = Image{
 			Width:   width,
@@ -109,10 +109,10 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 
 	// libvpx side via the patched vpxenc-oracle.
 	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "task341.yuv")
-	ivfPath := filepath.Join(dir, "task341.ivf")
-	libvpxTracePath := filepath.Join(dir, "task341.jsonl")
-	task341WriteI420(t, yuvPath, govpxSources)
+	yuvPath := filepath.Join(dir, "screen_content_mb.yuv")
+	ivfPath := filepath.Join(dir, "screen_content_mb.ivf")
+	libvpxTracePath := filepath.Join(dir, "screen_content_mb.jsonl")
+	writeScreenContentI420(t, yuvPath, govpxSources)
 
 	args := []string{
 		"--codec=vp8",
@@ -152,18 +152,18 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 		t.Fatalf("read libvpx trace: %v", err)
 	}
 
-	govpxOut := "/tmp/govpx_task341_screen_content.jsonl"
-	libvpxOut := "/tmp/libvpx_task341_screen_content.jsonl"
+	govpxOut := "/tmp/govpx_screen_content_mb_screen_content.jsonl"
+	libvpxOut := "/tmp/libvpx_screen_content_mb_screen_content.jsonl"
 	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
 	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("task341 govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
+	t.Logf("screen_content_mb govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
 		govpxOut, libvpxOut, govpxTraceBuf.Len(), len(libvpxTrace))
 
 	// Per-MB scoreboard analysis on the inter frame (frame_index=1).
 	for _, frameIdx := range []uint64{0, 1} {
-		gRows := task210ParseMBRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
-		lRows := task210ParseMBRowsForFrame(libvpxTrace, frameIdx)
-		t.Logf("task341 frame%d govpx_mb_rows=%d libvpx_mb_rows=%d", frameIdx, len(gRows), len(lRows))
+		gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
+		lRows := parseMBActivityRowsForFrame(libvpxTrace, frameIdx)
+		t.Logf("screen_content_mb frame%d govpx_mb_rows=%d libvpx_mb_rows=%d", frameIdx, len(gRows), len(lRows))
 
 		gByKey := map[[2]int]map[string]any{}
 		lByKey := map[[2]int]map[string]any{}
@@ -229,7 +229,7 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 				firstLib = l
 			}
 		}
-		t.Logf("task341 frame%d mode_mismatches=%d ref_mismatches=%d mv_mismatches=%d total_mbs=%d",
+		t.Logf("screen_content_mb frame%d mode_mismatches=%d ref_mismatches=%d mv_mismatches=%d total_mbs=%d",
 			frameIdx, modeMismatches, refMismatches, mvMismatches, len(keys))
 
 		// Sort histogram entries for stable logging.
@@ -248,38 +248,38 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 		}
 		sort.Slice(refHist, func(i, j int) bool { return refHist[i].count > refHist[j].count })
 		for _, e := range modeHist {
-			t.Logf("task341 frame%d MODE_HIST govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
+			t.Logf("screen_content_mb frame%d MODE_HIST govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
 		}
 		for _, e := range refHist {
-			t.Logf("task341 frame%d REF_HIST  govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
+			t.Logf("screen_content_mb frame%d REF_HIST  govpx|libvpx=%s count=%d", frameIdx, e.pair, e.count)
 		}
 		if firstDiv[0] >= 0 {
-			t.Logf("task341 frame%d FIRST_DIV mb=(%d,%d):", frameIdx, firstDiv[0], firstDiv[1])
+			t.Logf("screen_content_mb frame%d FIRST_DIV mb=(%d,%d):", frameIdx, firstDiv[0], firstDiv[1])
 			for _, f := range []string{"mode", "ref_frame", "mv_row", "mv_col", "uv_mode", "skip", "eob_sum", "mb_rate", "mb_activity", "act_zbin_adj", "rdmult"} {
 				gv := firstGov[f]
 				lv := firstLib[f]
 				marker := ""
-				if !task210FieldsEqual(gv, lv) {
+				if !mbTraceFieldsEqual(gv, lv) {
 					marker = " <DIFF>"
 				}
 				t.Logf("  %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
 		} else {
-			t.Logf("task341 frame%d NO_DIV — all MBs match (mode, ref, mv)", frameIdx)
+			t.Logf("screen_content_mb frame%d NO_DIV — all MBs match (mode, ref, mv)", frameIdx)
 		}
 
 		// Inter-candidate scoreboard dump for the first divergent MB.
 		if frameIdx == 1 && firstDiv[0] >= 0 {
-			task341LogInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		}
 	}
 }
 
-// task341MakeScreenTextWindowFrame is a verbatim copy of
+// makeScreenTextWindowFrame is a verbatim copy of
 // makeVP8ScreenTextWindowFrame so the probe test can call it without
 // taking a dependency on feature_quality_gates_vp8_test.go's helpers.
 // Sync any updates with feature_quality_gates_vp8_test.go:570.
-func task341MakeScreenTextWindowFrame(width, height, idx int) *image.YCbCr {
+func makeScreenTextWindowFrame(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	r := rand.New(rand.NewSource(int64(idx)*4099 + 31))
 	for y := range height {
@@ -342,7 +342,7 @@ func task341MakeScreenTextWindowFrame(width, height, idx int) *image.YCbCr {
 	return img
 }
 
-func task341WriteI420(t *testing.T, path string, frames []Image) {
+func writeScreenContentI420(t *testing.T, path string, frames []Image) {
 	t.Helper()
 	file, err := os.Create(path)
 	if err != nil {
@@ -350,21 +350,21 @@ func task341WriteI420(t *testing.T, path string, frames []Image) {
 	}
 	defer file.Close()
 	for i, frame := range frames {
-		if err := task341WritePlane(file, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
+		if err := writeScreenContentPlane(file, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
 			t.Fatalf("write frame %d Y: %v", i, err)
 		}
 		uvW := (frame.Width + 1) >> 1
 		uvH := (frame.Height + 1) >> 1
-		if err := task341WritePlane(file, frame.U, frame.UStride, uvW, uvH); err != nil {
+		if err := writeScreenContentPlane(file, frame.U, frame.UStride, uvW, uvH); err != nil {
 			t.Fatalf("write frame %d U: %v", i, err)
 		}
-		if err := task341WritePlane(file, frame.V, frame.VStride, uvW, uvH); err != nil {
+		if err := writeScreenContentPlane(file, frame.V, frame.VStride, uvW, uvH); err != nil {
 			t.Fatalf("write frame %d V: %v", i, err)
 		}
 	}
 }
 
-func task341WritePlane(file *os.File, plane []byte, stride int, width int, height int) error {
+func writeScreenContentPlane(file *os.File, plane []byte, stride int, width int, height int) error {
 	for row := range height {
 		if _, err := file.Write(plane[row*stride : row*stride+width]); err != nil {
 			return err
@@ -373,14 +373,14 @@ func task341WritePlane(file *os.File, plane []byte, stride int, width int, heigh
 	return nil
 }
 
-// task341LogInterCandidateScoreboardAt parses both traces for inter_candidate
+// logScreenContentInterCandidateScoreboardAt parses both traces for inter_candidate
 // rows at (frameIndex, mbRow, mbCol) and emits a side-by-side dump of the
 // per-mode RD scoreboard (rate, distortion, RDCOST, became_best). This is
 // the localized scoreboard the next-iteration fix targets.
-func task341LogInterCandidateScoreboardAt(t *testing.T, gov, lib []byte, frameIdx uint64, mb [2]int) {
-	gCands := task341ParseInterCandidatesForMB(gov, frameIdx, mb)
-	lCands := task341ParseInterCandidatesForMB(lib, frameIdx, mb)
-	t.Logf("task341 frame%d MB(%d,%d) inter_candidate scoreboard:", frameIdx, mb[0], mb[1])
+func logScreenContentInterCandidateScoreboardAt(t *testing.T, gov, lib []byte, frameIdx uint64, mb [2]int) {
+	gCands := parseScreenContentInterCandidatesForMB(gov, frameIdx, mb)
+	lCands := parseScreenContentInterCandidatesForMB(lib, frameIdx, mb)
+	t.Logf("screen_content_mb frame%d MB(%d,%d) inter_candidate scoreboard:", frameIdx, mb[0], mb[1])
 	t.Logf("  govpx_candidates=%d libvpx_candidates=%d", len(gCands), len(lCands))
 	// Index by mode_index for side-by-side dump.
 	gByIdx := map[int]map[string]any{}
@@ -418,7 +418,7 @@ func task341LogInterCandidateScoreboardAt(t *testing.T, gov, lib []byte, frameId
 				lv = l[f]
 			}
 			marker := ""
-			if gok && lok && !task210FieldsEqual(gv, lv) {
+			if gok && lok && !mbTraceFieldsEqual(gv, lv) {
 				marker = " <DIFF>"
 			}
 			t.Logf("    %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
@@ -426,9 +426,9 @@ func task341LogInterCandidateScoreboardAt(t *testing.T, gov, lib []byte, frameId
 	}
 }
 
-func task341ParseInterCandidatesForMB(trace []byte, frameIdx uint64, mb [2]int) []map[string]any {
+func parseScreenContentInterCandidatesForMB(trace []byte, frameIdx uint64, mb [2]int) []map[string]any {
 	rows := []map[string]any{}
-	all := task341ParseInterCandidatesForFrame(trace, frameIdx)
+	all := parseScreenContentInterCandidatesForFrame(trace, frameIdx)
 	for _, r := range all {
 		row, _ := r["mb_row"].(float64)
 		col, _ := r["mb_col"].(float64)
@@ -439,7 +439,7 @@ func task341ParseInterCandidatesForMB(trace []byte, frameIdx uint64, mb [2]int) 
 	return rows
 }
 
-func task341ParseInterCandidatesForFrame(trace []byte, frameIdx uint64) []map[string]any {
+func parseScreenContentInterCandidatesForFrame(trace []byte, frameIdx uint64) []map[string]any {
 	rows := []map[string]any{}
 	for _, line := range bytes.Split(trace, []byte{'\n'}) {
 		if len(line) == 0 {

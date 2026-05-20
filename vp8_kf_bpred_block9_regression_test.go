@@ -101,7 +101,7 @@ import (
 //	  go test -tags govpx_oracle_trace -run TestVP8KFBPredBlock9Regression -v
 func TestVP8KFBPredBlock9Regression(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #231 per-MB B_PRED block-9 probe")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED block-9 regression")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -268,15 +268,15 @@ func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash s
 		t.Fatalf("read libvpx trace: %v", err)
 	}
 
-	govpxOut := "/tmp/govpx_task231_" + seedHash + ".jsonl"
-	libvpxOut := "/tmp/libvpx_task231_" + seedHash + ".jsonl"
+	govpxOut := "/tmp/govpx_bpred_block9_" + seedHash + ".jsonl"
+	libvpxOut := "/tmp/libvpx_bpred_block9_" + seedHash + ".jsonl"
 	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
 	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("task231 seed=%s govpx_trace=%s libvpx_trace=%s", seedHash, govpxOut, libvpxOut)
+	t.Logf("bpred_block9 seed=%s govpx_trace=%s libvpx_trace=%s", seedHash, govpxOut, libvpxOut)
 
-	gRows := task210ParseMBRowsForFrame(govpxTraceBuf.Bytes(), 0)
-	lRows := task210ParseMBRowsForFrame(libvpxTrace, 0)
-	t.Logf("task231 seed=%s frame0 govpx_mb_rows=%d libvpx_mb_rows=%d",
+	gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), 0)
+	lRows := parseMBActivityRowsForFrame(libvpxTrace, 0)
+	t.Logf("bpred_block9 seed=%s frame0 govpx_mb_rows=%d libvpx_mb_rows=%d",
 		seedHash, len(gRows), len(lRows))
 
 	gByKey := map[[2]int]map[string]any{}
@@ -320,7 +320,7 @@ func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash s
 			continue
 		}
 		for i := range gb {
-			if !task210FieldsEqual(gb[i], lb[i]) {
+			if !mbTraceFieldsEqual(gb[i], lb[i]) {
 				firstBModeDiv = k
 				firstBModeBlock = i
 				firstBModeGov, _ = gb[i].(string)
@@ -333,9 +333,9 @@ func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash s
 		}
 	}
 	if firstBModeDiv[0] < 0 {
-		t.Logf("task231 seed=%s frame0 NO_BMODE_DIV — bitstream may match", seedHash)
+		t.Logf("bpred_block9 seed=%s frame0 NO_BMODE_DIV — bitstream may match", seedHash)
 	} else {
-		t.Logf("task231 seed=%s frame0 FIRST_BMODE_DIV mb=(%d,%d) block=%d govpx=%s libvpx=%s",
+		t.Logf("bpred_block9 seed=%s frame0 FIRST_BMODE_DIV mb=(%d,%d) block=%d govpx=%s libvpx=%s",
 			seedHash, firstBModeDiv[0], firstBModeDiv[1], firstBModeBlock, firstBModeGov, firstBModeLib)
 	}
 
@@ -357,9 +357,9 @@ func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash s
 		}
 	}
 	if firstRateDiv[0] < 0 {
-		t.Logf("task231 seed=%s frame0 NO_RATE_DIV", seedHash)
+		t.Logf("bpred_block9 seed=%s frame0 NO_RATE_DIV", seedHash)
 	} else {
-		t.Logf("task231 seed=%s frame0 FIRST_RATE_DIV mb=(%d,%d) govpx=%.0f libvpx=%.0f delta=%+.0f",
+		t.Logf("bpred_block9 seed=%s frame0 FIRST_RATE_DIV mb=(%d,%d) govpx=%.0f libvpx=%.0f delta=%+.0f",
 			seedHash, firstRateDiv[0], firstRateDiv[1], firstRateGov, firstRateLib,
 			firstRateGov-firstRateLib)
 	}
@@ -368,12 +368,12 @@ func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash s
 	canon := [2]int{0, 69}
 	if g, ok := gByKey[canon]; ok {
 		l := lByKey[canon]
-		t.Logf("task231 seed=%s frame0 MB(0,69) detail:", seedHash)
+		t.Logf("bpred_block9 seed=%s frame0 MB(0,69) detail:", seedHash)
 		for _, f := range []string{"mode", "uv_mode", "mb_rate", "aggregated_rate", "mb_activity", "act_zbin_adj", "rdmult"} {
 			gv := g[f]
 			lv := l[f]
 			marker := ""
-			if !task210FieldsEqual(gv, lv) {
+			if !mbTraceFieldsEqual(gv, lv) {
 				marker = " <DIFF>"
 			}
 			t.Logf("  %-18s govpx=%v libvpx=%v%s", f, gv, lv, marker)
@@ -392,7 +392,7 @@ func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash s
 			ge := geb[i]
 			le := leb[i]
 			emarker := ""
-			if !task210FieldsEqual(ge, le) {
+			if !mbTraceFieldsEqual(ge, le) {
 				emarker = " <EOB_DIFF>"
 			}
 			t.Logf("  block %2d: bmode govpx=%-12s libvpx=%-12s eob govpx=%v libvpx=%v%s%s",
@@ -405,13 +405,13 @@ func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash s
 	rateDiff := 0
 	for _, k := range keys {
 		g, l := gByKey[k], lByKey[k]
-		if !task210FieldsEqual(g["b_modes"], l["b_modes"]) {
+		if !mbTraceFieldsEqual(g["b_modes"], l["b_modes"]) {
 			bmodeDiff++
 		}
-		if !task210FieldsEqual(g["mb_rate"], l["mb_rate"]) {
+		if !mbTraceFieldsEqual(g["mb_rate"], l["mb_rate"]) {
 			rateDiff++
 		}
 	}
-	t.Logf("task231 seed=%s frame0 b_mode_div_count=%d rate_div_count=%d (of %d MBs)",
+	t.Logf("bpred_block9 seed=%s frame0 b_mode_div_count=%d rate_div_count=%d (of %d MBs)",
 		seedHash, bmodeDiff, rateDiff, len(keys))
 }

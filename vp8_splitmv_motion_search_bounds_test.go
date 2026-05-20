@@ -101,7 +101,7 @@ func testVP8SplitMVBestModeWideUMV(t *testing.T) {
 			bestRefMV:       bestRefMV,
 			mode:            &vp8enc.InterFrameMacroblockMode{Partition: uint8(partition)},
 		}
-		got := task300SubsetBoundsAtPartition(ctx, mbRows, mbCols)
+		got := subsetBoundsAtPartition(ctx, mbRows, mbCols)
 		if got != wide {
 			t.Fatalf("best mode partition=%d bounds = %+v, want wide UMV %+v", partition, got, wide)
 		}
@@ -128,7 +128,7 @@ func testVP8SplitMVSpeedModeIntersected(t *testing.T) {
 		bestRefMV:       bestRefMV,
 		mode:            &vp8enc.InterFrameMacroblockMode{Partition: 2},
 	}
-	if got := task300SubsetBoundsAtPartition(ctx2, mbRows, mbCols); got != wide {
+	if got := subsetBoundsAtPartition(ctx2, mbRows, mbCols); got != wide {
 		t.Fatalf("speed mode partition=2 bounds = %+v, want wide UMV %+v", got, wide)
 	}
 
@@ -141,7 +141,7 @@ func testVP8SplitMVSpeedModeIntersected(t *testing.T) {
 			bestRefMV:       bestRefMV,
 			mode:            &vp8enc.InterFrameMacroblockMode{Partition: uint8(partition)},
 		}
-		got := task300SubsetBoundsAtPartition(ctx, mbRows, mbCols)
+		got := subsetBoundsAtPartition(ctx, mbRows, mbCols)
 		if got != intersected {
 			t.Fatalf("speed mode partition=%d bounds = %+v, want intersected %+v", partition, got, intersected)
 		}
@@ -181,18 +181,18 @@ func testVP8SplitMVBoundsFrameOrigin(t *testing.T) {
 	}
 }
 
-// task300SubsetBoundsAtPartition mirrors the bounds selection inside
+// subsetBoundsAtPartition mirrors the bounds selection inside
 // selectMotion (vp8_encoder_inter_split.go) so the test can probe each branch
 // in isolation. Keeping this helper close to the production logic makes
 // future bounds-rule changes mechanically detectable.
-func task300SubsetBoundsAtPartition(ctx *splitMotionSubsetContext, mbRows int, mbCols int) interFrameFullPixelBounds {
+func subsetBoundsAtPartition(ctx *splitMotionSubsetContext, mbRows int, mbCols int) interFrameFullPixelBounds {
 	if ctx.compressorSpeed == 0 || (ctx.mode != nil && ctx.mode.Partition == 2) {
 		return interFrameUMVOnlyFullPixelSearchBounds(ctx.mbRow, ctx.mbCol, mbRows, mbCols)
 	}
 	return interFrameFullPixelSearchBounds(ctx.bestRefMV, ctx.mbRow, ctx.mbCol, mbRows, mbCols)
 }
 
-// task300_assertion is a compile-time check that splitMotionSubsetContext.
+// subset_bounds_assertion is a compile-time check that splitMotionSubsetContext.
 // compressorSpeed exists at the offset where selectMotion reads it. The
 // field is consumed only inside selectMotion at the per-label bounds
 // selection — see vp8_encoder_inter_split.go. A reflect-style assertion would

@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func task384ClampByte(v int) byte {
+func bpredEdgeClampByte(v int) byte {
 	if v < 0 {
 		return 0
 	}
@@ -23,13 +23,13 @@ func task384ClampByte(v int) byte {
 	return byte(v)
 }
 
-func task384BPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
+func makeBPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	r := rand.New(rand.NewSource(int64(idx)*9973 + 113))
 	for y := range height {
 		row := img.Y[y*img.YStride:]
 		for x := range width {
-			row[x] = task384ClampByte(112 + r.Intn(3) - 1)
+			row[x] = bpredEdgeClampByte(112 + r.Intn(3) - 1)
 		}
 	}
 	xoff := idx
@@ -104,7 +104,7 @@ func task384BPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
 
 func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #384 B_PRED edge-grid recode bisect")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED edge-grid recode parity")
 	}
 	requireOracleTraceBuild(t)
 	vpxencOracle := findVpxencOracle(t)
@@ -125,7 +125,7 @@ func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
 
 	sources := make([]Image, frames)
 	for i := range frames {
-		yc := task384BPredEdgeGridFrame(width, height, i)
+		yc := makeBPredEdgeGridFrame(width, height, i)
 		sources[i] = Image{
 			Width:   width,
 			Height:  height,
@@ -167,10 +167,10 @@ func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
 	enc.Close()
 
 	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "task384.yuv")
-	ivfPath := filepath.Join(dir, "task384.ivf")
-	libvpxTracePath := filepath.Join(dir, "task384.jsonl")
-	task341WriteI420(t, yuvPath, sources)
+	yuvPath := filepath.Join(dir, "bpred_edge.yuv")
+	ivfPath := filepath.Join(dir, "bpred_edge.ivf")
+	libvpxTracePath := filepath.Join(dir, "bpred_edge.jsonl")
+	writeScreenContentI420(t, yuvPath, sources)
 	args := []string{
 		"--codec=vp8",
 		"--ivf",
@@ -207,14 +207,14 @@ func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
 		t.Fatalf("ReadFile(%s): %v", libvpxTracePath, err)
 	}
 
-	govpxOut := filepath.Join(os.TempDir(), "govpx_task384_bpred_edge.jsonl")
-	libvpxOut := filepath.Join(os.TempDir(), "libvpx_task384_bpred_edge.jsonl")
+	govpxOut := filepath.Join(os.TempDir(), "govpx_bpred_edge_bpred_edge.jsonl")
+	libvpxOut := filepath.Join(os.TempDir(), "libvpx_bpred_edge_bpred_edge.jsonl")
 	if err := os.WriteFile(govpxOut, govpxTrace.Bytes(), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", govpxOut, err)
 	}
 	if err := os.WriteFile(libvpxOut, libvpxTrace, 0o644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", libvpxOut, err)
 	}
-	t.Logf("task384 target=%d govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
+	t.Logf("bpred_edge target=%d govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
 		targetKbps, govpxOut, libvpxOut, govpxTrace.Len(), len(libvpxTrace))
 }

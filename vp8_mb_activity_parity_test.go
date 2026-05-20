@@ -49,7 +49,7 @@ import (
 //   - vp8/encoder/onyx_if.c:1906         cpi->activity_avg = 90 << 12
 func TestVP8MBActivitySeedsMatchLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #210 per-MB activity tracer audit")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run per-MB activity parity")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -230,7 +230,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 		// scope.
 		t.Logf("vpxenc-oracle args: %v", args)
 		t.Logf("vpxenc-oracle output:\n%s", out)
-		t.Skipf("vpxenc-oracle failed: %v (skipping rest of probe; full output above)", err)
+		t.Skipf("vpxenc-oracle failed: %v (skipping rest of parity run; full output above)", err)
 	}
 
 	ivfData, err := os.ReadFile(ivfPath)
@@ -244,11 +244,11 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 	}
 
 	// Persist traces for offline inspection.
-	govpxOut := "/tmp/govpx_task210_" + seedHash + ".jsonl"
-	libvpxOut := "/tmp/libvpx_task210_" + seedHash + ".jsonl"
+	govpxOut := "/tmp/govpx_mb_activity_" + seedHash + ".jsonl"
+	libvpxOut := "/tmp/libvpx_mb_activity_" + seedHash + ".jsonl"
 	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
 	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("task210 seed=%s govpx_trace=%s libvpx_trace=%s", seedHash, govpxOut, libvpxOut)
+	t.Logf("mb_activity seed=%s govpx_trace=%s libvpx_trace=%s", seedHash, govpxOut, libvpxOut)
 
 	// Frame-size summary so the byte-gap is co-located with the
 	// per-MB findings.
@@ -268,7 +268,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 		if firstByteDiff == -1 && len(gf) != len(lf) {
 			firstByteDiff = minLen
 		}
-		t.Logf("task210 seed=%s frame%d govpx_len=%d libvpx_len=%d size_delta=%d first_byte_diff=%d",
+		t.Logf("mb_activity seed=%s frame%d govpx_len=%d libvpx_len=%d size_delta=%d first_byte_diff=%d",
 			seedHash, fi, len(gf), len(lf), len(gf)-len(lf), firstByteDiff)
 	}
 
@@ -277,9 +277,9 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 	// the new fields task #210 added; any divergence here surfaces the
 	// activity-masking computation gap that the libvpx oracle now exposes.
 	for fi := 0; fi < 2; fi++ {
-		gRows := task210ParseMBRowsForFrame(govpxTraceBuf.Bytes(), uint64(fi))
-		lRows := task210ParseMBRowsForFrame(libvpxTrace, uint64(fi))
-		t.Logf("task210 seed=%s frame%d govpx_mb_rows=%d libvpx_mb_rows=%d",
+		gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), uint64(fi))
+		lRows := parseMBActivityRowsForFrame(libvpxTrace, uint64(fi))
+		t.Logf("mb_activity seed=%s frame%d govpx_mb_rows=%d libvpx_mb_rows=%d",
 			seedHash, fi, len(gRows), len(lRows))
 		minRows := len(gRows)
 		if len(lRows) < minRows {
@@ -295,7 +295,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 		for i := 0; i < minRows; i++ {
 			g, l := gRows[i], lRows[i]
 			for _, f := range []string{"mb_activity", "act_zbin_adj", "rdmult", "activity_avg"} {
-				if !task210FieldsEqual(g[f], l[f]) {
+				if !mbTraceFieldsEqual(g[f], l[f]) {
 					firstFieldDiv = i
 					firstDivField = f
 					break
@@ -307,7 +307,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 		}
 		if firstFieldDiv >= 0 {
 			g, l := gRows[firstFieldDiv], lRows[firstFieldDiv]
-			t.Logf("task210 seed=%s frame%d FIRST_ACTIVITY_DIV idx=%d mb_row=%v mb_col=%v field=%s",
+			t.Logf("mb_activity seed=%s frame%d FIRST_ACTIVITY_DIV idx=%d mb_row=%v mb_col=%v field=%s",
 				seedHash, fi, firstFieldDiv, g["mb_row"], g["mb_col"], firstDivField)
 			for _, f := range reportFields {
 				gv, gok := g[f]
@@ -316,13 +316,13 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 					continue
 				}
 				marker := ""
-				if !task210FieldsEqual(gv, lv) {
+				if !mbTraceFieldsEqual(gv, lv) {
 					marker = " <DIFF>"
 				}
 				t.Logf("  %-16s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
 		} else if minRows > 0 {
-			t.Logf("task210 seed=%s frame%d ACTIVITY_MATCH first_%d_mbs all 4 fields equal",
+			t.Logf("mb_activity seed=%s frame%d ACTIVITY_MATCH first_%d_mbs all 4 fields equal",
 				seedHash, fi, minRows)
 		}
 		// Also locate the first MB-row of CANONICAL divergence so we keep
@@ -332,7 +332,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 		for i := 0; i < minRows; i++ {
 			g, l := gRows[i], lRows[i]
 			for _, f := range canonFields {
-				if !task210FieldsEqual(g[f], l[f]) {
+				if !mbTraceFieldsEqual(g[f], l[f]) {
 					firstCanonDiv = i
 					break
 				}
@@ -343,13 +343,13 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 		}
 		if firstCanonDiv >= 0 {
 			g := gRows[firstCanonDiv]
-			t.Logf("task210 seed=%s frame%d FIRST_CANON_DIV idx=%d mb_row=%v mb_col=%v",
+			t.Logf("mb_activity seed=%s frame%d FIRST_CANON_DIV idx=%d mb_row=%v mb_col=%v",
 				seedHash, fi, firstCanonDiv, g["mb_row"], g["mb_col"])
 		}
 	}
 }
 
-func task210ParseMBRowsForFrame(trace []byte, frameIndex uint64) []map[string]any {
+func parseMBActivityRowsForFrame(trace []byte, frameIndex uint64) []map[string]any {
 	rows := []map[string]any{}
 	scanner := bufio.NewScanner(bytes.NewReader(trace))
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<24)
@@ -371,10 +371,10 @@ func task210ParseMBRowsForFrame(trace []byte, frameIndex uint64) []map[string]an
 	return rows
 }
 
-// task210FieldsEqual compares two JSON-decoded fields. JSON numbers all
+// mbTraceFieldsEqual compares two JSON-decoded fields. JSON numbers all
 // decode to float64; bools and strings compare directly. nil vs non-nil
 // is treated as inequality. Arrays compare element-wise.
-func task210FieldsEqual(a, b any) bool {
+func mbTraceFieldsEqual(a, b any) bool {
 	if a == nil && b == nil {
 		return true
 	}
@@ -397,7 +397,7 @@ func task210FieldsEqual(a, b any) bool {
 			return false
 		}
 		for i := range av {
-			if !task210FieldsEqual(av[i], bv[i]) {
+			if !mbTraceFieldsEqual(av[i], bv[i]) {
 				return false
 			}
 		}
