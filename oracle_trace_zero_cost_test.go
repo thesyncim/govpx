@@ -8,6 +8,12 @@ import (
 	"unsafe"
 )
 
+var (
+	disabledTraceBoolSink  bool
+	disabledTraceIntSink   int
+	disabledTraceFloatSink float64
+)
+
 func TestDisabledTraceStateZeroSize(t *testing.T) {
 	cases := []struct {
 		name string
@@ -41,6 +47,54 @@ func TestDisabledTraceFieldsNotInProductionStructs(t *testing.T) {
 		if _, ok := tc.typ.FieldByName(tc.field); ok {
 			t.Fatalf("%s exposes %s in default builds", tc.name, tc.field)
 		}
+	}
+}
+
+func TestDisabledTraceHelpersDoNotAllocate(t *testing.T) {
+	var vp8 VP8Encoder
+	var vp9 VP9Encoder
+	coefTrace := newPretrellisUVTrace(&vp8)
+	pickerTrace := newPickerUVQuantizeTrace(&vp8, nil)
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		disabledTraceBoolSink = oracleTraceBuild && vp8.oracleTraceEnabled()
+		vp8.resetOracleTraceState()
+		vp8.resetOracleTraceRecode()
+		vp8.incrementOracleTraceRecodeLoop()
+		vp8.setOracleTraceRecodeReason("test")
+		disabledTraceIntSink += vp8.oracleTraceRecodeLoopCountForTest()
+		disabledTraceIntSink += vp8.oracleTraceMBBufferLenForTest()
+		vp8.resetOracleMBTraceBuffer()
+		vp8.flushOracleMBTraceBuffer()
+		vp8.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{})
+		vp8.emitOracleLFTrial("test", 0, 0)
+		vp8.emitOracleInterPredictorTrace(0, 0, nil)
+		vp8.emitOracleInterReconstructedTrace(0, 0, nil)
+		vp8.emitOracleLastRefWindow(nil)
+		vp8.emitOracleFrameTrace(oracleTraceFrameSummary{})
+		vp8.emitOracleDroppedFrameTrace("test")
+		vp8.emitOracleRateAndRecodeTrace(0, 0, 0, 0, 0, 0)
+		vp8.emitOracleRecodeIterTrace(oracleTraceRecodeIterSummary{})
+
+		disabledTraceBoolSink = coefTrace.pretrellisUVEnabled(true, false)
+		disabledTraceBoolSink = coefTrace.chromaOptimizeBEnabled(true, false)
+		disabledTraceBoolSink = pickerTrace.pickerUVQuantizeEnabled()
+		coefTrace.emitPretrellisUV(0, 0, 0, nil, nil, nil, 0, 0, 0)
+		coefTrace.emitChromaOptimizeB(0, 0, 0, nil, nil, nil, nil, 0, 0, 0, false)
+		pickerTrace.emitPickerUVQuantize(0, 0, 0, "", nil, nil, nil, nil, 0, 0, 0)
+
+		disabledTraceBoolSink = vp9OracleTraceBuild && vp9.vp9OracleTraceEnabled()
+		vp9.resetVP9OracleTraceState()
+		vp9.resetVP9OracleRateSelectionTrace()
+		vp9.recordVP9OracleRateSelectionTrace(0, 0, 0, false, 0)
+		best, worst, correction, recode, loop := vp9.vp9OracleRateSelectionTrace()
+		disabledTraceIntSink += best + worst + loop
+		disabledTraceFloatSink += correction
+		disabledTraceBoolSink = disabledTraceBoolSink || recode
+		vp9.emitVP9OracleFrameTrace(vp9OracleFrameSummary{})
+	})
+	if allocs != 0 {
+		t.Fatalf("disabled trace helpers allocated %v times per run, want 0", allocs)
 	}
 }
 
