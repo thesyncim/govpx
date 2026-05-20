@@ -40,6 +40,9 @@ func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 	}
 
 	e.SetVP9OracleTraceWriter(nil)
+	if e.vp9OracleTraceEnabled() {
+		t.Fatal("trace active after disabling writer")
+	}
 	trace.Reset()
 	if _, err := e.EncodeIntoWithResult(
 		newVP9YCbCrForTest(width, height, 160, 128, 128), dst); err != nil {

@@ -129,7 +129,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
 			firstPassStats := e.twoPass.statsForFrame()
 			e.twoPass.finishFrame()
-			if vp9OracleTraceBuild {
+			if vp9OracleTraceBuild && e.vp9OracleTraceEnabled() {
 				e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
 					Row:                "vp9_frame",
 					FrameIndex:         e.frameIndex,
@@ -775,7 +775,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if result.TemporalLayerCount == 0 {
 		result.TemporalLayerCount = 1
 	}
-	if vp9OracleTraceBuild {
+	if vp9OracleTraceBuild && e.vp9OracleTraceEnabled() {
 		activeBestQ, activeWorstQ, rateCorrectionFactor, recodeAllowed,
 			recodeLoopCount := e.vp9OracleRateSelectionTrace()
 		e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{

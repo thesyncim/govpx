@@ -52,6 +52,8 @@ type vp9OracleFrameSummary struct {
 
 func (e *VP9Encoder) resetVP9OracleTraceState() {}
 
+func (e *VP9Encoder) vp9OracleTraceEnabled() bool { return false }
+
 func (e *VP9Encoder) resetVP9OracleRateSelectionTrace() {}
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(int, int, float64, bool, int) {

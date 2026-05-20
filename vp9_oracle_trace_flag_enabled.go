@@ -96,6 +96,11 @@ func (e *VP9Encoder) resetVP9OracleTraceState() {
 	e.oracleTrace = nil
 }
 
+func (e *VP9Encoder) vp9OracleTraceEnabled() bool {
+	state := e.vp9OracleTraceState()
+	return state != nil && state.writer != nil
+}
+
 func (e *VP9Encoder) resetVP9OracleRateSelectionTrace() {
 	state := e.vp9OracleTraceState()
 	if state == nil {

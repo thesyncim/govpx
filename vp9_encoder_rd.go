@@ -224,7 +224,8 @@ func (e *VP9Encoder) vp9EncoderClearCbRdmult() {
 }
 
 func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, refreshFlags uint8, macroblocks int) int {
-	if vp9OracleTraceBuild {
+	traceRateSelection := vp9OracleTraceBuild && e.vp9OracleTraceEnabled()
+	if traceRateSelection {
 		e.resetVP9OracleRateSelectionTrace()
 	}
 	if e.opts.Lossless {
@@ -235,7 +236,7 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 		e.rc.nextFrameQIndexSet = false
 		e.opts.NextFrameQIndexSet = false
 		e.opts.NextFrameQIndex = 0
-		if vp9OracleTraceBuild {
+		if traceRateSelection {
 			e.recordVP9OracleRateSelectionTrace(qindex, qindex, 1, false, 0)
 		}
 		return qindex
@@ -244,7 +245,7 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 	if qindex == 0 {
 		if e.rc.enabled {
 			if e.rc.mode == RateControlCBR {
-				if vp9OracleTraceBuild {
+				if traceRateSelection {
 					var activeBest int
 					var activeWorst int
 					var correctionFactor float64
@@ -257,28 +258,27 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 				}
 				qindex = e.rc.cbrQuantizer(isKey || intraOnly, refreshFlags,
 					e.frameIndex, macroblocks)
-			} else if vp9OracleTraceBuild {
-				var activeBest int
-				var activeWorst int
-				var correctionFactor float64
-				e.prepareVP9SecondPassFrameTarget(isKey || intraOnly,
-					refreshFlags)
-				qindex, activeBest, activeWorst, correctionFactor =
-					e.rc.vbrQuantizerWithBounds(isKey || intraOnly,
-						refreshFlags, e.frameIndex, macroblocks)
-				e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
-					correctionFactor, e.rc.onePassRecodeAllowed(), 0)
-				return qindex
 			} else {
 				e.prepareVP9SecondPassFrameTarget(isKey || intraOnly,
 					refreshFlags)
+				if traceRateSelection {
+					var activeBest int
+					var activeWorst int
+					var correctionFactor float64
+					qindex, activeBest, activeWorst, correctionFactor =
+						e.rc.vbrQuantizerWithBounds(isKey || intraOnly,
+							refreshFlags, e.frameIndex, macroblocks)
+					e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
+						correctionFactor, e.rc.onePassRecodeAllowed(), 0)
+					return qindex
+				}
 				qindex = e.rc.vbrQuantizer(isKey || intraOnly, refreshFlags,
 					e.frameIndex, macroblocks)
 			}
 		} else {
 			qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly,
 				refreshFlags)
-			if vp9OracleTraceBuild {
+			if traceRateSelection {
 				minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
 				e.recordVP9OracleRateSelectionTrace(
 					vp9PublicQuantizerToQIndex(minQ),
