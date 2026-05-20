@@ -10,8 +10,8 @@ import (
 
 // FuzzVP8MultiResSVCByteParity exercises the previously uncovered VP8
 // multi-resolution simulcast + SVC + temporal-layer parity surfaces
-// flagged in tasks #79 and #195. Each fuzz seed picks one of three
-// shapes and a small parameter dial:
+// in one oracle-backed fuzz target. Each fuzz seed picks one of three shapes
+// and a small parameter dial:
 //
 //  1. shape 0 (simulcast): N=2 simulcast renditions
 //     (parent 640x360 / child 320x180, each its own VP8Encoder), each
@@ -202,7 +202,7 @@ func runVP8TemporalSVCFuzzCase(t *testing.T, c vp8SVCFuzzCase) {
 		name   string
 		w, h   int
 		source func(w, h, i int) Image
-	}{name: "task253-svc", w: w, h: h, source: encoderValidationPanningFrame}
+	}{name: "vp8-svc", w: w, h: h, source: encoderValidationPanningFrame}
 
 	sources := make([]Image, c.frames)
 	for i := range sources {

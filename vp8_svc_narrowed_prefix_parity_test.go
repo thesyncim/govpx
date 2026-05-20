@@ -15,21 +15,21 @@ import (
 //	testdata/fuzz/FuzzVP8MultiResSVCByteParity/regression_svc2tl_mode1_cpu0_t2_er1_d59809a7
 //
 // (decoded from the seed bytes "1007!c") at the NARROWED state observed
-// after task #262 closed the KF picker zbin_extra refresh under
-// segmentation_enabled. Prior to that closure the dispatcher's generic
-// known-gap floor (matched-prefix >= 1) was the only assertion for this
-// cohort — the seed achieved matched-prefix=1 on both output layers
-// (every layer keyframe-matched libvpx, every later frame diverged).
+// after the KF picker zbin_extra refresh under segmentation_enabled was
+// ported. Prior to that closure the dispatcher's generic known-gap floor
+// (matched-prefix >= 1) was the only assertion for this cohort — the seed
+// achieved matched-prefix=1 on both output layers (every layer keyframe-matched
+// libvpx, every later frame diverged).
 //
-// Task #274 re-measurement confirms the seed now consistently achieves:
+// The narrowed-prefix measurement confirms the seed now consistently achieves:
 //
 //	layer-0 (base): matched-prefix=3 (was 1)
 //	layer-1 (enh):  matched-prefix=6 (was 1)
 //
 // across the full 6-frame run (frames 6 in the seed's frame-count knob).
-// The improvement traces back to task #262's KF picker zbin_extra
-// refresh (vp8/encoder/encodeframe.c:427-438 segmentation_enabled gate
-// honored by govpx) closing the KF reconstruction byte-divergence at
+// The improvement traces back to the KF picker zbin_extra refresh
+// (vp8/encoder/encodeframe.c:427-438 segmentation_enabled gate honored by
+// govpx) closing the KF reconstruction byte-divergence at
 // 64×64 — once the keyframe matches libvpx the post-KF inter MVs and
 // modes stay aligned for a longer prefix before activity-mask drift
 // re-flips a per-MB decision and breaks the byte chain.
@@ -41,14 +41,14 @@ import (
 //
 // References:
 //   - libvpx v1.16.0 vp8/encoder/encodeframe.c:427-438 — segmentation_enabled
-//     vp8cx_mb_init_quantizer call honored by task #262.
+//     vp8cx_mb_init_quantizer call honored by govpx.
 //   - testdata/fuzz/FuzzVP8MultiResSVCByteParity/regression_svc2tl_mode1_cpu0_t2_er1_d59809a7 —
 //     the corpus seed this test re-runs.
 //   - vp8_multires_svc_fuzz_test.go (runVP8TemporalSVCFuzzCase) — the
 //     dispatcher whose floor=1 stays in place for generic discovery.
 func TestVP8SVCNarrowedPrefixD59809a7(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #274 SVC narrowed-prefix pin")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run the SVC narrowed-prefix pin")
 	}
 	// Decode seed "1007!c" (the d59809a7 corpus entry) exactly the way the
 	// fuzz dispatcher does, so any future seed-decoder change is caught
@@ -82,7 +82,7 @@ func TestVP8SVCNarrowedPrefixD59809a7(t *testing.T) {
 		name   string
 		w, h   int
 		source func(w, h, i int) Image
-	}{name: "task253-svc", w: w, h: h, source: encoderValidationPanningFrame}
+	}{name: "vp8-svc", w: w, h: h, source: encoderValidationPanningFrame}
 
 	sources := make([]Image, c.frames)
 	for i := range sources {
@@ -101,7 +101,7 @@ func TestVP8SVCNarrowedPrefixD59809a7(t *testing.T) {
 		t.Fatalf("layer count drift: gov=%d lib=%d want=%d", len(govStreams), len(libStreams), numLayers)
 	}
 
-	// Pinned narrowed-prefix floors (task #262 closure baseline).
+	// Pinned narrowed-prefix floors.
 	wantPrefix := []int{3, 6}
 	for layer := 0; layer < numLayers; layer++ {
 		got, lib := govStreams[layer], libStreams[layer]
@@ -120,7 +120,7 @@ func TestVP8SVCNarrowedPrefixD59809a7(t *testing.T) {
 		label := fmt.Sprintf("d59809a7/layer-%d", layer)
 		t.Logf("%s narrowed-prefix matched=%d floor=%d (gov_frames=%d lib_frames=%d)", label, matched, wantPrefix[layer], len(got), len(lib))
 		if matched < wantPrefix[layer] {
-			t.Errorf("%s matched-prefix=%d below task #274 narrowed floor=%d", label, matched, wantPrefix[layer])
+			t.Errorf("%s matched-prefix=%d below narrowed floor=%d", label, matched, wantPrefix[layer])
 		}
 	}
 }

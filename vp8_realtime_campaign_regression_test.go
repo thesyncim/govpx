@@ -17,20 +17,20 @@ import (
 
 // TestVP8RealtimeCampaignRegression is the campaign-closure regression gate.
 //
-// Tasks #262 and #263 closed every known byte-divergent F1 fuzz seed that the
-// FuzzEncoderProductionStreamByteParity option-grid harness had captured into
-// the corpus, plus the 1280×720 / 854×480 / 640×360 inter-divergence seeds
-// that lived alongside as standalone regression files. This single test is
-// the permanent regression gate for that closure: it iterates every
+// The realtime parity cleanup closed every known byte-divergent F1 fuzz seed
+// that the FuzzEncoderProductionStreamByteParity option-grid harness had
+// captured into the corpus, plus the 1280×720 / 854×480 / 640×360
+// inter-divergence seeds that lived alongside as standalone regression files.
+// This single test is the permanent regression gate for that state: it iterates every
 // regression seed file in
 // testdata/fuzz/FuzzEncoderProductionStreamByteParity and runs each one
 // against the libvpx-vpxenc-oracle binary, asserting strict per-frame
 // bytes.Equal across the seed's full encoded clip.
 //
-// It also re-runs the byte-exact audit cohorts that were promoted into the
-// sentinel after closure. These configurations are byte-exact end-to-end
-// today and stay here as named subtests so a single invocation proves the
-// campaign-closure state without keeping duplicate standalone audit files.
+// It also re-runs the byte-exact cohorts that were promoted into the sentinel
+// after closure. These configurations are byte-exact end-to-end today and stay
+// here as named subtests so a single invocation proves the campaign state
+// without keeping duplicate standalone files.
 //
 // If any subtest fails, the sentinel reports the seed/config label, frame
 // index, govpx-vs-libvpx length pair, first-byte-diff offset and the
@@ -44,9 +44,9 @@ import (
 //
 // References:
 //   - libvpx v1.16.0 vp8/encoder/encodeframe.c:427-438 — segmentation-enabled
-//     vp8cx_mb_init_quantizer call (#262 closure root cause).
+//     vp8cx_mb_init_quantizer call honored by govpx.
 //   - libvpx v1.16.0 vp8/encoder/onyx_if.c:3779 — cyclic_background_refresh
-//     flipping segmentation_enabled on every CBR keyframe (#262/#263).
+//     flipping segmentation_enabled on every CBR keyframe.
 //   - testdata/fuzz/FuzzEncoderProductionStreamByteParity/regression_* —
 //     the live corpus this sentinel re-enumerates each run.
 func TestVP8RealtimeCampaignRegression(t *testing.T) {
@@ -58,7 +58,7 @@ func TestVP8RealtimeCampaignRegression(t *testing.T) {
 	t.Run("corpus", func(t *testing.T) {
 		runVP8RealtimeCampaignCorpusSubtests(t, vpxencOracle)
 	})
-	t.Run("audit-cohort", func(t *testing.T) {
+	t.Run("closed-configs", func(t *testing.T) {
 		runVP8RealtimeCampaignCohortSubtests(t, vpxencOracle)
 	})
 }
@@ -84,7 +84,7 @@ func runVP8RealtimeCampaignCorpusSubtests(t *testing.T, vpxencOracle string) {
 	if len(names) == 0 {
 		t.Fatalf("no regression_* files found under %s", corpusDir)
 	}
-	t.Logf("task #272 sentinel: %d regression corpus seeds enumerated", len(names))
+	t.Logf("realtime campaign sentinel: %d regression corpus seeds enumerated", len(names))
 
 	for _, name := range names {
 		name := name
@@ -99,7 +99,7 @@ func runVP8RealtimeCampaignCorpusSubtests(t *testing.T, vpxencOracle string) {
 			sources := cfg.buildSources()
 
 			sum := sha256.Sum256(seed)
-			label := "task272-" + cfg.name + "-" + hex.EncodeToString(sum[:4])
+			label := "realtime-corpus-" + cfg.name + "-" + hex.EncodeToString(sum[:4])
 			t.Logf("%s w=%d h=%d deadline=%v cpu=%d threads=%d rc=%v sharp=%d tune=%v sc=%d er=%t token=%d arnr=%d/%d/%d frames=%d",
 				label, opts.Width, opts.Height, opts.Deadline, opts.CpuUsed,
 				opts.Threads, opts.RateControlMode, opts.Sharpness, opts.Tuning,
@@ -107,11 +107,11 @@ func runVP8RealtimeCampaignCorpusSubtests(t *testing.T, vpxencOracle string) {
 				opts.ARNRMaxFrames, opts.ARNRStrength, opts.ARNRType, len(sources))
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-			// Task #349: route through the libvpx threading
-			// non-determinism quarantine wrapper. Some seeds in
-			// this sentinel decode to threads>=2 cohorts; the
-			// wrapper is a no-op for serial seeds and a re-run
-			// SHA check for parallel seeds.
+			// Route through the libvpx threading non-determinism
+			// quarantine wrapper. Some seeds in this sentinel
+			// decode to threads>=2 cohorts; the wrapper is a no-op
+			// for serial seeds and a re-run SHA check for parallel
+			// seeds.
 			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 
 			assertVP8RealtimeCampaignStrictByteParity(t, name, govpxFrames, libvpxFrames)
@@ -119,26 +119,25 @@ func runVP8RealtimeCampaignCorpusSubtests(t *testing.T, vpxencOracle string) {
 	}
 }
 
-// runVP8RealtimeCampaignCohortSubtests re-runs the byte-exact audit-test
-// cohort. Only compact closure cohorts live here; longer investigative audits
-// with detailed failure history stay in their own test files so this sentinel
-// remains a fast, readable campaign gate.
+// runVP8RealtimeCampaignCohortSubtests re-runs the byte-exact closed
+// configurations. Only compact cohorts live here; longer investigative tests
+// with detailed failure history stay in their own files so this sentinel
+// remains a readable campaign gate.
 func runVP8RealtimeCampaignCohortSubtests(t *testing.T, vpxencOracle string) {
-	type auditCase struct {
+	type campaignCase struct {
 		name      string
 		opts      EncoderOptions
 		extraArgs []string
 		frames    int
 		targetKbp int
 	}
-	cases := []auditCase{
+	cases := []campaignCase{
 		{
 			// Companion live regression:
 			//   regression_option_grid_94eb71d5 (seed bytes "A1200000")
 			// 1280x720 / GoodQuality / cpu=0 / CBR / TuneSSIM / arnr=1/0/1.
-			// Closed by task #213 (activityProbeStaleActZbinAdj) and
-			// retained here as a compact campaign-closure subtest.
-			name: "ssim-audit-1280x720-cbr-cpu0",
+			// Retained here as a compact campaign-closure subtest.
+			name: "ssim-1280x720-cbr-cpu0",
 			opts: EncoderOptions{
 				Width: 1280, Height: 720, FPS: 30,
 				RateControlMode: RateControlCBR, TargetBitrateKbps: 700,
@@ -156,9 +155,8 @@ func runVP8RealtimeCampaignCohortSubtests(t *testing.T, vpxencOracle string) {
 			// Companion live regression:
 			//   regression_option_grid_22f3d67c (seed bytes "A120")
 			// 1280x720 / GoodQuality / cpu=0 / threads=4 / token=1 / sc=1
-			// / TuneSSIM / CBR / arnr=1/2/1. Closed by task #262 and
-			// retained here as a compact campaign-closure subtest.
-			name: "ssim-good-cbr-arnr-closed-1280x720-threads4",
+			// / TuneSSIM / CBR / arnr=1/2/1.
+			name: "ssim-good-cbr-arnr-1280x720-threads4",
 			opts: EncoderOptions{
 				Width: 1280, Height: 720, FPS: 30,
 				RateControlMode: RateControlCBR, TargetBitrateKbps: 700,
@@ -178,9 +176,8 @@ func runVP8RealtimeCampaignCohortSubtests(t *testing.T, vpxencOracle string) {
 			// Companion live regression:
 			//   regression_option_grid_a438fec8 (seed bytes "1200000")
 			// 128x128 / BestQuality / cpu=4 / CBR / TuneSSIM, 6 frames.
-			// Closed by task #201 — pinned in
-			// TestVP8Byte49Frame2DivergenceClosure.
-			name: "byte49-frame2-closure-128x128-best-cpu4",
+			// Pinned by TestVP8Byte49Frame2DivergenceClosure.
+			name: "activity-map-byte49-128x128-best-cpu4",
 			opts: EncoderOptions{
 				Width: 128, Height: 128, FPS: 30,
 				RateControlMode: RateControlCBR, TargetBitrateKbps: 700,
@@ -196,9 +193,8 @@ func runVP8RealtimeCampaignCohortSubtests(t *testing.T, vpxencOracle string) {
 			// Companion live regression:
 			//   regression_option_grid_75578e9f (seed bytes "21200000")
 			// 160x96 / GoodQuality / cpu=0 / CBR / TuneSSIM / arnr=1/2/1,
-			// 6 frames. Closed by task #201 — pinned in
-			// TestVP8Frame2Byte58DivergenceParity.
-			name: "byte58-frame2-audit-160x96-good-cpu0",
+			// 6 frames. Pinned by TestVP8Frame2Byte58DivergenceParity.
+			name: "activity-map-byte58-160x96-good-cpu0",
 			opts: EncoderOptions{
 				Width: 160, Height: 96, FPS: 30,
 				RateControlMode: RateControlCBR, TargetBitrateKbps: 700,
@@ -221,11 +217,11 @@ func runVP8RealtimeCampaignCohortSubtests(t *testing.T, vpxencOracle string) {
 			for i := range sources {
 				sources[i] = encoderValidationPanningFrame(tc.opts.Width, tc.opts.Height, i)
 			}
-			label := "task272-" + tc.name
+			label := "realtime-campaign-" + tc.name
 			govpxFrames := encodeFramesWithGovpx(t, tc.opts, sources)
-			// Task #349 quarantine: re-run wrapper catches any
-			// libvpx-side threading nondeterminism that would
-			// otherwise contaminate the strict byte comparison.
+			// Re-run wrapper catches any libvpx-side threading
+			// nondeterminism that would otherwise contaminate the
+			// strict byte comparison.
 			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, label, tc.opts, tc.targetKbp, sources, tc.extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 			assertVP8RealtimeCampaignStrictByteParity(t, tc.name, govpxFrames, libvpxFrames)
 		})
