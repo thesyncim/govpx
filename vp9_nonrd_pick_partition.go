@@ -23,7 +23,7 @@ func vp9NonrdPickPartitionEnabled() bool {
 //
 // The live picker combines the NN evaluator (encoder.NNPredict +
 // vp9_var_part_nnconfig_{64,32,16}) with the get_estimated_pred orchestrator
-// (vp9GetEstimatedPred + vp9_int_pro_motion search):
+// (encoder.GetEstimatedPred + int-pro motion search):
 //   - At entry into pickVP9InterPartitionBlockSize at BLOCK_64X64 the SB-level
 //     est_pred buffer is filled once per SB (libvpx vp9_encodeframe.c:5314
 //     get_estimated_pred call before nonrd_pick_partition).
@@ -224,7 +224,7 @@ func vp9BuildPaddedPlane(buf *vp9PaddedLastFrameBuffer,
 }
 
 // vp9ResetMLPartitionCache clears the per-frame ML partition context
-// slots so the next frame re-runs vp9_int_pro_motion / get_estimated_pred
+// slots so the next frame re-runs int-pro motion / get_estimated_pred
 // for every SB. Called from the frame entry point before the picker
 // dispatcher runs.
 //
@@ -320,7 +320,7 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	ctx.pickPredReady = false
 
 	// libvpx get_estimated_pred uses LAST_FRAME (with possible GOLDEN/ALTREF
-	// hijack) and runs vp9_int_pro_motion_estimation on a per-SB sub-bsize
+	// hijack) and runs int-pro motion_estimation on a per-SB sub-bsize
 	// (vp9_encodeframe.c:5113-5114). The int-pro search reads up to 32
 	// pixels before the SB origin, which on libvpx is handled by the
 	// YV12 buffer's 160-pixel border (vpx_scale/yv12config.h:26 —
@@ -362,9 +362,9 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	ctx.srcVisibleW = srcW
 	ctx.srcVisibleH = srcH
 
-	subBsize := vp9GetEstimatedPredSubBsize(sbMiRow, sbMiCol, miRows, miCols)
+	subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow, sbMiCol, miRows, miCols)
 
-	estIn := &vp9GetEstimatedPredInterInput{
+	estIn := &encoder.GetEstimatedPredInterInput{
 		Bsize:         subBsize,
 		Src:           paddedSrc,
 		SrcOff:        (srcOriginY+y0)*paddedSrcStride + (srcOriginX + x0),
@@ -380,18 +380,18 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 			RowMax: lastH - y0 + vp9MLPartitionBorder,
 		},
 	}
-	// Inter call path: vp9GetEstimatedPred handles the keyframe branch on
+	// Inter call path: encoder.GetEstimatedPred handles the keyframe branch on
 	// isKeyFrame=true. Inter dispatch goes through the int-pro search +
 	// luma convolve. libvpx's get_estimated_pred also leaves SB-level
 	// side effects on MACROBLOCK: sb_use_mv_part / sb_mv*_part for
 	// combined_motion_search and pred_mv[LAST_FRAME] for vp9_mv_pred's
 	// third candidate. Cache those effects on the encoder so the later
 	// per-leaf pickmode calls observe the same state.
-	chosenRef, intProMV := vp9GetEstimatedPred(false, estIn, ctx.estPred[:])
+	chosenRef, intProMV := encoder.GetEstimatedPred(false, estIn, ctx.estPred[:])
 	if e.vp9EnsureVarPartSBMotionCaches(miRows, miCols) > idx {
 		e.varPartSBUseMvPart[idx] = true
 		e.varPartSBMvPart[idx] = intProMV
-		if chosenRef != vp9RefGolden {
+		if chosenRef != encoder.RefGolden {
 			e.varPartSBPredValid[idx] = true
 			e.varPartSBPredLast[idx] = intProMV
 		}

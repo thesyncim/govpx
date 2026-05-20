@@ -1,14 +1,13 @@
-package govpx
+package encoder
 
 import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// Pinning tests for vp9_get_estimated_pred.go. Reference values are
+// Pinning tests for get_estimated_pred. Reference values are
 // hand-computed from the libvpx v1.16.0 bodies cited in that file.
 
 // TestVP9GetEstimatedPredKeyFrameFillsWith128 pins the keyframe
@@ -18,7 +17,7 @@ func TestVP9GetEstimatedPredKeyFrameFillsWith128(t *testing.T) {
 	for i := range estPred {
 		estPred[i] = 0xFF // poison.
 	}
-	vp9GetEstimatedPredKeyFrame(estPred)
+	GetEstimatedPredKeyFrame(estPred)
 	for i, v := range estPred {
 		if v != 128 {
 			t.Fatalf("estPred[%d] = %d, want 128", i, v)
@@ -50,7 +49,7 @@ func TestVP9GetEstimatedPredSubBsizeFormula(t *testing.T) {
 		{4, 4, 8, 8, common.Block32x32},
 	}
 	for _, tc := range cases {
-		got := vp9GetEstimatedPredSubBsize(tc.miRow, tc.miCol, tc.miRows, tc.miCols)
+		got := GetEstimatedPredSubBsize(tc.miRow, tc.miCol, tc.miRows, tc.miCols)
 		if got != tc.want {
 			t.Errorf("miRow=%d miCol=%d miRows=%d miCols=%d: got %v want %v",
 				tc.miRow, tc.miCol, tc.miRows, tc.miCols, got, tc.want)
@@ -69,7 +68,7 @@ func TestVP9BuildEstimatedPredLuma64x64ZeroMVCopy(t *testing.T) {
 		}
 	}
 	estPred := make([]uint8, 64*64)
-	vp9BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 0})
+	BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 0})
 	for y := range 64 {
 		for x := range 64 {
 			want := ref[y*stride+x]
@@ -95,7 +94,7 @@ func TestVP9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
 	}
 	estPred := make([]uint8, 64*64)
 	// MV in 1/8-pel: col=64 -> Q4 col=128 -> full-pel offset 8.
-	vp9BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 64})
+	BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 64})
 	// pre += (col_q4 >> 4) = 8 -> ref[y][8..71] -> estPred[y][0..63].
 	for y := range 64 {
 		for x := range 64 {
@@ -108,15 +107,15 @@ func TestVP9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
 	}
 }
 
-// TestVP9GetEstimatedPredKeyFramePath validates the vp9GetEstimatedPred
+// TestVP9GetEstimatedPredKeyFramePath validates the GetEstimatedPred
 // orchestrator on the keyframe branch.
 func TestVP9GetEstimatedPredKeyFramePath(t *testing.T) {
 	estPred := make([]uint8, 64*64)
 	for i := range estPred {
 		estPred[i] = 0xFF
 	}
-	chosenRef, mv := vp9GetEstimatedPred(true, nil, estPred)
-	if chosenRef != vp9RefIntra {
+	chosenRef, mv := GetEstimatedPred(true, nil, estPred)
+	if chosenRef != RefIntra {
 		t.Errorf("keyframe chosen ref: got %v want INTRA", chosenRef)
 	}
 	if mv.Row != 0 || mv.Col != 0 {
@@ -142,7 +141,7 @@ func TestVP9GetEstimatedPredInterIdentityRouteLast(t *testing.T) {
 		}
 	}
 	srcOff := originY*stride + originX
-	in := &vp9GetEstimatedPredInterInput{
+	in := &GetEstimatedPredInterInput{
 		Bsize:                  common.Block64x64,
 		Src:                    frame,
 		SrcOff:                 srcOff,
@@ -153,11 +152,11 @@ func TestVP9GetEstimatedPredInterIdentityRouteLast(t *testing.T) {
 		HaveGolden:             false,
 		HaveAltRef:             false,
 		Speed:                  8, // Speed 8 disables the golden probe.
-		MvLimits:               encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:               MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 		ShortCircuitLowTempVar: false,
 	}
-	chosenRef, mv := vp9GetEstimatedPredInter(in)
-	if chosenRef != vp9RefLast {
+	chosenRef, mv := GetEstimatedPredInter(in)
+	if chosenRef != RefLast {
 		t.Errorf("chosenRef: got %v want LAST", chosenRef)
 	}
 	if mv.Row != 0 || mv.Col != 0 {
@@ -183,7 +182,7 @@ func TestVP9GetEstimatedPredInterAltRefHijack(t *testing.T) {
 		}
 	}
 	srcOff := originY*stride + originX
-	in := &vp9GetEstimatedPredInterInput{
+	in := &GetEstimatedPredInterInput{
 		Bsize:            common.Block64x64,
 		Src:              src,
 		SrcOff:           srcOff,
@@ -199,10 +198,10 @@ func TestVP9GetEstimatedPredInterAltRefHijack(t *testing.T) {
 		LagInFrames:      25,
 		RcModeIsVBR:      true,
 		IsSrcFrameAltRef: true,
-		MvLimits:         encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:         MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
-	chosenRef, mv := vp9GetEstimatedPredInter(in)
-	if chosenRef != vp9RefAlt {
+	chosenRef, mv := GetEstimatedPredInter(in)
+	if chosenRef != RefAlt {
 		t.Errorf("chosenRef: got %v want ALTREF", chosenRef)
 	}
 	// With src == altRef, the int-pro motion search must return mv = (0, 0).
@@ -234,7 +233,7 @@ func TestVP9GetEstimatedPredInterGoldenBeatsLast(t *testing.T) {
 		}
 	}
 	srcOff := originY*stride + originX
-	in := &vp9GetEstimatedPredInterInput{
+	in := &GetEstimatedPredInterInput{
 		Bsize:           common.Block64x64,
 		Src:             src,
 		SrcOff:          srcOff,
@@ -248,10 +247,10 @@ func TestVP9GetEstimatedPredInterGoldenBeatsLast(t *testing.T) {
 		GoldenRefStride: stride,
 		Speed:           7,    // < 8 enables the golden probe.
 		RefFlagsGoldOn:  true, // VP9_GOLD_FLAG set.
-		MvLimits:        encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:        MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
-	chosenRef, mv := vp9GetEstimatedPredInter(in)
-	if chosenRef != vp9RefGolden {
+	chosenRef, mv := GetEstimatedPredInter(in)
+	if chosenRef != RefGolden {
 		t.Errorf("chosenRef: got %v want GOLDEN", chosenRef)
 	}
 	// libvpx zeroes mi->mv[0] when switching to GOLDEN.
@@ -279,7 +278,7 @@ func TestVP9GetEstimatedPredInterSpeed8SuppressesGolden(t *testing.T) {
 		}
 	}
 	srcOff := originY*stride + originX
-	in := &vp9GetEstimatedPredInterInput{
+	in := &GetEstimatedPredInterInput{
 		Bsize:           common.Block64x64,
 		Src:             src,
 		SrcOff:          srcOff,
@@ -293,16 +292,16 @@ func TestVP9GetEstimatedPredInterSpeed8SuppressesGolden(t *testing.T) {
 		GoldenRefStride: stride,
 		Speed:           8, // gate disabled.
 		RefFlagsGoldOn:  true,
-		MvLimits:        encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:        MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
-	chosenRef, _ := vp9GetEstimatedPredInter(in)
-	if chosenRef != vp9RefLast {
+	chosenRef, _ := GetEstimatedPredInter(in)
+	if chosenRef != RefLast {
 		t.Errorf("speed=8 chosenRef: got %v want LAST (golden probe suppressed)", chosenRef)
 	}
 }
 
 // TestVP9GetEstimatedPredOrchestratorLastPath runs the full
-// vp9GetEstimatedPred orchestrator and verifies that the est_pred
+// GetEstimatedPred orchestrator and verifies that the est_pred
 // buffer matches the LAST reference window when src == last_ref.
 func TestVP9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 	stride := 256
@@ -314,7 +313,7 @@ func TestVP9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 		}
 	}
 	srcOff := originY*stride + originX
-	in := &vp9GetEstimatedPredInterInput{
+	in := &GetEstimatedPredInterInput{
 		Bsize:         common.Block64x64,
 		Src:           frame,
 		SrcOff:        srcOff,
@@ -325,14 +324,14 @@ func TestVP9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 		HaveGolden:    false,
 		HaveAltRef:    false,
 		Speed:         8,
-		MvLimits:      encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:      MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	estPred := make([]uint8, 64*64)
 	for i := range estPred {
 		estPred[i] = 0xAA
 	}
-	chosenRef, mv := vp9GetEstimatedPred(false, in, estPred)
-	if chosenRef != vp9RefLast {
+	chosenRef, mv := GetEstimatedPred(false, in, estPred)
+	if chosenRef != RefLast {
 		t.Errorf("chosenRef: got %v want LAST", chosenRef)
 	}
 	if mv.Row != 0 || mv.Col != 0 {
@@ -366,7 +365,7 @@ func TestVP9GetEstimatedPredOrchestratorAppliesIntProMVScale(t *testing.T) {
 		}
 	}
 	srcOff := originY*stride + originX
-	in := &vp9GetEstimatedPredInterInput{
+	in := &GetEstimatedPredInterInput{
 		Bsize:         common.Block64x64,
 		Src:           src,
 		SrcOff:        srcOff,
@@ -375,11 +374,11 @@ func TestVP9GetEstimatedPredOrchestratorAppliesIntProMVScale(t *testing.T) {
 		LastRefOff:    srcOff,
 		LastRefStride: stride,
 		Speed:         8,
-		MvLimits:      encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:      MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	estPred := make([]uint8, 64*64)
-	chosenRef, mv := vp9GetEstimatedPred(false, in, estPred)
-	if chosenRef != vp9RefLast {
+	chosenRef, mv := GetEstimatedPred(false, in, estPred)
+	if chosenRef != RefLast {
 		t.Fatalf("chosenRef: got %v want LAST", chosenRef)
 	}
 	if mv.Row != 0 || mv.Col != int16(shiftX*8) {

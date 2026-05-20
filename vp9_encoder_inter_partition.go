@@ -623,7 +623,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		//     y_sad = sdf(src, pre);              // zero-MV SAD only
 		//   } else {
 		//     const MV dummy_mv = { 0, 0 };
-		//     y_sad = vp9_int_pro_motion_estimation(...); // sets mi->mv[0]
+		//     y_sad = int-pro motion_estimation(...); // sets mi->mv[0]
 		//   }
 		//   vp9_build_inter_predictors_sb(xd, mi_row, mi_col, BLOCK_64X64);
 		//   d = xd->plane[0].dst.buf;
@@ -637,7 +637,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 				x0 < refW && y0 < refH {
 				wired := false
 				// libvpx vp9_encodeframe.c:1456-1458:
-				//   y_sad = vp9_int_pro_motion_estimation(cpi, x, bsize,
+				//   y_sad = int-pro motion_estimation(cpi, x, bsize,
 				//                                         mi_row, mi_col,
 				//                                         &dummy_mv);
 				// Followed by vp9_build_inter_predictors_sb (line 1487)
@@ -672,9 +672,9 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					refOriginY := e.lastBordered.OriginY()
 					srcStrideB := e.intProSrcBordered.Stride
 					refStrideB := e.lastBordered.Stride
-					subBsize := vp9GetEstimatedPredSubBsize(sbMiRow,
+					subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow,
 						sbMiCol, miRows, miCols)
-					estIn := &vp9GetEstimatedPredInterInput{
+					estIn := &encoder.GetEstimatedPredInterInput{
 						Bsize:                  subBsize,
 						Src:                    e.intProSrcBordered.Pixels,
 						SrcOff:                 (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
@@ -698,17 +698,16 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 							RowMax: refH - y0 + common.VP9EncBorderInPixels,
 						},
 					}
-					// vp9GetEstimatedPred dispatches to
-					// vp9GetEstimatedPredInter for !isKeyFrame, which
-					// runs int_pro motion search + ref-frame selection,
-					// then drives vp9BuildEstimatedPredLuma64x64 — the
-					// 64x64 luma BILINEAR convolve port of
-					// vp9_build_inter_predictors_sb (libvpx
-					// vp9_reconinter.c:253-258).
-					chosenRef, intProMV := vp9GetEstimatedPred(false, estIn,
+					// encoder.GetEstimatedPred dispatches to the inter
+					// path for !isKeyFrame, which runs int-pro motion
+					// search + ref-frame selection, then drives the 64x64
+					// luma BILINEAR convolve port of
+					// vp9_build_inter_predictors_sb.
+					// libvpx: vp9_reconinter.c:253-258.
+					chosenRef, intProMV := encoder.GetEstimatedPred(false, estIn,
 						e.intProEstPred[:])
 					args.PartitionMV = intProMV
-					if chosenRef == vp9RefGolden {
+					if chosenRef == encoder.RefGolden {
 						args.PartitionRefFrame = vp9dec.GoldenFrame
 					} else {
 						args.PartitionRefFrame = vp9dec.LastFrame
@@ -720,7 +719,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 						// fresh full-pel search (vp9_pickmode.c:217-224).
 						e.varPartSBUseMvPart[sbIdx] = true
 						e.varPartSBMvPart[sbIdx] = intProMV
-						if chosenRef != vp9RefGolden &&
+						if chosenRef != encoder.RefGolden &&
 							sbIdx < len(e.varPartSBPredValid) {
 							// When LAST (or source-altref-as-LAST) wins
 							// the partition prepass, libvpx also writes

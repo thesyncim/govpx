@@ -286,7 +286,7 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 		t.Fatal("vp9EnsureSBPartitionChosen returned false")
 	}
 
-	subBsize := vp9GetEstimatedPredSubBsize(sbMiRow, sbMiCol, miRows, miCols)
+	subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow, sbMiCol, miRows, miCols)
 	if subBsize != common.Block32x32 {
 		t.Fatalf("edge sub-bsize = %v, want Block32x32", subBsize)
 	}
@@ -299,7 +299,7 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	refOriginY := e.lastBordered.OriginY()
 	srcStrideB := e.intProSrcBordered.Stride
 	refStrideB := e.lastBordered.Stride
-	estIn := &vp9GetEstimatedPredInterInput{
+	estIn := &encoder.GetEstimatedPredInterInput{
 		Bsize:         subBsize,
 		Src:           e.intProSrcBordered.Pixels,
 		SrcOff:        (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
@@ -316,7 +316,7 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 		},
 	}
 	expected := make([]uint8, 64*64)
-	vp9GetEstimatedPred(false, estIn, expected)
+	encoder.GetEstimatedPred(false, estIn, expected)
 	if !bytes.Equal(e.intProEstPred[:], expected) {
 		t.Fatal("low-res edge predictor did not use edge-aware sub-bsize")
 	}
@@ -324,7 +324,7 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	oldShape := make([]uint8, 64*64)
 	oldIn := *estIn
 	oldIn.Bsize = common.Block64x64
-	vp9GetEstimatedPred(false, &oldIn, oldShape)
+	encoder.GetEstimatedPred(false, &oldIn, oldShape)
 	if bytes.Equal(expected, oldShape) {
 		t.Fatal("test fixture is not sensitive to Block32x32 vs Block64x64 int-pro search")
 	}
