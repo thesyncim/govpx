@@ -114,7 +114,9 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 	probs := tables.KfPartitionProbs
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	rdmult := encoder.KeyframeRDMul(qindex)
-	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, 1, 1, rdmult)
+	if e.tpl.Enabled {
+		rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, 1, 1, rdmult)
+	}
 	bsl := int(common.BWidthLog2Lookup[common.Block8x8])
 	hasRows := miRow < miRows
 	hasCols := miCol < miCols

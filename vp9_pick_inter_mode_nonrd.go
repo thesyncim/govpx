@@ -533,7 +533,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// loop and clearing it on every exit.  Inline save/restore (no defer)
 	// preserves the alloc-parity gate.
 	prevCbRdmult := e.cbRdmult
-	if e.tpl.enabled && bsize < common.BlockSizes {
+	if e.tpl.Enabled && bsize < common.BlockSizes {
 		baseRdmult := e.rc.rdmult
 		if baseRdmult <= 0 {
 			baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)

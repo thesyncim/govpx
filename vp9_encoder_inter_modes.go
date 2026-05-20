@@ -848,7 +848,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	if baseRdmult <= 0 {
 		baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
 	}
-	if bsize < common.BlockSizes && e.tpl.enabled {
+	if bsize < common.BlockSizes && e.tpl.Enabled {
 		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
 		baseRdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, baseRdmult)
@@ -1020,7 +1020,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	if baseRdmult <= 0 {
 		baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
 	}
-	if bsize < common.BlockSizes && e.tpl.enabled {
+	if bsize < common.BlockSizes && e.tpl.Enabled {
 		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
 		baseRdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, baseRdmult)

@@ -718,7 +718,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// Consume the head TPL slab now that this frame has committed.  The
 	// pass refills the new tail on the next populate call.
 	if e.vp9TPLEnabled() {
-		e.tpl.shiftAndInvalidate()
+		e.tpl.ShiftAndInvalidate()
 	}
 	spatialLayerID, spatialLayerCount, interLayerDependency,
 		notRefForUpperSpatialLayer, scalabilityStructurePresent,

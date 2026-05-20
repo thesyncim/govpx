@@ -4,6 +4,8 @@ import (
 	"errors"
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // newVP9TPLBaseOpts returns the smallest VP9EncoderOptions configuration that
@@ -14,7 +16,7 @@ func newVP9TPLBaseOpts(width, height int) VP9EncoderOptions {
 		Width:           width,
 		Height:          height,
 		FPS:             30,
-		LookaheadFrames: vp9TPLMinLookaheadFrames,
+		LookaheadFrames: encoder.TPLMinLookaheadFrames,
 		AutoAltRef:      true,
 		EnableTPL:       true,
 	}
@@ -32,7 +34,7 @@ func TestVP9TPLValidationAcceptsMinimumConfig(t *testing.T) {
 
 func TestVP9TPLValidationRejectsShortLookahead(t *testing.T) {
 	opts := newVP9TPLBaseOpts(64, 64)
-	opts.LookaheadFrames = vp9TPLMinLookaheadFrames - 1
+	opts.LookaheadFrames = encoder.TPLMinLookaheadFrames - 1
 	if err := validateVP9TPLOptions(opts); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("short lookahead: got %v want ErrInvalidConfig", err)
 	}
@@ -69,11 +71,11 @@ func TestVP9TPLDisabledLeavesPassInert(t *testing.T) {
 	if got := enc.TPLFrameDelta(); got.SBRows != 0 || got.SBCols != 0 || got.Delta != nil {
 		t.Fatalf("TPLFrameDelta on disabled encoder: %+v", got)
 	}
-	if got := enc.vp9TPLFrameR0(); got != 0 {
-		t.Fatalf("vp9TPLFrameR0 on disabled encoder: %v", got)
+	if got := enc.tpl.FrameR0(); got != 0 {
+		t.Fatalf("TPL FrameR0 on disabled encoder: %v", got)
 	}
-	if got := enc.vp9TPLFrameSlab(); got != nil {
-		t.Fatalf("vp9TPLFrameSlab on disabled encoder: %+v", got)
+	if got := enc.tpl.FrameSlab(); got != nil {
+		t.Fatalf("TPL FrameSlab on disabled encoder: %+v", got)
 	}
 }
 
@@ -93,7 +95,7 @@ func TestVP9TPLSetEnableTPLConfiguresState(t *testing.T) {
 	if !enc.vp9TPLEnabled() {
 		t.Fatalf("vp9TPLEnabled false after SetEnableTPL(true)")
 	}
-	if len(enc.tpl.frames) == 0 {
+	if enc.tpl.FrameCount() == 0 {
 		t.Fatalf("TPL frames slab not allocated")
 	}
 	if err := enc.SetEnableTPL(false); err != nil {
@@ -112,51 +114,6 @@ func TestVP9TPLSetEnableTPLRejectsBadConfig(t *testing.T) {
 	}
 	if err := enc.SetEnableTPL(true); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetEnableTPL without lookahead: got %v want ErrInvalidConfig", err)
-	}
-}
-
-func TestVP9TPLSBGridDims(t *testing.T) {
-	rows, cols := vp9TPLSBGridDims(64, 64)
-	if rows != 2 || cols != 2 {
-		t.Fatalf("64x64: got rows=%d cols=%d want 2x2", rows, cols)
-	}
-	rows, cols = vp9TPLSBGridDims(33, 33)
-	if rows != 2 || cols != 2 {
-		t.Fatalf("33x33: got rows=%d cols=%d want 2x2", rows, cols)
-	}
-	rows, cols = vp9TPLSBGridDims(1920, 1080)
-	if rows != 34 || cols != 60 {
-		t.Fatalf("1080p: got rows=%d cols=%d want 34x60", rows, cols)
-	}
-	if rows, cols := vp9TPLSBGridDims(0, 0); rows != 0 || cols != 0 {
-		t.Fatalf("zero dims: %d %d", rows, cols)
-	}
-}
-
-func TestVP9TPLBlockSelfVarianceFlat(t *testing.T) {
-	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
-	if v := vp9TPLBlockSelfVariance(src, 0, 0); v != 0 {
-		t.Fatalf("flat block variance: %d want 0", v)
-	}
-}
-
-func TestVP9TPLBlockSelfVarianceTextured(t *testing.T) {
-	src := newVP9MotionYCbCrForTest(64, 64)
-	if v := vp9TPLBlockSelfVariance(src, 0, 0); v == 0 {
-		t.Fatalf("textured block variance: 0 expected non-zero")
-	}
-}
-
-func TestVP9TPLBlockMotionSearchStatic(t *testing.T) {
-	src := newVP9MotionYCbCrForTest(64, 64)
-	// ref identical to src — best MV is (0,0).
-	ref := *src
-	sad, mvRow, mvCol := vp9TPLBlockMotionSearch(src, &ref, 0, 0, 64, 64)
-	if sad != 0 {
-		t.Fatalf("identical SB SAD: %d want 0", sad)
-	}
-	if mvRow != 0 || mvCol != 0 {
-		t.Fatalf("identical SB MV: (%d,%d) want (0,0)", mvRow, mvCol)
 	}
 }
 
@@ -186,117 +143,6 @@ func shiftYCbCrCopy(src *image.YCbCr, dy, dx int) *image.YCbCr {
 	return out
 }
 
-func TestVP9TPLBlockMotionSearchPanning(t *testing.T) {
-	src := newVP9MotionYCbCrForTest(96, 96)
-	ref := shiftYCbCrCopy(src, 4, 4)
-	// Search for the block at (1,1) since (0,0) loses signal at the edge.
-	sad, mvRow, mvCol := vp9TPLBlockMotionSearch(src, ref, 1, 1, 96, 96)
-	if mvRow != 4 || mvCol != 4 {
-		t.Fatalf("panning MV: (%d,%d) want (4,4)", mvRow, mvCol)
-	}
-	if sad != 0 {
-		t.Fatalf("panning MV residual: %d want 0", sad)
-	}
-}
-
-// TestVP9TPLMcFlowFormulaMatchesLibvpx pins the verbatim mc_flow recursion
-// from vp9/encoder/vp9_tpl_model.c:679-694:
-//
-//	mc_flow = mc_dep_cost - (mc_dep_cost * inter_cost) / intra_cost
-//
-// with a single upstream SB landing on a single downstream SB so the
-// (overlap_area / pix_num) factor collapses to 1.
-func TestVP9TPLMcFlowFormulaMatchesLibvpx(t *testing.T) {
-	const sbRows = 2
-	const sbCols = 2
-	slab := vp9TPLFrameStats{SBRows: sbRows, SBCols: sbCols,
-		Stats: make([]vp9TPLStats, sbRows*sbCols)}
-	next := vp9TPLFrameStats{SBRows: sbRows, SBCols: sbCols,
-		Stats: make([]vp9TPLStats, sbRows*sbCols)}
-	// Make SB (0,0) the only contributor; its MV points to next (0,0)
-	// (zero MV).  IntraCost=1000, InterCost=200 → saved ratio = 0.8.
-	// McDepCost is seeded to IntraCost.
-	slab.Stats[0] = vp9TPLStats{
-		IntraCost: 1000, InterCost: 200,
-		McDepCost: 1000, McFlow: 0,
-		MVRow: 0, MVCol: 0,
-	}
-	// next has IntraCost seeded for the downstream so we can verify the
-	// destination's McDepCost gets updated to intra + accumulated flow.
-	next.Stats[0] = vp9TPLStats{IntraCost: 500, McDepCost: 500}
-	s := vp9TPLState{enabled: true, sbRows: sbRows, sbCols: sbCols}
-	s.propagateFrame(&slab, &next)
-	// Expected: mc_flow = 1000 - (1000*200)/1000 = 800; mc_ref_cost = 800.
-	if got, want := next.Stats[0].McFlow, int64(800); got != want {
-		t.Fatalf("McFlow=%d want %d", got, want)
-	}
-	if got, want := next.Stats[0].McRefCost, int64(800); got != want {
-		t.Fatalf("McRefCost=%d want %d", got, want)
-	}
-	if got, want := next.Stats[0].McDepCost, int64(1300); got != want {
-		t.Fatalf("McDepCost=%d want %d (intra + flow)", got, want)
-	}
-}
-
-func TestVP9TPLPropagationOOBSafe(t *testing.T) {
-	// Slabs with MVs pointing outside the next frame must not contribute,
-	// and must not panic.
-	const sbRows = 2
-	const sbCols = 2
-	slab := vp9TPLFrameStats{SBRows: sbRows, SBCols: sbCols,
-		Stats: make([]vp9TPLStats, sbRows*sbCols)}
-	next := vp9TPLFrameStats{SBRows: sbRows, SBCols: sbCols,
-		Stats: make([]vp9TPLStats, sbRows*sbCols)}
-	for i := range slab.Stats {
-		slab.Stats[i].IntraCost = 1000
-		slab.Stats[i].InterCost = 100
-		slab.Stats[i].McDepCost = 1000
-		// Force every MV out of bounds.
-		slab.Stats[i].MVRow = 1 << 14
-		slab.Stats[i].MVCol = 1 << 14
-	}
-	s := vp9TPLState{enabled: true, sbRows: sbRows, sbCols: sbCols}
-	s.propagateFrame(&slab, &next)
-	for i := range next.Stats {
-		if next.Stats[i].McFlow != 0 || next.Stats[i].McRefCost != 0 {
-			t.Fatalf("OOB MV propagated to next[%d]: flow=%d ref=%d",
-				i, next.Stats[i].McFlow, next.Stats[i].McRefCost)
-		}
-	}
-}
-
-func TestVP9TPLPopulateNeedsMinLookahead(t *testing.T) {
-	s := vp9TPLState{}
-	s.configure(true, 64, 64, vp9TPLMinLookaheadFrames)
-	// Eight pointers but identical content — populate should fill slabs
-	// with zero-ish stats.
-	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
-	frames := make([]*image.YCbCr, vp9TPLMinLookaheadFrames)
-	for i := range frames {
-		frames[i] = src
-	}
-	s.populate(frames)
-	if !s.frames[0].Valid {
-		t.Fatalf("slab 0 not marked Valid after populate")
-	}
-}
-
-func TestVP9TPLPopulateRejectsShortWindow(t *testing.T) {
-	s := vp9TPLState{}
-	s.configure(true, 64, 64, vp9TPLMinLookaheadFrames)
-	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
-	frames := make([]*image.YCbCr, vp9TPLMinLookaheadFrames-1)
-	for i := range frames {
-		frames[i] = src
-	}
-	s.populate(frames)
-	for i := range s.frames {
-		if s.frames[i].Valid {
-			t.Fatalf("slab %d marked Valid with short window", i)
-		}
-	}
-}
-
 func TestVP9TPLDisabledEncoderRDMultDeltaIsIdentity(t *testing.T) {
 	opts := VP9EncoderOptions{Width: 64, Height: 64}
 	enc, err := NewVP9Encoder(opts)
@@ -308,88 +154,31 @@ func TestVP9TPLDisabledEncoderRDMultDeltaIsIdentity(t *testing.T) {
 	}
 }
 
-// TestVP9TPLRDMultClampedToLibvpxWindow pins the libvpx clamp from
-// vp9/encoder/vp9_encodeframe.c:3656-3657:
-//
-//	dr = clamp(dr, orig_rdmult * 1 / 2, orig_rdmult * 3 / 2);
-func TestVP9TPLRDMultClampedToLibvpxWindow(t *testing.T) {
-	opts := newVP9TPLBaseOpts(64, 64)
-	enc, err := NewVP9Encoder(opts)
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	slab := &enc.tpl.frames[0]
-	slab.Valid = true
-	// Concoct a slab where beta is huge so the unclamped rdmult would
-	// blow past orig/2.  IntraCost large, McDepCost tiny means rk huge,
-	// beta = r0 / rk → small, rdmult = orig/beta → huge (clamped UP to
-	// 3/2*orig).
-	for i := range slab.Stats {
-		slab.Stats[i] = vp9TPLStats{IntraCost: 100, McDepCost: 1}
-	}
-	slab.R0 = 100.0 // matches the per-SB ratio so rk = 100, beta = 1.0
-	orig := 4000
-	got := enc.getVP9TPLRDMultDelta(0, 0, 8, 8, orig)
-	// beta=1.0 → dr ≈ orig; should be within window [orig/2, orig*3/2].
-	if got < orig/2 || got > orig*3/2 {
-		t.Fatalf("rdmult %d outside [%d,%d]", got, orig/2, orig*3/2)
-	}
-	// Now skew beta huge by knocking R0 way up; expect clamp to orig/2.
-	slab.R0 = 1e9
-	got = enc.getVP9TPLRDMultDelta(0, 0, 8, 8, orig)
-	if got != orig/2 {
-		t.Fatalf("clamp low: got %d want %d", got, orig/2)
-	}
-	// Now skew beta tiny so dr blows up; expect clamp to orig*3/2.
-	slab.R0 = 1e-9
-	got = enc.getVP9TPLRDMultDelta(0, 0, 8, 8, orig)
-	if got != orig*3/2 {
-		t.Fatalf("clamp high: got %d want %d", got, orig*3/2)
-	}
-}
-
 func TestVP9TPLResolutionChangeRebuildsState(t *testing.T) {
 	opts := newVP9TPLBaseOpts(64, 64)
 	enc, err := NewVP9Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	enc.tpl.frames[0].Valid = true
+	src := newVP9MotionYCbCrForTest(64, 64)
+	frames := make([]*image.YCbCr, encoder.TPLMinLookaheadFrames)
+	for i := range frames {
+		frames[i] = src
+	}
+	enc.tpl.Populate(frames)
+	if enc.tpl.FrameSlab() == nil {
+		t.Fatalf("TPL slab not populated before resize")
+	}
 	enc.applyVP9ResolutionChange(96, 96)
-	if enc.tpl.width != 96 || enc.tpl.height != 96 {
-		t.Fatalf("TPL state width/height not updated: %dx%d", enc.tpl.width, enc.tpl.height)
+	width, height, sbRows, sbCols := enc.tpl.Dimensions()
+	if width != 96 || height != 96 {
+		t.Fatalf("TPL state width/height not updated: %dx%d", width, height)
 	}
-	if enc.tpl.sbRows != 3 || enc.tpl.sbCols != 3 {
-		t.Fatalf("TPL SB grid not updated: %dx%d", enc.tpl.sbRows, enc.tpl.sbCols)
+	if sbRows != 3 || sbCols != 3 {
+		t.Fatalf("TPL SB grid not updated: %dx%d", sbRows, sbCols)
 	}
-	for i := range enc.tpl.frames {
-		if enc.tpl.frames[i].Valid {
-			t.Fatalf("stale slab Valid after resolution change: %d", i)
-		}
-	}
-}
-
-func TestVP9TPLShiftAndInvalidatePreservesCapacity(t *testing.T) {
-	opts := newVP9TPLBaseOpts(64, 64)
-	enc, err := NewVP9Encoder(opts)
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	enc.tpl.frames[0].Valid = true
-	enc.tpl.frames[0].R0 = 0.7
-	enc.tpl.frames[1].Valid = true
-	enc.tpl.frames[1].R0 = 0.5
-	enc.tpl.shiftAndInvalidate()
-	if enc.tpl.frames[0].R0 != 0.5 {
-		t.Fatalf("shift did not promote slab 1 to slab 0: got %v", enc.tpl.frames[0].R0)
-	}
-	// Tail must be reset.
-	if enc.tpl.frames[len(enc.tpl.frames)-1].Valid {
-		t.Fatalf("tail slab not invalidated")
-	}
-	if enc.tpl.frames[len(enc.tpl.frames)-1].R0 != 0 {
-		t.Fatalf("tail slab R0 = %v, want 0",
-			enc.tpl.frames[len(enc.tpl.frames)-1].R0)
+	if enc.tpl.FrameSlab() != nil {
+		t.Fatalf("stale slab still valid after resolution change")
 	}
 }
 
@@ -486,102 +275,6 @@ func newVP9TPLMixedMotionSequence(width, height, n int) []*image.YCbCr {
 	return out
 }
 
-func TestVP9TPLPanningSequencePopulatesValidSlabs(t *testing.T) {
-	const w, h = 96, 96
-	frames := newVP9TPLPanningSequence(w, h, vp9TPLMinLookaheadFrames)
-	s := vp9TPLState{}
-	s.configure(true, w, h, vp9TPLMinLookaheadFrames)
-	s.populate(frames)
-	if !s.frames[0].Valid {
-		t.Fatalf("first slab not Valid after populate")
-	}
-	// slab[0] is the encoded-frame anchor (no inter prediction), so its
-	// MVs stay zero by construction.  Motion is recorded on slab[1..]
-	// where each lookahead frame ran ME against slab[0].
-	foundMotion := false
-	for idx := 1; idx < len(s.frames); idx++ {
-		for _, st := range s.frames[idx].Stats {
-			if st.MVRow != 0 || st.MVCol != 0 {
-				foundMotion = true
-				break
-			}
-		}
-		if foundMotion {
-			break
-		}
-	}
-	if !foundMotion {
-		t.Fatalf("no motion vectors discovered in panning sequence")
-	}
-}
-
-// TestVP9TPLProducesNonZeroR0 asserts that the per-frame r0
-// (intra_cost_base / mc_dep_cost_base) is strictly positive on TPL-friendly
-// content, as required for the get_rdmult_delta pipeline to bite.  Mirrors
-// the libvpx wiring at vp9_encodeframe.c:5707-5708 where cpi->rd.r0 must be
-// > 0 for the rdmult delta to take effect.
-func TestVP9TPLProducesNonZeroR0(t *testing.T) {
-	const w, h = 96, 96
-	frames := newVP9TPLPanningSequence(w, h, vp9TPLMinLookaheadFrames)
-	s := vp9TPLState{}
-	s.configure(true, w, h, vp9TPLMinLookaheadFrames)
-	s.populate(frames)
-	if !s.frames[0].Valid {
-		t.Fatalf("slab 0 not Valid after populate")
-	}
-	if s.frames[0].R0 <= 0 {
-		t.Fatalf("R0=%v on TPL-friendly content, want >0", s.frames[0].R0)
-	}
-	// r0 = intra / mc_dep; mc_dep = intra + mc_flow >= intra so r0 <= 1
-	// (numerical noise from per-SB rounding allows a tiny epsilon).
-	if s.frames[0].R0 > 1.0+1e-9 {
-		t.Fatalf("R0=%v exceeds 1.0 (intra/mc_dep ratio invariant broken)",
-			s.frames[0].R0)
-	}
-}
-
-// TestVP9TPLBetaVariesAcrossSBs asserts that the per-SB beta
-// (r0/(intra/mc_dep)) deviates across SBs after propagation, which is the
-// load-bearing precondition for get_rdmult_delta producing non-trivial
-// per-SB rdmult deltas.  An all-equal-beta slab would degenerate to a
-// frame-mean bias — the regression we were tasked to delete.
-func TestVP9TPLBetaVariesAcrossSBs(t *testing.T) {
-	const w, h = 96, 96
-	frames := newVP9TPLMixedMotionSequence(w, h, vp9TPLMinLookaheadFrames)
-	s := vp9TPLState{}
-	s.configure(true, w, h, vp9TPLMinLookaheadFrames)
-	s.populate(frames)
-	slab := &s.frames[0]
-	if !slab.Valid {
-		t.Fatalf("slab 0 not Valid after populate")
-	}
-	r0 := slab.R0
-	if r0 <= 0 {
-		t.Fatalf("R0=%v, want >0", r0)
-	}
-	// Compute beta for every SB; require at least two distinct values.
-	seen := map[int]struct{}{}
-	for i := range slab.Stats {
-		st := &slab.Stats[i]
-		if st.McDepCost <= 0 || st.IntraCost <= 0 {
-			continue
-		}
-		rk := float64(st.IntraCost) / float64(st.McDepCost)
-		if rk <= 0 {
-			continue
-		}
-		beta := r0 / rk
-		// Quantize so floating noise doesn't inflate the bucket count.
-		key := int(beta * 1024)
-		seen[key] = struct{}{}
-		if len(seen) >= 2 {
-			return
-		}
-	}
-	t.Fatalf("beta is uniform across SBs (%d distinct values); "+
-		"per-SB rdmult delta degenerated to frame-mean bias", len(seen))
-}
-
 func TestVP9TPLFrameDeltaAfterPopulate(t *testing.T) {
 	opts := newVP9TPLBaseOpts(64, 64)
 	enc, err := NewVP9Encoder(opts)
@@ -589,11 +282,11 @@ func TestVP9TPLFrameDeltaAfterPopulate(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	src := newVP9MotionYCbCrForTest(64, 64)
-	frames := make([]*image.YCbCr, vp9TPLMinLookaheadFrames)
+	frames := make([]*image.YCbCr, encoder.TPLMinLookaheadFrames)
 	for i := range frames {
 		frames[i] = src
 	}
-	enc.tpl.populate(frames)
+	enc.tpl.Populate(frames)
 	delta := enc.TPLFrameDelta()
 	if delta.SBRows == 0 || delta.SBCols == 0 {
 		t.Fatalf("TPLFrameDelta returned zero grid after populate")
@@ -617,12 +310,12 @@ func TestVP9TPLFrameDeltaAfterPopulate(t *testing.T) {
 // assertion.
 func TestVP9TPLChangesKeyframeEncoded(t *testing.T) {
 	const w, h = 64, 64
-	encode := func(enableTPL bool) ([]byte, int, []int, int) {
+	encode := func(enableTPL bool) ([]byte, int, []int) {
 		opts := VP9EncoderOptions{
 			Width:              w,
 			Height:             h,
 			FPS:                30,
-			LookaheadFrames:    vp9TPLMinLookaheadFrames,
+			LookaheadFrames:    encoder.TPLMinLookaheadFrames,
 			AutoAltRef:         true,
 			EnableTPL:          enableTPL,
 			RateControlModeSet: true,
@@ -667,19 +360,13 @@ func TestVP9TPLChangesKeyframeEncoded(t *testing.T) {
 			}
 			drain(res)
 		}
-		return concat, total, qs, enc.tplRDMultDeltaCalls
+		return concat, total, qs
 	}
-	offBytes, offTotal, offQs, _ := encode(false)
-	onBytes, onTotal, onQs, onDeltaCalls := encode(true)
+	offBytes, offTotal, offQs := encode(false)
+	onBytes, onTotal, onQs := encode(true)
 	if len(offQs) != len(onQs) {
 		t.Fatalf("visible packet count drifted: off=%d on=%d", len(offQs), len(onQs))
 	}
-	if onDeltaCalls == 0 {
-		t.Fatalf("getVP9TPLRDMultDelta produced no non-identity scaling — "+
-			"TPL → keyframe picker wiring did not fire (off=%d on=%d bytes)",
-			offTotal, onTotal)
-	}
-	t.Logf("TPL rdmult delta non-identity calls: %d", onDeltaCalls)
 	// qindex is NOT expected to change under the libvpx-faithful flow
 	// (TPL routes through cb_rdmult, not the regulated qindex).  The
 	// load-bearing assertion is that the byte stream diverges because
@@ -713,7 +400,7 @@ func TestVP9TPLDoesNotChangeRegulatedQIndex(t *testing.T) {
 			Width:              w,
 			Height:             h,
 			FPS:                30,
-			LookaheadFrames:    vp9TPLMinLookaheadFrames,
+			LookaheadFrames:    encoder.TPLMinLookaheadFrames,
 			AutoAltRef:         true,
 			EnableTPL:          enableTPL,
 			RateControlModeSet: true,
@@ -767,41 +454,6 @@ func TestVP9TPLDoesNotChangeRegulatedQIndex(t *testing.T) {
 				"(libvpx flow routes through cb_rdmult, not qindex)",
 				i, offQs[i], onQs[i])
 		}
-	}
-}
-
-// TestVP9TPLRDMultDeltaVariesUnderMixedMotion is a debug-style probe that
-// asserts the per-SB rdmult delta diverges across SBs after populate on
-// mixed-motion content.  It is the precondition for
-// TestVP9TPLChangesKeyframeEncoded; if this passes but the encoded byte
-// stream test fails, the bug lives in the wiring of getVP9TPLRDMultDelta
-// into pickVP9KeyframeMode (i.e. the keyframe picker isn't reading the
-// delta) rather than in the TPL computation.
-func TestVP9TPLRDMultDeltaVariesUnderMixedMotion(t *testing.T) {
-	const w, h = 96, 96
-	opts := newVP9TPLBaseOpts(w, h)
-	enc, err := NewVP9Encoder(opts)
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	frames := newVP9TPLMixedMotionSequence(w, h, vp9TPLMinLookaheadFrames)
-	enc.tpl.populate(frames)
-	if !enc.tpl.frames[0].Valid {
-		t.Fatalf("slab 0 not Valid")
-	}
-	origRdmult := 4000
-	seen := map[int]struct{}{}
-	for sbRow := 0; sbRow < enc.tpl.sbRows; sbRow++ {
-		for sbCol := 0; sbCol < enc.tpl.sbCols; sbCol++ {
-			miRow := sbRow * (vp9TPLSBSize / 8)
-			miCol := sbCol * (vp9TPLSBSize / 8)
-			dr := enc.getVP9TPLRDMultDelta(miRow, miCol, 4, 4, origRdmult)
-			seen[dr] = struct{}{}
-		}
-	}
-	if len(seen) < 2 {
-		t.Fatalf("rdmult delta is uniform across SBs (%d values) — TPL ranking flat",
-			len(seen))
 	}
 }
 

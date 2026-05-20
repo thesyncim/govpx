@@ -431,11 +431,7 @@ type VP9Encoder struct {
 
 	// tpl carries the per-encoder TPL quality-pass state when EnableTPL
 	// is true.  Slabs are sized at construction or on resolution change.
-	tpl vp9TPLState
-	// tplRDMultDeltaCalls counts how many SB-level rdmult delta lookups
-	// produced a non-identity scaling.  Tests consume this to assert the
-	// TPL→mode-picker wiring is actually firing.
-	tplRDMultDeltaCalls int
+	tpl encoder.TPLState
 
 	// cbRdmult mirrors libvpx's MACROBLOCK::cb_rdmult.  Each per-SB mode
 	// picker (libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248) writes
@@ -579,7 +575,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	}
 	e.cyclicAQ.Configure(opts.AQMode == VP9AQCyclicRefresh, opts.Width, opts.Height)
 	e.perceptualAQ.Configure(opts.AQMode == VP9AQPerceptual)
-	e.tpl.configure(opts.EnableTPL, opts.Width, opts.Height, opts.LookaheadFrames)
+	e.tpl.Configure(opts.EnableTPL, opts.Width, opts.Height, opts.LookaheadFrames)
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	e.initVP9TileWorkerPool()

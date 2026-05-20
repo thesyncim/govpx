@@ -32,7 +32,7 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	// running the per-mode RD search.
 	// libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248
 	rdmult := encoder.KeyframeRDMul(qindex)
-	if bsize < common.BlockSizes {
+	if e.tpl.Enabled && bsize < common.BlockSizes {
 		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
 		rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
@@ -227,7 +227,9 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 	rdmult := encoder.KeyframeRDMul(qindex)
 	bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 	bhMi := int(common.Num8x8BlocksHighLookup[bsize])
-	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
+	if e.tpl.Enabled {
+		rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
+	}
 	prevCbRdmult := e.cbRdmult
 	e.cbRdmult = rdmult
 	num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
@@ -1720,7 +1722,9 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 	rdmult := encoder.KeyframeRDMul(e.vp9EncoderModeDecisionQIndex())
 	bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 	bhMi := int(common.Num8x8BlocksHighLookup[bsize])
-	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
+	if e.tpl.Enabled {
+		rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
+	}
 	if e.vp9KeyframeRDRefinementEnabled() {
 		if txRD, ok := e.chooseVP9KeyframeModeTxRD(key, mode, rdmult, tile,
 			miRows, miCols, miRow, miCol, bsize, mi, txMode); ok {
