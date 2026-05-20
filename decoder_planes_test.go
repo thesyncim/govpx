@@ -1,6 +1,9 @@
 package govpx
 
-import "bytes"
+import (
+	"bytes"
+	"testing"
+)
 
 type capturedFramePlanes struct {
 	width  int
@@ -8,6 +11,43 @@ type capturedFramePlanes struct {
 	y      []byte
 	u      []byte
 	v      []byte
+}
+
+type testFrameDecoder interface {
+	Decode([]byte) error
+	NextFrame() (Image, bool)
+}
+
+func decodeFramesForTest(t testing.TB, codec string, d testFrameDecoder,
+	packets [][]byte, want int,
+) []capturedFramePlanes {
+	t.Helper()
+	out := make([]capturedFramePlanes, 0, want)
+	for i, packet := range packets {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("%s Decode[%d]: %v", codec, i, err)
+		}
+		img, ok := d.NextFrame()
+		if !ok {
+			continue
+		}
+		out = append(out, captureDecodedPlanes(img))
+	}
+	return out
+}
+
+func decodeOneFrameForTest(t testing.TB, codec string, d testFrameDecoder,
+	packet []byte,
+) capturedFramePlanes {
+	t.Helper()
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("%s Decode: %v", codec, err)
+	}
+	img, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("%s Decode produced no visible frame", codec)
+	}
+	return captureDecodedPlanes(img)
 }
 
 func captureDecodedPlanes(img Image) capturedFramePlanes {

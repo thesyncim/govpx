@@ -31,14 +31,16 @@ func TestVP8DecoderThreadingPipelinedMatchesSerial(t *testing.T) {
 				if err != nil {
 					t.Fatalf("serial NewVP8Decoder: %v", err)
 				}
-				serialFrames := decodeVP8Planes(t, serial, frames, len(tc.checksums))
+				serialFrames := decodeFramesForTest(t, "VP8", serial, frames,
+					len(tc.checksums))
 
 				// Threaded run.
 				threaded, err := NewVP8Decoder(DecoderOptions{Threads: threads})
 				if err != nil {
 					t.Fatalf("threaded NewVP8Decoder(threads=%d): %v", threads, err)
 				}
-				threadedFrames := decodeVP8Planes(t, threaded, frames, len(tc.checksums))
+				threadedFrames := decodeFramesForTest(t, "VP8", threaded, frames,
+					len(tc.checksums))
 
 				if len(serialFrames) != len(threadedFrames) {
 					t.Fatalf("frame count mismatch: serial=%d threaded=%d", len(serialFrames), len(threadedFrames))
@@ -124,26 +126,6 @@ func TestVP8DecoderThreadingDecodeIntoMatchesSerial(t *testing.T) {
 	}
 }
 
-// decodeVP8Planes drives Decode/NextFrame across all input frames and returns
-// dense (no-stride) copies of the Y/U/V planes for each emitted frame. We
-// take dense copies because the decoder reuses its internal frame buffers
-// across calls; comparing two sequences therefore needs per-frame snapshots.
-func decodeVP8Planes(t testing.TB, d *VP8Decoder, frames [][]byte, want int) []capturedFramePlanes {
-	t.Helper()
-	out := make([]capturedFramePlanes, 0, want)
-	for i, frame := range frames {
-		if err := d.Decode(frame); err != nil {
-			t.Fatalf("Decode[%d]: %v", i, err)
-		}
-		img, ok := d.NextFrame()
-		if !ok {
-			continue
-		}
-		out = append(out, captureDecodedPlanes(img))
-	}
-	return out
-}
-
 // TestVP8DecoderThreadingExternalCorpusMatchesSerial walks the external libvpx
 // conformance corpus (58 valid VP80 vectors + the four I420
 // vp80-03-segmentation-* fixtures) and asserts the threaded decoder
@@ -182,8 +164,10 @@ func TestVP8DecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 			if err != nil {
 				t.Fatalf("threaded NewVP8Decoder: %v", err)
 			}
-			serialFrames := decodeVP8Planes(t, serial, frames, len(frames))
-			threadedFrames := decodeVP8Planes(t, threaded, frames, len(frames))
+			serialFrames := decodeFramesForTest(t, "VP8", serial, frames,
+				len(frames))
+			threadedFrames := decodeFramesForTest(t, "VP8", threaded, frames,
+				len(frames))
 			if len(serialFrames) != len(threadedFrames) {
 				t.Fatalf("frame count mismatch: serial=%d threaded=%d", len(serialFrames), len(threadedFrames))
 			}

@@ -209,8 +209,8 @@ func TestVP9DecoderThreadingNonFrameParallelTileColumnsMatchSerial(t *testing.T)
 	if err != nil {
 		t.Fatalf("serial NewVP9Decoder: %v", err)
 	}
-	serialKey := decodeVP9PacketAndCaptureForThreadingTest(t, serial, key)
-	serialInter := decodeVP9PacketAndCaptureForThreadingTest(t, serial, inter)
+	serialKey := decodeOneFrameForTest(t, "VP9", serial, key)
+	serialInter := decodeOneFrameForTest(t, "VP9", serial, inter)
 
 	threaded, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
 	if err != nil {
@@ -219,14 +219,14 @@ func TestVP9DecoderThreadingNonFrameParallelTileColumnsMatchSerial(t *testing.T)
 	if threaded.vp9TilePool == nil {
 		t.Fatalf("threaded decoder did not initialize VP9 tile worker pool")
 	}
-	threadedKey := decodeVP9PacketAndCaptureForThreadingTest(t, threaded, key)
+	threadedKey := decodeOneFrameForTest(t, "VP9", threaded, key)
 	if got := threaded.vp9TilePool.lastTileJobs; got != 4 {
 		t.Fatalf("non-frame-parallel key threaded tile jobs = %d, want 4", got)
 	}
 	if got := threaded.vp9TilePool.lastTileJobKind; got != vp9DecoderTileJobIntra {
 		t.Fatalf("non-frame-parallel key threaded tile job kind = %d, want intra", got)
 	}
-	threadedInter := decodeVP9PacketAndCaptureForThreadingTest(t, threaded, inter)
+	threadedInter := decodeOneFrameForTest(t, "VP9", threaded, inter)
 	if got := threaded.vp9TilePool.lastTileJobs; got != 4 {
 		t.Fatalf("non-frame-parallel inter threaded tile jobs = %d, want 4", got)
 	}
@@ -279,27 +279,13 @@ func TestVP9DecoderThreadedTileParseSteadyStateAlloc(t *testing.T) {
 	}
 }
 
-func decodeVP9PacketAndCaptureForThreadingTest(t testing.TB, d *VP9Decoder,
-	packet []byte,
-) capturedFramePlanes {
-	t.Helper()
-	if err := d.Decode(packet); err != nil {
-		t.Fatalf("VP9 Decode: %v", err)
-	}
-	img, ok := d.NextFrame()
-	if !ok {
-		t.Fatalf("VP9 Decode produced no visible frame")
-	}
-	return captureDecodedPlanes(img)
-}
-
 func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want int) {
 	t.Helper()
 	serial, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("serial NewVP9Decoder: %v", err)
 	}
-	serialFrames := decodeVP9Planes(t, serial, packets, want)
+	serialFrames := decodeFramesForTest(t, "VP9", serial, packets, want)
 	if len(serialFrames) == 0 {
 		t.Fatalf("serial VP9 decode produced no visible frames from %d packets",
 			len(packets))
@@ -313,7 +299,7 @@ func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want i
 		if err != nil {
 			t.Fatalf("threaded NewVP9Decoder(threads=%d): %v", threads, err)
 		}
-		threadedFrames := decodeVP9Planes(t, threaded, packets, want)
+		threadedFrames := decodeFramesForTest(t, "VP9", threaded, packets, want)
 		if err := threaded.Close(); err != nil {
 			t.Fatalf("threaded Close(threads=%d): %v", threads, err)
 		}
@@ -329,44 +315,11 @@ func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want i
 	}
 }
 
-func decodeVP9Planes(t testing.TB, d *VP9Decoder, packets [][]byte, want int) []capturedFramePlanes {
-	t.Helper()
-	out := make([]capturedFramePlanes, 0, want)
-	for i, packet := range packets {
-		if err := d.Decode(packet); err != nil {
-			t.Fatalf("VP9 Decode[%d]: %v", i, err)
-		}
-		img, ok := d.NextFrame()
-		if !ok {
-			continue
-		}
-		out = append(out, captureDecodedPlanes(img))
-	}
-	return out
-}
-
 func vp9IVFFramesForThreadingParity(ivf []byte) ([][]byte, error) {
 	if !coracle.VP9IVFHeaderLooksValid(ivf) {
 		return nil, testutil.ErrInvalidIVF
 	}
 	offset := testutil.IVFFileHeaderSize
-	var frames [][]byte
-	for offset < len(ivf) {
-		frame, next, err := testutil.NextIVFFrame(ivf, offset, len(frames))
-		if err != nil {
-			return nil, err
-		}
-		frames = append(frames, frame.Data)
-		offset = next
-	}
-	return frames, nil
-}
-
-func ivfFramesForThreadingParity(ivf []byte) ([][]byte, error) {
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		return nil, err
-	}
 	var frames [][]byte
 	for offset < len(ivf) {
 		frame, next, err := testutil.NextIVFFrame(ivf, offset, len(frames))
