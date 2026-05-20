@@ -638,7 +638,7 @@ func normalizeVP9TwoPassStats(stats []VP9FirstPassFrameStats) ([]VP9FirstPassFra
 	}
 	var total VP9FirstPassFrameStats
 	for i := range stats {
-		accumulateVP9FirstPassStats(&total, stats[i])
+		encoder.AccumulateFirstPassStats(&total, stats[i])
 	}
 	return stats, total
 }
