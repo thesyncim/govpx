@@ -184,19 +184,19 @@ func (s *fullPelMotionSearch) walkCostNoStats(mv vp8enc.MotionVector, limit int)
 }
 
 func (s *fullPelMotionSearch) nstep(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
-	return s.steppedDiamond(center, centerWalkCost, search, interFrameNstepSites[:], 8)
+	return s.steppedDiamond(center, centerWalkCost, search, vp8enc.InterFrameNstepSearchSites[:], 8)
 }
 
 func (s *fullPelMotionSearch) nstepNoStats(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
-	return s.steppedDiamondNoStats(center, centerWalkCost, search, interFrameNstepSites[:], 8)
+	return s.steppedDiamondNoStats(center, centerWalkCost, search, vp8enc.InterFrameNstepSearchSites[:], 8)
 }
 
 func (s *fullPelMotionSearch) diamond(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
-	return s.steppedDiamond(center, centerWalkCost, search, interFrameDiamondSites[:], 4)
+	return s.steppedDiamond(center, centerWalkCost, search, vp8enc.InterFrameDiamondSearchSites[:], 4)
 }
 
 func (s *fullPelMotionSearch) diamondNoStats(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
-	return s.steppedDiamondNoStats(center, centerWalkCost, search, interFrameDiamondSites[:], 4)
+	return s.steppedDiamondNoStats(center, centerWalkCost, search, vp8enc.InterFrameDiamondSearchSites[:], 4)
 }
 
 func (s *fullPelMotionSearch) steppedDiamond(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig, sites []vp8enc.MotionVector, sitesPerStep int) (vp8enc.MotionVector, int) {
@@ -803,49 +803,4 @@ func (s *fullPelMotionSearch) hex(best vp8enc.MotionVector, bestCost int) (vp8en
 
 func (s *fullPelMotionSearch) hexNoStats(best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
 	return s.hexSuperKernelNoStats(best, bestCost)
-}
-
-// interFrameNstepSites and interFrameDiamondSites are package-level
-// pre-computed search-site arrays reused by every full-pel motion search.
-var interFrameNstepSites = buildInterFrameNstepSearchSites()
-var interFrameDiamondSites = buildInterFrameDiamondSearchSites()
-
-func buildInterFrameNstepSearchSites() [1 + interFrameMaxMVSearchSteps*8]vp8enc.MotionVector {
-	var sites [1 + interFrameMaxMVSearchSteps*8]vp8enc.MotionVector
-	count := 1
-	for length := 1 << (interFrameMaxMVSearchSteps - 1); length > 0; length /= 2 {
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: int16(length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(length)}
-		count++
-	}
-	return sites
-}
-
-func buildInterFrameDiamondSearchSites() [1 + interFrameMaxMVSearchSteps*4]vp8enc.MotionVector {
-	var sites [1 + interFrameMaxMVSearchSteps*4]vp8enc.MotionVector
-	count := 1
-	for length := 1 << (interFrameMaxMVSearchSteps - 1); length > 0; length /= 2 {
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(length)}
-		count++
-	}
-	return sites
 }

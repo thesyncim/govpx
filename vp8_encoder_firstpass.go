@@ -672,7 +672,7 @@ func (s *fullPelMotionSearch) firstPassNstep(center vp8enc.MotionVector, centerW
 }
 
 func (s *fullPelMotionSearch) firstPassSearchSites(center vp8enc.MotionVector, centerWalkCost int, searchParam int) interFrameNstepSearchResult {
-	result := s.searchSitesNoStats(center, centerWalkCost, interFrameNstepSites[:], 8, searchParam)
+	result := s.searchSitesNoStats(center, centerWalkCost, vp8enc.InterFrameNstepSearchSites[:], 8, searchParam)
 	result.cost = firstPassMotionSearchReturnCost(s.ctx.src, s.ctx.ref, s.ctx.mbRow, s.ctx.mbCol, result.mv, s.bestRefMV, s.qIndex)
 	return result
 }

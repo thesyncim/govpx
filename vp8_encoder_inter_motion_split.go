@@ -92,7 +92,7 @@ func nstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(
 }
 
 func diamondNstepInterFrameSplitBlockFullPixelMotionVectorWithErrorPerBitAndCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, centerReturnCost int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, bounds vp8enc.InterFrameFullPixelBounds, searchParam int) splitFullPixelSearchResult {
-	sites := &interFrameNstepSites
+	sites := vp8enc.InterFrameNstepSearchSites[:]
 	if searchParam < 0 {
 		searchParam = 0
 	} else if searchParam >= interFrameMaxMVSearchSteps {
