@@ -158,71 +158,6 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	}
 }
 
-// vp9EncoderModeDecisionRDMult returns the active Lagrange multiplier the
-// per-block RD scorers should use.  Mirrors libvpx's lookup order:
-//
-//	rdmult = x->cb_rdmult ? x->cb_rdmult : cpi->rd.RDMULT
-//
-// libvpx: vp9/encoder/vp9_encodeframe.c — every per-mode RDCOST call uses
-// x->rdmult which is itself initialized from cb_rdmult at the top of
-// rd_pick_sb_modes.  Callers that have not yet primed cbRdmult (legacy
-// per-block paths still being threaded) fall back to the per-frame
-// rc.rdmult; if even that is missing they synthesize the multiplier from
-// the current mode-decision qindex so older tests that never enter the
-// frame-init path still see a libvpx-shaped multiplier.
-func (e *VP9Encoder) vp9EncoderModeDecisionRDMult() int {
-	if e.cbRdmult > 0 {
-		return e.cbRdmult
-	}
-	if e.rc.rdmult > 0 {
-		return e.rc.rdmult
-	}
-	return vp9ComputeRDMultBasedOnQindex(e.vp9EncoderModeDecisionQIndex(),
-		vp9RDFrameInter)
-}
-
-// vp9EncoderModeDecisionRDDiv returns the active rddiv shift used by
-// RDCOST.  Defaults to libvpx's RDDIV_BITS when the per-frame state has
-// not been primed.
-//
-// libvpx: vp9/encoder/vp9_rd.h:26 (RDDIV_BITS == 7) and vp9_rd.c:405
-// (rd->RDDIV = RDDIV_BITS).
-func (e *VP9Encoder) vp9EncoderModeDecisionRDDiv() int {
-	if e.rc.rddiv > 0 {
-		return e.rc.rddiv
-	}
-	return vp9RDDivBits
-}
-
-// vp9EncoderPrimeCbRdmult sets the per-SB cb_rdmult cache so subsequent
-// candidate scoring within the same SB uses a consistent multiplier.
-// Returns the value installed so callers that want to keep a local
-// variable for clarity can avoid re-reading the field.
-//
-// libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248
-//
-//	x->cb_rdmult = get_rdmult_delta(cpi, BLOCK_64X64, ...);
-//	set_error_per_bit(x, x->cb_rdmult);
-//	x->rdmult = x->cb_rdmult;
-//
-// govpx does not yet store rate-distortion error_per_bit (it would only
-// gate the motion search subpel cost).  The Lagrangian scoring path is
-// the load-bearing consumer today.
-func (e *VP9Encoder) vp9EncoderPrimeCbRdmult(rdmult int) int {
-	if rdmult <= 0 {
-		rdmult = 1
-	}
-	e.cbRdmult = rdmult
-	return rdmult
-}
-
-// vp9EncoderClearCbRdmult releases the per-SB cb_rdmult cache.  Mirrors
-// libvpx's rd_pick_sb_modes epilogue which restores the per-frame
-// rdmult once the SB walk completes.
-func (e *VP9Encoder) vp9EncoderClearCbRdmult() {
-	e.cbRdmult = 0
-}
-
 func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, refreshFlags uint8, macroblocks int) int {
 	traceRateSelection := vp9OracleTraceBuild && e.vp9OracleTraceEnabled()
 	if traceRateSelection {
@@ -731,15 +666,6 @@ func vp9SourceVarianceAreaPerPixel(src []byte, srcStride int, srcX, srcY, w, h i
 	variance := vp9BlockSourceVariance128(src, srcStride, srcX, srcY, w, h)
 	pixels := uint64(w * h)
 	return uint((variance + (pixels >> 1)) / pixels)
-}
-
-func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,
-	srcX, srcY, refX, refY, w, h int,
-) (uint32, bool) {
-	srcOff := srcY*srcStride + srcX
-	refOff := refY*refStride + refX
-	return vp9BlockSADNoLimitOffsets(src, srcOff, srcStride, ref, refOff,
-		refStride, w, h)
 }
 
 func vp9BlockSADNoLimitOffsets(src []byte, srcOff, srcStride int,

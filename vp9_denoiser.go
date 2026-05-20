@@ -511,21 +511,11 @@ func vp9DenoiserSSEDiffThresh(bsize common.BlockSize, increase bool, motionMagni
 	return (1 << uint(vp9DenoiserNumPelsLog2(bsize))) << 4
 }
 
-func vp9DenoiserTotalAdjStrongThresh(bsize common.BlockSize, increase bool) int {
-	return vp9DenoiserTotalAdjStrongThreshForPixels(
-		vp9DenoiserNumPelsLog2(bsize), increase)
-}
-
 func vp9DenoiserTotalAdjStrongThreshForPixels(numPelsLog2 int, increase bool) int {
 	if increase {
 		return (1 << uint(numPelsLog2)) * 3
 	}
 	return (1 << uint(numPelsLog2)) * 2
-}
-
-func vp9DenoiserTotalAdjWeakThresh(bsize common.BlockSize, increase bool) int {
-	return vp9DenoiserTotalAdjWeakThreshForPixels(
-		vp9DenoiserNumPelsLog2(bsize), increase)
 }
 
 func vp9DenoiserTotalAdjWeakThreshForPixels(numPelsLog2 int, increase bool) int {

@@ -440,9 +440,8 @@ type VP9Encoder struct {
 	// cbRdmult mirrors libvpx's MACROBLOCK::cb_rdmult.  Each per-SB mode
 	// picker (libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248) writes
 	// this once from the base rdmult biased by the per-SB AQ/TPL deltas
-	// and all the candidate-scoring helpers read it through
-	// vp9EncoderModeDecisionRDMult.  When zero, callers fall back to the
-	// per-frame rd.rdmult.
+	// and candidate-scoring helpers read it directly. When zero, callers
+	// fall back to the per-frame rd.rdmult.
 	cbRdmult int
 
 	// rdThresh carries libvpx's RD-thresh / per-tile thresh_freq_fact
