@@ -4,7 +4,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
-	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
@@ -313,27 +312,7 @@ func vp9QIndexToPublicQuantizer(qIndex int) int {
 }
 
 func vp9ComputeQDelta(best, worst, qindex, num, den int) int {
-	if den <= 0 {
-		return 0
-	}
-	qindex = min(max(qindex, best), worst)
-	qstart := int(tables.AcQLookup8[qindex])
-	targetNumer := qstart * num
-	startIndex := worst
-	targetIndex := worst
-	for i := best; i < worst; i++ {
-		startIndex = i
-		if int(tables.AcQLookup8[i]) >= qstart {
-			break
-		}
-	}
-	for i := best; i < worst; i++ {
-		targetIndex = i
-		if int(tables.AcQLookup8[i])*den >= targetNumer {
-			break
-		}
-	}
-	return targetIndex - startIndex
+	return encoder.ComputeQDelta(best, worst, qindex, num, den)
 }
 
 var vp9QuantizerToQIndex = [maxQuantizer + 1]int{

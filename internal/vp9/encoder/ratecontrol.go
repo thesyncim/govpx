@@ -108,6 +108,32 @@ func QIndexToQ(qindex int16) float64 {
 	return float64(tables.AcQLookup8[qindex]) / 4.0
 }
 
+// ComputeQDelta returns the qindex delta that approximates scaling the
+// starting AC quantizer by num/den inside [best, worst].
+func ComputeQDelta(best, worst, qindex, num, den int) int {
+	if den <= 0 {
+		return 0
+	}
+	qindex = min(max(qindex, best), worst)
+	qstart := int(tables.AcQLookup8[qindex])
+	targetNumer := qstart * num
+	startIndex := worst
+	targetIndex := worst
+	for i := best; i < worst; i++ {
+		startIndex = i
+		if int(tables.AcQLookup8[i]) >= qstart {
+			break
+		}
+	}
+	for i := best; i < worst; i++ {
+		targetIndex = i
+		if int(tables.AcQLookup8[i])*den >= targetNumer {
+			break
+		}
+	}
+	return targetIndex - startIndex
+}
+
 // RTCMinQ returns libvpx's realtime minimum qindex for the active worst Q.
 func RTCMinQ(qindex int) int {
 	return minQIndex(qindex, 0.00000271, -0.00113, 0.70)
