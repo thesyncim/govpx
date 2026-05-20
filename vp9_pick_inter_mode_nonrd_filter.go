@@ -6,50 +6,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-func vp9NonrdModeRDThresh(qindex int, bsize common.BlockSize,
-	refFrame int8, mode common.PredictionMode, adaptiveRDThresh int,
-	bestModeSkipTxfm bool, biasGolden bool, framesSinceGolden int,
-) int64 {
-	if bsize < 0 || bsize >= common.BlockSizes ||
-		refFrame <= vp9dec.IntraFrame || refFrame >= vp9dec.MaxRefFrames ||
-		mode < common.NearestMv || mode > common.NewMv {
-		return 0
-	}
-	modeOffset := vp9ModeOffsetInter(mode)
-	modeIndex := vp9ModeIdxTable[refFrame][modeOffset]
-	threshMult := vp9NonrdThreshMult(modeIndex, adaptiveRDThresh)
-	if threshMult <= 0 {
-		return 0
-	}
-	threshFactor := vp9ComputeRDThreshFactor(qindex)
-	t := int64(threshFactor) * int64(vp9RDThreshBlockSizeFactor[bsize])
-	thresh := int64(threshMult) * t / 4
-	if bestModeSkipTxfm {
-		thresh <<= 1
-	}
-	if biasGolden && refFrame == vp9dec.GoldenFrame && framesSinceGolden > 4 {
-		thresh <<= 3
-	}
-	return thresh
-}
-
-func vp9NonrdThreshMult(modeIndex vp9ThrModes, adaptiveRDThresh int) int {
-	switch modeIndex {
-	case vp9ThrNearestMV, vp9ThrNearestG, vp9ThrNearestA:
-		if adaptiveRDThresh != 0 {
-			return 300
-		}
-		return 0
-	case vp9ThrNewMV, vp9ThrNewG, vp9ThrNewA,
-		vp9ThrNearMV, vp9ThrNearG, vp9ThrNearA:
-		return 1000
-	case vp9ThrZeroMV, vp9ThrZeroG, vp9ThrZeroA:
-		return 2000
-	default:
-		return 0
-	}
-}
-
 // vp9SearchFilterRef is the verbatim port of libvpx's search_filter_ref
 // (vp9_pickmode.c:1499-1584). It runs the inter predictor for each filter in
 // [filter_start, filter_end] (typically {EIGHTTAP, EIGHTTAP_SMOOTH} in the

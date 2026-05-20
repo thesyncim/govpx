@@ -31,11 +31,6 @@ func enc_ld1_4h(vt, xn uint32) uint32 {
 	return 0x0c407400 | (xn << 5) | vt
 }
 
-// st1_4h: ST1 {Vt.4H}, [Xn]  (no writeback)
-func enc_st1_4h(vt, xn uint32) uint32 {
-	return 0x0c007400 | (xn << 5) | vt
-}
-
 // st1_4h_post: ST1 {Vt.4H}, [Xn], #8  (post-index, advance Xn by 8)
 func enc_st1_4h_post(vt, xn uint32) uint32 {
 	return 0x0c9f7400 | (xn << 5) | vt

@@ -42,15 +42,6 @@ import (
 	"github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd"
 )
 
-// defaultLibvpxVP8AbsoluteGate is the absolute govpx-vs-libvpx VP8
-// BD-rate gate threshold. Set wide enough to absorb cubic-fit jitter
-// on the synthetic 64x64 short-ladder fixtures while tight enough to
-// catch a real ~10% bitrate regression. Tighten when the gap narrows.
-var defaultLibvpxVP8AbsoluteGate = benchcmd.LibvpxAbsoluteGate{
-	MaxBDRateOverLibvpxPct: 5.0,
-	MinBDPSNRdB:            -0.5,
-}
-
 // assertLibvpxVP8AbsoluteGate evaluates the absolute govpx-vs-libvpx
 // VP8 BD-rate assertion. Mirrors assertLibvpxAbsoluteGate's VP9 form
 // but uses LibvpxVP8Required() instead of LibvpxRequired().
@@ -477,9 +468,8 @@ func TestVP8FeatureBDRateBaseline(t *testing.T) {
 //     other byte-parity flakes) or porting the entire rd_thresh_mult
 //     evolution path (separate audit, not a single-fixture fix).
 //
-//   - +1.111% is well inside the +5.0% gate ceiling; the gate stays at
-//     defaultLibvpxVP8AbsoluteGate. A real regression on this fixture
-//     would land outside the +5% band immediately. Any future
+//   - +1.111% is well inside the +5.0% gate ceiling. A real regression on
+//     this fixture would land outside the +5% band immediately. Any future
 //     improvement that drops the BD-rate below +1.0% should retighten
 //     this fixture's per-gate (per task #342 policy: drop by 2pp below
 //     the measured steady state when an improvement crosses the

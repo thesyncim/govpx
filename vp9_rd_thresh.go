@@ -23,9 +23,6 @@ import (
 // vp9MaxModes mirrors libvpx's MAX_MODES (vp9_rd.h:41).
 const vp9MaxModes = 30
 
-// vp9MaxRefs mirrors libvpx's MAX_REFS (vp9_rd.h:42).
-const vp9MaxRefs = 6
-
 // vp9RDThreshInitFact / vp9RDThreshMaxFact / vp9RDThreshInc mirror libvpx's
 // RD_THRESH_INIT_FACT / RD_THRESH_MAX_FACT / RD_THRESH_INC
 // (vp9_rd.h:44-46).

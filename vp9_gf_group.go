@@ -118,10 +118,6 @@ type vp9GFGroup struct {
 const (
 	// libvpx: vp9/encoder/vp9_firstpass.h:27
 	vp9MaxARFLayers = 6
-	// libvpx: vp9/encoder/vp9_lookahead.h:22
-	vp9MaxLagBuffers = 25
-	// libvpx: vp9/common/vp9_onyxc_int.h:34
-	vp9RefsPerFrame = 3
 	// libvpx: vp9/encoder/vp9_ratectrl.h:46
 	vp9MaxStaticGFGroupLength = 250
 	// libvpx: vp9/encoder/vp9_firstpass.c:2559
@@ -130,8 +126,6 @@ const (
 	vp9MaxGFBoost = 5400
 	// libvpx: vp9/encoder/vp9_firstpass.c:2880
 	vp9LastALRActiveBestQAdjustFactor = 0.2
-	// libvpx: vp9/encoder/vp9_ratectrl.h:30
-	vp9DefaultKFBoost = 2000
 	// libvpx: vp9/encoder/vp9_ratectrl.h:31
 	vp9DefaultGFBoost = 2000
 )

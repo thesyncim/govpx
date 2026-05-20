@@ -371,20 +371,6 @@ func AccumulateInterFrameHelperRowIntraBranchCounts(rows int, cols int, workerCo
 	}
 }
 
-func normalizeYModeProbabilityBase(base [tables.YModeProbCount]uint8) [tables.YModeProbCount]uint8 {
-	if base == ([tables.YModeProbCount]uint8{}) {
-		return tables.DefaultYModeProbs
-	}
-	return base
-}
-
-func normalizeUVModeProbabilityBase(base [tables.UVModeProbCount]uint8) [tables.UVModeProbCount]uint8 {
-	if base == ([tables.UVModeProbCount]uint8{}) {
-		return tables.DefaultUVModeProbs
-	}
-	return base
-}
-
 func interFrameYModeProbs(cfg *InterFrameStateConfig) [tables.YModeProbCount]uint8 {
 	probs := cfg.YModeBase
 	if cfg.YModeUpdate {

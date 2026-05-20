@@ -175,10 +175,6 @@ func AddMacroblockResidualWithDequant(tokens *MacroblockTokens, residual *Macrob
 	addChromaResidualWithDequant(tokens, residual, dequant, u, uStride, v, vStride)
 }
 
-func addChromaResidual(tokens *MacroblockTokens, residual *MacroblockResidual, u []byte, uStride int, v []byte, vStride int) {
-	addChromaResidualWithDequant(tokens, residual, nil, u, uStride, v, vStride)
-}
-
 func addChromaResidualWithDequant(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, u []byte, uStride int, v []byte, vStride int) {
 	// libvpx v1.16.0 vp8/common/arm/neon/idct_blk_neon.c
 	// vp8_dequant_idct_add_uv_block_neon (lines 256-295) dispatches by PAIRS of

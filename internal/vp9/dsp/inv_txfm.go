@@ -66,11 +66,6 @@ func dctConstRoundShift(input int64) int32 {
 	return int32((input + dctConstRounding) >> dctConstBits)
 }
 
-// wrapLow mirrors libvpx's WRAPLOW: a no-op cast in the standard build,
-// or a wrap-to-int16 when emulating hardware. We follow the default
-// configuration so this is just a typed pass-through.
-func wrapLow(x int64) int32 { return int32(x) }
-
 // clipPixelAdd mirrors clip_pixel_add: add the residual to the existing
 // 8-bit pixel and clamp to [0, 255].
 func clipPixelAdd(dest uint8, trans int32) uint8 {

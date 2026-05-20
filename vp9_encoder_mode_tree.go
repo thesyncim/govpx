@@ -83,21 +83,6 @@ func vp9InterCompoundRefs(inter *vp9InterEncodeState) vp9dec.CompoundFrameRefs {
 	return inter.compoundRefs
 }
 
-func (e *VP9Encoder) writeVP9ModesTile(bw *bitstream.Writer, miRows, miCols int,
-	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
-	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
-) {
-	tile := vp9dec.TileBounds{
-		MiRowStart: 0,
-		MiRowEnd:   miRows,
-		MiColStart: 0,
-		MiColEnd:   miCols,
-	}
-	e.writeVP9ModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg,
-		baseMi, txMode, kind, key, inter)
-}
-
 func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCols int,
 	tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,

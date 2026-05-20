@@ -308,40 +308,6 @@ func vp9CoefBranchStats(counts *encoder.FrameCounts) *encoder.FrameCoefBranchSta
 	return &counts.CoefBranchStats
 }
 
-func (e *VP9Encoder) writeVP9StubModesTile(bw *bitstream.Writer, miRows, miCols int,
-	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
-) {
-	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi,
-		txModeForMi(baseMi), vp9ModeTreeKeyframe, nil, nil)
-}
-
-func (e *VP9Encoder) writeVP9KeyframeSourceModesTile(bw *bitstream.Writer, miRows, miCols int,
-	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
-	key *vp9KeyframeEncodeState,
-) {
-	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi,
-		txModeForMi(baseMi), vp9ModeTreeKeyframeSource, key, nil)
-}
-
-func (e *VP9Encoder) writeVP9InterSkipModesTile(bw *bitstream.Writer, miRows, miCols int,
-	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
-) {
-	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi,
-		common.TxModeSelect, vp9ModeTreeInterSkip, nil, nil)
-}
-
-func (e *VP9Encoder) writeVP9InterSourceModesTile(bw *bitstream.Writer, miRows, miCols int,
-	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
-	inter *vp9InterEncodeState,
-) {
-	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi,
-		common.TxModeSelect, vp9ModeTreeInterSource, nil, inter)
-}
-
 func (e *VP9Encoder) writeVP9StubModesTileBounds(bw *bitstream.Writer, miRows, miCols int,
 	tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,

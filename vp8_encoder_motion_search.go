@@ -44,26 +44,6 @@ func (s *interFrameMotionSearchStats) recordFullPelSAD(candidates int, batch boo
 	}
 }
 
-func (s *interFrameMotionSearchStats) recordFullPelBoundsRejects(count int) {
-	if s == nil || count <= 0 {
-		return
-	}
-	s.fullPelBoundsRejects += count
-	if phase := s.phase; phase != nil {
-		phase.FullPelBoundsRejects += int64(count)
-	}
-}
-
-func (s *interFrameMotionSearchStats) recordFullPelEarlyBreak() {
-	if s == nil {
-		return
-	}
-	s.fullPelEarlyBreaks++
-	if phase := s.phase; phase != nil {
-		phase.FullPelEarlyBreaks++
-	}
-}
-
 func (s *interFrameMotionSearchStats) recordSubpelCandidate() {
 	if s == nil {
 		return

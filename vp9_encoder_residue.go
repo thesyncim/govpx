@@ -1010,30 +1010,6 @@ func vp9CoeffTokenAbsValInt(absCoeff, dqv int, tx32 bool) int {
 	return num / den
 }
 
-// vp9KeyframeCoeffMagnitude returns the absolute quantized magnitude that
-// libvpx's vp9_get_token_cost(v, ...) (vp9/encoder/vp9_tokenize.h:113)
-// observes for the coefficient at raster index rc. libvpx reads
-// v = qcoeff[rc] (vp9_rdopt.c:392,405,423,438) — the signed quantized
-// value written by the quantize kernels (vpx_dsp/quantize.c:71-72,261;
-// vp9/encoder/vp9_quantize.c:50,116). When the quantize kernel has
-// already populated qcoeffs[] (via QuantizeB*WithQ / QuantizeFP*WithQ)
-// govpx consumes that value directly. The nil-qcoeffs fallback derives the
-// magnitude from the dequantized coefficient for older internal call shapes,
-// but it can drift whenever dqcoeff = q*dq (or q*dq/2 for Tx32x32) is
-// truncated by the int16 cast in the quantize kernel.
-func vp9KeyframeCoeffMagnitude(qcoeffs []int16, raster int, absDqcoeff, dqv int16,
-	tx32 bool,
-) int {
-	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
-		q := int(qcoeffs[raster])
-		if q < 0 {
-			q = -q
-		}
-		return q
-	}
-	return vp9CoeffTokenAbsValInt(int(absDqcoeff), int(dqv), tx32)
-}
-
 func vp9CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
 	if absVal <= 0 || len(probs) < encoder.UnconstrainedNodes {
 		return 0

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"image"
 	"runtime"
-	"strconv"
 	"time"
 
 	govpx "github.com/thesyncim/govpx"
@@ -347,24 +346,4 @@ func newImageBuffer(width int, height int) govpx.Image {
 		UStride: uvWidth,
 		VStride: uvWidth,
 	}
-}
-
-// vp9QuantizerHistogramMap returns the bucket map but as strconv keys so the
-// JSON output stays stable with the VP8 quantizerHistogramMap encoding. It is
-// kept distinct from quantizerHistogramMap (which is package-private) so that
-// callers can grep for the VP9 variant when it differs in the future.
-func vp9QuantizerHistogramMap(hist *[quantizerHistogramBins]int) map[string]int {
-	count := 0
-	for _, frames := range hist {
-		if frames > 0 {
-			count++
-		}
-	}
-	out := make(map[string]int, count)
-	for q, frames := range hist {
-		if frames > 0 {
-			out[strconv.Itoa(q)] = frames
-		}
-	}
-	return out
 }
