@@ -1,15 +1,19 @@
 # govpx Repo Map
 
 Generated for Wave 0 of `docs/repo-tidy-plan.md` on 2026-05-19.
-Last updated for VP8 file ownership naming and diagnostic-test cleanup on
-2026-05-19.
+Last updated on 2026-05-20 after the root VP8 naming, rate-control split,
+superframe API cleanup, diagnostic-test cleanup, and private dead-code sweeps.
+
+Status: incomplete. This map is a progress ledger for the tidy stack, not a
+claim that the goal is done. The root package still contains substantial VP8
+and VP9 implementation code, and the major Wave 3 internal package moves are
+still outstanding.
 
 This document is the coordination map for splitting the current flat root
 package into a public facade plus codec-owned internal packages. It records the
 current shape, protected validation gates, and no-overlap work packets for the
-next waves. The RTP rows now reflect the code move landed on the
-`codex/repo-tidy` branch; the rest of the inventory remains the Wave 0
-baseline unless a row says otherwise.
+next waves. Rows that say "current main" describe code already landed on
+`main`; the rest remains planned cleanup.
 
 ## Snapshot
 
@@ -19,16 +23,16 @@ Tracked Go files, excluding ignored oracle build output:
 
 | Area | Go files |
 | --- | ---: |
-| Root package | 579 |
+| Root package | 581 |
 | Root package tests | 389 |
-| Root package implementation/non-test files | 190 |
+| Root package implementation/non-test files | 192 |
 | `internal/` | 516 |
 | `cmd/` | 41 |
 | `examples/` | 5 |
 | `benchmarks/` | 1 |
 
 Default `go list ./...` sees fewer root files because many parity and
-diagnostic files are behind build tags: 174 root source files, 264 root
+diagnostic files are behind build tags: 176 root source files, 264 root
 same-package tests, and 6 root external tests in the default build.
 
 Ignored local/generated output includes editor metadata, local Go caches,
@@ -43,7 +47,7 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 
 | Cluster | Current files | Target owner |
 | --- | --- | --- |
-| Public shared surface | `codec.go`, `errors.go`, `image.go`, `rtp.go`, `streaminfo.go`, `temporal.go`, `doc.go` | Root facade; stream-info parsing now delegates to codec-owned decoder packages |
+| Public shared surface | `codec.go`, `errors.go`, `image.go`, `options.go`, `rtp.go`, `streaminfo.go`, `temporal.go`, `timing.go`, `doc.go` | Root facade; stream-info parsing now delegates to codec-owned decoder packages; `timing.go` is private shared staging until codec moves split ownership |
 | VP8 public encode/decode facade | `vp8_encoder.go`, `vp8_decoder.go`, public parts of `vp8_encoder_config.go`, shared public options in `options.go` | Root facade forwarding to `internal/vp8/{encoder,decoder}` |
 | VP8 encoder implementation | `vp8_encoder_*.go`, `vp8_ratecontrol_*.go`, VP8-specific parts of `vp8_encoder_config.go`, root VP8 encoder tests | `internal/vp8/encoder` |
 | VP8 decoder implementation | `vp8_decoder.go` plus existing `internal/vp8/decoder` internals | `internal/vp8/decoder` |
@@ -51,7 +55,7 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 | VP9 public encode/decode facade | public parts of `vp9_encoder.go`, `vp9_decoder.go`, `vp9_encoder_config.go`, VP9 first-pass/result/options types | Root facade forwarding to `internal/vp9/{encoder,decoder}` |
 | VP9 encoder implementation | `vp9_encoder*.go`, `vp9_*` encoder/rate-control/AQ/TPL/partition/threading files, VP9 encoder tests | `internal/vp9/encoder` |
 | VP9 decoder implementation | `vp9_decoder*.go`, VP9 decoder tests | `internal/vp9/decoder` |
-| VP9 RTP and superframe helpers | root `vp9_rtp.go` and `vp9_superframe.go` facades, `internal/vp9/rtp/rtp.go`, `internal/vp9/bitstream/superframe.go`, related tests/fuzz | Root facade plus `internal/vp9/{rtp,bitstream}` and shared `internal/vpx/rtp` mechanics |
+| VP9 RTP and superframe helpers | root `vp9_rtp.go` and `vp9_superframe.go` facades, `internal/vp9/rtp/rtp.go`, `internal/vp9/bitstream/superframe.go`, related tests/fuzz | Current main: root keeps `VP9SuperframeSize` and `PackVP9SuperframeInto`; allocating superframe wrappers are removed |
 | Oracle/parity harness | `oracle_*_test.go`, `vp9_oracle_*_test.go`, `internal/coracle`, `cmd/scoreboard-report` | `internal/vpx/testharness`, `internal/coracle`, package-local oracle suites |
 | Diagnostics/audits | `vp8_task*_test.go`, `vp8_byte*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename into regression suites or document as diagnostics; env-only log probes and always-skipped documentation tests are being deleted once covered by live parity/regression gates |
 | Performance and quality gates | `feature_quality_gates*_test.go`, `benchmarks`, `cmd/govpx-bench`, `*_bench_test.go` | Package-local benches plus `cmd/govpx-bench` |
@@ -83,29 +87,36 @@ Largest hand-authored root implementation files:
 
 | Lines | File | Wave 2 action |
 | ---: | --- | --- |
-| 16,828 | `vp9_encoder.go` | Must split by responsibility before any package move |
-| 2,475 | `vp9_pick_inter_mode_nonrd.go` | Watch cap; split if edited materially |
+| 2,470 | `vp9_pick_inter_mode_nonrd.go` | Watch cap; split before more material edits |
+| 2,312 | `vp9_encoder_key_modes.go` | Split if edited materially; move with VP9 encoder |
 | 2,123 | `vp9_speed_features.go` | Move as VP9 encoder config/speed feature ownership |
-| 1,847 | `vp9_decoder.go` | Split public facade from decoder state/lifecycle before move |
+| 1,840 | `vp9_decoder.go` | Split public facade from decoder state/lifecycle before move |
+| 1,807 | `vp9_encoder_inter_modes.go` | Split mode-pick helpers before package move |
 | 1,547 | `vp9_decoder_modes.go` | Move with VP9 decoder internals |
-| 1,726 | `vp8_encoder_config.go` | Split public VP8 options from private normalized config |
+| 1,722 | `vp8_encoder_config.go` | Split public VP8 options from private normalized config |
 | 1,486 | `vp8_encoder_twopass_state.go` | Move with VP8 encoder two-pass internals |
-| 1,360 | `vp8_encoder.go` | Split VP8 public type/methods from encoder state |
-| 1,343 | `vp9_spatial_svc.go` | Keep public SVC facade small; move implementation helpers |
+| 1,361 | `vp8_encoder.go` | Split VP8 public type/methods from encoder state |
+| 1,323 | `vp9_spatial_svc.go` | Keep public SVC facade small; move implementation helpers |
 | 1,301 | `vp8_encoder_frame.go` | Move with VP8 encoder frame encode path |
+
+Current main has already split the former monolithic `vp9_encoder.go` and
+`vp9_encoder_test.go` into focused files, so the old 10k+ line review risks are
+gone. The remaining largest implementation file is still close to the 2,500
+line cap and should be split before substantial algorithm work lands there.
 
 Largest root test files:
 
 | Lines | File | Wave 2/6 action |
 | ---: | --- | --- |
-| 10,111 | `vp9_encoder_test.go` | Split into constructor/options, encode entrypoints, reference, rate-control, SVC, superframe suites |
-| 7,964 | `vp9_decoder_test.go` | Split into parser/header, decode, threading, postprocess, reference, conformance suites |
-| 5,366 | `vp9_oracle_stream_parity_scoreboard_test.go` | Split scoreboard cases by feature and keep oracle tag |
-| 5,323 | `oracle_encoder_stream_parity_runtime_controls_test.go` | Split runtime-control matrix from helpers |
 | 1,956 | `feature_quality_gates_vp8_test.go` | Move quality gates near benchmark/validation ownership |
 | 1,938 | `vp9_encoder_vpxenc_oracle_test.go` | Split VP9 vpxenc parity cases |
 | 1,771 | `vp8_encoder_runtime_controls_test.go` | Move with VP8 encoder runtime-control tests |
 | 1,706 | `vp9_spatial_svc_test.go` | Split SVC public API and implementation cases |
+| 1,569 | `oracle_encoder_stream_parity_test.go` | Split public runtime matrix from helpers |
+| 1,459 | `internal/vp9/encoder/transform_quant_test.go` | Keep internal, split if edited materially |
+| 1,414 | `vp9_oracle_transition_scoreboard_test.go` | Split scoreboard cases by feature and keep oracle tag |
+| 1,402 | `vp9_encoder_ratecontrol_test.go` | Split VP9 rate-control setup/runtime cases |
+| 1,386 | `vp9_oracle_stream_parity_gates_test.go` | Split strict gates from shared oracle helpers |
 
 Largest internal codec files are already below the 2,500-line implementation
 cap. The current internal high-water mark is
@@ -159,6 +170,9 @@ Move out of public surface unless Wave 1 explicitly keeps them:
 - VP9 quality experiment helpers such as `VP9ComputeARFBoost`,
   `VP9DefaultARFBoostParams`, `VP9AdjustARNRFilter`, and
   `VP9TPLFrameDelta` unless a user-facing use case is documented.
+- Allocating VP9 superframe wrappers are already removed on current main; keep
+  the explicit caller-owned pair `VP9SuperframeSize` and
+  `PackVP9SuperframeInto`.
 - Oracle/debug probes: trace flags, leaf trace plumbing, and scoreboard-only
   helpers.
 - Any root-level trace writer setters that are only used by tagged oracle
@@ -169,7 +183,7 @@ Current method families:
 | Handle | Current method shape |
 | --- | --- |
 | `VP8Encoder` | `EncodeInto`, `FlushInto`, `CollectFirstPassStats`, `SetTwoPassStats`, `SetRateControl`, `SetRealtimeTarget`, many `Set*` runtime controls, `ForceKeyFrame`, `LastQuantizer`, reference set/copy |
-| `VP9Encoder` | `Encode`, `EncodeWithFlags`, `EncodeInto`, `EncodeIntoWithFlags`, `EncodeIntoWithResult`, `FlushInto`, `FlushIntoWithResult`, intra-only/show-existing helpers, first-pass/two-pass, many VP9-specific `Set*` controls |
+| `VP9Encoder` | Still has allocating `Encode`, `EncodeWithFlags`, `EncodeIntraOnlyFrame`, and `EncodeShowExistingFrame`; also has caller-owned `EncodeInto`, `EncodeIntoWithFlags`, `EncodeIntoWithResult`, `FlushInto`, `FlushIntoWithResult`, first-pass/two-pass, and many VP9-specific `Set*` controls |
 | `VP8Decoder` | `Decode`, `DecodeWithPTS`, `DecodeInto`, `DecodeIntoWithPTS`, `NextFrame`, `LastFrameInfo`, corruption/reference metadata, reference set/copy |
 | `VP9Decoder` | VP8-like decode methods plus tile filters, row-MT, loop-filter options, byte alignment, external frame buffers, SVC spatial layer filtering |
 
@@ -181,16 +195,16 @@ helpers (`Encode`, `EncodeWithFlags`, `EncodeIntraOnlyFrame`,
 
 ## Test Categories
 
-The repository has about 613 tracked `*_test.go` files after removing stale
-env-only diagnostics. A filename/package heuristic gives:
+The repository has 613 tracked `*_test.go` files after removing stale env-only
+diagnostics. A filename/package heuristic gives:
 
 | Category | Approx. count | Current locations |
 | --- | ---: | --- |
 | Unit and pure Go codec tests | ~390 | root, `internal/vp8/*`, `internal/vp9/*`, `cmd/*` |
-| Oracle/parity tests | ~118 | mostly root `oracle_*`, `vp9_oracle_*`, `*_vpxdec_oracle_*`, `*_vpxenc_oracle_*` |
-| Diagnostic/audit/bisect tests | 58 | root `vp8_task*`, `vp8_byte*`, `*_audit_*`, `*_bisect_*` |
-| Performance/quality tests | 18 | `feature_quality_gates*`, `*_bench_test.go`, `cmd/govpx-bench/benchcmd` |
-| Fuzz entrypoints/regressions | 12 | root fuzz files plus `internal/vp8` fuzz tests |
+| Oracle/parity tests | ~112 | mostly root `oracle_*`, `vp9_oracle_*`, `*_vpxdec_oracle_*`, `*_vpxenc_oracle_*` |
+| Diagnostic/audit/bisect tests | 61 | root `vp8_task*`, `vp8_byte*`, `*_audit_*`, `*_bisect_*` |
+| Performance/quality tests | 19 | `feature_quality_gates*`, `*_bench_test.go`, `cmd/govpx-bench/benchcmd` |
+| Fuzz entrypoints/regressions | ~45 by filename/content | root fuzz files plus internal fuzz tests and oracle fuzz regressions |
 | Named repro/regression tests | 2 | root repro files |
 
 Root-package tests should shrink to public facade and API coverage. Codec
@@ -247,18 +261,18 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | --- | --- | --- | --- |
 | 1 | Public facade draft | `docs/api.md`, `doc.go`, `README.md` only if documenting | Decide final user surface before API changes |
 | 1 | Root facade file plan | `docs/repo-map.md`, future `options.go`, `vp8.go`, `vp9.go` plan only | No code moves yet |
-| 2 | VP9 encoder split | `vp9_encoder.go`, new `vp9_encoder_*.go`, focused `vp9_encoder_*_test.go` | Same package, no behavior change |
-| 2 | VP9 decoder split | `vp9_decoder.go`, `vp9_decoder_test.go`, new focused VP9 decoder files | Same package, no behavior change |
+| 2 | VP9 encoder split | `vp9_encoder*.go`, focused `vp9_encoder_*_test.go` | Current main: monolith is split; continue splitting the remaining large VP9 encoder files before package moves |
+| 2 | VP9 decoder split | `vp9_decoder.go`, focused VP9 decoder files | Current main: old giant decoder test is split; continue splitting decoder state/facade before package move |
 | 2 | VP9 oracle scoreboard split | `vp9_oracle_stream_parity_scoreboard_test.go`, VP9 oracle helper files | Keep `govpx_oracle_trace` tags |
 | 2 | VP8 encoder oversized files | `vp8_encoder.go`, `vp8_encoder_config.go`, `vp8_encoder_runtime_controls_test.go`, `vp8_encoder_ratecontrol_paths_test.go` | Split public option shell from private config |
 | 2 | Root diagnostic naming | `vp8_task*_test.go`, `vp8_byte*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename/delete only; no expectation changes |
 | 3 | VP8 decoder move | root `vp8_decoder*.go` private pieces, `internal/vp8/decoder/**` | Root keeps `VP8Decoder` facade |
-| 3 | VP8 encoder move | root `vp8_encoder*.go`, `vp8_ratecontrol*.go`, `timing.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Root keeps `VP8Encoder` facade; `options.go` keeps shared public rate-control/update types |
+| 3 | VP8 encoder move | root `vp8_encoder*.go`, `vp8_ratecontrol*.go`, `timing.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Current main: file names now identify VP8 ownership and public rate-control/update structs live in `options.go`; package move still not done |
 | 3/4 | VP8 source-buffer move | root `vp8_encoder_source_buffer.go`, VP8 lookahead/preprocess/reference call sites, `internal/vp8/encoder/source_buffer.go` | Current branch: internal VP8 encoder owns source-to-frame copy, active-map partial copy, and visible-to-coded padding; root keeps public/internal image-view adapters only |
 | 3 | VP9 decoder move | root `vp9_decoder*.go`, VP9 decoder tests, `internal/vp9/decoder/**` | Root keeps `VP9Decoder` facade |
 | 3 | VP9 encoder move | root `vp9_*` encoder/ratecontrol/AQ/TPL files, VP9 encoder tests, `internal/vp9/encoder/**` | Move after same-package split |
 | 3/4 | RTP ownership move | root `rtp.go`, `vp8_rtp.go`, `vp9_rtp.go`, `internal/vpx/{errors,rtp}/**`, `internal/vp{8,9}/rtp/**`, RTP tests/fuzz | Current branch: root files are public facade aliases/wrappers; descriptor logic lives in codec-owned internal packages; shared mechanics cover payload sizing, fragment sizing, packet buffer checks, marker placement, frame assembly copy loops, and sentinel errors only |
-| 3 | VP9 superframe move | root `vp9_superframe.go`, `vp9_decoder.go` parser wrapper, `internal/vp9/bitstream/superframe.go`, superframe tests/fuzz | Current branch: root keeps public pack helpers; VP9 bitstream package owns parse/write mechanics |
+| 3 | VP9 superframe move | root `vp9_superframe.go`, `vp9_decoder.go` parser wrapper, `internal/vp9/bitstream/superframe.go`, superframe tests/fuzz | Current main: root keeps `VP9SuperframeSize` and `PackVP9SuperframeInto`; VP9 bitstream package owns parse/write mechanics; allocating wrappers are gone |
 | 3 | Stream-info parser move | root `streaminfo.go`, `internal/vp8/decoder/streaminfo.go`, `internal/vp9/decoder/streaminfo.go`, stream-info tests | Current branch: root keeps public structs and peek functions; VP8/VP9 decoder packages own parser-visible metadata extraction |
 | 3 | VP9 frame-context adaptation move | root `vp9_decoder_adapt.go`, `vp9_decoder_threading.go`, `vp9_encoder_counts_bridge.go`, `internal/vp9/decoder/adapt.go` | Current branch: internal VP9 decoder owns adaptation count shapes, merge formulas, and frame-count accumulation helpers used by root decoder/encoder bridges |
 | 3/4 | VP9 frame-buffer layout move | root `vp9_decoder.go`, VP9 encoder reconstruction/loop-filter call sites, `internal/vp9/common/frame_layout.go` | Current branch: internal VP9 common owns border/stride/origin/alignment math shared by VP9 decoder and encoder reconstruction buffers |
@@ -273,7 +287,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 5 | API cleanup | root public files, examples, docs | Current branch: removed the unreleased `RealtimeTarget.AllowFrameDrop` fallback and private legacy wrapper call shapes; continue removing stale public/internal compatibility aliases before release |
 | 6 | Test suite hygiene | package-local `*_unit`, `*_oracle`, `*_fuzz`, `*_bench`, `*_regression` files | Move helpers first, then suites |
 | 6.5 | Tracing/perf hygiene | trace/probe files, allocation tests, representative benches | Preserve disabled-path zero cost |
-| 6.75 | Dead code sweep | stale private helpers, old public names, compatibility wrappers, diagnostic leftovers | Current branch: removed env-only log probes, `diag`-tag tests, and always-skipped documentation tests whose live coverage now lives in fuzz/byte-parity gates; continue keeping build-tagged/oracle/generated/fuzz/public-surface code only with a documented reason |
+| 6.75 | Dead code sweep | stale private helpers, old public names, compatibility wrappers, diagnostic leftovers | Current main: removed env-only log probes, `diag`-tag tests, always-skipped documentation tests, allocating superframe wrappers, and several private staging helpers; continue keeping build-tagged/oracle/generated/fuzz/public-surface code only with a documented reason |
 | 7 | Docs rewrite | `README.md`, `docs/api.md`, `docs/architecture.md`, `docs/codec-status.md`, `docs/validation.md`, `UPSTREAM.md`, `plan.md` links | Current branch: README links to focused architecture/status/validation docs; parity notes stay out of the README |
 | 8 | Final sweep | stale shims, examples, `.gitignore`, `docs/repo-map.md` | Full production verification |
 
@@ -303,13 +317,19 @@ the stricter gate for both lanes.
 
 ## Immediate Safe Next Steps
 
-1. Land this Wave 0 map and the repo tidy plan as documentation only.
-2. Draft `docs/api.md` without code changes.
-3. Split `vp9_encoder.go` in package `govpx` before moving any VP9 encoder
-   code. This is the largest review risk and the only hand-authored
-   implementation file currently above 2,500 lines.
-4. Split `vp9_encoder_test.go`, `vp9_decoder_test.go`, and the two largest
-   oracle scoreboard tests before moving the corresponding implementations.
-5. Keep root-package code moves behind green `go test ./... -count=1` safe
+1. Continue Wave 2 cleanup on the remaining largest files:
+   `vp9_pick_inter_mode_nonrd.go`, `vp9_encoder_key_modes.go`,
+   `vp9_speed_features.go`, `vp9_decoder.go`, and the largest oracle/runtime
+   test suites.
+2. Start Wave 3 with one codec boundary at a time. VP8 encoder is the most
+   prepared root family after the `vp8_*` naming and `options.go` split, but it
+   still needs a careful facade/internal ownership plan before files move.
+3. Keep deleting unreleased compatibility wrappers and private staging helpers
+   only after reference checks and focused tests prove they are unused.
+4. Keep root-package code moves behind green `go test ./... -count=1` safe
    points. Escalate to `make ci` for codec behavior-sensitive boundaries and
    `make verify-production` for final integration.
+5. Do not mark the tidy goal complete until root is a real facade, VP8/VP9
+   internals are package-owned, duplicated tests are consolidated, disabled
+   instrumentation has measured zero-cost proof, and the production gate is
+   green.

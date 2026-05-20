@@ -31,9 +31,10 @@ library:
   API, VP8 implementation, VP9 implementation, oracle tests, diagnostics, and
   parity experiments. Tests are scattered as one-off files instead of being
   organized into clear suites.
-- The largest files are too big for safe review, especially `vp9_encoder.go`,
-  `vp9_encoder_test.go`, `vp9_decoder_test.go`, and several oracle scoreboard
-  tests.
+- Some original monoliths have been split, but the largest remaining
+  implementation and oracle/test files are still too large for comfortable
+  review. Keep using `docs/repo-map.md` as the current ledger instead of
+  assuming an earlier Wave 0 filename list is still exact.
 - `internal/vp8` and `internal/vp9` already exist, but a lot of codec-specific
   implementation still lives in package `govpx`.
 - VP8 and VP9 RTP helpers, runtime controls, rate-control concepts, docs, and
@@ -170,6 +171,8 @@ Acceptance:
 - No file that is hand-authored implementation code remains over 2500 lines
   unless explicitly justified in `docs/repo-map.md`.
 - Same package, same behavior, green tests.
+- Update `docs/repo-map.md` after each split batch so reviewers can tell which
+  large files remain and which old monoliths are already gone.
 
 ### Wave 3: Move Codec Internals
 
@@ -200,6 +203,9 @@ Acceptance:
   without oracle binaries, and does not hide codec-specific semantics.
 - Public examples are updated to the final API and compile.
 - `go test ./... -count=1` passes after each move batch.
+- `docs/repo-map.md` explicitly states that the goal is incomplete until this
+  acceptance list is true; progress docs must not imply the tidy work is done
+  merely because a safe point is green.
 
 ### Wave 4: Deduplicate Real Shared Work
 
