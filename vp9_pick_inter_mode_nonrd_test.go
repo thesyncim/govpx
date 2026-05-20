@@ -76,36 +76,36 @@ func TestVP9GetIntraCostPenaltyNoiseHighSuppressesSmallBlockReduction(t *testing
 func TestVP9NewmvDiffBiasNoiseInputs(t *testing.T) {
 	cases := []struct {
 		name        string
-		ne          vp9NoiseEstimateState
+		ne          encoder.NoiseEstimateState
 		wantEnabled bool
 		wantMedium  bool
 	}{
 		{
 			name: "disabled_high_value_stays_disabled",
-			ne: vp9NoiseEstimateState{
-				enabled: false,
-				thresh:  115,
-				value:   300,
+			ne: encoder.NoiseEstimateState{
+				Enabled: false,
+				Thresh:  115,
+				Value:   300,
 			},
 			wantEnabled: false,
 			wantMedium:  false,
 		},
 		{
 			name: "enabled_low_below_medium",
-			ne: vp9NoiseEstimateState{
-				enabled: true,
-				thresh:  115,
-				value:   90,
+			ne: encoder.NoiseEstimateState{
+				Enabled: true,
+				Thresh:  115,
+				Value:   90,
 			},
 			wantEnabled: true,
 			wantMedium:  false,
 		},
 		{
 			name: "enabled_medium_or_higher",
-			ne: vp9NoiseEstimateState{
-				enabled: true,
-				thresh:  115,
-				value:   116,
+			ne: encoder.NoiseEstimateState{
+				Enabled: true,
+				Thresh:  115,
+				Value:   116,
 			},
 			wantEnabled: true,
 			wantMedium:  true,

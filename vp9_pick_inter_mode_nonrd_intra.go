@@ -162,7 +162,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	// skip the intra sweep. govpx ports vp9_get_intra_cost_penalty
 	// verbatim from vp9_rd.c:778-794.
 	intraCostPenalty := vp9GetIntraCostPenalty(qindex, 0, bsize,
-		e.noiseEstimate.enabled, e.noiseEstimate.extractLevel())
+		e.noiseEstimate.Enabled, e.noiseEstimate.ExtractLevel())
 	rdmult := e.activeRDMult(qindex)
 	interModeThresh := encoder.RDCost(rdmult, encoder.RDDivBits, intraCostPenalty, 0)
 	screenFlat := e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
@@ -402,10 +402,10 @@ func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize,
 }
 
 func (e *VP9Encoder) vp9NewmvDiffBiasNoiseInputs() (bool, bool) {
-	if e == nil || !e.noiseEstimate.enabled {
+	if e == nil || !e.noiseEstimate.Enabled {
 		return false, false
 	}
-	return true, e.noiseEstimate.extractLevel() >= encoder.NoiseLevelMedium
+	return true, e.noiseEstimate.ExtractLevel() >= encoder.NoiseLevelMedium
 }
 
 func vp9NewmvDiffBiasLowvarInput(contentState encoder.ContentStateSB) bool {

@@ -126,8 +126,8 @@ func TestVP9EnsureSBPartitionChosenThreadsNoiseEstimate(t *testing.T) {
 		}
 		defer e.Close()
 		e.sf.VariancePartThreshMult = 2
-		e.noiseEstimate.enabled = enabled
-		e.noiseEstimate.value = value
+		e.noiseEstimate.Enabled = enabled
+		e.noiseEstimate.Value = value
 
 		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
 		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
