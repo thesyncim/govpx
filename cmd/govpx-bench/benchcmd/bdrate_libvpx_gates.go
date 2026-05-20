@@ -12,8 +12,8 @@ import (
 // govpx-vs-libvpx assertion that accompanies each per-feature BD-rate
 // gate. The Skip mode allows the gate test to t.Skip the libvpx
 // assertion when the helper binary is missing and the build was not
-// requested; this preserves backwards-compatible behaviour for
-// developers who haven't built the libvpx oracle yet.
+// requested; this keeps normal local test runs usable until the libvpx
+// oracle has been built.
 type LibvpxAbsoluteGate struct {
 	// MaxBDRateOverLibvpxPct is the cap on govpx-vs-libvpx BD-rate.
 	// Govpx is "OK" when it stays at or below this percentage worse
@@ -61,8 +61,7 @@ type FeatureLibvpxObservation struct {
 }
 
 // FormatFeatureScoreboard renders a per-feature markdown-ish scoreboard
-// table from the observations. The exact format mirrors the
-// FormatFeatureGateNumbers helper for the existing diagnostic test.
+// table from the observations.
 //
 // Column layout (matches the task spec):
 //
