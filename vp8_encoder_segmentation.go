@@ -196,14 +196,14 @@ func (e *VP8Encoder) aggressiveDenoiseSegmentationActiveForQuantizer(q int) bool
 	if e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
 		return false
 	}
-	if e.denoiser.mode != denoiserOnYUVAggressive {
+	if e.denoiser.mode != vp8enc.DenoiserOnYUVAggressive {
 		return false
 	}
 	params := e.denoiser.params
-	if q >= params.qpThresh {
+	if q >= params.QPThresh {
 		return false
 	}
-	if e.rc.framesSinceKeyframe <= 2*params.consecZeroLast {
+	if e.rc.framesSinceKeyframe <= 2*params.ConsecZeroLast {
 		return false
 	}
 	return true
@@ -400,7 +400,7 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 	// the cyclic-refresh-map walker's segment selection. The walker still
 	// ran above to decrement map entries and advance cyclic_refresh_mode_index.
 	if refreshCount > 0 && e.aggressiveDenoiseSegmentationActiveForQuantizer(q) {
-		threshold := e.denoiser.params.consecZeroLast
+		threshold := e.denoiser.params.ConsecZeroLast
 		for index := range count {
 			zeroLast := 0
 			if index < len(e.consecZeroLast) {

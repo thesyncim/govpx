@@ -84,8 +84,8 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 		configure := !e.denoiser.allocated || e.denoiser.width != e.opts.Width || e.denoiser.height != e.opts.Height
 		_ = e.denoiser.ensureAllocated(e.opts.Width, e.opts.Height)
 		if configure {
-			mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
-			e.denoiser.mode, e.denoiser.params = denoiserSetParameters(mode)
+			mode := vp8enc.DenoiserModeForSensitivity(e.opts.NoiseSensitivity)
+			e.denoiser.mode, e.denoiser.params = vp8enc.DenoiserSetParameters(mode)
 		}
 		meta.denoised = true
 	}

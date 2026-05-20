@@ -459,7 +459,7 @@ func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testi
 	// Pick Q below qp_thresh and frames_since_key past 2*consec_zerolast=30.
 	e.opts.NoiseSensitivity = 3
 	e.denoiser.allocated = true
-	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
+	e.denoiser.mode, e.denoiser.params = vp8enc.DenoiserSetParameters(vp8enc.DenoiserModeForSensitivity(e.opts.NoiseSensitivity))
 	e.rc.currentQuantizer = 40
 	e.rc.framesSinceKeyframe = 100
 	cfg := e.cyclicRefreshSegmentationConfig(false)
@@ -731,104 +731,9 @@ func TestDenoiserInactiveActiveMapMacroblocksUseZeroMVLastDecision(t *testing.T)
 		t.Fatalf("denoiser state len = %d, want at least %d", len(e.denoiser.state), rows*cols)
 	}
 	for i, state := range e.denoiser.state[:rows*cols] {
-		if state != denoiserStateFilterZeroMV {
+		if state != vp8enc.DenoiserStateFilterZeroMV {
 			t.Fatalf("inactive MB %d denoiser state = %d, want zero-MV filter state", i, state)
 		}
-	}
-}
-
-func TestDenoiserModeMappingMatchesLibvpx(t *testing.T) {
-	cases := []struct {
-		level    int
-		wantMode int
-	}{
-		{0, 0},
-		{1, 1},
-		{2, 2},
-		{3, 3},
-		{4, 2},
-		{5, 2},
-		{6, 2},
-	}
-	for _, c := range cases {
-		if got := denoiserModeForSensitivity(c.level); got != c.wantMode {
-			t.Fatalf("noise_sensitivity %d -> mode %d, want %d", c.level, got, c.wantMode)
-		}
-	}
-}
-
-func TestDenoiserSetParametersMatchesLibvpxModes(t *testing.T) {
-	for _, mode := range []int{1, 2} {
-		kind, params := denoiserSetParameters(mode)
-		if mode == 1 && kind != denoiserOnYOnly {
-			t.Fatalf("mode=1 kind = %d, want denoiserOnYOnly", kind)
-		}
-		if mode == 2 && kind != denoiserOnYUV {
-			t.Fatalf("mode=2 kind = %d, want denoiserOnYUV", kind)
-		}
-		if params.scaleSSEThresh != 1 || params.scaleMotionThresh != 8 || params.scaleIncreaseFilter != 0 || params.denoiseMVBias != 95 || params.pickmodeMVBias != 100 || params.qpThresh != 0 {
-			t.Fatalf("non-aggressive params for mode=%d = %+v, want libvpx defaults", mode, params)
-		}
-	}
-	kind, params := denoiserSetParameters(3)
-	if kind != denoiserOnYUVAggressive {
-		t.Fatalf("mode=3 kind = %d, want denoiserOnYUVAggressive", kind)
-	}
-	if params.scaleSSEThresh != 2 || params.scaleMotionThresh != 16 || params.scaleIncreaseFilter != 1 || params.denoiseMVBias != 95 && params.denoiseMVBias != 60 || params.pickmodeMVBias != 75 || params.qpThresh != 80 || params.consecZeroLast != 15 {
-		t.Fatalf("aggressive params = %+v, want libvpx aggressive defaults", params)
-	}
-}
-
-func TestDenoiserFilterYReturnsCopyForSharpDifference(t *testing.T) {
-	// Pixels where source and mc_running_avg differ by huge amounts: filter
-	// should return COPY_BLOCK (sum_diff above threshold and delta>=4).
-	mc := make([]byte, 16*16)
-	avg := make([]byte, 16*16)
-	sig := make([]byte, 16*16)
-	for i := range mc {
-		mc[i] = 250
-	}
-	for i := range sig {
-		sig[i] = 0
-	}
-	if got := denoiserFilterY(mc, 16, avg, 16, sig, 16, 0, false); got != denoiserCopyBlock {
-		t.Fatalf("max-divergence filter decision = %d, want COPY_BLOCK", got)
-	}
-}
-
-func TestDenoiserFilterYUsesMCWhenAbsdiffSmall(t *testing.T) {
-	// |diff| <= 3 path: running_avg should be set to mc_running_avg, and the
-	// filter should accept (FILTER_BLOCK).
-	mc := make([]byte, 16*16)
-	avg := make([]byte, 16*16)
-	sig := make([]byte, 16*16)
-	for i := range mc {
-		mc[i] = 130
-	}
-	for i := range sig {
-		sig[i] = 128
-	}
-	if got := denoiserFilterY(mc, 16, avg, 16, sig, 16, 0, false); got != denoiserFilterBlock {
-		t.Fatalf("small-diff filter decision = %d, want FILTER_BLOCK", got)
-	}
-	for i := range avg {
-		if avg[i] != 130 {
-			t.Fatalf("avg[%d] = %d, want 130 (mc value taken when |diff|<=3)", i, avg[i])
-		}
-	}
-}
-
-func TestDenoiserFilterUVCopiesNearNeutralBlocks(t *testing.T) {
-	// 8x8 block where chroma is near 128 across the board: libvpx returns
-	// COPY without filtering because |sum_block - 128*64| < threshold.
-	mc := make([]byte, 8*8)
-	avg := make([]byte, 8*8)
-	sig := make([]byte, 8*8)
-	for i := range sig {
-		sig[i] = 128
-	}
-	if got := denoiserFilterUV(mc, 8, avg, 8, sig, 8, 0, false); got != denoiserCopyBlock {
-		t.Fatalf("near-neutral UV filter = %d, want COPY_BLOCK", got)
 	}
 }
 
@@ -856,7 +761,7 @@ func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
 		t.Fatalf("SetNoiseSensitivity(1): %v", err)
 	}
 	e.preprocessSource(src, 0, encodeSourceMetadata{})
-	if e.denoiser.mode != denoiserOnYOnly {
+	if e.denoiser.mode != vp8enc.DenoiserOnYOnly {
 		t.Fatalf("initial mode = %d, want Y-only", e.denoiser.mode)
 	}
 	if got := e.denoiserPickmodeMVBias(); got != 100 {
@@ -867,7 +772,7 @@ func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
 		t.Fatalf("SetNoiseSensitivity(3): %v", err)
 	}
 	e.preprocessSource(src, 0, encodeSourceMetadata{})
-	if e.denoiser.mode != denoiserOnYOnly {
+	if e.denoiser.mode != vp8enc.DenoiserOnYOnly {
 		t.Fatalf("mode after 1->3 = %d, want sticky Y-only", e.denoiser.mode)
 	}
 	if got := e.denoiserPickmodeMVBias(); got != 100 {
@@ -886,7 +791,7 @@ func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
 	if !e.denoiser.allocated {
 		t.Fatalf("denoiser deallocated after disable; libvpx keeps the buffers")
 	}
-	if e.denoiser.mode != denoiserOnYOnly {
+	if e.denoiser.mode != vp8enc.DenoiserOnYOnly {
 		t.Fatalf("mode after sticky disable = %d, want Y-only", e.denoiser.mode)
 	}
 	if err := e.SetNoiseSensitivity(3); err != nil {
@@ -896,7 +801,7 @@ func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
 	// libvpx: vp8_change_config skips vp8_denoiser_allocate when
 	// yv12_mc_running_avg.buffer_alloc is non-NULL, so the recorded
 	// denoiser_mode stays Y-only across noise_sensitivity 1 → 0 → 3.
-	if e.denoiser.mode != denoiserOnYOnly {
+	if e.denoiser.mode != vp8enc.DenoiserOnYOnly {
 		t.Fatalf("mode after sticky disable->3 = %d, want Y-only", e.denoiser.mode)
 	}
 	if got := e.denoiserPickmodeMVBias(); got != 100 {
@@ -907,7 +812,7 @@ func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
 		t.Fatalf("SetNoiseSensitivity(6): %v", err)
 	}
 	e.preprocessSource(src, 0, encodeSourceMetadata{})
-	if e.denoiser.mode != denoiserOnYOnly {
+	if e.denoiser.mode != vp8enc.DenoiserOnYOnly {
 		t.Fatalf("mode after 3->6 = %d, want sticky Y-only", e.denoiser.mode)
 	}
 }
@@ -920,12 +825,12 @@ func TestAggressiveDenoiseSegmentationUsesAllocatedDenoiserMode(t *testing.T) {
 	e.rc.framesSinceKeyframe = 60
 
 	e.denoiser.allocated = true
-	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(1))
+	e.denoiser.mode, e.denoiser.params = vp8enc.DenoiserSetParameters(vp8enc.DenoiserModeForSensitivity(1))
 	if e.aggressiveDenoiseSegmentationActive() {
 		t.Fatalf("aggressive denoise segmentation active with sticky Y-only mode")
 	}
 
-	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(3))
+	e.denoiser.mode, e.denoiser.params = vp8enc.DenoiserSetParameters(vp8enc.DenoiserModeForSensitivity(3))
 	if !e.aggressiveDenoiseSegmentationActive() {
 		t.Fatalf("aggressive denoise segmentation inactive with allocated aggressive mode")
 	}
@@ -937,23 +842,23 @@ func TestDenoiserReferenceTooOldMirrorsLibvpxRange(t *testing.T) {
 	e.referenceFrameNumbers[vp8common.AltRefFrame] = 1
 	e.referenceFrameNumbers[vp8common.LastFrame] = 0
 
-	e.frameCount = denoiserMaxGFARFRange
+	e.frameCount = vp8enc.DenoiserMaxGFARFRange
 	if e.denoiserReferenceTooOld(vp8common.GoldenFrame) {
-		t.Fatalf("GOLDEN ref at distance %d marked too old", denoiserMaxGFARFRange)
+		t.Fatalf("GOLDEN ref at distance %d marked too old", vp8enc.DenoiserMaxGFARFRange)
 	}
 
-	e.frameCount = denoiserMaxGFARFRange + 1
+	e.frameCount = vp8enc.DenoiserMaxGFARFRange + 1
 	if !e.denoiserReferenceTooOld(vp8common.GoldenFrame) {
-		t.Fatalf("GOLDEN ref at distance %d not marked too old", denoiserMaxGFARFRange+1)
+		t.Fatalf("GOLDEN ref at distance %d not marked too old", vp8enc.DenoiserMaxGFARFRange+1)
 	}
 
 	if e.denoiserReferenceTooOld(vp8common.LastFrame) {
 		t.Fatalf("LAST ref should never be rejected by the GF/ARF denoiser age gate")
 	}
 
-	e.frameCount = denoiserMaxGFARFRange + 1
+	e.frameCount = vp8enc.DenoiserMaxGFARFRange + 1
 	if e.denoiserReferenceTooOld(vp8common.AltRefFrame) {
-		t.Fatalf("ALTREF ref at distance %d marked too old", denoiserMaxGFARFRange)
+		t.Fatalf("ALTREF ref at distance %d marked too old", vp8enc.DenoiserMaxGFARFRange)
 	}
 }
 

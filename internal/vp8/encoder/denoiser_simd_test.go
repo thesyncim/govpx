@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"math/rand"
@@ -31,8 +31,8 @@ func TestDenoiserFilterYDispatchMatchesScalar(t *testing.T) {
 		}
 		motion := uint32(rng.Intn(900))
 		increase := rng.Intn(2) == 0
-		got := denoiserFilterY(mc, mcStride, avgDispatch, avgStride, sigDispatch, sigStride, motion, increase)
-		want := denoiserFilterYScalar(mc, mcStride, avgScalar, avgStride, sigScalar, sigStride, motion, increase)
+		got := DenoiserFilterY(mc, mcStride, avgDispatch, avgStride, sigDispatch, sigStride, motion, increase)
+		want := DenoiserFilterYScalar(mc, mcStride, avgScalar, avgStride, sigScalar, sigStride, motion, increase)
 		if got != want {
 			t.Fatalf("iter=%d decision=%d want %d", iter, got, want)
 		}
@@ -75,8 +75,8 @@ func TestDenoiserFilterUVDispatchMatchesScalar(t *testing.T) {
 		}
 		motion := uint32(rng.Intn(900))
 		increase := rng.Intn(2) == 0
-		got := denoiserFilterUV(mc, mcStride, avgDispatch, avgStride, sigDispatch, sigStride, motion, increase)
-		want := denoiserFilterUVScalar(mc, mcStride, avgScalar, avgStride, sigScalar, sigStride, motion, increase)
+		got := DenoiserFilterUV(mc, mcStride, avgDispatch, avgStride, sigDispatch, sigStride, motion, increase)
+		want := DenoiserFilterUVScalar(mc, mcStride, avgScalar, avgStride, sigScalar, sigStride, motion, increase)
 		if got != want {
 			t.Fatalf("iter=%d decision=%d want %d", iter, got, want)
 		}
@@ -97,7 +97,7 @@ func BenchmarkDenoiserFilterYDispatch(b *testing.B) {
 	mc, avg, sig := benchmarkDenoiserYBuffers()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = denoiserFilterY(mc, 16, avg, 16, sig, 16, 0, false)
+		_ = DenoiserFilterY(mc, 16, avg, 16, sig, 16, 0, false)
 	}
 }
 
@@ -105,7 +105,7 @@ func BenchmarkDenoiserFilterUVDispatch(b *testing.B) {
 	mc, avg, sig := benchmarkDenoiserUVBuffers()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = denoiserFilterUV(mc, 8, avg, 8, sig, 8, 0, false)
+		_ = DenoiserFilterUV(mc, 8, avg, 8, sig, 8, 0, false)
 	}
 }
 
@@ -113,7 +113,7 @@ func BenchmarkDenoiserFilterUVScalar(b *testing.B) {
 	mc, avg, sig := benchmarkDenoiserUVBuffers()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = denoiserFilterUVScalar(mc, 8, avg, 8, sig, 8, 0, false)
+		_ = DenoiserFilterUVScalar(mc, 8, avg, 8, sig, 8, 0, false)
 	}
 }
 
@@ -121,7 +121,7 @@ func BenchmarkDenoiserFilterYScalar(b *testing.B) {
 	mc, avg, sig := benchmarkDenoiserYBuffers()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = denoiserFilterYScalar(mc, 16, avg, 16, sig, 16, 0, false)
+		_ = DenoiserFilterYScalar(mc, 16, avg, 16, sig, 16, 0, false)
 	}
 }
 

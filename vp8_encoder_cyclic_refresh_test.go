@@ -551,7 +551,7 @@ func TestAssignInterFrameStaticSegmentsAggressiveDenoiseOverridesByConsecZeroLas
 	e.rc.currentQuantizer = 50
 	e.rc.framesSinceKeyframe = 60
 	e.denoiser.allocated = true
-	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
+	e.denoiser.mode, e.denoiser.params = vp8enc.DenoiserSetParameters(vp8enc.DenoiserModeForSensitivity(e.opts.NoiseSensitivity))
 	if !e.aggressiveDenoiseSegmentationActive() {
 		t.Fatalf("aggressiveDenoiseSegmentationActive=false, want true under test setup")
 	}
@@ -559,7 +559,7 @@ func TestAssignInterFrameStaticSegmentsAggressiveDenoiseOverridesByConsecZeroLas
 	e.cyclicRefreshAttemptMap = make([]int8, count)
 	e.consecZeroLast = make([]uint8, count)
 	// Set three MBs above the consec_zerolast threshold (15) and others below.
-	threshold := e.denoiser.params.consecZeroLast
+	threshold := e.denoiser.params.ConsecZeroLast
 	overIdx := map[int]bool{3: true, 7: true, 11: true}
 	for i := range count {
 		if overIdx[i] {
@@ -604,7 +604,7 @@ func TestAssignInterFrameStaticSegmentsAggressiveDenoiseSkippedWhenBudgetZero(t 
 	e.rc.framesSinceKeyframe = 300
 	e.lastInterSkipCount = count // 100% > 95% threshold
 	e.denoiser.allocated = true
-	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
+	e.denoiser.mode, e.denoiser.params = vp8enc.DenoiserSetParameters(vp8enc.DenoiserModeForSensitivity(e.opts.NoiseSensitivity))
 	if !e.aggressiveDenoiseSegmentationActive() {
 		t.Fatalf("aggressive-denoise gate flipped off; this test relies on it being active")
 	}
@@ -615,7 +615,7 @@ func TestAssignInterFrameStaticSegmentsAggressiveDenoiseSkippedWhenBudgetZero(t 
 	e.cyclicRefreshMap = make([]int8, count)
 	e.cyclicRefreshAttemptMap = make([]int8, count)
 	e.consecZeroLast = make([]uint8, count)
-	threshold := e.denoiser.params.consecZeroLast
+	threshold := e.denoiser.params.ConsecZeroLast
 	for i := range count {
 		// Even with very-zero-last MBs, the override must not run because
 		// block_count == 0 at the libvpx gate.

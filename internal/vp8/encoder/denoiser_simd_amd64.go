@@ -1,20 +1,28 @@
-//go:build arm64 && !purego
+//go:build amd64 && !purego
 
-package govpx
+package encoder
 
 import "unsafe"
 
-// denoiserFilterYFirstPassNEON ports the common first pass of libvpx
-// v1.16.0 vp8/encoder/arm/neon/denoising_neon.c
-// vp8_denoiser_filter_neon. It writes the candidate running average and
+// libvpx v1.16.0 baseline: vp8/encoder/x86/denoising_sse2.c.
+
+const denoiserSSE2ByteRepeat = 0x0101010101010101
+
+// denoiserFilterYFirstPassSSE2 ports the common first pass of libvpx
+// v1.16.0 vp8/encoder/x86/denoising_sse2.c
+// vp8_denoiser_filter_sse2. It writes the candidate running average and
 // returns the saturated signed adjustment sum used by the accept/copy
 // threshold.
 //
 //go:noescape
-func denoiserFilterYFirstPassNEON(mc *byte, mcStride int, avg *byte, avgStride int, sig *byte, sigStride int, level1Adjustment uint64, level1Threshold uint64, sumOut *int32)
+func denoiserFilterYFirstPassSSE2(mc *byte, mcStride int, avg *byte, avgStride int, sig *byte, sigStride int, level1Adjustment uint64, level1Threshold uint64, sumOut *int32)
 
 //go:noescape
-func denoiserFilterUVFirstPassNEON(mc *byte, mcStride int, avg *byte, avgStride int, sig *byte, sigStride int, level1Adjustment uint64, level1Threshold uint64, sumOut *int32)
+func denoiserFilterUVFirstPassSSE2(mc *byte, mcStride int, avg *byte, avgStride int, sig *byte, sigStride int, level1Adjustment uint64, level1Threshold uint64, sumOut *int32)
+
+func repeatedDenoiserByte(v uint64) uint64 {
+	return v * denoiserSSE2ByteRepeat
+}
 
 func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) (int, bool) {
 	shiftInc := uint64(0)
@@ -27,15 +35,15 @@ func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg 
 	}
 	level1Threshold := 4 + shiftInc
 	var sum int32
-	denoiserFilterYFirstPassNEON(
+	denoiserFilterYFirstPassSSE2(
 		unsafe.SliceData(mcRunningAvg),
 		mcStride,
 		unsafe.SliceData(runningAvg),
 		avgStride,
 		unsafe.SliceData(sig),
 		sigStride,
-		level1Adjustment,
-		level1Threshold,
+		repeatedDenoiserByte(level1Adjustment),
+		repeatedDenoiserByte(level1Threshold),
 		&sum,
 	)
 	return int(sum), true
@@ -50,9 +58,9 @@ func denoiserFilterUVSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, 
 		}
 	}
 	raw := sumBlock - 128*8*8
-	rawMask := raw >> mvKernelSignShift
+	rawMask := raw >> intSignShift
 	if (raw^rawMask)-rawMask < denoiserSumDiffFromAvgThreshUV {
-		return denoiserCopyBlock, true
+		return DenoiserCopyBlock, true
 	}
 
 	shiftInc := uint64(0)
@@ -65,15 +73,15 @@ func denoiserFilterUVSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, 
 	}
 	level1Threshold := 4 + shiftInc
 	var sum int32
-	denoiserFilterUVFirstPassNEON(
+	denoiserFilterUVFirstPassSSE2(
 		unsafe.SliceData(mcRunningAvg),
 		mcStride,
 		unsafe.SliceData(runningAvg),
 		avgStride,
 		unsafe.SliceData(sig),
 		sigStride,
-		level1Adjustment,
-		level1Threshold,
+		repeatedDenoiserByte(level1Adjustment),
+		repeatedDenoiserByte(level1Threshold),
 		&sum,
 	)
 	sumDiff := int(sum)
@@ -81,12 +89,12 @@ func denoiserFilterUVSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, 
 	if increaseDenoising {
 		thresh = denoiserSumDiffThresholdHighUV
 	}
-	absMask := sumDiff >> mvKernelSignShift
+	absMask := sumDiff >> intSignShift
 	if (sumDiff^absMask)-absMask > thresh {
 		return 0, false
 	}
 	for r := range 8 {
 		copy(sig[r*sigStride:r*sigStride+8], runningAvg[r*avgStride:r*avgStride+8])
 	}
-	return denoiserFilterBlock, true
+	return DenoiserFilterBlock, true
 }
