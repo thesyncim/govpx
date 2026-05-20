@@ -1,3 +1,5 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 import (
@@ -73,10 +75,6 @@ func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
 		t.Fatalf("vpxenc-vp9 BaseQindex = %d, want pinned default %d",
 			got, vp9DefaultBaseQIndex)
 	}
-}
-
-func appendVP9YCbCrI420(out []byte, img *image.YCbCr) []byte {
-	return testutil.AppendYCbCrI420(out, img)
 }
 
 func assertVpxencVP9StreamInfo(t *testing.T, ivf []byte) {
