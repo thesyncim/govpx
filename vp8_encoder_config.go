@@ -974,7 +974,7 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForQuarterPelGate() int {
 // cpu_used+1 only reaches 15 at cpu_used >= 14 — production fixtures
 // at cpu_used=8 RT land at realistic Speed=9 and stay on Half, matching
 // libvpx's strict `Speed >= 15` requirement (task #247
-// TestVP8Task247ExtremeCPUUsedHalfPixelStaysEnabled).
+// TestVP8ExtremeCPUUsedHalfPixelStaysEnabled).
 //
 // Cannot clamp e.autoSpeed itself: task #350 audit established that
 // raising autoSpeed to cpu_used+1 cascades every Speed-conditioned

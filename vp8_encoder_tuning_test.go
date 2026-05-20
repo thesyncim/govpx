@@ -117,7 +117,7 @@ func TestTuneSSIMActivityMapAdjustsRDCost(t *testing.T) {
 	}
 }
 
-func TestActivityProbeRDConstantsCarryLastMacroblock(t *testing.T) {
+func TestActivityRDConstantsCarryLastMacroblock(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 16)
 	baseMult, baseDiv := libvpxRDConstantsWithZbin(4, 0)
 	if baseMult != 179 || baseDiv != 100 {
@@ -135,7 +135,7 @@ func TestActivityProbeRDConstantsCarryLastMacroblock(t *testing.T) {
 	}
 }
 
-func TestUpdateActivityProbeRDStateUsesBottomRightActivityMask(t *testing.T) {
+func TestUpdateActivityRDStateUsesBottomRightActivityMask(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 16)
 	e.activityMap = []uint32{64, 200000}
 	e.activityAvg = 100000

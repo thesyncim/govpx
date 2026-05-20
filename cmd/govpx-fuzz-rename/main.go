@@ -173,7 +173,7 @@ func classifyVP8EncoderOptions(data []byte) (string, error) {
 	return fmt.Sprintf("options_w%dh%d_%s_%s_%s_%s_%s", w, h, rc, dl, cpu, tokenLabel, erLabel), nil
 }
 
-// classifyVP8MultiResSVC mirrors vp8Task253FuzzCaseFromBytes verbatim
+// classifyVP8MultiResSVC mirrors vp8SVCFuzzCaseFromBytes verbatim
 // so each find lands with a name that encodes the shape+cpu+mode
 // dial it tripped.
 func classifyVP8MultiResSVC(data []byte) (string, error) {

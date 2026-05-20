@@ -152,7 +152,7 @@ func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
 // scratch, matching the libvpx vp8_encode_inter16x16 contract.
 //
 // Empirical result with Option A applied: BOTH ARNR audit pins
-// (TestVP8Byte0KF1280x720SSIMBestARNRAudit and *GoodARNRAudit) emitted
+// (TestVP8KF1280x720SSIMBestARNRParity and *GoodARNRParity) emitted
 // BYTE-IDENTICAL output to the cache-enabled run — same frame-1 govpx
 // SHA (Best=6b18859b0ed02b5c, Good=51aa383bd1489162) and same byte deltas
 // (-5 / -6 vs libvpx). This refutes the cache-divergence hypothesis: the

@@ -427,7 +427,7 @@ func TestVP8FeatureBDRateBaseline(t *testing.T) {
 //     libvpx in absolute kbps but PSNR barely moves; the cubic fit picks
 //     up the asymmetric saturation as a small positive BD-rate.
 //
-//   - Per-frame oracle bisect (vp8_task353_360p_panning_cbr_bisect_test.go,
+//   - Per-frame oracle bisect (vp8_360p_panning_cbr_parity_test.go,
 //     build-tag govpx_oracle_trace):
 //
 //     300 kbps: q=[10,106,106,106,106,...,104] vs libvpx
@@ -1163,8 +1163,8 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// On flat-Y screen-content MBs this inflated DC_PRED / V_PRED /
 	// H_PRED / TM_PRED's rate2 by ~20K bits vs libvpx, driving the picker
 	// to spend NEWMV+LAST bits where libvpx coded the MB as a skipped
-	// intra. The task #341 per-MB bisect (vp8_task341_screen_content_mb_
-	// bisect_test.go) pinned the divergence at frame 1 MB(5,0) DC_PRED
+	// intra. The screen-content MB parity test pinned the divergence at
+	// frame 1 MB(5,0) DC_PRED
 	// (govpx rate=20838 vs libvpx rate=1012, score=97846 vs 7622), and
 	// the verbatim port closes the gap to 0 mode/ref/mv mismatches across
 	// all 3600 MBs of the screen-content fixture. The BD-rate measurement
@@ -1181,7 +1181,7 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// require porting the libvpx coefficient-rate / token-cost ladder
 	// quirks that drive the residual rate gap below 10%.
 	//
-	// Task #352 bisect (vp8_task352_screen_content_residual_test.go)
+	// Task #352 bisect (vp8_screen_content_residual_parity_test.go)
 	// extends the task #341 per-MB probe across frames 2-11 and pins
 	// the residual divergence-seed at frame 2 MB(0,1). Frame 1 stays
 	// byte-exact (0 mismatches); frame 2 has 1326/3600 MB mode

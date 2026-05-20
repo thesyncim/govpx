@@ -368,7 +368,7 @@ import (
 //     Same upstream handoff as the byte-9 / byte-16 cluster.
 //
 // Historical re-measurement while the partition paths were still staged
-// (verified by TestVP9DeferredSeedsRemeasureRuntimeControls):
+// (verified by TestVP9DeferredSeedsRuntimeControlsParity):
 //
 //	PASS=0/9 FAIL=9/9. Seeds #0/#2/#4/#6 (cpu=0 panning content)
 //	diverge on frame 0 at first_byte_diff=9 by ~1000-2298 bytes —
@@ -398,7 +398,7 @@ import (
 //   - Phase E1b/E1c/E3 chain (already in #142)
 //
 // Per-seed aggregate size_delta (sum across all frames) under the
-// three gate combos (verified by TestVP9DeferredSeedsRemeasureRuntimeControls):
+// three gate combos (verified by TestVP9DeferredSeedsRuntimeControlsParity):
 //
 //	Default (no opt-in):
 //	  #0 af5570f5: +2754, #1 de6e098c: +4141, #2 967aad53: +7038,
@@ -458,7 +458,7 @@ import (
 //	  (1) The four cited seeds materialise as cpu_used=0 RT
 //	      (vp9OracleRuntimeFuzzCaseFromBytes resolves cpuPool[byte%4]=
 //	      cpuPool[0]=0 for #0/#2/#4/#6). Verified by
-//	      TestVP9DeferredSeedsRemeasureRuntimeControls output:
+//	      TestVP9DeferredSeedsRuntimeControlsParity output:
 //	      runtimectrl-#0-af5570f5 cpu=0,
 //	      runtimectrl-#2-967aad53 cpu=0,
 //	      runtimectrl-#4-59794cac cpu=0,
@@ -481,7 +481,7 @@ import (
 //	      useVP9KeyframeNonRDIntraMode (which requires
 //	      sf.UseNonrdPickMode != 0) before any nonrd code is reached.
 //
-//	Empirical confirmation: TestVP9DeferredSeedsRemeasureRuntimeControls
+//	Empirical confirmation: TestVP9DeferredSeedsRuntimeControlsParity
 //	with the staged partition paths enabled on this branch reproduces the
 //	exact same per-seed
 //	(got_len, want_len, first_byte_diff, size_delta) for seeds

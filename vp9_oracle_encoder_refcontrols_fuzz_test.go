@@ -719,7 +719,7 @@ var vp9RefControlsRegressionSeeds = [][]byte{
 	// sse for the 32x32 sub-blocks), or the NN coefficient
 	// tables, or the inference loop, diverge.
 	//
-	// Audit performed (vp9_ml_partition_audit_test.go):
+	// Audit performed (vp9_ml_partition_parity_test.go):
 	//
 	//  (1) NN coefficient tables. Pinned vp9_var_part_nn_-
 	//      {weights,bias}_{64,32,16}_layer{0,1} byte-for-byte

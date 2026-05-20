@@ -63,17 +63,16 @@ func oracleRuntimeControlFuzzMatchLimit(_ string) int {
 	// limit=7 tolerance to catch any regression in the matched suffix.
 	// This corpus enters the same partial good-quality inter recode area
 	// after a golden-reference overwrite. Frames 0-3 still pin the
-	// runtime-control setup before the known recode divergence. Task #187
-	// audit confirms (vp8_golden_overwrite_frame4_audit_test.go) that the
+	// runtime-control setup before the known recode divergence. The
+	// golden-reference regression coverage confirms that the
 	// libvpx golden-frame copy paths (vp8_set_reference,
-	// update_reference_frames, copy_buffer_to_{arf,gf}) and the post-task-#181
+	// update_reference_frames, copy_buffer_to_{arf,gf}) and the
 	// last_*_lf_deltas zeroing are byte-faithful for frames 0-3; the residual
-	// gap belongs to the same per-MB picker state cohort as task #173 but
+	// gap belongs to the same per-MB picker state cohort
 	// expressed via the deadline:good cluster following the
 	// setref:golden:panning:8 control burst.
 	//
-	// Task #211 (vp8_task211_bb41d74_recode_loop_audit_test.go) drills
-	// further: frame 4's recode loop converges to a DIFFERENT final
+	// Recode-loop parity coverage narrows frame 4 to a different final
 	// quantizer (govpx q=9, libvpx q=7) which cascades into per-MB picker
 	// divergence (govpx silently skips SPLITMV at MB(0,0) because its
 	// bestYRD=45362 cuts off SPLITMV partition shapes that libvpx accepts

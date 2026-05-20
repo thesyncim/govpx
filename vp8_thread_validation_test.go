@@ -1,0 +1,87 @@
+//go:build govpx_oracle_trace
+
+package govpx
+
+import (
+	"crypto/sha256"
+	"os"
+	"strconv"
+	"testing"
+)
+
+// TestVP8ThreadsValidation validates that the task #332 fix
+// (vp8_encoder_reconstruct.go breakoutSkip gate change) yields byte-exact
+// frame 1 parity vs libvpx on the BestARNR / GoodARNR ARNR cohorts at
+// threads=1, threads=2, AND threads=4. The pre-fix gate
+//
+//	breakoutSkip = !intra && (picker.MBSkipCoeff || staticBreakout)
+//
+// conflated libvpx's two real x->skip=1 sources (active_map_enabled+
+// inactive and static encode_breakout) with the picker's downstream
+// mbmi.mb_skip_coeff signal from tteob==0 (which only adjusts rate
+// accounting at calculate_final_rd_costs and does NOT gate
+// vp8_encode_inter16x16). The post-fix gate
+//
+//	breakoutSkip = !intra && (interMacroblockInactive || staticBreakout)
+//
+// matches libvpx vp8/encoder/encodeframe.c vp8cx_encode_inter_macroblock
+// (line 1275-1281) and rdopt.c evaluate_inter_mode_rd (rdopt.c:1607-1608
+// for inactive, 1620-1628 for encode_breakout).
+func TestVP8ThreadsValidation(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run task #332 threads validation")
+	}
+	vpxencOracle := findVpxencOracle(t)
+	for _, threads := range []int{1, 2, 4} {
+		t.Run("threads="+strconv.Itoa(threads), func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:             1280,
+				Height:            720,
+				FPS:               30,
+				RateControlMode:   RateControlVBR,
+				TargetBitrateKbps: 700,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				KeyFrameInterval:  999,
+				Deadline:          DeadlineBestQuality,
+				CpuUsed:           0,
+				Tuning:            TuneSSIM,
+				ScreenContentMode: 1,
+				TokenPartitions:   1,
+				Threads:           threads,
+				ARNRMaxFrames:     1,
+				ARNRStrength:      1,
+				ARNRType:          2,
+			}
+			extraArgs := libvpxEndUsageArgs([]string{
+				"--end-usage=vbr",
+				"--screen-content-mode=1",
+				"--token-parts=1",
+				"--threads=" + strconv.Itoa(threads),
+				"--tune=ssim",
+				"--arnr-maxframes=1",
+				"--arnr-strength=1",
+				"--arnr-type=2",
+			})
+			sources := make([]Image, 2)
+			for i := range sources {
+				sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
+			}
+			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+			// Task #349 quarantine: at threads=2 and threads=4 the
+			// libvpx oracle is exposed to MT-LF non-determinism.
+			// The reproducibility wrapper makes any oracle-side
+			// flake visible as a test failure with a SHA log rather
+			// than letting it taint this cross-thread parity check.
+			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task332-threads-validation", opts, 700, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
+			for i := range govpxFrames {
+				gs := sha256.Sum256(govpxFrames[i])
+				ls := sha256.Sum256(libvpxFrames[i])
+				if gs != ls {
+					t.Errorf("threads=%d frame %d: SHA mismatch govpx_len=%d libvpx_len=%d", threads, i, len(govpxFrames[i]), len(libvpxFrames[i]))
+				}
+				t.Logf("threads=%d frame %d: govpx_len=%d libvpx_len=%d match=%v", threads, i, len(govpxFrames[i]), len(libvpxFrames[i]), gs == ls)
+			}
+		})
+	}
+}

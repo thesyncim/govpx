@@ -57,7 +57,7 @@ oracle build directory is not tracked. Tracked generated/provenance assets inclu
 | VP9 decoder implementation | `vp9_decoder*.go`, VP9 decoder tests | `internal/vp9/decoder` |
 | VP9 RTP and superframe helpers | root `vp9_rtp.go` and `vp9_superframe.go` facades, `internal/vp9/rtp/rtp.go`, `internal/vp9/bitstream/superframe.go`, related tests/fuzz | Current main: root keeps `VP9SuperframeSize` and `PackVP9SuperframeInto`; allocating superframe wrappers are removed |
 | Oracle/parity harness | `oracle_*_test.go`, `vp9_oracle_*_test.go`, `internal/coracle`, `cmd/scoreboard-report` | `internal/vpx/testharness`, `internal/coracle`, package-local oracle suites |
-| Diagnostics/audits | `vp8_task*_test.go`, `vp8_byte*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename into regression suites or document as diagnostics; env-only log probes and always-skipped documentation tests are being deleted once covered by live parity/regression gates |
+| Parity/regression diagnostics | `*_parity_test.go`, `*_regression_test.go`, objective codec/behavior test files | Current main no longer uses task-numbered VP8/VP9 diagnostic file names; remaining cleanup is inside helper/comment names and suite placement |
 | Performance and quality gates | `feature_quality_gates*_test.go`, `benchmarks`, `cmd/govpx-bench`, `*_bench_test.go` | Package-local benches plus `cmd/govpx-bench` |
 
 Existing internal codec packages are already substantial:
@@ -202,7 +202,7 @@ diagnostics. A filename/package heuristic gives:
 | --- | ---: | --- |
 | Unit and pure Go codec tests | ~390 | root, `internal/vp8/*`, `internal/vp9/*`, `cmd/*` |
 | Oracle/parity tests | ~112 | mostly root `oracle_*`, `vp9_oracle_*`, `*_vpxdec_oracle_*`, `*_vpxenc_oracle_*` |
-| Diagnostic/audit/bisect tests | 61 | root `vp8_task*`, `vp8_byte*`, `*_audit_*`, `*_bisect_*` |
+| Parity/regression diagnostics | 61 | root `*_parity_test.go`, `*_regression_test.go`, and behavior-named codec suites |
 | Performance/quality tests | 19 | `feature_quality_gates*`, `*_bench_test.go`, `cmd/govpx-bench/benchcmd` |
 | Fuzz entrypoints/regressions | ~45 by filename/content | root fuzz files plus internal fuzz tests and oracle fuzz regressions |
 | Named repro/regression tests | 2 | root repro files |
@@ -265,7 +265,7 @@ move unless a separate, explicitly approved parity-baseline packet requires it.
 | 2 | VP9 decoder split | `vp9_decoder.go`, focused VP9 decoder files | Current main: old giant decoder test is split; continue splitting decoder state/facade before package move |
 | 2 | VP9 oracle scoreboard split | `vp9_oracle_stream_parity_scoreboard_test.go`, VP9 oracle helper files | Keep `govpx_oracle_trace` tags |
 | 2 | VP8 encoder oversized files | `vp8_encoder.go`, `vp8_encoder_config.go`, `vp8_encoder_runtime_controls_test.go`, `vp8_encoder_ratecontrol_paths_test.go` | Split public option shell from private config |
-| 2 | Root diagnostic naming | `vp8_task*_test.go`, `vp8_byte*_test.go`, `*_audit_test.go`, `*_bisect_test.go` | Rename/delete only; no expectation changes |
+| 2 | Root diagnostic naming | VP8/VP9 parity and regression test files | Current main: task-numbered and audit/bisect/tracer file names have been renamed to behavior-oriented parity/regression names; continue cleaning helper/comment names without expectation changes |
 | 3 | VP8 decoder move | root `vp8_decoder*.go` private pieces, `internal/vp8/decoder/**` | Root keeps `VP8Decoder` facade |
 | 3 | VP8 encoder move | root `vp8_encoder*.go`, `vp8_ratecontrol*.go`, `timing.go`, VP8 encoder tests, `internal/vp8/encoder/**` | Current main: file names now identify VP8 ownership and public rate-control/update structs live in `options.go`; package move still not done |
 | 3/4 | VP8 source-buffer move | root `vp8_encoder_source_buffer.go`, VP8 lookahead/preprocess/reference call sites, `internal/vp8/encoder/source_buffer.go` | Current branch: internal VP8 encoder owns source-to-frame copy, active-map partial copy, and visible-to-coded padding; root keeps public/internal image-view adapters only |
