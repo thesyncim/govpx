@@ -1,9 +1,8 @@
-package govpx
+package encoder
 
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9_mv_pred.go ports libvpx v1.16.0's vp9_mv_pred candidate-set SAD scan
@@ -44,7 +43,7 @@ import (
 //	void vp9_mv_pred(VP9_COMP *cpi, MACROBLOCK *x, uint8_t *ref_y_buffer,
 //	                 int ref_y_stride, int ref_frame, BLOCK_SIZE block_size)
 
-// vp9MvPredMaxCandidates is the maximum candidate-set size for vp9_mv_pred.
+// MvPredMaxCandidates is the maximum candidate-set size for vp9_mv_pred.
 // libvpx: vp9_rd.c:599-601:
 //
 //	const int num_mv_refs = MAX_MV_REF_CANDIDATES +
@@ -52,9 +51,9 @@ import (
 //
 // MAX_MV_REF_CANDIDATES = 2 (vp9_mvref_common.h:21); the (block_size <
 // max_partition_size) test contributes 0 or 1, so the candidate set is 2 or 3.
-const vp9MvPredMaxCandidates = 3
+const MvPredMaxCandidates = 3
 
-// vp9MvPredInputCandidate is one of the three MVs that vp9_mv_pred SADs against
+// MvPredInputCandidate is one of the three MVs that vp9_mv_pred SADs against
 // the source block. libvpx packs these into a stack-local MV[3] array; govpx
 // passes the same shape via a slice so callers can build it from the
 // ref_mvs[0..1] candidate list plus the optional x->pred_mv[ref] entry.
@@ -65,12 +64,12 @@ const vp9MvPredMaxCandidates = 3
 //	pred_mv[0] = x->mbmi_ext->ref_mvs[ref_frame][0].as_mv;
 //	pred_mv[1] = x->mbmi_ext->ref_mvs[ref_frame][1].as_mv;
 //	pred_mv[2] = x->pred_mv[ref_frame];
-type vp9MvPredInputCandidate struct {
-	mv    vp9dec.MV
-	valid bool // libvpx encodes "absent" as INT16_MAX in either component.
+type MvPredInputCandidate struct {
+	MV    vp9dec.MV
+	Valid bool // libvpx encodes "absent" as INT16_MAX in either component.
 }
 
-// vp9MvPredResult is the output tuple vp9_mv_pred writes to MACROBLOCK in
+// MvPredResult is the output tuple vp9_mv_pred writes to MACROBLOCK in
 // libvpx. govpx returns these by value because the picker is invoked
 // per-(ref_frame, block_size) and the caller stashes the values into the
 // per-call predMvSad/maxMvContext/mvBestRefIndex arrays.
@@ -82,13 +81,13 @@ type vp9MvPredInputCandidate struct {
 //	x->pred_mv_sad[ref_frame]       = best_sad;
 //
 // (vp9_rd.c:636-638)
-type vp9MvPredResult struct {
-	bestSad      uint64 // libvpx's pred_mv_sad units (uint32 in C; we widen).
-	bestIndex    int    // index into the input candidate set, 0..num_mv_refs-1.
-	maxMvContext int    // max(|row|, |col|) >> 3 across the input candidates.
+type MvPredResult struct {
+	BestSad      uint64 // libvpx's pred_mv_sad units (uint32 in C; we widen).
+	BestIndex    int    // index into the input candidate set, 0..num_mv_refs-1.
+	MaxMvContext int    // max(|row|, |col|) >> 3 across the input candidates.
 }
 
-// vp9MvPredScanCandidates ports the body of vp9_mv_pred verbatim. It does
+// MvPredScanCandidates ports the body of vp9_mv_pred verbatim. It does
 // not depend on a particular VP9_COMP / MACROBLOCK shape — the caller hands
 // in the candidate triple plus the source / ref planes and block geometry.
 //
@@ -115,7 +114,7 @@ type vp9MvPredResult struct {
 //	  if (this_sad < best_sad) { best_sad = this_sad; best_index = i; }
 //	}
 //
-// The src / ref slices use encoder.BlockSAD, which already routes
+// The src / ref slices use BlockSAD, which already routes
 // size-specialized callers to vpx_sad{NxM} (vpx_dsp/sad.c). The (src_x,
 // src_y) anchor is the source-plane offset to the top-left of the SB; libvpx
 // uses x->plane[0].src.buf directly because the buf pointer already includes
@@ -124,17 +123,17 @@ type vp9MvPredResult struct {
 // ref_y_anchor_x / ref_y_anchor_y are the reference-plane offsets to the
 // same block origin BEFORE the per-candidate (fp_col, fp_row) offset is
 // added. Callers compute these once per ref/block.
-func vp9MvPredScanCandidates(
-	candidates []vp9MvPredInputCandidate, numMvRefs int,
+func MvPredScanCandidates(
+	candidates []MvPredInputCandidate, numMvRefs int,
 	src []byte, srcStride int, srcX, srcY int,
 	refY []byte, refYStride int, refAnchorX, refAnchorY int,
 	refOriginX, refOriginY, refRows int,
 	blockW, blockH int,
-) vp9MvPredResult {
+) MvPredResult {
 	// libvpx: vp9_rd.c:590-593.
 	//   int zero_seen = 0; int best_index = 0; int best_sad = INT_MAX;
 	//   int max_mv = 0;
-	out := vp9MvPredResult{bestSad: ^uint64(0)}
+	out := MvPredResult{BestSad: ^uint64(0)}
 	zeroSeen := false
 
 	// libvpx: vp9_rd.c:608-609.
@@ -142,8 +141,8 @@ func vp9MvPredScanCandidates(
 	//     x->mbmi_ext->ref_mvs[ref_frame][0].as_int ==
 	//     x->mbmi_ext->ref_mvs[ref_frame][1].as_int;
 	nearSameNearest := false
-	if len(candidates) >= 2 && candidates[0].valid && candidates[1].valid &&
-		candidates[0].mv == candidates[1].mv {
+	if len(candidates) >= 2 && candidates[0].Valid && candidates[1].Valid &&
+		candidates[0].MV == candidates[1].MV {
 		nearSameNearest = true
 	}
 
@@ -156,7 +155,7 @@ func vp9MvPredScanCandidates(
 		// libvpx: vp9_rd.c:614 — INT16_MAX skip semantics. The govpx
 		// "valid" boolean covers the same predicate (callers populate
 		// valid=false for INT16_MAX components).
-		if !c.valid {
+		if !c.Valid {
 			continue
 		}
 		// libvpx: vp9_rd.c:615 — if (i == 1 && near_same_nearest) continue;
@@ -169,8 +168,8 @@ func vp9MvPredScanCandidates(
 		// The (this_mv->row >= 0) test is +1 when non-negative, 0 when
 		// negative; libvpx relies on signed >>3 arithmetic-shifting toward
 		// minus-infinity. Go's int >> on signed types is also arithmetic.
-		row := int(c.mv.Row)
-		col := int(c.mv.Col)
+		row := int(c.MV.Row)
+		col := int(c.MV.Col)
 		var rowAdj, colAdj int
 		if row >= 0 {
 			rowAdj = 1
@@ -193,8 +192,8 @@ func vp9MvPredScanCandidates(
 		}
 		thisMag := max(absCol, absRow)
 		thisMag >>= 3
-		if thisMag > out.maxMvContext {
-			out.maxMvContext = thisMag
+		if thisMag > out.MaxMvContext {
+			out.MaxMvContext = thisMag
 		}
 
 		// libvpx: vp9_rd.c:620-621 — zero_seen dedup.
@@ -222,20 +221,20 @@ func vp9MvPredScanCandidates(
 
 		// libvpx: vp9_rd.c:624 fn_ptr[bsize].sdf — size-specialized SAD.
 		// encoder.BlockSAD dispatches to the same vpx_sad{NxM} kernels.
-		thisSad := encoder.BlockSADOffsets(src, srcY*srcStride+srcX,
+		thisSad := BlockSADOffsets(src, srcY*srcStride+srcX,
 			srcStride, refY, refYTop*refYStride+refXLeft, refYStride,
 			blockW, blockH, ^uint64(0))
 
 		// libvpx: vp9_rd.c:629-632 — track best.
-		if thisSad < out.bestSad {
-			out.bestSad = thisSad
-			out.bestIndex = i
+		if thisSad < out.BestSad {
+			out.BestSad = thisSad
+			out.BestIndex = i
 		}
 	}
 	return out
 }
 
-// vp9MvPredNumCandidates ports the num_mv_refs formula at vp9_rd.c:599-601.
+// MvPredNumCandidates ports the num_mv_refs formula at vp9_rd.c:599-601.
 //
 //	const int num_mv_refs = MAX_MV_REF_CANDIDATES +
 //	                        (block_size < x->max_partition_size);
@@ -245,7 +244,7 @@ func vp9MvPredScanCandidates(
 // runs with max_partition_size = BLOCK_64X64 (libvpx vp9_encodeframe.c:5315
 // — ML_BASED_PARTITION sets x->max_partition_size = BLOCK_64X64) so any bsize
 // strictly less than BLOCK_64X64 includes the third candidate.
-func vp9MvPredNumCandidates(blockSize, maxPartitionSize common.BlockSize) int {
+func MvPredNumCandidates(blockSize, maxPartitionSize common.BlockSize) int {
 	// libvpx MAX_MV_REF_CANDIDATES (vp9_mvref_common.h:21).
 	n := 2
 	if blockSize < maxPartitionSize {
@@ -254,18 +253,18 @@ func vp9MvPredNumCandidates(blockSize, maxPartitionSize common.BlockSize) int {
 	return n
 }
 
-// vp9NewmvDiffBiasResult is the (rate, dist, rdcost) override that
+// NewmvDiffBiasResult is the (rate, dist, rdcost) override that
 // vp9_NEWMV_diff_bias rewrites in place on the candidate RD_COST. govpx
-// returns the new rdcost so callers don't mutate the candidate state until
+// returns the new RD cost so callers don't mutate the candidate state until
 // the rest of the per-candidate work has completed.
 //
 // libvpx: vp9_pickmode.c:1309-1372.
-type vp9NewmvDiffBiasResult struct {
-	rdcost   uint64 // possibly-adjusted rdcost.
-	adjusted bool   // true when at least one of the two branches fired.
+type NewmvDiffBiasResult struct {
+	RDCost   uint64 // possibly adjusted RD cost.
+	Adjusted bool   // true when at least one of the two branches fired.
 }
 
-// vp9NewmvDiffBias ports vp9_NEWMV_diff_bias verbatim.
+// NewmvDiffBias ports vp9_NEWMV_diff_bias verbatim.
 //
 // libvpx: vp9_pickmode.c:1309-1372:
 //
@@ -288,13 +287,13 @@ type vp9NewmvDiffBiasResult struct {
 // The encoder wires noise_estimate and lowvar_highsumdiff into the
 // caller-side gate. sb_is_skin remains an explicit input because libvpx
 // derives it from x->sb_is_skin, which govpx does not surface for VP9 yet.
-func vp9NewmvDiffBias(thisMode common.PredictionMode, rdcost uint64,
+func NewmvDiffBias(thisMode common.PredictionMode, rdCost uint64,
 	bsize common.BlockSize, mvRow, mvCol int,
 	aboveMi, leftMi *vp9dec.NeighborMi,
 	isLastFrame bool, noiseEnabled bool, noiseAtLeastMedium bool,
 	lowvarHighsumdiff bool, isSkin bool,
-) vp9NewmvDiffBiasResult {
-	out := vp9NewmvDiffBiasResult{rdcost: rdcost}
+) NewmvDiffBiasResult {
+	out := NewmvDiffBiasResult{RDCost: rdCost}
 
 	// libvpx: vp9_pickmode.c:1313 — if (this_mode == NEWMV).
 	if thisMode == common.NewMv {
@@ -352,11 +351,11 @@ func vp9NewmvDiffBias(thisMode common.PredictionMode, rdcost uint64,
 		// libvpx: vp9_pickmode.c:1346-1351 — out-of-band shift.
 		if rowDiff > 48 || rowDiff < -48 || colDiff > 48 || colDiff < -48 {
 			if bsize > common.Block32x32 {
-				out.rdcost = out.rdcost << 1
+				out.RDCost = out.RDCost << 1
 			} else {
-				out.rdcost = (3 * out.rdcost) >> 1
+				out.RDCost = (3 * out.RDCost) >> 1
 			}
-			out.adjusted = true
+			out.Adjusted = true
 		}
 	}
 
@@ -374,13 +373,13 @@ func vp9NewmvDiffBias(thisMode common.PredictionMode, rdcost uint64,
 	}
 	if noiseEnabled && noiseAtLeastMedium && bsize >= common.Block32x32 &&
 		isLastFrame && absRow < 8 && absCol < 8 {
-		out.rdcost = 7 * (out.rdcost >> 3)
-		out.adjusted = true
+		out.RDCost = 7 * (out.RDCost >> 3)
+		out.Adjusted = true
 	} else if lowvarHighsumdiff && !isSkin && bsize >= common.Block16x16 &&
 		// libvpx: vp9_pickmode.c:1358-1361 — low-var/high-sum-diff bias.
 		isLastFrame && absRow < 16 && absCol < 16 {
-		out.rdcost = 7 * (out.rdcost >> 3)
-		out.adjusted = true
+		out.RDCost = 7 * (out.RDCost >> 3)
+		out.Adjusted = true
 	}
 	return out
 }

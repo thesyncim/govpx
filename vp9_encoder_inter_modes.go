@@ -1472,35 +1472,35 @@ func (e *VP9Encoder) vp9InterMvPredSearchSeed(inter *vp9InterEncodeState,
 		return vp9dec.MV{}, false
 	}
 	refRows := len(refBuf) / refStride
-	var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
+	var candidates [encoder.MvPredMaxCandidates]encoder.MvPredInputCandidate
 	refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
 		e.useVP9EncoderPrevFrameMvs(miRows, miCols),
 		e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 		tile, miRows, miCols, miRow, miCol, bsize,
 		common.NearMv, refFrame, inter.refSignBias, -1)
 	if refCount >= 1 {
-		candidates[0] = vp9MvPredInputCandidate{mv: refList[0], valid: true}
+		candidates[0] = encoder.MvPredInputCandidate{MV: refList[0], Valid: true}
 	}
 	if refCount >= 2 {
-		candidates[1] = vp9MvPredInputCandidate{mv: refList[1], valid: true}
+		candidates[1] = encoder.MvPredInputCandidate{MV: refList[1], Valid: true}
 	}
 	if predMv, ok := e.vp9VarPartSBPredMv(miCols, miRow, miCol, refFrame); ok {
-		candidates[2] = vp9MvPredInputCandidate{mv: predMv, valid: true}
+		candidates[2] = encoder.MvPredInputCandidate{MV: predMv, Valid: true}
 	}
 	maxPartitionSize := e.sf.DefaultMaxPartitionSize
 	if maxPartitionSize == 0 {
 		maxPartitionSize = common.Block64x64
 	}
-	result := vp9MvPredScanCandidates(candidates[:],
-		vp9MvPredNumCandidates(bsize, maxPartitionSize),
+	result := encoder.MvPredScanCandidates(candidates[:],
+		encoder.MvPredNumCandidates(bsize, maxPartitionSize),
 		src, srcStride, x0, y0,
 		refBuf, refStride, x0, y0, refOriginX, refOriginY, refRows,
 		blockW, blockH)
-	if result.bestIndex < 0 || result.bestIndex >= len(candidates) ||
-		!candidates[result.bestIndex].valid {
+	if result.BestIndex < 0 || result.BestIndex >= len(candidates) ||
+		!candidates[result.BestIndex].Valid {
 		return vp9dec.MV{}, false
 	}
-	return candidates[result.bestIndex].mv, true
+	return candidates[result.BestIndex].MV, true
 }
 
 type vp9InterMvSearchOptions struct {

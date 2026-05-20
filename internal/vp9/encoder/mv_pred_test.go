@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"testing"
@@ -23,9 +23,9 @@ func TestVP9MvPredNumCandidates(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := vp9MvPredNumCandidates(tc.bsize, tc.maxPartitionSize)
+			got := MvPredNumCandidates(tc.bsize, tc.maxPartitionSize)
 			if got != tc.want {
-				t.Errorf("vp9MvPredNumCandidates(%v, %v) = %d, want %d",
+				t.Errorf("MvPredNumCandidates(%v, %v) = %d, want %d",
 					tc.bsize, tc.maxPartitionSize, got, tc.want)
 			}
 		})
@@ -47,23 +47,23 @@ func TestVP9MvPredScanCandidatesNearSameNearest(t *testing.T) {
 	for i := range ref {
 		ref[i] = byte(i & 0xff)
 	}
-	cands := []vp9MvPredInputCandidate{
-		{mv: vp9dec.MV{Row: 8, Col: 8}, valid: true}, // fp=(1,1)
-		{mv: vp9dec.MV{Row: 8, Col: 8}, valid: true}, // duplicate
-		{valid: false},
+	cands := []MvPredInputCandidate{
+		{MV: vp9dec.MV{Row: 8, Col: 8}, Valid: true}, // fp=(1,1)
+		{MV: vp9dec.MV{Row: 8, Col: 8}, Valid: true}, // duplicate
+		{Valid: false},
 	}
 	// Both candidates would scan position (1,1) but near_same_nearest
 	// triggers and only one is scanned. The expected best_index = 0.
-	result := vp9MvPredScanCandidates(cands, 3,
+	result := MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
 		ref, stride, 0, 0, 0, 0, refRows,
 		w, h)
-	if result.bestIndex != 0 {
-		t.Errorf("bestIndex = %d, want 0 (libvpx near_same_nearest dedup)",
-			result.bestIndex)
+	if result.BestIndex != 0 {
+		t.Errorf("BestIndex = %d, want 0 (libvpx near_same_nearest dedup)",
+			result.BestIndex)
 	}
-	if result.bestSad == ^uint64(0) {
-		t.Error("bestSad sentinel — candidate scan never ran")
+	if result.BestSad == ^uint64(0) {
+		t.Error("BestSad sentinel — candidate scan never ran")
 	}
 }
 
@@ -81,27 +81,27 @@ func TestVP9MvPredScanCandidatesZeroSeenDedup(t *testing.T) {
 		src[i] = 100
 		ref[i] = 100
 	}
-	cands := []vp9MvPredInputCandidate{
+	cands := []MvPredInputCandidate{
 		// MV (3,3) eighth-pel rounds to (1,1) full-pel:
 		//   fp_row = (3 + 3 + 1) >> 3 = 0
 		//   fp_col = (3 + 3 + 1) >> 3 = 0
 		// So this is a "near-zero" candidate.
-		{mv: vp9dec.MV{Row: 3, Col: 3}, valid: true},
+		{MV: vp9dec.MV{Row: 3, Col: 3}, Valid: true},
 		// MV (1,1) eighth-pel also rounds to (0,0).
-		{mv: vp9dec.MV{Row: 1, Col: 1}, valid: true},
-		{valid: false},
+		{MV: vp9dec.MV{Row: 1, Col: 1}, Valid: true},
+		{Valid: false},
 	}
-	result := vp9MvPredScanCandidates(cands, 3,
+	result := MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
 		ref, stride, 0, 0, 0, 0, h,
 		w, h)
-	if result.bestSad != 0 {
-		t.Errorf("bestSad = %d, want 0 (matched ref at fp_offset (0,0))",
-			result.bestSad)
+	if result.BestSad != 0 {
+		t.Errorf("BestSad = %d, want 0 (matched ref at fp_offset (0,0))",
+			result.BestSad)
 	}
-	if result.bestIndex != 0 {
-		t.Errorf("bestIndex = %d, want 0 (libvpx zero_seen dedup keeps first)",
-			result.bestIndex)
+	if result.BestIndex != 0 {
+		t.Errorf("BestIndex = %d, want 0 (libvpx zero_seen dedup keeps first)",
+			result.BestIndex)
 	}
 }
 
@@ -118,18 +118,18 @@ func TestVP9MvPredScanCandidatesInvalidSkip(t *testing.T) {
 		src[i] = byte(i & 0xff)
 		ref[i] = byte(i & 0xff)
 	}
-	cands := []vp9MvPredInputCandidate{
-		{valid: false},
-		{valid: false},
-		{valid: false},
+	cands := []MvPredInputCandidate{
+		{Valid: false},
+		{Valid: false},
+		{Valid: false},
 	}
-	result := vp9MvPredScanCandidates(cands, 3,
+	result := MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
 		ref, stride, 0, 0, 0, 0, h,
 		w, h)
-	if result.bestSad != ^uint64(0) {
-		t.Errorf("bestSad = %d, want sentinel (no valid candidates scanned)",
-			result.bestSad)
+	if result.BestSad != ^uint64(0) {
+		t.Errorf("BestSad = %d, want sentinel (no valid candidates scanned)",
+			result.BestSad)
 	}
 }
 
@@ -141,20 +141,20 @@ func TestVP9MvPredScanCandidatesMaxMvContext(t *testing.T) {
 	const stride = 16
 	src := make([]byte, stride*h)
 	ref := make([]byte, stride*h)
-	cands := []vp9MvPredInputCandidate{
+	cands := []MvPredInputCandidate{
 		// |row|/|col| = max(|8|, |16|) >> 3 = 2.
-		{mv: vp9dec.MV{Row: 8, Col: 16}, valid: true},
+		{MV: vp9dec.MV{Row: 8, Col: 16}, Valid: true},
 		// |row|/|col| = max(|24|, |-7|) >> 3 = 3.
-		{mv: vp9dec.MV{Row: 24, Col: -7}, valid: true},
-		{valid: false},
+		{MV: vp9dec.MV{Row: 24, Col: -7}, Valid: true},
+		{Valid: false},
 	}
-	result := vp9MvPredScanCandidates(cands, 3,
+	result := MvPredScanCandidates(cands, 3,
 		src, stride, 0, 0,
 		ref, stride, 0, 0, 0, 0, h,
 		w, h)
-	if result.maxMvContext != 3 {
-		t.Errorf("maxMvContext = %d, want 3 (max(|row|,|col|) >> 3 across candidates)",
-			result.maxMvContext)
+	if result.MaxMvContext != 3 {
+		t.Errorf("MaxMvContext = %d, want 3 (max(|row|,|col|) >> 3 across candidates)",
+			result.MaxMvContext)
 	}
 }
 
@@ -169,26 +169,26 @@ func TestVP9NewmvDiffBiasOutOfBandShift(t *testing.T) {
 		Mv: [2]vp9dec.MV{{Row: 0, Col: 0}},
 	}
 	// row_diff = 0 - 100 = -100, abs > 48 → fire.
-	// bsize > BLOCK_32X32 → rdcost << 1.
-	got := vp9NewmvDiffBias(common.NewMv, 1000, common.Block64x64,
+	// bsize > BLOCK_32X32 → RDCost << 1.
+	got := NewmvDiffBias(common.NewMv, 1000, common.Block64x64,
 		100, 0, above, left, false, false, false, false, false)
-	if !got.adjusted {
-		t.Error("expected adjusted=true when |row_diff| > 48 and bsize > 32x32")
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when |row_diff| > 48 and bsize > 32x32")
 	}
-	if got.rdcost != 2000 {
-		t.Errorf("rdcost = %d, want 2000 (1000 << 1 for bsize > BLOCK_32X32)",
-			got.rdcost)
+	if got.RDCost != 2000 {
+		t.Errorf("RDCost = %d, want 2000 (1000 << 1 for bsize > BLOCK_32X32)",
+			got.RDCost)
 	}
 
-	// bsize <= BLOCK_32X32 → rdcost = 3 * rdcost / 2.
-	got = vp9NewmvDiffBias(common.NewMv, 1000, common.Block16x16,
+	// bsize <= BLOCK_32X32 → RDCost = 3 * RDCost / 2.
+	got = NewmvDiffBias(common.NewMv, 1000, common.Block16x16,
 		100, 0, above, left, false, false, false, false, false)
-	if !got.adjusted {
-		t.Error("expected adjusted=true when |row_diff| > 48 and bsize <= 32x32")
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when |row_diff| > 48 and bsize <= 32x32")
 	}
-	if got.rdcost != 1500 {
-		t.Errorf("rdcost = %d, want 1500 (3 * 1000 / 2 for bsize <= BLOCK_32X32)",
-			got.rdcost)
+	if got.RDCost != 1500 {
+		t.Errorf("RDCost = %d, want 1500 (3 * 1000 / 2 for bsize <= BLOCK_32X32)",
+			got.RDCost)
 	}
 }
 
@@ -203,13 +203,13 @@ func TestVP9NewmvDiffBiasNoFireUnderThreshold(t *testing.T) {
 		Mv: [2]vp9dec.MV{{Row: 100, Col: 100}},
 	}
 	// al_avg = (100+100)/2 = 100. mv = (100,100). diff = 0.
-	got := vp9NewmvDiffBias(common.NewMv, 1000, common.Block64x64,
+	got := NewmvDiffBias(common.NewMv, 1000, common.Block64x64,
 		100, 100, above, left, false, false, false, false, false)
-	if got.adjusted {
-		t.Error("expected adjusted=false when row/col_diff is below 48")
+	if got.Adjusted {
+		t.Error("expected Adjusted=false when row/col_diff is below 48")
 	}
-	if got.rdcost != 1000 {
-		t.Errorf("rdcost = %d, want 1000 (no adjustment)", got.rdcost)
+	if got.RDCost != 1000 {
+		t.Errorf("RDCost = %d, want 1000 (no adjustment)", got.RDCost)
 	}
 }
 
@@ -218,13 +218,13 @@ func TestVP9NewmvDiffBiasNoFireUnderThreshold(t *testing.T) {
 func TestVP9NewmvDiffBiasSkipsNonNewMv(t *testing.T) {
 	above := &vp9dec.NeighborMi{}
 	left := &vp9dec.NeighborMi{}
-	got := vp9NewmvDiffBias(common.NearestMv, 1000, common.Block64x64,
+	got := NewmvDiffBias(common.NearestMv, 1000, common.Block64x64,
 		100, 100, above, left, false, false, false, false, false)
-	if got.adjusted {
+	if got.Adjusted {
 		t.Error("expected NEARESTMV to bypass the NEWMV branch (no shift)")
 	}
-	if got.rdcost != 1000 {
-		t.Errorf("rdcost = %d, want 1000 (NEARESTMV unmodified)", got.rdcost)
+	if got.RDCost != 1000 {
+		t.Errorf("RDCost = %d, want 1000 (NEARESTMV unmodified)", got.RDCost)
 	}
 }
 
@@ -234,15 +234,15 @@ func TestVP9NewmvDiffBiasSkipsNonNewMv(t *testing.T) {
 func TestVP9NewmvDiffBiasNoiseEstimateBias(t *testing.T) {
 	// Skip the NEWMV branch by choosing ZEROMV; we want only the
 	// noise-estimate branch to fire.
-	got := vp9NewmvDiffBias(common.ZeroMv, 8000, common.Block32x32,
+	got := NewmvDiffBias(common.ZeroMv, 8000, common.Block32x32,
 		1, 1, nil, nil, true, true, true, false, false)
-	if !got.adjusted {
-		t.Error("expected adjusted=true when noise-estimate gate passes")
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when noise-estimate gate passes")
 	}
-	// libvpx: this_rdc->rdcost = 7 * (this_rdc->rdcost >> 3);
+	// libvpx: this_rdc->RDCost = 7 * (this_rdc->RDCost >> 3);
 	// 8000 >> 3 = 1000; 7 * 1000 = 7000.
-	if got.rdcost != 7000 {
-		t.Errorf("rdcost = %d, want 7000 (7 * 8000 >> 3)", got.rdcost)
+	if got.RDCost != 7000 {
+		t.Errorf("RDCost = %d, want 7000 (7 * 8000 >> 3)", got.RDCost)
 	}
 }
 
@@ -250,9 +250,9 @@ func TestVP9NewmvDiffBiasNoiseEstimateBias(t *testing.T) {
 // on the noise-estimate clause.
 // libvpx ref: vp9/encoder/vp9_pickmode.c:1354.
 func TestVP9NewmvDiffBiasNoiseEstimateRequiresLast(t *testing.T) {
-	got := vp9NewmvDiffBias(common.ZeroMv, 8000, common.Block32x32,
+	got := NewmvDiffBias(common.ZeroMv, 8000, common.Block32x32,
 		1, 1, nil, nil, false, true, true, false, false)
-	if got.adjusted {
+	if got.Adjusted {
 		t.Error("noise-estimate clause must require is_last_frame")
 	}
 }
@@ -261,12 +261,12 @@ func TestVP9NewmvDiffBiasNoiseEstimateRequiresLast(t *testing.T) {
 // branch.
 // libvpx ref: vp9/encoder/vp9_pickmode.c:1358-1361.
 func TestVP9NewmvDiffBiasLowvarHighsumdiffBias(t *testing.T) {
-	got := vp9NewmvDiffBias(common.ZeroMv, 8000, common.Block16x16,
+	got := NewmvDiffBias(common.ZeroMv, 8000, common.Block16x16,
 		1, 1, nil, nil, true, false, false, true, false)
-	if !got.adjusted {
-		t.Error("expected adjusted=true when lowvar_highsumdiff gate passes")
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when lowvar_highsumdiff gate passes")
 	}
-	if got.rdcost != 7000 {
-		t.Errorf("rdcost = %d, want 7000 (7 * 8000 >> 3)", got.rdcost)
+	if got.RDCost != 7000 {
+		t.Errorf("RDCost = %d, want 7000 (7 * 8000 >> 3)", got.RDCost)
 	}
 }

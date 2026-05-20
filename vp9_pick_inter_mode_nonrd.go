@@ -68,7 +68,7 @@ import (
 //   - vp9_pickmode.c:2401-2410 ref_frame_cost + inter_mode_cost +
 //     skip_bit finalize → pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2414-2422 NEWMV_diff_bias (CBR speed>=5 non-screen)
-//     → vp9NewmvDiffBias
+//     → encoder.NewmvDiffBias
 //   - vp9_pickmode.c:2425-2435 encode_breakout_test + x->skip →
 //     pickVP9InterReferenceModeNonRD (encoder.EncodeBreakoutTest)
 //   - vp9_pickmode.c:2460-2462 strict-< winner + best_early_term →
@@ -441,11 +441,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// vp9_mv_pred (vp9_rd.c:588). When a ref's pred_mv_sad is more than 2x
 	// the dominant ref's, the entire ref is pruned.
 	//
-	// Full vp9_mv_pred candidate-set SAD via vp9MvPredScanCandidates (see
-	// vp9_mv_pred.go) is needed in two places: as the integer-search seed
-	// for NEWMV (libvpx x->mv_best_ref_index) and as the pred_mv_sad input
-	// to reference masking. The third candidate (x->pred_mv[ref]) is
-	// included only at bsize < max_partition_size; libvpx sets
+	// Full vp9_mv_pred candidate-set SAD via encoder.MvPredScanCandidates is
+	// needed in two places: as the integer-search seed for NEWMV (libvpx
+	// x->mv_best_ref_index) and as the pred_mv_sad input to reference
+	// masking. The third candidate (x->pred_mv[ref]) is included only at
+	// bsize < max_partition_size; libvpx sets
 	// max_partition_size = BLOCK_64X64 for the ML_BASED_PARTITION case
 	// (vp9_encodeframe.c:5315) and INT16_MAX for sizes >=
 	// max_partition_size (vp9_encodeframe.c:4216-4217), so it is skipped at
@@ -462,7 +462,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// libvpx: vp9_speed_features.c:876 — default at speed 0 / cpu_used 0.
 		maxPartitionSize = common.Block64x64
 	}
-	numMvRefs := vp9MvPredNumCandidates(bsize, maxPartitionSize)
+	numMvRefs := encoder.MvPredNumCandidates(bsize, maxPartitionSize)
 	var predMvSad [vp9dec.MaxRefFrames]uint64
 	var mvBestRefIndex [vp9dec.MaxRefFrames]int
 	var maxMvContext [vp9dec.MaxRefFrames]int
@@ -502,22 +502,22 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// x->pred_mv[ref]. govpx derives ref_mvs[ref][0..1]
 				// from vp9dec.FindInterMvRefsFields in its mode-independent
 				// shape: mode=NearMv sets earlyBreak=false in the scanner.
-				var candidates [vp9MvPredMaxCandidates]vp9MvPredInputCandidate
+				var candidates [encoder.MvPredMaxCandidates]encoder.MvPredInputCandidate
 				refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
 					e.useVP9EncoderPrevFrameMvs(miRows, miCols),
 					e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 					tile, miRows, miCols, miRow, miCol, bsize,
 					common.NearMv, r, inter.refSignBias, -1)
 				if refCount >= 1 {
-					candidates[0] = vp9MvPredInputCandidate{
-						mv:    refList[0],
-						valid: true,
+					candidates[0] = encoder.MvPredInputCandidate{
+						MV:    refList[0],
+						Valid: true,
 					}
 				}
 				if refCount >= 2 {
-					candidates[1] = vp9MvPredInputCandidate{
-						mv:    refList[1],
-						valid: true,
+					candidates[1] = encoder.MvPredInputCandidate{
+						MV:    refList[1],
+						Valid: true,
 					}
 				}
 				// libvpx: vp9_rd.c:606 — pred_mv[2] =
@@ -525,26 +525,26 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// its int-pro prepass; govpx caches that per SB and feeds it
 				// back here when available.
 				if predMv, ok := e.vp9VarPartSBPredMv(miCols, miRow, miCol, r); ok {
-					candidates[2] = vp9MvPredInputCandidate{
-						mv:    predMv,
-						valid: true,
+					candidates[2] = encoder.MvPredInputCandidate{
+						MV:    predMv,
+						Valid: true,
 					}
 				}
 
-				result := vp9MvPredScanCandidates(candidates[:], numMvRefs,
+				result := encoder.MvPredScanCandidates(candidates[:], numMvRefs,
 					src, srcStride, x0, y0,
 					refBuf, refStride, x0, y0, refOriginX, refOriginY, refRows,
 					blockW, blockH)
-				if result.bestSad != ^uint64(0) {
-					mvBestRefIndex[r] = result.bestIndex
-					maxMvContext[r] = result.maxMvContext
+				if result.BestSad != ^uint64(0) {
+					mvBestRefIndex[r] = result.BestIndex
+					maxMvContext[r] = result.MaxMvContext
 					if useMvPredCandidateSet {
-						predMvSad[r] = result.bestSad
+						predMvSad[r] = result.BestSad
 					}
-					if result.bestIndex >= 0 &&
-						result.bestIndex < len(candidates) &&
-						candidates[result.bestIndex].valid {
-						mvPredSearchSeed[r] = candidates[result.bestIndex].mv
+					if result.BestIndex >= 0 &&
+						result.BestIndex < len(candidates) &&
+						candidates[result.BestIndex].Valid {
+						mvPredSearchSeed[r] = candidates[result.BestIndex].MV
 						mvPredSearchSeedValid[r] = true
 					}
 				}
@@ -1447,12 +1447,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
 					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
 						newmvDiffBiasInputs()
-					biased := vp9NewmvDiffBias(thisMode, score, bsize,
+					biased := encoder.NewmvDiffBias(thisMode, score, bsize,
 						int(mv.Row), int(mv.Col),
 						above, left,
 						refFrame == vp9dec.LastFrame,
 						noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
-					score = biased.rdcost
+					score = biased.RDCost
 				}
 
 				cand = vp9InterModeDecision{
@@ -1501,12 +1501,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
 					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
 						newmvDiffBiasInputs()
-					biased := vp9NewmvDiffBias(thisMode, cand.score, bsize,
+					biased := encoder.NewmvDiffBias(thisMode, cand.score, bsize,
 						int(mv.Row), int(mv.Col),
 						above, left,
 						refFrame == vp9dec.LastFrame,
 						noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
-					cand.score = biased.rdcost
+					cand.score = biased.RDCost
 				}
 				if distortion < bestSseSoFar {
 					bestSseSoFar = distortion
