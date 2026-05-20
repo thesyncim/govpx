@@ -1,6 +1,10 @@
 package govpx
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/govpx/internal/vpx/arith"
+)
 
 type rateControlState struct {
 	mode RateControlMode
@@ -502,15 +506,15 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	}
 
 	var ok bool
-	rc.bufferSizeBits, ok = checkedMul(effectiveKbps, rc.bufferSizeMs)
+	rc.bufferSizeBits, ok = arith.CheckedMul(effectiveKbps, rc.bufferSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	rc.bufferInitialBits, ok = checkedMul(effectiveKbps, rc.bufferInitialSizeMs)
+	rc.bufferInitialBits, ok = arith.CheckedMul(effectiveKbps, rc.bufferInitialSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	rc.bufferOptimalBits, ok = checkedMul(effectiveKbps, rc.bufferOptimalSizeMs)
+	rc.bufferOptimalBits, ok = arith.CheckedMul(effectiveKbps, rc.bufferOptimalSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
@@ -628,7 +632,7 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 			targetBits = rc.laterKeyFrameTargetBits(targetBits, ctx)
 		}
 		if rc.maxIntraBitratePct > 0 {
-			maxIntraBits := percentOf(baseFrameTargetBits, rc.maxIntraBitratePct)
+			maxIntraBits := arith.PercentOf(baseFrameTargetBits, rc.maxIntraBitratePct)
 			if maxIntraBits <= 0 {
 				maxIntraBits = 1
 			}

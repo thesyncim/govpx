@@ -268,10 +268,10 @@ func TestAddInterResidualToAnalysisMacroblockMatchesFullReconstruct(t *testing.T
 			}
 			ref := testVP8Frame(t, 32, 32, 96, 90, 170)
 			quant := testRegularMacroblockQuant(t, 20)
-			is4x4 := interFrameModeUses4x4Tokens(tc.mode.Mode)
+			is4x4 := vp8enc.InterFrameModeUses4x4Tokens(tc.mode.Mode)
 
 			var decMode vp8dec.MacroblockMode
-			convertInterFrameMode(&tc.mode, &decMode)
+			vp8enc.ConvertInterFrameMode(&tc.mode, &decMode)
 			predMode := decMode
 			predMode.MBSkipCoeff = true
 			var zeroTokens vp8dec.MacroblockTokens
@@ -292,9 +292,9 @@ func TestAddInterResidualToAnalysisMacroblockMatchesFullReconstruct(t *testing.T
 
 			mode := tc.mode
 			mode.MBSkipCoeff = false
-			convertInterFrameMode(&mode, &decMode)
+			vp8enc.ConvertInterFrameMode(&mode, &decMode)
 			var tokens vp8dec.MacroblockTokens
-			convertMacroblockCoefficients(&coeffs, is4x4, &tokens)
+			vp8enc.ConvertMacroblockCoefficients(&coeffs, is4x4, &tokens)
 
 			full := testVP8Frame(t, 32, 32, 0, 0, 0)
 			if !reconstructInterAnalysisMacroblock(&full.Img, &ref.Img, 0, 0, &decMode, &tokens, &e.dequants[0], &e.reconstructScratch) {

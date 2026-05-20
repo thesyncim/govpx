@@ -530,7 +530,7 @@ func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage,
 		coeffs:    &coeffs,
 	})
 	var tokens vp8dec.MacroblockTokens
-	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	vp8enc.ConvertMacroblockCoefficients(&coeffs, false, &tokens)
 	return predictionSSE, reconstructAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &tokens, dequant, &e.reconstructScratch)
 }
 
@@ -586,7 +586,7 @@ func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage,
 		MV:       mv,
 	}
 	var decMode vp8dec.MacroblockMode
-	convertInterFrameMode(&mode, &decMode)
+	vp8enc.ConvertInterFrameMode(&mode, &decMode)
 	decMode.MBSkipCoeff = true
 	var emptyTokens vp8dec.MacroblockTokens
 	if !reconstructInterAnalysisMacroblock(&e.firstPassNewRef.Img, &e.firstPassLastRef.Img, mbRow, mbCol, &decMode, &emptyTokens, dequant, &e.reconstructScratch) {
@@ -606,7 +606,7 @@ func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage,
 		coeffs:    &coeffs,
 	})
 	var tokens vp8dec.MacroblockTokens
-	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	vp8enc.ConvertMacroblockCoefficients(&coeffs, false, &tokens)
 	decMode.MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs, false)
 	return reconstructInterAnalysisMacroblock(&e.firstPassNewRef.Img, &e.firstPassLastRef.Img, mbRow, mbCol, &decMode, &tokens, dequant, &e.reconstructScratch)
 }

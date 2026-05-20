@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vpx/arith"
+
 const (
 	// MaxTemporalLayers is the largest VP8 temporal-layer count exposed by
 	// govpx. It bounds [TemporalScalabilityConfig.LayerTargetBitrateKbps]
@@ -395,7 +397,7 @@ func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, s
 	for layer := meta.LayerID; layer < t.pattern.Layers; layer++ {
 		accounting := &t.accounting[layer]
 		accounting.TotalEncodedFrames++
-		accounting.EncodedBits = saturatingAdd(accounting.EncodedBits, encodedBits)
+		accounting.EncodedBits = arith.SaturatingAdd(accounting.EncodedBits, encodedBits)
 		t.updateLayerBuffer(accounting, encodedBits, showFrame || layer > meta.LayerID)
 	}
 	if !keyFrame {
@@ -422,7 +424,7 @@ func (t *temporalState) accountDroppedFrameBuffer(meta temporalFrame) {
 func (t *temporalState) updateLayerBufferConfig(cfg temporalBufferConfig) {
 	for layer := 0; layer < t.pattern.Layers; layer++ {
 		targetKbps := t.config.LayerTargetBitrateKbps[layer]
-		targetBits, ok := checkedMul(targetKbps, 1000)
+		targetBits, ok := arith.CheckedMul(targetKbps, 1000)
 		if !ok {
 			targetBits = maxInt()
 		}
@@ -438,13 +440,13 @@ func (t *temporalState) updateLayerBufferConfig(cfg temporalBufferConfig) {
 
 func (t *temporalState) updateLayerBuffer(accounting *temporalLayerAccounting, encodedBits int, showFrame bool) {
 	if showFrame {
-		accounting.BufferLevelBits = saturatingAdd(accounting.BufferLevelBits, accounting.FrameBandwidthBits)
+		accounting.BufferLevelBits = arith.SaturatingAdd(accounting.BufferLevelBits, accounting.FrameBandwidthBits)
 	}
-	accounting.BufferLevelBits = min(saturatingSub(accounting.BufferLevelBits, encodedBits), accounting.MaximumBufferBits)
+	accounting.BufferLevelBits = min(arith.SaturatingSub(accounting.BufferLevelBits, encodedBits), accounting.MaximumBufferBits)
 }
 
 func temporalLayerBufferBits(targetKbps int, bufferMs int) int {
-	value, ok := checkedMul(targetKbps, bufferMs)
+	value, ok := arith.CheckedMul(targetKbps, bufferMs)
 	if !ok {
 		return maxInt()
 	}

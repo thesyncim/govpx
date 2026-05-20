@@ -215,7 +215,7 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 			coeffs:        &coeffs,
 		})
 		var tokens vp8dec.MacroblockTokens
-		convertMacroblockCoefficients(&coeffs, false, &tokens)
+		vp8enc.ConvertMacroblockCoefficients(&coeffs, false, &tokens)
 		var dequantTables vp8common.FrameDequantTables
 		var dequant vp8common.MacroblockDequant
 		quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)

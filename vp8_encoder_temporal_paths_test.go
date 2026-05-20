@@ -7,6 +7,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
 func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
@@ -270,8 +271,8 @@ func TestEncodeIntoInvisibleTemporalFrameUsesLibvpxLayerOverheadAccounting(t *te
 }
 
 func temporalTestBufferAfterFrame(level int, frameBandwidth int, maximum int, encodedBits int) int {
-	level = saturatingAdd(level, frameBandwidth)
-	level = saturatingSub(level, encodedBits)
+	level = arith.SaturatingAdd(level, frameBandwidth)
+	level = arith.SaturatingSub(level, encodedBits)
 	if level > maximum {
 		return maximum
 	}

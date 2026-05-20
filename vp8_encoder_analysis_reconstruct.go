@@ -411,7 +411,7 @@ func reconstructAnalysisMacroblock(img *vp8common.Image, row int, col int, mode 
 // vp8_inverse_transform_mby (vp8/common/invtrans.h), writes per-Y-block
 // qcoeff[0] from xd->block[24].dqcoeff[], and applies DC-only IDCT for
 // every Y block with eob<=1 using q[0]*dq[0] (dq[0]=1 via the
-// dequant_y1_dc override). convertMacroblockCoefficients's
+// dequant_y1_dc override). vp8enc.ConvertMacroblockCoefficients's
 // max(src.EOB[i], 1) promotion on the !is4x4 path lets
 // AddMacroblockResidual cover this case for the production convert
 // pipeline; this helper is the catch-all keeping the analysis-image

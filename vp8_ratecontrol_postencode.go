@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vpx/arith"
+
 func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
 	rc.postEncodeFrameWithContext(sizeBytes, keyFrame, false, 0)
 }
@@ -60,9 +62,9 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 	rc.activeWorstQChanged = false
 	rc.updateRollingBitAverages(actualBits, targetBits)
 	if ctx.showFrame {
-		rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+		rc.bufferLevelBits = arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	}
-	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
+	rc.bufferLevelBits = arith.SaturatingSub(rc.bufferLevelBits, actualBits)
 	rc.clampBuffer()
 	if actualBits > 0 {
 		const maxInt64 = int64(^uint64(0) >> 1)
@@ -181,8 +183,8 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 				addedKF = overspend * 7 / 8
 				addedGF = overspend / 8
 			}
-			rc.kfOverspendBits = saturatingAdd(rc.kfOverspendBits, addedKF)
-			rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, addedGF)
+			rc.kfOverspendBits = arith.SaturatingAdd(rc.kfOverspendBits, addedKF)
+			rc.gfOverspendBits = arith.SaturatingAdd(rc.gfOverspendBits, addedGF)
 			outputFrameRate := rc.outputFrameRate
 			if rc.currentTemporalLayers > 1 && rc.currentLayerOutputFrameRate > 0 {
 				rc.outputFrameRate = rc.currentLayerOutputFrameRate
@@ -215,7 +217,7 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 	// alt-ref, so treat every golden refresh as the non-altref case
 	// (matches libvpx behaviour when source_alt_ref_active is 0).
 	interTarget := rc.interFrameTarget
-	rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, actualBits-interTarget)
+	rc.gfOverspendBits = arith.SaturatingAdd(rc.gfOverspendBits, actualBits-interTarget)
 	if rc.framesTillGFUpdateDue > 0 {
 		rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
 	}
@@ -244,7 +246,7 @@ func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int, er
 	if actualBits <= 0 {
 		return
 	}
-	rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, actualBits)
+	rc.gfOverspendBits = arith.SaturatingAdd(rc.gfOverspendBits, actualBits)
 	if rc.framesTillGFUpdateDue > 0 {
 		rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
 	}
@@ -339,7 +341,7 @@ func (rc *rateControlState) updateQuantizerAverages(q int, keyFrame bool, golden
 	if rc.normalInterFrames <= 0 {
 		rc.normalInterFrames = maxInt()
 	}
-	rc.normalInterQuantizerTotal = saturatingAdd(rc.normalInterQuantizerTotal, q)
+	rc.normalInterQuantizerTotal = arith.SaturatingAdd(rc.normalInterQuantizerTotal, q)
 	if rc.normalInterFrames > 150 {
 		rc.normalInterAvgQuantizer = rc.normalInterQuantizerTotal / rc.normalInterFrames
 	} else {
@@ -436,7 +438,7 @@ func (rc *rateControlState) shouldDropInterFrame() bool {
 }
 
 func (rc *rateControlState) postDropFrame() {
-	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.bufferLevelBits = arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	rc.clampBuffer()
 	if rc.frameDropPressure > 0 {
 		rc.frameDropPressure--
@@ -567,7 +569,7 @@ func (rc *rateControlState) checkDropBuffer(keyFrame bool) bool {
 // (the post-encode running buffer balance); the saturating refund matches
 // libvpx's clamp.
 func (rc *rateControlState) postDecimationDropFrame() {
-	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.bufferLevelBits = arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	rc.clampBuffer()
 	rc.framesSinceKeyframe++
 }

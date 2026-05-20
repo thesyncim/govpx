@@ -3,6 +3,7 @@ package govpx
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
 // EncodeInto encodes one input frame into dst and returns one encoded
@@ -1184,7 +1185,7 @@ func (e *VP8Encoder) refreshTemporalLayerCodingGeometry() {
 		state.BufferInitialBits = temporalLayerBufferBits(targetKbps, e.rc.bufferInitialSizeMs)
 		state.BufferOptimalBits = temporalLayerBufferBits(targetKbps, e.rc.bufferOptimalSizeMs)
 		state.MaximumBufferBits = temporalLayerBufferBits(targetKbps, e.rc.bufferSizeMs)
-		targetBits, ok := checkedMul(targetKbps, 1000)
+		targetBits, ok := arith.CheckedMul(targetKbps, 1000)
 		if !ok {
 			targetBits = maxInt()
 		}
@@ -1197,7 +1198,7 @@ func (e *VP8Encoder) initialTemporalLayerCodingState(layer int) temporalLayerCod
 	initialBits := temporalLayerBufferBits(targetKbps, e.rc.bufferInitialSizeMs)
 	optimalBits := temporalLayerBufferBits(targetKbps, e.rc.bufferOptimalSizeMs)
 	maximumBits := temporalLayerBufferBits(targetKbps, e.rc.bufferSizeMs)
-	targetBits, ok := checkedMul(targetKbps, 1000)
+	targetBits, ok := arith.CheckedMul(targetKbps, 1000)
 	if !ok {
 		targetBits = maxInt()
 	}
@@ -1235,8 +1236,8 @@ func (e *VP8Encoder) propagateTemporalLayerCodingState(meta temporalFrame, encod
 			continue
 		}
 		state := &e.temporal.codingState[layer]
-		state.BufferLevelBits = saturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
-		state.BufferLevelBits = min(saturatingSub(state.BufferLevelBits, encodedBits), state.MaximumBufferBits)
+		state.BufferLevelBits = arith.SaturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
+		state.BufferLevelBits = min(arith.SaturatingSub(state.BufferLevelBits, encodedBits), state.MaximumBufferBits)
 		if encodedBits > 0 {
 			const maxInt64 = int64(^uint64(0) >> 1)
 			if state.TotalActualBits > maxInt64-int64(encodedBits) {
@@ -1257,7 +1258,7 @@ func (e *VP8Encoder) propagateTemporalLayerDroppedCodingState(meta temporalFrame
 			continue
 		}
 		state := &e.temporal.codingState[layer]
-		state.BufferLevelBits = min(saturatingAdd(state.BufferLevelBits, state.BitsPerFrame), state.MaximumBufferBits)
+		state.BufferLevelBits = min(arith.SaturatingAdd(state.BufferLevelBits, state.BitsPerFrame), state.MaximumBufferBits)
 	}
 }
 

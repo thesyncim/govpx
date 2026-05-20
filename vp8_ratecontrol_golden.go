@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vpx/arith"
+
 var libvpxGFBoostQAdjustment = [128]int{
 	80, 82, 84, 86, 88, 90, 92, 94, 96, 97, 98, 99, 100, 101, 102,
 	103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
@@ -201,10 +203,10 @@ func (rc *rateControlState) updateRecentRefFrameUsage(intra, last, golden, alt i
 	if rc.framesSinceGolden <= 1 {
 		return
 	}
-	rc.recentRefFrameUsageIntra = saturatingAdd(rc.recentRefFrameUsageIntra, intra)
-	rc.recentRefFrameUsageLast = saturatingAdd(rc.recentRefFrameUsageLast, last)
-	rc.recentRefFrameUsageGolden = saturatingAdd(rc.recentRefFrameUsageGolden, golden)
-	rc.recentRefFrameUsageAltRef = saturatingAdd(rc.recentRefFrameUsageAltRef, alt)
+	rc.recentRefFrameUsageIntra = arith.SaturatingAdd(rc.recentRefFrameUsageIntra, intra)
+	rc.recentRefFrameUsageLast = arith.SaturatingAdd(rc.recentRefFrameUsageLast, last)
+	rc.recentRefFrameUsageGolden = arith.SaturatingAdd(rc.recentRefFrameUsageGolden, golden)
+	rc.recentRefFrameUsageAltRef = arith.SaturatingAdd(rc.recentRefFrameUsageAltRef, alt)
 }
 
 // resetRecentRefFrameUsage mirrors libvpx's GF refresh reset:

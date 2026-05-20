@@ -329,14 +329,14 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	}
 	mode.SegmentID = segmentID
 	args.modes[index] = mode
-	convertKeyFrameMode(&args.modes[index], &e.reconstructModes[index])
+	vp8enc.ConvertKeyFrameMode(&args.modes[index], &e.reconstructModes[index])
 	if args.modes[index].YMode == vp8common.BPred {
 		if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], segmentQIndex, zbinOverQuant, actZbinAdj, rdMult, rdDiv, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 			return 0, ErrInvalidConfig
 		}
 		args.modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&args.modes[index], &args.coeffs[index])
 		e.reconstructModes[index].MBSkipCoeff = args.modes[index].MBSkipCoeff
-		convertMacroblockCoefficients(&args.coeffs[index], true, &e.reconstructTokens[index])
+		vp8enc.ConvertMacroblockCoefficients(&args.coeffs[index], true, &e.reconstructTokens[index])
 		if err := rs.updateThreadedKeyFrameTokenContextAndCount(&args.aboveTok[col], &rs.leftTok, true, args.modes[index].MBSkipCoeff, &args.coeffs[index]); err != nil {
 			return 0, err
 		}
@@ -369,7 +369,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	})
 	args.modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&args.modes[index], &args.coeffs[index])
 	e.reconstructModes[index].MBSkipCoeff = args.modes[index].MBSkipCoeff
-	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
+	vp8enc.ConvertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
 	if args.modes[index].MBSkipCoeff {
 		vp8enc.ResetTokenContextPlanes(&args.aboveTok[col], &rs.leftTok, is4x4)
 	} else {
@@ -513,7 +513,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	if decision.useIntra {
 		args.modes[index] = decision.intraMode
 		args.modes[index].SegmentID = segmentID
-		convertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
+		vp8enc.ConvertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
 		if args.modes[index].Mode == vp8common.BPred {
 			zbinOverQuant := e.rc.currentZbinOverQuant
 			actZbinAdj := 0
@@ -538,7 +538,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		}
 	} else {
 		args.modes[index] = decision.interMode
-		convertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
+		vp8enc.ConvertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
 		predMode := e.reconstructModes[index]
 		predMode.MBSkipCoeff = true
 		if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
@@ -568,7 +568,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	if breakoutSkip {
 		clearMacroblockCoefficients(&args.coeffs[index])
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {
-		is4x4 := interFrameModeUses4x4Tokens(args.modes[index].Mode)
+		is4x4 := vp8enc.InterFrameModeUses4x4Tokens(args.modes[index].Mode)
 		// Same picker → accepted-path cache short-circuit as the serial
 		// builder (see buildReconstructingInterFrameCoefficientsWithSegmentation
 		// for the contract). Each row worker has its own encoder view, so
@@ -623,10 +623,10 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		})
 	}
 
-	is4x4 := interFrameModeUses4x4Tokens(args.modes[index].Mode)
+	is4x4 := vp8enc.InterFrameModeUses4x4Tokens(args.modes[index].Mode)
 	args.modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&args.coeffs[index], is4x4)
 	// Lane C accepted-candidate reuse: matches the serial path. The first
-	// convertInterFrameMode above (lines 383/393) is what produced
+	// vp8enc.ConvertInterFrameMode above (lines 383/393) is what produced
 	// e.reconstructModes[index] from args.modes[index]; nothing between
 	// that call and this point writes back to args.modes[index] or
 	// e.reconstructModes[index] except the MBSkipCoeff fix-up on the line
@@ -634,7 +634,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	// full re-serialize and skips the MacroblockMode memset plus the
 	// per-MB [16]MotionVector BlockMV fill the compiler cannot prove dead.
 	e.reconstructModes[index].MBSkipCoeff = args.modes[index].MBSkipCoeff
-	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
+	vp8enc.ConvertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
 	if args.modes[index].RefFrame == vp8common.IntraFrame && args.modes[index].Mode == vp8common.BPred {
 		if err := rs.updateThreadedInterFrameTokenContextAndCount(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index]); err != nil {
 			return 0, 0, err

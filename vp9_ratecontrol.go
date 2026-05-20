@@ -1,6 +1,9 @@
 package govpx
 
-import "github.com/thesyncim/govpx/internal/vp9/encoder"
+import (
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
+)
 
 type vp9RateControlState struct {
 	enabled bool
@@ -510,7 +513,7 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 		return ErrInvalidBitrate
 	}
 	kbps = rc.clampBitrateKbps(kbps)
-	targetBits, ok := checkedMul(kbps, 1000)
+	targetBits, ok := arith.CheckedMul(kbps, 1000)
 	if !ok {
 		return ErrInvalidBitrate
 	}
@@ -518,15 +521,15 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	if bitsPerFrame <= 0 {
 		return ErrInvalidBitrate
 	}
-	bufferSizeBits, ok := checkedMul(kbps, rc.bufferSizeMs)
+	bufferSizeBits, ok := arith.CheckedMul(kbps, rc.bufferSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	bufferInitialBits, ok := checkedMul(kbps, rc.bufferInitialSizeMs)
+	bufferInitialBits, ok := arith.CheckedMul(kbps, rc.bufferInitialSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	bufferOptimalBits, ok := checkedMul(kbps, rc.bufferOptimalSizeMs)
+	bufferOptimalBits, ok := arith.CheckedMul(kbps, rc.bufferOptimalSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
@@ -570,15 +573,15 @@ func (rc *vp9RateControlState) setBufferModel(sizeMs, initialMs, optimalMs int) 
 	if sizeMs <= 0 || initialMs < 0 || optimalMs < 0 {
 		return ErrInvalidConfig
 	}
-	sizeBits, ok := checkedMul(rc.targetBitrateKbps, sizeMs)
+	sizeBits, ok := arith.CheckedMul(rc.targetBitrateKbps, sizeMs)
 	if !ok {
 		return ErrInvalidConfig
 	}
-	initialBits, ok := checkedMul(rc.targetBitrateKbps, initialMs)
+	initialBits, ok := arith.CheckedMul(rc.targetBitrateKbps, initialMs)
 	if !ok {
 		return ErrInvalidConfig
 	}
-	optimalBits, ok := checkedMul(rc.targetBitrateKbps, optimalMs)
+	optimalBits, ok := arith.CheckedMul(rc.targetBitrateKbps, optimalMs)
 	if !ok {
 		return ErrInvalidConfig
 	}
@@ -688,7 +691,7 @@ func (rc *vp9RateControlState) preEncodeFrame(showFrame bool) {
 	if !rc.enabled || !showFrame {
 		return
 	}
-	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.bufferLevelBits = arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	rc.clampBuffer()
 }
 
@@ -805,7 +808,7 @@ func (rc *vp9RateControlState) postEncodeDropFrame() {
 	rc.rc2Frame = 0
 	rc.rc1Frame = 0
 	rc.lastQInter = rc.q1Frame
-	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.bufferLevelBits = arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	rc.clampBuffer()
 	rc.incrementFramesSinceKey()
 }
@@ -849,7 +852,7 @@ func (rc *vp9RateControlState) updateFrameBandwidthBounds() {
 	}
 	maxBits := max(maxByMB, encoder.MaxRate1080PBits)
 	if rc.bitsPerFrame > 0 {
-		vbrMax := percentOf(rc.bitsPerFrame, encoder.DefaultVBRMaxSectionPct)
+		vbrMax := arith.PercentOf(rc.bitsPerFrame, encoder.DefaultVBRMaxSectionPct)
 		if vbrMax > maxBits {
 			maxBits = vbrMax
 		}

@@ -898,7 +898,7 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 	// reconstruction stops after vp8_build_inter*_predictors_mb{y,uv} so
 	// pred holds the 16x16 luma + 8x8 chroma SPLITMV predictor.
 	var decMode vp8dec.MacroblockMode
-	convertInterFrameMode(&mode, &decMode)
+	vp8enc.ConvertInterFrameMode(&mode, &decMode)
 	decMode.MBSkipCoeff = true
 	yOff := mbRow*16*pred.YStride + mbCol*16
 	uOff := mbRow*8*pred.UStride + mbCol*8

@@ -111,23 +111,6 @@ func libvpxRollingBits(previous int, current int, weight int, shift uint) int {
 	return value >> shift
 }
 
-func saturatingAdd(a int, b int) int {
-	if b > 0 && a > maxInt()-b {
-		return maxInt()
-	}
-	if b < 0 && a < -maxInt()-b {
-		return -maxInt()
-	}
-	return a + b
-}
-
-func saturatingSub(a int, b int) int {
-	if b == -maxInt() {
-		return saturatingAdd(a, maxInt())
-	}
-	return saturatingAdd(a, -b)
-}
-
 func computeBitsPerFrame(targetBandwidthBits int, timing timingState) int {
 	if targetBandwidthBits <= 0 {
 		return 0
@@ -299,29 +282,6 @@ func normalizeRateControlPct(value int, fallback int) int {
 		return fallback
 	}
 	return value
-}
-
-func percentOf(value int, pct int) int {
-	if value <= 0 || pct <= 0 {
-		return 0
-	}
-	if value > maxInt()/pct {
-		return maxInt()
-	}
-	return (value * pct) / 100
-}
-
-func checkedMul(a int, b int) (int, bool) {
-	if min(a, b) < 0 {
-		return 0, false
-	}
-	if a == 0 || b == 0 {
-		return 0, true
-	}
-	if a > maxInt()/b {
-		return 0, false
-	}
-	return a * b, true
 }
 
 func maxInt() int {

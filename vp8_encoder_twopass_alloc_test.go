@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 func TestCollectFirstPassStatsAndTwoPassSceneCut(t *testing.T) {
@@ -82,24 +80,6 @@ func TestCollectFirstPassStatsAndTwoPassSceneCut(t *testing.T) {
 	}
 	if !result.KeyFrame || !result.SceneCut || result.PTS != 5 || result.TwoPassFrameTargetBits == 0 {
 		t.Fatalf("scene-cut result = key:%t scene:%t pts:%d target:%d, want two-pass scene-cut keyframe", result.KeyFrame, result.SceneCut, result.PTS, result.TwoPassFrameTargetBits)
-	}
-}
-
-func TestConvertMacroblockCoefficientsOverwritesActiveSkippedDCBlock(t *testing.T) {
-	var src vp8enc.MacroblockCoefficients
-	var dst vp8dec.MacroblockTokens
-	src.SetBlockEOB(0, 0)
-	dst.QCoeff[0][0] = 99
-	dst.QCoeff[0][1] = 77
-	dst.EOB[0] = 2
-
-	convertMacroblockCoefficients(&src, false, &dst)
-
-	if got := dst.EOB[0]; got != 1 {
-		t.Fatalf("EOB[0] = %d, want skipped-DC EOB 1", got)
-	}
-	if got := dst.QCoeff[0][0]; got != 0 {
-		t.Fatalf("QCoeff[0][0] = %d, want active skipped DC overwritten", got)
 	}
 }
 

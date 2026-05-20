@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vpx/arith"
+
 // clampBitrateKbps applies the libvpx VP9 rc_min_bitrate / rc_max_bitrate
 // bounds to a requested kbps update. Zero bounds disable that side of the
 // clamp. The returned value is guaranteed to be > 0 when kbps is > 0.
@@ -23,7 +25,7 @@ func (rc *vp9RateControlState) applyVP9UndershootBound(target int) int {
 	if rc == nil || rc.bitsPerFrame <= 0 || rc.undershootPct == 0 {
 		return target
 	}
-	floor := percentOf(rc.bitsPerFrame, int(rc.undershootPct))
+	floor := arith.PercentOf(rc.bitsPerFrame, int(rc.undershootPct))
 	if floor > 0 && target < floor {
 		return floor
 	}
@@ -51,7 +53,7 @@ func (rc *vp9RateControlState) applyVP9MaxIntraBound(target int) int {
 	if rc == nil || rc.bitsPerFrame <= 0 || rc.maxIntraBitratePct <= 0 {
 		return target
 	}
-	cap := percentOf(rc.bitsPerFrame, rc.maxIntraBitratePct)
+	cap := arith.PercentOf(rc.bitsPerFrame, rc.maxIntraBitratePct)
 	if cap > 0 && target > cap {
 		return cap
 	}
@@ -65,7 +67,7 @@ func (rc *vp9RateControlState) applyVP9MaxInterBound(target int) int {
 	if rc == nil || rc.bitsPerFrame <= 0 || rc.maxInterBitratePct <= 0 {
 		return target
 	}
-	cap := percentOf(rc.bitsPerFrame, rc.maxInterBitratePct)
+	cap := arith.PercentOf(rc.bitsPerFrame, rc.maxInterBitratePct)
 	if cap > 0 && target > cap {
 		return cap
 	}
@@ -78,7 +80,7 @@ func vp9OvershootCeil(bitsPerFrame, overshootPct int) int {
 	if bitsPerFrame <= 0 || overshootPct <= 0 {
 		return 0
 	}
-	ceil := percentOf(bitsPerFrame, 100+overshootPct)
+	ceil := arith.PercentOf(bitsPerFrame, 100+overshootPct)
 	if ceil < bitsPerFrame {
 		return bitsPerFrame
 	}

@@ -352,14 +352,14 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			totalRate = addProjectedMacroblockRate(totalRate, projectedRate)
 			mode.SegmentID = segmentID
 			modes[index] = mode
-			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
+			vp8enc.ConvertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if modes[index].YMode == vp8common.BPred {
 				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID&3], segmentQIndex, zbinOverQuant, actZbinAdj, rdMult, rdDiv, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 				modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
 				e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
-				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
+				vp8enc.ConvertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
 				if modes[index].MBSkipCoeff {
 					vp8enc.ResetTokenContextPlanes(&aboveTok[col], &leftTok, true)
 				} else {
@@ -398,7 +398,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			})
 			modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
 			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
-			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
+			vp8enc.ConvertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			if modes[index].MBSkipCoeff {
 				vp8enc.ResetTokenContextPlanes(&aboveTok[col], &leftTok, is4x4)
 			} else {
@@ -647,7 +647,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if decision.useIntra {
 				modes[index] = decision.intraMode
 				modes[index].SegmentID = segmentID
-				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
+				vp8enc.ConvertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if modes[index].Mode == vp8common.BPred {
 					zbinOverQuant := e.rc.currentZbinOverQuant
 					actZbinAdj := 0
@@ -678,7 +678,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 			} else {
 				modes[index] = decision.interMode
-				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
+				vp8enc.ConvertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				predMode := e.reconstructModes[index]
 				predMode.MBSkipCoeff = true
 				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
@@ -734,7 +734,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if breakoutSkip {
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
-				is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
+				is4x4 := vp8enc.InterFrameModeUses4x4Tokens(modes[index].Mode)
 				// When the RD picker staged the winning candidate's
 				// post-FDCT DCT inputs in the winner cache slot,
 				// hand them in as cacheIn so the function skips
@@ -795,20 +795,20 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					}
 				}
 			}
-			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
+			is4x4 := vp8enc.InterFrameModeUses4x4Tokens(modes[index].Mode)
 			finalCoeffSkip := false
 			if !breakoutSkip {
 				finalCoeffSkip = macroblockCoefficientsEmpty(&coeffs[index], is4x4)
 			}
 			modes[index].MBSkipCoeff = breakoutSkip || finalCoeffSkip
 			// Lane C accepted-candidate reuse: the picker→accepted boundary
-			// for an inter MB ends up calling convertInterFrameMode twice —
+			// for an inter MB ends up calling vp8enc.ConvertInterFrameMode twice —
 			// first at the winner branch above (lines 469/480) right after
 			// `modes[index] = decision.{intra,inter}Mode`, then a second
 			// time here after the MBSkipCoeff fix-up below. Between those
 			// two calls the only field of modes[index] that mutates is
 			// MBSkipCoeff (set on the line just above): every other input
-			// to convertInterFrameMode (SegmentID, RefFrame, Mode, UVMode,
+			// to vp8enc.ConvertInterFrameMode (SegmentID, RefFrame, Mode, UVMode,
 			// Is4x4, BModes, MV, BlockMV, Partition) is assigned exactly
 			// once when `modes[index] = decision.{...}` runs and is not
 			// touched by the intervening builders
@@ -823,7 +823,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// compiler cannot prove dead.
 			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 			if !modes[index].MBSkipCoeff {
-				convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
+				vp8enc.ConvertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			}
 			totalRate = addProjectedMacroblockRate(totalRate, projectedRate)
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {

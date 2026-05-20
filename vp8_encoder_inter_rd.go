@@ -89,7 +89,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		}
 	}
 	var decMode vp8dec.MacroblockMode
-	convertInterFrameMode(ctx.mode, &decMode)
+	vp8enc.ConvertInterFrameMode(ctx.mode, &decMode)
 	predMode := decMode
 	predMode.MBSkipCoeff = true
 	// segmentID is validated to [0, MaxMBSegments=4) at the caller
@@ -122,7 +122,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
-	is4x4 := interFrameModeUses4x4Tokens(ctx.mode.Mode)
+	is4x4 := vp8enc.InterFrameModeUses4x4Tokens(ctx.mode.Mode)
 	// Plumb the encoder's scratch DCT cache (when an RD picker pass is
 	// active) through to buildPredictedMacroblockCoefficients so each
 	// candidate's post-FDCT DCT inputs are staged. The picker swaps the

@@ -130,23 +130,23 @@ func (e *VP8Encoder) reallocateForDimensions(width int, height int) error {
 	mbRows := encoderMacroblockRows(height)
 	mbCols := encoderMacroblockCols(width)
 
-	e.cyclicRefreshMap = resizeInt8Slice(e.cyclicRefreshMap, mbCount)
-	e.cyclicRefreshAttemptMap = resizeInt8Slice(e.cyclicRefreshAttemptMap, mbCount)
-	e.skinMap = resizeUint8Slice(e.skinMap, mbCount)
-	e.consecZeroLast = resizeUint8Slice(e.consecZeroLast, mbCount)
-	e.consecZeroLastMVBias = resizeUint8Slice(e.consecZeroLastMVBias, mbCount)
-	e.dotArtifactChecked = resizeBoolSlice(e.dotArtifactChecked, mbCount)
-	e.activeMap = resizeUint8Slice(e.activeMap, mbCount)
-	e.keyFrameModes = resizeKeyFrameModeSlice(e.keyFrameModes, mbCount)
-	e.interFrameModes = resizeInterFrameModeSlice(e.interFrameModes, mbCount)
-	e.gfActiveMap = resizeBoolSlice(e.gfActiveMap, mbCount)
-	e.lastFrameInterModes = resizeInterFrameModeSlice(e.lastFrameInterModes, mbCount)
-	e.lastFrameInterModeBias = resizeBoolSlice(e.lastFrameInterModeBias, mbCount)
-	e.keyFrameCoeffs = resizeKeyFrameCoeffSlice(e.keyFrameCoeffs, mbCount)
-	e.tokenAbove = resizeTokenContextSlice(e.tokenAbove, mbCols)
-	e.reconstructAboveTok = resizeTokenContextSlice(e.reconstructAboveTok, mbCols)
-	e.reconstructModes = resizeReconstructModeSlice(e.reconstructModes, mbCount)
-	e.reconstructTokens = resizeReconstructTokensSlice(e.reconstructTokens, mbCount)
+	e.cyclicRefreshMap = vp8enc.ResizeInt8Slice(e.cyclicRefreshMap, mbCount)
+	e.cyclicRefreshAttemptMap = vp8enc.ResizeInt8Slice(e.cyclicRefreshAttemptMap, mbCount)
+	e.skinMap = vp8enc.ResizeUint8Slice(e.skinMap, mbCount)
+	e.consecZeroLast = vp8enc.ResizeUint8Slice(e.consecZeroLast, mbCount)
+	e.consecZeroLastMVBias = vp8enc.ResizeUint8Slice(e.consecZeroLastMVBias, mbCount)
+	e.dotArtifactChecked = vp8enc.ResizeBoolSlice(e.dotArtifactChecked, mbCount)
+	e.activeMap = vp8enc.ResizeUint8Slice(e.activeMap, mbCount)
+	e.keyFrameModes = vp8enc.ResizeKeyFrameModeSlice(e.keyFrameModes, mbCount)
+	e.interFrameModes = vp8enc.ResizeInterFrameModeSlice(e.interFrameModes, mbCount)
+	e.gfActiveMap = vp8enc.ResizeBoolSlice(e.gfActiveMap, mbCount)
+	e.lastFrameInterModes = vp8enc.ResizeInterFrameModeSlice(e.lastFrameInterModes, mbCount)
+	e.lastFrameInterModeBias = vp8enc.ResizeBoolSlice(e.lastFrameInterModeBias, mbCount)
+	e.keyFrameCoeffs = vp8enc.ResizeMacroblockCoefficientSlice(e.keyFrameCoeffs, mbCount)
+	e.tokenAbove = vp8enc.ResizeTokenContextSlice(e.tokenAbove, mbCols)
+	e.reconstructAboveTok = vp8enc.ResizeTokenContextSlice(e.reconstructAboveTok, mbCols)
+	e.reconstructModes = vp8dec.ResizeMacroblockModeSlice(e.reconstructModes, mbCount)
+	e.reconstructTokens = vp8dec.ResizeMacroblockTokenSlice(e.reconstructTokens, mbCount)
 
 	e.interCoefTokenRecords.Reset(mbRows, mbCount)
 
@@ -201,103 +201,4 @@ func (e *VP8Encoder) ensureRowWorkerPool(width int, height int) error {
 		}
 	}
 	return nil
-}
-
-func resizeInt8Slice(s []int8, n int) []int8 {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = 0
-		}
-		return s
-	}
-	return make([]int8, n)
-}
-
-func resizeUint8Slice(s []uint8, n int) []uint8 {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = 0
-		}
-		return s
-	}
-	return make([]uint8, n)
-}
-
-func resizeBoolSlice(s []bool, n int) []bool {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = false
-		}
-		return s
-	}
-	return make([]bool, n)
-}
-
-func resizeKeyFrameModeSlice(s []vp8enc.KeyFrameMacroblockMode, n int) []vp8enc.KeyFrameMacroblockMode {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = vp8enc.KeyFrameMacroblockMode{}
-		}
-		return s
-	}
-	return make([]vp8enc.KeyFrameMacroblockMode, n)
-}
-
-func resizeInterFrameModeSlice(s []vp8enc.InterFrameMacroblockMode, n int) []vp8enc.InterFrameMacroblockMode {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = vp8enc.InterFrameMacroblockMode{}
-		}
-		return s
-	}
-	return make([]vp8enc.InterFrameMacroblockMode, n)
-}
-
-func resizeKeyFrameCoeffSlice(s []vp8enc.MacroblockCoefficients, n int) []vp8enc.MacroblockCoefficients {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = vp8enc.MacroblockCoefficients{}
-		}
-		return s
-	}
-	return make([]vp8enc.MacroblockCoefficients, n)
-}
-
-func resizeTokenContextSlice(s []vp8enc.TokenContextPlanes, n int) []vp8enc.TokenContextPlanes {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = vp8enc.TokenContextPlanes{}
-		}
-		return s
-	}
-	return make([]vp8enc.TokenContextPlanes, n)
-}
-
-func resizeReconstructModeSlice(s []vp8dec.MacroblockMode, n int) []vp8dec.MacroblockMode {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = vp8dec.MacroblockMode{}
-		}
-		return s
-	}
-	return make([]vp8dec.MacroblockMode, n)
-}
-
-func resizeReconstructTokensSlice(s []vp8dec.MacroblockTokens, n int) []vp8dec.MacroblockTokens {
-	if cap(s) >= n {
-		s = s[:n]
-		for i := range s {
-			s[i] = vp8dec.MacroblockTokens{}
-		}
-		return s
-	}
-	return make([]vp8dec.MacroblockTokens, n)
 }

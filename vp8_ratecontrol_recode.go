@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vpx/arith"
+
 type frameSizeRecodeState struct {
 	qLow                int
 	qHigh               int
@@ -411,7 +413,7 @@ func (rc *rateControlState) adjustQuantizerWithContext(actualBits int, targetBit
 	switch {
 	case actualBits > overshootLimit:
 		step := 1
-		if actualBits > saturatingAdd(overshootLimit, targetBits) {
+		if actualBits > arith.SaturatingAdd(overshootLimit, targetBits) {
 			step = 2
 		}
 		rc.currentQuantizer += step
@@ -428,7 +430,7 @@ func (rc *rateControlState) adjustCQQuantizerWithContext(actualBits int, targetB
 	switch {
 	case actualBits > overshootLimit:
 		step := 1
-		if actualBits > saturatingAdd(overshootLimit, targetBits) {
+		if actualBits > arith.SaturatingAdd(overshootLimit, targetBits) {
 			step = 2
 		}
 		rc.currentQuantizer += step

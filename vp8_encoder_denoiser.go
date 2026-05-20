@@ -225,7 +225,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 		MBSkipCoeff: true,
 	}
 	var decMode vp8dec.MacroblockMode
-	convertInterFrameMode(&mcMode, &decMode)
+	vp8enc.ConvertInterFrameMode(&mcMode, &decMode)
 	var zeroTokens vp8dec.MacroblockTokens
 	if !reconstructInterAnalysisMacroblock(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, row, col, &decMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
 		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
