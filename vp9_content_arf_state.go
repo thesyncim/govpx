@@ -228,7 +228,7 @@ func (e *VP9Encoder) vp9CommitLastSource(img *image.YCbCr, showFrame, dropped bo
 }
 
 type vp9AvgSourceSADResult struct {
-	contentState      vp9ContentStateSB
+	contentState      encoder.ContentStateSB
 	zeroTempSADSource bool
 }
 
@@ -262,23 +262,23 @@ func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol
 	const avgSourceSADThreshold uint64 = 10000
 	const avgSourceSADThreshold2 uint64 = 12000
 
-	contentState := vp9ContentStateHighSadHighSumdiff
+	contentState := encoder.ContentStateHighSadHighSumdiff
 	if tmpSad < avgSourceSADThreshold {
 		if sumdiffSquare < 25 {
-			contentState = vp9ContentStateLowSadLowSumdiff
+			contentState = encoder.ContentStateLowSadLowSumdiff
 		} else {
-			contentState = vp9ContentStateLowSadHighSumdiff
+			contentState = encoder.ContentStateLowSadHighSumdiff
 		}
 	} else if sumdiffSquare < 25 {
-		contentState = vp9ContentStateHighSadLowSumdiff
+		contentState = encoder.ContentStateHighSadLowSumdiff
 	}
 
 	if e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) &&
 		e.rc.mode == RateControlCBR && tmpVariance < (tmpSSE>>3) &&
 		sumdiffSquare > 10000 {
-		contentState = vp9ContentStateLowVarHighSumdiff
+		contentState = encoder.ContentStateLowVarHighSumdiff
 	} else if tmpSad > (avgSourceSADThreshold << 1) {
-		contentState = vp9ContentStateVeryHighSad
+		contentState = encoder.ContentStateVeryHighSad
 	}
 
 	sbOffset := vp9SbOffsetForMi(sbMiRow, sbMiCol, miCols)
@@ -289,23 +289,14 @@ func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol
 	}, true
 }
 
-// vp9AvgSourceSAD preserves the older content-state-only call surface.
-func (e *VP9Encoder) vp9AvgSourceSAD(img *image.YCbCr, miCols, miRow, miCol int) (vp9ContentStateSB, bool) {
-	stats, ok := e.vp9AvgSourceSADStats(img, miCols, miRow, miCol)
-	if !ok {
-		return vp9ContentStateInvalid, false
-	}
-	return stats.contentState, true
-}
-
 // vp9SourceSADContentState is the per-frame, per-SB cache for the
 // avg_source_sad result. libvpx resets x->content_state_sb at SB entry and
 // computes it once before partitioning; every leaf mode pick in that SB reads
 // the same value.
-func (e *VP9Encoder) vp9SourceSADContentState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (vp9ContentStateSB, bool) {
+func (e *VP9Encoder) vp9SourceSADContentState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (encoder.ContentStateSB, bool) {
 	stats, ok := e.vp9SourceSADState(img, miRows, miCols, miRow, miCol)
 	if !ok {
-		return vp9ContentStateInvalid, false
+		return encoder.ContentStateInvalid, false
 	}
 	return stats.contentState, true
 }
@@ -328,7 +319,7 @@ func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, 
 		e.varPartSBContentStateValid = e.varPartSBContentStateValid[:sbCount]
 	}
 	if cap(e.varPartSBContentState) < sbCount {
-		e.varPartSBContentState = make([]vp9ContentStateSB, sbCount)
+		e.varPartSBContentState = make([]encoder.ContentStateSB, sbCount)
 	} else if len(e.varPartSBContentState) < sbCount {
 		e.varPartSBContentState = e.varPartSBContentState[:sbCount]
 	}

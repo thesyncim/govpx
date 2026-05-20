@@ -1,65 +1,56 @@
-package govpx
+package encoder
 
 import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
-// vp9_variance_partition.go contains the verbatim libvpx VP9
-// VAR_BASED_PARTITION threshold infrastructure (set_vbp_thresholds /
-// vp9_set_variance_partition_thresholds).
+// This file contains the libvpx VP9 VAR_BASED_PARTITION threshold
+// infrastructure (set_vbp_thresholds / vp9_set_variance_partition_thresholds).
 //
 // libvpx ref: vp9/encoder/vp9_encodeframe.c:549-676.
 //
-// The thresholds drive the variance-tree picker (choose_partitioning,
-// vp9_encodeframe.c:1253-1640). The picker itself is still being ported
-// incrementally and is currently absent from govpx — the existing
-// pickVP9CBRVariancePartitionBlockSize and pickVP9KeyframeVariancePartitionBlockSize
-// adapters compute a per-call threshold derived from these constants instead
-// of consuming a precomputed thresholds[4] array. This file lifts those
-// constants into a libvpx-shaped function so the eventual choose_partitioning
-// port (vp9_encodeframe.c:1253) can reference them directly without
-// re-deriving each level. No callers yet — the thresholds plumb-through
-// commit is deliberately landed before the picker rewrite so the picker can
-// land as a self-contained change.
+// The thresholds drive ChoosePartitioning's variance-tree walk. Keep the
+// helpers close to the picker so the package owns the codec-specific tuning
+// without exposing it through the root facade.
 
-// vp9ContentStateSB mirrors libvpx's CONTENT_STATE_SB enum
+// ContentStateSB mirrors libvpx's CONTENT_STATE_SB enum
 // (vp9/encoder/vp9_encoder.h:138-146).
-type vp9ContentStateSB int
+type ContentStateSB int
 
 const (
-	vp9ContentStateInvalid            vp9ContentStateSB = 0
-	vp9ContentStateLowSadLowSumdiff   vp9ContentStateSB = 1
-	vp9ContentStateLowSadHighSumdiff  vp9ContentStateSB = 2
-	vp9ContentStateHighSadLowSumdiff  vp9ContentStateSB = 3
-	vp9ContentStateHighSadHighSumdiff vp9ContentStateSB = 4
-	vp9ContentStateLowVarHighSumdiff  vp9ContentStateSB = 5
-	vp9ContentStateVeryHighSad        vp9ContentStateSB = 6
+	ContentStateInvalid            ContentStateSB = 0
+	ContentStateLowSadLowSumdiff   ContentStateSB = 1
+	ContentStateLowSadHighSumdiff  ContentStateSB = 2
+	ContentStateHighSadLowSumdiff  ContentStateSB = 3
+	ContentStateHighSadHighSumdiff ContentStateSB = 4
+	ContentStateLowVarHighSumdiff  ContentStateSB = 5
+	ContentStateVeryHighSad        ContentStateSB = 6
 )
 
-// vp9NoiseLevel mirrors libvpx's NOISE_LEVEL enum
+// NoiseLevel mirrors libvpx's NOISE_LEVEL enum
 // (vp9/encoder/vp9_noise_estimate.h:28):
 //
 //	typedef enum noise_level { kLowLow, kLow, kMedium, kHigh } NOISE_LEVEL;
 //
 // The encoder wires this from cpi->noise_estimate for variance partitioning;
 // direct helper tests may still pass a fixed level explicitly.
-type vp9NoiseLevel int
+type NoiseLevel int
 
 const (
-	vp9NoiseLevelLowLow vp9NoiseLevel = 0
-	vp9NoiseLevelLow    vp9NoiseLevel = 1
-	vp9NoiseLevelMedium vp9NoiseLevel = 2
-	vp9NoiseLevelHigh   vp9NoiseLevel = 3
+	NoiseLevelLowLow NoiseLevel = 0
+	NoiseLevelLow    NoiseLevel = 1
+	NoiseLevelMedium NoiseLevel = 2
+	NoiseLevelHigh   NoiseLevel = 3
 )
 
-// vp9YDequant returns the libvpx cpi->y_dequant[q][1] (luma AC dequant) for
+// yDequantAC returns the libvpx cpi->y_dequant[q][1] (luma AC dequant) for
 // the given 8-bit profile-0 qindex. libvpx populates the table from
 // ac_qlookup at vp9/encoder/vp9_quantize.c vp9_init_quantizer; the [1] slot
 // is the AC value. govpx's tables.AcQLookup8 is the byte-identical
 // libvpx table (validated by internal/vp9/tables/oracle_test.go).
 //
 // libvpx ref: vp9/encoder/vp9_quantize.c vp9_init_quantizer.
-func vp9YDequantAC(qindex int) int16 {
+func yDequantAC(qindex int) int16 {
 	if qindex < 0 {
 		qindex = 0
 	}
@@ -69,31 +60,31 @@ func vp9YDequantAC(qindex int) int16 {
 	return tables.AcQLookup8[qindex]
 }
 
-// vp9ScalePartThreshSumdiff is the libvpx scale_part_thresh_sumdiff
+// scalePartThreshSumdiff is the libvpx scale_part_thresh_sumdiff
 // verbatim port (vp9/encoder/vp9_encodeframe.c:549-567).
-func vp9ScalePartThreshSumdiff(thresholdBase int64, speed, width, height int,
-	contentState vp9ContentStateSB,
+func scalePartThreshSumdiff(thresholdBase int64, speed, width, height int,
+	contentState ContentStateSB,
 ) int64 {
 	if speed >= 8 {
 		if width <= 640 && height <= 480 {
 			return (5 * thresholdBase) >> 2
 		}
-		if contentState == vp9ContentStateLowSadLowSumdiff ||
-			contentState == vp9ContentStateHighSadLowSumdiff ||
-			contentState == vp9ContentStateLowVarHighSumdiff {
+		if contentState == ContentStateLowSadLowSumdiff ||
+			contentState == ContentStateHighSadLowSumdiff ||
+			contentState == ContentStateLowVarHighSumdiff {
 			return (5 * thresholdBase) >> 2
 		}
 	} else if speed == 7 {
-		if contentState == vp9ContentStateLowSadLowSumdiff ||
-			contentState == vp9ContentStateHighSadLowSumdiff ||
-			contentState == vp9ContentStateLowVarHighSumdiff {
+		if contentState == ContentStateLowSadLowSumdiff ||
+			contentState == ContentStateHighSadLowSumdiff ||
+			contentState == ContentStateLowVarHighSumdiff {
 			return (5 * thresholdBase) >> 2
 		}
 	}
 	return thresholdBase
 }
 
-// vp9SetVBPThresholds is the libvpx set_vbp_thresholds verbatim port
+// setVBPThresholds is the libvpx set_vbp_thresholds verbatim port
 // (vp9/encoder/vp9_encodeframe.c:573-635).
 //
 // Parameters mirror libvpx's cpi-local references:
@@ -109,9 +100,9 @@ func vp9ScalePartThreshSumdiff(thresholdBase int64, speed, width, height int,
 //   - disable16x16PartNonkey = cpi->sf.disable_16x16part_nonkey
 //
 // Returns the libvpx thresholds[4] array.
-func vp9SetVBPThresholds(q, variancePartThreshMult, speed, width, height int,
-	isKeyFrame bool, contentState vp9ContentStateSB,
-	noiseEstimateEnabled bool, noiseLevel vp9NoiseLevel,
+func setVBPThresholds(q, variancePartThreshMult, speed, width, height int,
+	isKeyFrame bool, contentState ContentStateSB,
+	noiseEstimateEnabled bool, noiseLevel NoiseLevel,
 	avgFrameQIndexInter int, disable16x16PartNonkey bool,
 ) [4]int64 {
 	var thresholds [4]int64
@@ -119,7 +110,7 @@ func vp9SetVBPThresholds(q, variancePartThreshMult, speed, width, height int,
 	if isKeyFrame {
 		thresholdMultiplier = 20
 	}
-	thresholdBase := int64(thresholdMultiplier) * int64(vp9YDequantAC(q))
+	thresholdBase := int64(thresholdMultiplier) * int64(yDequantAC(q))
 
 	if isKeyFrame {
 		thresholds[0] = thresholdBase
@@ -133,17 +124,17 @@ func vp9SetVBPThresholds(q, variancePartThreshMult, speed, width, height int,
 	// Increase base variance threshold based on estimated noise level.
 	if noiseEstimateEnabled && width >= 640 && height >= 480 {
 		switch {
-		case noiseLevel == vp9NoiseLevelHigh:
+		case noiseLevel == NoiseLevelHigh:
 			thresholdBase = 3 * thresholdBase
-		case noiseLevel == vp9NoiseLevelMedium:
+		case noiseLevel == NoiseLevelMedium:
 			thresholdBase = thresholdBase << 1
-		case noiseLevel < vp9NoiseLevelLow:
+		case noiseLevel < NoiseLevelLow:
 			thresholdBase = (7 * thresholdBase) >> 3
 		}
 	}
 	// CONFIG_VP9_TEMPORAL_DENOISING is off in the vpx_codec_get_caps default
 	// libvpx build, so we always take the scale_part_thresh_sumdiff branch.
-	thresholdBase = vp9ScalePartThreshSumdiff(thresholdBase, speed, width,
+	thresholdBase = scalePartThreshSumdiff(thresholdBase, speed, width,
 		height, contentState)
 	thresholds[0] = thresholdBase
 	thresholds[2] = thresholdBase << uint(speed)
@@ -167,36 +158,36 @@ func vp9SetVBPThresholds(q, variancePartThreshMult, speed, width, height int,
 		thresholds[1] = (5 * thresholdBase) >> 1
 	}
 	if disable16x16PartNonkey {
-		thresholds[2] = vp9VBPThresholdMax
+		thresholds[2] = vbpThresholdMax
 	}
 	return thresholds
 }
 
-// vp9VBPThresholdMax mirrors libvpx's INT64_MAX sentinel used in
+// vbpThresholdMax mirrors libvpx's INT64_MAX sentinel used in
 // set_vbp_thresholds when sf->disable_16x16part_nonkey is set.
-const vp9VBPThresholdMax = int64(1<<63 - 1)
+const vbpThresholdMax = int64(1<<63 - 1)
 
-// vp9SetVariancePartitionAuxThresholds is the libvpx
+// setVariancePartitionAuxThresholds is the libvpx
 // vp9_set_variance_partition_thresholds verbatim port for the auxiliary
 // thresholds (vbp_threshold_sad, vbp_threshold_copy, vbp_bsize_min,
-// vbp_threshold_minmax). It lives next to vp9SetVBPThresholds because the
+// vbp_threshold_minmax). It lives next to setVBPThresholds because the
 // libvpx caller (vp9_set_variance_partition_thresholds) computes both blocks
 // together (vp9/encoder/vp9_encodeframe.c:637-676).
 //
 // The Block8x8 / Block16x16 minimum is returned as an integer so callers can
 // downcast without importing common.
-type vp9VBPAuxThresholds struct {
+type vbpAuxThresholds struct {
 	ThresholdSAD    int64
 	ThresholdCopy   int64
 	ThresholdMinmax int64
 	BsizeMin8x8     bool // true => BLOCK_8X8; false => BLOCK_16X16
 }
 
-func vp9SetVariancePartitionAuxThresholds(q, width, height int,
+func setVariancePartitionAuxThresholds(q, width, height int,
 	isKeyFrame bool, highSourceSAD bool,
-) vp9VBPAuxThresholds {
-	var aux vp9VBPAuxThresholds
-	yDequant := int64(vp9YDequantAC(q))
+) vbpAuxThresholds {
+	var aux vbpAuxThresholds
+	yDequant := int64(yDequantAC(q))
 	if isKeyFrame {
 		aux.ThresholdSAD = 0
 		aux.ThresholdCopy = 0

@@ -142,7 +142,7 @@ type VP9Encoder struct {
 	// stamps these into xd->mi[]->sb_type via set_block_size /
 	// set_vt_partitioning). Indexed identically to miGrid:
 	// varPartGrid[row*miCols+col].SbType is the leaf block size at the
-	// 8x8 cell (row, col). Populated by vp9ChoosePartitioning on SB
+	// 8x8 cell (row, col). Populated by encoder.ChoosePartitioning on SB
 	// entry; consumed by pickVP9CBRVariancePartitionBlockSize /
 	// pickVP9KeyframeVariancePartitionBlockSize to derive the
 	// per-call partition decision. varPartSBComputed[(sbRow*sbCols+sbCol]]
@@ -160,11 +160,11 @@ type VP9Encoder struct {
 	varPartSBPredLast          []vp9dec.MV
 	varPartSBPredValid         []bool
 	varPartSBVarLow            [][25]uint8
-	varPartSBContentState      []vp9ContentStateSB
+	varPartSBContentState      []encoder.ContentStateSB
 	varPartSBContentStateValid []bool
 	varPartSBZeroTempSADSource []bool
-	varPartTreeScratch         vp9V64x64
-	varPartTreeLowResScratch   [16]vp9V16x16
+	varPartTreeScratch         encoder.V64x64
+	varPartTreeLowResScratch   [16]encoder.V16x16
 
 	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
 	// scratches backing the border-padded LAST_FRAME and source plane

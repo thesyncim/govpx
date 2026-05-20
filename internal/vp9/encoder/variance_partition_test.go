@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"testing"
@@ -17,13 +17,13 @@ func TestVP9SetVBPThresholdsKeyframe(t *testing.T) {
 	// qindex 37 is govpx's default base qindex (vp9DefaultBaseQIndex);
 	// AcQLookup8[37] is the libvpx-verbatim AC dequant table entry.
 	const q = 37
-	ydq := vp9YDequantAC(q)
+	ydq := yDequantAC(q)
 	if ydq <= 0 {
-		t.Fatalf("vp9YDequantAC(%d) = %d, want > 0", q, ydq)
+		t.Fatalf("yDequantAC(%d) = %d, want > 0", q, ydq)
 	}
 	want0 := int64(20) * int64(ydq)
-	got := vp9SetVBPThresholds(q, 1, 8, 64, 64,
-		true, vp9ContentStateInvalid, false, vp9NoiseLevelLow, 0, false)
+	got := setVBPThresholds(q, 1, 8, 64, 64,
+		true, ContentStateInvalid, false, NoiseLevelLow, 0, false)
 	if got[0] != want0 {
 		t.Errorf("thresholds[0] = %d, want %d", got[0], want0)
 	}
@@ -52,15 +52,15 @@ func TestVP9SetVBPThresholdsKeyframe(t *testing.T) {
 //	(no avg_frame_qindex_inter scaling since rc state is zero in the test)
 func TestVP9SetVBPThresholdsInterLowRes(t *testing.T) {
 	const q = 37
-	ydq := int64(vp9YDequantAC(q))
+	ydq := int64(yDequantAC(q))
 	base := ydq
 	base = (5 * base) >> 2
 	want0 := base >> 3
 	want1 := base >> 1
 	want2 := base << 3
 
-	got := vp9SetVBPThresholds(q, 1, 8, 64, 64,
-		false, vp9ContentStateInvalid, false, vp9NoiseLevelLow, 0, false)
+	got := setVBPThresholds(q, 1, 8, 64, 64,
+		false, ContentStateInvalid, false, NoiseLevelLow, 0, false)
 	if got[0] != want0 {
 		t.Errorf("thresholds[0] = %d, want %d", got[0], want0)
 	}
@@ -76,20 +76,20 @@ func TestVP9SetVBPThresholdsInterLowRes(t *testing.T) {
 // scaling (vp9/encoder/vp9_encodeframe.c:622-625).
 func TestVP9SetVBPThresholdsInterLowResHighQ(t *testing.T) {
 	const q = 37
-	ydq := int64(vp9YDequantAC(q))
+	ydq := int64(yDequantAC(q))
 	base := (5 * ydq) >> 2
 	wantT2OverQHigh := (base << 3) << 2 // > 220
 	wantT2OverQMid := (base << 3) << 1  // > 200
 
-	gotHigh := vp9SetVBPThresholds(q, 1, 8, 64, 64,
-		false, vp9ContentStateInvalid, false, vp9NoiseLevelLow, 221, false)
+	gotHigh := setVBPThresholds(q, 1, 8, 64, 64,
+		false, ContentStateInvalid, false, NoiseLevelLow, 221, false)
 	if gotHigh[2] != wantT2OverQHigh {
 		t.Errorf("threshold[2] (q>220) = %d, want %d",
 			gotHigh[2], wantT2OverQHigh)
 	}
 
-	gotMid := vp9SetVBPThresholds(q, 1, 8, 64, 64,
-		false, vp9ContentStateInvalid, false, vp9NoiseLevelLow, 201, false)
+	gotMid := setVBPThresholds(q, 1, 8, 64, 64,
+		false, ContentStateInvalid, false, NoiseLevelLow, 201, false)
 	if gotMid[2] != wantT2OverQMid {
 		t.Errorf("threshold[2] (q>200) = %d, want %d",
 			gotMid[2], wantT2OverQMid)
@@ -101,7 +101,7 @@ func TestVP9SetVBPThresholdsInterLowResHighQ(t *testing.T) {
 // (vp9/encoder/vp9_encodeframe.c:648-651, :674).
 func TestVP9SetVariancePartitionAuxThresholdsKeyframe(t *testing.T) {
 	const q = 37
-	aux := vp9SetVariancePartitionAuxThresholds(q, 64, 64, true, false)
+	aux := setVariancePartitionAuxThresholds(q, 64, 64, true, false)
 	if aux.ThresholdSAD != 0 {
 		t.Errorf("ThresholdSAD = %d, want 0", aux.ThresholdSAD)
 	}
@@ -121,7 +121,7 @@ func TestVP9SetVariancePartitionAuxThresholdsKeyframe(t *testing.T) {
 // low-res branch (vp9/encoder/vp9_encodeframe.c:653-654, :659-661, :674).
 func TestVP9SetVariancePartitionAuxThresholdsInterLowRes(t *testing.T) {
 	const q = 37
-	aux := vp9SetVariancePartitionAuxThresholds(q, 64, 64, false, false)
+	aux := setVariancePartitionAuxThresholds(q, 64, 64, false, false)
 	if aux.ThresholdSAD != 10 {
 		t.Errorf("ThresholdSAD = %d, want 10", aux.ThresholdSAD)
 	}
@@ -141,7 +141,7 @@ func TestVP9SetVariancePartitionAuxThresholdsInterLowRes(t *testing.T) {
 // high_source_sad reset path (vp9/encoder/vp9_encodeframe.c:668-672).
 func TestVP9SetVariancePartitionAuxThresholdsInterHighSourceSAD(t *testing.T) {
 	const q = 37
-	aux := vp9SetVariancePartitionAuxThresholds(q, 64, 64, false, true)
+	aux := setVariancePartitionAuxThresholds(q, 64, 64, false, true)
 	if aux.ThresholdSAD != 0 {
 		t.Errorf("ThresholdSAD = %d, want 0 (high_source_sad reset)",
 			aux.ThresholdSAD)
@@ -156,9 +156,9 @@ func TestVP9SetVariancePartitionAuxThresholdsInterHighSourceSAD(t *testing.T) {
 // disable_16x16part_nonkey override (vp9/encoder/vp9_encodeframe.c:633).
 func TestVP9SetVBPThresholdsDisable16x16PartNonkey(t *testing.T) {
 	const q = 37
-	got := vp9SetVBPThresholds(q, 1, 8, 64, 64,
-		false, vp9ContentStateInvalid, false, vp9NoiseLevelLow, 0, true)
-	if got[2] != vp9VBPThresholdMax {
+	got := setVBPThresholds(q, 1, 8, 64, 64,
+		false, ContentStateInvalid, false, NoiseLevelLow, 0, true)
+	if got[2] != vbpThresholdMax {
 		t.Errorf("thresholds[2] = %d, want INT64_MAX (disable_16x16part_nonkey)",
 			got[2])
 	}

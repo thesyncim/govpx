@@ -3,6 +3,8 @@ package govpx
 import (
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // TestVP9NoiseEstimateInitVerbatim pins the vp9_noise_estimate_init body
@@ -33,21 +35,21 @@ func TestVP9NoiseEstimateInitVerbatim(t *testing.T) {
 		width       int
 		height      int
 		wantThresh  int
-		wantLevel   vp9NoiseLevel
+		wantLevel   encoder.NoiseLevel
 		wantAdaptTH int
 	}{
 		// Below 640*360 → thresh=90, level=kLowLow.
-		{"qcif", 176, 144, 90, vp9NoiseLevelLowLow, (3 * 90) >> 1},
-		{"cif", 352, 288, 90, vp9NoiseLevelLowLow, (3 * 90) >> 1},
+		{"qcif", 176, 144, 90, encoder.NoiseLevelLowLow, (3 * 90) >> 1},
+		{"cif", 352, 288, 90, encoder.NoiseLevelLowLow, (3 * 90) >> 1},
 		// 640*360 exactly → thresh=115.
-		{"vga", 640, 360, 115, vp9NoiseLevelLowLow, (3 * 115) >> 1},
-		{"ntsc", 720, 480, 115, vp9NoiseLevelLowLow, (3 * 115) >> 1},
+		{"vga", 640, 360, 115, encoder.NoiseLevelLowLow, (3 * 115) >> 1},
+		{"ntsc", 720, 480, 115, encoder.NoiseLevelLowLow, (3 * 115) >> 1},
 		// 1280*720 exactly → thresh=140 + level=kLow.
-		{"hd720p", 1280, 720, 140, vp9NoiseLevelLow, (3 * 140) >> 1},
-		{"hd900p", 1600, 900, 140, vp9NoiseLevelLow, (3 * 140) >> 1},
+		{"hd720p", 1280, 720, 140, encoder.NoiseLevelLow, (3 * 140) >> 1},
+		{"hd900p", 1600, 900, 140, encoder.NoiseLevelLow, (3 * 140) >> 1},
 		// 1920*1080 exactly → thresh=200.
-		{"hd1080p", 1920, 1080, 200, vp9NoiseLevelLow, (3 * 200) >> 1},
-		{"uhd4k", 3840, 2160, 200, vp9NoiseLevelLow, (3 * 200) >> 1},
+		{"hd1080p", 1920, 1080, 200, encoder.NoiseLevelLow, (3 * 200) >> 1},
+		{"uhd4k", 3840, 2160, 200, encoder.NoiseLevelLow, (3 * 200) >> 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,16 +102,16 @@ func TestVP9NoiseEstimateExtractLevelVerbatim(t *testing.T) {
 	cases := []struct {
 		name  string
 		value int
-		want  vp9NoiseLevel
+		want  encoder.NoiseLevel
 	}{
-		{"zero_below_half", 0, vp9NoiseLevelLowLow},
-		{"equal_half", thresh >> 1, vp9NoiseLevelLowLow},
-		{"above_half", (thresh >> 1) + 1, vp9NoiseLevelLow},
-		{"equal_thresh", thresh, vp9NoiseLevelLow},
-		{"above_thresh", thresh + 1, vp9NoiseLevelMedium},
-		{"equal_double", thresh << 1, vp9NoiseLevelMedium},
-		{"above_double", (thresh << 1) + 1, vp9NoiseLevelHigh},
-		{"way_above_double", thresh * 10, vp9NoiseLevelHigh},
+		{"zero_below_half", 0, encoder.NoiseLevelLowLow},
+		{"equal_half", thresh >> 1, encoder.NoiseLevelLowLow},
+		{"above_half", (thresh >> 1) + 1, encoder.NoiseLevelLow},
+		{"equal_thresh", thresh, encoder.NoiseLevelLow},
+		{"above_thresh", thresh + 1, encoder.NoiseLevelMedium},
+		{"equal_double", thresh << 1, encoder.NoiseLevelMedium},
+		{"above_double", (thresh << 1) + 1, encoder.NoiseLevelHigh},
+		{"way_above_double", thresh * 10, encoder.NoiseLevelHigh},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -547,7 +549,7 @@ func TestVP9NoiseEstimateUpdateHistogramFromLowMotionBlocks(t *testing.T) {
 	if e.noiseEstimate.count != 1 {
 		t.Fatalf("noise count = %d, want 1", e.noiseEstimate.count)
 	}
-	if e.noiseEstimate.level != vp9NoiseLevelLowLow {
+	if e.noiseEstimate.level != encoder.NoiseLevelLowLow {
 		t.Fatalf("noise level = %d, want LowLow before estimate window completes",
 			e.noiseEstimate.level)
 	}
@@ -589,7 +591,7 @@ func TestVP9NoiseEstimateUpdateExtractsLevelAtWindow(t *testing.T) {
 	e.noiseEstimate.value = 200
 	e.noiseEstimate.count = 0
 	e.noiseEstimate.numFramesEstimate = 1
-	e.noiseEstimate.level = vp9NoiseLevelLowLow
+	e.noiseEstimate.level = encoder.NoiseLevelLowLow
 	e.frameIndex = 8
 
 	e.vp9UpdateNoiseEstimate(newVP9CheckerYCbCrForTest(width, height, 128, 130, 128, 128),
@@ -602,7 +604,7 @@ func TestVP9NoiseEstimateUpdateExtractsLevelAtWindow(t *testing.T) {
 	if e.noiseEstimate.count != 0 {
 		t.Fatalf("noise count = %d, want reset to 0", e.noiseEstimate.count)
 	}
-	if e.noiseEstimate.level != vp9NoiseLevelMedium {
+	if e.noiseEstimate.level != encoder.NoiseLevelMedium {
 		t.Fatalf("noise level = %d, want Medium after extracting value %d",
 			e.noiseEstimate.level, e.noiseEstimate.value)
 	}

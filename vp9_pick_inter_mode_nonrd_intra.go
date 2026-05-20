@@ -78,7 +78,7 @@ func vp9NonrdScreenZeroLastBias(screen, sceneChangeDetected,
 
 func vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
 	forceSkipLowTempVar bool, bsize common.BlockSize,
-	contentState vp9ContentStateSB, xSkip, sceneChangeDetected,
+	contentState encoder.ContentStateSB, xSkip, sceneChangeDetected,
 	screenFlat bool,
 ) bool {
 	if screenFlat || sceneChangeDetected {
@@ -91,7 +91,7 @@ func vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
 		return false
 	}
 	if forceSkipLowTempVar && bsize >= common.Block32x32 &&
-		contentState != vp9ContentStateVeryHighSad {
+		contentState != encoder.ContentStateVeryHighSad {
 		return false
 	}
 	return true
@@ -149,7 +149,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	if bsize > maxIntraBsize {
 		return vp9InterIntraDecision{}, false
 	}
-	contentState := vp9ContentStateInvalid
+	contentState := encoder.ContentStateInvalid
 	if state, ok := e.vp9SourceSADContentState(inter.img, miRows, miCols,
 		miRow, miCol); ok {
 		contentState = state
@@ -248,7 +248,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		// libvpx vp9_pickmode.c:2612-2614.
 		if e.sf.RtIntraDcOnlyLowContent != 0 &&
 			thisMode != common.DcPred &&
-			contentState != vp9ContentStateVeryHighSad {
+			contentState != encoder.ContentStateVeryHighSad {
 			continue
 		}
 		modeOffset := vp9ModeOffsetInterOrIntra(thisMode)
@@ -384,7 +384,7 @@ var vp9NonrdIntraModeList = [4]common.PredictionMode{
 //	  return (20 * vp9_dc_quant(qindex, qdelta, VPX_BITS_8)) >> reduction_fac;
 //	}
 func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize,
-	noiseEstimateEnabled bool, noiseLevel vp9NoiseLevel,
+	noiseEstimateEnabled bool, noiseLevel encoder.NoiseLevel,
 ) int {
 	reductionFac := 0
 	if bsize <= common.Block16x16 {
@@ -394,7 +394,7 @@ func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize,
 			reductionFac = 2
 		}
 	}
-	if noiseEstimateEnabled && noiseLevel == vp9NoiseLevelHigh {
+	if noiseEstimateEnabled && noiseLevel == encoder.NoiseLevelHigh {
 		reductionFac = 0
 	}
 	dcQ := int(vp9dec.VpxDcQuant(qindex, qdelta, vp9dec.BitDepth8))
@@ -405,11 +405,11 @@ func (e *VP9Encoder) vp9NewmvDiffBiasNoiseInputs() (bool, bool) {
 	if e == nil || !e.noiseEstimate.enabled {
 		return false, false
 	}
-	return true, e.noiseEstimate.extractLevel() >= vp9NoiseLevelMedium
+	return true, e.noiseEstimate.extractLevel() >= encoder.NoiseLevelMedium
 }
 
-func vp9NewmvDiffBiasLowvarInput(contentState vp9ContentStateSB) bool {
-	return contentState == vp9ContentStateLowVarHighSumdiff
+func vp9NewmvDiffBiasLowvarInput(contentState encoder.ContentStateSB) bool {
+	return contentState == encoder.ContentStateLowVarHighSumdiff
 }
 
 // vp9NeighborIsInter mirrors libvpx's is_inter_block(MODE_INFO *mi) helper.

@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"math"
@@ -7,14 +7,10 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// vp9_variance_partition_pick.go is the Phase C verbatim port of libvpx
-// VP9's choose_partitioning picker body
-// (vp9/encoder/vp9_encodeframe.c:1253-1763). It consumes the Phase A
-// thresholds (vp9_variance_partition.go: vp9SetVBPThresholds /
-// vp9SetVariancePartitionAuxThresholds) and the Phase B variance-tree
-// substrate (vp9_variance_partition_tree.go: vp9V64x64, vp9FillVariance{*Avg,
-// Tree*}, vp9SetVTPartitioning) and writes the partition decisions into the
-// caller-supplied MI grid the same way libvpx writes into xd->mi[]->sb_type.
+// This file contains the VP9 choose_partitioning picker body from libvpx
+// (vp9/encoder/vp9_encodeframe.c:1253-1763). It consumes the local threshold
+// helpers, fills the local variance tree, and writes partition decisions into
+// the caller-supplied MI grid the same way libvpx writes into xd->mi[]->sb_type.
 //
 // libvpx features NOT yet ported and pinned off here (matching the default
 // libvpx build configuration that govpx targets):
@@ -36,16 +32,16 @@ import (
 //   - CYCLIC_REFRESH_AQ segment boost (cyclic_refresh_segment_id_boosted).
 //   - VP9_VAR_OFFS is the libvpx 128-fill predictor for keyframes
 //     (vp9_encodeframe.c:70); govpx callers pass a per-call view via the
-//     vp9VarOffs64 slice.
+//     varOffs64 slice.
 //
 // Each gate is documented inline against the libvpx source line.
 
-// vp9VarOffs64 is the libvpx VP9_VAR_OFFS constant
+// varOffs64 is the libvpx VP9_VAR_OFFS constant
 // (vp9/encoder/vp9_encodeframe.c:70-76) — a 64-byte vector of 128
 // values. Used as the keyframe predictor (`d` in choose_partitioning) so
 // fill_variance_*avg measures the source's variance against the
 // neutral-gray plane.
-var vp9VarOffs64 = [64]uint8{
+var varOffs64 = [64]uint8{
 	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
 	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
 	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
@@ -53,18 +49,18 @@ var vp9VarOffs64 = [64]uint8{
 	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
 }
 
-// vp9PosShift16x16 mirrors libvpx vp9_pickmode.c:56-58.
-var vp9PosShift16x16 = [4][4]int{
+// PosShift16x16 mirrors libvpx vp9_pickmode.c:56-58.
+var PosShift16x16 = [4][4]int{
 	{9, 10, 13, 14},
 	{11, 12, 15, 16},
 	{17, 18, 21, 22},
 	{19, 20, 23, 24},
 }
 
-// vp9MinMax8x8 is the verbatim port of libvpx's vpx_minmax_8x8_c
+// minMax8x8 is the verbatim port of libvpx's vpx_minmax_8x8_c
 // (vpx_dsp/avg.c:389-401). It returns (min, max) of |s[i,j] - d[i,j]|
 // over an 8x8 luma block. libvpx initializes min=255, max=0.
-func vp9MinMax8x8(s []uint8, sp int, d []uint8, dp int) (min, max int) {
+func minMax8x8(s []uint8, sp int, d []uint8, dp int) (min, max int) {
 	min = 255
 	max = 0
 	for i := range 8 {
@@ -86,9 +82,9 @@ func vp9MinMax8x8(s []uint8, sp int, d []uint8, dp int) (min, max int) {
 	return min, max
 }
 
-// vp9MinMax8x8Clamped mirrors vpx_minmax_8x8 on edge-extended YV12 buffers
+// minMax8x8Clamped mirrors vpx_minmax_8x8 on edge-extended YV12 buffers
 // while reading from Go's raw visible source and predictor planes.
-func vp9MinMax8x8Clamped(s []uint8, sp int, d []uint8, dp int,
+func minMax8x8Clamped(s []uint8, sp int, d []uint8, dp int,
 	x0, y0, pixelsWide, pixelsHigh int,
 ) (mn, mx int) {
 	mn = 255
@@ -119,7 +115,7 @@ func vp9MinMax8x8Clamped(s []uint8, sp int, d []uint8, dp int,
 	return mn, mx
 }
 
-// vp9ComputeMinmax8x8 is the verbatim port of libvpx's compute_minmax_8x8
+// computeMinmax8x8 is the verbatim port of libvpx's compute_minmax_8x8
 // (vp9/encoder/vp9_encodeframe.c:679-712). Walks the 4 8x8 sub-blocks of
 // a 16x16 region, computing (max - min) of per-sub-block min/max ranges,
 // and returns the difference between the largest and smallest of those.
@@ -127,7 +123,7 @@ func vp9MinMax8x8Clamped(s []uint8, sp int, d []uint8, dp int,
 // libvpx initializes minmax_min = 255 and minmax_max = 0; we mirror that.
 // Out-of-frame sub-blocks contribute nothing (libvpx's `if (x8_idx <
 // pixels_wide && y8_idx < pixels_high)` predicate).
-func vp9ComputeMinmax8x8(s []uint8, sp int, d []uint8, dp int,
+func computeMinmax8x8(s []uint8, sp int, d []uint8, dp int,
 	x16Idx, y16Idx, pixelsWide, pixelsHigh int,
 ) int {
 	minmaxMax := 0
@@ -136,7 +132,7 @@ func vp9ComputeMinmax8x8(s []uint8, sp int, d []uint8, dp int,
 		x8Idx := x16Idx + ((k & 1) << 3)
 		y8Idx := y16Idx + ((k >> 1) << 3)
 		if x8Idx < pixelsWide && y8Idx < pixelsHigh {
-			mn, mx := vp9MinMax8x8Clamped(s, sp, d, dp, x8Idx, y8Idx,
+			mn, mx := minMax8x8Clamped(s, sp, d, dp, x8Idx, y8Idx,
 				pixelsWide, pixelsHigh)
 			if (mx - mn) > minmaxMax {
 				minmaxMax = mx - mn
@@ -149,10 +145,10 @@ func vp9ComputeMinmax8x8(s []uint8, sp int, d []uint8, dp int,
 	return minmaxMax - minmaxMin
 }
 
-// vp9ChoosePartitioningArgs bundles the inputs to vp9ChoosePartitioning so
+// ChoosePartitioningArgs bundles the inputs to ChoosePartitioning so
 // the Go signature stays manageable. Mirrors libvpx's
 // choose_partitioning(cpi, tile, x, mi_row, mi_col) cpi-derived state.
-type vp9ChoosePartitioningArgs struct {
+type ChoosePartitioningArgs struct {
 	// MI grid the picker writes into. Indexed as MiGrid[row*MiCols+col].
 	MiGrid []vp9dec.NeighborMi
 	MiRows int
@@ -177,20 +173,20 @@ type vp9ChoosePartitioningArgs struct {
 	// libvpx populates this via vp9_build_inter_predictors_sb after
 	// running vp9_int_pro_motion_estimation. For keyframes (and SVC
 	// key-fallback) callers should set IsKeyFrame=true and PlaneDst=nil;
-	// the picker substitutes vp9VarOffs64 as the predictor.
+	// the picker substitutes varOffs64 as the predictor.
 	PlaneDst    []uint8
 	PlaneDstOff int
 	DstStride   int
 
 	// libvpx flags / cpi-derived state.
 	IsKeyFrame             bool
-	UseSourceSAD           bool              // cpi->sf.use_source_sad
-	NonRdKeyframe          bool              // cpi->sf.nonrd_keyframe
-	Speed                  int               // cpi->oxcf.speed
-	ContentState           vp9ContentStateSB // x->content_state_sb
-	HighSourceSAD          bool              // cpi->rc.high_source_sad
+	UseSourceSAD           bool           // cpi->sf.use_source_sad
+	NonRdKeyframe          bool           // cpi->sf.nonrd_keyframe
+	Speed                  int            // cpi->oxcf.speed
+	ContentState           ContentStateSB // x->content_state_sb
+	HighSourceSAD          bool           // cpi->rc.high_source_sad
 	NoiseEstimateEnabled   bool
-	NoiseLevel             vp9NoiseLevel
+	NoiseLevel             NoiseLevel
 	VariancePartThreshMult int  // cpi->sf.variance_part_thresh_mult
 	Disable16x16PartNonkey bool // cpi->sf.disable_16x16part_nonkey
 	AvgFrameQIndexInter    int  // cpi->rc.avg_frame_qindex[INTER_FRAME]
@@ -201,8 +197,8 @@ type vp9ChoosePartitioningArgs struct {
 	PartitionRefFrame      int8 // ref_frame_partition
 	PartitionMV            vp9dec.MV
 	VarianceLow            *[25]uint8 // x->variance_low
-	VarianceTree           *vp9V64x64
-	VarianceTreeLowRes     *[16]vp9V16x16
+	VarianceTree           *V64x64
+	VarianceTreeLowRes     *[16]V16x16
 
 	// CYCLIC_REFRESH boost predicate. Mirrors libvpx's
 	// cyclic_refresh_segment_id_boosted(segment_id). When true, BaseQIndex
@@ -210,12 +206,12 @@ type vp9ChoosePartitioningArgs struct {
 	CyclicRefreshSegmentIdBoosted bool
 }
 
-// vp9ChoosePartitioning is the verbatim port of libvpx's choose_partitioning
+// ChoosePartitioning is the verbatim port of libvpx's choose_partitioning
 // (vp9/encoder/vp9_encodeframe.c:1253-1763). It builds the variance tree
 // for the 64x64 superblock rooted at (MiRow, MiCol), applies the
-// per-resolution thresholds set up by vp9SetVBPThresholds / Aux, and
+// per-resolution thresholds set up by setVBPThresholds / Aux, and
 // writes the chosen partition tree into args.MiGrid[].SbType through
-// vp9SetBlockSize / vp9SetVTPartitioning.
+// setBlockSize / setVTPartitioning.
 //
 // Returns the libvpx `int` return: 0 on success (libvpx's normal exit and
 // early returns from copy_partitioning fast paths). Currently always 0
@@ -241,18 +237,18 @@ type vp9ChoosePartitioningArgs struct {
 //	           short_circuit_low_temp_var, chroma_check, vt2 free).
 //
 //nolint:gocyclo // verbatim libvpx body
-func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
+func ChoosePartitioning(a ChoosePartitioningArgs) int {
 	// libvpx: vp9_encodeframe.c:1258-1289 — scalar locals.
 	vt := a.VarianceTree
 	if vt == nil {
-		vt = new(vp9V64x64)
+		vt = new(V64x64)
 	}
-	*vt = vp9V64x64{}
+	*vt = V64x64{}
 	vt2 := a.VarianceTreeLowRes
 	if vt2 == nil {
-		vt2 = new([16]vp9V16x16)
+		vt2 = new([16]V16x16)
 	}
-	*vt2 = [16]vp9V16x16{}
+	*vt2 = [16]V16x16{}
 	var forceSplit [21]int
 	var maxVar32x32 int
 	minVar32x32 := math.MaxInt32
@@ -263,7 +259,7 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 		minvar16x16[i] = math.MaxInt32
 	}
 	var threshold4x4avg int64
-	noiseLevel := vp9NoiseLevelLow
+	noiseLevel := NoiseLevelLow
 	contentState := a.ContentState
 	computeMinmaxVariance := 1
 	pixelsWide := 64
@@ -271,13 +267,13 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 
 	// libvpx: vp9_encodeframe.c:1281-1282 — copy cpi->vbp_thresholds into
 	// the local thresholds[4] array. govpx synthesizes the per-call
-	// thresholds by calling vp9SetVBPThresholds with the picker inputs,
+	// thresholds by calling setVBPThresholds with the picker inputs,
 	// matching libvpx's set_vbp_thresholds invocation at line 1379.
-	thresholds := vp9SetVBPThresholds(a.BaseQIndex, a.VariancePartThreshMult,
+	thresholds := setVBPThresholds(a.BaseQIndex, a.VariancePartThreshMult,
 		a.Speed, a.FrameWidth, a.FrameHeight, a.IsKeyFrame, contentState,
 		a.NoiseEstimateEnabled, a.NoiseLevel, a.AvgFrameQIndexInter,
 		a.Disable16x16PartNonkey)
-	aux := vp9SetVariancePartitionAuxThresholds(a.BaseQIndex,
+	aux := setVariancePartitionAuxThresholds(a.BaseQIndex,
 		a.FrameWidth, a.FrameHeight, a.IsKeyFrame, a.HighSourceSAD)
 
 	// libvpx: vp9_encodeframe.c:1283-1289 — scene_change_detected /
@@ -322,7 +318,7 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	if a.Speed < 8 {
 		threshold4x4avg = thresholds[1] << 1
 	} else {
-		threshold4x4avg = vp9VBPThresholdMax
+		threshold4x4avg = vbpThresholdMax
 	}
 
 	// libvpx: vp9_encodeframe.c:1390-1391 — pixels_wide/high clipping.
@@ -354,7 +350,7 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 		if len(a.PlaneDst) == 0 {
 			// Without a predictor, fall through to keyframe-style
 			// VP9_VAR_OFFS predictor and process the SB.
-			dst = vp9VarOffs64[:]
+			dst = varOffs64[:]
 			dp = 0
 		} else {
 			dst = a.PlaneDst[a.PlaneDstOff:]
@@ -362,14 +358,14 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 		}
 	} else {
 		// libvpx: vp9_encodeframe.c:1538-1539 — d = VP9_VAR_OFFS, dp = 0.
-		dst = vp9VarOffs64[:]
+		dst = varOffs64[:]
 		dp = 0
 	}
 
 	// libvpx: vp9_encodeframe.c:1552-1553 — vt2 allocation for low_res
 	// when threshold_4x4avg < INT64_MAX. govpx uses a fixed-size local
 	// array; allocation always succeeds.
-	useVT2 := lowRes && threshold4x4avg < vp9VBPThresholdMax
+	useVT2 := lowRes && threshold4x4avg < vbpThresholdMax
 
 	// libvpx: vp9_encodeframe.c:1556-1630 — 4-level tree fill.
 	for i := range 4 {
@@ -388,10 +384,10 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 			forceSplit[splitIndex] = 0
 			variance4x4downsample[i2+j] = 0
 			if !isKeyFrame {
-				vp9FillVariance8x8Avg(src, sp, dst, dp, x16Idx, y16Idx,
+				fillVariance8x8Avg(src, sp, dst, dp, x16Idx, y16Idx,
 					vst, pixelsWide, pixelsHigh, isKeyFrame)
-				vp9FillVarianceTreeV16x16(&vt.Split[i].Split[j])
-				vp9GetVariance(&vt.Split[i].Split[j].PartVariances.None)
+				fillVarianceTreeV16x16(&vt.Split[i].Split[j])
+				getVariance(&vt.Split[i].Split[j].PartVariances.None)
 				avg16x16[i] += vt.Split[i].Split[j].PartVariances.None.Variance
 				if vt.Split[i].Split[j].PartVariances.None.Variance < minvar16x16[i] {
 					minvar16x16[i] = vt.Split[i].Split[j].PartVariances.None.Variance
@@ -407,10 +403,10 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 				} else if computeMinmaxVariance != 0 &&
 					int64(vt.Split[i].Split[j].PartVariances.None.Variance) > thresholds[1] &&
 					!a.CyclicRefreshSegmentIdBoosted {
-					minmax := vp9ComputeMinmax8x8(src, sp, dst, dp,
+					minmax := computeMinmax8x8(src, sp, dst, dp,
 						x16Idx, y16Idx, pixelsWide, pixelsHigh)
 					threshMinmax := int(aux.ThresholdMinmax)
-					if a.ContentState == vp9ContentStateVeryHighSad {
+					if a.ContentState == ContentStateVeryHighSad {
 						threshMinmax = threshMinmax << 1
 					}
 					if minmax > threshMinmax {
@@ -428,13 +424,13 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 				for k := range 4 {
 					x8Idx := x16Idx + ((k & 1) << 3)
 					y8Idx := y16Idx + ((k >> 1) << 3)
-					var vst2 *vp9V8x8
+					var vst2 *V8x8
 					if isKeyFrame {
 						vst2 = &vst.Split[k]
 					} else {
 						vst2 = &vt2[i2+j].Split[k]
 					}
-					vp9FillVariance4x4Avg(src, sp, dst, dp, x8Idx, y8Idx,
+					fillVariance4x4Avg(src, sp, dst, dp, x8Idx, y8Idx,
 						vst2, pixelsWide, pixelsHigh, isKeyFrame)
 				}
 			}
@@ -451,17 +447,17 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 		i2 := i << 2
 		for j := range 4 {
 			if variance4x4downsample[i2+j] == 1 {
-				var vtemp *vp9V16x16
+				var vtemp *V16x16
 				if !isKeyFrame {
 					vtemp = &vt2[i2+j]
 				} else {
 					vtemp = &vt.Split[i].Split[j]
 				}
 				for m := range 4 {
-					vp9FillVarianceTreeV8x8(&vtemp.Split[m])
+					fillVarianceTreeV8x8(&vtemp.Split[m])
 				}
-				vp9FillVarianceTreeV16x16(vtemp)
-				vp9GetVariance(&vtemp.PartVariances.None)
+				fillVarianceTreeV16x16(vtemp)
+				getVariance(&vtemp.PartVariances.None)
 				if int64(vtemp.PartVariances.None.Variance) > thresholds[2] {
 					forceSplit[5+i2+j] = 1
 					forceSplit[i+1] = 1
@@ -469,9 +465,9 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 				}
 			}
 		}
-		vp9FillVarianceTreeV32x32(&vt.Split[i])
+		fillVarianceTreeV32x32(&vt.Split[i])
 		if forceSplit[i+1] == 0 {
-			vp9GetVariance(&vt.Split[i].PartVariances.None)
+			getVariance(&vt.Split[i].PartVariances.None)
 			var32x32 := vt.Split[i].PartVariances.None.Variance
 			if var32x32 > maxVar32x32 {
 				maxVar32x32 = var32x32
@@ -485,7 +481,7 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 					int64(vt.Split[i].PartVariances.None.Variance) > int64(avg16x16[i]>>1)) {
 				forceSplit[i+1] = 1
 				forceSplit[0] = 1
-			} else if !isKeyFrame && noiseLevel < vp9NoiseLevelLow &&
+			} else if !isKeyFrame && noiseLevel < NoiseLevelLow &&
 				a.FrameHeight <= 360 &&
 				(maxvar16x16[i]-minvar16x16[i]) > int(thresholds[1]>>1) &&
 				maxvar16x16[i] > int(thresholds[1]) {
@@ -497,12 +493,12 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	}
 	// libvpx: vp9_encodeframe.c:1677-1694 — 64x64 aggregation.
 	if forceSplit[0] == 0 {
-		vp9FillVarianceTreeV64x64(vt)
-		vp9GetVariance(&vt.PartVariances.None)
-		if !isKeyFrame && noiseLevel >= vp9NoiseLevelMedium &&
+		fillVarianceTreeV64x64(vt)
+		getVariance(&vt.PartVariances.None)
+		if !isKeyFrame && noiseLevel >= NoiseLevelMedium &&
 			vt.PartVariances.None.Variance > (9*avg32x32)>>5 {
 			forceSplit[0] = 1
-		} else if !isKeyFrame && noiseLevel < vp9NoiseLevelMedium &&
+		} else if !isKeyFrame && noiseLevel < NoiseLevelMedium &&
 			(maxVar32x32-minVar32x32) > int(3*(thresholds[0]>>3)) &&
 			maxVar32x32 > int(thresholds[0]>>1) {
 			forceSplit[0] = 1
@@ -512,23 +508,23 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	// libvpx: vp9_encodeframe.c:1696-1745 — recursive set_vt_partitioning.
 	chromaOK := func(_ common.BlockSize) bool { return true }
 	if a.MiCol+8 > a.MiCols || a.MiRow+8 > a.MiRows ||
-		!vp9SetVTPartitioning(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
+		!setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
 			common.Block64x64, common.Block16x16, thresholds[0],
 			forceSplit[0] != 0, isKeyFrame,
-			vp9SetVTPartitioningArgs{V64: vt}, chromaOK) {
+			setVTPartitioningArgs{V64: vt}, chromaOK) {
 		for i := range 4 {
 			x32Idx := (i & 1) << 2
 			y32Idx := (i >> 1) << 2
 			i2 := i << 2
-			if !vp9SetVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
+			if !setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
 				a.MiRow+y32Idx, a.MiCol+x32Idx,
 				common.Block32x32, common.Block16x16, thresholds[1],
 				forceSplit[i+1] != 0, isKeyFrame,
-				vp9SetVTPartitioningArgs{V32: &vt.Split[i]}, chromaOK) {
+				setVTPartitioningArgs{V32: &vt.Split[i]}, chromaOK) {
 				for j := range 4 {
 					x16Idx := (j & 1) << 1
 					y16Idx := (j >> 1) << 1
-					var vtemp *vp9V16x16
+					var vtemp *V16x16
 					if !isKeyFrame && variance4x4downsample[i2+j] == 1 && useVT2 {
 						vtemp = &vt2[i2+j]
 					} else {
@@ -540,28 +536,28 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 					} else {
 						bsizeMin = common.Block8x8
 					}
-					if !vp9SetVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
+					if !setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
 						a.MiRow+y32Idx+y16Idx, a.MiCol+x32Idx+x16Idx,
 						common.Block16x16, bsizeMin, thresholds[2],
 						forceSplit[5+i2+j] != 0, isKeyFrame,
-						vp9SetVTPartitioningArgs{V16: vtemp}, chromaOK) {
+						setVTPartitioningArgs{V16: vtemp}, chromaOK) {
 						for k := range 4 {
 							x8Idx := k & 1
 							y8Idx := k >> 1
 							if use4x4Partition {
-								if !vp9SetVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
+								if !setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
 									a.MiRow+y32Idx+y16Idx+y8Idx,
 									a.MiCol+x32Idx+x16Idx+x8Idx,
 									common.Block8x8, common.Block8x8,
 									thresholds[3], false, isKeyFrame,
-									vp9SetVTPartitioningArgs{V8: &vtemp.Split[k]}, chromaOK) {
-									vp9SetBlockSize(a.MiGrid, a.MiRows, a.MiCols,
+									setVTPartitioningArgs{V8: &vtemp.Split[k]}, chromaOK) {
+									setBlockSize(a.MiGrid, a.MiRows, a.MiCols,
 										a.MiRow+y32Idx+y16Idx+y8Idx,
 										a.MiCol+x32Idx+x16Idx+x8Idx,
 										common.Block4x4)
 								}
 							} else {
-								vp9SetBlockSize(a.MiGrid, a.MiRows, a.MiCols,
+								setBlockSize(a.MiGrid, a.MiRows, a.MiCols,
 									a.MiRow+y32Idx+y16Idx+y8Idx,
 									a.MiCol+x32Idx+x16Idx+x8Idx,
 									common.Block8x8)
@@ -577,12 +573,12 @@ func vp9ChoosePartitioning(a vp9ChoosePartitioningArgs) int {
 	// chroma_check). govpx callers run chroma decisions through the
 	// existing pipeline so no in-picker chroma_check is required here.
 	if a.ShortCircuitLowTempVar != 0 && a.VarianceLow != nil {
-		vp9SetLowTempVarFlag(a, vt, thresholds)
+		setLowTempVarFlag(a, vt, thresholds)
 	}
 	return 0
 }
 
-func vp9SetLowTempVarFlag(a vp9ChoosePartitioningArgs, vt *vp9V64x64,
+func setLowTempVarFlag(a ChoosePartitioningArgs, vt *V64x64,
 	thresholds [4]int64,
 ) {
 	if vt == nil || a.VarianceLow == nil {
@@ -600,7 +596,7 @@ func vp9SetLowTempVarFlag(a vp9ChoosePartitioningArgs, vt *vp9V64x64,
 			a.PartitionMV.Row >= mvThr || a.PartitionMV.Row <= -mvThr) {
 		return
 	}
-	root := vp9VarianceLowBlockSizeAt(a, a.MiRow, a.MiCol)
+	root := varianceLowBlockSizeAt(a, a.MiRow, a.MiCol)
 	switch root {
 	case common.Block64x64:
 		if vt.PartVariances.None.Variance < int(thresholds[0]>>1) {
@@ -626,7 +622,7 @@ func vp9SetLowTempVarFlag(a vp9ChoosePartitioningArgs, vt *vp9V64x64,
 			if a.MiRows <= miRow || a.MiCols <= miCol {
 				continue
 			}
-			sbType := vp9VarianceLowBlockSizeAt(a, miRow, miCol)
+			sbType := varianceLowBlockSizeAt(a, miRow, miCol)
 			if sbType == common.Block32x32 {
 				threshold32x32 := thresholds[1] >> 1
 				if a.ShortCircuitLowTempVar == 1 ||
@@ -651,7 +647,7 @@ func vp9SetLowTempVarFlag(a vp9ChoosePartitioningArgs, vt *vp9V64x64,
 	}
 }
 
-func vp9VarianceLowBlockSizeAt(a vp9ChoosePartitioningArgs, miRow, miCol int) common.BlockSize {
+func varianceLowBlockSizeAt(a ChoosePartitioningArgs, miRow, miCol int) common.BlockSize {
 	if miRow < 0 || miCol < 0 || miRow >= a.MiRows || miCol >= a.MiCols ||
 		a.MiCols <= 0 {
 		return common.BlockInvalid

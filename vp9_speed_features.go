@@ -25,6 +25,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // Mode bitmasks used by SPEED_FEATURES.intra_y_mode_mask /
@@ -1980,7 +1981,7 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 			//	}
 			if e.noiseEstimate.enabled && ctx.width >= 1280 && ctx.height >= 720 {
 				noiseLevel := e.noiseEstimate.extractLevel()
-				if noiseLevel >= vp9NoiseLevelMedium {
+				if noiseLevel >= encoder.NoiseLevelMedium {
 					sf.ShortCircuitLowTempVar = 2
 				}
 			}

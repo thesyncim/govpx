@@ -429,20 +429,20 @@ func (e *VP9Encoder) vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol int,
 			return varianceLow[8] != 0, true
 		}
 	case common.Block16x16:
-		return varianceLow[vp9PosShift16x16[i][j]] != 0, true
+		return varianceLow[encoder.PosShift16x16[i][j]] != 0, true
 	case common.Block32x16:
 		j2 := ((miCol + 2) & 0x7) >> 1
-		return varianceLow[vp9PosShift16x16[i][j]] != 0 &&
-			varianceLow[vp9PosShift16x16[i][j2]] != 0, true
+		return varianceLow[encoder.PosShift16x16[i][j]] != 0 &&
+			varianceLow[encoder.PosShift16x16[i][j2]] != 0, true
 	case common.Block16x32:
 		i2 := ((miRow + 2) & 0x7) >> 1
-		return varianceLow[vp9PosShift16x16[i][j]] != 0 &&
-			varianceLow[vp9PosShift16x16[i2][j]] != 0, true
+		return varianceLow[encoder.PosShift16x16[i][j]] != 0 &&
+			varianceLow[encoder.PosShift16x16[i2][j]] != 0, true
 	}
 	return false, false
 }
 
-// vp9EnsureSBPartitionChosen runs vp9ChoosePartitioning for the 64x64 SB
+// vp9EnsureSBPartitionChosen runs encoder.ChoosePartitioning for the 64x64 SB
 // containing (miRow, miCol) iff it hasn't been computed this frame.
 // Writes the partition tree into e.varPartGrid and marks
 // e.varPartSBComputed[sbIdx] = true.
@@ -528,7 +528,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		e.varPartSBVarLow[sbIdx] = [25]uint8{}
 	}
 
-	args := vp9ChoosePartitioningArgs{
+	args := encoder.ChoosePartitioningArgs{
 		MiGrid:                 e.varPartGrid,
 		MiRows:                 miRows,
 		MiCols:                 miCols,
@@ -553,7 +553,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// !sf->nonrd_keyframe. At speed >= 8 the realtime configurator
 		// sets sf->nonrd_keyframe = 1 (vp9_speed_features.c:751-757),
 		// which suppresses the keyframe 4x4-leaf split. Thread the
-		// speed-feature flag through so vp9ChoosePartitioning respects
+		// speed-feature flag through so encoder.ChoosePartitioning respects
 		// it on the keyframe walker.
 		NonRdKeyframe: e.sf.NonrdKeyframe != 0,
 	}
@@ -754,7 +754,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		return false
 	}
 
-	vp9ChoosePartitioning(args)
+	encoder.ChoosePartitioning(args)
 	e.varPartSBComputed[sbIdx] = true
 	e.varPartFrameValid = true
 	return true

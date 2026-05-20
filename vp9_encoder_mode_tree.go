@@ -45,7 +45,7 @@ type vp9InterEncodeState struct {
 	isSrcFrameAltRef bool
 	showFrame        bool
 	// baseQindex mirrors libvpx's cm->base_qindex for the current frame.
-	// Used by vp9ChoosePartitioning to drive set_vbp_thresholds without
+	// Used by encoder.ChoosePartitioning to drive set_vbp_thresholds without
 	// reverse-looking up from dq.Y[0][1] (which is wrong when
 	// segmentation is enabled and segment 0 has a non-zero delta_q).
 	// libvpx ref: vp9_encodeframe.c:1379 (set_vbp_thresholds caller).

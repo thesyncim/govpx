@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"testing"
@@ -14,9 +14,9 @@ func TestVP9MinMax8x8Flat(t *testing.T) {
 	for i := range buf {
 		buf[i] = 100
 	}
-	mn, mx := vp9MinMax8x8(buf[:], 8, buf[:], 8)
+	mn, mx := minMax8x8(buf[:], 8, buf[:], 8)
 	if mn != 0 || mx != 0 {
-		t.Errorf("vp9MinMax8x8(flat) = (%d,%d), want (0,0)", mn, mx)
+		t.Errorf("minMax8x8(flat) = (%d,%d), want (0,0)", mn, mx)
 	}
 }
 
@@ -28,23 +28,23 @@ func TestVP9MinMax8x8Diff(t *testing.T) {
 		s[i] = 100
 		d[i] = 70 // diff = 30
 	}
-	mn, mx := vp9MinMax8x8(s[:], 8, d[:], 8)
+	mn, mx := minMax8x8(s[:], 8, d[:], 8)
 	if mn != 30 || mx != 30 {
-		t.Errorf("vp9MinMax8x8(const-diff) = (%d,%d), want (30,30)", mn, mx)
+		t.Errorf("minMax8x8(const-diff) = (%d,%d), want (30,30)", mn, mx)
 	}
 }
 
 func TestVP9ComputeMinmax8x8OddEdgeReplicates(t *testing.T) {
 	src := []uint8{1, 2, 3}
 	dst := []uint8{0, 0, 0}
-	mn, mx := vp9MinMax8x8Clamped(src, 1, dst, 1, 0, 0, 1, 3)
+	mn, mx := minMax8x8Clamped(src, 1, dst, 1, 0, 0, 1, 3)
 	if mn != 1 || mx != 3 {
-		t.Fatalf("vp9MinMax8x8Clamped odd edge = (%d,%d), want (1,3)",
+		t.Fatalf("minMax8x8Clamped odd edge = (%d,%d), want (1,3)",
 			mn, mx)
 	}
-	got := vp9ComputeMinmax8x8(src, 1, dst, 1, 0, 0, 1, 3)
+	got := computeMinmax8x8(src, 1, dst, 1, 0, 0, 1, 3)
 	if got != 0 {
-		t.Fatalf("vp9ComputeMinmax8x8 odd edge = %d, want 0", got)
+		t.Fatalf("computeMinmax8x8 odd edge = %d, want 0", got)
 	}
 }
 
@@ -56,9 +56,9 @@ func TestVP9ComputeMinmax8x8Flat(t *testing.T) {
 	for i := range buf {
 		buf[i] = 100
 	}
-	got := vp9ComputeMinmax8x8(buf[:], 16, buf[:], 16, 0, 0, 16, 16)
+	got := computeMinmax8x8(buf[:], 16, buf[:], 16, 0, 0, 16, 16)
 	if got != 0 {
-		t.Errorf("vp9ComputeMinmax8x8(flat) = %d, want 0", got)
+		t.Errorf("computeMinmax8x8(flat) = %d, want 0", got)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestVP9ChoosePartitioningKeyframeFlatClaims32x32(t *testing.T) {
 	for i := range src {
 		src[i] = 128
 	}
-	rc := vp9ChoosePartitioning(vp9ChoosePartitioningArgs{
+	rc := ChoosePartitioning(ChoosePartitioningArgs{
 		MiGrid:                 grid,
 		MiRows:                 miRows,
 		MiCols:                 miCols,
@@ -92,7 +92,7 @@ func TestVP9ChoosePartitioningKeyframeFlatClaims32x32(t *testing.T) {
 		BaseQIndex:             37,
 	})
 	if rc != 0 {
-		t.Fatalf("vp9ChoosePartitioning rc = %d, want 0", rc)
+		t.Fatalf("ChoosePartitioning rc = %d, want 0", rc)
 	}
 	// 64x64 never claimed on keyframe (libvpx force-split rule). Top-left
 	// 32x32 must have claimed because variance is zero.
@@ -116,7 +116,7 @@ func TestVP9ChoosePartitioningInterFlatProducesLeavesAtBlock64x64(t *testing.T) 
 		src[i] = 100
 		dst[i] = 100 // identical predictor
 	}
-	rc := vp9ChoosePartitioning(vp9ChoosePartitioningArgs{
+	rc := ChoosePartitioning(ChoosePartitioningArgs{
 		MiGrid:                 grid,
 		MiRows:                 miRows,
 		MiCols:                 miCols,
@@ -134,7 +134,7 @@ func TestVP9ChoosePartitioningInterFlatProducesLeavesAtBlock64x64(t *testing.T) 
 		BaseQIndex:             37,
 	})
 	if rc != 0 {
-		t.Fatalf("vp9ChoosePartitioning rc = %d, want 0", rc)
+		t.Fatalf("ChoosePartitioning rc = %d, want 0", rc)
 	}
 	if grid[0].SbType != common.Block64x64 {
 		t.Errorf("grid[0].SbType = %v, want Block64x64", grid[0].SbType)
@@ -155,7 +155,7 @@ func TestVP9ChoosePartitioningScreenForceSplitHonorsZeroTempSADSource(t *testing
 			src[i] = 100
 			dst[i] = 100
 		}
-		rc := vp9ChoosePartitioning(vp9ChoosePartitioningArgs{
+		rc := ChoosePartitioning(ChoosePartitioningArgs{
 			MiGrid:                 grid,
 			MiRows:                 miRows,
 			MiCols:                 miCols,
@@ -176,7 +176,7 @@ func TestVP9ChoosePartitioningScreenForceSplitHonorsZeroTempSADSource(t *testing
 			ZeroTempSADSource:      zeroTemp,
 		})
 		if rc != 0 {
-			t.Fatalf("vp9ChoosePartitioning rc = %d, want 0", rc)
+			t.Fatalf("ChoosePartitioning rc = %d, want 0", rc)
 		}
 		return grid[0].SbType
 	}
@@ -212,7 +212,7 @@ func TestVP9ChoosePartitioningInterHighVarianceForcesSplit(t *testing.T) {
 			dst[y*64+x] = 128
 		}
 	}
-	rc := vp9ChoosePartitioning(vp9ChoosePartitioningArgs{
+	rc := ChoosePartitioning(ChoosePartitioningArgs{
 		MiGrid:                 grid,
 		MiRows:                 miRows,
 		MiCols:                 miCols,
@@ -230,10 +230,50 @@ func TestVP9ChoosePartitioningInterHighVarianceForcesSplit(t *testing.T) {
 		BaseQIndex:             37,
 	})
 	if rc != 0 {
-		t.Fatalf("vp9ChoosePartitioning rc = %d, want 0", rc)
+		t.Fatalf("ChoosePartitioning rc = %d, want 0", rc)
 	}
 	// Force-split path: the 64x64 root must NOT have claimed itself.
 	if grid[0].SbType == common.Block64x64 {
 		t.Errorf("grid[0].SbType = Block64x64, want smaller (force-split path)")
+	}
+}
+
+func TestVP9ChoosePartitioningCallerScratchAllocatesZero(t *testing.T) {
+	const miRows, miCols = 8, 8
+	grid := make([]vp9dec.NeighborMi, miRows*miCols)
+	src := make([]uint8, 64*64)
+	dst := make([]uint8, 64*64)
+	for i := range src {
+		src[i] = 100
+		dst[i] = 100
+	}
+	var vt V64x64
+	var vt2 [16]V16x16
+	args := ChoosePartitioningArgs{
+		MiGrid:                 grid,
+		MiRows:                 miRows,
+		MiCols:                 miCols,
+		MiRow:                  0,
+		MiCol:                  0,
+		FrameWidth:             64,
+		FrameHeight:            64,
+		PlaneSrc:               src,
+		SrcStride:              64,
+		PlaneDst:               dst,
+		DstStride:              64,
+		IsKeyFrame:             false,
+		Speed:                  8,
+		VariancePartThreshMult: 1,
+		BaseQIndex:             37,
+		VarianceTree:           &vt,
+		VarianceTreeLowRes:     &vt2,
+	}
+	allocs := testing.AllocsPerRun(100, func() {
+		if rc := ChoosePartitioning(args); rc != 0 {
+			t.Fatalf("ChoosePartitioning rc = %d, want 0", rc)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("ChoosePartitioning with caller scratch allocs = %f, want 0", allocs)
 	}
 }

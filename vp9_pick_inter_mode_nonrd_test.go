@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9GetIntraCostPenaltyNoiseHighSuppressesSmallBlockReduction(t *testing.T) {
@@ -14,7 +15,7 @@ func TestVP9GetIntraCostPenaltyNoiseHighSuppressesSmallBlockReduction(t *testing
 		name                 string
 		bsize                common.BlockSize
 		noiseEstimateEnabled bool
-		noiseLevel           vp9NoiseLevel
+		noiseLevel           encoder.NoiseLevel
 		want                 int
 	}{
 		{
@@ -36,28 +37,28 @@ func TestVP9GetIntraCostPenaltyNoiseHighSuppressesSmallBlockReduction(t *testing
 			name:                 "block8x8_enabled_high_no_reduction",
 			bsize:                common.Block8x8,
 			noiseEstimateEnabled: true,
-			noiseLevel:           vp9NoiseLevelHigh,
+			noiseLevel:           encoder.NoiseLevelHigh,
 			want:                 base,
 		},
 		{
 			name:                 "block16x16_enabled_high_no_reduction",
 			bsize:                common.Block16x16,
 			noiseEstimateEnabled: true,
-			noiseLevel:           vp9NoiseLevelHigh,
+			noiseLevel:           encoder.NoiseLevelHigh,
 			want:                 base,
 		},
 		{
 			name:                 "block8x8_disabled_high_still_reduces",
 			bsize:                common.Block8x8,
 			noiseEstimateEnabled: false,
-			noiseLevel:           vp9NoiseLevelHigh,
+			noiseLevel:           encoder.NoiseLevelHigh,
 			want:                 base >> 4,
 		},
 		{
 			name:                 "block8x8_enabled_medium_still_reduces",
 			bsize:                common.Block8x8,
 			noiseEstimateEnabled: true,
-			noiseLevel:           vp9NoiseLevelMedium,
+			noiseLevel:           encoder.NoiseLevelMedium,
 			want:                 base >> 4,
 		},
 	}
@@ -124,12 +125,12 @@ func TestVP9NewmvDiffBiasNoiseInputs(t *testing.T) {
 
 func TestVP9NewmvDiffBiasLowvarInput(t *testing.T) {
 	cases := []struct {
-		state vp9ContentStateSB
+		state encoder.ContentStateSB
 		want  bool
 	}{
-		{state: vp9ContentStateInvalid, want: false},
-		{state: vp9ContentStateLowSadLowSumdiff, want: false},
-		{state: vp9ContentStateLowVarHighSumdiff, want: true},
+		{state: encoder.ContentStateInvalid, want: false},
+		{state: encoder.ContentStateLowSadLowSumdiff, want: false},
+		{state: encoder.ContentStateLowVarHighSumdiff, want: true},
 	}
 	for _, tc := range cases {
 		if got := vp9NewmvDiffBiasLowvarInput(tc.state); got != tc.want {
@@ -243,12 +244,12 @@ func TestVP9VarPartForceSkipLowTempVarOK(t *testing.T) {
 
 func TestVP9NonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T) {
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
-		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		common.Block64x64, encoder.ContentStateLowSadLowSumdiff,
 		true, true, false); !got {
 		t.Fatalf("scene-change precheck = false, want true")
 	}
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
-		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		common.Block64x64, encoder.ContentStateLowSadLowSumdiff,
 		true, false, false); got {
 		t.Fatalf("non-scene precheck = true, want false")
 	}
@@ -256,12 +257,12 @@ func TestVP9NonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T
 
 func TestVP9NonrdIntraFallbackPrecheckVeryHighSadBypassesLowTempSkip(t *testing.T) {
 	if got := vp9NonrdIntraFallbackPrecheck(30, 20, true,
-		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		common.Block64x64, encoder.ContentStateLowSadLowSumdiff,
 		false, false, false); got {
 		t.Fatalf("low-temp precheck = true, want false")
 	}
 	if got := vp9NonrdIntraFallbackPrecheck(30, 20, true,
-		common.Block64x64, vp9ContentStateVeryHighSad,
+		common.Block64x64, encoder.ContentStateVeryHighSad,
 		false, false, false); !got {
 		t.Fatalf("very-high-SAD precheck = false, want true")
 	}
@@ -269,12 +270,12 @@ func TestVP9NonrdIntraFallbackPrecheckVeryHighSadBypassesLowTempSkip(t *testing.
 
 func TestVP9NonrdIntraFallbackPrecheckScreenFlatBypassesInterGates(t *testing.T) {
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
-		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		common.Block64x64, encoder.ContentStateLowSadLowSumdiff,
 		true, false, true); !got {
 		t.Fatalf("screen-flat precheck = false, want true")
 	}
 	if got := vp9NonrdIntraFallbackPrecheck(10, 20, true,
-		common.Block64x64, vp9ContentStateLowSadLowSumdiff,
+		common.Block64x64, encoder.ContentStateLowSadLowSumdiff,
 		true, false, false); got {
 		t.Fatalf("non-screen-flat precheck = true, want false")
 	}

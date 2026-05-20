@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // TestVP9CalcMiSizeMatchesLibvpx pins the libvpx calc_mi_size identity:
@@ -265,8 +266,8 @@ func TestVP9AvgSourceSADStatsZeroTempSource(t *testing.T) {
 	if !stats.zeroTempSADSource {
 		t.Fatalf("zeroTempSADSource = false, want true for identical current/Last_Source")
 	}
-	if stats.contentState != vp9ContentStateLowSadLowSumdiff {
-		t.Fatalf("contentState = %v, want vp9ContentStateLowSadLowSumdiff", stats.contentState)
+	if stats.contentState != encoder.ContentStateLowSadLowSumdiff {
+		t.Fatalf("contentState = %v, want encoder.ContentStateLowSadLowSumdiff", stats.contentState)
 	}
 	if got := e.vp9ReadContentStateSbFd(0); got != 1 {
 		t.Fatalf("contentStateSbFd[0] = %d, want 1 after low-SAD update", got)

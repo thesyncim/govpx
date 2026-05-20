@@ -42,7 +42,7 @@ const vp9NoiseEstimateMaxVarHistBins = 20
 //	} NOISE_ESTIMATE;
 type vp9NoiseEstimateState struct {
 	enabled           bool
-	level             vp9NoiseLevel
+	level             encoder.NoiseLevel
 	value             int
 	thresh            int
 	adaptThresh       int
@@ -79,9 +79,9 @@ func (ne *vp9NoiseEstimateState) init(width, height int) {
 	}
 	ne.enabled = false
 	if width*height < 1280*720 {
-		ne.level = vp9NoiseLevelLowLow
+		ne.level = encoder.NoiseLevelLowLow
 	} else {
-		ne.level = vp9NoiseLevelLow
+		ne.level = encoder.NoiseLevelLow
 	}
 	ne.value = 0
 	ne.count = 0
@@ -116,20 +116,20 @@ func (ne *vp9NoiseEstimateState) init(width, height int) {
 //	  }
 //	  return noise_level;
 //	}
-func (ne *vp9NoiseEstimateState) extractLevel() vp9NoiseLevel {
+func (ne *vp9NoiseEstimateState) extractLevel() encoder.NoiseLevel {
 	if ne == nil {
-		return vp9NoiseLevelLowLow
+		return encoder.NoiseLevelLowLow
 	}
 	if ne.value > (ne.thresh << 1) {
-		return vp9NoiseLevelHigh
+		return encoder.NoiseLevelHigh
 	}
 	if ne.value > ne.thresh {
-		return vp9NoiseLevelMedium
+		return encoder.NoiseLevelMedium
 	}
 	if ne.value > (ne.thresh >> 1) {
-		return vp9NoiseLevelLow
+		return encoder.NoiseLevelLow
 	}
-	return vp9NoiseLevelLowLow
+	return encoder.NoiseLevelLowLow
 }
 
 // vp9EnableNoiseEstimationArgs carries the predicate inputs libvpx's
@@ -384,7 +384,7 @@ func (e *VP9Encoder) vp9UpdateNoiseEstimate(img *image.YCbCr, miRows, miCols int
 	}
 
 	ne.value = (3*ne.value + int(maxBin)*40) >> 2
-	if ne.level < vp9NoiseLevelMedium && ne.value > ne.adaptThresh {
+	if ne.level < encoder.NoiseLevelMedium && ne.value > ne.adaptThresh {
 		ne.count = ne.numFramesEstimate
 	} else {
 		ne.count++

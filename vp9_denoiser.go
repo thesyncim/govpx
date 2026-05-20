@@ -117,13 +117,13 @@ func (e *VP9Encoder) prepareVP9DenoiserSource(img *image.YCbCr) *image.YCbCr {
 	return &e.denoiser.source
 }
 
-func vp9DenoiserLevelForNoiseEstimate(level vp9NoiseLevel) int8 {
+func vp9DenoiserLevelForNoiseEstimate(level encoder.NoiseLevel) int8 {
 	switch level {
-	case vp9NoiseLevelLow:
+	case encoder.NoiseLevelLow:
 		return vp9DenoiserLow
-	case vp9NoiseLevelMedium:
+	case encoder.NoiseLevelMedium:
 		return vp9DenoiserMedium
-	case vp9NoiseLevelHigh:
+	case encoder.NoiseLevelHigh:
 		return vp9DenoiserHigh
 	default:
 		return vp9DenoiserLowLow

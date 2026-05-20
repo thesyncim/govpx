@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"testing"
@@ -7,9 +7,8 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// vp9_variance_partition_tree_test.go pins each helper introduced in
-// Phase B (vp9_variance_partition_tree.go) against expected values
-// derived by hand from the libvpx v1.16.0 source.
+// These tests pin the variance-tree helpers against expected values derived by
+// hand from the libvpx v1.16.0 source.
 //
 // libvpx refs:
 //   - fill_variance:           vp9/encoder/vp9_encodeframe.c:440-444
@@ -25,8 +24,8 @@ import (
 // TestVP9FillVarianceAssigns pins fill_variance: it must copy the three
 // inputs verbatim into the Var struct and must NOT touch .variance.
 func TestVP9FillVarianceAssigns(t *testing.T) {
-	v := vp9Var{Variance: 0xDEAD}
-	vp9FillVariance(1234, -56, 4, &v)
+	v := varianceStat{Variance: 0xDEAD}
+	fillVariance(1234, -56, 4, &v)
 	if v.SumSquareError != 1234 {
 		t.Errorf("SumSquareError = %d, want 1234", v.SumSquareError)
 	}
@@ -75,12 +74,12 @@ func TestVP9GetVarianceFormula(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			v := vp9Var{
+			v := varianceStat{
 				SumSquareError: tc.sse,
 				SumError:       tc.sum,
 				Log2Count:      tc.log2Count,
 			}
-			vp9GetVariance(&v)
+			getVariance(&v)
 			if v.Variance != tc.want {
 				t.Errorf("variance = %d, want %d", v.Variance, tc.want)
 			}
@@ -95,10 +94,10 @@ func TestVP9GetVarianceFormula(t *testing.T) {
 // 0; here we observe that fill_variance does not overwrite it — same as
 // TestVP9FillVarianceAssigns).
 func TestVP9Sum2VariancesAddsAndBumpsCount(t *testing.T) {
-	a := vp9Var{SumSquareError: 100, SumError: 10, Log2Count: 3}
-	b := vp9Var{SumSquareError: 50, SumError: -4, Log2Count: 3}
-	var r vp9Var
-	vp9Sum2Variances(&a, &b, &r)
+	a := varianceStat{SumSquareError: 100, SumError: 10, Log2Count: 3}
+	b := varianceStat{SumSquareError: 50, SumError: -4, Log2Count: 3}
+	var r varianceStat
+	sum2Variances(&a, &b, &r)
 	if r.SumSquareError != 150 {
 		t.Errorf("SumSquareError = %d, want 150", r.SumSquareError)
 	}
@@ -118,10 +117,10 @@ func TestVP9Sum2VariancesMismatchPanics(t *testing.T) {
 			t.Errorf("expected panic on log2_count mismatch")
 		}
 	}()
-	a := vp9Var{Log2Count: 2}
-	b := vp9Var{Log2Count: 3}
-	var r vp9Var
-	vp9Sum2Variances(&a, &b, &r)
+	a := varianceStat{Log2Count: 2}
+	b := varianceStat{Log2Count: 3}
+	var r varianceStat
+	sum2Variances(&a, &b, &r)
 }
 
 // TestVP9TreeToNodeDispatch pins tree_to_node for each BLOCK_SIZE: the
@@ -130,9 +129,9 @@ func TestVP9Sum2VariancesMismatchPanics(t *testing.T) {
 // (or in the BLOCK_4X4 case, the leaf Var entries).
 func TestVP9TreeToNodeDispatch(t *testing.T) {
 	t.Run("v64x64", func(t *testing.T) {
-		var v64 vp9V64x64
-		var node vp9VarianceNode
-		vp9TreeToNode(&node, common.Block64x64, &v64, nil, nil, nil, nil)
+		var v64 V64x64
+		var node varianceNode
+		treeToNode(&node, common.Block64x64, &v64, nil, nil, nil, nil)
 		if node.PartVariances != &v64.PartVariances {
 			t.Errorf("PartVariances mismatch")
 		}
@@ -143,9 +142,9 @@ func TestVP9TreeToNodeDispatch(t *testing.T) {
 		}
 	})
 	t.Run("v32x32", func(t *testing.T) {
-		var v32 vp9V32x32
-		var node vp9VarianceNode
-		vp9TreeToNode(&node, common.Block32x32, nil, &v32, nil, nil, nil)
+		var v32 V32x32
+		var node varianceNode
+		treeToNode(&node, common.Block32x32, nil, &v32, nil, nil, nil)
 		if node.PartVariances != &v32.PartVariances {
 			t.Errorf("PartVariances mismatch")
 		}
@@ -156,9 +155,9 @@ func TestVP9TreeToNodeDispatch(t *testing.T) {
 		}
 	})
 	t.Run("v16x16", func(t *testing.T) {
-		var v16 vp9V16x16
-		var node vp9VarianceNode
-		vp9TreeToNode(&node, common.Block16x16, nil, nil, &v16, nil, nil)
+		var v16 V16x16
+		var node varianceNode
+		treeToNode(&node, common.Block16x16, nil, nil, &v16, nil, nil)
 		if node.PartVariances != &v16.PartVariances {
 			t.Errorf("PartVariances mismatch")
 		}
@@ -169,9 +168,9 @@ func TestVP9TreeToNodeDispatch(t *testing.T) {
 		}
 	})
 	t.Run("v8x8", func(t *testing.T) {
-		var v8 vp9V8x8
-		var node vp9VarianceNode
-		vp9TreeToNode(&node, common.Block8x8, nil, nil, nil, &v8, nil)
+		var v8 V8x8
+		var node varianceNode
+		treeToNode(&node, common.Block8x8, nil, nil, nil, &v8, nil)
 		if node.PartVariances != &v8.PartVariances {
 			t.Errorf("PartVariances mismatch")
 		}
@@ -182,9 +181,9 @@ func TestVP9TreeToNodeDispatch(t *testing.T) {
 		}
 	})
 	t.Run("v4x4_fallthrough", func(t *testing.T) {
-		var v4 vp9V4x4
-		var node vp9VarianceNode
-		vp9TreeToNode(&node, common.Block4x4, nil, nil, nil, nil, &v4)
+		var v4 V4x4
+		var node varianceNode
+		treeToNode(&node, common.Block4x4, nil, nil, nil, nil, &v4)
 		if node.PartVariances != &v4.PartVariances {
 			t.Errorf("PartVariances mismatch")
 		}
@@ -203,7 +202,7 @@ func TestVP9TreeToNodeDispatch(t *testing.T) {
 // sum_error and log2_count=4, then verify the aggregation matches the
 // four sum_2_variances calls libvpx makes.
 func TestVP9FillVarianceTreeAggregates(t *testing.T) {
-	var v8 vp9V8x8
+	var v8 V8x8
 	// Seed the four v4x4 children's part_variances.none.
 	seed := [4]struct {
 		sse uint32
@@ -216,13 +215,13 @@ func TestVP9FillVarianceTreeAggregates(t *testing.T) {
 	}
 	const log2Count = 4
 	for i := range 4 {
-		v8.Split[i].PartVariances.None = vp9Var{
+		v8.Split[i].PartVariances.None = varianceStat{
 			SumSquareError: seed[i].sse,
 			SumError:       seed[i].sum,
 			Log2Count:      log2Count,
 		}
 	}
-	vp9FillVarianceTreeV8x8(&v8)
+	fillVarianceTreeV8x8(&v8)
 
 	// horz[0] = split[0] + split[1]
 	horz0 := v8.PartVariances.Horz[0]
@@ -273,7 +272,7 @@ func TestVP9Avg4x4Avg8x8(t *testing.T) {
 		for i := range buf {
 			buf[i] = 100
 		}
-		got := vp9Avg4x4(buf, 4)
+		got := avg4x4(buf, 4)
 		// sum = 16 * 100 = 1600; (1600+8)>>4 = 1608>>4 = 100.
 		if got != 100 {
 			t.Errorf("avg4x4 = %d, want 100", got)
@@ -284,7 +283,7 @@ func TestVP9Avg4x4Avg8x8(t *testing.T) {
 		for i := range buf {
 			buf[i] = 200
 		}
-		got := vp9Avg8x8(buf, 8)
+		got := avg8x8(buf, 8)
 		// sum = 64*200 = 12800; (12800+32)>>6 = 12832>>6 = 200.
 		if got != 200 {
 			t.Errorf("avg8x8 = %d, want 200", got)
@@ -298,7 +297,7 @@ func TestVP9Avg4x4Avg8x8(t *testing.T) {
 			0, 1, 2, 3,
 			0, 1, 2, 3,
 		}
-		got := vp9Avg4x4(buf, 4)
+		got := avg4x4(buf, 4)
 		if got != 2 {
 			t.Errorf("avg4x4 = %d, want 2", got)
 		}
@@ -312,7 +311,7 @@ func TestVP9Avg4x4Avg8x8(t *testing.T) {
 				buf[r*8+c] = uint8(c)
 			}
 		}
-		got := vp9Avg8x8(buf, 8)
+		got := avg8x8(buf, 8)
 		if got != 4 {
 			t.Errorf("avg8x8 = %d, want 4", got)
 		}
@@ -321,11 +320,11 @@ func TestVP9Avg4x4Avg8x8(t *testing.T) {
 
 func TestVP9AvgClampedReplicatesVisibleEdge(t *testing.T) {
 	src := []uint8{10, 20, 30}
-	if got := vp9Avg4x4Clamped(src, 1, 0, 0, 1, 3); got != 23 {
-		t.Fatalf("vp9Avg4x4Clamped = %d, want 23", got)
+	if got := avg4x4Clamped(src, 1, 0, 0, 1, 3); got != 23 {
+		t.Fatalf("avg4x4Clamped = %d, want 23", got)
 	}
-	if got := vp9Avg8x8Clamped(src, 1, 0, 0, 1, 3); got != 26 {
-		t.Fatalf("vp9Avg8x8Clamped = %d, want 26", got)
+	if got := avg8x8Clamped(src, 1, 0, 0, 1, 3); got != 26 {
+		t.Fatalf("avg8x8Clamped = %d, want 26", got)
 	}
 }
 
@@ -340,8 +339,8 @@ func TestVP9FillVariance4x4AvgKeyFrame(t *testing.T) {
 	for i := range src {
 		src[i] = 200
 	}
-	var v8 vp9V8x8
-	vp9FillVariance4x4Avg(src, 8, nil, 0, 0, 0, &v8, 8, 8, true)
+	var v8 V8x8
+	fillVariance4x4Avg(src, 8, nil, 0, 0, 0, &v8, 8, 8, true)
 	for k := range 4 {
 		got := v8.Split[k].PartVariances.None
 		if got.SumError != 72 {
@@ -367,8 +366,8 @@ func TestVP9FillVariance4x4AvgInter(t *testing.T) {
 		src[i] = 200
 		dst[i] = 100
 	}
-	var v8 vp9V8x8
-	vp9FillVariance4x4Avg(src, 8, dst, 8, 0, 0, &v8, 8, 8, false)
+	var v8 V8x8
+	fillVariance4x4Avg(src, 8, dst, 8, 0, 0, &v8, 8, 8, false)
 	for k := range 4 {
 		got := v8.Split[k].PartVariances.None
 		// s_avg = 200, d_avg = 100 => diff = 100, sse = 10000.
@@ -390,9 +389,9 @@ func TestVP9FillVariance4x4AvgClipToFrame(t *testing.T) {
 	for i := range src {
 		src[i] = 200
 	}
-	var v8 vp9V8x8
+	var v8 V8x8
 	// pixels_wide = 4 clips k=1 / k=3 (x4_idx = 4 >= 4).
-	vp9FillVariance4x4Avg(src, 8, nil, 0, 0, 0, &v8, 4, 8, true)
+	fillVariance4x4Avg(src, 8, nil, 0, 0, 0, &v8, 4, 8, true)
 	// k=0: x4=0,y4=0 in-range, s_avg=200, d_avg=128 => diff=72.
 	if v8.Split[0].PartVariances.None.SumError != 72 {
 		t.Errorf("split[0] should be in-range")
@@ -418,8 +417,8 @@ func TestVP9FillVariance4x4AvgClipToFrame(t *testing.T) {
 
 func TestVP9FillVariance4x4AvgOddEdgeReplicates(t *testing.T) {
 	src := []uint8{10, 20, 30}
-	var v8 vp9V8x8
-	vp9FillVariance4x4Avg(src, 1, nil, 0, 0, 0, &v8, 1, 3, true)
+	var v8 V8x8
+	fillVariance4x4Avg(src, 1, nil, 0, 0, 0, &v8, 1, 3, true)
 
 	got := v8.Split[0].PartVariances.None
 	if got.SumError != -105 {
@@ -444,8 +443,8 @@ func TestVP9FillVariance8x8AvgKeyFrame(t *testing.T) {
 	for i := range src {
 		src[i] = 200
 	}
-	var v16 vp9V16x16
-	vp9FillVariance8x8Avg(src, 16, nil, 0, 0, 0, &v16, 16, 16, true)
+	var v16 V16x16
+	fillVariance8x8Avg(src, 16, nil, 0, 0, 0, &v16, 16, 16, true)
 	for k := range 4 {
 		got := v16.Split[k].PartVariances.None
 		if got.SumError != 72 {
@@ -464,9 +463,9 @@ func TestVP9FillVariance8x8AvgClipToFrame(t *testing.T) {
 	for i := range src {
 		src[i] = 200
 	}
-	var v16 vp9V16x16
+	var v16 V16x16
 	// pixels_wide = 8 clips k=1 (x8=8) and k=3 (x8=8).
-	vp9FillVariance8x8Avg(src, 16, nil, 0, 0, 0, &v16, 8, 16, true)
+	fillVariance8x8Avg(src, 16, nil, 0, 0, 0, &v16, 8, 16, true)
 	if v16.Split[0].PartVariances.None.SumError != 72 {
 		t.Errorf("split[0] in-range")
 	}
@@ -487,28 +486,28 @@ func TestVP9SetBlockSizeBounds(t *testing.T) {
 	miRows, miCols := 4, 4
 	grid := make([]vp9dec.NeighborMi, miRows*miCols)
 	// In-range write at (1, 2).
-	vp9SetBlockSize(grid, miRows, miCols, 1, 2, common.Block16x16)
+	setBlockSize(grid, miRows, miCols, 1, 2, common.Block16x16)
 	if grid[1*miCols+2].SbType != common.Block16x16 {
 		t.Errorf("in-range write: got %d, want Block16x16",
 			grid[1*miCols+2].SbType)
 	}
 	// Out-of-range write: mi_col = mi_cols.
-	vp9SetBlockSize(grid, miRows, miCols, 1, miCols, common.Block32x32)
+	setBlockSize(grid, miRows, miCols, 1, miCols, common.Block32x32)
 	for _, mi := range grid {
 		if mi.SbType == common.Block32x32 {
 			t.Errorf("out-of-range write should be a no-op")
 		}
 	}
 	// Out-of-range write: mi_row = mi_rows.
-	vp9SetBlockSize(grid, miRows, miCols, miRows, 0, common.Block32x32)
+	setBlockSize(grid, miRows, miCols, miRows, 0, common.Block32x32)
 	for _, mi := range grid {
 		if mi.SbType == common.Block32x32 {
 			t.Errorf("out-of-range write should be a no-op")
 		}
 	}
 	// Negative coordinates: ignored.
-	vp9SetBlockSize(grid, miRows, miCols, -1, 0, common.Block32x32)
-	vp9SetBlockSize(grid, miRows, miCols, 0, -1, common.Block32x32)
+	setBlockSize(grid, miRows, miCols, -1, 0, common.Block32x32)
+	setBlockSize(grid, miRows, miCols, 0, -1, common.Block32x32)
 	for _, mi := range grid {
 		if mi.SbType == common.Block32x32 {
 			t.Errorf("negative coord write should be a no-op")
@@ -522,9 +521,9 @@ func TestVP9SetBlockSizeBounds(t *testing.T) {
 func TestVP9SetVTPartitioningForceSplit(t *testing.T) {
 	miRows, miCols := 16, 16
 	grid := make([]vp9dec.NeighborMi, miRows*miCols)
-	var v16 vp9V16x16
-	args := vp9SetVTPartitioningArgs{V16: &v16}
-	got := vp9SetVTPartitioning(grid, miRows, miCols, 0, 0,
+	var v16 V16x16
+	args := setVTPartitioningArgs{V16: &v16}
+	got := setVTPartitioning(grid, miRows, miCols, 0, 0,
 		common.Block16x16, common.Block16x16, 1000, true, false, args, nil)
 	if got {
 		t.Errorf("force_split: return = true, want false")
@@ -543,13 +542,13 @@ func TestVP9SetVTPartitioningForceSplit(t *testing.T) {
 func TestVP9SetVTPartitioningBSizeMinLowVarianceWrites(t *testing.T) {
 	miRows, miCols := 16, 16
 	grid := make([]vp9dec.NeighborMi, miRows*miCols)
-	var v16 vp9V16x16
+	var v16 V16x16
 	// Pre-set the none.Variance lower than threshold (inter path skips
 	// the get_variance recomputation when isKeyFrame=false, so we can
 	// seed Variance directly).
 	v16.PartVariances.None.Variance = 5
-	args := vp9SetVTPartitioningArgs{V16: &v16}
-	got := vp9SetVTPartitioning(grid, miRows, miCols, 0, 0,
+	args := setVTPartitioningArgs{V16: &v16}
+	got := setVTPartitioning(grid, miRows, miCols, 0, 0,
 		common.Block16x16, common.Block16x16, 100, false, false, args, nil)
 	if !got {
 		t.Errorf("low-variance bsize_min: return = false, want true")
@@ -565,10 +564,10 @@ func TestVP9SetVTPartitioningBSizeMinLowVarianceWrites(t *testing.T) {
 func TestVP9SetVTPartitioningBSizeMinHighVarianceDoesNotWrite(t *testing.T) {
 	miRows, miCols := 16, 16
 	grid := make([]vp9dec.NeighborMi, miRows*miCols)
-	var v16 vp9V16x16
+	var v16 V16x16
 	v16.PartVariances.None.Variance = 9999
-	args := vp9SetVTPartitioningArgs{V16: &v16}
-	got := vp9SetVTPartitioning(grid, miRows, miCols, 0, 0,
+	args := setVTPartitioningArgs{V16: &v16}
+	got := setVTPartitioning(grid, miRows, miCols, 0, 0,
 		common.Block16x16, common.Block16x16, 100, false, false, args, nil)
 	if got {
 		t.Errorf("high-variance bsize_min: return = true, want false")
@@ -584,16 +583,16 @@ func TestVP9SetVTPartitioningBSizeMinHighVarianceDoesNotWrite(t *testing.T) {
 func TestVP9SetVTPartitioningKeyFrameBSizeAbove32x32ForcesSplit(t *testing.T) {
 	miRows, miCols := 16, 16
 	grid := make([]vp9dec.NeighborMi, miRows*miCols)
-	var v64 vp9V64x64
+	var v64 V64x64
 	// Seed enough child .none values so get_variance has well-defined
 	// inputs (log2_count > 0 to avoid div-by-zero shift). The variance
 	// outcome doesn't matter here — the bsize > BLOCK_32X32 predicate
 	// kicks in first.
 	for i := range 4 {
-		v64.Split[i].PartVariances.None = vp9Var{Log2Count: 1}
+		v64.Split[i].PartVariances.None = varianceStat{Log2Count: 1}
 	}
-	args := vp9SetVTPartitioningArgs{V64: &v64}
-	got := vp9SetVTPartitioning(grid, miRows, miCols, 0, 0,
+	args := setVTPartitioningArgs{V64: &v64}
+	got := setVTPartitioning(grid, miRows, miCols, 0, 0,
 		common.Block64x64, common.Block16x16, 100, false, true, args, nil)
 	if got {
 		t.Errorf("keyframe bsize=64x64: return = true, want false (force split)")
@@ -607,21 +606,21 @@ func TestVP9SetVTPartitioningKeyFrameBSizeAbove32x32ForcesSplit(t *testing.T) {
 func TestVP9SetVTPartitioningVertSplitClaimsBlock(t *testing.T) {
 	miRows, miCols := 16, 16
 	grid := make([]vp9dec.NeighborMi, miRows*miCols)
-	var v32 vp9V32x32
+	var v32 V32x32
 	// none variance must NOT be below threshold so we fall through to
 	// vertical split.
 	v32.PartVariances.None.Variance = 9999
 	v32.PartVariances.Vert[0].Variance = 5
 	v32.PartVariances.Vert[1].Variance = 5
 	// Pre-seed the .none values; vert[0], vert[1] variances are
-	// recomputed inside set_vt_partitioning via vp9GetVariance, so we
+	// recomputed inside set_vt_partitioning via getVariance, so we
 	// need their sum_square_error / sum_error / log2_count to round-
 	// trip to a small variance. Easiest: set log2_count=1 and zeros.
 	for i := range 2 {
-		v32.PartVariances.Vert[i] = vp9Var{Log2Count: 1}
+		v32.PartVariances.Vert[i] = varianceStat{Log2Count: 1}
 	}
-	args := vp9SetVTPartitioningArgs{V32: &v32}
-	got := vp9SetVTPartitioning(grid, miRows, miCols, 0, 0,
+	args := setVTPartitioningArgs{V32: &v32}
+	got := setVTPartitioning(grid, miRows, miCols, 0, 0,
 		common.Block32x32, common.Block16x16, 100, false, false, args, nil)
 	if !got {
 		t.Errorf("vert split (low var): return = false, want true")
@@ -646,14 +645,14 @@ func TestVP9SetVTPartitioningVertSplitClaimsBlock(t *testing.T) {
 func TestVP9SetVTPartitioningChromaPlaneBlocksBlocksVertSplit(t *testing.T) {
 	miRows, miCols := 16, 16
 	grid := make([]vp9dec.NeighborMi, miRows*miCols)
-	var v32 vp9V32x32
+	var v32 V32x32
 	v32.PartVariances.None.Variance = 9999
 	for i := range 2 {
-		v32.PartVariances.Vert[i] = vp9Var{Log2Count: 1}
-		v32.PartVariances.Horz[i] = vp9Var{Log2Count: 1}
+		v32.PartVariances.Vert[i] = varianceStat{Log2Count: 1}
+		v32.PartVariances.Horz[i] = varianceStat{Log2Count: 1}
 	}
-	args := vp9SetVTPartitioningArgs{V32: &v32}
-	got := vp9SetVTPartitioning(grid, miRows, miCols, 0, 0,
+	args := setVTPartitioningArgs{V32: &v32}
+	got := setVTPartitioning(grid, miRows, miCols, 0, 0,
 		common.Block32x32, common.Block16x16, 100, false, false, args,
 		func(common.BlockSize) bool { return false }) // chroma always invalid
 	if got {
