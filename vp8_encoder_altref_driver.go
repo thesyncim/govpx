@@ -196,7 +196,7 @@ func (e *VP8Encoder) autoAltRefDrainStash() error {
 	if !e.autoAltRefStashValid {
 		return nil
 	}
-	src := sourceImageFromVP8(&e.autoAltRefStashFrame.Img)
+	src := vp8enc.SourceImageFromImage(&e.autoAltRefStashFrame.Img)
 	pts := e.autoAltRefStashPTS
 	duration := e.autoAltRefStashDuration
 	flags := e.autoAltRefStashFlags
@@ -245,7 +245,7 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		if peeked == nil {
 			return EncodeResult{}, false, nil
 		}
-		hiddenSource := sourceImageFromVP8(&peeked.frame.Img)
+		hiddenSource := vp8enc.SourceImageFromImage(&peeked.frame.Img)
 		hiddenPTS := peeked.pts
 		hiddenDuration := peeked.duration
 		if hiddenDuration == 0 {
@@ -300,7 +300,7 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 	if !ok {
 		return EncodeResult{}, false, nil
 	}
-	visibleSource := sourceImageFromVP8(&entry.frame.Img)
+	visibleSource := vp8enc.SourceImageFromImage(&entry.frame.Img)
 	visiblePTS := entry.pts
 	visibleDuration := entry.duration
 	visibleFlags := entry.flags
@@ -344,7 +344,7 @@ func (e *VP8Encoder) autoAltRefMaybeEmitHiddenOnFlush(dst []byte) (EncodeResult,
 	if peeked == nil {
 		return EncodeResult{}, false, nil
 	}
-	hiddenSource := sourceImageFromVP8(&peeked.frame.Img)
+	hiddenSource := vp8enc.SourceImageFromImage(&peeked.frame.Img)
 	hiddenPTS := peeked.pts
 	hiddenDuration := peeked.duration
 	if hiddenDuration == 0 {

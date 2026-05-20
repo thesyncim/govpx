@@ -788,7 +788,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	loopFilterSource := source
 	if e.opts.NoiseSensitivity > 0 && e.denoiser.allocated {
 		e.denoiser.runningAvg[denoiserAvgIntra].ExtendBorders()
-		loopFilterSource = codedSourceImageFromVP8(&e.denoiser.runningAvg[denoiserAvgIntra].Img)
+		loopFilterSource = vp8enc.CodedSourceImageFromImage(&e.denoiser.runningAvg[denoiserAvgIntra].Img)
 	}
 	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(loopFilterSource, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
 	e.phaseEnd(encoderPhaseLoopFilterPick, phase)

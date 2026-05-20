@@ -75,7 +75,7 @@ func macroblockChromaMotionSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbR
 	}
 	baseY := mbRow * 8
 	baseX := mbCol * 8
-	uvWidth, uvHeight := sourceImageUVDimensions(src)
+	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
 	// Uint range collapses (base<0) + (base+8>dim) into one compare per
 	// dimension. The original positive-form '+8 > dim' becomes
 	// 'base > dim-8' which uint-cast handles in one branch.

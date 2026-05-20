@@ -82,7 +82,7 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 		forceLFDeltaUpdate: entry.forceLFDeltaUpdate,
 	}
 	e.applyQueuedReferenceSets(entry.setReferences)
-	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
+	result, err := e.encodeSourceInto(dst, vp8enc.SourceImageFromImage(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	return result, err
 }

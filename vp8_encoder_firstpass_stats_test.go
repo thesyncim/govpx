@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -291,11 +292,20 @@ func TestFirstPassGoldenDoesNotResetOnAllIntraFallback(t *testing.T) {
 	}
 	golden := &enc.firstPassGoldenRef.Img
 	last := &enc.firstPassLastRef.Img
-	if planeMatches(golden.Y, golden.YStride, last.Y, last.YStride, width, height) &&
-		planeMatches(golden.U, golden.UStride, last.U, last.UStride, width/2, height/2) &&
-		planeMatches(golden.V, golden.VStride, last.V, last.VStride, width/2, height/2) {
+	if firstPassPlaneMatches(golden.Y, golden.YStride, last.Y, last.YStride, width, height) &&
+		firstPassPlaneMatches(golden.U, golden.UStride, last.U, last.UStride, width/2, height/2) &&
+		firstPassPlaneMatches(golden.V, golden.VStride, last.V, last.VStride, width/2, height/2) {
 		t.Fatalf("GOLDEN reset to the all-intra current LAST frame; libvpx only seeds GOLDEN on frame 0 or via the post-stats copy heuristic")
 	}
+}
+
+func firstPassPlaneMatches(a []byte, aStride int, b []byte, bStride int, width int, height int) bool {
+	for row := range height {
+		if !bytes.Equal(a[row*aStride:row*aStride+width], b[row*bStride:row*bStride+width]) {
+			return false
+		}
+	}
+	return true
 }
 
 // TestFirstPassStatsRegression32x32 pins the per-frame FirstPassFrameStats

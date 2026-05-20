@@ -481,7 +481,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	coeffSource := src
 	if denoiseActive {
 		vp8enc.CopySourceToFrameBuffer(&e.denoiser.source, src)
-		coeffSource = codedSourceImageFromVP8(&e.denoiser.source.Img)
+		coeffSource = vp8enc.CodedSourceImageFromImage(&e.denoiser.source.Img)
 	}
 
 	args := threadedInterRowsArgs{
@@ -568,7 +568,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	decisionSource := src
 	if denoiseActive {
 		vp8enc.CopySourceToFrameBuffer(&e.denoiser.source, src)
-		coeffSource = codedSourceImageFromVP8(&e.denoiser.source.Img)
+		coeffSource = vp8enc.CodedSourceImageFromImage(&e.denoiser.source.Img)
 		decisionSource = coeffSource
 	}
 	totalRate := 0

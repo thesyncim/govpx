@@ -452,7 +452,7 @@ func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common
 	if pred == nil || quant == nil || coefProbs == nil {
 		return maxInt() / 4, maxInt() / 4, 0
 	}
-	uvWidth, uvHeight := sourceImageUVDimensions(src)
+	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
 	var uvAbove [4]uint8
 	var uvLeft [4]uint8
 	if aboveTok != nil {

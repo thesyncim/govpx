@@ -78,7 +78,7 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 		forceLFDeltaUpdate: entry.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
 	}
 	e.applyQueuedReferenceSets(entry.setReferences)
-	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
+	result, err := e.encodeSourceInto(dst, vp8enc.SourceImageFromImage(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	if err == nil {
 		e.autoAltRefMaybeSchedule()

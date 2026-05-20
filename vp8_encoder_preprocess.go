@@ -65,7 +65,7 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 			// branch — every downstream read of the source for this hidden
 			// ARF encode (motion search, RD picker, transform residual,
 			// loop-filter trial SSE) consumes the filtered pixels.
-			src = sourceImageFromVP8(&e.arnrScratch.Img)
+			src = vp8enc.SourceImageFromImage(&e.arnrScratch.Img)
 			meta.arnrFiltered = true
 		}
 	}

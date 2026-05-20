@@ -77,13 +77,13 @@ func interFrameDroppable(cfg vp8enc.InterFrameStateConfig) bool {
 
 func (e *VP8Encoder) matchingZeroInterFrameReference(source vp8enc.SourceImage, flags EncodeFlags) (vp8common.MVReferenceFrame, *vp8common.Image, bool) {
 	lastEnabled, goldenEnabled, altEnabled := e.interReferenceAvailability(flags)
-	if lastEnabled && sourceImageMatchesReference(source, &e.lastRef.Img) {
+	if lastEnabled && vp8enc.SourceImageMatchesReference(source, &e.lastRef.Img) {
 		return vp8common.LastFrame, &e.lastRef.Img, true
 	}
-	if goldenEnabled && sourceImageMatchesReference(source, &e.goldenRef.Img) {
+	if goldenEnabled && vp8enc.SourceImageMatchesReference(source, &e.goldenRef.Img) {
 		return vp8common.GoldenFrame, &e.goldenRef.Img, true
 	}
-	if altEnabled && sourceImageMatchesReference(source, &e.altRef.Img) {
+	if altEnabled && vp8enc.SourceImageMatchesReference(source, &e.altRef.Img) {
 		return vp8common.AltRefFrame, &e.altRef.Img, true
 	}
 	return vp8common.IntraFrame, nil, false

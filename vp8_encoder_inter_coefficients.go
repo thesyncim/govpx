@@ -487,7 +487,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		uvDctsPtr = &args.cacheOut.UVDCTs
 	}
 	if !cacheConsume {
-		uvWidth, uvHeight := sourceImageUVDimensions(src)
+		uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
 		gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
 		gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
 		vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDctsPtr[:], 8)

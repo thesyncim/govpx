@@ -1,13 +1,12 @@
-package govpx
+package encoder
 
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// vp9FrameCountsFromEncoder produces a decoder-shaped FrameCounts from
-// the encoder's FrameCounts so the decoder-owned AdaptFrameContextWithCounts
+// FrameCountsForDecoder produces a decoder-shaped FrameCounts from
+// the encoder FrameCounts so the decoder-owned AdaptFrameContextWithCounts
 // helper can drive non-frame-parallel adaptation on the encoder side.
 //
 // All mode / inter / mv / tx / skip / partition fields map 1:1. The
@@ -18,7 +17,7 @@ import (
 // and 2. This mirrors the encoder-side test in
 // internal/vp9/encoder/coef_block_test.go which asserts the inverse
 // equality.
-func vp9FrameCountsFromEncoder(src *encoder.FrameCounts) vp9dec.FrameCounts {
+func FrameCountsForDecoder(src *FrameCounts) vp9dec.FrameCounts {
 	var dst vp9dec.FrameCounts
 	if src == nil {
 		return dst
@@ -32,16 +31,16 @@ func vp9FrameCountsFromEncoder(src *encoder.FrameCounts) vp9dec.FrameCounts {
 	dst.SingleRef = src.ReferenceMode.SingleRef
 	dst.CompRef = src.ReferenceMode.CompRef
 	dst.Skip = src.Skip
-	dst.Tx = vp9TxCountsFromEncoder(src.TxMode)
-	dst.Mv = vp9NmvCountsFromEncoder(src.Mv)
-	dst.Coef = vp9CoefCountsFromEncoderBranchStats(&src.CoefBranchStats)
+	dst.Tx = txCountsForDecoder(src.TxMode)
+	dst.Mv = nmvCountsForDecoder(src.Mv)
+	dst.Coef = coefCountsForDecoder(&src.CoefBranchStats)
 	return dst
 }
 
-// vp9TxCountsFromEncoder lifts encoder.TxModeCounts into the
+// txCountsForDecoder lifts TxModeCounts into the
 // decoder-shaped TxCounts. Both shapes are the per-context histogram
 // of selected tx sizes for the 8x8 / 16x16 / 32x32 max-tx sub-tables.
-func vp9TxCountsFromEncoder(src encoder.TxModeCounts) vp9dec.TxCounts {
+func txCountsForDecoder(src TxModeCounts) vp9dec.TxCounts {
 	var dst vp9dec.TxCounts
 	for ctx := range vp9dec.TxSizeContexts {
 		dst.P8x8[ctx][0] = src.P8x8[ctx][0]
@@ -57,10 +56,10 @@ func vp9TxCountsFromEncoder(src encoder.TxModeCounts) vp9dec.TxCounts {
 	return dst
 }
 
-// vp9NmvCountsFromEncoder lifts encoder.NmvContextCounts into the
+// nmvCountsForDecoder lifts NmvContextCounts into the
 // decoder-shaped NmvContextCounts. Joints + per-axis component slabs
 // have identical shape on both sides.
-func vp9NmvCountsFromEncoder(src encoder.NmvContextCounts) vp9dec.NmvContextCounts {
+func nmvCountsForDecoder(src NmvContextCounts) vp9dec.NmvContextCounts {
 	var dst vp9dec.NmvContextCounts
 	dst.Joints = src.Joints
 	for i := range 2 {
@@ -76,7 +75,7 @@ func vp9NmvCountsFromEncoder(src encoder.NmvContextCounts) vp9dec.NmvContextCoun
 	return dst
 }
 
-// vp9CoefCountsFromEncoderBranchStats reconstructs the decoder's
+// coefCountsForDecoder reconstructs the decoder token counts
 // token-count CoefCounts from the encoder's per-node branch stats.
 // The encoder records, per (tx, plane, ref, band, ctx) and per
 // UnconstrainedNode (0..2):
@@ -94,7 +93,7 @@ func vp9NmvCountsFromEncoder(src encoder.NmvContextCounts) vp9dec.NmvContextCoun
 // Mirrors the inverse assertion in
 // internal/vp9/encoder/coef_block_test.go's
 // assertCoefPrefixStatsMatchDecoderCounts.
-func vp9CoefCountsFromEncoderBranchStats(src *encoder.FrameCoefBranchStats) vp9dec.CoefCounts {
+func coefCountsForDecoder(src *FrameCoefBranchStats) vp9dec.CoefCounts {
 	var dst vp9dec.CoefCounts
 	if src == nil {
 		return dst

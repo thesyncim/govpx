@@ -922,7 +922,7 @@ func gatherClampedLumaBlock(src vp8enc.SourceImage, baseY int, baseX int, width 
 func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) int {
 	baseY := mbRow * 8
 	baseX := mbCol * 8
-	uvWidth, uvHeight := sourceImageUVDimensions(src)
+	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
 	refUVWidth := (ref.CodedWidth + 1) >> 1
 	refUVHeight := (ref.CodedHeight + 1) >> 1
 	// Uint-range collapse on each chroma dimension; the 4 src-dim and
