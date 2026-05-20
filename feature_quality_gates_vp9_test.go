@@ -569,11 +569,11 @@ func TestVP9FeatureBDRateLoopFilter(t *testing.T) {
 	})
 }
 
-// TestVP9FeatureBDRateScoreboardSummary prints the per-feature
+// TestVP9FeatureBDRateScoreboardSummaryIncludesRecordedRows prints the per-feature
 // scoreboard at the end of the BD-rate run. It runs after the gates
 // (alphabetical Z-suffix) so the table reflects every recorded row.
 // Use `make verify-bd-rate` to see the table populated.
-func TestVP9FeatureBDRateZScoreboardSummary(t *testing.T) {
+func TestVP9FeatureBDRateScoreboardSummaryIncludesRecordedRows(t *testing.T) {
 	if !benchcmd.FeatureGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}

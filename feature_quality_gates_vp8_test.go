@@ -1,7 +1,7 @@
 package govpx_test
 
 // VP8 BD-rate quality gate. Mirrors the VP9 per-feature BD-rate
-// scoreboard in feature_quality_gates_test.go but drives the VP8
+// scoreboard in feature_quality_gates_vp9_test.go but drives the VP8
 // encoder via the BD-rate VP8 harness in
 // cmd/govpx-bench/benchcmd/bdrate_vp8.go.
 //
