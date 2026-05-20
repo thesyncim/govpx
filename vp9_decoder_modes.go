@@ -1052,7 +1052,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	trace := vp9DecodedLeafTrace{}
 	if traceActive {
 		trace = vp9DecodedLeafTraceForMI(hdr, miRow, miCol, mi)
-		trace.UvMode = int(uvMode)
+		vp9DecodedLeafTraceSetUVMode(&trace, uvMode)
 	}
 	if isInter != 0 && !d.unsupportedReconstruct {
 		if !d.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize) {
@@ -1113,15 +1113,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					coefCounts, coeffs)
 				eobTotal += eob
 				if traceActive {
-					trace.TxBlockCount++
-					trace.EOBTotal += eob
-					trace.TokenCount += eob
-					if eob < maxEob {
-						trace.TokenCount++
-					}
-					nonZero, absSum := vp9DecodedCoeffSummary(coeffs)
-					trace.QCoeffNonZero += nonZero
-					trace.QCoeffAbsSum += absSum
+					vp9DecodedLeafTraceAddCoeffSummary(&trace, eob, maxEob, coeffs)
 				}
 				if isInter == 0 && !d.unsupportedReconstruct {
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
@@ -1165,51 +1157,10 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 		mi.Skip = 1
 	}
 	if traceActive {
-		trace.Skip = int(mi.Skip)
+		vp9DecodedLeafTraceSetSkip(&trace, mi.Skip)
 		d.emitVP9DecodedLeafTrace(trace)
 	}
 	return true
-}
-
-func vp9DecodedLeafTraceForMI(hdr *vp9dec.UncompressedHeader, miRow, miCol int,
-	mi *vp9dec.NeighborMi,
-) vp9DecodedLeafTrace {
-	if hdr == nil || mi == nil {
-		return vp9DecodedLeafTrace{}
-	}
-	return vp9DecodedLeafTrace{
-		KeyFrame:     hdr.FrameType == common.KeyFrame,
-		IntraOnly:    hdr.IntraOnly,
-		MIRow:        miRow,
-		MICol:        miCol,
-		BSize:        int(mi.SbType),
-		Mode:         int(mi.Mode),
-		Ref0:         int(mi.RefFrame[0]),
-		Ref1:         int(mi.RefFrame[1]),
-		Mv0Row:       int(mi.Mv[0].Row),
-		Mv0Col:       int(mi.Mv[0].Col),
-		Mv1Row:       int(mi.Mv[1].Row),
-		Mv1Col:       int(mi.Mv[1].Col),
-		InterpFilter: int(mi.InterpFilter),
-		TxSize:       int(mi.TxSize),
-		Skip:         int(mi.Skip),
-		SegmentID:    int(mi.SegmentID),
-	}
-}
-
-func vp9DecodedCoeffSummary(coeffs []int16) (nonZero, absSum int) {
-	for _, coeff := range coeffs {
-		if coeff == 0 {
-			continue
-		}
-		nonZero++
-		v := int(coeff)
-		if v < 0 {
-			v = -v
-		}
-		absSum += v
-	}
-	return nonZero, absSum
 }
 
 func (d *VP9Decoder) vp9InterTxDst(
