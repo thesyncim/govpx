@@ -1599,9 +1599,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		refFullDy = int(opts.refMv.Row) >> 3
 	}
 	mvLimits := vp9EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
-	mvLimits.setFullpelSearchRange(refMvForRange)
+	mvLimits.SetFullpelSearchRange(refMvForRange)
 	sadAt := func(dx, dy int) (uint64, bool) {
-		if !mvLimits.inFullpelRange(dy, dx) {
+		if !mvLimits.InFullpelRange(dy, dx) {
 			return 0, false
 		}
 		refX := x0 + dx
@@ -1652,7 +1652,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if opts.seedValid {
 		seedDx := int(opts.seed.Col) >> 3
 		seedDy := int(opts.seed.Row) >> 3
-		seedDy, seedDx = mvLimits.clampFullpel(seedDy, seedDx)
+		seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
 		if sad, ok := sadAt(seedDx, seedDy); ok {
 			bestSad = sad
 			bestScore = scoreMv(seedDx, seedDy, bestSad)

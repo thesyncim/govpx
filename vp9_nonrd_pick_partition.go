@@ -36,7 +36,7 @@ func vp9NonrdPickPartitionEnabled() bool {
 //     existing per-block picker (pickVP9CBRVariancePartitionBlockSize +
 //     pickVP9InterReferenceMode fallback) already supplies that comparison so
 //     the -1 branch returns BlockInvalid back to the caller, which then
-//     re-enters the legacy variance / RD path.
+//     enters the variance / RD fallback path.
 //
 // Scope of ML_BASED_PARTITION on cpu_used=8 with w*h <= 352*288 (libvpx
 // vp9_speed_features.c:751-768 + 825-826):
@@ -152,7 +152,7 @@ func (e *VP9Encoder) restoreVP9MLPickPredSnapshot(snap vp9MLPickPredSnapshot) {
 }
 
 // vp9MLPartitionBorder is the per-side edge-replication padding the ML
-// picker needs in front of LAST_FRAME so vp9IntProEstimate's `ref_buf -
+// picker needs in front of LAST_FRAME so the int-pro estimator's `ref_buf -
 // (bw>>1)` peek (libvpx vp9_mcomp.c:2317) stays in-bounds. With bw=64 the
 // peek reads 32 pixels before the SB origin; libvpx side this is handled
 // by YV12_BUFFER_CONFIG's 160-pixel border (libvpx vpx_scale/yv12config.h:
@@ -255,8 +255,8 @@ func (e *VP9Encoder) vp9ResetMLPartitionCache(miRows, miCols int) {
 // same x->est_pred buffer.
 //
 // Returns nil when the SB cannot be ML-picked (missing LAST_FRAME buffer,
-// scaled reference, etc.); the caller falls through to the legacy variance /
-// RD picker.
+// scaled reference, etc.); the caller falls through to the variance / RD
+// picker.
 func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 ) *vp9MLPartitionContext {
@@ -308,7 +308,7 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	if lastW != srcW || lastH != srcH {
 		// ML_BASED_PARTITION's speed-features gate forbids scaled refs
 		// (vp9_speed_features.c:751-768 narrows to dynamic-resolution-off
-		// configurations); fall back to the legacy picker otherwise.
+		// configurations); fall back to the variance picker otherwise.
 		return nil
 	}
 
@@ -373,7 +373,7 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 		LastRefOff:    (refOriginY+y0)*paddedRefStride + (refOriginX + x0),
 		LastRefStride: paddedRefStride,
 		Speed:         speed,
-		MvLimits: vp9MvLimits{
+		MvLimits: encoder.MvLimits{
 			ColMin: -(x0 + vp9MLPartitionBorder),
 			ColMax: lastW - x0 + vp9MLPartitionBorder,
 			RowMin: -(y0 + vp9MLPartitionBorder),
@@ -584,7 +584,7 @@ func vp9PredVariance(src []uint8, srcStride int, srcX, srcY int,
 //   - (root, true)      : commit BLOCK_64X64 / 32x32 / 16x16 at the current
 //     level (PARTITION_NONE outcome).
 //   - (splitSize, true) : recurse to next level (PARTITION_SPLIT outcome).
-//   - (BlockInvalid, false) : ML undecided — caller falls back to the legacy
+//   - (BlockInvalid, false) : ML undecided — caller falls back to the
 //     variance / RD picker.
 //
 // Edge cases (forced-split honoring):
@@ -690,8 +690,8 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 //
 // The picker commits to whichever candidate has the lower aggregate
 // RDCOST. On a tie (or scorer failure on the split candidate) we fall
-// through to BlockInvalid which routes the caller into the legacy
-// variance / RD path — matching libvpx's behaviour when sum_rdc.rdcost
+// through to BlockInvalid which routes the caller into the variance / RD
+// fallback path — matching libvpx's behaviour when sum_rdc.rdcost
 // >= best_rdc.rdcost (line 4738) leaves best_rdc holding the PARTITION_-
 // NONE candidate.
 //
@@ -754,7 +754,7 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	plCtx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, bsize)
 
-	// Source for partition rate-cost probabilities mirrors the legacy RD
+	// Source for partition rate-cost probabilities mirrors the RD
 	// path at vp9_encoder.go:5892-5895 — prefer the pre-WriteCompressed-
 	// Header snapshot inter.selectFc so the prepass and write pass use
 	// the same probs.
@@ -801,7 +801,7 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	inter.ref = savedRef
 	if !noneOK {
 		// libvpx: this_rdc.rate == INT_MAX path (vp9_encodeframe.c:4684);
-		// best_rdc stays unset. Fall back to the legacy picker.
+		// best_rdc stays unset. Fall back to the variance picker.
 		return common.BlockInvalid, false
 	}
 	// libvpx vp9_encodeframe.c:4686 — this_rdc.rate +=

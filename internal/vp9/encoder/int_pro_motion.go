@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -6,82 +6,75 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/dsp"
 )
 
-// vp9_int_pro_motion.go ports the integer-projection motion-search
-// helper used by the realtime / ML_BASED_PARTITION path. Verbatim port
-// of libvpx v1.16.0:
+// Integer projection motion search is used by the realtime /
+// ML_BASED_PARTITION path. This file ports the relevant libvpx v1.16.0
+// helpers:
 //
 //   - vector_match                       (vp9/encoder/vp9_mcomp.c:2192-2257)
 //   - vp9_int_pro_motion_estimation      (vp9/encoder/vp9_mcomp.c:2264-2399)
 //   - vp9_set_subpel_mv_search_range     (vp9/encoder/vp9_mcomp.c:51-67)
 //   - clamp_mv                           (vp9/common/vp9_mv.h:47-51)
 //
-// Phase C (vp9_nonrd_pick_partition.go) wires this helper into
-// pickVP9InterPartitionBlockSize through vp9MLPickPartitionEntry +
-// vp9GetEstimatedPred for the ML_BASED_PARTITION dispatch (libvpx
-// vp9/encoder/vp9_encodeframe.c:5313-5321). With Phase C landed the
-// no-alt-ref lookahead byte-parity oracle
-// (TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard) now matches
-// libvpx 4/4 packets — the previous EIGHTTAP_SMOOTH vs EIGHTTAP
-// interp-filter-literal drift at uncompressed-header byte 4 closed
-// once the recursive ML picker began contributing the correct per-block
-// filter histogram that drives fix_interp_filter's SWITCHABLE -> concrete
-// demotion (libvpx vp9_bitstream.c:864-885).
+// The ML_BASED_PARTITION picker uses this helper through get_estimated_pred
+// before per-block mode picking. The predicted 64x64 luma buffer contributes
+// to the partition neural-network input and the selected integer-projection
+// MV seeds later NEWMV search.
 
-// vp9MvLimits mirrors libvpx's MvLimits struct
+// MvLimits mirrors libvpx's MvLimits struct
 // (vp9/encoder/vp9_block.h:50-55). All values are in 1/8-pel units
 // at the subpel-clamp call site and full-pel units at the diamond /
 // step-search call sites — see vp9_mv.h MV_LOW / MV_UPP / MV unit
 // commentary.
-type vp9MvLimits struct {
+type MvLimits struct {
 	ColMin int
 	ColMax int
 	RowMin int
 	RowMax int
 }
 
-// vp9MV mirrors libvpx's MV struct (vp9/common/vp9_mv.h). Same
-// (row, col) int16 pair as internal/vp9/decoder.MV; aliased here so
-// the encoder-side helpers don't import the decoder package.
-type vp9MV = decoder.MV
+// MV mirrors libvpx's MV struct (vp9/common/vp9_mv.h). It is the same
+// (row, col) int16 pair as internal/vp9/decoder.MV, so callers can pass
+// decoder motion vectors without conversion.
+type MV = decoder.MV
 
 // vp9_mv.h: MV_IN_USE_BITS = 14.
 //
 //	MV_UPP = (1 << 14) - 1 =  16383.
 //	MV_LOW = -(1 << 14)    = -16384.
 const (
-	vp9MvInUseBits = 14
-	vp9MvUpp       = (1 << vp9MvInUseBits) - 1
-	vp9MvLow       = -(1 << vp9MvInUseBits)
+	mvInUseBits = 14
+	mvUpp       = (1 << mvInUseBits) - 1
+	mvLow       = -(1 << mvInUseBits)
 )
 
 // vp9_mcomp.h: MAX_MVSEARCH_STEPS = 11.
 //
 //	MAX_FULL_PEL_VAL = (1 << (MAX_MVSEARCH_STEPS - 1)) - 1 = 1023.
 const (
-	vp9MaxMvSearchSteps = 11
-	vp9MaxFullPelVal    = (1 << (vp9MaxMvSearchSteps - 1)) - 1
+	MaxMvSearchSteps = 11
+	MaxFullPelVal    = (1 << (MaxMvSearchSteps - 1)) - 1
 )
 
-// vp9SetSubpelMvSearchRange ports vp9_set_subpel_mv_search_range
+// SetSubpelMvSearchRange ports vp9_set_subpel_mv_search_range
 // (vp9/encoder/vp9_mcomp.c:51-67). Intersects the |umvWindow| limits
 // (in full-pel units) scaled to 1/8-pel against a [refMv ± MAX_FULL_PEL_VAL*8]
 // box, then clamps the result to [MV_LOW+1, MV_UPP-1].
-func vp9SetSubpelMvSearchRange(
-	out *vp9MvLimits, umvWindow *vp9MvLimits, refMV *vp9MV,
+func SetSubpelMvSearchRange(
+	out *MvLimits, umvWindow *MvLimits, refMV *MV,
 ) {
-	out.ColMin = max(umvWindow.ColMin*8, int(refMV.Col)-vp9MaxFullPelVal*8)
-	out.ColMax = min(umvWindow.ColMax*8, int(refMV.Col)+vp9MaxFullPelVal*8)
-	out.RowMin = max(umvWindow.RowMin*8, int(refMV.Row)-vp9MaxFullPelVal*8)
-	out.RowMax = min(umvWindow.RowMax*8, int(refMV.Row)+vp9MaxFullPelVal*8)
+	out.ColMin = max(umvWindow.ColMin*8, int(refMV.Col)-MaxFullPelVal*8)
+	out.ColMax = min(umvWindow.ColMax*8, int(refMV.Col)+MaxFullPelVal*8)
+	out.RowMin = max(umvWindow.RowMin*8, int(refMV.Row)-MaxFullPelVal*8)
+	out.RowMax = min(umvWindow.RowMax*8, int(refMV.Row)+MaxFullPelVal*8)
 
-	out.ColMin = max(vp9MvLow+1, out.ColMin)
-	out.ColMax = min(vp9MvUpp-1, out.ColMax)
-	out.RowMin = max(vp9MvLow+1, out.RowMin)
-	out.RowMax = min(vp9MvUpp-1, out.RowMax)
+	out.ColMin = max(mvLow+1, out.ColMin)
+	out.ColMax = min(mvUpp-1, out.ColMax)
+	out.RowMin = max(mvLow+1, out.RowMin)
+	out.RowMax = min(mvUpp-1, out.RowMax)
 }
 
-// vp9ClampMV ports the clamp_mv inline (vp9/common/vp9_mv.h:47-51).
-func vp9ClampMV(mv *vp9MV, minCol, maxCol, minRow, maxRow int) {
+// ClampMV ports the clamp_mv inline (vp9/common/vp9_mv.h:47-51).
+func ClampMV(mv *MV, minCol, maxCol, minRow, maxRow int) {
 	c := int(mv.Col)
 	if c < minCol {
 		c = minCol
@@ -98,21 +91,95 @@ func vp9ClampMV(mv *vp9MV, minCol, maxCol, minRow, maxRow int) {
 	mv.Row = int16(r)
 }
 
+// SetFullpelSearchRange intersects limits with libvpx's full-pel search box
+// around ref. The receiver limits are in full-pel units.
+func (limits *MvLimits) SetFullpelSearchRange(ref decoder.MV) {
+	if limits == nil {
+		return
+	}
+	colMin := (int(ref.Col) >> 3) - MaxFullPelVal
+	if int(ref.Col)&7 != 0 {
+		colMin++
+	}
+	rowMin := (int(ref.Row) >> 3) - MaxFullPelVal
+	if int(ref.Row)&7 != 0 {
+		rowMin++
+	}
+	colMax := (int(ref.Col) >> 3) + MaxFullPelVal
+	rowMax := (int(ref.Row) >> 3) + MaxFullPelVal
+
+	colMin = max(colMin, (mvLow>>3)+1)
+	rowMin = max(rowMin, (mvLow>>3)+1)
+	colMax = min(colMax, (mvUpp>>3)-1)
+	rowMax = min(rowMax, (mvUpp>>3)-1)
+
+	if limits.ColMin < colMin {
+		limits.ColMin = colMin
+	}
+	if limits.ColMax > colMax {
+		limits.ColMax = colMax
+	}
+	if limits.RowMin < rowMin {
+		limits.RowMin = rowMin
+	}
+	if limits.RowMax > rowMax {
+		limits.RowMax = rowMax
+	}
+}
+
+// InFullpelRange reports whether row/col is inside the full-pel limits.
+func (limits *MvLimits) InFullpelRange(row, col int) bool {
+	if limits == nil {
+		return true
+	}
+	return col >= limits.ColMin && col <= limits.ColMax &&
+		row >= limits.RowMin && row <= limits.RowMax
+}
+
+// FullpelBoundsOK reports whether a square full-pel search window fits.
+func (limits *MvLimits) FullpelBoundsOK(row, col, searchRange int) bool {
+	if limits == nil {
+		return true
+	}
+	return row-searchRange >= limits.RowMin &&
+		row+searchRange <= limits.RowMax &&
+		col-searchRange >= limits.ColMin &&
+		col+searchRange <= limits.ColMax
+}
+
+// ClampFullpel clamps row/col to the full-pel limits.
+func (limits *MvLimits) ClampFullpel(row, col int) (int, int) {
+	if limits == nil {
+		return row, col
+	}
+	if row < limits.RowMin {
+		row = limits.RowMin
+	} else if row > limits.RowMax {
+		row = limits.RowMax
+	}
+	if col < limits.ColMin {
+		col = limits.ColMin
+	} else if col > limits.ColMax {
+		col = limits.ColMax
+	}
+	return row, col
+}
+
 // vp9_mcomp.c:2261 — search_pos[4] is the 4-point cross neighbourhood
 // (top, left, right, bottom) consulted after the 1-D vector search.
-var vp9IntProSearchPos = [4]vp9MV{
+var intProSearchPos = [4]MV{
 	{Row: -1, Col: 0},
 	{Row: 0, Col: -1},
 	{Row: 0, Col: 1},
 	{Row: 1, Col: 0},
 }
 
-// vp9VectorMatch ports vector_match (vp9/encoder/vp9_mcomp.c:2192-2257).
+// VectorMatch ports vector_match (vp9/encoder/vp9_mcomp.c:2192-2257).
 // A 5-stage hierarchical 1-D search: starting from offset 0 it tries
 // every 16th position across a (bw+1)-wide window, then narrows the
 // step around the best by 16 -> 8 -> 4 -> 2 -> 1. Returns the offset
 // of the best match in pixels relative to the centre (bw/2).
-func vp9VectorMatch(ref, src []int16, bwl int) int {
+func VectorMatch(ref, src []int16, bwl int) int {
 	bw := 4 << bwl // pixels per axis at the bsize's full-pel width.
 
 	// libvpx: int best_sad = INT_MAX (vp9_mcomp.c:2193).
@@ -150,18 +217,18 @@ func vp9VectorMatch(ref, src []int16, bwl int) int {
 	return center - (bw >> 1)
 }
 
-// vp9IntProSadFunc is the function signature for the per-bsize SAD
+// IntProSadFunc is the function signature for the per-bsize SAD
 // helper that cpi->fn_ptr[bsize].sdf points to in libvpx. Caller
 // supplies it so the int-pro core stays decoupled from the bsize
 // dispatch table.
-type vp9IntProSadFunc func(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32
+type IntProSadFunc func(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32
 
-// vp9SADForBsize returns the standard cpi->fn_ptr[bsize].sdf for one
+// SADForBsize returns the standard cpi->fn_ptr[bsize].sdf for one
 // of the four bsizes (16x16, 16x32 / 32x16, 32x32, 32x64 / 64x32,
 // 64x64) get_estimated_pred and the realtime non-rd partition picker
 // consult. Only the BLOCK_*x* sizes int-pro motion search uses are
 // listed (libvpx vp9/encoder/vp9_encoder.c:2687-2735).
-func vp9SADForBsize(bsize common.BlockSize) vp9IntProSadFunc {
+func SADForBsize(bsize common.BlockSize) IntProSadFunc {
 	switch bsize {
 	case common.Block64x64:
 		return dsp.VpxSad64x64
@@ -182,12 +249,12 @@ func vp9SADForBsize(bsize common.BlockSize) vp9IntProSadFunc {
 	}
 }
 
-// vp9IntProSadX4 mirrors cpi->fn_ptr[bsize].sdx4df — the 4-reference
+// IntProSadX4 mirrors cpi->fn_ptr[bsize].sdx4df — the 4-reference
 // dispatch. libvpx's _x4d_c is literally four sdf calls
 // (vpx_dsp/sad.c:55-74). We replicate that pattern here so callers
 // don't need a separate dispatch table.
-func vp9IntProSadX4(
-	sdf vp9IntProSadFunc,
+func IntProSadX4(
+	sdf IntProSadFunc,
 	src []uint8, srcOff, srcStride int,
 	ref []uint8, refOffsets [4]int, refStride int,
 	out *[4]uint32,
@@ -197,7 +264,7 @@ func vp9IntProSadX4(
 	}
 }
 
-// vp9IntProEstimateInput is the per-call substrate the
+// IntProEstimateInput is the per-call substrate the
 // vp9_int_pro_motion_estimation port needs from the caller. It
 // mirrors libvpx's MACROBLOCK / MACROBLOCKD reach into
 // x->plane[0].src and xd->plane[0].pre[0] — pure pixel buffers plus
@@ -205,7 +272,7 @@ func vp9IntProSadX4(
 //
 // The result lands in OutMV (libvpx writes xd->mi[0]->mv[0]) and the
 // best-SAD return value mirrors the libvpx return.
-type vp9IntProEstimateInput struct {
+type IntProEstimateInput struct {
 	// Bsize is the per-SB sub-block being searched. Must be one of
 	// BLOCK_16x16, 32x16, 16x32, 32x32, 64x32, 32x64, 64x64.
 	Bsize common.BlockSize
@@ -227,15 +294,15 @@ type vp9IntProEstimateInput struct {
 
 	// RefMV is the reference MV in 1/8-pel units used by the subpel
 	// clamp (libvpx ref_mv argument).
-	RefMV vp9MV
+	RefMV MV
 
 	// MvLimits are the SB-level full-pel UMV-window limits libvpx
 	// caches on the MACROBLOCK. Subpel clamp scales them by 8 and
 	// intersects with the (MV_LOW+1, MV_UPP-1) box.
-	MvLimits vp9MvLimits
+	MvLimits MvLimits
 }
 
-// vp9IntProEstimate ports vp9_int_pro_motion_estimation
+// IntProEstimate ports vp9_int_pro_motion_estimation
 // (vp9/encoder/vp9_mcomp.c:2264-2399) — only the 8-bit
 // non-highbd path. Returns (bestSad, mv) where mv is in 1/8-pel
 // units after clamping.
@@ -254,7 +321,7 @@ type vp9IntProEstimateInput struct {
 // modeled here because the int-pro path runs on the unscaled buffers
 // — the caller is responsible for picking the right reference frame
 // (LAST / GOLDEN / ALTREF) and supplying its pre-plane buffer.
-func vp9IntProEstimate(in *vp9IntProEstimateInput) (bestSad uint32, mv vp9MV) {
+func IntProEstimate(in *IntProEstimateInput) (bestSad uint32, mv MV) {
 	bsize := in.Bsize
 	bw := 4 << uint(common.BWidthLog2Lookup[bsize])
 	bh := 4 << uint(common.BHeightLog2Lookup[bsize])
@@ -264,7 +331,7 @@ func vp9IntProEstimate(in *vp9IntProEstimateInput) (bestSad uint32, mv vp9MV) {
 	refStride := in.RefStride
 	normFactor := 3 + (bw >> 5)
 
-	sdf := vp9SADForBsize(bsize)
+	sdf := SADForBsize(bsize)
 
 	// Scratch buffers — libvpx declares these on the stack at 16-byte
 	// alignment via DECLARE_ALIGNED. We use plain slices.
@@ -307,9 +374,9 @@ func vp9IntProEstimate(in *vp9IntProEstimateInput) (bestSad uint32, mv vp9MV) {
 	}
 
 	// Find the best match per 1-D search.
-	colMatch := vp9VectorMatch(hbuf[:], srcHbuf[:], int(common.BWidthLog2Lookup[bsize]))
-	rowMatch := vp9VectorMatch(vbuf[:], srcVbuf[:], int(common.BHeightLog2Lookup[bsize]))
-	tmpMV := vp9MV{Row: int16(rowMatch), Col: int16(colMatch)}
+	colMatch := VectorMatch(hbuf[:], srcHbuf[:], int(common.BWidthLog2Lookup[bsize]))
+	rowMatch := VectorMatch(vbuf[:], srcVbuf[:], int(common.BHeightLog2Lookup[bsize]))
+	tmpMV := MV{Row: int16(rowMatch), Col: int16(colMatch)}
 
 	// Coarse-MV SAD probe + 4-direction cross step.
 	thisMV := tmpMV
@@ -323,13 +390,13 @@ func vp9IntProEstimate(in *vp9IntProEstimateInput) (bestSad uint32, mv vp9MV) {
 		refOffBest + 1,
 		refOffBest + refStride,
 	}
-	vp9IntProSadX4(sdf, in.Src, in.SrcOff, srcStride, in.Ref, refOffsets, refStride, &thisSAD)
+	IntProSadX4(sdf, in.Src, in.SrcOff, srcStride, in.Ref, refOffsets, refStride, &thisSAD)
 
 	for idx := range 4 {
 		if thisSAD[idx] < bestSad {
 			bestSad = thisSAD[idx]
-			tmpMV.Row = vp9IntProSearchPos[idx].Row + thisMV.Row
-			tmpMV.Col = vp9IntProSearchPos[idx].Col + thisMV.Col
+			tmpMV.Row = intProSearchPos[idx].Row + thisMV.Row
+			tmpMV.Col = intProSearchPos[idx].Col + thisMV.Col
 		}
 	}
 
@@ -360,9 +427,9 @@ func vp9IntProEstimate(in *vp9IntProEstimateInput) (bestSad uint32, mv vp9MV) {
 
 	// Subpel clamp against the (MV_LOW+1, MV_UPP-1) window
 	// intersected with refMV ± MAX_FULL_PEL_VAL*8.
-	var subpelLimits vp9MvLimits
-	vp9SetSubpelMvSearchRange(&subpelLimits, &in.MvLimits, &in.RefMV)
-	vp9ClampMV(&tmpMV, subpelLimits.ColMin, subpelLimits.ColMax, subpelLimits.RowMin, subpelLimits.RowMax)
+	var subpelLimits MvLimits
+	SetSubpelMvSearchRange(&subpelLimits, &in.MvLimits, &in.RefMV)
+	ClampMV(&tmpMV, subpelLimits.ColMin, subpelLimits.ColMax, subpelLimits.RowMin, subpelLimits.RowMax)
 
 	return bestSad, tmpMV
 }

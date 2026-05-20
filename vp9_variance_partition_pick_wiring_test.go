@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // TestVP9VarPartDecisionForClaimAtBSize: when the picker stamped bsize
@@ -307,7 +308,7 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 		LastRefOff:    (refOriginY+y0)*refStrideB + (refOriginX + x0),
 		LastRefStride: refStrideB,
 		Speed:         int(e.opts.CpuUsed),
-		MvLimits: vp9MvLimits{
+		MvLimits: encoder.MvLimits{
 			ColMin: -(x0 + common.VP9EncBorderInPixels),
 			ColMax: width - x0 + common.VP9EncBorderInPixels,
 			RowMin: -(y0 + common.VP9EncBorderInPixels),

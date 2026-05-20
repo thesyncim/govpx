@@ -58,19 +58,17 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// by vp9NonrdPickPartition for trailing rows/cols at the frame edge.
 	// On the -1 ("no confidence") branch the libvpx picker RD-compares
 	// PARTITION_NONE against PARTITION_SPLIT (libvpx vp9_encodeframe.c:
-	// 4676-4746); under the opt-in gate govpx now runs that compare via
-	// vp9NonrdPickPartitionRDFallback (task #149) — pickVP9InterReference-
+	// 4676-4746); govpx runs that compare via
+	// vp9NonrdPickPartitionRDFallback — pickVP9InterReference-
 	// Mode supplies the PARTITION_NONE candidate (libvpx 4677 nonrd_pick_-
 	// sb_modes invoking vp9_pick_inter_mode at vp9_pickmode.c:1696) and
 	// scoreVP9InterPartitionSplit supplies the recursive PARTITION_SPLIT
 	// candidate (libvpx 4725 recursive nonrd_pick_partition call) plus
 	// the partition_cost rate (libvpx 4686 / 4715). When both candidates
-	// fail the dispatcher continues to the legacy variance / RD path
-	// below.
+	// fail the dispatcher continues to the variance / RD fallback below.
 	//
-	// The historical env gate is now retired: this dispatch follows
-	// sf.PartitionSearchType == ML_BASED_PARTITION directly, matching
-	// libvpx's use_ml_based_partitioning predicate.
+	// This dispatch follows sf.PartitionSearchType == ML_BASED_PARTITION
+	// directly, matching libvpx's use_ml_based_partitioning predicate.
 	if e.sf.PartitionSearchType == MlBasedPartition {
 		if vp9NonrdPickPartitionEnabled() {
 			if root == common.Block64x64 || root == common.Block32x32 ||
@@ -693,7 +691,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 						// BLOCK_64X64 SB at (mi_row, mi_col); see
 						// vp9_encoder.c set_mv_limits at the call
 						// site).
-						MvLimits: vp9MvLimits{
+						MvLimits: encoder.MvLimits{
 							ColMin: -(x0 + common.VP9EncBorderInPixels),
 							ColMax: refW - x0 + common.VP9EncBorderInPixels,
 							RowMin: -(y0 + common.VP9EncBorderInPixels),
@@ -851,11 +849,10 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 	if !e.vp9CBRVariancePartitionEnabled(inter) {
 		return common.BlockInvalid, false
 	}
-	// Phase C wiring: when the libvpx choose_partitioning gate is
-	// enabled, populate the per-SB partition cache on first call into
-	// this SB and read the partition decision back from
-	// e.varPartGrid. Falls through to the legacy variance picker below
-	// when the gate is off (default) so existing parity tests stay green.
+	// When the libvpx choose_partitioning gate is enabled, populate the
+	// per-SB partition cache on first call into this SB and read the
+	// partition decision back from e.varPartGrid. Falls through to the
+	// variance picker below when the gate is off.
 	//
 	// libvpx ref: vp9/encoder/vp9_encodeframe.c:5470 nonrd_use_partition
 	// reads xd->mi[]->sb_type to drive the encode walk.

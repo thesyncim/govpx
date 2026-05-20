@@ -4,14 +4,16 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // Pinning tests for vp9_get_estimated_pred.go. Reference values are
 // hand-computed from the libvpx v1.16.0 bodies cited in that file.
 
-// TestVp9GetEstimatedPredKeyFrameFillsWith128 pins the keyframe
+// TestVP9GetEstimatedPredKeyFrameFillsWith128 pins the keyframe
 // memset(128) branch (libvpx vp9_encodeframe.c:5198).
-func TestVp9GetEstimatedPredKeyFrameFillsWith128(t *testing.T) {
+func TestVP9GetEstimatedPredKeyFrameFillsWith128(t *testing.T) {
 	estPred := make([]uint8, 64*64)
 	for i := range estPred {
 		estPred[i] = 0xFF // poison.
@@ -24,9 +26,9 @@ func TestVp9GetEstimatedPredKeyFrameFillsWith128(t *testing.T) {
 	}
 }
 
-// TestVp9GetEstimatedPredSubBsizeFormula pins the per-SB sub-bsize
+// TestVP9GetEstimatedPredSubBsizeFormula pins the per-SB sub-bsize
 // formula from libvpx vp9_encodeframe.c:5113-5114.
-func TestVp9GetEstimatedPredSubBsizeFormula(t *testing.T) {
+func TestVP9GetEstimatedPredSubBsizeFormula(t *testing.T) {
 	// miCols=8, miRows=8 → a single 64x64 SB at (0,0).
 	// (mi_col+4 < 8) = (4 < 8) = true → +2
 	// (mi_row+4 < 8) = (4 < 8) = true → +1
@@ -56,9 +58,9 @@ func TestVp9GetEstimatedPredSubBsizeFormula(t *testing.T) {
 	}
 }
 
-// TestVp9BuildEstimatedPredLuma64x64ZeroMVCopy verifies that a zero
+// TestVP9BuildEstimatedPredLuma64x64ZeroMVCopy verifies that a zero
 // MV produces a direct copy of the 64x64 reference window.
-func TestVp9BuildEstimatedPredLuma64x64ZeroMVCopy(t *testing.T) {
+func TestVP9BuildEstimatedPredLuma64x64ZeroMVCopy(t *testing.T) {
 	stride := 128
 	ref := make([]uint8, stride*128)
 	for y := range 64 {
@@ -67,7 +69,7 @@ func TestVp9BuildEstimatedPredLuma64x64ZeroMVCopy(t *testing.T) {
 		}
 	}
 	estPred := make([]uint8, 64*64)
-	vp9BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, vp9MV{Row: 0, Col: 0})
+	vp9BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 0})
 	for y := range 64 {
 		for x := range 64 {
 			want := ref[y*stride+x]
@@ -79,11 +81,11 @@ func TestVp9BuildEstimatedPredLuma64x64ZeroMVCopy(t *testing.T) {
 	}
 }
 
-// TestVp9BuildEstimatedPredLuma64x64FullPelShift verifies that a
+// TestVP9BuildEstimatedPredLuma64x64FullPelShift verifies that a
 // full-pel MV produces a shifted copy. mv = (col=8 full-pel * 8 = 64
 // in 1/8-pel, row=0): the predictor should pull pixels from
 // ref[y][x+8], so estPred[y][x] = ref[y][x+8].
-func TestVp9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
+func TestVP9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
 	stride := 256
 	ref := make([]uint8, stride*128)
 	for y := range 128 {
@@ -93,7 +95,7 @@ func TestVp9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
 	}
 	estPred := make([]uint8, 64*64)
 	// MV in 1/8-pel: col=64 -> Q4 col=128 -> full-pel offset 8.
-	vp9BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, vp9MV{Row: 0, Col: 64})
+	vp9BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 64})
 	// pre += (col_q4 >> 4) = 8 -> ref[y][8..71] -> estPred[y][0..63].
 	for y := range 64 {
 		for x := range 64 {
@@ -106,9 +108,9 @@ func TestVp9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
 	}
 }
 
-// TestVp9GetEstimatedPredKeyFramePath validates the vp9GetEstimatedPred
+// TestVP9GetEstimatedPredKeyFramePath validates the vp9GetEstimatedPred
 // orchestrator on the keyframe branch.
-func TestVp9GetEstimatedPredKeyFramePath(t *testing.T) {
+func TestVP9GetEstimatedPredKeyFramePath(t *testing.T) {
 	estPred := make([]uint8, 64*64)
 	for i := range estPred {
 		estPred[i] = 0xFF
@@ -127,10 +129,10 @@ func TestVp9GetEstimatedPredKeyFramePath(t *testing.T) {
 	}
 }
 
-// TestVp9GetEstimatedPredInterIdentityRouteLast validates the inter
+// TestVP9GetEstimatedPredInterIdentityRouteLast validates the inter
 // branch when src == last_ref and no GOLDEN probe fires: int_pro
 // motion search returns (0,0), chosenRef = LAST.
-func TestVp9GetEstimatedPredInterIdentityRouteLast(t *testing.T) {
+func TestVP9GetEstimatedPredInterIdentityRouteLast(t *testing.T) {
 	stride := 256
 	frame := make([]uint8, stride*stride)
 	originX, originY := 128, 128
@@ -151,7 +153,7 @@ func TestVp9GetEstimatedPredInterIdentityRouteLast(t *testing.T) {
 		HaveGolden:             false,
 		HaveAltRef:             false,
 		Speed:                  8, // Speed 8 disables the golden probe.
-		MvLimits:               vp9MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:               encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 		ShortCircuitLowTempVar: false,
 	}
 	chosenRef, mv := vp9GetEstimatedPredInter(in)
@@ -163,10 +165,10 @@ func TestVp9GetEstimatedPredInterIdentityRouteLast(t *testing.T) {
 	}
 }
 
-// TestVp9GetEstimatedPredInterAltRefHijack validates the ALTREF-as-LAST
+// TestVP9GetEstimatedPredInterAltRefHijack validates the ALTREF-as-LAST
 // path: with lag_in_frames > 0, rc=VBR, is_src_frame_alt_ref → libvpx
 // hijacks LAST and points it at ALTREF (vp9_encodeframe.c:5142-5148).
-func TestVp9GetEstimatedPredInterAltRefHijack(t *testing.T) {
+func TestVP9GetEstimatedPredInterAltRefHijack(t *testing.T) {
 	stride := 256
 	src := make([]uint8, stride*stride)
 	altRef := make([]uint8, stride*stride)
@@ -197,7 +199,7 @@ func TestVp9GetEstimatedPredInterAltRefHijack(t *testing.T) {
 		LagInFrames:      25,
 		RcModeIsVBR:      true,
 		IsSrcFrameAltRef: true,
-		MvLimits:         vp9MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:         encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	chosenRef, mv := vp9GetEstimatedPredInter(in)
 	if chosenRef != vp9RefAlt {
@@ -209,7 +211,7 @@ func TestVp9GetEstimatedPredInterAltRefHijack(t *testing.T) {
 	}
 }
 
-// TestVp9GetEstimatedPredInterGoldenBeatsLast validates the GOLDEN
+// TestVP9GetEstimatedPredInterGoldenBeatsLast validates the GOLDEN
 // pick path: with cpi->oxcf.speed<8 and a GOLDEN ref that has lower
 // SAD than the int-pro LAST-frame estimate, libvpx switches to
 // GOLDEN and zeros the MV.
@@ -217,7 +219,7 @@ func TestVp9GetEstimatedPredInterAltRefHijack(t *testing.T) {
 // Setup: src exactly matches GOLDEN at (0,0); LAST is fully
 // mismatched (constant 0xFF), so int_pro will return a non-trivial
 // SAD against LAST while y_sad_g = 0.
-func TestVp9GetEstimatedPredInterGoldenBeatsLast(t *testing.T) {
+func TestVP9GetEstimatedPredInterGoldenBeatsLast(t *testing.T) {
 	stride := 256
 	src := make([]uint8, stride*stride)
 	goldenRef := make([]uint8, stride*stride)
@@ -246,7 +248,7 @@ func TestVp9GetEstimatedPredInterGoldenBeatsLast(t *testing.T) {
 		GoldenRefStride: stride,
 		Speed:           7,    // < 8 enables the golden probe.
 		RefFlagsGoldOn:  true, // VP9_GOLD_FLAG set.
-		MvLimits:        vp9MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:        encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	chosenRef, mv := vp9GetEstimatedPredInter(in)
 	if chosenRef != vp9RefGolden {
@@ -258,11 +260,11 @@ func TestVp9GetEstimatedPredInterGoldenBeatsLast(t *testing.T) {
 	}
 }
 
-// TestVp9GetEstimatedPredInterSpeed8SuppressesGolden validates the
+// TestVP9GetEstimatedPredInterSpeed8SuppressesGolden validates the
 // speed<8 gate on the GOLDEN probe (libvpx vp9_encodeframe.c:5128).
 // At speed=8 the golden probe is suppressed even when GOLDEN matches
 // the source perfectly: chosenRef stays at LAST.
-func TestVp9GetEstimatedPredInterSpeed8SuppressesGolden(t *testing.T) {
+func TestVP9GetEstimatedPredInterSpeed8SuppressesGolden(t *testing.T) {
 	stride := 256
 	src := make([]uint8, stride*stride)
 	goldenRef := make([]uint8, stride*stride)
@@ -291,7 +293,7 @@ func TestVp9GetEstimatedPredInterSpeed8SuppressesGolden(t *testing.T) {
 		GoldenRefStride: stride,
 		Speed:           8, // gate disabled.
 		RefFlagsGoldOn:  true,
-		MvLimits:        vp9MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:        encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	chosenRef, _ := vp9GetEstimatedPredInter(in)
 	if chosenRef != vp9RefLast {
@@ -299,10 +301,10 @@ func TestVp9GetEstimatedPredInterSpeed8SuppressesGolden(t *testing.T) {
 	}
 }
 
-// TestVp9GetEstimatedPredOrchestratorLastPath runs the full
+// TestVP9GetEstimatedPredOrchestratorLastPath runs the full
 // vp9GetEstimatedPred orchestrator and verifies that the est_pred
 // buffer matches the LAST reference window when src == last_ref.
-func TestVp9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
+func TestVP9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 	stride := 256
 	frame := make([]uint8, stride*stride)
 	originX, originY := 128, 128
@@ -323,7 +325,7 @@ func TestVp9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 		HaveGolden:    false,
 		HaveAltRef:    false,
 		Speed:         8,
-		MvLimits:      vp9MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:      encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	estPred := make([]uint8, 64*64)
 	for i := range estPred {
@@ -347,7 +349,7 @@ func TestVp9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 	}
 }
 
-func TestVp9GetEstimatedPredOrchestratorAppliesIntProMVScale(t *testing.T) {
+func TestVP9GetEstimatedPredOrchestratorAppliesIntProMVScale(t *testing.T) {
 	stride := 256
 	src := make([]uint8, stride*stride)
 	ref := make([]uint8, stride*stride)
@@ -373,7 +375,7 @@ func TestVp9GetEstimatedPredOrchestratorAppliesIntProMVScale(t *testing.T) {
 		LastRefOff:    srcOff,
 		LastRefStride: stride,
 		Speed:         8,
-		MvLimits:      vp9MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
+		MvLimits:      encoder.MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	estPred := make([]uint8, 64*64)
 	chosenRef, mv := vp9GetEstimatedPred(false, in, estPred)

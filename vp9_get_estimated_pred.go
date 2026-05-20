@@ -4,6 +4,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/dsp"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -25,15 +26,15 @@ import (
 // Simplifications relative to libvpx — each documented and bounded:
 //   1. Luma-only. get_estimated_pred only consumes x->est_pred (the
 //      luma plane buffer); the chroma writes from build_inter_predictors_sb
-//      land in xd->plane[1..2].dst and are never read again. Phase C
-//      consumers do not need them — see libvpx vp9_encodeframe.c:5316
+//      land in xd->plane[1..2].dst and are never read again. The partition
+//      picker does not need them; see libvpx vp9_encodeframe.c:5316
 //      where only x->est_pred feeds nonrd_pick_partition's NN input.
 //   2. No reference scaling. get_estimated_pred only fires when
 //      cpi->sf.partition_search_type == ML_BASED_PARTITION which the
 //      libvpx speed-features path gates to dynamic-resolution-off
 //      configurations (vp9_speed_features.c:751-768 + 825-826) — there
 //      are no scaled refs at the SB-pred level.
-//   3. No high bit depth. Phase B targets the 8-bit path only; the
+//   3. No high bit depth. The encoder targets the 8-bit path only; the
 //      highbd memset variants for the keyframe fallback live behind
 //      CONFIG_VP9_HIGHBITDEPTH in libvpx (vp9_encodeframe.c:5188-5197)
 //      and are not part of govpx's 8-bit-only encoder.
@@ -111,7 +112,7 @@ type vp9GetEstimatedPredInterInput struct {
 
 	// Full-pel UMV-window limits the int-pro motion search clamps
 	// against (mirrored on libvpx's MACROBLOCK.mv_limits).
-	MvLimits vp9MvLimits
+	MvLimits encoder.MvLimits
 }
 
 // vp9RefFrameSlot mirrors libvpx's ref-frame enum
@@ -134,10 +135,10 @@ const (
 // vp9BuildEstimatedPredLuma64x64 — split out so each piece is unit-
 // testable.
 func vp9GetEstimatedPredInter(in *vp9GetEstimatedPredInterInput) (
-	chosenRef vp9RefFrameSlot, intProMV vp9MV,
+	chosenRef vp9RefFrameSlot, intProMV decoder.MV,
 ) {
 	bsize := in.Bsize
-	sdf := vp9SADForBsize(bsize)
+	sdf := encoder.SADForBsize(bsize)
 
 	// libvpx (vp9_encodeframe.c:5121):
 	//   if (!(is_one_pass_svc(cpi) && cpi->svc.spatial_layer_id) ||
@@ -192,7 +193,7 @@ func vp9GetEstimatedPredInter(in *vp9GetEstimatedPredInterInput) (
 	//   const MV dummy_mv = { 0, 0 };
 	//   y_sad = vp9_int_pro_motion_estimation(cpi, x, bsize, mi_row, mi_col,
 	//                                         &dummy_mv);
-	estIn := &vp9IntProEstimateInput{
+	estIn := &encoder.IntProEstimateInput{
 		Bsize:     bsize,
 		Src:       in.Src,
 		SrcOff:    in.SrcOff,
@@ -200,10 +201,10 @@ func vp9GetEstimatedPredInter(in *vp9GetEstimatedPredInterInput) (
 		Ref:       motionRef,
 		RefOff:    motionRefOff,
 		RefStride: motionRefStride,
-		RefMV:     vp9MV{Row: 0, Col: 0},
+		RefMV:     decoder.MV{Row: 0, Col: 0},
 		MvLimits:  in.MvLimits,
 	}
-	ySad, mv := vp9IntProEstimate(estIn)
+	ySad, mv := encoder.IntProEstimate(estIn)
 	intProMV = mv
 
 	// libvpx (vp9_encodeframe.c:5170-5179):
@@ -218,7 +219,7 @@ func vp9GetEstimatedPredInter(in *vp9GetEstimatedPredInterInput) (
 	if ySadGolden < ySadThr {
 		chosenRef = vp9RefGolden
 		// libvpx zeroes mi->mv[0].as_int on the golden swap.
-		intProMV = vp9MV{Row: 0, Col: 0}
+		intProMV = decoder.MV{Row: 0, Col: 0}
 	}
 
 	return chosenRef, intProMV
@@ -282,7 +283,7 @@ func vp9GetEstimatedPredSubBsize(miRow, miCol, miRows, miCols int) common.BlockS
 func vp9BuildEstimatedPredLuma64x64(
 	estPred []uint8,
 	ref []uint8, refOff, refStride int,
-	mv vp9MV,
+	mv decoder.MV,
 ) {
 	// scaled_mv.row / scaled_mv.col == mv.row / mv.col in the
 	// no-scale luma path after clamp_mv_to_umv_border_sb maps 1/8-pel
@@ -317,10 +318,10 @@ func vp9BuildEstimatedPredLuma64x64(
 // allocates (libvpx x->est_pred, 64*64 bytes).
 func vp9GetEstimatedPred(
 	isKeyFrame bool, in *vp9GetEstimatedPredInterInput, estPred []uint8,
-) (chosenRef vp9RefFrameSlot, mv vp9MV) {
+) (chosenRef vp9RefFrameSlot, mv decoder.MV) {
 	if isKeyFrame {
 		vp9GetEstimatedPredKeyFrame(estPred)
-		return vp9RefIntra, vp9MV{Row: 0, Col: 0}
+		return vp9RefIntra, decoder.MV{Row: 0, Col: 0}
 	}
 
 	chosenRef, mv = vp9GetEstimatedPredInter(in)
@@ -349,7 +350,7 @@ func vp9GetEstimatedPred(
 
 // vp9 dsp shape sanity, anchored to verify the file imports the dsp
 // package even when the keyframe-only call path is taken at runtime.
-// (vector_var is exercised through vp9IntProEstimate indirectly; the
+// (vector_var is exercised through encoder.IntProEstimate indirectly; the
 // reference here keeps `dsp` honest as a dependency so the package
 // compiles even with the keyframe-only branch.)
 var _ = dsp.VpxVectorVar

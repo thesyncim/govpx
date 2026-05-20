@@ -29,7 +29,7 @@ var vp9MVSADComponentCosts = func() [vp9MVMax + 1]int {
 	return costs
 }()
 
-var vp9BigDiaPatternCandidates = [vp9MaxMvSearchSteps][8]vp9FullpelPatternCandidate{
+var vp9BigDiaPatternCandidates = [encoder.MaxMvSearchSteps][8]vp9FullpelPatternCandidate{
 	{{0, -1}, {1, 0}, {0, 1}, {-1, 0}},
 	{{-1, -1}, {0, -2}, {1, -1}, {2, 0}, {1, 1}, {0, 2}, {-1, 1}, {-2, 0}},
 	{{-2, -2}, {0, -4}, {2, -2}, {4, 0}, {2, 2}, {0, 4}, {-2, 2}, {-4, 0}},
@@ -43,7 +43,7 @@ var vp9BigDiaPatternCandidates = [vp9MaxMvSearchSteps][8]vp9FullpelPatternCandid
 	{{-512, -512}, {0, -1024}, {512, -512}, {1024, 0}, {512, 512}, {0, 1024}, {-512, 512}, {-1024, 0}},
 }
 
-var vp9BigDiaPatternCandidateCounts = [vp9MaxMvSearchSteps]int{
+var vp9BigDiaPatternCandidateCounts = [encoder.MaxMvSearchSteps]int{
 	4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
 }
 
@@ -57,88 +57,19 @@ func vp9MVSADComponentCost(v int) int {
 	return vp9MVSADComponentCosts[v]
 }
 
-func (limits *vp9MvLimits) setFullpelSearchRange(ref vp9dec.MV) {
-	if limits == nil {
-		return
-	}
-	colMin := (int(ref.Col) >> 3) - vp9MaxFullPelVal
-	if int(ref.Col)&7 != 0 {
-		colMin++
-	}
-	rowMin := (int(ref.Row) >> 3) - vp9MaxFullPelVal
-	if int(ref.Row)&7 != 0 {
-		rowMin++
-	}
-	colMax := (int(ref.Col) >> 3) + vp9MaxFullPelVal
-	rowMax := (int(ref.Row) >> 3) + vp9MaxFullPelVal
-
-	colMin = max(colMin, (vp9MvLow>>3)+1)
-	rowMin = max(rowMin, (vp9MvLow>>3)+1)
-	colMax = min(colMax, (vp9MvUpp>>3)-1)
-	rowMax = min(rowMax, (vp9MvUpp>>3)-1)
-
-	if limits.ColMin < colMin {
-		limits.ColMin = colMin
-	}
-	if limits.ColMax > colMax {
-		limits.ColMax = colMax
-	}
-	if limits.RowMin < rowMin {
-		limits.RowMin = rowMin
-	}
-	if limits.RowMax > rowMax {
-		limits.RowMax = rowMax
-	}
-}
-
-func (limits *vp9MvLimits) inFullpelRange(row, col int) bool {
-	if limits == nil {
-		return true
-	}
-	return col >= limits.ColMin && col <= limits.ColMax &&
-		row >= limits.RowMin && row <= limits.RowMax
-}
-
-func (limits *vp9MvLimits) fullpelBoundsOK(row, col, searchRange int) bool {
-	if limits == nil {
-		return true
-	}
-	return row-searchRange >= limits.RowMin &&
-		row+searchRange <= limits.RowMax &&
-		col-searchRange >= limits.ColMin &&
-		col+searchRange <= limits.ColMax
-}
-
-func (limits *vp9MvLimits) clampFullpel(row, col int) (int, int) {
-	if limits == nil {
-		return row, col
-	}
-	if row < limits.RowMin {
-		row = limits.RowMin
-	} else if row > limits.RowMax {
-		row = limits.RowMax
-	}
-	if col < limits.ColMin {
-		col = limits.ColMin
-	} else if col > limits.ColMax {
-		col = limits.ColMax
-	}
-	return row, col
-}
-
 func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
-	startSad, startScore uint64, stepParam int, limits *vp9MvLimits,
+	startSad, startScore uint64, stepParam int, limits *encoder.MvLimits,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
-	searchParam := max(max(vp9MaxMvSearchSteps-2, stepParam), 0)
-	if searchParam >= vp9MaxMvSearchSteps {
-		searchParam = vp9MaxMvSearchSteps - 1
+	searchParam := max(max(encoder.MaxMvSearchSteps-2, stepParam), 0)
+	if searchParam >= encoder.MaxMvSearchSteps {
+		searchParam = encoder.MaxMvSearchSteps - 1
 	}
 	searchParamToSteps := [...]int{10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}
 	bestInitS := searchParamToSteps[searchParam]
 
-	br, bc := limits.clampFullpel(startDy, startDx)
+	br, bc := limits.ClampFullpel(startDy, startDx)
 	bestSad := startSad
 	bestScore := startScore
 	if br != startDy || bc != startDx {
@@ -152,8 +83,8 @@ func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
 		if row == br && col == bc {
 			return
 		}
-		if !limits.fullpelBoundsOK(br, bc, 1<<s) &&
-			!limits.inFullpelRange(row, col) {
+		if !limits.FullpelBoundsOK(br, bc, 1<<s) &&
+			!limits.InFullpelRange(row, col) {
 			return
 		}
 		sad, ok := sadAt(col, row)
@@ -215,12 +146,12 @@ func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
 }
 
 func vp9NStepDiamondSearchSAD(startDx, startDy int,
-	startSad, startScore uint64, stepParam int, limits *vp9MvLimits,
+	startSad, startScore uint64, stepParam int, limits *encoder.MvLimits,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
-	searchParam := max(min(stepParam, vp9MaxMvSearchSteps-1), 0)
-	br, bc := limits.clampFullpel(startDy, startDx)
+	searchParam := max(min(stepParam, encoder.MaxMvSearchSteps-1), 0)
+	br, bc := limits.ClampFullpel(startDy, startDx)
 	bestSad := startSad
 	bestScore := startScore
 	if br != startDy || bc != startDx {
@@ -233,7 +164,7 @@ func vp9NStepDiamondSearchSAD(startDx, startDy int,
 	searchStartScore := bestScore
 	bestDx, bestDy := bc, br
 
-	furtherSteps := vp9MaxMvSearchSteps - 1 - searchParam
+	furtherSteps := encoder.MaxMvSearchSteps - 1 - searchParam
 	for n := 0; n <= furtherSteps; n++ {
 		candDx, candDy, candSad, candScore := vp9NStepDiamondOnceSAD(
 			bc, br, searchStartSad, searchStartScore, searchParam+n,
@@ -251,7 +182,7 @@ func vp9NStepDiamondSearchSAD(startDx, startDy int,
 		for site, c := range vp9NStepRefineCandidates {
 			row := bestDy + c.row
 			col := bestDx + c.col
-			if !limits.inFullpelRange(row, col) {
+			if !limits.InFullpelRange(row, col) {
 				continue
 			}
 			sad, ok := sadAt(col, row)
@@ -277,20 +208,20 @@ func vp9NStepDiamondSearchSAD(startDx, startDy int,
 }
 
 func vp9NStepDiamondOnceSAD(startDx, startDy int,
-	startSad, startScore uint64, searchParam int, limits *vp9MvLimits,
+	startSad, startScore uint64, searchParam int, limits *encoder.MvLimits,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
 	br, bc := startDy, startDx
 	bestSad := startSad
 	bestScore := startScore
-	firstStep := 1 << (vp9MaxMvSearchSteps - 1 - searchParam)
+	firstStep := 1 << (encoder.MaxMvSearchSteps - 1 - searchParam)
 	for step := firstStep; step >= 1; step >>= 1 {
 		bestSite := -1
 		for i, c := range vp9NStepDiamondCandidates {
 			row := br + c.row*step
 			col := bc + c.col*step
-			if !limits.inFullpelRange(row, col) {
+			if !limits.InFullpelRange(row, col) {
 				continue
 			}
 			sad, ok := sadAt(col, row)
@@ -433,8 +364,8 @@ func (e *VP9Encoder) refineVP9InterSubpelMvTree(inter *vp9InterEncodeState,
 	// Verbatim shape of libvpx vp9_find_best_sub_pixel_tree:
 	// vp9_mcomp.c:721-925. MVs are already in 1/8-pel units here.
 	umvLimits := vp9EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
-	var subpelLimits vp9MvLimits
-	vp9SetSubpelMvSearchRange(&subpelLimits, &umvLimits, &refMv)
+	var subpelLimits encoder.MvLimits
+	encoder.SetSubpelMvSearchRange(&subpelLimits, &umvLimits, &refMv)
 
 	round := 3 - int(e.sf.Mv.SubpelForceStop)
 	if !(allowHP && vp9UseMvHP(refMv)) && round == 3 {
@@ -567,10 +498,10 @@ func (e *VP9Encoder) refineVP9InterSubpelMvTree(inter *vp9InterEncodeState,
 
 func vp9EncoderMvLimits(miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,
-) vp9MvLimits {
+) encoder.MvLimits {
 	miW := int(common.Num8x8BlocksWideLookup[bsize])
 	miH := int(common.Num8x8BlocksHighLookup[bsize])
-	return vp9MvLimits{
+	return encoder.MvLimits{
 		RowMin: -(((miRow + miH) * common.MiSize) + common.VP9InterpExtend),
 		ColMin: -(((miCol + miW) * common.MiSize) + common.VP9InterpExtend),
 		RowMax: (miRows-miRow)*common.MiSize + common.VP9InterpExtend,
