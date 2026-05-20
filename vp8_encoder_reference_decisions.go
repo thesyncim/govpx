@@ -235,7 +235,7 @@ func (e *VP8Encoder) shouldRecodeInterAttemptAsKeyFrame(required int, refreshGol
 	}
 	intra, _, _, _ := countInterFrameRefUsage(e.interFrameModes[:required])
 	thisFramePercentIntra := (100 * intra) / required
-	return thisFramePercentIntra, libvpxDecideKeyFrame(thisFramePercentIntra, e.lastFramePercentIntra, refreshGoldenFrame)
+	return thisFramePercentIntra, vp8enc.DecideKeyFrame(thisFramePercentIntra, e.lastFramePercentIntra, refreshGoldenFrame)
 }
 
 func validateEncodeFlags(flags EncodeFlags) error {

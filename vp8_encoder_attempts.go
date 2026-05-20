@@ -975,7 +975,7 @@ func (e *VP8Encoder) refFrameEntropySavingsBitsForFrame(keyFrame bool, macrobloc
 		return 0
 	}
 	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:macroblocks])
-	return libvpxRefFrameEntropySavings(false, intra, last, golden, alt, int(e.refProbIntra), int(e.refProbLast), int(e.refProbGolden))
+	return vp8enc.ReferenceFrameEntropySavings(false, intra, last, golden, alt, int(e.refProbIntra), int(e.refProbLast), int(e.refProbGolden))
 }
 
 func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks int) int {
