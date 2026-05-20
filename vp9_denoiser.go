@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 const (
@@ -313,7 +314,7 @@ func (e *VP9Encoder) vp9DenoiserZeroLastSSE(x0, y0, blockW, blockH int) (uint64,
 	if len(src.Y) == 0 || len(last.Y) == 0 {
 		return 0, false
 	}
-	return vp9BlockSSE(src.Y, src.YStride, last.Y, last.YStride,
+	return encoder.BlockSSE(src.Y, src.YStride, last.Y, last.YStride,
 		x0, y0, x0, y0, blockW, blockH), true
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
@@ -176,7 +177,7 @@ func (e *VP9Encoder) vp9VarianceAQSegmentID(img *image.YCbCr,
 	// libvpx's vp9_block_energy computes:
 	//     energy = round(log(per_pixel_variance + 1.0)) - DEFAULT_E_MIDPOINT
 	// where per_pixel_variance = (Σ(x - mean(x))²) / area and the
-	// midpoint is 10.0. vp9BlockSourceVariance128 already returns the
+	// midpoint is 10.0. encoder.BlockSourceVariance128 already returns the
 	// unscaled Σ(x - mean(x))² accumulator, so we divide by the area
 	// here to land on the same per-pixel scale. The earlier port
 	// multiplied the accumulator by 256 before dividing by area, which
@@ -185,7 +186,7 @@ func (e *VP9Encoder) vp9VarianceAQSegmentID(img *image.YCbCr,
 	// caused the variance-AQ probe to penalise the textured half with
 	// a +24 qindex delta while still over-spending the flat half at
 	// segment 0 (delta ≈ -42 at qindex=64), tanking BD-rate by +77%.
-	variance := vp9BlockSourceVariance128(src, stride, x0, y0, w, h)
+	variance := encoder.BlockSourceVariance128(src, stride, x0, y0, w, h)
 	scaled := variance / uint64(w*h)
 	energy := int(math.Round(math.Log(float64(scaled)+1.0))) - 10
 	if energy < -4 {
@@ -247,7 +248,7 @@ func (e *VP9Encoder) vp9ComplexityAQSegmentID(img *image.YCbCr,
 	if w <= 0 || h <= 0 {
 		return 0, false
 	}
-	variance := vp9BlockSourceVariance128(src, stride, x0, y0, w, h)
+	variance := encoder.BlockSourceVariance128(src, stride, x0, y0, w, h)
 	logVar := math.Log(float64(variance) + 1.0)
 	xmis := min(e.vp9MiCols(), miCol+int(common.Num8x8BlocksWideLookup[bsize])) - miCol
 	ymis := min(e.vp9MiRows(), miRow+int(common.Num8x8BlocksHighLookup[bsize])) - miRow

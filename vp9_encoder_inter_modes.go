@@ -994,7 +994,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+	scoreW, scoreH, ok := encoder.VisibleInterScoreBlock(x0, y0, blockW, blockH,
 		srcW, srcH, refW, refH)
 	if !ok {
 		return vp9InterModeDecision{}, false
@@ -1082,7 +1082,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		}
 	}
 
-	zeroDistortion := vp9BlockSSE(src, srcStride, ref, refStride,
+	zeroDistortion := encoder.BlockSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, scoreW, scoreH)
 	allFilters := vp9InterInterpFilterCandidates(inter)
 	// libvpx: vp9/encoder/vp9_speed_features.c — sf->disable_filter_search_var_thresh
@@ -1092,7 +1092,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	// filter search even when the current reference is a poor predictor.
 	if e.sf.DisableFilterSearchVarThresh > 0 && scoreW > 0 && scoreH > 0 &&
 		len(allFilters) > 1 {
-		sourceVariance := vp9SourceVarianceAreaPerPixel(src, srcStride,
+		sourceVariance := encoder.SourceVarianceAreaPerPixel(src, srcStride,
 			x0, y0, scoreW, scoreH)
 		if e.vp9InterSkipFilterSearch(sourceVariance) {
 			allFilters = allFilters[:1]
@@ -1503,20 +1503,6 @@ func (e *VP9Encoder) vp9InterMvPredSearchSeed(inter *vp9InterEncodeState,
 	return candidates[result.bestIndex].mv, true
 }
 
-func vp9VisibleInterScoreBlock(x0, y0, blockW, blockH int,
-	srcW, srcH, refW, refH int,
-) (int, int, bool) {
-	if x0 < 0 || y0 < 0 || blockW <= 0 || blockH <= 0 ||
-		x0 >= srcW || y0 >= srcH || x0 >= refW || y0 >= refH {
-		return 0, 0, false
-	}
-	scoreW := min(blockW, srcW-x0)
-	scoreW = min(scoreW, refW-x0)
-	scoreH := min(blockH, srcH-y0)
-	scoreH = min(scoreH, refH-y0)
-	return scoreW, scoreH, scoreW > 0 && scoreH > 0
-}
-
 type vp9InterMvSearchOptions struct {
 	seed            vp9dec.MV
 	seedValid       bool
@@ -1627,7 +1613,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			return 0, false
 		}
 		refOff := bufY*refStride + bufX
-		return vp9BlockSADOffsets(src, srcOff, srcStride, ref, refOff,
+		return encoder.BlockSADOffsets(src, srcOff, srcStride, ref, refOff,
 			refStride, blockW, blockH, ^uint64(0)), true
 	}
 

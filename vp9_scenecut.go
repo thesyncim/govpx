@@ -1,6 +1,10 @@
 package govpx
 
-import "image"
+import (
+	"image"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 const (
 	sceneCutMinimumReferenceSSEPerMB = 16 * 16 * 64 * 64
@@ -91,7 +95,7 @@ func vp9SourceSADSceneSamples(src, last *image.YCbCr,
 			if x+64 > width || y+64 > height {
 				continue
 			}
-			sad := vp9BlockSAD(src.Y, src.YStride, last.Y, last.YStride,
+			sad := encoder.BlockSAD(src.Y, src.YStride, last.Y, last.YStride,
 				x, y, x, y, 64, 64, ^uint64(0))
 			avgSAD += sad
 			samples++

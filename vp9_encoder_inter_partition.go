@@ -275,7 +275,7 @@ func (e *VP9Encoder) vp9InterPreferVarianceRoot(inter *vp9InterEncodeState,
 		x0+blockW > refW || y0+blockH > refH {
 		return false
 	}
-	variance := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+	variance := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH)
 	threshold := vp9RealtimeVariancePartitionThreshold64(inter.dq.Y[0][1],
 		srcW, srcH)
@@ -890,7 +890,7 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 		return common.BlockInvalid, false
 	}
 	if bsize == common.Block64x64 {
-		sad := vp9BlockSAD(src, srcStride, ref, refStride,
+		sad := encoder.BlockSAD(src, srcStride, ref, refStride,
 			x0, y0, x0, y0, blockW, blockH, ^uint64(0))
 		sadThreshold := vp9CBRVariancePartitionSADThreshold(inter.dq.Y[0][1],
 			srcW, srcH)
@@ -900,7 +900,7 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 	}
 	threshold := vp9CBRVariancePartitionThreshold(inter.dq.Y[0][1],
 		srcW, srcH, bsize, e.rc.avgFrameQIndexInter)
-	variance := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+	variance := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH)
 	if variance < threshold {
 		return common.BlockInvalid, false
@@ -908,18 +908,18 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 	halfW := blockW >> 1
 	halfH := blockH >> 1
 	if miRow+(blockMiH>>1) < miRows {
-		left := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+		left := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 			x0, y0, x0, y0, halfW, blockH)
-		right := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+		right := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 			x0+halfW, y0, x0+halfW, y0, halfW, blockH)
 		if left < threshold && right < threshold {
 			return vertSize, true
 		}
 	}
 	if miCol+(blockMiW>>1) < miCols {
-		top := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+		top := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 			x0, y0, x0, y0, blockW, halfH)
-		bottom := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+		bottom := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 			x0, y0+halfH, x0, y0+halfH, blockW, halfH)
 		if top < threshold && bottom < threshold {
 			return horzSize, true

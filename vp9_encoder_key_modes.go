@@ -1126,7 +1126,7 @@ func (e *VP9Encoder) vp9KeyframeUseTransformDomainDistortion(key *vp9KeyframeEnc
 	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
 		return false
 	}
-	variance := vp9BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
+	variance := encoder.BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
 	scaled := float64(variance*256) /
 		float64(uint64(1)<<uint(common.NumPelsLog2Lookup[bsize]))
 	return math.Log(scaled+1.0) >= e.sf.TxDomainThresh

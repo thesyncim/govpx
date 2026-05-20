@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"math"
@@ -24,7 +24,7 @@ func TestVP9NNPredictReLUMonotonic(t *testing.T) {
 	b0 := []float32{0}
 	w1 := []float32{1}
 	b1 := []float32{10}
-	cfg := &vp9NNConfig{
+	cfg := &NNConfig{
 		NumInputs:       2,
 		NumOutputs:      1,
 		NumHiddenLayers: 1,
@@ -36,12 +36,12 @@ func TestVP9NNPredictReLUMonotonic(t *testing.T) {
 	cfg.Bias[1] = b1
 
 	out := []float32{0}
-	vp9NNPredict([]float32{-2, -3}, cfg, out)
+	NNPredict([]float32{-2, -3}, cfg, out)
 	if out[0] != 10 {
 		t.Fatalf("ReLU-clipped output: got %v, want 10", out[0])
 	}
 	out[0] = 0
-	vp9NNPredict([]float32{2, 3}, cfg, out)
+	NNPredict([]float32{2, 3}, cfg, out)
 	if out[0] != 15 {
 		t.Fatalf("Linear output: got %v, want 15", out[0])
 	}
@@ -58,10 +58,10 @@ func TestVP9NNPredictReLUMonotonic(t *testing.T) {
 // All three share FEATURES=6, num_outputs=1, num_hidden_layers=1,
 // num_hidden_nodes=[8].
 func TestVP9VarPartNNConfigsShape(t *testing.T) {
-	for name, cfg := range map[string]*vp9NNConfig{
-		"64": vp9VarPartNNConfig64,
-		"32": vp9VarPartNNConfig32,
-		"16": vp9VarPartNNConfig16,
+	for name, cfg := range map[string]*NNConfig{
+		"64": &VarPartNNConfig64,
+		"32": &VarPartNNConfig32,
+		"16": &VarPartNNConfig16,
 	} {
 		if cfg.NumInputs != 6 {
 			t.Errorf("nnconfig_%s NumInputs=%d, want 6", name, cfg.NumInputs)
@@ -98,13 +98,13 @@ func TestVP9VarPartNNConfigsShape(t *testing.T) {
 // libvpx: vp9/encoder/vp9_partition_models.h:611-634.
 func TestVP9VarPartNNConfig64Constants(t *testing.T) {
 	// First and last weights of layer 0 — most-likely-to-rot positions.
-	if got := vp9VarPartNNWeights64Layer0[0]; !floatEq(got, -0.249572) {
+	if got := VarPartNNWeights64Layer0[0]; !floatEq(got, -0.249572) {
 		t.Errorf("weights64_layer0[0]=%v, want -0.249572", got)
 	}
-	if got := vp9VarPartNNWeights64Layer0[6*8-1]; !floatEq(got, -0.191215) {
+	if got := VarPartNNWeights64Layer0[6*8-1]; !floatEq(got, -0.191215) {
 		t.Errorf("weights64_layer0[last]=%v, want -0.191215", got)
 	}
-	if got := vp9VarPartNNBias64Layer1[0]; !floatEq(got, -0.37972447) {
+	if got := VarPartNNBias64Layer1[0]; !floatEq(got, -0.37972447) {
 		t.Errorf("bias64_layer1[0]=%v, want -0.37972447", got)
 	}
 }
@@ -113,13 +113,13 @@ func TestVP9VarPartNNConfig64Constants(t *testing.T) {
 //
 // libvpx: vp9/encoder/vp9_partition_models.h:653-676.
 func TestVP9VarPartNNConfig32Constants(t *testing.T) {
-	if got := vp9VarPartNNWeights32Layer0[0]; !floatEq(got, 0.067243) {
+	if got := VarPartNNWeights32Layer0[0]; !floatEq(got, 0.067243) {
 		t.Errorf("weights32_layer0[0]=%v, want 0.067243", got)
 	}
-	if got := vp9VarPartNNWeights32Layer0[6*8-1]; !floatEq(got, 2.561612) {
+	if got := VarPartNNWeights32Layer0[6*8-1]; !floatEq(got, 2.561612) {
 		t.Errorf("weights32_layer0[last]=%v, want 2.561612", got)
 	}
-	if got := vp9VarPartNNBias32Layer1[0]; !floatEq(got, -0.6455006) {
+	if got := VarPartNNBias32Layer1[0]; !floatEq(got, -0.6455006) {
 		t.Errorf("bias32_layer1[0]=%v, want -0.6455006", got)
 	}
 }
@@ -128,13 +128,13 @@ func TestVP9VarPartNNConfig32Constants(t *testing.T) {
 //
 // libvpx: vp9/encoder/vp9_partition_models.h:695-718.
 func TestVP9VarPartNNConfig16Constants(t *testing.T) {
-	if got := vp9VarPartNNWeights16Layer0[0]; !floatEq(got, 0.742567) {
+	if got := VarPartNNWeights16Layer0[0]; !floatEq(got, 0.742567) {
 		t.Errorf("weights16_layer0[0]=%v, want 0.742567", got)
 	}
-	if got := vp9VarPartNNWeights16Layer0[6*8-1]; !floatEq(got, 1.839727) {
+	if got := VarPartNNWeights16Layer0[6*8-1]; !floatEq(got, 1.839727) {
 		t.Errorf("weights16_layer0[last]=%v, want 1.839727", got)
 	}
-	if got := vp9VarPartNNBias16Layer1[0]; !floatEq(got, -1.95769405) {
+	if got := VarPartNNBias16Layer1[0]; !floatEq(got, -1.95769405) {
 		t.Errorf("bias16_layer1[0]=%v, want -1.95769405", got)
 	}
 }

@@ -64,7 +64,7 @@ func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,
 func vp9SourceVariancePerPixel(src []byte, srcStride, srcX, srcY, w, h int,
 	bsize common.BlockSize,
 ) uint {
-	return vp9SourceVarianceAreaPerPixel(src, srcStride, srcX, srcY, w, h)
+	return encoder.SourceVarianceAreaPerPixel(src, srcStride, srcX, srcY, w, h)
 }
 
 func vp9NonrdScreenZeroLastBias(screen, sceneChangeDetected,

@@ -81,7 +81,7 @@ func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
 		//                                  vp9_build_inter_predictors_sby(...).
 		// govpx fuses both into vp9InterPredictionVarianceSSE which assigns
 		// the filter to the synthetic NeighborMi, builds the predictor, then
-		// returns (var, sse) via vp9BlockDiffVarianceSSE (libvpx's
+		// returns (var, sse) via encoder.BlockDiffVarianceSSE (libvpx's
 		// fn_ptr[bsize].vf inside model_rd_for_sb_y at vp9_pickmode.c:661-666).
 		varY, sseY, vok := e.vp9InterPredictionVarianceSSE(inter, miRows,
 			miCols, miRow, miCol, bsize, mode, refFrame, mv, filter)

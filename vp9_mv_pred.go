@@ -3,6 +3,7 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9_mv_pred.go ports libvpx v1.16.0's vp9_mv_pred candidate-set SAD scan
@@ -114,7 +115,7 @@ type vp9MvPredResult struct {
 //	  if (this_sad < best_sad) { best_sad = this_sad; best_index = i; }
 //	}
 //
-// The src / ref slices use govpx's vp9BlockSAD entry, which already routes
+// The src / ref slices use encoder.BlockSAD, which already routes
 // size-specialized callers to vpx_sad{NxM} (vpx_dsp/sad.c). The (src_x,
 // src_y) anchor is the source-plane offset to the top-left of the SB; libvpx
 // uses x->plane[0].src.buf directly because the buf pointer already includes
@@ -220,8 +221,8 @@ func vp9MvPredScanCandidates(
 		}
 
 		// libvpx: vp9_rd.c:624 fn_ptr[bsize].sdf — size-specialized SAD.
-		// vp9BlockSAD dispatches to the same vpx_sad{NxM} kernels.
-		thisSad := vp9BlockSADOffsets(src, srcY*srcStride+srcX,
+		// encoder.BlockSAD dispatches to the same vpx_sad{NxM} kernels.
+		thisSad := encoder.BlockSADOffsets(src, srcY*srcStride+srcX,
 			srcStride, refY, refYTop*refYStride+refXLeft, refYStride,
 			blockW, blockH, ^uint64(0))
 

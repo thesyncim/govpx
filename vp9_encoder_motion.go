@@ -625,7 +625,7 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	dstRows := len(dst) / dstStride
-	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+	scoreW, scoreH, ok := encoder.VisibleInterScoreBlock(x0, y0, blockW, blockH,
 		srcW, srcH, dstStride, dstRows)
 	if !ok {
 		return 0, false
@@ -647,7 +647,7 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 	if !e.predictVP9InterBlockLumaOnly(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return 0, false
 	}
-	return vp9BlockSAD(src, srcStride, dst, dstStride,
+	return encoder.BlockSAD(src, srcStride, dst, dstStride,
 		x0, y0, x0, y0, scoreW, scoreH, limit), true
 }
 
@@ -702,7 +702,7 @@ func (e *VP9Encoder) vp9NonrdUVVarianceSSE(inter *vp9InterEncodeState,
 			!vp9VisibleBlockFits(x0, y0, blockW, blockH, dstStride, dstRows) {
 			return 0, 0, 0, 0, false
 		}
-		variance, sse := vp9BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
+		variance, sse := encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
 			x0, y0, x0, y0, blockW, blockH)
 		if plane == 1 {
 			varU = variance
@@ -735,7 +735,7 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSE(inter *vp9InterEncodeState,
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	dstRows := len(dst) / dstStride
-	scoreW, scoreH, vok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+	scoreW, scoreH, vok := encoder.VisibleInterScoreBlock(x0, y0, blockW, blockH,
 		srcW, srcH, dstStride, dstRows)
 	if !vok {
 		return 0, 0, false
@@ -753,7 +753,7 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSE(inter *vp9InterEncodeState,
 	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return 0, 0, false
 	}
-	variance, sse = vp9BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
+	variance, sse = encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
 		x0, y0, x0, y0, scoreW, scoreH)
 	return variance, sse, true
 }

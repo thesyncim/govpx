@@ -1285,7 +1285,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						// inside block_yrd at the tx-unit loop, but for
 						// realtime BLOCK_32X32+ candidates the picker only
 						// commits a candidate whose visible window equals
-						// the full block (vp9VisibleInterScoreBlock check
+						// the full block (encoder.VisibleInterScoreBlock check
 						// inside vp9InterPredictionVarianceSSE), so the
 						// edge clamp is a no-op here.
 						byrd := encoder.BlockYrd(src, srcStride, x0, y0,

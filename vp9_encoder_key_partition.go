@@ -76,7 +76,7 @@ func (e *VP9Encoder) pickVP9KeyframeTexturePartitionBlockSize(key *vp9KeyframeEn
 	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
 		return common.BlockInvalid, false
 	}
-	variance := vp9BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
+	variance := encoder.BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
 	threshold := vp9KeyframeVariancePartitionThreshold(key.dq.Y[0][1], root)
 	if threshold == 0 {
 		return common.BlockInvalid, false
@@ -358,7 +358,7 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 		return common.BlockInvalid, false
 	}
 	threshold := vp9KeyframeVariancePartitionThreshold(key.dq.Y[0][1], bsize)
-	variance := vp9BlockSourceVariance128(src, srcStride, x0, y0, blockW, blockH)
+	variance := encoder.BlockSourceVariance128(src, srcStride, x0, y0, blockW, blockH)
 	if bsize > common.Block32x32 || variance > threshold<<4 {
 		return splitSize, true
 	}
@@ -368,16 +368,16 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 	halfW := blockW >> 1
 	halfH := blockH >> 1
 	if miRow+(blockMiH>>1) < miRows {
-		left := vp9BlockSourceVariance128(src, srcStride, x0, y0, halfW, blockH)
-		right := vp9BlockSourceVariance128(src, srcStride,
+		left := encoder.BlockSourceVariance128(src, srcStride, x0, y0, halfW, blockH)
+		right := encoder.BlockSourceVariance128(src, srcStride,
 			x0+halfW, y0, halfW, blockH)
 		if left < threshold && right < threshold {
 			return vertSize, true
 		}
 	}
 	if miCol+(blockMiW>>1) < miCols {
-		top := vp9BlockSourceVariance128(src, srcStride, x0, y0, blockW, halfH)
-		bottom := vp9BlockSourceVariance128(src, srcStride,
+		top := encoder.BlockSourceVariance128(src, srcStride, x0, y0, blockW, halfH)
+		bottom := encoder.BlockSourceVariance128(src, srcStride,
 			x0, y0+halfH, blockW, halfH)
 		if top < threshold && bottom < threshold {
 			return horzSize, true

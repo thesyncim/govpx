@@ -1,6 +1,10 @@
 package govpx
 
-import "image"
+import (
+	"image"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 // VP9 per-SB content / ARF / RC state buffers ported verbatim from libvpx
 // v1.16.0.
@@ -249,9 +253,9 @@ func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol
 		return vp9AvgSourceSADResult{}, false
 	}
 
-	tmpSad := vp9BlockSAD(img.Y, img.YStride, e.lastSource.Y,
+	tmpSad := encoder.BlockSAD(img.Y, img.YStride, e.lastSource.Y,
 		e.lastSource.YStride, x0, y0, x0, y0, 64, 64, ^uint64(0))
-	tmpVariance, tmpSSE := vp9BlockDiffVarianceSSE(img.Y, img.YStride,
+	tmpVariance, tmpSSE := encoder.BlockDiffVarianceSSE(img.Y, img.YStride,
 		e.lastSource.Y, e.lastSource.YStride, x0, y0, x0, y0, 64, 64)
 	sumdiffSquare := tmpSSE - tmpVariance
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9NonrdPickPartitionEnabled returns true for the default libvpx-aligned
@@ -20,10 +21,9 @@ func vp9NonrdPickPartitionEnabled() bool {
 // numbers; constants (FEATURES, score thresholds, dc_q + variance features)
 // match libvpx exactly.
 //
-// Phase C wiring. Phase A landed the NN evaluator (vp9_partition_models.go:
-// vp9NNPredict + vp9_var_part_nnconfig_{64,32,16}). Phase B landed the
-// get_estimated_pred orchestrator (vp9_get_estimated_pred.go: vp9GetEstimatedPred
-// + vp9_int_pro_motion search). Phase C consumes both:
+// The live picker combines the NN evaluator (encoder.NNPredict +
+// vp9_var_part_nnconfig_{64,32,16}) with the get_estimated_pred orchestrator
+// (vp9GetEstimatedPred + vp9_int_pro_motion search):
 //   - At entry into pickVP9InterPartitionBlockSize at BLOCK_64X64 the SB-level
 //     est_pred buffer is filled once per SB (libvpx vp9_encodeframe.c:5314
 //     get_estimated_pred call before nonrd_pick_partition).
@@ -52,14 +52,6 @@ func vp9NonrdPickPartitionEnabled() bool {
 //     horz split is forced; symmetric for col. The ML picker honours these
 //     forced edges by mirroring the partition_horz/vert/none flags from
 //     nonrd_pick_partition.
-
-// vp9NNFeatures mirrors libvpx's FEATURES macro in ml_predict_var_partitioning
-// (vp9/encoder/vp9_encodeframe.c:4528 — #define FEATURES 6).
-const vp9NNFeatures = 6
-
-// vp9NNLabels mirrors libvpx's LABELS macro (vp9/encoder/vp9_encodeframe.c:
-// 4529 — #define LABELS 1).
-const vp9NNLabels = 1
 
 // vp9MLPredictResult mirrors libvpx's ml_predict_var_partitioning return:
 //   - PARTITION_NONE (constant 0 in libvpx's PARTITION_TYPE enum).
@@ -430,14 +422,14 @@ func vp9MLPredictVarPartitioning(bsize common.BlockSize, miRow, miCol int,
 
 	// libvpx vp9_encodeframe.c:4536-4544 — only the three NN-equipped
 	// sizes return a config; BLOCK_8X8 returns -1.
-	var nnConfig *vp9NNConfig
+	var nnConfig *encoder.NNConfig
 	switch bsize {
 	case common.Block64x64:
-		nnConfig = vp9VarPartNNConfig64
+		nnConfig = &encoder.VarPartNNConfig64
 	case common.Block32x32:
-		nnConfig = vp9VarPartNNConfig32
+		nnConfig = &encoder.VarPartNNConfig32
 	case common.Block16x16:
-		nnConfig = vp9VarPartNNConfig16
+		nnConfig = &encoder.VarPartNNConfig16
 	default:
 		return vp9MLPredictNone1
 	}
@@ -456,7 +448,7 @@ func vp9MLPredictVarPartitioning(bsize common.BlockSize, miRow, miCol int,
 	dcQ := int(vp9dec.VpxDcQuant(ctx.baseQindex, 0, vp9dec.BitDepth8))
 
 	// libvpx vp9_encodeframe.c:4555 — feature[0] = logf((dc_q*dc_q)/256.0+1.0).
-	var features [vp9NNFeatures]float32
+	var features [encoder.NNFeatures]float32
 	features[0] = float32(math.Log(float64(dcQ*dcQ)/256.0 + 1.0))
 
 	// libvpx vp9_encodeframe.c:4558-4565:
@@ -533,8 +525,8 @@ func vp9MLPredictVarPartitioning(bsize common.BlockSize, miRow, miCol int,
 	//   if (score[0] > thresh) return PARTITION_SPLIT;
 	//   if (score[0] < -thresh) return PARTITION_NONE;
 	//   return -1;
-	var score [vp9NNLabels]float32
-	vp9NNPredict(features[:], nnConfig, score[:])
+	var score [encoder.NNLabels]float32
+	encoder.NNPredict(features[:], nnConfig, score[:])
 	if score[0] > thresh {
 		return vp9MLPredictSplit
 	}
@@ -602,8 +594,8 @@ func vp9PredVariance(src []uint8, srcStride int, srcX, srcY int,
 //   - If only one axis triggers a forced split, we still funnel through the
 //     NN. The downstream caller honours the partition direction.
 //
-// Task #149 update: the -1 branch ("no confidence") now invokes the
-// libvpx-faithful PARTITION_NONE vs PARTITION_SPLIT RDCOST compare ported
+// The -1 branch ("no confidence") invokes the libvpx-faithful
+// PARTITION_NONE vs PARTITION_SPLIT RDCOST compare ported
 // from vp9/encoder/vp9_encodeframe.c:4675-4746. The two candidates are
 // scored via pickVP9InterReferenceMode (PARTITION_NONE — libvpx's
 // nonrd_pick_sb_modes at vp9_encodeframe.c:4677 invoking

@@ -3,6 +3,8 @@ package govpx
 import (
 	"image"
 	"math"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // libvpx parity references for the VP9 first-pass collector:
@@ -190,7 +192,7 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 			if w <= 0 || h <= 0 {
 				continue
 			}
-			intraRaw := vp9BlockSourceVariance128(src, srcStride, x, y, w, h)
+			intraRaw := encoder.BlockSourceVariance128(src, srcStride, x, y, w, h)
 			logIntra := math.Log(float64(intraRaw) + 1.0)
 			if logIntra < 10.0 {
 				intraFactor += 1.0 + ((10.0 - logIntra) * 0.05)
@@ -404,7 +406,7 @@ func vp9FirstPassMotionSearch(src []byte, srcStride int, ref []byte, refStride i
 			if refX < 0 || refX+w > width {
 				continue
 			}
-			err := vp9BlockSSE(src, srcStride, ref, refStride,
+			err := encoder.BlockSSE(src, srcStride, ref, refStride,
 				x, y, refX, refY, w, h)
 			if err < best {
 				best = err

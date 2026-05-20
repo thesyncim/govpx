@@ -3,6 +3,7 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
@@ -125,7 +126,7 @@ func (e *VP9Encoder) vp9NonrdPredMVSAD(inter *vp9InterEncodeState,
 	if refX < 0 || refY < 0 || refX+blockW > refStride || refY+blockH > refRows {
 		return 0, false
 	}
-	return vp9BlockSADOffsets(src, y0*srcStride+x0, srcStride,
+	return encoder.BlockSADOffsets(src, y0*srcStride+x0, srcStride,
 		ref, refY*refStride+refX, refStride, blockW, blockH,
 		^uint64(0)), true
 }

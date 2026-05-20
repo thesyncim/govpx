@@ -234,7 +234,7 @@ func (e *VP9Encoder) vp9StaticThresholdBreakout(inter *vp9InterEncodeState,
 	segID := vp9EncoderMiSegmentID(mi)
 	threshAC, threshDC := vp9StaticThresholds(threshold, inter.dq.Y[segID],
 		bsize)
-	varY, sseY := vp9BlockDiffVarianceSSE(src, srcStride, pred, predStride,
+	varY, sseY := encoder.BlockDiffVarianceSSE(src, srcStride, pred, predStride,
 		x0, y0, x0, y0, blockW, blockH)
 	if varY > threshAC || sseY-varY > threshDC {
 		return false
@@ -266,7 +266,7 @@ func (e *VP9Encoder) vp9StaticThresholdChromaBreakout(inter *vp9InterEncodeState
 			!vp9VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
 			return false
 		}
-		variance, sse := vp9BlockDiffVarianceSSE(src, srcStride, pred,
+		variance, sse := encoder.BlockDiffVarianceSSE(src, srcStride, pred,
 			predStride, x0, y0, x0, y0, blockW, blockH)
 		if (variance<<2) > threshAC || sse-variance > threshDC {
 			return false

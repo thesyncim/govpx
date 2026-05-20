@@ -6,13 +6,13 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9_ml_partition_parity_test.go pins the verbatim port of the
 // ML_BASED_PARTITION (ml_predict_var_partitioning) inputs / inference loop
-// against libvpx v1.16.0. Task #171 audit substrate — anchors the
-// NEGATIVE FINDING that the RefControl byte-9 cluster's divergence is NOT
-// in this layer.
+// against libvpx v1.16.0. These tests keep the RefControl byte-9 cluster's
+// divergence from being misattributed to this layer.
 //
 // Cluster recap (vp9_oracle_encoder_refcontrols_fuzz_test.go):
 //
@@ -20,7 +20,7 @@ import (
 //	frame (FirstPartitionSize literal). Historical ML nonrd measurements
 //	pinned per-seed aggregate size_delta in the -179..+295 byte range.
 //
-// Per-component audit (each component byte-exact against libvpx; if a
+// Per-component coverage (each component byte-exact against libvpx; if a
 // future regression breaks this layer one of these pins fires before the
 // fuzz harness):
 //
@@ -31,7 +31,7 @@ import (
 //     in all six tables is pinned to its libvpx-printed value.
 //
 //  2. NN inference loop.
-//     vp9NNPredict (vp9_partition_models.go:207-254) mirrors libvpx
+//     vp9enc.NNPredict (internal/vp9/encoder/partition_models.go) mirrors libvpx
 //     nn_predict at vp9/encoder/vp9_encodeframe.c:2994-3036. Tested by
 //     TestVP9NNPredictVarPart64InferenceFixed below — runs the
 //     vp9_var_part_nnconfig_64 NN with a fixed feature vector and pins
@@ -52,9 +52,8 @@ import (
 //     variance) tuple against an independent uint64 reference.
 //
 // If any of these tests fail, the byte-9 cluster has gained a new failure
-// mode at this layer and the audit conclusion needs revisiting. If all
-// pass, the closure path remains the upstream vp9_pick_inter_mode port at
-// vp9/encoder/vp9_pickmode.c:1696 (~4000 LOC), tracked as task #162.
+// mode at this layer. If all pass, the remaining closure path stays in the
+// upstream vp9_pick_inter_mode port at vp9/encoder/vp9_pickmode.c:1696.
 
 // TestVP9VarPartNNTablesByteExact pins every constant in
 // vp9_var_part_nn_{weights,bias}_{64,32,16}_layer{0,1} against libvpx
@@ -136,18 +135,18 @@ func TestVP9VarPartNNTablesByteExact(t *testing.T) {
 		want []float32
 	}
 	tables := []tableRef{
-		{"weights_64_layer0", vp9VarPartNNWeights64Layer0[:], wantW64L0[:]},
-		{"bias_64_layer0", vp9VarPartNNBias64Layer0[:], wantB64L0[:]},
-		{"weights_64_layer1", vp9VarPartNNWeights64Layer1[:], wantW64L1[:]},
-		{"bias_64_layer1", vp9VarPartNNBias64Layer1[:], wantB64L1[:]},
-		{"weights_32_layer0", vp9VarPartNNWeights32Layer0[:], wantW32L0[:]},
-		{"bias_32_layer0", vp9VarPartNNBias32Layer0[:], wantB32L0[:]},
-		{"weights_32_layer1", vp9VarPartNNWeights32Layer1[:], wantW32L1[:]},
-		{"bias_32_layer1", vp9VarPartNNBias32Layer1[:], wantB32L1[:]},
-		{"weights_16_layer0", vp9VarPartNNWeights16Layer0[:], wantW16L0[:]},
-		{"bias_16_layer0", vp9VarPartNNBias16Layer0[:], wantB16L0[:]},
-		{"weights_16_layer1", vp9VarPartNNWeights16Layer1[:], wantW16L1[:]},
-		{"bias_16_layer1", vp9VarPartNNBias16Layer1[:], wantB16L1[:]},
+		{"weights_64_layer0", vp9enc.VarPartNNWeights64Layer0[:], wantW64L0[:]},
+		{"bias_64_layer0", vp9enc.VarPartNNBias64Layer0[:], wantB64L0[:]},
+		{"weights_64_layer1", vp9enc.VarPartNNWeights64Layer1[:], wantW64L1[:]},
+		{"bias_64_layer1", vp9enc.VarPartNNBias64Layer1[:], wantB64L1[:]},
+		{"weights_32_layer0", vp9enc.VarPartNNWeights32Layer0[:], wantW32L0[:]},
+		{"bias_32_layer0", vp9enc.VarPartNNBias32Layer0[:], wantB32L0[:]},
+		{"weights_32_layer1", vp9enc.VarPartNNWeights32Layer1[:], wantW32L1[:]},
+		{"bias_32_layer1", vp9enc.VarPartNNBias32Layer1[:], wantB32L1[:]},
+		{"weights_16_layer0", vp9enc.VarPartNNWeights16Layer0[:], wantW16L0[:]},
+		{"bias_16_layer0", vp9enc.VarPartNNBias16Layer0[:], wantB16L0[:]},
+		{"weights_16_layer1", vp9enc.VarPartNNWeights16Layer1[:], wantW16L1[:]},
+		{"bias_16_layer1", vp9enc.VarPartNNBias16Layer1[:], wantB16L1[:]},
 	}
 	for _, tr := range tables {
 		if len(tr.got) != len(tr.want) {
@@ -163,14 +162,14 @@ func TestVP9VarPartNNTablesByteExact(t *testing.T) {
 	}
 }
 
-// TestVP9NNPredictVarPart64InferenceFixed pins vp9NNPredict on the
+// TestVP9NNPredictVarPart64InferenceFixed pins vp9enc.NNPredict on the
 // vp9_var_part_nnconfig_64 NN with a fixed feature vector. The expected
 // score is computed manually here using the same float32 sequence of
 // operations as libvpx's nn_predict (vp9_encodeframe.c:2994-3036) and
 // the libvpx layer-0 weights / biases / layer-1 weights / bias inlined
 // above.
 //
-// If vp9NNPredict ever drifts (e.g. someone reorders the MAC chain or
+// If vp9enc.NNPredict ever drifts (e.g. someone reorders the MAC chain or
 // alters the ReLU sequence), this test catches the regression directly
 // against the libvpx-defined floating-point semantics.
 func TestVP9NNPredictVarPart64InferenceFixed(t *testing.T) {
@@ -191,9 +190,9 @@ func TestVP9NNPredictVarPart64InferenceFixed(t *testing.T) {
 	want := referenceNNPredictVarPart64(features)
 
 	var got [1]float32
-	vp9NNPredict(features[:], vp9VarPartNNConfig64, got[:])
+	vp9enc.NNPredict(features[:], &vp9enc.VarPartNNConfig64, got[:])
 	if got[0] != want {
-		t.Fatalf("vp9NNPredict on vp9_var_part_nnconfig_64 features=%v: got %v want %v (delta=%v)",
+		t.Fatalf("vp9enc.NNPredict on vp9_var_part_nnconfig_64 features=%v: got %v want %v (delta=%v)",
 			features, got[0], want, got[0]-want)
 	}
 }
@@ -205,8 +204,8 @@ func TestVP9NNPredictVarPart64InferenceFixed(t *testing.T) {
 // arithmetic is bit-exact with libvpx given identical inputs.
 func referenceNNPredictVarPart64(features [6]float32) float32 {
 	// Layer 0: 6 inputs -> 8 hidden, ReLU.
-	w0 := vp9VarPartNNWeights64Layer0
-	b0 := vp9VarPartNNBias64Layer0
+	w0 := vp9enc.VarPartNNWeights64Layer0
+	b0 := vp9enc.VarPartNNBias64Layer0
 	var hidden [8]float32
 	for node := range 8 {
 		var val float32 = 0
@@ -220,8 +219,8 @@ func referenceNNPredictVarPart64(features [6]float32) float32 {
 		hidden[node] = val
 	}
 	// Layer 1: 8 hidden -> 1 output, linear.
-	w1 := vp9VarPartNNWeights64Layer1
-	b1 := vp9VarPartNNBias64Layer1
+	w1 := vp9enc.VarPartNNWeights64Layer1
+	b1 := vp9enc.VarPartNNBias64Layer1
 	var out float32 = 0
 	for i := range 8 {
 		out += w1[i] * hidden[i]

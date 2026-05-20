@@ -3,7 +3,6 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
@@ -23,7 +22,7 @@ func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	dstRows := len(dst) / dstStride
-	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+	scoreW, scoreH, ok := encoder.VisibleInterScoreBlock(x0, y0, blockW, blockH,
 		srcW, srcH, dstStride, dstRows)
 	if !ok {
 		return 0, false
@@ -41,7 +40,7 @@ func (e *VP9Encoder) vp9InterPredictionDistortion(inter *vp9InterEncodeState,
 	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return 0, false
 	}
-	return vp9BlockSSE(src, srcStride, dst, dstStride,
+	return encoder.BlockSSE(src, srcStride, dst, dstStride,
 		x0, y0, x0, y0, scoreW, scoreH), true
 }
 
@@ -59,7 +58,7 @@ func (e *VP9Encoder) vp9InterPredictionDistortionForMi(inter *vp9InterEncodeStat
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	dstRows := len(dst) / dstStride
-	scoreW, scoreH, ok := vp9VisibleInterScoreBlock(x0, y0, blockW, blockH,
+	scoreW, scoreH, ok := encoder.VisibleInterScoreBlock(x0, y0, blockW, blockH,
 		srcW, srcH, dstStride, dstRows)
 	if !ok {
 		return 0, false
@@ -67,7 +66,7 @@ func (e *VP9Encoder) vp9InterPredictionDistortionForMi(inter *vp9InterEncodeStat
 	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi) {
 		return 0, false
 	}
-	return vp9BlockSSE(src, srcStride, dst, dstStride,
+	return encoder.BlockSSE(src, srcStride, dst, dstStride,
 		x0, y0, x0, y0, scoreW, scoreH), true
 }
 
@@ -106,7 +105,7 @@ func (e *VP9Encoder) vp9CompoundPredictionDistortion(inter *vp9InterEncodeState,
 	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return 0, false
 	}
-	return vp9BlockSSE(src, srcStride, dst, dstStride,
+	return encoder.BlockSSE(src, srcStride, dst, dstStride,
 		x0, y0, x0, y0, blockW, blockH), true
 }
 
@@ -404,161 +403,4 @@ func vp9ModeDecisionScore(distortion uint64, rate, qindex int) uint64 {
 
 func vp9AnyMvHasSubpel(mv [2]vp9dec.MV) bool {
 	return vp9MvHasSubpel(mv[0]) || vp9MvHasSubpel(mv[1])
-}
-
-func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
-	srcX, srcY, refX, refY, w, h int, limit uint64,
-) uint64 {
-	// libvpx's sad_function pointers (cpi->fn_ptr[bsize].sdf) compute the
-	// full block SAD with no early-termination — see vpx_dsp/sad.c
-	// SAD()/vpx_dsp/arm/sad_neon.c. The caller compares the returned SAD
-	// against best_sad afterwards. Govpx historically used the `limit`
-	// argument to early-exit a row-major scalar loop, but that bypassed
-	// the SIMD kernels and was a net pessimization. Always go through the
-	// size-specialized SAD path; the per-row early-exit only matters for
-	// limit-driven calls on sizes outside the wrapper table.
-	// libvpx: vpx_dsp/sad.c:24 — SAD() returns sum without limit check.
-	srcOff := srcY*srcStride + srcX
-	refOff := refY*refStride + refX
-	return vp9BlockSADOffsets(src, srcOff, srcStride, ref, refOff, refStride,
-		w, h, limit)
-}
-
-func vp9BlockSADOffsets(src []byte, srcOff, srcStride int,
-	ref []byte, refOff, refStride int, w, h int, limit uint64,
-) uint64 {
-	if sad, ok := vp9BlockSADNoLimitOffsets(src, srcOff, srcStride,
-		ref, refOff, refStride, w, h); ok {
-		return uint64(sad)
-	}
-	var sad uint64
-	for y := range h {
-		srcRow := src[srcOff+y*srcStride:]
-		refRow := ref[refOff+y*refStride:]
-		for x := range w {
-			diff := int(srcRow[x]) - int(refRow[x])
-			if diff < 0 {
-				diff = -diff
-			}
-			sad += uint64(diff)
-		}
-		if sad >= limit {
-			return sad
-		}
-	}
-	return sad
-}
-
-func vp9BlockSSE(src []byte, srcStride int, ref []byte, refStride int,
-	srcX, srcY, refX, refY, w, h int,
-) uint64 {
-	var sse uint64
-	for y := range h {
-		srcRow := src[(srcY+y)*srcStride+srcX:]
-		refRow := ref[(refY+y)*refStride+refX:]
-		for x := range w {
-			diff := int(srcRow[x]) - int(refRow[x])
-			sse += uint64(diff * diff)
-		}
-	}
-	return sse
-}
-
-func vp9BlockDiffVariance(src []byte, srcStride int, ref []byte, refStride int,
-	srcX, srcY, refX, refY, w, h int,
-) uint64 {
-	variance, _ := vp9BlockDiffVarianceSSE(src, srcStride, ref, refStride,
-		srcX, srcY, refX, refY, w, h)
-	return variance
-}
-
-func vp9BlockDiffVarianceSSE(src []byte, srcStride int, ref []byte, refStride int,
-	srcX, srcY, refX, refY, w, h int,
-) (uint64, uint64) {
-	var sum int64
-	var sse uint64
-	for y := range h {
-		srcRow := src[(srcY+y)*srcStride+srcX:]
-		refRow := ref[(refY+y)*refStride+refX:]
-		for x := range w {
-			diff := int64(int(srcRow[x]) - int(refRow[x]))
-			sum += diff
-			sse += uint64(diff * diff)
-		}
-	}
-	n := int64(w * h)
-	if n <= 0 {
-		return 0, sse
-	}
-	meanSquares := uint64((sum * sum) / n)
-	if sse <= meanSquares {
-		return 0, sse
-	}
-	return sse - meanSquares, sse
-}
-
-func vp9BlockSourceVariance128(src []byte, srcStride int, srcX, srcY, w, h int) uint64 {
-	var sum int64
-	var sse uint64
-	for y := range h {
-		srcRow := src[(srcY+y)*srcStride+srcX:]
-		for x := range w {
-			diff := int64(srcRow[x]) - 128
-			sum += diff
-			sse += uint64(diff * diff)
-		}
-	}
-	n := int64(w * h)
-	if n <= 0 {
-		return 0
-	}
-	meanSquares := uint64((sum * sum) / n)
-	if sse <= meanSquares {
-		return 0
-	}
-	return sse - meanSquares
-}
-
-func vp9SourceVarianceAreaPerPixel(src []byte, srcStride int, srcX, srcY, w, h int) uint {
-	if w <= 0 || h <= 0 {
-		return 0
-	}
-	variance := vp9BlockSourceVariance128(src, srcStride, srcX, srcY, w, h)
-	pixels := uint64(w * h)
-	return uint((variance + (pixels >> 1)) / pixels)
-}
-
-func vp9BlockSADNoLimitOffsets(src []byte, srcOff, srcStride int,
-	ref []byte, refOff, refStride int, w, h int,
-) (uint32, bool) {
-	switch {
-	case w == 64 && h == 64:
-		return vp9dsp.VpxSad64x64(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 64 && h == 32:
-		return vp9dsp.VpxSad64x32(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 32 && h == 64:
-		return vp9dsp.VpxSad32x64(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 32 && h == 32:
-		return vp9dsp.VpxSad32x32(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 32 && h == 16:
-		return vp9dsp.VpxSad32x16(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 16 && h == 32:
-		return vp9dsp.VpxSad16x32(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 16 && h == 16:
-		return vp9dsp.VpxSad16x16(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 16 && h == 8:
-		return vp9dsp.VpxSad16x8(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 8 && h == 16:
-		return vp9dsp.VpxSad8x16(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 8 && h == 8:
-		return vp9dsp.VpxSad8x8(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 8 && h == 4:
-		return vp9dsp.VpxSad8x4(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 4 && h == 8:
-		return vp9dsp.VpxSad4x8(src, srcOff, srcStride, ref, refOff, refStride), true
-	case w == 4 && h == 4:
-		return vp9dsp.VpxSad4x4(src, srcOff, srcStride, ref, refOff, refStride), true
-	default:
-		return 0, false
-	}
 }

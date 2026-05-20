@@ -1,6 +1,10 @@
 package govpx
 
-import "image"
+import (
+	"image"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 // vp9_noise_estimate.go ports the libvpx VP9 NOISE_ESTIMATE state and the
 // init / enable_noise_estimation / vp9_noise_estimate_extract_level helpers
@@ -333,7 +337,7 @@ func (e *VP9Encoder) vp9UpdateNoiseEstimate(img *image.YCbCr, miRows, miCols int
 			if srcX+16 > width || srcY+16 > height {
 				continue
 			}
-			variance, _ := vp9BlockDiffVarianceSSE(img.Y, img.YStride,
+			variance, _ := encoder.BlockDiffVarianceSSE(img.Y, img.YStride,
 				e.lastSource.Y, e.lastSource.YStride, srcX, srcY, srcX, srcY, 16, 16)
 			histIndex := variance / binSize
 			if histIndex < vp9NoiseEstimateMaxVarHistBins {
