@@ -1075,9 +1075,9 @@ func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 	if err := e.SetAQMode(VP9AQVariance); err != nil {
 		t.Fatalf("SetAQMode variance: %v", err)
 	}
-	if e.opts.AQMode != VP9AQVariance || e.cyclicAQ.enabled {
+	if e.opts.AQMode != VP9AQVariance || e.cyclicAQ.Enabled {
 		t.Fatalf("variance AQ state = mode:%d cyclic:%t, want variance/false",
-			e.opts.AQMode, e.cyclicAQ.enabled)
+			e.opts.AQMode, e.cyclicAQ.Enabled)
 	}
 	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
 	if err != nil {
@@ -1115,10 +1115,10 @@ func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 	if err := cbr.SetAQMode(VP9AQCyclicRefresh); err != nil {
 		t.Fatalf("SetAQMode cyclic refresh: %v", err)
 	}
-	if cbr.opts.AQMode != VP9AQCyclicRefresh || !cbr.cyclicAQ.enabled ||
-		len(cbr.cyclicAQ.segMap) != 64 {
+	if cbr.opts.AQMode != VP9AQCyclicRefresh || !cbr.cyclicAQ.Enabled ||
+		len(cbr.cyclicAQ.SegMap) != 64 {
 		t.Fatalf("cyclic AQ state = mode:%d enabled:%t map:%d, want cyclic/true/64",
-			cbr.opts.AQMode, cbr.cyclicAQ.enabled, len(cbr.cyclicAQ.segMap))
+			cbr.opts.AQMode, cbr.cyclicAQ.Enabled, len(cbr.cyclicAQ.SegMap))
 	}
 	disabled, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:              width,
@@ -1139,11 +1139,11 @@ func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 	if err := disabled.SetAQMode(VP9AQNone); err != nil {
 		t.Fatalf("disabled SetAQMode none: %v", err)
 	}
-	if disabled.opts.AQMode != VP9AQNone || disabled.cyclicAQ.enabled ||
-		disabled.cyclicAQ.miRows != 0 || disabled.cyclicAQ.miCols != 0 {
+	if disabled.opts.AQMode != VP9AQNone || disabled.cyclicAQ.Enabled ||
+		disabled.cyclicAQ.MIRows != 0 || disabled.cyclicAQ.MICols != 0 {
 		t.Fatalf("pre-start disabled AQ state = mode:%d enabled:%t rows:%d cols:%d, want none/false/0/0",
-			disabled.opts.AQMode, disabled.cyclicAQ.enabled,
-			disabled.cyclicAQ.miRows, disabled.cyclicAQ.miCols)
+			disabled.opts.AQMode, disabled.cyclicAQ.Enabled,
+			disabled.cyclicAQ.MIRows, disabled.cyclicAQ.MICols)
 	}
 	invalidComplexity, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:        width,
@@ -1188,7 +1188,7 @@ func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 	if err := disabled.SetAQMode(VP9AQMode(99)); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("invalid SetAQMode enum err = %v, want ErrInvalidConfig", err)
 	}
-	if disabled.opts.AQMode != VP9AQNone || disabled.cyclicAQ.enabled {
+	if disabled.opts.AQMode != VP9AQNone || disabled.cyclicAQ.Enabled {
 		t.Fatal("invalid SetAQMode enum mutated encoder state")
 	}
 }

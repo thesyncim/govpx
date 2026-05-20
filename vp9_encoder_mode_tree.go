@@ -102,7 +102,7 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 	// inter.counts == nil here to avoid double-counting consec_zero_mv
 	// / last_coded_q_map per frame.
 	doCyclicSbPostencode := kind == vp9ModeTreeInterSource &&
-		e.cyclicAQ.enabled && e.cyclicAQ.apply && e.cyclicAQ.contentMode &&
+		e.cyclicAQ.Enabled && e.cyclicAQ.Apply && e.cyclicAQ.ContentMode &&
 		seg != nil && seg.Enabled && inter != nil && inter.counts == nil
 	var cyclicBaseQindex int
 	if doCyclicSbPostencode {
@@ -161,7 +161,7 @@ func (e *VP9Encoder) vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
 		return
 	}
 	cr := &e.cyclicAQ
-	if cr.miRows != miRows || cr.miCols != miCols {
+	if cr.MIRows != miRows || cr.MICols != miCols {
 		return
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:231-234 — superblock 8x8 block
@@ -183,10 +183,10 @@ func (e *VP9Encoder) vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
 			segID := mi.SegmentID
 			skip := mi.Skip != 0
 			// libvpx: vp9_aq_cyclicrefresh.c:244-253 — single-cell update.
-			cr.vp9CyclicRefreshUpdateSegmentPostencode(miRow+y, miCol+x,
+			cr.UpdateSegmentPostencode(miRow+y, miCol+x,
 				1, 1, baseQindex, segID, isInter, skip)
 			// libvpx: vp9_encodeframe.c:5999-6022 — update_zeromv_cnt.
-			cr.vp9CyclicRefreshUpdateZeroMVCnt(miRow+y, miCol+x, 1, 1,
+			cr.UpdateZeroMVCnt(miRow+y, miCol+x, 1, 1,
 				mi.Mv[0].Row, mi.Mv[0].Col, mi.RefFrame[0], isInter, segID)
 		}
 	}

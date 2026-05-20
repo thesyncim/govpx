@@ -9,42 +9,42 @@ import (
 // vp9_cyclic_refresh_update_parameters() + vp9_cyclic_refresh_setup()
 // pair (vp9/encoder/vp9_aq_cyclicrefresh.c:479-680). It is the
 // encoder-facing entry that picks up the active rate-control state
-// and emits the per-frame segmentation map cyclicAQ.segmentID()
+// and emits the per-frame segmentation map cyclicAQ.SegmentID()
 // consults. Called once per frame in EncodeInto.
 func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bool, miRows, miCols, macroblocks int, header *vp9dec.UncompressedHeader) {
-	if e == nil || !e.cyclicAQ.enabled {
-		e.cyclicAQ.apply = false
+	if e == nil || !e.cyclicAQ.Enabled {
+		e.cyclicAQ.Apply = false
 		return
 	}
 	if isKey || intraOnly || !showFrame {
-		e.cyclicAQ.apply = false
+		e.cyclicAQ.Apply = false
 		// libvpx: vp9_aq_cyclicrefresh.c:614-621 — keyframe also resets
 		// last_coded_q_map / sb_index / scene_change counter.
-		if isKey && e.cyclicAQ.miRows == miRows && e.cyclicAQ.miCols == miCols {
-			for i := range e.cyclicAQ.lastCodedQMap {
-				e.cyclicAQ.lastCodedQMap[i] = vp9dec.MaxQ
+		if isKey && e.cyclicAQ.MIRows == miRows && e.cyclicAQ.MICols == miCols {
+			for i := range e.cyclicAQ.LastCodedQMap {
+				e.cyclicAQ.LastCodedQMap[i] = vp9dec.MaxQ
 			}
 			// libvpx: vp9_encoder.c:4103-4106 — intra_only zeros
 			// consec_zero_mv too. Without this, post-key stale counters
 			// would still drive the next frame's eligibility filter.
-			for i := range e.cyclicAQ.consecZeroMv {
-				e.cyclicAQ.consecZeroMv[i] = 0
+			for i := range e.cyclicAQ.ConsecZeroMV {
+				e.cyclicAQ.ConsecZeroMV[i] = 0
 			}
-			e.cyclicAQ.sbIndex = 0
-			e.cyclicAQ.reduceRefresh = false
-			e.cyclicAQ.counterEncodeMaxqSceneChange = 0
+			e.cyclicAQ.SBIndex = 0
+			e.cyclicAQ.ReduceRefresh = false
+			e.cyclicAQ.CounterEncodeMaxqSceneChange = 0
 		}
 		return
 	}
 	// Re-alloc on mi-grid change.
-	if e.cyclicAQ.miRows != miRows || e.cyclicAQ.miCols != miCols ||
-		len(e.cyclicAQ.segMap) < miRows*miCols {
-		e.cyclicAQ.vp9CyclicRefreshAlloc(miRows, miCols)
+	if e.cyclicAQ.MIRows != miRows || e.cyclicAQ.MICols != miCols ||
+		len(e.cyclicAQ.SegMap) < miRows*miCols {
+		e.cyclicAQ.Alloc(miRows, miCols)
 	}
 	screen := e.opts.ScreenContentMode > 0
 	noiseMedium := e.opts.NoiseSensitivity >= 1
 	// libvpx: vp9_aq_cyclicrefresh.c:479-593.
-	e.cyclicAQ.vp9CyclicRefreshUpdateParameters(vp9CyclicRefreshUpdateParametersArgs{
+	e.cyclicAQ.UpdateParameters(encoder.CyclicRefreshUpdateParametersArgs{
 		Macroblocks:          macroblocks,
 		FrameIsIntraOnly:     false,
 		TemporalLayerID:      0,
@@ -66,7 +66,7 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		Height:               e.opts.Height,
 	})
 	// libvpx: vp9_aq_cyclicrefresh.c:596-680.
-	e.cyclicAQ.vp9CyclicRefreshSetup(vp9CyclicRefreshSetupArgs{
+	e.cyclicAQ.Setup(encoder.CyclicRefreshSetupArgs{
 		CurrentVideoFrame: e.frameIndex,
 		FrameIsKey:        false,
 		FrameIsIntraOnly:  false,
@@ -82,20 +82,20 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		// update_map eligibility filter. The slice is maintained per
 		// encoded SB by vp9CyclicRefreshUpdateEncodedSb so this frame
 		// sees the previous frame's stationarity history.
-		ConsecZeroMv: e.cyclicAQ.consecZeroMv,
+		ConsecZeroMv: e.cyclicAQ.ConsecZeroMV,
 		// CR runs on visible inter frames only (see early-returns above),
 		// so is_src_frame_alt_ref is always false here.  The refresh
 		// flags are not yet known at this point in govpx (RefreshFrame
 		// is set later in EncodeInto), so we conservatively pass false
 		// for both — matching libvpx's path because cyclic_refresh_setup
 		// runs before refresh_golden/alt are finalised in many of its
-		// realtime call paths.  The CR rdmult therefore lands in the
+		// realtime call paths.  The CR RDMult therefore lands in the
 		// inter bucket which is what libvpx's realtime CR runs evaluate.
 		IsSrcFrameAltRef:   false,
 		RefreshGoldenFrame: false,
 		RefreshAltRefFrame: false,
 	})
-	e.cyclicAQ.apply = e.cyclicAQ.applyCyclicRefresh && e.cyclicAQ.targetNumSegBlocks > 0
+	e.cyclicAQ.Apply = e.cyclicAQ.ApplyCyclicRefresh && e.cyclicAQ.TargetNumSegBlocks > 0
 }
 
 func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex int) vp9dec.SegmentationParams {
@@ -174,8 +174,8 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		}
 		return seg
 	}
-	if e.cyclicAQ.enabled && e.cyclicAQ.apply && !intraFrame {
-		seg := e.cyclicAQ.segmentationParams(baseQIndex)
+	if e.cyclicAQ.Enabled && e.cyclicAQ.Apply && !intraFrame {
+		seg := e.cyclicAQ.SegmentationParams(baseQIndex)
 		if e.activeMapEnabled {
 			vp9EnableActiveMapSegmentation(&seg)
 		}

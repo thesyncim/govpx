@@ -16,7 +16,7 @@ func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
 	if e.roi.enabled || e.activeMapEnabled {
 		return true
 	}
-	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
+	if e.cyclicAQ.Enabled && e.cyclicAQ.Apply {
 		return true
 	}
 	// Variance-AQ is suppressed in fixed-Q / pure-Q mode because the
@@ -128,8 +128,8 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 		}
 		return segID, true
 	}
-	if e.cyclicAQ.enabled && e.cyclicAQ.apply {
-		segID := e.cyclicAQ.segmentID(miRow, miCol)
+	if e.cyclicAQ.Enabled && e.cyclicAQ.Apply {
+		segID := e.cyclicAQ.SegmentID(miRow, miCol)
 		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
 			return vp9ActiveMapSegmentInactive, true
 		}

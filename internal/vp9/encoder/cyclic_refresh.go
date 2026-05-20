@@ -1,8 +1,7 @@
-package govpx
+package encoder
 
 import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // CYCLIC_REFRESH_AQ — verbatim port of libvpx v1.16.0
@@ -16,250 +15,257 @@ import (
 const (
 	// CR_SEGMENT_ID_BASE — segment id for no refresh.
 	// libvpx: vp9_aq_cyclicrefresh.h:25
-	vp9CyclicRefreshSegmentBase = 0
+	CyclicRefreshSegmentBase = 0
 	// CR_SEGMENT_ID_BOOST1 — base refresh segment.
 	// libvpx: vp9_aq_cyclicrefresh.h:26
-	vp9CyclicRefreshSegmentBoost1 = 1
+	CyclicRefreshSegmentBoost1 = 1
 	// CR_SEGMENT_ID_BOOST2 — more aggressive refresh segment.
 	// libvpx: vp9_aq_cyclicrefresh.h:27
-	vp9CyclicRefreshSegmentBoost2 = 2
+	CyclicRefreshSegmentBoost2 = 2
 	// CR_MAX_RATE_TARGET_RATIO clamps segment BOOST2's rate target ratio.
 	// libvpx: vp9_aq_cyclicrefresh.h:30
-	vp9CyclicRefreshMaxRateTargetRatio = 4.0
+	CyclicRefreshMaxRateTargetRatio = 4.0
 	// MI_BLOCK_SIZE — superblock size in 8x8 mi units.
 	// libvpx: vp9/common/vp9_onyxc_int.h MI_BLOCK_SIZE = 8
-	vp9CyclicRefreshSuperblockMi = 8
+	CyclicRefreshSuperblockMI = 8
 )
 
-// vp9CyclicRefreshState mirrors libvpx's struct CYCLIC_REFRESH from
+// CyclicRefreshSegmentIDBoosted reports whether segmentID is one of libvpx's
+// cyclic-refresh boosted segments.
+func CyclicRefreshSegmentIDBoosted(segmentID uint8) bool {
+	return segmentID == CyclicRefreshSegmentBoost1 ||
+		segmentID == CyclicRefreshSegmentBoost2
+}
+
+// CyclicRefreshState mirrors libvpx's struct CYCLIC_REFRESH from
 // vp9_aq_cyclicrefresh.h:32-74 in field-for-field order so callers
 // can compare against the C oracle one-to-one.
-type vp9CyclicRefreshState struct {
-	// enabled latches the AQ mode at configure time. Mirrors
+type CyclicRefreshState struct {
+	// Enabled latches the AQ mode at Configure time. Mirrors
 	// cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ.
-	enabled bool
+	Enabled bool
 
 	// percent_refresh — target fraction of (8x8) blocks per frame.
 	// libvpx: vp9_aq_cyclicrefresh.h:35
-	percentRefresh int
+	PercentRefresh int
 	// max_qdelta_perc — cap on q-delta as % of base q.
 	// libvpx: vp9_aq_cyclicrefresh.h:37
-	maxQdeltaPerc int
+	MaxQDeltaPerc int
 	// sb_index — rotating superblock pointer through the frame.
 	// libvpx: vp9_aq_cyclicrefresh.h:39
-	sbIndex int
+	SBIndex int
 	// time_for_refresh — extra cycle-wait for refreshed blocks.
 	// libvpx: vp9_aq_cyclicrefresh.h:43
-	timeForRefresh int
+	TimeForRefresh int
 	// target_num_seg_blocks — blocks slated for delta-q this frame.
 	// libvpx: vp9_aq_cyclicrefresh.h:45
-	targetNumSegBlocks int
+	TargetNumSegBlocks int
 	// actual_num_seg{1,2}_blocks — refreshed-this-frame buckets.
 	// libvpx: vp9_aq_cyclicrefresh.h:47-48
-	actualNumSeg1Blocks int
-	actualNumSeg2Blocks int
-	// rdmult — RD multiplier for segment 1.
+	ActualNumSeg1Blocks int
+	ActualNumSeg2Blocks int
+	// RDMult — RD multiplier for segment 1.
 	// libvpx: vp9_aq_cyclicrefresh.h:50
-	rdmult int
+	RDMult int
 	// map — per-(8x8) refresh state (signed char in libvpx).
 	// libvpx: vp9_aq_cyclicrefresh.h:52
-	refreshMap []int8
+	RefreshMap []int8
 	// last_coded_q_map — last q a block was coded at.
 	// libvpx: vp9_aq_cyclicrefresh.h:54
-	lastCodedQMap []uint8
+	LastCodedQMap []uint8
 	// thresh_rate_sb / thresh_dist_sb — per-SB projected rate/dist thresholds.
 	// libvpx: vp9_aq_cyclicrefresh.h:57-58
-	threshRateSb int64
-	threshDistSb int64
+	ThreshRateSB int64
+	ThreshDistSB int64
 	// motion_thresh — MV magnitude cap (1/8 pel units).
 	// libvpx: vp9_aq_cyclicrefresh.h:61
-	motionThresh int16
+	MotionThresh int16
 	// rate_ratio_qdelta — rate ratio target driving compute_deltaq().
 	// libvpx: vp9_aq_cyclicrefresh.h:63
-	rateRatioQdelta float64
+	RateRatioQDelta float64
 	// rate_boost_fac — boost factor for segment BOOST2.
 	// libvpx: vp9_aq_cyclicrefresh.h:65
-	rateBoostFac int
+	RateBoostFac int
 	// low_content_avg — running average of low-motion frame fraction.
 	// libvpx: vp9_aq_cyclicrefresh.h:66
-	lowContentAvg float64
+	LowContentAvg float64
 	// qindex_delta[3] — per-segment q deltas. Index 0 unused, 1/2 active.
 	// libvpx: vp9_aq_cyclicrefresh.h:67
-	qindexDelta [3]int
+	QIndexDelta [3]int
 	// reduce_refresh — drop percent_refresh to 5 when set.
 	// libvpx: vp9_aq_cyclicrefresh.h:68
-	reduceRefresh bool
+	ReduceRefresh bool
 	// weight_segment — segment weight average for rc_bits_per_mb().
 	// libvpx: vp9_aq_cyclicrefresh.h:69
-	weightSegment float64
+	WeightSegment float64
 	// apply_cyclic_refresh — per-frame gate from update_parameters().
 	// libvpx: vp9_aq_cyclicrefresh.h:70
-	applyCyclicRefresh bool
+	ApplyCyclicRefresh bool
 	// counter_encode_maxq_scene_change — high-Q scene-change counter.
 	// libvpx: vp9_aq_cyclicrefresh.h:71
-	counterEncodeMaxqSceneChange int
+	CounterEncodeMaxqSceneChange int
 	// skip_flat_static_blocks — screen-content flat-block skip.
 	// libvpx: vp9_aq_cyclicrefresh.h:72
-	skipFlatStaticBlocks bool
+	SkipFlatStaticBlocks bool
 	// content_mode — content classification flag (default 1).
 	// libvpx: vp9_aq_cyclicrefresh.h:73
-	contentMode bool
+	ContentMode bool
 
 	// segmentation_map — exposed segment id grid the encoder consults
 	// per (mi_row, mi_col). Mirrors libvpx's cpi->segmentation_map for
 	// the lifetime of the cyclic-refresh state.
-	segMap []uint8
+	SegMap []uint8
 
-	// consecZeroMv — per-(mi_row, mi_col) saturating counter of
+	// ConsecZeroMV — per-(mi_row, mi_col) saturating counter of
 	// consecutive frames the LAST-frame MV at this 8x8 block was
 	// near-zero (|mv.row| < 8 && |mv.col| < 8). Mirrors
 	// cpi->consec_zero_mv from libvpx's VP9_COMP
-	// (vp9/encoder/vp9_encoder.h:838) — co-located here because the
+	// (vp9/encoder/vp9_h:838) — co-located here because the
 	// cyclic refresh setup path is the only consumer. Updated per
-	// encoded SB by vp9CyclicRefreshUpdateZeroMVCnt, mirroring
+	// encoded SB by UpdateZeroMVCnt, mirroring
 	// libvpx's update_zeromv_cnt (vp9_encodeframe.c:5999-6022). The
 	// counter feeds the eligibility filter in
 	// cyclic_refresh_update_map (vp9_aq_cyclicrefresh.c:437-442).
-	consecZeroMv []uint8
+	ConsecZeroMV []uint8
 
-	// miRows / miCols pin the current frame's mi-grid dims.
-	miRows int
-	miCols int
+	// MIRows / MICols pin the current frame's mi-grid dims.
+	MIRows int
+	MICols int
 
-	// apply tracks whether this frame's segmentation has been built and
+	// Apply tracks whether this frame's segmentation has been built and
 	// should be honoured by the segment-id lookup path.
-	apply bool
+	Apply bool
 }
 
-// vp9CyclicRefreshAlloc mirrors libvpx vp9_cyclic_refresh_alloc()
+// Alloc mirrors libvpx vp9_cyclic_refresh_alloc()
 // from vp9_aq_cyclicrefresh.c:32-53. Resets last_coded_q_map to MAXQ
 // (255) and seeds counter_encode_maxq_scene_change/content_mode.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshAlloc(miRows, miCols int) {
+func (cr *CyclicRefreshState) Alloc(miRows, miCols int) {
 	n := miRows * miCols
 	if n <= 0 {
-		cr.refreshMap = nil
-		cr.lastCodedQMap = nil
-		cr.segMap = nil
-		cr.consecZeroMv = nil
-		cr.miRows = 0
-		cr.miCols = 0
+		cr.RefreshMap = nil
+		cr.LastCodedQMap = nil
+		cr.SegMap = nil
+		cr.ConsecZeroMV = nil
+		cr.MIRows = 0
+		cr.MICols = 0
 		return
 	}
-	if cap(cr.refreshMap) < n {
-		cr.refreshMap = make([]int8, n)
+	if cap(cr.RefreshMap) < n {
+		cr.RefreshMap = make([]int8, n)
 	} else {
-		cr.refreshMap = cr.refreshMap[:n]
-		for i := range cr.refreshMap {
-			cr.refreshMap[i] = 0
+		cr.RefreshMap = cr.RefreshMap[:n]
+		for i := range cr.RefreshMap {
+			cr.RefreshMap[i] = 0
 		}
 	}
-	if cap(cr.lastCodedQMap) < n {
-		cr.lastCodedQMap = make([]uint8, n)
+	if cap(cr.LastCodedQMap) < n {
+		cr.LastCodedQMap = make([]uint8, n)
 	} else {
-		cr.lastCodedQMap = cr.lastCodedQMap[:n]
+		cr.LastCodedQMap = cr.LastCodedQMap[:n]
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:49 — memset to MAXQ.
-	for i := range cr.lastCodedQMap {
-		cr.lastCodedQMap[i] = vp9dec.MaxQ
+	for i := range cr.LastCodedQMap {
+		cr.LastCodedQMap[i] = vp9dec.MaxQ
 	}
-	if cap(cr.segMap) < n {
-		cr.segMap = make([]uint8, n)
+	if cap(cr.SegMap) < n {
+		cr.SegMap = make([]uint8, n)
 	} else {
-		cr.segMap = cr.segMap[:n]
-		for i := range cr.segMap {
-			cr.segMap[i] = 0
+		cr.SegMap = cr.SegMap[:n]
+		for i := range cr.SegMap {
+			cr.SegMap[i] = 0
 		}
 	}
-	// libvpx: vp9_encoder.c:2180-2183 — vpx_calloc(consec_zero_mv).
-	if cap(cr.consecZeroMv) < n {
-		cr.consecZeroMv = make([]uint8, n)
+	// libvpx: vp9_c:2180-2183 — vpx_calloc(consec_zero_mv).
+	if cap(cr.ConsecZeroMV) < n {
+		cr.ConsecZeroMV = make([]uint8, n)
 	} else {
-		cr.consecZeroMv = cr.consecZeroMv[:n]
-		for i := range cr.consecZeroMv {
-			cr.consecZeroMv[i] = 0
+		cr.ConsecZeroMV = cr.ConsecZeroMV[:n]
+		for i := range cr.ConsecZeroMV {
+			cr.ConsecZeroMV[i] = 0
 		}
 	}
-	cr.miRows = miRows
-	cr.miCols = miCols
+	cr.MIRows = miRows
+	cr.MICols = miCols
 	// libvpx: vp9_aq_cyclicrefresh.c:50-51.
-	cr.counterEncodeMaxqSceneChange = 0
-	cr.contentMode = true
+	cr.CounterEncodeMaxqSceneChange = 0
+	cr.ContentMode = true
 }
 
-// configure latches the AQ mode and re-allocates internal maps. Called
+// Configure latches the AQ mode and re-allocates internal maps. Called
 // by the encoder when the AQ option or resolution changes.
-func (cr *vp9CyclicRefreshState) configure(enabled bool, width, height int) {
-	cr.enabled = enabled
-	cr.apply = false
+func (cr *CyclicRefreshState) Configure(enabled bool, width, height int) {
+	cr.Enabled = enabled
+	cr.Apply = false
 	if !enabled || width <= 0 || height <= 0 {
-		cr.refreshMap = nil
-		cr.lastCodedQMap = nil
-		cr.segMap = nil
-		cr.consecZeroMv = nil
-		cr.miRows = 0
-		cr.miCols = 0
-		cr.sbIndex = 0
+		cr.RefreshMap = nil
+		cr.LastCodedQMap = nil
+		cr.SegMap = nil
+		cr.ConsecZeroMV = nil
+		cr.MIRows = 0
+		cr.MICols = 0
+		cr.SBIndex = 0
 		return
 	}
 	miRows := (height + 7) >> 3
 	miCols := (width + 7) >> 3
-	cr.vp9CyclicRefreshAlloc(miRows, miCols)
-	sbCount := vp9CyclicRefreshSuperblockCount(miRows, miCols)
-	if sbCount > 0 && cr.sbIndex >= sbCount {
-		cr.sbIndex = 0
+	cr.Alloc(miRows, miCols)
+	sbCount := CyclicRefreshSuperblockCount(miRows, miCols)
+	if sbCount > 0 && cr.SBIndex >= sbCount {
+		cr.SBIndex = 0
 	}
 }
 
-// vp9CyclicRefreshResetResize mirrors vp9_cyclic_refresh_reset_resize()
+// ResetResize mirrors vp9_cyclic_refresh_reset_resize()
 // from vp9_aq_cyclicrefresh.c:686-696. Zeros the refresh map, resets
 // last_coded_q_map to MAXQ, parks sb_index at 0, and zeros the
 // scene-change counter.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshResetResize() {
-	for i := range cr.refreshMap {
-		cr.refreshMap[i] = 0
+func (cr *CyclicRefreshState) ResetResize() {
+	for i := range cr.RefreshMap {
+		cr.RefreshMap[i] = 0
 	}
-	for i := range cr.lastCodedQMap {
-		cr.lastCodedQMap[i] = vp9dec.MaxQ
+	for i := range cr.LastCodedQMap {
+		cr.LastCodedQMap[i] = vp9dec.MaxQ
 	}
-	// libvpx: vp9_encoder.c:4103-4106 — resize_pending zeroes consec_zero_mv.
-	for i := range cr.consecZeroMv {
-		cr.consecZeroMv[i] = 0
+	// libvpx: vp9_c:4103-4106 — resize_pending zeroes consec_zero_mv.
+	for i := range cr.ConsecZeroMV {
+		cr.ConsecZeroMV[i] = 0
 	}
-	cr.sbIndex = 0
-	cr.counterEncodeMaxqSceneChange = 0
+	cr.SBIndex = 0
+	cr.CounterEncodeMaxqSceneChange = 0
 }
 
-// vp9CyclicRefreshComputeDeltaq mirrors compute_deltaq() from
+// ComputeDeltaQ mirrors compute_deltaq() from
 // vp9_aq_cyclicrefresh.c:90-99. Translates a rate-ratio target into a
 // qindex delta, clamped to -max_qdelta_perc * q / 100.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshComputeDeltaq(q int, rateFactor float64, intraFrame bool) int {
+func (cr *CyclicRefreshState) ComputeDeltaQ(q int, rateFactor float64, intraFrame bool) int {
 	// libvpx: vp9_aq_cyclicrefresh.c:93 — vp9_compute_qdelta_by_rate(rc, frame_type, q, rate_factor, bit_depth).
-	deltaq := vp9CyclicRefreshComputeQDeltaByRate(q, rateFactor, intraFrame)
+	deltaq := CyclicRefreshComputeQDeltaByRate(q, rateFactor, intraFrame)
 	// libvpx: vp9_aq_cyclicrefresh.c:95-97 — clamp -deltaq to max_qdelta_perc.
-	if -deltaq > cr.maxQdeltaPerc*q/100 {
-		deltaq = -cr.maxQdeltaPerc * q / 100
+	if -deltaq > cr.MaxQDeltaPerc*q/100 {
+		deltaq = -cr.MaxQDeltaPerc * q / 100
 	}
 	return deltaq
 }
 
-// vp9CyclicRefreshComputeQDeltaByRate matches libvpx's
+// CyclicRefreshComputeQDeltaByRate matches libvpx's
 // vp9_compute_qdelta_by_rate (vp9_ratectrl.c:2573-2595): for best=0,
 // worst=MAXQ, finds the smallest qindex whose projected bits-per-mb is
 // <= rate_target_ratio * base_bits_per_mb.
-func vp9CyclicRefreshComputeQDeltaByRate(qindex int, rateTargetRatio float64, intraFrame bool) int {
+func CyclicRefreshComputeQDeltaByRate(qindex int, rateTargetRatio float64, intraFrame bool) int {
 	if qindex < 0 {
 		qindex = 0
 	} else if qindex > vp9dec.MaxQ {
 		qindex = vp9dec.MaxQ
 	}
 	// libvpx: vp9_ratectrl.c:2580-2581 — base_bits_per_mb.
-	baseBitsPerMB := encoder.BitsPerMB(intraFrame, qindex, 1.0)
+	baseBitsPerMB := BitsPerMB(intraFrame, qindex, 1.0)
 	// libvpx: vp9_ratectrl.c:2584 — target_bits_per_mb = ratio * base.
 	targetBitsPerMB := int(rateTargetRatio * float64(baseBitsPerMB))
 	targetIndex := vp9dec.MaxQ
 	// libvpx: vp9_ratectrl.c:2587-2593.
 	for i := range vp9dec.MaxQ {
-		if encoder.BitsPerMB(intraFrame, i, 1.0) <= targetBitsPerMB {
+		if BitsPerMB(intraFrame, i, 1.0) <= targetBitsPerMB {
 			targetIndex = i
 			break
 		}
@@ -267,40 +273,40 @@ func vp9CyclicRefreshComputeQDeltaByRate(qindex int, rateTargetRatio float64, in
 	return targetIndex - qindex
 }
 
-// vp9CyclicRefreshUpdateMap mirrors cyclic_refresh_update_map() from
+// UpdateMap mirrors cyclic_refresh_update_map() from
 // vp9_aq_cyclicrefresh.c:364-476. Walks superblocks starting at sb_index,
-// flips eligible 8x8 blocks (refreshMap == 0) to BOOST1 until
+// flips eligible 8x8 blocks (RefreshMap == 0) to BOOST1 until
 // target_num_seg_blocks blocks are queued or the cycle completes.
 //
 // This is the deterministic baseline cycling pass; libvpx layers an
 // extra last_coded_q_map / consec_zero_mv filter on top via
 // qindex_thresh / consec_zero_mv_thresh, which govpx exposes via
 // the optional eligibility arguments below.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateMap(consecZeroMv []uint8, qindexThresh int, consecZeroMvThresh int, screenContent bool) {
-	miRows, miCols := cr.miRows, cr.miCols
+func (cr *CyclicRefreshState) UpdateMap(consecZeroMV []uint8, qindexThresh int, consecZeroMvThresh int, screenContent bool) {
+	miRows, miCols := cr.MIRows, cr.MICols
 	if miRows <= 0 || miCols <= 0 {
 		return
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:374 — memset seg_map BASE.
-	for i := range cr.segMap {
-		cr.segMap[i] = vp9CyclicRefreshSegmentBase
+	for i := range cr.SegMap {
+		cr.SegMap[i] = CyclicRefreshSegmentBase
 	}
-	const blockMi = vp9CyclicRefreshSuperblockMi
+	const blockMi = CyclicRefreshSuperblockMI
 	sbCols := (miCols + blockMi - 1) / blockMi
 	sbRows := (miRows + blockMi - 1) / blockMi
 	sbsInFrame := sbCols * sbRows
 	if sbsInFrame <= 0 {
-		cr.targetNumSegBlocks = 0
+		cr.TargetNumSegBlocks = 0
 		return
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:379 — block_count = percent_refresh * mi_rows * mi_cols / 100.
-	blockCount := cr.percentRefresh * miRows * miCols / 100
+	blockCount := cr.PercentRefresh * miRows * miCols / 100
 	// libvpx: vp9_aq_cyclicrefresh.c:384.
-	if cr.sbIndex >= sbsInFrame {
-		cr.sbIndex = 0
+	if cr.SBIndex >= sbsInFrame {
+		cr.SBIndex = 0
 	}
-	i := cr.sbIndex
-	cr.targetNumSegBlocks = 0
+	i := cr.SBIndex
+	cr.TargetNumSegBlocks = 0
 	countSel := 0
 	countTot := 0
 	for {
@@ -316,13 +322,13 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateMap(consecZeroMv []uint8,
 		for y := range ymis {
 			for x := range xmis {
 				blIndex2 := blIndex + y*miCols + x
-				if cr.refreshMap[blIndex2] == 0 {
+				if cr.RefreshMap[blIndex2] == 0 {
 					countTot++
 					// libvpx: vp9_aq_cyclicrefresh.c:437-442 — eligibility filter.
 					eligible := true
-					if cr.contentMode && consecZeroMv != nil && len(consecZeroMv) > blIndex2 && len(cr.lastCodedQMap) > blIndex2 {
-						if int(cr.lastCodedQMap[blIndex2]) > qindexThresh ||
-							int(consecZeroMv[blIndex2]) < consecZeroMvThresh {
+					if cr.ContentMode && consecZeroMV != nil && len(consecZeroMV) > blIndex2 && len(cr.LastCodedQMap) > blIndex2 {
+						if int(cr.LastCodedQMap[blIndex2]) > qindexThresh ||
+							int(consecZeroMV[blIndex2]) < consecZeroMvThresh {
 							// matches libvpx — also eligible.
 							eligible = true
 						} else {
@@ -333,9 +339,9 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateMap(consecZeroMv []uint8,
 						sumMap++
 						countSel++
 					}
-				} else if cr.refreshMap[blIndex2] < 0 {
+				} else if cr.RefreshMap[blIndex2] < 0 {
 					// libvpx: vp9_aq_cyclicrefresh.c:443-445 — increment cooldown counters.
-					cr.refreshMap[blIndex2]++
+					cr.RefreshMap[blIndex2]++
 				}
 			}
 		}
@@ -343,32 +349,32 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateMap(consecZeroMv []uint8,
 		if sumMap >= xmis*ymis/2 {
 			for y := range ymis {
 				for x := range xmis {
-					cr.segMap[blIndex+y*miCols+x] = vp9CyclicRefreshSegmentBoost1
+					cr.SegMap[blIndex+y*miCols+x] = CyclicRefreshSegmentBoost1
 				}
 			}
-			cr.targetNumSegBlocks += xmis * ymis
+			cr.TargetNumSegBlocks += xmis * ymis
 		}
 		i++
 		if i == sbsInFrame {
 			i = 0
 		}
-		if cr.targetNumSegBlocks >= blockCount || i == cr.sbIndex {
+		if cr.TargetNumSegBlocks >= blockCount || i == cr.SBIndex {
 			break
 		}
 	}
-	cr.sbIndex = i
+	cr.SBIndex = i
 	// libvpx: vp9_aq_cyclicrefresh.c:473-475 — reduce_refresh gate.
-	cr.reduceRefresh = false
+	cr.ReduceRefresh = false
 	if !screenContent && countSel < (3*countTot)>>2 {
-		cr.reduceRefresh = true
+		cr.ReduceRefresh = true
 	}
 }
 
-// vp9CyclicRefreshUpdateParameters mirrors
+// UpdateParameters mirrors
 // vp9_cyclic_refresh_update_parameters() from vp9_aq_cyclicrefresh.c:479-593.
 // Decides apply_cyclic_refresh + sets per-frame
 // percent_refresh / rate_ratio_qdelta / motion_thresh.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateParameters(args vp9CyclicRefreshUpdateParametersArgs) {
+func (cr *CyclicRefreshState) UpdateParameters(args CyclicRefreshUpdateParametersArgs) {
 	num8x8bl := args.Macroblocks << 2
 	thresholdLowMotion := 20
 	qpThresh := 20
@@ -379,109 +385,109 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateParameters(args vp9Cyclic
 		qpThresh = args.BestQuality << 1
 	}
 	qpMaxThresh := 117 * vp9dec.MaxQ >> 7
-	cr.applyCyclicRefresh = true
+	cr.ApplyCyclicRefresh = true
 	// libvpx: vp9_aq_cyclicrefresh.c:492-505 — disable gates.
 	if args.FrameIsIntraOnly || args.TemporalLayerID > 0 ||
 		args.Lossless ||
 		args.AvgFrameQindexInter < qpThresh ||
-		(!args.UseSVC && cr.contentMode &&
+		(!args.UseSVC && cr.ContentMode &&
 			args.AvgFrameLowMotion < thresholdLowMotion &&
 			args.FramesSinceKey > 40) ||
 		(!args.UseSVC && args.AvgFrameQindexInter > qpMaxThresh &&
 			args.FramesSinceKey > 20) {
-		cr.applyCyclicRefresh = false
+		cr.ApplyCyclicRefresh = false
 		return
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:507-512.
-	cr.percentRefresh = 10
-	if cr.reduceRefresh {
-		cr.percentRefresh = 5
+	cr.PercentRefresh = 10
+	if cr.ReduceRefresh {
+		cr.PercentRefresh = 5
 	}
-	cr.maxQdeltaPerc = 60
-	cr.timeForRefresh = 0
-	cr.motionThresh = 32
-	cr.rateBoostFac = 15
+	cr.MaxQDeltaPerc = 60
+	cr.TimeForRefresh = 0
+	cr.MotionThresh = 32
+	cr.RateBoostFac = 15
 	// libvpx: vp9_aq_cyclicrefresh.c:516-528 — boosted ratio after key.
 	numTemporalLayers := args.NumberTemporalLayers
 	if numTemporalLayers <= 0 {
 		numTemporalLayers = 1
 	}
-	if cr.percentRefresh > 0 &&
-		args.FramesSinceKey < (4*numTemporalLayers)*(100/cr.percentRefresh) {
-		cr.rateRatioQdelta = 3.0
+	if cr.PercentRefresh > 0 &&
+		args.FramesSinceKey < (4*numTemporalLayers)*(100/cr.PercentRefresh) {
+		cr.RateRatioQDelta = 3.0
 	} else {
-		cr.rateRatioQdelta = 2.0
-		if cr.contentMode && args.NoiseLevelMedium {
-			cr.rateRatioQdelta = 1.7
-			cr.rateBoostFac = 13
+		cr.RateRatioQDelta = 2.0
+		if cr.ContentMode && args.NoiseLevelMedium {
+			cr.RateRatioQDelta = 1.7
+			cr.RateBoostFac = 13
 		}
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:532-544 — screen-content tweaks.
 	if args.ScreenContent {
 		if args.SpatialLayerID == args.NumberSpatialLayers-1 {
-			cr.skipFlatStaticBlocks = true
+			cr.SkipFlatStaticBlocks = true
 		}
-		if cr.skipFlatStaticBlocks {
-			cr.percentRefresh = 5
+		if cr.SkipFlatStaticBlocks {
+			cr.PercentRefresh = 5
 		} else {
-			cr.percentRefresh = 10
+			cr.PercentRefresh = 10
 		}
-		if cr.contentMode && cr.counterEncodeMaxqSceneChange < 30 {
-			if cr.skipFlatStaticBlocks {
-				cr.percentRefresh = 10
+		if cr.ContentMode && cr.CounterEncodeMaxqSceneChange < 30 {
+			if cr.SkipFlatStaticBlocks {
+				cr.PercentRefresh = 10
 			} else {
-				cr.percentRefresh = 15
+				cr.PercentRefresh = 15
 			}
 		}
-		cr.rateRatioQdelta = 2.0
-		cr.rateBoostFac = 10
+		cr.RateRatioQDelta = 2.0
+		cr.RateBoostFac = 10
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:546-554 — low-resolution tweaks.
 	if args.Width*args.Height <= 352*288 {
 		if args.AvgFrameBandwidth < 3000 {
-			cr.motionThresh = 64
-			cr.rateBoostFac = 13
+			cr.MotionThresh = 64
+			cr.RateBoostFac = 13
 		} else {
-			cr.maxQdeltaPerc = 70
-			if cr.rateRatioQdelta < 2.5 {
-				cr.rateRatioQdelta = 2.5
+			cr.MaxQDeltaPerc = 70
+			if cr.RateRatioQDelta < 2.5 {
+				cr.RateRatioQDelta = 2.5
 			}
 		}
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:555-566 — VBR tweaks.
 	if args.RateControlIsVBR {
-		cr.percentRefresh = 10
-		cr.rateRatioQdelta = 1.5
-		cr.rateBoostFac = 10
+		cr.PercentRefresh = 10
+		cr.RateRatioQDelta = 1.5
+		cr.RateBoostFac = 10
 		if args.RefreshGoldenFrame && !args.UseSVC {
-			cr.percentRefresh = 0
-			cr.rateRatioQdelta = 1.0
+			cr.PercentRefresh = 0
+			cr.RateRatioQDelta = 1.0
 		}
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:571-578 — segment-weight average.
-	targetRefresh := cr.percentRefresh * cr.miRows * cr.miCols / 100
+	targetRefresh := cr.PercentRefresh * cr.MIRows * cr.MICols / 100
 	weightSegmentTarget := float64(targetRefresh) / float64(num8x8bl)
-	weightSegment := float64((targetRefresh+cr.actualNumSeg1Blocks+
-		cr.actualNumSeg2Blocks)>>1) / float64(num8x8bl)
+	weightSegment := float64((targetRefresh+cr.ActualNumSeg1Blocks+
+		cr.ActualNumSeg2Blocks)>>1) / float64(num8x8bl)
 	if weightSegmentTarget < 7*weightSegment/8 {
 		weightSegment = weightSegmentTarget
 	}
 	if args.ScreenContent {
-		weightSegment = float64(cr.actualNumSeg1Blocks+cr.actualNumSeg2Blocks) /
+		weightSegment = float64(cr.ActualNumSeg1Blocks+cr.ActualNumSeg2Blocks) /
 			float64(num8x8bl)
 	}
-	cr.weightSegment = weightSegment
+	cr.WeightSegment = weightSegment
 	// libvpx: vp9_aq_cyclicrefresh.c:587-592 — content_mode=0 fallback.
-	if !cr.contentMode {
-		cr.actualNumSeg1Blocks = cr.percentRefresh * cr.miRows * cr.miCols / 100
-		cr.actualNumSeg2Blocks = 0
-		cr.weightSegment = float64(cr.actualNumSeg1Blocks) / float64(num8x8bl)
+	if !cr.ContentMode {
+		cr.ActualNumSeg1Blocks = cr.PercentRefresh * cr.MIRows * cr.MICols / 100
+		cr.ActualNumSeg2Blocks = 0
+		cr.WeightSegment = float64(cr.ActualNumSeg1Blocks) / float64(num8x8bl)
 	}
 }
 
-// vp9CyclicRefreshUpdateParametersArgs bundles the libvpx update_parameters()
+// CyclicRefreshUpdateParametersArgs bundles the libvpx update_parameters()
 // inputs the encoder threads down from VP9_COMP / RATE_CONTROL.
-type vp9CyclicRefreshUpdateParametersArgs struct {
+type CyclicRefreshUpdateParametersArgs struct {
 	Macroblocks          int
 	FrameIsIntraOnly     bool
 	TemporalLayerID      int
@@ -503,87 +509,87 @@ type vp9CyclicRefreshUpdateParametersArgs struct {
 	Height               int
 }
 
-// vp9CyclicRefreshSetup mirrors vp9_cyclic_refresh_setup() from
+// Setup mirrors vp9_cyclic_refresh_setup() from
 // vp9_aq_cyclicrefresh.c:596-680. Decides whether to emit
 // segmentation, computes qindex_delta[1]/[2], and rebuilds the
 // segmentation map.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshSetup(args vp9CyclicRefreshSetupArgs) {
-	if cr.miRows <= 0 || cr.miCols <= 0 {
-		cr.apply = false
+func (cr *CyclicRefreshState) Setup(args CyclicRefreshSetupArgs) {
+	if cr.MIRows <= 0 || cr.MICols <= 0 {
+		cr.Apply = false
 		return
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:604.
 	if args.CurrentVideoFrame == 0 {
-		cr.lowContentAvg = 0.0
+		cr.LowContentAvg = 0.0
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:606-607.
 	if args.ResizePending && args.TemporalLayerID == 0 {
-		cr.vp9CyclicRefreshResetResize()
+		cr.ResetResize()
 	}
 	sceneChange := args.HighSourceSad
 	// libvpx: vp9_aq_cyclicrefresh.c:608-622 — disable-segmentation path.
-	if !cr.applyCyclicRefresh || args.ForceUpdateSegmentation || sceneChange {
-		for i := range cr.segMap {
-			cr.segMap[i] = 0
+	if !cr.ApplyCyclicRefresh || args.ForceUpdateSegmentation || sceneChange {
+		for i := range cr.SegMap {
+			cr.SegMap[i] = 0
 		}
 		if (args.FrameIsKey || sceneChange) && args.TemporalLayerID == 0 {
-			for i := range cr.lastCodedQMap {
-				cr.lastCodedQMap[i] = vp9dec.MaxQ
+			for i := range cr.LastCodedQMap {
+				cr.LastCodedQMap[i] = vp9dec.MaxQ
 			}
-			cr.sbIndex = 0
-			cr.reduceRefresh = false
-			cr.counterEncodeMaxqSceneChange = 0
+			cr.SBIndex = 0
+			cr.ReduceRefresh = false
+			cr.CounterEncodeMaxqSceneChange = 0
 		}
-		cr.apply = false
+		cr.Apply = false
 		return
 	}
-	cr.counterEncodeMaxqSceneChange++
+	cr.CounterEncodeMaxqSceneChange++
 	// libvpx: vp9_aq_cyclicrefresh.c:631 — thresh_rate_sb.
-	cr.threshRateSb = (int64(args.Sb64TargetRate) << 8) << 2
+	cr.ThreshRateSB = (int64(args.Sb64TargetRate) << 8) << 2
 	// libvpx: vp9_aq_cyclicrefresh.c:635 — thresh_dist_sb.
-	q := encoder.ConvertQIndexToQ(args.BaseQindex)
-	cr.threshDistSb = int64(q*q) << 2
+	q := ConvertQIndexToQ(args.BaseQindex)
+	cr.ThreshDistSB = int64(q*q) << 2
 	// libvpx: vp9_aq_cyclicrefresh.c:659 — compute_deltaq for BOOST1.
-	cr.qindexDelta[0] = 0
-	cr.qindexDelta[1] = cr.vp9CyclicRefreshComputeDeltaq(args.BaseQindex, cr.rateRatioQdelta, args.FrameIsIntraOnly)
-	// libvpx: vp9_aq_cyclicrefresh.c:665 — rdmult.
-	//   cr->rdmult = vp9_compute_rd_mult(cpi, qindex2);
+	cr.QIndexDelta[0] = 0
+	cr.QIndexDelta[1] = cr.ComputeDeltaQ(args.BaseQindex, cr.RateRatioQDelta, args.FrameIsIntraOnly)
+	// libvpx: vp9_aq_cyclicrefresh.c:665 — RDMult.
+	//   cr->RDMult = vp9_compute_rd_mult(cpi, qindex2);
 	// The frame-type bucket follows the libvpx branching in
 	// vp9_compute_rd_mult_based_on_qindex: KF wins, then ARF/GF when
 	// refreshing, else inter.  CR runs after the encoder has resolved
 	// refresh flags, so we recompute the same bucket here.
-	qindex2 := clamp(args.BaseQindex+args.YDcDeltaQ+cr.qindexDelta[1], 0, vp9dec.MaxQ)
-	frameType := encoder.RDFrameTypeFor(args.FrameIsKey, args.IsSrcFrameAltRef,
+	qindex2 := clamp(args.BaseQindex+args.YDcDeltaQ+cr.QIndexDelta[1], 0, vp9dec.MaxQ)
+	frameType := RDFrameTypeFor(args.FrameIsKey, args.IsSrcFrameAltRef,
 		args.RefreshGoldenFrame, args.RefreshAltRefFrame)
-	cr.rdmult = encoder.ComputeRDMult(qindex2, frameType)
+	cr.RDMult = ComputeRDMult(qindex2, frameType)
 	// libvpx: vp9_aq_cyclicrefresh.c:669-674 — BOOST2 delta.
-	ratio := 0.1 * float64(cr.rateBoostFac) * cr.rateRatioQdelta
-	if ratio > vp9CyclicRefreshMaxRateTargetRatio {
-		ratio = vp9CyclicRefreshMaxRateTargetRatio
+	ratio := 0.1 * float64(cr.RateBoostFac) * cr.RateRatioQDelta
+	if ratio > CyclicRefreshMaxRateTargetRatio {
+		ratio = CyclicRefreshMaxRateTargetRatio
 	}
-	cr.qindexDelta[2] = cr.vp9CyclicRefreshComputeDeltaq(args.BaseQindex, ratio, args.FrameIsIntraOnly)
+	cr.QIndexDelta[2] = cr.ComputeDeltaQ(args.BaseQindex, ratio, args.FrameIsIntraOnly)
 	// libvpx: vp9_aq_cyclicrefresh.c:678.
 	consecZeroMvThresh := 0
 	if !args.ScreenContent {
 		consecZeroMvThresh = 100
 	}
-	qindexThresh := args.BaseQindex + cr.qindexDelta[1]
+	qindexThresh := args.BaseQindex + cr.QIndexDelta[1]
 	if args.ScreenContent {
-		qindexThresh = args.BaseQindex + cr.qindexDelta[2]
+		qindexThresh = args.BaseQindex + cr.QIndexDelta[2]
 	}
-	if cr.contentMode && args.NoiseLevelMedium {
+	if cr.ContentMode && args.NoiseLevelMedium {
 		consecZeroMvThresh = 60
 		if qindexThresh < args.BaseQindex {
 			qindexThresh = args.BaseQindex
 		}
 	}
-	cr.vp9CyclicRefreshUpdateMap(args.ConsecZeroMv, qindexThresh, consecZeroMvThresh, args.ScreenContent)
-	cr.apply = true
+	cr.UpdateMap(args.ConsecZeroMv, qindexThresh, consecZeroMvThresh, args.ScreenContent)
+	cr.Apply = true
 }
 
-// vp9CyclicRefreshSetupArgs bundles the libvpx setup() inputs from
+// CyclicRefreshSetupArgs bundles the libvpx setup() inputs from
 // VP9_COMP / RATE_CONTROL / VP9_COMMON.
-type vp9CyclicRefreshSetupArgs struct {
+type CyclicRefreshSetupArgs struct {
 	CurrentVideoFrame       int
 	FrameIsKey              bool
 	FrameIsIntraOnly        bool
@@ -606,24 +612,24 @@ type vp9CyclicRefreshSetupArgs struct {
 	RefreshAltRefFrame bool
 }
 
-// vp9CyclicRefreshPostencode mirrors vp9_cyclic_refresh_postencode()
+// Postencode mirrors vp9_cyclic_refresh_postencode()
 // from vp9_aq_cyclicrefresh.c:261-317. Counts actual segment 1/2 blocks,
 // accumulates low_content_avg, and gates golden-frame refresh.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshPostencode(args vp9CyclicRefreshPostencodeArgs) vp9CyclicRefreshPostencodeResult {
-	cr.actualNumSeg1Blocks = 0
-	cr.actualNumSeg2Blocks = 0
-	miRows, miCols := cr.miRows, cr.miCols
+func (cr *CyclicRefreshState) Postencode(args CyclicRefreshPostencodeArgs) CyclicRefreshPostencodeResult {
+	cr.ActualNumSeg1Blocks = 0
+	cr.ActualNumSeg2Blocks = 0
+	miRows, miCols := cr.MIRows, cr.MICols
 	lowContentFrame := 0
 	// libvpx: vp9_aq_cyclicrefresh.c:273-288.
 	for mr := range miRows {
 		for mc := range miCols {
 			idx := mr*miCols + mc
-			if idx < len(cr.segMap) {
-				switch cr.segMap[idx] {
-				case vp9CyclicRefreshSegmentBoost1:
-					cr.actualNumSeg1Blocks++
-				case vp9CyclicRefreshSegmentBoost2:
-					cr.actualNumSeg2Blocks++
+			if idx < len(cr.SegMap) {
+				switch cr.SegMap[idx] {
+				case CyclicRefreshSegmentBoost1:
+					cr.ActualNumSeg1Blocks++
+				case CyclicRefreshSegmentBoost2:
+					cr.ActualNumSeg2Blocks++
 				}
 			}
 			if args.IsInterBlock != nil && idx < len(args.IsInterBlock) &&
@@ -635,7 +641,7 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshPostencode(args vp9CyclicRefres
 			}
 		}
 	}
-	res := vp9CyclicRefreshPostencodeResult{}
+	res := CyclicRefreshPostencodeResult{}
 	if args.UseSVC || args.ExtRefreshFrameFlagsPending || args.GfCBRBoostPct != 0 {
 		return res
 	}
@@ -647,20 +653,20 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshPostencode(args vp9CyclicRefres
 	denom := miRows * miCols
 	if denom > 0 {
 		fractionLow := float64(lowContentFrame) / float64(denom)
-		cr.lowContentAvg = (fractionLow + 3*cr.lowContentAvg) / 4
+		cr.LowContentAvg = (fractionLow + 3*cr.LowContentAvg) / 4
 		// libvpx: vp9_aq_cyclicrefresh.c:305-315 — reject golden if low-content too small.
 		if !res.ForceGoldenRefresh && args.RefreshGoldenFrame &&
 			args.FramesSinceKey > args.FramesSinceGolden+1 {
-			if fractionLow < 0.65 || cr.lowContentAvg < 0.6 {
+			if fractionLow < 0.65 || cr.LowContentAvg < 0.6 {
 				res.ClearRefreshGolden = true
 			}
-			cr.lowContentAvg = fractionLow
+			cr.LowContentAvg = fractionLow
 		}
 	}
 	return res
 }
 
-type vp9CyclicRefreshPostencodeArgs struct {
+type CyclicRefreshPostencodeArgs struct {
 	UseSVC                      bool
 	ExtRefreshFrameFlagsPending bool
 	GfCBRBoostPct               int
@@ -675,20 +681,20 @@ type vp9CyclicRefreshPostencodeArgs struct {
 	MvCol        []int16
 }
 
-type vp9CyclicRefreshPostencodeResult struct {
+type CyclicRefreshPostencodeResult struct {
 	SetGoldenUpdate    bool
 	ForceGoldenRefresh bool
 	ClearRefreshGolden bool
 }
 
-// vp9CyclicRefreshSetGoldenUpdate mirrors
+// SetGoldenUpdate mirrors
 // vp9_cyclic_refresh_set_golden_update() from vp9_aq_cyclicrefresh.c:320-334.
 // Returns the baseline_gf_interval value the rate controller should
 // install.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshSetGoldenUpdate(args vp9CyclicRefreshSetGoldenUpdateArgs) int {
+func (cr *CyclicRefreshState) SetGoldenUpdate(args CyclicRefreshSetGoldenUpdateArgs) int {
 	var baseline int
-	if cr.percentRefresh > 0 {
-		baseline = min(4*(100/cr.percentRefresh), 40)
+	if cr.PercentRefresh > 0 {
+		baseline = min(4*(100/cr.PercentRefresh), 40)
 	} else {
 		baseline = 40
 	}
@@ -696,63 +702,63 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshSetGoldenUpdate(args vp9CyclicR
 		baseline = 20
 	}
 	// libvpx: vp9_aq_cyclicrefresh.c:331-333.
-	if args.AvgFrameLowMotion < 50 && args.FramesSinceKey > 40 && cr.contentMode {
+	if args.AvgFrameLowMotion < 50 && args.FramesSinceKey > 40 && cr.ContentMode {
 		baseline = 10
 	}
 	return baseline
 }
 
-type vp9CyclicRefreshSetGoldenUpdateArgs struct {
+type CyclicRefreshSetGoldenUpdateArgs struct {
 	RateControlIsVBR  bool
 	AvgFrameLowMotion int
 	FramesSinceKey    int
 }
 
-// vp9CyclicRefreshLimitQ mirrors vp9_cyclic_refresh_limit_q() from
+// LimitQ mirrors vp9_cyclic_refresh_limit_q() from
 // vp9_aq_cyclicrefresh.c:698-705. Applies a -8 frame-level q step
 // limit when percent_refresh > 0.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshLimitQ(q1Frame int, q *int) {
+func (cr *CyclicRefreshState) LimitQ(q1Frame int, q *int) {
 	if q == nil {
 		return
 	}
-	if cr.percentRefresh > 0 && q1Frame-*q > 8 {
+	if cr.PercentRefresh > 0 && q1Frame-*q > 8 {
 		*q = q1Frame - 8
 	}
 }
 
-// vp9CyclicRefreshUpdateSegmentPostencode mirrors
+// UpdateSegmentPostencode mirrors
 // vp9_cyclic_refresh_update_sb_postencode() from
 // vp9_aq_cyclicrefresh.c:225-255. Updates last_coded_q_map for the
 // encoded SB.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateSegmentPostencode(miRow, miCol, bw, bh int, baseQindex int, segID uint8, isInter, skip bool) {
-	if cr.miRows <= 0 || cr.miCols <= 0 {
+func (cr *CyclicRefreshState) UpdateSegmentPostencode(miRow, miCol, bw, bh int, baseQindex int, segID uint8, isInter, skip bool) {
+	if cr.MIRows <= 0 || cr.MICols <= 0 {
 		return
 	}
-	xmis := min(cr.miCols-miCol, bw)
-	ymis := min(cr.miRows-miRow, bh)
-	blIndex := miRow*cr.miCols + miCol
-	if segID > vp9CyclicRefreshSegmentBoost2 {
+	xmis := min(cr.MICols-miCol, bw)
+	ymis := min(cr.MIRows-miRow, bh)
+	blIndex := miRow*cr.MICols + miCol
+	if segID > CyclicRefreshSegmentBoost2 {
 		return
 	}
-	q := clamp(baseQindex+cr.qindexDelta[segID], 0, vp9dec.MaxQ)
+	q := clamp(baseQindex+cr.QIndexDelta[segID], 0, vp9dec.MaxQ)
 	for y := range ymis {
 		for x := range xmis {
-			off := blIndex + y*cr.miCols + x
-			if off >= len(cr.lastCodedQMap) {
+			off := blIndex + y*cr.MICols + x
+			if off >= len(cr.LastCodedQMap) {
 				continue
 			}
 			if !isInter || !skip {
-				cr.lastCodedQMap[off] = uint8(q)
+				cr.LastCodedQMap[off] = uint8(q)
 			} else {
-				if uint8(q) < cr.lastCodedQMap[off] {
-					cr.lastCodedQMap[off] = uint8(q)
+				if uint8(q) < cr.LastCodedQMap[off] {
+					cr.LastCodedQMap[off] = uint8(q)
 				}
 			}
 		}
 	}
 }
 
-// vp9CyclicRefreshUpdateZeroMVCnt mirrors update_zeromv_cnt() from
+// UpdateZeroMVCnt mirrors update_zeromv_cnt() from
 // vp9/encoder/vp9_encodeframe.c:5999-6022. For every encoded SB whose
 // chosen leaf references LAST_FRAME and is inter (and the leaf is in
 // a refresh-tracked segment), bumps consec_zero_mv up by one when the
@@ -760,107 +766,107 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateSegmentPostencode(miRow, 
 // otherwise. The counter is saturating at 255. Called from the per-SB
 // encode hook so the next frame's update_map filter sees the correct
 // per-block stationarity history.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshUpdateZeroMVCnt(
+func (cr *CyclicRefreshState) UpdateZeroMVCnt(
 	miRow, miCol, bw, bh int, mvRow, mvCol int16, refFrame int8,
 	isInter bool, segID uint8,
 ) {
-	if cr.miRows <= 0 || cr.miCols <= 0 || len(cr.consecZeroMv) == 0 {
+	if cr.MIRows <= 0 || cr.MICols <= 0 || len(cr.ConsecZeroMV) == 0 {
 		return
 	}
 	// libvpx: vp9_encodeframe.c:6012 — gates on LAST_FRAME + inter +
 	// segment_id <= CR_SEGMENT_ID_BOOST2.
 	if !isInter || refFrame != vp9dec.LastFrame ||
-		segID > vp9CyclicRefreshSegmentBoost2 {
+		segID > CyclicRefreshSegmentBoost2 {
 		return
 	}
-	xmis := min(cr.miCols-miCol, bw)
-	ymis := min(cr.miRows-miRow, bh)
+	xmis := min(cr.MICols-miCol, bw)
+	ymis := min(cr.MIRows-miRow, bh)
 	if xmis <= 0 || ymis <= 0 {
 		return
 	}
-	blIndex := miRow*cr.miCols + miCol
+	blIndex := miRow*cr.MICols + miCol
 	zero := absInt16(mvRow) < 8 && absInt16(mvCol) < 8
 	for y := range ymis {
 		for x := range xmis {
-			off := blIndex + y*cr.miCols + x
-			if off < 0 || off >= len(cr.consecZeroMv) {
+			off := blIndex + y*cr.MICols + x
+			if off < 0 || off >= len(cr.ConsecZeroMV) {
 				continue
 			}
 			if zero {
 				// libvpx: vp9_encodeframe.c:6014-6016 — saturating bump.
-				if cr.consecZeroMv[off] < 255 {
-					cr.consecZeroMv[off]++
+				if cr.ConsecZeroMV[off] < 255 {
+					cr.ConsecZeroMV[off]++
 				}
 			} else {
 				// libvpx: vp9_encodeframe.c:6017-6019 — reset on large MV.
-				cr.consecZeroMv[off] = 0
+				cr.ConsecZeroMV[off] = 0
 			}
 		}
 	}
 }
 
-// prepareFrame is the encoder-facing entry point. Equivalent to libvpx's
+// PrepareFrame is the encoder-facing entry point. Equivalent to libvpx's
 // vp9_cyclic_refresh_update_parameters + vp9_cyclic_refresh_setup pair,
 // called once per frame just before vp9_encode_frame. Maintains the
 // existing govpx call surface.
-func (cr *vp9CyclicRefreshState) prepareFrame(apply bool, miRows, miCols int) {
-	cr.apply = false
-	if !cr.enabled || !apply || miRows <= 0 || miCols <= 0 {
+func (cr *CyclicRefreshState) PrepareFrame(apply bool, miRows, miCols int) {
+	cr.Apply = false
+	if !cr.Enabled || !apply || miRows <= 0 || miCols <= 0 {
 		return
 	}
 	// Re-alloc on mi-grid change.
-	if cr.miRows != miRows || cr.miCols != miCols || len(cr.segMap) < miRows*miCols {
-		cr.vp9CyclicRefreshAlloc(miRows, miCols)
+	if cr.MIRows != miRows || cr.MICols != miCols || len(cr.SegMap) < miRows*miCols {
+		cr.Alloc(miRows, miCols)
 	}
 	// Default per-frame params if update_parameters() was not threaded in.
-	if cr.percentRefresh == 0 {
-		cr.percentRefresh = 10
+	if cr.PercentRefresh == 0 {
+		cr.PercentRefresh = 10
 	}
-	if cr.maxQdeltaPerc == 0 {
-		cr.maxQdeltaPerc = 60
+	if cr.MaxQDeltaPerc == 0 {
+		cr.MaxQDeltaPerc = 60
 	}
-	if cr.rateRatioQdelta == 0 {
-		cr.rateRatioQdelta = 2.0
+	if cr.RateRatioQDelta == 0 {
+		cr.RateRatioQDelta = 2.0
 	}
-	if cr.rateBoostFac == 0 {
-		cr.rateBoostFac = 15
+	if cr.RateBoostFac == 0 {
+		cr.RateBoostFac = 15
 	}
-	if cr.motionThresh == 0 {
-		cr.motionThresh = 32
+	if cr.MotionThresh == 0 {
+		cr.MotionThresh = 32
 	}
-	cr.applyCyclicRefresh = true
-	cr.vp9CyclicRefreshUpdateMap(nil, 0, 0, false)
-	cr.apply = cr.targetNumSegBlocks > 0
+	cr.ApplyCyclicRefresh = true
+	cr.UpdateMap(nil, 0, 0, false)
+	cr.Apply = cr.TargetNumSegBlocks > 0
 }
 
-func vp9CyclicRefreshSuperblockCount(miRows, miCols int) int {
+func CyclicRefreshSuperblockCount(miRows, miCols int) int {
 	if miRows <= 0 || miCols <= 0 {
 		return 0
 	}
-	sbCols := (miCols + vp9CyclicRefreshSuperblockMi - 1) / vp9CyclicRefreshSuperblockMi
-	sbRows := (miRows + vp9CyclicRefreshSuperblockMi - 1) / vp9CyclicRefreshSuperblockMi
+	sbCols := (miCols + CyclicRefreshSuperblockMI - 1) / CyclicRefreshSuperblockMI
+	sbRows := (miRows + CyclicRefreshSuperblockMI - 1) / CyclicRefreshSuperblockMI
 	return sbRows * sbCols
 }
 
-func (cr *vp9CyclicRefreshState) segmentID(miRow, miCol int) uint8 {
-	if !cr.enabled || !cr.apply || miRow < 0 || miCol < 0 ||
-		miRow >= cr.miRows || miCol >= cr.miCols {
+func (cr *CyclicRefreshState) SegmentID(miRow, miCol int) uint8 {
+	if !cr.Enabled || !cr.Apply || miRow < 0 || miCol < 0 ||
+		miRow >= cr.MIRows || miCol >= cr.MICols {
 		return 0
 	}
-	idx := miRow*cr.miCols + miCol
-	if idx < 0 || idx >= len(cr.segMap) {
+	idx := miRow*cr.MICols + miCol
+	if idx < 0 || idx >= len(cr.SegMap) {
 		return 0
 	}
-	if cr.segMap[idx] >= vp9dec.MaxSegments {
+	if cr.SegMap[idx] >= vp9dec.MaxSegments {
 		return 0
 	}
-	return cr.segMap[idx]
+	return cr.SegMap[idx]
 }
 
-// segmentationParams builds the SegmentationParams libvpx emits for
+// SegmentationParams builds the SegmentationParams libvpx emits for
 // cyclic-refresh frames. Mirrors the BOOST1/BOOST2 enable + alt-q
 // assignment in vp9_aq_cyclicrefresh.c:639-675.
-func (cr *vp9CyclicRefreshState) segmentationParams(baseQIndex int) vp9dec.SegmentationParams {
+func (cr *CyclicRefreshState) SegmentationParams(baseQIndex int) vp9dec.SegmentationParams {
 	seg := vp9dec.SegmentationParams{
 		Enabled:    true,
 		UpdateMap:  true,
@@ -883,33 +889,33 @@ func (cr *vp9CyclicRefreshState) segmentationParams(baseQIndex int) vp9dec.Segme
 	for i := range vp9dec.PredictionProbs {
 		seg.PredProbs[i] = vp9dec.MaxProb
 	}
-	// Compute deltas if the libvpx setup path didn't already populate
-	// them — keeps backwards compatibility with the prepareFrame-only
-	// caller path used today.
-	if cr.qindexDelta[1] == 0 && cr.qindexDelta[2] == 0 {
-		ratio := cr.rateRatioQdelta
+	// Compute deltas if the libvpx setup path did not already populate
+	// them. The direct PrepareFrame-only path still needs segment deltas
+	// before the root encoder asks for segmentation parameters.
+	if cr.QIndexDelta[1] == 0 && cr.QIndexDelta[2] == 0 {
+		ratio := cr.RateRatioQDelta
 		if ratio <= 0 {
 			ratio = 2.0
 		}
-		cr.qindexDelta[1] = cr.vp9CyclicRefreshComputeDeltaq(baseQIndex, ratio, false)
-		ratio2 := 0.1 * float64(cr.rateBoostFac) * ratio
-		if ratio2 > vp9CyclicRefreshMaxRateTargetRatio {
-			ratio2 = vp9CyclicRefreshMaxRateTargetRatio
+		cr.QIndexDelta[1] = cr.ComputeDeltaQ(baseQIndex, ratio, false)
+		ratio2 := 0.1 * float64(cr.RateBoostFac) * ratio
+		if ratio2 > CyclicRefreshMaxRateTargetRatio {
+			ratio2 = CyclicRefreshMaxRateTargetRatio
 		}
 		if ratio2 <= 0 {
 			ratio2 = ratio * 1.5
 		}
-		cr.qindexDelta[2] = cr.vp9CyclicRefreshComputeDeltaq(baseQIndex, ratio2, false)
+		cr.QIndexDelta[2] = cr.ComputeDeltaQ(baseQIndex, ratio2, false)
 	}
-	delta1 := clampInt(cr.qindexDelta[1], -255, 255)
-	delta2 := clampInt(cr.qindexDelta[2], -255, 255)
+	delta1 := clampInt(cr.QIndexDelta[1], -255, 255)
+	delta2 := clampInt(cr.QIndexDelta[2], -255, 255)
 	if delta1 != 0 {
-		seg.FeatureMask[vp9CyclicRefreshSegmentBoost1] |= 1 << uint(vp9dec.SegLvlAltQ)
-		seg.FeatureData[vp9CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = int16(delta1)
+		seg.FeatureMask[CyclicRefreshSegmentBoost1] |= 1 << uint(vp9dec.SegLvlAltQ)
+		seg.FeatureData[CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = int16(delta1)
 	}
 	if delta2 != 0 {
-		seg.FeatureMask[vp9CyclicRefreshSegmentBoost2] |= 1 << uint(vp9dec.SegLvlAltQ)
-		seg.FeatureData[vp9CyclicRefreshSegmentBoost2][vp9dec.SegLvlAltQ] = int16(delta2)
+		seg.FeatureMask[CyclicRefreshSegmentBoost2] |= 1 << uint(vp9dec.SegLvlAltQ)
+		seg.FeatureData[CyclicRefreshSegmentBoost2][vp9dec.SegLvlAltQ] = int16(delta2)
 	}
 	return seg
 }

@@ -300,7 +300,7 @@ func TestVP9InterCalculateTxSizeMirrorsLibvpx(t *testing.T) {
 			aqMode: VP9AQCyclicRefresh,
 			bsize:  common.Block64x64, txMode: common.TxModeSelect,
 			sse: 1 << 20, residVar: 1 << 14, srcVar: 1 << 14,
-			segmentID: vp9CyclicRefreshSegmentBoost1,
+			segmentID: vp9enc.CyclicRefreshSegmentBoost1,
 			want:      common.Tx8x8,
 		},
 		{
@@ -367,7 +367,7 @@ func TestVP9InterTxApplyForcesMirrorsLibvpx(t *testing.T) {
 			aqMode:  VP9AQCyclicRefresh,
 			tx:      common.Tx32x32,
 			bsize:   common.Block64x64,
-			limitTx: true, segmentID: vp9CyclicRefreshSegmentBoost1,
+			limitTx: true, segmentID: vp9enc.CyclicRefreshSegmentBoost1,
 			want: common.Tx8x8,
 		},
 		{
@@ -459,16 +459,16 @@ func TestVP9InterTxApplyForcesMirrorsLibvpx(t *testing.T) {
 // cyclic_refresh_segment_id_boosted port at libvpx
 // vp9/encoder/vp9_aq_cyclicrefresh.h:127-130.
 func TestVP9CyclicRefreshSegmentIDBoostedMirrorsLibvpx(t *testing.T) {
-	if vp9CyclicRefreshSegmentIDBoosted(vp9CyclicRefreshSegmentBase) {
+	if vp9enc.CyclicRefreshSegmentIDBoosted(vp9enc.CyclicRefreshSegmentBase) {
 		t.Fatalf("base segment must not be boosted")
 	}
-	if !vp9CyclicRefreshSegmentIDBoosted(vp9CyclicRefreshSegmentBoost1) {
+	if !vp9enc.CyclicRefreshSegmentIDBoosted(vp9enc.CyclicRefreshSegmentBoost1) {
 		t.Fatalf("BOOST1 must be boosted")
 	}
-	if !vp9CyclicRefreshSegmentIDBoosted(vp9CyclicRefreshSegmentBoost2) {
+	if !vp9enc.CyclicRefreshSegmentIDBoosted(vp9enc.CyclicRefreshSegmentBoost2) {
 		t.Fatalf("BOOST2 must be boosted")
 	}
-	if vp9CyclicRefreshSegmentIDBoosted(7) {
+	if vp9enc.CyclicRefreshSegmentIDBoosted(7) {
 		t.Fatalf("non-CR segments must not be boosted")
 	}
 }

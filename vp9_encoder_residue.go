@@ -550,7 +550,7 @@ func (e *VP9Encoder) vp9InterTxApplyForces(tx common.TxSize, bsize common.BlockS
 	}
 	// Boosted-segment Tx8x8 force (vp9_pickmode.c:380-382).
 	if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
-		vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+		encoder.CyclicRefreshSegmentIDBoosted(segmentID) {
 		tx = common.Tx8x8
 	} else if tx > common.Tx16x16 && limitTx {
 		// Tx16x16 cap (vp9_pickmode.c:383-384) — kept for parity even
@@ -706,21 +706,6 @@ func (e *VP9Encoder) vp9InterTxSourceAndResidualVar(inter *vp9InterEncodeState,
 	return sourceVar, residualVar, true
 }
 
-// vp9CyclicRefreshSegmentIDBoosted ports libvpx
-// vp9/encoder/vp9_aq_cyclicrefresh.h:127-130
-// cyclic_refresh_segment_id_boosted(segment_id), checking whether the
-// caller-supplied CR segment_id is in {BOOST1, BOOST2}. Currently
-// referenced by vp9InterCalculateTxSize as part of the port of
-// calculate_tx_size (vp9_pickmode.c:380-382). The boosted-segment
-// Tx8x8 forcing is wired in via the post-pass at the end of
-// pickVP9InterTxSize once a per-block segment id is plumbed through;
-// the helper is kept available so the upcoming select_tx_mode port
-// can reuse it without re-deriving the libvpx constant set.
-func vp9CyclicRefreshSegmentIDBoosted(segmentID uint8) bool {
-	return segmentID == vp9CyclicRefreshSegmentBoost1 ||
-		segmentID == vp9CyclicRefreshSegmentBoost2
-}
-
 // vp9InterCalculateTxSize is a verbatim port of libvpx
 // vp9/encoder/vp9_pickmode.c:363-393 (calculate_tx_size) specialised
 // for the inter path (is_intra=0, var_thresh = 1). Currently used as
@@ -786,7 +771,7 @@ func (e *VP9Encoder) vp9InterCalculateTxSize(bsize common.BlockSize,
 			txSize = common.Tx8x8
 		}
 		if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
-			vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+			encoder.CyclicRefreshSegmentIDBoosted(segmentID) {
 			txSize = common.Tx8x8
 		} else if txSize > common.Tx16x16 && limitTx {
 			txSize = common.Tx16x16

@@ -603,7 +603,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 			e.vp9HeaderScratch.Seg.Enabled {
 			segmentID := e.vp9PartitionSegmentID(sbMiRow, sbMiCol,
 				e.vp9StaticSegmentIDForMap(), inter.img, inter)
-			if vp9CyclicRefreshSegmentIDBoosted(segmentID) {
+			if encoder.CyclicRefreshSegmentIDBoosted(segmentID) {
 				args.CyclicRefreshSegmentIdBoosted = true
 				args.BaseQIndex = vp9dec.GetSegmentQindex(
 					&e.vp9HeaderScratch.Seg, int(segmentID), inter.baseQindex)

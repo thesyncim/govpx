@@ -77,6 +77,6 @@ func (e *VP9Encoder) vp9UpdateNoiseEstimate(img *image.YCbCr, miRows, miCols int
 		LastSourceWidth:   e.lastSource.Rect.Dx(),
 		LastSourceHeight:  e.lastSource.Rect.Dy(),
 		LastSourceValid:   e.lastSourceValid,
-		ConsecZeroMV:      e.cyclicAQ.consecZeroMv,
+		ConsecZeroMV:      e.cyclicAQ.ConsecZeroMV,
 	})
 }

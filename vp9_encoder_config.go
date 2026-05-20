@@ -269,7 +269,7 @@ func (e *VP9Encoder) SetAQMode(mode VP9AQMode) error {
 		return err
 	}
 	e.opts = nextOpts
-	e.cyclicAQ.configure(mode == VP9AQCyclicRefresh, e.opts.Width, e.opts.Height)
+	e.cyclicAQ.Configure(mode == VP9AQCyclicRefresh, e.opts.Width, e.opts.Height)
 	e.perceptualAQ.configure(mode == VP9AQPerceptual)
 	return nil
 }
@@ -1136,7 +1136,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	if e.vp9LookaheadEnabled() {
 		e.initVP9Lookahead(width, height, e.opts.LookaheadFrames)
 	}
-	e.cyclicAQ.configure(e.opts.AQMode == VP9AQCyclicRefresh, width, height)
+	e.cyclicAQ.Configure(e.opts.AQMode == VP9AQCyclicRefresh, width, height)
 	e.perceptualAQ.configure(e.opts.AQMode == VP9AQPerceptual)
 	e.tpl.configure(e.opts.EnableTPL, width, height, e.opts.LookaheadFrames)
 	e.denoiser.disable()

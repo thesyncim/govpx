@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
@@ -23,9 +24,9 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if !e.cyclicAQ.enabled || len(e.cyclicAQ.segMap) != 64 {
+	if !e.cyclicAQ.Enabled || len(e.cyclicAQ.SegMap) != 64 {
 		t.Fatalf("cyclic AQ state = enabled:%t map:%d, want true/64",
-			e.cyclicAQ.enabled, len(e.cyclicAQ.segMap))
+			e.cyclicAQ.Enabled, len(e.cyclicAQ.SegMap))
 	}
 
 	dst := make([]byte, 65536)
@@ -62,17 +63,17 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 		t.Fatalf("inter segmentation flags = enabled:%t updateMap:%t updateData:%t absDelta:%t, want true/true/true/false",
 			seg.Enabled, seg.UpdateMap, seg.UpdateData, seg.AbsDelta)
 	}
-	if !vp9dec.SegFeatureActive(&seg, vp9CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ) {
-		t.Fatalf("cyclic segment %d missing AltQ feature", vp9CyclicRefreshSegmentBoost1)
+	if !vp9dec.SegFeatureActive(&seg, vp9enc.CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ) {
+		t.Fatalf("cyclic segment %d missing AltQ feature", vp9enc.CyclicRefreshSegmentBoost1)
 	}
-	delta1 := vp9dec.GetSegData(&seg, vp9CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ)
+	delta1 := vp9dec.GetSegData(&seg, vp9enc.CyclicRefreshSegmentBoost1, vp9dec.SegLvlAltQ)
 	if delta1 >= 0 {
 		t.Fatalf("cyclic segment AltQ delta = %d, want negative boost", delta1)
 	}
-	if !vp9dec.SegFeatureActive(&seg, vp9CyclicRefreshSegmentBoost2, vp9dec.SegLvlAltQ) {
-		t.Fatalf("cyclic segment %d missing AltQ feature", vp9CyclicRefreshSegmentBoost2)
+	if !vp9dec.SegFeatureActive(&seg, vp9enc.CyclicRefreshSegmentBoost2, vp9dec.SegLvlAltQ) {
+		t.Fatalf("cyclic segment %d missing AltQ feature", vp9enc.CyclicRefreshSegmentBoost2)
 	}
-	delta2 := vp9dec.GetSegData(&seg, vp9CyclicRefreshSegmentBoost2, vp9dec.SegLvlAltQ)
+	delta2 := vp9dec.GetSegData(&seg, vp9enc.CyclicRefreshSegmentBoost2, vp9dec.SegLvlAltQ)
 	if delta2 >= delta1 {
 		t.Fatalf("cyclic segment deltas = %d/%d, want segment 2 stronger",
 			delta1, delta2)
@@ -83,7 +84,7 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 	}
 	boosted := 0
 	for _, mi := range e.miGrid {
-		if mi.SegmentID == vp9CyclicRefreshSegmentBoost1 {
+		if mi.SegmentID == vp9enc.CyclicRefreshSegmentBoost1 {
 			boosted++
 		}
 	}

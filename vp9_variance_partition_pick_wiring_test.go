@@ -179,14 +179,14 @@ func TestVP9EnsureSBPartitionChosenUsesCyclicRefreshSegmentQ(t *testing.T) {
 		}
 		defer e.Close()
 		e.sf.VariancePartThreshMult = 2
-		e.cyclicAQ.vp9CyclicRefreshAlloc(miRows, miCols)
-		e.cyclicAQ.enabled = true
-		e.cyclicAQ.apply = true
-		e.cyclicAQ.segMap[0] = segmentID
+		e.cyclicAQ.Alloc(miRows, miCols)
+		e.cyclicAQ.Enabled = true
+		e.cyclicAQ.Apply = true
+		e.cyclicAQ.SegMap[0] = segmentID
 		e.vp9HeaderScratch.Seg.Enabled = true
-		e.vp9HeaderScratch.Seg.FeatureMask[vp9CyclicRefreshSegmentBoost1] =
+		e.vp9HeaderScratch.Seg.FeatureMask[encoder.CyclicRefreshSegmentBoost1] =
 			1 << uint(vp9dec.SegLvlAltQ)
-		e.vp9HeaderScratch.Seg.FeatureData[vp9CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = -37
+		e.vp9HeaderScratch.Seg.FeatureData[encoder.CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = -37
 
 		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
 		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
@@ -206,8 +206,8 @@ func TestVP9EnsureSBPartitionChosenUsesCyclicRefreshSegmentQ(t *testing.T) {
 		return e.varPartGrid[0].SbType
 	}
 
-	base := pick(vp9CyclicRefreshSegmentBase)
-	boosted := pick(vp9CyclicRefreshSegmentBoost1)
+	base := pick(encoder.CyclicRefreshSegmentBase)
+	boosted := pick(encoder.CyclicRefreshSegmentBoost1)
 	if base != common.Block64x64 {
 		t.Fatalf("base CR segment partition = %v, want Block64x64 fixture", base)
 	}

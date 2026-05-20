@@ -2096,7 +2096,7 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		// clearing the encoder's AQ mode for subsequent frames so cyclic
 		// refresh stops engaging at low speeds.
 		e.opts.AQMode = VP9AQNone
-		e.cyclicAQ.configure(false, e.opts.Width, e.opts.Height)
+		e.cyclicAQ.Configure(false, e.opts.Width, e.opts.Height)
 	}
 
 	// libvpx: vp9_speed_features.c:863-866 — deadline switch nonrd_keyframe.
