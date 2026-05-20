@@ -183,7 +183,7 @@ func TestEstimateInterResidualRDAccountingReturnsLibvpxRate2AndYRD(t *testing.T)
 	modeRate := e.interMotionModeRateWithReferenceRate(&mode, nil, nil, nil, 0, 0, 1, 1, refRate)
 	wantOtherCost := e.interMacroblockSkipRate(false)
 	wantRate2 := modeRate + wantOtherCost + acct.rateY + acct.rateUV
-	wantRefCost := boolBitCost(e.refProbIntra, 1) + refRate
+	wantRefCost := vp8enc.BoolBitCost(e.refProbIntra, 1) + refRate
 	if acct.rate2 != wantRate2 || acct.otherCost != wantOtherCost || acct.refCost != wantRefCost {
 		t.Fatalf("rate2/other/ref = %d/%d/%d, want %d/%d/%d", acct.rate2, acct.otherCost, acct.refCost, wantRate2, wantOtherCost, wantRefCost)
 	}
@@ -455,10 +455,10 @@ func TestMBSplitPartitionRateMirrorsWriterBranches(t *testing.T) {
 		partition uint8
 		want      int
 	}{
-		{partition: 3, want: boolBitCost(vp8tables.MBSplitProbs[0], 0)},
-		{partition: 2, want: boolBitCost(vp8tables.MBSplitProbs[0], 1) + boolBitCost(vp8tables.MBSplitProbs[1], 0)},
-		{partition: 0, want: boolBitCost(vp8tables.MBSplitProbs[0], 1) + boolBitCost(vp8tables.MBSplitProbs[1], 1) + boolBitCost(vp8tables.MBSplitProbs[2], 0)},
-		{partition: 1, want: boolBitCost(vp8tables.MBSplitProbs[0], 1) + boolBitCost(vp8tables.MBSplitProbs[1], 1) + boolBitCost(vp8tables.MBSplitProbs[2], 1)},
+		{partition: 3, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 0)},
+		{partition: 2, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[1], 0)},
+		{partition: 0, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[1], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[2], 0)},
+		{partition: 1, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[1], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[2], 1)},
 	}
 	for _, tt := range tests {
 		if got := mbSplitPartitionRate(tt.partition); got != tt.want {
@@ -527,7 +527,7 @@ func TestSplitSubMotionLabelSearchCostUsesLibvpxDefaultSubMVRefProb(t *testing.T
 	const qIndex = 127
 
 	got := splitSubMotionLabelSearchCost(vp8common.Above4x4, qIndex)
-	wantRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, libvpxDefaultSubMVRefProbs)
+	wantRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, vp8enc.DefaultSubMVRefProbs)
 	want := (wantRate*libvpxSADPerBit4(qIndex) + 128) >> 8
 	if got != want {
 		t.Fatalf("ABOVE4X4 search cost = %d, want libvpx default cost %d", got, want)
@@ -584,24 +584,24 @@ func TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD(t *testing.T) {
 // previous frame's prob_last_coded / prob_gf_coded, not a static 128 prior.
 func TestInterReferenceFrameRateUsesLivePrevFrameProbs(t *testing.T) {
 	e := &VP8Encoder{refProbIntra: 50, refProbLast: 200, refProbGolden: 90}
-	if got, want := e.interReferenceFrameRate(vp8common.LastFrame), boolBitCost(200, 0); got != want {
+	if got, want := e.interReferenceFrameRate(vp8common.LastFrame), vp8enc.BoolBitCost(200, 0); got != want {
 		t.Fatalf("LAST rate = %d, want %d", got, want)
 	}
-	if got, want := e.interReferenceFrameRate(vp8common.GoldenFrame), boolBitCost(200, 1)+boolBitCost(90, 0); got != want {
+	if got, want := e.interReferenceFrameRate(vp8common.GoldenFrame), vp8enc.BoolBitCost(200, 1)+vp8enc.BoolBitCost(90, 0); got != want {
 		t.Fatalf("GOLDEN rate = %d, want %d", got, want)
 	}
-	if got, want := e.interReferenceFrameRate(vp8common.AltRefFrame), boolBitCost(200, 1)+boolBitCost(90, 1); got != want {
+	if got, want := e.interReferenceFrameRate(vp8common.AltRefFrame), vp8enc.BoolBitCost(200, 1)+vp8enc.BoolBitCost(90, 1); got != want {
 		t.Fatalf("ALTREF rate = %d, want %d", got, want)
 	}
 }
 
 func TestThreadedHelperRowsUseZeroReferenceFrameRate(t *testing.T) {
 	e := &VP8Encoder{refProbIntra: 63, refProbLast: 200, refProbGolden: 90, probSkipFalse: 200}
-	normalGolden := boolBitCost(200, 1) + boolBitCost(90, 0)
+	normalGolden := vp8enc.BoolBitCost(200, 1) + vp8enc.BoolBitCost(90, 0)
 	if got := e.interReferenceFrameRate(vp8common.GoldenFrame); got != normalGolden {
 		t.Fatalf("normal helper-disabled GOLDEN rate = %d, want %d", got, normalGolden)
 	}
-	if got, want := e.interIntraMacroblockModeRate(), boolBitCost(200, 0)+boolBitCost(63, 0); got != want {
+	if got, want := e.interIntraMacroblockModeRate(), vp8enc.BoolBitCost(200, 0)+vp8enc.BoolBitCost(63, 0); got != want {
 		t.Fatalf("normal helper-disabled intra MB rate = %d, want %d", got, want)
 	}
 
@@ -646,34 +646,34 @@ func TestFirstInterFrameRDProbsResetAfterKeyFrame(t *testing.T) {
 func TestInterReferenceFrameRatesForFlagsMirrorLibvpxSingleReferenceSpecialCases(t *testing.T) {
 	e := &VP8Encoder{refProbLast: 200, refProbGolden: 90}
 	last, golden, alt := e.interReferenceFrameRatesForFlags(0)
-	if want := boolBitCost(200, 0); last != want {
+	if want := vp8enc.BoolBitCost(200, 0); last != want {
 		t.Fatalf("all-ref LAST rate = %d, want %d", last, want)
 	}
-	if want := boolBitCost(200, 1) + boolBitCost(90, 0); golden != want {
+	if want := vp8enc.BoolBitCost(200, 1) + vp8enc.BoolBitCost(90, 0); golden != want {
 		t.Fatalf("all-ref GOLDEN rate = %d, want %d", golden, want)
 	}
-	if want := boolBitCost(200, 1) + boolBitCost(90, 1); alt != want {
+	if want := vp8enc.BoolBitCost(200, 1) + vp8enc.BoolBitCost(90, 1); alt != want {
 		t.Fatalf("all-ref ALTREF rate = %d, want %d", alt, want)
 	}
 
 	last, _, _ = e.interReferenceFrameRatesForFlags(EncodeNoReferenceGolden | EncodeNoReferenceAltRef)
-	if want := boolBitCost(255, 0); last != want {
+	if want := vp8enc.BoolBitCost(255, 0); last != want {
 		t.Fatalf("single-LAST rate = %d, want libvpx special-case %d", last, want)
 	}
 
 	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringOneLayer}
 	_, golden, _ = e.interReferenceFrameRatesForFlags(EncodeNoReferenceLast | EncodeNoReferenceAltRef)
-	if want := boolBitCost(200, 1) + boolBitCost(90, 0); golden != want {
+	if want := vp8enc.BoolBitCost(200, 1) + vp8enc.BoolBitCost(90, 0); golden != want {
 		t.Fatalf("one-layer single-GOLDEN rate = %d, want non-temporal live cost %d", golden, want)
 	}
 
 	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}
 	_, golden, _ = e.interReferenceFrameRatesForFlags(EncodeNoReferenceLast | EncodeNoReferenceAltRef)
-	if want := boolBitCost(1, 1) + boolBitCost(255, 0); golden != want {
+	if want := vp8enc.BoolBitCost(1, 1) + vp8enc.BoolBitCost(255, 0); golden != want {
 		t.Fatalf("temporal single-GOLDEN rate = %d, want libvpx special-case %d", golden, want)
 	}
 	_, _, alt = e.interReferenceFrameRatesForFlags(EncodeNoReferenceLast | EncodeNoReferenceGolden)
-	if want := boolBitCost(1, 1) + boolBitCost(1, 1); alt != want {
+	if want := vp8enc.BoolBitCost(1, 1) + vp8enc.BoolBitCost(1, 1); alt != want {
 		t.Fatalf("temporal single-ALTREF rate = %d, want libvpx special-case %d", alt, want)
 	}
 }
@@ -685,7 +685,7 @@ func TestInterAnalysisReferencesCarryLibvpxFlagSpecificReferenceRates(t *testing
 	if count != 1 || refs[0].Frame != vp8common.LastFrame || !refs[0].RefRateSet {
 		t.Fatalf("single-LAST refs = count:%d ref:%+v, want one LAST with explicit rate", count, refs[0])
 	}
-	if want := boolBitCost(255, 0); refs[0].RefRate != want {
+	if want := vp8enc.BoolBitCost(255, 0); refs[0].RefRate != want {
 		t.Fatalf("single-LAST carried rate = %d, want %d", refs[0].RefRate, want)
 	}
 }
@@ -702,7 +702,7 @@ func TestInterAnalysisReferencesPruneLibvpxAliasFlagsAfterKeyFrame(t *testing.T)
 	if count != 1 || refs[0].Frame != vp8common.LastFrame {
 		t.Fatalf("post-key refs = count:%d first:%+v, want only LAST after libvpx alias pruning", count, refs[0])
 	}
-	if want := boolBitCost(255, 0); refs[0].RefRate != want {
+	if want := vp8enc.BoolBitCost(255, 0); refs[0].RefRate != want {
 		t.Fatalf("post-key LAST rate = %d, want single-reference libvpx cost %d", refs[0].RefRate, want)
 	}
 	// Explicit NO_REF_* user masks route through libvpx's

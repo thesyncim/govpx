@@ -31,7 +31,7 @@ import (
 //  4. vp8_mbsplit_tree           → vp8tables.MBSplitTree
 //  5. vp8_mbsplit_probs          → vp8tables.MBSplitProbs
 //  6. vp8_sub_mv_ref_tree        → vp8tables.SubMVRefTree
-//  7. sub_mv_ref_prob (default)  → libvpxDefaultSubMVRefProbs
+//  7. sub_mv_ref_prob (default)  → vp8enc.DefaultSubMVRefProbs
 //  8. vp8_find_near_mvs counts   → findNearInterMotionVectors counts
 //  9. picker-cached mdcounts     → selectRDInterFrameModeDecision.modeMVs
 //     (cached once for the primary ref via interModeMVSlots and re-used for
@@ -154,9 +154,9 @@ func testVP8ZeroMVSubMVRefTreeAndProbsMatchLibvpx(t *testing.T) {
 	// (entropymode.c:99) and consumed by modecosts.c:37 to build
 	// inter_bmode_costs which the RD picker reads.
 	wantSub := [3]uint8{180, 162, 25}
-	if libvpxDefaultSubMVRefProbs != wantSub {
-		t.Fatalf("libvpxDefaultSubMVRefProbs = %v, want %v",
-			libvpxDefaultSubMVRefProbs, wantSub)
+	if vp8enc.DefaultSubMVRefProbs != wantSub {
+		t.Fatalf("vp8enc.DefaultSubMVRefProbs = %v, want %v",
+			vp8enc.DefaultSubMVRefProbs, wantSub)
 	}
 }
 
@@ -195,11 +195,11 @@ func testVP8ZeroMVFrameOriginModeCostsMatchOracle(t *testing.T) {
 		p3 = uint8(143)
 	)
 	want := map[vp8common.MBPredictionMode]int{
-		vp8common.ZeroMV:    boolBitCost(p0, 0),
-		vp8common.NearestMV: boolBitCost(p0, 1) + boolBitCost(p1, 0),
-		vp8common.NearMV:    boolBitCost(p0, 1) + boolBitCost(p1, 1) + boolBitCost(p2, 0),
-		vp8common.NewMV:     boolBitCost(p0, 1) + boolBitCost(p1, 1) + boolBitCost(p2, 1) + boolBitCost(p3, 0),
-		vp8common.SplitMV:   boolBitCost(p0, 1) + boolBitCost(p1, 1) + boolBitCost(p2, 1) + boolBitCost(p3, 1),
+		vp8common.ZeroMV:    vp8enc.BoolBitCost(p0, 0),
+		vp8common.NearestMV: vp8enc.BoolBitCost(p0, 1) + vp8enc.BoolBitCost(p1, 0),
+		vp8common.NearMV:    vp8enc.BoolBitCost(p0, 1) + vp8enc.BoolBitCost(p1, 1) + vp8enc.BoolBitCost(p2, 0),
+		vp8common.NewMV:     vp8enc.BoolBitCost(p0, 1) + vp8enc.BoolBitCost(p1, 1) + vp8enc.BoolBitCost(p2, 1) + vp8enc.BoolBitCost(p3, 0),
+		vp8common.SplitMV:   vp8enc.BoolBitCost(p0, 1) + vp8enc.BoolBitCost(p1, 1) + vp8enc.BoolBitCost(p2, 1) + vp8enc.BoolBitCost(p3, 1),
 	}
 	for mode, wantCost := range want {
 		got := interPredictionModeRate(mode, counts)
@@ -216,7 +216,7 @@ func testVP8ZeroMVPerModeCostMatchesOracleAllContexts(t *testing.T) {
 	// vp8_find_near_mvs's [0,6) accumulator. For each context vector,
 	// recompute the expected cost via the libvpx-equivalent treed_cost
 	// walk and compare against interPredictionModeRate. Guarantees the
-	// govpx unrolled boolBitCost ladder agrees with vp8_treed_cost over
+	// govpx unrolled vp8enc.BoolBitCost ladder agrees with vp8_treed_cost over
 	// the entire context table.
 	modes := []vp8common.MBPredictionMode{
 		vp8common.ZeroMV,
@@ -258,15 +258,15 @@ func testVP8ZeroMVPerModeCostMatchesOracleAllContexts(t *testing.T) {
 func expectedModeRefCost(p [4]uint8, mode vp8common.MBPredictionMode) int {
 	switch mode {
 	case vp8common.ZeroMV:
-		return boolBitCost(p[0], 0)
+		return vp8enc.BoolBitCost(p[0], 0)
 	case vp8common.NearestMV:
-		return boolBitCost(p[0], 1) + boolBitCost(p[1], 0)
+		return vp8enc.BoolBitCost(p[0], 1) + vp8enc.BoolBitCost(p[1], 0)
 	case vp8common.NearMV:
-		return boolBitCost(p[0], 1) + boolBitCost(p[1], 1) + boolBitCost(p[2], 0)
+		return vp8enc.BoolBitCost(p[0], 1) + vp8enc.BoolBitCost(p[1], 1) + vp8enc.BoolBitCost(p[2], 0)
 	case vp8common.NewMV:
-		return boolBitCost(p[0], 1) + boolBitCost(p[1], 1) + boolBitCost(p[2], 1) + boolBitCost(p[3], 0)
+		return vp8enc.BoolBitCost(p[0], 1) + vp8enc.BoolBitCost(p[1], 1) + vp8enc.BoolBitCost(p[2], 1) + vp8enc.BoolBitCost(p[3], 0)
 	case vp8common.SplitMV:
-		return boolBitCost(p[0], 1) + boolBitCost(p[1], 1) + boolBitCost(p[2], 1) + boolBitCost(p[3], 1)
+		return vp8enc.BoolBitCost(p[0], 1) + vp8enc.BoolBitCost(p[1], 1) + vp8enc.BoolBitCost(p[2], 1) + vp8enc.BoolBitCost(p[3], 1)
 	default:
 		return -1
 	}
@@ -280,13 +280,13 @@ func testVP8ZeroMVPartitionCostMatchesTokenOracle(t *testing.T) {
 	probs := [3]uint8{110, 111, 150}
 	want := [4]int{
 		// partition 0: value=6 (110), len=3 → bits 1,1,0
-		boolBitCost(probs[0], 1) + boolBitCost(probs[1], 1) + boolBitCost(probs[2], 0),
+		vp8enc.BoolBitCost(probs[0], 1) + vp8enc.BoolBitCost(probs[1], 1) + vp8enc.BoolBitCost(probs[2], 0),
 		// partition 1: value=7 (111), len=3 → bits 1,1,1
-		boolBitCost(probs[0], 1) + boolBitCost(probs[1], 1) + boolBitCost(probs[2], 1),
+		vp8enc.BoolBitCost(probs[0], 1) + vp8enc.BoolBitCost(probs[1], 1) + vp8enc.BoolBitCost(probs[2], 1),
 		// partition 2: value=2 (10),  len=2 → bits 1,0
-		boolBitCost(probs[0], 1) + boolBitCost(probs[1], 0),
+		vp8enc.BoolBitCost(probs[0], 1) + vp8enc.BoolBitCost(probs[1], 0),
 		// partition 3: value=0 (0),   len=1 → bit 0
-		boolBitCost(probs[0], 0),
+		vp8enc.BoolBitCost(probs[0], 0),
 	}
 	for p := range 4 {
 		got := mbSplitPartitionRate(uint8(p))
@@ -307,12 +307,12 @@ func testVP8ZeroMVSubMVRefCostMatchesBModeOracle(t *testing.T) {
 	//   ABOVE4X4 {2, 2}: bits 1,0        → cost_one(p[0]) + cost_zero(p[1])
 	//   ZERO4X4  {6, 3}: bits 1,1,0      → cost_one(p[0]) + cost_one(p[1]) + cost_zero(p[2])
 	//   NEW4X4   {7, 3}: bits 1,1,1      → cost_one(p[0]) + cost_one(p[1]) + cost_one(p[2])
-	probs := libvpxDefaultSubMVRefProbs
+	probs := vp8enc.DefaultSubMVRefProbs
 	want := map[vp8common.BPredictionMode]int{
-		vp8common.Left4x4:  boolBitCost(probs[0], 0),
-		vp8common.Above4x4: boolBitCost(probs[0], 1) + boolBitCost(probs[1], 0),
-		vp8common.Zero4x4:  boolBitCost(probs[0], 1) + boolBitCost(probs[1], 1) + boolBitCost(probs[2], 0),
-		vp8common.New4x4:   boolBitCost(probs[0], 1) + boolBitCost(probs[1], 1) + boolBitCost(probs[2], 1),
+		vp8common.Left4x4:  vp8enc.BoolBitCost(probs[0], 0),
+		vp8common.Above4x4: vp8enc.BoolBitCost(probs[0], 1) + vp8enc.BoolBitCost(probs[1], 0),
+		vp8common.Zero4x4:  vp8enc.BoolBitCost(probs[0], 1) + vp8enc.BoolBitCost(probs[1], 1) + vp8enc.BoolBitCost(probs[2], 0),
+		vp8common.New4x4:   vp8enc.BoolBitCost(probs[0], 1) + vp8enc.BoolBitCost(probs[1], 1) + vp8enc.BoolBitCost(probs[2], 1),
 	}
 	for mode, wantCost := range want {
 		got := splitSubMotionLabelRate(mode)

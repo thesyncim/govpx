@@ -301,8 +301,8 @@ func govpxOptimizeBStateCaptured(
 				band := int(vp8tables.CoefBandsTable[i+1])
 				pt := int(vp8tables.PrevTokenClass[t0])
 				p := (*coefProbs)[blockType][band][pt]
-				rate0 += coefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
-				rate1 += coefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
+				rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
+				rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
 			}
 			rdCost0 := libvpxRDCost(rdmult, rdDiv, rate0, error0)
 			rdCost1 := libvpxRDCost(rdmult, rdDiv, rate1, error1)
@@ -370,12 +370,12 @@ func govpxOptimizeBStateCaptured(
 				if t0 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t0])
 					p := (*coefProbs)[blockType][band][pt]
-					rate0 += coefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
+					rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
 				}
 				if t1 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t1])
 					p := (*coefProbs)[blockType][band][pt]
-					rate1 += coefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
+					rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
 				}
 			}
 			rdCost0 = libvpxRDCost(rdmult, rdDiv, rate0, error0)
@@ -413,11 +413,11 @@ func govpxOptimizeBStateCaptured(
 			t0Tok := tokens[next][0].Token
 			t1Tok := tokens[next][1].Token
 			if t0Tok != vp8tables.DCTEOBToken {
-				tokens[next][0].Rate += coefficientTokenCost(p, t0Tok, blockType, band, 0)
+				tokens[next][0].Rate += vp8enc.CoefficientTokenCost(p, t0Tok, blockType, band, 0)
 				tokens[next][0].Token = vp8tables.ZeroToken
 			}
 			if t1Tok != vp8tables.DCTEOBToken {
-				tokens[next][1].Rate += coefficientTokenCost(p, t1Tok, blockType, band, 0)
+				tokens[next][1].Rate += vp8enc.CoefficientTokenCost(p, t1Tok, blockType, band, 0)
 				tokens[next][1].Token = vp8tables.ZeroToken
 			}
 		}
@@ -429,8 +429,8 @@ func govpxOptimizeBStateCaptured(
 	error0 := tokens[next][0].Error
 	error1 := tokens[next][1].Error
 	p := (*coefProbs)[blockType][band][ctx]
-	rate0 += coefficientTokenCost(p, tokens[next][0].Token, blockType, band, ctx)
-	rate1 += coefficientTokenCost(p, tokens[next][1].Token, blockType, band, ctx)
+	rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, ctx)
+	rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, ctx)
 	rdCost0 := libvpxRDCost(rdmult, rdDiv, rate0, error0)
 	rdCost1 := libvpxRDCost(rdmult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {

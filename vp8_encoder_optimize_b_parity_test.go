@@ -55,7 +55,7 @@ func TestOptimizeBSignedBaseCost(t *testing.T) {
 }
 
 // TestOptimizeBTokenCostsMatchLibvpxFillTokenCosts asserts that
-// coefficientTokenCost — read on every optimize_b trellis iteration — is
+// vp8enc.CoefficientTokenCost — read on every optimize_b trellis iteration — is
 // byte-identical to libvpx's mb->token_costs[type][band][pt][token] table
 // for every (type, band, pt, token) combination over DefaultCoefProbs.
 // Libvpx's fill_token_costs (vp8/encoder/rdopt.c) selects between
@@ -76,9 +76,9 @@ func TestOptimizeBTokenCostsMatchLibvpxFillTokenCosts(t *testing.T) {
 				p := probs[blockType][band][pt]
 				wantCosts := libvpxOptimizeBFillTokenCostsRow(&p, blockType, band, pt)
 				for token := range vp8tables.MaxEntropyTokens {
-					got := coefficientTokenCost(p, token, blockType, band, pt)
+					got := vp8enc.CoefficientTokenCost(p, token, blockType, band, pt)
 					if got != wantCosts[token] {
-						t.Errorf("coefficientTokenCost(type=%d band=%d pt=%d token=%d) = %d, want %d (libvpx fill_token_costs)",
+						t.Errorf("vp8enc.CoefficientTokenCost(type=%d band=%d pt=%d token=%d) = %d, want %d (libvpx fill_token_costs)",
 							blockType, band, pt, token, got, wantCosts[token])
 					}
 				}
@@ -129,7 +129,7 @@ func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, bloc
 //     vp8_init_de_quantizer -> vp8_setup_key_frame.
 //
 // govpx mirror:
-//   - vp8_encoder_token_cost.go coefficientTokenCost / coefTokenCostElided:
+//   - internal/vp8/encoder/token_cost.go CoefficientTokenCost / coefTokenCostElided:
 //     selects between the full-tree path and the EOB-elided path with the
 //     same `pt == 0 && band > coefElisionBandThreshold[blockType&3]`
 //     predicate (coefElisionBandThreshold[2] = 0 for UV).
@@ -139,7 +139,7 @@ func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, bloc
 //
 // The test enumerates every chroma cell in the 8 (band) by 3 (prev_token) by
 // 12 (to_token) matrix (288 cells total), compares govpx's
-// `coefficientTokenCost(p, token, blockType=2, band, pt)` against a
+// `vp8enc.CoefficientTokenCost(p, token, blockType=2, band, pt)` against a
 // fresh recursive walk of libvpx's CoefTree using the matching elision
 // branch, and reports the first divergent cell with full context if any
 // drift is found. The regression baseline had no token_costs UV divergence;
@@ -160,7 +160,7 @@ func TestVP8ChromaTokenCostsUVMatchLibvpx(t *testing.T) {
 			p := probs[blockType][band][pt]
 			wantCosts := libvpxOptimizeBFillTokenCostsRow(&p, blockType, band, pt)
 			for token := range vp8tables.MaxEntropyTokens {
-				got := coefficientTokenCost(p, token, blockType, band, pt)
+				got := vp8enc.CoefficientTokenCost(p, token, blockType, band, pt)
 				if got == wantCosts[token] {
 					continue
 				}
@@ -182,12 +182,12 @@ func TestVP8ChromaTokenCostsUVMatchLibvpx(t *testing.T) {
 // fill (vp8_cost_tokens2) for the chroma plane. libvpx's fill_token_costs
 // branch is `k == 0 && j > (i == 0)`; for i=PLANE_TYPE_UV=2 this reduces
 // to `pt == 0 && band > 0`. govpx mirrors this via
-// `coefElisionBandThreshold[blockType&3]` = 0 for blockType ∈ {1,2,3}.
+// `vp8enc.CoefElisionBandThreshold(blockType)` = 0 for blockType ∈ {1,2,3}.
 // The explicit UV check protects against accidentally re-introducing a
 // per-blockType asymmetry on the chroma plane.
 func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
-	if got := coefElisionBandThreshold[planeTypeUV]; got != 0 {
-		t.Fatalf("coefElisionBandThreshold[PLANE_TYPE_UV=2] = %d, want 0 (libvpx fill_token_costs: k==0 && j > (i==0) reduces to band > 0 for i=2)", got)
+	if got := vp8enc.CoefElisionBandThreshold(planeTypeUV); got != 0 {
+		t.Fatalf("CoefElisionBandThreshold(PLANE_TYPE_UV=2) = %d, want 0 (libvpx fill_token_costs: k==0 && j > (i==0) reduces to band > 0 for i=2)", got)
 	}
 	// Also pin the per-blockType table against libvpx's branch verbatim:
 	//   i=0 (Y after Y2): elide when band > 1
@@ -195,9 +195,9 @@ func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
 	//   i=2 (UV):         elide when band > 0
 	//   i=3 (Y with DC):  elide when band > 0
 	want := [4]int{1, 0, 0, 0}
-	if coefElisionBandThreshold != want {
-		t.Fatalf("coefElisionBandThreshold = %v, want %v (libvpx fill_token_costs k==0 && j > (i==0))",
-			coefElisionBandThreshold, want)
+	if got := vp8enc.CoefElisionBandThresholds(); got != want {
+		t.Fatalf("CoefElisionBandThresholds = %v, want %v (libvpx fill_token_costs k==0 && j > (i==0))",
+			got, want)
 	}
 }
 

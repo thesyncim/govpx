@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"testing"
@@ -51,7 +51,7 @@ func TestTreeTokenCostMatchesSlowReference(t *testing.T) {
 		{
 			name:  "SubMVRef",
 			tree:  vp8tables.SubMVRefTree[:],
-			probs: libvpxDefaultSubMVRefProbs[:],
+			probs: DefaultSubMVRefProbs[:],
 			tokens: []int{
 				int(vp8common.Left4x4),
 				int(vp8common.Above4x4),
@@ -69,7 +69,7 @@ func TestTreeTokenCostMatchesSlowReference(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			for _, tok := range c.tokens {
-				got := treeTokenCost(c.tree, c.probs, tok)
+				got := TreeTokenCost(c.tree, c.probs, tok)
 				want := treeTokenCostSlow(c.tree, c.probs, tok)
 				if got != want {
 					t.Fatalf("token %d: fast=%d slow=%d", tok, got, want)
@@ -100,7 +100,7 @@ func TestCoefTokenCostFromPathMatchesSlowReference(t *testing.T) {
 	}
 }
 
-// BenchmarkTreeTokenCost exercises the dispatched treeTokenCost across the
+// BenchmarkTreeTokenCost exercises the dispatched TreeTokenCost across the
 // fixed mode and coefficient trees the encoder consults in mode decision.
 // The body mirrors the per-MB call mix: 1 KeyFrameYMode + 1 UVMode + 16
 // BMode + a handful of CoefTree lookups.
@@ -121,14 +121,14 @@ func BenchmarkTreeTokenCost(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, m := range yModes {
-			sink += treeTokenCost(vp8tables.KeyFrameYModeTree[:], keyYProbs, m)
+			sink += TreeTokenCost(vp8tables.KeyFrameYModeTree[:], keyYProbs, m)
 		}
 		for _, m := range bModes {
-			sink += treeTokenCost(vp8tables.BModeTree[:], bModeProbs, m)
+			sink += TreeTokenCost(vp8tables.BModeTree[:], bModeProbs, m)
 		}
-		sink += treeTokenCost(vp8tables.UVModeTree[:], uvProbs, 0)
+		sink += TreeTokenCost(vp8tables.UVModeTree[:], uvProbs, 0)
 		for _, t := range coefTokens {
-			sink += treeTokenCost(vp8tables.CoefTree[:], coefProbs[:], t)
+			sink += TreeTokenCost(vp8tables.CoefTree[:], coefProbs[:], t)
 		}
 	}
 	_ = sink
@@ -144,7 +144,7 @@ func BenchmarkTreeTokenCostCoef(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, tok := range tokens {
-			sink += treeTokenCost(vp8tables.CoefTree[:], probs[:], tok)
+			sink += TreeTokenCost(vp8tables.CoefTree[:], probs[:], tok)
 		}
 	}
 	_ = sink
@@ -181,10 +181,10 @@ func BenchmarkCoefBlockTokenRate(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sink += coefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 11)
-		sink += coefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 11)
-		sink += coefficientBlockTokenRate(&probs, 2, 0, 0, &qcoeff, 8)
-		sink += coefficientBlockTokenRate(&probs, 1, 0, 0, &qcoeff, 11)
+		sink += CoefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 11)
+		sink += CoefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 11)
+		sink += CoefficientBlockTokenRate(&probs, 2, 0, 0, &qcoeff, 8)
+		sink += CoefficientBlockTokenRate(&probs, 1, 0, 0, &qcoeff, 11)
 	}
 	_ = sink
 }
@@ -198,8 +198,8 @@ func BenchmarkCoefBlockTokenRateZero(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sink += coefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 1)
-		sink += coefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 0)
+		sink += CoefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 1)
+		sink += CoefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 0)
 	}
 	_ = sink
 }

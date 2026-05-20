@@ -51,7 +51,7 @@ package govpx
 //
 //    libvpx sets x->errorperbit = (cpi->RDMULT / 110), with the RAW
 //    RDMULT BEFORE the /100 split. govpx's libvpxErrorPerBitWithZbin in
-//    vp8_encoder_token_cost.go:268-275 uses libvpxRawRDMultiplierWithZbin
+//    vp8_encoder_rd_cost.go uses libvpxRawRDMultiplierWithZbin
 //    (the pre-split value) divided by 110. At iQ=17 raw RDMULT=1010,
 //    errorperbit=9 on both sides. Byte-exact, no gap.
 //

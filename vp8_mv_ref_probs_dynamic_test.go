@@ -46,8 +46,8 @@ import (
 // (govpx ZEROMV-LAST rate=530 vs libvpx=237 at frame 3 MB(0,1) on
 // cpu_used=8 RT panning):
 //
-//	With counts.Intra=0  : ZEROMV cost = boolBitCost(7, 0)   = 1328
-//	With counts.Intra=2  : ZEROMV cost = boolBitCost(135, 0) =  235
+//	With counts.Intra=0  : ZEROMV cost = vp8enc.BoolBitCost(7, 0)   = 1328
+//	With counts.Intra=2  : ZEROMV cost = vp8enc.BoolBitCost(135, 0) =  235
 //	ΔZEROMV-LAST(ct[0]=0 vs 2) = 1093  →  bracketing the 530-vs-237 gap
 //	the #343 rate column reports (those values include the shared
 //	ref_frame and frame_cost contributions).
@@ -111,7 +111,7 @@ func testVP8MVRefZeroMVCostMatchesLibvpxAcrossAllIntraCounts(t *testing.T) {
 	for ct := range vp8tables.InterModeContextCount {
 		counts := vp8enc.InterModeCounts{Intra: uint8(ct)}
 		got := interPredictionModeRate(vp8common.ZeroMV, counts)
-		want := boolBitCost(vp8tables.InterModeContexts[ct][0], 0)
+		want := vp8enc.BoolBitCost(vp8tables.InterModeContexts[ct][0], 0)
 		if got != want {
 			t.Fatalf("ZEROMV cost @ counts.Intra=%d: govpx=%d, want %d "+
 				"(p[0]=%d)", ct, got, want, vp8tables.InterModeContexts[ct][0])
@@ -184,8 +184,8 @@ func testVP8MVRefDynamicCountsDriveProbLookup(t *testing.T) {
 // cost(0); high prob[0] (frequent ZEROMV) → low cost(0). With
 // vp8_mode_contexts row 0 = {7, 1, 1, 143} and row 2 = {135, 64, 57, 68}:
 //
-//	ZEROMV cost @ ct[0]=0: boolBitCost(7, 0)   = 1328  (rare ZEROMV)
-//	ZEROMV cost @ ct[0]=2: boolBitCost(135, 0) =  235  (frequent ZEROMV)
+//	ZEROMV cost @ ct[0]=0: vp8enc.BoolBitCost(7, 0)   = 1328  (rare ZEROMV)
+//	ZEROMV cost @ ct[0]=2: vp8enc.BoolBitCost(135, 0) =  235  (frequent ZEROMV)
 //
 // The #343 cell B 530-vs-237 govpx-vs-libvpx delta is consistent with
 // govpx seeing ct[0]=0 (no zero-MV inter neighbour at MB(0,0)) while
@@ -209,10 +209,10 @@ func testVP8MVRefCellBCostGapTracesToCountsIntraDelta(t *testing.T) {
 		t.Fatalf("InterModeContexts[2][0] = %d, want 135",
 			vp8tables.InterModeContexts[2][0])
 	}
-	if want := boolBitCost(7, 0); cost0 != want {
+	if want := vp8enc.BoolBitCost(7, 0); cost0 != want {
 		t.Fatalf("ZEROMV cost @ ct=0 = %d, want %d", cost0, want)
 	}
-	if want := boolBitCost(135, 0); cost2 != want {
+	if want := vp8enc.BoolBitCost(135, 0); cost2 != want {
 		t.Fatalf("ZEROMV cost @ ct=2 = %d, want %d", cost2, want)
 	}
 

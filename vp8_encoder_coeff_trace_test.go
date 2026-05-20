@@ -3,6 +3,7 @@ package govpx
 import (
 	"testing"
 
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -46,22 +47,22 @@ func coefficientBlockTokenTrace(probs *vp8tables.CoefficientProbs, blockType int
 		if coeff == 0 {
 			token = vp8tables.ZeroToken
 			entry.Token = token
-			entry.TokenRate = coefTokenCostElided(p, token, blockType, band, pt)
+			entry.TokenRate = vp8enc.CoefficientTokenCost(p, token, blockType, band, pt)
 			cost += entry.TokenRate
 		} else {
-			t, mag, ok := coefficientTokenMagnitude(coeff)
+			t, mag, ok := vp8enc.CoefficientTokenMagnitude(coeff)
 			if !ok {
 				return nil, maxInt() / 4
 			}
 			token = t
 			entry.Token = token
-			entry.TokenRate = coefTokenCostElided(p, token, blockType, band, pt)
+			entry.TokenRate = vp8enc.CoefficientTokenCost(p, token, blockType, band, pt)
 			if coeff < 0 {
-				entry.SignRate = boolBitCost(128, 1)
+				entry.SignRate = vp8enc.BoolBitCost(128, 1)
 			} else {
-				entry.SignRate = boolBitCost(128, 0)
+				entry.SignRate = vp8enc.BoolBitCost(128, 0)
 			}
-			entry.ExtraBits = coefficientExtraBitsRate(token, mag)
+			entry.ExtraBits = vp8enc.CoefficientExtraBitsRate(token, mag)
 			cost += entry.TokenRate + entry.SignRate + entry.ExtraBits
 		}
 		trace = append(trace, entry)
@@ -70,7 +71,7 @@ func coefficientBlockTokenTrace(probs *vp8tables.CoefficientProbs, blockType int
 	if eob < 16 {
 		band := int(vp8tables.CoefBandsTable[eob])
 		p := (*probs)[blockType][band][pt]
-		eobRate := treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+		eobRate := vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
 		trace = append(trace, coefficientTokenTraceEntry{
 			Position:       eob,
 			Coefficient:    0,
@@ -94,7 +95,7 @@ func TestCoefficientBlockTokenTraceMatchesAggregateRate(t *testing.T) {
 	qcoeff[vp8tables.DefaultZigZag1D[3]] = 5
 	const eob = 4
 
-	wantTotal := coefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, eob)
+	wantTotal := vp8enc.CoefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, eob)
 	trace, gotTotal := coefficientBlockTokenTrace(&probs, 3, 0, 0, &qcoeff, eob)
 	if gotTotal != wantTotal {
 		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
@@ -124,7 +125,7 @@ func TestCoefficientBlockTokenTraceAllZerosRecordsSingleEOB(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var qcoeff [16]int16
 
-	wantTotal := coefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 0)
+	wantTotal := vp8enc.CoefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 0)
 	trace, gotTotal := coefficientBlockTokenTrace(&probs, 3, 0, 0, &qcoeff, 0)
 	if gotTotal != wantTotal {
 		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
@@ -160,7 +161,7 @@ func TestCoefficientBlockTokenTraceSingleNonZeroAtSkipDC(t *testing.T) {
 	const skipDC = 1
 	const eob = 2
 
-	wantTotal := coefficientBlockTokenRate(&probs, 0, 0, skipDC, &qcoeff, eob)
+	wantTotal := vp8enc.CoefficientBlockTokenRate(&probs, 0, 0, skipDC, &qcoeff, eob)
 	trace, gotTotal := coefficientBlockTokenTrace(&probs, 0, 0, skipDC, &qcoeff, eob)
 	if gotTotal != wantTotal {
 		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
@@ -179,8 +180,8 @@ func TestCoefficientBlockTokenTraceSingleNonZeroAtSkipDC(t *testing.T) {
 	if first.Token != vp8tables.OneToken {
 		t.Fatalf("first entry token = %d, want OneToken %d", first.Token, vp8tables.OneToken)
 	}
-	if first.SignRate != boolBitCost(128, 0) {
-		t.Fatalf("first entry sign rate = %d, want %d", first.SignRate, boolBitCost(128, 0))
+	if first.SignRate != vp8enc.BoolBitCost(128, 0) {
+		t.Fatalf("first entry sign rate = %d, want %d", first.SignRate, vp8enc.BoolBitCost(128, 0))
 	}
 
 	second := trace[1]
@@ -209,7 +210,7 @@ func TestCoefficientBlockTokenTracePostZeroElidesEOBNode(t *testing.T) {
 	qcoeff[vp8tables.DefaultZigZag1D[2]] = 2
 
 	trace, gotTotal := coefficientBlockTokenTrace(&probs, 0, 0, 1, &qcoeff, 3)
-	wantTotal := coefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 3)
+	wantTotal := vp8enc.CoefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 3)
 	if gotTotal != wantTotal {
 		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
 	}
@@ -223,8 +224,8 @@ func TestCoefficientBlockTokenTracePostZeroElidesEOBNode(t *testing.T) {
 	}
 	band := int(vp8tables.CoefBandsTable[2])
 	p := probs[0][band][0]
-	full := treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.TwoToken)
-	want := full - boolBitCost(p[0], 1)
+	full := vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.TwoToken)
+	want := full - vp8enc.BoolBitCost(p[0], 1)
 	if entry.TokenRate != want {
 		t.Fatalf("post-zero token rate = %d, want elided subtree cost %d (full %d)", entry.TokenRate, want, full)
 	}

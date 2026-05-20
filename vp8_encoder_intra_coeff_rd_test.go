@@ -236,16 +236,16 @@ func TestCoefficientBlockTokenRateUsesEntropyCosts(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var zero [16]int16
 
-	zeroRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &zero, 0)
-	wantZero := treeTokenCost(vp8tables.CoefTree[:], probs[3][0][0][:], vp8tables.DCTEOBToken)
+	zeroRate := vp8enc.CoefficientBlockTokenRate(&probs, 3, 0, 0, &zero, 0)
+	wantZero := vp8enc.TreeTokenCost(vp8tables.CoefTree[:], probs[3][0][0][:], vp8tables.DCTEOBToken)
 	if zeroRate != wantZero {
 		t.Fatalf("zero token rate = %d, want %d", zeroRate, wantZero)
 	}
 
 	positive := [16]int16{0: 1}
-	positiveRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &positive, 1)
+	positiveRate := vp8enc.CoefficientBlockTokenRate(&probs, 3, 0, 0, &positive, 1)
 	negative := [16]int16{0: -1}
-	negativeRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &negative, 1)
+	negativeRate := vp8enc.CoefficientBlockTokenRate(&probs, 3, 0, 0, &negative, 1)
 	if positiveRate <= zeroRate {
 		t.Fatalf("positive token rate = %d, zero = %d, want nonzero token to cost more", positiveRate, zeroRate)
 	}
@@ -254,15 +254,15 @@ func TestCoefficientBlockTokenRateUsesEntropyCosts(t *testing.T) {
 	}
 
 	zeroThenOne := [16]int16{1: 1}
-	zeroThenOneRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &zeroThenOne, 2)
+	zeroThenOneRate := vp8enc.CoefficientBlockTokenRate(&probs, 3, 0, 0, &zeroThenOne, 2)
 	p0 := probs[3][0][0]
 	p1 := probs[3][vp8tables.CoefBandsTable[1]][0]
 	p2 := probs[3][vp8tables.CoefBandsTable[2]][vp8tables.PrevTokenClass[vp8tables.OneToken]]
-	wantZeroThenOne := boolBitCost(p0[0], 1) +
-		boolBitCost(p0[1], 0) +
-		nonZeroCoeffTokenRate(p1, vp8tables.OneToken) +
-		boolBitCost(128, 0) +
-		treeTokenCost(vp8tables.CoefTree[:], p2[:], vp8tables.DCTEOBToken)
+	wantZeroThenOne := vp8enc.BoolBitCost(p0[0], 1) +
+		vp8enc.BoolBitCost(p0[1], 0) +
+		vp8enc.NonZeroCoeffTokenRate(p1, vp8tables.OneToken) +
+		vp8enc.BoolBitCost(128, 0) +
+		vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p2[:], vp8tables.DCTEOBToken)
 	if zeroThenOneRate != wantZeroThenOne {
 		t.Fatalf("zero-then-one rate = %d, want %d", zeroThenOneRate, wantZeroThenOne)
 	}
@@ -580,7 +580,7 @@ func TestFastInterMotionModeRateKeepsPickInterNewMVWeight(t *testing.T) {
 	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, defaultInterFrameSignBias())
 
 	got := e.fastInterMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 1, refRate)
-	want := boolBitCost(63, 1) +
+	want := vp8enc.BoolBitCost(63, 1) +
 		refRate +
 		interPredictionModeRate(vp8common.NewMV, counts) +
 		vp8enc.MotionVectorBitCost(mode.MV, above.MV, &vp8tables.DefaultMVContext, libvpxFastNewMVBitCostWeight)
@@ -612,7 +612,7 @@ func TestEncoderInterMotionModeRateUsesAltRefSignBias(t *testing.T) {
 		t.Fatalf("sign-biased NEWMV vector cost = %d, want cost against inverted best ref MV %d", vectorCost, wantVectorCost)
 	}
 
-	want := boolBitCost(63, 1) +
+	want := vp8enc.BoolBitCost(63, 1) +
 		refRate +
 		interPredictionModeRate(vp8common.NewMV, counts) +
 		vectorCost
@@ -639,11 +639,11 @@ func TestInterPredictionModeRateMirrorsWriterBranches(t *testing.T) {
 		mode vp8common.MBPredictionMode
 		want int
 	}{
-		{name: "zero", mode: vp8common.ZeroMV, want: boolBitCost(probs[3][0], 0)},
-		{name: "nearest", mode: vp8common.NearestMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 0)},
-		{name: "near", mode: vp8common.NearMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 1) + boolBitCost(probs[2][2], 0)},
-		{name: "new", mode: vp8common.NewMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 1) + boolBitCost(probs[2][2], 1) + boolBitCost(probs[1][3], 0)},
-		{name: "split", mode: vp8common.SplitMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 1) + boolBitCost(probs[2][2], 1) + boolBitCost(probs[1][3], 1)},
+		{name: "zero", mode: vp8common.ZeroMV, want: vp8enc.BoolBitCost(probs[3][0], 0)},
+		{name: "nearest", mode: vp8common.NearestMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 0)},
+		{name: "near", mode: vp8common.NearMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 1) + vp8enc.BoolBitCost(probs[2][2], 0)},
+		{name: "new", mode: vp8common.NewMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 1) + vp8enc.BoolBitCost(probs[2][2], 1) + vp8enc.BoolBitCost(probs[1][3], 0)},
+		{name: "split", mode: vp8common.SplitMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 1) + vp8enc.BoolBitCost(probs[2][2], 1) + vp8enc.BoolBitCost(probs[1][3], 1)},
 	}
 	for _, tt := range tests {
 		if got := interPredictionModeRate(tt.mode, counts); got != tt.want {
@@ -658,7 +658,7 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
 	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, defaultInterFrameSignBias())
-	want := boolBitCost(63, 1) +
+	want := vp8enc.BoolBitCost(63, 1) +
 		e.interReferenceFrameRate(vp8common.GoldenFrame) +
 		interPredictionModeRate(vp8common.NewMV, counts) +
 		interMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 1, &vp8tables.DefaultMVContext)
@@ -666,19 +666,19 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	if got := e.interMotionModeRate(&mode, &above, nil, nil, 0, 0, 1, 1); got != want {
 		t.Fatalf("inter mode rate = %d, want %d", got, want)
 	}
-	if got := interMacroblockSkipRate(false); got != boolBitCost(128, 0) {
+	if got := interMacroblockSkipRate(false); got != vp8enc.BoolBitCost(128, 0) {
 		t.Fatalf("coded skip rate = %d, want prob-128 false cost", got)
 	}
-	if got := interMacroblockSkipRate(true); got != boolBitCost(128, 1) {
+	if got := interMacroblockSkipRate(true); got != vp8enc.BoolBitCost(128, 1) {
 		t.Fatalf("skipped rate = %d, want prob-128 true cost", got)
 	}
-	if got := e.interMacroblockSkipRate(false); got != boolBitCost(200, 0) {
+	if got := e.interMacroblockSkipRate(false); got != vp8enc.BoolBitCost(200, 0) {
 		t.Fatalf("live coded skip rate = %d, want prob-200 false cost", got)
 	}
-	if got := e.interMacroblockSkipRate(true); got != boolBitCost(200, 1) {
+	if got := e.interMacroblockSkipRate(true); got != vp8enc.BoolBitCost(200, 1) {
 		t.Fatalf("live skipped rate = %d, want prob-200 true cost", got)
 	}
-	if got, want := e.interIntraMacroblockModeRate(), boolBitCost(200, 0)+boolBitCost(63, 0); got != want {
+	if got, want := e.interIntraMacroblockModeRate(), vp8enc.BoolBitCost(200, 0)+vp8enc.BoolBitCost(63, 0); got != want {
 		t.Fatalf("inter-intra mode rate = %d, want skip plus intra-reference rate %d", got, want)
 	}
 }

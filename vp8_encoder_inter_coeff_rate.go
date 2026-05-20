@@ -61,7 +61,7 @@ func macroblockCoefficientTokenRateWithContext(probs *vp8tables.CoefficientProbs
 	}
 	if !is4x4 {
 		eob := coeffs.BlockEOB(24, 0)
-		rate += coefficientBlockTokenRate(probs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
+		rate += vp8enc.CoefficientBlockTokenRate(probs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
 		blockType = 0
 		skipDC = 1
 	} else {
@@ -73,7 +73,7 @@ func macroblockCoefficientTokenRateWithContext(probs *vp8tables.CoefficientProbs
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(yAbove[a] + yLeft[l])
-		rate += coefficientBlockTokenRate(probs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob)
+		rate += vp8enc.CoefficientBlockTokenRate(probs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob)
 		hasCoeffs := uint8(0)
 		if eob > skipDC {
 			hasCoeffs = 1
@@ -86,7 +86,7 @@ func macroblockCoefficientTokenRateWithContext(probs *vp8tables.CoefficientProbs
 		eob := coeffs.BlockEOB(block, 0)
 		a, l := macroblockCoefficientUVContextIndex(block)
 		ctx := int(uvAbove[a] + uvLeft[l])
-		rate += coefficientBlockTokenRate(probs, 2, ctx, 0, &coeffs.QCoeff[block], eob)
+		rate += vp8enc.CoefficientBlockTokenRate(probs, 2, ctx, 0, &coeffs.QCoeff[block], eob)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
 			hasCoeffs = 1

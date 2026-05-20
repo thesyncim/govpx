@@ -77,9 +77,9 @@ func interMacroblockSkipRateWithProb(prob uint8, skip bool) int {
 		prob = 128
 	}
 	if skip {
-		return boolBitCost(prob, 1)
+		return vp8enc.BoolBitCost(prob, 1)
 	}
-	return boolBitCost(prob, 0)
+	return vp8enc.BoolBitCost(prob, 0)
 }
 
 func (e *VP8Encoder) interMacroblockSkipRate(skip bool) int {
@@ -90,14 +90,14 @@ func (e *VP8Encoder) interIntraReferenceRate() int {
 	if e.threadedHelperRowsActive {
 		return 0
 	}
-	return boolBitCost(e.refProbIntra, 0)
+	return vp8enc.BoolBitCost(e.refProbIntra, 0)
 }
 
 func (e *VP8Encoder) interInterReferenceRate(refRate int) int {
 	if e.threadedHelperRowsActive {
 		return 0
 	}
-	return boolBitCost(e.refProbIntra, 1) + refRate
+	return vp8enc.BoolBitCost(e.refProbIntra, 1) + refRate
 }
 
 // interIntraMacroblockModeRate models libvpx vp8_calc_ref_frame_costs for the
@@ -206,11 +206,11 @@ func (e *VP8Encoder) interReferenceFrameRatesUseTemporalSingleRefSpecialCase() b
 func interReferenceFrameRateWithProbs(refFrame vp8common.MVReferenceFrame, probLast uint8, probGolden uint8) int {
 	switch refFrame {
 	case vp8common.LastFrame:
-		return boolBitCost(probLast, 0)
+		return vp8enc.BoolBitCost(probLast, 0)
 	case vp8common.GoldenFrame:
-		return boolBitCost(probLast, 1) + boolBitCost(probGolden, 0)
+		return vp8enc.BoolBitCost(probLast, 1) + vp8enc.BoolBitCost(probGolden, 0)
 	case vp8common.AltRefFrame:
-		return boolBitCost(probLast, 1) + boolBitCost(probGolden, 1)
+		return vp8enc.BoolBitCost(probLast, 1) + vp8enc.BoolBitCost(probGolden, 1)
 	default:
 		return 1 << 30
 	}
@@ -230,24 +230,24 @@ func interPredictionModeRate(mode vp8common.MBPredictionMode, counts vp8enc.Inte
 	split := min(int(counts.Split), maxCtx)
 	switch mode {
 	case vp8common.ZeroMV:
-		return boolBitCost(probs[intra][0], 0)
+		return vp8enc.BoolBitCost(probs[intra][0], 0)
 	case vp8common.NearestMV:
-		return boolBitCost(probs[intra][0], 1) +
-			boolBitCost(probs[nearest][1], 0)
+		return vp8enc.BoolBitCost(probs[intra][0], 1) +
+			vp8enc.BoolBitCost(probs[nearest][1], 0)
 	case vp8common.NearMV:
-		return boolBitCost(probs[intra][0], 1) +
-			boolBitCost(probs[nearest][1], 1) +
-			boolBitCost(probs[near][2], 0)
+		return vp8enc.BoolBitCost(probs[intra][0], 1) +
+			vp8enc.BoolBitCost(probs[nearest][1], 1) +
+			vp8enc.BoolBitCost(probs[near][2], 0)
 	case vp8common.NewMV:
-		return boolBitCost(probs[intra][0], 1) +
-			boolBitCost(probs[nearest][1], 1) +
-			boolBitCost(probs[near][2], 1) +
-			boolBitCost(probs[split][3], 0)
+		return vp8enc.BoolBitCost(probs[intra][0], 1) +
+			vp8enc.BoolBitCost(probs[nearest][1], 1) +
+			vp8enc.BoolBitCost(probs[near][2], 1) +
+			vp8enc.BoolBitCost(probs[split][3], 0)
 	case vp8common.SplitMV:
-		return boolBitCost(probs[intra][0], 1) +
-			boolBitCost(probs[nearest][1], 1) +
-			boolBitCost(probs[near][2], 1) +
-			boolBitCost(probs[split][3], 1)
+		return vp8enc.BoolBitCost(probs[intra][0], 1) +
+			vp8enc.BoolBitCost(probs[nearest][1], 1) +
+			vp8enc.BoolBitCost(probs[near][2], 1) +
+			vp8enc.BoolBitCost(probs[split][3], 1)
 	default:
 		return 1 << 30
 	}
@@ -314,12 +314,10 @@ func splitMotionModeVectorCostWithCostTablesAndSubMVRefProbs(mode *vp8enc.InterF
 	return cost
 }
 
-var libvpxDefaultSubMVRefProbs = [3]uint8{180, 162, 25}
-
 func splitSubMotionLabelRate(mode vp8common.BPredictionMode) int {
 	// libvpx RD uses x->inter_bmode_costs, built from fc.sub_mv_ref_prob,
 	// while bitstream writing uses context-specific sub-MV probabilities.
-	return splitSubMotionLabelCostWithProbs(mode, libvpxDefaultSubMVRefProbs)
+	return splitSubMotionLabelCostWithProbs(mode, vp8enc.DefaultSubMVRefProbs)
 }
 
 func splitSubMotionLabelRateWithProbs(mode vp8common.BPredictionMode, probs *[3]uint8) int {
@@ -335,7 +333,7 @@ func splitSubMotionLabelCostWithProbs(mode vp8common.BPredictionMode, probs [3]u
 	if uint(mode-vp8common.Left4x4) > uint(vp8common.New4x4-vp8common.Left4x4) {
 		return maxInt() / 4
 	}
-	return treeTokenCost(vp8tables.SubMVRefTree[:], probs[:], int(mode))
+	return vp8enc.TreeTokenCost(vp8tables.SubMVRefTree[:], probs[:], int(mode))
 }
 
 func splitSubMotionLabelMatchesMV(mode vp8common.BPredictionMode, target vp8enc.MotionVector, left vp8enc.MotionVector, above vp8enc.MotionVector) bool {
@@ -357,7 +355,7 @@ func mbSplitPartitionRate(partition uint8) int {
 	if partition >= vp8tables.NumMBSplits {
 		return maxInt() / 4
 	}
-	return treeTokenCost(vp8tables.MBSplitTree[:], vp8tables.MBSplitProbs[:], int(partition))
+	return vp8enc.TreeTokenCost(vp8tables.MBSplitTree[:], vp8tables.MBSplitProbs[:], int(partition))
 }
 
 func analysisSplitLeftMV(cur *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, block int) vp8enc.MotionVector {

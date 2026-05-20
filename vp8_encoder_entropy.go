@@ -20,7 +20,7 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	// the per-iteration accumulation).
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	e.resetKeyFrameModeProbs()
-	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
+	e.subMVRefProbs = vp8enc.DefaultSubMVRefProbs
 	e.resetMotionVectorCostTablesFromModeProbs()
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
@@ -378,7 +378,7 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 
 // rdPickerCoefProbs returns the coefficient-prob table the inter-frame RD
 // picker should feed into fill_token_costs (the rate side of every
-// coefficientBlockTokenRate call inside the picker), mirroring libvpx
+// vp8enc.CoefficientBlockTokenRate call inside the picker), mirroring libvpx
 // vp8/encoder/rdopt.c vp8_initialize_rd_consts for single-layer encodes:
 //
 //	l = refresh_alt_ref_frame ? &cpi->lfc_a

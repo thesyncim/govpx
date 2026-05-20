@@ -156,7 +156,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 		return eob
 	}
 	// Three uint range checks fold the (x < 0 || x >= max) pairs into
-	// one branch each; matches the form in coefficientBlockTokenRate.
+	// one branch each; matches the form in vp8enc.CoefficientBlockTokenRate.
 	if uint(blockType) >= uint(vp8tables.BlockTypes) ||
 		uint(ctx) >= uint(vp8tables.PrevCoefContexts) ||
 		uint(skipDC) > 1 {
@@ -211,8 +211,8 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 				band := int(vp8tables.CoefBandsTable[(i+1)&15])
 				pt := int(vp8tables.PrevTokenClass[t0])
 				p := (*coefProbs)[blockType&3][band&7][pt]
-				rate0 += coefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
-				rate1 += coefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
+				rate0 += vp8enc.CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
+				rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 			}
 
 			rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
@@ -282,12 +282,12 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 				if t0 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t0])
 					p := (*coefProbs)[blockType][band][pt]
-					rate0 += coefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
+					rate0 += vp8enc.CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
 				}
 				if t1 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t1])
 					p := (*coefProbs)[blockType][band][pt]
-					rate1 += coefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
+					rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 				}
 			}
 
@@ -329,11 +329,11 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 			t0Tok := int(tokens[next][0].token)
 			t1Tok := int(tokens[next][1].token)
 			if t0Tok != vp8tables.DCTEOBToken {
-				tokens[next][0].rate += coefficientTokenCost(p, t0Tok, blockType, band, 0)
+				tokens[next][0].rate += vp8enc.CoefficientTokenCost(p, t0Tok, blockType, band, 0)
 				tokens[next][0].token = int8(vp8tables.ZeroToken)
 			}
 			if t1Tok != vp8tables.DCTEOBToken {
-				tokens[next][1].rate += coefficientTokenCost(p, t1Tok, blockType, band, 0)
+				tokens[next][1].rate += vp8enc.CoefficientTokenCost(p, t1Tok, blockType, band, 0)
 				tokens[next][1].token = int8(vp8tables.ZeroToken)
 			}
 		}
@@ -345,8 +345,8 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 	error0 := tokens[next][0].error
 	error1 := tokens[next][1].error
 	p := (*coefProbs)[blockType][band][ctx]
-	rate0 += coefficientTokenCost(p, int(tokens[next][0].token), blockType, band, ctx)
-	rate1 += coefficientTokenCost(p, int(tokens[next][1].token), blockType, band, ctx)
+	rate0 += vp8enc.CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, ctx)
+	rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, ctx)
 	rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
 	rdCost1 := libvpxRDCost(rdMult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {

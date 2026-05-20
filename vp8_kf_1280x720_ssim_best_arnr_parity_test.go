@@ -542,7 +542,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// divergence is NOT explained by an rdMult/rdDiv input drift; the
 	// remaining candidates are the per-coefficient (rate, distortion)
 	// pair fed into RDCOST — i.e. either the token_costs[2][band][pt]
-	// table that govpx's `coefficientTokenCost` reads (#316's bisect
+	// table that govpx's `vp8enc.CoefficientTokenCost` reads (#316's bisect
 	// covers this), the per-block dx = qcoeff*dequant - coeff distortion
 	// computation, or the shortcut |x|*dq vs |coeff| boundary check
 	// (encodemb.c:246-256 vs vp8_encoder_inter_quantize.go:259).

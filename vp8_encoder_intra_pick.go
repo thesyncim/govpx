@@ -355,7 +355,7 @@ func wholeBlockYTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common.Imag
 		eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, &quant.Y1, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
 		dct[0] = 0
 		dqcoeff[0] = 0
-		rate += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &qcoeff, eob)
+		rate += vp8enc.CoefficientBlockTokenRate(coefProbs, 0, ctx, 1, &qcoeff, eob)
 		mbblockError += transformBlockError(&dct, &dqcoeff)
 		hasCoeffs := uint8(0)
 		if eob > 1 {
@@ -368,7 +368,7 @@ func wholeBlockYTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common.Imag
 	vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
 	y2Ctx := int(y2Above + y2Left)
 	y2EOB := quantizeDecisionBlockWithActivity(fastQuant, &y2Coeff, &quant.Y2, zbinOverQuant/2, actZbinAdj, &y2Q, &y2DQ)
-	rate += coefficientBlockTokenRate(coefProbs, 1, y2Ctx, 0, &y2Q, y2EOB)
+	rate += vp8enc.CoefficientBlockTokenRate(coefProbs, 1, y2Ctx, 0, &y2Q, y2EOB)
 	y2Error := transformBlockError(&y2Coeff, &y2DQ)
 	distortion := ((mbblockError << 2) + y2Error) >> 4
 	return rate, distortion, uint8(y2EOB), y2Q, yACEOBCount
@@ -483,7 +483,7 @@ func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common
 		a, l := macroblockCoefficientUVContextIndex(block)
 		ctx := int(uvAbove[a] + uvLeft[l])
 		eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, &quant.UV, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
-		rate += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &qcoeff, eob)
+		rate += vp8enc.CoefficientBlockTokenRate(coefProbs, 2, ctx, 0, &qcoeff, eob)
 		distortion += transformBlockError(&dct, &dqcoeff)
 		uvEOBSum += eob
 		hasCoeffs := uint8(0)
@@ -601,7 +601,7 @@ func predictBestBPredLumaModeRDWithRDConstantsAndEOBs(src vp8enc.SourceImage, qI
 			vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 			tokenCtx := int(tokenAbove[block&3] + tokenLeft[(block&0x0c)>>2])
 			eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, &quant.Y1, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
-			coefRate := coefficientBlockTokenRate(coefProbs, 3, tokenCtx, 0, &qcoeff, eob)
+			coefRate := vp8enc.CoefficientBlockTokenRate(coefProbs, 3, tokenCtx, 0, &qcoeff, eob)
 			aboveMode := bPredAnalysisAboveMode(keyFrame, above, modes, block)
 			leftMode := bPredAnalysisLeftMode(keyFrame, left, modes, block)
 			rate := bPredModeRateWithProbs(keyFrame, candidate, aboveMode, leftMode, interBModeProbs) + coefRate
@@ -695,12 +695,12 @@ func intraYModeRate(keyFrame bool, mode vp8common.MBPredictionMode) int {
 
 func intraYModeRateWithProbs(keyFrame bool, mode vp8common.MBPredictionMode, interProbs []uint8) int {
 	if keyFrame {
-		return treeTokenCost(vp8tables.KeyFrameYModeTree[:], vp8tables.KeyFrameYModeProbs[:], int(mode))
+		return vp8enc.TreeTokenCost(vp8tables.KeyFrameYModeTree[:], vp8tables.KeyFrameYModeProbs[:], int(mode))
 	}
 	if len(interProbs) == vp8tables.YModeProbCount {
-		return treeTokenCost(vp8tables.YModeTree[:], interProbs, int(mode))
+		return vp8enc.TreeTokenCost(vp8tables.YModeTree[:], interProbs, int(mode))
 	}
-	return treeTokenCost(vp8tables.YModeTree[:], vp8tables.DefaultYModeProbs[:], int(mode))
+	return vp8enc.TreeTokenCost(vp8tables.YModeTree[:], vp8tables.DefaultYModeProbs[:], int(mode))
 }
 
 func (e *VP8Encoder) interIntraYModeRate(mode vp8common.MBPredictionMode) int {
@@ -713,12 +713,12 @@ func intraUVModeRate(keyFrame bool, mode vp8common.MBPredictionMode) int {
 
 func intraUVModeRateWithProbs(keyFrame bool, mode vp8common.MBPredictionMode, interProbs []uint8) int {
 	if keyFrame {
-		return treeTokenCost(vp8tables.UVModeTree[:], vp8tables.KeyFrameUVModeProbs[:], int(mode))
+		return vp8enc.TreeTokenCost(vp8tables.UVModeTree[:], vp8tables.KeyFrameUVModeProbs[:], int(mode))
 	}
 	if len(interProbs) == vp8tables.UVModeProbCount {
-		return treeTokenCost(vp8tables.UVModeTree[:], interProbs, int(mode))
+		return vp8enc.TreeTokenCost(vp8tables.UVModeTree[:], interProbs, int(mode))
 	}
-	return treeTokenCost(vp8tables.UVModeTree[:], vp8tables.DefaultUVModeProbs[:], int(mode))
+	return vp8enc.TreeTokenCost(vp8tables.UVModeTree[:], vp8tables.DefaultUVModeProbs[:], int(mode))
 }
 
 func bPredModeRate(keyFrame bool, mode vp8common.BPredictionMode, above vp8common.BPredictionMode, left vp8common.BPredictionMode) int {
@@ -727,12 +727,12 @@ func bPredModeRate(keyFrame bool, mode vp8common.BPredictionMode, above vp8commo
 
 func bPredModeRateWithProbs(keyFrame bool, mode vp8common.BPredictionMode, above vp8common.BPredictionMode, left vp8common.BPredictionMode, interProbs []uint8) int {
 	if keyFrame {
-		return treeTokenCost(vp8tables.BModeTree[:], vp8tables.KeyFrameBModeProbs[int(above)][int(left)][:], int(mode))
+		return vp8enc.TreeTokenCost(vp8tables.BModeTree[:], vp8tables.KeyFrameBModeProbs[int(above)][int(left)][:], int(mode))
 	}
 	if len(interProbs) == vp8tables.BModeProbCount {
-		return treeTokenCost(vp8tables.BModeTree[:], interProbs, int(mode))
+		return vp8enc.TreeTokenCost(vp8tables.BModeTree[:], interProbs, int(mode))
 	}
-	return treeTokenCost(vp8tables.BModeTree[:], vp8tables.DefaultBModeProbs[:], int(mode))
+	return vp8enc.TreeTokenCost(vp8tables.BModeTree[:], vp8tables.DefaultBModeProbs[:], int(mode))
 }
 
 // libvpxInterFastBpredModeCost mirrors libvpx vp8/encoder/modecosts.c
@@ -759,17 +759,17 @@ func bPredModeRateWithProbs(keyFrame bool, mode vp8common.BPredictionMode, above
 // fc.bmode_prob is reset to vp8_bmode_prob on every frame in
 // vp8_default_coef_probs / start_encoded_frame.
 func libvpxInterFastBpredModeCost(mode vp8common.BPredictionMode) int {
-	return treeTokenCost(vp8tables.BModeTree[:], vp8tables.DefaultBModeProbs[:], int(mode))
+	return vp8enc.TreeTokenCost(vp8tables.BModeTree[:], vp8tables.DefaultBModeProbs[:], int(mode))
 }
 
 func libvpxInterFastBpredModeCostWithProbs(mode vp8common.BPredictionMode, probs []uint8) int {
 	if len(probs) == vp8tables.BModeProbCount {
-		return treeTokenCost(vp8tables.BModeTree[:], probs, int(mode))
+		return vp8enc.TreeTokenCost(vp8tables.BModeTree[:], probs, int(mode))
 	}
 	return libvpxInterFastBpredModeCost(mode)
 }
 
-// coefficientBlockTokenRate ports libvpx's vp8/encoder/rdopt.c:cost_coeffs.
+// vp8enc.CoefficientBlockTokenRate ports libvpx's vp8/encoder/rdopt.c:cost_coeffs.
 // It returns the entropy-coded token cost (in 1/256-bit units) of the given
 // quantized coefficient block, including the implicit "skip_eob_node" elision
 // libvpx applies when the previous token had prev_token_class == 0 (i.e. the

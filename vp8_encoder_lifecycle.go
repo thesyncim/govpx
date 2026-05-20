@@ -277,7 +277,7 @@ func (e *VP8Encoder) Reset() {
 	e.twoPass.configureEndUsage(libvpxVP8EndUsageFromRateControlMode(e.rc.mode))
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
-	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
+	e.subMVRefProbs = vp8enc.DefaultSubMVRefProbs
 	e.resetNoUpdateEntropyRollbackContext()
 	e.mvCostTables = vp8enc.MotionVectorCostTables{}
 	e.mvCostProbs = [2][vp8tables.MVPCount]uint8{}

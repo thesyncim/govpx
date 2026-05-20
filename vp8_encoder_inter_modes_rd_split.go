@@ -336,7 +336,7 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 	// the sum of UV eob counts. govpx's previous gate appended
 	// `&& stats.rateUV == 0`, which never holds because UV coefficient
 	// token rate always includes the per-block EOB-token cost (non-zero
-	// even for all-zero residuals — see coefficientBlockTokenRate's
+	// even for all-zero residuals — see vp8enc.CoefficientBlockTokenRate's
 	// trailing EOB-token addition), silently suppressing the SPLITMV skip
 	// backout in govpx's picker and inflating every SPLITMV candidate's
 	// rate2 by `shape.SegmentYRate + stats.rateUV - skipBackout`. The

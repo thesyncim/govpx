@@ -579,7 +579,7 @@ func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, re
 		l := (block & 0x0c) >> 2
 		ctx := int(nextAbove[a] + nextLeft[l])
 		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, ev.zbinOverQuant, splitInterModeZbinBoost, ev.actZbinAdj, ev.zbinOverQuant, ev.rdMult, ev.rdDiv, false, ev.fastQuant, ev.optimize, &dct, &quant.Y1, &qcoeff, &dqcoeff)
-		blockRate := coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &qcoeff, eob)
+		blockRate := vp8enc.CoefficientBlockTokenRate(coefProbs, 3, ctx, 0, &qcoeff, eob)
 		rate += blockRate
 		yRate += blockRate
 		if eob > 0 {

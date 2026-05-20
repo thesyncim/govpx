@@ -1257,7 +1257,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	}
 	e.resetInterRDThresholdMultipliers()
 	vp8dec.ResetModeProbs(&e.modeProbs)
-	e.subMVRefProbs = libvpxDefaultSubMVRefProbs
+	e.subMVRefProbs = vp8enc.DefaultSubMVRefProbs
 	e.resetNoUpdateEntropyRollbackContext()
 	if err := e.initLookahead(normalized.Width, normalized.Height, normalized.LookaheadFrames); err != nil {
 		return nil, err

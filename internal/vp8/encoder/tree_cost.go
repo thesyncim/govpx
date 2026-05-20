@@ -1,11 +1,12 @@
-package govpx
+package encoder
 
 import (
 	"unsafe"
 
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
-	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
+
+// Ported from libvpx v1.16.0 VP8 token-tree cost mechanics.
 
 // Per-tree precomputed traversal paths. For a fixed VP8 tree, the path from
 // the root to each leaf token is invariant — only the probability vector
@@ -39,8 +40,8 @@ type treeTokenPath struct {
 // init for each known (tree, token) pair the cost helpers consult.
 func buildTreeTokenPath(tree []int16, token int) treeTokenPath {
 	var out treeTokenPath
-	var encoded vp8enc.TreeToken
-	if !vp8enc.BuildTreeToken(tree, token, &encoded) {
+	var encoded TreeToken
+	if !BuildTreeToken(tree, token, &encoded) {
 		return out
 	}
 	if int(encoded.Len) == 0 || int(encoded.Len) > maxTreeTokenPathLen {
@@ -95,19 +96,19 @@ var (
 	yModeTokenPaths         [5]treeTokenPath
 	uvModeTokenPaths        [4]treeTokenPath
 	bModeTokenPaths         [10]treeTokenPath
-	coefTokenPaths          [vp8tables.MaxEntropyTokens]treeTokenPath
+	coefTokenPaths          [tables.MaxEntropyTokens]treeTokenPath
 	mbSplitTokenPaths       [4]treeTokenPath
 	subMVRefTokenPaths      [14]treeTokenPath
 )
 
 func init() {
-	fillTreeTokenPaths(vp8tables.KeyFrameYModeTree[:], keyFrameYModeTokenPaths[:])
-	fillTreeTokenPaths(vp8tables.YModeTree[:], yModeTokenPaths[:])
-	fillTreeTokenPaths(vp8tables.UVModeTree[:], uvModeTokenPaths[:])
-	fillTreeTokenPaths(vp8tables.BModeTree[:], bModeTokenPaths[:])
-	fillTreeTokenPaths(vp8tables.CoefTree[:], coefTokenPaths[:])
-	fillTreeTokenPaths(vp8tables.MBSplitTree[:], mbSplitTokenPaths[:])
-	fillTreeTokenPaths(vp8tables.SubMVRefTree[:], subMVRefTokenPaths[:])
+	fillTreeTokenPaths(tables.KeyFrameYModeTree[:], keyFrameYModeTokenPaths[:])
+	fillTreeTokenPaths(tables.YModeTree[:], yModeTokenPaths[:])
+	fillTreeTokenPaths(tables.UVModeTree[:], uvModeTokenPaths[:])
+	fillTreeTokenPaths(tables.BModeTree[:], bModeTokenPaths[:])
+	fillTreeTokenPaths(tables.CoefTree[:], coefTokenPaths[:])
+	fillTreeTokenPaths(tables.MBSplitTree[:], mbSplitTokenPaths[:])
+	fillTreeTokenPaths(tables.SubMVRefTree[:], subMVRefTokenPaths[:])
 }
 
 // Tree base pointers used by lookupTreeTokenPaths to dispatch by tree
@@ -115,13 +116,13 @@ func init() {
 // or shape-based identification when the caller already passes a global
 // fixed tree.
 var (
-	keyFrameYModeTreeBase = unsafe.SliceData(vp8tables.KeyFrameYModeTree[:])
-	yModeTreeBase         = unsafe.SliceData(vp8tables.YModeTree[:])
-	uvModeTreeBase        = unsafe.SliceData(vp8tables.UVModeTree[:])
-	bModeTreeBase         = unsafe.SliceData(vp8tables.BModeTree[:])
-	coefTreeBase          = unsafe.SliceData(vp8tables.CoefTree[:])
-	mbSplitTreeBase       = unsafe.SliceData(vp8tables.MBSplitTree[:])
-	subMVRefTreeBase      = unsafe.SliceData(vp8tables.SubMVRefTree[:])
+	keyFrameYModeTreeBase = unsafe.SliceData(tables.KeyFrameYModeTree[:])
+	yModeTreeBase         = unsafe.SliceData(tables.YModeTree[:])
+	uvModeTreeBase        = unsafe.SliceData(tables.UVModeTree[:])
+	bModeTreeBase         = unsafe.SliceData(tables.BModeTree[:])
+	coefTreeBase          = unsafe.SliceData(tables.CoefTree[:])
+	mbSplitTreeBase       = unsafe.SliceData(tables.MBSplitTree[:])
+	subMVRefTreeBase      = unsafe.SliceData(tables.SubMVRefTree[:])
 )
 
 // lookupTreeTokenPaths resolves the precomputed path table for a known
@@ -153,7 +154,7 @@ func lookupTreeTokenPaths(tree []int16) []treeTokenPath {
 	return nil
 }
 
-// treeTokenCostFromPath sums boolBitCost over the precomputed path. The hot
+// treeTokenCostFromPath sums BoolBitCost over the precomputed path. The hot
 // loop is a simple linear scan whose iteration count is fixed by the leaf
 // depth (1..7 for mode trees, 2..6 for CoefTree). Bounds checks on probs[]
 // are elided by the maxProbIdx hoist.
@@ -161,7 +162,7 @@ func lookupTreeTokenPaths(tree []int16) []treeTokenPath {
 //go:nosplit
 func treeTokenCostFromPath(path *treeTokenPath, probs []uint8) int {
 	if !path.valid {
-		return maxInt() / 4
+		return tokenCostMaxInt() / 4
 	}
 	probsLen := len(probs)
 	length := int(path.length)
@@ -170,11 +171,11 @@ func treeTokenCostFromPath(path *treeTokenPath, probs []uint8) int {
 		step := path.steps[i]
 		probIdx := int(step.probIndex)
 		if probIdx >= probsLen {
-			return maxInt() / 4
+			return tokenCostMaxInt() / 4
 		}
 		// Branchless lookup keyed on the sign of step.bit: XOR with
 		// -bit flips prob to 255-prob when the bit is set.
-		cost += vp8tables.ProbCost[probs[probIdx]^uint8(-int(step.bit))]
+		cost += tables.ProbCost[probs[probIdx]^uint8(-int(step.bit))]
 	}
 	return cost
 }
@@ -184,7 +185,7 @@ func treeTokenCostFromPath(path *treeTokenPath, probs []uint8) int {
 // per-band probability array) so the inner loop has zero bounds checks.
 //
 //go:nosplit
-func coefTokenCostFromPath(path *treeTokenPath, probs *[vp8tables.EntropyNodes]uint8) int {
+func coefTokenCostFromPath(path *treeTokenPath, probs *[tables.EntropyNodes]uint8) int {
 	length := int(path.length)
 	cost := 0
 	probArr := probs
@@ -193,7 +194,7 @@ func coefTokenCostFromPath(path *treeTokenPath, probs *[vp8tables.EntropyNodes]u
 		// Branchless: XOR prob with -bit (0x00 when bit=0, 0xFF when
 		// bit=1) flips prob to 255-prob in the bit=1 arm without a
 		// branch in the per-token-tree-edge loop.
-		cost += vp8tables.ProbCost[probArr[step.probIndex]^uint8(-int(step.bit))]
+		cost += tables.ProbCost[probArr[step.probIndex]^uint8(-int(step.bit))]
 	}
 	return cost
 }
@@ -204,8 +205,8 @@ func coefTokenCostFromPath(path *treeTokenPath, probs *[vp8tables.EntropyNodes]u
 // and is worth inlining at the per-position trailing-EOB call site.
 //
 //go:nosplit
-func coefEOBTokenCost(probs *[vp8tables.EntropyNodes]uint8) int {
-	return vp8tables.ProbCost[probs[0]]
+func coefEOBTokenCost(probs *[tables.EntropyNodes]uint8) int {
+	return tables.ProbCost[probs[0]]
 }
 
 // coefZeroTokenCostElided returns the elided-band cost for emitting
@@ -214,8 +215,8 @@ func coefEOBTokenCost(probs *[vp8tables.EntropyNodes]uint8) int {
 // probs[0], so the elided cost is just the second tree edge at probs[1].
 //
 //go:nosplit
-func coefZeroTokenCostElided(probs *[vp8tables.EntropyNodes]uint8) int {
-	return vp8tables.ProbCost[probs[1]]
+func coefZeroTokenCostElided(probs *[tables.EntropyNodes]uint8) int {
+	return tables.ProbCost[probs[1]]
 }
 
 // coefZeroTokenCost returns the full ZeroToken cost (root + non-EOB branch).
@@ -223,6 +224,6 @@ func coefZeroTokenCostElided(probs *[vp8tables.EntropyNodes]uint8) int {
 // coefficient where the elision doesn't apply.
 //
 //go:nosplit
-func coefZeroTokenCost(probs *[vp8tables.EntropyNodes]uint8) int {
-	return vp8tables.ProbCost[255-int(probs[0])] + vp8tables.ProbCost[probs[1]]
+func coefZeroTokenCost(probs *[tables.EntropyNodes]uint8) int {
+	return tables.ProbCost[255-int(probs[0])] + tables.ProbCost[probs[1]]
 }

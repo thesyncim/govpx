@@ -106,7 +106,7 @@ func WriteTreeToken(w *BoolWriter, tree []int16, probs []uint8, token TreeToken)
 // here for the fixed-shape VP8 trees we ship; benchmarks (BenchmarkFindTreeToken)
 // show this beats an explicit iterative-stack rewrite, so we leave it
 // recursive. Mode decision avoids re-walking the tree at runtime by using
-// the precomputed token-cost paths in vp8_encoder_tree_costs.go (root package);
+// the precomputed token-cost paths in tree_cost.go;
 // the recursive walker only runs at startup or when a non-fixed tree is
 // supplied.
 func findTreeToken(tree []int16, node int16, token int, value uint32, depth int) (uint32, int, bool) {

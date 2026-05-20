@@ -50,7 +50,7 @@ import (
 //     per-MB lift: x->rdmult = (rdmult * (2*act + avg) + (a>>1)) / (act + 2*avg).
 //
 // govpx mirror:
-//   - vp8_encoder_token_cost.go:291-313 libvpxRDConstantsWithZbin
+//   - vp8_encoder_rd_cost.go libvpxRDConstantsWithZbin
 //     — pre-applies the >1000 split.
 //   - vp8_encoder_inter_coeff_rate.go:24-33 blockPlaneRDMultiplier
 //     — switch returning {Y2:16, UV:2, default:4}.

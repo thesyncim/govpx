@@ -3,13 +3,14 @@ package govpx
 import (
 	"testing"
 
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // referenceCoefBlockTokenRate is a literal walk of libvpx's
 // vp8/encoder/rdopt.c:cost_coeffs against the same probability tables and
 // helpers govpx already exposes. It is intentionally written to look like the
-// libvpx loop so any divergence between coefficientBlockTokenRate and libvpx's
+// libvpx loop so any divergence between vp8enc.CoefficientBlockTokenRate and libvpx's
 // cost_coeffs surfaces as a numeric mismatch.
 //
 // libvpx loop:
@@ -32,9 +33,9 @@ func referenceCoefBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType, c
 		threshold = 1
 	}
 	tokenCost := func(p [vp8tables.EntropyNodes]uint8, token, band, pt int) int {
-		full := treeTokenCost(vp8tables.CoefTree[:], p[:], token)
+		full := vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p[:], token)
 		if pt == 0 && band > threshold {
-			return full - boolBitCost(p[0], 1)
+			return full - vp8enc.BoolBitCost(p[0], 1)
 		}
 		return full
 	}
@@ -50,7 +51,7 @@ func referenceCoefBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType, c
 		if coeff == 0 {
 			token = vp8tables.ZeroToken
 		} else {
-			t, _, ok := coefficientTokenMagnitude(coeff)
+			t, _, ok := vp8enc.CoefficientTokenMagnitude(coeff)
 			if !ok {
 				return -1
 			}
@@ -58,13 +59,13 @@ func referenceCoefBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType, c
 		}
 		cost += tokenCost(p, token, band, pt)
 		if coeff != 0 {
-			t, mag, _ := coefficientTokenMagnitude(coeff)
+			t, mag, _ := vp8enc.CoefficientTokenMagnitude(coeff)
 			if coeff < 0 {
-				cost += boolBitCost(128, 1)
+				cost += vp8enc.BoolBitCost(128, 1)
 			} else {
-				cost += boolBitCost(128, 0)
+				cost += vp8enc.BoolBitCost(128, 0)
 			}
-			cost += coefficientExtraBitsRate(t, mag)
+			cost += vp8enc.CoefficientExtraBitsRate(t, mag)
 		}
 		pt = int(vp8tables.PrevTokenClass[token])
 		pos++
@@ -72,7 +73,7 @@ func referenceCoefBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType, c
 	if pos < 16 {
 		band := int(vp8tables.CoefBandsTable[pos])
 		p := (*probs)[blockType][band][pt]
-		cost += treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+		cost += vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
 	}
 	return cost
 }
@@ -204,7 +205,7 @@ func TestCoefCoeffsParityMatchesReferenceWalk(t *testing.T) {
 			if eob <= 0 {
 				eob = blockEOBFromCoeffs(&c.qcoeff, c.skipDC)
 			}
-			got := coefficientBlockTokenRate(&probs, c.blockType, c.ctx, c.skipDC, &c.qcoeff, eob)
+			got := vp8enc.CoefficientBlockTokenRate(&probs, c.blockType, c.ctx, c.skipDC, &c.qcoeff, eob)
 			want := referenceCoefBlockTokenRate(&probs, c.blockType, c.ctx, c.skipDC, &c.qcoeff, eob)
 			if got != want {
 				t.Fatalf("rate mismatch: got=%d want=%d (blockType=%d ctx=%d skipDC=%d eob=%d coeffs=%v)",
@@ -217,7 +218,7 @@ func TestCoefCoeffsParityMatchesReferenceWalk(t *testing.T) {
 // TestCoefCoeffsParityIncrementalMatchesWholeBlock verifies that an explicit
 // per-position incremental walk (the same shape libvpx's trellis applies when
 // rolling rate forward through the trellis sentinel) produces the identical
-// total to the whole-block coefficientBlockTokenRate. Together with the
+// total to the whole-block vp8enc.CoefficientBlockTokenRate. Together with the
 // reference walk above, this anchors the rate accumulation against both the
 // libvpx static cost path and the trellis incremental form.
 func TestCoefCoeffsParityIncrementalMatchesWholeBlock(t *testing.T) {
@@ -241,7 +242,7 @@ func TestCoefCoeffsParityIncrementalMatchesWholeBlock(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			eob := blockEOBFromCoeffs(&c.qcoeff, c.skipDC)
-			whole := coefficientBlockTokenRate(&probs, c.blockType, c.ctx, c.skipDC, &c.qcoeff, eob)
+			whole := vp8enc.CoefficientBlockTokenRate(&probs, c.blockType, c.ctx, c.skipDC, &c.qcoeff, eob)
 
 			// Incremental: walk position by position, accumulating the cost
 			// libvpx assigns to each token transition.
@@ -259,27 +260,27 @@ func TestCoefCoeffsParityIncrementalMatchesWholeBlock(t *testing.T) {
 				coeff := int(c.qcoeff[rc])
 				token := vp8tables.ZeroToken
 				if coeff != 0 {
-					tk, mag, ok := coefficientTokenMagnitude(coeff)
+					tk, mag, ok := vp8enc.CoefficientTokenMagnitude(coeff)
 					if !ok {
 						t.Fatalf("bad coeff %d", coeff)
 					}
 					token = tk
-					full := treeTokenCost(vp8tables.CoefTree[:], p[:], token)
+					full := vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p[:], token)
 					if pt == 0 && band > threshold {
-						cost += full - boolBitCost(p[0], 1)
+						cost += full - vp8enc.BoolBitCost(p[0], 1)
 					} else {
 						cost += full
 					}
 					if coeff < 0 {
-						cost += boolBitCost(128, 1)
+						cost += vp8enc.BoolBitCost(128, 1)
 					} else {
-						cost += boolBitCost(128, 0)
+						cost += vp8enc.BoolBitCost(128, 0)
 					}
-					cost += coefficientExtraBitsRate(tk, mag)
+					cost += vp8enc.CoefficientExtraBitsRate(tk, mag)
 				} else {
-					full := treeTokenCost(vp8tables.CoefTree[:], p[:], token)
+					full := vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p[:], token)
 					if pt == 0 && band > threshold {
-						cost += full - boolBitCost(p[0], 1)
+						cost += full - vp8enc.BoolBitCost(p[0], 1)
 					} else {
 						cost += full
 					}
@@ -290,7 +291,7 @@ func TestCoefCoeffsParityIncrementalMatchesWholeBlock(t *testing.T) {
 			if pos < 16 {
 				band := int(vp8tables.CoefBandsTable[pos])
 				p := probs[c.blockType][band][pt]
-				cost += treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+				cost += vp8enc.TreeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
 			}
 			if whole != cost {
 				t.Fatalf("incremental=%d whole=%d (blockType=%d ctx=%d skipDC=%d eob=%d)",
