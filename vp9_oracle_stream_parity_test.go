@@ -10,8 +10,8 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 selected stream byte-parity gate")
+func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 selected stream byte parity")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	type selectedCase struct {
@@ -341,8 +341,8 @@ func TestVP9OracleSelectedStreamByteParityGate(t *testing.T) {
 	}
 }
 
-func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 pinned runtime-control byte-parity gate")
+func TestVP9OracleRuntimeControlsPinnedCasesMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 pinned runtime-control byte parity")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
@@ -928,8 +928,8 @@ func TestVP9OraclePinnedRuntimeControlByteParity(t *testing.T) {
 	}
 }
 
-func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 threaded 720p byte-parity gate")
+func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 threaded tile byte parity")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, defaultFrames = 1280, 720, 2
@@ -1283,8 +1283,8 @@ func TestVP9OracleThreaded720pStrictByteParityUsesTileWriter(t *testing.T) {
 	}
 }
 
-func TestVP9OraclePinnedNewModeStrictByteParity(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 new-mode byte-parity gate")
+func TestVP9OracleRealtimeNewModeMatchesLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 realtime new-mode byte parity")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	type pinnedCase struct {
