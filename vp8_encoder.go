@@ -1242,7 +1242,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		refProbLast:            128,
 		refProbGolden:          128,
 		probSkipFalse:          128,
-		baseSkipFalseProbs:     libvpxBaseSkipFalseProbs,
+		baseSkipFalseProbs:     vp8enc.DefaultBaseSkipFalseProbs,
 		configuredCPUUsed:      configuredCPUUsed,
 		configuredCPUUsedValid: true,
 		// Seed the libvpx vp8_change_config last_w / last_h snapshot to the

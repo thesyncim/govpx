@@ -79,7 +79,7 @@ func (e *VP8Encoder) Reset() {
 	e.interRDFrameActive = false
 	e.probSkipFalse = 128
 	e.lastSkipFalseProbs = [3]uint8{}
-	e.baseSkipFalseProbs = libvpxBaseSkipFalseProbs
+	e.baseSkipFalseProbs = vp8enc.DefaultBaseSkipFalseProbs
 	// libvpx vp8/encoder/onyx_if.c init_config seeds these per-reference
 	// probabilities; without restoring them on Reset the warmed values
 	// from a prior run leak into the next encode, biasing rate control.

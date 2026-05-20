@@ -700,7 +700,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 				return interFrameEncodeAttempt{}, ErrInvalidConfig
 			}
 			fillZeroInterFrameModes(e.interFrameModes[:required], refFrame)
-			cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
+			cfg.ProbSkipFalse = vp8enc.InterFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
 			phase := e.phaseStart()
 			n, err := vp8enc.WriteZeroReferenceInterFrame(dst, e.opts.Width, e.opts.Height, cfg, refFrame)
 			e.phaseEnd(encoderPhasePacketWrite, phase)
@@ -839,7 +839,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			cfg.Segmentation = vp8enc.SegmentationConfig{Enabled: true}
 		}
 	}
-	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
+	cfg.ProbSkipFalse = vp8enc.InterFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
 	packet := vp8enc.InterFramePacket{
 		Dst:        dst,
 		Width:      e.opts.Width,

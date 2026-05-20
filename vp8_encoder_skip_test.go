@@ -3,34 +3,11 @@ package govpx
 import (
 	"testing"
 
-	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-func TestLibvpxBaseSkipFalseProbTable(t *testing.T) {
-	tests := []struct {
-		qIndex int
-		want   uint8
-	}{
-		{qIndex: -1, want: 255},
-		{qIndex: 0, want: 255},
-		{qIndex: 55, want: 255},
-		{qIndex: 56, want: 251},
-		{qIndex: 57, want: 248},
-		{qIndex: 96, want: 101},
-		{qIndex: 98, want: 95},
-		{qIndex: 127, want: 16},
-		{qIndex: 128, want: 16},
-	}
-	for _, tt := range tests {
-		if got := libvpxBaseSkipFalseProb(tt.qIndex); got != tt.want {
-			t.Fatalf("base skip false prob q=%d = %d, want %d", tt.qIndex, got, tt.want)
-		}
-	}
-}
-
 func TestInterFrameAnalysisSkipFalseProbMirrorsLibvpxHistorySelection(t *testing.T) {
-	e := &VP8Encoder{baseSkipFalseProbs: libvpxBaseSkipFalseProbs}
+	e := &VP8Encoder{baseSkipFalseProbs: vp8enc.DefaultBaseSkipFalseProbs}
 	if got := e.interFrameAnalysisSkipFalseProb(0, false, false, false); got != 250 {
 		t.Fatalf("base skip false prob = %d, want q0 base clamped to 250", got)
 	}
@@ -53,34 +30,8 @@ func TestInterFrameAnalysisSkipFalseProbMirrorsLibvpxHistorySelection(t *testing
 	}
 }
 
-func TestInterFrameModeSkipFalseProbabilityMatchesWriterCounts(t *testing.T) {
-	modes := []vp8enc.InterFrameMacroblockMode{
-		{MBSkipCoeff: false},
-		{MBSkipCoeff: true},
-		{MBSkipCoeff: true},
-		{MBSkipCoeff: true},
-	}
-	if got := interFrameModeSkipFalseProbability(1, 4, modes, 128); got != 64 {
-		t.Fatalf("skip false prob = %d, want 64", got)
-	}
-	modes = []vp8enc.InterFrameMacroblockMode{
-		{MBSkipCoeff: false},
-		{MBSkipCoeff: false},
-		{MBSkipCoeff: true},
-	}
-	if got := interFrameModeSkipFalseProbability(1, 3, modes, 128); got != 170 {
-		t.Fatalf("2/3 skip false prob = %d, want libvpx floor 170", got)
-	}
-	if got := interFrameModeSkipFalseProbability(1, 0, nil, 77); got != 77 {
-		t.Fatalf("empty skip false prob = %d, want fallback", got)
-	}
-	if got := interFrameModeSkipFalseProbability(1, 1, []vp8enc.InterFrameMacroblockMode{{MBSkipCoeff: true}}, 128); got != 1 {
-		t.Fatalf("all-skipped skip false prob = %d, want libvpx clipped 1", got)
-	}
-}
-
 func TestCommitInterFrameSkipFalseProbUpdatesReferenceAndBaseHistory(t *testing.T) {
-	e := &VP8Encoder{baseSkipFalseProbs: libvpxBaseSkipFalseProbs}
+	e := &VP8Encoder{baseSkipFalseProbs: vp8enc.DefaultBaseSkipFalseProbs}
 	e.commitInterFrameSkipFalseProb(interFrameEncodeAttempt{Config: vp8enc.InterFrameStateConfig{
 		BaseQIndex:    64,
 		ProbSkipFalse: 91,
@@ -113,17 +64,11 @@ func TestResetRestoresSkipFalseProbabilityState(t *testing.T) {
 	e := &VP8Encoder{
 		probSkipFalse:      91,
 		lastSkipFalseProbs: [3]uint8{91, 82, 73},
-		baseSkipFalseProbs: libvpxBaseSkipFalseProbs,
+		baseSkipFalseProbs: vp8enc.DefaultBaseSkipFalseProbs,
 	}
 	e.baseSkipFalseProbs[64] = 91
 	e.Reset()
-	if e.probSkipFalse != 128 || e.lastSkipFalseProbs != ([3]uint8{}) || e.baseSkipFalseProbs != libvpxBaseSkipFalseProbs {
+	if e.probSkipFalse != 128 || e.lastSkipFalseProbs != ([3]uint8{}) || e.baseSkipFalseProbs != vp8enc.DefaultBaseSkipFalseProbs {
 		t.Fatalf("reset skip false state = prob:%d last:%v base64:%d", e.probSkipFalse, e.lastSkipFalseProbs, e.baseSkipFalseProbs[64])
-	}
-}
-
-func TestSkipFalseTableHasVP8QIndexRangeLength(t *testing.T) {
-	if len(libvpxBaseSkipFalseProbs) != vp8common.QIndexRange {
-		t.Fatalf("skip false table length = %d, want %d", len(libvpxBaseSkipFalseProbs), vp8common.QIndexRange)
 	}
 }
