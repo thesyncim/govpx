@@ -1,10 +1,6 @@
 package govpx
 
-import (
-	"github.com/thesyncim/govpx/internal/vp9/common"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
-)
+import "github.com/thesyncim/govpx/internal/vp9/encoder"
 
 // vp9RDPickIntraModeSb ports libvpx v1.16.0
 // vp9/encoder/vp9_rdopt.c:3221-3271 (vp9_rd_pick_intra_mode_sb).  Once
@@ -137,64 +133,3 @@ func vp9RDPickIntraModeSbCompose(in vp9RDPickIntraModeSbInputs) vp9RDPickIntraMo
 		RDCost: vp9RDCost(in.rdmult, in.rddiv, rate, dist),
 	}
 }
-
-// vp9GetSkipProb is the govpx mirror of libvpx vp9/encoder/vp9_pred_common.h's
-// vp9_get_skip_prob: fc->skip_probs[get_skip_context(above, left)].
-// Encapsulated so the keyframe / inter intra-SB composers share one call
-// site and any future change to skip-probability tracking can land here.
-//
-// libvpx: vp9/encoder/vp9_pred_common.h vp9_get_skip_prob().
-// govpx:  fc.SkipProbs is the same 3-entry table written by the
-//
-//	bitstream encoder (encoder.WriteKeyframeBlock SkipProbs field).
-func (e *VP9Encoder) vp9GetSkipProb(above, left *vp9dec.NeighborMi) uint8 {
-	return e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
-}
-
-// vp9KFRdPickIntraModeSbAggregate is the keyframe-path wrapper around
-// vp9RDPickIntraModeSbCompose.  It mirrors libvpx's
-// vp9_rd_pick_intra_mode_sb wiring (vp9_rdopt.c:3221-3271) for the case
-// where the Y picker has already chosen mi.Mode (and mi.TxSize, via the
-// per-block TX picker) and the UV picker has already chosen its mode.
-// The caller is responsible for supplying the per-plane RD picker
-// outputs; this helper handles only the skip-bit + rate/dist
-// composition and the final RDCOST() expansion.
-//
-// govpx currently lacks an in-band keyframe UV RD picker (it pins
-// UV-mode to DC_PRED via pickVP9KeyframeUvMode).  Until task #134 lands
-// the UV-side `super_block_uvrd` analog, the (rateUV, rateUVToken,
-// distUV, uvSkip) inputs are 0/0/0/true respectively — which makes the
-// composition reduce to the Y-only path with the skip-flag still
-// reflecting the joint (y_skip && uv_skip) condition.  That is exactly
-// what libvpx does in the same edge condition because zero-coefficient
-// UV planes have rate_uv_tokenonly == 0 and skippable == 1 too.
-//
-// The helper does NOT change keyframe output bytes — it is a pure
-// observation hook that callers store onto diagnostic state or feed
-// into a future partition picker.  The 12 KF byte-parity tests
-// continue to pass because the actual mode / TX picks and the
-// bitstream-write path are untouched.
-func (e *VP9Encoder) vp9KFRdPickIntraModeSbAggregate(
-	above, left *vp9dec.NeighborMi,
-	rdmult int,
-	yRate, yRateToken int, yDist uint64, ySkip bool,
-	uvRate, uvRateToken int, uvDist uint64, uvSkip bool,
-) vp9RDPickIntraModeSbResult {
-	return vp9RDPickIntraModeSbCompose(vp9RDPickIntraModeSbInputs{
-		rateY:       yRate,
-		rateYToken:  yRateToken,
-		distY:       yDist,
-		ySkip:       ySkip,
-		rateUV:      uvRate,
-		rateUVToken: uvRateToken,
-		distUV:      uvDist,
-		uvSkip:      uvSkip,
-		skipProb:    e.vp9GetSkipProb(above, left),
-		rdmult:      rdmult,
-		rddiv:       vp9RDDivBits,
-	})
-}
-
-// Compile-time guard against unused-import drift: the vp9dec import
-// is used via vp9GetSkipProb / vp9KFRdPickIntraModeSbAggregate above.
-var _ = common.DcPred

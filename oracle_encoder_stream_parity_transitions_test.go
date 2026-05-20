@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"os/exec"
@@ -1080,29 +1079,6 @@ func drainGovpxFlush(t *testing.T, enc *VP8Encoder, opts EncoderOptions, label s
 		}
 	}
 	return out
-}
-
-func assertSegmentByteParityFrom(t *testing.T, label string, got [][]byte, want [][]byte, start int) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s frame count mismatch: got=%d want=%d", label, len(got), len(want))
-	}
-	for i := range got {
-		gFP, gKey := parseVP8FramePartitionSizes(got[i])
-		wFP, wKey := parseVP8FramePartitionSizes(want[i])
-		if bytes.Equal(got[i], want[i]) {
-			t.Logf("%s frame %d byte MATCH: len=%d first_part=%d keyframe=%t", label, i, len(got[i]), gFP, gKey)
-			continue
-		}
-		firstDiff := firstByteDiff(got[i], want[i])
-		if i < start {
-			t.Logf("%s frame %d byte mismatch (not asserted, start=%d): got_len=%d want_len=%d first_diff=%d got_first_part=%d want_first_part=%d got_keyframe=%t want_keyframe=%t",
-				label, i, start, len(got[i]), len(want[i]), firstDiff, gFP, wFP, gKey, wKey)
-			continue
-		}
-		t.Errorf("%s frame %d byte mismatch: got_len=%d want_len=%d first_diff=%d got_first_part=%d want_first_part=%d got_keyframe=%t want_keyframe=%t",
-			label, i, len(got[i]), len(want[i]), firstDiff, gFP, wFP, gKey, wKey)
-	}
 }
 
 func encodeFramesWithLibvpxTwoPassOracle(t *testing.T, vpxenc string, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image) [][]byte {

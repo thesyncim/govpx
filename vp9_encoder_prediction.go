@@ -395,14 +395,6 @@ func vp9PredictionSSEClamped(src []byte, srcStride, srcW, srcH int,
 	return score
 }
 
-func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
-	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
-	out []int16, lossless bool, useFastQuant bool,
-) bool {
-	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, txType, dequant,
-		qindex, out, nil, lossless, useFastQuant)
-}
-
 // quantizeVP9TxResidualWithQ mirrors quantizeVP9TxResidual and additionally
 // emits the signed quantized coefficients into qOut when non-nil. libvpx's
 // cost_coeffs (vp9_rdopt.c:367,392,405,438) reads qcoeff directly so

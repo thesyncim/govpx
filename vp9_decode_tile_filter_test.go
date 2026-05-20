@@ -40,53 +40,55 @@ func TestVP9DecoderRejectsOutOfRangeDecodeTileFilters(t *testing.T) {
 	}
 }
 
-func TestVP9DecoderSetDecodeTileRowAcceptsNegativeAsClear(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
+func TestVP9DecoderSetDecodeTileAcceptsNegativeAsClear(t *testing.T) {
+	cases := []struct {
+		name      string
+		set       func(*VP9Decoder, int) error
+		got       func(*VP9Decoder) (bool, int)
+		value     int
+		clear     int
+		fieldName string
+	}{
+		{
+			name:      "row",
+			set:       (*VP9Decoder).SetDecodeTileRow,
+			got:       func(d *VP9Decoder) (bool, int) { return d.opts.DecodeTileRowSet, d.opts.DecodeTileRow },
+			value:     3,
+			clear:     -1,
+			fieldName: "DecodeTileRow",
+		},
+		{
+			name:      "col",
+			set:       (*VP9Decoder).SetDecodeTileCol,
+			got:       func(d *VP9Decoder) (bool, int) { return d.opts.DecodeTileColSet, d.opts.DecodeTileCol },
+			value:     2,
+			clear:     -7,
+			fieldName: "DecodeTileCol",
+		},
 	}
-	defer d.Close()
-	if err := d.SetDecodeTileRow(3); err != nil {
-		t.Fatalf("SetDecodeTileRow(3): %v", err)
-	}
-	if !d.opts.DecodeTileRowSet || d.opts.DecodeTileRow != 3 {
-		t.Fatalf("DecodeTileRowSet=%v DecodeTileRow=%d, want true/3",
-			d.opts.DecodeTileRowSet, d.opts.DecodeTileRow)
-	}
-	if err := d.SetDecodeTileRow(-1); err != nil {
-		t.Fatalf("SetDecodeTileRow(-1): %v", err)
-	}
-	if d.opts.DecodeTileRowSet || d.opts.DecodeTileRow != 0 {
-		t.Fatalf("DecodeTileRowSet=%v DecodeTileRow=%d, want false/0",
-			d.opts.DecodeTileRowSet, d.opts.DecodeTileRow)
-	}
-	if err := d.SetDecodeTileRow(vp9DecoderMaxTileFilter + 1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetDecodeTileRow oversize err = %v, want ErrInvalidConfig", err)
-	}
-}
-
-func TestVP9DecoderSetDecodeTileColAcceptsNegativeAsClear(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	defer d.Close()
-	if err := d.SetDecodeTileCol(2); err != nil {
-		t.Fatalf("SetDecodeTileCol(2): %v", err)
-	}
-	if !d.opts.DecodeTileColSet || d.opts.DecodeTileCol != 2 {
-		t.Fatalf("DecodeTileColSet=%v DecodeTileCol=%d, want true/2",
-			d.opts.DecodeTileColSet, d.opts.DecodeTileCol)
-	}
-	if err := d.SetDecodeTileCol(-7); err != nil {
-		t.Fatalf("SetDecodeTileCol(-7): %v", err)
-	}
-	if d.opts.DecodeTileColSet || d.opts.DecodeTileCol != 0 {
-		t.Fatalf("DecodeTileColSet=%v DecodeTileCol=%d, want false/0",
-			d.opts.DecodeTileColSet, d.opts.DecodeTileCol)
-	}
-	if err := d.SetDecodeTileCol(vp9DecoderMaxTileFilter + 1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetDecodeTileCol oversize err = %v, want ErrInvalidConfig", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := NewVP9Decoder(VP9DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP9Decoder: %v", err)
+			}
+			defer d.Close()
+			if err := tc.set(d, tc.value); err != nil {
+				t.Fatalf("set(%d): %v", tc.value, err)
+			}
+			if ok, got := tc.got(d); !ok || got != tc.value {
+				t.Fatalf("%s set/value = %v/%d, want true/%d", tc.fieldName, ok, got, tc.value)
+			}
+			if err := tc.set(d, tc.clear); err != nil {
+				t.Fatalf("set(%d): %v", tc.clear, err)
+			}
+			if ok, got := tc.got(d); ok || got != 0 {
+				t.Fatalf("%s set/value = %v/%d, want false/0", tc.fieldName, ok, got)
+			}
+			if err := tc.set(d, vp9DecoderMaxTileFilter+1); !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("oversize err = %v, want ErrInvalidConfig", err)
+			}
+		})
 	}
 }
 

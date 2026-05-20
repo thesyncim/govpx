@@ -664,10 +664,6 @@ func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
 	rc.baselineGFInterval = uint8((minInterval + maxInterval) >> 1)
 }
 
-func (rc *vp9RateControlState) beginFrame(isKey bool, frameIndex int) {
-	rc.beginFrameWithRefresh(isKey, frameIndex, 0)
-}
-
 // beginFrameWithRefresh is the beginFrame variant that lets CBR mode apply
 // the libvpx VP9 GF CBR boost on golden-frame refreshes. Non-CBR modes route
 // through setOnePassVBRFrameTarget which already understands refresh flags.
@@ -684,11 +680,6 @@ func (rc *vp9RateControlState) beginFrameWithRefresh(isKey bool, frameIndex int,
 		return
 	}
 	rc.frameTargetBits = rc.interFrameTargetBits()
-}
-
-func (rc *vp9RateControlState) shouldDropInterFrame() bool {
-	_, drop := rc.testDropInterFrame()
-	return drop
 }
 
 func (rc *vp9RateControlState) preEncodeFrame(showFrame bool) {

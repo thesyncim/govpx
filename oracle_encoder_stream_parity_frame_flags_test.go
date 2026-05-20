@@ -654,21 +654,6 @@ func forceKeyAPIEncodeFlags(flags []EncodeFlags) []EncodeFlags {
 	return out
 }
 
-func encodeFramesWithGovpxForceKeySchedule(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool) [][]byte {
-	t.Helper()
-	return encodeFramesWithGovpxForceKeyScheduleAndSetup(t, opts, sources, forceFrames, nil)
-}
-
-func encodeFramesWithGovpxForceKeyScheduleAndSetup(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, setup func(*testing.T, *VP8Encoder)) [][]byte {
-	t.Helper()
-	return encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t, opts, sources, forceFrames, nil, setup)
-}
-
-func encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, flags []EncodeFlags, setup func(*testing.T, *VP8Encoder)) [][]byte {
-	t.Helper()
-	return encodeFramesWithGovpxForceKeyScheduleFlagsSetupAndApply(t, opts, sources, forceFrames, flags, setup, nil)
-}
-
 func encodeFramesWithGovpxForceKeyScheduleFlagsSetupAndApply(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, flags []EncodeFlags, setup func(*testing.T, *VP8Encoder), apply map[int]func(*testing.T, *VP8Encoder)) [][]byte {
 	t.Helper()
 	enc, err := NewVP8Encoder(opts)

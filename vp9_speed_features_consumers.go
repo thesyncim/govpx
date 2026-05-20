@@ -258,39 +258,3 @@ func (e *VP9Encoder) vp9InterSkipFilterSearch(srcVariance uint) bool {
 	}
 	return srcVariance < e.sf.DisableFilterSearchVarThresh
 }
-
-// vp9InterAllowTxfmDomainDistortion returns true when SPEED_FEATURES.allow_txfm_domain_distortion
-// is set and the candidate RDCOST exceeds the per-SF threshold.  libvpx's
-// gate fires inside dist_block (vp9_rdopt.c) to short-circuit the iDCT
-// when the coefficient-domain distortion already dominates the pixel
-// domain.  govpx defers the actual iDCT-skip until the consumer wires it
-// inside scoreVP9KeyframeModeTransformRD; the helper here is the policy
-// gate.
-//
-// libvpx: vp9/encoder/vp9_rdopt.c (block_rd_txfm) +
-// vp9_speed_features.c — sf->allow_txfm_domain_distortion +
-// sf->tx_domain_thresh.
-func (e *VP9Encoder) vp9InterAllowTxfmDomainDistortion(rdcost uint64) bool {
-	if e == nil || e.sf.AllowTxfmDomainDistortion == 0 {
-		return false
-	}
-	thresh := e.sf.TxDomainThresh
-	if thresh <= 0 {
-		return true
-	}
-	return float64(rdcost) > thresh
-}
-
-// vp9InterAllowSkipTxfmAcDc returns true when SPEED_FEATURES.allow_skip_txfm_ac_dc
-// permits the transform pipeline to short-circuit the AC/DC pass when the
-// SATD-based rdcost already exceeds the best-so-far.  Mirrors the libvpx
-// gate read in dist_block.
-//
-// libvpx: vp9/encoder/vp9_rdopt.c block_yrd /
-// vp9_speed_features.h::SPEED_FEATURES::allow_skip_txfm_ac_dc.
-func (e *VP9Encoder) vp9InterAllowSkipTxfmAcDc() bool {
-	if e == nil {
-		return false
-	}
-	return e.sf.AllowSkipTxfmAcDc != 0
-}

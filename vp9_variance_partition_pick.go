@@ -662,9 +662,3 @@ func vp9VarianceLowBlockSizeAt(a vp9ChoosePartitioningArgs, miRow, miCol int) co
 	}
 	return a.MiGrid[off].SbType
 }
-
-// vp9ChoosePartitioningSBStride is the per-SB stride into the MI grid
-// (in 8x8 units). libvpx uses cm->mi_stride; govpx flattens to miCols.
-//
-// Exposed for use in tests and the per-SB cache layer.
-func vp9ChoosePartitioningSBStride(miCols int) int { return miCols }

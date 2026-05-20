@@ -4,51 +4,49 @@ import (
 	"testing"
 )
 
-func TestVP9SetFramePeriodicBoostAppliesValue(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              64,
-		Height:             64,
-		FPS:                30,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlCBR,
-		TargetBitrateKbps:  600,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+func TestVP9EncoderRuntimeBoostControlsApplyValue(t *testing.T) {
+	cases := []struct {
+		name string
+		mode RateControlMode
+		set  func(*VP9Encoder, bool) error
+		got  func(*VP9Encoder) (bool, bool)
+	}{
+		{
+			name: "frame periodic boost",
+			mode: RateControlCBR,
+			set:  (*VP9Encoder).SetFramePeriodicBoost,
+			got:  func(e *VP9Encoder) (bool, bool) { return e.opts.FramePeriodicBoost, e.rc.framePeriodicBoost },
+		},
+		{
+			name: "alt ref aq",
+			mode: RateControlVBR,
+			set:  (*VP9Encoder).SetAltRefAQ,
+			got:  func(e *VP9Encoder) (bool, bool) { return e.opts.AltRefAQ, e.rc.altRefAQ },
+		},
 	}
-	if e.opts.FramePeriodicBoost || e.rc.framePeriodicBoost {
-		t.Fatalf("FramePeriodicBoost default = true, want false")
-	}
-	if err := e.SetFramePeriodicBoost(true); err != nil {
-		t.Fatalf("SetFramePeriodicBoost: %v", err)
-	}
-	if !e.opts.FramePeriodicBoost || !e.rc.framePeriodicBoost {
-		t.Fatalf("opts=%v rc=%v, want both true",
-			e.opts.FramePeriodicBoost, e.rc.framePeriodicBoost)
-	}
-}
-
-func TestVP9SetAltRefAQAppliesValue(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              64,
-		Height:             64,
-		FPS:                30,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlVBR,
-		TargetBitrateKbps:  600,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if e.opts.AltRefAQ || e.rc.altRefAQ {
-		t.Fatalf("AltRefAQ default = true, want false")
-	}
-	if err := e.SetAltRefAQ(true); err != nil {
-		t.Fatalf("SetAltRefAQ: %v", err)
-	}
-	if !e.opts.AltRefAQ || !e.rc.altRefAQ {
-		t.Fatalf("opts=%v rc=%v, want both true",
-			e.opts.AltRefAQ, e.rc.altRefAQ)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, err := NewVP9Encoder(VP9EncoderOptions{
+				Width:              64,
+				Height:             64,
+				FPS:                30,
+				RateControlModeSet: true,
+				RateControlMode:    tc.mode,
+				TargetBitrateKbps:  600,
+			})
+			if err != nil {
+				t.Fatalf("NewVP9Encoder: %v", err)
+			}
+			if opt, rc := tc.got(e); opt || rc {
+				t.Fatalf("default opts/rc = %v/%v, want false/false", opt, rc)
+			}
+			if err := tc.set(e, true); err != nil {
+				t.Fatalf("set(true): %v", err)
+			}
+			if opt, rc := tc.got(e); !opt || !rc {
+				t.Fatalf("opts/rc = %v/%v, want true/true", opt, rc)
+			}
+		})
 	}
 }
 

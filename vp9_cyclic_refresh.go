@@ -1,11 +1,6 @@
 package govpx
 
-import (
-	"math"
-
-	"github.com/thesyncim/govpx/internal/vp9/common"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-)
+import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 
 // CYCLIC_REFRESH_AQ — verbatim port of libvpx v1.16.0
 // vp9/encoder/vp9_aq_cyclicrefresh.{c,h}. The state machine maintains
@@ -267,40 +262,6 @@ func vp9CyclicRefreshComputeQDeltaByRate(qindex int, rateTargetRatio float64, in
 		}
 	}
 	return targetIndex - qindex
-}
-
-// vp9CyclicRefreshEstimateBitsAtQ mirrors
-// vp9_cyclic_refresh_estimate_bits_at_q() from vp9_aq_cyclicrefresh.c:105-130.
-// Used by rc post-encode rate-correction; takes the segment-weighted
-// average of vp9_estimate_bits_at_q across BASE / BOOST1 / BOOST2.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshEstimateBitsAtQ(intraFrame bool, baseQindex int, macroblocks int, correctionFactor float64) int {
-	num8x8bl := macroblocks << 2
-	if num8x8bl <= 0 {
-		return 0
-	}
-	w1 := float64(cr.actualNumSeg1Blocks) / float64(num8x8bl)
-	w2 := float64(cr.actualNumSeg2Blocks) / float64(num8x8bl)
-	base := float64(vp9EstimatedBitsAtQ(intraFrame, baseQindex, macroblocks, correctionFactor))
-	b1 := float64(vp9EstimatedBitsAtQ(intraFrame, clamp(baseQindex+cr.qindexDelta[1], 0, vp9dec.MaxQ), macroblocks, correctionFactor))
-	b2 := float64(vp9EstimatedBitsAtQ(intraFrame, clamp(baseQindex+cr.qindexDelta[2], 0, vp9dec.MaxQ), macroblocks, correctionFactor))
-	return int(math.Round((1.0-w1-w2)*base + w1*b1 + w2*b2))
-}
-
-// vp9CyclicRefreshRCBitsPerMB mirrors
-// vp9_cyclic_refresh_rc_bits_per_mb() from vp9_aq_cyclicrefresh.c:137-156.
-// Used by rc_regulate_q() to choose the base qindex.
-func (cr *vp9CyclicRefreshState) vp9CyclicRefreshRCBitsPerMB(intraFrame bool, i int, correctionFactor float64, speed int) int {
-	var deltaq int
-	if speed < 8 {
-		// libvpx: vp9_aq_cyclicrefresh.c:144.
-		deltaq = cr.vp9CyclicRefreshComputeDeltaq(i, cr.rateRatioQdelta, intraFrame)
-	} else {
-		// libvpx: vp9_aq_cyclicrefresh.c:146.
-		deltaq = -(cr.maxQdeltaPerc * i) / 200
-	}
-	base := float64(vp9RCBitsPerMB(intraFrame, i, correctionFactor))
-	boost := float64(vp9RCBitsPerMB(intraFrame, i+deltaq, correctionFactor))
-	return int(math.Round((1.0-cr.weightSegment)*base + cr.weightSegment*boost))
 }
 
 // vp9CyclicRefreshUpdateMap mirrors cyclic_refresh_update_map() from
@@ -754,35 +715,6 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshLimitQ(q1Frame int, q *int) {
 	if cr.percentRefresh > 0 && q1Frame-*q > 8 {
 		*q = q1Frame - 8
 	}
-}
-
-// candidateRefreshAq mirrors candidate_refresh_aq() from
-// vp9_aq_cyclicrefresh.c:67-87. Decides the per-block target segment
-// based on rate / dist / mv / inter-state.
-func (cr *vp9CyclicRefreshState) candidateRefreshAq(args vp9CyclicRefreshCandidateArgs) int {
-	mvRow := args.MvRow
-	mvCol := args.MvCol
-	if args.Dist > cr.threshDistSb &&
-		(mvRow > cr.motionThresh || mvRow < -cr.motionThresh ||
-			mvCol > cr.motionThresh || mvCol < -cr.motionThresh ||
-			!args.IsInter) {
-		return vp9CyclicRefreshSegmentBase
-	}
-	// libvpx: vp9_aq_cyclicrefresh.c:80-84.
-	if args.Bsize >= int(common.Block16x16) && args.Rate < cr.threshRateSb &&
-		args.IsInter && mvRow == 0 && mvCol == 0 && cr.rateBoostFac > 10 {
-		return vp9CyclicRefreshSegmentBoost2
-	}
-	return vp9CyclicRefreshSegmentBoost1
-}
-
-type vp9CyclicRefreshCandidateArgs struct {
-	Rate    int64
-	Dist    int64
-	Bsize   int
-	IsInter bool
-	MvRow   int16
-	MvCol   int16
 }
 
 // vp9CyclicRefreshUpdateSegmentPostencode mirrors

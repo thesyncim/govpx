@@ -686,15 +686,6 @@ func isVP9IVFTestData(t *testing.T, path string) bool {
 	return true
 }
 
-func decodeVP9IVFVisibleI420ForTest(t *testing.T, ivf []byte) []byte {
-	t.Helper()
-	out, err := decodeVP9IVFVisibleI420(ivf)
-	if err != nil {
-		t.Fatalf("decodeVP9IVFVisibleI420 returned error: %v", err)
-	}
-	return out
-}
-
 func decodeVP9IVFVisibleI420(ivf []byte) ([]byte, error) {
 	return decodeVP9IVFVisibleI420WithOptions(ivf, VP9DecoderOptions{})
 }

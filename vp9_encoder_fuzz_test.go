@@ -156,14 +156,6 @@ func (r *vp9FuzzByteReader) nextU16() uint16 {
 	return binary.LittleEndian.Uint16([]byte{lo, hi})
 }
 
-func (r *vp9FuzzByteReader) nextU32() uint32 {
-	b0 := r.next()
-	b1 := r.next()
-	b2 := r.next()
-	b3 := r.next()
-	return binary.LittleEndian.Uint32([]byte{b0, b1, b2, b3})
-}
-
 // vp9EncoderOptionsFromFuzz pulls a structured VP9EncoderOptions value out of
 // fuzz bytes. The mapping is intentionally bounded so the validator path is
 // reachable for almost every input.

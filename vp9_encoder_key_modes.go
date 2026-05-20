@@ -1595,25 +1595,6 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 	return rate, distortion, skippable, true
 }
 
-func (e *VP9Encoder) scoreVP9KeyframeUvPrediction(key *vp9KeyframeEncodeState,
-	mode common.PredictionMode, rate, qindex int, tile vp9dec.TileBounds,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mi *vp9dec.NeighborMi,
-) (uint64, bool) {
-	var distortion uint64
-	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
-		pd := &e.planes[plane]
-		txSize := vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
-		score, ok := e.scoreVP9KeyframePlanePrediction(key, pd, mode, plane,
-			txSize, tile, miRows, miCols, miRow, miCol, bsize)
-		if !ok {
-			return 0, false
-		}
-		distortion += score
-	}
-	return e.vp9ModeDecisionScore(distortion, rate, qindex), true
-}
-
 func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode,
 	plane int, txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
@@ -2018,16 +1999,6 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostQ(txSize common.TxSize,
 	scanOrder := common.GetScan(txSize, 0, 0, lossless, mode)
 	return e.vp9KeyframeCoeffBlockRateCostPlaneQ(txSize, 0, scanOrder,
 		dequant, coeffs, qcoeffs, initCtx)
-}
-
-// vp9KeyframeUvCoeffBlockRateCost is the chroma sibling of
-// vp9KeyframeCoeffBlockRateCost. libvpx (vp9_rdopt.c:369) indexes
-// x->token_costs[tx_size][PLANE_TYPE_UV=1][is_inter=0] for chroma intra
-// blocks; mirror by passing planeType=1 to the shared walker.
-func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCost(txSize common.TxSize,
-	dequant [2]int16, coeffs []int16, initCtx int,
-) int {
-	return e.vp9KeyframeUvCoeffBlockRateCostQ(txSize, dequant, coeffs, nil, initCtx)
 }
 
 // vp9KeyframeUvCoeffBlockRateCostQ is the qcoeff-emitting sibling of

@@ -966,13 +966,6 @@ func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
 	return distortion, true
 }
 
-func (e *VP9Encoder) vp9InterCoeffBlockRateCost(txSize common.TxSize,
-	planeType int, dequant [2]int16, coeffs []int16, initCtx int,
-) int {
-	return e.vp9InterCoeffBlockRateCostQ(txSize, planeType, dequant, coeffs,
-		nil, initCtx)
-}
-
 // vp9InterCoeffBlockRateCostQ mirrors libvpx's cost_coeffs is_inter=1
 // path (vp9_rdopt.c:358-459). When qcoeffs is non-nil the per-coefficient
 // magnitude is read directly from qcoeffs[raster] — see
@@ -1005,10 +998,6 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 		initCtx, eob)
 }
 
-func vp9CoeffTokenAbsVal(absCoeff, dqv int16, tx32 bool) int {
-	return vp9CoeffTokenAbsValInt(int(absCoeff), int(dqv), tx32)
-}
-
 func vp9CoeffTokenAbsValInt(absCoeff, dqv int, tx32 bool) int {
 	num := absCoeff
 	den := dqv
@@ -1028,10 +1017,9 @@ func vp9CoeffTokenAbsValInt(absCoeff, dqv int, tx32 bool) int {
 // value written by the quantize kernels (vpx_dsp/quantize.c:71-72,261;
 // vp9/encoder/vp9_quantize.c:50,116). When the quantize kernel has
 // already populated qcoeffs[] (via QuantizeB*WithQ / QuantizeFP*WithQ)
-// govpx consumes that value directly; the legacy
-// vp9CoeffTokenAbsVal(dqcoeff, dq, tx32) recovery is retained as the
-// nil-qcoeffs fallback for legacy callers and to confirm parity in unit
-// tests, but drifts whenever dqcoeff = q*dq (or q*dq/2 for Tx32x32) is
+// govpx consumes that value directly. The nil-qcoeffs fallback derives the
+// magnitude from the dequantized coefficient for older internal call shapes,
+// but it can drift whenever dqcoeff = q*dq (or q*dq/2 for Tx32x32) is
 // truncated by the int16 cast in the quantize kernel.
 func vp9KeyframeCoeffMagnitude(qcoeffs []int16, raster int, absDqcoeff, dqv int16,
 	tx32 bool,
@@ -1043,7 +1031,7 @@ func vp9KeyframeCoeffMagnitude(qcoeffs []int16, raster int, absDqcoeff, dqv int1
 		}
 		return q
 	}
-	return vp9CoeffTokenAbsVal(absDqcoeff, dqv, tx32)
+	return vp9CoeffTokenAbsValInt(int(absDqcoeff), int(dqv), tx32)
 }
 
 func vp9CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
