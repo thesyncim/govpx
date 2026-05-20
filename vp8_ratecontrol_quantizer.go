@@ -298,7 +298,7 @@ func (rc *rateControlState) libvpxActiveWorstQuantizerForFrame(keyFrame bool) in
 	// bits_off_target) as critical_buffer_level instead of just
 	// bits_off_target) do not affect this port because govpx tracks
 	// `bufferLevelBits` as the bits_off_target equivalent (see
-	// ratecontrol_postencode.go:566). Keep the CBR-only adjustment in
+	// vp8_ratecontrol_postencode.go:566). Keep the CBR-only adjustment in
 	// libvpxCBRFullBufferActiveWorst, but the base formula must run for
 	// both modes — otherwise VBR encoders return maxQuantizer here even
 	// when libvpx is locked to ni_av_qi, and the regulator's worst-Q

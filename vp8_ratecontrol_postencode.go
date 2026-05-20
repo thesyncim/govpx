@@ -261,7 +261,7 @@ func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int, er
 // (vp8/encoder/onyx_if.c:4761, after `vp8_adjust_key_frame_context` has
 // already run inside the encode_frame_to_data_rate body). govpx's
 // `framesSinceKeyframe` mirrors libvpx's `frames_since_key` but only
-// increments on inter frames (ratecontrol_postencode.go line 100) — KFs
+// increments on inter frames (vp8_ratecontrol_postencode.go line 100) — KFs
 // reset to 0 without a following increment. The result is that at
 // estimate-time the libvpx counter is one ahead of the govpx counter for
 // the same prior-KF distance: libvpx records the KF-to-KF *frame* distance

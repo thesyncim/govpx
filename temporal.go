@@ -132,7 +132,7 @@ type temporalLayerCodingState struct {
 
 	// BufferLevelBits mirrors LAYER_CONTEXT.buffer_level / bits_off_target.
 	// govpx folds the two libvpx fields into a single rc.bufferLevelBits
-	// (see ratecontrol_postencode.go); libvpx itself keeps buffer_level
+	// (see vp8_ratecontrol_postencode.go); libvpx itself keeps buffer_level
 	// per-layer so the per-layer regulator sees its layer's drain history,
 	// not the trailing layer's. Without this snapshot the next L0 frame
 	// observes a buffer that has been drained by all the L1/L2 frames
@@ -151,7 +151,7 @@ type temporalLayerCodingState struct {
 
 	// TotalActualBits mirrors LAYER_CONTEXT.total_actual_bits. Used by
 	// the percent_low buffer-aware shrink branch
-	// (ratecontrol_util.go: 100 * -bufferLevelBits / totalActualBits).
+	// (vp8_ratecontrol_util.go: 100 * -bufferLevelBits / totalActualBits).
 	TotalActualBits int64
 
 	// Rate-correction factors mirror LAYER_CONTEXT.rate_correction_factor,

@@ -15,7 +15,8 @@ git_cmd=${GIT:-git}
 		/^internal\/vp8\// { print; next }
 		/^vp8_encoder/ { print; next }
 		/^vp8_decoder/ { print; next }
-		/^ratecontrol/ { print; next }
+		$0 == "ratecontrol.go" { print; next }
+		/^vp8_ratecontrol/ { print; next }
 		$0 == "temporal.go" { print; next }
 		$0 == "codec.go" { print; next }
 		$0 == "errors.go" { print; next }

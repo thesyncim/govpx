@@ -748,7 +748,7 @@ func TestActiveBestQuantizerForcedKeyFramePass2Clamp(t *testing.T) {
 		thisKeyFrameForced:        true,
 	}
 	activeBest, _ := rc.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-	// kf_high_motion_minq[60] == 6 from ratecontrol_tables.go, well below
+	// kf_high_motion_minq[60] == 6 from vp8_ratecontrol_tables.go, well below
 	// avg_frame_qindex>>2 == 80>>2 == 20. Expect lift to 20.
 	if activeBest != 20 {
 		t.Fatalf("forced-key pass2 KF active_best = %d, want lift to avg>>2 = 20", activeBest)
@@ -768,7 +768,7 @@ func TestActiveBestQuantizerForcedKeyFramePass2Clamp(t *testing.T) {
 		thisKeyFrameForced:        true,
 	}
 	activeBest2, _ := rc2.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-	// kf_high_motion_minq[127] == 30 from ratecontrol_tables.go, above
+	// kf_high_motion_minq[127] == 30 from vp8_ratecontrol_tables.go, above
 	// avg_frame_qindex*7/8 == 24*7/8 == 21. Expect clamp down to 21.
 	if activeBest2 != 21 {
 		t.Fatalf("forced-key pass2 KF active_best = %d, want clamp to avg*7/8 = 21", activeBest2)
@@ -816,7 +816,7 @@ func TestActiveBestQuantizerPass2CQGoldenFrame15Over16Lowering(t *testing.T) {
 	activeBest, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
 	// q is min(active_worst=80, avg_frame_qindex=60) = 60. cqFloor:
 	// q=60 already above cqLevel=30, so no lift. Then
-	// gf_high_motion_minq[60] = 23 from ratecontrol_tables.go (row
+	// gf_high_motion_minq[60] = 23 from vp8_ratecontrol_tables.go (row
 	// 48-63: 17,17,18,18,19,19,20,20,21,21,22,22,23,23,24,24).
 	// 15/16 lowering: 23 * 15 / 16 = 21.
 	wantActiveBest := libvpxGoldenFrameHighMotionMinQ[60] * 15 / 16

@@ -400,7 +400,7 @@ func TestRateControlAltRefPacketAccumulatesFullPostPackOverspend(t *testing.T) {
 	// accumulates the full hidden-frame packet size. Hidden-ARF mode
 	// requires autoAltRef=true (libvpx oxcf.play_alternate); without it
 	// libvpx's update_alt_ref_frame_stats does not run and govpx mirrors
-	// that gate (see ratecontrol_postencode.go).
+	// that gate (see vp8_ratecontrol_postencode.go).
 	rc.postEncodeFrameWithPacketContext(500, rateControlPostEncodeContext{
 		altRefFrame: true,
 		autoAltRef:  true,

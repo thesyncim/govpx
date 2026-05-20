@@ -46,7 +46,7 @@ import (
 //     AdaptiveKeyFrames=true govpx's existing decide_key_frame port
 //     (vp8_encoder_entropy_savings.go libvpxDecideKeyFrame) and the
 //     estimate_keyframe_frequency auto_key clamp at
-//     ratecontrol_postencode.go:282 (mirroring libvpx
+//     vp8_ratecontrol_postencode.go:282 (mirroring libvpx
 //     vp8/encoder/ratectrl.c:1321) line up byte-for-byte with libvpx
 //     across all 256 frames of the seed. Promoted to fuzz seed (no
 //     longer skipped).

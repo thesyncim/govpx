@@ -1001,7 +1001,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-sharpness7", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
 		// splitmv-96x96 + error-resilient byte-matches in full once the
 		// libvpx-side `vp8_adjust_key_frame_context` non_gf_bitrate_adjustment
-		// gate is mirrored (see ratecontrol_postencode.go). Before that fix
+		// gate is mirrored (see vp8_ratecontrol_postencode.go). Before that fix
 		// govpx drained gf_overspend_bits one frame faster than libvpx, which
 		// biased frame-2's vp8_regulate_q one Q step high (12 vs 11) and
 		// cascaded into intra coefficient eob_sum mismatches across the

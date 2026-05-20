@@ -1131,9 +1131,9 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// (onyx_if.c:509-528), buffer-debt floor (onyx_if.c:4533), and the
 	// limit_q_cbr_inter Q-decrease floor (ratectrl.c:1297-1300) — are
 	// all faithfully ported (vp8_encoder_reconstruct.go:62-73,
-	// vp8_encoder_segmentation.go:502-521, ratecontrol_postencode.go:318-323,
-	// ratecontrol_postencode.go:313-316 + ratecontrol_quantizer.go:65-66
-	// + ratecontrol_recode.go:201). All four sites fire in govpx with the
+	// vp8_encoder_segmentation.go:502-521, vp8_ratecontrol_postencode.go:318-323,
+	// vp8_ratecontrol_postencode.go:313-316 + vp8_ratecontrol_quantizer.go:65-66
+	// + vp8_ratecontrol_recode.go:201). All four sites fire in govpx with the
 	// same gating libvpx uses, so the residual gap is NOT a missing port.
 	//
 	// The actual driver of the +36% rate gap surfaced via per-frame
