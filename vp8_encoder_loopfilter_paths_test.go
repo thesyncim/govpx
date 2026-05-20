@@ -651,6 +651,54 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 	}
 }
 
+func TestLoopFilterTrialLumaSSEStatsMatchesNoStatsPath(t *testing.T) {
+	const width, height = 64, 64
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	required := rows * cols
+
+	src := testImage(width, height)
+	for r := range height {
+		for c := range width {
+			src.Y[r*src.YStride+c] = byte(48 + (r*3+c*13)%144)
+			src.U[(r/2)*src.UStride+(c/2)] = 128
+			src.V[(r/2)*src.VStride+(c/2)] = 128
+		}
+	}
+
+	e := newSizedTestEncoder(t, width, height)
+	for r := 0; r < e.analysis.Img.CodedHeight; r++ {
+		for c := 0; c < e.analysis.Img.CodedWidth; c++ {
+			e.analysis.Img.Y[r*e.analysis.Img.YStride+c] = byte(64 + (r*5+c*7)%128)
+		}
+	}
+	for i := range e.analysis.Img.U {
+		e.analysis.Img.U[i] = 128
+	}
+	for i := range e.analysis.Img.V {
+		e.analysis.Img.V[i] = 128
+	}
+	for i := range required {
+		e.reconstructModes[i] = vp8dec.MacroblockMode{
+			Mode:     vp8common.DCPred,
+			UVMode:   vp8common.DCPred,
+			RefFrame: vp8common.LastFrame,
+		}
+	}
+
+	ctx := e.newLoopFilterPickContext(sourceImageFromPublic(src), vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
+	var stats EncoderPhaseStats
+	if got, want := ctx.trialLumaSSEPartialStats(24, &stats), ctx.trialLumaSSEPartial(24); got != want {
+		t.Fatalf("partial stats SSE = %d, no-stats SSE = %d", got, want)
+	}
+	if got, want := ctx.trialLumaSSEFullStats(24, &stats), ctx.trialLumaSSEFull(24); got != want {
+		t.Fatalf("full stats SSE = %d, no-stats SSE = %d", got, want)
+	}
+	if stats.LoopFilterTrials != 2 {
+		t.Fatalf("LoopFilterTrials = %d, want 2", stats.LoopFilterTrials)
+	}
+}
+
 func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	const width, height = 64, 128
 	rows := (height + 15) / 16

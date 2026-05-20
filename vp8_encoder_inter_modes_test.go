@@ -135,16 +135,30 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 	srcImg := sourceImageFromPublic(src)
 	ctx := e.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
 
-	b.Run("partial", func(b *testing.B) {
+	b.Run("partial_no_stats", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			ctx.trialLumaSSE(24, true)
+			ctx.trialLumaSSEPartial(24)
 		}
 	})
-	b.Run("full", func(b *testing.B) {
+	b.Run("partial_stats", func(b *testing.B) {
+		var stats EncoderPhaseStats
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			ctx.trialLumaSSE(24, false)
+			ctx.trialLumaSSEPartialStats(24, &stats)
+		}
+	})
+	b.Run("full_no_stats", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			ctx.trialLumaSSEFull(24)
+		}
+	})
+	b.Run("full_stats", func(b *testing.B) {
+		var stats EncoderPhaseStats
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			ctx.trialLumaSSEFullStats(24, &stats)
 		}
 	})
 }

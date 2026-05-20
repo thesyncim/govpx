@@ -269,14 +269,27 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
 	ssErr := [vp8common.MaxLoopFilter + 1]int{}
 	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
-	score := func(level int) int {
-		if ssSet[level] {
-			return ssErr[level]
+	var score func(level int) int
+	if stats := e.opts.PhaseStats; stats != nil {
+		score = func(level int) int {
+			if ssSet[level] {
+				return ssErr[level]
+			}
+			err := ctx.trialLumaSSEPartialStats(level, stats)
+			ssErr[level] = err
+			ssSet[level] = true
+			return err
 		}
-		err := ctx.trialLumaSSE(level, true)
-		ssErr[level] = err
-		ssSet[level] = true
-		return err
+	} else {
+		score = func(level int) int {
+			if ssSet[level] {
+				return ssErr[level]
+			}
+			err := ctx.trialLumaSSEPartial(level)
+			ssErr[level] = err
+			ssSet[level] = true
+			return err
+		}
 	}
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
@@ -349,7 +362,7 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 		if ssSet[level] {
 			return ssErr[level]
 		}
-		trialErr := ctx.trialLumaSSE(level, false)
+		trialErr := ctx.trialLumaSSEFull(level)
 		ssErr[level] = trialErr
 		ssSet[level] = true
 		if level != 0 {
@@ -359,6 +372,23 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 			e.emitOracleLFTrial("full", level, trialErr)
 		}
 		return trialErr
+	}
+	if stats := e.opts.PhaseStats; stats != nil {
+		score = func(level int) int {
+			if ssSet[level] {
+				return ssErr[level]
+			}
+			trialErr := ctx.trialLumaSSEFullStats(level, stats)
+			ssErr[level] = trialErr
+			ssSet[level] = true
+			if level != 0 {
+				residentLevel = level
+			}
+			if traceEnabled {
+				e.emitOracleLFTrial("full", level, trialErr)
+			}
+			return trialErr
+		}
 	}
 
 	bestErr := score(filtMid)
@@ -524,40 +554,61 @@ func (ctx *loopFilterPickContext) trialLumaSSE(level int, partial bool) int {
 	e := ctx.encoder
 	stats := e.opts.PhaseStats
 	if partial {
-		startRow, rowCount := loopFilterPartialFrameWindow(ctx.rows)
 		if stats != nil {
-			stats.LoopFilterTrials++
-			phase := nanotime()
-			copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
-			stats.LoopFilterTrialCopyNS += nanotime() - phase
-			phase = nanotime()
-			vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fastFrameConfig, &e.loopInfo, startRow, rowCount)
-			stats.LoopFilterTrialFilterNS += nanotime() - phase
-			phase = nanotime()
-			err := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, true)
-			stats.LoopFilterTrialSSENS += nanotime() - phase
-			return err
+			return ctx.trialLumaSSEPartialStats(level, stats)
 		}
-		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
-		vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fastFrameConfig, &e.loopInfo, startRow, rowCount)
-		return loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, true)
+		return ctx.trialLumaSSEPartial(level)
 	}
 	if stats != nil {
-		stats.LoopFilterTrials++
-		phase := nanotime()
-		copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
-		stats.LoopFilterTrialCopyNS += nanotime() - phase
-		phase = nanotime()
-		vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)
-		stats.LoopFilterTrialFilterNS += nanotime() - phase
-		phase = nanotime()
-		err := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
-		stats.LoopFilterTrialSSENS += nanotime() - phase
-		return err
+		return ctx.trialLumaSSEFullStats(level, stats)
 	}
+	return ctx.trialLumaSSEFull(level)
+}
+
+func (ctx *loopFilterPickContext) trialLumaSSEPartial(level int) int {
+	e := ctx.encoder
+	startRow, rowCount := loopFilterPartialFrameWindow(ctx.rows)
+	copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
+	vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fastFrameConfig, &e.loopInfo, startRow, rowCount)
+	return loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, true)
+}
+
+func (ctx *loopFilterPickContext) trialLumaSSEPartialStats(level int, stats *EncoderPhaseStats) int {
+	e := ctx.encoder
+	startRow, rowCount := loopFilterPartialFrameWindow(ctx.rows)
+	stats.LoopFilterTrials++
+	phase := nanotime()
+	copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
+	stats.LoopFilterTrialCopyNS += nanotime() - phase
+	phase = nanotime()
+	vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fastFrameConfig, &e.loopInfo, startRow, rowCount)
+	stats.LoopFilterTrialFilterNS += nanotime() - phase
+	phase = nanotime()
+	err := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, true)
+	stats.LoopFilterTrialSSENS += nanotime() - phase
+	return err
+}
+
+func (ctx *loopFilterPickContext) trialLumaSSEFull(level int) int {
+	e := ctx.encoder
 	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)
 	return loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
+}
+
+func (ctx *loopFilterPickContext) trialLumaSSEFullStats(level int, stats *EncoderPhaseStats) int {
+	e := ctx.encoder
+	stats.LoopFilterTrials++
+	phase := nanotime()
+	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
+	stats.LoopFilterTrialCopyNS += nanotime() - phase
+	phase = nanotime()
+	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)
+	stats.LoopFilterTrialFilterNS += nanotime() - phase
+	phase = nanotime()
+	err := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
+	stats.LoopFilterTrialSSENS += nanotime() - phase
+	return err
 }
 
 // copyLoopFilterPartialLuma refreshes the luma plane window the partial-frame
