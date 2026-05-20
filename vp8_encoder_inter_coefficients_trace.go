@@ -11,10 +11,16 @@ type predictedMacroblockCoefficientTrace struct {
 }
 
 func newPretrellisUVTrace(e *VP8Encoder) predictedMacroblockCoefficientTrace {
+	if e == nil || (!e.oracleTracePretrellisUVDumpEnabled() && !e.oracleTraceChromaOptimizeBDumpEnabled()) {
+		return predictedMacroblockCoefficientTrace{}
+	}
 	return predictedMacroblockCoefficientTrace{pretrellisUVTrace: e}
 }
 
 func newPickerUVQuantizeTrace(e *VP8Encoder, mode *vp8enc.InterFrameMacroblockMode) predictedMacroblockCoefficientTrace {
+	if e == nil || !e.oracleTracePickerUVQuantizeDumpEnabled() {
+		return predictedMacroblockCoefficientTrace{}
+	}
 	trace := predictedMacroblockCoefficientTrace{pickerUVQuantizeTrace: e}
 	if mode != nil {
 		trace.pickerUVQuantizeMode = *mode

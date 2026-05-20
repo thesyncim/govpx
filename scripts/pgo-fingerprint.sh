@@ -26,6 +26,9 @@ git_cmd=${GIT:-git}
 	LC_ALL=C sort |
 	while IFS= read -r file; do
 		[ -n "$file" ] || continue
+		if [ "${file##*.}" = "go" ] && head -n 5 "$file" | grep -qx '//go:build govpx_oracle_trace'; then
+			continue
+		fi
 		printf '%s  %s\n' "$("$git_cmd" hash-object "$file")" "$file"
 	done |
 	"$git_cmd" hash-object --stdin

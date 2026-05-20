@@ -390,6 +390,50 @@ func TestOracleTracePickerUVQuantizeRow(t *testing.T) {
 	}
 }
 
+func TestOracleTraceCoefficientFactoriesRequireActiveWriter(t *testing.T) {
+	requireOracleTraceBuild(t)
+
+	e := &VP8Encoder{}
+	e.SetOracleTracePretrellisUVDump(true)
+	e.SetOracleTraceChromaOptimizeBDump(true)
+	e.SetOracleTracePickerUVQuantizeDump(true)
+
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.GoldenFrame,
+		Mode:     vp8common.NewMV,
+		MV:       vp8enc.MotionVector{Row: -2, Col: 3},
+	}
+
+	pre := newPretrellisUVTrace(e)
+	if pre.pretrellisUVTrace != nil {
+		t.Fatalf("newPretrellisUVTrace retained encoder without an active writer")
+	}
+	pick := newPickerUVQuantizeTrace(e, &mode)
+	if pick.pickerUVQuantizeTrace != nil {
+		t.Fatalf("newPickerUVQuantizeTrace retained encoder without an active writer")
+	}
+	if pick.pickerUVQuantizeMode.Mode != 0 || pick.pickerUVQuantizeMode.RefFrame != 0 || pick.pickerUVQuantizeMode.MV != (vp8enc.MotionVector{}) {
+		t.Fatalf("newPickerUVQuantizeTrace copied mode without an active writer: %+v", pick.pickerUVQuantizeMode)
+	}
+
+	var buf bytes.Buffer
+	e.SetOracleTraceWriter(&buf)
+	e.SetOracleTracePretrellisUVDump(true)
+	e.SetOracleTraceChromaOptimizeBDump(true)
+	e.SetOracleTracePickerUVQuantizeDump(true)
+	pre = newPretrellisUVTrace(e)
+	if pre.pretrellisUVTrace != e {
+		t.Fatalf("newPretrellisUVTrace did not retain encoder with active UV dumps")
+	}
+	pick = newPickerUVQuantizeTrace(e, &mode)
+	if pick.pickerUVQuantizeTrace != e {
+		t.Fatalf("newPickerUVQuantizeTrace did not retain encoder with active picker dump")
+	}
+	if pick.pickerUVQuantizeMode.Mode != mode.Mode || pick.pickerUVQuantizeMode.RefFrame != mode.RefFrame || pick.pickerUVQuantizeMode.MV != mode.MV {
+		t.Fatalf("newPickerUVQuantizeTrace copied mode = %+v, want %+v", pick.pickerUVQuantizeMode, mode)
+	}
+}
+
 func TestOracleTraceInterCandidateFilterScopesIterRows(t *testing.T) {
 	requireOracleTraceBuild(t)
 	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_FRAME", "7")
