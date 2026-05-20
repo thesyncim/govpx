@@ -14,8 +14,8 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestVP9OracleFrameFlagTransitionScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 frame-flag transition scoreboard")
+func TestVP9OracleFrameFlagTransitionsMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 frame-flag transitions")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 8
@@ -95,7 +95,7 @@ func TestVP9OracleFrameFlagTransitionScoreboard(t *testing.T) {
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, tc.flags, extraArgs)
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			t.Logf("VP9 frame-flag transition scoreboard %s: %s",
+			t.Logf("VP9 frame-flag transitions %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 frame-flag transition rows %s:\n%s",
 				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
@@ -108,8 +108,8 @@ func TestVP9OracleFrameFlagTransitionScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleFrameFlagReferenceUpdateMatrixScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 reference/update matrix scoreboard")
+func TestVP9OracleFrameFlagReferenceUpdateMatrixMatchesLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 reference/update matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
@@ -142,7 +142,7 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixScoreboard(t *testing.T) {
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, flags, extraArgs)
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			t.Logf("VP9 reference/update matrix scoreboard %s: %s",
+			t.Logf("VP9 reference/update matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 reference/update matrix rows %s:\n%s",
 				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
@@ -155,8 +155,8 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleOddSizeFrameFlagTransitionScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 odd-size transition scoreboard")
+func TestVP9OracleOddSizeFrameFlagTransitionsMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 odd-size transitions")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 65, 63, 7
@@ -191,7 +191,7 @@ func TestVP9OracleOddSizeFrameFlagTransitionScoreboard(t *testing.T) {
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, tc.flags, extraArgs)
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			t.Logf("VP9 odd-size transition scoreboard %s: %s", tc.name, stats)
+			t.Logf("VP9 odd-size transitions %s: %s", tc.name, stats)
 			t.Logf("VP9 odd-size transition rows %s:\n%s",
 				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_ODD_TRANSITION_STRICT") == "1" &&
@@ -203,7 +203,7 @@ func TestVP9OracleOddSizeFrameFlagTransitionScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleRuntimeControlTransitionScoreboard(t *testing.T) {
+func TestVP9OracleRuntimeControlTransitionsMatchLibvpx(t *testing.T) {
 	const width, height, frames = 64, 64, 10
 	opts := vp9OracleCBROptions(width, height, 900)
 	opts.DropFrameAllowed = true
@@ -239,8 +239,8 @@ func TestVP9OracleRuntimeControlTransitionScoreboard(t *testing.T) {
 		formatVP9SingleRateScoreboardRows(rows))
 }
 
-func TestVP9OracleRuntimeControlBitrateQuantizerScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime bitrate/Q scoreboard")
+func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 runtime bitrate/Q controls")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 8
@@ -270,7 +270,7 @@ func TestVP9OracleRuntimeControlBitrateQuantizerScoreboard(t *testing.T) {
 		sources, nil, extraArgs)
 
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-	t.Logf("VP9 runtime bitrate/Q scoreboard: %s", stats)
+	t.Logf("VP9 runtime bitrate/Q controls: %s", stats)
 	t.Logf("VP9 runtime bitrate/Q rows:\n%s",
 		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
 	if govpxRows[2].TargetBitrateKbps != 300 ||
@@ -296,8 +296,8 @@ func TestVP9OracleRuntimeControlBitrateQuantizerScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleRuntimeControlTransitionParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-control transition parity scoreboard")
+func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 runtime-control transition parity")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
@@ -319,7 +319,7 @@ func TestVP9OracleRuntimeControlTransitionParityScoreboard(t *testing.T) {
 		sources, nil, extraArgs)
 
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-	t.Logf("VP9 runtime-control transition parity scoreboard: %s", stats)
+	t.Logf("VP9 runtime-control transition parity: %s", stats)
 	t.Logf("VP9 runtime-control transition parity rows:\n%s",
 		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
 	if os.Getenv("GOVPX_VP9_RUNTIME_TRANSITION_STRICT") == "1" &&
@@ -328,8 +328,8 @@ func TestVP9OracleRuntimeControlTransitionParityScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-control matrix scoreboard")
+func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 runtime-control matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -639,7 +639,7 @@ func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
 				height, sources, nil, extraArgs)
 
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			t.Logf("VP9 runtime-control matrix scoreboard %s: %s",
+			t.Logf("VP9 runtime-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 runtime-control matrix rows %s:\n%s",
 				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
@@ -652,8 +652,8 @@ func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleConstructionControlMatrixScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 construction-control matrix scoreboard")
+func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 construction-control matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
@@ -747,7 +747,7 @@ func TestVP9OracleConstructionControlMatrixScoreboard(t *testing.T) {
 				sources, nil, tc.extraArgs)
 
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			t.Logf("VP9 construction-control matrix scoreboard %s: %s",
+			t.Logf("VP9 construction-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 construction-control matrix rows %s:\n%s",
 				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
@@ -760,8 +760,8 @@ func TestVP9OracleConstructionControlMatrixScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleTileThreadControlScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 tile/thread control scoreboard")
+func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 tile/thread controls")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 1024, 64, 6
@@ -775,7 +775,7 @@ func TestVP9OracleTileThreadControlScoreboard(t *testing.T) {
 		sources, nil, extraArgs)
 
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-	t.Logf("VP9 tile/thread control scoreboard: %s", stats)
+	t.Logf("VP9 tile/thread controls: %s", stats)
 	t.Logf("VP9 tile/thread control rows:\n%s",
 		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
 	tile2Rows := 0
@@ -796,7 +796,7 @@ func TestVP9OracleTileThreadControlScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleTemporalControlTransitionScoreboard(t *testing.T) {
+func TestVP9OracleTemporalControlTransitionsMatchLibvpx(t *testing.T) {
 	const width, height, frames = 64, 64, 9
 	opts := vp9OracleCBROptions(width, height, 600)
 	sources := newVP9OracleTransitionSources(width, height, frames)
@@ -845,8 +845,8 @@ func TestVP9OracleTemporalControlTransitionScoreboard(t *testing.T) {
 		formatVP9SingleRateScoreboardRows(rows))
 }
 
-func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 temporal flag-pattern scoreboard")
+func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 temporal flag patterns")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -880,7 +880,7 @@ func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
 				pattern.Layers)
 
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			t.Logf("VP9 temporal flag-pattern scoreboard %s: %s", tc.name, stats)
+			t.Logf("VP9 temporal flag patterns %s: %s", tc.name, stats)
 			t.Logf("VP9 temporal flag-pattern rows %s:\n%s",
 				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_TEMPORAL_PATTERN_STRICT") == "1" &&
@@ -892,8 +892,8 @@ func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleTemporalPatternMatrixScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 temporal pattern matrix scoreboard")
+func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 temporal pattern matrix")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
@@ -936,7 +936,7 @@ func TestVP9OracleTemporalPatternMatrixScoreboard(t *testing.T) {
 				pattern.Layers)
 
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			t.Logf("VP9 temporal pattern matrix scoreboard %s: %s",
+			t.Logf("VP9 temporal pattern matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 temporal pattern matrix rows %s:\n%s",
 				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
@@ -949,7 +949,7 @@ func TestVP9OracleTemporalPatternMatrixScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleInvisibleFrameVisibilityScoreboard(t *testing.T) {
+func TestVP9OracleInvisibleFrameVisibilityMatchesLibvpx(t *testing.T) {
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
 		newVP9YCbCrForTest(width, height, 64, 128, 128),
@@ -1115,7 +1115,7 @@ func (s vp9OracleTransitionStats) String() string {
 func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9RateScoreboardRow) vp9OracleTransitionStats {
 	t.Helper()
 	if len(govpxRows) == 0 || len(libvpxRows) == 0 {
-		t.Fatalf("empty VP9 transition scoreboard rows: govpx=%d libvpx=%d",
+		t.Fatalf("empty VP9 transition rows: govpx=%d libvpx=%d",
 			len(govpxRows), len(libvpxRows))
 	}
 	if len(govpxRows) != len(libvpxRows) {
