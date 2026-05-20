@@ -20,7 +20,7 @@ import (
 // wrap-around. Speed-8 entries that already match libvpx live in
 // vp9RuntimeControlsSpeed8ParitySeeds so the main fuzz target still exercises
 // them while open lanes remain visible through
-// TestVP9RuntimeControlsOpenSeedLanesRemainMeasurable.
+// TestVP9OracleRuntimeControlDeferredSeedsRemainReproducible.
 var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 2, 1, 0, 0},

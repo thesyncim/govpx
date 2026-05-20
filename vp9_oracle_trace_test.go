@@ -17,7 +17,7 @@ func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 	}
 
 	var trace bytes.Buffer
-	e.SetVP9OracleTraceWriter(&trace)
+	e.setVP9OracleTraceWriter(&trace)
 	dst := make([]byte, 65536)
 	result, err := e.EncodeIntoWithResult(
 		newVP9YCbCrForTest(width, height, 128, 128, 128), dst)
@@ -39,7 +39,7 @@ func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 		}
 	}
 
-	e.SetVP9OracleTraceWriter(nil)
+	e.setVP9OracleTraceWriter(nil)
 	if e.vp9OracleTraceEnabled() {
 		t.Fatal("trace active after disabling writer")
 	}
@@ -73,7 +73,7 @@ func TestVP9OracleTraceWriterEmitsCBRRateFields(t *testing.T) {
 	}
 
 	var trace bytes.Buffer
-	e.SetVP9OracleTraceWriter(&trace)
+	e.setVP9OracleTraceWriter(&trace)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(
 		newVP9YCbCrForTest(width, height, 128, 128, 128), dst); err != nil {

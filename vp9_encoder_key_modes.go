@@ -859,7 +859,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 // super_block_yrd, NOT block_yrd. The SATD proxy underestimated the
 // larger-tx coef rate, so the picker biased toward smaller tx_size on
 // textured residuals — the residual measured under
-// TestVP9RuntimeControlsOpenSeedLanesRemainMeasurable was +989-2298B/frame
+// TestVP9OracleRuntimeControlDeferredSeedsRemainReproducible was +989-2298B/frame
 // across seeds #0/#1/#2/#4/#6/#7 (the RuntimeControls regression).
 func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState,
 	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,

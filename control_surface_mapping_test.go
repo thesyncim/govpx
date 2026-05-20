@@ -233,9 +233,6 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetTuning":                      {kind: "libvpx-control", helperTokens: []string{"tune:"}},
 		"SetTwoPassStats":                {kind: "libvpx-two-pass"},
 	}
-	if _, ok := methods["SetVP9OracleTraceWriter"]; ok {
-		want["SetVP9OracleTraceWriter"] = controlParityMapping{kind: "oracle-trace"}
-	}
 	assertPublicMethodMappings(t, "VP9Encoder", methods, want)
 	assertVP9FrameFlagsDriverTokens(t, want)
 }

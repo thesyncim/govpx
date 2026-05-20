@@ -184,7 +184,7 @@ func captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	var trace bytes.Buffer
-	enc.SetVP9OracleTraceWriter(&trace)
+	enc.setVP9OracleTraceWriter(&trace)
 	dstSize, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
 	if err != nil {
 		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)

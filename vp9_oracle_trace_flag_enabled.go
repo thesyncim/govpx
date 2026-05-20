@@ -66,9 +66,9 @@ type vp9OracleTraceHolder struct {
 	oracleTrace *vp9OracleTraceState
 }
 
-// SetVP9OracleTraceWriter enables VP9 encoder oracle trace emission. It is
+// setVP9OracleTraceWriter enables VP9 encoder oracle trace emission. It is
 // available only in govpx_oracle_trace builds.
-func (e *VP9Encoder) SetVP9OracleTraceWriter(w io.Writer) {
+func (e *VP9Encoder) setVP9OracleTraceWriter(w io.Writer) {
 	if e == nil {
 		return
 	}

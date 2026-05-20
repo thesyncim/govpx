@@ -529,7 +529,7 @@ func captureVP9RateScoreboardRowsWithHooks(t *testing.T, opts VP9EncoderOptions,
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	enc.SetVP9OracleTraceWriter(&trace)
+	enc.setVP9OracleTraceWriter(&trace)
 	dstSize, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
 	if err != nil {
 		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)

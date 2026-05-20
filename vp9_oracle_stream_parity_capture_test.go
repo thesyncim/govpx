@@ -278,7 +278,7 @@ func captureGovpxVP9StreamParityPacketRowsWithHooks(t *testing.T,
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	var trace bytes.Buffer
-	enc.SetVP9OracleTraceWriter(&trace)
+	enc.setVP9OracleTraceWriter(&trace)
 	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
 	if err != nil {
 		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
@@ -340,7 +340,7 @@ func captureGovpxVP9VariablePacketRows(t *testing.T,
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	var trace bytes.Buffer
-	enc.SetVP9OracleTraceWriter(&trace)
+	enc.setVP9OracleTraceWriter(&trace)
 	packets := make([][]byte, len(sources))
 	for i, src := range sources {
 		if beforeFrame != nil {

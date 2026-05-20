@@ -11,10 +11,10 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestVP9RefControlSeedsMaintainByteParity asserts strict byte parity for the
+// TestVP9OracleReferenceControlSeedsMatchLibvpx asserts strict byte parity for the
 // pinned RefControl corpus. These schedules exercise per-frame reference
 // update and force/no-reference flags against the libvpx frameflags oracle.
-func TestVP9RefControlSeedsMaintainByteParity(t *testing.T) {
+func TestVP9OracleReferenceControlSeedsMatchLibvpx(t *testing.T) {
 	coracletest.SkipWithoutOracle(t, "VP9 RefControl regression seeds")
 	coracletest.VpxencVP9FrameFlags(t)
 
@@ -66,10 +66,10 @@ func TestVP9RefControlSeedsMaintainByteParity(t *testing.T) {
 	}
 }
 
-// TestVP9RuntimeControlsSpeed8SeedsMaintainByteParity asserts byte parity for
+// TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx asserts byte parity for
 // the RuntimeControls speed-8 non-RD seed set. Slower speed lanes remain in the
 // open-lane diagnostic below until they close against libvpx.
-func TestVP9RuntimeControlsSpeed8SeedsMaintainByteParity(t *testing.T) {
+func TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx(t *testing.T) {
 	coracletest.SkipWithoutOracle(t, "VP9 RuntimeControls speed-8 regression seeds")
 	coracletest.VpxencVP9FrameFlags(t)
 
@@ -112,27 +112,27 @@ func TestVP9RuntimeControlsSpeed8SeedsMaintainByteParity(t *testing.T) {
 	}
 }
 
-// TestVP9RuntimeControlsOpenSeedLanesRemainMeasurable keeps the remaining
+// TestVP9OracleRuntimeControlDeferredSeedsRemainReproducible keeps the remaining
 // RuntimeControls parity gaps visible. It does not require byte parity yet;
 // each open CPU lane must still materialize at least one measurable seed so
 // coverage cannot silently disappear.
-func TestVP9RuntimeControlsOpenSeedLanesRemainMeasurable(t *testing.T) {
+func TestVP9OracleRuntimeControlDeferredSeedsRemainReproducible(t *testing.T) {
 	coracletest.SkipWithoutOracle(t, "deferred RuntimeControls seeds")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	t.Run("RDKeyframeCPU0Neg3", func(t *testing.T) {
-		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {
+		remeasureVP9RuntimeControlSeedLane(t, func(cpu int8) bool {
 			return cpu == 0 || cpu == -3
 		})
 	})
 	t.Run("Speed4Realtime", func(t *testing.T) {
-		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {
+		remeasureVP9RuntimeControlSeedLane(t, func(cpu int8) bool {
 			return cpu == 4
 		})
 	})
 }
 
-func remeasureVP9RuntimeControlsSeedLane(t *testing.T, includeCPU func(int8) bool) {
+func remeasureVP9RuntimeControlSeedLane(t *testing.T, includeCPU func(int8) bool) {
 	t.Helper()
 	pass, fail := 0, 0
 	aggSizeDelta := 0
