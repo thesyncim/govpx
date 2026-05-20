@@ -183,6 +183,96 @@ func TestInterFrameMotionSearchStatsCountsFullPelTopology(t *testing.T) {
 	}
 }
 
+func TestInterFrameSubpelStepNoStatsMatchesStatsPath(t *testing.T) {
+	tests := []struct {
+		name       string
+		fractional interAnalysisFractionalSearchMethod
+	}{
+		{name: "step", fractional: interAnalysisFractionalSearchStep},
+		{name: "half", fractional: interAnalysisFractionalSearchHalf},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			base := newTestInterFrameSubpixelStepSearch(t, tc.fractional)
+			var stats interFrameMotionSearchStats
+			withStats := base
+			withStats.stats = &stats
+			wantMV, wantCost, wantVariance, wantSSE, wantOK := withStats.refine()
+			if !wantOK {
+				t.Fatalf("stats path refine returned ok=false")
+			}
+			if stats.subpelCandidates == 0 || stats.subpelVarianceCalls == 0 {
+				t.Fatalf("stats path did not count subpel work: %+v", stats)
+			}
+
+			noStats := base
+			noStats.stats = nil
+			gotMV, gotCost, gotVariance, gotSSE, gotOK := noStats.refine()
+			if gotOK != wantOK || gotMV != wantMV || gotCost != wantCost || gotVariance != wantVariance || gotSSE != wantSSE {
+				t.Fatalf("no-stats refine = (%+v,%d,%d,%d,%v), want (%+v,%d,%d,%d,%v)",
+					gotMV, gotCost, gotVariance, gotSSE, gotOK,
+					wantMV, wantCost, wantVariance, wantSSE, wantOK)
+			}
+		})
+	}
+}
+
+func newTestInterFrameSubpixelStepSearch(tb testing.TB, fractional interAnalysisFractionalSearchMethod) interFrameSubpixelSearch {
+	tb.Helper()
+	src := testImage(64, 64)
+	fillImage(src, 13, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			src.Y[(row+16)*src.YStride+col+16] = byte((19 + row*73 + col*151 + row*col*37) & 255)
+		}
+	}
+
+	last := testVP8Frame(tb, 64, 64, 127, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			v := src.Y[(row+16)*src.YStride+col+16]
+			last.Img.Y[(row+20)*last.Img.YStride+col+16] = v
+			last.Img.Y[(row+20)*last.Img.YStride+col+17] = v ^ 1
+		}
+	}
+	last.ExtendBorders()
+
+	return interFrameSubpixelSearch{
+		ref:       &last.Img,
+		mvProbs:   &vp8tables.DefaultMVContext,
+		stats:     nil,
+		src:       sourceImageFromPublic(src),
+		mbRow:     1,
+		mbCol:     1,
+		qIndex:    testInterSearchQIndex,
+		best:      vp8enc.MotionVector{Row: 32},
+		bestRefMV: vp8enc.MotionVector{},
+		search:    interAnalysisSearchConfig{fractionalSearch: fractional},
+	}
+}
+
+func BenchmarkInterFrameSubpelStepNoStats(b *testing.B) {
+	search := newTestInterFrameSubpixelStepSearch(b, interAnalysisFractionalSearchStep)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, _, _, _, ok := search.refine(); !ok {
+			b.Fatal("refine returned ok=false")
+		}
+	}
+}
+
+func BenchmarkInterFrameSubpelHalfNoStats(b *testing.B) {
+	search := newTestInterFrameSubpixelStepSearch(b, interAnalysisFractionalSearchHalf)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, _, _, _, ok := search.refine(); !ok {
+			b.Fatal("refine returned ok=false")
+		}
+	}
+}
+
 func TestSelectInterFrameFullPixelMotionVectorNstepUsesLibvpxSearchSites(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 17, 90, 170)
