@@ -53,6 +53,15 @@ func TestDcAcQuantEndpoints(t *testing.T) {
 // TestQuantClamps verifies the delta + clamp path against the table
 // endpoints in both directions.
 func TestQuantClamps(t *testing.T) {
+	if got := ClampQIndex(-10); got != MinQ {
+		t.Fatalf("ClampQIndex(-10) = %d, want %d", got, MinQ)
+	}
+	if got := ClampQIndex(MaxQ + 10); got != MaxQ {
+		t.Fatalf("ClampQIndex(MaxQ+10) = %d, want %d", got, MaxQ)
+	}
+	if got := ClampQIndex(37); got != 37 {
+		t.Fatalf("ClampQIndex(37) = %d, want 37", got)
+	}
 	if DcQuant(0, -10, Bits8) != DcQuant(0, 0, Bits8) {
 		t.Error("DcQuant should clamp negative below MinQ")
 	}

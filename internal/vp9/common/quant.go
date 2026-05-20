@@ -14,6 +14,9 @@ import "github.com/thesyncim/govpx/internal/vp9/tables"
 type BitDepth uint8
 
 const (
+	MinQ = tables.MinQ
+	MaxQ = tables.MaxQ
+
 	Bits8  BitDepth = 8
 	Bits10 BitDepth = 10
 	Bits12 BitDepth = 12
@@ -22,7 +25,7 @@ const (
 // DcQuant returns the DC dequant scaler at qindex+delta, clamped to the
 // valid [0, MaxQ] range. Matches vp9_dc_quant.
 func DcQuant(qindex, delta int, bd BitDepth) int16 {
-	idx := clampQindex(qindex + delta)
+	idx := ClampQIndex(qindex + delta)
 	switch bd {
 	case Bits10:
 		return tables.DcQLookup10[idx]
@@ -36,7 +39,7 @@ func DcQuant(qindex, delta int, bd BitDepth) int16 {
 // AcQuant returns the AC dequant scaler at qindex+delta, clamped to the
 // valid [0, MaxQ] range. Matches vp9_ac_quant.
 func AcQuant(qindex, delta int, bd BitDepth) int16 {
-	idx := clampQindex(qindex + delta)
+	idx := ClampQIndex(qindex + delta)
 	switch bd {
 	case Bits10:
 		return tables.AcQLookup10[idx]
@@ -47,12 +50,13 @@ func AcQuant(qindex, delta int, bd BitDepth) int16 {
 	}
 }
 
-func clampQindex(q int) int {
-	if q < tables.MinQ {
-		return tables.MinQ
+// ClampQIndex clamps q to libvpx's valid VP9 quantizer-index range.
+func ClampQIndex(q int) int {
+	if q < MinQ {
+		return MinQ
 	}
-	if q > tables.MaxQ {
-		return tables.MaxQ
+	if q > MaxQ {
+		return MaxQ
 	}
 	return q
 }
