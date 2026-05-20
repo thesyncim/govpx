@@ -1040,9 +1040,13 @@ func (e *VP8Encoder) phaseStart() int64 {
 }
 
 func (e *VP8Encoder) phaseEnd(phase encoderPhase, start int64) {
-	if start == 0 || e.opts.PhaseStats == nil {
+	if start == 0 {
 		return
 	}
+	e.phaseEndSlow(phase, start)
+}
+
+func (e *VP8Encoder) phaseEndSlow(phase encoderPhase, start int64) {
 	elapsed := nanotime() - start
 	stats := e.opts.PhaseStats
 	switch phase {
