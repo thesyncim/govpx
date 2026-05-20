@@ -83,8 +83,8 @@ func TestOracleEncoderTraceInterCandidateScoreboard(t *testing.T) {
 		t.Run(fx.name, func(t *testing.T) {
 			govpxTrace := captureGovpxEncoderTrace(t, fx.opts, sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "scoreboard-"+fx.name, fx.opts, targetKbps, sources, fx.extraArgs)
-			govpxProjected := projectOracleInterCandidateTrace(t, govpxTrace)
-			libvpxProjected := projectOracleInterCandidateTrace(t, libvpxTrace)
+			govpxProjected := projectVP8InterCandidateTrace(t, govpxTrace)
+			libvpxProjected := projectVP8InterCandidateTrace(t, libvpxTrace)
 
 			div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
 				MaxDivergences: 4096,

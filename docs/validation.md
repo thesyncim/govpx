@@ -46,6 +46,11 @@ Run `make ci` before committing changes that touch:
 
 ## Oracle And Production Gates
 
+Libvpx-backed tests should use helpers from `internal/coracle` for binary
+resolution, trace projection, and oracle process plumbing. Root test files are
+expected to describe public behavior and codec parity; reusable harness code
+belongs outside root.
+
 `make verify-decoder-parity`
 
 Runs `make ci` plus decoder oracle checks. Use this for decoder syntax,

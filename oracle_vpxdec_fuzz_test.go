@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
@@ -94,24 +95,14 @@ func FuzzDecoderAgainstLibvpx(f *testing.F) {
 // internal/coracle/build_libvpx.sh.
 func findVpxdecForFuzz(t *testing.T) string {
 	t.Helper()
-	if v := os.Getenv("GOVPX_VPXDEC"); v != "" {
-		if _, err := os.Stat(v); err == nil {
-			return v
-		}
-		t.Fatalf("GOVPX_VPXDEC=%q not found", v)
+	path, err := coracle.VpxdecPath()
+	if err == nil {
+		return path
 	}
-	candidates := []string{
-		"internal/coracle/build/vpxdec",
+	if errors.Is(err, coracle.ErrVpxdecNotBuilt) {
+		t.Skip("vpxdec binary not available; set GOVPX_VPXDEC or run internal/coracle/build_libvpx.sh")
 	}
-	for _, c := range candidates {
-		if info, err := os.Stat(c); err == nil && info.Mode()&0o111 != 0 {
-			abs, err := filepath.Abs(c)
-			if err == nil {
-				return abs
-			}
-		}
-	}
-	t.Skip("vpxdec binary not available; set GOVPX_VPXDEC or run internal/coracle/build_libvpx.sh")
+	t.Fatalf("VpxdecPath: %v", err)
 	return ""
 }
 

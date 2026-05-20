@@ -51,8 +51,11 @@ utilities that are truly codec-neutral. Do not move bitstream syntax, mode
 decision, probability models, or reference semantics there just because VP8 and
 VP9 have similarly named concepts.
 
-`internal/coracle` contains pinned libvpx build scripts and oracle helpers.
-Production codec packages must not import oracle or test-harness packages.
+`internal/coracle` contains pinned libvpx build scripts, oracle binary
+discovery, process wrappers, trace projection/comparison, and scoreboarding
+helpers. Production codec packages must not import oracle or test-harness
+packages. Root-package tests may call coracle helpers, but new oracle mechanics
+should not be added to root.
 
 ## Data Flow
 

@@ -3,9 +3,8 @@
 package govpx
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,8 +46,8 @@ func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
 
 	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-vbr-panning", opts, targetKbps, sources, []string{"--end-usage=vbr"})
-	govpxProjected := projectOracleDecisionTrace(t, govpxTrace)
-	libvpxProjected := projectOracleDecisionTrace(t, libvpxTrace)
+	govpxProjected := projectVP8EncoderDecisionTrace(t, govpxTrace)
+	libvpxProjected := projectVP8EncoderDecisionTrace(t, libvpxTrace)
 	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
 		MaxDivergences: 8,
 		NumericFieldTolerances: map[string]float64{
@@ -184,8 +183,8 @@ func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			govpxTrace := captureGovpxEncoderTrace(t, tc.opts, sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-inter-candidates-"+tc.name, tc.opts, targetKbps, sources, tc.extraArgs)
-			govpxProjected := projectOracleInterCandidateTrace(t, govpxTrace)
-			libvpxProjected := projectOracleInterCandidateTrace(t, libvpxTrace)
+			govpxProjected := projectVP8InterCandidateTrace(t, govpxTrace)
+			libvpxProjected := projectVP8InterCandidateTrace(t, libvpxTrace)
 			div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
 				MaxDivergences: 16,
 			})
@@ -195,8 +194,8 @@ func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
 			if len(div) != 0 {
 				t.Fatalf("projected inter-candidate trace diverged:\n%s\ngovpx first rows:\n%s\nlibvpx first rows:\n%s",
 					coracle.FormatDivergences(div),
-					formatFirstOracleTraceRows(govpxProjected, 14),
-					formatFirstOracleTraceRows(libvpxProjected, 14))
+					coracle.FirstTraceRows(govpxProjected, 14),
+					coracle.FirstTraceRows(libvpxProjected, 14))
 			}
 		})
 	}
@@ -204,15 +203,14 @@ func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
 
 func findVpxencOracle(t *testing.T) string {
 	t.Helper()
-	if path := os.Getenv("GOVPX_VPXENC_ORACLE"); path != "" {
+	path, err := coracle.VpxencOraclePath()
+	if err == nil {
 		return path
 	}
-	local := filepath.Join("internal", "coracle", "build", "vpxenc-oracle")
-	info, err := os.Stat(local)
-	if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-		return local
+	if errors.Is(err, coracle.ErrVpxencOracleNotBuilt) {
+		t.Skip("set GOVPX_VPXENC_ORACLE to the patched libvpx vpxenc oracle binary")
 	}
-	t.Skip("set GOVPX_VPXENC_ORACLE to the patched libvpx vpxenc oracle binary")
+	t.Fatalf("VpxencOraclePath: %v", err)
 	return ""
 }
 
@@ -288,170 +286,22 @@ func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, name string, o
 	return trace
 }
 
-func projectOracleDecisionTrace(t *testing.T, trace []byte) []byte {
+func projectVP8EncoderDecisionTrace(t *testing.T, trace []byte) []byte {
 	t.Helper()
-	keep := map[string]map[string]bool{
-		"rate": {
-			"type":                 true,
-			"frame_index":          true,
-			"frame_type":           true,
-			"q_index":              true,
-			"active_worst_quality": true,
-			"active_best_quality":  true,
-			"projected_frame_size": true,
-			"this_frame_target":    true,
-			"zbin_over_quant":      true,
-		},
-		"recode": {
-			"type":        true,
-			"frame_index": true,
-			"loop_count":  true,
-			"final_q":     true,
-			"reason":      true,
-		},
-		"frame": {
-			"type":                  true,
-			"frame_index":           true,
-			"frame_type":            true,
-			"q_index":               true,
-			"base_q_index":          true,
-			"loop_filter_level":     true,
-			"refresh_last":          true,
-			"refresh_golden":        true,
-			"refresh_altref":        true,
-			"sign_bias_golden":      true,
-			"sign_bias_altref":      true,
-			"refresh_entropy_probs": true,
-			"default_coef_reset":    true,
-		},
+	projected, err := coracle.ProjectVP8EncoderDecisionTrace(trace)
+	if err != nil {
+		t.Fatalf("ProjectVP8EncoderDecisionTrace: %v", err)
 	}
-	var out bytes.Buffer
-	scan := bufio.NewScanner(bytes.NewReader(trace))
-	for scan.Scan() {
-		var row map[string]any
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
-		}
-		typ, _ := row["type"].(string)
-		fields := keep[typ]
-		if len(fields) == 0 {
-			continue
-		}
-		projected := make(map[string]any, len(fields))
-		for field := range fields {
-			if v, ok := row[field]; ok {
-				projected[field] = v
-			}
-		}
-		encoded, err := json.Marshal(projected)
-		if err != nil {
-			t.Fatalf("Marshal projected trace row returned error: %v", err)
-		}
-		out.Write(encoded)
-		out.WriteByte('\n')
-	}
-	if err := scan.Err(); err != nil {
-		t.Fatalf("scan trace: %v", err)
-	}
-	return out.Bytes()
+	return projected
 }
 
-func projectOracleInterCandidateTrace(t *testing.T, trace []byte) []byte {
+func projectVP8InterCandidateTrace(t *testing.T, trace []byte) []byte {
 	t.Helper()
-	keep := map[string]bool{
-		"type":        true,
-		"frame_index": true,
-		"mb_row":      true,
-		"mb_col":      true,
-		"picker":      true,
-		"mode_index":  true,
-		"mode":        true,
-		"ref_slot":    true,
-		"ref_frame":   true,
-		"outcome":     true,
-		"became_best": true,
-		"loop_break":  true,
-		"mv_row":      true,
-		"mv_col":      true,
+	projected, err := coracle.ProjectVP8InterCandidateTrace(trace)
+	if err != nil {
+		t.Fatalf("ProjectVP8InterCandidateTrace: %v", err)
 	}
-	var out bytes.Buffer
-	scan := bufio.NewScanner(bytes.NewReader(trace))
-	for scan.Scan() {
-		var row map[string]any
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
-		}
-		if typ, _ := row["type"].(string); typ != "inter_candidate" {
-			continue
-		}
-		// The libvpx oracle patch (internal/coracle/build_vpxenc_oracle.sh,
-		// rd_emit_anchor / pickinter emit_anchor) emits an inter_candidate
-		// row only after the candidate is actually RD-tested (this_rd !=
-		// INT_MAX in rdopt.c, and distortion2 != INT_MAX in pickinter.c).
-		// It does not emit rows for early-exits like `skipped_no_ref`,
-		// `skipped_threshold`, `skipped_freq`, `skipped_disabled`,
-		// `skipped_altref_zeromv`, `skipped_ok_false`,
-		// `splitmv_rd_dropout`, or the `entered_loop` pre-flight markers
-		// govpx records for richer diagnostics. Drop the extra govpx rows
-		// here so the trace compare is apples-to-apples against libvpx's
-		// emission contract.
-		if outcome, _ := row["outcome"].(string); outcome != "tested" {
-			continue
-		}
-		projected := make(map[string]any, len(keep))
-		for field := range keep {
-			if v, ok := row[field]; ok {
-				projected[field] = v
-			}
-		}
-		encoded, err := json.Marshal(projected)
-		if err != nil {
-			t.Fatalf("Marshal projected trace row returned error: %v", err)
-		}
-		out.Write(encoded)
-		out.WriteByte('\n')
-	}
-	if err := scan.Err(); err != nil {
-		t.Fatalf("scan trace: %v", err)
-	}
-	return out.Bytes()
-}
-
-func TestProjectOracleDecisionTraceDropsInterCandidateRows(t *testing.T) {
-	trace := []byte(
-		`{"type":"rate","frame_index":0,"frame_type":"key","q_index":4}` + "\n" +
-			`{"type":"inter_candidate","frame_index":1,"mb_row":0,"mb_col":0,"picker":"rd","mode_index":0}` + "\n" +
-			`{"type":"frame","frame_index":0,"frame_type":"key","q_index":4}` + "\n",
-	)
-	projected := projectOracleDecisionTrace(t, trace)
-	if bytes.Contains(projected, []byte("inter_candidate")) {
-		t.Fatalf("projected decision trace retained inter_candidate row:\n%s", projected)
-	}
-	lines := splitNonEmptyLines(projected)
-	if len(lines) != 2 {
-		t.Fatalf("projected decision trace lines = %d, want 2\n%s", len(lines), projected)
-	}
-}
-
-func TestProjectOracleInterCandidateTraceKeepsStagedFields(t *testing.T) {
-	trace := []byte(
-		`{"type":"rate","frame_index":0,"frame_type":"key","q_index":4}` + "\n" +
-			`{"type":"inter_candidate","frame_index":1,"mb_row":0,"mb_col":0,"picker":"rd","mode_index":7,"mode":"NEWMV","ref_slot":1,"ref_frame":"LAST_FRAME","outcome":"tested","became_best":true,"loop_break":false,"mv_row":8,"mv_col":16,"score":99,"rate":12}` + "\n" +
-			`{"type":"mb","frame_index":1,"mb_row":0,"mb_col":0,"mode":"NEWMV"}` + "\n",
-	)
-	projected := projectOracleInterCandidateTrace(t, trace)
-	lines := splitNonEmptyLines(projected)
-	if len(lines) != 1 {
-		t.Fatalf("projected candidate trace lines = %d, want 1\n%s", len(lines), projected)
-	}
-	if !bytes.Contains(projected, []byte(`"type":"inter_candidate"`)) {
-		t.Fatalf("projected candidate trace omitted candidate row:\n%s", projected)
-	}
-	for _, dropped := range []string{"score", "rate", "q_index", `"type":"mb"`} {
-		if bytes.Contains(projected, []byte(dropped)) {
-			t.Fatalf("projected candidate trace retained %q:\n%s", dropped, projected)
-		}
-	}
+	return projected
 }
 
 func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, wantPicker string) {
@@ -490,19 +340,4 @@ func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, 
 	if !sawPicker {
 		t.Fatalf("%s trace has %d candidate rows but no picker %q", side, len(rows), wantPicker)
 	}
-}
-
-func formatFirstOracleTraceRows(trace []byte, limit int) string {
-	var buf bytes.Buffer
-	lines := splitNonEmptyLines(trace)
-	if len(lines) < limit {
-		limit = len(lines)
-	}
-	for i := 0; i < limit; i++ {
-		buf.WriteString(strconv.Itoa(i))
-		buf.WriteString(": ")
-		buf.Write(lines[i])
-		buf.WriteByte('\n')
-	}
-	return buf.String()
 }

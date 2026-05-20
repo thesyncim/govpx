@@ -4,8 +4,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"sync"
 )
@@ -45,21 +43,11 @@ func resolveVpxdecVP9() {
 }
 
 func resolveVP9ToolPath(envName string, binaryName string, notBuilt error) (string, error) {
-	if env := os.Getenv(envName); env != "" {
-		if st, err := os.Stat(env); err == nil && !st.IsDir() {
-			return env, nil
-		}
-	}
-	// Default: <coracle pkg dir>/build/<binaryName>.
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", notBuilt
-	}
-	candidate := filepath.Join(filepath.Dir(file), "build", binaryName)
-	if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-		return candidate, nil
-	}
-	return "", notBuilt
+	return resolveToolPath(toolPathSpec{
+		envNames:   []string{envName},
+		buildNames: []string{binaryName},
+		notBuilt:   notBuilt,
+	})
 }
 
 // VpxdecVP9Decode pipes the IVF-wrapped VP9 stream `ivf` through

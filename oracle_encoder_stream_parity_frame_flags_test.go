@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 // frameFlagsForLibvpx mirrors the bit layout of the govpx
@@ -85,31 +87,14 @@ func frameFlagsForLibvpx(f EncodeFlags) uint32 {
 // every --control-script / --frame-flags surface is identical.
 func findVpxencFrameFlags(t *testing.T) string {
 	t.Helper()
-	if v := os.Getenv("GOVPX_VPXENC_FRAMEFLAGS_ORACLE"); v != "" {
-		if _, err := os.Stat(v); err == nil {
-			return v
-		}
-		t.Fatalf("GOVPX_VPXENC_FRAMEFLAGS_ORACLE=%q not found", v)
+	path, err := coracle.VpxencFrameFlagsPath()
+	if err == nil {
+		return path
 	}
-	if v := os.Getenv("GOVPX_VPXENC_FRAMEFLAGS"); v != "" {
-		if _, err := os.Stat(v); err == nil {
-			return v
-		}
-		t.Fatalf("GOVPX_VPXENC_FRAMEFLAGS=%q not found", v)
+	if errors.Is(err, coracle.ErrVpxencFrameFlagsNotBuilt) {
+		t.Skip("vpxenc-frameflags binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE/GOVPX_VPXENC_FRAMEFLAGS or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
 	}
-	candidates := []string{
-		"internal/coracle/build/vpxenc-frameflags-oracle",
-		"internal/coracle/build/vpxenc-frameflags",
-	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			abs, err := filepath.Abs(c)
-			if err == nil {
-				return abs
-			}
-		}
-	}
-	t.Skip("vpxenc-frameflags binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE/GOVPX_VPXENC_FRAMEFLAGS or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
+	t.Fatalf("VpxencFrameFlagsPath: %v", err)
 	return ""
 }
 
@@ -122,24 +107,14 @@ func findVpxencFrameFlags(t *testing.T) string {
 // rather than silently degrading to the non-trace driver.
 func findVpxencFrameFlagsOracle(t *testing.T) string {
 	t.Helper()
-	if v := os.Getenv("GOVPX_VPXENC_FRAMEFLAGS_ORACLE"); v != "" {
-		if _, err := os.Stat(v); err == nil {
-			return v
-		}
-		t.Fatalf("GOVPX_VPXENC_FRAMEFLAGS_ORACLE=%q not found", v)
+	path, err := coracle.VpxencFrameFlagsOraclePath()
+	if err == nil {
+		return path
 	}
-	candidates := []string{
-		"internal/coracle/build/vpxenc-frameflags-oracle",
+	if errors.Is(err, coracle.ErrVpxencFrameFlagsOracleNotBuilt) {
+		t.Skip("vpxenc-frameflags-oracle binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
 	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			abs, err := filepath.Abs(c)
-			if err == nil {
-				return abs
-			}
-		}
-	}
-	t.Skip("vpxenc-frameflags-oracle binary not available; set GOVPX_VPXENC_FRAMEFLAGS_ORACLE or run internal/coracle/build_vpxenc_frameflags_oracle.sh")
+	t.Fatalf("VpxencFrameFlagsOraclePath: %v", err)
 	return ""
 }
 

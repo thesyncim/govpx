@@ -42,7 +42,7 @@ import (
 // existing TestOracleEncoderTrace* / TestOracle*Scoreboard suite.
 func TestOracleInterCandidateThresholdEvolution(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle threshold-evolution diagnostic")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle threshold-evolution comparison")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -113,8 +113,14 @@ func TestOracleInterCandidateThresholdEvolution(t *testing.T) {
 
 			govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "diag-thresh-"+tc.name, opts, targetKbps, sources, tc.extraArgs)
-			govpxProjected := projectInterCandidateThreshold(t, govpxTrace)
-			libvpxProjected := projectInterCandidateThreshold(t, libvpxTrace)
+			govpxProjected, err := coracle.ProjectVP8InterCandidateThresholdTrace(govpxTrace)
+			if err != nil {
+				t.Fatalf("ProjectVP8InterCandidateThresholdTrace(govpx): %v", err)
+			}
+			libvpxProjected, err := coracle.ProjectVP8InterCandidateThresholdTrace(libvpxTrace)
+			if err != nil {
+				t.Fatalf("ProjectVP8InterCandidateThresholdTrace(libvpx): %v", err)
+			}
 
 			div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
 				MaxDivergences: 4096,
@@ -150,7 +156,8 @@ func TestOracleInterCandidateThresholdEvolution(t *testing.T) {
 			// shifted relative to each other (different MB / mode order
 			// already reported by other scoreboards). When any of these
 			// fire, threshold mismatches downstream are byproducts of the
-			// shift, not threshold-mutation drift, so we drop to diagnostic
+			// shift, not threshold-mutation drift, so we keep the failure
+			// output descriptive without asserting the threshold-only path.
 			// logging.
 			rowSync := true
 			for _, ident := range []string{"mb_row", "mb_col", "frame_index", "mode_index", "mode", "ref_slot", "picker"} {
@@ -280,52 +287,4 @@ func dumpPriorModeIndex(t *testing.T, side string, lines [][]byte, wantFrame int
 			t.Logf("%s prior mode_index=%.0f at row=%d %s", side, row.ModeIndex, i, raw)
 		}
 	}
-}
-
-// projectInterCandidateThreshold keeps just the keys we need to localize
-// rd_threshes[] divergences across frames: row identity (mb/mode) plus the
-// threshold value. Other fields are intentionally dropped so the comparator
-// does not surface unrelated noise that the realtime scoreboard already
-// covers.
-func projectInterCandidateThreshold(t *testing.T, trace []byte) []byte {
-	t.Helper()
-	keep := map[string]bool{
-		"type":        true,
-		"frame_index": true,
-		"mb_row":      true,
-		"mb_col":      true,
-		"picker":      true,
-		"mode_index":  true,
-		"mode":        true,
-		"ref_slot":    true,
-		"threshold":   true,
-	}
-	var out bytes.Buffer
-	scan := bufio.NewScanner(bytes.NewReader(trace))
-	scan.Buffer(make([]byte, 1<<20), 1<<24)
-	for scan.Scan() {
-		var row map[string]any
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
-		}
-		if typ, _ := row["type"].(string); typ != "inter_candidate" {
-			continue
-		}
-		projected := make(map[string]any, len(keep))
-		for field := range keep {
-			if v, ok := row[field]; ok {
-				projected[field] = v
-			}
-		}
-		encoded, err := json.Marshal(projected)
-		if err != nil {
-			t.Fatalf("Marshal projected trace row returned error: %v", err)
-		}
-		out.Write(encoded)
-		out.WriteByte('\n')
-	}
-	if err := scan.Err(); err != nil {
-		t.Fatalf("scan trace: %v", err)
-	}
-	return out.Bytes()
 }

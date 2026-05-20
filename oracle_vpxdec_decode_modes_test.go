@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
@@ -16,13 +17,12 @@ func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle smoke tests")
 	}
-	vpxdec := os.Getenv("GOVPX_VPXDEC")
-	if vpxdec == "" {
-		path, err := exec.LookPath("vpxdec")
-		if err != nil {
+	vpxdec, err := coracle.VpxdecPath()
+	if err != nil {
+		if errors.Is(err, coracle.ErrVpxdecNotBuilt) {
 			t.Skip("vpxdec not found; set GOVPX_VPXDEC to a libvpx v1.16.0 vpxdec binary")
 		}
-		vpxdec = path
+		t.Fatalf("VpxdecPath: %v", err)
 	}
 
 	e, err := NewVP8Encoder(EncoderOptions{

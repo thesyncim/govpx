@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -28,48 +29,40 @@ func makeIVF(width int, height int, den uint32, num uint32, frames [][]byte) []b
 
 func findChecksumOracle(t *testing.T) string {
 	t.Helper()
-	oracle := os.Getenv("GOVPX_ORACLE")
-	if oracle != "" {
-		return oracle
+	path, err := coracle.ChecksumOraclePath()
+	if err == nil {
+		return path
 	}
-	path, err := exec.LookPath("govpx-vpx-oracle")
-	if err != nil {
+	if errors.Is(err, coracle.ErrChecksumOracleNotBuilt) {
 		t.Skip("set GOVPX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
 	}
-	return path
+	t.Fatalf("ChecksumOraclePath: %v", err)
+	return ""
 }
 
 func findVpxenc(t *testing.T) string {
 	t.Helper()
-	if vpxenc := os.Getenv("GOVPX_VPXENC"); vpxenc != "" {
-		return vpxenc
-	}
-	if path, err := exec.LookPath("vpxenc"); err == nil {
+	path, err := coracle.VpxencPath()
+	if err == nil {
 		return path
 	}
-	local := filepath.Join("internal", "coracle", "build", "vpxenc")
-	info, err := os.Stat(local)
-	if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-		return local
+	if errors.Is(err, coracle.ErrVpxencNotBuilt) {
+		t.Skip("set GOVPX_VPXENC to a libvpx v1.16.0 vpxenc binary")
 	}
-	t.Skip("set GOVPX_VPXENC to a libvpx v1.16.0 vpxenc binary")
+	t.Fatalf("VpxencPath: %v", err)
 	return ""
 }
 
 func findVpxTemporalSVCEncoder(t *testing.T) string {
 	t.Helper()
-	if svcEncoder := os.Getenv("GOVPX_VPX_TEMPORAL_SVC_ENCODER"); svcEncoder != "" {
-		return svcEncoder
-	}
-	if path, err := exec.LookPath("vpx_temporal_svc_encoder"); err == nil {
+	path, err := coracle.VpxTemporalSVCEncoderPath()
+	if err == nil {
 		return path
 	}
-	local := filepath.Join("internal", "coracle", "build", "vpx_temporal_svc_encoder")
-	info, err := os.Stat(local)
-	if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-		return local
+	if errors.Is(err, coracle.ErrVpxTemporalSVCEncoderNotBuilt) {
+		t.Skip("set GOVPX_VPX_TEMPORAL_SVC_ENCODER to a libvpx v1.16.0 vpx_temporal_svc_encoder binary")
 	}
-	t.Skip("set GOVPX_VPX_TEMPORAL_SVC_ENCODER to a libvpx v1.16.0 vpx_temporal_svc_encoder binary")
+	t.Fatalf("VpxTemporalSVCEncoderPath: %v", err)
 	return ""
 }
 
@@ -132,33 +125,25 @@ func runLibvpxChecksumOracleFile(t *testing.T, oracle string, path string) []tes
 
 func runLibvpxChecksumOracleFileMode(t *testing.T, oracle string, mode string, path string) []testutil.FrameChecksum {
 	t.Helper()
-	return runLibvpxChecksumOracleArgs(t, oracle, []string{mode, path})
+	frames, out, err := coracle.VpxdecVP8ChecksumFile(oracle, mode, path)
+	if err != nil {
+		failLibvpxChecksumOracle(t, out, err)
+	}
+	return frames
 }
 
 func runLibvpxChecksumOracleArgs(t *testing.T, oracle string, args []string) []testutil.FrameChecksum {
 	t.Helper()
-	cmd := exec.Command(oracle, args...)
-	out, err := cmd.CombinedOutput()
+	frames, out, err := coracle.VpxdecVP8ChecksumArgs(oracle, args)
 	if err != nil {
-		t.Fatalf("libvpx oracle failed: %v\n%s", err, out)
-	}
-	frames, err := testutil.ParseFrameChecksumJSONLines(out)
-	if err != nil {
-		if errors.Is(err, testutil.ErrInvalidOracleOutput) {
-			t.Fatalf("libvpx oracle produced invalid output:\n%s", out)
-		}
-		t.Fatalf("ParseFrameChecksumJSONLines returned error: %v", err)
+		failLibvpxChecksumOracle(t, out, err)
 	}
 	return frames
 }
 
 func readLibvpxCopyReferenceLog(t *testing.T, path string) []testutil.FrameChecksum {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read copy-reference log %s: %v", path, err)
-	}
-	frames, err := testutil.ParseFrameChecksumJSONLines(data)
+	frames, data, err := coracle.ReadFrameChecksumJSONLFile(path)
 	if err != nil {
 		if errors.Is(err, testutil.ErrInvalidOracleOutput) {
 			t.Fatalf("libvpx copy-reference log produced invalid output:\n%s", data)
@@ -175,13 +160,20 @@ func runLibvpxChecksumOracleFileExpectError(t *testing.T, oracle string, path st
 
 func runLibvpxChecksumOracleFileModeExpectError(t *testing.T, oracle string, mode string, path string) error {
 	t.Helper()
-	cmd := exec.Command(oracle, mode, path)
-	out, err := cmd.CombinedOutput()
+	out, err := coracle.VpxdecVP8ChecksumFileExpectError(oracle, mode, path)
 	var exitErr *exec.ExitError
 	if err != nil && !errors.As(err, &exitErr) {
 		t.Fatalf("libvpx oracle failed to start: %v\n%s", err, out)
 	}
 	return err
+}
+
+func failLibvpxChecksumOracle(t *testing.T, out []byte, err error) {
+	t.Helper()
+	if errors.Is(err, testutil.ErrInvalidOracleOutput) {
+		t.Fatalf("libvpx oracle produced invalid output:\n%s", out)
+	}
+	t.Fatalf("libvpx oracle failed: %v\n%s", err, out)
 }
 
 func assertFrameChecksumsEqual(t *testing.T, label string, got []testutil.FrameChecksum, want []testutil.FrameChecksum) {

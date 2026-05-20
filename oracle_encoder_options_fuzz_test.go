@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -241,16 +242,8 @@ func assertVP8FuzzEncoderRuntimeError(t *testing.T, err error) {
 // the fuzzer can keep iterating on adjacent configs.
 func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 	t.Helper()
-	oracle := os.Getenv("GOVPX_VPXENC_ORACLE")
-	if oracle == "" {
-		local := filepath.Join("internal", "coracle", "build", "vpxenc-oracle")
-		if info, err := os.Stat(local); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			if abs, err := filepath.Abs(local); err == nil {
-				oracle = abs
-			}
-		}
-	}
-	if oracle == "" {
+	oracle, err := coracle.VpxencOraclePath()
+	if err != nil {
 		return nil
 	}
 	dir := t.TempDir()
