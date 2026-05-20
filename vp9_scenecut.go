@@ -2,6 +2,14 @@ package govpx
 
 import "image"
 
+const (
+	sceneCutMinimumReferenceSSEPerMB = 16 * 16 * 64 * 64
+	sceneCutHighReferenceSSEPerMB    = 16 * 16 * 48 * 48
+	sceneCutIntraWinPct              = 75
+	sceneCutHighErrorPct             = 75
+	sceneCutIntraErrorRatio          = 4
+)
+
 type vp9SceneCutFrameStats struct {
 	Macroblocks       int
 	ReferenceError    int64

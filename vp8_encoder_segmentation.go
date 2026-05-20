@@ -209,10 +209,6 @@ func (e *VP8Encoder) aggressiveDenoiseSegmentationActiveForQuantizer(q int) bool
 	return true
 }
 
-func (e *VP8Encoder) cyclicRefreshQuantizerDelta() int8 {
-	return cyclicRefreshQuantizerDeltaForQuantizer(e.rc.currentQuantizer)
-}
-
 func cyclicRefreshQuantizerDeltaForQuantizer(q int) int8 {
 	return int8(q/2 - q)
 }
@@ -582,10 +578,6 @@ func (e *VP8Encoder) cyclicRefreshMaxMBsPerFrameForQuantizer(rows int, cols int,
 		layers = e.temporal.pattern.Layers
 	}
 	return cyclicRefreshMaxMBsPerFrameForConfig(rows, cols, layers, e.opts.ScreenContentMode, q, e.rc.framesSinceKeyframe, e.lastInterSkipCount)
-}
-
-func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
-	return cyclicRefreshMaxMBsPerFrameForLayers(rows, cols, 1)
 }
 
 func cyclicRefreshMaxMBsPerFrameForConfig(rows int, cols int, layers int, screenContentMode int, q int, framesSinceKey int, lastSkipCount int) int {
