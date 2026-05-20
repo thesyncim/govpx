@@ -30,57 +30,57 @@ import (
 // fill them in.
 //
 // Task #162 structural inventory (block-by-block coverage map of libvpx
-// vp9_pickmode.c:1696-2488 vs this file):
+// vp9_pickmode.c:1696-2488 vs the split nonrd picker files):
 //
 //   - vp9_pickmode.c:1706    BEST_PICKMODE init_best_pickmode →
-//     this file:122 vp9InitBestPickmode
+//     vp9BestPickmode.reset
 //   - vp9_pickmode.c:1731-1880 filter_ref / pred_filter_search /
-//     cb_pred_filter_search → this file:457-470 via vp9NonrdFilterRef +
+//     cb_pred_filter_search → vp9NonrdFilterRef +
 //     vp9NonrdPredFilterSearch
 //   - vp9_pickmode.c:1779    thresh_skip_golden = 500 default →
-//     this file:550 const threshSkipGolden
+//     const threshSkipGolden in pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2002-2012 find_predictors pre-loop population →
-//     this file:389-420 (per-ref NEAR/NEAREST pre-fill via
+//     pickVP9InterReferenceModeNonRD per-ref NEAR/NEAREST pre-fill via
 //     vp9dec.FindInterMvRefsFields)
 //   - vp9_pickmode.c:2050-2082 ref/mode/comp_pred candidate set-up →
-//     this file:519-530 (numInterModes loop)
+//     pickVP9InterReferenceModeNonRD numInterModes loop
 //   - vp9_pickmode.c:2084-2128 ref-frame skip + CBR golden-skip +
-//     ref_frame_flags + inter_mode_mask gates → this file:525-563
+//     ref_frame_flags + inter_mode_mask gates → pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2204-2228 sf->reference_masking 2× pred_mv_sad
-//     ref skip → this file:565-608 (full vp9_mv_pred candidate-set SAD)
+//     ref skip → vp9NonrdPredMVSAD in vp9_pick_inter_mode_nonrd_pred.go
 //   - vp9_pickmode.c:2259-2264 search_new_mv NEWMV →
-//     this file:626-655 via pickVP9InterMvWithOptions*
+//     pickVP9InterMvWithOptions*
 //   - vp9_pickmode.c:2269-2278 mode_checked × zero-MV dedup →
-//     this file:678-699
+//     pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2296-2299 duplicate-NEARESTMV dedup →
-//     this file:707-711
+//     pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2318-2330 search_filter_ref filter sweep →
-//     this file:725-745
+//     vp9SearchFilterRef in vp9_pick_inter_mode_nonrd_filter.go
 //   - vp9_pickmode.c:2336    vp9_build_inter_predictors_sby + var/sse
-//     → this file:810-816 via vp9InterPredictionVarianceSSE
+//     → vp9InterPredictionVarianceSSE
 //   - vp9_pickmode.c:2346    model_rd_for_sb_y → vp9_block_yrd.go:172-284
 //     vp9ModelRdForSbY (verbatim port including calculate_tx_size at
 //     vp9_pickmode.c:363-394)
 //   - vp9_pickmode.c:2350-2354 sse_zeromv_normalized for CBR gold skip
-//     → this file:825-829
+//     → pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2358-2374 block_yrd / is_skippable + skip-vs-non-
-//     skip RDCOST compare → this file:871-966 (vp9BlockYrd ported at
+//     skip RDCOST compare → pickVP9InterReferenceModeNonRD (vp9BlockYrd at
 //     vp9_block_yrd.go:409-)
 //   - vp9_pickmode.c:2401-2410 ref_frame_cost + inter_mode_cost +
-//     skip_bit finalize → this file:971-980
+//     skip_bit finalize → pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2414-2422 NEWMV_diff_bias (CBR speed>=5 non-screen)
-//     → this file:1039-1053 via vp9NewmvDiffBias
+//     → vp9NewmvDiffBias
 //   - vp9_pickmode.c:2425-2435 encode_breakout_test + x->skip →
-//     this file:988-1024 (vp9EncodeBreakoutTest ported at
+//     pickVP9InterReferenceModeNonRD (vp9EncodeBreakoutTest at
 //     vp9_block_yrd.go:286-)
 //   - vp9_pickmode.c:2460-2462 strict-< winner + best_early_term →
-//     this file:1110-1125
-//   - vp9_pickmode.c:2478-2480 x->skip outer-loop break → this file:
-//     1146-1150
-//   - vp9_pickmode.c:2484-2488 best_early_term shortcut → this file:
-//     1166-1171
-//   - vp9_pickmode.c:2525-2648 intra-fallback section → this file:
-//     1253-1414 vp9NonrdEstimateIntraFallback
+//     pickVP9InterReferenceModeNonRD
+//   - vp9_pickmode.c:2478-2480 x->skip outer-loop break →
+//     pickVP9InterReferenceModeNonRD
+//   - vp9_pickmode.c:2484-2488 best_early_term shortcut →
+//     pickVP9InterReferenceModeNonRD
+//   - vp9_pickmode.c:2525-2648 intra-fallback section →
+//     vp9NonrdEstimateIntraFallback in vp9_pick_inter_mode_nonrd_intra.go
 //
 // Structural gaps remaining (the only items NOT yet ported from
 // vp9_pickmode.c:1696-2488):
@@ -272,7 +272,7 @@ type vp9BestPickmode struct {
 	winner    vp9InterModeDecision
 }
 
-// vp9InitBestPickmode mirrors libvpx's init_best_pickmode.
+// reset mirrors libvpx's init_best_pickmode.
 //
 // libvpx: vp9_pickmode.c:1685-1694
 //
@@ -286,7 +286,7 @@ type vp9BestPickmode struct {
 //	  bp->best_second_ref_frame = NO_REF_FRAME;
 //	  bp->best_pred = NULL;
 //	}
-func vp9InitBestPickmode(bp *vp9BestPickmode) {
+func (bp *vp9BestPickmode) reset() {
 	bp.bestMode = common.ZeroMv
 	bp.bestRefFrame = vp9dec.LastFrame
 	bp.bestTxSize = common.TxSizes
@@ -295,292 +295,6 @@ func vp9InitBestPickmode(bp *vp9BestPickmode) {
 	bp.bestModeSkipTxfm = 0
 	bp.bestSecondRefFrame = vp9dec.NoRefFrame
 	bp.winnerSet = false
-}
-
-func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-) bool {
-	if e.sf.ReuseInterPredSby == 0 || !vp9NonrdPickPartitionEnabled() ||
-		e.sf.PartitionSearchType != MlBasedPartition ||
-		bsize < common.Block8x8 || bsize >= common.BlockSizes {
-		return false
-	}
-
-	// libvpx: vp9_encodeframe.c:4608-4663 and :4673 —
-	// nonrd_pick_partition seeds ctx->pred_pixel_ready before calling
-	// nonrd_pick_sb_modes. The ML realtime lane reaches this helper
-	// through that recursive picker, with x->max/min_partition_size pinned
-	// to BLOCK_64X64/BLOCK_8X8 at vp9_encodeframe.c:5315-5316.
-	ms := int(common.Num8x8BlocksWideLookup[bsize]) / 2
-	forceHorzSplit := miRow+ms >= miRows
-	forceVertSplit := miCol+ms >= miCols
-	xss := e.planes[1].SubsamplingX
-	yss := e.planes[1].SubsamplingY
-
-	partitionNoneAllowed := !forceHorzSplit && !forceVertSplit
-	partitionHorzAllowed := !forceVertSplit && yss <= xss && bsize >= common.Block8x8
-	partitionVertAllowed := !forceHorzSplit && xss <= yss && bsize >= common.Block8x8
-	doSplit := bsize >= common.Block8x8
-
-	if e.sf.AutoMinMaxPartitionSize != AutoMinMaxNotInUse {
-		const maxPartitionSize = common.Block64x64
-		const minPartitionSize = common.Block8x8
-		partitionNoneAllowed = partitionNoneAllowed &&
-			bsize <= maxPartitionSize && bsize >= minPartitionSize
-		partitionHorzAllowed = partitionHorzAllowed &&
-			((bsize <= maxPartitionSize && bsize > minPartitionSize) ||
-				forceHorzSplit)
-		partitionVertAllowed = partitionVertAllowed &&
-			((bsize <= maxPartitionSize && bsize > minPartitionSize) ||
-				forceVertSplit)
-		doSplit = doSplit && bsize > minPartitionSize
-	}
-	if e.sf.UseSquarePartitionOnly != 0 {
-		partitionHorzAllowed = partitionHorzAllowed && forceHorzSplit
-		partitionVertAllowed = partitionVertAllowed && forceVertSplit
-	}
-	if partitionNoneAllowed && doSplit {
-		if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
-			miRow, miCol); mlCtx != nil {
-			switch vp9MLPredictVarPartitioning(bsize, miRow, miCol, mlCtx) {
-			case vp9MLPredictNone:
-				doSplit = false
-			}
-		}
-	}
-	return !(partitionVertAllowed || partitionHorzAllowed || doSplit)
-}
-
-func (e *VP9Encoder) vp9NonrdLumaPredRect(miRow, miCol int,
-	bsize common.BlockSize,
-) (data []byte, stride, x, y, w, h int, ok bool) {
-	data, stride = e.vp9EncoderReconPlane(0)
-	if len(data) == 0 || stride <= 0 || bsize < 0 || bsize >= common.BlockSizes {
-		return nil, 0, 0, 0, 0, 0, false
-	}
-	rows := len(data) / stride
-	x = miCol * common.MiSize
-	y = miRow * common.MiSize
-	w = int(common.Num4x4BlocksWideLookup[bsize]) * 4
-	h = int(common.Num4x4BlocksHighLookup[bsize]) * 4
-	if x < 0 || y < 0 || w <= 0 || h <= 0 ||
-		x+w > stride || y+h > rows || w*h > len(e.nonrdOrigPredScratch) {
-		return nil, 0, 0, 0, 0, 0, false
-	}
-	return data, stride, x, y, w, h, true
-}
-
-func vp9CopyPredRectToScratch(scratch []byte, src []byte,
-	srcStride, x, y, w, h int,
-) {
-	for row := range h {
-		copy(scratch[row*w:(row+1)*w], src[(y+row)*srcStride+x:(y+row)*srcStride+x+w])
-	}
-}
-
-func vp9CopyPredRectFromScratch(dst []byte, dstStride, x, y, w, h int,
-	scratch []byte,
-) {
-	for row := range h {
-		copy(dst[(y+row)*dstStride+x:(y+row)*dstStride+x+w],
-			scratch[row*w:(row+1)*w])
-	}
-}
-
-func (e *VP9Encoder) vp9NonrdPredMVSAD(inter *vp9InterEncodeState,
-	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
-) (uint64, bool) {
-	if inter == nil || inter.img == nil || inter.ref == nil || !inter.ref.valid {
-		return 0, false
-	}
-	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
-	if len(src) == 0 || srcStride <= 0 {
-		return 0, false
-	}
-	ref, refStride, refOriginX, refOriginY, _, _, ok :=
-		e.vp9SubpelReferencePlane(refFrame, inter.ref)
-	if !ok || len(ref) == 0 || refStride <= 0 {
-		return 0, false
-	}
-	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
-	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-	x0 := miCol * common.MiSize
-	y0 := miRow * common.MiSize
-	if x0 < 0 || y0 < 0 || x0+blockW > srcW || y0+blockH > srcH {
-		return 0, false
-	}
-	fpRow := int(mv.Row) >> 3
-	fpCol := int(mv.Col) >> 3
-	refX := refOriginX + x0 + fpCol
-	refY := refOriginY + y0 + fpRow
-	refRows := len(ref) / refStride
-	if refX < 0 || refY < 0 || refX+blockW > refStride || refY+blockH > refRows {
-		return 0, false
-	}
-	return vp9BlockSADOffsets(src, y0*srcStride+x0, srcStride,
-		ref, refY*refStride+refX, refStride, blockW, blockH,
-		^uint64(0)), true
-}
-
-func vp9NonrdModeRDThresh(qindex int, bsize common.BlockSize,
-	refFrame int8, mode common.PredictionMode, adaptiveRDThresh int,
-	bestModeSkipTxfm bool, biasGolden bool, framesSinceGolden int,
-) int64 {
-	if bsize < 0 || bsize >= common.BlockSizes ||
-		refFrame <= vp9dec.IntraFrame || refFrame >= vp9dec.MaxRefFrames ||
-		mode < common.NearestMv || mode > common.NewMv {
-		return 0
-	}
-	modeOffset := vp9ModeOffsetInter(mode)
-	modeIndex := vp9ModeIdxTable[refFrame][modeOffset]
-	threshMult := vp9NonrdThreshMult(modeIndex, adaptiveRDThresh)
-	if threshMult <= 0 {
-		return 0
-	}
-	threshFactor := vp9ComputeRDThreshFactor(qindex)
-	t := int64(threshFactor) * int64(vp9RDThreshBlockSizeFactor[bsize])
-	thresh := int64(threshMult) * t / 4
-	if bestModeSkipTxfm {
-		thresh <<= 1
-	}
-	if biasGolden && refFrame == vp9dec.GoldenFrame && framesSinceGolden > 4 {
-		thresh <<= 3
-	}
-	return thresh
-}
-
-func vp9NonrdThreshMult(modeIndex vp9ThrModes, adaptiveRDThresh int) int {
-	switch modeIndex {
-	case vp9ThrNearestMV, vp9ThrNearestG, vp9ThrNearestA:
-		if adaptiveRDThresh != 0 {
-			return 300
-		}
-		return 0
-	case vp9ThrNewMV, vp9ThrNewG, vp9ThrNewA,
-		vp9ThrNearMV, vp9ThrNearG, vp9ThrNearA:
-		return 1000
-	case vp9ThrZeroMV, vp9ThrZeroG, vp9ThrZeroA:
-		return 2000
-	default:
-		return 0
-	}
-}
-
-// vp9SearchFilterRef is the verbatim port of libvpx's search_filter_ref
-// (vp9_pickmode.c:1499-1584). It runs the inter predictor for each filter in
-// [filter_start, filter_end] (typically {EIGHTTAP, EIGHTTAP_SMOOTH} in the
-// realtime path), scores each via model_rd_for_sb_y + vp9_get_switchable_rate
-// using the libvpx-faithful Lagrangian RDCOST, and returns the winning filter
-// together with the (rate, dist, var, sse, tx_size) tuple at that filter.
-//
-// This is the per-block filter histogram path: libvpx's filter choice varies
-// across blocks because model_rd_for_sb_y combines variance + sse with the
-// quantizer-aware DC/AC rate model, producing per-filter cost orderings that
-// can flip between neighbouring blocks even when the raw SSE delta is small.
-// The previous govpx legacy proxy used raw SSE per filter, which collapsed the
-// histogram to a single dominant filter (counts.SwitchableInterp c==1) on the
-// {0x32} cpu=-8 RT speed=8 64x64 seed; libvpx emits c>=2 for the same seed
-// because the model_rd-driven race wins different filters on different blocks
-// (see vp9_oracle_encoder_runtime_controls_fuzz_test.go {0x32} entry).
-//
-// libvpx: vp9/encoder/vp9_pickmode.c:1499-1584 search_filter_ref.
-//
-//	for (filter = filter_start; filter <= filter_end; ++filter) {
-//	    int64_t cost;
-//	    mi->interp_filter = filter;
-//	    vp9_build_inter_predictors_sby(xd, mi_row, mi_col, bsize);
-//	    if (use_model_yrd_large)
-//	      model_rd_for_sb_y_large(cpi, bsize, x, xd, &pf_rate[filter],
-//	                              &pf_dist[filter], &pf_var[filter],
-//	                              &pf_sse[filter], mi_row, mi_col,
-//	                              this_early_term, flag_preduv_computed);
-//	    else
-//	      model_rd_for_sb_y(cpi, bsize, x, xd, &pf_rate[filter],
-//	                        &pf_dist[filter], &pf_var[filter],
-//	                        &pf_sse[filter], 0);
-//	    curr_rate[filter] = pf_rate[filter];
-//	    pf_rate[filter] += vp9_get_switchable_rate(cpi, xd);
-//	    cost = RDCOST(x->rdmult, x->rddiv, pf_rate[filter], pf_dist[filter]);
-//	    pf_tx_size[filter] = mi->tx_size;
-//	    if (cost < best_cost) {
-//	      best_filter = filter;
-//	      best_cost = cost;
-//	      ...
-//	    }
-//	}
-//
-// govpx differences:
-//   - use_model_yrd_large is FALSE for the deferred RuntimeControls seed #8
-//     (VBR, base_qindex non-zero but rc_mode != VPX_CBR — see vp9_pickmode.c:
-//     2045-2048). The large-block model_rd kernel is gated to that path
-//     specifically; this helper invokes the plain vp9ModelRdForSbY mirror.
-//     When the use_model_yrd_large port lands it will be wired here behind
-//     the same large_block + CBR + base_qindex gate.
-//
-// The candidates slice supplies the filter sweep ([filter_start..filter_end]).
-// Caller is responsible for the gate from vp9_pickmode.c:2318-2330 — this
-// helper only runs the sweep, it does not check pred_filter_search /
-// (mode == NEWMV || filter_ref == SWITCHABLE) / subpel-MV / LAST_FRAME etc.
-func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
-	candidates []vp9dec.InterpFilter, switchableCtx int,
-	dequant [2]int16, qindex int,
-) (bestFilter vp9dec.InterpFilter, bestVarY, bestSseY uint64,
-	bestRate int, bestDist int64, bestTxSize common.TxSize, ok bool,
-) {
-	if len(candidates) == 0 {
-		return 0, 0, 0, 0, 0, 0, false
-	}
-	// libvpx: vp9_pickmode.c:1517 int64_t best_cost = INT64_MAX;
-	bestCost := uint64(1<<63 - 1)
-	bestFilter = candidates[0]
-	rdmult := e.activeRDMult(qindex)
-	for _, filter := range candidates {
-		// libvpx: vp9_pickmode.c:1527-1528 mi->interp_filter = filter;
-		//                                  vp9_build_inter_predictors_sby(...).
-		// govpx fuses both into vp9InterPredictionVarianceSSE which assigns
-		// the filter to the synthetic NeighborMi, builds the predictor, then
-		// returns (var, sse) via vp9BlockDiffVarianceSSE (libvpx's
-		// fn_ptr[bsize].vf inside model_rd_for_sb_y at vp9_pickmode.c:661-666).
-		varY, sseY, vok := e.vp9InterPredictionVarianceSSE(inter, miRows,
-			miCols, miRow, miCol, bsize, mode, refFrame, mv, filter)
-		if !vok {
-			continue
-		}
-		// libvpx: vp9_pickmode.c:1530-1537 model_rd_for_sb_y(_large).
-		rateY, distY, _, mrdTxSize := vp9ModelRdForSbY(bsize, qindex, dequant,
-			varY, sseY, 0)
-		// libvpx: vp9_pickmode.c:1538 curr_rate[filter] = pf_rate[filter];
-		// (curr_rate captures the pre-switchable rate so the caller can
-		// commit the model_rd rate without double-counting the switchable
-		// bit cost. govpx returns the curr_rate equivalent — rateY here —
-		// so the caller can fold it into the picker's outer (rate, dist)
-		// tuple without re-applying vp9_get_switchable_rate.)
-		// libvpx: vp9_pickmode.c:1539 pf_rate[filter] +=
-		//   vp9_get_switchable_rate(cpi, xd);
-		filterRate := rateY + vp9SwitchableInterpRateCost(
-			vp9InterModeCostFrameContext(inter),
-			switchableCtx, filter)
-		// libvpx: vp9_pickmode.c:1540 cost = RDCOST(x->rdmult, x->rddiv,
-		//   pf_rate[filter], pf_dist[filter]);
-		// govpx vp9RDCost is the verbatim port (vp9_rd.h:29-30 RDCOST
-		// macro) — rdmult * rate + (dist << rddiv_bits).
-		cost := vp9RDCost(rdmult, vp9RDDivBits, filterRate, uint64(distY))
-		// libvpx: vp9_pickmode.c:1541 pf_tx_size[filter] = mi->tx_size;
-		// libvpx: vp9_pickmode.c:1542 if (cost < best_cost) ...
-		if !ok || cost < bestCost {
-			bestFilter = filter
-			bestCost = cost
-			bestVarY = varY
-			bestSseY = sseY
-			bestRate = rateY
-			bestDist = distY
-			bestTxSize = mrdTxSize
-			ok = true
-		}
-	}
-	return bestFilter, bestVarY, bestSseY, bestRate, bestDist, bestTxSize, ok
 }
 
 // pickVP9InterReferenceModeNonRD ports libvpx's vp9_pick_inter_mode realtime
@@ -643,7 +357,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// libvpx: vp9_pickmode.c:1706 BEST_PICKMODE best_pickmode;
 	//          vp9_pickmode.c:1785 init_best_pickmode(&best_pickmode);
 	var bp vp9BestPickmode
-	vp9InitBestPickmode(&bp)
+	bp.reset()
 
 	// libvpx: vp9_pickmode.c:1700 SPEED_FEATURES *const sf = &cpi->sf;
 	//          vp9_pickmode.c:2150 sf->inter_mode_mask[bsize] gate.
