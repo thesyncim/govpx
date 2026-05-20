@@ -1,3 +1,5 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 import (
@@ -1516,19 +1518,6 @@ func assertVP9PacketByteParity(t *testing.T, label string, got, want []byte) {
 		got, want)
 }
 
-func firstVP9PacketDiffForTest(a, b []byte) int {
-	n := min(len(a), len(b))
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
-}
-
 type vp9OracleTxCoeffs struct {
 	Plane   int
 	Mode    common.PredictionMode
@@ -1737,40 +1726,6 @@ func collectVP9PacketResidueCoeffsForOracleTest(t *testing.T, d *VP9Decoder,
 	return out
 }
 
-func decodeVP9PacketMiGridForOracleTest(t *testing.T, packet []byte) []vp9dec.NeighborMi {
-	t.Helper()
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	if err := d.Decode(packet); err != nil {
-		t.Fatalf("Decode packet: %v", err)
-	}
-	out := make([]vp9dec.NeighborMi, len(d.miGrid))
-	copy(out, d.miGrid)
-	return out
-}
-
-func decodeVP9TwoFrameInterMiGridForOracleTest(t *testing.T, key, inter []byte) []vp9dec.NeighborMi {
-	t.Helper()
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	if err := d.Decode(key); err != nil {
-		t.Fatalf("Decode key packet: %v", err)
-	}
-	if _, ok := d.NextFrame(); !ok {
-		t.Fatal("NextFrame returned !ok after key packet")
-	}
-	if err := d.Decode(inter); err != nil {
-		t.Fatalf("Decode inter packet: %v", err)
-	}
-	out := make([]vp9dec.NeighborMi, len(d.miGrid))
-	copy(out, d.miGrid)
-	return out
-}
-
 func decodeVP9SequenceMiGridsForOracleTest(t *testing.T, packets [][]byte) [][]vp9dec.NeighborMi {
 	t.Helper()
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -1866,27 +1821,6 @@ func vp9AbsIntForOracleTest(v int) int {
 		return -v
 	}
 	return v
-}
-
-func newVP9PanningYCbCrForRateTest(width, height int, frame int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := range height {
-		row := img.Y[y*img.YStride:]
-		for x := range width {
-			row[x] = byte(24 + ((x+frame*3)*7+y*11+(x*y+frame*13)%37)%208)
-		}
-	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
-	for y := range uvHeight {
-		cb := img.Cb[y*img.CStride:]
-		cr := img.Cr[y*img.CStride:]
-		for x := range uvWidth {
-			cb[x] = byte(64 + ((x+frame)*5+y*3)%128)
-			cr[x] = byte(72 + (x*3+(y+frame)*7)%112)
-		}
-	}
-	return img
 }
 
 func firstLastVP9MiForOracleTest(grid []vp9dec.NeighborMi) (vp9dec.NeighborMi, vp9dec.NeighborMi) {
