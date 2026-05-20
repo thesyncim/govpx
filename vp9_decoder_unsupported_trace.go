@@ -7,8 +7,10 @@ import (
 	"os"
 )
 
+var vp9TraceUnsupportedEnabled = os.Getenv("GOVPX_TRACE_UNSUPPORTED") != ""
+
 func (d *VP9Decoder) traceVP9Unsupported(reason string) {
-	if os.Getenv("GOVPX_TRACE_UNSUPPORTED") != "" {
+	if vp9TraceUnsupportedEnabled {
 		fmt.Fprintf(os.Stderr, "vp9 unsupported: %s\n", reason)
 	}
 }
