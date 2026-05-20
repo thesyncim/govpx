@@ -1,6 +1,6 @@
 package common
 
-import "unsafe"
+import "github.com/thesyncim/govpx/internal/vpx/buffers"
 
 // FrameLayout describes the padded VP9 4:2:0 frame buffer layout.
 type FrameLayout struct {
@@ -26,9 +26,9 @@ func NewFrameLayout(width, height int) FrameLayout {
 // NewDecoderFrameLayout returns the padded VP9 decoder frame buffer layout.
 func NewDecoderFrameLayout(width, height, byteAlignment int) FrameLayout {
 	const border = 32 // VP9_DEC_BORDER_IN_PIXELS in libvpx vpx_scale/yv12config.h.
-	alignedWidth := Align(width, 8)
-	alignedHeight := Align(height, 8)
-	yStride := Align(alignedWidth+2*border, 32)
+	alignedWidth := buffers.Align(width, 8)
+	alignedHeight := buffers.Align(height, 8)
+	yStride := buffers.Align(alignedWidth+2*border, 32)
 	uvWidth := alignedWidth >> 1
 	uvHeight := alignedHeight >> 1
 	uvStride := yStride >> 1
@@ -39,8 +39,8 @@ func NewDecoderFrameLayout(width, height, byteAlignment int) FrameLayout {
 	vOrigin := uvOrigin
 	extraAlignment := 0
 	if byteAlignment > 0 {
-		yOrigin = Align(yOrigin, byteAlignment)
-		uvOrigin = Align(uvOrigin, byteAlignment)
+		yOrigin = buffers.Align(yOrigin, byteAlignment)
+		uvOrigin = buffers.Align(uvOrigin, byteAlignment)
 		extraAlignment = byteAlignment
 		uOrigin = uvOrigin
 		vOrigin = uvOrigin
@@ -70,9 +70,9 @@ func NewDecoderFrameLayoutForPlanes(width, height, byteAlignment int,
 	if byteAlignment <= 0 {
 		return layout
 	}
-	layout.YOrigin = AlignOffsetForSlice(yFull, layout.YOrigin, byteAlignment)
-	layout.UOrigin = AlignOffsetForSlice(uFull, layout.UOrigin, byteAlignment)
-	layout.VOrigin = AlignOffsetForSlice(vFull, layout.VOrigin, byteAlignment)
+	layout.YOrigin = buffers.AlignOffsetForSlice(yFull, layout.YOrigin, byteAlignment)
+	layout.UOrigin = buffers.AlignOffsetForSlice(uFull, layout.UOrigin, byteAlignment)
+	layout.VOrigin = buffers.AlignOffsetForSlice(vFull, layout.VOrigin, byteAlignment)
 	layout.UVOrigin = layout.UOrigin
 	return layout
 }
@@ -83,47 +83,4 @@ func DecoderFrameAlignment(byteAlignment int) int {
 		return byteAlignment
 	}
 	return 32
-}
-
-// ByteSliceAligned reports whether buf starts on an align-byte boundary.
-func ByteSliceAligned(buf []byte, align int) bool {
-	if align <= 1 || len(buf) == 0 {
-		return true
-	}
-	return uintptr(unsafe.Pointer(&buf[0]))%uintptr(align) == 0
-}
-
-// AlignmentPadding returns the prefix needed to align buf to align bytes.
-func AlignmentPadding(buf []byte, align int) int {
-	if align <= 1 || len(buf) == 0 {
-		return 0
-	}
-	ptr := uintptr(unsafe.Pointer(&buf[0]))
-	rem := ptr % uintptr(align)
-	if rem == 0 {
-		return 0
-	}
-	return int(uintptr(align) - rem)
-}
-
-// AlignOffsetForSlice returns off rounded up so &buf[off] has align-byte
-// alignment.
-func AlignOffsetForSlice(buf []byte, off, align int) int {
-	if align <= 1 || len(buf) == 0 {
-		return off
-	}
-	ptr := uintptr(unsafe.Pointer(&buf[0])) + uintptr(off)
-	rem := ptr % uintptr(align)
-	if rem == 0 {
-		return off
-	}
-	return off + int(uintptr(align)-rem)
-}
-
-// Align rounds v up to an align-byte boundary.
-func Align(v, align int) int {
-	if align <= 1 {
-		return v
-	}
-	return (v + align - 1) &^ (align - 1)
 }

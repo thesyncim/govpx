@@ -5,10 +5,10 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
-	"github.com/thesyncim/govpx/internal/vp8/mem"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 )
 
@@ -1370,7 +1370,7 @@ func (d *VP9Decoder) prepareVP9ExternalOutputFrame(width, height int) error {
 	if len(buffer.Data) < minSize {
 		return ErrInvalidConfig
 	}
-	baseOff := common.AlignmentPadding(buffer.Data, 32)
+	baseOff := buffers.AlignmentPadding(buffer.Data, 32)
 	if len(buffer.Data)-baseOff < layout.YFullLen+2*layout.UVFullLen {
 		return ErrInvalidConfig
 	}
@@ -1639,11 +1639,11 @@ func ensureVP9AlignedPlaneCapacity(buf []byte, n int) []byte {
 
 func ensureVP9AlignedPlaneCapacityWithAlignment(buf []byte, n, align int) []byte {
 	if cap(buf) < n {
-		return mem.NewAligned(n, align)
+		return buffers.NewAligned(n, align)
 	}
 	buf = buf[:n]
-	if !common.ByteSliceAligned(buf, align) {
-		return mem.NewAligned(n, align)
+	if !buffers.ByteSliceAligned(buf, align) {
+		return buffers.NewAligned(n, align)
 	}
 	return buf
 }
@@ -1652,9 +1652,9 @@ func vp9ImagePlanesAligned(img Image, align int) bool {
 	if align <= 1 {
 		return true
 	}
-	return common.ByteSliceAligned(img.Y, align) &&
-		common.ByteSliceAligned(img.U, align) &&
-		common.ByteSliceAligned(img.V, align)
+	return buffers.ByteSliceAligned(img.Y, align) &&
+		buffers.ByteSliceAligned(img.U, align) &&
+		buffers.ByteSliceAligned(img.V, align)
 }
 
 func fillVP9Plane(buf []byte, value byte) {

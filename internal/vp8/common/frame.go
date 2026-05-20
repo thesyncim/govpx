@@ -1,7 +1,7 @@
 package common
 
 import (
-	"github.com/thesyncim/govpx/internal/vp8/mem"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // Ported frame-buffer layout concepts from libvpx v1.16.0
@@ -63,7 +63,7 @@ func (fb *FrameBuffer) Resize(width int, height int, border int, align int) erro
 		return err
 	}
 	if cap(fb.buf) < layout.total || fb.align != layout.align {
-		fb.buf = mem.NewAligned(layout.total, layout.align)
+		fb.buf = buffers.NewAligned(layout.total, layout.align)
 	} else {
 		fb.buf = fb.buf[:layout.total]
 	}
@@ -158,14 +158,14 @@ func computeLayout(width int, height int, border int, align int) (frameLayout, e
 	if align <= 0 {
 		align = 1
 	}
-	codedWidth := roundUp(width, 16)
-	codedHeight := roundUp(height, 16)
+	codedWidth := buffers.RoundUp(width, 16)
+	codedHeight := buffers.RoundUp(height, 16)
 	uvWidth := (codedWidth + 1) >> 1
 	uvHeight := (codedHeight + 1) >> 1
 	uvBorder := (border + 1) >> 1
 
-	yStride := roundUp(codedWidth+border*2, align)
-	uStride := roundUp(uvWidth+uvBorder*2, align)
+	yStride := buffers.RoundUp(codedWidth+border*2, align)
+	uStride := buffers.RoundUp(uvWidth+uvBorder*2, align)
 	vStride := uStride
 	yRows := codedHeight + border*2
 	uRows := uvHeight + uvBorder*2
@@ -201,17 +201,6 @@ func computeLayout(width int, height int, border int, align int) (frameLayout, e
 }
 
 const maxFrameDimension = 16383
-
-func roundUp(v int, align int) int {
-	if align <= 1 {
-		return v
-	}
-	r := v % align
-	if r == 0 {
-		return v
-	}
-	return v + align - r
-}
 
 func planeLen(stride int, rows int, visibleWidth int) int {
 	if rows <= 0 {

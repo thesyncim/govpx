@@ -1,6 +1,10 @@
 package common
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
+)
 
 func TestNewDecoderFrameLayoutMatchesLibvpxBorderShape(t *testing.T) {
 	layout := NewDecoderFrameLayout(65, 49, 0)
@@ -35,28 +39,28 @@ func TestNewDecoderFrameLayoutForPlanesAlignsOrigins(t *testing.T) {
 	u := make([]byte, layout.UVFullLen+alignment)
 	v := make([]byte, layout.UVFullLen+alignment)
 	layout = NewDecoderFrameLayoutForPlanes(64, 64, alignment, y, u, v)
-	if !ByteSliceAligned(y[layout.YOrigin:], alignment) {
+	if !buffers.ByteSliceAligned(y[layout.YOrigin:], alignment) {
 		t.Fatalf("Y origin %d is not %d-byte aligned", layout.YOrigin, alignment)
 	}
-	if !ByteSliceAligned(u[layout.UOrigin:], alignment) {
+	if !buffers.ByteSliceAligned(u[layout.UOrigin:], alignment) {
 		t.Fatalf("U origin %d is not %d-byte aligned", layout.UOrigin, alignment)
 	}
-	if !ByteSliceAligned(v[layout.VOrigin:], alignment) {
+	if !buffers.ByteSliceAligned(v[layout.VOrigin:], alignment) {
 		t.Fatalf("V origin %d is not %d-byte aligned", layout.VOrigin, alignment)
 	}
 }
 
 func TestAlignAndPadding(t *testing.T) {
-	if got := Align(65, 8); got != 72 {
+	if got := buffers.Align(65, 8); got != 72 {
 		t.Fatalf("Align(65, 8) = %d, want 72", got)
 	}
 	buf := make([]byte, 512)
-	off := AlignmentPadding(buf, 64)
-	if !ByteSliceAligned(buf[off:], 64) {
+	off := buffers.AlignmentPadding(buf, 64)
+	if !buffers.ByteSliceAligned(buf[off:], 64) {
 		t.Fatalf("AlignmentPadding returned unaligned offset %d", off)
 	}
-	next := AlignOffsetForSlice(buf, 7, 64)
-	if !ByteSliceAligned(buf[next:], 64) {
+	next := buffers.AlignOffsetForSlice(buf, 7, 64)
+	if !buffers.ByteSliceAligned(buf[next:], 64) {
 		t.Fatalf("AlignOffsetForSlice returned unaligned offset %d", next)
 	}
 }

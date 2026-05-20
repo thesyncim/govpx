@@ -7,6 +7,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
@@ -1627,8 +1628,8 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 		return 0, false
 	}
 	rows := len(planeData) / stride
-	alignedWidth := common.Align(int(key.hdr.Width), 8)
-	alignedHeight := common.Align(int(key.hdr.Height), 8)
+	alignedWidth := buffers.Align(int(key.hdr.Width), 8)
+	alignedHeight := buffers.Align(int(key.hdr.Height), 8)
 	planeWidth := alignedWidth >> pd.SubsamplingX
 	planeHeight := alignedHeight >> pd.SubsamplingY
 	baseX := (miCol * common.MiSize) >> pd.SubsamplingX

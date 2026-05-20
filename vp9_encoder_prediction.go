@@ -6,6 +6,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,
@@ -537,8 +538,8 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 	}
 	rows := len(dstData) / dstStride
 	refRows := len(refData) / refStride
-	alignedWidth := common.Align(int(hdr.Width), 8)
-	alignedHeight := common.Align(int(hdr.Height), 8)
+	alignedWidth := buffers.Align(int(hdr.Width), 8)
+	alignedHeight := buffers.Align(int(hdr.Height), 8)
 	planeWidth := alignedWidth >> pd.SubsamplingX
 	planeHeight := alignedHeight >> pd.SubsamplingY
 	baseX := (miCol * common.MiSize) >> pd.SubsamplingX
