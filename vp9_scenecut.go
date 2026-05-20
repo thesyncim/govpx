@@ -41,8 +41,16 @@ func (e *VP9Encoder) vp9SceneDetectionOnePass(src *image.YCbCr,
 		src.Rect.Dy() != e.lastSource.Rect.Dy() {
 		return
 	}
-	avgSAD, zeroTemp, samples, ok := vp9SourceSADSceneSamples(src,
-		&e.lastSource, miRows, miCols)
+	samples, ok := encoder.SourceSADSceneSamples(encoder.SourceSADSceneSamplesArgs{
+		SourceY:           src.Y,
+		SourceYStride:     src.YStride,
+		LastSourceY:       e.lastSource.Y,
+		LastSourceYStride: e.lastSource.YStride,
+		Width:             src.Rect.Dx(),
+		Height:            src.Rect.Dy(),
+		MIRows:            miRows,
+		MICols:            miCols,
+	})
 	if !ok {
 		return
 	}
@@ -56,58 +64,17 @@ func (e *VP9Encoder) vp9SceneDetectionOnePass(src *image.YCbCr,
 		thresh = 2.1
 	}
 	refThresh := max(uint64(float64(e.rc.avgSourceSAD[0])*thresh), minThresh)
-	if avgSAD > refThresh &&
+	if samples.AverageSAD > refThresh &&
 		e.rc.framesSinceKey > 2 &&
-		zeroTemp < 3*(samples>>2) {
+		samples.ZeroTemp < 3*(samples.Samples>>2) {
 		e.rc.highSourceSAD = true
 	}
-	if avgSAD > 0 || e.rc.mode == RateControlCBR {
-		e.rc.avgSourceSAD[0] = (3*e.rc.avgSourceSAD[0] + avgSAD) >> 2
+	if samples.AverageSAD > 0 || e.rc.mode == RateControlCBR {
+		e.rc.avgSourceSAD[0] = (3*e.rc.avgSourceSAD[0] + samples.AverageSAD) >> 2
 	}
-	if zeroTemp < (3*samples)>>2 {
+	if samples.ZeroTemp < (3*samples.Samples)>>2 {
 		e.rc.highNumBlocksWithMotion = true
 	}
-}
-
-func vp9SourceSADSceneSamples(src, last *image.YCbCr,
-	miRows, miCols int,
-) (avgSAD uint64, zeroTemp int, samples int, ok bool) {
-	if src == nil || last == nil || miRows <= 0 || miCols <= 0 {
-		return 0, 0, 0, false
-	}
-	sbCols := (miCols + 7) >> 3
-	sbRows := (miRows + 7) >> 3
-	width := src.Rect.Dx()
-	height := src.Rect.Dy()
-	if width != last.Rect.Dx() || height != last.Rect.Dy() {
-		return 0, 0, 0, false
-	}
-	for sbiRow := range sbRows {
-		for sbiCol := range sbCols {
-			if !((sbiRow > 0 && sbiCol > 0) &&
-				(sbiRow < sbRows-1 && sbiCol < sbCols-1) &&
-				((sbiRow%2 == 0 && sbiCol%2 == 0) ||
-					(sbiRow%2 != 0 && sbiCol%2 != 0))) {
-				continue
-			}
-			x := sbiCol * 64
-			y := sbiRow * 64
-			if x+64 > width || y+64 > height {
-				continue
-			}
-			sad := encoder.BlockSAD(src.Y, src.YStride, last.Y, last.YStride,
-				x, y, x, y, 64, 64, ^uint64(0))
-			avgSAD += sad
-			samples++
-			if sad == 0 {
-				zeroTemp++
-			}
-		}
-	}
-	if samples <= 0 {
-		return 0, 0, 0, false
-	}
-	return avgSAD / uint64(samples), zeroTemp, samples, true
 }
 
 func (e *VP9Encoder) shouldEncodeVP9SceneCutKeyFrame(src *image.YCbCr,

@@ -263,11 +263,11 @@ func TestVP9AvgSourceSADStatsZeroTempSource(t *testing.T) {
 	if !ok {
 		t.Fatalf("vp9AvgSourceSADStats returned !ok")
 	}
-	if !stats.zeroTempSADSource {
+	if !stats.ZeroTempSADSource {
 		t.Fatalf("zeroTempSADSource = false, want true for identical current/Last_Source")
 	}
-	if stats.contentState != encoder.ContentStateLowSadLowSumdiff {
-		t.Fatalf("contentState = %v, want encoder.ContentStateLowSadLowSumdiff", stats.contentState)
+	if stats.ContentState != encoder.ContentStateLowSadLowSumdiff {
+		t.Fatalf("contentState = %v, want encoder.ContentStateLowSadLowSumdiff", stats.ContentState)
 	}
 	if got := e.vp9ReadContentStateSbFd(0); got != 1 {
 		t.Fatalf("contentStateSbFd[0] = %d, want 1 after low-SAD update", got)

@@ -227,66 +227,40 @@ func (e *VP9Encoder) vp9CommitLastSource(img *image.YCbCr, showFrame, dropped bo
 	e.lastSourceValid = true
 }
 
-type vp9AvgSourceSADResult struct {
-	contentState      encoder.ContentStateSB
-	zeroTempSADSource bool
-}
-
 // vp9AvgSourceSADStats ports libvpx avg_source_sad
 // (vp9_encodeframe.c:1201-1248) for the 64x64 SB rooted at (miRow, miCol).
 // It computes x->content_state_sb, x->zero_temp_sad_source, and updates
 // cpi->content_state_sb_fd.
-func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol int) (vp9AvgSourceSADResult, bool) {
+func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol int) (encoder.AvgSourceSADResult, bool) {
 	if e == nil || img == nil || e.sf.UseSourceSad == 0 || !e.lastSourceValid {
-		return vp9AvgSourceSADResult{}, false
+		return encoder.AvgSourceSADResult{}, false
 	}
 	if img.Rect.Dx() != e.opts.Width || img.Rect.Dy() != e.opts.Height ||
 		e.lastSource.Rect.Dx() != e.opts.Width ||
 		e.lastSource.Rect.Dy() != e.opts.Height {
-		return vp9AvgSourceSADResult{}, false
+		return encoder.AvgSourceSADResult{}, false
 	}
 	sbMiRow := miRow &^ 7
 	sbMiCol := miCol &^ 7
-	x0 := sbMiCol * 8
-	y0 := sbMiRow * 8
-	if x0 < 0 || y0 < 0 || x0+64 > e.opts.Width || y0+64 > e.opts.Height {
-		return vp9AvgSourceSADResult{}, false
-	}
-
-	tmpSad := encoder.BlockSAD(img.Y, img.YStride, e.lastSource.Y,
-		e.lastSource.YStride, x0, y0, x0, y0, 64, 64, ^uint64(0))
-	tmpVariance, tmpSSE := encoder.BlockDiffVarianceSSE(img.Y, img.YStride,
-		e.lastSource.Y, e.lastSource.YStride, x0, y0, x0, y0, 64, 64)
-	sumdiffSquare := tmpSSE - tmpVariance
-
-	const avgSourceSADThreshold uint64 = 10000
-	const avgSourceSADThreshold2 uint64 = 12000
-
-	contentState := encoder.ContentStateHighSadHighSumdiff
-	if tmpSad < avgSourceSADThreshold {
-		if sumdiffSquare < 25 {
-			contentState = encoder.ContentStateLowSadLowSumdiff
-		} else {
-			contentState = encoder.ContentStateLowSadHighSumdiff
-		}
-	} else if sumdiffSquare < 25 {
-		contentState = encoder.ContentStateHighSadLowSumdiff
-	}
-
-	if e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) &&
-		e.rc.mode == RateControlCBR && tmpVariance < (tmpSSE>>3) &&
-		sumdiffSquare > 10000 {
-		contentState = encoder.ContentStateLowVarHighSumdiff
-	} else if tmpSad > (avgSourceSADThreshold << 1) {
-		contentState = encoder.ContentStateVeryHighSad
+	stats, ok := encoder.AvgSourceSAD(encoder.AvgSourceSADArgs{
+		SourceY:           img.Y,
+		SourceYStride:     img.YStride,
+		LastSourceY:       e.lastSource.Y,
+		LastSourceYStride: e.lastSource.YStride,
+		Width:             e.opts.Width,
+		Height:            e.opts.Height,
+		MIRow:             sbMiRow,
+		MICol:             sbMiCol,
+		ScreenContent:     e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+		CBR:               e.rc.mode == RateControlCBR,
+	})
+	if !ok {
+		return encoder.AvgSourceSADResult{}, false
 	}
 
 	sbOffset := vp9SbOffsetForMi(sbMiRow, sbMiCol, miCols)
-	e.vp9UpdateContentStateSbFd(sbOffset, tmpSad < avgSourceSADThreshold2)
-	return vp9AvgSourceSADResult{
-		contentState:      contentState,
-		zeroTempSADSource: tmpSad == 0,
-	}, true
+	e.vp9UpdateContentStateSbFd(sbOffset, stats.LowSADForContentState)
+	return stats, true
 }
 
 // vp9SourceSADContentState is the per-frame, per-SB cache for the
@@ -298,16 +272,16 @@ func (e *VP9Encoder) vp9SourceSADContentState(img *image.YCbCr, miRows, miCols, 
 	if !ok {
 		return encoder.ContentStateInvalid, false
 	}
-	return stats.contentState, true
+	return stats.ContentState, true
 }
 
-func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (vp9AvgSourceSADResult, bool) {
+func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (encoder.AvgSourceSADResult, bool) {
 	if e == nil || img == nil || e.sf.UseSourceSad == 0 {
-		return vp9AvgSourceSADResult{}, false
+		return encoder.AvgSourceSADResult{}, false
 	}
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
 	if sbCount <= 0 {
-		return vp9AvgSourceSADResult{}, false
+		return encoder.AvgSourceSADResult{}, false
 	}
 	if cap(e.varPartSBContentStateValid) < sbCount {
 		e.varPartSBContentStateValid = make([]bool, sbCount)
@@ -332,20 +306,20 @@ func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, 
 	sbMiCol := miCol &^ 7
 	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
 	if idx < 0 || idx >= sbCount {
-		return vp9AvgSourceSADResult{}, false
+		return encoder.AvgSourceSADResult{}, false
 	}
 	if e.varPartSBContentStateValid[idx] {
-		return vp9AvgSourceSADResult{
-			contentState:      e.varPartSBContentState[idx],
-			zeroTempSADSource: e.varPartSBZeroTempSADSource[idx],
+		return encoder.AvgSourceSADResult{
+			ContentState:      e.varPartSBContentState[idx],
+			ZeroTempSADSource: e.varPartSBZeroTempSADSource[idx],
 		}, true
 	}
 	stats, ok := e.vp9AvgSourceSADStats(img, miCols, sbMiRow, sbMiCol)
 	if !ok {
-		return vp9AvgSourceSADResult{}, false
+		return encoder.AvgSourceSADResult{}, false
 	}
-	e.varPartSBContentState[idx] = stats.contentState
-	e.varPartSBZeroTempSADSource[idx] = stats.zeroTempSADSource
+	e.varPartSBContentState[idx] = stats.ContentState
+	e.varPartSBZeroTempSADSource[idx] = stats.ZeroTempSADSource
 	e.varPartSBContentStateValid[idx] = true
 	return stats, true
 }

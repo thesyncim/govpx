@@ -518,7 +518,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		noiseEnabled, noiseAtLeastMedium := e.vp9NewmvDiffBiasNoiseInputs()
 		if !lowvarHighsumdiffSet {
 			if stats, ok := e.vp9AvgSourceSADStats(inter.img, miCols, miRow, miCol); ok {
-				lowvarHighsumdiff = vp9NewmvDiffBiasLowvarInput(stats.contentState)
+				lowvarHighsumdiff = vp9NewmvDiffBiasLowvarInput(stats.ContentState)
 			}
 			lowvarHighsumdiffSet = true
 		}

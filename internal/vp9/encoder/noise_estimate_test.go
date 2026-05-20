@@ -154,3 +154,143 @@ func TestEnableNoiseEstimation(t *testing.T) {
 		})
 	}
 }
+
+func TestNoiseEstimateUpdatePrimesLastDimensions(t *testing.T) {
+	ne, args := newNoiseEstimateUpdateCase(640, 360, 7)
+	ne.Update(args)
+
+	if ne.LastW != args.Width || ne.LastH != args.Height {
+		t.Fatalf("last dimensions = %dx%d, want %dx%d",
+			ne.LastW, ne.LastH, args.Width, args.Height)
+	}
+	if ne.Value != 0 || ne.Count != 0 {
+		t.Fatalf("priming update value/count = %d/%d, want 0/0",
+			ne.Value, ne.Count)
+	}
+}
+
+func TestNoiseEstimateUpdateHistogramFromLowMotionBlocks(t *testing.T) {
+	ne, args := newNoiseEstimateUpdateCase(640, 360, 7)
+	ne.LastW = args.Width
+	ne.LastH = args.Height
+
+	ne.Update(args)
+
+	if ne.Value != 20 {
+		t.Fatalf("noise value = %d, want 20 from max variance bin 2 scaled by 40/4",
+			ne.Value)
+	}
+	if ne.Count != 1 {
+		t.Fatalf("noise count = %d, want 1", ne.Count)
+	}
+	if ne.Level != NoiseLevelLowLow {
+		t.Fatalf("noise level = %d, want LowLow before estimate window completes",
+			ne.Level)
+	}
+}
+
+func TestNoiseEstimateUpdateLowMotionGateUsesZeroBin(t *testing.T) {
+	ne, args := newNoiseEstimateUpdateCase(640, 360, 0)
+	ne.LastW = args.Width
+	ne.LastH = args.Height
+	ne.Value = 80
+
+	ne.Update(args)
+
+	if ne.Value != 60 {
+		t.Fatalf("noise value = %d, want 60 when frame_low_motion=0 leaves max_bin at zero",
+			ne.Value)
+	}
+	if ne.Count != 1 {
+		t.Fatalf("noise count = %d, want 1", ne.Count)
+	}
+}
+
+func TestNoiseEstimateUpdateExtractsLevelAtWindow(t *testing.T) {
+	ne, args := newNoiseEstimateUpdateCase(640, 360, 7)
+	ne.LastW = args.Width
+	ne.LastH = args.Height
+	ne.Value = 200
+	ne.Count = 0
+	ne.NumFramesEstimate = 1
+	ne.Level = NoiseLevelLowLow
+
+	ne.Update(args)
+
+	if ne.NumFramesEstimate != 30 {
+		t.Fatalf("numFramesEstimate = %d, want 30 after first completed estimate window",
+			ne.NumFramesEstimate)
+	}
+	if ne.Count != 0 {
+		t.Fatalf("noise count = %d, want reset to 0", ne.Count)
+	}
+	if ne.Level != NoiseLevelMedium {
+		t.Fatalf("noise level = %d, want Medium after extracting value %d",
+			ne.Level, ne.Value)
+	}
+}
+
+func TestNoiseEstimateUpdateClearsCyclicCountersOnIntraOnly(t *testing.T) {
+	ne, args := newNoiseEstimateUpdateCase(640, 360, 7)
+	args.IntraOnly = true
+	ne.LastW = args.Width
+	ne.LastH = args.Height
+
+	ne.Update(args)
+
+	for i, got := range args.ConsecZeroMV {
+		if got != 0 {
+			t.Fatalf("consecZeroMV[%d] = %d, want 0 on intra-only frame", i, got)
+		}
+	}
+	if ne.Value != 0 {
+		t.Fatalf("noise value = %d, want 0 after intra-only counter reset", ne.Value)
+	}
+}
+
+func newNoiseEstimateUpdateCase(width, height int, consec uint8) (NoiseEstimateState, NoiseEstimateUpdateArgs) {
+	last := make([]byte, width*height)
+	src := make([]byte, width*height)
+	for i := range last {
+		last[i] = 128
+	}
+	for y := range height {
+		row := src[y*width:]
+		for x := range width {
+			if (x+y)&1 == 0 {
+				row[x] = 128
+			} else {
+				row[x] = 130
+			}
+		}
+	}
+
+	miRows := (height + 7) >> 3
+	miCols := (width + 7) >> 3
+	consecZeroMV := make([]uint8, miRows*miCols)
+	for i := range consecZeroMV {
+		consecZeroMV[i] = consec
+	}
+
+	var ne NoiseEstimateState
+	ne.Init(width, height)
+	ne.Enabled = true
+	return ne, NoiseEstimateUpdateArgs{
+		Width:             width,
+		Height:            height,
+		FrameCounter:      8,
+		NoiseSensitivity:  0,
+		MIRows:            miRows,
+		MICols:            miCols,
+		SourceY:           src,
+		SourceYStride:     width,
+		SourceWidth:       width,
+		SourceHeight:      height,
+		LastSourceY:       last,
+		LastSourceYStride: width,
+		LastSourceWidth:   width,
+		LastSourceHeight:  height,
+		LastSourceValid:   true,
+		ConsecZeroMV:      consecZeroMV,
+	}
+}

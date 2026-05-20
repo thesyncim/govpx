@@ -1,11 +1,6 @@
 package govpx
 
-import (
-	"image"
-	"testing"
-
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
-)
+import "testing"
 
 // TestVP9NoiseEstimateConsumerShortCircuitLowTempVar verifies the
 // libvpx vp9_speed_features.c:777-782 consumer that drops
@@ -199,110 +194,6 @@ func TestVP9NoiseEstimateRefreshEnabledFromEncoderOptions(t *testing.T) {
 	})
 }
 
-func TestVP9NoiseEstimateUpdatePrimesLastDimensions(t *testing.T) {
-	const width = 640
-	const height = 360
-	e := newVP9NoiseEstimateUpdateEncoderForTest(t, width, height)
-	defer e.Close()
-	miRows, miCols := seedVP9NoiseEstimateUpdateForTest(e,
-		newVP9YCbCrForTest(width, height, 128, 128, 128), 7)
-	e.frameIndex = 8
-
-	e.vp9UpdateNoiseEstimate(newVP9CheckerYCbCrForTest(width, height, 128, 130, 128, 128),
-		miRows, miCols, false)
-
-	if e.noiseEstimate.LastW != width || e.noiseEstimate.LastH != height {
-		t.Fatalf("last dimensions = %dx%d, want %dx%d",
-			e.noiseEstimate.LastW, e.noiseEstimate.LastH, width, height)
-	}
-	if e.noiseEstimate.Value != 0 || e.noiseEstimate.Count != 0 {
-		t.Fatalf("priming update value/count = %d/%d, want 0/0",
-			e.noiseEstimate.Value, e.noiseEstimate.Count)
-	}
-}
-
-func TestVP9NoiseEstimateUpdateHistogramFromLowMotionBlocks(t *testing.T) {
-	const width = 640
-	const height = 360
-	e := newVP9NoiseEstimateUpdateEncoderForTest(t, width, height)
-	defer e.Close()
-	miRows, miCols := seedVP9NoiseEstimateUpdateForTest(e,
-		newVP9YCbCrForTest(width, height, 128, 128, 128), 7)
-	e.noiseEstimate.LastW = width
-	e.noiseEstimate.LastH = height
-	e.frameIndex = 8
-
-	e.vp9UpdateNoiseEstimate(newVP9CheckerYCbCrForTest(width, height, 128, 130, 128, 128),
-		miRows, miCols, false)
-
-	if e.noiseEstimate.Value != 20 {
-		t.Fatalf("noise value = %d, want 20 from max variance bin 2 scaled by 40/4",
-			e.noiseEstimate.Value)
-	}
-	if e.noiseEstimate.Count != 1 {
-		t.Fatalf("noise count = %d, want 1", e.noiseEstimate.Count)
-	}
-	if e.noiseEstimate.Level != encoder.NoiseLevelLowLow {
-		t.Fatalf("noise level = %d, want LowLow before estimate window completes",
-			e.noiseEstimate.Level)
-	}
-}
-
-func TestVP9NoiseEstimateUpdateLowMotionGateUsesZeroBin(t *testing.T) {
-	const width = 640
-	const height = 360
-	e := newVP9NoiseEstimateUpdateEncoderForTest(t, width, height)
-	defer e.Close()
-	miRows, miCols := seedVP9NoiseEstimateUpdateForTest(e,
-		newVP9YCbCrForTest(width, height, 128, 128, 128), 0)
-	e.noiseEstimate.LastW = width
-	e.noiseEstimate.LastH = height
-	e.noiseEstimate.Value = 80
-	e.frameIndex = 8
-
-	e.vp9UpdateNoiseEstimate(newVP9CheckerYCbCrForTest(width, height, 128, 130, 128, 128),
-		miRows, miCols, false)
-
-	if e.noiseEstimate.Value != 60 {
-		t.Fatalf("noise value = %d, want 60 when frame_low_motion=0 leaves max_bin at zero",
-			e.noiseEstimate.Value)
-	}
-	if e.noiseEstimate.Count != 1 {
-		t.Fatalf("noise count = %d, want 1", e.noiseEstimate.Count)
-	}
-}
-
-func TestVP9NoiseEstimateUpdateExtractsLevelAtWindow(t *testing.T) {
-	const width = 640
-	const height = 360
-	e := newVP9NoiseEstimateUpdateEncoderForTest(t, width, height)
-	defer e.Close()
-	miRows, miCols := seedVP9NoiseEstimateUpdateForTest(e,
-		newVP9YCbCrForTest(width, height, 128, 128, 128), 7)
-	e.noiseEstimate.LastW = width
-	e.noiseEstimate.LastH = height
-	e.noiseEstimate.Value = 200
-	e.noiseEstimate.Count = 0
-	e.noiseEstimate.NumFramesEstimate = 1
-	e.noiseEstimate.Level = encoder.NoiseLevelLowLow
-	e.frameIndex = 8
-
-	e.vp9UpdateNoiseEstimate(newVP9CheckerYCbCrForTest(width, height, 128, 130, 128, 128),
-		miRows, miCols, false)
-
-	if e.noiseEstimate.NumFramesEstimate != 30 {
-		t.Fatalf("numFramesEstimate = %d, want 30 after first completed estimate window",
-			e.noiseEstimate.NumFramesEstimate)
-	}
-	if e.noiseEstimate.Count != 0 {
-		t.Fatalf("noise count = %d, want reset to 0", e.noiseEstimate.Count)
-	}
-	if e.noiseEstimate.Level != encoder.NoiseLevelMedium {
-		t.Fatalf("noise level = %d, want Medium after extracting value %d",
-			e.noiseEstimate.Level, e.noiseEstimate.Value)
-	}
-}
-
 func TestVP9DenoiserUsesNoiseEstimateLowLowAsInactive(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:              640,
@@ -333,36 +224,4 @@ func TestVP9DenoiserUsesNoiseEstimateLowLowAsInactive(t *testing.T) {
 	if e.denoiser.active() {
 		t.Fatal("denoiser active at LowLow noise estimate; want inactive")
 	}
-}
-
-func newVP9NoiseEstimateUpdateEncoderForTest(t *testing.T, width, height int) *VP9Encoder {
-	t.Helper()
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              width,
-		Height:             height,
-		CpuUsed:            5,
-		Deadline:           DeadlineRealtime,
-		RateControlMode:    RateControlCBR,
-		RateControlModeSet: true,
-		TargetBitrateKbps:  1000,
-		AQMode:             VP9AQCyclicRefresh,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if !e.noiseEstimate.Enabled {
-		t.Fatal("noise estimate disabled; want enabled for realtime CBR cyclic-AQ")
-	}
-	return e
-}
-
-func seedVP9NoiseEstimateUpdateForTest(e *VP9Encoder, last *image.YCbCr, consec uint8) (int, int) {
-	e.vp9CommitLastSource(last, true, false)
-	miRows := (e.opts.Height + 7) >> 3
-	miCols := (e.opts.Width + 7) >> 3
-	e.cyclicAQ.vp9CyclicRefreshAlloc(miRows, miCols)
-	for i := range e.cyclicAQ.consecZeroMv {
-		e.cyclicAQ.consecZeroMv[i] = consec
-	}
-	return miRows, miCols
 }

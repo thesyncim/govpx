@@ -614,8 +614,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		args.ScreenContent = e.opts.ScreenContentMode == int8(VP9ScreenContentScreen)
 		if sadState, ok := e.vp9SourceSADState(inter.img,
 			miRows, miCols, sbMiRow, sbMiCol); ok {
-			args.ContentState = sadState.contentState
-			args.ZeroTempSADSource = sadState.zeroTempSADSource
+			args.ContentState = sadState.ContentState
+			args.ZeroTempSADSource = sadState.ZeroTempSADSource
 		}
 		// Inter predictor. libvpx vp9_encodeframe.c:1450-1497:
 		//   if (cpi->oxcf.speed >= 8 && !low_res &&
