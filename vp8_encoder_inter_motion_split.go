@@ -258,7 +258,7 @@ func stepInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, ref *v
 		bestCost, bestRow, bestCol = stepInterFrameSplitBlockSubpixelDirectionalSearch(src, ref, mbRow, mbCol, block, width, height, bestRow, bestCol, 1, bestCost, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	}
 	finalMV := vp8enc.MotionVector{Row: int16(bestRow * 2), Col: int16(bestCol * 2)}
-	if !interFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
+	if !vp8enc.InterFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
 		return vp8enc.MotionVector{}, 0, false
 	}
 	_ = qIndex
@@ -306,10 +306,10 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 	bestCost := bestDist + interMotionSearchErrorVectorCostWithErrorPerBitAndCostTables(bestMV, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	mbRows := (src.Height + 15) >> 4
 	mbCols := (src.Width + 15) >> 4
-	bounds := interFrameSubpelSearchBoundsFor(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	bounds := vp8enc.InterFrameSubpelSearchBoundsFor(bestRefMV, mbRow, mbCol, mbRows, mbCols)
 	_ = qIndex
 	cand := func(r, c int) int {
-		if !bounds.contains(r, c) {
+		if !bounds.Contains(r, c) {
 			return maxInt()
 		}
 		cost, _ := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, r, c, bestRefMV, errorPerBit, mvProbs, mvCosts)
@@ -373,7 +373,7 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 	}
 
 	finalMV := vp8enc.MotionVector{Row: int16(br * 2), Col: int16(bc * 2)}
-	if !interFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
+	if !vp8enc.InterFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
 		return vp8enc.MotionVector{}, 0, false
 	}
 	return finalMV, bestCost, true
