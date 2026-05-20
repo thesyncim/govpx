@@ -231,7 +231,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	{
 		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
 		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
-		rdFrameType := vp9RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
+		rdFrameType := encoder.RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
 			refreshAlt)
 		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType)
 		// libvpx vp9/encoder/vp9_encoder.c:3754 / 3765 call

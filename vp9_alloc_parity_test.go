@@ -126,7 +126,7 @@ func measureVP9EncodeAllocsAtBenchParity(t *testing.T, opts VP9EncoderOptions) {
 	// escape to the heap because the kernel pointer (cols/rows) is a
 	// function value the escape analysis cannot devirtualize.  The 8x8
 	// path was always reachable; the libvpx-faithful Lagrangian RDCOST
-	// (vp9_rd.c::vp9_compute_rd_mult ported in vp9_rd.go) and the
+	// (vp9_rd.c::vp9_compute_rd_mult ported in internal/vp9/encoder) and the
 	// libvpx-faithful one-pass CBR keyframe target (kf_boost ramp ported
 	// from vp9_ratectrl.c::vp9_calc_iframe_target_size_one_pass_cbr)
 	// shifted realistic mode decisions in our synthetic panning fixture

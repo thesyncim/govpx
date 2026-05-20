@@ -164,7 +164,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	intraCostPenalty := vp9GetIntraCostPenalty(qindex, 0, bsize,
 		e.noiseEstimate.enabled, e.noiseEstimate.extractLevel())
 	rdmult := e.activeRDMult(qindex)
-	interModeThresh := vp9RDCost(rdmult, vp9RDDivBits, intraCostPenalty, 0)
+	interModeThresh := encoder.RDCost(rdmult, encoder.RDDivBits, intraCostPenalty, 0)
 	screenFlat := e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
 		sourceVariance == 0
 	if !vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh,
@@ -336,7 +336,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 
 		// libvpx vp9_pickmode.c:2634-2635 — this_rdc.rdcost =
 		// RDCOST(x->rdmult, x->rddiv, this_rdc.rate, this_rdc.dist).
-		score := vp9RDCost(rdmult, vp9RDDivBits, rate, distortion)
+		score := encoder.RDCost(rdmult, encoder.RDDivBits, rate, distortion)
 		if !bestSet || score < best.score {
 			best = vp9InterIntraDecision{
 				mode:   thisMode,

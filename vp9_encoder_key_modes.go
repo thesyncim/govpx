@@ -27,11 +27,11 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	encoder.VP9CostTokens(yModeCosts[:], yModeProbs, common.IntraModeTree[:])
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	// Apply libvpx's per-SB TPL rdmult scaling.  The base rdmult is the
-	// keyframe Lagrange multiplier vp9KeyframeRDMul(qindex); TPL biases
+	// keyframe Lagrange multiplier encoder.KeyframeRDMul(qindex); TPL biases
 	// it via get_rdmult_delta clamped to [orig/2, orig*3/2] before
 	// running the per-mode RD search.
 	// libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248
-	rdmult := vp9KeyframeRDMul(qindex)
+	rdmult := encoder.KeyframeRDMul(qindex)
 	if bsize < common.BlockSizes {
 		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
@@ -166,7 +166,7 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 				skippable:     skippable,
 			}
 		}
-		score := vp9RDCost(rdmult, vp9RDDivBits, cand.rate, cand.distortion)
+		score := encoder.RDCost(rdmult, encoder.RDDivBits, cand.rate, cand.distortion)
 		if !bestValid || score < bestScore {
 			best = cand
 			bestTx = mi.TxSize
@@ -224,7 +224,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 	// Mirror libvpx vp9_encodeframe.c:4245-4248 — TPL bias the rdmult so
 	// the per-subblock RD compares under the same multiplier as the
 	// 8x8+ keyframe picker.
-	rdmult := vp9KeyframeRDMul(qindex)
+	rdmult := encoder.KeyframeRDMul(qindex)
 	bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 	bhMi := int(common.Num8x8BlocksHighLookup[bsize])
 	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)
@@ -274,7 +274,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 				e.cbRdmult = prevCbRdmult
 				return vp9KeyframeIntraRD{}, false
 			}
-			thisRD := vp9RDCost(rdmult, vp9RDDivBits, rd.rate, rd.distortion)
+			thisRD := encoder.RDCost(rdmult, encoder.RDDivBits, rd.rate, rd.distortion)
 			if remainingRD != ^uint64(0) && thisRD >= remainingRD {
 				e.cbRdmult = prevCbRdmult
 				return vp9KeyframeIntraRD{}, false
@@ -448,7 +448,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				}
 				tempa[jx] = eobFlag
 				templ[jy] = eobFlag
-				if vp9RDCost(rdmult, vp9RDDivBits, totalCoeffRate,
+				if encoder.RDCost(rdmult, encoder.RDDivBits, totalCoeffRate,
 					totalDistortion) >= bestRD {
 					valid = false
 					break
@@ -459,7 +459,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 			continue
 		}
 		rate += totalCoeffRate
-		thisRD := vp9RDCost(rdmult, vp9RDDivBits, rate, totalDistortion)
+		thisRD := encoder.RDCost(rdmult, encoder.RDDivBits, rate, totalDistortion)
 		if thisRD < bestRD {
 			bestRD = thisRD
 			bestMode = mode
@@ -625,7 +625,7 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 		if skippable {
 			scoreRate = txRate + skip1
 		}
-		score := vp9RDCost(rdmult, vp9RDDivBits, scoreRate, distortion)
+		score := encoder.RDCost(rdmult, encoder.RDDivBits, scoreRate, distortion)
 		if !bestValid || score < bestScore {
 			best = vp9KeyframeTxRDResult{
 				txSize:        tx,
@@ -685,7 +685,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeRD(key *vp9KeyframeEncodeState,
 		} else {
 			rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
 		}
-		return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion), true
+		return encoder.RDCost(rdmult, encoder.RDDivBits, rate, distortion), true
 	}
 	txRD, ok := e.chooseVP9KeyframeModeTxRD(key, mode, rdmult, tile,
 		miRows, miCols, miRow, miCol, bsize, mi, txMode)
@@ -693,7 +693,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeRD(key *vp9KeyframeEncodeState,
 		return 0, false
 	}
 	rate += txRD.rate
-	return vp9RDCost(rdmult, vp9RDDivBits, rate, txRD.distortion), true
+	return encoder.RDCost(rdmult, encoder.RDDivBits, rate, txRD.distortion), true
 }
 
 // scoreVP9KeyframeModeNonRD mirrors libvpx's realtime keyframe
@@ -822,7 +822,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 	} else {
 		rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
 	}
-	return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion), true
+	return encoder.RDCost(rdmult, encoder.RDDivBits, rate, distortion), true
 }
 
 // scoreVP9KeyframeModeTransformRD is a libvpx-faithful port of
@@ -1025,8 +1025,8 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			// The final returned tuple still uses coded rate/distortion; this
 			// accumulator only decides whether later modes/tx sizes survive.
 			if refBestRD != ^uint64(0) {
-				rdCoded := vp9RDCost(e.cbRdmult, vp9RDDivBits, blockRate, blockDist)
-				rdZero := vp9RDCost(e.cbRdmult, vp9RDDivBits, 0, blockSSE)
+				rdCoded := encoder.RDCost(e.cbRdmult, encoder.RDDivBits, blockRate, blockDist)
+				rdZero := encoder.RDCost(e.cbRdmult, encoder.RDDivBits, 0, blockSSE)
 				blockRD := min(rdZero, rdCoded)
 				if blockRD > refBestRD {
 					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
@@ -1130,30 +1130,6 @@ func (e *VP9Encoder) vp9KeyframeUseTransformDomainDistortion(key *vp9KeyframeEnc
 	scaled := float64(variance*256) /
 		float64(uint64(1)<<uint(common.NumPelsLog2Lookup[bsize]))
 	return math.Log(scaled+1.0) >= e.sf.TxDomainThresh
-}
-
-func vp9RDCost(rdmult, rddiv, rate int, distortion uint64) uint64 {
-	if rate < 0 {
-		rate = 0
-	}
-	rateCost := (int64(rate)*int64(rdmult) +
-		(1 << (encoder.VP9ProbCostShift - 1))) >> encoder.VP9ProbCostShift
-	return uint64(rateCost) + (distortion << uint(rddiv))
-}
-
-func vp9KeyframeRDMul(qindex int) int {
-	if qindex < 0 {
-		qindex = 0
-	}
-	if qindex > 255 {
-		qindex = 255
-	}
-	q := int(vp9dec.VpxDcQuant(qindex, 0, vp9dec.BitDepth8))
-	rdmult := q * q * (4350 + qindex) / 1000
-	if rdmult < 1 {
-		return 1
-	}
-	return rdmult
 }
 
 func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState,
@@ -1284,7 +1260,7 @@ func vp9IntraPredictWidth4x4(bsize, planeBsize common.BlockSize,
 //     realtime tokenizer downstream).
 //   - intra_uv_mode_cost[KEY_FRAME][Y_mode][uv_mode] is realized via
 //     vp9_cost_tokens(kf_uv_mode_prob[Y_mode], vp9_intra_mode_tree).
-//   - rdmult mirrors vp9KeyframeRDMul(qindex) and the TPL bias applied
+//   - rdmult mirrors encoder.KeyframeRDMul(qindex) and the TPL bias applied
 //     upstream by pickVP9KeyframeMode (preserved via e.cbRdmult).
 func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
@@ -1340,7 +1316,7 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 	rdmult := e.cbRdmult
 	if rdmult <= 0 {
 		// Re-derive when the caller hasn't primed cb_rdmult (e.g. tests).
-		rdmult = vp9KeyframeRDMul(qindex)
+		rdmult = encoder.KeyframeRDMul(qindex)
 	}
 
 	best := vp9KeyframeIntraRD{mode: common.DcPred}
@@ -1359,7 +1335,7 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 			continue
 		}
 		thisRate := coeffRate + uvModeCosts[mode]
-		thisRD := vp9RDCost(rdmult, vp9RDDivBits, thisRate, distortion)
+		thisRD := encoder.RDCost(rdmult, encoder.RDDivBits, thisRate, distortion)
 		if !bestValid || thisRD < bestRD {
 			bestRD = thisRD
 			best = vp9KeyframeIntraRD{
@@ -1741,7 +1717,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 	if int(mode) >= common.IntraModes {
 		mode = common.DcPred
 	}
-	rdmult := vp9KeyframeRDMul(e.vp9EncoderModeDecisionQIndex())
+	rdmult := encoder.KeyframeRDMul(e.vp9EncoderModeDecisionQIndex())
 	bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 	bhMi := int(common.Num8x8BlocksHighLookup[bsize])
 	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, rdmult)

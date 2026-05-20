@@ -25,7 +25,6 @@ const (
 	// The same oracle emits the CQ-level qindex for the first visible inter
 	// frame in the packet path after the keyframe.
 	vp9DefaultInterBaseQIndex = 128
-	vp9RDDivBits              = 7
 )
 
 // VP9AQMode selects VP9 adaptive quantization behavior.

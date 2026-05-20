@@ -758,7 +758,7 @@ func (e *VP9Encoder) collectVP9TPLLookaheadFrames() []*image.YCbCr {
 //	rdmult = vp9_compute_rd_mult_based_on_qindex(cpi, base_qindex) / beta;
 //
 // govpx folds the qindex-based rdmult into origRdmult so the caller can reuse
-// the vp9KeyframeRDMul value it already computed; the result is therefore
+// the encoder.KeyframeRDMul value it already computed; the result is therefore
 // orig_rdmult / beta with the libvpx clamp applied.
 func (e *VP9Encoder) getVP9TPLRDMultDelta(miRow, miCol, blockMiHigh, blockMiWide,
 	origRdmult int) int {

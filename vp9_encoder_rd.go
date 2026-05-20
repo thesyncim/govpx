@@ -132,10 +132,10 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 // y_dc_delta_q is zero for govpx today; when the active-segment Q delta
 // path lands it should be added to qindex here before the rdmult lookup.
 func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
-	frameType vp9RDFrameType,
+	frameType encoder.RDFrameType,
 ) {
-	e.rc.rddiv = vp9RDDivBits
-	e.rc.rdmult = vp9ComputeRDMult(qindex, frameType)
+	e.rc.rddiv = encoder.RDDivBits
+	e.rc.rdmult = encoder.ComputeRDMult(qindex, frameType)
 	// Reset the per-SB cb_rdmult cache so a stale value from the prior
 	// frame does not leak into the first SB picker call.  libvpx clears
 	// it inline before each rd_pick_sb_modes invocation; we mirror that
@@ -364,15 +364,15 @@ func (e *VP9Encoder) vp9InterModeScore(sad uint64, rate, qindex int) uint64 {
 }
 
 func (e *VP9Encoder) vp9ModeDecisionScore(distortion uint64, rate, qindex int) uint64 {
-	return vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits, rate, distortion)
+	return encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits, rate, distortion)
 }
 
 func (e *VP9Encoder) vp9AddModeDecisionRate(score uint64, rate, qindex int) uint64 {
-	return score + vp9RDCostFromRate(e.activeRDMult(qindex), rate)
+	return score + encoder.RDCostFromRate(e.activeRDMult(qindex), rate)
 }
 
 func (e *VP9Encoder) vp9ModeDecisionRateScore(rate, qindex int) uint64 {
-	return vp9RDCostFromRate(e.activeRDMult(qindex), rate)
+	return encoder.RDCostFromRate(e.activeRDMult(qindex), rate)
 }
 
 // activeRDMult returns the per-frame/per-SB Lagrange multiplier.
@@ -383,7 +383,7 @@ func (e *VP9Encoder) activeRDMult(qindex int) int {
 	if e.rc.rdmult > 0 {
 		return e.rc.rdmult
 	}
-	return vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+	return encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
 }
 
 // vp9InterModeScore / vp9ModeDecisionScore (package-level, no receiver)
@@ -398,8 +398,8 @@ func vp9InterModeScore(sad uint64, rate, qindex int) uint64 {
 }
 
 func vp9ModeDecisionScore(distortion uint64, rate, qindex int) uint64 {
-	rdmult := vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
-	return vp9RDCost(rdmult, vp9RDDivBits, rate, distortion)
+	rdmult := encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
+	return encoder.RDCost(rdmult, encoder.RDDivBits, rate, distortion)
 }
 
 func vp9InterModeRateCost(fc *vp9dec.FrameContext, ctx int,

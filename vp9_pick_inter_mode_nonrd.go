@@ -305,7 +305,7 @@ func (bp *vp9BestPickmode) reset() {
 //
 //   - libvpx tracks Lagrangian RD via x->rdmult / x->rddiv (vp9_rd.c::
 //     vp9_compute_rd_mult). govpx routes through the libvpx-faithful
-//     vp9RDCost macro that consumes activeRDMult(qindex) + vp9RDDivBits=7
+//     encoder.RDCost macro that consumes activeRDMult(qindex) + encoder.RDDivBits=7
 //     (same scale as libvpx). The picker now constructs (rate, dist)
 //     per candidate via the verbatim model_rd_for_sb_y port in
 //     internal/vp9/encoder.ModelRdForSbY, so the RDCOST comparison
@@ -644,7 +644,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	if e.tpl.enabled && bsize < common.BlockSizes {
 		baseRdmult := e.rc.rdmult
 		if baseRdmult <= 0 {
-			baseRdmult = vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+			baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
 		}
 		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
 		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
@@ -988,7 +988,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			if bestSet {
 				rateModeMv := vp9InterModeRateCost(vp9InterModeCostFrameContext(inter),
 					interModeCtx, common.NewMv, gotMv, refMvOpt, inter.allowHP)
-				if vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+				if encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
 					rateModeMv, 0) > best.score {
 					continue
 				}
@@ -1347,9 +1347,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				useSkipCheck := !useSimpleBlockYrd && !blockYrdFired
 				isSkip := blockYrdFired // skippable=true counts as the skip branch
 				if useSkipCheck {
-					rdNonSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+					rdNonSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
 						finalRate, finalDist)
-					rdSkip := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+					rdSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
 						0, thisSse)
 					if rdSkip < rdNonSkip {
 						// libvpx: this_rdc.rate = vp9_cost_bit(skip_prob, 1);
@@ -1422,7 +1422,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				}
 
 				// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
-				score := vp9RDCost(e.activeRDMult(qindex), vp9RDDivBits,
+				score := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
 					rate, finalDist)
 				if vp9NonrdScreenZeroLastBias(
 					e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),

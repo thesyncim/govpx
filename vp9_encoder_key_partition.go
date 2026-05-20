@@ -113,7 +113,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 		common.Block8x8)
 	probs := tables.KfPartitionProbs
 	qindex := e.vp9EncoderModeDecisionQIndex()
-	rdmult := vp9KeyframeRDMul(qindex)
+	rdmult := encoder.KeyframeRDMul(qindex)
 	rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, 1, 1, rdmult)
 	bsl := int(common.BWidthLog2Lookup[common.Block8x8])
 	hasRows := miRow < miRows
@@ -148,7 +148,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 			if partition == common.PartitionHorz || partition == common.PartitionVert {
 				refRate -= partRate
 			}
-			refBestRD = vp9RDCost(rdmult, vp9RDDivBits, refRate, bestDistortion)
+			refBestRD = encoder.RDCost(rdmult, encoder.RDDivBits, refRate, bestDistortion)
 		}
 		prevBestScore := bestScore
 		rd, decision, ok := e.scoreVP9KeyframeRDPartitionLeaf(key, tile, miRows, miCols,
@@ -160,7 +160,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 			continue
 		}
 		rate := rd.rate + partRate
-		score := vp9RDCost(rdmult, vp9RDDivBits, rate, rd.distortion)
+		score := encoder.RDCost(rdmult, encoder.RDDivBits, rate, rd.distortion)
 		if !bestValid || score < bestScore {
 			bestSize = cand
 			bestScore = score

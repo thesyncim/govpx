@@ -130,6 +130,6 @@ func vp9RDPickIntraModeSbCompose(in vp9RDPickIntraModeSbInputs) vp9RDPickIntraMo
 		Rate: rate,
 		Dist: dist,
 		// libvpx vp9_rdopt.c:3270 — RDCOST(rdmult, rddiv, rate, dist).
-		RDCost: vp9RDCost(in.rdmult, in.rddiv, rate, dist),
+		RDCost: encoder.RDCost(in.rdmult, in.rddiv, rate, dist),
 	}
 }

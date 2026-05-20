@@ -846,7 +846,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	prevCbRdmult := e.cbRdmult
 	baseRdmult := e.rc.rdmult
 	if baseRdmult <= 0 {
-		baseRdmult = vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+		baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
 	}
 	if bsize < common.BlockSizes && e.tpl.enabled {
 		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
@@ -1018,7 +1018,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	prevCbRdmult := e.cbRdmult
 	baseRdmult := e.rc.rdmult
 	if baseRdmult <= 0 {
-		baseRdmult = vp9ComputeRDMultBasedOnQindex(qindex, vp9RDFrameInter)
+		baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
 	}
 	if bsize < common.BlockSizes && e.tpl.enabled {
 		bwMi := int(common.Num8x8BlocksWideLookup[bsize])

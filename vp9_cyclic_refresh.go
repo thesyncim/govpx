@@ -1,6 +1,9 @@
 package govpx
 
-import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+import (
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 // CYCLIC_REFRESH_AQ — verbatim port of libvpx v1.16.0
 // vp9/encoder/vp9_aq_cyclicrefresh.{c,h}. The state machine maintains
@@ -550,9 +553,9 @@ func (cr *vp9CyclicRefreshState) vp9CyclicRefreshSetup(args vp9CyclicRefreshSetu
 	// refreshing, else inter.  CR runs after the encoder has resolved
 	// refresh flags, so we recompute the same bucket here.
 	qindex2 := clamp(args.BaseQindex+args.YDcDeltaQ+cr.qindexDelta[1], 0, vp9dec.MaxQ)
-	frameType := vp9RDFrameTypeFor(args.FrameIsKey, args.IsSrcFrameAltRef,
+	frameType := encoder.RDFrameTypeFor(args.FrameIsKey, args.IsSrcFrameAltRef,
 		args.RefreshGoldenFrame, args.RefreshAltRefFrame)
-	cr.rdmult = vp9ComputeRDMult(qindex2, frameType)
+	cr.rdmult = encoder.ComputeRDMult(qindex2, frameType)
 	// libvpx: vp9_aq_cyclicrefresh.c:669-674 — BOOST2 delta.
 	ratio := 0.1 * float64(cr.rateBoostFac) * cr.rateRatioQdelta
 	if ratio > vp9CyclicRefreshMaxRateTargetRatio {

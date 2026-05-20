@@ -23,7 +23,7 @@ func TestVP9RDPickIntraModeSbComposeBothSkip(t *testing.T) {
 		uvSkip:      true,
 		skipProb:    skipProb,
 		rdmult:      48,
-		rddiv:       vp9RDDivBits,
+		rddiv:       encoder.RDDivBits,
 	}
 	got := vp9RDPickIntraModeSbCompose(in)
 
@@ -33,7 +33,7 @@ func TestVP9RDPickIntraModeSbComposeBothSkip(t *testing.T) {
 		encoder.VP9CostBit(skipProb, 1)
 	// libvpx 3261: dist = dist_y + dist_uv.
 	wantDist := in.distY + in.distUV
-	wantRDCost := vp9RDCost(in.rdmult, in.rddiv, wantRate, wantDist)
+	wantRDCost := encoder.RDCost(in.rdmult, in.rddiv, wantRate, wantDist)
 
 	if got.Rate != wantRate {
 		t.Errorf("rate = %d, want %d", got.Rate, wantRate)
@@ -73,7 +73,7 @@ func TestVP9RDPickIntraModeSbComposeNoSkip(t *testing.T) {
 				uvSkip:      tc.uvSkip,
 				skipProb:    skipProb,
 				rdmult:      72,
-				rddiv:       vp9RDDivBits,
+				rddiv:       encoder.RDDivBits,
 			}
 			got := vp9RDPickIntraModeSbCompose(in)
 
@@ -81,7 +81,7 @@ func TestVP9RDPickIntraModeSbComposeNoSkip(t *testing.T) {
 			// vp9_cost_bit(skip_prob, 0).
 			wantRate := in.rateY + in.rateUV + encoder.VP9CostBit(skipProb, 0)
 			wantDist := in.distY + in.distUV
-			wantRDCost := vp9RDCost(in.rdmult, in.rddiv, wantRate, wantDist)
+			wantRDCost := encoder.RDCost(in.rdmult, in.rddiv, wantRate, wantDist)
 
 			if got.Rate != wantRate {
 				t.Errorf("rate = %d, want %d", got.Rate, wantRate)
@@ -113,7 +113,7 @@ func TestVP9RDPickIntraModeSbComposeSkipBitDelta(t *testing.T) {
 		distUV:      8192,
 		skipProb:    skipProb,
 		rdmult:      128,
-		rddiv:       vp9RDDivBits,
+		rddiv:       encoder.RDDivBits,
 	}
 
 	base.ySkip, base.uvSkip = true, true

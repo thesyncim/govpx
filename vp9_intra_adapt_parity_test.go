@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // TestVP9IntraModeCoverageMatchesLibvpx pins govpx's keyframe-Y intra mode
@@ -58,7 +59,7 @@ func TestVP9IntraModeCoverageMatchesLibvpx(t *testing.T) {
 	// indirectly verifies the intra-predictor + tx-RD scorer supports
 	// all 10 modes — the precondition for the picker iterating them.
 	evaluated := 0
-	rdmult := vp9KeyframeRDMul(e.vp9EncoderModeDecisionQIndex())
+	rdmult := encoder.KeyframeRDMul(e.vp9EncoderModeDecisionQIndex())
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if _, ok := e.scoreVP9KeyframeModeRD(key, mode, 0, rdmult, tile,
 			4, 4, 0, 0, common.Block32x32, &mi, common.TxModeSelect); ok {

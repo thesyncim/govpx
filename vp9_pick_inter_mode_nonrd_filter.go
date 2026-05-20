@@ -104,9 +104,9 @@ func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
 			switchableCtx, filter)
 		// libvpx: vp9_pickmode.c:1540 cost = RDCOST(x->rdmult, x->rddiv,
 		//   pf_rate[filter], pf_dist[filter]);
-		// govpx vp9RDCost is the verbatim port (vp9_rd.h:29-30 RDCOST
+		// govpx encoder.RDCost is the verbatim port (vp9_rd.h:29-30 RDCOST
 		// macro) — rdmult * rate + (dist << rddiv_bits).
-		cost := vp9RDCost(rdmult, vp9RDDivBits, filterRate, uint64(distY))
+		cost := encoder.RDCost(rdmult, encoder.RDDivBits, filterRate, uint64(distY))
 		// libvpx: vp9_pickmode.c:1541 pf_tx_size[filter] = mi->tx_size;
 		// libvpx: vp9_pickmode.c:1542 if (cost < best_cost) ...
 		if !ok || cost < bestCost {

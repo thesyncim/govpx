@@ -1035,7 +1035,7 @@ func TestVP9EncoderEncodeIntoWithFlagsInvisibleAltRefRefresh(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after visible altref-only inter")
 	}
 	// The Lagrangian RD reshape of the inter mode picker
-	// (vp9_rd.go::vp9ComputeRDMult ports vp9/encoder/vp9_rd.c:241-302)
+	// (internal/vp9/encoder.ComputeRDMult ports vp9/encoder/vp9_rd.c:241-302)
 	// changed mode/MV decisions slightly for this altref-only inter
 	// frame; the reconstructed luma sits at ~175 instead of ~188.  The
 	// per-pixel error stays well below quantization noise on the
