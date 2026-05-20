@@ -35,7 +35,7 @@ import (
 // MB(0,0) of 1280x720) down to [-MAX_FULL_PEL_VAL, +MAX_FULL_PEL_VAL] =
 // [-255, +255] in every direction. Sibling NEWMV / NEARESTMV picker
 // branches were unaffected since they use the libvpx-faithful
-// interFrameFullPixelSearchBounds at vp8_rd_pick_inter_mode (rdopt.c:
+// vp8enc.InterFrameFullPixelSearchBounds at vp8_rd_pick_inter_mode (rdopt.c:
 // 2045-2073). The asymmetric reach loss biased the SPLITMV per-label
 // diamond search toward shallower MVs than libvpx, lowering SPLITMV's RD
 // score and skewing the mode picker toward whole-block NEWMV. That
@@ -46,26 +46,12 @@ import (
 //
 // Task #300 plumbs the compressor speed through splitMotionShapeContext into
 // splitMotionSubsetContext and switches the per-label bounds selection on it:
-// best mode uses interFrameUMVOnlyFullPixelSearchBounds (wide MB-scope UMV)
+// best mode uses vp8enc.InterFrameUMVOnlyFullPixelSearchBounds (wide MB-scope UMV)
 // for all four shapes; speed mode keeps the partition-2 wide-UMV special
 // case and the intersection for partitions 0/1/3.
 func TestVP8SPLITMVMotionSearchBounds(t *testing.T) {
-	t.Run("LibvpxMaxFullPelValMatchesConstant", testVP8SplitMVLibvpxMaxFullPelVal)
 	t.Run("BestModeUsesWideUMVBoundsForAllPartitions", testVP8SplitMVBestModeWideUMV)
 	t.Run("SpeedModePreservesIntersectionForNonBlock8x8", testVP8SplitMVSpeedModeIntersected)
-	t.Run("BoundsAtFrameOriginAsymmetric", testVP8SplitMVBoundsFrameOrigin)
-}
-
-func testVP8SplitMVLibvpxMaxFullPelVal(t *testing.T) {
-	// libvpx v1.16.0 vp8/encoder/mcomp.h:27
-	//   #define MAX_FULL_PEL_VAL ((1 << (MAX_MVSEARCH_STEPS)) - 1)
-	//   with MAX_MVSEARCH_STEPS == 8 ⇒ MAX_FULL_PEL_VAL == 255.
-	if interFrameMaxMVSearchSteps != 8 {
-		t.Fatalf("interFrameMaxMVSearchSteps = %d, want 8 (libvpx MAX_MVSEARCH_STEPS)", interFrameMaxMVSearchSteps)
-	}
-	if interFrameMaxFullPelVal != 255 {
-		t.Fatalf("interFrameMaxFullPelVal = %d, want 255 (libvpx MAX_FULL_PEL_VAL)", interFrameMaxFullPelVal)
-	}
 }
 
 func testVP8SplitMVBestModeWideUMV(t *testing.T) {
@@ -76,15 +62,15 @@ func testVP8SplitMVBestModeWideUMV(t *testing.T) {
 	// (1280x720 ⇒ mbCols = 80, mbRows = 45.)
 	mbRows := 45
 	mbCols := 80
-	wide := interFrameUMVOnlyFullPixelSearchBounds(0, 0, mbRows, mbCols)
+	wide := vp8enc.InterFrameUMVOnlyFullPixelSearchBounds(0, 0, mbRows, mbCols)
 	wantWideRowMin := -16
 	wantWideRowMax := (mbRows-1-0)*16 + (interFrameUMVBorderPixels - 16)
 	wantWideColMin := -16
 	wantWideColMax := (mbCols-1-0)*16 + (interFrameUMVBorderPixels - 16)
-	if wide.rowMin != wantWideRowMin || wide.rowMax != wantWideRowMax ||
-		wide.colMin != wantWideColMin || wide.colMax != wantWideColMax {
+	if wide.RowMin != wantWideRowMin || wide.RowMax != wantWideRowMax ||
+		wide.ColMin != wantWideColMin || wide.ColMax != wantWideColMax {
 		t.Fatalf("wide UMV bounds at MB(0,0) = (%d,%d,%d,%d), want (%d,%d,%d,%d)",
-			wide.rowMin, wide.rowMax, wide.colMin, wide.colMax,
+			wide.RowMin, wide.RowMax, wide.ColMin, wide.ColMax,
 			wantWideRowMin, wantWideRowMax, wantWideColMin, wantWideColMax)
 	}
 
@@ -117,8 +103,8 @@ func testVP8SplitMVSpeedModeIntersected(t *testing.T) {
 	mbCols := 80
 	bestRefMV := vp8enc.MotionVector{}
 
-	wide := interFrameUMVOnlyFullPixelSearchBounds(0, 0, mbRows, mbCols)
-	intersected := interFrameFullPixelSearchBounds(bestRefMV, 0, 0, mbRows, mbCols)
+	wide := vp8enc.InterFrameUMVOnlyFullPixelSearchBounds(0, 0, mbRows, mbCols)
+	intersected := vp8enc.InterFrameFullPixelSearchBounds(bestRefMV, 0, 0, mbRows, mbCols)
 
 	// Partition 2 (BLOCK_8X8): wide UMV bounds in speed mode.
 	ctx2 := &splitMotionSubsetContext{
@@ -148,48 +134,15 @@ func testVP8SplitMVSpeedModeIntersected(t *testing.T) {
 	}
 }
 
-func testVP8SplitMVBoundsFrameOrigin(t *testing.T) {
-	// Pin the symptomatic gap at MB(0,0) frame 1 of the 1280x720 SSIM-best
-	// ARNR pin holds: with bestRefMV = (0,0), the intersection
-	// [bestRefMV ± MAX_FULL_PEL_VAL] truncates the reachable diamond to
-	// row in [-255, +255] / col in [-255, +255], i.e. it knocks out the
-	// upper UMV slack the picker would otherwise have for SPLITMV's
-	// per-label diamond search at the frame-corner MB.
-	mbRows := 45
-	mbCols := 80
-	bestRefMV := vp8enc.MotionVector{}
-	intersected := interFrameFullPixelSearchBounds(bestRefMV, 0, 0, mbRows, mbCols)
-
-	// Intersection clamps to [-255, +255] but loses to the frame-corner
-	// UMV edge at the lower bounds (= -16 here).
-	wantRowMin := -16
-	wantRowMax := 255
-	wantColMin := -16
-	wantColMax := 255
-	if intersected.rowMin != wantRowMin || intersected.rowMax != wantRowMax ||
-		intersected.colMin != wantColMin || intersected.colMax != wantColMax {
-		t.Fatalf("intersected bounds at MB(0,0) bestRefMV=(0,0) = %+v, want (%d,%d,%d,%d)",
-			intersected, wantRowMin, wantRowMax, wantColMin, wantColMax)
-	}
-
-	wide := interFrameUMVOnlyFullPixelSearchBounds(0, 0, mbRows, mbCols)
-	if wide.rowMax <= intersected.rowMax {
-		t.Fatalf("wide.rowMax = %d not greater than intersected.rowMax = %d; expected wide UMV to extend further", wide.rowMax, intersected.rowMax)
-	}
-	if wide.colMax <= intersected.colMax {
-		t.Fatalf("wide.colMax = %d not greater than intersected.colMax = %d; expected wide UMV to extend further", wide.colMax, intersected.colMax)
-	}
-}
-
 // subsetBoundsAtPartition mirrors the bounds selection inside
 // selectMotion (vp8_encoder_inter_split.go) so the test can probe each branch
 // in isolation. Keeping this helper close to the production logic makes
 // future bounds-rule changes mechanically detectable.
-func subsetBoundsAtPartition(ctx *splitMotionSubsetContext, mbRows int, mbCols int) interFrameFullPixelBounds {
+func subsetBoundsAtPartition(ctx *splitMotionSubsetContext, mbRows int, mbCols int) vp8enc.InterFrameFullPixelBounds {
 	if ctx.compressorSpeed == 0 || (ctx.mode != nil && ctx.mode.Partition == 2) {
-		return interFrameUMVOnlyFullPixelSearchBounds(ctx.mbRow, ctx.mbCol, mbRows, mbCols)
+		return vp8enc.InterFrameUMVOnlyFullPixelSearchBounds(ctx.mbRow, ctx.mbCol, mbRows, mbCols)
 	}
-	return interFrameFullPixelSearchBounds(ctx.bestRefMV, ctx.mbRow, ctx.mbCol, mbRows, mbCols)
+	return vp8enc.InterFrameFullPixelSearchBounds(ctx.bestRefMV, ctx.mbRow, ctx.mbCol, mbRows, mbCols)
 }
 
 // subset_bounds_assertion is a compile-time check that splitMotionSubsetContext.

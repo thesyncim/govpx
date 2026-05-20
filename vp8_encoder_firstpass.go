@@ -617,8 +617,8 @@ func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 	}
 	mbRows := encoderMacroblockRows(src.Height)
 	mbCols := encoderMacroblockCols(src.Width)
-	bounds := interFrameFullPixelSearchBounds(seed, mbRow, mbCol, mbRows, mbCols)
-	center := bounds.clampEighth(vp8enc.MotionVector{
+	bounds := vp8enc.InterFrameFullPixelSearchBounds(seed, mbRow, mbCol, mbRows, mbCols)
+	center := bounds.ClampEighth(vp8enc.MotionVector{
 		Row: int16(int(seed.Row) & ^7),
 		Col: int16(int(seed.Col) & ^7),
 	})

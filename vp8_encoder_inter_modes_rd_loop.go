@@ -36,11 +36,11 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		if mbMode == vp8common.NearMV {
 			mv = near
 		}
-		mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
+		mv = vp8enc.ClampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
 		if mv.IsZero() {
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
-		if !interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
+		if !vp8enc.InterFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode, MV: mv}, true
@@ -85,7 +85,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 				result = searcher.selectRD()
 			}
 			mv := result.mv
-			mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
+			mv = vp8enc.ClampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
 			candidate.searched = true
 			candidate.ok = true
 			candidate.mv = mv

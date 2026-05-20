@@ -204,9 +204,9 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables(src 
 	centerRow := int(searchStart.Row) & ^7
 	centerCol := int(searchStart.Col) & ^7
 	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
-	bounds := interFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	bounds := vp8enc.InterFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
 	if search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
-		best = bounds.clampEighth(best)
+		best = bounds.ClampEighth(best)
 	}
 	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, bestRefMV, qIndex, bounds, mvProbs, mvCosts, errorPerBit, nil)
 	bestWalkCost := searcher.walkCostNoStats(best, maxInt())
@@ -237,9 +237,9 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTablesAndSt
 	centerRow := int(searchStart.Row) & ^7
 	centerCol := int(searchStart.Col) & ^7
 	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
-	bounds := interFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	bounds := vp8enc.InterFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
 	if search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
-		best = bounds.clampEighth(best)
+		best = bounds.ClampEighth(best)
 	}
 	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, bestRefMV, qIndex, bounds, mvProbs, mvCosts, errorPerBit, stats)
 	bestWalkCost := searcher.walkCost(best, maxInt())

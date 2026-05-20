@@ -8,15 +8,15 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-const interFrameFullPixelSearchRadius = 16
-const interFrameMVFullPixelStep = 8
+const interFrameFullPixelSearchRadius = vp8enc.InterFrameFullPixelSearchRadius
+const interFrameMVFullPixelStep = vp8enc.InterFrameMVFullPixelStep
 const interFrameSubpixelSearchMaxCandidates = 31
 const interFrameMotionCandidateMax = 15
-const interFrameMaxMVSearchSteps = 8
-const interFrameMaxFirstStep = 1 << (interFrameMaxMVSearchSteps - 1)
+const interFrameMaxMVSearchSteps = vp8enc.InterFrameMaxMVSearchSteps
+const interFrameMaxFirstStep = vp8enc.InterFrameMaxFirstStep
 const interFrameSplitMVFullSearchThreshold = 4000
-const interFrameMaxFullPelVal = (1 << interFrameMaxMVSearchSteps) - 1
-const interFrameUMVBorderPixels = 32
+const interFrameMaxFullPelVal = vp8enc.InterFrameMaxFullPelVal
+const interFrameUMVBorderPixels = vp8enc.InterFrameUMVBorderPixels
 const libvpxFastNewMVBitCostWeight = 128
 const libvpxRDNewMVBitCostWeight = 96
 

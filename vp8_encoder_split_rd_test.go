@@ -211,7 +211,7 @@ func TestSelectInterFrameSplitMotionSkipsOutOfRangeInheritedLabelMV(t *testing.T
 	ref.ExtendBorders()
 
 	invalidAbove := vp8enc.MotionVector{Row: 142, Col: -352}
-	if interFrameUMVFullPixelInRange(invalidAbove, 3, 3, 4, 4) {
+	if vp8enc.InterFrameUMVFullPixelInRange(invalidAbove, 3, 3, 4, 4) {
 		t.Fatalf("test MV unexpectedly in UMV range: %+v", invalidAbove)
 	}
 	var pred [16]byte

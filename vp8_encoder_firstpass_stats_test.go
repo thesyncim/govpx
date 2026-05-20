@@ -537,11 +537,11 @@ func TestFirstPassMotionSearchSkipsFullPelStats(t *testing.T) {
 	var phase EncoderPhaseStats
 	stats := interFrameMotionSearchStats{phase: &phase}
 	bestRefMV := vp8enc.MotionVector{}
-	bounds := interFrameFullPixelSearchBounds(bestRefMV, 0, 0, 1, 1)
+	bounds := vp8enc.InterFrameFullPixelSearchBounds(bestRefMV, 0, 0, 1, 1)
 	searcher := newFullPelMotionSearch(source, &ref.Img, 0, 0, bestRefMV, 20,
 		bounds, &vp8tables.DefaultMVContext, nil, 0, &stats)
 	searcher.firstPassMode = true
-	center := bounds.clampEighth(bestRefMV)
+	center := bounds.ClampEighth(bestRefMV)
 	centerCost := searcher.walkCostNoStats(center, maxInt())
 
 	_ = searcher.firstPassSearchSites(center, centerCost,

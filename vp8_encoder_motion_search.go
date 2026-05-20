@@ -99,7 +99,7 @@ type fullPelMotionSearch struct {
 	mvCosts     *vp8enc.MotionVectorCostTables
 	stats       *interFrameMotionSearchStats
 	ctx         fullPelSearchCtx
-	bounds      interFrameFullPixelBounds
+	bounds      vp8enc.InterFrameFullPixelBounds
 	qIndex      int
 	errorPerBit int
 	refRow8     int
@@ -114,7 +114,7 @@ type fullPelMotionSearch struct {
 	firstPassMode bool
 }
 
-func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, errorPerBit int, stats *interFrameMotionSearchStats) fullPelMotionSearch {
+func newFullPelMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, bounds vp8enc.InterFrameFullPixelBounds, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, errorPerBit int, stats *interFrameMotionSearchStats) fullPelMotionSearch {
 	if errorPerBit <= 0 {
 		errorPerBit = vp8enc.ErrorPerBit(qIndex)
 	}
@@ -328,10 +328,10 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 				col2 := bestCol + int(site2.Col)
 				row3 := bestRow + int(site3.Row)
 				col3 := bestCol + int(site3.Col)
-				if bounds.containsFullPelStrict(row0, col0) &&
-					bounds.containsFullPelStrict(row1, col1) &&
-					bounds.containsFullPelStrict(row2, col2) &&
-					bounds.containsFullPelStrict(row3, col3) &&
+				if bounds.ContainsFullPelStrict(row0, col0) &&
+					bounds.ContainsFullPelStrict(row1, col1) &&
+					bounds.ContainsFullPelStrict(row2, col2) &&
+					bounds.ContainsFullPelStrict(row3, col3) &&
 					ctx.fullPelSADFull4(row0, col0, row1, col1, row2, col2, row3, col3, &sad4) {
 					local.sadCalls++
 					local.sadCandidates += 4
@@ -376,7 +376,7 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 			site := sites[siteIndex]
 			row := bestRow + int(site.Row)
 			col := bestCol + int(site.Col)
-			if bounds.containsFullPelStrict(row, col) {
+			if bounds.ContainsFullPelStrict(row, col) {
 				local.sadCalls++
 				local.sadCandidates++
 				sad := ctx.fullPelSADFull(row, col)
@@ -454,10 +454,10 @@ func (s *fullPelMotionSearch) searchSitesNoStats(center vp8enc.MotionVector, cen
 				col2 := bestCol + int(site2.Col)
 				row3 := bestRow + int(site3.Row)
 				col3 := bestCol + int(site3.Col)
-				if bounds.containsFullPelStrict(row0, col0) &&
-					bounds.containsFullPelStrict(row1, col1) &&
-					bounds.containsFullPelStrict(row2, col2) &&
-					bounds.containsFullPelStrict(row3, col3) &&
+				if bounds.ContainsFullPelStrict(row0, col0) &&
+					bounds.ContainsFullPelStrict(row1, col1) &&
+					bounds.ContainsFullPelStrict(row2, col2) &&
+					bounds.ContainsFullPelStrict(row3, col3) &&
 					ctx.fullPelSADFull4(row0, col0, row1, col1, row2, col2, row3, col3, &sad4) {
 					sad := int(sad4[0])
 					if sad < bestWalkCost {
@@ -499,7 +499,7 @@ func (s *fullPelMotionSearch) searchSitesNoStats(center vp8enc.MotionVector, cen
 			site := sites[siteIndex]
 			row := bestRow + int(site.Row)
 			col := bestCol + int(site.Col)
-			if bounds.containsFullPelStrict(row, col) {
+			if bounds.ContainsFullPelStrict(row, col) {
 				sad := ctx.fullPelSADFull(row, col)
 				if sad < bestWalkCost {
 					cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
@@ -555,10 +555,10 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 	var sad4 [4]uint32
 	for range searchRange {
 		bestSite := -1
-		if bounds.containsFullPelStrict(bestRow-1, bestCol) &&
-			bounds.containsFullPelStrict(bestRow, bestCol-1) &&
-			bounds.containsFullPelStrict(bestRow, bestCol+1) &&
-			bounds.containsFullPelStrict(bestRow+1, bestCol) &&
+		if bounds.ContainsFullPelStrict(bestRow-1, bestCol) &&
+			bounds.ContainsFullPelStrict(bestRow, bestCol-1) &&
+			bounds.ContainsFullPelStrict(bestRow, bestCol+1) &&
+			bounds.ContainsFullPelStrict(bestRow+1, bestCol) &&
 			ctx.fullPelSADFull4(bestRow-1, bestCol, bestRow, bestCol-1, bestRow, bestCol+1, bestRow+1, bestCol, &sad4) {
 			local.sadCalls++
 			local.sadCandidates += 4
@@ -610,7 +610,7 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 		for j, step := range neighbors {
 			row := bestRow + int(step.Row)
 			col := bestCol + int(step.Col)
-			if !bounds.containsFullPelStrict(row, col) {
+			if !bounds.ContainsFullPelStrict(row, col) {
 				local.boundsRejects++
 				continue
 			}
@@ -666,10 +666,10 @@ func (s *fullPelMotionSearch) refineNoStats(start vp8enc.MotionVector, searchRan
 	var sad4 [4]uint32
 	for range searchRange {
 		bestSite := -1
-		if bounds.containsFullPelStrict(bestRow-1, bestCol) &&
-			bounds.containsFullPelStrict(bestRow, bestCol-1) &&
-			bounds.containsFullPelStrict(bestRow, bestCol+1) &&
-			bounds.containsFullPelStrict(bestRow+1, bestCol) &&
+		if bounds.ContainsFullPelStrict(bestRow-1, bestCol) &&
+			bounds.ContainsFullPelStrict(bestRow, bestCol-1) &&
+			bounds.ContainsFullPelStrict(bestRow, bestCol+1) &&
+			bounds.ContainsFullPelStrict(bestRow+1, bestCol) &&
 			ctx.fullPelSADFull4(bestRow-1, bestCol, bestRow, bestCol-1, bestRow, bestCol+1, bestRow+1, bestCol, &sad4) {
 			sad := int(sad4[0])
 			if sad < bestWalkCost {
@@ -713,7 +713,7 @@ func (s *fullPelMotionSearch) refineNoStats(start vp8enc.MotionVector, searchRan
 		for j, step := range neighbors {
 			row := bestRow + int(step.Row)
 			col := bestCol + int(step.Col)
-			if !bounds.containsFullPelStrict(row, col) {
+			if !bounds.ContainsFullPelStrict(row, col) {
 				continue
 			}
 			sad := ctx.fullPelSADFull(row, col)

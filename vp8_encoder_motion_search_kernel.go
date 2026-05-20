@@ -57,9 +57,9 @@ func (l *fullPelLocalStats) flush(stats *interFrameMotionSearchStats) {
 // inside the open bounds box. Mirrors `containsFullPelStrict` for the
 // row±pad/col±pad corners; lets the kernel skip per-candidate bounds
 // checks when an entire fixed-magnitude site neighbourhood is interior.
-func boundsInteriorByPad(b interFrameFullPixelBounds, row int, col int, padRow int, padCol int) bool {
-	return row-padRow > b.rowMin && row+padRow < b.rowMax &&
-		col-padCol > b.colMin && col+padCol < b.colMax
+func boundsInteriorByPad(b vp8enc.InterFrameFullPixelBounds, row int, col int, padRow int, padCol int) bool {
+	return row-padRow > b.RowMin && row+padRow < b.RowMax &&
+		col-padCol > b.ColMin && col+padCol < b.ColMax
 }
 
 // fullPelMVSADCostInline mirrors vp8enc.FullPelMVSADCost16FromDeltas
@@ -203,7 +203,7 @@ func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost 
 		for i := range 6 {
 			row := bestRow + int(hexDR[i])
 			col := bestCol + int(hexDC[i])
-			if !bounds.containsFullPel(row, col) {
+			if !bounds.ContainsFullPel(row, col) {
 				local.boundsRejects++
 				continue
 			}
@@ -255,7 +255,7 @@ func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost 
 					idx := int(chk[i])
 					row := bestRow + int(hexDR[idx])
 					col := bestCol + int(hexDC[idx])
-					if !bounds.containsFullPel(row, col) {
+					if !bounds.ContainsFullPel(row, col) {
 						local.boundsRejects++
 						continue
 					}
@@ -339,7 +339,7 @@ func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost 
 			for i := range 4 {
 				row := bestRow + int(neighborDR[i])
 				col := bestCol + int(neighborDC[i])
-				if !bounds.containsFullPel(row, col) {
+				if !bounds.ContainsFullPel(row, col) {
 					local.boundsRejects++
 					continue
 				}
@@ -455,7 +455,7 @@ func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, be
 		for i := range 6 {
 			row := bestRow + int(hexDR[i])
 			col := bestCol + int(hexDC[i])
-			if !bounds.containsFullPel(row, col) {
+			if !bounds.ContainsFullPel(row, col) {
 				continue
 			}
 			sad := ctx.fullPelSADFull(row, col)
@@ -501,7 +501,7 @@ func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, be
 					idx := int(chk[i])
 					row := bestRow + int(hexDR[idx])
 					col := bestCol + int(hexDC[idx])
-					if !bounds.containsFullPel(row, col) {
+					if !bounds.ContainsFullPel(row, col) {
 						continue
 					}
 					sad := ctx.fullPelSADFull(row, col)
@@ -574,7 +574,7 @@ func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, be
 			for i := range 4 {
 				row := bestRow + int(neighborDR[i])
 				col := bestCol + int(neighborDC[i])
-				if !bounds.containsFullPel(row, col) {
+				if !bounds.ContainsFullPel(row, col) {
 					continue
 				}
 				sad := ctx.fullPelSADFull(row, col)

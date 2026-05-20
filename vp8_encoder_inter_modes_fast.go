@@ -258,7 +258,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			} else {
 				result = searcher.selectFast()
 			}
-			mv = clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
+			mv = vp8enc.ClampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
 				loopCtx.storeVariance(rs.img, mv, result.variance, result.sse)
 			}
@@ -268,7 +268,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 		default:
 			continue
 		}
-		if !interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
+		if !vp8enc.InterFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
 			continue
 		}
 		if inactiveMB {
@@ -522,7 +522,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			} else {
 				result = searcher.selectFast()
 			}
-			mv = clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
+			mv = vp8enc.ClampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
 				loopCtx.storeVariance(rs.img, mv, result.variance, result.sse)
 			}
@@ -532,7 +532,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 		default:
 			continue
 		}
-		if !interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
+		if !vp8enc.InterFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
 			continue
 		}
 		if inactiveMB {
@@ -826,7 +826,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 			} else {
 				result = searcher.selectFast()
 			}
-			mv := clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
+			mv := vp8enc.ClampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
 				loopCtx.storeVariance(ref.Img, mv, result.variance, result.sse)
 			}
@@ -837,7 +837,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 		default:
 			continue
 		}
-		if !interFrameUMVFullPixelInRange(mode.MV, mbRow, mbCol, mbRows, mbCols) {
+		if !vp8enc.InterFrameUMVFullPixelInRange(mode.MV, mbRow, mbCol, mbRows, mbCols) {
 			continue
 		}
 		mode.SegmentID = segmentID

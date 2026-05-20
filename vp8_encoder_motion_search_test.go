@@ -582,7 +582,7 @@ func TestFullPixelFinalRefineKeepsBetterReturnCost(t *testing.T) {
 		0,
 		bestRefMV,
 		0,
-		interFrameFullPixelBounds{rowMin: -4, rowMax: 4, colMin: -4, colMax: 4},
+		vp8enc.InterFrameFullPixelBounds{RowMin: -4, RowMax: 4, ColMin: -4, ColMax: 4},
 		nil,
 		nil,
 		0,

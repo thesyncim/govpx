@@ -370,7 +370,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
 		// rd_check_segment applies the same UMV trap to inherited
 		// LEFT/ABOVE/ZERO labels as it does to searched NEW labels.
-		if !interFrameUMVFullPixelInRange(mv, ctx.mbRow, ctx.mbCol, mbRows, mbCols) {
+		if !vp8enc.InterFrameUMVFullPixelInRange(mv, ctx.mbRow, ctx.mbCol, mbRows, mbCols) {
 			return
 		}
 		rate := splitSubMotionLabelRateWithProbs(candidateMode, ctx.subMVRefProbs)
@@ -444,11 +444,11 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	// truncating the SPLITMV per-label diamond search at MB(0,0) frame 1
 	// for partitions 0/1/3 on the 1280x720 SSIM-best cohort and biasing
 	// the picker away from SPLITMV.
-	var bounds interFrameFullPixelBounds
+	var bounds vp8enc.InterFrameFullPixelBounds
 	if ctx.compressorSpeed == 0 || (ctx.mode != nil && ctx.mode.Partition == 2) {
-		bounds = interFrameUMVOnlyFullPixelSearchBounds(ctx.mbRow, ctx.mbCol, mbRows, mbCols)
+		bounds = vp8enc.InterFrameUMVOnlyFullPixelSearchBounds(ctx.mbRow, ctx.mbCol, mbRows, mbCols)
 	} else {
-		bounds = interFrameFullPixelSearchBounds(ctx.bestRefMV, ctx.mbRow, ctx.mbCol, mbRows, mbCols)
+		bounds = vp8enc.InterFrameFullPixelSearchBounds(ctx.bestRefMV, ctx.mbRow, ctx.mbCol, mbRows, mbCols)
 	}
 	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorWithBounds(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs, ctx.mvCosts, bounds)
 	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBitAndCostTables(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.search, ctx.mvProbs, ctx.mvCosts); ok {
