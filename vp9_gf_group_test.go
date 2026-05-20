@@ -3,6 +3,8 @@ package govpx
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // synthPanningFirstPassStats returns a libvpx-shaped first-pass stats
@@ -46,8 +48,8 @@ func defaultVP9GFGroupTestInputs(stats []VP9FirstPassFrameStats) vp9GFGroupInput
 		SourceAltRefActive:       false,
 		FramesToKey:              len(stats),
 		FramesSinceKey:           0,
-		MinGFInterval:            vp9MinGFInterval,
-		MaxGFInterval:            vp9MaxGFInterval,
+		MinGFInterval:            encoder.MinGFInterval,
+		MaxGFInterval:            encoder.MaxGFInterval,
 		StaticSceneMaxGFInterval: vp9MaxStaticGFGroupLength,
 		ActiveWorstQuality:       180,
 		LastBoostedQIndex:        140,
@@ -83,9 +85,9 @@ func TestVP9DefineGFGroupHasNonZeroBoost(t *testing.T) {
 		t.Fatalf("gfu_boost = %d < MIN_ARF_GF_BOOST=%d",
 			gf.GFUBoostScalar, vp9MinARFGFBoost)
 	}
-	if gf.BaselineGFInterval < vp9MinGFInterval {
+	if gf.BaselineGFInterval < encoder.MinGFInterval {
 		t.Fatalf("baseline_gf_interval = %d < MIN_GF_INTERVAL=%d",
-			gf.BaselineGFInterval, vp9MinGFInterval)
+			gf.BaselineGFInterval, encoder.MinGFInterval)
 	}
 	if gf.GOPCodingFrames <= 0 {
 		t.Fatalf("gop_coding_frames = %d, want > 0", gf.GOPCodingFrames)
@@ -166,9 +168,9 @@ func TestVP9DefineGFGroupActiveIntervalRangeMatchesLibvpx(t *testing.T) {
 		t.Fatalf("active_gf_interval.max = %d, want odd", r.Max)
 	}
 	// libvpx: min must be in [min_gf_interval+arfBool, max_gf_interval+arfBool].
-	if r.Min < vp9MinGFInterval+1 {
+	if r.Min < encoder.MinGFInterval+1 {
 		t.Fatalf("active_gf_interval.min = %d < min_gf_interval+1=%d",
-			r.Min, vp9MinGFInterval+1)
+			r.Min, encoder.MinGFInterval+1)
 	}
 	if r.Max < r.Min {
 		t.Fatalf("active_gf_interval.max(%d) < min(%d)", r.Max, r.Min)

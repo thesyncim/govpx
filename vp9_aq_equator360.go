@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9Equator360AQRateRatios mirrors libvpx's rate_ratio[] in
@@ -97,7 +98,7 @@ func vp9Equator360AQSegmentationParams(baseQIndex int, intraFrame bool) vp9dec.S
 		if ratio.num == ratio.den {
 			continue
 		}
-		delta := vp9ComputeQDeltaByRate(0, 255, false, baseQIndex,
+		delta := encoder.ComputeQDeltaByRate(0, 255, false, baseQIndex,
 			ratio.num, ratio.den)
 		if baseQIndex != 0 && baseQIndex+delta == 0 {
 			delta = -baseQIndex + 1

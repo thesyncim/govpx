@@ -1,6 +1,10 @@
 package govpx
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 // VP9 adaptive GF/ARF group analyzer ported verbatim from libvpx v1.16.0.
 //
@@ -654,7 +658,7 @@ func vp9CalcNormFrameScoreConfig(row VP9FirstPassFrameStats,
 	normalized := score / meanModScore
 	maxSection := vbrMaxSection
 	if maxSection <= 0 {
-		maxSection = vp9DefaultVBRMaxSectionPct
+		maxSection = encoder.DefaultVBRMaxSectionPct
 	}
 	minScore := float64(vbrMinSection) / 100.0
 	maxScore := float64(maxSection) / 100.0
@@ -1012,7 +1016,7 @@ func vp9CalcNormFrameScoreCorpus(row VP9FirstPassFrameStats, avErr, meanModScore
 	}
 	maxSection := vbrMaxSection
 	if maxSection <= 0 {
-		maxSection = vp9DefaultVBRMaxSectionPct
+		maxSection = encoder.DefaultVBRMaxSectionPct
 	}
 	err := row.CodedError
 	if err < 1 {

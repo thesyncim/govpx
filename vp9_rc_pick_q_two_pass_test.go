@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 func defaultVP9TwoPassQInputs() vp9RCPickQAndBoundsTwoPassInputs {
 	return vp9RCPickQAndBoundsTwoPassInputs{
@@ -71,8 +75,8 @@ func TestVP9RCPickQAndBoundsTwoPassBoostFrameARFAdjustmentUsesMotionTables(t *te
 		increase int
 		hl       func(int) int
 	}{
-		{name: "high-motion", increase: 1, hl: vp9GFHighMotionActiveQuality},
-		{name: "low-motion", increase: -1, hl: vp9GFLowMotionActiveQuality},
+		{name: "high-motion", increase: 1, hl: encoder.GFHighMotionActiveQuality},
+		{name: "low-motion", increase: -1, hl: encoder.GFLowMotionActiveQuality},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := defaultVP9TwoPassQInputs()
@@ -82,7 +86,7 @@ func TestVP9RCPickQAndBoundsTwoPassBoostFrameARFAdjustmentUsesMotionTables(t *te
 			in.ARFActiveBestQualityAdjustmentFactor = 0.25
 
 			q := in.AvgFrameQIndexInter
-			base := vp9GFActiveQualityWithBoost(q, in.GFUBoost)
+			base := encoder.GFActiveQualityWithBoost(q, in.GFUBoost)
 			want := int(float64(base)*in.ARFActiveBestQualityAdjustmentFactor +
 				float64(tc.hl(q))*(1.0-in.ARFActiveBestQualityAdjustmentFactor))
 			r := vp9RCPickQAndBoundsTwoPass(in, 160)
@@ -141,7 +145,7 @@ func TestVP9RCPickQAndBoundsTwoPassNonForcedKeyUsesZeroMotionAndSmallFrameAdjust
 	in.KFZeroMotionPct = 99
 
 	r := vp9RCPickQAndBoundsTwoPass(in, 100)
-	wantActiveBest := vp9KFActiveQualityWithBoost(in.ActiveWorstQuality,
+	wantActiveBest := encoder.KFActiveQualityWithBoost(in.ActiveWorstQuality,
 		in.KeyFrameBoost)
 	wantActiveBest /= 4
 	wantActiveBest = min(in.ActiveWorstQuality, max(1, wantActiveBest))

@@ -564,7 +564,7 @@ func vp9FixInterpFilter(currentFilter vp9dec.InterpFilter,
 //
 // The gate is identical to the demotion gate (sf.frame_parameter_update):
 // libvpx hangs both off the same if-block at vp9_encodeframe.c:5846. mbs is
-// the libvpx cm->MBs which govpx tracks as vp9MacroblockCount(miRows, miCols).
+// the libvpx cm->MBs which govpx tracks as encoder.MacroblockCount(miRows, miCols).
 // Per-block contributions land in vp9FilterDiff via
 // vp9_encodeframe.c:1881 once the per-block 3-filter RD path produces signal;
 // today vp9FilterDiff stays zero so this update is a no-op stable point.

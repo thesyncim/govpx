@@ -203,7 +203,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		header.Render = vp9dec.RenderSize{Width: width, Height: height}
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
-	macroblocks := vp9MacroblockCount(miRows, miCols)
+	macroblocks := encoder.MacroblockCount(miRows, miCols)
 	// TPL runs before the qindex is finalised so its per-SB rdmult delta
 	// can scale the keyframe mode picker's Lagrangian search.  Unlike
 	// the deleted scalar bias path, libvpx's TPL does NOT touch the

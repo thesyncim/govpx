@@ -253,13 +253,13 @@ func vp9CyclicRefreshComputeQDeltaByRate(qindex int, rateTargetRatio float64, in
 		qindex = vp9dec.MaxQ
 	}
 	// libvpx: vp9_ratectrl.c:2580-2581 — base_bits_per_mb.
-	baseBitsPerMB := vp9RCBitsPerMB(intraFrame, qindex, 1.0)
+	baseBitsPerMB := encoder.BitsPerMB(intraFrame, qindex, 1.0)
 	// libvpx: vp9_ratectrl.c:2584 — target_bits_per_mb = ratio * base.
 	targetBitsPerMB := int(rateTargetRatio * float64(baseBitsPerMB))
 	targetIndex := vp9dec.MaxQ
 	// libvpx: vp9_ratectrl.c:2587-2593.
 	for i := range vp9dec.MaxQ {
-		if vp9RCBitsPerMB(intraFrame, i, 1.0) <= targetBitsPerMB {
+		if encoder.BitsPerMB(intraFrame, i, 1.0) <= targetBitsPerMB {
 			targetIndex = i
 			break
 		}

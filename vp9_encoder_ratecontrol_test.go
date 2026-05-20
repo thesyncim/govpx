@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9EncoderExplicitRateControlModesEncode(t *testing.T) {
@@ -151,17 +152,17 @@ func TestVP9RateControlVBRGoldenUsesGFARFCorrectionFactor(t *testing.T) {
 		t.Fatalf("applyOptions: %v", err)
 	}
 	const qindex = 96
-	macroblocks := vp9MacroblockCount((64+7)>>3, (64+7)>>3)
-	actualBits := vp9EstimatedBitsAtQ(false, qindex, macroblocks, 1) * 2
+	macroblocks := encoder.MacroblockCount((64+7)>>3, (64+7)>>3)
+	actualBits := encoder.EstimatedBitsAtQ(false, qindex, macroblocks, 1) * 2
 	rc.updateRateCorrectionFactor(actualBits, qindex, false,
 		1<<vp9GoldenRefSlot, macroblocks)
-	if rc.rateCorrectionFactors[vp9RateFactorGFARFStd] <= 1 {
+	if rc.rateCorrectionFactors[encoder.RateFactorGFARFStd] <= 1 {
 		t.Fatalf("GF/ARF correction factor = %.3f, want updated above 1",
-			rc.rateCorrectionFactors[vp9RateFactorGFARFStd])
+			rc.rateCorrectionFactors[encoder.RateFactorGFARFStd])
 	}
-	if rc.rateCorrectionFactors[vp9RateFactorInterNormal] != 1 {
+	if rc.rateCorrectionFactors[encoder.RateFactorInterNormal] != 1 {
 		t.Fatalf("INTER_NORMAL correction factor = %.3f, want unchanged",
-			rc.rateCorrectionFactors[vp9RateFactorInterNormal])
+			rc.rateCorrectionFactors[encoder.RateFactorInterNormal])
 	}
 }
 
@@ -674,9 +675,9 @@ func TestVP9EncoderCBRDropBufferUnderrunReturnsDropped(t *testing.T) {
 		t.Fatalf("inter result = key:%t dropped:%t size:%d data:%d, want dropped inter",
 			inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
 	}
-	if inter.TargetBitrateKbps != 1 || inter.FrameTargetBits != vp9FrameOverhead {
+	if inter.TargetBitrateKbps != 1 || inter.FrameTargetBits != encoder.FrameOverhead {
 		t.Fatalf("inter rate = kbps:%d target:%d, want 1/%d",
-			inter.TargetBitrateKbps, inter.FrameTargetBits, vp9FrameOverhead)
+			inter.TargetBitrateKbps, inter.FrameTargetBits, encoder.FrameOverhead)
 	}
 	if inter.BufferLevelBits != wantBufferAfterRefill {
 		t.Fatalf("buffer after drop = %d, want %d",

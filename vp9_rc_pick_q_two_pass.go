@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vp9/encoder"
+
 // VP9 two-pass per-frame Q picker — port of libvpx
 // vp9_rc_pick_q_and_bounds_two_pass.
 //
@@ -130,7 +132,7 @@ func vp9RCPickQAndBoundsTwoPass(in vp9RCPickQAndBoundsTwoPassInputs, regulatedQ 
 			if keyFrameBoost == 0 {
 				keyFrameBoost = vp9DefaultKeyFrameBoost
 			}
-			activeBest = vp9KFActiveQualityWithBoost(activeWorst, keyFrameBoost)
+			activeBest = encoder.KFActiveQualityWithBoost(activeWorst, keyFrameBoost)
 			if in.KFZeroMotionPct >= vp9StaticKFGroupThresh {
 				activeBest /= 4
 			}
@@ -158,15 +160,15 @@ func vp9RCPickQAndBoundsTwoPass(in vp9RCPickQAndBoundsTwoPassInputs, regulatedQ 
 		if gfuBoost == 0 {
 			gfuBoost = vp9DefaultGFUBoost
 		}
-		activeBest = vp9GFActiveQualityWithBoost(q, gfuBoost)
+		activeBest = encoder.GFActiveQualityWithBoost(q, gfuBoost)
 		// libvpx vp9_ratectrl.c:1509-1515: arf_increase_active_best_quality
 		// branches use the high-motion / low-motion MINQ tables.
 		arfActiveBestQHL := activeBest
 		switch in.ARFIncreaseActiveBestQuality {
 		case 1:
-			arfActiveBestQHL = vp9GFHighMotionActiveQuality(q)
+			arfActiveBestQHL = encoder.GFHighMotionActiveQuality(q)
 		case -1:
-			arfActiveBestQHL = vp9GFLowMotionActiveQuality(q)
+			arfActiveBestQHL = encoder.GFLowMotionActiveQuality(q)
 		}
 		factor := in.ARFActiveBestQualityAdjustmentFactor
 		activeBest = int(float64(activeBest)*factor + float64(arfActiveBestQHL)*(1.0-factor))
@@ -177,7 +179,7 @@ func vp9RCPickQAndBoundsTwoPass(in vp9RCPickQAndBoundsTwoPassInputs, regulatedQ 
 		}
 	} else {
 		// libvpx vp9_ratectrl.c:1532-1540.
-		activeBest = vp9InterMINQ(activeWorst)
+		activeBest = encoder.InterMinQ(activeWorst)
 		if in.IsCQ && activeBest < in.CQLevel {
 			activeBest = in.CQLevel
 		}

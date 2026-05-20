@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vp9/encoder"
+
 type vp9RateControlState struct {
 	enabled bool
 	mode    RateControlMode
@@ -76,8 +78,8 @@ type vp9RateControlState struct {
 	totalActualBits int64
 	totalTargetBits int64
 
-	rateCorrectionFactors [vp9RateFactorLevels]float64
-	dampedAdjustment      [vp9RateFactorLevels]bool
+	rateCorrectionFactors [encoder.RateFactorLevels]float64
+	dampedAdjustment      [encoder.RateFactorLevels]bool
 	q1Frame               uint8
 	q2Frame               uint8
 	rc1Frame              int8
@@ -299,13 +301,13 @@ func validateVP9InterRateBound(maxInterPct int) error {
 
 // validateVP9GFIntervalBounds enforces the libvpx
 // VP9E_SET_MIN_GF_INTERVAL / VP9E_SET_MAX_GF_INTERVAL invariants. Both
-// values must lie in [0, vp9MaxGFInterval]; when both are non-zero, the
+// values must lie in [0, encoder.MaxGFInterval]; when both are non-zero, the
 // minimum must not exceed the maximum.
 func validateVP9GFIntervalBounds(minGF, maxGF int) error {
 	if minGF < 0 || maxGF < 0 {
 		return ErrInvalidConfig
 	}
-	if minGF > vp9MaxGFInterval || maxGF > vp9MaxGFInterval {
+	if minGF > encoder.MaxGFInterval || maxGF > encoder.MaxGFInterval {
 		return ErrInvalidConfig
 	}
 	if minGF > 0 && maxGF > 0 && minGF > maxGF {
@@ -603,9 +605,9 @@ func (rc *vp9RateControlState) initQuantizerStateFromOptions(opts VP9EncoderOpti
 	rc.lastQKey = rc.bestQuality
 	rc.lastQInter = rc.worstQuality
 	rc.lastBoostedQIndex = rc.worstQuality
-	rc.afRatioOnePassVBR = vp9DefaultAFRatioOnePassVBR
-	rc.facActiveWorstInter = vp9DefaultActiveWorstInterPct
-	rc.facActiveWorstGF = vp9DefaultActiveWorstGFPct
+	rc.afRatioOnePassVBR = encoder.DefaultAFRatioOnePassVBR
+	rc.facActiveWorstInter = encoder.DefaultActiveWorstInterPct
+	rc.facActiveWorstGF = encoder.DefaultActiveWorstGFPct
 	for i := range rc.rateCorrectionFactors {
 		rc.rateCorrectionFactors[i] = 1
 	}
@@ -646,9 +648,9 @@ func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
 	if !rc.enabled {
 		return
 	}
-	rc.afRatioOnePassVBR = vp9DefaultAFRatioOnePassVBR
+	rc.afRatioOnePassVBR = encoder.DefaultAFRatioOnePassVBR
 	if rc.mode == RateControlQ {
-		rc.baselineGFInterval = vp9FixedGFInterval
+		rc.baselineGFInterval = encoder.FixedGFInterval
 		return
 	}
 	minInterval := vp9DefaultMinGFInterval(timing)
@@ -830,24 +832,24 @@ func (rc *vp9RateControlState) updateFrameBandwidthBounds() {
 	if !rc.enabled {
 		return
 	}
-	rc.minFrameBandwidth = vp9FrameOverhead
+	rc.minFrameBandwidth = encoder.FrameOverhead
 	if rc.bitsPerFrame > 0 && rc.bitsPerFrame>>5 > rc.minFrameBandwidth {
 		rc.minFrameBandwidth = rc.bitsPerFrame >> 5
 	}
 	miRows := (int(rc.codedHeight) + 7) >> 3
 	miCols := (int(rc.codedWidth) + 7) >> 3
-	mbs := vp9MacroblockCount(miRows, miCols)
+	mbs := encoder.MacroblockCount(miRows, miCols)
 	maxByMB := 0
 	if mbs > 0 {
-		if mbs > maxInt()/vp9MaxMBRateBits {
+		if mbs > maxInt()/encoder.MaxMBRateBits {
 			maxByMB = maxInt()
 		} else {
-			maxByMB = mbs * vp9MaxMBRateBits
+			maxByMB = mbs * encoder.MaxMBRateBits
 		}
 	}
-	maxBits := max(maxByMB, vp9MaxRate1080PBits)
+	maxBits := max(maxByMB, encoder.MaxRate1080PBits)
 	if rc.bitsPerFrame > 0 {
-		vbrMax := percentOf(rc.bitsPerFrame, vp9DefaultVBRMaxSectionPct)
+		vbrMax := percentOf(rc.bitsPerFrame, encoder.DefaultVBRMaxSectionPct)
 		if vbrMax > maxBits {
 			maxBits = vbrMax
 		}

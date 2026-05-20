@@ -845,7 +845,7 @@ func (e *VP9Encoder) SetGFCBRBoostPct(pct int) error {
 }
 
 // SetMinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control.
-// interval must be in [0, vp9MaxGFInterval]; zero restores libvpx's
+// interval must be in [0, 16]; zero restores libvpx's
 // framerate-derived default. Forwards to
 // [VP9EncoderOptions.MinGFInterval].
 func (e *VP9Encoder) SetMinGFInterval(interval int) error {
@@ -865,7 +865,7 @@ func (e *VP9Encoder) SetMinGFInterval(interval int) error {
 }
 
 // SetMaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control.
-// interval must be in [0, vp9MaxGFInterval]; zero restores libvpx's
+// interval must be in [0, 16]; zero restores libvpx's
 // framerate-derived default. Forwards to
 // [VP9EncoderOptions.MaxGFInterval].
 func (e *VP9Encoder) SetMaxGFInterval(interval int) error {

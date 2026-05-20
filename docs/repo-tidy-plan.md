@@ -33,8 +33,13 @@ ownership under internal packages.
 4. Codec package moves: move private VP8/VP9 encoder and decoder internals to
    codec-owned internal packages, leaving root wrappers only where they are the
    final API.
-5. Real deduplication: move only shared mechanics to `internal/vpx`, with unit
-   tests that do not require libvpx binaries.
+5. Real deduplication: run an explicit VP8/VP9 reusable-mechanics audit before
+   each move wave. Move packet assembly scaffolding, buffer sizing, validation,
+   timebase math, bounded arithmetic, rate-control value objects, and test
+   harness utilities to `internal/vpx` only when both codecs truly share the
+   mechanics. Keep bitstream syntax, prediction semantics, probability models,
+   reference behavior, and codec-specific controls in their codec packages.
+   Shared helpers need focused unit tests that do not require libvpx binaries.
 6. Oracle harness extraction: move libvpx path resolution, process wrappers,
    trace parsing, scoreboarding helpers, and fixture plumbing into
    `internal/coracle` or `internal/vpx/testharness`. Root tests should describe

@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9PrepareCyclicRefreshFrame drives the libvpx
@@ -251,7 +252,7 @@ func vp9VarianceAQSegmentationParams(baseQIndex int, screenContentMode int8) vp9
 		if ratio.num == ratio.den {
 			continue
 		}
-		delta := vp9ComputeQDeltaByRate(0, 255, false, baseQIndex,
+		delta := encoder.ComputeQDeltaByRate(0, 255, false, baseQIndex,
 			ratio.num, ratio.den)
 		if baseQIndex != 0 && baseQIndex+delta == 0 {
 			delta = -baseQIndex + 1
@@ -361,7 +362,7 @@ func vp9ComplexityAQSegmentationParams(baseQIndex int) vp9dec.SegmentationParams
 		if i == vp9ComplexityAQDefaultSegment || ratio.num == ratio.den {
 			continue
 		}
-		delta := vp9ComputeQDeltaByRate(0, 255, false, baseQIndex,
+		delta := encoder.ComputeQDeltaByRate(0, 255, false, baseQIndex,
 			ratio.num, ratio.den)
 		if baseQIndex != 0 && baseQIndex+delta == 0 {
 			delta = -baseQIndex + 1

@@ -464,12 +464,12 @@ type VP9EncoderOptions struct {
 
 	// MinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control. It
 	// bounds the encoder-selected golden-frame interval from below. Valid
-	// values are in [0, vp9MaxGFInterval]; zero leaves libvpx's framerate-
+	// values are in [0, 16]; zero leaves libvpx's framerate-
 	// derived default in place.
 	MinGFInterval int
 	// MaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control. It
 	// bounds the encoder-selected golden-frame interval from above. Valid
-	// values are in [0, vp9MaxGFInterval]; zero leaves libvpx's framerate-
+	// values are in [0, 16]; zero leaves libvpx's framerate-
 	// derived default in place. When both bounds are non-zero,
 	// MinGFInterval must not exceed MaxGFInterval.
 	MaxGFInterval int

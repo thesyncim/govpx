@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vp9/encoder"
+
 // govpx VP9 two-pass parity status vs libvpx v1.16.0
 //
 // Ported verbatim with libvpx file:line citations (this file):
@@ -214,7 +216,7 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 		interval = int(e.rc.baselineGFInterval)
 	}
 	if interval <= 0 {
-		interval = vp9MinGFInterval
+		interval = encoder.MinGFInterval
 	}
 	e.twoPass.framesTillGFUpdate = interval - 1
 	if gf.GFUBoostScalar > 0 {
@@ -233,11 +235,11 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
 	}
 	minGF := int(e.rc.minGFInterval)
 	if minGF <= 0 {
-		minGF = vp9MinGFInterval
+		minGF = encoder.MinGFInterval
 	}
 	maxGF := int(e.rc.maxGFInterval)
 	if maxGF <= 0 {
-		maxGF = vp9MaxGFInterval
+		maxGF = encoder.MaxGFInterval
 	}
 	staticMax := maxGF
 	if staticMax < vp9MaxStaticGFGroupLength {
@@ -247,7 +249,7 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) vp9GFGroupInputs {
 	if framesToKey <= 0 {
 		framesToKey = e.opts.MaxKeyframeInterval
 		if framesToKey <= 0 {
-			framesToKey = vp9MaxGFInterval
+			framesToKey = encoder.MaxGFInterval
 		}
 	}
 	startShowIdx := int(e.twoPass.frameIndex)
@@ -320,7 +322,7 @@ func (t *vp9TwoPassState) configureWithCorpus(stats []VP9FirstPassFrameStats,
 	t.minPct = minPct
 	t.maxPct = maxPct
 	if t.maxPct <= 0 {
-		t.maxPct = vp9DefaultVBRMaxSectionPct
+		t.maxPct = encoder.DefaultVBRMaxSectionPct
 	}
 	t.vbrCorpusComplexity = vbrCorpusComplexity
 	t.minFrameBandwidth = vbrMinFrameBandwidthBits(bitsPerFrame, t.minPct)
@@ -463,7 +465,7 @@ func (t *vp9TwoPassState) frameTargetBits(defaultTargetBits int) int {
 	if t.vbrCorpusComplexity == 0 {
 		target = t.applyVBRRateCorrection(target)
 	}
-	target = min(max(target, int64(vp9FrameOverhead)), int64(maxInt()))
+	target = min(max(target, int64(encoder.FrameOverhead)), int64(maxInt()))
 	t.currentTargetBits = int(target)
 	return t.currentTargetBits
 }
@@ -530,7 +532,7 @@ func (t *vp9TwoPassState) finishFrameWithActual(projectedFrameSize int) {
 		bitsUsed = int64(t.currentTargetBits)
 	}
 	if bitsUsed <= 0 {
-		bitsUsed = int64(vp9FrameOverhead)
+		bitsUsed = int64(encoder.FrameOverhead)
 	}
 	if projectedFrameSize > 0 {
 		t.vbrBitsOffTarget += bitsUsed - int64(projectedFrameSize)
@@ -597,7 +599,7 @@ func (t *vp9TwoPassState) normalizedFrameScore(row VP9FirstPassFrameStats, avErr
 	minScore := float64(t.minPct) / 100.0
 	maxScore := float64(t.maxPct) / 100.0
 	if maxScore <= 0 {
-		maxScore = float64(vp9DefaultVBRMaxSectionPct) / 100.0
+		maxScore = float64(encoder.DefaultVBRMaxSectionPct) / 100.0
 	}
 	if score < minScore {
 		score = minScore

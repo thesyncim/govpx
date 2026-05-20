@@ -3,6 +3,8 @@ package govpx
 import (
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9EncoderRejectsNegativeMinGFInterval(t *testing.T) {
@@ -32,7 +34,7 @@ func TestVP9EncoderRejectsOversizedGFInterval(t *testing.T) {
 		Width:         64,
 		Height:        64,
 		FPS:           30,
-		MaxGFInterval: vp9MaxGFInterval + 1,
+		MaxGFInterval: encoder.MaxGFInterval + 1,
 	}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("err = %v, want ErrInvalidConfig", err)
 	}
@@ -146,7 +148,7 @@ func TestVP9SetMaxGFIntervalRejectsOversized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if err := e.SetMaxGFInterval(vp9MaxGFInterval + 1); !errors.Is(err, ErrInvalidConfig) {
+	if err := e.SetMaxGFInterval(encoder.MaxGFInterval + 1); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetMaxGFInterval(>max) err = %v, want ErrInvalidConfig", err)
 	}
 }
