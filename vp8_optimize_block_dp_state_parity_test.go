@@ -29,7 +29,7 @@ type optimizeBTokenState struct {
 // Tables consumed are the ones the chroma trellis bug audit cleared:
 //   - vp8tables.DefaultCoefProbs via libvpxOptimizeBFillTokenCostsRow
 //     (task #326 chroma UV pin, task #327 dct_value_cost pin).
-//   - dctValueBaseCost / dctValueToken (task #327 pin).
+//   - DCTValueBaseCost / DCTValueToken (task #327 pin).
 //
 // The DP-state oracle is verbatim libvpx — no govpx helpers — so any
 // drift between the oracle and govpx's optimize_b indicates a govpx
@@ -91,7 +91,7 @@ func libvpxOptimizeBVerbatim(
 			error1 := tokens[next][1].Error
 			rate0 := tokens[next][0].Rate
 			rate1 := tokens[next][1].Rate
-			t0 := dctValueToken(x)
+			t0 := vp8enc.DCTValueToken(x)
 			if next < 16 {
 				band := int(vp8tables.CoefBandsTable[i+1])
 				pt := int(vp8tables.PrevTokenClass[t0])
@@ -108,7 +108,7 @@ func libvpxOptimizeBVerbatim(
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits := dctValueBaseCost(x)
+			baseBits := vp8enc.DCTValueBaseCost(x)
 			dq := int(dequant[rc])
 			dx := x*dq - int(coeff[rc])
 			d2 := dx * dx
@@ -159,7 +159,7 @@ func libvpxOptimizeBVerbatim(
 					t1 = vp8tables.ZeroToken
 				}
 			} else {
-				t0 = dctValueToken(xs)
+				t0 = vp8enc.DCTValueToken(xs)
 				t1 = t0
 			}
 
@@ -185,7 +185,7 @@ func libvpxOptimizeBVerbatim(
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits = dctValueBaseCost(xs)
+			baseBits = vp8enc.DCTValueBaseCost(xs)
 			d2s := d2
 			if shortcut {
 				dxs := dx - ((dq + sz) ^ sz)
@@ -296,7 +296,7 @@ func govpxOptimizeBStateCaptured(
 			error1 := tokens[next][1].Error
 			rate0 := tokens[next][0].Rate
 			rate1 := tokens[next][1].Rate
-			t0 := dctValueToken(x)
+			t0 := vp8enc.DCTValueToken(x)
 			if next < 16 {
 				band := int(vp8tables.CoefBandsTable[i+1])
 				pt := int(vp8tables.PrevTokenClass[t0])
@@ -307,14 +307,14 @@ func govpxOptimizeBStateCaptured(
 			rdCost0 := libvpxRDCost(rdmult, rdDiv, rate0, error0)
 			rdCost1 := libvpxRDCost(rdmult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = libvpxRDTrunc(rdmult, rate0)
-				rdCost1 = libvpxRDTrunc(rdmult, rate1)
+				rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
+				rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
 			}
 			best := 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits := dctValueBaseCost(x)
+			baseBits := vp8enc.DCTValueBaseCost(x)
 			dq := int(dequant[rc])
 			dx := x*dq - int(coeff[rc])
 			d2 := dx * dx
@@ -362,7 +362,7 @@ func govpxOptimizeBStateCaptured(
 					t1 = vp8tables.ZeroToken
 				}
 			} else {
-				t0 = dctValueToken(xs)
+				t0 = vp8enc.DCTValueToken(xs)
 				t1 = t0
 			}
 			if next < 16 {
@@ -381,14 +381,14 @@ func govpxOptimizeBStateCaptured(
 			rdCost0 = libvpxRDCost(rdmult, rdDiv, rate0, error0)
 			rdCost1 = libvpxRDCost(rdmult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = libvpxRDTrunc(rdmult, rate0)
-				rdCost1 = libvpxRDTrunc(rdmult, rate1)
+				rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
+				rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
 			}
 			best = 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits = dctValueBaseCost(xs)
+			baseBits = vp8enc.DCTValueBaseCost(xs)
 			d2s := d2
 			if shortcut {
 				dxs := dx - ((dq + sz) ^ sz)
@@ -434,8 +434,8 @@ func govpxOptimizeBStateCaptured(
 	rdCost0 := libvpxRDCost(rdmult, rdDiv, rate0, error0)
 	rdCost1 := libvpxRDCost(rdmult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {
-		rdCost0 = libvpxRDTrunc(rdmult, rate0)
-		rdCost1 = libvpxRDTrunc(rdmult, rate1)
+		rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
+		rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
 	}
 	best := 0
 	if rdCost1 < rdCost0 {

@@ -202,7 +202,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 			error1 := tokens[next][1].error
 			rate0 := tokens[next][0].rate
 			rate1 := tokens[next][1].rate
-			t0 := dctValueToken(x)
+			t0 := vp8enc.DCTValueToken(x)
 
 			if next < 16 {
 				// i+1 ∈ [1, 16) given i ≤ 14 from the loop range and
@@ -218,15 +218,15 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 			rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
 			rdCost1 := libvpxRDCost(rdMult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = libvpxRDTrunc(rdMult, rate0)
-				rdCost1 = libvpxRDTrunc(rdMult, rate1)
+				rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
+				rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
 			}
 			best := 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
 
-			baseBits := dctValueBaseCost(x)
+			baseBits := vp8enc.DCTValueBaseCost(x)
 			dq := int(quant.Dequant[rc])
 			dx := x*dq - int(coeff[rc])
 			d2 := dx * dx
@@ -273,7 +273,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 					t1 = vp8tables.ZeroToken
 				}
 			} else {
-				t0 = dctValueToken(xs)
+				t0 = vp8enc.DCTValueToken(xs)
 				t1 = t0
 			}
 
@@ -294,15 +294,15 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 			rdCost0 = libvpxRDCost(rdMult, rdDiv, rate0, error0)
 			rdCost1 = libvpxRDCost(rdMult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = libvpxRDTrunc(rdMult, rate0)
-				rdCost1 = libvpxRDTrunc(rdMult, rate1)
+				rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
+				rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
 			}
 			best = 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
 
-			baseBits = dctValueBaseCost(xs)
+			baseBits = vp8enc.DCTValueBaseCost(xs)
 
 			d2s := d2
 			if shortcut {
@@ -350,8 +350,8 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 	rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
 	rdCost1 := libvpxRDCost(rdMult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {
-		rdCost0 = libvpxRDTrunc(rdMult, rate0)
-		rdCost1 = libvpxRDTrunc(rdMult, rate1)
+		rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
+		rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
 	}
 	best := 0
 	if rdCost1 < rdCost0 {
@@ -371,71 +371,6 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 		i = nextI
 	}
 	return finalEOB + 1
-}
-
-// libvpxRDTrunc mirrors the encodemb.c RDTRUNC macro used to break ties when
-// two trellis paths have equal RDCOST.
-func libvpxRDTrunc(rdMult int, rate int) int {
-	return (128 + rate*rdMult) & 0xFF
-}
-
-// dctValueToken returns the libvpx coefficient-token classification for value x
-// (mirrors the dct_value_tokens table indexed by signed value).
-func dctValueToken(x int) int {
-	mask := x >> mvKernelSignShift
-	abs := (x ^ mask) - mask
-	if abs == 0 {
-		return vp8tables.ZeroToken
-	}
-	token, _, ok := coefficientTokenMagnitude(abs)
-	if !ok {
-		return vp8tables.ZeroToken
-	}
-	return token
-}
-
-// dctValueBaseCostLUT precomputes libvpx's dct_value_cost table for every
-// signed coefficient in [-DCTMaxValue, DCTMaxValue]: extra-bits subtree
-// cost plus sign-bit cost. Indexed by abs(x) * 2 + sign_bit so positive
-// and negative values share the magnitude-dependent extra-bits cost but
-// pick up the correct sign-cost (libvpx's vp8_cost_bit(vp8_prob_half,
-// sign_bit) differs by 2 entropy-bit units between sign=0 and sign=1).
-// Without the per-sign cost, optimize_b's per-position rate on negative
-// coefficients was 2 units below libvpx's, flipping the trellis `best`
-// choice on the small-best-cpu0-16x32 SPLITMV path. The per-coefficient
-// hot-path lookup is still a single bounded array load.
-var dctValueBaseCostLUT = buildDCTValueBaseCostLUT()
-
-func buildDCTValueBaseCostLUT() [2 * (vp8tables.DCTMaxValue + 1)]int32 {
-	var lut [2 * (vp8tables.DCTMaxValue + 1)]int32
-	// signCostPositive / signCostNegative mirror libvpx's
-	// vp8_cost_bit(vp8_prob_half=128, sign_bit) — positive coefficients
-	// emit sign_bit=0 (ProbCost[128]), negative coefficients emit
-	// sign_bit=1 (ProbCost[127]). The 2-unit gap is libvpx's actual
-	// signed-cost behavior; matching it is required for trellis parity.
-	signCostPositive := boolBitCost(128, 0)
-	signCostNegative := boolBitCost(128, 1)
-	for abs := 1; abs <= vp8tables.DCTMaxValue; abs++ {
-		token := int(coefficientTokenLUT[abs])
-		extra := coefficientExtraBitsRate(token, abs)
-		lut[abs*2+0] = int32(signCostPositive + extra)
-		lut[abs*2+1] = int32(signCostNegative + extra)
-	}
-	return lut
-}
-
-// dctValueBaseCost mirrors libvpx's dct_value_cost table: extra bits cost plus
-// sign bit cost for value x. The token-tree cost is added separately by the
-// trellis using band/context-specific token costs.
-func dctValueBaseCost(x int) int {
-	mask := x >> mvKernelSignShift
-	abs := (x ^ mask) - mask
-	if uint(abs) > uint(vp8tables.DCTMaxValue) {
-		return maxInt() / 4
-	}
-	// mask is 0 for x>=0, -1 for x<0. (mask & 1) is 0 / 1 — selects
-	// the positive- or negative-sign slot in the LUT.
-	return int(dctValueBaseCostLUT[abs*2+(mask&1)])
 }
 
 // Ported from libvpx v1.16.0 vp8/encoder/encodemb.c

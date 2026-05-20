@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 import (
 	"testing"
@@ -6,17 +6,17 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// TestVP8DCTValueCostFullRangeMatchesLibvpxFillValueTokens audits the
+// TestDCTValueCostFullRangeMatchesLibvpxFillValueTokens audits the
 // per-coefficient base-cost lookup that optimize_b consults on every Viterbi
 // keep/drop step. Libvpx caches this in `dct_value_cost[2048*2]` and indexes
 // it by `vp8_dct_value_cost_ptr + x` where x is the signed quantized
 // coefficient (vp8/encoder/encodemb.c:233 and :290). Govpx ports the table
-// inside dctValueBaseCostLUT (vp8_encoder_inter_quantize.go:411-429).
+// inside dctValueBaseCostLUT.
 //
 // The libvpx algorithm in vp8/encoder/tokenize.c fill_value_tokens
-// (commented out at lines 39-98 — the generator that produced the embedded
+// (commented out at lines 39-98 - the generator that produced the embedded
 // dct_value_cost.h and dct_value_tokens.h headers) is, for each signed
-// coefficient i ∈ [-DCT_MAX_VALUE, DCT_MAX_VALUE):
+// coefficient i in [-DCT_MAX_VALUE, DCT_MAX_VALUE):
 //
 //	const int a = sign ? -i : i;    // a = |i|
 //	int eb = sign;                  // bit 0 of Extra is the sign bit
@@ -39,36 +39,44 @@ import (
 //	}
 //
 // This test reimplements that algorithm byte-for-byte in Go and compares
-// every entry against govpx's lookup. Any divergence — magnitude, sign,
-// or boundary cell — is a per-coefficient rate drift inside optimize_b
+// every entry against govpx's lookup. Any divergence - magnitude, sign,
+// or boundary cell - is a per-coefficient rate drift inside optimize_b
 // that flips trellis decisions on small-best ARNR cold-segment cases and
 // corrupts byte-faithful parity with libvpx.
-func TestVP8DCTValueCostFullRangeMatchesLibvpxFillValueTokens(t *testing.T) {
+func TestDCTValueCostFullRangeMatchesLibvpxFillValueTokens(t *testing.T) {
 	// Build the reference table the same way libvpx's commented
 	// fill_value_tokens does. Loop signed i covers [-DCT_MAX_VALUE,
-	// DCT_MAX_VALUE) — the same range optimize_b probes via the
+	// DCT_MAX_VALUE) - the same range optimize_b probes via the
 	// 2048-centered pointer.
 	const dctMaxValue = vp8tables.DCTMaxValue
 	for i := -dctMaxValue; i < dctMaxValue; i++ {
 		token, extra := libvpxFillValueTokens(i)
 		wantCost := libvpxFillValueCost(token, extra)
-		gotCost := dctValueBaseCost(i)
+		gotCost := DCTValueBaseCost(i)
 		if gotCost != wantCost {
-			t.Fatalf("dctValueBaseCost(%d) = %d, want %d (libvpx fill_value_tokens) — token=%d extra=%d",
+			t.Fatalf("DCTValueBaseCost(%d) = %d, want %d (libvpx fill_value_tokens) - token=%d extra=%d",
 				i, gotCost, wantCost, token, extra)
 		}
-		gotToken := dctValueToken(i)
+		gotToken := DCTValueToken(i)
 		if i == 0 {
 			// Libvpx t[0].Token = 0 (ZERO_TOKEN); govpx returns
-			// ZERO_TOKEN for x==0 from dctValueToken.
+			// ZERO_TOKEN for x==0 from DCTValueToken.
 			if gotToken != vp8tables.ZeroToken {
-				t.Fatalf("dctValueToken(0) = %d, want ZeroToken=%d", gotToken, vp8tables.ZeroToken)
+				t.Fatalf("DCTValueToken(0) = %d, want ZeroToken=%d", gotToken, vp8tables.ZeroToken)
 			}
 			continue
 		}
 		if gotToken != token {
-			t.Fatalf("dctValueToken(%d) = %d, want %d", i, gotToken, token)
+			t.Fatalf("DCTValueToken(%d) = %d, want %d", i, gotToken, token)
 		}
+	}
+}
+
+func TestRDTruncMatchesLibvpxMacro(t *testing.T) {
+	got := RDTrunc(551, 12345)
+	want := (128 + 12345*551) & 0xFF
+	if got != want {
+		t.Fatalf("RDTrunc(551, 12345) = %d, want %d", got, want)
 	}
 }
 
@@ -108,14 +116,14 @@ func libvpxFillValueTokens(i int) (token int, extra int) {
 
 // libvpxFillValueCost is a Go transliteration of fill_value_tokens's cost
 // computation for one (token, extra) pair. p->base_val == 0 (ZERO_TOKEN or
-// the trailing { 0, 0, 0, 0 } sentinel) returns 0 — libvpx writes nothing
+// the trailing { 0, 0, 0, 0 } sentinel) returns 0 - libvpx writes nothing
 // to dct_value_cost in that case so the C array's pre-zero-initialized
 // slot is returned (and govpx's LUT explicitly stores 0 for abs==0 by
 // leaving the array element at its zero value).
 func libvpxFillValueCost(token int, extra int) int {
 	p := vp8tables.ExtraBitsTable[token]
 	if p.BaseVal == 0 {
-		// Either token 0 (ZERO_TOKEN) or 11 (sentinel) — libvpx skips
+		// Either token 0 (ZERO_TOKEN) or 11 (sentinel) - libvpx skips
 		// the cost write. But token 0 still has the sign-cost branch
 		// inside optimize_b suppressed by the qcoeff==0 outer guard.
 		// Mirror by returning 0; the trellis never reads this slot
@@ -132,7 +140,7 @@ func libvpxFillValueCost(token int, extra int) int {
 }
 
 // libvpxTreedCost mirrors the static `vp8_treed_cost` in
-// vp8/encoder/treewriter.h line 78 — degenerate-binary tree walk used by
+// vp8/encoder/treewriter.h line 78 - degenerate-binary tree walk used by
 // the extra-bits coding for DCT_VAL_CATEGORY1..6.
 func libvpxTreedCost(tree []int16, prob []uint8, v int, n int) int {
 	c := 0
@@ -148,7 +156,7 @@ func libvpxTreedCost(tree []int16, prob []uint8, v int, n int) int {
 	}
 }
 
-// libvpxCostBit mirrors vp8_cost_bit / vp8_cost_bit0 / vp8_cost_one — the
+// libvpxCostBit mirrors vp8_cost_bit / vp8_cost_bit0 / vp8_cost_one - the
 // 256-entry ProbCost LUT keyed by `prob` for bit=0 and `255-prob` for bit=1.
 func libvpxCostBit(prob uint8, bit int) int {
 	if bit != 0 {

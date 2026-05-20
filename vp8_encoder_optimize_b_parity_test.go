@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -13,7 +14,7 @@ import (
 const planeTypeUV = 2
 
 // TestOptimizeBSignedBaseCost guards the per-sign branch of
-// dctValueBaseCost. Libvpx's vp8/encoder/tokenize.c fill_value_tokens
+// DCTValueBaseCost. Libvpx's vp8/encoder/tokenize.c fill_value_tokens
 // writes a different dct_value_cost[i] for i>0 vs i<0 because the sign
 // bit cost (vp8_cost_bit(vp8_prob_half=128, sign_bit)) differs by 2
 // entropy-bit units between sign=0 and sign=1:
@@ -45,9 +46,9 @@ func TestOptimizeBSignedBaseCost(t *testing.T) {
 		{value: -4, wantCost: 257}, // FourToken, negative
 	}
 	for _, tc := range cases {
-		got := dctValueBaseCost(tc.value)
+		got := vp8enc.DCTValueBaseCost(tc.value)
 		if got != tc.wantCost {
-			t.Errorf("dctValueBaseCost(%d) = %d, want %d (sign-bit cost differs by 2 between positive and negative coefficients)",
+			t.Errorf("DCTValueBaseCost(%d) = %d, want %d (sign-bit cost differs by 2 between positive and negative coefficients)",
 				tc.value, got, tc.wantCost)
 		}
 	}

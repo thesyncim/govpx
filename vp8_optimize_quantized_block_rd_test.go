@@ -3,6 +3,7 @@ package govpx
 import (
 	"testing"
 
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -56,17 +57,17 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	// Sentinel C: negative-coefficient sign asymmetry. The 2-unit gap
 	// between vp8_cost_bit(prob_half, sign_bit=0)=255 and
 	// vp8_cost_bit(prob_half, sign_bit=1)=257 must be preserved by
-	// dctValueBaseCost.
+	// DCTValueBaseCost.
 	{
 		const wantPos = 255 // ProbCost[128]
 		const wantNeg = 257 // ProbCost[127]
-		gotPos := dctValueBaseCost(1)
-		gotNeg := dctValueBaseCost(-1)
+		gotPos := vp8enc.DCTValueBaseCost(1)
+		gotNeg := vp8enc.DCTValueBaseCost(-1)
 		if gotPos != wantPos {
-			t.Errorf("dctValueBaseCost(+1)=%d, want %d (vp8_cost_bit(128, 0))", gotPos, wantPos)
+			t.Errorf("DCTValueBaseCost(+1)=%d, want %d (vp8_cost_bit(128, 0))", gotPos, wantPos)
 		}
 		if gotNeg != wantNeg {
-			t.Errorf("dctValueBaseCost(-1)=%d, want %d (vp8_cost_bit(128, 1))", gotNeg, wantNeg)
+			t.Errorf("DCTValueBaseCost(-1)=%d, want %d (vp8_cost_bit(128, 1))", gotNeg, wantNeg)
 		}
 		if gotNeg-gotPos != 2 {
 			t.Errorf("sign-cost gap %d, want 2 (asymmetric ProbCost lookup for half-prob signs)", gotNeg-gotPos)
@@ -80,14 +81,14 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	// and drop paths yield rate0=rate1 to force the RDCOST tie path,
 	// then verify RDTRUNC returns a value in [0,255] (the masked byte).
 	{
-		got := libvpxRDTrunc(551, 12345)
+		got := vp8enc.RDTrunc(551, 12345)
 		if got < 0 || got > 255 {
-			t.Errorf("libvpxRDTrunc(551, 12345)=%d, want value in [0,255] (RDTRUNC masks with 0xFF)", got)
+			t.Errorf("RDTrunc(551, 12345)=%d, want value in [0,255] (RDTRUNC masks with 0xFF)", got)
 		}
 		// And the byte-faithful formula explicitly: (128 + 12345*551) & 0xFF.
 		want := (128 + 12345*551) & 0xFF
 		if got != want {
-			t.Errorf("libvpxRDTrunc(551, 12345)=%d, want %d (verbatim RDTRUNC)", got, want)
+			t.Errorf("RDTrunc(551, 12345)=%d, want %d (verbatim RDTRUNC)", got, want)
 		}
 	}
 }
