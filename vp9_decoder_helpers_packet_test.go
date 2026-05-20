@@ -42,11 +42,16 @@ func vp9ShowExistingFramePacketForTest(slot uint8) []byte {
 }
 
 func vp9SuperframePacketForTest(frames ...[]byte) []byte {
-	packet, err := PackVP9Superframe(frames...)
+	need, err := VP9SuperframeSize(frames...)
 	if err != nil {
 		panic(err)
 	}
-	return packet
+	packet := make([]byte, need)
+	n, err := PackVP9SuperframeInto(packet, frames...)
+	if err != nil {
+		panic(err)
+	}
+	return packet[:n]
 }
 
 func vp9SVCStyleSuperframeForTest(t *testing.T) []byte {

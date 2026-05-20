@@ -42,22 +42,6 @@ func TestPackVP9SuperframeIntoRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPackVP9SuperframeAllocatingWrapper(t *testing.T) {
-	frames := [][]byte{{0x01}, {0x02, 0x03}}
-	packet, err := PackVP9Superframe(frames...)
-	if err != nil {
-		t.Fatalf("PackVP9Superframe: %v", err)
-	}
-	sf, err := vp9ParseSuperframe(packet)
-	if err != nil {
-		t.Fatalf("vp9ParseSuperframe: %v", err)
-	}
-	if sf.count != len(frames) || !bytes.Equal(sf.frames[1], frames[1]) {
-		t.Fatalf("parsed superframe = count %d frame1 %v, want %d %v",
-			sf.count, sf.frames[1], len(frames), frames[1])
-	}
-}
-
 func TestPackVP9SuperframeRejectsInvalidInput(t *testing.T) {
 	if _, err := VP9SuperframeSize(); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("empty frame list error = %v, want ErrInvalidConfig", err)
@@ -94,10 +78,7 @@ func TestPackVP9SuperframeDecode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	packet, err := PackVP9Superframe(key, inter)
-	if err != nil {
-		t.Fatalf("PackVP9Superframe: %v", err)
-	}
+	packet := vp9SuperframePacketForTest(key, inter)
 	info, err := PeekVP9StreamInfo(packet)
 	if err != nil {
 		t.Fatalf("PeekVP9StreamInfo: %v", err)

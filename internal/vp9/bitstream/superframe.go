@@ -66,20 +66,6 @@ func PackSuperframeInto(dst []byte, frames ...[]byte) (int, error) {
 	return need, nil
 }
 
-// PackSuperframe is the allocating wrapper around PackSuperframeInto.
-func PackSuperframe(frames ...[]byte) ([]byte, error) {
-	need, err := SuperframeSize(frames...)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, need)
-	_, err = PackSuperframeInto(out, frames...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // SuperframeIndexSize returns the number of bytes needed to write a VP9
 // superframe index for frameSizes.
 func SuperframeIndexSize(frameSizes []int) (int, error) {

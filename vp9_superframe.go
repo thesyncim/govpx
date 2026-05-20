@@ -15,11 +15,6 @@ func PackVP9SuperframeInto(dst []byte, frames ...[]byte) (int, error) {
 	return vp9bits.PackSuperframeInto(dst, frames...)
 }
 
-// PackVP9Superframe is the allocating wrapper around PackVP9SuperframeInto.
-func PackVP9Superframe(frames ...[]byte) ([]byte, error) {
-	return vp9bits.PackSuperframe(frames...)
-}
-
 type vp9SuperframeIndex struct {
 	frames [8][]byte
 	count  int

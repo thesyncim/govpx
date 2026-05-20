@@ -467,10 +467,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	packet, err := PackVP9Superframe(key, inter)
-	if err != nil {
-		t.Fatalf("PackVP9Superframe: %v", err)
-	}
+	packet := vp9SuperframePacketForTest(key, inter)
 
 	_, diag, err := coracle.VpxdecVP9DecodeI420(vp9IVFForTest(width, height, packet))
 	if err != nil {
