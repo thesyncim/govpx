@@ -1112,7 +1112,7 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		if e != nil {
 			errorPerBit = e.tunedErrorPerBit(qIndex, mbRow, mbCol)
 		}
-		refinedMV, _, _, _, ok := (&interFrameSubpixelSearch{
+		subpel := interFrameSubpixelSearch{
 			src:         src,
 			ref:         ref.Img,
 			mbRow:       mbRow,
@@ -1124,8 +1124,14 @@ func collectInterFrameMotionCandidatesWithEncoder(
 			search:      search,
 			mvProbs:     mvProbs,
 			mvCosts:     mvCosts,
-			stats:       stats,
-		}).refine()
+		}
+		var refinedMV vp8enc.MotionVector
+		var ok bool
+		if stats != nil {
+			refinedMV, _, _, _, ok = subpel.refineWithStats(stats)
+		} else {
+			refinedMV, _, _, _, ok = subpel.refine()
+		}
 		if ok && refinedMV != fullMV {
 			count = appendInterAnalysisMotionCandidate(candidates, count, ref, refinedMV)
 		}

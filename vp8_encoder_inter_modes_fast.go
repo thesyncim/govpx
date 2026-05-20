@@ -237,7 +237,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 				motionStats.phase = e.opts.PhaseStats
 				stats = &motionStats
 			}
-			result := interFrameMotionVectorSearch{
+			searcher := interFrameMotionVectorSearch{
 				src:         src,
 				ref:         rs.img,
 				mbRow:       mbRow,
@@ -251,8 +251,13 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 				start:       start,
 				mvProbs:     &e.modeProbs.MV,
 				mvCosts:     mvCosts,
-				stats:       stats,
-			}.selectFast()
+			}
+			var result interFrameMotionVectorSearchResult
+			if stats != nil {
+				result = searcher.selectFastWithStats(stats)
+			} else {
+				result = searcher.selectFast()
+			}
 			mv = clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
 				loopCtx.storeVariance(rs.img, mv, result.variance, result.sse)
@@ -496,7 +501,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 				motionStats.phase = e.opts.PhaseStats
 				stats = &motionStats
 			}
-			result := interFrameMotionVectorSearch{
+			searcher := interFrameMotionVectorSearch{
 				src:         src,
 				ref:         rs.img,
 				mbRow:       mbRow,
@@ -510,8 +515,13 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 				start:       start,
 				mvProbs:     &e.modeProbs.MV,
 				mvCosts:     mvCosts,
-				stats:       stats,
-			}.selectFast()
+			}
+			var result interFrameMotionVectorSearchResult
+			if stats != nil {
+				result = searcher.selectFastWithStats(stats)
+			} else {
+				result = searcher.selectFast()
+			}
 			mv = clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
 				loopCtx.storeVariance(rs.img, mv, result.variance, result.sse)
@@ -795,7 +805,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 				motionStats.phase = e.opts.PhaseStats
 				stats = &motionStats
 			}
-			result := interFrameMotionVectorSearch{
+			searcher := interFrameMotionVectorSearch{
 				src:         src,
 				ref:         ref.Img,
 				mbRow:       mbRow,
@@ -809,8 +819,13 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 				start:       start,
 				mvProbs:     &e.modeProbs.MV,
 				mvCosts:     mvCosts,
-				stats:       stats,
-			}.selectFast()
+			}
+			var result interFrameMotionVectorSearchResult
+			if stats != nil {
+				result = searcher.selectFastWithStats(stats)
+			} else {
+				result = searcher.selectFast()
+			}
 			mv := clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
 				loopCtx.storeVariance(ref.Img, mv, result.variance, result.sse)

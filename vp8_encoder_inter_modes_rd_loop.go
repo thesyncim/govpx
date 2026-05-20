@@ -63,7 +63,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 				motionStats.phase = e.opts.PhaseStats
 				stats = &motionStats
 			}
-			result := interFrameMotionVectorSearch{
+			searcher := interFrameMotionVectorSearch{
 				src:         src,
 				ref:         ref.Img,
 				mbRow:       mbRow,
@@ -77,8 +77,13 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 				start:       start,
 				mvProbs:     &e.modeProbs.MV,
 				mvCosts:     e.currentMotionVectorCostTables(),
-				stats:       stats,
-			}.selectRD()
+			}
+			var result interFrameMotionVectorSearchResult
+			if stats != nil {
+				result = searcher.selectRDWithStats(stats)
+			} else {
+				result = searcher.selectRD()
+			}
 			mv := result.mv
 			mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
 			candidate.searched = true

@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"reflect"
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -8,6 +9,18 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
+
+func TestInterFrameMotionSearchDefaultPathHasNoStatsField(t *testing.T) {
+	cases := []reflect.Type{
+		reflect.TypeOf(interFrameMotionVectorSearch{}),
+		reflect.TypeOf(interFrameSubpixelSearch{}),
+	}
+	for _, typ := range cases {
+		if _, ok := typ.FieldByName("stats"); ok {
+			t.Fatalf("%s carries stats field in default search path", typ.Name())
+		}
+	}
+}
 
 func TestInterFrameNstepSearchSitesMirrorLibvpx3StepTable(t *testing.T) {
 	sites := interFrameNstepSites[:]
@@ -195,9 +208,7 @@ func TestInterFrameSubpelStepNoStatsMatchesStatsPath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			base := newTestInterFrameSubpixelStepSearch(t, tc.fractional)
 			var stats interFrameMotionSearchStats
-			withStats := base
-			withStats.stats = &stats
-			wantMV, wantCost, wantVariance, wantSSE, wantOK := withStats.refine()
+			wantMV, wantCost, wantVariance, wantSSE, wantOK := base.refineWithStats(&stats)
 			if !wantOK {
 				t.Fatalf("stats path refine returned ok=false")
 			}
@@ -205,9 +216,7 @@ func TestInterFrameSubpelStepNoStatsMatchesStatsPath(t *testing.T) {
 				t.Fatalf("stats path did not count subpel work: %+v", stats)
 			}
 
-			noStats := base
-			noStats.stats = nil
-			gotMV, gotCost, gotVariance, gotSSE, gotOK := noStats.refine()
+			gotMV, gotCost, gotVariance, gotSSE, gotOK := base.refine()
 			if gotOK != wantOK || gotMV != wantMV || gotCost != wantCost || gotVariance != wantVariance || gotSSE != wantSSE {
 				t.Fatalf("no-stats refine = (%+v,%d,%d,%d,%v), want (%+v,%d,%d,%d,%v)",
 					gotMV, gotCost, gotVariance, gotSSE, gotOK,
@@ -240,7 +249,6 @@ func newTestInterFrameSubpixelStepSearch(tb testing.TB, fractional interAnalysis
 	return interFrameSubpixelSearch{
 		ref:       &last.Img,
 		mvProbs:   &vp8tables.DefaultMVContext,
-		stats:     nil,
 		src:       sourceImageFromPublic(src),
 		mbRow:     1,
 		mbCol:     1,
