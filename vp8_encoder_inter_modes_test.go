@@ -373,7 +373,21 @@ func TestEncodeIntoKeyFrameSelectsBPredLumaAndVerticalChroma(t *testing.T) {
 }
 
 func TestEncodeIntoBPredKeyFrameUsesInterleavedReconstruction(t *testing.T) {
-	opts := encoderValidationOptions(64, 128, 30, 700, nil)
+	opts := EncoderOptions{
+		Width:               64,
+		Height:              128,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    120,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}
 	e, err := NewVP8Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
