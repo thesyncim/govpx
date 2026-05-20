@@ -1100,19 +1100,8 @@ func vp9DecodeIntoVisibleI420ForTest(t *testing.T, width, height int, packets ..
 }
 
 func appendVP9I420(out []byte, img Image) []byte {
-	for row := range img.Height {
-		start := row * img.YStride
-		out = append(out, img.Y[start:start+img.Width]...)
-	}
-	uvWidth := (img.Width + 1) >> 1
-	uvHeight := (img.Height + 1) >> 1
-	for row := range uvHeight {
-		start := row * img.UStride
-		out = append(out, img.U[start:start+uvWidth]...)
-	}
-	for row := range uvHeight {
-		start := row * img.VStride
-		out = append(out, img.V[start:start+uvWidth]...)
-	}
-	return out
+	return testutil.AppendI420Planes(out, img.Width, img.Height,
+		img.Y, img.YStride,
+		img.U, img.UStride,
+		img.V, img.VStride)
 }

@@ -77,6 +77,41 @@ func ShiftYCbCrCopy(src *image.YCbCr, dy, dx int) *image.YCbCr {
 	return out
 }
 
+// AppendYCbCrI420 appends the visible I420 planes from img, ignoring stride
+// padding.
+func AppendYCbCrI420(out []byte, img *image.YCbCr) []byte {
+	width := img.Rect.Dx()
+	height := img.Rect.Dy()
+	return AppendI420Planes(out, width, height,
+		img.Y, img.YStride,
+		img.Cb, img.CStride,
+		img.Cr, img.CStride)
+}
+
+// AppendI420Planes appends visible Y, U, and V samples from strided 4:2:0
+// planes.
+func AppendI420Planes(out []byte, width int, height int,
+	y []byte, yStride int,
+	u []byte, uStride int,
+	v []byte, vStride int,
+) []byte {
+	for row := range height {
+		start := row * yStride
+		out = append(out, y[start:start+width]...)
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for row := range uvHeight {
+		start := row * uStride
+		out = append(out, u[start:start+uvWidth]...)
+	}
+	for row := range uvHeight {
+		start := row * vStride
+		out = append(out, v[start:start+uvWidth]...)
+	}
+	return out
+}
+
 // ClampCoord clamps a sample coordinate into [0, limit).
 func ClampCoord(v, limit int) int {
 	switch {
