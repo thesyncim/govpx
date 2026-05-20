@@ -11,13 +11,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 copy-reference parity gate")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	t.Run("refreshed-references", func(t *testing.T) {
 		const width, height, frames = 64, 64, 5

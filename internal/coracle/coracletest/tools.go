@@ -97,3 +97,48 @@ func VpxencFrameFlagsOracle(t testing.TB) string {
 	t.Fatalf("VpxencFrameFlagsOraclePath: %v", err)
 	return ""
 }
+
+// VpxdecVP9 resolves the pinned VP9 vpxdec binary or skips the test when it
+// has not been built.
+func VpxdecVP9(t testing.TB) string {
+	t.Helper()
+	path, err := coracle.VpxdecVP9Path()
+	if err == nil {
+		return path
+	}
+	if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
+		t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+	}
+	t.Fatalf("VpxdecVP9Path: %v", err)
+	return ""
+}
+
+// VpxencVP9 resolves the pinned VP9 vpxenc binary or skips the test when it
+// has not been built.
+func VpxencVP9(t testing.TB) string {
+	t.Helper()
+	path, err := coracle.VpxencVP9Path()
+	if err == nil {
+		return path
+	}
+	if errors.Is(err, coracle.ErrVpxencVP9NotBuilt) {
+		t.Skip("vpxenc-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+	}
+	t.Fatalf("VpxencVP9Path: %v", err)
+	return ""
+}
+
+// VpxencVP9FrameFlags resolves the VP9 frame-flags encoder helper or skips
+// the test when it has not been built.
+func VpxencVP9FrameFlags(t testing.TB) string {
+	t.Helper()
+	path, err := coracle.VpxencVP9FrameFlagsPath()
+	if err == nil {
+		return path
+	}
+	if errors.Is(err, coracle.ErrVpxencVP9FrameFlagsNotBuilt) {
+		t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+	}
+	t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	return ""
+}

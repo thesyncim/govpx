@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP9RefControlSeedsMaintainByteParity asserts strict byte parity for the
@@ -17,7 +19,7 @@ func TestVP9RefControlSeedsMaintainByteParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to verify VP9 RefControl regression seeds")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	pass, fail := 0, 0
 	aggSizeDelta := 0
@@ -74,7 +76,7 @@ func TestVP9RuntimeControlsSpeed8SeedsMaintainByteParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to verify VP9 RuntimeControls speed-8 regression seeds")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	pass, fail := 0, 0
 	aggSizeDelta := 0
@@ -123,7 +125,7 @@ func TestVP9RuntimeControlsOpenSeedLanesRemainMeasurable(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to remeasure deferred RuntimeControls seeds")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	t.Run("RDKeyframeCPU0Neg3", func(t *testing.T) {
 		remeasureVP9RuntimeControlsSeedLane(t, func(cpu int8) bool {

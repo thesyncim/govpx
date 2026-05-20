@@ -8,13 +8,15 @@ import (
 	"image"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-control byte-parity scoreboard")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
 	type runtimeCase struct {
@@ -362,7 +364,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-control constant byte-parity matrix")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
 	sources := make([]*image.YCbCr, frames)
@@ -969,7 +971,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-resize byte-parity scoreboard")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	type resizeCase struct {
 		name          string
@@ -1033,7 +1035,7 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 invisible-frame byte-parity scoreboard")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
@@ -1066,7 +1068,7 @@ func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 invisible-frame byte-parity gate")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
@@ -1094,7 +1096,7 @@ func TestVP9OracleRuntimeDropToggleByteParityScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-drop byte-parity scoreboard")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 24
 	type runtimeDropCase struct {

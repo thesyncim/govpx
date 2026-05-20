@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -156,7 +157,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 option-validation oracle fuzz")
 	}
-	requireVP9VpxencOracleFuzz(f)
+	coracletest.VpxencVP9(f)
 	// Seeds mirror FuzzVP9EncoderOptions shape but biased toward configs
 	// the libvpx CLI accepts AND that the govpx VP9 encoder can keyframe
 	// byte-identically to the libvpx CLI under the comparator

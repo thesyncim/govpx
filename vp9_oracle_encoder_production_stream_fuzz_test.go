@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // FuzzVP9EncoderProductionStreamByteParity mirrors
@@ -22,7 +24,7 @@ func FuzzVP9EncoderProductionStreamByteParity(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 option-grid byte-parity fuzz")
 	}
-	requireVP9VpxencOracleFuzz(f)
+	coracletest.VpxencVP9(f)
 	// Each seed is (resBucket, deadlineBucket, cpuBucket, rcBucket, featBucket,
 	// threadsBucket, tileBucket, qBucket).
 	seeds := [][]byte{

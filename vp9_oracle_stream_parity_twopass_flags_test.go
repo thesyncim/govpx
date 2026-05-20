@@ -9,13 +9,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 two-pass byte-parity scoreboard")
 	}
-	requireVP9VpxencOracle(t)
+	coracletest.VpxencVP9(t)
 
 	const width, height, frames = 64, 64, 6
 	sources := make([]*image.YCbCr, frames)
@@ -95,7 +96,7 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 two-pass constant byte-parity scoreboard")
 	}
-	requireVP9VpxencOracle(t)
+	coracletest.VpxencVP9(t)
 
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)
@@ -175,7 +176,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 frame-flag byte-parity matrix")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
 	type flagCase struct {
@@ -293,7 +294,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 control-cross byte-parity matrix")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const frames = 6
 	type crossCase struct {

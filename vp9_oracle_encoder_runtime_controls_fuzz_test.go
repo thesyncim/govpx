@@ -10,6 +10,8 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // vp9RuntimeControlsSeedsDeferred lists runtime-control schedules that still
@@ -75,7 +77,7 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 runtime-control oracle fuzz")
 	}
-	requireVP9VpxencFrameFlagsOracleFuzz(f)
+	coracletest.VpxencVP9FrameFlags(f)
 	seeds := [][]byte{
 		// (dimBucket, framesBucket, cpuBucket, kfFlagPos, refFlagPos, action1, action2, ...)
 		{0, 0, 0, 0, 0, 0, 0, 0},

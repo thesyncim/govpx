@@ -8,6 +8,8 @@ import (
 	"image"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // vp9RefControlParitySeeds pins reference-control schedules that exercise
@@ -43,7 +45,7 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 ref-control sequence fuzz")
 	}
-	requireVP9VpxencFrameFlagsOracleFuzz(f)
+	coracletest.VpxencVP9FrameFlags(f)
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0, 0, 0, 0},
 		{0, 1, 0, 2, 0, 3, 0, 0},

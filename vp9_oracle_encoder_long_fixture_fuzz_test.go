@@ -10,6 +10,8 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // vp9LongFixtureSeedsDeferred lists VP9 fuzz-corpus seed payloads whose strict
@@ -96,7 +98,7 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 long-fixture RC fuzz")
 	}
-	requireVP9VpxencOracleFuzz(f)
+	coracletest.VpxencVP9(f)
 	// Each seed is (rcBucket, bitrateBucket, kfBucket, deadlineBucket, cpuBucket).
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0}, // CBR 300kbps kf=999 realtime cpu8

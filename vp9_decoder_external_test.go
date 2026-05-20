@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -31,7 +32,7 @@ func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
 	if !ok {
 		return
 	}
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 	paths := findVP9IVFTestData(t, root, false)
 	if len(paths) == 0 {
 		t.Fatalf("no VP90 IVF files found under %s", root)
@@ -104,7 +105,7 @@ func TestVP9DecoderOfficialProfile0WebMTestDataMatchesLibvpx(t *testing.T) {
 	if !ok {
 		return
 	}
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 	paths := findVP9Profile0WebMTestData(t, root)
 	if len(paths) == 0 {
 		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
@@ -194,7 +195,7 @@ func TestVP9DecoderOfficialInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	if !ok {
 		return
 	}
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 	paths := findVP9IVFTestData(t, root, true)
 	if len(paths) == 0 {
 		if os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED") == "1" ||

@@ -3,17 +3,17 @@ package govpx
 import (
 	"bytes"
 	"crypto/md5"
-	"errors"
 	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
-	requireVP9VpxdecOracle(t)
-	requireVP9VpxencOracle(t)
+	coracletest.VpxdecVP9(t)
+	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
@@ -51,7 +51,7 @@ func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
-	requireVP9VpxencOracle(t)
+	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
 	frame := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
@@ -72,16 +72,6 @@ func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
 	if got := int(h.Quant.BaseQindex); got != vp9DefaultBaseQIndex {
 		t.Fatalf("vpxenc-vp9 BaseQindex = %d, want pinned default %d",
 			got, vp9DefaultBaseQIndex)
-	}
-}
-
-func requireVP9VpxencOracle(t *testing.T) {
-	t.Helper()
-	if _, err := coracle.VpxencVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxencVP9NotBuilt) {
-			t.Skip("vpxenc-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxencVP9Path: %v", err)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"image"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // FuzzVP9EncoderRandomStrides mirrors FuzzEncoderRandomStrides for VP9: callers
@@ -22,7 +24,7 @@ func FuzzVP9EncoderRandomStrides(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 random-strides fuzz")
 	}
-	requireVP9VpxencOracleFuzz(f)
+	coracletest.VpxencVP9(f)
 	// Each seed is (dimBucket, yPadBucket, uPadBucket, vPadBucket, uvAlignBucket).
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0},  // tight 32x32

@@ -5,51 +5,12 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
-
-// requireVP9VpxencOracleFuzz is the *testing.F sibling of
-// requireVP9VpxencOracle. The require* helpers in vp9_decoder_vpxenc_oracle_test
-// only accept *testing.T, but fuzz targets need to skip from f.Setup, so this
-// helper mirrors the same probe + skip behaviour against the F surface.
-func requireVP9VpxencOracleFuzz(f *testing.F) {
-	f.Helper()
-	if _, err := coracle.VpxencVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxencVP9NotBuilt) {
-			f.Skip("vpxenc-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		f.Fatalf("VpxencVP9Path: %v", err)
-	}
-}
-
-// requireVP9VpxencFrameFlagsOracleFuzz is the *testing.F sibling of
-// requireVP9VpxencFrameFlagsOracle.
-func requireVP9VpxencFrameFlagsOracleFuzz(f *testing.F) {
-	f.Helper()
-	if _, err := coracle.VpxencVP9FrameFlagsPath(); err != nil {
-		if errors.Is(err, coracle.ErrVpxencVP9FrameFlagsNotBuilt) {
-			f.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
-		}
-		f.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
-	}
-}
-
-// requireVP9VpxdecOracleFuzz is the *testing.F sibling of
-// requireVP9VpxdecOracle, used by FuzzVP9DecoderAgainstLibvpx.
-func requireVP9VpxdecOracleFuzz(f *testing.F) {
-	f.Helper()
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			f.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		f.Fatalf("VpxdecVP9Path: %v", err)
-	}
-}
 
 // vp9FuzzByteCursor mirrors oracleRuntimeControlFuzzBytes for the
 // VP9 fuzz family. Defined separately so it can live alongside

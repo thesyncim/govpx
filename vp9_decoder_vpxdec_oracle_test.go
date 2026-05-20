@@ -3,17 +3,17 @@ package govpx
 import (
 	"bytes"
 	"crypto/md5"
-	"errors"
 	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestVP9DecoderVpxdecOracleMatchesIntraResidualKeyframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packet := vp9SkipResidueKeyframeForTest(t, 64, 64, true, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
@@ -31,7 +31,7 @@ func TestVP9DecoderVpxdecOracleMatchesIntraResidualKeyframe(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesSegmentedAltQKeyframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packet := vp9SegmentedAltQKeyframeForTest(t)
 	ivf := vp9IVFForTest(64, 64, packet)
@@ -49,7 +49,7 @@ func TestVP9DecoderVpxdecOracleMatchesSegmentedAltQKeyframe(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSkipStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterSkipFrameForTest(t, 64, 64)
@@ -68,7 +68,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSkipStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesScaledZeroMvInterStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9SegmentedAltQKeyframeForTest(t)
 	inter := vp9ScaledZeroMvInterFrameForTest(t, 32, 32, 64, 64)
@@ -87,7 +87,7 @@ func TestVP9DecoderVpxdecOracleMatchesScaledZeroMvInterStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesScaledNewMvInterStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9SegmentedAltQKeyframeForTest(t)
 	inter := vp9ScaledNewMvInterFrameForTest(t)
@@ -106,7 +106,7 @@ func TestVP9DecoderVpxdecOracleMatchesScaledNewMvInterStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesScaledNearestMvInterStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)
 	inter := vp9ScaledInterNearestMvFrameForTest(t)
@@ -125,7 +125,7 @@ func TestVP9DecoderVpxdecOracleMatchesScaledNearestMvInterStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesScaledNearMvInterStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)
 	inter := vp9ScaledInterNearMvFrameForTest(t)
@@ -144,7 +144,7 @@ func TestVP9DecoderVpxdecOracleMatchesScaledNearMvInterStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterSkipStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -165,7 +165,7 @@ func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterSkipStream(t *testing.
 }
 
 func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterMapReuseStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -187,7 +187,7 @@ func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterMapReuseStream(t *test
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterSkipStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9CompoundInterSkipFrameForTest(t)
@@ -206,7 +206,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterSkipStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -227,7 +227,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterNewMvStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundGoldenAltrefNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -250,7 +250,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundGoldenAltrefNewMvStream(t *testing
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundFixedGoldenSignBiasNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -273,7 +273,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundFixedGoldenSignBiasNewMvStream(t *
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundFixedLastSignBiasNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -296,7 +296,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundFixedLastSignBiasNewMvStream(t *te
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterReferenceModeSelectNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -317,7 +317,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterReferenceModeSelectNewMvStrea
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterNearestMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -338,7 +338,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterNearestMvStream(t *testing.T)
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterNearMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -359,7 +359,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterNearMvStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterSubpelNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 96, 96,
@@ -380,7 +380,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterSubpelNewMvStream(t *testing.
 }
 
 func TestVP9DecoderVpxdecOracleMatchesScaledCompoundInterNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -401,7 +401,7 @@ func TestVP9DecoderVpxdecOracleMatchesScaledCompoundInterNewMvStream(t *testing.
 }
 
 func TestVP9DecoderVpxdecOracleMatchesScaledCompoundInterNearestMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 128, 128,
@@ -422,7 +422,7 @@ func TestVP9DecoderVpxdecOracleMatchesScaledCompoundInterNearestMvStream(t *test
 }
 
 func TestVP9DecoderVpxdecOracleMatchesScaledCompoundInterNearMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 128, 128,
@@ -443,7 +443,7 @@ func TestVP9DecoderVpxdecOracleMatchesScaledCompoundInterNearMvStream(t *testing
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterSubpelBilinearNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 96, 96,
@@ -464,7 +464,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterSubpelBilinearNewMvStream(t *
 }
 
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterSubpelSwitchableSmoothNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 96, 96,
@@ -485,7 +485,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterSubpelSwitchableSmoothNewMvSt
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterIntraSkipStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterIntraFrameForTest(t, common.VPred, common.DcPred, true, 0)
@@ -504,7 +504,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterIntraSkipStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterIntraResidualStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterIntraFrameForTest(t, common.DcPred, common.DcPred, false, 32)
@@ -523,7 +523,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterIntraResidualStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSkipEdgeStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9StubPacketForTest(t, 96, 96, 0, common.DcPred)
 	inter := vp9InterSkipFrameForTest(t, 96, 96)
@@ -542,7 +542,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSkipEdgeStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterResidualStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterResidueFrameForTest(t, 64, 64, 32)
@@ -561,7 +561,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterResidualStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesLoopFilteredKeyframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
@@ -579,7 +579,7 @@ func TestVP9DecoderVpxdecOracleMatchesLoopFilteredKeyframe(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesSkipLoopFilterControl(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
@@ -603,7 +603,7 @@ func TestVP9DecoderVpxdecOracleMatchesSkipLoopFilterControl(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesPostProcessControls(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
@@ -658,7 +658,7 @@ func TestVP9DecoderVpxdecOracleMatchesPostProcessControls(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterResidualStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterResidueFrameLoopFilterForTest(t, 64, 64, 32, 32)
@@ -677,7 +677,7 @@ func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterResidualStream(t *testing
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInvertTileDecodeOrderControl(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packet := vp9MultiTileModePacketForTest(t, 1024, 64, 1,
 		[]common.PredictionMode{common.DcPred, common.VPred})
@@ -699,7 +699,7 @@ func TestVP9DecoderVpxdecOracleMatchesInvertTileDecodeOrderControl(t *testing.T)
 }
 
 func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 32)
@@ -718,7 +718,7 @@ func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterNewMvStream(t *testing.T)
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterResidualEdgeStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	cases := []struct {
 		name          string
@@ -751,7 +751,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterResidualEdgeStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterNewMvFrameForTest(t)
@@ -770,7 +770,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterNewMvStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterNearestMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterNearestMvFrameForTest(t)
@@ -789,7 +789,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterNearestMvStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterNearMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterNearMvFrameForTest(t)
@@ -808,7 +808,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterNearMvStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSubpelNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	inter := vp9InterSubpelNewMvFrameForTest(t)
@@ -827,7 +827,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSubpelNewMvStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSubpelNearestMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	inter := vp9InterSubpelNearestMvFrameForTest(t)
@@ -846,7 +846,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSubpelNearestMvStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSubpelBilinearNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	inter := vp9InterSubpelBilinearNewMvFrameForTest(t)
@@ -865,7 +865,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSubpelBilinearNewMvStream(t *testing.
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSubpelSwitchableSmoothNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	inter := vp9InterSubpelSwitchableSmoothNewMvFrameForTest(t)
@@ -884,7 +884,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSubpelSwitchableSmoothNewMvStream(t *
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSubpelSwitchableSharpNearestMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9InteriorResidueKeyframeForSubpelTest(t)
 	inter := vp9InterSubpelSwitchableSharpNearestMvFrameForTest(t)
@@ -903,7 +903,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSubpelSwitchableSharpNearestMvStream(
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterSubpelTopRightBorderNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterSubpelTopRightBorderNewMvFrameForTest(t)
@@ -922,7 +922,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSubpelTopRightBorderNewMvStream(t *te
 }
 
 func TestVP9DecoderVpxdecOracleMatchesInterIntegerTopRightBorderNewMvStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9TopRightResidueKeyframeForNewMvTest(t)
 	inter := vp9InterIntegerTopRightBorderNewMvFrameForTest(t)
@@ -941,7 +941,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterIntegerTopRightBorderNewMvStream(t *t
 }
 
 func TestVP9DecoderVpxdecOracleMatchesTiledInterSkipStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
 	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 1)
@@ -960,7 +960,7 @@ func TestVP9DecoderVpxdecOracleMatchesTiledInterSkipStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesShowExistingStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packets, ivf := vp9ShowExistingOracleStreamForTest(t, 96, 96)
 	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
@@ -977,7 +977,7 @@ func TestVP9DecoderVpxdecOracleMatchesShowExistingStream(t *testing.T) {
 }
 
 func TestVP9DecoderVpxdecOracleMatchesDecodeIntoShowExistingStream(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packets, ivf := vp9ShowExistingOracleStreamForTest(t, 96, 96)
 	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
@@ -994,7 +994,7 @@ func TestVP9DecoderVpxdecOracleMatchesDecodeIntoShowExistingStream(t *testing.T)
 }
 
 func TestVP9DecoderVpxdecOracleMatchesSVCSpatialLayerSuperframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	packet := vp9SVCStyleSuperframeForTest(t)
 	ivf := vp9IVFForTest(64, 64, packet)
@@ -1020,16 +1020,6 @@ func TestVP9DecoderVpxdecOracleMatchesSVCSpatialLayerSuperframe(t *testing.T) {
 				testutil.MD5Hex(md5.Sum(want)), len(want),
 				testutil.MD5Hex(md5.Sum(got)), len(got))
 		}
-	}
-}
-
-func requireVP9VpxdecOracle(t *testing.T) {
-	t.Helper()
-	if _, err := coracle.VpxdecVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-		}
-		t.Fatalf("VpxdecVP9Path: %v", err)
 	}
 }
 

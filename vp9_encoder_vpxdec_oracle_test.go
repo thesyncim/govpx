@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -55,7 +56,7 @@ func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesACKeyframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -69,7 +70,7 @@ func TestVP9EncoderVpxdecOracleMatchesACKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesChromaDirectionalKeyframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -83,7 +84,7 @@ func TestVP9EncoderVpxdecOracleMatchesChromaDirectionalKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesTx16DirectionalKeyframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 128, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -97,7 +98,7 @@ func TestVP9EncoderVpxdecOracleMatchesTx16DirectionalKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -116,7 +117,7 @@ func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 70, 70
 	e, _ := NewVP9Encoder(VP9EncoderOptions{
@@ -159,7 +160,7 @@ func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -178,7 +179,7 @@ func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesStaticSegmentation(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	const segID = 3
@@ -207,7 +208,7 @@ func TestVP9EncoderVpxdecOracleMatchesStaticSegmentation(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesStaticForcedReferences(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	cases := []struct {
@@ -247,7 +248,7 @@ func TestVP9EncoderVpxdecOracleMatchesStaticForcedReferences(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesCompoundInterFrame(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -273,7 +274,7 @@ func TestVP9EncoderVpxdecOracleMatchesCompoundInterFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesNoUpdateLastInterFrame(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -292,7 +293,7 @@ func TestVP9EncoderVpxdecOracleMatchesNoUpdateLastInterFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesForceGoldenAltRefRefresh(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -311,7 +312,7 @@ func TestVP9EncoderVpxdecOracleMatchesForceGoldenAltRefRefresh(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesGoldenOnlyInter(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -336,7 +337,7 @@ func TestVP9EncoderVpxdecOracleMatchesGoldenOnlyInter(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -354,7 +355,7 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -380,7 +381,7 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -398,7 +399,7 @@ func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const (
 		w1 = 64
@@ -430,7 +431,7 @@ func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -453,7 +454,7 @@ func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -476,7 +477,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -495,7 +496,7 @@ func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatches16x8InterMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 32, 8
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -514,7 +515,7 @@ func TestVP9EncoderVpxdecOracleMatches16x8InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesVert64x64InterMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -533,7 +534,7 @@ func TestVP9EncoderVpxdecOracleMatchesVert64x64InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesVert32x32InterMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 32, 32
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -552,7 +553,7 @@ func TestVP9EncoderVpxdecOracleMatchesVert32x32InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesVert16x16InterMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 16, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -571,7 +572,7 @@ func TestVP9EncoderVpxdecOracleMatchesVert16x16InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesHorz64x64InterMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -590,7 +591,7 @@ func TestVP9EncoderVpxdecOracleMatchesHorz64x64InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesSplit64x64InterMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -611,7 +612,7 @@ func TestVP9EncoderVpxdecOracleMatchesSplit64x64InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesQuarterPelMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -631,7 +632,7 @@ func TestVP9EncoderVpxdecOracleMatchesQuarterPelMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesEighthPelMotion(t *testing.T) {
-	requireVP9VpxdecOracle(t)
+	coracletest.VpxdecVP9(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

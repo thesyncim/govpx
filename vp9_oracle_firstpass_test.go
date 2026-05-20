@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 type vp9OracleFirstPassStats struct {
@@ -48,7 +49,7 @@ func TestVP9OracleFirstPassStatsSchemaAndTotals(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 first-pass stats oracle")
 	}
-	requireVP9VpxencOracle(t)
+	coracletest.VpxencVP9(t)
 
 	const width, height, frames = 320, 180, 6
 	var raw []byte
@@ -108,7 +109,7 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 first-pass stats oracle")
 	}
-	requireVP9VpxencOracle(t)
+	coracletest.VpxencVP9(t)
 
 	cases := []struct {
 		name       string

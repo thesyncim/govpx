@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP9ChoosePartitioningGateDeferredSeeds drives the formerly-deferred
@@ -26,7 +28,7 @@ func TestVP9ChoosePartitioningGateDeferredSeeds(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 choose_partitioning validation")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 	type seedSpec struct {
 		name string
 		data []byte

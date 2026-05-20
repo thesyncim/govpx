@@ -8,13 +8,15 @@ import (
 	"image"
 	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 temporal byte-parity scoreboard")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
 	cases := []struct {
@@ -65,7 +67,7 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 lookahead flush byte-parity scoreboard")
 	}
-	requireVP9VpxencOracle(t)
+	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
 	type flushCase struct {
@@ -134,7 +136,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 auto-alt-ref visibility scoreboard")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames, lag = 64, 64, 16, 4
 	sources := makeVP9SteppedOracleSources(width, height, frames)
@@ -202,7 +204,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 auto-alt-ref ARNR byte-parity matrix")
 	}
-	requireVP9VpxencFrameFlagsOracle(t)
+	coracletest.VpxencVP9FrameFlags(t)
 
 	type autoAltRefCase struct {
 		name      string
