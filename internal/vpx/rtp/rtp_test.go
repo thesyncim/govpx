@@ -24,6 +24,69 @@ func TestPayloadBodySize(t *testing.T) {
 	}
 }
 
+type testDescriptor struct {
+	data       []byte
+	sizeErr    error
+	marshalErr error
+}
+
+func (d testDescriptor) Size() (int, error) {
+	if d.sizeErr != nil {
+		return 0, d.sizeErr
+	}
+	return len(d.data), nil
+}
+
+func (d testDescriptor) MarshalInto(dst []byte) (int, error) {
+	if d.marshalErr != nil {
+		return 0, d.marshalErr
+	}
+	if len(dst) < len(d.data) {
+		return len(d.data), vpxerrors.ErrBufferTooSmall
+	}
+	return copy(dst, d.data), nil
+}
+
+func TestPackPayload(t *testing.T) {
+	desc := testDescriptor{data: []byte{0x80, 0x01}}
+	got, err := PackPayload(desc, []byte{0xaa, 0xbb, 0xcc})
+	if err != nil {
+		t.Fatalf("PackPayload: %v", err)
+	}
+	if !bytes.Equal(got, []byte{0x80, 0x01, 0xaa, 0xbb, 0xcc}) {
+		t.Fatalf("packed payload = %x", got)
+	}
+
+	size, err := PayloadSize(desc, []byte{0xaa})
+	if err != nil {
+		t.Fatalf("PayloadSize: %v", err)
+	}
+	if size != 3 {
+		t.Fatalf("PayloadSize = %d, want 3", size)
+	}
+
+	if _, err := PayloadSize(desc, nil); !errors.Is(err, vpxerrors.ErrInvalidConfig) {
+		t.Fatalf("zero payload error = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := PayloadSize(testDescriptor{sizeErr: vpxerrors.ErrInvalidData}, []byte{1}); !errors.Is(err, vpxerrors.ErrInvalidData) {
+		t.Fatalf("descriptor size error = %v, want ErrInvalidData", err)
+	}
+	if _, err := PackPayload(testDescriptor{data: []byte{1}, marshalErr: vpxerrors.ErrInvalidData}, []byte{2}); !errors.Is(err, vpxerrors.ErrInvalidData) {
+		t.Fatalf("descriptor marshal error = %v, want ErrInvalidData", err)
+	}
+}
+
+func TestPackPayloadIntoShortBuffer(t *testing.T) {
+	desc := testDescriptor{data: []byte{0x80, 0x01}}
+	need, err := PackPayloadInto(make([]byte, 2), desc, []byte{0xaa})
+	if !errors.Is(err, vpxerrors.ErrBufferTooSmall) {
+		t.Fatalf("short buffer error = %v, want ErrBufferTooSmall", err)
+	}
+	if need != 3 {
+		t.Fatalf("short buffer need = %d, want 3", need)
+	}
+}
+
 func TestVariableFramePacketizationSize(t *testing.T) {
 	packets, total, err := VariableFramePacketizationSize(20, 8, 3, 14)
 	if err != nil {

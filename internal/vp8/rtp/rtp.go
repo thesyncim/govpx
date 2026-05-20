@@ -225,52 +225,6 @@ func ParsePayloadDescriptor(packet []byte) (PayloadDescriptor, []byte, error) {
 	return d, packet[off:], nil
 }
 
-// PayloadSize returns the number of bytes needed to pack desc and the
-// raw VP8 payload into one RTP payload body.
-func PayloadSize(desc PayloadDescriptor, payload []byte) (int, error) {
-	if len(payload) == 0 {
-		return 0, vpxerrors.ErrInvalidConfig
-	}
-	descSize, err := desc.Size()
-	if err != nil {
-		return 0, err
-	}
-	return vpxrtp.PayloadBodySize(descSize, len(payload))
-}
-
-// PackPayloadInto writes desc followed by payload into dst and returns
-// the RTP payload length. It does not write an RTP header.
-func PackPayloadInto(dst []byte, desc PayloadDescriptor, payload []byte) (int, error) {
-	need, err := PayloadSize(desc, payload)
-	if err != nil {
-		return 0, err
-	}
-	if len(dst) < need {
-		return need, vpxerrors.ErrBufferTooSmall
-	}
-	n, err := desc.MarshalInto(dst)
-	if err != nil {
-		return 0, err
-	}
-	copy(dst[n:], payload)
-	return need, nil
-}
-
-// PackPayload returns desc followed by payload as one RTP payload body.
-// It does not include an RTP header.
-func PackPayload(desc PayloadDescriptor, payload []byte) ([]byte, error) {
-	need, err := PayloadSize(desc, payload)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, need)
-	_, err = PackPayloadInto(out, desc, payload)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // FramePacketizationSize returns the number of RTP payload bodies and
 // total payload-body bytes needed to packetize one raw VP8 frame at mtu bytes.
 //
@@ -321,7 +275,7 @@ func PacketizeFrameInto(dst []vpxrtp.PayloadFragment, payloadBuf []byte,
 		last := vpxrtp.LastFragment(i, packets)
 
 		payload := frame[frameOff : frameOff+chunk]
-		n, err := PackPayloadInto(payloadBuf[bufOff:bufOff+descSize+chunk],
+		n, err := vpxrtp.PackPayloadInto(payloadBuf[bufOff:bufOff+descSize+chunk],
 			packetDesc, payload)
 		if err != nil {
 			return 0, 0, err

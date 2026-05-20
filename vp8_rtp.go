@@ -1,6 +1,9 @@
 package govpx
 
-import vp8rtp "github.com/thesyncim/govpx/internal/vp8/rtp"
+import (
+	vp8rtp "github.com/thesyncim/govpx/internal/vp8/rtp"
+	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
+)
 
 // VP8RTPPayloadDescriptor describes the VP8 RTP payload descriptor from RFC
 // 7741. It is the bytes after the RTP header and before the raw VP8 payload.
@@ -16,19 +19,19 @@ func ParseVP8RTPPayloadDescriptor(packet []byte) (VP8RTPPayloadDescriptor, []byt
 // VP8RTPPayloadSize returns the number of bytes needed to pack desc and the
 // raw VP8 payload into one RTP payload body.
 func VP8RTPPayloadSize(desc VP8RTPPayloadDescriptor, payload []byte) (int, error) {
-	return vp8rtp.PayloadSize(desc, payload)
+	return vpxrtp.PayloadSize(desc, payload)
 }
 
 // PackVP8RTPPayloadInto writes desc followed by payload into dst and returns
 // the RTP payload length. It does not write an RTP header.
 func PackVP8RTPPayloadInto(dst []byte, desc VP8RTPPayloadDescriptor, payload []byte) (int, error) {
-	return vp8rtp.PackPayloadInto(dst, desc, payload)
+	return vpxrtp.PackPayloadInto(dst, desc, payload)
 }
 
 // PackVP8RTPPayload returns desc followed by payload as one RTP payload body.
 // It does not include an RTP header.
 func PackVP8RTPPayload(desc VP8RTPPayloadDescriptor, payload []byte) ([]byte, error) {
-	return vp8rtp.PackPayload(desc, payload)
+	return vpxrtp.PackPayload(desc, payload)
 }
 
 // VP8RTPFramePacketizationSize returns the number of RTP payload bodies and

@@ -13,6 +13,59 @@ type PayloadFragment struct {
 	Marker  bool
 }
 
+// PayloadDescriptor is the shared mechanical contract for codec RTP payload
+// descriptors. Codec packages own descriptor syntax and validation.
+type PayloadDescriptor interface {
+	Size() (int, error)
+	MarshalInto([]byte) (int, error)
+}
+
+// PayloadSize returns the number of bytes needed to pack desc and payload
+// into one RTP payload body.
+func PayloadSize[D PayloadDescriptor](desc D, payload []byte) (int, error) {
+	if len(payload) == 0 {
+		return 0, vpxerrors.ErrInvalidConfig
+	}
+	descSize, err := desc.Size()
+	if err != nil {
+		return 0, err
+	}
+	return PayloadBodySize(descSize, len(payload))
+}
+
+// PackPayloadInto writes desc followed by payload into dst and returns the
+// RTP payload-body length. It does not write an RTP header.
+func PackPayloadInto[D PayloadDescriptor](dst []byte, desc D, payload []byte) (int, error) {
+	need, err := PayloadSize(desc, payload)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, vpxerrors.ErrBufferTooSmall
+	}
+	n, err := desc.MarshalInto(dst)
+	if err != nil {
+		return 0, err
+	}
+	copy(dst[n:], payload)
+	return need, nil
+}
+
+// PackPayload returns desc followed by payload as one RTP payload body. It
+// does not include an RTP header.
+func PackPayload[D PayloadDescriptor](desc D, payload []byte) ([]byte, error) {
+	need, err := PayloadSize(desc, payload)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, need)
+	_, err = PackPayloadInto(out, desc, payload)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PayloadBodySize returns the byte length of one RTP payload body containing
 // descriptor bytes followed by codec payload bytes.
 func PayloadBodySize(descriptorSize, payloadLen int) (int, error) {

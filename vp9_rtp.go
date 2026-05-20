@@ -1,6 +1,9 @@
 package govpx
 
-import vp9rtp "github.com/thesyncim/govpx/internal/vp9/rtp"
+import (
+	vp9rtp "github.com/thesyncim/govpx/internal/vp9/rtp"
+	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
+)
 
 const (
 	// VP9RTPMaxReferenceIndices is the maximum number of reference-index
@@ -33,19 +36,19 @@ func ParseVP9RTPPayloadDescriptor(packet []byte) (VP9RTPPayloadDescriptor, []byt
 // VP9RTPPayloadSize returns the number of bytes needed to pack desc and the
 // raw VP9 payload into one RTP payload body.
 func VP9RTPPayloadSize(desc VP9RTPPayloadDescriptor, payload []byte) (int, error) {
-	return vp9rtp.PayloadSize(desc, payload)
+	return vpxrtp.PayloadSize(desc, payload)
 }
 
 // PackVP9RTPPayloadInto writes desc followed by payload into dst and returns
 // the RTP payload length. It does not write an RTP header.
 func PackVP9RTPPayloadInto(dst []byte, desc VP9RTPPayloadDescriptor, payload []byte) (int, error) {
-	return vp9rtp.PackPayloadInto(dst, desc, payload)
+	return vpxrtp.PackPayloadInto(dst, desc, payload)
 }
 
 // PackVP9RTPPayload returns desc followed by payload as one RTP payload body.
 // It does not include an RTP header.
 func PackVP9RTPPayload(desc VP9RTPPayloadDescriptor, payload []byte) ([]byte, error) {
-	return vp9rtp.PackPayload(desc, payload)
+	return vpxrtp.PackPayload(desc, payload)
 }
 
 // VP9RTPFramePacketizationSize returns the number of RTP payload bodies and
