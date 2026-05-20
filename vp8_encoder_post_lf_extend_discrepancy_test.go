@@ -108,7 +108,7 @@ import (
 //     active-Q boundary clamp + per-frame budget recompute likely
 //     drives govpx into a different RD pick on the SetReferenceFrame
 //     LAST=panning:9 reference content than libvpx does. Future work on
-//     this seed should bisect 592b8eda's ratecontrol.go / vp8_encoder_config.go
+//     this seed should bisect 592b8eda's VP8 rate-control / encoder config changes
 //     tail more finely (raw_target_rate clamp, bits_off_target rescale,
 //     active_worst_quality bracket) instead of the segmentation header.
 //   - The same swap inside `refreshInterFrameReferencesFromAnalysis` /

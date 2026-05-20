@@ -172,7 +172,7 @@ type temporalLayerCodingState struct {
 	// NormalInterAvgQuantizer/NormalInterFrames/NormalInterQuantizerTotal
 	// mirror LAYER_CONTEXT.ni_av_qi / ni_frames / ni_tot_qi. These feed
 	// the post-encode running-average Q estimator and the key-frame
-	// boost target formula (ratecontrol.go laterKeyFrameTargetBits reads
+	// boost target formula (vp8_ratecontrol.go laterKeyFrameTargetBits reads
 	// normalInterAvgQuantizer).
 	AvgFrameQuantizer         int
 	NormalInterAvgQuantizer   int

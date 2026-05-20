@@ -1277,7 +1277,7 @@ func (t *twoPassState) recordInterFrameQuantizer(Q int, keyFrame bool, refreshGo
 // `active_worst_quality` value when the pass-2 driver has seeded it
 // via seedPass2ActiveWorstQ. The boolean second return value is false
 // when the override is not available (one-pass mode, or pass 2 before
-// frame 0 has been processed). Read by ratecontrol.go's
+// frame 0 has been processed). Read by vp8_ratecontrol.go's
 // `libvpxActiveWorstQuantizer` to substitute for `maxQuantizer` in the
 // VBR-pass2 path.
 func (t *twoPassState) pass2ActiveWorstQOverride() (int, bool) {
