@@ -1517,14 +1517,6 @@ func vp9VisibleInterScoreBlock(x0, y0, blockW, blockH int,
 	return scoreW, scoreH, scoreW > 0 && scoreH > 0
 }
 
-func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, refFrame int8,
-) (vp9dec.MV, uint64, bool) {
-	return e.pickVP9InterMvWithOptions(inter, miRows, miCols, miRow, miCol,
-		bsize, refFrame, vp9InterMvSearchOptions{})
-}
-
 type vp9InterMvSearchOptions struct {
 	seed            vp9dec.MV
 	seedValid       bool

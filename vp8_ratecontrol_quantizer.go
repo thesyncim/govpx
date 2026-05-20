@@ -240,10 +240,6 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	return activeBest, activeWorst
 }
 
-func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
-	return rc.libvpxActiveWorstQuantizerForFrame(false)
-}
-
 // libvpxActiveWorstQuantizerForFrame ports both libvpx active-worst-quality
 // pathways:
 //

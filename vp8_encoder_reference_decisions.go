@@ -387,11 +387,6 @@ func suppressInterFrameCopyBuffersOnAltRefEdges(cfg *vp8enc.InterFrameStateConfi
 	}
 }
 
-func (e *VP8Encoder) anyInterReferenceAvailable(flags EncodeFlags) bool {
-	lastEnabled, goldenEnabled, altEnabled := e.interReferenceAvailability(flags)
-	return lastEnabled || goldenEnabled || altEnabled
-}
-
 func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, golden bool, alt bool) {
 	if last, golden, alt, ok := e.currentExternalReferenceMask(); ok {
 		return last, golden, alt

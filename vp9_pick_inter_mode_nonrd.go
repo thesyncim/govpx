@@ -49,7 +49,7 @@ import (
 //   - vp9_pickmode.c:2204-2228 sf->reference_masking 2× pred_mv_sad
 //     ref skip → this file:565-608 (full vp9_mv_pred candidate-set SAD)
 //   - vp9_pickmode.c:2259-2264 search_new_mv NEWMV →
-//     this file:626-655 via pickVP9InterMv*
+//     this file:626-655 via pickVP9InterMvWithOptions*
 //   - vp9_pickmode.c:2269-2278 mode_checked × zero-MV dedup →
 //     this file:678-699
 //   - vp9_pickmode.c:2296-2299 duplicate-NEARESTMV dedup →
@@ -860,7 +860,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	//
 	// govpx walks vp9dec.FindInterMvRefsFields once per ref to populate
 	// NEAREST/NEAR; ZERO is constant; NEW is computed lazily inside the
-	// main loop via pickVP9InterMv. This eliminates the prior per-iteration
+	// main loop via pickVP9InterMvWithOptions. This eliminates the prior per-iteration
 	// vp9EncoderInterModeCandidateMv re-walk and surfaces the libvpx-exact
 	// dedup at lines 2269-2278 (mode_checked) and 2296-2299 (NEARESTMV).
 	var frameMv [common.MbModeCount][vp9dec.MaxRefFrames]vp9dec.MV
@@ -1223,7 +1223,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 
 		// libvpx: vp9_pickmode.c:2259-2264 — search_new_mv issues
 		// vp9_single_motion_search for NEWMV and returns its rate cost.
-		// govpx invokes the existing pickVP9InterMv helper, which wraps the
+		// govpx invokes the existing pickVP9InterMvWithOptions helper, which wraps the
 		// motion-search and returns the winning MV. NEAREST/NEAR/ZERO read
 		// from the pre-computed frame_mv table (find_predictors-equivalent
 		// populated above).

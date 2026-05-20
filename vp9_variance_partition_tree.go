@@ -274,12 +274,6 @@ func vp9FillVarianceTreeV8x8(vt *vp9V8x8) {
 	vp9FillVarianceTreeBody(&node)
 }
 
-func vp9FillVarianceTreeV4x4(vt *vp9V4x4) {
-	var node vp9VarianceNode
-	vp9TreeToNode(&node, common.Block4x4, nil, nil, nil, nil, vt)
-	vp9FillVarianceTreeBody(&node)
-}
-
 // vp9FillVarianceTreeBody is the libvpx logic body — the four directional
 // sums plus the final horz->none aggregation. Shared by every typed
 // fill_variance_tree wrapper above.

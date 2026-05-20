@@ -51,12 +51,6 @@ func newEncoderSourceTimestampState(timing timingState) encoderSourceTimestampSt
 	}
 }
 
-func (e *VP8Encoder) resetTimingFromOptions() {
-	e.timing = timingFromEncoderOptions(e.opts)
-	e.sourceTS = newEncoderSourceTimestampState(e.timing)
-	e.rc.refreshFrameRate(e.timing, e.opts.TwoPassMinPct)
-}
-
 func (e *VP8Encoder) updateSourceFrameRateFromTimestamp(pts, duration uint64, showFrame bool) {
 	if !showFrame || e.sourceTS.ratioNum <= 0 || e.sourceTS.ratioDen <= 0 {
 		return

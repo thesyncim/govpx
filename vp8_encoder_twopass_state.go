@@ -110,7 +110,7 @@ type twoPassState struct {
 	// pass2ActiveWorstQ mirrors libvpx's `cpi->active_worst_quality`
 	// after vp8_second_pass runs estimate_max_q (frame 0) or the
 	// damped update branch (the early-portion-of-clip damped path).
-	// govpx's regulator reads this in libvpxActiveWorstQuantizer to
+	// govpx's regulator reads this in libvpxActiveWorstQuantizerForFrame to
 	// substitute it for `maxQuantizer` when in pass-2 VBR mode. The
 	// encoder pushes the value into rateControlState.pass2ActiveWorstQ
 	// before each frame's selectQuantizerForFrameKind call.
@@ -1048,7 +1048,7 @@ func (t *twoPassState) kfIntraErrMinForFrame() float64 {
 //
 // When seeded, govpx's regulator reads the result via
 // `pass2ActiveWorstQOverride` and substitutes it for `maxQuantizer` in
-// `libvpxActiveWorstQuantizer`. This mirrors libvpx's behavior where
+// `libvpxActiveWorstQuantizerForFrame`. This mirrors libvpx's behavior where
 // the regulator's worst-Q ceiling is dialed down from the user-specified
 // `worst_allowed_q` to a value derived from the per-MB error and
 // section target bandwidth, which is the single biggest contributor to
@@ -1278,7 +1278,7 @@ func (t *twoPassState) recordInterFrameQuantizer(Q int, keyFrame bool, refreshGo
 // via seedPass2ActiveWorstQ. The boolean second return value is false
 // when the override is not available (one-pass mode, or pass 2 before
 // frame 0 has been processed). Read by vp8_ratecontrol.go's
-// `libvpxActiveWorstQuantizer` to substitute for `maxQuantizer` in the
+// `libvpxActiveWorstQuantizerForFrame` to substitute for `maxQuantizer` in the
 // VBR-pass2 path.
 func (t *twoPassState) pass2ActiveWorstQOverride() (int, bool) {
 	if !t.pass2ActiveWorstQValid {

@@ -128,7 +128,7 @@ type rateControlState struct {
 	// `cpi->active_worst_quality` after vp8_second_pass runs
 	// estimate_max_q on the first frame (and damps it on subsequent
 	// frames). When pass2ActiveWorstQValid is true, the regulator's
-	// `libvpxActiveWorstQuantizer` returns this value (clamped to
+	// `libvpxActiveWorstQuantizerForFrame` returns this value (clamped to
 	// [minQuantizer, maxQuantizer]) instead of `maxQuantizer`. The
 	// encoder pushes the value via `setPass2ActiveWorstQ` before
 	// `selectQuantizerForFrameKindWithScreenContent`. Without this

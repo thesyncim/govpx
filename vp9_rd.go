@@ -139,34 +139,6 @@ func vp9ComputeRDMult(qindex int, frameType vp9RDFrameType) int {
 	return vp9ComputeRDMultBasedOnQindex(qindex, frameType)
 }
 
-// vp9GetAdaptiveRDMult is the verbatim port of libvpx's
-// vp9_get_adaptive_rdmult.  It scales the base rdmult by beta (the TPL
-// per-block intra/mc-dep ratio) and re-applies modulate_rdmult.  govpx's
-// TPL caller (getVP9TPLRDMultDelta) inlines the scaling step today; this
-// helper exists so the cyclic-refresh and other AQ paths can call the
-// libvpx-named entry point.
-//
-// libvpx: vp9/encoder/vp9_rd.c:304-310
-//
-//	int vp9_get_adaptive_rdmult(const VP9_COMP *cpi, double beta) {
-//	  int rdmult =
-//	      vp9_compute_rd_mult_based_on_qindex(cpi, cpi->common.base_qindex);
-//	  rdmult = (int)((double)rdmult / beta);
-//	  rdmult = rdmult > 0 ? rdmult : 1;
-//	  return modulate_rdmult(cpi, rdmult);
-//	}
-func vp9GetAdaptiveRDMult(qindex int, frameType vp9RDFrameType, beta float64) int {
-	base := vp9ComputeRDMultBasedOnQindex(qindex, frameType)
-	if beta <= 0 {
-		return base
-	}
-	rdmult := int(float64(base) / beta)
-	if rdmult <= 0 {
-		return 1
-	}
-	return rdmult
-}
-
 // vp9RDFrameTypeFor selects the libvpx frame-type bucket for the rdmult
 // lookup.  Mirrors the branching in vp9_compute_rd_mult_based_on_qindex
 // (vp9/encoder/vp9_rd.c:256-266): KEY_FRAME wins outright; otherwise an

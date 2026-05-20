@@ -46,14 +46,6 @@ func interMotionModeVectorCostWithNewMVWeightAndSignBiasCostsAndSubMVRefProbs(mo
 	return interNewMVVectorCost(mode.MV, best, mvProbs, newMVWeight)
 }
 
-func interMotionModeVectorCostWithBestRefMV(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, newMVWeight int) int {
-	return interMotionModeVectorCostWithBestRefMVAndCosts(mode, left, above, bestRefMV, mvProbs, nil, newMVWeight)
-}
-
-func interMotionModeVectorCostWithBestRefMVAndCosts(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, newMVWeight int) int {
-	return interMotionModeVectorCostWithBestRefMVCostsAndSubMVRefProbs(mode, left, above, bestRefMV, mvProbs, mvCosts, nil, newMVWeight)
-}
-
 func interMotionModeVectorCostWithBestRefMVCostsAndSubMVRefProbs(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, subMVRefProbs *[3]uint8, newMVWeight int) int {
 	if mode == nil || mode.RefFrame == vp8common.IntraFrame {
 		return 0
@@ -293,10 +285,6 @@ func splitMotionModeVectorCostWithSubMVRefProbs(mode *vp8enc.InterFrameMacrobloc
 		}
 	}
 	return cost
-}
-
-func splitMotionModeVectorCostWithCostTables(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, best vp8enc.MotionVector, mvCosts *vp8enc.MotionVectorCostTables) int {
-	return splitMotionModeVectorCostWithCostTablesAndSubMVRefProbs(mode, left, above, best, mvCosts, nil)
 }
 
 func splitMotionModeVectorCostWithCostTablesAndSubMVRefProbs(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, best vp8enc.MotionVector, mvCosts *vp8enc.MotionVectorCostTables, subMVRefProbs *[3]uint8) int {
