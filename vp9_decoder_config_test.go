@@ -440,6 +440,66 @@ func TestVP9DecoderRowMTMatchesSerial(t *testing.T) {
 	assertVP9ImagesEqual(t, serial, rowMT)
 }
 
+// TestVP9DecoderRowMTDisabledDoesNotRetainSyncState verifies that threaded
+// VP9 decode uses normal tile workers without retaining Row-MT wavefront
+// state unless VP9D_SET_ROW_MT is enabled.
+func TestVP9DecoderRowMTDisabledDoesNotRetainSyncState(t *testing.T) {
+	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+
+	for frame := range 2 {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode[%d]: %v", frame, err)
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatalf("NextFrame[%d] returned !ok", frame)
+		}
+	}
+	if d.rowMTSync != nil {
+		t.Fatal("decoder retained active row-MT sync with DecoderRowMT disabled")
+	}
+	if d.vp9TilePool == nil {
+		t.Fatal("threaded decode did not initialize tile worker pool")
+	}
+	if got := len(d.vp9TilePool.rowMTSyncs); got != 0 {
+		t.Fatalf("rowMTSyncs len = %d, want 0 with DecoderRowMT disabled", got)
+	}
+
+	if err := d.SetRowMT(true); err != nil {
+		t.Fatalf("SetRowMT(true): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode after SetRowMT(true): %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame after SetRowMT(true) returned !ok")
+	}
+	if got := len(d.vp9TilePool.rowMTSyncs); got == 0 {
+		t.Fatal("DecoderRowMT enabled decode did not allocate rowMTSyncs")
+	}
+
+	if err := d.SetRowMT(false); err != nil {
+		t.Fatalf("SetRowMT(false): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode after SetRowMT(false): %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame after SetRowMT(false) returned !ok")
+	}
+	if d.rowMTSync != nil {
+		t.Fatal("decoder retained active row-MT sync after SetRowMT(false)")
+	}
+	if got := len(d.vp9TilePool.rowMTSyncs); got != 0 {
+		t.Fatalf("rowMTSyncs len after SetRowMT(false) = %d, want 0", got)
+	}
+}
+
 // TestVP9DecoderRowMTRuntimeToggleMatchesSerial cycles SetRowMT mid-stream
 // and confirms each decode still produces byte-identical output.
 func TestVP9DecoderRowMTRuntimeToggleMatchesSerial(t *testing.T) {

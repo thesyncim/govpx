@@ -117,6 +117,52 @@ func TestVP9EncoderSetRowMTRuntimeGating(t *testing.T) {
 	})
 }
 
+// TestVP9RowMTDisabledDoesNotAllocateSyncState verifies that a threaded
+// VP9 encoder using normal tile threading does not retain Row-MT wavefront
+// state unless the RowMT control is explicitly enabled.
+func TestVP9RowMTDisabledDoesNotAllocateSyncState(t *testing.T) {
+	const width, height = 1280, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	src := newVP9PanningYCbCrForRateTest(width, height, 0)
+	if _, err := e.Encode(src); err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if e.vp9RowMTSync != nil {
+		t.Fatal("encoder retained active row-MT sync with RowMT disabled")
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("threaded encode did not initialize tile worker pool")
+	}
+	if got := len(e.vp9TilePool.rowMTSyncs); got != 0 {
+		t.Fatalf("rowMTSyncs len = %d, want 0 with RowMT disabled", got)
+	}
+	if got := len(e.vp9TilePool.rowWorkerPools); got != 0 {
+		t.Fatalf("rowWorkerPools len = %d, want 0 with RowMT disabled", got)
+	}
+
+	if err := e.SetRowMT(false); err != nil {
+		t.Fatalf("SetRowMT(false): %v", err)
+	}
+	if _, err := e.Encode(newVP9PanningYCbCrForRateTest(width, height, 1)); err != nil {
+		t.Fatalf("Encode after SetRowMT(false): %v", err)
+	}
+	if got := len(e.vp9TilePool.rowMTSyncs); got != 0 {
+		t.Fatalf("rowMTSyncs len after SetRowMT(false) = %d, want 0", got)
+	}
+	if got := len(e.vp9TilePool.rowWorkerPools); got != 0 {
+		t.Fatalf("rowWorkerPools len after SetRowMT(false) = %d, want 0", got)
+	}
+}
+
 // TestVP9RowMTBytewiseIdenticalToSerial confirms that arming the wavefront
 // primitive does not perturb bitstream output. Each tile column still encodes
 // on a single goroutine, so the Read/Write hooks must collapse to no-ops and

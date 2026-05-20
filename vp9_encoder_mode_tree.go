@@ -90,8 +90,6 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
 	rowMT := e.vp9RowMTSync
-	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
-		common.MiBlockSizeLog2
 	// libvpx: vp9_encodeframe.c:6126-6128 — vp9_cyclic_refresh_update_sb_postencode
 	// only runs on inter frames where the seg+aq path is live. govpx
 	// invokes writeVP9ModesTileBounds twice per frame: a count
@@ -112,6 +110,28 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 		// scratch which holds the final header for this frame.
 		cyclicBaseQindex = int(e.vp9HeaderScratch.Quant.BaseQindex)
 	}
+	if rowMT == nil {
+		for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
+			for i := range e.leftSegCtx {
+				e.leftSegCtx[i] = 0
+			}
+			if kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource {
+				e.resetVP9EncoderLeftEntropyContexts()
+			}
+			for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+				e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
+					common.Block64x64, tile, partitionProbs, seg, baseMi,
+					txMode, kind, key, inter)
+				if doCyclicSbPostencode {
+					e.vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
+						miRow, miCol, cyclicBaseQindex)
+				}
+			}
+		}
+		return
+	}
+	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
+		common.MiBlockSizeLog2
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range e.leftSegCtx {
 			e.leftSegCtx[i] = 0
@@ -124,9 +144,7 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 			sbCol := (miCol - tile.MiColStart) >> common.MiBlockSizeLog2
 			// Wavefront: wait for the row above to encode the above and
 			// above-right SB before consuming their entropy / above-context
-			// state. With a single goroutine per tile column this is a
-			// non-blocking no-op; the call shape matches libvpx so future
-			// per-row workers can be slotted in without further changes.
+			// state when RowMT is armed.
 			rowMT.read(sbRow, sbCol)
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
 				common.Block64x64, tile, partitionProbs, seg, baseMi, txMode,
