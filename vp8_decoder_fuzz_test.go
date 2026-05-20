@@ -3,12 +3,10 @@ package govpx
 import "testing"
 
 func FuzzDecoderMalformedPackets(f *testing.F) {
-	// Expanded seed corpus per plan §3 "Improvements to existing
-	// fuzzers" — closes G9 by adding handcrafted boundary cases at
-	// known protocol edges: partition0 size > remaining payload,
-	// oversized first_part_size, key frame with version > 3, key
-	// frame with width/height at the 0 / MaxWidth boundary, plus
-	// targeted bit-flips on the frame tag and sync code.
+	// Handcrafted seeds cover protocol edges: partition0 size greater
+	// than the remaining payload, oversized first_part_size, key frames
+	// with version > 3, width/height boundaries, and targeted bit flips
+	// on the frame tag and sync code.
 	seeds := [][]byte{
 		{},
 		{0},

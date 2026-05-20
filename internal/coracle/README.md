@@ -85,7 +85,7 @@ Binary paths consumed by tests / helper packages:
 
 | Variable                                | Default binary                                  | Built by                                   | Used by                                                                                |
 | --------------------------------------- | ----------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `GOVPX_ORACLE`                          | `build/govpx-vpx-oracle`                        | `build_libvpx.sh`                          | VP8 decoder checksum oracle (`oracle_vpxdec_helpers_test.go`, `benchmarks/decode_test.go`). |
+| `GOVPX_ORACLE`                          | `build/govpx-vpx-oracle`                        | `build_libvpx.sh`                          | VP8 decoder checksum oracle (`vp8_decoder_checksum_helpers_test.go`, `benchmarks/decode_test.go`). |
 | `GOVPX_ORACLE_BIN`                      | `build/govpx-vpx-oracle`                        | `build_libvpx.sh`                          | Override consumed by `build_libvpx.sh` when relocating the oracle binary.              |
 | `GOVPX_VPXENC`                          | `build/vpxenc`                                  | `build_vpxenc.sh`                          | VP8 vpxenc reference for byte-parity tests.                                            |
 | `GOVPX_VPXENC_BIN`                      | `build/vpxenc`                                  | `build_vpxenc.sh`                          | Override consumed by `build_vpxenc.sh`.                                                |

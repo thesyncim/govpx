@@ -32,8 +32,7 @@ func parsePartitionLayout(packet []byte, frame FrameHeader, tokenPartition commo
 	}
 	// libvpx accepts FirstPartitionSize == 0 (no compressed first partition;
 	// state-header bits come from the token partitions instead). Only treat
-	// negative sizes or out-of-range HeaderSize as malformed. See task #381
-	// for the F4 acceptance disagreement that motivated this.
+	// negative sizes or out-of-range HeaderSize as malformed.
 	if frame.FirstPartitionSize < 0 || frame.HeaderSize < 0 || frame.HeaderSize > len(packet) {
 		return ErrInvalidPartitionLayout
 	}

@@ -16,11 +16,9 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
-// FuzzDecoderAgainstLibvpx closes plan-§3 F4 (G9): the govpx VP8 decoder
-// is fed bytes that the fuzzer mutates from a real libvpx-encoded IVF
-// corpus, and the same bytes are fed to libvpx's vpxdec. The two
-// decoders must agree — either both accept and produce identical I420
-// per frame, or both reject. Asymmetric outcomes are bugs.
+// FuzzDecoderAgainstLibvpx feeds govpx and libvpx the same mutated
+// libvpx-encoded IVF corpus. The decoders must either both reject the stream
+// or both accept it and produce identical I420 frames.
 //
 // Fuzz mutations include bit flips, byte deletes/inserts, header field
 // corruption, and partition-size truncation. Divergent inputs land in
