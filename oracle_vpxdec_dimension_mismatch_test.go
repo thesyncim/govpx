@@ -11,23 +11,22 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestFuzzDecoderAgainstLibvpx_DimMismatchSeed exercises the task #308
-// fix end-to-end: synthesize the f4f81f7d2e022caf-family mutation (IVF
+// TestFuzzDecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes exercises the dimension-mismatch decoder path: synthesize the f4f81f7d2e022caf-family mutation (IVF
 // header height flipped to 0x1e1c=7708 while the VP8 key-frame body is
 // untouched) and run both decoders through the fuzz harness's
 // best-effort wrappers. Before #308 this disagreed with libvpx_frames=0
 // (slicer wanted 10.4 MB/frame) and govpx_frames=2. After #308 both
 // sides report 2 frames and byte-identical I420.
-func TestFuzzDecoderAgainstLibvpx_DimMismatchSeed(t *testing.T) {
+func TestFuzzDecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run decoder-vs-libvpx dim-mismatch regression")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run decoder-vs-libvpx dimension mismatch parity")
 	}
 	vpxdec := findVpxdecForFuzz(t)
-	smoke, err := hex.DecodeString(testutil.LibvpxEncodedSmokeIVFHex)
+	fixture, err := hex.DecodeString(testutil.LibvpxEncodedSmokeIVFHex)
 	if err != nil {
-		t.Fatalf("decode smoke IVF: %v", err)
+		t.Fatalf("decode baseline IVF: %v", err)
 	}
-	mutated := append([]byte(nil), smoke...)
+	mutated := append([]byte(nil), fixture...)
 	binary.LittleEndian.PutUint16(mutated[14:16], 7708)
 
 	govpxFrames, govpxErr := decodeIVFGovpxBestEffort(mutated)

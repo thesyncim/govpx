@@ -66,7 +66,7 @@ import (
 // rule (the naive port of `RT(cpi->Speed) > 6` always being true)
 // closes ~1.06% of the +6.94% BD-rate gap (measured: +6.94% → +5.88%),
 // but breaks byte-parity on the threads=4 cpu_used=0 RT VBR regression
-// in TestVP8RealtimeCampaignRegression.corpus.regression_w854h480_threads
+// in TestVP8RealtimeCorpusMatchesLibvpxBytes.corpus.regression_w854h480_threads
 // 4_vbr_inter_diverge -- where libvpx legitimately keeps improved_mv_
 // pred ENABLED because its cpi->Speed stayed at the cold-start 4 (the
 // raw cpi->Speed gate at onyx_if.c:957 fires only at cpi->Speed > 6,

@@ -2,116 +2,12 @@
 
 package govpx
 
-// Threading non-determinism quarantine for the libvpx oracle.
-//
-// Background — why this file exists
-// ---------------------------------
-// libvpx's encoder, when invoked with `--threads>=2`, is not deterministic
-// across processes for VP8 in several modes (multi-thread loopfilter, MB-row
-// thread scheduling, autoSpeed wall-clock timing). The ARNR pin-hold campaign
-// (#207/#227 → #332) burnt ~50 audit tasks because traces kept conflating two
-// orthogonal effects:
-//
-//  1. genuine govpx-vs-libvpx algorithmic divergence (the thing we want to
-//     fix), AND
-//  2. libvpx-internal threading nondeterminism (the thing that varies between
-//     two consecutive oracle invocations even when the inputs are identical).
-//
-// At least four tasks were misattributed because of this trap:
-//
-//   * #297 (pretrellis UV bisect)
-//   * #298 (splitmv RD bisect)
-//   * #304 (BestARNR/GoodARNR rate_y gap chasing)
-//   * #324 (chroma residual upstream audit)
-//
-// Per the campaign closure note (memory: feedback-vp8-arnr-milestone-closure):
-//
-//	"NEVER compare threads=4 libvpx scoreboards against threads=1 govpx.
-//	 The MT-LF state contaminates the comparison. This trap poisoned
-//	 #297/#298/#304 AND re-poisoned #324 under different framing."
-//
-// Phase 1 (task #349) inspection summary
-// --------------------------------------
-// All existing oracle invocations in /private/tmp/govpx-task-349 go through
-// `encodeFramesWithLibvpxOracle` (oracle_encoder_stream_parity_test.go:1441).
-// That helper:
-//
-//   - takes `extraArgs []string` and passes them verbatim, so `--threads=N`
-//     can come from either the test cohort definition (parity tests) or from
-//     the audit-test cohort `extraArgs := libvpxEndUsageArgs(...)` block
-//     (BestARNR/GoodARNR audits explicitly pass `--threads=4`).
-//   - shells out once to vpxenc-oracle and returns the parsed IVF frame
-//     payloads.
-//   - does NOT re-run for determinism, does NOT pin threads=1, does NOT
-//     compare hashes across invocations.
-//
-// The oracle binary is pinned by SHA in
-// `internal/coracle/oracle_sha_test.go`, but that pin only guards the BUILD
-// pipeline (libvpx version, configure flags, patch stamp). It does NOT
-// detect runtime threading nondeterminism.
-//
-// Phase 2 (task #349) design — combined Option B + Option C
-// ---------------------------------------------------------
-// We implement two complementary tools here:
-//
-//   * `encodeFramesWithLibvpxOracleReproducible` — re-runs the oracle N times
-//     and fails the test if the per-frame payload bytes diverge across runs.
-//     This is the "Option B" runtime check: catches new scenarios as they
-//     hit threading nondeterminism, regardless of which `--threads=N` value
-//     is in extraArgs.
-//
-//   * `requireOracleArgsReproducibleOrSerial` — inspects extraArgs and warns
-//     (via t.Logf, optionally t.Fatal under GOVPX_ORACLE_THREADS_QUARANTINE
-//     =strict) when an oracle invocation passes `--threads=N` with N>=2. This
-//     is the "Option C" boundary documentation: makes the threading trap a
-//     visible policy rather than tribal knowledge.
-//
-// Either helper can be opted into without changing existing callers. The
-// pre-existing serial-vs-MT comparison sites (e.g. TestVP8ThreadsValidation)
-// are intentionally NOT migrated to the strict helper — they
-// rely on threads>=2 by design and would defeat their own purpose if forced
-// to threads=1.
-//
-// Phase 4 sentinel — TestVP8OracleReproducibilityCpu8Threads4
-// -----------------------------------------------------------
-// A new sentinel test (oracle_threading_quarantine_sentinel_test.go) exercises
-// the known-unstable scenario (RT cpu_used=8 panning at threads=4) twice and
-// asserts that:
-//
-//   - the wrapper produces consistent SHAs across two consecutive invocations
-//     under threads=1 (the deterministic mode), AND
-//   - the wrapper detects and reports divergence when the same scenario is
-//     allowed to run at threads=4 with the controlled re-run (the "expected
-//     trap" mode that gates future regressions in the quarantine wrapper
-//     itself).
-//
-// Task #359 production-stream stress (2026-05-19, arm64-darwin)
-// -------------------------------------------------------------
-// The quarantine wrapper was stress-exercised against the production-stream
-// audit surfaces at threads >= 2 under GOVPX_ORACLE_THREADS_QUARANTINE=strict:
-//
-//   - TestVP8ThreadsValidation x 10 (threads ∈ {1, 2, 4}; cpu=0,
-//     deadline=best, tune=ssim, screen-content=1, arnr-strength=1,
-//     1280x720 panning, 700 kbps VBR).
-//   - TestVP8KF1280x720SSIMBestARNRParity x 10 (threads=4).
-//   - TestVP8KF1280x720SSIMGoodARNRParity x 10 (threads=4).
-//
-// Result: zero quarantine SHA divergence across 50 oracle invocation pairs
-// (the wrapper runs the oracle TWICE per call). Every cohort's byte-exact
-// pins held (threads validation: frame-1 govpx_len=6527@threads=2, =6121@threads=4;
-// BestARNR sha=98605076ba6b99bf, GoodARNR sha=9e329638c61787a7, both
-// matching libvpx). No new govpx-side or oracle-side non-determinism was
-// surfaced for THESE cohorts at this hardware + this oracle SHA pin
-// (62be3f118d229c9d08f36b958181f1f85b3bb48919bfea5e8fa72ed87c8dadc3).
-//
-// Interpretation: the threading-non-determinism that bit #297/#298/#304/
-// #324 was scenario-specific (cpu_used=8 RT panning), not pervasive across
-// every threads >= 2 invocation. The threads-validation/BestARNR/GoodARNR cohorts
-// happen to be reproducible on arm64-darwin at the current oracle SHA, so
-// the wrapper here is a silent sentinel — but the contract still holds:
-// any future regression that introduces oracle-side flakiness in these
-// cohorts will surface as a SHA-divergence test failure rather than as a
-// silent byte-comparison drift.
+// The libvpx VP8 oracle can emit different bytes across subprocess runs when
+// --threads>=2 is combined with realtime content whose auto-speed path reads
+// wall-clock timing. These helpers make that nondeterminism explicit: one
+// wrapper fails if repeated oracle runs disagree, and the matching wrapper
+// searches a bounded retry budget when govpx is expected to match any valid
+// threaded libvpx output.
 
 import (
 	"crypto/sha256"
@@ -123,22 +19,22 @@ import (
 
 // EncodeFramesWithLibvpxOracleReproducibleRuns is the default re-run count
 // for the reproducibility check. Two runs is the minimum needed to detect
-// any divergence; the cost is one extra subprocess per audit test, which is
-// negligible compared to the audit's encode time on a 1280x720 keyframe.
+// any divergence; the cost is one extra subprocess per oracle test, which is
+// negligible compared to the oracle test's encode time on a 1280x720 keyframe.
 const EncodeFramesWithLibvpxOracleReproducibleRuns = 2
 
 // encodeFramesWithLibvpxOracleReproducible wraps encodeFramesWithLibvpxOracle
 // with a re-run sanity check: it invokes the oracle `runs` times against the
 // same inputs and fails the test if any per-frame payload bytes differ across
-// runs. The intent is to fail LOUDLY when an audit's oracle output is in fact
+// runs. The intent is to fail when an oracle test's oracle output is in fact
 // nondeterministic, rather than silently propagating a flake into the
 // downstream byte comparison.
 //
 // Callers that already accept --threads>=2 as part of their cohort (e.g. the
-// BestARNR/GoodARNR audits where `--threads=4` is the seed-encoded option)
+// BestARNR/GoodARNR oracle tests where `--threads=4` is the seed-encoded option)
 // should use this helper. If the oracle is in fact deterministic for those
 // options on the current host, the helper is a no-op. If it is not, the
-// helper turns the contamination from an invisible audit artefact into a
+// helper turns the contamination from an invisible oracle artifact into a
 // visible test failure with a SHA log.
 //
 // `runs` must be >= 2; runs < 2 falls back to runs=2 (a single run cannot
@@ -163,13 +59,13 @@ func encodeFramesWithLibvpxOracleReproducible(t *testing.T, vpxencOracle string,
 			continue
 		}
 		if len(frames) != len(first) {
-			t.Fatalf("libvpx oracle threading-quarantine: run %d returned %d frames, run 0 returned %d (extraArgs=%v)",
+			t.Fatalf("libvpx oracle threading reproducibility: run %d returned %d frames, run 0 returned %d (extraArgs=%v)",
 				run, len(frames), len(first), extraArgs)
 		}
 		sums := framePayloadSHAs(frames)
 		for i := range sums {
 			if sums[i] != firstSums[i] {
-				t.Fatalf(`libvpx oracle threading-quarantine: NONDETERMINISTIC OUTPUT detected.
+				t.Fatalf(`libvpx oracle threading reproducibility: NONDETERMINISTIC OUTPUT detected.
 
 Same input, same extraArgs, two invocations produced different bytes:
 
@@ -216,13 +112,6 @@ func framePayloadSHAs(frames [][]byte) []string {
 // EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries is the cap on how many
 // times encodeFramesWithLibvpxOracleMatchingGovpx will re-invoke the libvpx
 // oracle while searching for a run whose payload bytes match govpx exactly.
-//
-// At the seeds where this helper applies (libvpx-internal threading non-
-// determinism: --threads>=2 + the RT cpu_used=0 wall-clock auto-select branch
-// that flakes on 640x360 panning content), libvpx's output distribution
-// contains govpx's exact bytes in roughly 30% of runs on the project's
-// reference hardware, so 6 retries cap a >99% probability of selecting a
-// matching run while still surfacing a real divergence within a few seconds.
 const EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries = 6
 
 // encodeFramesWithLibvpxOracleMatchingGovpx invokes the libvpx oracle once,
@@ -239,24 +128,14 @@ const EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries = 6
 // determinism in the F1 byte-parity fuzz: govpx (deterministic) must match
 // one of libvpx's valid outputs at the configured threads=N, not the
 // specific output a given subprocess invocation happened to produce on this
-// run. Without the retry, F1 byte-parity is flaky on every seed where
+// run. Without the retry, F1 byte-parity is flaky on seeds where
 // `vp8_auto_select_speed`'s wall-clock IIR crosses a branch boundary across
-// invocations (e.g. seed#7 640x360 RT cpu_used=0 threads=2 CBR, the task
-// #355 sentinel — libvpx's output cycles through {1500, 1552, 1557} bytes
-// for frame 1 across consecutive runs; the 1552 outcome matches govpx and
-// is reachable within 1-3 retries on the project's reference hardware).
+// invocations. The threaded option-grid parity test covers that case with a
+// known 640x360 realtime seed.
 //
 // When extraArgs does NOT contain --threads>=2 the helper is a single-call
 // pass-through to encodeFramesWithLibvpxOracle, preserving the existing
 // behaviour for serial-oracle callers.
-//
-// References:
-//   - feedback-vp8-arnr-milestone-closure.md lesson #2 (the threading-
-//     nondeterminism trap that poisoned ~50 audit tasks).
-//   - encodeFramesWithLibvpxOracleReproducible (the "fail loud on divergence"
-//     wrapper used by audits that pin an exact run-0 SHA); this helper is
-//     the complementary "find a matching run" wrapper used by byte-parity
-//     fuzz that accepts any libvpx output as the canonical reference.
 func encodeFramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string, govpxFrames [][]byte) [][]byte {
 	t.Helper()
 	if _, parallel := extraArgsRequestsParallelOracle(extraArgs); !parallel {
@@ -285,7 +164,7 @@ func encodeFramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string
 			}
 			if match {
 				if attempt > 0 {
-					t.Logf("libvpx oracle threading-quarantine: %s matched govpx after %d retries (extraArgs=%v); distinct oracle outputs observed=%d",
+					t.Logf("libvpx oracle threading reproducibility: %s matched govpx after %d retries (extraArgs=%v); distinct oracle outputs observed=%d",
 						name, attempt, extraArgs, len(seen))
 				}
 				return frames
@@ -299,7 +178,7 @@ func encodeFramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string
 	for k, c := range seen {
 		keys = append(keys, k+"(x"+itoaPositive(c)+")")
 	}
-	t.Logf("libvpx oracle threading-quarantine: %s NO matching run found across %d attempts (extraArgs=%v); govpx_sums=%v; oracle distinct outputs=%v",
+	t.Logf("libvpx oracle threading reproducibility: %s NO matching run found across %d attempts (extraArgs=%v); govpx_sums=%v; oracle distinct outputs=%v",
 		name, maxRetries+1, extraArgs, govpxSums, keys)
 	return firstFrames
 }
@@ -327,12 +206,12 @@ func extraArgsRequestsParallelOracle(extraArgs []string) (threads int, ok bool) 
 
 // requireOracleArgsReproducibleOrSerial inspects extraArgs and, when the
 // oracle is being invoked with --threads>=2, surfaces the threading boundary
-// via t.Logf so the audit's interpretation explicitly acknowledges the trap.
+// via t.Logf so the oracle test's interpretation explicitly acknowledges the trap.
 //
 // When GOVPX_ORACLE_THREADS_QUARANTINE=strict the helper instead fails the
 // test, forcing the caller to either drop --threads from extraArgs or switch
 // to encodeFramesWithLibvpxOracleReproducible. This mode is intended for
-// fresh audits (where the test author has not yet decided which side of the
+// fresh oracle tests (where the test author has not yet decided which side of the
 // trade-off applies); existing tests that rely on threads>=2 by design
 // should keep using the non-strict default.
 func requireOracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) {
@@ -341,14 +220,13 @@ func requireOracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) {
 	if !parallel {
 		return
 	}
-	msg := "libvpx oracle threading-quarantine: this audit passes --threads=" +
+	msg := "libvpx oracle threading reproducibility: this test passes --threads=" +
 		itoaPositive(threads) + " to vpxenc-oracle; libvpx's encoder is " +
 		"NOT byte-reproducible across runs at threads>=2 for several VP8 " +
 		"configurations. Treat any byte-level divergence against govpx " +
 		"as suspect until the oracle has been independently verified " +
 		"reproducible at this scenario (see encodeFramesWithLibvpxOracle" +
-		"Reproducible). See feedback-vp8-arnr-milestone-closure.md " +
-		"lesson #2."
+		"Reproducible)."
 	if os.Getenv("GOVPX_ORACLE_THREADS_QUARANTINE") == "strict" {
 		t.Fatal(msg)
 	}

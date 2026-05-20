@@ -60,7 +60,7 @@ func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptio
 // vp9OptionsSeedsDeferred lists VP9 options-fuzz seed payloads whose strict
 // byte parity is gated behind libvpx VP9 features govpx has not yet ported.
 // Mirrors the convention in vp9LongFixtureSeedsDeferred /
-// vp9RuntimeControlsSeedsDeferred / vp9RefControlsRegressionSeeds — each entry
+// vp9RuntimeControlsSeedsDeferred / vp9RefControlParitySeeds — each entry
 // cites the libvpx file:line that drives the divergence so a follow-up
 // verbatim port can revert one entry at a time.
 //

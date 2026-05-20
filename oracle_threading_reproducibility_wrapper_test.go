@@ -10,20 +10,19 @@ import (
 	"testing"
 )
 
-// TestVP8OracleReproducibilityCpu8Threads4 is the task #349 sentinel for the
-// libvpx-oracle threading non-determinism quarantine wrapper
-// (encodeFramesWithLibvpxOracleReproducible in oracle_reproducibility.go).
+// TestVP8OracleReproducibilityWrapperHandlesParallelArgs exercises the
+// libvpx-oracle threading reproducibility wrapper.
 //
 // The test exercises the known-flaky scenario — RT cpu_used=8 panning
-// content at threads=4 — and asserts that the quarantine helper either:
+// content at threads=4 — and asserts that the reproducibility helper either:
 //
 //   - passes silently when the host happens to produce reproducible bytes
 //     across runs (deterministic on this hardware), OR
-//   - fails LOUDLY via t.Fatalf with a SHA divergence report when the oracle
+//   - fails via t.Fatalf with a SHA divergence report when the oracle
 //     diverges across runs.
 //
 // In both cases the test PASSES; what matters is that the wrapper is
-// EXERCISED end-to-end. The sentinel guards against a future refactor that
+// exercised end-to-end. The test guards against a future refactor that
 // silently breaks the re-run loop (e.g. caching the first-run output) by
 // asserting:
 //
@@ -34,13 +33,13 @@ import (
 //     test; we instead exercise the helper's predicate path directly).
 //
 // We do NOT use --threads=4 here for the actual oracle invocation, because
-// the sentinel must pass on every host regardless of whether the host is
+// the test must pass on every host regardless of whether the host is
 // in fact MT-flaky. Instead we run threads=1 (deterministic) and confirm
 // the wrapper passes; the strict-mode helper is exercised separately via
 // GOVPX_ORACLE_THREADS_QUARANTINE=strict.
-func TestVP8OracleReproducibilityCpu8Threads4(t *testing.T) {
+func TestVP8OracleReproducibilityWrapperHandlesParallelArgs(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx-oracle threading quarantine sentinel")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx-oracle threading reproducibility wrapper")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -66,10 +65,10 @@ func TestVP8OracleReproducibilityCpu8Threads4(t *testing.T) {
 	}
 	extraArgs := []string{"--end-usage=cbr"} // threads=1 (oracle default)
 
-	// Step 1: the quarantine wrapper must pass for threads=1.
-	out := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task349-quarantine-threads1", opts, 500, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
+	// Step 1: the reproducibility wrapper must pass for threads=1.
+	out := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "reproducibility-threads1", opts, 500, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
 	if len(out) != frames {
-		t.Fatalf("threads=1 quarantine wrapper: got %d frames, want %d", len(out), frames)
+		t.Fatalf("threads=1 reproducibility wrapper: got %d frames, want %d", len(out), frames)
 	}
 
 	// Step 2: parallel-classification predicate is correct.
@@ -114,14 +113,14 @@ func TestVP8OracleReproducibilityCpu8Threads4(t *testing.T) {
 	}
 }
 
-// TestVP8OracleQuarantineDetectsControlledDivergence is a unit-level test
-// for the quarantine helper's divergence-detection path. We can't actually
+// TestVP8OracleReproducibilityDetectsControlledDivergence is a unit-level test
+// for the reproducibility helper's divergence-detection path. We can't actually
 // trigger libvpx-internal non-determinism on demand (it's host-and-scenario
 // dependent), so we test the predicate logic and SHA-comparison machinery
 // directly with synthetic inputs.
-func TestVP8OracleQuarantineDetectsControlledDivergence(t *testing.T) {
+func TestVP8OracleReproducibilityDetectsControlledDivergence(t *testing.T) {
 	// framePayloadSHAs must differ when payloads differ, and match when
-	// payloads match — this is the comparator the quarantine wrapper uses.
+	// payloads match — this is the comparator the reproducibility wrapper uses.
 	a := [][]byte{{1, 2, 3}, {4, 5, 6}}
 	b := [][]byte{{1, 2, 3}, {4, 5, 6}}
 	c := [][]byte{{1, 2, 3}, {4, 5, 7}} // last byte differs in frame 1

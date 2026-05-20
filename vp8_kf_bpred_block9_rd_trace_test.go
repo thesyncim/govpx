@@ -12,10 +12,10 @@ import (
 	"testing"
 )
 
-// TestVP8KFBPredBlock9Regression pins the per-MB tracer-based localization
-// of the residual byte divergence on the two task #227 1280x720 SSIM seeds
+// TestVP8KFBPredBlock9TraceLocalizesRDCostDrift pins the per-macroblock trace localization
+// of the residual byte divergence on two 1280x720 SSIM seeds
 // (regression_option_grid_19981bff BestQuality/VBR and
-// regression_option_grid_788d442c GoodQuality/VBR). Task #213 closed seed
+// regression_option_grid_788d442c GoodQuality/VBR). Seed
 // 22f3d67c (CBR cohort) but the VBR variants remain open.
 //
 // Findings from the MB activity parity replay:
@@ -58,7 +58,7 @@ import (
 // pick different top-level intra modes (TM/DC_PRED vs B_PRED). These compound
 // to a +47-byte total length and +31-byte first_partition_size delta vs
 // libvpx, exactly the gap pinned in TestVP8Byte0KF1280x720SSIM{Best,Good}
-// ARNRAudit.
+// RD trace.
 //
 // libvpx source references (v1.16.0):
 //
@@ -91,17 +91,17 @@ import (
 //     above[16:20] for the rightmost-column blocks instead of replicating
 //     in-place into dst).
 //
-// This test is logging-only (always passes); it pins the localization so
+// This trace test is logging-only and pins the localization so
 // the next fix iteration can target rd_pick_intra4x4block's specific
 // RDCOST-tiebreak path on block 9 of MB(0,69).
 //
 // To run:
 //
 //	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
-//	  go test -tags govpx_oracle_trace -run TestVP8KFBPredBlock9Regression -v
-func TestVP8KFBPredBlock9Regression(t *testing.T) {
+//	  go test -tags govpx_oracle_trace -run TestVP8KFBPredBlock9TraceLocalizesRDCostDrift -v
+func TestVP8KFBPredBlock9TraceLocalizesRDCostDrift(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED block-9 regression")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED block-9 RD trace")
 	}
 	vpxencOracle := findVpxencOracle(t)
 
@@ -185,12 +185,12 @@ func TestVP8KFBPredBlock9Regression(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			runVP8KFBPredBlock9Regression(t, vpxencOracle, c.seedHash, c.opts, c.targetKbps, c.extra)
+			runVP8KFBPredBlock9TraceLocalizesRDCostDrift(t, vpxencOracle, c.seedHash, c.opts, c.targetKbps, c.extra)
 		})
 	}
 }
 
-func runVP8KFBPredBlock9Regression(t *testing.T, vpxencOracle string, seedHash string, opts EncoderOptions, targetKbps int, extraArgs []string) {
+func runVP8KFBPredBlock9TraceLocalizesRDCostDrift(t *testing.T, vpxencOracle string, seedHash string, opts EncoderOptions, targetKbps int, extraArgs []string) {
 	t.Helper()
 	requireOracleTraceBuild(t)
 

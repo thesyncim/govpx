@@ -10,15 +10,11 @@ import (
 	"testing"
 )
 
-// vp9RefControlsRegressionSeeds pins reference-control schedules that still
-// expose VP9 realtime inter-frame parity gaps against libvpx. Frame 0 is
-// byte-exact for these schedules; the remaining divergence is in inter-frame
-// FirstPartitionSize/compressed-header output and traces back to per-leaf
-// non-RD mode, motion-vector, interpolation-filter, and transform choices in
-// libvpx's vp9_pick_inter_mode path. Keep these seeds stable until that picker
-// is ported closely enough for byte parity; do not update baselines to hide the
-// difference.
-var vp9RefControlsRegressionSeeds = [][]byte{
+// vp9RefControlParitySeeds pins reference-control schedules that exercise
+// per-frame update, no-reference, and force-reference flags against libvpx.
+// Keep these seeds stable so strict byte parity failures point at behavior,
+// not corpus churn.
+var vp9RefControlParitySeeds = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 0, 2, 0, 3, 0, 0},
 	{1, 2, 3, 4, 5, 6, 0, 0},
@@ -56,7 +52,7 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 		{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 		{0, 7, 0, 8, 0, 9, 0, 10},
 	}
-	seen := make(map[string]struct{}, len(seeds)+len(vp9RefControlsRegressionSeeds))
+	seen := make(map[string]struct{}, len(seeds)+len(vp9RefControlParitySeeds))
 	addSeed := func(seed []byte) {
 		key := string(seed)
 		if _, ok := seen[key]; ok {
@@ -68,7 +64,7 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 	for _, seed := range seeds {
 		addSeed(seed)
 	}
-	for _, seed := range vp9RefControlsRegressionSeeds {
+	for _, seed := range vp9RefControlParitySeeds {
 		addSeed(seed)
 	}
 

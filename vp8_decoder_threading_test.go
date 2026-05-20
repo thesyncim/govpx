@@ -16,14 +16,14 @@ import (
 // parity is the hard constraint for R10-G; if any frame's Y/U/V planes
 // differ between Threads=0 and Threads>=2 the test fails.
 func TestDecoderThreadingPipelinedMatchesSerial(t *testing.T) {
-	cases := libvpxAuthoredSmokeCases()
-	cases = append(cases, smokeCase{name: "govpx", ivfHex: govpxSmokeIVFHex, checksums: govpxSmokeChecksums[:]})
+	cases := libvpxAuthoredDecodeCases()
+	cases = append(cases, decodeFixtureCase{name: "govpx", ivfHex: govpxBaselineIVFHex, checksums: govpxBaselineChecksums[:]})
 
 	for _, threads := range []int{2, 4, 8} {
 		for _, tc := range cases {
 			name := tc.name + "/threads=" + itoa(threads)
 			t.Run(name, func(t *testing.T) {
-				frames := mustDecodeSmokeIVFFrames(t, tc.ivfHex, len(tc.checksums))
+				frames := mustDecodeIVFFrames(t, tc.ivfHex, len(tc.checksums))
 
 				// Serial reference.
 				serial, err := NewVP8Decoder(DecoderOptions{})
@@ -83,11 +83,11 @@ func TestDecoderThreadingPipelinedMatchesSerial(t *testing.T) {
 // image. This exercises the threaded recon+LF pipeline followed by the
 // public DecodeInto copy.
 func TestDecoderThreadingDecodeIntoMatchesSerial(t *testing.T) {
-	cases := libvpxAuthoredSmokeCases()
+	cases := libvpxAuthoredDecodeCases()
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			frames := mustDecodeSmokeIVFFrames(t, tc.ivfHex, len(tc.checksums))
+			frames := mustDecodeIVFFrames(t, tc.ivfHex, len(tc.checksums))
 
 			serial, err := NewVP8Decoder(DecoderOptions{})
 			if err != nil {

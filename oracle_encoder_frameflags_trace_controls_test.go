@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-// TestOracleVpxencFrameFlagsOracleSmoke is the infrastructure smoke
+// TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls is the infrastructure smoke
 // test for the combined VP8 reference driver produced by
 // internal/coracle/build_vpxenc_frameflags_oracle.sh. It encodes a
 // short 64x64 panning fixture through `vpxenc-frameflags-oracle`
@@ -29,10 +29,10 @@ import (
 // The test asserts that the resulting IVF has at least one frame,
 // that the JSONL trace contains both `"type":"frame"` and
 // `"type":"mb"` rows, and that no run of the combined surface drops
-// either capability silently. It is intentionally cheap — 4 frames,
+// either capability silently. It is intentionally cheap: 4 frames,
 // 64x64, single-threaded — so it can run on every govpx_oracle_trace
 // build without slowing down the parity gate.
-func TestOracleVpxencFrameFlagsOracleSmoke(t *testing.T) {
+func TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls(t *testing.T) {
 	driver := findVpxencFrameFlagsOracle(t)
 
 	const (
@@ -48,9 +48,9 @@ func TestOracleVpxencFrameFlagsOracleSmoke(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "smoke.yuv")
-	ivfPath := filepath.Join(dir, "smoke.ivf")
-	tracePath := filepath.Join(dir, "smoke.jsonl")
+	yuvPath := filepath.Join(dir, "trace-controls.yuv")
+	ivfPath := filepath.Join(dir, "trace-controls.ivf")
+	tracePath := filepath.Join(dir, "trace-controls.jsonl")
 	writeEncoderValidationI420(t, yuvPath, sources)
 
 	// Per-frame control-script: frame 0 keeps the starting bitrate
@@ -146,6 +146,6 @@ func TestOracleVpxencFrameFlagsOracleSmoke(t *testing.T) {
 	if mbRows == 0 {
 		t.Fatalf("no per-MB trace rows in %s (oracle_trace.c TU likely not linked into libvpx.a)", tracePath)
 	}
-	t.Logf("vpxenc-frameflags-oracle smoke ok: frames=%d ivf=%d trace_frame_rows=%d trace_mb_rows=%d",
+	t.Logf("vpxenc-frameflags-oracle trace-control coverage ok: frames=%d ivf=%d trace_frame_rows=%d trace_mb_rows=%d",
 		len(payloads), len(ivfData), frameRows, mbRows)
 }

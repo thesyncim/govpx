@@ -9,32 +9,32 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
-func TestSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, govpxSmokeIVFHex, govpxSmokeChecksums[:])
+func TestGovpxEncodedIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFMatchesLibvpxChecksums(t, govpxBaselineIVFHex, govpxBaselineChecksums[:])
 }
 
-func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFTokenPartition(t, libvpxEncodedSmokeIVFHex, vp8common.OnePartition)
-	assertSmokeIVFHasMacroblockMode(t, libvpxEncodedSmokeIVFHex, vp8common.KeyFrame, vp8common.BPred)
-	assertSmokeIVFHasMacroblockMode(t, libvpxEncodedSmokeIVFHex, vp8common.InterFrame, vp8common.NewMV)
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
+func TestLibvpxEncodedIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFTokenPartition(t, libvpxEncodedBaselineIVFHex, vp8common.OnePartition)
+	assertIVFHasMacroblockMode(t, libvpxEncodedBaselineIVFHex, vp8common.KeyFrame, vp8common.BPred)
+	assertIVFHasMacroblockMode(t, libvpxEncodedBaselineIVFHex, vp8common.InterFrame, vp8common.NewMV)
+	assertIVFMatchesLibvpxChecksums(t, libvpxEncodedBaselineIVFHex, libvpxEncodedBaselineChecksums[:])
 }
 
-func TestLibvpxAuthoredSmokeDecodeIntoMatchesLibvpxChecksums(t *testing.T) {
-	for _, tc := range libvpxAuthoredSmokeCases() {
+func TestLibvpxAuthoredDecodeIntoMatchesLibvpxChecksums(t *testing.T) {
+	for _, tc := range libvpxAuthoredDecodeCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t, tc.ivfHex, tc.checksums)
+			assertIVFDecodeIntoMatchesLibvpxChecksums(t, tc.ivfHex, tc.checksums)
 		})
 	}
 }
 
-func TestLibvpxEncodedSmokeDecodeHotPathAllocs(t *testing.T) {
-	frames := mustDecodeSmokeIVFFrames(t, libvpxEncodedSmokeIVFHex, len(libvpxEncodedSmokeChecksums))
+func TestLibvpxEncodedDecodeHasNoHotPathAllocs(t *testing.T) {
+	frames := mustDecodeIVFFrames(t, libvpxEncodedBaselineIVFHex, len(libvpxEncodedBaselineChecksums))
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	decodeSmokeFrames(t, d, frames)
+	decodeFrames(t, d, frames)
 
 	allocs := testing.AllocsPerRun(1000, func() {
 		d.Reset()
@@ -48,16 +48,16 @@ func TestLibvpxEncodedSmokeDecodeHotPathAllocs(t *testing.T) {
 	}
 }
 
-func TestLibvpxAuthoredSmokeDecodeIntoHotPathAllocs(t *testing.T) {
-	for _, tc := range libvpxAuthoredSmokeCases() {
+func TestLibvpxAuthoredDecodeIntoHasNoHotPathAllocs(t *testing.T) {
+	for _, tc := range libvpxAuthoredDecodeCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			frames := mustDecodeSmokeIVFFrames(t, tc.ivfHex, len(tc.checksums))
+			frames := mustDecodeIVFFrames(t, tc.ivfHex, len(tc.checksums))
 			d, err := NewVP8Decoder(DecoderOptions{})
 			if err != nil {
 				t.Fatalf("NewVP8Decoder returned error: %v", err)
 			}
 			dst := testImage(tc.checksums[0].Width, tc.checksums[0].Height)
-			decodeSmokeFramesInto(t, d, frames, &dst)
+			decodeFramesInto(t, d, frames, &dst)
 
 			allocs := testing.AllocsPerRun(1000, func() {
 				d.Reset()
@@ -72,7 +72,7 @@ func TestLibvpxAuthoredSmokeDecodeIntoHotPathAllocs(t *testing.T) {
 	}
 }
 
-func TestTokenPartitionSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+func TestTokenPartitionIVFMatchesLibvpxChecksums(t *testing.T) {
 	cases := []struct {
 		name      string
 		ivfHex    string
@@ -84,14 +84,14 @@ func TestTokenPartitionSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assertSmokeIVFTokenPartition(t, tc.ivfHex, tc.partition)
-			assertSmokeIVFHasMacroblockMode(t, tc.ivfHex, vp8common.InterFrame, vp8common.SplitMV)
-			assertSmokeIVFMatchesLibvpxChecksums(t, tc.ivfHex, libvpxTokenPartitionChecksums[:])
+			assertIVFTokenPartition(t, tc.ivfHex, tc.partition)
+			assertIVFHasMacroblockMode(t, tc.ivfHex, vp8common.InterFrame, vp8common.SplitMV)
+			assertIVFMatchesLibvpxChecksums(t, tc.ivfHex, libvpxTokenPartitionChecksums[:])
 		})
 	}
 }
 
-func TestSupportedProfileSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+func TestSupportedProfileIVFMatchesLibvpxChecksums(t *testing.T) {
 	cases := []struct {
 		name      string
 		ivfHex    string
@@ -104,48 +104,48 @@ func TestSupportedProfileSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assertSmokeIVFProfile(t, tc.ivfHex, tc.profile)
-			assertSmokeIVFMatchesLibvpxChecksums(t, tc.ivfHex, tc.checksums)
+			assertIVFProfile(t, tc.ivfHex, tc.profile)
+			assertIVFMatchesLibvpxChecksums(t, tc.ivfHex, tc.checksums)
 		})
 	}
 }
 
-func TestLoopFilterSharpnessSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFLoopFilterSharpness(t, libvpxSharpness7IVFHex, vp8common.InterFrame, 7)
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxSharpness7IVFHex, libvpxSharpness7Checksums[:])
+func TestLoopFilterSharpnessIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFLoopFilterSharpness(t, libvpxSharpness7IVFHex, vp8common.InterFrame, 7)
+	assertIVFMatchesLibvpxChecksums(t, libvpxSharpness7IVFHex, libvpxSharpness7Checksums[:])
 }
 
-func TestErrorResilientSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxErrorResilientIVFHex, libvpxErrorResilientChecksums[:])
+func TestErrorResilientIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFMatchesLibvpxChecksums(t, libvpxErrorResilientIVFHex, libvpxErrorResilientChecksums[:])
 }
 
-func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, govpxNewMVIVFHex, govpxNewMVChecksums[:])
+func TestNewMVIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFMatchesLibvpxChecksums(t, govpxNewMVIVFHex, govpxNewMVChecksums[:])
 }
 
-func TestSubpixelNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, govpxSubpixelNewMVIVFHex, govpxSubpixelNewMVChecksums[:])
+func TestSubpixelNewMVIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFMatchesLibvpxChecksums(t, govpxSubpixelNewMVIVFHex, govpxSubpixelNewMVChecksums[:])
 }
 
-func TestIntraInterSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, govpxIntraInterIVFHex, govpxIntraInterChecksums[:])
+func TestIntraInterIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFMatchesLibvpxChecksums(t, govpxIntraInterIVFHex, govpxIntraInterChecksums[:])
 }
 
-func TestIntraModeSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, govpxIntraModeIVFHex, govpxIntraModeChecksums[:])
+func TestIntraModeIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFMatchesLibvpxChecksums(t, govpxIntraModeIVFHex, govpxIntraModeChecksums[:])
 }
 
-func TestChromaModeSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, govpxChromaModeIVFHex, govpxChromaModeChecksums[:])
+func TestChromaModeIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertIVFMatchesLibvpxChecksums(t, govpxChromaModeIVFHex, govpxChromaModeChecksums[:])
 }
 
-func BenchmarkLibvpxEncodedSmokeDecode(b *testing.B) {
-	frames := mustDecodeSmokeIVFFrames(b, libvpxEncodedSmokeIVFHex, len(libvpxEncodedSmokeChecksums))
+func BenchmarkLibvpxEncodedDecode(b *testing.B) {
+	frames := mustDecodeIVFFrames(b, libvpxEncodedBaselineIVFHex, len(libvpxEncodedBaselineChecksums))
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		b.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	decodeSmokeFrames(b, d, frames)
+	decodeFrames(b, d, frames)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -162,13 +162,13 @@ func BenchmarkLibvpxEncodedSmokeDecode(b *testing.B) {
 	}
 }
 
-func BenchmarkLibvpxEncodedSmokeDecodeInto(b *testing.B) {
-	frames := mustDecodeSmokeIVFFrames(b, libvpxEncodedSmokeIVFHex, len(libvpxEncodedSmokeChecksums))
+func BenchmarkLibvpxEncodedDecodeInto(b *testing.B) {
+	frames := mustDecodeIVFFrames(b, libvpxEncodedBaselineIVFHex, len(libvpxEncodedBaselineChecksums))
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		b.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	dst := testImage(libvpxEncodedSmokeChecksums[0].Width, libvpxEncodedSmokeChecksums[0].Height)
+	dst := testImage(libvpxEncodedBaselineChecksums[0].Width, libvpxEncodedBaselineChecksums[0].Height)
 	for i := range frames {
 		if _, err := d.DecodeInto(frames[i], &dst); err != nil {
 			b.Fatalf("warm DecodeInto frame %d returned error: %v", i, err)
@@ -187,7 +187,7 @@ func BenchmarkLibvpxEncodedSmokeDecodeInto(b *testing.B) {
 	}
 }
 
-func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums []testutil.FrameChecksum) {
+func assertIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums []testutil.FrameChecksum) {
 	t.Helper()
 	if len(checksums) == 0 {
 		t.Fatalf("checksums must not be empty")
@@ -232,15 +232,15 @@ func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums
 	}
 }
 
-type smokeCase struct {
+type decodeFixtureCase struct {
 	name      string
 	ivfHex    string
 	checksums []testutil.FrameChecksum
 }
 
-func libvpxAuthoredSmokeCases() []smokeCase {
-	return []smokeCase{
-		{name: "base", ivfHex: libvpxEncodedSmokeIVFHex, checksums: libvpxEncodedSmokeChecksums[:]},
+func libvpxAuthoredDecodeCases() []decodeFixtureCase {
+	return []decodeFixtureCase{
+		{name: "base", ivfHex: libvpxEncodedBaselineIVFHex, checksums: libvpxEncodedBaselineChecksums[:]},
 		{name: "token-two", ivfHex: libvpxTwoTokenPartitionIVFHex, checksums: libvpxTokenPartitionChecksums[:]},
 		{name: "token-four", ivfHex: libvpxFourTokenPartitionIVFHex, checksums: libvpxTokenPartitionChecksums[:]},
 		{name: "token-eight", ivfHex: libvpxEightTokenPartitionIVFHex, checksums: libvpxTokenPartitionChecksums[:]},
@@ -252,7 +252,7 @@ func libvpxAuthoredSmokeCases() []smokeCase {
 	}
 }
 
-func mustDecodeSmokeIVFFrames(t testing.TB, ivfHex string, want int) [][]byte {
+func mustDecodeIVFFrames(t testing.TB, ivfHex string, want int) [][]byte {
 	t.Helper()
 	ivf := mustDecodeHex(t, ivfHex)
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -274,7 +274,7 @@ func mustDecodeSmokeIVFFrames(t testing.TB, ivfHex string, want int) [][]byte {
 	return frames
 }
 
-func decodeSmokeFrames(t testing.TB, d *VP8Decoder, frames [][]byte) {
+func decodeFrames(t testing.TB, d *VP8Decoder, frames [][]byte) {
 	t.Helper()
 	d.Reset()
 	for i := range frames {
@@ -287,7 +287,7 @@ func decodeSmokeFrames(t testing.TB, d *VP8Decoder, frames [][]byte) {
 	}
 }
 
-func decodeSmokeFramesInto(t testing.TB, d *VP8Decoder, frames [][]byte, dst *Image) {
+func decodeFramesInto(t testing.TB, d *VP8Decoder, frames [][]byte, dst *Image) {
 	t.Helper()
 	d.Reset()
 	for i := range frames {
@@ -300,7 +300,7 @@ func decodeSmokeFramesInto(t testing.TB, d *VP8Decoder, frames [][]byte, dst *Im
 	}
 }
 
-func assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums []testutil.FrameChecksum) {
+func assertIVFDecodeIntoMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums []testutil.FrameChecksum) {
 	t.Helper()
 	if len(checksums) == 0 {
 		t.Fatalf("checksums must not be empty")
@@ -349,7 +349,7 @@ func assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t *testing.T, ivfHex string,
 	}
 }
 
-func assertSmokeIVFTokenPartition(t *testing.T, ivfHex string, want vp8common.TokenPartition) {
+func assertIVFTokenPartition(t *testing.T, ivfHex string, want vp8common.TokenPartition) {
 	t.Helper()
 	ivf := mustDecodeHex(t, ivfHex)
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -374,7 +374,7 @@ func assertSmokeIVFTokenPartition(t *testing.T, ivfHex string, want vp8common.To
 	}
 }
 
-func assertSmokeIVFProfile(t *testing.T, ivfHex string, want int) {
+func assertIVFProfile(t *testing.T, ivfHex string, want int) {
 	t.Helper()
 	ivf := mustDecodeHex(t, ivfHex)
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -397,7 +397,7 @@ func assertSmokeIVFProfile(t *testing.T, ivfHex string, want int) {
 	}
 }
 
-func assertSmokeIVFLoopFilterSharpness(t *testing.T, ivfHex string, frameType vp8common.FrameType, want uint8) {
+func assertIVFLoopFilterSharpness(t *testing.T, ivfHex string, frameType vp8common.FrameType, want uint8) {
 	t.Helper()
 	ivf := mustDecodeHex(t, ivfHex)
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -436,7 +436,7 @@ func assertSmokeIVFLoopFilterSharpness(t *testing.T, ivfHex string, frameType vp
 	}
 }
 
-func assertSmokeIVFHasMacroblockMode(t *testing.T, ivfHex string, frameType vp8common.FrameType, mode vp8common.MBPredictionMode) {
+func assertIVFHasMacroblockMode(t *testing.T, ivfHex string, frameType vp8common.FrameType, mode vp8common.MBPredictionMode) {
 	t.Helper()
 	ivf := mustDecodeHex(t, ivfHex)
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -503,9 +503,9 @@ func md5Hex(s string) [16]byte {
 
 // Generated from govpx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle.
-const govpxSmokeIVFHex = "444b49460000200056503830200010001e0000000100000002000000000000005f00000000000000000000001001009d012a2000100000002800000f0400fef6507ffdfa69ff39ffff26c9725c9724e2c6abb51e9788e49c58d57ffff295ffc6eff765c16ffff99a3ff49bfec37901fe81f697ffbf4d3fe73ff4fd3f4fd3c43cb5ada69e9788796b5b1e00120000000100000000000000d101000000a03100048981818043a46b0000"
+const govpxBaselineIVFHex = "444b49460000200056503830200010001e0000000100000002000000000000005f00000000000000000000001001009d012a2000100000002800000f0400fef6507ffdfa69ff39ffff26c9725c9724e2c6abb51e9788e49c58d57ffff295ffc6eff765c16ffff99a3ff49bfec37901fe81f697ffbf4d3fe73ff4fd3f4fd3c43cb5ada69e9788796b5b1e00120000000100000000000000d101000000a03100048981818043a46b0000"
 
-var govpxSmokeChecksums = [...]testutil.FrameChecksum{
+var govpxBaselineChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     32,
@@ -534,9 +534,9 @@ var govpxSmokeChecksums = [...]testutil.FrameChecksum{
 	},
 }
 
-const libvpxEncodedSmokeIVFHex = testutil.LibvpxEncodedSmokeIVFHex
+const libvpxEncodedBaselineIVFHex = testutil.LibvpxEncodedSmokeIVFHex
 
-var libvpxEncodedSmokeChecksums = [...]testutil.FrameChecksum{
+var libvpxEncodedBaselineChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     32,
