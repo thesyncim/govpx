@@ -4,14 +4,11 @@ package govpx
 
 import (
 	"bytes"
-	"crypto/md5"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
@@ -25,31 +22,22 @@ func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
 		vp9test.NewHorizontalBandsYCbCr(width, height, 112, 144),
 		vp9test.NewChromaHorizontalBandsYCbCr(width, height),
 	}
-	raw := make([]byte, 0, len(frames)*(width*height+2*((width+1)>>1)*((height+1)>>1)))
-	for _, frame := range frames {
-		raw = vp9test.AppendI420(raw, frame)
-	}
-	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, len(frames),
+	packets := vp9test.VpxencPackets(t, frames,
 		"--kf-min-dist=999",
 		"--kf-max-dist=999",
 	)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
-	}
-	assertVpxencVP9StreamInfo(t, ivf)
+	assertVpxencVP9StreamInfo(t, packets)
 
-	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
-	}
+	ivf := vp9test.BuildIVF(width, height, packets...)
+	want := vp9test.VpxdecI420(t, ivf)
 	got, err := decodeVP9IVFVisibleI420(ivf)
 	if err != nil {
 		t.Fatalf("govpx Decode VP9 vpxenc IVF returned error: %v", err)
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("I420 mismatch for vpxenc-vp9 Profile 0 stream\nlibvpx=%s\ngovpx=%s",
-			testutil.MD5Hex(md5.Sum(want)),
-			testutil.MD5Hex(md5.Sum(got)))
+			vp9test.MD5Hex(want),
+			vp9test.MD5Hex(got))
 	}
 }
 
@@ -58,39 +46,19 @@ func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
 
 	const width, height = 64, 64
 	frame := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
-	raw := vp9test.AppendI420(nil, frame)
-	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
-	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
-	first, _, err := testutil.NextIVFFrame(ivf, offset, 0)
-	if err != nil {
-		t.Fatalf("NextIVFFrame: %v", err)
-	}
-	h, _ := vp9test.ParseHeader(t, first.Data)
+	first := vp9test.VpxencPackets(t, []*image.YCbCr{frame})[0]
+	h, _ := vp9test.ParseHeader(t, first)
 	if got := int(h.Quant.BaseQindex); got != vp9DefaultBaseQIndex {
 		t.Fatalf("vpxenc-vp9 BaseQindex = %d, want pinned default %d",
 			got, vp9DefaultBaseQIndex)
 	}
 }
 
-func assertVpxencVP9StreamInfo(t *testing.T, ivf []byte) {
+func assertVpxencVP9StreamInfo(t *testing.T, packets [][]byte) {
 	t.Helper()
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
 	seenInter := false
-	for index := 0; offset < len(ivf); index++ {
-		frame, next, err := testutil.NextIVFFrame(ivf, offset, index)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", index, err)
-		}
-		info, err := PeekVP9StreamInfo(frame.Data)
+	for index, packet := range packets {
+		info, err := PeekVP9StreamInfo(packet)
 		if err != nil {
 			t.Fatalf("PeekVP9StreamInfo[%d]: %v", index, err)
 		}
@@ -103,7 +71,6 @@ func assertVpxencVP9StreamInfo(t *testing.T, ivf []byte) {
 		if index > 0 && !info.KeyFrame {
 			seenInter = true
 		}
-		offset = next
 	}
 	if !seenInter {
 		t.Fatalf("vpxenc-vp9 corpus did not produce an inter frame")

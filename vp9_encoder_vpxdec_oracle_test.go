@@ -4,14 +4,11 @@ package govpx
 
 import (
 	"bytes"
-	"crypto/md5"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -33,22 +30,7 @@ func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
-		Width:               64,
-		Height:              64,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-		FrameCount:          1,
-	}
-	stream := append(testutil.WriteIVFHeader(header),
-		testutil.WriteIVFFrame(payload, 0)...)
-
-	out, err := coracle.VpxdecVP9Decode(stream)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected the encoder output: %v\nvpxdec output:\n%s",
-			err, out)
-	}
+	vp9test.VpxdecAccepts(t, "the encoder output", 64, 64, payload)
 }
 
 func TestVP9EncoderVpxdecOracleMatchesACKeyframe(t *testing.T) {
@@ -420,10 +402,7 @@ func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
 		t.Fatalf("Encode resized keyframe: %v", err)
 	}
 
-	out, err := coracle.VpxdecVP9Decode(vp9IVFForTest(w1, h1, key, inter, resized))
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected runtime resize stream: %v\n%s", err, out)
-	}
+	vp9test.VpxdecAccepts(t, "runtime resize stream", w1, h1, key, inter, resized)
 }
 
 func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
@@ -466,10 +445,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
 	}
 	packet := vp9SuperframePacketForTest(key, inter)
 
-	_, diag, err := coracle.VpxdecVP9DecodeI420(vp9IVFForTest(width, height, packet))
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected packed superframe: %v\n%s", err, diag)
-	}
+	vp9test.VpxdecAccepts(t, "packed superframe", width, height, packet)
 }
 
 func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
@@ -661,36 +637,18 @@ func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
-		Width:               128,
-		Height:              64,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-		FrameCount:          1,
-	}
-	stream := append(testutil.WriteIVFHeader(header),
-		testutil.WriteIVFFrame(payload, 0)...)
-
-	out, err := coracle.VpxdecVP9Decode(stream)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected the multi-SB keyframe: %v\nvpxdec:\n%s",
-			err, out)
-	}
+	vp9test.VpxdecAccepts(t, "the multi-SB keyframe", 128, 64, payload)
 }
 
 func assertVP9EncoderVpxdecI420Match(t *testing.T, width, height int, packets ...[]byte) {
 	t.Helper()
 	ivf := vp9IVFForTest(width, height, packets...)
-	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
-	}
+	want := vp9test.VpxdecI420(t, ivf)
 	got := vp9DecodeVisibleI420ForTest(t, packets...)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("I420 mismatch for encoder stream\nlibvpx=%s\ngovpx=%s",
-			testutil.MD5Hex(md5.Sum(want)),
-			testutil.MD5Hex(md5.Sum(got)))
+			vp9test.MD5Hex(want),
+			vp9test.MD5Hex(got))
 	}
 }
 
@@ -708,22 +666,7 @@ func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
-		Width:               64,
-		Height:              128,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-		FrameCount:          1,
-	}
-	stream := append(testutil.WriteIVFHeader(header),
-		testutil.WriteIVFFrame(payload, 0)...)
-
-	out, err := coracle.VpxdecVP9Decode(stream)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected the vertical-SB stack: %v\nvpxdec:\n%s",
-			err, out)
-	}
+	vp9test.VpxdecAccepts(t, "the vertical-SB stack", 64, 128, payload)
 }
 
 // TestVP9EncoderVpxdecOracleAcceptsLargeFrame runs the structural gate
@@ -739,22 +682,7 @@ func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
-		Width:               256,
-		Height:              192,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-		FrameCount:          1,
-	}
-	stream := append(testutil.WriteIVFHeader(header),
-		testutil.WriteIVFFrame(payload, 0)...)
-
-	out, err := coracle.VpxdecVP9Decode(stream)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected the large keyframe: %v\nvpxdec:\n%s",
-			err, out)
-	}
+	vp9test.VpxdecAccepts(t, "the large keyframe", 256, 192, payload)
 }
 
 // TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes expands structural
@@ -785,22 +713,8 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
 				t.Fatalf("Encode: %v", err)
 			}
 
-			header := testutil.IVFHeader{
-				FourCC:              [4]byte{'V', 'P', '9', '0'},
-				Width:               tc.width,
-				Height:              tc.height,
-				TimebaseDenominator: 30,
-				TimebaseNumerator:   1,
-				FrameCount:          1,
-			}
-			stream := append(testutil.WriteIVFHeader(header),
-				testutil.WriteIVFFrame(payload, 0)...)
-
-			out, err := coracle.VpxdecVP9Decode(stream)
-			if err != nil {
-				t.Fatalf("vpxdec-vp9 rejected %dx%d keyframe: %v\nvpxdec:\n%s",
-					tc.width, tc.height, err, out)
-			}
+			vp9test.VpxdecAccepts(t, "edge-clipped keyframe", tc.width,
+				tc.height, payload)
 		})
 	}
 }
@@ -823,23 +737,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPublicInterSkip(t *testing.T) {
 		t.Fatalf("Encode inter: %v", err)
 	}
 
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
-		Width:               64,
-		Height:              64,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-		FrameCount:          2,
-	}
-	stream := append(testutil.WriteIVFHeader(header),
-		testutil.WriteIVFFrame(key, 0)...)
-	stream = append(stream, testutil.WriteIVFFrame(inter, 1)...)
-
-	out, err := coracle.VpxdecVP9Decode(stream)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected the public inter skip frame: %v\nvpxdec:\n%s",
-			err, out)
-	}
+	vp9test.VpxdecAccepts(t, "the public inter skip frame", 64, 64, key, inter)
 }
 
 // TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame covers the first
@@ -850,23 +748,7 @@ func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
 
 	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterSkipFrameForTest(t, 64, 64)
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
-		Width:               64,
-		Height:              64,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-		FrameCount:          2,
-	}
-	stream := append(testutil.WriteIVFHeader(header),
-		testutil.WriteIVFFrame(key, 0)...)
-	stream = append(stream, testutil.WriteIVFFrame(inter, 1)...)
-
-	out, err := coracle.VpxdecVP9Decode(stream)
-	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected the inter skip frame: %v\nvpxdec:\n%s",
-			err, out)
-	}
+	vp9test.VpxdecAccepts(t, "the inter skip frame", 64, 64, key, inter)
 }
 
 // TestVP9EncoderVpxdecOracleAcceptsEdgeClippedPublicInterSkip keeps the
@@ -899,23 +781,8 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedPublicInterSkip(t *testing.T) {
 				t.Fatalf("Encode inter: %v", err)
 			}
 
-			header := testutil.IVFHeader{
-				FourCC:              [4]byte{'V', 'P', '9', '0'},
-				Width:               tc.width,
-				Height:              tc.height,
-				TimebaseDenominator: 30,
-				TimebaseNumerator:   1,
-				FrameCount:          2,
-			}
-			stream := append(testutil.WriteIVFHeader(header),
-				testutil.WriteIVFFrame(key, 0)...)
-			stream = append(stream, testutil.WriteIVFFrame(inter, 1)...)
-
-			out, err := coracle.VpxdecVP9Decode(stream)
-			if err != nil {
-				t.Fatalf("vpxdec-vp9 rejected %dx%d public inter skip: %v\nvpxdec:\n%s",
-					tc.width, tc.height, err, out)
-			}
+			vp9test.VpxdecAccepts(t, "edge-clipped public inter skip",
+				tc.width, tc.height, key, inter)
 		})
 	}
 }

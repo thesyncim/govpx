@@ -30,6 +30,14 @@ func VpxdecI420(t testing.TB, ivf []byte) []byte {
 	return out
 }
 
+func VpxdecAccepts(t testing.TB, label string, width, height int, packets ...[]byte) {
+	t.Helper()
+	out, err := coracle.VpxdecVP9Decode(BuildIVF(width, height, packets...))
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 rejected %s: %v\nvpxdec:\n%s", label, err, out)
+	}
+}
+
 func VpxdecI420WithOptions(t testing.TB, ivf []byte, opts VpxdecOptions) []byte {
 	t.Helper()
 	out, diag, err := coracle.VpxdecVP9DecodeI420WithOptions(ivf,
