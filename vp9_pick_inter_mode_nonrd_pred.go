@@ -9,7 +9,7 @@ import (
 func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 ) bool {
-	if e.sf.ReuseInterPredSby == 0 || !vp9NonrdPickPartitionEnabled() ||
+	if e.sf.ReuseInterPredSby == 0 ||
 		e.sf.PartitionSearchType != MlBasedPartition ||
 		bsize < common.Block8x8 || bsize >= common.BlockSizes {
 		return false

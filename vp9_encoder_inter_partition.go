@@ -70,31 +70,20 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// This dispatch follows sf.PartitionSearchType == ML_BASED_PARTITION
 	// directly, matching libvpx's use_ml_based_partitioning predicate.
 	if e.sf.PartitionSearchType == MlBasedPartition {
-		if vp9NonrdPickPartitionEnabled() {
-			if root == common.Block64x64 || root == common.Block32x32 ||
-				root == common.Block16x16 {
-				if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
-					miRow, miCol); mlCtx != nil {
-					if picked, ok := e.vp9NonrdPickPartition(mlCtx, miRows,
-						miCols, miRow, miCol, root); ok {
-						return picked
-					}
-					// libvpx vp9_encodeframe.c:4675-4746 — NN=-1
-					// PARTITION_NONE vs PARTITION_SPLIT RDCOST compare.
-					if picked, ok := e.vp9NonrdPickPartitionRDFallback(
-						inter, tile, partitionProbs, miRows, miCols,
-						miRow, miCol, root); ok {
-						return picked
-					}
-				}
-			}
-		} else if root == common.Block64x64 {
+		if root == common.Block64x64 || root == common.Block32x32 ||
+			root == common.Block16x16 {
 			if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
 				miRow, miCol); mlCtx != nil {
-				pred := vp9MLPredictVarPartitioning(common.Block64x64,
-					miRow, miCol, mlCtx)
-				if pred == vp9MLPredictNone {
-					return common.Block64x64
+				if picked, ok := e.vp9NonrdPickPartition(mlCtx, miRows,
+					miCols, miRow, miCol, root); ok {
+					return picked
+				}
+				// libvpx vp9_encodeframe.c:4675-4746 — NN=-1
+				// PARTITION_NONE vs PARTITION_SPLIT RDCOST compare.
+				if picked, ok := e.vp9NonrdPickPartitionRDFallback(
+					inter, tile, partitionProbs, miRows, miCols,
+					miRow, miCol, root); ok {
+					return picked
 				}
 			}
 		}

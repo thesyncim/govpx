@@ -38,18 +38,18 @@ Largest root files:
 | 2200 | `vp9_encoder_key_modes.go` |
 | 2130 | `vp9_speed_features.go` |
 | 1946 | `feature_quality_gates_vp8_test.go` |
-| 1861 | `vp9_encoder_vpxenc_oracle_test.go` |
-| 1837 | `vp9_decoder.go` |
+| 1862 | `vp9_encoder_vpxenc_oracle_test.go` |
+| 1836 | `vp9_decoder.go` |
 | 1793 | `vp9_encoder_inter_modes.go` |
 | 1772 | `vp8_encoder_runtime_controls_test.go` |
 | 1723 | `vp8_encoder_config.go` |
-| 1706 | `vp9_spatial_svc_test.go` |
-| 1662 | `vp9_encoder_inter_partition.go` |
-| 1651 | `vp9_pick_inter_mode_nonrd.go` |
+| 1707 | `vp9_spatial_svc_test.go` |
+| 1651 | `vp9_encoder_inter_partition.go` |
+| 1548 | `vp9_pick_inter_mode_nonrd.go` |
 | 1518 | `vp8_oracle_encoder_stream_parity_test.go` |
-| 1512 | `vp9_decoder_modes.go` |
+| 1503 | `vp9_decoder_modes.go` |
 | 1488 | `vp8_encoder_twopass_state.go` |
-| 1405 | `vp9_encoder_ratecontrol_test.go` |
+| 1406 | `vp9_encoder_ratecontrol_test.go` |
 
 Largest internal files:
 
@@ -187,7 +187,7 @@ This ledger tracks intent, not completed work.
 | Area | Current State | Target |
 | --- | --- | --- |
 | Root VP8 implementation | 80 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
-| Root VP9 implementation | 66 root VP9 implementation files remain; VP9 SVC layer-context state now lives in `internal/vp9/encoder`, and stale VP9 stderr debug hooks are removed. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
+| Root VP9 implementation | 66 root VP9 implementation files remain; VP9 SVC layer-context state now lives in `internal/vp9/encoder`; stale VP9 stderr debug hooks and the always-on non-RD staging predicate are removed. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
 | Root tests | 361 top-level root tests remain; many are codec implementation and parity tests; shared VP9 YCbCr/I420/header helpers now live in `internal/testutil/vp9test`; VP8 and VP9 RTP fuzzers now live beside the internal RTP packages. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx/rtp` owns shared RTP fragment packing, marker, and assembly loops; codec packages keep descriptor syntax and validation. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |

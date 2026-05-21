@@ -8,12 +8,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// vp9NonrdPickPartitionEnabled returns true for the default libvpx-aligned
-// nonrd path. Callers still apply the speed-feature predicate locally.
-func vp9NonrdPickPartitionEnabled() bool {
-	return true
-}
-
 // vp9_nonrd_pick_partition.go ports the ML_BASED_PARTITION branch of libvpx
 // v1.16.0 vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition into
 // govpx, plus the ml_predict_var_partitioning helper at vp9_encodeframe.c:
@@ -127,7 +121,7 @@ type vp9MLPickPredSnapshot struct {
 func (e *VP9Encoder) saveVP9MLPickPredSnapshot(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 ) vp9MLPickPredSnapshot {
-	if !vp9NonrdPickPartitionEnabled() || e.sf.PartitionSearchType != MlBasedPartition {
+	if e.sf.PartitionSearchType != MlBasedPartition {
 		return vp9MLPickPredSnapshot{}
 	}
 	ctx := e.vp9MLPickPartitionEntry(inter, miRows, miCols, miRow, miCol)

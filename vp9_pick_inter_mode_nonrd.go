@@ -228,9 +228,9 @@ func (bp *vp9BestPickmode) reset() {
 //     64x64 partition leaves on these seeds.
 //     TODO: port block_yrd full kernel (Phase E1b).
 //
-// The model_rd_for_sb_y substrate now runs by default through
-// vp9NonrdPickPartitionEnabled(); the legacy SSE-only proxy remains in the
-// source as the fallback branch but is no longer selected by default.
+// The model_rd_for_sb_y substrate is the only non-RD scoring path here; old
+// SSE-only staging code has been removed now that the libvpx-shaped path is
+// covered by the default parity tests.
 //
 // The pickVP9InterReferenceMode entry routes to this function when
 // e.sf.UseNonrdPickMode != 0 (cpu_used >= 5 realtime). At cpu_used < 5 the
@@ -841,13 +841,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			mvOpts := vp9InterMvSearchOptions{
 				refMv:           refMvOpt,
 				refMvValid:      refMvValid,
-				nonrdSubpelTree: vp9NonrdPickPartitionEnabled(),
+				nonrdSubpelTree: true,
 			}
 			// libvpx vp9_pickmode.c:2046-2047 clears sb_use_mv_part for
 			// SVC, speed <= 7, or leaves smaller than BLOCK_32X32. govpx's
 			// non-SVC realtime lane mirrors the speed/block-size legs here.
-			if vp9NonrdPickPartitionEnabled() &&
-				e.vp9SpeedFeatureCPUUsed() > 7 &&
+			if e.vp9SpeedFeatureCPUUsed() > 7 &&
 				bsize >= common.Block32x32 {
 				if mvPart, ok := e.vp9VarPartSBMvPart(miCols, miRow, miCol); ok {
 					mvOpts.seed = mvPart
@@ -1028,11 +1027,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		useSimpleBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
 			bsize < common.Block32x32
 
-		// useModelRD selects the libvpx-faithful model_rd_for_sb_y +
-		// block_yrd substrate. The historical env gate is retired; the
-		// legacy SSE-only proxy remains below as a fallback branch.
-		useModelRD := vp9NonrdPickPartitionEnabled()
-
 		// segId for dequant lookup.
 		var dequantY [2]int16
 		var dequantU, dequantV [2]int16
@@ -1044,364 +1038,271 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			dequantV = inter.dq.Uv[0]
 		}
 
-		// libvpx: vp9_pickmode.c:2318-2328 — when the gate at the top of
-		// the per-mode body fires, libvpx invokes search_filter_ref which
-		// sweeps {EIGHTTAP, EIGHTTAP_SMOOTH} using model_rd_for_sb_y and
-		// selects the winner via the libvpx-faithful Lagrangian RDCOST.
-		// The chosen filter is then committed to mi->interp_filter and the
-		// rest of the per-candidate body runs once at that filter.
-		//
-		// In the legacy SSE-only proxy below the per-filter loop iterates
-		// over all candidates and scores each via raw SSE; for the
-		// {EIGHTTAP, EIGHTTAP_SMOOTH} sweep case that mis-orders the per-
-		// block filter race vs libvpx (raw SSE deltas are typically too
-		// small to flip the winner — EIGHTTAP wins every block, collapsing
-		// counts.SwitchableInterp to c==1 and tripping the fix_interp_filter
-		// demotion at libvpx vp9_bitstream.c:864-885 so the frame header
-		// emits the wrong InterpFilter bit). model_rd_for_sb_y combines
-		// var + sse with the quantizer-aware DC/AC rate model so the per-
-		// block winner can flip between EIGHTTAP and EIGHTTAP_SMOOTH in
-		// the libvpx-faithful way. Pre-select the winning filter here and
-		// shrink the filter list to a single entry; the rest of the per-
-		// candidate body runs unchanged.
-		//
-		// Only the multi-filter sweep case (len(filters) > 1, i.e., the
-		// search_filter_ref invocation gate at vp9_pickmode.c:2318-2328
-		// fired) gets the pre-selection. Single-filter fallback cases
-		// (filter_ref locked or BILINEAR) keep the existing single-entry
-		// list — search_filter_ref is not invoked by libvpx in those
-		// branches either.
-		//
-		// useModelRD path keeps the full model_rd_for_sb_y + block_yrd
-		// chain inside the per-filter loop unchanged (libvpx vp9_pickmode.c:
-		// 2336-2410 substrate). The pre-selection only applies to the
-		// legacy SSE proxy path, where it ports the libvpx search_filter_ref
-		// per-block filter race that the raw-SSE proxy collapses.
-		//
-		// libvpx: vp9_pickmode.c:2325 search_filter_ref(...).
-		if len(filters) > 1 && !useModelRD {
-			bestFilter, _, _, _, _, _, sfok := e.vp9SearchFilterRef(inter,
-				miRows, miCols, miRow, miCol, bsize, thisMode, refFrame, mv,
-				filters, switchableCtx, dequantY, qindex)
-			if sfok {
-				filters = []vp9dec.InterpFilter{bestFilter}
-			}
-		}
-
+		// libvpx: vp9_pickmode.c:2318-2410. Filter candidates are scored
+		// through model_rd_for_sb_y and the block_yrd refinement below, so
+		// interpolation-filter selection uses the same quantizer-aware RD
+		// surface as the final mode decision.
 		// Per-candidate inner: evaluate distortion and rate.
 		for _, filter := range filters {
 			var cand vp9InterModeDecision
-			if useModelRD {
-				// libvpx vp9_pickmode.c:2336 vp9_build_inter_predictors_sby +
-				// vp9_pickmode.c:2346 model_rd_for_sb_y.
-				varY, sseY, ok := e.vp9InterPredictionVarianceSSE(inter, miRows,
-					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
-				if !ok {
-					continue
-				}
+			// libvpx vp9_pickmode.c:2336 vp9_build_inter_predictors_sby +
+			// vp9_pickmode.c:2346 model_rd_for_sb_y.
+			varY, sseY, ok := e.vp9InterPredictionVarianceSSE(inter, miRows,
+				miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+			if !ok {
+				continue
+			}
 
-				// libvpx: vp9_pickmode.c:2349-2354 — save normalised sse
-				// for (LAST, ZEROMV). The shift is log2 of the total
-				// pixel count (b_width_log2 + b_height_log2), matching
-				// the libvpx formula. Read by the CBR GOLDEN_FRAME skip
-				// gate at vp9_pickmode.c:2123-2126 — currently a no-op
-				// for non-CBR seeds, but the value is part of the
-				// picker's verbatim state.
-				if refFrame == vp9dec.LastFrame &&
-					frameMv[thisMode][refFrame] == (vp9dec.MV{}) {
-					sseZeromvNormalized = encoder.NonrdNormalizeSSE(sseY, bsize)
-				}
+			// libvpx: vp9_pickmode.c:2349-2354 — save normalised sse
+			// for (LAST, ZEROMV). The shift is log2 of the total
+			// pixel count (b_width_log2 + b_height_log2), matching
+			// the libvpx formula. Read by the CBR GOLDEN_FRAME skip
+			// gate at vp9_pickmode.c:2123-2126 — currently a no-op
+			// for non-CBR seeds, but the value is part of the
+			// picker's verbatim state.
+			if refFrame == vp9dec.LastFrame &&
+				frameMv[thisMode][refFrame] == (vp9dec.MV{}) {
+				sseZeromvNormalized = encoder.NonrdNormalizeSSE(sseY, bsize)
+			}
 
-				// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
-				//   best_sse_sofar = sse_y;
-				if sseY < bestSseSoFar {
-					bestSseSoFar = sseY
-				}
+			// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
+			//   best_sse_sofar = sse_y;
+			if sseY < bestSseSoFar {
+				bestSseSoFar = sseY
+			}
 
-				// libvpx vp9_pickmode.c:2346 model_rd_for_sb_y — produces
-				// (rate_y, dist_y) in libvpx's prob-cost / shifted-domain
-				// distortion units. govpx ports the kernel in
-				// internal/vp9/encoder.ModelRdForSbY. The kernel also
-				// produces tx_size via calculate_tx_size (libvpx
-				// vp9_pickmode.c:660-680); block_yrd consumes
-				// min(tx_size, TX_16X16).
-				rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(bsize, qindex,
-					dequantY, varY, sseY, 0)
+			// libvpx vp9_pickmode.c:2346 model_rd_for_sb_y — produces
+			// (rate_y, dist_y) in libvpx's prob-cost / shifted-domain
+			// distortion units. govpx ports the kernel in
+			// internal/vp9/encoder.ModelRdForSbY. The kernel also
+			// produces tx_size via calculate_tx_size (libvpx
+			// vp9_pickmode.c:660-680); block_yrd consumes
+			// min(tx_size, TX_16X16).
+			rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(bsize, qindex,
+				dequantY, varY, sseY, 0)
 
-				// libvpx vp9_pickmode.c:2358-2374 — when block_yrd runs
-				// (rd_computed=1 from the model_rd call above, and
-				// !use_simple_block_yrd or bsize >= 32x32), it overwrites
-				// (rate_y, dist_y) with the Hadamard + quantize_fp + SATD
-				// refinement and sets this_sse from the model_rd sse_y
-				// value. govpx mirrors:
-				//
-				//   - For (use_simple_block_yrd && bsize < BLOCK_32X32):
-				//     libvpx skips block_yrd via the early-return at
-				//     vp9_pickmode.c:747-759 (rd_computed=1 path); govpx
-				//     keeps the model_rd (rate, dist) tuple unchanged and
-				//     the skip-comparison runs against sse_y << 4.
-				//
-				//   - For (!use_simple_block_yrd || bsize >= BLOCK_32X32):
-				//     encoder.BlockYrd is called with tx_size =
-				//     min(mrdTxSize, TX_16X16) (vp9_pickmode.c:2361). The
-				//     result.rate/result.dist replace (rateY, distY); the
-				//     skip comparison runs against result.sse (which is
-				//     sse_y << 4, same scaling).
-				thisSse := sseY << 4
-				finalRate := rateY
-				finalDist := uint64(distY)
-				blockYrdFired := false
-				if !useSimpleBlockYrd {
-					txClamp := min(mrdTxSize, common.Tx16x16)
-					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-					dst, dstStride := e.vp9EncoderReconPlane(0)
-					blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
-					blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-					x0 := miCol * common.MiSize
-					y0 := miRow * common.MiSize
-					// libvpx block_yrd does the prediction-build via
-					// vp9_build_inter_predictors_sby just above (line
-					// 2336); govpx's vp9InterPredictionVarianceSSE call
-					// above already wrote the predictor to recon. The
-					// kernel reads src and recon directly.
-					if len(src) > 0 && len(dst) > 0 && srcStride > 0 &&
-						dstStride > 0 {
-						// libvpx uses bw/bh from num_4x4_w/h (the full
-						// block extent, not the visible window) for the
-						// src_diff stride. govpx mirrors; the visible-
-						// clamp happens via maxBlocksWide / maxBlocksHigh
-						// inside block_yrd at the tx-unit loop, but for
-						// realtime BLOCK_32X32+ candidates the picker only
-						// commits a candidate whose visible window equals
-						// the full block (encoder.VisibleInterScoreBlock check
-						// inside vp9InterPredictionVarianceSSE), so the
-						// edge clamp is a no-op here.
-						byrd := encoder.BlockYrd(src, srcStride, x0, y0,
-							dst, dstStride, x0, y0,
-							blockW, blockH, txClamp, dequantY, sseY,
-							e.vp9BlockYrdScratch[:])
-						if byrd.Valid {
-							thisSse = uint64(byrd.SSE)
-							if byrd.Skippable {
-								// libvpx vp9_pickmode.c:2363-2364 —
-								// is_skippable forces rate = skip-bit
-								// cost (added below) and dist = sse;
-								// the post-compare is then skipped.
-								finalRate = 0
-								finalDist = uint64(byrd.SSE)
-								blockYrdFired = true
-							} else {
-								// libvpx vp9_pickmode.c:2365-2374 — the
-								// non-skippable branch runs the RDCOST
-								// compare with block_yrd's refined (rate,
-								// dist) and the model_rd-derived sseY.
-								finalRate = byrd.Rate
-								finalDist = uint64(byrd.Dist)
-								// blockYrdFired stays false: the RDCOST
-								// compare below still runs.
-							}
+			// libvpx vp9_pickmode.c:2358-2374 — when block_yrd runs
+			// (rd_computed=1 from the model_rd call above, and
+			// !use_simple_block_yrd or bsize >= 32x32), it overwrites
+			// (rate_y, dist_y) with the Hadamard + quantize_fp + SATD
+			// refinement and sets this_sse from the model_rd sse_y
+			// value. govpx mirrors:
+			//
+			//   - For (use_simple_block_yrd && bsize < BLOCK_32X32):
+			//     libvpx skips block_yrd via the early-return at
+			//     vp9_pickmode.c:747-759 (rd_computed=1 path); govpx
+			//     keeps the model_rd (rate, dist) tuple unchanged and
+			//     the skip-comparison runs against sse_y << 4.
+			//
+			//   - For (!use_simple_block_yrd || bsize >= BLOCK_32X32):
+			//     encoder.BlockYrd is called with tx_size =
+			//     min(mrdTxSize, TX_16X16) (vp9_pickmode.c:2361). The
+			//     result.rate/result.dist replace (rateY, distY); the
+			//     skip comparison runs against result.sse (which is
+			//     sse_y << 4, same scaling).
+			thisSse := sseY << 4
+			finalRate := rateY
+			finalDist := uint64(distY)
+			blockYrdFired := false
+			if !useSimpleBlockYrd {
+				txClamp := min(mrdTxSize, common.Tx16x16)
+				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+				dst, dstStride := e.vp9EncoderReconPlane(0)
+				blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+				blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+				x0 := miCol * common.MiSize
+				y0 := miRow * common.MiSize
+				// libvpx block_yrd does the prediction-build via
+				// vp9_build_inter_predictors_sby just above (line
+				// 2336); govpx's vp9InterPredictionVarianceSSE call
+				// above already wrote the predictor to recon. The
+				// kernel reads src and recon directly.
+				if len(src) > 0 && len(dst) > 0 && srcStride > 0 &&
+					dstStride > 0 {
+					// libvpx uses bw/bh from num_4x4_w/h (the full
+					// block extent, not the visible window) for the
+					// src_diff stride. govpx mirrors; the visible-
+					// clamp happens via maxBlocksWide / maxBlocksHigh
+					// inside block_yrd at the tx-unit loop, but for
+					// realtime BLOCK_32X32+ candidates the picker only
+					// commits a candidate whose visible window equals
+					// the full block (encoder.VisibleInterScoreBlock check
+					// inside vp9InterPredictionVarianceSSE), so the
+					// edge clamp is a no-op here.
+					byrd := encoder.BlockYrd(src, srcStride, x0, y0,
+						dst, dstStride, x0, y0,
+						blockW, blockH, txClamp, dequantY, sseY,
+						e.vp9BlockYrdScratch[:])
+					if byrd.Valid {
+						thisSse = uint64(byrd.SSE)
+						if byrd.Skippable {
+							// libvpx vp9_pickmode.c:2363-2364 —
+							// is_skippable forces rate = skip-bit
+							// cost (added below) and dist = sse;
+							// the post-compare is then skipped.
+							finalRate = 0
+							finalDist = uint64(byrd.SSE)
+							blockYrdFired = true
+						} else {
+							// libvpx vp9_pickmode.c:2365-2374 — the
+							// non-skippable branch runs the RDCOST
+							// compare with block_yrd's refined (rate,
+							// dist) and the model_rd-derived sseY.
+							finalRate = byrd.Rate
+							finalDist = uint64(byrd.Dist)
+							// blockYrdFired stays false: the RDCOST
+							// compare below still runs.
 						}
 					}
 				}
-				// libvpx vp9_pickmode.c:2366-2374 — skip-vs-non-skip RDCOST
-				// comparison. When use_simple_block_yrd is set and bsize
-				// is small, block_yrd returns sse=INT_MAX which makes the
-				// skip branch unreachable; govpx mirrors by skipping the
-				// compare. When encoder.BlockYrd fired with skippable=true the
-				// is_skippable branch already locked finalRate/finalDist
-				// to the skip override (rate=0, dist=sse) — leave the
-				// post-compare alone.
-				// useSkipCheck mirrors libvpx vp9_pickmode.c:2365-2374. The
-				// post-compare runs when block_yrd produced a non-skippable
-				// refinement (or was bypassed by use_simple_block_yrd / no
-				// kernel run). When block_yrd reported skippable=true the
-				// is_skippable branch already set finalRate=0, finalDist=sse
-				// — the post-compare is skipped (blockYrdFired guard).
-				//
-				// libvpx's compare is verbatim:
-				//
-				//   if (RDCOST(rdmult, rddiv, this_rdc.rate, this_rdc.dist) <
-				//       RDCOST(rdmult, rddiv, 0, this_sse)) { ... } else { ... }
-				//
-				// NOTE the non-skip side is RDCOST(this_rdc.rate, dist) with NO
-				// skip-bit-off added, and the skip side is RDCOST(0, this_sse)
-				// with NO skip-bit-on added. The chosen skip-bit cost is
-				// appended AFTER the compare (libvpx vp9_pickmode.c:2368 or
-				// :2370). govpx previously biased the compare by adding
-				// skipBitOff / skipBitOn into the two sides, which shifted the
-				// skip-vs-non-skip break-even point by (skipBitOff -
-				// skipBitOn) * rdmult — a context-dependent over/under-skip.
-				useSkipCheck := !useSimpleBlockYrd && !blockYrdFired
-				isSkip := blockYrdFired // skippable=true counts as the skip branch
-				if useSkipCheck {
-					rdNonSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
-						finalRate, finalDist)
-					rdSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
-						0, thisSse)
-					if rdSkip < rdNonSkip {
-						// libvpx: this_rdc.rate = vp9_cost_bit(skip_prob, 1);
-						//         this_rdc.dist = this_sse;
-						finalRate = 0
-						finalDist = thisSse
-						isSkip = true
-					}
+			}
+			// libvpx vp9_pickmode.c:2366-2374 — skip-vs-non-skip RDCOST
+			// comparison. When use_simple_block_yrd is set and bsize
+			// is small, block_yrd returns sse=INT_MAX which makes the
+			// skip branch unreachable; govpx mirrors by skipping the
+			// compare. When encoder.BlockYrd fired with skippable=true the
+			// is_skippable branch already locked finalRate/finalDist
+			// to the skip override (rate=0, dist=sse) — leave the
+			// post-compare alone.
+			// useSkipCheck mirrors libvpx vp9_pickmode.c:2365-2374. The
+			// post-compare runs when block_yrd produced a non-skippable
+			// refinement (or was bypassed by use_simple_block_yrd / no
+			// kernel run). When block_yrd reported skippable=true the
+			// is_skippable branch already set finalRate=0, finalDist=sse
+			// — the post-compare is skipped (blockYrdFired guard).
+			//
+			// libvpx's compare is verbatim:
+			//
+			//   if (RDCOST(rdmult, rddiv, this_rdc.rate, this_rdc.dist) <
+			//       RDCOST(rdmult, rddiv, 0, this_sse)) { ... } else { ... }
+			//
+			// NOTE the non-skip side is RDCOST(this_rdc.rate, dist) with NO
+			// skip-bit-off added, and the skip side is RDCOST(0, this_sse)
+			// with NO skip-bit-on added. The chosen skip-bit cost is
+			// appended AFTER the compare (libvpx vp9_pickmode.c:2368 or
+			// :2370). govpx previously biased the compare by adding
+			// skipBitOff / skipBitOn into the two sides, which shifted the
+			// skip-vs-non-skip break-even point by (skipBitOff -
+			// skipBitOn) * rdmult — a context-dependent over/under-skip.
+			useSkipCheck := !useSimpleBlockYrd && !blockYrdFired
+			isSkip := blockYrdFired // skippable=true counts as the skip branch
+			if useSkipCheck {
+				rdNonSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+					finalRate, finalDist)
+				rdSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+					0, thisSse)
+				if rdSkip < rdNonSkip {
+					// libvpx: this_rdc.rate = vp9_cost_bit(skip_prob, 1);
+					//         this_rdc.dist = this_sse;
+					finalRate = 0
+					finalDist = thisSse
+					isSkip = true
 				}
+			}
 
-				// libvpx vp9_pickmode.c:2405-2410 — finalize the
-				// (rate, dist) tuple by adding rate_mv + inter_mode_cost
-				// + ref_frame_cost + the chosen skip bit.
-				interModeBitCost := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
-					interModeCtx, thisMode, mv, refMv, inter.allowHP)
-				interpFilterCost := 0
-				if vp9MvHasSubpel(mv) {
-					interpFilterCost = vp9InterInterpFilterRateCost(inter,
-						vp9InterModeCostFrameContext(inter), switchableCtx, filter)
-				}
-				rate := refRate + interModeBitCost + interpFilterCost + finalRate
-				if isSkip {
-					rate += skipBitOn
-				} else {
-					rate += skipBitOff
-				}
-
-				// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test
-				// override. Fires only when allow_encode_breakout, not
-				// lossless, encode_breakout > 0, and motion-low. When
-				// encode_breakout is zero, the gate falls through unless
-				// var==0 && sse==0 (a true near-perfect prediction).
-				if allowEncodeBreakout && (encodeBreakout > 0 ||
-					(varY == 0 && sseY == 0)) {
-					varU, sseU, varV, sseV, uvOk := e.vp9NonrdUVVarianceSSE(
-						inter, miRows, miCols, miRow, miCol, bsize, thisMode,
-						refFrame, mv, filter)
-					if uvOk {
-						fired, ebDist, _ := encoder.EncodeBreakoutTest(bsize,
-							dequantY, mv.Row, mv.Col, varY, sseY,
-							[2][2]int16{dequantU, dequantV},
-							varU, sseU, varV, sseV,
-							encodeBreakout, false, interModeBitCost)
-						if fired {
-							// libvpx vp9_pickmode.c:1029-1030 (inside
-							// encode_breakout_test) +:2431 (callsite):
-							//   *rate = inter_mode_cost[ctx][INTER_OFFSET(mode)];
-							//   *dist = sse << 4;
-							//   this_rdc.rate += rate_mv;
-							//
-							// rate_mv is already folded into govpx's
-							// interModeBitCost for NEWMV (zero otherwise);
-							// inter_mode_cost is the mode-context bit cost
-							// inside that helper too. NO ref_frame_cost is
-							// added: libvpx's encode_breakout-fired branch
-							// emits the block with x->skip=1 and writes only
-							// inter_mode + rate_mv. The "rate += skip_bit(1)"
-							// add is intentionally commented out at libvpx
-							// vp9_pickmode.c:1033.
-							rate = interModeBitCost
-							finalDist = uint64(ebDist)
-							// libvpx: vp9_pickmode.c:1026 x->skip = 1;
-							// Surface the firing through the outer-loop
-							// state so the early-break at
-							// vp9_pickmode.c:2478-2480 can fire.
-							xSkip = true
-						}
-					}
-				}
-
-				// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
-				score := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
-					rate, finalDist)
-				if encoder.NonrdScreenZeroLastBias(
-					e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
-					sceneChangeDetected, highNumBlocksWithMotion, refFrame, mv,
-					sourceVariance, sseY) {
-					score <<= 2
-				}
-
-				// libvpx vp9_pickmode.c:2414-2422 — vp9_NEWMV_diff_bias.
-				// Gated on (rc_mode == VPX_CBR && speed >= 5 && content
-				// != VP9E_CONTENT_SCREEN). govpx mirrors the gate at the
-				// call site; the bias adjusts this_rdc.rdcost in place.
-				//
-				// libvpx vp9_pickmode.c:2415:
-				//   if (cpi->oxcf.rc_mode == VPX_CBR && cpi->oxcf.speed >= 5 &&
-				//       cpi->oxcf.content != VP9E_CONTENT_SCREEN)
-				//     vp9_NEWMV_diff_bias(...);
-				if e.opts.RateControlModeSet &&
-					e.opts.RateControlMode == RateControlCBR &&
-					e.vp9SpeedFeatureCPUUsed() >= 5 &&
-					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
-					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
-						newmvDiffBiasInputs()
-					biased := encoder.NewmvDiffBias(thisMode, score, bsize,
-						int(mv.Row), int(mv.Col),
-						above, left,
-						refFrame == vp9dec.LastFrame,
-						noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
-					score = biased.RDCost
-				}
-
-				cand = vp9InterModeDecision{
-					refFrame:       refFrame,
-					secondRefFrame: vp9dec.NoRefFrame,
-					refSlot:        refSlots[refFrame],
-					mode:           thisMode,
-					mv:             [2]vp9dec.MV{mv},
-					interpFilter:   filter,
-					rate:           rate,
-					distortion:     finalDist,
-					score:          score,
-				}
+			// libvpx vp9_pickmode.c:2405-2410 — finalize the
+			// (rate, dist) tuple by adding rate_mv + inter_mode_cost
+			// + ref_frame_cost + the chosen skip bit.
+			interModeBitCost := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
+				interModeCtx, thisMode, mv, refMv, inter.allowHP)
+			interpFilterCost := 0
+			if vp9MvHasSubpel(mv) {
+				interpFilterCost = vp9InterInterpFilterRateCost(inter,
+					vp9InterModeCostFrameContext(inter), switchableCtx, filter)
+			}
+			rate := refRate + interModeBitCost + interpFilterCost + finalRate
+			if isSkip {
+				rate += skipBitOn
 			} else {
-				// Legacy SSE-only proxy path. Kept so the cpu_used=8-
-				// default oracle parity tests (LosslessInter, Checker,
-				// Lookahead) stay byte-exact while Phase E ramps in.
-				distortion, ok := e.vp9InterPredictionDistortion(inter,
-					miRows, miCols, miRow, miCol, bsize, thisMode,
+				rate += skipBitOff
+			}
+
+			// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test
+			// override. Fires only when allow_encode_breakout, not
+			// lossless, encode_breakout > 0, and motion-low. When
+			// encode_breakout is zero, the gate falls through unless
+			// var==0 && sse==0 (a true near-perfect prediction).
+			if allowEncodeBreakout && (encodeBreakout > 0 ||
+				(varY == 0 && sseY == 0)) {
+				varU, sseU, varV, sseV, uvOk := e.vp9NonrdUVVarianceSSE(
+					inter, miRows, miCols, miRow, miCol, bsize, thisMode,
 					refFrame, mv, filter)
-				if !ok {
-					continue
+				if uvOk {
+					fired, ebDist, _ := encoder.EncodeBreakoutTest(bsize,
+						dequantY, mv.Row, mv.Col, varY, sseY,
+						[2][2]int16{dequantU, dequantV},
+						varU, sseU, varV, sseV,
+						encodeBreakout, false, interModeBitCost)
+					if fired {
+						// libvpx vp9_pickmode.c:1029-1030 (inside
+						// encode_breakout_test) +:2431 (callsite):
+						//   *rate = inter_mode_cost[ctx][INTER_OFFSET(mode)];
+						//   *dist = sse << 4;
+						//   this_rdc.rate += rate_mv;
+						//
+						// rate_mv is already folded into govpx's
+						// interModeBitCost for NEWMV (zero otherwise);
+						// inter_mode_cost is the mode-context bit cost
+						// inside that helper too. NO ref_frame_cost is
+						// added: libvpx's encode_breakout-fired branch
+						// emits the block with x->skip=1 and writes only
+						// inter_mode + rate_mv. The "rate += skip_bit(1)"
+						// add is intentionally commented out at libvpx
+						// vp9_pickmode.c:1033.
+						rate = interModeBitCost
+						finalDist = uint64(ebDist)
+						// libvpx: vp9_pickmode.c:1026 x->skip = 1;
+						// Surface the firing through the outer-loop
+						// state so the early-break at
+						// vp9_pickmode.c:2478-2480 can fire.
+						xSkip = true
+					}
 				}
-				interModeBitCost := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
-					interModeCtx, thisMode, mv, refMv, inter.allowHP)
-				interpFilterCost := 0
-				if vp9MvHasSubpel(mv) {
-					interpFilterCost = vp9InterInterpFilterRateCost(inter,
-						vp9InterModeCostFrameContext(inter), switchableCtx, filter)
-				}
-				rate := refRate + interModeBitCost + interpFilterCost
-				cand = vp9InterModeDecision{
-					refFrame:       refFrame,
-					secondRefFrame: vp9dec.NoRefFrame,
-					refSlot:        refSlots[refFrame],
-					mode:           thisMode,
-					mv:             [2]vp9dec.MV{mv},
-					interpFilter:   filter,
-					rate:           rate,
-					distortion:     distortion,
-					score:          e.vp9InterModeScore(distortion, rate, qindex),
-				}
-				if e.opts.RateControlModeSet &&
-					e.opts.RateControlMode == RateControlCBR &&
-					e.vp9SpeedFeatureCPUUsed() >= 5 &&
-					e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
-					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
-						newmvDiffBiasInputs()
-					biased := encoder.NewmvDiffBias(thisMode, cand.score, bsize,
-						int(mv.Row), int(mv.Col),
-						above, left,
-						refFrame == vp9dec.LastFrame,
-						noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
-					cand.score = biased.RDCost
-				}
-				if distortion < bestSseSoFar {
-					bestSseSoFar = distortion
-				}
-				if encoder.NonrdScreenZeroLastBias(
-					e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
-					sceneChangeDetected, highNumBlocksWithMotion, refFrame, mv,
-					sourceVariance, distortion) {
-					cand.score <<= 2
-				}
+			}
+
+			// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
+			score := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+				rate, finalDist)
+			if encoder.NonrdScreenZeroLastBias(
+				e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+				sceneChangeDetected, highNumBlocksWithMotion, refFrame, mv,
+				sourceVariance, sseY) {
+				score <<= 2
+			}
+
+			// libvpx vp9_pickmode.c:2414-2422 — vp9_NEWMV_diff_bias.
+			// Gated on (rc_mode == VPX_CBR && speed >= 5 && content
+			// != VP9E_CONTENT_SCREEN). govpx mirrors the gate at the
+			// call site; the bias adjusts this_rdc.rdcost in place.
+			//
+			// libvpx vp9_pickmode.c:2415:
+			//   if (cpi->oxcf.rc_mode == VPX_CBR && cpi->oxcf.speed >= 5 &&
+			//       cpi->oxcf.content != VP9E_CONTENT_SCREEN)
+			//     vp9_NEWMV_diff_bias(...);
+			if e.opts.RateControlModeSet &&
+				e.opts.RateControlMode == RateControlCBR &&
+				e.vp9SpeedFeatureCPUUsed() >= 5 &&
+				e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
+				noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
+					newmvDiffBiasInputs()
+				biased := encoder.NewmvDiffBias(thisMode, score, bsize,
+					int(mv.Row), int(mv.Col),
+					above, left,
+					refFrame == vp9dec.LastFrame,
+					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
+				score = biased.RDCost
+			}
+
+			cand = vp9InterModeDecision{
+				refFrame:       refFrame,
+				secondRefFrame: vp9dec.NoRefFrame,
+				refSlot:        refSlots[refFrame],
+				mode:           thisMode,
+				mv:             [2]vp9dec.MV{mv},
+				interpFilter:   filter,
+				rate:           rate,
+				distortion:     finalDist,
+				score:          score,
 			}
 
 			scoredIntoOrig := false
@@ -1523,49 +1424,45 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// inter-frame intra picker and choose modes outside libvpx's
 	// {DC_PRED,V_PRED,H_PRED,TM_PRED} nonrd fallback list.
 	//
-	// Runs by default with the other nonrd pickmode substrates
-	// (model_rd_for_sb_y and pred_mv_sad candidate-set SAD).
-	if vp9NonrdPickPartitionEnabled() {
-		bestInterScore := uint64(^uint64(0) >> 1)
-		if bestSet {
-			bestInterScore = best.score
+	bestInterScore := uint64(^uint64(0) >> 1)
+	if bestSet {
+		bestInterScore = best.score
+	}
+	var pickPred []byte
+	pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol := 0, 0, 0
+	if reuseInterPred && reuseMLCtx != nil {
+		pickPred = livePred
+		pickPredStride = livePredStride
+		pickPredOriginMiRow = reuseMLCtx.sbMiRow
+		pickPredOriginMiCol = reuseMLCtx.sbMiCol
+	}
+	const qidxSkipThresh = 115
+	skipEncode := e.sf.SkipEncodeSb != 0 && e.frameIndex > 1 &&
+		qindex < qidxSkipThresh
+	if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
+		miRows, miCols, miRow, miCol, bsize, qindex,
+		above, left, sourceVariance, bestInterScore, forceSkipLowTempVar, xSkip,
+		pickPred, pickPredStride, pickPredOriginMiRow,
+		pickPredOriginMiCol, skipEncode); intraFires {
+		// libvpx: vp9_pickmode.c:2637-2647 — if intra wins, replace
+		// best_pickmode's mode/ref/tx/skip state with the intra entry.
+		best = vp9InterModeDecision{
+			intra:          true,
+			refFrame:       vp9dec.IntraFrame,
+			secondRefFrame: vp9dec.NoRefFrame,
+			mode:           intra.mode,
+			interpFilter:   vp9dec.InterpFilter(vp9dec.SwitchableFilters),
+			txSize:         intra.txSize,
+			uvMode:         intra.uvMode,
+			rate:           intra.rate,
+			score:          intra.score,
 		}
-		var pickPred []byte
-		pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol := 0, 0, 0
-		if reuseInterPred && reuseMLCtx != nil {
-			pickPred = livePred
-			pickPredStride = livePredStride
-			pickPredOriginMiRow = reuseMLCtx.sbMiRow
-			pickPredOriginMiCol = reuseMLCtx.sbMiCol
-		}
-		const qidxSkipThresh = 115
-		skipEncode := e.sf.SkipEncodeSb != 0 && e.frameIndex > 1 &&
-			qindex < qidxSkipThresh
-		if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
-			miRows, miCols, miRow, miCol, bsize, qindex,
-			above, left, sourceVariance, bestInterScore, forceSkipLowTempVar, xSkip,
-			pickPred, pickPredStride, pickPredOriginMiRow,
-			pickPredOriginMiCol, skipEncode); intraFires {
-			// libvpx: vp9_pickmode.c:2637-2647 — if intra wins, replace
-			// best_pickmode's mode/ref/tx/skip state with the intra entry.
-			best = vp9InterModeDecision{
-				intra:          true,
-				refFrame:       vp9dec.IntraFrame,
-				secondRefFrame: vp9dec.NoRefFrame,
-				mode:           intra.mode,
-				interpFilter:   vp9dec.InterpFilter(vp9dec.SwitchableFilters),
-				txSize:         intra.txSize,
-				uvMode:         intra.uvMode,
-				rate:           intra.rate,
-				score:          intra.score,
-			}
-			bestSet = true
-			bp.bestMode = intra.mode
-			bp.bestRefFrame = vp9dec.IntraFrame
-			bp.bestSecondRefFrame = vp9dec.NoRefFrame
-			bp.bestIntraTxSize = intra.txSize
-			bp.bestModeSkipTxfm = 0
-		}
+		bestSet = true
+		bp.bestMode = intra.mode
+		bp.bestRefFrame = vp9dec.IntraFrame
+		bp.bestSecondRefFrame = vp9dec.NoRefFrame
+		bp.bestIntraTxSize = intra.txSize
+		bp.bestModeSkipTxfm = 0
 	}
 	if bestSet && !best.intra && reuseInterPred && origPredValid {
 		// libvpx: vp9_pickmode.c:2888-2912 restores pd->dst to orig_dst,

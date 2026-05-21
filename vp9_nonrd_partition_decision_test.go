@@ -7,18 +7,6 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// TestVP9NonrdPickPartitionDefaultEnabled confirms the recursive nonrd
-// partition path is on by default. Encode dispatch follows the libvpx
-// speed-feature predicates at the call sites.
-//
-// libvpx: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition body
-// with use_ml_based_partitioning=1 (libvpx vp9_encodeframe.c:4627-4628).
-func TestVP9NonrdPickPartitionDefaultEnabled(t *testing.T) {
-	if !vp9NonrdPickPartitionEnabled() {
-		t.Fatal("vp9NonrdPickPartitionEnabled() = false, want true")
-	}
-}
-
 // TestVP9NonrdPickPartitionSplitSize confirms vp9MLSplitSize maps each
 // ML-eligible parent bsize to its libvpx subsize_lookup
 // (vp9/common/vp9_common_data.c subsize_lookup[PARTITION_SPLIT]).
