@@ -10,7 +10,7 @@ import (
 
 func macroblockImageSSE(src vp8enc.SourceImage, img *vp8common.Image, mbRow int, mbCol int) int {
 	return macroblockLumaSSE(src, img, mbRow, mbCol, vp8enc.MotionVector{}) +
-		macroblockChromaSSE(src, img, mbRow, mbCol)
+		vp8enc.MacroblockChromaSSE(src, img, mbRow, mbCol)
 }
 
 func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int) int {

@@ -694,7 +694,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// mode is chosen (rdopt.c:2298, vp8_denoiser_denoise_mb) and
 			// never resets x->skip. The previous denoiser guard hid a
 			// genuine breakout-fires miss on static-thresh=1000+noise=6.
-			staticBreakout := staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
+			staticBreakout := vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
 			// libvpx vp8/encoder/encodeframe.c vp8cx_encode_inter_macroblock
 			// (line 1275-1281): vp8_encode_inter16x16 runs whenever x->skip
 			// is 0. libvpx sets x->skip = 1 in exactly two places inside
@@ -732,7 +732,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
 				(isInactiveMB || staticBreakout)
 			if breakoutSkip {
-				clearMacroblockCoefficients(&coeffs[index])
+				vp8enc.ClearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
 				is4x4 := vp8enc.InterFrameModeUses4x4Tokens(modes[index].Mode)
 				// When the RD picker staged the winning candidate's
@@ -798,7 +798,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			is4x4 := vp8enc.InterFrameModeUses4x4Tokens(modes[index].Mode)
 			finalCoeffSkip := false
 			if !breakoutSkip {
-				finalCoeffSkip = macroblockCoefficientsEmpty(&coeffs[index], is4x4)
+				finalCoeffSkip = vp8enc.MacroblockCoefficientsEmpty(&coeffs[index], is4x4)
 			}
 			modes[index].MBSkipCoeff = breakoutSkip || finalCoeffSkip
 			// Lane C accepted-candidate reuse: the picker→accepted boundary
@@ -815,7 +815,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// (buildReconstructingBPredMacroblockCoefficients,
 			// predictAnalysisMacroblock, reconstructInterAnalysisMacroblock
 			// via a predMode stack copy, buildPredictedMacroblockCoefficients,
-			// clearMacroblockCoefficients) — they read mode fields but never
+			// vp8enc.ClearMacroblockCoefficients) — they read mode fields but never
 			// write back into modes[index] or e.reconstructModes[index].
 			// So patching MBSkipCoeff alone is byte-identical to the
 			// previous full re-serialize, but skips an entire MacroblockMode

@@ -611,7 +611,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	//   shape — but the encode-side regular-quantizer + trellis rebuild
 	//   produces non-zero coefficients (block 7 eob=13 in the 19981bff
 	//   cohort). govpx's pre-fix gate short-circuited that entire encode
-	//   step via clearMacroblockCoefficients(coeffs[index]) → skip-coded
+	//   step via vp8enc.ClearMacroblockCoefficients(coeffs[index]) → skip-coded
 	//   bitstream — a divergence visible at threads=1 (-6 bytes), threads
 	//   =4 (-5 bytes), threads=2 (no impact only because the specific MB
 	//   distribution dodged the divergent SPLITMV).

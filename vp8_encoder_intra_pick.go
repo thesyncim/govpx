@@ -110,7 +110,7 @@ func pickFastWholeBlockIntraYModeWithRDConstants(src vp8enc.SourceImage, qIndex 
 		if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
 			return 0, 0, 0, false
 		}
-		dist, _ := macroblockLumaVarianceSSE(src, pred, mbRow, mbCol)
+		dist, _ := vp8enc.MacroblockLumaVarianceSSE(src, pred, mbRow, mbCol)
 		rate := intraYModeRate(true, yMode)
 		cost := vp8enc.RDCost(rdMult, rdDiv, rate, dist)
 		if i == 0 || cost < bestRD {
@@ -134,7 +134,7 @@ func pickFastIntraChromaMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred 
 		if !predictAnalysisChroma(pred, mbRow, mbCol, uvMode, scratch) {
 			return 0, 0, false
 		}
-		sse := macroblockChromaSSE(src, pred, mbRow, mbCol)
+		sse := vp8enc.MacroblockChromaSSE(src, pred, mbRow, mbCol)
 		if i == 0 || sse < bestSSE {
 			bestMode = uvMode
 			bestSSE = sse

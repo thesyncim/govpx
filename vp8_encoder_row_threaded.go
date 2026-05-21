@@ -549,7 +549,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	// libvpx vp8/encoder/rdopt.c:1607-1635 runs encode_breakout regardless
 	// of denoiser state — the denoiser fires AFTER best mode is chosen
 	// (rdopt.c:2298, vp8_denoiser_denoise_mb) and never resets x->skip.
-	staticBreakout := staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
+	staticBreakout := vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
 	// libvpx anchor: vp8/encoder/encodeframe.c vp8cx_encode_inter_macroblock
 	// (line 1275-1281) runs vp8_encode_inter16x16 whenever x->skip == 0;
 	// libvpx sets x->skip = 1 in only two places in evaluate_inter_mode_rd:
@@ -566,7 +566,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	breakoutSkip := args.modes[index].RefFrame != vp8common.IntraFrame &&
 		(isInactiveMB || staticBreakout)
 	if breakoutSkip {
-		clearMacroblockCoefficients(&args.coeffs[index])
+		vp8enc.ClearMacroblockCoefficients(&args.coeffs[index])
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {
 		is4x4 := vp8enc.InterFrameModeUses4x4Tokens(args.modes[index].Mode)
 		// Same picker → accepted-path cache short-circuit as the serial
@@ -624,7 +624,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	}
 
 	is4x4 := vp8enc.InterFrameModeUses4x4Tokens(args.modes[index].Mode)
-	args.modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&args.coeffs[index], is4x4)
+	args.modes[index].MBSkipCoeff = breakoutSkip || vp8enc.MacroblockCoefficientsEmpty(&args.coeffs[index], is4x4)
 	// Lane C accepted-candidate reuse: matches the serial path. The first
 	// vp8enc.ConvertInterFrameMode above (lines 383/393) is what produced
 	// e.reconstructModes[index] from args.modes[index]; nothing between

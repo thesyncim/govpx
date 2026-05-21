@@ -52,7 +52,7 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	if !predictAnalysisMacroblock(analysisImg, mbRow, mbCol, &mode, &e.reconstructScratch) {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
-	variance, sse := macroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
+	variance, sse := vp8enc.MacroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
 	rate := e.interIntraReferenceRate() + e.interIntraYModeRate(mbMode)
 	resultMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance)

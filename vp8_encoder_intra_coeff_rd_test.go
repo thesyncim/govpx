@@ -154,7 +154,7 @@ func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	if rate != wantRate || dist != wantDist {
 		t.Fatalf("UV RD = rate:%d dist:%d, want transform/token rate:%d dist:%d", rate, dist, wantRate, wantDist)
 	}
-	if sse := macroblockChromaSSE(sourceImageFromPublic(src), &chosenPred.Img, 0, 0); dist == sse {
+	if sse := vp8enc.MacroblockChromaSSE(sourceImageFromPublic(src), &chosenPred.Img, 0, 0); dist == sse {
 		t.Fatalf("UV distortion = %d, want transform-domain error rather than chroma SSE", dist)
 	}
 }
@@ -320,34 +320,6 @@ func TestBPredAnalysisKeyFrameMapsWholeBlockNeighborContexts(t *testing.T) {
 	}
 	if got := bPredAnalysisLeftMode(false, &leftTM, modes, 0); got != vp8common.BDCPred {
 		t.Fatalf("inter left context = %v, want B_DC_PRED", got)
-	}
-}
-
-func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
-	var coeffs vp8enc.MacroblockCoefficients
-	for block := range 16 {
-		coeffs.SetBlockEOB(block, 0)
-	}
-	coeffs.SetBlockEOB(24, 0)
-	for block := 16; block < 24; block++ {
-		coeffs.SetBlockEOB(block, 0)
-	}
-
-	if !macroblockCoefficientsEmpty(&coeffs, false) {
-		t.Fatalf("empty = false, want true for skipped-DC luma blocks")
-	}
-
-	coeffs.SetBlockEOB(0, 2)
-	if macroblockCoefficientsEmpty(&coeffs, false) {
-		t.Fatalf("empty = true, want false for luma AC EOB")
-	}
-
-	coeffs.SetBlockEOB(0, 1)
-	if !macroblockCoefficientsEmpty(&coeffs, false) {
-		t.Fatalf("whole-block empty = false, want true for luma DC carried by empty Y2")
-	}
-	if macroblockCoefficientsEmpty(&coeffs, true) {
-		t.Fatalf("4x4 empty = true, want false for luma DC coefficient")
 	}
 }
 

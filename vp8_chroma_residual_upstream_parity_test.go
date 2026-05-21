@@ -16,7 +16,7 @@ import (
 //
 //	breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
 //	    (modes[index].MBSkipCoeff || staticBreakout)
-//	if breakoutSkip { clearMacroblockCoefficients(&coeffs[index]); }
+//	if breakoutSkip { vp8enc.ClearMacroblockCoefficients(&coeffs[index]); }
 //
 // `modes[index].MBSkipCoeff` is set true by the picker
 // (vp8_encoder_inter_rd.go:158 `mbSkipCoeff := stats.tteob == 0`) whenever
@@ -167,7 +167,7 @@ import (
 //   - vp8_encoder_inter_rd.go:158 mbSkipCoeff = stats.tteob == 0
 //   - vp8_encoder_inter_modes_rd.go:502 mode.MBSkipCoeff = mbSkipCoeff ||
 //     mode.MBSkipCoeff (propagates picker decision to accepted-mode)
-//   - vp8_encoder_inter_breakout.go:35-52 staticInterRDEncodeBreakoutDistortion
+//   - internal/vp8/encoder/interframe_breakout.go: StaticInterRDEncodeBreakoutDistortion
 //     (gated on encodeBreakout > 0 = StaticThreshold > 0; off for the
 //     BestARNR cohort)
 //   - vp8_encoder_inter_quantize.go optimizeQuantizedBlockWithRDConstants

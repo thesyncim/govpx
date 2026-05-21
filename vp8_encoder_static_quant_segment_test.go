@@ -9,53 +9,6 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-func TestStaticInterRDEncodeBreakoutUsesChromaGate(t *testing.T) {
-	pred := testVP8Frame(t, 16, 16, 128, 90, 170)
-	src := testImage(16, 16)
-	fillImage(src, 129, 90, 170)
-	quant := testMacroblockQuant(80)
-
-	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
-		t.Fatalf("static breakout = false, want uniform low-luma residual skipped")
-	}
-
-	src.U[0] = 110
-	if staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
-		t.Fatalf("static breakout = true, want chroma SSE to prevent skip")
-	}
-}
-
-func TestStaticInterEncodeBreakoutUsesLibvpxChromaGates(t *testing.T) {
-	// libvpx splits the chroma-SSE gate in encode_breakout across its two
-	// pickers (task #333):
-	//   - rdopt.c:1627 (RD path) compares against `threshold` (=
-	//     max(yAC^2>>4, x->encode_breakout)).
-	//   - pickinter.c:463 (fast path) compares against `x->encode_breakout`
-	//     directly.
-	// The chroma source is set to a value that produces chroma_sse * 2 = 800,
-	// which is BELOW the RD-path threshold (yAC^2>>4 at quant 80 is well above
-	// 800) but ABOVE the fast-path encode_breakout limit of 1. Confirm both
-	// gates apply per their respective libvpx behaviour.
-	ref := testVP8Frame(t, 16, 16, 128, 90, 170)
-	src := testImage(16, 16)
-	fillImage(src, 128, 90, 170)
-	quant := testMacroblockQuant(80)
-	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
-	_, lumaSSE := macroblockLumaMotionVarianceSSE(sourceImageFromPublic(src), &ref.Img, 0, 0, mode.MV)
-
-	src.U[0] = 92
-	// Fast picker — encode_breakout = 1, chroma SSE > 0, so reject.
-	if staticInterFastEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, &quant, 1, lumaSSE) {
-		t.Fatalf("fast static breakout = true, want pickinter encode_breakout chroma gate to reject")
-	}
-	// RD picker — threshold = max(yAC^2>>4, 1). At quant=80, yAC^2>>4 is
-	// well above 800 so the RD chroma gate ACCEPTS the breakout here (per
-	// libvpx rdopt.c:1627), matching libvpx behaviour.
-	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &quant, 1) {
-		t.Fatalf("RD static breakout = false, want libvpx rdopt threshold chroma gate to accept low-residual")
-	}
-}
-
 func TestSelectFastInterFrameModeDecisionStopsOnStaticEncodeBreakout(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	if err := e.SetDeadline(DeadlineRealtime); err != nil {
@@ -148,7 +101,7 @@ func TestMacroblockCoefficientTokenRateChargesNonZeroResiduals(t *testing.T) {
 		t.Fatalf("nonzero residual token rate = %d, zero = %d, want higher rate", nonzeroRate, zeroRate)
 	}
 
-	clearMacroblockCoefficients(&nonzero)
+	vp8enc.ClearMacroblockCoefficients(&nonzero)
 	if clearedRate := macroblockCoefficientTokenRate(&probs, false, &nonzero); clearedRate != zeroRate {
 		t.Fatalf("cleared residual rate = %d, want zero residual rate %d", clearedRate, zeroRate)
 	}

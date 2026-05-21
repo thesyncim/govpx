@@ -507,7 +507,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			}
 			// Flip the cache winner/scratch indices so the just-evaluated
 			// inter candidate's DCTs become the winner slot. For inactiveMB
-			// or staticInterRDEncodeBreakoutDistortion winners,
+			// or vp8enc.StaticInterRDEncodeBreakoutDistortion winners,
 			// estimateInterResidualRDAccountingWithModeContext skipped
 			// buildPredictedMacroblockCoefficientsRD entirely so the new
 			// winner slot's valid bit stays false — the accepted path then

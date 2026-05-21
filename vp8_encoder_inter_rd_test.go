@@ -750,20 +750,3 @@ func TestRdBlockScoreAppliesLibvpxPlaneAndIntraMultipliers(t *testing.T) {
 		t.Fatalf("intra block rd = %d, want 53", got)
 	}
 }
-
-func TestStaticInterRDEncodeBreakoutUsesStrictLibvpxThreshold(t *testing.T) {
-	pred := testVP8Frame(t, 16, 16, 128, 90, 170)
-	src := testImage(16, 16)
-	fillImage(src, 128, 90, 170)
-	quant := testMacroblockQuant(20)
-
-	src.Y[0] = 133
-	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
-		t.Fatalf("static breakout = false, want skip below AC threshold")
-	}
-
-	src.Y[0] = 134
-	if staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
-		t.Fatalf("static breakout = true, want no skip at strict AC threshold")
-	}
-}

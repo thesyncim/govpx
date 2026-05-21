@@ -608,7 +608,7 @@ func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage,
 	})
 	var tokens vp8dec.MacroblockTokens
 	vp8enc.ConvertMacroblockCoefficients(&coeffs, false, &tokens)
-	decMode.MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs, false)
+	decMode.MBSkipCoeff = vp8enc.MacroblockCoefficientsEmpty(&coeffs, false)
 	return reconstructInterAnalysisMacroblock(&e.firstPassNewRef.Img, &e.firstPassLastRef.Img, mbRow, mbCol, &decMode, &tokens, dequant, &e.reconstructScratch)
 }
 

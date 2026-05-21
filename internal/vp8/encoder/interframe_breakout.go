@@ -1,12 +1,14 @@
-package govpx
+package encoder
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bool) bool {
+// Static inter encode-breakout helpers mirror libvpx v1.16.0
+// vp8/encoder/rdopt.c and vp8/encoder/pickinter.c.
+
+func MacroblockCoefficientsEmpty(coeffs *MacroblockCoefficients, is4x4 bool) bool {
 	if coeffs.EOB[24] != 0 {
 		return false
 	}
@@ -23,22 +25,22 @@ func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bo
 	return true
 }
 
-func clearMacroblockCoefficients(coeffs *vp8enc.MacroblockCoefficients) {
-	*coeffs = vp8enc.MacroblockCoefficients{}
+func ClearMacroblockCoefficients(coeffs *MacroblockCoefficients) {
+	*coeffs = MacroblockCoefficients{}
 }
 
-func staticInterRDEncodeBreakout(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *vp8enc.MacroblockQuant, encodeBreakout int) bool {
-	breakout, _ := staticInterRDEncodeBreakoutDistortion(src, pred, mbRow, mbCol, quant, encodeBreakout)
+func StaticInterRDEncodeBreakout(src SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *MacroblockQuant, encodeBreakout int) bool {
+	breakout, _ := StaticInterRDEncodeBreakoutDistortion(src, pred, mbRow, mbCol, quant, encodeBreakout)
 	return breakout
 }
 
-func staticInterRDEncodeBreakoutDistortion(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *vp8enc.MacroblockQuant, encodeBreakout int) (bool, int) {
+func StaticInterRDEncodeBreakoutDistortion(src SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *MacroblockQuant, encodeBreakout int) (bool, int) {
 	if encodeBreakout <= 0 || pred == nil || quant == nil {
 		return false, 0
 	}
 	yAC := int(quant.Y1.Dequant[1])
 	threshold := max((yAC*yAC)>>4, encodeBreakout)
-	lumaVar, lumaSSE := macroblockLumaVarianceSSE(src, pred, mbRow, mbCol)
+	lumaVar, lumaSSE := MacroblockLumaVarianceSSE(src, pred, mbRow, mbCol)
 	if lumaSSE >= threshold {
 		return false, 0
 	}
@@ -47,16 +49,16 @@ func staticInterRDEncodeBreakoutDistortion(src vp8enc.SourceImage, pred *vp8comm
 	if dcError >= (y2DC*y2DC)>>4 && (lumaSSE/2 <= lumaVar || dcError >= 64) {
 		return false, 0
 	}
-	chromaSSE := macroblockChromaSSE(src, pred, mbRow, mbCol)
-	// libvpx vp8/encoder/rdopt.c:1627 — the UV-SSE breakout compare uses
-	// `threshold` (= max(yAC^2>>4, x->encode_breakout)), NOT the raw
+	chromaSSE := MacroblockChromaSSE(src, pred, mbRow, mbCol)
+	// libvpx vp8/encoder/rdopt.c:1627 - the UV-SSE breakout compare uses
+	// `threshold` (= max(yAC^2>>4, x->encode_breakout)), not the raw
 	// encode_breakout. The fast picker (pickinter.c:463) compares against
 	// `x->encode_breakout` instead; that asymmetry is intentional in libvpx
-	// and govpx mirrors it in staticInterFastEncodeBreakout below.
+	// and mirrored in StaticInterFastEncodeBreakout below.
 	return chromaSSE*2 < threshold, lumaSSE + chromaSSE
 }
 
-func staticInterFastEncodeBreakout(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, quant *vp8enc.MacroblockQuant, encodeBreakout int, lumaSSE int) bool {
+func StaticInterFastEncodeBreakout(src SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *InterFrameMacroblockMode, quant *MacroblockQuant, encodeBreakout int, lumaSSE int) bool {
 	if encodeBreakout <= 0 || ref == nil || mode == nil || quant == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode == vp8common.SplitMV {
 		return false
 	}
@@ -65,17 +67,17 @@ func staticInterFastEncodeBreakout(src vp8enc.SourceImage, ref *vp8common.Image,
 	if lumaSSE >= threshold {
 		return false
 	}
-	chromaSSE, ok := macroblockChromaMotionSSE(src, ref, mbRow, mbCol, mode)
+	chromaSSE, ok := MacroblockChromaMotionSSE(src, ref, mbRow, mbCol, mode)
 	return ok && chromaSSE*2 < encodeBreakout
 }
 
-func macroblockChromaMotionSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode) (int, bool) {
+func MacroblockChromaMotionSSE(src SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *InterFrameMacroblockMode) (int, bool) {
 	if ref == nil || mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode == vp8common.SplitMV {
 		return 0, false
 	}
 	baseY := mbRow * 8
 	baseX := mbCol * 8
-	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
+	uvWidth, uvHeight := SourceImageUVDimensions(src)
 	// Uint range collapses (base<0) + (base+8>dim) into one compare per
 	// dimension. The original positive-form '+8 > dim' becomes
 	// 'base > dim-8' which uint-cast handles in one branch.
@@ -119,7 +121,7 @@ func chromaMotionVectorComponent(v int16) int {
 	c := int(v)
 	// (c-1)/2 when c<0, (c+1)/2 otherwise. Sign-mask folds the offset
 	// into one straight-line expression.
-	mask := c >> mvKernelSignShift
+	mask := c >> intSignShift
 	return (c + 1 + 2*mask) / 2
 }
 
