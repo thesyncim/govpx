@@ -113,41 +113,6 @@ func predictAnalysisBPredBlock(mode vp8common.BPredictionMode, dst []byte, strid
 	return dsp.Intra4x4Predict(dst, stride, mode, blockAbove[:], blockLeft[:], blockTopLeft)
 }
 
-func bPredBlockSSE(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred []byte, predStride int) int {
-	baseY := mbRow*16 + (block>>2)*4
-	baseX := mbCol*16 + (block&3)*4
-	sse := 0
-	for row := range 4 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		for col := range 4 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			diff := int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*predStride+col])
-			sse += diff * diff
-		}
-	}
-	return sse
-}
-
-func fillBPredResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred []byte, out *[16]int16) {
-	baseY := mbRow*16 + (block>>2)*4
-	baseX := mbCol*16 + (block&3)*4
-	for row := range 4 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		for col := range 4 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			out[row*4+col] = int16(int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*4+col]))
-		}
-	}
-}
-
-func copyBPredBlock(src []byte, dst []byte, dstStride int, block int) {
-	y := (block >> 2) * 4
-	x := (block & 3) * 4
-	for row := range 4 {
-		copy(dst[(y+row)*dstStride+x:], src[row*4:row*4+4])
-	}
-}
-
 func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
 	return dsp.TransformBlockError(coeff, dqcoeff)
 }

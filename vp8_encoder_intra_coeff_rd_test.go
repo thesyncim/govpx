@@ -29,7 +29,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 		if !predictAnalysisBPredBlock(vp8common.BHEPred, blockPred[:], 4, y, pred.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
 		}
-		copyBPredBlock(blockPred[:], y, pred.Img.YStride, block)
+		vp8enc.CopyBPredBlock(blockPred[:], y, pred.Img.YStride, block)
 		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
 	}
 	for row := 16; row < 32; row++ {
@@ -72,7 +72,7 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 		if !predictAnalysisBPredBlock(vp8common.BLDPred, blockPred[:], 4, y, e.analysis.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
 		}
-		copyBPredBlock(blockPred[:], y, e.analysis.Img.YStride, block)
+		vp8enc.CopyBPredBlock(blockPred[:], y, e.analysis.Img.YStride, block)
 		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
 	}
 	for row := 16; row < 32; row++ {

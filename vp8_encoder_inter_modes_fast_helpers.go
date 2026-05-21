@@ -130,7 +130,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 				return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 			}
 			modeRate := libvpxInterFastBpredModeCostWithProbs(bMode, e.modeProbs.BMode[:])
-			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
+			modeDist := vp8enc.BPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
 			modeCost := vp8enc.RDCost(rdMult, rdDiv, modeRate, modeDist)
 			if modeCost < bestCost {
 				bestMode = bMode
@@ -141,7 +141,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			}
 		}
 		modes[block] = bestMode
-		copyBPredBlock(bestPred[:], predictor[:], 16, block)
+		vp8enc.CopyBPredBlock(bestPred[:], predictor[:], 16, block)
 
 		// Mirror libvpx vp8_encode_intra4x4block: re-predict, residual,
 		// DCT, quantize/dequant, IDCT-add into the analysis Y plane so the
@@ -152,7 +152,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		var dct [16]int16
 		var qcoeff [16]int16
 		var dqcoeff [16]int16
-		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], &input)
+		vp8enc.FillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, quantY1, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
 		var recon [16]byte
@@ -161,7 +161,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		} else {
 			dsp.DCOnlyIDCT4x4Add(dqcoeff[0], bestPred[:], 4, recon[:], 4)
 		}
-		copyBPredBlock(recon[:], y, yStride, block)
+		vp8enc.CopyBPredBlock(recon[:], y, yStride, block)
 
 		rate += bestRate
 		distortion += bestDist

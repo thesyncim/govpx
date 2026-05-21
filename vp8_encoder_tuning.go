@@ -239,7 +239,7 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 			if !predictAnalysisBPredBlock(vp8common.BDCPred, y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 				return vp8ActivityAvgMin
 			}
-			sse += bPredBlockSSE(src, mbRow, mbCol, block, y[blockOffset:], img.YStride)
+			sse += vp8enc.BPredBlockSSE(src, mbRow, mbCol, block, y[blockOffset:], img.YStride)
 			x := mbCol*16 + (block&3)*4
 			yCoord := mbRow*16 + (block>>2)*4
 			vp8enc.FillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)

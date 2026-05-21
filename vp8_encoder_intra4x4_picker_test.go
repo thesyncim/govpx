@@ -115,7 +115,7 @@ func TestPredictBestBPredLumaModeRDKeyFrameRateIsModePlusTokens(t *testing.T) {
 		var dct [16]int16
 		var qcoeff [16]int16
 		var dqcoeff [16]int16
-		fillBPredResidual4x4(sourceImageFromPublic(src), 0, 0, block, blockPred[:], &input)
+		vp8enc.FillBPredResidual4x4(sourceImageFromPublic(src), 0, 0, block, blockPred[:], &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		ctx := int(tokAbove[block&3] + tokLeft[(block&0x0c)>>2])
 		eob := quantizeDecisionBlock(false, &dct, &quant.Y1, 0, &qcoeff, &dqcoeff)
@@ -132,7 +132,7 @@ func TestPredictBestBPredLumaModeRDKeyFrameRateIsModePlusTokens(t *testing.T) {
 		// predictor inputs and ctx state.
 		var recon [16]byte
 		dsp.IDCT4x4Add(&dqcoeff, blockPred[:], 4, recon[:], 4)
-		copyBPredBlock(recon[:], y, oraclePred.Img.YStride, block)
+		vp8enc.CopyBPredBlock(recon[:], y, oraclePred.Img.YStride, block)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
 			hasCoeffs = 1

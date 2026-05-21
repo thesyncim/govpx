@@ -187,7 +187,7 @@ func pickFastBPredLumaModeKFWithRDConstants(src vp8enc.SourceImage, qIndex int, 
 				return [16]vp8common.BPredictionMode{}, 0, 0, false
 			}
 			modeRate := bPredModeRate(true, candidate, aboveMode, leftMode)
-			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
+			modeDist := vp8enc.BPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
 			cost := vp8enc.RDCost(rdMult, rdDiv, modeRate, modeDist)
 			if i == 0 || cost < bestCost {
 				bestMode = candidate
@@ -206,7 +206,7 @@ func pickFastBPredLumaModeKFWithRDConstants(src vp8enc.SourceImage, qIndex int, 
 		var dct [16]int16
 		var qcoeff [16]int16
 		var dqcoeff [16]int16
-		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], &input)
+		vp8enc.FillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		eob := quantizeDecisionBlock(fastQuant, &dct, &quant.Y1, zbinOverQuant, &qcoeff, &dqcoeff)
 		var recon [16]byte
@@ -215,7 +215,7 @@ func pickFastBPredLumaModeKFWithRDConstants(src vp8enc.SourceImage, qIndex int, 
 		} else {
 			dsp.DCOnlyIDCT4x4Add(dqcoeff[0], bestPred[:], 4, recon[:], 4)
 		}
-		copyBPredBlock(recon[:], y, pred.YStride, block)
+		vp8enc.CopyBPredBlock(recon[:], y, pred.YStride, block)
 
 		totalRate += bestRate
 		totalDist += bestDist
@@ -513,7 +513,7 @@ func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common
 //     and only committed using bestEOB after the candidate loop, mirroring
 //     libvpx's "*a = tempa; *l = templ;" inside the if-best block.
 //  3. Reconstruction: dsp.IDCT4x4Add is invoked inside the winning branch
-//     and the resulting bestRecon is written via copyBPredBlock at the end
+//     and the resulting bestRecon is written via vp8enc.CopyBPredBlock at the end
 //     of each block iteration, equivalent to libvpx's deferred
 //     vp8_short_idct4x4llm(best_dqcoeff, best_predictor, ...) call.
 //  4. Bailout: govpx returns ok=false when the running rate/dist already
@@ -597,7 +597,7 @@ func predictBestBPredLumaModeRDWithRDConstantsAndEOBs(src vp8enc.SourceImage, qI
 			var dct [16]int16
 			var qcoeff [16]int16
 			var dqcoeff [16]int16
-			fillBPredResidual4x4(src, mbRow, mbCol, block, candidatePred[:], &input)
+			vp8enc.FillBPredResidual4x4(src, mbRow, mbCol, block, candidatePred[:], &input)
 			vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 			tokenCtx := int(tokenAbove[block&3] + tokenLeft[(block&0x0c)>>2])
 			eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, &quant.Y1, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
@@ -623,7 +623,7 @@ func predictBestBPredLumaModeRDWithRDConstantsAndEOBs(src vp8enc.SourceImage, qI
 			}
 		}
 		modes[block] = bestMode
-		copyBPredBlock(bestRecon[:], y, pred.YStride, block)
+		vp8enc.CopyBPredBlock(bestRecon[:], y, pred.YStride, block)
 		hasCoeffs := uint8(0)
 		if bestEOB > 0 {
 			hasCoeffs = 1
