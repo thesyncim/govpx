@@ -286,7 +286,8 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 
 // Pinned values for TestFirstPassY4MCorpusSectionAccumulators. These
 // follow the libvpx-aligned implementation in vp8_encoder_firstpass.go (the same
-// formulas TestFirstPassStatsRegression32x32 pins for its 32x32 ramp clip).
+// formulas TestFirstPassStatsMatchLibvpxFormulas32x32 pins for its 32x32 ramp
+// clip).
 // Update them in lock-step when the first-pass scoring or section accumulator
 // changes.
 //

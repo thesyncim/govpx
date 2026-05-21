@@ -17,31 +17,31 @@ import (
 //     code 64 -> weight 1.0); the actual average is captured in the SSIM
 //     constants below.
 const (
-	firstPassRegressionExpectIntraError0    = 2557.0
-	firstPassRegressionExpectIntraError1    = 2243.0
-	firstPassRegressionExpectIntraError2    = 2131.0
-	firstPassRegressionExpectCodedError1    = 32.0
-	firstPassRegressionExpectCodedError2    = 37.0
-	firstPassRegressionExpectSSIM0          = 2468.3259118652345
-	firstPassRegressionExpectSSIM1          = 31.306640625
-	firstPassRegressionExpectSSIM2          = 36.54156494140625
-	firstPassRegressionExpectMVr1           = 18.0
-	firstPassRegressionExpectMVrAbs1        = 18.0
-	firstPassRegressionExpectMVc1           = -6.0
-	firstPassRegressionExpectMVcAbs1        = 14.0
-	firstPassRegressionExpectMVrv1          = 475.75
-	firstPassRegressionExpectMVcv1          = 429.75
-	firstPassRegressionExpectMVInOut1       = -0.5
-	firstPassRegressionExpectNewMV1         = 4.0
-	firstPassRegressionExpectPcntSecondRef2 = 0.75
-	firstPassRegressionExpectMVr2           = 8.0
-	firstPassRegressionExpectMVrAbs2        = 8.0
-	firstPassRegressionExpectMVc2           = 8.0
-	firstPassRegressionExpectMVcAbs2        = 8.0
-	firstPassRegressionExpectMVrv2          = 92.0
-	firstPassRegressionExpectMVcv2          = 92.0
-	firstPassRegressionExpectMVInOut2       = -0.375
-	firstPassRegressionExpectNewMV2         = 4.0
+	firstPassStatsExpectIntraError0    = 2557.0
+	firstPassStatsExpectIntraError1    = 2243.0
+	firstPassStatsExpectIntraError2    = 2131.0
+	firstPassStatsExpectCodedError1    = 32.0
+	firstPassStatsExpectCodedError2    = 37.0
+	firstPassStatsExpectSSIM0          = 2468.3259118652345
+	firstPassStatsExpectSSIM1          = 31.306640625
+	firstPassStatsExpectSSIM2          = 36.54156494140625
+	firstPassStatsExpectMVr1           = 18.0
+	firstPassStatsExpectMVrAbs1        = 18.0
+	firstPassStatsExpectMVc1           = -6.0
+	firstPassStatsExpectMVcAbs1        = 14.0
+	firstPassStatsExpectMVrv1          = 475.75
+	firstPassStatsExpectMVcv1          = 429.75
+	firstPassStatsExpectMVInOut1       = -0.5
+	firstPassStatsExpectNewMV1         = 4.0
+	firstPassStatsExpectPcntSecondRef2 = 0.75
+	firstPassStatsExpectMVr2           = 8.0
+	firstPassStatsExpectMVrAbs2        = 8.0
+	firstPassStatsExpectMVc2           = 8.0
+	firstPassStatsExpectMVcAbs2        = 8.0
+	firstPassStatsExpectMVrv2          = 92.0
+	firstPassStatsExpectMVcv2          = 92.0
+	firstPassStatsExpectMVInOut2       = -0.375
+	firstPassStatsExpectNewMV2         = 4.0
 )
 
 // TestFirstPassStatsPopulatesLibvpxFields runs CollectFirstPassStats on a
@@ -308,11 +308,11 @@ func firstPassPlaneMatches(a []byte, aStride int, b []byte, bStride int, width i
 	return true
 }
 
-// TestFirstPassStatsRegression32x32 pins the per-frame FirstPassFrameStats
-// for a deterministic 32x32 (4 macroblock) clip. The expected values were
-// captured from this implementation against the libvpx vp8_first_pass
-// formulas (see vp8_encoder_firstpass.go). Any change to the first-pass scoring
-// must update these constants explicitly.
+// TestFirstPassStatsMatchLibvpxFormulas32x32 pins the per-frame
+// FirstPassFrameStats for a deterministic 32x32 (4 macroblock) clip. The
+// expected values were captured from this implementation against the libvpx
+// vp8_first_pass formulas (see vp8_encoder_firstpass.go). Any change to the
+// first-pass scoring must update these constants explicitly.
 //
 // libvpx references for each pinned field (vp8/encoder/firstpass.c):
 //   - intra_error: vp8enc.MacroblockMeanLumaSSE + intrapenalty
@@ -327,7 +327,7 @@ func firstPassPlaneMatches(a []byte, aStride int, b []byte, bStride int, width i
 //   - new_mv_count: count of mvcount entries that differed from the
 //     previous non-zero MV
 //   - pcnt_motion: mvcount / MBs
-func TestFirstPassStatsRegression32x32(t *testing.T) {
+func TestFirstPassStatsMatchLibvpxFormulas32x32(t *testing.T) {
 	const (
 		width  = 32
 		height = 32
@@ -348,7 +348,7 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 
 	// 2D luma ramp shifted by `shift` pixels in both row and column. A
 	// strict 2D ramp makes the integer-pel SSE search pick a unique
-	// best MV, which keeps the regression assertions stable.
+	// best MV, which keeps the pinned assertions stable.
 	frame := func(shift int) Image {
 		img := testImage(width, height)
 		for y := range height {
@@ -402,45 +402,45 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 		// nonzero; the values below are what the implementation
 		// produces.
 		{
-			intraError: firstPassRegressionExpectIntraError0,
-			codedError: firstPassRegressionExpectIntraError0,
+			intraError: firstPassStatsExpectIntraError0,
+			codedError: firstPassStatsExpectIntraError0,
 			// simple_weight on a ramp 16..140 averages well below 1.0
 			// because codes <=32 pin to 0.02 in weight_table[]. The
 			// libvpx clamp ensures weight >= 0.1.
-			ssimWeightedPredErr: firstPassRegressionExpectSSIM0,
+			ssimWeightedPredErr: firstPassStatsExpectSSIM0,
 		},
 		{
-			intraError:          firstPassRegressionExpectIntraError1,
-			codedError:          firstPassRegressionExpectCodedError1,
-			ssimWeightedPredErr: firstPassRegressionExpectSSIM1,
+			intraError:          firstPassStatsExpectIntraError1,
+			codedError:          firstPassStatsExpectCodedError1,
+			ssimWeightedPredErr: firstPassStatsExpectSSIM1,
 			pcntInter:           1.0,
 			pcntMotion:          1.0,
 			pcntNeutral:         0.0,
-			mvR:                 firstPassRegressionExpectMVr1,
-			mvRAbs:              firstPassRegressionExpectMVrAbs1,
-			mvC:                 firstPassRegressionExpectMVc1,
-			mvCAbs:              firstPassRegressionExpectMVcAbs1,
-			mvRv:                firstPassRegressionExpectMVrv1,
-			mvCv:                firstPassRegressionExpectMVcv1,
-			mvInOut:             firstPassRegressionExpectMVInOut1,
-			newMVCount:          firstPassRegressionExpectNewMV1,
+			mvR:                 firstPassStatsExpectMVr1,
+			mvRAbs:              firstPassStatsExpectMVrAbs1,
+			mvC:                 firstPassStatsExpectMVc1,
+			mvCAbs:              firstPassStatsExpectMVcAbs1,
+			mvRv:                firstPassStatsExpectMVrv1,
+			mvCv:                firstPassStatsExpectMVcv1,
+			mvInOut:             firstPassStatsExpectMVInOut1,
+			newMVCount:          firstPassStatsExpectNewMV1,
 		},
 		{
-			intraError:          firstPassRegressionExpectIntraError2,
-			codedError:          firstPassRegressionExpectCodedError2,
-			ssimWeightedPredErr: firstPassRegressionExpectSSIM2,
+			intraError:          firstPassStatsExpectIntraError2,
+			codedError:          firstPassStatsExpectCodedError2,
+			ssimWeightedPredErr: firstPassStatsExpectSSIM2,
 			pcntInter:           1.0,
 			pcntMotion:          1.0,
-			pcntSecondRef:       firstPassRegressionExpectPcntSecondRef2,
+			pcntSecondRef:       firstPassStatsExpectPcntSecondRef2,
 			pcntNeutral:         0.0,
-			mvR:                 firstPassRegressionExpectMVr2,
-			mvRAbs:              firstPassRegressionExpectMVrAbs2,
-			mvC:                 firstPassRegressionExpectMVc2,
-			mvCAbs:              firstPassRegressionExpectMVcAbs2,
-			mvRv:                firstPassRegressionExpectMVrv2,
-			mvCv:                firstPassRegressionExpectMVcv2,
-			mvInOut:             firstPassRegressionExpectMVInOut2,
-			newMVCount:          firstPassRegressionExpectNewMV2,
+			mvR:                 firstPassStatsExpectMVr2,
+			mvRAbs:              firstPassStatsExpectMVrAbs2,
+			mvC:                 firstPassStatsExpectMVc2,
+			mvCAbs:              firstPassStatsExpectMVcAbs2,
+			mvRv:                firstPassStatsExpectMVrv2,
+			mvCv:                firstPassStatsExpectMVcv2,
+			mvInOut:             firstPassStatsExpectMVInOut2,
+			newMVCount:          firstPassStatsExpectNewMV2,
 		},
 	}
 
