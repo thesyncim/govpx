@@ -2,11 +2,10 @@ package govpx
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -113,40 +112,37 @@ func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedL
 
 func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generatedLibvpxCorpusCase) string {
 	t.Helper()
-	yuvPath := filepath.Join(dir, tc.name+".yuv")
 	ivfPath := filepath.Join(dir, tc.name+".ivf")
-	writeDeterministicI420(t, yuvPath, tc.width, tc.height, tc.frames)
-
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--good",
-		"--cpu-used=0",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--end-usage=vbr",
-		"--target-bitrate=200",
-		"--i420",
-		"--width=" + strconv.Itoa(tc.width),
-		"--height=" + strconv.Itoa(tc.height),
-		"--fps=30/1",
-		"--limit=" + strconv.Itoa(tc.frames),
-		"--output=" + ivfPath,
-	}
-	args = append(args, tc.args...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxenc, args...)
-	out, err := cmd.CombinedOutput()
+	extraArgs := append([]string{"--end-usage=vbr"}, tc.args...)
+	ivf, diag, err := coracle.VpxencVP8EncodeI420(
+		deterministicI420Bytes(t, tc.width, tc.height, tc.frames),
+		coracle.VpxencVP8Config{
+			BinaryPath:        vpxenc,
+			Width:             tc.width,
+			Height:            tc.height,
+			Frames:            tc.frames,
+			Deadline:          "good",
+			CPUUsed:           0,
+			LagInFrames:       0,
+			TargetBitrateKbps: 200,
+			FPS:               "30/1",
+			KeyFrameDistSet:   true,
+			KeyFrameMinDist:   999,
+			KeyFrameMaxDist:   999,
+			OmitQuantizerArgs: true,
+			ExtraArgs:         extraArgs,
+		},
+	)
 	if err != nil {
-		t.Fatalf("vpxenc failed: %v\n%s", err, out)
+		t.Fatalf("vpxenc failed: %v\n%s", err, diag)
+	}
+	if err := os.WriteFile(ivfPath, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
 	}
 	return ivfPath
 }
 
-func writeDeterministicI420(t *testing.T, path string, width int, height int, frames int) {
+func deterministicI420Bytes(t *testing.T, width int, height int, frames int) []byte {
 	t.Helper()
 	if min(min(width, height), frames) <= 0 || width%2 != 0 || height%2 != 0 {
 		t.Fatalf("invalid I420 corpus dimensions %dx%d frames=%d", width, height, frames)
@@ -171,7 +167,5 @@ func writeDeterministicI420(t *testing.T, path string, width int, height int, fr
 			}
 		}
 	}
-	if err := os.WriteFile(path, buf, 0o600); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
+	return buf
 }

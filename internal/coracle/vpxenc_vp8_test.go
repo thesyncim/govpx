@@ -80,6 +80,24 @@ func TestVpxencVP8ConfigArgsDefaultDeadlineAndKeyFrameDistance(t *testing.T) {
 	}
 }
 
+func TestVpxencVP8ConfigCanUseLibvpxDefaultQuantizers(t *testing.T) {
+	cfg := VpxencVP8Config{
+		Width:             16,
+		Height:            16,
+		Frames:            1,
+		TargetBitrateKbps: 100,
+		FPS:               "30/1",
+		OmitQuantizerArgs: true,
+	}
+	args := cfg.vpxencArgs("in.yuv", "out.ivf")
+
+	for _, unwanted := range []string{"--min-q=0", "--max-q=0"} {
+		if slices.Contains(args, unwanted) {
+			t.Fatalf("args contained %q despite OmitQuantizerArgs: %s", unwanted, strings.Join(args, " "))
+		}
+	}
+}
+
 func TestVpxencVP8ConfigTwoPassArgs(t *testing.T) {
 	cfg := VpxencVP8Config{
 		Width:             64,
@@ -207,6 +225,30 @@ func TestVpxencVP8FrameFlagsConfigArgsDefaultDeadlineAndEndUsage(t *testing.T) {
 	}
 }
 
+func TestVpxTemporalSVCConfigArgs(t *testing.T) {
+	cfg := VpxTemporalSVCConfig{
+		Width:              64,
+		Height:             32,
+		Frames:             8,
+		FPS:                30,
+		Speed:              5,
+		FrameDropThreshold: 7,
+		ErrorResilient:     true,
+		Threads:            2,
+		LayeringMode:       4,
+		LayerBitratesKbps:  []int{200, 400, 700},
+	}
+	args := cfg.args("input.i420", "layer")
+
+	want := []string{
+		"input.i420", "layer", "vp8", "64", "32", "1", "30",
+		"5", "7", "1", "2", "4", "200", "400", "700",
+	}
+	if !slices.Equal(args, want) {
+		t.Fatalf("args = %v, want %v", args, want)
+	}
+}
+
 func TestVP8VpxencThreadsArg(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -296,5 +338,10 @@ func TestVpxencVP8EncodeI420ValidatesBeforePathLookup(t *testing.T) {
 		t.Fatal("VpxencVP8TwoPassTraceI420 accepted empty input")
 	} else if errors.Is(err, ErrVpxencNotBuilt) || errors.Is(err, ErrVpxencOracleNotBuilt) {
 		t.Fatal("VpxencVP8TwoPassTraceI420 looked up helper before validating input")
+	}
+	if _, _, err := VpxTemporalSVCEncodeI420(nil, VpxTemporalSVCConfig{Width: 16, Height: 16, Frames: 1}); err == nil {
+		t.Fatal("VpxTemporalSVCEncodeI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxTemporalSVCEncoderNotBuilt) {
+		t.Fatal("VpxTemporalSVCEncodeI420 looked up helper before validating input")
 	}
 }

@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
@@ -434,47 +432,32 @@ func encodeFramesWithLibvpxTemporalSVC(
 	sources []Image,
 ) [][][]byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, fx.name+".yuv")
-	outBase := filepath.Join(dir, fx.name+"_out")
-	writeEncoderValidationI420(t, yuvPath, sources)
 
 	if threads == 0 {
 		threads = 1
 	}
-	args := []string{
-		yuvPath,
-		outBase,
-		"vp8",
-		strconv.Itoa(fx.w),
-		strconv.Itoa(fx.h),
-		"1",                 // timebase numerator (1/fps).
-		strconv.Itoa(30),    // timebase denominator (fps).
-		strconv.Itoa(speed), // libvpx applies VP8E_SET_CPUUSED(-speed).
-		"0",                 // frame_drop_threshold (no drops; we want strict parity).
-		boolTo01(errorResilient),
-		strconv.Itoa(threads),
-		strconv.Itoa(layeringMode),
+	bitrates := make([]int, numLayers)
+	for i := range bitrates {
+		bitrates[i] = bitratesKbps[i]
 	}
-	for i := 0; i < numLayers; i++ {
-		args = append(args, strconv.Itoa(bitratesKbps[i]))
+	layers, diag, err := coracle.VpxTemporalSVCPayloadsI420(
+		encoderValidationI420Bytes(t, sources),
+		coracle.VpxTemporalSVCConfig{
+			BinaryPath:         svcEncoder,
+			Width:              fx.w,
+			Height:             fx.h,
+			Frames:             len(sources),
+			FPS:                30,
+			Speed:              speed,
+			FrameDropThreshold: 0,
+			ErrorResilient:     errorResilient,
+			Threads:            threads,
+			LayeringMode:       layeringMode,
+			LayerBitratesKbps:  bitrates,
+		},
+	)
+	if err != nil {
+		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, diag)
 	}
-	cmd := exec.Command(svcEncoder, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, out)
-	}
-	out := make([][][]byte, numLayers)
-	for i := 0; i < numLayers; i++ {
-		ivfPath := fmt.Sprintf("%s_%d.ivf", outBase, i)
-		data, err := os.ReadFile(ivfPath)
-		if err != nil {
-			t.Fatalf("read %s: %v", ivfPath, err)
-		}
-		frames, err := testutil.IVFFramePayloads(data)
-		if err != nil {
-			t.Fatalf("IVFFramePayloads: %v", err)
-		}
-		out[i] = frames
-	}
-	return out
+	return layers
 }

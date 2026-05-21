@@ -47,6 +47,21 @@ func Vpxenc(t testing.TB) string {
 	return ""
 }
 
+// Vpxdec resolves the pinned stock VP8 vpxdec binary or skips the test when
+// it has not been built.
+func Vpxdec(t testing.TB) string {
+	t.Helper()
+	path, err := coracle.VpxdecPath()
+	if err == nil {
+		return path
+	}
+	if errors.Is(err, coracle.ErrVpxdecNotBuilt) {
+		t.Skip("set GOVPX_VPXDEC to a libvpx v1.16.0 vpxdec binary")
+	}
+	t.Fatalf("VpxdecPath: %v", err)
+	return ""
+}
+
 // VpxTemporalSVCEncoder resolves libvpx's temporal SVC sample encoder or
 // skips the test when it has not been built.
 func VpxTemporalSVCEncoder(t testing.TB) string {

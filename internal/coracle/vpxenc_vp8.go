@@ -26,6 +26,7 @@ type VpxencVP8Config struct {
 	TargetBitrateKbps    int
 	MinQ                 int
 	MaxQ                 int
+	OmitQuantizerArgs    bool
 	Timebase             string
 	FPS                  string
 	KeyFrameDistSet      bool
@@ -458,12 +459,15 @@ func (cfg VpxencVP8Config) vpxencArgs(inPath string, outPath string) []string {
 		"--lag-in-frames="+strconv.Itoa(cfg.LagInFrames),
 		autoAltRef,
 		"--target-bitrate="+strconv.Itoa(cfg.TargetBitrateKbps),
-		"--min-q="+strconv.Itoa(cfg.MinQ),
-		"--max-q="+strconv.Itoa(cfg.MaxQ),
 		"--i420",
 		"--width="+strconv.Itoa(cfg.Width),
 		"--height="+strconv.Itoa(cfg.Height),
 	)
+	if !cfg.OmitQuantizerArgs {
+		args = append(args,
+			"--min-q="+strconv.Itoa(cfg.MinQ),
+			"--max-q="+strconv.Itoa(cfg.MaxQ))
+	}
 	if cfg.Timebase != "" {
 		args = append(args, "--timebase="+cfg.Timebase)
 	}

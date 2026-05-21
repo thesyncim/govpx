@@ -5,12 +5,11 @@ package govpx
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -170,30 +169,29 @@ func TestVP8OracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 	for i := range sources {
 		sources[i] = rateControlTestFrame(width, height, i)
 	}
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "temporal-svc.yuv")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	outputBase := filepath.Join(dir, "temporal-svc")
-	cmd := exec.Command(svcEncoder,
-		yuvPath, outputBase, "vp8",
-		strconv.Itoa(width), strconv.Itoa(height),
-		"1", strconv.Itoa(fps),
-		"8", "0", "1", "1", "1",
-		"720", "1200",
+	ivfs, diag, err := coracle.VpxTemporalSVCEncodeI420(
+		encoderValidationI420Bytes(t, sources),
+		coracle.VpxTemporalSVCConfig{
+			BinaryPath:         svcEncoder,
+			Width:              width,
+			Height:             height,
+			Frames:             frameCount,
+			FPS:                fps,
+			Speed:              8,
+			FrameDropThreshold: 0,
+			ErrorResilient:     true,
+			Threads:            1,
+			LayeringMode:       1,
+			LayerBitratesKbps:  []int{720, 1200},
+		},
 	)
-	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, out)
+		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, diag)
 	}
-	stats := parseTemporalSVCExampleLayerStats(t, string(out), 2)
+	stats := parseTemporalSVCExampleLayerStats(t, string(diag), 2)
 	assertGovpxTemporalAccountingMatchesLibvpxExample(t, sources, stats)
 
-	for layer := range 2 {
-		ivfPath := fmt.Sprintf("%s_%d.ivf", outputBase, layer)
-		ivf, err := os.ReadFile(ivfPath)
-		if err != nil {
-			t.Fatalf("ReadFile %s returned error: %v", ivfPath, err)
-		}
+	for layer, ivf := range ivfs {
 		govpxChecksums := decodeIVFChecksums(t, ivf)
 		libvpxChecksums := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 		assertFrameChecksumsEqual(t, fmt.Sprintf("libvpx temporal SVC layer %d decoded by govpx", layer), govpxChecksums, libvpxChecksums)

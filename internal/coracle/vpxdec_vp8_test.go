@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -42,6 +43,44 @@ func TestVpxdecVP8ChecksumArgsKeepsInvalidOracleOutputDiagnostics(t *testing.T) 
 	}
 	if string(diag) != "not-json\n" {
 		t.Fatalf("diag = %q, want invalid oracle output", diag)
+	}
+}
+
+func TestVpxdecVP8SummaryIVFUsesConfiguredBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture is Unix-only")
+	}
+	vpxdec := writeExecutableScript(t, "#!/bin/sh\nprintf 'summary %s\\n' \"$*\"\n")
+
+	diag, err := VpxdecVP8SummaryIVF([]byte("DKIF"), VpxdecVP8Config{BinaryPath: vpxdec})
+	if err != nil {
+		t.Fatalf("VpxdecVP8SummaryIVF: %v\n%s", err, diag)
+	}
+	if !strings.Contains(string(diag), "--codec=vp8 --noblit --summary") {
+		t.Fatalf("diag = %q, want summary args", diag)
+	}
+}
+
+func TestVpxdecVP8DecodeI420ReturnsPartialOutputOnError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture is Unix-only")
+	}
+	vpxdec := writeExecutableScript(t, `#!/bin/sh
+out="${3#--output=}"
+printf raw > "$out"
+printf 'decode failed\n'
+exit 3
+`)
+
+	raw, diag, err := VpxdecVP8DecodeI420([]byte("DKIF"), VpxdecVP8Config{BinaryPath: vpxdec})
+	if err == nil {
+		t.Fatal("VpxdecVP8DecodeI420 returned nil error, want process failure")
+	}
+	if string(raw) != "raw" {
+		t.Fatalf("raw = %q, want partial output", raw)
+	}
+	if string(diag) != "decode failed\n" {
+		t.Fatalf("diag = %q, want process output", diag)
 	}
 }
 

@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
@@ -20,13 +18,7 @@ func TestVP8OracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle smoke tests")
 	}
-	vpxdec, err := coracle.VpxdecPath()
-	if err != nil {
-		if errors.Is(err, coracle.ErrVpxdecNotBuilt) {
-			t.Skip("vpxdec not found; set GOVPX_VPXDEC to a libvpx v1.16.0 vpxdec binary")
-		}
-		t.Fatalf("VpxdecPath: %v", err)
-	}
+	vpxdec := coracletest.Vpxdec(t)
 
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
@@ -52,15 +44,9 @@ func TestVP8OracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 	}
 
 	ivf := makeSingleFrameIVF(16, 16, 30, 1, result.Data)
-	path := filepath.Join(t.TempDir(), "govpx-keyframe.ivf")
-	if err := os.WriteFile(path, ivf, 0o600); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-
-	cmd := exec.Command(vpxdec, "--codec=vp8", "--noblit", "--summary", path)
-	out, err := cmd.CombinedOutput()
+	diag, err := coracle.VpxdecVP8SummaryIVF(ivf, coracle.VpxdecVP8Config{BinaryPath: vpxdec})
 	if err != nil {
-		t.Fatalf("vpxdec failed: %v\n%s", err, out)
+		t.Fatalf("vpxdec failed: %v\n%s", err, diag)
 	}
 }
 

@@ -7,8 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
@@ -167,20 +165,7 @@ func decodeIVFGovpxBestEffort(data []byte) ([][]byte, error) {
 // zero frames while govpx correctly decoded two). Walk per-frame VP8
 // headers to compute libvpx-faithful expected sizes.
 func decodeIVFLibvpxBestEffort(t *testing.T, vpxdec string, data []byte) ([][]byte, error) {
-	dir := t.TempDir()
-	ivfPath := filepath.Join(dir, "fuzz.ivf")
-	rawPath := filepath.Join(dir, "fuzz.raw")
-	if err := os.WriteFile(ivfPath, data, 0o600); err != nil {
-		return nil, err
-	}
-	cmd := exec.Command(vpxdec, "--codec=vp8", "--i420", "--output="+rawPath, ivfPath)
-	cmd.Env = os.Environ()
-	runErr := cmd.Run()
-	// vpxdec may have written some frames before erroring; read whatever exists.
-	raw, readErr := os.ReadFile(rawPath)
-	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-		return nil, readErr
-	}
+	raw, _, runErr := coracle.VpxdecVP8DecodeI420(data, coracle.VpxdecVP8Config{BinaryPath: vpxdec})
 	if _, headerErr := testutil.ParseIVFHeader(data); headerErr != nil {
 		// vpxdec also won't produce frames from an unparseable IVF header;
 		// the outcome is "no frames" regardless.

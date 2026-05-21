@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
@@ -470,34 +469,26 @@ type libvpxTemporalLayerStat struct {
 
 func captureLibvpxTemporalSVCStats(t *testing.T, svcEncoder string, fx temporalSVCFixtureSpec, sources []Image) libvpxTemporalSVCStats {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "temporal-svc.yuv")
-	outputBase := filepath.Join(dir, "temporal-svc")
-	writeEncoderValidationI420(t, yuvPath, sources)
-
-	// vpx_temporal_svc_encoder argv (libvpx-v1.16.0):
-	//   <infile> <outbase> vp8 <width> <height> <rate_num> <rate_den>
-	//   <speed> <frame_drop_threshold> <error_resilient> <threads>
-	//   <mode> <Rate_0> ... <Rate_n-1>
-	args := []string{
-		yuvPath, outputBase, "vp8",
-		strconv.Itoa(fx.Width), strconv.Itoa(fx.Height),
-		"1", strconv.Itoa(fx.FPS),
-		strconv.Itoa(fx.Speed),
-		strconv.Itoa(fx.FrameDropThresh),
-		boolTo01(fx.ErrorResilient),
-		"1", // threads
-		"4", // layering_mode 4 = 3-layers, 4-frame period (ts_layer_id={0,2,1,2})
-		strconv.Itoa(fx.Bitrates[0]),
-		strconv.Itoa(fx.Bitrates[1]),
-		strconv.Itoa(fx.Bitrates[2]),
-	}
-	cmd := exec.Command(svcEncoder, args...)
-	out, err := cmd.CombinedOutput()
+	_, diag, err := coracle.VpxTemporalSVCEncodeI420(
+		encoderValidationI420Bytes(t, sources),
+		coracle.VpxTemporalSVCConfig{
+			BinaryPath:         svcEncoder,
+			Width:              fx.Width,
+			Height:             fx.Height,
+			Frames:             len(sources),
+			FPS:                fx.FPS,
+			Speed:              fx.Speed,
+			FrameDropThreshold: fx.FrameDropThresh,
+			ErrorResilient:     fx.ErrorResilient,
+			Threads:            1,
+			LayeringMode:       4,
+			LayerBitratesKbps:  []int{fx.Bitrates[0], fx.Bitrates[1], fx.Bitrates[2]},
+		},
+	)
 	if err != nil {
-		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, out)
+		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, diag)
 	}
-	return parseLibvpxTemporalSVCSummary(t, string(out), 3)
+	return parseLibvpxTemporalSVCSummary(t, string(diag), 3)
 }
 
 // parseLibvpxTemporalSVCSummary scans the multi-block stdout produced
@@ -683,13 +674,6 @@ func rateMismatchPct(actualKbps, targetKbps float64) float64 {
 		return 0
 	}
 	return 100.0 * math.Abs(actualKbps-targetKbps) / targetKbps
-}
-
-func boolTo01(b bool) string {
-	if b {
-		return "1"
-	}
-	return "0"
 }
 
 // flattenTemporalSVCSummary expands a fixture summary plus its per-layer
