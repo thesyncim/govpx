@@ -7,24 +7,24 @@ Last refreshed: 2026-05-21 from `main`.
 
 ## Current Counts
 
-- Root Go files: 535.
-- Root test files: 375.
-- Internal Go files: 667.
-- Root VP8 files: 80 implementation files and 221 test files.
+- Root Go files: 532.
+- Root test files: 372.
+- Internal Go files: 670.
+- Root VP8 files: 80 implementation files and 218 test files.
 - Root VP9 files: 71 implementation files and 142 test files.
 - Internal package files:
-  - `internal/vp8`: 314 Go files.
+  - `internal/vp8`: 317 Go files.
   - `internal/vp9`: 296 Go files.
   - `internal/vpx`: 9 Go files.
   - `internal/coracle`: 26 Go files.
   - `internal/testutil`: 18 Go files.
 - Test-name clusters:
-  - Root tests: 375.
-  - Internal tests: 277.
+  - Non-internal tests: 390.
+  - Internal tests: 280.
   - Files with `oracle` in the name: 124.
-  - Files with `parity` in the name: 66.
+  - Files with `parity` in the name: 64.
   - Files with `fuzz` in the name: 44.
-  - Files with `bench` in the path: 39.
+  - Files with `bench` in the path: 40.
 
 No tracked Go file is currently over 2500 lines. Keep it that way unless an
 exception is written here with a concrete reason.
@@ -186,10 +186,10 @@ This ledger tracks intent, not completed work.
 
 | Area | Current State | Target |
 | --- | --- | --- |
-| Root VP8 implementation | 81 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
+| Root VP8 implementation | 80 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
 | Root VP9 implementation | 71 root VP9 implementation files remain. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
-| Root tests | 375 root tests remain; many are codec implementation and parity tests. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
+| Root tests | 372 top-level root tests remain; many are codec implementation and parity tests. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx` is small. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |
 | Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |
 | Documentation | `docs/architecture.md`, `docs/api.md`, `docs/codec-status.md`, `docs/validation.md`, and this map exist. | Keep README short; detailed docs under `docs/`; no migration promise before first release. |
