@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
@@ -160,35 +159,10 @@ func TestOracle128x128InterQDriftScoreboard(t *testing.T) {
 		KeyframeQMatch:  keyframeQMatch,
 	}
 
-	baselinePath := filepath.Join("testdata", "qdrift_128_baseline.json")
-	_, statErr := os.Stat(baselinePath)
-	updateBaselines := os.Getenv("GOVPX_UPDATE_BASELINES") == "1"
-	if updateBaselines || os.IsNotExist(statErr) {
-		buf, err := json.MarshalIndent(current, "", "  ")
-		if err != nil {
-			t.Fatalf("Marshal qdrift baseline: %v", err)
-		}
-		buf = append(buf, '\n')
-		if err := os.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
-			t.Fatalf("MkdirAll %s: %v", filepath.Dir(baselinePath), err)
-		}
-		if err := os.WriteFile(baselinePath, buf, 0o644); err != nil {
-			t.Fatalf("WriteFile %s: %v", baselinePath, err)
-		}
-		t.Logf("wrote baseline %s", baselinePath)
+	baselinePath := "testdata/qdrift_128_baseline.json"
+	base, wrote := coracletest.ReadOrWriteJSONBaseline(t, baselinePath, current)
+	if wrote {
 		return
-	}
-	if statErr != nil {
-		t.Fatalf("stat %s: %v", baselinePath, statErr)
-	}
-
-	raw, err := os.ReadFile(baselinePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s: %v", baselinePath, err)
-	}
-	var base qdriftBaseline
-	if err := json.Unmarshal(raw, &base); err != nil {
-		t.Fatalf("Unmarshal baseline: %v", err)
 	}
 
 	t.Logf("max_abs_q_delta = %d (baseline %d, %+d)", current.MaxAbsQDelta, base.MaxAbsQDelta, current.MaxAbsQDelta-base.MaxAbsQDelta)

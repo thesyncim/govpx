@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
@@ -123,14 +122,19 @@ func TestOracleImprovedMVScoreboard(t *testing.T) {
 			r.NearSadIdxMatchPct, r.MVMatchPct, r.SRMatchPct, r.CombinedMatchPct)
 	}
 
-	if os.Getenv("GOVPX_UPDATE_BASELINES") == "1" {
-		writeImprovedMVBaseline(t, reports)
+	current := improvedMVBaseline{Fixtures: make(map[string]FixtureImprovedMVReport, len(reports))}
+	for _, r := range reports {
+		current.Fixtures[r.Name] = r
+	}
+
+	if coracletest.UpdateBaselines() {
+		coracletest.WriteJSONBaseline(t, improvedMVBaselinePath, current)
 		t.Logf("wrote baseline %s with %d fixtures", improvedMVBaselinePath, len(reports))
 		return
 	}
 
-	baseline := readImprovedMVBaseline(t)
-	if len(baseline.Fixtures) == 0 {
+	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[improvedMVBaseline](t, improvedMVBaselinePath)
+	if !baselineExists || len(baseline.Fixtures) == 0 {
 		t.Fatalf("baseline %s is empty; run with GOVPX_UPDATE_BASELINES=1 to bootstrap", improvedMVBaselinePath)
 	}
 	for _, r := range reports {
@@ -337,36 +341,4 @@ func optBool(raw map[string]json.RawMessage, field string) bool {
 		return false
 	}
 	return b
-}
-
-func readImprovedMVBaseline(t *testing.T) improvedMVBaseline {
-	t.Helper()
-	data, err := os.ReadFile(improvedMVBaselinePath)
-	if err != nil {
-		t.Fatalf("read baseline %s: %v (run with GOVPX_UPDATE_BASELINES=1 to bootstrap)", improvedMVBaselinePath, err)
-	}
-	var b improvedMVBaseline
-	if err := json.Unmarshal(data, &b); err != nil {
-		t.Fatalf("parse baseline %s: %v", improvedMVBaselinePath, err)
-	}
-	return b
-}
-
-func writeImprovedMVBaseline(t *testing.T, reports []FixtureImprovedMVReport) {
-	t.Helper()
-	file := improvedMVBaseline{Fixtures: make(map[string]FixtureImprovedMVReport, len(reports))}
-	for _, r := range reports {
-		file.Fixtures[r.Name] = r
-	}
-	if err := os.MkdirAll(filepath.Dir(improvedMVBaselinePath), 0o755); err != nil {
-		t.Fatalf("MkdirAll testdata: %v", err)
-	}
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		t.Fatalf("encode baseline: %v", err)
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(improvedMVBaselinePath, data, 0o644); err != nil {
-		t.Fatalf("write baseline %s: %v", improvedMVBaselinePath, err)
-	}
 }

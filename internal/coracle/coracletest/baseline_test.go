@@ -50,3 +50,30 @@ func TestReadOrWriteJSONBaselineHonorsUpdateEnv(t *testing.T) {
 		t.Fatalf("updated baseline a = %d, want 2", got["a"])
 	}
 }
+
+func TestReadOptionalJSONBaseline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	if got, ok := ReadOptionalJSONBaseline[map[string]int](t, path); ok || got != nil {
+		t.Fatalf("missing baseline = (%v, %v), want (nil, false)", got, ok)
+	}
+
+	WriteJSONBaseline(t, path, map[string]int{"a": 1})
+	got, ok := ReadOptionalJSONBaseline[map[string]int](t, path)
+	if !ok {
+		t.Fatalf("ok = false, want true")
+	}
+	if got["a"] != 1 {
+		t.Fatalf("baseline a = %d, want 1", got["a"])
+	}
+}
+
+func TestReadOptionalJSONBaselineSkipsWhenUpdating(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	WriteJSONBaseline(t, path, map[string]int{"a": 1})
+	t.Setenv(updateBaselinesEnv, "1")
+
+	got, ok := ReadOptionalJSONBaseline[map[string]int](t, path)
+	if ok || got != nil {
+		t.Fatalf("baseline while updating = (%v, %v), want (nil, false)", got, ok)
+	}
+}

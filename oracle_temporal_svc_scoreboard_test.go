@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -142,22 +141,9 @@ func TestOracleTemporalSVCParity(t *testing.T) {
 		Fixtures map[string]map[string]any `json:"fixtures"`
 	}
 
-	baselinePath := filepath.Join("testdata", "temporal_svc_scoreboard_baseline.json")
-	updateBaselines := os.Getenv("GOVPX_UPDATE_BASELINES") == "1"
-
-	var baseline baselineFile
-	baselineExists := false
-	if !updateBaselines {
-		raw, err := os.ReadFile(baselinePath)
-		if err == nil {
-			if err := json.Unmarshal(raw, &baseline); err != nil {
-				t.Fatalf("baseline %s: %v", baselinePath, err)
-			}
-			baselineExists = true
-		} else if !os.IsNotExist(err) {
-			t.Fatalf("read baseline %s: %v", baselinePath, err)
-		}
-	}
+	baselinePath := "testdata/temporal_svc_scoreboard_baseline.json"
+	updateBaselines := coracletest.UpdateBaselines()
+	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 
 	current := baselineFile{Fixtures: make(map[string]map[string]any, len(fixtures))}
 
@@ -355,18 +341,7 @@ func TestOracleTemporalSVCParity(t *testing.T) {
 	}
 
 	if updateBaselines || !baselineExists {
-		buf, err := json.MarshalIndent(current, "", "  ")
-		if err != nil {
-			t.Fatalf("Marshal temporal SVC scoreboard baseline: %v", err)
-		}
-		buf = append(buf, '\n')
-		if err := os.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
-			t.Fatalf("MkdirAll %s: %v", filepath.Dir(baselinePath), err)
-		}
-		if err := os.WriteFile(baselinePath, buf, 0o644); err != nil {
-			t.Fatalf("WriteFile %s: %v", baselinePath, err)
-		}
-		t.Logf("wrote baseline %s with %d fixtures", baselinePath, len(current.Fixtures))
+		coracletest.WriteJSONBaseline(t, baselinePath, current)
 	}
 }
 

@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -170,7 +169,7 @@ func TestOracleLoopFilterHeaderMatchRate(t *testing.T) {
 	// Sort to keep on-disk JSON stable across runs.
 	sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
 
-	if os.Getenv("GOVPX_UPDATE_BASELINES") == "1" {
+	if coracletest.UpdateBaselines() {
 		writeLoopFilterBaseline(t, reports)
 		return
 	}
@@ -290,29 +289,15 @@ func writeLoopFilterBaseline(t *testing.T, reports []FixtureLFReport) {
 			UpdateMatchPct:     r.UpdateMatchPct,
 		}
 	}
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal baseline: %v", err)
-	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(loopFilterMatchRateBaselinePath), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(loopFilterMatchRateBaselinePath, data, 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	coracletest.WriteJSONBaseline(t, loopFilterMatchRateBaselinePath, file)
 	t.Logf("wrote %s", loopFilterMatchRateBaselinePath)
 }
 
 func enforceLoopFilterBaseline(t *testing.T, reports []FixtureLFReport) {
 	t.Helper()
-	data, err := os.ReadFile(loopFilterMatchRateBaselinePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s: %v (run with GOVPX_UPDATE_BASELINES=1 to bootstrap)", loopFilterMatchRateBaselinePath, err)
-	}
-	var file loopFilterBaselineFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		t.Fatalf("unmarshal baseline: %v", err)
+	file, ok := coracletest.ReadOptionalJSONBaseline[loopFilterBaselineFile](t, loopFilterMatchRateBaselinePath)
+	if !ok {
+		t.Fatalf("baseline %s is missing; run with GOVPX_UPDATE_BASELINES=1 to bootstrap", loopFilterMatchRateBaselinePath)
 	}
 	const tol = 2.0
 	for _, r := range reports {

@@ -174,7 +174,7 @@ func TestOracleSecondPassAllocationCompare(t *testing.T) {
 
 	sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
 
-	if os.Getenv("GOVPX_UPDATE_BASELINES") == "1" {
+	if coracletest.UpdateBaselines() {
 		writeSecondPassBaseline(t, reports)
 		return
 	}
@@ -368,29 +368,15 @@ func writeSecondPassBaseline(t *testing.T, reports []FixtureSecondPassReport) {
 			MaxTargetRelDelta: r.MaxTargetRelDelta,
 		}
 	}
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal baseline: %v", err)
-	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(secondPassAllocBaselinePath), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(secondPassAllocBaselinePath, data, 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	coracletest.WriteJSONBaseline(t, secondPassAllocBaselinePath, file)
 	t.Logf("wrote %s", secondPassAllocBaselinePath)
 }
 
 func enforceSecondPassBaseline(t *testing.T, reports []FixtureSecondPassReport) {
 	t.Helper()
-	data, err := os.ReadFile(secondPassAllocBaselinePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s: %v (run with GOVPX_UPDATE_BASELINES=1 to bootstrap)", secondPassAllocBaselinePath, err)
-	}
-	var file secondPassBaselineFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		t.Fatalf("unmarshal baseline: %v", err)
+	file, ok := coracletest.ReadOptionalJSONBaseline[secondPassBaselineFile](t, secondPassAllocBaselinePath)
+	if !ok {
+		t.Fatalf("baseline %s is missing; run with GOVPX_UPDATE_BASELINES=1 to bootstrap", secondPassAllocBaselinePath)
 	}
 	const tol = 2.0
 	// External corpus fixtures get a stricter floor enforcement once their

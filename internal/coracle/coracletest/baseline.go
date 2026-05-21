@@ -20,17 +20,30 @@ func UpdateBaselines() bool {
 // existing baseline.
 func ReadOrWriteJSONBaseline[T any](t testing.TB, path string, current T) (baseline T, wrote bool) {
 	t.Helper()
-	update := UpdateBaselines()
-	_, statErr := os.Stat(path)
-	if update || os.IsNotExist(statErr) {
+	baseline, ok := ReadOptionalJSONBaseline[T](t, path)
+	if !ok {
 		WriteJSONBaseline(t, path, current)
 		return baseline, true
+	}
+	return baseline, false
+}
+
+// ReadOptionalJSONBaseline decodes an existing JSON baseline. It returns false
+// when the baseline is missing or baseline updates were requested.
+func ReadOptionalJSONBaseline[T any](t testing.TB, path string) (baseline T, ok bool) {
+	t.Helper()
+	if UpdateBaselines() {
+		return baseline, false
+	}
+	_, statErr := os.Stat(path)
+	if os.IsNotExist(statErr) {
+		return baseline, false
 	}
 	if statErr != nil {
 		t.Fatalf("stat %s: %v", path, statErr)
 	}
 	ReadJSONBaseline(t, path, &baseline)
-	return baseline, false
+	return baseline, true
 }
 
 // ReadJSONBaseline decodes a JSON baseline file into dst.

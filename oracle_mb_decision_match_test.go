@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -75,22 +74,9 @@ func TestOracleInterDecisionMatchRate(t *testing.T) {
 		Fixtures map[string]baselineEntry `json:"fixtures"`
 	}
 
-	baselinePath := filepath.Join("testdata", "mb_match_rate_baseline.json")
-	updateBaselines := os.Getenv("GOVPX_UPDATE_BASELINES") == "1"
-
-	var baseline baselineFile
-	baselineExists := false
-	if !updateBaselines {
-		raw, err := os.ReadFile(baselinePath)
-		if err == nil {
-			if err := json.Unmarshal(raw, &baseline); err != nil {
-				t.Fatalf("baseline %s: %v", baselinePath, err)
-			}
-			baselineExists = true
-		} else if !os.IsNotExist(err) {
-			t.Fatalf("read baseline %s: %v", baselinePath, err)
-		}
-	}
+	baselinePath := "testdata/mb_match_rate_baseline.json"
+	updateBaselines := coracletest.UpdateBaselines()
+	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 
 	currentBaseline := baselineFile{Fixtures: make(map[string]baselineEntry, len(specs))}
 	reports := make([]fixtureMBReport, 0, len(specs))
@@ -205,18 +191,7 @@ func TestOracleInterDecisionMatchRate(t *testing.T) {
 	}
 
 	if updateBaselines || !baselineExists {
-		if err := os.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
-			t.Fatalf("MkdirAll %s: %v", filepath.Dir(baselinePath), err)
-		}
-		data, err := json.MarshalIndent(currentBaseline, "", "  ")
-		if err != nil {
-			t.Fatalf("Marshal baseline: %v", err)
-		}
-		data = append(data, '\n')
-		if err := os.WriteFile(baselinePath, data, 0o644); err != nil {
-			t.Fatalf("WriteFile %s: %v", baselinePath, err)
-		}
-		t.Logf("wrote baseline %s with %d fixtures", baselinePath, len(currentBaseline.Fixtures))
+		coracletest.WriteJSONBaseline(t, baselinePath, currentBaseline)
 	}
 
 	sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
