@@ -1,18 +1,20 @@
-package govpx
+package controlsurface
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
 
-type controlParityMapping struct {
-	kind         string
-	helperTokens []string
+type Mapping struct {
+	Kind         string
+	HelperTokens []string
 }
 
-func exportedMethodSet(t *testing.T, sample any) map[string]struct{} {
+func ExportedMethodSet(t *testing.T, sample any) map[string]struct{} {
 	t.Helper()
 	typ := reflect.TypeOf(sample)
 	if typ.Kind() != reflect.Pointer {
@@ -27,7 +29,7 @@ func exportedMethodSet(t *testing.T, sample any) map[string]struct{} {
 	return out
 }
 
-func exportedFieldSet(t *testing.T, sample any) map[string]struct{} {
+func ExportedFieldSet(t *testing.T, sample any) map[string]struct{} {
 	t.Helper()
 	typ := reflect.TypeOf(sample)
 	if typ.Kind() == reflect.Pointer {
@@ -45,7 +47,7 @@ func exportedFieldSet(t *testing.T, sample any) map[string]struct{} {
 	return out
 }
 
-func assertPublicMethodMappings(t *testing.T, typeName string, got map[string]struct{}, want map[string]controlParityMapping) {
+func AssertPublicMethodMappings(t *testing.T, typeName string, got map[string]struct{}, want map[string]Mapping) {
 	t.Helper()
 	for method := range got {
 		if _, ok := want[method]; !ok {
@@ -54,15 +56,15 @@ func assertPublicMethodMappings(t *testing.T, typeName string, got map[string]st
 	}
 	for method, mapping := range want {
 		if _, ok := got[method]; !ok {
-			t.Fatalf("%s.%s mapping kind %q has no public method", typeName, method, mapping.kind)
+			t.Fatalf("%s.%s mapping kind %q has no public method", typeName, method, mapping.Kind)
 		}
-		if mapping.kind == "" {
+		if mapping.Kind == "" {
 			t.Fatalf("%s.%s has empty parity mapping kind", typeName, method)
 		}
 	}
 }
 
-func assertOptionFieldMappings(t *testing.T, typeName string, got map[string]struct{}, want map[string]controlParityMapping) {
+func AssertOptionFieldMappings(t *testing.T, typeName string, got map[string]struct{}, want map[string]Mapping) {
 	t.Helper()
 	for field := range got {
 		if _, ok := want[field]; !ok {
@@ -71,32 +73,32 @@ func assertOptionFieldMappings(t *testing.T, typeName string, got map[string]str
 	}
 	for field, mapping := range want {
 		if _, ok := got[field]; !ok {
-			t.Fatalf("%s.%s mapping kind %q has no exported field", typeName, field, mapping.kind)
+			t.Fatalf("%s.%s mapping kind %q has no exported field", typeName, field, mapping.Kind)
 		}
-		if mapping.kind == "" {
+		if mapping.Kind == "" {
 			t.Fatalf("%s.%s has empty parity mapping kind", typeName, field)
 		}
 	}
 }
 
-func assertFrameFlagsDriverTokens(t *testing.T, mappings map[string]controlParityMapping) {
+func AssertFrameFlagsDriverTokens(t *testing.T, mappings map[string]Mapping) {
 	t.Helper()
-	assertFrameFlagsDriverTokensInFile(t, mappings, "internal/coracle/vpxenc_frameflags.c")
+	assertFrameFlagsDriverTokensInFile(t, mappings, repoPath("internal/coracle/vpxenc_frameflags.c"))
 }
 
-func assertVP9FrameFlagsDriverTokens(t *testing.T, mappings map[string]controlParityMapping) {
+func AssertVP9FrameFlagsDriverTokens(t *testing.T, mappings map[string]Mapping) {
 	t.Helper()
 	assertFrameFlagsDriverTokensInFiles(t, mappings,
-		"internal/coracle/vpxenc_frameflags.c",
-		"internal/coracle/vpxenc_vp9_frameflags.c")
+		repoPath("internal/coracle/vpxenc_frameflags.c"),
+		repoPath("internal/coracle/vpxenc_vp9_frameflags.c"))
 }
 
-func assertFrameFlagsDriverTokensInFile(t *testing.T, mappings map[string]controlParityMapping, filename string) {
+func assertFrameFlagsDriverTokensInFile(t *testing.T, mappings map[string]Mapping, filename string) {
 	t.Helper()
 	assertFrameFlagsDriverTokensInFiles(t, mappings, filename)
 }
 
-func assertFrameFlagsDriverTokensInFiles(t *testing.T, mappings map[string]controlParityMapping, filenames ...string) {
+func assertFrameFlagsDriverTokensInFiles(t *testing.T, mappings map[string]Mapping, filenames ...string) {
 	t.Helper()
 	var source strings.Builder
 	for _, filename := range filenames {
@@ -108,7 +110,7 @@ func assertFrameFlagsDriverTokensInFiles(t *testing.T, mappings map[string]contr
 	}
 	label := strings.Join(filenames, ", ")
 	for method, mapping := range mappings {
-		for _, token := range mapping.helperTokens {
+		for _, token := range mapping.HelperTokens {
 			if !strings.Contains(source.String(), `"`+token) {
 				t.Fatalf("%s maps to frameflags token %q, but %s does not contain it", method, token, label)
 			}
@@ -116,18 +118,28 @@ func assertFrameFlagsDriverTokensInFiles(t *testing.T, mappings map[string]contr
 	}
 }
 
-func assertDecoderControlTokens(t *testing.T, mappings map[string]controlParityMapping) {
+func AssertDecoderControlTokens(t *testing.T, mappings map[string]Mapping) {
 	t.Helper()
-	data, err := os.ReadFile("internal/coracle/vpx_oracle.c")
+	path := repoPath("internal/coracle/vpx_oracle.c")
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read vpx_oracle.c: %v", err)
+		t.Fatalf("read %s: %v", path, err)
 	}
 	source := string(data)
 	for method, mapping := range mappings {
-		for _, token := range mapping.helperTokens {
+		for _, token := range mapping.HelperTokens {
 			if !strings.Contains(source, `"`+token) {
-				t.Fatalf("%s maps to decoder oracle token %q, but internal/coracle/vpx_oracle.c does not contain it", method, token)
+				t.Fatalf("%s maps to decoder oracle token %q, but %s does not contain it", method, token, path)
 			}
 		}
 	}
+}
+
+func repoPath(elem string) string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return elem
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	return filepath.Join(root, elem)
 }

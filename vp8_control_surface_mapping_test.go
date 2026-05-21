@@ -1,153 +1,157 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/controlsurface"
+)
 
 func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
-	methods := exportedMethodSet(t, (*VP8Encoder)(nil))
-	want := map[string]controlParityMapping{
-		"Close":                 {kind: "lifecycle"},
-		"CollectFirstPassStats": {kind: "libvpx-first-pass-oracle"},
-		"CopyReferenceFrame":    {kind: "libvpx-control", helperTokens: []string{"copyref:"}},
-		"EncodeInto":            {kind: "encode-api"},
-		"FlushInto":             {kind: "encode-api"},
-		"ForceKeyFrame":         {kind: "frame-flag-api"},
-		"LastQuantizer":         {kind: "metadata-api"},
-		"Reset":                 {kind: "lifecycle"},
-		"SetARNR":               {kind: "libvpx-control", helperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
-		"SetActiveMap":          {kind: "libvpx-control", helperTokens: []string{"active:"}},
-		"SetAdaptiveKeyFrames":  {kind: "libvpx-config", helperTokens: []string{"kfdisabled:", "kfmin:", "kfmax:"}},
-		"SetAutoAltRef":         {kind: "libvpx-control"},
-		"SetBitrateKbps":        {kind: "libvpx-config", helperTokens: []string{"bitrate:"}},
-		"SetCPUUsed":            {kind: "libvpx-control", helperTokens: []string{"cpu:"}},
-		"SetCQLevel":            {kind: "libvpx-control", helperTokens: []string{"cq:"}},
-		"SetDeadline":           {kind: "encode-deadline", helperTokens: []string{"deadline:"}},
-		"SetFrameDropAllowed":   {kind: "libvpx-config", helperTokens: []string{"drop:"}},
-		"SetGFCBRBoostPct":      {kind: "libvpx-control", helperTokens: []string{"gfboost:"}},
-		"SetKeyFrameInterval":   {kind: "libvpx-config", helperTokens: []string{"kfmin:", "kfmax:"}},
-		"SetMaxIntraBitratePct": {kind: "libvpx-control", helperTokens: []string{"maxintra:"}},
-		"SetNoiseSensitivity":   {kind: "libvpx-control", helperTokens: []string{"noise:"}},
-		"SetROIMap":             {kind: "libvpx-control", helperTokens: []string{"roi:", "roicustom:"}},
-		"SetRTCExternalRateControl": {kind: "libvpx-control", helperTokens: []string{
+	methods := controlsurface.ExportedMethodSet(t, (*VP8Encoder)(nil))
+	want := map[string]controlsurface.Mapping{
+		"Close":                 {Kind: "lifecycle"},
+		"CollectFirstPassStats": {Kind: "libvpx-first-pass-oracle"},
+		"CopyReferenceFrame":    {Kind: "libvpx-control", HelperTokens: []string{"copyref:"}},
+		"EncodeInto":            {Kind: "encode-api"},
+		"FlushInto":             {Kind: "encode-api"},
+		"ForceKeyFrame":         {Kind: "frame-flag-api"},
+		"LastQuantizer":         {Kind: "metadata-api"},
+		"Reset":                 {Kind: "lifecycle"},
+		"SetARNR":               {Kind: "libvpx-control", HelperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
+		"SetActiveMap":          {Kind: "libvpx-control", HelperTokens: []string{"active:"}},
+		"SetAdaptiveKeyFrames":  {Kind: "libvpx-config", HelperTokens: []string{"kfdisabled:", "kfmin:", "kfmax:"}},
+		"SetAutoAltRef":         {Kind: "libvpx-control"},
+		"SetBitrateKbps":        {Kind: "libvpx-config", HelperTokens: []string{"bitrate:"}},
+		"SetCPUUsed":            {Kind: "libvpx-control", HelperTokens: []string{"cpu:"}},
+		"SetCQLevel":            {Kind: "libvpx-control", HelperTokens: []string{"cq:"}},
+		"SetDeadline":           {Kind: "encode-deadline", HelperTokens: []string{"deadline:"}},
+		"SetFrameDropAllowed":   {Kind: "libvpx-config", HelperTokens: []string{"drop:"}},
+		"SetGFCBRBoostPct":      {Kind: "libvpx-control", HelperTokens: []string{"gfboost:"}},
+		"SetKeyFrameInterval":   {Kind: "libvpx-config", HelperTokens: []string{"kfmin:", "kfmax:"}},
+		"SetMaxIntraBitratePct": {Kind: "libvpx-control", HelperTokens: []string{"maxintra:"}},
+		"SetNoiseSensitivity":   {Kind: "libvpx-control", HelperTokens: []string{"noise:"}},
+		"SetROIMap":             {Kind: "libvpx-control", HelperTokens: []string{"roi:", "roicustom:"}},
+		"SetRTCExternalRateControl": {Kind: "libvpx-control", HelperTokens: []string{
 			"rtc:",
 		}},
-		"SetRateControl":       {kind: "libvpx-config", helperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "undershoot:", "overshoot:", "bufsz:", "bufinit:", "bufopt:", "drop:"}},
-		"SetRealtimeTarget":    {kind: "libvpx-config", helperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
-		"SetReferenceFrame":    {kind: "libvpx-control", helperTokens: []string{"setref:"}},
-		"SetScalingMode":       {kind: "libvpx-control"},
-		"SetScreenContentMode": {kind: "libvpx-control", helperTokens: []string{"screen:"}},
-		"SetSharpness":         {kind: "libvpx-control", helperTokens: []string{"sharpness:"}},
-		"SetStaticThreshold":   {kind: "libvpx-control", helperTokens: []string{"static:"}},
-		"SetTemporalLayerID":   {kind: "libvpx-control", helperTokens: []string{"tlid:"}},
-		"SetTemporalScalability": {kind: "libvpx-config", helperTokens: []string{
+		"SetRateControl":       {Kind: "libvpx-config", HelperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "undershoot:", "overshoot:", "bufsz:", "bufinit:", "bufopt:", "drop:"}},
+		"SetRealtimeTarget":    {Kind: "libvpx-config", HelperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
+		"SetReferenceFrame":    {Kind: "libvpx-control", HelperTokens: []string{"setref:"}},
+		"SetScalingMode":       {Kind: "libvpx-control"},
+		"SetScreenContentMode": {Kind: "libvpx-control", HelperTokens: []string{"screen:"}},
+		"SetSharpness":         {Kind: "libvpx-control", HelperTokens: []string{"sharpness:"}},
+		"SetStaticThreshold":   {Kind: "libvpx-control", HelperTokens: []string{"static:"}},
+		"SetTemporalLayerID":   {Kind: "libvpx-control", HelperTokens: []string{"tlid:"}},
+		"SetTemporalScalability": {Kind: "libvpx-config", HelperTokens: []string{
 			"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:",
 		}},
-		"SetTokenPartitions": {kind: "libvpx-control", helperTokens: []string{"token:"}},
-		"SetTuning":          {kind: "libvpx-control", helperTokens: []string{"tune:"}},
-		"SetTwoPassStats":    {kind: "libvpx-two-pass"},
+		"SetTokenPartitions": {Kind: "libvpx-control", HelperTokens: []string{"token:"}},
+		"SetTuning":          {Kind: "libvpx-control", HelperTokens: []string{"tune:"}},
+		"SetTwoPassStats":    {Kind: "libvpx-two-pass"},
 	}
 	if _, ok := methods["SetOracleTracePredictorDump"]; ok {
-		want["SetOracleTracePredictorDump"] = controlParityMapping{kind: "oracle-trace"}
+		want["SetOracleTracePredictorDump"] = controlsurface.Mapping{Kind: "oracle-trace"}
 	}
 	if _, ok := methods["SetOracleTracePretrellisUVDump"]; ok {
-		want["SetOracleTracePretrellisUVDump"] = controlParityMapping{kind: "oracle-trace"}
+		want["SetOracleTracePretrellisUVDump"] = controlsurface.Mapping{Kind: "oracle-trace"}
 	}
 	if _, ok := methods["SetOracleTraceChromaOptimizeBDump"]; ok {
-		want["SetOracleTraceChromaOptimizeBDump"] = controlParityMapping{kind: "oracle-trace"}
+		want["SetOracleTraceChromaOptimizeBDump"] = controlsurface.Mapping{Kind: "oracle-trace"}
 	}
 	if _, ok := methods["SetOracleTraceWriter"]; ok {
-		want["SetOracleTraceWriter"] = controlParityMapping{kind: "oracle-trace"}
+		want["SetOracleTraceWriter"] = controlsurface.Mapping{Kind: "oracle-trace"}
 	}
-	assertPublicMethodMappings(t, "VP8Encoder", methods, want)
-	assertFrameFlagsDriverTokens(t, want)
+	controlsurface.AssertPublicMethodMappings(t, "VP8Encoder", methods, want)
+	controlsurface.AssertFrameFlagsDriverTokens(t, want)
 }
 
 func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
-	methods := exportedMethodSet(t, (*VP8Decoder)(nil))
-	want := map[string]controlParityMapping{
-		"Close":                {kind: "lifecycle"},
-		"CopyReferenceFrame":   {kind: "libvpx-decoder-control", helperTokens: []string{"copyref:"}},
-		"Decode":               {kind: "libvpx-decode-oracle"},
-		"DecodeInto":           {kind: "libvpx-decode-oracle"},
-		"DecodeIntoWithPTS":    {kind: "local-pts-wrapper"},
-		"DecodeWithPTS":        {kind: "local-pts-wrapper"},
-		"LastFrameCorrupted":   {kind: "metadata-api"},
-		"LastFrameInfo":        {kind: "metadata-api"},
-		"LastReferenceUpdates": {kind: "metadata-api"},
-		"LastReferencesUsed":   {kind: "metadata-api"},
-		"NextFrame":            {kind: "decode-api"},
-		"Reset":                {kind: "lifecycle"},
-		"SetReferenceFrame":    {kind: "libvpx-decoder-control", helperTokens: []string{"setref:"}},
+	methods := controlsurface.ExportedMethodSet(t, (*VP8Decoder)(nil))
+	want := map[string]controlsurface.Mapping{
+		"Close":                {Kind: "lifecycle"},
+		"CopyReferenceFrame":   {Kind: "libvpx-decoder-control", HelperTokens: []string{"copyref:"}},
+		"Decode":               {Kind: "libvpx-decode-oracle"},
+		"DecodeInto":           {Kind: "libvpx-decode-oracle"},
+		"DecodeIntoWithPTS":    {Kind: "local-pts-wrapper"},
+		"DecodeWithPTS":        {Kind: "local-pts-wrapper"},
+		"LastFrameCorrupted":   {Kind: "metadata-api"},
+		"LastFrameInfo":        {Kind: "metadata-api"},
+		"LastReferenceUpdates": {Kind: "metadata-api"},
+		"LastReferencesUsed":   {Kind: "metadata-api"},
+		"NextFrame":            {Kind: "decode-api"},
+		"Reset":                {Kind: "lifecycle"},
+		"SetReferenceFrame":    {Kind: "libvpx-decoder-control", HelperTokens: []string{"setref:"}},
 	}
-	assertPublicMethodMappings(t, "VP8Decoder", methods, want)
-	assertDecoderControlTokens(t, want)
+	controlsurface.AssertPublicMethodMappings(t, "VP8Decoder", methods, want)
+	controlsurface.AssertDecoderControlTokens(t, want)
 }
 
 func TestVP8EncoderOptionsFieldsHaveParityMapping(t *testing.T) {
-	fields := exportedFieldSet(t, EncoderOptions{})
-	want := map[string]controlParityMapping{
-		"AdaptiveKeyFrames":        {kind: "libvpx-config"},
-		"ARNRMaxFrames":            {kind: "libvpx-control"},
-		"ARNRStrength":             {kind: "libvpx-control"},
-		"ARNRType":                 {kind: "libvpx-control"},
-		"AutoAltRef":               {kind: "libvpx-config"},
-		"BufferInitialSizeMs":      {kind: "libvpx-config"},
-		"BufferOptimalSizeMs":      {kind: "libvpx-config"},
-		"BufferSizeMs":             {kind: "libvpx-config"},
-		"CQLevel":                  {kind: "libvpx-control"},
-		"CpuUsed":                  {kind: "libvpx-control"},
-		"Deadline":                 {kind: "encode-deadline"},
-		"DropFrameAllowed":         {kind: "libvpx-config"},
-		"DropFrameWaterMark":       {kind: "libvpx-config"},
-		"ErrorResilient":           {kind: "libvpx-config"},
-		"ErrorResilientPartitions": {kind: "libvpx-config"},
-		"FPS":                      {kind: "libvpx-config"},
-		"GFCBRBoostPct":            {kind: "libvpx-control"},
-		"Height":                   {kind: "libvpx-config"},
-		"KeyFrameInterval":         {kind: "libvpx-config"},
-		"LookaheadFrames":          {kind: "libvpx-config"},
-		"MaxBitrateKbps":           {kind: "libvpx-config"},
-		"MaxIntraBitratePct":       {kind: "libvpx-control"},
-		"MaxQuantizer":             {kind: "libvpx-config"},
-		"MinBitrateKbps":           {kind: "libvpx-config"},
-		"MinQuantizer":             {kind: "libvpx-config"},
-		"NoiseSensitivity":         {kind: "libvpx-control"},
-		"OvershootPct":             {kind: "libvpx-config"},
-		"PhaseStats":               {kind: "local-instrumentation"},
-		"QuantizerRangeSet":        {kind: "libvpx-config-defaulting"},
-		"RateControlMode":          {kind: "libvpx-config"},
-		"RTCExternalRateControl":   {kind: "libvpx-control"},
-		"ScreenContentMode":        {kind: "libvpx-control"},
-		"Sharpness":                {kind: "libvpx-control"},
-		"StaticThreshold":          {kind: "libvpx-control"},
-		"TargetBitrateKbps":        {kind: "libvpx-config"},
-		"TemporalScalability":      {kind: "libvpx-config"},
-		"Threads":                  {kind: "libvpx-config"},
-		"TimebaseDen":              {kind: "libvpx-config"},
-		"TimebaseNum":              {kind: "libvpx-config"},
-		"TokenPartitions":          {kind: "libvpx-control"},
-		"Tuning":                   {kind: "libvpx-control"},
-		"TwoPassMaxPct":            {kind: "libvpx-two-pass"},
-		"TwoPassMinPct":            {kind: "libvpx-two-pass"},
-		"TwoPassStats":             {kind: "libvpx-two-pass"},
-		"TwoPassVBRBiasPct":        {kind: "libvpx-two-pass"},
-		"UndershootPct":            {kind: "libvpx-config"},
-		"Width":                    {kind: "libvpx-config"},
+	fields := controlsurface.ExportedFieldSet(t, EncoderOptions{})
+	want := map[string]controlsurface.Mapping{
+		"AdaptiveKeyFrames":        {Kind: "libvpx-config"},
+		"ARNRMaxFrames":            {Kind: "libvpx-control"},
+		"ARNRStrength":             {Kind: "libvpx-control"},
+		"ARNRType":                 {Kind: "libvpx-control"},
+		"AutoAltRef":               {Kind: "libvpx-config"},
+		"BufferInitialSizeMs":      {Kind: "libvpx-config"},
+		"BufferOptimalSizeMs":      {Kind: "libvpx-config"},
+		"BufferSizeMs":             {Kind: "libvpx-config"},
+		"CQLevel":                  {Kind: "libvpx-control"},
+		"CpuUsed":                  {Kind: "libvpx-control"},
+		"Deadline":                 {Kind: "encode-deadline"},
+		"DropFrameAllowed":         {Kind: "libvpx-config"},
+		"DropFrameWaterMark":       {Kind: "libvpx-config"},
+		"ErrorResilient":           {Kind: "libvpx-config"},
+		"ErrorResilientPartitions": {Kind: "libvpx-config"},
+		"FPS":                      {Kind: "libvpx-config"},
+		"GFCBRBoostPct":            {Kind: "libvpx-control"},
+		"Height":                   {Kind: "libvpx-config"},
+		"KeyFrameInterval":         {Kind: "libvpx-config"},
+		"LookaheadFrames":          {Kind: "libvpx-config"},
+		"MaxBitrateKbps":           {Kind: "libvpx-config"},
+		"MaxIntraBitratePct":       {Kind: "libvpx-control"},
+		"MaxQuantizer":             {Kind: "libvpx-config"},
+		"MinBitrateKbps":           {Kind: "libvpx-config"},
+		"MinQuantizer":             {Kind: "libvpx-config"},
+		"NoiseSensitivity":         {Kind: "libvpx-control"},
+		"OvershootPct":             {Kind: "libvpx-config"},
+		"PhaseStats":               {Kind: "local-instrumentation"},
+		"QuantizerRangeSet":        {Kind: "libvpx-config-defaulting"},
+		"RateControlMode":          {Kind: "libvpx-config"},
+		"RTCExternalRateControl":   {Kind: "libvpx-control"},
+		"ScreenContentMode":        {Kind: "libvpx-control"},
+		"Sharpness":                {Kind: "libvpx-control"},
+		"StaticThreshold":          {Kind: "libvpx-control"},
+		"TargetBitrateKbps":        {Kind: "libvpx-config"},
+		"TemporalScalability":      {Kind: "libvpx-config"},
+		"Threads":                  {Kind: "libvpx-config"},
+		"TimebaseDen":              {Kind: "libvpx-config"},
+		"TimebaseNum":              {Kind: "libvpx-config"},
+		"TokenPartitions":          {Kind: "libvpx-control"},
+		"Tuning":                   {Kind: "libvpx-control"},
+		"TwoPassMaxPct":            {Kind: "libvpx-two-pass"},
+		"TwoPassMinPct":            {Kind: "libvpx-two-pass"},
+		"TwoPassStats":             {Kind: "libvpx-two-pass"},
+		"TwoPassVBRBiasPct":        {Kind: "libvpx-two-pass"},
+		"UndershootPct":            {Kind: "libvpx-config"},
+		"Width":                    {Kind: "libvpx-config"},
 	}
-	assertOptionFieldMappings(t, "EncoderOptions", fields, want)
+	controlsurface.AssertOptionFieldMappings(t, "EncoderOptions", fields, want)
 }
 
 func TestVP8DecoderOptionsFieldsHaveParityMapping(t *testing.T) {
-	fields := exportedFieldSet(t, DecoderOptions{})
-	want := map[string]controlParityMapping{
-		"Decryptor":              {kind: "libvpx-decoder-control"},
-		"DecryptorState":         {kind: "libvpx-decoder-control"},
-		"ErrorConcealment":       {kind: "libvpx-decode-oracle"},
-		"MaxHeight":              {kind: "local-validation"},
-		"MaxWidth":               {kind: "local-validation"},
-		"PostProcessFlags":       {kind: "libvpx-decode-oracle"},
-		"PostProcessNoiseLevel":  {kind: "libvpx-decode-oracle"},
-		"RejectResolutionChange": {kind: "local-validation"},
-		"Threads":                {kind: "libvpx-decode-oracle"},
+	fields := controlsurface.ExportedFieldSet(t, DecoderOptions{})
+	want := map[string]controlsurface.Mapping{
+		"Decryptor":              {Kind: "libvpx-decoder-control"},
+		"DecryptorState":         {Kind: "libvpx-decoder-control"},
+		"ErrorConcealment":       {Kind: "libvpx-decode-oracle"},
+		"MaxHeight":              {Kind: "local-validation"},
+		"MaxWidth":               {Kind: "local-validation"},
+		"PostProcessFlags":       {Kind: "libvpx-decode-oracle"},
+		"PostProcessNoiseLevel":  {Kind: "libvpx-decode-oracle"},
+		"RejectResolutionChange": {Kind: "local-validation"},
+		"Threads":                {Kind: "libvpx-decode-oracle"},
 	}
-	assertOptionFieldMappings(t, "DecoderOptions", fields, want)
+	controlsurface.AssertOptionFieldMappings(t, "DecoderOptions", fields, want)
 }
