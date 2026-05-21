@@ -7,6 +7,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/geometry"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 func TestEncodeIntoDropsInterFrameWhenBufferUnderrunAndAllowed(t *testing.T) {
@@ -86,7 +87,7 @@ func TestEncodeIntoInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T
 	if err != nil {
 		t.Fatalf("invisible key EncodeInto returned error: %v", err)
 	}
-	wantKeyBuffer := temporalTestBufferAfterFrame(beforeKeyBuffer, frameBandwidth, maximumBuffer, encodedSizeBits(key.SizeBytes))
+	wantKeyBuffer := temporalTestBufferAfterFrame(beforeKeyBuffer, frameBandwidth, maximumBuffer, vpxrc.EncodedSizeBits(key.SizeBytes))
 	if key.BufferLevelBits != wantKeyBuffer || e.rc.bufferLevelBits != wantKeyBuffer {
 		t.Fatalf("invisible key buffer = result:%d rc:%d, want %d", key.BufferLevelBits, e.rc.bufferLevelBits, wantKeyBuffer)
 	}
@@ -96,7 +97,7 @@ func TestEncodeIntoInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T
 	if err != nil {
 		t.Fatalf("invisible inter EncodeInto returned error: %v", err)
 	}
-	wantInterBuffer := temporalTestBufferAfterFrame(beforeInterBuffer, frameBandwidth, maximumBuffer, encodedSizeBits(inter.SizeBytes))
+	wantInterBuffer := temporalTestBufferAfterFrame(beforeInterBuffer, frameBandwidth, maximumBuffer, vpxrc.EncodedSizeBits(inter.SizeBytes))
 	if inter.BufferLevelBits != wantInterBuffer || e.rc.bufferLevelBits != wantInterBuffer {
 		t.Fatalf("invisible inter buffer = result:%d rc:%d, want %d", inter.BufferLevelBits, e.rc.bufferLevelBits, wantInterBuffer)
 	}

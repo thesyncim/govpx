@@ -7,6 +7,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame, forceFirstInterLayer bool, isSrcFrameAltRef bool) (result VP9EncodeResult, err error) {
@@ -681,7 +682,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
 	e.prevFrameTxMode = txMode
 	postDrop := e.rc.shouldPostEncodeDrop(isKey || intraOnly,
-		header.ShowFrame, encodedSizeBits(n))
+		header.ShowFrame, vpxrc.EncodedSizeBits(n))
 	if postDrop {
 		e.rc.postEncodeDropFrame()
 	} else {
@@ -697,14 +698,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		// libvpx: vp9/encoder/vp9_firstpass.c:3733
 		projected := 0
 		if !postDrop {
-			projected = encodedSizeBits(n)
+			projected = vpxrc.EncodedSizeBits(n)
 		}
 		e.twoPass.finishFrameWithActual(projected)
 	}
 	e.vp9CommitLastSource(img, header.ShowFrame, postDrop)
 	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
-		encodedSizeBits(n), e.vp9TemporalBufferConfig())
+		vpxrc.EncodedSizeBits(n), e.vp9TemporalBufferConfig())
 	e.vp9FinishKeyFrameDistance(isKey)
 	encodedFrameIndex := e.frameIndex
 	if header.ShowFrame {

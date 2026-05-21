@@ -3,6 +3,7 @@ package govpx
 import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
@@ -53,7 +54,7 @@ type rateControlPostEncodeContext struct {
 }
 
 func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx rateControlPostEncodeContext) {
-	actualBits := encodedSizeBits(sizeBytes)
+	actualBits := vpxrc.EncodedSizeBits(sizeBytes)
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame

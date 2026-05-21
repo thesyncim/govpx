@@ -4,6 +4,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 type frameSizeRecodeState struct {
@@ -87,7 +88,7 @@ func (recode *frameSizeRecodeState) ensureFrameSizeRecodeBounds() {
 }
 
 func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) (int, bool) {
-	return rc.frameSizeRecodeQuantizerWithContextBits(encodedSizeBits(sizeBytes), keyFrame, goldenFrame, macroblocks, recode)
+	return rc.frameSizeRecodeQuantizerWithContextBits(vpxrc.EncodedSizeBits(sizeBytes), keyFrame, goldenFrame, macroblocks, recode)
 }
 
 func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) (int, bool) {

@@ -7,6 +7,7 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 // newAutoAltRefTestEncoder constructs a small two-pass VBR encoder with the
@@ -436,7 +437,7 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 	if hidden.KeyFrame || hidden.SizeBytes == 0 {
 		t.Fatalf("hidden ARF result = key:%t size:%d, want non-key packet", hidden.KeyFrame, hidden.SizeBytes)
 	}
-	wantBitsLeft := max(afterKeyBitsLeft-int64(encodedSizeBits(hidden.SizeBytes)), 0)
+	wantBitsLeft := max(afterKeyBitsLeft-int64(vpxrc.EncodedSizeBits(hidden.SizeBytes)), 0)
 	if e.frameCount != 1 || e.twoPass.frameIndex != 1 || e.twoPass.bitsLeft != wantBitsLeft {
 		t.Fatalf("after hidden ARF = frameCount:%d twoPass:%d bitsLeft:%d, want 1/1/%d",
 			e.frameCount, e.twoPass.frameIndex, e.twoPass.bitsLeft, wantBitsLeft)
@@ -509,7 +510,7 @@ func TestOnePassHiddenAltRefAccumulatesFullPostPackOverspend(t *testing.T) {
 		t.Fatalf("hidden ARF result = key:%t size:%d, want non-key packet", hidden.KeyFrame, hidden.SizeBytes)
 	}
 
-	wantBits := encodedSizeBits(hidden.SizeBytes)
+	wantBits := vpxrc.EncodedSizeBits(hidden.SizeBytes)
 	if e.rc.gfOverspendBits != wantBits {
 		t.Fatalf("one-pass hidden ARF gfOverspendBits = %d, want full packet bits %d",
 			e.rc.gfOverspendBits, wantBits)

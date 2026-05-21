@@ -6,6 +6,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 type rateControlState struct {
@@ -404,8 +405,8 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.minQuantizer = vp8common.PublicQuantizerToQIndex(cfg.MinQuantizer)
 	rc.maxQuantizer = vp8common.PublicQuantizerToQIndex(cfg.MaxQuantizer)
 	rc.cqLevel = vp8common.PublicQuantizerToQIndex(normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer))
-	rc.undershootPct = normalizeRateControlPct(cfg.UndershootPct, defaultRateControlUndershootPct)
-	rc.overshootPct = normalizeRateControlPct(cfg.OvershootPct, defaultRateControlOvershootPct)
+	rc.undershootPct = vpxrc.NormalizePercent(cfg.UndershootPct, defaultRateControlUndershootPct)
+	rc.overshootPct = vpxrc.NormalizePercent(cfg.OvershootPct, defaultRateControlOvershootPct)
 	rc.bufferSizeMs = cfg.BufferSizeMs
 	rc.bufferInitialSizeMs = cfg.BufferInitialSizeMs
 	rc.bufferOptimalSizeMs = cfg.BufferOptimalSizeMs

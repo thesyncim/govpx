@@ -82,16 +82,6 @@ func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 	return int(target)
 }
 
-func encodedSizeBits(sizeBytes int) int {
-	if sizeBytes <= 0 {
-		return 0
-	}
-	if sizeBytes > maxInt()/8 {
-		return maxInt()
-	}
-	return sizeBytes * 8
-}
-
 func libvpxRollingBits(previous int, current int, weight int, shift uint) int {
 	previous = max(previous, 0)
 	current = max(current, 0)
@@ -264,13 +254,6 @@ func normalizedCQLevel(level int, minQuantizer int) int {
 		return defaultCQLevel
 	}
 	return level
-}
-
-func normalizeRateControlPct(value int, fallback int) int {
-	if value == 0 {
-		return fallback
-	}
-	return value
 }
 
 func maxInt() int {

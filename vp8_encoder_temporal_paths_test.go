@@ -8,6 +8,7 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
@@ -84,7 +85,7 @@ func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EncodeInto %d returned error: %v", i, err)
 		}
-		sizes[i] = encodedSizeBits(result.SizeBytes)
+		sizes[i] = vpxrc.EncodedSizeBits(result.SizeBytes)
 		layerInput[result.TemporalLayerID]++
 		for layer := result.TemporalLayerID; layer < result.TemporalLayerCount; layer++ {
 			layerTotal[layer]++
@@ -200,7 +201,7 @@ func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	keyBits := encodedSizeBits(key.SizeBytes)
+	keyBits := vpxrc.EncodedSizeBits(key.SizeBytes)
 	layer0Buffer := temporalTestBufferAfterFrame(288000, 48000, 432000, keyBits)
 	layer1Buffer := temporalTestBufferAfterFrame(480000, 40000, 720000, keyBits)
 
@@ -258,7 +259,7 @@ func TestEncodeIntoInvisibleTemporalFrameUsesLibvpxLayerOverheadAccounting(t *te
 	if !result.KeyFrame || result.TemporalLayerID != 0 {
 		t.Fatalf("result = key:%t layer:%d, want invisible base keyframe", result.KeyFrame, result.TemporalLayerID)
 	}
-	bits := encodedSizeBits(result.SizeBytes)
+	bits := vpxrc.EncodedSizeBits(result.SizeBytes)
 	wantLayer0Buffer := temporalTestBufferAfterFrame(288000, e.temporal.accounting[0].FrameBandwidthBits, e.temporal.accounting[0].MaximumBufferBits, bits)
 	wantLayer1Buffer := temporalTestBufferAfterFrame(480000, e.temporal.accounting[1].FrameBandwidthBits, e.temporal.accounting[1].MaximumBufferBits, bits)
 

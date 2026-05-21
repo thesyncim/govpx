@@ -5,6 +5,7 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/geometry"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 // EncodeInto encodes one input frame into dst and returns one encoded
@@ -756,9 +757,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				autoAltRef:            e.opts.AutoAltRef,
 			})
 			if hiddenAltRefFrame {
-				e.twoPass.chargeAltRefFrameBitsWithProjection(encodedSizeBits(attempt.Size), attempt.ProjectedSizeBits)
+				e.twoPass.chargeAltRefFrameBitsWithProjection(vpxrc.EncodedSizeBits(attempt.Size), attempt.ProjectedSizeBits)
 			} else {
-				e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
+				e.twoPass.finishFrame(vpxrc.EncodedSizeBits(attempt.Size))
 			}
 			// libvpx vp8/encoder/onyx_if.c lines 4478-4513 update
 			// ni_frames / ni_tot_qi / ni_av_qi from the post-encode Q
@@ -806,12 +807,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// just-encoded frame's value for the next frame's heuristic.
 			e.lastFramePercentIntra = e.rc.thisFramePercentIntra
 			e.saveTemporalLayerCodingState(temporalFrame)
-			e.propagateTemporalLayerCodingState(temporalFrame, encodedSizeBits(attempt.Size))
+			e.propagateTemporalLayerCodingState(temporalFrame, vpxrc.EncodedSizeBits(attempt.Size))
 			e.temporal.finishFrame(temporalFrame, false, internalShowFrame, temporalReferenceRefresh{
 				Last:   attempt.Config.RefreshLast,
 				Golden: attempt.Config.RefreshGolden,
 				AltRef: attempt.Config.RefreshAltRef,
-			}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
+			}, vpxrc.EncodedSizeBits(attempt.Size), e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
 			if oracleTraceBuild {
 				e.emitOracleFrameTrace(oracleTraceFrameSummary{
@@ -917,7 +918,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if twoPassSceneCut {
 		e.twoPass.markKeyFrame(e.frameCount)
 	}
-	e.twoPass.finishFrame(encodedSizeBits(keyAttempt.Size))
+	e.twoPass.finishFrame(vpxrc.EncodedSizeBits(keyAttempt.Size))
 	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
@@ -952,8 +953,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.interRDFrameActive = false
 	e.temporalLayerRefUsage = [vp8common.MaxRefFrames]int{}
 	e.saveTemporalLayerCodingState(temporalFrame)
-	e.propagateTemporalLayerCodingState(temporalFrame, encodedSizeBits(keyAttempt.Size))
-	e.temporal.finishFrame(temporalFrame, true, internalShowFrame, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
+	e.propagateTemporalLayerCodingState(temporalFrame, vpxrc.EncodedSizeBits(keyAttempt.Size))
+	e.temporal.finishFrame(temporalFrame, true, internalShowFrame, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, vpxrc.EncodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	if oracleTraceBuild {
 		e.emitOracleFrameTrace(oracleTraceFrameSummary{

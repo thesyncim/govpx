@@ -3,6 +3,7 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 type vp9RateControlState struct {
@@ -431,8 +432,8 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOptions) {
 	rc.minBitrateKbps = opts.MinBitrateKbps
 	rc.maxBitrateKbps = opts.MaxBitrateKbps
-	rc.undershootPct = uint8(normalizeRateControlPct(opts.UndershootPct, defaultRateControlUndershootPct))
-	rc.overshootPct = uint8(normalizeRateControlPct(opts.OvershootPct, defaultRateControlOvershootPct))
+	rc.undershootPct = uint8(vpxrc.NormalizePercent(opts.UndershootPct, defaultRateControlUndershootPct))
+	rc.overshootPct = uint8(vpxrc.NormalizePercent(opts.OvershootPct, defaultRateControlOvershootPct))
 	rc.maxIntraBitratePct = opts.MaxIntraBitratePct
 	rc.maxInterBitratePct = opts.MaxInterBitratePct
 	rc.gfCBRBoostPct = 0
@@ -748,7 +749,7 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	if !rc.enabled {
 		return
 	}
-	encodedBits := encodedSizeBits(sizeBytes)
+	encodedBits := vpxrc.EncodedSizeBits(sizeBytes)
 	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks)
 	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, altRefEnabled)
 	rc.lastFrameIsSrcAltRef = rc.isSrcFrameAltRef

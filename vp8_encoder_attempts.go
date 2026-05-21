@@ -6,6 +6,7 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 	"github.com/thesyncim/govpx/internal/vpx/geometry"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
 func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
@@ -708,7 +709,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			if err != nil {
 				return interFrameEncodeAttempt{}, translateEncoderError(err)
 			}
-			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameYModeProbs: e.modeProbs.YMode, FrameUVModeProbs: e.modeProbs.UVMode, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ProjectedSizeBits: encodedSizeBits(n), PickerProjectedSizeBytes: n, ZeroReference: true}, nil
+			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameYModeProbs: e.modeProbs.YMode, FrameUVModeProbs: e.modeProbs.UVMode, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ProjectedSizeBits: vpxrc.EncodedSizeBits(n), PickerProjectedSizeBytes: n, ZeroReference: true}, nil
 		}
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
@@ -884,7 +885,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	n := packetResult.Size
-	projectedBits := encodedSizeBits(n)
+	projectedBits := vpxrc.EncodedSizeBits(n)
 	coefSavings := 0
 	refFrameSavings := 0
 	if needProjectedSize {
