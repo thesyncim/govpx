@@ -57,7 +57,7 @@ import (
 //     — switch returning {Y2:16, UV:2, default:4}.
 //   - vp8_encoder_tuning.go:340-363 tunedRDMultiplier
 //     — SSIM activity lift, deterministic per (mbRow, mbCol).
-//   - vp8_encoder_inter_quantize.go:158-182 optimizeQuantizedBlockWithRDConstants
+//   - internal/vp8/encoder/inter_quantize.go vp8enc.OptimizeQuantizedBlockWithRDConstants
 //     — rdMult *= vp8enc.BlockPlaneRDMultiplier(blockType); intra (rdMult*9)>>4.
 //
 // The audit walks the full govpx chroma-RDCOST input chain for every qindex

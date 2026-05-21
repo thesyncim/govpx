@@ -175,8 +175,8 @@ func TestTuneSSIMActivityZbinAdjustmentCanApplyBelowZeroBase(t *testing.T) {
 			var noActQ, noActDQ [16]int16
 			var actQ, actDQ [16]int16
 			coeff[1] = v
-			noActEOB := quantizeDecisionBlockWithActivity(false, &coeff, &quant.Y1, 0, 0, &noActQ, &noActDQ)
-			actEOB := quantizeDecisionBlockWithActivity(false, &coeff, &quant.Y1, 0, actZbinAdj, &actQ, &actDQ)
+			noActEOB := vp8enc.QuantizeDecisionBlockWithActivity(false, &coeff, &quant.Y1, 0, 0, &noActQ, &noActDQ)
+			actEOB := vp8enc.QuantizeDecisionBlockWithActivity(false, &coeff, &quant.Y1, 0, actZbinAdj, &actQ, &actDQ)
 			if noActEOB == 0 && actEOB > 0 {
 				return
 			}

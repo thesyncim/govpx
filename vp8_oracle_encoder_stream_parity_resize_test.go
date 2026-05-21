@@ -126,7 +126,7 @@ func TestVP8OracleEncoderStreamByteParityResize(t *testing.T) {
 	// segment budget). Historical exceptions (32x32 s1 first-partition
 	// drift, 64x64 vbr good-quality+cpu0 cold-seg2 frame 7) were all
 	// closed by the dctValueBaseCost sign-split trellis fix
-	// (vp8_encoder_inter_quantize.go) and remain pinned strict here as
+	// (internal/vp8/encoder/inter_quantize.go) and remain pinned strict here as
 	// regression sentinels. New per-segment slack requires an explicit
 	// entry plus a task pinning the root cause; do not relax silently.
 	//

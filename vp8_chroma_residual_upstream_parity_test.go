@@ -170,7 +170,7 @@ import (
 //   - internal/vp8/encoder/interframe_breakout.go: StaticInterRDEncodeBreakoutDistortion
 //     (gated on encodeBreakout > 0 = StaticThreshold > 0; off for the
 //     BestARNR cohort)
-//   - vp8_encoder_inter_quantize.go optimizeQuantizedBlockWithRDConstants
+//   - internal/vp8/encoder/inter_quantize.go vp8enc.OptimizeQuantizedBlockWithRDConstants
 //     (eob==0 fast-exit is functionally byte-equivalent to libvpx's
 //     "run optimize_b on zero qcoeff" no-op path)
 func TestVP8ChromaResidualUpstreamIterationCountGap(t *testing.T) {
@@ -198,7 +198,7 @@ func TestVP8ChromaResidualUpstreamIterationCountGap(t *testing.T) {
 	// Pin the no-op invariant of libvpx's optimize_b on a zero-eob
 	// input: the trellis loop iterates from eob-1 down to i0, so
 	// eob==0 (with i0=1 for blockType=UV) yields a zero-iteration
-	// loop. govpx's optimizeQuantizedBlockWithRDConstants short-
+	// loop. govpx's vp8enc.OptimizeQuantizedBlockWithRDConstants short-
 	// circuits on the same condition. This pin guards against a
 	// regression that would make the eob==0 fast-exit produce a
 	// different output than running the full trellis on a zero-qcoeff

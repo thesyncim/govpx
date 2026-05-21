@@ -1,15 +1,14 @@
-package govpx
+package encoder
 
 import (
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, 0, qcoeff, dqcoeff)
+func QuantizeBlockWithZbin(coeff *[16]int16, quant *BlockQuant, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return QuantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, 0, qcoeff, dqcoeff)
 }
 
-func quantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+func QuantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *BlockQuant, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if coeff == nil || quant == nil || qcoeff == nil || dqcoeff == nil {
 		return 0
 	}
@@ -31,7 +30,7 @@ func quantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *vp8enc.BlockQuant
 		}
 
 		// Branchless |z| via sign mask: sign is -1 when z<0, 0 otherwise.
-		sign := z >> mvKernelSignShift
+		sign := z >> intSignShift
 		x := (z ^ sign) - sign
 		zbin := int(quant.Zbin[rc])
 		zbin += int(quant.ZbinBoost[zeroRun&15])
@@ -59,54 +58,54 @@ func quantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *vp8enc.BlockQuant
 	return eob + 1
 }
 
-func quantizeOptimizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, zbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, dqcoeff)
+func QuantizeOptimizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return QuantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, zbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, dqcoeff)
 }
 
-func quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, rdZbinOverQuant int, rdMult int, rdDiv int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	eob := quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, actZbinAdj, qcoeff, dqcoeff)
-	eob = optimizeQuantizedBlockWithRDConstants(coefProbs, qIndex, blockType, ctx, skipDC, rdZbinOverQuant, rdMult, rdDiv, intra, coeff, quant, qcoeff, eob)
-	dequantizeQuantizedBlock(quant, qcoeff, dqcoeff)
+func QuantizeOptimizedBlockWithRDZbinAndActivity(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, rdZbinOverQuant int, rdMult int, rdDiv int, intra bool, coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	eob := QuantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, actZbinAdj, qcoeff, dqcoeff)
+	eob = OptimizeQuantizedBlockWithRDConstants(coefProbs, qIndex, blockType, ctx, skipDC, rdZbinOverQuant, rdMult, rdDiv, intra, coeff, quant, qcoeff, eob)
+	DequantizeQuantizedBlock(quant, qcoeff, dqcoeff)
 	return eob
 }
 
-func quantizeEncodedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, zbinOverQuant, 0, 0, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
+func QuantizeEncodedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, zbinOverQuant, 0, 0, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
 }
 
-// quantizeEncodedBlockWithRDZbin keeps libvpx's Y2 split explicit: Y2 zbin
+// QuantizeEncodedBlockWithRDZbin keeps libvpx's Y2 split explicit: Y2 zbin
 // thresholding uses zbin_over_quant/2, while the trellis optimizer scores with
 // mb->rdmult computed from the full frame-level zbin_over_quant.
-func quantizeEncodedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, rdZbinOverQuant, 0, 0, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
+func QuantizeEncodedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, 0, rdZbinOverQuant, 0, 0, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
 }
 
-func quantizeEncodedBlockWithRDZbinAndActivity(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, rdZbinOverQuant int, rdMult int, rdDiv int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+func QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, actZbinAdj int, rdZbinOverQuant int, rdMult int, rdDiv int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if fastQuant {
-		return vp8enc.FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
+		return FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
 	}
 	if optimize {
-		eob := quantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, actZbinAdj, rdZbinOverQuant, rdMult, rdDiv, intra, coeff, quant, qcoeff, dqcoeff)
+		eob := QuantizeOptimizedBlockWithRDZbinAndActivity(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, actZbinAdj, rdZbinOverQuant, rdMult, rdDiv, intra, coeff, quant, qcoeff, dqcoeff)
 		if blockType == 1 && skipDC == 0 {
-			eob = resetLibvpxSmallSecondOrderCoefficients(quant, qcoeff, dqcoeff, eob)
+			eob = ResetLibvpxSmallSecondOrderCoefficients(quant, qcoeff, dqcoeff, eob)
 		}
 		return eob
 	}
-	return quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, actZbinAdj, qcoeff, dqcoeff)
+	return QuantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, actZbinAdj, qcoeff, dqcoeff)
 }
 
-func quantizeDecisionBlock(fastQuant bool, coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	return quantizeDecisionBlockWithActivity(fastQuant, coeff, quant, zbinOverQuant, 0, qcoeff, dqcoeff)
+func QuantizeDecisionBlock(fastQuant bool, coeff *[16]int16, quant *BlockQuant, zbinOverQuant int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return QuantizeDecisionBlockWithActivity(fastQuant, coeff, quant, zbinOverQuant, 0, qcoeff, dqcoeff)
 }
 
-func quantizeDecisionBlockWithActivity(fastQuant bool, coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, actZbinAdj int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+func QuantizeDecisionBlockWithActivity(fastQuant bool, coeff *[16]int16, quant *BlockQuant, zbinOverQuant int, actZbinAdj int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if fastQuant {
-		return vp8enc.FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
+		return FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
 	}
-	return quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, 0, actZbinAdj, qcoeff, dqcoeff)
+	return QuantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, 0, actZbinAdj, qcoeff, dqcoeff)
 }
 
-func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) {
+func DequantizeQuantizedBlock(quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) {
 	if quant == nil || qcoeff == nil || dqcoeff == nil {
 		return
 	}
@@ -115,22 +114,22 @@ func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoe
 	}
 }
 
-// optimizeQuantizedBlock ports libvpx v1.16.0 vp8/encoder/encodemb.c optimize_b.
+// OptimizeQuantizedBlock ports libvpx v1.16.0 vp8/encoder/encodemb.c optimize_b.
 // It walks the quantized block from eob-1 down to skipDC, builds a 2-state
 // Viterbi trellis exploring (keep current value) vs (shift |x| toward 0 when
 // the dequant boundary allows), scores transitions with libvpx's token_costs
 // subtree elision, and applies the path that minimizes the libvpx RDCOST. Tied
 // RDCOSTs use the libvpx RDTRUNC tie-break.
-func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, eob int) int {
-	return optimizeQuantizedBlockWithRDConstants(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, eob)
+func OptimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, intra bool, coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, eob int) int {
+	return OptimizeQuantizedBlockWithRDConstants(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, 0, 0, intra, coeff, quant, qcoeff, eob)
 }
 
-func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, rdMult int, rdDiv int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, eob int) int {
+func OptimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, rdMult int, rdDiv int, intra bool, coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, eob int) int {
 	if coeff == nil || quant == nil || qcoeff == nil || eob <= skipDC {
 		return eob
 	}
 	// Three uint range checks fold the (x < 0 || x >= max) pairs into
-	// one branch each; matches the form in vp8enc.CoefficientBlockTokenRate.
+	// one branch each; matches the form in CoefficientBlockTokenRate.
 	if uint(blockType) >= uint(vp8tables.BlockTypes) ||
 		uint(ctx) >= uint(vp8tables.PrevCoefContexts) ||
 		uint(skipDC) > 1 {
@@ -144,9 +143,9 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 	}
 
 	if rdMult <= 0 || rdDiv <= 0 {
-		rdMult, rdDiv = vp8enc.RDConstantsWithZbin(qIndex, zbinOverQuant)
+		rdMult, rdDiv = RDConstantsWithZbin(qIndex, zbinOverQuant)
 	}
-	rdMult *= vp8enc.BlockPlaneRDMultiplier(blockType)
+	rdMult *= BlockPlaneRDMultiplier(blockType)
 	if intra {
 		rdMult = (rdMult * 9) >> 4
 	}
@@ -176,7 +175,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 			error1 := tokens[next][1].error
 			rate0 := tokens[next][0].rate
 			rate1 := tokens[next][1].rate
-			t0 := vp8enc.DCTValueToken(x)
+			t0 := DCTValueToken(x)
 
 			if next < 16 {
 				// i+1 ∈ [1, 16) given i ≤ 14 from the loop range and
@@ -185,22 +184,22 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 				band := int(vp8tables.CoefBandsTable[(i+1)&15])
 				pt := int(vp8tables.PrevTokenClass[t0])
 				p := (*coefProbs)[blockType&3][band&7][pt]
-				rate0 += vp8enc.CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
-				rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
+				rate0 += CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
+				rate1 += CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 			}
 
-			rdCost0 := vp8enc.RDCost(rdMult, rdDiv, rate0, error0)
-			rdCost1 := vp8enc.RDCost(rdMult, rdDiv, rate1, error1)
+			rdCost0 := RDCost(rdMult, rdDiv, rate0, error0)
+			rdCost1 := RDCost(rdMult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
-				rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
+				rdCost0 = RDTrunc(rdMult, rate0)
+				rdCost1 = RDTrunc(rdMult, rate1)
 			}
 			best := 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
 
-			baseBits := vp8enc.DCTValueBaseCost(x)
+			baseBits := DCTValueBaseCost(x)
 			dq := int(quant.Dequant[rc])
 			dx := x*dq - int(coeff[rc])
 			d2 := dx * dx
@@ -221,16 +220,16 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 			rate1 = tokens[next][1].rate
 
 			// Branchless |x| and |coeff[rc]|.
-			xMask := x >> mvKernelSignShift
+			xMask := x >> intSignShift
 			absX := (x ^ xMask) - xMask
 			cInt := int(coeff[rc])
-			cMask := cInt >> mvKernelSignShift
+			cMask := cInt >> intSignShift
 			absC := (cInt ^ cMask) - cMask
 			shortcut := absX*dq > absC && absX*dq < absC+dq
 			xs := x
 			sz := 0
 			if shortcut {
-				sz = x >> mvKernelSignShift // -1 if x<0, 0 otherwise
+				sz = x >> intSignShift // -1 if x<0, 0 otherwise
 				xs -= 2*sz + 1
 			}
 
@@ -247,7 +246,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 					t1 = vp8tables.ZeroToken
 				}
 			} else {
-				t0 = vp8enc.DCTValueToken(xs)
+				t0 = DCTValueToken(xs)
 				t1 = t0
 			}
 
@@ -256,27 +255,27 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 				if t0 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t0])
 					p := (*coefProbs)[blockType][band][pt]
-					rate0 += vp8enc.CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
+					rate0 += CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
 				}
 				if t1 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t1])
 					p := (*coefProbs)[blockType][band][pt]
-					rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
+					rate1 += CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 				}
 			}
 
-			rdCost0 = vp8enc.RDCost(rdMult, rdDiv, rate0, error0)
-			rdCost1 = vp8enc.RDCost(rdMult, rdDiv, rate1, error1)
+			rdCost0 = RDCost(rdMult, rdDiv, rate0, error0)
+			rdCost1 = RDCost(rdMult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
-				rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
+				rdCost0 = RDTrunc(rdMult, rate0)
+				rdCost1 = RDTrunc(rdMult, rate1)
 			}
 			best = 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
 
-			baseBits = vp8enc.DCTValueBaseCost(xs)
+			baseBits = DCTValueBaseCost(xs)
 
 			d2s := d2
 			if shortcut {
@@ -303,11 +302,11 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 			t0Tok := int(tokens[next][0].token)
 			t1Tok := int(tokens[next][1].token)
 			if t0Tok != vp8tables.DCTEOBToken {
-				tokens[next][0].rate += vp8enc.CoefficientTokenCost(p, t0Tok, blockType, band, 0)
+				tokens[next][0].rate += CoefficientTokenCost(p, t0Tok, blockType, band, 0)
 				tokens[next][0].token = int8(vp8tables.ZeroToken)
 			}
 			if t1Tok != vp8tables.DCTEOBToken {
-				tokens[next][1].rate += vp8enc.CoefficientTokenCost(p, t1Tok, blockType, band, 0)
+				tokens[next][1].rate += CoefficientTokenCost(p, t1Tok, blockType, band, 0)
 				tokens[next][1].token = int8(vp8tables.ZeroToken)
 			}
 		}
@@ -319,13 +318,13 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 	error0 := tokens[next][0].error
 	error1 := tokens[next][1].error
 	p := (*coefProbs)[blockType][band][ctx]
-	rate0 += vp8enc.CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, ctx)
-	rate1 += vp8enc.CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, ctx)
-	rdCost0 := vp8enc.RDCost(rdMult, rdDiv, rate0, error0)
-	rdCost1 := vp8enc.RDCost(rdMult, rdDiv, rate1, error1)
+	rate0 += CoefficientTokenCost(p, int(tokens[next][0].token), blockType, band, ctx)
+	rate1 += CoefficientTokenCost(p, int(tokens[next][1].token), blockType, band, ctx)
+	rdCost0 := RDCost(rdMult, rdDiv, rate0, error0)
+	rdCost1 := RDCost(rdMult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {
-		rdCost0 = vp8enc.RDTrunc(rdMult, rate0)
-		rdCost1 = vp8enc.RDTrunc(rdMult, rate1)
+		rdCost0 = RDTrunc(rdMult, rate0)
+		rdCost1 = RDTrunc(rdMult, rate1)
 	}
 	best := 0
 	if rdCost1 < rdCost0 {
@@ -350,7 +349,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 // Ported from libvpx v1.16.0 vp8/encoder/encodemb.c
 // check_reset_2nd_coeffs. Very small Y2 residuals inverse-transform to a zero
 // pixel delta, so libvpx drops the whole second-order block after optimization.
-func resetLibvpxSmallSecondOrderCoefficients(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16, eob int) int {
+func ResetLibvpxSmallSecondOrderCoefficients(quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16, eob int) int {
 	if quant == nil || qcoeff == nil || eob <= 0 {
 		return eob
 	}
@@ -365,7 +364,7 @@ func resetLibvpxSmallSecondOrderCoefficients(quant *vp8enc.BlockQuant, qcoeff *[
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		coef := int(qcoeff[rc]) * int(quant.Dequant[rc])
 		// Branchless |coef| via sign-mask XOR.
-		mask := coef >> mvKernelSignShift
+		mask := coef >> intSignShift
 		coef = (coef ^ mask) - mask
 		sum += coef
 		if sum >= 35 {

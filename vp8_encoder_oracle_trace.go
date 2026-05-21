@@ -1132,7 +1132,7 @@ func (e *VP8Encoder) emitOraclePickerUVQuantizeTrace(mbRow int, mbCol int, block
 // {"type":"chroma_optimize_b",...} row for one UV block (16..23) on the
 // accepted-path encode. The caller must pass the post-trellis qcoeff /
 // dqcoeff snapshot taken immediately after
-// optimizeQuantizedBlockWithRDConstants finishes for that block (matching
+// vp8enc.OptimizeQuantizedBlockWithRDConstants finishes for that block (matching
 // the libvpx splice site, vp8_encode_inter16x16 right after optimize_mb).
 // rdmult/rddiv mirror x->rdmult / x->rddiv at the optimize_b entry; intra
 // is 1 when the MB picker picked an intra mode for this UV block. The
@@ -1172,7 +1172,7 @@ func (e *VP8Encoder) emitOracleChromaOptimizeBTrace(mbRow int, mbCol int, block 
 // {"type":"pretrellis_uv_qcoeff",...} row for one UV block (16..23) on
 // the accepted-path encode. The caller is responsible for passing the
 // pre-trellis qcoeff/dqcoeff snapshot taken between
-// quantizeBlockWithZbinAndActivity and optimizeQuantizedBlockWithRDConstants
+// vp8enc.QuantizeBlockWithZbinAndActivity and vp8enc.OptimizeQuantizedBlockWithRDConstants
 // (mirroring the libvpx call site between vp8_quantize_mb and optimize_mb
 // inside vp8_encode_inter16x16). zbinExtra is the per-block zbin-extra used
 // by the regular quantizer (it changes across MBs via vp8_update_zbin_extra

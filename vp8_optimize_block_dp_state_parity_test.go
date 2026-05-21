@@ -24,7 +24,7 @@ type optimizeBTokenState struct {
 // arrays for a controlled (coeff, dequant, qcoeff, eob) input. It
 // returns the full DP state and the post-loop (best, finalEOB,
 // outQcoeff) so callers can byte-compare against govpx's
-// optimizeQuantizedBlockWithRDConstants for every (i, j) cell.
+// vp8enc.OptimizeQuantizedBlockWithRDConstants for every (i, j) cell.
 //
 // Tables consumed are the ones the chroma trellis bug audit cleared:
 //   - vp8tables.DefaultCoefProbs via libvpxOptimizeBFillTokenCostsRow
@@ -257,7 +257,7 @@ func libvpxOptimizeBVerbatim(
 // govpxOptimizeBStateCaptured runs govpx's optimize_b through a thin
 // wrapper that captures the DP tokens[][] array and bestMask[] for
 // the same controlled fixture as the oracle above. The capture path
-// mirrors optimizeQuantizedBlockWithRDConstants exactly so the only
+// mirrors vp8enc.OptimizeQuantizedBlockWithRDConstants exactly so the only
 // thing being compared is the DP-state transition logic, not the
 // rate/distortion inputs.
 func govpxOptimizeBStateCaptured(
@@ -551,7 +551,7 @@ func TestVP8OptimizeBlockDPStateChromaDCOne(t *testing.T) {
 		// optimize_b and compare the post-trellis qcoeff[0] and eob.
 		var prodQ [16]int16
 		prodQ[0] = sign
-		prodEOB := optimizeQuantizedBlockWithRDConstants(
+		prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
 			&vp8tables.DefaultCoefProbs, qIndex, blockType, ctx, 0, 0,
 			rdMult, rdDiv, false, &coeff, &quant, &prodQ, 1)
 		if prodEOB != gEOB {
@@ -695,7 +695,7 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 		// Compare against the actual production trellis.
 		var prodQ [16]int16
 		prodQ = f.qcoeff
-		prodEOB := optimizeQuantizedBlockWithRDConstants(
+		prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
 			probs, f.qIndex, blockType, f.ctx, 0, 0,
 			rdMult, rdDiv, false, &coeff, &quant, &prodQ, f.eob)
 		if prodEOB != oEOB || prodQ != oQ {
@@ -769,7 +769,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 								}
 								var prodQ [16]int16
 								prodQ[0] = sign
-								prodEOB := optimizeQuantizedBlockWithRDConstants(
+								prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
 									probs, qi, plane.blockType, ctx, plane.skipDC, 0,
 									rdMult, rdDiv, intra, &coeff, &quant, &prodQ, 1)
 								if prodEOB != oEOB || prodQ != oQ {
@@ -816,7 +816,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 					}
 					var prodQ [16]int16
 					prodQ = qcoeff
-					prodEOB := optimizeQuantizedBlockWithRDConstants(
+					prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
 						probs, qi, plane.blockType, ctx, plane.skipDC, 0,
 						rdMult, rdDiv, intra, &coeff, &quant, &prodQ, 16)
 					if prodEOB != oEOB || prodQ != oQ {

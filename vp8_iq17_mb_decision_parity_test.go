@@ -58,8 +58,8 @@ package govpx
 // 4. encodemb.c optimize_b plane_rd_mult (encodemb.c:174-190)
 //
 //    libvpx: rdmult = mb->rdmult * plane_rd_mult[type]; intra ref_frame
-//    further lifts by *9>>4. govpx's optimizeQuantizedBlockWithRDConstants
-//    at vp8_encoder_inter_quantize.go:179-182 mirrors both lifts (verified by
+//    further lifts by *9>>4. govpx's vp8enc.OptimizeQuantizedBlockWithRDConstants
+//    at internal/vp8/encoder/inter_quantize.go mirrors both lifts (verified by
 //    TestVP8ChromaRDCostStructure). Inter MBs (the iQ=17 frame 3 case)
 //    skip the intra penalty on both sides. No port gap here.
 //

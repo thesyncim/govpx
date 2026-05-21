@@ -148,7 +148,7 @@ func TestVP8NewMVPickerResidualQuantization(t *testing.T) {
 	// folded into the Y2 second-order block via y2Input[block] = dct[0].
 	// We DON'T zero dct[0] here yet — we want to log the raw FDCT output
 	// including DC.
-	eob0 := quantizeBlockWithZbinAndActivity(yDcts0, &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, &qcoeff0, &dqcoeff0)
+	eob0 := vp8enc.QuantizeBlockWithZbinAndActivity(yDcts0, &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, &qcoeff0, &dqcoeff0)
 
 	// Also quantize block 0 with dct[0]=0 (the actual picker path for
 	// non-4x4 luma) to see if AC alone is enough to produce non-zero
@@ -157,7 +157,7 @@ func TestVP8NewMVPickerResidualQuantization(t *testing.T) {
 	yDcts0NoDC[0] = 0
 	var qcoeff0NoDC [16]int16
 	var dqcoeff0NoDC [16]int16
-	eob0NoDC := quantizeBlockWithZbinAndActivity(&yDcts0NoDC, &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, &qcoeff0NoDC, &dqcoeff0NoDC)
+	eob0NoDC := vp8enc.QuantizeBlockWithZbinAndActivity(&yDcts0NoDC, &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, &qcoeff0NoDC, &dqcoeff0NoDC)
 
 	// Count total non-zero qcoeff across all 16 Y blocks (DC zeroed).
 	var totalNonZero int
@@ -170,7 +170,7 @@ func TestVP8NewMVPickerResidualQuantization(t *testing.T) {
 		(*dctBlock)[0] = 0
 		var q [16]int16
 		var dq [16]int16
-		eob := quantizeBlockWithZbinAndActivity(dctBlock, &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, &q, &dq)
+		eob := vp8enc.QuantizeBlockWithZbinAndActivity(dctBlock, &quant.Y1, zbinOverQuant, zbinModeBoost, actZbinAdj, &q, &dq)
 		perBlockEOB[block] = eob
 		blockEOBSum += eob
 		for i := range 16 {

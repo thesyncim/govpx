@@ -378,7 +378,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				if needTokenContext {
 					ctx = int(yAbove[a] + yLeft[l])
 				}
-				eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+				eob := vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 				coeffs.SetBlockEOB(block, eob)
 				if collectStats {
 					stats.rateY += vp8enc.CoefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
@@ -416,7 +416,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				if needTokenContext {
 					ctx = int(yAbove[a] + yLeft[l])
 				}
-				eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+				eob := vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 				coeffs.QCoeff[block][0] = 0
 				dq[0] = 0
 				dct[0] = 0
@@ -441,7 +441,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	}
 	if !is4x4 {
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
+		eob := vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
 		coeffs.SetBlockEOB(24, eob)
 		if collectStats {
 			stats.rateY += vp8enc.CoefficientBlockTokenRate(coefProbs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
@@ -469,7 +469,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			var staleY2Q [16]int16
 			var staleY2DQ [16]int16
 			vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
-			staleEOB := min(max(quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
+			staleEOB := min(max(vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
 			recordOracleStaleY2(coeffs, uint8(staleEOB), staleY2Q)
 		}
 	}
@@ -610,7 +610,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	// value and libvpx emitting the post-activity-masking value.
 	//
 	// Task #319 fix: emit the activity-lifted value (which is the value
-	// actually consumed by optimizeQuantizedBlockWithRDConstants) so the
+	// actually consumed by vp8enc.OptimizeQuantizedBlockWithRDConstants) so the
 	// post-trellis-bisect comparator sees the same scalar on both sides.
 	traceRDMult, traceRDDiv := 0, 0
 	if traceChromaOptimizeB {
@@ -631,10 +631,10 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			// quantizer into a side buffer so the accepted-path qcoeff
 			// (which is then trellised) stays untouched.
 			var preQ, preDQ [16]int16
-			preEOB := quantizeBlockWithZbinAndActivity(dct, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
+			preEOB := vp8enc.QuantizeBlockWithZbinAndActivity(dct, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
 			args.trace.emitPretrellisUV(mbRow, mbCol, 16+block, dct, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
 		}
-		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		eob := vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
 		if tracePickerUV {
 			args.trace.emitPickerUVQuantize(mbRow, mbCol, 16+block, "regular", dct, &coeffs.QCoeff[16+block], &dq, &quant.UV, eob, zbinExtra, zbinOverQuant)
@@ -664,10 +664,10 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		}
 		if tracePretrellisUV {
 			var preQ, preDQ [16]int16
-			preEOB := quantizeBlockWithZbinAndActivity(dctV, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
+			preEOB := vp8enc.QuantizeBlockWithZbinAndActivity(dctV, &quant.UV, zbinOverQuant, zbinModeBoost, actZbinAdj, &preQ, &preDQ)
 			args.trace.emitPretrellisUV(mbRow, mbCol, 20+block, dctV, &preQ, &preDQ, preEOB, zbinExtra, zbinOverQuant)
 		}
-		eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		eob = vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
 		if tracePickerUV {
 			args.trace.emitPickerUVQuantize(mbRow, mbCol, 20+block, "regular", dctV, &coeffs.QCoeff[20+block], &dq, &quant.UV, eob, zbinExtra, zbinOverQuant)

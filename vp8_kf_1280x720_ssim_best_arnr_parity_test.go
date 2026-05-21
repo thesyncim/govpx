@@ -224,13 +224,13 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// tuples for these MBs and identical Y2 qcoeff[24] (eob=16, exact
 	// values), which implies the per-block luma DC pre-Walsh inputs
 	// match — so the inline ZBIN_EXTRA_Y formula at
-	// `quantizeBlockWithZbinAndActivity` (vp8_encoder_inter_quantize.go) IS
+	// `vp8enc.QuantizeBlockWithZbinAndActivity` (internal/vp8/encoder/inter_quantize.go) IS
 	// equivalent to libvpx's `b->zbin_extra = (Y1dequant[Q][1] *
 	// (zbin_over_quant + zbin_mode_boost + act_zbin_adj)) >> 7` at the
 	// quantize-input boundary.
 	//
 	// Task #282 re-diagnosis: a verbatim audit of govpx's
-	// optimizeQuantizedBlockWithRDConstants (vp8_encoder_inter_quantize.go)
+	// vp8enc.OptimizeQuantizedBlockWithRDConstants (internal/vp8/encoder/inter_quantize.go)
 	// against libvpx's optimize_b (vp8/encoder/encodemb.c:200-356) found
 	// the trellis port byte-faithful — RDCOST + RDTRUNC tie-break,
 	// token_cost subtree elision, DefaultZigZag/DefaultInvZigZag,
@@ -260,8 +260,8 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	//
 	// Task #284 charter: extend the oracle tracer with a pre-trellis UV
 	// hook (between vp8_regular_quantize_b and optimize_b on libvpx;
-	// between quantizeBlockWithZbinAndActivity and
-	// optimizeQuantizedBlockWithRDConstants on govpx) to dump qcoeff /
+	// between vp8enc.QuantizeBlockWithZbinAndActivity and
+	// vp8enc.OptimizeQuantizedBlockWithRDConstants on govpx) to dump qcoeff /
 	// dqcoeff / eob for blocks 16-23 on frame 1 of seed 19981bff, then
 	// walk upstream (qcoeff → dqcoeff → coeff → residual → predictor)
 	// to pin the actual divergence layer. Tracer extension blocks on
@@ -391,7 +391,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// both sides for frame 1 (oracle hook splices into
 	// vp8_encode_inter16x16 right after optimize_mb on libvpx; mirrored on
 	// the govpx side in reconstructMacroblockUVCoefficients after each
-	// quantizeEncodedBlockWithRDZbinAndActivity call). On the BestARNR
+	// vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity call). On the BestARNR
 	// cohort the bisect surfaces 4720 divergent UV blocks on frame 1 with
 	// the FIRST divergence at MB(0,0) block 16 in the rdmult layer:
 	//
@@ -472,7 +472,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// rate_y=34799. Same MV=(8,16), same ref (frame 0 reconstruction is
 	// byte-identical per the SHA pin), same source — yet different
 	// qcoeff. Static inspection of the quantize formula
-	// (vp8_encoder_inter_quantize.go quantizeBlockWithZbinAndActivity line 64
+	// (internal/vp8/encoder/inter_quantize.go vp8enc.QuantizeBlockWithZbinAndActivity
 	// vs libvpx vp8_quantize.c:75 vp8_regular_quantize_b) is byte-faithful,
 	// so the upstream cause must surface in the actual residual /
 	// zbin_extra at picker time and requires a per-block picker-side
@@ -506,7 +506,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// 19981bff: 2241/3600 MBs diverge, 2115 chroma-only, 85% DC-only,
 	// 1934 blocks govpx=+1 (keeps where libvpx drops), 1078 govpx=-1.
 	// Code layers: govpx
-	// quantizeEncodedBlockWithRDZbinAndActivity → optimizeQuantizedBlock
+	// vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity → vp8enc.OptimizeQuantizedBlock
 	// vs libvpx vp8/encoder/encodemb.c:vp8_encode_inter16x16 →
 	// optimize_mb → optimize_b. The trellis core itself (#282) is
 	// byte-faithful — divergence is in the chroma input to the trellis
@@ -543,7 +543,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// table that govpx's `vp8enc.CoefficientTokenCost` reads (#316's bisect
 	// covers this), the per-block dx = qcoeff*dequant - coeff distortion
 	// computation, or the shortcut |x|*dq vs |coeff| boundary check
-	// (encodemb.c:246-256 vs vp8_encoder_inter_quantize.go:259).
+	// (encodemb.c:246-256 vs internal/vp8/encoder/inter_quantize.go).
 	//
 	// Task #324 chroma optimize_b per-coefficient KEEP/DROP cost audit
 	// (NEGATIVE — RETRACTS the cost-computation-bug framing):

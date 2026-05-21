@@ -197,7 +197,7 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	// when eob<=1 in `vp8_dequant_idct_add_*_block_c`, plus the Y luma
 	// eob_adjust bump in `vp8_inverse_transform_mby`). The audit confirms
 	// that the inline ZBIN_EXTRA_Y formula at
-	// `quantizeBlockWithZbinAndActivity` (vp8_encoder_inter_quantize.go) is
+	// `vp8enc.QuantizeBlockWithZbinAndActivity` (internal/vp8/encoder/inter_quantize.go) is
 	// algebraically identical to libvpx's `b->zbin_extra` precomputed by
 	// `vp8_update_zbin_extra` (vp8_quantize.c:410-428): both use
 	// `(Y1dequant[Q][1] * (zbin_over_quant + zbin_mode_boost +
@@ -205,7 +205,7 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	// (MV_ZBIN_BOOST=4 for NEWMV/NEARESTMV/NEARMV cohorts here).
 	//
 	// Task #282 re-diagnosis: a verbatim audit of govpx's
-	// optimizeQuantizedBlockWithRDConstants (vp8_encoder_inter_quantize.go)
+	// vp8enc.OptimizeQuantizedBlockWithRDConstants (internal/vp8/encoder/inter_quantize.go)
 	// against libvpx's optimize_b (vp8/encoder/encodemb.c:200-356) found
 	// the trellis port byte-faithful. The cohort-specific UV blocks
 	// 20/23 scan-pos 2 (raster zigzag rc=4) divergence — pattern
@@ -227,8 +227,8 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	//       (encodemb.c:78-92).
 	//
 	// Task #284 charter: extend the oracle tracer with a pre-trellis UV
-	// hook on both sides (govpx: between quantizeBlockWithZbinAndActivity
-	// and optimizeQuantizedBlockWithRDConstants; libvpx: between
+	// hook on both sides (govpx: between vp8enc.QuantizeBlockWithZbinAndActivity
+	// and vp8enc.OptimizeQuantizedBlockWithRDConstants; libvpx: between
 	// vp8_regular_quantize_b and optimize_b at encodemb.c:413-415) to
 	// dump qcoeff / dqcoeff / eob for blocks 16-23 on frame 1 of seed
 	// 19981bff, then bisect upstream layer by layer. The tracer
@@ -344,7 +344,7 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	// 19981bff (sibling cohort): 2241/3600 MBs diverge, 2115
 	// chroma-only, 85% DC-only, 1934 blocks govpx=+1 (keeps where
 	// libvpx drops), 1078 govpx=-1. Code layers: govpx
-	// quantizeEncodedBlockWithRDZbinAndActivity → optimizeQuantizedBlock
+	// vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity → vp8enc.OptimizeQuantizedBlock
 	// vs libvpx vp8/encoder/encodemb.c:vp8_encode_inter16x16 →
 	// optimize_mb → optimize_b (PLANE_TYPE_UV branch). The trellis core
 	// itself (#282) is byte-faithful — divergence is in the chroma

@@ -118,7 +118,7 @@ func TestPredictBestBPredLumaModeRDKeyFrameRateIsModePlusTokens(t *testing.T) {
 		vp8enc.FillBPredResidual4x4(sourceImageFromPublic(src), 0, 0, block, blockPred[:], &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		ctx := int(tokAbove[block&3] + tokLeft[(block&0x0c)>>2])
-		eob := quantizeDecisionBlock(false, &dct, &quant.Y1, 0, &qcoeff, &dqcoeff)
+		eob := vp8enc.QuantizeDecisionBlock(false, &dct, &quant.Y1, 0, &qcoeff, &dqcoeff)
 		tokenRate := vp8enc.CoefficientBlockTokenRate(&probs, 3, ctx, 0, &qcoeff, eob)
 		modeRate := bPredModeRate(true, mode,
 			bPredAnalysisAboveMode(true, nil, trackModes, block),

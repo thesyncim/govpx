@@ -7,6 +7,16 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
+func optimizeBlockTestRegularBlockQuant(qIndex int, dequantValue int16) vp8enc.BlockQuant {
+	var quant vp8enc.BlockQuant
+	var dequant [16]int16
+	for i := range dequant {
+		dequant[i] = dequantValue
+	}
+	vp8enc.InitRegularBlockQuant(qIndex, &dequant, &quant)
+	return quant
+}
+
 // TestVP8OptimizeQuantizedBlockRDCostBoundaries protects the VP8 trellis
 // keep/drop cost math against libvpx's optimize_b rules. The sentinel blocks
 // are small enough to inspect by hand and cover distortion-dominant,
@@ -26,11 +36,11 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	// (keep case) vs coeff[0]^2=10000 (drop case). Drop is 44.4x more
 	// distortion than keep, so keep WINS regardless of rate.
 	{
-		quant := viterbiTestRegularBlockQuant(4, 85)
+		quant := optimizeBlockTestRegularBlockQuant(4, 85)
 		var coeff, qcoeff [16]int16
 		coeff[0] = 100
 		qcoeff[0] = 1
-		eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 4, 2, 0, 0, 0, false, &coeff, &quant, &qcoeff, 1)
+		eob := vp8enc.OptimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 4, 2, 0, 0, 0, false, &coeff, &quant, &qcoeff, 1)
 		if eob != 1 || qcoeff[0] != 1 {
 			t.Fatalf("sentinel A (distortion-dominant UV DC): eob/qcoeff[0]=%d/%d, want 1/1 (trellis must keep)", eob, qcoeff[0])
 		}
@@ -44,11 +54,11 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	// distortion units; with rdmult about 7223 the rate savings (>1 unit at
 	// rdMult=7223 each) overcome the distortion delta, so DROP wins.
 	{
-		quant := viterbiTestRegularBlockQuant(127, 100)
+		quant := optimizeBlockTestRegularBlockQuant(127, 100)
 		var coeff, qcoeff [16]int16
 		coeff[0] = 11
 		qcoeff[0] = 1
-		eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 2, 0, 0, 0, false, &coeff, &quant, &qcoeff, 1)
+		eob := vp8enc.OptimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 2, 0, 0, 0, false, &coeff, &quant, &qcoeff, 1)
 		if eob != 0 || qcoeff[0] != 0 {
 			t.Fatalf("sentinel B (rate-dominant UV DC overshoot): eob/qcoeff[0]=%d/%d, want 0/0 (trellis must drop)", eob, qcoeff[0])
 		}
@@ -94,7 +104,7 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 }
 
 // TestVP8OptimizeQuantizedBlockStructuralInvariants pins the structural shape
-// of optimizeQuantizedBlockWithRDConstants against libvpx's optimize_b. These
+// of vp8enc.OptimizeQuantizedBlockWithRDConstants against libvpx's optimize_b. These
 // checks make refactors prove the same traversal, shortcut, tie-break, and
 // backtrace rules without depending on a full encoder fixture.
 //
@@ -114,13 +124,13 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 //     = last position with non-zero qc, +1 (libvpx encodemb.c:343-353).
 func TestVP8OptimizeQuantizedBlockStructuralInvariants(t *testing.T) {
 	// Invariant 6: backtrace produces a valid eob in [skipDC, eob].
-	quant := viterbiTestRegularBlockQuant(80, 50)
+	quant := optimizeBlockTestRegularBlockQuant(80, 50)
 	var coeff, qcoeff [16]int16
 	for i := range coeff {
 		coeff[i] = int16(50 + 3*i)
 		qcoeff[i] = 1
 	}
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 80, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 16)
+	eob := vp8enc.OptimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 80, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 16)
 	if eob < 0 || eob > 16 {
 		t.Errorf("structural invariant 6 broken: eob=%d, want in [0,16]", eob)
 	}
@@ -134,8 +144,8 @@ func TestVP8OptimizeQuantizedBlockStructuralInvariants(t *testing.T) {
 		q2[0] = 42 // skipDC=1 means DC slot is owned by Y2 and must survive.
 		c2[int(vp8tables.DefaultZigZag1D[1])] = 100
 		q2[int(vp8tables.DefaultZigZag1D[1])] = 2
-		quant2 := viterbiTestRegularBlockQuant(127, 50)
-		_ = optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &c2, &quant2, &q2, 2)
+		quant2 := optimizeBlockTestRegularBlockQuant(127, 50)
+		_ = vp8enc.OptimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &c2, &quant2, &q2, 2)
 		if q2[0] != 42 {
 			t.Errorf("structural invariant 1 broken: skipDC=1 did not protect qcoeff[0]; got=%d want=42", q2[0])
 		}
@@ -146,11 +156,11 @@ func TestVP8OptimizeQuantizedBlockStructuralInvariants(t *testing.T) {
 	// in (20, 70). The shortcut reduces x to 0 and the trellis can elect
 	// to drop. Force rate-dominance via qIndex=127 so the drop wins.
 	{
-		quant3 := viterbiTestRegularBlockQuant(127, 50)
+		quant3 := optimizeBlockTestRegularBlockQuant(127, 50)
 		var c3, q3 [16]int16
 		c3[int(vp8tables.DefaultZigZag1D[1])] = 20
 		q3[int(vp8tables.DefaultZigZag1D[1])] = 1
-		eob3 := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &c3, &quant3, &q3, 2)
+		eob3 := vp8enc.OptimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &c3, &quant3, &q3, 2)
 		if eob3 != 1 {
 			t.Errorf("structural invariant 3 broken: shortcut+rate-dominance did not drop the AC coefficient; eob=%d want=1", eob3)
 		}
@@ -163,9 +173,9 @@ func TestVP8OptimizeQuantizedBlockStructuralInvariants(t *testing.T) {
 		var c4 [16]int16
 		var q4 [16]int16
 		c4[0] = 200
-		quant4 := viterbiTestRegularBlockQuant(80, 50)
+		quant4 := optimizeBlockTestRegularBlockQuant(80, 50)
 		// Use a non-zero eob so the loop runs but qcoeff stays all-zero.
-		_ = optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 80, 0, 0, 1, 0, false, &c4, &quant4, &q4, 4)
+		_ = vp8enc.OptimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 80, 0, 0, 1, 0, false, &c4, &quant4, &q4, 4)
 		for i := range q4 {
 			if q4[i] != 0 {
 				t.Errorf("smoke: zero-qcoeff input mutated to %d at %d", q4[i], i)
