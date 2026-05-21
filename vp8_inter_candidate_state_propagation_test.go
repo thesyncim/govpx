@@ -7,86 +7,22 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestVP8InterCandidateStatePropagation pins the negative
-// result of the task #313 audit into a Threads=4-vs-Threads=1 libvpx
-// oracle comparison at MB(0,0) frame 1 NEWMV MV=(8,16). The audit's
-// premise was that libvpx's NEWMV CANDIDATE produces non-zero
-// Y qcoeff while govpx's produces all-zero on the SAME residual,
-// implying inter-candidate state propagation (b->zbin_extra,
-// xd->eobs[], b->zbin_mode_boost, mb->mode_info_context) that libvpx
-// carries between NEARESTMV → NEARMV → NEWMV that govpx is missing.
-//
-// Method: extend internal/coracle/build_vpxenc_oracle.sh (already done
-// at task #310) with a per-Y-block picker_quantize emit hook inside
-// vp8/encoder/rdopt.c:macro_block_yrd (after Y0..15 + Y2 quantize loops
-// complete, before vp8_rdcost_mby reads d->eobs). Run the oracle with
-// --threads=1 and --threads=4 on the same fixture (1280x720 BestQuality
-// cpu0 VBR SSIM screen-content=1 ARNR=1/1/2 panning frames). Compare
-// the captured pre.coeff, zbin_extra, post.qcoeff, eob for every
-// MB(0,0) frame 1 picker candidate, plus the inter_candidate-summary
-// rate_y the rdopt.c emit hook captures from rd.rate_y.
-//
-// Findings (verbatim):
-//
-//   - libvpx --threads=1 NEWMV MB(0,0) frame 1:
-//     picker_quantize: zbin_extra=8, eob=0 for ALL 16 Y blocks + Y2,
-//     qcoeff all-zero.
-//     inter_candidate: rate_y=7519, rate=20474, score=102349,
-//     yrd=73707, dist=58282. EXACTLY MATCHES govpx.
-//
-//   - libvpx --threads=4 NEWMV MB(0,0) frame 1:
-//     picker_quantize: zbin_extra=8 (identical), eob=0 (identical),
-//     qcoeff all-zero (identical).
-//     inter_candidate: rate_y=34799, rate=48796, score=160686,
-//     yrd=129509, dist=55660.
-//
-// The picker_quantize state is IDENTICAL across thread counts. The
-// inter_candidate rate_y at threads=4 (34799) is reported from a
-// different code path or a different mb_row/mb_col context than
-// MB(0,0)'s NEWMV: every per-block post.eob the trace captures at
-// threads=4 for MB(0,0) NEWMV is zero, so vp8_rdcost_mby reading
-// those eobs can only produce rate_y ≈ 17 * EOB_token_cost ≈ 7519.
-//
-// The threads=4 vs threads=1 inter_candidate divergence is caused by
-// a DIFFERENT FRAME 0 RECONSTRUCTION (post-loop-filter): the
-// ZEROMV picker_quantize pre.coeff for MB(0,0) frame 1 differs
-// between threads=1 (blk=0: [96,175,-19,-46]) and threads=4
-// (blk=0: [66,163,-18,-47]). Same source, same MV, same quant
-// tables — but the predictor (which reads the previous frame's
-// post-LF Y buffer) differs. libvpx's threaded loop filter
-// (vp8_loop_filter_frame_mt) produces slightly different output
-// than its single-threaded loop filter (vp8_loop_filter_frame) due
-// to row-boundary synchronization order, which propagates into
-// every motion-compensated predictor on the next frame.
-//
-// CONCLUSION: There is NO inter-candidate state propagation gap in
-// govpx's picker. At MB(0,0) frame 1, govpx and libvpx (threads=1)
-// produce byte-identical picker_quantize state AND byte-identical
-// inter_candidate score state (score=102349, yrd=73707, rate=20474,
-// rate_y=7519, dist=58282). The originally-reported "libvpx
-// rate_y=34799" was measured against libvpx --threads=4 which
-// reconstructs frame 0 with a different post-LF Y buffer; that
-// divergence is in libvpx's threaded loop filter and does NOT
-// implicate any picker-stage state mutation libvpx carries between
-// NEARESTMV / NEARMV / NEWMV that govpx is missing.
-//
-// FIX: none required. The audit task's hypothesis (8th negative
-// audit in the chain) is empty. The 8-audit chain — task #298 →
-// #299 → #300 → #304 → #307 → #309 → #310 → #312 — has now exhausted
-// the picker-MATH layer. Future work to close the byte-exact pin
-// for this cohort must focus on the loop-filter reconstruction
-// layer, not the picker.
+// TestVP8InterCandidateStatePropagation compares libvpx VP8 picker traces at
+// threads=1 and threads=4 for the same panning fixture. The threads=1 trace
+// pins the NEWMV candidate state that govpx is expected to match; the
+// threads=4 trace documents that the remaining byte difference comes from
+// libvpx's threaded loop-filter reconstruction feeding a different predictor,
+// not from missing state propagation between NEARESTMV, NEARMV, and NEWMV.
 func TestVP8InterCandidateStatePropagation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #313 inter-candidate state propagation audit")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP8 inter-candidate state propagation parity")
 	}
 	vpxencOracle := coracletest.VpxencOracle(t)
 
@@ -135,62 +71,46 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 			sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
 		}
 
-		dir := t.TempDir()
-		yuvPath := filepath.Join(dir, "task313.yuv")
-		ivfPath := filepath.Join(dir, "task313.ivf")
-		tracePath := filepath.Join(dir, "task313.jsonl")
-		writeEncoderValidationI420(t, yuvPath, sources)
-
-		args := []string{
-			"--codec=vp8",
-			"--ivf",
-			"--quiet",
-			"--disable-warning-prompt",
-			"--best",
-			"--cpu-used=0",
-			"--lag-in-frames=0",
-			"--auto-alt-ref=0",
-			"--target-bitrate=" + strconv.Itoa(opts.TargetBitrateKbps),
-			"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-			"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-			"--i420",
-			"--width=" + strconv.Itoa(opts.Width),
-			"--height=" + strconv.Itoa(opts.Height),
-			"--timebase=" + libvpxOracleTimebaseArg(opts),
-			"--fps=" + libvpxOracleFPSArg(opts),
-			"--limit=" + strconv.Itoa(len(sources)),
-			"--output=" + ivfPath,
-			"--kf-min-dist=999",
-			"--kf-max-dist=999",
-			"--end-usage=vbr",
-			"--screen-content-mode=1",
-			"--token-parts=1",
-			"--threads=" + strconv.Itoa(threads),
-			"--tune=ssim",
-			"--arnr-maxframes=1",
-			"--arnr-strength=1",
-			"--arnr-type=2",
-			yuvPath,
+		cfg := coracle.VpxencVP8Config{
+			BinaryPath:           vpxencOracle,
+			Width:                opts.Width,
+			Height:               opts.Height,
+			Frames:               len(sources),
+			Deadline:             libvpxOracleDeadline(opts.Deadline),
+			DisableWarningPrompt: true,
+			CPUUsed:              opts.CpuUsed,
+			LagInFrames:          0,
+			AutoAltRef:           false,
+			TargetBitrateKbps:    opts.TargetBitrateKbps,
+			MinQ:                 opts.MinQuantizer,
+			MaxQ:                 opts.MaxQuantizer,
+			Timebase:             libvpxOracleTimebaseArg(opts),
+			FPS:                  libvpxOracleFPSArg(opts),
+			KeyFrameDistSet:      true,
+			KeyFrameMinDist:      999,
+			KeyFrameMaxDist:      999,
+			ExtraEnv:             []string{"GOVPX_ORACLE_NEWMV_PICKER=1"},
+			ExtraArgs: []string{
+				"--end-usage=vbr",
+				"--screen-content-mode=1",
+				"--token-parts=1",
+				"--threads=" + strconv.Itoa(threads),
+				"--tune=ssim",
+				"--arnr-maxframes=1",
+				"--arnr-strength=1",
+				"--arnr-type=2",
+			},
 		}
-		cmd := exec.Command(vpxencOracle, args...)
-		cmd.Env = append(os.Environ(),
-			"GOVPX_ORACLE_TRACE_OUT="+tracePath,
-			"GOVPX_ORACLE_NEWMV_PICKER=1",
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("vpxenc-oracle (threads=%d) failed: %v\n%s", threads, err, out)
-		}
-
-		f, err := os.Open(tracePath)
+		trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+			encoderValidationI420Bytes(t, sources), cfg)
 		if err != nil {
-			t.Fatalf("open trace (threads=%d): %v", threads, err)
+			t.Fatalf("vpxenc-oracle (threads=%d) failed: %v\n%s", threads, err, diag)
 		}
-		defer f.Close()
 
 		var candidates []candidateRow
 		var quants []quantRow
 
-		scan := bufio.NewScanner(f)
+		scan := bufio.NewScanner(bytes.NewReader(trace))
 		scan.Buffer(make([]byte, 1<<20), 1<<24)
 		for scan.Scan() {
 			line := scan.Bytes()
@@ -278,13 +198,12 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 	if newmvT1.Mode == "" {
 		t.Fatalf("threads=1 oracle did not test NEWMV-LAST at MB(0,0) frame 1")
 	}
-	t.Logf("task313 threads=1 NEWMV-LAST: score=%d yrd=%d rate=%d rate_y=%d dist=%d",
+	t.Logf("threads=1 NEWMV-LAST: score=%d yrd=%d rate=%d rate_y=%d dist=%d",
 		newmvT1.Score, newmvT1.YRD, newmvT1.Rate, newmvT1.RateY, newmvT1.Distortion)
 
-	// govpx-side reference numbers (task #298 / #304 finding, audited
-	// here against the byte-exact libvpx oracle): NEWMV picker emits
-	// all-zero qcoeff → rate_y = 17 * EOB_token_cost = 7519. score,
-	// yrd, rate, distortion all directly derivable from rate_y.
+	// govpx-side reference numbers for this fixture: NEWMV picker emits
+	// all-zero qcoeff, so rate_y = 17 * EOB_token_cost = 7519. score,
+	// yrd, rate, and distortion are directly derivable from rate_y.
 	const (
 		govpxNEWMVScore = 102349
 		govpxNEWMVYRD   = 73707
@@ -293,7 +212,7 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 		govpxNEWMVDist  = 58282
 	)
 	if newmvT1.RateY != govpxNEWMVRateY {
-		t.Errorf("threads=1 oracle NEWMV rate_y = %d; govpx-pin = %d (audit's premise REGRESSED — libvpx now diverges from govpx at threads=1)",
+		t.Errorf("threads=1 oracle NEWMV rate_y = %d; govpx-pin = %d; libvpx now diverges from govpx at threads=1",
 			newmvT1.RateY, govpxNEWMVRateY)
 	}
 	if newmvT1.Score != govpxNEWMVScore || newmvT1.YRD != govpxNEWMVYRD ||
@@ -345,7 +264,7 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 	if newmvT4.Mode == "" {
 		t.Fatalf("threads=4 oracle did not test NEWMV-LAST at MB(0,0) frame 1")
 	}
-	t.Logf("task313 threads=4 NEWMV-LAST: score=%d yrd=%d rate=%d rate_y=%d dist=%d",
+	t.Logf("threads=4 NEWMV-LAST: score=%d yrd=%d rate=%d rate_y=%d dist=%d",
 		newmvT4.Score, newmvT4.YRD, newmvT4.Rate, newmvT4.RateY, newmvT4.Distortion)
 
 	// Picker quantize state at threads=4 MUST also be all-zero (proving
@@ -399,9 +318,9 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 		}
 	}
 	if residualDivergedBlocks == 0 {
-		t.Logf("task313: threads=1 and threads=4 produce IDENTICAL ZEROMV pre.coeff at MB(0,0) frame 1; the inter_candidate rate_y divergence is unexplained by predictor-source variance")
+		t.Logf("threads=1 and threads=4 produce IDENTICAL ZEROMV pre.coeff at MB(0,0) frame 1; the inter_candidate rate_y divergence is unexplained by predictor-source variance")
 	} else {
-		t.Logf("task313: threads=1 vs threads=4 ZEROMV pre.coeff diverges in %d/16 blocks at MB(0,0) frame 1 — the libvpx --threads=4 inter_candidate rate_y=%d gap is attributable to threaded loop-filter post-LF reference variance, NOT to picker inter-candidate state propagation",
+		t.Logf("threads=1 vs threads=4 ZEROMV pre.coeff diverges in %d/16 blocks at MB(0,0) frame 1; the libvpx --threads=4 inter_candidate rate_y=%d gap is attributable to threaded loop-filter post-LF reference variance, not picker inter-candidate state propagation",
 			residualDivergedBlocks, newmvT4.RateY)
 	}
 }

@@ -31,6 +31,7 @@ type VpxencVP8Config struct {
 	KeyFrameDistSet      bool
 	KeyFrameMinDist      int
 	KeyFrameMaxDist      int
+	ExtraEnv             []string
 	ExtraArgs            []string
 }
 
@@ -117,7 +118,7 @@ func VpxencVP8OracleTraceI420(raw []byte, cfg VpxencVP8Config) (trace []byte, di
 		}
 	}
 	return runVpxencVP8TraceI420(raw, bin, "govpx-vpxenc-vp8-oracle-trace-*",
-		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs)
+		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs, cfg.ExtraEnv)
 }
 
 // VpxencVP8FrameFlagsEncodeI420 encodes raw I420 frames with the VP8
@@ -152,15 +153,15 @@ func VpxencVP8FrameFlagsPayloadsI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) 
 }
 
 func runVpxencVP8I420(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string) (ivf []byte, diag []byte, err error) {
-	out, err := runVpxencVP8I420Files(raw, bin, tempPattern, width, height, frames, argsFor, false)
+	out, err := runVpxencVP8I420Files(raw, bin, tempPattern, width, height, frames, argsFor, false, nil)
 	if err != nil {
 		return nil, out.diag, err
 	}
 	return out.ivf, out.diag, nil
 }
 
-func runVpxencVP8TraceI420(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string) (trace []byte, diag []byte, err error) {
-	out, err := runVpxencVP8I420Files(raw, bin, tempPattern, width, height, frames, argsFor, true)
+func runVpxencVP8TraceI420(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string, extraEnv []string) (trace []byte, diag []byte, err error) {
+	out, err := runVpxencVP8I420Files(raw, bin, tempPattern, width, height, frames, argsFor, true, extraEnv)
 	if err != nil {
 		return nil, out.diag, err
 	}
@@ -173,7 +174,7 @@ type vpxencVP8RunOutput struct {
 	diag  []byte
 }
 
-func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string, trace bool) (vpxencVP8RunOutput, error) {
+func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string, trace bool, extraEnv []string) (vpxencVP8RunOutput, error) {
 	if err := validateI420Raw("VP8 vpxenc", raw, width, height, frames); err != nil {
 		return vpxencVP8RunOutput{}, err
 	}
@@ -195,6 +196,7 @@ func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int
 	if trace {
 		cmd.Env = append(cmd.Env, "GOVPX_ORACLE_TRACE_OUT="+tracePath)
 	}
+	cmd.Env = append(cmd.Env, extraEnv...)
 	diag, err := cmd.CombinedOutput()
 	out := vpxencVP8RunOutput{diag: diag}
 	if err != nil {
