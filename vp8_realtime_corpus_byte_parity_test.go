@@ -6,15 +6,14 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestVP8RealtimeCorpusMatchesLibvpxBytes is the realtime corpus byte-parity gate.
@@ -92,7 +91,7 @@ func runVP8RealtimeCorpusByteParitySubtests(t *testing.T, vpxencOracle string) {
 		name := name
 		t.Run(name, func(t *testing.T) {
 			seedPath := filepath.Join(corpusDir, name)
-			seed, err := readGoFuzzCorpusByteSeed(seedPath)
+			seed, err := testutil.ReadGoFuzzCorpusByteSeed(seedPath)
 			if err != nil {
 				t.Fatalf("parse seed %s: %v", seedPath, err)
 			}
@@ -178,8 +177,8 @@ func runVP8RealtimeClosedConfigSubtests(t *testing.T, vpxencOracle string) {
 			// Companion live regression:
 			//   regression_option_grid_a438fec8 (seed bytes "1200000")
 			// 128x128 / BestQuality / cpu=4 / CBR / TuneSSIM, 6 frames.
-			// Pinned by TestVP8Byte49Frame2DivergenceClosure.
-			name: "activity-map-byte49-128x128-best-cpu4",
+			// Pinned by TestVP8SSIMActivityMapRecodeBestQualityParity.
+			name: "ssim-activity-map-recode-128x128-best-cpu4",
 			opts: EncoderOptions{
 				Width: 128, Height: 128, FPS: 30,
 				RateControlMode: RateControlCBR, TargetBitrateKbps: 700,
@@ -195,8 +194,8 @@ func runVP8RealtimeClosedConfigSubtests(t *testing.T, vpxencOracle string) {
 			// Companion live regression:
 			//   regression_option_grid_75578e9f (seed bytes "21200000")
 			// 160x96 / GoodQuality / cpu=0 / CBR / TuneSSIM / arnr=1/2/1,
-			// 6 frames. Pinned by TestVP8Frame2Byte58DivergenceParity.
-			name: "activity-map-byte58-160x96-good-cpu0",
+			// 6 frames. Pinned by TestVP8SSIMActivityMapRecodeGoodQualityParity.
+			name: "ssim-activity-map-recode-160x96-good-cpu0",
 			opts: EncoderOptions{
 				Width: 160, Height: 96, FPS: 30,
 				RateControlMode: RateControlCBR, TargetBitrateKbps: 700,
@@ -258,33 +257,4 @@ func assertVP8RealtimeStrictByteParity(t *testing.T, label string, govpxFrames, 
 			label, i, len(gv), len(lv), diff,
 			hex.EncodeToString(gSHA[:8]), hex.EncodeToString(lSHA[:8]))
 	}
-}
-
-// readGoFuzzCorpusByteSeed parses a Go fuzz corpus file of the form
-//
-//	go test fuzz v1
-//	[]byte("...")
-//
-// and returns the decoded byte slice. Only the single-arg []byte form is
-// supported (every regression_* file in
-// FuzzEncoderProductionStreamByteParity matches this shape).
-func readGoFuzzCorpusByteSeed(path string) ([]byte, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(string(raw), "\n")
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		if !strings.HasPrefix(ln, "[]byte(") || !strings.HasSuffix(ln, ")") {
-			continue
-		}
-		inner := strings.TrimSuffix(strings.TrimPrefix(ln, "[]byte("), ")")
-		unquoted, err := strconv.Unquote(inner)
-		if err != nil {
-			return nil, fmt.Errorf("unquote %q: %w", inner, err)
-		}
-		return []byte(unquoted), nil
-	}
-	return nil, fmt.Errorf("no []byte(...) line found in %s", path)
 }
