@@ -28,7 +28,7 @@ import (
 // build runs the gate and logs row deltas so per-control regressions show up
 // in test output even when the build is not in strict mode. Byte mismatches
 // at non-pinned controls are logged with the per-frame scoreboard rows to
-// steer follow-up parity work.
+// steer parity work.
 func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 	coracletest.SkipWithoutOracle(t, "VP9 runtime-controls byte-parity gate")
 	coracletest.VpxencVP9FrameFlags(t)

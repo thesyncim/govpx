@@ -113,12 +113,12 @@ func TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx(t *testing.T) {
 	}
 }
 
-// TestVP9OracleRuntimeControlDeferredSeedsRemainReproducible keeps the remaining
+// TestVP9OracleRuntimeControlOpenGapSeedsRemainReproducible keeps the remaining
 // RuntimeControls parity gaps visible. It does not require byte parity yet;
 // each open CPU lane must still materialize at least one measurable seed so
 // coverage cannot silently disappear.
-func TestVP9OracleRuntimeControlDeferredSeedsRemainReproducible(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "deferred RuntimeControls seeds")
+func TestVP9OracleRuntimeControlOpenGapSeedsRemainReproducible(t *testing.T) {
+	coracletest.SkipWithoutOracle(t, "VP9 runtime-control open-gap seeds")
 	coracletest.VpxencVP9FrameFlags(t)
 
 	t.Run("RDKeyframeCPU0Neg3", func(t *testing.T) {
@@ -138,8 +138,8 @@ func remeasureVP9RuntimeControlSeedLane(t *testing.T, includeCPU func(int8) bool
 	pass, fail := 0, 0
 	aggSizeDelta := 0
 	measured := 0
-	for idx, seed := range vp9RuntimeControlsSeedsDeferred {
-		if !vp9RuntimeControlsSeedDeferred(seed) {
+	for idx, seed := range vp9RuntimeControlsOpenGapSeeds {
+		if !vp9RuntimeControlsOpenGapSeed(seed) {
 			continue
 		}
 		sum := sha256.Sum256(seed)

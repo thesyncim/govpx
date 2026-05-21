@@ -14,15 +14,15 @@ import (
 // against libvpx v1.16.0. These tests keep the RefControl byte-9 cluster's
 // divergence from being misattributed to this layer.
 //
-// Cluster recap (vp9_oracle_encoder_refcontrols_fuzz_test.go):
+// Reference-control oracle context:
 //
-//	9 of 10 RefControl deferred seeds diverge at byte 9 of the inter
-//	frame (FirstPartitionSize literal). Historical ML nonrd measurements
-//	pinned per-seed aggregate size_delta in the -179..+295 byte range.
+//	9 of 10 RefControl open-gap seeds diverge at byte 9 of the inter
+//	frame (FirstPartitionSize literal). ML non-RD measurements pin
+//	per-seed aggregate size_delta in the -179..+295 byte range.
 //
 // Per-component coverage (each component byte-exact against libvpx; if a
 // future regression breaks this layer one of these pins fires before the
-// fuzz harness):
+// oracle fuzz tests):
 //
 //  1. NN coefficient tables.
 //     vp9_var_part_nn_{weights,bias}_{64,32,16}_layer{0,1} byte-for-byte

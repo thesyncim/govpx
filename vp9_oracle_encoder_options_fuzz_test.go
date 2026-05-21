@@ -58,12 +58,10 @@ func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptio
 	return opts
 }
 
-// vp9OptionsSeedsDeferred lists VP9 options-fuzz seed payloads whose strict
+// vp9OptionsOpenGapSeeds lists VP9 options-fuzz seed payloads whose strict
 // byte parity is gated behind libvpx VP9 features govpx has not yet ported.
-// Mirrors the convention in vp9LongFixtureSeedsDeferred /
-// vp9RuntimeControlsSeedsDeferred / vp9RefControlParitySeeds — each entry
-// cites the libvpx file:line that drives the divergence so a follow-up
-// verbatim port can revert one entry at a time.
+// Each entry cites the libvpx file:line that drives the divergence so the
+// corresponding port can remove one entry at a time.
 //
 // Deferred seeds:
 //
@@ -104,7 +102,7 @@ func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptio
 //     The keyframe Y-mode picker now gates on sf->nonrd_keyframe instead
 //     of an invented intra_y_mode_bsize_mask fallback, so RD-path GOOD-
 //     mode keyframes evaluate all 10 modes per libvpx vp9_rdopt.c:1383
-//     rd_pick_intra_sby_mode (this turn).
+//     rd_pick_intra_sby_mode.
 //
 //     The residual divergence is the keyframe RD partition picker.
 //     libvpx's rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667)
@@ -119,18 +117,18 @@ func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptio
 //     because libvpx force-splits the right half (mi_col+mi_step >
 //     mi_cols) and recurses while govpx returns Block16x16 directly. The
 //     resulting partition-token stream diverges in the first tile-body
-//     byte (offset 20). Porting vp9_rd_pick_partition + ml_predict_var_rd
-//     _partitioning + ml_prune_rect_partition verbatim is a multi-agent
-//     turn project tracked as the follow-up to this seed.
+//     byte (offset 20). Closing this seed requires a direct
+//     vp9_rd_pick_partition + ml_predict_var_rd_partitioning +
+//     ml_prune_rect_partition port.
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing.
-var vp9OptionsSeedsDeferred = [][]byte{
+var vp9OptionsOpenGapSeeds = [][]byte{
 	{0x00, 0x30, 0x31, 0x30},
 }
 
-func vp9OptionsSeedDeferred(data []byte) bool {
-	for _, seed := range vp9OptionsSeedsDeferred {
+func vp9OptionsOpenGapSeed(data []byte) bool {
+	for _, seed := range vp9OptionsOpenGapSeeds {
 		if bytes.Equal(data, seed) {
 			return true
 		}
@@ -163,8 +161,8 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 	// govpx CBR rate-controller / cpu_used speed-feature divergences
 	// described in vp9NormalizeFuzzOptionsForLibvpxCLI are NOT in the seed
 	// corpus -- those red configurations live as separate encoder-side
-	// follow-ups so the seed corpus stays green and any new red seed
-	// captures genuinely-new option-validation surface fallout. Byte
+	// open-gap list so the seed corpus stays green and any new red seed
+	// captures genuinely new option-validation surface fallout. Byte
 	// layouts decode via vp9EncoderOptionsFromFuzz (see
 	// vp9_encoder_fuzz_test.go).
 	seeds := [][]byte{
@@ -175,7 +173,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 		// govpx and libvpx speed-features agree), VBR @ 300 kbps, min/max-q
 		// 4..56, cq 32. CBR is not exercised in the seed corpus because
 		// govpx's one-pass CBR rate controller picks a different base
-		// qindex than libvpx on small frames (see follow-up TODO).
+		// qindex than libvpx on small frames.
 		{
 			0x0c, 0x0c, 0x1d, 0x11, 0x01, 0xfa, 0x00, 0x20,
 			0x04, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -232,8 +230,8 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 				t.Fatalf("NewVP9Encoder panicked on %d-byte input: %v", len(data), r)
 			}
 		}()
-		if vp9OptionsSeedDeferred(data) {
-			t.Skip("seed deferred: see vp9OptionsSeedsDeferred for libvpx file:line citations")
+		if vp9OptionsOpenGapSeed(data) {
+			t.Skip("seed tracks an open VP9 parity gap; see vp9OptionsOpenGapSeeds")
 		}
 		opts := vp9NormalizeFuzzOptionsForLibvpxCLI(vp9EncoderOptionsFromFuzz(data))
 		e, err := NewVP9Encoder(opts)

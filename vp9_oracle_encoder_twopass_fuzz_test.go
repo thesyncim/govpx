@@ -68,8 +68,8 @@ func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
 			t.Errorf("%s: libvpx VP9 two-pass IVF frame count = %d, want %d",
 				label, len(libvpxFrames), len(sources))
 		}
-		// TODO(vp9-twopass-fuzz): construct finalized first-pass stats for
-		// sources, set cfg.opts.TwoPassStats, and compare govpx/libvpx packets.
+		// Packet parity belongs here once govpx can construct finalized
+		// first-pass stats for this fuzz source set.
 	})
 }
 

@@ -15,11 +15,10 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
-// vp9LongFixtureSeedsDeferred lists VP9 fuzz-corpus seed payloads whose strict
+// vp9LongFixtureOpenGapSeeds lists VP9 fuzz-corpus seed payloads whose strict
 // byte parity is gated behind libvpx VP9 features govpx has not yet ported.
-// The mirror of VP8's longFixtureSeedsDeferred; each entry cites the libvpx
-// file:line that drives the divergence so a follow-up port has a concrete
-// starting point.
+// Each entry cites the libvpx file:line that drives the divergence so the
+// corresponding port has a concrete starting point.
 //
 // The CBR keyframe-target gap (vp9_calc_iframe_target_size_one_pass_cbr @
 // vp9_ratectrl.c:2205-2231) was closed by d248324; with that port in place
@@ -69,9 +68,9 @@ import (
 //     recode-tolerance set that govpx's VP9 speed-features port has not
 //     mirrored — govpx only covers the cpu_used=8 path today.
 //
-// Reverting any entry here must be paired with the corresponding verbatim
-// libvpx port landing; this is the explicit handoff list for follow-up work.
-var vp9LongFixtureSeedsDeferred = [][]byte{
+// Reverting any entry here must be paired with the corresponding direct libvpx
+// port.
+var vp9LongFixtureOpenGapSeeds = [][]byte{
 	{0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 1},
 	{1, 0, 0, 0, 0},
@@ -79,8 +78,8 @@ var vp9LongFixtureSeedsDeferred = [][]byte{
 	{0, 2, 0, 0, 2},
 }
 
-func vp9LongFixtureSeedDeferred(data []byte) bool {
-	for _, seed := range vp9LongFixtureSeedsDeferred {
+func vp9LongFixtureOpenGapSeed(data []byte) bool {
+	for _, seed := range vp9LongFixtureOpenGapSeeds {
 		if bytes.Equal(data, seed) {
 			return true
 		}
@@ -92,7 +91,7 @@ func vp9LongFixtureSeedDeferred(data []byte) bool {
 // for VP9: a long synthetic clip (≥ 256 frames) is encoded under fuzz-driven
 // CBR / VBR configurations and the per-frame matched-prefix length is tallied.
 // Strict byte parity is asserted; seeds that hit a cumulative VP9 RC drift gap
-// fail visibly here and land as testdata/fuzz seeds for follow-up.
+// fail visibly here and land as testdata/fuzz seeds for parity work.
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
@@ -111,8 +110,8 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if vp9LongFixtureSeedDeferred(data) {
-			t.Skip("seed deferred: see vp9LongFixtureSeedsDeferred for libvpx file:line citations")
+		if vp9LongFixtureOpenGapSeed(data) {
+			t.Skip("seed tracks an open VP9 parity gap; see vp9LongFixtureOpenGapSeeds")
 		}
 		cfg := newVP9LongFixtureFuzzCase(data)
 		opts := cfg.buildOpts()

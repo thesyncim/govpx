@@ -92,10 +92,8 @@ func TestVP9ApplySpeedFeaturesPerFrameRefreshesTxSizeSearchMethod(t *testing.T) 
 // TestVP9ApplySpeedFeaturesPerFrameTransitionsKeyToInter mirrors the
 // libvpx per-frame refresh sequence: keyframe -> inter -> intra-only
 // must each see the correct TxSizeSearchMethod, not a stale value
-// from the previous frame. This is the bug a843f45d cited as a
-// deferred follow-up — govpx historically pinned e.sf once at create
-// time, which would leave the keyframe USE_LARGESTALL value sitting
-// on every inter frame.
+// from the previous frame. A stale create-time e.sf value would leave the
+// keyframe USE_LARGESTALL setting on every inter frame.
 func TestVP9ApplySpeedFeaturesPerFrameTransitionsKeyToInter(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:    64,

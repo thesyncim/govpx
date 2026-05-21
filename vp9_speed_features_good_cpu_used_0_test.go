@@ -31,14 +31,13 @@ import (
 //   - post-dispatch fixups (libvpx vp9_speed_features.c:1052, 1055-1058,
 //     1084-1085, 1093-1095)
 //
-// The deferred FuzzVP9OracleEncoderRuntimeControls baseline #0 seed cites the
-// "cpu_used=0 GOOD speed-features path govpx has not yet ported"
+// The FuzzVP9OracleEncoderRuntimeControls cpu_used=0 seed cites the
+// "GOOD speed-features path govpx has not yet ported"
 // (vp9_speed_features.c:140-280) as the unblocker. This test enumerates every
 // SPEED_FEATURES field the speed=0 GOOD cascade sets and proves the govpx port
 // already matches libvpx verbatim — so the real divergence behind that fuzz
 // seed lives downstream (in the encoder body, NOT the speed-features
-// configurator). The deferral comment is updated alongside this test to point
-// to the actual root cause.
+// configurator).
 //
 // libvpx: vp9_speed_features.c:64-214 (framesize-dependent),
 //

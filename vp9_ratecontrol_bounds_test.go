@@ -235,8 +235,7 @@ func TestVP9ClampIFrameTargetBitsAppliesMaxIntraBound(t *testing.T) {
 // vp9_calc_iframe_target_size_one_pass_cbr formula for the kf_boost ramp.
 // Prior to this fix govpx's CBR keyframe target was hard-coded to the
 // per-frame bandwidth, producing a slightly higher base qindex than libvpx
-// on small frames (the bug surfaced by the FuzzVP9OracleEncoderOptions
-// follow-up audit).
+// on small frames, matching the FuzzVP9OracleEncoderOptions parity seed.
 //
 // libvpx: vp9/encoder/vp9_ratectrl.c:2205-2232.
 func TestVP9OnePassCBRKeyFrameTargetBitsMatchesLibvpx(t *testing.T) {

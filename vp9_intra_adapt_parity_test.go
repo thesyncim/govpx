@@ -19,10 +19,10 @@ import (
 // (`vp9_pick_intra_mode`, vp9_pickmode.c:1199) which walks DC..H_PRED only
 // (3 modes); govpx mirrors that by gating the picker on
 // `e.sf.NonrdKeyframe`. The vp9KeyframeIntraModeMask helper continues to
-// expose the `intra_y_mode_bsize_mask` consumer used by the (still
-// TODO'd) nonrd inter-frame intra picker — its narrowing semantics are
-// asserted directly below so the helper's contract stays bound to
-// libvpx pickmode.c:2578 byte-for-byte.
+// expose the `intra_y_mode_bsize_mask` consumer used by the non-RD
+// inter-frame intra picker. Its narrowing semantics are asserted directly
+// below so the helper's contract stays bound to libvpx pickmode.c:2578
+// byte-for-byte.
 func TestVP9IntraModeCoverageMatchesLibvpx(t *testing.T) {
 	const width, height = 32, 32
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

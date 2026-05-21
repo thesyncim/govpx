@@ -26,7 +26,7 @@ func TestVP9EncodeIntoSteadyStateAllocFreeAtBenchParity(t *testing.T) {
 		// 640x360. Mirrors parityFor(realtime) in benchcmd/config.go.
 		{"realtime-bench-parity", defaultVP9AllocParityOpts},
 		// Equator 360 enables segmentation but reuses the existing
-		// segment-history slabs (vp9_segmentation.c) — no per-frame allocs.
+		// segment-history slabs (vp9_segmentation.c); no per-frame allocs.
 		{"equator360-aq", func() VP9EncoderOptions {
 			o := defaultVP9AllocParityOpts()
 			o.AQMode = VP9AQEquator360
@@ -132,9 +132,9 @@ func measureVP9EncodeAllocsAtBenchParity(t *testing.T, opts VP9EncoderOptions) {
 	// from vp9_ratectrl.c::vp9_calc_iframe_target_size_one_pass_cbr)
 	// shifted realistic mode decisions in our synthetic panning fixture
 	// so the 8x8 hybrid-transform path now fires more often (~8 transient
-	// allocs/frame amortized at 640x360 cpu_used=8).  TODO: hoist the
-	// transform scratches to caller state once the slow path's escape
-	// footprint matters in production.
+	// allocs/frame amortized at 640x360 cpu_used=8). Hoist the transform
+	// scratches to caller state if this slow-path escape footprint starts to
+	// matter in production.
 	if allocs > 8 {
 		t.Fatalf("steady-state EncodeIntoWithResult allocs/frame = %.2f, want <= 8 (libvpx: 0)",
 			allocs)

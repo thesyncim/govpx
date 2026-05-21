@@ -15,15 +15,14 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
-// vp9RuntimeControlsSeedsDeferred lists runtime-control schedules that still
-// measure open VP9 parity gaps. The seed shape is
+// vp9RuntimeControlsOpenGapSeeds lists runtime-control schedules that measure
+// open VP9 parity gaps. The seed shape is
 // (dimBucket, framesBucket, cpuBucket, kfFlagPos, refFlagPos, action...),
 // and one-byte entries are corpus aliases produced by testutil.ByteCursor
 // wrap-around. Speed-8 entries that already match libvpx live in
 // vp9RuntimeControlsSpeed8ParitySeeds so the main fuzz target still exercises
-// them while open lanes remain visible through
-// TestVP9OracleRuntimeControlDeferredSeedsRemainReproducible.
-var vp9RuntimeControlsSeedsDeferred = [][]byte{
+// them while the remaining open lanes stay reproducible.
+var vp9RuntimeControlsOpenGapSeeds = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 2, 1, 0, 0},
 	{1, 0, 0, 1, 0, 0, 1, 0},
@@ -38,22 +37,21 @@ var vp9RuntimeControlsSeedsDeferred = [][]byte{
 	{0x38}, // alias of the cpu=0 keyframe lane
 }
 
-// vp9RuntimeControlsSpeed8ParitySeeds is the subset of the historical deferred
-// list that now byte-matches libvpx with no env flags. Keep it in the regular
-// fuzz seed corpus while the remaining cpu=0/-3 and speed-4 seeds stay
-// deferred.
+// vp9RuntimeControlsSpeed8ParitySeeds is the subset that byte-matches libvpx
+// with no env flags. Keep it in the regular fuzz seed corpus while the
+// remaining cpu=0/-3 and speed-4 seeds stay in the open-gap list.
 var vp9RuntimeControlsSpeed8ParitySeeds = [][]byte{
 	{1, 1, 2, 0, 3, 1, 1, 0},
 	{0x32},
 }
 
-func vp9RuntimeControlsSeedDeferred(data []byte) bool {
+func vp9RuntimeControlsOpenGapSeed(data []byte) bool {
 	for _, seed := range vp9RuntimeControlsSpeed8ParitySeeds {
 		if bytes.Equal(data, seed) {
 			return false
 		}
 	}
-	for _, seed := range vp9RuntimeControlsSeedsDeferred {
+	for _, seed := range vp9RuntimeControlsOpenGapSeeds {
 		if bytes.Equal(data, seed) {
 			return true
 		}
@@ -103,7 +101,7 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if vp9RuntimeControlsSeedDeferred(data) {
+		if vp9RuntimeControlsOpenGapSeed(data) {
 			t.Skip("open VP9 runtime-control parity seed")
 		}
 		tc := vp9OracleRuntimeFuzzCaseFromBytes(data)

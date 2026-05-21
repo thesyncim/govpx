@@ -1216,11 +1216,9 @@ func TestVP9EncoderEncodeIntraOnlyFrameRefreshesLastAndShowExisting(t *testing.T
 // which select_tx_mode at vp9_encodeframe.c:4341-4342 returns as
 // TX_MODE_SELECT.
 //
-// Prior to a843f45d's follow-up fix the intra-only path panicked in
-// WriteSelectedTxSize because the vp9ModeTreeKeyframe counts-collection
-// dispatch in writeVP9ModeBlock did not plumb the TxProbs row; this
-// test exercises the full encode -> decode roundtrip to lock the fix
-// in place.
+// The intra-only path must plumb the TxProbs row through the
+// vp9ModeTreeKeyframe counts-collection dispatch in writeVP9ModeBlock; this
+// test exercises the full encode -> decode roundtrip.
 func TestVP9EncoderIntraOnlyFrameUsesTxModeSelect(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

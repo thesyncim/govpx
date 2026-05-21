@@ -785,11 +785,10 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParitySweep(t *testing.T) {
 					// vp9_speed_features.c:485 (speed>=1),
 					// vp9_speed_features.c:506 (speed>=2),
 					// vp9_speed_features.c:544 (speed>=3), etc.
-					// Only cpu_used=8 (the realtime hot path
-					// historically used by the VP9 oracle) currently
-					// produces byte-identical lossless output. Skip the
-					// other speeds with a citation so the matrix is
-					// recorded but does not regress the gate.
+					// Only cpu_used=8 currently produces
+					// byte-identical realtime lossless output. Skip
+					// the other speeds with a citation so the matrix
+					// is recorded but does not regress the gate.
 					if cpuUsed != 8 {
 						t.Skipf("VP9 realtime lossless byte parity not yet "+
 							"complete for cpu_used=%d; libvpx "+

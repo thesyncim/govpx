@@ -13,18 +13,12 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
-// TestVP9ChoosePartitioningGateDeferredSeeds drives the formerly-deferred
-// FuzzVP9EncoderReferenceControlSequences seeds end-to-end under the same
-// pipeline the fuzz uses, so we can see per-seed PASS/FAIL without going
-// through go test fuzz seed-name mangling.
-//
-// This is a manual validation harness for the libvpx choose_partitioning port.
-// It remains gated behind GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 because it
-// requires the external libvpx oracle, but the encoder path itself now runs by
-// default through sf.PartitionSearchType == VAR_BASED_PARTITION.
-func TestVP9ChoosePartitioningGateDeferredSeeds(t *testing.T) {
+// TestVP9ChoosePartitioningReferenceControlSeedsMatchLibvpx checks the
+// reference-control seed set against the libvpx frame-flags oracle with
+// choose_partitioning active.
+func TestVP9ChoosePartitioningReferenceControlSeedsMatchLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE") != "1" {
-		t.Skip("set GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 to run the Phase C validation harness")
+		t.Skip("set GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 to run choose_partitioning seed parity")
 	}
 	coracletest.SkipWithoutOracle(t, "VP9 choose_partitioning validation")
 	coracletest.VpxencVP9FrameFlags(t)
@@ -49,7 +43,7 @@ func TestVP9ChoosePartitioningGateDeferredSeeds(t *testing.T) {
 		t.Run(s.name, func(t *testing.T) {
 			tc := newVP9RefControlsFuzzCase(s.data)
 			sum := sha256.Sum256(s.data)
-			label := fmt.Sprintf("phaseC-validate-%s-%s", s.name, hex.EncodeToString(sum[:4]))
+			label := fmt.Sprintf("choose-partitioning-%s-%s", s.name, hex.EncodeToString(sum[:4]))
 			govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 			libvpxFrames := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
 			vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)

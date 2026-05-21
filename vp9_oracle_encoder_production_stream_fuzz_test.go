@@ -18,7 +18,7 @@ import (
 // FuzzEncoderProductionStreamByteParity for VP9: option-grid fuzz against the
 // vpxenc-vp9 oracle at small + production resolutions, asserting strict per-
 // frame byte parity. Seeds where govpx VP9 has documented divergences from
-// libvpx VP9 fail visibly here and land as testdata/fuzz seeds for follow-up.
+// libvpx VP9 fail visibly here and land as testdata/fuzz seeds for parity work.
 //
 // Gated by GOVPX_WITH_ORACLE=1 and a built vpxenc-vp9 binary.
 func FuzzVP9EncoderProductionStreamByteParity(f *testing.F) {
