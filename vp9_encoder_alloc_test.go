@@ -530,7 +530,7 @@ func TestVP9EncoderAllocatingWrapperGrowsForLargePacket(t *testing.T) {
 		Height:    height,
 		Quantizer: 1,
 	})
-	img := newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224)
+	img := vp9test.NewCheckerYCbCr(width, height, 16, 240, 96, 224)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode large keyframe: %v", err)
@@ -549,8 +549,8 @@ func TestVP9EncoderAllocatingWrapperGrowsForLargePacket(t *testing.T) {
 
 func TestVP9EncoderBufferFullInterRetryPreservesFrameContext(t *testing.T) {
 	const width, height = 64, 64
-	keySrc := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
-	interSrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
+	interSrc := vp9test.NewMotionYCbCr(width, height)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	if _, err := e.Encode(keySrc); err != nil {

@@ -1205,7 +1205,7 @@ func TestVP9EncoderSetLossless(t *testing.T) {
 	if !e.opts.Lossless {
 		t.Fatal("SetLossless(true) did not update encoder options")
 	}
-	src := newVP9CheckerYCbCrForTest(64, 64, 0, 255, 80, 192)
+	src := vp9test.NewCheckerYCbCr(64, 64, 0, 255, 80, 192)
 	packet, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("lossless Encode: %v", err)

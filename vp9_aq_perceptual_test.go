@@ -61,7 +61,7 @@ func TestVP9EncoderPerceptualAQEncodesFrame(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	// A non-flat checker pattern exercises both ZERO and AC coefficients.
-	src := newVP9CheckerYCbCrForTest(256, 128, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(256, 128, 32, 224, 128, 128)
 	dst := make([]byte, 1<<20)
 	n, err := e.EncodeInto(src, dst)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestVP9EncoderPerceptualAQTinyFrameSuppressesNeutralSegmentation(t *testing
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(64, 64, 32, 224, 128, 128)
 	dst := make([]byte, 65536)
 	n, err := e.EncodeInto(src, dst)
 	if err != nil {

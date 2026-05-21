@@ -5,6 +5,7 @@ import (
 	"image"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
@@ -160,7 +161,7 @@ func TestVP9TPLResolutionChangeRebuildsState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9MotionYCbCrForTest(64, 64)
+	src := vp9test.NewMotionYCbCr(64, 64)
 	frames := make([]*image.YCbCr, encoder.TPLMinLookaheadFrames)
 	for i := range frames {
 		frames[i] = src
@@ -186,7 +187,7 @@ func TestVP9TPLResolutionChangeRebuildsState(t *testing.T) {
 // textured pattern by 2 pixels per frame.  Useful for exercising the TPL
 // motion-search path under predictable motion.
 func newVP9TPLPanningSequence(width, height, n int) []*image.YCbCr {
-	base := newVP9MotionYCbCrForTest(width, height)
+	base := vp9test.NewMotionYCbCr(width, height)
 	out := make([]*image.YCbCr, n)
 	for i := range n {
 		out[i] = shiftYCbCrCopy(base, 2*i, 2*i)
@@ -197,7 +198,7 @@ func newVP9TPLPanningSequence(width, height, n int) []*image.YCbCr {
 // newVP9TPLEdgesYCbCrForTest paints a synthetic frame with strong vertical
 // and horizontal edges so the keyframe intra mode picker (DC/V/H) sees
 // non-trivial ranking under rdmult scaling.  Without directional edges the
-// noise-texture proxy returned by newVP9MotionYCbCrForTest tends to make DC
+// noise-texture proxy returned by vp9test.NewMotionYCbCr tends to make DC
 // the only winner regardless of rdmult.
 func newVP9TPLEdgesYCbCrForTest(width, height int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height),
@@ -281,7 +282,7 @@ func TestVP9TPLFrameDeltaAfterPopulate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9MotionYCbCrForTest(64, 64)
+	src := vp9test.NewMotionYCbCr(64, 64)
 	frames := make([]*image.YCbCr, encoder.TPLMinLookaheadFrames)
 	for i := range frames {
 		frames[i] = src
@@ -466,7 +467,7 @@ func TestVP9TPLEncodesWithoutBreakingExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9MotionYCbCrForTest(64, 64)
+	src := vp9test.NewMotionYCbCr(64, 64)
 	buf := make([]byte, 32*1024)
 	encoded := 0
 	for i := range 16 {

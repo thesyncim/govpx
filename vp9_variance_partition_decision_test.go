@@ -271,7 +271,7 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	})
 	e.sf.VariancePartThreshMult = 1
 
-	ref := newVP9MotionYCbCrForTest(width, height)
+	ref := vp9test.NewMotionYCbCr(width, height)
 	src := shiftedVP9ReferenceYCbCrForTest(vp9ImageFromYCbCrForTest(ref), 8, 0)
 	e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
 	e.ensureLastBordered()

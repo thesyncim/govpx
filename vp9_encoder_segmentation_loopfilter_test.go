@@ -29,7 +29,7 @@ func TestVP9EncoderStaticSegmentationSignalsHeaderAndMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
 	key, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -68,14 +68,14 @@ func TestVP9EncoderStaticSkipSegmentForcesSkippedInterBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	key, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 128, 128))
+	key, err := e.Encode(vp9test.NewCheckerYCbCr(width, height, 16, 240, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	keyHeader, _ := vp9test.ParseHeader(t, key)
 	assertVP9StaticSkipSegmentationHeaderForTest(t, keyHeader.Seg, segID)
 
-	inter, err := e.Encode(newVP9MotionYCbCrForTest(width, height))
+	inter, err := e.Encode(vp9test.NewMotionYCbCr(width, height))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestVP9EncoderStaticRefFrameSegmentForcesGoldenReference(t *testing.T) {
 	assertVP9StaticRefFrameSegmentationHeaderForTest(t, keyHeader.Seg, segID,
 		vp9dec.GoldenFrame)
 
-	inter, err := e.Encode(newVP9MotionYCbCrForTest(width, height))
+	inter, err := e.Encode(vp9test.NewMotionYCbCr(width, height))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestVP9EncoderStaticInterRefSegmentKeepsInterSyntax(t *testing.T) {
 	if _, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	if _, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224)); err != nil {
+	if _, err := e.Encode(vp9test.NewCheckerYCbCr(width, height, 16, 240, 96, 224)); err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
 	for i, mi := range e.miGrid {
@@ -194,7 +194,7 @@ func TestVP9EncoderStaticRefFrameSegmentForcesIntraBlock(t *testing.T) {
 	assertVP9StaticRefFrameSegmentationHeaderForTest(t, keyHeader.Seg, segID,
 		VP9RefFrameIntra)
 
-	inter, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224))
+	inter, err := e.Encode(vp9test.NewCheckerYCbCr(width, height, 16, 240, 96, 224))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestVP9EncoderStaticRefFrameSegmentRejectsDisabledReference(t *testing.T) {
 	if _, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	_, err = e.EncodeWithFlags(newVP9MotionYCbCrForTest(width, height),
+	_, err = e.EncodeWithFlags(vp9test.NewMotionYCbCr(width, height),
 		EncodeNoReferenceGolden)
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("EncodeWithFlags disabled forced reference error = %v, want ErrInvalidConfig", err)
@@ -241,7 +241,7 @@ func TestVP9EncoderStaticRefFrameSegmentRejectsDisabledReference(t *testing.T) {
 
 func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, Quantizer: 128})
-	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	img := vp9test.NewCheckerYCbCr(64, 64, 32, 224, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -297,7 +297,7 @@ func TestVP9EncoderLastLoopFilterLevel(t *testing.T) {
 		t.Fatal("pre-encode LastLoopFilterLevel ok = true, want false")
 	}
 
-	packet, err := e.Encode(newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128))
+	packet, err := e.Encode(vp9test.NewCheckerYCbCr(64, 64, 32, 224, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestVP9EncoderLastLoopFilterLevel(t *testing.T) {
 	if err := e.SetDisableLoopfilter(VP9LoopfilterDisableAll); err != nil {
 		t.Fatalf("SetDisableLoopfilter: %v", err)
 	}
-	packet, err = e.Encode(newVP9MotionYCbCrForTest(64, 64))
+	packet, err = e.Encode(vp9test.NewMotionYCbCr(64, 64))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestVP9EncoderSharpnessOptionAndRuntimeControl(t *testing.T) {
 				t.Fatalf("SetSharpness(%d): %v", tc.sharpness, err)
 			}
 		}
-		src := newVP9CheckerYCbCrForTest(width, height,
+		src := vp9test.NewCheckerYCbCr(width, height,
 			byte(32+i*17), byte(224-i*19), 128, 128)
 		n, err := e.EncodeInto(src, dst)
 		if err != nil {
@@ -426,7 +426,7 @@ func TestVP9EncoderStaticThresholdBreakout(t *testing.T) {
 		MaxQuantizer: 4,
 	}
 	baseSrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
-	changedSrc := newVP9CheckerYCbCrForTest(width, height, 62, 66, 128, 128)
+	changedSrc := vp9test.NewCheckerYCbCr(width, height, 62, 66, 128, 128)
 
 	noStatic, err := NewVP9Encoder(opts)
 	if err != nil {
@@ -478,14 +478,14 @@ func TestVP9EncoderLoopFilterDeltasCarryAcrossInterFrame(t *testing.T) {
 		Height:    height,
 		Quantizer: 128,
 	})
-	keySrc := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	keySrc := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	keyPacket, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 
-	interSrc := newVP9CheckerYCbCrForTest(width, height, 224, 32, 128, 128)
+	interSrc := vp9test.NewCheckerYCbCr(width, height, 224, 32, 128, 128)
 	interPacket, err := e.Encode(interSrc)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
@@ -524,7 +524,7 @@ func TestVP9EncoderLoopFilteredReferenceMatchesDecodedFrame(t *testing.T) {
 		Height:    height,
 		Quantizer: 128,
 	})
-	img := newVP9CheckerYCbCrForTest(width, height, 32, 224, 96, 224)
+	img := vp9test.NewCheckerYCbCr(width, height, 32, 224, 96, 224)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)

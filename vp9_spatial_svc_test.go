@@ -1478,7 +1478,7 @@ func TestVP9SpatialSVCEncoderLayerReferenceControls(t *testing.T) {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
 
-	baseRefYCbCr := newVP9MotionYCbCrForTest(baseW, baseH)
+	baseRefYCbCr := vp9test.NewMotionYCbCr(baseW, baseH)
 	baseRef := vp9ImageFromYCbCrForTest(baseRefYCbCr)
 	baseWant := clonePublicImage(baseRef)
 	if err := svc.SetLayerReferenceFrame(0, ReferenceGolden, baseRef); err != nil {
@@ -1491,7 +1491,7 @@ func TestVP9SpatialSVCEncoderLayerReferenceControls(t *testing.T) {
 	}
 	assertImagesEqual(t, "base layer copied GOLDEN reference", baseWant, baseDst)
 
-	enhRefYCbCr := newVP9MotionYCbCrForTest(enhW, enhH)
+	enhRefYCbCr := vp9test.NewMotionYCbCr(enhW, enhH)
 	enhRef := vp9ImageFromYCbCrForTest(enhRefYCbCr)
 	if err := svc.SetLayerReferenceFrame(1, ReferenceLast, enhRef); err != nil {
 		t.Fatalf("SetLayerReferenceFrame enhancement: %v", err)
@@ -1533,8 +1533,8 @@ func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
 	}
 	dst := make([]byte, 1<<20)
 	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
-		newVP9CheckerYCbCrForTest(32, 32, 40, 200, 120, 136),
-		newVP9CheckerYCbCrForTest(64, 64, 40, 200, 120, 136),
+		vp9test.NewCheckerYCbCr(32, 32, 40, 200, 120, 136),
+		vp9test.NewCheckerYCbCr(64, 64, 40, 200, 120, 136),
 	}, dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)

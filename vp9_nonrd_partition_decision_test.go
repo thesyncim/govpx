@@ -3,6 +3,7 @@ package govpx
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -41,7 +42,7 @@ func TestVP9MLPickPartitionEntryUsesLastBufferWhenLastRefMasked(t *testing.T) {
 	})
 	e.sf.PartitionSearchType = MlBasedPartition
 
-	ref := newVP9MotionYCbCrForTest(width, height)
+	ref := vp9test.NewMotionYCbCr(width, height)
 	src := shiftedVP9ReferenceYCbCrForTest(vp9ImageFromYCbCrForTest(ref), 0, 0)
 	e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
 	e.vp9ResetMLPartitionCache(8, 8)

@@ -3,6 +3,8 @@ package govpx
 import (
 	"bytes"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9RTPFacadePacketizeAssembleEncodedFrame(t *testing.T) {
@@ -11,7 +13,7 @@ func TestVP9RTPFacadePacketizeAssembleEncodedFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	frame, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 32, 224, 96, 192))
+	frame, err := e.Encode(vp9test.NewCheckerYCbCr(width, height, 32, 224, 96, 192))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}

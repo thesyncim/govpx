@@ -1296,12 +1296,12 @@ func TestVP9EncoderEncodeIntraOnlyFrameRejectsConflictingFlags(t *testing.T) {
 func TestVP9EncoderEncodeIntoWithFlagsNoUpdateEntropyRestoresFrameContext(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9CheckerYCbCrForTest(width, height, 0, 255, 128, 128)
+	keySrc := vp9test.NewCheckerYCbCr(width, height, 0, 255, 128, 128)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	before := e.fc
-	interSrc := newVP9CheckerYCbCrForTest(width, height, 255, 0, 128, 128)
+	interSrc := vp9test.NewCheckerYCbCr(width, height, 255, 0, 128, 128)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithFlags(interSrc, dst, EncodeNoUpdateEntropy); err != nil {
 		t.Fatalf("EncodeIntoWithFlags no-update-entropy: %v", err)
@@ -1316,7 +1316,7 @@ func TestVP9EncoderErrorResilientRestoresDefaultFrameContext(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{
 		Width: width, Height: height, ErrorResilient: true,
 	})
-	src := newVP9CheckerYCbCrForTest(width, height, 0, 255, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 0, 255, 128, 128)
 	if _, err := e.Encode(src); err != nil {
 		t.Fatalf("Encode error-resilient keyframe: %v", err)
 	}
@@ -1325,7 +1325,7 @@ func TestVP9EncoderErrorResilientRestoresDefaultFrameContext(t *testing.T) {
 	if e.fc != want {
 		t.Fatal("frame context changed after error-resilient keyframe")
 	}
-	if _, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 255, 0, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewCheckerYCbCr(width, height, 255, 0, 128, 128)); err != nil {
 		t.Fatalf("Encode error-resilient inter: %v", err)
 	}
 	if e.fc != want {

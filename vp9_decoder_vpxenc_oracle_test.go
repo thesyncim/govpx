@@ -20,10 +20,10 @@ func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9MotionYCbCrForTest(width, height),
-		newVP9CheckerYCbCrForTest(width, height, 48, 208, 96, 160),
-		newVP9HorizontalBandsForTest(width, height, 112, 144),
-		newVP9ChromaHorizontalBandsForTest(width, height),
+		vp9test.NewMotionYCbCr(width, height),
+		vp9test.NewCheckerYCbCr(width, height, 48, 208, 96, 160),
+		vp9test.NewHorizontalBandsYCbCr(width, height, 112, 144),
+		vp9test.NewChromaHorizontalBandsYCbCr(width, height),
 	}
 	raw := make([]byte, 0, len(frames)*(width*height+2*((width+1)>>1)*((height+1)>>1)))
 	for _, frame := range frames {
@@ -57,7 +57,7 @@ func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	frame := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	frame := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	raw := vp9test.AppendI420(nil, frame)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
 	if err != nil {

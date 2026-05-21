@@ -176,7 +176,7 @@ func TestVP9EncoderInterFourMiEdgeUsesBlock32x32(t *testing.T) {
 
 func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
-	img := newVP9HorizontalBandsForTest(128, 64, 128, 128)
+	img := vp9test.NewHorizontalBandsYCbCr(128, 64, 128, 128)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(128, 64)
 	for y := range 64 {
@@ -389,7 +389,7 @@ func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
 
 func TestVP9EncoderKeyframePicksHorizontalModeForTx16(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 16})
-	img := newVP9HorizontalBandsForTest(32, 16, 128, 128)
+	img := vp9test.NewHorizontalBandsYCbCr(32, 16, 128, 128)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(32, 16)
 	for y := range 16 {
@@ -458,7 +458,7 @@ func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
 func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
 	const width, height = 128, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	img := newVP9HorizontalBandsForTest(width, height, 128, 128)
+	img := vp9test.NewHorizontalBandsYCbCr(width, height, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -488,7 +488,7 @@ func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
 
 func TestVP9EncoderKeyframeKeepsOracleDcUvModeWithHorizontalChroma(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
-	img := newVP9ChromaHorizontalBandsForTest(128, 64)
+	img := vp9test.NewChromaHorizontalBandsYCbCr(128, 64)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(128, 64)
 	for y := range 32 {
@@ -566,7 +566,7 @@ func TestVP9EncoderKeyframeKeepsOracleDcUvModeForWholeBlockChroma(t *testing.T) 
 func TestVP9EncoderKeyframeChromaBandsRoundTrip(t *testing.T) {
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	img := newVP9ChromaHorizontalBandsForTest(width, height)
+	img := vp9test.NewChromaHorizontalBandsYCbCr(width, height)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)

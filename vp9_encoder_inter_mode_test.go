@@ -157,9 +157,9 @@ func TestVP9EncoderInterPicksCompoundZeroMotion(t *testing.T) {
 		Width: width, Height: height,
 		Deadline: DeadlineBestQuality, CpuUsed: 1,
 	})
-	low := newVP9CompoundAverageYCbCrForTest(width, height, -32)
-	mid := newVP9CompoundAverageYCbCrForTest(width, height, 0)
-	high := newVP9CompoundAverageYCbCrForTest(width, height, 32)
+	low := vp9test.NewCompoundAverageYCbCr(width, height, -32)
+	mid := vp9test.NewCompoundAverageYCbCr(width, height, 0)
+	high := vp9test.NewCompoundAverageYCbCr(width, height, 32)
 	key, err := e.Encode(low)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -216,10 +216,10 @@ func TestVP9EncoderInterPicksCompoundNewMvForTranslatedAverage(t *testing.T) {
 		Width: width, Height: height,
 		Deadline: DeadlineBestQuality, CpuUsed: 1,
 	})
-	low := newVP9CompoundPairYCbCrForTest(width, height, false)
-	high := newVP9CompoundPairYCbCrForTest(width, height, true)
+	low := vp9test.NewCompoundPairYCbCr(width, height, false)
+	high := vp9test.NewCompoundPairYCbCr(width, height, true)
 	mid := shiftedVP9ReferenceYCbCrForTest(
-		vp9ImageFromYCbCrForTest(averageVP9YCbCrForTest(low, high)),
+		vp9ImageFromYCbCrForTest(vp9test.AverageYCbCr(low, high)),
 		8, 0)
 	key, err := e.Encode(low)
 	if err != nil {
@@ -277,10 +277,10 @@ func TestVP9EncoderInterPicksCompoundNewMvWithStationaryHalf(t *testing.T) {
 		Width: width, Height: height,
 		Deadline: DeadlineBestQuality, CpuUsed: 1,
 	})
-	low := newVP9CompoundPairYCbCrForTest(width, height, false)
-	high := newVP9CompoundPairYCbCrForTest(width, height, true)
+	low := vp9test.NewCompoundPairYCbCr(width, height, false)
+	high := vp9test.NewCompoundPairYCbCr(width, height, true)
 	shiftedHigh := shiftedVP9ReferenceYCbCrForTest(vp9ImageFromYCbCrForTest(high), 8, 0)
-	mid := averageVP9YCbCrForTest(low, shiftedHigh)
+	mid := vp9test.AverageYCbCr(low, shiftedHigh)
 	key, err := e.Encode(low)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -329,7 +329,7 @@ func TestVP9EncoderInterPicksCompoundNewMvWithStationaryHalf(t *testing.T) {
 func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
 	keySrc := vp9test.NewYCbCr(32, 32, 128, 128, 128)
-	interSrc := newVP9CheckerYCbCrForTest(32, 32, 48, 208, 128, 128)
+	interSrc := vp9test.NewCheckerYCbCr(32, 32, 48, 208, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -365,7 +365,7 @@ func TestVP9EncoderInterPicksNewMvForTranslatedBlock(t *testing.T) {
 		height = 64
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -414,7 +414,7 @@ func TestVP9EncoderInterMvSearchUsesMvPredSeedAsCenter(t *testing.T) {
 		height = 64
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestVP9EncoderInterPicksNewMvFor16x8Block(t *testing.T) {
 		height = 8
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -500,7 +500,7 @@ func TestVP9EncoderInterPicksVert64x64ForHorizontalMixedMotion(t *testing.T) {
 	// PartitionSearchType=SearchPartition). The default speed=8 path uses
 	// VAR_BASED_PARTITION which intentionally commits the root SB size.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -532,7 +532,7 @@ func TestVP9EncoderInterPartitionScoringRestoresFrameState(t *testing.T) {
 	// CpuUsed=0 to realtime+speed=8 (VAR_BASED_PARTITION + NonrdPickmode),
 	// where the recursive RD partition picker is intentionally bypassed.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestVP9PartitionReconSnapshotStacksNestedSaves(t *testing.T) {
 func TestVP9EncoderInterPartitionScoringUsesPriorChildContext(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
@@ -729,7 +729,7 @@ func TestVP9EncoderInterPicksVert32x32ForHorizontalMixedMotion(t *testing.T) {
 	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
 	// rationale on the 64x64 sibling test.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -762,7 +762,7 @@ func TestVP9EncoderInterPicksVert16x16ForHorizontalMixedMotion(t *testing.T) {
 	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
 	// rationale on the 64x64 sibling test.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -795,7 +795,7 @@ func TestVP9EncoderInterPicksHorz64x64ForVerticalMixedMotion(t *testing.T) {
 	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
 	// rationale on the 64x64 sibling test.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -828,7 +828,7 @@ func TestVP9EncoderInterSplits64x64ForQuadrantMotion(t *testing.T) {
 	// CpuUsed: -3 retains the recursive RD partition picker; see the speed-8
 	// rationale on the 64x64 sibling test.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -876,7 +876,7 @@ func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
 		height = 64
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -916,7 +916,7 @@ func TestVP9EncoderInterPicksQuarterPelMv(t *testing.T) {
 		height = 64
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -962,7 +962,7 @@ func TestVP9EncoderInterPicksEighthPelMv(t *testing.T) {
 	// CpuUsed=0 to realtime+speed=8 (SubpelForceStop=QuarterPel), where
 	// 1/8-pel granularity is intentionally suppressed.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -1036,7 +1036,7 @@ func TestVP9EncoderInterReusesNearestMvCandidate(t *testing.T) {
 		height = 64
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -1083,7 +1083,7 @@ func TestVP9EncoderInterUsesPreviousFrameMvRefs(t *testing.T) {
 		height = 64
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)

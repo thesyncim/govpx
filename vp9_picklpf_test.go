@@ -393,7 +393,7 @@ func TestVP9PickLpfMaxFilterLevelOnePass(t *testing.T) {
 // but the search call must complete without bitstream corruption.
 func TestVP9LoopFilterFullImagePickerEnabledAtSpeed0(t *testing.T) {
 	const width, height = 64, 64
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 
 	encode := func(cpuUsed int8, deadline Deadline) (vp9dec.UncompressedHeader, LpfPickMethod) {
 		t.Helper()
@@ -589,7 +589,7 @@ func TestVP9LoopFilterFullImagePickerImprovesPSNROnTexturedContent(t *testing.T)
 // can score against reconstructed luma.
 func TestVP9LoopFilterChangesPSNR(t *testing.T) {
 	const width, height = 96, 96
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 
 	enc := func(method LpfPickMethod) image.YCbCrSubsampleRatio {
 		e, err := NewVP9Encoder(VP9EncoderOptions{

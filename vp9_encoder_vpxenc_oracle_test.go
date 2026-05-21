@@ -24,7 +24,7 @@ func TestVP9EncoderVpxencOracleKeyframeUncompressedHeaderParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
@@ -473,7 +473,7 @@ func TestVP9EncoderVpxencOracleCheckerKeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 16, 16
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
@@ -481,7 +481,7 @@ func TestVP9EncoderVpxencOracleChecker64KeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
@@ -489,7 +489,7 @@ func TestVP9EncoderVpxencOracleChecker320KeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 320, 180
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
@@ -513,7 +513,7 @@ func TestVP9EncoderVpxencOracleFixedQuantizerKeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 16, 16
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		MinQuantizer: 20,
 		MaxQuantizer: 20,
@@ -529,7 +529,7 @@ func TestVP9EncoderVpxencOracleCQLevelKeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 16, 16
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		CQLevel: 20,
 	}, []string{"--cq-level=20"})
@@ -539,7 +539,7 @@ func TestVP9EncoderVpxencOraclePublicQuantizerBandKeyframeByteParity(t *testing.
 	coracletest.VpxencVP9(t)
 
 	const width, height = 16, 16
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		MinQuantizer: 10,
 		MaxQuantizer: 50,
@@ -583,7 +583,7 @@ func TestVP9EncoderVpxencOracleLosslessKeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 16, 16
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		Lossless: true,
 	}, []string{"--lossless=1"})
@@ -593,7 +593,7 @@ func TestVP9EncoderVpxencOracleErrorResilientKeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 16, 16
-	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	src := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		ErrorResilient: true,
 	}, []string{"--error-resilient=1"})
@@ -623,7 +623,7 @@ func TestVP9EncoderVpxencOracleCheckerInterByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
-	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	second := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
 	assertVP9VpxencTwoFrameByteParity(t, first, second)
 }
 
@@ -679,7 +679,7 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
-	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	second := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		Lossless: true,
 	}, []string{"--lossless=1"})
@@ -699,7 +699,7 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParityQuantizerSweep(t *testing.
 
 	const width, height = 64, 64
 	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
-	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	second := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
 
 	minQs := []int{0, 1, 2}
 	maxQs := []int{0, 1, 2, 4}
@@ -758,7 +758,7 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParitySweep(t *testing.T) {
 
 	const width, height = 64, 64
 	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
-	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	second := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
 
 	cpuUseds := []int8{0, 2, 5, 8}
 	minQs := []int{0, 1, 2}

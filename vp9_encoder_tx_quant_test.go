@@ -567,7 +567,7 @@ func TestVP9EncoderKeyframeConstantSourceRoundTrip(t *testing.T) {
 
 func TestVP9EncoderKeyframeACResiduePreservesCheckerSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
-	img := newVP9CheckerYCbCrForTest(32, 32, 48, 208, 128, 128)
+	img := vp9test.NewCheckerYCbCr(32, 32, 48, 208, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -589,7 +589,7 @@ func TestVP9EncoderKeyframeACResiduePreservesCheckerSource(t *testing.T) {
 
 func TestVP9EncoderACKeyframeUsesOracleNoUpdateCompressedHeader(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := newVP9CheckerYCbCrForTest(64, 64, 48, 208, 128, 128)
+	img := vp9test.NewCheckerYCbCr(64, 64, 48, 208, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -608,7 +608,7 @@ func TestVP9EncoderACKeyframeUsesOracleNoUpdateCompressedHeader(t *testing.T) {
 
 func TestVP9EncoderDefaultQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	img := vp9test.NewCheckerYCbCr(64, 64, 32, 224, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -711,7 +711,7 @@ func TestVP9EncoderExplicitQuantizerOverridesDefault(t *testing.T) {
 		Height:    64,
 		Quantizer: 1,
 	})
-	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	img := vp9test.NewCheckerYCbCr(64, 64, 32, 224, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -732,7 +732,7 @@ func TestVP9EncoderLosslessKeyframeRoundTripExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	img := newVP9CheckerYCbCrForTest(width, height, 16, 240, 32, 224)
+	img := vp9test.NewCheckerYCbCr(width, height, 16, 240, 32, 224)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode lossless keyframe: %v", err)
@@ -795,12 +795,12 @@ func TestVP9EncoderLosslessInterRoundTripExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9MotionYCbCrForTest(width, height)
+	keySrc := vp9test.NewMotionYCbCr(width, height)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode lossless keyframe: %v", err)
 	}
-	interSrc := newVP9CheckerYCbCrForTest(width, height, 16, 240, 32, 224)
+	interSrc := vp9test.NewCheckerYCbCr(width, height, 16, 240, 32, 224)
 	inter, err := e.Encode(interSrc)
 	if err != nil {
 		t.Fatalf("Encode lossless inter: %v", err)

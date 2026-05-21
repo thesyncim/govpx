@@ -176,7 +176,7 @@ func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	interSrc := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	interSrc := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
 	inter, err := e.Encode(interSrc)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)

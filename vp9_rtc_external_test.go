@@ -17,7 +17,7 @@ func TestVP9EncoderSetRTCExternalRateControlSuppressesSceneCutPromotion(t *testi
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keyframe := newVP9CheckerYCbCrForTest(width, height, 16, 240, 64, 192)
+	keyframe := vp9test.NewCheckerYCbCr(width, height, 16, 240, 64, 192)
 	if _, err := e.Encode(keyframe); err != nil {
 		t.Fatalf("Encode first frame: %v", err)
 	}

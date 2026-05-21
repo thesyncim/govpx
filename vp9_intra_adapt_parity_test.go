@@ -3,6 +3,7 @@ package govpx
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
@@ -29,7 +30,7 @@ func TestVP9IntraModeCoverageMatchesLibvpx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	img := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	img := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(width, height)
 	// Seed recon with the source so each mode produces a non-degenerate

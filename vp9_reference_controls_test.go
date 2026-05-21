@@ -74,7 +74,7 @@ func TestVP9EncoderCopyReferenceFrameCopiesSelectedReference(t *testing.T) {
 		t.Fatalf("NewVP9Encoder returned error: %v", err)
 	}
 
-	refYCbCr := newVP9MotionYCbCrForTest(width, height)
+	refYCbCr := vp9test.NewMotionYCbCr(width, height)
 	ref := vp9ImageFromYCbCrForTest(refYCbCr)
 	want := clonePublicImage(ref)
 	if err := e.SetReferenceFrame(ReferenceGolden, ref); err != nil {
@@ -208,7 +208,7 @@ func TestVP9DecoderCopyReferenceFrameCopiesSelectedReference(t *testing.T) {
 		t.Fatal("key NextFrame returned no frame")
 	}
 
-	ref := vp9ImageFromYCbCrForTest(newVP9MotionYCbCrForTest(width, height))
+	ref := vp9ImageFromYCbCrForTest(vp9test.NewMotionYCbCr(width, height))
 	want := clonePublicImage(ref)
 	if err := d.SetReferenceFrame(ReferenceGolden, ref); err != nil {
 		t.Fatalf("SetReferenceFrame returned error: %v", err)
