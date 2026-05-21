@@ -5,8 +5,6 @@ import (
 	"math"
 	"strconv"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 func firstPassOracleFrames(count int, fn func(int) Image) []Image {
@@ -76,38 +74,6 @@ func captureGovpxFirstPassStats(t *testing.T, opts EncoderOptions, frames []Imag
 		}
 	}
 	return FinalizeFirstPassStats(stats)
-}
-
-func captureLibvpxFirstPassStats(t *testing.T, vpxenc string, opts EncoderOptions, targetKbps int, frames []Image) []FirstPassFrameStats {
-	t.Helper()
-	deadline := "good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadline = "best"
-	case DeadlineRealtime:
-		deadline = "rt"
-	}
-	data, diag, err := coracle.VpxencVP8FirstPassStatsI420(
-		encoderValidationI420Bytes(t, frames),
-		coracle.VpxencVP8Config{
-			BinaryPath:        vpxenc,
-			Width:             opts.Width,
-			Height:            opts.Height,
-			Frames:            len(frames),
-			Deadline:          deadline,
-			CPUUsed:           opts.CpuUsed,
-			TargetBitrateKbps: targetKbps,
-			MinQ:              opts.MinQuantizer,
-			MaxQ:              opts.MaxQuantizer,
-			Timebase:          "1/" + strconv.Itoa(opts.FPS),
-			FPS:               strconv.Itoa(opts.FPS) + "/1",
-			ExtraArgs:         []string{"--end-usage=vbr"},
-		},
-	)
-	if err != nil {
-		t.Fatalf("vpxenc first pass failed: %v\n%s", err, diag)
-	}
-	return parseLibvpxFirstPassStats(t, data)
 }
 
 func parseLibvpxFirstPassStats(t *testing.T, data []byte) []FirstPassFrameStats {

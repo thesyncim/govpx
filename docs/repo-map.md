@@ -7,10 +7,10 @@ Last refreshed: 2026-05-21 from `main`.
 
 ## Current Counts
 
-- Root Go files: 533.
-- Root test files: 373.
+- Root Go files: 535.
+- Root test files: 375.
 - Internal Go files: 665.
-- Root VP8 files: 80 implementation files and 219 test files.
+- Root VP8 files: 80 implementation files and 221 test files.
 - Root VP9 files: 71 implementation files and 142 test files.
 - Internal package files:
   - `internal/vp8`: 314 Go files.
@@ -124,7 +124,8 @@ reference semantics into `internal/vpx`.
 
 `internal/coracle` owns libvpx integration: pinned build scripts, tool-path
 resolution, subprocess wrappers, trace projection/comparison, and scoreboard
-helpers. Root tests may use coracle; production packages must not import it.
+helpers. Oracle-tagged root tests may use coracle; default-build tests and
+production packages must not import it.
 
 ## Test Categories
 
@@ -188,7 +189,7 @@ This ledger tracks intent, not completed work.
 | Root VP8 implementation | 81 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
 | Root VP9 implementation | 71 root VP9 implementation files remain. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
-| Root tests | 391 root tests remain; many are codec implementation and parity tests. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
+| Root tests | 375 root tests remain; many are codec implementation and parity tests. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx` is small. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |
 | Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |
 | Documentation | `docs/architecture.md`, `docs/api.md`, `docs/codec-status.md`, `docs/validation.md`, and this map exist. | Keep README short; detailed docs under `docs/`; no migration promise before first release. |
