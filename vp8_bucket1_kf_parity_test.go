@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestVP8Bucket1KFParity pins byte-exact parity on the three bucket-1 fuzz
@@ -97,7 +98,7 @@ func TestVP8Bucket1KFParity(t *testing.T) {
 				t.Fatalf("libvpx KF first_partition drift: got=%d want=%d", got, tc.wantKFFirstPart)
 			}
 			if !bytes.Equal(gKF, lKF) {
-				t.Fatalf("KF byte mismatch on %s: first diff offset %d", tc.label, firstDiffOffset(gKF, lKF))
+				t.Fatalf("KF byte mismatch on %s: first diff offset %d", tc.label, testutil.FirstByteDiff(gKF, lKF))
 			}
 			if got := len(gInt); got != tc.wantInterLen {
 				t.Fatalf("govpx inter len drift: got=%d want=%d", got, tc.wantInterLen)
@@ -106,7 +107,7 @@ func TestVP8Bucket1KFParity(t *testing.T) {
 				t.Fatalf("libvpx inter len drift: got=%d want=%d", got, tc.wantInterLen)
 			}
 			if !bytes.Equal(gInt, lInt) {
-				t.Fatalf("inter byte mismatch on %s: first diff offset %d", tc.label, firstDiffOffset(gInt, lInt))
+				t.Fatalf("inter byte mismatch on %s: first diff offset %d", tc.label, testutil.FirstByteDiff(gInt, lInt))
 			}
 
 			kfSHA := sha256.Sum256(gKF)
@@ -117,20 +118,4 @@ func TestVP8Bucket1KFParity(t *testing.T) {
 				hex.EncodeToString(intSHA[:8]))
 		})
 	}
-}
-
-func firstDiffOffset(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
 }

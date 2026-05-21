@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls is the infrastructure smoke
@@ -102,7 +103,10 @@ func TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", ivfPath, err)
 	}
-	payloads := parseIVFFramePayloads(t, ivfData)
+	payloads, err := testutil.IVFFramePayloads(ivfData)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
 	if len(payloads) == 0 {
 		t.Fatalf("vpxenc-frameflags-oracle produced no frames (ivf=%d bytes)", len(ivfData))
 	}

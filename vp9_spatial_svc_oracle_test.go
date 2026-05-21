@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -140,7 +141,7 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 				} else if firstMismatch < 0 {
 					firstMismatch = frame
 				}
-				firstDiff := firstByteDiff(govpxPacket, libvpxPackets[frame])
+				firstDiff := testutil.FirstByteDiff(govpxPacket, libvpxPackets[frame])
 				fmt.Fprintf(&rows, "%d,%t,%d,%d,%d,%d,%d,%s,%s,%d,%d,%d,%s,%s,%s,%s,%s,%s\n",
 					frame, match, firstDiff, len(govpxPacket),
 					len(libvpxPackets[frame]), govpxSF.count, libvpxSF.count,
@@ -297,7 +298,11 @@ func encodeLibvpxVP9SpatialSVCOracle(t *testing.T, spatialSVC string,
 	if err != nil {
 		t.Fatalf("read %s: %v", outPath, err)
 	}
-	return parseIVFFramePayloads(t, ivf)
+	packets, err := testutil.IVFFramePayloads(ivf)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
+	return packets
 }
 
 func vp9SpatialSVCOracleTemporalArgs(t *testing.T,

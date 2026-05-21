@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestVP8OracleReproducibilityWrapperHandlesParallelArgs exercises the
@@ -95,22 +96,22 @@ func TestVP8OracleReproducibilityWrapperHandlesParallelArgs(t *testing.T) {
 	requireOracleArgsReproducibleOrSerial(t, []string{"--end-usage=cbr"})
 	requireOracleArgsReproducibleOrSerial(t, []string{"--threads=4", "--end-usage=cbr"})
 
-	// Step 4: framePayloadSHAs is content-stable; if this drifts a
+	// Step 4: FramePayloadSHA8s is content-stable; if this drifts a
 	//         downstream test would silently break.
-	sums := framePayloadSHAs(out)
+	sums := testutil.FramePayloadSHA8s(out)
 	if len(sums) != frames {
-		t.Fatalf("framePayloadSHAs returned %d entries, want %d", len(sums), frames)
+		t.Fatalf("FramePayloadSHA8s returned %d entries, want %d", len(sums), frames)
 	}
 	for i, s := range sums {
 		if !strings.Contains(s, ":") {
-			t.Errorf("framePayloadSHAs[%d] = %q, want \"<sha8>:<len>\"", i, s)
+			t.Errorf("FramePayloadSHA8s[%d] = %q, want \"<sha8>:<len>\"", i, s)
 		}
 		// Cross-check the sha8 prefix is identical to a fresh sum on
 		// the same payload.
 		h := sha256.Sum256(out[i])
 		wantPrefix := hex.EncodeToString(h[:8])
 		if !strings.HasPrefix(s, wantPrefix) {
-			t.Errorf("framePayloadSHAs[%d]=%q does not start with %s", i, s, wantPrefix)
+			t.Errorf("FramePayloadSHA8s[%d]=%q does not start with %s", i, s, wantPrefix)
 		}
 	}
 }
@@ -121,17 +122,17 @@ func TestVP8OracleReproducibilityWrapperHandlesParallelArgs(t *testing.T) {
 // dependent), so we test the predicate logic and SHA-comparison machinery
 // directly with synthetic inputs.
 func TestVP8OracleReproducibilityDetectsControlledDivergence(t *testing.T) {
-	// framePayloadSHAs must differ when payloads differ, and match when
+	// FramePayloadSHA8s must differ when payloads differ, and match when
 	// payloads match — this is the comparator the reproducibility wrapper uses.
 	a := [][]byte{{1, 2, 3}, {4, 5, 6}}
 	b := [][]byte{{1, 2, 3}, {4, 5, 6}}
 	c := [][]byte{{1, 2, 3}, {4, 5, 7}} // last byte differs in frame 1
 
-	sumsA := framePayloadSHAs(a)
-	sumsB := framePayloadSHAs(b)
-	sumsC := framePayloadSHAs(c)
+	sumsA := testutil.FramePayloadSHA8s(a)
+	sumsB := testutil.FramePayloadSHA8s(b)
+	sumsC := testutil.FramePayloadSHA8s(c)
 	if len(sumsA) != 2 || len(sumsB) != 2 || len(sumsC) != 2 {
-		t.Fatalf("framePayloadSHAs length: %d/%d/%d", len(sumsA), len(sumsB), len(sumsC))
+		t.Fatalf("FramePayloadSHA8s length: %d/%d/%d", len(sumsA), len(sumsB), len(sumsC))
 	}
 	if sumsA[0] != sumsB[0] || sumsA[1] != sumsB[1] {
 		t.Errorf("identical payloads produced different SHAs: %v vs %v", sumsA, sumsB)

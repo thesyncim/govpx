@@ -286,7 +286,11 @@ func runLibvpxPass2BytesOnly(t *testing.T, vpxencOracle string, yuvPath string, 
 	if err != nil {
 		t.Fatalf("read %s: %v", ivfPath, err)
 	}
-	return parseIVFFramePayloads(t, data)
+	frames, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
+	return frames
 }
 
 type twoPassFuzzCase struct {

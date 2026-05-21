@@ -1338,12 +1338,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
 				// firstNonTagDiff skips the 3-byte frame tag (which
 				// encodes first_partition_size) so we can spot the
 				// next genuine bitstream divergence inside the
 				// uncompressed-header span.
-				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}
@@ -1499,7 +1499,11 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 	if err != nil {
 		t.Fatalf("read %s: %v", ivfPath, err)
 	}
-	return parseIVFFramePayloads(t, data)
+	frames, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
+	return frames
 }
 
 func libvpxOracleTimebaseArg(opts EncoderOptions) string {
@@ -1516,24 +1520,6 @@ func libvpxOracleFPSArg(opts EncoderOptions) string {
 	return strconv.Itoa(opts.FPS) + "/1"
 }
 
-// firstByteDiff returns the byte offset of the first divergence between
-// a and b, or -1 if the prefixes match up to min(len(a), len(b)).
-func firstByteDiff(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
-}
-
 // parseVP8FramePartitionSizes returns the first-partition byte length
 // declared in the VP8 frame header plus whether the frame is marked as
 // a keyframe. Returns (0, false) when the payload is too short.
@@ -1545,15 +1531,4 @@ func parseVP8FramePartitionSizes(p []byte) (firstPart int, isKeyframe bool) {
 	isKeyframe = (tag & 1) == 0
 	firstPart = int((tag >> 5) & 0x7FFFF)
 	return firstPart, isKeyframe
-}
-
-// parseIVFFramePayloads strips the 32-byte IVF header and the 12-byte
-// per-frame headers, returning the raw VP8 frame payload bytes.
-func parseIVFFramePayloads(t *testing.T, data []byte) [][]byte {
-	t.Helper()
-	out, err := testutil.IVFFramePayloads(data)
-	if err != nil {
-		t.Fatalf("IVFFramePayloads: %v", err)
-	}
-	return out
 }

@@ -125,22 +125,10 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 		govpxFrames := encodeVP9FramesWithGovpx(t, opts, sources, nil)
 		libvpxFrames := encodeVP9FramesWithLibvpxOracle(t, sources, cfg.extraArgs)
 
-		prefix := matchedVP9FramePrefixLength(govpxFrames, libvpxFrames)
+		prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
 		t.Logf("%s matched-prefix=%d/%d frames", label, prefix, min(len(govpxFrames), len(libvpxFrames)))
 		assertVP9SegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
-}
-
-// matchedVP9FramePrefixLength returns the largest N such that the SHA-256s of
-// got[:N] and want[:N] match frame-by-frame.
-func matchedVP9FramePrefixLength(got, want [][]byte) int {
-	n := min(len(got), len(want))
-	for i := 0; i < n; i++ {
-		if sha256.Sum256(got[i]) != sha256.Sum256(want[i]) {
-			return i
-		}
-	}
-	return n
 }
 
 type vp9LongFixtureFuzzCase struct {

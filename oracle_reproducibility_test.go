@@ -10,11 +10,11 @@ package govpx
 // threaded libvpx output.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // EncodeFramesWithLibvpxOracleReproducibleRuns is the default re-run count
@@ -55,14 +55,14 @@ func encodeFramesWithLibvpxOracleReproducible(t *testing.T, vpxencOracle string,
 		frames := encodeFramesWithLibvpxOracle(t, vpxencOracle, runName, opts, targetKbps, sources, extraArgs)
 		if run == 0 {
 			first = frames
-			firstSums = framePayloadSHAs(frames)
+			firstSums = testutil.FramePayloadSHA8s(frames)
 			continue
 		}
 		if len(frames) != len(first) {
 			t.Fatalf("libvpx oracle threading reproducibility: run %d returned %d frames, run 0 returned %d (extraArgs=%v)",
 				run, len(frames), len(first), extraArgs)
 		}
-		sums := framePayloadSHAs(frames)
+		sums := testutil.FramePayloadSHA8s(frames)
 		for i := range sums {
 			if sums[i] != firstSums[i] {
 				t.Fatalf(`libvpx oracle threading reproducibility: NONDETERMINISTIC OUTPUT detected.
@@ -94,19 +94,6 @@ See feedback-vp8-arnr-milestone-closure.md lesson #2.`,
 		}
 	}
 	return first
-}
-
-// framePayloadSHAs returns a per-frame "<sha8>:<len>" string slice. Truncated
-// to the first 8 hex chars to keep failure messages readable; the leading 8
-// chars are sufficient to detect any divergence in practice (collision
-// probability < 2^-32 per frame, vs the < 2^-256 of the full hash).
-func framePayloadSHAs(frames [][]byte) []string {
-	out := make([]string, len(frames))
-	for i, p := range frames {
-		h := sha256.Sum256(p)
-		out[i] = hex.EncodeToString(h[:8]) + ":" + itoaPositive(len(p))
-	}
-	return out
 }
 
 // EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries is the cap on how many
@@ -142,7 +129,7 @@ func encodeFramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string
 		// Serial oracle invocations are deterministic; one run suffices.
 		return encodeFramesWithLibvpxOracle(t, vpxencOracle, name, opts, targetKbps, sources, extraArgs)
 	}
-	govpxSums := framePayloadSHAs(govpxFrames)
+	govpxSums := testutil.FramePayloadSHA8s(govpxFrames)
 	maxRetries := EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries
 	var firstFrames [][]byte
 	seen := map[string]int{}
@@ -152,7 +139,7 @@ func encodeFramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string
 		if attempt == 0 {
 			firstFrames = frames
 		}
-		sums := framePayloadSHAs(frames)
+		sums := testutil.FramePayloadSHA8s(frames)
 		seen[strings.Join(sums, ",")]++
 		if len(sums) == len(govpxSums) {
 			match := true

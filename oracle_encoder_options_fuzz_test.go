@@ -147,7 +147,7 @@ func FuzzVP8EncoderOptions(f *testing.F) {
 			// quietly does differently; this fuzzer is the regression
 			// gate.
 			t.Errorf("keyframe byte mismatch under fuzzed options: govpx_len=%d libvpx_len=%d first_diff=%d",
-				len(result.Data), len(libvpxKey), firstByteDiff(result.Data, libvpxKey))
+				len(result.Data), len(libvpxKey), testutil.FirstByteDiff(result.Data, libvpxKey))
 		}
 	})
 }
@@ -343,7 +343,10 @@ func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 	if err != nil {
 		return nil
 	}
-	frames := parseIVFFramePayloads(t, data)
+	frames, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		return nil
+	}
 	if len(frames) == 0 {
 		return nil
 	}

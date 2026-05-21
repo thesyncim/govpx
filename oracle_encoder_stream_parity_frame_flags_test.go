@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // frameFlagsForLibvpx mirrors the bit layout of the govpx
@@ -305,8 +306,8 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}
@@ -788,5 +789,9 @@ func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, name string, opts En
 	if err != nil {
 		t.Fatalf("read %s: %v", ivfPath, err)
 	}
-	return parseIVFFramePayloads(t, data)
+	frames, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
+	return frames
 }

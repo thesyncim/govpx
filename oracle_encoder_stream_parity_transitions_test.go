@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestOracleEncoderStreamByteParityResetFlushTransitions pins encoder-lifetime
@@ -1143,7 +1144,11 @@ func encodeFramesWithLibvpxTwoPassOracleArgs(t *testing.T, vpxenc string, vpxenc
 	if err != nil {
 		t.Fatalf("read %s: %v", ivf2Path, err)
 	}
-	return parseIVFFramePayloads(t, data)
+	frames, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
+	return frames
 }
 
 func libvpxTwoPassControlArgs(opts EncoderOptions) []string {

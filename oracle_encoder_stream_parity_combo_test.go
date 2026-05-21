@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestOracleEncoderStreamByteParityCombo expands the strict byte-parity
@@ -218,8 +219,8 @@ func TestOracleEncoderStreamByteParityCombo(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}
@@ -432,8 +433,8 @@ func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}
@@ -580,8 +581,8 @@ func TestOracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}
@@ -711,8 +712,8 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}
@@ -908,8 +909,8 @@ func TestOracleEncoderStreamByteParityComboDropDenoiser(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 				if firstNonTagDiff >= 0 {
 					firstNonTagDiff += 3
 				}

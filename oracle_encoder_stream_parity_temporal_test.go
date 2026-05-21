@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestOracleEncoderStreamByteParityTemporalSVC exercises VP8 temporal
@@ -239,8 +240,8 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 						t.Logf("layer %d frame %d byte MATCH: len=%d first_part=%d keyframe=%t", layer, i, len(govpxFrames[i]), gFP, gIsKey)
 						continue
 					}
-					firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-					firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+					firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
+					firstNonTagDiff := testutil.FirstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
 					if firstNonTagDiff >= 0 {
 						firstNonTagDiff += 3
 					}
@@ -469,7 +470,11 @@ func encodeFramesWithLibvpxTemporalSVC(
 		if err != nil {
 			t.Fatalf("read %s: %v", ivfPath, err)
 		}
-		out[i] = parseIVFFramePayloads(t, data)
+		frames, err := testutil.IVFFramePayloads(data)
+		if err != nil {
+			t.Fatalf("IVFFramePayloads: %v", err)
+		}
+		out[i] = frames
 	}
 	return out
 }

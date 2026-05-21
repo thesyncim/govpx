@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestVP8MBActivitySeedsMatchLibvpx drives the two residual 1280x720
@@ -239,7 +240,10 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 	if err != nil {
 		t.Fatalf("read libvpx ivf: %v", err)
 	}
-	libvpxFrames := parseIVFFramePayloads(t, ivfData)
+	libvpxFrames, err := testutil.IVFFramePayloads(ivfData)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
 	libvpxTrace, err := os.ReadFile(libvpxTracePath)
 	if err != nil {
 		t.Fatalf("read libvpx trace: %v", err)

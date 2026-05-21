@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestOracleEncoderStreamByteParityResize pins byte-parity across a
@@ -1093,7 +1094,7 @@ func assertSegmentByteParity(t *testing.T, label string, got, want [][]byte, mat
 				label, i, len(got[i]), gFP, gIsKey)
 			continue
 		}
-		firstDiff := firstByteDiff(got[i], want[i])
+		firstDiff := testutil.FirstByteDiff(got[i], want[i])
 		if i >= limit {
 			t.Logf("%s frame %d byte mismatch (not asserted, limit=%d): got_len=%d want_len=%d first_diff=%d got_first_part=%d want_first_part=%d got_keyframe=%t want_keyframe=%t got_sha=%s want_sha=%s",
 				label, i, limit, len(got[i]), len(want[i]), firstDiff,

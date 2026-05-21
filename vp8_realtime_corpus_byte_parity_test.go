@@ -252,7 +252,7 @@ func assertVP8RealtimeStrictByteParity(t *testing.T, label string, govpxFrames, 
 				label, i, len(gv), gFP, gIsKey, hex.EncodeToString(gSHA[:8]))
 			continue
 		}
-		diff := firstByteDiff(gv, lv)
+		diff := testutil.FirstByteDiff(gv, lv)
 		t.Fatalf("%s frame %d byte MISMATCH: govpx_len=%d libvpx_len=%d first_diff=%d govpx_sha=%s libvpx_sha=%s",
 			label, i, len(gv), len(lv), diff,
 			hex.EncodeToString(gSHA[:8]), hex.EncodeToString(lSHA[:8]))

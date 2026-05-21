@@ -116,7 +116,7 @@ func FuzzEncoderLongFixtureRateControl(f *testing.F) {
 		govpxFrames := encodeFramesWithGovpx(t, opts, cfg.sources)
 		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, label, opts, cfg.targetKbps, cfg.sources, libvpxEndUsageArgs(extraArgs))
 
-		prefix := matchedFramePrefixLength(govpxFrames, libvpxFrames)
+		prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
 		t.Logf("%s matched-prefix=%d/%d frames (govpx=%d libvpx=%d total)",
 			label, prefix, min(len(govpxFrames), len(libvpxFrames)), len(govpxFrames), len(libvpxFrames))
 
@@ -126,23 +126,6 @@ func FuzzEncoderLongFixtureRateControl(f *testing.F) {
 		// failure log surfaces the exact frame index where parity broke.
 		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
-}
-
-// matchedFramePrefixLength returns the largest N such that
-// got[:N] and want[:N] are SHA-256 equal frame-by-frame. Used to
-// produce a scoreboard signal for cumulative RC drift across long
-// fixtures.
-func matchedFramePrefixLength(got, want [][]byte) int {
-	n := len(got)
-	if len(want) < n {
-		n = len(want)
-	}
-	for i := 0; i < n; i++ {
-		if sha256.Sum256(got[i]) != sha256.Sum256(want[i]) {
-			return i
-		}
-	}
-	return n
 }
 
 type longFixtureFuzzCase struct {

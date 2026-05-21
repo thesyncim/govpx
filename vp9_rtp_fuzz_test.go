@@ -3,6 +3,8 @@ package govpx
 import (
 	"bytes"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzRTPVP9RoundTrip mirrors FuzzRTPVP8RoundTrip for the VP9 RTP
@@ -92,7 +94,7 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 		}
 		if !bytes.Equal(assembled, frame) {
 			t.Errorf("round-trip frame mismatch: got %d bytes, want %d bytes (first diff at %d)",
-				len(assembled), len(frame), firstByteDiffPlain(assembled, frame))
+				len(assembled), len(frame), testutil.FirstByteDiff(assembled, frame))
 		}
 		// Mutation: flip the lowest byte of every fragment and call
 		// AssembleVP9RTPFrame; it must not panic and either returns

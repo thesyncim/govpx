@@ -3,6 +3,8 @@ package govpx
 import (
 	"bytes"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzRTPVP8RoundTrip closes plan-§3 F5 / G6: the VP8 RTP packetizer
@@ -80,7 +82,7 @@ func FuzzRTPVP8RoundTrip(f *testing.F) {
 		}
 		if !bytes.Equal(assembled, frame) {
 			t.Errorf("round-trip frame mismatch: got %d bytes, want %d bytes (first diff at %d)",
-				len(assembled), len(frame), firstByteDiffPlain(assembled, frame))
+				len(assembled), len(frame), testutil.FirstByteDiff(assembled, frame))
 		}
 		// Mutation: flip the lowest byte of every fragment and call
 		// AssembleVP8RTPFrame; it must not panic and either returns
@@ -97,21 +99,6 @@ func FuzzRTPVP8RoundTrip(f *testing.F) {
 			_, _ = AssembleVP8RTPFrame(mutated)
 		}
 	})
-}
-
-// firstByteDiffPlain mirrors the oracle-tag-gated firstByteDiff so
-// this fuzzer can build under the default build tag set.
-func firstByteDiffPlain(a, b []byte) int {
-	n := min(len(a), len(b))
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
 }
 
 func vp8RTPFuzzInputs(data []byte) (desc VP8RTPPayloadDescriptor, mtu int, frame []byte, ok bool) {

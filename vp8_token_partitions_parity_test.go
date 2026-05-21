@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestVP8TokenPartitionsErrorResilientByteParity is the strict regression gate
@@ -131,7 +132,7 @@ func TestVP8TokenPartitionsErrorResilientByteParity(t *testing.T) {
 					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
 					continue
 				}
-				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
+				firstDiff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
 				t.Errorf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d govpx_keyframe=%t libvpx_keyframe=%t govpx_sha=%s libvpx_sha=%s",
 					i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff,
 					gFP, lFP, gIsKey, lIsKey,
