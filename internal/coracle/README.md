@@ -101,7 +101,7 @@ Binary paths consumed by tests / helper packages:
 | `GOVPX_VPX_TEMPORAL_SVC_ENCODER`        | `build/vpx_temporal_svc_encoder`                | `build_vpxenc.sh`                          | VP8 temporal SVC oracle.                                                               |
 | `GOVPX_VPX_TEMPORAL_SVC_ENCODER_BIN`    | `build/vpx_temporal_svc_encoder`                | `build_vpxenc.sh`                          | Override consumed by `build_vpxenc.sh`.                                                |
 | `GOVPX_VP9_DSP_ORACLE_BIN`              | `build/govpx-vp9-dsp-oracle`                    | `build_libvpx_vp9.sh`                      | VP9 DSP oracle (regenerates committed `internal/vp9/dsp/testdata`).                    |
-| `GOVPX_VP9_SPATIAL_SVC_ENCODER`         | (unset; tests Skip without it)                  | (manual build, libvpx examples tree)       | VP9 spatial SVC oracle.                                                                |
+| `GOVPX_VP9_SPATIAL_SVC_ENCODER`         | `build/vp9_spatial_svc_encoder`, PATH, or libvpx examples tree | (manual build, libvpx examples tree) | VP9 spatial SVC oracle (`internal/coracle.VP9SpatialSVCEncoderPath`).                 |
 
 Build-tree layout:
 
