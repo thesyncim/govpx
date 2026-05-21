@@ -113,10 +113,6 @@ func predictAnalysisBPredBlock(mode vp8common.BPredictionMode, dst []byte, strid
 	return dsp.Intra4x4Predict(dst, stride, mode, blockAbove[:], blockLeft[:], blockTopLeft)
 }
 
-func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
-	return dsp.TransformBlockError(coeff, dqcoeff)
-}
-
 func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, img *vp8common.Image, mode *vp8dec.MacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, actZbinAdj int, rdMult int, rdDiv int, fastQuant bool, optimize bool, collectOracle bool, coeffs *vp8enc.MacroblockCoefficients, scratch *vp8dec.IntraReconstructionScratch) bool {
 	collectOracle = oracleTraceBuild && collectOracle
 	if img == nil || mode == nil || quant == nil || coeffs == nil || scratch == nil || !mode.Is4x4 || mode.Mode != vp8common.BPred {
@@ -194,7 +190,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		}
 	}
 	for block := range 16 {
-		blockOffset := analysisYBlockOffset(block, img.YStride)
+		blockOffset := vp8enc.AnalysisYBlockOffset(block, img.YStride)
 		if !predictAnalysisBPredBlock(mode.BModes[block], y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			return false
 		}
@@ -224,7 +220,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		}
 		yAbove[a] = hasCoeffs
 		yLeft[l] = hasCoeffs
-		addQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
+		vp8enc.AddQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
 	}
 	coeffs.QCoeff[24] = [16]int16{}
 	coeffs.SetBlockEOB(24, 0)
@@ -286,7 +282,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		}
 		uvAbove[a] = hasCoeffs
 		uvLeft[l] = hasCoeffs
-		addQuantizedBlockResidual(eob, &dq, u[analysisUVBlockOffset(block, img.UStride):], img.UStride)
+		vp8enc.AddQuantizedBlockResidual(eob, &dq, u[vp8enc.AnalysisUVBlockOffset(block, img.UStride):], img.UStride)
 
 		copy(dct[:], uvDcts[(4+block)*16:(4+block)*16+16])
 		a, l = macroblockCoefficientUVContextIndex(20 + block)
@@ -299,28 +295,9 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		}
 		uvAbove[a] = hasCoeffs
 		uvLeft[l] = hasCoeffs
-		addQuantizedBlockResidual(eob, &dq, v[analysisUVBlockOffset(block, img.VStride):], img.VStride)
+		vp8enc.AddQuantizedBlockResidual(eob, &dq, v[vp8enc.AnalysisUVBlockOffset(block, img.VStride):], img.VStride)
 	}
 	return true
-}
-
-func addQuantizedBlockResidual(eob int, dq *[16]int16, dst []byte, stride int) {
-	if eob == 0 {
-		return
-	}
-	if eob == 1 {
-		dsp.DCOnlyIDCT4x4Add(dq[0], dst, stride, dst, stride)
-		return
-	}
-	dsp.IDCT4x4Add(dq, dst, stride, dst, stride)
-}
-
-func analysisYBlockOffset(block int, stride int) int {
-	return (block>>2)*4*stride + (block&3)*4
-}
-
-func analysisUVBlockOffset(block int, stride int) int {
-	return (block>>1)*4*stride + (block&1)*4
 }
 
 func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
@@ -394,7 +371,7 @@ func applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens *vp8dec.MacroblockTokens,
 		if dc == 0 {
 			continue
 		}
-		offset := analysisYBlockOffset(block, yStride)
+		offset := vp8enc.AnalysisYBlockOffset(block, yStride)
 		dsp.DCOnlyIDCT4x4Add(dc, y[offset:], yStride, y[offset:], yStride)
 	}
 }

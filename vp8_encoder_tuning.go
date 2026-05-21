@@ -235,7 +235,7 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 		var yAbove [4]uint8
 		var yLeft [4]uint8
 		for block := range 16 {
-			blockOffset := analysisYBlockOffset(block, img.YStride)
+			blockOffset := vp8enc.AnalysisYBlockOffset(block, img.YStride)
 			if !predictAnalysisBPredBlock(vp8common.BDCPred, y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 				return vp8ActivityAvgMin
 			}
@@ -255,7 +255,7 @@ func (e *VP8Encoder) ssimActivityMeasure(src vp8enc.SourceImage, mbRow int, mbCo
 			}
 			yAbove[a] = hasCoeffs
 			yLeft[l] = hasCoeffs
-			addQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
+			vp8enc.AddQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
 		}
 	}
 	if sse < vp8ActivityAvgMin {

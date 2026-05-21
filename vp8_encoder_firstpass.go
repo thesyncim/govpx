@@ -551,7 +551,7 @@ func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceI
 	var yLeft [4]uint8
 	predictionSSE := 0
 	for block := range 16 {
-		blockOffset := analysisYBlockOffset(block, img.YStride)
+		blockOffset := vp8enc.AnalysisYBlockOffset(block, img.YStride)
 		if !predictAnalysisBPredBlock(vp8common.BDCPred, y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			return 0, false
 		}
@@ -571,7 +571,7 @@ func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceI
 		}
 		yAbove[a] = hasCoeffs
 		yLeft[l] = hasCoeffs
-		addQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
+		vp8enc.AddQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
 	}
 	return predictionSSE, true
 }

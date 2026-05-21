@@ -346,7 +346,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			coeffs.SetBlockEOB(block, eob)
 			if collectStats {
 				stats.rateY += vp8enc.CoefficientBlockTokenRate(coefProbs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob)
-				blockDist := transformBlockError(dct, dqY)
+				blockDist := vp8enc.TransformBlockError(dct, dqY)
 				stats.distortionY += blockDist
 				if splitPartitionValid {
 					subset := int(vp8tables.MBSplits[splitPartition&3][block&15])
@@ -382,7 +382,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				coeffs.SetBlockEOB(block, eob)
 				if collectStats {
 					stats.rateY += vp8enc.CoefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
-					blockDist := transformBlockError(dct, &dq)
+					blockDist := vp8enc.TransformBlockError(dct, &dq)
 					stats.distortionY += blockDist
 					if splitPartitionValid {
 						subset := int(vp8tables.MBSplits[splitPartition&3][block&15])
@@ -423,7 +423,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				coeffs.SetBlockEOB(block, eob)
 				if collectStats {
 					stats.rateY += vp8enc.CoefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
-					stats.distortionY += transformBlockError(dct, &dq)
+					stats.distortionY += vp8enc.TransformBlockError(dct, &dq)
 					if eob > 1 {
 						stats.tteob++
 					}
@@ -445,7 +445,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		coeffs.SetBlockEOB(24, eob)
 		if collectStats {
 			stats.rateY += vp8enc.CoefficientBlockTokenRate(coefProbs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
-			y2Error := transformBlockError(&y2Coeff, &dq)
+			y2Error := vp8enc.TransformBlockError(&y2Coeff, &dq)
 			stats.distortionY = ((stats.distortionY << 2) + y2Error) >> 4
 			stats.tteob += eob
 		}
@@ -537,7 +537,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			}
 			if collectStats {
 				stats.rateUV += vp8enc.CoefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
-				stats.distortionUV += transformBlockError(dct, dqU)
+				stats.distortionUV += vp8enc.TransformBlockError(dct, dqU)
 				stats.tteob += eob
 			}
 			if needTokenContext {
@@ -563,7 +563,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 			}
 			if collectStats {
 				stats.rateUV += vp8enc.CoefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
-				stats.distortionUV += transformBlockError(dctV, dqV)
+				stats.distortionUV += vp8enc.TransformBlockError(dctV, dqV)
 				stats.tteob += eob
 			}
 			if needTokenContext {
@@ -644,7 +644,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		}
 		if collectStats {
 			stats.rateUV += vp8enc.CoefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
-			stats.distortionUV += transformBlockError(dct, &dq)
+			stats.distortionUV += vp8enc.TransformBlockError(dct, &dq)
 			stats.tteob += eob
 		}
 		if needTokenContext {
@@ -677,7 +677,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		}
 		if collectStats {
 			stats.rateUV += vp8enc.CoefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
-			stats.distortionUV += transformBlockError(dctV, &dq)
+			stats.distortionUV += vp8enc.TransformBlockError(dctV, &dq)
 			stats.tteob += eob
 		}
 		if needTokenContext {

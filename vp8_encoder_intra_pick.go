@@ -356,7 +356,7 @@ func wholeBlockYTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common.Imag
 		dct[0] = 0
 		dqcoeff[0] = 0
 		rate += vp8enc.CoefficientBlockTokenRate(coefProbs, 0, ctx, 1, &qcoeff, eob)
-		mbblockError += transformBlockError(&dct, &dqcoeff)
+		mbblockError += vp8enc.TransformBlockError(&dct, &dqcoeff)
 		hasCoeffs := uint8(0)
 		if eob > 1 {
 			hasCoeffs = 1
@@ -369,7 +369,7 @@ func wholeBlockYTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common.Imag
 	y2Ctx := int(y2Above + y2Left)
 	y2EOB := quantizeDecisionBlockWithActivity(fastQuant, &y2Coeff, &quant.Y2, zbinOverQuant/2, actZbinAdj, &y2Q, &y2DQ)
 	rate += vp8enc.CoefficientBlockTokenRate(coefProbs, 1, y2Ctx, 0, &y2Q, y2EOB)
-	y2Error := transformBlockError(&y2Coeff, &y2DQ)
+	y2Error := vp8enc.TransformBlockError(&y2Coeff, &y2DQ)
 	distortion := ((mbblockError << 2) + y2Error) >> 4
 	return rate, distortion, uint8(y2EOB), y2Q, yACEOBCount
 }
@@ -484,7 +484,7 @@ func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common
 		ctx := int(uvAbove[a] + uvLeft[l])
 		eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, &quant.UV, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
 		rate += vp8enc.CoefficientBlockTokenRate(coefProbs, 2, ctx, 0, &qcoeff, eob)
-		distortion += transformBlockError(&dct, &dqcoeff)
+		distortion += vp8enc.TransformBlockError(&dct, &dqcoeff)
 		uvEOBSum += eob
 		hasCoeffs := uint8(0)
 		if eob > 0 {
@@ -605,7 +605,7 @@ func predictBestBPredLumaModeRDWithRDConstantsAndEOBs(src vp8enc.SourceImage, qI
 			aboveMode := bPredAnalysisAboveMode(keyFrame, above, modes, block)
 			leftMode := bPredAnalysisLeftMode(keyFrame, left, modes, block)
 			rate := bPredModeRateWithProbs(keyFrame, candidate, aboveMode, leftMode, interBModeProbs) + coefRate
-			dist := transformBlockError(&dct, &dqcoeff) >> 2
+			dist := vp8enc.TransformBlockError(&dct, &dqcoeff) >> 2
 			cost := vp8enc.RDCost(rdMult, rdDiv, rate, dist)
 			if i == 0 || cost < bestCost {
 				var candidateRecon [16]byte

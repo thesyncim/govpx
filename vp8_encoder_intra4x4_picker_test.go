@@ -125,7 +125,7 @@ func TestPredictBestBPredLumaModeRDKeyFrameRateIsModePlusTokens(t *testing.T) {
 			bPredAnalysisLeftMode(true, nil, trackModes, block))
 		oracleModeRate += modeRate
 		oracleTokenRate += tokenRate
-		oracleDist += transformBlockError(&dct, &dqcoeff) >> 2
+		oracleDist += vp8enc.TransformBlockError(&dct, &dqcoeff) >> 2
 
 		// Reconstruct and update neighbor pixels + entropy ctx like the
 		// production picker does so subsequent blocks see the same

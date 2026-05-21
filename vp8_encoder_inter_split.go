@@ -585,7 +585,7 @@ func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, re
 		if eob > 0 {
 			tteob++
 		}
-		distortion += transformBlockError(&dct, &dqcoeff)
+		distortion += vp8enc.TransformBlockError(&dct, &dqcoeff)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
 			hasCoeffs = 1
