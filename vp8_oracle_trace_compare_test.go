@@ -5,8 +5,6 @@ package govpx
 import (
 	"bytes"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -223,52 +221,31 @@ func captureGovpxEncoderTrace(t *testing.T, opts EncoderOptions, sources []Image
 	return append([]byte(nil), trace.Bytes()...)
 }
 
-func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) []byte {
+func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, _ string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) []byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivfPath := filepath.Join(dir, name+".ivf")
-	tracePath := filepath.Join(dir, name+".jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
+	cfg := coracle.VpxencVP8Config{
+		BinaryPath:        vpxencOracle,
+		Width:             opts.Width,
+		Height:            opts.Height,
+		Frames:            len(sources),
+		Deadline:          libvpxOracleDeadline(opts.Deadline),
+		CPUUsed:           opts.CpuUsed,
+		LagInFrames:       0,
+		AutoAltRef:        false,
+		TargetBitrateKbps: targetKbps,
+		MinQ:              4,
+		MaxQ:              56,
+		Timebase:          "1/" + strconv.Itoa(opts.FPS),
+		FPS:               strconv.Itoa(opts.FPS) + "/1",
+		KeyFrameDistSet:   true,
+		KeyFrameMinDist:   999,
+		KeyFrameMaxDist:   999,
+		ExtraArgs:         extraArgs,
 	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=4",
-		"--max-q=56",
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-	}
-	args = append(args, extraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
-	out, err := cmd.CombinedOutput()
+	trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
-		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, out)
-	}
-	trace, err := os.ReadFile(tracePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s returned error: %v", tracePath, err)
+		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)
 	}
 	return trace
 }

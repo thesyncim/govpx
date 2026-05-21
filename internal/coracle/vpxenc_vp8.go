@@ -10,27 +10,28 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// VpxencVP8Config describes a VP8 vpxenc-oracle run over raw I420 frames.
+// VpxencVP8Config describes a VP8 vpxenc-family run over raw I420 frames.
 // Fields map directly to libvpx command-line options; callers own
 // codec-specific policy such as translating public govpx options.
 type VpxencVP8Config struct {
-	BinaryPath        string
-	Width             int
-	Height            int
-	Frames            int
-	Deadline          string
-	CPUUsed           int
-	LagInFrames       int
-	AutoAltRef        bool
-	TargetBitrateKbps int
-	MinQ              int
-	MaxQ              int
-	Timebase          string
-	FPS               string
-	KeyFrameDistSet   bool
-	KeyFrameMinDist   int
-	KeyFrameMaxDist   int
-	ExtraArgs         []string
+	BinaryPath           string
+	Width                int
+	Height               int
+	Frames               int
+	Deadline             string
+	DisableWarningPrompt bool
+	CPUUsed              int
+	LagInFrames          int
+	AutoAltRef           bool
+	TargetBitrateKbps    int
+	MinQ                 int
+	MaxQ                 int
+	Timebase             string
+	FPS                  string
+	KeyFrameDistSet      bool
+	KeyFrameMinDist      int
+	KeyFrameMaxDist      int
+	ExtraArgs            []string
 }
 
 // VpxencVP8FrameFlagsConfig describes a VP8 vpxenc-frameflags run over raw
@@ -63,17 +64,27 @@ type VpxencVP8FrameFlagsConfig struct {
 // VpxencVP8OracleEncodeI420 encodes raw I420 frames with the patched VP8
 // vpxenc-oracle helper and returns the IVF stream.
 func VpxencVP8OracleEncodeI420(raw []byte, cfg VpxencVP8Config) (ivf []byte, diag []byte, err error) {
+	return vpxencVP8EncodeI420(raw, cfg, VpxencOraclePath, "govpx-vpxenc-vp8-oracle-*")
+}
+
+// VpxencVP8EncodeI420 encodes raw I420 frames with the pinned stock VP8
+// vpxenc helper and returns the IVF stream.
+func VpxencVP8EncodeI420(raw []byte, cfg VpxencVP8Config) (ivf []byte, diag []byte, err error) {
+	return vpxencVP8EncodeI420(raw, cfg, VpxencPath, "govpx-vpxenc-vp8-*")
+}
+
+func vpxencVP8EncodeI420(raw []byte, cfg VpxencVP8Config, defaultPath func() (string, error), tempPattern string) (ivf []byte, diag []byte, err error) {
 	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
 		return nil, nil, err
 	}
 	bin := cfg.BinaryPath
 	if bin == "" {
-		bin, err = VpxencOraclePath()
+		bin, err = defaultPath()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	return runVpxencVP8I420(raw, bin, "govpx-vpxenc-vp8-oracle-*", cfg.Width,
+	return runVpxencVP8I420(raw, bin, tempPattern, cfg.Width,
 		cfg.Height, cfg.Frames, cfg.vpxencArgs)
 }
 
@@ -89,6 +100,24 @@ func VpxencVP8OracleFramePayloadsI420(raw []byte, cfg VpxencVP8Config) (frames [
 		return nil, diag, err
 	}
 	return frames, diag, nil
+}
+
+// VpxencVP8OracleTraceI420 encodes raw I420 frames with the patched VP8
+// vpxenc-oracle helper and returns the JSONL oracle trace emitted by the
+// GOVPX_ORACLE_TRACE_OUT side channel.
+func VpxencVP8OracleTraceI420(raw []byte, cfg VpxencVP8Config) (trace []byte, diag []byte, err error) {
+	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
+		return nil, nil, err
+	}
+	bin := cfg.BinaryPath
+	if bin == "" {
+		bin, err = VpxencOraclePath()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return runVpxencVP8TraceI420(raw, bin, "govpx-vpxenc-vp8-oracle-trace-*",
+		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs)
 }
 
 // VpxencVP8FrameFlagsEncodeI420 encodes raw I420 frames with the VP8
@@ -123,32 +152,65 @@ func VpxencVP8FrameFlagsPayloadsI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) 
 }
 
 func runVpxencVP8I420(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string) (ivf []byte, diag []byte, err error) {
+	out, err := runVpxencVP8I420Files(raw, bin, tempPattern, width, height, frames, argsFor, false)
+	if err != nil {
+		return nil, out.diag, err
+	}
+	return out.ivf, out.diag, nil
+}
+
+func runVpxencVP8TraceI420(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string) (trace []byte, diag []byte, err error) {
+	out, err := runVpxencVP8I420Files(raw, bin, tempPattern, width, height, frames, argsFor, true)
+	if err != nil {
+		return nil, out.diag, err
+	}
+	return out.trace, out.diag, nil
+}
+
+type vpxencVP8RunOutput struct {
+	ivf   []byte
+	trace []byte
+	diag  []byte
+}
+
+func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string, trace bool) (vpxencVP8RunOutput, error) {
 	if err := validateI420Raw("VP8 vpxenc", raw, width, height, frames); err != nil {
-		return nil, nil, err
+		return vpxencVP8RunOutput{}, err
 	}
 	dir, err := os.MkdirTemp("", tempPattern)
 	if err != nil {
-		return nil, nil, err
+		return vpxencVP8RunOutput{}, err
 	}
 	defer os.RemoveAll(dir)
 
 	inPath := filepath.Join(dir, "input.i420")
 	outPath := filepath.Join(dir, "output.ivf")
+	tracePath := filepath.Join(dir, "trace.jsonl")
 	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
-		return nil, nil, err
+		return vpxencVP8RunOutput{}, err
 	}
 
 	cmd := exec.Command(bin, argsFor(inPath, outPath)...)
 	cmd.Env = os.Environ()
-	diag, err = cmd.CombinedOutput()
-	if err != nil {
-		return nil, diag, err
+	if trace {
+		cmd.Env = append(cmd.Env, "GOVPX_ORACLE_TRACE_OUT="+tracePath)
 	}
-	ivf, err = os.ReadFile(outPath)
+	diag, err := cmd.CombinedOutput()
+	out := vpxencVP8RunOutput{diag: diag}
 	if err != nil {
-		return nil, diag, err
+		return out, err
 	}
-	return ivf, diag, nil
+	out.ivf, err = os.ReadFile(outPath)
+	if err != nil {
+		return out, err
+	}
+	if trace {
+		out.trace, err = os.ReadFile(tracePath)
+		if err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }
 
 func (cfg VpxencVP8Config) vpxencArgs(inPath string, outPath string) []string {
@@ -164,22 +226,32 @@ func (cfg VpxencVP8Config) vpxencArgs(inPath string, outPath string) []string {
 		"--codec=vp8",
 		"--ivf",
 		"--quiet",
-		"--disable-warning-prompt",
-		"--" + deadline,
-		"--cpu-used=" + strconv.Itoa(cfg.CPUUsed),
-		"--lag-in-frames=" + strconv.Itoa(cfg.LagInFrames),
-		autoAltRef,
-		"--target-bitrate=" + strconv.Itoa(cfg.TargetBitrateKbps),
-		"--min-q=" + strconv.Itoa(cfg.MinQ),
-		"--max-q=" + strconv.Itoa(cfg.MaxQ),
-		"--i420",
-		"--width=" + strconv.Itoa(cfg.Width),
-		"--height=" + strconv.Itoa(cfg.Height),
-		"--timebase=" + cfg.Timebase,
-		"--fps=" + cfg.FPS,
-		"--limit=" + strconv.Itoa(cfg.Frames),
-		"--output=" + outPath,
 	}
+	if cfg.DisableWarningPrompt {
+		args = append(args, "--disable-warning-prompt")
+	}
+	args = append(args,
+		"--"+deadline,
+		"--cpu-used="+strconv.Itoa(cfg.CPUUsed),
+		"--lag-in-frames="+strconv.Itoa(cfg.LagInFrames),
+		autoAltRef,
+		"--target-bitrate="+strconv.Itoa(cfg.TargetBitrateKbps),
+		"--min-q="+strconv.Itoa(cfg.MinQ),
+		"--max-q="+strconv.Itoa(cfg.MaxQ),
+		"--i420",
+		"--width="+strconv.Itoa(cfg.Width),
+		"--height="+strconv.Itoa(cfg.Height),
+	)
+	if cfg.Timebase != "" {
+		args = append(args, "--timebase="+cfg.Timebase)
+	}
+	if cfg.FPS != "" {
+		args = append(args, "--fps="+cfg.FPS)
+	}
+	args = append(args,
+		"--limit="+strconv.Itoa(cfg.Frames),
+		"--output="+outPath,
+	)
 	if cfg.KeyFrameDistSet {
 		args = append(args,
 			"--kf-min-dist="+strconv.Itoa(cfg.KeyFrameMinDist),

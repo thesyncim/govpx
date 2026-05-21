@@ -9,27 +9,29 @@ import (
 
 func TestVpxencVP8ConfigArgs(t *testing.T) {
 	cfg := VpxencVP8Config{
-		Width:             64,
-		Height:            32,
-		Frames:            3,
-		Deadline:          "rt",
-		CPUUsed:           -4,
-		LagInFrames:       5,
-		AutoAltRef:        true,
-		TargetBitrateKbps: 700,
-		MinQ:              4,
-		MaxQ:              56,
-		Timebase:          "1/90000",
-		FPS:               "30/1",
-		KeyFrameDistSet:   true,
-		KeyFrameMinDist:   9,
-		KeyFrameMaxDist:   11,
-		ExtraArgs:         []string{"--end-usage=vbr", "--sharpness=3"},
+		Width:                64,
+		Height:               32,
+		Frames:               3,
+		Deadline:             "rt",
+		DisableWarningPrompt: true,
+		CPUUsed:              -4,
+		LagInFrames:          5,
+		AutoAltRef:           true,
+		TargetBitrateKbps:    700,
+		MinQ:                 4,
+		MaxQ:                 56,
+		Timebase:             "1/90000",
+		FPS:                  "30/1",
+		KeyFrameDistSet:      true,
+		KeyFrameMinDist:      9,
+		KeyFrameMaxDist:      11,
+		ExtraArgs:            []string{"--end-usage=vbr", "--sharpness=3"},
 	}
 	args := cfg.vpxencArgs("input.i420", "output.ivf")
 
 	for _, want := range []string{
 		"--codec=vp8",
+		"--disable-warning-prompt",
 		"--rt",
 		"--cpu-used=-4",
 		"--lag-in-frames=5",
@@ -184,9 +186,19 @@ func TestVpxencVP8EncodeI420ValidatesBeforePathLookup(t *testing.T) {
 	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
 		t.Fatal("VpxencVP8OracleEncodeI420 looked up helper before validating input")
 	}
+	if _, _, err := VpxencVP8EncodeI420(nil, VpxencVP8Config{Width: 16, Height: 16, Frames: 1}); err == nil {
+		t.Fatal("VpxencVP8EncodeI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencNotBuilt) {
+		t.Fatal("VpxencVP8EncodeI420 looked up helper before validating input")
+	}
 	if _, _, err := VpxencVP8FrameFlagsEncodeI420(nil, VpxencVP8FrameFlagsConfig{Width: 16, Height: 16, Frames: 1}); err == nil {
 		t.Fatal("VpxencVP8FrameFlagsEncodeI420 accepted empty input")
 	} else if errors.Is(err, ErrVpxencFrameFlagsNotBuilt) {
 		t.Fatal("VpxencVP8FrameFlagsEncodeI420 looked up helper before validating input")
+	}
+	if _, _, err := VpxencVP8OracleTraceI420(nil, VpxencVP8Config{Width: 16, Height: 16, Frames: 1}); err == nil {
+		t.Fatal("VpxencVP8OracleTraceI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
+		t.Fatal("VpxencVP8OracleTraceI420 looked up helper before validating input")
 	}
 }

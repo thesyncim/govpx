@@ -5,11 +5,10 @@ import (
 	"io"
 	"math"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -246,53 +245,47 @@ func encodeGopvxValidationCorpus(t *testing.T, tc encoderValidationCase, sources
 
 func encodeLibvpxValidationCorpus(t *testing.T, vpxenc string, tc encoderValidationCase, sources []Image) []byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, tc.name+".yuv")
-	ivfPath := filepath.Join(dir, tc.name+".ivf")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	deadlineArg := "--good"
-	switch tc.opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(tc.opts.CpuUsed),
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
+	extraArgs := []string{
 		"--end-usage=cbr",
-		"--target-bitrate=" + strconv.Itoa(tc.targetKbps),
-		"--min-q=4",
-		"--max-q=56",
 		"--buf-sz=600",
 		"--buf-initial-sz=400",
 		"--buf-optimal-sz=500",
-		"--i420",
-		"--width=" + strconv.Itoa(tc.width),
-		"--height=" + strconv.Itoa(tc.height),
-		"--fps=" + strconv.Itoa(tc.fps) + "/1",
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
 	}
-	args = append(args, tc.libvpxArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxenc, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("vpxenc failed: %v\n%s", err, out)
+	extraArgs = append(extraArgs, tc.libvpxArgs...)
+	cfg := coracle.VpxencVP8Config{
+		BinaryPath:        vpxenc,
+		Width:             tc.width,
+		Height:            tc.height,
+		Frames:            len(sources),
+		Deadline:          libvpxValidationDeadline(tc.opts.Deadline),
+		CPUUsed:           tc.opts.CpuUsed,
+		LagInFrames:       0,
+		AutoAltRef:        false,
+		TargetBitrateKbps: tc.targetKbps,
+		MinQ:              4,
+		MaxQ:              56,
+		FPS:               strconv.Itoa(tc.fps) + "/1",
+		KeyFrameDistSet:   true,
+		KeyFrameMinDist:   999,
+		KeyFrameMaxDist:   999,
+		ExtraArgs:         extraArgs,
 	}
-	ivf, err := os.ReadFile(ivfPath)
+	ivf, diag, err := coracle.VpxencVP8EncodeI420(encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
-		t.Fatalf("ReadFile %s returned error: %v", ivfPath, err)
+		t.Fatalf("vpxenc failed: %v\n%s", err, diag)
 	}
 	return ivf
+}
+
+func libvpxValidationDeadline(deadline Deadline) string {
+	switch deadline {
+	case DeadlineBestQuality:
+		return "best"
+	case DeadlineRealtime:
+		return "rt"
+	default:
+		return "good"
+	}
 }
 
 func writeEncoderValidationI420(t *testing.T, path string, frames []Image) {
