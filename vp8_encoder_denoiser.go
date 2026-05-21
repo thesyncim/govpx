@@ -393,15 +393,15 @@ func (e *VP8Encoder) copyDenoiserAvgForRefresh(cfg vp8enc.InterFrameStateConfig)
 	intra := &e.denoiser.runningAvg[denoiserAvgIntra]
 	intra.ExtendBorders()
 	if cfg.RefreshLast {
-		copyFrameImage(&e.denoiser.runningAvg[denoiserAvgLast].Img, &intra.Img)
+		vp8common.CopyImage(&e.denoiser.runningAvg[denoiserAvgLast].Img, &intra.Img)
 		e.denoiser.runningAvg[denoiserAvgLast].ExtendBorders()
 	}
 	if cfg.RefreshGolden || cfg.CopyBufferToGolden != 0 {
-		copyFrameImage(&e.denoiser.runningAvg[denoiserAvgGolden].Img, &intra.Img)
+		vp8common.CopyImage(&e.denoiser.runningAvg[denoiserAvgGolden].Img, &intra.Img)
 		e.denoiser.runningAvg[denoiserAvgGolden].ExtendBorders()
 	}
 	if cfg.RefreshAltRef || cfg.CopyBufferToAltRef != 0 {
-		copyFrameImage(&e.denoiser.runningAvg[denoiserAvgAltRef].Img, &intra.Img)
+		vp8common.CopyImage(&e.denoiser.runningAvg[denoiserAvgAltRef].Img, &intra.Img)
 		e.denoiser.runningAvg[denoiserAvgAltRef].ExtendBorders()
 	}
 }

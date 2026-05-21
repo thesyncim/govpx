@@ -145,7 +145,7 @@ import (
 //     `refreshKeyFrameReferencesFromAnalysis` /
 //     `refreshInterFrameReferencesFromAnalysis` /
 //     `refreshZeroInterFrameReferences` / `copyInterFrameReferences`
-//     so every per-buffer "ExtendBorders" after a `copyFrameImage`
+//     so every per-buffer "ExtendBorders" after a `vp8common.CopyImage`
 //     becomes visible-extend.
 //  3. Mirror the swap in `setReferenceFrameNow` and the source-side
 //     `vp8enc.CopySourceToFrameBuffer*` (replacing

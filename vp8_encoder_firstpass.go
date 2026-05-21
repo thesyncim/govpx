@@ -255,18 +255,18 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 		(stats.IntraError/doubleDivideCheck(stats.CodedError)) > 2.0 &&
 		e.firstPassLastRef.Img.Width == src.Width &&
 		e.firstPassLastRef.Img.Height == src.Height {
-		copyFrameImage(&e.firstPassGoldenRef.Img, &e.firstPassLastRef.Img)
+		vp8common.CopyImage(&e.firstPassGoldenRef.Img, &e.firstPassLastRef.Img)
 		e.firstPassGoldenRef.ExtendBorders()
 	}
 
-	copyFrameImage(&e.firstPassLastRef.Img, &e.firstPassNewRef.Img)
+	vp8common.CopyImage(&e.firstPassLastRef.Img, &e.firstPassNewRef.Img)
 	e.firstPassLastRef.ExtendBorders()
 	vp8enc.CopySourceToFrameBuffer(&e.firstPassLastSource, srcImg)
 
 	// Special case for the first frame (libvpx firstpass.c): copy LAST into
 	// GF as a second reference.
 	if e.firstPassCount == 0 {
-		copyFrameImage(&e.firstPassGoldenRef.Img, &e.firstPassLastRef.Img)
+		vp8common.CopyImage(&e.firstPassGoldenRef.Img, &e.firstPassLastRef.Img)
 		e.firstPassGoldenRef.ExtendBorders()
 	}
 	e.firstPassCount++

@@ -7,13 +7,13 @@ import (
 
 func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.resetGoldenFrameStats()
-	copyFrameImage(&e.current.Img, &e.analysis.Img)
+	vp8common.CopyImage(&e.current.Img, &e.analysis.Img)
 	e.current.ExtendBorders()
-	copyFrameImage(&e.lastRef.Img, &e.current.Img)
+	vp8common.CopyImage(&e.lastRef.Img, &e.current.Img)
 	e.lastRef.ExtendBorders()
-	copyFrameImage(&e.goldenRef.Img, &e.current.Img)
+	vp8common.CopyImage(&e.goldenRef.Img, &e.current.Img)
 	e.goldenRef.ExtendBorders()
-	copyFrameImage(&e.altRef.Img, &e.current.Img)
+	vp8common.CopyImage(&e.altRef.Img, &e.current.Img)
 	e.altRef.ExtendBorders()
 	e.lastFrameInterModesValid = false
 	e.goldenRefAliasesLast = true
@@ -42,21 +42,21 @@ func (e *VP8Encoder) rememberLastFrameInterModes(signBias [vp8common.MaxRefFrame
 }
 
 func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateConfig, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame) {
-	copyFrameImage(&e.current.Img, ref)
+	vp8common.CopyImage(&e.current.Img, ref)
 	e.current.ExtendBorders()
 	e.copyInterFrameReferences(cfg)
 	if cfg.RefreshLast && refFrame != vp8common.LastFrame {
-		copyFrameImage(&e.lastRef.Img, &e.current.Img)
+		vp8common.CopyImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceLast)
 	}
 	if cfg.RefreshGolden && refFrame != vp8common.GoldenFrame {
-		copyFrameImage(&e.goldenRef.Img, &e.current.Img)
+		vp8common.CopyImage(&e.goldenRef.Img, &e.current.Img)
 		e.goldenRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	}
 	if cfg.RefreshAltRef && refFrame != vp8common.AltRefFrame {
-		copyFrameImage(&e.altRef.Img, &e.current.Img)
+		vp8common.CopyImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	}
@@ -65,21 +65,21 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
-	copyFrameImage(&e.current.Img, &e.analysis.Img)
+	vp8common.CopyImage(&e.current.Img, &e.analysis.Img)
 	e.current.ExtendBorders()
 	e.copyInterFrameReferences(cfg)
 	if cfg.RefreshLast {
-		copyFrameImage(&e.lastRef.Img, &e.current.Img)
+		vp8common.CopyImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceLast)
 	}
 	if cfg.RefreshGolden {
-		copyFrameImage(&e.goldenRef.Img, &e.current.Img)
+		vp8common.CopyImage(&e.goldenRef.Img, &e.current.Img)
 		e.goldenRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	}
 	if cfg.RefreshAltRef {
-		copyFrameImage(&e.altRef.Img, &e.current.Img)
+		vp8common.CopyImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	}
@@ -192,21 +192,21 @@ func (e *VP8Encoder) updateInterReferenceAliases(cfg vp8enc.InterFrameStateConfi
 func (e *VP8Encoder) copyInterFrameReferences(cfg vp8enc.InterFrameStateConfig) {
 	switch cfg.CopyBufferToAltRef {
 	case 1:
-		copyFrameImage(&e.altRef.Img, &e.lastRef.Img)
+		vp8common.CopyImage(&e.altRef.Img, &e.lastRef.Img)
 		e.altRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	case 2:
-		copyFrameImage(&e.altRef.Img, &e.goldenRef.Img)
+		vp8common.CopyImage(&e.altRef.Img, &e.goldenRef.Img)
 		e.altRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceAltRef)
 	}
 	switch cfg.CopyBufferToGolden {
 	case 1:
-		copyFrameImage(&e.goldenRef.Img, &e.lastRef.Img)
+		vp8common.CopyImage(&e.goldenRef.Img, &e.lastRef.Img)
 		e.goldenRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	case 2:
-		copyFrameImage(&e.goldenRef.Img, &e.altRef.Img)
+		vp8common.CopyImage(&e.goldenRef.Img, &e.altRef.Img)
 		e.goldenRef.ExtendBorders()
 		e.clearLatestLookaheadReferenceFrame(ReferenceGolden)
 	}

@@ -610,7 +610,7 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationClearsCyclicSe
 	src := testImage(16, 16)
 	fillImage(src, 40, 90, 170)
 	golden := testVP8Frame(t, 16, 16, 40, 90, 170)
-	copyFrameImage(&e.goldenRef.Img, &golden.Img)
+	vp8common.CopyImage(&e.goldenRef.Img, &golden.Img)
 	e.goldenRef.ExtendBorders()
 	fillBenchmarkVP8Image(&e.lastRef.Img, 220, 90, 170)
 	e.lastRef.ExtendBorders()

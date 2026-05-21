@@ -461,7 +461,7 @@ func (ctx *loopFilterPickContext) pickFullNoStats(seedLevel uint8, minLevel int)
 				// parallel that filtLow-filtered luma is in
 				// loopFilterPickAlt instead, so we copy from there.
 				if filtBest > 0 && bestLumaLevel != filtBest {
-					copyFrameImageLuma(&e.loopFilterBest.Img, &e.loopFilterPickAlt.Img)
+					vp8common.CopyImageLuma(&e.loopFilterBest.Img, &e.loopFilterPickAlt.Img)
 					bestLumaLevel = filtBest
 				}
 			}
@@ -573,7 +573,7 @@ func (ctx *loopFilterPickContext) pickFullStats(seedLevel uint8, minLevel int, s
 				}
 				filtBest = filtLow
 				if filtBest > 0 && bestLumaLevel != filtBest {
-					copyFrameImageLuma(&e.loopFilterBest.Img, &e.loopFilterPickAlt.Img)
+					vp8common.CopyImageLuma(&e.loopFilterBest.Img, &e.loopFilterPickAlt.Img)
 					bestLumaLevel = filtBest
 				}
 			}
@@ -641,7 +641,7 @@ func (ctx *loopFilterPickContext) preserveBestLoopFilterLumaBeforeTrial(nextLeve
 		return
 	}
 	if residentLevel == bestLevel && *bestLumaLevel != bestLevel {
-		copyFrameImageLuma(&ctx.encoder.loopFilterBest.Img, &ctx.encoder.loopFilterPick.Img)
+		vp8common.CopyImageLuma(&ctx.encoder.loopFilterBest.Img, &ctx.encoder.loopFilterPick.Img)
 		*bestLumaLevel = bestLevel
 	}
 }
@@ -767,7 +767,7 @@ func (ctx *loopFilterPickContext) trialLumaSSEPartialStats(level int, stats *Enc
 
 func (ctx *loopFilterPickContext) trialLumaSSEFull(level int) int {
 	e := ctx.encoder
-	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
+	vp8common.CopyImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)
 	return loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
 }
@@ -776,7 +776,7 @@ func (ctx *loopFilterPickContext) trialLumaSSEFullStats(level int, stats *Encode
 	e := ctx.encoder
 	stats.LoopFilterTrials++
 	phase := nanotime()
-	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
+	vp8common.CopyImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	stats.LoopFilterTrialCopyNS += nanotime() - phase
 	phase = nanotime()
 	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)
@@ -1019,7 +1019,7 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 		if e.loopFilterPickBest {
 			reuse = &e.loopFilterBest.Img
 		}
-		copyFrameImageLuma(&e.analysis.Img, reuse)
+		vp8common.CopyImageLuma(&e.analysis.Img, reuse)
 		if header.Type == vp8dec.NormalLoopFilter {
 			if err := e.applyChromaOnlyLoopFilter(rows, cols, required, frameType, header, segmentation); err != nil {
 				e.loopFilterPickReady = false

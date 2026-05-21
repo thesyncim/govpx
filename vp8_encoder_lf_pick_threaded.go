@@ -48,7 +48,7 @@ type lfTrialArgs struct {
 func (p *rowWorkerPool) runLFTrialWorker(workerIndex int) {
 	_ = workerIndex
 	args := &p.lfTrial
-	copyFrameImageLuma(args.dst, args.srcImg)
+	vp8common.CopyImageLuma(args.dst, args.srcImg)
 	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(
 		args.dst,
 		args.rows,
@@ -127,7 +127,7 @@ func (ctx *loopFilterPickContext) dispatchLFTrialPair(lowLevel int, highLevel in
 	// resident-level bookkeeping in pickFull matches the serial state
 	// after this iteration (residentLevel == highLevel,
 	// loopFilterPick.Y == highLevel-filtered luma).
-	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
+	vp8common.CopyImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(
 		&e.loopFilterPick.Img,
 		ctx.rows,

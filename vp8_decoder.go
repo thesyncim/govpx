@@ -730,7 +730,7 @@ func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (Fram
 	if err := d.reconstructFrame(StreamInfo{Profile: 0}); err != nil {
 		return FrameInfo{}, err
 	}
-	copyExtendedFrameImage(&d.lastRef.Img, &d.current.Img)
+	vp8common.CopyExtendedImage(&d.lastRef.Img, &d.current.Img)
 	d.saveErrorConcealmentModes()
 	return d.finishConcealedFrame(info, pts), nil
 }
@@ -1054,28 +1054,28 @@ func (d *VP8Decoder) refreshReferences() bool {
 	suppress := false
 	switch d.state.Refresh.CopyBufferToAltRef {
 	case 1:
-		copyExtendedFrameImage(&d.altRef.Img, &d.lastRef.Img)
+		vp8common.CopyExtendedImage(&d.altRef.Img, &d.lastRef.Img)
 	case 2:
-		copyExtendedFrameImage(&d.altRef.Img, &d.goldenRef.Img)
+		vp8common.CopyExtendedImage(&d.altRef.Img, &d.goldenRef.Img)
 	case 3:
 		suppress = true
 	}
 	switch d.state.Refresh.CopyBufferToGolden {
 	case 1:
-		copyExtendedFrameImage(&d.goldenRef.Img, &d.lastRef.Img)
+		vp8common.CopyExtendedImage(&d.goldenRef.Img, &d.lastRef.Img)
 	case 2:
-		copyExtendedFrameImage(&d.goldenRef.Img, &d.altRef.Img)
+		vp8common.CopyExtendedImage(&d.goldenRef.Img, &d.altRef.Img)
 	case 3:
 		suppress = true
 	}
 	if d.state.Refresh.RefreshLast {
-		copyExtendedFrameImage(&d.lastRef.Img, &d.current.Img)
+		vp8common.CopyExtendedImage(&d.lastRef.Img, &d.current.Img)
 	}
 	if d.state.Refresh.RefreshGolden {
-		copyExtendedFrameImage(&d.goldenRef.Img, &d.current.Img)
+		vp8common.CopyExtendedImage(&d.goldenRef.Img, &d.current.Img)
 	}
 	if d.state.Refresh.RefreshAltRef {
-		copyExtendedFrameImage(&d.altRef.Img, &d.current.Img)
+		vp8common.CopyExtendedImage(&d.altRef.Img, &d.current.Img)
 	}
 	return suppress
 }
@@ -1103,36 +1103,6 @@ func (d *VP8Decoder) referenceFramesInitialized() bool {
 		d.frameWidth > 0 &&
 		d.frameHeight > 0 &&
 		d.lastRef.BufferLen() != 0
-}
-
-func copyExtendedFrameImage(dst *vp8common.Image, src *vp8common.Image) {
-	copy(dst.YFull, src.YFull)
-	copy(dst.UFull, src.UFull)
-	copy(dst.VFull, src.VFull)
-}
-
-func copyFrameImage(dst *vp8common.Image, src *vp8common.Image) {
-	copy(dst.Y, src.Y)
-	copy(dst.U, src.U)
-	copy(dst.V, src.V)
-}
-
-func copyFrameImageLuma(dst *vp8common.Image, src *vp8common.Image) {
-	if dst == nil || src == nil {
-		return
-	}
-	width := min(dst.CodedWidth, src.CodedWidth)
-	height := min(dst.CodedHeight, src.CodedHeight)
-	if min(width, height) <= 0 {
-		return
-	}
-	if dst.YStride == src.YStride && width == dst.YStride {
-		copy(dst.Y[:height*dst.YStride], src.Y[:height*src.YStride])
-		return
-	}
-	for row := range height {
-		copy(dst.Y[row*dst.YStride:row*dst.YStride+width], src.Y[row*src.YStride:row*src.YStride+width])
-	}
 }
 
 func publicImageFromVP8(src *vp8common.Image) Image {
