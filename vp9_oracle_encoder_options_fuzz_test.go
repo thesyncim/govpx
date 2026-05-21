@@ -5,14 +5,12 @@ package govpx
 import (
 	"bytes"
 	"crypto/sha256"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // vp9NormalizeFuzzOptionsForLibvpxCLI rewrites VP9EncoderOptions fields that
@@ -285,21 +283,12 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 func tryVP9LibvpxKeyFrameBytes(t *testing.T, opts VP9EncoderOptions, src *image.YCbCr) []byte {
 	t.Helper()
 	coracletest.VpxencVP9(t)
-	raw := vp9test.AppendI420(nil, src)
 	extra := vp9LibvpxOracleArgsFromOptions(opts)
-	ivf, _, err := coracle.VpxencVP9EncodeI420(raw, opts.Width, opts.Height, 1, extra...)
-	if err != nil || len(ivf) == 0 {
+	packets, _, err := vp9test.VpxencPacketsResult([]*image.YCbCr{src}, extra...)
+	if err != nil || len(packets) == 0 {
 		return nil
 	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		return nil
-	}
-	first, _, err := testutil.NextIVFFrame(ivf, offset, 0)
-	if err != nil {
-		return nil
-	}
-	return append([]byte(nil), first.Data...)
+	return append([]byte(nil), packets[0]...)
 }
 
 // vp9LibvpxOracleArgsFromOptions builds the vpxenc-vp9 extra-arg slice for a

@@ -4,13 +4,12 @@ package govpx
 
 import (
 	"bytes"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // FuzzVP9DecoderAgainstLibvpx mirrors FuzzVP8DecoderAgainstLibvpx (F4) for VP9:
@@ -76,15 +75,7 @@ func vp9FuzzSeedIVF(f *testing.F, width, height, frames int) []byte {
 	for i := range srcs {
 		srcs[i] = vp9test.NewYCbCr(width, height, 128, 128, 128)
 	}
-	var raw []byte
-	for _, s := range srcs {
-		raw = vp9test.AppendI420(raw, s)
-	}
-	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, frames)
-	if err != nil {
-		f.Skipf("vpxenc-vp9 seed encode failed: %v\n%s", err, diag)
-	}
-	return ivf
+	return vp9test.VpxencIVF(f, srcs)
 }
 
 // decodeVP9IVFGovpxBestEffort parses data as an IVF container and feeds each
@@ -140,10 +131,10 @@ func decodeVP9IVFLibvpxBestEffort(t *testing.T, data []byte) ([][]byte, error) {
 	if headerErr != nil {
 		// vpxdec also won't produce frames from an unparseable IVF header;
 		// the outcome is "no frames" regardless.
-		_, _, _ = coracle.VpxdecVP9DecodeI420(data) // probe to surface vpxdec error if any.
+		_, _ = vp9test.VpxdecI420Result(data) // probe to surface vpxdec error if any.
 		return nil, headerErr
 	}
-	raw, _, err := coracle.VpxdecVP9DecodeI420(data)
+	raw, err := vp9test.VpxdecI420Result(data)
 	if err != nil {
 		// vpxdec may have written some frames before erroring.
 		return nil, err

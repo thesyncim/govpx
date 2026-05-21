@@ -3,6 +3,7 @@
 package vp9test
 
 import (
+	"fmt"
 	"image"
 	"testing"
 
@@ -23,11 +24,20 @@ type VpxdecOptions struct {
 
 func VpxdecI420(t testing.TB, ivf []byte) []byte {
 	t.Helper()
-	out, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	out, diag, err := vpxdecI420(ivf)
 	if err != nil {
 		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
 	}
 	return out
+}
+
+func VpxdecI420Result(ivf []byte) ([]byte, error) {
+	out, _, err := vpxdecI420(ivf)
+	return out, err
+}
+
+func vpxdecI420(ivf []byte) (out []byte, diag []byte, err error) {
+	return coracle.VpxdecVP9DecodeI420(ivf)
 }
 
 func VpxdecAccepts(t testing.TB, label string, width, height int, packets ...[]byte) {
@@ -57,9 +67,55 @@ func VpxdecI420WithOptions(t testing.TB, ivf []byte, opts VpxdecOptions) []byte 
 	return out
 }
 
+func VpxdecWebMI420(t testing.TB, webm []byte) []byte {
+	t.Helper()
+	out, diag, err := coracle.VpxdecVP9DecodeWebMI420(webm)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 WebM decode failed: %v\n%s", err, diag)
+	}
+	return out
+}
+
+func VpxdecRejectsI420(t testing.TB, ivf []byte) {
+	t.Helper()
+	if _, _, err := coracle.VpxdecVP9DecodeI420(ivf); err == nil {
+		t.Fatal("libvpx vpxdec accepted invalid VP90 IVF")
+	}
+}
+
 func VpxencPackets(t testing.TB, sources []*image.YCbCr, extraArgs ...string) [][]byte {
 	t.Helper()
-	width, height := requireSameSizeSources(t, "VP9 vpxenc source", sources)
+	packets, diag, err := VpxencPacketsResult(sources, extraArgs...)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+	}
+	return packets
+}
+
+func VpxencPacketsResult(sources []*image.YCbCr, extraArgs ...string) ([][]byte, []byte, error) {
+	width, height, err := sameSizeSources("VP9 vpxenc source", sources)
+	if err != nil {
+		return nil, nil, err
+	}
+	var raw []byte
+	for _, src := range sources {
+		raw = AppendI420(raw, src)
+	}
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height,
+		len(sources), extraArgs...)
+	if err != nil {
+		return nil, diag, err
+	}
+	packets, err := testutil.IVFFramePayloads(ivf)
+	if err != nil {
+		return nil, diag, err
+	}
+	return packets, diag, nil
+}
+
+func VpxencIVF(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []byte {
+	t.Helper()
+	width, height := requireSameSizeSources(t, "VP9 vpxenc IVF source", sources)
 	var raw []byte
 	for _, src := range sources {
 		raw = AppendI420(raw, src)
@@ -69,7 +125,7 @@ func VpxencPackets(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
 	}
-	return RequireIVFPackets(t, ivf, len(sources))
+	return ivf
 }
 
 func VpxencFrameFlagPackets(t testing.TB, sources []*image.YCbCr, frameFlags []uint32, extraArgs ...string) [][]byte {
@@ -199,16 +255,24 @@ func vpxencPacketsForTraceRows(t testing.TB, label string, ivf []byte,
 
 func requireSameSizeSources(t testing.TB, label string, sources []*image.YCbCr) (width, height int) {
 	t.Helper()
+	width, height, err := sameSizeSources(label, sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return width, height
+}
+
+func sameSizeSources(label string, sources []*image.YCbCr) (width, height int, err error) {
 	if len(sources) == 0 {
-		t.Fatalf("empty %s", label)
+		return 0, 0, fmt.Errorf("empty %s", label)
 	}
 	width = sources[0].Rect.Dx()
 	height = sources[0].Rect.Dy()
 	for i, src := range sources {
 		if src.Rect.Dx() != width || src.Rect.Dy() != height {
-			t.Fatalf("%s %d dimension mismatch: got %dx%d want %dx%d",
+			return 0, 0, fmt.Errorf("%s %d dimension mismatch: got %dx%d want %dx%d",
 				label, i, src.Rect.Dx(), src.Rect.Dy(), width, height)
 		}
 	}
-	return width, height
+	return width, height, nil
 }
