@@ -21,12 +21,9 @@
 //   - libvpx integrates TPL with the alt-ref / show-existing scheduler.  govpx
 //     restricts TPL to source-order frames only and skips the pass while an
 //     alt-ref is pending.
-//   - libvpx's per-SB rdmult delta is wired into both the keyframe partition
-//     search and the inter mode picker.  govpx currently wires it only into
-//     the keyframe mode picker; the inter mode picker uses a non-Lagrangian
-//     score (rate * (1 + qindex/32), vp9_encoder.go::vp9ModeDecisionRateScore)
-//     that is not compatible with libvpx's rdmult shape and is left as a TODO
-//     until the inter picker is Lagrangianised.
+//   - govpx applies the TPL rdmult delta in keyframe and inter mode scoring.
+//     The pass still differs from libvpx by using source-order frames and a
+//     32x32 SB aggregation rather than libvpx's full scheduler and 8x8 MI grid.
 package encoder
 
 import (

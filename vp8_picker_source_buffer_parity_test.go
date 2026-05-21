@@ -4,12 +4,12 @@ import (
 	"testing"
 )
 
-// TestVP8PickerSourceBufferParity pins task #307's NEGATIVE finding for
-// the BestARNR (-5 byte) / GoodARNR (-6 byte) ARNR audit pin-hold residual
-// (see vp8_kf_1280x720_ssim_best_arnr_parity_test.go and
+// TestVP8PickerSourceBufferParity rules out source-buffer routing as the
+// BestARNR / GoodARNR ARNR residual cause (see
+// vp8_kf_1280x720_ssim_best_arnr_parity_test.go and
 // vp8_kf_1280x720_ssim_good_arnr_parity_test.go).
 //
-// HYPOTHESIS (orthogonal to task #304's residual / predictor probe):
+// HYPOTHESIS:
 //
 //	The govpx and libvpx RD pickers may read the MB(0,0) frame-1 NEWMV
 //	source samples from DIFFERENT in-memory buffers. libvpx routes the
@@ -25,8 +25,7 @@ import (
 //	hypothesized failure mode is: libvpx reads the picker source from a
 //	temporally filtered alt_ref_buffer while govpx reads from the raw
 //	lookahead frame, producing a per-pixel source delta that propagates
-//	through the residual into the NEWMV picker's all-zero Y qcoeff
-//	(task #298).
+//	through the residual into the NEWMV picker's all-zero Y qcoeff.
 //
 // AUDIT RESULT: the hypothesis is INCORRECT. For the BestARNR / GoodARNR
 // cohort the ARNR temporal filter does NOT fire on either side; both
@@ -83,9 +82,8 @@ import (
 // surfaces an explicit test break instead of a silent picker source
 // drift.
 //
-// CONSTRAINT for task #304 (residual / predictor probe): the MB(0,0)
-// frame 1 NEWMV picker source samples MATCH byte-for-byte between
-// govpx and libvpx. The all-zero Y qcoeff divergence task #298 surfaced
+// CONSTRAINT: the MB(0,0) frame 1 NEWMV picker source samples MATCH
+// byte-for-byte between govpx and libvpx. The all-zero Y qcoeff divergence
 // is NOT explained by a source-buffer routing skew; it must lie in
 // the residual computation (predictor reference pixels, sub-pel filter,
 // or the predicted-vs-source subtract) or the FDCT.

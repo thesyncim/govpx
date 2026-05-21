@@ -12,19 +12,19 @@ import (
 // libvpx-verbatim re-derivation of `vp8_initialize_rd_consts` followed by
 // `optimize_b`'s `rdmult = mb->rdmult * plane_rd_mult[type]` step.
 //
-// Audit chain context (per task #314 + #316):
+// Context:
 //
 //	The BestARNR 1280x720 SSIM cohort (seed 19981bff) holds a 5-byte frame-1
-//	bitstream drift sourced inside the chroma trellis (`blockType=2`). Task
-//	#316's POST-trellis bisect found the trace showing govpx rdmult=326 vs
-//	libvpx rdmult=551 at MB(0,0) block 16 — but the audit below (task #319)
-//	walks the structural chain and discovers the 326/551 split is a
-//	TRACE-EMIT ASYMMETRY (govpx emitting the PRE-activity-masking value
-//	while libvpx emits the POST-activity-masking x->rdmult). The actual
+//	bitstream drift sourced inside the chroma trellis (`blockType=2`). The
+//	post-trellis trace first appeared to show govpx rdmult=326 vs libvpx
+//	rdmult=551 at MB(0,0) block 16, but the structural audit below shows the
+//	326/551 split is a trace-emission asymmetry: govpx emitted the
+//	pre-activity-masking value while libvpx emitted the post-activity
+//	x->rdmult value. The actual
 //	value consumed by the trellis on both sides matches once activity-
-//	masking is applied — consistent with task #210's per-MB activity
-//	quartet (mb_activity, act_zbin_adj, rdmult, activity_avg) pinning a
-//	byte-identical match for every MB on frame 1.
+//	masking is applied, consistent with the per-MB activity quartet
+//	(mb_activity, act_zbin_adj, rdmult, activity_avg) matching every MB on
+//	frame 1.
 //
 //	This audit re-derives the chroma rdMult/rdDiv from first principles
 //	and pins:

@@ -14,17 +14,10 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// FuzzVP9EncoderTwoPassByteParity mirrors FuzzEncoderTwoPassByteParity for
-// VP9: fuzz-driven option grid drives the libvpx VP9 vpxenc two-pass path and
-// captures both pass-1 stats and pass-2 byte parity. The govpx VP9 encoder
-// currently has no public two-pass surface (TwoPassStats VP9 wiring is gated
-// behind libvpx-port work), so this fuzzer is scored as "libvpx-side only" for
-// now: each iteration verifies the libvpx VP9 oracle two-pass IVF is well-
-// formed (parses, frame count matches, keyframe present), which catches CLI-
-// argument regressions even before the govpx VP9 two-pass code path exists.
-//
-// When govpx ships a public VP9 two-pass surface, the second-pass byte-parity
-// arm will be enabled — search this file for "TODO(vp9-twopass)".
+// FuzzVP9EncoderTwoPassByteParity exercises the libvpx vpxenc-vp9 two-pass
+// CLI path over a fuzz-driven option grid and verifies the IVF shape. It grows
+// into a govpx second-pass comparison once this target constructs finalized
+// VP9FirstPassFrameStats for cfg.opts.
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
@@ -54,8 +47,9 @@ func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
 			label, opts.Width, opts.Height, cfg.targetKbps, cfg.kfInterval,
 			cfg.threads, cfg.cpuUsed, len(sources))
 
-		// Libvpx VP9 two-pass reference. Catches CLI regressions even if the
-		// govpx VP9 two-pass path isn't wired yet.
+		// Libvpx VP9 two-pass reference. This keeps the CLI bridge and IVF
+		// parser covered while the govpx stats-to-second-pass comparison is
+		// staged.
 		var raw []byte
 		for _, src := range sources {
 			raw = appendVP9YCbCrI420(raw, src)
@@ -73,12 +67,8 @@ func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
 			t.Errorf("%s: libvpx VP9 two-pass IVF frame count = %d, want %d",
 				label, len(libvpxFrames), len(sources))
 		}
-		// TODO(vp9-twopass): when govpx VP9 ships a public TwoPassStats surface,
-		// run encodeVP9FramesWithGovpx with cfg.opts.TwoPassStats wired and
-		// assertVP9SegmentByteParity strict. Until then, only the libvpx-side
-		// shape is exercised; this fuzzer still catches regressions in the
-		// CLI bridge (parseVP9IVFFrames assertions) and the vpxenc-vp9
-		// binary itself.
+		// TODO(vp9-twopass-fuzz): construct finalized first-pass stats for
+		// sources, set cfg.opts.TwoPassStats, and compare govpx/libvpx packets.
 	})
 }
 

@@ -1,18 +1,18 @@
 package govpx
 
-// Task #366: cross-family audit of the iQ=17 same-Q MB-decision divergence
-// (lineage #343/#344/#353/#354). Three fixtures exhibit the class:
+// Cross-family audit of the iQ=17 same-Q MB-decision divergence. Three
+// fixtures exhibit the class:
 //
 //	480p panning VBR  (#354)  — f3 iQ=17 +41 bytes (730 vs 689) same Q.
 //	360p panning CBR  (#353)  — 2400 kbps iter=2 q=23 ~3.4× spread.
 //	720p two-pass VBR (#344)  — Q=16 +1.34% rate.
 //
-// The structural hypothesis from task #354 is that at iQ=17 govpx's MB
+// The structural hypothesis is that at iQ=17 govpx's MB
 // picker selects a different (mode, MV) than libvpx because the
 // rate/distortion crossover at the Q-conditioned `RDMULT > 1000` boundary
 // in vp8_initialize_rd_consts flips one or more candidate orderings.
 //
-// AUDIT (this task):
+// AUDIT:
 //
 // 1. RDMULT / RDDIV branch (rdopt.c:174-236)
 //
@@ -86,12 +86,12 @@ package govpx
 //
 //    For the 480p ONE-PASS case the +41 bytes at frame 3 iQ=17 cannot
 //    be attributed to any of the four Q-conditioned branches called
-//    out in the task description. The residual MUST live in the
+//    out above. The residual MUST live in the
 //    existing ARNR audit chain (#313→#314→#316→#318→#319→#329→#330)
 //    where a chroma optimize_b PLANE_TYPE_UV keep/drop divergence
 //    surfaces at high-Q boundary conditions. The same-Q same-bytes-
-//    differ-by-41 signature is the same fingerprint task #316 left
-//    unresolved; #354 is the VBR-amplified projection of that chain.
+//    differ-by-41 signature is the same unresolved fingerprint; the VBR case
+//    is the amplified projection of that chain.
 //
 // CONCLUSION:
 //

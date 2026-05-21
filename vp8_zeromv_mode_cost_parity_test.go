@@ -8,8 +8,7 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// TestVP8ZeroMVModeCostParity pins the audit conclusion of task
-// #299 — namely that govpx's per-mode rate cost path
+// TestVP8ZeroMVModeCostParity pins that govpx's per-mode rate cost path
 // (ZEROMV / NEARESTMV / NEARMV / NEWMV / SPLITMV) is a byte-faithful port of
 // the libvpx v1.16.0 rate accounting it mirrors.
 //
@@ -20,9 +19,8 @@ import (
 //	govpx: 3482 NEARESTMV + 116 SPLITMV + 2 NEWMV (out of 3600)
 //	libvpx: 295 NEARESTMV + 664 SPLITMV + 1 NEWMV (out of 960 labeled)
 //
-// Task #299 was scoped to audit whether the per-mode rate components driving
-// the mode preference were divergent. The audit walks every libvpx site that
-// contributes to a candidate mode's rate2 in vp8_rd_pick_inter_mode and
+// This audit walks every libvpx site whose rate component contributes to a
+// candidate mode's rate2 in vp8_rd_pick_inter_mode and
 // asserts the govpx mirror agrees verbatim:
 //
 //  1. vp8_cost_mv_ref            → interPredictionModeRate          (5 modes)
@@ -39,13 +37,13 @@ import (
 //     vp8_find_near_mvs_bias for ref_frame_map[1] feeding every iteration of
 //     the MAX_MODES loop)
 //
-// All eight surface as byte-exact in this test. Conclusion: the residual
-// task #297 / #293 mode-pick divergence is NOT in the per-mode rate
-// accounting layer; it lies in the SPLITMV per-label motion-search seed /
-// distortion / zbin_mode_boost path documented in the #297 commit body.
+// Every listed surface is byte-exact in this test. Conclusion: the residual
+// mode-pick divergence is NOT in the per-mode rate accounting layer; it lies
+// in the SPLITMV per-label motion-search seed / distortion / zbin_mode_boost
+// path.
 //
-// Future investigators picking up the mode-pick bisect after #299 should
-// start their search downstream of rate accounting:
+// Future work on this mode-pick divergence should start downstream of rate
+// accounting:
 //
 //   - vp8_rd_pick_best_mbsegmentation per-label motion search (rdopt.c:998+)
 //   - splitMotionSubsetContext.selectMotion seed/step_param derivation
