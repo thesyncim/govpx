@@ -458,7 +458,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 			residualVar, sourceVar, acThr, segmentID)
 	}
 	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
-		return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVar, acThr,
+		return e.vp9InterTxApplyForces(maxTx, bsize, residualVar, acThr,
 			limitTx, segmentID)
 	}
 	if sse <= pixels*512 || activity <= pixels*16 {
@@ -468,14 +468,14 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		// running the score-based RDO. For limit_tx=1 the libvpx
 		// Tx16x16 cap still applies.
 		if !limitTx {
-			return e.vp9InterTxApplyForces(maxTx, bsize, sse, residualVar,
+			return e.vp9InterTxApplyForces(maxTx, bsize, residualVar,
 				acThr, limitTx, segmentID)
 		}
 		// The realtime oracle keeps smooth changed inter blocks below
 		// 32x32, while still allowing textured residuals to use the
 		// scored Tx32 path below.
 		tx := min(maxTx, common.Tx16x16)
-		return e.vp9InterTxApplyForces(tx, bsize, sse, residualVar, acThr,
+		return e.vp9InterTxApplyForces(tx, bsize, residualVar, acThr,
 			limitTx, segmentID)
 	}
 	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, bsize)
@@ -516,7 +516,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		}
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
-	return e.vp9InterTxApplyForces(bestTx, bsize, sse, residualVar, acThr,
+	return e.vp9InterTxApplyForces(bestTx, bsize, residualVar, acThr,
 		limitTx, segmentID)
 }
 
@@ -541,9 +541,8 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 // computed in vp9InterTxSourceAndResidualVar via
 // sse - ((sum*sum) >> (bw+bh+4)).
 func (e *VP9Encoder) vp9InterTxApplyForces(tx common.TxSize, bsize common.BlockSize,
-	sse uint64, residualVar uint64, acThr int64, limitTx bool, segmentID uint8,
+	residualVar uint64, acThr int64, limitTx bool, segmentID uint8,
 ) common.TxSize {
-	_ = sse
 	if e == nil {
 		return tx
 	}

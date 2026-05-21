@@ -446,7 +446,7 @@ func TestVP9InterTxApplyForcesMirrorsLibvpx(t *testing.T) {
 			if tc.screen {
 				e.opts.ScreenContentMode = int8(VP9ScreenContentScreen)
 			}
-			got := e.vp9InterTxApplyForces(tc.tx, tc.bsize, 0, tc.residVar,
+			got := e.vp9InterTxApplyForces(tc.tx, tc.bsize, tc.residVar,
 				tc.acThr, tc.limitTx, tc.segmentID)
 			if got != tc.want {
 				t.Fatalf("vp9InterTxApplyForces = %d, want %d", got, tc.want)

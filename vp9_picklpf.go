@@ -45,6 +45,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // vp9PickLpfMaxFilterLevel mirrors libvpx vp9_picklpf.c:37-44 get_max_filter_level.
@@ -119,7 +120,7 @@ func (e *VP9Encoder) vp9PickLpfFromQ(qindex int, isKey, segEnabled bool, width, 
 	minFilterLevel := 0
 	maxFilterLevel := e.vp9PickLpfMaxFilterLevel(isKey)
 	q := int(vp9dec.VpxAcQuant(qindex, 0, vp9dec.BitDepth8))
-	filtGuess := vp9PickLpfRoundPowerOfTwo(q*20723+1015158, 18)
+	filtGuess := vp9enc.LoopFilterRoundPowerOfTwo(q*20723+1015158, 18)
 	onePass := !e.twoPass.enabled()
 	cbr := e.opts.RateControlMode == RateControlCBR
 	cyclicRefresh := e.opts.AQMode == VP9AQCyclicRefresh
@@ -132,7 +133,7 @@ func (e *VP9Encoder) vp9PickLpfFromQ(qindex int, isKey, segEnabled bool, width, 
 	if isKey {
 		filtGuess -= 4
 	}
-	return vp9PickLpfClamp(filtGuess, minFilterLevel, maxFilterLevel)
+	return vp9enc.LoopFilterClamp(filtGuess, minFilterLevel, maxFilterLevel)
 }
 
 // vp9PickLpfMinimal implements LPF_PICK_MINIMAL_LPF. Verbatim port
@@ -199,7 +200,7 @@ func (e *VP9Encoder) vp9SearchFilterLevel(isKey bool, txMode common.TxMode, part
 
 	// libvpx: vp9_picklpf.c:90 — start at the previous frame's level,
 	// clamped to the legal range.
-	filtMid := vp9PickLpfClamp(int(e.vp9LastFiltLevel), minFilterLevel, maxFilterLevel)
+	filtMid := vp9enc.LoopFilterClamp(int(e.vp9LastFiltLevel), minFilterLevel, maxFilterLevel)
 	// libvpx: vp9_picklpf.c:91 — initial step: 4 below 16, else filt_mid/4.
 	filterStep := 4
 	if filtMid >= 16 {
@@ -283,7 +284,7 @@ func (e *VP9Encoder) vp9SearchFilterLevelWithProductionScorer(isKey bool, txMode
 	maxFilterLevel := e.vp9PickLpfMaxFilterLevel(isKey)
 	filtDirection := 0
 
-	filtMid := vp9PickLpfClamp(int(e.vp9LastFiltLevel), minFilterLevel, maxFilterLevel)
+	filtMid := vp9enc.LoopFilterClamp(int(e.vp9LastFiltLevel), minFilterLevel, maxFilterLevel)
 	filterStep := 4
 	if filtMid >= 16 {
 		filterStep = filtMid / 4
@@ -415,52 +416,6 @@ func (e *VP9Encoder) vp9PickFilterLevel(method LpfPickMethod,
 	}
 }
 
-// vp9PickLpfClamp mirrors libvpx vpx_ports/vpx_clamp.h clamp(value,
-// low, high).
-func vp9PickLpfClamp(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-// vp9PickLpfRoundPowerOfTwo mirrors libvpx vpx_dsp/vpx_dsp_common.h
-// ROUND_POWER_OF_TWO(value, n) == ((value) + (1 << ((n) - 1))) >> (n).
-func vp9PickLpfRoundPowerOfTwo(value, n int) int {
-	return (value + (1 << uint(n-1))) >> uint(n)
-}
-
-// vp9PickLpfYSSE mirrors libvpx vpx_dsp/psnr.c:155 vpx_get_y_sse.
-// Computes the Y-plane SSE between source (src) and reconstruction
-// (recon) over a width*height window. Both planes are 8-bit; strides
-// may differ. libvpx clips to y_crop_width / y_crop_height; govpx
-// passes the visible source dims directly.
-//
-// libvpx: vpx_dsp/psnr.c:155
-//
-//	int64_t vpx_get_y_sse(const YV12_BUFFER_CONFIG *a, ...) {
-//	  return get_sse(a->y_buffer, a->y_stride, b->y_buffer, b->y_stride,
-//	                 a->y_crop_width, a->y_crop_height);
-//	}
-func vp9PickLpfYSSE(src []byte, srcStride int,
-	recon []byte, reconStride int,
-	width, height int,
-) int64 {
-	var sse int64
-	for row := range height {
-		srcRow := src[row*srcStride : row*srcStride+width]
-		recRow := recon[row*reconStride : row*reconStride+width]
-		for col := range width {
-			d := int64(srcRow[col]) - int64(recRow[col])
-			sse += d * d
-		}
-	}
-	return sse
-}
-
 type vp9PickLpfProductionScorer struct {
 	e         *VP9Encoder
 	seg       *vp9dec.SegmentationParams
@@ -511,7 +466,7 @@ type vp9PickLpfProductionScorer struct {
 func (s *vp9PickLpfProductionScorer) score(filtLevel int, partialFrame bool) int64 {
 	e := s.e
 	if filtLevel == 0 {
-		return vp9PickLpfYSSE(s.srcY, s.srcStride,
+		return vp9enc.LoopFilterYSSE(s.srcY, s.srcStride,
 			e.reconYFull[s.layout.YOrigin:], s.layout.YStride, s.srcW, s.srcH)
 	}
 	lfTrial := s.lfBase
@@ -537,7 +492,7 @@ func (s *vp9PickLpfProductionScorer) score(filtLevel int, partialFrame bool) int
 		copy(e.reconYFull[s.layout.YOrigin:], s.ufBackupY)
 		return int64(1) << 62
 	}
-	sse := vp9PickLpfYSSE(s.srcY, s.srcStride,
+	sse := vp9enc.LoopFilterYSSE(s.srcY, s.srcStride,
 		e.reconYFull[s.layout.YOrigin:], s.layout.YStride, s.srcW, s.srcH)
 	copy(e.reconYFull[s.layout.YOrigin:], s.ufBackupY)
 	return sse

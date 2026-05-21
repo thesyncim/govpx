@@ -156,3 +156,40 @@ func TestEncodeLoopfilterResetUsesZeroLastDeltas(t *testing.T) {
 		t.Errorf("ModeDeltas = %v, want %v", decoded.ModeDeltas, lf.ModeDeltas)
 	}
 }
+
+func TestLoopFilterClamp(t *testing.T) {
+	if got := LoopFilterClamp(-1, 0, 63); got != 0 {
+		t.Fatalf("low clamp = %d, want 0", got)
+	}
+	if got := LoopFilterClamp(64, 0, 63); got != 63 {
+		t.Fatalf("high clamp = %d, want 63", got)
+	}
+	if got := LoopFilterClamp(17, 0, 63); got != 17 {
+		t.Fatalf("in-range clamp = %d, want 17", got)
+	}
+}
+
+func TestLoopFilterRoundPowerOfTwo(t *testing.T) {
+	if got := LoopFilterRoundPowerOfTwo(1015158, 18); got != 4 {
+		t.Fatalf("round power of two = %d, want 4", got)
+	}
+	if got := LoopFilterRoundPowerOfTwo(20723*40+1015158, 18); got != 7 {
+		t.Fatalf("filter guess rounding = %d, want 7", got)
+	}
+}
+
+func TestLoopFilterYSSE(t *testing.T) {
+	src := []byte{
+		10, 20, 30, 99,
+		40, 50, 60, 99,
+	}
+	recon := []byte{
+		9, 18, 33, 77,
+		45, 50, 57, 77,
+	}
+	got := LoopFilterYSSE(src, 4, recon, 4, 3, 2)
+	want := int64(1*1 + 2*2 + 3*3 + 5*5 + 0 + 3*3)
+	if got != want {
+		t.Fatalf("Y SSE = %d, want %d", got, want)
+	}
+}

@@ -9,12 +9,12 @@ Last refreshed: 2026-05-21 from `main`.
 
 - Root Go files: 533.
 - Root test files: 373.
-- Internal Go files: 664.
+- Internal Go files: 665.
 - Root VP8 files: 80 implementation files and 219 test files.
 - Root VP9 files: 71 implementation files and 142 test files.
 - Internal package files:
   - `internal/vp8`: 314 Go files.
-  - `internal/vp9`: 293 Go files.
+  - `internal/vp9`: 294 Go files.
   - `internal/vpx`: 9 Go files.
   - `internal/coracle`: 26 Go files.
   - `internal/testutil`: 18 Go files.
