@@ -7,6 +7,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	vpxbuffers "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // Encode is the alloc-returning wrapper around EncodeInto.
@@ -61,30 +62,9 @@ func (e *VP9Encoder) encodeVP9Allocating(img *image.YCbCr, flags EncodeFlags, in
 }
 
 func vp9AllocatingEncodeBufferSize(width, height int) (int, error) {
-	if width <= 0 || height <= 0 {
-		return 0, ErrInvalidConfig
-	}
-	maxInt := int(^uint(0) >> 1)
-	if width > maxInt/height {
-		return 0, ErrInvalidConfig
-	}
-	y := width * height
-	uvWidth := (width + 1) / 2
-	uvHeight := (height + 1) / 2
-	if uvWidth > maxInt/uvHeight {
-		return 0, ErrInvalidConfig
-	}
-	uv := uvWidth * uvHeight
-	if uv > (maxInt-y)/2 {
-		return 0, ErrInvalidConfig
-	}
-	raw420 := y + 2*uv
 	const headerSlack = 4096
-	if raw420 > (maxInt-headerSlack)/4 {
-		return 0, ErrInvalidConfig
-	}
-	size := max(headerSlack+raw420*4, 65536)
-	return size, nil
+	const minSize = 65536
+	return vpxbuffers.I420EncodeBufferSize(width, height, headerSlack, minSize)
 }
 
 func vp9EncodeOutputBufferFull(err error) bool {
