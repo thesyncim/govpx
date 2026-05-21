@@ -81,9 +81,9 @@ func TestVP8ChangeConfigTailParity(t *testing.T) {
 		cpuUsed    = 0
 		targetKbps = 300
 	)
-	opts := oracleRuntimeBaseFuzzOptions(w, h, targetKbps, cpuUsed)
+	opts := vp8OracleRuntimeBaseFuzzOptions(w, h, targetKbps, cpuUsed)
 	opts.Threads = 0
-	sources := oracleRuntimeFuzzSources(w, h, 2, 0)
+	sources := vp8OracleRuntimeFuzzSources(w, h, 2, 0)
 
 	parseChangeConfigTailRows := func(t *testing.T, path string) []map[string]any {
 		t.Helper()

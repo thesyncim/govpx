@@ -23,7 +23,7 @@ import (
 // dimensions via setFrameDimensions inside applyResolutionChange BEFORE
 // applyVP8ChangeConfigRuntimeSideEffects runs. This audit walks a
 // 640x360 -> 1280x720 -> 854x480 chain (the simulcast pattern that
-// previously broke under FuzzOracleEncoderRuntimeControlTransitions when
+// previously broke under FuzzVP8OracleEncoderRuntimeControlTransitions when
 // the snapshot was missing) and pins every observable consumer:
 //
 //   - lastChangeConfigWidth/Height equals the NEW e.opts.Width/Height

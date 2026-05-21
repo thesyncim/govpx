@@ -18,7 +18,7 @@ import (
 // through both govpx and the libvpx-side `vpxenc-frameflags` companion driver
 // and asserts byte-exact stream parity at every emitted frame.
 //
-// The shape mirrors FuzzOracleEncoderRuntimeControlTransitions: the fuzz []byte
+// The shape mirrors FuzzVP8OracleEncoderRuntimeControlTransitions: the fuzz []byte
 // derives a (width, height, cpu_used, frames) config plus a per-frame flag-set
 // sequence drawn from a fixed pool, and govpx writes failing inputs to
 // testdata/fuzz/FuzzEncoderFrameFlags for replay as plain regression tests
@@ -125,9 +125,9 @@ func encoderFrameFlagsFuzzCaseFromBytes(data []byte) encoderFrameFlagsFuzzCase {
 	// byte-parity fuzz harness. A separate threaded oracle parity test
 	// (TestVP8OracleEncoderStreamByteParity with `threads:2`) drives the threaded
 	// path with fixed inputs.
-	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, cpuUsed)
+	opts := vp8OracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, cpuUsed)
 	opts.TargetBitrateKbps = targetKbps
-	sources := oracleRuntimeFuzzSources(dim.w, dim.h, frames, r.Pick(2))
+	sources := vp8OracleRuntimeFuzzSources(dim.w, dim.h, frames, r.Pick(2))
 
 	flags := make([]EncodeFlags, frames)
 	// Frame 0 is always the initial keyframe; libvpx forces it regardless of

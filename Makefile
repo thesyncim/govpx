@@ -272,7 +272,7 @@ test-oracle: oracle-tools vp9-vpxdec-tools fetch-test-data
 	$(GO) test . -run 'Test(VP8Oracle|VPxOracle|Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches|VP9DecoderOfficial|VP9DecoderThreadingOfficial)' -count=1 -timeout 10m
 
 SCOREBOARD_TESTS := TestVP8OracleReconstructionAdler32Match|TestVP8OracleRecodeRowParity|TestVP8OracleARNRBufferAdler|TestVP8OracleQuantizerHistogramScoreboard|TestVP8OracleInterDecisionMatchRate|TestVP8OracleSplitMVDecisionMatchRate|TestVP8OracleTraceInterCandidateScoreboard|TestVP8OracleInterQDriftScoreboard|TestVP8OracleLoopFilterHeaderMatchRate|TestVP8OracleSecondPassAllocationScoreboard|TestVP8OracleChromaSubpelScoreboard|TestVP8OracleImprovedMVMatchScoreboard|TestVP8OracleCBRDropFrameScoreboard|TestVP8OracleCandidateRateScoreboard|TestVP8OracleInterModeDistributionScoreboard|TestVP8OracleTemporalSVCParity|TestVP9OracleRuntimeControl(ByteParityScoreboard|ConstantByteParityMatrix)
-BYTE_PARITY_TESTS := Test(VP8OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity)|VP9Oracle(CopyReferenceFrameParity|StreamSelectedCasesMatchLibvpx|RuntimeControlsPinnedCasesMatchLibvpx|ThreadedTileEncodingMatchesLibvpx|RealtimeNewModeMatchesLibvpx|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))|FuzzOracleEncoderRuntimeControlTransitions
+BYTE_PARITY_TESTS := Test(VP8OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity)|VP9Oracle(CopyReferenceFrameParity|StreamSelectedCasesMatchLibvpx|RuntimeControlsPinnedCasesMatchLibvpx|ThreadedTileEncodingMatchesLibvpx|RealtimeNewModeMatchesLibvpx|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))|FuzzVP8OracleEncoderRuntimeControlTransitions
 FUZZTIME ?= 30s
 FUZZPARALLEL ?= 1
 
@@ -303,7 +303,7 @@ fuzz-controls: oracle-tools fetch-test-data
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
-	$(GO) test -tags govpx_oracle_trace . -run '^$$' -fuzz '^FuzzOracleEncoderRuntimeControlTransitions$$' -fuzztime '$(FUZZTIME)' -parallel '$(FUZZPARALLEL)' -timeout 30m
+	$(GO) test -tags govpx_oracle_trace . -run '^$$' -fuzz '^FuzzVP8OracleEncoderRuntimeControlTransitions$$' -fuzztime '$(FUZZTIME)' -parallel '$(FUZZPARALLEL)' -timeout 30m
 
 test-scoreboard: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \

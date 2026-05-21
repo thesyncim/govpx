@@ -32,9 +32,9 @@ var hashName = regexp.MustCompile(`^[0-9a-f]{16}$`)
 // strconv.Unquote.
 var byteLiteral = regexp.MustCompile(`(?m)^\s*\[\]byte\(("(?:[^"\\]|\\.)*")\)\s*$`)
 
-// oracleRuntimeFullPermutationSeed mirrors the dispatcher constant in
-// oracle_encoder_runtime_controls_fuzz_test.go. Keep in sync.
-var oracleRuntimeFullPermutationSeed = []byte{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+// vp8OracleRuntimeFullPermutationSeed mirrors the dispatcher constant in
+// vp8_oracle_encoder_runtime_controls_fuzz_test.go. Keep in sync.
+var vp8OracleRuntimeFullPermutationSeed = []byte{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
 // classifier turns a raw seed body into the case-name suffix used in
 // regression_<case>_<hash8>. Returning ("", err) aborts the run.
@@ -43,15 +43,16 @@ type classifier func(data []byte) (string, error)
 // dispatch maps a fuzz target directory name to its classifier. Adding a
 // new fuzz corpus is a one-line change: register the classifier here.
 var dispatch = map[string]classifier{
-	"FuzzOracleEncoderRuntimeControlTransitions": classifyOracleRuntimeControls,
-	"FuzzEncoderRandomStrides":                   constantCase("strides"),
-	"FuzzEncoderReferenceControlSequences":       constantCase("refctrl"),
-	"FuzzEncoderTwoPassByteParity":               constantCase("twopass"),
-	"FuzzEncoderLongFixtureRateControl":          classifyLongFixtureRateControl,
-	"FuzzEncoderProductionStreamByteParity":      constantCase("option_grid"),
-	"FuzzVP8EncoderOptions":                      classifyVP8EncoderOptions,
-	"FuzzVP8MultiResSVCByteParity":               classifyVP8MultiResSVC,
-	"FuzzVP8DecoderAgainstLibvpx":                classifyDecoderAgainstLibvpx,
+	"FuzzVP8OracleEncoderRuntimeControlTransitions": classifyVP8OracleRuntimeControls,
+	"FuzzVP8OracleEncoderProductionRuntimeControls": classifyVP8OracleProductionRuntimeControls,
+	"FuzzEncoderRandomStrides":                      constantCase("strides"),
+	"FuzzEncoderReferenceControlSequences":          constantCase("refctrl"),
+	"FuzzEncoderTwoPassByteParity":                  constantCase("twopass"),
+	"FuzzEncoderLongFixtureRateControl":             classifyLongFixtureRateControl,
+	"FuzzEncoderProductionStreamByteParity":         constantCase("option_grid"),
+	"FuzzVP8EncoderOptions":                         classifyVP8EncoderOptions,
+	"FuzzVP8MultiResSVCByteParity":                  classifyVP8MultiResSVC,
+	"FuzzVP8DecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
 	// VP9 fuzz family — sibling targets registered here mirror their VP8
 	// counterparts. Classifiers reuse the same body shape so the resulting
 	// regression filenames carry the same scoreboard semantics.
@@ -74,17 +75,17 @@ func constantCase(name string) classifier {
 	return func(_ []byte) (string, error) { return name, nil }
 }
 
-// classifyOracleRuntimeControls mirrors
-// oracleRuntimeControlFuzzCaseFromBytes verbatim: exact-match repros
+// classifyVP8OracleRuntimeControls mirrors
+// vp8OracleRuntimeControlFuzzCaseFromBytes verbatim: exact-match repros
 // first, then data[0]%3 picks general/temporal/invalid_noop.
-func classifyOracleRuntimeControls(data []byte) (string, error) {
+func classifyVP8OracleRuntimeControls(data []byte) (string, error) {
 	if string(data) == "02000y0" {
 		return "fps_bitrate_repro", nil
 	}
 	if string(data) == "\xff" {
 		return "kfi_zero_repro", nil
 	}
-	if bytesEqual(data, oracleRuntimeFullPermutationSeed) {
+	if bytesEqual(data, vp8OracleRuntimeFullPermutationSeed) {
 		return "full_perm", nil
 	}
 	if len(data) == 0 {
@@ -99,6 +100,31 @@ func classifyOracleRuntimeControls(data []byte) (string, error) {
 	default:
 		return "general", nil
 	}
+}
+
+// classifyVP8OracleProductionRuntimeControls mirrors
+// vp8OracleProductionRuntimeControlFuzzCaseFromBytes through the fixed scenario
+// buckets. The per-frame control script still comes from the fuzz logs; the
+// filename captures the high-level production shape that made the seed useful.
+func classifyVP8OracleProductionRuntimeControls(data []byte) (string, error) {
+	r := bucketCursor{data: data}
+	dims := []string{"640x360", "854x480", "1280x720"}
+	threads := []string{"t0", "t1", "t2", "t4"}
+	cpus := []string{"cpu0", "cpum3", "cpum8"}
+	targets := []int{300, 700, 1200}
+
+	dimIndex := r.pick(len(dims))
+	thread := threads[r.pick(len(threads))]
+	frames := 2 + r.pick(3)
+	if dimIndex == 2 && frames > 3 {
+		frames = 3
+	}
+	cpu := cpus[r.pick(len(cpus))]
+	source := []string{"src0", "src1"}[r.pick(2)]
+	target := targets[r.pick(len(targets))]
+
+	return fmt.Sprintf("prod_%s_%s_f%d_%s_%s_%dkbps",
+		dims[dimIndex], thread, frames, cpu, source, target), nil
 }
 
 // classifyLongFixtureRateControl mirrors newLongFixtureFuzzCase in
@@ -220,7 +246,7 @@ func classifyDecoderAgainstLibvpx(data []byte) (string, error) {
 	return "non_ivf_accept_disagreement", nil
 }
 
-// bucketCursor mirrors oracleRuntimeControlFuzzBytes.pick semantics:
+// bucketCursor mirrors vp8OracleRuntimeControlFuzzBytes.pick semantics:
 // each call advances a wrapping byte cursor and returns `b % n`. Used
 // by classifiers that have to replay the same bucket-selection logic
 // the fuzz target itself runs.

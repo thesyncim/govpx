@@ -16,11 +16,11 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// FuzzOracleEncoderRuntimeControlTransitions compares generated runtime-control
+// FuzzVP8OracleEncoderRuntimeControlTransitions compares generated runtime-control
 // schedules against the libvpx frame-flags driver. Go writes failing fuzz inputs
-// to testdata/fuzz/FuzzOracleEncoderRuntimeControlTransitions, and those corpus
+// to testdata/fuzz/FuzzVP8OracleEncoderRuntimeControlTransitions, and those corpus
 // files are replayed by ordinary go test runs as regression tests.
-func FuzzOracleEncoderRuntimeControlTransitions(f *testing.F) {
+func FuzzVP8OracleEncoderRuntimeControlTransitions(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run runtime-control fuzz parity")
 	}
@@ -38,7 +38,7 @@ func FuzzOracleEncoderRuntimeControlTransitions(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		driver := coracletest.VpxencFrameFlags(t)
-		tc := oracleRuntimeControlFuzzCaseFromBytes(data)
+		tc := vp8OracleRuntimeControlFuzzCaseFromBytes(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-runtime-controls-" + tc.name + "-" + hex.EncodeToString(sum[:4])
 		t.Logf("%s script=%s", label, strings.Join(tc.script, ","))
@@ -51,85 +51,19 @@ func FuzzOracleEncoderRuntimeControlTransitions(f *testing.F) {
 		extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
 		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, label, tc.opts, tc.targetKbps, tc.sources, tc.flags, extraArgs)
 		assertSegmentByteParity(t, label, govpxFrames, libvpxFrames,
-			oracleRuntimeControlFuzzMatchLimit(t.Name()))
+			vp8OracleRuntimeControlFuzzMatchLimit(t.Name()))
 	})
 }
 
-func oracleRuntimeControlFuzzMatchLimit(_ string) int {
-	// Seed 77952f43 historically diverged at frame 8 inside the partially
-	// ported good-quality inter recode loop (govpx first_partition=58 vs
-	// libvpx=65). The recode-loop and change-config rate-model alignment
-	// shipped as commit 45ded7d5 ("vp8: land libvpx-aligned recode_loop +
-	// change-config rate-model + segmentation-method WIP") closed the
-	// remaining bookkeeping, so frames 0-8 now match byte-for-byte. The
-	// strict gate (limit=0, full-length match) replaces the previous
-	// limit=7 tolerance to catch any regression in the matched suffix.
-	// This corpus enters the same partial good-quality inter recode area
-	// after a golden-reference overwrite. Frames 0-3 still pin the
-	// runtime-control setup before the known recode divergence. The
-	// golden-reference regression coverage confirms that the
-	// libvpx golden-frame copy paths (vp8_set_reference,
-	// update_reference_frames, copy_buffer_to_{arf,gf}) and the
-	// last_*_lf_deltas zeroing are byte-faithful for frames 0-3; the residual
-	// gap belongs to the same per-MB picker state cohort
-	// expressed via the deadline:good cluster following the
-	// setref:golden:panning:8 control burst.
-	//
-	// Recode-loop parity coverage narrows frame 4 to a different final
-	// quantizer (govpx q=9, libvpx q=7) which cascades into per-MB picker
-	// divergence (govpx silently skips SPLITMV at MB(0,0) because its
-	// bestYRD=45362 cuts off SPLITMV partition shapes that libvpx accepts
-	// at bestYRD=60198 — the q delta drives the RDMULT delta drives the
-	// YRD delta drives the SPLITMV cutoff). Closing the gap requires
-	// per-recode-iter projected_frame_size instrumentation on both sides
-	// to pin the first diverging iteration.
-	//
-	// Task #212 (current open issue): recode-Q convergence on 0bb41d74 —
-	// continuation of the task #211 audit. Frames 0-3 remain byte-exact
-	// after today's wire-level closes (#172/#184/#192/#201/#183/#200/#202/
-	// #198/#173/#174/#206); the matchLimit=4 pin keeps the asserted
-	// prefix at the maximum currently green so any regression in the
-	// matched suffix is caught while the open #212 work threads
-	// projected_frame_size deltas through the recode regulator. Update
-	// this gate to limit=0 (or remove the pin) the moment #212 closes
-	// and frames 4-8 match byte-for-byte.
-	// Task #218 (CLOSED for 0bb41d74): the bb41d74 frame-4 SPLITMV skip-
-	// backout port (vp8_encoder_inter_modes_rd_split.go: drop the spurious
-	// `&& stats.rateUV == 0` clause from mbSkipCoeff) closes frames 0-8
-	// byte-exact. The matchLimit=4 carveout is removed.
-	//
-	// Task #237 (CLOSED for aebef841): rd_check_segment's SPLITMV per-label
-	// inner loop leaves xd->eobs[i] holding the LAST-iterated mode's per-
-	// block eob registers (not the RD-winning mode's), because
-	// vp8/encoder/rdopt.c:1124-1158 restores only the entropy contexts after
-	// the winning mode is re-installed by labels2mode. bsi->eobs[i] =
-	// xd->eobs[i] at rdopt.c:1180 then captures that stale snapshot, and
-	// calculate_final_rd_costs reads tteob through those stale eobs
-	// (rdopt.c:1689-1697) when applying the SPLITMV skip-backout. govpx's
-	// selectMotion now mirrors that side-effect via lastTTEOB, dropping the
-	// matchLimit=6 carveout to 0 for byte-exact parity across all 9 frames
-	// on the aebef841 corpus.
-	//
-	// Task #259 (CLOSED for regression_general_e5f453c6): runtime-control
-	// script `arnrmax:0+arnrstrength:0+arnrtype:1` followed by repeated
-	// `cq:4+maxintra:0+gfboost:0` transitions (#240 capture, hypothesised
-	// #235-adjacent). Bisection of a1b1f62c..HEAD (frameflags-oracle and
-	// frameflags binaries both rebuilt from internal/coracle build scripts)
-	// shows the seed already passes byte-exact for all 10 frames at the
-	// capture commit a1b1f62c and at every commit through current HEAD --
-	// no code change required. The frame-5 mismatch reported in the #240
-	// capture message (got_len=906 want_len=960) reflects a stale oracle
-	// binary built before #235's CBR baseline_gf_interval and #236's
-	// b->zbin_extra fixes had been pulled into the libvpx oracle build
-	// tree; rebuilding via internal/coracle/build_vpxenc_frameflags{,_oracle}.sh
-	// against libvpx v1.16.0 yields a driver that agrees with govpx. The
-	// #235 baseline_gf_interval port (e72887d9, c89423ac) and the #236
-	// intra RD zbin_extra carry remain the active fixes for this cohort;
-	// the e5f453c6 seed is pinned as a runtime-control transition sentinel.
+func vp8OracleRuntimeControlFuzzMatchLimit(_ string) int {
+	// Runtime-control fuzz corpus replay is strict: every retained regression
+	// seed must match libvpx for all frames. Historical prefix tolerances have
+	// been removed so this helper is intentionally boring and exists only as a
+	// named policy point for future corpus triage.
 	return 0
 }
 
-type oracleRuntimeControlFuzzCase struct {
+type vp8OracleRuntimeControlFuzzCase struct {
 	name       string
 	opts       EncoderOptions
 	targetKbps int
@@ -141,34 +75,34 @@ type oracleRuntimeControlFuzzCase struct {
 	copyRefLog bool
 }
 
-func oracleRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeControlFuzzCase {
+func vp8OracleRuntimeControlFuzzCaseFromBytes(data []byte) vp8OracleRuntimeControlFuzzCase {
 	if string(data) == "02000y0" {
-		return oracleRuntimeFPSBitrateReproFuzzCase()
+		return vp8OracleRuntimeFPSBitrateReproFuzzCase()
 	}
 	if string(data) == "\xff" {
-		return oracleRuntimeKeyFrameIntervalZeroReproFuzzCase()
+		return vp8OracleRuntimeKeyFrameIntervalZeroReproFuzzCase()
 	}
-	if bytes.Equal(data, oracleRuntimeFullPermutationSeed) {
+	if bytes.Equal(data, vp8OracleRuntimeFullPermutationSeed) {
 		r := testutil.NewByteCursor(data[1:])
-		return oracleRuntimeFullControlPermutationFuzzCase(&r)
+		return vp8OracleRuntimeFullControlPermutationFuzzCase(&r)
 	}
 	r := testutil.NewByteCursor(data)
 	switch r.Pick(3) {
 	case 1:
-		return oracleRuntimeTemporalFuzzCase(&r)
+		return vp8OracleRuntimeTemporalFuzzCase(&r)
 	case 2:
-		return oracleRuntimeInvalidNoopFuzzCase(&r)
+		return vp8OracleRuntimeInvalidNoopFuzzCase(&r)
 	default:
-		return oracleRuntimeGeneralFuzzCase(&r)
+		return vp8OracleRuntimeGeneralFuzzCase(&r)
 	}
 }
 
-var oracleRuntimeFullPermutationSeed = []byte{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+var vp8OracleRuntimeFullPermutationSeed = []byte{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
-func oracleRuntimeKeyFrameIntervalZeroReproFuzzCase() oracleRuntimeControlFuzzCase {
+func vp8OracleRuntimeKeyFrameIntervalZeroReproFuzzCase() vp8OracleRuntimeControlFuzzCase {
 	targetKbps := 700
 	frames := 8
-	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, 0)
+	opts := vp8OracleRuntimeBaseFuzzOptions(64, 64, targetKbps, 0)
 	script := runtimeControlScript(frames, map[int]string{
 		2: "kfmin:0+kfmax:0",
 		3: "kfdisabled:1+kfmin:0+kfmax:0",
@@ -184,18 +118,18 @@ func oracleRuntimeKeyFrameIntervalZeroReproFuzzCase() oracleRuntimeControlFuzzCa
 			mustRuntime(t, "SetKeyFrameInterval(0)", e.SetKeyFrameInterval(0))
 		},
 	}
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "keyframe-interval-zero-repro",
 		opts:       opts,
 		targetKbps: targetKbps,
-		sources:    oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, 0),
+		sources:    vp8OracleRuntimeFuzzSources(opts.Width, opts.Height, frames, 0),
 		flags:      nil,
 		script:     script,
 		apply:      apply,
 	}
 }
 
-func oracleRuntimeBaseFuzzOptions(width, height, targetKbps, cpuUsed int) EncoderOptions {
+func vp8OracleRuntimeBaseFuzzOptions(width, height, targetKbps, cpuUsed int) EncoderOptions {
 	return EncoderOptions{
 		Width:             width,
 		Height:            height,
@@ -211,7 +145,7 @@ func oracleRuntimeBaseFuzzOptions(width, height, targetKbps, cpuUsed int) Encode
 	}
 }
 
-func oracleRuntimeFuzzSources(width, height, frames, kind int) []Image {
+func vp8OracleRuntimeFuzzSources(width, height, frames, kind int) []Image {
 	sources := make([]Image, frames)
 	for i := range sources {
 		if kind&1 != 0 {
@@ -223,10 +157,10 @@ func oracleRuntimeFuzzSources(width, height, frames, kind int) []Image {
 	return sources
 }
 
-func oracleRuntimeFPSBitrateReproFuzzCase() oracleRuntimeControlFuzzCase {
+func vp8OracleRuntimeFPSBitrateReproFuzzCase() vp8OracleRuntimeControlFuzzCase {
 	targetKbps := 300
 	frames := 9
-	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, 0)
+	opts := vp8OracleRuntimeBaseFuzzOptions(64, 64, targetKbps, 0)
 	script := []string{
 		"-",
 		"-",
@@ -269,18 +203,18 @@ func oracleRuntimeFPSBitrateReproFuzzCase() oracleRuntimeControlFuzzCase {
 			mustRuntime(t, "SetBitrateKbps(300)", e.SetBitrateKbps(300))
 		},
 	}
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "fps-bitrate-repro",
 		opts:       opts,
 		targetKbps: targetKbps,
-		sources:    oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, 1),
+		sources:    vp8OracleRuntimeFuzzSources(opts.Width, opts.Height, frames, 1),
 		flags:      flags,
 		script:     script,
 		apply:      apply,
 	}
 }
 
-type oracleRuntimeFuzzAction struct {
+type vp8OracleRuntimeFuzzAction struct {
 	token       string
 	phase       uint8
 	apply       func(*testing.T, *VP8Encoder)
@@ -289,11 +223,11 @@ type oracleRuntimeFuzzAction struct {
 }
 
 const (
-	oracleRuntimeFuzzConfigPhase uint8 = iota
-	oracleRuntimeFuzzCodecPhase
+	vp8OracleRuntimeFuzzConfigPhase uint8 = iota
+	vp8OracleRuntimeFuzzCodecPhase
 )
 
-func oracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
+func vp8OracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) vp8OracleRuntimeControlFuzzCase {
 	dims := [...]struct {
 		w int
 		h int
@@ -307,8 +241,8 @@ func oracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFu
 	dim := dims[r.Pick(len(dims))]
 	targetKbps := targets[r.Pick(len(targets))]
 	frames := 6 + r.Pick(5)
-	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, speeds[r.Pick(len(speeds))])
-	sources := oracleRuntimeFuzzSources(dim.w, dim.h, frames, r.Pick(2))
+	opts := vp8OracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, speeds[r.Pick(len(speeds))])
+	sources := vp8OracleRuntimeFuzzSources(dim.w, dim.h, frames, r.Pick(2))
 	flags := make([]EncodeFlags, frames)
 	script := runtimeControlScript(frames, nil)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
@@ -316,10 +250,10 @@ func oracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFu
 
 	for frame := 1; frame < frames; frame++ {
 		actionCount := 1 + r.Pick(4)
-		actions := make([]oracleRuntimeFuzzAction, 0, actionCount)
+		actions := make([]vp8OracleRuntimeFuzzAction, 0, actionCount)
 		haveConfig := false
 		for range actionCount {
-			action, flag, usesCopyRef := oracleRuntimeRandomFuzzAction(r, targets[:])
+			action, flag, usesCopyRef := vp8OracleRuntimeRandomFuzzAction(r, targets[:])
 			if flag != 0 {
 				flags[frame] = flag
 				continue
@@ -327,7 +261,7 @@ func oracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFu
 			if action.token == "" {
 				continue
 			}
-			if action.phase == oracleRuntimeFuzzConfigPhase {
+			if action.phase == vp8OracleRuntimeFuzzConfigPhase {
 				if haveConfig {
 					continue
 				}
@@ -336,11 +270,11 @@ func oracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFu
 			copyRefLog = copyRefLog || usesCopyRef
 			actions = append(actions, action)
 		}
-		oracleRuntimeShuffleActions(r, actions)
-		oracleRuntimeInstallFuzzActions(script, apply, frame, actions)
+		vp8OracleRuntimeShuffleActions(r, actions)
+		vp8OracleRuntimeInstallFuzzActions(script, apply, frame, actions)
 	}
 
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "general",
 		opts:       opts,
 		targetKbps: targetKbps,
@@ -352,30 +286,30 @@ func oracleRuntimeGeneralFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFu
 	}
 }
 
-func oracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
+func vp8OracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) vp8OracleRuntimeControlFuzzCase {
 	targets := [...]int{300, 700, 1200}
 	targetKbps := 700
 	frames := 32
-	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3, -8}[r.Pick(3)])
-	sources := oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.Pick(2))
+	opts := vp8OracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3, -8}[r.Pick(3)])
+	sources := vp8OracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.Pick(2))
 	flags := make([]EncodeFlags, frames)
 	script := runtimeControlScript(frames, nil)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
-	perFrame := make([][]oracleRuntimeFuzzAction, frames)
+	perFrame := make([][]vp8OracleRuntimeFuzzAction, frames)
 	frameHasConfig := make([]bool, frames)
 	reservedFrame := make([]bool, frames)
 	copyRefLog := false
 
-	addAction := func(frame int, action oracleRuntimeFuzzAction) {
+	addAction := func(frame int, action vp8OracleRuntimeFuzzAction) {
 		if frame <= 0 || frame >= frames || action.token == "" {
 			return
 		}
 		perFrame[frame] = append(perFrame[frame], action)
-		if action.phase == oracleRuntimeFuzzConfigPhase {
+		if action.phase == vp8OracleRuntimeFuzzConfigPhase {
 			frameHasConfig[frame] = true
 		}
 	}
-	findFrame := func(start int, action oracleRuntimeFuzzAction) int {
+	findFrame := func(start int, action vp8OracleRuntimeFuzzAction) int {
 		if start <= 0 {
 			start = 1
 		}
@@ -384,7 +318,7 @@ func oracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) oracleR
 			if reservedFrame[frame] {
 				continue
 			}
-			if action.phase == oracleRuntimeFuzzConfigPhase && frameHasConfig[frame] {
+			if action.phase == vp8OracleRuntimeFuzzConfigPhase && frameHasConfig[frame] {
 				continue
 			}
 			if len(perFrame[frame]) >= 3 {
@@ -399,11 +333,11 @@ func oracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) oracleR
 	for frame := temporalStart; frame <= temporalStart+4 && frame < frames; frame++ {
 		reservedFrame[frame] = true
 	}
-	addAction(temporalStart, oracleRuntimeTemporalEnableFuzzAction(targetKbps))
-	addAction(temporalStart+1, oracleRuntimeTemporalLayerIDFuzzAction(1))
-	addAction(temporalStart+2, oracleRuntimeTemporalLayerIDFuzzAction(0))
-	addAction(temporalStart+3, oracleRuntimeTemporalLayerIDFuzzAction(1))
-	addAction(temporalStart+4, oracleRuntimeTemporalDisableFuzzAction(targetKbps))
+	addAction(temporalStart, vp8OracleRuntimeTemporalEnableFuzzAction(targetKbps))
+	addAction(temporalStart+1, vp8OracleRuntimeTemporalLayerIDFuzzAction(1))
+	addAction(temporalStart+2, vp8OracleRuntimeTemporalLayerIDFuzzAction(0))
+	addAction(temporalStart+3, vp8OracleRuntimeTemporalLayerIDFuzzAction(1))
+	addAction(temporalStart+4, vp8OracleRuntimeTemporalDisableFuzzAction(targetKbps))
 	temporalPattern, ok := temporalLayeringPattern(TemporalLayeringTwoLayers)
 	if !ok {
 		panic("missing two-layer temporal pattern")
@@ -413,19 +347,19 @@ func oracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) oracleR
 	}
 
 	kinds := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
-	oracleRuntimeShuffleInts(r, kinds)
+	vp8OracleRuntimeShuffleInts(r, kinds)
 	nextFrame := temporalStart + 5
 	for _, kind := range kinds {
 		if kind == 8 {
 			continue
 		}
-		actionReader := oracleRuntimeFullPermutationActionReader(kind)
-		action, flag, usesCopyRef := oracleRuntimeFuzzActionForKind(&actionReader, kind, targets[:])
+		actionReader := vp8OracleRuntimeFullPermutationActionReader(kind)
+		action, flag, usesCopyRef := vp8OracleRuntimeFuzzActionForKind(&actionReader, kind, targets[:])
 		if kind == 7 {
-			action, flag, usesCopyRef = oracleRuntimeRealtimeDeadlineFuzzAction(&actionReader)
+			action, flag, usesCopyRef = vp8OracleRuntimeRealtimeDeadlineFuzzAction(&actionReader)
 		}
 		if flag != 0 {
-			flags[findFrame(nextFrame, oracleRuntimeFuzzAction{})] |= flag
+			flags[findFrame(nextFrame, vp8OracleRuntimeFuzzAction{})] |= flag
 			nextFrame++
 			continue
 		}
@@ -439,10 +373,10 @@ func oracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) oracleR
 	}
 
 	for frame, actions := range perFrame {
-		oracleRuntimeInstallFuzzActions(script, apply, frame, actions)
+		vp8OracleRuntimeInstallFuzzActions(script, apply, frame, actions)
 	}
 
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "all-control-permutation",
 		opts:       opts,
 		targetKbps: targetKbps,
@@ -454,7 +388,7 @@ func oracleRuntimeFullControlPermutationFuzzCase(r *testutil.ByteCursor) oracleR
 	}
 }
 
-func oracleRuntimeFullPermutationActionReader(kind int) testutil.ByteCursor {
+func vp8OracleRuntimeFullPermutationActionReader(kind int) testutil.ByteCursor {
 	switch kind {
 	case 3, 4:
 		return testutil.NewByteCursor([]byte{2})
@@ -467,10 +401,10 @@ func oracleRuntimeFullPermutationActionReader(kind int) testutil.ByteCursor {
 	}
 }
 
-func oracleRuntimeTemporalEnableFuzzAction(targetKbps int) oracleRuntimeFuzzAction {
-	return oracleRuntimeFuzzAction{
+func vp8OracleRuntimeTemporalEnableFuzzAction(targetKbps int) vp8OracleRuntimeFuzzAction {
+	return vp8OracleRuntimeFuzzAction{
 		token: runtimeTemporalControlToken(TemporalLayeringTwoLayers, targetKbps) + "+tlid:0",
-		phase: oracleRuntimeFuzzConfigPhase,
+		phase: vp8OracleRuntimeFuzzConfigPhase,
 		applyConfig: func(t *testing.T, e *VP8Encoder) {
 			t.Helper()
 			mustRuntime(t, "SetTemporalScalability(two-layer)", e.SetTemporalScalability(runtimeTemporalConfig(TemporalLayeringTwoLayers, targetKbps)))
@@ -482,10 +416,10 @@ func oracleRuntimeTemporalEnableFuzzAction(targetKbps int) oracleRuntimeFuzzActi
 	}
 }
 
-func oracleRuntimeTemporalLayerIDFuzzAction(layerID int) oracleRuntimeFuzzAction {
-	return oracleRuntimeFuzzAction{
+func vp8OracleRuntimeTemporalLayerIDFuzzAction(layerID int) vp8OracleRuntimeFuzzAction {
+	return vp8OracleRuntimeFuzzAction{
 		token: "tlid:" + strconv.Itoa(layerID),
-		phase: oracleRuntimeFuzzCodecPhase,
+		phase: vp8OracleRuntimeFuzzCodecPhase,
 		apply: func(t *testing.T, e *VP8Encoder) {
 			t.Helper()
 			mustRuntime(t, "SetTemporalLayerID", e.SetTemporalLayerID(layerID))
@@ -493,10 +427,10 @@ func oracleRuntimeTemporalLayerIDFuzzAction(layerID int) oracleRuntimeFuzzAction
 	}
 }
 
-func oracleRuntimeTemporalDisableFuzzAction(targetKbps int) oracleRuntimeFuzzAction {
-	return oracleRuntimeFuzzAction{
+func vp8OracleRuntimeTemporalDisableFuzzAction(targetKbps int) vp8OracleRuntimeFuzzAction {
+	return vp8OracleRuntimeFuzzAction{
 		token: runtimeTemporalOffControlToken(targetKbps),
-		phase: oracleRuntimeFuzzConfigPhase,
+		phase: vp8OracleRuntimeFuzzConfigPhase,
 		apply: func(t *testing.T, e *VP8Encoder) {
 			t.Helper()
 			mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
@@ -504,24 +438,24 @@ func oracleRuntimeTemporalDisableFuzzAction(targetKbps int) oracleRuntimeFuzzAct
 	}
 }
 
-func oracleRuntimeShuffleInts(r *testutil.ByteCursor, values []int) {
+func vp8OracleRuntimeShuffleInts(r *testutil.ByteCursor, values []int) {
 	for i := len(values) - 1; i > 0; i-- {
 		j := r.Pick(i + 1)
 		values[i], values[j] = values[j], values[i]
 	}
 }
 
-func oracleRuntimeRandomFuzzAction(r *testutil.ByteCursor, targets []int) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
-	return oracleRuntimeFuzzActionForKind(r, r.Pick(18), targets)
+func vp8OracleRuntimeRandomFuzzAction(r *testutil.ByteCursor, targets []int) (vp8OracleRuntimeFuzzAction, EncodeFlags, bool) {
+	return vp8OracleRuntimeFuzzActionForKind(r, r.Pick(18), targets)
 }
 
-func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []int) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
+func vp8OracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []int) (vp8OracleRuntimeFuzzAction, EncodeFlags, bool) {
 	switch kind {
 	case 0:
 		value := targets[r.Pick(len(targets))]
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "bitrate:" + strconv.Itoa(value),
-			phase: oracleRuntimeFuzzConfigPhase,
+			phase: vp8OracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetBitrateKbps", e.SetBitrateKbps(value))
@@ -533,18 +467,18 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		minQ := [...]int{2, 4, 8}[r.Pick(3)]
 		maxQ := [...]int{48, 52, 56}[r.Pick(3)]
 		drop := [...]int{0, defaultDropFramesWaterMark}[r.Pick(2)]
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "bitrate:" + strconv.Itoa(bitrate) +
 				"+fps:" + strconv.Itoa(fps) +
 				"+minq:" + strconv.Itoa(minQ) +
 				"+maxq:" + strconv.Itoa(maxQ) +
 				"+drop:" + strconv.Itoa(drop),
-			phase: oracleRuntimeFuzzConfigPhase,
+			phase: vp8OracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				// Mirror one vpx_codec_enc_config_set for the bundled
 				// bitrate/fps/minq/maxq/drop tokens (frameflags driver).
-				cfg := oracleRuntimeCurrentRateControlConfig(e)
+				cfg := vp8OracleRuntimeCurrentRateControlConfig(e)
 				cfg.TargetBitrateKbps = bitrate
 				cfg.MinQuantizer = minQ
 				cfg.MaxQuantizer = maxQ
@@ -562,37 +496,37 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		}, 0, false
 	case 2:
 		noise := 0
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "noise:" + strconv.Itoa(noise),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetNoiseSensitivity", e.SetNoiseSensitivity(noise))
 			},
 		}, 0, false
 	case 3:
-		return oracleRuntimeFuzzAction{}, 0, false
+		return vp8OracleRuntimeFuzzAction{}, 0, false
 	case 4:
-		return oracleRuntimeFuzzAction{}, 0, false
+		return vp8OracleRuntimeFuzzAction{}, 0, false
 	case 5:
 		refNames := [...]string{"last", "golden", "altref"}
 		refs := [...]ReferenceFrame{ReferenceLast, ReferenceGolden, ReferenceAltRef}
 		idx := r.Pick(len(refs))
 		imageIndex := 8 + r.Pick(8)
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "setref:" + refNames[idx] + ":panning:" + strconv.Itoa(imageIndex),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: setReferencePanningApply(refs[idx], imageIndex, refNames[idx]),
 		}, 0, false
 	case 6:
 		staticThreshold := [...]int{0, 1, 500}[r.Pick(3)]
 		screenMode := [...]int{0, 1, 2}[r.Pick(3)]
 		sharpness := [...]int{0, 4, 7}[r.Pick(3)]
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "static:" + strconv.Itoa(staticThreshold) +
 				"+screen:" + strconv.Itoa(screenMode) +
 				"+sharpness:" + strconv.Itoa(sharpness),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetStaticThreshold", e.SetStaticThreshold(staticThreshold))
@@ -610,9 +544,9 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 			deadline = DeadlineGoodQuality
 			cpu = [...]int{0, 4, 8}[r.Pick(3)]
 		}
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "deadline:" + deadlineToken + "+cpu:" + strconv.Itoa(cpu),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				// vpx_codec_encode applies the new deadline after runtime
@@ -639,24 +573,24 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		default:
 			flag = EncodeForceAltRefFrame
 		}
-		return oracleRuntimeFuzzAction{}, flag, false
+		return vp8OracleRuntimeFuzzAction{}, flag, false
 	case 9:
 		bitrate := targets[r.Pick(len(targets))]
 		minQ := [...]int{2, 4, 8}[r.Pick(3)]
 		maxQ := [...]int{48, 52, 56}[r.Pick(3)]
 		undershoot := [...]int{50, 75, 100}[r.Pick(3)]
 		overshoot := [...]int{50, 75, 100}[r.Pick(3)]
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "endusage:cbr+bitrate:" + strconv.Itoa(bitrate) +
 				"+minq:" + strconv.Itoa(minQ) +
 				"+maxq:" + strconv.Itoa(maxQ) +
 				"+undershoot:" + strconv.Itoa(undershoot) +
 				"+overshoot:" + strconv.Itoa(overshoot) +
 				"+bufsz:6000+bufinit:4000+bufopt:5000",
-			phase: oracleRuntimeFuzzConfigPhase,
+			phase: vp8OracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
-				dropAllowed, dropWaterMark := oracleRuntimeCurrentDropConfig(e)
+				dropAllowed, dropWaterMark := vp8OracleRuntimeCurrentDropConfig(e)
 				mustRuntime(t, "SetRateControl", e.SetRateControl(RateControlConfig{
 					Mode:                RateControlCBR,
 					TargetBitrateKbps:   bitrate,
@@ -678,9 +612,9 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		if tuneName == "ssim" {
 			tuning = TuneSSIM
 		}
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "tune:" + tuneName,
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetTuning", e.SetTuning(tuning))
@@ -688,9 +622,9 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		}, 0, false
 	case 11:
 		partitions := r.Pick(4)
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "token:" + strconv.Itoa(partitions),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetTokenPartitions", e.SetTokenPartitions(partitions))
@@ -700,11 +634,11 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		maxIntra := 0
 		gfBoost := 0
 		cq := 4
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "maxintra:" + strconv.Itoa(maxIntra) +
 				"+gfboost:" + strconv.Itoa(gfBoost) +
 				"+cq:" + strconv.Itoa(cq),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetMaxIntraBitratePct", e.SetMaxIntraBitratePct(maxIntra))
@@ -716,11 +650,11 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		maxFrames := 0
 		strength := 0
 		filterType := 1
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "arnrmax:" + strconv.Itoa(maxFrames) +
 				"+arnrstrength:" + strconv.Itoa(strength) +
 				"+arnrtype:" + strconv.Itoa(filterType),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "VP8E_SET_ARNR_MAXFRAMES", e.setARNRMaxFrames(maxFrames))
@@ -734,9 +668,9 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		if enabled {
 			value = 1
 		}
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "rtc:" + strconv.Itoa(value),
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetRTCExternalRateControl", e.SetRTCExternalRateControl(enabled))
@@ -746,9 +680,9 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		refNames := [...]string{"last", "golden", "altref"}
 		refs := [...]ReferenceFrame{ReferenceLast, ReferenceGolden, ReferenceAltRef}
 		idx := r.Pick(len(refs))
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "copyref:" + refNames[idx],
-			phase: oracleRuntimeFuzzCodecPhase,
+			phase: vp8OracleRuntimeFuzzCodecPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				dst := newTestImage(e.opts.Width, e.opts.Height)
@@ -761,13 +695,13 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		if enabled {
 			drop = 60
 		}
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "drop:" + strconv.Itoa(drop),
-			phase: oracleRuntimeFuzzConfigPhase,
+			phase: vp8OracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				// Mirror vpx_codec_enc_config_set rc_dropframe_thresh only.
-				cfg := oracleRuntimeCurrentRateControlConfig(e)
+				cfg := vp8OracleRuntimeCurrentRateControlConfig(e)
 				cfg.DropFrameWaterMark = drop
 				cfg.DropFrameAllowed = drop > 0
 				mustRuntime(t, "SetRateControl(drop)", e.SetRateControl(cfg))
@@ -775,9 +709,9 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		}, 0, false
 	case 18:
 		interval := 999
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "kfmin:" + strconv.Itoa(interval) + "+kfmax:" + strconv.Itoa(interval),
-			phase: oracleRuntimeFuzzConfigPhase,
+			phase: vp8OracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetKeyFrameInterval", e.SetKeyFrameInterval(interval))
@@ -793,9 +727,9 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		if !enabled {
 			interval = 0
 		}
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: "kfdisabled:" + strconv.Itoa(disabled) + "+kfmin:" + strconv.Itoa(interval) + "+kfmax:" + strconv.Itoa(interval),
-			phase: oracleRuntimeFuzzConfigPhase,
+			phase: vp8OracleRuntimeFuzzConfigPhase,
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetAdaptiveKeyFrames", e.SetAdaptiveKeyFrames(enabled))
@@ -807,12 +741,12 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 		mode := modes[r.Pick(len(modes))]
 		bitrate := targets[r.Pick(len(targets))]
 		cqLevel := runtimeRateControlModeCQLevel(mode)
-		return oracleRuntimeFuzzAction{
+		return vp8OracleRuntimeFuzzAction{
 			token: runtimeRateControlModeControlToken(mode, bitrate),
-			phase: oracleRuntimeFuzzConfigPhase,
+			phase: vp8OracleRuntimeFuzzConfigPhase,
 			applyConfig: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
-				dropAllowed, dropWaterMark := oracleRuntimeCurrentDropConfig(e)
+				dropAllowed, dropWaterMark := vp8OracleRuntimeCurrentDropConfig(e)
 				mustRuntime(t, "SetRateControl(mode)", e.SetRateControl(RateControlConfig{
 					Mode:                mode,
 					TargetBitrateKbps:   bitrate,
@@ -838,11 +772,11 @@ func oracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets []
 	}
 }
 
-func oracleRuntimeRealtimeDeadlineFuzzAction(r *testutil.ByteCursor) (oracleRuntimeFuzzAction, EncodeFlags, bool) {
+func vp8OracleRuntimeRealtimeDeadlineFuzzAction(r *testutil.ByteCursor) (vp8OracleRuntimeFuzzAction, EncodeFlags, bool) {
 	cpu := [...]int{0, -3, -8}[r.Pick(3)]
-	return oracleRuntimeFuzzAction{
+	return vp8OracleRuntimeFuzzAction{
 		token: "deadline:rt+cpu:" + strconv.Itoa(cpu),
-		phase: oracleRuntimeFuzzCodecPhase,
+		phase: vp8OracleRuntimeFuzzCodecPhase,
 		apply: func(t *testing.T, e *VP8Encoder) {
 			t.Helper()
 			mustRuntime(t, "SetCPUUsed", e.SetCPUUsed(cpu))
@@ -851,14 +785,14 @@ func oracleRuntimeRealtimeDeadlineFuzzAction(r *testutil.ByteCursor) (oracleRunt
 	}, 0, false
 }
 
-func oracleRuntimeCurrentDropConfig(e *VP8Encoder) (bool, int) {
+func vp8OracleRuntimeCurrentDropConfig(e *VP8Encoder) (bool, int) {
 	if e == nil || !e.opts.DropFrameAllowed {
 		return false, 0
 	}
 	return true, e.opts.DropFrameWaterMark
 }
 
-func oracleRuntimeCurrentRateControlConfig(e *VP8Encoder) RateControlConfig {
+func vp8OracleRuntimeCurrentRateControlConfig(e *VP8Encoder) RateControlConfig {
 	if e == nil {
 		return RateControlConfig{}
 	}
@@ -882,14 +816,14 @@ func oracleRuntimeCurrentRateControlConfig(e *VP8Encoder) RateControlConfig {
 	}
 }
 
-func oracleRuntimeShuffleActions(r *testutil.ByteCursor, actions []oracleRuntimeFuzzAction) {
+func vp8OracleRuntimeShuffleActions(r *testutil.ByteCursor, actions []vp8OracleRuntimeFuzzAction) {
 	for i := len(actions) - 1; i > 0; i-- {
 		j := r.Pick(i + 1)
 		actions[i], actions[j] = actions[j], actions[i]
 	}
 }
 
-func oracleRuntimeInstallFuzzActions(script []string, apply map[int]func(*testing.T, *VP8Encoder), frame int, actions []oracleRuntimeFuzzAction) {
+func vp8OracleRuntimeInstallFuzzActions(script []string, apply map[int]func(*testing.T, *VP8Encoder), frame int, actions []vp8OracleRuntimeFuzzAction) {
 	if len(actions) == 0 {
 		return
 	}
@@ -903,24 +837,24 @@ func oracleRuntimeInstallFuzzActions(script []string, apply map[int]func(*testin
 		for _, action := range actions {
 			if action.applyConfig != nil {
 				action.applyConfig(t, e)
-			} else if action.phase == oracleRuntimeFuzzConfigPhase {
+			} else if action.phase == vp8OracleRuntimeFuzzConfigPhase {
 				action.apply(t, e)
 			}
 		}
 		for _, action := range actions {
 			if action.applyCodec != nil {
 				action.applyCodec(t, e)
-			} else if action.phase == oracleRuntimeFuzzCodecPhase {
+			} else if action.phase == vp8OracleRuntimeFuzzCodecPhase {
 				action.apply(t, e)
 			}
 		}
 	}
 }
 
-func oracleRuntimeTemporalFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
+func vp8OracleRuntimeTemporalFuzzCase(r *testutil.ByteCursor) vp8OracleRuntimeControlFuzzCase {
 	targetKbps := 700
 	frames := 8
-	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3}[r.Pick(2)])
+	opts := vp8OracleRuntimeBaseFuzzOptions(64, 64, targetKbps, [...]int{0, -3}[r.Pick(2)])
 	script := temporalScalabilityEnableDisableScript(frames)
 	apply := map[int]func(*testing.T, *VP8Encoder){
 		2: func(t *testing.T, e *VP8Encoder) {
@@ -945,21 +879,21 @@ func oracleRuntimeTemporalFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlF
 			mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
 		},
 	}
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "temporal",
 		opts:       opts,
 		targetKbps: targetKbps,
-		sources:    oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.Pick(2)),
+		sources:    vp8OracleRuntimeFuzzSources(opts.Width, opts.Height, frames, r.Pick(2)),
 		flags:      temporalScalabilityEnableDisableFlags(frames),
 		script:     script,
 		apply:      apply,
 	}
 }
 
-func oracleRuntimeInvalidNoopFuzzCase(r *testutil.ByteCursor) oracleRuntimeControlFuzzCase {
+func vp8OracleRuntimeInvalidNoopFuzzCase(r *testutil.ByteCursor) vp8OracleRuntimeControlFuzzCase {
 	targetKbps := 700
 	frames := 8
-	opts := oracleRuntimeBaseFuzzOptions(64, 64, targetKbps, 0)
+	opts := vp8OracleRuntimeBaseFuzzOptions(64, 64, targetKbps, 0)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
 	for frame := 1; frame < frames; frame++ {
 		switch r.Pick(7) {
@@ -1015,11 +949,11 @@ func oracleRuntimeInvalidNoopFuzzCase(r *testutil.ByteCursor) oracleRuntimeContr
 			}
 		}
 	}
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "invalid-noop",
 		opts:       opts,
 		targetKbps: targetKbps,
-		sources:    oracleRuntimeFuzzSources(opts.Width, opts.Height, frames, 0),
+		sources:    vp8OracleRuntimeFuzzSources(opts.Width, opts.Height, frames, 0),
 		flags:      nil,
 		script:     runtimeControlScript(frames, nil),
 		apply:      apply,

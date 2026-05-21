@@ -156,7 +156,7 @@ func TestVP8OracleEncoderProductionRuntimeTransitions720p(t *testing.T) {
 	flags[24] = EncodeForceKeyFrame
 	applyConfigSet := func(t *testing.T, e *VP8Encoder, bitrate int, fps int, minQ int, maxQ int, drop int) {
 		t.Helper()
-		cfg := oracleRuntimeCurrentRateControlConfig(e)
+		cfg := vp8OracleRuntimeCurrentRateControlConfig(e)
 		cfg.TargetBitrateKbps = bitrate
 		cfg.MinQuantizer = minQ
 		cfg.MaxQuantizer = maxQ

@@ -9,88 +9,28 @@ import (
 	"testing"
 )
 
-// Canonical SHA-256 hashes pinned by task #281 for the libvpx v1.16.0 VP8
-// oracle binaries built via internal/coracle/build_vpxenc_oracle.sh and
-// internal/coracle/build_libvpx.sh, after task #264 host-pinning + task
-// #281 path-prefix-map hardening. Verified reproducible on arm64-darwin
-// (Apple silicon) hosts across builds rooted in /tmp, /private/tmp, and
-// deeply nested parent directories.
+// Canonical SHA-256 hashes for libvpx v1.16.0 oracle binaries built via
+// internal/coracle/build_vpxenc_oracle.sh and internal/coracle/build_libvpx.sh.
+// The pins cover the patched VP8 trace oracle and the decoder checksum oracle.
+// If either hash changes, re-audit the libvpx version, configure flags,
+// compiler/toolchain inputs, path-prefix mapping, and trace patch set before
+// updating the constant.
 //
-// Task #296 (2026-05-19) rotated the vpxenc-oracle pin after extending
-// the trace patch with a pretrellis-UV qcoeff emit hook. The hook splices
-// into vp8_encode_inter16x16 between vp8_quantize_mb and optimize_mb
-// (encodemb.c:485-495 v1.16.0) and emits 8 JSON rows per MB labelled with
-// thread-local (mb_row, mb_col) coordinates set from encodeframe.c around
-// each call to vp8cx_encode_{intra,inter}_macroblock. Emission is gated
-// by GOVPX_ORACLE_PRETRELLIS_UV=1 on top of GOVPX_ORACLE_TRACE_OUT so the
-// untraced binary stays a no-op. Used to localize the task #207 / #227
-// ARNR pin-hold after the #282-#294 static-inspection campaign exhausted
-// candidate predictor / residual / quantize / RC drift sources.
-//
-// Task #310 (2026-05-19) rotated the pin again to land a per-MB
-// NEWMV-picker quantize trace. The hook splices into
-// vp8/encoder/rdopt.c:macro_block_yrd after the Y0..15 + Y2 quantize
-// loop completes (rdopt.c:494-499 v1.16.0) and before vp8_rdcost_mby
-// reads d->eobs, capturing 17 JSON rows per inter-mode candidate (Y
-// blocks 0..15 + Y2 block 24) with full pre-quantize state
-// (coeff[16], b->zbin[16], b->round[16], b->quant[16],
-// b->quant_shift[16], b->zrun_zbin_boost[16], d->dequant[16],
-// b->zbin_extra), post-quantize state (qcoeff[16], dqcoeff[16], eob),
-// MB-context (mbmi.mode/ref_frame/mv), and the libvpx quantize-fn path
-// taken ("regular" / "fast" via x->quantize_b pointer equality).
-// Gated on GOVPX_ORACLE_NEWMV_PICKER=1 on top of GOVPX_ORACLE_TRACE_OUT.
-// Localizes the task #304 BestARNR/GoodARNR rate_y gap by surfacing
-// which of (stale zbin_extra, row-15 predictor delta, fast vs regular
-// quantize swap) explains govpx rate_y=7519 vs libvpx rate_y=34799 at
-// MB(0,0) frame 1 NEWMV MV=(8,16) ref=LAST_FRAME.
-//
-// Task #316 (2026-05-19) rotated the pin again to land the chroma
-// optimize_b post-trellis emit hook. The hook splices into
-// vp8/encoder/encodemb.c:vp8_encode_inter16x16 right after the
-// optimize_mb call (so it observes the POST-trellis chroma qcoeff for
-// UV blocks 16..23), paired with the existing pretrellis-UV emit (same
-// function, before optimize_mb) to bisect the libvpx-vs-govpx Viterbi
-// flip on the task #207 / #227 ARNR pin-hold. Per task #314 evidence
-// the residual is post-encode chroma trellis ±1 DC drop divergence
-// (2241/3600 MBs diverge; 2115 chroma-only; 85% DC-only). Gated on
-// GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1 on top of GOVPX_ORACLE_TRACE_OUT.
-//
-// Task #373 (2026-05-19) rotated the vpxenc-oracle pin to carry
-// per-recode-iter inter_candidate rows. Candidate rows now gain iter/q
-// fields when emitted from the recode-loop hook, and can be scoped with
-// GOVPX_ORACLE_INTER_CANDIDATE_{FRAME,ITER,MB_ROW,MB_COL} so large
-// 720p bisections can target a single MB/iter without multi-GB traces.
-//
-// Task #384 (2026-05-19) rotated the pin again to land the matching
-// UV-side picker quantize trace for inter-mode candidates. With
-// GOVPX_ORACLE_NEWMV_PICKER=1, the oracle now emits picker_uv_quantize
-// rows from rd_inter16x16_uv after vp8_quantize_mbuv, sharing the same
-// frame/iter/MB scoping as inter_candidate rows. This closes the
-// frame-1/frame-2 recode bisection gap where Y candidate rates matched
-// but UV EOB/quantizer state still decided tteob skip backout.
-//
-// These pins exist to detect any future change in the build pipeline
-// (libvpx upgrade, configure flag change, toolchain rotation, new patch
-// stamp) that would silently shift the oracle binary hash. If this test
-// fails, treat it as a signal to re-audit oracle determinism end-to-end
-// rather than mechanically bumping the constant.
-//
-// Hashes are intentionally arch-gated: x86_64 and other hosts will pick
-// different libvpx ARM NEON vs SSE TUs and produce different SHAs, so
-// only the canonical Apple silicon hashes are pinned here. Other archs
-// run a softer reproducibility check (re-hash the same file twice; on
-// success the cross-path invariance is enforced by the build script's
-// determinism flags, not by this test).
+// Hashes are intentionally arch-gated: x86_64 and other hosts pick different
+// libvpx ARM NEON vs SSE translation units and produce different SHAs. Only the
+// canonical Apple silicon hashes are pinned here. Other architectures still run
+// a softer reproducibility check by hashing the same file twice; cross-path
+// invariance is enforced by the build scripts' determinism flags.
 const (
 	oracleSHAvpxencArm64Darwin = "ded03c16223fd9d6d5df02536d333fe76537e73597012363bda55a30fb2a14c0"
 	oracleSHAlibvpxArm64Darwin = "4992f2bbfc1ce02640e20036286465c455650485a5378904dcc197cb2dda5523"
 )
 
-// TestOracleVpxencSHAPinned hashes the pre-built vpxenc-oracle binary, if
-// present, and verifies it matches the canonical task #281 SHA on supported
-// hosts. The test skips on hosts where the binary is absent so the unit
-// test suite stays runnable without invoking the libvpx build pipeline.
-func TestOracleVpxencSHAPinned(t *testing.T) {
+// TestCoracleVpxencSHAPinned hashes the pre-built vpxenc-oracle binary, if
+// present, and verifies it matches the canonical SHA on supported hosts. The
+// test skips on hosts where the binary is absent so the unit test suite stays
+// runnable without invoking the libvpx build pipeline.
+func TestCoracleVpxencSHAPinned(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping oracle SHA pin under -short")
 	}
@@ -113,10 +53,10 @@ func TestOracleVpxencSHAPinned(t *testing.T) {
 	}
 }
 
-// TestOracleLibvpxSHAPinned mirrors TestOracleVpxencSHAPinned for the
+// TestCoracleLibvpxSHAPinned mirrors TestCoracleVpxencSHAPinned for the
 // decoder-only oracle binary (govpx-vpx-oracle) built by
 // internal/coracle/build_libvpx.sh.
-func TestOracleLibvpxSHAPinned(t *testing.T) {
+func TestCoracleLibvpxSHAPinned(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping oracle SHA pin under -short")
 	}

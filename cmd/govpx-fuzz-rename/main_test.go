@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestClassifyOracleRuntimeControls(t *testing.T) {
+func TestClassifyVP8OracleRuntimeControls(t *testing.T) {
 	cases := []struct {
 		name string
 		in   []byte
@@ -20,7 +20,7 @@ func TestClassifyOracleRuntimeControls(t *testing.T) {
 		{"empty pick0 -> general", nil, "general"},
 		{"fps_bitrate_repro exact match", []byte("02000y0"), "fps_bitrate_repro"},
 		{"kfi_zero_repro exact match", []byte{0xff}, "kfi_zero_repro"},
-		{"full_perm exact match", oracleRuntimeFullPermutationSeed, "full_perm"},
+		{"full_perm exact match", vp8OracleRuntimeFullPermutationSeed, "full_perm"},
 		// data[0]%3 dispatch: 0->general, 1->temporal, 2->invalid_noop.
 		// Avoid 0xff as the first byte (exact match for kfi_zero_repro
 		// when len==1, and full_perm when the rest matches), so use
@@ -31,7 +31,37 @@ func TestClassifyOracleRuntimeControls(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := classifyOracleRuntimeControls(tc.in)
+			got, err := classifyVP8OracleRuntimeControls(tc.in)
+			if err != nil {
+				t.Fatalf("classify err: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("classify %#v: got %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClassifyVP8OracleProductionRuntimeControls(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []byte
+		want string
+	}{
+		{
+			name: "empty seed",
+			in:   nil,
+			want: "prod_640x360_t0_f2_cpu0_src0_300kbps",
+		},
+		{
+			name: "threaded 720p cap",
+			in:   []byte{2, 3, 2, 1, 1, 2},
+			want: "prod_1280x720_t4_f3_cpum3_src1_1200kbps",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := classifyVP8OracleProductionRuntimeControls(tc.in)
 			if err != nil {
 				t.Fatalf("classify err: %v", err)
 			}
@@ -219,9 +249,9 @@ func TestRunOnCleanTreeIsNoop(t *testing.T) {
 }
 
 // hint guards against silent drift between dispatcher and classifier.
-func TestOracleRuntimeFullPermutationSeedMirrorsTestFile(t *testing.T) {
+func TestVP8OracleRuntimeFullPermutationSeedMirrorsTestFile(t *testing.T) {
 	want := []byte{0xff, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
-	if !bytes.Equal(oracleRuntimeFullPermutationSeed, want) {
-		t.Fatalf("oracleRuntimeFullPermutationSeed drifted: got %v want %v", oracleRuntimeFullPermutationSeed, want)
+	if !bytes.Equal(vp8OracleRuntimeFullPermutationSeed, want) {
+		t.Fatalf("vp8OracleRuntimeFullPermutationSeed drifted: got %v want %v", vp8OracleRuntimeFullPermutationSeed, want)
 	}
 }

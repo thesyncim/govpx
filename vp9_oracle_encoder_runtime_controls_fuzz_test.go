@@ -61,7 +61,7 @@ func vp9RuntimeControlsSeedDeferred(data []byte) bool {
 }
 
 // FuzzVP9OracleEncoderRuntimeControls mirrors the VP8
-// FuzzOracleEncoderRuntimeControlTransitions: a fuzz-driven runtime-control
+// FuzzVP8OracleEncoderRuntimeControlTransitions: a fuzz-driven runtime-control
 // schedule is replayed against both the govpx VP9 encoder and the
 // vpxenc-vp9-frameflags driver, and the per-frame VP9 packet bytes must match.
 //

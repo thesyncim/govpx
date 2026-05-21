@@ -19,7 +19,7 @@ import (
 // 19981bff cohort pinned in vp8_kf_1280x720_ssim_best_arnr_parity_test.go.
 //
 // Cohort decode (seed bytes "A1", 0x41 = 65, 0x31 = 49;
-// oracleRuntimeControlFuzzBytes wraps len(data)==2 so buckets alternate
+// vp8OracleRuntimeControlFuzzBytes wraps len(data)==2 so buckets alternate
 // between byte 0 and byte 1):
 //
 //   - Resolution: bucket 65%11=10  ⇒  1280x720

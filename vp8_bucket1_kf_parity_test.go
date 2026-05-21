@@ -27,7 +27,7 @@ import (
 //
 // The seeds replay the fuzz corpus entries
 // testdata/fuzz/FuzzEncoderProductionStreamByteParity/regression_option_grid_*.
-// Resolving the option-grid bucket bytes (oracleRuntimeControlFuzzBytes.pick):
+// Resolving the option-grid bucket bytes (vp8OracleRuntimeControlFuzzBytes.pick):
 //
 //	"A"    -> 19981bff : deadline=Best, rc=VBR, er=true
 //	"A120" -> 22f3d67c : deadline=Good, rc=VBR, er=false

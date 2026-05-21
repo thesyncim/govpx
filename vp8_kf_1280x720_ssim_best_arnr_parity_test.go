@@ -18,7 +18,7 @@ import (
 // byte 0 / byte 1, mirroring (but in the OPPOSITE direction from) the
 // GoodQuality cohort pinned by TestVP8KF1280x720SSIMGoodARNRParity.
 //
-// Cohort decode (seed bytes "A", 0x41 = 65; oracleRuntimeControlFuzzBytes
+// Cohort decode (seed bytes "A", 0x41 = 65; vp8OracleRuntimeControlFuzzBytes
 // wraps len(data)==1 so every bucket reads byte 0):
 //   - Resolution: bucket 65%11=10  ⇒  1280x720
 //   - Deadline:   bucket 65%3=2    ⇒  BestQuality

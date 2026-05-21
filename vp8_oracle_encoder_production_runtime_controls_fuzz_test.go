@@ -14,8 +14,8 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// FuzzOracleEncoderProductionRuntimeControls drives the same per-frame
-// runtime-control schedule machinery as FuzzOracleEncoderRuntimeControlTransitions
+// FuzzVP8OracleEncoderProductionRuntimeControls drives the same per-frame
+// runtime-control schedule machinery as FuzzVP8OracleEncoderRuntimeControlTransitions
 // but at production resolutions (640×360, 854×480, 1280×720) with an explicit
 // Threads axis (0/1/2/4). This closes G1 (no strict gate above ~160×96) and G2
 // (multi-threaded encode parity is weak in the strict gate) under
@@ -26,7 +26,7 @@ import (
 // Per-iteration cost is meaningfully higher than the small-resolution fuzzer,
 // so the case generator caps frames at 2–4 on the heaviest resolutions and
 // reuses the same per-frame action pool.
-func FuzzOracleEncoderProductionRuntimeControls(f *testing.F) {
+func FuzzVP8OracleEncoderProductionRuntimeControls(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run production runtime-control fuzz parity")
 	}
@@ -45,7 +45,7 @@ func FuzzOracleEncoderProductionRuntimeControls(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		driver := coracletest.VpxencFrameFlags(t)
-		tc := oracleProductionRuntimeControlFuzzCaseFromBytes(data)
+		tc := vp8OracleProductionRuntimeControlFuzzCaseFromBytes(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-prod-runtime-controls-" + tc.name + "-" + hex.EncodeToString(sum[:4])
 		t.Logf("%s w=%d h=%d threads=%d frames=%d script=%s",
@@ -66,12 +66,12 @@ func FuzzOracleEncoderProductionRuntimeControls(f *testing.F) {
 	})
 }
 
-// oracleProductionRuntimeControlFuzzCaseFromBytes maps a fuzz seed onto a
+// vp8OracleProductionRuntimeControlFuzzCaseFromBytes maps a fuzz seed onto a
 // production-resolution runtime-control case. The first five bytes pick the
 // scenario shape (resolution, threads, frames, cpu, source-kind); subsequent
 // bytes feed the per-frame action selector through the shared
-// oracleRuntimeRandomFuzzAction infrastructure.
-func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeControlFuzzCase {
+// vp8OracleRuntimeRandomFuzzAction infrastructure.
+func vp8OracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) vp8OracleRuntimeControlFuzzCase {
 	r := testutil.NewByteCursor(data)
 	dims := [...]struct {
 		w int
@@ -96,9 +96,9 @@ func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeC
 	kind := r.Pick(2)
 	targetKbps := targets[r.Pick(len(targets))]
 
-	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, cpuUsed)
+	opts := vp8OracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, cpuUsed)
 	opts.Threads = threads
-	sources := oracleRuntimeFuzzSources(dim.w, dim.h, frames, kind)
+	sources := vp8OracleRuntimeFuzzSources(dim.w, dim.h, frames, kind)
 	flags := make([]EncodeFlags, frames)
 	script := runtimeControlScript(frames, nil)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
@@ -106,10 +106,10 @@ func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeC
 
 	for frame := 1; frame < frames; frame++ {
 		actionCount := 1 + r.Pick(3)
-		actions := make([]oracleRuntimeFuzzAction, 0, actionCount)
+		actions := make([]vp8OracleRuntimeFuzzAction, 0, actionCount)
 		haveConfig := false
 		for range actionCount {
-			action, flag, usesCopyRef := oracleRuntimeRandomFuzzAction(&r, targets[:])
+			action, flag, usesCopyRef := vp8OracleRuntimeRandomFuzzAction(&r, targets[:])
 			if flag != 0 {
 				flags[frame] = flag
 				continue
@@ -117,7 +117,7 @@ func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeC
 			if action.token == "" {
 				continue
 			}
-			if action.phase == oracleRuntimeFuzzConfigPhase {
+			if action.phase == vp8OracleRuntimeFuzzConfigPhase {
 				if haveConfig {
 					continue
 				}
@@ -126,11 +126,11 @@ func oracleProductionRuntimeControlFuzzCaseFromBytes(data []byte) oracleRuntimeC
 			copyRefLog = copyRefLog || usesCopyRef
 			actions = append(actions, action)
 		}
-		oracleRuntimeShuffleActions(&r, actions)
-		oracleRuntimeInstallFuzzActions(script, apply, frame, actions)
+		vp8OracleRuntimeShuffleActions(&r, actions)
+		vp8OracleRuntimeInstallFuzzActions(script, apply, frame, actions)
 	}
 
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "prod-general",
 		opts:       opts,
 		targetKbps: targetKbps,

@@ -404,7 +404,7 @@ func resetLifecycleActionForOp(op byte, valueSel, w, h int, targets []int) reset
 		// VP8E_SET_CQ_LEVEL is read by ratecontrol picker code under
 		// CBR + VBR but only matters under CQ mode. Pin to a CQ-
 		// neutral seed of 4 (also the default in
-		// oracleRuntimeFuzzActionForKind for the same reason).
+		// vp8OracleRuntimeFuzzActionForKind for the same reason).
 		v := 4
 		return resetLifecycleAction{
 			op:    op,

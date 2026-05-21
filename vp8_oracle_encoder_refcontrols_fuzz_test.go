@@ -22,7 +22,7 @@ import (
 // libvpx vpxenc-frameflags driver driven through the same script.
 //
 // The existing vp8_oracle_encoder_copy_reference_parity_test.go covers
-// hand-picked sequences; FuzzOracleEncoderRuntimeControlTransitions
+// hand-picked sequences; FuzzVP8OracleEncoderRuntimeControlTransitions
 // covers ref-control as one action among many. This fuzzer is
 // focused exclusively on the SET / COPY / ref-update permutation
 // space, so its seed corpus stays tightly scoped to that surface
@@ -64,7 +64,7 @@ func FuzzEncoderReferenceControlSequences(f *testing.F) {
 // newRefControlsFuzzCase generates a per-frame schedule that mixes
 // SET, COPY, and EncodeFlags ref-update operations. Each fuzz byte
 // past the prefix picks one operation kind from the focused pool.
-func newRefControlsFuzzCase(data []byte) oracleRuntimeControlFuzzCase {
+func newRefControlsFuzzCase(data []byte) vp8OracleRuntimeControlFuzzCase {
 	r := testutil.NewByteCursor(data)
 	const (
 		width   = 64
@@ -73,8 +73,8 @@ func newRefControlsFuzzCase(data []byte) oracleRuntimeControlFuzzCase {
 	)
 	framesPool := [...]int{6, 8, 10}
 	frames := framesPool[r.Pick(len(framesPool))]
-	opts := oracleRuntimeBaseFuzzOptions(width, height, bitrate, 0)
-	sources := oracleRuntimeFuzzSources(width, height, frames, 0)
+	opts := vp8OracleRuntimeBaseFuzzOptions(width, height, bitrate, 0)
+	sources := vp8OracleRuntimeFuzzSources(width, height, frames, 0)
 	flags := make([]EncodeFlags, frames)
 	script := runtimeControlScript(frames, nil)
 	apply := make(map[int]func(*testing.T, *VP8Encoder), frames)
@@ -114,7 +114,7 @@ func newRefControlsFuzzCase(data []byte) oracleRuntimeControlFuzzCase {
 		}
 	}
 
-	return oracleRuntimeControlFuzzCase{
+	return vp8OracleRuntimeControlFuzzCase{
 		name:       "refctrl",
 		opts:       opts,
 		targetKbps: bitrate,
