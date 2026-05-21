@@ -1787,7 +1787,7 @@ func vp9FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
 	if row == 0 && col == 0 {
 		jointCost = 600
 	}
-	cost := jointCost + vp9MVSADComponentCost(row) + vp9MVSADComponentCost(col)
+	cost := jointCost + encoder.MVSADComponentCost(row) + encoder.MVSADComponentCost(col)
 	// libvpx: mvsad_err_cost rounds by VP9_PROB_COST_SHIFT (9).
 	return (cost*sadPerBit + 256) >> 9
 }

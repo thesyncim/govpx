@@ -9,25 +9,10 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-const (
-	vp9MVMax = (1 << (10 + 1 + 2)) - 1
-)
-
 type vp9FullpelPatternCandidate struct {
 	row int
 	col int
 }
-
-var vp9MVSADComponentCosts = func() [vp9MVMax + 1]int {
-	var costs [vp9MVMax + 1]int
-	for i := 1; i <= vp9MVMax; i++ {
-		// libvpx: vp9_encoder.c cal_nmvsadcosts uses
-		//   (int)(256 * (2 * (log2f(8 * i) + .6))).
-		logv := float64(float32(math.Log2(float64(8 * i))))
-		costs[i] = int(256 * (2 * (logv + .6)))
-	}
-	return costs
-}()
 
 var vp9BigDiaPatternCandidates = [encoder.MaxMvSearchSteps][8]vp9FullpelPatternCandidate{
 	{{0, -1}, {1, 0}, {0, 1}, {-1, 0}},
@@ -45,16 +30,6 @@ var vp9BigDiaPatternCandidates = [encoder.MaxMvSearchSteps][8]vp9FullpelPatternC
 
 var vp9BigDiaPatternCandidateCounts = [encoder.MaxMvSearchSteps]int{
 	4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-}
-
-func vp9MVSADComponentCost(v int) int {
-	if v < 0 {
-		v = -v
-	}
-	if v > vp9MVMax {
-		v = vp9MVMax
-	}
-	return vp9MVSADComponentCosts[v]
 }
 
 func vp9FastDiamondPatternSearchSAD(startDx, startDy int,
@@ -291,7 +266,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 			return 0
 		}
 		errorPerBit := e.vp9MVErrorPerBit(e.vp9EncoderModeDecisionQIndex())
-		return vp9SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
+		return encoder.SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
 			refMv, allowHP, errorPerBit)
 	}
 	useSubpelTree := nonrdSubpelTree || e.sf.Mv.SubpelSearchMethod == SubpelTree
@@ -368,7 +343,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMvTree(inter *vp9InterEncodeState,
 	encoder.SetSubpelMvSearchRange(&subpelLimits, &umvLimits, &refMv)
 
 	round := 3 - int(e.sf.Mv.SubpelForceStop)
-	if !(allowHP && vp9UseMvHP(refMv)) && round == 3 {
+	if !(allowHP && encoder.UseMvHP(refMv)) && round == 3 {
 		round = 2
 	}
 	if round <= 0 {
@@ -509,19 +484,6 @@ func vp9EncoderMvLimits(miRows, miCols, miRow, miCol int,
 	}
 }
 
-func vp9UseMvHP(ref vp9dec.MV) bool {
-	const kMvRefThresh = 64
-	row := int(ref.Row)
-	if row < 0 {
-		row = -row
-	}
-	col := int(ref.Col)
-	if col < 0 {
-		col = -col
-	}
-	return row < kMvRefThresh && col < kMvRefThresh
-}
-
 func (e *VP9Encoder) vp9MVErrorPerBit(qindex int) int {
 	rdmult := e.activeRDMult(qindex)
 	errorPerBit := rdmult >> 6
@@ -529,16 +491,6 @@ func (e *VP9Encoder) vp9MVErrorPerBit(qindex int) int {
 		errorPerBit = 1
 	}
 	return errorPerBit
-}
-
-func vp9SubpelMVErrorCost(fc *vp9dec.FrameContext, mv, ref vp9dec.MV,
-	allowHP bool, errorPerBit int,
-) uint64 {
-	if fc == nil || errorPerBit <= 0 {
-		return 0
-	}
-	cost := encoder.MvCostWithHP(mv, ref, &fc.Nmvc, allowHP)
-	return uint64((int64(cost)*int64(errorPerBit) + (1 << 13)) >> 14)
 }
 
 func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
