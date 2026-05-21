@@ -660,11 +660,11 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 // buffer byte-for-byte.
 func gatherCodedClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
 	for row := range height {
-		refY := clampEncodeCoord(baseY+row, ref.CodedHeight)
+		refY := vp8enc.ClampEncodeCoord(baseY+row, ref.CodedHeight)
 		dstRow := row * dstStride
 		srcRow := refY * ref.YStride
 		for col := range width {
-			refX := clampEncodeCoord(baseX+col, ref.CodedWidth)
+			refX := vp8enc.ClampEncodeCoord(baseX+col, ref.CodedWidth)
 			dst[dstRow+col] = ref.Y[srcRow+refX]
 		}
 	}
@@ -674,9 +674,9 @@ func fillSplitMotionResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, bl
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4
 	for row := range 4 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
 		for col := range 4 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
 			out[row*4+col] = int16(int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*4+col]))
 		}
 	}

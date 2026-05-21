@@ -316,9 +316,9 @@ func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int,
 		return ctx, true
 	}
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
 			ctx.srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
 		}
 	}

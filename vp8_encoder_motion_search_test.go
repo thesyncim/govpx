@@ -441,9 +441,9 @@ func TestMacroblockLumaMotionVarianceSSEClampsPartialSourceSubpel(t *testing.T) 
 	yOffset := int(mv.Row) & 7
 	var srcScratch [16 * 16]byte
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
 			srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
 		}
 	}
@@ -465,11 +465,11 @@ func scalarFullPelClampedMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8commo
 	sum := 0
 	sse := 0
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
+		refY := vp8enc.ClampEncodeCoord(refBaseY+row, ref.CodedHeight)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
+			refX := vp8enc.ClampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
 			sum += diff
 			sse += diff * diff

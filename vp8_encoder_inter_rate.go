@@ -465,11 +465,11 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 
 	sse := 0
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
+		refY := vp8enc.ClampEncodeCoord(refBaseY+row, ref.CodedHeight)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
+			refX := vp8enc.ClampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
 			sse += diff * diff
 		}
@@ -511,11 +511,11 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 	sum := 0
 	sse := 0
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
+		refY := vp8enc.ClampEncodeCoord(refBaseY+row, ref.CodedHeight)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
+			refX := vp8enc.ClampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
 			sum += diff
 			sse += diff * diff
@@ -578,13 +578,13 @@ func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, base
 	var srcXs [16]int
 	var refXs [16]int
 	for col := range 16 {
-		srcXs[col] = clampEncodeCoord(baseX+col, srcW)
-		refXs[col] = clampEncodeCoord(refBaseX+col, refW)
+		srcXs[col] = vp8enc.ClampEncodeCoord(baseX+col, srcW)
+		refXs[col] = vp8enc.ClampEncodeCoord(refBaseX+col, refW)
 	}
 	sad := 0
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, srcH)
-		refY := clampEncodeCoord(refBaseY+row, refH)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, srcH)
+		refY := vp8enc.ClampEncodeCoord(refBaseY+row, refH)
 		srcRow := srcY * srcStride
 		refRow := refY * refStride
 		for col := range 16 {
@@ -659,11 +659,11 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 	refClampWidth := ref.CodedWidth
 	sad := 0
 	for row := range height {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(refBaseY+row, refClampHeight)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
+		refY := vp8enc.ClampEncodeCoord(refBaseY+row, refClampHeight)
 		for col := range width {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(refBaseX+col, refClampWidth)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
+			refX := vp8enc.ClampEncodeCoord(refBaseX+col, refClampWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
 			mask := diff >> mvKernelSignShift
 			sad += (diff ^ mask) - mask

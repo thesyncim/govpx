@@ -498,9 +498,9 @@ func TestSplitBlockSADClampsPartialSourceSubpel(t *testing.T) {
 
 	var srcScratch [16 * 16]byte
 	for row := range height {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
 		for col := range width {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
 			srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
 		}
 	}

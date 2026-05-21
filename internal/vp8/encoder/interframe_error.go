@@ -81,3 +81,10 @@ func clampEncodeCoord(v int, limit int) int {
 	}
 	return v
 }
+
+// ClampEncodeCoord clamps a VP8 encoder source/reference coordinate to the
+// visible edge sample, matching libvpx v1.16.0 VP8 edge handling for partial
+// macroblock analysis.
+func ClampEncodeCoord(v int, limit int) int {
+	return clampEncodeCoord(v, limit)
+}

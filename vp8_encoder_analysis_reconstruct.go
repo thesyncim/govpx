@@ -33,11 +33,11 @@ func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMb
 
 	sad := 0
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(refBaseY+row, img.CodedHeight)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
+		refY := vp8enc.ClampEncodeCoord(refBaseY+row, img.CodedHeight)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(refBaseX+col, img.CodedWidth)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
+			refX := vp8enc.ClampEncodeCoord(refBaseX+col, img.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[refY*img.YStride+refX])
 			// Branchless |diff| via sign-mask splat.
 			mask := diff >> mvKernelSignShift

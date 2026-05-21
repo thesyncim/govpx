@@ -179,9 +179,9 @@ func macroblockLumaVarianceSSEFromPredictor(src vp8enc.SourceImage, mbRow int, m
 	sum := 0
 	sse := 0
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*16+col])
 			sum += diff
 			sse += diff * diff

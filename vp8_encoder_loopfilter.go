@@ -924,11 +924,11 @@ func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, c
 func loopFilterLumaBlockSSE(src vp8enc.SourceImage, img *vp8common.Image, baseY int, baseX int) int {
 	sse := 0
 	for row := range 16 {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		imgY := clampEncodeCoord(baseY+row, img.CodedHeight)
+		srcY := vp8enc.ClampEncodeCoord(baseY+row, src.Height)
+		imgY := vp8enc.ClampEncodeCoord(baseY+row, img.CodedHeight)
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			imgX := clampEncodeCoord(baseX+col, img.CodedWidth)
+			srcX := vp8enc.ClampEncodeCoord(baseX+col, src.Width)
+			imgX := vp8enc.ClampEncodeCoord(baseX+col, img.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[imgY*img.YStride+imgX])
 			sse += diff * diff
 		}
