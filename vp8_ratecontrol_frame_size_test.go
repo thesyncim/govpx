@@ -299,5 +299,5 @@ func TestRateControlEstimateKeyFrameFrequencyWeightedAverage(t *testing.T) {
 // layer one-pass mode an ARF refresh shares the active-best floor with a
 // golden refresh and reads gf_high_motion_minq[Q]. The test drives the
 // active-best/worst bounds with altRefFrame=true and asserts the floor
-// matches libvpxGoldenFrameHighMotionMinQ[Q] (instead of the regular
+// matches vp8enc.LibvpxGoldenFrameHighMotionMinQ[Q] (instead of the regular
 // inter_minq[Q] floor or the unwarmed minQuantizer floor).

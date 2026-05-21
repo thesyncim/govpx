@@ -1,6 +1,9 @@
 package govpx
 
-import "github.com/thesyncim/govpx/internal/vpx/arith"
+import (
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
+)
 
 func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
 	rc.postEncodeFrameWithContext(sizeBytes, keyFrame, false, 0)
@@ -364,14 +367,14 @@ func (rc *rateControlState) updateRateCorrectionFactor(actualBits int, keyFrame 
 	if keyFrame {
 		frameType = 0
 	}
-	if uint(q) >= uint(len(libvpxBitsPerMB[frameType])) {
+	if uint(q) >= uint(len(vp8enc.LibvpxBitsPerMB[frameType])) {
 		return
 	}
 	rateCorrectionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
 	if rateCorrectionFactor <= 0 {
 		rateCorrectionFactor = 1.0
 	}
-	projectedBits := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, rateCorrectionFactor, rc.currentZbinOverQuant)
+	projectedBits := vp8enc.LibvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, rateCorrectionFactor, rc.currentZbinOverQuant)
 	if projectedBits <= 0 {
 		return
 	}

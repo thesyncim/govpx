@@ -4,6 +4,7 @@ import (
 	"math"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
@@ -798,7 +799,7 @@ func (rc *rateControlState) laterKeyFrameTargetBits(baseTargetBits int, ctx rate
 	if ctx.forcedKeyFrame {
 		q = rc.avgFrameQuantizer
 	}
-	if uint(q) >= uint(len(libvpxKeyFrameBoostQAdjustment)) {
+	if uint(q) >= uint(len(vp8enc.LibvpxKeyFrameBoostQAdjustment)) {
 		q = rc.clampedQuantizerValue(rc.maxQuantizer)
 	}
 
@@ -812,7 +813,7 @@ func (rc *rateControlState) laterKeyFrameTargetBits(baseTargetBits int, ctx rate
 	if ctx.temporalLayerCount <= 1 {
 		boost = min(max(initialBoost, libvpxKeyFrameBoostForFrameRate(ctx.timing)), maxKeyBoost)
 	}
-	boost = boost * libvpxKeyFrameBoostQAdjustment[q] / 100
+	boost = boost * vp8enc.LibvpxKeyFrameBoostQAdjustment[q] / 100
 	// Libvpx increments frames_since_key at the end of every visible frame,
 	// including the previous key frame. govpx's rolling counter excludes the
 	// key frame itself, so add one when mirroring calc_iframe_target_size's

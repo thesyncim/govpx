@@ -4,6 +4,7 @@ import (
 	"math"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 func (e *VP8Encoder) pass2AltRefPendingPlan(currentFrame uint64) (int, bool) {
@@ -159,8 +160,8 @@ func libvpxEstimateMaxQ(numMBs int, sectionTargetBandwidth int, overheadBits int
 	for Q := maxqMinLimit; Q < maxqMaxLimit; Q++ {
 		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
 		baseBitsPerMB := 0
-		if uint(Q) < uint(len(libvpxBitsPerMB[1])) {
-			baseBitsPerMB = libvpxBitsPerMB[1][Q]
+		if uint(Q) < uint(len(vp8enc.LibvpxBitsPerMB[1])) {
+			baseBitsPerMB = vp8enc.LibvpxBitsPerMB[1][Q]
 		}
 		baseBitsPerMB += overheadBitsPerMB
 		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*sectionMaxQFactor*float64(baseBitsPerMB))
@@ -226,14 +227,14 @@ func libvpxEstimateQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, s
 	} else {
 		targetNormBitsPerMB = 512 * (sectionTargetBandwidth / numMBs)
 	}
-	for Q := range len(libvpxBitsPerMB[1]) {
+	for Q := range len(vp8enc.LibvpxBitsPerMB[1]) {
 		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
-		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*float64(libvpxBitsPerMB[1][Q]))
+		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*float64(vp8enc.LibvpxBitsPerMB[1][Q]))
 		if bitsPerMBAtQ <= targetNormBitsPerMB {
 			return Q
 		}
 	}
-	return len(libvpxBitsPerMB[1]) - 1
+	return len(vp8enc.LibvpxBitsPerMB[1]) - 1
 }
 
 // libvpxEstimateKFGroupQ ports the libvpx vp8/encoder/firstpass.c
@@ -296,7 +297,7 @@ func libvpxEstimateKFGroupQ(numMBs int, sectionTargetBandwidth int, errPerMB flo
 	Q := 0
 	for ; Q < maxQ; Q++ {
 		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, powLowQ, powHighQ, Q)
-		bitsPerMBAtQ = int(0.5 + errCorrection*combined*float64(libvpxBitsPerMB[1][Q]))
+		bitsPerMBAtQ = int(0.5 + errCorrection*combined*float64(vp8enc.LibvpxBitsPerMB[1][Q]))
 		if bitsPerMBAtQ <= targetNormBitsPerMB {
 			break
 		}

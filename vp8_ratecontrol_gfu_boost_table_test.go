@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+)
 
 // TestActiveBestKFGfuBoostTableSelect pins the libvpx KF active-best-quality
 // table selection at vp8/encoder/onyx_if.c:3624-3630:
@@ -16,17 +20,17 @@ import "testing"
 //
 // govpx's libvpxActiveQuantizerBoundsForFrame must consult
 // rateControlState.gfuBoost (plumbed from twoPassState.gfuBoostValue via
-// vp8_encoder_frame.go) to select between libvpxKeyFrameLowMotionMinQ and
-// libvpxKeyFrameHighMotionMinQ at the exact `> 600` threshold. The
+// vp8_encoder_frame.go) to select between vp8enc.LibvpxKeyFrameLowMotionMinQ and
+// vp8enc.LibvpxKeyFrameHighMotionMinQ at the exact `> 600` threshold. The
 // transition at the boundary (boost == 600 falls to high; boost == 601
 // rises to low) must mirror libvpx's strict `>` comparison.
 func TestActiveBestKFGfuBoostTableSelect(t *testing.T) {
 	const q = 80
 	// Sanity-pin the two tables differ at Q=80 so the transition is
 	// observable: kf_low_motion_minq[80]=6, kf_high_motion_minq[80]=11.
-	if libvpxKeyFrameLowMotionMinQ[q] == libvpxKeyFrameHighMotionMinQ[q] {
+	if vp8enc.LibvpxKeyFrameLowMotionMinQ[q] == vp8enc.LibvpxKeyFrameHighMotionMinQ[q] {
 		t.Fatalf("test fixture: kf_low[%d]=%d == kf_high[%d]=%d (no observable transition)",
-			q, libvpxKeyFrameLowMotionMinQ[q], q, libvpxKeyFrameHighMotionMinQ[q])
+			q, vp8enc.LibvpxKeyFrameLowMotionMinQ[q], q, vp8enc.LibvpxKeyFrameHighMotionMinQ[q])
 	}
 
 	newRC := func(boost int, valid bool) rateControlState {
@@ -46,7 +50,7 @@ func TestActiveBestKFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(600, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-		if want := libvpxKeyFrameHighMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxKeyFrameHighMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=600 KF active-best = %d, want kf_high_motion_minq[%d]=%d (libvpx >600 strict)", best, q, want)
 		}
 	}
@@ -54,7 +58,7 @@ func TestActiveBestKFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(601, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-		if want := libvpxKeyFrameLowMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxKeyFrameLowMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=601 KF active-best = %d, want kf_low_motion_minq[%d]=%d", best, q, want)
 		}
 	}
@@ -62,7 +66,7 @@ func TestActiveBestKFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(2000, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-		if want := libvpxKeyFrameLowMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxKeyFrameLowMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=2000 KF active-best = %d, want kf_low_motion_minq[%d]=%d", best, q, want)
 		}
 	}
@@ -72,7 +76,7 @@ func TestActiveBestKFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(5000, false)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-		if want := libvpxKeyFrameHighMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxKeyFrameHighMotionMinQ[q]; best != want {
 			t.Fatalf("gfuBoostValid=false KF active-best = %d, want kf_high_motion_minq[%d]=%d (one-pass fallback)", best, q, want)
 		}
 	}
@@ -87,7 +91,7 @@ func TestActiveBestKFGfuBoostTableSelect(t *testing.T) {
 		rc.normalInterAvgQuantizer = q
 		rc.bufferOptimalBits = 0 // disable CBR full-buffer adjust
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-		if want := libvpxKeyFrameHighMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxKeyFrameHighMotionMinQ[q]; best != want {
 			t.Fatalf("one-pass ni>150 KF active-best = %d, want kf_high_motion_minq[%d]=%d (libvpx :3646 arm)", best, q, want)
 		}
 	}
@@ -114,13 +118,13 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	const q = 80
 	// Sanity-pin the three GF tables differ at Q=80 so each transition is
 	// observable: gf_low[80]=27, gf_mid[80]=30, gf_high[80]=33.
-	if libvpxGoldenFrameLowMotionMinQ[q] == libvpxGoldenFrameMidMotionMinQ[q] ||
-		libvpxGoldenFrameMidMotionMinQ[q] == libvpxGoldenFrameHighMotionMinQ[q] {
+	if vp8enc.LibvpxGoldenFrameLowMotionMinQ[q] == vp8enc.LibvpxGoldenFrameMidMotionMinQ[q] ||
+		vp8enc.LibvpxGoldenFrameMidMotionMinQ[q] == vp8enc.LibvpxGoldenFrameHighMotionMinQ[q] {
 		t.Fatalf("test fixture: GF tables collapse at Q=%d (low=%d mid=%d high=%d)",
 			q,
-			libvpxGoldenFrameLowMotionMinQ[q],
-			libvpxGoldenFrameMidMotionMinQ[q],
-			libvpxGoldenFrameHighMotionMinQ[q])
+			vp8enc.LibvpxGoldenFrameLowMotionMinQ[q],
+			vp8enc.LibvpxGoldenFrameMidMotionMinQ[q],
+			vp8enc.LibvpxGoldenFrameHighMotionMinQ[q])
 	}
 
 	newRC := func(boost int, valid bool) rateControlState {
@@ -142,7 +146,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(1000, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-		if want := libvpxGoldenFrameMidMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameMidMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=1000 GF active-best = %d, want gf_mid_motion_minq[%d]=%d (libvpx >1000 strict)", best, q, want)
 		}
 	}
@@ -150,7 +154,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(1001, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-		if want := libvpxGoldenFrameLowMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameLowMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=1001 GF active-best = %d, want gf_low_motion_minq[%d]=%d", best, q, want)
 		}
 	}
@@ -158,7 +162,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(400, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-		if want := libvpxGoldenFrameMidMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameMidMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=400 GF active-best = %d, want gf_mid_motion_minq[%d]=%d (libvpx <400 strict)", best, q, want)
 		}
 	}
@@ -166,7 +170,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(399, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-		if want := libvpxGoldenFrameHighMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameHighMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=399 GF active-best = %d, want gf_high_motion_minq[%d]=%d", best, q, want)
 		}
 	}
@@ -174,7 +178,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(700, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-		if want := libvpxGoldenFrameMidMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameMidMotionMinQ[q]; best != want {
 			t.Fatalf("gfu_boost=700 GF active-best = %d, want gf_mid_motion_minq[%d]=%d", best, q, want)
 		}
 	}
@@ -183,7 +187,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(5000, false)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-		if want := libvpxGoldenFrameHighMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameHighMotionMinQ[q]; best != want {
 			t.Fatalf("gfuBoostValid=false GF active-best = %d, want gf_high_motion_minq[%d]=%d (one-pass fallback)", best, q, want)
 		}
 	}
@@ -192,7 +196,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 	{
 		rc := newRC(1500, true)
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, false, true)
-		if want := libvpxGoldenFrameLowMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameLowMotionMinQ[q]; best != want {
 			t.Fatalf("ARF gfu_boost=1500 active-best = %d, want gf_low_motion_minq[%d]=%d", best, q, want)
 		}
 	}
@@ -207,7 +211,7 @@ func TestActiveBestGFGfuBoostTableSelect(t *testing.T) {
 		rc.normalInterAvgQuantizer = q
 		rc.bufferOptimalBits = 0
 		best, _ := rc.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-		if want := libvpxGoldenFrameHighMotionMinQ[q]; best != want {
+		if want := vp8enc.LibvpxGoldenFrameHighMotionMinQ[q]; best != want {
 			t.Fatalf("one-pass ni>150 GF active-best = %d, want gf_high_motion_minq[%d]=%d (libvpx :3683 arm)", best, q, want)
 		}
 	}

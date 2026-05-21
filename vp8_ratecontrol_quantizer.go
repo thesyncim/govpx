@@ -1,6 +1,9 @@
 package govpx
 
-import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+)
 
 func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks int) {
 	rc.selectQuantizerForFrameKind(keyFrame, false, macroblocks)
@@ -47,7 +50,7 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, gfOrArf)
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(keyFrame, goldenFrame, altRefFrame)
 	rc.activeBestQuantizer = activeBest
-	rc.currentQuantizer, rc.currentZbinOverQuant = libvpxRegulatedQuantizerWithZbinAltRef(keyFrame, goldenFrame, altRefFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
+	rc.currentQuantizer, rc.currentZbinOverQuant = vp8enc.LibvpxRegulatedQuantizerWithZbinAltRef(keyFrame, goldenFrame, altRefFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
 	if rc.cqFloorActive() && !keyFrame && !gfOrArf {
 		// libvpx vp8/encoder/onyx_if.c lines 3727-3739: for one-pass
 		// CQ (USAGE_CONSTRAINED_QUALITY) on the ni_frames<=150 branch,
@@ -95,7 +98,7 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	// libvpx vp8/encoder/onyx_if.c line 3619 gates the active-best
 	// branches on `(cpi->pass == 2) || (cpi->ni_frames > 150)`. govpx
 	// historically only honored the ni_frames>150 arm; for pass-2 we
-	// also enable the libvpxKeyFrameHighMotionMinQ / GoldenMinQ /
+	// also enable the vp8enc.LibvpxKeyFrameHighMotionMinQ / GoldenMinQ /
 	// InterMinQ floor lookups so the regulator sees the same active
 	// best-Q lower bound libvpx does. Without this, pass-2 inter
 	// frames pick Q values much lower than libvpx (q_match=8% on
@@ -116,9 +119,9 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 			// it (gfuBoostValid && pass2); otherwise stay on the
 			// conservative high-motion table.
 			if pass2 && rc.gfuBoostValid && rc.gfuBoost > 600 {
-				activeBest = libvpxKeyFrameLowMotionMinQ[q]
+				activeBest = vp8enc.LibvpxKeyFrameLowMotionMinQ[q]
 			} else {
-				activeBest = libvpxKeyFrameHighMotionMinQ[q]
+				activeBest = vp8enc.LibvpxKeyFrameHighMotionMinQ[q]
 			}
 			// libvpx vp8/encoder/onyx_if.c:3636-3642 forced-key
 			// active-best clamp. When the current KF was emitted only
@@ -161,14 +164,14 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 			if pass2 && rc.gfuBoostValid {
 				switch {
 				case rc.gfuBoost > 1000:
-					activeBest = libvpxGoldenFrameLowMotionMinQ[q]
+					activeBest = vp8enc.LibvpxGoldenFrameLowMotionMinQ[q]
 				case rc.gfuBoost < 400:
-					activeBest = libvpxGoldenFrameHighMotionMinQ[q]
+					activeBest = vp8enc.LibvpxGoldenFrameHighMotionMinQ[q]
 				default:
-					activeBest = libvpxGoldenFrameMidMotionMinQ[q]
+					activeBest = vp8enc.LibvpxGoldenFrameMidMotionMinQ[q]
 				}
 			} else {
-				activeBest = libvpxGoldenFrameHighMotionMinQ[q]
+				activeBest = vp8enc.LibvpxGoldenFrameHighMotionMinQ[q]
 			}
 			// libvpx vp8/encoder/onyx_if.c:3677-3679 pass-2 CQ GF/ARF
 			// "slightly lower active best" lowering. After the
@@ -183,7 +186,7 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 				activeBest = activeBest * 15 / 16
 			}
 		default:
-			activeBest = libvpxInterMinQ[q]
+			activeBest = vp8enc.LibvpxInterMinQ[q]
 			if rc.cqFloorActive() && activeBest < rc.cqLevel {
 				activeBest = rc.cqLevel
 			}

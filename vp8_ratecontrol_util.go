@@ -277,5 +277,6 @@ func maxInt() int {
 	return int(^uint(0) >> 1)
 }
 
-// libvpxKeyFrameBoostQAdjustment ports vp8/encoder/ratectrl.c
-// kf_boost_qadjustment.
+func clampQuantizerValue(q int, minQ int, maxQ int) int {
+	return min(max(q, minQ), maxQ)
+}

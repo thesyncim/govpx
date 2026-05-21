@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 func TestRateControlAdjustQuantizerUsesLibvpxOvershootBound(t *testing.T) {
@@ -184,10 +185,10 @@ func TestRateControlFrameSizeBoundsMirrorLibvpx(t *testing.T) {
 }
 
 func TestRateControlSelectQuantizerUsesLibvpxBitsPerMBModel(t *testing.T) {
-	if got := libvpxRegulatedQuantizer(false, 12000, 60, 4, 56, 1.0); got != 24 {
+	if got := vp8enc.LibvpxRegulatedQuantizer(false, 12000, 60, 4, 56, 1.0); got != 24 {
 		t.Fatalf("inter regulated quantizer = %d, want libvpx table q24", got)
 	}
-	if got := libvpxRegulatedQuantizer(true, 72000, 60, 4, 56, 1.0); got != 4 {
+	if got := vp8enc.LibvpxRegulatedQuantizer(true, 72000, 60, 4, 56, 1.0); got != 4 {
 		t.Fatalf("key regulated quantizer = %d, want min-clamped q4", got)
 	}
 
@@ -204,28 +205,6 @@ func TestRateControlSelectQuantizerUsesLibvpxBitsPerMBModel(t *testing.T) {
 	rc.selectQuantizerForFrame(false, 60)
 	if rc.currentQuantizer != 24 {
 		t.Fatalf("selected quantizer = %d, want q24", rc.currentQuantizer)
-	}
-}
-
-func TestRateControlRegulatedQuantizerTracksLibvpxZbinOverQuant(t *testing.T) {
-	q, zbin := libvpxRegulatedQuantizerWithZbin(false, false, 1, 1, 4, 127, 1.0)
-	if q != 127 || zbin != libvpxZbinOverQuantMax {
-		t.Fatalf("max inter regulated q/zbin = %d/%d, want 127/%d", q, zbin, libvpxZbinOverQuantMax)
-	}
-
-	q, zbin = libvpxRegulatedQuantizerWithZbin(false, true, 1, 1, 4, 127, 1.0)
-	if q != 127 || zbin != 16 {
-		t.Fatalf("golden regulated q/zbin = %d/%d, want 127/16", q, zbin)
-	}
-
-	q, zbin = libvpxRegulatedQuantizerWithZbin(true, false, 1, 1, 4, 127, 1.0)
-	if q != 127 || zbin != 0 {
-		t.Fatalf("key regulated q/zbin = %d/%d, want 127/0", q, zbin)
-	}
-
-	q, zbin = libvpxRegulatedQuantizerWithZbin(false, false, 12000, 60, 4, 127, 1.0)
-	if q != 24 || zbin != 0 {
-		t.Fatalf("ordinary inter regulated q/zbin = %d/%d, want 24/0", q, zbin)
 	}
 }
 
@@ -448,7 +427,7 @@ func TestRateControlQActiveQuantizerBoundsDoNotUseCQFloor(t *testing.T) {
 	}
 
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(false, false, false)
-	wantBest := libvpxInterMinQ[51]
+	wantBest := vp8enc.LibvpxInterMinQ[51]
 	if wantBest >= rc.cqLevel {
 		t.Fatalf("test fixture invalid: inter_minq[51] = %d, want below CQ level %d", wantBest, rc.cqLevel)
 	}
@@ -626,66 +605,6 @@ func TestRateControlTracksLibvpxLastInterQuantizer(t *testing.T) {
 	}
 }
 
-func TestLibvpxEstimatedBitsAtQuantizerMatchesLibvpxFormula(t *testing.T) {
-	// libvpx vp8/encoder/ratectrl.c vp8_update_rate_correction_factors:
-	//   projected_size_based_on_q =
-	//       (int)(((.5 + rate_correction_factor *
-	//                        vp8_bits_per_mb[frame_type][Q]) *
-	//              cpi->common.MBs) /
-	//             (1 << BPER_MB_NORMBITS));
-	// The fractional bits-per-MB carry through the *MBs multiplication
-	// before being truncated; precision matters for the cumulative
-	// rate-correction-factor trajectory on long recode loops.
-	for _, mb := range []int{1, 60, 1024, (1 << 11) + 1, 3600} {
-		for _, q := range []int{0, 24, 64, 96, 127} {
-			rcf := 1.5
-			want := int((0.5+rcf*float64(libvpxBitsPerMB[1][q]))*float64(mb)) >> libvpxBPerMBNormBits
-			if got := libvpxEstimatedBitsAtQuantizer(1, q, mb, rcf); got != want {
-				t.Fatalf("estimate(q=%d, mb=%d) = %d, want %d", q, mb, got, want)
-			}
-		}
-	}
-}
-
-func TestLibvpxEstimatedBitsAtQuantizerWithZbinAppliesLibvpxFactorWalk(t *testing.T) {
-	// Mirror libvpx vp8/encoder/ratectrl.c vp8_update_rate_correction_factors:
-	// when zbin_over_quant > 0, scale the projected size by 0.99 (walking up
-	// to 0.999) for each unit of zbin_over_quant.
-	frameType := 1
-	q := 96
-	macroblocks := 60
-	correctionFactor := 1.5
-	base := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, correctionFactor)
-
-	if got := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, correctionFactor, 0); got != base {
-		t.Fatalf("zbin=0 estimate = %d, want unchanged %d", got, base)
-	}
-
-	want := base
-	factor := 0.99
-	const factorAdjustment = 0.01 / 256.0
-	for z := 4; z > 0; z-- {
-		want = int(factor * float64(want))
-		factor += factorAdjustment
-		if factor >= 0.999 {
-			factor = 0.999
-		}
-	}
-	if got := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, correctionFactor, 4); got != want {
-		t.Fatalf("zbin=4 estimate = %d, want %d", got, want)
-	}
-
-	// Strictly monotonically non-increasing in zbin_over_quant.
-	prev := base
-	for z := 1; z <= 16; z++ {
-		got := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, correctionFactor, z)
-		if got > prev {
-			t.Fatalf("zbin=%d estimate %d exceeds zbin=%d estimate %d", z, got, z-1, prev)
-		}
-		prev = got
-	}
-}
-
 func TestFrameSizeRecodeRetriesRegulatorUntilBoundsSatisfied(t *testing.T) {
 	rc := rateControlState{
 		mode:                 RateControlCBR,
@@ -760,8 +679,8 @@ func TestActiveBestQuantizerForcedKeyFramePass2Clamp(t *testing.T) {
 	rc3 := rc
 	rc3.thisKeyFrameForced = false
 	activeBest3, _ := rc3.libvpxActiveQuantizerBoundsForFrame(true, false, false)
-	if activeBest3 != libvpxKeyFrameHighMotionMinQ[60] {
-		t.Fatalf("non-forced pass2 KF active_best = %d, want raw kf_high_motion_minq[60] = %d", activeBest3, libvpxKeyFrameHighMotionMinQ[60])
+	if activeBest3 != vp8enc.LibvpxKeyFrameHighMotionMinQ[60] {
+		t.Fatalf("non-forced pass2 KF active_best = %d, want raw kf_high_motion_minq[60] = %d", activeBest3, vp8enc.LibvpxKeyFrameHighMotionMinQ[60])
 	}
 
 	// Case 4: forced-key flag set but pass-2 surface inactive (one-pass);
@@ -772,8 +691,8 @@ func TestActiveBestQuantizerForcedKeyFramePass2Clamp(t *testing.T) {
 	activeBest4, _ := rc4.libvpxActiveQuantizerBoundsForFrame(true, false, false)
 	// One-pass KF: libvpxActiveWorstQuantizerForFrame returns maxQuantizer
 	// (127), so kf_high_motion_minq[127] == 30 (unclamped).
-	if activeBest4 != libvpxKeyFrameHighMotionMinQ[127] {
-		t.Fatalf("forced-key one-pass KF active_best = %d, want raw kf_high_motion_minq[127] = %d (no clamp)", activeBest4, libvpxKeyFrameHighMotionMinQ[127])
+	if activeBest4 != vp8enc.LibvpxKeyFrameHighMotionMinQ[127] {
+		t.Fatalf("forced-key one-pass KF active_best = %d, want raw kf_high_motion_minq[127] = %d (no clamp)", activeBest4, vp8enc.LibvpxKeyFrameHighMotionMinQ[127])
 	}
 }
 
@@ -800,7 +719,7 @@ func TestActiveBestQuantizerPass2CQGoldenFrame15Over16Lowering(t *testing.T) {
 	// gf_high_motion_minq[60] = 23 from vp8_ratecontrol_tables.go (row
 	// 48-63: 17,17,18,18,19,19,20,20,21,21,22,22,23,23,24,24).
 	// 15/16 lowering: 23 * 15 / 16 = 21.
-	wantActiveBest := libvpxGoldenFrameHighMotionMinQ[60] * 15 / 16
+	wantActiveBest := vp8enc.LibvpxGoldenFrameHighMotionMinQ[60] * 15 / 16
 	if activeBest != wantActiveBest {
 		t.Fatalf("pass2 CQ GF active_best = %d, want gf_high_motion_minq[60]*15/16 = %d", activeBest, wantActiveBest)
 	}
@@ -809,8 +728,8 @@ func TestActiveBestQuantizerPass2CQGoldenFrame15Over16Lowering(t *testing.T) {
 	rc2 := rc
 	rc2.mode = RateControlVBR
 	activeBest2, _ := rc2.libvpxActiveQuantizerBoundsForFrame(false, true, false)
-	if activeBest2 != libvpxGoldenFrameHighMotionMinQ[60] {
-		t.Fatalf("pass2 VBR GF active_best = %d, want raw gf_high_motion_minq[60] = %d", activeBest2, libvpxGoldenFrameHighMotionMinQ[60])
+	if activeBest2 != vp8enc.LibvpxGoldenFrameHighMotionMinQ[60] {
+		t.Fatalf("pass2 VBR GF active_best = %d, want raw gf_high_motion_minq[60] = %d", activeBest2, vp8enc.LibvpxGoldenFrameHighMotionMinQ[60])
 	}
 
 	// One-pass CQ GF: libvpx 3677-3679 is inside the pass==2 arm; the
@@ -824,7 +743,7 @@ func TestActiveBestQuantizerPass2CQGoldenFrame15Over16Lowering(t *testing.T) {
 	// active_worst=127, so q=60. cqFloor lifts q to cqLevel only when
 	// q<cqLevel; q=60 > cqLevel=30 so no lift. gf_high_motion_minq[60] =
 	// 40, no 15/16 multiplier in one-pass.
-	if activeBest3 != libvpxGoldenFrameHighMotionMinQ[60] {
-		t.Fatalf("one-pass CQ GF active_best = %d, want raw gf_high_motion_minq[60] = %d (no 15/16)", activeBest3, libvpxGoldenFrameHighMotionMinQ[60])
+	if activeBest3 != vp8enc.LibvpxGoldenFrameHighMotionMinQ[60] {
+		t.Fatalf("one-pass CQ GF active_best = %d, want raw gf_high_motion_minq[60] = %d (no 15/16)", activeBest3, vp8enc.LibvpxGoldenFrameHighMotionMinQ[60])
 	}
 }

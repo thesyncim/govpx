@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
@@ -47,7 +48,7 @@ func (rc *rateControlState) newFrameSizeRecodeStateWithAltRef(keyFrame bool, gol
 		activeWorst:      activeWorst,
 		regulateLow:      activeBest,
 		regulateHigh:     activeWorst,
-		zbinOQHigh:       libvpxZbinOverQuantHighAltRef(keyFrame, goldenFrame, altRefFrame),
+		zbinOQHigh:       vp8enc.LibvpxZbinOverQuantHighAltRef(keyFrame, goldenFrame, altRefFrame),
 		zbinOverQuant:    rc.currentZbinOverQuant,
 		correctionFactor: rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame || altRefFrame),
 	}
@@ -134,11 +135,11 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 			if !recode.activeWorstQChanged {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
 			}
-			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
+			next, recode.zbinOverQuant = vp8enc.LibvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 			next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			for retries := 0; retries < 10 && (next < recode.qLow || recode.zbinOverQuant < recode.zbinOQLow); retries++ {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
-				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
+				next, recode.zbinOverQuant = vp8enc.LibvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 				next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			}
 			if next < vp8common.MaxQ {
@@ -168,14 +169,14 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 			if !recode.activeWorstQChanged {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
 			}
-			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
+			next, recode.zbinOverQuant = vp8enc.LibvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 			next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			if rc.cqFloorActive() && next < recode.qLow {
 				recode.qLow = next
 			}
 			for retries := 0; retries < 10 && (next > recode.qHigh || recode.zbinOverQuant > recode.zbinOQHigh); retries++ {
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 0, recode.correctionFactor)
-				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
+				next, recode.zbinOverQuant = vp8enc.LibvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 				next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			}
 			if next < vp8common.MaxQ {
@@ -320,11 +321,11 @@ func (rc *rateControlState) rateCorrectionFactorAfterFrameSize(actualBits int, k
 	if keyFrame {
 		frameType = 0
 	}
-	if uint(q) >= uint(len(libvpxBitsPerMB[frameType])) {
+	if uint(q) >= uint(len(vp8enc.LibvpxBitsPerMB[frameType])) {
 		return rateCorrectionFactor
 	}
 	rateCorrectionFactor = normalizedRateCorrectionFactor(rateCorrectionFactor)
-	projectedBits := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, rateCorrectionFactor, rc.currentZbinOverQuant)
+	projectedBits := vp8enc.LibvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, rateCorrectionFactor, rc.currentZbinOverQuant)
 	if projectedBits <= 0 {
 		return rateCorrectionFactor
 	}

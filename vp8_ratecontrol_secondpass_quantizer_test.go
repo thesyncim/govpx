@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 func TestSelectQuantizerARFRefreshUsesARFTable(t *testing.T) {
@@ -22,7 +23,7 @@ func TestSelectQuantizerARFRefreshUsesARFTable(t *testing.T) {
 		goldenCorrectionFactor:   1.0,
 	}
 
-	// libvpxGoldenFrameHighMotionMinQ[106] = 49 (row 6 col 10 in the
+	// vp8enc.LibvpxGoldenFrameHighMotionMinQ[106] = 49 (row 6 col 10 in the
 	// 16-per-row Go layout, matching libvpx onyx_if.c gf_high_motion_minq).
 	const wantARFFloor = 49
 
@@ -53,23 +54,23 @@ func TestSelectQuantizerARFRefreshUsesARFTable(t *testing.T) {
 	if interBest == activeBest {
 		t.Fatalf("inter active best = %d unexpectedly equal to ARF/GF floor %d", interBest, activeBest)
 	}
-	if interBest != libvpxInterMinQ[106] {
-		t.Fatalf("inter active best = %d, want inter_minq[106]=%d", interBest, libvpxInterMinQ[106])
+	if interBest != vp8enc.LibvpxInterMinQ[106] {
+		t.Fatalf("inter active best = %d, want inter_minq[106]=%d", interBest, vp8enc.LibvpxInterMinQ[106])
 	}
 
 	// The zbin_oq_high cap must mirror libvpx's
 	// `(refresh_alt_ref_frame || (refresh_golden_frame && !source_alt_ref_active))`
 	// branch: ARF and GF both cap at 16, plain inter frames at ZBIN_OQ_MAX.
-	if cap := libvpxZbinOverQuantHighAltRef(false, false, true); cap != 16 {
+	if cap := vp8enc.LibvpxZbinOverQuantHighAltRef(false, false, true); cap != 16 {
 		t.Fatalf("ARF zbin_oq_high = %d, want 16", cap)
 	}
-	if cap := libvpxZbinOverQuantHighAltRef(false, true, false); cap != 16 {
+	if cap := vp8enc.LibvpxZbinOverQuantHighAltRef(false, true, false); cap != 16 {
 		t.Fatalf("GF zbin_oq_high = %d, want 16", cap)
 	}
-	if cap := libvpxZbinOverQuantHighAltRef(false, false, false); cap != libvpxZbinOverQuantMax {
+	if cap := vp8enc.LibvpxZbinOverQuantHighAltRef(false, false, false); cap != libvpxZbinOverQuantMax {
 		t.Fatalf("inter zbin_oq_high = %d, want %d", cap, libvpxZbinOverQuantMax)
 	}
-	if cap := libvpxZbinOverQuantHighAltRef(true, false, true); cap != 0 {
+	if cap := vp8enc.LibvpxZbinOverQuantHighAltRef(true, false, true); cap != 0 {
 		t.Fatalf("key zbin_oq_high = %d, want 0", cap)
 	}
 }
@@ -92,7 +93,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 	cases := []tableCase{
 		{
 			name: "gf_low_motion_minq",
-			got:  libvpxGoldenFrameLowMotionMinQ,
+			got:  vp8enc.LibvpxGoldenFrameLowMotionMinQ,
 			want: map[int]int{
 				0:   0,
 				4:   1,
@@ -107,7 +108,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 		},
 		{
 			name: "gf_mid_motion_minq",
-			got:  libvpxGoldenFrameMidMotionMinQ,
+			got:  vp8enc.LibvpxGoldenFrameMidMotionMinQ,
 			want: map[int]int{
 				0:   0,
 				4:   1,
@@ -122,7 +123,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 		},
 		{
 			name: "gf_high_motion_minq",
-			got:  libvpxGoldenFrameHighMotionMinQ,
+			got:  vp8enc.LibvpxGoldenFrameHighMotionMinQ,
 			want: map[int]int{
 				0:   0,
 				4:   1,
@@ -137,7 +138,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 		},
 		{
 			name: "kf_low_motion_minq",
-			got:  libvpxKeyFrameLowMotionMinQ,
+			got:  vp8enc.LibvpxKeyFrameLowMotionMinQ,
 			want: map[int]int{
 				0:   0,
 				36:  0,
@@ -149,7 +150,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 		},
 		{
 			name: "kf_high_motion_minq",
-			got:  libvpxKeyFrameHighMotionMinQ,
+			got:  vp8enc.LibvpxKeyFrameHighMotionMinQ,
 			want: map[int]int{
 				0:   0,
 				36:  1,
@@ -161,7 +162,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 		},
 		{
 			name: "inter_minq",
-			got:  libvpxInterMinQ,
+			got:  vp8enc.LibvpxInterMinQ,
 			want: map[int]int{
 				0:   0,
 				4:   2,
@@ -185,9 +186,9 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 	// mid-motion floor must never exceed the high-motion floor (a
 	// stronger boost -> a tighter active-best floor).
 	for q := range 128 {
-		lo := libvpxGoldenFrameLowMotionMinQ[q]
-		mid := libvpxGoldenFrameMidMotionMinQ[q]
-		hi := libvpxGoldenFrameHighMotionMinQ[q]
+		lo := vp8enc.LibvpxGoldenFrameLowMotionMinQ[q]
+		mid := vp8enc.LibvpxGoldenFrameMidMotionMinQ[q]
+		hi := vp8enc.LibvpxGoldenFrameHighMotionMinQ[q]
 		if lo > mid {
 			t.Fatalf("gf_low[%d]=%d exceeds gf_mid[%d]=%d", q, lo, q, mid)
 		}
@@ -196,8 +197,8 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 		}
 	}
 	for q := range 128 {
-		if libvpxKeyFrameLowMotionMinQ[q] > libvpxKeyFrameHighMotionMinQ[q] {
-			t.Fatalf("kf_low[%d]=%d exceeds kf_high[%d]=%d", q, libvpxKeyFrameLowMotionMinQ[q], q, libvpxKeyFrameHighMotionMinQ[q])
+		if vp8enc.LibvpxKeyFrameLowMotionMinQ[q] > vp8enc.LibvpxKeyFrameHighMotionMinQ[q] {
+			t.Fatalf("kf_low[%d]=%d exceeds kf_high[%d]=%d", q, vp8enc.LibvpxKeyFrameLowMotionMinQ[q], q, vp8enc.LibvpxKeyFrameHighMotionMinQ[q])
 		}
 	}
 }
@@ -233,7 +234,7 @@ func TestSelectQuantizerARFRecodeInteraction(t *testing.T) {
 
 	// CBR full-buffer active-worst clamp pulls active_worst down to
 	// normalInterAvgQuantizer (106); GF/ARF active-best floor is then
-	// libvpxGoldenFrameHighMotionMinQ[106] = 49.
+	// vp8enc.LibvpxGoldenFrameHighMotionMinQ[106] = 49.
 	if recode.qLow != 49 || recode.qHigh != 106 {
 		t.Fatalf("ARF recode seed = %+v, want q_low=49 q_high=106", recode)
 	}

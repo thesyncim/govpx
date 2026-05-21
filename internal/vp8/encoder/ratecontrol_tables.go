@@ -1,8 +1,16 @@
-package govpx
+package encoder
 
 import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 
-var libvpxKeyFrameBoostQAdjustment = [128]int{
+// VP8 rate-control table helpers are ported from libvpx v1.16.0
+// vp8/encoder/ratectrl.c and vp8/encoder/onyx_if.c.
+const (
+	libvpxBPerMBNormBits   = 9
+	libvpxIntMax           = 1<<31 - 1
+	libvpxZbinOverQuantMax = 192
+)
+
+var LibvpxKeyFrameBoostQAdjustment = [128]int{
 	128, 129, 130, 131, 132, 133, 134, 135,
 	136, 137, 138, 139, 140, 141, 142, 143,
 	144, 145, 146, 147, 148, 149, 150, 151,
@@ -21,17 +29,17 @@ var libvpxKeyFrameBoostQAdjustment = [128]int{
 	220, 220, 220, 220, 220, 220, 220, 220,
 }
 
-// libvpxKeyFrameHighMotionMinQ, libvpxGoldenFrameHighMotionMinQ, and
-// libvpxInterMinQ port the one-pass conservative active-min-Q tables from
+// LibvpxKeyFrameHighMotionMinQ, LibvpxGoldenFrameHighMotionMinQ, and
+// LibvpxInterMinQ port the one-pass conservative active-min-Q tables from
 // vp8/encoder/onyx_if.c. The matching low- and mid-motion tables
-// (libvpxKeyFrameLowMotionMinQ, libvpxGoldenFrameLowMotionMinQ,
-// libvpxGoldenFrameMidMotionMinQ) are libvpx's two-pass alternates for the
+// (LibvpxKeyFrameLowMotionMinQ, LibvpxGoldenFrameLowMotionMinQ,
+// LibvpxGoldenFrameMidMotionMinQ) are libvpx's two-pass alternates for the
 // same QINDEX_RANGE; one-pass `vp8_regulate_q` always selects the
 // conservative high-motion variant. They are ported here so that ARF/GF
 // oracle traces can be cross-checked against libvpx without re-reading the C
 // source, and so future two-pass work has the libvpx-faithful tables already
 // available.
-var libvpxKeyFrameHighMotionMinQ = [128]int{
+var LibvpxKeyFrameHighMotionMinQ = [128]int{
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3,
@@ -42,7 +50,7 @@ var libvpxKeyFrameHighMotionMinQ = [128]int{
 	21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 26, 27, 28, 28, 29, 30,
 }
 
-var libvpxGoldenFrameHighMotionMinQ = [128]int{
+var LibvpxGoldenFrameHighMotionMinQ = [128]int{
 	0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4,
 	4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9,
 	9, 10, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16,
@@ -53,7 +61,7 @@ var libvpxGoldenFrameHighMotionMinQ = [128]int{
 	55, 56, 57, 58, 59, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80,
 }
 
-var libvpxInterMinQ = [128]int{
+var LibvpxInterMinQ = [128]int{
 	0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 6, 6, 7, 8, 8, 9,
 	9, 10, 11, 11, 12, 13, 13, 14, 15, 15, 16, 17, 17, 18, 19, 20,
 	20, 21, 22, 22, 23, 24, 24, 25, 26, 27, 27, 28, 29, 30, 30, 31,
@@ -64,10 +72,10 @@ var libvpxInterMinQ = [128]int{
 	86, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,
 }
 
-// libvpxKeyFrameLowMotionMinQ ports kf_low_motion_minq from
+// LibvpxKeyFrameLowMotionMinQ ports kf_low_motion_minq from
 // vp8/encoder/onyx_if.c. libvpx selects this two-pass variant when
 // `cpi->gfu_boost > 600` for a key frame.
-var libvpxKeyFrameLowMotionMinQ = [128]int{
+var LibvpxKeyFrameLowMotionMinQ = [128]int{
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -78,10 +86,10 @@ var libvpxKeyFrameLowMotionMinQ = [128]int{
 	16, 16, 17, 17, 18, 18, 18, 18, 19, 20, 20, 21, 21, 22, 23, 23,
 }
 
-// libvpxGoldenFrameLowMotionMinQ ports gf_low_motion_minq from
+// LibvpxGoldenFrameLowMotionMinQ ports gf_low_motion_minq from
 // vp8/encoder/onyx_if.c. libvpx selects this two-pass variant when
 // `cpi->gfu_boost > 1000` for a GF/ARF refresh.
-var libvpxGoldenFrameLowMotionMinQ = [128]int{
+var LibvpxGoldenFrameLowMotionMinQ = [128]int{
 	0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2,
 	3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6,
 	7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10,
@@ -92,11 +100,11 @@ var libvpxGoldenFrameLowMotionMinQ = [128]int{
 	43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58,
 }
 
-// libvpxGoldenFrameMidMotionMinQ ports gf_mid_motion_minq from
+// LibvpxGoldenFrameMidMotionMinQ ports gf_mid_motion_minq from
 // vp8/encoder/onyx_if.c. libvpx selects this two-pass variant for a GF/ARF
 // refresh when `cpi->gfu_boost` falls between the high-motion (<400) and
 // low-motion (>1000) cutoffs.
-var libvpxGoldenFrameMidMotionMinQ = [128]int{
+var LibvpxGoldenFrameMidMotionMinQ = [128]int{
 	0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 3, 3, 3, 4,
 	4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9,
 	9, 10, 10, 10, 10, 11, 11, 11, 12, 12, 12, 12, 13, 13, 13, 14,
@@ -107,9 +115,9 @@ var libvpxGoldenFrameMidMotionMinQ = [128]int{
 	49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
 }
 
-// libvpxBitsPerMB ports vp8/encoder/ratectrl.c vp8_bits_per_mb. Values are
+// LibvpxBitsPerMB ports vp8/encoder/ratectrl.c vp8_bits_per_mb. Values are
 // bits per macroblock multiplied by 1<<libvpxBPerMBNormBits.
-var libvpxBitsPerMB = [2][128]int{
+var LibvpxBitsPerMB = [2][128]int{
 	{
 		1125000, 900000, 750000, 642857, 562500, 500000, 450000, 450000,
 		409090, 375000, 346153, 321428, 300000, 281250, 264705, 264705,
@@ -148,28 +156,28 @@ var libvpxBitsPerMB = [2][128]int{
 	},
 }
 
-func libvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) int {
-	q, _ := libvpxRegulatedQuantizerWithZbin(keyFrame, false, targetBitsPerFrame, macroblocks, minQ, maxQ, correctionFactor)
+func LibvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) int {
+	q, _ := LibvpxRegulatedQuantizerWithZbin(keyFrame, false, targetBitsPerFrame, macroblocks, minQ, maxQ, correctionFactor)
 	return q
 }
 
-func libvpxRegulatedQuantizerWithZbin(keyFrame bool, goldenFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) (int, int) {
-	return libvpxRegulatedQuantizerWithZbinAltRef(keyFrame, goldenFrame, false, targetBitsPerFrame, macroblocks, minQ, maxQ, correctionFactor)
+func LibvpxRegulatedQuantizerWithZbin(keyFrame bool, goldenFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) (int, int) {
+	return LibvpxRegulatedQuantizerWithZbinAltRef(keyFrame, goldenFrame, false, targetBitsPerFrame, macroblocks, minQ, maxQ, correctionFactor)
 }
 
-// libvpxRegulatedQuantizerWithZbinAltRef extends
-// libvpxRegulatedQuantizerWithZbin with an ARF-refresh flag so the
+// LibvpxRegulatedQuantizerWithZbinAltRef extends
+// LibvpxRegulatedQuantizerWithZbin with an ARF-refresh flag so the
 // `zbin_oq_high` cap matches libvpx's `cm->refresh_alt_ref_frame` branch in
 // `onyx_if.c:3760-3766`. ARF refresh shares the GF cap of 16; the regulation
 // loop itself is unchanged.
-func libvpxRegulatedQuantizerWithZbinAltRef(keyFrame bool, goldenFrame bool, altRefFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) (int, int) {
+func LibvpxRegulatedQuantizerWithZbinAltRef(keyFrame bool, goldenFrame bool, altRefFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) (int, int) {
 	if macroblocks <= 0 || targetBitsPerFrame <= 0 {
 		return clampQuantizerValue(minQ, minQ, maxQ), 0
 	}
 	if correctionFactor <= 0 {
 		correctionFactor = 1.0
 	}
-	targetBitsPerMB := libvpxTargetBitsPerMB(targetBitsPerFrame, macroblocks)
+	targetBitsPerMB := LibvpxTargetBitsPerMB(targetBitsPerFrame, macroblocks)
 	frameType := 1
 	if keyFrame {
 		frameType = 0
@@ -177,8 +185,8 @@ func libvpxRegulatedQuantizerWithZbinAltRef(keyFrame bool, goldenFrame bool, alt
 	q := maxQ
 	lastError := libvpxIntMax
 	bitsAtSelectedQ := 0
-	for i := minQ; i <= maxQ && i < len(libvpxBitsPerMB[frameType]); i++ {
-		bitsAtQ := int(0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][i]))
+	for i := minQ; i <= maxQ && i < len(LibvpxBitsPerMB[frameType]); i++ {
+		bitsAtQ := int(0.5 + correctionFactor*float64(LibvpxBitsPerMB[frameType][i]))
 		bitsAtSelectedQ = bitsAtQ
 		if bitsAtQ <= targetBitsPerMB {
 			if targetBitsPerMB-bitsAtQ <= lastError {
@@ -193,12 +201,12 @@ func libvpxRegulatedQuantizerWithZbinAltRef(keyFrame bool, goldenFrame bool, alt
 	q = clampQuantizerValue(q, minQ, maxQ)
 	zbinOverQuant := 0
 	if q >= vp8common.MaxQ {
-		zbinOverQuant = libvpxZbinOverQuantForTargetAltRef(keyFrame, goldenFrame, altRefFrame, bitsAtSelectedQ, targetBitsPerMB)
+		zbinOverQuant = LibvpxZbinOverQuantForTargetAltRef(keyFrame, goldenFrame, altRefFrame, bitsAtSelectedQ, targetBitsPerMB)
 	}
 	return q, zbinOverQuant
 }
 
-func libvpxTargetBitsPerMB(targetBitsPerFrame int, macroblocks int) int {
+func LibvpxTargetBitsPerMB(targetBitsPerFrame int, macroblocks int) int {
 	if targetBitsPerFrame > libvpxIntMax>>libvpxBPerMBNormBits {
 		temp := targetBitsPerFrame / macroblocks
 		if temp > libvpxIntMax>>libvpxBPerMBNormBits {
@@ -209,14 +217,14 @@ func libvpxTargetBitsPerMB(targetBitsPerFrame int, macroblocks int) int {
 	return (targetBitsPerFrame << libvpxBPerMBNormBits) / macroblocks
 }
 
-// libvpxZbinOverQuantForTargetAltRef walks libvpx's iterative
+// LibvpxZbinOverQuantForTargetAltRef walks libvpx's iterative
 // `vp8/encoder/onyx_if.c` zbin-over-quant adjustment loop
 // (`while(zbin_oq < zbin_oq_max && bits_at_q > target_bits_per_mb)`) with
 // an ARF-refresh flag. The 0.99-walk-toward-0.999 scaling loop is the
 // same regardless of frame kind; only the `zbin_oq_high` cap differs
-// (see libvpxZbinOverQuantHighAltRef).
-func libvpxZbinOverQuantForTargetAltRef(keyFrame bool, goldenFrame bool, altRefFrame bool, bitsAtQ int, targetBitsPerMB int) int {
-	zbinOQMax := libvpxZbinOverQuantHighAltRef(keyFrame, goldenFrame, altRefFrame)
+// (see LibvpxZbinOverQuantHighAltRef).
+func LibvpxZbinOverQuantForTargetAltRef(keyFrame bool, goldenFrame bool, altRefFrame bool, bitsAtQ int, targetBitsPerMB int) int {
+	zbinOQMax := LibvpxZbinOverQuantHighAltRef(keyFrame, goldenFrame, altRefFrame)
 	if zbinOQMax <= 0 || bitsAtQ <= 0 {
 		return 0
 	}
@@ -240,7 +248,7 @@ func libvpxZbinOverQuantForTargetAltRef(keyFrame bool, goldenFrame bool, altRefF
 	return zbinOverQuant
 }
 
-// libvpxZbinOverQuantHighAltRef ports the libvpx
+// LibvpxZbinOverQuantHighAltRef ports the libvpx
 // `vp8/encoder/onyx_if.c:3758-3766` zbin_oq_high cap, including the ARF
 // refresh branch:
 //
@@ -253,7 +261,7 @@ func libvpxZbinOverQuantForTargetAltRef(keyFrame bool, goldenFrame bool, altRefF
 //
 // govpx does not yet model `source_alt_ref_active`; for an explicit ARF
 // refresh (altRefFrame=true) the cap is 16, matching libvpx.
-func libvpxZbinOverQuantHighAltRef(keyFrame bool, goldenFrame bool, altRefFrame bool) int {
+func LibvpxZbinOverQuantHighAltRef(keyFrame bool, goldenFrame bool, altRefFrame bool) int {
 	if keyFrame {
 		return 0
 	}
@@ -263,8 +271,8 @@ func libvpxZbinOverQuantHighAltRef(keyFrame bool, goldenFrame bool, altRefFrame 
 	return libvpxZbinOverQuantMax
 }
 
-func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, correctionFactor float64) int {
-	if uint(frameType) >= uint(len(libvpxBitsPerMB)) || uint(q) >= uint(len(libvpxBitsPerMB[frameType])) || macroblocks <= 0 {
+func LibvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, correctionFactor float64) int {
+	if uint(frameType) >= uint(len(LibvpxBitsPerMB)) || uint(q) >= uint(len(LibvpxBitsPerMB[frameType])) || macroblocks <= 0 {
 		return 0
 	}
 	if correctionFactor <= 0 {
@@ -290,19 +298,19 @@ func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, corre
 	// 5-iteration KF) the cumulative drift lands govpx one Q step above
 	// libvpx, breaking byte parity. Port libvpx's double-precision
 	// multiplication verbatim.
-	bitsAtQTimesMBs := (0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][q])) * float64(macroblocks)
+	bitsAtQTimesMBs := (0.5 + correctionFactor*float64(LibvpxBitsPerMB[frameType][q])) * float64(macroblocks)
 	return int(bitsAtQTimesMBs) >> libvpxBPerMBNormBits
 }
 
-// libvpxEstimatedBitsAtQuantizerWithZbin mirrors the post-encode projection in
+// LibvpxEstimatedBitsAtQuantizerWithZbin mirrors the post-encode projection in
 // libvpx's vp8_update_rate_correction_factors (vp8/encoder/ratectrl.c): when
 // zbin_over_quant > 0, project the frame size at this Q and then iteratively
 // scale it down by a starting factor of 0.99 that walks toward 0.999 over
 // `zbinOverQuant` steps. Without this scaling, frames encoded with non-zero
 // zbin_oq look much larger than expected, the rate correction factor is
 // damped toward 1.0, and the next frame's regulated Q is set too low.
-func libvpxEstimatedBitsAtQuantizerWithZbin(frameType int, q int, macroblocks int, correctionFactor float64, zbinOverQuant int) int {
-	bits := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, correctionFactor)
+func LibvpxEstimatedBitsAtQuantizerWithZbin(frameType int, q int, macroblocks int, correctionFactor float64, zbinOverQuant int) int {
+	bits := LibvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, correctionFactor)
 	if bits <= 0 || zbinOverQuant <= 0 {
 		return bits
 	}
