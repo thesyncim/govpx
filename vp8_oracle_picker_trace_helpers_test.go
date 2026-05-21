@@ -4,7 +4,10 @@ package govpx
 
 import "github.com/thesyncim/govpx/internal/coracle"
 
-func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, frames int, extraEnv []string) coracle.VpxencVP8Config {
+func vp8OracleTraceConfig(vpxencOracle string, opts EncoderOptions, frames int, targetKbps int, extraEnv []string, extraArgs []string) coracle.VpxencVP8Config {
+	if targetKbps == 0 {
+		targetKbps = opts.TargetBitrateKbps
+	}
 	return coracle.VpxencVP8Config{
 		BinaryPath:           vpxencOracle,
 		Width:                opts.Width,
@@ -13,9 +16,9 @@ func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, fra
 		Deadline:             libvpxOracleDeadline(opts.Deadline),
 		DisableWarningPrompt: true,
 		CPUUsed:              opts.CpuUsed,
-		LagInFrames:          0,
-		AutoAltRef:           false,
-		TargetBitrateKbps:    opts.TargetBitrateKbps,
+		LagInFrames:          opts.LookaheadFrames,
+		AutoAltRef:           opts.AutoAltRef,
+		TargetBitrateKbps:    targetKbps,
 		MinQ:                 opts.MinQuantizer,
 		MaxQ:                 opts.MaxQuantizer,
 		Timebase:             libvpxOracleTimebaseArg(opts),
@@ -24,7 +27,18 @@ func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, fra
 		KeyFrameMinDist:      999,
 		KeyFrameMaxDist:      999,
 		ExtraEnv:             extraEnv,
-		ExtraArgs: []string{
+		ExtraArgs:            extraArgs,
+	}
+}
+
+func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, frames int, extraEnv []string) coracle.VpxencVP8Config {
+	return vp8OracleTraceConfig(
+		vpxencOracle,
+		opts,
+		frames,
+		opts.TargetBitrateKbps,
+		extraEnv,
+		[]string{
 			"--end-usage=vbr",
 			"--screen-content-mode=1",
 			"--token-parts=1",
@@ -34,5 +48,5 @@ func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, fra
 			"--arnr-strength=1",
 			"--arnr-type=2",
 		},
-	}
+	)
 }

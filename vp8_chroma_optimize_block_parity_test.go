@@ -6,48 +6,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestVP8ChromaOptimizeBlockParity runs the BestARNR audit with the
-// per-UV-block POST-trellis qcoeff oracle tracer enabled on both sides
-// (task #316 hook splices into vp8_encode_inter16x16 right after
-// optimize_mb on libvpx; mirrored on the govpx side in
-// reconstructMacroblockUVCoefficients after each
-// quantizeEncodedBlockWithRDZbinAndActivity call), captures the per-block
-// qcoeff / dqcoeff / dequant / coeff snapshots, and bisects the first
-// post-trellis (mb_row, mb_col, block, scan_pos) at which the two diverge
-// on frame 1.
-//
-// This is the chroma trellis counterpart to task #297's pre-trellis bisect.
-// Per task #314 evidence the ARNR pin-hold residual is in the
-// post-encode chroma trellis (2241/3600 MBs diverge on encode-side
-// qcoeff for frame 1; 2115 chroma-only; 85% DC-only ±1 keep/drop
-// splits). The pre-trellis snapshots from #297 already showed the
-// pre-trellis (post-regular-quantize) qcoeff was identical across the
-// 2115 chroma blocks for the seeds that matter; this bisect surfaces
-// which scan_pos optimize_b flipped one way on libvpx and a different
-// way on govpx — the actual Viterbi divergence position.
-//
-// Method:
-//   - govpx side: SetOracleTraceChromaOptimizeBDump(true) + a buffer
-//     writer; encode the BestARNR cohort frames.
-//   - libvpx side: re-encode via vpxenc-oracle with
-//     GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1 + GOVPX_ORACLE_TRACE_OUT.
-//   - Group rows by (mb_row, mb_col, block) on frame 1, iterate in
-//     raster MB × block order × scan-pos, log the first divergent triple
-//     and up to 12 sample rows for review.
-//   - When pairing with task #297's pre-trellis rows, callers can
-//     identify the exact ±1 DC drop direction (govpx-keep / libvpx-drop
-//     or the reverse) per (mb_row, mb_col, block).
-//
-// Gated on GOVPX_WITH_ORACLE=1.
+// TestVP8ChromaOptimizeBlockParity compares govpx and libvpx post-trellis
+// chroma block traces for the 1280x720 BestQuality ARNR fixture and reports
+// the first frame-1 coefficient divergence in raster order.
 func TestVP8ChromaOptimizeBlockParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run chroma optimize_b parity")
@@ -56,13 +24,11 @@ func TestVP8ChromaOptimizeBlockParity(t *testing.T) {
 	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cohorts := []struct {
-		name          string
-		seedHash      string
-		opts          EncoderOptions
-		extraArgs     []string
-		targetKbps    int
-		dumpGovpxOut  string
-		dumpLibvpxOut string
+		name       string
+		seedHash   string
+		opts       EncoderOptions
+		extraArgs  []string
+		targetKbps int
 	}{
 		{
 			name:     "Best",
@@ -96,21 +62,19 @@ func TestVP8ChromaOptimizeBlockParity(t *testing.T) {
 				"--arnr-strength=1",
 				"--arnr-type=2",
 			}),
-			targetKbps:    700,
-			dumpGovpxOut:  "/tmp/316-govpx-best.jsonl",
-			dumpLibvpxOut: "/tmp/316-libvpx-best.jsonl",
+			targetKbps: 700,
 		},
 	}
 
 	for _, c := range cohorts {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			runVP8ChromaOptimizeBlockParity(t, vpxencOracle, c.seedHash, c.opts, c.targetKbps, c.extraArgs, c.dumpGovpxOut, c.dumpLibvpxOut)
+			runVP8ChromaOptimizeBlockParity(t, vpxencOracle, c.seedHash, c.opts, c.targetKbps, c.extraArgs)
 		})
 	}
 }
 
-func runVP8ChromaOptimizeBlockParity(t *testing.T, vpxencOracle string, seedHash string, opts EncoderOptions, targetKbps int, extraArgs []string, govpxOutPath string, libvpxOutPath string) {
+func runVP8ChromaOptimizeBlockParity(t *testing.T, vpxencOracle string, seedHash string, opts EncoderOptions, targetKbps int, extraArgs []string) {
 	t.Helper()
 
 	sources := make([]Image, 2)
@@ -135,72 +99,24 @@ func runVP8ChromaOptimizeBlockParity(t *testing.T, vpxencOracle string, seedHash
 	}
 	enc.Close()
 
-	// libvpx side: re-encode via vpxenc-oracle with both env gates
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, seedHash+".yuv")
-	ivfPath := filepath.Join(dir, seedHash+".ivf")
-	libvpxTracePath := filepath.Join(dir, seedHash+".jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
-	autoAltRefArg := "--auto-alt-ref=0"
-	if opts.AutoAltRef {
-		autoAltRefArg = "--auto-alt-ref=1"
-	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
-		autoAltRefArg,
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-	}
-	args = append(args, extraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(),
-		"GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath,
-		"GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1",
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8OracleTraceConfig(
+			vpxencOracle,
+			opts,
+			len(sources),
+			targetKbps,
+			[]string{"GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1"},
+			extraArgs,
+		),
 	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("vpxenc-oracle args: %v", args)
-		t.Logf("vpxenc-oracle output:\n%s", out)
+	if err != nil {
+		t.Logf("vpxenc-oracle output:\n%s", diag)
 		t.Skipf("vpxenc-oracle failed: %v", err)
 	}
 
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
-	if err != nil {
-		t.Fatalf("read libvpx trace: %v", err)
-	}
-
-	if err := os.WriteFile(govpxOutPath, govpxTraceBuf.Bytes(), 0o644); err != nil {
-		t.Logf("write govpx trace dump %s: %v", govpxOutPath, err)
-	}
-	if err := os.WriteFile(libvpxOutPath, libvpxTrace, 0o644); err != nil {
-		t.Logf("write libvpx trace dump %s: %v", libvpxOutPath, err)
-	}
-	t.Logf("chroma_optimize_b seed=%s govpx_trace=%s libvpx_trace=%s",
-		seedHash, govpxOutPath, libvpxOutPath)
+	t.Logf("chroma_optimize_b seed=%s govpx_trace_bytes=%d libvpx_trace_bytes=%d",
+		seedHash, govpxTraceBuf.Len(), len(libvpxTrace))
 
 	gRows := parseChromaOptimizeBRows(govpxTraceBuf.Bytes(), 1)
 	lRows := parseChromaOptimizeBRows(libvpxTrace, 1)
@@ -364,7 +280,7 @@ func runVP8ChromaOptimizeBlockParity(t *testing.T, vpxencOracle string, seedHash
 	}
 
 	if len(divs) == 0 {
-		t.Logf("chroma_optimize_b seed=%s frame1: ZERO divergent chroma-optimize_b rows across %d shared (mb_row,mb_col,block) triples — post-trellis chroma qcoeff is now byte-identical (no chroma trellis divergence remains)", seedHash, len(keys))
+		t.Logf("chroma_optimize_b seed=%s frame1: ZERO divergent chroma-optimize_b rows across %d shared (mb_row,mb_col,block) triples; post-trellis chroma qcoeff is now byte-identical (no chroma trellis divergence remains)", seedHash, len(keys))
 		return
 	}
 

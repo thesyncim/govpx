@@ -6,46 +6,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestVP8PretrellisUVParity runs the BestARNR / GoodARNR audit
-// pair with the per-UV-block pre-trellis qcoeff oracle tracer enabled on
-// both the govpx and libvpx sides (task #296 landed both halves of the
-// trace), captures the per-block coeff / qcoeff / dqcoeff / eob /
-// zbin_extra / zbin_oq snapshots, and bisects the first MB+block+scan-pos
-// at which the two diverge on frame 1.
-//
-// Method:
-//   - Build the trace on each cohort: read the libvpx trace from the
-//     GOVPX_ORACLE_TRACE_OUT path the oracle wrote during the audit's
-//     re-encode (env GOVPX_ORACLE_PRETRELLIS_UV=1 also set so the patched
-//     oracle actually emits the rows).
-//   - Capture the govpx trace by setting SetOracleTracePretrellisUVDump
-//     on the encoder before EncodeInto, with the trace writer pointing at
-//     an in-memory buffer.
-//   - Group rows by (mb_row, mb_col, block) on frame 1, iterate in
-//     raster (mb_row, mb_col) × block (16..23) × scan-pos (0..15) order,
-//     emit the first divergent triple. The walk-order matches libvpx's
-//     row-major MB iteration so the first diverging (mb_row, mb_col,
-//     block, scan_pos) is the byte-exact root.
-//   - Report which layer (coeff vs qcoeff) carries the divergence:
-//   - if coeff differs but qcoeff would match given that coeff
-//     (i.e. coeff[i] differs) -> fdct or pre-DCT residual divergence.
-//   - if coeff matches but qcoeff differs -> quantize step divergence
-//     (zbin / round / quant_shift / dequant or zbin_extra / zbin_oq).
-//   - Dump up to 12 divergent rows alongside the per-block payload so
-//     the bisect localization is preserved in the test log.
-//
-// The test is gated on GOVPX_WITH_ORACLE=1 just like the audit pair —
-// running cheap unit tests by default. The audit pin lengths are NOT
-// re-verified here; this probe ONLY surfaces the per-block trace.
+// TestVP8PretrellisUVParity compares govpx and libvpx pre-trellis UV block
+// traces for the 1280x720 ARNR fixtures and reports the first frame-1
+// coefficient divergence in raster order.
 func TestVP8PretrellisUVParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run pre-trellis UV parity")
@@ -54,13 +25,11 @@ func TestVP8PretrellisUVParity(t *testing.T) {
 	vpxencOracle := coracletest.VpxencOracle(t)
 
 	cohorts := []struct {
-		name          string
-		seedHash      string
-		opts          EncoderOptions
-		extraArgs     []string
-		targetKbps    int
-		dumpGovpxOut  string
-		dumpLibvpxOut string
+		name       string
+		seedHash   string
+		opts       EncoderOptions
+		extraArgs  []string
+		targetKbps int
 	}{
 		{
 			name:     "Best",
@@ -94,9 +63,7 @@ func TestVP8PretrellisUVParity(t *testing.T) {
 				"--arnr-strength=1",
 				"--arnr-type=2",
 			}),
-			targetKbps:    700,
-			dumpGovpxOut:  "/tmp/297-govpx-best.jsonl",
-			dumpLibvpxOut: "/tmp/297-libvpx-best.jsonl",
+			targetKbps: 700,
 		},
 		{
 			name:     "Good",
@@ -130,21 +97,19 @@ func TestVP8PretrellisUVParity(t *testing.T) {
 				"--arnr-strength=1",
 				"--arnr-type=2",
 			}),
-			targetKbps:    700,
-			dumpGovpxOut:  "/tmp/297-govpx-good.jsonl",
-			dumpLibvpxOut: "/tmp/297-libvpx-good.jsonl",
+			targetKbps: 700,
 		},
 	}
 
 	for _, c := range cohorts {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			runVP8PretrellisUVParity(t, vpxencOracle, c.seedHash, c.opts, c.targetKbps, c.extraArgs, c.dumpGovpxOut, c.dumpLibvpxOut)
+			runVP8PretrellisUVParity(t, vpxencOracle, c.seedHash, c.opts, c.targetKbps, c.extraArgs)
 		})
 	}
 }
 
-func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string, opts EncoderOptions, targetKbps int, extraArgs []string, govpxOutPath string, libvpxOutPath string) {
+func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string, opts EncoderOptions, targetKbps int, extraArgs []string) {
 	t.Helper()
 
 	sources := make([]Image, 2)
@@ -169,72 +134,24 @@ func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string
 	}
 	enc.Close()
 
-	// libvpx side: re-encode via vpxenc-oracle with both env gates
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, seedHash+".yuv")
-	ivfPath := filepath.Join(dir, seedHash+".ivf")
-	libvpxTracePath := filepath.Join(dir, seedHash+".jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
-	autoAltRefArg := "--auto-alt-ref=0"
-	if opts.AutoAltRef {
-		autoAltRefArg = "--auto-alt-ref=1"
-	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
-		autoAltRefArg,
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-	}
-	args = append(args, extraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(),
-		"GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath,
-		"GOVPX_ORACLE_PRETRELLIS_UV=1",
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8OracleTraceConfig(
+			vpxencOracle,
+			opts,
+			len(sources),
+			targetKbps,
+			[]string{"GOVPX_ORACLE_PRETRELLIS_UV=1"},
+			extraArgs,
+		),
 	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("vpxenc-oracle args: %v", args)
-		t.Logf("vpxenc-oracle output:\n%s", out)
+	if err != nil {
+		t.Logf("vpxenc-oracle output:\n%s", diag)
 		t.Skipf("vpxenc-oracle failed: %v", err)
 	}
 
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
-	if err != nil {
-		t.Fatalf("read libvpx trace: %v", err)
-	}
-
-	if err := os.WriteFile(govpxOutPath, govpxTraceBuf.Bytes(), 0o644); err != nil {
-		t.Logf("write govpx trace dump %s: %v", govpxOutPath, err)
-	}
-	if err := os.WriteFile(libvpxOutPath, libvpxTrace, 0o644); err != nil {
-		t.Logf("write libvpx trace dump %s: %v", libvpxOutPath, err)
-	}
-	t.Logf("pretrellis_uv seed=%s govpx_trace=%s libvpx_trace=%s",
-		seedHash, govpxOutPath, libvpxOutPath)
+	t.Logf("pretrellis_uv seed=%s govpx_trace_bytes=%d libvpx_trace_bytes=%d",
+		seedHash, govpxTraceBuf.Len(), len(libvpxTrace))
 
 	gRows := parsePretrellisUVRows(govpxTraceBuf.Bytes(), 1)
 	lRows := parsePretrellisUVRows(libvpxTrace, 1)
@@ -352,7 +269,7 @@ func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string
 	}
 
 	if len(divs) == 0 {
-		t.Logf("pretrellis_uv seed=%s frame1: ZERO divergent pre-trellis UV rows across %d shared (mb_row,mb_col,block) triples — divergence is downstream of pre-trellis quantize (trellis or coding context)", seedHash, len(keys))
+		t.Logf("pretrellis_uv seed=%s frame1: ZERO divergent pre-trellis UV rows across %d shared (mb_row,mb_col,block) triples; divergence is downstream of pre-trellis quantize (trellis or coding context)", seedHash, len(keys))
 		return
 	}
 

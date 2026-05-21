@@ -6,12 +6,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
@@ -77,48 +75,13 @@ func TestVP8SplitMVRDCandidateTrace(t *testing.T) {
 	}
 	enc.Close()
 
-	// libvpx side.
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "splitmv_rd.yuv")
-	ivfPath := filepath.Join(dir, "splitmv_rd.ivf")
-	libvpxTracePath := filepath.Join(dir, "splitmv_rd.jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	deadlineArg := "--best"
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		deadlineArg,
-		"--cpu-used=0",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--target-bitrate=700",
-		"--min-q=4",
-		"--max-q=56",
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-	}
-	args = append(args, extraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("vpxenc-oracle args: %v", args)
-		t.Logf("vpxenc-oracle output:\n%s", out)
-		t.Skipf("vpxenc-oracle failed: %v", err)
-	}
-
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8OracleTraceConfig(vpxencOracle, opts, len(sources), 700, nil, extraArgs),
+	)
 	if err != nil {
-		t.Fatalf("read libvpx trace: %v", err)
+		t.Logf("vpxenc-oracle output:\n%s", diag)
+		t.Skipf("vpxenc-oracle failed: %v", err)
 	}
 
 	t.Logf("govpx trace bytes=%d libvpx trace bytes=%d", govpxTrace.Len(), len(libvpxTrace))
