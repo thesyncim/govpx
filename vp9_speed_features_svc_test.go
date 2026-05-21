@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // TestVP9SpeedFeaturesSVCDefaultsSingleLayer pins the SVC consumers in the
@@ -95,7 +96,7 @@ func TestVP9SpeedFeaturesSVCDefaultsSingleLayer(t *testing.T) {
 
 	// libvpx: vp9_speed_features.c:747 — ref_frame_flags must keep VP9_GOLD_FLAG
 	// when !use_svc.
-	if e.refFrameFlags&vp9GoldFlag == 0 {
+	if e.refFrameFlags&encoder.GoldFlag == 0 {
 		t.Errorf("refFrameFlags = %x, want VP9_GOLD_FLAG set (libvpx vp9_speed_features.c:747 !use_svc)", e.refFrameFlags)
 	}
 
@@ -446,10 +447,10 @@ func TestVP9SpeedFeaturesSVCSpeed7GoldenTemporalRef(t *testing.T) {
 	_ = sf
 
 	// libvpx: vp9_speed_features.c:747 — cpi->ref_frame_flags &= ~VP9_GOLD_FLAG.
-	if e.refFrameFlags&vp9GoldFlag != 0 {
+	if e.refFrameFlags&encoder.GoldFlag != 0 {
 		t.Errorf("refFrameFlags = %#x, want VP9_GOLD_FLAG cleared (libvpx vp9_speed_features.c:747)", e.refFrameFlags)
 	}
-	if e.refFrameFlags&vp9LastFlag == 0 {
+	if e.refFrameFlags&encoder.LastFlag == 0 {
 		t.Errorf("refFrameFlags = %#x, want VP9_LAST_FLAG preserved", e.refFrameFlags)
 	}
 }

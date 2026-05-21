@@ -604,11 +604,11 @@ type vp9SpeedFrameContext struct {
 
 	// svc carries the per-frame SVC state libvpx reads via cpi->svc / cpi->use_svc
 	// from the speed-features dispatcher. Single-layer encoders see
-	// vp9SVCDefault() (NumberSpatialLayers=NumberTemporalLayers=1, UseSvc=false).
+	// encoder.DefaultSVCState() (NumberSpatialLayers=NumberTemporalLayers=1, UseSvc=false).
 	//
 	// libvpx: vp9_speed_features.c set_rt_speed_feature_framesize_independent
 	// reads SVC *svc = &cpi->svc.
-	svc vp9SVCState
+	svc encoder.SVCState
 
 	// externalResize mirrors cpi->external_resize. libvpx sets the flag in
 	// vp9_change_config() when the encoder's frame size shrinks without
@@ -657,7 +657,7 @@ func (e *VP9Encoder) vp9DefaultSpeedFrameContext() vp9SpeedFrameContext {
 	if e != nil {
 		ctx.svc = e.svc
 	} else {
-		ctx.svc = vp9SVCDefault()
+		ctx.svc = encoder.DefaultSVCState()
 	}
 	return ctx
 }
@@ -1935,7 +1935,7 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		// this feature on base temporal layer.
 		if ctx.svc.UseSvc && ctx.svc.UseGfTemporalRefCurrentLayer &&
 			ctx.svc.TemporalLayerID > 0 {
-			e.refFrameFlags &^= vp9GoldFlag
+			e.refFrameFlags &^= encoder.GoldFlag
 		}
 		if ctx.width*ctx.height > 640*480 {
 			sf.CbPredFilterSearch = 2

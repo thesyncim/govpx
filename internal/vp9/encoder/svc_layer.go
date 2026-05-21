@@ -1,4 +1,4 @@
-package govpx
+package encoder
 
 // VP9 SVC layer context: subset of libvpx vp9/encoder/vp9_svc_layercontext.h
 // SVC struct surfaced to govpx's encoder so the speed-features dispatcher and
@@ -13,10 +13,10 @@ package govpx
 // vp9_init_layer_context() is never called (cpi->use_svc=0,
 // svc->number_spatial_layers=1, svc->spatial_layer_id=0).
 
-// vp9SVCState mirrors the subset of libvpx SVC struct (vp9_svc_layercontext.h)
-// that govpx consumers currently read. Each field comment cites the libvpx
-// declaration.
-type vp9SVCState struct {
+// SVCState mirrors the subset of libvpx SVC struct
+// (vp9_svc_layercontext.h) that govpx consumers currently read. Each field
+// comment cites the libvpx declaration.
+type SVCState struct {
 	// UseSvc tracks cpi->use_svc. libvpx sets it from vpx_codec_control(
 	// VP9E_SET_SVC) and toggles to 0 when single_layer_svc is activated. govpx
 	// turns it on for encoders parented by VP9SpatialSVCEncoder.
@@ -90,7 +90,7 @@ type vp9SVCState struct {
 	// encoders leave the array zero.
 	//
 	// libvpx: vp9_svc_layercontext.h:143.
-	LastLayerDropped [VP9MaxSpatialLayers]bool
+	LastLayerDropped [MaxSpatialLayers]bool
 
 	// SimulcastMode mirrors svc->simulcast_mode (every spatial layer on a
 	// superframe whose base layer is keyed is also a key frame).
@@ -103,16 +103,21 @@ type vp9SVCState struct {
 //
 // libvpx: vp9_enums.h:103-105.
 const (
-	vp9LastFlag = 1 << 0
-	vp9GoldFlag = 1 << 1
-	vp9AltFlag  = 1 << 2
-	// vp9AllRefFlags is the default cpi->ref_frame_flags value before any
+	LastFlag = 1 << 0
+	GoldFlag = 1 << 1
+	AltFlag  = 1 << 2
+	// AllRefFlags is the default cpi->ref_frame_flags value before any
 	// speed-features narrowing. libvpx initializes the flags via the
 	// kVp9RefFlagList table; the union covers LAST/GOLD/ALT.
-	vp9AllRefFlags = vp9LastFlag | vp9GoldFlag | vp9AltFlag
+	AllRefFlags = LastFlag | GoldFlag | AltFlag
+
+	// MaxSpatialLayers mirrors libvpx's vpx_codec_enc_cfg::ss_number_layers
+	// bound for VP9 encoders. Keep the root VP9MaxSpatialLayers facade value
+	// in lockstep with this internal codec constant.
+	MaxSpatialLayers = 5
 )
 
-// vp9SVCDefault returns the libvpx-equivalent state for a single-layer
+// DefaultSVCState returns the libvpx-equivalent state for a single-layer
 // non-SVC encoder. libvpx vp9_init_layer_context() does not run on cpi when
 // cpi->use_svc is unset; svc->number_spatial_layers and number_temporal_layers
 // stay at the allocator-zero default of 1 because vp9_change_config() always
@@ -121,8 +126,8 @@ const (
 // libvpx: vp9_encoder.c vp9_change_config() — svc->number_spatial_layers =
 // VPXMAX(1, cpi->oxcf.ss_number_layers); svc->number_temporal_layers =
 // VPXMAX(1, cpi->oxcf.ts_number_layers).
-func vp9SVCDefault() vp9SVCState {
-	return vp9SVCState{
+func DefaultSVCState() SVCState {
+	return SVCState{
 		NumberSpatialLayers:  1,
 		NumberTemporalLayers: 1,
 	}

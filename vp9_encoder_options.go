@@ -654,7 +654,7 @@ const (
 
 	// VP9MaxSpatialLayers is the maximum VP9 encoder spatial-layer count
 	// exposed by libvpx's vpx_codec_enc_cfg::ss_number_layers.
-	VP9MaxSpatialLayers = 5
+	VP9MaxSpatialLayers = encoder.MaxSpatialLayers
 )
 
 // VP9SpatialScalabilityConfig configures VP9 spatial-SVC layer signaling for

@@ -27,11 +27,11 @@ type VP9Encoder struct {
 
 	// svc mirrors the subset of libvpx SVC layer-context state read by the
 	// speed-features dispatcher and other ported consumers. Single-layer
-	// encoders leave it at vp9SVCDefault() so e.svc.UseSvc reports cpi->use_svc
+	// encoders leave it at encoder.DefaultSVCState() so e.svc.UseSvc reports cpi->use_svc
 	// = 0 and number_spatial_layers = number_temporal_layers = 1.
 	//
 	// libvpx: vp9_svc_layercontext.h SVC struct.
-	svc vp9SVCState
+	svc encoder.SVCState
 
 	// maxCopiedFrame mirrors cpi->max_copied_frame, written by the
 	// speed-features dispatcher at speeds 7-8 to bound the number of
@@ -555,8 +555,8 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		opts:          opts,
 		temporal:      temporal,
 		rc:            rc,
-		svc:           vp9SVCDefault(),
-		refFrameFlags: vp9AllRefFlags,
+		svc:           encoder.DefaultSVCState(),
+		refFrameFlags: encoder.AllRefFlags,
 	}
 	e.vp9LatchDeadlineModePreviousFrame()
 	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,
