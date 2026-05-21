@@ -159,8 +159,8 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 		"--arnr-maxframes=7",
 		"--arnr-strength=3",
 		"--arnr-type=3")
-	govpxHidden := countVP9HiddenRows(govpxRows)
-	libvpxHidden := countVP9HiddenRows(libvpxRows)
+	govpxHidden := vp9test.CountHiddenRows(govpxRows)
+	libvpxHidden := vp9test.CountHiddenRows(libvpxRows)
 	limit := len(govpxPackets)
 	if len(libvpxPackets) < limit {
 		limit = len(libvpxPackets)
@@ -178,10 +178,11 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 	}
 	t.Logf("VP9 auto-alt-ref visibility scoreboard: govpx_packets=%d libvpx_packets=%d compare=%d matches=%d first_mismatch=%d govpx_hidden=%d libvpx_hidden=%d govpx_altref_refresh=%d libvpx_altref_refresh=%d",
 		len(govpxPackets), len(libvpxPackets), limit, matches, firstMismatch,
-		govpxHidden, libvpxHidden, countVP9AltRefRefreshRows(govpxRows),
-		countVP9AltRefRefreshRows(libvpxRows))
+		govpxHidden, libvpxHidden,
+		vp9test.CountAltRefRefreshRows(govpxRows, 1<<vp9AltRefSlot),
+		vp9test.CountAltRefRefreshRows(libvpxRows, 1<<vp9AltRefSlot))
 	t.Logf("VP9 auto-alt-ref visibility rows:\n%s",
-		formatVP9AutoAltRefVisibilityRows(govpxRows, libvpxRows))
+		vp9test.FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows))
 	if govpxHidden == 0 {
 		t.Fatal("govpx emitted no hidden auto-alt-ref packet")
 	}
@@ -282,11 +283,11 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
 			}
 			t.Logf("VP9 auto-alt-ref ARNR byte-parity matrix %s: govpx_packets=%d libvpx_packets=%d compare=%d matches=%d first_mismatch=%d govpx_hidden=%d libvpx_hidden=%d",
 				tc.name, len(govpxPackets), len(libvpxPackets), limit, matches,
-				firstMismatch, countVP9HiddenRows(govpxRows),
-				countVP9HiddenRows(libvpxRows))
+				firstMismatch, vp9test.CountHiddenRows(govpxRows),
+				vp9test.CountHiddenRows(libvpxRows))
 			t.Logf("VP9 auto-alt-ref ARNR rows %s:\n%s", tc.name,
-				formatVP9AutoAltRefVisibilityRows(govpxRows, libvpxRows))
-			if countVP9HiddenRows(govpxRows) == 0 {
+				vp9test.FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows))
+			if vp9test.CountHiddenRows(govpxRows) == 0 {
 				t.Fatalf("govpx emitted no hidden auto-alt-ref packet for %s",
 					tc.name)
 			}

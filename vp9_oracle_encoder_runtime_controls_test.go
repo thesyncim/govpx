@@ -571,7 +571,7 @@ func runVP9RuntimeControlCase(t *testing.T, opts VP9EncoderOptions,
 	t.Logf("VP9 runtime control %s: matches=%d/%d first_mismatch=%d stats=%s",
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 runtime control %s rows:\n%s",
-		tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+		tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 	if os.Getenv("GOVPX_VP9_RUNTIME_CONTROLS_STRICT") == "1" {
 		assertVP9RuntimeControlByteParity(t, tc.name, govpxPackets, libvpxPackets)
 	}

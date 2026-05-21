@@ -11,8 +11,8 @@ import (
 )
 
 func formatVP9DropAwareStreamParityRows(t *testing.T,
-	govpxRows []vp9RateScoreboardRow, govpxPackets [][]byte,
-	libvpxRows []vp9RateScoreboardRow, libvpxPackets [][]byte,
+	govpxRows []vp9test.RateScoreboardRow, govpxPackets [][]byte,
+	libvpxRows []vp9test.RateScoreboardRow, libvpxPackets [][]byte,
 ) string {
 	t.Helper()
 	var b bytes.Buffer

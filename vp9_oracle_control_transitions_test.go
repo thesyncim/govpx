@@ -99,7 +99,7 @@ func TestVP9OracleFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 			t.Logf("VP9 frame-flag transitions %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 frame-flag transition rows %s:\n%s",
-				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_TRANSITION_SCOREBOARD_STRICT") == "1" &&
 				stats.hasMismatch() {
 				t.Fatalf("strict VP9 frame-flag transition mismatch %s: %s",
@@ -146,7 +146,7 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixMatchesLibvpx(t *testing.T) {
 			t.Logf("VP9 reference/update matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 reference/update matrix rows %s:\n%s",
-				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_FLAG_MATRIX_STRICT") == "1" &&
 				stats.hasMismatch() {
 				t.Fatalf("strict VP9 reference/update matrix mismatch %s: %s",
@@ -194,7 +194,7 @@ func TestVP9OracleOddSizeFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
 			t.Logf("VP9 odd-size transitions %s: %s", tc.name, stats)
 			t.Logf("VP9 odd-size transition rows %s:\n%s",
-				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_ODD_TRANSITION_STRICT") == "1" &&
 				stats.hasMismatch() {
 				t.Fatalf("strict VP9 odd-size transition mismatch %s: %s",
@@ -273,7 +273,7 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
 	t.Logf("VP9 runtime bitrate/Q controls: %s", stats)
 	t.Logf("VP9 runtime bitrate/Q rows:\n%s",
-		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 	if govpxRows[2].TargetBitrateKbps != 300 ||
 		libvpxRows[2].TargetBitrateKbps != 300 {
 		t.Fatalf("frame 2 target bitrate: govpx=%d libvpx=%d, want 300/300",
@@ -322,7 +322,7 @@ func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
 	t.Logf("VP9 runtime-control transition parity: %s", stats)
 	t.Logf("VP9 runtime-control transition parity rows:\n%s",
-		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 	if os.Getenv("GOVPX_VP9_RUNTIME_TRANSITION_STRICT") == "1" &&
 		stats.hasMismatch() {
 		t.Fatalf("strict VP9 runtime-control transition mismatch: %s", stats)
@@ -643,7 +643,7 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 			t.Logf("VP9 runtime-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 runtime-control matrix rows %s:\n%s",
-				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_RUNTIME_MATRIX_STRICT") == "1" &&
 				stats.hasMismatch() {
 				t.Fatalf("strict VP9 runtime-control matrix mismatch %s: %s",
@@ -751,7 +751,7 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 			t.Logf("VP9 construction-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 construction-control matrix rows %s:\n%s",
-				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_CONSTRUCTION_MATRIX_STRICT") == "1" &&
 				stats.hasMismatch() {
 				t.Fatalf("strict VP9 construction-control matrix mismatch %s: %s",
@@ -778,7 +778,7 @@ func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
 	t.Logf("VP9 tile/thread controls: %s", stats)
 	t.Logf("VP9 tile/thread control rows:\n%s",
-		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 	tile2Rows := 0
 	for i := range govpxRows {
 		if govpxRows[i].Dropped || libvpxRows[i].Dropped {
@@ -883,7 +883,7 @@ func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
 			t.Logf("VP9 temporal flag patterns %s: %s", tc.name, stats)
 			t.Logf("VP9 temporal flag-pattern rows %s:\n%s",
-				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_TEMPORAL_PATTERN_STRICT") == "1" &&
 				stats.hasMismatch() {
 				t.Fatalf("strict VP9 temporal flag-pattern mismatch %s: %s",
@@ -940,7 +940,7 @@ func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
 			t.Logf("VP9 temporal pattern matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 temporal pattern matrix rows %s:\n%s",
-				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_TEMPORAL_MATRIX_STRICT") == "1" &&
 				stats.hasMismatch() {
 				t.Fatalf("strict VP9 temporal pattern matrix mismatch %s: %s",
@@ -1042,7 +1042,7 @@ func vp9OracleIntCSV(values []int) string {
 	return b.String()
 }
 
-func assertVP9TemporalMetadataRows(t *testing.T, rows []vp9RateScoreboardRow, expected []expectedTemporalRow, layers int) {
+func assertVP9TemporalMetadataRows(t *testing.T, rows []vp9test.RateScoreboardRow, expected []expectedTemporalRow, layers int) {
 	t.Helper()
 	if len(rows) != len(expected) {
 		t.Fatalf("temporal metadata rows = %d, want %d", len(rows), len(expected))
@@ -1113,7 +1113,7 @@ func (s vp9OracleTransitionStats) String() string {
 		s.MaxBufferOptimalDeltaPct)
 }
 
-func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9RateScoreboardRow) vp9OracleTransitionStats {
+func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9test.RateScoreboardRow) vp9OracleTransitionStats {
 	t.Helper()
 	if len(govpxRows) == 0 || len(libvpxRows) == 0 {
 		t.Fatalf("empty VP9 transition rows: govpx=%d libvpx=%d",
@@ -1168,7 +1168,7 @@ func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9Rat
 		}
 		if g.SizeBits != l.SizeBits {
 			stats.SizeMismatches++
-			if delta := pctDelta(g.SizeBits, l.SizeBits); delta > stats.MaxSizeDeltaPct {
+			if delta := vp9test.PctDelta(g.SizeBits, l.SizeBits); delta > stats.MaxSizeDeltaPct {
 				stats.MaxSizeDeltaPct = delta
 			}
 		}
@@ -1182,13 +1182,13 @@ func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9Rat
 		}
 		if g.BufferLevelBits != l.BufferLevelBits {
 			stats.BufferMismatches++
-			if delta := pctDelta(g.BufferLevelBits, l.BufferLevelBits); delta > stats.MaxBufferDeltaPct {
+			if delta := vp9test.PctDelta(g.BufferLevelBits, l.BufferLevelBits); delta > stats.MaxBufferDeltaPct {
 				stats.MaxBufferDeltaPct = delta
 			}
 		}
 		if g.BufferOptimalBits != l.BufferOptimalBits {
 			stats.BufferOptimalMismatches++
-			if delta := pctDelta(g.BufferOptimalBits, l.BufferOptimalBits); delta > stats.MaxBufferOptimalDeltaPct {
+			if delta := vp9test.PctDelta(g.BufferOptimalBits, l.BufferOptimalBits); delta > stats.MaxBufferOptimalDeltaPct {
 				stats.MaxBufferOptimalDeltaPct = delta
 			}
 		}
@@ -1379,7 +1379,7 @@ func vp9OracleAlternatingReferenceControls(frames int) []EncodeFlags {
 	return flags
 }
 
-func formatVP9SingleRateScoreboardRows(rows []vp9RateScoreboardRow) string {
+func formatVP9SingleRateScoreboardRows(rows []vp9test.RateScoreboardRow) string {
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,width,height,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
 	for _, row := range rows {

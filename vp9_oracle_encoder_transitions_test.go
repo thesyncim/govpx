@@ -670,7 +670,7 @@ func runVP9TransitionCase(t *testing.T, opts VP9EncoderOptions,
 	t.Logf("VP9 transition %s: matches=%d/%d first_mismatch=%d stats=%s",
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 transition %s rows:\n%s", tc.name,
-		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 	if os.Getenv("GOVPX_VP9_TRANSITIONS_STRICT") == "1" {
 		assertVP9TransitionByteParity(t, tc.name, govpxPackets, libvpxPackets)
 	}

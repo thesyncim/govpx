@@ -9,7 +9,7 @@ Last refreshed: 2026-05-21 from `main`.
 
 - Root Go files: 520.
 - Root test files: 363.
-- Internal Go files: 690.
+- Internal Go files: 692.
 - Root VP8 files: 82 implementation files and 211 test files.
 - Root VP9 files: 66 implementation files and 141 test files.
 - Internal package files:
@@ -17,10 +17,10 @@ Last refreshed: 2026-05-21 from `main`.
   - `internal/vp9`: 298 Go files.
   - `internal/vpx`: 11 Go files.
   - `internal/coracle`: 26 Go files.
-  - `internal/testutil`: 25 Go files.
+  - `internal/testutil`: 27 Go files.
 - Test-name clusters:
   - Non-internal tests: 381.
-  - Internal tests: 293.
+  - Internal tests: 294.
   - Files with `oracle` in the name: 124.
   - Files with `parity` in the name: 58.
   - Files with `fuzz` in the name: 44.
@@ -189,7 +189,7 @@ This ledger tracks intent, not completed work.
 | Root VP8 implementation | 80 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
 | Root VP9 implementation | 66 root VP9 implementation files remain; VP9 SVC layer-context state now lives in `internal/vp9/encoder`; stale VP9 stderr debug hooks and the always-on non-RD staging predicate are removed. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
-| Root tests | 363 top-level root tests remain; many are codec implementation and parity tests; shared VP9 YCbCr/I420/header helpers, IVF payload extraction, packet byte-parity diagnostics, synthetic image fixtures, source generators, byte-parity counters, vpxenc packet capture, panning sources, and stream-parity row formatting now live in `internal/testutil/vp9test`; VP9 external corpus selection and minimum rules now live in `internal/testutil/vp9corpus`; VP8 and VP9 RTP fuzzers now live beside the internal RTP packages. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
+| Root tests | 363 top-level root tests remain; many are codec implementation and parity tests; shared VP9 YCbCr/I420/header helpers, IVF payload extraction, packet byte-parity diagnostics, synthetic image fixtures, source generators, byte-parity counters, vpxenc packet capture, panning sources, stream-parity row formatting, rate-scoreboard row parsing/formatting, drop summaries, hidden-frame and alt-ref refresh counters, auto-alt-ref visibility formatting, and Q histograms now live in `internal/testutil/vp9test`; VP9 external corpus selection and minimum rules now live in `internal/testutil/vp9corpus`; VP8 and VP9 RTP fuzzers now live beside the internal RTP packages. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx/rtp` owns shared RTP fragment packing, marker, and assembly loops; `internal/vpx/ratecontrol` owns codec-neutral packet-size and percentage arithmetic; `internal/vpx/buffers` owns alignment and I420 encode-buffer sizing. Codec packages keep descriptor syntax, policy constants, and validation. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |
 | Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests; unused VP9 ARNR and unsupported-decoder stderr env hooks are gone; VP8 PhaseStats runtime option plumbing is compiled out of default builds and enabled only with `govpx_phase_stats`. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |
 | Documentation | `docs/architecture.md`, `docs/api.md`, `docs/codec-status.md`, `docs/validation.md`, and this map exist. | Keep README short; detailed docs under `docs/`; no migration promise before first release. |
