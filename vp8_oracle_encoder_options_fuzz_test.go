@@ -6,8 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -242,23 +240,8 @@ func assertVP8FuzzEncoderRuntimeError(t *testing.T, err error) {
 // the fuzzer can keep iterating on adjacent configs.
 func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 	t.Helper()
-	oracle, err := coracle.VpxencOraclePath()
-	if err != nil {
-		return nil
-	}
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "fuzz.yuv")
-	ivfPath := filepath.Join(dir, "fuzz.ivf")
 	sources := []Image{encoderValidationPanningFrame(opts.Width, opts.Height, 0)}
-	writeEncoderValidationI420(t, yuvPath, sources)
 
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
 	endUsage := "--end-usage=cbr"
 	switch opts.RateControlMode {
 	case RateControlVBR:
@@ -282,37 +265,17 @@ func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 		effMinQ = 4
 		effMaxQ = 56
 	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		deadlineArg,
+	extraArgs := []string{
 		endUsage,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--target-bitrate=" + strconv.Itoa(opts.TargetBitrateKbps),
-		"--min-q=" + strconv.Itoa(effMinQ),
-		"--max-q=" + strconv.Itoa(effMaxQ),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=1",
-		"--output=" + ivfPath,
 	}
 	if opts.CQLevel > 0 && (opts.RateControlMode == RateControlCQ || opts.RateControlMode == RateControlQ) {
-		args = append(args, "--cq-level="+strconv.Itoa(opts.CQLevel))
+		extraArgs = append(extraArgs, "--cq-level="+strconv.Itoa(opts.CQLevel))
 	}
 	if opts.TokenPartitions > 0 {
-		args = append(args, "--token-parts="+strconv.Itoa(opts.TokenPartitions))
+		extraArgs = append(extraArgs, "--token-parts="+strconv.Itoa(opts.TokenPartitions))
 	}
 	if opts.Threads > 0 {
-		args = append(args, "--threads="+strconv.Itoa(opts.Threads))
+		extraArgs = append(extraArgs, "--threads="+strconv.Itoa(opts.Threads))
 	}
 	// Mirror error_resilient toggles to the libvpx CLI. The libvpx
 	// control takes a bitmask: 1=VPX_ERROR_RESILIENT_DEFAULT,
@@ -326,24 +289,34 @@ func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 		if opts.ErrorResilientPartitions {
 			mask |= 2
 		}
-		args = append(args, "--error-resilient="+strconv.Itoa(mask))
+		extraArgs = append(extraArgs, "--error-resilient="+strconv.Itoa(mask))
 	}
 	if opts.Sharpness > 0 {
-		args = append(args, "--sharpness="+strconv.Itoa(opts.Sharpness))
+		extraArgs = append(extraArgs, "--sharpness="+strconv.Itoa(opts.Sharpness))
 	}
 	if opts.NoiseSensitivity > 0 {
-		args = append(args, "--noise-sensitivity="+strconv.Itoa(opts.NoiseSensitivity))
+		extraArgs = append(extraArgs, "--noise-sensitivity="+strconv.Itoa(opts.NoiseSensitivity))
 	}
-	args = append(args, yuvPath)
-	cmd := exec.Command(oracle, args...)
-	if err := cmd.Run(); err != nil {
-		return nil
-	}
-	data, err := os.ReadFile(ivfPath)
-	if err != nil {
-		return nil
-	}
-	frames, err := testutil.IVFFramePayloads(data)
+	frames, _, err := coracle.VpxencVP8OracleFramePayloadsI420(
+		encoderValidationI420Bytes(t, sources),
+		coracle.VpxencVP8Config{
+			Width:                opts.Width,
+			Height:               opts.Height,
+			Frames:               1,
+			Deadline:             libvpxOracleDeadline(opts.Deadline),
+			DisableWarningPrompt: true,
+			CPUUsed:              opts.CpuUsed,
+			TargetBitrateKbps:    opts.TargetBitrateKbps,
+			MinQ:                 effMinQ,
+			MaxQ:                 effMaxQ,
+			Timebase:             "1/" + strconv.Itoa(opts.FPS),
+			FPS:                  strconv.Itoa(opts.FPS) + "/1",
+			KeyFrameDistSet:      true,
+			KeyFrameMinDist:      999,
+			KeyFrameMaxDist:      999,
+			ExtraArgs:            extraArgs,
+		},
+	)
 	if err != nil {
 		return nil
 	}

@@ -7,11 +7,10 @@ import (
 	"errors"
 	"math"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
@@ -34,7 +33,6 @@ func TestVP8OracleBenchWorkloadProductionGaps(t *testing.T) {
 		fps             int
 		targetKbps      int
 		deadline        Deadline
-		deadlineArg     string
 		cpuUsed         int
 		maxByteRatioGap float64
 		maxPSNRGap      float64
@@ -51,7 +49,6 @@ func TestVP8OracleBenchWorkloadProductionGaps(t *testing.T) {
 			fps:             30,
 			targetKbps:      2000,
 			deadline:        DeadlineRealtime,
-			deadlineArg:     "--rt",
 			cpuUsed:         -4,
 			maxByteRatioGap: 0.04,
 			maxPSNRGap:      0.20,
@@ -65,7 +62,6 @@ func TestVP8OracleBenchWorkloadProductionGaps(t *testing.T) {
 			fps:             30,
 			targetKbps:      8000,
 			deadline:        DeadlineGoodQuality,
-			deadlineArg:     "--good",
 			cpuUsed:         8,
 			maxByteRatioGap: 0.03,
 			maxPSNRGap:      0.55,
@@ -83,7 +79,7 @@ func TestVP8OracleBenchWorkloadProductionGaps(t *testing.T) {
 
 			govpxPackets := encodeBenchWorkloadWithGovpx(t, opts, sources)
 			govpxBytes := totalPacketBytes(govpxPackets)
-			libvpxIVF := encodeBenchWorkloadWithVpxenc(t, vpxenc, tc.name, opts, tc.targetKbps, tc.deadlineArg, sources)
+			libvpxIVF := encodeBenchWorkloadWithVpxenc(t, vpxenc, opts, tc.targetKbps, sources)
 			libvpxBytes, libvpxCount := parseIVFFramePayloadSizes(t, libvpxIVF)
 			if len(govpxPackets) != libvpxCount {
 				t.Fatalf("encoded frames govpx=%d libvpx=%d, want same count from matching config", len(govpxPackets), libvpxCount)
@@ -203,27 +199,11 @@ func encodeBenchWorkloadWithGovpx(t *testing.T, opts EncoderOptions, sources []I
 	return packets
 }
 
-func encodeBenchWorkloadWithVpxenc(t *testing.T, vpxenc string, name string, opts EncoderOptions, targetKbps int, deadlineArg string, sources []Image) []byte {
+func encodeBenchWorkloadWithVpxenc(t *testing.T, vpxenc string, opts EncoderOptions, targetKbps int, sources []Image) []byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivfPath := filepath.Join(dir, name+".ivf")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
+	extraArgs := []string{
 		"--passes=1",
-		"--lag-in-frames=0",
 		"--end-usage=cbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--kf-min-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--kf-max-dist=" + strconv.Itoa(opts.KeyFrameInterval),
 		"--buf-sz=" + strconv.Itoa(opts.BufferSizeMs),
 		"--buf-initial-sz=" + strconv.Itoa(opts.BufferInitialSizeMs),
 		"--buf-optimal-sz=" + strconv.Itoa(opts.BufferOptimalSizeMs),
@@ -232,33 +212,43 @@ func encodeBenchWorkloadWithVpxenc(t *testing.T, vpxenc string, name string, opt
 		"--threads=1",
 		"--token-parts=0",
 		"--noise-sensitivity=" + strconv.Itoa(opts.NoiseSensitivity),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(sources)),
 	}
 	if opts.DropFrameAllowed {
-		args = append(args, "--drop-frame="+strconv.Itoa(opts.DropFrameWaterMark))
+		extraArgs = append(extraArgs, "--drop-frame="+strconv.Itoa(opts.DropFrameWaterMark))
 	} else {
-		args = append(args, "--drop-frame=0")
+		extraArgs = append(extraArgs, "--drop-frame=0")
 	}
 	if opts.MaxIntraBitratePct > 0 {
-		args = append(args, "--max-intra-rate="+strconv.Itoa(opts.MaxIntraBitratePct))
+		extraArgs = append(extraArgs, "--max-intra-rate="+strconv.Itoa(opts.MaxIntraBitratePct))
 	}
 	if opts.StaticThreshold > 0 {
-		args = append(args, "--static-thresh="+strconv.Itoa(opts.StaticThreshold))
+		extraArgs = append(extraArgs, "--static-thresh="+strconv.Itoa(opts.StaticThreshold))
 	}
-	args = append(args, "--output="+ivfPath, yuvPath)
-	if out, err := exec.Command(vpxenc, args...).CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc failed: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(ivfPath)
+	ivf, diag, err := coracle.VpxencVP8EncodeI420(
+		encoderValidationI420Bytes(t, sources),
+		coracle.VpxencVP8Config{
+			BinaryPath:           vpxenc,
+			Width:                opts.Width,
+			Height:               opts.Height,
+			Frames:               len(sources),
+			Deadline:             libvpxOracleDeadline(opts.Deadline),
+			DisableWarningPrompt: true,
+			CPUUsed:              opts.CpuUsed,
+			TargetBitrateKbps:    targetKbps,
+			MinQ:                 opts.MinQuantizer,
+			MaxQ:                 opts.MaxQuantizer,
+			Timebase:             "1/" + strconv.Itoa(opts.FPS),
+			FPS:                  strconv.Itoa(opts.FPS) + "/1",
+			KeyFrameDistSet:      true,
+			KeyFrameMinDist:      opts.KeyFrameInterval,
+			KeyFrameMaxDist:      opts.KeyFrameInterval,
+			ExtraArgs:            extraArgs,
+		},
+	)
 	if err != nil {
-		t.Fatalf("ReadFile %s returned error: %v", ivfPath, err)
+		t.Fatalf("vpxenc failed: %v\n%s", err, diag)
 	}
-	return data
+	return ivf
 }
 
 func totalPacketBytes(packets []benchWorkloadPacket) int {

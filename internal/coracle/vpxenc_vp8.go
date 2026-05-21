@@ -250,6 +250,27 @@ func VpxencVP8FrameFlagsEncodeI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) (i
 		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs)
 }
 
+// VpxencVP8FrameFlagsEncodeTraceI420 encodes raw I420 frames with the VP8
+// vpxenc-frameflags helper and returns both IVF output and the JSONL trace.
+func VpxencVP8FrameFlagsEncodeTraceI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) (ivf []byte, trace []byte, diag []byte, err error) {
+	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
+		return nil, nil, nil, err
+	}
+	bin := cfg.BinaryPath
+	if bin == "" {
+		bin, err = VpxencFrameFlagsPath()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	out, err := runVpxencVP8I420Files(raw, bin, "govpx-vpxenc-vp8-frameflags-trace-*",
+		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs, true, nil)
+	if err != nil {
+		return nil, nil, out.diag, err
+	}
+	return out.ivf, out.trace, out.diag, nil
+}
+
 // VpxencVP8FrameFlagsPayloadsI420 encodes raw I420 frames with the VP8
 // vpxenc-frameflags helper and returns per-frame IVF payloads.
 func VpxencVP8FrameFlagsPayloadsI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) (frames [][]byte, diag []byte, err error) {

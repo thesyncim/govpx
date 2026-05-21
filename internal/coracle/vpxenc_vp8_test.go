@@ -263,6 +263,11 @@ func TestVpxencVP8EncodeI420ValidatesBeforePathLookup(t *testing.T) {
 	} else if errors.Is(err, ErrVpxencFrameFlagsNotBuilt) {
 		t.Fatal("VpxencVP8FrameFlagsEncodeI420 looked up helper before validating input")
 	}
+	if _, _, _, err := VpxencVP8FrameFlagsEncodeTraceI420(nil, VpxencVP8FrameFlagsConfig{Width: 16, Height: 16, Frames: 1}); err == nil {
+		t.Fatal("VpxencVP8FrameFlagsEncodeTraceI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencFrameFlagsNotBuilt) {
+		t.Fatal("VpxencVP8FrameFlagsEncodeTraceI420 looked up helper before validating input")
+	}
 	if _, _, err := VpxencVP8OracleTraceI420(nil, VpxencVP8Config{Width: 16, Height: 16, Frames: 1}); err == nil {
 		t.Fatal("VpxencVP8OracleTraceI420 accepted empty input")
 	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
