@@ -451,7 +451,7 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 			}
 		} else {
 			var srcScratch [16 * 16]byte
-			gatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
+			vp8enc.GatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
 			if sse, ok := macroblockSubpixelSSEBlock(ref, refBaseY, refBaseX, xOffset, yOffset, srcScratch[:], 16); ok {
 				return sse
 			}
@@ -493,7 +493,7 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 			}
 		} else {
 			var srcScratch [16 * 16]byte
-			gatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
+			vp8enc.GatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
 			if variance, sse, ok := macroblockSubpixelVarianceBlock(ref, refBaseY, refBaseX, xOffset, yOffset, srcScratch[:], 16); ok {
 				return variance, sse
 			}
@@ -555,7 +555,7 @@ func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, base
 			}
 		} else {
 			var srcScratch [16 * 16]byte
-			gatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
+			vp8enc.GatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
 			if sad, ok := macroblockSubpixelSADBlock(ref, refBaseY, refBaseX, xOffset, yOffset, srcScratch[:], 16, limit); ok {
 				return sad
 			}
@@ -615,7 +615,7 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 			}
 		} else {
 			var srcScratch [16 * 16]byte
-			gatherClampedLumaBlock(src, baseY, baseX, width, height, srcScratch[:], 16)
+			vp8enc.GatherClampedLumaBlock(src, baseY, baseX, width, height, srcScratch[:], 16)
 			if sad, ok := splitBlockSubpixelSADBlock(ref, refBaseY, refBaseX, width, height, xOffset, yOffset, srcScratch[:], 16); ok {
 				return sad
 			}
@@ -880,39 +880,4 @@ func macroblockSubpixelVarianceBlock(ref *vp8common.Image, refBaseY int, refBase
 	}
 	variance, sse := dsp.SubpelVariance16x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 	return variance, sse, true
-}
-
-func gatherClampedLumaBlock(src vp8enc.SourceImage, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
-	if min(width, height) <= 0 || src.Width <= 0 || src.Height <= 0 {
-		return
-	}
-	srcY := src.Y
-	srcStride := src.YStride
-	fullX := baseX >= 0 && baseX+width <= src.Width
-	var srcXs [16]int
-	precomputedX := !fullX && width <= len(srcXs)
-	if precomputedX {
-		for col := range width {
-			srcXs[col] = clampEncodeCoord(baseX+col, src.Width)
-		}
-	}
-	for row := range height {
-		y := clampEncodeCoord(baseY+row, src.Height)
-		dstRow := row * dstStride
-		srcRow := y * srcStride
-		if fullX {
-			copy(dst[dstRow:dstRow+width], srcY[srcRow+baseX:srcRow+baseX+width])
-			continue
-		}
-		if precomputedX {
-			for col := range width {
-				dst[dstRow+col] = srcY[srcRow+srcXs[col]]
-			}
-		} else {
-			for col := range width {
-				srcX := clampEncodeCoord(baseX+col, src.Width)
-				dst[dstRow+col] = srcY[srcRow+srcX]
-			}
-		}
-	}
 }

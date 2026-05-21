@@ -76,6 +76,62 @@ func TestSourceImageMatchesReferenceVisibleSamplesOnly(t *testing.T) {
 	}
 }
 
+func TestGatherClampedLumaBlockEdges(t *testing.T) {
+	src := SourceImage{
+		Width:   4,
+		Height:  3,
+		YStride: 4,
+		Y:       make([]byte, 4*3),
+	}
+	for row := range src.Height {
+		for col := range src.Width {
+			src.Y[row*src.YStride+col] = byte(row*10 + col)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		baseY int
+		baseX int
+		want  []byte
+	}{
+		{
+			name:  "bottom edge full x",
+			baseY: 1,
+			baseX: 0,
+			want: []byte{
+				10, 11, 12, 13,
+				20, 21, 22, 23,
+				20, 21, 22, 23,
+				20, 21, 22, 23,
+			},
+		},
+		{
+			name:  "bottom right edge",
+			baseY: 1,
+			baseX: 2,
+			want: []byte{
+				12, 13, 13, 13,
+				22, 23, 23, 23,
+				22, 23, 23, 23,
+				22, 23, 23, 23,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := make([]byte, 4*4)
+			GatherClampedLumaBlock(src, tt.baseY, tt.baseX, 4, 4, dst, 4)
+			for i, want := range tt.want {
+				if dst[i] != want {
+					t.Fatalf("dst[%d] = %d, want %d (dst=%v)", i, dst[i], want, dst)
+				}
+			}
+		})
+	}
+}
+
 func fillVisiblePlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int, base byte) {
 	for y := range height {
 		for x := range width {

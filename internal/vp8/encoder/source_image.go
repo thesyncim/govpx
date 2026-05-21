@@ -59,6 +59,44 @@ func SourceImageUVDimensions(src SourceImage) (int, int) {
 	return uvWidth, uvHeight
 }
 
+// GatherClampedLumaBlock copies a visible-source luma block into dst, clamping
+// reads at the source edges. This mirrors the VP8 encoder's libvpx v1.16.0
+// visible-edge behavior for partial macroblocks before SAD/variance probes.
+func GatherClampedLumaBlock(src SourceImage, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
+	if min(width, height) <= 0 || src.Width <= 0 || src.Height <= 0 {
+		return
+	}
+	srcY := src.Y
+	srcStride := src.YStride
+	fullX := baseX >= 0 && baseX+width <= src.Width
+	var srcXs [16]int
+	precomputedX := !fullX && width <= len(srcXs)
+	if precomputedX {
+		for col := range width {
+			srcXs[col] = clampEncodeCoord(baseX+col, src.Width)
+		}
+	}
+	for row := range height {
+		y := clampEncodeCoord(baseY+row, src.Height)
+		dstRow := row * dstStride
+		srcRow := y * srcStride
+		if fullX {
+			copy(dst[dstRow:dstRow+width], srcY[srcRow+baseX:srcRow+baseX+width])
+			continue
+		}
+		if precomputedX {
+			for col := range width {
+				dst[dstRow+col] = srcY[srcRow+srcXs[col]]
+			}
+		} else {
+			for col := range width {
+				srcX := clampEncodeCoord(baseX+col, src.Width)
+				dst[dstRow+col] = srcY[srcRow+srcX]
+			}
+		}
+	}
+}
+
 // SourceImageMatchesReference reports whether the visible source samples match
 // the visible reference frame samples.
 func SourceImageMatchesReference(src SourceImage, ref *vp8common.Image) bool {

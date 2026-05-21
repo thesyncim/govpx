@@ -82,7 +82,7 @@ func (c *fullPelSearchCtx) sourceSADPtr() (*byte, int) {
 		return c.srcRowPtrP, c.srcYStride
 	}
 	if !c.srcClamped {
-		gatherClampedLumaBlock(c.src, c.baseY, c.baseX, 16, 16, c.srcScratch[:], 16)
+		vp8enc.GatherClampedLumaBlock(c.src, c.baseY, c.baseX, 16, 16, c.srcScratch[:], 16)
 		c.srcClamped = true
 	}
 	return &c.srcScratch[0], 16

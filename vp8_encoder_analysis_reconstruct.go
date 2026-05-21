@@ -27,7 +27,7 @@ func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMb
 	}
 	if uint(refBaseY) <= uint(img.CodedHeight-16) && uint(refBaseX) <= uint(img.CodedWidth-16) {
 		var srcScratch [16 * 16]byte
-		gatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
+		vp8enc.GatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
 		return dsp.SAD16x16(srcScratch[:], 16, img.Y[refBaseY*img.YStride+refBaseX:], img.YStride)
 	}
 

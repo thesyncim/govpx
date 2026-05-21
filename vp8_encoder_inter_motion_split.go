@@ -406,7 +406,7 @@ func splitBlockSubpixelVarianceForQuarterMV(src vp8enc.SourceImage, ref *vp8comm
 		return variance, ok
 	}
 	var srcScratch [16 * 16]byte
-	gatherClampedLumaBlock(src, baseY, baseX, width, height, srcScratch[:], 16)
+	vp8enc.GatherClampedLumaBlock(src, baseY, baseX, width, height, srcScratch[:], 16)
 	variance, _, ok := splitBlockSubpixelVarianceBlock(ref, refBaseY, refBaseX, width, height, xOffset, yOffset, srcScratch[:], 16)
 	return variance, ok
 }

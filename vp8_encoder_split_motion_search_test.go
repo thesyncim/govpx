@@ -552,7 +552,7 @@ func TestSplitBlockSubpixelVarianceClampsPartialSource(t *testing.T) {
 	yOffset := (quarterRow & 3) << 1
 
 	var srcScratch [16 * 16]byte
-	gatherClampedLumaBlock(sourceImageFromPublic(src), baseY, baseX, width, height, srcScratch[:], 16)
+	vp8enc.GatherClampedLumaBlock(sourceImageFromPublic(src), baseY, baseX, width, height, srcScratch[:], 16)
 	var refScratch [(8 + 1) * (8 + 1)]byte
 	gatherCodedClampedRefBlock(&ref.Img, refBaseY, refBaseX, width+1, height+1, refScratch[:], width+1)
 	want, _ := dsp.SubpelVariance8x8(refScratch[:], width+1, xOffset, yOffset, srcScratch[:], 16)
