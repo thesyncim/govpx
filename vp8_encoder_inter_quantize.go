@@ -172,7 +172,7 @@ func optimizeQuantizedBlockWithRDConstants(coefProbs *vp8tables.CoefficientProbs
 	if rdMult <= 0 || rdDiv <= 0 {
 		rdMult, rdDiv = vp8enc.RDConstantsWithZbin(qIndex, zbinOverQuant)
 	}
-	rdMult *= blockPlaneRDMultiplier(blockType)
+	rdMult *= vp8enc.BlockPlaneRDMultiplier(blockType)
 	if intra {
 		rdMult = (rdMult * 9) >> 4
 	}

@@ -268,12 +268,12 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	needTokenContext := collectStats || optimize
 	if needTokenContext && aboveTok != nil {
 		yAbove = aboveTok.Y1
-		uvAbove = tokenUVContextArray(aboveTok)
+		uvAbove = vp8enc.TokenUVContextArray(aboveTok)
 		y2Above = aboveTok.Y2
 	}
 	if needTokenContext && leftTok != nil {
 		yLeft = leftTok.Y1
-		uvLeft = tokenUVContextArray(leftTok)
+		uvLeft = vp8enc.TokenUVContextArray(leftTok)
 		y2Left = leftTok.Y2
 	}
 
@@ -525,7 +525,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		for block := range 4 {
 			dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
 			dqU := (*[16]int16)(uvDQ[block*16 : block*16+16])
-			a, l := macroblockCoefficientUVContextIndex(16 + block)
+			a, l := vp8enc.MacroblockCoefficientUVContextIndex(16 + block)
 			ctx := 0
 			if needTokenContext {
 				ctx = int(uvAbove[a] + uvLeft[l])
@@ -551,7 +551,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 
 			dctV := (*[16]int16)(uvDcts[(4+block)*16 : (4+block)*16+16])
 			dqV := (*[16]int16)(uvDQ[(4+block)*16 : (4+block)*16+16])
-			a, l = macroblockCoefficientUVContextIndex(20 + block)
+			a, l = vp8enc.MacroblockCoefficientUVContextIndex(20 + block)
 			ctx = 0
 			if needTokenContext {
 				ctx = int(uvAbove[a] + uvLeft[l])
@@ -619,7 +619,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 
 	for block := range 4 {
 		dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
-		a, l := macroblockCoefficientUVContextIndex(16 + block)
+		a, l := vp8enc.MacroblockCoefficientUVContextIndex(16 + block)
 		ctx := 0
 		if needTokenContext {
 			ctx = int(uvAbove[a] + uvLeft[l])
@@ -657,7 +657,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		}
 
 		dctV := (*[16]int16)(uvDcts[(4+block)*16 : (4+block)*16+16])
-		a, l = macroblockCoefficientUVContextIndex(20 + block)
+		a, l = vp8enc.MacroblockCoefficientUVContextIndex(20 + block)
 		ctx = 0
 		if needTokenContext {
 			ctx = int(uvAbove[a] + uvLeft[l])

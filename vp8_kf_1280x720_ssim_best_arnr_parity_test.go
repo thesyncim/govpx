@@ -525,7 +525,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	//       byte-for-byte for every qIndex ∈ [4,56] (the cohort's
 	//       MinQuantizer..MaxQuantizer band), including the `cpi->RDMULT
 	//       > 1000 → RDMULT/=100, RDDIV=1` split.
-	//   (b) blockPlaneRDMultiplier mirrors libvpx's plane_rd_mult[4] =
+	//   (b) vp8enc.BlockPlaneRDMultiplier mirrors libvpx's plane_rd_mult[4] =
 	//       {Y_NO_DC=4, Y2=16, UV=2, Y_WITH_DC=4} indexed by PLANE_TYPE,
 	//       so the chroma trellis input rdmult = mb->rdmult * UV_RD_MULT
 	//       = mb->rdmult * 2 matches libvpx encodemb.c:174.

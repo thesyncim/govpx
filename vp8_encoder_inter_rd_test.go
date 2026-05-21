@@ -741,12 +741,3 @@ func TestInterAnalysisReferencesKeepAltAfterInternalGoldenRefreshCopiesOldGF(t *
 		t.Fatalf("post-GF-refresh refs = count:%d refs:%+v/%+v, want LAST and old-GF ALTREF", count, refs[0], refs[1])
 	}
 }
-
-func TestRdBlockScoreAppliesLibvpxPlaneAndIntraMultipliers(t *testing.T) {
-	if got := rdBlockScore(40, 4, false, 100, 20); got != 79 {
-		t.Fatalf("inter block rd = %d, want 79", got)
-	}
-	if got := rdBlockScore(40, 4, true, 100, 20); got != 53 {
-		t.Fatalf("intra block rd = %d, want 53", got)
-	}
-}

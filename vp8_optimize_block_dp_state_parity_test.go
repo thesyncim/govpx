@@ -273,7 +273,7 @@ func govpxOptimizeBStateCaptured(
 	qcoeffIn *[16]int16,
 	eobIn int,
 ) ([17][2]optimizeBTokenState, [2]uint32, int, int, [16]int16) {
-	rdmult := rdMult * blockPlaneRDMultiplier(blockType)
+	rdmult := rdMult * vp8enc.BlockPlaneRDMultiplier(blockType)
 	if intra {
 		rdmult = (rdmult * 9) >> 4
 	}

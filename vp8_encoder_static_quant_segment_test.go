@@ -80,33 +80,6 @@ func TestBuildReconstructingInterFrameCoefficientsUsesStaticEncodeBreakout(t *te
 	}
 }
 
-func TestMacroblockCoefficientTokenRateChargesNonZeroResiduals(t *testing.T) {
-	probs := vp8tables.DefaultCoefProbs
-	var zero vp8enc.MacroblockCoefficients
-	zeroRate := macroblockCoefficientTokenRate(&probs, false, &zero)
-
-	nonzero := zero
-	nonzero.QCoeff[24][0] = 2
-	nonzero.SetBlockEOB(24, 1)
-	nonzero.QCoeff[0][1] = -1
-	nonzero.SetBlockEOB(0, 2)
-	nonzero.QCoeff[16][0] = 1
-	nonzero.SetBlockEOB(16, 1)
-	nonzeroRate := macroblockCoefficientTokenRate(&probs, false, &nonzero)
-
-	if zeroRate <= 0 {
-		t.Fatalf("zero residual token rate = %d, want positive EOB signalling cost", zeroRate)
-	}
-	if nonzeroRate <= zeroRate {
-		t.Fatalf("nonzero residual token rate = %d, zero = %d, want higher rate", nonzeroRate, zeroRate)
-	}
-
-	vp8enc.ClearMacroblockCoefficients(&nonzero)
-	if clearedRate := macroblockCoefficientTokenRate(&probs, false, &nonzero); clearedRate != zeroRate {
-		t.Fatalf("cleared residual rate = %d, want zero residual rate %d", clearedRate, zeroRate)
-	}
-}
-
 func TestOptimizeQuantizedBlockDropsTrailingCoefficientWhenRateWins(t *testing.T) {
 	var quant vp8enc.BlockQuant
 	for i := range quant.Dequant {

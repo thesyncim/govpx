@@ -213,7 +213,7 @@ func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
 // For b in [16, 24), ENTROPY_CONTEXT indices 4..7 cover U then V (4..5
 // for U, 6..7 for V); the within-plane offsets vp8_block2above[b] - 4
 // and vp8_block2left[b] - 4 are exactly what govpx's
-// `macroblockCoefficientUVContextIndex` / `tokenUVContextIndex` return.
+// `vp8enc.MacroblockCoefficientUVContextIndex` / `tokenUVContextIndex` return.
 // This test pins both maps byte-equal to libvpx for every chroma block
 // 16..23, plus the additional invariant that the FIRST chroma block of a
 // fresh macroblock (MB(0,0) seed: above/left planes all-zero) yields
@@ -231,7 +231,7 @@ func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
 //
 //	internal/vp8/encoder/tokenize.go tokenUVContextIndex (bitstream-final
 //	  context lookup).
-//	vp8_encoder_inter_coeff_rate.go macroblockCoefficientUVContextIndex (RD
+//	internal/vp8/encoder/coefficient_rate.go vp8enc.MacroblockCoefficientUVContextIndex (RD
 //	  trellis seed lookup).
 //
 // Chroma optimize_b parity coverage confirms the runtime corollary of these
@@ -263,9 +263,9 @@ func TestVP8ChromaEntropyContextSeedMatchesLibvpx(t *testing.T) {
 	for block := 16; block < 24; block++ {
 		wantA := int(libvpxBlock2Above[block]) - uvBase
 		wantL := int(libvpxBlock2Left[block]) - uvBase
-		gotA, gotL := macroblockCoefficientUVContextIndex(block)
+		gotA, gotL := vp8enc.MacroblockCoefficientUVContextIndex(block)
 		if gotA != wantA || gotL != wantL {
-			t.Errorf("block %d: macroblockCoefficientUVContextIndex returned (a=%d,l=%d), want (a=%d,l=%d) per libvpx vp8_block2above/vp8_block2left - 4",
+			t.Errorf("block %d: vp8enc.MacroblockCoefficientUVContextIndex returned (a=%d,l=%d), want (a=%d,l=%d) per libvpx vp8_block2above/vp8_block2left - 4",
 				block, gotA, gotL, wantA, wantL)
 		}
 	}
@@ -279,7 +279,7 @@ func TestVP8ChromaEntropyContextSeedMatchesLibvpx(t *testing.T) {
 	// loop entry point when above/left are zero.
 	var zeroAbove, zeroLeft [4]uint8
 	for block := 16; block < 24; block++ {
-		a, l := macroblockCoefficientUVContextIndex(block)
+		a, l := vp8enc.MacroblockCoefficientUVContextIndex(block)
 		seed := int(zeroAbove[a]) + int(zeroLeft[l])
 		if seed != 0 {
 			t.Errorf("block %d: zero-context seed pt = %d, want 0 (MB(0,0) chroma trellis entry must see pt=0 when above/left are fresh-reset)",
@@ -311,7 +311,7 @@ func TestVP8ChromaEntropyContextSeedMatchesLibvpx(t *testing.T) {
 		2, // b23: a=3, l=3 (above[3]=1; left[3]=1)
 	}
 	for i, block := 0, 16; block < 24; i, block = i+1, block+1 {
-		a, l := macroblockCoefficientUVContextIndex(block)
+		a, l := vp8enc.MacroblockCoefficientUVContextIndex(block)
 		seed := int(above[a]) + int(left[l])
 		if seed != wantSeeds[i] {
 			t.Errorf("block %d (i=%d): chroma seed pt = %d, want %d (libvpx-anchored propagation with every prior block writing hasCoeffs=1)",

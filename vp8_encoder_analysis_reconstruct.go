@@ -256,10 +256,10 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	var uvAbove [4]uint8
 	var uvLeft [4]uint8
 	if aboveTok != nil {
-		uvAbove = tokenUVContextArray(aboveTok)
+		uvAbove = vp8enc.TokenUVContextArray(aboveTok)
 	}
 	if leftTok != nil {
-		uvLeft = tokenUVContextArray(leftTok)
+		uvLeft = vp8enc.TokenUVContextArray(leftTok)
 	}
 	// Whole-UV residual+DCT batch — prediction was already written
 	// into img.U / img.V above so all 8 chroma 4x4 residuals are
@@ -272,7 +272,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
 	for block := range 4 {
 		copy(dct[:], uvDcts[block*16:block*16+16])
-		a, l := macroblockCoefficientUVContextIndex(16 + block)
+		a, l := vp8enc.MacroblockCoefficientUVContextIndex(16 + block)
 		ctx := int(uvAbove[a] + uvLeft[l])
 		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
@@ -285,7 +285,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		vp8enc.AddQuantizedBlockResidual(eob, &dq, u[vp8enc.AnalysisUVBlockOffset(block, img.UStride):], img.UStride)
 
 		copy(dct[:], uvDcts[(4+block)*16:(4+block)*16+16])
-		a, l = macroblockCoefficientUVContextIndex(20 + block)
+		a, l = vp8enc.MacroblockCoefficientUVContextIndex(20 + block)
 		ctx = int(uvAbove[a] + uvLeft[l])
 		eob = quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, actZbinAdj, zbinOverQuant, rdMult, rdDiv, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)

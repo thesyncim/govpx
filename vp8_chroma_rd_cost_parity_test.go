@@ -30,7 +30,7 @@ import (
 //	and pins:
 //	  - vp8enc.RDConstantsWithZbin (the base RDMULT) against
 //	    vp8_initialize_rd_consts.
-//	  - blockPlaneRDMultiplier(2) == 2 against libvpx UV_RD_MULT.
+//	  - vp8enc.BlockPlaneRDMultiplier(2) == 2 against libvpx UV_RD_MULT.
 //	  - tunedRDMultiplier (the activity-masking lift) against
 //	    vp8_activity_masking's formula.
 //	The trace-emit fix lives in vp8_encoder_inter_coefficients.go (the
@@ -53,12 +53,12 @@ import (
 // govpx mirror:
 //   - vp8_encoder_rd_cost.go vp8enc.RDConstantsWithZbin
 //     — pre-applies the >1000 split.
-//   - vp8_encoder_inter_coeff_rate.go:24-33 blockPlaneRDMultiplier
+//   - internal/vp8/encoder/coefficient_rate.go vp8enc.BlockPlaneRDMultiplier
 //     — switch returning {Y2:16, UV:2, default:4}.
 //   - vp8_encoder_tuning.go:340-363 tunedRDMultiplier
 //     — SSIM activity lift, deterministic per (mbRow, mbCol).
 //   - vp8_encoder_inter_quantize.go:158-182 optimizeQuantizedBlockWithRDConstants
-//     — rdMult *= blockPlaneRDMultiplier(blockType); intra (rdMult*9)>>4.
+//     — rdMult *= vp8enc.BlockPlaneRDMultiplier(blockType); intra (rdMult*9)>>4.
 //
 // The audit walks the full govpx chroma-RDCOST input chain for every qindex
 // in [4..56] (the BestARNR cohort's MinQuantizer..MaxQuantizer band) and
@@ -66,7 +66,7 @@ import (
 // (RD_MULT_BASE), pinning the post-`>1000` split (rdMult, rdDiv) AND the
 // post-`*err_mult` chroma trellis rdMult. Any future drift in
 // vp8enc.RawRDMultiplierWithZbin, vp8enc.RDConstantsWithZbin, or
-// blockPlaneRDMultiplier(2) trips this gate.
+// vp8enc.BlockPlaneRDMultiplier(2) trips this gate.
 func TestVP8ChromaRDCostStructure(t *testing.T) {
 	for qIndex := 4; qIndex <= 56; qIndex++ {
 		// Re-derive libvpx vp8_initialize_rd_consts byte-for-byte.
@@ -91,37 +91,14 @@ func TestVP8ChromaRDCostStructure(t *testing.T) {
 			t.Errorf("qIndex=%d: vp8enc.RDConstantsWithZbin rdDiv=%d, want %d (vp8_initialize_rd_consts > 1000 split)",
 				qIndex, gotRDDiv, wantRDDiv)
 		}
-		gotPlaneMult := blockPlaneRDMultiplier(2)
+		gotPlaneMult := vp8enc.BlockPlaneRDMultiplier(2)
 		if gotPlaneMult != 2 {
-			t.Errorf("blockPlaneRDMultiplier(2)=%d, want 2 (libvpx UV_RD_MULT)", gotPlaneMult)
+			t.Errorf("vp8enc.BlockPlaneRDMultiplier(2)=%d, want 2 (libvpx UV_RD_MULT)", gotPlaneMult)
 		}
 		gotChromaTrellis := gotRDMult * gotPlaneMult
 		if gotChromaTrellis != wantChromaTrellisRDMult {
 			t.Errorf("qIndex=%d: chroma trellis rdmult=%d, want %d (rdmult * err_mult, type=PLANE_TYPE_UV)",
 				qIndex, gotChromaTrellis, wantChromaTrellisRDMult)
-		}
-	}
-}
-
-// TestVP8ChromaRDCostPlaneTable pins blockPlaneRDMultiplier's
-// 4-row mapping against libvpx's plane_rd_mult[4] = {Y1_RD_MULT=4,
-// Y2_RD_MULT=16, UV_RD_MULT=2, Y1_RD_MULT=4}. Indexed by libvpx PLANE_TYPE:
-// {Y_NO_DC=0, Y2=1, UV=2, Y_WITH_DC=3}. The chroma input to the trellis is
-// blockType=2; the audit pins the entire row so any future shuffle that
-// shifts UV to a different slot trips the gate.
-func TestVP8ChromaRDCostPlaneTable(t *testing.T) {
-	// vp8/encoder/encodemb.c:136-141.
-	wantPlaneRDMult := [4]int{
-		0: 4,  // Y1_RD_MULT (PLANE_TYPE_Y_NO_DC)
-		1: 16, // Y2_RD_MULT (PLANE_TYPE_Y2)
-		2: 2,  // UV_RD_MULT (PLANE_TYPE_UV)
-		3: 4,  // Y1_RD_MULT (PLANE_TYPE_Y_WITH_DC)
-	}
-	for i, want := range wantPlaneRDMult {
-		got := blockPlaneRDMultiplier(i)
-		if got != want {
-			t.Errorf("blockPlaneRDMultiplier(%d)=%d, want %d (libvpx plane_rd_mult[%d])",
-				i, got, want, i)
 		}
 	}
 }

@@ -456,10 +456,10 @@ func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common
 	var uvAbove [4]uint8
 	var uvLeft [4]uint8
 	if aboveTok != nil {
-		uvAbove = tokenUVContextArray(aboveTok)
+		uvAbove = vp8enc.TokenUVContextArray(aboveTok)
 	}
 	if leftTok != nil {
-		uvLeft = tokenUVContextArray(leftTok)
+		uvLeft = vp8enc.TokenUVContextArray(leftTok)
 	}
 
 	rate := 0
@@ -480,7 +480,7 @@ func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common
 		var qcoeff [16]int16
 		var dqcoeff [16]int16
 		copy(dct[:], dcts[slot*16:slot*16+16])
-		a, l := macroblockCoefficientUVContextIndex(block)
+		a, l := vp8enc.MacroblockCoefficientUVContextIndex(block)
 		ctx := int(uvAbove[a] + uvLeft[l])
 		eob := quantizeDecisionBlockWithActivity(fastQuant, &dct, &quant.UV, zbinOverQuant, actZbinAdj, &qcoeff, &dqcoeff)
 		rate += vp8enc.CoefficientBlockTokenRate(coefProbs, 2, ctx, 0, &qcoeff, eob)
