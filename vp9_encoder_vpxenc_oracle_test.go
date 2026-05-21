@@ -376,7 +376,7 @@ func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 	t.Logf("VP9 flat 64x64 keyframe mode scoreboard: modes=%d/%d blocks=%d/%d skips=%d/%d govpx_bytes=%d libvpx_bytes=%d",
 		modeMatches, len(govpxGrid), blockMatches, len(govpxGrid),
 		skipMatches, len(govpxGrid), len(govpxPacket), len(libvpxFrame.Data))
-	assertVP9PacketByteParity(t, "flat 64x64 keyframe", govpxPacket, libvpxFrame.Data)
+	vp9test.AssertPacketByteParity(t, "flat 64x64 keyframe", govpxPacket, libvpxFrame.Data)
 	if blockMatches != len(govpxGrid) || skipMatches != len(govpxGrid) {
 		t.Fatalf("flat keyframe block/skip regression: block_matches=%d/%d skip_matches=%d/%d",
 			blockMatches, len(govpxGrid), skipMatches, len(govpxGrid))
@@ -904,28 +904,11 @@ func TestVP9EncoderVpxencForceKeyFrameAPIByteParity(t *testing.T) {
 		govpxPackets[i] = append([]byte(nil), result.Data...)
 	}
 
-	libvpxFlags := []uint32{0, vp9FrameFlagsForLibvpx(EncodeForceKeyFrame)}
-	var raw []byte
-	for _, frame := range frames {
-		raw = vp9test.AppendI420(raw, frame)
-	}
-	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
-		height, len(frames), libvpxFlags)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
-	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
+	libvpxPackets := vp9test.VpxencFrameFlagPackets(t, frames,
+		[]uint32{0, vp9FrameFlagsForLibvpx(EncodeForceKeyFrame)})
 	for i, got := range govpxPackets {
-		var libvpxFrame testutil.IVFFrame
-		libvpxFrame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got,
-			libvpxFrame.Data)
+		vp9test.AssertPacketByteParity(t, fmt.Sprintf("frame %d", i), got,
+			libvpxPackets[i])
 	}
 }
 
@@ -991,32 +974,8 @@ func TestVP9EncoderVpxencFrameFlagsRepeatNoReferenceAllModeTxShape(t *testing.T)
 		govpxPackets[i] = append([]byte(nil), result.Data...)
 	}
 
-	libvpxFlags := make([]uint32, frames)
-	for i, flag := range flags {
-		libvpxFlags[i] = vp9FrameFlagsForLibvpx(flag)
-	}
-	var raw []byte
-	for _, src := range sources {
-		raw = vp9test.AppendI420(raw, src)
-	}
-	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
-		height, frames, libvpxFlags)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
-	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
-	libvpxPackets := make([][]byte, frames)
-	for i := range libvpxPackets {
-		var frame testutil.IVFFrame
-		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		libvpxPackets[i] = append([]byte(nil), frame.Data...)
-	}
+	libvpxPackets := vp9test.VpxencFrameFlagPackets(t, sources,
+		vp9LibvpxFrameFlags(flags))
 
 	govpxGrids := decodeVP9SequenceMiGridsForOracleTest(t, govpxPackets)
 	libvpxGrids := decodeVP9SequenceMiGridsForOracleTest(t, libvpxPackets)
@@ -1282,7 +1241,7 @@ func assertVP9VpxencTwoFrameByteParityWithOptions(t *testing.T, first, second *i
 		t.Fatalf("NextIVFFrame[1]: %v", err)
 	}
 
-	assertVP9PacketByteParity(t, "keyframe", govpxKey, libvpxKey.Data)
+	vp9test.AssertPacketByteParity(t, "keyframe", govpxKey, libvpxKey.Data)
 	assertVP9InterPacketByteParity(t, govpxKey, govpxInter, libvpxKey.Data,
 		libvpxInter.Data)
 }
@@ -1336,7 +1295,7 @@ func assertVP9VpxencFrameSequenceByteParityWithOptions(t *testing.T,
 		if err != nil {
 			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
 		}
-		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got, libvpxFrame.Data)
+		vp9test.AssertPacketByteParity(t, fmt.Sprintf("frame %d", i), got, libvpxFrame.Data)
 	}
 }
 
@@ -1404,85 +1363,12 @@ func assertVP9VpxencFrameFlagsByteParityWithOptions(t *testing.T,
 		govpxPackets[i] = append([]byte(nil), result.Data...)
 	}
 
-	libvpxFlags := make([]uint32, len(flags))
-	for i, encodeFlags := range flags {
-		libvpxFlags[i] = vp9FrameFlagsForLibvpx(encodeFlags)
-	}
-	var raw []byte
-	for _, frame := range frames {
-		raw = vp9test.AppendI420(raw, frame)
-	}
-	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width, height,
-		len(frames), libvpxFlags, extraArgs...)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
-	}
-	count, err := testutil.CountIVFFrames(ivf)
-	if err != nil {
-		t.Fatalf("CountIVFFrames: %v", err)
-	}
-	if count != len(frames) {
-		t.Fatalf("IVF frame count = %d, want %d", count, len(frames))
-	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
+	libvpxPackets := vp9test.VpxencFrameFlagPackets(t, frames,
+		vp9LibvpxFrameFlags(flags), extraArgs...)
 	for i, got := range govpxPackets {
-		var libvpxFrame testutil.IVFFrame
-		libvpxFrame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got, libvpxFrame.Data)
+		vp9test.AssertPacketByteParity(t, fmt.Sprintf("frame %d", i), got,
+			libvpxPackets[i])
 	}
-}
-
-func vp9FrameFlagsForLibvpx(f EncodeFlags) uint32 {
-	const (
-		libvpxForceKF      = 1 << 0
-		libvpxNoRefLast    = 1 << 16
-		libvpxNoRefGF      = 1 << 17
-		libvpxNoUpdLast    = 1 << 18
-		libvpxForceGF      = 1 << 19
-		libvpxNoUpdEntropy = 1 << 20
-		libvpxNoRefARF     = 1 << 21
-		libvpxNoUpdGF      = 1 << 22
-		libvpxNoUpdARF     = 1 << 23
-		libvpxForceARF     = 1 << 24
-	)
-	var out uint32
-	if f&EncodeForceKeyFrame != 0 {
-		out |= libvpxForceKF
-	}
-	if f&EncodeNoReferenceLast != 0 {
-		out |= libvpxNoRefLast
-	}
-	if f&EncodeNoReferenceGolden != 0 {
-		out |= libvpxNoRefGF
-	}
-	if f&EncodeNoUpdateLast != 0 {
-		out |= libvpxNoUpdLast
-	}
-	if f&EncodeForceGoldenFrame != 0 {
-		out |= libvpxForceGF
-	}
-	if f&EncodeNoUpdateEntropy != 0 {
-		out |= libvpxNoUpdEntropy
-	}
-	if f&EncodeNoReferenceAltRef != 0 {
-		out |= libvpxNoRefARF
-	}
-	if f&EncodeNoUpdateGolden != 0 {
-		out |= libvpxNoUpdGF
-	}
-	if f&EncodeNoUpdateAltRef != 0 {
-		out |= libvpxNoUpdARF
-	}
-	if f&EncodeForceAltRefFrame != 0 {
-		out |= libvpxForceARF
-	}
-	return out
 }
 
 func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKey, libvpxInter []byte) {
@@ -1502,20 +1388,6 @@ func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKe
 		wantHeader, wantTileStart, libvpxInter[wantTileStart:], libvpxFirst,
 		libvpxLast,
 		govpxInter, libvpxInter)
-}
-
-func assertVP9PacketByteParity(t *testing.T, label string, got, want []byte) {
-	t.Helper()
-	if bytes.Equal(got, want) {
-		return
-	}
-	gotHeader, gotTileStart := vp9test.ParseHeader(t, got)
-	wantHeader, wantTileStart := vp9test.ParseHeader(t, want)
-	t.Fatalf("%s packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x\nvpxenc header=%+v tileStart=%d tile=% x\ngovpx packet=% x\nvpxenc packet=% x",
-		label, vp9test.FirstPacketDiff(got, want),
-		gotHeader, gotTileStart, got[gotTileStart:],
-		wantHeader, wantTileStart, want[wantTileStart:],
-		got, want)
 }
 
 type vp9OracleTxCoeffs struct {

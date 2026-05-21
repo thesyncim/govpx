@@ -106,10 +106,6 @@ func captureLibvpxVP9CopyReferenceChecksums(t *testing.T, name string,
 		t.Fatalf("VP9 copyref flag count = %d, want <= %d",
 			len(flags), len(sources))
 	}
-	libvpxFlags := make([]uint32, len(flags))
-	for i, f := range flags {
-		libvpxFlags[i] = vp9FrameFlagsForLibvpx(f)
-	}
 	var raw []byte
 	for _, src := range sources {
 		raw = vp9test.AppendI420(raw, src)
@@ -121,7 +117,7 @@ func captureLibvpxVP9CopyReferenceChecksums(t *testing.T, name string,
 		args = append(args, "--control-script="+strings.Join(script, ","))
 	}
 	if _, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
-		height, len(sources), libvpxFlags, args...); err != nil {
+		height, len(sources), vp9LibvpxFrameFlags(flags), args...); err != nil {
 		t.Fatalf("vpxenc-vp9-frameflags copyref failed: %v\n%s", err, diag)
 	}
 	return readCopyReferenceChecksumLog(t, logPath)

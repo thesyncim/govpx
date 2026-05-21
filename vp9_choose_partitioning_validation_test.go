@@ -45,7 +45,8 @@ func TestVP9ChoosePartitioningReferenceControlSeedsMatchLibvpx(t *testing.T) {
 			sum := sha256.Sum256(s.data)
 			label := fmt.Sprintf("choose-partitioning-%s-%s", s.name, hex.EncodeToString(sum[:4]))
 			govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
-			libvpxFrames := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
+			libvpxFrames := vp9test.VpxencFrameFlagPackets(t, tc.sources,
+				vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 			vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 		})
 	}

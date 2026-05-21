@@ -58,7 +58,7 @@ func FuzzVP9EncoderRandomStrides(f *testing.F) {
 			label, dim.w, dim.h, padded.YStride, padded.CStride)
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, opts, []*image.YCbCr{padded}, nil)
-		libvpxFrames := encodeVP9FramesWithLibvpxOracle(t, []*image.YCbCr{tight}, nil)
+		libvpxFrames := vp9test.VpxencPackets(t, []*image.YCbCr{tight})
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }

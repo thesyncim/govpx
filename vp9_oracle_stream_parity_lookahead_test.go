@@ -49,7 +49,7 @@ func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 			t.Logf("VP9 temporal byte-parity rows %s:\n%s", tc.name,
 				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}

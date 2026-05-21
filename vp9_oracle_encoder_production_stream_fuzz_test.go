@@ -50,7 +50,7 @@ func FuzzVP9EncoderProductionStreamByteParity(f *testing.F) {
 			cfg.tileCols, len(sources))
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, opts, sources, nil)
-		libvpxFrames := encodeVP9FramesWithLibvpxOracle(t, sources, cfg.extraArgs)
+		libvpxFrames := vp9test.VpxencPackets(t, sources, cfg.extraArgs...)
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }

@@ -26,8 +26,8 @@ func TestVP9OracleReferenceControlSeedsMatchLibvpx(t *testing.T) {
 		label := fmt.Sprintf("refctrl-#%d-%s", idx, hex.EncodeToString(sum[:4]))
 		tc := newVP9RefControlsFuzzCase(seed)
 		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
-		want := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources,
-			tc.flags, tc.extraArgs)
+		want := vp9test.VpxencFrameFlagPackets(t, tc.sources,
+			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		seedDelta := seedSizeDelta(got, want)
 		aggSizeDelta += seedDelta
 		if seedByteIdentical(got, want) {
@@ -84,8 +84,8 @@ func TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx(t *testing.T) {
 			t.Fatalf("%s materialised cpu=%d, want speed-8 nonrd cpu=-8", label, tc.opts.CpuUsed)
 		}
 		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
-		want := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources,
-			tc.flags, tc.extraArgs)
+		want := vp9test.VpxencFrameFlagPackets(t, tc.sources,
+			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		seedDelta := seedSizeDelta(got, want)
 		aggSizeDelta += seedDelta
 		if seedByteIdentical(got, want) {
@@ -151,8 +151,8 @@ func remeasureVP9RuntimeControlSeedLane(t *testing.T, includeCPU func(int8) bool
 		t.Logf("%s w=%d h=%d frames=%d cpu=%d flags=%v",
 			label, tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)
 		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
-		want := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources,
-			tc.flags, tc.extraArgs)
+		want := vp9test.VpxencFrameFlagPackets(t, tc.sources,
+			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		seedDelta := seedSizeDelta(got, want)
 		aggSizeDelta += seedDelta
 		measured++

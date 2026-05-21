@@ -111,7 +111,8 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 			label, tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
-		libvpxFrames := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
+		libvpxFrames := vp9test.VpxencFrameFlagPackets(t, tc.sources,
+			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }

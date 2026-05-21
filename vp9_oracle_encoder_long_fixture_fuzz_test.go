@@ -123,7 +123,7 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 			label, opts.RateControlMode, cfg.targetKbps, cfg.kfInterval, cfg.cpuUsed, len(sources))
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, opts, sources, nil)
-		libvpxFrames := encodeVP9FramesWithLibvpxOracle(t, sources, cfg.extraArgs)
+		libvpxFrames := vp9test.VpxencPackets(t, sources, cfg.extraArgs...)
 
 		prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
 		t.Logf("%s matched-prefix=%d/%d frames", label, prefix, min(len(govpxFrames), len(libvpxFrames)))

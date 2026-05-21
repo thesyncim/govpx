@@ -510,16 +510,12 @@ func captureLibvpxVP9RateScoreboardRows(t *testing.T, width int, height int,
 	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
 ) []vp9test.RateScoreboardRow {
 	t.Helper()
-	libvpxFlags := make([]uint32, len(flags))
-	for i, f := range flags {
-		libvpxFlags[i] = vp9FrameFlagsForLibvpx(f)
-	}
 	var raw []byte
 	for _, src := range sources {
 		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
-		height, len(sources), libvpxFlags, extraArgs...)
+		height, len(sources), vp9LibvpxFrameFlags(flags), extraArgs...)
 	if err != nil {
 		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
 	}

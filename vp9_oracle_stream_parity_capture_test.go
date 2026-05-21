@@ -86,16 +86,12 @@ func captureVP9StreamParityPacketsWithFrameHooks(t *testing.T, opts VP9EncoderOp
 		govpxPackets[i] = append([]byte(nil), result.Data...)
 	}
 
-	libvpxFlags := make([]uint32, len(flags))
-	for i, f := range flags {
-		libvpxFlags[i] = vp9FrameFlagsForLibvpx(f)
-	}
 	var raw []byte
 	for _, src := range sources {
 		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
-		height, len(sources), libvpxFlags, extraArgs...)
+		height, len(sources), vp9LibvpxFrameFlags(flags), extraArgs...)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
 	}
@@ -322,16 +318,12 @@ func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
 				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
 		}
 	}
-	libvpxFlags := make([]uint32, len(flags))
-	for i, f := range flags {
-		libvpxFlags[i] = vp9FrameFlagsForLibvpx(f)
-	}
 	var raw []byte
 	for _, src := range sources {
 		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
-		height, len(sources), libvpxFlags, extraArgs...)
+		height, len(sources), vp9LibvpxFrameFlags(flags), extraArgs...)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9-frameflags trace failed: %v\n%s", err, diag)
 	}
@@ -396,12 +388,8 @@ func captureLibvpxVP9VariablePacketRows(t *testing.T,
 		}
 		raw = vp9test.AppendI420(raw, src)
 	}
-	libvpxFlags := make([]uint32, len(flags))
-	for i, f := range flags {
-		libvpxFlags[i] = vp9FrameFlagsForLibvpx(f)
-	}
 	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420WithFrameSizes(
-		raw, frameSizes, libvpxFlags, invisible, extraArgs...)
+		raw, frameSizes, vp9LibvpxFrameFlags(flags), invisible, extraArgs...)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9-frameflags variable trace failed: %v\n%s", err, diag)
 	}

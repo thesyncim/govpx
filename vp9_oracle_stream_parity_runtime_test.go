@@ -334,14 +334,14 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 				tc.name, vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
-					assertVP9PacketByteParity(t,
+					vp9test.AssertPacketByteParity(t,
 						fmt.Sprintf("%s frame %d", tc.name, frame),
 						govpxPackets[frame], libvpxPackets[frame])
 				}
 			}
 			for _, frame := range tc.exactFrames {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
-					assertVP9PacketByteParity(t,
+					vp9test.AssertPacketByteParity(t,
 						fmt.Sprintf("%s frame %d", tc.name, frame),
 						govpxPackets[frame], libvpxPackets[frame])
 				}
@@ -942,12 +942,12 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 			t.Logf("VP9 runtime-control constant byte-parity rows %s:\n%s",
 				tc.name, vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
 			for _, frame := range tc.exactFrames {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
@@ -1077,7 +1077,7 @@ func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
 			len(govpxPackets), len(libvpxPackets))
 	}
 	for frame := range govpxPackets {
-		assertVP9PacketByteParity(t,
+		vp9test.AssertPacketByteParity(t,
 			fmt.Sprintf("VP9 invisible keyframe frame %d", frame),
 			govpxPackets[frame], libvpxPackets[frame])
 	}

@@ -76,7 +76,8 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 		t.Logf("%s frames=%d flags=%v", label, len(tc.sources), tc.flags)
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
-		libvpxFrames := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
+		libvpxFrames := vp9test.VpxencFrameFlagPackets(t, tc.sources,
+			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }

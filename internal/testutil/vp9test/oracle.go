@@ -24,6 +24,25 @@ func VpxencPackets(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []
 	return RequireIVFPackets(t, ivf, len(sources))
 }
 
+func VpxencFrameFlagPackets(t testing.TB, sources []*image.YCbCr, frameFlags []uint32, extraArgs ...string) [][]byte {
+	t.Helper()
+	width, height := requireSameSizeSources(t, "VP9 frame-flags source", sources)
+	if len(frameFlags) > len(sources) {
+		t.Fatalf("VP9 frame-flags has %d entries for %d source frames",
+			len(frameFlags), len(sources))
+	}
+	var raw []byte
+	for _, src := range sources {
+		raw = AppendI420(raw, src)
+	}
+	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
+		height, len(sources), frameFlags, extraArgs...)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
+	}
+	return RequireIVFPackets(t, ivf, len(sources))
+}
+
 func requireSameSizeSources(t testing.TB, label string, sources []*image.YCbCr) (width, height int) {
 	t.Helper()
 	if len(sources) == 0 {

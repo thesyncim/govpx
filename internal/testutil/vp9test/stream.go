@@ -65,6 +65,20 @@ func AssertSegmentByteParity(t testing.TB, label string, got, want [][]byte, mat
 	}
 }
 
+func AssertPacketByteParity(t testing.TB, label string, got, want []byte) {
+	t.Helper()
+	if bytes.Equal(got, want) {
+		return
+	}
+	gotHeader, gotTileStart := ParseHeader(t, got)
+	wantHeader, wantTileStart := ParseHeader(t, want)
+	t.Fatalf("%s packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x\nvpxenc header=%+v tileStart=%d tile=% x\ngovpx packet=% x\nvpxenc packet=% x",
+		label, FirstPacketDiff(got, want),
+		gotHeader, gotTileStart, got[gotTileStart:],
+		wantHeader, wantTileStart, want[wantTileStart:],
+		got, want)
+}
+
 func NewPanningSources(width, height, frames int) []*image.YCbCr {
 	out := make([]*image.YCbCr, frames)
 	for i := range out {

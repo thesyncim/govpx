@@ -1007,14 +1007,14 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
-					assertVP9PacketByteParity(t,
+					vp9test.AssertPacketByteParity(t,
 						fmt.Sprintf("%s frame %d", tc.name, frame),
 						govpxPackets[frame], libvpxPackets[frame])
 				}
 			}
 			for _, frame := range tc.exactFrames {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
-					assertVP9PacketByteParity(t,
+					vp9test.AssertPacketByteParity(t,
 						fmt.Sprintf("%s frame %d", tc.name, frame),
 						govpxPackets[frame], libvpxPackets[frame])
 				}

@@ -325,12 +325,12 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			t.Logf("VP9 selected stream byte-parity gate %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
 			for frame := 0; frame < tc.exactPrefix; frame++ {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
 			for _, frame := range tc.exactFrames {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
@@ -912,12 +912,12 @@ func TestVP9OracleRuntimeControlsPinnedCasesMatchLibvpx(t *testing.T) {
 				tc.name, matches, len(govpxPackets), firstMismatch,
 				tc.exactPrefix, tc.exactFrames)
 			for frame := 0; frame < tc.exactPrefix; frame++ {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
 			for _, frame := range tc.exactFrames {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
@@ -1276,7 +1276,7 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 					tc.name, len(govpxPackets), len(libvpxPackets))
 			}
 			for frame := range govpxPackets {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("threaded 720p %s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
@@ -1371,7 +1371,7 @@ func TestVP9OracleRealtimeNewModeMatchesLibvpx(t *testing.T) {
 					tc.name, len(govpxPackets), len(libvpxPackets))
 			}
 			for frame := range govpxPackets {
-				assertVP9PacketByteParity(t,
+				vp9test.AssertPacketByteParity(t,
 					fmt.Sprintf("VP9 new-mode %s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
