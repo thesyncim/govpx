@@ -224,4 +224,9 @@ func TestVpxencVP8EncodeI420ValidatesBeforePathLookup(t *testing.T) {
 	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
 		t.Fatal("VpxencVP8OracleTraceI420 looked up helper before validating input")
 	}
+	if _, _, _, err := VpxencVP8OracleEncodeTraceI420(nil, VpxencVP8Config{Width: 16, Height: 16, Frames: 1}); err == nil {
+		t.Fatal("VpxencVP8OracleEncodeTraceI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
+		t.Fatal("VpxencVP8OracleEncodeTraceI420 looked up helper before validating input")
+	}
 }

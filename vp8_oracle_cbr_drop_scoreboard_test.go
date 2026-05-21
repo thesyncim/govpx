@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"testing"
@@ -163,7 +161,7 @@ func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
 				BufferOptimalSizeMs: fx.BufferOptimalMs,
 			}
 			govpxTrace := captureGovpxDropAwareTrace(t, opts, sources)
-			libvpxTrace := captureLibvpxDropAwareTrace(t, vpxencOracle, "cbrdrop-"+fx.Name, opts, fx, sources)
+			libvpxTrace := captureLibvpxDropAwareTrace(t, vpxencOracle, opts, fx, sources)
 
 			gDropIdx, gDropForceMaxQP, gPostDropQ, gBufferByFrame, gQByFrame := summarizeDropTrace(t, govpxTrace, fx.Frames)
 			lDropIdx, lDropForceMaxQP, lPostDropQ, lBufferByFrame, lQByFrame := summarizeDropTrace(t, libvpxTrace, fx.Frames)
@@ -311,56 +309,21 @@ func captureGovpxDropAwareTrace(t *testing.T, opts EncoderOptions, sources []Ima
 // drop-frames-water-mark configured so the libvpx side actually drops
 // frames; the standard captureLibvpxEncoderTrace omits buffer / drop knobs
 // and pins min/max-q at 4/56 which is too narrow for this scoreboard.
-func captureLibvpxDropAwareTrace(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, fx cbrDropFixtureSpec, sources []Image) []byte {
+func captureLibvpxDropAwareTrace(t *testing.T, vpxencOracle string, opts EncoderOptions, fx cbrDropFixtureSpec, sources []Image) []byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivfPath := filepath.Join(dir, name+".ivf")
-	tracePath := filepath.Join(dir, name+".jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--kf-min-dist=" + strconv.Itoa(fx.KeyFrameInterval),
-		"--kf-max-dist=" + strconv.Itoa(fx.KeyFrameInterval),
+	extraArgs := []string{
 		"--end-usage=cbr",
-		"--target-bitrate=" + strconv.Itoa(fx.TargetKbps),
-		"--min-q=" + strconv.Itoa(fx.MinQ),
-		"--max-q=" + strconv.Itoa(fx.MaxQ),
 		"--buf-sz=" + strconv.Itoa(fx.BufferSizeMs),
 		"--buf-initial-sz=" + strconv.Itoa(fx.BufferInitialMs),
 		"--buf-optimal-sz=" + strconv.Itoa(fx.BufferOptimalMs),
 		"--drop-frame=" + strconv.Itoa(fx.LibvpxDropFrame),
-		"--i420",
-		"--width=" + strconv.Itoa(fx.Width),
-		"--height=" + strconv.Itoa(fx.Height),
-		"--timebase=1/" + strconv.Itoa(fx.FPS),
-		"--fps=" + strconv.Itoa(fx.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		yuvPath,
 	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
-	out, err := cmd.CombinedOutput()
+	trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8OracleTraceConfig(vpxencOracle, opts, len(sources), fx.TargetKbps, nil, extraArgs),
+	)
 	if err != nil {
-		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, out)
-	}
-	trace, err := os.ReadFile(tracePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s returned error: %v", tracePath, err)
+		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)
 	}
 	return trace
 }

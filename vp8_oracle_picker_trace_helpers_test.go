@@ -8,6 +8,10 @@ func vp8OracleTraceConfig(vpxencOracle string, opts EncoderOptions, frames int, 
 	if targetKbps == 0 {
 		targetKbps = opts.TargetBitrateKbps
 	}
+	keyFrameInterval := opts.KeyFrameInterval
+	if keyFrameInterval == 0 {
+		keyFrameInterval = 999
+	}
 	return coracle.VpxencVP8Config{
 		BinaryPath:           vpxencOracle,
 		Width:                opts.Width,
@@ -24,8 +28,8 @@ func vp8OracleTraceConfig(vpxencOracle string, opts EncoderOptions, frames int, 
 		Timebase:             libvpxOracleTimebaseArg(opts),
 		FPS:                  libvpxOracleFPSArg(opts),
 		KeyFrameDistSet:      true,
-		KeyFrameMinDist:      999,
-		KeyFrameMaxDist:      999,
+		KeyFrameMinDist:      keyFrameInterval,
+		KeyFrameMaxDist:      keyFrameInterval,
 		ExtraEnv:             extraEnv,
 		ExtraArgs:            extraArgs,
 	}

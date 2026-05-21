@@ -8,35 +8,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestVP8MBActivitySeedsMatchLibvpx drives the two residual 1280x720
-// SSIM fuzz seeds (94eb71d5, 19981bff) through the extended per-MB
-// tracer and reports the first MB-row whose mb_activity / act_zbin_adj /
-// rdmult / activity_avg quartet diverges between govpx and libvpx.
-//
-// Mission per task #210: extend the per-MB oracle tracer with
-// the libvpx activity-masking diagnostic (cpi->mb_activity_map[idx],
-// x->act_zbin_adj, x->rdmult, cpi->activity_avg). The existing tracer
-// already exposes per-MB mode/ref/MV/EOB/qcoeff/rate fields; this test
-// re-runs both seeds through the new tracer infrastructure and logs the
-// first row of divergence so the next fix-commit can identify the
-// libvpx computation path that govpx is missing.
-//
-// The test is logging-only (always passes) so it can stay in the tree as
-// a long-lived audit anchor. Run with:
-//
-//	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
-//	  go test -tags govpx_oracle_trace -run TestVP8MBActivitySeedsMatchLibvpx -v
-//
-// libvpx source references (v1.16.0):
+// TestVP8MBActivitySeedsMatchLibvpx compares govpx and libvpx per-MB
+// activity-masking trace rows for the 1280x720 SSIM fixtures that exercise
+// ARNR residual parity. It reports the first frame row whose mb_activity,
+// act_zbin_adj, rdmult, or activity_avg value differs.
 //
 //   - vp8/encoder/encodeframe.c:225-289  build_activity_map
 //   - vp8/encoder/encodeframe.c:293-314  vp8_activity_masking
@@ -92,20 +74,6 @@ func TestVP8MBActivitySeedsMatchLibvpx(t *testing.T) {
 			targetKbps: 700,
 		},
 		{
-			// Matches TestVP8KF1280x720SSIMBestARNRParity (task #207):
-			// 1280x720 BestQuality / cpu=0 / VBR / SC=1 / threads=4 /
-			// TuneSSIM / ARNR=1/1/2 / token-parts=1.
-			//
-			// NOTE: this seed normally runs at threads=4, but the libvpx
-			// oracle TU's inter-candidate realloc path is not thread-safe
-			// (govpx_oracle_capture_inter_candidate's shared
-			// govpx_oracle_state.candidate_rows realloc races across the
-			// helper threads, aborting with
-			// `pointer being freed was not allocated`). We probe the
-			// same parameter cohort here with threads=1 so the per-MB
-			// activity quartet emit still surfaces in the trace; the
-			// pre-existing oracle-trace thread-safety gap is outside
-			// task #210's scope.
 			name:     "seed_19981bff_best_cpu0_ssim_arnr_1_1_2_threads1",
 			seedHash: "19981bff",
 			opts: EncoderOptions{
@@ -178,83 +146,22 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 	}
 	enc.Close()
 
-	// libvpx oracle side
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, seedHash+".yuv")
-	ivfPath := filepath.Join(dir, seedHash+".ivf")
-	libvpxTracePath := filepath.Join(dir, seedHash+".jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
-	autoAltRefArg := "--auto-alt-ref=0"
-	if opts.AutoAltRef {
-		autoAltRefArg = "--auto-alt-ref=1"
-	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
-		autoAltRefArg,
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-	}
-	args = append(args, extraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		// The oracle TU's inter-candidate realloc path is not thread-safe
-		// (govpx_oracle_capture_inter_candidate's shared
-		// govpx_oracle_state.candidate_rows realloc races across the
-		// helper threads when threads>1, aborting with `pointer being
-		// freed was not allocated`). Skip rather than fail so the probe
-		// still surfaces partial findings; the thread-safety gap is a
-		// separate pre-existing oracle-trace issue outside task #210's
-		// scope.
-		t.Logf("vpxenc-oracle args: %v", args)
-		t.Logf("vpxenc-oracle output:\n%s", out)
+	ivfData, libvpxTrace, diag, err := coracle.VpxencVP8OracleEncodeTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8OracleTraceConfig(vpxencOracle, opts, len(sources), targetKbps, nil, extraArgs),
+	)
+	if err != nil {
+		t.Logf("vpxenc-oracle output:\n%s", diag)
 		t.Skipf("vpxenc-oracle failed: %v (skipping rest of parity run; full output above)", err)
 	}
 
-	ivfData, err := os.ReadFile(ivfPath)
-	if err != nil {
-		t.Fatalf("read libvpx ivf: %v", err)
-	}
 	libvpxFrames, err := testutil.IVFFramePayloads(ivfData)
 	if err != nil {
 		t.Fatalf("IVFFramePayloads: %v", err)
 	}
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
-	if err != nil {
-		t.Fatalf("read libvpx trace: %v", err)
-	}
 
-	// Persist traces for offline inspection.
-	govpxOut := "/tmp/govpx_mb_activity_" + seedHash + ".jsonl"
-	libvpxOut := "/tmp/libvpx_mb_activity_" + seedHash + ".jsonl"
-	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
-	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("mb_activity seed=%s govpx_trace=%s libvpx_trace=%s", seedHash, govpxOut, libvpxOut)
+	t.Logf("mb_activity seed=%s govpx_trace_bytes=%d libvpx_trace_bytes=%d",
+		seedHash, govpxTraceBuf.Len(), len(libvpxTrace))
 
 	// Frame-size summary so the byte-gap is co-located with the
 	// per-MB findings.
@@ -279,9 +186,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 	}
 
 	// Locate the first diverging MB in each frame on the activity-masking
-	// quartet (mb_activity, act_zbin_adj, rdmult, activity_avg). These are
-	// the new fields task #210 added; any divergence here surfaces the
-	// activity-masking computation gap that the libvpx oracle now exposes.
+	// quartet (mb_activity, act_zbin_adj, rdmult, activity_avg).
 	for fi := 0; fi < 2; fi++ {
 		gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), uint64(fi))
 		lRows := parseMBActivityRowsForFrame(libvpxTrace, uint64(fi))
@@ -331,8 +236,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 			t.Logf("mb_activity seed=%s frame%d ACTIVITY_MATCH first_%d_mbs all 4 fields equal",
 				seedHash, fi, minRows)
 		}
-		// Also locate the first MB-row of CANONICAL divergence so we keep
-		// continuity with the task-206 probe semantics.
+		// Also locate the first MB-row of canonical mode/ref/MV divergence.
 		firstCanonDiv := -1
 		canonFields := []string{"mode", "ref_frame", "mv_row", "mv_col", "skip", "eob_sum"}
 		for i := 0; i < minRows; i++ {

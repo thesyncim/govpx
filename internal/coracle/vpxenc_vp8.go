@@ -121,6 +121,28 @@ func VpxencVP8OracleTraceI420(raw []byte, cfg VpxencVP8Config) (trace []byte, di
 		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs, cfg.ExtraEnv)
 }
 
+// VpxencVP8OracleEncodeTraceI420 encodes raw I420 frames with the patched VP8
+// vpxenc-oracle helper and returns both the IVF stream and JSONL oracle trace
+// from the same subprocess.
+func VpxencVP8OracleEncodeTraceI420(raw []byte, cfg VpxencVP8Config) (ivf []byte, trace []byte, diag []byte, err error) {
+	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
+		return nil, nil, nil, err
+	}
+	bin := cfg.BinaryPath
+	if bin == "" {
+		bin, err = VpxencOraclePath()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	out, err := runVpxencVP8I420Files(raw, bin, "govpx-vpxenc-vp8-oracle-trace-*",
+		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs, true, cfg.ExtraEnv)
+	if err != nil {
+		return nil, nil, out.diag, err
+	}
+	return out.ivf, out.trace, out.diag, nil
+}
+
 // VpxencVP8FrameFlagsEncodeI420 encodes raw I420 frames with the VP8
 // vpxenc-frameflags helper and returns the IVF stream.
 func VpxencVP8FrameFlagsEncodeI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) (ivf []byte, diag []byte, err error) {
