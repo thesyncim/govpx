@@ -5,6 +5,7 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 const (
@@ -274,8 +275,8 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 }
 
 func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint64) FirstPassFrameStats {
-	rows := encoderMacroblockRows(src.Height)
-	cols := encoderMacroblockCols(src.Width)
+	rows := geometry.MacroblockRows(src.Height)
+	cols := geometry.MacroblockCols(src.Width)
 	mbs := rows * cols
 	if mbs <= 0 {
 		return FirstPassFrameStats{Frame: e.firstPassCount, Count: 1}
@@ -615,8 +616,8 @@ func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 	if ref == nil || ref.Width <= 0 || ref.Height <= 0 {
 		return vp8enc.MotionVector{}, 0, false
 	}
-	mbRows := encoderMacroblockRows(src.Height)
-	mbCols := encoderMacroblockCols(src.Width)
+	mbRows := geometry.MacroblockRows(src.Height)
+	mbCols := geometry.MacroblockCols(src.Width)
 	bounds := vp8enc.InterFrameFullPixelSearchBounds(seed, mbRow, mbCol, mbRows, mbCols)
 	center := bounds.ClampEighth(vp8enc.MotionVector{
 		Row: int16(int(seed.Row) & ^7),

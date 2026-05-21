@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // TestSuppressInterFrameCopyBuffersOnAltRefEdgesClearsCopyBuffer mirrors
@@ -73,8 +74,8 @@ func TestEncodeInterFrameAttemptSuppressesAltRefCopyBufferOnHiddenARF(t *testing
 	e.currentSourcePTS = altRefPTS
 
 	dst := make([]byte, 1<<15)
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	required := rows * cols
 
 	// Hidden ARF: invisible frame that forces an ARF refresh.
@@ -114,8 +115,8 @@ func TestEncodeInterFrameAttemptPreservesAltRefCopyOnDeferredShowFrame(t *testin
 	e.currentSourcePTS = altRefPTS
 
 	dst := make([]byte, 1<<15)
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	required := rows * cols
 
 	// Drive a CBR golden refresh on the deferred show frame so that the

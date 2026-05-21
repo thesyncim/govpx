@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // TestEncoderOptionsThreadsValidation pins the public configuration
@@ -480,8 +481,8 @@ func TestEncoderThreadsRowWorkerPoolGated(t *testing.T) {
 			if got := len(e.rowWorkers.workers); got != eff {
 				t.Fatalf("Threads=%d: workers=%d, want %d (effective)", tc.threads, got, eff)
 			}
-			if got := len(e.rowWorkers.rowProgress); got != encoderMacroblockRows(64) {
-				t.Fatalf("Threads=%d: rowProgress=%d, want %d", tc.threads, got, encoderMacroblockRows(64))
+			if got := len(e.rowWorkers.rowProgress); got != geometry.MacroblockRows(64) {
+				t.Fatalf("Threads=%d: rowProgress=%d, want %d", tc.threads, got, geometry.MacroblockRows(64))
 			}
 		})
 	}

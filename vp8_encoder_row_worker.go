@@ -197,7 +197,7 @@ type rowWorkerPool struct {
 	workers []rowEncoderState
 
 	// rowProgress[r] is the atomic wave-front counter for row r.
-	// Sized to encoderMacroblockRows(height) at pool construction.
+	// Sized to geometry.MacroblockRows(height) at pool construction.
 	rowProgress []paddedAtomicInt64
 
 	// syncRange mirrors libvpx's cpi->mt_sync_range.

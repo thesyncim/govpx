@@ -7,6 +7,7 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 func TestMacroblockCornerGradientMatchesLibvpxFormula(t *testing.T) {
@@ -262,7 +263,7 @@ func TestComputeSkinMapUsesSkin8x8ForSmallFramesAndSkin16x16ForLarge(t *testing.
 	}
 	// Width*Height > 352*288 selects SKIN_16X16. Use 384x288 (110592 > 101376).
 	largeSrc := makeSkinSrc(384, 288)
-	rows, cols := encoderMacroblockRows(288), encoderMacroblockCols(384)
+	rows, cols := geometry.MacroblockRows(288), geometry.MacroblockCols(384)
 	largeMap := make([]uint8, rows*cols)
 	consec := make([]uint8, rows*cols)
 	computeSkinMap(sourceImageFromPublic(largeSrc), rows, cols, consec, largeMap)
@@ -328,8 +329,8 @@ func TestSetActiveMapInactiveInterMacroblocksAreSkippedZeroMVLast(t *testing.T) 
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	rows := encoderMacroblockRows(32)
-	cols := encoderMacroblockCols(32)
+	rows := geometry.MacroblockRows(32)
+	cols := geometry.MacroblockCols(32)
 	activeMap := make([]byte, rows*cols)
 	for i := range activeMap {
 		activeMap[i] = 1
@@ -378,8 +379,8 @@ func TestSetActiveMapWithROIPreservesInactiveSegmentIDs(t *testing.T) {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 
-	rows := encoderMacroblockRows(32)
-	cols := encoderMacroblockCols(32)
+	rows := geometry.MacroblockRows(32)
+	cols := geometry.MacroblockCols(32)
 	activeMap := make([]byte, rows*cols)
 	for i := range activeMap {
 		activeMap[i] = 1
@@ -421,8 +422,8 @@ func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 	second := testImage(32, 32)
 	fillImage(first, 60, 90, 170)
 	fillImage(second, 200, 90, 170)
-	rows := encoderMacroblockRows(32)
-	cols := encoderMacroblockCols(32)
+	rows := geometry.MacroblockRows(32)
+	cols := geometry.MacroblockCols(32)
 	activeMap := make([]byte, rows*cols)
 	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
 		t.Fatalf("SetActiveMap returned error: %v", err)
@@ -596,8 +597,8 @@ func TestCyclicRefreshSegmentTransitionsClearOnNonZeroLast(t *testing.T) {
 // row-threaded encodeframe loop so the threaded variant is N/A.
 func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
 	const width, height = 64, 64
-	rows := encoderMacroblockRows(height)
-	cols := encoderMacroblockCols(width)
+	rows := geometry.MacroblockRows(height)
+	cols := geometry.MacroblockCols(width)
 	first := testImage(width, height)
 	second := testImage(width, height)
 	fillImage(first, 60, 90, 170)
@@ -695,8 +696,8 @@ func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
 
 func TestDenoiserInactiveActiveMapMacroblocksUseZeroMVLastDecision(t *testing.T) {
 	const width, height = 32, 32
-	rows := encoderMacroblockRows(height)
-	cols := encoderMacroblockCols(width)
+	rows := geometry.MacroblockRows(height)
+	cols := geometry.MacroblockCols(width)
 	src := testImage(width, height)
 	fillImage(src, 96, 128, 128)
 

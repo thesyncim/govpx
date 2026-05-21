@@ -9,6 +9,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testing.T) {
@@ -295,8 +296,8 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	packets := [][]byte{append([]byte(nil), key.Data...)}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	refreshFrame := e.rc.framesTillGFUpdateDue + 1
 	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
 	for frame := 1; frame <= refreshFrame; frame++ {

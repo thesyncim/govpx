@@ -3,6 +3,7 @@ package govpx
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 type interAnalysisReference struct {
@@ -107,7 +108,7 @@ func interAnalysisValidReferenceCount(refs []interAnalysisReference, refCount in
 
 func (e *VP8Encoder) interAnalysisMacroblockCount() int {
 	if min(e.opts.Width, e.opts.Height) > 0 {
-		return encoderMacroblockCount(e.opts.Width, e.opts.Height)
+		return geometry.MacroblockCount(e.opts.Width, e.opts.Height)
 	}
 	return len(e.interFrameModes)
 }

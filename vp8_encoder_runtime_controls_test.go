@@ -6,6 +6,7 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 func TestEncodeIntoDropsInterFrameWhenBufferUnderrunAndAllowed(t *testing.T) {
@@ -324,8 +325,8 @@ func TestSetGFCBRBoostPctValidationAndNextEncode(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	refreshFrame := e.rc.framesTillGFUpdateDue + 1
 	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
 	for frame := 1; frame <= refreshFrame; frame++ {
@@ -884,8 +885,8 @@ func TestRuntimeControlsReemitPreservedVBRSegmentationUpdate(t *testing.T) {
 		t.Fatalf("RTC false segmentation = %+v, want preserved map/data update", state.Segmentation)
 	}
 
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	active := make([]uint8, rows*cols)
 	for i := range active {
 		active[i] = uint8(i & 1)
@@ -1203,8 +1204,8 @@ func TestRTCExternalFirstInterAfterActiveMapPreservesHeaderOnly(t *testing.T) {
 	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 0), 0, 1, 0); err != nil {
 		t.Fatalf("EncodeInto key: %v", err)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	active := make([]uint8, rows*cols)
 	for row := range rows {
 		for col := range cols {
@@ -1357,8 +1358,8 @@ func TestRTCExternalPreservesPriorCyclicSegmentationOnForcedKeyFrame(t *testing.
 
 func TestROIMapDisableClearsRuntimeSegmentationPreserve(t *testing.T) {
 	e := newTestEncoder(t)
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	roi := ROIMap{
 		Enabled:   true,
 		Rows:      rows,

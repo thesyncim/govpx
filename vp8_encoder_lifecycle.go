@@ -2,10 +2,12 @@ package govpx
 
 import (
 	"errors"
+
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // Reset returns the encoder to its cold-start state while retaining
@@ -146,7 +148,7 @@ func (e *VP8Encoder) Reset() {
 	e.reconstructScratch = vp8dec.IntraReconstructionScratch{}
 	vp8enc.ResetInterCoefficientTokenCounts(&e.interCoefTokenCounts)
 	e.interCoefTokenCountsValid = false
-	e.interCoefTokenRecords.Reset(encoderMacroblockRows(e.opts.Height), encoderMacroblockCount(e.opts.Width, e.opts.Height))
+	e.interCoefTokenRecords.Reset(geometry.MacroblockRows(e.opts.Height), geometry.MacroblockCount(e.opts.Width, e.opts.Height))
 	e.interCoefTokenRecordsValid = false
 	// libvpx MT helper-history accumulator (vp8_encoder.go
 	// mtHelperYModeCountAccum). vp8cx_remove_encoder_threads frees the

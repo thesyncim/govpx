@@ -4,6 +4,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // applyResolutionChange rebuilds the encoder's size-dependent state for
@@ -126,9 +127,9 @@ func (e *VP8Encoder) reallocateForDimensions(width int, height int) error {
 	if !validDimension(width) || !validDimension(height) {
 		return ErrInvalidConfig
 	}
-	mbCount := encoderMacroblockCount(width, height)
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbCount := geometry.MacroblockCount(width, height)
+	mbRows := geometry.MacroblockRows(height)
+	mbCols := geometry.MacroblockCols(width)
 
 	e.cyclicRefreshMap = vp8enc.ResizeInt8Slice(e.cyclicRefreshMap, mbCount)
 	e.cyclicRefreshAttemptMap = vp8enc.ResizeInt8Slice(e.cyclicRefreshAttemptMap, mbCount)
@@ -176,8 +177,8 @@ func (e *VP8Encoder) ensureRowWorkerPool(width int, height int) error {
 		// return when cpi->oxcf.multi_threaded < 2.
 		return nil
 	}
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbRows := geometry.MacroblockRows(height)
+	mbCols := geometry.MacroblockCols(width)
 	if e.rowWorkers == nil {
 		e.rowWorkers = newRowWorkerPool(eff, mbRows, mbCols)
 	} else {

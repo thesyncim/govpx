@@ -4,6 +4,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // EncodeInto encodes one input frame into dst and returns one encoded
@@ -126,8 +127,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.restoreTemporalLayerCodingState(temporalFrame)
 	e.mbsZeroLastDotSuppress = 0
 	forcedKeyFrame := e.forceKeyFrameRequested(flags)
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	required := rows * cols
 	preprocessed, preprocessMeta := e.preprocessSource(source, flags, meta)
 	source = preprocessed

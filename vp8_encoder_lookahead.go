@@ -3,6 +3,7 @@ package govpx
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 const maxLookaheadFrames = 25
@@ -122,7 +123,7 @@ func (e *VP8Encoder) pushLookaheadWithForce(src vp8enc.SourceImage, pts uint64, 
 	entry := &e.lookahead[e.lookaheadWrite]
 	useActiveMapPartialCopy := len(e.lookahead) == 1 && e.activeMapEnabled && flags == 0 && len(e.activeMap) > 0
 	if useActiveMapPartialCopy {
-		vp8enc.CopySourceToFrameBufferActive(&entry.frame, src, e.activeMap, encoderMacroblockRows(src.Height), encoderMacroblockCols(src.Width))
+		vp8enc.CopySourceToFrameBufferActive(&entry.frame, src, e.activeMap, geometry.MacroblockRows(src.Height), geometry.MacroblockCols(src.Width))
 	} else {
 		vp8enc.CopySourceToFrameBuffer(&entry.frame, src)
 	}

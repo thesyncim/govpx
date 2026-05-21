@@ -5,6 +5,7 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
@@ -152,8 +153,8 @@ func (e *VP8Encoder) absorbKeyFrameMTHelperRowIntraCounts() {
 		e.mtHelperYModeCountAccum = [vp8tables.YModeProbCount][2]int{}
 		e.mtHelperUVModeCountAccum = [vp8tables.UVModeProbCount][2]int{}
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	required := rows * cols
 	if required <= 0 || required > len(e.keyFrameModes) {
 		return
@@ -195,8 +196,8 @@ func (e *VP8Encoder) absorbInterFrameMTHelperRowIntraCounts() {
 		e.mtHelperYModeCountAccum = [vp8tables.YModeProbCount][2]int{}
 		e.mtHelperUVModeCountAccum = [vp8tables.UVModeProbCount][2]int{}
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	required := rows * cols
 	if required <= 0 || required > len(e.interFrameModes) {
 		return

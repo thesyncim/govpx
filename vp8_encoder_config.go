@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // SetBitrateKbps changes the total encoder target bitrate, in kbps. The
@@ -1182,8 +1183,8 @@ func (e *VP8Encoder) largeAutoSpeedKeyFrameTimingCompensation() bool {
 		return false
 	}
 	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	mbs := rows * cols
 	return mbs >= 3600 || (cpuUsed >= 8 && mbs >= 1900)
 }
@@ -1360,8 +1361,8 @@ func (e *VP8Encoder) interFrameAutoSpeedTimingCompensation() bool {
 	if e.opts.Threads >= 2 {
 		return true
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	mbs := rows * cols
 	return mbs >= 1500
 }
@@ -1377,8 +1378,8 @@ func (e *VP8Encoder) mediumAutoSpeedKeyFrameTimingCompensation() bool {
 	if !e.libvpxAutoSelectSpeedActive() {
 		return false
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	mbs := rows * cols
 	return mbs >= 200
 }
@@ -1467,8 +1468,8 @@ func (e *VP8Encoder) applyVP8ChangeConfigRuntimeSideEffects() {
 func (e *VP8Encoder) applyVP8ChangeConfigBaselineGFInterval() {
 	e.rc.baselineGFInterval = libvpxDefaultGFInterval
 	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient && e.opts.Deadline == DeadlineRealtime {
-		rows := encoderMacroblockRows(e.opts.Height)
-		cols := encoderMacroblockCols(e.opts.Width)
+		rows := geometry.MacroblockRows(e.opts.Height)
+		cols := geometry.MacroblockCols(e.opts.Width)
 		e.rc.baselineGFInterval = e.goldenFrameCBRInterval(rows, cols)
 	}
 }
@@ -1570,8 +1571,8 @@ func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 		e.activeMapEnabled = false
 		return nil
 	}
-	expectedRows := encoderMacroblockRows(e.opts.Height)
-	expectedCols := encoderMacroblockCols(e.opts.Width)
+	expectedRows := geometry.MacroblockRows(e.opts.Height)
+	expectedCols := geometry.MacroblockCols(e.opts.Width)
 	if rows != expectedRows || cols != expectedCols {
 		return ErrInvalidConfig
 	}

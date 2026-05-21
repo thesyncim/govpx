@@ -7,6 +7,7 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 func TestEncodeIntoUsesLibvpxInitialKeyFrameTargetBits(t *testing.T) {
@@ -107,8 +108,8 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	refreshFrame := e.rc.framesTillGFUpdateDue + 1
 	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
 	const lastBoostSentinel = 149
@@ -172,8 +173,8 @@ func TestEncodeIntoDefaultCBRRefreshesGoldenOnLibvpxInterval(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	refreshFrame := e.rc.framesTillGFUpdateDue + 1
 	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
 	for frame := 1; frame <= refreshFrame; frame++ {
@@ -439,8 +440,8 @@ func TestOnePassAutoGoldenPreservesStartupModeAcrossRuntimeReconfigure(t *testin
 		return e
 	}
 	forceOpportunity := func(e *VP8Encoder) (int, int) {
-		rows := encoderMacroblockRows(e.opts.Height)
-		cols := encoderMacroblockCols(e.opts.Width)
+		rows := geometry.MacroblockRows(e.opts.Height)
+		cols := geometry.MacroblockCols(e.opts.Width)
 		e.rc.framesTillGFUpdateDue = 0
 		e.rc.thisFramePercentIntra = 10
 		e.rc.recentRefFrameUsageIntra = rows * cols / 4
@@ -566,8 +567,8 @@ func TestOnePassAutoGoldenDisabledForTwoPassStartup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	e.rc.framesTillGFUpdateDue = 0
 	e.rc.thisFramePercentIntra = 10
 	e.rc.recentRefFrameUsageIntra = rows * cols / 4
@@ -649,8 +650,8 @@ func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	e.rc.framesTillGFUpdateDue = 0
 
 	e.lastInterZeroMVCount = rows * cols / 2
@@ -678,8 +679,8 @@ func TestGFCBROpportunityUsesLibvpxCountdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	interval := e.goldenFrameCBRInterval(rows, cols)
 	e.rc.framesSinceKeyframe = interval - 1
 	e.rc.framesTillGFUpdateDue = 0
@@ -692,7 +693,7 @@ func TestGFCBROpportunityUsesLibvpxCountdown(t *testing.T) {
 func TestGoldenFrameCBRIntervalMirrorsLibvpxCyclicRefreshCadence(t *testing.T) {
 	e := newSizedTestEncoder(t, 64, 80)
 
-	if got := e.goldenFrameCBRInterval(encoderMacroblockRows(e.opts.Height), encoderMacroblockCols(e.opts.Width)); got != 40 {
+	if got := e.goldenFrameCBRInterval(geometry.MacroblockRows(e.opts.Height), geometry.MacroblockCols(e.opts.Width)); got != 40 {
 		t.Fatalf("GF CBR interval = %d, want libvpx cyclic-refresh cadence clamp 40", got)
 	}
 }
@@ -1036,8 +1037,8 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 	wantCoefProbs := e.coefProbs
 	wantModeProbs := e.modeProbs
 
-	rows := encoderMacroblockRows(32)
-	cols := encoderMacroblockCols(32)
+	rows := geometry.MacroblockRows(32)
+	cols := geometry.MacroblockCols(32)
 	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, 0, false, false, e.rc.currentQuantizer)
 	if err != nil {
 		t.Fatalf("encodeKeyFrameAttempt returned error: %v", err)
@@ -1081,8 +1082,8 @@ func TestEncodeInterFrameAttemptDefersSkipFalseCommit(t *testing.T) {
 	}
 
 	e.probSkipFalse = 91
-	rows := encoderMacroblockRows(32)
-	cols := encoderMacroblockCols(32)
+	rows := geometry.MacroblockRows(32)
+	cols := geometry.MacroblockCols(32)
 	cyclicRefresh := newInterFrameCyclicRefreshRecodeState(e.rc.currentQuantizer)
 	attempt, err := e.encodeInterFrameAttempt(make([]byte, 16384), sourceImageFromImage(second), rows, cols, rows*cols, 0, false, false, true, false, &cyclicRefresh, true, false)
 	if err != nil {

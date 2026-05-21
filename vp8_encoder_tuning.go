@@ -4,6 +4,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // vp8ActivityAvgMin is the libvpx activity floor used by SSIM activity
@@ -488,7 +489,7 @@ func (e *VP8Encoder) activityAt(mbRow int, mbCol int) (uint32, bool) {
 	if min(mbRow, mbCol) < 0 || !e.activityMapValid {
 		return 0, false
 	}
-	cols := encoderMacroblockCols(e.opts.Width)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	index := mbRow*cols + mbCol
 	if uint(index) >= uint(len(e.activityMap)) {
 		return 0, false

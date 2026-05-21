@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 func TestSetTuningValidation(t *testing.T) {
@@ -64,8 +65,8 @@ func TestPrepareTuningActivityMapBuildsForSSIM(t *testing.T) {
 	for i := range img.Y {
 		img.Y[i] = byte((i * 37) & 0xff)
 	}
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
 	if err := e.prepareTuningActivityMap(sourceImageFromPublic(img), rows, cols); err != nil {
 		t.Fatalf("prepareTuningActivityMap returned error: %v", err)
 	}

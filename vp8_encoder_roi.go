@@ -3,6 +3,7 @@ package govpx
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // ROIMap configures libvpx-style region-of-interest segments. SegmentID is a
@@ -94,8 +95,8 @@ func (e *VP8Encoder) SetROIMap(m *ROIMap) error {
 		e.disableROIMap()
 		return nil
 	}
-	expectedRows := encoderMacroblockRows(e.opts.Height)
-	expectedCols := encoderMacroblockCols(e.opts.Width)
+	expectedRows := geometry.MacroblockRows(e.opts.Height)
+	expectedCols := geometry.MacroblockCols(e.opts.Width)
 	if m.Rows != expectedRows || m.Cols != expectedCols || len(m.SegmentID) < m.Rows*m.Cols {
 		return ErrInvalidConfig
 	}

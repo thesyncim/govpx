@@ -1,11 +1,12 @@
 package govpx
 
 import (
+	_ "unsafe" // for go:linkname
+
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
-	_ "unsafe" // for go:linkname
 )
 
 // nanotime returns the monotonic clock in nanoseconds. Linked to
@@ -805,7 +806,7 @@ type VP8Encoder struct {
 	// reconstructAboveTok is a per-frame scratch buffer reused by the
 	// reconstructing key-frame and inter-frame builders to track each row's
 	// above-token context without allocating per call. Sized by
-	// NewVP8Encoder to encoderMacroblockCols(width) and zeroed at the start
+	// NewVP8Encoder to geometry.MacroblockCols(width) and zeroed at the start
 	// of every reconstruction pass. Distinct from tokenAbove to avoid
 	// aliasing with the bitstream-pack stage that consumes tokenAbove
 	// downstream of the build.

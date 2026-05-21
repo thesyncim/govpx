@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // newLookaheadTestEncoder builds an encoder with the requested lookahead
@@ -184,8 +185,8 @@ func TestLookaheadActiveMapPartialCopyOnPush(t *testing.T) {
 	// the partial-copy helper directly with a synthetic 32x32 frame and an
 	// active map that marks only the top-left 16x16 macroblock.
 	width, height := 32, 32
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbRows := geometry.MacroblockRows(height)
+	mbCols := geometry.MacroblockCols(width)
 	mask := make([]uint8, mbRows*mbCols)
 	mask[0] = 1
 
@@ -239,8 +240,8 @@ func TestLookaheadActiveMapPartialCopyMultipleRuns(t *testing.T) {
 	// This pins the row-major active-run walk libvpx implements in
 	// vp8_lookahead_push.
 	width, height := 64, 16
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbRows := geometry.MacroblockRows(height)
+	mbCols := geometry.MacroblockCols(width)
 	if mbCols < 4 {
 		t.Fatalf("test requires at least 4 mb columns, got %d", mbCols)
 	}
@@ -283,8 +284,8 @@ func TestLookaheadActiveMapBypassedWhenFlagsOrMultiBuffer(t *testing.T) {
 	// With flags != 0 or len(lookahead) != 1, libvpx falls back to the full
 	// frame copy. Verify both gates by inspecting the destination after push.
 	width, height := 32, 32
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbRows := geometry.MacroblockRows(height)
+	mbCols := geometry.MacroblockCols(width)
 	mask := make([]uint8, mbRows*mbCols)
 	mask[0] = 1
 	// Resize the encoder by reconstructing a 32x32 instance because the
