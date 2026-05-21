@@ -7,11 +7,11 @@ Last refreshed: 2026-05-21 from `main`.
 
 ## Current Counts
 
-- Root Go files: 534.
+- Root Go files: 535.
 - Root test files: 374.
 - Internal Go files: 654.
 - Root VP8 files: 81 implementation files and 220 test files.
-- Root VP9 files: 70 implementation files and 142 test files.
+- Root VP9 files: 71 implementation files and 142 test files.
 - Internal package files:
   - `internal/vp8`: 308 Go files.
   - `internal/vp9`: 289 Go files.
@@ -186,7 +186,7 @@ This ledger tracks intent, not completed work.
 | Area | Current State | Target |
 | --- | --- | --- |
 | Root VP8 implementation | 81 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
-| Root VP9 implementation | 70 root VP9 implementation files remain. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
+| Root VP9 implementation | 71 root VP9 implementation files remain. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
 | Root tests | 391 root tests remain; many are codec implementation and parity tests. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx` is small. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |

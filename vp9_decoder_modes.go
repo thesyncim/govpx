@@ -752,8 +752,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		return true
 	}
 	if !vp9dec.CanReconstructInterBlock(mi) {
-		d.traceVP9Unsupported("inter block mode")
-		d.unsupportedReconstruct = true
+		d.markVP9Unsupported("inter block mode")
 		return true
 	}
 	nrefs := 1
@@ -775,8 +774,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		pd := &d.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
-			d.traceVP9Unsupported("inter plane block size")
-			d.unsupportedReconstruct = true
+			d.markVP9Unsupported("inter plane block size")
 			return true
 		}
 		dst, dstStride := d.vp9OutputPlane(plane)
@@ -792,8 +790,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
 		bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
 		if x0+bw > dstStride || y0+bh > dstRows {
-			d.traceVP9Unsupported("inter dst bounds")
-			d.unsupportedReconstruct = true
+			d.markVP9Unsupported("inter dst bounds")
 			return true
 		}
 		for refIdx := range nrefs {
@@ -809,8 +806,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			vp9dec.SetupScaleFactorsForFrame(&sf, ref.img.Width, ref.img.Height,
 				int(hdr.Width), int(hdr.Height))
 			if !sf.IsValidScale() {
-				d.traceVP9Unsupported("inter scale")
-				d.unsupportedReconstruct = true
+				d.markVP9Unsupported("inter scale")
 				return true
 			}
 			src, srcStride := vp9ReferencePlane(ref, plane)
@@ -891,8 +887,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 ) bool {
 	filterIdx := int(mi.InterpFilter)
 	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
-		d.traceVP9Unsupported("interp filter")
-		d.unsupportedReconstruct = true
+		d.markVP9Unsupported("interp filter")
 		return true
 	}
 	miRows := int((hdr.Height + 7) >> 3)
@@ -1136,8 +1131,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
 						mode, txSize, tile, miRow, miCol, bsize, rr, cc)
 					if !ok {
-						d.traceVP9Unsupported("intra tx dst")
-						d.unsupportedReconstruct = true
+						d.markVP9Unsupported("intra tx dst")
 					} else if eob > 0 && dst != nil {
 						txType := common.DctDct
 						if planeType == 0 && !hdr.Quant.Lossless {
@@ -1150,8 +1144,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					dst, stride, ok := d.vp9InterTxDst(hdr, pd, plane, txSize,
 						miRow, miCol, rr, cc)
 					if !ok {
-						d.traceVP9Unsupported("inter tx dst")
-						d.unsupportedReconstruct = true
+						d.markVP9Unsupported("inter tx dst")
 					} else if eob > 0 && dst != nil {
 						vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize,
 							common.DctDct, eob, hdr.Quant.Lossless)
@@ -1213,8 +1206,7 @@ func (d *VP9Decoder) reconstructVP9IntraPredictBlock(
 		pd := &d.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
-			d.traceVP9Unsupported("intra plane block size")
-			d.unsupportedReconstruct = true
+			d.markVP9Unsupported("intra plane block size")
 			return
 		}
 
@@ -1239,8 +1231,7 @@ func (d *VP9Decoder) reconstructVP9IntraPredictBlock(
 				}
 				if _, _, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane, mode, txSize,
 					tile, miRow, miCol, bsize, rr, cc); !ok {
-					d.traceVP9Unsupported("intra predict")
-					d.unsupportedReconstruct = true
+					d.markVP9Unsupported("intra predict")
 					return
 				}
 				blockIdx += blockStep
