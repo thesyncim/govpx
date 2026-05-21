@@ -115,6 +115,198 @@ func FormatRateScoreboardRows(govpxRows, libvpxRows []RateScoreboardRow) string 
 	return b.String()
 }
 
+func FormatSingleRateScoreboardRows(rows []RateScoreboardRow) string {
+	var b bytes.Buffer
+	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,width,height,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%t,%d,%d,%d,%#x,%d,%d,%d,%d,%d,%t\n",
+			row.FrameIndex, row.Flags, row.Dropped, row.DropReason, row.KeyFrame,
+			row.ShowFrame, row.CodedWidth, row.CodedHeight, row.BaseQIndex,
+			row.PublicQuantizer, row.SizeBytes, row.SizeBits,
+			row.FirstPartitionSize, row.TargetBitrateKbps,
+			row.FrameTargetBits, row.BufferLevelBits, row.RefreshFrameFlags,
+			row.RefreshFrameContext, row.TxMode, row.InterpFilter,
+			row.ReferenceMode, row.ReferenceMask, row.LoopFilterLevel,
+			row.TileLog2Cols, row.TemporalLayerID, row.TemporalLayerCount,
+			row.TL0PICIDX, row.TemporalLayerSync)
+	}
+	return b.String()
+}
+
+type RateScoreboardFlagMapper func(uint32) uint32
+
+type TransitionStats struct {
+	Rows                     int
+	FlagMismatches           int
+	DropMismatches           int
+	KeyMismatches            int
+	ShowMismatches           int
+	CodedSizeMismatches      int
+	QMismatches              int
+	PublicQMismatches        int
+	SizeMismatches           int
+	FirstPartitionMismatches int
+	TargetMismatches         int
+	BufferMismatches         int
+	BufferOptimalMismatches  int
+	RefreshMismatches        int
+	HeaderMismatches         int
+	ModeHeaderMismatches     int
+	LoopFilterMismatches     int
+	TileMismatches           int
+	TemporalMismatches       int
+	TL0Mismatches            int
+	MaxQDrift                int
+	MaxSizeDeltaPct          float64
+	MaxBufferDeltaPct        float64
+	MaxBufferOptimalDeltaPct float64
+}
+
+func (s TransitionStats) HasMismatch() bool {
+	return s.FlagMismatches != 0 || s.DropMismatches != 0 ||
+		s.KeyMismatches != 0 || s.ShowMismatches != 0 ||
+		s.CodedSizeMismatches != 0 ||
+		s.QMismatches != 0 || s.PublicQMismatches != 0 ||
+		s.SizeMismatches != 0 || s.FirstPartitionMismatches != 0 ||
+		s.TargetMismatches != 0 || s.BufferMismatches != 0 ||
+		s.BufferOptimalMismatches != 0 || s.RefreshMismatches != 0 ||
+		s.HeaderMismatches != 0 || s.ModeHeaderMismatches != 0 ||
+		s.LoopFilterMismatches != 0 || s.TileMismatches != 0 ||
+		s.TemporalMismatches != 0 || s.TL0Mismatches != 0
+}
+
+func (s TransitionStats) String() string {
+	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d coded_size=%d q=%d public_q=%d size=%d first_part=%d target=%d buffer=%d buffer_opt=%d refresh=%d header=%d mode_header=%d lf=%d tile=%d temporal=%d tl0=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f max_buffer_opt_delta_pct=%.2f",
+		s.Rows, s.FlagMismatches, s.DropMismatches, s.KeyMismatches,
+		s.ShowMismatches, s.CodedSizeMismatches, s.QMismatches, s.PublicQMismatches,
+		s.SizeMismatches, s.FirstPartitionMismatches, s.TargetMismatches,
+		s.BufferMismatches, s.BufferOptimalMismatches, s.RefreshMismatches,
+		s.HeaderMismatches, s.ModeHeaderMismatches, s.LoopFilterMismatches,
+		s.TileMismatches, s.TemporalMismatches, s.TL0Mismatches,
+		s.MaxQDrift, s.MaxSizeDeltaPct, s.MaxBufferDeltaPct,
+		s.MaxBufferOptimalDeltaPct)
+}
+
+func CompareTransitionRows(t testing.TB, govpxRows, libvpxRows []RateScoreboardRow,
+	libvpxFlags RateScoreboardFlagMapper,
+) TransitionStats {
+	t.Helper()
+	if len(govpxRows) == 0 || len(libvpxRows) == 0 {
+		t.Fatalf("empty VP9 transition rows: govpx=%d libvpx=%d",
+			len(govpxRows), len(libvpxRows))
+	}
+	if len(govpxRows) != len(libvpxRows) {
+		t.Fatalf("VP9 transition row count: govpx=%d libvpx=%d",
+			len(govpxRows), len(libvpxRows))
+	}
+	stats := TransitionStats{Rows: len(govpxRows)}
+	for i := range govpxRows {
+		g := govpxRows[i]
+		l := libvpxRows[i]
+		if g.FrameIndex != l.FrameIndex {
+			t.Fatalf("row %d frame_index: govpx=%d libvpx=%d",
+				i, g.FrameIndex, l.FrameIndex)
+		}
+		if g.RecodeAllowed || l.RecodeAllowed ||
+			g.RecodeLoopCount != 0 || l.RecodeLoopCount != 0 {
+			t.Fatalf("row %d recode: govpx allowed=%t loops=%d libvpx allowed=%t loops=%d, want one-pass VP9 no-recode",
+				i, g.RecodeAllowed, g.RecodeLoopCount, l.RecodeAllowed,
+				l.RecodeLoopCount)
+		}
+		if libvpxFlags(g.Flags) != l.Flags {
+			stats.FlagMismatches++
+		}
+		if g.Dropped != l.Dropped {
+			stats.DropMismatches++
+		}
+		if g.KeyFrame != l.KeyFrame {
+			stats.KeyMismatches++
+		}
+		if g.ShowFrame != l.ShowFrame {
+			stats.ShowMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			(g.CodedWidth != l.CodedWidth || g.CodedHeight != l.CodedHeight) {
+			stats.CodedSizeMismatches++
+		}
+		if g.BaseQIndex != l.BaseQIndex {
+			stats.QMismatches++
+			drift := g.BaseQIndex - l.BaseQIndex
+			if drift < 0 {
+				drift = -drift
+			}
+			if drift > stats.MaxQDrift {
+				stats.MaxQDrift = drift
+			}
+		}
+		if !g.Dropped && !l.Dropped && g.PublicQuantizer != l.PublicQuantizer {
+			stats.PublicQMismatches++
+		}
+		if g.SizeBits != l.SizeBits {
+			stats.SizeMismatches++
+			if delta := PctDelta(g.SizeBits, l.SizeBits); delta > stats.MaxSizeDeltaPct {
+				stats.MaxSizeDeltaPct = delta
+			}
+		}
+		if !g.Dropped && !l.Dropped &&
+			g.FirstPartitionSize != l.FirstPartitionSize {
+			stats.FirstPartitionMismatches++
+		}
+		if g.TargetBitrateKbps != l.TargetBitrateKbps ||
+			g.FrameTargetBits != l.FrameTargetBits {
+			stats.TargetMismatches++
+		}
+		if g.BufferLevelBits != l.BufferLevelBits {
+			stats.BufferMismatches++
+			if delta := PctDelta(g.BufferLevelBits, l.BufferLevelBits); delta > stats.MaxBufferDeltaPct {
+				stats.MaxBufferDeltaPct = delta
+			}
+		}
+		if g.BufferOptimalBits != l.BufferOptimalBits {
+			stats.BufferOptimalMismatches++
+			if delta := PctDelta(g.BufferOptimalBits, l.BufferOptimalBits); delta > stats.MaxBufferOptimalDeltaPct {
+				stats.MaxBufferOptimalDeltaPct = delta
+			}
+		}
+		if g.RefreshFrameFlags != l.RefreshFrameFlags {
+			stats.RefreshMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			(g.RefreshFrameContext != l.RefreshFrameContext ||
+				g.ErrorResilient != l.ErrorResilient ||
+				g.FrameParallel != l.FrameParallel ||
+				g.FrameContextIdx != l.FrameContextIdx) {
+			stats.HeaderMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			(g.TxMode != l.TxMode ||
+				g.InterpFilter != l.InterpFilter ||
+				g.ReferenceMode != l.ReferenceMode ||
+				g.CompoundAllowed != l.CompoundAllowed ||
+				g.ReferenceMask != l.ReferenceMask) {
+			stats.ModeHeaderMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			g.LoopFilterLevel != l.LoopFilterLevel {
+			stats.LoopFilterMismatches++
+		}
+		if !g.Dropped && !l.Dropped &&
+			(g.TileLog2Cols != l.TileLog2Cols ||
+				g.TileLog2Rows != l.TileLog2Rows) {
+			stats.TileMismatches++
+		}
+		if g.TemporalLayerID != l.TemporalLayerID ||
+			g.TemporalLayerCount != l.TemporalLayerCount ||
+			g.TemporalLayerSync != l.TemporalLayerSync {
+			stats.TemporalMismatches++
+		}
+		if g.TL0PICIDX != l.TL0PICIDX {
+			stats.TL0Mismatches++
+		}
+	}
+	return stats
+}
+
 func DroppedFrameIndices(rows []RateScoreboardRow) []int {
 	out := make([]int, 0, len(rows))
 	for _, row := range rows {
@@ -269,4 +461,73 @@ func optionalHex(ok bool, v uint8) string {
 		return "-"
 	}
 	return fmt.Sprintf("%#x", v)
+}
+
+func CountByteParityMatchesWithDrops(t testing.TB,
+	govpxRows []RateScoreboardRow, govpxPackets [][]byte,
+	libvpxRows []RateScoreboardRow, libvpxPackets [][]byte,
+) (matches int, packetMatches int, dropMatches int, firstMismatch int) {
+	t.Helper()
+	if len(govpxRows) != len(libvpxRows) ||
+		len(govpxPackets) != len(govpxRows) ||
+		len(libvpxPackets) != len(libvpxRows) {
+		t.Fatalf("VP9 drop-aware parity row/packet count mismatch: govpx_rows=%d govpx_packets=%d libvpx_rows=%d libvpx_packets=%d",
+			len(govpxRows), len(govpxPackets), len(libvpxRows),
+			len(libvpxPackets))
+	}
+	firstMismatch = -1
+	for i := range govpxRows {
+		gDrop := govpxRows[i].Dropped
+		lDrop := libvpxRows[i].Dropped
+		switch {
+		case gDrop && lDrop:
+			matches++
+			dropMatches++
+		case gDrop || lDrop:
+			if firstMismatch < 0 {
+				firstMismatch = i
+			}
+		case len(govpxPackets[i]) != 0 && bytes.Equal(govpxPackets[i], libvpxPackets[i]):
+			matches++
+			packetMatches++
+		default:
+			if firstMismatch < 0 {
+				firstMismatch = i
+			}
+		}
+	}
+	return matches, packetMatches, dropMatches, firstMismatch
+}
+
+func FormatDropAwareStreamParityRows(t testing.TB,
+	govpxRows []RateScoreboardRow, govpxPackets [][]byte,
+	libvpxRows []RateScoreboardRow, libvpxPackets [][]byte,
+) string {
+	t.Helper()
+	var b bytes.Buffer
+	fmt.Fprintln(&b, "frame,row_match,packet_match,first_diff,govpx_drop,libvpx_drop,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_target,libvpx_target,govpx_buffer,libvpx_buffer,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part")
+	for i := range govpxRows {
+		g := govpxRows[i]
+		l := libvpxRows[i]
+		packetMatch := false
+		if g.Dropped && l.Dropped {
+			packetMatch = true
+		} else if !g.Dropped && !l.Dropped {
+			packetMatch = bytes.Equal(govpxPackets[i], libvpxPackets[i])
+		}
+		rowMatch := g.Dropped == l.Dropped &&
+			g.BaseQIndex == l.BaseQIndex &&
+			g.FrameTargetBits == l.FrameTargetBits &&
+			g.BufferLevelBits == l.BufferLevelBits &&
+			g.RefreshFrameFlags == l.RefreshFrameFlags
+		fmt.Fprintf(&b, "%d,%t,%t,%d,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%#x,%d,%d\n",
+			g.FrameIndex, rowMatch, packetMatch,
+			FirstPacketDiff(govpxPackets[i], libvpxPackets[i]),
+			g.Dropped, l.Dropped,
+			len(govpxPackets[i]), len(libvpxPackets[i]), g.BaseQIndex,
+			l.BaseQIndex, g.FrameTargetBits, l.FrameTargetBits,
+			g.BufferLevelBits, l.BufferLevelBits, g.RefreshFrameFlags,
+			l.RefreshFrameFlags, g.FirstPartitionSize, l.FirstPartitionSize)
+	}
+	return b.String()
 }

@@ -309,7 +309,7 @@ func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
 			govpxRows := captureVP9RateScoreboardRows(t, tc.opts, sources, nil)
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, nil, tc.extraArgs)
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			govpxDrops := vp9test.DroppedFrameIndices(govpxRows)
 			libvpxDrops := vp9test.DroppedFrameIndices(libvpxRows)
 			t.Logf("VP9 CBR buffer matrix scoreboard %s: %s govpx_drops=%v libvpx_drops=%v",
@@ -321,7 +321,7 @@ func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
 					tc.name, govpxDrops, libvpxDrops)
 			}
 			if os.Getenv("GOVPX_VP9_BUFFER_MATRIX_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 CBR buffer matrix mismatch %s: %s",
 					tc.name, stats)
 			}

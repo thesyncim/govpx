@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
@@ -95,13 +94,13 @@ func TestVP9OracleFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, tc.flags)
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, tc.flags, extraArgs)
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 frame-flag transitions %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 frame-flag transition rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_TRANSITION_SCOREBOARD_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 frame-flag transition mismatch %s: %s",
 					tc.name, stats)
 			}
@@ -142,13 +141,13 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixMatchesLibvpx(t *testing.T) {
 			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, flags)
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, flags, extraArgs)
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 reference/update matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 reference/update matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_FLAG_MATRIX_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 reference/update matrix mismatch %s: %s",
 					tc.name, stats)
 			}
@@ -191,12 +190,12 @@ func TestVP9OracleOddSizeFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, tc.flags)
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, tc.flags, extraArgs)
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 odd-size transitions %s: %s", tc.name, stats)
 			t.Logf("VP9 odd-size transition rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_ODD_TRANSITION_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 odd-size transition mismatch %s: %s",
 					tc.name, stats)
 			}
@@ -237,7 +236,7 @@ func TestVP9OracleRuntimeControlTransitionsMatchLibvpx(t *testing.T) {
 		}
 	}
 	t.Logf("VP9 runtime control transition rows:\n%s",
-		formatVP9SingleRateScoreboardRows(rows))
+		vp9test.FormatSingleRateScoreboardRows(rows))
 }
 
 func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
@@ -270,7 +269,7 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 		sources, nil, extraArgs)
 
-	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	t.Logf("VP9 runtime bitrate/Q controls: %s", stats)
 	t.Logf("VP9 runtime bitrate/Q rows:\n%s",
 		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
@@ -292,7 +291,7 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 		}
 	}
 	if os.Getenv("GOVPX_VP9_RUNTIME_CONTROL_STRICT") == "1" &&
-		stats.hasMismatch() {
+		stats.HasMismatch() {
 		t.Fatalf("strict VP9 runtime bitrate/Q mismatch: %s", stats)
 	}
 }
@@ -319,12 +318,12 @@ func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
 	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 		sources, nil, extraArgs)
 
-	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	t.Logf("VP9 runtime-control transition parity: %s", stats)
 	t.Logf("VP9 runtime-control transition parity rows:\n%s",
 		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 	if os.Getenv("GOVPX_VP9_RUNTIME_TRANSITION_STRICT") == "1" &&
-		stats.hasMismatch() {
+		stats.HasMismatch() {
 		t.Fatalf("strict VP9 runtime-control transition mismatch: %s", stats)
 	}
 }
@@ -639,13 +638,13 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width,
 				height, sources, nil, extraArgs)
 
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 runtime-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 runtime-control matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_RUNTIME_MATRIX_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 runtime-control matrix mismatch %s: %s",
 					tc.name, stats)
 			}
@@ -747,13 +746,13 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 				sources, nil, tc.extraArgs)
 
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 construction-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 construction-control matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_CONSTRUCTION_MATRIX_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 construction-control matrix mismatch %s: %s",
 					tc.name, stats)
 			}
@@ -775,7 +774,7 @@ func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
 	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
 		sources, nil, extraArgs)
 
-	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	t.Logf("VP9 tile/thread controls: %s", stats)
 	t.Logf("VP9 tile/thread control rows:\n%s",
 		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
@@ -792,7 +791,7 @@ func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
 		t.Fatal("VP9 tile/thread fixture did not expose any shared log2_tile_cols=2 row")
 	}
 	if os.Getenv("GOVPX_VP9_TILE_THREAD_STRICT") == "1" &&
-		stats.hasMismatch() {
+		stats.HasMismatch() {
 		t.Fatalf("strict VP9 tile/thread mismatch: %s", stats)
 	}
 }
@@ -843,7 +842,7 @@ func TestVP9OracleTemporalControlTransitionsMatchLibvpx(t *testing.T) {
 			rows[7].TemporalLayerCount, rows[8].TemporalLayerCount)
 	}
 	t.Logf("VP9 temporal control transition rows:\n%s",
-		formatVP9SingleRateScoreboardRows(rows))
+		vp9test.FormatSingleRateScoreboardRows(rows))
 }
 
 func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
@@ -880,12 +879,12 @@ func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
 			assertVP9TemporalMetadataRows(t, libvpxRows, expected,
 				pattern.Layers)
 
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 temporal flag patterns %s: %s", tc.name, stats)
 			t.Logf("VP9 temporal flag-pattern rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_TEMPORAL_PATTERN_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 temporal flag-pattern mismatch %s: %s",
 					tc.name, stats)
 			}
@@ -936,13 +935,13 @@ func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
 			assertVP9TemporalMetadataRows(t, libvpxRows, expected,
 				pattern.Layers)
 
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 temporal pattern matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 temporal pattern matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			if os.Getenv("GOVPX_VP9_TEMPORAL_MATRIX_STRICT") == "1" &&
-				stats.hasMismatch() {
+				stats.HasMismatch() {
 				t.Fatalf("strict VP9 temporal pattern matrix mismatch %s: %s",
 					tc.name, stats)
 			}
@@ -984,7 +983,7 @@ func TestVP9OracleInvisibleFrameVisibilityMatchesLibvpx(t *testing.T) {
 			rows[2].ShowFrame, rows[2].Dropped)
 	}
 	t.Logf("VP9 invisible-frame visibility rows:\n%s",
-		formatVP9SingleRateScoreboardRows(rows))
+		vp9test.FormatSingleRateScoreboardRows(rows))
 }
 
 func vp9OracleTemporalConfig(mode TemporalLayeringMode, targetKbps int) TemporalScalabilityConfig {
@@ -1061,174 +1060,8 @@ func assertVP9TemporalMetadataRows(t *testing.T, rows []vp9test.RateScoreboardRo
 	}
 }
 
-type vp9OracleTransitionStats struct {
-	Rows                     int
-	FlagMismatches           int
-	DropMismatches           int
-	KeyMismatches            int
-	ShowMismatches           int
-	CodedSizeMismatches      int
-	QMismatches              int
-	PublicQMismatches        int
-	SizeMismatches           int
-	FirstPartitionMismatches int
-	TargetMismatches         int
-	BufferMismatches         int
-	BufferOptimalMismatches  int
-	RefreshMismatches        int
-	HeaderMismatches         int
-	ModeHeaderMismatches     int
-	LoopFilterMismatches     int
-	TileMismatches           int
-	TemporalMismatches       int
-	TL0Mismatches            int
-	MaxQDrift                int
-	MaxSizeDeltaPct          float64
-	MaxBufferDeltaPct        float64
-	MaxBufferOptimalDeltaPct float64
-}
-
-func (s vp9OracleTransitionStats) hasMismatch() bool {
-	return s.FlagMismatches != 0 || s.DropMismatches != 0 ||
-		s.KeyMismatches != 0 || s.ShowMismatches != 0 ||
-		s.CodedSizeMismatches != 0 ||
-		s.QMismatches != 0 || s.PublicQMismatches != 0 ||
-		s.SizeMismatches != 0 || s.FirstPartitionMismatches != 0 ||
-		s.TargetMismatches != 0 || s.BufferMismatches != 0 ||
-		s.BufferOptimalMismatches != 0 || s.RefreshMismatches != 0 ||
-		s.HeaderMismatches != 0 || s.ModeHeaderMismatches != 0 ||
-		s.LoopFilterMismatches != 0 || s.TileMismatches != 0 ||
-		s.TemporalMismatches != 0 || s.TL0Mismatches != 0
-}
-
-func (s vp9OracleTransitionStats) String() string {
-	return fmt.Sprintf("rows=%d flag=%d drop=%d key=%d show=%d coded_size=%d q=%d public_q=%d size=%d first_part=%d target=%d buffer=%d buffer_opt=%d refresh=%d header=%d mode_header=%d lf=%d tile=%d temporal=%d tl0=%d max_q_drift=%d max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f max_buffer_opt_delta_pct=%.2f",
-		s.Rows, s.FlagMismatches, s.DropMismatches, s.KeyMismatches,
-		s.ShowMismatches, s.CodedSizeMismatches, s.QMismatches, s.PublicQMismatches,
-		s.SizeMismatches, s.FirstPartitionMismatches, s.TargetMismatches,
-		s.BufferMismatches, s.BufferOptimalMismatches, s.RefreshMismatches,
-		s.HeaderMismatches, s.ModeHeaderMismatches, s.LoopFilterMismatches,
-		s.TileMismatches, s.TemporalMismatches, s.TL0Mismatches,
-		s.MaxQDrift, s.MaxSizeDeltaPct, s.MaxBufferDeltaPct,
-		s.MaxBufferOptimalDeltaPct)
-}
-
-func compareVP9OracleTransitionRows(t *testing.T, govpxRows, libvpxRows []vp9test.RateScoreboardRow) vp9OracleTransitionStats {
-	t.Helper()
-	if len(govpxRows) == 0 || len(libvpxRows) == 0 {
-		t.Fatalf("empty VP9 transition rows: govpx=%d libvpx=%d",
-			len(govpxRows), len(libvpxRows))
-	}
-	if len(govpxRows) != len(libvpxRows) {
-		t.Fatalf("VP9 transition row count: govpx=%d libvpx=%d",
-			len(govpxRows), len(libvpxRows))
-	}
-	stats := vp9OracleTransitionStats{Rows: len(govpxRows)}
-	for i := range govpxRows {
-		g := govpxRows[i]
-		l := libvpxRows[i]
-		if g.FrameIndex != l.FrameIndex {
-			t.Fatalf("row %d frame_index: govpx=%d libvpx=%d",
-				i, g.FrameIndex, l.FrameIndex)
-		}
-		if g.RecodeAllowed || l.RecodeAllowed ||
-			g.RecodeLoopCount != 0 || l.RecodeLoopCount != 0 {
-			t.Fatalf("row %d recode: govpx allowed=%t loops=%d libvpx allowed=%t loops=%d, want one-pass VP9 no-recode",
-				i, g.RecodeAllowed, g.RecodeLoopCount, l.RecodeAllowed,
-				l.RecodeLoopCount)
-		}
-		if vp9FrameFlagsForLibvpx(EncodeFlags(g.Flags)) != l.Flags {
-			stats.FlagMismatches++
-		}
-		if g.Dropped != l.Dropped {
-			stats.DropMismatches++
-		}
-		if g.KeyFrame != l.KeyFrame {
-			stats.KeyMismatches++
-		}
-		if g.ShowFrame != l.ShowFrame {
-			stats.ShowMismatches++
-		}
-		if !g.Dropped && !l.Dropped &&
-			(g.CodedWidth != l.CodedWidth || g.CodedHeight != l.CodedHeight) {
-			stats.CodedSizeMismatches++
-		}
-		if g.BaseQIndex != l.BaseQIndex {
-			stats.QMismatches++
-			drift := g.BaseQIndex - l.BaseQIndex
-			if drift < 0 {
-				drift = -drift
-			}
-			if drift > stats.MaxQDrift {
-				stats.MaxQDrift = drift
-			}
-		}
-		if !g.Dropped && !l.Dropped && g.PublicQuantizer != l.PublicQuantizer {
-			stats.PublicQMismatches++
-		}
-		if g.SizeBits != l.SizeBits {
-			stats.SizeMismatches++
-			if delta := vp9test.PctDelta(g.SizeBits, l.SizeBits); delta > stats.MaxSizeDeltaPct {
-				stats.MaxSizeDeltaPct = delta
-			}
-		}
-		if !g.Dropped && !l.Dropped &&
-			g.FirstPartitionSize != l.FirstPartitionSize {
-			stats.FirstPartitionMismatches++
-		}
-		if g.TargetBitrateKbps != l.TargetBitrateKbps ||
-			g.FrameTargetBits != l.FrameTargetBits {
-			stats.TargetMismatches++
-		}
-		if g.BufferLevelBits != l.BufferLevelBits {
-			stats.BufferMismatches++
-			if delta := vp9test.PctDelta(g.BufferLevelBits, l.BufferLevelBits); delta > stats.MaxBufferDeltaPct {
-				stats.MaxBufferDeltaPct = delta
-			}
-		}
-		if g.BufferOptimalBits != l.BufferOptimalBits {
-			stats.BufferOptimalMismatches++
-			if delta := vp9test.PctDelta(g.BufferOptimalBits, l.BufferOptimalBits); delta > stats.MaxBufferOptimalDeltaPct {
-				stats.MaxBufferOptimalDeltaPct = delta
-			}
-		}
-		if g.RefreshFrameFlags != l.RefreshFrameFlags {
-			stats.RefreshMismatches++
-		}
-		if !g.Dropped && !l.Dropped &&
-			(g.RefreshFrameContext != l.RefreshFrameContext ||
-				g.ErrorResilient != l.ErrorResilient ||
-				g.FrameParallel != l.FrameParallel ||
-				g.FrameContextIdx != l.FrameContextIdx) {
-			stats.HeaderMismatches++
-		}
-		if !g.Dropped && !l.Dropped &&
-			(g.TxMode != l.TxMode ||
-				g.InterpFilter != l.InterpFilter ||
-				g.ReferenceMode != l.ReferenceMode ||
-				g.CompoundAllowed != l.CompoundAllowed ||
-				g.ReferenceMask != l.ReferenceMask) {
-			stats.ModeHeaderMismatches++
-		}
-		if !g.Dropped && !l.Dropped &&
-			g.LoopFilterLevel != l.LoopFilterLevel {
-			stats.LoopFilterMismatches++
-		}
-		if !g.Dropped && !l.Dropped &&
-			(g.TileLog2Cols != l.TileLog2Cols ||
-				g.TileLog2Rows != l.TileLog2Rows) {
-			stats.TileMismatches++
-		}
-		if g.TemporalLayerID != l.TemporalLayerID ||
-			g.TemporalLayerCount != l.TemporalLayerCount ||
-			g.TemporalLayerSync != l.TemporalLayerSync {
-			stats.TemporalMismatches++
-		}
-		if g.TL0PICIDX != l.TL0PICIDX {
-			stats.TL0Mismatches++
-		}
-	}
-	return stats
+func vp9OracleLibvpxFrameFlags(flags uint32) uint32 {
+	return vp9FrameFlagsForLibvpx(EncodeFlags(flags))
 }
 
 func vp9OracleCBROptions(width, height, targetKbps int) VP9EncoderOptions {
@@ -1377,22 +1210,4 @@ func vp9OracleAlternatingReferenceControls(frames int) []EncodeFlags {
 		}
 	}
 	return flags
-}
-
-func formatVP9SingleRateScoreboardRows(rows []vp9test.RateScoreboardRow) string {
-	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,width,height,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
-	for _, row := range rows {
-		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%t,%d,%d,%d,%#x,%d,%d,%d,%d,%d,%t\n",
-			row.FrameIndex, row.Flags, row.Dropped, row.DropReason, row.KeyFrame,
-			row.ShowFrame, row.CodedWidth, row.CodedHeight, row.BaseQIndex,
-			row.PublicQuantizer, row.SizeBytes, row.SizeBits,
-			row.FirstPartitionSize, row.TargetBitrateKbps,
-			row.FrameTargetBits, row.BufferLevelBits, row.RefreshFrameFlags,
-			row.RefreshFrameContext, row.TxMode, row.InterpFilter,
-			row.ReferenceMode, row.ReferenceMask, row.LoopFilterLevel,
-			row.TileLog2Cols, row.TemporalLayerID, row.TemporalLayerCount,
-			row.TL0PICIDX, row.TemporalLayerSync)
-	}
-	return b.String()
 }

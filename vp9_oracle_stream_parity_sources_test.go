@@ -13,42 +13,6 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
-func countVP9ByteParityMatchesWithDrops(t *testing.T,
-	govpxRows []vp9test.RateScoreboardRow, govpxPackets [][]byte,
-	libvpxRows []vp9test.RateScoreboardRow, libvpxPackets [][]byte,
-) (matches int, packetMatches int, dropMatches int, firstMismatch int) {
-	t.Helper()
-	if len(govpxRows) != len(libvpxRows) ||
-		len(govpxPackets) != len(govpxRows) ||
-		len(libvpxPackets) != len(libvpxRows) {
-		t.Fatalf("VP9 drop-aware parity row/packet count mismatch: govpx_rows=%d govpx_packets=%d libvpx_rows=%d libvpx_packets=%d",
-			len(govpxRows), len(govpxPackets), len(libvpxRows),
-			len(libvpxPackets))
-	}
-	firstMismatch = -1
-	for i := range govpxRows {
-		gDrop := govpxRows[i].Dropped
-		lDrop := libvpxRows[i].Dropped
-		switch {
-		case gDrop && lDrop:
-			matches++
-			dropMatches++
-		case gDrop || lDrop:
-			if firstMismatch < 0 {
-				firstMismatch = i
-			}
-		case len(govpxPackets[i]) != 0 && bytes.Equal(govpxPackets[i], libvpxPackets[i]):
-			matches++
-			packetMatches++
-		default:
-			if firstMismatch < 0 {
-				firstMismatch = i
-			}
-		}
-	}
-	return matches, packetMatches, dropMatches, firstMismatch
-}
-
 func captureVP9LookaheadPacketsWithFlushesForOracleTest(t *testing.T,
 	opts VP9EncoderOptions, sources []*image.YCbCr, flushAfter []int,
 ) [][]byte {

@@ -1008,7 +1008,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 				opts, sources, nil, before)
 			libvpxRows, libvpxPackets := captureLibvpxVP9VariablePacketRows(t,
 				sources, nil, nil, extraArgs)
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 runtime resize byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d stats=%s",
@@ -1018,7 +1018,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 			t.Logf("VP9 runtime resize byte rows %s:\n%s", tc.name,
 				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			if os.Getenv("GOVPX_VP9_RUNTIME_RESIZE_STRICT") == "1" &&
-				(stats.hasMismatch() || matches != len(govpxPackets)) {
+				(stats.HasMismatch() || matches != len(govpxPackets)) {
 				t.Fatalf("strict VP9 runtime resize parity %s: matches=%d/%d stats=%s",
 					tc.name, matches, len(govpxPackets), stats)
 			}
@@ -1041,7 +1041,7 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 	libvpxRows, libvpxPackets := captureLibvpxVP9VariablePacketRows(t,
 		sources, flags, []bool{true},
 		[]string{"--cq-level=32", "--min-q=32", "--max-q=32"})
-	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 invisible keyframe byte-parity scoreboard: matches=%d/%d first_mismatch=%d stats=%s",
@@ -1051,7 +1051,7 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 	t.Logf("VP9 invisible keyframe byte rows:\n%s",
 		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 	if os.Getenv("GOVPX_VP9_INVISIBLE_KEY_STRICT") == "1" &&
-		(stats.hasMismatch() || matches != len(govpxPackets)) {
+		(stats.HasMismatch() || matches != len(govpxPackets)) {
 		t.Fatalf("strict VP9 invisible keyframe parity: matches=%d/%d stats=%s",
 			matches, len(govpxPackets), stats)
 	}
@@ -1194,9 +1194,9 @@ func TestVP9OracleRuntimeDropToggleByteParityScoreboard(t *testing.T) {
 					func(enc *VP9Encoder, frame int) {
 						tc.before(t, enc, frame)
 					})
-			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			matches, packetMatches, dropMatches, firstMismatch :=
-				countVP9ByteParityMatchesWithDrops(t, govpxRows, govpxPackets,
+				vp9test.CountByteParityMatchesWithDrops(t, govpxRows, govpxPackets,
 					libvpxRows, libvpxPackets)
 			govpxDrops := vp9test.DroppedFrameIndices(govpxRows)
 			libvpxDrops := vp9test.DroppedFrameIndices(libvpxRows)
@@ -1204,14 +1204,14 @@ func TestVP9OracleRuntimeDropToggleByteParityScoreboard(t *testing.T) {
 				tc.name, len(govpxRows), matches, packetMatches, dropMatches,
 				firstMismatch, govpxDrops, libvpxDrops, stats)
 			t.Logf("VP9 runtime-drop byte-parity rows %s:\n%s", tc.name,
-				formatVP9DropAwareStreamParityRows(t, govpxRows, govpxPackets,
+				vp9test.FormatDropAwareStreamParityRows(t, govpxRows, govpxPackets,
 					libvpxRows, libvpxPackets))
 			if tc.wantDrop && (len(govpxDrops) == 0 || len(libvpxDrops) == 0) {
 				t.Fatalf("drop fixture %s did not drop on both sides: govpx=%v libvpx=%v",
 					tc.name, govpxDrops, libvpxDrops)
 			}
 			if os.Getenv("GOVPX_VP9_RUNTIME_DROP_BYTE_STRICT") == "1" &&
-				(matches != len(govpxRows) || stats.hasMismatch()) {
+				(matches != len(govpxRows) || stats.HasMismatch()) {
 				t.Fatalf("strict VP9 runtime-drop mismatch %s: matches=%d/%d stats=%s",
 					tc.name, matches, len(govpxRows), stats)
 			}

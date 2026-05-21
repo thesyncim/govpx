@@ -205,6 +205,181 @@ func TestRateScoreboardFormatting(t *testing.T) {
 	}
 }
 
+func TestSingleRateScoreboardFormatting(t *testing.T) {
+	rows := []RateScoreboardRow{{
+		FrameIndex:           3,
+		Flags:                5,
+		Dropped:              true,
+		DropReason:           "watermark_decimation",
+		KeyFrame:             false,
+		ShowFrame:            false,
+		CodedWidth:           64,
+		CodedHeight:          32,
+		BaseQIndex:           44,
+		PublicQuantizer:      18,
+		SizeBytes:            0,
+		SizeBits:             0,
+		FirstPartitionSize:   0,
+		TargetBitrateKbps:    300,
+		FrameTargetBits:      700,
+		BufferLevelBits:      800,
+		RefreshFrameFlags:    4,
+		RefreshFrameContext:  true,
+		TxMode:               1,
+		InterpFilter:         2,
+		ReferenceMode:        3,
+		ReferenceMask:        5,
+		LoopFilterLevel:      11,
+		TileLog2Cols:         1,
+		TemporalLayerID:      2,
+		TemporalLayerCount:   3,
+		TL0PICIDX:            9,
+		TemporalLayerSync:    true,
+		RateCorrectionFactor: 1.2,
+	}}
+
+	out := FormatSingleRateScoreboardRows(rows)
+	for _, want := range []string{
+		"frame,flags,drop,reason,key,show,width,height",
+		"3,0x5,true,watermark_decimation,false,false,64,32,44,18",
+		",300,700,800,0x4,true,1,2,3,0x5,11,1,2,3,9,true",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("FormatSingleRateScoreboardRows missing %q in:\n%s",
+				want, out)
+		}
+	}
+}
+
+func TestCompareTransitionRows(t *testing.T) {
+	govpxRows := []RateScoreboardRow{{
+		FrameIndex:           0,
+		Flags:                1,
+		KeyFrame:             true,
+		ShowFrame:            true,
+		CodedWidth:           64,
+		CodedHeight:          64,
+		BaseQIndex:           20,
+		PublicQuantizer:      8,
+		SizeBits:             80,
+		FirstPartitionSize:   7,
+		TargetBitrateKbps:    300,
+		FrameTargetBits:      600,
+		BufferLevelBits:      900,
+		BufferOptimalBits:    1000,
+		RefreshFrameFlags:    7,
+		RefreshFrameContext:  true,
+		FrameContextIdx:      1,
+		TxMode:               1,
+		InterpFilter:         2,
+		ReferenceMode:        3,
+		CompoundAllowed:      true,
+		ReferenceMask:        5,
+		LoopFilterLevel:      11,
+		TileLog2Cols:         1,
+		TemporalLayerID:      1,
+		TemporalLayerCount:   2,
+		TemporalLayerSync:    true,
+		TL0PICIDX:            9,
+		RateCorrectionFactor: 1.1,
+	}}
+	libvpxRows := []RateScoreboardRow{{
+		FrameIndex:           0,
+		Flags:                9,
+		KeyFrame:             false,
+		ShowFrame:            false,
+		CodedWidth:           32,
+		CodedHeight:          64,
+		BaseQIndex:           25,
+		PublicQuantizer:      9,
+		SizeBits:             100,
+		FirstPartitionSize:   9,
+		TargetBitrateKbps:    400,
+		FrameTargetBits:      650,
+		BufferLevelBits:      1000,
+		BufferOptimalBits:    1100,
+		RefreshFrameFlags:    3,
+		ErrorResilient:       true,
+		FrameParallel:        true,
+		FrameContextIdx:      2,
+		TxMode:               2,
+		InterpFilter:         3,
+		ReferenceMode:        4,
+		ReferenceMask:        7,
+		LoopFilterLevel:      12,
+		TileLog2Rows:         1,
+		TemporalLayerCount:   2,
+		TemporalLayerSync:    false,
+		TL0PICIDX:            10,
+		RateCorrectionFactor: 1.1,
+	}}
+
+	stats := CompareTransitionRows(t, govpxRows, libvpxRows, func(flags uint32) uint32 {
+		return flags + 8
+	})
+	if !stats.HasMismatch() {
+		t.Fatal("CompareTransitionRows reported no mismatches")
+	}
+	if stats.FlagMismatches != 0 || stats.KeyMismatches != 1 ||
+		stats.ShowMismatches != 1 || stats.CodedSizeMismatches != 1 ||
+		stats.QMismatches != 1 || stats.PublicQMismatches != 1 ||
+		stats.SizeMismatches != 1 || stats.FirstPartitionMismatches != 1 ||
+		stats.TargetMismatches != 1 || stats.BufferMismatches != 1 ||
+		stats.BufferOptimalMismatches != 1 || stats.RefreshMismatches != 1 ||
+		stats.HeaderMismatches != 1 || stats.ModeHeaderMismatches != 1 ||
+		stats.LoopFilterMismatches != 1 || stats.TileMismatches != 1 ||
+		stats.TemporalMismatches != 1 || stats.TL0Mismatches != 1 {
+		t.Fatalf("CompareTransitionRows stats = %+v", stats)
+	}
+	if stats.MaxQDrift != 5 || stats.MaxSizeDeltaPct != 20 ||
+		stats.MaxBufferDeltaPct != 10 ||
+		stats.MaxBufferOptimalDeltaPct != PctDelta(1000, 1100) {
+		t.Fatalf("CompareTransitionRows deltas = %+v", stats)
+	}
+	if got := stats.String(); !strings.Contains(got, "rows=1 flag=0") ||
+		!strings.Contains(got, "max_q_drift=5") {
+		t.Fatalf("TransitionStats.String = %q", got)
+	}
+}
+
+func TestDropAwareStreamParityRows(t *testing.T) {
+	govpxRows := []RateScoreboardRow{
+		{FrameIndex: 0, BaseQIndex: 20, FrameTargetBits: 100, BufferLevelBits: 200, RefreshFrameFlags: 7, FirstPartitionSize: 5},
+		{FrameIndex: 1, Dropped: true},
+		{FrameIndex: 2, BaseQIndex: 30, FrameTargetBits: 110, BufferLevelBits: 210, RefreshFrameFlags: 3, FirstPartitionSize: 4},
+	}
+	libvpxRows := []RateScoreboardRow{
+		{FrameIndex: 0, BaseQIndex: 20, FrameTargetBits: 100, BufferLevelBits: 200, RefreshFrameFlags: 7, FirstPartitionSize: 5},
+		{FrameIndex: 1, Dropped: true},
+		{FrameIndex: 2, BaseQIndex: 31, FrameTargetBits: 111, BufferLevelBits: 211, RefreshFrameFlags: 1, FirstPartitionSize: 6},
+	}
+	govpxPackets := [][]byte{{1, 2, 3}, nil, {7, 8, 9}}
+	libvpxPackets := [][]byte{{1, 2, 3}, nil, {7, 0, 9}}
+
+	matches, packetMatches, dropMatches, firstMismatch :=
+		CountByteParityMatchesWithDrops(t, govpxRows, govpxPackets,
+			libvpxRows, libvpxPackets)
+	if matches != 2 || packetMatches != 1 || dropMatches != 1 ||
+		firstMismatch != 2 {
+		t.Fatalf("CountByteParityMatchesWithDrops = (%d, %d, %d, %d)",
+			matches, packetMatches, dropMatches, firstMismatch)
+	}
+
+	out := FormatDropAwareStreamParityRows(t, govpxRows, govpxPackets,
+		libvpxRows, libvpxPackets)
+	for _, want := range []string{
+		"frame,row_match,packet_match,first_diff",
+		"0,true,true,-1,false,false,3,3,20,20,100,100,200,200,0x7,0x7,5,5",
+		"1,true,true,-1,true,true,0,0,0,0,0,0,0,0,0x0,0x0,0,0",
+		"2,false,false,1,false,false,3,3,30,31,110,111,210,211,0x3,0x1,4,6",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("FormatDropAwareStreamParityRows missing %q in:\n%s",
+				want, out)
+		}
+	}
+}
+
 func TestPctDelta(t *testing.T) {
 	cases := []struct {
 		name string
