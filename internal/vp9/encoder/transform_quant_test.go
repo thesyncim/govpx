@@ -414,6 +414,30 @@ func TestForwardHTHybridTransformsProduceDirectionalCoefficients(t *testing.T) {
 	}
 }
 
+func TestForwardHTSmallHybridTransformsDoNotAllocate(t *testing.T) {
+	var in4 [16]int16
+	for i := range in4 {
+		in4[i] = int16((i*17)%41 - 20)
+	}
+	var in8 [64]int16
+	for i := range in8 {
+		in8[i] = int16((i*13)%73 - 36)
+	}
+	var out4 [16]int16
+	var out8 [64]int16
+	txTypes := [...]common.TxType{common.AdstDct, common.DctAdst, common.AdstAdst}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		for _, txType := range txTypes {
+			ForwardHT4x4Into(in4[:], 4, txType, out4[:])
+			ForwardHT8x8Into(in8[:], 8, txType, out8[:])
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("small hybrid transforms allocs/run = %f, want 0", allocs)
+	}
+}
+
 func TestForwardHT16x16AdstDctConstantMatchesLibvpx(t *testing.T) {
 	var input [256]int16
 	for i := range input {

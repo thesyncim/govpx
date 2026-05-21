@@ -403,8 +403,7 @@ func ForwardHT4x4Into(input []int16, stride int, txType common.TxType, output []
 		ForwardDCT4x4Into(input, stride, output)
 		return
 	}
-	cols, rows, ok := forwardHybridTxKernels(txType, forwardDCT4, forwardADST4)
-	if !ok {
+	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
 		return
 	}
 	var out [16]int
@@ -416,7 +415,7 @@ func ForwardHT4x4Into(input []int16, stride int, txType common.TxType, output []
 		if i == 0 && tempIn[0] != 0 {
 			tempIn[0]++
 		}
-		cols(tempIn[:], tempOut[:])
+		forwardHybridCol4(txType, tempIn[:], tempOut[:])
 		for j := range 4 {
 			out[j*4+i] = tempOut[j]
 		}
@@ -425,7 +424,7 @@ func ForwardHT4x4Into(input []int16, stride int, txType common.TxType, output []
 		for j := range 4 {
 			tempIn[j] = out[j+i*4]
 		}
-		rows(tempIn[:], tempOut[:])
+		forwardHybridRow4(txType, tempIn[:], tempOut[:])
 		for j := range 4 {
 			output[j+i*4] = int16((tempOut[j] + 1) >> 2)
 		}
@@ -438,8 +437,7 @@ func ForwardHT8x8Into(input []int16, stride int, txType common.TxType, output []
 		ForwardDCT8x8Into(input, stride, output)
 		return
 	}
-	cols, rows, ok := forwardHybridTxKernels(txType, forwardDCT8, forwardADST8)
-	if !ok {
+	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
 		return
 	}
 	var out [64]int
@@ -448,7 +446,7 @@ func ForwardHT8x8Into(input []int16, stride int, txType common.TxType, output []
 		for j := range 8 {
 			tempIn[j] = int(input[j*stride+i]) * 4
 		}
-		cols(tempIn[:], tempOut[:])
+		forwardHybridCol8(txType, tempIn[:], tempOut[:])
 		for j := range 8 {
 			out[j*8+i] = tempOut[j]
 		}
@@ -457,7 +455,7 @@ func ForwardHT8x8Into(input []int16, stride int, txType common.TxType, output []
 		for j := range 8 {
 			tempIn[j] = out[j+i*8]
 		}
-		rows(tempIn[:], tempOut[:])
+		forwardHybridRow8(txType, tempIn[:], tempOut[:])
 		for j := range 8 {
 			output[j+i*8] = int16((tempOut[j] + fdctBoolInt(tempOut[j] < 0)) >> 1)
 		}
@@ -495,6 +493,42 @@ func ForwardHT16x16Into(input []int16, stride int, txType common.TxType, output 
 	}
 }
 
+func forwardHybridCol4(txType common.TxType, input, output []int) {
+	switch txType {
+	case common.AdstDct, common.AdstAdst:
+		forwardADST4(input, output)
+	default:
+		forwardDCT4(input, output)
+	}
+}
+
+func forwardHybridRow4(txType common.TxType, input, output []int) {
+	switch txType {
+	case common.DctAdst, common.AdstAdst:
+		forwardADST4(input, output)
+	default:
+		forwardDCT4(input, output)
+	}
+}
+
+func forwardHybridCol8(txType common.TxType, input, output []int) {
+	switch txType {
+	case common.AdstDct, common.AdstAdst:
+		forwardADST8(input, output)
+	default:
+		forwardDCT8(input, output)
+	}
+}
+
+func forwardHybridRow8(txType common.TxType, input, output []int) {
+	switch txType {
+	case common.DctAdst, common.AdstAdst:
+		forwardADST8(input, output)
+	default:
+		forwardDCT8(input, output)
+	}
+}
+
 func forwardHybridCol16(txType common.TxType, input, output []int) {
 	switch txType {
 	case common.AdstDct, common.AdstAdst:
@@ -510,25 +544,6 @@ func forwardHybridRow16(txType common.TxType, input, output []int) {
 		forwardADST16(input, output)
 	default:
 		forwardDCT16(input, output)
-	}
-}
-
-type forwardTx1DKernel func(input, output []int)
-
-func forwardHybridTxKernels(txType common.TxType, dct, adst forwardTx1DKernel) (
-	forwardTx1DKernel, forwardTx1DKernel, bool,
-) {
-	switch txType {
-	case common.DctDct:
-		return dct, dct, true
-	case common.AdstDct:
-		return adst, dct, true
-	case common.DctAdst:
-		return dct, adst, true
-	case common.AdstAdst:
-		return adst, adst, true
-	default:
-		return nil, nil, false
 	}
 }
 
