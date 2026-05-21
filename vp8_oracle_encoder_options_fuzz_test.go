@@ -13,12 +13,10 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// FuzzVP8EncoderOptions closes plan-§3 F7 / G8 from the VP8
-// byte-exactness tracker: arbitrary fuzz bytes decode into an
-// EncoderOptions value across the validator's full input domain.
-// NewVP8Encoder either rejects with a documented sentinel error or
-// accepts; accepted configs encode one keyframe and (when the
-// libvpx CLI accepts the same shape) compare keyframe SHA-256
+// FuzzVP8EncoderOptions decodes arbitrary fuzz bytes into EncoderOptions
+// across the validator's full input domain. NewVP8Encoder either rejects with
+// a documented sentinel error or accepts; accepted configs encode one keyframe
+// and, when the libvpx CLI accepts the same shape, compare keyframe SHA-256
 // against vpxenc-oracle.
 //
 // Asymmetries:
@@ -33,7 +31,7 @@ import (
 //   - Both accept → keyframe bytes must SHA-256 match.
 //
 // Mirrors FuzzVP9EncoderOptions in shape and adds the libvpx
-// keyframe-byte-parity comparator the plan calls for.
+// keyframe-byte-parity comparator.
 func FuzzVP8EncoderOptions(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run option-validation fuzz")

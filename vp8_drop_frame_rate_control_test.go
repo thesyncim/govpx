@@ -2,8 +2,8 @@ package govpx
 
 import "testing"
 
-// Task #242: vp8_pick_drop_frame buffer-underrun + tight-buffer P-target
-// undershoot bookkeeping audit. These tests pin the libvpx v1.16.0
+// These tests pin the libvpx v1.16.0 buffer-underrun drop path,
+// tight-buffer P-target undershoot bookkeeping, and the surrounding
 // vp8/encoder/ratectrl.c calc_pframe_target_size buffer-underrun drop
 // (lines 861-899) and the surrounding tight-buffer percent_low p-frame
 // target shrink (lines 695-727), then verify the post-drop pid-controller

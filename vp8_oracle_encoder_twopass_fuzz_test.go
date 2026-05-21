@@ -17,9 +17,9 @@ import (
 
 // firstPassLooseTolerances captures per-field |Δ| ceilings that the
 // fuzz-driven first-pass comparator enforces. The ceilings start at
-// values that just-barely admit today's seed corpus and are documented
-// as a *temporary* floor pending closure of the residual govpx vs
-// libvpx MV-accumulator divergence (plan-§3 gap E Step 2). Each entry
+// values that just barely admit the original seed corpus and are documented
+// as a temporary floor pending closure of the residual govpx vs libvpx
+// MV-accumulator divergence. Each entry
 // is "ceiling on |govpx - libvpx|" for that FIRSTPASS_STATS field,
 // applied per-frame and on the IsTotal aggregate.
 //
@@ -44,8 +44,8 @@ type firstPassLooseTolerances struct {
 	NewMVCount          float64
 }
 
-// defaultFirstPassLooseTolerances is the cross-config ceiling consumed
-// by the F2 fuzzer. Step 2 of plan-§3 gap E closed the residual
+// defaultFirstPassLooseTolerances is the cross-config ceiling consumed by the
+// two-pass fuzzer. The first-pass MV-accumulator divergence is closed:
 // first-pass MV-accumulator divergence (govpx's diamond search was
 // computing MV-SAD costs with sad_per_bit derived from qIndex=26,
 // while libvpx's vp8_first_pass leaves x->sadperbit16 at the calloc
@@ -78,8 +78,8 @@ var defaultFirstPassLooseTolerances = firstPassLooseTolerances{
 // govpx and libvpx FIRSTPASS_STATS across all frames and the totals
 // row. Unlike compareFirstPassStats (which expects a pinned cpu=0,
 // frames<=4 fixture and asserts at 1e-12), this comparator is meant
-// for the fuzz-driven cross-config corpus that currently exercises a
-// known residual MV-accumulator divergence (plan-§3 gap E Step 2).
+// for the fuzz-driven cross-config corpus that historically exercised
+// the first-pass MV-accumulator divergence.
 //
 // Returns (maxField, maxAbsValue) for diagnostic reporting; callers
 // inspect the returned values to log a scoreboard summary alongside
@@ -128,11 +128,10 @@ func compareFirstPassStatsLoose(t *testing.T, label string, govpx, libvpx []Firs
 	return maxAbsField, maxAbsValue
 }
 
-// FuzzEncoderTwoPassByteParity closes plan-§3 F2 / G3: a fuzz-driven
-// option grid drives both libvpx and govpx through a full two-pass
-// VBR encode, asserting pass-2 keyframe byte parity strictly and
-// logging first-pass stats divergences plus inter-frame pass-2
-// mismatches per the §5 matched-prefix-length scoreboard convention.
+// FuzzEncoderTwoPassByteParity drives both libvpx and govpx through a full
+// two-pass VBR encode, asserting pass-2 keyframe byte parity strictly and
+// logging first-pass stats divergences plus inter-frame pass-2 mismatches
+// under the matched-prefix-length scoreboard convention.
 //
 // First-pass stats are tolerance-compared today by
 // TestVP8OracleFirstPassStatsCompare only for a tightly-pinned (cpu=0,
@@ -161,10 +160,9 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 	// `frames_to_key == 0` branch at firstpass.c line 2237) was
 	// previously deferred while govpx's prepareKFGroup computed
 	// kfGroupErr over `len(stats) - frame` rather than the libvpx
-	// `frames_to_key` returned by find_next_key_frame; task #192
-	// ported the libvpx walk verbatim (firstpass.c lines 2533-2596)
-	// so the mid-stream KF re-seed integrates over the same span
-	// libvpx uses. The kf=4 seeds (byte2=3) are re-enabled below.
+	// `frames_to_key` returned by find_next_key_frame. The libvpx walk is
+	// now ported verbatim (firstpass.c lines 2533-2596), so the mid-stream
+	// KF re-seed integrates over the same span libvpx uses.
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0, 0},
 		{1, 0, 0, 0, 0, 0},

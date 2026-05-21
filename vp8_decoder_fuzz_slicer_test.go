@@ -10,15 +10,12 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestVP8PerFrameI420Sizes_IgnoresIVFHeaderDims verifies the task #308
-// harness fix: per-frame I420 sizes used by the libvpx oracle slicer
-// must be derived from the VP8 key-frame header (packet bytes 6-9), not
-// from the attacker-controlled IVF header bytes 14-15. The smoke IVF
-// has VP8 KF dims 32x32 and IVF header dims 32x32; mutating IVF header
-// bytes 14-15 to claim height=7708 (the f4f81f7d2e022caf seed family)
-// must not change the expected per-frame size that the oracle slicer
-// computes.
-func TestVP8PerFrameI420Sizes_IgnoresIVFHeaderDims(t *testing.T) {
+// TestVP8PerFrameI420SizesIgnoreIVFHeaderDims verifies that per-frame I420
+// sizes used by the libvpx oracle slicer are derived from the VP8 key-frame
+// header, not from the attacker-controlled IVF header. Mutating IVF header
+// bytes 14-15 to claim height=7708 must not change the expected per-frame
+// size that the oracle slicer computes.
+func TestVP8PerFrameI420SizesIgnoreIVFHeaderDims(t *testing.T) {
 	smoke, err := hex.DecodeString(testutil.LibvpxEncodedSmokeIVFHex)
 	if err != nil {
 		t.Fatalf("decode smoke IVF: %v", err)
@@ -50,12 +47,12 @@ func TestVP8PerFrameI420Sizes_IgnoresIVFHeaderDims(t *testing.T) {
 	}
 }
 
-// TestSliceRawByPerFrameSizes_StopsAtRawEnd verifies that the slicer
+// TestSliceRawByPerFrameSizesStopsAtRawEnd verifies that the slicer
 // emits exactly as many frames as fit in the raw output, even when the
 // per-frame size vector claims more frames than vpxdec wrote. This
 // covers mid-stream rejection (libvpx errored after frame N but the IVF
 // claimed N+M frames).
-func TestSliceRawByPerFrameSizes_StopsAtRawEnd(t *testing.T) {
+func TestSliceRawByPerFrameSizesStopsAtRawEnd(t *testing.T) {
 	per := i420FrameSize(32, 30)
 	if per <= 0 {
 		t.Fatalf("i420FrameSize(32,30) = %d, want > 0", per)
@@ -76,11 +73,11 @@ func TestSliceRawByPerFrameSizes_StopsAtRawEnd(t *testing.T) {
 	}
 }
 
-// TestVP8PerFrameI420Sizes_StopsAtBadFrameHeader checks that an
+// TestVP8PerFrameI420SizesStopsAtBadFrameHeader checks that an
 // unparseable VP8 frame body truncates the expected-size vector: libvpx
 // won't emit raw output past a rejected frame, and our slicer must
 // mirror that.
-func TestVP8PerFrameI420Sizes_StopsAtBadFrameHeader(t *testing.T) {
+func TestVP8PerFrameI420SizesStopsAtBadFrameHeader(t *testing.T) {
 	smoke, err := hex.DecodeString(testutil.LibvpxEncodedSmokeIVFHex)
 	if err != nil {
 		t.Fatalf("decode smoke IVF: %v", err)

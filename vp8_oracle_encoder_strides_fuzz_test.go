@@ -12,13 +12,11 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// FuzzEncoderRandomStrides closes plan-§3 F6 / G7 from the VP8
-// byte-exactness tracker: callers feed govpx Image values with
-// varying Y/U/V stride padding, and the fuzzer asserts that the
-// encoded VP8 keyframe is byte-identical to the libvpx oracle
-// keyframe encoded from the equivalent tight (no-padding) I420
-// content. A stride-walk bug that reads padding bytes will surface
-// as a keyframe SHA-256 mismatch.
+// FuzzEncoderRandomStrides feeds govpx Image values with varying Y/U/V stride
+// padding, and asserts that the encoded VP8 keyframe is byte-identical to the
+// libvpx oracle keyframe encoded from the equivalent tight I420 content. A
+// stride-walk bug that reads padding bytes will surface as a keyframe SHA-256
+// mismatch.
 //
 // The libvpx oracle side ingests I420 from a YUV file, which is
 // always tight (visible content, no stride padding). The govpx

@@ -154,8 +154,8 @@ func decodeIVFGovpxBestEffort(data []byte) ([][]byte, error) {
 // vpxdec's non-zero exit on malformed input is surfaced as the error;
 // any frames written before the failure are still returned.
 //
-// Slicing notes (task #308): vpxdec's per-frame raw I420 size is derived
-// from the *VP8 key-frame header* (width/height encoded in packet bytes
+// Slicing notes: vpxdec's per-frame raw I420 size is derived from the
+// *VP8 key-frame header* (width/height encoded in packet bytes
 // 6-9), NOT the IVF file header's width/height fields. The IVF header
 // dims are attacker-controlled metadata that the fuzzer mutates freely;
 // using them to size the raw slicer caused false acceptance disagreements

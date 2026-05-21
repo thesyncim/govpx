@@ -14,19 +14,18 @@ import (
 )
 
 // FuzzEncoderProductionStreamByteParity runs an option-grid fuzz against the
-// canonical vpxenc-oracle harness (the same one TestVP8OracleEncoderStreamByteParity
-// uses). It closes plan-§3 F1: random resolution × deadline × cpu_used × rate
-// control × feature-toggle combinations are exercised at every fuzz iteration,
-// including production resolutions and Threads ≥ 2 — picking up bitstream-
-// affecting changes that the hand-picked strict-gate matrix would miss.
+// canonical vpxenc-oracle harness used by the strict stream-parity suite.
+// Random resolution, deadline, cpu_used, rate-control, and feature-toggle
+// combinations are exercised at every fuzz iteration, including production
+// resolutions and Threads >= 2, picking up bitstream-affecting changes that
+// the hand-picked strict-gate matrix would miss.
 //
 // Every fuzz iteration asserts full byte-exact parity (matchLimit=0) across
 // all frames at every resolution. The matchLimit=1 keyframe-only floor and
 // matched-prefix scoreboard convention used during the §5 cascade are now
-// retired — the autospeed determinism work (#361-#369), the libvpx-oracle
-// reproducibility retry (#355/#369), and the matchLimit tightening sweep
-// (#384) closed the residual production-resolution slack, so the gate is
-// uniformly strict. Divergences land in
+// retired. Autospeed determinism, libvpx-oracle reproducibility retries, and
+// the matchLimit tightening sweep closed the residual production-resolution
+// slack, so the gate is uniformly strict. Divergences land in
 // testdata/fuzz/FuzzEncoderProductionStreamByteParity and replay as ordinary
 // go test regressions.
 func FuzzEncoderProductionStreamByteParity(f *testing.F) {
@@ -35,8 +34,8 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 	}
 	// Each seed is (resBucket, deadlineBucket, cpuBucket, rcBucket, featBucket,
 	// tokenPartBucket, threadsBucket, sharpBucket, tuneBucket, arnrBucket,
-	// errorResBucket). The errorResBucket byte was added by task #251 to
-	// roll error_resilient independently of featBucket so the (error_res ×
+	// errorResBucket). The errorResBucket byte rolls error_resilient
+	// independently of featBucket so the (error_res ×
 	// token_partitions × threads) product is exercised every iteration.
 	// 10-byte seeds remain valid; the cursor wraps to byte 0 for the 11th
 	// pick (no errorResBucket toggle).
@@ -55,7 +54,7 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 		{8, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0},  // realtime 640x360 threads=2
 		{9, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0},  // realtime 854x480 threads=4
 		{10, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0}, // realtime 1280x720 threads=4
-		// task #251: error_resilient × token_partitions ∈ {1,2,4,8} ×
+		// error_resilient × token_partitions ∈ {1,2,4,8} ×
 		// threads ∈ {1,2,4} on the WebRTC-shaped panning fixtures. Each
 		// seed flips errorResBucket=1 so featBucket stays free to roll
 		// orthogonal toggles. Resolution buckets stay small to bound
@@ -88,8 +87,8 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 			opts.ErrorResilient, opts.TokenPartitions, opts.ARNRMaxFrames, opts.ARNRStrength, opts.ARNRType, len(sources))
 
 		govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-		// Task #369: govpx is now deterministic across host load at
-		// threads>=2 thanks to the inter-frame budget/3 wall-clock pin
+		// govpx is deterministic across host load at threads>=2 thanks
+		// to the inter-frame budget/3 wall-clock pin
 		// (interFrameAutoSpeedTimingCompensation, vp8_encoder_config.go).
 		// The libvpx oracle is still byte-flaky at threads>=2 for
 		// several VP8 configs (notably the 1f411689 seed#7 cohort:
@@ -175,7 +174,7 @@ func newOptionGridFuzzCase(data []byte) optionGridFuzzCase {
 	// of the screen-content / arnr feature buckets so the
 	// {token_partitions ∈ {1,2,4,8}} × {error_resilient on/off} ×
 	// {threads ∈ {1,2,4}} product is reachable on a single fuzz iteration
-	// — task #251 wire-image audit of vp8_pack_tokens_into_partitions
+	// and checked against vp8_pack_tokens_into_partitions
 	// (libvpx vp8/encoder/bitstream.c:292-318).
 	errorResBucket := r.Pick(2)
 

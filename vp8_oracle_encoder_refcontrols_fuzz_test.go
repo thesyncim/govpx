@@ -15,11 +15,10 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// FuzzEncoderReferenceControlSequences closes plan-§3 F8 / G10 from
-// the VP8 byte-exactness tracker: arbitrary sequences of
-// SetReferenceFrame / CopyReferenceFrame / EncodeFlags ref-update bits
-// are scheduled per-frame and the encoded bytes must match the
-// libvpx vpxenc-frameflags driver driven through the same script.
+// FuzzEncoderReferenceControlSequences schedules arbitrary per-frame
+// SetReferenceFrame, CopyReferenceFrame, and EncodeFlags ref-update operations.
+// The encoded bytes must match the libvpx vpxenc-frameflags driver driven
+// through the same script.
 //
 // The existing vp8_oracle_encoder_copy_reference_parity_test.go covers
 // hand-picked sequences; FuzzVP8OracleEncoderRuntimeControlTransitions

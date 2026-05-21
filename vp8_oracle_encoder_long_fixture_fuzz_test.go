@@ -37,7 +37,7 @@ import (
 //     to fuzz seed (no longer skipped).
 //
 //   - {0x31, 0x39} = []byte("19") (VBR 300kbps splitmv kf=30 tight-buf
-//     good-quality): closed 2026-05-19 by task #337. The fuzz harness
+//     good-quality): closed 2026-05-19. The fuzz harness
 //     now flips `EncoderOptions.AdaptiveKeyFrames=true` in buildOpts
 //     so govpx walks the same libvpx auto_key=1 control path the C
 //     oracle is configured for (`--kf-min-dist=0
@@ -67,10 +67,9 @@ func longFixtureSeedDeferred(data []byte) bool {
 	return false
 }
 
-// FuzzEncoderLongFixtureRateControl closes plan-§3 F3 / G4: a long
-// synthetic clip (≥ 256 frames) is encoded under fuzz-driven CBR / VBR
-// configurations and the per-frame SHA-256 matched-prefix length is
-// tallied. The strict gate today runs ~16 frames per case, so
+// FuzzEncoderLongFixtureRateControl encodes a long synthetic clip under
+// fuzz-driven CBR/VBR configurations and tallies the per-frame SHA-256
+// matched-prefix length. The strict gate today runs about 16 frames per case, so
 // cumulative rate-control drift, GF/ARF schedule divergence, and
 // adaptive-ARNR decisions that take dozens of frames to manifest go
 // unobserved.
@@ -213,7 +212,7 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 		BufferSizeMs:        c.bufferMs,
 		BufferInitialSizeMs: c.bufferInitMs,
 		BufferOptimalSizeMs: c.bufferOptMs,
-		// Task #337: the libvpx oracle below passes
+		// The libvpx oracle below passes
 		// `--kf-min-dist=0 --kf-max-dist=KeyFrameInterval`, which flips
 		// libvpx `oxcf->auto_key = 1` at vp8/vp8_cx_iface.c:377-378.
 		// Under auto_key=1 libvpx schedules KFs via the internal
@@ -226,7 +225,7 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 		// path under `EncoderOptions.AdaptiveKeyFrames=true`; flip it
 		// on here so the fuzz harness drives the same libvpx control
 		// path it asks the C oracle to use. With this in place the
-		// previously deferred aeeeb411 seed (task #335) is closed.
+		// previously deferred aeeeb411 seed is closed.
 		AdaptiveKeyFrames: true,
 	}
 	endUsage := "cbr"
@@ -247,8 +246,8 @@ func (c *longFixtureFuzzCase) buildOpts() (EncoderOptions, []string) {
 	// KF schedule (mirrors libvpx vp8_cx_iface.c
 	// `cfg.kf_max_dist`-driven `cpi->key_frame_frequency` handling).
 	//
-	// Note (task #335): kf-min-dist=0 also flips libvpx's
-	// `oxcf->auto_key` to 1 at vp8_cx_iface.c:377-378, which under
+	// kf-min-dist=0 also flips libvpx's `oxcf->auto_key` to 1 at
+	// vp8_cx_iface.c:377-378, which under
 	// compressor_speed != 2 (good/best quality) runs `decide_key_frame`
 	// (onyx_if.c:2713 / line 3991) inside the recode loop and can
 	// insert unscheduled intra recodes whenever the committed
