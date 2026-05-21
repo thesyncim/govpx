@@ -3,13 +3,14 @@ package benchmarks
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -100,11 +101,13 @@ func BenchmarkDecodeLibvpxOracleSmoke(b *testing.B) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		b.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle benchmarks")
 	}
-	oracle := os.Getenv("GOVPX_ORACLE")
-	if oracle == "" {
-		b.Skip("set GOVPX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
+	oracle, err := coracle.ChecksumOraclePath()
+	if err != nil {
+		if errors.Is(err, coracle.ErrChecksumOracleNotBuilt) {
+			b.Skip("set GOVPX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
+		}
+		b.Fatalf("ChecksumOraclePath returned error: %v", err)
 	}
-	oracle = resolveBenchmarkPath(oracle)
 	ivf := loadLibvpxSmokeIVF(b)
 	header, _ := splitIVFPackets(b, ivf)
 	path := filepath.Join(b.TempDir(), "libvpx-smoke.ivf")
@@ -230,33 +233,14 @@ func decodeIntoPackets(t testing.TB, d *govpx.VP8Decoder, packets [][]byte, dst 
 
 func runLibvpxOracleDecode(t testing.TB, oracle string, path string) int {
 	t.Helper()
-	cmd := exec.Command(oracle, "decode", path)
-	out, err := cmd.CombinedOutput()
+	frames, diag, err := coracle.VpxdecVP8ChecksumFile(oracle, "decode", path)
 	if err != nil {
-		t.Fatalf("libvpx oracle failed: %v\n%s", err, out)
-	}
-	frames, err := testutil.ParseFrameChecksumJSONLines(out)
-	if err != nil {
-		t.Fatalf("ParseFrameChecksumJSONLines returned error: %v", err)
+		t.Fatalf("VpxdecVP8ChecksumFile returned error: %v\n%s", err, diag)
 	}
 	if len(frames) == 0 {
 		t.Fatalf("libvpx oracle decoded zero frames")
 	}
 	return len(frames)
-}
-
-func resolveBenchmarkPath(path string) string {
-	if filepath.IsAbs(path) {
-		return path
-	}
-	if _, err := os.Stat(path); err == nil {
-		return path
-	}
-	parent := filepath.Join("..", path)
-	if _, err := os.Stat(parent); err == nil {
-		return parent
-	}
-	return path
 }
 
 func benchmarkImage(width int, height int) govpx.Image {
