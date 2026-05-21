@@ -7,11 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
@@ -1439,42 +1438,25 @@ func encodeFramesWithGovpx(t *testing.T, opts EncoderOptions, sources []Image) [
 // encodeFramesWithLibvpxOracle runs vpxenc-oracle on the supplied I420
 // fixture and returns the per-frame VP8 packet payloads extracted from
 // the resulting IVF file.
-func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) [][]byte {
+func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, _ string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) [][]byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivfPath := filepath.Join(dir, name+".ivf")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
-	autoAltRefArg := "--auto-alt-ref=0"
-	if opts.AutoAltRef {
-		autoAltRefArg = "--auto-alt-ref=1"
-	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
-		autoAltRefArg,
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
+	cfg := coracle.VpxencVP8Config{
+		BinaryPath:        vpxencOracle,
+		Width:             opts.Width,
+		Height:            opts.Height,
+		Frames:            len(sources),
+		Deadline:          libvpxOracleDeadline(opts.Deadline),
+		CPUUsed:           opts.CpuUsed,
+		LagInFrames:       opts.LookaheadFrames,
+		AutoAltRef:        opts.AutoAltRef,
+		TargetBitrateKbps: targetKbps,
+		MinQ:              opts.MinQuantizer,
+		MaxQ:              opts.MaxQuantizer,
+		Timebase:          libvpxOracleTimebaseArg(opts),
+		FPS:               libvpxOracleFPSArg(opts),
+		KeyFrameMinDist:   999,
+		KeyFrameMaxDist:   999,
+		ExtraArgs:         extraArgs,
 	}
 	// Only inject the default `--kf-min-dist=999 --kf-max-dist=999`
 	// "no auto-KF" pair when the caller hasn't supplied its own kf-*
@@ -1486,24 +1468,25 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 	// to insert a keyframe at frame `KeyFrameInterval` while libvpx
 	// keeps producing inter frames.
 	if !extraArgsContainsKFDist(extraArgs) {
-		args = append(args, "--kf-min-dist=999", "--kf-max-dist=999")
+		cfg.KeyFrameDistSet = true
 	}
-	args = append(args, extraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = os.Environ()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(ivfPath)
+	frames, diag, err := coracle.VpxencVP8OracleFramePayloadsI420(
+		encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
-		t.Fatalf("read %s: %v", ivfPath, err)
-	}
-	frames, err := testutil.IVFFramePayloads(data)
-	if err != nil {
-		t.Fatalf("IVFFramePayloads: %v", err)
+		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)
 	}
 	return frames
+}
+
+func libvpxOracleDeadline(deadline Deadline) string {
+	switch deadline {
+	case DeadlineBestQuality:
+		return "best"
+	case DeadlineRealtime:
+		return "rt"
+	default:
+		return "good"
+	}
 }
 
 func libvpxOracleTimebaseArg(opts EncoderOptions) string {

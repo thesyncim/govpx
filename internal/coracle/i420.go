@@ -1,0 +1,60 @@
+package coracle
+
+import (
+	"errors"
+	"fmt"
+)
+
+func validateI420Raw(codec string, raw []byte, width int, height int, frames int) error {
+	frameSize, err := i420FrameSize(codec, width, height)
+	if err != nil {
+		return err
+	}
+	if frames <= 0 {
+		return fmt.Errorf("coracle: %s frame count %d must be positive", codec, frames)
+	}
+	want, err := checkedI420Mul(codec, frameSize, frames)
+	if err != nil {
+		return err
+	}
+	if len(raw) != want {
+		return fmt.Errorf("coracle: %s raw I420 size = %d, want %d for %dx%d x %d frames",
+			codec, len(raw), want, width, height, frames)
+	}
+	return nil
+}
+
+func i420FrameSize(codec string, width int, height int) (int, error) {
+	if width <= 0 || height <= 0 {
+		return 0, fmt.Errorf("coracle: invalid %s dimensions %dx%d", codec, width, height)
+	}
+	y, err := checkedI420Mul(codec, width, height)
+	if err != nil {
+		return 0, err
+	}
+	uvWidth := width/2 + width%2
+	uvHeight := height/2 + height%2
+	uv, err := checkedI420Mul(codec, uvWidth, uvHeight)
+	if err != nil {
+		return 0, err
+	}
+	chroma, err := checkedI420Mul(codec, uv, 2)
+	if err != nil {
+		return 0, err
+	}
+	return checkedI420Add(codec, y, chroma)
+}
+
+func checkedI420Mul(codec string, a int, b int) (int, error) {
+	if a != 0 && b > int(^uint(0)>>1)/a {
+		return 0, errors.New("coracle: " + codec + " I420 size overflows int")
+	}
+	return a * b, nil
+}
+
+func checkedI420Add(codec string, a int, b int) (int, error) {
+	if b > int(^uint(0)>>1)-a {
+		return 0, errors.New("coracle: " + codec + " I420 size overflows int")
+	}
+	return a + b, nil
+}

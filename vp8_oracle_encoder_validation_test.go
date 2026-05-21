@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"bytes"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -300,24 +302,36 @@ func writeEncoderValidationI420(t *testing.T, path string, frames []Image) {
 		t.Fatalf("Create %s returned error: %v", path, err)
 	}
 	defer file.Close()
+	writeEncoderValidationI420To(t, file, frames)
+}
+
+func encoderValidationI420Bytes(t *testing.T, frames []Image) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	writeEncoderValidationI420To(t, &buf, frames)
+	return buf.Bytes()
+}
+
+func writeEncoderValidationI420To(t *testing.T, w io.Writer, frames []Image) {
+	t.Helper()
 	for i, frame := range frames {
-		if err := writeEncoderValidationPlane(file, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
+		if err := writeEncoderValidationPlane(w, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
 			t.Fatalf("write frame %d Y returned error: %v", i, err)
 		}
 		uvWidth := (frame.Width + 1) >> 1
 		uvHeight := (frame.Height + 1) >> 1
-		if err := writeEncoderValidationPlane(file, frame.U, frame.UStride, uvWidth, uvHeight); err != nil {
+		if err := writeEncoderValidationPlane(w, frame.U, frame.UStride, uvWidth, uvHeight); err != nil {
 			t.Fatalf("write frame %d U returned error: %v", i, err)
 		}
-		if err := writeEncoderValidationPlane(file, frame.V, frame.VStride, uvWidth, uvHeight); err != nil {
+		if err := writeEncoderValidationPlane(w, frame.V, frame.VStride, uvWidth, uvHeight); err != nil {
 			t.Fatalf("write frame %d V returned error: %v", i, err)
 		}
 	}
 }
 
-func writeEncoderValidationPlane(file *os.File, plane []byte, stride int, width int, height int) error {
+func writeEncoderValidationPlane(w io.Writer, plane []byte, stride int, width int, height int) error {
 	for row := range height {
-		if _, err := file.Write(plane[row*stride : row*stride+width]); err != nil {
+		if _, err := w.Write(plane[row*stride : row*stride+width]); err != nil {
 			return err
 		}
 	}

@@ -7,12 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
@@ -701,97 +699,66 @@ func encodeFramesWithGovpxFrameFlags(t *testing.T, opts EncoderOptions, sources 
 	return out
 }
 
-func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, name string, opts EncoderOptions, targetKbps int, sources []Image, flags []EncodeFlags, extraArgs []string) [][]byte {
+func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, _ string, opts EncoderOptions, targetKbps int, sources []Image, flags []EncodeFlags, extraArgs []string) [][]byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivfPath := filepath.Join(dir, name+".ivf")
-	writeEncoderValidationI420(t, yuvPath, sources)
-
-	deadlineArg := "good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "best"
-	case DeadlineRealtime:
-		deadlineArg = "rt"
-	}
-	endUsage := "cbr"
-	switch opts.RateControlMode {
-	case RateControlVBR:
-		endUsage = "vbr"
-	case RateControlCQ:
-		endUsage = "cq"
-	case RateControlQ:
-		endUsage = "q"
-	}
-	flagsCSV := make([]string, len(sources))
-	invisibleCSV := make([]string, len(sources))
+	libvpxFlags := make([]uint32, len(sources))
+	invisibleFrames := make([]bool, len(sources))
 	haveInvisible := false
-	for i := range flagsCSV {
+	for i := range libvpxFlags {
 		var f EncodeFlags
 		if i < len(flags) {
 			f = flags[i]
 		}
-		flagsCSV[i] = strconv.FormatUint(uint64(frameFlagsForLibvpx(f)), 10)
+		libvpxFlags[i] = frameFlagsForLibvpx(f)
 		if f&EncodeInvisibleFrame != 0 {
-			invisibleCSV[i] = "1"
+			invisibleFrames[i] = true
 			haveInvisible = true
-		} else {
-			invisibleCSV[i] = "0"
 		}
+	}
+	if !haveInvisible {
+		invisibleFrames = nil
 	}
 
-	args := []string{
-		"--infile=" + yuvPath,
-		"--outfile=" + ivfPath,
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--fps-num=" + strconv.Itoa(opts.FPS),
-		"--fps-den=1",
-		"--frames=" + strconv.Itoa(len(sources)),
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--deadline=" + deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--end-usage=" + endUsage,
-		"--auto-alt-ref=0",
-		"--token-parts=" + strconv.Itoa(opts.TokenPartitions),
-		"--frame-flags=" + strings.Join(flagsCSV, ","),
+	cfg := coracle.VpxencVP8FrameFlagsConfig{
+		BinaryPath:        driver,
+		Width:             opts.Width,
+		Height:            opts.Height,
+		Frames:            len(sources),
+		FPSNum:            opts.FPS,
+		FPSDen:            1,
+		TargetBitrateKbps: targetKbps,
+		MinQ:              opts.MinQuantizer,
+		MaxQ:              opts.MaxQuantizer,
+		KeyFrameMinDist:   999,
+		KeyFrameMaxDist:   999,
+		Deadline:          libvpxOracleDeadline(opts.Deadline),
+		CPUUsed:           opts.CpuUsed,
+		EndUsage:          libvpxFrameFlagsEndUsage(opts.RateControlMode),
+		AutoAltRef:        false,
+		TokenPartitions:   opts.TokenPartitions,
+		CQLevel:           opts.CQLevel,
+		Threads:           opts.Threads,
+		FrameFlags:        libvpxFlags,
+		InvisibleFrames:   invisibleFrames,
+		ExtraArgs:         extraArgs,
 	}
-	if haveInvisible {
-		args = append(args, "--invisible-frames="+strings.Join(invisibleCSV, ","))
-	}
-	if opts.CQLevel > 0 {
-		args = append(args, "--cq-level="+strconv.Itoa(opts.CQLevel))
-	}
-	if opts.Threads > 0 {
-		hasThreads := false
-		for _, a := range extraArgs {
-			if strings.HasPrefix(a, "--threads=") {
-				hasThreads = true
-				break
-			}
-		}
-		if !hasThreads {
-			args = append(args, "--threads="+strconv.Itoa(opts.Threads))
-		}
-	}
-	args = append(args, extraArgs...)
-	cmd := exec.Command(driver, args...)
-	cmd.Env = os.Environ()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc-frameflags failed: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(ivfPath)
+	frames, diag, err := coracle.VpxencVP8FrameFlagsPayloadsI420(
+		encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
-		t.Fatalf("read %s: %v", ivfPath, err)
-	}
-	frames, err := testutil.IVFFramePayloads(data)
-	if err != nil {
-		t.Fatalf("IVFFramePayloads: %v", err)
+		t.Fatalf("vpxenc-frameflags failed: %v\n%s", err, diag)
 	}
 	return frames
+}
+
+func libvpxFrameFlagsEndUsage(mode RateControlMode) string {
+	switch mode {
+	case RateControlVBR:
+		return "vbr"
+	case RateControlCQ:
+		return "cq"
+	case RateControlQ:
+		return "q"
+	default:
+		return "cbr"
+	}
 }
