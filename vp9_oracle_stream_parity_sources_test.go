@@ -8,8 +8,6 @@ import (
 	"image"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
@@ -147,60 +145,13 @@ func captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 	sources []*image.YCbCr, extraArgs ...string,
 ) ([]vp9test.RateScoreboardRow, [][]byte) {
 	t.Helper()
-	if len(sources) == 0 {
-		t.Fatal("empty VP9 libvpx auto-alt-ref source")
-	}
-	width := sources[0].Rect.Dx()
-	height := sources[0].Rect.Dy()
-	var raw []byte
-	for i, src := range sources {
-		if src.Rect.Dx() != width || src.Rect.Dy() != height {
-			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
-				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
-		}
-		raw = vp9test.AppendI420(raw, src)
-	}
-	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
-		height, len(sources), nil, extraArgs...)
-	if err != nil {
-		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
-	}
-	rows := vp9test.ParseRateScoreboardRows(t, trace)
-	wantPackets := 0
-	for _, row := range rows {
-		if !row.Dropped {
-			wantPackets++
-		}
-	}
-	gotPackets, err := testutil.CountIVFFrames(ivf)
-	if err != nil {
-		t.Fatalf("CountIVFFrames: %v", err)
-	}
-	if gotPackets != wantPackets {
-		t.Fatalf("libvpx auto-alt-ref IVF packets = %d, want %d",
-			gotPackets, wantPackets)
-	}
-	packets := make([][]byte, len(rows))
-	if wantPackets == 0 {
-		return rows, packets
-	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
-	packetIndex := 0
+	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources, nil,
+		extraArgs...)
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
 		}
-		var frame testutil.IVFFrame
-		frame, offset, err = testutil.NextIVFFrame(ivf, offset, packetIndex)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", packetIndex, err)
-		}
-		packets[i] = append([]byte(nil), frame.Data...)
 		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
-		packetIndex++
 	}
 	return rows, packets
 }

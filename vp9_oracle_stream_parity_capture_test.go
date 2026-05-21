@@ -4,12 +4,10 @@ package govpx
 
 import (
 	"bytes"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func captureVP9StreamParityPackets(t *testing.T, opts VP9EncoderOptions,
@@ -86,35 +84,8 @@ func captureVP9StreamParityPacketsWithFrameHooks(t *testing.T, opts VP9EncoderOp
 		govpxPackets[i] = append([]byte(nil), result.Data...)
 	}
 
-	var raw []byte
-	for _, src := range sources {
-		raw = vp9test.AppendI420(raw, src)
-	}
-	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
-		height, len(sources), vp9LibvpxFrameFlags(flags), extraArgs...)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
-	}
-	count, err := testutil.CountIVFFrames(ivf)
-	if err != nil {
-		t.Fatalf("CountIVFFrames: %v", err)
-	}
-	if count != len(sources) {
-		t.Fatalf("IVF frame count = %d, want %d", count, len(sources))
-	}
-	libvpxPackets := make([][]byte, len(sources))
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
-	for i := range libvpxPackets {
-		var frame testutil.IVFFrame
-		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		libvpxPackets[i] = append([]byte(nil), frame.Data...)
-	}
+	libvpxPackets := vp9test.VpxencFrameFlagPackets(t, sources,
+		vp9LibvpxFrameFlags(flags), extraArgs...)
 	return govpxPackets, libvpxPackets
 }
 
@@ -303,65 +274,12 @@ func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
 	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
 ) ([]vp9test.RateScoreboardRow, [][]byte) {
 	t.Helper()
-	if len(sources) == 0 {
-		t.Fatal("empty VP9 libvpx stream parity source")
-	}
-	if len(flags) > len(sources) {
-		t.Fatalf("VP9 libvpx stream parity flag count = %d, want <= %d",
-			len(flags), len(sources))
-	}
-	width := sources[0].Rect.Dx()
-	height := sources[0].Rect.Dy()
-	for i, src := range sources {
-		if src.Rect.Dx() != width || src.Rect.Dy() != height {
-			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
-				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
-		}
-	}
-	var raw []byte
-	for _, src := range sources {
-		raw = vp9test.AppendI420(raw, src)
-	}
-	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
-		height, len(sources), vp9LibvpxFrameFlags(flags), extraArgs...)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9-frameflags trace failed: %v\n%s", err, diag)
-	}
-	rows := vp9test.ParseRateScoreboardRows(t, trace)
-	if len(rows) != len(sources) {
-		t.Fatalf("libvpx VP9 trace rows = %d, want %d", len(rows), len(sources))
-	}
-	packets := make([][]byte, len(rows))
-	wantPackets := 0
-	for i := range rows {
-		if !rows[i].Dropped {
-			wantPackets++
-		}
-	}
-	gotPackets, err := testutil.CountIVFFrames(ivf)
-	if err != nil {
-		t.Fatalf("CountIVFFrames: %v", err)
-	}
-	if gotPackets != wantPackets {
-		t.Fatalf("libvpx VP9 IVF packets = %d, want %d", gotPackets, wantPackets)
-	}
-	if wantPackets == 0 {
-		return rows, packets
-	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
+	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources,
+		vp9LibvpxFrameFlags(flags), extraArgs...)
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
 		}
-		var frame testutil.IVFFrame
-		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		packets[i] = append([]byte(nil), frame.Data...)
 		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
@@ -372,50 +290,9 @@ func captureLibvpxVP9VariablePacketRows(t *testing.T,
 	extraArgs []string,
 ) ([]vp9test.RateScoreboardRow, [][]byte) {
 	t.Helper()
-	if len(sources) == 0 {
-		t.Fatal("empty VP9 libvpx variable-size stream source")
-	}
-	if len(flags) > len(sources) {
-		t.Fatalf("VP9 libvpx variable-size flag count = %d, want <= %d",
-			len(flags), len(sources))
-	}
-	frameSizes := make([]coracle.VpxencVP9FrameSize, len(sources))
-	var raw []byte
-	for i, src := range sources {
-		frameSizes[i] = coracle.VpxencVP9FrameSize{
-			Width:  src.Rect.Dx(),
-			Height: src.Rect.Dy(),
-		}
-		raw = vp9test.AppendI420(raw, src)
-	}
-	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420WithFrameSizes(
-		raw, frameSizes, vp9LibvpxFrameFlags(flags), invisible, extraArgs...)
-	if err != nil {
-		t.Fatalf("vpxenc-vp9-frameflags variable trace failed: %v\n%s", err, diag)
-	}
-	rows := vp9test.ParseRateScoreboardRows(t, trace)
-	if len(rows) != len(sources) {
-		t.Fatalf("libvpx VP9 variable trace rows = %d, want %d", len(rows), len(sources))
-	}
-	packets := make([][]byte, len(rows))
-	gotPackets, err := testutil.CountIVFFrames(ivf)
-	if err != nil {
-		t.Fatalf("CountIVFFrames: %v", err)
-	}
-	if gotPackets != len(sources) {
-		t.Fatalf("libvpx VP9 variable IVF packets = %d, want %d", gotPackets, len(sources))
-	}
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
+	rows, packets := vp9test.VpxencVariableFrameFlagTracePackets(t, sources,
+		vp9LibvpxFrameFlags(flags), invisible, extraArgs...)
 	for i := range rows {
-		var frame testutil.IVFFrame
-		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		packets[i] = append([]byte(nil), frame.Data...)
 		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets

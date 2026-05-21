@@ -9,9 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -510,30 +508,22 @@ func captureLibvpxVP9RateScoreboardRows(t *testing.T, width int, height int,
 	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
 ) []vp9test.RateScoreboardRow {
 	t.Helper()
-	var raw []byte
-	for _, src := range sources {
-		raw = vp9test.AppendI420(raw, src)
+	if len(sources) == 0 {
+		t.Fatal("empty VP9 libvpx rate-scoreboard source")
 	}
-	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
-		height, len(sources), vp9LibvpxFrameFlags(flags), extraArgs...)
-	if err != nil {
-		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
+	for i, src := range sources {
+		if src.Rect.Dx() != width || src.Rect.Dy() != height {
+			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
+				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
+		}
 	}
-	rows := vp9test.ParseRateScoreboardRows(t, trace)
-	offset, err := testutil.FirstIVFFrameOffset(ivf)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
+	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources,
+		vp9LibvpxFrameFlags(flags), extraArgs...)
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
 		}
-		var frame testutil.IVFFrame
-		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
-		if err != nil {
-			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
-		}
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], frame.Data)
+		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows
 }
