@@ -5,14 +5,12 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"math"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
@@ -197,20 +195,20 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 			label, opts.Width, opts.Height, cfg.targetKbps, opts.KeyFrameInterval,
 			opts.ARNRMaxFrames, opts.ARNRStrength, opts.ARNRType, opts.Threads, opts.CpuUsed, len(cfg.sources))
 
-		dir := t.TempDir()
-		yuvPath := filepath.Join(dir, label+".yuv")
-		fpfPath := filepath.Join(dir, label+".fpf")
-		ivf1Path := filepath.Join(dir, label+"-pass1.ivf")
-		ivf2Path := filepath.Join(dir, label+"-pass2.ivf")
-
-		writeEncoderValidationI420(t, yuvPath, cfg.sources)
-
 		// First-pass stats: govpx (in-process) vs libvpx (vpxenc pass=1).
 		govpxStats := captureGovpxFirstPassStats(t, opts, cfg.sources)
-		runLibvpxPass1(t, vpxenc, yuvPath, ivf1Path, fpfPath, opts, cfg.targetKbps, len(cfg.sources))
-		fpfData, err := os.ReadFile(fpfPath)
+
+		fpfData, libvpxIVF, diag, err := coracle.VpxencVP8TwoPassEncodeI420(
+			encoderValidationI420Bytes(t, cfg.sources),
+			coracle.VpxencVP8TwoPassConfig{
+				FirstPassBinaryPath:  vpxenc,
+				SecondPassBinaryPath: vpxencOracle,
+				Common:               vp8TwoPassFuzzVpxencConfig(opts, cfg.targetKbps, len(cfg.sources)),
+				SecondPassExtraArgs:  vp8TwoPassFuzzSecondPassArgs(opts),
+			},
+		)
 		if err != nil {
-			t.Fatalf("read fpf: %v", err)
+			t.Fatalf("vpxenc two-pass encode failed: %v\n%s", err, diag)
 		}
 		libvpxStats := parseLibvpxFirstPassStats(t, fpfData)
 		maxField, maxAbs := compareFirstPassStatsLoose(t, label, govpxStats, libvpxStats, defaultFirstPassLooseTolerances)
@@ -221,7 +219,10 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 		govpxOpts := opts
 		govpxOpts.TwoPassStats = libvpxStats
 		govpxFrames := encodeFramesWithGovpx(t, govpxOpts, cfg.sources)
-		libvpxFrames := runLibvpxPass2BytesOnly(t, vpxencOracle, yuvPath, ivf2Path, fpfPath, opts, cfg.targetKbps, len(cfg.sources))
+		libvpxFrames, err := testutil.IVFFramePayloads(libvpxIVF)
+		if err != nil {
+			t.Fatalf("IVFFramePayloads: %v", err)
+		}
 
 		// Strict byte parity on pass 2 output. Seeds where govpx pass 2
 		// (driven by libvpx-derived stats) diverges from libvpx pass 2
@@ -230,34 +231,27 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 	})
 }
 
-// runLibvpxPass2BytesOnly runs vpxenc-oracle in pass=2 mode and returns the
-// per-frame VP8 packet payloads from the resulting IVF without writing a trace.
-func runLibvpxPass2BytesOnly(t *testing.T, vpxencOracle string, yuvPath string, ivfPath string, fpfPath string, opts EncoderOptions, targetKbps int, count int) [][]byte {
-	t.Helper()
-	deadlineArg := libvpxDeadlineArg(opts.Deadline)
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--passes=2",
-		"--pass=2",
-		"--fpf=" + fpfPath,
-		"--end-usage=vbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--kf-min-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--kf-max-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(count),
-		"--output=" + ivfPath,
+func vp8TwoPassFuzzVpxencConfig(opts EncoderOptions, targetKbps int, frames int) coracle.VpxencVP8Config {
+	return coracle.VpxencVP8Config{
+		Width:             opts.Width,
+		Height:            opts.Height,
+		Frames:            frames,
+		Deadline:          libvpxOracleDeadline(opts.Deadline),
+		CPUUsed:           opts.CpuUsed,
+		TargetBitrateKbps: targetKbps,
+		MinQ:              opts.MinQuantizer,
+		MaxQ:              opts.MaxQuantizer,
+		Timebase:          "1/" + strconv.Itoa(opts.FPS),
+		FPS:               strconv.Itoa(opts.FPS) + "/1",
+		KeyFrameDistSet:   true,
+		KeyFrameMinDist:   opts.KeyFrameInterval,
+		KeyFrameMaxDist:   opts.KeyFrameInterval,
+		ExtraArgs:         []string{"--end-usage=vbr"},
 	}
+}
+
+func vp8TwoPassFuzzSecondPassArgs(opts EncoderOptions) []string {
+	args := []string{}
 	if opts.Threads > 0 {
 		args = append(args, "--threads="+strconv.Itoa(opts.Threads))
 	}
@@ -267,27 +261,7 @@ func runLibvpxPass2BytesOnly(t *testing.T, vpxencOracle string, yuvPath string, 
 			"--arnr-strength="+strconv.Itoa(opts.ARNRStrength),
 			"--arnr-type="+strconv.Itoa(opts.ARNRType))
 	}
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = os.Environ()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		// Treat process failure as a hard error: the libvpx oracle
-		// either accepts the config or this fuzzer needs to learn the
-		// constraint as a generator filter.
-		if errors.Is(err, exec.ErrNotFound) {
-			t.Skipf("vpxenc-oracle not executable: %v", err)
-		}
-		t.Fatalf("vpxenc-oracle pass 2 failed: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(ivfPath)
-	if err != nil {
-		t.Fatalf("read %s: %v", ivfPath, err)
-	}
-	frames, err := testutil.IVFFramePayloads(data)
-	if err != nil {
-		t.Fatalf("IVFFramePayloads: %v", err)
-	}
-	return frames
+	return args
 }
 
 type twoPassFuzzCase struct {

@@ -110,6 +110,20 @@ func TestVpxencVP8ConfigTwoPassArgs(t *testing.T) {
 	}
 }
 
+func TestVpxencVP8ConfigWithExtraArgsDoesNotMutateBase(t *testing.T) {
+	cfg := VpxencVP8Config{ExtraArgs: []string{"--end-usage=vbr"}}
+	passCfg := cfg.withExtraArgs([]string{"--threads=4", "--arnr-maxframes=3"})
+
+	for _, want := range []string{"--end-usage=vbr", "--threads=4", "--arnr-maxframes=3"} {
+		if !slices.Contains(passCfg.ExtraArgs, want) {
+			t.Fatalf("pass-specific args missing %q: %v", want, passCfg.ExtraArgs)
+		}
+	}
+	if slices.Contains(cfg.ExtraArgs, "--threads=4") {
+		t.Fatalf("base config was mutated: %v", cfg.ExtraArgs)
+	}
+}
+
 func TestVpxencVP8FrameFlagsConfigArgs(t *testing.T) {
 	cfg := VpxencVP8FrameFlagsConfig{
 		Width:             64,
@@ -254,12 +268,24 @@ func TestVpxencVP8EncodeI420ValidatesBeforePathLookup(t *testing.T) {
 	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
 		t.Fatal("VpxencVP8OracleTraceI420 looked up helper before validating input")
 	}
+	if _, _, err := VpxencVP8FirstPassStatsI420(nil, VpxencVP8Config{Width: 16, Height: 16, Frames: 1}); err == nil {
+		t.Fatal("VpxencVP8FirstPassStatsI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencNotBuilt) {
+		t.Fatal("VpxencVP8FirstPassStatsI420 looked up helper before validating input")
+	}
 	if _, _, _, err := VpxencVP8OracleEncodeTraceI420(nil, VpxencVP8Config{Width: 16, Height: 16, Frames: 1}); err == nil {
 		t.Fatal("VpxencVP8OracleEncodeTraceI420 accepted empty input")
 	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
 		t.Fatal("VpxencVP8OracleEncodeTraceI420 looked up helper before validating input")
 	}
-	if _, _, _, err := VpxencVP8TwoPassTraceI420(nil, VpxencVP8TwoPassTraceConfig{
+	if _, _, _, err := VpxencVP8TwoPassEncodeI420(nil, VpxencVP8TwoPassConfig{
+		Common: VpxencVP8Config{Width: 16, Height: 16, Frames: 1},
+	}); err == nil {
+		t.Fatal("VpxencVP8TwoPassEncodeI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencNotBuilt) || errors.Is(err, ErrVpxencOracleNotBuilt) {
+		t.Fatal("VpxencVP8TwoPassEncodeI420 looked up helper before validating input")
+	}
+	if _, _, _, err := VpxencVP8TwoPassTraceI420(nil, VpxencVP8TwoPassConfig{
 		Common: VpxencVP8Config{Width: 16, Height: 16, Frames: 1},
 	}); err == nil {
 		t.Fatal("VpxencVP8TwoPassTraceI420 accepted empty input")

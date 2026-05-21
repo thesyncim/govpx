@@ -3,11 +3,10 @@ package govpx
 import (
 	"encoding/binary"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
 )
 
 func firstPassOracleFrames(count int, fn func(int) Image) []Image {
@@ -79,50 +78,34 @@ func captureGovpxFirstPassStats(t *testing.T, opts EncoderOptions, frames []Imag
 	return FinalizeFirstPassStats(stats)
 }
 
-func captureLibvpxFirstPassStats(t *testing.T, vpxenc string, name string, opts EncoderOptions, targetKbps int, frames []Image) []FirstPassFrameStats {
+func captureLibvpxFirstPassStats(t *testing.T, vpxenc string, opts EncoderOptions, targetKbps int, frames []Image) []FirstPassFrameStats {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivfPath := filepath.Join(dir, name+".ivf")
-	fpfPath := filepath.Join(dir, name+".fpf")
-	writeEncoderValidationI420(t, yuvPath, frames)
-	deadlineArg := "--good"
+	deadline := "good"
 	switch opts.Deadline {
 	case DeadlineBestQuality:
-		deadlineArg = "--best"
+		deadline = "best"
 	case DeadlineRealtime:
-		deadlineArg = "--rt"
+		deadline = "rt"
 	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--passes=2",
-		"--pass=1",
-		"--fpf=" + fpfPath,
-		"--end-usage=vbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(frames)),
-		"--output=" + ivfPath,
-		yuvPath,
-	}
-	cmd := exec.Command(vpxenc, args...)
-	out, err := cmd.CombinedOutput()
+	data, diag, err := coracle.VpxencVP8FirstPassStatsI420(
+		encoderValidationI420Bytes(t, frames),
+		coracle.VpxencVP8Config{
+			BinaryPath:        vpxenc,
+			Width:             opts.Width,
+			Height:            opts.Height,
+			Frames:            len(frames),
+			Deadline:          deadline,
+			CPUUsed:           opts.CpuUsed,
+			TargetBitrateKbps: targetKbps,
+			MinQ:              opts.MinQuantizer,
+			MaxQ:              opts.MaxQuantizer,
+			Timebase:          "1/" + strconv.Itoa(opts.FPS),
+			FPS:               strconv.Itoa(opts.FPS) + "/1",
+			ExtraArgs:         []string{"--end-usage=vbr"},
+		},
+	)
 	if err != nil {
-		t.Fatalf("vpxenc first pass failed: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(fpfPath)
-	if err != nil {
-		t.Fatalf("ReadFile %s returned error: %v", fpfPath, err)
+		t.Fatalf("vpxenc first pass failed: %v\n%s", err, diag)
 	}
 	return parseLibvpxFirstPassStats(t, data)
 }

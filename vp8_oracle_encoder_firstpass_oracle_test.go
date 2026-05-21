@@ -48,7 +48,7 @@ func TestVP8OracleFirstPassStatsCompare(t *testing.T) {
 				CpuUsed:           0,
 			}
 			govpxStats := captureGovpxFirstPassStats(t, opts, tc.frames)
-			libvpxStats := captureLibvpxFirstPassStats(t, vpxenc, "firstpass-"+tc.name, opts, targetKbps, tc.frames)
+			libvpxStats := captureLibvpxFirstPassStats(t, vpxenc, opts, targetKbps, tc.frames)
 			compareFirstPassStats(t, govpxStats, libvpxStats)
 		})
 	}

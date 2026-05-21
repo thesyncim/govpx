@@ -62,12 +62,14 @@ type VpxencVP8FrameFlagsConfig struct {
 	ExtraArgs         []string
 }
 
-// VpxencVP8TwoPassTraceConfig describes a VP8 two-pass vpxenc run that
-// returns the first-pass stats file and second-pass JSONL oracle trace.
-type VpxencVP8TwoPassTraceConfig struct {
+// VpxencVP8TwoPassConfig describes a VP8 two-pass vpxenc run that shares one
+// first-pass stats file across the pass invocations.
+type VpxencVP8TwoPassConfig struct {
 	FirstPassBinaryPath  string
 	SecondPassBinaryPath string
 	Common               VpxencVP8Config
+	FirstPassExtraArgs   []string
+	SecondPassExtraArgs  []string
 }
 
 // VpxencVP8OracleEncodeI420 encodes raw I420 frames with the patched VP8
@@ -111,6 +113,22 @@ func VpxencVP8OracleFramePayloadsI420(raw []byte, cfg VpxencVP8Config) (frames [
 	return frames, diag, nil
 }
 
+// VpxencVP8FirstPassStatsI420 runs VP8 vpxenc pass 1 over raw I420 frames and
+// returns the emitted FIRSTPASS_STATS file.
+func VpxencVP8FirstPassStatsI420(raw []byte, cfg VpxencVP8Config) (firstPassStats []byte, diag []byte, err error) {
+	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
+		return nil, nil, err
+	}
+	bin := cfg.BinaryPath
+	if bin == "" {
+		bin, err = VpxencPath()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return runVpxencVP8FirstPassStatsI420(raw, bin, "govpx-vpxenc-vp8-pass1-*", cfg)
+}
+
 // VpxencVP8OracleTraceI420 encodes raw I420 frames with the patched VP8
 // vpxenc-oracle helper and returns the JSONL oracle trace emitted by the
 // GOVPX_ORACLE_TRACE_OUT side channel.
@@ -151,34 +169,68 @@ func VpxencVP8OracleEncodeTraceI420(raw []byte, cfg VpxencVP8Config) (ivf []byte
 	return out.ivf, out.trace, out.diag, nil
 }
 
+// VpxencVP8TwoPassEncodeI420 runs VP8 vpxenc pass 1 and pass 2 over the same
+// raw I420 source and returns the first-pass stats plus the second-pass IVF.
+func VpxencVP8TwoPassEncodeI420(raw []byte, cfg VpxencVP8TwoPassConfig) (firstPassStats []byte, ivf []byte, diag []byte, err error) {
+	out, err := vpxencVP8TwoPassI420(raw, cfg, false)
+	if err != nil {
+		return out.firstPassStats, out.ivf, out.diag, err
+	}
+	return out.firstPassStats, out.ivf, out.diag, nil
+}
+
 // VpxencVP8TwoPassTraceI420 runs VP8 vpxenc pass 1 and then a patched
-// vpxenc-oracle pass 2 over the same raw I420 source.
-func VpxencVP8TwoPassTraceI420(raw []byte, cfg VpxencVP8TwoPassTraceConfig) (firstPassStats []byte, trace []byte, diag []byte, err error) {
+// vpxenc-oracle pass 2 over the same raw I420 source, returning the
+// second-pass JSONL oracle trace.
+func VpxencVP8TwoPassTraceI420(raw []byte, cfg VpxencVP8TwoPassConfig) (firstPassStats []byte, trace []byte, diag []byte, err error) {
+	out, err := vpxencVP8TwoPassI420(raw, cfg, true)
+	if err != nil {
+		return out.firstPassStats, out.trace, out.diag, err
+	}
+	return out.firstPassStats, out.trace, out.diag, nil
+}
+
+func vpxencVP8TwoPassI420(raw []byte, cfg VpxencVP8TwoPassConfig, trace bool) (vpxencVP8RunOutput, error) {
 	common := cfg.Common
 	if err := validateI420Raw("VP8 vpxenc", raw, common.Width, common.Height, common.Frames); err != nil {
-		return nil, nil, nil, err
+		return vpxencVP8RunOutput{}, err
 	}
 	firstBin := cfg.FirstPassBinaryPath
 	if firstBin == "" {
 		firstBin = common.BinaryPath
 	}
 	if firstBin == "" {
-		firstBin, err = VpxencPath()
+		bin, err := VpxencPath()
 		if err != nil {
-			return nil, nil, nil, err
+			return vpxencVP8RunOutput{}, err
 		}
+		firstBin = bin
 	}
 	secondBin := cfg.SecondPassBinaryPath
 	if secondBin == "" {
 		secondBin = common.BinaryPath
 	}
 	if secondBin == "" {
-		secondBin, err = VpxencOraclePath()
-		if err != nil {
-			return nil, nil, nil, err
+		pathForSecondPass := VpxencPath
+		if trace {
+			pathForSecondPass = VpxencOraclePath
 		}
+		bin, err := pathForSecondPass()
+		if err != nil {
+			return vpxencVP8RunOutput{}, err
+		}
+		secondBin = bin
 	}
-	return runVpxencVP8TwoPassTraceI420(raw, firstBin, secondBin, "govpx-vpxenc-vp8-twopass-*", common)
+	return runVpxencVP8TwoPassI420(
+		raw,
+		firstBin,
+		secondBin,
+		"govpx-vpxenc-vp8-twopass-*",
+		common,
+		trace,
+		cfg.FirstPassExtraArgs,
+		cfg.SecondPassExtraArgs,
+	)
 }
 
 // VpxencVP8FrameFlagsEncodeI420 encodes raw I420 frames with the VP8
@@ -229,9 +281,10 @@ func runVpxencVP8TraceI420(raw []byte, bin string, tempPattern string, width int
 }
 
 type vpxencVP8RunOutput struct {
-	ivf   []byte
-	trace []byte
-	diag  []byte
+	ivf            []byte
+	trace          []byte
+	firstPassStats []byte
+	diag           []byte
 }
 
 func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string, trace bool, extraEnv []string) (vpxencVP8RunOutput, error) {
@@ -275,13 +328,42 @@ func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int
 	return out, nil
 }
 
-func runVpxencVP8TwoPassTraceI420(raw []byte, firstBin string, secondBin string, tempPattern string, cfg VpxencVP8Config) (firstPassStats []byte, trace []byte, diag []byte, err error) {
+func runVpxencVP8FirstPassStatsI420(raw []byte, bin string, tempPattern string, cfg VpxencVP8Config) (firstPassStats []byte, diag []byte, err error) {
 	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	dir, err := os.MkdirTemp("", tempPattern)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
+	}
+	defer os.RemoveAll(dir)
+
+	inPath := filepath.Join(dir, "input.i420")
+	outPath := filepath.Join(dir, "pass1.ivf")
+	fpfPath := filepath.Join(dir, "firstpass.fpf")
+	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
+		return nil, nil, err
+	}
+	cmd := exec.Command(bin, cfg.vpxencTwoPassArgs(inPath, outPath, fpfPath, 1)...)
+	cmd.Env = append(os.Environ(), cfg.ExtraEnv...)
+	diag, err = cmd.CombinedOutput()
+	if err != nil {
+		return nil, diag, err
+	}
+	firstPassStats, err = os.ReadFile(fpfPath)
+	if err != nil {
+		return nil, diag, err
+	}
+	return firstPassStats, diag, nil
+}
+
+func runVpxencVP8TwoPassI420(raw []byte, firstBin string, secondBin string, tempPattern string, cfg VpxencVP8Config, trace bool, firstPassExtraArgs []string, secondPassExtraArgs []string) (vpxencVP8RunOutput, error) {
+	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
+		return vpxencVP8RunOutput{}, err
+	}
+	dir, err := os.MkdirTemp("", tempPattern)
+	if err != nil {
+		return vpxencVP8RunOutput{}, err
 	}
 	defer os.RemoveAll(dir)
 
@@ -291,32 +373,45 @@ func runVpxencVP8TwoPassTraceI420(raw []byte, firstBin string, secondBin string,
 	fpfPath := filepath.Join(dir, "firstpass.fpf")
 	tracePath := filepath.Join(dir, "pass2.jsonl")
 	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
-		return nil, nil, nil, err
+		return vpxencVP8RunOutput{}, err
 	}
 
-	cmd1 := exec.Command(firstBin, cfg.vpxencTwoPassArgs(inPath, pass1OutPath, fpfPath, 1)...)
+	firstPassCfg := cfg.withExtraArgs(firstPassExtraArgs)
+	cmd1 := exec.Command(firstBin, firstPassCfg.vpxencTwoPassArgs(inPath, pass1OutPath, fpfPath, 1)...)
 	cmd1.Env = append(os.Environ(), cfg.ExtraEnv...)
 	pass1Diag, err := cmd1.CombinedOutput()
+	out := vpxencVP8RunOutput{diag: pass1Diag}
 	if err != nil {
-		return nil, nil, pass1Diag, err
+		return out, err
 	}
-	firstPassStats, err = os.ReadFile(fpfPath)
+	out.firstPassStats, err = os.ReadFile(fpfPath)
 	if err != nil {
-		return nil, nil, pass1Diag, err
+		return out, err
 	}
 
-	cmd2 := exec.Command(secondBin, cfg.vpxencTwoPassArgs(inPath, pass2OutPath, fpfPath, 2)...)
-	cmd2.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
+	secondPassCfg := cfg.withExtraArgs(secondPassExtraArgs)
+	cmd2 := exec.Command(secondBin, secondPassCfg.vpxencTwoPassArgs(inPath, pass2OutPath, fpfPath, 2)...)
+	cmd2.Env = os.Environ()
+	if trace {
+		cmd2.Env = append(cmd2.Env, "GOVPX_ORACLE_TRACE_OUT="+tracePath)
+	}
 	cmd2.Env = append(cmd2.Env, cfg.ExtraEnv...)
 	pass2Diag, err := cmd2.CombinedOutput()
+	out.diag = pass2Diag
 	if err != nil {
-		return firstPassStats, nil, pass2Diag, err
+		return out, err
 	}
-	trace, err = os.ReadFile(tracePath)
+	out.ivf, err = os.ReadFile(pass2OutPath)
 	if err != nil {
-		return firstPassStats, nil, pass2Diag, err
+		return out, err
 	}
-	return firstPassStats, trace, pass2Diag, nil
+	if trace {
+		out.trace, err = os.ReadFile(tracePath)
+		if err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }
 
 func (cfg VpxencVP8Config) vpxencArgs(inPath string, outPath string) []string {
@@ -366,6 +461,15 @@ func (cfg VpxencVP8Config) vpxencArgs(inPath string, outPath string) []string {
 	args = append(args, cfg.ExtraArgs...)
 	args = append(args, inPath)
 	return args
+}
+
+func (cfg VpxencVP8Config) withExtraArgs(args []string) VpxencVP8Config {
+	if len(args) == 0 {
+		return cfg
+	}
+	next := cfg
+	next.ExtraArgs = append(append([]string{}, cfg.ExtraArgs...), args...)
+	return next
 }
 
 func (cfg VpxencVP8Config) vpxencTwoPassArgs(inPath string, outPath string, fpfPath string, pass int) []string {

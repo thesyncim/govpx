@@ -243,7 +243,7 @@ func captureLibvpxARNRTwoPassEncoderTrace(t *testing.T, vpxencOracle string, opt
 	)
 	_, trace, diag, err := coracle.VpxencVP8TwoPassTraceI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxencVP8TwoPassTraceConfig{
+		coracle.VpxencVP8TwoPassConfig{
 			FirstPassBinaryPath:  vpxencOracle,
 			SecondPassBinaryPath: vpxencOracle,
 			Common:               common,

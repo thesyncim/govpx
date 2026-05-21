@@ -135,7 +135,7 @@ func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			fpfData, libvpxTrace, diag, err := coracle.VpxencVP8TwoPassTraceI420(
 				encoderValidationI420Bytes(t, f.sources),
-				coracle.VpxencVP8TwoPassTraceConfig{
+				coracle.VpxencVP8TwoPassConfig{
 					FirstPassBinaryPath:  vpxenc,
 					SecondPassBinaryPath: vpxencOracle,
 					Common: vp8OracleTraceConfig(
