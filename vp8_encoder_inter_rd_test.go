@@ -27,12 +27,12 @@ func TestSelectRDInterFrameModeDecisionStopsOnStaticEncodeBreakout(t *testing.T)
 	}}
 	quant := testRegularMacroblockQuant(t, 20)
 
-	decision, ok := e.selectRDInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, staticSegmentID, nil, nil, nil, nil, nil, &quant, false)
+	decision, ok := e.selectRDInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, vp8enc.StaticSegmentID, nil, nil, nil, nil, nil, &quant, false)
 
 	if !ok {
 		t.Fatalf("RD mode decision returned ok=false")
 	}
-	if !decision.cyclicRefreshEligible() || decision.interMode.SegmentID != staticSegmentID {
+	if !decision.cyclicRefreshEligible() || decision.interMode.SegmentID != vp8enc.StaticSegmentID {
 		t.Fatalf("decision = %+v, want static breakout to stop on LAST/ZEROMV with cyclic segment", decision)
 	}
 }

@@ -10,8 +10,6 @@ import (
 // refresh setup. StaticThreshold itself feeds encode_breakout; cyclic refresh
 // segmentation is enabled independently for CBR and error-resilient encodes.
 
-const staticSegmentID = 1
-
 func (e *VP8Encoder) cyclicRefreshSegmentationConfig(refreshGolden bool) vp8enc.SegmentationConfig {
 	return e.cyclicRefreshSegmentationConfigForQuantizer(refreshGolden, e.rc.currentQuantizer)
 }
@@ -34,13 +32,13 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizerUnchecked(q int)
 		// denoising, drop the cyclic Q delta and instead ship an alt-LF
 		// delta of -40 so segment 1 macroblocks (steady ZEROMV-LAST) get
 		// loop-filter-suppressed to avoid dot artifacts.
-		cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] = true
-		cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID] = aggressiveDenoiseAltLFDelta
+		cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = true
+		cfg.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = aggressiveDenoiseAltLFDelta
 		return cfg
 	}
 	if delta := cyclicRefreshQuantizerDeltaForQuantizer(q); delta != 0 {
-		cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
-		cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = delta
+		cfg.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] = true
+		cfg.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] = delta
 	}
 	return cfg
 }
@@ -213,117 +211,6 @@ func cyclicRefreshQuantizerDeltaForQuantizer(q int) int8 {
 	return int8(q/2 - q)
 }
 
-func updateKeyFrameSegmentationTreeProbs(cfg *vp8enc.SegmentationConfig, modes []vp8enc.KeyFrameMacroblockMode) {
-	var counts [vp8common.MaxMBSegments]int
-	for _, mode := range modes {
-		if mode.SegmentID < vp8common.MaxMBSegments {
-			counts[mode.SegmentID]++
-		}
-	}
-	updateSegmentationTreeProbs(cfg, counts)
-}
-
-func updateInterFrameSegmentationTreeProbs(cfg *vp8enc.SegmentationConfig, modes []vp8enc.InterFrameMacroblockMode) {
-	var counts [vp8common.MaxMBSegments]int
-	for _, mode := range modes {
-		if mode.SegmentID < vp8common.MaxMBSegments {
-			counts[mode.SegmentID]++
-		}
-	}
-	updateSegmentationTreeProbs(cfg, counts)
-}
-
-func updateSegmentationTreeProbs(cfg *vp8enc.SegmentationConfig, counts [vp8common.MaxMBSegments]int) {
-	if cfg == nil || !cfg.Enabled || !cfg.UpdateMap {
-		return
-	}
-	for i := range cfg.TreeProbUpdated {
-		cfg.TreeProbUpdated[i] = false
-		cfg.TreeProbs[i] = 0
-	}
-	probs := [vp8common.MBFeatureTreeProbs]uint8{255, 255, 255}
-	total := counts[0] + counts[1] + counts[2] + counts[3]
-	if total > 0 {
-		probs[0] = nonZeroSegmentTreeProb(((counts[0] + counts[1]) * 255) / total)
-		leftTotal := counts[0] + counts[1]
-		if leftTotal > 0 {
-			probs[1] = nonZeroSegmentTreeProb((counts[0] * 255) / leftTotal)
-		}
-		rightTotal := counts[2] + counts[3]
-		if rightTotal > 0 {
-			probs[2] = nonZeroSegmentTreeProb((counts[2] * 255) / rightTotal)
-		}
-	}
-	for i, prob := range probs {
-		if prob == 255 {
-			continue
-		}
-		cfg.TreeProbs[i] = prob
-		cfg.TreeProbUpdated[i] = true
-	}
-}
-
-func nonZeroSegmentTreeProb(prob int) uint8 {
-	return uint8(min(max(prob, 1), 255))
-}
-
-func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode) {
-	for row := range rows {
-		for col := range cols {
-			index := row*cols + col
-			modes[index].SegmentID = 0
-		}
-	}
-}
-
-func assignInterFrameStaticSegments(rows int, cols int, start int, refreshCount int, modes []vp8enc.InterFrameMacroblockMode) {
-	assignInterFrameStaticSegmentsWithMap(rows, cols, start, refreshCount, nil, modes)
-}
-
-func assignInterFrameStaticSegmentsWithMap(rows int, cols int, start int, refreshCount int, refreshMap []int8, modes []vp8enc.InterFrameMacroblockMode) int {
-	count := rows * cols
-	if count <= 0 {
-		return 0
-	}
-	start %= count
-	if start < 0 {
-		start += count
-	}
-	for row := range rows {
-		for col := range cols {
-			index := row*cols + col
-			modes[index].SegmentID = 0
-		}
-	}
-	if refreshCount <= 0 {
-		return start
-	}
-	if len(refreshMap) < count {
-		for refreshed := 0; refreshed < refreshCount && refreshed < count; refreshed++ {
-			modes[(start+refreshed)%count].SegmentID = staticSegmentID
-		}
-		return (start + min(refreshCount, count)) % count
-	}
-	i := start
-	blockCount := refreshCount
-	for {
-		if refreshMap[i] == 0 {
-			modes[i].SegmentID = staticSegmentID
-			blockCount--
-		} else if refreshMap[i] < 0 {
-			refreshMap[i]++
-		}
-		i++
-		if i == count {
-			i = 0
-		}
-		if blockCount == 0 || i == start {
-			break
-		}
-	}
-	return i
-}
-
 func (e *VP8Encoder) assignInterFrameStaticSegments(src vp8enc.SourceImage, rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) int {
 	return e.assignInterFrameStaticSegmentsForQuantizer(src, rows, cols, modes, e.rc.currentQuantizer)
 }
@@ -388,10 +275,10 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 	refreshCount := e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q)
 	var nextIndex int
 	if len(e.cyclicRefreshMap) < count || len(e.cyclicRefreshAttemptMap) < count {
-		nextIndex = assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, refreshCount, nil, modes)
+		nextIndex = vp8enc.AssignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, refreshCount, nil, modes)
 	} else {
 		copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
-		nextIndex = assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, refreshCount, e.cyclicRefreshAttemptMap[:count], modes)
+		nextIndex = vp8enc.AssignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, refreshCount, e.cyclicRefreshAttemptMap[:count], modes)
 	}
 	// libvpx vp8/encoder/onyx_if.c cyclic_background_refresh lines 560-583:
 	// under aggressive denoising (and only when block_count > 0 selected at
@@ -407,7 +294,7 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 				zeroLast = int(e.consecZeroLast[index])
 			}
 			if zeroLast > threshold {
-				modes[index].SegmentID = staticSegmentID
+				modes[index].SegmentID = vp8enc.StaticSegmentID
 			} else {
 				modes[index].SegmentID = 0
 			}

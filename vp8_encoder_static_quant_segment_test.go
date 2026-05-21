@@ -615,11 +615,11 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationClearsCyclicSe
 	fillBenchmarkVP8Image(&e.lastRef.Img, 220, 90, 170)
 	e.lastRef.ExtendBorders()
 
-	modes := []vp8enc.InterFrameMacroblockMode{{SegmentID: staticSegmentID}}
+	modes := []vp8enc.InterFrameMacroblockMode{{SegmentID: vp8enc.StaticSegmentID}}
 	coeffs := make([]vp8enc.MacroblockCoefficients, 1)
 	segmentation := vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true}
-	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
-	segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = -10
+	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] = true
+	segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] = -10
 
 	_, err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(
 		sourceImageFromPublic(src), 20, segmentation, true, modes, coeffs, 1, 1,

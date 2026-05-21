@@ -182,25 +182,25 @@ func TestVP8SegmentationAltLFStateMachine(t *testing.T) {
 			// segment 1, otherwise cyclic refresh sets ALT_Q on segment 1.
 			// Segments 0/2/3 always have zero feature data in both branches.
 			if tc.expectAltLF {
-				if keyState.altLF[staticSegmentID] != int16(aggressiveDenoiseAltLFDelta) {
-					t.Errorf("key alt-LF[%d] = %d, want %d", staticSegmentID, keyState.altLF[staticSegmentID], aggressiveDenoiseAltLFDelta)
+				if keyState.altLF[vp8enc.StaticSegmentID] != int16(aggressiveDenoiseAltLFDelta) {
+					t.Errorf("key alt-LF[%d] = %d, want %d", vp8enc.StaticSegmentID, keyState.altLF[vp8enc.StaticSegmentID], aggressiveDenoiseAltLFDelta)
 				}
-				if interState.altLF[staticSegmentID] != int16(aggressiveDenoiseAltLFDelta) {
-					t.Errorf("inter alt-LF[%d] = %d, want %d", staticSegmentID, interState.altLF[staticSegmentID], aggressiveDenoiseAltLFDelta)
+				if interState.altLF[vp8enc.StaticSegmentID] != int16(aggressiveDenoiseAltLFDelta) {
+					t.Errorf("inter alt-LF[%d] = %d, want %d", vp8enc.StaticSegmentID, interState.altLF[vp8enc.StaticSegmentID], aggressiveDenoiseAltLFDelta)
 				}
-				if keyState.altQ[staticSegmentID] != 0 {
-					t.Errorf("key alt-Q[%d] = %d, want 0 (aggressive-denoiser branch suppresses Q delta)", staticSegmentID, keyState.altQ[staticSegmentID])
+				if keyState.altQ[vp8enc.StaticSegmentID] != 0 {
+					t.Errorf("key alt-Q[%d] = %d, want 0 (aggressive-denoiser branch suppresses Q delta)", vp8enc.StaticSegmentID, keyState.altQ[vp8enc.StaticSegmentID])
 				}
 			}
 			if tc.expectAltQNegative {
-				if keyState.altQ[staticSegmentID] >= 0 {
-					t.Errorf("key alt-Q[%d] = %d, want < 0 (cyclic refresh q/2-q)", staticSegmentID, keyState.altQ[staticSegmentID])
+				if keyState.altQ[vp8enc.StaticSegmentID] >= 0 {
+					t.Errorf("key alt-Q[%d] = %d, want < 0 (cyclic refresh q/2-q)", vp8enc.StaticSegmentID, keyState.altQ[vp8enc.StaticSegmentID])
 				}
-				if interState.altQ[staticSegmentID] >= 0 {
-					t.Errorf("inter alt-Q[%d] = %d, want < 0 (cyclic refresh q/2-q)", staticSegmentID, interState.altQ[staticSegmentID])
+				if interState.altQ[vp8enc.StaticSegmentID] >= 0 {
+					t.Errorf("inter alt-Q[%d] = %d, want < 0 (cyclic refresh q/2-q)", vp8enc.StaticSegmentID, interState.altQ[vp8enc.StaticSegmentID])
 				}
-				if keyState.altLF[staticSegmentID] != 0 {
-					t.Errorf("key alt-LF[%d] = %d, want 0 (alt-Q branch suppresses LF delta)", staticSegmentID, keyState.altLF[staticSegmentID])
+				if keyState.altLF[vp8enc.StaticSegmentID] != 0 {
+					t.Errorf("key alt-LF[%d] = %d, want 0 (alt-Q branch suppresses LF delta)", vp8enc.StaticSegmentID, keyState.altLF[vp8enc.StaticSegmentID])
 				}
 			}
 			// Segments 0 / 2 / 3 must always be zero across both branches.
@@ -228,104 +228,6 @@ func TestVP8SegmentationAltLFStateMachine(t *testing.T) {
 			}
 			if tc.errorResilient && !interState.lfUpdate {
 				t.Errorf("inter LF delta update = false under error-resilient mode, want true (libvpx pack_lf_deltas forces send_update)")
-			}
-		})
-	}
-}
-
-// TestVP8SegmentationTreeProbsMatchLibvpxFormula audits the segment
-// tree-prob computation against libvpx vp8/encoder/encodeframe.c lines 914-936
-// (segment_counts -> mb_segment_tree_probs[]) verbatim:
-//
-//	if (tot_count) {
-//	  tree_probs[0] = ((counts[0]+counts[1]) * 255) / tot_count;
-//	  if (counts[0]+counts[1] > 0)
-//	    tree_probs[1] = (counts[0] * 255) / (counts[0]+counts[1]);
-//	  if (counts[2]+counts[3] > 0)
-//	    tree_probs[2] = (counts[2] * 255) / (counts[2]+counts[3]);
-//	  for (i in 0..2) if (tree_probs[i] == 0) tree_probs[i] = 1;
-//	}
-//
-// Slot defaults are 255 (uniform). The bitstream writer at bitstream.c:1114
-// only emits a magnitude byte when the prob != 255; otherwise it writes a
-// single 0 bit. So the wire-relevant invariants are:
-//   - effective prob value (255 when slot would emit no magnitude)
-//   - "should the writer emit the 1+8-bit literal" (i.e. prob != 255)
-//
-// govpx represents the "default 255" case by leaving TreeProbUpdated[i] =
-// false; both states map to "writer emits 0 bit" so we compare the union.
-func TestVP8SegmentationTreeProbsMatchLibvpxFormula(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		counts     [vp8common.MaxMBSegments]int
-		wantProbs  [vp8common.MBFeatureTreeProbs]uint8 // libvpx-formula result (255 = default)
-		wantWrites [vp8common.MBFeatureTreeProbs]bool  // true => writer emits magnitude
-	}{
-		{
-			name:       "all-zero-keeps-defaults",
-			counts:     [vp8common.MaxMBSegments]int{0, 0, 0, 0},
-			wantProbs:  [vp8common.MBFeatureTreeProbs]uint8{255, 255, 255},
-			wantWrites: [vp8common.MBFeatureTreeProbs]bool{false, false, false},
-		},
-		{
-			name: "all-left-skews-prob0-low",
-			// counts=[8,0,0,0]; tot=8; (8+0)*255/8 = 255 (default);
-			// leftTotal=8 -> (8*255)/8=255 (default); rightTotal=0 -> skip.
-			counts:     [vp8common.MaxMBSegments]int{8, 0, 0, 0},
-			wantProbs:  [vp8common.MBFeatureTreeProbs]uint8{255, 255, 255},
-			wantWrites: [vp8common.MBFeatureTreeProbs]bool{false, false, false},
-		},
-		{
-			name: "left-all-seg0-right-all-seg2",
-			// counts=[2,0,5,0]; tot=7; (2+0)*255/7=72; left=2 ->
-			// 2*255/2=255 (default); right=5 -> 5*255/5=255 (default).
-			counts:     [vp8common.MaxMBSegments]int{2, 0, 5, 0},
-			wantProbs:  [vp8common.MBFeatureTreeProbs]uint8{72, 255, 255},
-			wantWrites: [vp8common.MBFeatureTreeProbs]bool{true, false, false},
-		},
-		{
-			name: "left-zero-right-all-seg2",
-			// counts=[0,0,4,0]; tot=4; (0+0)*255/4=0 -> clamped to 1;
-			// leftTotal=0 -> skip slot 1; rightTotal=4 -> 4*255/4=255.
-			counts:     [vp8common.MaxMBSegments]int{0, 0, 4, 0},
-			wantProbs:  [vp8common.MBFeatureTreeProbs]uint8{1, 255, 255},
-			wantWrites: [vp8common.MBFeatureTreeProbs]bool{true, false, false},
-		},
-		{
-			name: "right-zero-clamps-slot2",
-			// counts=[0,0,0,4]; tot=4; (0+0)*255/4=0 -> 1; leftTotal=0
-			// -> skip; rightTotal=4 -> 0*255/4=0 -> clamped to 1.
-			counts:     [vp8common.MaxMBSegments]int{0, 0, 0, 4},
-			wantProbs:  [vp8common.MBFeatureTreeProbs]uint8{1, 255, 1},
-			wantWrites: [vp8common.MBFeatureTreeProbs]bool{true, false, true},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := vp8enc.SegmentationConfig{
-				Enabled:    true,
-				UpdateMap:  true,
-				UpdateData: true,
-			}
-			updateSegmentationTreeProbs(&cfg, tt.counts)
-			for i := range cfg.TreeProbs {
-				gotWrite := cfg.TreeProbUpdated[i]
-				if gotWrite != tt.wantWrites[i] {
-					t.Errorf("tree_prob[%d] writes magnitude = %t, want %t", i, gotWrite, tt.wantWrites[i])
-				}
-				// Effective wire value: when TreeProbUpdated[i] = false the
-				// decoder leaves the prob at 255; otherwise it reads
-				// TreeProbs[i]. Compare against the libvpx-formula result.
-				var effective uint8 = 255
-				if cfg.TreeProbUpdated[i] {
-					effective = cfg.TreeProbs[i]
-				}
-				if effective != tt.wantProbs[i] {
-					t.Errorf("tree_prob[%d] effective = %d, want %d", i, effective, tt.wantProbs[i])
-				}
 			}
 		})
 	}

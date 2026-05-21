@@ -184,7 +184,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 				return keyFrameEncodeAttempt{}, ErrInvalidConfig
 			}
 		} else {
-			assignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
+			vp8enc.AssignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
 		}
 		projectedRate, err = e.buildReconstructingKeyFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	} else {
@@ -210,7 +210,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return keyFrameEncodeAttempt{}, err
 	}
 	if segmentation.Enabled {
-		updateKeyFrameSegmentationTreeProbs(&segmentation, e.keyFrameModes[:required])
+		vp8enc.UpdateKeyFrameSegmentationTreeProbs(&segmentation, e.keyFrameModes[:required])
 	}
 
 	cfg := vp8enc.KeyFrameStateConfig{
@@ -820,7 +820,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		e.loopFilterPickBest = false
 	}
 	if segmentation.Enabled {
-		updateInterFrameSegmentationTreeProbs(&segmentation, e.interFrameModes[:required])
+		vp8enc.UpdateInterFrameSegmentationTreeProbs(&segmentation, e.interFrameModes[:required])
 		cfg.Segmentation = segmentation
 	} else if e.runtimePreserveSegmentation && !e.forceMaxQuantizer {
 		if e.runtimePreserveSegmentationUpdate && e.runtimePreservedSegmentation.Enabled {
@@ -834,7 +834,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			}
 			preserved.UpdateMap = true
 			preserved.UpdateData = true
-			updateInterFrameSegmentationTreeProbs(&preserved, e.interFrameModes[:required])
+			vp8enc.UpdateInterFrameSegmentationTreeProbs(&preserved, e.interFrameModes[:required])
 			cfg.Segmentation = preserved
 		} else {
 			cfg.Segmentation = vp8enc.SegmentationConfig{Enabled: true}

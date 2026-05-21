@@ -5,6 +5,8 @@ import "github.com/thesyncim/govpx/internal/vp8/common"
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c segmentation header and
 // macroblock segment-id packing.
 
+const StaticSegmentID = 1
+
 type SegmentationConfig struct {
 	Enabled    bool
 	UpdateMap  bool
@@ -125,4 +127,115 @@ func writeMacroblockSegmentID(w *BoolWriter, probs *[common.MBFeatureTreeProbs]u
 		w.WriteBool(1, probs[2])
 	}
 	return w.Err() == nil
+}
+
+func UpdateKeyFrameSegmentationTreeProbs(cfg *SegmentationConfig, modes []KeyFrameMacroblockMode) {
+	var counts [common.MaxMBSegments]int
+	for _, mode := range modes {
+		if mode.SegmentID < common.MaxMBSegments {
+			counts[mode.SegmentID]++
+		}
+	}
+	UpdateSegmentationTreeProbs(cfg, counts)
+}
+
+func UpdateInterFrameSegmentationTreeProbs(cfg *SegmentationConfig, modes []InterFrameMacroblockMode) {
+	var counts [common.MaxMBSegments]int
+	for _, mode := range modes {
+		if mode.SegmentID < common.MaxMBSegments {
+			counts[mode.SegmentID]++
+		}
+	}
+	UpdateSegmentationTreeProbs(cfg, counts)
+}
+
+func UpdateSegmentationTreeProbs(cfg *SegmentationConfig, counts [common.MaxMBSegments]int) {
+	if cfg == nil || !cfg.Enabled || !cfg.UpdateMap {
+		return
+	}
+	for i := range cfg.TreeProbUpdated {
+		cfg.TreeProbUpdated[i] = false
+		cfg.TreeProbs[i] = 0
+	}
+	probs := [common.MBFeatureTreeProbs]uint8{255, 255, 255}
+	total := counts[0] + counts[1] + counts[2] + counts[3]
+	if total > 0 {
+		probs[0] = nonZeroSegmentTreeProb(((counts[0] + counts[1]) * 255) / total)
+		leftTotal := counts[0] + counts[1]
+		if leftTotal > 0 {
+			probs[1] = nonZeroSegmentTreeProb((counts[0] * 255) / leftTotal)
+		}
+		rightTotal := counts[2] + counts[3]
+		if rightTotal > 0 {
+			probs[2] = nonZeroSegmentTreeProb((counts[2] * 255) / rightTotal)
+		}
+	}
+	for i, prob := range probs {
+		if prob == 255 {
+			continue
+		}
+		cfg.TreeProbs[i] = prob
+		cfg.TreeProbUpdated[i] = true
+	}
+}
+
+func nonZeroSegmentTreeProb(prob int) uint8 {
+	return uint8(min(max(prob, 1), 255))
+}
+
+func AssignKeyFrameStaticSegments(rows int, cols int, modes []KeyFrameMacroblockMode) {
+	for row := range rows {
+		for col := range cols {
+			index := row*cols + col
+			modes[index].SegmentID = 0
+		}
+	}
+}
+
+func AssignInterFrameStaticSegments(rows int, cols int, start int, refreshCount int, modes []InterFrameMacroblockMode) {
+	AssignInterFrameStaticSegmentsWithMap(rows, cols, start, refreshCount, nil, modes)
+}
+
+func AssignInterFrameStaticSegmentsWithMap(rows int, cols int, start int, refreshCount int, refreshMap []int8, modes []InterFrameMacroblockMode) int {
+	count := rows * cols
+	if count <= 0 {
+		return 0
+	}
+	start %= count
+	if start < 0 {
+		start += count
+	}
+	for row := range rows {
+		for col := range cols {
+			index := row*cols + col
+			modes[index].SegmentID = 0
+		}
+	}
+	if refreshCount <= 0 {
+		return start
+	}
+	if len(refreshMap) < count {
+		for refreshed := 0; refreshed < refreshCount && refreshed < count; refreshed++ {
+			modes[(start+refreshed)%count].SegmentID = StaticSegmentID
+		}
+		return (start + min(refreshCount, count)) % count
+	}
+	i := start
+	blockCount := refreshCount
+	for {
+		if refreshMap[i] == 0 {
+			modes[i].SegmentID = StaticSegmentID
+			blockCount--
+		} else if refreshMap[i] < 0 {
+			refreshMap[i]++
+		}
+		i++
+		if i == count {
+			i = 0
+		}
+		if blockCount == 0 || i == start {
+			break
+		}
+	}
+	return i
 }

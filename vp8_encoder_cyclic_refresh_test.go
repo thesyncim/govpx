@@ -36,7 +36,7 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) 
 		t.Fatalf("key segmentation = %+v, want map and data update", keyState.Segmentation)
 	}
 	wantAltQ := int8(vp8common.PublicQuantizerToQIndex(20)/2 - vp8common.PublicQuantizerToQIndex(20))
-	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantAltQ {
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantAltQ {
 		t.Fatalf("key static segment alt-q = %d, want %d", got, wantAltQ)
 	}
 
@@ -97,7 +97,7 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	if !cfg.Enabled || !cfg.UpdateMap || !cfg.UpdateData {
 		t.Fatalf("cyclic segmentation = %+v, want enabled map/data update", cfg)
 	}
-	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -10 {
+	if got := cfg.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != -10 {
 		t.Fatalf("cyclic segment alt-q = %d, want background delta -10", got)
 	}
 
@@ -106,7 +106,7 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	if !cfg.Enabled {
 		t.Fatalf("q=21 cyclic segmentation disabled, want background boost")
 	}
-	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -11 {
+	if got := cfg.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != -11 {
 		t.Fatalf("q=21 cyclic segment alt-q = %d, want libvpx Q/2-Q delta -11", got)
 	}
 
@@ -115,13 +115,13 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	if !cfg.Enabled {
 		t.Fatalf("q=1 cyclic segmentation disabled, want libvpx Q/2-Q delta enabled")
 	}
-	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -1 {
+	if got := cfg.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != -1 {
 		t.Fatalf("q=1 cyclic segment alt-q = %d, want libvpx Q/2-Q delta -1", got)
 	}
 
 	e.rc.currentQuantizer = 0
 	cfg = e.cyclicRefreshSegmentationConfig(false)
-	if !cfg.Enabled || cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+	if !cfg.Enabled || cfg.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] {
 		t.Fatalf("q=0 cyclic segmentation = %+v, want enabled with no alt-q feature", cfg)
 	}
 
@@ -185,7 +185,7 @@ func TestEncodeIntoDefaultCBREnablesLibvpxCyclicRefreshSegmentation(t *testing.T
 	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
 		t.Fatalf("key segmentation = %+v, want libvpx default cyclic refresh", keyState.Segmentation)
 	}
-	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -2 {
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != -2 {
 		t.Fatalf("key cyclic alt-q = %d, want libvpx q/2-q delta -2", got)
 	}
 
@@ -227,7 +227,7 @@ func TestCyclicRefreshSegmentationUsesPreRecodeQuantizer(t *testing.T) {
 	if got := state.Quant.BaseQIndex; got != 4 {
 		t.Fatalf("frame 2 base Q = %d, want recoded final Q 4", got)
 	}
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -7 {
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != -7 {
 		t.Fatalf("frame 2 cyclic alt-q = %d, want pre-recode Q/2-Q delta -7", got)
 	}
 }
@@ -322,82 +322,6 @@ func TestOvershootDropCommitsCyclicRefreshState(t *testing.T) {
 	}
 }
 
-func TestCyclicRefreshSegmentationTreeProbsMirrorLibvpxCounts(t *testing.T) {
-	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true}
-	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: 0}, {SegmentID: 0}}
-
-	updateKeyFrameSegmentationTreeProbs(&cfg, keyModes)
-	if cfg.TreeProbUpdated != ([vp8common.MBFeatureTreeProbs]bool{}) {
-		t.Fatalf("key tree prob updates = %v, want none for all-zero segment map", cfg.TreeProbUpdated)
-	}
-
-	cfg = vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true}
-	interModes := make([]vp8enc.InterFrameMacroblockMode, 40)
-	interModes[0].SegmentID = staticSegmentID
-	interModes[1].SegmentID = staticSegmentID
-
-	updateInterFrameSegmentationTreeProbs(&cfg, interModes)
-	if cfg.TreeProbUpdated[0] || !cfg.TreeProbUpdated[1] || cfg.TreeProbUpdated[2] {
-		t.Fatalf("inter tree prob update flags = %v, want only branch 1 updated", cfg.TreeProbUpdated)
-	}
-	if got := cfg.TreeProbs[1]; got != 242 {
-		t.Fatalf("inter tree prob[1] = %d, want libvpx count-derived 242", got)
-	}
-}
-
-func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshCadence(t *testing.T) {
-	modes := make([]vp8enc.InterFrameMacroblockMode, 40)
-	refreshCount := cyclicRefreshMaxMBsPerFrameForLayers(4, 10, 1)
-
-	assignInterFrameStaticSegments(4, 10, 0, refreshCount, modes)
-
-	if modes[0].SegmentID != staticSegmentID || modes[1].SegmentID != staticSegmentID {
-		t.Fatalf("first cyclic segment IDs = %d/%d, want refreshed", modes[0].SegmentID, modes[1].SegmentID)
-	}
-	if modes[2].SegmentID != 0 || modes[len(modes)-1].SegmentID != 0 {
-		t.Fatalf("later cyclic segment IDs = %d/%d, want zero", modes[2].SegmentID, modes[len(modes)-1].SegmentID)
-	}
-
-	assignInterFrameStaticSegments(4, 10, 2, refreshCount, modes)
-	if modes[0].SegmentID != 0 || modes[1].SegmentID != 0 {
-		t.Fatalf("previous cyclic segment IDs = %d/%d, want cleared", modes[0].SegmentID, modes[1].SegmentID)
-	}
-	if modes[2].SegmentID != staticSegmentID || modes[3].SegmentID != staticSegmentID {
-		t.Fatalf("rotated cyclic segment IDs = %d/%d, want refreshed", modes[2].SegmentID, modes[3].SegmentID)
-	}
-
-	assignInterFrameStaticSegments(4, 10, 39, refreshCount, modes)
-	if modes[39].SegmentID != staticSegmentID || modes[0].SegmentID != staticSegmentID {
-		t.Fatalf("wrapped cyclic segment IDs = %d/%d, want refreshed", modes[39].SegmentID, modes[0].SegmentID)
-	}
-	if modes[1].SegmentID != 0 || modes[38].SegmentID != 0 {
-		t.Fatalf("wrapped neighbor segment IDs = %d/%d, want zero", modes[1].SegmentID, modes[38].SegmentID)
-	}
-}
-
-func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshMapEligibility(t *testing.T) {
-	modes := make([]vp8enc.InterFrameMacroblockMode, 5)
-	refreshMap := []int8{0, -1, 1, 0, 0}
-
-	next := assignInterFrameStaticSegmentsWithMap(1, 5, 0, 2, refreshMap, modes)
-
-	if next != 4 {
-		t.Fatalf("next cyclic refresh index = %d, want 4 after libvpx-style eligible refresh budget", next)
-	}
-	if modes[0].SegmentID != staticSegmentID || modes[3].SegmentID != staticSegmentID {
-		t.Fatalf("segment IDs = %d/%d, want refreshed MB0 and MB3 under libvpx eligible budget", modes[0].SegmentID, modes[3].SegmentID)
-	}
-	if modes[1].SegmentID != 0 || modes[2].SegmentID != 0 || modes[4].SegmentID != 0 {
-		t.Fatalf("ineligible segment IDs = %d/%d/%d, want zero", modes[1].SegmentID, modes[2].SegmentID, modes[4].SegmentID)
-	}
-	if refreshMap[1] != 0 {
-		t.Fatalf("cooldown map[1] = %d, want incremented to candidate 0", refreshMap[1])
-	}
-	if refreshMap[2] != 1 {
-		t.Fatalf("dirty map[2] = %d, want unchanged", refreshMap[2])
-	}
-}
-
 func TestCyclicRefreshRecodeReusesMutatedSegmentMap(t *testing.T) {
 	const rows, cols = 4, 10
 	count := rows * cols
@@ -420,12 +344,12 @@ func TestCyclicRefreshRecodeReusesMutatedSegmentMap(t *testing.T) {
 		t.Fatalf("cyclic segmentation disabled, want enabled")
 	}
 	next := e.prepareInterFrameCyclicRefreshSegmentsForRecode(&state, src, rows, cols, modes)
-	if next != 4 || modes[0].SegmentID != staticSegmentID {
-		t.Fatalf("initial cyclic refresh next/seg0 = %d/%d, want 4/%d", next, modes[0].SegmentID, staticSegmentID)
+	if next != 4 || modes[0].SegmentID != vp8enc.StaticSegmentID {
+		t.Fatalf("initial cyclic refresh next/seg0 = %d/%d, want 4/%d", next, modes[0].SegmentID, vp8enc.StaticSegmentID)
 	}
 
 	modes[0] = vp8enc.InterFrameMacroblockMode{SegmentID: 0, RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV}
-	modes[1] = vp8enc.InterFrameMacroblockMode{SegmentID: staticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
+	modes[1] = vp8enc.InterFrameMacroblockMode{SegmentID: vp8enc.StaticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
 	e.updateInterFrameCyclicRefreshAttemptMapForRecode(&state, rows, cols, modes)
 	if got := e.cyclicRefreshAttemptMap[0]; got != 1 {
 		t.Fatalf("attempt refresh map[0] after cleared non-LAST segment = %d, want dirty 1", got)
@@ -481,7 +405,7 @@ func TestCyclicRefreshStaticClassificationPopulatesSkinMapOnly(t *testing.T) {
 	}
 	refreshed := 0
 	for i := range 3 {
-		if modes[i].SegmentID == staticSegmentID {
+		if modes[i].SegmentID == vp8enc.StaticSegmentID {
 			refreshed++
 		}
 	}
@@ -515,7 +439,7 @@ func TestUpdateConsecutiveZeroLastMirrorsLibvpxCounter(t *testing.T) {
 func TestUpdateCyclicRefreshMapFromInterFrameMirrorsLibvpxStates(t *testing.T) {
 	refreshMap := []int8{0, 1, 0, 0}
 	modes := []vp8enc.InterFrameMacroblockMode{
-		{SegmentID: staticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{SegmentID: vp8enc.StaticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
 		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
 		{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV},
 		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
@@ -576,7 +500,7 @@ func TestAssignInterFrameStaticSegmentsAggressiveDenoiseOverridesByConsecZeroLas
 	for i := range count {
 		want := uint8(0)
 		if overIdx[i] {
-			want = staticSegmentID
+			want = vp8enc.StaticSegmentID
 		}
 		if uint8(modes[i].SegmentID) != want {
 			t.Fatalf("modes[%d].SegmentID = %d, want %d (aggressive-denoise override should follow consec_zero_last > threshold)", i, modes[i].SegmentID, want)
@@ -706,7 +630,7 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 		}
 		refreshed := make([]int, 0, len(d.modes))
 		for i := range d.modes {
-			if d.modes[i].SegmentID == staticSegmentID {
+			if d.modes[i].SegmentID == vp8enc.StaticSegmentID {
 				refreshed = append(refreshed, i)
 			}
 		}

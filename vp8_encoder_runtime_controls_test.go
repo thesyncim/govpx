@@ -795,7 +795,7 @@ func TestSetRateControlVBRKeepsLibvpxCyclicRefreshHeader(t *testing.T) {
 		t.Fatalf("EncodeInto key: %v", err)
 	}
 	keyState := packetState(t, key.Data)
-	wantDelta := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	wantDelta := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]
 	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData || wantDelta == 0 {
 		t.Fatalf("key segmentation = %+v, want cyclic-refresh map/data with nonzero alt-q", keyState.Segmentation)
 	}
@@ -825,7 +825,7 @@ func TestSetRateControlVBRKeepsLibvpxCyclicRefreshHeader(t *testing.T) {
 	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
 		t.Fatalf("VBR inter segmentation = %+v, want cyclic-refresh map/data update", interState.Segmentation)
 	}
-	if got := interState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+	if got := interState.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantDelta {
 		t.Fatalf("VBR inter alt-q delta = %d, want carried %d", got, wantDelta)
 	}
 }
@@ -943,7 +943,7 @@ func TestRTCExternalReemitsEncodeTimeVBRSegmentationDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeInto VBR inter: %v", err)
 	}
-	wantDelta := packetState(t, vbr.Data).Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	wantDelta := packetState(t, vbr.Data).Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]
 	if wantDelta == 0 {
 		t.Fatalf("VBR preserved ALT_Q delta = 0, want nonzero")
 	}
@@ -970,7 +970,7 @@ func TestRTCExternalReemitsEncodeTimeVBRSegmentationDelta(t *testing.T) {
 	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
 		t.Fatalf("reemit segmentation = %+v, want preserved map/data update", state.Segmentation)
 	}
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantDelta {
 		t.Fatalf("reemit ALT_Q delta = %d, want encode-time VBR delta %d", got, wantDelta)
 	}
 }
@@ -1025,7 +1025,7 @@ func TestSetRateControlCQRefreshesPreservedSegmentationDelta(t *testing.T) {
 	if state.Quant.BaseQIndex != uint8(wantQ) {
 		t.Fatalf("CQ base q = %d, want %d", state.Quant.BaseQIndex, wantQ)
 	}
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantDelta {
 		t.Fatalf("CQ preserved alt-q delta = %d, want refreshed %d", got, wantDelta)
 	}
 
@@ -1042,7 +1042,7 @@ func TestSetRateControlCQRefreshesPreservedSegmentationDelta(t *testing.T) {
 	if state.Quant.BaseQIndex != uint8(wantQ) {
 		t.Fatalf("CQ level base q = %d, want %d", state.Quant.BaseQIndex, wantQ)
 	}
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantDelta {
 		t.Fatalf("CQ level preserved alt-q delta = %d, want refreshed %d", got, wantDelta)
 	}
 }
@@ -1113,7 +1113,7 @@ func TestRTCExternalFirstInterCodecControlsPreserveCyclicSegmentationUpdate(t *t
 		t.Fatalf("EncodeInto key: %v", err)
 	}
 	keyState := packetState(t, key.Data)
-	wantDelta := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	wantDelta := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]
 	if wantDelta == 0 {
 		t.Fatalf("key cyclic alt-q delta = 0, want nonzero")
 	}
@@ -1140,7 +1140,7 @@ func TestRTCExternalFirstInterCodecControlsPreserveCyclicSegmentationUpdate(t *t
 	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
 		t.Fatalf("first inter RTC segmentation = %+v, want preserved map/data update", state.Segmentation)
 	}
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantDelta {
 		t.Fatalf("first inter RTC alt-q delta = %d, want preserved %d", got, wantDelta)
 	}
 }
@@ -1257,7 +1257,7 @@ func TestRTCExternalPreservesPendingCodecControlSegmentationUpdate(t *testing.T)
 	if err != nil {
 		t.Fatalf("EncodeInto key: %v", err)
 	}
-	wantDelta := packetState(t, key.Data).Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	wantDelta := packetState(t, key.Data).Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]
 	if _, err := e.EncodeInto(dst, encoderValidationSegmentedFrame(64, 64, 1), 1, 1, 0); err != nil {
 		t.Fatalf("EncodeInto first inter: %v", err)
 	}
@@ -1287,7 +1287,7 @@ func TestRTCExternalPreservesPendingCodecControlSegmentationUpdate(t *testing.T)
 	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
 		t.Fatalf("second inter RTC segmentation = %+v, want preserved pending map/data update", state.Segmentation)
 	}
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantDelta {
 		t.Fatalf("second inter RTC alt-q delta = %d, want preserved %d", got, wantDelta)
 	}
 }
@@ -1329,7 +1329,7 @@ func TestRTCExternalPreservesPriorCyclicSegmentationOnForcedKeyFrame(t *testing.
 			}
 		}
 	}
-	want := e.lastSegmentationConfig.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	want := e.lastSegmentationConfig.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]
 	if want == 0 {
 		t.Fatalf("preserved cyclic alt-q delta = 0, want nonzero")
 	}
@@ -1351,7 +1351,7 @@ func TestRTCExternalPreservesPriorCyclicSegmentationOnForcedKeyFrame(t *testing.
 		t.Fatalf("forced EncodeInto: %v", err)
 	}
 	state := packetState(t, forced.Data)
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != want {
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != want {
 		t.Fatalf("forced-key cyclic alt-q delta = %d, want preserved %d", got, want)
 	}
 }

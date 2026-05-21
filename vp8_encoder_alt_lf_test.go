@@ -41,17 +41,17 @@ func TestCyclicRefreshSegmentationEmitsAggressiveDenoiseAltLF(t *testing.T) {
 		t.Fatalf("seg cfg = %+v, want enabled with map+data update", cfg)
 	}
 	// MB_LVL_ALT_LF feature mode must be active on segment 1 with delta -40.
-	if !cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
-		t.Fatalf("alt-LF feature enabled[%d]=false, want true", staticSegmentID)
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] {
+		t.Fatalf("alt-LF feature enabled[%d]=false, want true", vp8enc.StaticSegmentID)
 	}
-	if got := cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID]; got != aggressiveDenoiseAltLFDelta {
-		t.Fatalf("alt-LF feature data[%d] = %d, want %d", staticSegmentID, got, aggressiveDenoiseAltLFDelta)
+	if got := cfg.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID]; got != aggressiveDenoiseAltLFDelta {
+		t.Fatalf("alt-LF feature data[%d] = %d, want %d", vp8enc.StaticSegmentID, got, aggressiveDenoiseAltLFDelta)
 	}
 	// MB_LVL_ALT_Q must NOT be enabled in this branch (libvpx writes
 	// 0 there but the corresponding "enabled" bit in our config stays
 	// off, which produces the same on-wire result for delta-zero).
-	if cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
-		t.Fatalf("alt-Q feature enabled[%d]=true, want false (aggressive-denoise branch must not ship a Q delta)", staticSegmentID)
+	if cfg.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] {
+		t.Fatalf("alt-Q feature enabled[%d]=true, want false (aggressive-denoise branch must not ship a Q delta)", vp8enc.StaticSegmentID)
 	}
 }
 
@@ -71,15 +71,15 @@ func TestCyclicRefreshSegmentationFallsBackToAltQOutsideAggressiveBranch(t *test
 	if !cfg.Enabled {
 		t.Fatalf("seg cfg = %+v, want enabled", cfg)
 	}
-	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
-		t.Fatalf("alt-LF feature enabled[%d]=true, want false (non-aggressive branch must use ALT_Q)", staticSegmentID)
+	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] {
+		t.Fatalf("alt-LF feature enabled[%d]=true, want false (non-aggressive branch must use ALT_Q)", vp8enc.StaticSegmentID)
 	}
-	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
-		t.Fatalf("alt-Q feature enabled[%d]=false, want true", staticSegmentID)
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] {
+		t.Fatalf("alt-Q feature enabled[%d]=false, want true", vp8enc.StaticSegmentID)
 	}
 	wantDelta := int8(e.rc.currentQuantizer/2 - e.rc.currentQuantizer)
-	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantDelta {
-		t.Fatalf("alt-Q feature data[%d] = %d, want %d", staticSegmentID, got, wantDelta)
+	if got := cfg.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != wantDelta {
+		t.Fatalf("alt-Q feature data[%d] = %d, want %d", vp8enc.StaticSegmentID, got, wantDelta)
 	}
 }
 
@@ -96,13 +96,13 @@ func TestKeyFrameBitstreamCarriesAltLFDelta(t *testing.T) {
 		UpdateMap:  true,
 		UpdateData: true,
 	}
-	segmentation.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] = true
-	segmentation.FeatureData[vp8common.MBLvlAltLF][staticSegmentID] = aggressiveDenoiseAltLFDelta
+	segmentation.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = true
+	segmentation.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = aggressiveDenoiseAltLFDelta
 	for i := range segmentation.TreeProbs {
 		segmentation.TreeProbUpdated[i] = true
 		segmentation.TreeProbs[i] = 128
 	}
-	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: staticSegmentID, YMode: vp8common.DCPred, UVMode: vp8common.DCPred}}
+	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: vp8enc.StaticSegmentID, YMode: vp8common.DCPred, UVMode: vp8common.DCPred}}
 	keyPacket := make([]byte, 4096)
 	keyN, err := vp8enc.WriteZeroKeyFrame(keyPacket, 16, 16, vp8enc.KeyFrameStateConfig{
 		TokenPartition: vp8common.OnePartition,
@@ -119,11 +119,11 @@ func TestKeyFrameBitstreamCarriesAltLFDelta(t *testing.T) {
 	// Decoded ALT_LF feature data on segment 1 must equal the delta the
 	// encoder shipped; the matching ALT_Q slot must remain zero (the
 	// aggressive-denoise branch suppresses the Q delta).
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltLF][staticSegmentID]; got != aggressiveDenoiseAltLFDelta {
-		t.Fatalf("decoded alt-LF segment %d = %d, want %d", staticSegmentID, got, aggressiveDenoiseAltLFDelta)
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID]; got != aggressiveDenoiseAltLFDelta {
+		t.Fatalf("decoded alt-LF segment %d = %d, want %d", vp8enc.StaticSegmentID, got, aggressiveDenoiseAltLFDelta)
 	}
-	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != 0 {
-		t.Fatalf("decoded alt-Q segment %d = %d, want 0 (no Q delta in alt-LF branch)", staticSegmentID, got)
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID]; got != 0 {
+		t.Fatalf("decoded alt-Q segment %d = %d, want 0 (no Q delta in alt-LF branch)", vp8enc.StaticSegmentID, got)
 	}
 }
 
@@ -137,8 +137,8 @@ func TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData(t *testing.T) {
 	t.Parallel()
 
 	cfg := vp8enc.SegmentationConfig{Enabled: true, AbsDelta: false, UpdateData: true, UpdateMap: true}
-	cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] = true
-	cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID] = aggressiveDenoiseAltLFDelta
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = aggressiveDenoiseAltLFDelta
 	cfg.FeatureEnabled[vp8common.MBLvlAltQ][2] = true
 	cfg.FeatureData[vp8common.MBLvlAltQ][2] = -7
 	for i := range cfg.TreeProbs {
@@ -149,8 +149,8 @@ func TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData(t *testing.T) {
 	if !header.Enabled || header.AbsDelta || !header.UpdateData || !header.UpdateMap {
 		t.Fatalf("translated header flags = %+v, want enabled delta-mode with map+data update", header)
 	}
-	if got := header.FeatureData[vp8common.MBLvlAltLF][staticSegmentID]; got != aggressiveDenoiseAltLFDelta {
-		t.Fatalf("translated alt-LF[%d] = %d, want %d", staticSegmentID, got, aggressiveDenoiseAltLFDelta)
+	if got := header.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID]; got != aggressiveDenoiseAltLFDelta {
+		t.Fatalf("translated alt-LF[%d] = %d, want %d", vp8enc.StaticSegmentID, got, aggressiveDenoiseAltLFDelta)
 	}
 	if got := header.FeatureData[vp8common.MBLvlAltQ][2]; got != -7 {
 		t.Fatalf("translated alt-Q[2] = %d, want -7", got)
@@ -220,16 +220,16 @@ func TestLoopFilterFastPickerUsesInstalledAltLF(t *testing.T) {
 	t.Parallel()
 
 	e := newSizedTestEncoder(t, 16, 16)
-	e.loopFilterSegmentLF[staticSegmentID] = -7
+	e.loopFilterSegmentLF[vp8enc.StaticSegmentID] = -7
 	cfg := vp8enc.SegmentationConfig{Enabled: true, AbsDelta: false, UpdateData: true, UpdateMap: true}
-	cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] = true
-	cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID] = aggressiveDenoiseAltLFDelta
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] = aggressiveDenoiseAltLFDelta
 
 	ctx := e.newLoopFilterPickContext(sourceImageFromPublic(testImage(16, 16)), vp8common.InterFrame, 0, 1, 1, 1, cfg)
-	if got := ctx.fastFrameConfig.SegmentLF[staticSegmentID]; got != -7 {
+	if got := ctx.fastFrameConfig.SegmentLF[vp8enc.StaticSegmentID]; got != -7 {
 		t.Fatalf("fast picker alt-LF = %d, want installed previous value -7", got)
 	}
-	if got := ctx.fullFrameConfig.SegmentLF[staticSegmentID]; got != aggressiveDenoiseAltLFDelta {
+	if got := ctx.fullFrameConfig.SegmentLF[vp8enc.StaticSegmentID]; got != aggressiveDenoiseAltLFDelta {
 		t.Fatalf("full picker alt-LF = %d, want current value %d", got, aggressiveDenoiseAltLFDelta)
 	}
 }

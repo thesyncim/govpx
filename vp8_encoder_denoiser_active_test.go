@@ -467,23 +467,23 @@ func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testi
 	if !cfg.Enabled {
 		t.Fatalf("aggressive-denoise cyclic segmentation disabled, want enabled with alt-LF")
 	}
-	if cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+	if cfg.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] {
 		t.Fatalf("aggressive-denoise alt-Q feature still set, want suppressed in favour of alt-LF")
 	}
-	if !cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] {
 		t.Fatalf("aggressive-denoise alt-LF feature = false, want enabled")
 	}
-	if got := cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID]; got != -40 {
+	if got := cfg.FeatureData[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID]; got != -40 {
 		t.Fatalf("aggressive-denoise alt-LF delta = %d, want libvpx -40", got)
 	}
 
 	// Q at or above qp_thresh: alt-Q path resumes.
 	e.rc.currentQuantizer = 80
 	cfg = e.cyclicRefreshSegmentationConfig(false)
-	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
+	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] {
 		t.Fatalf("Q>=qp_thresh alt-LF still set, want libvpx fallback to alt-Q delta")
 	}
-	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] {
 		t.Fatalf("Q>=qp_thresh alt-Q feature = false, want enabled")
 	}
 
@@ -491,10 +491,10 @@ func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testi
 	e.rc.currentQuantizer = 40
 	e.rc.framesSinceKeyframe = 10
 	cfg = e.cyclicRefreshSegmentationConfig(false)
-	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
+	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][vp8enc.StaticSegmentID] {
 		t.Fatalf("frames_since_key<=2*consec_zerolast alt-LF still set, want fallback to alt-Q")
 	}
-	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][vp8enc.StaticSegmentID] {
 		t.Fatalf("frames_since_key<=2*consec_zerolast alt-Q feature = false, want enabled")
 	}
 }
@@ -569,7 +569,7 @@ func TestCyclicRefreshSegmentTransitionsClearOnNonZeroLast(t *testing.T) {
 	refreshMap := []int8{-1, 1, 0, -1}
 	modes := []vp8enc.InterFrameMacroblockMode{
 		// MB0 was in segment 1 → final state -1
-		{SegmentID: staticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{SegmentID: vp8enc.StaticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
 		// MB1 ZEROMV-LAST flips dirty→eligible
 		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
 		// MB2 NewMV last → dirty (1)
