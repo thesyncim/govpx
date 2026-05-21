@@ -962,7 +962,7 @@ func (e *VP8Encoder) projectedFrameSizeBitsFromRateWithKnownCoefSavings(keyFrame
 // govpx's previous behaviour subtracted the heuristic-biased
 // e.refProb{Intra,Last,Golden} values, which produced spurious savings of
 // up to ~64 bits per inter frame and was the residual gap behind
-// projected_frame_size in TestOracleEncoderTraceDecisionCompare. Mirroring
+// projected_frame_size in TestVP8OracleTraceDecisionCompare. Mirroring
 // the libvpx convert hook here zeros that out for the same gate libvpx
 // uses (libvpxShouldConvertRefCountsToProb) and keeps the heuristic-biased
 // fallback for the GF/ARF refresh branch (single-layer, refresh) where

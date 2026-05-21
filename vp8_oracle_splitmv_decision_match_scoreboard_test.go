@@ -14,8 +14,8 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleSplitMVDecisionMatchRate is the SPLITMV-focused companion to
-// TestOracleInterDecisionMatchRate. It runs a per-8x8-quadrant motion fixture
+// TestVP8OracleSplitMVDecisionMatchRate is the SPLITMV-focused companion to
+// TestVP8OracleInterDecisionMatchRate. It runs a per-8x8-quadrant motion fixture
 // (so each macroblock has sub-MB-level motion that drives SPLITMV in libvpx)
 // and reports per-fixture match-rates against libvpx for the SPLITMV-specific
 // fields the libvpx and govpx oracle traces both emit on the {"type":"mb"}
@@ -31,7 +31,7 @@ import (
 // match-rate must remain within 2 percentage points of the recorded value.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
-func TestOracleSplitMVDecisionMatchRate(t *testing.T) {
+func TestVP8OracleSplitMVDecisionMatchRate(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle SPLITMV match scoreboard")
 	}

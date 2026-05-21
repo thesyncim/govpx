@@ -16,7 +16,7 @@ import (
 )
 
 // temporalSVCLayerSummary captures the per-layer rate-control parity
-// row for a single TestOracleTemporalSVCParity fixture.
+// row for a single TestVP8OracleTemporalSVCParity fixture.
 type temporalSVCLayerSummary struct {
 	LayerID               int
 	GovpxInputFrames      int
@@ -35,7 +35,7 @@ type temporalSVCLayerSummary struct {
 }
 
 // temporalSVCFixtureSummary aggregates the per-fixture parity metrics
-// (one TestOracleTemporalSVCParity row).
+// (one TestVP8OracleTemporalSVCParity row).
 type temporalSVCFixtureSummary struct {
 	Name                string
 	Frames              int
@@ -47,7 +47,7 @@ type temporalSVCFixtureSummary struct {
 	Layers_             []temporalSVCLayerSummary
 }
 
-// TestOracleTemporalSVCParity drives a 3-layer SVC pattern through both govpx
+// TestVP8OracleTemporalSVCParity drives a 3-layer SVC pattern through both govpx
 // and libvpx's vpx_temporal_svc_encoder example and pins govpx-vs-libvpx
 // parity on:
 //
@@ -91,7 +91,7 @@ type temporalSVCFixtureSummary struct {
 //   - per-layer rate adherence (govpx kbps vs target): within 25%
 //     mismatch on the highest-pressure fixture, gated against baseline
 //     drift
-func TestOracleTemporalSVCParity(t *testing.T) {
+func TestVP8OracleTemporalSVCParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run temporal SVC parity scoreboard")
 	}

@@ -4,7 +4,7 @@ package govpx
 
 // Loop-filter header oracle scoreboard.
 //
-// TestOracleLoopFilterHeaderMatchRate captures the per-frame loop-filter header
+// TestVP8OracleLoopFilterHeaderMatchRate captures the per-frame loop-filter header
 // from both govpx and the libvpx oracle on a panning corpus across a deadline x
 // CPU matrix and reports per-field match rates against a baseline pinned in
 // testdata/loop_filter_match_rate_baseline.json. Each fixture exercises a
@@ -70,7 +70,7 @@ type loopFilterBaselineFile struct {
 	Fixtures map[string]loopFilterBaselineEntry `json:"fixtures"`
 }
 
-func TestOracleLoopFilterHeaderMatchRate(t *testing.T) {
+func TestVP8OracleLoopFilterHeaderMatchRate(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run loop-filter header oracle scoreboard")
 	}

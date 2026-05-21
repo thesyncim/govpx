@@ -14,7 +14,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
+func TestVP8OracleTraceDecisionCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
 	}
@@ -68,7 +68,7 @@ func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderTraceCandidateRowsPresent(t *testing.T) {
+func TestVP8OracleTraceCandidateRowsPresent(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
 	}
@@ -136,7 +136,7 @@ func TestOracleEncoderTraceCandidateRowsPresent(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
+func TestVP8OracleTraceInterCandidateCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
 	}

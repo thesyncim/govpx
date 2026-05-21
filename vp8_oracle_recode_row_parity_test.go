@@ -12,10 +12,10 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleRecodeRowParity gates the libvpx VP8 recode loop semantics by
+// TestVP8OracleRecodeRowParity gates the libvpx VP8 recode loop semantics by
 // driving a tight rate-control fixture that should force frame-size recodes
 // on at least one side and comparing the emitted recode rows.
-func TestOracleRecodeRowParity(t *testing.T) {
+func TestVP8OracleRecodeRowParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle recode comparison")
 	}

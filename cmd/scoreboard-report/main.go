@@ -32,18 +32,18 @@ type baselineSpec struct {
 }
 
 var baselines = []baselineSpec{
-	{test: "TestOracleInterDecisionMatchRate", path: "testdata/mb_match_rate_baseline.json"},
-	{test: "TestOracleSplitMVDecisionMatchRate", path: "testdata/splitmv_match_rate_baseline.json"},
-	{test: "TestOracleEncoderQHistogramScoreboard", path: "testdata/q_histogram_baseline.json"},
-	{test: "TestOracleEncoderTraceInterCandidateScoreboard", path: "testdata/realtime_candidate_scoreboard.json"},
-	{test: "TestOracle128x128InterQDriftScoreboard", path: "testdata/qdrift_128_baseline.json"},
-	{test: "TestOracleLoopFilterHeaderMatchRate", path: "testdata/loop_filter_match_rate_baseline.json"},
-	{test: "TestOracleSecondPassAllocationCompare", path: "testdata/second_pass_alloc_baseline.json"},
-	{test: "TestOracleImprovedMVScoreboard", path: "testdata/improved_mv_match_rate_baseline.json"},
-	{test: "TestOracleCBRDropFrameScoreboard", path: "testdata/cbr_drop_scoreboard_baseline.json"},
-	{test: "TestOracleCandidateRateScoreboard", path: "testdata/candidate_rate_scoreboard_baseline.json"},
-	{test: "TestOracleInterModeDistributionScoreboard", path: "testdata/inter_mode_distribution_baseline.json"},
-	{test: "TestOracleTemporalSVCParity", path: "testdata/temporal_svc_scoreboard_baseline.json"},
+	{test: "TestVP8OracleInterDecisionMatchRate", path: "testdata/mb_match_rate_baseline.json"},
+	{test: "TestVP8OracleSplitMVDecisionMatchRate", path: "testdata/splitmv_match_rate_baseline.json"},
+	{test: "TestVP8OracleQuantizerHistogramScoreboard", path: "testdata/q_histogram_baseline.json"},
+	{test: "TestVP8OracleTraceInterCandidateScoreboard", path: "testdata/realtime_candidate_scoreboard.json"},
+	{test: "TestVP8OracleInterQDriftScoreboard", path: "testdata/qdrift_128_baseline.json"},
+	{test: "TestVP8OracleLoopFilterHeaderMatchRate", path: "testdata/loop_filter_match_rate_baseline.json"},
+	{test: "TestVP8OracleSecondPassAllocationScoreboard", path: "testdata/second_pass_alloc_baseline.json"},
+	{test: "TestVP8OracleImprovedMVMatchScoreboard", path: "testdata/improved_mv_match_rate_baseline.json"},
+	{test: "TestVP8OracleCBRDropFrameScoreboard", path: "testdata/cbr_drop_scoreboard_baseline.json"},
+	{test: "TestVP8OracleCandidateRateScoreboard", path: "testdata/candidate_rate_scoreboard_baseline.json"},
+	{test: "TestVP8OracleInterModeDistributionScoreboard", path: "testdata/inter_mode_distribution_baseline.json"},
+	{test: "TestVP8OracleTemporalSVCParity", path: "testdata/temporal_svc_scoreboard_baseline.json"},
 }
 
 type testEvent struct {

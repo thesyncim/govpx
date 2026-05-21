@@ -15,7 +15,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleInterModeDistributionScoreboard captures per-fixture inter-frame
+// TestVP8OracleInterModeDistributionScoreboard captures per-fixture inter-frame
 // mode/ref/skip distribution for govpx and libvpx, emits a side-by-side
 // scoreboard, and gates regression against
 // testdata/inter_mode_distribution_baseline.json. Each fixture's mode pp
@@ -36,7 +36,7 @@ import (
 // surface here, not just in the smaller synthetic fixtures.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
-func TestOracleInterModeDistributionScoreboard(t *testing.T) {
+func TestVP8OracleInterModeDistributionScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle inter-mode distribution scoreboard")
 	}

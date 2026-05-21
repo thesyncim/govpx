@@ -15,7 +15,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleARNRBufferAdler instruments the ARNR alt-ref buffer parity gap.
+// TestVP8OracleARNRBufferAdler instruments the ARNR alt-ref buffer parity gap.
 // govpx is documented as not yet byte-exact on ARNR, so this test only fails
 // hard when neither side fires the ARNR path; otherwise it logs per-side
 // frame indices and y/u/v Adler32 deltas as a scoreboard.
@@ -30,7 +30,7 @@ import (
 // scoreboard so the synthetic one-pass driver tests
 // (`TestAutoAltRefDriverEmitsHiddenFrame`) continue to pin the govpx-only
 // behaviour.
-func TestOracleARNRBufferAdler(t *testing.T) {
+func TestVP8OracleARNRBufferAdler(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle ARNR comparison")
 	}

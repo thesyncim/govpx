@@ -157,7 +157,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			// pruning threshold (otherwise BPred and the other intra
 			// modes carry stale low thresholds across MBs and the
 			// per-frame `rd_threshes` evolution drifts -- caught by
-			// TestOracleInterCandidateThresholdEvolution
+			// TestVP8OracleInterCandidateThresholdEvolution
 			// good-quality-vbr-cpu3, frame=1 mb=(3,3) BPred 97500 vs
 			// 136980).
 			if !ok {

@@ -15,14 +15,14 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleEncoderQHistogramScoreboard captures per-fixture Q histograms for
+// TestVP8OracleQuantizerHistogramScoreboard captures per-fixture Q histograms for
 // govpx and libvpx and emits a side-by-side scoreboard. Regression-gated
 // against testdata/q_histogram_baseline.json: each fixture's mean Q must stay
 // within 1.5 of the recorded baseline, and the L1 distance between govpx's and
 // libvpx's histograms must not grow by more than 8 frames of drift.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
-func TestOracleEncoderQHistogramScoreboard(t *testing.T) {
+func TestVP8OracleQuantizerHistogramScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle Q histogram scoreboard")
 	}

@@ -17,7 +17,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleCBRDropFrameScoreboard pins govpx-vs-libvpx parity on the CBR
+// TestVP8OracleCBRDropFrameScoreboard pins govpx-vs-libvpx parity on the CBR
 // drop-frame and buffer-pressure decision boundary. Each fixture
 // deliberately under-budgets the channel so both encoders are forced to
 // drop several inter frames; we then verify the drop count, drop indices,
@@ -43,7 +43,7 @@ import (
 // govpx_oracle_emit_dropped_frame hook + three call sites in
 // vp8/encoder/onyx_if.c (decimation, buffer underrun, post-encode
 // overshoot).
-func TestOracleCBRDropFrameScoreboard(t *testing.T) {
+func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle CBR drop-frame scoreboard")
 	}

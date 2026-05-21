@@ -38,7 +38,7 @@ const improvedMVBaselinePath = "testdata/improved_mv_match_rate_baseline.json"
 // the scoreboard allows below the recorded baseline before failing.
 const improvedMVMatchTolerance = 2.0
 
-// TestOracleImprovedMVScoreboard captures govpx + libvpx oracle traces for
+// TestVP8OracleImprovedMVMatchScoreboard captures govpx + libvpx oracle traces for
 // a panning corpus across two fixture configurations (Good/VBR cpu=3 and
 // Realtime/CBR cpu=0) and reports the per-MB match rate of the improved-MV
 // predictor fields (improved_mv_near_sadidx, improved_mv_row,
@@ -48,7 +48,7 @@ const improvedMVMatchTolerance = 2.0
 // This is a tripwire scoreboard: each percentage must stay within
 // improvedMVMatchTolerance of the recorded baseline. To bootstrap or
 // refresh the baseline run with GOVPX_UPDATE_BASELINES=1.
-func TestOracleImprovedMVScoreboard(t *testing.T) {
+func TestVP8OracleImprovedMVMatchScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run improved-MV scoreboard")
 	}

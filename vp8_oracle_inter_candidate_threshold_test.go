@@ -15,7 +15,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleInterCandidateThresholdEvolution drives the same fixture
+// TestVP8OracleInterCandidateThresholdEvolution drives the same fixture
 // through govpx and the libvpx oracle across a band of cpu_used values
 // (negative for explicit-speed realtime, positive for the auto-select
 // realtime path, and good-quality for the RD picker) and compares the
@@ -40,8 +40,8 @@ import (
 // mb ordering, mode picker drift) makes the streams shift relative to
 // each other we log the histogram for diagnosis but do not fail, so
 // this test does not regress on shifts already covered by the
-// existing TestOracleEncoderTrace* / TestOracle*Scoreboard suite.
-func TestOracleInterCandidateThresholdEvolution(t *testing.T) {
+// existing TestVP8OracleTrace* / TestVP8Oracle*Scoreboard suite.
+func TestVP8OracleInterCandidateThresholdEvolution(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle threshold-evolution comparison")
 	}

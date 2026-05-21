@@ -25,7 +25,7 @@ import (
 //   - Per-pixel libvpx integer formula
 //     `pval = (accumulator + count>>1) * fixed_divide[count] >> 19`.
 //
-// Out of scope (covered by oracle_arnr_buffer_test.go scoreboard):
+// Out of scope (covered by vp8_oracle_arnr_buffer_scoreboard_test.go scoreboard):
 //   - vp8_hex_search variance + mv_err_cost path; govpx uses pure SAD.
 //   - vp8_find_best_sub_pixel_step_iteratively half/quarter sequence
 //     with vfp->svf; govpx uses sixtap-SAD diamond walk.

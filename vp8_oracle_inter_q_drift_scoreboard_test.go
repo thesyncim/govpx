@@ -15,7 +15,7 @@ import (
 )
 
 // qdriftBaseline is the on-disk shape recorded by
-// TestOracle128x128InterQDriftScoreboard. It tracks per-frame Q
+// TestVP8OracleInterQDriftScoreboard. It tracks per-frame Q
 // regulation drift and post-encode size drift between govpx and the
 // libvpx oracle for the 128x128 realtime CBR cpu8 fixture, where govpx
 // historically picks lower Q than libvpx on inter frames and ships
@@ -37,7 +37,7 @@ type qdriftFrameSample struct {
 	sizeDeltaPct float64
 }
 
-// TestOracle128x128InterQDriftScoreboard exercises the 128x128 panning
+// TestVP8OracleInterQDriftScoreboard exercises the 128x128 panning
 // realtime CBR cpu8 fixture and reports per-frame quantizer/size drift
 // against the libvpx oracle. The intent is to convert what used to be a
 // noisy debug Logf into a measurement gate: govpx's inter-frame Q is
@@ -45,7 +45,7 @@ type qdriftFrameSample struct {
 // the resulting payloads are 30-50% larger; the assertions guard against
 // future regressions while letting fixes that lower the deltas pass
 // freely.
-func TestOracle128x128InterQDriftScoreboard(t *testing.T) {
+func TestVP8OracleInterQDriftScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle Q-drift scoreboard")
 	}

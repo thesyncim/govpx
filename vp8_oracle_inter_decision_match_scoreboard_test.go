@@ -14,13 +14,13 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleInterDecisionMatchRate captures per-MB picker decisions for govpx
+// TestVP8OracleInterDecisionMatchRate captures per-MB picker decisions for govpx
 // vs libvpx on three fixtures and reports the per-field match-rate. A
 // regression baseline lives in testdata/mb_match_rate_baseline.json: each
 // match-rate must remain within 2 percentage points of the recorded baseline.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
-func TestOracleInterDecisionMatchRate(t *testing.T) {
+func TestVP8OracleInterDecisionMatchRate(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle MB decision match scoreboard")
 	}

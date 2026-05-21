@@ -37,9 +37,9 @@ type candidateRateScoreboardBaseline struct {
 	Fixtures map[string]candidateRateScoreboardSnapshot `json:"fixtures"`
 }
 
-// TestOracleCandidateRateScoreboard captures per-candidate rate scalars
+// TestVP8OracleCandidateRateScoreboard captures per-candidate rate scalars
 // from both encoders and reports a per-frame match rate. The fixture
-// matches TestOracleEncoderTraceInterCandidateCompare so anyone looking at
+// matches TestVP8OracleTraceInterCandidateCompare so anyone looking at
 // candidate-row divergences can pivot directly to a rate-only summary.
 //
 // govpx records `rate` as `rd.rate2` (full mode rate including ref-frame
@@ -49,7 +49,7 @@ type candidateRateScoreboardBaseline struct {
 // the equivalent `rate2` from the fast picker (vp8/encoder/pickinter.c,
 // before update_best_mode). Both encoders flush these rows at frame
 // commit time; this test walks them in lockstep and tabulates the deltas.
-func TestOracleCandidateRateScoreboard(t *testing.T) {
+func TestVP8OracleCandidateRateScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace scoreboard")
 	}

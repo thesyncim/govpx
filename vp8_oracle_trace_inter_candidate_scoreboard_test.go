@@ -26,14 +26,14 @@ type scoreboardBaseline struct {
 	Fixtures map[string]scoreboardFixtureSnapshot `json:"fixtures"`
 }
 
-// TestOracleEncoderTraceInterCandidateScoreboard runs the inter-candidate
+// TestVP8OracleTraceInterCandidateScoreboard runs the inter-candidate
 // trace comparator across a band of realtime CPU presets and turns the
 // resulting [][]Divergence into a scoreboard. Unlike
-// TestOracleEncoderTraceInterCandidateCompare, this test does NOT fail on
+// TestVP8OracleTraceInterCandidateCompare, this test does NOT fail on
 // any divergence -- it logs a per-fixture markdown table and asserts only
 // against a baseline so we catch regressions without blocking incremental
 // progress on the realtime path.
-func TestOracleEncoderTraceInterCandidateScoreboard(t *testing.T) {
+func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace scoreboard")
 	}

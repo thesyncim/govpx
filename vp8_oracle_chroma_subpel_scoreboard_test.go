@@ -33,16 +33,16 @@ type chromaSubpelBaselineCase struct {
 }
 
 // chromaSubpelBaseline is the baseline shape for the
-// TestOracleChromaSubpelScoreboard scoreboard. Each entry records the
+// TestVP8OracleChromaSubpelScoreboard scoreboard. Each entry records the
 // per-fixture summary scalars; tightening the assertion is a matter of
 // re-running scoreboard-update once a fix lands.
 type chromaSubpelBaseline struct {
 	Cases []chromaSubpelBaselineCase `json:"cases"`
 }
 
-// TestOracleChromaSubpelScoreboard tracks the residual Adler32 byte-identity
+// TestVP8OracleChromaSubpelScoreboard tracks the residual Adler32 byte-identity
 // gap that lives on inter frames at sizes >64x64. The 64x64 byte-identity gate
-// stays in TestOracleReconstructionAdler32Match; this scoreboard pins the
+// stays in TestVP8OracleReconstructionAdler32Match; this scoreboard pins the
 // 96x96 / 128x128 / 160x96 panning realtime CBR cpu8 cases where keyframes
 // remain byte-identical and Q matches every frame, but inter-frame y/u/v
 // Adler32 still differ. Subagent localized the residual to the chroma
@@ -53,7 +53,7 @@ type chromaSubpelBaseline struct {
 // the larger fixture corpus uncovers, most likely from the sub-pel filter
 // state at the right frame edge. Closing it requires per-pixel libvpx-side
 // xd->predictor instrumentation to localize.
-func TestOracleChromaSubpelScoreboard(t *testing.T) {
+func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle chroma sub-pel scoreboard")
 	}

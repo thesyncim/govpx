@@ -4,7 +4,7 @@ package govpx
 
 // Second-pass allocation oracle compare.
 //
-// TestOracleSecondPassAllocationCompare drives a libvpx pass-1 run against
+// TestVP8OracleSecondPassAllocationScoreboard drives a libvpx pass-1 run against
 // each fixture's source to produce a libvpx FIRSTPASS_STATS file (.fpf),
 // then runs both encoders on a matched pass-2 configuration:
 //   - libvpx: vpxenc-oracle --pass=2 --fpf=<file> with the trace env var,
@@ -88,7 +88,7 @@ type secondPassBaselineFile struct {
 	Fixtures map[string]secondPassBaselineEntry `json:"fixtures"`
 }
 
-func TestOracleSecondPassAllocationCompare(t *testing.T) {
+func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run second-pass allocation oracle compare")
 	}
