@@ -7,20 +7,20 @@ Last refreshed: 2026-05-21 from `main`.
 
 ## Current Counts
 
-- Root Go files: 535.
-- Root test files: 374.
-- Internal Go files: 660.
-- Root VP8 files: 81 implementation files and 220 test files.
+- Root Go files: 533.
+- Root test files: 373.
+- Internal Go files: 664.
+- Root VP8 files: 80 implementation files and 219 test files.
 - Root VP9 files: 71 implementation files and 142 test files.
 - Internal package files:
-  - `internal/vp8`: 310 Go files.
+  - `internal/vp8`: 314 Go files.
   - `internal/vp9`: 293 Go files.
   - `internal/vpx`: 9 Go files.
   - `internal/coracle`: 26 Go files.
   - `internal/testutil`: 18 Go files.
 - Test-name clusters:
-  - Root tests: 391.
-  - Internal tests: 274.
+  - Root tests: 373.
+  - Internal tests: 276.
   - Files with `oracle` in the name: 124.
   - Files with `parity` in the name: 66.
   - Files with `fuzz` in the name: 44.

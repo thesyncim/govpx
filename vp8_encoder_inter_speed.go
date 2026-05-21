@@ -17,8 +17,6 @@ const interFrameMaxFirstStep = vp8enc.InterFrameMaxFirstStep
 const interFrameSplitMVFullSearchThreshold = 4000
 const interFrameMaxFullPelVal = vp8enc.InterFrameMaxFullPelVal
 const interFrameUMVBorderPixels = vp8enc.InterFrameUMVBorderPixels
-const libvpxFastNewMVBitCostWeight = 128
-const libvpxRDNewMVBitCostWeight = 96
 
 type interAnalysisFullPixelSearchMethod uint8
 

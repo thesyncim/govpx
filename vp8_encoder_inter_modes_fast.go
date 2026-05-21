@@ -273,7 +273,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 		}
 		if inactiveMB {
 			mode := vp8enc.InterFrameMacroblockMode{RefFrame: rs.frame, Mode: mbMode, MV: mv, SegmentID: segmentID, MBSkipCoeff: true}
-			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, rs.rate, loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, libvpxFastNewMVBitCostWeight)
+			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, rs.rate, loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, vp8enc.FastNewMVBitCostWeight)
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestDistortion = 0
@@ -540,7 +540,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			if denoiseRefOK[slot] {
 				denoiseDecision.recordInactiveInterCandidate(rs.frame, mode.Mode, mode.MV)
 			}
-			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, rs.rate, loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, libvpxFastNewMVBitCostWeight)
+			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, rs.rate, loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, vp8enc.FastNewMVBitCostWeight)
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestDistortion = 0
@@ -846,7 +846,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 			if denoiseActive && !e.denoiserReferenceTooOld(ref.Frame) {
 				denoiseDecision.recordInactiveInterCandidate(ref.Frame, mode.Mode, mode.MV)
 			}
-			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, libvpxFastNewMVBitCostWeight)
+			rate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, bestRefMV, loopCtx.mvCosts, vp8enc.FastNewMVBitCostWeight)
 			if traceEnabled {
 				e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScore, bestSSE, true, true, maxInt(), rate, 0, 0, &mode, improvedStart)
 			}

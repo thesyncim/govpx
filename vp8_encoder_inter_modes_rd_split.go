@@ -179,7 +179,8 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 			rdMult = e.tunedRDMultiplier(rdMult, ctx.mbRow, ctx.mbCol)
 			labelRD.setRDConstants(rdMult, rdDiv)
 		}
-		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, ctx.modeCounts)
+		overheadRate := vp8enc.MBSplitPartitionRate(uint8(partition)) +
+			vp8enc.InterPredictionModeRate(vp8common.SplitMV, ctx.modeCounts)
 		overheadRD := e.rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, overheadRate, 0)
 		if e.activityMapValid {
 			overheadRD = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, overheadRate, 0)

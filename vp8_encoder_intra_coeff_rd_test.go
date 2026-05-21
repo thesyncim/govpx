@@ -323,47 +323,6 @@ func TestBPredAnalysisKeyFrameMapsWholeBlockNeighborContexts(t *testing.T) {
 	}
 }
 
-func TestInterMotionModeVectorCostOnlyChargesNewMVDelta(t *testing.T) {
-	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
-	newMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
-
-	if got, want := interMotionModeVectorCost(&newMode, &above, nil, nil, 0, 0, 1, 1, &vp8tables.DefaultMVContext), vp8enc.MotionVectorBitCost(newMode.MV, above.MV, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight); got != want {
-		t.Fatalf("NEWMV vector cost = %d, want delta cost %d", got, want)
-	}
-
-	nearest := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NearestMV, MV: above.MV}
-	if got := interMotionModeVectorCost(&nearest, &above, nil, nil, 0, 0, 1, 1, &vp8tables.DefaultMVContext); got != 0 {
-		t.Fatalf("NEARESTMV vector cost = %d, want 0", got)
-	}
-
-	liveProbs := vp8tables.DefaultMVContext
-	liveProbs[1][0] = 1
-	liveCost := interMotionModeVectorCost(&newMode, &above, nil, nil, 0, 0, 1, 1, &liveProbs)
-	wantLive := vp8enc.MotionVectorBitCost(newMode.MV, above.MV, &liveProbs, libvpxRDNewMVBitCostWeight)
-	if liveCost != wantLive {
-		t.Fatalf("live NEWMV vector cost = %d, want live-prob delta cost %d", liveCost, wantLive)
-	}
-	if liveCost == vp8enc.MotionVectorBitCost(newMode.MV, above.MV, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight) {
-		t.Fatalf("live NEWMV vector cost = default cost %d, want MV probs to affect RD cost", liveCost)
-	}
-}
-
-func TestInterMotionModeVectorCostChargesRDNewMVWithLibvpxWeight(t *testing.T) {
-	mvProbs := vp8tables.DefaultMVContext
-	bestRefMV := vp8enc.MotionVector{Row: 8, Col: -16}
-	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: 24, Col: 8}}
-	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: bestRefMV}
-
-	got := interMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 1, &mvProbs)
-	want := vp8enc.MotionVectorBitCost(mode.MV, bestRefMV, &mvProbs, libvpxRDNewMVBitCostWeight)
-	if got != want {
-		t.Fatalf("RD NEWMV vector cost = %d, want MotionVectorBitCost weight-96 cost %d", got, want)
-	}
-	if fastWeight := vp8enc.MotionVectorBitCost(mode.MV, bestRefMV, &mvProbs, libvpxFastNewMVBitCostWeight); got == fastWeight {
-		t.Fatalf("RD NEWMV vector cost = fast weight-128 cost %d, want weight 96", fastWeight)
-	}
-}
-
 func TestFastInterMotionModeRateKeepsPickInterNewMVWeight(t *testing.T) {
 	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128}
 	e.modeProbs.MV = vp8tables.DefaultMVContext
@@ -375,8 +334,8 @@ func TestFastInterMotionModeRateKeepsPickInterNewMVWeight(t *testing.T) {
 	got := e.fastInterMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 1, refRate)
 	want := vp8enc.BoolBitCost(63, 1) +
 		refRate +
-		interPredictionModeRate(vp8common.NewMV, counts) +
-		vp8enc.MotionVectorBitCost(mode.MV, above.MV, &vp8tables.DefaultMVContext, libvpxFastNewMVBitCostWeight)
+		vp8enc.InterPredictionModeRate(vp8common.NewMV, counts) +
+		vp8enc.MotionVectorBitCost(mode.MV, above.MV, &vp8tables.DefaultMVContext, vp8enc.FastNewMVBitCostWeight)
 	if got != want {
 		t.Fatalf("fast NEWMV mode rate = %d, want pickinter weight-128 rate %d", got, want)
 	}
@@ -399,15 +358,15 @@ func TestEncoderInterMotionModeRateUsesAltRefSignBias(t *testing.T) {
 
 	signBias := e.interFrameSignBias()
 	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, signBias)
-	vectorCost := interMotionModeVectorCostWithNewMVWeightAndSignBias(&mode, &above, nil, nil, 0, 0, 1, 2, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight, signBias)
-	wantVectorCost := vp8enc.MotionVectorBitCost(mode.MV, vp8enc.MotionVector{Col: -16}, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight)
+	vectorCost := vp8enc.InterMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 2, &vp8tables.DefaultMVContext, nil, nil, vp8enc.RDNewMVBitCostWeight, signBias)
+	wantVectorCost := vp8enc.MotionVectorBitCost(mode.MV, vp8enc.MotionVector{Col: -16}, &vp8tables.DefaultMVContext, vp8enc.RDNewMVBitCostWeight)
 	if vectorCost != wantVectorCost {
 		t.Fatalf("sign-biased NEWMV vector cost = %d, want cost against inverted best ref MV %d", vectorCost, wantVectorCost)
 	}
 
 	want := vp8enc.BoolBitCost(63, 1) +
 		refRate +
-		interPredictionModeRate(vp8common.NewMV, counts) +
+		vp8enc.InterPredictionModeRate(vp8common.NewMV, counts) +
 		vectorCost
 	if got := e.interMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 2, refRate); got != want {
 		t.Fatalf("sign-biased inter mode rate = %d, want %d", got, want)
@@ -424,27 +383,6 @@ func TestEncoderInterReferenceMotionPredictorsUseAltRefSignBias(t *testing.T) {
 	}
 }
 
-func TestInterPredictionModeRateMirrorsWriterBranches(t *testing.T) {
-	counts := vp8enc.InterModeCounts{Intra: 3, Nearest: 4, Near: 2, Split: 1}
-	probs := vp8tables.InterModeContexts
-	tests := []struct {
-		name string
-		mode vp8common.MBPredictionMode
-		want int
-	}{
-		{name: "zero", mode: vp8common.ZeroMV, want: vp8enc.BoolBitCost(probs[3][0], 0)},
-		{name: "nearest", mode: vp8common.NearestMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 0)},
-		{name: "near", mode: vp8common.NearMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 1) + vp8enc.BoolBitCost(probs[2][2], 0)},
-		{name: "new", mode: vp8common.NewMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 1) + vp8enc.BoolBitCost(probs[2][2], 1) + vp8enc.BoolBitCost(probs[1][3], 0)},
-		{name: "split", mode: vp8common.SplitMV, want: vp8enc.BoolBitCost(probs[3][0], 1) + vp8enc.BoolBitCost(probs[4][1], 1) + vp8enc.BoolBitCost(probs[2][2], 1) + vp8enc.BoolBitCost(probs[1][3], 1)},
-	}
-	for _, tt := range tests {
-		if got := interPredictionModeRate(tt.mode, counts); got != tt.want {
-			t.Fatalf("%s mode rate = %d, want %d", tt.name, got, tt.want)
-		}
-	}
-}
-
 func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128, probSkipFalse: 200}
 	e.modeProbs.MV = vp8tables.DefaultMVContext
@@ -453,16 +391,16 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, defaultInterFrameSignBias())
 	want := vp8enc.BoolBitCost(63, 1) +
 		e.interReferenceFrameRate(vp8common.GoldenFrame) +
-		interPredictionModeRate(vp8common.NewMV, counts) +
-		interMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 1, &vp8tables.DefaultMVContext)
+		vp8enc.InterPredictionModeRate(vp8common.NewMV, counts) +
+		vp8enc.InterMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 1, &vp8tables.DefaultMVContext, nil, nil, vp8enc.RDNewMVBitCostWeight, defaultInterFrameSignBias())
 
 	if got := e.interMotionModeRate(&mode, &above, nil, nil, 0, 0, 1, 1); got != want {
 		t.Fatalf("inter mode rate = %d, want %d", got, want)
 	}
-	if got := interMacroblockSkipRate(false); got != vp8enc.BoolBitCost(128, 0) {
+	if got := vp8enc.InterMacroblockSkipRate(128, false); got != vp8enc.BoolBitCost(128, 0) {
 		t.Fatalf("coded skip rate = %d, want prob-128 false cost", got)
 	}
-	if got := interMacroblockSkipRate(true); got != vp8enc.BoolBitCost(128, 1) {
+	if got := vp8enc.InterMacroblockSkipRate(128, true); got != vp8enc.BoolBitCost(128, 1) {
 		t.Fatalf("skipped rate = %d, want prob-128 true cost", got)
 	}
 	if got := e.interMacroblockSkipRate(false); got != vp8enc.BoolBitCost(200, 0) {

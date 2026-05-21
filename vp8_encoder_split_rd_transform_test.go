@@ -79,8 +79,8 @@ func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 	}
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
 	mv := vp8enc.MotionVector{Col: 8}
-	labelRate := splitSubMotionLabelRate(vp8common.New4x4)
-	labelRate += splitMotionVectorCost(mv, &vp8tables.DefaultMVContext)
+	labelRate := vp8enc.SplitSubMotionLabelRate(vp8common.New4x4, nil)
+	labelRate += vp8enc.SplitMotionVectorCost(mv, &vp8tables.DefaultMVContext, nil)
 
 	rate, yRate, dist, tteob, nextAbove, nextLeft, ok := ev.rateDistortion(src, ref, 0, 0, qIndex, &quant, &vp8tables.DefaultCoefProbs, &mode, 0, mv, labelRate)
 	if !ok {

@@ -44,7 +44,7 @@ func TestVP8MVRefCostsUseDynamicNeighborCounts(t *testing.T) {
 func testVP8MVRefZeroMVCostMatchesLibvpxAcrossAllIntraCounts(t *testing.T) {
 	for ct := range vp8tables.InterModeContextCount {
 		counts := vp8enc.InterModeCounts{Intra: uint8(ct)}
-		got := interPredictionModeRate(vp8common.ZeroMV, counts)
+		got := vp8enc.InterPredictionModeRate(vp8common.ZeroMV, counts)
 		want := vp8enc.BoolBitCost(vp8tables.InterModeContexts[ct][0], 0)
 		if got != want {
 			t.Fatalf("ZEROMV cost @ counts.Intra=%d: govpx=%d, want %d "+
@@ -126,7 +126,7 @@ func testVP8MVRefDynamicCountsDriveProbLookup(t *testing.T) {
 // values.
 func testVP8MVRefCostGapTracesToCountsIntraDelta(t *testing.T) {
 	costAtCtIntra := func(ct uint8) int {
-		return interPredictionModeRate(vp8common.ZeroMV,
+		return vp8enc.InterPredictionModeRate(vp8common.ZeroMV,
 			vp8enc.InterModeCounts{Intra: ct})
 	}
 	cost0 := costAtCtIntra(0)

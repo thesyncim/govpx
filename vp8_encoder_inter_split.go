@@ -340,8 +340,8 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	// ctx.subset ∈ [0,16) by upstream validation. Pow2 AND-masks
 	// elide both bounds checks on this hot per-subset load.
 	block := int(vp8tables.MBSplitOffset[ctx.mode.Partition&3][ctx.subset&15])
-	leftMV := analysisSplitLeftMV(ctx.mode, ctx.left, block)
-	aboveMV := analysisSplitAboveMV(ctx.mode, ctx.above, block)
+	leftMV := vp8enc.SplitLeftMV(ctx.mode, ctx.left, block)
+	aboveMV := vp8enc.SplitAboveMV(ctx.mode, ctx.above, block)
 	mbRows := (ctx.src.Height + 15) >> 4
 	mbCols := (ctx.src.Width + 15) >> 4
 	bestMV := vp8enc.MotionVector{}
@@ -373,7 +373,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		if !vp8enc.InterFrameUMVFullPixelInRange(mv, ctx.mbRow, ctx.mbCol, mbRows, mbCols) {
 			return
 		}
-		rate := splitSubMotionLabelRateWithProbs(candidateMode, ctx.subMVRefProbs)
+		rate := vp8enc.SplitSubMotionLabelRate(candidateMode, ctx.subMVRefProbs)
 		rd, labelRate, labelYRate, distortion, tteob, nextAbove, nextLeft, hasContexts := ctx.candidateRD(block, mv, rate)
 		lastTTEOB = tteob
 		if rd < bestRD {
@@ -454,12 +454,12 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBitAndCostTables(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.search, ctx.mvProbs, ctx.mvCosts); ok {
 		newMV = refinedMV
 	}
-	newRate := splitSubMotionLabelRateWithProbs(vp8common.New4x4, ctx.subMVRefProbs)
+	newRate := vp8enc.SplitSubMotionLabelRate(vp8common.New4x4, ctx.subMVRefProbs)
 	delta := vp8enc.MotionVector{Row: int16(int(newMV.Row) - int(ctx.bestRefMV.Row)), Col: int16(int(newMV.Col) - int(ctx.bestRefMV.Col))}
 	if ctx.mvCosts != nil {
-		newRate += splitMotionVectorCostWithCostTables(delta, ctx.mvCosts)
+		newRate += vp8enc.SplitMotionVectorCost(delta, nil, ctx.mvCosts)
 	} else {
-		newRate += splitMotionVectorCost(delta, ctx.mvProbs)
+		newRate += vp8enc.SplitMotionVectorCost(delta, ctx.mvProbs, nil)
 	}
 	newRD, labelRate, labelYRate, distortion, tteob, nextAbove, nextLeft, hasContexts := ctx.candidateRD(block, newMV, newRate)
 	lastTTEOB = tteob
@@ -809,7 +809,7 @@ func libvpxSplitMVStepParamFromSeedDistance(sr int) int8 {
 }
 
 func splitSubMotionLabelSearchCost(mode vp8common.BPredictionMode, qIndex int) int {
-	cost := splitSubMotionLabelRate(mode)
+	cost := vp8enc.SplitSubMotionLabelRate(mode, nil)
 	return (cost*vp8enc.SADPerBit4(qIndex) + 128) >> 8
 }
 

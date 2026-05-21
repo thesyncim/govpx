@@ -202,7 +202,7 @@ func testVP8ZeroMVFrameOriginModeCostsMatchOracle(t *testing.T) {
 		vp8common.SplitMV:   vp8enc.BoolBitCost(p0, 1) + vp8enc.BoolBitCost(p1, 1) + vp8enc.BoolBitCost(p2, 1) + vp8enc.BoolBitCost(p3, 1),
 	}
 	for mode, wantCost := range want {
-		got := interPredictionModeRate(mode, counts)
+		got := vp8enc.InterPredictionModeRate(mode, counts)
 		if got != wantCost {
 			t.Fatalf("MB(0,0) frame 1 mode=%v rate = %d, want %d",
 				mode, got, wantCost)
@@ -243,7 +243,7 @@ func testVP8ZeroMVPerModeCostMatchesOracleAllContexts(t *testing.T) {
 					}
 					for _, mode := range modes {
 						want := expectedModeRefCost(p, mode)
-						got := interPredictionModeRate(mode, counts)
+						got := vp8enc.InterPredictionModeRate(mode, counts)
 						if got != want {
 							t.Fatalf("ct=(%d,%d,%d,%d) mode=%v rate = %d, want %d",
 								c0, c1, c2, c3, mode, got, want)
@@ -289,9 +289,9 @@ func testVP8ZeroMVPartitionCostMatchesTokenOracle(t *testing.T) {
 		vp8enc.BoolBitCost(probs[0], 0),
 	}
 	for p := range 4 {
-		got := mbSplitPartitionRate(uint8(p))
+		got := vp8enc.MBSplitPartitionRate(uint8(p))
 		if got != want[p] {
-			t.Fatalf("mbSplitPartitionRate(%d) = %d, want %d", p, got, want[p])
+			t.Fatalf("vp8enc.MBSplitPartitionRate(%d) = %d, want %d", p, got, want[p])
 		}
 	}
 }
@@ -315,7 +315,7 @@ func testVP8ZeroMVSubMVRefCostMatchesBModeOracle(t *testing.T) {
 		vp8common.New4x4:   vp8enc.BoolBitCost(probs[0], 1) + vp8enc.BoolBitCost(probs[1], 1) + vp8enc.BoolBitCost(probs[2], 1),
 	}
 	for mode, wantCost := range want {
-		got := splitSubMotionLabelRate(mode)
+		got := vp8enc.SplitSubMotionLabelRate(mode, nil)
 		if got != wantCost {
 			t.Fatalf("splitSubMotionLabelRate(%v) = %d, want %d",
 				mode, got, wantCost)

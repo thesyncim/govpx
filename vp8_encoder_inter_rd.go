@@ -99,7 +99,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		return interResidualRDAccounting{}, false
 	}
 
-	modeRate := e.interMotionModeRateWithReferenceRateAndModeContext(ctx.mode, ctx.left, ctx.above, ctx.refRate, ctx.modeCounts, ctx.bestRefMV, libvpxRDNewMVBitCostWeight)
+	modeRate := e.interMotionModeRateWithReferenceRateAndModeContext(ctx.mode, ctx.left, ctx.above, ctx.refRate, ctx.modeCounts, ctx.bestRefMV, vp8enc.RDNewMVBitCostWeight)
 	refCost := e.interInterReferenceRate(ctx.refRate)
 	otherCost := e.interMacroblockSkipRate(false)
 	if !ctx.suppressStaticBreakout {
@@ -208,7 +208,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 	}
 	var modeRate int
 	if ctx != nil {
-		modeRate = e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, libvpxFastNewMVBitCostWeight)
+		modeRate = e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, vp8enc.FastNewMVBitCostWeight)
 	} else {
 		modeRate = e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	}
@@ -269,7 +269,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: refFrame, Mode: mbMode, MV: mv, SegmentID: segmentID}
 	var modeRate int
 	if ctx != nil {
-		modeRate = e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, libvpxFastNewMVBitCostWeight)
+		modeRate = e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, vp8enc.FastNewMVBitCostWeight)
 	} else {
 		modeRate = e.fastInterMotionModeRateWithReferenceRate(&mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	}

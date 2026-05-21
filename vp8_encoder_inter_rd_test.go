@@ -450,89 +450,16 @@ func TestFastZeroMVLastRDAdjustmentMirrorsLibvpxLocalMotionBias(t *testing.T) {
 	}
 }
 
-func TestMBSplitPartitionRateMirrorsWriterBranches(t *testing.T) {
-	tests := []struct {
-		partition uint8
-		want      int
-	}{
-		{partition: 3, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 0)},
-		{partition: 2, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[1], 0)},
-		{partition: 0, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[1], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[2], 0)},
-		{partition: 1, want: vp8enc.BoolBitCost(vp8tables.MBSplitProbs[0], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[1], 1) + vp8enc.BoolBitCost(vp8tables.MBSplitProbs[2], 1)},
-	}
-	for _, tt := range tests {
-		if got := mbSplitPartitionRate(tt.partition); got != tt.want {
-			t.Fatalf("partition %d rate = %d, want %d", tt.partition, got, tt.want)
-		}
-	}
-}
-
-func TestSplitMotionModeVectorCostChargesPartitionAndNew4x4Weight(t *testing.T) {
-	mode := vp8enc.InterFrameMacroblockMode{
-		RefFrame:  vp8common.LastFrame,
-		Mode:      vp8common.SplitMV,
-		Partition: 2,
-	}
-	fillInterFrameSplitSubset(&mode, 0, vp8enc.MotionVector{Col: 16})
-	fillInterFrameSplitSubset(&mode, 1, vp8enc.MotionVector{Row: 16})
-	fillInterFrameSplitSubset(&mode, 2, vp8enc.MotionVector{Col: -16})
-	fillInterFrameSplitSubset(&mode, 3, vp8enc.MotionVector{Row: -16})
-
-	mvProbs := vp8tables.DefaultMVContext
-	best := vp8enc.MotionVector{Col: 8}
-	want := mbSplitPartitionRate(mode.Partition)
-	partitions := int(vp8tables.MBSplitCount[mode.Partition])
-	for subset := range partitions {
-		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
-		target := mode.BlockMV[block]
-		want += splitSubMotionLabelRate(vp8common.New4x4)
-		delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
-		want += vp8enc.MotionVectorBitCost(delta, vp8enc.MotionVector{}, &mvProbs, 102)
-	}
-
-	defaultCost := splitMotionModeVectorCost(&mode, nil, nil, best, &mvProbs)
-	if defaultCost != want {
-		t.Fatalf("split vector cost = %d, want partition + NEW4X4 weight-102 cost %d", defaultCost, want)
-	}
-
-	liveProbs := mvProbs
-	liveProbs[1][0] = 1
-	if liveCost := splitMotionModeVectorCost(&mode, nil, nil, best, &liveProbs); liveCost == defaultCost {
-		t.Fatalf("live split vector cost = default cost %d, want MV probs to affect SPLITMV sub-vector cost", liveCost)
-	}
-}
-
-func TestSplitMotionModeVectorCostUsesExplicitSubMVLabel(t *testing.T) {
-	left := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
-	mode := vp8enc.InterFrameMacroblockMode{
-		RefFrame:  vp8common.LastFrame,
-		Mode:      vp8common.SplitMV,
-		Partition: 0,
-	}
-	fillInterFrameSplitSubsetWithMode(&mode, 0, left.MV, vp8common.New4x4)
-	fillInterFrameSplitSubsetWithMode(&mode, 1, left.MV, vp8common.Left4x4)
-	mode.MV = mode.BlockMV[15]
-	mvProbs := vp8tables.DefaultMVContext
-
-	newCost := splitMotionModeVectorCost(&mode, &left, nil, vp8enc.MotionVector{}, &mvProbs)
-	mode.BModes[0] = vp8common.Left4x4
-	leftCost := splitMotionModeVectorCost(&mode, &left, nil, vp8enc.MotionVector{}, &mvProbs)
-
-	if newCost <= leftCost {
-		t.Fatalf("explicit NEW4X4 cost = %d, want greater than LEFT4X4 cost %d for same MV", newCost, leftCost)
-	}
-}
-
 func TestSplitSubMotionLabelSearchCostUsesLibvpxDefaultSubMVRefProb(t *testing.T) {
 	const qIndex = 127
 
 	got := splitSubMotionLabelSearchCost(vp8common.Above4x4, qIndex)
-	wantRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, vp8enc.DefaultSubMVRefProbs)
+	wantRate := vp8enc.SplitSubMotionLabelCost(vp8common.Above4x4, vp8enc.DefaultSubMVRefProbs)
 	want := (wantRate*vp8enc.SADPerBit4(qIndex) + 128) >> 8
 	if got != want {
 		t.Fatalf("ABOVE4X4 search cost = %d, want libvpx default cost %d", got, want)
 	}
-	contextualRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, vp8tables.SubMVRefProb3[4])
+	contextualRate := vp8enc.SplitSubMotionLabelCost(vp8common.Above4x4, vp8tables.SubMVRefProb3[4])
 	contextual := (contextualRate*vp8enc.SADPerBit4(qIndex) + 128) >> 8
 	if got == contextual {
 		t.Fatalf("ABOVE4X4 search cost matched contextual bitstream cost %d; want libvpx RD default cost", got)
