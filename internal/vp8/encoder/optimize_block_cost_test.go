@@ -1,16 +1,15 @@
-package govpx
+package encoder
 
 import (
 	"fmt"
 	"strings"
 	"testing"
 
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
-	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // planeTypeUV mirrors libvpx vp8/common/blockd.h:47 `#define PLANE_TYPE_UV 2`.
-// Used by task #326 chroma audit and the per-block UV cohort tests below.
+// Used by the chroma optimize_b tests below.
 const planeTypeUV = 2
 
 // TestOptimizeBSignedBaseCost guards the per-sign branch of
@@ -46,7 +45,7 @@ func TestOptimizeBSignedBaseCost(t *testing.T) {
 		{value: -4, wantCost: 257}, // FourToken, negative
 	}
 	for _, tc := range cases {
-		got := vp8enc.DCTValueBaseCost(tc.value)
+		got := DCTValueBaseCost(tc.value)
 		if got != tc.wantCost {
 			t.Errorf("DCTValueBaseCost(%d) = %d, want %d (sign-bit cost differs by 2 between positive and negative coefficients)",
 				tc.value, got, tc.wantCost)
@@ -55,7 +54,7 @@ func TestOptimizeBSignedBaseCost(t *testing.T) {
 }
 
 // TestOptimizeBTokenCostsMatchLibvpxFillTokenCosts asserts that
-// vp8enc.CoefficientTokenCost — read on every optimize_b trellis iteration — is
+// CoefficientTokenCost — read on every optimize_b trellis iteration — is
 // byte-identical to libvpx's mb->token_costs[type][band][pt][token] table
 // for every (type, band, pt, token) combination over DefaultCoefProbs.
 // Libvpx's fill_token_costs (vp8/encoder/rdopt.c) selects between
@@ -69,16 +68,16 @@ func TestOptimizeBSignedBaseCost(t *testing.T) {
 // zero seed because vp8_cost_tokens2 starts past the EOB tree edge. This
 // test pins the zero-on-elided behavior so the gap cannot regress.
 func TestOptimizeBTokenCostsMatchLibvpxFillTokenCosts(t *testing.T) {
-	probs := &vp8tables.DefaultCoefProbs
-	for blockType := range vp8tables.BlockTypes {
-		for band := range vp8tables.CoefBands {
-			for pt := range vp8tables.PrevCoefContexts {
+	probs := &tables.DefaultCoefProbs
+	for blockType := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for pt := range tables.PrevCoefContexts {
 				p := probs[blockType][band][pt]
 				wantCosts := libvpxOptimizeBFillTokenCostsRow(&p, blockType, band, pt)
-				for token := range vp8tables.MaxEntropyTokens {
-					got := vp8enc.CoefficientTokenCost(p, token, blockType, band, pt)
+				for token := range tables.MaxEntropyTokens {
+					got := CoefficientTokenCost(p, token, blockType, band, pt)
 					if got != wantCosts[token] {
-						t.Errorf("vp8enc.CoefficientTokenCost(type=%d band=%d pt=%d token=%d) = %d, want %d (libvpx fill_token_costs)",
+						t.Errorf("CoefficientTokenCost(type=%d band=%d pt=%d token=%d) = %d, want %d (libvpx fill_token_costs)",
 							blockType, band, pt, token, got, wantCosts[token])
 					}
 				}
@@ -91,8 +90,8 @@ func TestOptimizeBTokenCostsMatchLibvpxFillTokenCosts(t *testing.T) {
 // branch exactly: vp8_cost_tokens for non-elided cells, vp8_cost_tokens2
 // (start=2, leaving EOB slot at 0) for the elided cells where
 // k == 0 && j > (i == 0).
-func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, blockType, band, pt int) [vp8tables.MaxEntropyTokens]int {
-	var out [vp8tables.MaxEntropyTokens]int
+func libvpxOptimizeBFillTokenCostsRow(probs *[tables.EntropyNodes]uint8, blockType, band, pt int) [tables.MaxEntropyTokens]int {
+	var out [tables.MaxEntropyTokens]int
 	start := 0
 	elidedAt := 0
 	if blockType == 0 {
@@ -101,7 +100,7 @@ func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, bloc
 	if pt == 0 && band > elidedAt {
 		start = 2 // matches vp8_cost_tokens2 start
 	}
-	libvpxOptimizeBCostTokensWalk(out[:], probs, vp8tables.CoefTree[:], start, 0)
+	libvpxOptimizeBCostTokensWalk(out[:], probs, tables.CoefTree[:], start, 0)
 	return out
 }
 
@@ -133,13 +132,13 @@ func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, bloc
 //     selects between the full-tree path and the EOB-elided path with the
 //     same `pt == 0 && band > coefElisionBandThreshold[blockType&3]`
 //     predicate (coefElisionBandThreshold[2] = 0 for UV).
-//   - vp8tables.DefaultCoefProbs: the keyframe seed, matches libvpx
+//   - tables.DefaultCoefProbs: the keyframe seed, matches libvpx
 //     vp8_default_coef_probs byte-for-byte (separately pinned via the
 //     decoder coef-probs tests).
 //
 // The test enumerates every chroma cell in the 8 (band) by 3 (prev_token) by
 // 12 (to_token) matrix (288 cells total), compares govpx's
-// `vp8enc.CoefficientTokenCost(p, token, blockType=2, band, pt)` against a
+// `CoefficientTokenCost(p, token, blockType=2, band, pt)` against a
 // fresh recursive walk of libvpx's CoefTree using the matching elision
 // branch, and reports the first divergent cell with full context if any
 // drift is found. The regression baseline had no token_costs UV divergence;
@@ -153,14 +152,14 @@ func libvpxOptimizeBFillTokenCostsRow(probs *[vp8tables.EntropyNodes]uint8, bloc
 // with the same chroma probs row.
 func TestVP8ChromaTokenCostsUVMatchLibvpx(t *testing.T) {
 	const blockType = planeTypeUV
-	probs := &vp8tables.DefaultCoefProbs
+	probs := &tables.DefaultCoefProbs
 	var divergent []string
-	for band := range vp8tables.CoefBands {
-		for pt := range vp8tables.PrevCoefContexts {
+	for band := range tables.CoefBands {
+		for pt := range tables.PrevCoefContexts {
 			p := probs[blockType][band][pt]
 			wantCosts := libvpxOptimizeBFillTokenCostsRow(&p, blockType, band, pt)
-			for token := range vp8tables.MaxEntropyTokens {
-				got := vp8enc.CoefficientTokenCost(p, token, blockType, band, pt)
+			for token := range tables.MaxEntropyTokens {
+				got := CoefficientTokenCost(p, token, blockType, band, pt)
 				if got == wantCosts[token] {
 					continue
 				}
@@ -182,11 +181,11 @@ func TestVP8ChromaTokenCostsUVMatchLibvpx(t *testing.T) {
 // fill (vp8_cost_tokens2) for the chroma plane. libvpx's fill_token_costs
 // branch is `k == 0 && j > (i == 0)`; for i=PLANE_TYPE_UV=2 this reduces
 // to `pt == 0 && band > 0`. govpx mirrors this via
-// `vp8enc.CoefElisionBandThreshold(blockType)` = 0 for blockType ∈ {1,2,3}.
+// `CoefElisionBandThreshold(blockType)` = 0 for blockType ∈ {1,2,3}.
 // The explicit UV check protects against accidentally re-introducing a
 // per-blockType asymmetry on the chroma plane.
 func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
-	if got := vp8enc.CoefElisionBandThreshold(planeTypeUV); got != 0 {
+	if got := CoefElisionBandThreshold(planeTypeUV); got != 0 {
 		t.Fatalf("CoefElisionBandThreshold(PLANE_TYPE_UV=2) = %d, want 0 (libvpx fill_token_costs: k==0 && j > (i==0) reduces to band > 0 for i=2)", got)
 	}
 	// Also pin the per-blockType table against libvpx's branch verbatim:
@@ -195,7 +194,7 @@ func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
 	//   i=2 (UV):         elide when band > 0
 	//   i=3 (Y with DC):  elide when band > 0
 	want := [4]int{1, 0, 0, 0}
-	if got := vp8enc.CoefElisionBandThresholds(); got != want {
+	if got := CoefElisionBandThresholds(); got != want {
 		t.Fatalf("CoefElisionBandThresholds = %v, want %v (libvpx fill_token_costs k==0 && j > (i==0))",
 			got, want)
 	}
@@ -213,7 +212,7 @@ func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
 // For b in [16, 24), ENTROPY_CONTEXT indices 4..7 cover U then V (4..5
 // for U, 6..7 for V); the within-plane offsets vp8_block2above[b] - 4
 // and vp8_block2left[b] - 4 are exactly what govpx's
-// `vp8enc.MacroblockCoefficientUVContextIndex` / `tokenUVContextIndex` return.
+// `MacroblockCoefficientUVContextIndex` / `tokenUVContextIndex` return.
 // This test pins both maps byte-equal to libvpx for every chroma block
 // 16..23, plus the additional invariant that the FIRST chroma block of a
 // fresh macroblock (MB(0,0) seed: above/left planes all-zero) yields
@@ -231,7 +230,7 @@ func TestVP8ChromaTokenCostsUVElisionSelector(t *testing.T) {
 //
 //	internal/vp8/encoder/tokenize.go tokenUVContextIndex (bitstream-final
 //	  context lookup).
-//	internal/vp8/encoder/coefficient_rate.go vp8enc.MacroblockCoefficientUVContextIndex (RD
+//	internal/vp8/encoder/coefficient_rate.go MacroblockCoefficientUVContextIndex (RD
 //	  trellis seed lookup).
 //
 // Chroma optimize_b parity coverage confirms the runtime corollary of these
@@ -263,9 +262,9 @@ func TestVP8ChromaEntropyContextSeedMatchesLibvpx(t *testing.T) {
 	for block := 16; block < 24; block++ {
 		wantA := int(libvpxBlock2Above[block]) - uvBase
 		wantL := int(libvpxBlock2Left[block]) - uvBase
-		gotA, gotL := vp8enc.MacroblockCoefficientUVContextIndex(block)
+		gotA, gotL := MacroblockCoefficientUVContextIndex(block)
 		if gotA != wantA || gotL != wantL {
-			t.Errorf("block %d: vp8enc.MacroblockCoefficientUVContextIndex returned (a=%d,l=%d), want (a=%d,l=%d) per libvpx vp8_block2above/vp8_block2left - 4",
+			t.Errorf("block %d: MacroblockCoefficientUVContextIndex returned (a=%d,l=%d), want (a=%d,l=%d) per libvpx vp8_block2above/vp8_block2left - 4",
 				block, gotA, gotL, wantA, wantL)
 		}
 	}
@@ -279,7 +278,7 @@ func TestVP8ChromaEntropyContextSeedMatchesLibvpx(t *testing.T) {
 	// loop entry point when above/left are zero.
 	var zeroAbove, zeroLeft [4]uint8
 	for block := 16; block < 24; block++ {
-		a, l := vp8enc.MacroblockCoefficientUVContextIndex(block)
+		a, l := MacroblockCoefficientUVContextIndex(block)
 		seed := int(zeroAbove[a]) + int(zeroLeft[l])
 		if seed != 0 {
 			t.Errorf("block %d: zero-context seed pt = %d, want 0 (MB(0,0) chroma trellis entry must see pt=0 when above/left are fresh-reset)",
@@ -311,7 +310,7 @@ func TestVP8ChromaEntropyContextSeedMatchesLibvpx(t *testing.T) {
 		2, // b23: a=3, l=3 (above[3]=1; left[3]=1)
 	}
 	for i, block := 0, 16; block < 24; i, block = i+1, block+1 {
-		a, l := vp8enc.MacroblockCoefficientUVContextIndex(block)
+		a, l := MacroblockCoefficientUVContextIndex(block)
 		seed := int(above[a]) + int(left[l])
 		if seed != wantSeeds[i] {
 			t.Errorf("block %d (i=%d): chroma seed pt = %d, want %d (libvpx-anchored propagation with every prior block writing hasCoeffs=1)",
@@ -331,16 +330,16 @@ func TestVP8ChromaEntropyContextSeedMatchesLibvpx(t *testing.T) {
 // CoefTree that writes each terminal token's accumulated cost into
 // out[token]. Initial call has accumulated=0 and the caller picks
 // start=0 (full tree) or start=2 (skip EOB root edge).
-func libvpxOptimizeBCostTokensWalk(out []int, probs *[vp8tables.EntropyNodes]uint8, tree []int16, i int, accumulated int) {
+func libvpxOptimizeBCostTokensWalk(out []int, probs *[tables.EntropyNodes]uint8, tree []int16, i int, accumulated int) {
 	prob := probs[i>>1]
 	for {
 		j := tree[i]
 		bit := i & 1
 		var stepCost int
 		if bit != 0 {
-			stepCost = vp8tables.ProbCost[255-int(prob)]
+			stepCost = tables.ProbCost[255-int(prob)]
 		} else {
-			stepCost = vp8tables.ProbCost[prob]
+			stepCost = tables.ProbCost[prob]
 		}
 		d := accumulated + stepCost
 		if j <= 0 {

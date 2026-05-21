@@ -1,11 +1,10 @@
-package govpx
+package encoder
 
 import (
 	"testing"
 
-	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
-	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // optimizeBTokenState mirrors libvpx's vp8_token_state from
@@ -24,18 +23,18 @@ type optimizeBTokenState struct {
 // arrays for a controlled (coeff, dequant, qcoeff, eob) input. It
 // returns the full DP state and the post-loop (best, finalEOB,
 // outQcoeff) so callers can byte-compare against govpx's
-// vp8enc.OptimizeQuantizedBlockWithRDConstants for every (i, j) cell.
+// OptimizeQuantizedBlockWithRDConstants for every (i, j) cell.
 //
 // Tables consumed are the ones the chroma trellis bug audit cleared:
-//   - vp8tables.DefaultCoefProbs via libvpxOptimizeBFillTokenCostsRow
-//     (task #326 chroma UV pin, task #327 dct_value_cost pin).
-//   - DCTValueBaseCost / DCTValueToken (task #327 pin).
+//   - tables.DefaultCoefProbs via libvpxOptimizeBFillTokenCostsRow
+//     (chroma UV token-cost coverage).
+//   - DCTValueBaseCost / DCTValueToken.
 //
 // The DP-state oracle is verbatim libvpx — no govpx helpers — so any
 // drift between the oracle and govpx's optimize_b indicates a govpx
 // transition-logic divergence.
 func libvpxOptimizeBVerbatim(
-	coefProbs *vp8tables.CoefficientProbs,
+	coefProbs *tables.CoefficientProbs,
 	blockType int,
 	ctx int,
 	skipDC int,
@@ -66,7 +65,7 @@ func libvpxOptimizeBVerbatim(
 	eob := min(eobIn, 16)
 
 	// Initialize sentinel tokens[eob][0..1].
-	tokens[eob][0] = optimizeBTokenState{Next: 16, Token: vp8tables.DCTEOBToken}
+	tokens[eob][0] = optimizeBTokenState{Next: 16, Token: tables.DCTEOBToken}
 	tokens[eob][1] = tokens[eob][0]
 	next := eob
 
@@ -84,17 +83,17 @@ func libvpxOptimizeBVerbatim(
 	}
 
 	for i := eob - 1; i >= skipDC; i-- {
-		rc := int(vp8tables.DefaultZigZag1D[i])
+		rc := int(tables.DefaultZigZag1D[i])
 		x := int(qcoeff[rc])
 		if x != 0 {
 			error0 := tokens[next][0].Error
 			error1 := tokens[next][1].Error
 			rate0 := tokens[next][0].Rate
 			rate1 := tokens[next][1].Rate
-			t0 := vp8enc.DCTValueToken(x)
+			t0 := DCTValueToken(x)
 			if next < 16 {
-				band := int(vp8tables.CoefBandsTable[i+1])
-				pt := int(vp8tables.PrevTokenClass[t0])
+				band := int(tables.CoefBandsTable[i+1])
+				pt := int(tables.PrevTokenClass[t0])
 				rate0 += tokenCostAt(band, pt, tokens[next][0].Token)
 				rate1 += tokenCostAt(band, pt, tokens[next][1].Token)
 			}
@@ -108,7 +107,7 @@ func libvpxOptimizeBVerbatim(
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits := vp8enc.DCTValueBaseCost(x)
+			baseBits := DCTValueBaseCost(x)
 			dq := int(dequant[rc])
 			dx := x*dq - int(coeff[rc])
 			d2 := dx * dx
@@ -148,29 +147,29 @@ func libvpxOptimizeBVerbatim(
 
 			var t1 int
 			if xs == 0 {
-				if tokens[next][0].Token == vp8tables.DCTEOBToken {
-					t0 = vp8tables.DCTEOBToken
+				if tokens[next][0].Token == tables.DCTEOBToken {
+					t0 = tables.DCTEOBToken
 				} else {
-					t0 = vp8tables.ZeroToken
+					t0 = tables.ZeroToken
 				}
-				if tokens[next][1].Token == vp8tables.DCTEOBToken {
-					t1 = vp8tables.DCTEOBToken
+				if tokens[next][1].Token == tables.DCTEOBToken {
+					t1 = tables.DCTEOBToken
 				} else {
-					t1 = vp8tables.ZeroToken
+					t1 = tables.ZeroToken
 				}
 			} else {
-				t0 = vp8enc.DCTValueToken(xs)
+				t0 = DCTValueToken(xs)
 				t1 = t0
 			}
 
 			if next < 16 {
-				band := int(vp8tables.CoefBandsTable[i+1])
-				if t0 != vp8tables.DCTEOBToken {
-					pt := int(vp8tables.PrevTokenClass[t0])
+				band := int(tables.CoefBandsTable[i+1])
+				if t0 != tables.DCTEOBToken {
+					pt := int(tables.PrevTokenClass[t0])
 					rate0 += tokenCostAt(band, pt, tokens[next][0].Token)
 				}
-				if t1 != vp8tables.DCTEOBToken {
-					pt := int(vp8tables.PrevTokenClass[t1])
+				if t1 != tables.DCTEOBToken {
+					pt := int(tables.PrevTokenClass[t1])
 					rate1 += tokenCostAt(band, pt, tokens[next][1].Token)
 				}
 			}
@@ -185,7 +184,7 @@ func libvpxOptimizeBVerbatim(
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits = vp8enc.DCTValueBaseCost(xs)
+			baseBits = DCTValueBaseCost(xs)
 			d2s := d2
 			if shortcut {
 				dxs := dx - ((dq + sz) ^ sz)
@@ -205,23 +204,23 @@ func libvpxOptimizeBVerbatim(
 			bestMask[1] |= uint32(best) << uint(i)
 			next = i
 		} else {
-			band := int(vp8tables.CoefBandsTable[i+1])
+			band := int(tables.CoefBandsTable[i+1])
 			t0Tok := tokens[next][0].Token
 			t1Tok := tokens[next][1].Token
-			if t0Tok != vp8tables.DCTEOBToken {
+			if t0Tok != tables.DCTEOBToken {
 				tokens[next][0].Rate += tokenCostAt(band, 0, t0Tok)
-				tokens[next][0].Token = vp8tables.ZeroToken
+				tokens[next][0].Token = tables.ZeroToken
 			}
-			if t1Tok != vp8tables.DCTEOBToken {
+			if t1Tok != tables.DCTEOBToken {
 				tokens[next][1].Rate += tokenCostAt(band, 0, t1Tok)
-				tokens[next][1].Token = vp8tables.ZeroToken
+				tokens[next][1].Token = tables.ZeroToken
 			}
 		}
 	}
 
 	// Final pick after the loop. libvpx uses `vp8_coef_bands[i + 1]`
 	// where i = i0 - 1 = skipDC - 1 → band index = skipDC.
-	band := int(vp8tables.CoefBandsTable[skipDC])
+	band := int(tables.CoefBandsTable[skipDC])
 	rate0 := tokens[next][0].Rate
 	rate1 := tokens[next][1].Rate
 	error0 := tokens[next][0].Error
@@ -245,7 +244,7 @@ func libvpxOptimizeBVerbatim(
 		if x != 0 {
 			finalEOB = i
 		}
-		rc := int(vp8tables.DefaultZigZag1D[i])
+		rc := int(tables.DefaultZigZag1D[i])
 		qcoeff[rc] = int16(x)
 		nextI := tokens[i][best].Next
 		best = int((bestMask[best] >> uint(i)) & 1)
@@ -257,11 +256,11 @@ func libvpxOptimizeBVerbatim(
 // govpxOptimizeBStateCaptured runs govpx's optimize_b through a thin
 // wrapper that captures the DP tokens[][] array and bestMask[] for
 // the same controlled fixture as the oracle above. The capture path
-// mirrors vp8enc.OptimizeQuantizedBlockWithRDConstants exactly so the only
+// mirrors OptimizeQuantizedBlockWithRDConstants exactly so the only
 // thing being compared is the DP-state transition logic, not the
 // rate/distortion inputs.
 func govpxOptimizeBStateCaptured(
-	coefProbs *vp8tables.CoefficientProbs,
+	coefProbs *tables.CoefficientProbs,
 	blockType int,
 	ctx int,
 	skipDC int,
@@ -273,7 +272,7 @@ func govpxOptimizeBStateCaptured(
 	qcoeffIn *[16]int16,
 	eobIn int,
 ) ([17][2]optimizeBTokenState, [2]uint32, int, int, [16]int16) {
-	rdmult := rdMult * vp8enc.BlockPlaneRDMultiplier(blockType)
+	rdmult := rdMult * BlockPlaneRDMultiplier(blockType)
 	if intra {
 		rdmult = (rdmult * 9) >> 4
 	}
@@ -284,37 +283,37 @@ func govpxOptimizeBStateCaptured(
 	copy(qcoeff[:], qcoeffIn[:])
 	eob := min(eobIn, 16)
 
-	tokens[eob][0] = optimizeBTokenState{Next: 16, Token: vp8tables.DCTEOBToken}
+	tokens[eob][0] = optimizeBTokenState{Next: 16, Token: tables.DCTEOBToken}
 	tokens[eob][1] = tokens[eob][0]
 	next := eob
 
 	for i := eob - 1; i >= skipDC; i-- {
-		rc := int(vp8tables.DefaultZigZag1D[i])
+		rc := int(tables.DefaultZigZag1D[i])
 		x := int(qcoeff[rc])
 		if x != 0 {
 			error0 := tokens[next][0].Error
 			error1 := tokens[next][1].Error
 			rate0 := tokens[next][0].Rate
 			rate1 := tokens[next][1].Rate
-			t0 := vp8enc.DCTValueToken(x)
+			t0 := DCTValueToken(x)
 			if next < 16 {
-				band := int(vp8tables.CoefBandsTable[i+1])
-				pt := int(vp8tables.PrevTokenClass[t0])
+				band := int(tables.CoefBandsTable[i+1])
+				pt := int(tables.PrevTokenClass[t0])
 				p := (*coefProbs)[blockType][band][pt]
-				rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
-				rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
+				rate0 += CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
+				rate1 += CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
 			}
-			rdCost0 := vp8enc.RDCost(rdmult, rdDiv, rate0, error0)
-			rdCost1 := vp8enc.RDCost(rdmult, rdDiv, rate1, error1)
+			rdCost0 := RDCost(rdmult, rdDiv, rate0, error0)
+			rdCost1 := RDCost(rdmult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
-				rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
+				rdCost0 = RDTrunc(rdmult, rate0)
+				rdCost1 = RDTrunc(rdmult, rate1)
 			}
 			best := 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits := vp8enc.DCTValueBaseCost(x)
+			baseBits := DCTValueBaseCost(x)
 			dq := int(dequant[rc])
 			dx := x*dq - int(coeff[rc])
 			d2 := dx * dx
@@ -351,44 +350,44 @@ func govpxOptimizeBStateCaptured(
 			}
 			var t1 int
 			if xs == 0 {
-				if tokens[next][0].Token == vp8tables.DCTEOBToken {
-					t0 = vp8tables.DCTEOBToken
+				if tokens[next][0].Token == tables.DCTEOBToken {
+					t0 = tables.DCTEOBToken
 				} else {
-					t0 = vp8tables.ZeroToken
+					t0 = tables.ZeroToken
 				}
-				if tokens[next][1].Token == vp8tables.DCTEOBToken {
-					t1 = vp8tables.DCTEOBToken
+				if tokens[next][1].Token == tables.DCTEOBToken {
+					t1 = tables.DCTEOBToken
 				} else {
-					t1 = vp8tables.ZeroToken
+					t1 = tables.ZeroToken
 				}
 			} else {
-				t0 = vp8enc.DCTValueToken(xs)
+				t0 = DCTValueToken(xs)
 				t1 = t0
 			}
 			if next < 16 {
-				band := int(vp8tables.CoefBandsTable[i+1])
-				if t0 != vp8tables.DCTEOBToken {
-					pt := int(vp8tables.PrevTokenClass[t0])
+				band := int(tables.CoefBandsTable[i+1])
+				if t0 != tables.DCTEOBToken {
+					pt := int(tables.PrevTokenClass[t0])
 					p := (*coefProbs)[blockType][band][pt]
-					rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
+					rate0 += CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, pt)
 				}
-				if t1 != vp8tables.DCTEOBToken {
-					pt := int(vp8tables.PrevTokenClass[t1])
+				if t1 != tables.DCTEOBToken {
+					pt := int(tables.PrevTokenClass[t1])
 					p := (*coefProbs)[blockType][band][pt]
-					rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
+					rate1 += CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, pt)
 				}
 			}
-			rdCost0 = vp8enc.RDCost(rdmult, rdDiv, rate0, error0)
-			rdCost1 = vp8enc.RDCost(rdmult, rdDiv, rate1, error1)
+			rdCost0 = RDCost(rdmult, rdDiv, rate0, error0)
+			rdCost1 = RDCost(rdmult, rdDiv, rate1, error1)
 			if rdCost0 == rdCost1 {
-				rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
-				rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
+				rdCost0 = RDTrunc(rdmult, rate0)
+				rdCost1 = RDTrunc(rdmult, rate1)
 			}
 			best = 0
 			if rdCost1 < rdCost0 {
 				best = 1
 			}
-			baseBits = vp8enc.DCTValueBaseCost(xs)
+			baseBits = DCTValueBaseCost(xs)
 			d2s := d2
 			if shortcut {
 				dxs := dx - ((dq + sz) ^ sz)
@@ -408,34 +407,34 @@ func govpxOptimizeBStateCaptured(
 			bestMask[1] |= uint32(best) << uint(i)
 			next = i
 		} else {
-			band := int(vp8tables.CoefBandsTable[i+1])
+			band := int(tables.CoefBandsTable[i+1])
 			p := (*coefProbs)[blockType][band][0]
 			t0Tok := tokens[next][0].Token
 			t1Tok := tokens[next][1].Token
-			if t0Tok != vp8tables.DCTEOBToken {
-				tokens[next][0].Rate += vp8enc.CoefficientTokenCost(p, t0Tok, blockType, band, 0)
-				tokens[next][0].Token = vp8tables.ZeroToken
+			if t0Tok != tables.DCTEOBToken {
+				tokens[next][0].Rate += CoefficientTokenCost(p, t0Tok, blockType, band, 0)
+				tokens[next][0].Token = tables.ZeroToken
 			}
-			if t1Tok != vp8tables.DCTEOBToken {
-				tokens[next][1].Rate += vp8enc.CoefficientTokenCost(p, t1Tok, blockType, band, 0)
-				tokens[next][1].Token = vp8tables.ZeroToken
+			if t1Tok != tables.DCTEOBToken {
+				tokens[next][1].Rate += CoefficientTokenCost(p, t1Tok, blockType, band, 0)
+				tokens[next][1].Token = tables.ZeroToken
 			}
 		}
 	}
 
-	band := int(vp8tables.CoefBandsTable[skipDC])
+	band := int(tables.CoefBandsTable[skipDC])
 	rate0 := tokens[next][0].Rate
 	rate1 := tokens[next][1].Rate
 	error0 := tokens[next][0].Error
 	error1 := tokens[next][1].Error
 	p := (*coefProbs)[blockType][band][ctx]
-	rate0 += vp8enc.CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, ctx)
-	rate1 += vp8enc.CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, ctx)
-	rdCost0 := vp8enc.RDCost(rdmult, rdDiv, rate0, error0)
-	rdCost1 := vp8enc.RDCost(rdmult, rdDiv, rate1, error1)
+	rate0 += CoefficientTokenCost(p, tokens[next][0].Token, blockType, band, ctx)
+	rate1 += CoefficientTokenCost(p, tokens[next][1].Token, blockType, band, ctx)
+	rdCost0 := RDCost(rdmult, rdDiv, rate0, error0)
+	rdCost1 := RDCost(rdmult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {
-		rdCost0 = vp8enc.RDTrunc(rdmult, rate0)
-		rdCost1 = vp8enc.RDTrunc(rdmult, rate1)
+		rdCost0 = RDTrunc(rdmult, rate0)
+		rdCost1 = RDTrunc(rdmult, rate1)
 	}
 	best := 0
 	if rdCost1 < rdCost0 {
@@ -448,7 +447,7 @@ func govpxOptimizeBStateCaptured(
 		if x != 0 {
 			finalEOB = i
 		}
-		rc := int(vp8tables.DefaultZigZag1D[i])
+		rc := int(tables.DefaultZigZag1D[i])
 		qcoeff[rc] = int16(x)
 		nextI := tokens[i][best].Next
 		best = int((bestMask[best] >> uint(i)) & 1)
@@ -460,39 +459,34 @@ func govpxOptimizeBStateCaptured(
 // TestVP8OptimizeBlockDPStateChromaDCOne audits the DP-state arrays
 // (tokens[i][j].rate / .error / .next / .token / .qc) the chroma
 // trellis writes for a controlled ±1 DC overshoot chroma block at MB
-// (0,0) block 16. This is the exact scenario task #314/#316 originally
-// localized the 1934 govpx-keep / 1078 govpx-drop split to.
+// (0,0) block 16. This is the scenario that originally localized the
+// 1934 govpx-keep / 1078 govpx-drop split.
 //
-// Cross-reference: task #324 (commit 2769521c) re-ran the chroma
-// optimize_b bisect on the BestARNR 19981bff cohort frame 1 and
-// retracted the per-coefficient KEEP_COST/DROP_COST framing as the
-// root cause — 4720/4720 shared (mb_row, mb_col, block) triples have
-// DIVERGING `coeff` FDCT residual input, 0 have identical coeff and
-// diverging post-trellis qcoeff. So the trellis cost computation IS
-// byte-faithful; the input residual to it is not.
+// The later chroma optimize_b bisect on the BestARNR 19981bff cohort frame 1
+// retracted the per-coefficient KEEP_COST/DROP_COST framing as the root cause:
+// 4720/4720 shared (mb_row, mb_col, block) triples have diverging `coeff` FDCT
+// residual input, while zero have identical coeff and diverging post-trellis
+// qcoeff. The trellis cost computation is byte-faithful; the input residual
+// to it is not.
 //
-// This task #329 audit is the orthogonal DP-state-array confirmation:
-// it pins govpx's `tokens[i][j].rate / .error / .next / .token / .qc`
-// arrays byte-for-byte against a libvpx-verbatim re-implementation of
-// vp8/encoder/encodemb.c:143-357 optimize_b, plus the `bestMask[2]`
-// path-state arrays and the post-loop final-pick best / finalEOB /
-// reconstructed qcoeff. Any drift in any (i, j) cell or in any
-// post-loop field is reported by first-divergent position.
+// This test is the orthogonal DP-state-array confirmation: it pins govpx's
+// `tokens[i][j].rate / .error / .next / .token / .qc` arrays byte-for-byte
+// against a libvpx-verbatim re-implementation of vp8/encoder/encodemb.c:143-357
+// optimize_b, plus the `bestMask[2]` path-state arrays and the post-loop
+// final-pick best / finalEOB / reconstructed qcoeff. Any drift in any (i, j)
+// cell or in any post-loop field is reported by first-divergent position.
 //
 // The pin closes the trellis-transition-logic side of the chroma
-// keep/drop audit: combined with #319 (rdMult/rdDiv inputs pinned),
-// #326 (token_costs byte-equal), #327 (dct_value_cost byte-equal),
-// and #328 (entropy-context pt seed pinned), every input AND every DP
-// transition the trellis touches is byte-faithful to libvpx. Future
-// chroma keep/drop investigations should ignore this layer entirely
-// and focus on the upstream FDCT residual divergence (task #324's
-// directive).
+// keep/drop audit: rdMult/rdDiv inputs, token_costs, dct_value_cost, entropy
+// context seeds, and every DP transition this trellis touches are byte-faithful
+// to libvpx. Future chroma keep/drop investigations should ignore this layer
+// and focus on the upstream FDCT residual divergence.
 func TestVP8OptimizeBlockDPStateChromaDCOne(t *testing.T) {
 	const blockType = planeTypeUV
 	const qIndex = 56 // BestARNR MaxQuantizer, mid-cohort
 	const ctx = 0
 
-	rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qIndex, 0)
+	rdMult, rdDiv := RDConstantsWithZbin(qIndex, 0)
 
 	// Synthesize the exact chroma DC ±1 keep/drop shortcut input:
 	// coeff[0] small, dequant=large, qcoeff[0] = ±1. Captures the
@@ -503,23 +497,23 @@ func TestVP8OptimizeBlockDPStateChromaDCOne(t *testing.T) {
 		coeff[0] = 10 * sign
 		var dequant [16]int16
 		for i := range dequant {
-			dequant[i] = int16(vp8common.DCQuant(qIndex, 0))
+			dequant[i] = int16(common.DCQuant(qIndex, 0))
 		}
-		var quant vp8enc.BlockQuant
-		vp8enc.InitRegularBlockQuant(qIndex, &dequant, &quant)
+		var quant BlockQuant
+		InitRegularBlockQuant(qIndex, &dequant, &quant)
 		var qcoeff [16]int16
 		qcoeff[0] = sign
 
 		// Oracle DP state.
 		oTokens, oBestMask, oBest, oEOB, oQ := libvpxOptimizeBVerbatim(
-			&vp8tables.DefaultCoefProbs, blockType, ctx, 0,
+			&tables.DefaultCoefProbs, blockType, ctx, 0,
 			rdMult, rdDiv, false, &coeff, &dequant, &qcoeff, 1)
 
 		// Govpx-mirror DP state (using the same helpers govpx's
 		// production trellis reads). Validates the byte-faithfulness
 		// of the in-test wrapper against the libvpx oracle.
 		gTokens, gBestMask, gBest, gEOB, gQ := govpxOptimizeBStateCaptured(
-			&vp8tables.DefaultCoefProbs, blockType, ctx, 0,
+			&tables.DefaultCoefProbs, blockType, ctx, 0,
 			rdMult, rdDiv, false, &coeff, &dequant, &qcoeff, 1)
 
 		for i := range oTokens {
@@ -551,8 +545,8 @@ func TestVP8OptimizeBlockDPStateChromaDCOne(t *testing.T) {
 		// optimize_b and compare the post-trellis qcoeff[0] and eob.
 		var prodQ [16]int16
 		prodQ[0] = sign
-		prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
-			&vp8tables.DefaultCoefProbs, qIndex, blockType, ctx, 0, 0,
+		prodEOB := OptimizeQuantizedBlockWithRDConstants(
+			&tables.DefaultCoefProbs, qIndex, blockType, ctx, 0, 0,
 			rdMult, rdDiv, false, &coeff, &quant, &prodQ, 1)
 		if prodEOB != gEOB {
 			t.Errorf("chroma DC sign=%+d: production optimize_b eob=%d, captured-mirror eob=%d",
@@ -576,7 +570,7 @@ func TestVP8OptimizeBlockDPStateChromaDCOne(t *testing.T) {
 // localizing the ±1 DC chroma keep/drop bug.
 func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 	const blockType = planeTypeUV
-	probs := &vp8tables.DefaultCoefProbs
+	probs := &tables.DefaultCoefProbs
 
 	type fixture struct {
 		name    string
@@ -588,7 +582,7 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 		dequant int16
 	}
 
-	dcq := func(qi int) int16 { return int16(vp8common.DCQuant(qi, 0)) }
+	dcq := func(qi int) int16 { return int16(common.DCQuant(qi, 0)) }
 
 	var fixtures []fixture
 	// DC-only ±1, ±2 keep/drop across the full quantizer band.
@@ -616,7 +610,7 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 	// fixtures with all 16 coefficients populated.
 	for _, qi := range []int{32, 56, 80} {
 		for _, pos := range []int{1, 4, 8, 15} {
-			rc := int(vp8tables.DefaultZigZag1D[pos])
+			rc := int(tables.DefaultZigZag1D[pos])
 			for _, sign := range []int16{+1, -1} {
 				f := fixture{
 					name:    "ACOnly",
@@ -639,7 +633,7 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 			eob:     16,
 		}
 		for pos := range 16 {
-			rc := int(vp8tables.DefaultZigZag1D[pos])
+			rc := int(tables.DefaultZigZag1D[pos])
 			f.coeffs[rc] = int16(20 + 3*pos)
 			f.qcoeff[rc] = 1
 			if pos%3 == 0 {
@@ -652,13 +646,13 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 
 	mismatchCount := 0
 	for _, f := range fixtures {
-		rdMult, rdDiv := vp8enc.RDConstantsWithZbin(f.qIndex, 0)
+		rdMult, rdDiv := RDConstantsWithZbin(f.qIndex, 0)
 		var dequant [16]int16
 		for i := range dequant {
 			dequant[i] = f.dequant
 		}
-		var quant vp8enc.BlockQuant
-		vp8enc.InitRegularBlockQuant(f.qIndex, &dequant, &quant)
+		var quant BlockQuant
+		InitRegularBlockQuant(f.qIndex, &dequant, &quant)
 		coeff := f.coeffs
 		qcoeff := f.qcoeff
 
@@ -695,7 +689,7 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 		// Compare against the actual production trellis.
 		var prodQ [16]int16
 		prodQ = f.qcoeff
-		prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
+		prodEOB := OptimizeQuantizedBlockWithRDConstants(
 			probs, f.qIndex, blockType, f.ctx, 0, 0,
 			rdMult, rdDiv, false, &coeff, &quant, &prodQ, f.eob)
 		if prodEOB != oEOB || prodQ != oQ {
@@ -722,8 +716,8 @@ func TestVP8OptimizeBlockDPStateChromaSweep(t *testing.T) {
 // (err_mult, plane elision threshold, skipDC vs band-1 boundary)
 // surfaces with the same first-divergent (i, j) diagnostic.
 func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
-	probs := &vp8tables.DefaultCoefProbs
-	dcq := func(qi int) int16 { return int16(vp8common.DCQuant(qi, 0)) }
+	probs := &tables.DefaultCoefProbs
+	dcq := func(qi int) int16 { return int16(common.DCQuant(qi, 0)) }
 	planes := []struct {
 		name      string
 		blockType int
@@ -747,13 +741,13 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 								var coeff, qcoeff [16]int16
 								coeff[0] = coeffMag * sign
 								qcoeff[0] = sign
-								rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qi, 0)
+								rdMult, rdDiv := RDConstantsWithZbin(qi, 0)
 								var dequant [16]int16
 								for k := range dequant {
 									dequant[k] = dcq(qi)
 								}
-								var quant vp8enc.BlockQuant
-								vp8enc.InitRegularBlockQuant(qi, &dequant, &quant)
+								var quant BlockQuant
+								InitRegularBlockQuant(qi, &dequant, &quant)
 								oTokens, _, _, oEOB, oQ := libvpxOptimizeBVerbatim(
 									probs, plane.blockType, ctx, plane.skipDC,
 									rdMult, rdDiv, intra, &coeff, &dequant, &qcoeff, 1)
@@ -769,7 +763,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 								}
 								var prodQ [16]int16
 								prodQ[0] = sign
-								prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
+								prodEOB := OptimizeQuantizedBlockWithRDConstants(
 									probs, qi, plane.blockType, ctx, plane.skipDC, 0,
 									rdMult, rdDiv, intra, &coeff, &quant, &prodQ, 1)
 								if prodEOB != oEOB || prodQ != oQ {
@@ -786,7 +780,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 					// Full-block fixture (works for every plane).
 					var coeff, qcoeff [16]int16
 					for pos := range 16 {
-						rc := int(vp8tables.DefaultZigZag1D[pos])
+						rc := int(tables.DefaultZigZag1D[pos])
 						sgn := int16(1)
 						if pos%2 == 0 {
 							sgn = -1
@@ -794,13 +788,13 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 						coeff[rc] = sgn * int16(15+5*pos)
 						qcoeff[rc] = sgn
 					}
-					rdMult, rdDiv := vp8enc.RDConstantsWithZbin(qi, 0)
+					rdMult, rdDiv := RDConstantsWithZbin(qi, 0)
 					var dequant [16]int16
 					for k := range dequant {
 						dequant[k] = dcq(qi)
 					}
-					var quant vp8enc.BlockQuant
-					vp8enc.InitRegularBlockQuant(qi, &dequant, &quant)
+					var quant BlockQuant
+					InitRegularBlockQuant(qi, &dequant, &quant)
 					oTokens, _, _, oEOB, oQ := libvpxOptimizeBVerbatim(
 						probs, plane.blockType, ctx, plane.skipDC,
 						rdMult, rdDiv, intra, &coeff, &dequant, &qcoeff, 16)
@@ -816,7 +810,7 @@ func TestVP8OptimizeBlockDPStateAllPlanesSweep(t *testing.T) {
 					}
 					var prodQ [16]int16
 					prodQ = qcoeff
-					prodEOB := vp8enc.OptimizeQuantizedBlockWithRDConstants(
+					prodEOB := OptimizeQuantizedBlockWithRDConstants(
 						probs, qi, plane.blockType, ctx, plane.skipDC, 0,
 						rdMult, rdDiv, intra, &coeff, &quant, &prodQ, 16)
 					if prodEOB != oEOB || prodQ != oQ {
