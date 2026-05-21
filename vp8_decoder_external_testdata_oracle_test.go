@@ -11,7 +11,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
-func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
+func TestVP8OracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run external libvpx conformance tests")
 	}
@@ -46,7 +46,7 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	}
 }
 
-func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
+func TestVP8OracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run external libvpx DecodeInto conformance tests")
 	}
@@ -81,7 +81,7 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	}
 }
 
-func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
+func TestVP8OracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run external invalid libvpx conformance tests")
 	}
@@ -118,7 +118,7 @@ func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	}
 }
 
-func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
+func TestVP8OracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run generated libvpx conformance tests")
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestOracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode-transition byte-parity gate")
 	}
@@ -83,7 +83,7 @@ func TestOracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testi
 	}
 }
 
-func TestOracleEncoderStreamByteParityRuntimeRateControlModeControlCrosses(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode/control cross byte-parity gate")
 	}
@@ -203,7 +203,7 @@ func TestOracleEncoderStreamByteParityRuntimeRateControlModeControlCrosses(t *te
 	}
 }
 
-func TestOracleEncoderStreamByteParityRuntimeRateControlModeLongTailTransitions(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeLongTailTransitions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode-transition long-tail byte-parity gate")
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestOracleFirstPassStatsCompare(t *testing.T) {
+func TestVP8OracleFirstPassStatsCompare(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run first-pass oracle comparison")
 	}

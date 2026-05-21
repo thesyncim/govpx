@@ -32,7 +32,7 @@ type govpxQuantizerCallTrace struct {
 	LastQuantizerValid bool
 }
 
-func TestOracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
+func TestVP8OracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
 	}
@@ -81,7 +81,7 @@ func TestOracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
 	assertQuantizerMetadataParity(t, trace, logEntries)
 }
 
-func TestOracleEncoderQuantizerMetadataParityDropControlCrosses(t *testing.T) {
+func TestVP8OracleEncoderQuantizerMetadataParityDropControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
 	}

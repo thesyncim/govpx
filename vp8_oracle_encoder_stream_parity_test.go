@@ -27,7 +27,7 @@ func strictByteParityCPUUsed(deadline Deadline, cpuUsed int) int {
 	return cpuUsed
 }
 
-// TestOracleEncoderStreamByteParity is the strictest possible parity
+// TestVP8OracleEncoderStreamByteParity is the strictest possible parity
 // gate: it runs govpx and the patched libvpx vpxenc-oracle on the same
 // I420 fixture under matching options and asserts the encoded frame
 // payloads (skipping the IVF container/frame-headers) are SHA-256
@@ -39,7 +39,7 @@ func strictByteParityCPUUsed(deadline Deadline, cpuUsed int) int {
 // mode decisions, loop-filter level, token writing order, or anything
 // downstream of those — and is the immediate signal that the plan.md
 // "100% byte parity" target has regressed for that config.
-func TestOracleEncoderStreamByteParity(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}

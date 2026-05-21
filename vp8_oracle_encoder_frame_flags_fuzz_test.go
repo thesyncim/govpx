@@ -31,7 +31,7 @@ import (
 // understood and the corresponding minimized seeds are intentionally NOT
 // committed under testdata/fuzz/FuzzEncoderFrameFlags so the regression gate
 // stays deterministic. When a truly reproducible divergence is found, follow
-// the existing TestOracleEncoderStreamByteParityFrameFlags pattern (pin it
+// the existing TestVP8OracleEncoderStreamByteParityFrameFlags pattern (pin it
 // with a `limit:` case in vp8_oracle_encoder_stream_parity_frame_flags_test.go)
 // rather than relying on a fuzz seed alone.
 func FuzzEncoderFrameFlags(f *testing.F) {
@@ -123,7 +123,7 @@ func encoderFrameFlagsFuzzCaseFromBytes(data []byte) encoderFrameFlagsFuzzCase {
 	// encoder produces non-deterministic byte output (goroutine scheduling
 	// affects token-partition packing), so it cannot participate in a
 	// byte-parity fuzz harness. A separate threaded oracle parity test
-	// (TestOracleEncoderStreamByteParity with `threads:2`) drives the threaded
+	// (TestVP8OracleEncoderStreamByteParity with `threads:2`) drives the threaded
 	// path with fixed inputs.
 	opts := oracleRuntimeBaseFuzzOptions(dim.w, dim.h, targetKbps, cpuUsed)
 	opts.TargetBitrateKbps = targetKbps

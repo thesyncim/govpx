@@ -137,7 +137,7 @@ func compareFirstPassStatsLoose(t *testing.T, label string, govpx, libvpx []Firs
 // mismatches per the §5 matched-prefix-length scoreboard convention.
 //
 // First-pass stats are tolerance-compared today by
-// TestOracleFirstPassStatsCompare only for a tightly-pinned (cpu=0,
+// TestVP8OracleFirstPassStatsCompare only for a tightly-pinned (cpu=0,
 // frames≤4, no threads/ARNR) config. Under arbitrary fuzz parameters
 // the per-field tolerances would trip on every iteration; the fuzzer
 // records the divergence summary instead so a future tightening pass

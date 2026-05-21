@@ -16,11 +16,11 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleBenchWorkloadProductionGaps pins the public govpx-bench workloads
+// TestVP8OracleBenchWorkloadProductionGaps pins the public govpx-bench workloads
 // against the uninstrumented libvpx vpxenc binary. This is not byte parity:
 // the bench path intentionally tracks production byte-rate and quality gaps
 // for the synthetic bench source and WebRTC-style buffer model.
-func TestOracleBenchWorkloadProductionGaps(t *testing.T) {
+func TestVP8OracleBenchWorkloadProductionGaps(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production bench gap checks")
 	}

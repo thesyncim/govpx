@@ -19,12 +19,12 @@ func requireOracleTraceBuild(t *testing.T) {
 	}
 }
 
-// TestOracleTraceWriterEmitsFrameAndMBRows encodes a 32x32 keyframe followed
+// TestVP8OracleTraceWriterEmitsFrameAndMBRows encodes a 32x32 keyframe followed
 // by an inter frame with the trace writer enabled and asserts the JSONL
 // stream has 1 frame row for the keyframe, 1 frame row for the inter frame,
 // inter-candidate rows for the inter frame, and 8 MB rows (32x32 = 2x2
 // macroblocks for each frame).
-func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
+func TestVP8OracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	requireOracleTraceBuild(t)
 	const w, h = 32, 32
 	var buf bytes.Buffer
@@ -286,7 +286,7 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	}
 }
 
-func TestOracleTraceRecodeIterEmitsInterCandidates(t *testing.T) {
+func TestVP8OracleTraceRecodeIterEmitsInterCandidates(t *testing.T) {
 	requireOracleTraceBuild(t)
 	var buf bytes.Buffer
 	e := &VP8Encoder{frameCount: 7}
@@ -339,7 +339,7 @@ func TestOracleTraceRecodeIterEmitsInterCandidates(t *testing.T) {
 	}
 }
 
-func TestOracleTracePickerUVQuantizeRow(t *testing.T) {
+func TestVP8OracleTracePickerUVQuantizeRow(t *testing.T) {
 	requireOracleTraceBuild(t)
 	var buf bytes.Buffer
 	e := &VP8Encoder{}
@@ -390,7 +390,7 @@ func TestOracleTracePickerUVQuantizeRow(t *testing.T) {
 	}
 }
 
-func TestOracleTraceCoefficientFactoriesRequireActiveWriter(t *testing.T) {
+func TestVP8OracleTraceCoefficientFactoriesRequireActiveWriter(t *testing.T) {
 	requireOracleTraceBuild(t)
 
 	e := &VP8Encoder{}
@@ -434,7 +434,7 @@ func TestOracleTraceCoefficientFactoriesRequireActiveWriter(t *testing.T) {
 	}
 }
 
-func TestOracleTraceInterCandidateFilterScopesIterRows(t *testing.T) {
+func TestVP8OracleTraceInterCandidateFilterScopesIterRows(t *testing.T) {
 	requireOracleTraceBuild(t)
 	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_FRAME", "7")
 	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_ITER", "23")
@@ -478,7 +478,7 @@ func TestOracleTraceInterCandidateFilterScopesIterRows(t *testing.T) {
 	}
 }
 
-func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
+func TestVP8OracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
 	requireOracleTraceBuild(t)
 	var buf bytes.Buffer
 	e := &VP8Encoder{}
@@ -519,7 +519,7 @@ func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
 	}
 }
 
-func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
+func TestVP8OracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
 	requireOracleTraceBuild(t)
 	var buf bytes.Buffer
 	e := &VP8Encoder{}
@@ -560,7 +560,7 @@ func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
 	}
 }
 
-func TestOracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
+func TestVP8OracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
 	requireOracleTraceBuild(t)
 	const w, h = 16, 32
 	var buf bytes.Buffer
@@ -610,10 +610,10 @@ func TestOracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
 	}
 }
 
-// TestOracleTraceWriterNilProducesNoOverhead verifies that omitting
+// TestVP8OracleTraceWriterNilProducesNoOverhead verifies that omitting
 // OracleTraceWriter results in no writer activity and that the encoded byte
 // stream is identical to a baseline run with the same configuration.
-func TestOracleTraceWriterNilProducesNoOverhead(t *testing.T) {
+func TestVP8OracleTraceWriterNilProducesNoOverhead(t *testing.T) {
 	requireOracleTraceBuild(t)
 	const w, h = 32, 32
 

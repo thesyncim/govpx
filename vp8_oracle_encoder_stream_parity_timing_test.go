@@ -12,7 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityTiming pins byte-parity across the
+// TestVP8OracleEncoderStreamByteParityTiming pins byte-parity across the
 // FPS / timebase / PTS axes that the existing matrices barely touch.
 // The base parity matrix only covers FPS={15, 30, 60} and a single
 // timebase override (1001/30000). Real callers run vp8 over a much
@@ -23,13 +23,13 @@ import (
 // arithmetic regression in those paths surfaces here as a byte
 // divergence on a smooth panning fixture.
 //
-// Each subtest follows the same protocol as [TestOracleEncoderStreamByteParity]:
+// Each subtest follows the same protocol as [TestVP8OracleEncoderStreamByteParity]:
 // feed the same I420 fixture into govpx and the patched vpxenc-oracle
 // with matching options, then assert byte equality of the per-frame
 // VP8 packet payloads. Cases that diverge are pinned with `limit:` so
 // the gap is visible in the per-frame status lines without regressing
 // the strict gate.
-func TestOracleEncoderStreamByteParityTiming(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityTiming(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}

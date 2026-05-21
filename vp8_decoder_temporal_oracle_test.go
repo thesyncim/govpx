@@ -16,7 +16,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -56,7 +56,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -107,7 +107,7 @@ func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -153,7 +153,7 @@ func TestOracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
+func TestVP8OracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx temporal SVC oracle tests")
 	}

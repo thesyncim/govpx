@@ -27,7 +27,7 @@ type externalEncoderClip struct {
 	frames []Image
 }
 
-func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
+func TestVP8OracleExternalEncoderTestDataValidation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run external encoder source tests")
 	}

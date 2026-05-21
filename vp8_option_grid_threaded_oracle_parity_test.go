@@ -40,7 +40,7 @@ func TestVP8ThreadedOptionGridSeedMatchesLibvpxOutput(t *testing.T) {
 	// oracle up to N times searching for a run that matches govpx's
 	// bytes. The serial-oracle path is unchanged (single pass-through
 	// when --threads is absent or <=1).
-	libvpxFrames := encodeFramesWithLibvpxOracleMatchingGovpx(t, vpxencOracle, "threaded-option-grid-seed7", opts, cfg.targetKbps, sources, libvpxArgs, govpxFrames)
+	libvpxFrames := encodeVP8FramesWithLibvpxOracleMatchingGovpx(t, vpxencOracle, "threaded-option-grid-seed7", opts, cfg.targetKbps, sources, libvpxArgs, govpxFrames)
 
 	// Pin the deterministic govpx output to ONE of the libvpx oracle's
 	// valid threads=2 outputs. Failure here indicates either a

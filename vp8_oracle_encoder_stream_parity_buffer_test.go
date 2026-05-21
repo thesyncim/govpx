@@ -14,9 +14,9 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityBuffer widens the strict byte-parity
+// TestVP8OracleEncoderStreamByteParityBuffer widens the strict byte-parity
 // matrix beyond the buffer-size combinations already pinned by
-// [TestOracleEncoderStreamByteParity] (which covers
+// [TestVP8OracleEncoderStreamByteParity] (which covers
 // {500/500/500, 1000/500/600, 2000/1000/1500, 4000/1000/3000}). It
 // targets the buffer-model edge cases — very tight buffers, very
 // large buffers, near-zero buffers, asymmetric initial/optimal vs.
@@ -31,7 +31,7 @@ import (
 // matching options, then assert the encoded frame payloads
 // byte-match. Cases that diverge are pinned with `limit:` so the
 // gap stays visible without regressing the strict gate.
-func TestOracleEncoderStreamByteParityBuffer(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityBuffer(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -265,7 +265,7 @@ func TestOracleEncoderStreamByteParityBuffer(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame byte-parity gate")
 	}
@@ -388,7 +388,7 @@ func TestOracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame control-cross byte-parity gate")
 	}
@@ -556,7 +556,7 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 	}
 }
 
-func TestOracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run RTC external-rate-control byte-parity gate")
 	}

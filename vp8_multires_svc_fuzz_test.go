@@ -41,7 +41,7 @@ import (
 //   - oracle binaries missing → fuzz iteration skipped (logged).
 //   - shape 0 small-resolution simulcast assertion is strict
 //     (matchLimit=0); shape 1/2 inherit the strict-byte parity matrix
-//     pinned by TestOracleEncoderStreamByteParityTemporalSVC.
+//     pinned by TestVP8OracleEncoderStreamByteParityTemporalSVC.
 func FuzzVP8MultiResSVCByteParity(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run multi-res/SVC byte-parity fuzz")
@@ -192,7 +192,7 @@ func runVP8MultiResSVCFuzzCase(t *testing.T, c vp8SVCFuzzCase) {
 // runVP8TemporalSVCFuzzCase drives a 2- or 3-layer temporal SVC stream
 // and compares it per output layer against the vpx_temporal_svc_encoder
 // upstream example. The strict-byte-parity matrix this dispatches to
-// is already pinned in TestOracleEncoderStreamByteParityTemporalSVC;
+// is already pinned in TestVP8OracleEncoderStreamByteParityTemporalSVC;
 // this fuzz target is the random-search complement.
 func runVP8TemporalSVCFuzzCase(t *testing.T, c vp8SVCFuzzCase) {
 	svcEncoder := coracletest.VpxTemporalSVCEncoder(t)
@@ -256,7 +256,7 @@ func runVP8TemporalSVCFuzzCase(t *testing.T, c vp8SVCFuzzCase) {
 			label, len(govStreams), len(libStreams), numLayers)
 	}
 	// The strict-byte-parity matrix in
-	// TestOracleEncoderStreamByteParityTemporalSVC pins the cpu=-3/-8
+	// TestVP8OracleEncoderStreamByteParityTemporalSVC pins the cpu=-3/-8
 	// axis end-to-end and the cpu=0 axis without ER+threads. The
 	// fuzzer surfaces uncovered axes (e.g. mode1 + cpu=0 + threads=2
 	// + ER=true: matched-prefix shrinks to 2 frames on L0; see

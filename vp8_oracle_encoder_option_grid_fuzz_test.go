@@ -14,7 +14,7 @@ import (
 )
 
 // FuzzEncoderProductionStreamByteParity runs an option-grid fuzz against the
-// canonical vpxenc-oracle harness (the same one TestOracleEncoderStreamByteParity
+// canonical vpxenc-oracle harness (the same one TestVP8OracleEncoderStreamByteParity
 // uses). It closes plan-§3 F1: random resolution × deadline × cpu_used × rate
 // control × feature-toggle combinations are exercised at every fuzz iteration,
 // including production resolutions and Threads ≥ 2 — picking up bitstream-
@@ -95,12 +95,12 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 		// several VP8 configs (notably the 1f411689 seed#7 cohort:
 		// 640x360 RT cpu_used=0 threads=2 CBR, where libvpx cycles
 		// through 3-4 distinct bitstreams across consecutive runs).
-		// encodeFramesWithLibvpxOracleMatchingGovpx retries the oracle
+		// encodeVP8FramesWithLibvpxOracleMatchingGovpx retries the oracle
 		// up to N times searching for a run whose bytes match govpx;
 		// for serial (--threads<=1) callers it degrades to a single
-		// pass-through. See oracle_reproducibility_test.go and the
-		// task #355/#369 sentinel for the campaign that surfaced this.
-		libvpxFrames := encodeFramesWithLibvpxOracleMatchingGovpx(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs, govpxFrames)
+		// pass-through. See vp8_oracle_threading_reproducibility_helpers_test.go
+		// for the retry policy and failure diagnostics.
+		libvpxFrames := encodeVP8FramesWithLibvpxOracleMatchingGovpx(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs, govpxFrames)
 
 		// Strict byte parity on every frame. Seeds that hit a documented
 		// divergence (see byte-exactness tracker gaps C, D) are expected

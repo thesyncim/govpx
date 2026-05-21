@@ -12,9 +12,9 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityExtended widens the strict byte-parity
+// TestVP8OracleEncoderStreamByteParityExtended widens the strict byte-parity
 // matrix beyond the static-knob axes already pinned by
-// [TestOracleEncoderStreamByteParity]. It targets control surfaces that
+// [TestVP8OracleEncoderStreamByteParity]. It targets control surfaces that
 // the original matrix never exercises — including AdaptiveKeyFrames,
 // KeyFrameInterval=0 (libvpx --disable-kf), explicit TunePSNR with
 // tuningSet, large/extreme kfInterval values, and several
@@ -27,7 +27,7 @@ import (
 // Cases that diverge are pinned with `limit:` so the gap is visible in
 // the per-frame "byte mismatch (not asserted, ...)" log lines without
 // regressing the strict gate.
-func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityExtended(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}

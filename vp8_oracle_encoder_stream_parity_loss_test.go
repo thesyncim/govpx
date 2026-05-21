@@ -12,7 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityLossRecovery exercises packet-loss /
+// TestVP8OracleEncoderStreamByteParityLossRecovery exercises packet-loss /
 // error-resilience recovery flows that the existing matrices do not pin:
 //
 //   - Mid-stream EncodeForceKeyFrame insertions at multiple frame
@@ -31,7 +31,7 @@ import (
 // only path that exposes per-frame frame_flags on the libvpx encode
 // call. Strict byte parity must hold for every frame; any divergence
 // is asserted unless the case is explicitly pinned with `limit:`.
-func TestOracleEncoderStreamByteParityLossRecovery(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityLossRecovery(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -260,7 +260,7 @@ func TestOracleEncoderStreamByteParityLossRecovery(t *testing.T) {
 	}
 }
 
-// TestOracleEncoderStreamByteParityLossStaticOpts widens the
+// TestVP8OracleEncoderStreamByteParityLossStaticOpts widens the
 // strict byte-parity gate for static error-resilient configurations
 // that the existing matrices do not cover, even though they sit at
 // the heart of WebRTC's packet-loss handling:
@@ -285,7 +285,7 @@ func TestOracleEncoderStreamByteParityLossRecovery(t *testing.T) {
 // receives the corresponding `--error-resilient=N` arg and the same
 // per-fixture knobs. No per-frame frame_flags are needed; the driver
 // is the standard vpxenc-oracle binary.
-func TestOracleEncoderStreamByteParityLossStaticOpts(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityLossStaticOpts(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}

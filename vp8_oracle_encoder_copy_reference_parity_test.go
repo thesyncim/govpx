@@ -15,7 +15,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
+func TestVP8OracleEncoderCopyReferenceFrameParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder reference-copy parity gate")
 	}

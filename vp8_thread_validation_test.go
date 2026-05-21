@@ -75,7 +75,7 @@ func TestVP8ThreadsValidation(t *testing.T) {
 			// The reproducibility wrapper makes any oracle-side
 			// flake visible as a test failure with a SHA log rather
 			// than letting it taint this cross-thread parity check.
-			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task332-threads-validation", opts, 700, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
+			libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "task332-threads-validation", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
 			for i := range govpxFrames {
 				gs := sha256.Sum256(govpxFrames[i])
 				ls := sha256.Sum256(libvpxFrames[i])

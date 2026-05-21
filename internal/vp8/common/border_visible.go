@@ -20,7 +20,7 @@ package common
 // reference rotation) because a global swap to this behavior interacts
 // with the per-MB picker's reference reads in ways that surface
 // regressions on previously-passing odd-axis fixtures (see
-// TestOracleEncoderStreamByteParity 17x33/33x17 baselines). The helper
+// TestVP8OracleEncoderStreamByteParity 17x33/33x17 baselines). The helper
 // stays in place so the localization of the libvpx-faithful behavior is
 // preserved and can be wired in once the picker-side interaction is
 // understood and fixed.

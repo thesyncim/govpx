@@ -12,7 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParitySegmentation widens the strict
+// TestVP8OracleEncoderStreamByteParitySegmentation widens the strict
 // byte-parity matrix toward segmentation-adjacent control surfaces:
 // screen-content overlays, static-thresh sweeps, denoiser/screen-content
 // cross-products, and AdaptiveKeyFrames against a scene-cut fixture.
@@ -36,12 +36,12 @@ import (
 //     `--screen-content-mode`).
 //
 // Each subtest follows the protocol established by
-// [TestOracleEncoderStreamByteParity] /
-// [TestOracleEncoderStreamByteParityExtended]: same I420 fixture into
+// [TestVP8OracleEncoderStreamByteParity] /
+// [TestVP8OracleEncoderStreamByteParityExtended]: same I420 fixture into
 // govpx and the patched vpxenc-oracle, assert byte parity (or pin the
 // known-good prefix via `limit:`). Cases marked with `limit: -1` log
 // the per-frame status without asserting strict parity.
-func TestOracleEncoderStreamByteParitySegmentation(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParitySegmentation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -276,7 +276,7 @@ func TestOracleEncoderStreamByteParitySegmentation(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityROIMap(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityROIMap(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
@@ -321,7 +321,7 @@ func TestOracleEncoderStreamByteParityROIMap(t *testing.T) {
 	assertSegmentByteParity(t, "roi-map-altq-altlf-static", govpxFrames, libvpxFrames, 0)
 }
 
-func TestOracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
@@ -366,7 +366,7 @@ func TestOracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
 	assertSegmentByteParity(t, "roi-map-simple-dq", govpxFrames, libvpxFrames, 0)
 }
 
-func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
@@ -462,7 +462,7 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
 	}
@@ -593,7 +593,7 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
 	}
@@ -661,7 +661,7 @@ func TestOracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}
@@ -739,7 +739,7 @@ func TestOracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
 	}

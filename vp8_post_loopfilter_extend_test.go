@@ -68,7 +68,7 @@ import (
 //     named regression seed `regression_640x360_threads1_bitrate_setref_diverge`
 //     from len=684 to len=662 (libvpx target len=688) — i.e. it moves
 //     bytes WITHOUT closing the seed, and simultaneously breaks all 7
-//     odd-axis 33x17/17x33 fixtures in `TestOracleEncoderStreamByteParity`.
+//     odd-axis 33x17/17x33 fixtures in `TestVP8OracleEncoderStreamByteParity`.
 //     Historical note: the 684 frame-2 baseline cited above was measured at
 //     commit a82b8e8c when frame 1 was at strict byte parity. Commit 592b8eda
 //     ("vp8: align runtime controls with libvpx") reintroduced a

@@ -10,7 +10,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestOracleEncoderStreamByteParityRuntimeControlsReferences(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityRuntimeControlsReferences(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime-control byte-parity gate")
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-func TestOracleLibvpxDecoderReferenceControls(t *testing.T) {
+func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx decoder reference-control oracle tests")
 	}

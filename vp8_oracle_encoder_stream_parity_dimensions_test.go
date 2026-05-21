@@ -13,10 +13,10 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityDimensions widens the strict byte-parity
+// TestVP8OracleEncoderStreamByteParityDimensions widens the strict byte-parity
 // matrix along the *resolution axis* that the base
-// [TestOracleEncoderStreamByteParity] and
-// [TestOracleEncoderStreamByteParityExtended] matrices do not exhaustively
+// [TestVP8OracleEncoderStreamByteParity] and
+// [TestVP8OracleEncoderStreamByteParityExtended] matrices do not exhaustively
 // cover. It targets:
 //
 //   - sub-MB-aligned / very small frames at multiple cpu_used presets
@@ -42,7 +42,7 @@ import (
 // Runtime budget: BestQuality is limited to fixtures <= 64x64;
 // large mid-range / wide-strip fixtures only run at cpu_used in
 // {4, 8} so the test stays fast in oracle-test.
-func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityDimensions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}

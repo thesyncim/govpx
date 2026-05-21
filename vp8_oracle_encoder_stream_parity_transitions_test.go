@@ -15,11 +15,11 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityResetFlushTransitions pins encoder-lifetime
+// TestVP8OracleEncoderStreamByteParityResetFlushTransitions pins encoder-lifetime
 // transitions that are not represented by one-shot vpxenc invocations:
 // Reset must match a cold start after warm state is discarded, and FlushInto
 // must not perturb the encoded stream when callers drain between input bursts.
-func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run reset/flush byte-parity gate")
 	}
@@ -579,7 +579,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 	})
 }
 
-func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass stream byte-parity gate")
 	}
@@ -801,7 +801,7 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-arnr", arnrGovpxFrames, arnrLibvpxFrames, 0)
 }
 
-func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass control-cross byte-parity gate")
 	}

@@ -16,7 +16,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
-func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
+func TestVP8OracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle smoke tests")
 	}
@@ -64,7 +64,7 @@ func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -111,7 +111,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
+func TestVP8OracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle capability tests")
 	}
@@ -133,7 +133,7 @@ func TestOracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
 	assertFrameChecksumsEqual(t, "error-concealment clean decode", concealment, normal)
 }
 
-func TestOracleLibvpxErrorConcealmentClampsUnusedMalformedTokenPartition(t *testing.T) {
+func TestVP8OracleLibvpxErrorConcealmentClampsUnusedMalformedTokenPartition(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
 	}
@@ -148,7 +148,7 @@ func TestOracleLibvpxErrorConcealmentClampsUnusedMalformedTokenPartition(t *test
 	assertFrameChecksumsEqual(t, "error-concealment malformed unused token partition", got, want)
 }
 
-func TestOracleLibvpxErrorConcealmentRejectsInitialTruncatedInterFrameTag(t *testing.T) {
+func TestVP8OracleLibvpxErrorConcealmentRejectsInitialTruncatedInterFrameTag(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
 	}
@@ -175,7 +175,7 @@ func TestOracleLibvpxErrorConcealmentRejectsInitialTruncatedInterFrameTag(t *tes
 	}
 }
 
-func TestOracleLibvpxErrorConcealmentRejectsTruncatedKeyFrameHeader(t *testing.T) {
+func TestVP8OracleLibvpxErrorConcealmentRejectsTruncatedKeyFrameHeader(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
 	}
@@ -192,7 +192,7 @@ func TestOracleLibvpxErrorConcealmentRejectsTruncatedKeyFrameHeader(t *testing.T
 	}
 }
 
-func TestOracleLibvpxErrorConcealmentConcealsMissingTokenPartition(t *testing.T) {
+func TestVP8OracleLibvpxErrorConcealmentConcealsMissingTokenPartition(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
 	}
@@ -212,7 +212,7 @@ func TestOracleLibvpxErrorConcealmentConcealsMissingTokenPartition(t *testing.T)
 	}
 }
 
-func TestOracleLibvpxKeyFrameResolutionChange(t *testing.T) {
+func TestVP8OracleLibvpxKeyFrameResolutionChange(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle resolution-change tests")
 	}
@@ -233,7 +233,7 @@ func TestOracleLibvpxKeyFrameResolutionChange(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
+func TestVP8OracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
 	}
@@ -247,7 +247,7 @@ func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	assertFrameChecksumsEqual(t, "postprocess flags Decode", gotFlags, want)
 }
 
-func TestOracleLibvpxPostProcessMatchesProfile3Decoder(t *testing.T) {
+func TestVP8OracleLibvpxPostProcessMatchesProfile3Decoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
 	}
@@ -259,7 +259,7 @@ func TestOracleLibvpxPostProcessMatchesProfile3Decoder(t *testing.T) {
 	assertFrameChecksumsEqual(t, "profile3 postprocess Decode", got, want)
 }
 
-func TestOracleLibvpxPostProcessNoiseMatchesDecoder(t *testing.T) {
+func TestVP8OracleLibvpxPostProcessNoiseMatchesDecoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
 	}
@@ -271,7 +271,7 @@ func TestOracleLibvpxPostProcessNoiseMatchesDecoder(t *testing.T) {
 	assertFrameChecksumsEqual(t, "postprocess addnoise Decode", got, want)
 }
 
-func TestOracleLibvpxPostProcessAllNoiseMatchesDecoder(t *testing.T) {
+func TestVP8OracleLibvpxPostProcessAllNoiseMatchesDecoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
 	}
@@ -283,7 +283,7 @@ func TestOracleLibvpxPostProcessAllNoiseMatchesDecoder(t *testing.T) {
 	assertFrameChecksumsEqual(t, "legacy postprocess addnoise Decode", got, want)
 }
 
-func TestOracleLibvpxChecksumMatchesDefaultVersionKeyFrames(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesDefaultVersionKeyFrames(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -300,7 +300,7 @@ func TestOracleLibvpxChecksumMatchesDefaultVersionKeyFrames(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}

@@ -113,7 +113,7 @@ func runVP8RealtimeCorpusByteParitySubtests(t *testing.T, vpxencOracle string) {
 			// decode to threads>=2 cohorts; the wrapper is a no-op
 			// for serial seeds and a re-run SHA check for parallel
 			// seeds.
-			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
+			libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, label, opts, cfg.targetKbps, sources, libvpxArgs, VP8OracleReproducibleRuns)
 
 			assertVP8RealtimeStrictByteParity(t, name, govpxFrames, libvpxFrames)
 		})
@@ -223,7 +223,7 @@ func runVP8RealtimeClosedConfigSubtests(t *testing.T, vpxencOracle string) {
 			// Re-run wrapper catches any libvpx-side threading
 			// nondeterminism that would otherwise contaminate the
 			// strict byte comparison.
-			libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, label, tc.opts, tc.targetKbp, sources, tc.extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
+			libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, label, tc.opts, tc.targetKbp, sources, tc.extraArgs, VP8OracleReproducibleRuns)
 			assertVP8RealtimeStrictByteParity(t, tc.name, govpxFrames, libvpxFrames)
 		})
 	}

@@ -166,7 +166,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// oracle-side flake is caught as a test failure with a SHA log
 	// rather than silently contaminating the byte comparison below
 	// (the original misattribution chain at #297/#298/#304/#324).
-	libvpxFrames := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "task207-byte0-kf-1280x720-ssim-best-arnr-audit", opts, 700, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
+	libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "task207-byte0-kf-1280x720-ssim-best-arnr-audit", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
 
 	if len(govpxFrames) < 2 || len(libvpxFrames) < 2 {
 		t.Fatalf("expected >=2 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))

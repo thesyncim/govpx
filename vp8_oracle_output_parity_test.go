@@ -25,10 +25,10 @@ type oracleOutputPacket struct {
 	sizeBytes int
 }
 
-// TestOracleOutputParityMatrix is the CI-visible output-parity gate. It checks
+// TestVP8OracleOutputParityMatrix is the CI-visible output-parity gate. It checks
 // the emitted stream against libvpx by comparing libvpx-decoded frames and the
 // packet-level encoder decisions that must stay byte-stable enough for WebRTC.
-func TestOracleOutputParityMatrix(t *testing.T) {
+func TestVP8OracleOutputParityMatrix(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder output parity validation")
 	}

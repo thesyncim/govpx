@@ -10,11 +10,11 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestOracleEncoderStreamByteParityProductionShortRuns pins the production
+// TestVP8OracleEncoderStreamByteParityProductionShortRuns pins the production
 // benchmark/WebRTC-like configurations that are easy to miss in the smaller
 // oracle matrices. In particular, the 1-frame vs 2-frame realtime runs catch
 // cold-start control/config drift before it hides behind longer GOP averages.
-func TestOracleEncoderStreamByteParityProductionShortRuns(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityProductionShortRuns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production byte-parity gate")
 	}
@@ -127,7 +127,7 @@ func TestOracleEncoderStreamByteParityProductionShortRuns(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderProductionRuntimeTransitions720p(t *testing.T) {
+func TestVP8OracleEncoderProductionRuntimeTransitions720p(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production runtime-transition oracle")
 	}
@@ -213,7 +213,7 @@ func assertProductionTransitionPacketShape(t *testing.T, label string, got, want
 	}
 }
 
-// TestOracleEncoderStreamByteParityProductionConstantQuality pins CQ +
+// TestVP8OracleEncoderStreamByteParityProductionConstantQuality pins CQ +
 // Q RC modes at production-shape resolutions. CQ mode applies the
 // libvpx vp8/encoder/onyx_if.c:3727-3739 (one-pass best_quality floor
 // for KF/GF/ARF) + ratectrl.c:849-852 (active_worst CQ floor) + 2847-
@@ -224,7 +224,7 @@ func assertProductionTransitionPacketShape(t *testing.T, label string, got, want
 // default unbuffered VBR-ish path with the cq_level field stored but
 // unused in branches. Both modes encode three frames so the second
 // inter frame sees the post-keyframe overspend drain.
-func TestOracleEncoderStreamByteParityProductionConstantQuality(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityProductionConstantQuality(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production CQ/Q byte-parity gate")
 	}

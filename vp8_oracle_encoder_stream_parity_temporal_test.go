@@ -17,7 +17,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityTemporalSVC exercises VP8 temporal
+// TestVP8OracleEncoderStreamByteParityTemporalSVC exercises VP8 temporal
 // scalability (multi-layer encoding for WebRTC/RTP) at the byte level.
 // Both implementations are driven through the libvpx-defined pattern
 // table (libvpx-v1.16.0 examples/vpx_temporal_svc_encoder.c
@@ -66,7 +66,7 @@ import (
 // per-frame "byte mismatch (not asserted, ...)" logs without breaking
 // the strict gate. limit < 0 silences the gate entirely (used for
 // known-deep gaps where even the first frame diverges).
-func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run temporal SVC byte-parity gate")
 	}

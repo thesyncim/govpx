@@ -14,7 +14,7 @@ var (
 	disabledTraceFloatSink float64
 )
 
-func TestOracleTraceDisabledStateTypesHaveZeroSize(t *testing.T) {
+func TestVPxOracleTraceDisabledStateTypesHaveZeroSize(t *testing.T) {
 	cases := []struct {
 		name string
 		size uintptr
@@ -33,7 +33,7 @@ func TestOracleTraceDisabledStateTypesHaveZeroSize(t *testing.T) {
 	}
 }
 
-func TestOracleTraceDisabledFieldsAbsentFromProductionStructs(t *testing.T) {
+func TestVPxOracleTraceDisabledFieldsAbsentFromProductionStructs(t *testing.T) {
 	cases := []struct {
 		name  string
 		typ   reflect.Type
@@ -50,7 +50,7 @@ func TestOracleTraceDisabledFieldsAbsentFromProductionStructs(t *testing.T) {
 	}
 }
 
-func TestOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) {
+func TestVPxOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) {
 	typ := reflect.TypeOf(&VP8Encoder{})
 	methods := []string{
 		"SetOracleTraceWriter",
@@ -66,7 +66,7 @@ func TestOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) {
 	}
 }
 
-func TestOracleTraceDisabledHelpersAllocateZero(t *testing.T) {
+func TestVPxOracleTraceDisabledHelpersAllocateZero(t *testing.T) {
 	var vp8 VP8Encoder
 	var vp9 VP9Encoder
 	var vp9d VP9Decoder
@@ -127,7 +127,7 @@ func TestOracleTraceDisabledHelpersAllocateZero(t *testing.T) {
 	}
 }
 
-func TestOracleTraceDisabledHelpersAreNoops(t *testing.T) {
+func TestVPxOracleTraceDisabledHelpersAreNoops(t *testing.T) {
 	var vp8 VP8Encoder
 	if oracleTraceBuild {
 		t.Fatal("oracleTraceBuild = true in default build")

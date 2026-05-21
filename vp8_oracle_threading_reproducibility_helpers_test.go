@@ -17,13 +17,13 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// EncodeFramesWithLibvpxOracleReproducibleRuns is the default re-run count
-// for the reproducibility check. Two runs is the minimum needed to detect
-// any divergence; the cost is one extra subprocess per oracle test, which is
-// negligible compared to the oracle test's encode time on a 1280x720 keyframe.
-const EncodeFramesWithLibvpxOracleReproducibleRuns = 2
+// VP8OracleReproducibleRuns is the default re-run count for the VP8 oracle
+// reproducibility check. Two runs is the minimum needed to detect divergence;
+// the cost is one extra subprocess per oracle test, which is negligible
+// compared to the oracle test's encode time on a 1280x720 keyframe.
+const VP8OracleReproducibleRuns = 2
 
-// encodeFramesWithLibvpxOracleReproducible wraps encodeFramesWithLibvpxOracle
+// encodeVP8FramesWithLibvpxOracleReproducible wraps encodeFramesWithLibvpxOracle
 // with a re-run sanity check: it invokes the oracle `runs` times against the
 // same inputs and fails the test if any per-frame payload bytes differ across
 // runs. The intent is to fail when an oracle test's oracle output is in fact
@@ -37,13 +37,13 @@ const EncodeFramesWithLibvpxOracleReproducibleRuns = 2
 // helper turns the contamination from an invisible oracle artifact into a
 // visible test failure with a SHA log.
 //
-// `runs` must be >= 2; runs < 2 falls back to runs=2 (a single run cannot
-// detect divergence). Pass `runs == EncodeFramesWithLibvpxOracleReproducible
-// Runs` (== 2) for the canonical setting.
-func encodeFramesWithLibvpxOracleReproducible(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string, runs int) [][]byte {
+// `runs` must be >= 2; runs < 2 falls back to runs=2 because a single run
+// cannot detect divergence. Pass `runs == VP8OracleReproducibleRuns` for the
+// canonical setting.
+func encodeVP8FramesWithLibvpxOracleReproducible(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string, runs int) [][]byte {
 	t.Helper()
 	if runs < 2 {
-		runs = EncodeFramesWithLibvpxOracleReproducibleRuns
+		runs = VP8OracleReproducibleRuns
 	}
 	var first [][]byte
 	var firstSums []string
@@ -79,7 +79,7 @@ input across consecutive runs, almost certainly because of threading
 nondeterminism (MT-LF state, MB-row scheduling, autoSpeed wall-clock
 timing). Comparing govpx (deterministic) byte output against libvpx
 output under these conditions is apples-to-oranges and historically
-produced ~50 misattributed task fixes (#297/#298/#304/#324 etc).
+produced non-actionable byte-parity diagnoses.
 
 Remediation options:
   1) Drop --threads=N from extraArgs (force the oracle to serial).
@@ -88,7 +88,8 @@ Remediation options:
   3) Move the comparison to a higher level (e.g. SSIM/PSNR vs IVF
      payload SHA), where minor MT-LF reordering is invisible.
 
-See feedback-vp8-arnr-milestone-closure.md lesson #2.`,
+Re-run the oracle serially or compare against any reproducible threaded run
+before treating this as a codec divergence.`,
 					name, i, firstSums[i], run, i, sums[i], extraArgs)
 			}
 		}
@@ -96,14 +97,14 @@ See feedback-vp8-arnr-milestone-closure.md lesson #2.`,
 	return first
 }
 
-// EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries is the cap on how many
-// times encodeFramesWithLibvpxOracleMatchingGovpx will re-invoke the libvpx
+// VP8OracleMatchingGovpxMaxRetries is the cap on how many
+// times encodeVP8FramesWithLibvpxOracleMatchingGovpx will re-invoke the libvpx
 // oracle while searching for a run whose payload bytes match govpx exactly.
-const EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries = 6
+const VP8OracleMatchingGovpxMaxRetries = 6
 
-// encodeFramesWithLibvpxOracleMatchingGovpx invokes the libvpx oracle once,
+// encodeVP8FramesWithLibvpxOracleMatchingGovpx invokes the libvpx oracle once,
 // and if its bytes do not byte-equal `govpxFrames`, re-invokes the oracle up
-// to `EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries` more times in
+// to `VP8OracleMatchingGovpxMaxRetries` more times in
 // search of a matching run. The first matching run's frames are returned.
 // When no matching run is found, the first run's frames are returned along
 // with a t.Logf diagnostic that records the distribution of distinct oracle
@@ -123,14 +124,14 @@ const EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries = 6
 // When extraArgs does NOT contain --threads>=2 the helper is a single-call
 // pass-through to encodeFramesWithLibvpxOracle, preserving the existing
 // behaviour for serial-oracle callers.
-func encodeFramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string, govpxFrames [][]byte) [][]byte {
+func encodeVP8FramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string, govpxFrames [][]byte) [][]byte {
 	t.Helper()
-	if _, parallel := extraArgsRequestsParallelOracle(extraArgs); !parallel {
+	if _, parallel := vp8OracleArgsRequestParallelThreads(extraArgs); !parallel {
 		// Serial oracle invocations are deterministic; one run suffices.
 		return encodeFramesWithLibvpxOracle(t, vpxencOracle, name, opts, targetKbps, sources, extraArgs)
 	}
 	govpxSums := testutil.FramePayloadSHA8s(govpxFrames)
-	maxRetries := EncodeFramesWithLibvpxOracleMatchingGovpxMaxRetries
+	maxRetries := VP8OracleMatchingGovpxMaxRetries
 	var firstFrames [][]byte
 	seen := map[string]int{}
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -170,10 +171,11 @@ func encodeFramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string
 	return firstFrames
 }
 
-// extraArgsRequestsParallelOracle returns true iff `extraArgs` contains a
-// `--threads=N` argument with N >= 2. Used by requireOracleArgsReproducible
-// OrSerial to flag the known threading-nondeterminism trap.
-func extraArgsRequestsParallelOracle(extraArgs []string) (threads int, ok bool) {
+// vp8OracleArgsRequestParallelThreads returns true iff `extraArgs` contains a
+// `--threads=N` argument with N >= 2. Used by
+// requireVP8OracleArgsReproducibleOrSerial to flag the known
+// threading-nondeterminism trap.
+func vp8OracleArgsRequestParallelThreads(extraArgs []string) (threads int, ok bool) {
 	for _, a := range extraArgs {
 		if !strings.HasPrefix(a, "--threads=") {
 			continue
@@ -191,19 +193,19 @@ func extraArgsRequestsParallelOracle(extraArgs []string) (threads int, ok bool) 
 	return 0, false
 }
 
-// requireOracleArgsReproducibleOrSerial inspects extraArgs and, when the
+// requireVP8OracleArgsReproducibleOrSerial inspects extraArgs and, when the
 // oracle is being invoked with --threads>=2, surfaces the threading boundary
 // via t.Logf so the oracle test's interpretation explicitly acknowledges the trap.
 //
 // When GOVPX_ORACLE_THREADS_QUARANTINE=strict the helper instead fails the
 // test, forcing the caller to either drop --threads from extraArgs or switch
-// to encodeFramesWithLibvpxOracleReproducible. This mode is intended for
+// to encodeVP8FramesWithLibvpxOracleReproducible. This mode is intended for
 // fresh oracle tests (where the test author has not yet decided which side of the
 // trade-off applies); existing tests that rely on threads>=2 by design
 // should keep using the non-strict default.
-func requireOracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) {
+func requireVP8OracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) {
 	t.Helper()
-	threads, parallel := extraArgsRequestsParallelOracle(extraArgs)
+	threads, parallel := vp8OracleArgsRequestParallelThreads(extraArgs)
 	if !parallel {
 		return
 	}
@@ -212,8 +214,8 @@ func requireOracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) {
 		"NOT byte-reproducible across runs at threads>=2 for several VP8 " +
 		"configurations. Treat any byte-level divergence against govpx " +
 		"as suspect until the oracle has been independently verified " +
-		"reproducible at this scenario (see encodeFramesWithLibvpxOracle" +
-		"Reproducible)."
+		"reproducible at this scenario (see " +
+		"encodeVP8FramesWithLibvpxOracleReproducible)."
 	if os.Getenv("GOVPX_ORACLE_THREADS_QUARANTINE") == "strict" {
 		t.Fatal(msg)
 	}

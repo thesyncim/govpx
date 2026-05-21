@@ -75,7 +75,7 @@ func frameFlagsForLibvpx(f EncodeFlags) uint32 {
 	return out
 }
 
-// TestOracleEncoderStreamByteParityFrameFlags exercises per-frame
+// TestVP8OracleEncoderStreamByteParityFrameFlags exercises per-frame
 // VP8 flag scheduling — the EncodeForceKeyFrame /
 // EncodeNoUpdateLast / EncodeNoUpdateGolden / EncodeNoUpdateAltRef /
 // EncodeNoReferenceLast / EncodeNoReferenceGolden /
@@ -88,7 +88,7 @@ func frameFlagsForLibvpx(f EncodeFlags) uint32 {
 // Cases that diverge are pinned with `limit:` so the gap is visible
 // in the per-frame "byte mismatch (not asserted, ...)" log lines
 // without regressing the strict gate.
-func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -325,7 +325,7 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run force-key API byte-parity gate")
 	}

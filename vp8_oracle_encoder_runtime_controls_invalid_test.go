@@ -10,7 +10,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-func TestOracleEncoderStreamByteParityInvalidRuntimeControlsNoop(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityInvalidRuntimeControlsNoop(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run invalid runtime-control byte-parity gate")
 	}
@@ -91,7 +91,7 @@ func TestOracleEncoderStreamByteParityInvalidRuntimeControlsNoop(t *testing.T) {
 	assertSegmentByteParity(t, "invalid-runtime-controls-noop", govpxFrames, libvpxFrames, 0)
 }
 
-func TestOracleEncoderStreamByteParityRuntimeControlsLongTail(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityRuntimeControlsLongTail(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run long-tail runtime-control byte-parity gate")
 	}
@@ -246,7 +246,7 @@ func TestOracleEncoderStreamByteParityRuntimeControlsLongTail(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityPhaseStatsNoop(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityPhaseStatsNoop(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run PhaseStats byte-parity gate")
 	}

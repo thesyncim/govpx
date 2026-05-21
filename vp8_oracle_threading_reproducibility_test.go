@@ -30,8 +30,8 @@ import (
 // asserting:
 //
 //  1. The wrapper produces a non-zero frame slice for a known-good scenario.
-//  2. extraArgsRequestsParallelOracle() correctly classifies the input.
-//  3. requireOracleArgsReproducibleOrSerial() emits its log line (verified
+//  2. vp8OracleArgsRequestParallelThreads() correctly classifies the input.
+//  3. requireVP8OracleArgsReproducibleOrSerial() emits its log line (verified
 //     indirectly via test-output capture isn't available in standard go
 //     test; we instead exercise the helper's predicate path directly).
 //
@@ -69,32 +69,32 @@ func TestVP8OracleReproducibilityWrapperHandlesParallelArgs(t *testing.T) {
 	extraArgs := []string{"--end-usage=cbr"} // threads=1 (oracle default)
 
 	// Step 1: the reproducibility wrapper must pass for threads=1.
-	out := encodeFramesWithLibvpxOracleReproducible(t, vpxencOracle, "reproducibility-threads1", opts, 500, sources, extraArgs, EncodeFramesWithLibvpxOracleReproducibleRuns)
+	out := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "reproducibility-threads1", opts, 500, sources, extraArgs, VP8OracleReproducibleRuns)
 	if len(out) != frames {
 		t.Fatalf("threads=1 reproducibility wrapper: got %d frames, want %d", len(out), frames)
 	}
 
 	// Step 2: parallel-classification predicate is correct.
-	if got, _ := extraArgsRequestsParallelOracle([]string{"--threads=4", "--end-usage=cbr"}); got != 4 {
-		t.Errorf("extraArgsRequestsParallelOracle(--threads=4) = %d, want 4", got)
+	if got, _ := vp8OracleArgsRequestParallelThreads([]string{"--threads=4", "--end-usage=cbr"}); got != 4 {
+		t.Errorf("vp8OracleArgsRequestParallelThreads(--threads=4) = %d, want 4", got)
 	}
-	if _, ok := extraArgsRequestsParallelOracle([]string{"--threads=4", "--end-usage=cbr"}); !ok {
-		t.Errorf("extraArgsRequestsParallelOracle(--threads=4) parallel=false, want true")
+	if _, ok := vp8OracleArgsRequestParallelThreads([]string{"--threads=4", "--end-usage=cbr"}); !ok {
+		t.Errorf("vp8OracleArgsRequestParallelThreads(--threads=4) parallel=false, want true")
 	}
-	if _, ok := extraArgsRequestsParallelOracle([]string{"--threads=1", "--end-usage=cbr"}); ok {
-		t.Errorf("extraArgsRequestsParallelOracle(--threads=1) parallel=true, want false")
+	if _, ok := vp8OracleArgsRequestParallelThreads([]string{"--threads=1", "--end-usage=cbr"}); ok {
+		t.Errorf("vp8OracleArgsRequestParallelThreads(--threads=1) parallel=true, want false")
 	}
-	if _, ok := extraArgsRequestsParallelOracle([]string{"--end-usage=cbr"}); ok {
-		t.Errorf("extraArgsRequestsParallelOracle(no --threads) parallel=true, want false")
+	if _, ok := vp8OracleArgsRequestParallelThreads([]string{"--end-usage=cbr"}); ok {
+		t.Errorf("vp8OracleArgsRequestParallelThreads(no --threads) parallel=true, want false")
 	}
 
-	// Step 3: requireOracleArgsReproducibleOrSerial in non-strict mode
+	// Step 3: requireVP8OracleArgsReproducibleOrSerial in non-strict mode
 	//         must be a no-op for threads=1 args and a logging no-op for
 	//         threads>=2 args. We can't intercept t.Logf here, but we
 	//         exercise both paths to ensure neither panics or fails the
 	//         test in non-strict mode.
-	requireOracleArgsReproducibleOrSerial(t, []string{"--end-usage=cbr"})
-	requireOracleArgsReproducibleOrSerial(t, []string{"--threads=4", "--end-usage=cbr"})
+	requireVP8OracleArgsReproducibleOrSerial(t, []string{"--end-usage=cbr"})
+	requireVP8OracleArgsReproducibleOrSerial(t, []string{"--threads=4", "--end-usage=cbr"})
 
 	// Step 4: FramePayloadSHA8s is content-stable; if this drifts a
 	//         downstream test would silently break.

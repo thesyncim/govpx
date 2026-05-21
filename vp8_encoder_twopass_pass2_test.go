@@ -41,7 +41,7 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 }
 
 // firstPassRegression* values pin every libvpx-aligned FIRSTPASS_STATS field
-// on the deterministic 32x32 ramp clip above. TestOracleFirstPassStatsCompare
+// on the deterministic 32x32 ramp clip above. TestVP8OracleFirstPassStatsCompare
 // separately gates these values against empirical libvpx output with the small
 // quality-equivalent tolerance used for predictor-residual rounding.
 //

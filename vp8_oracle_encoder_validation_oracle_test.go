@@ -11,7 +11,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
-func TestOracleEncoderCorpusValidation(t *testing.T) {
+func TestVP8OracleEncoderCorpusValidation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle validation")
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -49,7 +49,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testin
 	assertFrameChecksumsEqual(t, "B_PRED candidate interframe", got, oracleFrames)
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -99,7 +99,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T)
 	assertFrameChecksumsEqual(t, "eight token partitions", got, oracleFrames)
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -159,7 +159,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -215,7 +215,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -266,7 +266,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testi
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -338,7 +338,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -392,7 +392,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t *testing.T) {
+func TestVP8OracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}

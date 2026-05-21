@@ -43,7 +43,7 @@ func vp8SVCFirstByteDiff(a, b []byte) int {
 //     this via TemporalScalabilityConfig +
 //     VP8Encoder.SetTemporalScalability / SetTemporalLayerID. Live byte
 //     parity already passes for the canonical SVC fixtures (see
-//     TestOracleEncoderStreamByteParityTemporalSVC); this file adds the
+//     TestVP8OracleEncoderStreamByteParityTemporalSVC); this file adds the
 //     missing regression coverage for the *combined* simulcast +
 //     temporal-layer matrix.
 //
@@ -283,7 +283,7 @@ func vp8TemporalSVCStreams(
 //  2. 2-spatial-layer simulcast cluster + 2-temporal-layer SVC on
 //     every rendition (the WebRTC SVC simulcast pattern), and
 //  3. a 2-temporal-layer SVC config at 64x64 cpu=-3 (the smallest
-//     SVC fixture in TestOracleEncoderStreamByteParityTemporalSVC
+//     SVC fixture in TestVP8OracleEncoderStreamByteParityTemporalSVC
 //     promoted to a non-oracle regression test).
 //
 // Each fixture is encoded twice and the resulting per-stream byte

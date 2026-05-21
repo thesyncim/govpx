@@ -12,7 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleEncoderStreamByteParityCombo expands the strict byte-parity
+// TestVP8OracleEncoderStreamByteParityCombo expands the strict byte-parity
 // matrix along several "combination" axes the existing matrices do not
 // pin together:
 //
@@ -44,7 +44,7 @@ import (
 // are pinned with `limit:` so the per-frame "byte mismatch (not
 // asserted, ...)" log lines stay visible without regressing the
 // strict gate.
-func TestOracleEncoderStreamByteParityCombo(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityCombo(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -264,7 +264,7 @@ func alternateFlags(total int, a, b EncodeFlags) []EncodeFlags {
 	return out
 }
 
-// TestOracleEncoderStreamByteParityComboBig pins the strict byte-parity
+// TestVP8OracleEncoderStreamByteParityComboBig pins the strict byte-parity
 // gate at larger fixture sizes (256x144, 320x180, 640x480) for the
 // Loss / Buffer / Dimensions control patterns. These resolutions
 // expose the per-MB row workers and the larger MB grids — the
@@ -277,7 +277,7 @@ func alternateFlags(total int, a, b EncodeFlags) []EncodeFlags {
 // Runtime budget: 8 frames per case to keep the matrix bounded;
 // the per-MB count at 640x480 alone is 1200, which is two orders of
 // magnitude more than the 16x16 cases.
-func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityComboBig(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -452,7 +452,7 @@ func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
 	}
 }
 
-// TestOracleEncoderStreamByteParityComboAdaptiveKF widens AdaptiveKeyFrames
+// TestVP8OracleEncoderStreamByteParityComboAdaptiveKF widens AdaptiveKeyFrames
 // strict-parity coverage to the standard sizes the existing matrices skip:
 // panning + segmented at 16x16 / 48x48 / 72x40 / 96x96.
 //
@@ -466,7 +466,7 @@ func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
 // The panning fixture is smooth so libvpx's scene-cut detector must
 // never fire; the segmented fixture is MB-grid-aligned high-contrast
 // so scene-cut behavior is the most informative cross-axis to pin.
-func TestOracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -600,7 +600,7 @@ func TestOracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 	}
 }
 
-// TestOracleEncoderStreamByteParityComboThreadsTokens pins the strict
+// TestVP8OracleEncoderStreamByteParityComboThreadsTokens pins the strict
 // byte-parity gate at the cross product of Threads ∈ {2, 4, 8} and
 // TokenPartitions ∈ {1, 2, 3} on panning-128x128 and splitmv-96x96.
 //
@@ -608,7 +608,7 @@ func TestOracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 // these sizes, but never both together. With both flags non-zero the
 // row workers and the per-partition writer are active simultaneously,
 // so this cross product is the natural unifying probe.
-func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -731,7 +731,7 @@ func TestOracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 	}
 }
 
-func TestOracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
@@ -792,7 +792,7 @@ func TestOracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *testing
 	}
 }
 
-// TestOracleEncoderStreamByteParityComboDropDenoiser pins the strict
+// TestVP8OracleEncoderStreamByteParityComboDropDenoiser pins the strict
 // byte-parity gate at the cross product of DropFrameWaterMark ∈
 // {1, 30, 60, 90} and NoiseSensitivity ∈ {1, 3, 6} on panning-64x64.
 // The drop-frame gate and the temporal denoiser interact through the
@@ -801,7 +801,7 @@ func TestOracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *testing
 //
 // 4 watermark × 3 noise = 12 cases at the base size; one cpu_used
 // variant per noise level rounds out the cpu axis at the boundary.
-func TestOracleEncoderStreamByteParityComboDropDenoiser(t *testing.T) {
+func TestVP8OracleEncoderStreamByteParityComboDropDenoiser(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}

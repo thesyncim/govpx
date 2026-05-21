@@ -17,7 +17,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls is the infrastructure smoke
+// TestVP8OracleVpxencFrameFlagsWritesTraceAndRuntimeControls is the infrastructure smoke
 // test for the combined VP8 reference driver produced by
 // internal/coracle/build_vpxenc_frameflags_oracle.sh. It encodes a
 // short 64x64 panning fixture through `vpxenc-frameflags-oracle`
@@ -35,7 +35,7 @@ import (
 // either capability silently. It is intentionally cheap: 4 frames,
 // 64x64, single-threaded — so it can run on every govpx_oracle_trace
 // build without slowing down the parity gate.
-func TestOracleVpxencFrameFlagsWritesTraceAndRuntimeControls(t *testing.T) {
+func TestVP8OracleVpxencFrameFlagsWritesTraceAndRuntimeControls(t *testing.T) {
 	driver := coracletest.VpxencFrameFlagsOracle(t)
 
 	const (
