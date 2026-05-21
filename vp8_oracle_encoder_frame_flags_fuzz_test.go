@@ -32,7 +32,7 @@ import (
 // committed under testdata/fuzz/FuzzEncoderFrameFlags so the regression gate
 // stays deterministic. When a truly reproducible divergence is found, follow
 // the existing TestOracleEncoderStreamByteParityFrameFlags pattern (pin it
-// with a `limit:` case in oracle_encoder_stream_parity_frame_flags_test.go)
+// with a `limit:` case in vp8_oracle_encoder_stream_parity_frame_flags_test.go)
 // rather than relying on a fuzz seed alone.
 func FuzzEncoderFrameFlags(f *testing.F) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {

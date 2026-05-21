@@ -20,7 +20,7 @@ import (
 // libvpx CLI keyframe stay comparable under FuzzVP9OracleEncoderOptions.
 // Mirrors the VP8 sibling fix that pinned min/max-q to defaultRateControlConfig
 // values before handing them to vpxenc-oracle (see
-// oracle_encoder_options_fuzz_test.go) but generalises to every fuzzed knob
+// vp8_oracle_encoder_options_fuzz_test.go) but generalises to every fuzzed knob
 // without a clean CLI mapping or matching encoder semantics.
 //
 // Fields rewritten because the libvpx CLI has no equivalent control:

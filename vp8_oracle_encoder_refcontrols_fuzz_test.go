@@ -21,7 +21,7 @@ import (
 // are scheduled per-frame and the encoded bytes must match the
 // libvpx vpxenc-frameflags driver driven through the same script.
 //
-// The existing oracle_encoder_copy_reference_parity_test.go covers
+// The existing vp8_oracle_encoder_copy_reference_parity_test.go covers
 // hand-picked sequences; FuzzOracleEncoderRuntimeControlTransitions
 // covers ref-control as one action among many. This fuzzer is
 // focused exclusively on the SET / COPY / ref-update permutation

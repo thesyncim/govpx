@@ -31,7 +31,7 @@ import (
 // frame is large enough that the timing branch is reliably observable.
 //
 // The expected canonical SHAs below are the libvpx-oracle byte-parity
-// reference for this case (see oracle_encoder_option_grid_fuzz_test.go
+// reference for this case (see vp8_oracle_encoder_option_grid_fuzz_test.go
 // seed#8). Any future regression introducing real govpx-side
 // non-determinism — or breaking byte parity at this case — will diverge
 // from these.

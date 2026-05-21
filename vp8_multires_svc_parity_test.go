@@ -10,7 +10,7 @@ import (
 // divergence between a and b, or -1 if the prefixes match up to
 // min(len(a), len(b)). Inline here so the regression test stays
 // untagged (the oracle-tagged firstByteDiff lives in
-// oracle_encoder_stream_parity_test.go).
+// vp8_oracle_encoder_stream_parity_test.go).
 func vp8SVCFirstByteDiff(a, b []byte) int {
 	n := min(len(b), len(a))
 	for i := range n {
