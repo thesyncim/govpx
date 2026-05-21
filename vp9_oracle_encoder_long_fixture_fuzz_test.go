@@ -12,6 +12,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // vp9LongFixtureSeedsDeferred lists VP9 fuzz-corpus seed payloads whose strict
@@ -127,7 +128,7 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 
 		prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
 		t.Logf("%s matched-prefix=%d/%d frames", label, prefix, min(len(govpxFrames), len(libvpxFrames)))
-		assertVP9SegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
+		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
@@ -210,5 +211,5 @@ func (c *vp9LongFixtureFuzzCase) buildOpts() VP9EncoderOptions {
 }
 
 func (c *vp9LongFixtureFuzzCase) buildSources() []*image.YCbCr {
-	return newVP9YCbCrFuzzSources(c.width, c.height, c.frames)
+	return vp9test.NewPanningSources(c.width, c.height, c.frames)
 }

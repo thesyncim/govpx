@@ -60,7 +60,7 @@ func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
 		if err != nil {
 			t.Fatalf("vpxenc-vp9 two-pass encode failed: %v\n%s", err, diag)
 		}
-		libvpxFrames := parseVP9IVFFrames(t, ivf)
+		libvpxFrames := vp9test.ParseIVFFrames(t, ivf)
 		if len(libvpxFrames) == 0 {
 			t.Fatalf("%s: vpxenc-vp9 two-pass produced no frames", label)
 		}
@@ -114,7 +114,7 @@ func newVP9TwoPassFuzzCase(data []byte) vp9TwoPassFuzzCase {
 }
 
 func (c *vp9TwoPassFuzzCase) buildSources() []*image.YCbCr {
-	return newVP9YCbCrFuzzSources(c.width, c.height, c.frames)
+	return vp9test.NewPanningSources(c.width, c.height, c.frames)
 }
 
 func (c *vp9TwoPassFuzzCase) buildOpts() VP9EncoderOptions {

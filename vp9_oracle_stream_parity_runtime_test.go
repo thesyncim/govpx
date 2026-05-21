@@ -331,7 +331,7 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 				tc.name, matches, len(govpxPackets), firstMismatch,
 				tc.exactPrefix, tc.exactFrames)
 			t.Logf("VP9 runtime-control byte-parity rows %s:\n%s",
-				tc.name, formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+				tc.name, vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
 					assertVP9PacketByteParity(t,
@@ -940,7 +940,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				tc.name, matches, len(govpxPackets), firstMismatch,
 				tc.exactPrefix, tc.exactFrames)
 			t.Logf("VP9 runtime-control constant byte-parity rows %s:\n%s",
-				tc.name, formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+				tc.name, vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				assertVP9PacketByteParity(t,
 					fmt.Sprintf("%s frame %d", tc.name, frame),
@@ -1016,7 +1016,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 			t.Logf("VP9 runtime resize rate rows %s:\n%s", tc.name,
 				formatVP9RateScoreboardRows(govpxRows, libvpxRows))
 			t.Logf("VP9 runtime resize byte rows %s:\n%s", tc.name,
-				formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			if os.Getenv("GOVPX_VP9_RUNTIME_RESIZE_STRICT") == "1" &&
 				(stats.hasMismatch() || matches != len(govpxPackets)) {
 				t.Fatalf("strict VP9 runtime resize parity %s: matches=%d/%d stats=%s",
@@ -1049,7 +1049,7 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 	t.Logf("VP9 invisible keyframe rate rows:\n%s",
 		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
 	t.Logf("VP9 invisible keyframe byte rows:\n%s",
-		formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 	if os.Getenv("GOVPX_VP9_INVISIBLE_KEY_STRICT") == "1" &&
 		(stats.hasMismatch() || matches != len(govpxPackets)) {
 		t.Fatalf("strict VP9 invisible keyframe parity: matches=%d/%d stats=%s",

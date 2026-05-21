@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // TestVP9ChoosePartitioningGateDeferredSeeds drives the formerly-deferred
@@ -51,7 +52,7 @@ func TestVP9ChoosePartitioningGateDeferredSeeds(t *testing.T) {
 			label := fmt.Sprintf("phaseC-validate-%s-%s", s.name, hex.EncodeToString(sum[:4]))
 			govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 			libvpxFrames := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
-			assertVP9SegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
+			vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 		})
 	}
 }

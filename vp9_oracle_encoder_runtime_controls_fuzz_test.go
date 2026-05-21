@@ -12,6 +12,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // vp9RuntimeControlsSeedsDeferred lists runtime-control schedules that still
@@ -113,7 +114,7 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 		libvpxFrames := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
-		assertVP9SegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
+		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
@@ -163,7 +164,7 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 		CQLevel:             32,
 		Deadline:            DeadlineRealtime,
 	}
-	sources := newVP9YCbCrFuzzSources(dim.w, dim.h, frames)
+	sources := vp9test.NewPanningSources(dim.w, dim.h, frames)
 	flags := make([]EncodeFlags, frames)
 
 	// Sprinkle a key-frame flag and an optional reference-update flag.

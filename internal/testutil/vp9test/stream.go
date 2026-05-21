@@ -1,0 +1,99 @@
+package vp9test
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"image"
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
+)
+
+func ParseIVFFrames(t testing.TB, data []byte) [][]byte {
+	t.Helper()
+	out, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
+	return out
+}
+
+func AssertSegmentByteParity(t testing.TB, label string, got, want [][]byte, matchLimit int) {
+	t.Helper()
+	if len(got) != len(want) {
+		if matchLimit < 0 {
+			t.Logf("%s: frame count mismatch (logged only): got=%d want=%d",
+				label, len(got), len(want))
+		} else {
+			t.Errorf("%s: frame count mismatch: got=%d want=%d",
+				label, len(got), len(want))
+			if matchLimit == 0 {
+				return
+			}
+		}
+	}
+
+	limit := len(got)
+	if matchLimit < 0 {
+		limit = 0
+	} else if matchLimit > 0 && matchLimit < limit {
+		limit = matchLimit
+	}
+
+	common := min(len(got), len(want))
+	for i := range common {
+		gotHash := sha256.Sum256(got[i])
+		wantHash := sha256.Sum256(want[i])
+		if gotHash == wantHash {
+			t.Logf("%s frame %d byte MATCH: len=%d", label, i, len(got[i]))
+			continue
+		}
+		firstDiff := FirstPacketDiff(got[i], want[i])
+		if i >= limit {
+			t.Logf("%s frame %d byte mismatch (not asserted, limit=%d): got_len=%d want_len=%d first_diff=%d got_sha=%s want_sha=%s",
+				label, i, limit, len(got[i]), len(want[i]), firstDiff,
+				hex.EncodeToString(gotHash[:8]),
+				hex.EncodeToString(wantHash[:8]))
+			continue
+		}
+		t.Errorf("%s frame %d byte mismatch: got_len=%d want_len=%d first_diff=%d got_sha=%s want_sha=%s",
+			label, i, len(got[i]), len(want[i]), firstDiff,
+			hex.EncodeToString(gotHash[:8]),
+			hex.EncodeToString(wantHash[:8]))
+	}
+}
+
+func NewPanningSources(width, height, frames int) []*image.YCbCr {
+	out := make([]*image.YCbCr, frames)
+	for i := range out {
+		out[i] = NewPanningYCbCr(width, height, i)
+	}
+	return out
+}
+
+func FormatStreamParityRows(t testing.TB, govpxPackets, libvpxPackets [][]byte) string {
+	t.Helper()
+	var b bytes.Buffer
+	fmt.Fprintln(&b, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part,govpx_unc,libvpx_unc,govpx_tile_start,libvpx_tile_start,govpx_seg,libvpx_seg,govpx_seg_map,libvpx_seg_map,govpx_seg_data,libvpx_seg_data,govpx_seg_temporal,libvpx_seg_temporal")
+	for i := range govpxPackets {
+		govpxHeader, govpxTileStart := ParseHeader(t, govpxPackets[i])
+		libvpxHeader, libvpxTileStart := ParseHeader(t, libvpxPackets[i])
+		govpxUncompressed := govpxTileStart - int(govpxHeader.FirstPartitionSize)
+		libvpxUncompressed := libvpxTileStart - int(libvpxHeader.FirstPartitionSize)
+		fmt.Fprintf(&b, "%d,%t,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d,%t,%t,%t,%t,%t,%t,%t,%t\n",
+			i, bytes.Equal(govpxPackets[i], libvpxPackets[i]),
+			FirstPacketDiff(govpxPackets[i], libvpxPackets[i]),
+			len(govpxPackets[i]), len(libvpxPackets[i]),
+			govpxHeader.Quant.BaseQindex, libvpxHeader.Quant.BaseQindex,
+			govpxHeader.RefreshFrameFlags, libvpxHeader.RefreshFrameFlags,
+			govpxHeader.FirstPartitionSize, libvpxHeader.FirstPartitionSize,
+			govpxUncompressed, libvpxUncompressed, govpxTileStart,
+			libvpxTileStart, govpxHeader.Seg.Enabled, libvpxHeader.Seg.Enabled,
+			govpxHeader.Seg.UpdateMap, libvpxHeader.Seg.UpdateMap,
+			govpxHeader.Seg.UpdateData, libvpxHeader.Seg.UpdateData,
+			govpxHeader.Seg.TemporalUpdate, libvpxHeader.Seg.TemporalUpdate)
+	}
+	return b.String()
+}

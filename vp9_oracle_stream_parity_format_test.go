@@ -5,36 +5,10 @@ package govpx
 import (
 	"bytes"
 	"fmt"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
-)
 
-func formatVP9StreamParityRows(t *testing.T, govpxPackets, libvpxPackets [][]byte) string {
-	t.Helper()
-	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,match,first_diff,govpx_bytes,libvpx_bytes,govpx_q,libvpx_q,govpx_refresh,libvpx_refresh,govpx_first_part,libvpx_first_part,govpx_unc,libvpx_unc,govpx_tile_start,libvpx_tile_start,govpx_seg,libvpx_seg,govpx_seg_map,libvpx_seg_map,govpx_seg_data,libvpx_seg_data,govpx_seg_temporal,libvpx_seg_temporal")
-	for i := range govpxPackets {
-		govpxHeader, govpxTileStart := vp9test.ParseHeader(t,
-			govpxPackets[i])
-		libvpxHeader, libvpxTileStart := vp9test.ParseHeader(t,
-			libvpxPackets[i])
-		govpxUncompressed := govpxTileStart - int(govpxHeader.FirstPartitionSize)
-		libvpxUncompressed := libvpxTileStart - int(libvpxHeader.FirstPartitionSize)
-		fmt.Fprintf(&b, "%d,%t,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d,%t,%t,%t,%t,%t,%t,%t,%t\n",
-			i, bytes.Equal(govpxPackets[i], libvpxPackets[i]),
-			vp9test.FirstPacketDiff(govpxPackets[i], libvpxPackets[i]),
-			len(govpxPackets[i]), len(libvpxPackets[i]),
-			govpxHeader.Quant.BaseQindex, libvpxHeader.Quant.BaseQindex,
-			govpxHeader.RefreshFrameFlags, libvpxHeader.RefreshFrameFlags,
-			govpxHeader.FirstPartitionSize, libvpxHeader.FirstPartitionSize,
-			govpxUncompressed, libvpxUncompressed, govpxTileStart,
-			libvpxTileStart, govpxHeader.Seg.Enabled, libvpxHeader.Seg.Enabled,
-			govpxHeader.Seg.UpdateMap, libvpxHeader.Seg.UpdateMap,
-			govpxHeader.Seg.UpdateData, libvpxHeader.Seg.UpdateData,
-			govpxHeader.Seg.TemporalUpdate, libvpxHeader.Seg.TemporalUpdate)
-	}
-	return b.String()
-}
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func formatVP9DropAwareStreamParityRows(t *testing.T,
 	govpxRows []vp9RateScoreboardRow, govpxPackets [][]byte,

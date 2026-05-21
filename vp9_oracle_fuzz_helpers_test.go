@@ -3,14 +3,11 @@
 package govpx
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // encodeVP9FramesWithGovpx mirrors encodeFramesWithGovpx for VP9: it constructs
@@ -78,7 +75,7 @@ func encodeVP9FramesWithLibvpxOracle(t *testing.T, sources []*image.YCbCr,
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
 	}
-	return parseVP9IVFFrames(t, ivf)
+	return vp9test.ParseIVFFrames(t, ivf)
 }
 
 // encodeVP9FramesWithLibvpxFrameFlagsOracle runs the
@@ -106,77 +103,5 @@ func encodeVP9FramesWithLibvpxFrameFlagsOracle(t *testing.T, sources []*image.YC
 	if err != nil {
 		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
 	}
-	return parseVP9IVFFrames(t, ivf)
-}
-
-// parseVP9IVFFrames extracts every IVF frame payload from data.
-func parseVP9IVFFrames(t *testing.T, data []byte) [][]byte {
-	t.Helper()
-	out, err := testutil.IVFFramePayloads(data)
-	if err != nil {
-		t.Fatalf("IVFFramePayloads: %v", err)
-	}
-	return out
-}
-
-// assertVP9SegmentByteParity compares per-frame VP9 payloads between two
-// captures (typically govpx vs libvpx). matchLimit caps how many leading
-// frames are asserted strictly: 0 requires the full length, a positive
-// value requires only the first matchLimit frames, a negative value logs
-// mismatches without asserting. Mirrors assertSegmentByteParity for VP8.
-func assertVP9SegmentByteParity(t *testing.T, label string, got, want [][]byte, matchLimit int) {
-	t.Helper()
-	if len(got) != len(want) {
-		if matchLimit < 0 {
-			t.Logf("%s: frame count mismatch (logged only): got=%d want=%d", label, len(got), len(want))
-		} else {
-			t.Errorf("%s: frame count mismatch: got=%d want=%d", label, len(got), len(want))
-			if matchLimit == 0 {
-				return
-			}
-		}
-	}
-	limit := len(got)
-	if matchLimit < 0 {
-		limit = 0
-	} else if matchLimit > 0 && matchLimit < limit {
-		limit = matchLimit
-	}
-	common := min(len(got), len(want))
-	for i := 0; i < common; i++ {
-		gHash := sha256.Sum256(got[i])
-		lHash := sha256.Sum256(want[i])
-		if gHash == lHash {
-			t.Logf("%s frame %d byte MATCH: len=%d", label, i, len(got[i]))
-			continue
-		}
-		fd := vp9test.FirstPacketDiff(got[i], want[i])
-		if i >= limit {
-			t.Logf("%s frame %d byte mismatch (not asserted, limit=%d): got_len=%d want_len=%d first_diff=%d got_sha=%s want_sha=%s",
-				label, i, limit, len(got[i]), len(want[i]), fd,
-				hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
-			continue
-		}
-		t.Errorf("%s frame %d byte mismatch: got_len=%d want_len=%d first_diff=%d got_sha=%s want_sha=%s",
-			label, i, len(got[i]), len(want[i]), fd,
-			hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
-	}
-}
-
-// newVP9YCbCrFuzzPanning returns a deterministic panning frame suitable for
-// fuzz-driven VP9 stream encodes. Mirrors the VP8 encoderValidationPanningFrame
-// signature so the fuzz cases can be expressed independent of the *image.YCbCr
-// vs Image divergence between VP8 and VP9 surfaces.
-func newVP9YCbCrFuzzPanning(width, height, frame int) *image.YCbCr {
-	return vp9test.NewPanningYCbCr(width, height, frame)
-}
-
-// newVP9YCbCrFuzzSources creates `frames` panning sources for a given
-// resolution.
-func newVP9YCbCrFuzzSources(width, height, frames int) []*image.YCbCr {
-	out := make([]*image.YCbCr, frames)
-	for i := range out {
-		out[i] = newVP9YCbCrFuzzPanning(width, height, i)
-	}
-	return out
+	return vp9test.ParseIVFFrames(t, ivf)
 }

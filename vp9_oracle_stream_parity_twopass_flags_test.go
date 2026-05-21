@@ -83,7 +83,7 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 	t.Logf("VP9 two-pass byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
 		matches, frames, firstMismatch)
 	t.Logf("VP9 two-pass byte-parity rows:\n%s",
-		formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 	if os.Getenv("GOVPX_VP9_TWOPASS_BYTE_STRICT") == "1" &&
 		matches != frames {
 		t.Fatalf("strict VP9 two-pass byte parity: matches=%d/%d",
@@ -161,7 +161,7 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 	t.Logf("VP9 two-pass constant byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
 		matches, frames, firstMismatch)
 	t.Logf("VP9 two-pass constant byte-parity rows:\n%s",
-		formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 	if os.Getenv("GOVPX_VP9_TWOPASS_CONSTANT_BYTE_STRICT") == "1" &&
 		matches != frames {
 		t.Fatalf("strict VP9 two-pass constant byte parity: matches=%d/%d",
@@ -259,7 +259,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 			t.Logf("VP9 frame-flag byte-parity matrix %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
 			t.Logf("VP9 frame-flag byte-parity rows %s:\n%s", tc.name,
-				formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
 					t.Fatalf("frame %d should be inside exact prefix for %s",
@@ -370,7 +370,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			t.Logf("VP9 control-cross byte-parity matrix %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
 			t.Logf("VP9 control-cross byte-parity rows %s:\n%s", tc.name,
-				formatVP9StreamParityRows(t, govpxPackets, libvpxPackets))
+				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			for frame := 0; frame < tc.exactPrefix; frame++ {
 				if !bytes.Equal(govpxPackets[frame], libvpxPackets[frame]) {
 					t.Fatalf("frame %d should be inside exact prefix for %s",

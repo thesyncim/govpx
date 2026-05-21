@@ -11,6 +11,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // FuzzVP9EncoderProductionStreamByteParity mirrors
@@ -50,7 +51,7 @@ func FuzzVP9EncoderProductionStreamByteParity(f *testing.F) {
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, opts, sources, nil)
 		libvpxFrames := encodeVP9FramesWithLibvpxOracle(t, sources, cfg.extraArgs)
-		assertVP9SegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
+		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
@@ -150,5 +151,5 @@ func (c *vp9OptionGridFuzzCase) buildOpts() VP9EncoderOptions {
 }
 
 func (c *vp9OptionGridFuzzCase) buildSources() []*image.YCbCr {
-	return newVP9YCbCrFuzzSources(c.width, c.height, c.frames)
+	return vp9test.NewPanningSources(c.width, c.height, c.frames)
 }

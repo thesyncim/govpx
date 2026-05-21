@@ -10,6 +10,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // vp9RefControlParitySeeds pins reference-control schedules that exercise
@@ -76,7 +77,7 @@ func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
 
 		govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 		libvpxFrames := encodeVP9FramesWithLibvpxFrameFlagsOracle(t, tc.sources, tc.flags, tc.extraArgs)
-		assertVP9SegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
+		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
@@ -115,7 +116,7 @@ func newVP9RefControlsFuzzCase(data []byte) vp9RefControlsFuzzCase {
 		Deadline:            DeadlineRealtime,
 		CpuUsed:             8,
 	}
-	sources := newVP9YCbCrFuzzSources(width, height, frames)
+	sources := vp9test.NewPanningSources(width, height, frames)
 	flags := make([]EncodeFlags, frames)
 
 	for frame := 1; frame < frames; frame++ {
