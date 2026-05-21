@@ -20,6 +20,12 @@ type PayloadDescriptor interface {
 	MarshalInto([]byte) (int, error)
 }
 
+// PacketDescriptor returns the codec RTP payload descriptor and its byte
+// length for fragment index i of fragments. Codec packages own the descriptor
+// syntax and per-fragment state such as VP8 start-of-partition or VP9
+// start/end-of-frame bits.
+type PacketDescriptor[D PayloadDescriptor] func(i, fragments int) (D, int, error)
+
 // PayloadSize returns the number of bytes needed to pack desc and payload
 // into one RTP payload body.
 func PayloadSize[D PayloadDescriptor](desc D, payload []byte) (int, error) {
@@ -144,6 +150,58 @@ func CheckPacketizeBuffers(dst []PayloadFragment, payloadBuf []byte, packets, to
 	return nil
 }
 
+// PacketizeFrameInto packetizes frame into caller-owned RTP payload-body
+// storage. descriptor supplies the codec-specific descriptor for each
+// fragment; this helper only owns the shared mechanics of chunk sizing,
+// marker-bit assignment, and descriptor+payload packing.
+func PacketizeFrameInto[D PayloadDescriptor](dst []PayloadFragment, payloadBuf []byte,
+	frame []byte, mtu int, packets int, totalBytes int, descriptor PacketDescriptor[D],
+) (int, int, error) {
+	if err := CheckPacketizeBuffers(dst, payloadBuf, packets, totalBytes); err != nil {
+		return packets, totalBytes, err
+	}
+	frameOff := 0
+	bufOff := 0
+	for i := range packets {
+		packetDesc, descSize, err := descriptor(i, packets)
+		if err != nil {
+			return 0, 0, err
+		}
+		chunk, err := FramePayloadChunkSize(mtu, descSize, len(frame)-frameOff)
+		if err != nil {
+			return 0, 0, err
+		}
+		payload := frame[frameOff : frameOff+chunk]
+		n, err := PackPayloadInto(payloadBuf[bufOff:bufOff+descSize+chunk],
+			packetDesc, payload)
+		if err != nil {
+			return 0, 0, err
+		}
+		dst[i] = PayloadFragment{
+			Payload: payloadBuf[bufOff : bufOff+n],
+			Marker:  LastFragment(i, packets),
+		}
+		frameOff += chunk
+		bufOff += n
+	}
+	return packets, totalBytes, nil
+}
+
+// PacketizeFrame returns RTP payload bodies for frame using descriptor to
+// provide codec-specific per-fragment descriptors.
+func PacketizeFrame[D PayloadDescriptor](frame []byte, mtu int, packets int,
+	totalBytes int, descriptor PacketDescriptor[D],
+) ([]PayloadFragment, error) {
+	out := make([]PayloadFragment, packets)
+	payloadBuf := make([]byte, totalBytes)
+	n, _, err := PacketizeFrameInto(out, payloadBuf, frame, mtu,
+		packets, totalBytes, descriptor)
+	if err != nil {
+		return nil, err
+	}
+	return out[:n], nil
+}
+
 // FramePayloadChunkSize returns the next codec-payload fragment size for a
 // descriptor of descriptorSize bytes in an RTP payload body capped by mtu.
 func FramePayloadChunkSize(mtu, descriptorSize, remaining int) (int, error) {
@@ -172,6 +230,83 @@ func MarkerMatchesFragmentIndex(payloads []PayloadFragment, i int) bool {
 // PayloadFragmentParser returns the codec payload bytes from one RTP payload
 // body after validating and stripping the codec-specific descriptor.
 type PayloadFragmentParser func([]byte) ([]byte, error)
+
+// PayloadParser returns the codec descriptor and codec payload fragment from
+// one RTP payload body.
+type PayloadParser[D any] func([]byte) (D, []byte, error)
+
+// FragmentValidator validates codec-specific descriptor sequence rules for
+// payload fragment i of fragments.
+type FragmentValidator[D any] func(i, fragments int, desc D) error
+
+// FrameAssemblySize validates ordered RTP payload bodies and returns the
+// concatenated codec payload size. Codec packages supply descriptor parsing
+// and sequence validation; this helper owns marker-bit, empty-fragment, and
+// overflow checks.
+func FrameAssemblySize[D any](payloads []PayloadFragment, invalidData error,
+	parse PayloadParser[D], validate FragmentValidator[D],
+) (int, error) {
+	if len(payloads) == 0 {
+		return 0, invalidData
+	}
+	total := 0
+	for i := range payloads {
+		desc, fragment, err := parse(payloads[i].Payload)
+		if err != nil {
+			return 0, err
+		}
+		if len(fragment) == 0 {
+			return 0, invalidData
+		}
+		if !MarkerMatchesFragmentIndex(payloads, i) {
+			return 0, invalidData
+		}
+		if err := validate(i, len(payloads), desc); err != nil {
+			return 0, err
+		}
+		total, err = AddPayloadSize(total, len(fragment))
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+// AssembleFrameInto validates payloads, strips codec descriptors, and copies
+// the concatenated codec payload into dst.
+func AssembleFrameInto[D any](dst []byte, payloads []PayloadFragment,
+	invalidData error, parse PayloadParser[D], validate FragmentValidator[D],
+) (int, error) {
+	need, err := FrameAssemblySize(payloads, invalidData, parse, validate)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, vpxerrors.ErrBufferTooSmall
+	}
+	return AssemblePayloadFragmentsInto(dst, payloads, need, payloadParser(parse))
+}
+
+// AssembleFrame validates payloads and returns the concatenated codec payload.
+func AssembleFrame[D any](payloads []PayloadFragment, invalidData error,
+	parse PayloadParser[D], validate FragmentValidator[D],
+) ([]byte, error) {
+	need, err := FrameAssemblySize(payloads, invalidData, parse, validate)
+	if err != nil {
+		return nil, err
+	}
+	return AssemblePayloadFragments(payloads, need, payloadParser(parse))
+}
+
+func payloadParser[D any](parse PayloadParser[D]) PayloadFragmentParser {
+	return func(payload []byte) ([]byte, error) {
+		_, fragment, err := parse(payload)
+		if err != nil {
+			return nil, err
+		}
+		return fragment, nil
+	}
+}
 
 // AssemblePayloadFragmentsInto copies codec payload fragments into dst. The
 // caller remains responsible for codec-specific descriptor and sequence

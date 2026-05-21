@@ -329,39 +329,8 @@ func PacketizeFrameInto(dst []vpxrtp.PayloadFragment, payloadBuf []byte,
 	if err != nil {
 		return 0, 0, err
 	}
-	if err := vpxrtp.CheckPacketizeBuffers(dst, payloadBuf, packets, totalBytes); err != nil {
-		return packets, totalBytes, err
-	}
-	frameOff := 0
-	bufOff := 0
-	for i := range packets {
-		packetDesc := payloadDescriptorForFragment(desc, i == 0)
-		descSize, err := packetDesc.Size()
-		if err != nil {
-			return 0, 0, err
-		}
-		chunk, err := vpxrtp.FramePayloadChunkSize(mtu, descSize, len(frame)-frameOff)
-		if err != nil {
-			return 0, 0, err
-		}
-		last := vpxrtp.LastFragment(i, packets)
-		packetDesc.StartOfFrame = i == 0
-		packetDesc.EndOfFrame = last
-
-		payload := frame[frameOff : frameOff+chunk]
-		n, err := vpxrtp.PackPayloadInto(payloadBuf[bufOff:bufOff+descSize+chunk],
-			packetDesc, payload)
-		if err != nil {
-			return 0, 0, err
-		}
-		dst[i] = vpxrtp.PayloadFragment{
-			Payload: payloadBuf[bufOff : bufOff+n],
-			Marker:  last,
-		}
-		frameOff += chunk
-		bufOff += n
-	}
-	return packets, totalBytes, nil
+	return vpxrtp.PacketizeFrameInto(dst, payloadBuf, frame, mtu,
+		packets, totalBytes, vp9PacketDescriptorForFragment(desc))
 }
 
 // PacketizeFrame returns RTP payload bodies for one raw VP9 frame.
@@ -371,13 +340,21 @@ func PacketizeFrame(desc PayloadDescriptor, frame []byte, mtu int) ([]vpxrtp.Pay
 	if err != nil {
 		return nil, err
 	}
-	out := make([]vpxrtp.PayloadFragment, packets)
-	payloadBuf := make([]byte, totalBytes)
-	n, _, err := PacketizeFrameInto(out, payloadBuf, desc, frame, mtu)
-	if err != nil {
-		return nil, err
+	return vpxrtp.PacketizeFrame(frame, mtu, packets, totalBytes,
+		vp9PacketDescriptorForFragment(desc))
+}
+
+func vp9PacketDescriptorForFragment(desc PayloadDescriptor) vpxrtp.PacketDescriptor[PayloadDescriptor] {
+	return func(i, packets int) (PayloadDescriptor, int, error) {
+		packetDesc := payloadDescriptorForFragment(desc, i == 0)
+		descSize, err := packetDesc.Size()
+		if err != nil {
+			return PayloadDescriptor{}, 0, err
+		}
+		packetDesc.StartOfFrame = i == 0
+		packetDesc.EndOfFrame = i == packets-1
+		return packetDesc, descSize, nil
 	}
-	return out[:n], nil
 }
 
 // FrameAssemblySize validates an ordered set of VP9 RTP payload bodies
@@ -387,73 +364,45 @@ func PacketizeFrame(desc PayloadDescriptor, frame []byte, mtu int) ([]vpxrtp.Pay
 // buffering. Payloads must be in decode order and must include the marker bit
 // value from each RTP header.
 func FrameAssemblySize(payloads []vpxrtp.PayloadFragment) (int, error) {
-	if len(payloads) == 0 {
-		return 0, vpxerrors.ErrInvalidVP9Data
-	}
-	total := 0
-	var base PayloadDescriptor
-	for i := range payloads {
-		desc, fragment, err := ParsePayloadDescriptor(payloads[i].Payload)
-		if err != nil {
-			return 0, err
-		}
-		if len(fragment) == 0 {
-			return 0, vpxerrors.ErrInvalidVP9Data
-		}
-		if !vpxrtp.MarkerMatchesFragmentIndex(payloads, i) {
-			return 0, vpxerrors.ErrInvalidVP9Data
-		}
-		if desc.StartOfFrame != (i == 0) || desc.EndOfFrame != (i == len(payloads)-1) {
-			return 0, vpxerrors.ErrInvalidVP9Data
-		}
-		if err := validatePacketizerDescriptor(desc); err != nil {
-			return 0, vpxerrors.ErrInvalidVP9Data
-		}
-		if i == 0 {
-			base = desc
-			base.StartOfFrame = false
-			base.EndOfFrame = false
-		} else if !sameFrameDescriptorForAssembly(base, desc) {
-			return 0, vpxerrors.ErrInvalidVP9Data
-		}
-		total, err = vpxrtp.AddPayloadSize(total, len(fragment))
-		if err != nil {
-			return 0, err
-		}
-	}
-	return total, nil
+	return vpxrtp.FrameAssemblySize(payloads, vpxerrors.ErrInvalidVP9Data,
+		ParsePayloadDescriptor, vp9FrameAssemblyValidator())
 }
 
 // AssembleFrameInto writes the raw VP9 frame carried by payloads into
 // dst and returns the frame length. On [vpxerrors.ErrBufferTooSmall], the returned
 // length is the required capacity.
 func AssembleFrameInto(dst []byte, payloads []vpxrtp.PayloadFragment) (int, error) {
-	need, err := FrameAssemblySize(payloads)
-	if err != nil {
-		return 0, err
-	}
-	if len(dst) < need {
-		return need, vpxerrors.ErrBufferTooSmall
-	}
-	return vpxrtp.AssemblePayloadFragmentsInto(dst, payloads, need, parsePayloadFragment)
+	return vpxrtp.AssembleFrameInto(dst, payloads, vpxerrors.ErrInvalidVP9Data,
+		ParsePayloadDescriptor, vp9FrameAssemblyValidator())
 }
 
 // AssembleFrame returns the raw VP9 frame carried by an ordered set of
 // RTP payload bodies.
 func AssembleFrame(payloads []vpxrtp.PayloadFragment) ([]byte, error) {
-	need, err := FrameAssemblySize(payloads)
-	if err != nil {
-		return nil, err
-	}
-	return vpxrtp.AssemblePayloadFragments(payloads, need, parsePayloadFragment)
+	return vpxrtp.AssembleFrame(payloads, vpxerrors.ErrInvalidVP9Data,
+		ParsePayloadDescriptor, vp9FrameAssemblyValidator())
 }
 
-func parsePayloadFragment(payload []byte) ([]byte, error) {
-	_, fragment, err := ParsePayloadDescriptor(payload)
-	if err != nil {
-		return nil, err
+func vp9FrameAssemblyValidator() vpxrtp.FragmentValidator[PayloadDescriptor] {
+	var base PayloadDescriptor
+	return func(i, fragments int, desc PayloadDescriptor) error {
+		if desc.StartOfFrame != (i == 0) || desc.EndOfFrame != (i == fragments-1) {
+			return vpxerrors.ErrInvalidVP9Data
+		}
+		if err := validatePacketizerDescriptor(desc); err != nil {
+			return vpxerrors.ErrInvalidVP9Data
+		}
+		if i == 0 {
+			base = desc
+			base.StartOfFrame = false
+			base.EndOfFrame = false
+			return nil
+		}
+		if !sameFrameDescriptorForAssembly(base, desc) {
+			return vpxerrors.ErrInvalidVP9Data
+		}
+		return nil
 	}
-	return fragment, nil
 }
 
 func validatePacketizerDescriptor(desc PayloadDescriptor) error {

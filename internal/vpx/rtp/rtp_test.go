@@ -142,6 +142,34 @@ func TestPacketizeBufferAndChunkHelpers(t *testing.T) {
 	}
 }
 
+func TestPacketizeFrameUsesDescriptorCallback(t *testing.T) {
+	frame := []byte{1, 2, 3, 4, 5, 6, 7}
+	descriptor := func(i, fragments int) (testDescriptor, int, error) {
+		desc := testDescriptor{data: []byte{0x80 | byte(i), byte(fragments)}}
+		return desc, len(desc.data), nil
+	}
+	payloads, err := PacketizeFrame(frame, 5, 3, 13, descriptor)
+	if err != nil {
+		t.Fatalf("PacketizeFrame: %v", err)
+	}
+	want := [][]byte{
+		{0x80, 0x03, 1, 2, 3},
+		{0x81, 0x03, 4, 5, 6},
+		{0x82, 0x03, 7},
+	}
+	if len(payloads) != len(want) {
+		t.Fatalf("payload count = %d, want %d", len(payloads), len(want))
+	}
+	for i := range want {
+		if payloads[i].Marker != LastFragment(i, len(want)) {
+			t.Fatalf("payload %d marker = %v", i, payloads[i].Marker)
+		}
+		if !bytes.Equal(payloads[i].Payload, want[i]) {
+			t.Fatalf("payload %d = % x, want % x", i, payloads[i].Payload, want[i])
+		}
+	}
+}
+
 func TestMarkerMatchesFragmentIndex(t *testing.T) {
 	payloads := []PayloadFragment{
 		{Marker: false},
@@ -156,6 +184,45 @@ func TestMarkerMatchesFragmentIndex(t *testing.T) {
 	payloads[0].Marker = true
 	if MarkerMatchesFragmentIndex(payloads, 0) {
 		t.Fatalf("early marker accepted")
+	}
+}
+
+func TestAssembleFrameValidatesCodecDescriptors(t *testing.T) {
+	payloads := []PayloadFragment{
+		{Payload: []byte{0, 1, 2}, Marker: false},
+		{Payload: []byte{1, 3}, Marker: true},
+	}
+	parse := func(payload []byte) (byte, []byte, error) {
+		if len(payload) == 0 {
+			return 0, nil, vpxerrors.ErrInvalidData
+		}
+		return payload[0], payload[1:], nil
+	}
+	validate := func(i, _ int, desc byte) error {
+		if desc != byte(i) {
+			return vpxerrors.ErrInvalidData
+		}
+		return nil
+	}
+
+	size, err := FrameAssemblySize(payloads, vpxerrors.ErrInvalidData, parse, validate)
+	if err != nil {
+		t.Fatalf("FrameAssemblySize: %v", err)
+	}
+	if size != 3 {
+		t.Fatalf("assembly size = %d, want 3", size)
+	}
+	got, err := AssembleFrame(payloads, vpxerrors.ErrInvalidData, parse, validate)
+	if err != nil {
+		t.Fatalf("AssembleFrame: %v", err)
+	}
+	if !bytes.Equal(got, []byte{1, 2, 3}) {
+		t.Fatalf("assembled = %v, want [1 2 3]", got)
+	}
+
+	payloads[1].Payload[0] = 2
+	if _, err := FrameAssemblySize(payloads, vpxerrors.ErrInvalidData, parse, validate); !errors.Is(err, vpxerrors.ErrInvalidData) {
+		t.Fatalf("descriptor validation error = %v, want ErrInvalidData", err)
 	}
 }
 
