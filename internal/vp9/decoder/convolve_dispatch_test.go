@@ -87,3 +87,19 @@ func TestInterPredictorHorizDispatchHitsKernel(t *testing.T) {
 		}
 	}
 }
+
+func TestInterPredictorDoesNotAllocate(t *testing.T) {
+	src := make([]byte, 32*16)
+	dst := make([]byte, 8*8)
+	for i := range src {
+		src[i] = byte((i*11 + 7) & 0xff)
+	}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		InterPredictor(src, 32, dst, 8, 4, 8, &tables.SubPelFilters8, 16, 16, 8, 8, 0, 3*32+3)
+		InterPredictor(src, 32, dst, 8, 0, 0, &tables.SubPelFilters8, 16, 16, 8, 8, 1, 0)
+	})
+	if allocs != 0 {
+		t.Fatalf("InterPredictor allocations = %.1f, want 0", allocs)
+	}
+}

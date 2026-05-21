@@ -260,3 +260,27 @@ func TestScale2D_4to5_FullFrame(t *testing.T) {
 		}
 	}
 }
+
+func TestScale2DDoesNotAllocate(t *testing.T) {
+	const (
+		srcW     = 10
+		srcH     = 10
+		dstW     = 8
+		dstH     = 8
+		dstPitch = 8
+		tempH    = 6
+	)
+	src := make([]byte, srcW*srcH)
+	dst := make([]byte, dstPitch*dstH)
+	temp := make([]byte, tempH*dstPitch)
+	for i := range src {
+		src[i] = byte((i*3 + 17) & 0xff)
+	}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		Scale2D(src, srcW, srcW, srcH, dst, dstPitch, dstW, dstH, temp, tempH, 5, 4, 5, 4, false)
+	})
+	if allocs != 0 {
+		t.Fatalf("Scale2D allocations = %.1f, want 0", allocs)
+	}
+}

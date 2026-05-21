@@ -2,6 +2,24 @@ package scale
 
 // Ported from libvpx v1.16.0 vpx_scale/generic/vpx_scale.c (Scale2D).
 
+type scaleHorizontalMode uint8
+
+const (
+	scaleHorizontalNone scaleHorizontalMode = iota
+	scaleHorizontal54
+	scaleHorizontal53
+	scaleHorizontal21
+)
+
+type scaleVerticalMode uint8
+
+const (
+	scaleVerticalNone scaleVerticalMode = iota
+	scaleVertical54
+	scaleVertical53
+	scaleVertical21
+)
+
 // Scale2D ports libvpx's vpx_scale/generic/vpx_scale.c Scale2D
 // (lines 234-445). Performs 2-tap linear interpolation in two
 // dimensions, dispatching to the published 5:4, 5:3, or 2:1 specialized
@@ -26,49 +44,38 @@ func Scale2D(
 		sourceBaseOff = -offset
 	}
 
-	var (
-		horizLineScale   func(srcLine []byte, srcWidth int, dstLine []byte)
-		vertBandScale    func(srcLine []byte, srcPitch int, dstLine []byte, dstPitch int, destWidth int)
-		ratioScalable    = true
-		interpolation    = false
-		sourceBandHeight int
-		destBandHeight   int
-	)
+	ratioScalable := true
+	interpolation := false
+	sourceBandHeight := 0
+	destBandHeight := 0
+	horizMode := scaleHorizontalNone
+	vertMode := scaleVerticalNone
 
 	switch hratio * 10 / hscale {
 	case 8:
-		horizLineScale = horizontalLine54
+		horizMode = scaleHorizontal54
 	case 6:
-		horizLineScale = horizontalLine53
+		horizMode = scaleHorizontal53
 	case 5:
-		horizLineScale = horizontalLine21
+		horizMode = scaleHorizontal21
 	default:
 		ratioScalable = false
 	}
 
 	switch vratio * 10 / vscale {
 	case 8:
-		vertBandScale = verticalBand54
+		vertMode = scaleVertical54
 		sourceBandHeight = 5
 		destBandHeight = 4
 	case 6:
-		vertBandScale = verticalBand53
+		vertMode = scaleVertical53
 		sourceBandHeight = 5
 		destBandHeight = 3
 	case 5:
 		if interlaced {
-			vertBandScale = func(s []byte, sp int, d []byte, dp int, dw int) {
-				verticalBand21(s, d, dw)
-			}
+			vertMode = scaleVertical21
 		} else {
 			interpolation = true
-			// vertBandScale is a no-op closure here; the interpolated
-			// kernel needs both the full temp buffer and the pivot
-			// offset (which libvpx hides behind a single source
-			// pointer). Scale2D below dispatches to
-			// verticalBand21Interpolated directly when interpolation is
-			// true.
-			vertBandScale = nil
 		}
 		sourceBandHeight = 2
 		destBandHeight = 1
@@ -81,7 +88,7 @@ func Scale2D(
 			srcOff := 0
 			dstOff := 0
 			for range dstHeight {
-				horizLineScale(src[srcOff:], srcWidth, dst[dstOff:])
+				scaleHorizontalLine(horizMode, src[srcOff:], srcWidth, dst[dstOff:])
 				srcOff += srcPitch
 				dstOff += dstPitch
 			}
@@ -101,7 +108,7 @@ func Scale2D(
 			if srcOff < 0 {
 				srcOff = sourceBaseOff
 			}
-			horizLineScale(src[srcOff:], srcWidth, tempArea[:dstWidth])
+			scaleHorizontalLine(horizMode, src[srcOff:], srcWidth, tempArea[:dstWidth])
 		}
 
 		bands := (dstHeight + destBandHeight - 1) / destBandHeight
@@ -111,7 +118,7 @@ func Scale2D(
 				if lineSrcOff < 0 {
 					lineSrcOff = sourceBaseOff
 				}
-				horizLineScale(src[lineSrcOff:], srcWidth, tempArea[(i+1)*dstPitch:])
+				scaleHorizontalLine(horizMode, src[lineSrcOff:], srcWidth, tempArea[(i+1)*dstPitch:])
 			}
 
 			if interpolation {
@@ -123,7 +130,7 @@ func Scale2D(
 				verticalBand21Interpolated(tempArea, dstPitch, dstPitch, dst[dstOff:], dstWidth)
 				copy(tempArea[:dstWidth], tempArea[sourceBandHeight*dstPitch:sourceBandHeight*dstPitch+dstWidth])
 			} else {
-				vertBandScale(tempArea[dstPitch:], dstPitch, dst[dstOff:], dstPitch, dstWidth)
+				scaleVerticalBand(vertMode, tempArea[dstPitch:], dstPitch, dst[dstOff:], dstPitch, dstWidth)
 			}
 
 			srcOff += sourceBandHeight * srcPitch
@@ -139,4 +146,30 @@ func Scale2D(
 	// modes that would land here by validating both axes at the public
 	// entry point.
 	_ = sourceBaseOff
+}
+
+func scaleHorizontalLine(mode scaleHorizontalMode, srcLine []byte, srcWidth int, dstLine []byte) {
+	switch mode {
+	case scaleHorizontal54:
+		horizontalLine54(srcLine, srcWidth, dstLine)
+	case scaleHorizontal53:
+		horizontalLine53(srcLine, srcWidth, dstLine)
+	case scaleHorizontal21:
+		horizontalLine21(srcLine, srcWidth, dstLine)
+	default:
+		panic("govpx/vp8/scale: invalid horizontal scale mode")
+	}
+}
+
+func scaleVerticalBand(mode scaleVerticalMode, srcLine []byte, srcPitch int, dstLine []byte, dstPitch int, destWidth int) {
+	switch mode {
+	case scaleVertical54:
+		verticalBand54(srcLine, srcPitch, dstLine, dstPitch, destWidth)
+	case scaleVertical53:
+		verticalBand53(srcLine, srcPitch, dstLine, dstPitch, destWidth)
+	case scaleVertical21:
+		verticalBand21(srcLine, dstLine, destWidth)
+	default:
+		panic("govpx/vp8/scale: invalid vertical scale mode")
+	}
 }
