@@ -780,9 +780,9 @@ func vp9NonrdFilterRef(frameInterp vp9dec.InterpFilter,
 ) vp9dec.InterpFilter {
 	filterRef := frameInterp
 	if defaultInterpFilter != vp9dec.InterpBilinear {
-		if above != nil && vp9NeighborIsInter(above) {
+		if above != nil && encoder.NeighborIsInter(above) {
 			filterRef = vp9dec.InterpFilter(above.InterpFilter)
-		} else if left != nil && vp9NeighborIsInter(left) {
+		} else if left != nil && encoder.NeighborIsInter(left) {
 			filterRef = vp9dec.InterpFilter(left.InterpFilter)
 		}
 	}

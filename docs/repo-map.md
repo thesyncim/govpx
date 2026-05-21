@@ -9,22 +9,22 @@ Last refreshed: 2026-05-21 from `main`.
 
 - Root Go files: 535.
 - Root test files: 374.
-- Internal Go files: 658.
+- Internal Go files: 660.
 - Root VP8 files: 81 implementation files and 220 test files.
 - Root VP9 files: 71 implementation files and 142 test files.
 - Internal package files:
   - `internal/vp8`: 310 Go files.
-  - `internal/vp9`: 291 Go files.
+  - `internal/vp9`: 293 Go files.
   - `internal/vpx`: 9 Go files.
   - `internal/coracle`: 26 Go files.
   - `internal/testutil`: 18 Go files.
 - Test-name clusters:
   - Root tests: 391.
-  - Internal tests: 271.
-  - Files with `oracle` in the name: 121.
+  - Internal tests: 274.
+  - Files with `oracle` in the name: 124.
   - Files with `parity` in the name: 66.
   - Files with `fuzz` in the name: 44.
-  - Files with `bench` in the name: 17.
+  - Files with `bench` in the path: 39.
 
 No tracked Go file is currently over 2500 lines. Keep it that way unless an
 exception is written here with a concrete reason.
@@ -55,7 +55,7 @@ Largest internal files:
 
 | Lines | File |
 | ---: | --- |
-| 1784 | `internal/vp9/encoder/transform_quant.go` |
+| 1754 | `internal/vp9/encoder/transform_quant.go` |
 | 1483 | `internal/vp9/encoder/transform_quant_test.go` |
 | 1108 | `internal/vp9/encoder/gf_group.go` |
 | 948 | `internal/vp9/encoder/cyclic_refresh.go` |

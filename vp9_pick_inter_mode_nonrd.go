@@ -312,7 +312,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	}
 	forceSkipLowTempVar := e.vp9VarPartForceSkipLowTempVar(miCols, miRow,
 		miCol, bsize)
-	if vp9NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
+	if encoder.NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
 		e.sf.UseNonrdPickMode != 0, forceSkipLowTempVar) {
 		maxUsableRef = vp9dec.LastFrame
 	}
@@ -518,7 +518,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		noiseEnabled, noiseAtLeastMedium := e.vp9NewmvDiffBiasNoiseInputs()
 		if !lowvarHighsumdiffSet {
 			if stats, ok := e.vp9AvgSourceSADStats(inter.img, miCols, miRow, miCol); ok {
-				lowvarHighsumdiff = vp9NewmvDiffBiasLowvarInput(stats.ContentState)
+				lowvarHighsumdiff = encoder.NewmvDiffBiasLowvarInput(stats.ContentState)
 			}
 			lowvarHighsumdiffSet = true
 		}
@@ -779,7 +779,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//               ⇒ as_int != 0 in libvpx; treat as non-zero here.
 		if bsize >= common.Block8x8 {
 			modeIndex := encoder.ModeIdxTable[refFrame][encoder.ModeOffsetInter(thisMode)]
-			modeRdThresh := vp9NonrdModeRdThreshold(
+			modeRdThresh := encoder.NonrdModeRDThreshold(
 				e.rdThresh.Threshold(bsize, modeIndex),
 				bp.bestModeSkipTxfm != 0,
 				e.sf.BiasGolden != 0,
@@ -998,7 +998,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test fires when
 		// cpi->allow_encode_breakout is set, !xd->lossless, and the current
 		// frame is not a scene/high-motion change.
-		allowEncodeBreakout := vp9NonrdAllowEncodeBreakout(inter.lossless,
+		allowEncodeBreakout := encoder.NonrdAllowEncodeBreakout(inter.lossless,
 			sceneChangeDetected, highNumBlocksWithMotion)
 
 		// libvpx vp9_pickmode.c:2369-2374 — skip rate is the skip-bit cost
@@ -1109,7 +1109,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// picker's verbatim state.
 				if refFrame == vp9dec.LastFrame &&
 					frameMv[thisMode][refFrame] == (vp9dec.MV{}) {
-					sseZeromvNormalized = vp9NonrdNormalizeSSE(sseY, bsize)
+					sseZeromvNormalized = encoder.NonrdNormalizeSSE(sseY, bsize)
 				}
 
 				// libvpx: vp9_pickmode.c:2355 if (sse_y < best_sse_sofar)
@@ -1310,7 +1310,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
 				score := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
 					rate, finalDist)
-				if vp9NonrdScreenZeroLastBias(
+				if encoder.NonrdScreenZeroLastBias(
 					e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 					sceneChangeDetected, highNumBlocksWithMotion, refFrame, mv,
 					sourceVariance, sseY) {
@@ -1396,7 +1396,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if distortion < bestSseSoFar {
 					bestSseSoFar = distortion
 				}
-				if vp9NonrdScreenZeroLastBias(
+				if encoder.NonrdScreenZeroLastBias(
 					e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 					sceneChangeDetected, highNumBlocksWithMotion, refFrame, mv,
 					sourceVariance, distortion) {

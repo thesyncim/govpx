@@ -6,39 +6,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-func vp9NonrdAllowEncodeBreakout(lossless, sceneChangeDetected,
-	highNumBlocksWithMotion bool,
-) bool {
-	return !lossless && !sceneChangeDetected && !highNumBlocksWithMotion
-}
-
-func vp9NonrdModeRdThreshold(base int, bestModeSkipTxfm, biasGolden bool,
-	refFrame int8, framesSinceGolden uint16,
-) int {
-	modeRdThresh := base
-	if bestModeSkipTxfm {
-		modeRdThresh <<= 1
-	}
-	if biasGolden && refFrame == vp9dec.GoldenFrame && framesSinceGolden > 4 {
-		modeRdThresh <<= 3
-	}
-	return modeRdThresh
-}
-
-func vp9NonrdForceLastReference(shortCircuitLowTempVar int,
-	useNonrdPickMode, forceSkipLowTempVar bool,
-) bool {
-	return useNonrdPickMode && forceSkipLowTempVar &&
-		(shortCircuitLowTempVar == 1 || shortCircuitLowTempVar == 3)
-}
-
-func vp9NonrdNormalizeSSE(sse uint64, bsize common.BlockSize) uint64 {
-	if bsize < common.Block4x4 || bsize >= common.BlockSizes {
-		return sse
-	}
-	return sse >> uint(common.NumPelsLog2Lookup[bsize])
-}
-
 func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,
 	miRow, miCol int, bsize common.BlockSize,
 ) (uint, bool) {
@@ -57,44 +24,8 @@ func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,
 	if srcX < 0 || srcY < 0 || srcX+blockW > srcW || srcY+blockH > srcH {
 		return 0, false
 	}
-	return vp9SourceVariancePerPixel(src, srcStride, srcX, srcY,
-		blockW, blockH, bsize), true
-}
-
-func vp9SourceVariancePerPixel(src []byte, srcStride, srcX, srcY, w, h int,
-	bsize common.BlockSize,
-) uint {
-	return encoder.SourceVarianceAreaPerPixel(src, srcStride, srcX, srcY, w, h)
-}
-
-func vp9NonrdScreenZeroLastBias(screen, sceneChangeDetected,
-	highNumBlocksWithMotion bool, refFrame int8, mv vp9dec.MV,
-	sourceVariance uint, sseY uint64,
-) bool {
-	return screen && (sceneChangeDetected || highNumBlocksWithMotion) &&
-		refFrame == vp9dec.LastFrame && mv == (vp9dec.MV{}) &&
-		sourceVariance == 0 && sseY > 0
-}
-
-func vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
-	forceSkipLowTempVar bool, bsize common.BlockSize,
-	contentState encoder.ContentStateSB, xSkip, sceneChangeDetected,
-	screenFlat bool,
-) bool {
-	if screenFlat || sceneChangeDetected {
-		return true
-	}
-	if xSkip {
-		return false
-	}
-	if bestInterScore <= interModeThresh {
-		return false
-	}
-	if forceSkipLowTempVar && bsize >= common.Block32x32 &&
-		contentState != encoder.ContentStateVeryHighSad {
-		return false
-	}
-	return true
+	return encoder.SourceVarianceAreaPerPixel(src, srcStride, srcX, srcY,
+		blockW, blockH), true
 }
 
 // vp9NonrdEstimateIntraFallback ports the intra-fallback section inside
@@ -161,13 +92,13 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	// (vp9_pickmode.c:2532) — i.e. inter is not "already good enough" to
 	// skip the intra sweep. govpx ports vp9_get_intra_cost_penalty
 	// verbatim from vp9_rd.c:778-794.
-	intraCostPenalty := vp9GetIntraCostPenalty(qindex, 0, bsize,
+	intraCostPenalty := encoder.IntraCostPenalty(qindex, 0, bsize,
 		e.noiseEstimate.Enabled, e.noiseEstimate.ExtractLevel())
 	rdmult := e.activeRDMult(qindex)
 	interModeThresh := encoder.RDCost(rdmult, encoder.RDDivBits, intraCostPenalty, 0)
 	screenFlat := e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
 		sourceVariance == 0
-	if !vp9NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh,
+	if !encoder.NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh,
 		forceSkipLowTempVar, bsize, contentState, xSkip, e.rc.highSourceSAD,
 		screenFlat) {
 		// libvpx: the gate at vp9_pickmode.c:2527-2534 also fires when
@@ -240,7 +171,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	useSimpleIntraBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
 		bsize < common.Block32x32
 
-	for _, thisMode := range vp9NonrdIntraModeList {
+	for _, thisMode := range encoder.NonrdIntraModeList {
 		// libvpx vp9_pickmode.c:2578 — intra_y_mode_bsize_mask gate.
 		if intraMaskBits&(1<<uint(thisMode)) == 0 {
 			continue
@@ -358,66 +289,9 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	return best, true
 }
 
-// vp9NonrdIntraModeList mirrors libvpx's intra_mode_list (vp9_pickmode.c:
-// 1105-1106) — the realtime nonrd intra-fallback walks {DC_PRED, V_PRED,
-// H_PRED, TM_PRED} in that order.
-var vp9NonrdIntraModeList = [4]common.PredictionMode{
-	common.DcPred,
-	common.VPred,
-	common.HPred,
-	common.TmPred,
-}
-
-// vp9GetIntraCostPenalty ports vp9_get_intra_cost_penalty (vp9_rd.c:
-// 778-795) verbatim. The reduction factor halves the penalty for
-// BLOCK_16X16 and quarters it for BLOCK_8X8 / smaller unless the live noise
-// estimate is kHigh.
-//
-// libvpx:
-//
-//	int vp9_get_intra_cost_penalty(const VP9_COMP *const cpi, BLOCK_SIZE bsize,
-//	                               int qindex, int qdelta) {
-//	  int reduction_fac =
-//	      (bsize <= BLOCK_16X16) ? ((bsize <= BLOCK_8X8) ? 4 : 2) : 0;
-//	  if (cpi->noise_estimate.enabled && cpi->noise_estimate.level == kHigh)
-//	    reduction_fac = 0;
-//	  return (20 * vp9_dc_quant(qindex, qdelta, VPX_BITS_8)) >> reduction_fac;
-//	}
-func vp9GetIntraCostPenalty(qindex, qdelta int, bsize common.BlockSize,
-	noiseEstimateEnabled bool, noiseLevel encoder.NoiseLevel,
-) int {
-	reductionFac := 0
-	if bsize <= common.Block16x16 {
-		if bsize <= common.Block8x8 {
-			reductionFac = 4
-		} else {
-			reductionFac = 2
-		}
-	}
-	if noiseEstimateEnabled && noiseLevel == encoder.NoiseLevelHigh {
-		reductionFac = 0
-	}
-	dcQ := int(vp9dec.VpxDcQuant(qindex, qdelta, vp9dec.BitDepth8))
-	return (20 * dcQ) >> reductionFac
-}
-
 func (e *VP9Encoder) vp9NewmvDiffBiasNoiseInputs() (bool, bool) {
 	if e == nil || !e.noiseEstimate.Enabled {
 		return false, false
 	}
 	return true, e.noiseEstimate.ExtractLevel() >= encoder.NoiseLevelMedium
-}
-
-func vp9NewmvDiffBiasLowvarInput(contentState encoder.ContentStateSB) bool {
-	return contentState == encoder.ContentStateLowVarHighSumdiff
-}
-
-// vp9NeighborIsInter mirrors libvpx's is_inter_block(MODE_INFO *mi) helper.
-//
-// libvpx: vp9_blockd.h is_inter_block — ref_frame[0] > INTRA_FRAME.
-func vp9NeighborIsInter(mi *vp9dec.NeighborMi) bool {
-	if mi == nil {
-		return false
-	}
-	return mi.RefFrame[0] > vp9dec.IntraFrame
 }

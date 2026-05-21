@@ -1,0 +1,127 @@
+package encoder
+
+import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+)
+
+// NonrdAllowEncodeBreakout mirrors the realtime encode-breakout gates in
+// libvpx's vp9_pick_inter_mode.
+func NonrdAllowEncodeBreakout(lossless, sceneChangeDetected,
+	highNumBlocksWithMotion bool,
+) bool {
+	return !lossless && !sceneChangeDetected && !highNumBlocksWithMotion
+}
+
+// NonrdModeRDThreshold applies the skip-transform and golden-reference
+// threshold boosts used by the non-RD inter-mode picker.
+func NonrdModeRDThreshold(base int, bestModeSkipTxfm, biasGolden bool,
+	refFrame int8, framesSinceGolden uint16,
+) int {
+	modeRDThresh := base
+	if bestModeSkipTxfm {
+		modeRDThresh <<= 1
+	}
+	if biasGolden && refFrame == vp9dec.GoldenFrame && framesSinceGolden > 4 {
+		modeRDThresh <<= 3
+	}
+	return modeRDThresh
+}
+
+// NonrdForceLastReference reports whether short-circuit-low-temp-var forces
+// the picker to LAST_FRAME.
+func NonrdForceLastReference(shortCircuitLowTempVar int,
+	useNonrdPickMode, forceSkipLowTempVar bool,
+) bool {
+	return useNonrdPickMode && forceSkipLowTempVar &&
+		(shortCircuitLowTempVar == 1 || shortCircuitLowTempVar == 3)
+}
+
+// NonrdNormalizeSSE converts a block SSE to a per-pixel score for valid VP9
+// block sizes.
+func NonrdNormalizeSSE(sse uint64, bsize common.BlockSize) uint64 {
+	if bsize < common.Block4x4 || bsize >= common.BlockSizes {
+		return sse
+	}
+	return sse >> uint(common.NumPelsLog2Lookup[bsize])
+}
+
+// NonrdScreenZeroLastBias matches the screen-content bias toward zero-motion
+// LAST_FRAME candidates.
+func NonrdScreenZeroLastBias(screen, sceneChangeDetected,
+	highNumBlocksWithMotion bool, refFrame int8, mv vp9dec.MV,
+	sourceVariance uint, sseY uint64,
+) bool {
+	return screen && (sceneChangeDetected || highNumBlocksWithMotion) &&
+		refFrame == vp9dec.LastFrame && mv == (vp9dec.MV{}) &&
+		sourceVariance == 0 && sseY > 0
+}
+
+// NonrdIntraFallbackPrecheck mirrors the inexpensive gates before the
+// non-RD intra-mode fallback sweep.
+func NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
+	forceSkipLowTempVar bool, bsize common.BlockSize,
+	contentState ContentStateSB, xSkip, sceneChangeDetected, screenFlat bool,
+) bool {
+	if screenFlat || sceneChangeDetected {
+		return true
+	}
+	if xSkip {
+		return false
+	}
+	if bestInterScore <= interModeThresh {
+		return false
+	}
+	if forceSkipLowTempVar && bsize >= common.Block32x32 &&
+		contentState != ContentStateVeryHighSad {
+		return false
+	}
+	return true
+}
+
+// NonrdIntraModeList mirrors libvpx's intra_mode_list (vp9_pickmode.c:
+// 1105-1106). The realtime non-RD intra fallback walks these modes in order.
+var NonrdIntraModeList = [4]common.PredictionMode{
+	common.DcPred,
+	common.VPred,
+	common.HPred,
+	common.TmPred,
+}
+
+// IntraCostPenalty ports vp9_get_intra_cost_penalty (vp9_rd.c:778-795).
+//
+// The reduction factor halves the penalty for BLOCK_16X16 and quarters it for
+// BLOCK_8X8 or smaller unless the live noise estimate is kHigh.
+func IntraCostPenalty(qindex, qdelta int, bsize common.BlockSize,
+	noiseEstimateEnabled bool, noiseLevel NoiseLevel,
+) int {
+	reductionFac := 0
+	if bsize <= common.Block16x16 {
+		if bsize <= common.Block8x8 {
+			reductionFac = 4
+		} else {
+			reductionFac = 2
+		}
+	}
+	if noiseEstimateEnabled && noiseLevel == NoiseLevelHigh {
+		reductionFac = 0
+	}
+	dcQ := int(vp9dec.VpxDcQuant(qindex, qdelta, vp9dec.BitDepth8))
+	return (20 * dcQ) >> reductionFac
+}
+
+// NewmvDiffBiasLowvarInput extracts the low-variance/high-sum-difference
+// input consumed by NewmvDiffBias.
+func NewmvDiffBiasLowvarInput(contentState ContentStateSB) bool {
+	return contentState == ContentStateLowVarHighSumdiff
+}
+
+// NeighborIsInter mirrors libvpx's is_inter_block(MODE_INFO *mi) helper.
+//
+// libvpx: vp9_blockd.h is_inter_block, ref_frame[0] > INTRA_FRAME.
+func NeighborIsInter(mi *vp9dec.NeighborMi) bool {
+	if mi == nil {
+		return false
+	}
+	return mi.RefFrame[0] > vp9dec.IntraFrame
+}

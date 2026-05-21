@@ -646,7 +646,7 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	if !forceSkipLowTempKnown && e.sf.ShortCircuitLowTempVar >= 1 {
 		forceSkipLowTempVar = true
 	}
-	if vp9NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
+	if encoder.NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
 		e.sf.UseNonrdPickMode != 0, forceSkipLowTempVar) {
 		if _, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
 			refFrames = refFramesAll[:1]
