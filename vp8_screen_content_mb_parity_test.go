@@ -8,12 +8,10 @@ import (
 	"image"
 	"math/rand"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
@@ -109,57 +107,28 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 	}
 	enc.Close()
 
-	// libvpx side via the patched vpxenc-oracle.
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "screen_content_mb.yuv")
-	ivfPath := filepath.Join(dir, "screen_content_mb.ivf")
-	libvpxTracePath := filepath.Join(dir, "screen_content_mb.jsonl")
-	writeScreenContentI420(t, yuvPath, govpxSources)
-
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		"--best",
-		"--cpu-used=0",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--end-usage=cbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--screen-content-mode=1",
-		"--threads=1",
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(govpxSources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		yuvPath,
-	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("vpxenc-oracle args: %v", args)
-		t.Logf("vpxenc-oracle output:\n%s", out)
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, govpxSources),
+		vp8OracleTraceConfig(
+			vpxencOracle,
+			opts,
+			len(govpxSources),
+			targetKbps,
+			nil,
+			[]string{
+				"--end-usage=cbr",
+				"--screen-content-mode=1",
+				"--threads=1",
+			},
+		),
+	)
+	if err != nil {
+		t.Logf("vpxenc-oracle output:\n%s", diag)
 		t.Skipf("vpxenc-oracle failed: %v", err)
 	}
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
-	if err != nil {
-		t.Fatalf("read libvpx trace: %v", err)
-	}
 
-	govpxOut := "/tmp/govpx_screen_content_mb_screen_content.jsonl"
-	libvpxOut := "/tmp/libvpx_screen_content_mb_screen_content.jsonl"
-	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
-	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("screen_content_mb govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
-		govpxOut, libvpxOut, govpxTraceBuf.Len(), len(libvpxTrace))
+	t.Logf("screen_content_mb govpx_trace_bytes=%d libvpx_trace_bytes=%d",
+		govpxTraceBuf.Len(), len(libvpxTrace))
 
 	// Per-MB scoreboard analysis on the inter frame (frame_index=1).
 	for _, frameIdx := range []uint64{0, 1} {
@@ -267,7 +236,7 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 				t.Logf("  %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
 		} else {
-			t.Logf("screen_content_mb frame%d NO_DIV — all MBs match (mode, ref, mv)", frameIdx)
+			t.Logf("screen_content_mb frame%d NO_DIV; all MBs match (mode, ref, mv)", frameIdx)
 		}
 
 		// Inter-candidate scoreboard dump for the first divergent MB.

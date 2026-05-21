@@ -7,12 +7,11 @@ import (
 	"encoding/json"
 	"image"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
@@ -140,7 +139,7 @@ import (
 // require a separate audit of the cyclic-refresh / segment-quantizer
 // interactions that govpx layers on top of libvpx's table).
 //
-// Logging-only — always passes. To run:
+// Logging-only; always passes. To run:
 //
 //	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
 //	  GOVPX_TASK343_TARGET_KBPS=1000 \
@@ -211,56 +210,27 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 	}
 	enc.Close()
 
-	// libvpx side via the patched vpxenc-oracle.
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "realtime_cpu8.yuv")
-	ivfPath := filepath.Join(dir, "realtime_cpu8.ivf")
-	libvpxTracePath := filepath.Join(dir, "realtime_cpu8.jsonl")
-	writeScreenContentI420(t, yuvPath, govpxSources)
-
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		"--rt",
-		"--cpu-used=8",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--end-usage=cbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--threads=1",
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(govpxSources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		yuvPath,
-	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("vpxenc-oracle args: %v", args)
-		t.Logf("vpxenc-oracle output:\n%s", out)
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, govpxSources),
+		vp8OracleTraceConfig(
+			vpxencOracle,
+			opts,
+			len(govpxSources),
+			targetKbps,
+			nil,
+			[]string{
+				"--end-usage=cbr",
+				"--threads=1",
+			},
+		),
+	)
+	if err != nil {
+		t.Logf("vpxenc-oracle output:\n%s", diag)
 		t.Skipf("vpxenc-oracle failed: %v", err)
 	}
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
-	if err != nil {
-		t.Fatalf("read libvpx trace: %v", err)
-	}
 
-	govpxOut := "/tmp/govpx_realtime_cpu8_rt_cpu8.jsonl"
-	libvpxOut := "/tmp/libvpx_realtime_cpu8_rt_cpu8.jsonl"
-	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
-	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("realtime_cpu8 govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
-		govpxOut, libvpxOut, govpxTraceBuf.Len(), len(libvpxTrace))
+	t.Logf("realtime_cpu8 govpx_trace_bytes=%d libvpx_trace_bytes=%d",
+		govpxTraceBuf.Len(), len(libvpxTrace))
 
 	// Probe across all 16 frames so each rung's worst-case rate divergence
 	// surfaces; cpu_used=8 auto_select_speed can flip after the 1st-2nd
@@ -371,7 +341,7 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 			// Inter-candidate scoreboard for FIRST_DIV.
 			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		} else {
-			t.Logf("realtime_cpu8 frame%d NO_DIV — all MBs match (mode, ref, mv)", frameIdx)
+			t.Logf("realtime_cpu8 frame%d NO_DIV; all MBs match (mode, ref, mv)", frameIdx)
 		}
 
 		// Frame-level rate/Q probe to surface autoSpeed/rate-control drift.

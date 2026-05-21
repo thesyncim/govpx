@@ -7,11 +7,10 @@ import (
 	"image"
 	"math/rand"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
@@ -168,55 +167,20 @@ func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
 	}
 	enc.Close()
 
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "bpred_edge.yuv")
-	ivfPath := filepath.Join(dir, "bpred_edge.ivf")
-	libvpxTracePath := filepath.Join(dir, "bpred_edge.jsonl")
-	writeScreenContentI420(t, yuvPath, sources)
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--good",
-		"--cpu-used=0",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--end-usage=cbr",
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=4",
-		"--max-q=63",
-		"--i420",
-		"--width=" + strconv.Itoa(width),
-		"--height=" + strconv.Itoa(height),
-		"--timebase=1/30",
-		"--fps=30/1",
-		"--limit=" + strconv.Itoa(frames),
-		"--output=" + ivfPath,
-		yuvPath,
-	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(),
-		"GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath,
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8OracleTraceConfig(
+			vpxencOracle,
+			opts,
+			len(sources),
+			targetKbps,
+			nil,
+			[]string{"--end-usage=cbr"},
+		),
 	)
-	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, out)
+		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)
 	}
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
-	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", libvpxTracePath, err)
-	}
-
-	govpxOut := filepath.Join(os.TempDir(), "govpx_bpred_edge_bpred_edge.jsonl")
-	libvpxOut := filepath.Join(os.TempDir(), "libvpx_bpred_edge_bpred_edge.jsonl")
-	if err := os.WriteFile(govpxOut, govpxTrace.Bytes(), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s): %v", govpxOut, err)
-	}
-	if err := os.WriteFile(libvpxOut, libvpxTrace, 0o644); err != nil {
-		t.Fatalf("WriteFile(%s): %v", libvpxOut, err)
-	}
-	t.Logf("bpred_edge target=%d govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
-		targetKbps, govpxOut, libvpxOut, govpxTrace.Len(), len(libvpxTrace))
+	t.Logf("bpred_edge target=%d govpx_trace_bytes=%d libvpx_trace_bytes=%d",
+		targetKbps, govpxTrace.Len(), len(libvpxTrace))
 }

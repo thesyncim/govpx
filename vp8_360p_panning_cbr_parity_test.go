@@ -6,46 +6,16 @@ import (
 	"bytes"
 	"image"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestVP8Panning360pMBParity performs per-MB localization of any
-// VP8 mode / ref / MV / rate divergence on the 360p panning CBR
-// fixture (TestVP8FeatureBDRate360pPanningCBR, pinned at +1.111%
-// BD-rate / -0.118 dB BD-PSNR after task #341). The fixture's gate is
-// the default +5.0% / -0.5 dB so the BD-rate measurement passes by a
-// comfortable +3.9pp headroom; the audit here is to confirm the
-// residual is cubic-fit jitter on synthetic content, not an actionable
-// libvpx port gap.
-//
-// Method mirrors task #343 (RT cpu_used=8 bisect on the 720p panning
-// fixture): drive 16 frames of makeVP8PanningFrame through both govpx
-// VP8 and the patched vpxenc-oracle at the same CBR ladder rung the
-// gate uses; emit MB-level + frame-level oracle traces; diff mode /
-// ref / mv per MB and rate / q_index / skip per frame.
-//
-// CBR ladder under audit: 300 / 600 / 1200 / 2400 kbps. Per the
-// task #353 fixture trace
-//
-//	govpx_rate_psnr  = [816.6/39.51, 1206.6/46.07, 1369.5/48.17, 1500.9/48.56]
-//	libvpx_rate_psnr = [821.1/39.34, 1212.2/46.10, 1429.5/48.34, 1522.9/48.61]
-//
-// The top three rungs are saturated near PSNR-Y ~48.5 dB (the 16-frame
-// synthetic panning content has a hard PSNR ceiling), so rate differs
-// in absolute kbps but PSNR barely moves. The cubic fit picks up that
-// asymmetric saturation as a small positive BD-rate.
-//
-// To run:
-//
-//	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
-//	  GOVPX_TASK353_TARGET_KBPS=300 \
-//	  go test -tags govpx_oracle_trace -run TestVP8Panning360pMBParity -v
+// TestVP8Panning360pMBParity compares govpx and libvpx per-MB mode/ref/MV
+// traces for the 360p panning CBR fixture at a selected bitrate rung.
 func TestVP8Panning360pMBParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run 360p panning CBR MB parity")
@@ -66,7 +36,7 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 	}
 
 	// Same source the BD-rate fixture uses (makeVP8PanningFrame in
-	// feature_quality_gates_vp8_test.go — package govpx_test, not
+	// feature_quality_gates_vp8_test.go; package govpx_test is not
 	// accessible from this package-internal probe; verbatim copy via
 	// makeRealtimeCPU8PanningFrame in vp8_realtime_cpu8_mb_parity_test.go,
 	// which is the same generator the BD-rate fixture uses).
@@ -116,59 +86,27 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 	}
 	enc.Close()
 
-	// libvpx side via the patched vpxenc-oracle. Match the BD-rate
-	// driver's CLI flags: --good (Speed 0), --end-usage=cbr,
-	// --target-bitrate=<kbps>, --min-q/--max-q, --threads=1,
-	// kf-min/max-dist=999 (single keyframe at frame 0).
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "panning_360p_cbr.yuv")
-	ivfPath := filepath.Join(dir, "panning_360p_cbr.ivf")
-	libvpxTracePath := filepath.Join(dir, "panning_360p_cbr.jsonl")
-	writeScreenContentI420(t, yuvPath, govpxSources)
-
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		"--good",
-		"--cpu-used=0",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--end-usage=cbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--threads=1",
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(govpxSources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		yuvPath,
-	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("vpxenc-oracle args: %v", args)
-		t.Logf("vpxenc-oracle output:\n%s", out)
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, govpxSources),
+		vp8OracleTraceConfig(
+			vpxencOracle,
+			opts,
+			len(govpxSources),
+			targetKbps,
+			nil,
+			[]string{
+				"--end-usage=cbr",
+				"--threads=1",
+			},
+		),
+	)
+	if err != nil {
+		t.Logf("vpxenc-oracle output:\n%s", diag)
 		t.Skipf("vpxenc-oracle failed: %v", err)
 	}
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
-	if err != nil {
-		t.Fatalf("read libvpx trace: %v", err)
-	}
 
-	govpxOut := "/tmp/govpx_panning_360p_cbr_360p_panning.jsonl"
-	libvpxOut := "/tmp/libvpx_panning_360p_cbr_360p_panning.jsonl"
-	_ = os.WriteFile(govpxOut, govpxTraceBuf.Bytes(), 0o644)
-	_ = os.WriteFile(libvpxOut, libvpxTrace, 0o644)
-	t.Logf("panning_360p_cbr target_kbps=%d govpx_trace=%s libvpx_trace=%s govpx_bytes=%d libvpx_bytes=%d",
-		targetKbps, govpxOut, libvpxOut, govpxTraceBuf.Len(), len(libvpxTrace))
+	t.Logf("panning_360p_cbr target_kbps=%d govpx_trace_bytes=%d libvpx_trace_bytes=%d",
+		targetKbps, govpxTraceBuf.Len(), len(libvpxTrace))
 
 	frameProbeList := []uint64{0, 1, 2, 3, 7, 15}
 	for _, frameIdx := range frameProbeList {
@@ -273,7 +211,7 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 			}
 			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		} else {
-			t.Logf("panning_360p_cbr frame%d NO_DIV — all MBs match (mode, ref, mv)", frameIdx)
+			t.Logf("panning_360p_cbr frame%d NO_DIV; all MBs match (mode, ref, mv)", frameIdx)
 		}
 
 		// Frame-level rate/Q probe (realtime_cpu8-style: surfaces autoSpeed,
