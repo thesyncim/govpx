@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 func TestSelectQuantizerARFRefreshUsesARFTable(t *testing.T) {
 	rc := rateControlState{
@@ -352,7 +356,7 @@ func TestPass2CBRBufferAdjustmentLowersTargetOverfilledBuffer(t *testing.T) {
 // pick a quantizer below cqLevel; the post-regulation CQ floor must
 // raise the final Q back to the configured target.
 func TestSelectQuantizerCQFloorApplied(t *testing.T) {
-	cqLevel := libvpxPublicQuantizerToQIndex(40)
+	cqLevel := vp8common.PublicQuantizerToQIndex(40)
 	rc := rateControlState{
 		mode:                     RateControlCQ,
 		minQuantizer:             4,

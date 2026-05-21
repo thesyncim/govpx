@@ -1,5 +1,7 @@
 package govpx
 
+import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+
 // LastQuantizer returns the public 0..63 quantizer and the internal VP8
 // qindex for the most recently committed encoded frame. ok is false on a
 // nil or closed encoder, and before any frame has been committed (which
@@ -12,7 +14,7 @@ func (e *VP8Encoder) LastQuantizer() (public int, internal int, ok bool) {
 }
 
 func (e *VP8Encoder) setEncodeResultQuantizer(result *EncodeResult, qIndex int) {
-	public := libvpxQIndexToPublicQuantizer(qIndex)
+	public := vp8common.QIndexToPublicQuantizer(qIndex)
 	result.Quantizer = public
 	result.InternalQuantizer = qIndex
 	e.lastQuantizerPublic = public

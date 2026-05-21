@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 // makeDampedActiveWorstQState builds a twoPassState seeded for the
 // early-portion-of-clip damped active_worst_quality update path. The
@@ -24,7 +28,7 @@ func makeDampedActiveWorstQState(t *testing.T, total int, gfInterval int, seed i
 	ts := &twoPassState{}
 	ts.configure(stats, 50_000, 50, 0, 400)
 	ts.configureFrameDims(128, 128)
-	ts.configureQuantizerBounds(0, vp8MaxQIndex)
+	ts.configureQuantizerBounds(0, vp8common.MaxQ)
 	ts.baselineGFInterval = gfInterval
 	ts.pass2ActiveWorstQ = seed
 	ts.pass2ActiveWorstQValid = true

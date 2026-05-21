@@ -28,7 +28,7 @@ func TestSetROIMapValidationAndDisable(t *testing.T) {
 	if !e.roi.suppressCyclicRefresh {
 		t.Fatalf("ROI did not suppress cyclic refresh")
 	}
-	if got, want := e.roi.deltaQuantizer[1], int8(-libvpxPublicQuantizerToQIndex(10)); got != want {
+	if got, want := e.roi.deltaQuantizer[1], int8(-vp8common.PublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("roi delta q[1] = %d, want %d", got, want)
 	}
 	if got := e.interStaticThresholdForSegment(1); got != 900 {
@@ -104,7 +104,7 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
 		t.Fatalf("key segmentation = %+v, want ROI map/data update", keyState.Segmentation)
 	}
-	if got, want := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][1], int8(-libvpxPublicQuantizerToQIndex(10)); got != want {
+	if got, want := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][1], int8(-vp8common.PublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("key ROI alt-q[1] = %d, want %d", got, want)
 	}
 	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltLF][1]; got != 3 {

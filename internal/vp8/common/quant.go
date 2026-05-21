@@ -27,6 +27,15 @@ var acQLookup = [QIndexRange]int16{
 	249, 254, 259, 264, 269, 274, 279, 284,
 }
 
+const maxPublicQuantizer = 63
+
+var publicQuantizerToQIndex = [maxPublicQuantizer + 1]int{
+	0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 15, 17, 18, 19,
+	20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 35, 37, 39, 41,
+	43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 64, 67, 70, 73, 76, 79,
+	82, 85, 88, 91, 94, 97, 100, 103, 106, 109, 112, 115, 118, 121, 124, 127,
+}
+
 type QuantDeltas struct {
 	Y1DC int
 	Y2DC int
@@ -50,6 +59,19 @@ type MacroblockDequant struct {
 
 func ClampQIndex(qIndex int) int {
 	return min(max(qIndex, MinQ), MaxQ)
+}
+
+func PublicQuantizerToQIndex(q int) int {
+	return publicQuantizerToQIndex[min(max(q, 0), maxPublicQuantizer)]
+}
+
+func QIndexToPublicQuantizer(qIndex int) int {
+	for q, translated := range publicQuantizerToQIndex {
+		if translated >= qIndex {
+			return q
+		}
+	}
+	return maxPublicQuantizer
 }
 
 func DCQuant(qIndex int, delta int) int {

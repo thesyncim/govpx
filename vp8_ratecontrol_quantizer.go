@@ -1,5 +1,7 @@
 package govpx
 
+import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+
 func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks int) {
 	rc.selectQuantizerForFrameKind(keyFrame, false, macroblocks)
 }
@@ -57,7 +59,7 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 		// get over-quantized relative to libvpx (oracle parity gap on
 		// realtime-cq-cpu0-16x16-cq20).
 		rc.currentQuantizer = rc.clampedCQQuantizerValue(rc.currentQuantizer)
-		if rc.currentQuantizer < vp8MaxQIndex {
+		if rc.currentQuantizer < vp8common.MaxQ {
 			rc.currentZbinOverQuant = 0
 		}
 	}
@@ -65,7 +67,7 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 	if rc.mode == RateControlCBR && screenContentMode > 0 && !keyFrame {
 		rc.currentQuantizer = libvpxLimitCBRInterQuantizerDrop(rc.lastInterQuantizer, rc.currentQuantizer)
 	}
-	if rc.currentQuantizer < vp8MaxQIndex {
+	if rc.currentQuantizer < vp8common.MaxQ {
 		rc.currentZbinOverQuant = 0
 	}
 }
@@ -101,7 +103,7 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	// activeBest stays at minQuantizer.
 	pass2 := rc.pass2ActiveWorstQValid
 	if rc.normalInterFrames > 150 || pass2 {
-		q := clampQuantizerValue(activeWorst, 0, vp8MaxQIndex)
+		q := clampQuantizerValue(activeWorst, 0, vp8common.MaxQ)
 		switch {
 		case keyFrame:
 			// libvpx pass-2 KF branch (onyx_if.c lines 3624-3630):
@@ -145,7 +147,7 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 			if rc.cqFloorActive() && q < rc.cqLevel {
 				q = rc.cqLevel
 			}
-			q = clampQuantizerValue(q, 0, vp8MaxQIndex)
+			q = clampQuantizerValue(q, 0, vp8common.MaxQ)
 			// libvpx vp8/encoder/onyx_if.c:3667-3674 pass-2 GF branch:
 			//   if (cpi->gfu_boost > 1000)        gf_low_motion_minq[Q]
 			//   else if (cpi->gfu_boost < 400)    gf_high_motion_minq[Q]
@@ -233,8 +235,8 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	} else if activeWorst < activeBest {
 		activeWorst = activeBest
 	}
-	if activeWorst > vp8MaxQIndex {
-		activeWorst = vp8MaxQIndex
+	if activeWorst > vp8common.MaxQ {
+		activeWorst = vp8common.MaxQ
 	}
 	rc.activeWorstQuantizer = activeWorst
 	return activeBest, activeWorst

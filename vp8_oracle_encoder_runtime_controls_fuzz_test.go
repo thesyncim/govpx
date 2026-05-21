@@ -14,6 +14,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
 // FuzzVP8OracleEncoderRuntimeControlTransitions compares generated runtime-control
@@ -801,8 +802,8 @@ func vp8OracleRuntimeCurrentRateControlConfig(e *VP8Encoder) RateControlConfig {
 		TargetBitrateKbps:   e.rc.targetBitrateKbps,
 		MinBitrateKbps:      e.rc.minBitrateKbps,
 		MaxBitrateKbps:      e.rc.maxBitrateKbps,
-		MinQuantizer:        libvpxQIndexToPublicQuantizer(e.rc.minQuantizer),
-		MaxQuantizer:        libvpxQIndexToPublicQuantizer(e.rc.maxQuantizer),
+		MinQuantizer:        vp8common.QIndexToPublicQuantizer(e.rc.minQuantizer),
+		MaxQuantizer:        vp8common.QIndexToPublicQuantizer(e.rc.maxQuantizer),
 		CQLevel:             e.opts.CQLevel,
 		UndershootPct:       e.rc.undershootPct,
 		OvershootPct:        e.rc.overshootPct,

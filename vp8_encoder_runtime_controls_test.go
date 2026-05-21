@@ -175,8 +175,8 @@ func TestSetRateControlCQLevelAffectsNextEncode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
-	if result.Quantizer != 28 || packetBaseQIndex(t, result.Data) != libvpxPublicQuantizerToQIndex(28) {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 28 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), libvpxPublicQuantizerToQIndex(28))
+	if result.Quantizer != 28 || packetBaseQIndex(t, result.Data) != vp8common.PublicQuantizerToQIndex(28) {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 28 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), vp8common.PublicQuantizerToQIndex(28))
 	}
 }
 
@@ -195,8 +195,8 @@ func TestSetRateControlQAcceptsCQLevelWithoutCQFloor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetRateControl returned error: %v", err)
 	}
-	if e.rc.mode != RateControlQ || e.rc.cqLevel != libvpxPublicQuantizerToQIndex(28) {
-		t.Fatalf("Q mode state = mode:%d cq:%d, want RateControlQ / qindex %d", e.rc.mode, e.rc.cqLevel, libvpxPublicQuantizerToQIndex(28))
+	if e.rc.mode != RateControlQ || e.rc.cqLevel != vp8common.PublicQuantizerToQIndex(28) {
+		t.Fatalf("Q mode state = mode:%d cq:%d, want RateControlQ / qindex %d", e.rc.mode, e.rc.cqLevel, vp8common.PublicQuantizerToQIndex(28))
 	}
 	if e.rc.currentQuantizer >= e.rc.cqLevel {
 		t.Fatalf("Q current quantizer = %d, want below CQ qindex %d to prove no CQ floor", e.rc.currentQuantizer, e.rc.cqLevel)
@@ -226,8 +226,8 @@ func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
 	if err := e.SetCQLevel(3); !errors.Is(err, ErrInvalidQuantizer) {
 		t.Fatalf("below-min SetCQLevel error = %v, want ErrInvalidQuantizer", err)
 	}
-	if e.rc.cqLevel != libvpxPublicQuantizerToQIndex(24) {
-		t.Fatalf("CQ level after rejected updates = %d, want qindex %d", e.rc.cqLevel, libvpxPublicQuantizerToQIndex(24))
+	if e.rc.cqLevel != vp8common.PublicQuantizerToQIndex(24) {
+		t.Fatalf("CQ level after rejected updates = %d, want qindex %d", e.rc.cqLevel, vp8common.PublicQuantizerToQIndex(24))
 	}
 	if err := e.SetCQLevel(40); err != nil {
 		t.Fatalf("SetCQLevel returned error: %v", err)
@@ -243,8 +243,8 @@ func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
-	if result.Quantizer != 40 || packetBaseQIndex(t, result.Data) != libvpxPublicQuantizerToQIndex(40) {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 40 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), libvpxPublicQuantizerToQIndex(40))
+	if result.Quantizer != 40 || packetBaseQIndex(t, result.Data) != vp8common.PublicQuantizerToQIndex(40) {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 40 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), vp8common.PublicQuantizerToQIndex(40))
 	}
 }
 
@@ -271,8 +271,8 @@ func TestSetCQLevelValidationAppliesToRateControlQ(t *testing.T) {
 	if err := e.SetCQLevel(40); err != nil {
 		t.Fatalf("Q SetCQLevel returned error: %v", err)
 	}
-	if e.rc.cqLevel != libvpxPublicQuantizerToQIndex(40) {
-		t.Fatalf("Q cqLevel = %d, want qindex %d", e.rc.cqLevel, libvpxPublicQuantizerToQIndex(40))
+	if e.rc.cqLevel != vp8common.PublicQuantizerToQIndex(40) {
+		t.Fatalf("Q cqLevel = %d, want qindex %d", e.rc.cqLevel, vp8common.PublicQuantizerToQIndex(40))
 	}
 	if e.rc.currentQuantizer >= e.rc.cqLevel {
 		t.Fatalf("Q current quantizer = %d, want no reset to CQ qindex %d", e.rc.currentQuantizer, e.rc.cqLevel)
@@ -462,9 +462,9 @@ func TestSetRealtimeTargetRejectsCQBoundsWithoutMutation(t *testing.T) {
 		t.Fatalf("SetRealtimeTarget error = %v, want ErrInvalidQuantizer", err)
 	}
 	if e.opts.MinQuantizer != 4 || e.opts.MaxQuantizer != 56 || e.opts.CQLevel != 24 ||
-		e.rc.minQuantizer != libvpxPublicQuantizerToQIndex(4) ||
-		e.rc.maxQuantizer != libvpxPublicQuantizerToQIndex(56) ||
-		e.rc.cqLevel != libvpxPublicQuantizerToQIndex(24) {
+		e.rc.minQuantizer != vp8common.PublicQuantizerToQIndex(4) ||
+		e.rc.maxQuantizer != vp8common.PublicQuantizerToQIndex(56) ||
+		e.rc.cqLevel != vp8common.PublicQuantizerToQIndex(24) {
 		t.Fatalf("rate control after rejected target = opts:%d/%d/%d rc:%d/%d/%d, want public 4/56/24 mapped to qindex",
 			e.opts.MinQuantizer, e.opts.MaxQuantizer, e.opts.CQLevel, e.rc.minQuantizer, e.rc.maxQuantizer, e.rc.cqLevel)
 	}
@@ -1020,7 +1020,7 @@ func TestSetRateControlCQRefreshesPreservedSegmentationDelta(t *testing.T) {
 		t.Fatalf("EncodeInto CQ inter: %v", err)
 	}
 	state := packetState(t, inter.Data)
-	wantQ := libvpxPublicQuantizerToQIndex(30)
+	wantQ := vp8common.PublicQuantizerToQIndex(30)
 	wantDelta := cyclicRefreshQuantizerDeltaForQuantizer(wantQ)
 	if state.Quant.BaseQIndex != uint8(wantQ) {
 		t.Fatalf("CQ base q = %d, want %d", state.Quant.BaseQIndex, wantQ)
@@ -1037,7 +1037,7 @@ func TestSetRateControlCQRefreshesPreservedSegmentationDelta(t *testing.T) {
 		t.Fatalf("EncodeInto CQ-level inter: %v", err)
 	}
 	state = packetState(t, next.Data)
-	wantQ = libvpxPublicQuantizerToQIndex(40)
+	wantQ = vp8common.PublicQuantizerToQIndex(40)
 	wantDelta = cyclicRefreshQuantizerDeltaForQuantizer(wantQ)
 	if state.Quant.BaseQIndex != uint8(wantQ) {
 		t.Fatalf("CQ level base q = %d, want %d", state.Quant.BaseQIndex, wantQ)

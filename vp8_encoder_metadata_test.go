@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 func TestEncodeResultAndLastQuantizerReportInternalQIndex(t *testing.T) {
 	e := newTestEncoder(t)
@@ -25,8 +29,8 @@ func TestEncodeResultAndLastQuantizerReportInternalQIndex(t *testing.T) {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
 	wantInternal := packetBaseQIndex(t, result.Data)
-	if result.InternalQuantizer != wantInternal || result.Quantizer != libvpxQIndexToPublicQuantizer(wantInternal) {
-		t.Fatalf("EncodeResult quantizer = public:%d internal:%d, want public %d / internal %d", result.Quantizer, result.InternalQuantizer, libvpxQIndexToPublicQuantizer(wantInternal), wantInternal)
+	if result.InternalQuantizer != wantInternal || result.Quantizer != vp8common.QIndexToPublicQuantizer(wantInternal) {
+		t.Fatalf("EncodeResult quantizer = public:%d internal:%d, want public %d / internal %d", result.Quantizer, result.InternalQuantizer, vp8common.QIndexToPublicQuantizer(wantInternal), wantInternal)
 	}
 	public, internal, ok := e.LastQuantizer()
 	if !ok {

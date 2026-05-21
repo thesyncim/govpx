@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
@@ -132,7 +136,7 @@ func TestRateControlCQUsesCQLevel(t *testing.T) {
 	rc.bufferLevelBits = 0
 
 	rc.beginFrame(false)
-	cqQIndex := libvpxPublicQuantizerToQIndex(32)
+	cqQIndex := vp8common.PublicQuantizerToQIndex(32)
 	if rc.currentQuantizer != cqQIndex {
 		t.Fatalf("beginFrame CQ quantizer = %d, want CQ level 32 mapped to qindex %d", rc.currentQuantizer, cqQIndex)
 	}
@@ -162,7 +166,7 @@ func TestRateControlCQDefaultLevelMirrorsLibvpx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyConfig returned error: %v", err)
 	}
-	defaultQIndex := libvpxPublicQuantizerToQIndex(defaultCQLevel)
+	defaultQIndex := vp8common.PublicQuantizerToQIndex(defaultCQLevel)
 	if rc.cqLevel != defaultQIndex || rc.currentQuantizer != defaultQIndex {
 		t.Fatalf("CQ default = level:%d q:%d, want qindex %d", rc.cqLevel, rc.currentQuantizer, defaultQIndex)
 	}
@@ -186,8 +190,8 @@ func TestRateControlQUsesConstantQualitySemantics(t *testing.T) {
 	if rc.mode != RateControlQ {
 		t.Fatalf("mode = %d, want RateControlQ", rc.mode)
 	}
-	cqQIndex := libvpxPublicQuantizerToQIndex(32)
-	minQIndex := libvpxPublicQuantizerToQIndex(4)
+	cqQIndex := vp8common.PublicQuantizerToQIndex(32)
+	minQIndex := vp8common.PublicQuantizerToQIndex(4)
 	if rc.cqLevel != cqQIndex {
 		t.Fatalf("Q cqLevel = %d, want qindex %d", rc.cqLevel, cqQIndex)
 	}

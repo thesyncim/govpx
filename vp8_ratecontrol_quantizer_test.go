@@ -1,29 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
 
-func TestLibvpxPublicQuantizerTranslationTable(t *testing.T) {
-	tests := []struct {
-		public int
-		qIndex int
-	}{
-		{public: 0, qIndex: 0},
-		{public: 4, qIndex: 4},
-		{public: 10, qIndex: 12},
-		{public: 32, qIndex: 43},
-		{public: 36, qIndex: 51},
-		{public: 56, qIndex: 106},
-		{public: 63, qIndex: 127},
-	}
-	for _, tt := range tests {
-		if got := libvpxPublicQuantizerToQIndex(tt.public); got != tt.qIndex {
-			t.Fatalf("public q %d maps to qindex %d, want %d", tt.public, got, tt.qIndex)
-		}
-		if got := libvpxQIndexToPublicQuantizer(tt.qIndex); got != tt.public {
-			t.Fatalf("qindex %d maps to public q %d, want %d", tt.qIndex, got, tt.public)
-		}
-	}
-}
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 func TestRateControlAdjustQuantizerUsesLibvpxOvershootBound(t *testing.T) {
 	rc := rateControlState{
@@ -496,7 +477,7 @@ func TestRateControlPreservesCQActiveBestAcrossRuntimeCBRForcedKey(t *testing.T)
 
 	rc.beginFrameWithTargetAndContext(false, rc.bitsPerFrame, rateControlFrameContext{timing: timing})
 	rc.selectQuantizerForFrameKind(false, false, 4)
-	cqQ := libvpxPublicQuantizerToQIndex(30)
+	cqQ := vp8common.PublicQuantizerToQIndex(30)
 	if rc.activeBestQuantizer != cqQ {
 		t.Fatalf("CQ active best = %d, want cq target q%d", rc.activeBestQuantizer, cqQ)
 	}

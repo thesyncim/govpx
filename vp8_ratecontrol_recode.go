@@ -1,6 +1,9 @@
 package govpx
 
-import "github.com/thesyncim/govpx/internal/vpx/arith"
+import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
+)
 
 type frameSizeRecodeState struct {
 	qLow                int
@@ -121,7 +124,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 1, recode.correctionFactor)
 			}
 			next = (recode.qHigh + recode.qLow + 1) / 2
-			if next < vp8MaxQIndex {
+			if next < vp8common.MaxQ {
 				recode.zbinOverQuant = 0
 			} else {
 				recode.zbinOQLow = min(recode.zbinOverQuant+1, recode.zbinOQHigh)
@@ -138,7 +141,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 				next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			}
-			if next < vp8MaxQIndex {
+			if next < vp8common.MaxQ {
 				recode.zbinOverQuant = 0
 			}
 		}
@@ -156,7 +159,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, macroblocks, 1, recode.correctionFactor)
 			}
 			next = (recode.qHigh + recode.qLow) / 2
-			if next < vp8MaxQIndex {
+			if next < vp8common.MaxQ {
 				recode.zbinOverQuant = 0
 			} else {
 				recode.zbinOverQuant = (recode.zbinOQHigh + recode.zbinOQLow) / 2
@@ -175,7 +178,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 				next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.activeBest, recode.activeWorst, recode.correctionFactor)
 				next = rc.applyFrameSizeRecodeRegulateQLimits(next, keyFrame, recode)
 			}
-			if next < vp8MaxQIndex {
+			if next < vp8common.MaxQ {
 				recode.zbinOverQuant = 0
 			}
 		}
@@ -191,7 +194,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 	} else if recode.zbinOverQuant > recode.zbinOQHigh {
 		recode.zbinOverQuant = recode.zbinOQHigh
 	}
-	if next < vp8MaxQIndex {
+	if next < vp8common.MaxQ {
 		recode.zbinOverQuant = 0
 	}
 	rc.setRateCorrectionFactorForFrame(keyFrame, goldenFrame, recode.correctionFactor)

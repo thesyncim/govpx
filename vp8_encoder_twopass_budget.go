@@ -1,6 +1,10 @@
 package govpx
 
-import "math"
+import (
+	"math"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 func (e *VP8Encoder) pass2AltRefPendingPlan(currentFrame uint64) (int, bool) {
 	if !e.twoPass.enabled() {
@@ -214,7 +218,7 @@ func libvpxBitCost(prob float64) float64 {
 // or below the target.
 func libvpxEstimateQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, speedCorrection float64, estMaxQCorrection float64) int {
 	if min(numMBs, sectionTargetBandwidth) <= 0 {
-		return vp8MaxQIndex
+		return vp8common.MaxQ
 	}
 	var targetNormBitsPerMB int
 	if sectionTargetBandwidth < (1 << 20) {
@@ -257,7 +261,7 @@ func libvpxEstimateQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, s
 // directly. Returns MAXQ*2 when the budget is non-positive (libvpx's
 // `if (target_norm_bits_per_mb <= 0) return MAXQ * 2;`).
 func libvpxEstimateKFGroupQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, groupIIRatio float64, vbrBiasPct int, longRollingActualBits int, longRollingTargetBits int, speedCorrection float64) int {
-	const maxQ = vp8MaxQIndex + 1
+	const maxQ = vp8common.MaxQ + 1
 	if numMBs <= 0 {
 		return maxQ * 2
 	}

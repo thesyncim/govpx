@@ -140,8 +140,8 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoCQLevel(t *testing.T) {
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want CQ interframe")
 	}
-	if inter.Quantizer != 36 || packetBaseQIndex(t, inter.Data) != libvpxPublicQuantizerToQIndex(36) {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 36 / qindex %d", inter.Quantizer, packetBaseQIndex(t, inter.Data), libvpxPublicQuantizerToQIndex(36))
+	if inter.Quantizer != 36 || packetBaseQIndex(t, inter.Data) != vp8common.PublicQuantizerToQIndex(36) {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 36 / qindex %d", inter.Quantizer, packetBaseQIndex(t, inter.Data), vp8common.PublicQuantizerToQIndex(36))
 	}
 
 	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})

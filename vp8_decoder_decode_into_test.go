@@ -117,8 +117,8 @@ func TestDecodeIntoFrameInfoReportsQuantizerAndReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key DecodeIntoWithPTS error = %v, want nil", err)
 	}
-	if key.InternalQuantizer != 20 || key.Quantizer != libvpxQIndexToPublicQuantizer(20) {
-		t.Fatalf("key quantizer = public:%d internal:%d, want public %d / internal 20", key.Quantizer, key.InternalQuantizer, libvpxQIndexToPublicQuantizer(20))
+	if key.InternalQuantizer != 20 || key.Quantizer != vp8common.QIndexToPublicQuantizer(20) {
+		t.Fatalf("key quantizer = public:%d internal:%d, want public %d / internal 20", key.Quantizer, key.InternalQuantizer, vp8common.QIndexToPublicQuantizer(20))
 	}
 	if key.RefUpdates != ReferenceFlagLast|ReferenceFlagGolden|ReferenceFlagAltRef || key.RefUsed != 0 {
 		t.Fatalf("key refs = updates:%03b used:%03b, want all updates / no inter refs", key.RefUpdates, key.RefUsed)
@@ -129,8 +129,8 @@ func TestDecodeIntoFrameInfoReportsQuantizerAndReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inter DecodeIntoWithPTS error = %v, want nil", err)
 	}
-	if inter.InternalQuantizer != 36 || inter.Quantizer != libvpxQIndexToPublicQuantizer(36) {
-		t.Fatalf("inter quantizer = public:%d internal:%d, want public %d / internal 36", inter.Quantizer, inter.InternalQuantizer, libvpxQIndexToPublicQuantizer(36))
+	if inter.InternalQuantizer != 36 || inter.Quantizer != vp8common.QIndexToPublicQuantizer(36) {
+		t.Fatalf("inter quantizer = public:%d internal:%d, want public %d / internal 36", inter.Quantizer, inter.InternalQuantizer, vp8common.QIndexToPublicQuantizer(36))
 	}
 	if inter.RefUpdates != 0 || inter.RefUsed != ReferenceFlagLast {
 		t.Fatalf("inter refs = updates:%03b used:%03b, want no updates / LAST used", inter.RefUpdates, inter.RefUsed)

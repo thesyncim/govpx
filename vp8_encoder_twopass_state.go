@@ -1,5 +1,7 @@
 package govpx
 
+import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+
 type twoPassState struct {
 	stats      []FirstPassFrameStats
 	totalStats FirstPassFrameStats
@@ -302,7 +304,7 @@ const (
 )
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
-	*t = twoPassState{worstQuality: vp8MaxQIndex}
+	*t = twoPassState{worstQuality: vp8common.MaxQ}
 	if len(stats) == 0 || bitsPerFrame <= 0 {
 		return
 	}
@@ -376,8 +378,8 @@ func (t *twoPassState) enabled() bool {
 }
 
 func (t *twoPassState) configureQuantizerBounds(bestQuality int, worstQuality int) {
-	t.bestQuality = clampQuantizerValue(bestQuality, 0, vp8MaxQIndex)
-	t.worstQuality = max(clampQuantizerValue(worstQuality, 0, vp8MaxQIndex), t.bestQuality)
+	t.bestQuality = clampQuantizerValue(bestQuality, 0, vp8common.MaxQ)
+	t.worstQuality = max(clampQuantizerValue(worstQuality, 0, vp8common.MaxQ), t.bestQuality)
 	// libvpx vp8/encoder/onyx_if.c line 1953 seeds ni_av_qi to
 	// oxcf.worst_allowed_q. The encoder pushes those bounds via
 	// configureQuantizerBounds, which can happen after configure(); keep
@@ -1141,7 +1143,7 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	// the long-fixture rolling clamp) the gate may fire — applied via
 	// applyNiMaxQLimitClamp before the call.
 	minLimit, maxLimit := t.applyNiMaxQLimitClamp(t.maxqMinLimit, t.maxqMaxLimit)
-	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8MaxQIndex)
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8common.MaxQ)
 	t.pass2ActiveWorstQ = tmpQ
 	t.pass2ActiveWorstQValid = true
 	// libvpx vp8/encoder/firstpass.c lines 2358-2364: after the first
@@ -1454,7 +1456,7 @@ func (t *twoPassState) dampedUpdatePass2ActiveWorstQ(frame uint64) {
 	// the gate fires (ni_frames > total/256 && ni_frames > 150) and
 	// returns the bounds for the immediate call.
 	minLimit, maxLimit := t.applyNiMaxQLimitClamp(t.maxqMinLimit, t.maxqMaxLimit)
-	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8MaxQIndex)
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8common.MaxQ)
 	// libvpx firstpass.c lines 2384-2392:
 	//   /* Move active_worst_quality but in a damped way */
 	//   if (tmp_q > cpi->active_worst_quality) cpi->active_worst_quality++;
@@ -1467,7 +1469,7 @@ func (t *twoPassState) dampedUpdatePass2ActiveWorstQ(frame uint64) {
 	} else if tmpQ < aw {
 		aw--
 	}
-	aw = min(max((aw*3+tmpQ+2)/4, 0), vp8MaxQIndex)
+	aw = min(max((aw*3+tmpQ+2)/4, 0), vp8common.MaxQ)
 	t.pass2ActiveWorstQ = aw
 }
 

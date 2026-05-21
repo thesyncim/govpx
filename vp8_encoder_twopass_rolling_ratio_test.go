@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 // TestApplyEstMaxQRollingRatioGateRequiresPositiveTarget pins the
 // outer-half of the libvpx gate at vp8/encoder/firstpass.c lines
@@ -159,7 +163,7 @@ func TestApplyEstMaxQRollingRatioRunsInSeedPass2(t *testing.T) {
 	ts := &twoPassState{}
 	ts.configure(stats, 50_000, 50, 0, 400)
 	ts.configureFrameDims(128, 128)
-	ts.configureQuantizerBounds(0, vp8MaxQIndex)
+	ts.configureQuantizerBounds(0, vp8common.MaxQ)
 	// Pre-seed a valid active_worst_quality below the configured
 	// worst, so the libvpx gate is open even on this frame.
 	ts.pass2ActiveWorstQ = 40

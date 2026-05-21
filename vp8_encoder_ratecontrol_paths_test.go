@@ -768,8 +768,8 @@ func TestEncodeIntoCQLevelSelectsQuantizer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
-	if inter.Quantizer != 32 || packetBaseQIndex(t, inter.Data) != libvpxPublicQuantizerToQIndex(32) {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 32 / qindex %d", inter.Quantizer, packetBaseQIndex(t, inter.Data), libvpxPublicQuantizerToQIndex(32))
+	if inter.Quantizer != 32 || packetBaseQIndex(t, inter.Data) != vp8common.PublicQuantizerToQIndex(32) {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 32 / qindex %d", inter.Quantizer, packetBaseQIndex(t, inter.Data), vp8common.PublicQuantizerToQIndex(32))
 	}
 }
 
@@ -826,8 +826,8 @@ func TestEncodeIntoWritesLibvpxFrameQuantDeltas(t *testing.T) {
 	}
 	interQuant := packetState(t, inter.Data).Quant
 	wantUVDelta := int8(-15)
-	if interQuant.BaseQIndex != uint8(libvpxPublicQuantizerToQIndex(56)) || interQuant.UVDCDelta != wantUVDelta || interQuant.UVACDelta != wantUVDelta {
-		t.Fatalf("inter quant = %+v, want screen-content UV deltas %d at qindex %d", interQuant, wantUVDelta, libvpxPublicQuantizerToQIndex(56))
+	if interQuant.BaseQIndex != uint8(vp8common.PublicQuantizerToQIndex(56)) || interQuant.UVDCDelta != wantUVDelta || interQuant.UVACDelta != wantUVDelta {
+		t.Fatalf("inter quant = %+v, want screen-content UV deltas %d at qindex %d", interQuant, wantUVDelta, vp8common.PublicQuantizerToQIndex(56))
 	}
 }
 
@@ -847,8 +847,8 @@ func TestEncodeIntoCQDefaultLevelMirrorsLibvpx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
-	if e.opts.CQLevel != defaultCQLevel || e.rc.currentQuantizer != libvpxPublicQuantizerToQIndex(defaultCQLevel) {
-		t.Fatalf("default CQ = opts:%d q:%d, want public %d / qindex %d", e.opts.CQLevel, e.rc.currentQuantizer, defaultCQLevel, libvpxPublicQuantizerToQIndex(defaultCQLevel))
+	if e.opts.CQLevel != defaultCQLevel || e.rc.currentQuantizer != vp8common.PublicQuantizerToQIndex(defaultCQLevel) {
+		t.Fatalf("default CQ = opts:%d q:%d, want public %d / qindex %d", e.opts.CQLevel, e.rc.currentQuantizer, defaultCQLevel, vp8common.PublicQuantizerToQIndex(defaultCQLevel))
 	}
 }
 
@@ -1006,8 +1006,8 @@ func TestEncodeIntoRetriesQuantizerBeforeCommitOnOvershoot(t *testing.T) {
 	if result.Quantizer <= 4 {
 		t.Fatalf("result quantizer = %d, want retry above initial 4", result.Quantizer)
 	}
-	if got := packetBaseQIndex(t, result.Data); got != libvpxPublicQuantizerToQIndex(result.Quantizer) {
-		t.Fatalf("packet base q = %d, want public result quantizer %d mapped to qindex %d", got, result.Quantizer, libvpxPublicQuantizerToQIndex(result.Quantizer))
+	if got := packetBaseQIndex(t, result.Data); got != vp8common.PublicQuantizerToQIndex(result.Quantizer) {
+		t.Fatalf("packet base q = %d, want public result quantizer %d mapped to qindex %d", got, result.Quantizer, vp8common.PublicQuantizerToQIndex(result.Quantizer))
 	}
 	if e.rc.lastQuantizer != packetBaseQIndex(t, result.Data) {
 		t.Fatalf("last quantizer = %d, want committed packet qindex %d", e.rc.lastQuantizer, packetBaseQIndex(t, result.Data))

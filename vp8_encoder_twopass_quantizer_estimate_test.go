@@ -3,6 +3,8 @@ package govpx
 import (
 	"math"
 	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
 // TestLibvpxEstimateMaxQReturnsMaxOnZeroBudget pins libvpx's
@@ -212,11 +214,11 @@ func TestLibvpxCalculateModifiedErrZeroAvErrUsesDoubleDivideCheck(t *testing.T) 
 
 // TestLibvpxEstimateQReturnsMaxOnZeroBudget pins libvpx's
 // `if (target_norm_bits_per_mb <= 0) return MAXQ` early exit (govpx
-// uses vp8MaxQIndex as the libvpx MAXQ analog).
+// uses vp8common.MaxQ as the libvpx MAXQ analog).
 func TestLibvpxEstimateQReturnsMaxOnZeroBudget(t *testing.T) {
 	got := libvpxEstimateQ(1500, 0, 100.0, 1.0, 1.0)
-	if got != vp8MaxQIndex {
-		t.Fatalf("estimate_q with zero budget = %d, want %d", got, vp8MaxQIndex)
+	if got != vp8common.MaxQ {
+		t.Fatalf("estimate_q with zero budget = %d, want %d", got, vp8common.MaxQ)
 	}
 }
 
@@ -234,7 +236,7 @@ func TestLibvpxEstimateQFindsLowestQAcceptingBudget(t *testing.T) {
 // `if (target_norm_bits_per_mb <= 0) return MAXQ * 2;` early exit.
 func TestLibvpxEstimateKFGroupQReturnsDoubleMaxOnEmptyBudget(t *testing.T) {
 	got := libvpxEstimateKFGroupQ(1500, 0, 100.0, 5.0, 50, 0, 0, 1.0)
-	want := (vp8MaxQIndex + 1) * 2
+	want := (vp8common.MaxQ + 1) * 2
 	if got != want {
 		t.Fatalf("estimate_kf_group_q with zero budget = %d, want %d", got, want)
 	}
@@ -247,10 +249,10 @@ func TestLibvpxEstimateKFGroupQOvershootIncrementsBeyondMax(t *testing.T) {
 	// Use a tiny budget with high err_per_mb so even at Q=MAXQ the
 	// bits are still above target. Q should overshoot MAXQ.
 	got := libvpxEstimateKFGroupQ(1500, 1500, 100000.0, 5.0, 50, 1000, 1000, 1.0)
-	if got <= vp8MaxQIndex {
-		t.Fatalf("estimate_kf_group_q overshoot = %d, want > MAXQ=%d", got, vp8MaxQIndex)
+	if got <= vp8common.MaxQ {
+		t.Fatalf("estimate_kf_group_q overshoot = %d, want > MAXQ=%d", got, vp8common.MaxQ)
 	}
-	if got >= (vp8MaxQIndex+1)*2 {
+	if got >= (vp8common.MaxQ+1)*2 {
 		t.Fatalf("estimate_kf_group_q overshoot = %d, want < MAXQ*2", got)
 	}
 }
@@ -261,7 +263,7 @@ func TestLibvpxEstimateKFGroupQOvershootIncrementsBeyondMax(t *testing.T) {
 // helper still returns a sane Q.
 func TestLibvpxEstimateKFGroupQSpendRatioFallback(t *testing.T) {
 	got := libvpxEstimateKFGroupQ(1500, 100_000_000, 50.0, 5.0, 50, 0, 0, 1.0)
-	if got < 0 || got > (vp8MaxQIndex+1)*2 {
+	if got < 0 || got > (vp8common.MaxQ+1)*2 {
 		t.Fatalf("estimate_kf_group_q with long_rolling_target=0 returned out-of-range Q=%d", got)
 	}
 }

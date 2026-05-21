@@ -154,9 +154,9 @@ func (r *roiMapState) clearUpdateFlags() {
 
 func roiQuantizerDeltaToQIndex(delta int) int {
 	if delta < 0 {
-		return -libvpxPublicQuantizerToQIndex(-delta)
+		return -vp8common.PublicQuantizerToQIndex(-delta)
 	}
-	return libvpxPublicQuantizerToQIndex(delta)
+	return vp8common.PublicQuantizerToQIndex(delta)
 }
 
 func (e *VP8Encoder) roiSegmentationConfig() vp8enc.SegmentationConfig {

@@ -561,7 +561,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		TwoPassFrameTargetBits:             twoPassTargetBits,
 		PTS:                                pts,
 		Duration:                           duration,
-		Quantizer:                          libvpxQIndexToPublicQuantizer(e.rc.currentQuantizer),
+		Quantizer:                          vp8common.QIndexToPublicQuantizer(e.rc.currentQuantizer),
 		TargetBitrateKbps:                  e.rc.targetBitrateKbps,
 		FrameTargetBits:                    e.rc.frameTargetBits,
 		BufferLevelBits:                    e.rc.bufferLevelBits,
@@ -728,7 +728,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.TwoPassFrameTargetBits = twoPassTargetBits
 			result.FrameTargetBits = e.rc.frameTargetBits
 			result.BufferLevelBits = e.rc.bufferLevelBits
-			result.Quantizer = libvpxQIndexToPublicQuantizer(e.rc.currentQuantizer)
+			result.Quantizer = vp8common.QIndexToPublicQuantizer(e.rc.currentQuantizer)
 			result.InternalQuantizer = e.rc.currentQuantizer
 		} else {
 			finalQuantizer := e.rc.currentQuantizer

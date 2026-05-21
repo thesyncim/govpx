@@ -1,6 +1,9 @@
 package govpx
 
-import "github.com/thesyncim/govpx/internal/vpx/arith"
+import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
+)
 
 var libvpxGFBoostQAdjustment = [128]int{
 	80, 82, 84, 86, 88, 90, 92, 94, 96, 97, 98, 99, 100, 101, 102,
@@ -97,7 +100,7 @@ type gfParamsOutput struct {
 // when compressor_speed==2 and sf.recode_loop==0, the boost is halved before
 // the Q limit and interval logic run.
 func calcGFParams(in gfParamsInput) gfParamsOutput {
-	q := clampQuantizerValue(in.Q, 0, vp8MaxQIndex)
+	q := clampQuantizerValue(in.Q, 0, vp8common.MaxQ)
 	totMBs := in.RecentRefIntra + in.RecentRefLast + in.RecentRefGolden + in.RecentRefAltRef
 	gfFrameUsage := 0
 	if totMBs > 0 {

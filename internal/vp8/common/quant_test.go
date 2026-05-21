@@ -29,6 +29,44 @@ func TestQuantLookupClampsAndCaps(t *testing.T) {
 	}
 }
 
+func TestPublicQuantizerTranslationTable(t *testing.T) {
+	tests := []struct {
+		public int
+		qIndex int
+	}{
+		{public: 0, qIndex: 0},
+		{public: 4, qIndex: 4},
+		{public: 10, qIndex: 12},
+		{public: 32, qIndex: 43},
+		{public: 36, qIndex: 51},
+		{public: 56, qIndex: 106},
+		{public: 63, qIndex: 127},
+	}
+	for _, tt := range tests {
+		if got := PublicQuantizerToQIndex(tt.public); got != tt.qIndex {
+			t.Fatalf("public q %d maps to qindex %d, want %d", tt.public, got, tt.qIndex)
+		}
+		if got := QIndexToPublicQuantizer(tt.qIndex); got != tt.public {
+			t.Fatalf("qindex %d maps to public q %d, want %d", tt.qIndex, got, tt.public)
+		}
+	}
+}
+
+func TestPublicQuantizerTranslationClampsBounds(t *testing.T) {
+	if got := PublicQuantizerToQIndex(-1); got != 0 {
+		t.Fatalf("low public q maps to qindex %d, want 0", got)
+	}
+	if got := PublicQuantizerToQIndex(64); got != MaxQ {
+		t.Fatalf("high public q maps to qindex %d, want %d", got, MaxQ)
+	}
+	if got := QIndexToPublicQuantizer(-1); got != 0 {
+		t.Fatalf("low qindex maps to public q %d, want 0", got)
+	}
+	if got := QIndexToPublicQuantizer(MaxQ + 1); got != maxPublicQuantizer {
+		t.Fatalf("high qindex maps to public q %d, want %d", got, maxPublicQuantizer)
+	}
+}
+
 func TestBuildFrameDequantTables(t *testing.T) {
 	var tables FrameDequantTables
 	BuildFrameDequantTables(QuantDeltas{

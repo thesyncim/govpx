@@ -1,5 +1,7 @@
 package govpx
 
+import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+
 var libvpxKeyFrameBoostQAdjustment = [128]int{
 	128, 129, 130, 131, 132, 133, 134, 135,
 	136, 137, 138, 139, 140, 141, 142, 143,
@@ -190,7 +192,7 @@ func libvpxRegulatedQuantizerWithZbinAltRef(keyFrame bool, goldenFrame bool, alt
 	}
 	q = clampQuantizerValue(q, minQ, maxQ)
 	zbinOverQuant := 0
-	if q >= vp8MaxQIndex {
+	if q >= vp8common.MaxQ {
 		zbinOverQuant = libvpxZbinOverQuantForTargetAltRef(keyFrame, goldenFrame, altRefFrame, bitsAtSelectedQ, targetBitsPerMB)
 	}
 	return q, zbinOverQuant

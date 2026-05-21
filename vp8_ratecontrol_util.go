@@ -1,5 +1,7 @@
 package govpx
 
+import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+
 func (rc *rateControlState) applyPass2CBRBufferAdjustment(targetBits int, keyFrame bool) int {
 	if rc.mode != RateControlCBR || keyFrame || targetBits <= 0 || rc.bufferOptimalBits <= 0 {
 		return targetBits
@@ -29,7 +31,7 @@ func (rc *rateControlState) applyCQFloor() {
 	}
 	if rc.currentQuantizer < rc.cqLevel {
 		rc.currentQuantizer = rc.cqLevel
-		if rc.currentQuantizer < vp8MaxQIndex {
+		if rc.currentQuantizer < vp8common.MaxQ {
 			rc.currentZbinOverQuant = 0
 		}
 	}
@@ -262,19 +264,6 @@ func normalizedCQLevel(level int, minQuantizer int) int {
 		return defaultCQLevel
 	}
 	return level
-}
-
-func libvpxPublicQuantizerToQIndex(q int) int {
-	return libvpxQuantizerTranslation[min(max(q, 0), maxQuantizer)]
-}
-
-func libvpxQIndexToPublicQuantizer(qIndex int) int {
-	for q, translated := range libvpxQuantizerTranslation {
-		if translated >= qIndex {
-			return q
-		}
-	}
-	return maxQuantizer
 }
 
 func normalizeRateControlPct(value int, fallback int) int {

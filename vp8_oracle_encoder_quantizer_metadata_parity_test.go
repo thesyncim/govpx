@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
 type frameFlagsQuantizerLogEntry struct {
@@ -303,8 +304,8 @@ func encodeFramesWithGovpxQuantizerTrace(t *testing.T, opts EncoderOptions, sour
 			if result.InternalQuantizer != entry.PacketInternal {
 				t.Fatalf("frame %d EncodeResult internal quantizer = %d, want packet qindex %d", i, result.InternalQuantizer, entry.PacketInternal)
 			}
-			if result.Quantizer != libvpxQIndexToPublicQuantizer(entry.PacketInternal) {
-				t.Fatalf("frame %d EncodeResult public quantizer = %d, want %d for qindex %d", i, result.Quantizer, libvpxQIndexToPublicQuantizer(entry.PacketInternal), entry.PacketInternal)
+			if result.Quantizer != vp8common.QIndexToPublicQuantizer(entry.PacketInternal) {
+				t.Fatalf("frame %d EncodeResult public quantizer = %d, want %d for qindex %d", i, result.Quantizer, vp8common.QIndexToPublicQuantizer(entry.PacketInternal), entry.PacketInternal)
 			}
 			out = append(out, append([]byte(nil), result.Data...))
 		}
@@ -363,8 +364,8 @@ func assertQuantizerMetadataParity(t *testing.T, trace []govpxQuantizerCallTrace
 			if !got.LastQuantizerValid {
 				t.Fatalf("frame %d LastQuantizer returned !ok, want prior committed qindex %d", got.Frame, lastInternal)
 			}
-			if got.LastInternal != lastInternal || got.LastPublic != libvpxQIndexToPublicQuantizer(lastInternal) {
-				t.Fatalf("frame %d LastQuantizer = public:%d internal:%d, want public:%d internal:%d", got.Frame, got.LastPublic, got.LastInternal, libvpxQIndexToPublicQuantizer(lastInternal), lastInternal)
+			if got.LastInternal != lastInternal || got.LastPublic != vp8common.QIndexToPublicQuantizer(lastInternal) {
+				t.Fatalf("frame %d LastQuantizer = public:%d internal:%d, want public:%d internal:%d", got.Frame, got.LastPublic, got.LastInternal, vp8common.QIndexToPublicQuantizer(lastInternal), lastInternal)
 			}
 			if want.LastQuantizer != lastInternal {
 				t.Fatalf("frame %d libvpx last quantizer = %d, want prior committed qindex %d", got.Frame, want.LastQuantizer, lastInternal)

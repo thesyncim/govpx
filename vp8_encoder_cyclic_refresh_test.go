@@ -35,7 +35,7 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) 
 	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
 		t.Fatalf("key segmentation = %+v, want map and data update", keyState.Segmentation)
 	}
-	wantAltQ := int8(libvpxPublicQuantizerToQIndex(20)/2 - libvpxPublicQuantizerToQIndex(20))
+	wantAltQ := int8(vp8common.PublicQuantizerToQIndex(20)/2 - vp8common.PublicQuantizerToQIndex(20))
 	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantAltQ {
 		t.Fatalf("key static segment alt-q = %d, want %d", got, wantAltQ)
 	}

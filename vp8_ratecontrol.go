@@ -3,6 +3,7 @@ package govpx
 import (
 	"math"
 
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
@@ -267,7 +268,6 @@ const (
 	libvpxMinBPBFactor              = 0.01
 	libvpxMaxBPBFactor              = 50.0
 	libvpxZbinOverQuantMax          = 192
-	vp8MaxQIndex                    = 127
 
 	// libvpx vp8/encoder/onyx_int.h GF interval defaults.
 	// libvpxMinGFInterval is declared in vp8_encoder_firstpass.go.
@@ -278,13 +278,6 @@ const (
 // libvpxPriorKeyFrameWeight ports prior_key_frame_weight from
 // vp8/encoder/ratectrl.c (used by estimate_keyframe_frequency).
 var libvpxPriorKeyFrameWeight = [keyFrameContextSize]int{1, 2, 3, 4, 5}
-
-var libvpxQuantizerTranslation = [maxQuantizer + 1]int{
-	0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 15, 17, 18, 19,
-	20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 35, 37, 39, 41,
-	43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 64, 67, 70, 73, 76, 79,
-	82, 85, 88, 91, 94, 97, 100, 103, 106, 109, 112, 115, 118, 121, 124, 127,
-}
 
 const defaultDropFramesWaterMark = 60
 
@@ -407,9 +400,9 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.mode = cfg.Mode
 	rc.minBitrateKbps = cfg.MinBitrateKbps
 	rc.maxBitrateKbps = cfg.MaxBitrateKbps
-	rc.minQuantizer = libvpxPublicQuantizerToQIndex(cfg.MinQuantizer)
-	rc.maxQuantizer = libvpxPublicQuantizerToQIndex(cfg.MaxQuantizer)
-	rc.cqLevel = libvpxPublicQuantizerToQIndex(normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer))
+	rc.minQuantizer = vp8common.PublicQuantizerToQIndex(cfg.MinQuantizer)
+	rc.maxQuantizer = vp8common.PublicQuantizerToQIndex(cfg.MaxQuantizer)
+	rc.cqLevel = vp8common.PublicQuantizerToQIndex(normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer))
 	rc.undershootPct = normalizeRateControlPct(cfg.UndershootPct, defaultRateControlUndershootPct)
 	rc.overshootPct = normalizeRateControlPct(cfg.OvershootPct, defaultRateControlOvershootPct)
 	rc.bufferSizeMs = cfg.BufferSizeMs

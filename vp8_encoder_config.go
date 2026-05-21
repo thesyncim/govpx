@@ -91,7 +91,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 	if rateControlModeUsesCQLevel(e.rc.mode) && (level < e.opts.MinQuantizer || level > e.opts.MaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
-	qIndex := libvpxPublicQuantizerToQIndex(level)
+	qIndex := vp8common.PublicQuantizerToQIndex(level)
 	e.rc.cqLevel = qIndex
 	e.opts.CQLevel = level
 	if e.rc.mode == RateControlCQ {
@@ -425,8 +425,8 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	prevCurrentQuantizer := e.rc.currentQuantizer
 	prevLastQuantizer := e.rc.lastQuantizer
 	prevLastInterQuantizer := e.rc.lastInterQuantizer
-	e.rc.minQuantizer = libvpxPublicQuantizerToQIndex(nextMinQuantizer)
-	e.rc.maxQuantizer = libvpxPublicQuantizerToQIndex(nextMaxQuantizer)
+	e.rc.minQuantizer = vp8common.PublicQuantizerToQIndex(nextMinQuantizer)
+	e.rc.maxQuantizer = vp8common.PublicQuantizerToQIndex(nextMaxQuantizer)
 	e.opts.MinQuantizer = nextMinQuantizer
 	e.opts.MaxQuantizer = nextMaxQuantizer
 	if e.rc.mode == RateControlCQ {
