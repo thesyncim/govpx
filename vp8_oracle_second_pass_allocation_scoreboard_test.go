@@ -39,10 +39,8 @@ import (
 	"encoding/json"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
@@ -183,57 +181,6 @@ func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
 		return
 	}
 	enforceSecondPassBaseline(t, reports)
-}
-
-func runLibvpxPass1(t *testing.T, vpxenc string, yuvPath string, ivfPath string, fpfPath string, opts EncoderOptions, targetKbps int, count int) {
-	t.Helper()
-	runLibvpxPass1WithExtra(t, vpxenc, yuvPath, ivfPath, fpfPath, opts, targetKbps, count, nil)
-}
-
-func runLibvpxPass1WithExtra(t *testing.T, vpxenc string, yuvPath string, ivfPath string, fpfPath string, opts EncoderOptions, targetKbps int, count int, extraArgs []string) {
-	t.Helper()
-	deadlineArg := libvpxDeadlineArg(opts.Deadline)
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--passes=2",
-		"--pass=1",
-		"--fpf=" + fpfPath,
-		"--end-usage=vbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--kf-min-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--kf-max-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(count),
-		"--output=" + ivfPath,
-	}
-	args = append(args, extraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxenc, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("vpxenc pass 1 failed: %v\n%s", err, out)
-	}
-}
-
-func libvpxDeadlineArg(deadline Deadline) string {
-	switch deadline {
-	case DeadlineBestQuality:
-		return "--best"
-	case DeadlineRealtime:
-		return "--rt"
-	default:
-		return "--good"
-	}
 }
 
 func secondPassRateRowsFromTrace(t *testing.T, trace []byte) []secondPassRateRow {

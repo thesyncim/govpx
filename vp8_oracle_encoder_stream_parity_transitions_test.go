@@ -5,12 +5,11 @@ package govpx
 import (
 	"errors"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
@@ -1089,60 +1088,48 @@ func encodeFramesWithLibvpxTwoPassOracle(t *testing.T, vpxenc string, vpxencOrac
 	return encodeFramesWithLibvpxTwoPassOracleArgs(t, vpxenc, vpxencOracle, name, opts, targetKbps, sources, nil)
 }
 
-func encodeFramesWithLibvpxTwoPassOracleArgs(t *testing.T, vpxenc string, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) [][]byte {
+func encodeFramesWithLibvpxTwoPassOracleArgs(t *testing.T, vpxenc string, vpxencOracle string, _ string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) [][]byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivf1Path := filepath.Join(dir, name+"-pass1.ivf")
-	ivf2Path := filepath.Join(dir, name+"-pass2.ivf")
-	fpfPath := filepath.Join(dir, name+".fpf")
-	writeEncoderValidationI420(t, yuvPath, sources)
 	passExtraArgs := libvpxTwoPassControlArgs(opts)
 	passExtraArgs = append(passExtraArgs, extraArgs...)
-	runLibvpxPass1WithExtra(t, vpxenc, yuvPath, ivf1Path, fpfPath, opts, targetKbps, len(sources), passExtraArgs)
-
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		libvpxDeadlineArg(opts.Deadline),
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--passes=2",
-		"--pass=2",
-		"--fpf=" + fpfPath,
-		"--end-usage=vbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--kf-min-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--kf-max-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivf2Path,
-	}
+	sectionArgs := []string{}
 	if opts.TwoPassVBRBiasPct > 0 {
-		args = append(args, "--bias-pct="+strconv.Itoa(opts.TwoPassVBRBiasPct))
+		sectionArgs = append(sectionArgs, "--bias-pct="+strconv.Itoa(opts.TwoPassVBRBiasPct))
 	}
 	if opts.TwoPassMinPct > 0 {
-		args = append(args, "--minsection-pct="+strconv.Itoa(opts.TwoPassMinPct))
+		sectionArgs = append(sectionArgs, "--minsection-pct="+strconv.Itoa(opts.TwoPassMinPct))
 	}
 	if opts.TwoPassMaxPct > 0 {
-		args = append(args, "--maxsection-pct="+strconv.Itoa(opts.TwoPassMaxPct))
+		sectionArgs = append(sectionArgs, "--maxsection-pct="+strconv.Itoa(opts.TwoPassMaxPct))
 	}
-	args = append(args, passExtraArgs...)
-	args = append(args, yuvPath)
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = os.Environ()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc-oracle two-pass pass2 failed: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(ivf2Path)
+
+	_, data, diag, err := coracle.VpxencVP8TwoPassEncodeI420(
+		encoderValidationI420Bytes(t, sources),
+		coracle.VpxencVP8TwoPassConfig{
+			FirstPassBinaryPath:  vpxenc,
+			SecondPassBinaryPath: vpxencOracle,
+			Common: coracle.VpxencVP8Config{
+				Width:             opts.Width,
+				Height:            opts.Height,
+				Frames:            len(sources),
+				Deadline:          libvpxOracleDeadline(opts.Deadline),
+				CPUUsed:           opts.CpuUsed,
+				TargetBitrateKbps: targetKbps,
+				MinQ:              opts.MinQuantizer,
+				MaxQ:              opts.MaxQuantizer,
+				Timebase:          "1/" + strconv.Itoa(opts.FPS),
+				FPS:               strconv.Itoa(opts.FPS) + "/1",
+				KeyFrameDistSet:   true,
+				KeyFrameMinDist:   opts.KeyFrameInterval,
+				KeyFrameMaxDist:   opts.KeyFrameInterval,
+				ExtraArgs:         []string{"--end-usage=vbr"},
+			},
+			FirstPassExtraArgs:  passExtraArgs,
+			SecondPassExtraArgs: append(sectionArgs, passExtraArgs...),
+		},
+	)
 	if err != nil {
-		t.Fatalf("read %s: %v", ivf2Path, err)
+		t.Fatalf("vpxenc-oracle two-pass encode failed: %v\n%s", err, diag)
 	}
 	frames, err := testutil.IVFFramePayloads(data)
 	if err != nil {
