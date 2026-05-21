@@ -75,7 +75,7 @@ import (
 //   - task #226 (frame-6 picker audit)
 func TestVP8RealtimePickerCPUFastpathParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the audit replay")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run realtime picker fast-path parity")
 	}
 	vpxencOracle := coracletest.VpxencOracle(t)
 
@@ -111,7 +111,7 @@ func TestVP8RealtimePickerCPUFastpathParity(t *testing.T) {
 			}
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task244-"+c.name, opts, 600, sources, extraArgs)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "realtime-picker-fastpath-"+c.name, opts, 600, sources, extraArgs)
 
 			if len(govpxFrames) != len(libvpxFrames) {
 				t.Fatalf("frame count drift: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -135,7 +135,7 @@ func TestVP8RealtimePickerCPUFastpathParity(t *testing.T) {
 				}
 			}
 
-			t.Logf("task #244 audit: cpu_used=%d %dx%d %d frames byte-MATCH (no pickinter.c gate divergence)",
+			t.Logf("realtime picker fast path: cpu_used=%d %dx%d %d frames byte-MATCH (no pickinter.c gate divergence)",
 				c.cpuUsed, opts.Width, opts.Height, len(govpxFrames))
 		})
 	}

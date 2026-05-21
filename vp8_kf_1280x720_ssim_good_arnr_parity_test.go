@@ -107,7 +107,7 @@ import (
 //	testdata/fuzz/FuzzEncoderProductionStreamByteParity/regression_option_grid_788d442c
 func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the task #227 audit replay")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run the VP8 GoodQuality ARNR parity replay")
 	}
 	vpxencOracle := coracletest.VpxencOracle(t)
 
@@ -147,10 +147,10 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	}
 
 	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	// Task #349: --threads=4 audit cohort routed through the libvpx
-	// threading-quarantine wrapper. See the BestARNR audit's parallel
-	// comment block for context on the #297/#298/#304/#324 trap.
-	libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "task227-byte0-kf-1280x720-ssim-good-arnr-audit", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
+	// The --threads=4 cohort is routed through the libvpx threading
+	// quarantine wrapper so oracle-side non-determinism is caught as a SHA
+	// mismatch before the byte comparison below.
+	libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "kf-1280x720-ssim-good-arnr", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
 
 	if len(govpxFrames) < 2 || len(libvpxFrames) < 2 {
 		t.Fatalf("expected >=2 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -393,13 +393,13 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	govpxSHA1 := sha256.Sum256(govpxFrames[1])
 	libvpxSHA1 := sha256.Sum256(libvpxFrames[1])
 
-	t.Logf("task #227 pinned: frame 0 govpx_len=%d libvpx_len=%d "+
+	t.Logf("GoodQuality ARNR parity pin: frame 0 govpx_len=%d libvpx_len=%d "+
 		"govpx_first_part=%d libvpx_first_part=%d "+
 		"govpx_sha=%s libvpx_sha=%s",
 		wantFrame0GovpxLen, wantFrame0LibvpxLen,
 		wantFrame0GovpxFirstPart, wantFrame0LibvpxFirstPart,
 		hex.EncodeToString(govpxSHA0[:8]), hex.EncodeToString(libvpxSHA0[:8]))
-	t.Logf("task #227 pinned: frame 1 govpx_len=%d libvpx_len=%d "+
+	t.Logf("GoodQuality ARNR parity pin: frame 1 govpx_len=%d libvpx_len=%d "+
 		"govpx_first_part=%d libvpx_first_part=%d "+
 		"govpx_sha=%s libvpx_sha=%s",
 		wantFrame1GovpxLen, wantFrame1LibvpxLen,

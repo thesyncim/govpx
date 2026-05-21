@@ -107,21 +107,21 @@ func TestVP8ChangeConfigTailParity(t *testing.T) {
 
 	withPath := t.TempDir() + "/libvpx_with_noise.jsonl"
 	t.Setenv("GOVPX_ORACLE_TRACE_OUT", withPath)
-	encodeFramesWithFrameFlagsDriver(t, driver, "task209-with-noise",
+	encodeFramesWithFrameFlagsDriver(t, driver, "change-config-tail-with-noise",
 		opts, targetKbps, sources, nil,
 		[]string{"--control-script=" + strings.Join([]string{"-", "noise:0"}, ",")})
 	withRows := parseChangeConfigTailRows(t, withPath)
 
 	withoutPath := t.TempDir() + "/libvpx_without_noise.jsonl"
 	t.Setenv("GOVPX_ORACLE_TRACE_OUT", withoutPath)
-	encodeFramesWithFrameFlagsDriver(t, driver, "task209-without-noise",
+	encodeFramesWithFrameFlagsDriver(t, driver, "change-config-tail-without-noise",
 		opts, targetKbps, sources, nil,
 		[]string{"--control-script=" + strings.Join([]string{"-", "-"}, ",")})
 	withoutRows := parseChangeConfigTailRows(t, withoutPath)
 
 	if len(withRows) == 0 {
 		t.Fatalf("with-noise trace produced no change_config_tail rows; the "+
-			"build_vpxenc_oracle.sh task #209 patch may have regressed. "+
+			"build_vpxenc_oracle.sh change_config_tail patch may have regressed. "+
 			"Path: %s", withPath)
 	}
 	if len(withoutRows) == 0 {
@@ -171,11 +171,11 @@ func TestVP8ChangeConfigTailParity(t *testing.T) {
 		}
 	}
 	if len(staticDiffs) > 0 {
-		t.Fatalf("task #209 invariant violated: vp8_change_config tail emits "+
+		t.Fatalf("change_config_tail invariant violated: vp8_change_config tail emits "+
 			"a 'static' cpi field that diverges between with-noise:0 and "+
 			"without-noise:0 runs at the last change_config invocation. "+
 			"If this fires, the 240B gap CAN be explained by a cpi-level "+
-			"field mismatch and the next audit step should port that field "+
+			"field mismatch and the next investigation should port that field "+
 			"from libvpx vp8/encoder/onyx_if.c verbatim. Divergent fields: %v",
 			staticDiffs)
 	}

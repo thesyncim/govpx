@@ -160,13 +160,11 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	}
 
 	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	// Task #349: this audit's cohort is decoded with --threads=4 (see
-	// the comment block above), which sits inside the libvpx threading
-	// non-determinism quarantine. Use the re-run wrapper so that any
-	// oracle-side flake is caught as a test failure with a SHA log
-	// rather than silently contaminating the byte comparison below
-	// (the original misattribution chain at #297/#298/#304/#324).
-	libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "task207-byte0-kf-1280x720-ssim-best-arnr-audit", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
+	// This cohort is decoded with --threads=4, which sits inside the
+	// libvpx threading non-determinism quarantine. Use the re-run wrapper
+	// so any oracle-side flake is caught as a SHA mismatch instead of
+	// silently contaminating the byte comparison below.
+	libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "kf-1280x720-ssim-best-arnr", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
 
 	if len(govpxFrames) < 2 || len(libvpxFrames) < 2 {
 		t.Fatalf("expected >=2 frames; got govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -663,13 +661,13 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	govpxSHA1 := sha256.Sum256(govpxFrames[1])
 	libvpxSHA1 := sha256.Sum256(libvpxFrames[1])
 
-	t.Logf("task #207 pinned: frame 0 govpx_len=%d libvpx_len=%d "+
+	t.Logf("BestQuality ARNR parity pin: frame 0 govpx_len=%d libvpx_len=%d "+
 		"govpx_first_part=%d libvpx_first_part=%d "+
 		"govpx_sha=%s libvpx_sha=%s",
 		wantFrame0GovpxLen, wantFrame0LibvpxLen,
 		wantFrame0GovpxFirstPart, wantFrame0LibvpxFirstPart,
 		hex.EncodeToString(govpxSHA0[:8]), hex.EncodeToString(libvpxSHA0[:8]))
-	t.Logf("task #207 pinned: frame 1 govpx_len=%d libvpx_len=%d "+
+	t.Logf("BestQuality ARNR parity pin: frame 1 govpx_len=%d libvpx_len=%d "+
 		"govpx_first_part=%d libvpx_first_part=%d "+
 		"govpx_sha=%s libvpx_sha=%s",
 		wantFrame1GovpxLen, wantFrame1LibvpxLen,

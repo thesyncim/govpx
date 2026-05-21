@@ -131,7 +131,7 @@ func TestVP8LibvpxOracleDeterminismThreads4(t *testing.T) {
 	const runs = 20
 	var firstSums []string
 	for run := 0; run < runs; run++ {
-		out := encodeFramesWithLibvpxOracle(t, vpxencOracle, "task278-libvpx-det", opts, 700, sources, extraArgs)
+		out := encodeFramesWithLibvpxOracle(t, vpxencOracle, "libvpx-thread-determinism", opts, 700, sources, extraArgs)
 		if len(out) != frames {
 			t.Fatalf("run %d: got %d frames, want %d", run, len(out), frames)
 		}

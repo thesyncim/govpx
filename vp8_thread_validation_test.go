@@ -11,10 +11,9 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
-// TestVP8ThreadsValidation validates that the task #332 fix
-// (vp8_encoder_reconstruct.go breakoutSkip gate change) yields byte-exact
-// frame 1 parity vs libvpx on the BestARNR / GoodARNR ARNR cohorts at
-// threads=1, threads=2, AND threads=4. The pre-fix gate
+// TestVP8ThreadsValidation validates that the breakoutSkip gate matches libvpx
+// and yields byte-exact frame 1 parity on the BestARNR / GoodARNR ARNR cohorts
+// at threads=1, threads=2, and threads=4. The incorrect gate was:
 //
 //	breakoutSkip = !intra && (picker.MBSkipCoeff || staticBreakout)
 //
@@ -31,7 +30,7 @@ import (
 // for inactive, 1620-1628 for encode_breakout).
 func TestVP8ThreadsValidation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run task #332 threads validation")
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP8 threaded parity validation")
 	}
 	vpxencOracle := coracletest.VpxencOracle(t)
 	for _, threads := range []int{1, 2, 4} {
@@ -70,12 +69,11 @@ func TestVP8ThreadsValidation(t *testing.T) {
 				sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
 			}
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-			// Task #349 quarantine: at threads=2 and threads=4 the
-			// libvpx oracle is exposed to MT-LF non-determinism.
-			// The reproducibility wrapper makes any oracle-side
-			// flake visible as a test failure with a SHA log rather
-			// than letting it taint this cross-thread parity check.
-			libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "task332-threads-validation", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
+			// At threads=2 and threads=4 the libvpx oracle is exposed to
+			// MT-LF non-determinism. The reproducibility wrapper makes any
+			// oracle-side flake visible as a SHA mismatch instead of letting
+			// it taint this cross-thread parity check.
+			libvpxFrames := encodeVP8FramesWithLibvpxOracleReproducible(t, vpxencOracle, "threaded-parity-validation", opts, 700, sources, extraArgs, VP8OracleReproducibleRuns)
 			for i := range govpxFrames {
 				gs := sha256.Sum256(govpxFrames[i])
 				ls := sha256.Sum256(libvpxFrames[i])

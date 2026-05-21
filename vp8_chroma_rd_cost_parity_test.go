@@ -156,11 +156,11 @@ func TestVP8ChromaRDCostTunedRDMultiplierFormula(t *testing.T) {
 		{name: "textured_act_gt_avg", rdMult: 1000, act: 1 << 17, avg: 1 << 16},
 		{name: "flat_act_lt_avg", rdMult: 1000, act: 1 << 14, avg: 1 << 16},
 		{name: "rdmult_1_saturated", rdMult: 1, act: 1 << 16, avg: 1 << 16},
-		// Hand-pick a value pair that mirrors the activity quartet
-		// captured by task #210's mb_activity tracer on the BestARNR
-		// 19981bff cohort frame 1: activity_avg=vp8ActivityAvgAltFixed
-		// (100000<<12=409600000) and mb_activity in the 10^8 range.
-		{name: "task210_cohort_avg", rdMult: 1000, act: int64(vp8ActivityAvgAltFixed), avg: int64(vp8ActivityAvgAltFixed)},
+		// Hand-pick a value pair that mirrors the activity quartet captured
+		// by the mb_activity tracer on the BestARNR 19981bff cohort frame 1:
+		// activity_avg=vp8ActivityAvgAltFixed (100000<<12=409600000) and
+		// mb_activity in the 10^8 range.
+		{name: "arnr_activity_avg_cohort", rdMult: 1000, act: int64(vp8ActivityAvgAltFixed), avg: int64(vp8ActivityAvgAltFixed)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
