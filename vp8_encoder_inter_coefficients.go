@@ -161,7 +161,7 @@ func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
 // reaches the cache hit. The -5/-6 byte ARNR divergence lives elsewhere
 // (sharpest remaining candidates per #286: picker-vs-accepted
 // `act_zbin_adj` skew on the inter side, or upstream chroma sub-pel
-// predictor / `gatherMacroblockUVResiduals4x4` slice ordering vs libvpx
+// predictor / `vp8enc.GatherMacroblockUVResiduals4x4` slice ordering vs libvpx
 // `vp8_subtract_mbuv`). The cache stays enabled to preserve the perf
 // short-circuit it provides.
 func interRDCacheReusable(c *interRDCoeffCacheState, args *predictedMacroblockCoefficientArgs) bool {
@@ -297,7 +297,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		yDctsPtr = &args.cacheIn.YDCTs
 	}
 	if !cacheConsume {
-		gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, yResiduals[:])
+		vp8enc.GatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, yResiduals[:])
 		vp8enc.ForwardDCT4x4Batch(yResiduals[:], yDctsPtr[:], 16)
 	}
 	if args.cacheOut != nil {
@@ -488,8 +488,8 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	}
 	if !cacheConsume {
 		uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
-		gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
-		gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
+		vp8enc.GatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
+		vp8enc.GatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
 		vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDctsPtr[:], 8)
 	}
 	uvDcts := uvDctsPtr[:]
@@ -694,11 +694,3 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	}
 	return stats
 }
-
-// gatherMacroblockYResiduals4x4 writes the 16 luma 4x4 residuals of
-// the macroblock at top-left (baseX,baseY) into out as 16 contiguous
-// int16-per-block slabs in scan order (block 0 first, block 15 last,
-// each block laid out row-major at stride 4). For the in-bounds case
-// (the entire 16x16 MB lies inside src) it skips per-pixel coordinate
-// clamping; otherwise it falls back to the per-block clamped path
-// (same numeric behavior as fillPredictedResidual4x4).

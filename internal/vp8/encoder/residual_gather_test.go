@@ -1,21 +1,17 @@
-package govpx
+package encoder
 
 import (
 	"testing"
-
-	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 // TestVP8PickerSubtractFDCTParity pins the picker source-prediction
 // subtract step and the per-4x4 forward DCT step at MB(0,0) frame-1
-// NEWMV MV=(8,16) — the cohort already isolated by tasks #298, #304,
-// #307, and #309. Predictor reference bytes (task #309) and picker
-// source bytes (task #307) MATCH libvpx byte-for-byte at this MB; the
-// remaining picker-side stages that could explain libvpx's non-zero
-// Y qcoeff vs govpx's all-zero Y qcoeff are the source−pred subtract
-// and the 4x4 forward DCT.
+// NEWMV MV=(8,16). Predictor reference bytes and picker source bytes
+// match libvpx byte-for-byte at this MB; the remaining picker-side
+// stages that could explain libvpx's non-zero Y qcoeff vs govpx's
+// all-zero Y qcoeff are the source-pred subtract and the 4x4 forward DCT.
 //
-// HYPOTHESIS UNDER TEST: govpx's gatherMacroblockYResiduals4x4 (the
+// HYPOTHESIS UNDER TEST: govpx's GatherMacroblockYResiduals4x4 (the
 // inter NEWMV picker's per-MB residual gather) or its batched
 // ForwardDCT4x4Batch (the FDCT immediately after the gather) produces
 // values that differ from libvpx's vpx_subtract_block_c +
@@ -74,25 +70,19 @@ import (
 //     of the 16 4×4 windows. The audit uses a synthetic deterministic
 //     predictor (panning formula at xoff=4, yoff=2) rather than the
 //     cohort's actual e.lastRef post-LF reconstruction, since this
-//     pin's purpose is the subtract+FDCT MATH layer — task #304's
-//     end-to-end cohort sentinel (residual SSE=48000, max |AC|=87)
-//     already separately pins the cohort's actual encoder state.
+//     pin's purpose is the subtract+FDCT math layer.
 //
-// Together with task #304's residual SSE=48000 / max |AC|=87 finding
-// and zbin threshold=126, this confirms that govpx's picker is
-// MATHEMATICALLY CORRECT at every stage from predictor (#309) through
-// source (#307) → subtract (this task) → FDCT (this task) →
-// quantize (#304). The libvpx-vs-govpx Y rate divergence (libvpx
+// This confirms that govpx's picker is mathematically correct at every
+// stage from predictor through source, subtract, FDCT, and quantize for
+// this fixed cohort. The libvpx-vs-govpx Y rate divergence (libvpx
 // rate_y=34799 vs govpx rate_y≈7519) must therefore originate
-// downstream of the FDCT — at quantize parameter selection, or in a
-// libvpx state-bleed bug (e.g. stale b->zbin_extra) that task #310's
-// libvpx instrumentation will localize.
+// downstream of the FDCT.
 func TestVP8PickerSubtractFDCTParity(t *testing.T) {
 	// Build a 16×16 source from the MB(0,0) frame-1 panning-fixture
 	// formula (xoff=2, yoff=1 reproduces
 	// encoderValidationPanningFrame(_, _, 1) at the MB origin).
 	// This pins the audit to the SAME source bytes the picker reads
-	// in the BestARNR/GoodARNR cohort (task #307 pin).
+	// in the BestARNR/GoodARNR cohort.
 	const xoff, yoff = 2, 1
 	var src16 [16 * 16]byte
 	for y := range 16 {
@@ -126,7 +116,7 @@ func TestVP8PickerSubtractFDCTParity(t *testing.T) {
 	// block order (block 0 = top-left, block 3 = top-right, block 4
 	// = second row left, ..., block 15 = bottom-right).
 	var govpxRes [16 * 16]int16
-	gatherMacroblockYResiduals4x4(src16[:], 16, 16, 16, pred16[:], 16, 0, 0, govpxRes[:])
+	GatherMacroblockYResiduals4x4(src16[:], 16, 16, 16, pred16[:], 16, 0, 0, govpxRes[:])
 
 	// libvpx layout: a single 16×16 raster int16 buffer at stride 16.
 	// Direct in-test replay of vpx_subtract_block_c(16, 16, diff, 16,
@@ -167,7 +157,7 @@ func TestVP8PickerSubtractFDCTParity(t *testing.T) {
 	}
 
 	// Cross-validate the residual against the trivially-correct
-	// per-pixel subtract that govpx's slow-path fillPredictedResidual4x4
+	// per-pixel subtract that govpx's slow-path FillPredictedResidual4x4
 	// is structurally identical to. This catches operand-order, int16-
 	// truncation, and stride mismatches in the SIMD residual gather.
 	for r := range 16 {
@@ -184,7 +174,7 @@ func TestVP8PickerSubtractFDCTParity(t *testing.T) {
 	// govpx batched FDCT over 16 contiguous 4×4 windows at block
 	// stride 4 int16.
 	var govpxDcts [16 * 16]int16
-	vp8enc.ForwardDCT4x4Batch(govpxRes[:], govpxDcts[:], 16)
+	ForwardDCT4x4Batch(govpxRes[:], govpxDcts[:], 16)
 
 	// libvpx reference: scalar replay of vp8_short_fdct4x4_c on each
 	// of the 16 4×4 windows of the libvpx raster residual at stride
@@ -228,23 +218,23 @@ func TestVP8PickerSubtractFDCTParity(t *testing.T) {
 			}
 		}
 	}
-	if maxAbs != taskTwelve12FDCTMaxAbsSentinel {
-		t.Fatalf("max |AC| FDCT coeff across 16 Y blocks = %d, want %d (audit pin)", maxAbs, taskTwelve12FDCTMaxAbsSentinel)
+	if maxAbs != pickerSubtractFDCTMaxAbsSentinel {
+		t.Fatalf("max |AC| FDCT coeff across 16 Y blocks = %d, want %d (audit pin)", maxAbs, pickerSubtractFDCTMaxAbsSentinel)
 	}
 }
 
-// taskTwelve12FDCTMaxAbsSentinel records the exact max-|AC| over the
+// pickerSubtractFDCTMaxAbsSentinel records the exact max-|AC| over the
 // 16 Y FDCT blocks computed for the fixed
 // (panning-formula-source(xoff=2,yoff=1), panning-formula-predictor
 // (xoff=4,yoff=2)) input pair this audit uses. The constant is
 // captured at test authorship time from the byte-exact govpx scalar
 // FDCT (also cross-checked against the in-test libvpx reference
 // replay) and locks the joint subtract+FDCT pipeline value-for-value.
-const taskTwelve12FDCTMaxAbsSentinel = 568
+const pickerSubtractFDCTMaxAbsSentinel = 568
 
 // referenceShortFdct4x4 is a hand-written scalar replay of libvpx
 // v1.16.0 vp8/encoder/dct.c:15-53 vp8_short_fdct4x4_c. Kept inline
-// here (rather than calling vp8enc.ForwardDCT4x4 / the scalar Go
+// here (rather than calling ForwardDCT4x4 / the scalar Go
 // port) so the audit pins govpx's FDCT against a textual transcription
 // of the libvpx C source — any future regression in either side
 // surfaces as a localized failure with the libvpx side as the

@@ -98,8 +98,8 @@ func TestVP8NewMVPickerResidualQuantization(t *testing.T) {
 		}
 	}
 
-	// gather into 16 4x4 blocks in scan order matching
-	// gatherMacroblockYResiduals4x4's layout.
+	// Gather into 16 4x4 blocks in scan order matching
+	// GatherMacroblockYResiduals4x4's layout.
 	var yResiduals [16 * 16]int16
 	for block := range 16 {
 		blockRow := (block >> 2) * 4

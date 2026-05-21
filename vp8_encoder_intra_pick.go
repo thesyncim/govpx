@@ -341,7 +341,7 @@ func wholeBlockYTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common.Imag
 	// zbin-zerorun are block-sequential.
 	var residuals [16 * 16]int16
 	var dcts [16 * 16]int16
-	gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals[:])
+	vp8enc.GatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals[:])
 	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 16)
 	for block := range 16 {
 		copy(dct[:], dcts[block*16:block*16+16])
@@ -471,8 +471,8 @@ func wholeBlockChromaTransformRDWithEOBs(src vp8enc.SourceImage, pred *vp8common
 	// loop serial.
 	var residuals [8 * 16]int16
 	var dcts [8 * 16]int16
-	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, residuals[0:64])
-	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, residuals[64:128])
+	vp8enc.GatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, residuals[0:64])
+	vp8enc.GatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, residuals[64:128])
 	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 8)
 	for slot := range 8 {
 		block := 16 + slot

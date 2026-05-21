@@ -222,8 +222,8 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	//   (2) FDCT — vp8_short_fdct4x4_c (dct.c:15-53) vs
 	//       forwardDCT4x4Scalar (internal/vp8/encoder/dct.go:15-43) and
 	//       the NEON / SSE2 batch ports.
-	//   (3) Residual gather — gatherMacroblockUVResiduals4x4
-	//       (vp8_encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
+	//   (3) Residual gather — GatherMacroblockUVResiduals4x4
+	//       (internal/vp8/encoder/residual_gather.go) vs libvpx vp8_subtract_mbuv
 	//       (encodemb.c:78-92).
 	//
 	// Task #284 charter: extend the oracle tracer with a pre-trellis UV
@@ -296,7 +296,7 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	//
 	// Remaining sharpest candidate (in walk order, per task #284):
 	//   #3 residual gather slice ordering —
-	//      gatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
+	//      GatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
 	//
 	// Task #297 pre-trellis UV bisect (RELOCATES the root cause): same
 	// finding as the Best/19981bff sibling pin. The pre-trellis UV trace

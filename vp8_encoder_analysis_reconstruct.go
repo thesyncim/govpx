@@ -220,7 +220,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		var tmPred [16 * 16]byte
 		if vp8dec.PredictIntraY16x16(vp8common.TMPred, tmPred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
 			var tmResiduals [16 * 16]int16
-			gatherMacroblockYResiduals4x4FromPredBuffer(src.Y, src.YStride, src.Width, src.Height, tmPred[:], 16, mbCol*16, mbRow*16, tmResiduals[:])
+			vp8enc.GatherMacroblockYResiduals4x4FromPredBuffer(src.Y, src.YStride, src.Width, src.Height, tmPred[:], 16, mbCol*16, mbRow*16, tmResiduals[:])
 			var tmDCTs [16 * 16]int16
 			vp8enc.ForwardDCT4x4Batch(tmResiduals[:], tmDCTs[:], 16)
 			for block := range 16 {
@@ -235,7 +235,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		}
 		x := mbCol*16 + (block&3)*4
 		yCoord := mbRow*16 + (block>>2)*4
-		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
+		vp8enc.FillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		a := block & 3
 		l := (block & 0x0c) >> 2
@@ -306,8 +306,8 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	// matching libvpx v1.16.0 vp8_transform_mbuv's two fdct8x4 calls.
 	var uvResiduals [8 * 16]int16
 	var uvDcts [8 * 16]int16
-	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, img.U, img.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
-	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, img.V, img.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
+	vp8enc.GatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, img.U, img.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
+	vp8enc.GatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, img.V, img.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
 	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
 	for block := range 4 {
 		copy(dct[:], uvDcts[block*16:block*16+16])
@@ -431,54 +431,6 @@ func applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens *vp8dec.MacroblockTokens,
 		}
 		offset := analysisYBlockOffset(block, yStride)
 		dsp.DCOnlyIDCT4x4Add(dc, y[offset:], yStride, y[offset:], yStride)
-	}
-}
-
-// gatherMacroblockYResiduals4x4FromPredBuffer computes the 16 4x4 Y
-// residuals (src - pred) into `out` (16 blocks of 16 int16) for the
-// macroblock at (mbBaseX, mbBaseY) in src coordinates, against a 16x16
-// pred buffer in its own local (0..15, 0..15) coordinate space with
-// stride `predStride`. Used to compute TM_PRED's stale Y2 input for
-// B_PRED MB oracle trace dumps without having to swap the analysis
-// frame's Y plane in place (vp8 task #225 / libvpx
-// rd_pick_intra16x16mby_mode TM_PRED iteration mirror).
-func gatherMacroblockYResiduals4x4FromPredBuffer(src []byte, srcStride int, width int, height int, pred []byte, predStride int, mbBaseX int, mbBaseY int, out []int16) {
-	for block := range 16 {
-		blockX := (block & 3) * 4
-		blockY := (block >> 2) * 4
-		dst := out[block*16 : block*16+16]
-		for row := range 4 {
-			sampleY := clampEncodeCoord(mbBaseY+blockY+row, height)
-			for col := range 4 {
-				sampleX := clampEncodeCoord(mbBaseX+blockX+col, width)
-				dst[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(blockY+row)*predStride+blockX+col]))
-			}
-		}
-	}
-}
-
-func fillPredictedResidual4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, x int, y int, out *[16]int16) {
-	for row := range 4 {
-		sampleY := clampEncodeCoord(y+row, height)
-		for col := range 4 {
-			sampleX := clampEncodeCoord(x+col, width)
-			out[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(y+row)*predStride+x+col]))
-		}
-	}
-}
-
-// fillPredictedResidual4x4Slice mirrors fillPredictedResidual4x4 but
-// writes into a caller-supplied slice. Used by the whole-MB residual
-// builders that gather all 4x4 blocks into one contiguous buffer
-// before dispatching ForwardDCT4x4Batch (the libvpx v1.16.0
-// vp8_transform_mb / vp8_transform_intra_mby pattern).
-func fillPredictedResidual4x4Slice(src []byte, srcStride int, width int, height int, pred []byte, predStride int, x int, y int, out []int16) {
-	for row := range 4 {
-		sampleY := clampEncodeCoord(y+row, height)
-		for col := range 4 {
-			sampleX := clampEncodeCoord(x+col, width)
-			out[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(y+row)*predStride+x+col]))
-		}
 	}
 }
 

@@ -558,7 +558,7 @@ func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceI
 		predictionSSE += bPredBlockSSE(src, mbRow, mbCol, block, y[blockOffset:], img.YStride)
 		x := mbCol*16 + (block&3)*4
 		yCoord := mbRow*16 + (block>>2)*4
-		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
+		vp8enc.FillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		a := block & 3
 		l := (block & 0x0c) >> 2

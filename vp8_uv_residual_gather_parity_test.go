@@ -15,7 +15,7 @@ import (
 //
 // HYPOTHESIS (final unexamined candidate per #292):
 //
-//	gatherMacroblockUVResiduals4x4 (vp8_encoder_inter_residuals.go:38-58)
+//	ResidualGather8x8PtrFast (internal/vp8/dsp/residual_gather_*).
 //	may pack UV blocks in a different order than libvpx's
 //	vp8_subtract_mbuv (vp8/encoder/encodemb.c:33-41), OR may slice
 //	rows/cols differently within each 4x4 block. The downstream
@@ -40,7 +40,7 @@ import (
 //     short_fdct4x4 calls each reading 4 rows of 4 cols at the supplied
 //     stride.
 //
-//   - govpx gatherMacroblockUVResiduals4x4 (vp8_encoder_inter_residuals.go:38-58)
+//   - govpx ResidualGather8x8PtrFast
 //     writes the U residual as 4 separate 4x4 blocks back-to-back
 //     (block-major), 16 int16 per block, total 64. Each block is
 //     row-major (col 0..3 across 4 rows). ForwardDCT4x4Batch
@@ -156,7 +156,7 @@ import (
 //   - libvpx v1.16.0 vp8/common/blockd.h (BLOCKD.src_diff aliasing).
 //   - libvpx v1.16.0 vp8/encoder/rdopt.c:712-714, 731-733, 766-768
 //     (vp8_subtract_mbuv inter / intra call sites).
-//   - vp8_encoder_inter_residuals.go:38-58 (gatherMacroblockUVResiduals4x4).
+//   - internal/vp8/encoder/residual_gather.go (GatherMacroblockUVResiduals4x4).
 //   - vp8_encoder_inter_coefficients.go:476-492 (whole-MB UV gather + batch
 //     FDCT dispatch).
 //   - internal/vp8/dsp/residual_gather_other.go:39-61

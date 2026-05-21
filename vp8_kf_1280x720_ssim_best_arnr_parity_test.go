@@ -253,8 +253,8 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	//       the NEON/SSE2 batch ports. Algebraically equivalent on
 	//       inspection, but a stride / batch-buffer drift would surface
 	//       as identical aggregate eobs with a single coeff flipped.
-	//   (3) Residual gather — gatherMacroblockUVResiduals4x4
-	//       (vp8_encoder_inter_residuals.go:38-58) vs libvpx
+	//   (3) Residual gather — GatherMacroblockUVResiduals4x4
+	//       (internal/vp8/encoder/residual_gather.go) vs libvpx
 	//       vp8_subtract_mbuv (encodemb.c:78-92): also algebraically
 	//       equivalent, but the `pred.U[uOff:]` slice ordering against
 	//       the analysis-image base must match libvpx's
@@ -347,7 +347,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	//
 	// Remaining sharpest candidate (in walk order, per task #284):
 	//   #3 residual gather slice ordering —
-	//      gatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
+	//      GatherMacroblockUVResiduals4x4 vs vp8_subtract_mbuv.
 	//
 	// Task #297 pre-trellis UV bisect (RELOCATES the root cause): the new
 	// per-UV-block oracle tracer (task #296) on both sides now lets us

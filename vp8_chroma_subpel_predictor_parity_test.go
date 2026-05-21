@@ -184,8 +184,8 @@ import (
 // ports of their libvpx counterparts. The residual lives elsewhere —
 // the remaining unexamined candidate per task #284's walk order is:
 //
-//	#3 residual gather slice ordering — gatherMacroblockUVResiduals4x4
-//	   (vp8_encoder_inter_residuals.go:38-58) vs libvpx vp8_subtract_mbuv
+//	#3 residual gather slice ordering — GatherMacroblockUVResiduals4x4
+//	   (internal/vp8/encoder/residual_gather.go) vs libvpx vp8_subtract_mbuv
 //	   (encodemb.c:33-41) interaction with vp8_setup_block_ptrs
 //	   (encodeframe.c:973-996) where block 20..23 (V plane) src_diff
 //	   offsets sit at base+320 with 8-pitch storage.
