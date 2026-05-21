@@ -914,7 +914,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	if !d.unsupportedReconstruct && hdr.Loopfilter.FilterLevel != 0 &&
 		!d.opts.SkipLoopFilter {
 		if !d.applyVP9LoopFilter(&hdr) {
-			d.markVP9Unsupported("loopfilter")
+			d.markVP9Unsupported()
 		}
 	}
 	d.adaptVP9FrameContext(&hdr, compHeader, frameContextIdx)

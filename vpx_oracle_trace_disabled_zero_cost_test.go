@@ -120,8 +120,7 @@ func TestVPxOracleTraceDisabledHelpersAllocateZero(t *testing.T) {
 		disabledTraceFloatSink += correction
 		disabledTraceBoolSink = disabledTraceBoolSink || recode
 		vp9.emitVP9OracleFrameTrace(vp9OracleFrameSummary{})
-		vp9d.traceVP9Unsupported("test")
-		vp9d.markVP9Unsupported("test")
+		vp9d.markVP9Unsupported()
 	})
 	if allocs != 0 {
 		t.Fatalf("disabled trace helpers allocated %v times per run, want 0", allocs)
@@ -172,8 +171,7 @@ func TestVPxOracleTraceDisabledHelpersAreNoops(t *testing.T) {
 			best, worst, correction, recode, loop)
 	}
 	var vp9d VP9Decoder
-	vp9d.traceVP9Unsupported("test")
-	vp9d.markVP9Unsupported("test")
+	vp9d.markVP9Unsupported()
 	if !vp9d.unsupportedReconstruct {
 		t.Fatal("markVP9Unsupported did not mark reconstruction unsupported")
 	}

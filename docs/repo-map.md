@@ -7,11 +7,11 @@ Last refreshed: 2026-05-21 from `main`.
 
 ## Current Counts
 
-- Root Go files: 522.
+- Root Go files: 518.
 - Root test files: 363.
 - Internal Go files: 681.
 - Root VP8 files: 80 implementation files and 210 test files.
-- Root VP9 files: 70 implementation files and 142 test files.
+- Root VP9 files: 66 implementation files and 142 test files.
 - Internal package files:
   - `internal/vp8`: 325 Go files.
   - `internal/vp9`: 297 Go files.
@@ -187,11 +187,11 @@ This ledger tracks intent, not completed work.
 | Area | Current State | Target |
 | --- | --- | --- |
 | Root VP8 implementation | 80 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
-| Root VP9 implementation | 70 root VP9 implementation files remain; VP9 SVC layer-context state now lives in `internal/vp9/encoder`. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
+| Root VP9 implementation | 66 root VP9 implementation files remain; VP9 SVC layer-context state now lives in `internal/vp9/encoder`, and stale VP9 stderr debug hooks are removed. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
 | Root tests | 363 top-level root tests remain; many are codec implementation and parity tests; shared VP9 YCbCr/I420/header helpers now live in `internal/testutil/vp9test`. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx/rtp` owns shared RTP fragment packing, marker, and assembly loops; codec packages keep descriptor syntax and validation. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |
-| Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |
+| Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests; unused VP9 ARNR and unsupported-decoder stderr env hooks are gone. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |
 | Documentation | `docs/architecture.md`, `docs/api.md`, `docs/codec-status.md`, `docs/validation.md`, and this map exist. | Keep README short; detailed docs under `docs/`; no migration promise before first release. |
 
 ## Refresh Commands

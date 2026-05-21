@@ -139,11 +139,6 @@ func (e *VP9Encoder) applyVP9KeyFrameFilter(img *image.YCbCr) *image.YCbCr {
 		refs[frame] = arnrViewFromYCbCr(&entry.img)
 	}
 	e.iterateVP9TemporalFilter(strength, refs, 0, true)
-	if vp9ARNRDebugBuild && vp9ARNRDebugEnabled() {
-		vp9ARNRDebugf(
-			"govpx vp9 kf-tf: filtered (look=%d frames=%d strength=%d max=%d)\n",
-			e.lookaheadCount, framesToBlur, strength, maxFrames)
-	}
 	return &e.vp9ARNRScratch
 }
 
@@ -175,11 +170,6 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	maxFrames := min(e.opts.ARNRMaxFrames, maxARNRFrames)
 	if maxFrames <= 1 || len(e.vp9ARNRScratch.Y) == 0 ||
 		e.lookaheadCount == 0 {
-		if vp9ARNRDebugBuild && vp9ARNRDebugEnabled() {
-			vp9ARNRDebugf(
-				"govpx vp9 arnr: skip (maxFrames=%d scratch=%d look=%d)\n",
-				maxFrames, len(e.vp9ARNRScratch.Y), e.lookaheadCount)
-		}
 		return false
 	}
 	distance := int(e.lookaheadCount) - 1
@@ -223,12 +213,6 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 		b, f, ok := vp9ARNRFilterWindow(distance,
 			int(e.lookaheadCount), maxFrames, e.opts.ARNRType)
 		if !ok || b+f == 0 {
-			if vp9ARNRDebugBuild && vp9ARNRDebugEnabled() {
-				vp9ARNRDebugf(
-					"govpx vp9 arnr: window empty (distance=%d look=%d max=%d type=%d back=%d fwd=%d ok=%v)\n",
-					distance, e.lookaheadCount, maxFrames,
-					e.opts.ARNRType, b, f, ok)
-			}
 			return false
 		}
 		backward = b
@@ -236,12 +220,6 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 		strength = e.opts.ARNRStrength
 	}
 	if backward+forward == 0 {
-		if vp9ARNRDebugBuild && vp9ARNRDebugEnabled() {
-			vp9ARNRDebugf(
-				"govpx vp9 arnr: adaptive window empty (distance=%d look=%d max=%d boost=%d type=%d)\n",
-				distance, e.lookaheadCount, maxFrames,
-				e.rc.gfuBoost, e.opts.ARNRType)
-		}
 		return false
 	}
 	framesToBlur := backward + forward + 1
@@ -261,13 +239,6 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 		refs[framesToBlur-1-frame] = arnrViewFromYCbCr(&entry.img)
 	}
 	e.iterateVP9TemporalFilter(strength, refs, backward, true)
-	if vp9ARNRDebugBuild && vp9ARNRDebugEnabled() {
-		vp9ARNRDebugf(
-			"govpx vp9 arnr: filtered (distance=%d look=%d back=%d fwd=%d strength=%d adapted=%v(base=%d) type=%d boost=%d)\n",
-			distance, e.lookaheadCount, backward, forward,
-			strength, useAdaptive, e.opts.ARNRStrength,
-			e.opts.ARNRType, e.rc.gfuBoost)
-	}
 	return true
 }
 

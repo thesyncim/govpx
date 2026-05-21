@@ -1,8 +1,5 @@
 package govpx
 
-func (d *VP9Decoder) markVP9Unsupported(reason string) {
-	if vp9OracleTraceBuild {
-		d.traceVP9Unsupported(reason)
-	}
+func (d *VP9Decoder) markVP9Unsupported() {
 	d.unsupportedReconstruct = true
 }
