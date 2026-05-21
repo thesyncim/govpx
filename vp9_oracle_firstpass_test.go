@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"math"
 	"os"
 	"testing"
@@ -52,8 +53,8 @@ func TestVP9OracleFirstPassStatsSchemaAndTotals(t *testing.T) {
 	const width, height, frames = 320, 180, 6
 	var raw []byte
 	for frame := range frames {
-		raw = appendVP9YCbCrI420(raw,
-			newVP9PanningYCbCrForRateTest(width, height, frame))
+		raw = vp9test.AppendI420(raw,
+			vp9test.NewPanningYCbCr(width, height, frame))
 	}
 	data, diag, err := coracle.VpxencVP9FirstPassStatsI420(raw, width, height,
 		frames, "--target-bitrate=900")
@@ -131,8 +132,8 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 			govpxRows := make([]VP9FirstPassFrameStats, tc.frames)
 			var raw []byte
 			for frame := range tc.frames {
-				src := newVP9PanningYCbCrForRateTest(tc.width, tc.height, frame)
-				raw = appendVP9YCbCrI420(raw, src)
+				src := vp9test.NewPanningYCbCr(tc.width, tc.height, frame)
+				raw = vp9test.AppendI420(raw, src)
 				govpxRows[frame], err = enc.CollectFirstPassStats(src,
 					uint64(frame), 1, 0)
 				if err != nil {

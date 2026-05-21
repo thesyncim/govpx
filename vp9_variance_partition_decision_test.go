@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -130,8 +131,8 @@ func TestVP9EnsureSBPartitionChosenThreadsNoiseEstimate(t *testing.T) {
 		e.noiseEstimate.Enabled = enabled
 		e.noiseEstimate.Value = value
 
-		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
-		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		ref := vp9test.NewYCbCr(width, height, 128, 128, 128)
+		src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 		fillVP9Partition8x8AlternatingForTest(src, 130)
 		e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
 
@@ -188,8 +189,8 @@ func TestVP9EnsureSBPartitionChosenUsesCyclicRefreshSegmentQ(t *testing.T) {
 			1 << uint(vp9dec.SegLvlAltQ)
 		e.vp9HeaderScratch.Seg.FeatureData[encoder.CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = -37
 
-		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
-		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		ref := vp9test.NewYCbCr(width, height, 128, 128, 128)
+		src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 		fillVP9Partition8x8AlternatingForTest(src, 129)
 		e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
 
@@ -233,8 +234,8 @@ func TestVP9EnsureSBPartitionChosenThreadsHighSourceSAD(t *testing.T) {
 		e.sf.VariancePartThreshMult = 1
 		e.rc.highSourceSAD = highSourceSAD
 
-		ref := newVP9YCbCrForTest(width, height, 128, 128, 128)
-		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		ref := vp9test.NewYCbCr(width, height, 128, 128, 128)
+		src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 		e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
 
 		var dq vp9dec.DequantTables

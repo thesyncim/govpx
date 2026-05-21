@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -30,12 +31,12 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 	}
 
 	dst := make([]byte, 65536)
-	key, err := e.EncodeInto(newVP9YCbCrForTest(width, height, 96, 128, 128), dst)
+	key, err := e.EncodeInto(vp9test.NewYCbCr(width, height, 96, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
 	keyPacket := append([]byte(nil), dst[:key]...)
-	inter, err := e.EncodeInto(newVP9YCbCrForTest(width, height, 116, 128, 128), dst)
+	inter, err := e.EncodeInto(vp9test.NewYCbCr(width, height, 116, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -129,8 +130,8 @@ func TestVP9EncoderVarianceAQEmitsSegmentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	interSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	interSrc := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	for y := height / 2; y < height; y++ {
 		row := interSrc.Y[y*interSrc.YStride:]
 		for x := width / 2; x < width; x++ {
@@ -247,9 +248,9 @@ func TestVP9EncoderComplexityAQEmitsSegmentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	flatInterSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	checkerInterSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	flatInterSrc := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	checkerInterSrc := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	for y := range height {
 		row := checkerInterSrc.Y[y*checkerInterSrc.YStride:]
 		for x := range width {
@@ -367,11 +368,11 @@ func TestVP9EncoderComplexityAQHonorsActiveMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	keyPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	activeMap := make([]uint8, rows*cols)
@@ -383,7 +384,7 @@ func TestVP9EncoderComplexityAQHonorsActiveMap(t *testing.T) {
 		t.Fatalf("SetActiveMap: %v", err)
 	}
 
-	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 180, 128, 128))
+	interPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 180, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -497,11 +498,11 @@ func TestVP9EncoderActiveMapInterBlocksUseSkipSegment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 64, 128, 128))
+	keyPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 64, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	activeMap := make([]uint8, rows*cols)
@@ -512,7 +513,7 @@ func TestVP9EncoderActiveMapInterBlocksUseSkipSegment(t *testing.T) {
 	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
 		t.Fatalf("SetActiveMap: %v", err)
 	}
-	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 180, 128, 128))
+	interPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 180, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -562,11 +563,11 @@ func TestVP9EncoderActiveMapConstant320ChoosesTemporalPredProbs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	keyPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	activeMap := make([]uint8, rows*cols)
@@ -580,7 +581,7 @@ func TestVP9EncoderActiveMapConstant320ChoosesTemporalPredProbs(t *testing.T) {
 	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
 		t.Fatalf("SetActiveMap: %v", err)
 	}
-	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	interPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -607,11 +608,11 @@ func TestVP9EncoderActiveMapUnchangedInactiveBlocksStayBaseSegment(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	keyPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	activeMap := make([]uint8, rows*cols)
@@ -622,7 +623,7 @@ func TestVP9EncoderActiveMapUnchangedInactiveBlocksStayBaseSegment(t *testing.T)
 	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
 		t.Fatalf("SetActiveMap: %v", err)
 	}
-	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	interPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode unchanged inter: %v", err)
 	}
@@ -650,7 +651,7 @@ func TestVP9EncoderActiveMapUnchangedInactiveBlocksStayBaseSegment(t *testing.T)
 		}
 	}
 
-	steadyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	steadyPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode steady inter: %v", err)
 	}

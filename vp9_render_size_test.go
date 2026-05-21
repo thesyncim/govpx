@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -48,11 +49,11 @@ func TestVP9EncoderRenderSizeAppliesToHeader(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(newVP9YCbCrForTest(codedW, codedH, 128, 128, 128), dst)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(codedW, codedH, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.Render.Width != renderW || hdr.Render.Height != renderH {
 		t.Fatalf("Render = (%d, %d), want (%d, %d)",
 			hdr.Render.Width, hdr.Render.Height, renderW, renderH)
@@ -74,11 +75,11 @@ func TestVP9EncoderRenderSizeDefaultInheritsCoded(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(newVP9YCbCrForTest(codedW, codedH, 128, 128, 128), dst)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(codedW, codedH, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.Render.Width != codedW || hdr.Render.Height != codedH {
 		t.Fatalf("default Render = (%d, %d), want coded (%d, %d)",
 			hdr.Render.Width, hdr.Render.Height, codedW, codedH)

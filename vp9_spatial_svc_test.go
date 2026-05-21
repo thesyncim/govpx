@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"reflect"
 	"testing"
@@ -24,8 +25,8 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
 	srcs := []*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 90, 100, 110),
-		newVP9YCbCrForTest(64, 64, 90, 100, 110),
+		vp9test.NewYCbCr(32, 32, 90, 100, 110),
+		vp9test.NewYCbCr(64, 64, 90, 100, 110),
 	}
 	dst := make([]byte, 1<<20)
 	result, err := svc.EncodeIntoWithResult(srcs, dst)
@@ -137,8 +138,8 @@ func TestVP9SpatialSVCEncoderLastLayerQuantizers(t *testing.T) {
 	}
 
 	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 90, 100, 110),
-		newVP9YCbCrForTest(64, 64, 120, 130, 140),
+		vp9test.NewYCbCr(32, 32, 90, 100, 110),
+		vp9test.NewYCbCr(64, 64, 120, 130, 140),
 	}, make([]byte, 1<<20))
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
@@ -184,8 +185,8 @@ func TestVP9SpatialSVCEncoderIndependentLayers(t *testing.T) {
 	}
 	dst := make([]byte, 1<<20)
 	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 20, 128, 128),
-		newVP9YCbCrForTest(64, 64, 40, 128, 128),
+		vp9test.NewYCbCr(32, 32, 20, 128, 128),
+		vp9test.NewYCbCr(64, 64, 40, 128, 128),
 	}, dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
@@ -213,8 +214,8 @@ func TestVP9SpatialSVCEncoderSetInterLayerPrediction(t *testing.T) {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
 	srcs := []*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 20, 128, 128),
-		newVP9YCbCrForTest(64, 64, 40, 128, 128),
+		vp9test.NewYCbCr(32, 32, 20, 128, 128),
+		vp9test.NewYCbCr(64, 64, 40, 128, 128),
 	}
 	dst := make([]byte, 1<<20)
 	result, err := svc.EncodeIntoWithResult(srcs, dst)
@@ -406,8 +407,8 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 	}
 
 	srcs := []*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 80, 128, 128),
-		newVP9YCbCrForTest(64, 64, 80, 128, 128),
+		vp9test.NewYCbCr(32, 32, 80, 128, 128),
+		vp9test.NewYCbCr(64, 64, 80, 128, 128),
 	}
 	dst := make([]byte, 1<<20)
 	wantBaseRefresh := []uint8{0xff, 0x04, 0x01, 0x04}
@@ -524,8 +525,8 @@ func TestVP9SpatialSVCEncoderInitialTemporalOptions(t *testing.T) {
 	}
 	dst := make([]byte, 1<<20)
 	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 80, 128, 128),
-		newVP9YCbCrForTest(64, 64, 80, 128, 128),
+		vp9test.NewYCbCr(32, 32, 80, 128, 128),
+		vp9test.NewYCbCr(64, 64, 80, 128, 128),
 	}, dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
@@ -559,9 +560,9 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 	for frame := range 3 {
 		y := uint8(60 + frame*11)
 		srcs := []*image.YCbCr{
-			newVP9YCbCrForTest(32, 32, y, 120, 136),
-			newVP9YCbCrForTest(64, 64, y, 120, 136),
-			newVP9YCbCrForTest(128, 128, y, 120, 136),
+			vp9test.NewYCbCr(32, 32, y, 120, 136),
+			vp9test.NewYCbCr(64, 64, y, 120, 136),
+			vp9test.NewYCbCr(128, 128, y, 120, 136),
 		}
 		result, err := svc.EncodeIntoWithResult(srcs, dst)
 		if err != nil {
@@ -753,8 +754,8 @@ func TestVP9SpatialSVCEncoderLayerRateControl(t *testing.T) {
 
 	dst := make([]byte, 1<<20)
 	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 70, 128, 128),
-		newVP9YCbCrForTest(64, 64, 90, 128, 128),
+		vp9test.NewYCbCr(32, 32, 70, 128, 128),
+		vp9test.NewYCbCr(64, 64, 90, 128, 128),
 	}, dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
@@ -1439,8 +1440,8 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControls(t *testing.T) {
 
 	dst := make([]byte, 1<<20)
 	if _, err := svc.EncodeIntoWithResult([]*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 70, 128, 128),
-		newVP9YCbCrForTest(64, 64, 90, 128, 128),
+		vp9test.NewYCbCr(32, 32, 70, 128, 128),
+		vp9test.NewYCbCr(64, 64, 90, 128, 128),
 	}, dst); err != nil {
 		t.Fatalf("EncodeIntoWithResult after layer controls: %v", err)
 	}
@@ -1484,7 +1485,7 @@ func TestVP9SpatialSVCEncoderLayerReferenceControls(t *testing.T) {
 		t.Fatalf("SetLayerReferenceFrame base: %v", err)
 	}
 	baseRef.Y[0] ^= 0xff
-	baseDst := vp9ImageFromYCbCrForTest(newVP9YCbCrForTest(baseW, baseH, 0, 0, 0))
+	baseDst := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(baseW, baseH, 0, 0, 0))
 	if err := svc.CopyLayerReferenceFrame(0, ReferenceGolden, &baseDst); err != nil {
 		t.Fatalf("CopyLayerReferenceFrame base: %v", err)
 	}
@@ -1495,7 +1496,7 @@ func TestVP9SpatialSVCEncoderLayerReferenceControls(t *testing.T) {
 	if err := svc.SetLayerReferenceFrame(1, ReferenceLast, enhRef); err != nil {
 		t.Fatalf("SetLayerReferenceFrame enhancement: %v", err)
 	}
-	enhDst := vp9ImageFromYCbCrForTest(newVP9YCbCrForTest(enhW, enhH, 0, 0, 0))
+	enhDst := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(enhW, enhH, 0, 0, 0))
 	if err := svc.CopyLayerReferenceFrame(1, ReferenceLast, &enhDst); err != nil {
 		t.Fatalf("CopyLayerReferenceFrame enhancement: %v", err)
 	}
@@ -1640,8 +1641,8 @@ func TestVP9SpatialSVCRTPPacketizeSteadyStateNoAlloc(t *testing.T) {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
 	srcs := []*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 80, 128, 128),
-		newVP9YCbCrForTest(64, 64, 80, 128, 128),
+		vp9test.NewYCbCr(32, 32, 80, 128, 128),
+		vp9test.NewYCbCr(64, 64, 80, 128, 128),
 	}
 	dst := make([]byte, 1<<20)
 	result, err := svc.EncodeIntoWithResult(srcs, dst)
@@ -1686,8 +1687,8 @@ func TestVP9SpatialSVCEncoderSteadyStateNoAlloc(t *testing.T) {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
 	srcs := []*image.YCbCr{
-		newVP9YCbCrForTest(32, 32, 80, 128, 128),
-		newVP9YCbCrForTest(64, 64, 80, 128, 128),
+		vp9test.NewYCbCr(32, 32, 80, 128, 128),
+		vp9test.NewYCbCr(64, 64, 80, 128, 128),
 	}
 	dst := make([]byte, 1<<20)
 	for i := range 3 {

@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -72,7 +73,7 @@ func TestVP9EncoderPerceptualAQEncodesFrame(t *testing.T) {
 	if !e.perceptualAQ.Ready {
 		t.Fatal("perceptualAQ.Ready = false after encode")
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if !hdr.Seg.Enabled {
 		t.Fatal("segmentation header disabled; perceptual AQ expected to enable it")
 	}
@@ -100,7 +101,7 @@ func TestVP9EncoderPerceptualAQTinyFrameSuppressesNeutralSegmentation(t *testing
 	if e.perceptualAQ.Ready {
 		t.Fatal("perceptualAQ.Ready = true for a frame too small to cluster")
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.Seg.Enabled {
 		t.Fatal("segmentation header enabled; tiny perceptual AQ frame should be a no-op")
 	}

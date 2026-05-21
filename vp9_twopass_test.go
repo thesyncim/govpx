@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"math"
 	"testing"
 )
@@ -49,7 +50,7 @@ func TestVP9EncoderConsumesTwoPassStats(t *testing.T) {
 	dst := make([]byte, 1<<20)
 	var results [4]VP9EncodeResult
 	for i := range results {
-		src := newVP9YCbCrForTest(width, height, uint8(96+i*7), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+i*7), 128, 128)
 		results[i], err = enc.EncodeIntoWithResult(src, dst)
 		if err != nil {
 			t.Fatalf("EncodeIntoWithResult[%d]: %v", i, err)
@@ -96,7 +97,7 @@ func TestVP9SetTwoPassStatsCanEnableAndDisable(t *testing.T) {
 	}
 	dst := make([]byte, 1<<20)
 	first, err := enc.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 96, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 96, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult[0]: %v", err)
 	}
@@ -108,7 +109,7 @@ func TestVP9SetTwoPassStatsCanEnableAndDisable(t *testing.T) {
 		t.Fatalf("SetTwoPassStats(nil): %v", err)
 	}
 	second, err := enc.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 104, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 104, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult[1]: %v", err)
 	}
@@ -134,7 +135,7 @@ func TestVP9EncoderTwoPassSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	dst := make([]byte, 1<<20)
 	initialTwoPass := enc.twoPass
 	if _, err := enc.EncodeInto(src, dst); err != nil {

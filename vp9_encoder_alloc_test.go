@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestVP9EncoderTileRowsSteadyStateAlloc(t *testing.T) {
 	}
 	frames := [4]*image.YCbCr{}
 	for i := range frames {
-		frames[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		frames[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 	dst := make([]byte, 1<<20)
 	for i := range frames {
@@ -52,7 +53,7 @@ func TestVP9EncoderTileRowsSteadyStateAlloc(t *testing.T) {
 // shape vpxdec --codec=vp9 expects on disk.
 func TestVP9EncoderIVFRoundTrip(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	payload, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -115,7 +116,7 @@ func TestVP9EncoderIVFRoundTrip(t *testing.T) {
 // and MI grid across frames.
 func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
-	img := newVP9YCbCrForTest(256, 192, 128, 128, 128)
+	img := vp9test.NewYCbCr(256, 192, 128, 128, 128)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(img, dst); err != nil {
@@ -141,7 +142,7 @@ func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
 
 func TestVP9EncoderEncodeIntoSourceKeyframeSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
-	img := newVP9YCbCrForTest(256, 192, 87, 144, 39)
+	img := vp9test.NewYCbCr(256, 192, 87, 144, 39)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(img, dst); err != nil {
@@ -170,7 +171,7 @@ func TestVP9EncoderEncodeIntoSourceKeyframeSteadyStateAlloc(t *testing.T) {
 // partition contexts, and MI grid.
 func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
-	img := newVP9YCbCrForTest(256, 192, 128, 128, 128)
+	img := vp9test.NewYCbCr(256, 192, 128, 128, 128)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(img, dst); err != nil {
@@ -199,8 +200,8 @@ func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
 
 func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
-	keySrc := newVP9YCbCrForTest(256, 192, 81, 123, 210)
-	interSrc := newVP9YCbCrForTest(256, 192, 113, 123, 210)
+	keySrc := vp9test.NewYCbCr(256, 192, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(256, 192, 113, 123, 210)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
@@ -243,8 +244,8 @@ func TestVP9EncoderCyclicRefreshAQInterSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(128, 128, 81, 123, 210)
-	interSrc := newVP9YCbCrForTest(128, 128, 113, 123, 210)
+	keySrc := vp9test.NewYCbCr(128, 128, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(128, 128, 113, 123, 210)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
@@ -293,8 +294,8 @@ func TestVP9EncoderActiveMapInterSteadyStateAlloc(t *testing.T) {
 	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
 		t.Fatalf("SetActiveMap: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 81, 123, 210)
-	interSrc := newVP9YCbCrForTest(width, height, 113, 123, 210)
+	keySrc := vp9test.NewYCbCr(width, height, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(width, height, 113, 123, 210)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
@@ -349,8 +350,8 @@ func TestVP9EncoderROIMapInterSteadyStateAlloc(t *testing.T) {
 	if err := e.SetROIMap(&roi); err != nil {
 		t.Fatalf("SetROIMap: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 81, 123, 210)
-	interSrc := newVP9YCbCrForTest(width, height, 113, 123, 210)
+	keySrc := vp9test.NewYCbCr(width, height, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(width, height, 113, 123, 210)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
@@ -389,8 +390,8 @@ func TestVP9EncoderDenoiserInterSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 100, 96, 160)
-	interSrc := newVP9YCbCrForTest(width, height, 102, 98, 158)
+	keySrc := vp9test.NewYCbCr(width, height, 100, 96, 160)
+	interSrc := vp9test.NewYCbCr(width, height, 102, 98, 158)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
@@ -443,14 +444,14 @@ func TestVP9EncoderAutoAltRefLookaheadSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	sources := [8]*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 80, 128, 128),
-		newVP9YCbCrForTest(width, height, 96, 128, 128),
-		newVP9YCbCrForTest(width, height, 112, 128, 128),
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 144, 128, 128),
-		newVP9YCbCrForTest(width, height, 160, 128, 128),
-		newVP9YCbCrForTest(width, height, 176, 128, 128),
-		newVP9YCbCrForTest(width, height, 192, 128, 128),
+		vp9test.NewYCbCr(width, height, 80, 128, 128),
+		vp9test.NewYCbCr(width, height, 96, 128, 128),
+		vp9test.NewYCbCr(width, height, 112, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 144, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 176, 128, 128),
+		vp9test.NewYCbCr(width, height, 192, 128, 128),
 	}
 	dst := make([]byte, 65536)
 	for i := range 5 {
@@ -498,7 +499,7 @@ func TestVP9EncoderCBRDropSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	img := newVP9YCbCrForTest(256, 192, 128, 128, 128)
+	img := vp9test.NewYCbCr(256, 192, 128, 128, 128)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
 		t.Fatalf("warm keyframe EncodeIntoWithResult: %v", err)
@@ -579,7 +580,7 @@ func TestVP9EncoderBufferFullInterRetryPreservesFrameContext(t *testing.T) {
 
 func TestVP9EncoderEncodeIntoRejectsTinyBuffer(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	if _, err := e.EncodeInto(img, make([]byte, vp9MinEncodeIntoBuffer-1)); !errors.Is(err, ErrBufferTooSmall) {
 		t.Fatalf("tiny EncodeInto error = %v, want ErrBufferTooSmall", err)
 	}

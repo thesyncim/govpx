@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -43,14 +44,14 @@ func TestVP9EncoderDeltaQUVAppliesToHeader(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(newVP9YCbCrForTest(64, 64, 128, 128, 128), dst)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(64, 64, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
 	if n <= 0 {
 		t.Fatalf("EncodeInto wrote %d bytes", n)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.Quant.UvDcDeltaQ != 7 || hdr.Quant.UvAcDeltaQ != 7 {
 		t.Fatalf("UvDcDeltaQ=%d UvAcDeltaQ=%d, want both 7",
 			hdr.Quant.UvDcDeltaQ, hdr.Quant.UvAcDeltaQ)

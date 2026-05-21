@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func TestVP9EncoderLastQuantizerInvalidBeforeCommit(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
@@ -20,7 +24,7 @@ func TestVP9EncoderLastQuantizerMirrorsEncodeResult(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
-	src := newVP9YCbCrForTest(64, 64, 96, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 96, 128, 128)
 	dst := make([]byte, 65536)
 	result, err := e.EncodeIntoWithResult(src, dst)
 	if err != nil {
@@ -58,7 +62,7 @@ func TestVP9EncoderLastQuantizerNilAndClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(64, 64, 96, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 96, 128, 128)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(src, dst); err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)

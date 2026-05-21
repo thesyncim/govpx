@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -140,7 +141,7 @@ func TestVP9EncoderHintConsumesHint(t *testing.T) {
 func TestVP9MultiResolutionShareMotionVectorsSmoke(t *testing.T) {
 	width0, height0 := 64, 64
 	width1, height1 := 32, 32
-	src := newVP9YCbCrForTest(width0, height0, 90, 100, 110)
+	src := vp9test.NewYCbCr(width0, height0, 90, 100, 110)
 
 	enc, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
 		LayerCount:         2,
@@ -237,7 +238,7 @@ func BenchmarkVP9MultiResolutionShareMotionVectors(b *testing.B) {
 // nothing to record).
 func TestExportVP9MVHintsAfterEncode(t *testing.T) {
 	width, height := 64, 64
-	src := newVP9YCbCrForTest(width, height, 90, 100, 110)
+	src := vp9test.NewYCbCr(width, height, 90, 100, 110)
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width: width, Height: height, FPS: 30,
 	})
@@ -251,7 +252,7 @@ func TestExportVP9MVHintsAfterEncode(t *testing.T) {
 		t.Fatalf("encode key: %v", err)
 	}
 	// Encode an inter frame so the miGrid carries inter modes.
-	src2 := newVP9YCbCrForTest(width, height, 120, 100, 110)
+	src2 := vp9test.NewYCbCr(width, height, 120, 100, 110)
 	if _, err := e.EncodeIntoWithResult(src2, dst); err != nil {
 		t.Fatalf("encode inter: %v", err)
 	}

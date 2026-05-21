@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -236,11 +237,11 @@ func TestVP9EncoderROIMapInterBlocksUseSegmentMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keyPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 64, 128, 128))
+	keyPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 64, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 	roi := ROIMap{
 		Enabled:   true,
 		Rows:      (height + 7) >> 3,
@@ -252,7 +253,7 @@ func TestVP9EncoderROIMapInterBlocksUseSegmentMap(t *testing.T) {
 	if err := e.SetROIMap(&roi); err != nil {
 		t.Fatalf("SetROIMap: %v", err)
 	}
-	interPacket, err := e.Encode(newVP9YCbCrForTest(width, height, 180, 128, 128))
+	interPacket, err := e.Encode(vp9test.NewYCbCr(width, height, 180, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -299,7 +300,7 @@ func TestVP9EncoderROIMapPreservesNonzeroROIUnderActiveMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if _, err := e.Encode(newVP9YCbCrForTest(width, height, 64, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(width, height, 64, 128, 128)); err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
 	roi := ROIMap{
@@ -316,7 +317,7 @@ func TestVP9EncoderROIMapPreservesNonzeroROIUnderActiveMap(t *testing.T) {
 		encoderMacroblockCols(width)); err != nil {
 		t.Fatalf("SetActiveMap: %v", err)
 	}
-	if _, err := e.Encode(newVP9YCbCrForTest(width, height, 180, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(width, height, 180, 128, 128)); err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
 	if got := e.miGrid[0].SegmentID; got != 1 {

@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"crypto/md5"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -97,7 +98,7 @@ func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	base := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	base := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	next := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
 	key, err := e.Encode(base)
 	if err != nil {
@@ -159,12 +160,12 @@ func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 0, 0, 0)
+	keySrc := vp9test.NewYCbCr(width, height, 0, 0, 0)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	interSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	interSrc := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	inter, err := e.Encode(interSrc)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
@@ -190,7 +191,7 @@ func TestVP9EncoderVpxdecOracleMatchesStaticSegmentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+	key, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
@@ -228,7 +229,7 @@ func TestVP9EncoderVpxdecOracleMatchesStaticForcedReferences(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewVP9Encoder: %v", err)
 			}
-			key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+			key, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128))
 			if err != nil {
 				t.Fatalf("Encode keyframe: %v", err)
 			}
@@ -273,7 +274,7 @@ func TestVP9EncoderVpxdecOracleMatchesNoUpdateLastInterFrame(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -292,7 +293,7 @@ func TestVP9EncoderVpxdecOracleMatchesForceGoldenAltRefRefresh(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -311,12 +312,12 @@ func TestVP9EncoderVpxdecOracleMatchesGoldenOnlyInter(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 72, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	goldenSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
+	goldenSrc := vp9test.NewYCbCr(width, height, 188, 96, 224)
 	goldenRefresh, err := e.EncodeWithFlags(goldenSrc,
 		EncodeForceGoldenFrame|EncodeNoUpdateLast)
 	if err != nil {
@@ -336,7 +337,7 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	src := vp9test.NewYCbCr(width, height, 91, 143, 37)
 	hidden, err := e.EncodeWithFlags(src, EncodeInvisibleFrame)
 	if err != nil {
 		t.Fatalf("Encode hidden keyframe: %v", err)
@@ -354,8 +355,8 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
-	altSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
+	altSrc := vp9test.NewYCbCr(width, height, 188, 96, 224)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -380,7 +381,7 @@ func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	src := vp9test.NewYCbCr(width, height, 91, 143, 37)
 	key, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -403,18 +404,18 @@ func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
 		h2 = 80
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: w1, Height: h1})
-	key, err := e.Encode(newVP9YCbCrForTest(w1, h1, 72, 128, 128))
+	key, err := e.Encode(vp9test.NewYCbCr(w1, h1, 72, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	inter, err := e.Encode(newVP9YCbCrForTest(w1, h1, 92, 128, 128))
+	inter, err := e.Encode(vp9test.NewYCbCr(w1, h1, 92, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
 	if err := e.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
 		t.Fatalf("SetRealtimeTarget resize: %v", err)
 	}
-	resized, err := e.Encode(newVP9YCbCrForTest(w2, h2, 111, 123, 211))
+	resized, err := e.Encode(vp9test.NewYCbCr(w2, h2, 111, 123, 211))
 	if err != nil {
 		t.Fatalf("Encode resized keyframe: %v", err)
 	}
@@ -430,8 +431,8 @@ func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 16, 128, 128)
-	src := newVP9YCbCrForTest(width, height, 83, 141, 209)
+	keySrc := vp9test.NewYCbCr(width, height, 16, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 83, 141, 209)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -453,8 +454,8 @@ func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 32, 128, 128)
-	interSrc := newVP9YCbCrForTest(width, height, 144, 96, 224)
+	keySrc := vp9test.NewYCbCr(width, height, 32, 128, 128)
+	interSrc := vp9test.NewYCbCr(width, height, 144, 96, 224)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)

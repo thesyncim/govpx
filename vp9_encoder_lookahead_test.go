@@ -3,13 +3,14 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
 func TestVP9EncoderLookaheadDelaysAndFlushes(t *testing.T) {
 	const width, height = 64, 64
-	firstSrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
-	secondSrc := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	firstSrc := vp9test.NewYCbCr(width, height, 96, 128, 128)
+	secondSrc := vp9test.NewYCbCr(width, height, 160, 128, 128)
 
 	delayed, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:           width,
@@ -23,7 +24,7 @@ func TestVP9EncoderLookaheadDelaysAndFlushes(t *testing.T) {
 	if _, err := delayed.EncodeIntoWithResult(firstSrc, dst); !errors.Is(err, ErrFrameNotReady) {
 		t.Fatalf("first lookahead encode err = %v, want ErrFrameNotReady", err)
 	}
-	if !equalVP9YCbCrForTest(&delayed.lookahead[0].img, firstSrc, width, height) {
+	if !vp9test.EqualYCbCr(&delayed.lookahead[0].img, firstSrc, width, height) {
 		t.Fatal("lookahead copied first source incorrectly")
 	}
 	gotFirst, err := delayed.EncodeIntoWithFlagsResult(secondSrc, dst,
@@ -141,7 +142,7 @@ func TestVP9EncoderSetAutoAltRefRequiresDrainedLookahead(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	src := newVP9YCbCrForTest(64, 64, 96, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 96, 128, 128)
 	if _, err := e.EncodeIntoWithResult(src, dst); !errors.Is(err, ErrFrameNotReady) {
 		t.Fatalf("queued EncodeIntoWithResult err = %v, want ErrFrameNotReady", err)
 	}
@@ -176,7 +177,7 @@ func TestVP9EncoderSetAutoAltRefEmitsHiddenAltRef(t *testing.T) {
 	dst := make([]byte, 65536)
 	results := make([]VP9EncodeResult, 0, frames+1)
 	for frame := range frames {
-		src := newVP9YCbCrForTest(width, height, uint8(80+frame*17), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(80+frame*17), 128, 128)
 		result, err := e.EncodeIntoWithResult(src, dst)
 		if errors.Is(err, ErrFrameNotReady) {
 			continue
@@ -237,7 +238,7 @@ func TestVP9EncoderAutoAltRefLookaheadEmitsHiddenAltRef(t *testing.T) {
 	results := make([]VP9EncodeResult, 0, frames+1)
 	packets := make([][]byte, 0, frames+1)
 	for frame := range frames {
-		src := newVP9YCbCrForTest(width, height, uint8(80+frame*17), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(80+frame*17), 128, 128)
 		result, err := e.EncodeIntoWithResult(src, dst)
 		if errors.Is(err, ErrFrameNotReady) {
 			continue
@@ -341,7 +342,7 @@ func TestVP9EncoderAutoAltRefPublicQDoesNotEmitHiddenAltRef(t *testing.T) {
 	dst := make([]byte, 65536)
 	results := make([]VP9EncodeResult, 0, frames)
 	for frame := range frames {
-		src := newVP9YCbCrForTest(width, height, uint8(80+frame*17), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(80+frame*17), 128, 128)
 		result, err := e.EncodeIntoWithResult(src, dst)
 		if errors.Is(err, ErrFrameNotReady) {
 			continue
@@ -387,7 +388,7 @@ func TestVP9EncoderAutoAltRefARNRFiltersHiddenSource(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	for i := range 4 {
-		src := newVP9YCbCrForTest(width, height, uint8(100+i*4), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(100+i*4), 128, 128)
 		if err := e.pushVP9Lookahead(src, 0); err != nil {
 			t.Fatalf("pushVP9Lookahead %d: %v", i, err)
 		}
@@ -453,7 +454,7 @@ func TestVP9EncoderAutoAltRefARNRSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	for i := range 4 {
-		src := newVP9YCbCrForTest(width, height, uint8(100+i*4), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(100+i*4), 128, 128)
 		if err := e.pushVP9Lookahead(src, 0); err != nil {
 			t.Fatalf("pushVP9Lookahead %d: %v", i, err)
 		}
@@ -487,7 +488,7 @@ func TestVP9EncoderLookaheadQueuedFrameBlocksResize(t *testing.T) {
 	}
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 96, 128, 128), dst); !errors.Is(err, ErrFrameNotReady) {
+		vp9test.NewYCbCr(width, height, 96, 128, 128), dst); !errors.Is(err, ErrFrameNotReady) {
 		t.Fatalf("lookahead fill err = %v, want ErrFrameNotReady", err)
 	}
 	err = e.SetRealtimeTarget(RealtimeTarget{Width: 96, Height: 64})

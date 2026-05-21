@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -211,7 +212,7 @@ func vp9FuzzEncodedKeyframe(tb testing.TB, width, height int) []byte {
 		return nil
 	}
 	dst := make([]byte, dstSize)
-	result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height, 96, 128, 128), dst)
+	result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height, 96, 128, 128), dst)
 	if err != nil || len(result.Data) == 0 {
 		return nil
 	}

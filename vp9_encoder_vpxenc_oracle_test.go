@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"testing"
@@ -34,7 +35,7 @@ func TestVP9EncoderVpxencOracleKeyframeUncompressedHeaderParity(t *testing.T) {
 		t.Fatalf("Encode govpx keyframe: %v", err)
 	}
 
-	raw := appendVP9YCbCrI420(nil, src)
+	raw := vp9test.AppendI420(nil, src)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
@@ -48,8 +49,8 @@ func TestVP9EncoderVpxencOracleKeyframeUncompressedHeaderParity(t *testing.T) {
 		t.Fatalf("NextIVFFrame: %v", err)
 	}
 
-	got, _ := parseVP9EncoderHeaderForTest(t, govpxPacket)
-	want, _ := parseVP9EncoderHeaderForTest(t, libvpxFrame.Data)
+	got, _ := vp9test.ParseHeader(t, govpxPacket)
+	want, _ := vp9test.ParseHeader(t, libvpxFrame.Data)
 	assertVP9KeyframeHeaderParity(t, got, want)
 }
 
@@ -89,7 +90,7 @@ func TestVP9EncoderVpxencOracleBlackKeyframeCompressedHeaderParity(t *testing.T)
 	if err != nil {
 		t.Fatalf("Encode govpx keyframe: %v", err)
 	}
-	raw := appendVP9YCbCrI420(nil, src)
+	raw := vp9test.AppendI420(nil, src)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
@@ -103,8 +104,8 @@ func TestVP9EncoderVpxencOracleBlackKeyframeCompressedHeaderParity(t *testing.T)
 		t.Fatalf("NextIVFFrame: %v", err)
 	}
 
-	govpxHeader, _ := parseVP9EncoderHeaderForTest(t, govpxPacket)
-	libvpxHeader, _ := parseVP9EncoderHeaderForTest(t, libvpxFrame.Data)
+	govpxHeader, _ := vp9test.ParseHeader(t, govpxPacket)
+	libvpxHeader, _ := vp9test.ParseHeader(t, libvpxFrame.Data)
 	if got, want := govpxHeader.FirstPartitionSize, libvpxHeader.FirstPartitionSize; got != want {
 		t.Fatalf("compressed header size = %d, want vpxenc %d", got, want)
 	}
@@ -139,7 +140,7 @@ func TestVP9EncoderVpxencOracleBlackKeyframeByteParity(t *testing.T) {
 func TestVP9EncoderVpxencOracleBlackRealtimeCPU5KeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
-	src := newVP9YCbCrForTest(64, 64, 0, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 0, 128, 128)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		Deadline: DeadlineRealtime,
 		CpuUsed:  5,
@@ -150,7 +151,7 @@ func TestVP9EncoderVpxencOracleMidgrayKeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 16, 16
-	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
@@ -160,7 +161,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9YCbCrForTest(width, height, byte(80+i*24), 128, 128)
+		sources[i] = vp9test.NewYCbCr(width, height, byte(80+i*24), 128, 128)
 	}
 
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -199,7 +200,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, frames,
 		"--lag-in-frames=2", "--auto-alt-ref=0")
@@ -229,8 +230,8 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 			matches++
 			continue
 		}
-		gotHeader, _ := parseVP9EncoderHeaderForTest(t, got)
-		wantHeader, _ := parseVP9EncoderHeaderForTest(t, libvpxFrame.Data)
+		gotHeader, _ := vp9test.ParseHeader(t, got)
+		wantHeader, _ := vp9test.ParseHeader(t, libvpxFrame.Data)
 		t.Logf("lookahead row %d drift: govpx bytes=%d q=%d refresh=%#x first_partition=%d libvpx bytes=%d q=%d refresh=%#x first_partition=%d",
 			i, len(got), gotHeader.Quant.BaseQindex, gotHeader.RefreshFrameFlags,
 			gotHeader.FirstPartitionSize, len(libvpxFrame.Data),
@@ -260,7 +261,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := make([]*image.YCbCr, tc.frames)
 			for i := range sources {
-				sources[i] = newVP9YCbCrForTest(width, height,
+				sources[i] = vp9test.NewYCbCr(width, height,
 					byte(72+i*19), 128, 128)
 			}
 
@@ -268,7 +269,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard(t *testing.T) {
 				VP9EncoderOptions{LookaheadFrames: tc.lag}, sources)
 			var raw []byte
 			for _, src := range sources {
-				raw = appendVP9YCbCrI420(raw, src)
+				raw = vp9test.AppendI420(raw, src)
 			}
 			ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height,
 				tc.frames,
@@ -305,8 +306,8 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard(t *testing.T) {
 				if firstMismatch < 0 {
 					firstMismatch = i
 				}
-				gotHeader, _ := parseVP9EncoderHeaderForTest(t, got)
-				wantHeader, _ := parseVP9EncoderHeaderForTest(t, libvpxFrame.Data)
+				gotHeader, _ := vp9test.ParseHeader(t, got)
+				wantHeader, _ := vp9test.ParseHeader(t, libvpxFrame.Data)
 				t.Logf("lookahead %s row %d drift: govpx bytes=%d q=%d refresh=%#x first_partition=%d libvpx bytes=%d q=%d refresh=%#x first_partition=%d",
 					tc.name, i, len(got), gotHeader.Quant.BaseQindex,
 					gotHeader.RefreshFrameFlags, gotHeader.FirstPartitionSize,
@@ -329,7 +330,7 @@ func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	src := newVP9YCbCrForTest(width, height, 80, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 80, 128, 128)
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
@@ -339,7 +340,7 @@ func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 		t.Fatalf("Encode govpx keyframe: %v", err)
 	}
 
-	raw := appendVP9YCbCrI420(nil, src)
+	raw := vp9test.AppendI420(nil, src)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
@@ -393,7 +394,7 @@ func TestVP9EncoderVpxencOracleInterModeDistributionScoreboard(t *testing.T) {
 	const width, height, frames = 64, 64, 6
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:  width,
@@ -421,7 +422,7 @@ func TestVP9EncoderVpxencOracleInterModeDistributionScoreboard(t *testing.T) {
 
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
 		height, frames, nil)
@@ -496,7 +497,7 @@ func TestVP9EncoderVpxencOracleStepped320FixedQuantizerKeyframeByteParity(t *tes
 	coracletest.VpxencVP9(t)
 
 	const width, height = 320, 180
-	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		MinQuantizer: 20,
 		MaxQuantizer: 20,
@@ -554,7 +555,7 @@ func TestVP9EncoderVpxencOracleCBRKeyframeByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	src := newVP9PanningYCbCrForRateTest(width, height, 0)
+	src := vp9test.NewPanningYCbCr(width, height, 0)
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
 		Width:               width,
 		Height:              height,
@@ -602,7 +603,7 @@ func TestVP9EncoderVpxencOracleIdenticalInterByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	assertVP9VpxencTwoFrameByteParity(t, src, src)
 }
 
@@ -610,8 +611,8 @@ func TestVP9EncoderVpxencOracleChangedConstantInterByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	second := vp9test.NewYCbCr(width, height, 160, 128, 128)
 	assertVP9VpxencTwoFrameByteParity(t, first, second)
 }
 
@@ -621,7 +622,7 @@ func TestVP9EncoderVpxencOracleCheckerInterByteParity(t *testing.T) {
 	// estimated prediction, and the non-RD partition picker.
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
 	assertVP9VpxencTwoFrameByteParity(t, first, second)
 }
@@ -630,8 +631,8 @@ func TestVP9EncoderVpxencOracleFixedQuantizerInterByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	second := vp9test.NewYCbCr(width, height, 160, 128, 128)
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		MinQuantizer: 20,
 		MaxQuantizer: 20,
@@ -647,8 +648,8 @@ func TestVP9EncoderVpxencOracleCQLevelInterByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	second := vp9test.NewYCbCr(width, height, 160, 128, 128)
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		CQLevel: 20,
 	}, []string{"--cq-level=20"})
@@ -658,8 +659,8 @@ func TestVP9EncoderVpxencOraclePublicQuantizerBandInterByteParity(t *testing.T) 
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	second := vp9test.NewYCbCr(width, height, 160, 128, 128)
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		MinQuantizer: 10,
 		MaxQuantizer: 50,
@@ -677,7 +678,7 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParity(t *testing.T) {
 	// estimated prediction, and the non-RD partition picker.
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		Lossless: true,
@@ -697,7 +698,7 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParityQuantizerSweep(t *testing.
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
 
 	minQs := []int{0, 1, 2}
@@ -756,7 +757,7 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParitySweep(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
 
 	cpuUseds := []int8{0, 2, 5, 8}
@@ -836,8 +837,8 @@ func TestVP9EncoderVpxencOracleErrorResilientInterByteParity(t *testing.T) {
 	coracletest.VpxencVP9(t)
 
 	const width, height = 64, 64
-	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
-	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	second := vp9test.NewYCbCr(width, height, 160, 128, 128)
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		ErrorResilient: true,
 	}, []string{"--error-resilient=1"})
@@ -848,9 +849,9 @@ func TestVP9EncoderVpxencOracleMaxKeyframeIntervalByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
 	}
 	assertVP9VpxencFrameSequenceByteParityWithOptions(t, frames, VP9EncoderOptions{
 		MaxKeyframeInterval: 2,
@@ -862,8 +863,8 @@ func TestVP9EncoderVpxencFrameFlagsForceKeyFrameByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
 	}
 	flags := []EncodeFlags{0, EncodeForceKeyFrame}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
@@ -874,8 +875,8 @@ func TestVP9EncoderVpxencForceKeyFrameAPIByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 144, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 144, 128, 128),
 	}
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:  width,
@@ -907,7 +908,7 @@ func TestVP9EncoderVpxencForceKeyFrameAPIByteParity(t *testing.T) {
 	libvpxFlags := []uint32{0, vp9FrameFlagsForLibvpx(EncodeForceKeyFrame)}
 	var raw []byte
 	for _, frame := range frames {
-		raw = appendVP9YCbCrI420(raw, frame)
+		raw = vp9test.AppendI420(raw, frame)
 	}
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
 		height, len(frames), libvpxFlags)
@@ -934,8 +935,8 @@ func TestVP9EncoderVpxencFrameFlagsNoUpdateAllByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
 	}
 	flags := []EncodeFlags{0, vp9NoUpdateRefFlags}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
@@ -946,8 +947,8 @@ func TestVP9EncoderVpxencFrameFlagsNoReferenceGoldenAltRefByteParity(t *testing.
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
 	}
 	flags := []EncodeFlags{0, EncodeNoReferenceGolden | EncodeNoReferenceAltRef}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
@@ -959,7 +960,7 @@ func TestVP9EncoderVpxencFrameFlagsRepeatNoReferenceAllModeTxShape(t *testing.T)
 	const width, height, frames = 64, 64, 3
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
+		sources[i] = vp9test.NewYCbCr(width, height, uint8(96+i*8), 128, 128)
 	}
 	flags := make([]EncodeFlags, frames)
 	for i := 1; i < frames; i++ {
@@ -997,7 +998,7 @@ func TestVP9EncoderVpxencFrameFlagsRepeatNoReferenceAllModeTxShape(t *testing.T)
 	}
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
 		height, frames, libvpxFlags)
@@ -1064,7 +1065,7 @@ func TestVP9EncoderVpxencFrameFlagsRepeatNoReferenceAllModeTxShape(t *testing.T)
 		}
 		gFirst, gLast := firstLastVP9MiForOracleTest(gGrid)
 		lFirst, lLast := firstLastVP9MiForOracleTest(lGrid)
-		firstByteDiff := firstVP9PacketDiffForTest(govpxPackets[frameIdx],
+		firstByteDiff := vp9test.FirstPacketDiff(govpxPackets[frameIdx],
 			libvpxPackets[frameIdx])
 		t.Logf("VP9 repeat no-reference-all mode/tx frame %d: first_shape_mismatch=%d first_byte_diff=%d govpx_bytes=%d libvpx_bytes=%d govpx_first=%+v govpx_last=%+v libvpx_first=%+v libvpx_last=%+v",
 			frameIdx, firstMismatch, firstByteDiff,
@@ -1085,8 +1086,8 @@ func TestVP9EncoderVpxencFrameFlagsNoUpdateLastByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
 	}
 	flags := []EncodeFlags{0, EncodeNoUpdateLast}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
@@ -1097,8 +1098,8 @@ func TestVP9EncoderVpxencFrameFlagsForceGoldenNoUpdateLastByteParity(t *testing.
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
 	}
 	flags := []EncodeFlags{0, EncodeForceGoldenFrame | EncodeNoUpdateLast}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
@@ -1109,8 +1110,8 @@ func TestVP9EncoderVpxencFrameFlagsForceAltRefNoUpdateGoldenByteParity(t *testin
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
 	}
 	flags := []EncodeFlags{0, EncodeForceAltRefFrame | EncodeNoUpdateGolden}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
@@ -1121,8 +1122,8 @@ func TestVP9EncoderVpxencFrameFlagsNoUpdateEntropyByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
-		newVP9YCbCrForTest(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
 	}
 	flags := []EncodeFlags{0, EncodeNoUpdateEntropy}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
@@ -1203,7 +1204,7 @@ func assertVP9VpxencKeyframeByteParityWithOptions(t *testing.T, src *image.YCbCr
 	if err != nil {
 		t.Fatalf("Encode govpx keyframe: %v", err)
 	}
-	raw := appendVP9YCbCrI420(nil, src)
+	raw := vp9test.AppendI420(nil, src)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1, extraArgs...)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
@@ -1218,8 +1219,8 @@ func assertVP9VpxencKeyframeByteParityWithOptions(t *testing.T, src *image.YCbCr
 	}
 
 	if !bytes.Equal(govpxPacket, libvpxFrame.Data) {
-		govpxHeader, govpxTileStart := parseVP9EncoderHeaderForTest(t, govpxPacket)
-		libvpxHeader, libvpxTileStart := parseVP9EncoderHeaderForTest(t, libvpxFrame.Data)
+		govpxHeader, govpxTileStart := vp9test.ParseHeader(t, govpxPacket)
+		libvpxHeader, libvpxTileStart := vp9test.ParseHeader(t, libvpxFrame.Data)
 		govpxGrid := decodeVP9PacketMiGridForOracleTest(t, govpxPacket)
 		libvpxGrid := decodeVP9PacketMiGridForOracleTest(t, libvpxFrame.Data)
 		govpxTx := decodeVP9PacketTxCoeffsForOracleTest(t, govpxPacket)
@@ -1263,8 +1264,8 @@ func assertVP9VpxencTwoFrameByteParityWithOptions(t *testing.T, first, second *i
 		t.Fatalf("Encode govpx inter frame: %v", err)
 	}
 
-	raw := appendVP9YCbCrI420(nil, first)
-	raw = appendVP9YCbCrI420(raw, second)
+	raw := vp9test.AppendI420(nil, first)
+	raw = vp9test.AppendI420(raw, second)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 2, extraArgs...)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
@@ -1320,7 +1321,7 @@ func assertVP9VpxencFrameSequenceByteParityWithOptions(t *testing.T,
 
 	var raw []byte
 	for _, frame := range frames {
-		raw = appendVP9YCbCrI420(raw, frame)
+		raw = vp9test.AppendI420(raw, frame)
 	}
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, len(frames), extraArgs...)
 	if err != nil {
@@ -1410,7 +1411,7 @@ func assertVP9VpxencFrameFlagsByteParityWithOptions(t *testing.T,
 	}
 	var raw []byte
 	for _, frame := range frames {
-		raw = appendVP9YCbCrI420(raw, frame)
+		raw = vp9test.AppendI420(raw, frame)
 	}
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width, height,
 		len(frames), libvpxFlags, extraArgs...)
@@ -1490,14 +1491,14 @@ func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKe
 	if bytes.Equal(govpxInter, libvpxInter) {
 		return
 	}
-	gotHeader, gotTileStart := parseVP9EncoderHeaderForTest(t, govpxInter)
-	wantHeader, wantTileStart := parseVP9EncoderHeaderForTest(t, libvpxInter)
+	gotHeader, gotTileStart := vp9test.ParseHeader(t, govpxInter)
+	wantHeader, wantTileStart := vp9test.ParseHeader(t, libvpxInter)
 	govpxGrid := decodeVP9TwoFrameInterMiGridForOracleTest(t, govpxKey, govpxInter)
 	libvpxGrid := decodeVP9TwoFrameInterMiGridForOracleTest(t, libvpxKey, libvpxInter)
 	govpxFirst, govpxLast := firstLastVP9MiForOracleTest(govpxGrid)
 	libvpxFirst, libvpxLast := firstLastVP9MiForOracleTest(libvpxGrid)
 	t.Fatalf("inter packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x mi0=%+v miLast=%+v\nvpxenc header=%+v tileStart=%d tile=% x mi0=%+v miLast=%+v\ngovpx packet=% x\nvpxenc packet=% x",
-		firstVP9PacketDiffForTest(govpxInter, libvpxInter),
+		vp9test.FirstPacketDiff(govpxInter, libvpxInter),
 		gotHeader, gotTileStart, govpxInter[gotTileStart:], govpxFirst, govpxLast,
 		wantHeader, wantTileStart, libvpxInter[wantTileStart:], libvpxFirst,
 		libvpxLast,
@@ -1509,10 +1510,10 @@ func assertVP9PacketByteParity(t *testing.T, label string, got, want []byte) {
 	if bytes.Equal(got, want) {
 		return
 	}
-	gotHeader, gotTileStart := parseVP9EncoderHeaderForTest(t, got)
-	wantHeader, wantTileStart := parseVP9EncoderHeaderForTest(t, want)
+	gotHeader, gotTileStart := vp9test.ParseHeader(t, got)
+	wantHeader, wantTileStart := vp9test.ParseHeader(t, want)
 	t.Fatalf("%s packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x\nvpxenc header=%+v tileStart=%d tile=% x\ngovpx packet=% x\nvpxenc packet=% x",
-		label, firstVP9PacketDiffForTest(got, want),
+		label, vp9test.FirstPacketDiff(got, want),
 		gotHeader, gotTileStart, got[gotTileStart:],
 		wantHeader, wantTileStart, want[wantTileStart:],
 		got, want)
@@ -1529,7 +1530,7 @@ type vp9OracleTxCoeffs struct {
 
 func decodeVP9PacketTxCoeffsForOracleTest(t *testing.T, packet []byte) []vp9OracleTxCoeffs {
 	t.Helper()
-	hdr, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	hdr, tileStart := vp9test.ParseHeader(t, packet)
 	uncSize := tileStart - int(hdr.FirstPartitionSize)
 
 	var cr bitstream.Reader

@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -257,7 +258,7 @@ func TestVP9AvgSourceSADStatsZeroTempSource(t *testing.T) {
 		t.Fatalf("UseSourceSad disabled at realtime speed 6")
 	}
 
-	src := newVP9YCbCrForTest(64, 64, 100, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 100, 128, 128)
 	e.vp9CommitLastSource(src, true, false)
 	stats, ok := e.vp9AvgSourceSADStats(src, 8, 0, 0)
 	if !ok {

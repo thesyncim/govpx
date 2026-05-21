@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
@@ -59,7 +60,7 @@ func TestVP9NonrdModeCostFrameContextRefreshCadence(t *testing.T) {
 // reference dimensions come from the preceding keyframe.
 func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -170,7 +171,7 @@ func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 	// commits root SB size and never reaches the Block8x8 leaf this test
 	// asserts.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -250,7 +251,7 @@ func TestVP9EncoderInterTxScoringSelectsTx16ForLocalizedResidual(t *testing.T) {
 	e.prepareVP9EncoderOutputFrame(width, height)
 	vp9dec.ResetFrameContext(&e.fc)
 
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	for y := range 16 {
 		row := img.Y[y*img.YStride:]
 		for x := range 16 {

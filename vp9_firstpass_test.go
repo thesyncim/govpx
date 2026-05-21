@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func TestFinalizeVP9FirstPassStats(t *testing.T) {
 	rows := []VP9FirstPassFrameStats{
@@ -102,8 +106,8 @@ func TestVP9EncoderCollectFirstPassStatsPopulatesMotionFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	first := newVP9PanningYCbCrForRateTest(width, height, 0)
-	second := newVP9PanningYCbCrForRateTest(width, height, 1)
+	first := vp9test.NewPanningYCbCr(width, height, 0)
+	second := vp9test.NewPanningYCbCr(width, height, 1)
 
 	stats0, err := enc.CollectFirstPassStats(first, 0, 1, 0)
 	if err != nil {

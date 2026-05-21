@@ -5,6 +5,7 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -71,7 +72,7 @@ func encodeVP9FramesWithLibvpxOracle(t *testing.T, sources []*image.YCbCr,
 	height := sources[0].Rect.Dy()
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, len(sources), extraArgs...)
 	if err != nil {
@@ -98,7 +99,7 @@ func encodeVP9FramesWithLibvpxFrameFlagsOracle(t *testing.T, sources []*image.YC
 	}
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width, height,
 		len(sources), libvpxFlags, extraArgs...)
@@ -149,7 +150,7 @@ func assertVP9SegmentByteParity(t *testing.T, label string, got, want [][]byte, 
 			t.Logf("%s frame %d byte MATCH: len=%d", label, i, len(got[i]))
 			continue
 		}
-		fd := firstVP9PacketDiffForTest(got[i], want[i])
+		fd := vp9test.FirstPacketDiff(got[i], want[i])
 		if i >= limit {
 			t.Logf("%s frame %d byte mismatch (not asserted, limit=%d): got_len=%d want_len=%d first_diff=%d got_sha=%s want_sha=%s",
 				label, i, limit, len(got[i]), len(want[i]), fd,
@@ -167,7 +168,7 @@ func assertVP9SegmentByteParity(t *testing.T, label string, got, want [][]byte, 
 // signature so the fuzz cases can be expressed independent of the *image.YCbCr
 // vs Image divergence between VP8 and VP9 surfaces.
 func newVP9YCbCrFuzzPanning(width, height, frame int) *image.YCbCr {
-	return newVP9PanningYCbCrForRateTest(width, height, frame)
+	return vp9test.NewPanningYCbCr(width, height, frame)
 }
 
 // newVP9YCbCrFuzzSources creates `frames` panning sources for a given

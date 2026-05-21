@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -478,7 +479,7 @@ func TestVP9CyclicRefreshSegmentIDBoostedMirrorsLibvpx(t *testing.T) {
 // skip leaves whose every layer parses cleanly through the decoder.
 func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	got, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -544,7 +545,7 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 
 func TestVP9EncoderKeyframeConstantSourceRoundTrip(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 80})
-	img := newVP9YCbCrForTest(96, 80, 91, 143, 37)
+	img := vp9test.NewYCbCr(96, 80, 91, 143, 37)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -612,7 +613,7 @@ func TestVP9EncoderDefaultQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	if got := int(h.Quant.BaseQindex); got != vp9DefaultBaseQIndex {
 		t.Fatalf("BaseQindex = %d, want pinned default %d",
 			got, vp9DefaultBaseQIndex)
@@ -621,7 +622,7 @@ func TestVP9EncoderDefaultQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
 
 func TestVP9EncoderDefaultInterQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	key, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -684,7 +685,7 @@ func TestVP9EncoderPublicFixedQuantizerControlsQIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	key, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -694,11 +695,11 @@ func TestVP9EncoderPublicFixedQuantizerControlsQIndex(t *testing.T) {
 		t.Fatalf("Encode inter: %v", err)
 	}
 	wantQIndex := vp9PublicQuantizerToQIndex(20)
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	keyHeader, _ := vp9test.ParseHeader(t, key)
 	if got := int(keyHeader.Quant.BaseQindex); got != wantQIndex {
 		t.Fatalf("key BaseQindex = %d, want %d", got, wantQIndex)
 	}
-	interHeader, _ := parseVP9EncoderHeaderForTest(t, inter)
+	interHeader, _ := vp9test.ParseHeader(t, inter)
 	if got := int(interHeader.Quant.BaseQindex); got != wantQIndex {
 		t.Fatalf("inter BaseQindex = %d, want %d", got, wantQIndex)
 	}
@@ -715,7 +716,7 @@ func TestVP9EncoderExplicitQuantizerOverridesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	if h.Quant.BaseQindex != 1 {
 		t.Fatalf("BaseQindex = %d, want explicit qindex 1", h.Quant.BaseQindex)
 	}

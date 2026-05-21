@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"reflect"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestVP9EncoderExplicitRateControlModesEncode(t *testing.T) {
 				t.Fatalf("NewVP9Decoder: %v", err)
 			}
 			for frame := range 2 {
-				src := newVP9YCbCrForTest(width, height,
+				src := vp9test.NewYCbCr(width, height,
 					uint8(96+frame*20), 128, 128)
 				result, err := e.EncodeIntoWithResult(src, dst)
 				if err != nil {
@@ -113,7 +114,7 @@ func TestVP9EncoderExplicitVBRUsesOnePassRateQuantizer(t *testing.T) {
 			e.rc.avgFrameQIndexKey, e.rc.avgFrameQIndexInter)
 	}
 	dst := make([]byte, 65536)
-	key, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+	key, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height,
 		96, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
@@ -126,7 +127,7 @@ func TestVP9EncoderExplicitVBRUsesOnePassRateQuantizer(t *testing.T) {
 		t.Fatalf("VBR key target = %d, want one-pass target %d",
 			key.FrameTargetBits, e.rc.onePassVBRKeyFrameTargetBits())
 	}
-	inter, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+	inter, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height,
 		116, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
@@ -242,7 +243,7 @@ func TestVP9EncoderOnePassVBRGoldenRefreshCadence(t *testing.T) {
 	}
 	dst := make([]byte, 65536)
 	for frame := 0; frame <= 10; frame++ {
-		result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width,
+		result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width,
 			height, uint8(96+frame*3), 128, 128), dst)
 		if err != nil {
 			t.Fatalf("Encode frame %d: %v", frame, err)
@@ -292,7 +293,7 @@ func TestVP9SetRateControlCBRToVBRSeedsGoldenCadence(t *testing.T) {
 	}
 	dst := make([]byte, 65536)
 	for frame := range 3 {
-		if _, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width,
+		if _, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width,
 			height, uint8(96+frame*3), 128, 128), dst); err != nil {
 			t.Fatalf("Encode CBR frame %d: %v", frame, err)
 		}
@@ -311,7 +312,7 @@ func TestVP9SetRateControlCBRToVBRSeedsGoldenCadence(t *testing.T) {
 	if e.rc.framesTillGF == 0 {
 		t.Fatal("CBR->VBR runtime transition left golden cadence immediately due")
 	}
-	result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width,
+	result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width,
 		height, 112, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode post-transition frame: %v", err)
@@ -340,7 +341,7 @@ func TestVP9SetRateControlPreservesOnePassGoldenCadence(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	if _, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width,
+	if _, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width,
 		height, 96, 128, 128), dst); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
@@ -364,7 +365,7 @@ func TestVP9SetRateControlPreservesOnePassGoldenCadence(t *testing.T) {
 		t.Fatalf("framesTillGF after CQ->Q = %d, want preserved %d",
 			e.rc.framesTillGF, wantFramesTillGF)
 	}
-	result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width,
+	result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width,
 		height, 104, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode post-transition frame: %v", err)
@@ -518,14 +519,14 @@ func TestVP9EncoderSetRealtimeTargetResizeForcesKeyFrame(t *testing.T) {
 		h2 = 80
 	)
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: w1, Height: h1})
-	if _, err := e.Encode(newVP9YCbCrForTest(w1, h1, 72, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(w1, h1, 72, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	inter, err := e.Encode(newVP9YCbCrForTest(w1, h1, 92, 128, 128))
+	inter, err := e.Encode(vp9test.NewYCbCr(w1, h1, 92, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	if h, _ := parseVP9EncoderHeaderForTest(t, inter); h.FrameType != common.InterFrame {
+	if h, _ := vp9test.ParseHeader(t, inter); h.FrameType != common.InterFrame {
 		t.Fatalf("pre-resize frame type = %d, want inter", h.FrameType)
 	}
 	if !e.refValid[vp9LastRefSlot] || !e.refFrames[vp9LastRefSlot].valid {
@@ -547,15 +548,15 @@ func TestVP9EncoderSetRealtimeTargetResizeForcesKeyFrame(t *testing.T) {
 			t.Fatalf("reference slot %d still valid after resize", slot)
 		}
 	}
-	if _, err := e.Encode(newVP9YCbCrForTest(w1, h1, 100, 128, 128)); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := e.Encode(vp9test.NewYCbCr(w1, h1, 100, 128, 128)); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("old-size Encode after resize err = %v, want ErrInvalidConfig", err)
 	}
 
-	resized, err := e.Encode(newVP9YCbCrForTest(w2, h2, 111, 123, 211))
+	resized, err := e.Encode(vp9test.NewYCbCr(w2, h2, 111, 123, 211))
 	if err != nil {
 		t.Fatalf("Encode resized keyframe: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, resized)
+	h, _ := vp9test.ParseHeader(t, resized)
 	if h.FrameType != common.KeyFrame || h.Width != w2 || h.Height != h2 {
 		t.Fatalf("resized header = type:%d %dx%d, want key %dx%d",
 			h.FrameType, h.Width, h.Height, w2, h2)
@@ -601,7 +602,7 @@ func TestVP9EncoderSetRealtimeTargetValidationNoMutation(t *testing.T) {
 				t.Fatalf("encoder mutated after reject: opts=%+v forceKeyFrame=%t",
 					e.opts, e.forceKeyFrame)
 			}
-			packet, err := e.Encode(newVP9YCbCrForTest(width, height, 80, 128, 128))
+			packet, err := e.Encode(vp9test.NewYCbCr(width, height, 80, 128, 128))
 			if err != nil {
 				t.Fatalf("Encode after rejected target: %v", err)
 			}
@@ -629,11 +630,11 @@ func TestVP9EncoderSetRealtimeTargetUpdatesQuantizerBounds(t *testing.T) {
 		t.Fatalf("quantizer bounds = %d/%d, want 20/20",
 			e.opts.MinQuantizer, e.opts.MaxQuantizer)
 	}
-	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 80, 128, 128))
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 80, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	if got, want := int(h.Quant.BaseQindex), vp9PublicQuantizerToQIndex(20); got != want {
 		t.Fatalf("BaseQindex = %d, want %d", got, want)
 	}
@@ -653,7 +654,7 @@ func TestVP9EncoderCBRDropBufferUnderrunReturnsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	dst := make([]byte, 65536)
 	key, err := e.EncodeIntoWithResult(src, dst)
 	if err != nil {
@@ -707,7 +708,7 @@ func TestVP9EncoderCBRSelectsLibvpxQuantizers(t *testing.T) {
 	dst := make([]byte, 65536)
 	wantQ := [...]int{16, 145, 145, 162}
 	for i, want := range wantQ {
-		src := newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+i*11), 128, 128)
 		result, err := e.EncodeIntoWithResult(src, dst)
 		if err != nil {
 			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
@@ -760,7 +761,7 @@ func TestVP9EncoderCBRFrameTargetMatchesLibvpx(t *testing.T) {
 				want = e.rc.onePassCBRInterFrameTargetBits(
 					e.vp9InterRefreshFrameFlags(0))
 			}
-			src := newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
+			src := vp9test.NewYCbCr(width, height, uint8(96+i*11), 128, 128)
 			result, err := e.EncodeIntoWithResult(src, dst)
 			if err != nil {
 				t.Fatalf("EncodeIntoWithResult target %d frame %d: %v",
@@ -788,7 +789,7 @@ func TestVP9EncoderCBRDropDoesNotDropKeyOrInvisibleFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	dst := make([]byte, 65536)
 
 	e.rc.bufferLevelBits = -1
@@ -1079,11 +1080,11 @@ func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 		t.Fatalf("variance AQ state = mode:%d cyclic:%t, want variance/false",
 			e.opts.AQMode, e.cyclicAQ.Enabled)
 	}
-	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode variance AQ key: %v", err)
 	}
-	header, _ := parseVP9EncoderHeaderForTest(t, packet)
+	header, _ := vp9test.ParseHeader(t, packet)
 	if !header.Seg.Enabled || !header.Seg.UpdateMap || !header.Seg.UpdateData {
 		t.Fatalf("runtime variance AQ segmentation = enabled:%t updateMap:%t updateData:%t, want true/true/true",
 			header.Seg.Enabled, header.Seg.UpdateMap, header.Seg.UpdateData)
@@ -1161,17 +1162,17 @@ func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 		t.Fatal("invalid SetAQMode complexity mutated encoder state")
 	}
 	dst := make([]byte, 65536)
-	keyN, err := cbr.EncodeInto(newVP9YCbCrForTest(width, height, 96, 128, 128), dst)
+	keyN, err := cbr.EncodeInto(vp9test.NewYCbCr(width, height, 96, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode cyclic AQ key: %v", err)
 	}
 	keyPacket := append([]byte(nil), dst[:keyN]...)
-	interN, err := cbr.EncodeInto(newVP9YCbCrForTest(width, height, 116, 128, 128), dst)
+	interN, err := cbr.EncodeInto(vp9test.NewYCbCr(width, height, 116, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode cyclic AQ inter: %v", err)
 	}
 	interPacket := append([]byte(nil), dst[:interN]...)
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 	var br vp9dec.BitReader
 	br.Init(interPacket)
 	interHeader, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
@@ -1209,7 +1210,7 @@ func TestVP9EncoderSetLossless(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lossless Encode: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	if h.Quant.BaseQindex != 0 || !h.Quant.Lossless {
 		t.Fatalf("lossless header q/lossless = %d/%v, want 0/true",
 			h.Quant.BaseQindex, h.Quant.Lossless)
@@ -1223,7 +1224,7 @@ func TestVP9EncoderSetLossless(t *testing.T) {
 	if err != nil {
 		t.Fatalf("non-lossless Encode: %v", err)
 	}
-	h, _ = parseVP9EncoderHeaderForTest(t, packet)
+	h, _ = vp9test.ParseHeader(t, packet)
 	if h.Quant.Lossless {
 		t.Fatal("SetLossless(false) left lossless header enabled")
 	}
@@ -1271,7 +1272,7 @@ func TestVP9EncoderSetRateControlSwitchesModeAtomically(t *testing.T) {
 	}
 	dst := make([]byte, 65536)
 	result, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(64, 64, 96, 128, 128), dst)
+		vp9test.NewYCbCr(64, 64, 96, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult after SetRateControl: %v", err)
 	}

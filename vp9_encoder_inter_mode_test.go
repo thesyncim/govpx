@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -14,8 +15,8 @@ import (
 func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	const width, height = 96, 80
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 82, 123, 211)
-	interSrc := newVP9YCbCrForTest(width, height, 201, 44, 19)
+	keySrc := vp9test.NewYCbCr(width, height, 82, 123, 211)
+	interSrc := vp9test.NewYCbCr(width, height, 201, 44, 19)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -74,8 +75,8 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 0, 0, 0)
-	interSrc := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 0, 0, 0)
+	interSrc := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -102,7 +103,7 @@ func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
 	const width, height = 128, 128
 	const x0, y0 = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(width, height)
 
@@ -327,7 +328,7 @@ func TestVP9EncoderInterPicksCompoundNewMvWithStationaryHalf(t *testing.T) {
 
 func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
-	keySrc := newVP9YCbCrForTest(32, 32, 128, 128, 128)
+	keySrc := vp9test.NewYCbCr(32, 32, 128, 128, 128)
 	interSrc := newVP9CheckerYCbCrForTest(32, 32, 48, 208, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {

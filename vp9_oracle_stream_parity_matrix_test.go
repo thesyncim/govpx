@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"testing"
@@ -27,7 +28,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  64,
 		height: 64,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			return vp9test.NewYCbCr(width, height, 128, 128, 128)
 		},
 	}
 	constant320 := streamFixture{
@@ -35,7 +36,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  320,
 		height: 180,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			return vp9test.NewYCbCr(width, height, 128, 128, 128)
 		},
 	}
 	constant640 := streamFixture{
@@ -43,7 +44,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  640,
 		height: 480,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			return vp9test.NewYCbCr(width, height, 128, 128, 128)
 		},
 	}
 	constant720 := streamFixture{
@@ -51,7 +52,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  1280,
 		height: 720,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height, 128, 128, 128)
+			return vp9test.NewYCbCr(width, height, 128, 128, 128)
 		},
 	}
 	stepped64 := streamFixture{
@@ -59,7 +60,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  64,
 		height: 64,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height,
+			return vp9test.NewYCbCr(width, height,
 				uint8(96+frame*8), 128, 128)
 		},
 	}
@@ -68,7 +69,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  320,
 		height: 180,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height,
+			return vp9test.NewYCbCr(width, height,
 				uint8(96+frame*8), 128, 128)
 		},
 	}
@@ -77,7 +78,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  1280,
 		height: 720,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height,
+			return vp9test.NewYCbCr(width, height,
 				uint8(96+frame*8), 128, 128)
 		},
 	}
@@ -86,7 +87,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		width:  64,
 		height: 64,
 		source: func(width, height, frame int) *image.YCbCr {
-			return newVP9YCbCrForTest(width, height,
+			return vp9test.NewYCbCr(width, height,
 				uint8(100+(frame&1)*2), 128, 128)
 		},
 	}
@@ -94,31 +95,31 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 		name:   "panning-64x64",
 		width:  64,
 		height: 64,
-		source: newVP9PanningYCbCrForRateTest,
+		source: vp9test.NewPanningYCbCr,
 	}
 	panning320 := streamFixture{
 		name:   "panning-320x180",
 		width:  320,
 		height: 180,
-		source: newVP9PanningYCbCrForRateTest,
+		source: vp9test.NewPanningYCbCr,
 	}
 	panning720 := streamFixture{
 		name:   "panning-1280x720",
 		width:  1280,
 		height: 720,
-		source: newVP9PanningYCbCrForRateTest,
+		source: vp9test.NewPanningYCbCr,
 	}
 	tiled1024 := streamFixture{
 		name:   "panning-1024x64",
 		width:  1024,
 		height: 64,
-		source: newVP9PanningYCbCrForRateTest,
+		source: vp9test.NewPanningYCbCr,
 	}
 	tiledRows64 := streamFixture{
 		name:   "panning-64x128",
 		width:  64,
 		height: 128,
-		source: newVP9PanningYCbCrForRateTest,
+		source: vp9test.NewPanningYCbCr,
 	}
 
 	type streamCase struct {

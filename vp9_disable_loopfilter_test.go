@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -29,11 +30,11 @@ func TestVP9EncoderDisableLoopfilterAllZerosFilterLevel(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(newVP9YCbCrForTest(width, height, 128, 128, 128), dst)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(width, height, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.Loopfilter.FilterLevel != 0 {
 		t.Fatalf("DisableAll FilterLevel = %d, want 0", hdr.Loopfilter.FilterLevel)
 	}
@@ -53,26 +54,26 @@ func TestVP9EncoderDisableLoopfilterInterOnlyAffectsNonKeyFrames(t *testing.T) {
 	dst := make([]byte, 65536)
 	// Keyframe should still carry a non-zero filter level (the encoder
 	// derives the default level from base qindex on key frames).
-	key, err := e.Encode(newVP9YCbCrForTest(width, height, 128, 128, 128))
+	key, err := e.Encode(vp9test.NewYCbCr(width, height, 128, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	if _, ok := copyTo(dst, key); !ok {
 		t.Fatalf("keyframe too large for dst (%d > %d)", len(key), len(dst))
 	}
-	keyHdr, _ := parseVP9EncoderHeaderForTest(t, dst[:len(key)])
+	keyHdr, _ := vp9test.ParseHeader(t, dst[:len(key)])
 	if keyHdr.Loopfilter.FilterLevel == 0 {
 		t.Fatalf("DisableInter zeroed keyframe FilterLevel; want non-zero")
 	}
 	// Non-keyframe must zero the filter level.
-	inter, err := e.Encode(newVP9YCbCrForTest(width, height, 64, 128, 128))
+	inter, err := e.Encode(vp9test.NewYCbCr(width, height, 64, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
 	if _, ok := copyTo(dst, inter); !ok {
 		t.Fatalf("inter too large for dst (%d > %d)", len(inter), len(dst))
 	}
-	interHdr, _ := parseVP9EncoderHeaderForTest(t, dst[:len(inter)])
+	interHdr, _ := vp9test.ParseHeader(t, dst[:len(inter)])
 	if interHdr.Loopfilter.FilterLevel != 0 {
 		t.Fatalf("DisableInter inter FilterLevel = %d, want 0",
 			interHdr.Loopfilter.FilterLevel)

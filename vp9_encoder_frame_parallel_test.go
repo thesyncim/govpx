@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"runtime"
 	"testing"
@@ -160,13 +161,13 @@ func TestVP9FrameParallelErrFrameNotReadySemantics(t *testing.T) {
 	// return ErrFrameNotReady; the LookaheadFrames-th push triggers the
 	// keyframe emit through the serial path.
 	for i := range 3 {
-		src := newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+i*8), 128, 128)
 		_, err := e.EncodeIntoWithResult(src, dst)
 		if !errors.Is(err, ErrFrameNotReady) {
 			t.Fatalf("frame %d expected ErrFrameNotReady, got %v", i, err)
 		}
 	}
-	src := newVP9YCbCrForTest(width, height, 96+3*8, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96+3*8, 128, 128)
 	res, err := e.EncodeIntoWithResult(src, dst)
 	if err != nil {
 		t.Fatalf("frame 3 (keyframe trigger): %v", err)
@@ -182,7 +183,7 @@ func TestVP9FrameParallelErrFrameNotReadySemantics(t *testing.T) {
 	// not a keyframe.
 	gotBatchFirst := false
 	for i := 4; i < 8; i++ {
-		src := newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+i*8), 128, 128)
 		res, err := e.EncodeIntoWithResult(src, dst)
 		if errors.Is(err, ErrFrameNotReady) {
 			continue
@@ -228,7 +229,7 @@ func TestVP9FrameParallelByteParitySerialVsParallel(t *testing.T) {
 
 	frames := make([]*image.YCbCr, frameCount)
 	for i := range frames {
-		frames[i] = newVP9YCbCrForTest(width, height, uint8(80+i*6), 128, 128)
+		frames[i] = vp9test.NewYCbCr(width, height, uint8(80+i*6), 128, 128)
 	}
 
 	// Mode A: serial encode with parallel-equivalent per-frame flags AND
@@ -388,7 +389,7 @@ func BenchmarkVP9FrameParallelSerialVs720pBatch4(b *testing.B) {
 
 	frames := make([]*image.YCbCr, frameCount)
 	for i := range frames {
-		frames[i] = newVP9YCbCrForTest(width, height, uint8(80+i*4), 128, 128)
+		frames[i] = vp9test.NewYCbCr(width, height, uint8(80+i*4), 128, 128)
 	}
 
 	b.Run("serial", func(b *testing.B) {
@@ -465,7 +466,7 @@ func TestVP9FrameParallelGoroutineLeak(t *testing.T) {
 	}
 	dst := make([]byte, 1<<20)
 	for i := range 4 {
-		src := newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+i*8), 128, 128)
 		_, _ = e.EncodeIntoWithResult(src, dst)
 	}
 	for {

@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func benchmarkVP9EncodeRowMT(b *testing.B, width, height, threads int, rowMT boo
 		b.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
-	src := newVP9PanningYCbCrForRateTest(width, height, 0)
+	src := vp9test.NewPanningYCbCr(width, height, 0)
 	dst := make([]byte, width*height*2)
 	// Warmup to size all scratch and reach steady-state.
 	if _, err := e.EncodeInto(src, dst); err != nil {
@@ -51,7 +52,7 @@ func benchmarkVP9EncodeRowMT(b *testing.B, width, height, threads int, rowMT boo
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		src := newVP9PanningYCbCrForRateTest(width, height, i+1)
+		src := vp9test.NewPanningYCbCr(width, height, i+1)
 		if _, err := e.EncodeInto(src, dst); err != nil {
 			b.Fatalf("EncodeInto[%d]: %v", i, err)
 		}

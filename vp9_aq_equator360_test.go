@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -116,7 +117,7 @@ func TestVP9EncoderEquator360AQAcceptsConfiguration(t *testing.T) {
 		t.Fatalf("opts.AQMode = %d, want %d", e.opts.AQMode, VP9AQEquator360)
 	}
 	dst := make([]byte, 65536)
-	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	if _, err := e.EncodeInto(src, dst); err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}

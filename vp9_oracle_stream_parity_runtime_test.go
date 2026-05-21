@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"testing"
@@ -365,7 +366,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 	const width, height, frames = 64, 64, 10
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9YCbCrForTest(width, height, 128, 128, 128)
+		sources[i] = vp9test.NewYCbCr(width, height, 128, 128, 128)
 	}
 
 	type runtimeConstantCase struct {
@@ -1031,7 +1032,7 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 96, 128, 128),
+		vp9test.NewYCbCr(width, height, 96, 128, 128),
 	}
 	flags := []EncodeFlags{EncodeInvisibleFrame}
 	govpxRows, govpxPackets := captureGovpxVP9VariablePacketRows(t,
@@ -1062,7 +1063,7 @@ func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
 
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 96, 128, 128),
+		vp9test.NewYCbCr(width, height, 96, 128, 128),
 	}
 	flags := []EncodeFlags{EncodeInvisibleFrame}
 	_, govpxPackets := captureGovpxVP9VariablePacketRows(t,

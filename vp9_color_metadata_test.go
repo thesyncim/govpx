@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -67,14 +68,14 @@ func TestVP9EncoderColorSpaceAppliesToHeader(t *testing.T) {
 				t.Fatalf("NewVP9Encoder: %v", err)
 			}
 			dst := make([]byte, 65536)
-			n, err := e.EncodeInto(newVP9YCbCrForTest(64, 64, 128, 128, 128), dst)
+			n, err := e.EncodeInto(vp9test.NewYCbCr(64, 64, 128, 128, 128), dst)
 			if err != nil {
 				t.Fatalf("EncodeInto: %v", err)
 			}
 			if n <= 0 {
 				t.Fatalf("EncodeInto wrote %d bytes", n)
 			}
-			hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+			hdr, _ := vp9test.ParseHeader(t, dst[:n])
 			if hdr.BitDepthColor.ColorSpace != tc.want {
 				t.Fatalf("ColorSpace = %d, want %d",
 					hdr.BitDepthColor.ColorSpace, tc.want)
@@ -95,11 +96,11 @@ func TestVP9EncoderColorRangeAppliesToHeader(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(newVP9YCbCrForTest(64, 64, 128, 128, 128), dst)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(64, 64, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.BitDepthColor.ColorRange != common.CRFullRange {
 		t.Fatalf("ColorRange = %d, want CRFullRange", hdr.BitDepthColor.ColorRange)
 	}

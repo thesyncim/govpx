@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -12,13 +13,13 @@ import (
 func TestVP9EncoderWideFrameUsesMinimumLegalTileColumns(t *testing.T) {
 	const width, height = 4160, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	img := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	img := vp9test.NewYCbCr(width, height, 91, 143, 37)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	h, tileStart := vp9test.ParseHeader(t, packet)
 	minLog2, _ := vp9dec.TileNBits(int((uint32(width) + 7) >> 3))
 	if minLog2 < 1 {
 		t.Fatalf("test frame min tile columns = %d, want >= 1", minLog2)
@@ -50,13 +51,13 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 		Height:  height,
 		Threads: 4,
 	})
-	img := newVP9YCbCrForTest(width, height, 82, 123, 211)
+	img := vp9test.NewYCbCr(width, height, 82, 123, 211)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	h, tileStart := vp9test.ParseHeader(t, packet)
 	if h.Tile.Log2TileCols != 2 {
 		t.Fatalf("Log2TileCols = %d, want 2 for Threads=4",
 			h.Tile.Log2TileCols)
@@ -111,13 +112,13 @@ func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
 	if e.vp9TilePool != nil {
 		t.Fatal("denoiser initialized VP9 tile worker pool")
 	}
-	img := newVP9YCbCrForTest(width, height, 82, 123, 211)
+	img := vp9test.NewYCbCr(width, height, 82, 123, 211)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	if h.Tile.Log2TileCols != 2 {
 		t.Fatalf("Log2TileCols = %d, want 2 for Threads=4",
 			h.Tile.Log2TileCols)
@@ -170,7 +171,7 @@ func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
 	dstA := make([]byte, 1<<20)
 	dstB := make([]byte, 1<<20)
 	for frame := range 2 {
-		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		src := vp9test.NewPanningYCbCr(width, height, frame)
 		nA, err := a.EncodeInto(src, dstA)
 		if err != nil {
 			t.Fatalf("a EncodeInto[%d]: %v", frame, err)
@@ -210,7 +211,7 @@ func TestVP9EncoderLog2TileRowsRowOnlyMatchesSerial(t *testing.T) {
 	dstSerial := make([]byte, 1<<20)
 	dstThreaded := make([]byte, 1<<20)
 	for frame := range 3 {
-		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		src := vp9test.NewPanningYCbCr(width, height, frame)
 		nSerial, err := serial.EncodeInto(src, dstSerial)
 		if err != nil {
 			t.Fatalf("serial EncodeInto[%d]: %v", frame, err)
@@ -262,7 +263,7 @@ func TestVP9EncoderLog2TileRowsWithTileColumnsMatchesSerial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 82, 123, 211)
+	src := vp9test.NewYCbCr(width, height, 82, 123, 211)
 	wantPacket, err := serial.Encode(src)
 	if err != nil {
 		t.Fatalf("serial Encode: %v", err)
@@ -273,10 +274,10 @@ func TestVP9EncoderLog2TileRowsWithTileColumnsMatchesSerial(t *testing.T) {
 	}
 	if !bytes.Equal(packet, wantPacket) {
 		t.Fatalf("tile-row packet differs from serial: %d/%d bytes first_diff=%d",
-			len(packet), len(wantPacket), firstVP9PacketDiffForTest(packet, wantPacket))
+			len(packet), len(wantPacket), vp9test.FirstPacketDiff(packet, wantPacket))
 	}
 
-	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	h, tileStart := vp9test.ParseHeader(t, packet)
 	if h.Tile.Log2TileRows != 1 {
 		t.Fatalf("Log2TileRows = %d, want 1", h.Tile.Log2TileRows)
 	}
@@ -315,11 +316,11 @@ func TestVP9EncoderLog2TileRowsSerialMultiColumnDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 82, 123, 211))
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 82, 123, 211))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	if h.Tile.Log2TileRows != 1 || h.Tile.Log2TileCols == 0 {
 		t.Fatalf("tile grid = rows:%d cols:%d, want row tiles and multi-column minimum",
 			h.Tile.Log2TileRows, h.Tile.Log2TileCols)
@@ -366,7 +367,7 @@ func TestVP9EncoderRuntimeResizeRebuildsTileWorkerPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if _, err := e.Encode(newVP9YCbCrForTest(smallWidth, smallHeight, 82, 123, 211)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(smallWidth, smallHeight, 82, 123, 211)); err != nil {
 		t.Fatalf("small Encode: %v", err)
 	}
 	if e.vp9TilePool != nil {
@@ -379,11 +380,11 @@ func TestVP9EncoderRuntimeResizeRebuildsTileWorkerPool(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SetRealtimeTarget resize: %v", err)
 	}
-	packet, err := e.Encode(newVP9YCbCrForTest(wideWidth, wideHeight, 91, 143, 37))
+	packet, err := e.Encode(vp9test.NewYCbCr(wideWidth, wideHeight, 91, 143, 37))
 	if err != nil {
 		t.Fatalf("wide Encode: %v", err)
 	}
-	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	h, tileStart := vp9test.ParseHeader(t, packet)
 	if h.Tile.Log2TileCols != 2 {
 		t.Fatalf("Log2TileCols after resize = %d, want 2 for Threads=4",
 			h.Tile.Log2TileCols)
@@ -457,7 +458,7 @@ func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
 	}
 	frames := [2]*image.YCbCr{}
 	for i := range frames {
-		frames[i] = newVP9YCbCrForTest(width, height, 128, 128, 128)
+		frames[i] = vp9test.NewYCbCr(width, height, 128, 128, 128)
 	}
 	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
 	if err != nil {
@@ -615,9 +616,9 @@ func TestVP9EncoderThreadedTileFeaturePathsSteadyStateAlloc(t *testing.T) {
 		},
 	}
 	frames := [3]*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 96, 128, 128),
-		newVP9YCbCrForTest(width, height, 112, 128, 128),
-		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 96, 128, 128),
+		vp9test.NewYCbCr(width, height, 112, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
 	}
 	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
 	if err != nil {

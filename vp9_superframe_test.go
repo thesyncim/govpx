@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -68,8 +69,8 @@ func TestPackVP9SuperframeRejectsInvalidInput(t *testing.T) {
 func TestPackVP9SuperframeDecode(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 32, 128, 128)
-	interSrc := newVP9YCbCrForTest(width, height, 144, 96, 224)
+	keySrc := vp9test.NewYCbCr(width, height, 32, 128, 128)
+	interSrc := vp9test.NewYCbCr(width, height, 144, 96, 224)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)

@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func TestVP9SceneDetectionOnePassHighSourceSADNoLag(t *testing.T) {
 	const width, height = 320, 320
@@ -18,8 +22,8 @@ func TestVP9SceneDetectionOnePassHighSourceSADNoLag(t *testing.T) {
 	}
 	defer e.Close()
 
-	last := newVP9YCbCrForTest(width, height, 0, 128, 128)
-	src := newVP9YCbCrForTest(width, height, 255, 128, 128)
+	last := vp9test.NewYCbCr(width, height, 0, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 255, 128, 128)
 	e.vp9CommitLastSource(last, true, false)
 	e.rc.framesSinceKey = 3
 
@@ -52,7 +56,7 @@ func TestVP9SceneDetectionOnePassZeroTempNoHighSourceSAD(t *testing.T) {
 	}
 	defer e.Close()
 
-	src := newVP9YCbCrForTest(width, height, 100, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 100, 128, 128)
 	e.vp9CommitLastSource(src, true, false)
 	e.rc.framesSinceKey = 3
 	e.rc.avgSourceSAD[0] = 1234

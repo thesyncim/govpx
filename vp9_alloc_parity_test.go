@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 )
@@ -98,7 +99,7 @@ func measureVP9EncodeAllocsAtBenchParity(t *testing.T, opts VP9EncoderOptions) {
 	dst := make([]byte, opts.Width*opts.Height*6+4096)
 	srcs := make([]*image.YCbCr, frames)
 	for i := range srcs {
-		srcs[i] = newVP9PanningYCbCrForRateTest(opts.Width, opts.Height, i)
+		srcs[i] = vp9test.NewPanningYCbCr(opts.Width, opts.Height, i)
 	}
 	// Warmup brings the encoder to steady state: sizes scratch, primes
 	// reference frames, and runs the first count + tile encode pass that

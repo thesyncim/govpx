@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -73,7 +74,7 @@ func TestPeekVP8StreamInfoAllocatesZero(t *testing.T) {
 func TestPeekVP9StreamInfoKeyFrame(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 80, 128, 128))
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 80, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode VP9 keyframe: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestPeekVP9StreamInfoKeyFrame(t *testing.T) {
 func TestPeekVP9StreamInfoInterFrameSizeFromReference(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	if _, err := e.Encode(src); err != nil {
 		t.Fatalf("Encode VP9 keyframe: %v", err)
 	}
@@ -146,7 +147,7 @@ func TestPeekVP9StreamInfoInterFrameSizeFromReference(t *testing.T) {
 func TestPeekVP9StreamInfoSuperframeReportsFirstFrame(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 112, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 112, 128, 128)
 	key, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode VP9 keyframe: %v", err)
@@ -179,7 +180,7 @@ func TestPeekVP9StreamInfoRejectsMalformed(t *testing.T) {
 func TestPeekVP9StreamInfoAllocatesZero(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 120, 128, 128))
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 120, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode VP9 keyframe: %v", err)
 	}

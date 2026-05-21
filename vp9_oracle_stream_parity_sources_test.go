@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -16,13 +17,13 @@ import (
 func makeVP9SteppedOracleSources(width, height, frames int) []*image.YCbCr {
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9YCbCrForTest(width, height, uint8(96+i*8), 128, 128)
+		sources[i] = vp9test.NewYCbCr(width, height, uint8(96+i*8), 128, 128)
 	}
 	return sources
 }
 
 func newVP9BlockCheckerYCbCrForOracleTest(width, height, frame int) *image.YCbCr {
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	for y := 0; y < height; y++ {
 		row := img.Y[y*img.YStride:]
 		for x := 0; x < width; x++ {
@@ -43,7 +44,7 @@ func makeVP9RuntimeResizeSources(w0, h0, w1, h1, resizeFrame, frames int) []*ima
 		if i >= resizeFrame {
 			width, height = w1, h1
 		}
-		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 	return sources
 }
@@ -243,7 +244,7 @@ func captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
 				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
 		}
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
 		height, len(sources), nil, extraArgs...)

@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 
 func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
-	img := newVP9YCbCrForTest(128, 64, 128, 128, 128)
+	img := vp9test.NewYCbCr(128, 64, 128, 128, 128)
 	got, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -49,7 +50,7 @@ func TestVP9EncoderKeyframeThreeMiEdgeUsesBlock32x32(t *testing.T) {
 		MinQuantizer: 20,
 		MaxQuantizer: 20,
 	})
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -78,7 +79,7 @@ func TestVP9EncoderFixedQNonNeutralKeyframeThreeMiEdgeUsesSquareBlocks(t *testin
 		MinQuantizer: 20,
 		MaxQuantizer: 20,
 	})
-	img := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -115,7 +116,7 @@ func TestVP9EncoderInterOneMiEdgeKeepsBlock64x64(t *testing.T) {
 		MinQuantizer: 20,
 		MaxQuantizer: 20,
 	})
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	keyPacket, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -148,7 +149,7 @@ func TestVP9EncoderInterFourMiEdgeUsesBlock32x32(t *testing.T) {
 		MinQuantizer: 20,
 		MaxQuantizer: 20,
 	})
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	keyPacket, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -205,7 +206,7 @@ func TestVP9EncoderKeyframeSub8x8DispatchUsesPartitionBSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	img := newVP9PanningYCbCrForRateTest(width, height, 0)
+	img := vp9test.NewPanningYCbCr(width, height, 0)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.ensureVP9EncoderModeBuffers(8, 8)
 	e.prepareVP9EncoderOutputFrame(width, height)
@@ -356,7 +357,7 @@ func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
 	const width, height = 128, 128
 	const x0, y0 = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(width, height)
 
@@ -515,7 +516,7 @@ func TestVP9EncoderKeyframeKeepsOracleDcUvModeForWholeBlockChroma(t *testing.T) 
 	const width, height = 128, 128
 	const uvX, uvY = 32, 32
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.prepareVP9EncoderOutputFrame(width, height)
 

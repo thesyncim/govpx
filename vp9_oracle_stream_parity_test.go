@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -45,7 +46,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 	cbrAQOpts := vp9OracleCBROptions(64, 64, 700)
 	cbrAQOpts.AQMode = VP9AQCyclicRefresh
 	steppedSource := func(width, height, frame int) *image.YCbCr {
-		return newVP9YCbCrForTest(width, height, uint8(96+frame*8),
+		return vp9test.NewYCbCr(width, height, uint8(96+frame*8),
 			128, 128)
 	}
 
@@ -126,7 +127,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			frames:      4,
 			opts:        vp9OracleCBROptions(64, 64, 700),
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
-			source:      newVP9PanningYCbCrForRateTest,
+			source:      vp9test.NewPanningYCbCr,
 			exactPrefix: 1,
 		},
 		{
@@ -136,7 +137,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			frames:      1,
 			opts:        vp9OracleCBROptions(64, 64, 700),
 			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
-			source:      newVP9PanningYCbCrForRateTest,
+			source:      vp9test.NewPanningYCbCr,
 			exactPrefix: 1,
 			strictBytes: true,
 		},
@@ -159,7 +160,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			exactPrefix: 2,
 			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+				return vp9test.NewYCbCr(width, height, 128, 128, 128)
 			},
 		},
 		{
@@ -231,7 +232,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			extraArgs:   []string{"--noise-sensitivity=3"},
 			exactPrefix: 1,
 			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height,
+				return vp9test.NewYCbCr(width, height,
 					uint8(100+(frame&1)*2), 128, 128)
 			},
 		},
@@ -247,7 +248,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			exactPrefix: 2,
 			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+				return vp9test.NewYCbCr(width, height, 128, 128, 128)
 			},
 		},
 		{
@@ -262,7 +263,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			exactPrefix: 2,
 			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+				return vp9test.NewYCbCr(width, height, 128, 128, 128)
 			},
 		},
 		{
@@ -277,7 +278,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			exactPrefix: 2,
 			strictBytes: true,
 			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+				return vp9test.NewYCbCr(width, height, 128, 128, 128)
 			},
 		},
 		{
@@ -289,7 +290,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			extraArgs:   append(vp9OracleCBRArgs(700, 600, 400, 500, 0), "--aq-mode=3"),
 			exactPrefix: 1,
 			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height, 128, 128, 128)
+				return vp9test.NewYCbCr(width, height, 128, 128, 128)
 			},
 		},
 	}
@@ -894,7 +895,7 @@ func TestVP9OracleRuntimeControlsPinnedCasesMatchLibvpx(t *testing.T) {
 			if tc.constant {
 				sources = make([]*image.YCbCr, frames)
 				for i := range sources {
-					sources[i] = newVP9YCbCrForTest(width, height, 128,
+					sources[i] = vp9test.NewYCbCr(width, height, 128,
 						128, 128)
 				}
 			} else {
@@ -943,7 +944,7 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 		before func(*testing.T, *VP9Encoder, int)
 	}
 	steppedKeyframe := func(frame int) *image.YCbCr {
-		return newVP9YCbCrForTest(width, height,
+		return vp9test.NewYCbCr(width, height,
 			uint8(96+frame*8), 128, 128)
 	}
 	activeMapBefore := func(t *testing.T, enc *VP9Encoder, frame int) {
@@ -1253,7 +1254,7 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 			source := tc.source
 			if source == nil {
 				source = func(frame int) *image.YCbCr {
-					return newVP9YCbCrForTest(width, height, 128, 128, 128)
+					return vp9test.NewYCbCr(width, height, 128, 128, 128)
 				}
 			}
 			for i := range sources {
@@ -1361,7 +1362,7 @@ func TestVP9OracleRealtimeNewModeMatchesLibvpx(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := make([]*image.YCbCr, tc.frames)
 			for i := range sources {
-				sources[i] = newVP9YCbCrForTest(tc.width, tc.height, 128, 128, 128)
+				sources[i] = vp9test.NewYCbCr(tc.width, tc.height, 128, 128, 128)
 			}
 			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
 				tc.opts, sources, nil, tc.args)

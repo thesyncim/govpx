@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"runtime"
 	"sync/atomic"
 	"testing"
@@ -216,7 +217,7 @@ func TestVP9TileWorkerPoolRowWorkerLifecycle(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
-	src := newVP9YCbCrForTest(width, height, 80, 100, 200)
+	src := vp9test.NewYCbCr(width, height, 80, 100, 200)
 	if _, err := e.Encode(src); err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -273,7 +274,7 @@ func TestVP9TileWorkerPoolRowWorkerSteadyStateAllocations(t *testing.T) {
 	}
 	defer e.Close()
 	dst := make([]byte, 1<<22)
-	src := newVP9YCbCrForTest(width, height, 80, 100, 200)
+	src := vp9test.NewYCbCr(width, height, 80, 100, 200)
 	// Warmup.
 	if _, err := e.EncodeInto(src, dst); err != nil {
 		t.Fatalf("warmup EncodeInto: %v", err)

@@ -5,6 +5,7 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
 	"testing"
@@ -52,7 +53,7 @@ func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
 		// staged.
 		var raw []byte
 		for _, src := range sources {
-			raw = appendVP9YCbCrI420(raw, src)
+			raw = vp9test.AppendI420(raw, src)
 		}
 		ivf, diag, err := coracle.VpxencVP9TwoPassEncodeI420(raw, cfg.width, cfg.height,
 			len(sources), cfg.extraArgs...)

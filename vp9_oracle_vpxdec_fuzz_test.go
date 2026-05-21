@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -58,7 +59,7 @@ func FuzzVP9DecoderAgainstLibvpx(f *testing.F) {
 		}
 		for i := 0; i < minFrames; i++ {
 			if !bytes.Equal(govpxFrames[i], libvpxFrames[i]) {
-				diff := firstVP9PacketDiffForTest(govpxFrames[i], libvpxFrames[i])
+				diff := vp9test.FirstPacketDiff(govpxFrames[i], libvpxFrames[i])
 				t.Errorf("VP9 frame %d I420 byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d",
 					i, len(govpxFrames[i]), len(libvpxFrames[i]), diff)
 			}
@@ -73,11 +74,11 @@ func vp9FuzzSeedIVF(f *testing.F, width, height, frames int) []byte {
 	f.Helper()
 	srcs := make([]*image.YCbCr, frames)
 	for i := range srcs {
-		srcs[i] = newVP9YCbCrForTest(width, height, 128, 128, 128)
+		srcs[i] = vp9test.NewYCbCr(width, height, 128, 128, 128)
 	}
 	var raw []byte
 	for _, s := range srcs {
-		raw = appendVP9YCbCrI420(raw, s)
+		raw = vp9test.AppendI420(raw, s)
 	}
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, frames)
 	if err != nil {

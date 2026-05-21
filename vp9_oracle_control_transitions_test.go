@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"strconv"
@@ -952,9 +953,9 @@ func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
 func TestVP9OracleInvisibleFrameVisibilityMatchesLibvpx(t *testing.T) {
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
-		newVP9YCbCrForTest(width, height, 64, 128, 128),
-		newVP9YCbCrForTest(width, height, 188, 96, 224),
-		newVP9YCbCrForTest(width, height, 188, 96, 224),
+		vp9test.NewYCbCr(width, height, 64, 128, 128),
+		vp9test.NewYCbCr(width, height, 188, 96, 224),
+		vp9test.NewYCbCr(width, height, 188, 96, 224),
 	}
 	flags := []EncodeFlags{
 		0,
@@ -1276,7 +1277,7 @@ func mustVP9Runtime(t *testing.T, name string, err error) {
 func newVP9OracleTransitionSources(width, height, frames int) []*image.YCbCr {
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 	return sources
 }

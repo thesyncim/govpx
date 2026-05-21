@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -28,8 +29,8 @@ func TestVP9EncoderLookaheadComposesWithCBR(t *testing.T) {
 	defer e.Close()
 
 	dst := make([]byte, 131072)
-	first := newVP9YCbCrForTest(width, height, 96, 128, 128)
-	second := newVP9YCbCrForTest(width, height, 112, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 96, 128, 128)
+	second := vp9test.NewYCbCr(width, height, 112, 128, 128)
 	// First push fills the queue but emits nothing.
 	if _, err := e.EncodeIntoWithResult(first, dst); !errors.Is(err, ErrFrameNotReady) {
 		t.Fatalf("first lookahead encode err = %v, want ErrFrameNotReady", err)
@@ -82,8 +83,8 @@ func TestVP9EncoderLookaheadComposesWithVBR(t *testing.T) {
 	defer e.Close()
 
 	dst := make([]byte, 131072)
-	first := newVP9YCbCrForTest(width, height, 96, 128, 128)
-	second := newVP9YCbCrForTest(width, height, 112, 128, 128)
+	first := vp9test.NewYCbCr(width, height, 96, 128, 128)
+	second := vp9test.NewYCbCr(width, height, 112, 128, 128)
 	if _, err := e.EncodeIntoWithResult(first, dst); !errors.Is(err, ErrFrameNotReady) {
 		t.Fatalf("first lookahead encode err = %v, want ErrFrameNotReady", err)
 	}
@@ -128,7 +129,7 @@ func TestVP9EncoderLookaheadComposesWithTemporalSVC(t *testing.T) {
 
 	results := make([]VP9EncodeResult, 0, len(yShades)+2)
 	for i, y := range yShades {
-		src := newVP9YCbCrForTest(width, height, y, 128, 128)
+		src := vp9test.NewYCbCr(width, height, y, 128, 128)
 		result, err := e.EncodeIntoWithResult(src, dst)
 		if err != nil {
 			if errors.Is(err, ErrFrameNotReady) {

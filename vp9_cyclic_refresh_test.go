@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -186,8 +187,8 @@ func TestVP9CyclicRefreshChangesEncodedAtSpeed8RT(t *testing.T) {
 	}
 
 	dst := make([]byte, 65536)
-	src1 := newVP9YCbCrForTest(width, height, 96, 128, 128)
-	src2 := newVP9YCbCrForTest(width, height, 116, 128, 128)
+	src1 := vp9test.NewYCbCr(width, height, 96, 128, 128)
+	src2 := vp9test.NewYCbCr(width, height, 116, 128, 128)
 
 	baseKeyLen, err := baseEnc.EncodeInto(src1, dst)
 	if err != nil {
@@ -568,7 +569,7 @@ func TestVP9CyclicRefreshEncoderConsecZeroMVPlumbing(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	src1 := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src1 := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	if _, err := enc.EncodeInto(src1, dst); err != nil {
 		t.Fatalf("key: %v", err)
 	}
@@ -586,7 +587,7 @@ func TestVP9CyclicRefreshEncoderConsecZeroMVPlumbing(t *testing.T) {
 	for i := range enc.cyclicAQ.ConsecZeroMV {
 		enc.cyclicAQ.ConsecZeroMV[i] = sentinel
 	}
-	src2 := newVP9YCbCrForTest(width, height, 116, 128, 128)
+	src2 := vp9test.NewYCbCr(width, height, 116, 128, 128)
 	if _, err := enc.EncodeInto(src2, dst); err != nil {
 		t.Fatalf("inter: %v", err)
 	}
@@ -632,8 +633,8 @@ func TestVP9CyclicRefreshEncoderPostencodeUpdatesLastCodedQMap(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	src1 := newVP9YCbCrForTest(width, height, 96, 128, 128)
-	src2 := newVP9YCbCrForTest(width, height, 116, 128, 128)
+	src1 := vp9test.NewYCbCr(width, height, 96, 128, 128)
+	src2 := vp9test.NewYCbCr(width, height, 116, 128, 128)
 	if _, err := enc.EncodeInto(src1, dst); err != nil {
 		t.Fatalf("key: %v", err)
 	}

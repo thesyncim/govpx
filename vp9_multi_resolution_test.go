@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -150,7 +151,7 @@ func TestVP9MultiResolutionEncoderEncodesAllLayers(t *testing.T) {
 		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
-	src := newVP9YCbCrForTest(128, 96, 90, 100, 110)
+	src := vp9test.NewYCbCr(128, 96, 90, 100, 110)
 	dsts := [][]byte{
 		make([]byte, 1<<19),
 		make([]byte, 1<<19),
@@ -195,7 +196,7 @@ func TestVP9MultiResolutionEncoderRejectsBadEncodeArgs(t *testing.T) {
 		newVP9MultiResLayerOptions(64, 48),
 		newVP9MultiResLayerOptions(32, 24),
 	)
-	src := newVP9YCbCrForTest(64, 48, 90, 100, 110)
+	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
 	wrongCount := [][]byte{make([]byte, 1<<19)}
 	if _, err := enc.EncodeIntoWithResult(src, wrongCount); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("wrong dsts count err = %v, want ErrInvalidConfig", err)
@@ -219,7 +220,7 @@ func TestVP9MultiResolutionEncoderClosedReturnsErrClosed(t *testing.T) {
 		newVP9MultiResLayerOptions(64, 48),
 	)
 	_ = enc.Close()
-	src := newVP9YCbCrForTest(64, 48, 90, 100, 110)
+	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
 	dsts := [][]byte{make([]byte, 1<<18)}
 	if _, err := enc.EncodeIntoWithResult(src, dsts); !errors.Is(err, ErrClosed) {
 		t.Fatalf("encode after close err = %v, want ErrClosed", err)
@@ -249,7 +250,7 @@ func TestVP9MultiResolutionEncoderForceKeyFrame(t *testing.T) {
 		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
-	src := newVP9YCbCrForTest(64, 48, 90, 100, 110)
+	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
 	dsts := [][]byte{
 		make([]byte, 1<<19),
 		make([]byte, 1<<19),
@@ -290,7 +291,7 @@ func TestVP9MultiResolutionEncoderForceKeyFrame(t *testing.T) {
 func TestVP9MultiResolutionEncoderParityVsManualEncoders(t *testing.T) {
 	width0, height0 := 64, 48
 	width1, height1 := 32, 24
-	src := newVP9YCbCrForTest(width0, height0, 90, 100, 110)
+	src := vp9test.NewYCbCr(width0, height0, 90, 100, 110)
 
 	// Reference: build the same downscaled lower-resolution source
 	// the multi-resolution encoder will feed to layer 1, and encode
@@ -387,7 +388,7 @@ func TestVP9MultiResolutionEncoderSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
-	src := newVP9YCbCrForTest(64, 48, 90, 100, 110)
+	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
 	dsts := [][]byte{make([]byte, 1<<19), make([]byte, 1<<19)}
 	// Warmup.
 	for range 4 {
@@ -458,7 +459,7 @@ func TestVP9MultiResolutionEncoderRowMTPassthrough(t *testing.T) {
 		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
-	src := newVP9YCbCrForTest(128, 96, 90, 100, 110)
+	src := vp9test.NewYCbCr(128, 96, 90, 100, 110)
 	dsts := [][]byte{make([]byte, 1<<19), make([]byte, 1<<19)}
 	results, err := enc.EncodeIntoWithResult(src, dsts)
 	if err != nil {

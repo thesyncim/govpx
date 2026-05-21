@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"math"
 	"os"
@@ -26,7 +27,7 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 	const width, height, frames = 64, 64, 10
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
+		sources[i] = vp9test.NewYCbCr(width, height, uint8(96+i*11), 128, 128)
 	}
 
 	opts := VP9EncoderOptions{
@@ -338,7 +339,7 @@ func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 	opts := vp9OracleCBROptions(width, height, 600)
 	flags := vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame)
@@ -382,7 +383,7 @@ func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
 	const width, height, frames = 64, 64, 32
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 
 	opts := VP9EncoderOptions{
@@ -560,7 +561,7 @@ func captureLibvpxVP9RateScoreboardRows(t *testing.T, width int, height int,
 	}
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
 		height, len(sources), libvpxFlags, extraArgs...)
@@ -696,7 +697,7 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 
 func enrichVP9RateScoreboardRowFromPacket(t *testing.T, row *vp9RateScoreboardRow, packet []byte) {
 	t.Helper()
-	header, _ := parseVP9EncoderHeaderForTest(t, packet)
+	header, _ := vp9test.ParseHeader(t, packet)
 	comp, _, _ := readVP9CompressedHeaderForOracleTest(t, packet, header)
 	row.KeyFrame = header.FrameType == common.KeyFrame
 	row.ShowFrame = header.ShowFrame

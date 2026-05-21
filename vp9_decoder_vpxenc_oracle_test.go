@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"crypto/md5"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
 	}
 	raw := make([]byte, 0, len(frames)*(width*height+2*((width+1)>>1)*((height+1)>>1)))
 	for _, frame := range frames {
-		raw = appendVP9YCbCrI420(raw, frame)
+		raw = vp9test.AppendI420(raw, frame)
 	}
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, len(frames),
 		"--kf-min-dist=999",
@@ -57,7 +58,7 @@ func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
 
 	const width, height = 64, 64
 	frame := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
-	raw := appendVP9YCbCrI420(nil, frame)
+	raw := vp9test.AppendI420(nil, frame)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
@@ -70,7 +71,7 @@ func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NextIVFFrame: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, first.Data)
+	h, _ := vp9test.ParseHeader(t, first.Data)
 	if got := int(h.Quant.BaseQindex); got != vp9DefaultBaseQIndex {
 		t.Fatalf("vpxenc-vp9 BaseQindex = %d, want pinned default %d",
 			got, vp9DefaultBaseQIndex)

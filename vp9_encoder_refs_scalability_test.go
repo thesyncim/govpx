@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
@@ -13,7 +14,7 @@ import (
 func TestVP9EncoderForceKeyFrameIsStickyUntilCommitted(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	if _, err := e.Encode(src); err != nil {
 		t.Fatalf("Encode initial keyframe: %v", err)
 	}
@@ -53,7 +54,7 @@ func TestVP9EncoderForceKeyFrameIsStickyUntilCommitted(t *testing.T) {
 func TestVP9EncoderEncodeIntoWithFlagsForceKeyFrameOneShot(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	if _, err := e.Encode(src); err != nil {
 		t.Fatalf("Encode initial keyframe: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestVP9EncoderAdaptiveKeyFramesPromotesSceneCut(t *testing.T) {
 	}
 	dst := make([]byte, 65536)
 	key, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 16, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 16, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestVP9EncoderAdaptiveKeyFramesPromotesSceneCut(t *testing.T) {
 		t.Fatal("first VP9 frame was not a keyframe")
 	}
 	cut, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 240, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 240, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode scene cut: %v", err)
 	}
@@ -122,11 +123,11 @@ func TestVP9EncoderAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
 	}
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 16, 128, 128), dst); err != nil {
+		vp9test.NewYCbCr(width, height, 16, 128, 128), dst); err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
 	inter, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 240, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 240, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -161,11 +162,11 @@ func TestVP9EncoderAdaptiveKeyFramesHonorMinDistance(t *testing.T) {
 	}
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 16, 128, 128), dst); err != nil {
+		vp9test.NewYCbCr(width, height, 16, 128, 128), dst); err != nil {
 		t.Fatalf("Encode key: %v", err)
 	}
 	blocked, err := e.EncodeIntoWithFlagsResult(
-		newVP9YCbCrForTest(width, height, 240, 128, 128), dst,
+		vp9test.NewYCbCr(width, height, 240, 128, 128), dst,
 		EncodeForceGoldenFrame|EncodeForceAltRefFrame)
 	if err != nil {
 		t.Fatalf("Encode min-distance blocked scene cut: %v", err)
@@ -174,7 +175,7 @@ func TestVP9EncoderAdaptiveKeyFramesHonorMinDistance(t *testing.T) {
 		t.Fatal("adaptive scene cut ignored MinKeyframeInterval")
 	}
 	allowed, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 16, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 16, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("Encode min-distance allowed scene cut: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestVP9EncoderAdaptiveKeyFramesSteadyStateNoAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	dst := make([]byte, 65536)
 	for i := range 3 {
 		if _, err := e.EncodeIntoWithResult(src, dst); err != nil {
@@ -236,7 +237,7 @@ func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
 	wantSync := []bool{false, true, false, false}
 	var prevHeader *vp9dec.UncompressedHeader
 	for i := range wantLayer {
-		src := newVP9YCbCrForTest(width, height, byte(80+i*20), 128, 128)
+		src := vp9test.NewYCbCr(width, height, byte(80+i*20), 128, 128)
 		result, err := e.EncodeIntoWithResult(src, dst)
 		if err != nil {
 			t.Fatalf("EncodeIntoWithResult[%d]: %v", i, err)
@@ -330,7 +331,7 @@ func TestVP9EncoderSetTemporalScalabilityUpdatesResultSequence(t *testing.T) {
 	dst := make([]byte, 65536)
 	for i, wantLayer := range []int{0, 1} {
 		result, err := e.EncodeIntoWithResult(
-			newVP9YCbCrForTest(width, height, byte(90+i*20), 128, 128), dst)
+			vp9test.NewYCbCr(width, height, byte(90+i*20), 128, 128), dst)
 		if err != nil {
 			t.Fatalf("EncodeIntoWithResult[%d]: %v", i, err)
 		}
@@ -344,7 +345,7 @@ func TestVP9EncoderSetTemporalScalabilityUpdatesResultSequence(t *testing.T) {
 		t.Fatalf("SetTemporalLayerID: %v", err)
 	}
 	result, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 140, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 140, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult override: %v", err)
 	}
@@ -355,7 +356,7 @@ func TestVP9EncoderSetTemporalScalabilityUpdatesResultSequence(t *testing.T) {
 		t.Fatalf("disable SetTemporalScalability: %v", err)
 	}
 	result, err = e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 160, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 160, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult disabled: %v", err)
 	}
@@ -385,7 +386,7 @@ func TestVP9EncoderSpatialScalabilityResultAndRTPDescriptor(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
-	result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+	result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height,
 		100, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
@@ -446,7 +447,7 @@ func TestVP9EncoderSetSpatialScalabilityUpdatesResultMetadata(t *testing.T) {
 		t.Fatalf("SetSpatialScalability: %v", err)
 	}
 	dst := make([]byte, 65536)
-	result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+	result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height,
 		120, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult layer 2: %v", err)
@@ -463,7 +464,7 @@ func TestVP9EncoderSetSpatialScalabilityUpdatesResultMetadata(t *testing.T) {
 	if err := e.SetSpatialLayerID(1); err != nil {
 		t.Fatalf("SetSpatialLayerID(1): %v", err)
 	}
-	result, err = e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+	result, err = e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height,
 		140, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult layer 1: %v", err)
@@ -474,7 +475,7 @@ func TestVP9EncoderSetSpatialScalabilityUpdatesResultMetadata(t *testing.T) {
 	if err := e.SetSpatialScalability(VP9SpatialScalabilityConfig{}); err != nil {
 		t.Fatalf("disable SetSpatialScalability: %v", err)
 	}
-	result, err = e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height,
+	result, err = e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height,
 		160, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult disabled: %v", err)
@@ -653,12 +654,12 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	keyRefY := e.refFrames[vp9LastRefSlot].img.Y[0]
-	interSrc := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	interSrc := vp9test.NewYCbCr(width, height, 160, 128, 128)
 	dst := make([]byte, 65536)
 	n, err := e.EncodeIntoWithFlags(interSrc, dst, EncodeNoUpdateLast)
 	if err != nil {
@@ -702,12 +703,12 @@ func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 func TestVP9EncoderEncodeIntoWithFlagsForceGoldenAltRefRefreshesSlots(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 
-	interSrc := newVP9YCbCrForTest(width, height, 160, 96, 224)
+	interSrc := vp9test.NewYCbCr(width, height, 160, 96, 224)
 	packet, err := e.EncodeWithFlags(interSrc, EncodeForceGoldenFrame|EncodeForceAltRefFrame)
 	if err != nil {
 		t.Fatalf("EncodeWithFlags force GF/ARF: %v", err)
@@ -735,13 +736,13 @@ func TestVP9EncoderEncodeIntoWithFlagsForceGoldenAltRefRefreshesSlots(t *testing
 func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 72, 128, 128)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	keyRefY := e.refFrames[vp9LastRefSlot].img.Y[0]
 
-	interSrc := newVP9YCbCrForTest(width, height, 196, 96, 224)
+	interSrc := vp9test.NewYCbCr(width, height, 196, 96, 224)
 	packet, err := e.EncodeWithFlags(interSrc, EncodeForceGoldenFrame|EncodeNoUpdateLast)
 	if err != nil {
 		t.Fatalf("EncodeWithFlags force GF/no-update-LAST: %v", err)
@@ -788,13 +789,13 @@ func TestVP9EncoderEncodeIntoWithFlagsForceClearsSameSlotNoUpdate(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-			keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+			keySrc := vp9test.NewYCbCr(width, height, 72, 128, 128)
 			if _, err := e.Encode(keySrc); err != nil {
 				t.Fatalf("Encode keyframe: %v", err)
 			}
 			keyRefY := e.refFrames[tt.wantSlot].img.Y[0]
 
-			interSrc := newVP9YCbCrForTest(width, height, 196, 96, 224)
+			interSrc := vp9test.NewYCbCr(width, height, 196, 96, 224)
 			packet, err := e.EncodeWithFlags(interSrc, tt.flags)
 			if err != nil {
 				t.Fatalf("EncodeWithFlags(%#x): %v", tt.flags, err)
@@ -818,12 +819,12 @@ func TestVP9EncoderEncodeIntoWithFlagsForceClearsSameSlotNoUpdate(t *testing.T) 
 func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 72, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	goldenSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
+	goldenSrc := vp9test.NewYCbCr(width, height, 188, 96, 224)
 	goldenRefresh, err := e.EncodeWithFlags(goldenSrc,
 		EncodeForceGoldenFrame|EncodeNoUpdateLast)
 	if err != nil {
@@ -863,18 +864,18 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) 
 func TestVP9EncoderEncodeIntoWithFlagsNoReferenceAllStaysInterIntra(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 72, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	interSrc := newVP9YCbCrForTest(width, height, 144, 96, 224)
+	interSrc := vp9test.NewYCbCr(width, height, 144, 96, 224)
 	inter, err := e.EncodeWithFlags(interSrc,
 		EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
 	if err != nil {
 		t.Fatalf("Encode no-reference-all inter: %v", err)
 	}
-	header, _ := parseVP9EncoderHeaderForTest(t, inter)
+	header, _ := vp9test.ParseHeader(t, inter)
 	if header.FrameType != common.InterFrame || header.IntraOnly {
 		t.Fatalf("no-reference-all header frame_type=%d intra_only=%t, want inter/intra-coded blocks",
 			header.FrameType, header.IntraOnly)
@@ -901,12 +902,12 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceAllStaysInterIntra(t *testing.T
 func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	altSrc := newVP9YCbCrForTest(width, height, 44, 208, 96)
+	altSrc := vp9test.NewYCbCr(width, height, 44, 208, 96)
 	altRefresh, err := e.EncodeWithFlags(altSrc,
 		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
 	if err != nil {
@@ -939,12 +940,12 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testi
 func TestVP9EncoderEncodeIntoWithFlagsInvisibleKeyFrameUpdatesReferences(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	src := vp9test.NewYCbCr(width, height, 91, 143, 37)
 	hidden, err := e.EncodeWithFlags(src, EncodeInvisibleFrame)
 	if err != nil {
 		t.Fatalf("Encode hidden keyframe: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, hidden)
+	h, _ := vp9test.ParseHeader(t, hidden)
 	if h.FrameType != common.KeyFrame || h.ShowFrame {
 		t.Fatalf("hidden key header frame_type=%d show=%t, want key/show=false",
 			h.FrameType, h.ShowFrame)
@@ -985,8 +986,8 @@ func TestVP9EncoderEncodeIntoWithFlagsInvisibleAltRefRefresh(t *testing.T) {
 	// size and skews the per-block reconstruction luma slightly off the
 	// expected 188 anchor.
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
-	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
-	altSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
+	altSrc := vp9test.NewYCbCr(width, height, 188, 96, 224)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -1048,7 +1049,7 @@ func TestVP9EncoderEncodeIntoWithFlagsInvisibleAltRefRefresh(t *testing.T) {
 func TestVP9EncoderEncodeShowExistingFrameInto(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	src := vp9test.NewYCbCr(width, height, 91, 143, 37)
 	key, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -1102,7 +1103,7 @@ func TestVP9EncoderEncodeShowExistingFrameRejectsInvalidState(t *testing.T) {
 	if _, err := e.EncodeShowExistingFrameInto(dst, 0); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("EncodeShowExistingFrameInto before refs error = %v, want ErrInvalidConfig", err)
 	}
-	if _, err := e.Encode(newVP9YCbCrForTest(64, 64, 128, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(64, 64, 128, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	if _, err := e.EncodeShowExistingFrameInto(nil, 0); !errors.Is(err, ErrBufferTooSmall) {
@@ -1115,7 +1116,7 @@ func TestVP9EncoderEncodeShowExistingFrameRejectsInvalidState(t *testing.T) {
 
 func TestVP9EncoderEncodeShowExistingFrameIntoSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	if _, err := e.Encode(newVP9YCbCrForTest(64, 64, 128, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(64, 64, 128, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	dst := make([]byte, 1)
@@ -1139,8 +1140,8 @@ func TestVP9EncoderEncodeShowExistingFrameIntoSteadyStateAlloc(t *testing.T) {
 func TestVP9EncoderEncodeIntraOnlyFrameRefreshesLastAndShowExisting(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	keySrc := newVP9YCbCrForTest(width, height, 16, 128, 128)
-	src := newVP9YCbCrForTest(width, height, 83, 141, 209)
+	keySrc := vp9test.NewYCbCr(width, height, 16, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 83, 141, 209)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -1226,11 +1227,11 @@ func TestVP9EncoderIntraOnlyFrameUsesTxModeSelect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	keySrc := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	intra, err := e.EncodeIntraOnlyFrame(src, 0)
 	if err != nil {
 		t.Fatalf("EncodeIntraOnlyFrame: %v", err)
@@ -1274,7 +1275,7 @@ func TestVP9EncoderIntraOnlyFrameUsesTxModeSelect(t *testing.T) {
 
 func TestVP9EncoderEncodeIntraOnlyFrameRejectsConflictingFlags(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	src := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntraOnlyFrameInto(src, dst, 0); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("EncodeIntraOnlyFrameInto before stream init error = %v, want ErrInvalidConfig", err)
@@ -1349,7 +1350,7 @@ func TestVP9EncoderErrorResilientRestoresDefaultFrameContext(t *testing.T) {
 func TestVP9EncoderEncodeIntoWithFlagsAcceptsNoUpdateOnKeyFrame(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	dst := make([]byte, 65536)
 	for _, flags := range []EncodeFlags{
 		EncodeNoUpdateLast,

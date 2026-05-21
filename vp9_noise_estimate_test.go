@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 // TestVP9NoiseEstimateConsumerShortCircuitLowTempVar verifies the
 // libvpx vp9_speed_features.c:777-782 consumer that drops
@@ -214,7 +218,7 @@ func TestVP9DenoiserUsesNoiseEstimateLowLowAsInactive(t *testing.T) {
 	}
 	e.noiseEstimate.Value = 0
 
-	src := newVP9YCbCrForTest(640, 360, 102, 98, 158)
+	src := vp9test.NewYCbCr(640, 360, 102, 98, 158)
 	if got := e.prepareVP9DenoiserSource(src); got != src {
 		t.Fatal("prepareVP9DenoiserSource returned denoiser source at LowLow; want caller source")
 	}

@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -77,7 +78,7 @@ func vp9EncodedKeyframeForTest(t *testing.T, width, height int, y byte) []byte {
 		t.Fatalf("vp9AllocatingEncodeBufferSize %dx%d: %v", width, height, err)
 	}
 	dst := make([]byte, dstSize)
-	result, err := e.EncodeIntoWithResult(newVP9YCbCrForTest(width, height, y, 128, 128), dst)
+	result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height, y, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult %dx%d: %v", width, height, err)
 	}

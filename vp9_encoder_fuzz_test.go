@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -45,7 +46,7 @@ func FuzzVP9EncoderOptions(f *testing.F) {
 		// Single-frame encode to make sure a freshly-constructed
 		// encoder does not panic on a valid input. Output is
 		// discarded.
-		img := newVP9YCbCrForTest(opts.Width, opts.Height, 128, 128, 128)
+		img := vp9test.NewYCbCr(opts.Width, opts.Height, 128, 128, 128)
 		size, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
 		if err != nil {
 			return
@@ -102,7 +103,7 @@ func FuzzVP9EncoderRuntimeControls(f *testing.F) {
 			t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
 		}
 		dst := make([]byte, size)
-		img := newVP9YCbCrForTest(64, 64, 96, 128, 128)
+		img := vp9test.NewYCbCr(64, 64, 96, 128, 128)
 
 		r := testutil.NewByteCursor(data)
 		// Encode one frame first to warm the encoder so the runtime

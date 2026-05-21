@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func syntheticVP9PanningFirstPassStats(n int) []VP9FirstPassFrameStats {
 	out := make([]VP9FirstPassFrameStats, n)
@@ -74,7 +78,7 @@ func TestVP9ApplyARNRUsesAdaptiveStrengthWhenBoostSet(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	for frame := range 6 {
-		src := newVP9YCbCrForTest(width, height, uint8(96+frame*12), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+frame*12), 128, 128)
 		if err := e.pushVP9Lookahead(src, 0); err != nil {
 			t.Fatalf("pushVP9Lookahead[%d]: %v", frame, err)
 		}

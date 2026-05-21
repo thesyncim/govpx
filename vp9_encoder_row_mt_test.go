@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -81,7 +82,7 @@ func TestVP9EncoderSetRowMTRuntimeGating(t *testing.T) {
 		if !e.opts.RowMT {
 			t.Fatal("SetRowMT(true) did not flip the flag")
 		}
-		src := newVP9YCbCrForTest(width, height, 82, 123, 211)
+		src := vp9test.NewYCbCr(width, height, 82, 123, 211)
 		if _, err := e.Encode(src); err != nil {
 			t.Fatalf("Encode after enabling row-MT: %v", err)
 		}
@@ -132,7 +133,7 @@ func TestVP9RowMTDisabledDoesNotAllocateSyncState(t *testing.T) {
 	}
 	defer e.Close()
 
-	src := newVP9PanningYCbCrForRateTest(width, height, 0)
+	src := vp9test.NewPanningYCbCr(width, height, 0)
 	if _, err := e.Encode(src); err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestVP9RowMTDisabledDoesNotAllocateSyncState(t *testing.T) {
 	if err := e.SetRowMT(false); err != nil {
 		t.Fatalf("SetRowMT(false): %v", err)
 	}
-	if _, err := e.Encode(newVP9PanningYCbCrForRateTest(width, height, 1)); err != nil {
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 1)); err != nil {
 		t.Fatalf("Encode after SetRowMT(false): %v", err)
 	}
 	if got := len(e.vp9TilePool.rowMTSyncs); got != 0 {
@@ -189,7 +190,7 @@ func TestVP9RowMTBytewiseIdenticalToSerial(t *testing.T) {
 	dstSerial := make([]byte, 1<<20)
 	dstRowMT := make([]byte, 1<<20)
 	for frame := range 4 {
-		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		src := vp9test.NewPanningYCbCr(width, height, frame)
 		nSerial, err := serial.EncodeInto(src, dstSerial)
 		if err != nil {
 			t.Fatalf("serial EncodeInto[%d]: %v", frame, err)
@@ -241,7 +242,7 @@ func TestVP9RowMTSteadyStateAllocations(t *testing.T) {
 	defer e.Close()
 	dst := make([]byte, 1<<20)
 	// Warm-up encode to size all sync buffers.
-	src0 := newVP9PanningYCbCrForRateTest(width, height, 0)
+	src0 := vp9test.NewPanningYCbCr(width, height, 0)
 	if _, err := e.EncodeInto(src0, dst); err != nil {
 		t.Fatalf("warm-up EncodeInto: %v", err)
 	}
@@ -260,7 +261,7 @@ func TestVP9RowMTSteadyStateAllocations(t *testing.T) {
 	}
 	// Steady-state encodes must not grow any per-tile sync capacity.
 	for frame := 1; frame < 6; frame++ {
-		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		src := vp9test.NewPanningYCbCr(width, height, frame)
 		if _, err := e.EncodeInto(src, dst); err != nil {
 			t.Fatalf("steady-state EncodeInto[%d]: %v", frame, err)
 		}

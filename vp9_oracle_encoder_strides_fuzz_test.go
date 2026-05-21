@@ -5,6 +5,7 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -69,7 +70,7 @@ type vp9StridesFuzzDim struct {
 // newVP9StridesFuzzImage builds (padded, tight) VP9 *image.YCbCr pairs where
 // the visible content matches but `padded` may include arbitrary per-plane
 // stride padding. Both images use deterministic fuzz-bytes-driven content
-// via newVP9YCbCrForTest so the libvpx oracle's identical-content premise
+// via vp9test.NewYCbCr so the libvpx oracle's identical-content premise
 // holds.
 func newVP9StridesFuzzImage(data []byte) (vp9StridesFuzzDim, *image.YCbCr, *image.YCbCr, bool) {
 	r := testutil.NewByteCursor(data)
@@ -95,7 +96,7 @@ func newVP9StridesFuzzImage(data []byte) (vp9StridesFuzzDim, *image.YCbCr, *imag
 
 	// Build the tight image first via the standard test helper. The padded
 	// image reuses the same visible content but lays it into wider strides.
-	tight := newVP9YCbCrForTest(dim.w, dim.h, 96, 128, 128)
+	tight := vp9test.NewYCbCr(dim.w, dim.h, 96, 128, 128)
 	padded := &image.YCbCr{
 		YStride:        yStride,
 		CStride:        cStride,

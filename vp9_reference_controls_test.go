@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -19,7 +20,7 @@ func TestVP9EncoderSetReferenceFrameAffectsNextInterFrame(t *testing.T) {
 		t.Fatalf("NewVP9Encoder returned error: %v", err)
 	}
 
-	key := newVP9YCbCrForTest(width, height, 9, 10, 11)
+	key := vp9test.NewYCbCr(width, height, 9, 10, 11)
 	dst := make([]byte, 1<<16)
 	keyResult, err := e.EncodeIntoWithResult(key, dst)
 	if err != nil {
@@ -30,7 +31,7 @@ func TestVP9EncoderSetReferenceFrameAffectsNextInterFrame(t *testing.T) {
 	}
 	keyPacket := append([]byte(nil), keyResult.Data...)
 
-	refYCbCr := newVP9YCbCrForTest(width, height, 33, 44, 55)
+	refYCbCr := vp9test.NewYCbCr(width, height, 33, 44, 55)
 	ref := vp9ImageFromYCbCrForTest(refYCbCr)
 	if err := e.SetReferenceFrame(ReferenceLast, ref); err != nil {
 		t.Fatalf("SetReferenceFrame returned error: %v", err)
@@ -83,7 +84,7 @@ func TestVP9EncoderCopyReferenceFrameCopiesSelectedReference(t *testing.T) {
 	ref.U[0] ^= 0x7f
 	ref.V[0] ^= 0x3f
 
-	dstYCbCr := newVP9YCbCrForTest(width, height, 0, 0, 0)
+	dstYCbCr := vp9test.NewYCbCr(width, height, 0, 0, 0)
 	dst := vp9ImageFromYCbCrForTest(dstYCbCr)
 	if err := e.CopyReferenceFrame(ReferenceGolden, &dst); err != nil {
 		t.Fatalf("CopyReferenceFrame returned error: %v", err)
@@ -96,9 +97,9 @@ func TestVP9EncoderReferenceFrameValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder returned error: %v", err)
 	}
-	src := vp9ImageFromYCbCrForTest(newVP9YCbCrForTest(16, 16, 1, 2, 3))
-	wrongSize := vp9ImageFromYCbCrForTest(newVP9YCbCrForTest(32, 16, 1, 2, 3))
-	dst := vp9ImageFromYCbCrForTest(newVP9YCbCrForTest(16, 16, 0, 0, 0))
+	src := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(16, 16, 1, 2, 3))
+	wrongSize := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(32, 16, 1, 2, 3))
+	dst := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(16, 16, 0, 0, 0))
 
 	if err := e.CopyReferenceFrame(ReferenceLast, &dst); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("CopyReferenceFrame before reference error = %v, want ErrInvalidConfig", err)
@@ -148,7 +149,7 @@ func TestVP9DecoderSetReferenceFrameAffectsNextInterFrame(t *testing.T) {
 		t.Fatalf("NewVP9Encoder returned error: %v", err)
 	}
 
-	key := newVP9YCbCrForTest(width, height, 9, 10, 11)
+	key := vp9test.NewYCbCr(width, height, 9, 10, 11)
 	dst := make([]byte, 1<<16)
 	keyResult, err := e.EncodeIntoWithResult(key, dst)
 	if err != nil {
@@ -156,7 +157,7 @@ func TestVP9DecoderSetReferenceFrameAffectsNextInterFrame(t *testing.T) {
 	}
 	keyPacket := append([]byte(nil), keyResult.Data...)
 
-	refYCbCr := newVP9YCbCrForTest(width, height, 33, 44, 55)
+	refYCbCr := vp9test.NewYCbCr(width, height, 33, 44, 55)
 	ref := vp9ImageFromYCbCrForTest(refYCbCr)
 	if err := e.SetReferenceFrame(ReferenceLast, ref); err != nil {
 		t.Fatalf("encoder SetReferenceFrame returned error: %v", err)
@@ -285,8 +286,8 @@ func TestVP9DecoderReferenceFrameValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder returned error: %v", err)
 	}
-	src := vp9ImageFromYCbCrForTest(newVP9YCbCrForTest(16, 16, 1, 2, 3))
-	wrongSize := vp9ImageFromYCbCrForTest(newVP9YCbCrForTest(32, 16, 1, 2, 3))
+	src := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(16, 16, 1, 2, 3))
+	wrongSize := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(32, 16, 1, 2, 3))
 	dst := newTestImage(16, 16)
 
 	if err := d.SetReferenceFrame(ReferenceLast, src); !errors.Is(err, ErrInvalidConfig) {

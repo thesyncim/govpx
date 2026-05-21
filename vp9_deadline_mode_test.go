@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func TestVP9DeadlineModeTransitionForcesRealtimeKeyframe(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -17,7 +21,7 @@ func TestVP9DeadlineModeTransitionForcesRealtimeKeyframe(t *testing.T) {
 
 	dst := make([]byte, 1<<20)
 	first, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(64, 64, 96, 128, 128), dst)
+		vp9test.NewYCbCr(64, 64, 96, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("first EncodeIntoWithResult: %v", err)
 	}
@@ -43,7 +47,7 @@ func TestVP9DeadlineModeTransitionForcesRealtimeKeyframe(t *testing.T) {
 	}
 
 	second, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(64, 64, 112, 128, 128), dst)
+		vp9test.NewYCbCr(64, 64, 112, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("second EncodeIntoWithResult: %v", err)
 	}

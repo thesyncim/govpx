@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -28,7 +29,7 @@ func captureVP9VpxencPacketsForOracleTest(t *testing.T,
 	}
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height,
 		len(sources), extraArgs...)
@@ -163,7 +164,7 @@ func captureVP9StreamParityPacketsWithFrameHooks(t *testing.T, opts VP9EncoderOp
 	}
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
 		height, len(sources), libvpxFlags, extraArgs...)
@@ -399,7 +400,7 @@ func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
 	}
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
 		height, len(sources), libvpxFlags, extraArgs...)
@@ -465,7 +466,7 @@ func captureLibvpxVP9VariablePacketRows(t *testing.T,
 			Width:  src.Rect.Dx(),
 			Height: src.Rect.Dy(),
 		}
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	libvpxFlags := make([]uint32, len(flags))
 	for i, f := range flags {

@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -552,7 +553,7 @@ func TestVP9EncoderSetKeyFrameInterval(t *testing.T) {
 	dst := make([]byte, 65536)
 	results := make([]VP9EncodeResult, 3)
 	for frame := range results {
-		src := newVP9YCbCrForTest(width, height, uint8(96+frame), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+frame), 128, 128)
 		results[frame], err = e.EncodeIntoWithResult(src, dst)
 		if err != nil {
 			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
@@ -622,7 +623,7 @@ func TestVP9EncoderSetARNR(t *testing.T) {
 		t.Fatal("SetARNR did not allocate ARNR scratch for active auto-alt-ref")
 	}
 	for frame := range 4 {
-		src := newVP9YCbCrForTest(width, height, uint8(96+frame*12), 128, 128)
+		src := vp9test.NewYCbCr(width, height, uint8(96+frame*12), 128, 128)
 		if err := e.pushVP9Lookahead(src, 0); err != nil {
 			t.Fatalf("pushVP9Lookahead[%d]: %v", frame, err)
 		}
@@ -672,8 +673,8 @@ func TestVP9EncoderNoiseSensitivityDenoisesInterLuma(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 100, 96, 160)
-	interSrc := newVP9YCbCrForTest(width, height, 102, 98, 158)
+	keySrc := vp9test.NewYCbCr(width, height, 100, 96, 160)
+	interSrc := vp9test.NewYCbCr(width, height, 102, 98, 158)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {
@@ -706,8 +707,8 @@ func TestVP9EncoderNoiseSensitivityDenoisesInterChroma(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	keySrc := newVP9YCbCrForTest(width, height, 100, 96, 160)
-	interSrc := newVP9YCbCrForTest(width, height, 102, 98, 158)
+	keySrc := vp9test.NewYCbCr(width, height, 100, 96, 160)
+	interSrc := vp9test.NewYCbCr(width, height, 102, 98, 158)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(keySrc, dst); err != nil {

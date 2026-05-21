@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
@@ -71,11 +72,11 @@ func TestVP9LoopFilterStrengthFromQAtSpeed8(t *testing.T) {
 		t.Fatalf("CpuUsed=8 sf.LpfPick=%v, want LpfPickFromQ", e.sf.LpfPick)
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(newVP9YCbCrForTest(width, height, 128, 128, 128), dst)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(width, height, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	qindex := int(hdr.Quant.BaseQindex)
 	// libvpx vp9_picklpf.c:177 — 8-bit: filt_guess = ROUND_POWER_OF_TWO(q * 20723 + 1015158, 18).
 	q := int(vp9dec.VpxAcQuant(qindex, 0, vp9dec.BitDepth8))
@@ -179,11 +180,11 @@ func TestVP9LoopFilterFullImageAtSpeed0(t *testing.T) {
 		t.Fatalf("CpuUsed=0 sf.LpfPick=%v, want LpfPickFromFullImage", e.sf.LpfPick)
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(newVP9YCbCrForTest(width, height, 128, 128, 128), dst)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(width, height, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.Loopfilter.FilterLevel > vp9dec.MaxLoopFilter {
 		t.Fatalf("FilterLevel=%d, want in [0, %d]",
 			hdr.Loopfilter.FilterLevel, vp9dec.MaxLoopFilter)
@@ -412,7 +413,7 @@ func TestVP9LoopFilterFullImagePickerEnabledAtSpeed0(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EncodeInto: %v", err)
 		}
-		hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+		hdr, _ := vp9test.ParseHeader(t, dst[:n])
 		return hdr, method
 	}
 
@@ -513,7 +514,7 @@ func TestVP9LoopFilterFullImagePickerImprovesPSNROnTexturedContent(t *testing.T)
 			if encErr != nil {
 				t.Fatalf("EncodeInto[%d]: %v", i, encErr)
 			}
-			res.header[i], _ = parseVP9EncoderHeaderForTest(t, dst[:n])
+			res.header[i], _ = vp9test.ParseHeader(t, dst[:n])
 			if err := d.Decode(dst[:n]); err != nil {
 				t.Fatalf("Decode[%d]: %v", i, err)
 			}
@@ -607,7 +608,7 @@ func TestVP9LoopFilterChangesPSNR(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EncodeInto: %v", err)
 		}
-		hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+		hdr, _ := vp9test.ParseHeader(t, dst[:n])
 		_ = hdr
 		return src.SubsampleRatio
 	}
@@ -749,7 +750,7 @@ func TestVP9LoopFilterSubImagePickerWiringAtSpeed0(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	hdr, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
 	if hdr.Loopfilter.FilterLevel > vp9dec.MaxLoopFilter {
 		t.Fatalf("FilterLevel=%d, want in [0, %d]",
 			hdr.Loopfilter.FilterLevel, vp9dec.MaxLoopFilter)

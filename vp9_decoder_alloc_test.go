@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -8,7 +9,7 @@ import (
 
 func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -107,7 +108,7 @@ func TestVP9DecoderSegmentedAltQKeyframeSteadyStateAlloc(t *testing.T) {
 // allocation-free after the decoder and reference slots are warm.
 func TestVP9DecoderDecodeIntoSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)

@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"testing"
@@ -29,9 +30,9 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 	stats := make([]VP9FirstPassFrameStats, frames)
 	var raw []byte
 	for frame := range frames {
-		src := newVP9PanningYCbCrForRateTest(width, height, frame)
+		src := vp9test.NewPanningYCbCr(width, height, frame)
 		sources[frame] = src
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 		stats[frame], err = statsEnc.CollectFirstPassStats(src,
 			uint64(frame), 1, 0)
 		if err != nil {
@@ -107,9 +108,9 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 	stats := make([]VP9FirstPassFrameStats, frames)
 	var raw []byte
 	for frame := range frames {
-		src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+		src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 		sources[frame] = src
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 		stats[frame], err = statsEnc.CollectFirstPassStats(src,
 			uint64(frame), 1, 0)
 		if err != nil {

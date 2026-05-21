@@ -3,6 +3,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"path/filepath"
 	"reflect"
@@ -111,7 +112,7 @@ func captureLibvpxVP9CopyReferenceChecksums(t *testing.T, name string,
 	}
 	var raw []byte
 	for _, src := range sources {
-		raw = appendVP9YCbCrI420(raw, src)
+		raw = vp9test.AppendI420(raw, src)
 	}
 	logPath := filepath.Join(t.TempDir(), name+".log")
 	args := append([]string(nil), extraArgs...)

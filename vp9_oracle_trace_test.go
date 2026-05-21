@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"strings"
 	"testing"
 )
@@ -20,7 +21,7 @@ func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 	e.setVP9OracleTraceWriter(&trace)
 	dst := make([]byte, 65536)
 	result, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 128, 128, 128), dst)
+		vp9test.NewYCbCr(width, height, 128, 128, 128), dst)
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 	}
 	trace.Reset()
 	if _, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 160, 128, 128), dst); err != nil {
+		vp9test.NewYCbCr(width, height, 160, 128, 128), dst); err != nil {
 		t.Fatalf("EncodeIntoWithResult after disabling trace: %v", err)
 	}
 	if trace.Len() != 0 {
@@ -76,7 +77,7 @@ func TestVP9OracleTraceWriterEmitsCBRRateFields(t *testing.T) {
 	e.setVP9OracleTraceWriter(&trace)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(
-		newVP9YCbCrForTest(width, height, 128, 128, 128), dst); err != nil {
+		vp9test.NewYCbCr(width, height, 128, 128, 128), dst); err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
 	}
 

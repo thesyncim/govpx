@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"crypto/sha256"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
 	"testing"
@@ -243,7 +244,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 		if e == nil {
 			t.Fatal("NewVP9Encoder returned nil encoder without error")
 		}
-		src := newVP9YCbCrForTest(opts.Width, opts.Height, 128, 128, 128)
+		src := vp9test.NewYCbCr(opts.Width, opts.Height, 128, 128, 128)
 		size, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
 		if err != nil {
 			return
@@ -267,7 +268,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 		if gHash != lHash {
 			t.Errorf("keyframe byte mismatch under fuzzed options: govpx_len=%d vpxenc_len=%d first_diff=%d",
 				len(result.Data), len(libvpxKey),
-				firstVP9PacketDiffForTest(result.Data, libvpxKey))
+				vp9test.FirstPacketDiff(result.Data, libvpxKey))
 		}
 		_ = bytes.Equal // keep import in case future tightening drops first_diff log.
 	})
@@ -286,7 +287,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 func tryVP9LibvpxKeyFrameBytes(t *testing.T, opts VP9EncoderOptions, src *image.YCbCr) []byte {
 	t.Helper()
 	coracletest.VpxencVP9(t)
-	raw := appendVP9YCbCrI420(nil, src)
+	raw := vp9test.AppendI420(nil, src)
 	extra := vp9LibvpxOracleArgsFromOptions(opts)
 	ivf, _, err := coracle.VpxencVP9EncodeI420(raw, opts.Width, opts.Height, 1, extra...)
 	if err != nil || len(ivf) == 0 {

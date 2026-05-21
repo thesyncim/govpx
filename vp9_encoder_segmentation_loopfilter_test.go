@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -33,7 +34,7 @@ func TestVP9EncoderStaticSegmentationSignalsHeaderAndMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	keyHeader, _ := vp9test.ParseHeader(t, key)
 	assertVP9StaticSegmentationHeaderForTest(t, keyHeader.Seg, segID, altQ, altLF)
 
 	inter, err := e.Encode(src)
@@ -71,7 +72,7 @@ func TestVP9EncoderStaticSkipSegmentForcesSkippedInterBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	keyHeader, _ := vp9test.ParseHeader(t, key)
 	assertVP9StaticSkipSegmentationHeaderForTest(t, keyHeader.Seg, segID)
 
 	inter, err := e.Encode(newVP9MotionYCbCrForTest(width, height))
@@ -106,11 +107,11 @@ func TestVP9EncoderStaticRefFrameSegmentForcesGoldenReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+	key, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	keyHeader, _ := vp9test.ParseHeader(t, key)
 	assertVP9StaticRefFrameSegmentationHeaderForTest(t, keyHeader.Seg, segID,
 		vp9dec.GoldenFrame)
 
@@ -153,7 +154,7 @@ func TestVP9EncoderStaticInterRefSegmentKeepsInterSyntax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if _, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	if _, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224)); err != nil {
@@ -185,11 +186,11 @@ func TestVP9EncoderStaticRefFrameSegmentForcesIntraBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+	key, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	keyHeader, _ := vp9test.ParseHeader(t, key)
 	assertVP9StaticRefFrameSegmentationHeaderForTest(t, keyHeader.Seg, segID,
 		VP9RefFrameIntra)
 
@@ -228,7 +229,7 @@ func TestVP9EncoderStaticRefFrameSegmentRejectsDisabledReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if _, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128)); err != nil {
+	if _, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	_, err = e.EncodeWithFlags(newVP9MotionYCbCrForTest(width, height),
@@ -245,7 +246,7 @@ func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	want := vp9LoopFilterLevelFromQuantizerForTest(128, true)
 	if h.Loopfilter.FilterLevel != want {
 		t.Fatalf("FilterLevel = %d, want q-derived %d", h.Loopfilter.FilterLevel, want)
@@ -300,7 +301,7 @@ func TestVP9EncoderLastLoopFilterLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	level, ok := e.LastLoopFilterLevel()
 	if !ok || level != h.Loopfilter.FilterLevel {
 		t.Fatalf("LastLoopFilterLevel = (%d, %t), want (%d, true)",
@@ -314,7 +315,7 @@ func TestVP9EncoderLastLoopFilterLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	h, _ = parseVP9EncoderHeaderForTest(t, packet)
+	h, _ = vp9test.ParseHeader(t, packet)
 	level, ok = e.LastLoopFilterLevel()
 	if !ok || level != 0 || h.Loopfilter.FilterLevel != 0 {
 		t.Fatalf("disabled LastLoopFilterLevel/header = (%d,%t)/%d, want 0/true/0",
@@ -343,7 +344,7 @@ func TestVP9EncoderLastLoopFilterLevelIgnoresDroppedFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(src, dst); err != nil {
 		t.Fatalf("key EncodeIntoWithResult: %v", err)
@@ -400,7 +401,7 @@ func TestVP9EncoderSharpnessOptionAndRuntimeControl(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s EncodeInto: %v", tc.name, err)
 		}
-		h, _ := parseVP9EncoderHeaderForTest(t, dst[:n])
+		h, _ := vp9test.ParseHeader(t, dst[:n])
 		if h.Loopfilter.SharpnessLevel != tc.sharpness {
 			t.Fatalf("%s sharpness = %d, want %d",
 				tc.name, h.Loopfilter.SharpnessLevel, tc.sharpness)
@@ -424,7 +425,7 @@ func TestVP9EncoderStaticThresholdBreakout(t *testing.T) {
 		MinQuantizer: 4,
 		MaxQuantizer: 4,
 	}
-	baseSrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	baseSrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	changedSrc := newVP9CheckerYCbCrForTest(width, height, 62, 66, 128, 128)
 
 	noStatic, err := NewVP9Encoder(opts)
@@ -482,7 +483,7 @@ func TestVP9EncoderLoopFilterDeltasCarryAcrossInterFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 
 	interSrc := newVP9CheckerYCbCrForTest(width, height, 224, 32, 128, 128)
 	interPacket, err := e.Encode(interSrc)
@@ -531,7 +532,7 @@ func TestVP9EncoderLoopFilteredReferenceMatchesDecodedFrame(t *testing.T) {
 	if !e.refFrames[0].valid {
 		t.Fatal("LAST reference was not refreshed")
 	}
-	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	h, _ := vp9test.ParseHeader(t, packet)
 	if h.Loopfilter.FilterLevel == 0 {
 		t.Fatal("FilterLevel = 0, want loopfiltered reference test to exercise filter path")
 	}

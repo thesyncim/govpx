@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"strings"
@@ -67,10 +68,10 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 				u := uint8(120 + frame)
 				v := uint8(136 - frame)
 				for layer := 0; layer < tc.layerCount; layer++ {
-					sources[layer][frame] = newVP9YCbCrForTest(
+					sources[layer][frame] = vp9test.NewYCbCr(
 						tc.widths[layer], tc.heights[layer], y, u, v)
 				}
-				raw = appendVP9YCbCrI420(raw,
+				raw = vp9test.AppendI420(raw,
 					sources[tc.layerCount-1][frame])
 			}
 

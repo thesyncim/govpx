@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
@@ -23,7 +24,7 @@ func TestVP9EncoderSetRTCExternalRateControlSuppressesSceneCutPromotion(t *testi
 	if err := e.SetRTCExternalRateControl(true); err != nil {
 		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
 	}
-	sceneCutSrc := newVP9YCbCrForTest(width, height, 200, 64, 64)
+	sceneCutSrc := vp9test.NewYCbCr(width, height, 200, 64, 64)
 	rows := (height + 7) >> 3
 	cols := (width + 7) >> 3
 	if got := e.shouldEncodeVP9SceneCutKeyFrame(sceneCutSrc, EncodeFlags(0),

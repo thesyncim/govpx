@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"testing"
@@ -217,7 +218,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
 			lag:       4,
 			targetKbs: 300,
 			source: func(width, height, frame int) *image.YCbCr {
-				return newVP9YCbCrForTest(width, height,
+				return vp9test.NewYCbCr(width, height,
 					uint8(96+frame*8), 128, 128)
 			},
 			arnrType: 3,
@@ -229,7 +230,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
 			frames:    12,
 			lag:       4,
 			targetKbs: 900,
-			source:    newVP9PanningYCbCrForRateTest,
+			source:    vp9test.NewPanningYCbCr,
 			arnrType:  1,
 		},
 	}

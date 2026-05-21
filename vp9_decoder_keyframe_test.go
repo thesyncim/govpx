@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -110,7 +111,7 @@ func TestVP9DecoderRejectsTruncatedCompressedHeader(t *testing.T) {
 // I420 frame.
 func TestVP9DecoderDecodesEncoderKeyframeModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -143,7 +144,7 @@ func TestVP9DecoderDecodesEncoderKeyframeModeTile(t *testing.T) {
 // compressed header, and tile mode-info stream are read.
 func TestVP9DecoderDecodesEncoderInterSkipModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -185,7 +186,7 @@ func TestVP9DecoderDecodesEncoderInterSkipModeTile(t *testing.T) {
 // disturb the preserved header state needed by the following inter header.
 func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -249,7 +250,7 @@ func TestVP9DecoderRejectsShowExistingMissingReference(t *testing.T) {
 // caller-owned-output path for the VP9 reconstruction slice.
 func TestVP9DecoderDecodeIntoCopiesVisibleFrame(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -279,7 +280,7 @@ func TestVP9DecoderDecodeIntoCopiesVisibleFrame(t *testing.T) {
 // encoder inter packets copied directly into caller-owned output.
 func TestVP9DecoderDecodeIntoInterFrameCopiesDestination(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -320,7 +321,7 @@ func TestVP9DecoderDecodeIntoInterFrameCopiesDestination(t *testing.T) {
 // manager and returns the shown slot metadata.
 func TestVP9DecoderDecodeIntoShowExistingCopiesReference(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -355,7 +356,7 @@ func TestVP9DecoderDecodeIntoShowExistingCopiesReference(t *testing.T) {
 // invalid caller buffers from mutating decoder stream state.
 func TestVP9DecoderDecodeIntoRejectsInvalidDestinationBeforeDecode(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -383,7 +384,7 @@ func TestVP9DecoderDecodeIntoRejectsInvalidDestinationBeforeDecode(t *testing.T)
 // path across key, inter, and show-existing packets.
 func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -464,7 +465,7 @@ func TestVP9DecoderLastDisplaySizeTracksRenderSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	img := newVP9YCbCrForTest(96, 64, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 64, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -549,7 +550,7 @@ func TestVP9DecoderLastControlsBeforeDecode(t *testing.T) {
 
 func TestVP9DecoderLastControlsTrackDecodedPackets(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -623,7 +624,7 @@ func TestVP9DecoderLastControlsTrackDecodedPackets(t *testing.T) {
 // and Decode on the same metadata path.
 func TestVP9DecoderDecodeIntoUpdatesLastFrameInfoWithPTS(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -654,8 +655,8 @@ func TestVP9DecoderDecodeIntoUpdatesLastFrameInfoWithPTS(t *testing.T) {
 func TestVP9DecoderRejectsConfiguredResolutionChange(t *testing.T) {
 	e64, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	e96, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 64})
-	img64 := newVP9YCbCrForTest(64, 64, 128, 128, 128)
-	img96 := newVP9YCbCrForTest(96, 64, 128, 128, 128)
+	img64 := vp9test.NewYCbCr(64, 64, 128, 128, 128)
+	img96 := vp9test.NewYCbCr(96, 64, 128, 128, 128)
 	key64, err := e64.Encode(img64)
 	if err != nil {
 		t.Fatalf("Encode 64x64 keyframe: %v", err)
@@ -690,8 +691,8 @@ func TestVP9DecoderRejectsConfiguredResolutionChange(t *testing.T) {
 func TestVP9DecoderAcceptsResolutionChangeByDefault(t *testing.T) {
 	e64, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	e96, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 64})
-	img64 := newVP9YCbCrForTest(64, 64, 128, 128, 128)
-	img96 := newVP9YCbCrForTest(96, 64, 128, 128, 128)
+	img64 := vp9test.NewYCbCr(64, 64, 128, 128, 128)
+	img96 := vp9test.NewYCbCr(96, 64, 128, 128, 128)
 	key64, err := e64.Encode(img64)
 	if err != nil {
 		t.Fatalf("Encode 64x64 keyframe: %v", err)
@@ -725,7 +726,7 @@ func TestVP9DecoderAcceptsResolutionChangeByDefault(t *testing.T) {
 // with the VP8 decoder API.
 func TestVP9DecoderResetClearsFrameState(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -780,7 +781,7 @@ func TestVP9DecoderDecodesEncoderEdgeClippedModeTiles(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: tc.w, Height: tc.h})
-			img := newVP9YCbCrForTest(tc.w, tc.h, 128, 128, 128)
+			img := vp9test.NewYCbCr(tc.w, tc.h, 128, 128, 128)
 			key, err := e.Encode(img)
 			if err != nil {
 				t.Fatalf("Encode keyframe: %v", err)
@@ -824,7 +825,7 @@ func TestVP9DecoderDecodesEncoderEdgeClippedModeTiles(t *testing.T) {
 // decoder publishes the new frame size.
 func TestVP9DecoderRejectsMissingModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
-	img := newVP9YCbCrForTest(96, 96, 128, 128, 128)
+	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)

@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"strconv"
@@ -697,7 +698,7 @@ func assertVP9TransitionByteParity(t *testing.T, label string, got, want [][]byt
 			continue
 		}
 		if !bytes.Equal(got[i], want[i]) {
-			diff := firstVP9PacketDiffForTest(got[i], want[i])
+			diff := vp9test.FirstPacketDiff(got[i], want[i])
 			t.Errorf("VP9 transition %s frame %d byte mismatch: got_len=%d want_len=%d first_diff=%d",
 				label, i, len(got[i]), len(want[i]), diff)
 		}
@@ -711,7 +712,7 @@ func assertVP9TransitionByteParity(t *testing.T, label string, got, want [][]byt
 func vp9OracleTransitionPanningSources(width, height, count, offset int) []*image.YCbCr {
 	sources := make([]*image.YCbCr, count)
 	for i := range sources {
-		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i+offset)
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i+offset)
 	}
 	return sources
 }

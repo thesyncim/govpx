@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 	"unsafe"
 
@@ -117,7 +118,7 @@ func TestVP9DecoderByteAlignmentAlignsShowExistingFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)

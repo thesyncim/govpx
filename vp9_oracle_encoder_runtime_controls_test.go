@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"os"
 	"strconv"
@@ -387,7 +388,7 @@ func TestVP9OracleEncoderRuntimeControlsAllocationGate(t *testing.T) {
 			t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
 		}
 		dst := make([]byte, size)
-		img := newVP9PanningYCbCrForRateTest(width, height, 0)
+		img := vp9test.NewPanningYCbCr(width, height, 0)
 		if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
 			t.Fatalf("EncodeIntoWithResult warm: %v", err)
 		}
@@ -543,7 +544,7 @@ func runVP9RuntimeControlCase(t *testing.T, opts VP9EncoderOptions,
 	t.Helper()
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
-		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 	flags := make([]EncodeFlags, frames)
 
@@ -616,7 +617,7 @@ func assertVP9RuntimeControlByteParity(t *testing.T, label string,
 			continue
 		}
 		if !bytes.Equal(got[i], want[i]) {
-			diff := firstVP9PacketDiffForTest(got[i], want[i])
+			diff := vp9test.FirstPacketDiff(got[i], want[i])
 			t.Errorf("VP9 runtime control %s frame %d byte mismatch: got_len=%d want_len=%d first_diff=%d",
 				label, i, len(got[i]), len(want[i]), diff)
 		}
