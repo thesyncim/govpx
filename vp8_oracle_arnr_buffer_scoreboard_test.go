@@ -6,8 +6,6 @@ import (
 	"bytes"
 	"errors"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -79,7 +77,7 @@ func TestVP8OracleARNRBufferAdler(t *testing.T) {
 	// Libvpx side: spawn vpxenc-oracle for pass 1 (writes the .fpf stats
 	// file), then for pass 2 reading the same .fpf and emitting the
 	// trace.
-	libvpxTrace := captureLibvpxARNRTwoPassEncoderTrace(t, vpxencOracle, "arnr-vbr-2pass", opts, targetKbps, sources)
+	libvpxTrace := captureLibvpxARNRTwoPassEncoderTrace(t, vpxencOracle, opts, targetKbps, sources)
 
 	gFrames, err := coracle.TraceFrameRows(govpxTrace)
 	if err != nil {
@@ -228,70 +226,31 @@ func captureGovpxLookaheadEncoderTrace(t *testing.T, opts EncoderOptions, source
 // Pass 1 writes the FIRSTPASS_STATS .fpf file that pass 2 consumes; only
 // pass 2's JSONL trace is returned so the caller can inspect the actual
 // emitted frames.
-func captureLibvpxARNRTwoPassEncoderTrace(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image) []byte {
+func captureLibvpxARNRTwoPassEncoderTrace(t *testing.T, vpxencOracle string, opts EncoderOptions, targetKbps int, sources []Image) []byte {
 	t.Helper()
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, name+".yuv")
-	ivfPath := filepath.Join(dir, name+".ivf")
-	fpfPath := filepath.Join(dir, name+".fpf")
-	tracePass1 := filepath.Join(dir, name+".pass1.jsonl")
-	tracePass2 := filepath.Join(dir, name+".pass2.jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-	deadlineArg := "--good"
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		deadlineArg = "--best"
-	case DeadlineRealtime:
-		deadlineArg = "--rt"
-	}
-	commonArgs := func(passNum int, tracePath string, output string) ([]string, []string) {
-		args := []string{
-			"--codec=vp8",
-			"--ivf",
-			"--quiet",
-			deadlineArg,
-			"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-			"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
-			"--auto-alt-ref=1",
+	common := vp8OracleTraceConfig(
+		"",
+		opts,
+		len(sources),
+		targetKbps,
+		nil,
+		[]string{
+			"--end-usage=vbr",
 			"--arnr-maxframes=" + strconv.Itoa(opts.ARNRMaxFrames),
 			"--arnr-strength=" + strconv.Itoa(opts.ARNRStrength),
 			"--arnr-type=" + strconv.Itoa(opts.ARNRType),
-			"--kf-min-dist=999",
-			"--kf-max-dist=999",
-			"--end-usage=vbr",
-			"--target-bitrate=" + strconv.Itoa(targetKbps),
-			"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-			"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-			"--i420",
-			"--width=" + strconv.Itoa(opts.Width),
-			"--height=" + strconv.Itoa(opts.Height),
-			"--timebase=1/" + strconv.Itoa(opts.FPS),
-			"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-			"--limit=" + strconv.Itoa(len(sources)),
-			"--passes=2",
-			"--pass=" + strconv.Itoa(passNum),
-			"--fpf=" + fpfPath,
-			"--output=" + output,
-			yuvPath,
-		}
-		env := append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
-		return args, env
-	}
-	args1, env1 := commonArgs(1, tracePass1, ivfPath)
-	cmd1 := exec.Command(vpxencOracle, args1...)
-	cmd1.Env = env1
-	if out, err := cmd1.CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc-oracle (ARNR pass 1) failed: %v\n%s", err, out)
-	}
-	args2, env2 := commonArgs(2, tracePass2, ivfPath)
-	cmd2 := exec.Command(vpxencOracle, args2...)
-	cmd2.Env = env2
-	if out, err := cmd2.CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc-oracle (ARNR pass 2) failed: %v\n%s", err, out)
-	}
-	trace, err := os.ReadFile(tracePass2)
+		},
+	)
+	_, trace, diag, err := coracle.VpxencVP8TwoPassTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		coracle.VpxencVP8TwoPassTraceConfig{
+			FirstPassBinaryPath:  vpxencOracle,
+			SecondPassBinaryPath: vpxencOracle,
+			Common:               common,
+		},
+	)
 	if err != nil {
-		t.Fatalf("ReadFile %s returned error: %v", tracePass2, err)
+		t.Fatalf("vpxenc-oracle two-pass ARNR trace failed: %v\n%s", err, diag)
 	}
 	return trace
 }

@@ -230,11 +230,8 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 	})
 }
 
-// runLibvpxPass2BytesOnly is the bytes-only variant of
-// runLibvpxPass2WithTrace: it runs vpxenc-oracle in pass=2 mode and
-// returns the per-frame VP8 packet payloads from the resulting IVF
-// without writing a trace. Mirrors the args in runLibvpxPass2WithTrace
-// minus the GOVPX_ORACLE_TRACE_OUT plumbing.
+// runLibvpxPass2BytesOnly runs vpxenc-oracle in pass=2 mode and returns the
+// per-frame VP8 packet payloads from the resulting IVF without writing a trace.
 func runLibvpxPass2BytesOnly(t *testing.T, vpxencOracle string, yuvPath string, ivfPath string, fpfPath string, opts EncoderOptions, targetKbps int, count int) [][]byte {
 	t.Helper()
 	deadlineArg := libvpxDeadlineArg(opts.Deadline)

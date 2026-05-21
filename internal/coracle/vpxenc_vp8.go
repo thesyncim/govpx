@@ -62,6 +62,14 @@ type VpxencVP8FrameFlagsConfig struct {
 	ExtraArgs         []string
 }
 
+// VpxencVP8TwoPassTraceConfig describes a VP8 two-pass vpxenc run that
+// returns the first-pass stats file and second-pass JSONL oracle trace.
+type VpxencVP8TwoPassTraceConfig struct {
+	FirstPassBinaryPath  string
+	SecondPassBinaryPath string
+	Common               VpxencVP8Config
+}
+
 // VpxencVP8OracleEncodeI420 encodes raw I420 frames with the patched VP8
 // vpxenc-oracle helper and returns the IVF stream.
 func VpxencVP8OracleEncodeI420(raw []byte, cfg VpxencVP8Config) (ivf []byte, diag []byte, err error) {
@@ -141,6 +149,36 @@ func VpxencVP8OracleEncodeTraceI420(raw []byte, cfg VpxencVP8Config) (ivf []byte
 		return nil, nil, out.diag, err
 	}
 	return out.ivf, out.trace, out.diag, nil
+}
+
+// VpxencVP8TwoPassTraceI420 runs VP8 vpxenc pass 1 and then a patched
+// vpxenc-oracle pass 2 over the same raw I420 source.
+func VpxencVP8TwoPassTraceI420(raw []byte, cfg VpxencVP8TwoPassTraceConfig) (firstPassStats []byte, trace []byte, diag []byte, err error) {
+	common := cfg.Common
+	if err := validateI420Raw("VP8 vpxenc", raw, common.Width, common.Height, common.Frames); err != nil {
+		return nil, nil, nil, err
+	}
+	firstBin := cfg.FirstPassBinaryPath
+	if firstBin == "" {
+		firstBin = common.BinaryPath
+	}
+	if firstBin == "" {
+		firstBin, err = VpxencPath()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	secondBin := cfg.SecondPassBinaryPath
+	if secondBin == "" {
+		secondBin = common.BinaryPath
+	}
+	if secondBin == "" {
+		secondBin, err = VpxencOraclePath()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return runVpxencVP8TwoPassTraceI420(raw, firstBin, secondBin, "govpx-vpxenc-vp8-twopass-*", common)
 }
 
 // VpxencVP8FrameFlagsEncodeI420 encodes raw I420 frames with the VP8
@@ -237,6 +275,50 @@ func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int
 	return out, nil
 }
 
+func runVpxencVP8TwoPassTraceI420(raw []byte, firstBin string, secondBin string, tempPattern string, cfg VpxencVP8Config) (firstPassStats []byte, trace []byte, diag []byte, err error) {
+	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
+		return nil, nil, nil, err
+	}
+	dir, err := os.MkdirTemp("", tempPattern)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer os.RemoveAll(dir)
+
+	inPath := filepath.Join(dir, "input.i420")
+	pass1OutPath := filepath.Join(dir, "pass1.ivf")
+	pass2OutPath := filepath.Join(dir, "pass2.ivf")
+	fpfPath := filepath.Join(dir, "firstpass.fpf")
+	tracePath := filepath.Join(dir, "pass2.jsonl")
+	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
+		return nil, nil, nil, err
+	}
+
+	cmd1 := exec.Command(firstBin, cfg.vpxencTwoPassArgs(inPath, pass1OutPath, fpfPath, 1)...)
+	cmd1.Env = append(os.Environ(), cfg.ExtraEnv...)
+	pass1Diag, err := cmd1.CombinedOutput()
+	if err != nil {
+		return nil, nil, pass1Diag, err
+	}
+	firstPassStats, err = os.ReadFile(fpfPath)
+	if err != nil {
+		return nil, nil, pass1Diag, err
+	}
+
+	cmd2 := exec.Command(secondBin, cfg.vpxencTwoPassArgs(inPath, pass2OutPath, fpfPath, 2)...)
+	cmd2.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
+	cmd2.Env = append(cmd2.Env, cfg.ExtraEnv...)
+	pass2Diag, err := cmd2.CombinedOutput()
+	if err != nil {
+		return firstPassStats, nil, pass2Diag, err
+	}
+	trace, err = os.ReadFile(tracePath)
+	if err != nil {
+		return firstPassStats, nil, pass2Diag, err
+	}
+	return firstPassStats, trace, pass2Diag, nil
+}
+
 func (cfg VpxencVP8Config) vpxencArgs(inPath string, outPath string) []string {
 	deadline := cfg.Deadline
 	if deadline == "" {
@@ -283,6 +365,19 @@ func (cfg VpxencVP8Config) vpxencArgs(inPath string, outPath string) []string {
 	}
 	args = append(args, cfg.ExtraArgs...)
 	args = append(args, inPath)
+	return args
+}
+
+func (cfg VpxencVP8Config) vpxencTwoPassArgs(inPath string, outPath string, fpfPath string, pass int) []string {
+	args := cfg.vpxencArgs(inPath, outPath)
+	input := args[len(args)-1]
+	args = args[:len(args)-1]
+	args = append(args,
+		"--passes=2",
+		"--pass="+strconv.Itoa(pass),
+		"--fpf="+fpfPath,
+		input,
+	)
 	return args
 }
 

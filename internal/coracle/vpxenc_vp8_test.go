@@ -80,6 +80,36 @@ func TestVpxencVP8ConfigArgsDefaultDeadlineAndKeyFrameDistance(t *testing.T) {
 	}
 }
 
+func TestVpxencVP8ConfigTwoPassArgs(t *testing.T) {
+	cfg := VpxencVP8Config{
+		Width:             64,
+		Height:            64,
+		Frames:            8,
+		TargetBitrateKbps: 500,
+		MinQ:              4,
+		MaxQ:              56,
+		Timebase:          "1/30",
+		FPS:               "30/1",
+		ExtraArgs:         []string{"--end-usage=vbr"},
+	}
+	args := cfg.vpxencTwoPassArgs("input.i420", "pass2.ivf", "firstpass.fpf", 2)
+
+	for _, want := range []string{
+		"--passes=2",
+		"--pass=2",
+		"--fpf=firstpass.fpf",
+		"--end-usage=vbr",
+		"--output=pass2.ivf",
+	} {
+		if !slices.Contains(args, want) {
+			t.Fatalf("args missing %q: %s", want, strings.Join(args, " "))
+		}
+	}
+	if got := args[len(args)-1]; got != "input.i420" {
+		t.Fatalf("last arg = %q, want input path", got)
+	}
+}
+
 func TestVpxencVP8FrameFlagsConfigArgs(t *testing.T) {
 	cfg := VpxencVP8FrameFlagsConfig{
 		Width:             64,
@@ -228,5 +258,12 @@ func TestVpxencVP8EncodeI420ValidatesBeforePathLookup(t *testing.T) {
 		t.Fatal("VpxencVP8OracleEncodeTraceI420 accepted empty input")
 	} else if errors.Is(err, ErrVpxencOracleNotBuilt) {
 		t.Fatal("VpxencVP8OracleEncodeTraceI420 looked up helper before validating input")
+	}
+	if _, _, _, err := VpxencVP8TwoPassTraceI420(nil, VpxencVP8TwoPassTraceConfig{
+		Common: VpxencVP8Config{Width: 16, Height: 16, Frames: 1},
+	}); err == nil {
+		t.Fatal("VpxencVP8TwoPassTraceI420 accepted empty input")
+	} else if errors.Is(err, ErrVpxencNotBuilt) || errors.Is(err, ErrVpxencOracleNotBuilt) {
+		t.Fatal("VpxencVP8TwoPassTraceI420 looked up helper before validating input")
 	}
 }

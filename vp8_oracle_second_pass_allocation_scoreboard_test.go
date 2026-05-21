@@ -45,6 +45,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
@@ -132,20 +133,23 @@ func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
 	reports := make([]FixtureSecondPassReport, 0, len(fixtures))
 	for _, f := range fixtures {
 		t.Run(f.name, func(t *testing.T) {
-			dir := t.TempDir()
-			yuvPath := filepath.Join(dir, f.name+".yuv")
-			fpfPath := filepath.Join(dir, f.name+".fpf")
-			ivf1Path := filepath.Join(dir, f.name+"-pass1.ivf")
-			ivf2Path := filepath.Join(dir, f.name+"-pass2.ivf")
-			tracePath := filepath.Join(dir, f.name+"-pass2.jsonl")
-
-			writeEncoderValidationI420(t, yuvPath, f.sources)
-			runLibvpxPass1(t, vpxenc, yuvPath, ivf1Path, fpfPath, f.opts, f.targetKbps, len(f.sources))
-			libvpxTrace := runLibvpxPass2WithTrace(t, vpxencOracle, yuvPath, ivf2Path, fpfPath, tracePath, f.opts, f.targetKbps, len(f.sources))
-
-			fpfData, err := os.ReadFile(fpfPath)
+			fpfData, libvpxTrace, diag, err := coracle.VpxencVP8TwoPassTraceI420(
+				encoderValidationI420Bytes(t, f.sources),
+				coracle.VpxencVP8TwoPassTraceConfig{
+					FirstPassBinaryPath:  vpxenc,
+					SecondPassBinaryPath: vpxencOracle,
+					Common: vp8OracleTraceConfig(
+						"",
+						f.opts,
+						len(f.sources),
+						f.targetKbps,
+						nil,
+						[]string{"--end-usage=vbr"},
+					),
+				},
+			)
 			if err != nil {
-				t.Fatalf("ReadFile %s: %v", fpfPath, err)
+				t.Fatalf("vpxenc two-pass trace failed: %v\n%s", err, diag)
 			}
 			parsed := parseLibvpxFirstPassStats(t, fpfData)
 
@@ -219,46 +223,6 @@ func runLibvpxPass1WithExtra(t *testing.T, vpxenc string, yuvPath string, ivfPat
 	if err != nil {
 		t.Fatalf("vpxenc pass 1 failed: %v\n%s", err, out)
 	}
-}
-
-func runLibvpxPass2WithTrace(t *testing.T, vpxencOracle string, yuvPath string, ivfPath string, fpfPath string, tracePath string, opts EncoderOptions, targetKbps int, count int) []byte {
-	t.Helper()
-	deadlineArg := libvpxDeadlineArg(opts.Deadline)
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--passes=2",
-		"--pass=2",
-		"--fpf=" + fpfPath,
-		"--end-usage=vbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--kf-min-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--kf-max-dist=" + strconv.Itoa(opts.KeyFrameInterval),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(count),
-		"--output=" + ivfPath,
-		yuvPath,
-	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("vpxenc-oracle pass 2 failed: %v\n%s", err, out)
-	}
-	trace, err := os.ReadFile(tracePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s: %v", tracePath, err)
-	}
-	return trace
 }
 
 func libvpxDeadlineArg(deadline Deadline) string {
