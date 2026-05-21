@@ -193,25 +193,6 @@ func TestEncodeIntoDefaultSharpnessStillAppliesLoopFilter(t *testing.T) {
 	assertImagesEqual(t, "default filtered current", decoded, publicImageFromVP8(&e.current.Img))
 }
 
-func TestLibvpxInitialLoopFilterLevelUsesBaseQThreeEighths(t *testing.T) {
-	tests := []struct {
-		qIndex int
-		want   int
-	}{
-		{qIndex: 0, want: 0},
-		{qIndex: 6, want: 2},
-		{qIndex: 16, want: 6},
-		{qIndex: 20, want: 7},
-		{qIndex: 127, want: 47},
-		{qIndex: 1000, want: 63},
-	}
-	for _, tt := range tests {
-		if got := libvpxInitialLoopFilterLevel(tt.qIndex); got != tt.want {
-			t.Fatalf("q=%d loop filter level = %d, want %d", tt.qIndex, got, tt.want)
-		}
-	}
-}
-
 func TestEncoderLoopFilterUsesPreviousInterLevelWithLibvpxClamp(t *testing.T) {
 	e := &VP8Encoder{
 		opts:            EncoderOptions{Sharpness: 3},
@@ -438,115 +419,6 @@ func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 	}
 }
 
-func TestLoopFilterPartialFrameWindowMirrorsLibvpxMiddleSlice(t *testing.T) {
-	tests := []struct {
-		rows      int
-		wantStart int
-		wantCount int
-	}{
-		{rows: 0, wantStart: 0, wantCount: 0},
-		{rows: 1, wantStart: 0, wantCount: 1},
-		{rows: 2, wantStart: 1, wantCount: 1},
-		{rows: 4, wantStart: 2, wantCount: 1},
-		{rows: 8, wantStart: 4, wantCount: 1},
-		{rows: 16, wantStart: 8, wantCount: 2},
-	}
-	for _, tt := range tests {
-		start, count := loopFilterPartialFrameWindow(tt.rows)
-		if start != tt.wantStart || count != tt.wantCount {
-			t.Fatalf("rows=%d partial window = %d,%d want %d,%d", tt.rows, start, count, tt.wantStart, tt.wantCount)
-		}
-	}
-}
-
-func TestLoopFilterLumaSSEPartialScoresOnlyMiddleWindow(t *testing.T) {
-	src := testImage(64, 64)
-	fillImage(src, 20, 128, 128)
-	ref := testVP8Frame(t, 64, 64, 20, 128, 128)
-	for row := range 16 {
-		for col := range 64 {
-			ref.Img.Y[row*ref.Img.YStride+col] = 100
-		}
-	}
-	for row := 32; row < 48; row++ {
-		for col := range 64 {
-			ref.Img.Y[row*ref.Img.YStride+col] = 23
-		}
-	}
-
-	got := loopFilterLumaSSE(sourceImageFromPublic(src), &ref.Img, 4, 4, true)
-	want := 4 * 16 * 16 * 3 * 3
-	if got != want {
-		t.Fatalf("partial luma SSE = %d, want %d", got, want)
-	}
-}
-
-func TestCopyLoopFilterPartialLumaCopiesLibvpxStrideWindow(t *testing.T) {
-	src := testVP8Frame(t, 64, 128, 10, 128, 128)
-	dst := testVP8Frame(t, 64, 128, 99, 128, 128)
-	for i := range src.Img.YFull {
-		src.Img.YFull[i] = byte(i*17 + 3)
-	}
-	for i := range dst.Img.YFull {
-		dst.Img.YFull[i] = 0
-	}
-
-	startRow, rowCount := loopFilterPartialFrameWindow(8)
-	copyLoopFilterPartialLuma(&dst.Img, &src.Img, startRow, rowCount)
-
-	startY := startRow*16 - 4
-	endY := (startRow + rowCount) * 16
-	for y := startY; y < endY; y++ {
-		srcOff := src.Img.YOrigin + y*src.Img.YStride
-		dstOff := dst.Img.YOrigin + y*dst.Img.YStride
-		got := dst.Img.YFull[dstOff : dstOff+dst.Img.YStride]
-		want := src.Img.YFull[srcOff : srcOff+src.Img.YStride]
-		if !bytes.Equal(got, want) {
-			t.Fatalf("copied row %d differs from libvpx y_stride window", y)
-		}
-	}
-
-	beforeOff := dst.Img.YOrigin + (startY-1)*dst.Img.YStride
-	if bytes.Equal(dst.Img.YFull[beforeOff:beforeOff+dst.Img.YStride], src.Img.YFull[src.Img.YOrigin+(startY-1)*src.Img.YStride:src.Img.YOrigin+startY*src.Img.YStride]) {
-		t.Fatalf("row before partial window was copied")
-	}
-}
-
-func TestCopyLoopFilterPartialLumaCopiesLibvpxTopContext(t *testing.T) {
-	src := testVP8Frame(t, 16, 16, 10, 128, 128)
-	dst := testVP8Frame(t, 16, 16, 99, 128, 128)
-	for i := range src.Img.YFull {
-		src.Img.YFull[i] = byte(i*17 + 3)
-	}
-	for i := range dst.Img.YFull {
-		dst.Img.YFull[i] = 0
-	}
-
-	startRow, rowCount := loopFilterPartialFrameWindow(1)
-	copyLoopFilterPartialLuma(&dst.Img, &src.Img, startRow, rowCount)
-
-	top := src.Img.YFull[src.Img.YOrigin : src.Img.YOrigin+src.Img.YStride]
-	for y := -4; y < 0; y++ {
-		dstOff := dst.Img.YOrigin + y*dst.Img.YStride
-		if got := dst.Img.YFull[dstOff : dstOff+dst.Img.YStride]; !bytes.Equal(got, top) {
-			t.Fatalf("top context row %d differs from libvpx top-row fill", y)
-		}
-	}
-	for y := range 16 {
-		srcOff := src.Img.YOrigin + y*src.Img.YStride
-		dstOff := dst.Img.YOrigin + y*dst.Img.YStride
-		got := dst.Img.YFull[dstOff : dstOff+dst.Img.YStride]
-		want := src.Img.YFull[srcOff : srcOff+src.Img.YStride]
-		if !bytes.Equal(got, want) {
-			t.Fatalf("visible row %d differs from libvpx y_stride window", y)
-		}
-	}
-	beforeOff := dst.Img.YOrigin - 5*dst.Img.YStride
-	if bytes.Equal(dst.Img.YFull[beforeOff:beforeOff+dst.Img.YStride], top) {
-		t.Fatalf("row before top context was copied")
-	}
-}
-
 func TestLoopFilterTrialLumaSSELevelZeroUsesLibvpxTrialFilter(t *testing.T) {
 	const width, height = 64, 128
 	rows := (height + 15) / 16
@@ -643,7 +515,7 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 		// The full path computes SSE over the whole frame; recompute the
 		// partial-window SSE on the buffer left behind by the full filter so
 		// we can compare against the partial path.
-		fullPartialWindow := loopFilterLumaSSE(srcImg, &e.loopFilterPick.Img, rows, cols, true)
+		fullPartialWindow := vp8enc.LoopFilterLumaSSE(srcImg, &e.loopFilterPick.Img, rows, cols, true)
 		_ = fullErr
 		if partialErr != fullPartialWindow {
 			t.Fatalf("level=%d partial SSE = %d, full-frame partial-window SSE = %d", level, partialErr, fullPartialWindow)
@@ -736,7 +608,7 @@ func TestLoopFilterPickNoStatsAllocatesZero(t *testing.T) {
 	}
 
 	ctx := e.newLoopFilterPickContext(sourceImageFromPublic(src), vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
-	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
+	minLevel := vp8enc.LibvpxMinLoopFilterLevel(e.rc.currentQuantizer)
 	allocs := testing.AllocsPerRun(50, func() {
 		if _, err := ctx.pickFastNoStats(24, minLevel); err != nil {
 			t.Fatalf("pickFastNoStats: %v", err)
@@ -795,7 +667,7 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	srcImg := sourceImageFromPublic(src)
 	ePartial := buildEncoder()
 	partialCtx := ePartial.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
-	got, err := partialCtx.pickFast(24, libvpxMinLoopFilterLevel(ePartial.rc.currentQuantizer))
+	got, err := partialCtx.pickFast(24, vp8enc.LibvpxMinLoopFilterLevel(ePartial.rc.currentQuantizer))
 	if err != nil {
 		t.Fatalf("loopFilterPickContext.pickFast returned error: %v", err)
 	}
@@ -804,17 +676,17 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	// full-frame loop filter and partial-window SSE. Selected level must
 	// match exactly.
 	eRef := buildEncoder()
-	minLevel := libvpxMinLoopFilterLevel(eRef.rc.currentQuantizer)
-	maxLevel := libvpxMaxLoopFilterLevel(eRef.rc.currentQuantizer)
-	level := clampLoopFilterPickLevel(24, minLevel, maxLevel)
+	minLevel := vp8enc.LibvpxMinLoopFilterLevel(eRef.rc.currentQuantizer)
+	maxLevel := vp8enc.LibvpxMaxLoopFilterLevel(eRef.rc.currentQuantizer)
+	level := vp8enc.ClampLoopFilterPickLevel(24, minLevel, maxLevel)
 	bestLevel := level
 	refCtx := eRef.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
 	score := func(lvl int) int {
 		refCtx.trialLumaSSE(lvl, false)
-		return loopFilterLumaSSE(srcImg, &eRef.loopFilterPick.Img, rows, cols, true)
+		return vp8enc.LoopFilterLumaSSE(srcImg, &eRef.loopFilterPick.Img, rows, cols, true)
 	}
 	bestErr := score(level)
-	filtLevel := level - loopFilterSearchStep(level)
+	filtLevel := level - vp8enc.LoopFilterSearchStep(level)
 	for filtLevel >= minLevel {
 		filtErr := score(filtLevel)
 		if filtErr < bestErr {
@@ -823,9 +695,9 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 		} else {
 			break
 		}
-		filtLevel -= loopFilterSearchStep(filtLevel)
+		filtLevel -= vp8enc.LoopFilterSearchStep(filtLevel)
 	}
-	filtLevel = level + loopFilterSearchStep(filtLevel)
+	filtLevel = level + vp8enc.LoopFilterSearchStep(filtLevel)
 	if bestLevel == level {
 		bestErr -= bestErr >> 10
 		for filtLevel < maxLevel {
@@ -836,10 +708,10 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 			} else {
 				break
 			}
-			filtLevel += loopFilterSearchStep(filtLevel)
+			filtLevel += vp8enc.LoopFilterSearchStep(filtLevel)
 		}
 	}
-	want := uint8(clampLoopFilterPickLevel(bestLevel, minLevel, maxLevel))
+	want := uint8(vp8enc.ClampLoopFilterPickLevel(bestLevel, minLevel, maxLevel))
 	if got != want {
 		t.Fatalf("fast pick = %d, full-frame baseline = %d", got, want)
 	}

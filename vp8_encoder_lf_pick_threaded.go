@@ -60,7 +60,7 @@ func (p *rowWorkerPool) runLFTrialWorker(workerIndex int) {
 		args.cfg,
 		args.lfi,
 	)
-	args.errOut = loopFilterLumaSSE(args.src, args.dst, args.rows, args.cols, false)
+	args.errOut = vp8enc.LoopFilterLumaSSE(args.src, args.dst, args.rows, args.cols, false)
 }
 
 // canParallelLFTrials reports whether the encoder has a row-worker
@@ -139,7 +139,7 @@ func (ctx *loopFilterPickContext) dispatchLFTrialPair(lowLevel int, highLevel in
 		ctx.fullFrameConfig,
 		&e.loopInfo,
 	)
-	highErr := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
+	highErr := vp8enc.LoopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
 
 	pool.waitHelperWorkers()
 	lowErr := pool.lfTrial.errOut

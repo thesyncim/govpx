@@ -69,7 +69,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		// frame is available, drive Q based on the SS-error gap rather than
 		// the normal projected-size recode logic.
 		if e.thisKeyFrameForced && e.ambientErr > 0 {
-			kfErr := calcKeyFrameSSError(source, &e.analysis.Img, rows, cols)
+			kfErr := vp8enc.CalcKeyFrameSSError(source, &e.analysis.Img, rows, cols)
 			nextQ, recoded := e.rc.forcedKeyFrameRecodeQuantizer(kfErr, e.ambientErr, &recode)
 			if !recoded {
 				return result, nil

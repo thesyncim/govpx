@@ -1009,7 +1009,7 @@ func (e *VP8Encoder) updateNextKeyFrameForcedAfterCommit(source vp8enc.SourceIma
 	if nextIndex == 0 || nextIndex%uint64(interval) != 0 {
 		return
 	}
-	e.ambientErr = calcKeyFrameSSError(source, &e.current.Img, rows, cols)
+	e.ambientErr = vp8enc.CalcKeyFrameSSError(source, &e.current.Img, rows, cols)
 }
 
 func (e *VP8Encoder) populateTemporalLayerBufferResult(result *EncodeResult, meta temporalFrame) {
