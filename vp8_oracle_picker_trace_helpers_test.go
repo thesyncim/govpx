@@ -1,0 +1,38 @@
+//go:build govpx_oracle_trace
+
+package govpx
+
+import "github.com/thesyncim/govpx/internal/coracle"
+
+func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, frames int, extraEnv []string) coracle.VpxencVP8Config {
+	return coracle.VpxencVP8Config{
+		BinaryPath:           vpxencOracle,
+		Width:                opts.Width,
+		Height:               opts.Height,
+		Frames:               frames,
+		Deadline:             libvpxOracleDeadline(opts.Deadline),
+		DisableWarningPrompt: true,
+		CPUUsed:              opts.CpuUsed,
+		LagInFrames:          0,
+		AutoAltRef:           false,
+		TargetBitrateKbps:    opts.TargetBitrateKbps,
+		MinQ:                 opts.MinQuantizer,
+		MaxQ:                 opts.MaxQuantizer,
+		Timebase:             libvpxOracleTimebaseArg(opts),
+		FPS:                  libvpxOracleFPSArg(opts),
+		KeyFrameDistSet:      true,
+		KeyFrameMinDist:      999,
+		KeyFrameMaxDist:      999,
+		ExtraEnv:             extraEnv,
+		ExtraArgs: []string{
+			"--end-usage=vbr",
+			"--screen-content-mode=1",
+			"--token-parts=1",
+			"--threads=1",
+			"--tune=ssim",
+			"--arnr-maxframes=1",
+			"--arnr-strength=1",
+			"--arnr-type=2",
+		},
+	}
+}

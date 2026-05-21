@@ -1,26 +1,5 @@
 //go:build govpx_oracle_trace
 
-// Task #314: re-localize the BestARNR pin-hold residual using the task #310
-// per-MB NEWMV-picker quantize trace.
-//
-// Task #310 verified that libvpx's NEWMV at MB(0,0) frame 1 was misread as
-// rate_y=34799 — the actual value at MB(0,0) NEWMV is byte-exact to govpx
-// (all-zero Y qcoeff, rate_y identical). The 34799 figure was for the
-// ZEROMV candidate, not NEWMV. So the BestARNR -5/-6 byte residual must
-// live at ANOTHER MB, mode, or in the post-trellis aggregation step.
-//
-// Strategy: encode the same 2-frame 1280x720 BestQuality/cpu0/VBR/
-// screen-content=1/SSIM/ARNR=1/1/2 BestARNR fixture on BOTH govpx and the
-// patched libvpx vpxenc-oracle (SHA e1abf8c9…), capture every {"type":
-// "inter_candidate", ...} row at frame_index=1, group by (mb_row, mb_col),
-// pick the candidate marked "became_best":true, and walk MBs in raster
-// order to find the first row where the chosen (mode, rate_y, dist) tuple
-// disagrees between the two encoders.
-//
-// The test is informational: it always Logf()'s the first divergent MB
-// (or the all-equal "no divergence found" signal) so the task can stage
-// the next investigation step. It fails only when the two streams have
-// different MB coverage or when the trace harnesses are misconfigured.
 package govpx
 
 import (
@@ -29,14 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
+// TestVP8ARNRPickerParity compares govpx and libvpx inter-candidate traces for
+// the 1280x720 BestQuality ARNR fixture and reports the first chosen-candidate
+// mismatch in raster order.
 func TestVP8ARNRPickerParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ARNR picker parity")
@@ -83,61 +63,17 @@ func TestVP8ARNRPickerParity(t *testing.T) {
 	}
 	enc.Close()
 
-	persistGovpx := "/tmp/arnr_picker_govpx_inter_candidate.jsonl"
-	if err := os.WriteFile(persistGovpx, govpxTraceBuf.Bytes(), 0o644); err == nil {
-		t.Logf("arnr_picker: persisted govpx trace to %s (%d bytes)", persistGovpx, govpxTraceBuf.Len())
-	}
+	t.Logf("arnr_picker: govpx trace bytes = %d", govpxTraceBuf.Len())
 
 	// --- libvpx side ---------------------------------------------------
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "arnr_picker.yuv")
-	ivfPath := filepath.Join(dir, "arnr_picker.ivf")
-	libvpxTracePath := filepath.Join(dir, "arnr_picker.jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		"--best",
-		"--cpu-used=0",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--target-bitrate=" + strconv.Itoa(opts.TargetBitrateKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--end-usage=vbr",
-		"--screen-content-mode=1",
-		"--token-parts=1",
-		"--threads=1",
-		"--tune=ssim",
-		"--arnr-maxframes=1",
-		"--arnr-strength=1",
-		"--arnr-type=2",
-		yuvPath,
-	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+libvpxTracePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, out)
-	}
-	libvpxTrace, err := os.ReadFile(libvpxTracePath)
+	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8BestARNRPickerOracleConfig(vpxencOracle, opts, len(sources), nil),
+	)
 	if err != nil {
-		t.Fatalf("ReadFile %s: %v", libvpxTracePath, err)
+		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)
 	}
-	persistLibvpx := "/tmp/arnr_picker_libvpx_inter_candidate.jsonl"
-	_ = os.WriteFile(persistLibvpx, libvpxTrace, 0o644)
-	t.Logf("arnr_picker: persisted libvpx trace to %s (%d bytes)", persistLibvpx, len(libvpxTrace))
+	t.Logf("arnr_picker: libvpx trace bytes = %d", len(libvpxTrace))
 
 	// --- parse + bisect ------------------------------------------------
 	govpxBest := collectVP8ARNRPickerBecameBest(t, govpxTraceBuf.Bytes())
@@ -245,8 +181,8 @@ scan:
 		return
 	}
 
-	t.Logf("=== task #314 first divergent MB ===")
-	t.Logf("MB(%d, %d) — reason: %s", fd.MBRow, fd.MBCol, fd.Reason)
+	t.Logf("=== first divergent ARNR picker MB ===")
+	t.Logf("MB(%d, %d); reason: %s", fd.MBRow, fd.MBCol, fd.Reason)
 	t.Logf("  govpx : mode=%-7s ref=%-12s mv=%-10s rate_y=%-6d rate_uv=%-5d dist=%-7d dist_uv=%-7d rate=%-6d score=%d",
 		fd.GovpxMode, fd.GovpxRefFrame, fd.GovpxMV, fd.GovpxRateY, fd.GovpxRateUV, fd.GovpxDist, fd.GovpxDistUV, fd.GovpxRate, fd.GovpxScore)
 	t.Logf("  libvpx: mode=%-7s ref=%-12s mv=%-10s rate_y=%-6d rate_uv=%-5d dist=%-7d dist_uv=%-7d rate=%-6d score=%d",

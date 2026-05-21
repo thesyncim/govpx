@@ -7,11 +7,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
@@ -49,57 +47,18 @@ func TestVP8NewMVPickerQuantizeTraceRows(t *testing.T) {
 		sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
 	}
 
-	dir := t.TempDir()
-	yuvPath := filepath.Join(dir, "newmv_picker_quantize.yuv")
-	ivfPath := filepath.Join(dir, "newmv_picker_quantize.ivf")
-	tracePath := filepath.Join(dir, "newmv_picker_quantize.jsonl")
-	writeEncoderValidationI420(t, yuvPath, sources)
-
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		"--disable-warning-prompt",
-		"--best",
-		"--cpu-used=0",
-		"--lag-in-frames=0",
-		"--auto-alt-ref=0",
-		"--target-bitrate=" + strconv.Itoa(opts.TargetBitrateKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=" + libvpxOracleTimebaseArg(opts),
-		"--fps=" + libvpxOracleFPSArg(opts),
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--end-usage=vbr",
-		"--screen-content-mode=1",
-		"--token-parts=1",
-		"--threads=1",
-		"--tune=ssim",
-		"--arnr-maxframes=1",
-		"--arnr-strength=1",
-		"--arnr-type=2",
-		yuvPath,
-	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(),
-		"GOVPX_ORACLE_TRACE_OUT="+tracePath,
-		"GOVPX_ORACLE_NEWMV_PICKER=1",
+	trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		encoderValidationI420Bytes(t, sources),
+		vp8BestARNRPickerOracleConfig(
+			vpxencOracle,
+			opts,
+			len(sources),
+			[]string{"GOVPX_ORACLE_NEWMV_PICKER=1"},
+		),
 	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, out)
-	}
-
-	f, err := os.Open(tracePath)
 	if err != nil {
-		t.Fatalf("open trace: %v", err)
+		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)
 	}
-	defer f.Close()
 
 	type pre struct {
 		Coeff         []int `json:"coeff"`
@@ -132,7 +91,7 @@ func TestVP8NewMVPickerQuantizeTraceRows(t *testing.T) {
 	}
 
 	var capturedMB00Frame1NEWMV []row
-	scan := bufio.NewScanner(f)
+	scan := bufio.NewScanner(bytes.NewReader(trace))
 	scan.Buffer(make([]byte, 1<<20), 1<<24)
 	totalRows := 0
 	for scan.Scan() {
