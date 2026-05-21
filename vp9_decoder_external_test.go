@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9corpus"
 )
 
 func TestVP9DecoderDefaultProfile0WebMCorpusMinimumMatchesList(t *testing.T) {
@@ -26,15 +27,15 @@ func TestVP9DecoderDefaultIVFCorpusMinimumMatchesList(t *testing.T) {
 }
 
 func TestVP9DecoderOfficialIVFTestDataThreadedMatchesSerial(t *testing.T) {
-	root, ok := externalVP9IVFTestDataRoot(t)
+	root, ok := vp9corpus.IVFRoot(t)
 	if !ok {
 		return
 	}
-	paths := findVP9IVFTestData(t, root, false)
+	paths := vp9corpus.FindIVF(t, root, false)
 	if len(paths) == 0 {
 		t.Fatalf("no VP90 IVF files found under %s", root)
 	}
-	assertExternalVP9IVFTestDataMinimum(t, root, paths)
+	vp9corpus.AssertIVFMinimum(t, root, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
@@ -63,19 +64,19 @@ func TestVP9DecoderOfficialIVFTestDataThreadedMatchesSerial(t *testing.T) {
 }
 
 func TestVP9DecoderOfficialProfileWebMTestDataReturnsUnsupported(t *testing.T) {
-	root, ok := externalVP9ProfileWebMTestDataRoot(t)
+	root, ok := vp9corpus.ProfileWebMRoot(t)
 	if !ok {
 		return
 	}
-	paths := findVP9ProfileWebMTestData(t, root)
+	paths := vp9corpus.FindProfileWebM(t, root)
 	if len(paths) == 0 {
 		if os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") == "1" ||
-			externalVP9ProfileWebMTestMinimum(t, root) > 0 {
+			vp9corpus.ProfileWebMMinimum(t, root) > 0 {
 			t.Fatalf("no official VP9 profile WebM files found under %s", root)
 		}
 		t.Skipf("no official VP9 profile WebM files found under %s", root)
 	}
-	assertExternalVP9ProfileWebMTestDataMinimum(t, root, paths)
+	vp9corpus.AssertProfileWebMMinimum(t, root, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
@@ -109,247 +110,6 @@ func TestVP9DecoderOfficialProfileWebMTestDataReturnsUnsupported(t *testing.T) {
 			}
 			t.Fatalf("Decode accepted %d official unsupported-profile VP9 WebM packets without ErrVP9NotImplemented", len(packets))
 		})
-	}
-}
-
-func externalVP9IVFTestDataRoot(t *testing.T) (string, bool) {
-	t.Helper()
-	root := os.Getenv("GOVPX_VP9_TEST_DATA_PATH")
-	if root != "" {
-		return root, true
-	}
-	if externalVP9DefaultTestDataExists() {
-		return testutil.DefaultVP9ExternalTestDataDir, true
-	}
-	if os.Getenv("GOVPX_VP9_TEST_DATA_REQUIRED") == "1" {
-		t.Fatalf("GOVPX_VP9_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_TEST_DATA_PATH nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
-	}
-	t.Skipf("set GOVPX_VP9_TEST_DATA_PATH to official VP90 IVF data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
-	return "", false
-}
-
-func externalVP9InvalidIVFTestDataRoot(t *testing.T) (string, bool) {
-	t.Helper()
-	root := os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_PATH")
-	if root != "" {
-		return root, true
-	}
-	root = os.Getenv("GOVPX_VP9_TEST_DATA_PATH")
-	if root != "" {
-		return root, true
-	}
-	if externalVP9DefaultTestDataExists() {
-		return testutil.DefaultVP9ExternalTestDataDir, true
-	}
-	if os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED") == "1" {
-		t.Fatalf("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_INVALID_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
-	}
-	t.Skipf("set GOVPX_VP9_INVALID_TEST_DATA_PATH to invalid official VP90 IVF data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
-	return "", false
-}
-
-func externalVP9Profile0WebMTestDataRoot(t *testing.T) (string, bool) {
-	t.Helper()
-	root := os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH")
-	if root != "" {
-		return root, true
-	}
-	root = os.Getenv("GOVPX_VP9_TEST_DATA_PATH")
-	if root != "" {
-		return root, true
-	}
-	if externalVP9DefaultTestDataExists() {
-		return testutil.DefaultVP9ExternalTestDataDir, true
-	}
-	profile0Minimum, _ := externalVP9IVFMinimumFromEnv(t,
-		"GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN")
-	if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
-		profile0Minimum > 0 {
-		t.Fatalf("VP9 Profile 0 WebM test data is required but neither GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
-	}
-	t.Skipf("set GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH to official VP9 Profile 0 WebM data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
-	return "", false
-}
-
-func externalVP9ProfileWebMTestDataRoot(t *testing.T) (string, bool) {
-	t.Helper()
-	root := os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_PATH")
-	if root != "" {
-		return root, true
-	}
-	root = os.Getenv("GOVPX_VP9_TEST_DATA_PATH")
-	if root != "" {
-		return root, true
-	}
-	if externalVP9DefaultTestDataExists() {
-		return testutil.DefaultVP9ExternalTestDataDir, true
-	}
-	profileMinimum, _ := externalVP9IVFMinimumFromEnv(t, "GOVPX_VP9_PROFILE_TEST_DATA_MIN")
-	if os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") == "1" ||
-		profileMinimum > 0 {
-		t.Fatalf("VP9 profile WebM test data is required but neither GOVPX_VP9_PROFILE_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
-	}
-	t.Skipf("set GOVPX_VP9_PROFILE_TEST_DATA_PATH to official VP9 profile WebM data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
-	return "", false
-}
-
-func externalVP9DefaultTestDataExists() bool {
-	return testutil.DefaultVP9TestDataExists()
-}
-
-func findVP9IVFTestData(t *testing.T, root string, invalid bool) []string {
-	t.Helper()
-	paths, err := testutil.FindVP9IVFTestData(root, externalVP9IVFTestLimit(t, invalid), invalid)
-	if err != nil {
-		t.Fatalf("FindVP9IVFTestData(%q): %v", root, err)
-	}
-	return paths
-}
-
-func findVP9Profile0WebMTestData(t *testing.T, root string) []string {
-	t.Helper()
-	paths, err := testutil.FindVP9Profile0WebMTestData(root, externalVP9Profile0WebMTestLimit(t))
-	if err != nil {
-		t.Fatalf("FindVP9Profile0WebMTestData(%q): %v", root, err)
-	}
-	return paths
-}
-
-func findVP9ProfileWebMTestData(t *testing.T, root string) []string {
-	t.Helper()
-	paths, err := testutil.FindVP9ProfileWebMTestData(root, externalVP9ProfileWebMTestLimit(t))
-	if err != nil {
-		t.Fatalf("FindVP9ProfileWebMTestData(%q): %v", root, err)
-	}
-	return paths
-}
-
-func externalVP9IVFTestLimit(t *testing.T, invalid bool) int {
-	t.Helper()
-	name := "GOVPX_VP9_TEST_DATA_LIMIT"
-	if invalid {
-		name = "GOVPX_VP9_INVALID_TEST_DATA_LIMIT"
-	}
-	return mustCoracleEnvInt(t, name)
-}
-
-func externalVP9Profile0WebMTestLimit(t *testing.T) int {
-	t.Helper()
-	return mustCoracleEnvInt(t, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_LIMIT")
-}
-
-func externalVP9ProfileWebMTestLimit(t *testing.T) int {
-	t.Helper()
-	return mustCoracleEnvInt(t, "GOVPX_VP9_PROFILE_TEST_DATA_LIMIT")
-}
-
-func externalVP9IVFTestMinimum(t *testing.T, root string) int {
-	t.Helper()
-	minimum, set := externalVP9IVFMinimumFromEnv(t, "GOVPX_VP9_TEST_DATA_MIN")
-	if set {
-		return minimum
-	}
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		return 0
-	}
-	return testutil.DefaultVP9IVFTestDataMinimum
-}
-
-func externalVP9InvalidIVFTestMinimum(t *testing.T, root string) int {
-	t.Helper()
-	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_INVALID_TEST_DATA_MIN",
-		testutil.DefaultVP9InvalidIVFTestDataMinimum)
-}
-
-func externalVP9Profile0WebMTestMinimum(t *testing.T, root string) int {
-	t.Helper()
-	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN",
-		testutil.DefaultVP9Profile0WebMTestMinimum)
-}
-
-func externalVP9ProfileWebMTestMinimum(t *testing.T, root string) int {
-	t.Helper()
-	return externalVP9CorpusMinimum(t, root, "GOVPX_VP9_PROFILE_TEST_DATA_MIN",
-		testutil.DefaultVP9ProfileWebMTestMinimum)
-}
-
-func externalVP9CorpusMinimum(t *testing.T, root, envName string, defaultMinimum int) int {
-	t.Helper()
-	minimum, set := externalVP9IVFMinimumFromEnv(t, envName)
-	if set {
-		return minimum
-	}
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		return 0
-	}
-	return defaultMinimum
-}
-
-func externalVP9IVFMinimumFromEnv(t *testing.T, name string) (int, bool) {
-	t.Helper()
-	value, set, err := testutil.NonNegativeEnvInt(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return value, set
-}
-
-func mustCoracleEnvInt(t *testing.T, name string) int {
-	t.Helper()
-	value, _, err := testutil.NonNegativeEnvInt(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return value
-}
-
-func assertExternalVP9IVFTestDataMinimum(t *testing.T, root string, paths []string) {
-	t.Helper()
-	minimum := externalVP9IVFTestMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 decoder corpus floor"
-		if os.Getenv("GOVPX_VP9_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_TEST_DATA_MIN"
-		}
-		t.Fatalf("VP90 IVF test data count = %d, want at least %d from %s", len(paths), minimum, source)
-	}
-}
-
-func assertExternalVP9InvalidIVFTestDataMinimum(t *testing.T, root string, paths []string) {
-	t.Helper()
-	minimum := externalVP9InvalidIVFTestMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 invalid decoder corpus floor"
-		if os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_INVALID_TEST_DATA_MIN"
-		}
-		t.Fatalf("invalid VP90 IVF test data count = %d, want at least %d from %s", len(paths), minimum, source)
-	}
-}
-
-func assertExternalVP9Profile0WebMTestDataMinimum(t *testing.T, root string, paths []string) {
-	t.Helper()
-	minimum := externalVP9Profile0WebMTestMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 Profile 0 WebM corpus floor"
-		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN"
-		}
-		t.Fatalf("VP9 Profile 0 WebM test data count = %d, want at least %d from %s", len(paths), minimum, source)
-	}
-}
-
-func assertExternalVP9ProfileWebMTestDataMinimum(t *testing.T, root string, paths []string) {
-	t.Helper()
-	minimum := externalVP9ProfileWebMTestMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 profile WebM corpus floor"
-		if os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_PROFILE_TEST_DATA_MIN"
-		}
-		t.Fatalf("VP9 profile WebM test data count = %d, want at least %d from %s", len(paths), minimum, source)
 	}
 }
 

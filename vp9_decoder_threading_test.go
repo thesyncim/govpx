@@ -6,21 +6,22 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9corpus"
 )
 
 // TestVP9DecoderThreadingOfficialIVFMatchesSerial extends the VP9 decoder
 // conformance lane to the threaded loop-filter path. It compares govpx serial
 // decode against Threads=2/4 on every default official VP90 IVF vector.
 func TestVP9DecoderThreadingOfficialIVFMatchesSerial(t *testing.T) {
-	root, ok := externalVP9IVFTestDataRoot(t)
+	root, ok := vp9corpus.IVFRoot(t)
 	if !ok {
 		return
 	}
-	paths := findVP9IVFTestData(t, root, false)
+	paths := vp9corpus.FindIVF(t, root, false)
 	if len(paths) == 0 {
 		t.Fatalf("no VP90 IVF files found under %s", root)
 	}
-	assertExternalVP9IVFTestDataMinimum(t, root, paths)
+	vp9corpus.AssertIVFMinimum(t, root, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
@@ -43,19 +44,19 @@ func TestVP9DecoderThreadingOfficialIVFMatchesSerial(t *testing.T) {
 // TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial mirrors the IVF
 // threading gate for the curated official VP9 Profile 0 WebM corpus.
 func TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial(t *testing.T) {
-	root, ok := externalVP9Profile0WebMTestDataRoot(t)
+	root, ok := vp9corpus.Profile0WebMRoot(t)
 	if !ok {
 		return
 	}
-	paths := findVP9Profile0WebMTestData(t, root)
+	paths := vp9corpus.FindProfile0WebM(t, root)
 	if len(paths) == 0 {
 		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
-			externalVP9Profile0WebMTestMinimum(t, root) > 0 {
+			vp9corpus.Profile0WebMMinimum(t, root) > 0 {
 			t.Fatalf("no official VP9 Profile 0 WebM files found under %s", root)
 		}
 		t.Skipf("no official VP9 Profile 0 WebM files found under %s", root)
 	}
-	assertExternalVP9Profile0WebMTestDataMinimum(t, root, paths)
+	vp9corpus.AssertProfile0WebMMinimum(t, root, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
@@ -76,14 +77,14 @@ func TestVP9DecoderThreadingOfficialProfile0WebMMatchesSerial(t *testing.T) {
 }
 
 func TestVP9DecoderThreadingOfficialProfile0TileColumnsUseWorkers(t *testing.T) {
-	root, ok := externalVP9Profile0WebMTestDataRoot(t)
+	root, ok := vp9corpus.Profile0WebMRoot(t)
 	if !ok {
 		return
 	}
-	paths := findVP9Profile0WebMTestData(t, root)
+	paths := vp9corpus.FindProfile0WebM(t, root)
 	if len(paths) == 0 {
 		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
-			externalVP9Profile0WebMTestMinimum(t, root) > 0 {
+			vp9corpus.Profile0WebMMinimum(t, root) > 0 {
 			t.Fatalf("no official VP9 Profile 0 WebM files found under %s", root)
 		}
 		t.Skipf("no official VP9 Profile 0 WebM files found under %s", root)
