@@ -239,3 +239,22 @@ func BuildIVF(h IVFHeader, payloads [][]byte) []byte {
 	}
 	return out
 }
+
+// BuildVP8IVF writes a VP8 IVF stream for tests that already have
+// compressed frame payloads.
+func BuildVP8IVF(width int, height int, den uint32, num uint32, payloads [][]byte) []byte {
+	header := IVFHeader{
+		FourCC:              IVFFourCCVP8,
+		Width:               width,
+		Height:              height,
+		TimebaseDenominator: den,
+		TimebaseNumerator:   num,
+	}
+	return BuildIVF(header, payloads)
+}
+
+// BuildSingleFrameVP8IVF writes a VP8 IVF stream with one compressed payload.
+func BuildSingleFrameVP8IVF(width int, height int, den uint32, num uint32, payload []byte) []byte {
+	payloads := [][]byte{payload}
+	return BuildVP8IVF(width, height, den, num, payloads)
+}

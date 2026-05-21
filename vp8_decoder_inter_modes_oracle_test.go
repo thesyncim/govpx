@@ -42,7 +42,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoResidualInterFrame(t *testing.T
 	}
 
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data)
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -86,7 +86,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoNewMVInterFrame(t *testing.T) {
 	}
 
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data)
-	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -144,7 +144,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoCQLevel(t *testing.T) {
 		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 36 / qindex %d", inter.Quantizer, packetBaseQIndex(t, inter.Data), vp8common.PublicQuantizerToQIndex(36))
 	}
 
-	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	got := decodeIVFChecksums(t, ivf)
 	assertFrameChecksumsEqual(t, "CQLevel interframe", got, oracleFrames)
@@ -209,7 +209,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoSplitMVInterFrame(t *testing.T)
 		t.Fatalf("decoded mode[0] = %+v, want SPLITMV partition 2", d.modes[0])
 	}
 
-	ivf := makeIVF(32, 32, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(32, 32, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	got := decodeIVFChecksums(t, ivf)
 	assertFrameChecksumsEqual(t, "SPLITMV interframe", got, oracleFrames)
@@ -260,7 +260,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoSubpixelNewMVInterFrame(t *test
 	}
 
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data)
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -308,7 +308,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoLargeResidualInterFrame(t *test
 	}
 
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data)
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -372,7 +372,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoLoopFilteredInterFrame(t *testi
 	}
 
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data)
-	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -429,7 +429,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoStaticThresholdSegmentation(t *
 	}
 
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data)
-	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))

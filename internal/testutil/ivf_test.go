@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"bytes"
 	"crypto/md5"
 	"errors"
 	"testing"
@@ -108,6 +109,26 @@ func TestIVFFramePayloadSizeSummary(t *testing.T) {
 	}
 	if total != 5 || frames != 2 {
 		t.Fatalf("summary = %d/%d, want 5/2", total, frames)
+	}
+}
+
+func TestBuildVP8IVF(t *testing.T) {
+	data := BuildVP8IVF(16, 16, 30, 1, [][]byte{{1, 2}, {3}})
+	header, err := ParseIVFHeader(data)
+	if err != nil {
+		t.Fatalf("ParseIVFHeader returned error: %v", err)
+	}
+	if header.FourCC != IVFFourCCVP8 || header.Width != 16 || header.Height != 16 ||
+		header.TimebaseDenominator != 30 || header.TimebaseNumerator != 1 ||
+		header.FrameCount != 2 {
+		t.Fatalf("header = %+v", header)
+	}
+	payloads, err := IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads returned error: %v", err)
+	}
+	if !bytes.Equal(payloads[0], []byte{1, 2}) || !bytes.Equal(payloads[1], []byte{3}) {
+		t.Fatalf("payloads = %v", payloads)
 	}
 }
 

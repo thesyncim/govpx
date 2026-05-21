@@ -6,20 +6,6 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-func makeSingleFrameIVF(width int, height int, den uint32, num uint32, frame []byte) []byte {
-	return makeIVF(width, height, den, num, [][]byte{frame})
-}
-
-func makeIVF(width int, height int, den uint32, num uint32, frames [][]byte) []byte {
-	return testutil.BuildIVF(testutil.IVFHeader{
-		FourCC:              testutil.IVFFourCCVP8,
-		Width:               width,
-		Height:              height,
-		TimebaseDenominator: den,
-		TimebaseNumerator:   num,
-	}, frames)
-}
-
 func assertFrameChecksumsEqual(t *testing.T, label string, got []testutil.FrameChecksum, want []testutil.FrameChecksum) {
 	t.Helper()
 	if len(got) != len(want) {

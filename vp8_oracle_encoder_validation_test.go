@@ -233,7 +233,7 @@ func encodeGopvxValidationCorpus(t *testing.T, tc encoderValidationCase, sources
 		packets = append(packets, pkt)
 		outputBytes += result.SizeBytes
 	}
-	ivf := makeIVF(tc.width, tc.height, uint32(tc.fps), 1, packets)
+	ivf := testutil.BuildVP8IVF(tc.width, tc.height, uint32(tc.fps), 1, packets)
 	decoded := decodeIVFFrames(t, ivf)
 	return encoderValidationResult{
 		ivf:        ivf,

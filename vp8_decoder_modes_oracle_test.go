@@ -43,7 +43,7 @@ func TestVP8OracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
 
-	ivf := makeSingleFrameIVF(16, 16, 30, 1, result.Data)
+	ivf := testutil.BuildSingleFrameVP8IVF(16, 16, 30, 1, result.Data)
 	diag, err := coracle.VpxdecVP8SummaryIVF(ivf, coracle.VpxdecVP8Config{BinaryPath: vpxdec})
 	if err != nil {
 		t.Fatalf("vpxdec failed: %v\n%s", err, diag)
@@ -84,7 +84,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
 
-	ivf := makeSingleFrameIVF(32, 16, 30, 1, result.Data)
+	ivf := testutil.BuildSingleFrameVP8IVF(32, 16, 30, 1, result.Data)
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 1 {
 		t.Fatalf("oracle frame count = %d, want 1", len(oracleFrames))
@@ -127,7 +127,7 @@ func TestVP8OracleLibvpxErrorConcealmentClampsUnusedMalformedTokenPartition(t *t
 	key := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	first := vp8InterFirstPartitionLastZeroMVWithTokenPartition(vp8common.TwoPartition, true)
 	inter := vp8InterFramePacketWithTokenPartitions(first, 10, []byte{0})
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key, inter})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key, inter})
 
 	want := coracletest.RunVP8ChecksumOracleMode(t, oracle, "decode-error-concealment", ivf)
 	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{ErrorConcealment: true})
@@ -141,7 +141,7 @@ func TestVP8OracleLibvpxErrorConcealmentRejectsInitialTruncatedInterFrameTag(t *
 	oracle := coracletest.ChecksumOracle(t)
 	key := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	truncatedInter := []byte{0x11, 0}
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key, truncatedInter})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key, truncatedInter})
 
 	if err := coracletest.RunVP8ChecksumOracleModeExpectError(t, oracle, "decode-error-concealment", ivf); err == nil {
 		t.Fatalf("libvpx error-concealment oracle accepted initial truncated inter frame tag, want error")
@@ -168,7 +168,7 @@ func TestVP8OracleLibvpxErrorConcealmentRejectsTruncatedKeyFrameHeader(t *testin
 	oracle := coracletest.ChecksumOracle(t)
 	key := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	truncatedKey := vp8KeyFramePacket(16, 16, 0, 0, true)[:6]
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key, truncatedKey})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key, truncatedKey})
 
 	if err := coracletest.RunVP8ChecksumOracleModeExpectError(t, oracle, "decode-error-concealment", ivf); err == nil {
 		t.Fatalf("libvpx error-concealment oracle accepted truncated keyframe header, want error")
@@ -185,7 +185,7 @@ func TestVP8OracleLibvpxErrorConcealmentConcealsMissingTokenPartition(t *testing
 	oracle := coracletest.ChecksumOracle(t)
 	frames := mustDecodeIVFFrames(t, govpxNewMVIVFHex, 2)
 	truncatedInter := frames[1][:17]
-	ivf := makeIVF(32, 16, 30, 1, [][]byte{frames[0], frames[1], truncatedInter})
+	ivf := testutil.BuildVP8IVF(32, 16, 30, 1, [][]byte{frames[0], frames[1], truncatedInter})
 
 	want := coracletest.RunVP8ChecksumOracleMode(t, oracle, "decode-error-concealment", ivf)
 	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{ErrorConcealment: true})
@@ -203,7 +203,7 @@ func TestVP8OracleLibvpxKeyFrameResolutionChange(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle resolution-change tests")
 	}
 	oracle := coracletest.ChecksumOracle(t)
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{
 		vp8KeyFramePacketWithPayload(16, 16, 200, 0, true),
 		vp8KeyFramePacketWithPayload(32, 16, 200, 0, true),
 	})
@@ -277,7 +277,7 @@ func TestVP8OracleLibvpxChecksumMatchesDefaultVersionKeyFrames(t *testing.T) {
 	for _, version := range []int{4, 5, 6, 7} {
 		t.Run(fmt.Sprintf("version%d", version), func(t *testing.T) {
 			packet := vp8KeyFramePacketWithPayload(16, 16, 200, version, true)
-			ivf := makeSingleFrameIVF(16, 16, 30, 1, packet)
+			ivf := testutil.BuildSingleFrameVP8IVF(16, 16, 30, 1, packet)
 
 			want := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 			got := decodeIVFChecksums(t, ivf)
@@ -304,7 +304,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 		t.Fatalf("key mode[1] = %+v, want B_PRED/V_PRED", e.keyFrameModes[1])
 	}
 
-	ivf := makeSingleFrameIVF(16, 32, 30, 1, result.Data)
+	ivf := testutil.BuildSingleFrameVP8IVF(16, 32, 30, 1, result.Data)
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 1 {
 		t.Fatalf("oracle frame count = %d, want 1", len(oracleFrames))

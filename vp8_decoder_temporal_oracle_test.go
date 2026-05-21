@@ -39,7 +39,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 2 {
 		t.Fatalf("oracle frame count = %d, want 2", len(oracleFrames))
@@ -91,7 +91,7 @@ func TestVP8OracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 			}
 
 			govpxFrames := decodeFrameSequence(t, basePackets...)
-			ivf := makeIVF(16, 16, 30, 1, basePackets)
+			ivf := testutil.BuildVP8IVF(16, 16, 30, 1, basePackets)
 			oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 			if len(oracleFrames) != len(govpxFrames) {
 				t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
@@ -137,7 +137,7 @@ func TestVP8OracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 			}
 
 			govpxFrames := decodeFrameSequence(t, packets...)
-			ivf := makeIVF(16, 16, 30, 1, packets)
+			ivf := testutil.BuildVP8IVF(16, 16, 30, 1, packets)
 			oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 			if len(oracleFrames) != len(govpxFrames) {
 				t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))

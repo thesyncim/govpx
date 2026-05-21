@@ -43,7 +43,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *tes
 		t.Fatalf("inter mode[1] = %+v, want libvpx-style B_PRED intra candidate after RD scoring", e.interFrameModes[1])
 	}
 
-	ivf := makeIVF(16, 32, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(16, 32, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	got := decodeIVFChecksums(t, ivf)
 	assertFrameChecksumsEqual(t, "B_PRED candidate interframe", got, oracleFrames)
@@ -90,7 +90,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
 
-	ivf := makeIVF(16, 128, 30, 1, [][]byte{key.Data, inter.Data})
+	ivf := testutil.BuildVP8IVF(16, 128, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 2 {
 		t.Fatalf("oracle frame count = %d, want 2", len(oracleFrames))
@@ -148,7 +148,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *test
 		t.Fatalf("NextFrame returned no visible frame")
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{invisible.Data, visible.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{invisible.Data, visible.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != 1 {
 		t.Fatalf("oracle frame count = %d, want one visible frame", len(oracleFrames))
@@ -201,7 +201,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testi
 		t.Fatalf("mode[0] = %+v, want skipped LAST/ZEROMV", e.interFrameModes[0])
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, lastInter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, lastInter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data, lastInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
@@ -252,7 +252,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *te
 		t.Fatalf("mode[0] = %+v, want skipped GOLDEN/ZEROMV", e.interFrameModes[0])
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, secondInter.Data, goldenInter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, secondInter.Data, goldenInter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, secondInter.Data, goldenInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
@@ -324,7 +324,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 		packets = append(packets, append([]byte(nil), inter.Data...))
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, packets)
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, packets)
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, packets...)
 	if len(oracleFrames) != len(govpxFrames) {
@@ -378,7 +378,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testi
 		t.Fatalf("mode[0] = %+v, want skipped ALTREF/ZEROMV", e.interFrameModes[0])
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, altInter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, altInter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, altRefreshData, altInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
@@ -439,7 +439,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame
 		t.Fatalf("mode[0] = %+v, want skipped preserved ALTREF/ZEROMV", e.interFrameModes[0])
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, inter.Data, altInter.Data})
+	ivf := testutil.BuildVP8IVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, inter.Data, altInter.Data})
 	oracleFrames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
 	govpxFrames := decodeFrameSequence(t, key.Data, altRefreshData, inter.Data, altInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {

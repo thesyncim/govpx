@@ -30,7 +30,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 	for _, rc := range refs {
 		t.Run("set-copy-"+rc.name, func(t *testing.T) {
 			packets, controlFrame := decoderReferenceControlPackets(t, 16, 16, rc.ref)
-			ivf := makeIVF(16, 16, 30, 1, packets)
+			ivf := testutil.BuildVP8IVF(16, 16, 30, 1, packets)
 			script := decoderReferenceControlScript(len(packets), controlFrame, rc.refArg, 7)
 			var govpxCopies []testutil.FrameChecksum
 			apply := decoderReferenceControlApply(controlFrame, rc.ref, 7, rc.name, &govpxCopies)
@@ -44,7 +44,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 
 	t.Run("postprocess", func(t *testing.T) {
 		packets, controlFrame := decoderReferenceControlPackets(t, 16, 16, ReferenceLast)
-		ivf := makeIVF(16, 16, 30, 1, packets)
+		ivf := testutil.BuildVP8IVF(16, 16, 30, 1, packets)
 		script := decoderReferenceControlScript(len(packets), controlFrame, "last", 8)
 		var govpxCopies []testutil.FrameChecksum
 		apply := decoderReferenceControlApply(controlFrame, ReferenceLast, 8, "last", &govpxCopies)
@@ -57,7 +57,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 
 	t.Run("error-concealment", func(t *testing.T) {
 		packets, controlFrame := decoderReferenceControlPackets(t, 16, 16, ReferenceGolden)
-		ivf := makeIVF(16, 16, 30, 1, packets)
+		ivf := testutil.BuildVP8IVF(16, 16, 30, 1, packets)
 		script := decoderReferenceControlScript(len(packets), controlFrame, "golden", 9)
 		var govpxCopies []testutil.FrameChecksum
 		apply := decoderReferenceControlApply(controlFrame, ReferenceGolden, 9, "golden", &govpxCopies)
@@ -70,7 +70,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 
 	t.Run("threaded", func(t *testing.T) {
 		packets, controlFrame := decoderReferenceControlPackets(t, 16, 32, ReferenceAltRef)
-		ivf := makeIVF(16, 32, 30, 1, packets)
+		ivf := testutil.BuildVP8IVF(16, 32, 30, 1, packets)
 		script := decoderReferenceControlScript(len(packets), controlFrame, "altref", 10)
 		var govpxCopies []testutil.FrameChecksum
 		apply := decoderReferenceControlApply(controlFrame, ReferenceAltRef, 10, "altref", &govpxCopies)
@@ -85,7 +85,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 		packets16, control16 := decoderReferenceControlPackets(t, 16, 16, ReferenceLast)
 		packets32, control32 := decoderReferenceControlPackets(t, 32, 16, ReferenceLast)
 		packets := append(append([][]byte(nil), packets16...), packets32...)
-		ivf := makeIVF(16, 16, 30, 1, packets)
+		ivf := testutil.BuildVP8IVF(16, 16, 30, 1, packets)
 		script := decoderRuntimeControlScript(len(packets), map[int]string{
 			control16:                  "copyref:last+setref:last:panning:11+copyref:last",
 			len(packets16) + control32: "copyref:last+setref:last:panning:12+copyref:last",
