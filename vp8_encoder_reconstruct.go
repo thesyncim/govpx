@@ -786,7 +786,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					collectOracle: traceEnabled,
 					coeffs:        &coeffs[index],
 					cacheIn:       cacheIn,
-					phaseStats:    e.opts.PhaseStats,
+					phaseStats:    e.phaseStats(),
 					trace:         newPretrellisUVTrace(e),
 				})
 				if is4x4 {
@@ -868,7 +868,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	// Lane D: cache is now fully populated for the consumer (packet writer).
 	e.interCoefTokenCountsValid = true
 	e.interCoefTokenRecordsValid = true
-	if stats := e.opts.PhaseStats; stats != nil {
+	if stats := e.phaseStats(); stats != nil {
 		stats.InterCoefTokenRecords += int64(len(e.interCoefTokenRecords.Records))
 	}
 	e.lastInterReconstructWorkerCount = 1

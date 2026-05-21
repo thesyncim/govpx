@@ -21,6 +21,9 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	if err != nil {
 		return benchReport{}, err
 	}
+	if cfg.PhaseTiming && !phaseTimingEnabled {
+		return benchReport{}, errors.New("phase timing requires the govpx_phase_stats build tag")
+	}
 
 	frames := make([]govpx.Image, cfg.Frames)
 	for i := range frames {
@@ -29,7 +32,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 
 	encoderOpts := benchmarkEncoderOptions(cfg, deadline)
 	var phaseStats govpx.EncoderPhaseStats
-	if cfg.PhaseTiming {
+	if cfg.PhaseTiming && phaseTimingEnabled {
 		encoderOpts.PhaseStats = &phaseStats
 	}
 	enc, err := govpx.NewVP8Encoder(encoderOpts)
@@ -174,7 +177,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		QuantizerHist: quantizerHistogramMap(&quantHist),
 		Options:       benchSummary(deadlineName),
 	}
-	if cfg.PhaseTiming {
+	if cfg.PhaseTiming && phaseTimingEnabled {
 		report.PhaseNS = &phaseStats
 	}
 	if cfg.LibvpxVpxenc != "" {

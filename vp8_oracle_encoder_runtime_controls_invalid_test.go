@@ -247,6 +247,9 @@ func TestVP8OracleEncoderStreamByteParityRuntimeControlsLongTail(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityPhaseStatsNoop(t *testing.T) {
+	if !vp8PhaseStatsEnabled {
+		t.Skip("phase stats require the govpx_phase_stats build tag")
+	}
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run PhaseStats byte-parity gate")
 	}

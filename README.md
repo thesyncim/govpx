@@ -275,8 +275,8 @@ testdata                  oracle scoreboard baselines
 - Keep hot paths allocation-aware. Steady-state `EncodeInto` and `Decode`
   reuse caller- and codec-owned buffers; the test suite enforces this.
 - Keep oracle diagnostics out of normal builds. Trace hooks are either
-  build-tagged (`govpx_oracle_trace`) or test-only, and optional
-  measurements live behind explicit caller-owned state.
+  build-tagged (`govpx_oracle_trace`) or test-only, and optional VP8 phase
+  timing is compiled in only with the `govpx_phase_stats` tag.
 - Run `make ci` before opening a PR. Run `make verify-production` when a
   change touches parity-sensitive code or oracle baselines.
 

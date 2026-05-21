@@ -151,6 +151,9 @@ func TestRunBenchmarkSkipQuality(t *testing.T) {
 }
 
 func TestRunBenchmarkPhaseTiming(t *testing.T) {
+	if !phaseTimingEnabled {
+		t.Skip("phase timing requires the govpx_phase_stats build tag")
+	}
 	report, err := runBenchmark(benchConfig{
 		Width:       64,
 		Height:      64,

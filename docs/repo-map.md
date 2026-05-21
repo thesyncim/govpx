@@ -7,10 +7,10 @@ Last refreshed: 2026-05-21 from `main`.
 
 ## Current Counts
 
-- Root Go files: 516.
-- Root test files: 361.
+- Root Go files: 520.
+- Root test files: 363.
 - Internal Go files: 685.
-- Root VP8 files: 80 implementation files and 209 test files.
+- Root VP8 files: 82 implementation files and 211 test files.
 - Root VP9 files: 66 implementation files and 141 test files.
 - Internal package files:
   - `internal/vp8`: 326 Go files.
@@ -191,7 +191,7 @@ This ledger tracks intent, not completed work.
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
 | Root tests | 361 top-level root tests remain; many are codec implementation and parity tests; shared VP9 YCbCr/I420/header helpers, IVF payload extraction, packet byte-parity diagnostics, panning sources, and stream-parity row formatting now live in `internal/testutil/vp9test`; VP9 external corpus selection and minimum rules now live in `internal/testutil/vp9corpus`; VP8 and VP9 RTP fuzzers now live beside the internal RTP packages. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx/rtp` owns shared RTP fragment packing, marker, and assembly loops; codec packages keep descriptor syntax and validation. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |
-| Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests; unused VP9 ARNR and unsupported-decoder stderr env hooks are gone. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |
+| Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests; unused VP9 ARNR and unsupported-decoder stderr env hooks are gone; VP8 PhaseStats runtime option plumbing is compiled out of default builds and enabled only with `govpx_phase_stats`. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |
 | Documentation | `docs/architecture.md`, `docs/api.md`, `docs/codec-status.md`, `docs/validation.md`, and this map exist. | Keep README short; detailed docs under `docs/`; no migration promise before first release. |
 
 ## Refresh Commands

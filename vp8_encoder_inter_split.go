@@ -1099,8 +1099,8 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		}
 		var motionStats interFrameMotionSearchStats
 		var stats *interFrameMotionSearchStats
-		if e != nil && e.opts.PhaseStats != nil && !e.threadedRowsActive {
-			motionStats.phase = e.opts.PhaseStats
+		if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
+			motionStats.phase = phaseStats
 			stats = &motionStats
 		}
 		fullMV, fullCost := selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsAndStats(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs, stats)

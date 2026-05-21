@@ -117,7 +117,17 @@ variables. Then compile the trace-tag build:
 ```sh
 go list -f '{{.TestImports}}' . ./benchmarks
 go test . -run 'TestVPxOracleTraceDisabled' -count=1
+go test . -run 'TestVP8PhaseStatsDisabled' -count=1
 go test -tags govpx_oracle_trace ./... -run '^$' -count=1
+```
+
+VP8 phase timing is an opt-in build shape so the default encoder hot path has
+no runtime stats branches. When changing PhaseStats plumbing or
+`cmd/govpx-bench -phase-timing`, also compile and run the tagged shape:
+
+```sh
+go test -tags govpx_phase_stats . -run 'TestVP8PhaseStatsEnabled' -count=1
+go test -tags govpx_phase_stats ./cmd/govpx-bench/benchcmd -run 'TestRunBenchmarkPhaseTiming' -count=1
 ```
 
 For method-shape or ownership rewrites in hot code, collect compiler evidence

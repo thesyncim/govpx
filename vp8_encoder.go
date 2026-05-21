@@ -103,13 +103,12 @@ const (
 )
 
 // EncoderPhaseStats accumulates opt-in coarse encoder phase timing in
-// nanoseconds and counters for the SAD/subpel search hot path. The
-// encoder updates the caller-owned value only when
-// EncoderOptions.PhaseStats is non-nil; normal encodes do not read the
-// clock or atomically update these counters. The caller owns the value,
-// may [EncoderPhaseStats.Reset] it between warmup and measurement, and
-// may sample it concurrently with EncodeInto only under its own
-// synchronization.
+// nanoseconds and counters for the SAD/subpel search hot path when govpx is
+// built with the govpx_phase_stats tag. Normal builds compile the option path
+// out of VP8 encode hot paths: no clock reads, counter writes, or nil-check
+// branches. The caller owns the value, may [EncoderPhaseStats.Reset] it between
+// warmup and measurement, and may sample it concurrently with EncodeInto only
+// under its own synchronization.
 type EncoderPhaseStats struct {
 	// InterReconstructNS is time spent rebuilding inter-frame prediction and
 	// residual planes.
@@ -356,11 +355,11 @@ type EncoderOptions struct {
 	// oxcf.encode_breakout for first-pass and inter-frame static skips.
 	StaticThreshold int
 
-	// PhaseStats, when non-nil, receives coarse per-attempt encoder phase
-	// timings and SAD/subpel hot-path counters during EncodeInto. The
-	// caller owns the pointed-to value and may [EncoderPhaseStats.Reset]
-	// it between warmup and measured passes. Leave nil in normal builds
-	// to skip all clock reads and counter updates.
+	// PhaseStats, when non-nil and built with the govpx_phase_stats tag,
+	// receives coarse per-attempt encoder phase timings and SAD/subpel hot-path
+	// counters during EncodeInto. The caller owns the pointed-to value and may
+	// [EncoderPhaseStats.Reset] it between warmup and measured passes. Normal
+	// builds compile this path out so disabled instrumentation is zero-cost.
 	PhaseStats *EncoderPhaseStats
 }
 
@@ -1033,8 +1032,18 @@ type VP8Encoder struct {
 	rowWorkers *rowWorkerPool
 }
 
+func (e *VP8Encoder) phaseStats() *EncoderPhaseStats {
+	if !vp8PhaseStatsEnabled {
+		return nil
+	}
+	if e == nil {
+		return nil
+	}
+	return e.opts.PhaseStats
+}
+
 func (e *VP8Encoder) phaseStart() int64 {
-	if e.opts.PhaseStats == nil {
+	if e.phaseStats() == nil {
 		return 0
 	}
 	return nanotime()
@@ -1044,12 +1053,18 @@ func (e *VP8Encoder) phaseEnd(phase encoderPhase, start int64) {
 	if start == 0 {
 		return
 	}
+	if e.phaseStats() == nil {
+		return
+	}
 	e.phaseEndSlow(phase, start)
 }
 
 func (e *VP8Encoder) phaseEndSlow(phase encoderPhase, start int64) {
 	elapsed := nanotime() - start
-	stats := e.opts.PhaseStats
+	stats := e.phaseStats()
+	if stats == nil {
+		return
+	}
 	switch phase {
 	case encoderPhaseInterReconstruct:
 		stats.InterReconstructNS += elapsed
@@ -1065,13 +1080,14 @@ func (e *VP8Encoder) phaseEndSlow(phase encoderPhase, start int64) {
 }
 
 func (e *VP8Encoder) phaseCountAttempt(keyFrame bool) {
-	if e.opts.PhaseStats == nil {
+	stats := e.phaseStats()
+	if stats == nil {
 		return
 	}
 	if keyFrame {
-		e.opts.PhaseStats.KeyAttempts++
+		stats.KeyAttempts++
 	} else {
-		e.opts.PhaseStats.InterAttempts++
+		stats.InterAttempts++
 	}
 }
 
