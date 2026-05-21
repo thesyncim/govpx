@@ -10,6 +10,45 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
+type VpxdecOptions struct {
+	SkipLoopFilter             bool
+	PostProcess                bool
+	PostProcessFlags           int
+	PostProcessDeblockingLevel int
+	PostProcessNoiseLevel      int
+	InvertTileDecodeOrder      bool
+	SVCSpatialLayerSet         bool
+	SVCSpatialLayer            int
+}
+
+func VpxdecI420(t testing.TB, ivf []byte) []byte {
+	t.Helper()
+	out, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+	return out
+}
+
+func VpxdecI420WithOptions(t testing.TB, ivf []byte, opts VpxdecOptions) []byte {
+	t.Helper()
+	out, diag, err := coracle.VpxdecVP9DecodeI420WithOptions(ivf,
+		coracle.VpxdecVP9Options{
+			SkipLoopFilter:             opts.SkipLoopFilter,
+			PostProcess:                opts.PostProcess,
+			PostProcessFlags:           opts.PostProcessFlags,
+			PostProcessDeblockingLevel: opts.PostProcessDeblockingLevel,
+			PostProcessNoiseLevel:      opts.PostProcessNoiseLevel,
+			InvertTileDecodeOrder:      opts.InvertTileDecodeOrder,
+			SVCSpatialLayerSet:         opts.SVCSpatialLayerSet,
+			SVCSpatialLayer:            opts.SVCSpatialLayer,
+		})
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+	return out
+}
+
 func VpxencPackets(t testing.TB, sources []*image.YCbCr, extraArgs ...string) [][]byte {
 	t.Helper()
 	width, height := requireSameSizeSources(t, "VP9 vpxenc source", sources)

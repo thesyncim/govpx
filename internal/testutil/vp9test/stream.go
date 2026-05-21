@@ -2,6 +2,7 @@ package vp9test
 
 import (
 	"bytes"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -10,6 +11,20 @@ import (
 
 	"github.com/thesyncim/govpx/internal/testutil"
 )
+
+func BuildIVF(width, height int, packets ...[]byte) []byte {
+	return testutil.BuildIVF(testutil.IVFHeader{
+		FourCC:              testutil.IVFFourCCVP9,
+		Width:               width,
+		Height:              height,
+		TimebaseDenominator: 30,
+		TimebaseNumerator:   1,
+	}, packets)
+}
+
+func MD5Hex(data []byte) string {
+	return testutil.MD5Hex(md5.Sum(data))
+}
 
 func ParseIVFFrames(t testing.TB, data []byte) [][]byte {
 	t.Helper()
