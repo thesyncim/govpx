@@ -4,11 +4,9 @@ package govpx
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -75,8 +73,6 @@ func TestOracleChromaSubpelScoreboard(t *testing.T) {
 		{name: "128x128-realtime-cbr-cpu8", width: 128, height: 128},
 		{name: "160x96-realtime-cbr-cpu8", width: 160, height: 96},
 	}
-	updateBaselines := os.Getenv("GOVPX_UPDATE_BASELINES") == "1"
-
 	current := chromaSubpelBaseline{Cases: make([]chromaSubpelBaselineCase, 0, len(cases))}
 	for _, cfg := range cases {
 		opts := EncoderOptions{
@@ -185,33 +181,10 @@ func TestOracleChromaSubpelScoreboard(t *testing.T) {
 	// Stable case order in the baseline file.
 	sort.Slice(current.Cases, func(i, j int) bool { return current.Cases[i].Name < current.Cases[j].Name })
 
-	baselinePath := filepath.Join("testdata", "chroma_subpel_scoreboard_baseline.json")
-	_, statErr := os.Stat(baselinePath)
-	if updateBaselines || os.IsNotExist(statErr) {
-		buf, err := json.MarshalIndent(current, "", "  ")
-		if err != nil {
-			t.Fatalf("Marshal chroma subpel scoreboard baseline: %v", err)
-		}
-		buf = append(buf, '\n')
-		if err := os.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
-			t.Fatalf("MkdirAll %s: %v", filepath.Dir(baselinePath), err)
-		}
-		if err := os.WriteFile(baselinePath, buf, 0o644); err != nil {
-			t.Fatalf("WriteFile %s: %v", baselinePath, err)
-		}
-		t.Logf("wrote baseline %s", baselinePath)
+	baselinePath := "testdata/chroma_subpel_scoreboard_baseline.json"
+	base, wrote := coracletest.ReadOrWriteJSONBaseline(t, baselinePath, current)
+	if wrote {
 		return
-	}
-	if statErr != nil {
-		t.Fatalf("stat %s: %v", baselinePath, statErr)
-	}
-	raw, err := os.ReadFile(baselinePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s: %v", baselinePath, err)
-	}
-	var base chromaSubpelBaseline
-	if err := json.Unmarshal(raw, &base); err != nil {
-		t.Fatalf("Unmarshal baseline: %v", err)
 	}
 	baseByName := make(map[string]chromaSubpelBaselineCase, len(base.Cases))
 	for _, c := range base.Cases {

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -107,35 +106,10 @@ func TestOracleCandidateRateScoreboard(t *testing.T) {
 		})
 	}
 
-	baselinePath := filepath.Join("testdata", "candidate_rate_scoreboard_baseline.json")
-	updateBaselines := os.Getenv("GOVPX_UPDATE_BASELINES") == "1"
-	_, statErr := os.Stat(baselinePath)
-	if updateBaselines || os.IsNotExist(statErr) {
-		buf, err := json.MarshalIndent(current, "", "  ")
-		if err != nil {
-			t.Fatalf("Marshal scoreboard baseline: %v", err)
-		}
-		buf = append(buf, '\n')
-		if err := os.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
-			t.Fatalf("MkdirAll %s: %v", filepath.Dir(baselinePath), err)
-		}
-		if err := os.WriteFile(baselinePath, buf, 0o644); err != nil {
-			t.Fatalf("WriteFile %s: %v", baselinePath, err)
-		}
-		t.Logf("wrote baseline %s", baselinePath)
+	baselinePath := "testdata/candidate_rate_scoreboard_baseline.json"
+	base, wrote := coracletest.ReadOrWriteJSONBaseline(t, baselinePath, current)
+	if wrote {
 		return
-	}
-	if statErr != nil {
-		t.Fatalf("stat %s: %v", baselinePath, statErr)
-	}
-
-	raw, err := os.ReadFile(baselinePath)
-	if err != nil {
-		t.Fatalf("ReadFile %s: %v", baselinePath, err)
-	}
-	var base candidateRateScoreboardBaseline
-	if err := json.Unmarshal(raw, &base); err != nil {
-		t.Fatalf("Unmarshal baseline: %v", err)
 	}
 
 	for _, fx := range fixtures {
