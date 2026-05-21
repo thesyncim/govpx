@@ -4,64 +4,26 @@ package govpx
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"image"
 	"math"
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
-
-type vp9OracleFirstPassStats struct {
-	Frame            float64
-	Weight           float64
-	IntraError       float64
-	CodedError       float64
-	SRCodedError     float64
-	FrameNoiseEnergy float64
-	PcntInter        float64
-	PcntMotion       float64
-	PcntSecondRef    float64
-	PcntNeutral      float64
-	PcntIntraLow     float64
-	PcntIntraHigh    float64
-	IntraSkipPct     float64
-	IntraSmoothPct   float64
-	InactiveZoneRows float64
-	InactiveZoneCols float64
-	MVr              float64
-	MVrAbs           float64
-	MVc              float64
-	MVcAbs           float64
-	MVrv             float64
-	MVcv             float64
-	MVInOutCount     float64
-	Duration         float64
-	Count            float64
-	NewMVCount       float64
-	SpatialLayerID   int64
-	IsTotal          bool
-}
 
 func TestVP9OracleFirstPassStatsSchemaAndTotals(t *testing.T) {
 	coracletest.SkipWithoutOracle(t, "VP9 first-pass stats oracle")
 	coracletest.VpxencVP9(t)
 
 	const width, height, frames = 320, 180, 6
-	var raw []byte
+	sources := make([]*image.YCbCr, frames)
 	for frame := range frames {
-		raw = vp9test.AppendI420(raw,
-			vp9test.NewPanningYCbCr(width, height, frame))
+		sources[frame] = vp9test.NewPanningYCbCr(width, height, frame)
 	}
-	data, diag, err := coracle.VpxencVP9FirstPassStatsI420(raw, width, height,
-		frames, "--target-bitrate=900")
-	if err != nil {
-		t.Fatalf("VpxencVP9FirstPassStatsI420 failed: %v\n%s", err, diag)
-	}
-	stats := parseVP9OracleFirstPassStats(t, data)
+	stats := vp9test.VpxencFirstPassStats(t, sources, "--target-bitrate=900")
 	if got, want := len(stats), frames+1; got != want {
 		t.Fatalf("VP9 first-pass stats len = %d, want %d", got, want)
 	}
@@ -73,7 +35,7 @@ func TestVP9OracleFirstPassStatsSchemaAndTotals(t *testing.T) {
 		t.Fatalf("VP9 first-pass total count = %.0f, want %d",
 			total.Count, frames)
 	}
-	var accumulated vp9OracleFirstPassStats
+	var accumulated vp9test.FirstPassStats
 	for i := range frames {
 		row := stats[i]
 		if row.IsTotal {
@@ -87,20 +49,20 @@ func TestVP9OracleFirstPassStatsSchemaAndTotals(t *testing.T) {
 			t.Fatalf("VP9 first-pass row %d errors = intra %.2f coded %.2f, want positive",
 				i, row.IntraError, row.CodedError)
 		}
-		accumulateVP9OracleFirstPassStats(&accumulated, row)
+		vp9test.AccumulateFirstPassStats(&accumulated, row)
 	}
-	assertVP9FirstPassClose(t, "total frame", accumulated.Frame, total.Frame)
-	assertVP9FirstPassClose(t, "total weight", accumulated.Weight, total.Weight)
-	assertVP9FirstPassClose(t, "total intra_error", accumulated.IntraError,
+	vp9test.AssertFirstPassClose(t, "total frame", accumulated.Frame, total.Frame)
+	vp9test.AssertFirstPassClose(t, "total weight", accumulated.Weight, total.Weight)
+	vp9test.AssertFirstPassClose(t, "total intra_error", accumulated.IntraError,
 		total.IntraError)
-	assertVP9FirstPassClose(t, "total coded_error", accumulated.CodedError,
+	vp9test.AssertFirstPassClose(t, "total coded_error", accumulated.CodedError,
 		total.CodedError)
-	assertVP9FirstPassClose(t, "total sr_coded_error", accumulated.SRCodedError,
+	vp9test.AssertFirstPassClose(t, "total sr_coded_error", accumulated.SRCodedError,
 		total.SRCodedError)
-	assertVP9FirstPassClose(t, "total count", accumulated.Count, total.Count)
+	vp9test.AssertFirstPassClose(t, "total count", accumulated.Count, total.Count)
 	// VP9 zero_stats seeds the terminal total duration to 1 before folding
 	// frame rows, unlike the other additive double fields.
-	assertVP9FirstPassClose(t, "total duration", accumulated.Duration+1,
+	vp9test.AssertFirstPassClose(t, "total duration", accumulated.Duration+1,
 		total.Duration)
 }
 
@@ -130,10 +92,10 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 			}
 
 			govpxRows := make([]VP9FirstPassFrameStats, tc.frames)
-			var raw []byte
+			sources := make([]*image.YCbCr, tc.frames)
 			for frame := range tc.frames {
 				src := vp9test.NewPanningYCbCr(tc.width, tc.height, frame)
-				raw = vp9test.AppendI420(raw, src)
+				sources[frame] = src
 				govpxRows[frame], err = enc.CollectFirstPassStats(src,
 					uint64(frame), 1, 0)
 				if err != nil {
@@ -141,14 +103,8 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 				}
 			}
 			govpxStats := FinalizeVP9FirstPassStats(govpxRows)
-			data, diag, err := coracle.VpxencVP9FirstPassStatsI420(raw,
-				tc.width, tc.height, tc.frames,
+			libvpxStats := vp9test.VpxencFirstPassStats(t, sources,
 				"--target-bitrate="+fmt.Sprint(tc.targetKbps))
-			if err != nil {
-				t.Fatalf("VpxencVP9FirstPassStatsI420 failed: %v\n%s",
-					err, diag)
-			}
-			libvpxStats := parseVP9OracleFirstPassStats(t, data)
 			if len(govpxStats) != len(libvpxStats) {
 				t.Fatalf("VP9 first-pass rows = %d, want %d",
 					len(govpxStats), len(libvpxStats))
@@ -164,60 +120,6 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 			}
 		})
 	}
-}
-
-func parseVP9OracleFirstPassStats(t *testing.T, data []byte) []vp9OracleFirstPassStats {
-	t.Helper()
-	const fields = 27
-	const packetSize = fields * 8
-	if len(data) == 0 || len(data)%packetSize != 0 {
-		t.Fatalf("VP9 first-pass stats size = %d, want non-zero multiple of %d",
-			len(data), packetSize)
-	}
-	stats := make([]vp9OracleFirstPassStats, len(data)/packetSize)
-	for i := range stats {
-		offset := i * packetSize
-		readFloat := func(field int) float64 {
-			start := offset + field*8
-			return math.Float64frombits(binary.LittleEndian.Uint64(
-				data[start : start+8]))
-		}
-		readInt := func(field int) int64 {
-			start := offset + field*8
-			return int64(binary.LittleEndian.Uint64(data[start : start+8]))
-		}
-		stats[i] = vp9OracleFirstPassStats{
-			Frame:            readFloat(0),
-			Weight:           readFloat(1),
-			IntraError:       readFloat(2),
-			CodedError:       readFloat(3),
-			SRCodedError:     readFloat(4),
-			FrameNoiseEnergy: readFloat(5),
-			PcntInter:        readFloat(6),
-			PcntMotion:       readFloat(7),
-			PcntSecondRef:    readFloat(8),
-			PcntNeutral:      readFloat(9),
-			PcntIntraLow:     readFloat(10),
-			PcntIntraHigh:    readFloat(11),
-			IntraSkipPct:     readFloat(12),
-			IntraSmoothPct:   readFloat(13),
-			InactiveZoneRows: readFloat(14),
-			InactiveZoneCols: readFloat(15),
-			MVr:              readFloat(16),
-			MVrAbs:           readFloat(17),
-			MVc:              readFloat(18),
-			MVcAbs:           readFloat(19),
-			MVrv:             readFloat(20),
-			MVcv:             readFloat(21),
-			MVInOutCount:     readFloat(22),
-			Duration:         readFloat(23),
-			Count:            readFloat(24),
-			NewMVCount:       readFloat(25),
-			SpatialLayerID:   readInt(26),
-			IsTotal:          i == len(stats)-1,
-		}
-	}
-	return stats
 }
 
 type vp9FirstPassComparisonSummary struct {
@@ -242,7 +144,7 @@ func (s vp9FirstPassComparisonSummary) String() string {
 		s.MaxNewMV, s.MaxMVAbs, s.MaxNoiseEnergy, s.MaxInactiveZone)
 }
 
-func summarizeVP9FirstPassComparison(govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9OracleFirstPassStats) vp9FirstPassComparisonSummary {
+func summarizeVP9FirstPassComparison(govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) vp9FirstPassComparisonSummary {
 	var s vp9FirstPassComparisonSummary
 	n := min(len(govpxStats), len(libvpxStats))
 	for i := range n {
@@ -280,7 +182,7 @@ func summarizeVP9FirstPassComparison(govpxStats []VP9FirstPassFrameStats, libvpx
 	return s
 }
 
-func formatVP9FirstPassComparisonRows(govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9OracleFirstPassStats) string {
+func formatVP9FirstPassComparisonRows(govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) string {
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "row,total,govpx_frame,libvpx_frame,govpx_intra,libvpx_intra,intra_rel,govpx_coded,libvpx_coded,coded_rel,govpx_sr,libvpx_sr,sr_rel,govpx_inter,libvpx_inter,govpx_motion,libvpx_motion,govpx_second,libvpx_second,govpx_newmv,libvpx_newmv")
 	n := min(len(govpxStats), len(libvpxStats))
@@ -301,7 +203,7 @@ func formatVP9FirstPassComparisonRows(govpxStats []VP9FirstPassFrameStats, libvp
 	return b.String()
 }
 
-func assertVP9FirstPassComparisonShape(t *testing.T, govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9OracleFirstPassStats) {
+func assertVP9FirstPassComparisonShape(t *testing.T, govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) {
 	t.Helper()
 	for i := range govpxStats {
 		g := govpxStats[i]
@@ -347,45 +249,4 @@ func vp9FirstPassRelDelta(got, want float64) float64 {
 		den = 1
 	}
 	return math.Abs(got-want) / den
-}
-
-func accumulateVP9OracleFirstPassStats(dst *vp9OracleFirstPassStats, row vp9OracleFirstPassStats) {
-	if dst == nil {
-		return
-	}
-	dst.Frame += row.Frame
-	dst.Weight += row.Weight
-	dst.IntraError += row.IntraError
-	dst.CodedError += row.CodedError
-	dst.SRCodedError += row.SRCodedError
-	dst.FrameNoiseEnergy += row.FrameNoiseEnergy
-	dst.PcntInter += row.PcntInter
-	dst.PcntMotion += row.PcntMotion
-	dst.PcntSecondRef += row.PcntSecondRef
-	dst.PcntNeutral += row.PcntNeutral
-	dst.PcntIntraLow += row.PcntIntraLow
-	dst.PcntIntraHigh += row.PcntIntraHigh
-	dst.IntraSkipPct += row.IntraSkipPct
-	dst.IntraSmoothPct += row.IntraSmoothPct
-	dst.InactiveZoneRows += row.InactiveZoneRows
-	dst.InactiveZoneCols += row.InactiveZoneCols
-	dst.MVr += row.MVr
-	dst.MVrAbs += row.MVrAbs
-	dst.MVc += row.MVc
-	dst.MVcAbs += row.MVcAbs
-	dst.MVrv += row.MVrv
-	dst.MVcv += row.MVcv
-	dst.MVInOutCount += row.MVInOutCount
-	dst.Duration += row.Duration
-	dst.Count += row.Count
-	dst.NewMVCount += row.NewMVCount
-	dst.SpatialLayerID = row.SpatialLayerID
-}
-
-func assertVP9FirstPassClose(t *testing.T, field string, got, want float64) {
-	t.Helper()
-	const absTol = 1e-9
-	if math.Abs(got-want) > absTol {
-		t.Fatalf("%s = %.12f, want %.12f", field, got, want)
-	}
 }

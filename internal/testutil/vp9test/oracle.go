@@ -128,6 +128,21 @@ func VpxencIVF(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []byte
 	return ivf
 }
 
+func VpxencFirstPassStats(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []FirstPassStats {
+	t.Helper()
+	width, height := requireSameSizeSources(t, "VP9 first-pass source", sources)
+	var raw []byte
+	for _, src := range sources {
+		raw = AppendI420(raw, src)
+	}
+	data, diag, err := coracle.VpxencVP9FirstPassStatsI420(raw, width, height,
+		len(sources), extraArgs...)
+	if err != nil {
+		t.Fatalf("VpxencVP9FirstPassStatsI420 failed: %v\n%s", err, diag)
+	}
+	return ParseFirstPassStats(t, data)
+}
+
 func VpxencFrameFlagPackets(t testing.TB, sources []*image.YCbCr, frameFlags []uint32, extraArgs ...string) [][]byte {
 	t.Helper()
 	width, height := requireSameSizeSources(t, "VP9 frame-flags source", sources)
