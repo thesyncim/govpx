@@ -285,14 +285,10 @@ func TestVP8KF1280x720SSIMGoodARNRParity(t *testing.T) {
 	// cohort. The -6 byte residual is NOT explained by an actZbinAdj
 	// skew.
 	//
-	// Task #292 chroma sub-pel predictor audit (NEGATIVE result):
-	// per static inspection plus an exhaustive sub-pixel filter
-	// sweep (vp8_chroma_subpel_predictor_parity_test.go), all four
-	// sub-components of govpx's chroma sub-pel predictor — chroma
-	// MV derivation, UV plane offset, sixtap/bilinear/copy
-	// dispatch, and filter kernel — are byte-faithful to libvpx
-	// v1.16.0. The -6 byte ARNR pin-hold is NOT explained by a
-	// chroma sub-pel predictor divergence.
+	// Chroma sub-pel predictor check: internal/vp8/decoder covers chroma
+	// MV derivation, copy-vs-subpel dispatch, and sixtap/bilinear filter
+	// arithmetic against libvpx v1.16.0. The -6 byte ARNR pin-hold is not
+	// explained by a chroma sub-pel predictor divergence.
 	//
 	// Remaining sharpest candidate (in walk order, per task #284):
 	//   #3 residual gather slice ordering —

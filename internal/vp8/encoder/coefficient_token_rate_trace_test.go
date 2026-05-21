@@ -1,6 +1,7 @@
-package govpx
+package encoder_test
 
 import (
+	"math"
 	"testing"
 
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -20,7 +21,7 @@ type coefficientTokenTraceEntry struct {
 
 func coefficientBlockTokenTrace(probs *vp8tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) ([]coefficientTokenTraceEntry, int) {
 	if probs == nil || qcoeff == nil || blockType < 0 || blockType >= vp8tables.BlockTypes || ctx < 0 || ctx >= vp8tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
-		return nil, maxInt() / 4
+		return nil, math.MaxInt / 4
 	}
 	if eob < skipDC {
 		eob = skipDC
@@ -52,7 +53,7 @@ func coefficientBlockTokenTrace(probs *vp8tables.CoefficientProbs, blockType int
 		} else {
 			t, mag, ok := vp8enc.CoefficientTokenMagnitude(coeff)
 			if !ok {
-				return nil, maxInt() / 4
+				return nil, math.MaxInt / 4
 			}
 			token = t
 			entry.Token = token

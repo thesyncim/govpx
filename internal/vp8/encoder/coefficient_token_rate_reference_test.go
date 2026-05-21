@@ -1,4 +1,4 @@
-package govpx
+package encoder_test
 
 import (
 	"testing"
@@ -9,9 +9,9 @@ import (
 
 // referenceCoefBlockTokenRate is a literal walk of libvpx's
 // vp8/encoder/rdopt.c:cost_coeffs against the same probability tables and
-// helpers govpx already exposes. It is intentionally written to look like the
-// libvpx loop so any divergence between vp8enc.CoefficientBlockTokenRate and libvpx's
-// cost_coeffs surfaces as a numeric mismatch.
+// helpers used by the Go encoder. It is intentionally shaped like the libvpx
+// loop so any divergence between CoefficientBlockTokenRate and cost_coeffs
+// surfaces as a numeric mismatch.
 //
 // libvpx loop:
 //
@@ -90,7 +90,7 @@ func blockEOBFromCoeffs(qcoeff *[16]int16, skipDC int) int {
 	return skipDC
 }
 
-func TestCoefCoeffsParityMatchesReferenceWalk(t *testing.T) {
+func TestCoefficientBlockTokenRateMatchesReferenceWalk(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 
 	type vec struct {
@@ -215,13 +215,11 @@ func TestCoefCoeffsParityMatchesReferenceWalk(t *testing.T) {
 	}
 }
 
-// TestCoefCoeffsParityIncrementalMatchesWholeBlock verifies that an explicit
-// per-position incremental walk (the same shape libvpx's trellis applies when
-// rolling rate forward through the trellis sentinel) produces the identical
-// total to the whole-block vp8enc.CoefficientBlockTokenRate. Together with the
-// reference walk above, this anchors the rate accumulation against both the
-// libvpx static cost path and the trellis incremental form.
-func TestCoefCoeffsParityIncrementalMatchesWholeBlock(t *testing.T) {
+// TestCoefficientBlockTokenRateIncrementalMatchesWholeBlock verifies that an
+// explicit per-position walk, matching the shape libvpx's trellis uses while
+// rolling rate forward through the sentinel, produces the same total as the
+// whole-block rate helper.
+func TestCoefficientBlockTokenRateIncrementalMatchesWholeBlock(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 
 	type vec struct {

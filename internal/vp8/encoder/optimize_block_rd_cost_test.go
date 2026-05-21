@@ -1,4 +1,4 @@
-package govpx
+package encoder_test
 
 import (
 	"testing"
@@ -17,7 +17,7 @@ func optimizeBlockTestRegularBlockQuant(qIndex int, dequantValue int16) vp8enc.B
 	return quant
 }
 
-// TestVP8OptimizeQuantizedBlockRDCostBoundaries protects the VP8 trellis
+// TestOptimizeQuantizedBlockRDCostBoundaries protects the VP8 trellis
 // keep/drop cost math against libvpx's optimize_b rules. The sentinel blocks
 // are small enough to inspect by hand and cover distortion-dominant,
 // rate-dominant, sign-cost, and RDTRUNC boundary behavior.
@@ -28,7 +28,7 @@ func optimizeBlockTestRegularBlockQuant(qIndex int, dequantValue int16) vp8enc.B
 //   - vp8/encoder/encodemb.c:282-289 second-option rd_cost computation
 //   - vp8/encoder/encodemb.c:308-321 zero-coefficient cost update
 //   - vp8/encoder/encodemb.c:325-342 finalizer pt + rd_cost
-func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
+func TestOptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	// Sentinel A: distortion-dominant DC, low rdmult; trellis must keep.
 	// At qIndex=4, vp8enc.RDConstantsWithZbin returns (rdMult=15, rdDiv=100).
 	// After UV_RD_MULT=2, rdMult=30 with rdDiv=100. Distortion=(85-100)^2=225
@@ -103,8 +103,8 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 	}
 }
 
-// TestVP8OptimizeQuantizedBlockStructuralInvariants pins the structural shape
-// of vp8enc.OptimizeQuantizedBlockWithRDConstants against libvpx's optimize_b. These
+// TestOptimizeQuantizedBlockStructuralInvariants pins the structural shape of
+// OptimizeQuantizedBlockWithRDConstants against libvpx's optimize_b. These
 // checks make refactors prove the same traversal, shortcut, tie-break, and
 // backtrace rules without depending on a full encoder fixture.
 //
@@ -122,7 +122,7 @@ func TestVP8OptimizeQuantizedBlockRDCostBoundaries(t *testing.T) {
 //     (libvpx encodemb.c:326).
 //  6. Backtrace: walk tokens[i][best].next from `next` to eob; final_eob
 //     = last position with non-zero qc, +1 (libvpx encodemb.c:343-353).
-func TestVP8OptimizeQuantizedBlockStructuralInvariants(t *testing.T) {
+func TestOptimizeQuantizedBlockStructuralInvariants(t *testing.T) {
 	// Invariant 6: backtrace produces a valid eob in [skipDC, eob].
 	quant := optimizeBlockTestRegularBlockQuant(80, 50)
 	var coeff, qcoeff [16]int16

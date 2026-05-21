@@ -1,4 +1,4 @@
-package govpx
+package decoder
 
 import (
 	"testing"
@@ -7,227 +7,22 @@ import (
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// TestVP8ChromaSubpelPredictorParity pins task #292's negative
-// finding for the ARNR audit pin-hold residual (BestQuality -5 bytes /
-// GoodQuality -6 bytes on frame 1 inter, see
-// vp8_kf_1280x720_ssim_best_arnr_parity_test.go and
-// vp8_kf_1280x720_ssim_good_arnr_parity_test.go).
+// TestChromaSubpelPredictorMatchesLibvpx pins the VP8 chroma inter predictor
+// mechanics that sit between motion-vector selection and the sub-pixel DSP
+// kernels. The decoder and encoder analysis paths both depend on these rules:
+// chroma MV derivation, copy-vs-subpel dispatch, and the sixtap/bilinear filter
+// tables and arithmetic.
 //
-// HYPOTHESIS (from tasks #284/#286/#288/#290's "sharpest candidates"):
-//
-//	The chroma sub-pel predictor in govpx may diverge from libvpx
-//	in one of:
-//	  (a) chroma MV derivation
-//	      (mvRow + 1 + sign(mvRow)) / 2 & fullpixel_mask
-//	  (b) UV plane base offset
-//	      (uvMVRow >> 3) * uvStride + (uvMVCol >> 3)
-//	  (c) sixtap vs bilinear vs copy dispatch
-//	      ((uvMVRow | uvMVCol) & 7) != 0
-//	  (d) sub-pel filter kernel (vp8_sixtap_predict8x8 /
-//	      vp8_bilinear_predict8x8)
-//
-// AUDIT RESULT: the hypothesis is INCORRECT for all four sub-components.
-// The govpx chroma sub-pel predictor port is byte-faithful to libvpx
-// v1.16.0 by static inspection. This test pins the four sub-components
-// against their libvpx-source reference, then asserts that every input
-// in the relevant domains produces identical output.
-//
-// (a) Chroma MV derivation (libvpx
-//
-//	vp8/common/reconinter.c:327-334 inside
-//	vp8_build_inter16x16_predictors_mb; and identical body at
-//	vp8/common/reconinter.c:147-152 inside
-//	vp8_build_inter16x16_predictors_mbuv):
-//
-//	    _16x16mv.as_mv.row += 1 | (_16x16mv.as_mv.row >> 31);
-//	    _16x16mv.as_mv.row /= 2;
-//	    _16x16mv.as_mv.row &= x->fullpixel_mask;
-//
-//	govpx
-//	(internal/vp8/decoder/reconstruct_inter_fast.go:210-215):
-//
-//	    uvMVRow := (mvRow + 1 + 2*(mvRow>>intSignShiftDec)) / 2
-//	    if state.fullPixel { uvMVRow &^= 7 }
-//
-//	These are byte-equivalent. For mvRow >= 0:
-//	  libvpx: row + 1, then /2 (C truncation toward zero)
-//	  govpx:  (mvRow + 1 + 0) / 2 (Go truncation toward zero) ✓
-//	For mvRow < 0:
-//	  libvpx: row + (-1) = row - 1, then /2 (C truncation: -3/2 = -1)
-//	  govpx:  (mvRow + 1 + 2*(-1))/2 = (mvRow - 1)/2 (Go truncation:
-//	          -3/2 = -1) ✓
-//	The shift-by-31 in libvpx (short row promoted to int via integer
-//	promotion before the shift) and Go's shift-by-63 both produce -1
-//	for negative mvRow and 0 for non-negative — only the sign bit
-//	matters. fullpixel_mask = ~0 (no-op, !cfg.FullPixel) or ~7 (clear
-//	low 3 bits, cfg.FullPixel) matches `&^= 7` exactly. Cohort uses
-//	cm->version=0 ⇒ full_pixel=0 (vp8/common/alloccommon.c:130-136),
-//	so the &^= 7 branch is unreachable; the derivation reduces to
-//	the +1|sign, /2 step.
-//
-// (b) UV plane base offset (libvpx
-//
-//	vp8/common/reconinter.c:343-346 inside
-//	vp8_build_inter16x16_predictors_mb):
-//
-//	    pre_stride >>= 1;
-//	    offset = (_16x16mv.as_mv.row >> 3) * pre_stride +
-//	             (_16x16mv.as_mv.col >> 3);
-//	    uptr = x->pre.u_buffer + offset;
-//	    vptr = x->pre.v_buffer + offset;
-//
-//	libvpx packs Y stride / 2 == UV stride
-//	(vpx_scale/generic/yv12config.c:56-62: y_stride=(W+2*border+31)
-//	&~31, uv_stride = y_stride >> 1). govpx packs identically
-//	(internal/vp8/common/frame.go:167-169:
-//	yStride=roundUp(coded+2*border, align=32),
-//	uStride=roundUp(uvWidth+2*uvBorder, align=32)). For 1280x720
-//	with border=32 (the encoder's reference allocator,
-//	vp8_encoder_loopfilter.go:11-22), both yield yStride=1344,
-//	uStride=672 == yStride>>1. govpx
-//	(internal/vp8/decoder/reconstruct_inter_fast.go:216-244)
-//	computes:
-//
-//	    uvRow := mbRow*8 + (uvMVRow >> 3)
-//	    uvCol := mbCol*8 + (uvMVCol >> 3)
-//	    uOff := state.uOrigin + uvRow2*state.uStride + uvCol2
-//	    vOff := state.vOrigin + uvRow2*state.vStride + uvCol2
-//
-//	(uvRow2/uvCol2 differ from uvRow/uvCol by -2 for sixtap so the
-//	plane bounds check covers the 5-tap reach.) libvpx's
-//	`pre.u_buffer = yv12_fb.u_buffer + recon_uvoffset`
-//	(encodeframe.c:1270) where `recon_uvoffset = mbRow*8*uv_stride
-//	+ mbCol*8` (encodeframe.c:~432), then adds `offset = (uvMVRow
-//	>> 3)*uv_stride + (uvMVCol >> 3)`. Algebraically: total =
-//	mbRow*8*uv_stride + mbCol*8 + (uvMVRow>>3)*uv_stride +
-//	(uvMVCol>>3) = (mbRow*8 + (uvMVRow>>3)) * uv_stride + (mbCol*8 +
-//	(uvMVCol>>3)) = uvRow*uv_stride + uvCol. govpx matches.
-//
-// (c) Sixtap/bilinear/copy dispatch:
-//
-//	libvpx
-//	(vp8/common/reconinter.c:348-356 inside
-//	vp8_build_inter16x16_predictors_mb):
-//
-//	    if (_16x16mv.as_int & 0x00070007) {
-//	        x->subpixel_predict8x8(uptr, pre_stride,
-//	                               _16x16mv.as_mv.col & 7,
-//	                               _16x16mv.as_mv.row & 7,
-//	                               dst_u, dst_uvstride);
-//	        x->subpixel_predict8x8(vptr, pre_stride,
-//	                               _16x16mv.as_mv.col & 7,
-//	                               _16x16mv.as_mv.row & 7,
-//	                               dst_v, dst_uvstride);
-//	    } else {
-//	        vp8_copy_mem8x8(uptr, pre_stride, dst_u, dst_uvstride);
-//	        vp8_copy_mem8x8(vptr, pre_stride, dst_v, dst_uvstride);
-//	    }
-//
-//	The check `(_16x16mv.as_int & 0x00070007) != 0` is equivalent to
-//	`((row | col) & 7) != 0` because, after the chroma MV
-//	derivation, _16x16mv.as_int holds the packed chroma row/col in
-//	the low/high uint16 halves (struct MV { short row; short col; }
-//	per vp8/common/mv.h:19-22). govpx
-//	(internal/vp8/decoder/reconstruct_inter_fast.go:218-282):
-//
-//	    uvXOffset := uvMVCol & 7
-//	    uvYOffset := uvMVRow & 7
-//	    ...
-//	    if (uvXOffset | uvYOffset) == 0 {
-//	        dsp.Copy8x8(...); dsp.Copy8x8(...)
-//	    } else if !state.useBilinear {
-//	        dsp.SixTapPredict8x8Pair(uSrc, ..., vSrc, ..., uvXOffset, uvYOffset, ...)
-//	    }
-//
-//	subpixel_predict8x8 dispatches sixtap (cohort path; cm->version=0
-//	yields use_bilinear_mc_filter=0 per
-//	vp8/common/alloccommon.c:130-136 and the encoder honors that
-//	through vp8/encoder/encodeframe.c:694-704
-//	xd->subpixel_predict8x8 = vp8_sixtap_predict8x8). govpx
-//	consults cfg.UseBilinear which the encoder passes as the
-//	zero-value (UseBilinear=false) at
-//	vp8_encoder_analysis_reconstruct.go:366-368, matching libvpx's
-//	version-0 default.
-//
-// (d) Sub-pel filter kernel:
-//
-//	The 6-tap filter coefficients vp8_sub_pel_filters
-//	(vp8/common/filter.c:20-31) are ported byte-exactly into
-//	internal/vp8/tables/filter.go:22-31; the 2-tap bilinear filters
-//	vp8_bilinear_filters (filter.c:15-18) into filter.go:11-20. The
-//	scalar kernel sixTapPredict
-//	(internal/vp8/dsp/subpixel.go:126-160) mirrors libvpx
-//	vp8_sixtap_predict8x8_c (filter.c:137-154) which composes
-//	filter_block2d_first_pass (filter.c:33-69) and
-//	filter_block2d_second_pass (filter.c:71-109): horizontal pass
-//	emits (output_height+5) rows × output_width cols of saturated
-//	0..255 values, then vertical pass reads ±2/±1/0/1/2/3 rows
-//	around the central position with the same rounding constant
-//	(VP8_FILTER_WEIGHT/2 = 64) and right-shift (VP8_FILTER_SHIFT =
-//	7). The scalar bilinear kernel bilinearPredict
-//	(subpixel.go:96-117) mirrors filter_block2d_bil (filter.c:307-320)
-//	(2-tap pass + 2-tap pass, same rounding constant). Both kernels
-//	use the same clip-to-0..255 saturation (`ClipPixel`).
-//
-// LINEAGE PIN (cohort uses sixtap, not bilinear):
-//
-//	The Best/Good ARNR pin cohort is 1280x720 / VBR / TuneSSIM /
-//	BestQuality (or GoodQuality) / cpu=0 / ARNR=1/1/2 / threads=4 /
-//	version=0. version=0 sets use_bilinear_mc_filter=0
-//	(alloccommon.c:135), so the sixtap path is exercised and the
-//	bilinear-only divergence theory is moot for this cohort.
-//
-// CONCLUSION: the -5/-6 byte ARNR pin-hold is NOT explained by a chroma
-// sub-pel predictor divergence. All four sub-components of the chroma
-// sub-pel predictor — (a) chroma MV derivation, (b) UV plane offset,
-// (c) sixtap/bilinear dispatch, (d) filter kernel — are byte-faithful
-// ports of their libvpx counterparts. The residual lives elsewhere —
-// the remaining unexamined candidate per task #284's walk order is:
-//
-//	#3 residual gather slice ordering — GatherMacroblockUVResiduals4x4
-//	   (internal/vp8/encoder/residual_gather.go) vs libvpx vp8_subtract_mbuv
-//	   (encodemb.c:33-41) interaction with vp8_setup_block_ptrs
-//	   (encodeframe.c:973-996) where block 20..23 (V plane) src_diff
-//	   offsets sit at base+320 with 8-pitch storage.
-//
-// References:
-//   - libvpx v1.16.0 vp8/common/reconinter.c:297-356 (accepted-path
-//     UV; vp8_build_inter16x16_predictors_mb).
-//   - libvpx v1.16.0 vp8/common/reconinter.c:136-167 (RD-picker UV;
-//     vp8_build_inter16x16_predictors_mbuv).
-//   - libvpx v1.16.0 vp8/common/filter.c:15-31 (filter tables).
-//   - libvpx v1.16.0 vp8/common/filter.c:33-109 (sixtap passes).
-//   - libvpx v1.16.0 vp8/common/filter.c:137-154 (vp8_sixtap_predict8x8).
-//   - libvpx v1.16.0 vp8/common/filter.c:337-350 (vp8_bilinear_predict8x8).
-//   - libvpx v1.16.0 vp8/common/mv.h:19-27 (MV/int_mv struct layout).
-//   - libvpx v1.16.0 vp8/common/alloccommon.c:130-163
-//     (vp8_setup_version: version=0 ⇒ use_bilinear_mc_filter=0).
-//   - libvpx v1.16.0 vpx_scale/generic/yv12config.c:56-62 (uv_stride
-//     == y_stride >> 1).
-//   - libvpx v1.16.0 vp8/encoder/encodeframe.c:694-704 (sixtap
-//     dispatch wiring).
-//   - libvpx v1.16.0 vp8/encoder/encodeframe.c:1269-1281 (encode-side
-//     pre.u_buffer / pre.v_buffer setup).
-//   - internal/vp8/decoder/reconstruct_inter_fast.go:133-291
-//     (reconstructWholeMVInterMacroblockFast).
-//   - internal/vp8/dsp/subpixel.go:7-160 (SixTapPredict/BilinearPredict
-//     scalar kernels).
-//   - internal/vp8/tables/filter.go:5-31 (filter tables).
-//   - internal/vp8/common/frame.go:154-200 (yStride/uStride layout).
-//   - vp8_encoder_loopfilter.go:11-22 (reference frame border=32 setup).
-//   - vp8_encoder_analysis_reconstruct.go:361-369
-//     (reconstructInterAnalysisMacroblock dispatch).
-//   - vp8_kf_1280x720_ssim_best_arnr_parity_test.go (BestQuality
-//     pin).
-//   - vp8_kf_1280x720_ssim_good_arnr_parity_test.go (GoodQuality
-//     pin).
-func TestVP8ChromaSubpelPredictorParity(t *testing.T) {
+// The reference code in this test is written from libvpx v1.16.0
+// vp8/common/reconinter.c and vp8/common/filter.c, so the assertions remain
+// useful after package moves without keeping the old root-package audit file.
+func TestChromaSubpelPredictorMatchesLibvpx(t *testing.T) {
 	// (a) Chroma MV derivation — exhaustive sweep over the relevant
 	// MV range. Cohort uses non-fullpixel (version=0); we verify
 	// both branches anyway to keep the audit pin tight.
 	for _, fullPixel := range []bool{false, true} {
 		for mvRow := int16(-256); mvRow <= 256; mvRow++ {
-			gotRow := govpxChromaMVDerivation(int(mvRow), fullPixel)
+			gotRow := fastChromaMVDerivation(int(mvRow), fullPixel)
 			wantRow := libvpxChromaMVDerivationReference(int(mvRow), fullPixel)
 			if gotRow != wantRow {
 				t.Fatalf("chroma MV derivation skew at mvRow=%d fullPixel=%v: govpx=%d libvpx=%d",
@@ -354,13 +149,10 @@ func TestVP8ChromaSubpelPredictorParity(t *testing.T) {
 	}
 }
 
-// govpxChromaMVDerivation mirrors the chroma MV derivation in
-// internal/vp8/decoder/reconstruct_inter_fast.go:210-215, isolated
-// here so the test can sweep mvRow exhaustively against the libvpx
-// reference. mvRow is the post-clamp Y-plane MV row (or col); the
-// derivation is symmetric in row/col.
-func govpxChromaMVDerivation(mvRow int, fullPixel bool) int {
-	const intSignShiftDec = 63 // bits.UintSize - 1 on 64-bit
+// fastChromaMVDerivation mirrors the chroma MV derivation in
+// reconstruct_inter_fast.go. mvRow is the post-clamp Y-plane MV row or col;
+// the derivation is symmetric in row and col.
+func fastChromaMVDerivation(mvRow int, fullPixel bool) int {
 	uvMVRow := (mvRow + 1 + 2*(mvRow>>intSignShiftDec)) / 2
 	if fullPixel {
 		uvMVRow &^= 7
@@ -370,8 +162,8 @@ func govpxChromaMVDerivation(mvRow int, fullPixel bool) int {
 
 // libvpxChromaMVDerivationReference is a fresh reimplementation of
 // libvpx v1.16.0 vp8/common/reconinter.c:327-334 written from the
-// libvpx source, without consulting govpx's port. Used to verify the
-// govpx port is byte-faithful.
+// libvpx source, without consulting the Go port. Used to verify the port is
+// byte-faithful.
 //
 //	_16x16mv.as_mv.row += 1 | (_16x16mv.as_mv.row >> 31);
 //	_16x16mv.as_mv.row /= 2;

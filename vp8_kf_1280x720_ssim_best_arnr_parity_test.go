@@ -316,10 +316,8 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	// actZbinAdj parity on this exact cohort. The -5/-6 byte residual
 	// is NOT explained by an actZbinAdj skew.
 	//
-	// Task #292 chroma sub-pel predictor audit (NEGATIVE result):
-	// per static inspection plus an exhaustive sub-pixel filter
-	// sweep (vp8_chroma_subpel_predictor_parity_test.go), all four
-	// sub-components of govpx's chroma sub-pel predictor are
+	// Chroma sub-pel predictor check: internal/vp8/decoder covers all four
+	// sub-components of govpx's chroma sub-pel predictor as
 	// byte-faithful to libvpx v1.16.0:
 	//   (a) chroma MV derivation `(mvRow + 1 + sign)/2 &
 	//       fullpixel_mask` — exhaustive sweep over mvRow ∈ [-256,
@@ -572,9 +570,7 @@ func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
 	//   subpixel filter granularity, so chroma residuals drift even
 	//   when the source/reference frames are byte-identical.
 	//
-	//   Pinned by TestVP8OptimizeQuantizedBlockRDCostBoundaries and
-	//   TestVP8OptimizeQuantizedBlockStructuralInvariants
-	//   (vp8_optimize_quantized_block_rd_test.go). Cleared-
+	//   Pinned by internal/vp8/encoder optimize-block RD cost tests. Cleared-
 	//   candidate list for the chroma optimize_b cost computation
 	//   extended: #282 / #299 / #319 / #322 / #324.
 	//
