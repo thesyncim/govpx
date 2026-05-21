@@ -22,6 +22,19 @@ type RefreshHeader struct {
 	RefreshEntropyProbs bool
 }
 
+// ApplyCorruptInterFrameRefresh mirrors libvpx v1.16.0
+// vp8/decoder/decodeframe.c error-concealment handling for a corrupt
+// inter-frame header: leave only LAST refresh enabled and suppress entropy
+// probability refresh.
+func ApplyCorruptInterFrameRefresh(state *StateHeader) {
+	state.Refresh.RefreshGolden = false
+	state.Refresh.RefreshAltRef = false
+	state.Refresh.CopyBufferToGolden = 0
+	state.Refresh.CopyBufferToAltRef = 0
+	state.Refresh.RefreshEntropyProbs = false
+	state.Refresh.RefreshLast = true
+}
+
 func parseRefreshHeader(br *boolcoder.Decoder, frame FrameHeader) RefreshHeader {
 	if frame.FrameType == common.KeyFrame {
 		return RefreshHeader{

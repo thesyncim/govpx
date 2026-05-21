@@ -535,7 +535,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, 
 			return ErrInvalidData
 		}
 		d.zeroCorruptMacroblockTokens(d.modesCorrupt)
-		applyCorruptInterFrameRefresh(&d.state)
+		vp8dec.ApplyCorruptInterFrameRefresh(&d.state)
 		d.frameCorrupt = true
 	}
 	if d.frameCorrupt {
@@ -832,7 +832,7 @@ func (d *VP8Decoder) parseState(packet []byte, frameHeader vp8dec.FrameHeader, e
 	}
 	if stateCorrupted {
 		if !frame.KeyFrame() {
-			applyCorruptInterFrameRefresh(&state)
+			vp8dec.ApplyCorruptInterFrameRefresh(&state)
 		}
 		d.frameCorrupt = true
 		d.modesCorrupt = 0
@@ -843,7 +843,7 @@ func (d *VP8Decoder) parseState(packet []byte, frameHeader vp8dec.FrameHeader, e
 	if frame.KeyFrame() {
 		previousSegmentation = vp8dec.SegmentationHeader{}
 	}
-	state.Segmentation = mergeSegmentationHeader(previousSegmentation, state.Segmentation)
+	state.Segmentation = vp8dec.MergeSegmentationHeader(previousSegmentation, state.Segmentation)
 	var partitions vp8dec.PartitionLayout
 	var partitionErr error
 	if errorConcealment {
@@ -867,15 +867,6 @@ func (d *VP8Decoder) parseState(packet []byte, frameHeader vp8dec.FrameHeader, e
 	d.frameModeProbs = frameModeProbs
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil
-}
-
-func applyCorruptInterFrameRefresh(state *vp8dec.StateHeader) {
-	state.Refresh.RefreshGolden = false
-	state.Refresh.RefreshAltRef = false
-	state.Refresh.CopyBufferToGolden = 0
-	state.Refresh.CopyBufferToAltRef = 0
-	state.Refresh.RefreshEntropyProbs = false
-	state.Refresh.RefreshLast = true
 }
 
 func (d *VP8Decoder) commitParsedState(info StreamInfo) {
@@ -1201,20 +1192,6 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 	}
 	d.mbRows = rows
 	d.mbCols = cols
-}
-
-func mergeSegmentationHeader(previous vp8dec.SegmentationHeader, current vp8dec.SegmentationHeader) vp8dec.SegmentationHeader {
-	if !current.Enabled {
-		return current
-	}
-	if !current.UpdateData {
-		current.AbsDelta = previous.AbsDelta
-		current.FeatureData = previous.FeatureData
-	}
-	if !current.UpdateMap {
-		current.TreeProbs = previous.TreeProbs
-	}
-	return current
 }
 
 func (d *VP8Decoder) restoreSegmentMap() {

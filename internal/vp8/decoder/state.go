@@ -57,12 +57,7 @@ func ParseStateHeaderFromFrameWithErrorConcealment(packet []byte, frame FrameHea
 	}
 	corrupted := br.Err() != nil
 	if corrupted && !frame.KeyFrame() {
-		state.Refresh.RefreshGolden = false
-		state.Refresh.RefreshAltRef = false
-		state.Refresh.CopyBufferToGolden = 0
-		state.Refresh.CopyBufferToAltRef = 0
-		state.Refresh.RefreshEntropyProbs = false
-		state.Refresh.RefreshLast = true
+		ApplyCorruptInterFrameRefresh(&state)
 	}
 	return frame, state, br, corrupted, nil
 }
