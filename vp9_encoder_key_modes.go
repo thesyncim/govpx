@@ -620,7 +620,7 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 		}
 		txRate := 0
 		if txMode == common.TxModeSelect {
-			txRate = vp9TxSizeRateCost(txProbs, tx, maxTx)
+			txRate = encoder.TxSizeRateCost(txProbs, tx, maxTx)
 		}
 		rate := coeffRate + txRate
 		scoreRate := rate + skip0
@@ -1680,7 +1680,7 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 //
 // and loops `for (n = start_tx; n >= end_tx; n--)`. Each candidate's rate
 // includes the tx_size signalling cost cpi->tx_size_cost[..][..][n] (libvpx
-// vp9_rdopt.c:958); govpx mirrors this via vp9TxSizeRateCost using the
+// vp9_rdopt.c:958); govpx mirrors this via encoder.TxSizeRateCost using the
 // fc.TxProbs row keyed on (max_tx_size, tx_size_ctx).
 //
 // Distortion is measured as libvpx's block_rd_txfm (vp9_rdopt.c:766-768):
@@ -1791,7 +1791,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 	// Tx-size signalling cost. libvpx vp9_rdopt.c:927+958 derive
 	// tx_size_ctx from get_tx_size_context and rate from
 	// cpi->tx_size_cost[max_tx-1][ctx][n]. govpx mirrors via
-	// vp9TxSizeRateCost on the fc.TxProbs row.
+	// encoder.TxSizeRateCost on the fc.TxProbs row.
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -1896,7 +1896,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 		// same skip context. This mirrors libvpx since the skip cost is
 		// independent of tx_size when the block has residue (the
 		// dominant case during keyframe TX_MODE_SELECT pick).
-		rate += vp9TxSizeRateCost(txProbs, tx, maxTx)
+		rate += encoder.TxSizeRateCost(txProbs, tx, maxTx)
 		score := e.vp9ModeDecisionScore(distortion, rate, qindex)
 		if !bestValid || score < bestScore {
 			bestScore = score
@@ -2032,7 +2032,7 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0
 	}
-	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
+	eob := encoder.CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
 	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
 	// type = planeType (0 = Y, 1 = UV); is_inter = 0 for keyframe/intra.
 	coefModel := &e.fc.CoefProbs[txSize][planeType][0]
@@ -2083,7 +2083,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
 		eob = maxEob
 	}
 
-	dcAbs, dcSign := vp9CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
+	dcAbs, dcSign := encoder.CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
 		dequant[0], txSize == common.Tx32x32)
 	prevToken, extraCost := encoder.CoeffTokenExtraCost(dcAbs, dcSign)
 	rate := extraCost + encoder.CoeffTreeTokenCost(
@@ -2098,7 +2098,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
 		}
 		raster := int(scan[c])
 		dqv := dequant[1]
-		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, raster,
+		absVal, sign := encoder.CoeffMagnitudeAndSign(qcoeffs, raster,
 			coeffs[raster], dqv, txSize == common.Tx32x32)
 		token, extra := encoder.CoeffTokenExtraCost(absVal, sign)
 		pt := vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
@@ -2148,14 +2148,14 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
 	if len(scan) < maxEob {
 		return 0
 	}
-	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
+	eob := encoder.CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
 	if eob == 0 {
 		return encoder.CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
 			encoder.EobToken)
 	}
 
 	rate := 0
-	dcAbs, dcSign := vp9CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
+	dcAbs, dcSign := encoder.CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
 		dequant[0], txSize == common.Tx32x32)
 	prevToken, extraCost := encoder.CoeffTokenExtraCost(dcAbs, dcSign)
 	rate += extraCost
@@ -2166,7 +2166,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
 	bandLeft := vp9CoeffCostBandCounts[txSize][bandIdx]
 	for c := 1; c < eob; c++ {
 		raster := int(scan[c])
-		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, raster,
+		absVal, sign := encoder.CoeffMagnitudeAndSign(qcoeffs, raster,
 			coeffs[raster], dequant[1], txSize == common.Tx32x32)
 		token, extra := encoder.CoeffTokenExtraCost(absVal, sign)
 		ctx := 0

@@ -3,6 +3,7 @@ package encoder
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -99,6 +100,56 @@ func TestCoeffTokenRateCostExtraBitsSweep(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestCoeffMagnitudeAndSignPrefersQCoeff(t *testing.T) {
+	absVal, sign := CoeffMagnitudeAndSign([]int16{0, -7}, 1, 42, 4, false)
+	if absVal != 7 || sign != 1 {
+		t.Fatalf("CoeffMagnitudeAndSign with qcoeff = (%d,%d), want (7,1)",
+			absVal, sign)
+	}
+}
+
+func TestCoeffMagnitudeAndSignFallsBackToDqCoeff(t *testing.T) {
+	absVal, sign := CoeffMagnitudeAndSign(nil, 0, -15, 4, false)
+	if absVal != 3 || sign != 1 {
+		t.Fatalf("CoeffMagnitudeAndSign 4x4 fallback = (%d,%d), want (3,1)",
+			absVal, sign)
+	}
+	absVal, sign = CoeffMagnitudeAndSign(nil, 0, 15, 4, true)
+	if absVal != 8 || sign != 0 {
+		t.Fatalf("CoeffMagnitudeAndSign 32x32 fallback = (%d,%d), want (8,0)",
+			absVal, sign)
+	}
+}
+
+func TestCoeffBlockEOBPrefersQCoeffScanOrder(t *testing.T) {
+	scan := []int16{3, 1, 2, 0}
+	coeffs := []int16{9, 0, 0, 0}
+	qcoeffs := []int16{0, 0, 5, 0}
+	if got := CoeffBlockEOB(scan, len(scan), coeffs, qcoeffs); got != 3 {
+		t.Fatalf("CoeffBlockEOB = %d, want 3", got)
+	}
+	if !CoeffBlockHasCoeff(scan, 2, coeffs, qcoeffs) {
+		t.Fatal("CoeffBlockHasCoeff did not observe qcoeff at scan position 2")
+	}
+	if CoeffBlockHasCoeff(scan, -1, coeffs, qcoeffs) {
+		t.Fatal("CoeffBlockHasCoeff accepted negative position")
+	}
+}
+
+func TestTxSizeRateCostRespectsMaxTxSize(t *testing.T) {
+	probs := []uint8{128, 64, 192}
+	got := TxSizeRateCost(probs, common.Tx16x16, common.Tx16x16)
+	want := VP9CostBit(128, 1) + VP9CostBit(64, 1)
+	if got != want {
+		t.Fatalf("TxSizeRateCost 16x16/max16 = %d, want %d", got, want)
+	}
+	got = TxSizeRateCost(probs, common.Tx32x32, common.Tx32x32)
+	want += VP9CostBit(192, 1)
+	if got != want {
+		t.Fatalf("TxSizeRateCost 32x32/max32 = %d, want %d", got, want)
 	}
 }
 

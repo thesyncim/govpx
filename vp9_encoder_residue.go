@@ -506,7 +506,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		}
 		rate := 0
 		if hasResidue {
-			rate = coeffRate + vp9TxSizeRateCost(txProbs, tx, maxTx)
+			rate = coeffRate + encoder.TxSizeRateCost(txProbs, tx, maxTx)
 		}
 		score := e.vp9ModeDecisionScore(distortion, rate, qindex)
 		if score < bestScore || (score == bestScore && rate < bestRate) {
@@ -970,7 +970,7 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 	for i := range e.modeScratch[:maxEob] {
 		e.modeScratch[i] = 0
 	}
-	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
+	eob := encoder.CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
 	coefModel := &e.fc.CoefProbs[txSize][planeType][1]
 	if e.sf.UseFastCoefCosting != 0 {
 		return e.vp9CoeffBlockRateCostFastQ(txSize, coefModel,
@@ -980,80 +980,4 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 	return e.vp9CoeffBlockRateCostSlowQ(txSize, coefModel,
 		common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
 		initCtx, eob)
-}
-
-func vp9CoeffTokenAbsValInt(absCoeff, dqv int, tx32 bool) int {
-	num := absCoeff
-	den := dqv
-	if den <= 0 {
-		return 0
-	}
-	if tx32 {
-		return (num*2 + den - 1) / den
-	}
-	return num / den
-}
-
-func vp9CoeffMagnitudeAndSign(qcoeffs []int16, raster int, dqcoeff int16,
-	dqv int16, tx32 bool,
-) (absVal int, sign int) {
-	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
-		q := int(qcoeffs[raster])
-		if q < 0 {
-			return -q, 1
-		}
-		return q, 0
-	}
-	coeff := int(dqcoeff)
-	if coeff < 0 {
-		coeff = -coeff
-		sign = 1
-	}
-	return vp9CoeffTokenAbsValInt(coeff, int(dqv), tx32), sign
-}
-
-func vp9CoeffBlockEOB(scan []int16, maxEob int, coeffs, qcoeffs []int16) int {
-	eob := 0
-	for i := range maxEob {
-		if vp9CoeffBlockHasCoeff(scan, i, coeffs, qcoeffs) {
-			eob = i + 1
-		}
-	}
-	return eob
-}
-
-func vp9CoeffBlockHasCoeff(scan []int16, pos int, coeffs, qcoeffs []int16) bool {
-	if pos < 0 || pos >= len(scan) {
-		return false
-	}
-	raster := int(scan[pos])
-	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
-		return qcoeffs[raster] != 0
-	}
-	return raster >= 0 && raster < len(coeffs) && coeffs[raster] != 0
-}
-
-func vp9TxSizeRateCost(probs []uint8, txSize, maxTxSize common.TxSize) int {
-	if len(probs) == 0 || txSize >= common.TxSizes {
-		return 0
-	}
-	rate := 0
-	if txSize == common.Tx4x4 {
-		return encoder.VP9CostBit(probs[0], 0)
-	}
-	rate += encoder.VP9CostBit(probs[0], 1)
-	if maxTxSize < common.Tx16x16 || len(probs) < 2 {
-		return rate
-	}
-	if txSize == common.Tx8x8 {
-		return rate + encoder.VP9CostBit(probs[1], 0)
-	}
-	rate += encoder.VP9CostBit(probs[1], 1)
-	if maxTxSize < common.Tx32x32 || len(probs) < 3 {
-		return rate
-	}
-	if txSize == common.Tx16x16 {
-		return rate + encoder.VP9CostBit(probs[2], 0)
-	}
-	return rate + encoder.VP9CostBit(probs[2], 1)
 }
