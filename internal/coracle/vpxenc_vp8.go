@@ -345,6 +345,26 @@ func extraArgsContainVP8Threads(args []string) bool {
 	return false
 }
 
+// VP8VpxencThreadsArg reports whether a vpxenc-style argument list requests
+// parallel VP8 encoding with --threads=N where N is at least two.
+func VP8VpxencThreadsArg(args []string) (threads int, parallel bool) {
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "--threads=") {
+			continue
+		}
+		value := strings.TrimPrefix(arg, "--threads=")
+		n := 0
+		for _, c := range value {
+			if c < '0' || c > '9' {
+				return 0, false
+			}
+			n = n*10 + int(c-'0')
+		}
+		return n, n >= 2
+	}
+	return 0, false
+}
+
 func vp8BoolArg(v bool) string {
 	if v {
 		return "1"

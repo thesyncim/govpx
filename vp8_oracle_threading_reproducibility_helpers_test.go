@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -126,7 +127,7 @@ const VP8OracleMatchingGovpxMaxRetries = 6
 // behaviour for serial-oracle callers.
 func encodeVP8FramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string, govpxFrames [][]byte) [][]byte {
 	t.Helper()
-	if _, parallel := vp8OracleArgsRequestParallelThreads(extraArgs); !parallel {
+	if _, parallel := coracle.VP8VpxencThreadsArg(extraArgs); !parallel {
 		// Serial oracle invocations are deterministic; one run suffices.
 		return encodeFramesWithLibvpxOracle(t, vpxencOracle, name, opts, targetKbps, sources, extraArgs)
 	}
@@ -171,28 +172,6 @@ func encodeVP8FramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle str
 	return firstFrames
 }
 
-// vp8OracleArgsRequestParallelThreads returns true iff `extraArgs` contains a
-// `--threads=N` argument with N >= 2. Used by
-// requireVP8OracleArgsReproducibleOrSerial to flag the known
-// threading-nondeterminism trap.
-func vp8OracleArgsRequestParallelThreads(extraArgs []string) (threads int, ok bool) {
-	for _, a := range extraArgs {
-		if !strings.HasPrefix(a, "--threads=") {
-			continue
-		}
-		v := strings.TrimPrefix(a, "--threads=")
-		n := 0
-		for _, c := range v {
-			if c < '0' || c > '9' {
-				return 0, false
-			}
-			n = n*10 + int(c-'0')
-		}
-		return n, n >= 2
-	}
-	return 0, false
-}
-
 // requireVP8OracleArgsReproducibleOrSerial inspects extraArgs and, when the
 // oracle is being invoked with --threads>=2, surfaces the threading boundary
 // via t.Logf so the oracle test's interpretation explicitly acknowledges the trap.
@@ -205,7 +184,7 @@ func vp8OracleArgsRequestParallelThreads(extraArgs []string) (threads int, ok bo
 // should keep using the non-strict default.
 func requireVP8OracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) {
 	t.Helper()
-	threads, parallel := vp8OracleArgsRequestParallelThreads(extraArgs)
+	threads, parallel := coracle.VP8VpxencThreadsArg(extraArgs)
 	if !parallel {
 		return
 	}

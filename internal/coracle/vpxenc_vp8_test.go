@@ -163,6 +163,29 @@ func TestVpxencVP8FrameFlagsConfigArgsDefaultDeadlineAndEndUsage(t *testing.T) {
 	}
 }
 
+func TestVP8VpxencThreadsArg(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		wantThreads  int
+		wantParallel bool
+	}{
+		{name: "parallel", args: []string{"--end-usage=cbr", "--threads=4"}, wantThreads: 4, wantParallel: true},
+		{name: "serial", args: []string{"--threads=1", "--end-usage=cbr"}, wantThreads: 1, wantParallel: false},
+		{name: "absent", args: []string{"--end-usage=cbr"}, wantThreads: 0, wantParallel: false},
+		{name: "nondecimal", args: []string{"--threads=fast"}, wantThreads: 0, wantParallel: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotThreads, gotParallel := VP8VpxencThreadsArg(tt.args)
+			if gotThreads != tt.wantThreads || gotParallel != tt.wantParallel {
+				t.Fatalf("VP8VpxencThreadsArg(%v) = (%d, %t), want (%d, %t)",
+					tt.args, gotThreads, gotParallel, tt.wantThreads, tt.wantParallel)
+			}
+		})
+	}
+}
+
 func TestValidateI420Raw(t *testing.T) {
 	if got, err := i420FrameSize("VP8", 3, 3); err != nil {
 		t.Fatalf("i420FrameSize returned error: %v", err)
