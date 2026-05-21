@@ -95,7 +95,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			exactPrefix: 1,
 			strictBytes: true,
 			tileJobs:    4,
-			source:      newVP9BlockCheckerYCbCrForOracleTest,
+			source:      vp9test.NewBlockCheckerYCbCr,
 		},
 		{
 			name:        "fixed-q-block-checker-keyframe-320",
@@ -106,7 +106,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			extraArgs:   fixedQArgs,
 			exactPrefix: 1,
 			strictBytes: true,
-			source:      newVP9BlockCheckerYCbCrForOracleTest,
+			source:      vp9test.NewBlockCheckerYCbCr,
 		},
 		{
 			name:        "fixed-q-force-key-block-checker-320",
@@ -118,7 +118,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			extraArgs:   fixedQArgs,
 			exactPrefix: 4,
 			strictBytes: true,
-			source:      newVP9BlockCheckerYCbCrForOracleTest,
+			source:      vp9test.NewBlockCheckerYCbCr,
 		},
 		{
 			name:        "cbr-rate-panning",
@@ -320,7 +320,7 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			}
 			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithFrameHooks(t,
 				tc.opts, sources, tc.flags, tc.extraArgs, beforeFrame, afterFrame)
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 selected stream byte-parity gate %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
@@ -906,7 +906,7 @@ func TestVP9OracleRuntimeControlsPinnedCasesMatchLibvpx(t *testing.T) {
 				func(enc *VP9Encoder, frame int) {
 					tc.before(t, enc, frame)
 				})
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 pinned runtime-control byte-parity %s: matches=%d/%d first_mismatch=%d exact_prefix=%d exact_frames=%v",
 				tc.name, matches, len(govpxPackets), firstMismatch,
@@ -1006,7 +1006,7 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			source: func(frame int) *image.YCbCr {
-				return newVP9BlockCheckerYCbCrForOracleTest(width, height,
+				return vp9test.NewBlockCheckerYCbCr(width, height,
 					frame)
 			},
 		},
@@ -1045,7 +1045,7 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 				"--disable-warning-prompt",
 			},
 			source: func(frame int) *image.YCbCr {
-				return newVP9BlockCheckerYCbCrForOracleTest(width, height,
+				return vp9test.NewBlockCheckerYCbCr(width, height,
 					frame)
 			},
 		},

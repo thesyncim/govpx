@@ -42,7 +42,7 @@ func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 				vp9OracleTemporalArgs(t, tc.mode, targetKbps)...)
 			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
 				opts, sources, flags, extraArgs)
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 temporal byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
@@ -100,16 +100,16 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := makeVP9SteppedOracleSources(width, height, tc.frames)
+			sources := vp9test.NewSteppedSources(width, height, tc.frames)
 			govpxPackets := captureVP9LookaheadPacketsWithFlushesForOracleTest(t,
 				VP9EncoderOptions{LookaheadFrames: tc.lag}, sources, tc.flushAfter)
-			libvpxPackets := captureVP9VpxencPacketsForOracleTest(t, sources,
+			libvpxPackets := vp9test.VpxencPackets(t, sources,
 				fmt.Sprintf("--lag-in-frames=%d", tc.lag), "--auto-alt-ref=0")
 			if len(govpxPackets) != len(libvpxPackets) {
 				t.Fatalf("VP9 lookahead flush packets: govpx=%d libvpx=%d",
 					len(govpxPackets), len(libvpxPackets))
 			}
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 lookahead flush byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
@@ -134,7 +134,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 	coracletest.VpxencVP9FrameFlags(t)
 
 	const width, height, frames, lag = 64, 64, 16, 4
-	sources := makeVP9SteppedOracleSources(width, height, frames)
+	sources := vp9test.NewSteppedSources(width, height, frames)
 	govpxRows, govpxPackets := captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t,
 		VP9EncoderOptions{
 			Deadline:           DeadlineRealtime,

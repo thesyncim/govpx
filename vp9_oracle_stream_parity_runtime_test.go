@@ -325,7 +325,7 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 				func(enc *VP9Encoder, frame int) {
 					tc.before(t, enc, frame)
 				})
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 runtime-control byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d exact_prefix=%d exact_frames=%v",
 				tc.name, matches, len(govpxPackets), firstMismatch,
@@ -934,7 +934,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				func(enc *VP9Encoder, frame int) {
 					tc.before(t, enc, frame)
 				})
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 runtime-control constant byte-parity matrix %s: matches=%d/%d first_mismatch=%d exact_prefix=%d exact_frames=%v",
 				tc.name, matches, len(govpxPackets), firstMismatch,
@@ -985,7 +985,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			const frames = 5
-			sources := makeVP9RuntimeResizeSources(tc.initialWidth,
+			sources := vp9test.NewRuntimeResizeSources(tc.initialWidth,
 				tc.initialHeight, tc.nextWidth, tc.nextHeight,
 				tc.resizeFrame, frames)
 			opts := VP9EncoderOptions{
@@ -1009,7 +1009,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 			libvpxRows, libvpxPackets := captureLibvpxVP9VariablePacketRows(t,
 				sources, nil, nil, extraArgs)
 			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 runtime resize byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d stats=%s",
 				tc.name, matches, len(govpxPackets), firstMismatch, stats)
@@ -1042,7 +1042,7 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 		sources, flags, []bool{true},
 		[]string{"--cq-level=32", "--min-q=32", "--max-q=32"})
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-	matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 invisible keyframe byte-parity scoreboard: matches=%d/%d first_mismatch=%d stats=%s",
 		matches, len(govpxPackets), firstMismatch, stats)

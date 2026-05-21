@@ -321,7 +321,7 @@ func TestVP9OracleEncoderResetTransitions(t *testing.T) {
 			opts, coldSources, make([]EncodeFlags, after), nil)
 		_, libvpxPackets := captureLibvpxVP9StreamParityPacketRows(t,
 			coldSources, make([]EncodeFlags, after), extraArgs)
-		matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+		matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 			libvpxPackets)
 		t.Logf("VP9 cold-start parity: matches=%d/%d first_mismatch=%d",
 			matches, len(govpxPackets), firstMismatch)
@@ -347,7 +347,7 @@ func TestVP9OracleEncoderResetTransitions(t *testing.T) {
 			opts, coldSources, make([]EncodeFlags, after), nil)
 		_, libvpxPackets := captureLibvpxVP9StreamParityPacketRows(t,
 			coldSources, make([]EncodeFlags, after), extraArgs)
-		matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+		matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 			libvpxPackets)
 		t.Logf("VP9 fresh-encoder-after-warmup parity: matches=%d/%d first_mismatch=%d",
 			matches, len(govpxPackets), firstMismatch)
@@ -666,7 +666,7 @@ func runVP9TransitionCase(t *testing.T, opts VP9EncoderOptions,
 		sources, flags, libvpxArgs)
 
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-	matches, firstMismatch := countVP9ByteParityMatches(govpxPackets, libvpxPackets)
+	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets, libvpxPackets)
 	t.Logf("VP9 transition %s: matches=%d/%d first_mismatch=%d stats=%s",
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 transition %s rows:\n%s", tc.name,

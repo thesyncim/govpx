@@ -566,7 +566,7 @@ func runVP9RuntimeControlCase(t *testing.T, opts VP9EncoderOptions,
 		sources, flags, libvpxArgs)
 
 	stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
-	matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 runtime control %s: matches=%d/%d first_mismatch=%d stats=%s",
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)

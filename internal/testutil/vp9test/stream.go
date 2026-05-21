@@ -73,6 +73,67 @@ func NewPanningSources(width, height, frames int) []*image.YCbCr {
 	return out
 }
 
+func NewSteppedSources(width, height, frames int) []*image.YCbCr {
+	out := make([]*image.YCbCr, frames)
+	for i := range out {
+		out[i] = NewYCbCr(width, height, uint8(96+i*8), 128, 128)
+	}
+	return out
+}
+
+func NewBlockCheckerYCbCr(width, height, frame int) *image.YCbCr {
+	img := NewYCbCr(width, height, 128, 128, 128)
+	for y := 0; y < height; y++ {
+		row := img.Y[y*img.YStride:]
+		for x := 0; x < width; x++ {
+			if ((x>>5)+(y>>5)+frame)&1 == 0 {
+				row[x] = 96
+			} else {
+				row[x] = 160
+			}
+		}
+	}
+	return img
+}
+
+func NewRuntimeResizeSources(w0, h0, w1, h1, resizeFrame, frames int) []*image.YCbCr {
+	out := make([]*image.YCbCr, frames)
+	for i := range out {
+		width, height := w0, h0
+		if i >= resizeFrame {
+			width, height = w1, h1
+		}
+		out[i] = NewPanningYCbCr(width, height, i)
+	}
+	return out
+}
+
+func CountByteParityMatches(got, want [][]byte) (matches int, firstMismatch int) {
+	firstMismatch = -1
+	for i := range got {
+		if bytes.Equal(got[i], want[i]) {
+			matches++
+			continue
+		}
+		if firstMismatch < 0 {
+			firstMismatch = i
+		}
+	}
+	return matches, firstMismatch
+}
+
+func RequireIVFPackets(t testing.TB, data []byte, wantPackets int) [][]byte {
+	t.Helper()
+	packets, err := testutil.IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads: %v", err)
+	}
+	if len(packets) != wantPackets {
+		t.Fatalf("IVF frame count = %d, want %d", len(packets), wantPackets)
+	}
+	return packets
+}
+
 func FormatStreamParityRows(t testing.TB, govpxPackets, libvpxPackets [][]byte) string {
 	t.Helper()
 	var b bytes.Buffer

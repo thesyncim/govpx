@@ -14,55 +14,6 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-func makeVP9SteppedOracleSources(width, height, frames int) []*image.YCbCr {
-	sources := make([]*image.YCbCr, frames)
-	for i := range sources {
-		sources[i] = vp9test.NewYCbCr(width, height, uint8(96+i*8), 128, 128)
-	}
-	return sources
-}
-
-func newVP9BlockCheckerYCbCrForOracleTest(width, height, frame int) *image.YCbCr {
-	img := vp9test.NewYCbCr(width, height, 128, 128, 128)
-	for y := 0; y < height; y++ {
-		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
-			if ((x>>5)+(y>>5)+frame)&1 == 0 {
-				row[x] = 96
-			} else {
-				row[x] = 160
-			}
-		}
-	}
-	return img
-}
-
-func makeVP9RuntimeResizeSources(w0, h0, w1, h1, resizeFrame, frames int) []*image.YCbCr {
-	sources := make([]*image.YCbCr, frames)
-	for i := range sources {
-		width, height := w0, h0
-		if i >= resizeFrame {
-			width, height = w1, h1
-		}
-		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
-	}
-	return sources
-}
-
-func countVP9ByteParityMatches(govpxPackets, libvpxPackets [][]byte) (matches int, firstMismatch int) {
-	firstMismatch = -1
-	for i := range govpxPackets {
-		if bytes.Equal(govpxPackets[i], libvpxPackets[i]) {
-			matches++
-			continue
-		}
-		if firstMismatch < 0 {
-			firstMismatch = i
-		}
-	}
-	return matches, firstMismatch
-}
-
 func countVP9ByteParityMatchesWithDrops(t *testing.T,
 	govpxRows []vp9RateScoreboardRow, govpxPackets [][]byte,
 	libvpxRows []vp9RateScoreboardRow, libvpxPackets [][]byte,

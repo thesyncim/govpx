@@ -77,8 +77,8 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VpxencVP9TwoPassEncodeI420 failed: %v\n%s", err, diag)
 	}
-	libvpxPackets := vp9PacketsFromIVFForOracleTest(t, ivf, frames)
-	matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+	libvpxPackets := vp9test.RequireIVFPackets(t, ivf, frames)
+	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 two-pass byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
 		matches, frames, firstMismatch)
@@ -155,8 +155,8 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VpxencVP9TwoPassEncodeI420 failed: %v\n%s", err, diag)
 	}
-	libvpxPackets := vp9PacketsFromIVFForOracleTest(t, ivf, frames)
-	matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+	libvpxPackets := vp9test.RequireIVFPackets(t, ivf, frames)
+	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 two-pass constant byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
 		matches, frames, firstMismatch)
@@ -251,10 +251,10 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := makeVP9SteppedOracleSources(width, height, frames)
+			sources := vp9test.NewSteppedSources(width, height, frames)
 			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
 				VP9EncoderOptions{}, sources, tc.flags, nil)
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 frame-flag byte-parity matrix %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
@@ -362,10 +362,10 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := makeVP9SteppedOracleSources(tc.width, tc.height, frames)
+			sources := vp9test.NewSteppedSources(tc.width, tc.height, frames)
 			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
 				tc.opts, sources, tc.flags, tc.extraArgs)
-			matches, firstMismatch := countVP9ByteParityMatches(govpxPackets,
+			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 control-cross byte-parity matrix %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
