@@ -1,10 +1,11 @@
-package govpx
+package rtp
 
 import (
 	"bytes"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
 )
 
 // FuzzRTPVP9RoundTrip mirrors FuzzRTPVP8RoundTrip for the VP9 RTP
@@ -12,7 +13,7 @@ import (
 // cover RFC 9628 shapes; this fuzzer walks the joint state space and
 // asserts:
 //
-//   - PacketizeVP9RTPFrame → AssembleVP9RTPFrame is the identity.
+//   - PacketizeFrame followed by AssembleFrame is the identity.
 //   - Only the last fragment has Marker=true; only the first has
 //     StartOfFrame=true on the descriptor side, and only the last has
 //     EndOfFrame=true.
@@ -54,12 +55,12 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 		if !ok {
 			return
 		}
-		fragments, err := PacketizeVP9RTPFrame(desc, frame, mtu)
+		fragments, err := PacketizeFrame(desc, frame, mtu)
 		if err != nil {
 			return // packetizer rejected the config; not interesting here.
 		}
 		if len(fragments) == 0 {
-			t.Errorf("PacketizeVP9RTPFrame returned 0 fragments for %d-byte frame", len(frame))
+			t.Errorf("PacketizeFrame returned 0 fragments for %d-byte frame", len(frame))
 			return
 		}
 		// Marker bit invariant: only the last fragment is marked.
@@ -70,7 +71,7 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 		}
 		// Start/EndOfFrame invariants on the descriptor; SS only on first.
 		for i, fr := range fragments {
-			d, _, perr := ParseVP9RTPPayloadDescriptor(fr.Payload)
+			d, _, perr := ParsePayloadDescriptor(fr.Payload)
 			if perr != nil {
 				t.Errorf("fragment %d descriptor unparseable: %v", i, perr)
 				return
@@ -87,9 +88,9 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 			}
 		}
 		// Round-trip: assemble back, compare to original frame.
-		assembled, err := AssembleVP9RTPFrame(fragments)
+		assembled, err := AssembleFrame(fragments)
 		if err != nil {
-			t.Errorf("AssembleVP9RTPFrame on clean round-trip returned error: %v", err)
+			t.Errorf("AssembleFrame on clean round-trip returned error: %v", err)
 			return
 		}
 		if !bytes.Equal(assembled, frame) {
@@ -97,10 +98,10 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 				len(assembled), len(frame), testutil.FirstByteDiff(assembled, frame))
 		}
 		// Mutation: flip the lowest byte of every fragment and call
-		// AssembleVP9RTPFrame; it must not panic and either returns
+		// AssembleFrame; it must not panic and either returns
 		// a different frame or a typed error.
 		for i := range fragments {
-			mutated := make([]RTPPayloadFragment, len(fragments))
+			mutated := make([]vpxrtp.PayloadFragment, len(fragments))
 			copy(mutated, fragments)
 			if len(mutated[i].Payload) == 0 {
 				continue
@@ -108,12 +109,12 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 			body := append([]byte(nil), mutated[i].Payload...)
 			body[len(body)-1] ^= 0xff
 			mutated[i].Payload = body
-			_, _ = AssembleVP9RTPFrame(mutated)
+			_, _ = AssembleFrame(mutated)
 		}
 	})
 }
 
-// vp9RTPFuzzInputs decodes fuzz bytes into a VP9RTPPayloadDescriptor + MTU +
+// vp9RTPFuzzInputs decodes fuzz bytes into a PayloadDescriptor + MTU +
 // raw frame body. The descriptor surface is intentionally bounded so the
 // packetizer's validate() path is reachable for almost every input.
 //
@@ -127,7 +128,7 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 //	3-4: picture-id raw bytes.
 //	5: layer/refidx packing.
 //	6+: scalability-structure body when SS bit is set; raw frame after.
-func vp9RTPFuzzInputs(data []byte) (desc VP9RTPPayloadDescriptor, mtu int, frame []byte, ok bool) {
+func vp9RTPFuzzInputs(data []byte) (desc PayloadDescriptor, mtu int, frame []byte, ok bool) {
 	if len(data) < 6 {
 		return desc, 0, nil, false
 	}
@@ -138,7 +139,7 @@ func vp9RTPFuzzInputs(data []byte) (desc VP9RTPPayloadDescriptor, mtu int, frame
 	picByte1 := data[4]
 	layer := data[5]
 
-	desc = VP9RTPPayloadDescriptor{
+	desc = PayloadDescriptor{
 		InterPicturePredicted:       flagsByte&0x40 != 0,
 		FlexibleMode:                flagsByte&0x10 != 0,
 		ScalabilityStructurePresent: flagsByte&0x02 != 0,
@@ -178,7 +179,7 @@ func vp9RTPFuzzInputs(data []byte) (desc VP9RTPPayloadDescriptor, mtu int, frame
 		if len(data) < cursor+1 {
 			desc.ScalabilityStructurePresent = false
 		} else {
-			ss := VP9RTPScalabilityStructure{
+			ss := ScalabilityStructure{
 				SpatialLayerCount: 1 + int(data[cursor]&0x07),
 				ResolutionPresent: data[cursor]&0x08 != 0,
 			}

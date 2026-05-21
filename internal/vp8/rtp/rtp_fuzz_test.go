@@ -1,26 +1,26 @@
-package govpx
+package rtp
 
 import (
 	"bytes"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
 )
 
-// FuzzRTPVP8RoundTrip closes plan-§3 F5 / G6: the VP8 RTP packetizer
-// and depacketizer are exercised end-to-end under fuzz-driven
-// frame-size / MTU / descriptor-field combinations. The hand-picked
-// test cases in vp8_rtp_test.go cover canonical RFC 7741 shapes;
-// this fuzzer walks the joint state space and guarantees the
-// packetize → depacketize round trip is the identity, and that
-// mutated payload bytes never panic the depacketizer.
+// FuzzRTPVP8RoundTrip exercises the VP8 RTP packetizer and depacketizer
+// end-to-end under fuzz-driven frame-size, MTU, and descriptor-field
+// combinations. The hand-picked tests cover canonical RFC 7741 shapes;
+// this fuzzer walks the joint state space and checks that the packetize
+// and depacketize round trip is the identity, and that mutated payload
+// bytes never panic the depacketizer.
 //
 // The fuzzer asserts:
 //
-//   - PacketizeVP8RTPFrame followed by AssembleVP8RTPFrame returns
+//   - PacketizeFrame followed by AssembleFrame returns
 //     the original frame bytes unchanged.
 //   - Mutating one byte of any packetized fragment does not panic
-//     AssembleVP8RTPFrame; the result is either a different frame
+//     AssembleFrame; the result is either a different frame
 //     or a typed error.
 //   - The first fragment's StartOfPartition flag (parsed from the
 //     descriptor) is always true, and only the last fragment has
@@ -48,12 +48,12 @@ func FuzzRTPVP8RoundTrip(f *testing.F) {
 		if !ok {
 			return
 		}
-		fragments, err := PacketizeVP8RTPFrame(desc, frame, mtu)
+		fragments, err := PacketizeFrame(desc, frame, mtu)
 		if err != nil {
 			return // packetizer rejected the config; not interesting here.
 		}
 		if len(fragments) == 0 {
-			t.Errorf("PacketizeVP8RTPFrame returned 0 fragments for %d-byte frame", len(frame))
+			t.Errorf("PacketizeFrame returned 0 fragments for %d-byte frame", len(frame))
 			return
 		}
 		// Marker bit invariant: only the last fragment is marked.
@@ -65,7 +65,7 @@ func FuzzRTPVP8RoundTrip(f *testing.F) {
 		}
 		// StartOfPartition flag invariant: only the first fragment is S=1.
 		for i, fr := range fragments {
-			d, _, perr := ParseVP8RTPPayloadDescriptor(fr.Payload)
+			d, _, perr := ParsePayloadDescriptor(fr.Payload)
 			if perr != nil {
 				t.Errorf("fragment %d descriptor unparseable: %v", i, perr)
 				return
@@ -75,9 +75,9 @@ func FuzzRTPVP8RoundTrip(f *testing.F) {
 			}
 		}
 		// Round-trip: assemble back, compare to original frame.
-		assembled, err := AssembleVP8RTPFrame(fragments)
+		assembled, err := AssembleFrame(fragments)
 		if err != nil {
-			t.Errorf("AssembleVP8RTPFrame on clean round-trip returned error: %v", err)
+			t.Errorf("AssembleFrame on clean round-trip returned error: %v", err)
 			return
 		}
 		if !bytes.Equal(assembled, frame) {
@@ -85,10 +85,10 @@ func FuzzRTPVP8RoundTrip(f *testing.F) {
 				len(assembled), len(frame), testutil.FirstByteDiff(assembled, frame))
 		}
 		// Mutation: flip the lowest byte of every fragment and call
-		// AssembleVP8RTPFrame; it must not panic and either returns
+		// AssembleFrame; it must not panic and either returns
 		// a different frame or a typed error.
 		for i := range fragments {
-			mutated := make([]RTPPayloadFragment, len(fragments))
+			mutated := make([]vpxrtp.PayloadFragment, len(fragments))
 			copy(mutated, fragments)
 			if len(mutated[i].Payload) == 0 {
 				continue
@@ -96,12 +96,12 @@ func FuzzRTPVP8RoundTrip(f *testing.F) {
 			body := append([]byte(nil), mutated[i].Payload...)
 			body[len(body)-1] ^= 0xff
 			mutated[i].Payload = body
-			_, _ = AssembleVP8RTPFrame(mutated)
+			_, _ = AssembleFrame(mutated)
 		}
 	})
 }
 
-func vp8RTPFuzzInputs(data []byte) (desc VP8RTPPayloadDescriptor, mtu int, frame []byte, ok bool) {
+func vp8RTPFuzzInputs(data []byte) (desc PayloadDescriptor, mtu int, frame []byte, ok bool) {
 	if len(data) < 4 {
 		return desc, 0, nil, false
 	}
@@ -109,7 +109,7 @@ func vp8RTPFuzzInputs(data []byte) (desc VP8RTPPayloadDescriptor, mtu int, frame
 	mtu = max(4, min(int(data[1]), 2000))
 	partID := data[2] & 0x0f
 
-	desc = VP8RTPPayloadDescriptor{
+	desc = PayloadDescriptor{
 		NonReferenceFrame: flagsByte&0x40 != 0,
 		StartOfPartition:  true,
 		PartitionID:       partID,
