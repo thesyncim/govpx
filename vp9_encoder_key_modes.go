@@ -1935,7 +1935,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 // x->token_costs[tx_size][type][is_inter_block(mi)] where type=PLANE_TYPE_Y
 // (=0) and is_inter=0 for an intra/keyframe block. govpx mirrors by
 // reading the matching fc.CoefProbs[txSize][planeType=0][ref=0] slab and
-// invoking vp9CoeffTokenRateCost for the unconstrained pareto8 tail —
+// invoking encoder.CoeffTokenRateCost for the unconstrained pareto8 tail —
 // the same pareto-tree walk vp9_cost_tokens (vp9/encoder/vp9_cost.c)
 // drives in fill_token_costs (vp9/encoder/vp9_rd.c:135-152). The
 // per-coefficient energy class fed into the next coef-context lookup
@@ -2076,7 +2076,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
 		return 0
 	}
 	if eob <= 0 {
-		return vp9CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
+		return encoder.CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
 			encoder.EobToken)
 	}
 	if eob > maxEob {
@@ -2085,8 +2085,8 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
 
 	dcAbs, dcSign := vp9CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
 		dequant[0], txSize == common.Tx32x32)
-	prevToken, extraCost := vp9CoeffTokenExtraCost(dcAbs, dcSign)
-	rate := extraCost + vp9CoeffTreeTokenCost(
+	prevToken, extraCost := encoder.CoeffTokenExtraCost(dcAbs, dcSign)
+	rate := extraCost + encoder.CoeffTreeTokenCost(
 		(*coefModel)[0][initCtx][:], false, prevToken)
 	e.modeScratch[0] = encoder.PtEnergyClass[prevToken]
 
@@ -2100,9 +2100,9 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
 		dqv := dequant[1]
 		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, raster,
 			coeffs[raster], dqv, txSize == common.Tx32x32)
-		token, extra := vp9CoeffTokenExtraCost(absVal, sign)
+		token, extra := encoder.CoeffTokenExtraCost(absVal, sign)
 		pt := vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
-		rate += extra + vp9CoeffTreeTokenCost(
+		rate += extra + encoder.CoeffTreeTokenCost(
 			(*coefModel)[band][pt][:], prevToken == encoder.ZeroToken, token)
 		e.modeScratch[raster] = encoder.PtEnergyClass[token]
 		if bandLeft > 0 {
@@ -2118,7 +2118,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
 	}
 	if bandLeft != 0 && band < vp9dec.CoefBands {
 		pt := vp9dec.GetCoefContext(neighbors, &e.modeScratch, eob)
-		rate += vp9CoeffTreeTokenCost((*coefModel)[band][pt][:], false,
+		rate += encoder.CoeffTreeTokenCost((*coefModel)[band][pt][:], false,
 			encoder.EobToken)
 	}
 	return rate
@@ -2150,16 +2150,16 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
 	}
 	eob := vp9CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
 	if eob == 0 {
-		return vp9CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
+		return encoder.CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
 			encoder.EobToken)
 	}
 
 	rate := 0
 	dcAbs, dcSign := vp9CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
 		dequant[0], txSize == common.Tx32x32)
-	prevToken, extraCost := vp9CoeffTokenExtraCost(dcAbs, dcSign)
+	prevToken, extraCost := encoder.CoeffTokenExtraCost(dcAbs, dcSign)
 	rate += extraCost
-	rate += vp9CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
+	rate += encoder.CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
 		prevToken)
 
 	bandIdx := 1
@@ -2168,7 +2168,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
 		raster := int(scan[c])
 		absVal, sign := vp9CoeffMagnitudeAndSign(qcoeffs, raster,
 			coeffs[raster], dequant[1], txSize == common.Tx32x32)
-		token, extra := vp9CoeffTokenExtraCost(absVal, sign)
+		token, extra := encoder.CoeffTokenExtraCost(absVal, sign)
 		ctx := 0
 		skipEOB := false
 		if prevToken == encoder.ZeroToken {
@@ -2176,7 +2176,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
 			skipEOB = true
 		}
 		rate += extra
-		rate += vp9CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:],
+		rate += encoder.CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:],
 			skipEOB, token)
 		prevToken = token
 		bandLeft--
@@ -2193,7 +2193,7 @@ func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
 		if prevToken == encoder.ZeroToken {
 			ctx = 1
 		}
-		rate += vp9CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:], false,
+		rate += encoder.CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:], false,
 			encoder.EobToken)
 	}
 	return rate

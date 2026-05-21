@@ -18,7 +18,7 @@ func TestVP9CoeffBlockRateCostQUsesQCoeffEOBAndFastCosting(t *testing.T) {
 	qcoeffs[0] = 1
 
 	want := 5 * vp9enc.VP9CostBit(128, 0)
-	eobOnly := vp9CoeffTreeTokenCost(
+	eobOnly := vp9enc.CoeffTreeTokenCost(
 		e.fc.CoefProbs[tx][0][0][0][0][:], false, vp9enc.EobToken)
 
 	e.sf.UseFastCoefCosting = 0

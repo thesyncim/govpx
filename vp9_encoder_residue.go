@@ -4,7 +4,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
-	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 // vp9PlaneRectSSEClamped returns the SSE between src and dst rectangles of
@@ -993,70 +992,6 @@ func vp9CoeffTokenAbsValInt(absCoeff, dqv int, tx32 bool) int {
 		return (num*2 + den - 1) / den
 	}
 	return num / den
-}
-
-func vp9CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
-	if absVal <= 0 || len(probs) < encoder.UnconstrainedNodes {
-		return 0
-	}
-	rate := 0
-	token, extra := encoder.TokenForAbsCoeff(absVal)
-	if token == encoder.OneToken {
-		rate += encoder.VP9CostBit(probs[2], 0)
-		rate += encoder.VP9CostBit(128, sign)
-		return rate
-	}
-	rate += encoder.VP9CostBit(probs[2], 1)
-	enc := encoder.CoefEncodings[token]
-	pareto := tables.Pareto8Full[probs[2]-1]
-	rate += encoder.TreedCost(encoder.CoefConTree[:], pareto[:],
-		int(enc.Value), int(enc.Len)-encoder.UnconstrainedNodes)
-	if token >= encoder.Category1Tok {
-		eb := encoder.VP9ExtraBits[token]
-		for i := eb.Len - 1; i >= 0; i-- {
-			bit := (extra >> uint(i)) & 1
-			rate += encoder.VP9CostBit(eb.Prob[eb.Len-1-i], bit)
-		}
-	}
-	rate += encoder.VP9CostBit(128, sign)
-	return rate
-}
-
-func vp9CoeffTokenExtraCost(absVal, sign int) (token int, cost int) {
-	token, extra := encoder.TokenForAbsCoeff(absVal)
-	if token >= encoder.Category1Tok {
-		eb := encoder.VP9ExtraBits[token]
-		for i := eb.Len - 1; i >= 0; i-- {
-			bit := (extra >> uint(i)) & 1
-			cost += encoder.VP9CostBit(eb.Prob[eb.Len-1-i], bit)
-		}
-	}
-	if token != encoder.ZeroToken {
-		cost += encoder.VP9CostBit(128, sign)
-	}
-	return token, cost
-}
-
-func vp9CoeffTreeTokenCost(model []uint8, skipEOB bool, token int) int {
-	if len(model) < encoder.UnconstrainedNodes || token < 0 ||
-		token >= encoder.EntropyTokens || model[2] == 0 {
-		return 0
-	}
-	var full [encoder.EntropyNodes]uint8
-	full[0] = model[0]
-	full[1] = model[1]
-	full[2] = model[2]
-	tail := tables.Pareto8Full[model[2]-1]
-	for i := range tail {
-		full[3+i] = tail[i]
-	}
-	var costs [encoder.EntropyTokens]int
-	if skipEOB {
-		encoder.VP9CostTokensSkip(costs[:], full[:], encoder.CoefTree[:])
-	} else {
-		encoder.VP9CostTokens(costs[:], full[:], encoder.CoefTree[:])
-	}
-	return costs[token]
 }
 
 func vp9CoeffMagnitudeAndSign(qcoeffs []int16, raster int, dqcoeff int16,
