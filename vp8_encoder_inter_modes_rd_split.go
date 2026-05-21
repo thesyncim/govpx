@@ -304,7 +304,7 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 		quant:               ctx.quant,
 		qIndex:              ctx.qIndex,
 		zbinOverQuant:       zbinOverQuant,
-		zbinModeBoost:       splitInterModeZbinBoost,
+		zbinModeBoost:       vp8enc.SplitInterModeZbinBoost,
 		actZbinAdj:          actZbinAdj,
 		is4x4:               true,
 		splitPartitionValid: true,

@@ -578,7 +578,7 @@ func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, re
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(nextAbove[a] + nextLeft[l])
-		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, ev.zbinOverQuant, splitInterModeZbinBoost, ev.actZbinAdj, ev.zbinOverQuant, ev.rdMult, ev.rdDiv, false, ev.fastQuant, ev.optimize, &dct, &quant.Y1, &qcoeff, &dqcoeff)
+		eob := quantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, ev.zbinOverQuant, vp8enc.SplitInterModeZbinBoost, ev.actZbinAdj, ev.zbinOverQuant, ev.rdMult, ev.rdDiv, false, ev.fastQuant, ev.optimize, &dct, &quant.Y1, &qcoeff, &dqcoeff)
 		blockRate := vp8enc.CoefficientBlockTokenRate(coefProbs, 3, ctx, 0, &qcoeff, eob)
 		rate += blockRate
 		yRate += blockRate
@@ -909,7 +909,7 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 		return interSplitMVRDDecision{}, false
 	}
 
-	// is4x4=true, intra=false, zbinModeBoost=splitInterModeZbinBoost(0)
+	// is4x4=true, intra=false, zbinModeBoost=vp8enc.SplitInterModeZbinBoost(0)
 	// matches the SPLITMV branch of rdopt.c vp8_rd_pick_inter_mode where
 	// macro_block_yrd reports rate_y/distortion via 16 4x4 token blocks
 	// (block_type=3) and rd_inter4x4_uv reports rate_uv/distortion_uv via
@@ -926,7 +926,7 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 		quant:               quant,
 		qIndex:              qIndex,
 		zbinOverQuant:       zbinOverQuant,
-		zbinModeBoost:       splitInterModeZbinBoost,
+		zbinModeBoost:       vp8enc.SplitInterModeZbinBoost,
 		is4x4:               true,
 		splitPartitionValid: true,
 		splitPartition:      mode.Partition,

@@ -110,7 +110,7 @@ func TestEstimateInterResidualRDAccountingUsesTransformDomainDistortion(t *testi
 		t.Fatalf("estimateInterResidualRDAccounting returned ok=false")
 	}
 	var coeffs vp8enc.MacroblockCoefficients
-	stats := buildPredictedMacroblockCoefficientsRD(&e.coefProbs, sourceImageFromPublic(src), 0, 0, &ref.Img, nil, nil, &quant, 20, e.rc.currentZbinOverQuant, interZbinModeBoost(&mode), false, false, e.libvpxUseFastQuant(), false, &coeffs)
+	stats := buildPredictedMacroblockCoefficientsRD(&e.coefProbs, sourceImageFromPublic(src), 0, 0, &ref.Img, nil, nil, &quant, 20, e.rc.currentZbinOverQuant, vp8enc.InterZbinModeBoost(&mode), false, false, e.libvpxUseFastQuant(), false, &coeffs)
 	wantDistortion := stats.distortionY + stats.distortionUV
 	if acct.distortion2 != wantDistortion || acct.distortionUV != stats.distortionUV {
 		t.Fatalf("accounting distortion = %d uv=%d, want transform-domain %d uv=%d", acct.distortion2, acct.distortionUV, wantDistortion, stats.distortionUV)
@@ -283,7 +283,7 @@ func TestAddInterResidualToAnalysisMacroblockMatchesFullReconstruct(t *testing.T
 			var coeffs vp8enc.MacroblockCoefficients
 			stats := buildPredictedMacroblockCoefficientsRD(
 				&vp8tables.DefaultCoefProbs, sourceImageFromPublic(src), 0, 0, &reuse.Img,
-				nil, nil, &quant, 20, 0, interZbinModeBoost(&tc.mode),
+				nil, nil, &quant, 20, 0, vp8enc.InterZbinModeBoost(&tc.mode),
 				is4x4, false, false, false, &coeffs,
 			)
 			if stats.tteob == 0 {

@@ -226,7 +226,7 @@ func TestSplitMVDecisionRDDistortionMatchesPerLabelTransformError(t *testing.T) 
 		pred:                &pred.Img,
 		quant:               &quant,
 		qIndex:              qIndex,
-		zbinModeBoost:       splitInterModeZbinBoost,
+		zbinModeBoost:       vp8enc.SplitInterModeZbinBoost,
 		is4x4:               true,
 		splitPartitionValid: true,
 		splitPartition:      decision.Mode.Partition,

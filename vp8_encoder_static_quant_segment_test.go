@@ -256,7 +256,7 @@ func TestQuantizeBlockWithZbinUsesModeBoost(t *testing.T) {
 	}
 	qcoeff = [16]int16{}
 	dqcoeff = [16]int16{}
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, vp8enc.LastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
 		t.Fatalf("boosted eob/q = %d/%d, want coefficient suppressed", eob, qcoeff[rc])
 	}
 }
@@ -415,26 +415,6 @@ func testRegularBlockQuant(qIndex int, dequantValue int16) vp8enc.BlockQuant {
 	var quant vp8enc.BlockQuant
 	vp8enc.InitRegularBlockQuant(qIndex, &dequant, &quant)
 	return quant
-}
-
-func TestInterZbinModeBoostMatchesLibvpxClasses(t *testing.T) {
-	tests := []struct {
-		name string
-		mode vp8enc.InterFrameMacroblockMode
-		want int
-	}{
-		{name: "last zeromv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}, want: lastFrameZeroMVZbinBoost},
-		{name: "golden zeromv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV}, want: goldenAltZeroMVZbinBoost},
-		{name: "alt zeromv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.AltRefFrame, Mode: vp8common.ZeroMV}, want: goldenAltZeroMVZbinBoost},
-		{name: "newmv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV}, want: nonZeroInterModeZbinBoost},
-		{name: "splitmv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.SplitMV}, want: splitInterModeZbinBoost},
-		{name: "intra", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred}, want: intraInterFrameZbinBoost},
-	}
-	for _, tt := range tests {
-		if got := interZbinModeBoost(&tt.mode); got != tt.want {
-			t.Fatalf("%s boost = %d, want %d", tt.name, got, tt.want)
-		}
-	}
 }
 
 func TestEncoderSegmentQIndex(t *testing.T) {

@@ -608,7 +608,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			quant:         quant,
 			qIndex:        segmentQIndex,
 			zbinOverQuant: zbinOverQuant,
-			zbinModeBoost: interZbinModeBoost(&args.modes[index]),
+			zbinModeBoost: vp8enc.InterZbinModeBoost(&args.modes[index]),
 			actZbinAdj:    actZbinAdj,
 			rdMult:        rdMult,
 			rdDiv:         rdDiv,

@@ -1,35 +1,9 @@
 package govpx
 
 import (
-	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
-
-const (
-	lastFrameZeroMVZbinBoost  = 6
-	goldenAltZeroMVZbinBoost  = 12
-	nonZeroInterModeZbinBoost = 4
-	splitInterModeZbinBoost   = 0
-	intraInterFrameZbinBoost  = 0
-)
-
-func interZbinModeBoost(mode *vp8enc.InterFrameMacroblockMode) int {
-	if mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode >= vp8common.DCPred && mode.Mode <= vp8common.BPred {
-		return intraInterFrameZbinBoost
-	}
-	switch mode.Mode {
-	case vp8common.ZeroMV:
-		if mode.RefFrame == vp8common.LastFrame {
-			return lastFrameZeroMVZbinBoost
-		}
-		return goldenAltZeroMVZbinBoost
-	case vp8common.SplitMV:
-		return splitInterModeZbinBoost
-	default:
-		return nonZeroInterModeZbinBoost
-	}
-}
 
 func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	return quantizeBlockWithZbinAndActivity(coeff, quant, zbinOverQuant, zbinModeBoost, 0, qcoeff, dqcoeff)

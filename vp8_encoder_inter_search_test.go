@@ -250,7 +250,7 @@ func TestConsumeInterRDCoeffCacheKeepsWinnerValidForConsumer(t *testing.T) {
 		fastQuant:     true,
 		qIndex:        20,
 		zbinOverQuant: 7,
-		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		zbinModeBoost: vp8enc.LastFrameZeroMVZbinBoost,
 		mbRow:         2,
 		mbCol:         3,
 	}
@@ -267,7 +267,7 @@ func TestConsumeInterRDCoeffCacheKeepsWinnerValidForConsumer(t *testing.T) {
 		fastQuant:     true,
 		qIndex:        20,
 		zbinOverQuant: 7,
-		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		zbinModeBoost: vp8enc.LastFrameZeroMVZbinBoost,
 	}
 	if !interRDCacheReusable(cache, &args) {
 		t.Fatalf("consumed cache is not reusable by matching accepted-path args")
@@ -289,7 +289,7 @@ func TestInterRDCoeffCacheCountsDCTReuse(t *testing.T) {
 		fastQuant:     true,
 		qIndex:        20,
 		zbinOverQuant: 7,
-		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		zbinModeBoost: vp8enc.LastFrameZeroMVZbinBoost,
 		mbRow:         1,
 		mbCol:         1,
 	}
@@ -305,7 +305,7 @@ func TestInterRDCoeffCacheCountsDCTReuse(t *testing.T) {
 		quant:         &quants[0],
 		qIndex:        20,
 		zbinOverQuant: 7,
-		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		zbinModeBoost: vp8enc.LastFrameZeroMVZbinBoost,
 		fastQuant:     true,
 		coeffs:        &out,
 		cacheIn:       &cache,

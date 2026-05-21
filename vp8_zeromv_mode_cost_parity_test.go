@@ -49,7 +49,7 @@ import (
 //
 //   - vp8_rd_pick_best_mbsegmentation per-label motion search (rdopt.c:998+)
 //   - splitMotionSubsetContext.selectMotion seed/step_param derivation
-//   - zbin_mode_boost split-vs-new (govpx splitInterModeZbinBoost=0,
+//   - zbin_mode_boost split-vs-new (govpx vp8enc.SplitInterModeZbinBoost=0,
 //     NEWMV zbinModeBoost=MV_ZBIN_BOOST=4 — verified matching libvpx
 //     rdopt.c:1913-1931)
 //   - rd_threshes[THR_NEW{1,2,3}]/rd_thresh_mult evolution for SPLITMV

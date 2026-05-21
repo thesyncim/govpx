@@ -140,7 +140,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		quant:               ctx.quant,
 		qIndex:              ctx.qIndex,
 		zbinOverQuant:       zbinOverQuant,
-		zbinModeBoost:       interZbinModeBoost(ctx.mode),
+		zbinModeBoost:       vp8enc.InterZbinModeBoost(ctx.mode),
 		actZbinAdj:          actZbinAdj,
 		is4x4:               is4x4,
 		splitPartitionValid: ctx.mode.Mode == vp8common.SplitMV,

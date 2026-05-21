@@ -775,7 +775,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					quant:         quant,
 					qIndex:        segmentQIndex,
 					zbinOverQuant: zbinOverQuant,
-					zbinModeBoost: interZbinModeBoost(&modes[index]),
+					zbinModeBoost: vp8enc.InterZbinModeBoost(&modes[index]),
 					actZbinAdj:    actZbinAdj,
 					rdMult:        rdMult,
 					rdDiv:         rdDiv,
