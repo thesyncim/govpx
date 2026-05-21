@@ -42,7 +42,7 @@ func TestVP9VarPartDecisionForSplitToSmaller(t *testing.T) {
 	}
 }
 
-// TestVP9VarPartDecisionForHorzSplit pins the horizontal-split detection.
+// TestVP9VarPartDecisionForHorzSplit checks horizontal-split detection.
 func TestVP9VarPartDecisionForHorzSplit(t *testing.T) {
 	const miRows, miCols = 8, 8
 	e := &VP9Encoder{}
@@ -57,7 +57,7 @@ func TestVP9VarPartDecisionForHorzSplit(t *testing.T) {
 	}
 }
 
-// TestVP9VarPartDecisionForVertSplit pins the vertical-split detection.
+// TestVP9VarPartDecisionForVertSplit checks vertical-split detection.
 func TestVP9VarPartDecisionForVertSplit(t *testing.T) {
 	const miRows, miCols = 8, 8
 	e := &VP9Encoder{}
@@ -87,7 +87,7 @@ func TestVP9VarPartDecisionForInvalidWhenNotValid(t *testing.T) {
 	}
 }
 
-// TestVP9ChoosePartitioningSBIndex pins the SB-index computation
+// TestVP9ChoosePartitioningSBIndex checks the SB-index computation
 // (mi_stride >> 3) * (mi_row >> 3) + (mi_col >> 3) — libvpx
 // vp9_encodeframe.c:1314.
 func TestVP9ChoosePartitioningSBIndex(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
-// TestEnsureLastBorderedInvalidWhenNoLastRef pins the early-return path:
+// TestEnsureLastBorderedInvalidWhenNoLastRef checks the early-return path:
 // when e.refFrames[vp9LastRefSlot].valid is false (encoder freshly
 // constructed, no frame yet reconstructed), ensureLastBordered must
 // leave lastBorderedValid = false.
@@ -19,8 +19,8 @@ func TestEnsureLastBorderedInvalidWhenNoLastRef(t *testing.T) {
 	}
 }
 
-// TestEnsureLastBorderedReplicatesEdge wires a synthetic LAST_FRAME image
-// into the encoder and asserts ensureLastBordered builds a libvpx-shaped
+// TestEnsureLastBorderedReplicatesEdge stores a synthetic LAST_FRAME image
+// in the encoder and asserts ensureLastBordered builds a libvpx-shaped
 // border with edge replication. Mirrors the per-frame lifecycle the
 // refreshVP9EncoderRefs hook drives.
 func TestEnsureLastBorderedReplicatesEdge(t *testing.T) {

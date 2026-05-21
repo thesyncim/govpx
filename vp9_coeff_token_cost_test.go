@@ -9,9 +9,8 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
-// TestVP9CoeffTokenRateCostMatchesLibvpxLeafCost is the encoder-side
-// half of the token-cost pinning suite. It checks that
-// vp9CoeffTokenRateCost — the per-coefficient cost helper invoked by
+// TestVP9CoeffTokenRateCostMatchesLibvpxLeafCost checks that
+// vp9CoeffTokenRateCost, the per-coefficient cost helper invoked by
 // vp9KeyframeCoeffBlockRateCost and vp9InterCoeffBlockRateCost — adds
 // up to the same total libvpx's vp9_cost_tokens does, once the caller
 // has charged the two leading unconstrained bits (not-EOB at probs[0]
@@ -143,6 +142,9 @@ func TestVP9CoeffTokenRateCostExtraBitsSweep(t *testing.T) {
 	}
 }
 
+// TestVP9CoeffBlockRateCostSlowSkipsEOBAfterZeroToken verifies that a ZERO
+// token suppresses the impossible EOB branch when the following coefficient is
+// non-zero.
 func TestVP9CoeffBlockRateCostSlowSkipsEOBAfterZeroToken(t *testing.T) {
 	var e VP9Encoder
 	coefModel := &e.fc.CoefProbs[common.Tx4x4][0][0]

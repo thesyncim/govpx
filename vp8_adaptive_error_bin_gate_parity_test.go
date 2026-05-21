@@ -6,29 +6,22 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
-// TestVP8AdaptiveErrorBinGateUsesRealisticSpeed pins the task #364
-// targeted port: the adaptive error-bin RD-threshold adjustment inside
-// vp8_set_speed_features case 2 (libvpx onyx_if.c:957-1010) must fire on
-// the libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT,
-// even when govpx's timing-pinned e.autoSpeed stays low.
+// TestVP8AdaptiveErrorBinGateUsesRealisticSpeed verifies that the adaptive
+// error-bin RD-threshold adjustment inside vp8_set_speed_features case 2
+// (libvpx onyx_if.c:957-1010) fires on the libvpx cpi->Speed trajectory for
+// cpu_used > 0 realtime encodes, even when govpx's wall-clock-independent
+// e.autoSpeed remains low.
 //
-// Audit reference: same anti-pattern as task #350 (improved_mv_pred
-// gate). libvpx runs vp8_set_speed_features every frame via
-// vp8_initialize_rd_consts → rdopt.c:163, so at cpu_used > 0 RT cpi->
-// Speed climbs to cpu_used+1 (audit-observed cpi_speed=9 by frame 2 on
-// cpu=8 720p RT) and the line-957 gate fires the error_bins[] scan.
-// govpx's e.autoSpeed evolution stays in the Speed=0 stable region
-// under the task #278 interFrameAutoSpeedTimingCompensation pin, so
-// without a targeted override the cpu>0 RT ladder never enters the
-// adaptive-threshold path. Clamping e.autoSpeed itself would cascade
-// every other Speed-conditioned feature simultaneously (see
-// libvpxRealtimeCPISpeedForImprovedMVPredGate doc); the gate-only port
-// matches libvpx's per-frame trajectory without disturbing the rest of
-// the Speed-feature cascade.
+// libvpx runs vp8_set_speed_features every frame via vp8_initialize_rd_consts
+// (rdopt.c:163), so at cpu_used > 0 realtime cpi->Speed climbs to cpu_used+1
+// and the error_bins[] scan is active. govpx keeps e.autoSpeed stable for
+// deterministic tests, so this gate computes the libvpx-equivalent Speed for
+// this feature instead of clamping e.autoSpeed and disturbing every other
+// Speed-conditioned decision.
 func TestVP8AdaptiveErrorBinGateUsesRealisticSpeed(t *testing.T) {
-	// cpu_used=8 RT, frameCount=2, autoSpeed pinned at 4 (the post-#278
-	// stable region). libvpxCPUUsed() returns autoSpeed=4 (≤6), so
-	// without the gate-override the error-bin path stays inert.
+	// cpu_used=8 realtime, frameCount=2, autoSpeed stable at 4.
+	// libvpxCPUUsed returns autoSpeed=4, so without the gate-specific Speed
+	// the error-bin path stays inert.
 	e := &VP8Encoder{
 		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 320, Height: 240},
 		rc:         rateControlState{currentQuantizer: 40},
@@ -59,7 +52,7 @@ func TestVP8AdaptiveErrorBinGateUsesRealisticSpeed(t *testing.T) {
 	}
 	got := e.interModeRDThresholdsForReferences(40, refs, len(refs))
 
-	// Without the task #364 gate-override, the path is skipped and the
+	// Without the gate-specific Speed, the path is skipped and the
 	// THR_NEW1 / THR_NEAREST1 / THR_NEAR1 multipliers fall back to the
 	// continuous speed_map outputs (which collapse to 2000 at the very
 	// tail but DO NOT scale by the (Speed-6) error_bins percentile). The
@@ -76,7 +69,7 @@ func TestVP8AdaptiveErrorBinGateUsesRealisticSpeed(t *testing.T) {
 			got[libvpxThrNearest1], got[libvpxThrNear1])
 	}
 
-	// cpu_used=0 RT (the byte-parity-gated ladder) must NOT enter the
+	// cpu_used=0 realtime (the byte-parity-gated ladder) must NOT enter the
 	// adaptive path: the realistic Speed stays at 4 (cold-start cap),
 	// below the Speed > 6 gate. This preserves the threads=4 cpu=0 RT
 	// byte-parity sentinels.
@@ -117,14 +110,11 @@ func TestVP8AdaptiveErrorBinGateUsesRealisticSpeed(t *testing.T) {
 	}
 }
 
-// TestVP8ErrorBinGateSpeedFallsBackToCpiSpeed ensures the helper-
-// added context.errorBinGateSpeed field defaults to "use cpiSpeed" when
-// the caller leaves it zero. This preserves byte-parity for the
-// libvpxInterModeThresholdMultipliersForContext callers that route via
-// the -cpu_used negate-pass-through (TestLibvpxInterModeThreshold
-// MultipliersApplyRealtimeErrorBins, the cpu_used=-8 fixture used as
-// the autoSpeed=8 stand-in for the threshold table audits) and the
-// good-quality / best-quality test paths that supply no errorBins[].
+// TestVP8ErrorBinGateSpeedFallsBackToCpiSpeed ensures
+// context.errorBinGateSpeed defaults to "use cpiSpeed" when callers leave it
+// zero. This preserves the existing threshold-table callers that route through
+// the negative-cpu_used pass-through and the good-quality / best-quality paths
+// that supply no errorBins[].
 func TestVP8ErrorBinGateSpeedFallsBackToCpiSpeed(t *testing.T) {
 	var bins [1024]uint32
 	// errorBinGateSpeed == 0 (default): the gate must read cpiSpeed.

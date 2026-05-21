@@ -8,9 +8,8 @@ import (
 )
 
 // TestVP9NonrdPickPartitionDefaultEnabled confirms the recursive nonrd
-// partition substrate is on by default. The historical env value is still
-// cached for oracle diagnostics, but encode dispatch now follows the
-// libvpx speed-feature predicates at the call sites.
+// partition path is on by default. Encode dispatch follows the libvpx
+// speed-feature predicates at the call sites.
 //
 // libvpx: vp9/encoder/vp9_encodeframe.c:4598-4855 nonrd_pick_partition body
 // with use_ml_based_partitioning=1 (libvpx vp9_encodeframe.c:4627-4628).
