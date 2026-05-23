@@ -3,6 +3,8 @@ package govpx
 import (
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FuzzVP8DecoderDecodeInto mirrors FuzzVP9DecoderDecodeInto on the VP8 surface.
@@ -129,14 +131,14 @@ func vp8DecoderFuzzSeeds(tb testing.TB) [][]byte {
 		{0xff},
 		{0x00, 0x00, 0x00},
 		{0xff, 0xff, 0xff},
-		vp8KeyFramePacket(16, 16, 0, 0, true),
-		vp8KeyFramePacket(16, 16, 200, 0, true),
-		vp8KeyFramePacketWithPayload(16, 16, 200, 0, true),
-		vp8KeyFramePacketWithPayload(64, 64, 200, 0, true),
-		vp8KeyFramePacketWithPayload(64, 64, 200, 0, false),
-		vp8KeyFramePacketWithPayload(32, 32, 200, 0, true),
-		vp8InterFramePacket(0, 0, true),
-		vp8InterFramePacket(1, 0, true),
+		vp8test.KeyFramePacket(16, 16, 0, 0, true),
+		vp8test.KeyFramePacket(16, 16, 200, 0, true),
+		vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true),
+		vp8test.KeyFramePacketWithPayload(64, 64, 200, 0, true),
+		vp8test.KeyFramePacketWithPayload(64, 64, 200, 0, false),
+		vp8test.KeyFramePacketWithPayload(32, 32, 200, 0, true),
+		vp8test.InterFramePacket(0, 0, true),
+		vp8test.InterFramePacket(1, 0, true),
 	}
 	if pkt := vp8FuzzEncodedKeyframe(tb, 16, 16); len(pkt) > 0 {
 		seeds = append(seeds, pkt)

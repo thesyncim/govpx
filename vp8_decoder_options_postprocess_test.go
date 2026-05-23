@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
@@ -67,7 +68,7 @@ func TestDecodeRequiresInitialKeyFrame(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
-	err = d.Decode(vp8InterFramePacket(0, 0, true))
+	err = d.Decode(vp8test.InterFramePacket(0, 0, true))
 	if !errors.Is(err, ErrNeedKeyFrame) {
 		t.Fatalf("error = %v, want ErrNeedKeyFrame", err)
 	}
@@ -79,7 +80,7 @@ func TestDecodeQueuesSupportedKeyFrameAfterValidation(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
-	err = d.DecodeWithPTS(vp8KeyFramePacketWithPayload(320, 240, 200, 0, true), 44)
+	err = d.DecodeWithPTS(vp8test.KeyFramePacketWithPayload(320, 240, 200, 0, true), 44)
 	if err != nil {
 		t.Fatalf("DecodeWithPTS error = %v, want nil", err)
 	}
@@ -104,7 +105,7 @@ func TestDecodeInvisibleKeyFrameUpdatesStateWithoutOutput(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
-	err = d.DecodeWithPTS(vp8KeyFramePacketWithPayload(16, 16, 200, 0, false), 44)
+	err = d.DecodeWithPTS(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, false), 44)
 	if err != nil {
 		t.Fatalf("DecodeWithPTS error = %v, want nil", err)
 	}
@@ -124,7 +125,7 @@ func TestDecodeOutputsLoopFilteredKeyFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(1))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(1))
 
 	err = d.Decode(packet)
 	if err != nil {
@@ -143,7 +144,7 @@ func TestDecodePostProcessOutputsPostFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode error = %v, want nil", err)
@@ -168,7 +169,7 @@ func TestDecodePostProcessFlagsOutputPostFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode error = %v, want nil", err)
@@ -193,7 +194,7 @@ func TestDecodePostProcessFlagsMFQEOnlyOutputPostFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode error = %v, want nil", err)
@@ -213,7 +214,7 @@ func TestDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 	dst := newTestImage(16, 16)
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 
 	info, err := d.DecodeInto(packet, &dst)
 	if err != nil {
@@ -231,7 +232,7 @@ func TestDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
 }
 
 func TestDecodePostProcessFlagAddNoiseChangesOnlyLuma(t *testing.T) {
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 	plain, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder plain returned error: %v", err)
@@ -268,7 +269,7 @@ func TestDecodePostProcessFlagAddNoiseChangesOnlyLuma(t *testing.T) {
 }
 
 func TestDecodePostProcessNoiseChangesOnlyLuma(t *testing.T) {
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 	plain, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder plain returned error: %v", err)
@@ -310,7 +311,7 @@ func TestDecodeOutputsSupportedVersionKeyFrames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewVP8Decoder returned error: %v", err)
 		}
-		packet := vp8KeyFramePacketWithPayload(16, 16, 200, version, true)
+		packet := vp8test.KeyFramePacketWithPayload(16, 16, 200, version, true)
 
 		err = d.Decode(packet)
 		if err != nil {
@@ -331,7 +332,7 @@ func TestDecodeSkipsLoopFilterForNoLPFVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartitionProfile(16, 16, 2, vp8FirstPartitionWithLoopFilterLevel(1))
+	packet := vp8test.KeyFramePacketWithFirstPartitionProfile(16, 16, 2, vp8test.FirstPartitionWithLoopFilterLevel(1))
 
 	err = d.Decode(packet)
 	if err != nil {
@@ -351,7 +352,7 @@ func TestDecodeOutputsDefaultVersionKeyFrames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewVP8Decoder returned error: %v", err)
 		}
-		packet := vp8KeyFramePacketWithPayload(16, 16, 200, version, true)
+		packet := vp8test.KeyFramePacketWithPayload(16, 16, 200, version, true)
 
 		err = d.Decode(packet)
 		if err != nil {
@@ -382,7 +383,7 @@ func TestDecodeRejectsConfiguredSizeLimits(t *testing.T) {
 				t.Fatalf("NewVP8Decoder returned error: %v", err)
 			}
 
-			err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
+			err = d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true))
 			if !errors.Is(err, ErrFrameRejected) {
 				t.Fatalf("Decode error = %v, want ErrFrameRejected", err)
 			}
@@ -395,11 +396,11 @@ func TestDecodeRejectsConfiguredResolutionChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("initial Decode returned error: %v", err)
 	}
 
-	err = d.Decode(vp8KeyFramePacketWithPayload(32, 16, 200, 0, true))
+	err = d.Decode(vp8test.KeyFramePacketWithPayload(32, 16, 200, 0, true))
 	if !errors.Is(err, ErrFrameRejected) {
 		t.Fatalf("resolution-change Decode error = %v, want ErrFrameRejected", err)
 	}
@@ -410,14 +411,14 @@ func TestDecodeAcceptsKeyFrameResolutionChangeByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("initial Decode returned error: %v", err)
 	}
 	if frame, ok := d.NextFrame(); !ok || frame.Width != 16 || frame.Height != 16 {
 		t.Fatalf("initial NextFrame = %+v/%t, want 16x16 frame", frame, ok)
 	}
 
-	if err := d.Decode(vp8KeyFramePacketWithPayload(32, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(32, 16, 200, 0, true)); err != nil {
 		t.Fatalf("resolution-change Decode returned error: %v", err)
 	}
 	if d.frameWidth != 32 || d.frameHeight != 16 || d.mbCols != 2 || d.mbRows != 1 {
@@ -440,7 +441,7 @@ func TestDecodeOutputsMacroblockSkipKeyFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithMacroblockSkip(128))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithMacroblockSkip(128))
 
 	err = d.Decode(packet)
 	if err != nil {

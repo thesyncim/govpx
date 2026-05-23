@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -12,7 +14,7 @@ func TestDecodeRejectsMissingTokenPartition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacket(16, 16, 200, 0, true)
+	packet := vp8test.KeyFramePacket(16, 16, 200, 0, true)
 	packet = append(packet, make([]byte, 200)...)
 
 	err = d.Decode(packet)
@@ -26,7 +28,7 @@ func TestDecodeErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	keyPacket := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
@@ -35,7 +37,7 @@ func TestDecodeErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
 		t.Fatalf("key NextFrame returned no frame")
 	}
 
-	err = d.DecodeWithPTS(vp8InterFramePacket(0, 0, true), 99)
+	err = d.DecodeWithPTS(vp8test.InterFramePacket(0, 0, true), 99)
 	if err != nil {
 		t.Fatalf("corrupt inter DecodeWithPTS error = %v, want nil concealment", err)
 	}
@@ -56,7 +58,7 @@ func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	keyPacket := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
@@ -67,7 +69,7 @@ func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 		t.Fatalf("initial missing tag DecodeWithPTS error = %v, want ErrInvalidData before EC is active", err)
 	}
 	fillVP8Image(&d.lastRef.Img, 77)
-	if err := d.Decode(vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())); err != nil {
+	if err := d.Decode(vp8test.InterFramePacketWithFirstPartition(vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 0))); err != nil {
 		t.Fatalf("priming inter Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -96,7 +98,7 @@ func TestDecodeErrorConcealmentDoesNotCommitProbabilityUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	good := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
+	good := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
 	if err := d.Decode(good); err != nil {
 		t.Fatalf("good Decode error = %v, want nil", err)
 	}
@@ -107,8 +109,8 @@ func TestDecodeErrorConcealmentDoesNotCommitProbabilityUpdates(t *testing.T) {
 		t.Fatalf("good NextFrame returned no frame")
 	}
 
-	badFirst := vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 99)
-	bad := vp8InterFramePacket(len(badFirst), 0, true)
+	badFirst := vp8test.FirstPartitionWithSingleCoefProbabilityUpdate(true, 99)
+	bad := vp8test.InterFramePacket(len(badFirst), 0, true)
 	bad = append(bad, badFirst...)
 	if err := d.Decode(bad); err != nil {
 		t.Fatalf("corrupt inter Decode error = %v, want nil concealment", err)
@@ -160,7 +162,7 @@ func TestDecodeIntoErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	keyPacket := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
@@ -168,7 +170,7 @@ func TestDecodeIntoErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
 	dst := newTestImage(16, 16)
 	fillImage(dst, 7, 8, 9)
 
-	info, err := d.DecodeIntoWithPTS(vp8InterFramePacket(0, 0, true), &dst, 101)
+	info, err := d.DecodeIntoWithPTS(vp8test.InterFramePacket(0, 0, true), &dst, 101)
 	if err != nil {
 		t.Fatalf("corrupt inter DecodeIntoWithPTS error = %v, want nil concealment", err)
 	}
@@ -188,7 +190,7 @@ func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	keyPacket := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
@@ -196,7 +198,7 @@ func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 		t.Fatalf("key NextFrame returned no frame")
 	}
 	fillVP8Image(&d.lastRef.Img, 77)
-	if err := d.Decode(vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())); err != nil {
+	if err := d.Decode(vp8test.InterFramePacketWithFirstPartition(vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 0))); err != nil {
 		t.Fatalf("priming inter Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -222,8 +224,8 @@ func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 }
 
 func TestDecodeErrorConcealmentAllocatesZero(t *testing.T) {
-	packet := vp8InterFramePacket(0, 0, true)
-	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	packet := vp8test.InterFramePacket(0, 0, true)
+	keyPacket := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	decode, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
@@ -266,7 +268,7 @@ func TestDecodePostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	keyPacket := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	keyPacket := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
@@ -274,7 +276,7 @@ func TestDecodePostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
 		t.Fatalf("key NextFrame returned no frame")
 	}
 
-	err = d.DecodeWithPTS(vp8InterFramePacket(0, 0, true), 99)
+	err = d.DecodeWithPTS(vp8test.InterFramePacket(0, 0, true), 99)
 	if err != nil {
 		t.Fatalf("corrupt inter DecodeWithPTS error = %v, want nil concealment", err)
 	}
@@ -298,7 +300,7 @@ func TestDecodeIntoPostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	keyPacket := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	keyPacket := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithLoopFilterLevel(63))
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
@@ -307,7 +309,7 @@ func TestDecodeIntoPostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.
 	}
 	dst := newTestImage(16, 16)
 
-	info, err := d.DecodeIntoWithPTS(vp8InterFramePacket(0, 0, true), &dst, 101)
+	info, err := d.DecodeIntoWithPTS(vp8test.InterFramePacket(0, 0, true), &dst, 101)
 	if err != nil {
 		t.Fatalf("corrupt inter DecodeIntoWithPTS error = %v, want nil concealment", err)
 	}
@@ -327,10 +329,10 @@ func TestDecodeDoesNotConcealCorruptInterFrameWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
-	if err := d.Decode(vp8InterFramePacket(0, 0, true)); !errors.Is(err, ErrInvalidData) {
+	if err := d.Decode(vp8test.InterFramePacket(0, 0, true)); !errors.Is(err, ErrInvalidData) {
 		t.Fatalf("corrupt inter error = %v, want ErrInvalidData", err)
 	}
 }
@@ -340,7 +342,7 @@ func TestDecodeDoesNotConcealMissingFrameTagWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
 
@@ -356,7 +358,7 @@ func TestDecodeRejectsTruncatedStateHeader(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
-	err = d.Decode(vp8KeyFramePacket(16, 16, 200, 0, true))
+	err = d.Decode(vp8test.KeyFramePacket(16, 16, 200, 0, true))
 	if !errors.Is(err, ErrInvalidData) {
 		t.Fatalf("Decode error = %v, want ErrInvalidData", err)
 	}

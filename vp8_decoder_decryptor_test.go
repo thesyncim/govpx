@@ -3,6 +3,8 @@ package govpx
 import (
 	"bytes"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8DecoderDecryptorRoundTripsClearKeyFrame asserts that wiring a
@@ -12,7 +14,7 @@ import (
 // passthrough, the decoder should produce the same Y plane as a
 // decryptor-less decoder.
 func TestVP8DecoderDecryptorRoundTripsClearKeyFrame(t *testing.T) {
-	packet := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	packet := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 
 	plain, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -66,7 +68,7 @@ func TestVP8DecoderDecryptorCallbackIsInvoked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder error = %v", err)
 	}
-	packet := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	packet := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	if err := dec.Decode(packet); err != nil {
 		t.Fatalf("Decode error = %v", err)
 	}

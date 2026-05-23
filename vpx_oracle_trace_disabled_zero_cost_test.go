@@ -50,6 +50,39 @@ func TestVPxOracleTraceDisabledFieldsAbsentFromProductionStructs(t *testing.T) {
 	}
 }
 
+func TestVPxOracleTraceDisabledZeroSizeFieldsDoNotTrailHotStructs(t *testing.T) {
+	cases := []struct {
+		name  string
+		typ   reflect.Type
+		field string
+	}{
+		{
+			name:  "predictedMacroblockCoefficientArgs",
+			typ:   reflect.TypeOf(predictedMacroblockCoefficientArgs{}),
+			field: "trace",
+		},
+	}
+	for _, tc := range cases {
+		field, ok := tc.typ.FieldByName(tc.field)
+		if !ok {
+			t.Fatalf("%s has no %s field", tc.name, tc.field)
+		}
+		if field.Type.Size() != 0 {
+			t.Fatalf("%s.%s size = %d, want 0 in default builds",
+				tc.name, tc.field, field.Type.Size())
+		}
+		if field.Index[0] == tc.typ.NumField()-1 {
+			t.Fatalf("%s.%s is the final field; trailing zero-size fields add padding",
+				tc.name, tc.field)
+		}
+		next := tc.typ.Field(field.Index[0] + 1)
+		if next.Offset != field.Offset {
+			t.Fatalf("%s.%s offset = %d, next field %s offset = %d; want shared offset for zero-size field",
+				tc.name, tc.field, field.Offset, next.Name, next.Offset)
+		}
+	}
+}
+
 func TestVPxOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) {
 	typ := reflect.TypeOf(&VP8Encoder{})
 	methods := []string{

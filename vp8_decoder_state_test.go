@@ -3,6 +3,7 @@ package govpx
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
@@ -14,7 +15,7 @@ func TestDecodeInitializesReferenceFrameBuffers(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
-	err = d.Decode(vp8KeyFramePacketWithPayload(5, 3, 200, 0, true))
+	err = d.Decode(vp8test.KeyFramePacketWithPayload(5, 3, 200, 0, true))
 	if err != nil {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}
@@ -42,7 +43,7 @@ func TestDecodeParsesStateAndInitializesDequants(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
-	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
+	err = d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true))
 	if err != nil {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}
@@ -122,7 +123,7 @@ func TestDecodePersistsCoefficientProbabilityUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
 
 	err = d.Decode(packet)
 	if err != nil {
@@ -145,7 +146,7 @@ func TestDecodeKeepsTransientCoefficientProbabilityUpdatesFrameLocal(t *testing.
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(false, 77))
+	packet := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithSingleCoefProbabilityUpdate(false, 77))
 
 	err = d.Decode(packet)
 	if err != nil {
@@ -168,12 +169,12 @@ func TestDecodeMalformedFrameDoesNotCommitProbabilityUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	good := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
+	good := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
 	if err := d.Decode(good); err != nil {
 		t.Fatalf("good Decode returned error: %v", err)
 	}
-	badFirst := vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 99)
-	bad := vp8KeyFramePacket(16, 16, len(badFirst), 0, true)
+	badFirst := vp8test.FirstPartitionWithSingleCoefProbabilityUpdate(true, 99)
+	bad := vp8test.KeyFramePacket(16, 16, len(badFirst), 0, true)
 	bad = append(bad, badFirst...)
 	bad = append(bad, 0)
 
@@ -195,7 +196,7 @@ func TestDecodeParsesPartitionLayout(t *testing.T) {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
-	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
+	err = d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true))
 	if err != nil {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}

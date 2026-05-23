@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
+)
 
 func FuzzVP8DecoderMalformedPackets(f *testing.F) {
 	// Handcrafted seeds cover protocol edges: partition0 size greater
@@ -12,47 +16,47 @@ func FuzzVP8DecoderMalformedPackets(f *testing.F) {
 		{0},
 		{0, 0, 0},
 		{0xff, 0xff, 0xff},
-		vp8InterFramePacket(0, 0, true),
-		vp8InterFramePacket(0, 0, false),
-		vp8InterFramePacket(1, 0, true),
-		vp8InterFramePacket(0xfffff, 0, true), // first_part overflow
+		vp8test.InterFramePacket(0, 0, true),
+		vp8test.InterFramePacket(0, 0, false),
+		vp8test.InterFramePacket(1, 0, true),
+		vp8test.InterFramePacket(0xfffff, 0, true), // first_part overflow
 
-		vp8KeyFramePacket(0, 16, 0, 0, true),
-		vp8KeyFramePacket(16, 0, 0, 0, true),
-		vp8KeyFramePacket(0, 0, 0, 0, true),
-		vp8KeyFramePacket(16, 16, 0, 0, false), // hidden frame
-		vp8KeyFramePacket(16, 16, 200, 0, true),
-		vp8KeyFramePacket(16, 16, 200, 4, true),     // profile=4 (invalid)
-		vp8KeyFramePacket(16, 16, 200, 7, true),     // profile=7 (invalid)
-		vp8KeyFramePacket(65535, 65535, 1, 0, true), // dimensions at uint16 max
-		vp8KeyFramePacket(8192, 4320, 1, 0, true),   // 8K width
-		vp8KeyFramePacket(16, 16, 0xffff, 0, true),  // huge first_part_size
+		vp8test.KeyFramePacket(0, 16, 0, 0, true),
+		vp8test.KeyFramePacket(16, 0, 0, 0, true),
+		vp8test.KeyFramePacket(0, 0, 0, 0, true),
+		vp8test.KeyFramePacket(16, 16, 0, 0, false), // hidden frame
+		vp8test.KeyFramePacket(16, 16, 200, 0, true),
+		vp8test.KeyFramePacket(16, 16, 200, 4, true),     // profile=4 (invalid)
+		vp8test.KeyFramePacket(16, 16, 200, 7, true),     // profile=7 (invalid)
+		vp8test.KeyFramePacket(65535, 65535, 1, 0, true), // dimensions at uint16 max
+		vp8test.KeyFramePacket(8192, 4320, 1, 0, true),   // 8K width
+		vp8test.KeyFramePacket(16, 16, 0xffff, 0, true),  // huge first_part_size
 
-		vp8KeyFramePacketWithPayload(16, 16, 200, 0, true),
-		vp8KeyFramePacketWithPayload(16, 16, 200, 4, true),
-		vp8KeyFramePacketWithPayload(16, 16, 1, 0, true),
-		vp8KeyFramePacketWithPayload(16, 16, 0, 0, true),
-		vp8KeyFramePacketWithPayload(32, 16, 50, 0, true),
-		vp8KeyFramePacketWithPayload(31, 17, 50, 0, true), // odd dims
-		vp8KeyFramePacketWithPayload(65, 33, 50, 0, true), // larger odd dims
+		vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true),
+		vp8test.KeyFramePacketWithPayload(16, 16, 200, 4, true),
+		vp8test.KeyFramePacketWithPayload(16, 16, 1, 0, true),
+		vp8test.KeyFramePacketWithPayload(16, 16, 0, 0, true),
+		vp8test.KeyFramePacketWithPayload(32, 16, 50, 0, true),
+		vp8test.KeyFramePacketWithPayload(31, 17, 50, 0, true), // odd dims
+		vp8test.KeyFramePacketWithPayload(65, 33, 50, 0, true), // larger odd dims
 
 		// Truncated forms: drop trailing bytes so the parser hits EOF
 		// at different points (frame header, partition0, tokens).
-		truncatedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 1),
-		truncatedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 9),
-		truncatedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 209),
-		truncatedFuzzPacket(vp8KeyFramePacket(16, 16, 200, 0, true), 6),
+		truncatedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 1),
+		truncatedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 9),
+		truncatedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 209),
+		truncatedFuzzPacket(vp8test.KeyFramePacket(16, 16, 200, 0, true), 6),
 
 		// Frame-tag bit flips.
-		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 0, 0x01),
-		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 0, 0x80),
-		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 1, 0xff),
-		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 2, 0xff),
+		taintedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 0, 0x01),
+		taintedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 0, 0x80),
+		taintedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 1, 0xff),
+		taintedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 2, 0xff),
 
 		// Sync-code (start_code_prefix) corruption on a keyframe.
-		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 3, 0xff),
-		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 4, 0x00),
-		taintedFuzzPacket(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), 5, 0x00),
+		taintedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 3, 0xff),
+		taintedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 4, 0x00),
+		taintedFuzzPacket(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), 5, 0x00),
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -107,7 +111,7 @@ func TestDecoderResetKeepsDecodeHotPathAllocationFree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	packet := vp8KeyFramePacketWithPayload(64, 64, 200, 0, true)
+	packet := vp8test.KeyFramePacketWithPayload(64, 64, 200, 0, true)
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}

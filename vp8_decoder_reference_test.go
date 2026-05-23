@@ -3,6 +3,9 @@ package govpx
 import (
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
 func TestDecoderSetReferenceFrameAffectsNextInterFrame(t *testing.T) {
@@ -16,7 +19,7 @@ func TestDecoderSetReferenceFrameAffectsNextInterFrame(t *testing.T) {
 	if err := d.SetReferenceFrame(ReferenceLast, ref); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetReferenceFrame before initialization error = %v, want ErrInvalidConfig", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -26,7 +29,7 @@ func TestDecoderSetReferenceFrameAffectsNextInterFrame(t *testing.T) {
 	if err := d.SetReferenceFrame(ReferenceLast, ref); err != nil {
 		t.Fatalf("SetReferenceFrame error = %v, want nil", err)
 	}
-	if err := d.Decode(vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())); err != nil {
+	if err := d.Decode(vp8test.InterFramePacketWithFirstPartition(vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 0))); err != nil {
 		t.Fatalf("inter Decode error = %v, want nil", err)
 	}
 	got, ok := d.NextFrame()
@@ -45,7 +48,7 @@ func TestDecoderCopyReferenceFrameCopiesSelectedReference(t *testing.T) {
 	if err := d.CopyReferenceFrame(ReferenceGolden, &dst); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("CopyReferenceFrame before initialization error = %v, want ErrInvalidConfig", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -69,7 +72,7 @@ func TestDecoderReferenceFrameValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {

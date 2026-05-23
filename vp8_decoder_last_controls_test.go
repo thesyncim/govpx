@@ -1,6 +1,11 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 // TestVP8DecoderLastControlsBeforeDecode asserts the libvpx-style getters
 // report ok=false on a nil/closed decoder and before the first successful
@@ -44,7 +49,7 @@ func TestVP8DecoderLastControlsAfterKeyFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder error = %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -85,13 +90,13 @@ func TestVP8DecoderLastControlsAfterInterFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder error = %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("keyframe NextFrame returned no frame")
 	}
-	if err := d.Decode(vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())); err != nil {
+	if err := d.Decode(vp8test.InterFramePacketWithFirstPartition(vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 0))); err != nil {
 		t.Fatalf("inter Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -118,7 +123,7 @@ func TestVP8DecoderLastControlsAfterClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder error = %v", err)
 	}
-	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {

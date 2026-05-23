@@ -54,10 +54,10 @@ type predictedMacroblockCoefficientArgs struct {
 	// exactly once and remains valid for fall-back inspection until the
 	// caller resets it.
 	cacheIn *interRDCoeffCacheState
+	trace   predictedMacroblockCoefficientTrace
 	// phaseStats, when non-nil, receives opt-in accepted-path coefficient
 	// pipeline counters for govpx-bench phase reports.
 	phaseStats *EncoderPhaseStats
-	trace      predictedMacroblockCoefficientTrace
 }
 
 // interRDCoeffCacheState stages the picker's post-FDCT residual DCT
