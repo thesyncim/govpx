@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8OracleEncoderStreamByteParityResize pins byte-parity across a
@@ -54,7 +54,7 @@ func TestVP8OracleEncoderStreamByteParityResize(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -270,7 +270,7 @@ func TestVP8OracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) 
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder resize-control byte-parity gate")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -359,7 +359,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize byte-parity gate")
 	}
-	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
+	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps          = 30
@@ -430,7 +430,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeResizePostFrameCrosses(t *testin
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize post-frame byte-parity gate")
 	}
-	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
+	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps          = 30
@@ -520,7 +520,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize control byte-parity gate")
 	}
-	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
+	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps          = 30

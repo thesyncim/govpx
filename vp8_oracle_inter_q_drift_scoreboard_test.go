@@ -11,7 +11,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // qdriftBaseline is the on-disk shape recorded by
@@ -49,7 +49,7 @@ func TestVP8OracleInterQDriftScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle Q-drift scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 128
@@ -160,7 +160,7 @@ func TestVP8OracleInterQDriftScoreboard(t *testing.T) {
 	}
 
 	baselinePath := "testdata/qdrift_128_baseline.json"
-	base, wrote := coracletest.ReadOrWriteJSONBaseline(t, baselinePath, current)
+	base, wrote := vp8test.ReadOrWriteJSONBaseline(t, baselinePath, current)
 	if wrote {
 		return
 	}

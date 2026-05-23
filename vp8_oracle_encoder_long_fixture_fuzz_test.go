@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // longFixtureSeedsDeferred lists fuzz-corpus seed payloads whose strict byte
@@ -101,7 +101,7 @@ func FuzzEncoderLongFixtureRateControl(f *testing.F) {
 		if longFixtureSeedDeferred(data) {
 			t.Skip("seed deferred: see longFixtureSeedsDeferred for libvpx file:line citations")
 		}
-		vpxencOracle := coracletest.VpxencOracle(t)
+		vpxencOracle := vp8test.VpxencOracle(t)
 		cfg := newLongFixtureFuzzCase(data)
 		opts, extraArgs := cfg.buildOpts()
 

@@ -44,7 +44,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 const secondPassAllocBaselinePath = "testdata/second_pass_alloc_baseline.json"
@@ -91,8 +91,8 @@ func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run second-pass allocation oracle compare")
 	}
-	vpxenc := coracletest.Vpxenc(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxenc := vp8test.Vpxenc(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		rampWidth      = 32
@@ -176,7 +176,7 @@ func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
 
 	sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
 
-	if coracletest.UpdateBaselines() {
+	if vp8test.UpdateBaselines() {
 		writeSecondPassBaseline(t, reports)
 		return
 	}
@@ -279,13 +279,13 @@ func writeSecondPassBaseline(t *testing.T, reports []FixtureSecondPassReport) {
 			MaxTargetRelDelta: r.MaxTargetRelDelta,
 		}
 	}
-	coracletest.WriteJSONBaseline(t, secondPassAllocBaselinePath, file)
+	vp8test.WriteJSONBaseline(t, secondPassAllocBaselinePath, file)
 	t.Logf("wrote %s", secondPassAllocBaselinePath)
 }
 
 func enforceSecondPassBaseline(t *testing.T, reports []FixtureSecondPassReport) {
 	t.Helper()
-	file, ok := coracletest.ReadOptionalJSONBaseline[secondPassBaselineFile](t, secondPassAllocBaselinePath)
+	file, ok := vp8test.ReadOptionalJSONBaseline[secondPassBaselineFile](t, secondPassAllocBaselinePath)
 	if !ok {
 		t.Fatalf("baseline %s is missing; run with GOVPX_UPDATE_BASELINES=1 to bootstrap", secondPassAllocBaselinePath)
 	}

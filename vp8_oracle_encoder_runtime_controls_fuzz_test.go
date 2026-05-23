@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
@@ -38,7 +38,7 @@ func FuzzVP8OracleEncoderRuntimeControlTransitions(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		driver := coracletest.VpxencFrameFlags(t)
+		driver := vp8test.VpxencFrameFlags(t)
 		tc := vp8OracleRuntimeControlFuzzCaseFromBytes(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-runtime-controls-" + tc.name + "-" + hex.EncodeToString(sum[:4])

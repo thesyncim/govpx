@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8Panning360pMBParity compares govpx and libvpx per-MB mode/ref/MV
@@ -21,7 +21,7 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run 360p panning CBR MB parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 640

@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8MBActivitySeedsMatchLibvpx compares govpx and libvpx per-MB
@@ -36,7 +36,7 @@ func TestVP8MBActivitySeedsMatchLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run per-MB activity parity")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	cases := []struct {
 		name       string

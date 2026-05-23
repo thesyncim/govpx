@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FuzzVP8MultiResSVCByteParity exercises the previously uncovered VP8
@@ -129,7 +129,7 @@ func vp8SVCFuzzCaseFromBytes(data []byte) vp8SVCFuzzCase {
 // encode child" that we can compare against directly, so we hold each
 // rendition to the same gate the single-encoder strict parity tests use.
 func runVP8MultiResSVCFuzzCase(t *testing.T, c vp8SVCFuzzCase) {
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 	const (
 		parentW = 640
 		parentH = 360
@@ -195,7 +195,7 @@ func runVP8MultiResSVCFuzzCase(t *testing.T, c vp8SVCFuzzCase) {
 // is already pinned in TestVP8OracleEncoderStreamByteParityTemporalSVC;
 // this fuzz target is the random-search complement.
 func runVP8TemporalSVCFuzzCase(t *testing.T, c vp8SVCFuzzCase) {
-	svcEncoder := coracletest.VpxTemporalSVCEncoder(t)
+	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 	const (
 		w   = 64
 		h   = 64

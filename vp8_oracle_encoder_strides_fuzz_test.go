@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FuzzEncoderRandomStrides feeds govpx Image values with varying Y/U/V stride
@@ -42,7 +42,7 @@ func FuzzEncoderRandomStrides(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		vpxencOracle := coracletest.VpxencOracle(t)
+		vpxencOracle := vp8test.VpxencOracle(t)
 
 		dim, padded, tight := newStridesFuzzImage(data)
 		if dim.w == 0 {

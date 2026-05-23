@@ -46,6 +46,17 @@ func TestCoracleImportsStayInOracleTraceBuild(t *testing.T) {
 	}
 }
 
+func TestRootOracleTestsUseCodecHarnessPackages(t *testing.T) {
+	files, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatalf("Glob(%q): %v", "*_test.go", err)
+	}
+	for _, path := range files {
+		assertTestFileDoesNotImport(t, path,
+			"github.com/thesyncim/govpx/internal/coracle/coracletest")
+	}
+}
+
 func assertTestFileDoesNotImport(t *testing.T, path string, importPath string) {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)

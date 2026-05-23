@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // chromaSubpelBaselineCase records per-fixture Adler32 / size drift between
@@ -57,7 +57,7 @@ func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle chroma sub-pel scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -182,7 +182,7 @@ func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
 	sort.Slice(current.Cases, func(i, j int) bool { return current.Cases[i].Name < current.Cases[j].Name })
 
 	baselinePath := "testdata/chroma_subpel_scoreboard_baseline.json"
-	base, wrote := coracletest.ReadOrWriteJSONBaseline(t, baselinePath, current)
+	base, wrote := vp8test.ReadOrWriteJSONBaseline(t, baselinePath, current)
 	if wrote {
 		return
 	}

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8ThreadedOptionGridSeedMatchesLibvpxOutput pins a threaded realtime
@@ -18,7 +18,7 @@ func TestVP8ThreadedOptionGridSeedMatchesLibvpxOutput(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run the threaded option-grid parity")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	// Materialise the seed#7 input byte-for-byte the same way the
 	// option-grid fuzz harness does: it is f.Add(seeds[7]) where

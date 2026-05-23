@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // frameFlagsForLibvpx mirrors the bit layout of the govpx
@@ -90,7 +90,7 @@ func TestVP8OracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
 	}
-	driver := coracletest.VpxencFrameFlags(t)
+	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -327,7 +327,7 @@ func TestVP8OracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run force-key API byte-parity gate")
 	}
-	driver := coracletest.VpxencFrameFlags(t)
+	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30

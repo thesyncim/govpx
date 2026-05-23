@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FuzzEncoderFrameFlags drives randomized per-frame [EncodeFlags] schedules
@@ -60,7 +60,7 @@ func FuzzEncoderFrameFlags(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		driver := coracletest.VpxencFrameFlags(t)
+		driver := vp8test.VpxencFrameFlags(t)
 		tc := encoderFrameFlagsFuzzCaseFromBytes(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-frame-flags-" + tc.name + "-" + hex.EncodeToString(sum[:4])

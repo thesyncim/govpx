@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8ScreenContentMBParity performs the per-MB localization of
@@ -48,7 +48,7 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run screen-content MB parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 1280

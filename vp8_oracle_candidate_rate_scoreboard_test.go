@@ -12,7 +12,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // candidateRateScoreboardSnapshot is the per-fixture summary persisted to
@@ -53,7 +53,7 @@ func TestVP8OracleCandidateRateScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 64
@@ -107,7 +107,7 @@ func TestVP8OracleCandidateRateScoreboard(t *testing.T) {
 	}
 
 	baselinePath := "testdata/candidate_rate_scoreboard_baseline.json"
-	base, wrote := coracletest.ReadOrWriteJSONBaseline(t, baselinePath, current)
+	base, wrote := vp8test.ReadOrWriteJSONBaseline(t, baselinePath, current)
 	if wrote {
 		return
 	}

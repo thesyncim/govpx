@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8ThreadsValidation validates that the breakoutSkip gate matches libvpx
@@ -32,7 +32,7 @@ func TestVP8ThreadsValidation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP8 threaded parity validation")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 	for _, threads := range []int{1, 2, 4} {
 		t.Run("threads="+strconv.Itoa(threads), func(t *testing.T) {
 			opts := EncoderOptions{

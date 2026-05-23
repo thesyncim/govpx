@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FuzzVP8OracleEncoderProductionRuntimeControls drives the same per-frame
@@ -44,7 +44,7 @@ func FuzzVP8OracleEncoderProductionRuntimeControls(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		driver := coracletest.VpxencFrameFlags(t)
+		driver := vp8test.VpxencFrameFlags(t)
 		tc := vp8OracleProductionRuntimeControlFuzzCaseFromBytes(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-prod-runtime-controls-" + tc.name + "-" + hex.EncodeToString(sum[:4])

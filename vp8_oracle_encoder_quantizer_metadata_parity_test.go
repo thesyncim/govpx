@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
@@ -37,7 +37,7 @@ func TestVP8OracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
 	}
-	driver := coracletest.VpxencFrameFlags(t)
+	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -86,7 +86,7 @@ func TestVP8OracleEncoderQuantizerMetadataParityDropControlCrosses(t *testing.T)
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
 	}
-	driver := coracletest.VpxencFrameFlags(t)
+	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30

@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8PretrellisUVParity compares govpx and libvpx pre-trellis UV block
@@ -22,7 +22,7 @@ func TestVP8PretrellisUVParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run pre-trellis UV parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	cohorts := []struct {
 		name       string

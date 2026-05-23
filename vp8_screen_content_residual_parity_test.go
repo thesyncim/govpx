@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8ScreenContentResidualParity compares govpx and libvpx per-MB traces
@@ -26,7 +26,7 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run screen-content residual parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 1280

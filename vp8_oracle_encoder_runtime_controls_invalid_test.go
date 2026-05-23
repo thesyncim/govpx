@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 func TestVP8OracleEncoderStreamByteParityInvalidRuntimeControlsNoop(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run invalid runtime-control byte-parity gate")
 	}
-	driver := coracletest.VpxencFrameFlags(t)
+	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -95,7 +95,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeControlsLongTail(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run long-tail runtime-control byte-parity gate")
 	}
-	driver := coracletest.VpxencFrameFlags(t)
+	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -253,7 +253,7 @@ func TestVP8OracleEncoderStreamByteParityPhaseStatsNoop(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run PhaseStats byte-parity gate")
 	}
-	driver := coracletest.VpxencFrameFlags(t)
+	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30

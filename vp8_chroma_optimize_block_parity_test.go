@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8ChromaOptimizeBlockParity compares govpx and libvpx post-trellis
@@ -21,7 +21,7 @@ func TestVP8ChromaOptimizeBlockParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run chroma optimize_b parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	cohorts := []struct {
 		name       string

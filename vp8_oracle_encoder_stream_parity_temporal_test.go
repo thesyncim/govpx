@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8OracleEncoderStreamByteParityTemporalSVC exercises VP8 temporal
@@ -68,7 +68,7 @@ func TestVP8OracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run temporal SVC byte-parity gate")
 	}
-	svcEncoder := coracletest.VpxTemporalSVCEncoder(t)
+	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 
 	const (
 		fps    = 30

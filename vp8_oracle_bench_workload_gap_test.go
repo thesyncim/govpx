@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8OracleBenchWorkloadProductionGaps pins the public govpx-bench workloads
@@ -23,7 +23,7 @@ func TestVP8OracleBenchWorkloadProductionGaps(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run production bench gap checks")
 	}
-	vpxenc := coracletest.Vpxenc(t)
+	vpxenc := vp8test.Vpxenc(t)
 
 	cases := []struct {
 		name            string

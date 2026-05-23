@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8MultiResSVCPreservesMatchedPrefixFloor pins the matched-prefix floor
@@ -74,7 +74,7 @@ func TestVP8MultiResSVCPreservesMatchedPrefixFloor(t *testing.T) {
 	}
 
 	// Drive the same harness the fuzz dispatcher runs.
-	svcEncoder := coracletest.VpxTemporalSVCEncoder(t)
+	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 	const (
 		w   = 64
 		h   = 64

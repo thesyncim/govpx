@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FuzzEncoderReferenceControlSequences schedules arbitrary per-frame
@@ -44,7 +44,7 @@ func FuzzEncoderReferenceControlSequences(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		driver := coracletest.VpxencFrameFlags(t)
+		driver := vp8test.VpxencFrameFlags(t)
 		tc := newRefControlsFuzzCase(data)
 		sum := sha256.Sum256(data)
 		label := "fuzz-refctrl-" + hex.EncodeToString(sum[:4])

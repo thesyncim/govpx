@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FixtureImprovedMVReport is the per-fixture row of the improved-MV
@@ -52,7 +52,7 @@ func TestVP8OracleImprovedMVMatchScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run improved-MV scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 64
@@ -127,13 +127,13 @@ func TestVP8OracleImprovedMVMatchScoreboard(t *testing.T) {
 		current.Fixtures[r.Name] = r
 	}
 
-	if coracletest.UpdateBaselines() {
-		coracletest.WriteJSONBaseline(t, improvedMVBaselinePath, current)
+	if vp8test.UpdateBaselines() {
+		vp8test.WriteJSONBaseline(t, improvedMVBaselinePath, current)
 		t.Logf("wrote baseline %s with %d fixtures", improvedMVBaselinePath, len(reports))
 		return
 	}
 
-	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[improvedMVBaseline](t, improvedMVBaselinePath)
+	baseline, baselineExists := vp8test.ReadOptionalJSONBaseline[improvedMVBaseline](t, improvedMVBaselinePath)
 	if !baselineExists || len(baseline.Fixtures) == 0 {
 		t.Fatalf("baseline %s is empty; run with GOVPX_UPDATE_BASELINES=1 to bootstrap", improvedMVBaselinePath)
 	}

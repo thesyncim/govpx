@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8OracleEncoderStreamByteParityResetFlushTransitions pins encoder-lifetime
@@ -22,8 +22,8 @@ func TestVP8OracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run reset/flush byte-parity gate")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
-	frameFlagsDriver := coracletest.VpxencFrameFlags(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
+	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
 	const (
 		fps        = 30
@@ -242,7 +242,7 @@ func TestVP8OracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 	})
 
 	t.Run("reset-after-twopass-warmup-matches-cold-second-pass", func(t *testing.T) {
-		vpxenc := coracletest.Vpxenc(t)
+		vpxenc := vp8test.Vpxenc(t)
 		const frames = 8
 		warm := make([]Image, 4)
 		for i := range warm {
@@ -582,8 +582,8 @@ func TestVP8OracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass stream byte-parity gate")
 	}
-	vpxenc := coracletest.Vpxenc(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxenc := vp8test.Vpxenc(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 32
@@ -804,8 +804,8 @@ func TestVP8OracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testi
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass control-cross byte-parity gate")
 	}
-	vpxenc := coracletest.Vpxenc(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxenc := vp8test.Vpxenc(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		fps        = 30

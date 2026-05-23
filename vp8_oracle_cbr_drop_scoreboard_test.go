@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8OracleCBRDropFrameScoreboard pins govpx-vs-libvpx parity on the CBR
@@ -45,7 +45,7 @@ func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle CBR drop-frame scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	fixtures := []cbrDropFixtureSpec{
 		{
@@ -128,8 +128,8 @@ func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
 	}
 
 	baselinePath := "testdata/cbr_drop_scoreboard_baseline.json"
-	updateBaselines := coracletest.UpdateBaselines()
-	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
+	updateBaselines := vp8test.UpdateBaselines()
+	baseline, baselineExists := vp8test.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 
 	current := baselineFile{Fixtures: make(map[string]fixtureSummary, len(fixtures))}
 
@@ -259,7 +259,7 @@ func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
 	}
 
 	if updateBaselines || !baselineExists {
-		coracletest.WriteJSONBaseline(t, baselinePath, current)
+		vp8test.WriteJSONBaseline(t, baselinePath, current)
 	}
 
 	// Stable summary CSV for human readability.

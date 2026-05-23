@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 func bpredEdgeClampByte(v int) byte {
@@ -108,7 +108,7 @@ func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED edge-grid recode parity")
 	}
 	requireOracleTraceBuild(t)
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width  = 1280

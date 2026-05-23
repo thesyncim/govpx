@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // temporalSVCLayerSummary captures the per-layer rate-control parity
@@ -94,7 +94,7 @@ func TestVP8OracleTemporalSVCParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run temporal SVC parity scoreboard")
 	}
-	svcEncoder := coracletest.VpxTemporalSVCEncoder(t)
+	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 
 	type fixtureSpec struct {
 		Name             string
@@ -141,8 +141,8 @@ func TestVP8OracleTemporalSVCParity(t *testing.T) {
 	}
 
 	baselinePath := "testdata/temporal_svc_scoreboard_baseline.json"
-	updateBaselines := coracletest.UpdateBaselines()
-	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
+	updateBaselines := vp8test.UpdateBaselines()
+	baseline, baselineExists := vp8test.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 
 	current := baselineFile{Fixtures: make(map[string]map[string]any, len(fixtures))}
 
@@ -340,7 +340,7 @@ func TestVP8OracleTemporalSVCParity(t *testing.T) {
 	}
 
 	if updateBaselines || !baselineExists {
-		coracletest.WriteJSONBaseline(t, baselinePath, current)
+		vp8test.WriteJSONBaseline(t, baselinePath, current)
 	}
 }
 

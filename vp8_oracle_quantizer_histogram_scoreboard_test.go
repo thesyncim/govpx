@@ -12,7 +12,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8OracleQuantizerHistogramScoreboard captures per-fixture Q histograms for
@@ -26,7 +26,7 @@ func TestVP8OracleQuantizerHistogramScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle Q histogram scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		fps        = 30
@@ -78,8 +78,8 @@ func TestVP8OracleQuantizerHistogramScoreboard(t *testing.T) {
 	}
 
 	baselinePath := "testdata/q_histogram_baseline.json"
-	updateBaselines := coracletest.UpdateBaselines()
-	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
+	updateBaselines := vp8test.UpdateBaselines()
+	baseline, baselineExists := vp8test.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 
 	currentBaseline := baselineFile{Fixtures: make(map[string]baselineEntry, len(specs))}
 	reports := make([]fixtureQReport, 0, len(specs))
@@ -157,7 +157,7 @@ func TestVP8OracleQuantizerHistogramScoreboard(t *testing.T) {
 	}
 
 	if updateBaselines || !baselineExists {
-		coracletest.WriteJSONBaseline(t, baselinePath, currentBaseline)
+		vp8test.WriteJSONBaseline(t, baselinePath, currentBaseline)
 	}
 
 	// Stable order summary for human readability.

@@ -22,7 +22,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 const loopFilterMatchRateBaselinePath = "testdata/loop_filter_match_rate_baseline.json"
@@ -74,7 +74,7 @@ func TestVP8OracleLoopFilterHeaderMatchRate(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run loop-filter header oracle scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 64
@@ -169,7 +169,7 @@ func TestVP8OracleLoopFilterHeaderMatchRate(t *testing.T) {
 	// Sort to keep on-disk JSON stable across runs.
 	sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
 
-	if coracletest.UpdateBaselines() {
+	if vp8test.UpdateBaselines() {
 		writeLoopFilterBaseline(t, reports)
 		return
 	}
@@ -289,13 +289,13 @@ func writeLoopFilterBaseline(t *testing.T, reports []FixtureLFReport) {
 			UpdateMatchPct:     r.UpdateMatchPct,
 		}
 	}
-	coracletest.WriteJSONBaseline(t, loopFilterMatchRateBaselinePath, file)
+	vp8test.WriteJSONBaseline(t, loopFilterMatchRateBaselinePath, file)
 	t.Logf("wrote %s", loopFilterMatchRateBaselinePath)
 }
 
 func enforceLoopFilterBaseline(t *testing.T, reports []FixtureLFReport) {
 	t.Helper()
-	file, ok := coracletest.ReadOptionalJSONBaseline[loopFilterBaselineFile](t, loopFilterMatchRateBaselinePath)
+	file, ok := vp8test.ReadOptionalJSONBaseline[loopFilterBaselineFile](t, loopFilterMatchRateBaselinePath)
 	if !ok {
 		t.Fatalf("baseline %s is missing; run with GOVPX_UPDATE_BASELINES=1 to bootstrap", loopFilterMatchRateBaselinePath)
 	}

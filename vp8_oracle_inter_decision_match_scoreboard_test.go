@@ -11,7 +11,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8OracleInterDecisionMatchRate captures per-MB picker decisions for govpx
@@ -24,7 +24,7 @@ func TestVP8OracleInterDecisionMatchRate(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle MB decision match scoreboard")
 	}
-	vpxencOracle := coracletest.VpxencOracle(t)
+	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
 		width      = 64
@@ -75,8 +75,8 @@ func TestVP8OracleInterDecisionMatchRate(t *testing.T) {
 	}
 
 	baselinePath := "testdata/mb_match_rate_baseline.json"
-	updateBaselines := coracletest.UpdateBaselines()
-	baseline, baselineExists := coracletest.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
+	updateBaselines := vp8test.UpdateBaselines()
+	baseline, baselineExists := vp8test.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 
 	currentBaseline := baselineFile{Fixtures: make(map[string]baselineEntry, len(specs))}
 	reports := make([]fixtureMBReport, 0, len(specs))
@@ -191,7 +191,7 @@ func TestVP8OracleInterDecisionMatchRate(t *testing.T) {
 	}
 
 	if updateBaselines || !baselineExists {
-		coracletest.WriteJSONBaseline(t, baselinePath, currentBaseline)
+		vp8test.WriteJSONBaseline(t, baselinePath, currentBaseline)
 	}
 
 	sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
